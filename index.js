@@ -142,6 +142,7 @@ async function escanearGmailYRegistrar(usuario) {
   let registradas = 0;
   let ignoradas = 0;
   let resumen = '';
+  const txsParaConsultar = [];
   for (const msg of mensajes) {
     try {
       const textoParseo = msg.texto || msg.snippet;
@@ -151,12 +152,13 @@ async function escanearGmailYRegistrar(usuario) {
       if (existente) { ignoradas++; continue; }
       const resultado = await parsearCorreoBancario(textoParseo, msg.asunto);
       if (!resultado.monto) continue;
-      await guardarTransaccion(usuario.id, {
+      const txGuardada = await guardarTransaccion(usuario.id, {
         ...resultado,
         fecha: msg.fecha || resultado.fecha,
         descripcion_original: claveDedup
       });
       registradas++;
+        if (txGuardada && necesitaConsulta(txGuardada)) txsParaConsultar.push(txGuardada);
       const tipo = resultado.tipo === 'ingreso' ? 'Ingreso' : 'Gasto';
       const reenviado = msg.esReenviado ? ' (reenviado)' : '';
       const nombreComercio = resultado.comercio || resultado.banco || (msg.asunto ? msg.asunto.substring(0,30) : 'Sin nombre');
@@ -166,6 +168,16 @@ async function escanearGmailYRegistrar(usuario) {
   if (registradas === 0) {
     if (ignoradas > 0) return '*Sin correos nuevos*\n\n' + ignoradas + ' correo(s) ya estaban registrados.';
     return null;
+  }
+  if (txsParaConsultar.length > 0) {
+    setTimeout(async () => {
+      for (const tx of txsParaConsultar) {
+        try {
+          await enviarWhatsapp(usuario.whatsapp, mensajeConsulta(tx));
+          await new Promise(r => setTimeout(r, 1500));
+        } catch(e) { console.error('[CONSULTA]', e.message); }
+      }
+    }, 3000);
   }
   return '*FinBot escaneo tu Gmail*\n\nRegistre *' + registradas + '* transaccion(es):\n' + resumen + '\nEscribe */mes* para ver tu resumen.';
 }
@@ -261,6 +273,44 @@ async function recategorizarTransaccion(usuarioId, comercio, categoriaNueva) {
 }
 // -----------------------------------------------------------
 
+
+// -- CONSULTA INTELIGENTE DE GASTOS SIN CONTEXTO -------------------------
+// Detecta si un gasto necesita mas informacion del usuario
+function necesitaConsulta(tx) {
+  if (tx.tipo !== 'gasto') return false;
+  // Casos que necesitan consulta:
+  // 1. Yape/Plin sin descripcion del destinatario (solo tiene "Yape" como comercio)
+  // 2. Transferencia sin comercio claro
+  // 3. Categoria "Otro" con comercio generico
+  const comercioGenerico = ['Yape', 'Plin', 'Transferencia', 'YAPE', 'PLIN', 'BCP', 'BBVA', 'Interbank', 'Scotiabank'];
+  const esComercioGenerico = comercioGenerico.some(c => tx.comercio && tx.comercio.toLowerCase() === c.toLowerCase());
+  const esCategoriaOtro = tx.categoria === 'Otro' || tx.categoria === 'Transferencia';
+  return esComercioGenerico && esCategoriaOtro;
+}
+
+// Construye el mensaje de consulta para el usuario
+function mensajeConsulta(tx) {
+  const fecha = tx.fecha || 'hoy';
+  const monto = parseFloat(tx.monto).toFixed(2);
+  const banco = tx.banco || tx.comercio;
+  return '❓ *Gasto sin identificar*\n\n' +
+    'Registre un ' + banco + ' de *S/ ' + monto + '* (' + fecha + ') ' +
+    'pero no tengo informacion del destinatario o motivo.\n\n' +
+    '*¿Para que fue este gasto?*\n' +
+    'Puedes responder algo como:\n' +
+    '_"Le pague al casero"_ → lo categorizo como Vivienda\n' +
+    '_"Compre almuerzo"_ → lo categorizo como Restaurantes\n' +
+    '_"Fue para trabajo"_ → lo categorizo como Servicios\n\n' +
+    'O usa: */cambiar ' + banco + ' [categoria]*\n' +
+    'Categorias: Supermercados | Restaurantes | Transporte | Salud | Educacion | Entretenimiento | Servicios | Vivienda | Otro';
+}
+
+// Marca una transaccion como pendiente de confirmacion en Supabase
+async function marcarPendienteConsulta(txId) {
+  await supabase.from('transacciones').update({ confirmado: false }).eq('id', txId);
+}
+// -------------------------------------------------------------------------
+
 app.post('/webhook', async (req, res) => {
   const msg = (req.body.Body || '').trim();
   const from = req.body.From || '';
@@ -276,11 +326,33 @@ app.post('/webhook', async (req, res) => {
       respuesta = '👋 Bienvenido a *FinBot Peru*!\n\nEscribe *hola* para ver como empezar, o */conectar* para vincular tu Gmail directamente.';
     } else if (cmd === 'hola' || cmd === 'hi' || cmd === 'inicio') {
       const tieneGmail = !!usuario.gmail_access_token;
-      const esNuevo = !tieneGmail;
-      if (esNuevo) {
-        respuesta = '👋 Bienvenido a *FinBot Peru*!\n\nSoy tu asistente de finanzas personales. Registro automaticamente tus gastos desde correos de BCP, Interbank, BBVA, Scotiabank, Yape y Plin.\n\n*Para empezar:*\n1⃣ Escribe */conectar* para vincular tu Gmail\n2⃣ Escribe */escanear* para importar tus movimientos\n3⃣ Escribe */mes* para ver tu resumen mensual\n\n_Escribe /ayuda para ver todos los comandos._';
+      if (!tieneGmail) {
+        // ONBOARDING: Usuario nuevo sin Gmail — enviar bienvenida + link conectar automaticamente
+        const urlOAuth = generarUrlAutorizacion(from);
+        respuesta = '*Hola! Bienvenido a FinBot Peru* 🤖\n\n' +
+          'Soy tu asistente de finanzas personales. Registro automaticamente tus gastos leyendo los correos de tus bancos — sin que tengas que escribir nada.\n\n' +
+          '*Bancos que soporto:*\n' +
+          'BCP, Interbank, BBVA, Scotiabank, Yape, Plin\n\n' +
+          '*Para empezar solo necesitas un paso:*\n' +
+          'Conecta tu Gmail tocando el link de abajo. Solo leeremos correos de notificaciones bancarias.\n\n' +
+          urlOAuth + '\n\n' +
+          '_Una vez conectado, escaneare tus movimientos automaticamente._';
       } else {
-        respuesta = '👋 Hola! Soy *FinBot Peru*\n\nGmail: ✅ Conectado\n\n*Comandos:*\n*/semana* — gastos 7 dias\n*/mes* — gastos del mes\n*/presupuesto* — ver presupuesto\n*/conectar* — reconectar Gmail\n*/escanear* — leer correos bancarios\n*/ayuda* — todos los comandos';
+        // Usuario activo — mostrar resumen rapido del estado
+        const gastosMes = await obtenerGastosMes(usuario.id);
+        const totalMes = gastosMes.reduce((s, t) => s + parseFloat(t.monto), 0);
+        const nTxs = gastosMes.length;
+        respuesta = '*Hola! Soy FinBot Peru* 🤖\n\n' +
+          'Gmail: ✅ Conectado\n' +
+          (nTxs > 0
+            ? '*Este mes:* S/ ' + totalMes.toFixed(2) + ' en ' + nTxs + ' transacciones\n'
+            : 'Aun no hay transacciones este mes.\n') +
+          '\n*Comandos rapidos:*\n' +
+          '*/semana* — gastos 7 dias\n' +
+          '*/mes* — gastos del mes\n' +
+          '*/presupuesto* — ver presupuesto\n' +
+          '*/reporte* — PDF del mes\n' +
+          '*/ayuda* — todos los comandos';
       }
     } else if (cmd === '/conectar') {
       const url = generarUrlAutorizacion(from);
