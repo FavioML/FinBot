@@ -7,7 +7,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
-  'https://argillaceous-elyse-unaddible.ngrok-free.dev/auth/callback'
+  (process.env.RAILWAY_URL || process.env.NGROK_URL || 'http://localhost:3000') + '/auth/callback'
 );
 
 // Remitentes bancarios peruanos conocidos
