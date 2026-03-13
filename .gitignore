@@ -15,4 +15,5 @@ check_*.js
 insert_*.js
 rewrite_*.js
 find_id.js
-add_debug.js
+add_debug.js*.txt
+*.bat

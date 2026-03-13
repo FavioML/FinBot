@@ -1,2 +1,0 @@
-[dotenv@17.3.1] injecting env (11) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
-gmail OK
