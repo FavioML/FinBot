@@ -142,7 +142,7 @@ async function escanearGmailYRegistrar(usuario) {
   let registradas = 0;
   let ignoradas = 0;
   let resumen = '';
-  const txsParaConsultar = [];
+  const txsConsultar = [];
   for (const msg of mensajes) {
     try {
       const textoParseo = msg.texto || msg.snippet;
@@ -157,8 +157,8 @@ async function escanearGmailYRegistrar(usuario) {
         fecha: msg.fecha || resultado.fecha,
         descripcion_original: claveDedup
       });
+      if (txGuardada && necesitaConsulta(txGuardada)) txsConsultar.push(txGuardada);
       registradas++;
-        if (txGuardada && necesitaConsulta(txGuardada)) txsParaConsultar.push(txGuardada);
       const tipo = resultado.tipo === 'ingreso' ? 'Ingreso' : 'Gasto';
       const reenviado = msg.esReenviado ? ' (reenviado)' : '';
       const nombreComercio = resultado.comercio || resultado.banco || (msg.asunto ? msg.asunto.substring(0,30) : 'Sin nombre');
@@ -169,12 +169,13 @@ async function escanearGmailYRegistrar(usuario) {
     if (ignoradas > 0) return '*Sin correos nuevos*\n\n' + ignoradas + ' correo(s) ya estaban registrados.';
     return null;
   }
-  if (txsParaConsultar.length > 0) {
-    setTimeout(async () => {
-      for (const tx of txsParaConsultar) {
+  if (txsConsultar.length > 0) {
+    setTimeout(async function() {
+      for (var idx=0; idx<txsConsultar.length; idx++) {
         try {
-          await enviarWhatsapp(usuario.whatsapp, mensajeConsulta(tx));
-          await new Promise(r => setTimeout(r, 1500));
+          await guardarConsultaPendiente(usuario, txsConsultar[idx]);
+          await enviarWhatsapp(usuario.whatsapp, mensajeConsulta(txsConsultar[idx]));
+          await new Promise(function(r){setTimeout(r,2000);});
         } catch(e) { console.error('[CONSULTA]', e.message); }
       }
     }, 3000);
@@ -274,43 +275,69 @@ async function recategorizarTransaccion(usuarioId, comercio, categoriaNueva) {
 // -----------------------------------------------------------
 
 
-// -- CONSULTA INTELIGENTE DE GASTOS SIN CONTEXTO -------------------------
-// Detecta si un gasto necesita mas informacion del usuario
+// === CONSULTAS PENDIENTES ===
 function necesitaConsulta(tx) {
-  if (tx.tipo !== 'gasto') return false;
-  // Casos que necesitan consulta:
-  // 1. Yape/Plin sin descripcion del destinatario (solo tiene "Yape" como comercio)
-  // 2. Transferencia sin comercio claro
-  // 3. Categoria "Otro" con comercio generico
-  const comercioGenerico = ['Yape', 'Plin', 'Transferencia', 'YAPE', 'PLIN', 'BCP', 'BBVA', 'Interbank', 'Scotiabank'];
-  const esComercioGenerico = comercioGenerico.some(c => tx.comercio && tx.comercio.toLowerCase() === c.toLowerCase());
-  const esCategoriaOtro = tx.categoria === 'Otro' || tx.categoria === 'Transferencia';
-  return esComercioGenerico && esCategoriaOtro;
+  if (!tx || tx.tipo !== "gasto") return false;
+  var genericos = ["yape","plin","transferencia","bcp","bbva","interbank","scotiabank"];
+  var esGenerico = tx.comercio && genericos.indexOf(tx.comercio.toLowerCase()) >= 0;
+  var sinCat = !tx.categoria || tx.categoria === "Otro" || tx.categoria === "Transferencia";
+  return esGenerico && sinCat;
 }
 
-// Construye el mensaje de consulta para el usuario
 function mensajeConsulta(tx) {
-  const fecha = tx.fecha || 'hoy';
-  const monto = parseFloat(tx.monto).toFixed(2);
-  const banco = tx.banco || tx.comercio;
-  return '❓ *Gasto sin identificar*\n\n' +
-    'Registre un ' + banco + ' de *S/ ' + monto + '* (' + fecha + ') ' +
-    'pero no tengo informacion del destinatario o motivo.\n\n' +
-    '*¿Para que fue este gasto?*\n' +
-    'Puedes responder algo como:\n' +
-    '_"Le pague al casero"_ → lo categorizo como Vivienda\n' +
-    '_"Compre almuerzo"_ → lo categorizo como Restaurantes\n' +
-    '_"Fue para trabajo"_ → lo categorizo como Servicios\n\n' +
-    'O usa: */cambiar ' + banco + ' [categoria]*\n' +
-    'Categorias: Supermercados | Restaurantes | Transporte | Salud | Educacion | Entretenimiento | Servicios | Vivienda | Otro';
+  var monto = parseFloat(tx.monto||0).toFixed(2);
+  var banco = tx.banco || tx.comercio || "Pago";
+  var fecha = tx.fecha || "hoy";
+  return "? *Gasto sin identificar*\n\nRegistre un *" + banco + "* de *S/ " + monto + "* (" + fecha + ") pero no tengo informacion del destinatario.\n\n*Para que fue este gasto?*\nResponde algo como:\n\"Le pague al casero\" -> Vivienda\n\"Compre almuerzo\" -> Restaurantes\n\"Fue para trabajo\" -> Servicios\n\nO usa: */cambiar " + banco + " [categoria]*";
 }
 
-// Marca una transaccion como pendiente de confirmacion en Supabase
-async function marcarPendienteConsulta(txId) {
-  await supabase.from('transacciones').update({ confirmado: false }).eq('id', txId);
+async function guardarConsultaPendiente(usuario, tx) {
+  try {
+    await supabase.from("consultas_pendientes").insert({ usuario_id: usuario.id, transaccion_id: tx.id, monto: tx.monto, banco: tx.banco||tx.comercio, fecha: tx.fecha, estado: "pendiente" });
+  } catch(e) { console.error("[CONSULTA] Error guardando:", e.message); }
 }
-// -------------------------------------------------------------------------
 
+async function obtenerConsultasPendientes(usuarioId) {
+  var res = await supabase.from("consultas_pendientes").select("*").eq("usuario_id", usuarioId).eq("estado", "pendiente").order("created_at", { ascending: true });
+  return res.data || [];
+}
+
+async function resolverConsulta(consultaId) {
+  await supabase.from("consultas_pendientes").update({ estado: "respondida", respondida_at: new Date().toISOString() }).eq("id", consultaId);
+}
+
+function formatearPendientes(consultas) {
+  var ahora = Date.now();
+  var items = consultas.map(function(c, i) {
+    var monto = parseFloat(c.monto||0).toFixed(2);
+    var banco = c.banco || "Pago";
+    var horas = Math.round((ahora - new Date(c.created_at).getTime()) / 3600000);
+    var tiempo = horas < 24 ? horas + "h atras" : Math.round(horas/24) + "d atras";
+    return (i+1) + ". *" + banco + "* S/ " + monto + " (" + (c.fecha||"") + ") -- " + tiempo;
+  });
+  return "*Tienes " + consultas.length + " gasto(s) sin identificar:*\n\n" + items.join("\n") + "\n\nPara categorizar responde:\n\"El 1 fue para almuerzo\" o \"/cambiar Yape Restaurantes\"";
+}
+
+async function intentarResolverConsulta(usuario, texto) {
+  var pendientes = await obtenerConsultasPendientes(usuario.id);
+  if (pendientes.length === 0) return null;
+  var ctx = pendientes.map(function(c,i){ return (i+1)+". "+(c.banco||"Pago")+" S/"+c.monto+" del "+c.fecha; }).join("; ");
+  var parsed;
+  try {
+    var aiRes = await openai.chat.completions.create({ model: "gpt-4o-mini", messages: [{ role: "system", content: "Gastos pendientes: "+ctx+". Usuario respondio: "+texto+". SOLO JSON sin markdown: {\"resuelve\":true,\"numero\":1,\"categoria\":\"Restaurantes\",\"descripcion\":\"texto\"}" }], temperature: 0 });
+    var raw = aiRes.choices[0].message.content.trim();
+    var json = raw.startsWith("{") ? raw : raw.slice(raw.indexOf("{"), raw.lastIndexOf("}")+1);
+    parsed = JSON.parse(json);
+  } catch(e) { return null; }
+  if (!parsed.resuelve || !parsed.numero) return null;
+  var consulta = pendientes[parsed.numero-1];
+  if (!consulta) return null;
+  await supabase.from("transacciones").update({ categoria: parsed.categoria, comercio: parsed.descripcion||consulta.banco }).eq("id", consulta.transaccion_id);
+  await resolverConsulta(consulta.id);
+  var resto = pendientes.length > 1 ? "\n\nAun tienes " + (pendientes.length-1) + " gasto(s) pendiente(s). Escribe */pendientes*." : "";
+  return "Listo! Actualice *" + (consulta.banco||"el pago") + "* (S/ " + parseFloat(consulta.monto).toFixed(2) + ") a *" + parsed.categoria + "*." + resto;
+}
+// ===========================
 app.post('/webhook', async (req, res) => {
   const msg = (req.body.Body || '').trim();
   const from = req.body.From || '';
@@ -319,40 +346,45 @@ app.post('/webhook', async (req, res) => {
   try {
     const usuario = await obtenerOCrearUsuario(from);
     const cmd = msg.toLowerCase().trim();
+    // == Interceptor consultas pendientes ==
+    if (!cmd.startsWith('/') && cmd !== 'hola' && cmd !== 'hi' && cmd !== 'inicio') {
+      var pendInter = await obtenerConsultasPendientes(usuario.id);
+      if (pendInter.length > 0) {
+        var resC = await intentarResolverConsulta(usuario, msg);
+        if (resC) {
+          res.set('Content-Type', 'text/xml');
+          res.send('<?xml version="1.0" encoding="UTF-8"?><Response><Message>' + resC.replace(/&/g,"&amp;") + '</Message></Response>');
+          return;
+        }
+        var hayViejos = pendInter.some(function(c){ return (Date.now()-new Date(c.created_at).getTime())>3600000; });
+        if (hayViejos) {
+          var consol = formatearPendientes(pendInter);
+          res.set('Content-Type', 'text/xml');
+          res.send('<?xml version="1.0" encoding="UTF-8"?><Response><Message>' + consol.replace(/&/g,"&amp;") + '</Message></Response>');
+          return;
+        }
+      }
+    }
+    // =====================================
+
 
     // Auto-bienvenida si es usuario nuevo sin Gmail y escribe algo que no es comando
     const esUsuarioNuevo = !usuario.gmail_access_token;
     if (esUsuarioNuevo && cmd !== 'hola' && cmd !== 'hi' && cmd !== 'inicio' && !cmd.startsWith('/') && msg.length < 30) {
       respuesta = '👋 Bienvenido a *FinBot Peru*!\n\nEscribe *hola* para ver como empezar, o */conectar* para vincular tu Gmail directamente.';
     } else if (cmd === 'hola' || cmd === 'hi' || cmd === 'inicio') {
-      const tieneGmail = !!usuario.gmail_access_token;
+      var tieneGmail = !!usuario.gmail_access_token;
       if (!tieneGmail) {
-        // ONBOARDING: Usuario nuevo sin Gmail — enviar bienvenida + link conectar automaticamente
-        const urlOAuth = generarUrlAutorizacion(from);
-        respuesta = '*Hola! Bienvenido a FinBot Peru* 🤖\n\n' +
-          'Soy tu asistente de finanzas personales. Registro automaticamente tus gastos leyendo los correos de tus bancos — sin que tengas que escribir nada.\n\n' +
-          '*Bancos que soporto:*\n' +
-          'BCP, Interbank, BBVA, Scotiabank, Yape, Plin\n\n' +
-          '*Para empezar solo necesitas un paso:*\n' +
-          'Conecta tu Gmail tocando el link de abajo. Solo leeremos correos de notificaciones bancarias.\n\n' +
-          urlOAuth + '\n\n' +
-          '_Una vez conectado, escaneare tus movimientos automaticamente._';
+        var urlOAuth = generarUrlAutorizacion(from);
+        respuesta = '*Hola! Bienvenido a FinBot Peru*\n\nSoy tu asistente de finanzas personales. Leo automaticamente los correos de tus bancos y registro tus gastos.\n\n*Bancos:* BCP, Interbank, BBVA, Scotiabank, Yape, Plin\n\nConecta tu Gmail tocando el link:\n\n' + urlOAuth + '\n\n_Solo leemos notificaciones bancarias. 100% seguro._';
       } else {
-        // Usuario activo — mostrar resumen rapido del estado
-        const gastosMes = await obtenerGastosMes(usuario.id);
-        const totalMes = gastosMes.reduce((s, t) => s + parseFloat(t.monto), 0);
-        const nTxs = gastosMes.length;
-        respuesta = '*Hola! Soy FinBot Peru* 🤖\n\n' +
-          'Gmail: ✅ Conectado\n' +
-          (nTxs > 0
-            ? '*Este mes:* S/ ' + totalMes.toFixed(2) + ' en ' + nTxs + ' transacciones\n'
-            : 'Aun no hay transacciones este mes.\n') +
-          '\n*Comandos rapidos:*\n' +
-          '*/semana* — gastos 7 dias\n' +
-          '*/mes* — gastos del mes\n' +
-          '*/presupuesto* — ver presupuesto\n' +
-          '*/reporte* — PDF del mes\n' +
-          '*/ayuda* — todos los comandos';
+        var gastosMesHola = await obtenerGastosMes(usuario.id);
+        var totalMesHola = gastosMesHola.reduce(function(s,t){return s+parseFloat(t.monto);},0);
+        var pendHola = await obtenerConsultasPendientes(usuario.id);
+        var alertaPend = pendHola.length > 0 ? '\n\n? *' + pendHola.length + ' gasto(s) sin identificar.* Escribe */pendientes*.' : '';
+        respuesta = '*Hola! Soy FinBot Peru*\n\nGmail: Conectado\n' +
+          (gastosMesHola.length > 0 ? '*Este mes:* S/ ' + totalMesHola.toFixed(2) + ' en ' + gastosMesHola.length + ' transacciones' : 'Sin transacciones este mes.') +
+          alertaPend + '\n\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- presupuesto\n*/reporte* -- PDF del mes\n*/pendientes* -- gastos sin identificar\n*/ayuda* -- todos los comandos';
       }
     } else if (cmd === '/conectar') {
       const url = generarUrlAutorizacion(from);
@@ -409,7 +441,7 @@ app.post('/webhook', async (req, res) => {
         res.set('Content-Type', 'text/xml');
         const safe0 = respuesta.replace(/&/g,'&amp;');
         res.send('<?xml version="1.0" encoding="UTF-8"?><Response><Message>' + safe0 + '</Message></Response>');
-        const ngrokUrl = process.env.RAILWAY_URL || process.env.NGROK_URL || 'https://argillaceous-elyse-unaddible.ngrok-free.dev';
+        const ngrokUrl = process.env.NGROK_URL || 'https://argillaceous-elyse-unaddible.ngrok-free.dev';
         generarYEnviarReporte(usuario, mesR, anioR).then(async (result) => {
           if (!result.ok) { await enviarWhatsapp(usuario.whatsapp, result.msg); }
           else {
@@ -426,6 +458,9 @@ app.post('/webhook', async (req, res) => {
         });
         return;
       }
+    } else if (cmd === '/pendientes') {
+      var lpend = await obtenerConsultasPendientes(usuario.id);
+      respuesta = lpend.length === 0 ? 'No tienes gastos pendientes de identificar.' : formatearPendientes(lpend);
     } else if (cmd === '/ayuda') {
       const mE2 = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
       const mesActual = new Date().getMonth() + 1;
