@@ -1,0 +1,27 @@
+{
+  "name": "finbot-peru",
+  "version": "1.0.0",
+  "description": "Asistente financiero personal via WhatsApp",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo no test"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [],
+  "author": "Favio Mendoza",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.99.0",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "google-auth-library": "^10.6.1",
+    "googleapis": "^171.4.0",
+    "openai": "^6.27.0",
+    "pdfkit": "^0.17.2",
+    "twilio": "^5.12.2"
+  }
+}
