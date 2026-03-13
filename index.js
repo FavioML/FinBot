@@ -337,7 +337,7 @@ app.post('/webhook', async (req, res) => {
         res.set('Content-Type', 'text/xml');
         const safe0 = respuesta.replace(/&/g,'&amp;');
         res.send('<?xml version="1.0" encoding="UTF-8"?><Response><Message>' + safe0 + '</Message></Response>');
-        const ngrokUrl = process.env.NGROK_URL || 'https://argillaceous-elyse-unaddible.ngrok-free.dev';
+        const ngrokUrl = process.env.RAILWAY_URL || process.env.NGROK_URL || 'https://argillaceous-elyse-unaddible.ngrok-free.dev';
         generarYEnviarReporte(usuario, mesR, anioR).then(async (result) => {
           if (!result.ok) { await enviarWhatsapp(usuario.whatsapp, result.msg); }
           else {
