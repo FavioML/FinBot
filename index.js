@@ -6,7 +6,7 @@ const { generarReportePDF } = require('./reporte_pdf');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
-const { generarUrlAutorizacion, guardarTokens, leerCorreosBancarios, oauth2Client } = require('./gmail');
+const { generarUrlAutorizacion, guardarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle } = require('./gmail');
 
 const app = express();
 app.use(express.urlencoded({ extended: false }));
@@ -171,10 +171,10 @@ async function escanearGmailYRegistrar(usuario) {
   }
   if (txsConsultar.length > 0) {
     setTimeout(async function() {
-      for (var idx=0; idx<txsConsultar.length; idx++) {
+      for (var ii=0; ii<txsConsultar.length; ii++) {
         try {
-          await guardarConsultaPendiente(usuario, txsConsultar[idx]);
-          await enviarWhatsapp(usuario.whatsapp, mensajeConsulta(txsConsultar[idx]));
+          await guardarConsultaPendiente(usuario, txsConsultar[ii]);
+          await enviarWhatsapp(usuario.whatsapp, mensajeConsulta(txsConsultar[ii]));
           await new Promise(function(r){setTimeout(r,2000);});
         } catch(e) { console.error('[CONSULTA]', e.message); }
       }
@@ -187,45 +187,19 @@ async function escanearGmailYRegistrar(usuario) {
 
 // -- REPORTE MENSUAL PDF -----------------------------------------------------
 async function generarYEnviarReporte(usuario, mes, anio) {
-  // Obtener transacciones del mes
   const desde = anio + '-' + String(mes).padStart(2,'0') + '-01';
   const hasta = anio + '-' + String(mes).padStart(2,'0') + '-31';
-  const { data: txs } = await supabase
-    .from('transacciones')
-    .select('*')
-    .eq('usuario_id', usuario.id)
-    .gte('fecha', desde)
-    .lte('fecha', hasta)
-    .order('fecha', { ascending: false });
-
-  if (!txs || txs.length === 0) {
-    return { ok: false, msg: 'No hay transacciones registradas para ese mes.' };
-  }
-
-  // Obtener presupuestos
-  const { data: presupData } = await supabase
-    .from('presupuestos')
-    .select('*')
-    .eq('usuario_id', usuario.id)
-    .eq('mes', mes)
-    .eq('anio', anio);
-
+  const { data: txs } = await supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).gte('fecha', desde).lte('fecha', hasta).order('fecha', { ascending: false });
+  if (!txs || txs.length === 0) return { ok: false, msg: 'No hay transacciones registradas para ese mes.' };
+  const { data: presupData } = await supabase.from('presupuestos').select('*').eq('usuario_id', usuario.id).eq('mes', mes).eq('anio', anio);
   const presupuestos = {};
   if (presupData) presupData.forEach(p => { presupuestos[p.categoria] = parseFloat(p.monto_limite); });
-
-  // Generar PDF
   const tmpPath = path.join(os.tmpdir(), 'finbot_reporte_' + usuario.id + '_' + mes + '_' + anio + '.pdf');
   await generarReportePDF({ nombre: usuario.nombre || 'Usuario', mes, anio, transacciones: txs, presupuestos }, tmpPath);
-
-  // Subir PDF a Twilio y obtener URL publica (usamos el endpoint de media de Twilio)
   const pdfBuffer = fs.readFileSync(tmpPath);
-  const base64PDF = pdfBuffer.toString('base64');
-
-  // Servir el PDF via endpoint temporal del propio servidor
   const reporteId = Date.now();
   global.reportesTemp = global.reportesTemp || {};
   global.reportesTemp[reporteId] = { buffer: pdfBuffer, expires: Date.now() + 30 * 60 * 1000 };
-
   return { ok: true, reporteId, txCount: txs.length, tmpPath };
 }
 // ---------------------------------------------------------------------------
@@ -248,96 +222,89 @@ async function interpretarCorreccion(texto) {
 }
 
 async function recategorizarTransaccion(usuarioId, comercio, categoriaNueva) {
-  // Buscar la transaccion mas reciente que coincida con ese comercio
-  const { data: txs } = await supabase
-    .from('transacciones')
-    .select('*')
-    .eq('usuario_id', usuarioId)
-    .ilike('comercio', '%' + comercio + '%')
-    .order('created_at', { ascending: false })
-    .limit(5);
-
+  const { data: txs } = await supabase.from('transacciones').select('*').eq('usuario_id', usuarioId).ilike('comercio', '%' + comercio + '%').order('created_at', { ascending: false }).limit(5);
   if (!txs || txs.length === 0) return { ok: false, msg: 'No encontre ninguna transaccion de *' + comercio + '*.' };
-
   const tx = txs[0];
-  const { error } = await supabase
-    .from('transacciones')
-    .update({ categoria: categoriaNueva })
-    .eq('id', tx.id);
-
+  const { error } = await supabase.from('transacciones').update({ categoria: categoriaNueva }).eq('id', tx.id);
   if (error) return { ok: false, msg: 'Error actualizando: ' + error.message };
-
-  return {
-    ok: true,
-    msg: 'Listo! Cambie la categoria de *' + (tx.comercio || comercio) + '* (S/ ' + tx.monto + ') de *' + (tx.categoria || 'Sin categoria') + '* a *' + categoriaNueva + '*.'
-  };
+  return { ok: true, msg: 'Listo! Cambie la categoria de *' + (tx.comercio || comercio) + '* (S/ ' + tx.monto + ') de *' + (tx.categoria || 'Sin categoria') + '* a *' + categoriaNueva + '*.' };
 }
 // -----------------------------------------------------------
 
+// =================================================================
+// PRESUPUESTO EN LENGUAJE NATURAL
+// =================================================================
+async function interpretarComandoPresupuesto(texto) {
+  try {
+    var aiRes = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'system', content: 'El usuario quiere configurar un presupuesto mensual. Extrae los datos. Responde SOLO JSON sin markdown: {"es_presupuesto":true,"categoria":"nombre de la categoria","monto":numero,"alerta_porcentaje":numero entre 1 y 100, default 80}. Si no es un comando de presupuesto, devuelve {"es_presupuesto":false}.' }, { role: 'user', content: texto }],
+      temperature: 0
+    });
+    var raw = aiRes.choices[0].message.content.trim();
+    var json = raw.startsWith('{') ? raw : raw.slice(raw.indexOf('{'), raw.lastIndexOf('}')+1);
+    return JSON.parse(json);
+  } catch(e) { return { es_presupuesto: false }; }
+}
 
-// === CONSULTAS PENDIENTES ===
+// =================================================================
+// CONSULTAS PENDIENTES - sistema persistente en Supabase
+// =================================================================
 function necesitaConsulta(tx) {
-  if (!tx || tx.tipo !== "gasto") return false;
-  var genericos = ["yape","plin","transferencia","bcp","bbva","interbank","scotiabank"];
+  if (!tx || tx.tipo !== 'gasto') return false;
+  var genericos = ['yape','plin','transferencia','bcp','bbva','interbank','scotiabank'];
   var esGenerico = tx.comercio && genericos.indexOf(tx.comercio.toLowerCase()) >= 0;
-  var sinCat = !tx.categoria || tx.categoria === "Otro" || tx.categoria === "Transferencia";
+  var sinCat = !tx.categoria || tx.categoria === 'Otro' || tx.categoria === 'Transferencia';
   return esGenerico && sinCat;
 }
-
 function mensajeConsulta(tx) {
   var monto = parseFloat(tx.monto||0).toFixed(2);
-  var banco = tx.banco || tx.comercio || "Pago";
-  var fecha = tx.fecha || "hoy";
-  return "? *Gasto sin identificar*\n\nRegistre un *" + banco + "* de *S/ " + monto + "* (" + fecha + ") pero no tengo informacion del destinatario.\n\n*Para que fue este gasto?*\nResponde algo como:\n\"Le pague al casero\" -> Vivienda\n\"Compre almuerzo\" -> Restaurantes\n\"Fue para trabajo\" -> Servicios\n\nO usa: */cambiar " + banco + " [categoria]*";
+  var banco = tx.banco || tx.comercio || 'Pago';
+  var fecha = tx.fecha || 'hoy';
+  return '? *Gasto sin identificar*\n\nRegistre un *' + banco + '* de *S/ ' + monto + '* (' + fecha + ') pero no tengo info del destinatario.\n\n*Para que fue este gasto?*\nResponde por ejemplo:\n_"Le pague al casero"_ -> Vivienda\n_"Compre almuerzo"_ -> Restaurantes\n_"Fue para trabajo"_ -> Servicios\n\nO usa: */cambiar ' + banco + ' [categoria]*';
 }
-
 async function guardarConsultaPendiente(usuario, tx) {
-  try {
-    await supabase.from("consultas_pendientes").insert({ usuario_id: usuario.id, transaccion_id: tx.id, monto: tx.monto, banco: tx.banco||tx.comercio, fecha: tx.fecha, estado: "pendiente" });
-  } catch(e) { console.error("[CONSULTA] Error guardando:", e.message); }
+  try { await supabase.from('consultas_pendientes').insert({ usuario_id: usuario.id, transaccion_id: tx.id, monto: tx.monto, banco: tx.banco||tx.comercio, fecha: tx.fecha, estado: 'pendiente' }); }
+  catch(e) { console.error('[CONSULTA] Error guardando:', e.message); }
 }
-
 async function obtenerConsultasPendientes(usuarioId) {
-  var res = await supabase.from("consultas_pendientes").select("*").eq("usuario_id", usuarioId).eq("estado", "pendiente").order("created_at", { ascending: true });
+  var res = await supabase.from('consultas_pendientes').select('*').eq('usuario_id', usuarioId).eq('estado', 'pendiente').order('created_at', { ascending: true });
   return res.data || [];
 }
-
 async function resolverConsulta(consultaId) {
-  await supabase.from("consultas_pendientes").update({ estado: "respondida", respondida_at: new Date().toISOString() }).eq("id", consultaId);
+  await supabase.from('consultas_pendientes').update({ estado: 'respondida', respondida_at: new Date().toISOString() }).eq('id', consultaId);
 }
-
 function formatearPendientes(consultas) {
   var ahora = Date.now();
   var items = consultas.map(function(c, i) {
-    var monto = parseFloat(c.monto||0).toFixed(2);
-    var banco = c.banco || "Pago";
-    var horas = Math.round((ahora - new Date(c.created_at).getTime()) / 3600000);
-    var tiempo = horas < 24 ? horas + "h atras" : Math.round(horas/24) + "d atras";
-    return (i+1) + ". *" + banco + "* S/ " + monto + " (" + (c.fecha||"") + ") -- " + tiempo;
+    var monto = parseFloat(c.monto||0).toFixed(2), banco = c.banco || 'Pago';
+    var ms = ahora - new Date(c.created_at).getTime(), horas = Math.round(ms / 3600000);
+    var tiempo = ms < 3600000 ? 'hace menos de 1h' : horas < 24 ? horas+'h atras' : Math.round(horas/24)+'d atras';
+    return (i+1) + '. *' + banco + '* S/ ' + monto + ' (' + (c.fecha||'') + ') -- ' + tiempo;
   });
-  return "*Tienes " + consultas.length + " gasto(s) sin identificar:*\n\n" + items.join("\n") + "\n\nPara categorizar responde:\n\"El 1 fue para almuerzo\" o \"/cambiar Yape Restaurantes\"";
+  return '*Tienes ' + consultas.length + ' gasto(s) sin identificar:*\n\n' + items.join('\n') + '\n\nPara categorizar responde por ejemplo:\n_"El 1 fue para almuerzo"_ o _"/cambiar Yape Restaurantes"_';
 }
-
 async function intentarResolverConsulta(usuario, texto) {
   var pendientes = await obtenerConsultasPendientes(usuario.id);
   if (pendientes.length === 0) return null;
-  var ctx = pendientes.map(function(c,i){ return (i+1)+". "+(c.banco||"Pago")+" S/"+c.monto+" del "+c.fecha; }).join("; ");
+  var ctx = pendientes.map(function(c,i){ return (i+1)+'. '+(c.banco||'Pago')+' S/'+c.monto+' del '+c.fecha; }).join('; ');
   var parsed;
   try {
-    var aiRes = await openai.chat.completions.create({ model: "gpt-4o-mini", messages: [{ role: "system", content: "Gastos pendientes: "+ctx+". Usuario respondio: "+texto+". SOLO JSON sin markdown: {\"resuelve\":true,\"numero\":1,\"categoria\":\"Restaurantes\",\"descripcion\":\"texto\"}" }], temperature: 0 });
+    var aiRes = await openai.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'system', content: 'Gastos pendientes: '+ctx+'. Usuario respondio: "'+texto+'". Determina si resuelve alguno. SOLO JSON sin markdown: {"resuelve":true/false,"numero":1/2/null,"categoria":"Supermercados|Restaurantes|Transporte|Salud|Educacion|Entretenimiento|Servicios|Vivienda|Farmacia|Transferencia|Otro","descripcion":"descripcion corta del gasto"}' }], temperature: 0 });
     var raw = aiRes.choices[0].message.content.trim();
-    var json = raw.startsWith("{") ? raw : raw.slice(raw.indexOf("{"), raw.lastIndexOf("}")+1);
+    var json = raw.startsWith('{') ? raw : raw.slice(raw.indexOf('{'), raw.lastIndexOf('}')+1);
     parsed = JSON.parse(json);
   } catch(e) { return null; }
   if (!parsed.resuelve || !parsed.numero) return null;
   var consulta = pendientes[parsed.numero-1];
   if (!consulta) return null;
-  await supabase.from("transacciones").update({ categoria: parsed.categoria, comercio: parsed.descripcion||consulta.banco }).eq("id", consulta.transaccion_id);
+  await supabase.from('transacciones').update({ categoria: parsed.categoria, comercio: parsed.descripcion||consulta.banco }).eq('id', consulta.transaccion_id);
   await resolverConsulta(consulta.id);
-  var resto = pendientes.length > 1 ? "\n\nAun tienes " + (pendientes.length-1) + " gasto(s) pendiente(s). Escribe */pendientes*." : "";
-  return "Listo! Actualice *" + (consulta.banco||"el pago") + "* (S/ " + parseFloat(consulta.monto).toFixed(2) + ") a *" + parsed.categoria + "*." + resto;
+  var resto = pendientes.length > 1 ? '\n\nAun tienes ' + (pendientes.length-1) + ' gasto(s) pendiente(s). Escribe */pendientes*.' : '';
+  return 'Listo! Actualice *'+(consulta.banco||'el pago')+'* (S/ '+parseFloat(consulta.monto).toFixed(2)+') a *'+parsed.categoria+'*.'+resto;
 }
-// ===========================
+// =================================================================
+
 app.post('/webhook', async (req, res) => {
   const msg = (req.body.Body || '').trim();
   const from = req.body.From || '';
@@ -346,43 +313,45 @@ app.post('/webhook', async (req, res) => {
   try {
     const usuario = await obtenerOCrearUsuario(from);
     const cmd = msg.toLowerCase().trim();
-    // == Interceptor consultas pendientes ==
+    var primerNombreCtx = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
+
+    // == Interceptor: respuestas a consultas pendientes ==
     if (!cmd.startsWith('/') && cmd !== 'hola' && cmd !== 'hi' && cmd !== 'inicio') {
       var pendInter = await obtenerConsultasPendientes(usuario.id);
       if (pendInter.length > 0) {
         var resC = await intentarResolverConsulta(usuario, msg);
         if (resC) {
           res.set('Content-Type', 'text/xml');
-          res.send('<?xml version="1.0" encoding="UTF-8"?><Response><Message>' + resC.replace(/&/g,"&amp;") + '</Message></Response>');
+          res.send('<?xml version="1.0" encoding="UTF-8"?><Response><Message>' + resC.replace(/&/g, '&amp;') + '</Message></Response>');
           return;
         }
-        var hayViejos = pendInter.some(function(c){ return (Date.now()-new Date(c.created_at).getTime())>3600000; });
+        var hayViejos = pendInter.some(function(c) { return (Date.now() - new Date(c.created_at).getTime()) > 3600000; });
         if (hayViejos) {
           var consol = formatearPendientes(pendInter);
           res.set('Content-Type', 'text/xml');
-          res.send('<?xml version="1.0" encoding="UTF-8"?><Response><Message>' + consol.replace(/&/g,"&amp;") + '</Message></Response>');
+          res.send('<?xml version="1.0" encoding="UTF-8"?><Response><Message>' + consol.replace(/&/g, '&amp;') + '</Message></Response>');
           return;
         }
       }
     }
     // =====================================
 
-
-    // Auto-bienvenida si es usuario nuevo sin Gmail y escribe algo que no es comando
     const esUsuarioNuevo = !usuario.gmail_access_token;
     if (esUsuarioNuevo && cmd !== 'hola' && cmd !== 'hi' && cmd !== 'inicio' && !cmd.startsWith('/') && msg.length < 30) {
       respuesta = '👋 Bienvenido a *FinBot Peru*!\n\nEscribe *hola* para ver como empezar, o */conectar* para vincular tu Gmail directamente.';
     } else if (cmd === 'hola' || cmd === 'hi' || cmd === 'inicio') {
       var tieneGmail = !!usuario.gmail_access_token;
+      var primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
       if (!tieneGmail) {
         var urlOAuth = generarUrlAutorizacion(from);
-        respuesta = '*Hola! Bienvenido a FinBot Peru*\n\nSoy tu asistente de finanzas personales. Leo automaticamente los correos de tus bancos y registro tus gastos.\n\n*Bancos:* BCP, Interbank, BBVA, Scotiabank, Yape, Plin\n\nConecta tu Gmail tocando el link:\n\n' + urlOAuth + '\n\n_Solo leemos notificaciones bancarias. 100% seguro._';
+        respuesta = '*Hola' + (primerNombre ? ', ' + primerNombre : '') + '! Bienvenido a FinBot Peru*\n\nSoy tu asistente de finanzas personales. Leo automaticamente los correos de tus bancos y registro tus gastos.\n\n*Bancos soportados:* BCP, Interbank, BBVA, Scotiabank, Yape, Plin\n\nConecta tu Gmail tocando el link:\n\n' + urlOAuth + '\n\n_Solo leemos notificaciones bancarias. 100% seguro._';
       } else {
         var gastosMesHola = await obtenerGastosMes(usuario.id);
         var totalMesHola = gastosMesHola.reduce(function(s,t){return s+parseFloat(t.monto);},0);
         var pendHola = await obtenerConsultasPendientes(usuario.id);
         var alertaPend = pendHola.length > 0 ? '\n\n? *' + pendHola.length + ' gasto(s) sin identificar.* Escribe */pendientes*.' : '';
-        respuesta = '*Hola! Soy FinBot Peru*\n\nGmail: Conectado\n' +
+        var saludo = primerNombre ? 'Hola, ' + primerNombre + '!' : 'Hola!';
+        respuesta = '*' + saludo + ' Soy FinBot Peru*\n\nGmail: Conectado\n' +
           (gastosMesHola.length > 0 ? '*Este mes:* S/ ' + totalMesHola.toFixed(2) + ' en ' + gastosMesHola.length + ' transacciones' : 'Sin transacciones este mes.') +
           alertaPend + '\n\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- presupuesto\n*/reporte* -- PDF del mes\n*/pendientes* -- gastos sin identificar\n*/ayuda* -- todos los comandos';
       }
@@ -411,65 +380,60 @@ app.post('/webhook', async (req, res) => {
         if (isNaN(monto) || monto <= 0) { respuesta = 'Monto invalido. Ej: /presupuesto Restaurantes 300'; }
         else { await guardarPresupuesto(usuario.id, categoria, monto); respuesta = '*Presupuesto guardado*\n' + categoria + ': S/ ' + monto.toFixed(2) + '/mes'; }
       } else { respuesta = 'Formato: /presupuesto [categoria] [monto]'; }
-      respuesta = '*Comandos FinBot Peru:*\n*/semana* o */resumen* - gastos 7 dias\n*/mes* - gastos del mes\n*/reporte* - PDF del mes actual\n*/reporte [mes] [anio]* - PDF de otro mes\n*/presupuesto* - ver/configurar presupuesto\n*/conectar* - vincular Gmail\n*/escanear* - leer correos ahora\n*/cambiar [comercio] [cat]* - corregir categoria\n\n_"ese gasto de KFC era Entretenimiento"_ - lenguaje natural';
-      respuesta = '*Comandos FinBot Peru:*\n*/semana* o */resumen* — gastos 7 dias\n*/mes* — gastos del mes\n*/reporte* — PDF del mes actual\n*/reporte [mes] [anio]* — PDF de otro mes\n*/presupuesto* — ver/configurar presupuesto\n*/conectar* — vincular Gmail\n*/escanear* — leer correos ahora\n*/cambiar [comercio] [cat]* — corregir categoria\n\n_"ese gasto de KFC era Entretenimiento"_ — lenguaje natural';
     } else if (cmd.startsWith('/cambiar ')) {
-      // Formato: /cambiar [comercio] [categoria]
       const partes = msg.trim().split(' ');
       if (partes.length >= 3) {
         const comercioInput = partes[1];
         const categoriaInput = partes.slice(2).join(' ');
         const catNormalizada = CATEGORIAS.find(c => c.toLowerCase() === categoriaInput.toLowerCase());
-        if (!catNormalizada) {
-          respuesta = 'Categoria no valida. Usa una de:\n' + CATEGORIAS.join(' | ');
-        } else {
-          const resultado = await recategorizarTransaccion(usuario.id, comercioInput, catNormalizada);
-          respuesta = resultado.msg;
-        }
-      } else {
-        respuesta = 'Formato: /cambiar [comercio] [categoria]\nEj: /cambiar KFC Entretenimiento\nCategorias: ' + CATEGORIAS.join(' | ');
-      }
+        if (!catNormalizada) { respuesta = 'Categoria no valida. Usa una de:\n' + CATEGORIAS.join(' | '); }
+        else { const resultado = await recategorizarTransaccion(usuario.id, comercioInput, catNormalizada); respuesta = resultado.msg; }
+      } else { respuesta = 'Formato: /cambiar [comercio] [categoria]\nEj: /cambiar KFC Entretenimiento\nCategorias: ' + CATEGORIAS.join(' | '); }
     } else if (cmd === '/reporte' || cmd.startsWith('/reporte ')) {
       const ahoraR = new Date();
       const partesR = cmd.split(' ');
-      const mesR  = partesR[1] ? parseInt(partesR[1]) : (ahoraR.getMonth() + 1);
+      const mesR = partesR[1] ? parseInt(partesR[1]) : (ahoraR.getMonth() + 1);
       const anioR = partesR[2] ? parseInt(partesR[2]) : ahoraR.getFullYear();
       if (mesR < 1 || mesR > 12 || isNaN(mesR)) {
         respuesta = 'Formato: /reporte [mes] [anio]\nEj: /reporte 3 2026';
       } else {
         respuesta = 'Generando tu reporte PDF... un momento.';
         res.set('Content-Type', 'text/xml');
-        const safe0 = respuesta.replace(/&/g,'&amp;');
-        res.send('<?xml version="1.0" encoding="UTF-8"?><Response><Message>' + safe0 + '</Message></Response>');
-        const ngrokUrl = process.env.NGROK_URL || 'https://argillaceous-elyse-unaddible.ngrok-free.dev';
+        res.send('<?xml version="1.0" encoding="UTF-8"?><Response><Message>' + respuesta.replace(/&/g,'&amp;') + '</Message></Response>');
+        const railwayUrl = process.env.RAILWAY_URL || 'https://finbot-production-c662.up.railway.app';
         generarYEnviarReporte(usuario, mesR, anioR).then(async (result) => {
           if (!result.ok) { await enviarWhatsapp(usuario.whatsapp, result.msg); }
           else {
-            const pdfUrl = ngrokUrl + '/reporte/' + result.reporteId;
+            const pdfUrl = railwayUrl + '/reporte/' + result.reporteId;
             const mE = ['','Enero','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-            await enviarWhatsapp(usuario.whatsapp,
-              '*Reporte ' + mE[mesR] + ' ' + anioR + ' listo!*\n\n' +
-              result.txCount + ' transacciones registradas.\n' +
-              'Disponible por 30 minutos:\n' + pdfUrl);
+            await enviarWhatsapp(usuario.whatsapp, '*Reporte ' + mE[mesR] + ' ' + anioR + ' listo!*\n\n' + result.txCount + ' transacciones registradas.\nDisponible por 30 minutos:\n' + pdfUrl);
           }
-        }).catch(async (e) => {
-          console.error('[REPORTE]', e.message);
-          await enviarWhatsapp(usuario.whatsapp, 'Error generando reporte: ' + e.message);
-        });
+        }).catch(async (e) => { await enviarWhatsapp(usuario.whatsapp, 'Error generando reporte: ' + e.message); });
         return;
       }
     } else if (cmd === '/pendientes') {
       var lpend = await obtenerConsultasPendientes(usuario.id);
       respuesta = lpend.length === 0 ? 'No tienes gastos pendientes de identificar.' : formatearPendientes(lpend);
     } else if (cmd === '/ayuda') {
-      const mE2 = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
       const mesActual = new Date().getMonth() + 1;
-      respuesta = '*Comandos FinBot Peru:*\n*/semana* o */resumen* — gastos 7 dias\n*/mes* — gastos del mes\n*/presupuesto* — ver/configurar presupuesto\n*/conectar* — vincular Gmail\n*/escanear* — leer correos ahora\n*/cambiar [comercio] [categoria]* — corregir categoria\n*/reporte* — PDF del mes actual\n*/reporte ' + mesActual + '* — PDF de un mes especifico\n*hola* — estado general';
+      respuesta = '*Comandos FinBot Peru:*\n*/semana* o */resumen* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- ver/configurar presupuesto\n*/conectar* -- vincular Gmail\n*/escanear* -- leer correos ahora\n*/cambiar [comercio] [categoria]* -- corregir categoria\n*/reporte* -- PDF del mes actual\n*/reporte ' + mesActual + '* -- PDF de un mes especifico\n*/pendientes* -- gastos sin identificar\n*hola* -- estado general';
     } else if (msg.length > 30) {
-      // Primero verificar si es una correccion de categoria en lenguaje natural
       let esCorreccion = false;
+      var keysPres = ['presupuesto','limite','budget','alerta','no gastar'];
+      if (!esCorreccion && keysPres.some(function(p){return msg.toLowerCase().includes(p);})) {
+        try {
+          var interpPres = await interpretarComandoPresupuesto(msg);
+          if (interpPres.es_presupuesto && interpPres.categoria && interpPres.monto) {
+            esCorreccion = true;
+            var alertaPct = interpPres.alerta_porcentaje || 80;
+            await guardarPresupuesto(usuario.id, interpPres.categoria, interpPres.monto);
+            await supabase.from('presupuestos').update({ alerta_porcentaje: alertaPct }).eq('usuario_id', usuario.id).eq('categoria', interpPres.categoria);
+            respuesta = 'Listo! Configure el presupuesto de *' + interpPres.categoria + '*:\nLimite: *S/ ' + interpPres.monto.toFixed(2) + '/mes*\nAlerta al: *' + alertaPct + '%*';
+          }
+        } catch(e) { console.error('Error presupuesto NL:', e.message); }
+      }
       const palabrasCorreccion = ['era', 'fue', 'es', 'cambiar', 'cambia', 'categoria', 'no es', 'no era', 'corregir', 'corrige'];
-      if (palabrasCorreccion.some(p => msg.toLowerCase().includes(p))) {
+      if (!esCorreccion && palabrasCorreccion.some(p => msg.toLowerCase().includes(p))) {
         try {
           const interp = await interpretarCorreccion(msg);
           if (interp.es_correccion && interp.comercio && interp.categoria_nueva) {
@@ -479,17 +443,15 @@ app.post('/webhook', async (req, res) => {
           }
         } catch(e) { console.error('Error interpretando correccion:', e.message); }
       }
-
       if (!esCorreccion) {
         const resultado = await parsearCorreoBancario(msg);
         const tx = await guardarTransaccion(usuario.id, resultado);
-      console.log('Guardado id:', tx.id);
-      respuesta = '*Transaccion registrada*\nTipo: ' + resultado.tipo + '\nMonto: S/ ' + resultado.monto + '\nComercio: ' + (resultado.comercio || 'No detectado') + '\nCategoria: ' + (resultado.categoria || 'No detectado') + '\nBanco: ' + (resultado.banco || 'No detectado');
-      if (resultado.tipo === 'gasto' && resultado.categoria) {
-        const alerta = await verificarAlertaPresupuesto(usuario.id, resultado.categoria);
-        if (alerta) respuesta += '\n\n' + alerta;
-      }
-      respuesta += '\n\n_Escribe /mes o /presupuesto_';
+        respuesta = '*Transaccion registrada*\nTipo: ' + resultado.tipo + '\nMonto: S/ ' + resultado.monto + '\nComercio: ' + (resultado.comercio || 'No detectado') + '\nCategoria: ' + (resultado.categoria || 'No detectado') + '\nBanco: ' + (resultado.banco || 'No detectado');
+        if (resultado.tipo === 'gasto' && resultado.categoria) {
+          const alerta = await verificarAlertaPresupuesto(usuario.id, resultado.categoria);
+          if (alerta) respuesta += '\n\n' + alerta;
+        }
+        respuesta += '\n\n_Escribe /mes o /presupuesto_';
       }
     } else {
       respuesta = 'No entendi ese mensaje. Escribe *hola* para ver los comandos.';
@@ -499,16 +461,7 @@ app.post('/webhook', async (req, res) => {
     respuesta = 'Error: ' + error.message;
   }
   res.set('Content-Type', 'text/xml');
-  const safe = respuesta.replace(/&/g, '&amp;');
-  res.send('<?xml version="1.0" encoding="UTF-8"?><Response><Message>' + safe + '</Message></Response>');
-});
-
-// Endpoint para descargar PDF del reporte
-
-app.get('/debug/reportes', (req, res) => {
-  global.reportesTemp = global.reportesTemp || {};
-  const keys = Object.keys(global.reportesTemp);
-  res.json({ count: keys.length, ids: keys, now: Date.now() });
+  res.send('<?xml version="1.0" encoding="UTF-8"?><Response><Message>' + respuesta.replace(/&/g, '&amp;') + '</Message></Response>');
 });
 
 app.get('/reporte/:id', (req, res) => {
@@ -516,28 +469,10 @@ app.get('/reporte/:id', (req, res) => {
   global.reportesTemp = global.reportesTemp || {};
   const entry = global.reportesTemp[id];
   if (!entry) return res.status(404).send('Reporte no encontrado o expirado.');
-  if (Date.now() > entry.expires) {
-    delete global.reportesTemp[id];
-    return res.status(404).send('El link del reporte expiro. Escribe /reporte para generar uno nuevo.');
-  }
+  if (Date.now() > entry.expires) { delete global.reportesTemp[id]; return res.status(404).send('El link del reporte expiro.'); }
   res.set('Content-Type', 'application/pdf');
   res.set('Content-Disposition', 'attachment; filename="finbot_reporte.pdf"');
-  res.set('ngrok-skip-browser-warning', 'true');
   res.send(entry.buffer);
-});
-
-
-// Endpoint para descargar PDF temporal
-app.get('/reporte/:id', (req, res) => {
-  const id = req.params.id;
-  global.reportesTemp = global.reportesTemp || {};
-  const reporte = global.reportesTemp[id];
-  if (!reporte || Date.now() > reporte.expires) {
-    return res.status(404).send('Reporte expirado o no encontrado.');
-  }
-  res.set('Content-Type', 'application/pdf');
-  res.set('Content-Disposition', 'attachment; filename="finbot_reporte.pdf"');
-  res.send(reporte.buffer);
 });
 
 app.get('/auth/callback', async (req, res) => {
@@ -547,31 +482,21 @@ app.get('/auth/callback', async (req, res) => {
   try {
     const { tokens } = await oauth2Client.getToken(code);
     oauth2Client.setCredentials(tokens);
-
-    // Decodificar el numero de WhatsApp desde el state
     let whatsappNum = null;
-    if (req.query.state) {
-      try { whatsappNum = Buffer.from(req.query.state, 'base64').toString('utf8'); } catch(e) {}
-    }
-
+    if (req.query.state) { try { whatsappNum = Buffer.from(req.query.state, 'base64').toString('utf8'); } catch(e) {} }
     let usuario = null;
-    if (whatsappNum) {
-      const { data } = await supabase.from('usuarios').select('*').eq('whatsapp', whatsappNum).single();
-      usuario = data;
-    }
-    if (!usuario) {
-      const { data } = await supabase.from('usuarios').select('*')
-        .is('gmail_access_token', null).order('created_at', { ascending: false }).limit(1).single();
-      usuario = data;
-    }
+    if (whatsappNum) { const { data } = await supabase.from('usuarios').select('*').eq('whatsapp', whatsappNum).single(); usuario = data; }
+    if (!usuario) { const { data } = await supabase.from('usuarios').select('*').is('gmail_access_token', null).order('created_at', { ascending: false }).limit(1).single(); usuario = data; }
     if (!usuario) return res.send('<h2>No se encontro el usuario. Vuelve a WhatsApp y escribe /conectar.</h2>');
-
     await guardarTokens(usuario.id, tokens);
+    const perfil = await obtenerPerfilGoogle(oauth2Client);
+    if (perfil.nombre || perfil.email) {
+      await supabase.from('usuarios').update({ nombre: perfil.nombre, email: perfil.email }).eq('id', usuario.id);
+      usuario.nombre = perfil.nombre;
+    }
     const nombre = usuario.nombre ? ', ' + usuario.nombre : '';
     res.send('<html><body style="font-family:Arial;text-align:center;padding:50px;background:#0d1b2a;color:white"><h1 style="color:#4CAF50">Gmail conectado' + nombre + '!</h1><p style="font-size:18px">Vuelve a WhatsApp y escribe <strong>/escanear</strong> para leer tus correos bancarios.</p><p style="color:#aaa;font-size:14px">Puedes cerrar esta ventana.</p></body></html>');
-  } catch (err) {
-    res.send('<h2>Error: ' + err.message + '</h2>');
-  }
+  } catch (err) { res.send('<h2>Error: ' + err.message + '</h2>'); }
 });
 
 app.post('/test-parser', async (req, res) => {
@@ -584,136 +509,71 @@ app.post('/test-parser', async (req, res) => {
 app.get('/', (req, res) => res.send('FinBot Peru v4'));
 
 // ── ESCANEO AUTOMATICO ──────────────────────────────────────────────
-// Envia mensaje WhatsApp proactivo via Twilio REST API
 async function enviarWhatsapp(numero, mensaje) {
   try {
     const auth = Buffer.from(process.env.TWILIO_ACCOUNT_SID + ':' + process.env.TWILIO_AUTH_TOKEN).toString('base64');
-    const body = new URLSearchParams({
-      From: process.env.TWILIO_WHATSAPP_NUMBER,
-      To: numero,
-      Body: mensaje
-    });
-    const response = await fetch('https://api.twilio.com/2010-04-01/Accounts/' + process.env.TWILIO_ACCOUNT_SID + '/Messages.json', {
-      method: 'POST',
-      headers: { 'Authorization': 'Basic ' + auth, 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body.toString()
-    });
+    const body = new URLSearchParams({ From: process.env.TWILIO_WHATSAPP_NUMBER, To: numero, Body: mensaje });
+    const response = await fetch('https://api.twilio.com/2010-04-01/Accounts/' + process.env.TWILIO_ACCOUNT_SID + '/Messages.json', { method: 'POST', headers: { 'Authorization': 'Basic ' + auth, 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString() });
     const data = await response.json();
     if (data.sid) { console.log('[AUTO] Mensaje enviado a', numero, '- SID:', data.sid); }
     else { console.error('[AUTO] Error Twilio:', JSON.stringify(data)); }
-  } catch (e) {
-    console.error('[AUTO] Error enviando WhatsApp:', e.message);
-  }
+  } catch (e) { console.error('[AUTO] Error enviando WhatsApp:', e.message); }
 }
 
-// Escanea Gmail de todos los usuarios con token y envia notificacion si hay movimientos nuevos
 async function escaneoAutomatico() {
-  console.log('[AUTO] Iniciando escaneo automatico -', new Date().toLocaleString('es-PE'));
+  console.log('[AUTO] Iniciando escaneo -', new Date().toLocaleString('es-PE'));
   try {
-    const { data: usuarios } = await supabase
-      .from('usuarios')
-      .select('*')
-      .not('gmail_access_token', 'is', null);
-
-    if (!usuarios || usuarios.length === 0) {
-      console.log('[AUTO] Sin usuarios con Gmail conectado.');
-      return;
-    }
-
-    console.log('[AUTO]', usuarios.length, 'usuario(s) con Gmail conectado.');
-
+    const { data: usuarios } = await supabase.from('usuarios').select('*').not('gmail_access_token', 'is', null);
+    if (!usuarios || usuarios.length === 0) { console.log('[AUTO] Sin usuarios con Gmail.'); return; }
     for (const usuario of usuarios) {
       try {
         const resultado = await escanearGmailYRegistrar(usuario);
-        if (resultado) {
-          // Solo notifica si hay transacciones nuevas (no si dice "ya registrados")
-          const tieneNuevas = resultado.includes('Registre');
-          if (tieneNuevas) {
-            console.log('[AUTO] Nuevas transacciones para', usuario.whatsapp);
-            await enviarWhatsapp(usuario.whatsapp, '🔄 *Escaneo automatico*\n\n' + resultado);
-          } else {
-            console.log('[AUTO] Sin nuevos movimientos para', usuario.whatsapp);
-          }
+        if (resultado && resultado.includes('Registre')) {
+          console.log('[AUTO] Nuevas transacciones para', usuario.whatsapp);
+          await enviarWhatsapp(usuario.whatsapp, '🔄 *Escaneo automatico*\n\n' + resultado);
         }
-      } catch (e) {
-        console.error('[AUTO] Error procesando usuario', usuario.whatsapp, ':', e.message);
-      }
+      } catch (e) { console.error('[AUTO] Error usuario', usuario.whatsapp, ':', e.message); }
     }
-  } catch (e) {
-    console.error('[AUTO] Error general:', e.message);
-  }
+  } catch (e) { console.error('[AUTO] Error general:', e.message); }
 }
 
 // ── RESUMEN SEMANAL AUTOMATICO ──────────────────────────────────────
-// Verifica si hay que enviar el resumen semanal (lunes a las 8am Lima, UTC-5)
 async function checkResumenSemanal() {
   const ahora = new Date();
-  // Peru es UTC-5
   const horaLima = new Date(ahora.getTime() - 5 * 60 * 60 * 1000);
-  const diaSemana = horaLima.getUTCDay(); // 1 = lunes
-  const hora = horaLima.getUTCHours();
-  const minuto = horaLima.getUTCMinutes();
-
-  // Solo los lunes entre 8:00 y 8:14 (ventana de 15 min para no perder el disparo)
-  if (diaSemana !== 1 || hora !== 8 || minuto > 14) return;
-
+  if (horaLima.getUTCDay() !== 1 || horaLima.getUTCHours() !== 8 || horaLima.getUTCMinutes() > 14) return;
   console.log('[SEMANAL] Es lunes 8am Lima - enviando resumen semanal...');
-
   try {
-    const { data: usuarios } = await supabase
-      .from('usuarios')
-      .select('*')
-      .not('gmail_access_token', 'is', null);
-
+    const { data: usuarios } = await supabase.from('usuarios').select('*').not('gmail_access_token', 'is', null);
     if (!usuarios || usuarios.length === 0) return;
-
     for (const usuario of usuarios) {
       try {
         const gastos = await obtenerGastosSemana(usuario.id);
         if (!gastos.length) continue;
-
         const resumen = formatearResumen(gastos, 'esta semana');
-        const total = gastos.reduce((s, t) => s + parseFloat(t.monto), 0);
-
-        // Top 3 categorias
         const porCat = {};
         gastos.forEach(function(t) { var c = t.categoria || 'Otro'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto); });
         const top3 = Object.entries(porCat).sort(function(a,b){return b[1]-a[1];}).slice(0,3);
         const topStr = top3.map(function(x){return x[0]+': S/ '+x[1].toFixed(2);}).join(' | ');
         const fechaDesde = new Date(Date.now() - 7*24*60*60*1000).toLocaleDateString('es-PE', {day:'numeric',month:'short'});
         const fechaHoy = new Date().toLocaleDateString('es-PE', {day:'numeric',month:'short'});
-        const msg = '*[FinBot] Resumen semanal*' +
-          '\n_Semana del ' + fechaDesde + ' al ' + fechaHoy + '_\n\n' +
-          resumen +
-          '\n*Top gastos:* ' + topStr +
-          '\n\n_Escribe /mes para el detalle completo._';
-        await enviarWhatsapp(usuario.whatsapp, msg);
-        console.log('[SEMANAL] Resumen enviado a', usuario.whatsapp);
-      } catch(e) {
-        console.error('[SEMANAL] Error para', usuario.whatsapp, ':', e.message);
-      }
+        await enviarWhatsapp(usuario.whatsapp, '*[FinBot] Resumen semanal*\n_Semana del ' + fechaDesde + ' al ' + fechaHoy + '_\n\n' + resumen + '\n*Top gastos:* ' + topStr + '\n\n_Escribe /mes para el detalle completo._');
+      } catch(e) { console.error('[SEMANAL] Error para', usuario.whatsapp, ':', e.message); }
     }
-  } catch(e) {
-    console.error('[SEMANAL] Error general:', e.message);
-  }
+  } catch(e) { console.error('[SEMANAL] Error general:', e.message); }
 }
 
 const PORT = process.env.PORT || 3000;
-const INTERVALO_HORAS = parseFloat(process.env.SCAN_INTERVAL_HOURS || '4');
+const INTERVALO_HORAS = parseFloat(process.env.SCAN_INTERVAL_HOURS || '0.25'); // 15 min default
 const INTERVALO_MS = INTERVALO_HORAS * 60 * 60 * 1000;
 
 app.listen(PORT, () => {
   console.log('FinBot Peru v4 en http://localhost:' + PORT);
   console.log('Auth callback: http://localhost:' + PORT + '/auth/callback');
-
-  // Primer escaneo a los 30 segundos del arranque (para no sobrecargar en reinicios)
   setTimeout(() => {
     escaneoAutomatico();
-    // Luego cada X horas
     setInterval(escaneoAutomatico, INTERVALO_MS);
     console.log('[AUTO] Escaneo automatico activo cada', INTERVALO_HORAS, 'hora(s).');
-
-    // Verificar resumen semanal cada 15 minutos
     setInterval(checkResumenSemanal, 15 * 60 * 1000);
     console.log('[SEMANAL] Resumen semanal automatico activo (lunes 8am Lima).');
   }, 30000);
