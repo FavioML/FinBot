@@ -372,7 +372,9 @@ app.post('/webhook', async (req, res) => {
         await supabase.from('usuarios').update({ onboarding_paso: 0, onboarding_completado: true }).eq('id', usuario.id);
         var nombresAct = idxResp.map(function(i){ return CATEGORIAS_SUGERIDAS[i-1].emoji+' '+CATEGORIAS_SUGERIDAS[i-1].nombre; }).join(', ');
         var rspCat = 'Listo! Active tus categorias:\n' + nombresAct + '\n\nCada una ya tiene subcategorias sugeridas activadas.\nUsa */categorias* para verlas o editarlas. 🎉';
-        await enviarWhatsapp(from, rspCat); return;
+        res.set('Content-Type', 'text/xml');
+        res.send('<?xml version="1.0" encoding="UTF-8"?><Response><Message>' + rspCat.replace(/&/g,'&amp;') + '</Message></Response>');
+        return;
       }
     }
 
@@ -467,30 +469,6 @@ app.post('/webhook', async (req, res) => {
     } else if (cmd === '/pendientes') {
       var lpend = await obtenerConsultasPendientes(usuario.id);
       respuesta = lpend.length === 0 ? 'No tienes gastos pendientes de identificar.' : formatearPendientes(lpend);
-    } else if (cmd === '/premium') {
-      const planActual = usuario.plan || 'free';
-      if (planActual === 'premium') {
-        respuesta = '⭐ *Ya tienes FinBot Premium activo*
-
-✅ Reportes PDF ilimitados
-✅ Resumen semanal automático
-✅ Categorías personalizadas
-✅ Sin restricciones
-
-_Gracias por tu apoyo! 🙌_';
-      } else {
-        respuesta = '⭐ *FinBot Premium — S/ 9.90/mes*
-
-✅ Reportes PDF ilimitados
-✅ Resumen semanal automático
-✅ Categorías personalizadas
-✅ Sin restricciones
-
-_Próximamente: pago por Yape/Culqi._
-
-Por ahora escríbenos para activarlo:
-👉 *+51970398192*';
-      }
     } else if (cmd === '/ayuda') {
       const mesActual = new Date().getMonth() + 1;
       respuesta = '*Comandos FinBot Peru:*\n*/semana* o */resumen* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- ver/configurar presupuesto\n*/categorias* -- ver y editar categorias\n*/conectar* -- vincular Gmail\n*/escanear* -- leer correos ahora\n*/cambiar [comercio] [categoria]* -- corregir categoria\n*/reporte* -- PDF del mes actual\n*/reporte ' + mesActual + '* -- PDF de un mes especifico\n*/pendientes* -- gastos sin identificar\n*hola* -- estado general';

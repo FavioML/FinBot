@@ -1,0 +1,3 @@
+Primera: 0 Segunda: 26422
+Duplicado eliminado, lineas: 436
+SINTAXIS OK - lineas: 436

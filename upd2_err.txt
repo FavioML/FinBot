@@ -1,0 +1,10 @@
+ERROR: C:\finbot\index.js:437
+const express = require('express');
+      ^
+
+SyntaxError: Identifier 'express' has already been declared
+    at wrapSafe (node:internal/modules/cjs/loader:1743:18)
+    at checkSyntax (node:internal/main/check_syntax:76:3)
+
+Node.js v24.14.0
+
