@@ -82,8 +82,8 @@ async function verificarAlertaPresupuesto(usuarioId, categoria, subcategoria) {
     const totalCat = (txsCat||[]).reduce((s,t)=>s+parseFloat(t.monto),0);
     const limiteCat = parseFloat(presCat.monto_limite);
     const pctCat = (totalCat/limiteCat)*100;
-    if (pctCat>=100) alertas.push('ÃƒÂ°Ã…Â¸Ã…Â¡Ã‚Â¨ Limite de *'+categoria+'* superado: S/ '+totalCat.toFixed(2)+' / S/ '+limiteCat.toFixed(2));
-    else if (pctCat>=(presCat.alerta_porcentaje||80)) alertas.push('ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â *'+categoria+'*: llevas S/ '+totalCat.toFixed(2)+' de S/ '+limiteCat.toFixed(2)+' ('+pctCat.toFixed(0)+'%)');
+    if (pctCat>=100) alertas.push('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â¨ Limite de *'+categoria+'* superado: S/ '+totalCat.toFixed(2)+' / S/ '+limiteCat.toFixed(2));
+    else if (pctCat>=(presCat.alerta_porcentaje||80)) alertas.push('ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â *'+categoria+'*: llevas S/ '+totalCat.toFixed(2)+' de S/ '+limiteCat.toFixed(2)+' ('+pctCat.toFixed(0)+'%)');
   }
   if (subcategoria) {
     const { data: presSub } = await supabase.from('presupuestos').select('*')
@@ -95,8 +95,8 @@ async function verificarAlertaPresupuesto(usuarioId, categoria, subcategoria) {
       const totalSub = (txsSub||[]).reduce((s,t)=>s+parseFloat(t.monto),0);
       const limiteSub = parseFloat(presSub.monto_limite);
       const pctSub = (totalSub/limiteSub)*100;
-      if (pctSub>=100) alertas.push('ÃƒÂ°Ã…Â¸Ã…Â¡Ã‚Â¨ Limite de *'+subcategoria+'* superado: S/ '+totalSub.toFixed(2)+' / S/ '+limiteSub.toFixed(2));
-      else if (pctSub>=(presSub.alerta_porcentaje||80)) alertas.push('ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â *'+subcategoria+'*: llevas S/ '+totalSub.toFixed(2)+' de S/ '+limiteSub.toFixed(2)+' ('+pctSub.toFixed(0)+'%)');
+      if (pctSub>=100) alertas.push('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â¨ Limite de *'+subcategoria+'* superado: S/ '+totalSub.toFixed(2)+' / S/ '+limiteSub.toFixed(2));
+      else if (pctSub>=(presSub.alerta_porcentaje||80)) alertas.push('ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â *'+subcategoria+'*: llevas S/ '+totalSub.toFixed(2)+' de S/ '+limiteSub.toFixed(2)+' ('+pctSub.toFixed(0)+'%)');
     }
   }
   return alertas.length > 0 ? alertas.join('\n') : null;
@@ -284,17 +284,17 @@ async function intentarResolverConsulta(usuario, texto) {
 // CATEGORIAS Y SUBCATEGORIAS
 // =================================================================
 const CATEGORIAS_SUGERIDAS = [
-  { nombre: 'Comida', emoji: 'ÃƒÂ°Ã…Â¸Ã‚ÂÃ‚Â½ÃƒÂ¯Ã‚Â¸Ã‚Â', subs: ['Almuerzo','Cena','Desayuno','Snacks','Ingredientes','Restaurante','Compartir'] },
-  { nombre: 'Auto', emoji: 'ÃƒÂ°Ã…Â¸Ã…Â¡Ã¢â‚¬â€', subs: ['Gasolina','Peaje','Estacionamiento','Mantenimiento','Seguro','Impuesto vehicular','Lavado','Accesorios'] },
-  { nombre: 'Transporte', emoji: 'ÃƒÂ°Ã…Â¸Ã…Â¡Ã…â€™', subs: ['Taxi','Metro','Bus'] },
-  { nombre: 'Hogar', emoji: 'ÃƒÂ°Ã…Â¸Ã‚ÂÃ‚Â ', subs: ['Alquiler','Supermercado','Servicios','Internet','Celular','Limpieza','ArtÃƒÆ’Ã‚Â­culos de hogar'] },
-  { nombre: 'Entretenimiento', emoji: 'ÃƒÂ°Ã…Â¸Ã…Â½Ã¢â‚¬Â°', subs: ['Baile','Cine','Teatro','Conciertos','FÃƒÆ’Ã‚Âºtbol','Salidas/Tragos'] },
-  { nombre: 'Streaming', emoji: 'ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Âº', subs: ['Netflix','Disney+','Amazon Prime','YouTube Premium','Apple Music','Google Storage','Apple Cloud'] },
-  { nombre: 'Salud', emoji: 'ÃƒÂ°Ã…Â¸Ã¢â‚¬â„¢Ã…Â ', subs: ['Hospital','Medicina','Farmacia','PsicÃƒÆ’Ã‚Â³logo','Seguro','Gimnasio','Higiene','BarberÃƒÆ’Ã‚Â­a'] },
-  { nombre: 'EducaciÃƒÆ’Ã‚Â³n', emoji: 'ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã…Â¡', subs: ['Cursos','Libros','Certificaciones'] },
-  { nombre: 'Compras', emoji: 'ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ‚ÂÃƒÂ¯Ã‚Â¸Ã‚Â', subs: ['Ropa','Accesorios','Regalos','TecnologÃƒÆ’Ã‚Â­a'] },
-  { nombre: 'Viajes', emoji: 'ÃƒÂ¢Ã…â€œÃ‹â€ ÃƒÂ¯Ã‚Â¸Ã‚Â', subs: ['Vuelo','Hospedaje','Comida','Movilidad','Turismo','Tragos'] },
-  { nombre: 'Otros', emoji: 'ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â¦', subs: [] }
+  { nombre: 'Comida', emoji: 'ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€šÃ‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â', subs: ['Almuerzo','Cena','Desayuno','Snacks','Ingredientes','Restaurante','Compartir'] },
+  { nombre: 'Auto', emoji: 'ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â¡ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â', subs: ['Gasolina','Peaje','Estacionamiento','Mantenimiento','Seguro','Impuesto vehicular','Lavado','Accesorios'] },
+  { nombre: 'Transporte', emoji: 'ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â¡Ãƒâ€¦Ã¢â‚¬â„¢', subs: ['Taxi','Metro','Bus'] },
+  { nombre: 'Hogar', emoji: 'ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€šÃ‚ÂÃƒâ€šÃ‚Â ', subs: ['Alquiler','Supermercado','Servicios','Internet','Celular','Limpieza','ArtÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­culos de hogar'] },
+  { nombre: 'Entretenimiento', emoji: 'ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â½ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â°', subs: ['Baile','Cine','Teatro','Conciertos','FÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºtbol','Salidas/Tragos'] },
+  { nombre: 'Streaming', emoji: 'ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Âº', subs: ['Netflix','Disney+','Amazon Prime','YouTube Premium','Apple Music','Google Storage','Apple Cloud'] },
+  { nombre: 'Salud', emoji: 'ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢Ãƒâ€¦Ã‚Â ', subs: ['Hospital','Medicina','Farmacia','PsicÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³logo','Seguro','Gimnasio','Higiene','BarberÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­a'] },
+  { nombre: 'EducaciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n', emoji: 'ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€¦Ã‚Â¡', subs: ['Cursos','Libros','Certificaciones'] },
+  { nombre: 'Compras', emoji: 'ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂºÃƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â', subs: ['Ropa','Accesorios','Regalos','TecnologÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­a'] },
+  { nombre: 'Viajes', emoji: 'ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“Ãƒâ€¹Ã¢â‚¬Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â', subs: ['Vuelo','Hospedaje','Comida','Movilidad','Turismo','Tragos'] },
+  { nombre: 'Otros', emoji: 'ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â¦', subs: [] }
 ];
 
 async function obtenerCategoriasUsuario(usuarioId) {
@@ -392,7 +392,7 @@ app.post('/webhook', async (req, res) => {
         await crearCategoriasDesdeIndices(usuario.id, idxResp);
         await supabase.from('usuarios').update({ onboarding_paso: 0, onboarding_completado: true }).eq('id', usuario.id);
         var nombresAct = idxResp.map(function(i){ return CATEGORIAS_SUGERIDAS[i-1].emoji+' '+CATEGORIAS_SUGERIDAS[i-1].nombre; }).join(', ');
-        var rspCat = 'Listo! Active tus categorias:\n' + nombresAct + '\n\nCada una ya tiene subcategorias sugeridas activadas.\nUsa */categorias* para verlas o editarlas. ÃƒÂ°Ã…Â¸Ã…Â½Ã¢â‚¬Â°';
+        var rspCat = 'Listo! Active tus categorias:\n' + nombresAct + '\n\nCada una ya tiene subcategorias sugeridas activadas.\nUsa */categorias* para verlas o editarlas. ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â½ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â°';
         await enviarWhatsapp(from, rspCat); return;
       }
     }
@@ -423,7 +423,7 @@ app.post('/webhook', async (req, res) => {
         var pendHola = await obtenerConsultasPendientes(usuario.id);
         var alertaPend = pendHola.length > 0 ? '\n\n? *' + pendHola.length + ' gasto(s) sin identificar.* Escribe */pendientes*.' : '';
         var catsHola = await obtenerCategoriasUsuario(usuario.id);
-        var tipCats = (!usuario.onboarding_completado && !catsHola) ? '\n\nÃƒÂ°Ã…Â¸Ã¢â‚¬â„¢Ã‚Â¡ Escribe */categorias* para personalizar tus categorias.' : '';
+        var tipCats = (!usuario.onboarding_completado && !catsHola) ? '\n\nÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢Ãƒâ€šÃ‚Â¡ Escribe */categorias* para personalizar tus categorias.' : '';
         var saludo = primerNombre ? 'Hola, ' + primerNombre + '!' : 'Hola!';
         respuesta = '*' + saludo + ' Soy FinBot Peru*\n\nGmail: Conectado\n' +
           (gastosMesHola.length > 0 ? '*Este mes:* S/ ' + totalMesHola.toFixed(2) + ' en ' + gastosMesHola.length + ' transacciones' : 'Sin transacciones este mes.') +
@@ -442,7 +442,7 @@ app.post('/webhook', async (req, res) => {
       const porCat = {};
       gastos.forEach(t => { const c = t.categoria || 'Otro'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto); });
       const top3 = Object.entries(porCat).sort((a,b) => b[1]-a[1]).slice(0,3).map(([c,m]) => c + ': S/ ' + m.toFixed(2)).join(' | ');
-      respuesta = formatearResumen(gastos, 'esta semana') + (top3 ? '\nÃƒÂ°Ã…Â¸Ã‚ÂÃ¢â‚¬Â  *Top:* ' + top3 : '');
+      respuesta = formatearResumen(gastos, 'esta semana') + (top3 ? '\nÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€šÃ‚ÂÃƒÂ¢Ã¢â€šÂ¬Ã‚Â  *Top:* ' + top3 : '');
     } else if (cmd === '/mes') {
       respuesta = formatearResumen(await obtenerGastosMes(usuario.id), 'este mes');
     } else if (cmd === '/presupuesto') {
@@ -508,7 +508,7 @@ app.post('/webhook', async (req, res) => {
       var catsCmd = await obtenerCategoriasUsuario(usuario.id);
       if (cmd === '/categorias agregar' || !catsCmd) {
         var menuCatsStr = CATEGORIAS_SUGERIDAS.map(function(c,i){ return (i+1)+'. '+c.emoji+' '+c.nombre; }).join('\n');
-        respuesta = '*Personaliza tus categorias*\n\nResponde con los numeros que usas:\n\n' + menuCatsStr + '\n\n_Ej: 1 3 5 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â o escribe "todas"_';
+        respuesta = '*Personaliza tus categorias*\n\nResponde con los numeros que usas:\n\n' + menuCatsStr + '\n\n_Ej: 1 3 5 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â o escribe "todas"_';
         await supabase.from('usuarios').update({ onboarding_paso: 10 }).eq('id', usuario.id);
       } else { respuesta = formatearCategoriasMsg(catsCmd); }
     } else if (cmd === '/pendientes') {
@@ -549,9 +549,10 @@ app.post('/webhook', async (req, res) => {
     } else {
       respuesta = 'No entendi ese mensaje. Escribe *hola* para ver los comandos.';
     }
-  } catch (error) { console.error('ERROR:', error.message); respuesta = 'Error: ' + error.message; }
-  await enviarWhatsapp(from, respuesta);
+    await enviarWhatsapp(from, respuesta);
+  } catch (error) { console.error('ERROR:', error.message); }
 });
+
 
 app.get('/reporte/:id', (req, res) => {
   const id = req.params.id;
@@ -618,7 +619,7 @@ async function escaneoAutomatico() {
     for (const usuario of usuarios) {
       try {
         const resultado = await escanearGmailYRegistrar(usuario);
-        if (resultado && resultado.includes('Registre')) { await enviarWhatsapp(usuario.whatsapp, 'ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ¢â‚¬Å¾ *Escaneo automatico*\n\n' + resultado); }
+        if (resultado && resultado.includes('Registre')) { await enviarWhatsapp(usuario.whatsapp, 'ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾ *Escaneo automatico*\n\n' + resultado); }
       } catch (e) { console.error('[AUTO] Error usuario', usuario.whatsapp, ':', e.message); }
     }
   } catch (e) { console.error('[AUTO] Error general:', e.message); }
