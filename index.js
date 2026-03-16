@@ -527,37 +527,10 @@ app.post('/webhook', async (req, res) => {
     } else if (cmd === '/ayuda') {
       const mesActual = new Date().getMonth() + 1;
       respuesta = '*Comandos FinBot Peru:*\n*/semana* o */resumen* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- ver/configurar presupuesto\n*/categorias* -- ver y editar categorias\n*/conectar* -- vincular Gmail\n*/escanear* -- leer correos ahora\n*/cambiar [comercio] [categoria]* -- corregir categoria\n*/reporte* -- PDF del mes actual\n*/reporte ' + mesActual + '* -- PDF de un mes especifico\n*/pendientes* -- gastos sin identificar\n*/premium* -- ver plan premium\n*hola* -- estado general';
-    } else if (msg.length > 30) {
-      let esCorreccion = false;
-      var keysPres = ['presupuesto','limite','budget','alerta','no gastar'];
-      if (keysPres.some(function(p){return msg.toLowerCase().includes(p);})) {
-        try {
-          var interpPres = await interpretarComandoPresupuesto(msg);
-          if (interpPres.es_presupuesto && interpPres.categoria && interpPres.monto) {
-            esCorreccion = true;
-            var alertaPct = interpPres.alerta_porcentaje || 80;
-            await guardarPresupuesto(usuario.id, interpPres.categoria, interpPres.monto);
-            await supabase.from('presupuestos').update({ alerta_porcentaje: alertaPct }).eq('usuario_id', usuario.id).eq('categoria', interpPres.categoria);
-            respuesta = 'Listo! Configure el presupuesto de *' + interpPres.categoria + '*:\nLimite: *S/ ' + interpPres.monto.toFixed(2) + '/mes*\nAlerta al: *' + alertaPct + '%*';
-          }
-        } catch(e) { console.error('Error presupuesto NL:', e.message); }
-      }
-      const palabrasCorreccion = ['era', 'fue', 'es', 'cambiar', 'cambia', 'categoria', 'no es', 'no era', 'corregir', 'corrige'];
-      if (!esCorreccion && palabrasCorreccion.some(p => msg.toLowerCase().includes(p))) {
-        try {
-          const interp = await interpretarCorreccion(msg);
-          if (interp.es_correccion && interp.comercio && interp.categoria_nueva) { esCorreccion = true; const resultado = await recategorizarTransaccion(usuario.id, interp.comercio, interp.categoria_nueva); respuesta = resultado.msg; }
-        } catch(e) { console.error('Error correccion:', e.message); }
-      }
-      if (!esCorreccion) {
-        const resultado = await parsearCorreoBancario(msg);
-        const tx = await guardarTransaccion(usuario.id, resultado);
-        respuesta = '*Transaccion registrada*\nTipo: ' + resultado.tipo + '\nMonto: S/ ' + resultado.monto + '\nComercio: ' + (resultado.comercio || 'No detectado') + '\nCategoria: ' + (resultado.categoria || 'No detectado') + '\nBanco: ' + (resultado.banco || 'No detectado');
-        if (resultado.tipo === 'gasto' && resultado.categoria) { const alerta = await verificarAlertaPresupuesto(usuario.id, resultado.categoria, null); if (alerta) respuesta += '\n\n' + alerta; }
-        respuesta += '\n\n_Escribe /mes o /presupuesto_';
-      }
     } else {
-      respuesta = 'No entendi ese mensaje. Escribe *hola* para ver los comandos.';
+      // === ROUTER DE INTENCION CON IA ===
+      // Entiende cualquier mensaje en lenguaje natural sin limite de caracteres
+      respuesta = await procesarMensajeLibre(msg, usuario, from);
     }
     await enviarWhatsapp(from, respuesta);
   } catch (error) { console.error('ERROR:', error.message); }
@@ -612,6 +585,191 @@ app.post('/test-parser', async (req, res) => {
 });
 
 app.get('/', (req, res) => res.send('FinBot Peru v4'));
+
+
+// =================================================================
+// ROUTER DE INTENCION CON IA - Entiende lenguaje natural
+// =================================================================
+async function procesarMensajeLibre(msg, usuario, from) {
+  try {
+    const hoy = new Date();
+    const mesActual = hoy.getMonth() + 1;
+    const anioActual = hoy.getFullYear();
+    const planUsuario = usuario.plan || 'free';
+
+    // Clasificar la intencion del mensaje con IA
+    const clasificacion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [{
+        role: 'system',
+        content: `Eres el clasificador de intenciones de FinBot Peru, un bot de finanzas personales para WhatsApp.
+Analiza el mensaje del usuario y devuelve SOLO JSON con la intencion detectada.
+
+Intenciones posibles:
+- "ver_gastos_semana": quiere ver gastos de los ultimos 7 dias (ej: "cuanto gaste esta semana", "mis gastos de la semana")
+- "ver_gastos_mes": quiere ver gastos del mes actual (ej: "gastos de marzo", "cuanto llevo este mes", "mis gastos")
+- "ver_presupuesto": quiere ver su presupuesto (ej: "como va mi presupuesto", "cuanto me queda")
+- "configurar_presupuesto": quiere configurar un limite de gasto (ej: "ponme un limite de 500 en comida", "presupuesto de restaurantes 300 soles")
+- "ver_categorias": quiere ver sus categorias (ej: "mis categorias", "que categorias tengo")
+- "ver_reporte": quiere el reporte PDF (ej: "dame el reporte", "quiero mi informe mensual", "reporte de marzo")
+- "corregir_categoria": quiere cambiar la categoria de un gasto (ej: "netflix es streaming no entretenimiento", "cambia uber a transporte")
+- "ver_pendientes": quiere ver gastos sin identificar (ej: "que gastos me faltan identificar", "gastos pendientes")
+- "escanear_gmail": quiere escanear correos (ej: "escanea mi correo", "busca transacciones nuevas")
+- "ver_premium": quiere saber del plan premium (ej: "cuanto cuesta premium", "que incluye el plan de pago")
+- "saludo": saludo o inicio (ej: "buenos dias", "hola que tal", "como estas")
+- "ayuda": pide ayuda o no sabe que hacer (ej: "que puedes hacer", "como funciona esto", "ayuda")
+- "desconocido": no encaja en ninguna categoria anterior
+
+Responde SOLO JSON: {"intencion": "...", "datos": {"categoria": "si aplica", "monto": numero_o_null, "comercio": "si aplica", "categoria_nueva": "si aplica", "mes": numero_o_null, "anio": numero_o_null}}`
+      }, {
+        role: 'user',
+        content: msg
+      }],
+      temperature: 0
+    });
+
+    const rawClasif = clasificacion.choices[0].message.content.trim();
+    const { intencion, datos } = JSON.parse(rawClasif.startsWith('{') ? rawClasif : rawClasif.slice(rawClasif.indexOf('{'), rawClasif.lastIndexOf('}')+1));
+
+    console.log('[NLP] Intencion detectada:', intencion, '| Datos:', JSON.stringify(datos));
+
+    switch (intencion) {
+
+      case 'ver_gastos_semana': {
+        const gastos = await obtenerGastosSemana(usuario.id);
+        const porCat = {};
+        gastos.forEach(t => { const c = t.categoria || 'Otro'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto); });
+        const top3 = Object.entries(porCat).sort((a,b) => b[1]-a[1]).slice(0,3).map(([c,m]) => c + ': S/ ' + m.toFixed(2)).join(' | ');
+        return formatearResumen(gastos, 'esta semana') + (top3 ? '\n\uD83D\uDD25 *Top:* ' + top3 : '');
+      }
+
+      case 'ver_gastos_mes': {
+        const mes = datos.mes || mesActual;
+        const anio = datos.anio || anioActual;
+        if (mes === mesActual && anio === anioActual) {
+          return formatearResumen(await obtenerGastosMes(usuario.id), 'este mes');
+        } else {
+          const desde = anio + '-' + String(mes).padStart(2,'0') + '-01';
+          const hasta = anio + '-' + String(mes).padStart(2,'0') + '-31';
+          const { data: txs } = await supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).gte('fecha', desde).lte('fecha', hasta).order('fecha', { ascending: false });
+          const mE = ['','Enero','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+          return formatearResumen(txs || [], 'en ' + mE[mes] + ' ' + anio);
+        }
+      }
+
+      case 'ver_presupuesto':
+        return await formatearEstadoPresupuesto(usuario.id);
+
+      case 'configurar_presupuesto': {
+        if (datos.categoria && datos.monto) {
+          const alertaPct = 80;
+          await guardarPresupuesto(usuario.id, datos.categoria, datos.monto);
+          await supabase.from('presupuestos').update({ alerta_porcentaje: alertaPct }).eq('usuario_id', usuario.id).eq('categoria', datos.categoria);
+          return 'Listo! Configure el presupuesto de *' + datos.categoria + '*:\nLimite: *S/ ' + parseFloat(datos.monto).toFixed(2) + '/mes*\nAlerta al: *' + alertaPct + '%*';
+        }
+        return 'Para configurar un presupuesto dime la categoria y el monto.\nEj: _"ponme un limite de 500 soles en Comida"_';
+      }
+
+      case 'ver_categorias': {
+        const cats = await obtenerCategoriasUsuario(usuario.id);
+        return formatearCategoriasMsg(cats);
+      }
+
+      case 'ver_reporte': {
+        const mesR = datos.mes || mesActual;
+        const anioR = datos.anio || anioActual;
+        // Verificar freemium
+        if (planUsuario !== 'premium') {
+          const resetDate = usuario.reporte_reset_mes;
+          const resetMes = resetDate ? parseInt(String(resetDate).slice(5,7)) : null;
+          const resetAnio = resetDate ? parseInt(String(resetDate).slice(0,4)) : null;
+          const esMesNuevo = !resetDate || resetMes !== mesActual || resetAnio !== anioActual;
+          if (esMesNuevo) {
+            await supabase.from('usuarios').update({ reporte_usos_mes: 0, reporte_reset_mes: anioActual + '-' + String(mesActual).padStart(2,'0') + '-01' }).eq('id', usuario.id);
+            usuario.reporte_usos_mes = 0;
+          }
+          if ((usuario.reporte_usos_mes || 0) >= 1) {
+            return '\uD83D\uDCCA Ya usaste tu *reporte gratuito* de este mes.\n\n\u2B50 *FinBot Premium* - reportes ilimitados + resumen semanal + categorias personalizadas.\n\n*Solo S/ 9.90/mes*\n\nEscribe */premium* para activarlo.';
+          }
+        }
+        await enviarWhatsapp(from, 'Generando tu reporte PDF... un momento. \u23F3');
+        if (planUsuario === 'free') {
+          await supabase.from('usuarios').update({ reporte_usos_mes: (usuario.reporte_usos_mes || 0) + 1 }).eq('id', usuario.id);
+        }
+        const railwayUrl = process.env.RAILWAY_URL || 'https://finbot-production-c662.up.railway.app';
+        generarYEnviarReporte(usuario, mesR, anioR).then(async (result) => {
+          if (!result.ok) { await enviarWhatsapp(from, result.msg); }
+          else {
+            const mE = ['','Enero','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+            await enviarWhatsapp(from, '\uD83D\uDCC4 *Reporte ' + mE[mesR] + ' ' + anioR + ' listo!*\n\n' + result.txCount + ' transacciones.\nDisponible 30 min:\n' + railwayUrl + '/reporte/' + result.reporteId + (planUsuario === 'free' ? '\n\n_Reporte gratuito del mes usado._' : ''));
+          }
+        }).catch(async (e) => { await enviarWhatsapp(from, 'Error generando reporte: ' + e.message); });
+        return null; // Ya se enviaron mensajes async
+      }
+
+      case 'corregir_categoria': {
+        if (datos.comercio && datos.categoria_nueva) {
+          const resultado = await recategorizarTransaccion(usuario.id, datos.comercio, datos.categoria_nueva);
+          return resultado.msg;
+        }
+        return 'Para corregir una categoria dime el comercio y la nueva categoria.\nEj: _"Netflix es Streaming, no Entretenimiento"_';
+      }
+
+      case 'ver_pendientes': {
+        const lpend = await obtenerConsultasPendientes(usuario.id);
+        return lpend.length === 0 ? 'No tienes gastos pendientes de identificar.' : formatearPendientes(lpend);
+      }
+
+      case 'escanear_gmail': {
+        const resultado = await escanearGmailYRegistrar(usuario);
+        return resultado || 'No encontre correos bancarios nuevos en las ultimas horas.';
+      }
+
+      case 'ver_premium': {
+        if (planUsuario === 'premium') {
+          return '\u2B50 *Ya tienes FinBot Premium activo*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\u2705 Sin restricciones\n\n_Gracias por tu apoyo!_';
+        }
+        return '\u2B50 *FinBot Premium - S/ 9.90/mes*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\u2705 Sin restricciones\n\nPor ahora escribenos para activarlo:\n+51970398192';
+      }
+
+      case 'saludo': {
+        const gastosMes = await obtenerGastosMes(usuario.id);
+        const totalMes = gastosMes.reduce((s,t) => s+parseFloat(t.monto), 0);
+        const pendHola = await obtenerConsultasPendientes(usuario.id);
+        const alertaPend = pendHola.length > 0 ? '\n\n\u2757 *' + pendHola.length + ' gasto(s) sin identificar.* Escribe */pendientes*.' : '';
+        const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
+        return '*' + (primerNombre ? 'Hola, ' + primerNombre + '!' : 'Hola!') + ' Soy FinBot Peru*\n\nGmail: Conectado\n' +
+          (gastosMes.length > 0 ? '*Este mes:* S/ ' + totalMes.toFixed(2) + ' en ' + gastosMes.length + ' transacciones' : 'Sin transacciones este mes.') +
+          alertaPend + '\n\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- presupuesto\n*/categorias* -- mis categorias\n*/reporte* -- PDF del mes\n*/pendientes* -- gastos sin identificar\n*/ayuda* -- todos los comandos';
+      }
+
+      case 'ayuda':
+        return '*Puedo ayudarte con:*\n\n\uD83D\uDCCA Ver tus gastos de la semana o del mes\n\uD83D\uDCC4 Generar tu reporte PDF mensual\n\uD83C\uDFF7\uFE0F Ver y configurar presupuestos por categoria\n\uD83D\uDD04 Escanear tu Gmail en busca de transacciones\n\u2699\uFE0F Corregir la categoria de un gasto\n\n*Puedes escribirme en lenguaje natural, como:*\n_"cuanto gaste esta semana"_\n_"dame mi reporte de marzo"_\n_"ponme un limite de 300 en Comida"_\n_"cambia Netflix a Streaming"_\n\nO usa los comandos: /mes /semana /reporte /presupuesto /categorias';
+
+      default: {
+        // Ultimo recurso: intentar parsear como transaccion bancaria si parece un monto o comercio
+        const tieneNumero = /\d/.test(msg);
+        const pareceTx = tieneNumero && msg.length > 5;
+        if (pareceTx) {
+          try {
+            const resultado = await parsearCorreoBancario(msg);
+            if (resultado.monto) {
+              const tx = await guardarTransaccion(usuario.id, resultado);
+              let resp = '*Transaccion registrada*\nTipo: ' + resultado.tipo + '\nMonto: S/ ' + resultado.monto + '\nComercio: ' + (resultado.comercio || 'No detectado') + '\nCategoria: ' + (resultado.categoria || 'No detectado');
+              if (resultado.tipo === 'gasto' && resultado.categoria) { const alerta = await verificarAlertaPresupuesto(usuario.id, resultado.categoria, null); if (alerta) resp += '\n\n' + alerta; }
+              return resp + '\n\n_Escribe /mes para ver tus gastos._';
+            }
+          } catch(e) {}
+        }
+        return 'No entendi bien eso. \uD83E\uDD14\n\nPuedes preguntarme cosas como:\n_"cuanto gaste esta semana"_\n_"dame mi reporte mensual"_\n_"como va mi presupuesto"_\n\nO escribe *ayuda* para ver todo lo que puedo hacer.';
+      }
+    }
+  } catch(e) {
+    console.error('[NLP] Error:', e.message);
+    return 'Tuve un problema procesando tu mensaje. Intenta de nuevo o usa los comandos: /mes /semana /reporte';
+  }
+}
+// =================================================================
 
 async function enviarWhatsapp(numero, mensaje) {
   try {
