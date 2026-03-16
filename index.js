@@ -82,8 +82,8 @@ async function verificarAlertaPresupuesto(usuarioId, categoria, subcategoria) {
     const totalCat = (txsCat||[]).reduce((s,t)=>s+parseFloat(t.monto),0);
     const limiteCat = parseFloat(presCat.monto_limite);
     const pctCat = (totalCat/limiteCat)*100;
-    if (pctCat>=100) alertas.push('ðŸš¨ Limite de *'+categoria+'* superado: S/ '+totalCat.toFixed(2)+' / S/ '+limiteCat.toFixed(2));
-    else if (pctCat>=(presCat.alerta_porcentaje||80)) alertas.push('âš ï¸ *'+categoria+'*: llevas S/ '+totalCat.toFixed(2)+' de S/ '+limiteCat.toFixed(2)+' ('+pctCat.toFixed(0)+'%)');
+    if (pctCat>=100) alertas.push('🚨 Limite de *'+categoria+'* superado: S/ '+totalCat.toFixed(2)+' / S/ '+limiteCat.toFixed(2));
+    else if (pctCat>=(presCat.alerta_porcentaje||80)) alertas.push('⚠️ *'+categoria+'*: llevas S/ '+totalCat.toFixed(2)+' de S/ '+limiteCat.toFixed(2)+' ('+pctCat.toFixed(0)+'%)');
   }
   if (subcategoria) {
     const { data: presSub } = await supabase.from('presupuestos').select('*')
@@ -95,8 +95,8 @@ async function verificarAlertaPresupuesto(usuarioId, categoria, subcategoria) {
       const totalSub = (txsSub||[]).reduce((s,t)=>s+parseFloat(t.monto),0);
       const limiteSub = parseFloat(presSub.monto_limite);
       const pctSub = (totalSub/limiteSub)*100;
-      if (pctSub>=100) alertas.push('ðŸš¨ Limite de *'+subcategoria+'* superado: S/ '+totalSub.toFixed(2)+' / S/ '+limiteSub.toFixed(2));
-      else if (pctSub>=(presSub.alerta_porcentaje||80)) alertas.push('âš ï¸ *'+subcategoria+'*: llevas S/ '+totalSub.toFixed(2)+' de S/ '+limiteSub.toFixed(2)+' ('+pctSub.toFixed(0)+'%)');
+      if (pctSub>=100) alertas.push('🚨 Limite de *'+subcategoria+'* superado: S/ '+totalSub.toFixed(2)+' / S/ '+limiteSub.toFixed(2));
+      else if (pctSub>=(presSub.alerta_porcentaje||80)) alertas.push('⚠️ *'+subcategoria+'*: llevas S/ '+totalSub.toFixed(2)+' de S/ '+limiteSub.toFixed(2)+' ('+pctSub.toFixed(0)+'%)');
     }
   }
   return alertas.length > 0 ? alertas.join('\n') : null;
@@ -284,17 +284,17 @@ async function intentarResolverConsulta(usuario, texto) {
 // CATEGORIAS Y SUBCATEGORIAS
 // =================================================================
 const CATEGORIAS_SUGERIDAS = [
-  { nombre: 'Comida', emoji: 'ðŸ½ï¸', subs: ['Almuerzo','Cena','Desayuno','Snacks','Ingredientes','Restaurante','Compartir'] },
-  { nombre: 'Auto', emoji: 'ðŸš—', subs: ['Gasolina','Peaje','Estacionamiento','Mantenimiento','Seguro','Impuesto vehicular','Lavado','Accesorios'] },
-  { nombre: 'Transporte', emoji: 'ðŸšŒ', subs: ['Taxi','Metro','Bus'] },
-  { nombre: 'Hogar', emoji: 'ðŸ ', subs: ['Alquiler','Supermercado','Servicios','Internet','Celular','Limpieza','ArtÃ­culos de hogar'] },
-  { nombre: 'Entretenimiento', emoji: 'ðŸŽ‰', subs: ['Baile','Cine','Teatro','Conciertos','FÃºtbol','Salidas/Tragos'] },
-  { nombre: 'Streaming', emoji: 'ðŸ“º', subs: ['Netflix','Disney+','Amazon Prime','YouTube Premium','Apple Music','Google Storage','Apple Cloud'] },
-  { nombre: 'Salud', emoji: 'ðŸ’Š', subs: ['Hospital','Medicina','Farmacia','PsicÃ³logo','Seguro','Gimnasio','Higiene','BarberÃ­a'] },
-  { nombre: 'EducaciÃ³n', emoji: 'ðŸ“š', subs: ['Cursos','Libros','Certificaciones'] },
-  { nombre: 'Compras', emoji: 'ðŸ›ï¸', subs: ['Ropa','Accesorios','Regalos','TecnologÃ­a'] },
-  { nombre: 'Viajes', emoji: 'âœˆï¸', subs: ['Vuelo','Hospedaje','Comida','Movilidad','Turismo','Tragos'] },
-  { nombre: 'Otros', emoji: 'ðŸ“¦', subs: [] }
+  { nombre: 'Comida', emoji: '🍽️', subs: ['Almuerzo','Cena','Desayuno','Snacks','Ingredientes','Restaurante','Compartir'] },
+  { nombre: 'Auto', emoji: '🚗', subs: ['Gasolina','Peaje','Estacionamiento','Mantenimiento','Seguro','Impuesto vehicular','Lavado','Accesorios'] },
+  { nombre: 'Transporte', emoji: '🚌', subs: ['Taxi','Metro','Bus'] },
+  { nombre: 'Hogar', emoji: '🏠', subs: ['Alquiler','Supermercado','Servicios','Internet','Celular','Limpieza','Artículos de hogar'] },
+  { nombre: 'Entretenimiento', emoji: '🎉', subs: ['Baile','Cine','Teatro','Conciertos','Fútbol','Salidas/Tragos'] },
+  { nombre: 'Streaming', emoji: '📺', subs: ['Netflix','Disney+','Amazon Prime','YouTube Premium','Apple Music','Google Storage','Apple Cloud'] },
+  { nombre: 'Salud', emoji: '💊', subs: ['Hospital','Medicina','Farmacia','Psicólogo','Seguro','Gimnasio','Higiene','Barbería'] },
+  { nombre: 'Educación', emoji: '📚', subs: ['Cursos','Libros','Certificaciones'] },
+  { nombre: 'Compras', emoji: '🛍️', subs: ['Ropa','Accesorios','Regalos','Tecnología'] },
+  { nombre: 'Viajes', emoji: '✈️', subs: ['Vuelo','Hospedaje','Comida','Movilidad','Turismo','Tragos'] },
+  { nombre: 'Otros', emoji: '📦', subs: [] }
 ];
 
 async function obtenerCategoriasUsuario(usuarioId) {
@@ -355,7 +355,7 @@ async function detectarCategoriaIA(texto, usuarioId) {
 }
 // =================================================================
 
-// GET /webhook â€” verificaciÃ³n Meta
+// GET /webhook - verificacion Meta
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -392,7 +392,7 @@ app.post('/webhook', async (req, res) => {
         await crearCategoriasDesdeIndices(usuario.id, idxResp);
         await supabase.from('usuarios').update({ onboarding_paso: 0, onboarding_completado: true }).eq('id', usuario.id);
         var nombresAct = idxResp.map(function(i){ return CATEGORIAS_SUGERIDAS[i-1].emoji+' '+CATEGORIAS_SUGERIDAS[i-1].nombre; }).join(', ');
-        var rspCat = 'Listo! Active tus categorias:\n' + nombresAct + '\n\nCada una ya tiene subcategorias sugeridas activadas.\nUsa */categorias* para verlas o editarlas. ðŸŽ‰';
+        var rspCat = 'Listo! Active tus categorias:\n' + nombresAct + '\n\nCada una ya tiene subcategorias sugeridas activadas.\nUsa */categorias* para verlas o editarlas. 🎉';
         await enviarWhatsapp(from, rspCat); return;
       }
     }
@@ -423,7 +423,7 @@ app.post('/webhook', async (req, res) => {
         var pendHola = await obtenerConsultasPendientes(usuario.id);
         var alertaPend = pendHola.length > 0 ? '\n\n? *' + pendHola.length + ' gasto(s) sin identificar.* Escribe */pendientes*.' : '';
         var catsHola = await obtenerCategoriasUsuario(usuario.id);
-        var tipCats = (!usuario.onboarding_completado && !catsHola) ? '\n\nðŸ’¡ Escribe */categorias* para personalizar tus categorias.' : '';
+        var tipCats = (!usuario.onboarding_completado && !catsHola) ? '\n\n💡 Escribe */categorias* para personalizar tus categorias.' : '';
         var saludo = primerNombre ? 'Hola, ' + primerNombre + '!' : 'Hola!';
         respuesta = '*' + saludo + ' Soy FinBot Peru*\n\nGmail: Conectado\n' +
           (gastosMesHola.length > 0 ? '*Este mes:* S/ ' + totalMesHola.toFixed(2) + ' en ' + gastosMesHola.length + ' transacciones' : 'Sin transacciones este mes.') +
@@ -442,7 +442,7 @@ app.post('/webhook', async (req, res) => {
       const porCat = {};
       gastos.forEach(t => { const c = t.categoria || 'Otro'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto); });
       const top3 = Object.entries(porCat).sort((a,b) => b[1]-a[1]).slice(0,3).map(([c,m]) => c + ': S/ ' + m.toFixed(2)).join(' | ');
-      respuesta = formatearResumen(gastos, 'esta semana') + (top3 ? '\nðŸ† *Top:* ' + top3 : '');
+      respuesta = formatearResumen(gastos, 'esta semana') + (top3 ? '\n🏆 *Top:* ' + top3 : '');
     } else if (cmd === '/mes') {
       respuesta = formatearResumen(await obtenerGastosMes(usuario.id), 'este mes');
     } else if (cmd === '/presupuesto') {
@@ -468,7 +468,7 @@ app.post('/webhook', async (req, res) => {
       const anioR = partesR[2] ? parseInt(partesR[2]) : ahoraR.getFullYear();
       if (mesR < 1 || mesR > 12 || isNaN(mesR)) { respuesta = 'Formato: /reporte [mes] [anio]\nEj: /reporte 3 2026'; }
       else {
-        // â”€â”€ FREEMIUM â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // FREEMIUM
         const planUsuario = usuario.plan || 'free';
         const mesActualNum = ahoraR.getMonth() + 1;
         const anioActualNum = ahoraR.getFullYear();
@@ -488,18 +488,18 @@ app.post('/webhook', async (req, res) => {
           if (usosActuales < 1) {
             puedeGenerarReporte = true;
           } else {
-            respuesta = 'ðŸ“Š Ya usaste tu *reporte gratuito* de este mes.\n\nâ­ *FinBot Premium* â€” reportes ilimitados + resumen semanal + categorÃ­as personalizadas.\n\n*Solo S/ 9.90/mes*\n\nEscribe */premium* para activarlo.';
+            respuesta = 'Ya usaste tu reporte gratuito de este mes.\n\nFinBot Premium te da reportes ilimitados + resumen semanal automatico + categorias personalizadas.\n\nSolo S/ 9.90/mes\n\nEscribe /premium para activarlo.';
           }
         }
         if (puedeGenerarReporte) {
-          await enviarWhatsapp(from, 'Generando tu reporte PDF... un momento. â³');
+          await enviarWhatsapp(from, 'Generando tu reporte PDF... un momento.');
           if (planUsuario === 'free') {
             await supabase.from('usuarios').update({ reporte_usos_mes: (usuario.reporte_usos_mes || 0) + 1 }).eq('id', usuario.id);
           }
           const railwayUrl = process.env.RAILWAY_URL || 'https://finbot-production-c662.up.railway.app';
           generarYEnviarReporte(usuario, mesR, anioR).then(async (result) => {
             if (!result.ok) { await enviarWhatsapp(from, result.msg); }
-            else { const mE = ['','Enero','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']; await enviarWhatsapp(from, '*Reporte ' + mE[mesR] + ' ' + anioR + ' listo!*\n\n' + result.txCount + ' transacciones.\nDisponible 30 min:\n' + railwayUrl + '/reporte/' + result.reporteId + (planUsuario === 'free' ? '\n\n_Reporte gratuito del mes usado._' : '')); }
+            else { const mE = ['','Enero','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']; await enviarWhatsapp(from, 'Reporte ' + mE[mesR] + ' ' + anioR + ' listo!' + '\n\n' + result.txCount + ' transacciones.\nDisponible 30 min:\n' + railwayUrl + '/reporte/' + result.reporteId + (planUsuario === 'free' ? '\n\n_Reporte gratuito del mes usado._' : '')); }
           }).catch(async (e) => { await enviarWhatsapp(from, 'Error generando reporte: ' + e.message); });
           return;
         }
@@ -508,36 +508,12 @@ app.post('/webhook', async (req, res) => {
       var catsCmd = await obtenerCategoriasUsuario(usuario.id);
       if (cmd === '/categorias agregar' || !catsCmd) {
         var menuCatsStr = CATEGORIAS_SUGERIDAS.map(function(c,i){ return (i+1)+'. '+c.emoji+' '+c.nombre; }).join('\n');
-        respuesta = '*Personaliza tus categorias*\n\nResponde con los numeros que usas:\n\n' + menuCatsStr + '\n\n_Ej: 1 3 5 â€” o escribe "todas"_';
+        respuesta = '*Personaliza tus categorias*\n\nResponde con los numeros que usas:\n\n' + menuCatsStr + '\n\n_Ej: 1 3 5 — o escribe "todas"_';
         await supabase.from('usuarios').update({ onboarding_paso: 10 }).eq('id', usuario.id);
       } else { respuesta = formatearCategoriasMsg(catsCmd); }
     } else if (cmd === '/pendientes') {
       var lpend = await obtenerConsultasPendientes(usuario.id);
       respuesta = lpend.length === 0 ? 'No tienes gastos pendientes de identificar.' : formatearPendientes(lpend);
-    } else if (cmd === '/premium') {
-      const planActual = usuario.plan || 'free';
-      if (planActual === 'premium') {
-        respuesta = 'â­ *Ya tienes FinBot Premium activo*
-
-âœ… Reportes PDF ilimitados
-âœ… Resumen semanal automÃ¡tico
-âœ… CategorÃ­as personalizadas
-âœ… Sin restricciones
-
-_Gracias por tu apoyo! ðŸ™Œ_';
-      } else {
-        respuesta = 'â­ *FinBot Premium â€” S/ 9.90/mes*
-
-âœ… Reportes PDF ilimitados
-âœ… Resumen semanal automÃ¡tico
-âœ… CategorÃ­as personalizadas
-âœ… Sin restricciones
-
-_PrÃ³ximamente: pago por Yape/Culqi._
-
-Por ahora escrÃ­benos para activarlo:
-ðŸ‘‰ *+51970398192*';
-      }
     } else if (cmd === '/ayuda') {
       const mesActual = new Date().getMonth() + 1;
       respuesta = '*Comandos FinBot Peru:*\n*/semana* o */resumen* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- ver/configurar presupuesto\n*/categorias* -- ver y editar categorias\n*/conectar* -- vincular Gmail\n*/escanear* -- leer correos ahora\n*/cambiar [comercio] [categoria]* -- corregir categoria\n*/reporte* -- PDF del mes actual\n*/reporte ' + mesActual + '* -- PDF de un mes especifico\n*/pendientes* -- gastos sin identificar\n*hola* -- estado general';
@@ -642,7 +618,7 @@ async function escaneoAutomatico() {
     for (const usuario of usuarios) {
       try {
         const resultado = await escanearGmailYRegistrar(usuario);
-        if (resultado && resultado.includes('Registre')) { await enviarWhatsapp(usuario.whatsapp, 'ðŸ”„ *Escaneo automatico*\n\n' + resultado); }
+        if (resultado && resultado.includes('Registre')) { await enviarWhatsapp(usuario.whatsapp, '🔄 *Escaneo automatico*\n\n' + resultado); }
       } catch (e) { console.error('[AUTO] Error usuario', usuario.whatsapp, ':', e.message); }
     }
   } catch (e) { console.error('[AUTO] Error general:', e.message); }
