@@ -355,13 +355,34 @@ async function detectarCategoriaIA(texto, usuarioId) {
 }
 // =================================================================
 
+// GET /webhook — verificación Meta
+app.get('/webhook', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+  if (mode === 'subscribe' && token === process.env.META_VERIFY_TOKEN) {
+    console.log('[WEBHOOK] Verificado por Meta');
+    return res.status(200).send(challenge);
+  }
+  return res.sendStatus(403);
+});
+
 app.post('/webhook', async (req, res) => {
-  const msg = (req.body.Body || '').trim();
-  const from = req.body.From || '';
-  console.log('[MSG] [' + from + ']: ' + msg);
-  let respuesta = '';
+  res.sendStatus(200);
   try {
-    const usuario = await obtenerOCrearUsuario(from);
+    const entry = req.body.entry && req.body.entry[0];
+    const change = entry && entry.changes && entry.changes[0];
+    const value = change && change.value;
+    const messages = value && value.messages;
+    if (!messages || messages.length === 0) return;
+    const message = messages[0];
+    if (message.type !== 'text') return;
+    const from = message.from;
+    const msg = (message.text.body || '').trim();
+    console.log('[MSG] [' + from + ']: ' + msg);
+    let respuesta = '';
+    try {
+      const usuario = await obtenerOCrearUsuario(from);
     const cmd = msg.toLowerCase().trim();
 
     // == Interceptor: seleccion de categorias ==
@@ -381,9 +402,9 @@ app.post('/webhook', async (req, res) => {
       var pendInter = await obtenerConsultasPendientes(usuario.id);
       if (pendInter.length > 0) {
         var resC = await intentarResolverConsulta(usuario, msg);
-        if (resC) { res.set('Content-Type', 'text/xml'); res.send('<?xml version="1.0" encoding="UTF-8"?><Response><Message>' + resC.replace(/&/g, '&amp;') + '</Message></Response>'); return; }
+        if (resC) { await enviarWhatsapp(from, resC); return; }
         var hayViejos = pendInter.some(function(c) { return (Date.now() - new Date(c.created_at).getTime()) > 3600000; });
-        if (hayViejos) { var consol = formatearPendientes(pendInter); res.set('Content-Type', 'text/xml'); res.send('<?xml version="1.0" encoding="UTF-8"?><Response><Message>' + consol.replace(/&/g, '&amp;') + '</Message></Response>'); return; }
+        if (hayViejos) { var consol = formatearPendientes(pendInter); await enviarWhatsapp(from, consol); return; }
       }
     }
 
@@ -447,15 +468,41 @@ app.post('/webhook', async (req, res) => {
       const anioR = partesR[2] ? parseInt(partesR[2]) : ahoraR.getFullYear();
       if (mesR < 1 || mesR > 12 || isNaN(mesR)) { respuesta = 'Formato: /reporte [mes] [anio]\nEj: /reporte 3 2026'; }
       else {
-        respuesta = 'Generando tu reporte PDF... un momento.';
-        res.set('Content-Type', 'text/xml');
-        res.send('<?xml version="1.0" encoding="UTF-8"?><Response><Message>' + respuesta.replace(/&/g,'&amp;') + '</Message></Response>');
-        const railwayUrl = process.env.RAILWAY_URL || 'https://finbot-production-c662.up.railway.app';
-        generarYEnviarReporte(usuario, mesR, anioR).then(async (result) => {
-          if (!result.ok) { await enviarWhatsapp(usuario.whatsapp, result.msg); }
-          else { const mE = ['','Enero','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']; await enviarWhatsapp(usuario.whatsapp, '*Reporte ' + mE[mesR] + ' ' + anioR + ' listo!*\n\n' + result.txCount + ' transacciones.\nDisponible 30 min:\n' + railwayUrl + '/reporte/' + result.reporteId); }
-        }).catch(async (e) => { await enviarWhatsapp(usuario.whatsapp, 'Error generando reporte: ' + e.message); });
-        return;
+        // ── FREEMIUM ────────────────────────────────────────────────────
+        const planUsuario = usuario.plan || 'free';
+        const mesActualNum = ahoraR.getMonth() + 1;
+        const anioActualNum = ahoraR.getFullYear();
+        let puedeGenerarReporte = false;
+        if (planUsuario === 'premium') {
+          puedeGenerarReporte = true;
+        } else {
+          const resetDate = usuario.reporte_reset_mes;
+          const resetMes = resetDate ? parseInt(String(resetDate).slice(5,7)) : null;
+          const resetAnio = resetDate ? parseInt(String(resetDate).slice(0,4)) : null;
+          const esMesNuevo = !resetDate || resetMes !== mesActualNum || resetAnio !== anioActualNum;
+          if (esMesNuevo) {
+            await supabase.from('usuarios').update({ reporte_usos_mes: 0, reporte_reset_mes: anioActualNum + '-' + String(mesActualNum).padStart(2,'0') + '-01' }).eq('id', usuario.id);
+            usuario.reporte_usos_mes = 0;
+          }
+          const usosActuales = usuario.reporte_usos_mes || 0;
+          if (usosActuales < 1) {
+            puedeGenerarReporte = true;
+          } else {
+            respuesta = '📊 Ya usaste tu *reporte gratuito* de este mes.\n\n⭐ *FinBot Premium* — reportes ilimitados + resumen semanal + categorías personalizadas.\n\n*Solo S/ 9.90/mes*\n\nEscribe */premium* para activarlo.';
+          }
+        }
+        if (puedeGenerarReporte) {
+          await enviarWhatsapp(from, 'Generando tu reporte PDF... un momento. ⏳');
+          if (planUsuario === 'free') {
+            await supabase.from('usuarios').update({ reporte_usos_mes: (usuario.reporte_usos_mes || 0) + 1 }).eq('id', usuario.id);
+          }
+          const railwayUrl = process.env.RAILWAY_URL || 'https://finbot-production-c662.up.railway.app';
+          generarYEnviarReporte(usuario, mesR, anioR).then(async (result) => {
+            if (!result.ok) { await enviarWhatsapp(from, result.msg); }
+            else { const mE = ['','Enero','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']; await enviarWhatsapp(from, '*Reporte ' + mE[mesR] + ' ' + anioR + ' listo!*\n\n' + result.txCount + ' transacciones.\nDisponible 30 min:\n' + railwayUrl + '/reporte/' + result.reporteId + (planUsuario === 'free' ? '\n\n_Reporte gratuito del mes usado._' : '')); }
+          }).catch(async (e) => { await enviarWhatsapp(from, 'Error generando reporte: ' + e.message); });
+          return;
+        }
       }
     } else if (cmd === '/categorias' || cmd === '/categorias agregar') {
       var catsCmd = await obtenerCategoriasUsuario(usuario.id);
@@ -527,8 +574,7 @@ Por ahora escríbenos para activarlo:
       respuesta = 'No entendi ese mensaje. Escribe *hola* para ver los comandos.';
     }
   } catch (error) { console.error('ERROR:', error.message); respuesta = 'Error: ' + error.message; }
-  res.set('Content-Type', 'text/xml');
-  res.send('<?xml version="1.0" encoding="UTF-8"?><Response><Message>' + respuesta.replace(/&/g, '&amp;') + '</Message></Response>');
+  await enviarWhatsapp(from, respuesta);
 });
 
 app.get('/reporte/:id', (req, res) => {
@@ -574,13 +620,18 @@ app.get('/', (req, res) => res.send('FinBot Peru v4'));
 
 async function enviarWhatsapp(numero, mensaje) {
   try {
-    const auth = Buffer.from(process.env.TWILIO_ACCOUNT_SID + ':' + process.env.TWILIO_AUTH_TOKEN).toString('base64');
-    const body = new URLSearchParams({ From: process.env.TWILIO_WHATSAPP_NUMBER, To: numero, Body: mensaje });
-    const response = await fetch('https://api.twilio.com/2010-04-01/Accounts/' + process.env.TWILIO_ACCOUNT_SID + '/Messages.json', { method: 'POST', headers: { 'Authorization': 'Basic ' + auth, 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString() });
+    const phoneId = process.env.META_PHONE_NUMBER_ID;
+    const token = process.env.META_ACCESS_TOKEN;
+    const dest = numero.replace(/^whatsapp:/i, '').replace(/^\+/, '');
+    const response = await fetch('https://graph.facebook.com/v19.0/' + phoneId + '/messages', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messaging_product: 'whatsapp', to: dest, type: 'text', text: { body: mensaje } })
+    });
     const data = await response.json();
-    if (data.sid) { console.log('[AUTO] Enviado a', numero, '- SID:', data.sid); }
-    else { console.error('[AUTO] Error Twilio:', JSON.stringify(data)); }
-  } catch (e) { console.error('[AUTO] Error enviando WhatsApp:', e.message); }
+    if (data.messages && data.messages[0]) { console.log('[META] Enviado a', dest, '- ID:', data.messages[0].id); }
+    else { console.error('[META] Error enviando:', JSON.stringify(data)); }
+  } catch (e) { console.error('[META] Error enviando WhatsApp:', e.message); }
 }
 
 async function escaneoAutomatico() {
