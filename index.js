@@ -392,9 +392,29 @@ app.post('/webhook', async (req, res) => {
         await crearCategoriasDesdeIndices(usuario.id, idxResp);
         await supabase.from('usuarios').update({ onboarding_paso: 0, onboarding_completado: true }).eq('id', usuario.id);
         var nombresAct = idxResp.map(function(i){ return CATEGORIAS_SUGERIDAS[i-1].emoji+' '+CATEGORIAS_SUGERIDAS[i-1].nombre; }).join(', ');
-        var rspCat = 'Listo! Active tus categorias:\n' + nombresAct + '\n\nCada una ya tiene subcategorias sugeridas activadas.\nUsa */categorias* para verlas o editarlas. \uD83C\uDF89';
+        var rspCat = '\uD83C\uDF89 *Perfecto! Categorias activadas:*\n' + nombresAct + '\n\nCada una tiene subcategorias sugeridas.\n\n*\u00bfQuieres configurar un presupuesto mensual?* \uD83D\uDCB0\n\nPor ejemplo:\n_"limite de 500 soles en Comida"_\n_"presupuesto de 200 en Transporte"_\n\nO escribe *listo* para empezar a usar FinBot.';
+        await supabase.from('usuarios').update({ onboarding_paso: 20, onboarding_completado: true }).eq('id', usuario.id);
         await enviarWhatsapp(from, rspCat); return;
       }
+    }
+
+    // == Interceptor: onboarding paso 20 - configurar presupuesto inicial ==
+    if (usuario.onboarding_paso === 20 && !cmd.startsWith('/')) {
+      var cmdLower20 = cmd.trim().toLowerCase();
+      if (cmdLower20 === 'listo' || cmdLower20 === 'no' || cmdLower20 === 'omitir' || cmdLower20 === 'saltar') {
+        await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
+        respuesta = '\uD83D\uDE80 *Todo listo, ' + (usuario.nombre ? usuario.nombre.split(' ')[0] : '') + '!*\n\nYa puedes usar FinBot. Puedes preguntarme cualquier cosa en lenguaje natural:\n\n_"cuanto gaste esta semana"_\n_"dame mi reporte de marzo"_\n_"como va mi presupuesto"_\n\nO usa los comandos: /mes /semana /reporte';
+        await enviarWhatsapp(from, respuesta); return;
+      }
+      // Intentar interpretar como presupuesto
+      try {
+        var interpPres20 = await interpretarComandoPresupuesto(msg);
+        if (interpPres20.es_presupuesto && interpPres20.categoria && interpPres20.monto) {
+          await guardarPresupuesto(usuario.id, interpPres20.categoria, interpPres20.monto);
+          respuesta = '\u2705 Presupuesto de *' + interpPres20.categoria + '* configurado: *S/ ' + parseFloat(interpPres20.monto).toFixed(2) + '/mes*\n\n\u00bfAlguna otra categoria? O escribe *listo* para terminar.';
+          await enviarWhatsapp(from, respuesta); return;
+        }
+      } catch(e) {}
     }
 
     // == Interceptor: respuestas a consultas pendientes ==
@@ -416,7 +436,9 @@ app.post('/webhook', async (req, res) => {
       var primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
       if (!tieneGmail) {
         var urlOAuth = generarUrlAutorizacion(from);
-        respuesta = '*Hola' + (primerNombre ? ', ' + primerNombre : '') + '! Bienvenido a FinBot Peru*\n\nSoy tu asistente de finanzas personales.\n\n*Bancos:* BCP, Interbank, BBVA, Scotiabank, Yape, Plin\n\nConecta tu Gmail:\n\n' + urlOAuth + '\n\n_Solo leemos notificaciones bancarias. 100% seguro._';
+        // Marcar inicio de onboarding
+        await supabase.from('usuarios').update({ onboarding_paso: 1 }).eq('id', usuario.id);
+        respuesta = '\uD83D\uDC4B *Hola' + (primerNombre ? ', ' + primerNombre : '') + '! Soy FinBot Peru*\n\nTu asistente de finanzas personales por WhatsApp. \uD83D\uDCB0\n\n*Lo que hago por ti:*\n\u2705 Leo tus correos bancarios automaticamente\n\u2705 Registro tus gastos e ingresos\n\u2705 Te aviso cuando te acercas a tu limite\n\u2705 Genero reportes PDF mensuales\n\n*Bancos soportados:* BCP, Interbank, BBVA, Scotiabank, Yape, Plin\n\n*Paso 1 de 2:* Conecta tu Gmail para empezar:\n\n' + urlOAuth + '\n\n_Solo leemos notificaciones bancarias. Tu info es privada y segura._ \uD83D\uDD12';
       } else {
         var gastosMesHola = await obtenerGastosMes(usuario.id);
         var totalMesHola = gastosMesHola.reduce(function(s,t){return s+parseFloat(t.monto);},0);
@@ -566,12 +588,23 @@ app.get('/auth/callback', async (req, res) => {
     const nombre = usuario.nombre ? ', ' + usuario.nombre : '';
     res.send('<html><body style="font-family:Arial;text-align:center;padding:50px;background:#0d1b2a;color:white"><h1 style="color:#4CAF50">Gmail conectado' + nombre + '!</h1><p style="font-size:18px">Vuelve a WhatsApp, el bot te escribira en un momento.</p></body></html>');
     const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : 'por ahi';
-    await enviarWhatsapp(usuario.whatsapp, 'Gmail conectado correctamente, ' + primerNombre + '!\n\nEscaneando tus correos bancarios...');
+    await enviarWhatsapp(usuario.whatsapp, '\u2705 *Gmail conectado, ' + primerNombre + '!*\n\nEscaneando tus correos bancarios... \uD83D\uDD0D\n\n_Esto puede tomar unos segundos._');
     setTimeout(async () => {
       try {
         const resultado = await escanearGmailYRegistrar(usuario);
-        if (resultado) await enviarWhatsapp(usuario.whatsapp, resultado);
-        else await enviarWhatsapp(usuario.whatsapp, 'No encontre correos bancarios recientes. Te avisare cuando lleguen nuevos.');
+        // Marcar onboarding paso 2
+        await supabase.from('usuarios').update({ onboarding_paso: 2 }).eq('id', usuario.whatsapp ? undefined : undefined, { whatsapp: usuario.whatsapp }).eq('id', usuario.id);
+        if (resultado) {
+          await enviarWhatsapp(usuario.whatsapp, resultado);
+          // Esperar 2s y enviar mensaje de onboarding paso 2
+          await new Promise(r => setTimeout(r, 2000));
+          await enviarWhatsapp(usuario.whatsapp, '*Paso 2 de 2: Personaliza tus categorias* \uD83C\uDFF7\uFE0F\n\nPara que tus reportes sean mas utiles, activa las categorias que usas:\n\n' + CATEGORIAS_SUGERIDAS.map((c,i) => (i+1)+'. '+c.emoji+' '+c.nombre).join('\n') + '\n\n_Responde con los numeros que usas (ej: 1 3 5) o escribe "todas"_');
+          await supabase.from('usuarios').update({ onboarding_paso: 10 }).eq('id', usuario.id);
+        } else {
+          await enviarWhatsapp(usuario.whatsapp, '\uD83D\uDCED No encontre correos bancarios recientes.\n\nTe avisare automaticamente cuando llegue uno nuevo.\n\nMientras tanto, puedes preguntarme cualquier cosa:\n_"cuanto gaste esta semana"_\n_"dame mi reporte mensual"_');
+          // Onboarding completado sin transacciones
+          await supabase.from('usuarios').update({ onboarding_paso: 0, onboarding_completado: true }).eq('id', usuario.id);
+        }
       } catch(e) { console.error('[CALLBACK]', e.message); }
     }, 2000);
   } catch (err) { res.send('<h2>Error: ' + err.message + '</h2>'); }
