@@ -500,8 +500,73 @@ app.post('/webhook', async (req, res) => {
       }
     } else if (cmd === '/premium') {
       const planActual = usuario.plan || 'free';
-      if (planActual === 'premium') { respuesta = '\u2B50 *Ya tienes FinBot Premium activo*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\n_Gracias por tu apoyo!_'; }
-      else { respuesta = '\u2B50 *FinBot Premium \u2014 S/ 9.90/mes*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\u2705 Sin restricciones\n\nEscribenos para activarlo:\n+51970398192'; }
+      if (planActual === 'premium') {
+        respuesta = '\u2B50 *Ya tienes FinBot Premium activo*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\u2705 Sin restricciones\n\n_Gracias por tu apoyo!_ \uD83D\uDC9A';
+      } else {
+        respuesta = '\u2B50 *FinBot Premium \u2014 S/ 9.90/mes*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\u2705 Sin restricciones\n\n*\u00bfC\u00f3mo pagar?*\n\n\uD83D\uDCB8 *Opcion 1 \u2014 Yape*\nYapea S/ 9.90 al:\n*+51970398192* (Favio M.)\n\nLuego env\u00edame el comprobante o escribe:\n_"ya pague por yape, operacion 12345678"_\n\n_Activacion en menos de 1 hora._';
+        // Marcar que usuario esta en flujo de pago
+        await supabase.from('usuarios').update({ pago_pendiente: true }).eq('id', usuario.id);
+      }
+    } else if (cmd.startsWith('/activar ')) {
+      // Comando admin: /activar <numero_whatsapp> - solo Favio puede usarlo
+      const ADMIN_NUMBER = process.env.ADMIN_WHATSAPP || '51970398192';
+      if (from !== ADMIN_NUMBER) {
+        respuesta = 'No tienes permiso para usar este comando.';
+      } else {
+        const numeroActivar = cmd.replace('/activar ', '').trim().replace(/\+/g, '');
+        const { data: usuarioActivar } = await supabase.from('usuarios').select('*').eq('whatsapp', numeroActivar).single();
+        if (!usuarioActivar) {
+          respuesta = '\u274C No encontre un usuario con el numero: ' + numeroActivar;
+        } else if (usuarioActivar.plan === 'premium') {
+          respuesta = '\u26A0\uFE0F ' + (usuarioActivar.nombre || numeroActivar) + ' ya tiene Premium activo.';
+        } else {
+          const hoy = new Date();
+          const vence = new Date(hoy.getFullYear(), hoy.getMonth() + 1, hoy.getDate()).toISOString().split('T')[0];
+          await supabase.from('usuarios').update({
+            plan: 'premium',
+            pago_pendiente: false,
+            premium_desde: hoy.toISOString().split('T')[0],
+            premium_vence: vence
+          }).eq('id', usuarioActivar.id);
+          // Notificar al usuario
+          await enviarWhatsapp(usuarioActivar.whatsapp,
+            '\u2B50 *\u00a1Bienvenido a FinBot Premium!*\n\n' +
+            'Tu pago fue confirmado. Ya tienes acceso a:\n\n' +
+            '\u2705 Reportes PDF ilimitados\n' +
+            '\u2705 Resumen semanal automatico\n' +
+            '\u2705 Categorias personalizadas\n' +
+            '\u2705 Sin restricciones\n\n' +
+            '_Gracias por confiar en FinBot Peru._ \uD83D\uDC9A\n\n' +
+            'Escribe */mes* para ver tu resumen o */reporte* para tu primer PDF ilimitado.'
+          );
+          respuesta = '\u2705 Premium activado para ' + (usuarioActivar.nombre || numeroActivar) + '\nVence: ' + vence;
+        }
+      }
+    } else if (cmd === '/usuarios' || cmd === '/admin') {
+      // Panel admin rapido
+      const ADMIN_NUMBER = process.env.ADMIN_WHATSAPP || '51970398192';
+      if (from !== ADMIN_NUMBER) {
+        respuesta = 'No tienes permiso para usar este comando.';
+      } else {
+        const { data: todos } = await supabase.from('usuarios').select('whatsapp, nombre, plan, pago_pendiente, created_at').order('created_at', { ascending: false }).limit(20);
+        if (!todos || todos.length === 0) { respuesta = 'No hay usuarios registrados.'; }
+        else {
+          const premium = todos.filter(u => u.plan === 'premium').length;
+          const pendientes = todos.filter(u => u.pago_pendiente).length;
+          let msg = '*Panel FinBot Peru*\n---------------\n';
+          msg += 'Total: ' + todos.length + ' usuarios\n';
+          msg += 'Premium: ' + premium + ' | Free: ' + (todos.length - premium) + '\n';
+          if (pendientes > 0) msg += '\u26A0\uFE0F Pagos pendientes: ' + pendientes + '\n';
+          msg += '\n*Ultimos usuarios:*\n';
+          todos.slice(0, 10).forEach(u => {
+            const plan = u.plan === 'premium' ? '\u2B50' : '\uD83D\uDFE2';
+            const pend = u.pago_pendiente ? ' \uD83D\uDCB8' : '';
+            msg += plan + ' ' + (u.nombre || u.whatsapp) + pend + '\n';
+          });
+          if (pendientes > 0) msg += '\n_Usa /activar <numero> para activar un pago._';
+          respuesta = msg;
+        }
+      }
     } else if (cmd === '/categorias' || cmd === '/categorias agregar') {
       var catsCmd = await obtenerCategoriasUsuario(usuario.id);
       if (cmd === '/categorias agregar' || !catsCmd) {
@@ -579,6 +644,40 @@ app.post('/test-parser', async (req, res) => {
 
 app.get('/', (req, res) => res.send('FinBot Peru v5'));
 
+// Endpoint admin: activar premium via web
+// POST /admin/activar { whatsapp: "51970398192", clave: "ADMIN_KEY" }
+app.post('/admin/activar', async (req, res) => {
+  const { whatsapp, clave } = req.body;
+  const ADMIN_KEY = process.env.ADMIN_KEY || 'finbot2026';
+  if (clave !== ADMIN_KEY) return res.status(401).json({ ok: false, msg: 'Clave incorrecta' });
+  if (!whatsapp) return res.status(400).json({ ok: false, msg: 'Falta whatsapp' });
+  const numero = whatsapp.replace(/\+/g, '').replace(/^0/, '');
+  const { data: usuarioActivar } = await supabase.from('usuarios').select('*').eq('whatsapp', numero).single();
+  if (!usuarioActivar) return res.status(404).json({ ok: false, msg: 'Usuario no encontrado' });
+  const hoy = new Date();
+  const vence = new Date(hoy.getFullYear(), hoy.getMonth() + 1, hoy.getDate()).toISOString().split('T')[0];
+  await supabase.from('usuarios').update({
+    plan: 'premium', pago_pendiente: false,
+    premium_desde: hoy.toISOString().split('T')[0], premium_vence: vence
+  }).eq('id', usuarioActivar.id);
+  await enviarWhatsapp(usuarioActivar.whatsapp,
+    '\u2B50 *\u00a1Bienvenido a FinBot Premium!*\n\n' +
+    'Tu pago fue confirmado. Ya tienes acceso completo.\n\n' +
+    '\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\n' +
+    '_Gracias por confiar en FinBot Peru._ \uD83D\uDC9A'
+  );
+  res.json({ ok: true, msg: 'Premium activado para ' + (usuarioActivar.nombre || numero), vence });
+});
+
+// Endpoint admin: ver pagos pendientes
+// GET /admin/pendientes?clave=ADMIN_KEY
+app.get('/admin/pendientes', async (req, res) => {
+  const ADMIN_KEY = process.env.ADMIN_KEY || 'finbot2026';
+  if (req.query.clave !== ADMIN_KEY) return res.status(401).json({ ok: false, msg: 'Clave incorrecta' });
+  const { data } = await supabase.from('usuarios').select('whatsapp, nombre, plan, pago_pendiente, pago_referencia, created_at').eq('pago_pendiente', true);
+  res.json({ ok: true, pendientes: data || [] });
+});
+
 async function procesarMensajeLibre(msg, usuario, from) {
   try {
     const hoy = new Date();
@@ -603,6 +702,34 @@ async function procesarMensajeLibre(msg, usuario, from) {
     const clean = rawClasif.startsWith('{') ? rawClasif : rawClasif.slice(rawClasif.indexOf('{'), rawClasif.lastIndexOf('}')+1);
     const { intencion, datos } = JSON.parse(clean);
     console.log('[NLP] Intencion:', intencion, '| Datos:', JSON.stringify(datos));
+
+    // Deteccion de comprobante de pago Yape ANTES del switch
+    const planActualNlp = usuario.plan || 'free';
+    if (planActualNlp !== 'premium') {
+      const msgLower = msg.toLowerCase();
+      const esPago = (msgLower.includes('pagu') || msgLower.includes('yapee') || msgLower.includes('yape') || msgLower.includes('operacion') || msgLower.includes('comprobante') || msgLower.includes('transfer')) &&
+                     (msgLower.includes('pague') || msgLower.includes('yape') || /\d{6,}/.test(msg));
+      if (esPago) {
+        // Extraer numero de operacion si viene en el mensaje
+        const numOp = msg.match(/\d{6,}/);
+        const opStr = numOp ? numOp[0] : 'sin numero';
+        // Guardar pago pendiente en Supabase
+        await supabase.from('usuarios').update({ pago_pendiente: true, pago_referencia: opStr }).eq('id', usuario.id);
+        // Notificar al admin
+        const ADMIN_WA = process.env.ADMIN_WHATSAPP || '51970398192';
+        await enviarWhatsapp(ADMIN_WA,
+          '\uD83D\uDCB8 *Pago recibido*\n\n' +
+          'Usuario: ' + (usuario.nombre || from) + ' (' + from + ')\n' +
+          'Operacion: ' + opStr + '\n' +
+          'Monto: S/ 9.90\n\n' +
+          '_Usa /activar ' + from.replace(/^whatsapp:/i,'').replace(/^\+/,'') + ' para confirmar._'
+        );
+        return '\uD83D\uDD0D *Recibimos tu comprobante*\n\n' +
+          'Numero de operacion: *' + opStr + '*\n\n' +
+          'Estamos verificando tu pago. Te confirmaremos en menos de *1 hora*. \uD83D\uDE0A\n\n' +
+          '_Si tienes dudas escribe al +51970398192_';
+      }
+    }
 
     switch (intencion) {
 
