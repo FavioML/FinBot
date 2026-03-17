@@ -24,15 +24,15 @@ async function obtenerOCrearUsuario(numeroWhatsapp) {
   if (error) throw new Error('Error creando usuario: ' + error.message);
   return nuevo;
 }
-
+async function guardarTransaccion(usuarioId, datos) {
   const _moneda = datos.moneda || 'PEN';
   let _montoPen = parseFloat(datos.monto); let _tcUsado = null;
   if (_moneda === 'USD') { try { const _tc = await obtenerTipoCambio(); _tcUsado = _tc.venta; _montoPen = parseFloat((parseFloat(datos.monto) * _tc.venta).toFixed(2)); } catch(e) {} }
   const { data, error } = await supabase.from('transacciones').insert({
     usuario_id: usuarioId, tipo: datos.tipo, monto: datos.monto, moneda: _moneda, monto_pen: _montoPen, tipo_cambio: _tcUsado,
     comercio: datos.comercio, categoria: datos.categoria, banco: datos.banco,
-    comercio: datos.comercio, categoria: datos.categoria, banco: datos.banco,
     fecha: datos.fecha || new Date().toISOString().split('T')[0],
+    descripcion_original: datos.descripcion_original, confirmado: false
     descripcion_original: datos.descripcion_original, confirmado: false
   }).select().single();
   if (error) throw error;
