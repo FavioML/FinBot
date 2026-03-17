@@ -689,6 +689,26 @@ app.get('/admin/pendientes', async (req, res) => {
   res.json({ ok: true, pendientes: data || [] });
 });
 
+
+// ── NETO: Redactar respuesta con GPT usando el system prompt de NETO ──
+async function redactarConNETO(netoPrompt, contexto, mensajeOriginal) {
+  try {
+    const res = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      max_tokens: 400,
+      temperature: 0.7,
+      messages: [
+        { role: 'system', content: netoPrompt },
+        { role: 'user', content: 'Mensaje del usuario: "' + mensajeOriginal + '"\n\nDatos disponibles:\n' + contexto + '\n\nRedacta la respuesta de NETO. Maximo 8 lineas. Sin markdown pesado. Termina con pregunta o accion concreta.' }
+      ]
+    });
+    return res.choices[0].message.content.trim();
+  } catch(e) {
+    console.error('[NETO GPT] Error:', e.message);
+    return null;
+  }
+}
+
 async function procesarMensajeLibre(msg, usuario, from) {
   try {
     const hoy = new Date();
@@ -760,21 +780,44 @@ async function procesarMensajeLibre(msg, usuario, from) {
       case 'listar_gastos_mes': {
         const mes = datos.mes || mesActual;
         const anio = datos.anio || anioActual;
+        let txsMes;
         if (mes === mesActual && anio === anioActual) {
-          return formatearResumen(await obtenerGastosMes(usuario.id), 'este mes (' + mE[mes] + ')');
+          txsMes = await obtenerGastosMes(usuario.id);
+        } else {
+          const desde = anio + '-' + String(mes).padStart(2,'0') + '-01';
+          const hasta = anio + '-' + String(mes).padStart(2,'0') + '-31';
+          const { data } = await supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).gte('fecha', desde).lte('fecha', hasta).order('fecha', { ascending: false });
+          txsMes = data || [];
         }
-        const desde = anio + '-' + String(mes).padStart(2,'0') + '-01';
-        const hasta = anio + '-' + String(mes).padStart(2,'0') + '-31';
-        const { data: txs } = await supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).gte('fecha', desde).lte('fecha', hasta).order('fecha', { ascending: false });
-        return formatearResumen(txs || [], 'en ' + mE[mes] + ' ' + anio);
+        const totalMesN = txsMes.reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
+        const porCatMes = {};
+        txsMes.forEach(t => { const cat = t.categoria || 'Otros'; porCatMes[cat] = (porCatMes[cat]||0) + parseFloat(t.monto_pen || t.monto || 0); });
+        const catMesStr = Object.entries(porCatMes).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([c,m]) => c + ': S/ ' + m.toFixed(0)).join(', ');
+        const ctxMes = mE[mes] + ' ' + anio + ': ' + txsMes.length + ' movimientos. Total: S/ ' + totalMesN.toFixed(0) + '. Categorias: ' + (catMesStr || 'sin datos');
+        const respMes = await redactarConNETO(netoPrompt, ctxMes, msg);
+        return respMes || formatearResumen(txsMes, 'en ' + mE[mes]);
       }
 
       case 'listar_gastos_semana': {
-        const resumenNlp = await generarResumenSemanal(usuario);
-        return resumenNlp || 'No hay gastos registrados esta semana.';
+        const txsSem = await obtenerGastosSemana(usuario.id);
+        const totalSemN = txsSem.reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
+        const porCatSem = {};
+        txsSem.forEach(t => { const cat = t.categoria || 'Otros'; porCatSem[cat] = (porCatSem[cat]||0) + parseFloat(t.monto_pen || t.monto || 0); });
+        const catSemStr = Object.entries(porCatSem).sort((a,b)=>b[1]-a[1]).slice(0,4).map(([c,m]) => c + ': S/ ' + m.toFixed(0)).join(', ');
+        // Comparativa semana anterior
+        const hace14 = new Date(); hace14.setDate(hace14.getDate()-14);
+        const hace7 = new Date(); hace7.setDate(hace7.getDate()-7);
+        const { data: txsAnt } = await supabase.from('transacciones').select('monto,monto_pen').eq('usuario_id', usuario.id).eq('tipo','gasto').gte('fecha', hace14.toISOString().split('T')[0]).lte('fecha', hace7.toISOString().split('T')[0]);
+        const totalAnt = (txsAnt||[]).reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
+        const diffSem = totalSemN - totalAnt;
+        const ctxSem = 'Semana: ' + txsSem.length + ' movimientos. Total: S/ ' + totalSemN.toFixed(0) + '. ' +
+          (totalAnt > 0 ? 'Semana anterior: S/ ' + totalAnt.toFixed(0) + '. Diferencia: ' + (diffSem >= 0 ? '+' : '') + 'S/ ' + diffSem.toFixed(0) + '. ' : '') +
+          'Top categorias: ' + (catSemStr || 'sin datos') + '. ' +
+          'Dia mas caro: ' + (txsSem.length > 0 ? txsSem.reduce((max,t) => parseFloat(t.monto_pen||t.monto||0) > parseFloat(max.monto_pen||max.monto||0) ? t : max, txsSem[0]).fecha : 'sin datos');
+        const respSem = await redactarConNETO(netoPrompt, ctxSem, msg);
+        return respSem || formatearResumen(txsSem, 'esta semana');
       }
-
-      case 'listar_gastos_categoria': {
+            case 'listar_gastos_categoria': {
         const cat = datos.categoria;
         if (!cat) return 'Dime la categoria. Ej: _"gastos de Comida"_, _"que hay en Transporte"_';
         const mes = datos.mes || mesActual;
@@ -793,17 +836,21 @@ async function procesarMensajeLibre(msg, usuario, from) {
       }
 
       case 'ver_total_gastado': {
-        const periodo = datos.periodo || 'mes';
-        let txs = periodo === 'semana' ? await obtenerGastosSemana(usuario.id) : await obtenerGastosMes(usuario.id);
-        if (datos.categoria) txs = txs.filter(t => t.categoria && t.categoria.toLowerCase().includes(datos.categoria.toLowerCase()));
-        const total = txs.reduce((s,t) => s+parseFloat(t.monto), 0);
-        const periodoStr = periodo === 'semana' ? 'esta semana' : 'este mes (' + mE[mesActual] + ')';
-        const catStr = datos.categoria ? ' en *' + datos.categoria + '*' : '';
-        return '\uD83D\uDCB0 Gastaste *S/ ' + total.toFixed(2) + '*' + catStr + ' ' + periodoStr + ' (' + txs.length + ' transacciones).';
+        const periodoVt = datos.periodo || 'mes';
+        const catVt = datos.categoria;
+        let txsVt = periodoVt === 'semana' ? await obtenerGastosSemana(usuario.id) : await obtenerGastosMes(usuario.id);
+        if (catVt) txsVt = txsVt.filter(t => (t.categoria||'').toLowerCase().includes(catVt.toLowerCase()));
+        const totalVt = txsVt.reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
+        const ctxVt = (catVt ? 'Categoria ' + catVt + ' en ' : 'Total ') + periodoVt + ': S/ ' + totalVt.toFixed(0) + ' en ' + txsVt.length + ' movimientos.';
+        const respVt = await redactarConNETO(netoPrompt, ctxVt, msg);
+        return respVt || 'Llevas *S/ ' + totalVt.toFixed(0) + '* ' + (catVt ? 'en ' + catVt + ' ' : '') + 'esta ' + periodoVt + ' (' + txsVt.length + ' movimientos).';
       }
-
-      case 'ver_presupuesto':
-        return await formatearEstadoPresupuesto(usuario.id);
+            case 'ver_presupuesto': {
+        const presupStr = await formatearEstadoPresupuesto(usuario.id);
+        const ctxVp = 'Estado del presupuesto del usuario: ' + presupStr.replace(/[*_]/g, '');
+        const respVp = await redactarConNETO(netoPrompt, ctxVp, msg);
+        return respVp || presupStr;
+      }
 
       case 'configurar_presupuesto': {
         if (datos.categoria && datos.monto) {
@@ -859,18 +906,19 @@ async function procesarMensajeLibre(msg, usuario, from) {
       }
 
       case 'saludo': {
-        const gastosMes2 = await obtenerGastosMes(usuario.id);
-        const totalMes2 = gastosMes2.reduce((s,t) => s+parseFloat(t.monto), 0);
-        const pend2 = await obtenerConsultasPendientes(usuario.id);
-        const alertaPend2 = pend2.length > 0 ? '\n\n\u2757 *' + pend2.length + ' gasto(s) sin identificar.* Escribe */pendientes*.' : '';
-        const nombre2 = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
-        return '*' + (nombre2 ? 'Hola, ' + nombre2 + '!' : 'Hola!') + ' Soy NETO*\n\nGmail: Conectado\n' +
-          (gastosMes2.length > 0 ? '*Este mes:* S/ ' + totalMes2.toFixed(2) + ' en ' + gastosMes2.length + ' transacciones' : 'Sin transacciones este mes.') +
-          alertaPend2 + '\n\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- presupuesto\n*/categorias* -- mis categorias\n*/reporte* -- PDF del mes\n*/ayuda* -- todos los comandos';
+        const gastosSaludo = await obtenerGastosMes(usuario.id);
+        const totalSaludo = gastosSaludo.reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
+        const pendSaludo = await obtenerConsultasPendientes(usuario.id);
+        const ctxSaludo = 'El usuario saluda. Contexto: este mes lleva S/ ' + totalSaludo.toFixed(0) + ' en ' + gastosSaludo.length + ' movimientos.' +
+          (pendSaludo.length > 0 ? ' Tiene ' + pendSaludo.length + ' gasto(s) sin identificar.' : ' Sin pendientes.');
+        const respSaludo = await redactarConNETO(netoPrompt, ctxSaludo, msg);
+        return respSaludo || ('\uD83D\uDC4B Hola' + (usuario.nombre ? ', ' + usuario.nombre.split(' ')[0] : '') + '. Soy NETO.\n\nEste mes llevas *S/ ' + totalSaludo.toFixed(0) + '* en ' + gastosSaludo.length + ' movimientos.\n\n\u00bfQue revisamos?');
       }
-
-      case 'ayuda':
-        return '*\uD83E\uDD16 Puedo ayudarte con:*\n\n\uD83D\uDCCA *Gastos*\n_"cuanto gaste esta semana"_\n_"mis gastos de marzo"_\n_"que hay en la categoria Comida"_\n\n\uD83D\uDCC4 *Reporte PDF*\n_"dame mi reporte mensual"_\n\n\uD83C\uDFF7\uFE0F *Presupuestos*\n_"como va mi presupuesto"_\n_"ponme un limite de 300 en Comida"_\n\n\u2699\uFE0F *Corregir categorias*\n_"Netflix es Streaming"_\n\n_Escribe con tus propias palabras!_';
+            case 'ayuda': {
+        const ctxAyu = 'El usuario pregunta que puede hacer NETO o como funciona. Explica brevemente las capacidades: ver gastos, resumen semanal y mensual, presupuestos, reporte PDF, corregir categorias. Todo en tono NETO.';
+        const respAyu = await redactarConNETO(netoPrompt, ctxAyu, msg);
+        return respAyu || 'Puedo ayudarte con tus gastos, presupuestos y reportes. Escribe como quieras: _"cuanto gaste esta semana"_, _"como va mi delivery"_, _"dame mi reporte"_. \u00bfPor donde empezamos?';
+      }
 
       default: {
         if (/\d/.test(msg) && msg.length > 8) {
@@ -884,7 +932,9 @@ async function procesarMensajeLibre(msg, usuario, from) {
             }
           } catch(e) {}
         }
-        return 'No entendi bien eso. \uD83E\uDD14\n\nPrueba con:\n_"cuanto gaste esta semana"_\n_"mis gastos de comida"_\n_"dame mi reporte mensual"_\n_"como va mi presupuesto"_\n\nO escribe *ayuda* para ver todo lo que puedo hacer.';
+        const ctxDef = 'El usuario envio un mensaje que no encaja claramente con ninguna intencion: "' + msg + '". Responde en tono NETO: reconoce el mensaje, ofrece ayuda concreta con los gastos o finanzas del usuario.';
+        const respDef = await redactarConNETO(netoPrompt, ctxDef, msg);
+        return respDef || 'No entendi bien, pero estoy aqui. Escribe _"cuanto gaste esta semana"_ o _"dame mi reporte"_ y arrancamos. \u00bfQue necesitas?';
       }
     }
   } catch(e) {
