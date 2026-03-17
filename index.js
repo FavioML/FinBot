@@ -169,6 +169,10 @@ async function escanearGmailYRegistrar(usuario) {
       if (txGuardada && necesitaConsulta(txGuardada)) txsConsultar.push(txGuardada);
       registradas++;
       resumen += '- ' + (resultado.tipo === 'ingreso' ? 'Ingreso' : 'Gasto') + ': ' + (resultado.comercio || resultado.banco || 'Sin nombre') + ' S/ ' + resultado.monto + '\n';
+      // Alerta inmediata por transaccion nueva
+      setTimeout(async function() {
+        try { await enviarAlertaTransaccion(usuario, txGuardada, resultado); } catch(e) { console.error("[ALERTA]", e.message); }
+      }, 5000);
     } catch (e) { console.error('Error procesando correo:', e.message); }
   }
   if (registradas === 0) { if (ignoradas > 0) return '*Sin correos nuevos*\n\n' + ignoradas + ' correo(s) ya estaban registrados.'; return null; }
@@ -880,6 +884,54 @@ async function enviarWhatsapp(numero, mensaje) {
     if (data.messages && data.messages[0]) { console.log('[META] Enviado a', dest, '- ID:', data.messages[0].id); }
     else { console.error('[META] Error enviando:', JSON.stringify(data)); }
   } catch (e) { console.error('[META] Error enviando WhatsApp:', e.message); }
+}
+
+async function enviarAlertaTransaccion(usuario, tx, resultado) {
+  if (!tx || !resultado || !resultado.monto) return;
+  const monto = parseFloat(resultado.monto);
+  const comercio = resultado.comercio || resultado.banco || 'Sin nombre';
+  const categoria = resultado.categoria || 'Otros';
+  const tipo = resultado.tipo || 'gasto';
+  const emoji = tipo === 'ingreso' ? '\uD83D\uDCB5' : '\uD83D\uDCB8';
+  const tipoStr = tipo === 'ingreso' ? 'Ingreso recibido' : 'Nuevo gasto';
+
+  // Mensaje base de notificacion inmediata
+  let msg = emoji + ' *' + tipoStr + '*\n';
+  msg += '\uD83C\uDFEA ' + comercio + '\n';
+  msg += '\uD83D\uDCB0 *S/ ' + monto.toFixed(2) + '*\n';
+  msg += '\uD83C\uDFF7\uFE0F ' + categoria + '\n';
+  msg += '\uD83D\uDCC5 ' + (resultado.fecha || new Date().toISOString().split('T')[0]);
+
+  // Verificar alerta de presupuesto
+  if (tipo === 'gasto') {
+    const alertaPres = await verificarAlertaPresupuesto(usuario.id, categoria, null);
+    if (alertaPres) msg += '\n\n' + alertaPres;
+  }
+
+  // Detectar gasto inusual (opcion 3)
+  if (tipo === 'gasto') {
+    try {
+      // Obtener promedio historico de esa categoria (ultimas 4 semanas)
+      const hace28 = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const { data: historial } = await supabase.from('transacciones')
+        .select('monto')
+        .eq('usuario_id', usuario.id)
+        .eq('tipo', 'gasto')
+        .ilike('categoria', '%' + categoria + '%')
+        .gte('fecha', hace28)
+        .neq('id', tx.id);
+      if (historial && historial.length >= 3) {
+        const promedio = historial.reduce((s, t) => s + parseFloat(t.monto), 0) / historial.length;
+        const factor = monto / promedio;
+        if (factor >= 2.5 && monto > 30) {
+          msg += '\n\n\u26A0\uFE0F *Gasto inusual:* Este gasto es ' + factor.toFixed(1) + 'x tu promedio en ' + categoria + ' (S/ ' + promedio.toFixed(2) + ')';
+        }
+      }
+    } catch(e) { console.error('[INUSUAL]', e.message); }
+  }
+
+  msg += '\n\n_Escribe /mes para ver todos tus gastos._';
+  await enviarWhatsapp(usuario.whatsapp, msg);
 }
 
 async function escaneoAutomatico() {
