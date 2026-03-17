@@ -391,7 +391,7 @@ app.post('/webhook', async (req, res) => {
       if (idxResp.length > 0) {
         await crearCategoriasDesdeIndices(usuario.id, idxResp);
         var nombresAct = idxResp.map(function(i){ return CATEGORIAS_SUGERIDAS[i-1].emoji+' '+CATEGORIAS_SUGERIDAS[i-1].nombre; }).join(', ');
-        var rspCat = '\uD83C\uDF89 *Categorias activadas:*\n' + nombresAct + '\n\nCada una tiene subcategorias sugeridas.\n\n*\u00bfQuieres configurar un presupuesto mensual?* \uD83D\uDCB0\n\nEj: _"limite de 500 soles en Comida"_\n\nO escribe *listo* para empezar a usar FinBot.';
+        var rspCat = '\uD83C\uDF89 *Categorias activadas:*\n' + nombresAct + '\n\nCada una tiene subcategorias sugeridas.\n\n*\u00bfQuieres configurar un presupuesto mensual?* \uD83D\uDCB0\n\nEj: _"limite de 500 soles en Comida"_\n\nO escribe *listo* para empezar con NETO.';
         await supabase.from('usuarios').update({ onboarding_paso: 20, onboarding_completado: true }).eq('id', usuario.id);
         await enviarWhatsapp(from, rspCat); return;
       }
@@ -402,7 +402,7 @@ app.post('/webhook', async (req, res) => {
       if (cmdLower20 === 'listo' || cmdLower20 === 'no' || cmdLower20 === 'omitir' || cmdLower20 === 'saltar') {
         await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
         var primerNombre20 = usuario.nombre ? usuario.nombre.split(' ')[0] : '';
-        respuesta = '\uD83D\uDE80 *Todo listo' + (primerNombre20 ? ', ' + primerNombre20 : '') + '!*\n\nYa puedes usar FinBot. Puedes escribirme en lenguaje natural:\n\n_"cuanto gaste esta semana"_\n_"dame mi reporte mensual"_\n_"como va mi presupuesto"_\n\nO usa los comandos: /mes /semana /reporte';
+        respuesta = (primerNombre20 ? 'Listo, ' + primerNombre20 + '.' : 'Listo.') + ' Ya estoy trabajando por ti.\n\nEscribeme como quieras:\n_cuanto gaste esta semana_\n_como va mi delivery_\n_dame mi reporte_\n\n\u00bfPor donde empezamos?';
         await enviarWhatsapp(from, respuesta); return;
       }
       try {
@@ -442,14 +442,14 @@ app.post('/webhook', async (req, res) => {
         var tipCats = (!usuario.onboarding_completado && !catsHola) ? '\n\n\uD83D\uDCA1 Escribe */categorias* para personalizar tus categorias.' : '';
         var saludo = primerNombre ? 'Hola, ' + primerNombre + '!' : 'Hola!';
         respuesta = (primerNombre ? 'Hola, ' + primerNombre + '.' : 'Hola.') + ' Soy NETO.\n\n' +
-          (gastosMesHola.length > 0 ? '*Este mes:* S/ ' + totalMesHola.toFixed(2) + ' en ' + gastosMesHola.length + ' transacciones' : 'Sin transacciones este mes.') +
-          alertaPend + tipCats +
-          '\n\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- presupuesto\n*/categorias* -- mis categorias\n*/reporte* -- PDF del mes\n*/pendientes* -- gastos sin identificar\n*/ayuda* -- todos los comandos';
+          (gastosMesHola.length > 0 ? 'Este mes llevas *S/ ' + totalMesHola.toFixed(0) + '* en ' + gastosMesHola.length + ' movimientos.' : 'Sin movimientos este mes aun.') +
+          (pendHola.length > 0 ? '\n\n\u2757 ' + pendHola.length + ' gasto(s) sin identificar. Escribe */pendientes*.' : '') +
+          '\n\n\u00bfQue revisamos?';
       }
     } else if (esUsuarioNuevo && !cmd.startsWith('/')) {
       respuesta = '\uD83D\uDC4B Hola. Soy NETO, tu asistente financiero.\n\nEscribe *hola* para empezar.';
     } else if (cmd === '/conectar') {
-      respuesta = '*Conectar Gmail a FinBot*\n\nAbre este enlace:\n\n' + generarUrlAutorizacion(from) + '\n\n_Solo leeremos correos bancarios. Proceso seguro._';
+      respuesta = 'Para conectar tu Gmail, abre este enlace:\n\n' + generarUrlAutorizacion(from) + '\n\n_Solo leemos notificaciones bancarias. Sin contrasenas bancarias._';
     } else if (cmd === '/escanear') {
       const resultado = await escanearGmailYRegistrar(usuario);
       respuesta = resultado || (!usuario.gmail_access_token ? 'No tienes Gmail conectado. Escribe */conectar*.' : 'No encontre correos bancarios nuevos.');
@@ -494,7 +494,7 @@ app.post('/webhook', async (req, res) => {
           const esMesNuevo = !resetDate || resetMes !== mesActualNum || resetAnio !== anioActualNum;
           if (esMesNuevo) { await supabase.from('usuarios').update({ reporte_usos_mes: 0, reporte_reset_mes: anioActualNum + '-' + String(mesActualNum).padStart(2,'0') + '-01' }).eq('id', usuario.id); usuario.reporte_usos_mes = 0; }
           if ((usuario.reporte_usos_mes || 0) < 1) { puedeGenerar = true; }
-          else { respuesta = '\uD83D\uDCCA Ya usaste tu *reporte gratuito* de este mes.\n\n\u2B50 *FinBot Premium* \u2014 reportes ilimitados + resumen semanal + categorias personalizadas.\n\n*Solo S/ 9.90/mes*\n\nEscribe */premium* para activarlo.'; }
+          else { respuesta = '\uD83D\uDCCA Ya usaste tu *reporte gratuito* de este mes.\n\n\u2B50 *NETO Pro* \u2014 reportes ilimitados + resumen semanal + categorias personalizadas.\n\n*Solo S/ 9.90/mes*\n\nEscribe */premium* para activarlo.'; }
         }
         if (puedeGenerar) {
           await enviarWhatsapp(from, 'Preparando tu reporte de ' + MESES[mesR] + '... \u23F3');
@@ -510,9 +510,9 @@ app.post('/webhook', async (req, res) => {
     } else if (cmd === '/premium') {
       const planActual = usuario.plan || 'free';
       if (planActual === 'premium') {
-        respuesta = '\u2B50 *Ya tienes FinBot Premium activo*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\u2705 Sin restricciones\n\n_Gracias por tu apoyo!_ \uD83D\uDC9A';
+        respuesta = '\u2B50 *Ya tienes NETO Pro activo*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\u2705 Sin restricciones\n\n_Gracias por tu apoyo!_ \uD83D\uDC9A';
       } else {
-        respuesta = '\u2B50 *FinBot Premium \u2014 S/ 9.90/mes*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\u2705 Sin restricciones\n\n*\u00bfC\u00f3mo pagar?*\n\n\uD83D\uDCB8 *Opcion 1 \u2014 Yape*\nYapea S/ 9.90 al:\n*+51970398192* (Favio M.)\n\nLuego env\u00edame el comprobante o escribe:\n_"ya pague por yape, operacion 12345678"_\n\n_Activacion en menos de 1 hora._';
+        respuesta = '\u2B50 *NETO Pro \u2014 S/ 9.90/mes*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\u2705 Sin restricciones\n\n*\u00bfC\u00f3mo pagar?*\n\n\uD83D\uDCB8 *Opcion 1 \u2014 Yape*\nYapea S/ 9.90 al:\n*+51970398192* (Favio M.)\n\nLuego env\u00edame el comprobante o escribe:\n_"ya pague por yape, operacion 12345678"_\n\n_Activacion en menos de 1 hora._';
         // Marcar que usuario esta en flujo de pago
         await supabase.from('usuarios').update({ pago_pendiente: true }).eq('id', usuario.id);
       }
@@ -539,13 +539,13 @@ app.post('/webhook', async (req, res) => {
           }).eq('id', usuarioActivar.id);
           // Notificar al usuario
           await enviarWhatsapp(usuarioActivar.whatsapp,
-            '\u2B50 *\u00a1Bienvenido a FinBot Premium!*\n\n' +
+            '\u2B50 *\u00a1Bienvenido a NETO Pro!*\n\n' +
             'Tu pago fue confirmado. Ya tienes acceso a:\n\n' +
             '\u2705 Reportes PDF ilimitados\n' +
             '\u2705 Resumen semanal automatico\n' +
             '\u2705 Categorias personalizadas\n' +
             '\u2705 Sin restricciones\n\n' +
-            '_Gracias por confiar en FinBot Peru._ \uD83D\uDC9A\n\n' +
+            '_Gracias por confiar en NETO._ \uD83D\uDC9A\n\n' +
             'Escribe */mes* para ver tu resumen o */reporte* para tu primer PDF ilimitado.'
           );
           respuesta = '\u2705 Premium activado para ' + (usuarioActivar.nombre || numeroActivar) + '\nVence: ' + vence;
@@ -562,7 +562,7 @@ app.post('/webhook', async (req, res) => {
         else {
           const premium = todos.filter(u => u.plan === 'premium').length;
           const pendientes = todos.filter(u => u.pago_pendiente).length;
-          let msg = '*Panel FinBot Peru*\n---------------\n';
+          let msg = '*Panel NETO*\n---------------\n';
           msg += 'Total: ' + todos.length + ' usuarios\n';
           msg += 'Premium: ' + premium + ' | Free: ' + (todos.length - premium) + '\n';
           if (pendientes > 0) msg += '\u26A0\uFE0F Pagos pendientes: ' + pendientes + '\n';
@@ -651,7 +651,7 @@ app.post('/test-parser', async (req, res) => {
   catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
-app.get('/', (req, res) => res.send('FinBot Peru v5'));
+app.get('/', (req, res) => res.send('NETO v5'));
 
 // Endpoint admin: activar premium via web
 // POST /admin/activar { whatsapp: "51970398192", clave: "ADMIN_KEY" }
@@ -670,10 +670,10 @@ app.post('/admin/activar', async (req, res) => {
     premium_desde: hoy.toISOString().split('T')[0], premium_vence: vence
   }).eq('id', usuarioActivar.id);
   await enviarWhatsapp(usuarioActivar.whatsapp,
-    '\u2B50 *\u00a1Bienvenido a FinBot Premium!*\n\n' +
+    '\u2B50 *\u00a1Bienvenido a NETO Pro!*\n\n' +
     'Tu pago fue confirmado. Ya tienes acceso completo.\n\n' +
     '\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\n' +
-    '_Gracias por confiar en FinBot Peru._ \uD83D\uDC9A'
+    '_Gracias por confiar en NETO._ \uD83D\uDC9A'
   );
   res.json({ ok: true, msg: 'Premium activado para ' + (usuarioActivar.nombre || numero), vence });
 });
@@ -712,7 +712,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       model: 'gpt-4o-mini',
       messages: [{
         role: 'system',
-        content: 'Eres el clasificador de intenciones de FinBot Peru, bot de finanzas personales por WhatsApp para usuarios peruanos.\nEl mes actual es ' + mE[mesActual] + ' ' + anioActual + '.\n\nAnaliza el mensaje y devuelve SOLO JSON.\n\nINTENCIONES:\n1. "listar_gastos_mes" - ver resumen/lista de gastos del mes\n   Ej: "cuales son mis gastos", "que gaste este mes", "gastos registrados", "que tengo registrado", "mis compras", "transacciones"\n   Datos: mes (numero, default=mes_actual), anio\n\n2. "listar_gastos_semana" - gastos de los ultimos 7 dias\n   Ej: "que gaste esta semana", "gastos recientes", "mis compras de los ultimos dias"\n\n3. "listar_gastos_categoria" - gastos de UNA categoria especifica\n   Ej: "que hay en Otros", "gastos de Comida", "que esta en Transporte", "detalle de Hogar", "cuales estan en otros"\n   Datos: categoria (nombre exacto), mes (default=mes_actual)\n\n4. "ver_total_gastado" - saber el TOTAL numerico gastado\n   Ej: "cuanto gaste", "cuanto llevo gastado", "total de gastos"\n   Datos: periodo ("semana" o "mes"), categoria (o null)\n\n5. "ver_presupuesto" - ver estado del presupuesto\n   Ej: "como va mi presupuesto", "cuanto me queda", "mis limites"\n\n6. "configurar_presupuesto" - configurar limite de gasto\n   Ej: "pon limite de 500 en comida", "presupuesto de 300 para transporte"\n   Datos: categoria, monto\n\n7. "ver_categorias" - ver categorias configuradas\n   Ej: "mis categorias", "que categorias tengo"\n\n8. "ver_reporte" - reporte PDF\n   Ej: "dame mi reporte", "informe mensual", "reporte de marzo", "genera pdf"\n   Datos: mes (default=mes_actual), anio\n\n9. "corregir_categoria" - cambiar categoria de un gasto\n   Ej: "netflix es streaming", "cambia uber a transporte", "eso no era comida"\n   Datos: comercio, categoria_nueva\n\n10. "ver_pendientes" - gastos sin identificar\n    Ej: "gastos pendientes", "que no identificaste", "gastos sin categoria"\n\n11. "escanear_gmail" - escanear correos\n    Ej: "escanea mi correo", "busca transacciones nuevas", "hay correos nuevos"\n\n12. "ver_premium" - info del plan premium\n    Ej: "cuanto cuesta premium", "que incluye el plan"\n\n13. "saludo" - saludo sin intencion especifica\n    Ej: "buenos dias", "que tal", "como estas"\n\n14. "ayuda" - pide ayuda\n    Ej: "que puedes hacer", "ayuda", "como funciona"\n\n15. "desconocido" - no encaja\n\nREGLAS CRITICAS:\n- "otros" en contexto de categorias -> listar_gastos_categoria con categoria="Otros"\n- "cuanto gaste" sin periodo -> ver_total_gastado con periodo="mes"\n- "gastos registrados"/"que tengo" -> listar_gastos_mes\n- "cuales estan en X" donde X es categoria -> listar_gastos_categoria\n- mes: enero=1, febrero=2, marzo=3, ..., diciembre=12\n- Si no especifica mes -> usar mes_actual\n\nRespuesta SOLO JSON: {"intencion":"...","datos":{"categoria":"o_null","monto":null,"comercio":"o_null","categoria_nueva":"o_null","mes":null,"anio":null,"periodo":"mes_o_semana_o_null"}}'
+        content: 'Eres el clasificador de intenciones de NETO, bot de finanzas personales por WhatsApp para usuarios peruanos.\nEl mes actual es ' + mE[mesActual] + ' ' + anioActual + '.\n\nAnaliza el mensaje y devuelve SOLO JSON.\n\nINTENCIONES:\n1. "listar_gastos_mes" - ver resumen/lista de gastos del mes\n   Ej: "cuales son mis gastos", "que gaste este mes", "gastos registrados", "que tengo registrado", "mis compras", "transacciones"\n   Datos: mes (numero, default=mes_actual), anio\n\n2. "listar_gastos_semana" - gastos de los ultimos 7 dias\n   Ej: "que gaste esta semana", "gastos recientes", "mis compras de los ultimos dias"\n\n3. "listar_gastos_categoria" - gastos de UNA categoria especifica\n   Ej: "que hay en Otros", "gastos de Comida", "que esta en Transporte", "detalle de Hogar", "cuales estan en otros"\n   Datos: categoria (nombre exacto), mes (default=mes_actual)\n\n4. "ver_total_gastado" - saber el TOTAL numerico gastado\n   Ej: "cuanto gaste", "cuanto llevo gastado", "total de gastos"\n   Datos: periodo ("semana" o "mes"), categoria (o null)\n\n5. "ver_presupuesto" - ver estado del presupuesto\n   Ej: "como va mi presupuesto", "cuanto me queda", "mis limites"\n\n6. "configurar_presupuesto" - configurar limite de gasto\n   Ej: "pon limite de 500 en comida", "presupuesto de 300 para transporte"\n   Datos: categoria, monto\n\n7. "ver_categorias" - ver categorias configuradas\n   Ej: "mis categorias", "que categorias tengo"\n\n8. "ver_reporte" - reporte PDF\n   Ej: "dame mi reporte", "informe mensual", "reporte de marzo", "genera pdf"\n   Datos: mes (default=mes_actual), anio\n\n9. "corregir_categoria" - cambiar categoria de un gasto\n   Ej: "netflix es streaming", "cambia uber a transporte", "eso no era comida"\n   Datos: comercio, categoria_nueva\n\n10. "ver_pendientes" - gastos sin identificar\n    Ej: "gastos pendientes", "que no identificaste", "gastos sin categoria"\n\n11. "escanear_gmail" - escanear correos\n    Ej: "escanea mi correo", "busca transacciones nuevas", "hay correos nuevos"\n\n12. "ver_premium" - info del plan premium\n    Ej: "cuanto cuesta premium", "que incluye el plan"\n\n13. "saludo" - saludo sin intencion especifica\n    Ej: "buenos dias", "que tal", "como estas"\n\n14. "ayuda" - pide ayuda\n    Ej: "que puedes hacer", "ayuda", "como funciona"\n\n15. "desconocido" - no encaja\n\nREGLAS CRITICAS:\n- "otros" en contexto de categorias -> listar_gastos_categoria con categoria="Otros"\n- "cuanto gaste" sin periodo -> ver_total_gastado con periodo="mes"\n- "gastos registrados"/"que tengo" -> listar_gastos_mes\n- "cuales estan en X" donde X es categoria -> listar_gastos_categoria\n- mes: enero=1, febrero=2, marzo=3, ..., diciembre=12\n- Si no especifica mes -> usar mes_actual\n\nRespuesta SOLO JSON: {"intencion":"...","datos":{"categoria":"o_null","monto":null,"comercio":"o_null","categoria_nueva":"o_null","mes":null,"anio":null,"periodo":"mes_o_semana_o_null"}}'
       }, {
         role: 'user',
         content: msg
@@ -825,7 +825,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
           const resetAnio = resetDate ? parseInt(String(resetDate).slice(0,4)) : null;
           const esMesNuevo = !resetDate || resetMes !== mesActual || resetAnio !== anioActual;
           if (esMesNuevo) { await supabase.from('usuarios').update({ reporte_usos_mes: 0, reporte_reset_mes: anioActual + '-' + String(mesActual).padStart(2,'0') + '-01' }).eq('id', usuario.id); usuario.reporte_usos_mes = 0; }
-          if ((usuario.reporte_usos_mes || 0) >= 1) return '\uD83D\uDCCA Ya usaste tu *reporte gratuito* de este mes.\n\n\u2B50 *FinBot Premium* \u2014 reportes ilimitados + resumen semanal + categorias personalizadas.\n\n*Solo S/ 9.90/mes*\n\nEscribe */premium* para activarlo.';
+          if ((usuario.reporte_usos_mes || 0) >= 1) return '\uD83D\uDCCA Ya usaste tu *reporte gratuito* de este mes.\n\n\u2B50 *NETO Pro* \u2014 reportes ilimitados + resumen semanal + categorias personalizadas.\n\n*Solo S/ 9.90/mes*\n\nEscribe */premium* para activarlo.';
         }
         await enviarWhatsapp(from, 'Generando tu reporte PDF... \u23F3');
         if (planUsuario2 === 'free') { await supabase.from('usuarios').update({ reporte_usos_mes: (usuario.reporte_usos_mes || 0) + 1 }).eq('id', usuario.id); }
@@ -852,8 +852,8 @@ async function procesarMensajeLibre(msg, usuario, from) {
 
       case 'ver_premium': {
         const planActual2 = usuario.plan || 'free';
-        if (planActual2 === 'premium') return '\u2B50 *Ya tienes FinBot Premium activo*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\n_Gracias por tu apoyo!_';
-        return '\u2B50 *FinBot Premium \u2014 S/ 9.90/mes*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\u2705 Sin restricciones\n\nEscribenos para activarlo:\n+51970398192';
+        if (planActual2 === 'premium') return '\u2B50 *Ya tienes NETO Pro activo*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\n_Gracias por tu apoyo!_';
+        return '\u2B50 *NETO Pro \u2014 S/ 9.90/mes*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\u2705 Sin restricciones\n\nEscribenos para activarlo:\n+51970398192';
       }
 
       case 'saludo': {
@@ -862,7 +862,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
         const pend2 = await obtenerConsultasPendientes(usuario.id);
         const alertaPend2 = pend2.length > 0 ? '\n\n\u2757 *' + pend2.length + ' gasto(s) sin identificar.* Escribe */pendientes*.' : '';
         const nombre2 = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
-        return '*' + (nombre2 ? 'Hola, ' + nombre2 + '!' : 'Hola!') + ' Soy FinBot Peru*\n\nGmail: Conectado\n' +
+        return '*' + (nombre2 ? 'Hola, ' + nombre2 + '!' : 'Hola!') + ' Soy NETO*\n\nGmail: Conectado\n' +
           (gastosMes2.length > 0 ? '*Este mes:* S/ ' + totalMes2.toFixed(2) + ' en ' + gastosMes2.length + ' transacciones' : 'Sin transacciones este mes.') +
           alertaPend2 + '\n\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- presupuesto\n*/categorias* -- mis categorias\n*/reporte* -- PDF del mes\n*/ayuda* -- todos los comandos';
       }
@@ -1036,7 +1036,7 @@ async function generarResumenSemanal(usuario) {
       model: 'gpt-4o-mini',
       messages: [{
         role: 'system',
-        content: 'Eres el asistente financiero de FinBot Peru. Con los datos de gastos semanales genera UN insight accionable en 1-2 oraciones. Especifico, util, tono amigable. En espanol sin emojis al inicio.'
+        content: 'Eres el asistente financiero de NETO. Con los datos de gastos semanales genera UN insight accionable en 1-2 oraciones. Especifico, util, tono amigable. En espanol sin emojis al inicio.'
       }, {
         role: 'user',
         content: 'Datos: ' + JSON.stringify(ctx)
@@ -1108,7 +1108,7 @@ const INTERVALO_HORAS = parseFloat(process.env.SCAN_INTERVAL_HOURS || '0.25');
 const INTERVALO_MS = INTERVALO_HORAS * 60 * 60 * 1000;
 
 app.listen(PORT, () => {
-  console.log('FinBot Peru v5 en http://localhost:' + PORT);
+  console.log('NETO v5 en http://localhost:' + PORT);
   setTimeout(() => {
     escaneoAutomatico();
     setInterval(escaneoAutomatico, INTERVALO_MS);
