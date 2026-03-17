@@ -442,11 +442,8 @@ app.post('/webhook', async (req, res) => {
       const resultado = await escanearGmailYRegistrar(usuario);
       respuesta = resultado || (!usuario.gmail_access_token ? 'No tienes Gmail conectado. Escribe */conectar*.' : 'No encontre correos bancarios nuevos.');
     } else if (cmd === '/semana' || cmd === '/resumen') {
-      const gastos = await obtenerGastosSemana(usuario.id);
-      const porCat = {};
-      gastos.forEach(t => { const c = t.categoria || 'Otro'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto); });
-      const top3 = Object.entries(porCat).sort((a,b) => b[1]-a[1]).slice(0,3).map(([c,m]) => c + ': S/ ' + m.toFixed(2)).join(' | ');
-      respuesta = formatearResumen(gastos, 'esta semana') + (top3 ? '\n\uD83D\uDD25 *Top:* ' + top3 : '');
+      const resumenSem = await generarResumenSemanal(usuario);
+      respuesta = resumenSem || 'No hay gastos registrados esta semana.';
     } else if (cmd === '/mes') {
       respuesta = formatearResumen(await obtenerGastosMes(usuario.id), 'este mes');
     } else if (cmd === '/presupuesto') {
@@ -746,11 +743,8 @@ async function procesarMensajeLibre(msg, usuario, from) {
       }
 
       case 'listar_gastos_semana': {
-        const gastos = await obtenerGastosSemana(usuario.id);
-        const porCat = {};
-        gastos.forEach(t => { const c = t.categoria || 'Otro'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto); });
-        const top3 = Object.entries(porCat).sort((a,b) => b[1]-a[1]).slice(0,3).map(([c,m]) => c + ': S/ ' + m.toFixed(2)).join(' | ');
-        return formatearResumen(gastos, 'esta semana') + (top3 ? '\n\uD83D\uDD25 *Top:* ' + top3 : '');
+        const resumenNlp = await generarResumenSemanal(usuario);
+        return resumenNlp || 'No hay gastos registrados esta semana.';
       }
 
       case 'listar_gastos_categoria': {
@@ -902,6 +896,191 @@ async function escaneoAutomatico() {
   } catch (e) { console.error('[AUTO] Error general:', e.message); }
 }
 
+async function generarResumenSemanal(usuario) {
+  const hoy = new Date();
+  // Gastos esta semana (ultimos 7 dias)
+  const gastosSemana = await obtenerGastosSemana(usuario.id);
+  if (!gastosSemana.length) return null;
+
+  // Gastos semana anterior (dias 8 a 14)
+  const hace14 = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+  const hace7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const { data: gastosAnt } = await supabase.from('transacciones').select('*')
+    .eq('usuario_id', usuario.id).eq('tipo', 'gasto')
+    .gte('fecha', hace14.toISOString().split('T')[0])
+    .lt('fecha', hace7.toISOString().split('T')[0]);
+  const gastosAnteriores = gastosAnt || [];
+
+  const totalSemana = gastosSemana.reduce((s, t) => s + parseFloat(t.monto), 0);
+  const totalAnterior = gastosAnteriores.reduce((s, t) => s + parseFloat(t.monto), 0);
+
+  // Top 3 categorias esta semana
+  const porCat = {};
+  gastosSemana.forEach(t => { const c = t.categoria || 'Otros'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto); });
+  const top3 = Object.entries(porCat).sort((a, b) => b[1] - a[1]).slice(0, 3);
+
+  // Comercio mas frecuente
+  const porComercio = {};
+  gastosSemana.forEach(t => { const c = t.comercio || t.banco || 'Sin nombre'; porComercio[c] = (porComercio[c] || 0) + 1; });
+  const comercioTop = Object.entries(porComercio).sort((a, b) => b[1] - a[1])[0];
+
+  // Dia mas caro
+  const porDia = {};
+  gastosSemana.forEach(t => { const d = t.fecha; porDia[d] = (porDia[d] || 0) + parseFloat(t.monto); });
+  const diaMasCaro = Object.entries(porDia).sort((a, b) => b[1] - a[1])[0];
+
+  // Gastos hormiga (transacciones menores a S/ 20)
+  const hormiga = gastosSemana.filter(t => parseFloat(t.monto) <= 20);
+  const totalHormiga = hormiga.reduce((s, t) => s + parseFloat(t.monto), 0);
+
+  // Proyeccion mensual
+  const diasMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0).getDate();
+  const diaActual = hoy.getDate();
+  const { data: gastosMesData } = await supabase.from('transacciones').select('monto')
+    .eq('usuario_id', usuario.id).eq('tipo', 'gasto')
+    .gte('fecha', hoy.getFullYear() + '-' + String(hoy.getMonth() + 1).padStart(2, '0') + '-01');
+  const totalMes = (gastosMesData || []).reduce((s, t) => s + parseFloat(t.monto), 0);
+  const proyeccionMes = diaActual > 0 ? (totalMes / diaActual) * diasMes : 0;
+
+  // Presupuesto del mes
+  const presupuestos = await obtenerPresupuestosMes(usuario.id);
+  const limiteTotal = presupuestos.reduce((s, p) => s + parseFloat(p.monto_limite), 0);
+
+  // Comparativa semana anterior
+  let comparativa = '';
+  if (totalAnterior > 0) {
+    const diff = totalSemana - totalAnterior;
+    const pct = Math.abs((diff / totalAnterior) * 100).toFixed(0);
+    if (diff > 0) {
+      comparativa = '↗️ *' + pct + '% mas* que la semana pasada (S/ ' + totalAnterior.toFixed(2) + ')';
+    } else if (diff < 0) {
+      comparativa = '↘️ *' + pct + '% menos* que la semana pasada (S/ ' + totalAnterior.toFixed(2) + ') 👏';
+    } else {
+      comparativa = '➡️ Igual que la semana pasada';
+    }
+  }
+
+  // Insight accionable con IA
+  let insight = '';
+  try {
+    const contextoIA = {
+      totalSemana: totalSemana.toFixed(2),
+      totalAnterior: totalAnterior > 0 ? totalAnterior.toFixed(2) : null,
+      top1: top3[0] ? top3[0][0] + ' S/ ' + top3[0][1].toFixed(2) : null,
+      top2: top3[1] ? top3[1][0] + ' S/ ' + top3[1][1].toFixed(2) : null,
+      hormigaTotal: totalHormiga > 10 ? totalHormiga.toFixed(2) : null,
+      proyeccionMes: proyeccionMes > 0 ? proyeccionMes.toFixed(2) : null,
+      limiteTotal: limiteTotal > 0 ? limiteTotal.toFixed(2) : null,
+      numTransacciones: gastosSemana.length
+    };
+    const aiRes = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [{
+        role: 'system',
+        content: 'Eres el asistente financiero de FinBot Peru. Con los datos de gastos semanales del usuario, genera UN insight accionable y personalizado en 1-2 oraciones maximas. Debe ser especifico, util y en tono amigable pero directo. En espanol. Sin emojis al inicio. Ejemplos de buenos insights: "Tu mayor gasto fue Comida, prueba cocinar 2 dias mas esta semana para reducirlo en S/ 30.", "Tus gastos hormiga suman S/ 45, equivale a casi un dia de trabajo.", "Vas bien este mes, si mantienes este ritmo ahorras S/ 200 mas que la semana pasada."'
+      }, {
+        role: 'user',
+        content: 'Datos: ' + JSON.stringify(contextoIA)
+      }],
+      temperature: 0.7,
+      max_tokens: 100
+    });
+    insight = aiRes.choices[0].message.content.trim();
+  } catch(e) {
+    // Fallback si falla la IA
+    if (totalSemana > totalAnterior && totalAnterior > 0) {
+      insight = 'Esta semana gastaste mas que la anterior. Revisa tu categoria ' + (top3[0] ? top3[0][0] : 'principal') + ' para encontrar oportunidades de ahorro.';
+    } else if (totalHormiga > 30) {
+      insight = 'Tus gastos pequenos suman S/ ' + totalHormiga.toFixed(2) + '. Son los mas faciles de reducir.';
+    } else {
+      insight = 'Buen trabajo controlando tus gastos esta semana.';
+    }
+  }
+
+  // Fechas del periodo
+  const fechaDesde = hace7.toLocaleDateString('es-PE', { day: 'numeric', month: 'short' });
+  const fechaHasta = hoy.toLocaleDateString('es-PE', { day: 'numeric', month: 'short' });
+  const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
+
+  // Construir mensaje
+  let msg = '📊 *Resumen semanal' + (primerNombre ? ', ' + primerNombre : '') + '*
+';
+  msg += '_' + fechaDesde + ' — ' + fechaHasta + '_
+';
+  msg += '---------------
+
+';
+
+  // Total y comparativa
+  msg += '💰 *Total gastado:* S/ ' + totalSemana.toFixed(2) + '
+';
+  if (comparativa) msg += comparativa + '
+';
+  msg += '
+';
+
+  // Top 3 categorias
+  msg += '🔥 *Top categorias:*
+';
+  const emojis = ['🥇', '🥈', '🥉'];
+  top3.forEach(([cat, monto], i) => {
+    const pct = ((monto / totalSemana) * 100).toFixed(0);
+    msg += emojis[i] + ' ' + cat + ': *S/ ' + monto.toFixed(2) + '* (' + pct + '%)
+';
+  });
+  msg += '
+';
+
+  // Comercio favorito
+  if (comercioTop && comercioTop[1] >= 2) {
+    msg += '🛍️ *Lugar favorito:* ' + comercioTop[0] + ' (' + comercioTop[1] + ' veces)
+';
+  }
+
+  // Dia mas caro
+  if (diaMasCaro) {
+    const [diaCaro, montoCaro] = diaMasCaro;
+    const nombreDia = new Date(diaCaro + 'T12:00:00').toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'short' });
+    msg += '📅 *Dia mas caro:* ' + nombreDia + ' (S/ ' + montoCaro.toFixed(2) + ')
+';
+  }
+
+  // Gastos hormiga
+  if (totalHormiga > 20 && hormiga.length >= 3) {
+    msg += '🐜 *Gastos hormiga:* ' + hormiga.length + ' transacciones peq. = S/ ' + totalHormiga.toFixed(2) + '
+';
+  }
+
+  msg += '
+';
+
+  // Proyeccion mensual
+  if (proyeccionMes > 0) {
+    msg += '📈 *Proyeccion del mes:* S/ ' + proyeccionMes.toFixed(2);
+    if (limiteTotal > 0) {
+      const sobra = limiteTotal - proyeccionMes;
+      if (sobra > 0) {
+        msg += ' ✅ (dentro del presupuesto)';
+      } else {
+        msg += ' ⚠️ (superaria tu presupuesto en S/ ' + Math.abs(sobra).toFixed(2) + ')';
+      }
+    }
+    msg += '
+';
+  }
+
+  // Insight IA
+  msg += '
+💡 *Consejo:* ' + insight + '
+';
+
+  // Footer
+  msg += '
+_Escribe /mes para ver el detalle completo o /reporte para tu PDF._';
+
+  return msg;
+}
+
 async function checkResumenSemanal() {
   const horaLima = new Date(Date.now() - 5 * 60 * 60 * 1000);
   if (horaLima.getUTCDay() !== 1 || horaLima.getUTCHours() !== 8 || horaLima.getUTCMinutes() > 14) return;
@@ -910,11 +1089,8 @@ async function checkResumenSemanal() {
     if (!usuarios || usuarios.length === 0) return;
     for (const usuario of usuarios) {
       try {
-        const gastos = await obtenerGastosSemana(usuario.id); if (!gastos.length) continue;
-        const porCat = {}; gastos.forEach(function(t){ var c=t.categoria||'Otro'; porCat[c]=(porCat[c]||0)+parseFloat(t.monto); });
-        const top3 = Object.entries(porCat).sort(function(a,b){return b[1]-a[1];}).slice(0,3).map(function(x){return x[0]+': S/ '+x[1].toFixed(2);}).join(' | ');
-        const fechaDesde = new Date(Date.now()-7*24*60*60*1000).toLocaleDateString('es-PE',{day:'numeric',month:'short'});
-        await enviarWhatsapp(usuario.whatsapp, '*[FinBot] Resumen semanal*\n_Semana del ' + fechaDesde + ' al ' + new Date().toLocaleDateString('es-PE',{day:'numeric',month:'short'}) + '_\n\n' + formatearResumen(gastos,'esta semana') + '\n*Top:* ' + top3 + '\n\n_Escribe "mis gastos del mes" para el detalle._');
+        const resumen = await generarResumenSemanal(usuario);
+        if (resumen) await enviarWhatsapp(usuario.whatsapp, resumen);
       } catch(e) { console.error('[SEMANAL] Error para', usuario.whatsapp, ':', e.message); }
     }
   } catch(e) { console.error('[SEMANAL] Error general:', e.message); }
