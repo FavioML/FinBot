@@ -132,14 +132,14 @@ function formatearResumen(txs, periodo) {
   txs.forEach(t => { const c = t.categoria || 'Otro'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto_pen || t.monto); });
   const _txsUsd = txs.filter(t => t.moneda === 'USD'); const _totalUsd = _txsUsd.reduce((s,t) => s+parseFloat(t.monto), 0);
   const _notaUsd = _txsUsd.length > 0 ? ' (incl USD ' + _totalUsd.toFixed(2) + ')' : '';
-  const emojiCat = { 'Comida':'🍔','Delivery':'🍔','Restaurantes':'☕','Supermercados':'🛒','Transporte':'🚗','Auto':'🚗','Streaming':'📱','Suscripciones':'📱','Entretenimiento':'🎮','Salud':'💊','Farmacia':'💊','Educacion':'📚','Viajes':'✈️','Compras':'👕','Hogar':'🏠','Transferencia':'💸','Servicios':'⚡','Otros':'📋' };
+  const emojiCat = { 'Comida':'ðŸ”','Delivery':'ðŸ”','Restaurantes':'â˜•','Supermercados':'ðŸ›’','Transporte':'ðŸš—','Auto':'ðŸš—','Streaming':'ðŸ“±','Suscripciones':'ðŸ“±','Entretenimiento':'ðŸŽ®','Salud':'ðŸ’Š','Farmacia':'ðŸ’Š','Educacion':'ðŸ“š','Viajes':'âœˆï¸','Compras':'ðŸ‘•','Hogar':'ðŸ ','Transferencia':'ðŸ’¸','Servicios':'âš¡','Otros':'ðŸ“‹' };
   let msg = '\uD83D\uDCCA *' + periodo + '*\nTotal: *S/ ' + total.toFixed(0) + '*' + _notaUsd + ' \u2022 ' + txs.length + ' movimientos\n';
   Object.entries(porCat).sort((a, b) => b[1] - a[1]).forEach(([cat, monto]) => {
     const em = emojiCat[cat] || '\uD83D\uDCCB';
     msg += em + ' ' + cat + ': *S/ ' + monto.toFixed(0) + '* (' + ((monto/total)*100).toFixed(0) + '%)\n';
   });
   return msg;
-}
+async function formatearEstadoPresupuesto(usuarioId) {
   const presupuestos = await obtenerPresupuestosMes(usuarioId);
   if (!presupuestos.length) return 'No tienes presupuestos configurados.\n\nEj: _"pon limite de 500 en Comida"_';
   const hoy = new Date();
