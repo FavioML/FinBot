@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const { OpenAI } = require('openai');
 const { createClient } = require('@supabase/supabase-js');
-const { generarReportePDF } = require('./reporte_pdf');
+const { generarReporteHTML } = require('./reporte_html');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -200,20 +200,20 @@ async function generarYEnviarReporte(usuario, mes, anio) {
   const { data: presupData } = await supabase.from('presupuestos').select('*').eq('usuario_id', usuario.id).eq('mes', mes).eq('anio', anio);
   const presupuestos = {};
   if (presupData) presupData.forEach(p => { presupuestos[p.categoria] = parseFloat(p.monto_limite); });
-  const tmpPath = path.join(os.tmpdir(), 'finbot_reporte_' + usuario.id + '_' + mes + '_' + anio + '.pdf');
-  await generarReportePDF({ nombre: usuario.nombre || 'Usuario', mes, anio, transacciones: txs, presupuestos }, tmpPath);
-  const pdfBuffer = fs.readFileSync(tmpPath);
+  // Obtener historial 3 meses anteriores para grafico de evolucion
+  const historial = [];
+  for (let i = 3; i >= 1; i--) {
+    const d = new Date(anio, mes - 1 - i, 1); const hm = d.getMonth()+1; const ha = d.getFullYear();
+    const { data: ht } = await supabase.from('transacciones').select('monto,monto_pen').eq('usuario_id', usuario.id).eq('tipo','gasto').gte('fecha', ha+'-'+String(hm).padStart(2,'0')+'-01').lte('fecha', ha+'-'+String(hm).padStart(2,'0')+'-31');
+    const tot = (ht||[]).reduce((s,t) => s+parseFloat(t.monto_pen||t.monto||0), 0);
+    if (tot > 0) historial.push({ mes: hm, anio: ha, total: tot });
+  }
+  const html = generarReporteHTML({ nombre: usuario.nombre || 'Usuario', mes, anio, transacciones: txs, presupuestos, historialMeses: historial });
   const reporteId = Date.now();
   global.reportesTemp = global.reportesTemp || {};
-  global.reportesTemp[reporteId] = { buffer: pdfBuffer, expires: Date.now() + 30 * 60 * 1000 };
-  return { ok: true, reporteId, txCount: txs.length, tmpPath };
+  global.reportesTemp[reporteId] = { html: html, expires: Date.now() + 60 * 60 * 1000 };
+  return { ok: true, reporteId, txCount: txs.length };
 }
-
-const CATEGORIAS = ['Supermercados','Restaurantes','Transporte','Streaming','Educacion','Salud','Transferencia','Entretenimiento','Servicios','Farmacia','Otro'];
-
-async function recategorizarTransaccion(usuarioId, comercio, categoriaNueva) {
-  const { data: txs } = await supabase.from('transacciones').select('*').eq('usuario_id', usuarioId).ilike('comercio', '%' + comercio + '%').order('created_at', { ascending: false }).limit(5);
-  if (!txs || txs.length === 0) return { ok: false, msg: 'No encontre ninguna transaccion de *' + comercio + '*.' };
   const tx = txs[0];
   const { error } = await supabase.from('transacciones').update({ categoria: categoriaNueva }).eq('id', tx.id);
   if (error) return { ok: false, msg: 'Error actualizando: ' + error.message };
@@ -597,12 +597,12 @@ app.get('/reporte/:id', (req, res) => {
   const id = req.params.id;
   global.reportesTemp = global.reportesTemp || {};
   const entry = global.reportesTemp[id];
-  if (!entry) return res.status(404).send('Reporte no encontrado o expirado.');
-  if (Date.now() > entry.expires) { delete global.reportesTemp[id]; return res.status(404).send('El link del reporte expiro.'); }
-  res.set('Content-Type', 'application/pdf');
-  res.set('Content-Disposition', 'attachment; filename="finbot_reporte.pdf"');
-  res.send(entry.buffer);
+  if (!entry) return res.status(404).send('<h2>Reporte no encontrado o expirado.</h2><p>El link es valido por 1 hora. Genera uno nuevo con /reporte</p>');
+  if (Date.now() > entry.expires) { delete global.reportesTemp[id]; return res.status(404).send('<h2>El link del reporte expiro.</h2><p>Genera uno nuevo escribiendo /reporte</p>'); }
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.send(entry.html);
 });
+
 
 app.get('/auth/callback', async (req, res) => {
   const { code, error } = req.query;
