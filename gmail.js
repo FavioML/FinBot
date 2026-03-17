@@ -142,13 +142,13 @@ async function leerCorreosBancarios(usuarioId) {
   const gmail = google.gmail({ version: 'v1', auth: authClient });
 
   const queryDirecto = 'from:(' + REMITENTES_BANCARIOS.join(' OR ') + ') newer_than:2d';
-  const queryReenviados = 'subject:(Fwd OR Fw OR RV OR Reenviado OR fwd) newer_than:2d';
-  const queryPalabrasClave = '(yape OR "notificacion BCP" OR "consumo con tarjeta" OR "transferencia" OR "pago realizado" OR "cargo en cuenta" OR "abono en cuenta") newer_than:2d';
 
+  const queryPalabrasClave = '(yape OR "notificacion BCP" OR "consumo con tarjeta" OR "transferencia" OR "pago realizado" OR "cargo en cuenta" OR "abono en cuenta") newer_than:2d';
+  for (const query of [queryDirecto, queryPalabrasClave]) {
   const mensajesIds = new Set();
   const todosLosIds = [];
 
-  for (const query of [queryDirecto, queryReenviados, queryPalabrasClave]) {
+  for (const query of [queryDirecto, queryPalabrasClave]) {
     try {
       const { data } = await gmail.users.messages.list({ userId: 'me', q: query, maxResults: 15 });
       if (data.messages) {
@@ -173,9 +173,9 @@ async function leerCorreosBancarios(usuarioId) {
       if (!esBancario(asunto + '\n' + cuerpo, asunto)) continue;
       const textoParseo = cuerpo.length > 100 ? cuerpo.substring(0, 1500) : detalle.snippet;
       mensajes.push({
-        id, snippet: detalle.snippet, texto: textoParseo, asunto, remitente, fecha,
-        esReenviado: asunto.toLowerCase().includes('fwd') || asunto.toLowerCase().includes('fw:') ||
-                     asunto.toLowerCase().includes('rv:') || asunto.toLowerCase().includes('reenviado')
+      });
+
+
       });
     } catch(e) { console.error('Error obteniendo correo:', e.message); }
   }

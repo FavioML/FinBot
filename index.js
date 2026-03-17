@@ -157,7 +157,7 @@ async function escanearGmailYRegistrar(usuario) {
   if (!mensajes.length) return null;
   let registradas = 0; let ignoradas = 0; let resumen = '';
   const txsConsultar = [];
-  for (const msg of mensajes) {
+      resumen += '- ' + (resultado.tipo === 'ingreso' ? 'Ingreso' : 'Gasto') + ': ' + (resultado.comercio || resultado.banco || 'Sin nombre') + ' S/ ' + resultado.monto + '\n';
     try {
       const textoParseo = msg.texto || msg.snippet;
       const claveDedup = msg.id;
@@ -489,7 +489,7 @@ app.post('/webhook', async (req, res) => {
           const esMesNuevo = !resetDate || resetMes !== mesActualNum || resetAnio !== anioActualNum;
           if (esMesNuevo) { await supabase.from('usuarios').update({ reporte_usos_mes: 0, reporte_reset_mes: anioActualNum + '-' + String(mesActualNum).padStart(2,'0') + '-01' }).eq('id', usuario.id); usuario.reporte_usos_mes = 0; }
           if ((usuario.reporte_usos_mes || 0) < 1) { puedeGenerar = true; }
-          else { respuesta = '\uD83D\uDCCA Ya usaste tu *reporte gratuito* de este mes.\n\n\u2B50 *FinBot Premium* — reportes ilimitados + resumen semanal + categorias personalizadas.\n\n*Solo S/ 9.90/mes*\n\nEscribe */premium* para activarlo.'; }
+          else { respuesta = '\uD83D\uDCCA Ya usaste tu *reporte gratuito* de este mes.\n\n\u2B50 *FinBot Premium* â€” reportes ilimitados + resumen semanal + categorias personalizadas.\n\n*Solo S/ 9.90/mes*\n\nEscribe */premium* para activarlo.'; }
         }
         if (puedeGenerar) {
           await enviarWhatsapp(from, 'Generando tu reporte PDF... \u23F3');
@@ -505,7 +505,7 @@ app.post('/webhook', async (req, res) => {
     } else if (cmd === '/premium') {
       const planActual = usuario.plan || 'free';
       if (planActual === 'premium') { respuesta = '\u2B50 *Ya tienes FinBot Premium activo*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\n_Gracias por tu apoyo!_'; }
-      else { respuesta = '\u2B50 *FinBot Premium — S/ 9.90/mes*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\u2705 Sin restricciones\n\nEscribenos para activarlo:\n+51970398192'; }
+      else { respuesta = '\u2B50 *FinBot Premium â€” S/ 9.90/mes*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\u2705 Sin restricciones\n\nEscribenos para activarlo:\n+51970398192'; }
     } else if (cmd === '/categorias' || cmd === '/categorias agregar') {
       var catsCmd = await obtenerCategoriasUsuario(usuario.id);
       if (cmd === '/categorias agregar' || !catsCmd) {
@@ -647,7 +647,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
         if (!txs || txs.length === 0) return 'No encontre gastos en *' + cat + '* para ' + mE[mes] + ' ' + anio + '.';
         const total = txs.reduce((s,t) => s + parseFloat(t.monto), 0);
         let msgCat = '*Gastos en ' + cat + '* (' + mE[mes] + ' ' + anio + ')\n---------------\nTotal: *S/ ' + total.toFixed(2) + '*\n' + txs.length + ' transacciones\n\n';
-        txs.slice(0,10).forEach(t => { msgCat += '\u2022 ' + (t.comercio || t.banco || 'Sin nombre') + ' — S/ ' + parseFloat(t.monto).toFixed(2) + ' (' + t.fecha + ')\n'; });
+        txs.slice(0,10).forEach(t => { msgCat += '\u2022 ' + (t.comercio || t.banco || 'Sin nombre') + ' â€” S/ ' + parseFloat(t.monto).toFixed(2) + ' (' + t.fecha + ')\n'; });
         if (txs.length > 10) msgCat += '_...y ' + (txs.length-10) + ' mas_';
         return msgCat;
       }
@@ -687,7 +687,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
           const resetAnio = resetDate ? parseInt(String(resetDate).slice(0,4)) : null;
           const esMesNuevo = !resetDate || resetMes !== mesActual || resetAnio !== anioActual;
           if (esMesNuevo) { await supabase.from('usuarios').update({ reporte_usos_mes: 0, reporte_reset_mes: anioActual + '-' + String(mesActual).padStart(2,'0') + '-01' }).eq('id', usuario.id); usuario.reporte_usos_mes = 0; }
-          if ((usuario.reporte_usos_mes || 0) >= 1) return '\uD83D\uDCCA Ya usaste tu *reporte gratuito* de este mes.\n\n\u2B50 *FinBot Premium* — reportes ilimitados + resumen semanal + categorias personalizadas.\n\n*Solo S/ 9.90/mes*\n\nEscribe */premium* para activarlo.';
+          if ((usuario.reporte_usos_mes || 0) >= 1) return '\uD83D\uDCCA Ya usaste tu *reporte gratuito* de este mes.\n\n\u2B50 *FinBot Premium* â€” reportes ilimitados + resumen semanal + categorias personalizadas.\n\n*Solo S/ 9.90/mes*\n\nEscribe */premium* para activarlo.';
         }
         await enviarWhatsapp(from, 'Generando tu reporte PDF... \u23F3');
         if (planUsuario2 === 'free') { await supabase.from('usuarios').update({ reporte_usos_mes: (usuario.reporte_usos_mes || 0) + 1 }).eq('id', usuario.id); }
@@ -716,7 +716,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       case 'ver_premium': {
         const planActual2 = usuario.plan || 'free';
         if (planActual2 === 'premium') return '\u2B50 *Ya tienes FinBot Premium activo*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\n_Gracias por tu apoyo!_';
-        return '\u2B50 *FinBot Premium — S/ 9.90/mes*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\u2705 Sin restricciones\n\nEscribenos para activarlo:\n+51970398192';
+        return '\u2B50 *FinBot Premium â€” S/ 9.90/mes*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\u2705 Sin restricciones\n\nEscribenos para activarlo:\n+51970398192';
       }
 
       case 'saludo': {
