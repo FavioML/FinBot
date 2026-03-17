@@ -133,7 +133,7 @@ function formatearResumen(txs, periodo) {
   const _txsUsd = txs.filter(t => t.moneda === 'USD'); const _totalUsd = _txsUsd.reduce((s,t) => s+parseFloat(t.monto), 0);
   const _notaUsd = _txsUsd.length > 0 ? ' (incl USD ' + _totalUsd.toFixed(2) + ')' : '';
   let msg = '*Resumen ' + periodo + '*\n---------------\nTotal: *S/ ' + total.toFixed(2) + '*' + _notaUsd + '\nTransacciones: ' + txs.length + '\n\n*Por categoria:*\n';
-
+  Object.entries(porCat).sort((a, b) => b[1] - a[1]).forEach(([cat, monto]) => {
     msg += '- ' + cat + ': S/ ' + monto.toFixed(2) + ' (' + ((monto/total)*100).toFixed(0) + '%)\n';
   });
   return msg;
