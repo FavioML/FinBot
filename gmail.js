@@ -24,7 +24,6 @@ const PALABRAS_BANCARIAS = [
   'deposito', 'retiro', 'compra', 'comercio', 'monto'
 ];
 
-// Scopes: gmail + profile para obtener nombre y email del usuario
 const SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/userinfo.profile',
@@ -53,7 +52,6 @@ async function guardarTokens(usuarioId, tokens) {
   if (error) throw error;
 }
 
-// Obtiene nombre y email del usuario desde Google Profile API
 async function obtenerPerfilGoogle(authClient) {
   try {
     const oauth2 = google.oauth2({ version: 'v2', auth: authClient });
@@ -79,7 +77,6 @@ async function cargarTokens(usuarioId) {
   };
 }
 
-// Configura cliente OAuth con auto-refresh de token
 async function configurarClienteAutenticado(usuarioId) {
   const tokens = await cargarTokens(usuarioId);
   if (!tokens) return null;
@@ -91,7 +88,6 @@ async function configurarClienteAutenticado(usuarioId) {
   );
   clienteLocal.setCredentials(tokens);
 
-  // Refrescar si expira en menos de 5 minutos
   const necesitaRefresh = tokens.expiry_date && tokens.expiry_date < Date.now() + 5 * 60 * 1000;
   if (necesitaRefresh && tokens.refresh_token) {
     try {
@@ -142,9 +138,8 @@ async function leerCorreosBancarios(usuarioId) {
   const gmail = google.gmail({ version: 'v1', auth: authClient });
 
   const queryDirecto = 'from:(' + REMITENTES_BANCARIOS.join(' OR ') + ') newer_than:2d';
-
   const queryPalabrasClave = '(yape OR "notificacion BCP" OR "consumo con tarjeta" OR "transferencia" OR "pago realizado" OR "cargo en cuenta" OR "abono en cuenta") newer_than:2d';
-  for (const query of [queryDirecto, queryPalabrasClave]) {
+
   const mensajesIds = new Set();
   const todosLosIds = [];
 
@@ -172,11 +167,7 @@ async function leerCorreosBancarios(usuarioId) {
       const cuerpo = extraerTexto(detalle.payload);
       if (!esBancario(asunto + '\n' + cuerpo, asunto)) continue;
       const textoParseo = cuerpo.length > 100 ? cuerpo.substring(0, 1500) : detalle.snippet;
-      mensajes.push({
-      });
-
-
-      });
+      mensajes.push({ id, snippet: detalle.snippet, texto: textoParseo, asunto, remitente, fecha });
     } catch(e) { console.error('Error obteniendo correo:', e.message); }
   }
 

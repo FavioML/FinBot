@@ -157,7 +157,7 @@ async function escanearGmailYRegistrar(usuario) {
   if (!mensajes.length) return null;
   let registradas = 0; let ignoradas = 0; let resumen = '';
   const txsConsultar = [];
-      resumen += '- ' + (resultado.tipo === 'ingreso' ? 'Ingreso' : 'Gasto') + ': ' + (resultado.comercio || resultado.banco || 'Sin nombre') + ' S/ ' + resultado.monto + '\n';
+  for (const msg of mensajes) {
     try {
       const textoParseo = msg.texto || msg.snippet;
       const claveDedup = msg.id;
@@ -168,7 +168,7 @@ async function escanearGmailYRegistrar(usuario) {
       const txGuardada = await guardarTransaccion(usuario.id, { ...resultado, fecha: msg.fecha || resultado.fecha, descripcion_original: claveDedup });
       if (txGuardada && necesitaConsulta(txGuardada)) txsConsultar.push(txGuardada);
       registradas++;
-      resumen += '- ' + (resultado.tipo === 'ingreso' ? 'Ingreso' : 'Gasto') + ': ' + (resultado.comercio || resultado.banco || 'Sin nombre') + ' S/ ' + resultado.monto + (msg.esReenviado ? ' (reenviado)' : '') + '\n';
+      resumen += '- ' + (resultado.tipo === 'ingreso' ? 'Ingreso' : 'Gasto') + ': ' + (resultado.comercio || resultado.banco || 'Sin nombre') + ' S/ ' + resultado.monto + '\n';
     } catch (e) { console.error('Error procesando correo:', e.message); }
   }
   if (registradas === 0) { if (ignoradas > 0) return '*Sin correos nuevos*\n\n' + ignoradas + ' correo(s) ya estaban registrados.'; return null; }
@@ -345,7 +345,6 @@ async function detectarCategoriaIA(texto, usuarioId) {
   } catch(e) { return { categoria: null, subcategoria: null }; }
 }
 
-// GET /webhook
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -375,7 +374,6 @@ app.post('/webhook', async (req, res) => {
     const usuario = await obtenerOCrearUsuario(from);
     const cmd = msg.toLowerCase().trim();
 
-    // == Interceptor: seleccion de categorias (onboarding paso 10) ==
     if (usuario.onboarding_paso === 10 && !cmd.startsWith('/')) {
       var idxResp = parsearIndicesRespuesta(msg, CATEGORIAS_SUGERIDAS.length);
       if (idxResp.length > 0) {
@@ -387,7 +385,6 @@ app.post('/webhook', async (req, res) => {
       }
     }
 
-    // == Interceptor: onboarding paso 20 - presupuesto inicial ==
     if (usuario.onboarding_paso === 20 && !cmd.startsWith('/')) {
       var cmdLower20 = cmd.trim().toLowerCase();
       if (cmdLower20 === 'listo' || cmdLower20 === 'no' || cmdLower20 === 'omitir' || cmdLower20 === 'saltar') {
@@ -406,7 +403,6 @@ app.post('/webhook', async (req, res) => {
       } catch(e) {}
     }
 
-    // == Interceptor: respuestas a consultas pendientes ==
     if (!cmd.startsWith('/') && cmd !== 'hola' && cmd !== 'hi' && cmd !== 'inicio') {
       var pendInter = await obtenerConsultasPendientes(usuario.id);
       if (pendInter.length > 0) {
@@ -489,7 +485,7 @@ app.post('/webhook', async (req, res) => {
           const esMesNuevo = !resetDate || resetMes !== mesActualNum || resetAnio !== anioActualNum;
           if (esMesNuevo) { await supabase.from('usuarios').update({ reporte_usos_mes: 0, reporte_reset_mes: anioActualNum + '-' + String(mesActualNum).padStart(2,'0') + '-01' }).eq('id', usuario.id); usuario.reporte_usos_mes = 0; }
           if ((usuario.reporte_usos_mes || 0) < 1) { puedeGenerar = true; }
-          else { respuesta = '\uD83D\uDCCA Ya usaste tu *reporte gratuito* de este mes.\n\n\u2B50 *FinBot Premium* â€” reportes ilimitados + resumen semanal + categorias personalizadas.\n\n*Solo S/ 9.90/mes*\n\nEscribe */premium* para activarlo.'; }
+          else { respuesta = '\uD83D\uDCCA Ya usaste tu *reporte gratuito* de este mes.\n\n\u2B50 *FinBot Premium* \u2014 reportes ilimitados + resumen semanal + categorias personalizadas.\n\n*Solo S/ 9.90/mes*\n\nEscribe */premium* para activarlo.'; }
         }
         if (puedeGenerar) {
           await enviarWhatsapp(from, 'Generando tu reporte PDF... \u23F3');
@@ -505,7 +501,7 @@ app.post('/webhook', async (req, res) => {
     } else if (cmd === '/premium') {
       const planActual = usuario.plan || 'free';
       if (planActual === 'premium') { respuesta = '\u2B50 *Ya tienes FinBot Premium activo*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\n_Gracias por tu apoyo!_'; }
-      else { respuesta = '\u2B50 *FinBot Premium â€” S/ 9.90/mes*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\u2705 Sin restricciones\n\nEscribenos para activarlo:\n+51970398192'; }
+      else { respuesta = '\u2B50 *FinBot Premium \u2014 S/ 9.90/mes*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\u2705 Sin restricciones\n\nEscribenos para activarlo:\n+51970398192'; }
     } else if (cmd === '/categorias' || cmd === '/categorias agregar') {
       var catsCmd = await obtenerCategoriasUsuario(usuario.id);
       if (cmd === '/categorias agregar' || !catsCmd) {
@@ -520,7 +516,6 @@ app.post('/webhook', async (req, res) => {
       const mesActual = new Date().getMonth() + 1;
       respuesta = '*Comandos FinBot Peru:*\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- ver/configurar presupuesto\n*/categorias* -- categorias\n*/conectar* -- vincular Gmail\n*/escanear* -- leer correos ahora\n*/cambiar [comercio] [cat]* -- corregir categoria\n*/reporte* -- PDF del mes\n*/reporte ' + mesActual + '* -- PDF mes especifico\n*/pendientes* -- gastos sin identificar\n*/premium* -- plan premium\n*hola* -- estado general\n\n_Tambien puedes escribirme en lenguaje natural!_';
     } else {
-      // ROUTER NLP - entiende cualquier mensaje
       respuesta = await procesarMensajeLibre(msg, usuario, from);
     }
     if (respuesta) await enviarWhatsapp(from, respuesta);
@@ -584,9 +579,6 @@ app.post('/test-parser', async (req, res) => {
 
 app.get('/', (req, res) => res.send('FinBot Peru v5'));
 
-// =================================================================
-// NLP v2 - Router de intencion expandido con 15 intenciones
-// =================================================================
 async function procesarMensajeLibre(msg, usuario, from) {
   try {
     const hoy = new Date();
@@ -647,7 +639,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
         if (!txs || txs.length === 0) return 'No encontre gastos en *' + cat + '* para ' + mE[mes] + ' ' + anio + '.';
         const total = txs.reduce((s,t) => s + parseFloat(t.monto), 0);
         let msgCat = '*Gastos en ' + cat + '* (' + mE[mes] + ' ' + anio + ')\n---------------\nTotal: *S/ ' + total.toFixed(2) + '*\n' + txs.length + ' transacciones\n\n';
-        txs.slice(0,10).forEach(t => { msgCat += '\u2022 ' + (t.comercio || t.banco || 'Sin nombre') + ' â€” S/ ' + parseFloat(t.monto).toFixed(2) + ' (' + t.fecha + ')\n'; });
+        txs.slice(0,10).forEach(t => { msgCat += '\u2022 ' + (t.comercio || t.banco || 'Sin nombre') + ' \u2014 S/ ' + parseFloat(t.monto).toFixed(2) + ' (' + t.fecha + ')\n'; });
         if (txs.length > 10) msgCat += '_...y ' + (txs.length-10) + ' mas_';
         return msgCat;
       }
@@ -687,7 +679,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
           const resetAnio = resetDate ? parseInt(String(resetDate).slice(0,4)) : null;
           const esMesNuevo = !resetDate || resetMes !== mesActual || resetAnio !== anioActual;
           if (esMesNuevo) { await supabase.from('usuarios').update({ reporte_usos_mes: 0, reporte_reset_mes: anioActual + '-' + String(mesActual).padStart(2,'0') + '-01' }).eq('id', usuario.id); usuario.reporte_usos_mes = 0; }
-          if ((usuario.reporte_usos_mes || 0) >= 1) return '\uD83D\uDCCA Ya usaste tu *reporte gratuito* de este mes.\n\n\u2B50 *FinBot Premium* â€” reportes ilimitados + resumen semanal + categorias personalizadas.\n\n*Solo S/ 9.90/mes*\n\nEscribe */premium* para activarlo.';
+          if ((usuario.reporte_usos_mes || 0) >= 1) return '\uD83D\uDCCA Ya usaste tu *reporte gratuito* de este mes.\n\n\u2B50 *FinBot Premium* \u2014 reportes ilimitados + resumen semanal + categorias personalizadas.\n\n*Solo S/ 9.90/mes*\n\nEscribe */premium* para activarlo.';
         }
         await enviarWhatsapp(from, 'Generando tu reporte PDF... \u23F3');
         if (planUsuario2 === 'free') { await supabase.from('usuarios').update({ reporte_usos_mes: (usuario.reporte_usos_mes || 0) + 1 }).eq('id', usuario.id); }
@@ -709,14 +701,13 @@ async function procesarMensajeLibre(msg, usuario, from) {
         return lpend.length === 0 ? 'No tienes gastos pendientes. Todo al dia! \uD83D\uDC4D' : formatearPendientes(lpend);
       }
 
-      case 'escanear_gmail': {
+      case 'escanear_gmail':
         return (await escanearGmailYRegistrar(usuario)) || 'No encontre correos bancarios nuevos. Te aviso automaticamente cuando llegue uno.';
-      }
 
       case 'ver_premium': {
         const planActual2 = usuario.plan || 'free';
         if (planActual2 === 'premium') return '\u2B50 *Ya tienes FinBot Premium activo*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\n_Gracias por tu apoyo!_';
-        return '\u2B50 *FinBot Premium â€” S/ 9.90/mes*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\u2705 Sin restricciones\n\nEscribenos para activarlo:\n+51970398192';
+        return '\u2B50 *FinBot Premium \u2014 S/ 9.90/mes*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\u2705 Sin restricciones\n\nEscribenos para activarlo:\n+51970398192';
       }
 
       case 'saludo': {
@@ -753,7 +744,6 @@ async function procesarMensajeLibre(msg, usuario, from) {
     return 'Tuve un problema. Intenta de nuevo o usa: /mes /semana /reporte';
   }
 }
-// =================================================================
 
 async function enviarWhatsapp(numero, mensaje) {
   try {
