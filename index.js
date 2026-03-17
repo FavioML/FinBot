@@ -898,11 +898,9 @@ async function escaneoAutomatico() {
 
 async function generarResumenSemanal(usuario) {
   const hoy = new Date();
-  // Gastos esta semana (ultimos 7 dias)
   const gastosSemana = await obtenerGastosSemana(usuario.id);
   if (!gastosSemana.length) return null;
 
-  // Gastos semana anterior (dias 8 a 14)
   const hace14 = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
   const hace7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const { data: gastosAnt } = await supabase.from('transacciones').select('*')
@@ -914,26 +912,21 @@ async function generarResumenSemanal(usuario) {
   const totalSemana = gastosSemana.reduce((s, t) => s + parseFloat(t.monto), 0);
   const totalAnterior = gastosAnteriores.reduce((s, t) => s + parseFloat(t.monto), 0);
 
-  // Top 3 categorias esta semana
   const porCat = {};
   gastosSemana.forEach(t => { const c = t.categoria || 'Otros'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto); });
   const top3 = Object.entries(porCat).sort((a, b) => b[1] - a[1]).slice(0, 3);
 
-  // Comercio mas frecuente
   const porComercio = {};
   gastosSemana.forEach(t => { const c = t.comercio || t.banco || 'Sin nombre'; porComercio[c] = (porComercio[c] || 0) + 1; });
   const comercioTop = Object.entries(porComercio).sort((a, b) => b[1] - a[1])[0];
 
-  // Dia mas caro
   const porDia = {};
-  gastosSemana.forEach(t => { const d = t.fecha; porDia[d] = (porDia[d] || 0) + parseFloat(t.monto); });
+  gastosSemana.forEach(t => { porDia[t.fecha] = (porDia[t.fecha] || 0) + parseFloat(t.monto); });
   const diaMasCaro = Object.entries(porDia).sort((a, b) => b[1] - a[1])[0];
 
-  // Gastos hormiga (transacciones menores a S/ 20)
   const hormiga = gastosSemana.filter(t => parseFloat(t.monto) <= 20);
   const totalHormiga = hormiga.reduce((s, t) => s + parseFloat(t.monto), 0);
 
-  // Proyeccion mensual
   const diasMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0).getDate();
   const diaActual = hoy.getDate();
   const { data: gastosMesData } = await supabase.from('transacciones').select('monto')
@@ -942,28 +935,21 @@ async function generarResumenSemanal(usuario) {
   const totalMes = (gastosMesData || []).reduce((s, t) => s + parseFloat(t.monto), 0);
   const proyeccionMes = diaActual > 0 ? (totalMes / diaActual) * diasMes : 0;
 
-  // Presupuesto del mes
   const presupuestos = await obtenerPresupuestosMes(usuario.id);
   const limiteTotal = presupuestos.reduce((s, p) => s + parseFloat(p.monto_limite), 0);
 
-  // Comparativa semana anterior
   let comparativa = '';
   if (totalAnterior > 0) {
     const diff = totalSemana - totalAnterior;
     const pct = Math.abs((diff / totalAnterior) * 100).toFixed(0);
-    if (diff > 0) {
-      comparativa = '↗️ *' + pct + '% mas* que la semana pasada (S/ ' + totalAnterior.toFixed(2) + ')';
-    } else if (diff < 0) {
-      comparativa = '↘️ *' + pct + '% menos* que la semana pasada (S/ ' + totalAnterior.toFixed(2) + ') 👏';
-    } else {
-      comparativa = '➡️ Igual que la semana pasada';
-    }
+    if (diff > 0) comparativa = '\u2197\uFE0F *' + pct + '% mas* que la semana pasada (S/ ' + totalAnterior.toFixed(2) + ')';
+    else if (diff < 0) comparativa = '\u2198\uFE0F *' + pct + '% menos* que la semana pasada (S/ ' + totalAnterior.toFixed(2) + ') \uD83D\uDC4F';
+    else comparativa = '\u27A1\uFE0F Igual que la semana pasada';
   }
 
-  // Insight accionable con IA
   let insight = '';
   try {
-    const contextoIA = {
+    const ctx = {
       totalSemana: totalSemana.toFixed(2),
       totalAnterior: totalAnterior > 0 ? totalAnterior.toFixed(2) : null,
       top1: top3[0] ? top3[0][0] + ' S/ ' + top3[0][1].toFixed(2) : null,
@@ -977,107 +963,55 @@ async function generarResumenSemanal(usuario) {
       model: 'gpt-4o-mini',
       messages: [{
         role: 'system',
-        content: 'Eres el asistente financiero de FinBot Peru. Con los datos de gastos semanales del usuario, genera UN insight accionable y personalizado en 1-2 oraciones maximas. Debe ser especifico, util y en tono amigable pero directo. En espanol. Sin emojis al inicio. Ejemplos de buenos insights: "Tu mayor gasto fue Comida, prueba cocinar 2 dias mas esta semana para reducirlo en S/ 30.", "Tus gastos hormiga suman S/ 45, equivale a casi un dia de trabajo.", "Vas bien este mes, si mantienes este ritmo ahorras S/ 200 mas que la semana pasada."'
+        content: 'Eres el asistente financiero de FinBot Peru. Con los datos de gastos semanales genera UN insight accionable en 1-2 oraciones. Especifico, util, tono amigable. En espanol sin emojis al inicio.'
       }, {
         role: 'user',
-        content: 'Datos: ' + JSON.stringify(contextoIA)
+        content: 'Datos: ' + JSON.stringify(ctx)
       }],
       temperature: 0.7,
       max_tokens: 100
     });
     insight = aiRes.choices[0].message.content.trim();
   } catch(e) {
-    // Fallback si falla la IA
-    if (totalSemana > totalAnterior && totalAnterior > 0) {
-      insight = 'Esta semana gastaste mas que la anterior. Revisa tu categoria ' + (top3[0] ? top3[0][0] : 'principal') + ' para encontrar oportunidades de ahorro.';
-    } else if (totalHormiga > 30) {
-      insight = 'Tus gastos pequenos suman S/ ' + totalHormiga.toFixed(2) + '. Son los mas faciles de reducir.';
-    } else {
-      insight = 'Buen trabajo controlando tus gastos esta semana.';
-    }
+    if (totalSemana > totalAnterior && totalAnterior > 0) insight = 'Esta semana gastaste mas que la anterior. Revisa tu categoria ' + (top3[0] ? top3[0][0] : 'principal') + ' para encontrar oportunidades de ahorro.';
+    else if (totalHormiga > 30) insight = 'Tus gastos pequenos suman S/ ' + totalHormiga.toFixed(2) + '. Son los mas faciles de reducir.';
+    else insight = 'Buen trabajo controlando tus gastos esta semana.';
   }
 
-  // Fechas del periodo
   const fechaDesde = hace7.toLocaleDateString('es-PE', { day: 'numeric', month: 'short' });
   const fechaHasta = hoy.toLocaleDateString('es-PE', { day: 'numeric', month: 'short' });
   const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
+  const emojis = ['\uD83E\uDD47', '\uD83E\uDD48', '\uD83E\uDD49'];
 
-  // Construir mensaje
-  let msg = '📊 *Resumen semanal' + (primerNombre ? ', ' + primerNombre : '') + '*
-';
-  msg += '_' + fechaDesde + ' — ' + fechaHasta + '_
-';
-  msg += '---------------
-
-';
-
-  // Total y comparativa
-  msg += '💰 *Total gastado:* S/ ' + totalSemana.toFixed(2) + '
-';
-  if (comparativa) msg += comparativa + '
-';
-  msg += '
-';
-
-  // Top 3 categorias
-  msg += '🔥 *Top categorias:*
-';
-  const emojis = ['🥇', '🥈', '🥉'];
+  let msg = '\uD83D\uDCCA *Resumen semanal' + (primerNombre ? ', ' + primerNombre : '') + '*\n';
+  msg += '_' + fechaDesde + ' \u2014 ' + fechaHasta + '_\n';
+  msg += '---------------\n\n';
+  msg += '\uD83D\uDCB0 *Total gastado:* S/ ' + totalSemana.toFixed(2) + '\n';
+  if (comparativa) msg += comparativa + '\n';
+  msg += '\n';
+  msg += '\uD83D\uDD25 *Top categorias:*\n';
   top3.forEach(([cat, monto], i) => {
     const pct = ((monto / totalSemana) * 100).toFixed(0);
-    msg += emojis[i] + ' ' + cat + ': *S/ ' + monto.toFixed(2) + '* (' + pct + '%)
-';
+    msg += emojis[i] + ' ' + cat + ': *S/ ' + monto.toFixed(2) + '* (' + pct + '%)\n';
   });
-  msg += '
-';
-
-  // Comercio favorito
-  if (comercioTop && comercioTop[1] >= 2) {
-    msg += '🛍️ *Lugar favorito:* ' + comercioTop[0] + ' (' + comercioTop[1] + ' veces)
-';
-  }
-
-  // Dia mas caro
+  msg += '\n';
+  if (comercioTop && comercioTop[1] >= 2) msg += '\uD83D\uDECD\uFE0F *Lugar favorito:* ' + comercioTop[0] + ' (' + comercioTop[1] + ' veces)\n';
   if (diaMasCaro) {
-    const [diaCaro, montoCaro] = diaMasCaro;
-    const nombreDia = new Date(diaCaro + 'T12:00:00').toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'short' });
-    msg += '📅 *Dia mas caro:* ' + nombreDia + ' (S/ ' + montoCaro.toFixed(2) + ')
-';
+    const nombreDia = new Date(diaMasCaro[0] + 'T12:00:00').toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'short' });
+    msg += '\uD83D\uDCC5 *Dia mas caro:* ' + nombreDia + ' (S/ ' + diaMasCaro[1].toFixed(2) + ')\n';
   }
-
-  // Gastos hormiga
-  if (totalHormiga > 20 && hormiga.length >= 3) {
-    msg += '🐜 *Gastos hormiga:* ' + hormiga.length + ' transacciones peq. = S/ ' + totalHormiga.toFixed(2) + '
-';
-  }
-
-  msg += '
-';
-
-  // Proyeccion mensual
+  if (totalHormiga > 20 && hormiga.length >= 3) msg += '\uD83D\uDC1C *Gastos hormiga:* ' + hormiga.length + ' transacciones = S/ ' + totalHormiga.toFixed(2) + '\n';
+  msg += '\n';
   if (proyeccionMes > 0) {
-    msg += '📈 *Proyeccion del mes:* S/ ' + proyeccionMes.toFixed(2);
+    msg += '\uD83D\uDCC8 *Proyeccion del mes:* S/ ' + proyeccionMes.toFixed(2);
     if (limiteTotal > 0) {
       const sobra = limiteTotal - proyeccionMes;
-      if (sobra > 0) {
-        msg += ' ✅ (dentro del presupuesto)';
-      } else {
-        msg += ' ⚠️ (superaria tu presupuesto en S/ ' + Math.abs(sobra).toFixed(2) + ')';
-      }
+      msg += sobra > 0 ? ' \u2705 (dentro del presupuesto)' : ' \u26A0\uFE0F (superaria tu presupuesto en S/ ' + Math.abs(sobra).toFixed(2) + ')';
     }
-    msg += '
-';
+    msg += '\n';
   }
-
-  // Insight IA
-  msg += '
-💡 *Consejo:* ' + insight + '
-';
-
-  // Footer
-  msg += '
-_Escribe /mes para ver el detalle completo o /reporte para tu PDF._';
-
+  msg += '\n\uD83D\uDCA1 *Consejo:* ' + insight + '\n';
+  msg += '\n_Escribe /mes para el detalle o /reporte para tu PDF._';
   return msg;
 }
 
