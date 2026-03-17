@@ -15,6 +15,28 @@ app.use(express.json());
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
+// ── Historial de conversacion ──
+async function guardarMensaje(usuarioId, rol, mensaje) {
+  try {
+    await supabase.from('conversaciones').insert({ usuario_id: usuarioId, rol: rol, mensaje: mensaje.substring(0, 500) });
+    // Limpiar mensajes viejos (mantener solo ultimos 10)
+    const { data: viejos } = await supabase.from('conversaciones').select('id').eq('usuario_id', usuarioId).order('created_at', { ascending: false }).range(10, 100);
+    if (viejos && viejos.length > 0) {
+      await supabase.from('conversaciones').delete().in('id', viejos.map(v => v.id));
+    }
+  } catch(e) { console.error('[HISTORIAL] Error:', e.message); }
+}
+
+async function obtenerHistorial(usuarioId) {
+  try {
+    const { data } = await supabase.from('conversaciones').select('rol, mensaje, created_at').eq('usuario_id', usuarioId).order('created_at', { ascending: false }).limit(6);
+    if (!data || data.length === 0) return [];
+    return data.reverse(); // cronologico
+  } catch(e) { return []; }
+}
+
+
+
 async function obtenerOCrearUsuario(numeroWhatsapp) {
   try {
     const { data } = await supabase.from('usuarios').select('*').eq('whatsapp', numeroWhatsapp).single();
@@ -594,7 +616,11 @@ app.post('/webhook', async (req, res) => {
     } else {
       respuesta = await procesarMensajeLibre(msg, usuario, from);
     }
-    if (respuesta) await enviarWhatsapp(from, respuesta);
+    if (respuesta) {
+      await enviarWhatsapp(from, respuesta);
+      // Guardar respuesta de NETO en historial
+      try { await guardarMensaje(usuario.id, 'neto', respuesta); } catch(e) {}
+    }
   } catch (error) { console.error('ERROR:', error.message); }
 });
 
@@ -691,16 +717,23 @@ app.get('/admin/pendientes', async (req, res) => {
 
 
 // ── NETO: Redactar respuesta con GPT usando el system prompt de NETO ──
-async function redactarConNETO(netoPrompt, contexto, mensajeOriginal) {
+async function redactarConNETO(netoPrompt, contexto, mensajeOriginal, historial) {
   try {
+    // Construir mensajes con historial de conversacion
+    const mensajes = [{ role: 'system', content: netoPrompt }];
+    // Agregar historial previo para contexto
+    if (historial && historial.length > 0) {
+      historial.forEach(h => {
+        mensajes.push({ role: h.rol === 'neto' ? 'assistant' : 'user', content: h.mensaje });
+      });
+    }
+    // Mensaje actual con datos
+    mensajes.push({ role: 'user', content: 'Mensaje del usuario: "' + mensajeOriginal + '"\n\nDatos disponibles:\n' + contexto + '\n\nRedacta la respuesta de NETO. Maximo 8 lineas. Sin markdown pesado. Termina con pregunta o accion concreta si aplica.' });
     const res = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       max_tokens: 400,
       temperature: 0.7,
-      messages: [
-        { role: 'system', content: netoPrompt },
-        { role: 'user', content: 'Mensaje del usuario: "' + mensajeOriginal + '"\n\nDatos disponibles:\n' + contexto + '\n\nRedacta la respuesta de NETO. Maximo 8 lineas. Sin markdown pesado. Termina con pregunta o accion concreta.' }
-      ]
+      messages: mensajes
     });
     return res.choices[0].message.content.trim();
   } catch(e) {
@@ -729,6 +762,12 @@ async function procesarMensajeLibre(msg, usuario, from) {
         .replace(/\{PARSERS_ACTIVOS\}/g, parsersActivos)
         .replace(/\{ULTIMA_SYNC\}/g, ultimaSync);
     } catch(e) { console.error('[NETO] Error cargando system prompt:', e.message); }
+
+    // Cargar historial de conversacion del usuario
+    const historialConv = await obtenerHistorial(usuario.id);
+
+    // Guardar mensaje del usuario en historial
+    await guardarMensaje(usuario.id, 'usuario', msg);
 
     const clasificacion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
@@ -794,7 +833,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
         txsMes.forEach(t => { const cat = t.categoria || 'Otros'; porCatMes[cat] = (porCatMes[cat]||0) + parseFloat(t.monto_pen || t.monto || 0); });
         const catMesStr = Object.entries(porCatMes).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([c,m]) => c + ': S/ ' + m.toFixed(0)).join(', ');
         const ctxMes = mE[mes] + ' ' + anio + ': ' + txsMes.length + ' movimientos. Total: S/ ' + totalMesN.toFixed(0) + '. Categorias: ' + (catMesStr || 'sin datos');
-        const respMes = await redactarConNETO(netoPrompt, ctxMes, msg);
+        const respMes = await redactarConNETO(netoPrompt, ctxMes, msg, historialConv);
         return respMes || formatearResumen(txsMes, 'en ' + mE[mes]);
       }
 
@@ -814,7 +853,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
           (totalAnt > 0 ? 'Semana anterior: S/ ' + totalAnt.toFixed(0) + '. Diferencia: ' + (diffSem >= 0 ? '+' : '') + 'S/ ' + diffSem.toFixed(0) + '. ' : '') +
           'Top categorias: ' + (catSemStr || 'sin datos') + '. ' +
           'Dia mas caro: ' + (txsSem.length > 0 ? txsSem.reduce((max,t) => parseFloat(t.monto_pen||t.monto||0) > parseFloat(max.monto_pen||max.monto||0) ? t : max, txsSem[0]).fecha : 'sin datos');
-        const respSem = await redactarConNETO(netoPrompt, ctxSem, msg);
+        const respSem = await redactarConNETO(netoPrompt, ctxSem, msg, historialConv);
         return respSem || formatearResumen(txsSem, 'esta semana');
       }
             case 'listar_gastos_categoria': {
@@ -842,13 +881,13 @@ async function procesarMensajeLibre(msg, usuario, from) {
         if (catVt) txsVt = txsVt.filter(t => (t.categoria||'').toLowerCase().includes(catVt.toLowerCase()));
         const totalVt = txsVt.reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
         const ctxVt = (catVt ? 'Categoria ' + catVt + ' en ' : 'Total ') + periodoVt + ': S/ ' + totalVt.toFixed(0) + ' en ' + txsVt.length + ' movimientos.';
-        const respVt = await redactarConNETO(netoPrompt, ctxVt, msg);
+        const respVt = await redactarConNETO(netoPrompt, ctxVt, msg, historialConv);
         return respVt || 'Llevas *S/ ' + totalVt.toFixed(0) + '* ' + (catVt ? 'en ' + catVt + ' ' : '') + 'esta ' + periodoVt + ' (' + txsVt.length + ' movimientos).';
       }
             case 'ver_presupuesto': {
         const presupStr = await formatearEstadoPresupuesto(usuario.id);
         const ctxVp = 'Estado del presupuesto del usuario: ' + presupStr.replace(/[*_]/g, '');
-        const respVp = await redactarConNETO(netoPrompt, ctxVp, msg);
+        const respVp = await redactarConNETO(netoPrompt, ctxVp, msg, historialConv);
         return respVp || presupStr;
       }
 
@@ -911,12 +950,12 @@ async function procesarMensajeLibre(msg, usuario, from) {
         const pendSaludo = await obtenerConsultasPendientes(usuario.id);
         const ctxSaludo = 'El usuario saluda. Contexto: este mes lleva S/ ' + totalSaludo.toFixed(0) + ' en ' + gastosSaludo.length + ' movimientos.' +
           (pendSaludo.length > 0 ? ' Tiene ' + pendSaludo.length + ' gasto(s) sin identificar.' : ' Sin pendientes.');
-        const respSaludo = await redactarConNETO(netoPrompt, ctxSaludo, msg);
+        const respSaludo = await redactarConNETO(netoPrompt, ctxSaludo, msg, historialConv);
         return respSaludo || ('\uD83D\uDC4B Hola' + (usuario.nombre ? ', ' + usuario.nombre.split(' ')[0] : '') + '. Soy NETO.\n\nEste mes llevas *S/ ' + totalSaludo.toFixed(0) + '* en ' + gastosSaludo.length + ' movimientos.\n\n\u00bfQue revisamos?');
       }
             case 'ayuda': {
         const ctxAyu = 'El usuario pregunta que puede hacer NETO o como funciona. Explica brevemente las capacidades: ver gastos, resumen semanal y mensual, presupuestos, reporte PDF, corregir categorias. Todo en tono NETO.';
-        const respAyu = await redactarConNETO(netoPrompt, ctxAyu, msg);
+        const respAyu = await redactarConNETO(netoPrompt, ctxAyu, msg, historialConv);
         return respAyu || 'Puedo ayudarte con tus gastos, presupuestos y reportes. Escribe como quieras: _"cuanto gaste esta semana"_, _"como va mi delivery"_, _"dame mi reporte"_. \u00bfPor donde empezamos?';
       }
 
@@ -933,13 +972,13 @@ async function procesarMensajeLibre(msg, usuario, from) {
           } catch(e) {}
         }
         const ctxDef = 'El usuario envio un mensaje que no encaja claramente con ninguna intencion: "' + msg + '". Responde en tono NETO: reconoce el mensaje, ofrece ayuda concreta con los gastos o finanzas del usuario.';
-        const respDef = await redactarConNETO(netoPrompt, ctxDef, msg);
+        const respDef = await redactarConNETO(netoPrompt, ctxDef, msg, historialConv);
         return respDef || 'No entendi bien, pero estoy aqui. Escribe _"cuanto gaste esta semana"_ o _"dame mi reporte"_ y arrancamos. \u00bfQue necesitas?';
       }
     }
   } catch(e) {
     console.error('[NLP] Error:', e.message);
-    return 'Tuve un problema. Intenta de nuevo o usa: /mes /semana /reporte';
+    return 'Tuve un problema. Intenta de nuevo.';
   }
 }
 
