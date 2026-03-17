@@ -132,13 +132,15 @@ function formatearResumen(txs, periodo) {
   txs.forEach(t => { const c = t.categoria || 'Otro'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto_pen || t.monto); });
   const _txsUsd = txs.filter(t => t.moneda === 'USD'); const _totalUsd = _txsUsd.reduce((s,t) => s+parseFloat(t.monto), 0);
   const _notaUsd = _txsUsd.length > 0 ? ' (incl USD ' + _totalUsd.toFixed(2) + ')' : '';
-  const emojiCat = { 'Comida':'ðŸ”','Delivery':'ðŸ”','Restaurantes':'â˜•','Supermercados':'ðŸ›’','Transporte':'ðŸš—','Auto':'ðŸš—','Streaming':'ðŸ“±','Suscripciones':'ðŸ“±','Entretenimiento':'ðŸŽ®','Salud':'ðŸ’Š','Farmacia':'ðŸ’Š','Educacion':'ðŸ“š','Viajes':'âœˆï¸','Compras':'ðŸ‘•','Hogar':'ðŸ ','Transferencia':'ðŸ’¸','Servicios':'âš¡','Otros':'ðŸ“‹' };
-  let msg = '\uD83D\uDCCA *' + periodo + '*\nTotal: *S/ ' + total.toFixed(0) + '*' + _notaUsd + ' \u2022 ' + txs.length + ' movimientos\n';
+  const _emojiCat = {'Comida':'\uD83C\uDF54','Delivery':'\uD83C\uDF54','Restaurantes':'\u2615','Supermercados':'\uD83D\uDED2','Transporte':'\uD83D\uDE97','Auto':'\uD83D\uDE97','Streaming':'\uD83D\uDCF1','Suscripciones':'\uD83D\uDCF1','Entretenimiento':'\uD83C\uDFAE','Salud':'\uD83D\uDC8A','Farmacia':'\uD83D\uDC8A','Educacion':'\uD83D\uDCDA','Viajes':'\u2708\uFE0F','Compras':'\uD83D\uDC55','Hogar':'\uD83C\uDFE0','Transferencia':'\uD83D\uDCB8','Servicios':'\u26A1','Otros':'\uD83D\uDCCB'};
+  let msg = '\uD83D\uDCCA *' + periodo + '*\nTotal: *S/ ' + total.toFixed(0) + '*' + _notaUsd + ' \u2022 ' + txs.length + ' movimientos\n\n';
   Object.entries(porCat).sort((a, b) => b[1] - a[1]).forEach(([cat, monto]) => {
-    const em = emojiCat[cat] || '\uD83D\uDCCB';
-    msg += em + ' ' + cat + ': *S/ ' + monto.toFixed(0) + '* (' + ((monto/total)*100).toFixed(0) + '%)\n';
+    const _em = _emojiCat[cat] || '\uD83D\uDCCB';
+    msg += _em + ' ' + cat + ': *S/ ' + monto.toFixed(0) + '* (' + ((monto/total)*100).toFixed(0) + '%)\n';
   });
   return msg;
+}
+
 async function formatearEstadoPresupuesto(usuarioId) {
   const presupuestos = await obtenerPresupuestosMes(usuarioId);
   if (!presupuestos.length) return 'No tienes presupuestos configurados.\n\nEj: _"pon limite de 500 en Comida"_';
@@ -402,7 +404,7 @@ app.post('/webhook', async (req, res) => {
       if (cmdLower20 === 'listo' || cmdLower20 === 'no' || cmdLower20 === 'omitir' || cmdLower20 === 'saltar') {
         await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
         var primerNombre20 = usuario.nombre ? usuario.nombre.split(' ')[0] : '';
-        respuesta = (primerNombre20 ? 'Listo, ' + primerNombre20 + '.' : 'Listo.') + ' Ya estoy trabajando por ti.\n\nEscribeme como quieras:\n_cuanto gaste esta semana_\n_como va mi delivery_\n_dame mi reporte_\n\n\u00bfPor donde empezamos?';
+        respuesta = (primerNombre20 ? 'Listo, ' + primerNombre20 + '.' : 'Listo.') + ' Ya estoy trabajando por ti.\n\nEscribeme como quieras:\n_"cuanto gaste esta semana"_\n_"como va mi delivery"_\n_"dame mi reporte"_\n\n\u00bfPor donde empezamos?';
         await enviarWhatsapp(from, respuesta); return;
       }
       try {
@@ -432,7 +434,7 @@ app.post('/webhook', async (req, res) => {
       if (!tieneGmail) {
         var urlOAuth = generarUrlAutorizacion(from);
         await supabase.from('usuarios').update({ onboarding_paso: 1 }).eq('id', usuario.id);
-        respuesta = '\uD83D\uDC4B Hola' + (primerNombre ? ', ' + primerNombre : '') + '. Soy NETO, tu asistente financiero por WhatsApp.\n\nLeo tus correos de BCP, Interbank, BBVA, Scotiabank, Yape y Plin automaticamente.\n\nPara empezar, conecta tu Gmail:\n\n' + urlOAuth + '\n\n_Solo leemos notificaciones bancarias. Sin contrasenas bancarias._ \uD83D\uDD12';
+        respuesta = '\uD83D\uDC4B Hola' + (primerNombre ? ', ' + primerNombre : '') + '. Soy NETO, tu asistente financiero.\n\nLeo tus correos de BCP, Interbank, BBVA, Scotiabank, Yape y Plin automaticamente.\n\nPara empezar, conecta tu Gmail:\n\n' + urlOAuth + '\n\n_Solo leemos notificaciones bancarias. Sin contrasenas bancarias._ \uD83D\uDD12';
       } else {
         var gastosMesHola = await obtenerGastosMes(usuario.id);
         var totalMesHola = gastosMesHola.reduce(function(s,t){return s+parseFloat(t.monto);},0);
@@ -441,7 +443,7 @@ app.post('/webhook', async (req, res) => {
         var catsHola = await obtenerCategoriasUsuario(usuario.id);
         var tipCats = (!usuario.onboarding_completado && !catsHola) ? '\n\n\uD83D\uDCA1 Escribe */categorias* para personalizar tus categorias.' : '';
         var saludo = primerNombre ? 'Hola, ' + primerNombre + '!' : 'Hola!';
-        respuesta = (primerNombre ? 'Hola, ' + primerNombre + '.' : 'Hola.') + ' Soy NETO.\n\n' +
+        respuesta = '\uD83D\uDC4B Hola' + (primerNombre ? ', ' + primerNombre : '') + '. Soy NETO.\n\n' +
           (gastosMesHola.length > 0 ? 'Este mes llevas *S/ ' + totalMesHola.toFixed(0) + '* en ' + gastosMesHola.length + ' movimientos.' : 'Sin movimientos este mes aun.') +
           (pendHola.length > 0 ? '\n\n\u2757 ' + pendHola.length + ' gasto(s) sin identificar. Escribe */pendientes*.' : '') +
           '\n\n\u00bfQue revisamos?';
@@ -862,11 +864,9 @@ async function procesarMensajeLibre(msg, usuario, from) {
         const pend2 = await obtenerConsultasPendientes(usuario.id);
         const alertaPend2 = pend2.length > 0 ? '\n\n\u2757 *' + pend2.length + ' gasto(s) sin identificar.* Escribe */pendientes*.' : '';
         const nombre2 = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
-        const saludo2emoji = '\uD83D\uDC4B Hola' + (nombre2 ? ', ' + nombre2 : '') + '.';
-        const totalMes2str = gastosMes2.length > 0 ? 'Este mes llevas *S/ ' + totalMes2.toFixed(0) + '* en ' + gastosMes2.length + ' movimientos.' : 'Sin movimientos este mes aun.';
-        return saludo2emoji + ' Soy NETO.\n\n' + totalMes2str + alertaPend2 + '\n\n\u00bfQue revisamos?';
-
-
+        return '*' + (nombre2 ? 'Hola, ' + nombre2 + '!' : 'Hola!') + ' Soy NETO*\n\nGmail: Conectado\n' +
+          (gastosMes2.length > 0 ? '*Este mes:* S/ ' + totalMes2.toFixed(2) + ' en ' + gastosMes2.length + ' transacciones' : 'Sin transacciones este mes.') +
+          alertaPend2 + '\n\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- presupuesto\n*/categorias* -- mis categorias\n*/reporte* -- PDF del mes\n*/ayuda* -- todos los comandos';
       }
 
       case 'ayuda':
