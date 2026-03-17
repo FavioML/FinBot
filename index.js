@@ -214,8 +214,11 @@ async function generarYEnviarReporte(usuario, mes, anio) {
   global.reportesTemp[reporteId] = { html: html, expires: Date.now() + 60 * 60 * 1000 };
   return { ok: true, reporteId, txCount: txs.length };
 }
+async function recategorizarTransaccion(usuarioId, comercio, categoriaNueva) {
+  const { data: txs } = await supabase.from('transacciones').select('*').eq('usuario_id', usuarioId).ilike('comercio', '%' + comercio + '%').order('created_at', { ascending: false }).limit(5);
+  if (!txs || txs.length === 0) return { ok: false, msg: 'No encontre ninguna transaccion de *' + comercio + '*.' };
   const tx = txs[0];
-  const { error } = await supabase.from('transacciones').update({ categoria: categoriaNueva }).eq('id', tx.id);
+
   if (error) return { ok: false, msg: 'Error actualizando: ' + error.message };
   return { ok: true, msg: 'Listo! Cambie la categoria de *' + (tx.comercio || comercio) + '* (S/ ' + tx.monto + ') de *' + (tx.categoria || 'Sin categoria') + '* a *' + categoriaNueva + '*.' };
 }
