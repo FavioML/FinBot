@@ -132,14 +132,14 @@ function formatearResumen(txs, periodo) {
   txs.forEach(t => { const c = t.categoria || 'Otro'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto_pen || t.monto); });
   const _txsUsd = txs.filter(t => t.moneda === 'USD'); const _totalUsd = _txsUsd.reduce((s,t) => s+parseFloat(t.monto), 0);
   const _notaUsd = _txsUsd.length > 0 ? ' (incl USD ' + _totalUsd.toFixed(2) + ')' : '';
-  let msg = '*Resumen ' + periodo + '*\n---------------\nTotal: *S/ ' + total.toFixed(2) + '*' + _notaUsd + '\nTransacciones: ' + txs.length + '\n\n*Por categoria:*\n';
+  const emojiCat = { 'Comida':'🍔','Delivery':'🍔','Restaurantes':'☕','Supermercados':'🛒','Transporte':'🚗','Auto':'🚗','Streaming':'📱','Suscripciones':'📱','Entretenimiento':'🎮','Salud':'💊','Farmacia':'💊','Educacion':'📚','Viajes':'✈️','Compras':'👕','Hogar':'🏠','Transferencia':'💸','Servicios':'⚡','Otros':'📋' };
+  let msg = '\uD83D\uDCCA *' + periodo + '*\nTotal: *S/ ' + total.toFixed(0) + '*' + _notaUsd + ' \u2022 ' + txs.length + ' movimientos\n';
   Object.entries(porCat).sort((a, b) => b[1] - a[1]).forEach(([cat, monto]) => {
-    msg += '- ' + cat + ': S/ ' + monto.toFixed(2) + ' (' + ((monto/total)*100).toFixed(0) + '%)\n';
+    const em = emojiCat[cat] || '\uD83D\uDCCB';
+    msg += em + ' ' + cat + ': *S/ ' + monto.toFixed(0) + '* (' + ((monto/total)*100).toFixed(0) + '%)\n';
   });
   return msg;
 }
-
-async function formatearEstadoPresupuesto(usuarioId) {
   const presupuestos = await obtenerPresupuestosMes(usuarioId);
   if (!presupuestos.length) return 'No tienes presupuestos configurados.\n\nEj: _"pon limite de 500 en Comida"_';
   const hoy = new Date();
@@ -862,9 +862,11 @@ async function procesarMensajeLibre(msg, usuario, from) {
         const pend2 = await obtenerConsultasPendientes(usuario.id);
         const alertaPend2 = pend2.length > 0 ? '\n\n\u2757 *' + pend2.length + ' gasto(s) sin identificar.* Escribe */pendientes*.' : '';
         const nombre2 = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
-        return '*' + (nombre2 ? 'Hola, ' + nombre2 + '!' : 'Hola!') + ' Soy NETO*\n\nGmail: Conectado\n' +
-          (gastosMes2.length > 0 ? '*Este mes:* S/ ' + totalMes2.toFixed(2) + ' en ' + gastosMes2.length + ' transacciones' : 'Sin transacciones este mes.') +
-          alertaPend2 + '\n\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- presupuesto\n*/categorias* -- mis categorias\n*/reporte* -- PDF del mes\n*/ayuda* -- todos los comandos';
+        const saludo2emoji = '\uD83D\uDC4B Hola' + (nombre2 ? ', ' + nombre2 : '') + '.';
+        const totalMes2str = gastosMes2.length > 0 ? 'Este mes llevas *S/ ' + totalMes2.toFixed(0) + '* en ' + gastosMes2.length + ' movimientos.' : 'Sin movimientos este mes aun.';
+        return saludo2emoji + ' Soy NETO.\n\n' + totalMes2str + alertaPend2 + '\n\n\u00bfQue revisamos?';
+
+
       }
 
       case 'ayuda':
