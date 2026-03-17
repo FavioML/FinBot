@@ -25,9 +25,12 @@ async function obtenerOCrearUsuario(numeroWhatsapp) {
   return nuevo;
 }
 
-async function guardarTransaccion(usuarioId, datos) {
+  const _moneda = datos.moneda || 'PEN';
+  let _montoPen = parseFloat(datos.monto); let _tcUsado = null;
+  if (_moneda === 'USD') { try { const _tc = await obtenerTipoCambio(); _tcUsado = _tc.venta; _montoPen = parseFloat((parseFloat(datos.monto) * _tc.venta).toFixed(2)); } catch(e) {} }
   const { data, error } = await supabase.from('transacciones').insert({
-    usuario_id: usuarioId, tipo: datos.tipo, monto: datos.monto, moneda: datos.moneda || 'PEN',
+    usuario_id: usuarioId, tipo: datos.tipo, monto: datos.monto, moneda: _moneda, monto_pen: _montoPen, tipo_cambio: _tcUsado,
+    comercio: datos.comercio, categoria: datos.categoria, banco: datos.banco,
     comercio: datos.comercio, categoria: datos.categoria, banco: datos.banco,
     fecha: datos.fecha || new Date().toISOString().split('T')[0],
     descripcion_original: datos.descripcion_original, confirmado: false
@@ -124,11 +127,13 @@ function barraProgreso(pct) {
 
 function formatearResumen(txs, periodo) {
   if (!txs.length) return 'No hay gastos registrados ' + periodo + '.';
-  const total = txs.reduce((s, t) => s + parseFloat(t.monto), 0);
+  const total = txs.reduce((s, t) => s + parseFloat(t.monto_pen || t.monto), 0);
   const porCat = {};
-  txs.forEach(t => { const c = t.categoria || 'Otro'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto); });
-  let msg = '*Resumen ' + periodo + '*\n---------------\nTotal: *S/ ' + total.toFixed(2) + '*\nTransacciones: ' + txs.length + '\n\n*Por categoria:*\n';
-  Object.entries(porCat).sort((a, b) => b[1] - a[1]).forEach(([cat, monto]) => {
+  txs.forEach(t => { const c = t.categoria || 'Otro'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto_pen || t.monto); });
+  const _txsUsd = txs.filter(t => t.moneda === 'USD'); const _totalUsd = _txsUsd.reduce((s,t) => s+parseFloat(t.monto), 0);
+  const _notaUsd = _txsUsd.length > 0 ? ' (incl USD ' + _totalUsd.toFixed(2) + ')' : '';
+  let msg = '*Resumen ' + periodo + '*\n---------------\nTotal: *S/ ' + total.toFixed(2) + '*' + _notaUsd + '\nTransacciones: ' + txs.length + '\n\n*Por categoria:*\n';
+
     msg += '- ' + cat + ': S/ ' + monto.toFixed(2) + ' (' + ((monto/total)*100).toFixed(0) + '%)\n';
   });
   return msg;
@@ -961,11 +966,11 @@ async function generarResumenSemanal(usuario) {
     .lt('fecha', hace7.toISOString().split('T')[0]);
   const gastosAnteriores = gastosAnt || [];
 
-  const totalSemana = gastosSemana.reduce((s, t) => s + parseFloat(t.monto), 0);
-  const totalAnterior = gastosAnteriores.reduce((s, t) => s + parseFloat(t.monto), 0);
+  const totalSemana = gastosSemana.reduce((s, t) => s + parseFloat(t.monto_pen || t.monto), 0);
+  const totalAnterior = gastosAnteriores.reduce((s, t) => s + parseFloat(t.monto_pen || t.monto), 0);
 
   const porCat = {};
-  gastosSemana.forEach(t => { const c = t.categoria || 'Otros'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto); });
+  gastosSemana.forEach(t => { const c = t.categoria || 'Otros'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto_pen || t.monto); });
   const top3 = Object.entries(porCat).sort((a, b) => b[1] - a[1]).slice(0, 3);
 
   const porComercio = {};
