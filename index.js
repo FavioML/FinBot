@@ -32,7 +32,7 @@ async function guardarTransaccion(usuarioId, datos) {
     usuario_id: usuarioId, tipo: datos.tipo, monto: datos.monto, moneda: _moneda, monto_pen: _montoPen, tipo_cambio: _tcUsado,
     comercio: datos.comercio, categoria: datos.categoria, banco: datos.banco,
     fecha: datos.fecha || new Date().toISOString().split('T')[0],
-    descripcion_original: datos.descripcion_original, confirmado: false
+
     descripcion_original: datos.descripcion_original, confirmado: false
   }).select().single();
   if (error) throw error;
