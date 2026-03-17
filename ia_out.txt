@@ -1,2 +1,0 @@
-Funcion inyectada OK
-SINTAXIS OK - lineas: 673
