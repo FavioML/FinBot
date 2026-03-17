@@ -189,7 +189,7 @@ async function escanearGmailYRegistrar(usuario) {
       }
     }, 3000);
   }
-  return '\uD83D\uDCEC Revise tu Gmail \u2014 *' + registradas + ' movimiento(s) nuevo(s)*:\n\n' + resumen + '\n\u00bfLo revisamos con /mes?';
+  return '*FinBot escaneo tu Gmail*\n\nRegistre *' + registradas + '* transaccion(es):\n' + resumen + '\nEscribe */mes* para ver tu resumen.';
 }
 
 async function generarYEnviarReporte(usuario, mes, anio) {
@@ -432,7 +432,7 @@ app.post('/webhook', async (req, res) => {
       if (!tieneGmail) {
         var urlOAuth = generarUrlAutorizacion(from);
         await supabase.from('usuarios').update({ onboarding_paso: 1 }).eq('id', usuario.id);
-        respuesta = '\uD83D\uDC4B Hola' + (primerNombre ? ', ' + primerNombre : '') + '. Soy NETO, tu asistente financiero por WhatsApp.\n\nLeo tus correos de BCP, Interbank, BBVA, Scotiabank, Yape y Plin automaticamente.\n\nPara empezar, conecta tu Gmail:\n\n' + urlOAuth + '\n\n_Solo leemos notificaciones bancarias. Sin contrasenas bancarias._ \uD83D\uDD12';
+        respuesta = '\uD83D\uDC4B *Hola' + (primerNombre ? ', ' + primerNombre : '') + '! Soy FinBot Peru*\n\nTu asistente de finanzas personales por WhatsApp. \uD83D\uDCB0\n\n*Lo que hago por ti:*\n\u2705 Leo tus correos bancarios automaticamente\n\u2705 Registro tus gastos e ingresos\n\u2705 Te aviso cuando te acercas a tu limite\n\u2705 Genero reportes PDF mensuales\n\n*Bancos:* BCP, Interbank, BBVA, Scotiabank, Yape, Plin\n\n*Paso 1 de 2:* Conecta tu Gmail:\n\n' + urlOAuth + '\n\n_Solo leemos notificaciones bancarias. 100% seguro._ \uD83D\uDD12';
       } else {
         var gastosMesHola = await obtenerGastosMes(usuario.id);
         var totalMesHola = gastosMesHola.reduce(function(s,t){return s+parseFloat(t.monto);},0);
@@ -441,13 +441,13 @@ app.post('/webhook', async (req, res) => {
         var catsHola = await obtenerCategoriasUsuario(usuario.id);
         var tipCats = (!usuario.onboarding_completado && !catsHola) ? '\n\n\uD83D\uDCA1 Escribe */categorias* para personalizar tus categorias.' : '';
         var saludo = primerNombre ? 'Hola, ' + primerNombre + '!' : 'Hola!';
-        respuesta = (primerNombre ? 'Hola, ' + primerNombre + '.' : 'Hola.') + ' Soy NETO.\n\n' +
+        respuesta = '*' + saludo + ' Soy FinBot Peru*\n\nGmail: Conectado\n' +
           (gastosMesHola.length > 0 ? '*Este mes:* S/ ' + totalMesHola.toFixed(2) + ' en ' + gastosMesHola.length + ' transacciones' : 'Sin transacciones este mes.') +
           alertaPend + tipCats +
           '\n\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- presupuesto\n*/categorias* -- mis categorias\n*/reporte* -- PDF del mes\n*/pendientes* -- gastos sin identificar\n*/ayuda* -- todos los comandos';
       }
     } else if (esUsuarioNuevo && !cmd.startsWith('/')) {
-      respuesta = '\uD83D\uDC4B Hola. Soy NETO, tu asistente financiero.\n\nEscribe *hola* para empezar.';
+      respuesta = 'Bienvenido a *FinBot Peru*!\n\nEscribe *hola* para empezar.';
     } else if (cmd === '/conectar') {
       respuesta = '*Conectar Gmail a FinBot*\n\nAbre este enlace:\n\n' + generarUrlAutorizacion(from) + '\n\n_Solo leeremos correos bancarios. Proceso seguro._';
     } else if (cmd === '/escanear') {
@@ -497,7 +497,7 @@ app.post('/webhook', async (req, res) => {
           else { respuesta = '\uD83D\uDCCA Ya usaste tu *reporte gratuito* de este mes.\n\n\u2B50 *FinBot Premium* \u2014 reportes ilimitados + resumen semanal + categorias personalizadas.\n\n*Solo S/ 9.90/mes*\n\nEscribe */premium* para activarlo.'; }
         }
         if (puedeGenerar) {
-          await enviarWhatsapp(from, 'Preparando tu reporte de ' + MESES[mesR] + '... \u23F3');
+          await enviarWhatsapp(from, 'Generando tu reporte PDF... \u23F3');
           if (planUsuario === 'free') { await supabase.from('usuarios').update({ reporte_usos_mes: (usuario.reporte_usos_mes || 0) + 1 }).eq('id', usuario.id); }
           const railwayUrl = process.env.RAILWAY_URL || 'https://finbot-production-c662.up.railway.app';
           generarYEnviarReporte(usuario, mesR, anioR).then(async (result) => {
@@ -588,7 +588,7 @@ app.post('/webhook', async (req, res) => {
       respuesta = lpend.length === 0 ? 'No tienes gastos pendientes.' : formatearPendientes(lpend);
     } else if (cmd === '/ayuda') {
       const mesActual = new Date().getMonth() + 1;
-      respuesta = '*Comandos NETO:*\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- ver/configurar presupuesto\n*/categorias* -- categorias\n*/conectar* -- vincular Gmail\n*/escanear* -- leer correos ahora\n*/cambiar [comercio] [cat]* -- corregir categoria\n*/reporte* -- PDF del mes\n*/reporte ' + mesActual + '* -- PDF mes especifico\n*/pendientes* -- gastos sin identificar\n*/premium* -- plan premium\n*hola* -- estado general\n\n_Tambien puedes escribirme en lenguaje natural!_';
+      respuesta = '*Comandos FinBot Peru:*\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- ver/configurar presupuesto\n*/categorias* -- categorias\n*/conectar* -- vincular Gmail\n*/escanear* -- leer correos ahora\n*/cambiar [comercio] [cat]* -- corregir categoria\n*/reporte* -- PDF del mes\n*/reporte ' + mesActual + '* -- PDF mes especifico\n*/pendientes* -- gastos sin identificar\n*/premium* -- plan premium\n*hola* -- estado general\n\n_Tambien puedes escribirme en lenguaje natural!_';
     } else {
       respuesta = await procesarMensajeLibre(msg, usuario, from);
     }
