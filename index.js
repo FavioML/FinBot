@@ -288,9 +288,15 @@ async function generarYEnviarReporte(usuario, mes, anio) {
     if (tot > 0) historial.push({ mes: hm, anio: ha, total: tot });
   }
   const html = generarReporteHTML({ nombre: usuario.nombre || 'Usuario', mes, anio, transacciones: txs, presupuestos, historialMeses: historial });
-  const reporteId = Date.now();
-  global.reportesTemp = global.reportesTemp || {};
-  global.reportesTemp[reporteId] = { html: html, expires: Date.now() + 60 * 60 * 1000 };
+  const reporteId = String(Date.now());
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  // Guardar en Supabase en vez de memoria — sobrevive redeployos
+  const { error: cacheErr } = await supabase.from('reporte_cache').upsert({
+    id: reporteId, usuario_id: usuario.id, html, expires_at: expiresAt
+  });
+  if (cacheErr) { console.error('[REPORTE] Error guardando cache:', cacheErr.message); }
+  // Limpiar reportes expirados del mismo usuario (housekeeping silencioso)
+  supabase.from('reporte_cache').delete().eq('usuario_id', usuario.id).lt('expires_at', new Date().toISOString()).then(() => {}).catch(() => {});
   return { ok: true, reporteId, txCount: txs.length };
 }
 async function recategorizarTransaccion(usuarioId, comercio, categoriaNueva) {
@@ -714,14 +720,24 @@ app.post('/webhook', async (req, res) => {
   } catch (error) { console.error('ERROR:', error.message); }
 });
 
-app.get('/reporte/:id', (req, res) => {
+app.get('/reporte/:id', async (req, res) => {
   const id = req.params.id;
-  global.reportesTemp = global.reportesTemp || {};
-  const entry = global.reportesTemp[id];
-  if (!entry) return res.status(404).send('<h2>Reporte no encontrado o expirado.</h2><p>El link es valido por 1 hora. Genera uno nuevo con /reporte</p>');
-  if (Date.now() > entry.expires) { delete global.reportesTemp[id]; return res.status(404).send('<h2>El link del reporte expiro.</h2><p>Genera uno nuevo escribiendo /reporte</p>'); }
-  res.set('Content-Type', 'text/html; charset=utf-8');
-  res.send(entry.html);
+  try {
+    const { data: entry, error } = await supabase
+      .from('reporte_cache').select('html, expires_at').eq('id', id).single();
+    if (error || !entry) {
+      return res.status(404).send('<h2>Reporte no encontrado o expirado.</h2><p>El link es valido por 1 hora. Genera uno nuevo con /reporte</p>');
+    }
+    if (new Date(entry.expires_at) < new Date()) {
+      await supabase.from('reporte_cache').delete().eq('id', id);
+      return res.status(404).send('<h2>El link del reporte expiro.</h2><p>Genera uno nuevo escribiendo /reporte</p>');
+    }
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    res.send(entry.html);
+  } catch(e) {
+    console.error('[REPORTE] Error leyendo cache:', e.message);
+    res.status(500).send('<h2>Error cargando el reporte. Intenta de nuevo.</h2>');
+  }
 });
 
 
@@ -1351,151 +1367,3 @@ async function obtenerUltimaTransaccion(usuarioId) {
     .order('created_at', { ascending: false }).limit(1).single();
   return data || null;
 }
-async function escaneoAutomatico() {
-  console.log('[AUTO] Escaneo -', new Date().toLocaleString('es-PE'));
-  try {
-    const { data: usuarios } = await supabase.from('usuarios').select('*').not('gmail_access_token', 'is', null);
-    if (!usuarios || usuarios.length === 0) return;
-    for (const usuario of usuarios) {
-      try {
-        const resultado = await escanearGmailYRegistrar(usuario);
-        if (resultado && resultado.includes('Registre')) { await enviarWhatsapp(usuario.whatsapp, '\uD83D\uDD04 *Escaneo automatico*\n\n' + resultado); }
-      } catch (e) { console.error('[AUTO] Error usuario', usuario.whatsapp, ':', e.message); }
-    }
-  } catch (e) { console.error('[AUTO] Error general:', e.message); }
-}
-
-async function generarResumenSemanal(usuario) {
-  const hoy = new Date();
-  const gastosSemana = await obtenerGastosSemana(usuario.id);
-  if (!gastosSemana.length) return null;
-
-  const hace14 = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
-  const hace7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-  const { data: gastosAnt } = await supabase.from('transacciones').select('*')
-    .eq('usuario_id', usuario.id).eq('tipo', 'gasto')
-    .gte('fecha', hace14.toISOString().split('T')[0])
-    .lt('fecha', hace7.toISOString().split('T')[0]);
-  const gastosAnteriores = gastosAnt || [];
-
-  const totalSemana = gastosSemana.reduce((s, t) => s + parseFloat(t.monto_pen || t.monto), 0);
-  const totalAnterior = gastosAnteriores.reduce((s, t) => s + parseFloat(t.monto_pen || t.monto), 0);
-
-  const porCat = {};
-  gastosSemana.forEach(t => { const c = t.categoria || 'Otros'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto_pen || t.monto); });
-  const top3 = Object.entries(porCat).sort((a, b) => b[1] - a[1]).slice(0, 3);
-
-  const porComercio = {};
-  gastosSemana.forEach(t => { const c = t.comercio || t.banco || 'Sin nombre'; porComercio[c] = (porComercio[c] || 0) + 1; });
-  const comercioTop = Object.entries(porComercio).sort((a, b) => b[1] - a[1])[0];
-
-  const porDia = {};
-  gastosSemana.forEach(t => { porDia[t.fecha] = (porDia[t.fecha] || 0) + parseFloat(t.monto); });
-  const diaMasCaro = Object.entries(porDia).sort((a, b) => b[1] - a[1])[0];
-
-  const hormiga = gastosSemana.filter(t => parseFloat(t.monto) <= 20);
-  const totalHormiga = hormiga.reduce((s, t) => s + parseFloat(t.monto), 0);
-
-  const diasMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0).getDate();
-  const diaActual = hoy.getDate();
-  const { data: gastosMesData } = await supabase.from('transacciones').select('monto')
-    .eq('usuario_id', usuario.id).eq('tipo', 'gasto')
-    .gte('fecha', hoy.getFullYear() + '-' + String(hoy.getMonth() + 1).padStart(2, '0') + '-01');
-  const totalMes = (gastosMesData || []).reduce((s, t) => s + parseFloat(t.monto), 0);
-  const proyeccionMes = diaActual > 0 ? (totalMes / diaActual) * diasMes : 0;
-
-  const presupuestos = await obtenerPresupuestosMes(usuario.id);
-  const limiteTotal = presupuestos.reduce((s, p) => s + parseFloat(p.monto_limite), 0);
-
-  let comparativa = '';
-  if (totalAnterior > 0) {
-    const diff = totalSemana - totalAnterior;
-    const pct = Math.abs((diff / totalAnterior) * 100).toFixed(0);
-    if (diff > 0) comparativa = '\u2197\uFE0F *' + pct + '% mas* que la semana pasada (S/ ' + totalAnterior.toFixed(2) + ')';
-    else if (diff < 0) comparativa = '\u2198\uFE0F *' + pct + '% menos* que la semana pasada (S/ ' + totalAnterior.toFixed(2) + ') \uD83D\uDC4F';
-    else comparativa = '\u27A1\uFE0F Igual que la semana pasada';
-  }
-
-  let insight = '';
-  try {
-    const ctx = {
-      totalSemana: totalSemana.toFixed(2),
-      totalAnterior: totalAnterior > 0 ? totalAnterior.toFixed(2) : null,
-      top1: top3[0] ? top3[0][0] + ' S/ ' + top3[0][1].toFixed(2) : null,
-      top2: top3[1] ? top3[1][0] + ' S/ ' + top3[1][1].toFixed(2) : null,
-      hormigaTotal: totalHormiga > 10 ? totalHormiga.toFixed(2) : null,
-      proyeccionMes: proyeccionMes > 0 ? proyeccionMes.toFixed(2) : null,
-      limiteTotal: limiteTotal > 0 ? limiteTotal.toFixed(2) : null,
-      numTransacciones: gastosSemana.length
-    };
-    const aiRes = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [{
-        role: 'system',
-        content: 'Eres el asistente financiero de NETO. Con los datos de gastos semanales genera UN insight accionable en 1-2 oraciones. Especifico, util, tono amigable. En espanol sin emojis al inicio.'
-      }, {
-        role: 'user',
-        content: 'Datos: ' + JSON.stringify(ctx)
-      }],
-      temperature: 0.7,
-      max_tokens: 100
-    });
-    insight = aiRes.choices[0].message.content.trim();
-  } catch(e) {
-    if (totalSemana > totalAnterior && totalAnterior > 0) insight = 'Esta semana gastaste mas que la anterior. Revisa tu categoria ' + (top3[0] ? top3[0][0] : 'principal') + ' para encontrar oportunidades de ahorro.';
-    else if (totalHormiga > 30) insight = 'Tus gastos pequenos suman S/ ' + totalHormiga.toFixed(2) + '. Son los mas faciles de reducir.';
-    else insight = 'Buen trabajo controlando tus gastos esta semana.';
-  }
-
-  const fechaDesde = hace7.toLocaleDateString('es-PE', { day: 'numeric', month: 'short' });
-  const fechaHasta = hoy.toLocaleDateString('es-PE', { day: 'numeric', month: 'short' });
-  const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
-  const emojis = ['\uD83E\uDD47', '\uD83E\uDD48', '\uD83E\uDD49'];
-
-  let msg = '\uD83D\uDCCA *Resumen semanal' + (primerNombre ? ', ' + primerNombre : '') + '*\n';
-  msg += '_' + fechaDesde + ' \u2014 ' + fechaHasta + '_\n';
-  msg += '---------------\n\n';
-  msg += '\uD83D\uDCB0 *Total gastado:* S/ ' + totalSemana.toFixed(2) + '\n';
-  if (comparativa) msg += comparativa + '\n';
-  msg += '\n';
-  msg += '\uD83D\uDD25 *Top categorias:*\n';
-  top3.forEach(([cat, monto], i) => {
-    const pct = ((monto / totalSemana) * 100).toFixed(0);
-    msg += emojis[i] + ' ' + cat + ': *S/ ' + monto.toFixed(2) + '* (' + pct + '%)\n';
-  });
-  msg += '\n';
-  if (comercioTop && comercioTop[1] >= 2) msg += '\uD83D\uDECD\uFE0F *Lugar favorito:* ' + comercioTop[0] + ' (' + comercioTop[1] + ' veces)\n';
-  if (diaMasCaro) {
-    const nombreDia = new Date(diaMasCaro[0] + 'T12:00:00').toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'short' });
-    msg += '\uD83D\uDCC5 *Dia mas caro:* ' + nombreDia + ' (S/ ' + diaMasCaro[1].toFixed(2) + ')\n';
-  }
-  if (totalHormiga > 20 && hormiga.length >= 3) msg += '\uD83D\uDC1C *Gastos hormiga:* ' + hormiga.length + ' transacciones = S/ ' + totalHormiga.toFixed(2) + '\n';
-  msg += '\n';
-  if (proyeccionMes > 0) {
-    msg += '\uD83D\uDCC8 *Proyeccion del mes:* S/ ' + proyeccionMes.toFixed(2);
-    if (limiteTotal > 0) {
-      const sobra = limiteTotal - proyeccionMes;
-      msg += sobra > 0 ? ' \u2705 (dentro del presupuesto)' : ' \u26A0\uFE0F (superaria tu presupuesto en S/ ' + Math.abs(sobra).toFixed(2) + ')';
-    }
-    msg += '\n';
-  }
-  msg += '\n\uD83D\uDCA1 *Consejo:* ' + insight + '\n';
-  msg += '\n_Escribe /mes para el detalle o /reporte para tu PDF._';
-  return msg;
-}
-
-async function checkResumenSemanal() {
-  const horaLima = new Date(Date.now() - 5 * 60 * 60 * 1000);
-  if (horaLima.getUTCDay() !== 1 || horaLima.getUTCHours() !== 8 || horaLima.getUTCMinutes() > 14) return;
-  try {
-    const { data: usuarios } = await supabase.from('usuarios').select('*').not('gmail_access_token', 'is', null);
-    if (!usuarios || usuarios.length === 0) return;
-    for (const usuario of usuarios) {
-      try {
-        const resumen = await generarResumenSemanal(usuario);
-        if (resumen) await enviarWhatsapp(usuario.whatsapp, resumen);
-      } catch(e) { console.error('[SEMANAL] Error para', usuario.whatsapp, ':', e.message); }
-    }
-  } catch(e) { console.error('[SEMANAL] Error general:', e.message); }
-}
-
