@@ -3,137 +3,150 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Términos de Servicio — NETO</title>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<meta name="description" content="Términos de uso de Neto — Tu asistente financiero personal">
+<title>Términos de Uso — Neto</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  :root {
-    --green: #1D9E75;
-    --amber: #EF9F27;
-    --bg: #0E0E0C;
-    --surface: #1A1A18;
-    --text: #E8E8E4;
-    --muted: #888880;
-  }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    font-family: 'Space Grotesk', sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    line-height: 1.7;
-  }
-  header {
-    padding: 24px 40px;
-    border-bottom: 1px solid #2a2a28;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-  .logo {
-    width: 36px; height: 36px;
-    background: var(--green);
-    border-radius: 10px;
-    display: flex; align-items: center; justify-content: center;
-    font-weight: 700; font-size: 18px; color: white;
-    position: relative;
-  }
-  .logo-text { font-size: 20px; font-weight: 700; color: var(--green); }
-  .container {
-    max-width: 760px;
-    margin: 0 auto;
-    padding: 60px 24px 100px;
-  }
-  h1 { font-size: 32px; font-weight: 700; margin-bottom: 8px; }
-  .meta {
-    color: var(--muted);
-    font-size: 14px;
-    margin-bottom: 48px;
-    padding-bottom: 24px;
-    border-bottom: 1px solid #2a2a28;
-  }
-  h2 { font-size: 18px; font-weight: 600; color: var(--green); margin: 40px 0 12px; }
-  p { color: #C8C8C4; margin-bottom: 16px; font-size: 15px; }
-  ul { padding-left: 20px; margin-bottom: 16px; }
-  li { color: #C8C8C4; font-size: 15px; margin-bottom: 8px; }
-  a { color: var(--green); text-decoration: none; }
-  .highlight {
-    background: #1D9E7515;
-    border-left: 3px solid var(--green);
-    padding: 16px 20px;
-    border-radius: 0 8px 8px 0;
-    margin: 24px 0;
-  }
-  footer {
-    text-align: center;
-    padding: 40px;
-    color: var(--muted);
-    font-size: 13px;
-    border-top: 1px solid #2a2a28;
-  }
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--g:#1D9E75;--gd:#0F6E56;--a:#EF9F27;--bg:#0E0E0C;--bg2:#141412;--bg3:#1A1A17;--txt:#F0EFE8;--txt2:#C8C6BC;--txt3:#8A8880;--rad:12px;--rad2:20px}
+html{scroll-behavior:smooth}
+body{font-family:'Space Grotesk',sans-serif;background:var(--bg);color:var(--txt);line-height:1.7}
+nav{position:fixed;top:0;left:0;right:0;z-index:99;padding:14px 40px;display:flex;align-items:center;justify-content:space-between;background:rgba(14,14,12,.92);backdrop-filter:blur(24px);border-bottom:1px solid rgba(255,255,255,.07)}
+.logo{display:flex;align-items:center;gap:9px;text-decoration:none}
+.logo-txt{font-weight:700;font-size:18px;color:var(--g);letter-spacing:-.3px}
+.nav-links{display:flex;align-items:center;gap:24px}
+.nav-links a{font-size:13px;color:var(--txt3);text-decoration:none;transition:.15s}
+.nav-links a:hover{color:var(--txt)}
+.nav-btn{background:var(--g);color:white;border:none;border-radius:100px;padding:9px 20px;font-size:13px;font-weight:500;cursor:pointer;font-family:'Space Grotesk',sans-serif;text-decoration:none;transition:.15s}
+.nav-btn:hover{background:var(--gd)}
+.page-wrap{max-width:760px;margin:0 auto;padding:120px 40px 80px}
+.page-tag{font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--g);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.page-tag::before{content:'';width:18px;height:1.5px;background:var(--g)}
+.page-title{font-size:clamp(28px,4vw,44px);font-weight:700;letter-spacing:-1.5px;line-height:1.1;margin-bottom:8px}
+.page-date{font-size:13px;color:var(--txt3);margin-bottom:48px;padding-bottom:28px;border-bottom:1px solid rgba(255,255,255,.07)}
+.content h2{font-size:18px;font-weight:700;color:var(--txt);margin-top:40px;margin-bottom:12px;letter-spacing:-.3px}
+.content h2:first-child{margin-top:0}
+.content p{font-size:14.5px;color:var(--txt2);margin-bottom:14px;line-height:1.75}
+.content ul{margin:12px 0 16px 0;padding-left:0;list-style:none}
+.content ul li{font-size:14.5px;color:var(--txt2);margin-bottom:8px;padding-left:20px;position:relative;line-height:1.65}
+.content ul li::before{content:'—';position:absolute;left:0;color:var(--g);font-weight:600}
+.content a{color:var(--g);text-decoration:none}
+.content a:hover{text-decoration:underline}
+.highlight-box{background:var(--bg3);border:1px solid rgba(255,255,255,.07);border-left:3px solid var(--a);border-radius:0 var(--rad) var(--rad) 0;padding:16px 20px;margin:20px 0}
+.highlight-box p{margin:0;font-size:14px;color:var(--txt2)}
+.site-footer{background:var(--bg2);border-top:1px solid rgba(255,255,255,.06);padding:32px 40px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.footer-copy{font-size:12px;color:var(--txt3)}
+.footer-legal{display:flex;gap:16px}
+.footer-legal a{font-size:12px;color:var(--txt3);text-decoration:none;transition:.15s}
+.footer-legal a:hover{color:var(--g)}
+@media(max-width:768px){nav{padding:12px 20px}.nav-links{display:none}.page-wrap{padding:96px 20px 60px}.site-footer{padding:24px 20px;flex-direction:column;text-align:center}}
 </style>
 </head>
 <body>
-<header>
-  <div class="logo">N</div>
-  <span class="logo-text">NETO</span>
-</header>
-<div class="container">
-  <h1>Términos de Servicio</h1>
-  <div class="meta">Última actualización: marzo de 2026 · Vigente desde el 1 de abril de 2026</div>
 
-  <div class="highlight">
-    <p style="margin:0;color:var(--text)">Al usar NETO, aceptas estos términos. Si tienes dudas, escríbenos a <a href="/cdn-cgi/l/email-protection#acc4c3c0cdecc2c9d8c382dcc9"><span class="__cf_email__" data-cfemail="3b5354575a7b555e4f54154b5e">[email&#160;protected]</span></a> antes de continuar.</p>
+<nav>
+  <a href="/" class="logo">
+    <svg width="32" height="32" viewBox="0 0 80 80" fill="none"><rect width="80" height="80" rx="20" fill="#1D9E75"/><text x="40" y="54" text-anchor="middle" font-family="Arial" font-size="36" font-weight="700" fill="white">N</text><polyline points="16,60 30,44 42,52 64,26" stroke="#EF9F27" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/><circle cx="64" cy="26" r="3.5" fill="#EF9F27"/></svg>
+    <span class="logo-txt">neto</span>
+  </a>
+  <div class="nav-links">
+    <a href="/">Inicio</a>
+    <a href="/#como-funciona">Cómo funciona</a>
+    <a href="/#precios">Precios</a>
+    <a href="/faq">FAQ</a>
   </div>
+  <a href="https://wa.me/51933014505" class="nav-btn" target="_blank">Empezar gratis</a>
+</nav>
 
-  <h2>1. ¿Qué es NETO?</h2>
-  <p>NETO es un servicio de gestión de finanzas personales que opera a través de WhatsApp. Lee automáticamente las notificaciones de correo electrónico de tus bancos y billeteras digitales para mostrarte un resumen claro de tus gastos. NETO no es una entidad financiera regulada y no ofrece servicios de inversión, crédito ni captación de depósitos.</p>
+<div class="page-wrap">
+  <div class="page-tag">Legal</div>
+  <h1 class="page-title">Términos de Uso</h1>
+  <p class="page-date">Última actualización: marzo 2026 · Al usar Neto, aceptas estos términos.</p>
 
-  <h2>2. Registro y cuenta</h2>
-  <p>Para usar NETO necesitas un número de WhatsApp activo y una cuenta de Gmail. Al registrarte, garantizas que:</p>
-  <ul>
-    <li>Tienes al menos 18 años de edad.</li>
-    <li>La información que proporcionas es veraz y actual.</li>
-    <li>Eres el titular o tienes autorización para usar el correo electrónico que conectas.</li>
-  </ul>
+  <div class="content">
 
-  <h2>3. Planes y pagos</h2>
-  <p>NETO ofrece dos planes:</p>
-  <ul>
-    <li><strong>Plan Gratuito:</strong> acceso a las funciones básicas con historial de 3 meses.</li>
-    <li><strong>Plan Pro (S/10/mes o S/99/año):</strong> historial ilimitado, reporte mensual completo, todos los parsers activos y acceso prioritario a nuevas funciones.</li>
-  </ul>
-  <p>Los pagos son procesados de forma segura. Al suscribirte al Plan Pro, autorizas el cobro recurrente según la frecuencia elegida. Puedes cancelar en cualquier momento desde WhatsApp escribiendo <strong>/cancelar</strong>. No realizamos reembolsos parciales de períodos ya facturados.</p>
+    <div class="highlight-box">
+      <p>⚠️ <strong>Importante:</strong> Neto es una herramienta de análisis financiero personal. No somos una entidad financiera regulada por la SBS, no ofrecemos asesoría de inversiones ni crédito.</p>
+    </div>
 
-  <h2>4. Uso aceptable</h2>
-  <p>Te comprometes a usar NETO únicamente para gestionar tus propias finanzas personales. Está prohibido:</p>
-  <ul>
-    <li>Intentar acceder a datos de otros usuarios.</li>
-    <li>Usar el servicio para actividades ilegales o fraudulentas.</li>
-    <li>Intentar reverse-engineer, copiar o distribuir el software de NETO.</li>
-    <li>Sobrecargar el sistema con solicitudes automatizadas.</li>
-  </ul>
+    <h2>1. Descripción del servicio</h2>
+    <p>Neto es un asistente financiero personal que opera a través de WhatsApp. El servicio lee automáticamente los correos de notificación de transacciones de bancos y billeteras digitales peruanas, categoriza los gastos con inteligencia artificial y genera resúmenes y reportes financieros personales.</p>
 
-  <h2>5. Acceso a Gmail</h2>
-  <p>Al conectar tu correo, autorizas a NETO a leer correos de notificación bancaria de remitentes específicos (BCP, BBVA, Interbank, Scotiabank, Yape, Plin). Este acceso es de solo lectura. Puedes revocarlo en cualquier momento. Sin acceso a Gmail, el servicio no puede funcionar.</p>
+    <h2>2. Aceptación de los términos</h2>
+    <p>Al registrarte en Neto y autorizar el acceso a tu Gmail, aceptas estos Términos de Uso y nuestra <a href="/privacidad">Política de Privacidad</a>. Si no estás de acuerdo con alguno de estos términos, no debes usar el servicio.</p>
 
-  <h2>6. Precisión de la información</h2>
-  <p>NETO procesa automáticamente correos bancarios usando inteligencia artificial. Si bien nos esforzamos por la máxima precisión, pueden existir errores en la categorización o lectura de transacciones. NETO no es responsable de decisiones financieras tomadas en base a la información del servicio. Siempre verifica tus datos directamente con tu entidad financiera para decisiones importantes.</p>
+    <h2>3. Registro y cuenta</h2>
+    <ul>
+      <li>Para usar Neto necesitas un número de WhatsApp activo y una cuenta de Gmail.</li>
+      <li>Eres responsable de mantener la seguridad de tu cuenta.</li>
+      <li>Debes tener al menos 18 años para usar el servicio.</li>
+      <li>Solo puedes tener una cuenta activa por número de WhatsApp.</li>
+    </ul>
 
-  <h2>7. Disponibilidad del servicio</h2>
-  <p>Nos esforzamos por mantener NETO disponible las 24 horas. Sin embargo, no garantizamos disponibilidad ininterrumpida. Podemos suspender el servicio temporalmente por mantenimiento, actualizaciones o causas de fuerza mayor. En caso de interrupciones prolongadas, notificaremos por WhatsApp.</p>
+    <h2>4. Planes y pagos</h2>
+    <p><strong>Plan Gratis:</strong> acceso permanente a funcionalidades básicas sin costo. No requiere tarjeta de crédito.</p>
+    <p><strong>Plan Pro:</strong> S/10.00 por mes o S/99.00 por año. El cobro es recurrente y se realiza automáticamente. Puedes cancelar en cualquier momento desde tu cuenta.</p>
+    <ul>
+      <li>Los precios incluyen IGV cuando aplica.</li>
+      <li>No ofrecemos reembolsos por períodos parciales ya iniciados.</li>
+      <li>Si cancelas, mantienes el acceso Pro hasta el final del período pagado.</li>
+      <li>Aceptamos pago con Yape, tarjeta de débito y tarjeta de crédito.</li>
+    </ul>
 
-  <h2>8. Propiedad intelectual</h2>
-  <p>NETO y todos sus componentes (software, diseño, marca, reportes generados) son propiedad de NETO. Al usar el servicio, no adquieres ningún derecho sobre nuestra propiedad intelectual. Los datos de tus transacciones son tuyos — tienes derecho a exportarlos o eliminarlos en cualquier momento.</p>
+    <h2>5. Uso aceptable</h2>
+    <p>Al usar Neto, te comprometes a:</p>
+    <ul>
+      <li>Usar el servicio únicamente para fines personales y legales.</li>
+      <li>No intentar acceder a datos de otros usuarios.</li>
+      <li>No usar el servicio para actividades fraudulentas o ilegales.</li>
+      <li>No intentar manipular, hackear o alterar el funcionamiento del servicio.</li>
+    </ul>
 
-  <h2>9. Limitación de responsabilidad</h2>
-  <p>NETO se proporciona "tal como está". En la máxima medida permitida por la ley peruana, no somos responsables por daños indirectos, pérdida de datos o decisiones financieras basadas en el servicio. Nuestra responsabilidad máxima ante ti se limita al monto pagado en los últimos 3 meses.</p>
+    <h2>6. Limitaciones del servicio</h2>
+    <p>Neto es una herramienta de organización y visualización financiera personal. Por lo tanto:</p>
+    <ul>
+      <li>Los resúmenes y reportes son referenciales y dependen de la calidad de los correos bancarios recibidos.</li>
+      <li>No garantizamos que todos los correos de transacciones sean detectados y procesados.</li>
+      <li>Las categorías asignadas por IA pueden no ser siempre exactas — puedes corregirlas manualmente.</li>
+      <li>Neto no constituye asesoría financiera, legal ni tributaria.</li>
+    </ul>
 
-  <h2>10. Terminación</h2>
-  <p>Puedes cancelar tu cuenta en cualquier momento escribiendo <strong>/cancelar</strong> por WhatsApp o contactándonos en <a href="/cdn-cgi/l/email-protection#066e696a674668637269287663"><span class="__cf_email__" data-cfemail="61090e0d00210f04150e4f1104">[email&#160;protected]</span></a>. NETO puede suspender cuentas que violen estos términos, previa notificación cuando sea posible.</p>
+    <h2>7. Disponibilidad del servicio</h2>
+    <p>Nos esforzamos por mantener el servicio disponible 24/7, pero no garantizamos disponibilidad ininterrumpida. Podemos realizar mantenimientos programados con aviso previo. No somos responsables por daños derivados de interrupciones del servicio.</p>
 
-  <h2>11. Cambios a los términos</h2>
-  <p>Podemos actualizar estos términos. Te notificaremos por WhatsApp con al menos 15 días de anticipación ante cambios importantes. Si continúas usando el servicio después de la fecha de vigencia, aceptas los nuevos términos.</p>
+    <h2>8. Propiedad intelectual</h2>
+    <p>El nombre "Neto", el logo, el diseño y todo el contenido del sitio web y la aplicación son propiedad de Neto. No puedes reproducir, distribuir ni crear obras derivadas sin autorización expresa por escrito.</p>
 
-  <h2>12. Ley aplicable</h2>
-  <p>Estos términos se rigen por las leyes de la República del Perú. Cualquier disputa se someterá a los tribunales competentes de Lima, Perú.</p>
+    <h2>9. Cancelación y eliminación de cuenta</h2>
+    <ul>
+      <li>Puedes cancelar tu cuenta en cualquier momento escribiendo a <a href="mailto:hola@neto.pe">hola@neto.pe</a>.</li>
+      <li>Al cancelar, tus datos serán eliminados en un plazo máximo de 30 días.</li>
+      <li>Nos reservamos el derecho de suspender o cancelar cuentas que violen estos términos.</li>
+    </ul>
 
-  <h2>13. Contacto</
+    <h2>10. Modificaciones</h2>
+    <p>Podemos modificar estos términos en cualquier momento. Te notificaremos por WhatsApp con al menos 7 días de anticipación ante cambios significativos. El uso continuado del servicio tras los cambios implica aceptación.</p>
+
+    <h2>11. Ley aplicable</h2>
+    <p>Estos términos se rigen por las leyes de la República del Perú. Cualquier controversia será resuelta ante los tribunales competentes de Lima, Perú.</p>
+
+    <h2>12. Contacto</h2>
+    <p>Para consultas sobre estos términos: <a href="mailto:hola@neto.pe">hola@neto.pe</a> o <a href="https://wa.me/51933014505" target="_blank">+51 933 014 505</a>.</p>
+
+  </div>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-copy">© 2026 Neto · Lima, Perú</div>
+  <div class="footer-legal">
+    <a href="/">Inicio</a>
+    <a href="/privacidad">Privacidad</a>
+    <a href="/terminos">Términos</a>
+    <a href="/faq">FAQ</a>
+  </div>
+</footer>
+
+</body>
+</html>
