@@ -15,7 +15,7 @@ app.use(express.json());
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
-// ── Historial de conversacion ──
+// â”€â”€ Historial de conversacion â”€â”€
 async function guardarMensaje(usuarioId, rol, mensaje) {
   try {
     await supabase.from('conversaciones').insert({ usuario_id: usuarioId, rol: rol, mensaje: mensaje.substring(0, 500) });
@@ -382,10 +382,10 @@ async function detectarCategoriaIA(texto, usuarioId) {
 }
 
 
-// Servir archivos estáticos
+// Servir archivos estÃ¡ticos
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ─── RUTAS WEB ────────────────────────────────────────────────
+// â”€â”€â”€ RUTAS WEB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -397,7 +397,7 @@ app.get('/privacidad', (req, res) => {
 app.get('/terminos', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'terminos.html'));
 });
-// ──────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -733,7 +733,7 @@ app.get('/admin/pendientes', async (req, res) => {
 });
 
 
-// ── NETO: Redactar respuesta con GPT usando el system prompt de NETO ──
+// â”€â”€ NETO: Redactar respuesta con GPT usando el system prompt de NETO â”€â”€
 async function redactarConNETO(netoPrompt, contexto, mensajeOriginal, historial) {
   try {
     // Construir mensajes con historial de conversacion
