@@ -1,4 +1,4 @@
-require('dotenv').config();
+﻿require('dotenv').config();
 const express = require('express');
 const { OpenAI } = require('openai');
 const { createClient } = require('@supabase/supabase-js');
@@ -131,69 +131,7 @@ async function parsearCorreoBancario(texto, contexto) {
   const res = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
     messages: [
-      { role: 'system', content: `Eres un parser experto de notificaciones bancarias peruanas. Devuelve SOLO JSON sin markdown:
-{ "tipo":"gasto"|"ingreso", "monto":numero, "moneda":"PEN"|"USD", "comercio":"nombre limpio del comercio", "categoria":"ver lista", "subcategoria":"ver lista", "banco":"BCP|Interbank|BBVA|Scotiabank|Yape|Plin|Otro", "metodo_pago":"Debito|Credito|Yape|Plin|Efectivo|Otro", "fecha":"YYYY-MM-DD", "descripcion_original":"texto original" }
-
-CATEGORÍAS Y SUBCATEGORÍAS OBLIGATORIAS (usa exactamente estos valores):
-
-Alimentacion: delivery | restaurante | supermercado | mercado | cafeteria | snacks
-Transporte: uber_cabify | taxi | bus_micro | metro_bus | gasolina | peaje | estacionamiento
-Vivienda: alquiler | mantenimiento | electricidad | agua | gas | internet | cable
-Salud: farmacia | medico | clinica | laboratorio | seguro_salud | optica
-Entretenimiento: streaming | cine | juegos | bares_clubs | eventos | hobbies
-Compras: ropa | calzado | electronico | hogar_deco | belleza | mascotas
-Educacion: universidad | instituto | curso_online | utiles | idiomas | colegios
-Finanzas: prestamo | tarjeta_credito | seguro | ahorro | inversion | comision_banco
-Trabajo_Negocio: herramientas | publicidad | oficina | logistica | contador
-Otros: regalo | donacion | multa | viaje | sin_categoria
-
-REGLAS DE NORMALIZACIÓN DE COMERCIOS:
-- Rappi / PedidosYa / Glovo / DLC*PedidosYa → comercio limpio, categoria: Alimentacion, subcategoria: delivery
-- McDonald's / KFC / Bembos / Pizza Hut → Alimentacion > restaurante
-- SPSA / SPSA TOTTUS / Wong / Metro / Plaza Vea / Tottus → nombre limpio, Alimentacion > supermercado
-- Starbucks / Juan Valdez → Alimentacion > cafeteria
-- Uber / Cabify / InDriver / Beat → Transporte > uber_cabify
-- Repsol / Primax / Pecsa / Petroperu / Gasolinera → Transporte > gasolina
-- Luz del Sur / Enel / Electrodunas / Hidrandina → Vivienda > electricidad
-- SEDAPAL / EPS → Vivienda > agua
-- Claro / Entel / Movistar hogar / Bitel hogar → Vivienda > internet
-- DLOCAL*NETFLIX / Netflix / Disney+ / HBO / Amazon Prime / Spotify / YouTube Premium → Entretenimiento > streaming
-- Apple.com/bill / Apple iCloud / Google Drive / Google One → Entretenimiento > streaming
-- Cineplanet / Cinemark / UVK → Entretenimiento > cine
-- Google Play / App Store / Steam / Xbox → Entretenimiento > juegos
-- Saga / Ripley / H&M / Zara / Forever 21 → Compras > ropa
-- Bata / Marathon / Adidas / Nike tienda → Compras > calzado
-- Hiraoka / Falabella / Mercado Libre / Amazon → Compras > electronico
-- Promart / Sodimac / Maestro → Compras > hogar_deco
-- Inkafarma / MiFarma / Boticas → Salud > farmacia
-- Coursera / Udemy / Platzi / Duolingo → Educacion > curso_online
-- ICPNA / Británico / Berlitz → Educacion > idiomas
-
-REGLAS POR BANCO:
-- BCP débito/crédito: buscar campo "Empresa" o descripción del consumo
-- BBVA: buscar campo "Comercio" o descripción de consumo
-- Interbank: buscar campo "Empresa" para pagos de servicio
-- Scotiabank: buscar campo "Empresa o institución" para el comercio real
-- YAPE: extraer monto después de "S/", comercio del campo "Nombre del Beneficiario",
-  fecha del campo "Fecha y Hora de la operación", banco: Yape, tipo: gasto,
-  categoria: Otros, subcategoria: sin_categoria (a menos que sea comercio conocido)
-- Plin: similar a Yape
-
-REGLA CRÍTICA DE MONEDA (aplicar SIEMPRE antes de asignar moneda):
-- Si el correo contiene "$", "USD", "US$" → moneda: "USD" sin excepción
-- Si el correo dice "S/", "PEN", "soles" → moneda: "PEN"
-- Comercios internacionales que SIEMPRE son USD: Netflix, NETFLIX.COM, DLOCAL*NETFLIX, Spotify, Disney+, Amazon Prime, YouTube Premium, Apple, Steam, Xbox, PlayStation, Google One, iCloud, ChatGPT, OpenAI, Canva, Dropbox, Adobe, Microsoft 365
-- Si ves "$ 8.73" o "$8.73" en el correo → monto: 8.73, moneda: "USD"
-- Tarjeta de crédito BCP/BBVA/Interbank con símbolo "$" → moneda: "USD"
-- NUNCA registres en PEN un gasto que tenga símbolo "$" en el cuerpo del correo
-
-REGLAS GENERALES:
-- fecha en formato YYYY-MM-DD (año actual 2026)
-- monto siempre número sin símbolos
-- tipo=ingreso solo si es depósito, sueldo, abono recibido, transferencia entrante
-- tipo=gasto para consumos, pagos, transferencias enviadas
-- subcategoria NUNCA puede ser null — usar sin_categoria si no sabes
-- comercio: nombre limpio sin códigos (no "DLC*PEDIDOSYA" sino "PedidosYa")` },
+      { role: 'system', content: 'Eres un parser experto de notificaciones bancarias peruanas. Devuelve SOLO JSON sin markdown:\n{ "tipo":"gasto"|"ingreso", "monto":numero, "moneda":"PEN"|"USD", "comercio":"nombre limpio del comercio", "categoria":"Comida|Auto|Transporte|Hogar|Entretenimiento|Streaming|Salud|Educacion|Compras|Viajes|Transferencia|Otros", "subcategoria":"nombre o null", "banco":"BCP|Interbank|BBVA|Scotiabank|Yape|Plin|Otro", "metodo_pago":"Debito|Credito|Yape|Plin|Efectivo|Otro", "fecha":"YYYY-MM-DD", "descripcion_original":"texto original" }\n\nREGLAS DE NORMALIZACION:\n- SPSA / SPSA TOTTUS = Plaza Vea\n- DLOCAL*NETFLIX / NETFLIX = Netflix (Streaming > Netflix)\n- PRIMAX / REPSOL / PECSA = Grifo (Auto > Gasolina)\n- APPLE.COM/BILL / APPLE.COM = Apple Suscripcion (Streaming)\n- SPOTIFY = Spotify (Streaming)\n- AMAZON PRIME / AMZN = Amazon Prime (Streaming)\n- UBER / CABIFY / INDRIVER = Taxi (Transporte > Taxi)\n- RAPPI / PEDIDOSYA / GLOVO = Delivery (Comida > Restaurante)\n- Entel / Claro / Movistar / Bitel = [nombre operadora] (Hogar, subcategoria: Celular)\n- Hidrandina / Luz del Sur / Enel / Electro Sur = [nombre empresa] (Hogar, subcategoria: Servicios)\n- Sedapal / EMAPA / EPS = [nombre empresa] (Hogar, subcategoria: Servicios)\n- Cineplanet / Cinemark / UVK = [nombre cine] (Entretenimiento > Cine)\n- Wong / Metro / Plaza Vea / Tottus / Vivanda = [nombre supermercado] (Hogar > Supermercado)\n\nREGLAS POR BANCO:\n- BBVA: buscar campo Comercio o descripcion de consumo\n- Interbank: buscar campo Empresa para pagos de servicio\n- Scotiabank: buscar campo "Empresa o institucion" para el comercio real\n- YAPE (correo de yapeo): texto viene concatenado. Extraer:\n  * monto: numero despues de "S/" o "Monto de yapeo"\n  * comercio: campo "Nombre del Beneficiario" (puede tener * al final)\n  * fecha: campo "Fecha y Hora de la operacion" (ej: "15 marzo 2026" -> 2026-03-15)\n  * banco: Yape, tipo: gasto, categoria: Transferencia\n  * IGNORAR el nombre del Yapero (es el dueno de la cuenta, no el destinatario)\n- Plin/Yape entre personas: tipo=gasto, categoria=Transferencia, comercio=nombre del destinatario\n- Plin/Yape a comercio: usar nombre del comercio si aparece\n\nREGLAS GENERALES:\n- fecha en formato YYYY-MM-DD (convertir dd/mm/yyyy o "02 mar." usando anio actual 2026)\n- monto siempre numero sin simbolos\n- tipo=ingreso solo si es deposito, sueldo, abono recibido\n- tipo=gasto para consumos, pagos, transferencias enviadas' },
       { role: 'user', content: 'Parsea este correo bancario' + (contexto ? ' (asunto: ' + contexto + ')' : '') + ':\n\n' + texto }
     ],
     temperature: 0
@@ -201,6 +139,28 @@ REGLAS GENERALES:
   const raw = res.choices[0].message.content.trim();
   const clean = raw.startsWith('{') ? raw : raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
   return JSON.parse(clean);
+}
+
+function barraProgreso(pct) {
+  const llenos = Math.min(Math.round((pct / 100) * 10), 10);
+  const color = pct >= 100 ? '[ROJO]' : pct >= 80 ? '[AMARILLO]' : '[VERDE]';
+  return color + ' [' + '#'.repeat(llenos) + '.'.repeat(10 - llenos) + '] ' + pct.toFixed(0) + '%';
+}
+
+function formatearResumen(txs, periodo) {
+  if (!txs.length) return 'No hay gastos registrados ' + periodo + '.';
+  const total = txs.reduce((s, t) => s + parseFloat(t.monto_pen || t.monto), 0);
+  const porCat = {};
+  txs.forEach(t => { const c = t.categoria || 'Otro'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto_pen || t.monto); });
+  const _txsUsd = txs.filter(t => t.moneda === 'USD'); const _totalUsd = _txsUsd.reduce((s,t) => s+parseFloat(t.monto), 0);
+  const _notaUsd = _txsUsd.length > 0 ? ' (incl USD ' + _totalUsd.toFixed(2) + ')' : '';
+  const _emojiCat = {'Comida':'\uD83C\uDF54','Delivery':'\uD83C\uDF54','Restaurantes':'\u2615','Supermercados':'\uD83D\uDED2','Transporte':'\uD83D\uDE97','Auto':'\uD83D\uDE97','Streaming':'\uD83D\uDCF1','Suscripciones':'\uD83D\uDCF1','Entretenimiento':'\uD83C\uDFAE','Salud':'\uD83D\uDC8A','Farmacia':'\uD83D\uDC8A','Educacion':'\uD83D\uDCDA','Viajes':'\u2708\uFE0F','Compras':'\uD83D\uDC55','Hogar':'\uD83C\uDFE0','Transferencia':'\uD83D\uDCB8','Servicios':'\u26A1','Otros':'\uD83D\uDCCB'};
+  let msg = '\uD83D\uDCCA *' + periodo + '*\nTotal: *S/ ' + total.toFixed(0) + '*' + _notaUsd + ' \u2022 ' + txs.length + ' movimientos\n\n';
+  Object.entries(porCat).sort((a, b) => b[1] - a[1]).forEach(([cat, monto]) => {
+    const _em = _emojiCat[cat] || '\uD83D\uDCCB';
+    msg += _em + ' ' + cat + ': *S/ ' + monto.toFixed(0) + '* (' + ((monto/total)*100).toFixed(0) + '%)\n';
+  });
+  return msg;
 }
 
 async function formatearEstadoPresupuesto(usuarioId) {
@@ -253,7 +213,7 @@ async function escanearGmailYRegistrar(usuario) {
       }
     }, 3000);
   }
-  return '\uD83D\uDCEC Revise tu Gmail \u2014 *' + registradas + ' movimiento(s) nuevo(s)*:\n\n' + resumen + '\n\u00bfLo revisamos?';
+  return '\uD83D\uDCEC Revise tu Gmail \u2014 *' + registradas + ' movimiento(s) nuevo(s)*:\n\n' + resumen + '\n\u00bfLo revisamos con /mes?';
 }
 
 async function generarYEnviarReporte(usuario, mes, anio) {
@@ -279,20 +239,12 @@ async function generarYEnviarReporte(usuario, mes, anio) {
   return { ok: true, reporteId, txCount: txs.length };
 }
 async function recategorizarTransaccion(usuarioId, comercio, categoriaNueva) {
-  const { data: txs } = await supabase.from('transacciones').select('*')
-    .eq('usuario_id', usuarioId).ilike('comercio', '%' + comercio + '%')
-    .order('created_at', { ascending: false }).limit(5);
+  const { data: txs } = await supabase.from('transacciones').select('*').eq('usuario_id', usuarioId).ilike('comercio', '%' + comercio + '%').order('created_at', { ascending: false }).limit(5);
   if (!txs || txs.length === 0) return { ok: false, msg: 'No encontre ninguna transaccion de *' + comercio + '*.' };
   const tx = txs[0];
-  const categoriaAnterior = tx.categoria || 'Sin categoria';
-  const { error } = await supabase.from('transacciones').update({ categoria: categoriaNueva }).eq('id', tx.id);
+
   if (error) return { ok: false, msg: 'Error actualizando: ' + error.message };
-  return { ok: true, msg: 'Listo! Movi *' + (tx.comercio || comercio) + '* (S/ ' + tx.monto + ') de *' + categoriaAnterior + '* a *' + categoriaNueva + '*.' };
-}
-async function recategorizarPorId(transaccionId, categoriaNueva) {
-  const { error } = await supabase.from('transacciones').update({ categoria: categoriaNueva }).eq('id', transaccionId);
-  if (error) return { ok: false, msg: 'Error actualizando.' };
-  return { ok: true };
+  return { ok: true, msg: 'Listo! Cambie la categoria de *' + (tx.comercio || comercio) + '* (S/ ' + tx.monto + ') de *' + (tx.categoria || 'Sin categoria') + '* a *' + categoriaNueva + '*.' };
 }
 
 async function interpretarComandoPresupuesto(texto) {
@@ -311,7 +263,7 @@ function necesitaConsulta(tx) {
 
 function mensajeConsulta(tx) {
   var monto = parseFloat(tx.monto||0).toFixed(2), banco = tx.banco || tx.comercio || 'Pago', fecha = tx.fecha || 'hoy';
-  return '\uD83D\uDCB8 ' + banco + ' \u2014 S/ ' + monto + ' (' + fecha + ')\n\n\u00bfPara qu\u00e9 fue ese pago?\nDime con tus palabras: _"almuerzo"_, _"taxi"_, _"supermercado"_...';
+  return '\u2753 *Gasto sin identificar*\n\nRegistre un *' + banco + '* de *S/ ' + monto + '* (' + fecha + ') pero no tengo info del destinatario.\n\n*Para que fue este gasto?*\nResponde por ejemplo:\n_"Compre almuerzo"_ -> Comida\n_"Le pague al casero"_ -> Hogar\n\nO usa: */cambiar ' + banco + ' [categoria]*';
 }
 
 async function guardarConsultaPendiente(usuario, tx) {
@@ -445,10 +397,6 @@ app.get('/privacidad', (req, res) => {
 app.get('/terminos', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'terminos.html'));
 });
-
-app.get('/faq', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'faq.html'));
-});
 // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
@@ -564,12 +512,10 @@ app.post('/webhook', async (req, res) => {
       const partes = msg.trim().split(' ');
       if (partes.length >= 3) {
         const comercioInput = partes[1], categoriaInput = partes.slice(2).join(' ');
-        // Acepta categoría conocida o libre (capitalizada)
-        const catKnown = CATEGORIAS_SUGERIDAS.map(c=>c.nombre).find(c => c.toLowerCase() === categoriaInput.toLowerCase());
-        const catFinal = catKnown || (categoriaInput.charAt(0).toUpperCase() + categoriaInput.slice(1));
-        const resultado = await recategorizarTransaccion(usuario.id, comercioInput, catFinal);
-        respuesta = resultado.msg;
-      } else { respuesta = 'Formato: /cambiar [comercio] [categoria]\nEj: /cambiar Netflix Streaming'; }
+        const catNormalizada = CATEGORIAS.find(c => c.toLowerCase() === categoriaInput.toLowerCase());
+        if (!catNormalizada) { respuesta = 'Categoria no valida. Usa: ' + CATEGORIAS.join(' | '); }
+        else { const resultado = await recategorizarTransaccion(usuario.id, comercioInput, catNormalizada); respuesta = resultado.msg; }
+      } else { respuesta = 'Formato: /cambiar [comercio] [categoria]'; }
     } else if (cmd === '/reporte' || cmd.startsWith('/reporte ')) {
       const ahoraR = new Date(), partesR = cmd.split(' ');
       const mesR = partesR[1] ? parseInt(partesR[1]) : (ahoraR.getMonth() + 1);
@@ -850,7 +796,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       model: 'gpt-4o-mini',
       messages: [{
         role: 'system',
-        content: 'Eres el clasificador de intenciones de NETO, bot de finanzas personales por WhatsApp para usuarios peruanos.\nEl mes actual es ' + mE[mesActual] + ' ' + anioActual + '.\n\nAnaliza el mensaje y devuelve SOLO JSON.\n\nINTENCIONES:\n1. "listar_gastos_mes" - ver resumen/lista de gastos del mes\n   Ej: "cuales son mis gastos", "que gaste este mes", "gastos registrados", "que tengo registrado", "mis compras", "transacciones"\n   Datos: mes (numero, default=mes_actual), anio\n\n2. "listar_gastos_semana" - gastos de los ultimos 7 dias\n   Ej: "que gaste esta semana", "gastos recientes", "mis compras de los ultimos dias"\n\n3. "listar_gastos_categoria" - gastos de UNA categoria especifica\n   Ej: "que hay en Otros", "gastos de Comida", "que esta en Transporte", "detalle de Hogar", "cuales estan en otros"\n   Datos: categoria (nombre exacto), mes (default=mes_actual)\n\n4. "ver_total_gastado" - saber el TOTAL numerico gastado\n   Ej: "cuanto gaste", "cuanto llevo gastado", "total de gastos"\n   Datos: periodo ("semana" o "mes"), categoria (o null)\n\n5. "ver_presupuesto" - ver estado del presupuesto\n   Ej: "como va mi presupuesto", "cuanto me queda", "mis limites"\n\n6. "configurar_presupuesto" - configurar limite de gasto\n   Ej: "pon limite de 500 en comida", "presupuesto de 300 para transporte"\n   Datos: categoria, monto\n\n7. "ver_categorias" - ver categorias configuradas del sistema\n   Ej: "que categorias hay", "muestra las categorias del sistema"\n   IMPORTANTE: Si el historial muestra que NETO estaba hablando de gastos por categoria, NO usar esta intencion\n\n8. "ver_reporte" - reporte PDF\n   Ej: "dame mi reporte", "informe mensual", "reporte de marzo", "genera pdf"\n   Datos: mes (default=mes_actual), anio\n\n9. "corregir_categoria" - cambiar categoria de un gasto\n   Ej: "netflix es streaming", "cambia uber a transporte", "mover gasto de punto.pe a NETO", "ponlo en Hogar", "muevelo a Delivery", "este gasto es de Comida"\n   IMPORTANTE: Usar cuando el usuario quiere mover/cambiar/reclasificar un gasto a cualquier categoria (incluso nueva). comercio puede ser null.\n   Datos: comercio (null si no se menciona), categoria_nueva\n\n10. "ver_pendientes" - gastos sin identificar\n    Ej: "gastos pendientes", "que no identificaste", "gastos sin categoria"\n\n11. "escanear_gmail" - escanear correos\n    Ej: "escanea mi correo", "busca transacciones nuevas", "hay correos nuevos"\n\n12. "ver_premium" - info del plan premium\n    Ej: "cuanto cuesta premium", "que incluye el plan"\n\n13. "saludo" - saludo sin intencion especifica\n    Ej: "buenos dias", "que tal", "como estas"\n\n14. "ayuda" - pide ayuda\n    Ej: "que puedes hacer", "ayuda", "como funciona"\n\n15. "desconocido" - no encaja con ninguna intencion clara, o es continuacion de conversacion\n    Usar cuando: el mensaje es "si", "no", "dale", "ok", "mas", o cualquier respuesta corta a algo que NETO pregunto\n\nREGLAS CRITICAS:\n- Si el historial muestra que NETO hizo una pregunta y el usuario responde con "si", "no", "dale", "ok", "mas detalle", "eso", "las dos", o cualquier respuesta corta -> usar "desconocido" para que NETO maneje la continuacion\n- Si el historial muestra que NETO hablaba de gastos por categoria y el usuario dice "otras categorias" o similar -> usar "desconocido" no "ver_categorias"\n- "otros" como categoria de gasto -> listar_gastos_categoria con categoria="Otros"\n- "cuanto gaste" sin periodo -> ver_total_gastado con periodo="mes"\n- "gastos registrados"/"que tengo" -> listar_gastos_mes\n- mes: enero=1, febrero=2, marzo=3, ..., diciembre=12\n- Si no especifica mes -> usar mes_actual' + histCtx
+        content: 'Eres el clasificador de intenciones de NETO, bot de finanzas personales por WhatsApp para usuarios peruanos.\nEl mes actual es ' + mE[mesActual] + ' ' + anioActual + '.\n\nAnaliza el mensaje y devuelve SOLO JSON.\n\nINTENCIONES:\n1. "listar_gastos_mes" - ver resumen/lista de gastos del mes\n   Ej: "cuales son mis gastos", "que gaste este mes", "gastos registrados", "que tengo registrado", "mis compras", "transacciones"\n   Datos: mes (numero, default=mes_actual), anio\n\n2. "listar_gastos_semana" - gastos de los ultimos 7 dias\n   Ej: "que gaste esta semana", "gastos recientes", "mis compras de los ultimos dias"\n\n3. "listar_gastos_categoria" - gastos de UNA categoria especifica\n   Ej: "que hay en Otros", "gastos de Comida", "que esta en Transporte", "detalle de Hogar", "cuales estan en otros"\n   Datos: categoria (nombre exacto), mes (default=mes_actual)\n\n4. "ver_total_gastado" - saber el TOTAL numerico gastado\n   Ej: "cuanto gaste", "cuanto llevo gastado", "total de gastos"\n   Datos: periodo ("semana" o "mes"), categoria (o null)\n\n5. "ver_presupuesto" - ver estado del presupuesto\n   Ej: "como va mi presupuesto", "cuanto me queda", "mis limites"\n\n6. "configurar_presupuesto" - configurar limite de gasto\n   Ej: "pon limite de 500 en comida", "presupuesto de 300 para transporte"\n   Datos: categoria, monto\n\n7. "ver_categorias" - ver categorias configuradas del sistema\n   Ej: "que categorias hay", "muestra las categorias del sistema"\n   IMPORTANTE: Si el historial muestra que NETO estaba hablando de gastos por categoria, NO usar esta intencion\n\n8. "ver_reporte" - reporte PDF\n   Ej: "dame mi reporte", "informe mensual", "reporte de marzo", "genera pdf"\n   Datos: mes (default=mes_actual), anio\n\n9. "corregir_categoria" - cambiar categoria de un gasto\n   Ej: "netflix es streaming", "cambia uber a transporte", "eso no era comida"\n   Datos: comercio, categoria_nueva\n\n10. "ver_pendientes" - gastos sin identificar\n    Ej: "gastos pendientes", "que no identificaste", "gastos sin categoria"\n\n11. "escanear_gmail" - escanear correos\n    Ej: "escanea mi correo", "busca transacciones nuevas", "hay correos nuevos"\n\n12. "ver_premium" - info del plan premium\n    Ej: "cuanto cuesta premium", "que incluye el plan"\n\n13. "saludo" - saludo sin intencion especifica\n    Ej: "buenos dias", "que tal", "como estas"\n\n14. "ayuda" - pide ayuda\n    Ej: "que puedes hacer", "ayuda", "como funciona"\n\n15. "desconocido" - no encaja con ninguna intencion clara, o es continuacion de conversacion\n    Usar cuando: el mensaje es "si", "no", "dale", "ok", "mas", o cualquier respuesta corta a algo que NETO pregunto\n\nREGLAS CRITICAS:\n- Si el historial muestra que NETO hizo una pregunta y el usuario responde con "si", "no", "dale", "ok", "mas detalle", "eso", "las dos", o cualquier respuesta corta -> usar "desconocido" para que NETO maneje la continuacion\n- Si el historial muestra que NETO hablaba de gastos por categoria y el usuario dice "otras categorias" o similar -> usar "desconocido" no "ver_categorias"\n- "otros" como categoria de gasto -> listar_gastos_categoria con categoria="Otros"\n- "cuanto gaste" sin periodo -> ver_total_gastado con periodo="mes"\n- "gastos registrados"/"que tengo" -> listar_gastos_mes\n- mes: enero=1, febrero=2, marzo=3, ..., diciembre=12\n- Si no especifica mes -> usar mes_actual' + histCtx
       }, {
         role: 'user',
         content: msg
@@ -860,7 +806,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
 
     const rawClasif = clasificacion.choices[0].message.content.trim();
     const clean = rawClasif.startsWith('{') ? rawClasif : rawClasif.slice(rawClasif.indexOf('{'), rawClasif.lastIndexOf('}')+1);
-    const _nlp = JSON.parse(clean); const intencion = _nlp.intencion; const datos = _nlp.datos || _nlp.data || {};
+    const { intencion, datos } = JSON.parse(clean);
     console.log('[NLP] Intencion:', intencion, '| Datos:', JSON.stringify(datos));
 
     // Deteccion de comprobante de pago Yape ANTES del switch
@@ -1003,31 +949,10 @@ async function procesarMensajeLibre(msg, usuario, from) {
       }
 
       case 'corregir_categoria': {
-        try {
-          const catRaw = datos.categoria_nueva || datos.categoria || null;
-          const comercioRaw = datos.comercio || null;
-          if (catRaw) {
-            const catLibre = catRaw.charAt(0).toUpperCase() + catRaw.slice(1);
-            if (comercioRaw) {
-              return (await recategorizarTransaccion(usuario.id, comercioRaw, catLibre)).msg;
-            } else {
-              const ultimaTx = await obtenerUltimaTransaccion(usuario.id);
-              if (ultimaTx) {
-                await supabase.from('transacciones').update({ categoria: catLibre }).eq('id', ultimaTx.id);
-                return 'Listo! Movi *' + (ultimaTx.comercio || 'el gasto') + '* (S/ ' + ultimaTx.monto + ') a *' + catLibre + '*.';
-              }
-              return '\u00bfDe qu\u00e9 gasto hablamos? D\u00edme el comercio y lo muevo.';
-            }
-          }
-          const ultimaTx2 = await obtenerUltimaTransaccion(usuario.id);
-          const _ctxCorr = 'El usuario quiere mover un gasto pero no especifico bien la categoria. Ultimo gasto: ' + (ultimaTx2 ? ultimaTx2.comercio + ' S/' + ultimaTx2.monto : 'sin datos') + '. Pregunta de forma natural a que categoria moverlo.';
-          const _respCorr = await redactarConNETO(netoPrompt, _ctxCorr, msg, historialConv);
-          return _respCorr || '\u00bfA qu\u00e9 categor\u00eda lo muevo? D\u00edme y lo cambio ahora.';
-        } catch(e) {
-          console.error('[CORREGIR]', e.message);
-          return 'No pude procesar eso. Usa: /cambiar [comercio] [categoria]';
-        }
+        if (datos.comercio && datos.categoria_nueva) return (await recategorizarTransaccion(usuario.id, datos.comercio, datos.categoria_nueva)).msg;
+        return 'Dime el comercio y la nueva categoria.\nEj: _"Netflix es Streaming"_';
       }
+
       case 'ver_pendientes': {
         const lpend = await obtenerConsultasPendientes(usuario.id);
         return lpend.length === 0 ? 'No tienes gastos pendientes. Todo al dia! \uD83D\uDC4D' : formatearPendientes(lpend);
@@ -1106,21 +1031,12 @@ async function enviarAlertaTransaccion(usuario, tx, resultado) {
   const tipoStr = tipo === 'ingreso' ? 'Ingreso recibido' : 'Nuevo gasto';
 
   // Mensaje base de notificacion inmediata
-  // Formatear monto con moneda correcta
-  const monedaTx = resultado.moneda || 'PEN';
-  let montoStr;
-  if (monedaTx === 'USD') {
-    const montoPen = tx.monto_pen ? parseFloat(tx.monto_pen) : null;
-    montoStr = '*$' + monto.toFixed(2) + '*' + (montoPen ? ' (~S/' + montoPen.toFixed(2) + ')' : '');
-  } else {
-    montoStr = '*S/' + monto.toFixed(2) + '*';
-  }
-
   let msg = emoji + ' *' + tipoStr + '*\n';
   msg += '\uD83C\uDFEA ' + comercio + '\n';
-  msg += '\uD83D\uDCB0 ' + montoStr + '\n';
-  msg += '\uD83C\uDFF7\uFE0F ' + categoria + (resultado.subcategoria && resultado.subcategoria !== 'sin_categoria' ? ' > ' + resultado.subcategoria : '') + '\n';
+  msg += '\uD83D\uDCB0 *S/ ' + monto.toFixed(2) + '*\n';
+  msg += '\uD83C\uDFF7\uFE0F ' + categoria + '\n';
   msg += '\uD83D\uDCC5 ' + (resultado.fecha || new Date().toISOString().split('T')[0]);
+
   // Verificar alerta de presupuesto
   if (tipo === 'gasto') {
     const alertaPres = await verificarAlertaPresupuesto(usuario.id, categoria, null);
@@ -1149,18 +1065,10 @@ async function enviarAlertaTransaccion(usuario, tx, resultado) {
     } catch(e) { console.error('[INUSUAL]', e.message); }
   }
 
-  msg += '\n\n_Escr\u00edbeme si quieres ver el detalle del mes._';
+  msg += '\n\n_Escribe /mes para ver todos tus gastos._';
   await enviarWhatsapp(usuario.whatsapp, msg);
 }
 
-
-// Obtener la última transacción registrada del usuario (para contexto de respuestas)
-async function obtenerUltimaTransaccion(usuarioId) {
-  const { data } = await supabase.from('transacciones').select('*')
-    .eq('usuario_id', usuarioId)
-    .order('created_at', { ascending: false }).limit(1).single();
-  return data || null;
-}
 async function escaneoAutomatico() {
   console.log('[AUTO] Escaneo -', new Date().toLocaleString('es-PE'));
   try {
@@ -1323,160 +1231,3 @@ app.listen(PORT, () => {
     console.log('[SEMANAL] Resumen semanal activo (lunes 8am Lima).');
   }, 30000);
 });
-
-
-// Obtener la última transacción registrada del usuario (para contexto de respuestas)
-async function obtenerUltimaTransaccion(usuarioId) {
-  const { data } = await supabase.from('transacciones').select('*')
-    .eq('usuario_id', usuarioId)
-    .order('created_at', { ascending: false }).limit(1).single();
-  return data || null;
-}
-async function escaneoAutomatico() {
-  console.log('[AUTO] Escaneo -', new Date().toLocaleString('es-PE'));
-  try {
-    const { data: usuarios } = await supabase.from('usuarios').select('*').not('gmail_access_token', 'is', null);
-    if (!usuarios || usuarios.length === 0) return;
-    for (const usuario of usuarios) {
-      try {
-        const resultado = await escanearGmailYRegistrar(usuario);
-        if (resultado && resultado.includes('Registre')) { await enviarWhatsapp(usuario.whatsapp, '\uD83D\uDD04 *Escaneo automatico*\n\n' + resultado); }
-      } catch (e) { console.error('[AUTO] Error usuario', usuario.whatsapp, ':', e.message); }
-    }
-  } catch (e) { console.error('[AUTO] Error general:', e.message); }
-}
-
-async function generarResumenSemanal(usuario) {
-  const hoy = new Date();
-  const gastosSemana = await obtenerGastosSemana(usuario.id);
-  if (!gastosSemana.length) return null;
-
-  const hace14 = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
-  const hace7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-  const { data: gastosAnt } = await supabase.from('transacciones').select('*')
-    .eq('usuario_id', usuario.id).eq('tipo', 'gasto')
-    .gte('fecha', hace14.toISOString().split('T')[0])
-    .lt('fecha', hace7.toISOString().split('T')[0]);
-  const gastosAnteriores = gastosAnt || [];
-
-  const totalSemana = gastosSemana.reduce((s, t) => s + parseFloat(t.monto_pen || t.monto), 0);
-  const totalAnterior = gastosAnteriores.reduce((s, t) => s + parseFloat(t.monto_pen || t.monto), 0);
-
-  const porCat = {};
-  gastosSemana.forEach(t => { const c = t.categoria || 'Otros'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto_pen || t.monto); });
-  const top3 = Object.entries(porCat).sort((a, b) => b[1] - a[1]).slice(0, 3);
-
-  const porComercio = {};
-  gastosSemana.forEach(t => { const c = t.comercio || t.banco || 'Sin nombre'; porComercio[c] = (porComercio[c] || 0) + 1; });
-  const comercioTop = Object.entries(porComercio).sort((a, b) => b[1] - a[1])[0];
-
-  const porDia = {};
-  gastosSemana.forEach(t => { porDia[t.fecha] = (porDia[t.fecha] || 0) + parseFloat(t.monto); });
-  const diaMasCaro = Object.entries(porDia).sort((a, b) => b[1] - a[1])[0];
-
-  const hormiga = gastosSemana.filter(t => parseFloat(t.monto) <= 20);
-  const totalHormiga = hormiga.reduce((s, t) => s + parseFloat(t.monto), 0);
-
-  const diasMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0).getDate();
-  const diaActual = hoy.getDate();
-  const { data: gastosMesData } = await supabase.from('transacciones').select('monto')
-    .eq('usuario_id', usuario.id).eq('tipo', 'gasto')
-    .gte('fecha', hoy.getFullYear() + '-' + String(hoy.getMonth() + 1).padStart(2, '0') + '-01');
-  const totalMes = (gastosMesData || []).reduce((s, t) => s + parseFloat(t.monto), 0);
-  const proyeccionMes = diaActual > 0 ? (totalMes / diaActual) * diasMes : 0;
-
-  const presupuestos = await obtenerPresupuestosMes(usuario.id);
-  const limiteTotal = presupuestos.reduce((s, p) => s + parseFloat(p.monto_limite), 0);
-
-  let comparativa = '';
-  if (totalAnterior > 0) {
-    const diff = totalSemana - totalAnterior;
-    const pct = Math.abs((diff / totalAnterior) * 100).toFixed(0);
-    if (diff > 0) comparativa = '\u2197\uFE0F *' + pct + '% mas* que la semana pasada (S/ ' + totalAnterior.toFixed(2) + ')';
-    else if (diff < 0) comparativa = '\u2198\uFE0F *' + pct + '% menos* que la semana pasada (S/ ' + totalAnterior.toFixed(2) + ') \uD83D\uDC4F';
-    else comparativa = '\u27A1\uFE0F Igual que la semana pasada';
-  }
-
-  let insight = '';
-  try {
-    const ctx = {
-      totalSemana: totalSemana.toFixed(2),
-      totalAnterior: totalAnterior > 0 ? totalAnterior.toFixed(2) : null,
-      top1: top3[0] ? top3[0][0] + ' S/ ' + top3[0][1].toFixed(2) : null,
-      top2: top3[1] ? top3[1][0] + ' S/ ' + top3[1][1].toFixed(2) : null,
-      hormigaTotal: totalHormiga > 10 ? totalHormiga.toFixed(2) : null,
-      proyeccionMes: proyeccionMes > 0 ? proyeccionMes.toFixed(2) : null,
-      limiteTotal: limiteTotal > 0 ? limiteTotal.toFixed(2) : null,
-      numTransacciones: gastosSemana.length
-    };
-    const aiRes = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [{
-        role: 'system',
-        content: 'Eres el asistente financiero de NETO. Con los datos de gastos semanales genera UN insight accionable en 1-2 oraciones. Especifico, util, tono amigable. En espanol sin emojis al inicio.'
-      }, {
-        role: 'user',
-        content: 'Datos: ' + JSON.stringify(ctx)
-      }],
-      temperature: 0.7,
-      max_tokens: 100
-    });
-    insight = aiRes.choices[0].message.content.trim();
-  } catch(e) {
-    if (totalSemana > totalAnterior && totalAnterior > 0) insight = 'Esta semana gastaste mas que la anterior. Revisa tu categoria ' + (top3[0] ? top3[0][0] : 'principal') + ' para encontrar oportunidades de ahorro.';
-    else if (totalHormiga > 30) insight = 'Tus gastos pequenos suman S/ ' + totalHormiga.toFixed(2) + '. Son los mas faciles de reducir.';
-    else insight = 'Buen trabajo controlando tus gastos esta semana.';
-  }
-
-  const fechaDesde = hace7.toLocaleDateString('es-PE', { day: 'numeric', month: 'short' });
-  const fechaHasta = hoy.toLocaleDateString('es-PE', { day: 'numeric', month: 'short' });
-  const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
-  const emojis = ['\uD83E\uDD47', '\uD83E\uDD48', '\uD83E\uDD49'];
-
-  let msg = '\uD83D\uDCCA *Resumen semanal' + (primerNombre ? ', ' + primerNombre : '') + '*\n';
-  msg += '_' + fechaDesde + ' \u2014 ' + fechaHasta + '_\n';
-  msg += '---------------\n\n';
-  msg += '\uD83D\uDCB0 *Total gastado:* S/ ' + totalSemana.toFixed(2) + '\n';
-  if (comparativa) msg += comparativa + '\n';
-  msg += '\n';
-  msg += '\uD83D\uDD25 *Top categorias:*\n';
-  top3.forEach(([cat, monto], i) => {
-    const pct = ((monto / totalSemana) * 100).toFixed(0);
-    msg += emojis[i] + ' ' + cat + ': *S/ ' + monto.toFixed(2) + '* (' + pct + '%)\n';
-  });
-  msg += '\n';
-  if (comercioTop && comercioTop[1] >= 2) msg += '\uD83D\uDECD\uFE0F *Lugar favorito:* ' + comercioTop[0] + ' (' + comercioTop[1] + ' veces)\n';
-  if (diaMasCaro) {
-    const nombreDia = new Date(diaMasCaro[0] + 'T12:00:00').toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'short' });
-    msg += '\uD83D\uDCC5 *Dia mas caro:* ' + nombreDia + ' (S/ ' + diaMasCaro[1].toFixed(2) + ')\n';
-  }
-  if (totalHormiga > 20 && hormiga.length >= 3) msg += '\uD83D\uDC1C *Gastos hormiga:* ' + hormiga.length + ' transacciones = S/ ' + totalHormiga.toFixed(2) + '\n';
-  msg += '\n';
-  if (proyeccionMes > 0) {
-    msg += '\uD83D\uDCC8 *Proyeccion del mes:* S/ ' + proyeccionMes.toFixed(2);
-    if (limiteTotal > 0) {
-      const sobra = limiteTotal - proyeccionMes;
-      msg += sobra > 0 ? ' \u2705 (dentro del presupuesto)' : ' \u26A0\uFE0F (superaria tu presupuesto en S/ ' + Math.abs(sobra).toFixed(2) + ')';
-    }
-    msg += '\n';
-  }
-  msg += '\n\uD83D\uDCA1 *Consejo:* ' + insight + '\n';
-  msg += '\n_Escribe /mes para el detalle o /reporte para tu PDF._';
-  return msg;
-}
-
-async function checkResumenSemanal() {
-  const horaLima = new Date(Date.now() - 5 * 60 * 60 * 1000);
-  if (horaLima.getUTCDay() !== 1 || horaLima.getUTCHours() !== 8 || horaLima.getUTCMinutes() > 14) return;
-  try {
-    const { data: usuarios } = await supabase.from('usuarios').select('*').not('gmail_access_token', 'is', null);
-    if (!usuarios || usuarios.length === 0) return;
-    for (const usuario of usuarios) {
-      try {
-        const resumen = await generarResumenSemanal(usuario);
-        if (resumen) await enviarWhatsapp(usuario.whatsapp, resumen);
-      } catch(e) { console.error('[SEMANAL] Error para', usuario.whatsapp, ':', e.message); }
-    }
-  } catch(e) { console.error('[SEMANAL] Error general:', e.message); }
-}
-
