@@ -131,7 +131,61 @@ async function parsearCorreoBancario(texto, contexto) {
   const res = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
     messages: [
-      { role: 'system', content: 'Eres un parser experto de notificaciones bancarias peruanas. Devuelve SOLO JSON sin markdown:\n{ "tipo":"gasto"|"ingreso", "monto":numero, "moneda":"PEN"|"USD", "comercio":"nombre limpio del comercio", "categoria":"Comida|Auto|Transporte|Hogar|Entretenimiento|Streaming|Salud|Educacion|Compras|Viajes|Transferencia|Otros", "subcategoria":"nombre o null", "banco":"BCP|Interbank|BBVA|Scotiabank|Yape|Plin|Otro", "metodo_pago":"Debito|Credito|Yape|Plin|Efectivo|Otro", "fecha":"YYYY-MM-DD", "descripcion_original":"texto original" }\n\nREGLAS DE NORMALIZACION:\n- SPSA / SPSA TOTTUS = Plaza Vea\n- DLOCAL*NETFLIX / NETFLIX = Netflix (Streaming > Netflix)\n- PRIMAX / REPSOL / PECSA = Grifo (Auto > Gasolina)\n- APPLE.COM/BILL / APPLE.COM = Apple Suscripcion (Streaming)\n- SPOTIFY = Spotify (Streaming)\n- AMAZON PRIME / AMZN = Amazon Prime (Streaming)\n- UBER / CABIFY / INDRIVER = Taxi (Transporte > Taxi)\n- RAPPI / PEDIDOSYA / GLOVO = Delivery (Comida > Restaurante)\n- Entel / Claro / Movistar / Bitel = [nombre operadora] (Hogar, subcategoria: Celular)\n- Hidrandina / Luz del Sur / Enel / Electro Sur = [nombre empresa] (Hogar, subcategoria: Servicios)\n- Sedapal / EMAPA / EPS = [nombre empresa] (Hogar, subcategoria: Servicios)\n- Cineplanet / Cinemark / UVK = [nombre cine] (Entretenimiento > Cine)\n- Wong / Metro / Plaza Vea / Tottus / Vivanda = [nombre supermercado] (Hogar > Supermercado)\n\nREGLAS POR BANCO:\n- BBVA: buscar campo Comercio o descripcion de consumo\n- Interbank: buscar campo Empresa para pagos de servicio\n- Scotiabank: buscar campo "Empresa o institucion" para el comercio real\n- YAPE (correo de yapeo): texto viene concatenado. Extraer:\n  * monto: numero despues de "S/" o "Monto de yapeo"\n  * comercio: campo "Nombre del Beneficiario" (puede tener * al final)\n  * fecha: campo "Fecha y Hora de la operacion" (ej: "15 marzo 2026" -> 2026-03-15)\n  * banco: Yape, tipo: gasto, categoria: Transferencia\n  * IGNORAR el nombre del Yapero (es el dueno de la cuenta, no el destinatario)\n- Plin/Yape entre personas: tipo=gasto, categoria=Transferencia, comercio=nombre del destinatario\n- Plin/Yape a comercio: usar nombre del comercio si aparece\n\nREGLAS GENERALES:\n- fecha en formato YYYY-MM-DD (convertir dd/mm/yyyy o "02 mar." usando anio actual 2026)\n- monto siempre numero sin simbolos\n- tipo=ingreso solo si es deposito, sueldo, abono recibido\n- tipo=gasto para consumos, pagos, transferencias enviadas' },
+      { role: 'system', content: `Eres un parser experto de notificaciones bancarias peruanas. Devuelve SOLO JSON sin markdown:
+{ "tipo":"gasto"|"ingreso", "monto":numero, "moneda":"PEN"|"USD", "comercio":"nombre limpio del comercio", "categoria":"ver lista", "subcategoria":"ver lista", "banco":"BCP|Interbank|BBVA|Scotiabank|Yape|Plin|Otro", "metodo_pago":"Debito|Credito|Yape|Plin|Efectivo|Otro", "fecha":"YYYY-MM-DD", "descripcion_original":"texto original" }
+
+CATEGORÍAS Y SUBCATEGORÍAS OBLIGATORIAS (usa exactamente estos valores):
+
+Alimentacion: delivery | restaurante | supermercado | mercado | cafeteria | snacks
+Transporte: uber_cabify | taxi | bus_micro | metro_bus | gasolina | peaje | estacionamiento
+Vivienda: alquiler | mantenimiento | electricidad | agua | gas | internet | cable
+Salud: farmacia | medico | clinica | laboratorio | seguro_salud | optica
+Entretenimiento: streaming | cine | juegos | bares_clubs | eventos | hobbies
+Compras: ropa | calzado | electronico | hogar_deco | belleza | mascotas
+Educacion: universidad | instituto | curso_online | utiles | idiomas | colegios
+Finanzas: prestamo | tarjeta_credito | seguro | ahorro | inversion | comision_banco
+Trabajo_Negocio: herramientas | publicidad | oficina | logistica | contador
+Otros: regalo | donacion | multa | viaje | sin_categoria
+
+REGLAS DE NORMALIZACIÓN DE COMERCIOS:
+- Rappi / PedidosYa / Glovo / DLC*PedidosYa → comercio limpio, categoria: Alimentacion, subcategoria: delivery
+- McDonald's / KFC / Bembos / Pizza Hut → Alimentacion > restaurante
+- SPSA / SPSA TOTTUS / Wong / Metro / Plaza Vea / Tottus → nombre limpio, Alimentacion > supermercado
+- Starbucks / Juan Valdez → Alimentacion > cafeteria
+- Uber / Cabify / InDriver / Beat → Transporte > uber_cabify
+- Repsol / Primax / Pecsa / Petroperu / Gasolinera → Transporte > gasolina
+- Luz del Sur / Enel / Electrodunas / Hidrandina → Vivienda > electricidad
+- SEDAPAL / EPS → Vivienda > agua
+- Claro / Entel / Movistar hogar / Bitel hogar → Vivienda > internet
+- DLOCAL*NETFLIX / Netflix / Disney+ / HBO / Amazon Prime / Spotify / YouTube Premium → Entretenimiento > streaming
+- Apple.com/bill / Apple iCloud / Google Drive / Google One → Entretenimiento > streaming
+- Cineplanet / Cinemark / UVK → Entretenimiento > cine
+- Google Play / App Store / Steam / Xbox → Entretenimiento > juegos
+- Saga / Ripley / H&M / Zara / Forever 21 → Compras > ropa
+- Bata / Marathon / Adidas / Nike tienda → Compras > calzado
+- Hiraoka / Falabella / Mercado Libre / Amazon → Compras > electronico
+- Promart / Sodimac / Maestro → Compras > hogar_deco
+- Inkafarma / MiFarma / Boticas → Salud > farmacia
+- Coursera / Udemy / Platzi / Duolingo → Educacion > curso_online
+- ICPNA / Británico / Berlitz → Educacion > idiomas
+
+REGLAS POR BANCO:
+- BCP débito/crédito: buscar campo "Empresa" o descripción del consumo
+- BBVA: buscar campo "Comercio" o descripción de consumo
+- Interbank: buscar campo "Empresa" para pagos de servicio
+- Scotiabank: buscar campo "Empresa o institución" para el comercio real
+- YAPE: extraer monto después de "S/", comercio del campo "Nombre del Beneficiario",
+  fecha del campo "Fecha y Hora de la operación", banco: Yape, tipo: gasto,
+  categoria: Otros, subcategoria: sin_categoria (a menos que sea comercio conocido)
+- Plin: similar a Yape
+
+REGLAS GENERALES:
+- fecha en formato YYYY-MM-DD (año actual 2026)
+- monto siempre número sin símbolos
+- tipo=ingreso solo si es depósito, sueldo, abono recibido, transferencia entrante
+- tipo=gasto para consumos, pagos, transferencias enviadas
+- subcategoria NUNCA puede ser null — usar sin_categoria si no sabes
+- comercio: nombre limpio sin códigos (no "DLC*PEDIDOSYA" sino "PedidosYa")` },
       { role: 'user', content: 'Parsea este correo bancario' + (contexto ? ' (asunto: ' + contexto + ')' : '') + ':\n\n' + texto }
     ],
     temperature: 0
@@ -139,28 +193,6 @@ async function parsearCorreoBancario(texto, contexto) {
   const raw = res.choices[0].message.content.trim();
   const clean = raw.startsWith('{') ? raw : raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
   return JSON.parse(clean);
-}
-
-function barraProgreso(pct) {
-  const llenos = Math.min(Math.round((pct / 100) * 10), 10);
-  const color = pct >= 100 ? '[ROJO]' : pct >= 80 ? '[AMARILLO]' : '[VERDE]';
-  return color + ' [' + '#'.repeat(llenos) + '.'.repeat(10 - llenos) + '] ' + pct.toFixed(0) + '%';
-}
-
-function formatearResumen(txs, periodo) {
-  if (!txs.length) return 'No hay gastos registrados ' + periodo + '.';
-  const total = txs.reduce((s, t) => s + parseFloat(t.monto_pen || t.monto), 0);
-  const porCat = {};
-  txs.forEach(t => { const c = t.categoria || 'Otro'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto_pen || t.monto); });
-  const _txsUsd = txs.filter(t => t.moneda === 'USD'); const _totalUsd = _txsUsd.reduce((s,t) => s+parseFloat(t.monto), 0);
-  const _notaUsd = _txsUsd.length > 0 ? ' (incl USD ' + _totalUsd.toFixed(2) + ')' : '';
-  const _emojiCat = {'Comida':'\uD83C\uDF54','Delivery':'\uD83C\uDF54','Restaurantes':'\u2615','Supermercados':'\uD83D\uDED2','Transporte':'\uD83D\uDE97','Auto':'\uD83D\uDE97','Streaming':'\uD83D\uDCF1','Suscripciones':'\uD83D\uDCF1','Entretenimiento':'\uD83C\uDFAE','Salud':'\uD83D\uDC8A','Farmacia':'\uD83D\uDC8A','Educacion':'\uD83D\uDCDA','Viajes':'\u2708\uFE0F','Compras':'\uD83D\uDC55','Hogar':'\uD83C\uDFE0','Transferencia':'\uD83D\uDCB8','Servicios':'\u26A1','Otros':'\uD83D\uDCCB'};
-  let msg = '\uD83D\uDCCA *' + periodo + '*\nTotal: *S/ ' + total.toFixed(0) + '*' + _notaUsd + ' \u2022 ' + txs.length + ' movimientos\n\n';
-  Object.entries(porCat).sort((a, b) => b[1] - a[1]).forEach(([cat, monto]) => {
-    const _em = _emojiCat[cat] || '\uD83D\uDCCB';
-    msg += _em + ' ' + cat + ': *S/ ' + monto.toFixed(0) + '* (' + ((monto/total)*100).toFixed(0) + '%)\n';
-  });
-  return msg;
 }
 
 async function formatearEstadoPresupuesto(usuarioId) {
