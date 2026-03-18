@@ -18,7 +18,9 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY
 // Ã¢â€â‚¬Ã¢â€â‚¬ Historial de conversacion Ã¢â€â‚¬Ã¢â€â‚¬
 async function guardarMensaje(usuarioId, rol, mensaje) {
   try {
-    await supabase.from('conversaciones').insert({ usuario_id: usuarioId, rol: rol, mensaje: mensaje.substring(0, 500) });
+    // NETO puede enviar resúmenes largos (~800 chars) — guardamos más para continuidad
+  const limiteChars = rol === 'neto' ? 1500 : 500;
+  await supabase.from('conversaciones').insert({ usuario_id: usuarioId, rol: rol, mensaje: mensaje.substring(0, limiteChars) });
     // Limpiar mensajes viejos (mantener solo ultimos 10)
     const { data: viejos } = await supabase.from('conversaciones').select('id').eq('usuario_id', usuarioId).order('created_at', { ascending: false }).range(10, 100);
     if (viejos && viejos.length > 0) {
@@ -38,11 +40,24 @@ async function obtenerHistorial(usuarioId) {
 
 
 async function obtenerOCrearUsuario(numeroWhatsapp) {
+  // Normalizar formato: eliminar prefijo "whatsapp:" y "+" para consistencia
+  const numeroNorm = numeroWhatsapp.replace(/^whatsapp:/i, '').replace(/^+/, '');
   try {
-    const { data } = await supabase.from('usuarios').select('*').eq('whatsapp', numeroWhatsapp).single();
+    // Buscar tanto con el número normalizado como con el formato original (retrocompatibilidad)
+    const { data } = await supabase.from('usuarios').select('*').eq('whatsapp', numeroNorm).single();
     if (data) return data;
   } catch (e) {}
-  const { data: nuevo, error } = await supabase.from('usuarios').insert({ whatsapp: numeroWhatsapp }).select().single();
+  // Intentar con formato original por si ya existe con ese formato
+  try {
+    const { data } = await supabase.from('usuarios').select('*').eq('whatsapp', numeroWhatsapp).single();
+    if (data) {
+      // Migrar al formato normalizado
+      await supabase.from('usuarios').update({ whatsapp: numeroNorm }).eq('whatsapp', numeroWhatsapp);
+      data.whatsapp = numeroNorm;
+      return data;
+    }
+  } catch (e) {}
+  const { data: nuevo, error } = await supabase.from('usuarios').insert({ whatsapp: numeroNorm }).select().single();
   if (error) throw new Error('Error creando usuario: ' + error.message);
   return nuevo;
 }
@@ -450,6 +465,10 @@ app.get('/faq', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'faq.html'));
 });
 // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+app.get('/health', (req, res) => {
+  res.json({ ok: true, service: 'NETO', uptime: Math.floor(process.uptime()), ts: new Date().toISOString() });
+});
+
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -594,7 +613,7 @@ app.post('/webhook', async (req, res) => {
         if (puedeGenerar) {
           await enviarWhatsapp(from, 'Preparando tu reporte de ' + MESES[mesR] + '... \u23F3');
           if (planUsuario === 'free') { await supabase.from('usuarios').update({ reporte_usos_mes: (usuario.reporte_usos_mes || 0) + 1 }).eq('id', usuario.id); }
-          const railwayUrl = process.env.RAILWAY_URL || 'https://finbot-production-c662.up.railway.app';
+          const railwayUrl = process.env.RAILWAY_URL || 'https://neto.pe';
           generarYEnviarReporte(usuario, mesR, anioR).then(async (result) => {
             if (!result.ok) { await enviarWhatsapp(from, result.msg); }
             else { const mE = ['','Enero','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']; await enviarWhatsapp(from, '\uD83D\uDCC4 *Reporte ' + mE[mesR] + ' ' + anioR + ' listo!*\n\n' + result.txCount + ' transacciones.\nDisponible 30 min:\n' + railwayUrl + '/reporte/' + result.reporteId + (planUsuario === 'free' ? '\n\n_Reporte gratuito del mes usado._' : '')); }
@@ -756,8 +775,8 @@ app.get('/', (req, res) => res.send('NETO v5'));
 // POST /admin/activar { whatsapp: "51970398192", clave: "ADMIN_KEY" }
 app.post('/admin/activar', async (req, res) => {
   const { whatsapp, clave } = req.body;
-  const ADMIN_KEY = process.env.ADMIN_KEY || 'finbot2026';
-  if (clave !== ADMIN_KEY) return res.status(401).json({ ok: false, msg: 'Clave incorrecta' });
+  const ADMIN_KEY = process.env.ADMIN_KEY;
+  if (!ADMIN_KEY || clave !== ADMIN_KEY) return res.status(401).json({ ok: false, msg: 'Clave incorrecta' });
   if (!whatsapp) return res.status(400).json({ ok: false, msg: 'Falta whatsapp' });
   const numero = whatsapp.replace(/\+/g, '').replace(/^0/, '');
   const { data: usuarioActivar } = await supabase.from('usuarios').select('*').eq('whatsapp', numero).single();
@@ -780,8 +799,8 @@ app.post('/admin/activar', async (req, res) => {
 // Endpoint admin: ver pagos pendientes
 // GET /admin/pendientes?clave=ADMIN_KEY
 app.get('/admin/pendientes', async (req, res) => {
-  const ADMIN_KEY = process.env.ADMIN_KEY || 'finbot2026';
-  if (req.query.clave !== ADMIN_KEY) return res.status(401).json({ ok: false, msg: 'Clave incorrecta' });
+  const ADMIN_KEY = process.env.ADMIN_KEY;
+  if (!ADMIN_KEY || req.query.clave !== ADMIN_KEY) return res.status(401).json({ ok: false, msg: 'Clave incorrecta' });
   const { data } = await supabase.from('usuarios').select('whatsapp, nombre, plan, pago_pendiente, pago_referencia, created_at').eq('pago_pendiente', true);
   res.json({ ok: true, pendientes: data || [] });
 });
@@ -994,7 +1013,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
         }
         await enviarWhatsapp(from, 'Generando tu reporte PDF... \u23F3');
         if (planUsuario2 === 'free') { await supabase.from('usuarios').update({ reporte_usos_mes: (usuario.reporte_usos_mes || 0) + 1 }).eq('id', usuario.id); }
-        const railwayUrl = process.env.RAILWAY_URL || 'https://finbot-production-c662.up.railway.app';
+        const railwayUrl = process.env.RAILWAY_URL || 'https://neto.pe';
         generarYEnviarReporte(usuario, mesR, anioR).then(async (result) => {
           if (!result.ok) { await enviarWhatsapp(from, result.msg); }
           else { await enviarWhatsapp(from, '\uD83D\uDCC4 *Reporte ' + mE[mesR] + ' ' + anioR + ' listo!*\n\n' + result.txCount + ' transacciones.\nDisponible 30 min:\n' + railwayUrl + '/reporte/' + result.reporteId + (planUsuario2 === 'free' ? '\n\n_Reporte gratuito del mes usado._' : '')); }

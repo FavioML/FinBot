@@ -1,4 +1,4 @@
-// reporte_html.js - Reporte mensual HTML dinamico - FinBot Peru
+// reporte_html.js - Reporte mensual HTML dinamico - NETO
 // Basado en diseno aprobado: 3 paginas, paleta verde/ambar/rojo/azul
 
 const MESES = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio',
@@ -114,7 +114,7 @@ function generarReporteHTML(data) {
   } else if (totalI > 0) {
     acciones.push({ texto: 'Mantener nivel de ahorro', pill: pctAhorro + '% del ingreso ahorrado', color: 'green' });
   } else {
-    acciones.push({ texto: 'Registrar ingresos en FinBot', pill: 'Para analisis completo', color: 'green' });
+    acciones.push({ texto: 'Registrar ingresos en NETO', pill: 'Para analisis completo', color: 'green' });
   }
 
   // Historial para grafico
@@ -134,7 +134,7 @@ function generarReporteHTML(data) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Reporte ${MESES[mesNum]} ${anioNum} - FinBot Peru</title>
+<title>Reporte ${MESES[mesNum]} ${anioNum} - NETO</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#2C3E50;background:#F0F2F5;padding:16px}
@@ -193,7 +193,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#2
 <!-- HEADER GLOBAL -->
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding:0 4px">
   <div>
-    <div style="font-size:20px;font-weight:600;color:#1D9E75">FinBot Peru</div>
+    <div style="font-size:20px;font-weight:600;color:#1D9E75">NETO</div>
     <div style="font-size:12px;color:#95A5A6">Reporte mensual · ${MESES[mesNum]} ${anioNum}</div>
   </div>
   <div style="text-align:right">
@@ -391,7 +391,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#2
   </div>
 
   <div class="footer">
-    FinBot Peru · Reporte generado automaticamente · Los datos provienen de tus correos bancarios
+    NETO · Reporte generado automaticamente · Los datos provienen de tus correos bancarios
   </div>
 </div>
 
