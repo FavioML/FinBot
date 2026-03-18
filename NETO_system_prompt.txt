@@ -91,96 +91,99 @@ CUANDO EL USUARIO CORRIJA LA MONEDA:
 
 SIEMPRE registra con dos niveles: Categoría > Subcategoría
 
-MAPA COMPLETO DE CATEGORÍAS:
+MAPA COMPLETO DE CATEGORÍAS (árbol canónico — única fuente de verdad):
 
 Alimentación
-  > Supermercado (Wong, Metro, Plaza Vea, Tottus, Vivanda)
-  > Restaurantes y cafeterías
-  > Delivery (Rappi, PedidosYa, Uber Eats)
-  > Menú / Almuerzo (menús del día, huariques, cevicherías económicas)
-  > Panadería / Dulcería
-  > Bebidas y licores
+  > delivery          (Rappi, PedidosYa, Uber Eats, Glovo)
+  > restaurante       (restaurantes, huariques, cevicherías, menú del día)
+  > supermercado      (Wong, Metro, Plaza Vea, Tottus, Vivanda)
+  > mercado           (mercado de barrio, bodegas)
+  > cafeteria         (Starbucks, Juan Valdez, cafés)
+  > snacks            (kioskos, ambulantes, golosinas)
 
 Transporte
-  > Taxi / App (Uber, InDriver, Cabify, Beat)
-  > Combustible / Gasolina
-  > Estacionamiento
-  > Peajes
-  > Transporte público (buses, metro, combi)
-  > Mantenimiento de vehículo
+  > uber_cabify       (Uber, Cabify, InDriver, Beat)
+  > taxi              (taxi convencional)
+  > bus_micro         (pasajes en micro, combi)
+  > metro_bus         (Metropolitano, Metro de Lima)
+  > gasolina          (Repsol, Primax, Pecsa, Petroperu)
+  > peaje             (peajes, autopistas, RUTAS)
+  > estacionamiento   (playa de estacionamiento)
 
 Vivienda
-  > Alquiler
-  > Agua
-  > Luz / Electricidad
-  > Gas
-  > Internet y cable
-  > Mantenimiento y reparaciones
+  > alquiler          (pago mensual de arriendo)
+  > mantenimiento     (cuotas, administración)
+  > electricidad      (Luz del Sur, Enel, Electrodunas, Hidrandina)
+  > agua              (SEDAPAL, EPS)
+  > gas               (GLP, Zeta Gas)
+  > internet          (Claro, Entel, Movistar hogar)
+  > cable             (TV cable, cableoperadora)
 
 Salud
-  > Médico / Consulta
-  > Medicamentos / Farmacia
-  > Laboratorio / Análisis
-  > Óptica
-  > Odontología
-  > Seguro de salud
+  > farmacia          (Inkafarma, MiFarma, Boticas)
+  > medico            (consulta médica privada)
+  > clinica           (clínica o emergencia)
+  > laboratorio       (análisis, exámenes)
+  > seguro_salud      (EPS, SOAT médico, seguros)
+  > optica            (lentes, óptica)
 
 Entretenimiento
-  > Streaming (Netflix, Spotify, Disney+, YouTube Premium, Apple TV)
-  > Videojuegos (Steam, Xbox, PlayStation, App Store juegos)
-  > Cine / Teatro / Eventos
-  > Bares y discotecas
-  > Hobbies
+  > streaming         (Netflix, Spotify, Disney+, YouTube Premium, Apple TV, Apple Music, iCloud, Google One)
+  > cine              (Cineplanet, Cinemark, UVK)
+  > juegos            (Google Play, App Store, Steam, Xbox, PlayStation)
+  > bares_clubs       (tragos, discotecas, pubs)
+  > eventos           (conciertos, teatro, deportes)
+  > hobbies           (libros, materiales, pasatiempos)
+
+Compras
+  > ropa              (Saga, Ripley, H&M, Zara, Forever 21)
+  > calzado           (Bata, Marathon, tiendas de zapatos)
+  > electronico       (Hiraoka, Falabella tech, Mercado Libre)
+  > hogar             (Promart, Sodimac, Maestro)
+  > belleza           (Natura, Unique, Perfumerías, salón, spa)
+  > mascotas          (alimento y veterinaria)
 
 Educación
-  > Universidad / Instituto
-  > Cursos online (Coursera, Udemy, Platzi)
-  > Libros y materiales
-  > Colegios
-
-Ropa y Personal
-  > Ropa y calzado
-  > Cuidado personal (salón, peluquería, spa)
-  > Cosméticos y perfumería
-  > Accesorios
-
-Tecnología
-  > Celular y accesorios
-  > Computadora y periféricos
-  > Software y apps (SaaS, herramientas digitales)
-  > Electrodomésticos
+  > universidad       (mensualidad universidad, SENATI, ISEP)
+  > instituto         (institutos técnicos)
+  > curso_online      (Coursera, Udemy, Platzi)
+  > utiles            (libros, útiles, materiales)
+  > idiomas           (Inglés, ICPNA, Británico)
+  > colegios          (pensión de colegio)
 
 Finanzas
-  > Seguro de vida / vehicular
-  > Préstamo / Cuota
-  > Inversiones
-  > Comisiones bancarias
-  > Tarjeta de crédito (pago de deuda)
+  > prestamo          (cuota de préstamo personal)
+  > tarjeta_credito   (pago de TC BCP, BBVA, Interbank)
+  > seguro            (SOAT, seguro de vida, vehicular)
+  > ahorro            (depósito a cuenta de ahorros)
+  > inversion         (fondos, acciones, criptos)
+  > comision_banco    (ITF, comisiones, portes)
 
-Familia y Hogar
-  > Útiles del hogar
-  > Juguetes y ropa de niños
-  > Mascotas
-  > Regalos
-
-Viajes
-  > Vuelos
-  > Alojamiento (hotel, Airbnb)
-  > Actividades turísticas
-  > Alimentación en viaje
+Trabajo_Negocio
+  > herramientas      (software, SaaS, suscripciones laborales)
+  > publicidad        (Meta Ads, Google Ads)
+  > oficina           (útiles, impresiones, alquiler)
+  > logistica         (courier, envíos, olva)
+  > contador          (honorarios contables)
 
 Otros
-  > Donaciones y caridad
-  > Gastos no identificados
-  > Misceláneos
+  > regalo            (regalos y detalles)
+  > donacion          (donaciones, iglesia)
+  > multa             (multas, papeletas)
+  > viaje             (hotel, vuelos, tour — no cotidiano)
+  > sin_categoria     (no identificado aún)
 
 LÓGICA DE CATEGORIZACIÓN:
-  • Netflix, Spotify, Disney+, YouTube Premium → Entretenimiento > Streaming (y en USD)
-  • Rappi, PedidosYa, Uber Eats → Alimentación > Delivery
-  • "Menú", "almuerzo", huariques, cevicherías con monto < S/25 → Alimentación > Menú / Almuerzo
-  • Uber, InDriver → Transporte > Taxi / App
-  • Yape de monto pequeño a persona natural → pedir contexto antes de categorizar
-  • Si no estás seguro → preguntar al usuario antes de registrar en "Otros"
+  • Netflix, Spotify, Disney+, YouTube Premium, Apple Music, iCloud → Entretenimiento > streaming (siempre USD)
+  • Rappi, PedidosYa, Glovo → Alimentación > delivery
+  • Restaurantes, huariques, menú del día → Alimentación > restaurante
+  • Uber, InDriver, Cabify → Transporte > uber_cabify
+  • Gasolineras → Transporte > gasolina | Peajes → Transporte > peaje
+  • Luz, agua, gas, internet → Vivienda > subcategoría correcta
+  • Inkafarma, MiFarma → Salud > farmacia
+  • Cuota préstamo → Finanzas > prestamo | Pago TC → Finanzas > tarjeta_credito
+  • Yape de monto pequeño a persona natural → preguntar antes de categorizar
+  • Si no estás seguro → preguntar al usuario antes de registrar en Otros
 
 CUANDO EL USUARIO CORRIJA UNA CATEGORÍA:
   Si dice "eso es menú", "ese gasto es de restaurante", "eso fue un taxi",

@@ -63,24 +63,29 @@ async function obtenerOCrearUsuario(numeroWhatsapp) {
   return nuevo;
 }
 // Árbol canónico de categorías — única fuente de verdad
+// 10 categorías: Alimentación, Transporte, Vivienda, Salud, Entretenimiento,
+//                Compras, Educación, Finanzas, Trabajo_Negocio, Otros
 const CATEGORIAS_VALIDAS = new Set([
-  'Comida', 'Auto', 'Transporte', 'Hogar', 'Entretenimiento',
-  'Streaming', 'Salud', 'Educacion', 'Compras', 'Viajes', 'Otros'
+  'Alimentación', 'Transporte', 'Vivienda', 'Salud', 'Entretenimiento',
+  'Compras', 'Educación', 'Finanzas', 'Trabajo_Negocio', 'Otros'
 ]);
 
-// Mapa de normalización para variantes del parser y correcciones manuales
+// Mapeo de variantes → canónico (retrocompatibilidad + correcciones automáticas)
 const CATEGORIA_MAP = {
-  // Variantes del parser antiguo → canónico
-  'alimentacion': 'Comida', 'alimentación': 'Comida', 'Alimentacion': 'Comida', 'Alimentación': 'Comida',
-  'vivienda': 'Hogar', 'Vivienda': 'Hogar',
-  'finanzas': 'Otros', 'Finanzas': 'Otros',
-  'trabajo_negocio': 'Otros', 'Trabajo_Negocio': 'Otros',
-  'transferencia': 'Otros', 'Transferencia': 'Otros',
+  // Árbol anterior → canónico
+  'Comida': 'Alimentación', 'comida': 'Alimentación',
+  'Alimentacion': 'Alimentación', 'alimentacion': 'Alimentación', 'alimentación': 'Alimentación',
+  'Hogar': 'Vivienda', 'hogar': 'Vivienda', 'vivienda': 'Vivienda',
+  'Auto': 'Transporte', 'auto': 'Transporte',
+  'Streaming': 'Entretenimiento', 'streaming': 'Entretenimiento',
+  'Viajes': 'Otros', 'viajes': 'Otros',
+  'Educacion': 'Educación', 'educacion': 'Educación',
+  'Transferencia': 'Otros', 'transferencia': 'Otros',
   // Capitalización incorrecta
-  'comida': 'Comida', 'auto': 'Auto', 'transporte': 'Transporte',
-  'hogar': 'Hogar', 'entretenimiento': 'Entretenimiento', 'streaming': 'Streaming',
-  'salud': 'Salud', 'educacion': 'Educacion', 'educación': 'Educacion',
-  'compras': 'Compras', 'viajes': 'Viajes', 'otros': 'Otros',
+  'transporte': 'Transporte', 'salud': 'Salud',
+  'entretenimiento': 'Entretenimiento', 'compras': 'Compras',
+  'finanzas': 'Finanzas', 'trabajo_negocio': 'Trabajo_Negocio',
+  'otros': 'Otros',
 };
 
 function normalizarCategoria(cat) {
@@ -88,10 +93,9 @@ function normalizarCategoria(cat) {
   const mapped = CATEGORIA_MAP[cat];
   if (mapped) return mapped;
   if (CATEGORIAS_VALIDAS.has(cat)) return cat;
-  // Intentar capitalizar y verificar
   const cap = cat.charAt(0).toUpperCase() + cat.slice(1).toLowerCase();
   if (CATEGORIAS_VALIDAS.has(cap)) return cap;
-  return 'Otros'; // fallback: texto libre desconocido → Otros
+  return 'Otros';
 }
 
 async function guardarTransaccion(usuarioId, datos) {
@@ -184,40 +188,56 @@ async function parsearCorreoBancario(texto, contexto) {
 
 CATEGORÍAS Y SUBCATEGORÍAS OBLIGATORIAS (usa EXACTAMENTE estos valores, sin variantes):
 
-Comida: Restaurante | Almuerzo | Delivery | Supermercado | Cafeteria | Snacks | Ingredientes
-Auto: Gasolina | Peaje | Estacionamiento | Mantenimiento | Seguro | Lavado | Accesorios
-Transporte: Taxi | Metro | Bus
-Hogar: Alquiler | Servicios | Internet | Celular | Limpieza | Articulos de hogar
-Entretenimiento: Cine | Conciertos | Salidas | Futbol | Hobbies
-Streaming: Netflix | Disney+ | Amazon Prime | YouTube Premium | Apple Music | Spotify | Google One | Apple Cloud | Otro streaming
-Salud: Farmacia | Medico | Hospital | Psicologo | Seguro | Gimnasio | Higiene | Barberia
-Educacion: Cursos | Universidad | Libros | Certificaciones | Idiomas
-Compras: Ropa | Accesorios | Regalos | Tecnologia | Calzado
-Viajes: Vuelo | Hospedaje | Movilidad | Turismo
-Otros: sin_categoria
+Alimentación:    delivery | restaurante | supermercado | mercado | cafeteria | snacks
+Transporte:      uber_cabify | taxi | bus_micro | metro_bus | gasolina | peaje | estacionamiento
+Vivienda:        alquiler | mantenimiento | electricidad | agua | gas | internet | cable
+Salud:           farmacia | medico | clinica | laboratorio | seguro_salud | optica
+Entretenimiento: streaming | cine | juegos | bares_clubs | eventos | hobbies
+Compras:         ropa | calzado | electronico | hogar | belleza | mascotas
+Educación:       universidad | instituto | curso_online | utiles | idiomas | colegios
+Finanzas:        prestamo | tarjeta_credito | seguro | ahorro | inversion | comision_banco
+Trabajo_Negocio: herramientas | publicidad | oficina | logistica | contador
+Otros:           regalo | donacion | multa | viaje | sin_categoria
 
 REGLAS DE NORMALIZACIÓN DE COMERCIOS:
-- Rappi / PedidosYa / Glovo / DLC*PedidosYa → comercio limpio, categoria: Comida, subcategoria: Delivery
-- McDonald's / KFC / Bembos / Pizza Hut / restaurantes → Comida > Restaurante
-- SPSA / SPSA TOTTUS / Wong / Metro / Plaza Vea / Tottus / supermercados → Comida > Supermercado
-- Starbucks / Juan Valdez / cafeterías → Comida > Cafeteria
-- Uber / Cabify / InDriver / Beat / taxis app → Transporte > Taxi
-- Repsol / Primax / Pecsa / Petroperu / gasolineras → Auto > Gasolina
-- Peajes / Telepeaje → Auto > Peaje
-- Luz del Sur / Enel / Electrodunas / Hidrandina → Hogar > Servicios
-- SEDAPAL / EPS / agua → Hogar > Servicios
-- Claro / Entel / Movistar / Bitel / internet / celular → Hogar > Internet
-- DLOCAL*NETFLIX / Netflix / Disney+ / HBO / Spotify / YouTube Premium / Apple Music → Streaming > (nombre del servicio)
-- Apple.com/bill / Apple iCloud / Google One / Google Drive → Streaming > Apple Cloud o Google One
-- Cineplanet / Cinemark / UVK → Entretenimiento > Cine
-- Google Play / App Store / Steam / Xbox / PlayStation → Entretenimiento > Hobbies
-- Saga / Ripley / H&M / Zara / Forever 21 / ropa → Compras > Ropa
-- Bata / Marathon / Adidas / Nike tienda / zapatería → Compras > Calzado
-- Hiraoka / Falabella / Mercado Libre / Amazon / electronica → Compras > Tecnologia
-- Promart / Sodimac / Maestro / ferreteria → Compras > Articulos de hogar
-- Inkafarma / MiFarma / Boticas / farmacias → Salud > Farmacia
-- Coursera / Udemy / Platzi / Duolingo / cursos online → Educacion > Cursos
-- ICPNA / Británico / Berlitz / idiomas → Educacion > Idiomas
+- Rappi / PedidosYa / Glovo / DLC*PedidosYa → comercio limpio, categoria: Alimentación, subcategoria: delivery
+- McDonald's / KFC / Bembos / Pizza Hut / restaurantes / huariques → Alimentación > restaurante
+- SPSA / SPSA TOTTUS / Wong / Metro / Plaza Vea / Tottus / supermercados → Alimentación > supermercado
+- Starbucks / Juan Valdez / café → Alimentación > cafeteria
+- Uber / Cabify / InDriver / Beat → Transporte > uber_cabify
+- Repsol / Primax / Pecsa / Petroperu / Grifo / gasolineras → Transporte > gasolina
+- Peajes / Telepeaje / RUTAS → Transporte > peaje
+- Estacionamiento / playa de estacionamiento → Transporte > estacionamiento
+- Metropolitano / bus / combi / micro → Transporte > metro_bus
+- Luz del Sur / Enel / Electrodunas / Hidrandina → Vivienda > electricidad
+- SEDAPAL / EPS → Vivienda > agua
+- Claro / Entel / Movistar hogar / Bitel / internet → Vivienda > internet
+- TV cable / cableoperadora → Vivienda > cable
+- Gas LP / GLP / Zeta Gas → Vivienda > gas
+- DLOCAL*NETFLIX / Netflix / Disney+ / HBO / Spotify / YouTube Premium / Apple Music / Apple TV → Entretenimiento > streaming
+- Apple.com/bill / Apple iCloud / Google One / Google Drive → Entretenimiento > streaming
+- Cineplanet / Cinemark / UVK → Entretenimiento > cine
+- Google Play / App Store / Steam / Xbox / PlayStation → Entretenimiento > juegos
+- Bares / discotecas / pubs → Entretenimiento > bares_clubs
+- Saga / Ripley / H&M / Zara / Forever 21 → Compras > ropa
+- Bata / Marathon / Adidas / Nike → Compras > calzado
+- Hiraoka / Falabella / Mercado Libre / Amazon / electrónica → Compras > electronico
+- Promart / Sodimac / Maestro → Compras > hogar
+- Natura / Unique / Perfumerías / salón / spa / barbería → Compras > belleza
+- Veterinaria / mascotas / Petco → Compras > mascotas
+- Inkafarma / MiFarma / Boticas / Farmacéxito → Salud > farmacia
+- Clínicas / hospitales / emergencias → Salud > clinica
+- Laboratorio / análisis → Salud > laboratorio
+- Coursera / Udemy / Platzi / Duolingo → Educación > curso_online
+- ICPNA / Británico / Berlitz / idiomas → Educación > idiomas
+- Universidad / instituto / SENATI / ISEP → Educación > universidad
+- Colegio / pensión escolar → Educación > colegios
+- Cuota préstamo BCP/BBVA/Interbank → Finanzas > prestamo
+- Pago tarjeta crédito / TC → Finanzas > tarjeta_credito
+- SOAT / seguro vehicular / seguro de vida → Finanzas > seguro
+- Comisión banco / ITF / porte → Finanzas > comision_banco
+- Software / SaaS / herramientas trabajo → Trabajo_Negocio > herramientas
+- Meta Ads / Google Ads / publicidad → Trabajo_Negocio > publicidad
 
 REGLAS POR BANCO:
 - BCP débito/crédito: buscar campo "Empresa" o descripción del consumo
@@ -399,7 +419,7 @@ async function intentarResolverConsulta(usuario, texto) {
   var ctx = pendientes.map(function(c,i){ return (i+1)+'. '+(c.banco||'Pago')+' S/'+c.monto+' del '+c.fecha; }).join('; ');
   var parsed;
   try {
-    var aiRes = await openai.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'system', content: 'Gastos pendientes: '+ctx+'. Usuario respondio: "'+texto+'". SOLO JSON: {"resuelve":true/false,"numero":1/2/null,"categoria":"Comida|Auto|Transporte|Hogar|Entretenimiento|Streaming|Salud|Educacion|Compras|Viajes|Otros","descripcion":"descripcion corta"}' }], temperature: 0 });
+    var aiRes = await openai.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'system', content: 'Gastos pendientes: '+ctx+'. Usuario respondio: "'+texto+'". SOLO JSON: {"resuelve":true/false,"numero":1/2/null,"categoria":"Alimentación|Transporte|Vivienda|Salud|Entretenimiento|Compras|Educación|Finanzas|Trabajo_Negocio|Otros","descripcion":"descripcion corta"}' }], temperature: 0 });
     var raw = aiRes.choices[0].message.content.trim();
     parsed = JSON.parse(raw.startsWith('{') ? raw : raw.slice(raw.indexOf('{'), raw.lastIndexOf('}')+1));
   } catch(e) { return null; }
@@ -415,17 +435,16 @@ async function intentarResolverConsulta(usuario, texto) {
 }
 
 const CATEGORIAS_SUGERIDAS = [
-  { nombre: 'Comida', emoji: '\uD83C\uDF7D\uFE0F', subs: ['Almuerzo','Cena','Desayuno','Snacks','Ingredientes','Restaurante','Compartir'] },
-  { nombre: 'Auto', emoji: '\uD83D\uDE97', subs: ['Gasolina','Peaje','Estacionamiento','Mantenimiento','Seguro','Impuesto vehicular','Lavado','Accesorios'] },
-  { nombre: 'Transporte', emoji: '\uD83D\uDE8C', subs: ['Taxi','Metro','Bus'] },
-  { nombre: 'Hogar', emoji: '\uD83C\uDFE0', subs: ['Alquiler','Supermercado','Servicios','Internet','Celular','Limpieza','Articulos de hogar'] },
-  { nombre: 'Entretenimiento', emoji: '\uD83C\uDFB0', subs: ['Baile','Cine','Teatro','Conciertos','Futbol','Salidas/Tragos'] },
-  { nombre: 'Streaming', emoji: '\uD83D\uDCFA', subs: ['Netflix','Disney+','Amazon Prime','YouTube Premium','Apple Music','Google Storage','Apple Cloud'] },
-  { nombre: 'Salud', emoji: '\uD83D\uDC8A', subs: ['Hospital','Medicina','Farmacia','Psicologo','Seguro','Gimnasio','Higiene','Barberia'] },
-  { nombre: 'Educacion', emoji: '\uD83D\uDCDA', subs: ['Cursos','Libros','Certificaciones'] },
-  { nombre: 'Compras', emoji: '\uD83D\uDED2', subs: ['Ropa','Accesorios','Regalos','Tecnologia'] },
-  { nombre: 'Viajes', emoji: '\u2708\uFE0F', subs: ['Vuelo','Hospedaje','Comida','Movilidad','Turismo','Tragos'] },
-  { nombre: 'Otros', emoji: '\uD83D\uDCCB', subs: [] }
+  { nombre: 'Alimentaci\u00f3n', emoji: '\uD83C\uDF7D\uFE0F', subs: ['delivery','restaurante','supermercado','mercado','cafeteria','snacks'] },
+  { nombre: 'Transporte',    emoji: '\uD83D\uDE8C',         subs: ['uber_cabify','taxi','bus_micro','metro_bus','gasolina','peaje','estacionamiento'] },
+  { nombre: 'Vivienda',      emoji: '\uD83C\uDFE0',         subs: ['alquiler','mantenimiento','electricidad','agua','gas','internet','cable'] },
+  { nombre: 'Salud',         emoji: '\uD83D\uDC8A',         subs: ['farmacia','medico','clinica','laboratorio','seguro_salud','optica'] },
+  { nombre: 'Entretenimiento', emoji: '\uD83C\uDFB0',       subs: ['streaming','cine','juegos','bares_clubs','eventos','hobbies'] },
+  { nombre: 'Compras',       emoji: '\uD83D\uDED2',         subs: ['ropa','calzado','electronico','hogar','belleza','mascotas'] },
+  { nombre: 'Educaci\u00f3n',     emoji: '\uD83D\uDCDA',         subs: ['universidad','instituto','curso_online','utiles','idiomas','colegios'] },
+  { nombre: 'Finanzas',      emoji: '\uD83D\uDCB3',         subs: ['prestamo','tarjeta_credito','seguro','ahorro','inversion','comision_banco'] },
+  { nombre: 'Trabajo_Negocio', emoji: '\uD83D\uDCBC',       subs: ['herramientas','publicidad','oficina','logistica','contador'] },
+  { nombre: 'Otros',         emoji: '\uD83D\uDCCB',         subs: ['regalo','donacion','multa','viaje','sin_categoria'] }
 ];
 
 async function obtenerCategoriasUsuario(usuarioId) {
@@ -920,7 +939,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       model: 'gpt-4o-mini',
       messages: [{
         role: 'system',
-        content: 'Eres el clasificador de intenciones de NETO, bot de finanzas personales por WhatsApp para usuarios peruanos.\nEl mes actual es ' + mE[mesActual] + ' ' + anioActual + '.\n\nAnaliza el mensaje y devuelve SOLO JSON.\n\nINTENCIONES:\n1. "listar_gastos_mes" - ver resumen/lista de gastos del mes\n   Ej: "cuales son mis gastos", "que gaste este mes", "gastos registrados", "que tengo registrado", "mis compras", "transacciones"\n   Datos: mes (numero, default=mes_actual), anio\n\n2. "listar_gastos_semana" - gastos de los ultimos 7 dias\n   Ej: "que gaste esta semana", "gastos recientes", "mis compras de los ultimos dias"\n\n3. "listar_gastos_categoria" - gastos de UNA categoria especifica\n   Ej: "que hay en Otros", "gastos de Comida", "que esta en Transporte", "detalle de Hogar", "cuales estan en otros"\n   Datos: categoria (nombre exacto), mes (default=mes_actual)\n\n4. "ver_total_gastado" - saber el TOTAL numerico gastado\n   Ej: "cuanto gaste", "cuanto llevo gastado", "total de gastos"\n   Datos: periodo ("semana" o "mes"), categoria (o null)\n\n5. "ver_presupuesto" - ver estado del presupuesto\n   Ej: "como va mi presupuesto", "cuanto me queda", "mis limites"\n\n6. "configurar_presupuesto" - configurar limite de gasto\n   Ej: "pon limite de 500 en comida", "presupuesto de 300 para transporte"\n   Datos: categoria, monto\n\n7. "ver_categorias" - ver categorias configuradas del sistema\n   Ej: "que categorias hay", "muestra las categorias del sistema"\n   IMPORTANTE: Si el historial muestra que NETO estaba hablando de gastos por categoria, NO usar esta intencion\n\n8. "ver_reporte" - reporte PDF\n   Ej: "dame mi reporte", "informe mensual", "reporte de marzo", "genera pdf"\n   Datos: mes (default=mes_actual), anio\n\n9. "corregir_categoria" - cambiar categoria de un gasto\n   Ej: "netflix es streaming", "cambia uber a transporte", "mover gasto de punto.pe a NETO", "ponlo en Hogar", "muevelo a Delivery", "este gasto es de Comida"\n   IMPORTANTE: Usar cuando el usuario quiere mover/cambiar/reclasificar un gasto a cualquier categoria (incluso nueva). comercio puede ser null.\n   Datos: comercio (null si no se menciona), categoria_nueva\n\n10. "ver_pendientes" - gastos sin identificar\n    Ej: "gastos pendientes", "que no identificaste", "gastos sin categoria"\n\n11. "escanear_gmail" - escanear correos\n    Ej: "escanea mi correo", "busca transacciones nuevas", "hay correos nuevos"\n\n12. "ver_premium" - info del plan premium\n    Ej: "cuanto cuesta premium", "que incluye el plan"\n\n13. "saludo" - saludo sin intencion especifica\n    Ej: "buenos dias", "que tal", "como estas"\n\n14. "ayuda" - pide ayuda\n    Ej: "que puedes hacer", "ayuda", "como funciona"\n\n15. "desconocido" - no encaja con ninguna intencion clara, o es continuacion de conversacion\n    Usar cuando: el mensaje es "si", "no", "dale", "ok", "mas", o cualquier respuesta corta a algo que NETO pregunto\n\nREGLAS CRITICAS:\n- Si el historial muestra que NETO hizo una pregunta y el usuario responde con "si", "no", "dale", "ok", "mas detalle", "eso", "las dos", o cualquier respuesta corta -> usar "desconocido" para que NETO maneje la continuacion\n- Si el historial muestra que NETO hablaba de gastos por categoria y el usuario dice "otras categorias" o similar -> usar "desconocido" no "ver_categorias"\n- "otros" como categoria de gasto -> listar_gastos_categoria con categoria="Otros"\n- "cuanto gaste" sin periodo -> ver_total_gastado con periodo="mes"\n- "gastos registrados"/"que tengo" -> listar_gastos_mes\n- mes: enero=1, febrero=2, marzo=3, ..., diciembre=12\n- Si no especifica mes -> usar mes_actual' + histCtx
+        content: 'Eres el clasificador de intenciones de NETO, bot de finanzas personales por WhatsApp para usuarios peruanos.\nEl mes actual es ' + mE[mesActual] + ' ' + anioActual + '.\n\nAnaliza el mensaje y devuelve SOLO JSON.\n\nINTENCIONES:\n1. "listar_gastos_mes" - ver resumen/lista de gastos del mes\n   Ej: "cuales son mis gastos", "que gaste este mes", "gastos registrados", "que tengo registrado", "mis compras", "transacciones"\n   Datos: mes (numero, default=mes_actual), anio\n\n2. "listar_gastos_semana" - gastos de los ultimos 7 dias\n   Ej: "que gaste esta semana", "gastos recientes", "mis compras de los ultimos dias"\n\n3. "listar_gastos_categoria" - gastos de UNA categoria especifica\n   Ej: "que hay en Otros", "gastos de Alimentación", "que esta en Transporte", "detalle de Hogar", "cuales estan en otros"\n   Datos: categoria (nombre exacto), mes (default=mes_actual)\n\n4. "ver_total_gastado" - saber el TOTAL numerico gastado\n   Ej: "cuanto gaste", "cuanto llevo gastado", "total de gastos"\n   Datos: periodo ("semana" o "mes"), categoria (o null)\n\n5. "ver_presupuesto" - ver estado del presupuesto\n   Ej: "como va mi presupuesto", "cuanto me queda", "mis limites"\n\n6. "configurar_presupuesto" - configurar limite de gasto\n   Ej: "pon limite de 500 en comida", "presupuesto de 300 para transporte"\n   Datos: categoria, monto\n\n7. "ver_categorias" - ver categorias configuradas del sistema\n   Ej: "que categorias hay", "muestra las categorias del sistema"\n   IMPORTANTE: Si el historial muestra que NETO estaba hablando de gastos por categoria, NO usar esta intencion\n\n8. "ver_reporte" - reporte PDF\n   Ej: "dame mi reporte", "informe mensual", "reporte de marzo", "genera pdf"\n   Datos: mes (default=mes_actual), anio\n\n9. "corregir_categoria" - cambiar categoria de un gasto\n   Ej: "netflix es streaming", "cambia uber a transporte", "mover gasto de punto.pe a NETO", "ponlo en Hogar", "muevelo a Delivery", "este gasto es de Comida"\n   IMPORTANTE: Usar cuando el usuario quiere mover/cambiar/reclasificar un gasto a cualquier categoria (incluso nueva). comercio puede ser null.\n   Datos: comercio (null si no se menciona), categoria_nueva\n\n10. "ver_pendientes" - gastos sin identificar\n    Ej: "gastos pendientes", "que no identificaste", "gastos sin categoria"\n\n11. "escanear_gmail" - escanear correos\n    Ej: "escanea mi correo", "busca transacciones nuevas", "hay correos nuevos"\n\n12. "ver_premium" - info del plan premium\n    Ej: "cuanto cuesta premium", "que incluye el plan"\n\n13. "saludo" - saludo sin intencion especifica\n    Ej: "buenos dias", "que tal", "como estas"\n\n14. "ayuda" - pide ayuda\n    Ej: "que puedes hacer", "ayuda", "como funciona"\n\n15. "desconocido" - no encaja con ninguna intencion clara, o es continuacion de conversacion\n    Usar cuando: el mensaje es "si", "no", "dale", "ok", "mas", o cualquier respuesta corta a algo que NETO pregunto\n\nREGLAS CRITICAS:\n- Si el historial muestra que NETO hizo una pregunta y el usuario responde con "si", "no", "dale", "ok", "mas detalle", "eso", "las dos", o cualquier respuesta corta -> usar "desconocido" para que NETO maneje la continuacion\n- Si el historial muestra que NETO hablaba de gastos por categoria y el usuario dice "otras categorias" o similar -> usar "desconocido" no "ver_categorias"\n- "otros" como categoria de gasto -> listar_gastos_categoria con categoria="Otros"\n- "cuanto gaste" sin periodo -> ver_total_gastado con periodo="mes"\n- "gastos registrados"/"que tengo" -> listar_gastos_mes\n- mes: enero=1, febrero=2, marzo=3, ..., diciembre=12\n- Si no especifica mes -> usar mes_actual' + histCtx
       }, {
         role: 'user',
         content: msg
@@ -1005,7 +1024,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       }
             case 'listar_gastos_categoria': {
         const cat = datos.categoria;
-        if (!cat) return 'Dime la categoria. Ej: _"gastos de Comida"_, _"que hay en Transporte"_';
+        if (!cat) return 'Dime la categoria. Ej: _"gastos de Alimentación"_, _"que hay en Transporte"_';
         const mes = datos.mes || mesActual;
         const anio = datos.anio || anioActual;
         const desde = anio + '-' + String(mes).padStart(2,'0') + '-01';
