@@ -41,7 +41,7 @@ async function obtenerHistorial(usuarioId) {
 
 async function obtenerOCrearUsuario(numeroWhatsapp) {
   // Normalizar formato: eliminar prefijo "whatsapp:" y "+" para consistencia
-  const numeroNorm = numeroWhatsapp.replace(/^whatsapp:/i, '').replace(/^+/, '');
+  const numeroNorm = numeroWhatsapp.replace(/^whatsapp:/i, '').replace(/^\+/, '');
   try {
     // Buscar tanto con el número normalizado como con el formato original (retrocompatibilidad)
     const { data } = await supabase.from('usuarios').select('*').eq('whatsapp', numeroNorm).single();
