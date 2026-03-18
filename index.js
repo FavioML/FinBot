@@ -18,8 +18,9 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY
 // Ã¢â€â‚¬Ã¢â€â‚¬ Historial de conversacion Ã¢â€â‚¬Ã¢â€â‚¬
 async function guardarMensaje(usuarioId, rol, mensaje) {
   try {
-    // NETO puede enviar resúmenes largos (~800 chars) — guardamos más para continuidad
-  const limiteChars = rol === 'neto' ? 1500 : 500;
+    // Sin límite práctico — columna es TEXT en Postgres (ilimitado)
+  // 10000 chars cubre cualquier mensaje posible de NETO o del usuario
+  const limiteChars = 10000;
   await supabase.from('conversaciones').insert({ usuario_id: usuarioId, rol: rol, mensaje: mensaje.substring(0, limiteChars) });
     // Limpiar mensajes viejos (mantener solo ultimos 10)
     const { data: viejos } = await supabase.from('conversaciones').select('id').eq('usuario_id', usuarioId).order('created_at', { ascending: false }).range(10, 100);
@@ -61,6 +62,38 @@ async function obtenerOCrearUsuario(numeroWhatsapp) {
   if (error) throw new Error('Error creando usuario: ' + error.message);
   return nuevo;
 }
+// Árbol canónico de categorías — única fuente de verdad
+const CATEGORIAS_VALIDAS = new Set([
+  'Comida', 'Auto', 'Transporte', 'Hogar', 'Entretenimiento',
+  'Streaming', 'Salud', 'Educacion', 'Compras', 'Viajes', 'Otros'
+]);
+
+// Mapa de normalización para variantes del parser y correcciones manuales
+const CATEGORIA_MAP = {
+  // Variantes del parser antiguo → canónico
+  'alimentacion': 'Comida', 'alimentación': 'Comida', 'Alimentacion': 'Comida', 'Alimentación': 'Comida',
+  'vivienda': 'Hogar', 'Vivienda': 'Hogar',
+  'finanzas': 'Otros', 'Finanzas': 'Otros',
+  'trabajo_negocio': 'Otros', 'Trabajo_Negocio': 'Otros',
+  'transferencia': 'Otros', 'Transferencia': 'Otros',
+  // Capitalización incorrecta
+  'comida': 'Comida', 'auto': 'Auto', 'transporte': 'Transporte',
+  'hogar': 'Hogar', 'entretenimiento': 'Entretenimiento', 'streaming': 'Streaming',
+  'salud': 'Salud', 'educacion': 'Educacion', 'educación': 'Educacion',
+  'compras': 'Compras', 'viajes': 'Viajes', 'otros': 'Otros',
+};
+
+function normalizarCategoria(cat) {
+  if (!cat) return 'Otros';
+  const mapped = CATEGORIA_MAP[cat];
+  if (mapped) return mapped;
+  if (CATEGORIAS_VALIDAS.has(cat)) return cat;
+  // Intentar capitalizar y verificar
+  const cap = cat.charAt(0).toUpperCase() + cat.slice(1).toLowerCase();
+  if (CATEGORIAS_VALIDAS.has(cap)) return cap;
+  return 'Otros'; // fallback: texto libre desconocido → Otros
+}
+
 async function guardarTransaccion(usuarioId, datos) {
   const _moneda = datos.moneda || 'PEN';
   let _montoPen = parseFloat(datos.monto); let _tcUsado = null;
@@ -68,7 +101,7 @@ async function guardarTransaccion(usuarioId, datos) {
   const { data, error } = await supabase.from('transacciones').insert({
     usuario_id: usuarioId, tipo: datos.tipo || 'gasto', monto: parseFloat(datos.monto), moneda: _moneda,
     monto_pen: _montoPen, tipo_cambio: _tcUsado, metodo_pago: datos.metodo_pago || null,
-    comercio: datos.comercio, categoria: datos.categoria, banco: datos.banco,
+    comercio: datos.comercio, categoria: normalizarCategoria(datos.categoria), banco: datos.banco,
     fecha: datos.fecha || new Date().toISOString().split('T')[0],
     descripcion_original: datos.descripcion_original, confirmado: false
   }).select().single();
@@ -149,40 +182,42 @@ async function parsearCorreoBancario(texto, contexto) {
       { role: 'system', content: `Eres un parser experto de notificaciones bancarias peruanas. Devuelve SOLO JSON sin markdown:
 { "tipo":"gasto"|"ingreso", "monto":numero, "moneda":"PEN"|"USD", "comercio":"nombre limpio del comercio", "categoria":"ver lista", "subcategoria":"ver lista", "banco":"BCP|Interbank|BBVA|Scotiabank|Yape|Plin|Otro", "metodo_pago":"Debito|Credito|Yape|Plin|Efectivo|Otro", "fecha":"YYYY-MM-DD", "descripcion_original":"texto original" }
 
-CATEGORÍAS Y SUBCATEGORÍAS OBLIGATORIAS (usa exactamente estos valores):
+CATEGORÍAS Y SUBCATEGORÍAS OBLIGATORIAS (usa EXACTAMENTE estos valores, sin variantes):
 
-Alimentacion: delivery | restaurante | supermercado | mercado | cafeteria | snacks
-Transporte: uber_cabify | taxi | bus_micro | metro_bus | gasolina | peaje | estacionamiento
-Vivienda: alquiler | mantenimiento | electricidad | agua | gas | internet | cable
-Salud: farmacia | medico | clinica | laboratorio | seguro_salud | optica
-Entretenimiento: streaming | cine | juegos | bares_clubs | eventos | hobbies
-Compras: ropa | calzado | electronico | hogar_deco | belleza | mascotas
-Educacion: universidad | instituto | curso_online | utiles | idiomas | colegios
-Finanzas: prestamo | tarjeta_credito | seguro | ahorro | inversion | comision_banco
-Trabajo_Negocio: herramientas | publicidad | oficina | logistica | contador
-Otros: regalo | donacion | multa | viaje | sin_categoria
+Comida: Restaurante | Almuerzo | Delivery | Supermercado | Cafeteria | Snacks | Ingredientes
+Auto: Gasolina | Peaje | Estacionamiento | Mantenimiento | Seguro | Lavado | Accesorios
+Transporte: Taxi | Metro | Bus
+Hogar: Alquiler | Servicios | Internet | Celular | Limpieza | Articulos de hogar
+Entretenimiento: Cine | Conciertos | Salidas | Futbol | Hobbies
+Streaming: Netflix | Disney+ | Amazon Prime | YouTube Premium | Apple Music | Spotify | Google One | Apple Cloud | Otro streaming
+Salud: Farmacia | Medico | Hospital | Psicologo | Seguro | Gimnasio | Higiene | Barberia
+Educacion: Cursos | Universidad | Libros | Certificaciones | Idiomas
+Compras: Ropa | Accesorios | Regalos | Tecnologia | Calzado
+Viajes: Vuelo | Hospedaje | Movilidad | Turismo
+Otros: sin_categoria
 
 REGLAS DE NORMALIZACIÓN DE COMERCIOS:
-- Rappi / PedidosYa / Glovo / DLC*PedidosYa → comercio limpio, categoria: Alimentacion, subcategoria: delivery
-- McDonald's / KFC / Bembos / Pizza Hut → Alimentacion > restaurante
-- SPSA / SPSA TOTTUS / Wong / Metro / Plaza Vea / Tottus → nombre limpio, Alimentacion > supermercado
-- Starbucks / Juan Valdez → Alimentacion > cafeteria
-- Uber / Cabify / InDriver / Beat → Transporte > uber_cabify
-- Repsol / Primax / Pecsa / Petroperu / Gasolinera → Transporte > gasolina
-- Luz del Sur / Enel / Electrodunas / Hidrandina → Vivienda > electricidad
-- SEDAPAL / EPS → Vivienda > agua
-- Claro / Entel / Movistar hogar / Bitel hogar → Vivienda > internet
-- DLOCAL*NETFLIX / Netflix / Disney+ / HBO / Amazon Prime / Spotify / YouTube Premium → Entretenimiento > streaming
-- Apple.com/bill / Apple iCloud / Google Drive / Google One → Entretenimiento > streaming
-- Cineplanet / Cinemark / UVK → Entretenimiento > cine
-- Google Play / App Store / Steam / Xbox → Entretenimiento > juegos
-- Saga / Ripley / H&M / Zara / Forever 21 → Compras > ropa
-- Bata / Marathon / Adidas / Nike tienda → Compras > calzado
-- Hiraoka / Falabella / Mercado Libre / Amazon → Compras > electronico
-- Promart / Sodimac / Maestro → Compras > hogar_deco
-- Inkafarma / MiFarma / Boticas → Salud > farmacia
-- Coursera / Udemy / Platzi / Duolingo → Educacion > curso_online
-- ICPNA / Británico / Berlitz → Educacion > idiomas
+- Rappi / PedidosYa / Glovo / DLC*PedidosYa → comercio limpio, categoria: Comida, subcategoria: Delivery
+- McDonald's / KFC / Bembos / Pizza Hut / restaurantes → Comida > Restaurante
+- SPSA / SPSA TOTTUS / Wong / Metro / Plaza Vea / Tottus / supermercados → Comida > Supermercado
+- Starbucks / Juan Valdez / cafeterías → Comida > Cafeteria
+- Uber / Cabify / InDriver / Beat / taxis app → Transporte > Taxi
+- Repsol / Primax / Pecsa / Petroperu / gasolineras → Auto > Gasolina
+- Peajes / Telepeaje → Auto > Peaje
+- Luz del Sur / Enel / Electrodunas / Hidrandina → Hogar > Servicios
+- SEDAPAL / EPS / agua → Hogar > Servicios
+- Claro / Entel / Movistar / Bitel / internet / celular → Hogar > Internet
+- DLOCAL*NETFLIX / Netflix / Disney+ / HBO / Spotify / YouTube Premium / Apple Music → Streaming > (nombre del servicio)
+- Apple.com/bill / Apple iCloud / Google One / Google Drive → Streaming > Apple Cloud o Google One
+- Cineplanet / Cinemark / UVK → Entretenimiento > Cine
+- Google Play / App Store / Steam / Xbox / PlayStation → Entretenimiento > Hobbies
+- Saga / Ripley / H&M / Zara / Forever 21 / ropa → Compras > Ropa
+- Bata / Marathon / Adidas / Nike tienda / zapatería → Compras > Calzado
+- Hiraoka / Falabella / Mercado Libre / Amazon / electronica → Compras > Tecnologia
+- Promart / Sodimac / Maestro / ferreteria → Compras > Articulos de hogar
+- Inkafarma / MiFarma / Boticas / farmacias → Salud > Farmacia
+- Coursera / Udemy / Platzi / Duolingo / cursos online → Educacion > Cursos
+- ICPNA / Británico / Berlitz / idiomas → Educacion > Idiomas
 
 REGLAS POR BANCO:
 - BCP débito/crédito: buscar campo "Empresa" o descripción del consumo
