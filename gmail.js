@@ -24,6 +24,33 @@ const PALABRAS_BANCARIAS = [
   'deposito', 'retiro', 'compra', 'comercio', 'monto'
 ];
 
+// Subjects conocidos de cada banco para detección rápida
+const SUBJECTS_BANCARIOS = [
+  'realizaste un consumo',
+  'realizaste un pago',
+  'transferencia realizada',
+  'operacion realizada',
+  'cargo en tu cuenta',
+  'abono en tu cuenta',
+  'notificacion de operacion',
+  'confirmacion de pago',
+  'yapeo exitoso',
+  'yapaste',
+  'plin',
+  'consumo con tu tarjeta',
+  'consumo tarjeta',
+  'tarjeta de credito bcp',
+  'tarjeta de debito bcp',
+  'retiro de efectivo',
+  'pago de servicio',
+  'servicio de notificaciones bcp',
+  'alerta de movimiento',
+  'movimiento en tu cuenta',
+  'interbank te informa',
+  'bbva',
+  'scotiabank',
+];
+
 const SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/userinfo.profile',
@@ -128,7 +155,28 @@ function extraerTexto(payload) {
 
 function esBancario(texto, asunto) {
   const contenido = (texto + ' ' + (asunto || '')).toLowerCase();
+  // Verificar subjects conocidos primero (más rápido)
+  const asuntoLower = (asunto || '').toLowerCase();
+  if (SUBJECTS_BANCARIOS.some(s => asuntoLower.includes(s))) return true;
+  // Verificar palabras clave en el cuerpo
   return PALABRAS_BANCARIAS.some(p => contenido.includes(p.toLowerCase()));
+}
+
+function esCorreoReenviado(headers) {
+  // Detectar correos reenviados por múltiples métodos
+  const subject = (headers.find(h => h.name === 'Subject') || {}).value || '';
+  const inReplyTo = (headers.find(h => h.name === 'In-Reply-To') || {}).value || '';
+  const references = (headers.find(h => h.name === 'References') || {}).value || '';
+  const forwarded = (headers.find(h => h.name === 'X-Forwarded-To') || {}).value || '';
+  const subjectLower = subject.toLowerCase();
+
+  if (subjectLower.startsWith('fwd:') || subjectLower.startsWith('fw:') ||
+      subjectLower.startsWith('rv:') || subjectLower.startsWith('reenvío:') ||
+      subjectLower.includes('fwd:') || subjectLower.includes('[fwd]')) {
+    return true;
+  }
+  if (inReplyTo || references || forwarded) return true;
+  return false;
 }
 
 async function leerCorreosBancarios(usuarioId) {
@@ -137,15 +185,29 @@ async function leerCorreosBancarios(usuarioId) {
 
   const gmail = google.gmail({ version: 'v1', auth: authClient });
 
-  const queryDirecto = 'from:(' + REMITENTES_BANCARIOS.join(' OR ') + ') newer_than:2d';
-  const queryPalabrasClave = '(yape OR "notificacion BCP" OR "consumo con tarjeta" OR "transferencia" OR "pago realizado" OR "cargo en cuenta" OR "abono en cuenta") newer_than:2d';
+  // Query principal: remitentes bancarios conocidos - últimas 36 horas
+  const queryDirecto = 'from:(' + REMITENTES_BANCARIOS.join(' OR ') + ') newer_than:2d -in:sent';
+  
+  // Query secundaria: palabras clave bancarias más amplias para BCP crédito y otros
+  const queryPalabrasClave = [
+    '"Servicio de Notificaciones BCP"',
+    '"realizaste un consumo"',
+    '"consumo con tu Tarjeta"',
+    '"Tarjeta de Credito BCP"',
+    '"Tarjeta de Debito BCP"',
+    '"yapaste"',
+    '"pago realizado" (BCP OR BBVA OR Interbank OR Scotiabank)',
+    '"transferencia realizada"',
+    '"abono en tu cuenta"',
+    '"cargo en tu cuenta"',
+  ].join(' OR ') + ' newer_than:2d -in:sent';
 
   const mensajesIds = new Set();
   const todosLosIds = [];
 
   for (const query of [queryDirecto, queryPalabrasClave]) {
     try {
-      const { data } = await gmail.users.messages.list({ userId: 'me', q: query, maxResults: 15 });
+      const { data } = await gmail.users.messages.list({ userId: 'me', q: query, maxResults: 20 });
       if (data.messages) {
         for (const m of data.messages) {
           if (!mensajesIds.has(m.id)) { mensajesIds.add(m.id); todosLosIds.push(m.id); }
@@ -157,17 +219,39 @@ async function leerCorreosBancarios(usuarioId) {
   if (todosLosIds.length === 0) return { error: null, mensajes: [] };
 
   const mensajes = [];
-  for (const id of todosLosIds.slice(0, 20)) {
+  for (const id of todosLosIds.slice(0, 25)) {
     try {
       const { data: detalle } = await gmail.users.messages.get({ userId: 'me', id, format: 'full' });
       const headers = detalle.payload.headers || [];
       const asunto = (headers.find(h => h.name === 'Subject') || {}).value || '';
       const remitente = (headers.find(h => h.name === 'From') || {}).value || '';
       const fecha = new Date(parseInt(detalle.internalDate)).toISOString().split('T')[0];
+
+      // FILTRO 1: Rechazar correos reenviados
+      if (esCorreoReenviado(headers)) {
+        console.log('[GMAIL] Correo reenviado ignorado:', asunto.substring(0, 50));
+        continue;
+      }
+
+      // FILTRO 2: Solo correos de los últimos 3 días (evitar correos viejos)
+      const fechaCorreo = new Date(parseInt(detalle.internalDate));
+      const hace3dias = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+      if (fechaCorreo < hace3dias) {
+        console.log('[GMAIL] Correo muy antiguo ignorado:', fecha, asunto.substring(0, 30));
+        continue;
+      }
+
       const cuerpo = extraerTexto(detalle.payload);
-      if (!esBancario(asunto + '\n' + cuerpo, asunto)) continue;
-      const textoParseo = cuerpo.length > 100 ? cuerpo.substring(0, 1500) : detalle.snippet;
+
+      // FILTRO 3: Verificar que es bancario
+      if (!esBancario(asunto + '\n' + cuerpo, asunto)) {
+        console.log('[GMAIL] No bancario, ignorado:', asunto.substring(0, 50));
+        continue;
+      }
+
+      const textoParseo = cuerpo.length > 100 ? cuerpo.substring(0, 2000) : detalle.snippet;
       mensajes.push({ id, snippet: detalle.snippet, texto: textoParseo, asunto, remitente, fecha });
+      console.log('[GMAIL] Correo bancario encontrado:', asunto.substring(0, 60));
     } catch(e) { console.error('Error obteniendo correo:', e.message); }
   }
 
