@@ -816,7 +816,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
 
     const rawClasif = clasificacion.choices[0].message.content.trim();
     const clean = rawClasif.startsWith('{') ? rawClasif : rawClasif.slice(rawClasif.indexOf('{'), rawClasif.lastIndexOf('}')+1);
-    const { intencion, datos } = JSON.parse(clean);
+    const _nlp = JSON.parse(clean); const intencion = _nlp.intencion; const datos = _nlp.datos || _nlp.data || {};
     console.log('[NLP] Intencion:', intencion, '| Datos:', JSON.stringify(datos));
 
     // Deteccion de comprobante de pago Yape ANTES del switch
@@ -959,10 +959,29 @@ async function procesarMensajeLibre(msg, usuario, from) {
       }
 
       case 'corregir_categoria': {
-        if (datos.comercio && datos.categoria_nueva) return (await recategorizarTransaccion(usuario.id, datos.comercio, datos.categoria_nueva)).msg;
-        return 'Dime el comercio y la nueva categoria.\nEj: _"Netflix es Streaming"_';
+        try {
+          const catRaw = datos.categoria_nueva || datos.categoria || null;
+          const comercioRaw = datos.comercio || null;
+          if (catRaw) {
+            const catLibre = catRaw.charAt(0).toUpperCase() + catRaw.slice(1);
+            if (comercioRaw) {
+              return (await recategorizarTransaccion(usuario.id, comercioRaw, catLibre)).msg;
+            } else {
+              const ultimaTx = await obtenerUltimaTransaccion(usuario.id);
+              if (ultimaTx) {
+                await supabase.from('transacciones').update({ categoria: catLibre }).eq('id', ultimaTx.id);
+                return 'Listo! Movi *' + (ultimaTx.comercio || 'el gasto') + '* (S/ ' + ultimaTx.monto + ') a *' + catLibre + '*.';
+              }
+              return 'No encontre un gasto reciente. Usa: /cambiar [comercio] [categoria]';
+            }
+          }
+          const ultimaTx2 = await obtenerUltimaTransaccion(usuario.id);
+          return 'No entendi la categoria. Dime a donde moverlo. Ej: /cambiar ' + (ultimaTx2 ? ultimaTx2.comercio : 'PedidosYa') + ' Delivery';
+        } catch(e) {
+          console.error('[CORREGIR]', e.message);
+          return 'No pude procesar eso. Usa: /cambiar [comercio] [categoria]';
+        }
       }
-
       case 'ver_pendientes': {
         const lpend = await obtenerConsultasPendientes(usuario.id);
         return lpend.length === 0 ? 'No tienes gastos pendientes. Todo al dia! \uD83D\uDC4D' : formatearPendientes(lpend);
