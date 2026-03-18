@@ -239,12 +239,20 @@ async function generarYEnviarReporte(usuario, mes, anio) {
   return { ok: true, reporteId, txCount: txs.length };
 }
 async function recategorizarTransaccion(usuarioId, comercio, categoriaNueva) {
-  const { data: txs } = await supabase.from('transacciones').select('*').eq('usuario_id', usuarioId).ilike('comercio', '%' + comercio + '%').order('created_at', { ascending: false }).limit(5);
+  const { data: txs } = await supabase.from('transacciones').select('*')
+    .eq('usuario_id', usuarioId).ilike('comercio', '%' + comercio + '%')
+    .order('created_at', { ascending: false }).limit(5);
   if (!txs || txs.length === 0) return { ok: false, msg: 'No encontre ninguna transaccion de *' + comercio + '*.' };
   const tx = txs[0];
-
+  const categoriaAnterior = tx.categoria || 'Sin categoria';
+  const { error } = await supabase.from('transacciones').update({ categoria: categoriaNueva }).eq('id', tx.id);
   if (error) return { ok: false, msg: 'Error actualizando: ' + error.message };
-  return { ok: true, msg: 'Listo! Cambie la categoria de *' + (tx.comercio || comercio) + '* (S/ ' + tx.monto + ') de *' + (tx.categoria || 'Sin categoria') + '* a *' + categoriaNueva + '*.' };
+  return { ok: true, msg: 'Listo! Movi *' + (tx.comercio || comercio) + '* (S/ ' + tx.monto + ') de *' + categoriaAnterior + '* a *' + categoriaNueva + '*.' };
+}
+async function recategorizarPorId(transaccionId, categoriaNueva) {
+  const { error } = await supabase.from('transacciones').update({ categoria: categoriaNueva }).eq('id', transaccionId);
+  if (error) return { ok: false, msg: 'Error actualizando.' };
+  return { ok: true };
 }
 
 async function interpretarComandoPresupuesto(texto) {
@@ -512,10 +520,12 @@ app.post('/webhook', async (req, res) => {
       const partes = msg.trim().split(' ');
       if (partes.length >= 3) {
         const comercioInput = partes[1], categoriaInput = partes.slice(2).join(' ');
-        const catNormalizada = CATEGORIAS.find(c => c.toLowerCase() === categoriaInput.toLowerCase());
-        if (!catNormalizada) { respuesta = 'Categoria no valida. Usa: ' + CATEGORIAS.join(' | '); }
-        else { const resultado = await recategorizarTransaccion(usuario.id, comercioInput, catNormalizada); respuesta = resultado.msg; }
-      } else { respuesta = 'Formato: /cambiar [comercio] [categoria]'; }
+        // Acepta categoría conocida o libre (capitalizada)
+        const catKnown = CATEGORIAS_SUGERIDAS.map(c=>c.nombre).find(c => c.toLowerCase() === categoriaInput.toLowerCase());
+        const catFinal = catKnown || (categoriaInput.charAt(0).toUpperCase() + categoriaInput.slice(1));
+        const resultado = await recategorizarTransaccion(usuario.id, comercioInput, catFinal);
+        respuesta = resultado.msg;
+      } else { respuesta = 'Formato: /cambiar [comercio] [categoria]\nEj: /cambiar Netflix Streaming'; }
     } else if (cmd === '/reporte' || cmd.startsWith('/reporte ')) {
       const ahoraR = new Date(), partesR = cmd.split(' ');
       const mesR = partesR[1] ? parseInt(partesR[1]) : (ahoraR.getMonth() + 1);
@@ -1069,6 +1079,14 @@ async function enviarAlertaTransaccion(usuario, tx, resultado) {
   await enviarWhatsapp(usuario.whatsapp, msg);
 }
 
+
+// Obtener la última transacción registrada del usuario (para contexto de respuestas)
+async function obtenerUltimaTransaccion(usuarioId) {
+  const { data } = await supabase.from('transacciones').select('*')
+    .eq('usuario_id', usuarioId)
+    .order('created_at', { ascending: false }).limit(1).single();
+  return data || null;
+}
 async function escaneoAutomatico() {
   console.log('[AUTO] Escaneo -', new Date().toLocaleString('es-PE'));
   try {
