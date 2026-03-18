@@ -381,6 +381,23 @@ async function detectarCategoriaIA(texto, usuarioId) {
   } catch(e) { return { categoria: null, subcategoria: null }; }
 }
 
+
+// Servir archivos estáticos
+app.use(express.static(path.join(__dirname, 'public')));
+
+// ─── RUTAS WEB ────────────────────────────────────────────────
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.get('/privacidad', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'privacidad.html'));
+});
+
+app.get('/terminos', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'terminos.html'));
+});
+// ──────────────────────────────────────────────────────────────
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];

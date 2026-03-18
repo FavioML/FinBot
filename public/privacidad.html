@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Política de Privacidad — NETO</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --green: #1D9E75;
+    --amber: #EF9F27;
+    --bg: #0E0E0C;
+    --surface: #1A1A18;
+    --text: #E8E8E4;
+    --muted: #888880;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Space Grotesk', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+  }
+  header {
+    padding: 24px 40px;
+    border-bottom: 1px solid #2a2a28;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .logo {
+    width: 36px; height: 36px;
+    background: var(--green);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 18px; color: white;
+    position: relative;
+  }
+  .logo::after {
+    content: '';
+    position: absolute;
+    bottom: 8px; right: 6px;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--amber);
+  }
+  .logo-text { font-size: 20px; font-weight: 700; color: var(--green); }
+  .container {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 60px 24px 100px;
+  }
+  h1 {
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+  .meta {
+    color: var(--muted);
+    font-size: 14px;
+    margin-bottom: 48px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid #2a2a28;
+  }
+  h2 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--green);
+    margin: 40px 0 12px;
+  }
+  p { color: #C8C8C4; margin-bottom: 16px; font-size: 15px; }
+  ul { padding-left: 20px; margin-bottom: 16px; }
+  li { color: #C8C8C4; font-size: 15px; margin-bottom: 8px; }
+  a { color: var(--green); text-decoration: none; }
+  .highlight {
+    background: #1D9E7515;
+    border-left: 3px solid var(--green);
+    padding: 16px 20px;
+    border-radius: 0 8px 8px 0;
+    margin: 24px 0;
+  }
+  footer {
+    text-align: center;
+    padding: 40px;
+    color: var(--muted);
+    font-size: 13px;
+    border-top: 1px solid #2a2a28;
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">N</div>
+  <span class="logo-text">NETO</span>
+</header>
+<div class="container">
+  <h1>Política de Privacidad</h1>
+  <div class="meta">Última actualización: marzo de 2026 · Vigente desde el 1 de abril de 2026</div>
+
+  <div class="highlight">
+    <p style="margin:0;color:var(--text)"><strong>Resumen en una línea:</strong> NETO solo lee tus correos bancarios para mostrarte tus gastos. No vendemos tu información. No accedemos a tus contraseñas bancarias. Nunca.</p>
+  </div>
+
+  <h2>1. ¿Quiénes somos?</h2>
+  <p>NETO es un servicio de gestión de finanzas personales que opera a través de WhatsApp. Somos una empresa peruana. Puedes contactarnos en <a href="/cdn-cgi/l/email-protection#b5dddad9d4f5dbd0c1da9bc5d0"><span class="__cf_email__" data-cfemail="1a7275767b5a747f6e75346a7f">[email&#160;protected]</span></a>.</p>
+
+  <h2>2. ¿Qué información recopilamos?</h2>
+  <p>Recopilamos únicamente la información necesaria para brindarte el servicio:</p>
+  <ul>
+    <li><strong>Tu número de WhatsApp</strong> — para enviarte tus resúmenes y alertas financieras.</li>
+    <li><strong>Tu dirección de correo electrónico de Gmail</strong> — para autorizar la lectura de notificaciones bancarias.</li>
+    <li><strong>Contenido de correos de notificación bancaria</strong> — solo los correos que provienen de BCP, BBVA, Interbank, Scotiabank, Yape y Plin. No leemos ningún otro correo.</li>
+    <li><strong>Datos de transacciones extraídos</strong> — monto, comercio, fecha y categoría de cada transacción detectada en los correos bancarios.</li>
+  </ul>
+  <p><strong>Lo que NO recopilamos:</strong> contraseñas bancarias, datos de tarjetas, documentos de identidad, ni ningún correo que no sea de notificación bancaria.</p>
+
+  <h2>3. ¿Cómo usamos tu información?</h2>
+  <ul>
+    <li>Generar tu resumen semanal automático por WhatsApp.</li>
+    <li>Enviarte alertas de transacciones inusuales.</li>
+    <li>Producir tu reporte mensual de gastos.</li>
+    <li>Mejorar la categorización automática de tus transacciones.</li>
+  </ul>
+  <p>No usamos tu información para publicidad, ni la compartimos con terceros con fines comerciales.</p>
+
+  <h2>4. Acceso a Gmail — alcance limitado</h2>
+  <p>Cuando conectas tu correo, NETO solicita permiso de lectura de Gmail con el alcance mínimo necesario (<code>gmail.readonly</code>). Esto significa:</p>
+  <ul>
+    <li>Solo podemos <strong>leer</strong> correos, no enviarlos ni eliminarlos.</li>
+    <li>Solo procesamos correos de remitentes bancarios conocidos (BCP, BBVA, Interbank, Scotiabank, Yape, Plin).</li>
+    <li>Nunca almacenamos el contenido completo de tus correos — solo los datos de transacción extraídos.</li>
+  </ul>
+  <p>Puedes revocar este acceso en cualquier momento desde <a href="https://myaccount.google.com/permissions" target="_blank">myaccount.google.com/permissions</a>.</p>
+
+  <h2>5. Almacenamiento y seguridad</h2>
+  <p>Tus datos se almacenan en servidores seguros en la nube (Supabase / Railway) con cifrado en tránsito (HTTPS/TLS). No almacenamos tokens de acceso a Gmail más allá de lo necesario para el servicio activo.</p>
+
+  <h2>6. ¿Compartimos tu información?</h2>
+  <p>No vendemos ni alquilamos tu información a nadie. Podemos compartir datos únicamente con:</p>
+  <ul>
+    <li><strong>Proveedores de infraestructura</strong> (Railway, Supabase) — bajo contrato de confidencialidad.</li>
+    <li><strong>OpenAI</strong> — para la categorización automática con IA. Solo se envían datos de transacciones anonimizados, nunca datos personales identificables.</li>
+    <li><strong>Autoridades peruanas</strong> — si existe mandato legal expreso.</li>
+  </ul>
+
+  <h2>7. Tus derechos (Ley N° 29733 — LPDP Perú)</h2>
+  <p>Tienes derecho a:</p>
+  <ul>
+    <li><strong>Acceso:</strong> solicitar qué datos tenemos sobre ti.</li>
+    <li><strong>Rectificación:</strong> corregir datos incorrectos.</li>
+    <li><strong>Cancelación:</strong> eliminar tu cuenta y todos tus datos.</li>
+    <li><strong>Oposición:</strong> oponerte a ciertos usos de tu información.</li>
+  </ul>
+  <p>Para ejercer cualquiera de estos derechos, escríbenos a <a href="/cdn-cgi/l/email-protection#ef8780838eaf818a9b80c19f8a"><span class="__cf_email__" data-cfemail="8fe7e0e3eecfe1eafbe0a1ffea">[email&#160;protected]</span></a>.</p>
+
+  <h2>8. Retención de datos</h2>
+  <p>Conservamos tus datos mientras tu cuenta esté activa. Si eliminas tu cuenta, borraremos tus datos en un plazo máximo de 30 días, salvo obligación legal en contrario.</p>
+
+  <h2>9. Menores de edad</h2>
+  <p>NETO no está dirigido a menores de 18 años. No recopilamos intencionalmente datos de menores.</p>
+
+  <h2>10. Cambios a esta política</h2>
+  <p>Si realizamos cambios importantes, te notificaremos por WhatsApp con al menos 15 días de anticipación. La versión actualizada siempre estará disponible en <a href="https://neto.pe/privacidad">neto.pe/privacidad</a>.</p>
+
+  <h2>11. Contacto</h2>
