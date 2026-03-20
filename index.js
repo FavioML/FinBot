@@ -2,7 +2,8 @@ require('dotenv').config();
 const express = require('express');
 const { OpenAI } = require('openai');
 const { createClient } = require('@supabase/supabase-js');
-const { generarReporteHTML } = require('./reporte_html');
+const { generarReporteHTML, generarDashboardHTML } = require('./reporte_html');
+const crypto = require('crypto');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -347,6 +348,11 @@ async function escanearGmailYRegistrar(usuario) {
       // Alerta inmediata por transaccion nueva
       setTimeout(async function() {
         try { await enviarAlertaTransaccion(usuario, txGuardada, resultado); } catch(e) { console.error("[ALERTA]", e.message); }
+        // Verificar si el usuario referido ahora está activo (>=3 txs)
+        try {
+          const { data: miRef } = await supabase.from('referidos').select('referrer_id').eq('referido_id', usuario.id).single();
+          if (miRef) verificarProReferidos(miRef.referrer_id);
+        } catch(e) {}
       }, 5000);
     } catch (e) { console.error('Error procesando correo:', e.message); }
   }
@@ -541,6 +547,47 @@ async function detectarCategoriaIA(texto, usuarioId) {
 }
 
 
+// --- Referidos ---
+function generarRefCode() {
+  return Math.random().toString(36).substring(2, 8).toUpperCase();
+}
+
+async function registrarReferido(referrerId, referidoId) {
+  try {
+    const { data: existe } = await supabase.from('referidos').select('id').eq('referrer_id', referrerId).eq('referido_id', referidoId).single();
+    if (existe) return;
+    const { data: referrer } = await supabase.from('usuarios').select('ref_code').eq('id', referrerId).single();
+    if (!referrer) return;
+    await supabase.from('referidos').insert({ ref_code: referrer.ref_code, referrer_id: referrerId, referido_id: referidoId });
+  } catch(e) { console.error('[REFERIDO] Error registrando:', e.message); }
+}
+
+async function verificarProReferidos(referrerId) {
+  try {
+    // Contar referidos activos (con >= 3 transacciones)
+    const { data: refs } = await supabase.from('referidos').select('referido_id, activo').eq('referrer_id', referrerId);
+    if (!refs || refs.length === 0) return;
+    for (const ref of refs) {
+      if (ref.activo) continue;
+      const { count } = await supabase.from('transacciones').select('*', { count: 'exact', head: true }).eq('usuario_id', ref.referido_id);
+      if ((count || 0) >= 3) {
+        await supabase.from('referidos').update({ activo: true }).eq('referrer_id', referrerId).eq('referido_id', ref.referido_id);
+      }
+    }
+    // Recargar tras actualizar
+    const { data: refsActualizados } = await supabase.from('referidos').select('activo').eq('referrer_id', referrerId);
+    const totalActivos = (refsActualizados || []).filter(r => r.activo).length;
+    if (totalActivos >= 3) {
+      const { data: referrer } = await supabase.from('usuarios').select('plan, whatsapp').eq('id', referrerId).single();
+      if (referrer && referrer.plan !== 'premium') {
+        const vence = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        await supabase.from('usuarios').update({ plan: 'premium', premium_desde: new Date().toISOString().split('T')[0], premium_vence: vence }).eq('id', referrerId);
+        await enviarWhatsapp(referrer.whatsapp, '\u2B50 *\u00bfReferidos que funcionan!*\n\n3 de tus amigos ya usan NETO activamente.\n\nTe hemos activado *1 mes de NETO Pro gratis* \uD83C\uDF89\n\nVence: ' + vence + '\n\n_Gracias por crecer con nosotros._');
+      }
+    }
+  } catch(e) { console.error('[REFERIDO] Error verificando Pro:', e.message); }
+}
+
 // Servir archivos estÃƒÂ¡ticos
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -593,6 +640,17 @@ app.post('/webhook', async (req, res) => {
     let respuesta = '';
     const usuario = await obtenerOCrearUsuario(from);
     const cmd = msg.toLowerCase().trim();
+
+    // Detectar referido: nuevo usuario llegó vía link /r/:code
+    const refMatch = msg.match(/^hola\s+neto\s+ref:([A-Z0-9]{4,12})/i);
+    if (refMatch) {
+      const refCode = refMatch[1].toUpperCase();
+      const { data: referrer } = await supabase.from('usuarios').select('id').eq('ref_code', refCode).neq('id', usuario.id).single();
+      if (referrer) {
+        registrarReferido(referrer.id, usuario.id);
+        verificarProReferidos(referrer.id);
+      }
+    }
 
     if (usuario.onboarding_paso === 10 && !cmd.startsWith('/')) {
       var idxResp = parsearIndicesRespuesta(msg, CATEGORIAS_SUGERIDAS.length);
@@ -726,6 +784,28 @@ app.post('/webhook', async (req, res) => {
         // Marcar que usuario esta en flujo de pago
         await supabase.from('usuarios').update({ pago_pendiente: true }).eq('id', usuario.id);
       }
+    } else if (cmd === '/referir') {
+      let refCode = usuario.ref_code;
+      if (!refCode) {
+        refCode = generarRefCode();
+        await supabase.from('usuarios').update({ ref_code: refCode }).eq('id', usuario.id);
+        usuario.ref_code = refCode;
+      }
+      const { data: misRefs } = await supabase.from('referidos').select('activo').eq('referrer_id', usuario.id);
+      const totalRefs = (misRefs || []).length;
+      const activos = (misRefs || []).filter(r => r.activo).length;
+      const railwayUrl = process.env.RAILWAY_URL || 'https://neto.pe';
+      respuesta = '\uD83C\uDF81 *Tu link de referido:*\n\n' + railwayUrl + '/r/' + refCode + '\n\nComparte con amigos. Cuando *3 de ellos usen NETO activamente*, recibes *1 mes Pro gratis* \uD83C\uDF89\n\n_Referidos: ' + totalRefs + ' | Activos: ' + activos + '/3_';
+    } else if (cmd === '/dashboard') {
+      const ahora = new Date();
+      const hace3meses = new Date(ahora.getFullYear(), ahora.getMonth() - 2, 1);
+      const { data: txsDash } = await supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).eq('tipo', 'gasto').gte('fecha', hace3meses.toISOString().split('T')[0]).order('fecha', { ascending: true });
+      const dashHtml = generarDashboardHTML(usuario, txsDash || []);
+      const dashId = crypto.randomUUID();
+      const dashExp = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      await supabase.from('reporte_cache').insert({ id: dashId, usuario_id: usuario.id, html: dashHtml, expires_at: dashExp });
+      const railwayUrl = process.env.RAILWAY_URL || 'https://neto.pe';
+      respuesta = '\uD83D\uDCCA *Tu dashboard esta listo!*\n\n' + railwayUrl + '/dashboard/' + dashId + '\n\n_Disponible 24 horas. Actualiza con */dashboard* cuando quieras._';
     } else if (cmd.startsWith('/activar ')) {
       // Comando admin: /activar <numero_whatsapp> - solo Favio puede usarlo
       const ADMIN_NUMBER = process.env.ADMIN_WHATSAPP || '51970398192';
@@ -798,7 +878,7 @@ app.post('/webhook', async (req, res) => {
       respuesta = lpend.length === 0 ? 'No tienes gastos pendientes.' : formatearPendientes(lpend);
     } else if (cmd === '/ayuda') {
       const mesActual = new Date().getMonth() + 1;
-      respuesta = '*Comandos NETO:*\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- ver/configurar presupuesto\n*/categorias* -- categorias\n*/conectar* -- vincular Gmail\n*/escanear* -- leer correos ahora\n*/cambiar [comercio] [cat]* -- corregir categoria\n*/reporte* -- PDF del mes\n*/reporte ' + mesActual + '* -- PDF mes especifico\n*/pendientes* -- gastos sin identificar\n*/premium* -- plan premium\n*hola* -- estado general\n\n_Tambien puedes escribirme en lenguaje natural!_';
+      respuesta = '*Comandos NETO:*\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- ver/configurar presupuesto\n*/categorias* -- categorias\n*/conectar* -- vincular Gmail\n*/escanear* -- leer correos ahora\n*/cambiar [comercio] [cat]* -- corregir categoria\n*/reporte* -- PDF del mes\n*/reporte ' + mesActual + '* -- PDF mes especifico\n*/pendientes* -- gastos sin identificar\n*/dashboard* -- ver graficos de gastos\n*/referir* -- invitar amigos y ganar Pro\n*/premium* -- plan premium\n*hola* -- estado general\n\n_Tambien puedes escribirme en lenguaje natural!_';
     } else {
       respuesta = await procesarMensajeLibre(msg, usuario, from);
     }
@@ -830,6 +910,34 @@ app.get('/reporte/:id', async (req, res) => {
   }
 });
 
+
+// Ruta de referido: redirige a WhatsApp con el ref_code pre-cargado
+app.get('/r/:code', async (req, res) => {
+  const code = (req.params.code || '').toUpperCase();
+  const { data: referrer } = await supabase.from('usuarios').select('id').eq('ref_code', code).single();
+  const waNum = '51970398192';
+  const waText = encodeURIComponent('Hola NETO ref:' + code);
+  if (!referrer) return res.redirect('https://wa.me/' + waNum);
+  res.redirect('https://wa.me/' + waNum + '?text=' + waText);
+});
+
+// Dashboard: muestra gráficos de gastos de los últimos 3 meses
+app.get('/dashboard/:id', async (req, res) => {
+  const id = req.params.id;
+  try {
+    const { data: entry, error } = await supabase.from('reporte_cache').select('html, expires_at').eq('id', id).single();
+    if (error || !entry) return res.status(404).send('<h2>Dashboard no encontrado.</h2><p>Genera uno nuevo con /dashboard</p>');
+    if (new Date(entry.expires_at) < new Date()) {
+      await supabase.from('reporte_cache').delete().eq('id', id);
+      return res.status(410).send('<h2>El link expiró.</h2><p>Genera uno nuevo escribiendo */dashboard* en WhatsApp.</p>');
+    }
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    res.send(entry.html);
+  } catch(e) {
+    console.error('[DASHBOARD] Error:', e.message);
+    res.status(500).send('<h2>Error cargando el dashboard.</h2>');
+  }
+});
 
 app.get('/auth/callback', async (req, res) => {
   const { code, error } = req.query;

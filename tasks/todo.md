@@ -17,15 +17,9 @@ Railway: ✅ online | Supabase: ✅ RLS activo | GitHub: ✅ sincronizado
 
 - [x] **Soporte de ingresos** — intent registrar_manual + parsearRegistroManual() + saludo muestra balance ✅
 
-- [ ] **Dashboard web neto.pe**
-  - Página simple con gráfico de gastos últimos 3 meses
-  - Acceso via token temporal enviado por WhatsApp (ya existe el patrón en /reporte/:id)
-  - No requiere login nuevo
+- [x] **Dashboard web neto.pe** — ruta `/dashboard/:id` + comando `/dashboard` + `generarDashboardHTML()` con Chart.js (gastos 3 meses, por categoría, top comercios). Token en reporte_cache, válido 24h ✅
 
-- [ ] **Sistema de referidos**
-  - Comando /referir genera link único con ref_code del usuario
-  - Tabla referidos en Supabase: ref_code, usuario_id, usos, creado_at
-  - Incentivo: 3 invitados activos = 1 mes Pro gratis (activación automática)
+- [x] **Sistema de referidos** — `/referir` genera link único `neto.pe/r/:code`. Tabla `referidos` + columna `ref_code` en usuarios. 3 referidos activos (>=3 txs) = 1 mes Pro automático ✅
 
 - [ ] **Verificación negocio Meta**
   - Sin verificar: límite 250 conversaciones/día
@@ -36,18 +30,11 @@ Railway: ✅ online | Supabase: ✅ RLS activo | GitHub: ✅ sincronizado
 
 ## 🟡 Mejoras de producto
 
-- [ ] **Ingresos en reporte HTML**
-  - El `totalI` del reporte siempre es 0 porque no hay datos de ingresos
-  - Bloqueado por: soporte de ingresos (arriba)
+- [x] **Ingresos en reporte HTML** — `totalI` calcula desde `tipo=ingreso`; desbloqueado por soporte de ingresos ✅
 
-- [ ] **Categorías_usuario legacy**
-  - La tabla categorias_usuario tiene 174 filas con el árbol viejo (Comida, Auto, Streaming...)
-  - Migrar al árbol canónico nuevo (Alimentación, Transporte, Vivienda...)
-  - SQL de migración preparado, ejecutar después de validar árbol canónico
+- [x] **Categorías_usuario legacy** — tabla limpiada y reinsertada con árbol canónico: 10 categorías raíz, sin duplicados, nombres correctos (Alimentación, Vivienda, Educación, Entretenimiento...) ✅
 
-- [ ] **Alerta de gasto inusual**
-  - Detectar cuando un comercio tiene un gasto >2x su promedio histórico
-  - Agregar al mensaje de alerta inmediata: "Es el más alto que registras ahí"
+- [x] **Alerta de gasto inusual** — ya implementada en `enviarAlertaTransaccion()` (factor >=2.5x, >S/30) ✅
 
 - [x] **Precio en mensajes premium** — todos actualizados a S/10/mes ✅
 
@@ -56,7 +43,7 @@ Railway: ✅ online | Supabase: ✅ RLS activo | GitHub: ✅ sincronizado
 ## 🟢 Preparación para escala (cuando haya usuarios reales)
 
 - [ ] Google OAuth aprobación — verificar estado en Google Cloud Console
-- [ ] node.js actualizar de v18 a v20 en package.json (warnings de Supabase SDK)
+- [x] node.js actualizar de v18 a v20 en package.json ✅
 - [ ] Tests unitarios de parsers con emails bancarios fixtures
 - [ ] Landing page neto.pe (actualmente sirve index.html estático)
 
@@ -76,3 +63,8 @@ Railway: ✅ online | Supabase: ✅ RLS activo | GitHub: ✅ sincronizado
 - [x] Twilio variables eliminadas de Railway
 - [x] SCAN_INTERVAL: 4h → 0.25h (cada 15 min) en Railway
 - [x] reporte_html.js: "FinBot Peru" → "NETO"
+- [x] reporte_html.js: 'Streaming'/'Hogar' → 'Entretenimiento'/'Vivienda' (categorías canónicas)
+- [x] node.js >=18 → >=20 en package.json
+- [x] categorias_usuario: limpieza completa + árbol canónico reinsertado (10 raíces, sin duplicados)
+- [x] Sistema de referidos: tabla referidos, columna ref_code, /referir, /r/:code, auto-Pro con 3 activos
+- [x] Dashboard web: /dashboard comando, /dashboard/:id ruta, Chart.js con últimos 3 meses
