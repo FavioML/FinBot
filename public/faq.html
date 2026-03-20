@@ -10,16 +10,19 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{--g:#1D9E75;--gd:#0F6E56;--a:#EF9F27;--bg:#0E0E0C;--bg2:#141412;--bg3:#1A1A17;--txt:#F0EFE8;--txt2:#C8C6BC;--txt3:#8A8880;--rad:12px;--rad2:20px}
+:root{--g:#1D9E75;--gd:#0F6E56;--a:#EF9F27;--bg:#0E0E0C;--bg2:#141412;--bg3:#1A1A17;--txt:#F0EFE8;--txt2:#C8C6BC;--txt3:#8A8880;--glass:rgba(255,255,255,.03);--glass-border:rgba(255,255,255,.07);--rad:12px;--rad2:20px}
 html{scroll-behavior:smooth}
 body{font-family:'Space Grotesk',sans-serif;background:var(--bg);color:var(--txt);line-height:1.7}
-nav{position:fixed;top:0;left:0;right:0;z-index:99;padding:14px 40px;display:flex;align-items:center;justify-content:space-between;background:rgba(14,14,12,.92);backdrop-filter:blur(24px);border-bottom:1px solid rgba(255,255,255,.07)}
+nav{position:fixed;top:0;left:0;right:0;z-index:99;padding:16px 40px;display:flex;align-items:center;justify-content:space-between;background:rgba(14,14,12,.85);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border-bottom:1px solid rgba(255,255,255,.06);transition:padding .3s,background .3s}
+nav.scrolled{padding:10px 40px;background:rgba(14,14,12,.96)}
 .logo{display:flex;align-items:center;gap:9px;text-decoration:none}
 .logo-txt{font-weight:700;font-size:18px;color:var(--g);letter-spacing:-.3px}
-.nav-links{display:flex;align-items:center;gap:24px}
-.nav-links a{font-size:13px;color:var(--txt3);text-decoration:none;transition:.15s}
+.nav-links{display:flex;align-items:center;gap:28px}
+.nav-links a{font-size:13px;color:var(--txt3);text-decoration:none;transition:.2s;position:relative}
+.nav-links a::after{content:'';position:absolute;bottom:-3px;left:0;right:0;height:1.5px;background:var(--g);transform:scaleX(0);transition:transform .25s}
 .nav-links a:hover{color:var(--txt)}
-.nav-btn{background:var(--g);color:white;border:none;border-radius:100px;padding:9px 20px;font-size:13px;font-weight:500;cursor:pointer;font-family:'Space Grotesk',sans-serif;text-decoration:none;transition:.15s}
+.nav-links a:hover::after{transform:scaleX(1)}
+.nav-btn{background:var(--g);color:white;border:none;border-radius:100px;padding:9px 22px;font-size:13px;font-weight:500;cursor:pointer;font-family:'Space Grotesk',sans-serif;text-decoration:none;transition:.2s;position:relative;overflow:hidden}
 .nav-btn:hover{background:var(--gd)}
 .page-wrap{max-width:760px;margin:0 auto;padding:120px 40px 80px}
 .page-tag{font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--g);margin-bottom:12px;display:flex;align-items:center;gap:8px}
@@ -43,12 +46,12 @@ nav{position:fixed;top:0;left:0;right:0;z-index:99;padding:14px 40px;display:fle
 .cta-box p{font-size:13px;color:rgba(255,255,255,.75)}
 .cta-box a{background:white;color:var(--gd);border-radius:100px;padding:10px 22px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;transition:.15s;flex-shrink:0}
 .cta-box a:hover{opacity:.92}
-.site-footer{background:var(--bg2);border-top:1px solid rgba(255,255,255,.06);padding:32px 40px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.site-footer{background:var(--bg2);border-top:1px solid transparent;border-image:linear-gradient(90deg,transparent,rgba(29,158,117,.2),transparent) 1;padding:36px 40px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
 .footer-copy{font-size:12px;color:var(--txt3)}
 .footer-legal{display:flex;gap:16px}
 .footer-legal a{font-size:12px;color:var(--txt3);text-decoration:none;transition:.15s}
 .footer-legal a:hover{color:var(--g)}
-@media(max-width:768px){nav{padding:12px 20px}.nav-links{display:none}.page-wrap{padding:96px 20px 60px}.site-footer{padding:24px 20px;flex-direction:column;text-align:center}}
+@media(max-width:768px){nav{padding:12px 20px}nav.scrolled{padding:8px 20px}.nav-links{display:none}.page-wrap{padding:96px 20px 60px}.site-footer{padding:24px 20px;flex-direction:column;text-align:center}}
 </style>
 </head>
 <body>
@@ -226,6 +229,7 @@ nav{position:fixed;top:0;left:0;right:0;z-index:99;padding:14px 40px;display:fle
 </footer>
 
 <script>
+window.addEventListener('scroll',()=>{const n=document.querySelector('nav');if(window.scrollY>60)n.classList.add('scrolled');else n.classList.remove('scrolled');},{passive:true});
 function toggleFaq(el){
   const item=el.closest('.faq-item');
   const open=item.classList.contains('open');
