@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+@theme {
+  --color-neto-green: #1D9E75;
+  --color-neto-green-dark: #0F6E56;
+  --color-neto-green-light: #E1F5EE;
+  --color-neto-amber: #EF9F27;
+  --color-neto-red: #D85A30;
+  --color-neto-blue: #378ADD;
+  --color-neto-bg: #0E0E0C;
+  --color-neto-bg2: #141412;
+  --color-neto-bg3: #1A1A17;
+  --color-neto-bg4: #222220;
+  --color-neto-txt: #F0EFE8;
+  --color-neto-txt2: #C8C6BC;
+  --color-neto-txt3: #8A8880;
+  --font-sans: 'Space Grotesk', sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--color-neto-bg);
+  color: var(--color-neto-txt);
+  overflow-x: hidden;
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.2; }
+}
+
+@keyframes sweep-right {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.6s ease both;
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 2s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up,
+  .animate-pulse-dot {
+    animation: none;
+  }
+}

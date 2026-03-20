@@ -18,3 +18,9 @@ find_id.js
 add_debug.js*.txt
 *.bat
 .claude/
+landing/.next/
+landing/out/
+public_backup/
+public/*.txt
+public/__next.*.txt
+design-system/
