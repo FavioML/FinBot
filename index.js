@@ -16,7 +16,7 @@ app.use(express.json());
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Historial de conversacion Ã¢â€â‚¬Ã¢â€â‚¬
+// -- Historial de conversacion --
 async function guardarMensaje(usuarioId, rol, mensaje) {
   try {
     // Sin límite práctico — columna es TEXT en Postgres (ilimitado)
@@ -141,7 +141,8 @@ async function guardarTransaccion(usuarioId, datos) {
   const { data, error } = await supabase.from('transacciones').insert({
     usuario_id: usuarioId, tipo: datos.tipo || 'gasto', monto: parseFloat(datos.monto), moneda: _moneda,
     monto_pen: _montoPen, tipo_cambio: _tcUsado, metodo_pago: datos.metodo_pago || null,
-    comercio: datos.comercio, categoria: normalizarCategoria(datos.categoria), banco: datos.banco,
+    comercio: datos.comercio, categoria: normalizarCategoria(datos.categoria),
+    subcategoria: datos.subcategoria || 'sin_categoria', banco: datos.banco,
     fecha: datos.fecha || new Date().toISOString().split('T')[0],
     descripcion_original: datos.descripcion_original, confirmado: false
   }).select().single();
@@ -633,10 +634,10 @@ async function verificarProReferidos(referrerId) {
   } catch(e) { console.error('[REFERIDO] Error verificando Pro:', e.message); }
 }
 
-// Servir archivos estÃƒÂ¡ticos
+// Servir archivos estaticos
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ RUTAS WEB Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// === RUTAS WEB ===
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -652,7 +653,7 @@ app.get('/terminos', (req, res) => {
 app.get('/faq', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'faq.html'));
 });
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ============================================================
 app.get('/health', (req, res) => {
   res.json({ ok: true, service: 'NETO', uptime: Math.floor(process.uptime()), ts: new Date().toISOString() });
 });
@@ -1065,7 +1066,7 @@ app.get('/admin/pendientes', async (req, res) => {
 });
 
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ NETO: Redactar respuesta con GPT usando el system prompt de NETO Ã¢â€â‚¬Ã¢â€â‚¬
+// == NETO: Redactar respuesta con GPT usando el system prompt de NETO ==
 async function redactarConNETO(netoPrompt, contexto, mensajeOriginal, historial) {
   try {
     // Construir mensajes con historial de conversacion
