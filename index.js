@@ -1139,7 +1139,26 @@ async function procesarMensajeLibre(msg, usuario, from) {
 
     const rawClasif = clasificacion.choices[0].message.content.trim();
     const clean = rawClasif.startsWith('{') ? rawClasif : rawClasif.slice(rawClasif.indexOf('{'), rawClasif.lastIndexOf('}')+1);
-    const _nlp = JSON.parse(clean); const intencion = _nlp.intencion; const datos = _nlp.datos || _nlp.data || {};
+    const _nlp = JSON.parse(clean); let intencion = _nlp.intencion; const datos = _nlp.datos || _nlp.data || {};
+
+    // Overrides regex para patrones que el clasificador suele fallar
+    const msgL = msg.toLowerCase();
+    // "elimina/borra/quita [el gasto de] X" → eliminar_transaccion
+    if (/\b(elimina|borra|quita|borrar|eliminar)\b.*(gasto|pago|cobro|movimiento|transacci[oó]n)/i.test(msg) ||
+        /\b(elimina|borra|quita)\b.*\bde\b/i.test(msg)) {
+      intencion = 'eliminar_transaccion';
+      // Intentar extraer comercio del mensaje si no vino del clasificador
+      if (!datos.comercio) {
+        const m = msg.match(/(?:de|el de|gasto de|pago de)\s+([A-Za-záéíóúÁÉÍÓÚñÑ][A-Za-z0-9áéíóúÁÉÍÓÚñÑ\s\.]{1,30}?)(?:\s+(?:de|por|S\/|\$|\d|,|\.)|\s*$)/i);
+        if (m) datos.comercio = m[1].trim();
+      }
+    }
+    // "a la categoría NETO" / "ponlo en NETO" cuando clasificador no extrajo categoria_nueva
+    if ((intencion === 'corregir_categoria' || intencion === 'desconocido') &&
+        /(?:categor[íi]a|en)\s+neto\b|ponl[oa]\s+en\s+neto|muev[elo]+\s+a\s+neto/i.test(msg)) {
+      intencion = 'corregir_categoria';
+      if (!datos.categoria_nueva) datos.categoria_nueva = 'NETO';
+    }
     console.log('[NLP] Intencion:', intencion, '| Datos:', JSON.stringify(datos));
 
     // Deteccion de comprobante de pago Yape ANTES del switch
@@ -1383,6 +1402,28 @@ async function procesarMensajeLibre(msg, usuario, from) {
         } catch(e) {
           console.error('[CORREGIR_MONEDA]', e.message);
           return 'No pude corregir la moneda. Int\u00e9ntalo de nuevo.';
+        }
+      }
+
+      case 'eliminar_transaccion': {
+        try {
+          const comercioElim = datos.comercio || null;
+          let txElim = null;
+          if (comercioElim) {
+            const { data: txsElim } = await supabase.from('transacciones').select('*')
+              .eq('usuario_id', usuario.id).ilike('comercio', '%' + comercioElim + '%')
+              .order('created_at', { ascending: false }).limit(1);
+            txElim = txsElim?.[0] || null;
+          } else {
+            txElim = await obtenerUltimaTransaccion(usuario.id);
+          }
+          if (!txElim) return '\u00bfDe qu\u00e9 gasto me hablas? D\u00edme el comercio y lo elimino.';
+          await supabase.from('transacciones').delete().eq('id', txElim.id);
+          const montoElim = txElim.moneda === 'USD' ? '$' + parseFloat(txElim.monto).toFixed(2) : 'S/ ' + parseFloat(txElim.monto).toFixed(2);
+          return 'Listo. Elimin\u00e9 *' + (txElim.comercio || 'ese gasto') + '* (' + montoElim + ') del ' + txElim.fecha + '.';
+        } catch(e) {
+          console.error('[ELIMINAR]', e.message);
+          return 'No pude eliminarlo. \u00bfDe cu\u00e1l gasto se trata?';
         }
       }
 
