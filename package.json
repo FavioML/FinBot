@@ -21,7 +21,6 @@
     "google-auth-library": "^10.6.1",
     "googleapis": "^171.4.0",
     "openai": "^6.27.0",
-    "pdfkit": "^0.17.2",
-    "twilio": "^5.12.2"
+    "pdfkit": "^0.17.2"
   }
 }
