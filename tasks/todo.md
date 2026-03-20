@@ -1,29 +1,21 @@
 # NETO — Task Board
 
 ## Estado del proyecto (20 Mar 2026)
-Railway: ✅ online | Supabase: ✅ RLS activo | GitHub: pendiente git push limpio
+Railway: ✅ online | Supabase: ✅ RLS activo | GitHub: ✅ sincronizado
 
 ---
 
 ## 🔴 BLOQUEANTE — Hacer primero
 
-- [ ] **Git sync limpio**: `git rebase --abort && git fetch origin && git reset --hard HEAD && git push --force origin main`
-  - El index.js local (1423 líneas, árbol canónico) es la fuente de verdad
-  - GitHub tiene commits huérfanos del 18/3 que deben quedar atrás
+- [x] **Git sync limpio** — main local = origin/main = 22fe861 ✅
 
 ---
 
 ## 🟠 Issues técnicos pendientes (del diagnóstico)
 
-- [ ] **Fusión usuarios duplicados Supabase**
-  - Existe "51970398192" (16 tx) y "whatsapp:+51970398192" (6 tx) — mismo número, dos perfiles
-  - SQL: migrar txs/presupuestos/categorías del viejo al nuevo, eliminar viejo
-  - El normalizador ya está en el código, solo falta la migración de datos
+- [x] **Fusión usuarios duplicados Supabase** — migradas 6 txs, 1 perfil eliminado → 26 txs en usuario canónico ✅
 
-- [ ] **Soporte de ingresos**
-  - Manual: "mi sueldo fue S/4500" → registrar como tipo=ingreso
-  - Automático: parsear correos de "abono", "depósito recibido", "transferencia entrante"
-  - El reporte ya tiene el campo totalI pero siempre da 0 sin esto
+- [x] **Soporte de ingresos** — intent registrar_manual + parsearRegistroManual() + saludo muestra balance ✅
 
 - [ ] **Dashboard web neto.pe**
   - Página simple con gráfico de gastos últimos 3 meses
@@ -57,9 +49,7 @@ Railway: ✅ online | Supabase: ✅ RLS activo | GitHub: pendiente git push limp
   - Detectar cuando un comercio tiene un gasto >2x su promedio histórico
   - Agregar al mensaje de alerta inmediata: "Es el más alto que registras ahí"
 
-- [ ] **Precio en mensajes premium**
-  - Varios mensajes dicen "S/ 9.90/mes" — el precio correcto es S/10/mes o S/99/año
-  - Buscar y reemplazar en index.js
+- [x] **Precio en mensajes premium** — todos actualizados a S/10/mes ✅
 
 ---
 
