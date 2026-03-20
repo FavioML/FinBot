@@ -17,3 +17,4 @@ rewrite_*.js
 find_id.js
 add_debug.js*.txt
 *.bat
+.claude/
