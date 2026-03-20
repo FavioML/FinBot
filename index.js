@@ -2,7 +2,8 @@ require('dotenv').config();
 const express = require('express');
 const { OpenAI } = require('openai');
 const { createClient } = require('@supabase/supabase-js');
-const { generarReporteHTML } = require('./reporte_html');
+const { generarReporteHTML, generarDashboardHTML } = require('./reporte_html');
+const crypto = require('crypto');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -273,6 +274,42 @@ REGLAS GENERALES:
   return JSON.parse(clean);
 }
 
+async function parsearRegistroManual(msg, fechaHoy) {
+  const res = await openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    messages: [
+      { role: 'system', content: `Extrae datos de un registro manual de gasto o ingreso en lenguaje natural. Devuelve SOLO JSON:
+{ "tipo":"gasto"|"ingreso", "monto":numero, "moneda":"PEN"|"USD", "comercio":"descripcion breve", "categoria":"ver lista", "subcategoria":"ver lista", "fecha":"YYYY-MM-DD", "ok":true|false }
+
+Si no puedes extraer un monto claro, devuelve { "ok": false }.
+
+Hoy es ${fechaHoy}. Si el usuario dice "ayer" restar 1 día. Si dice "el lunes", "la semana pasada", etc., calcular la fecha correcta.
+
+tipo=ingreso: sueldo, salario, honorarios, abono recibido, ingreso, cobré, me pagaron, depósito recibido.
+tipo=gasto: gasté, pagué, compré, anota un gasto, registra gasto.
+
+CATEGORÍAS (usa exactamente):
+Alimentación: delivery|restaurante|supermercado|mercado|cafeteria|snacks
+Transporte: uber_cabify|taxi|bus_micro|metro_bus|gasolina|peaje|estacionamiento
+Vivienda: alquiler|mantenimiento|electricidad|agua|gas|internet|cable
+Salud: farmacia|medico|clinica|laboratorio|seguro_salud|optica
+Entretenimiento: streaming|cine|juegos|bares_clubs|eventos|hobbies
+Compras: ropa|calzado|electronico|hogar|belleza|mascotas
+Educación: universidad|instituto|curso_online|utiles|idiomas|colegios
+Finanzas: prestamo|tarjeta_credito|seguro|ahorro|inversion|comision_banco
+Trabajo_Negocio: herramientas|publicidad|oficina|logistica|contador
+Otros: regalo|donacion|multa|viaje|sin_categoria
+
+Para ingresos: comercio="Sueldo" o la fuente del ingreso, categoria="Finanzas", subcategoria="sin_categoria".` },
+      { role: 'user', content: msg }
+    ],
+    temperature: 0
+  });
+  const raw2 = res.choices[0].message.content.trim();
+  const clean2 = raw2.startsWith('{') ? raw2 : raw2.slice(raw2.indexOf('{'), raw2.lastIndexOf('}') + 1);
+  return JSON.parse(clean2);
+}
+
 async function formatearEstadoPresupuesto(usuarioId) {
   const presupuestos = await obtenerPresupuestosMes(usuarioId);
   if (!presupuestos.length) return 'No tienes presupuestos configurados.\n\nEj: _"pon limite de 500 en Comida"_';
@@ -311,6 +348,11 @@ async function escanearGmailYRegistrar(usuario) {
       // Alerta inmediata por transaccion nueva
       setTimeout(async function() {
         try { await enviarAlertaTransaccion(usuario, txGuardada, resultado); } catch(e) { console.error("[ALERTA]", e.message); }
+        // Verificar si el usuario referido ahora está activo (>=3 txs)
+        try {
+          const { data: miRef } = await supabase.from('referidos').select('referrer_id').eq('referido_id', usuario.id).single();
+          if (miRef) verificarProReferidos(miRef.referrer_id);
+        } catch(e) {}
       }, 5000);
     } catch (e) { console.error('Error procesando correo:', e.message); }
   }
@@ -505,6 +547,47 @@ async function detectarCategoriaIA(texto, usuarioId) {
 }
 
 
+// --- Referidos ---
+function generarRefCode() {
+  return Math.random().toString(36).substring(2, 8).toUpperCase();
+}
+
+async function registrarReferido(referrerId, referidoId) {
+  try {
+    const { data: existe } = await supabase.from('referidos').select('id').eq('referrer_id', referrerId).eq('referido_id', referidoId).single();
+    if (existe) return;
+    const { data: referrer } = await supabase.from('usuarios').select('ref_code').eq('id', referrerId).single();
+    if (!referrer) return;
+    await supabase.from('referidos').insert({ ref_code: referrer.ref_code, referrer_id: referrerId, referido_id: referidoId });
+  } catch(e) { console.error('[REFERIDO] Error registrando:', e.message); }
+}
+
+async function verificarProReferidos(referrerId) {
+  try {
+    // Contar referidos activos (con >= 3 transacciones)
+    const { data: refs } = await supabase.from('referidos').select('referido_id, activo').eq('referrer_id', referrerId);
+    if (!refs || refs.length === 0) return;
+    for (const ref of refs) {
+      if (ref.activo) continue;
+      const { count } = await supabase.from('transacciones').select('*', { count: 'exact', head: true }).eq('usuario_id', ref.referido_id);
+      if ((count || 0) >= 3) {
+        await supabase.from('referidos').update({ activo: true }).eq('referrer_id', referrerId).eq('referido_id', ref.referido_id);
+      }
+    }
+    // Recargar tras actualizar
+    const { data: refsActualizados } = await supabase.from('referidos').select('activo').eq('referrer_id', referrerId);
+    const totalActivos = (refsActualizados || []).filter(r => r.activo).length;
+    if (totalActivos >= 3) {
+      const { data: referrer } = await supabase.from('usuarios').select('plan, whatsapp').eq('id', referrerId).single();
+      if (referrer && referrer.plan !== 'premium') {
+        const vence = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        await supabase.from('usuarios').update({ plan: 'premium', premium_desde: new Date().toISOString().split('T')[0], premium_vence: vence }).eq('id', referrerId);
+        await enviarWhatsapp(referrer.whatsapp, '\u2B50 *\u00bfReferidos que funcionan!*\n\n3 de tus amigos ya usan NETO activamente.\n\nTe hemos activado *1 mes de NETO Pro gratis* \uD83C\uDF89\n\nVence: ' + vence + '\n\n_Gracias por crecer con nosotros._');
+      }
+    }
+  } catch(e) { console.error('[REFERIDO] Error verificando Pro:', e.message); }
+}
+
 // Servir archivos estÃƒÂ¡ticos
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -557,6 +640,17 @@ app.post('/webhook', async (req, res) => {
     let respuesta = '';
     const usuario = await obtenerOCrearUsuario(from);
     const cmd = msg.toLowerCase().trim();
+
+    // Detectar referido: nuevo usuario llegó vía link /r/:code
+    const refMatch = msg.match(/^hola\s+neto\s+ref:([A-Z0-9]{4,12})/i);
+    if (refMatch) {
+      const refCode = refMatch[1].toUpperCase();
+      const { data: referrer } = await supabase.from('usuarios').select('id').eq('ref_code', refCode).neq('id', usuario.id).single();
+      if (referrer) {
+        registrarReferido(referrer.id, usuario.id);
+        verificarProReferidos(referrer.id);
+      }
+    }
 
     if (usuario.onboarding_paso === 10 && !cmd.startsWith('/')) {
       var idxResp = parsearIndicesRespuesta(msg, CATEGORIAS_SUGERIDAS.length);
@@ -668,7 +762,7 @@ app.post('/webhook', async (req, res) => {
           const esMesNuevo = !resetDate || resetMes !== mesActualNum || resetAnio !== anioActualNum;
           if (esMesNuevo) { await supabase.from('usuarios').update({ reporte_usos_mes: 0, reporte_reset_mes: anioActualNum + '-' + String(mesActualNum).padStart(2,'0') + '-01' }).eq('id', usuario.id); usuario.reporte_usos_mes = 0; }
           if ((usuario.reporte_usos_mes || 0) < 1) { puedeGenerar = true; }
-          else { respuesta = '\uD83D\uDCCA Ya usaste tu *reporte gratuito* de este mes.\n\n\u2B50 *NETO Pro* \u2014 reportes ilimitados + resumen semanal + categorias personalizadas.\n\n*Solo S/ 9.90/mes*\n\nEscribe */premium* para activarlo.'; }
+          else { respuesta = '\uD83D\uDCCA Ya usaste tu *reporte gratuito* de este mes.\n\n\u2B50 *NETO Pro* \u2014 reportes ilimitados + resumen semanal + categorias personalizadas.\n\n*Solo S/10/mes*\n\nEscribe */premium* para activarlo.'; }
         }
         if (puedeGenerar) {
           await enviarWhatsapp(from, 'Preparando tu reporte de ' + MESES[mesR] + '... \u23F3');
@@ -686,10 +780,32 @@ app.post('/webhook', async (req, res) => {
       if (planActual === 'premium') {
         respuesta = '\u2B50 *Ya tienes NETO Pro activo*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\u2705 Sin restricciones\n\n_Gracias por tu apoyo!_ \uD83D\uDC9A';
       } else {
-        respuesta = '\u2B50 *NETO Pro \u2014 S/ 9.90/mes*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\u2705 Sin restricciones\n\n*\u00bfC\u00f3mo pagar?*\n\n\uD83D\uDCB8 *Opcion 1 \u2014 Yape*\nYapea S/ 9.90 al:\n*+51970398192* (Favio M.)\n\nLuego env\u00edame el comprobante o escribe:\n_"ya pague por yape, operacion 12345678"_\n\n_Activacion en menos de 1 hora._';
+        respuesta = '\u2B50 *NETO Pro \u2014 S/10/mes*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\u2705 Sin restricciones\n\n*\u00bfC\u00f3mo pagar?*\n\n\uD83D\uDCB8 *Opcion 1 \u2014 Yape*\nYapea S/ 10 al:\n*+51970398192* (Favio M.)\n\nLuego env\u00edame el comprobante o escribe:\n_"ya pague por yape, operacion 12345678"_\n\n_Activacion en menos de 1 hora._';
         // Marcar que usuario esta en flujo de pago
         await supabase.from('usuarios').update({ pago_pendiente: true }).eq('id', usuario.id);
       }
+    } else if (cmd === '/referir') {
+      let refCode = usuario.ref_code;
+      if (!refCode) {
+        refCode = generarRefCode();
+        await supabase.from('usuarios').update({ ref_code: refCode }).eq('id', usuario.id);
+        usuario.ref_code = refCode;
+      }
+      const { data: misRefs } = await supabase.from('referidos').select('activo').eq('referrer_id', usuario.id);
+      const totalRefs = (misRefs || []).length;
+      const activos = (misRefs || []).filter(r => r.activo).length;
+      const railwayUrl = process.env.RAILWAY_URL || 'https://neto.pe';
+      respuesta = '\uD83C\uDF81 *Tu link de referido:*\n\n' + railwayUrl + '/r/' + refCode + '\n\nComparte con amigos. Cuando *3 de ellos usen NETO activamente*, recibes *1 mes Pro gratis* \uD83C\uDF89\n\n_Referidos: ' + totalRefs + ' | Activos: ' + activos + '/3_';
+    } else if (cmd === '/dashboard') {
+      const ahora = new Date();
+      const hace3meses = new Date(ahora.getFullYear(), ahora.getMonth() - 2, 1);
+      const { data: txsDash } = await supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).eq('tipo', 'gasto').gte('fecha', hace3meses.toISOString().split('T')[0]).order('fecha', { ascending: true });
+      const dashHtml = generarDashboardHTML(usuario, txsDash || []);
+      const dashId = crypto.randomUUID();
+      const dashExp = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      await supabase.from('reporte_cache').insert({ id: dashId, usuario_id: usuario.id, html: dashHtml, expires_at: dashExp });
+      const railwayUrl = process.env.RAILWAY_URL || 'https://neto.pe';
+      respuesta = '\uD83D\uDCCA *Tu dashboard esta listo!*\n\n' + railwayUrl + '/dashboard/' + dashId + '\n\n_Disponible 24 horas. Actualiza con */dashboard* cuando quieras._';
     } else if (cmd.startsWith('/activar ')) {
       // Comando admin: /activar <numero_whatsapp> - solo Favio puede usarlo
       const ADMIN_NUMBER = process.env.ADMIN_WHATSAPP || '51970398192';
@@ -762,7 +878,7 @@ app.post('/webhook', async (req, res) => {
       respuesta = lpend.length === 0 ? 'No tienes gastos pendientes.' : formatearPendientes(lpend);
     } else if (cmd === '/ayuda') {
       const mesActual = new Date().getMonth() + 1;
-      respuesta = '*Comandos NETO:*\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- ver/configurar presupuesto\n*/categorias* -- categorias\n*/conectar* -- vincular Gmail\n*/escanear* -- leer correos ahora\n*/cambiar [comercio] [cat]* -- corregir categoria\n*/reporte* -- PDF del mes\n*/reporte ' + mesActual + '* -- PDF mes especifico\n*/pendientes* -- gastos sin identificar\n*/premium* -- plan premium\n*hola* -- estado general\n\n_Tambien puedes escribirme en lenguaje natural!_';
+      respuesta = '*Comandos NETO:*\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- ver/configurar presupuesto\n*/categorias* -- categorias\n*/conectar* -- vincular Gmail\n*/escanear* -- leer correos ahora\n*/cambiar [comercio] [cat]* -- corregir categoria\n*/reporte* -- PDF del mes\n*/reporte ' + mesActual + '* -- PDF mes especifico\n*/pendientes* -- gastos sin identificar\n*/dashboard* -- ver graficos de gastos\n*/referir* -- invitar amigos y ganar Pro\n*/premium* -- plan premium\n*hola* -- estado general\n\n_Tambien puedes escribirme en lenguaje natural!_';
     } else {
       respuesta = await procesarMensajeLibre(msg, usuario, from);
     }
@@ -794,6 +910,34 @@ app.get('/reporte/:id', async (req, res) => {
   }
 });
 
+
+// Ruta de referido: redirige a WhatsApp con el ref_code pre-cargado
+app.get('/r/:code', async (req, res) => {
+  const code = (req.params.code || '').toUpperCase();
+  const { data: referrer } = await supabase.from('usuarios').select('id').eq('ref_code', code).single();
+  const waNum = '51970398192';
+  const waText = encodeURIComponent('Hola NETO ref:' + code);
+  if (!referrer) return res.redirect('https://wa.me/' + waNum);
+  res.redirect('https://wa.me/' + waNum + '?text=' + waText);
+});
+
+// Dashboard: muestra gráficos de gastos de los últimos 3 meses
+app.get('/dashboard/:id', async (req, res) => {
+  const id = req.params.id;
+  try {
+    const { data: entry, error } = await supabase.from('reporte_cache').select('html, expires_at').eq('id', id).single();
+    if (error || !entry) return res.status(404).send('<h2>Dashboard no encontrado.</h2><p>Genera uno nuevo con /dashboard</p>');
+    if (new Date(entry.expires_at) < new Date()) {
+      await supabase.from('reporte_cache').delete().eq('id', id);
+      return res.status(410).send('<h2>El link expiró.</h2><p>Genera uno nuevo escribiendo */dashboard* en WhatsApp.</p>');
+    }
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    res.send(entry.html);
+  } catch(e) {
+    console.error('[DASHBOARD] Error:', e.message);
+    res.status(500).send('<h2>Error cargando el dashboard.</h2>');
+  }
+});
 
 app.get('/auth/callback', async (req, res) => {
   const { code, error } = req.query;
@@ -939,7 +1083,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       model: 'gpt-4o-mini',
       messages: [{
         role: 'system',
-        content: 'Eres el clasificador de intenciones de NETO, bot de finanzas personales por WhatsApp para usuarios peruanos.\nEl mes actual es ' + mE[mesActual] + ' ' + anioActual + '.\n\nAnaliza el mensaje y devuelve SOLO JSON.\n\nINTENCIONES:\n1. "listar_gastos_mes" - ver resumen/lista de gastos del mes\n   Ej: "cuales son mis gastos", "que gaste este mes", "gastos registrados", "que tengo registrado", "mis compras", "transacciones"\n   Datos: mes (numero, default=mes_actual), anio\n\n2. "listar_gastos_semana" - gastos de los ultimos 7 dias\n   Ej: "que gaste esta semana", "gastos recientes", "mis compras de los ultimos dias"\n\n3. "listar_gastos_categoria" - gastos de UNA categoria especifica\n   Ej: "que hay en Otros", "gastos de Alimentación", "que esta en Transporte", "detalle de Hogar", "cuales estan en otros"\n   Datos: categoria (nombre exacto), mes (default=mes_actual)\n\n4. "ver_total_gastado" - saber el TOTAL numerico gastado\n   Ej: "cuanto gaste", "cuanto llevo gastado", "total de gastos"\n   Datos: periodo ("semana" o "mes"), categoria (o null)\n\n5. "ver_presupuesto" - ver estado del presupuesto\n   Ej: "como va mi presupuesto", "cuanto me queda", "mis limites"\n\n6. "configurar_presupuesto" - configurar limite de gasto\n   Ej: "pon limite de 500 en comida", "presupuesto de 300 para transporte"\n   Datos: categoria, monto\n\n7. "ver_categorias" - ver categorias configuradas del sistema\n   Ej: "que categorias hay", "muestra las categorias del sistema"\n   IMPORTANTE: Si el historial muestra que NETO estaba hablando de gastos por categoria, NO usar esta intencion\n\n8. "ver_reporte" - reporte PDF\n   Ej: "dame mi reporte", "informe mensual", "reporte de marzo", "genera pdf"\n   Datos: mes (default=mes_actual), anio\n\n9. "corregir_categoria" - cambiar categoria de un gasto\n   Ej: "netflix es streaming", "cambia uber a transporte", "mover gasto de punto.pe a NETO", "ponlo en Hogar", "muevelo a Delivery", "este gasto es de Comida"\n   IMPORTANTE: Usar cuando el usuario quiere mover/cambiar/reclasificar un gasto a cualquier categoria (incluso nueva). comercio puede ser null.\n   Datos: comercio (null si no se menciona), categoria_nueva\n\n10. "ver_pendientes" - gastos sin identificar\n    Ej: "gastos pendientes", "que no identificaste", "gastos sin categoria"\n\n11. "escanear_gmail" - escanear correos\n    Ej: "escanea mi correo", "busca transacciones nuevas", "hay correos nuevos"\n\n12. "ver_premium" - info del plan premium\n    Ej: "cuanto cuesta premium", "que incluye el plan"\n\n13. "saludo" - saludo sin intencion especifica\n    Ej: "buenos dias", "que tal", "como estas"\n\n14. "ayuda" - pide ayuda\n    Ej: "que puedes hacer", "ayuda", "como funciona"\n\n15. "desconocido" - no encaja con ninguna intencion clara, o es continuacion de conversacion\n    Usar cuando: el mensaje es "si", "no", "dale", "ok", "mas", o cualquier respuesta corta a algo que NETO pregunto\n\nREGLAS CRITICAS:\n- Si el historial muestra que NETO hizo una pregunta y el usuario responde con "si", "no", "dale", "ok", "mas detalle", "eso", "las dos", o cualquier respuesta corta -> usar "desconocido" para que NETO maneje la continuacion\n- Si el historial muestra que NETO hablaba de gastos por categoria y el usuario dice "otras categorias" o similar -> usar "desconocido" no "ver_categorias"\n- "otros" como categoria de gasto -> listar_gastos_categoria con categoria="Otros"\n- "cuanto gaste" sin periodo -> ver_total_gastado con periodo="mes"\n- "gastos registrados"/"que tengo" -> listar_gastos_mes\n- mes: enero=1, febrero=2, marzo=3, ..., diciembre=12\n- Si no especifica mes -> usar mes_actual' + histCtx
+        content: 'Eres el clasificador de intenciones de NETO, bot de finanzas personales por WhatsApp para usuarios peruanos.\nEl mes actual es ' + mE[mesActual] + ' ' + anioActual + '.\n\nAnaliza el mensaje y devuelve SOLO JSON.\n\nINTENCIONES:\n1. "listar_gastos_mes" - ver resumen/lista de gastos del mes\n   Ej: "cuales son mis gastos", "que gaste este mes", "gastos registrados", "que tengo registrado", "mis compras", "transacciones"\n   Datos: mes (numero, default=mes_actual), anio\n\n2. "listar_gastos_semana" - gastos de los ultimos 7 dias\n   Ej: "que gaste esta semana", "gastos recientes", "mis compras de los ultimos dias"\n\n3. "listar_gastos_categoria" - gastos de UNA categoria especifica\n   Ej: "que hay en Otros", "gastos de Alimentación", "que esta en Transporte", "detalle de Hogar", "cuales estan en otros"\n   Datos: categoria (nombre exacto), mes (default=mes_actual)\n\n4. "ver_total_gastado" - saber el TOTAL numerico gastado\n   Ej: "cuanto gaste", "cuanto llevo gastado", "total de gastos"\n   Datos: periodo ("semana" o "mes"), categoria (o null)\n\n5. "ver_presupuesto" - ver estado del presupuesto\n   Ej: "como va mi presupuesto", "cuanto me queda", "mis limites"\n\n6. "configurar_presupuesto" - configurar limite de gasto\n   Ej: "pon limite de 500 en comida", "presupuesto de 300 para transporte"\n   Datos: categoria, monto\n\n7. "ver_categorias" - ver categorias configuradas del sistema\n   Ej: "que categorias hay", "muestra las categorias del sistema"\n   IMPORTANTE: Si el historial muestra que NETO estaba hablando de gastos por categoria, NO usar esta intencion\n\n8. "ver_reporte" - reporte PDF\n   Ej: "dame mi reporte", "informe mensual", "reporte de marzo", "genera pdf"\n   Datos: mes (default=mes_actual), anio\n\n9. "corregir_categoria" - cambiar categoria de un gasto\n   Ej: "netflix es streaming", "cambia uber a transporte", "mover gasto de punto.pe a NETO", "ponlo en Hogar", "muevelo a Delivery", "este gasto es de Comida"\n   IMPORTANTE: Usar cuando el usuario quiere mover/cambiar/reclasificar un gasto a cualquier categoria (incluso nueva). comercio puede ser null.\n   Datos: comercio (null si no se menciona), categoria_nueva\n\n10. "ver_pendientes" - gastos sin identificar\n    Ej: "gastos pendientes", "que no identificaste", "gastos sin categoria"\n\n11. "escanear_gmail" - escanear correos\n    Ej: "escanea mi correo", "busca transacciones nuevas", "hay correos nuevos"\n\n12. "ver_premium" - info del plan premium\n    Ej: "cuanto cuesta premium", "que incluye el plan"\n\n13. "saludo" - saludo sin intencion especifica\n    Ej: "buenos dias", "que tal", "como estas"\n\n14. "ayuda" - pide ayuda\n    Ej: "que puedes hacer", "ayuda", "como funciona"\n\n15. "registrar_manual" - el usuario quiere registrar un gasto o ingreso en lenguaje natural\n   Ej: "gaste 50 soles en farmacia", "anota S/120 en ropa", "mi sueldo fue S/4500", "cobré S/800 de honorarios", "registra un ingreso de S/3500", "pague 200 en gasolina ayer", "tuve un ingreso de S/3500 por mi sueldo el 1 de marzo"\n   Datos: ninguno (se parsea el mensaje completo)\n\n16. "desconocido" - no encaja con ninguna intencion clara, o es continuacion de conversacion\n    Usar cuando: el mensaje es "si", "no", "dale", "ok", "mas", o cualquier respuesta corta a algo que NETO pregunto\n\nREGLAS CRITICAS:\n- Si el historial muestra que NETO hizo una pregunta y el usuario responde con "si", "no", "dale", "ok", "mas detalle", "eso", "las dos", o cualquier respuesta corta -> usar "desconocido" para que NETO maneje la continuacion\n- Si el historial muestra que NETO hablaba de gastos por categoria y el usuario dice "otras categorias" o similar -> usar "desconocido" no "ver_categorias"\n- "otros" como categoria de gasto -> listar_gastos_categoria con categoria="Otros"\n- "cuanto gaste" sin periodo -> ver_total_gastado con periodo="mes"\n- "gastos registrados"/"que tengo" -> listar_gastos_mes\n- mes: enero=1, febrero=2, marzo=3, ..., diciembre=12\n- Si no especifica mes -> usar mes_actual' + histCtx
       }, {
         role: 'user',
         content: msg
@@ -1079,7 +1223,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
           const resetAnio = resetDate ? parseInt(String(resetDate).slice(0,4)) : null;
           const esMesNuevo = !resetDate || resetMes !== mesActual || resetAnio !== anioActual;
           if (esMesNuevo) { await supabase.from('usuarios').update({ reporte_usos_mes: 0, reporte_reset_mes: anioActual + '-' + String(mesActual).padStart(2,'0') + '-01' }).eq('id', usuario.id); usuario.reporte_usos_mes = 0; }
-          if ((usuario.reporte_usos_mes || 0) >= 1) return '\uD83D\uDCCA Ya usaste tu *reporte gratuito* de este mes.\n\n\u2B50 *NETO Pro* \u2014 reportes ilimitados + resumen semanal + categorias personalizadas.\n\n*Solo S/ 9.90/mes*\n\nEscribe */premium* para activarlo.';
+          if ((usuario.reporte_usos_mes || 0) >= 1) return '\uD83D\uDCCA Ya usaste tu *reporte gratuito* de este mes.\n\n\u2B50 *NETO Pro* \u2014 reportes ilimitados + resumen semanal + categorias personalizadas.\n\n*Solo S/10/mes*\n\nEscribe */premium* para activarlo.';
         }
         await enviarWhatsapp(from, 'Generando tu reporte PDF... \u23F3');
         if (planUsuario2 === 'free') { await supabase.from('usuarios').update({ reporte_usos_mes: (usuario.reporte_usos_mes || 0) + 1 }).eq('id', usuario.id); }
@@ -1128,14 +1272,39 @@ async function procesarMensajeLibre(msg, usuario, from) {
       case 'ver_premium': {
         const planActual2 = usuario.plan || 'free';
         if (planActual2 === 'premium') return '\u2B50 *Ya tienes NETO Pro activo*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\n_Gracias por tu apoyo!_';
-        return '\u2B50 *NETO Pro \u2014 S/ 9.90/mes*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\u2705 Sin restricciones\n\nEscribenos para activarlo:\n+51970398192';
+        return '\u2B50 *NETO Pro \u2014 S/10/mes*\n\n\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\u2705 Sin restricciones\n\nEscribenos para activarlo:\n+51970398192';
+      }
+
+      case 'registrar_manual': {
+        try {
+          const fechaHoy = new Date().toISOString().split('T')[0];
+          const parsed = await parsearRegistroManual(msg, fechaHoy);
+          if (!parsed.ok || !parsed.monto || parsed.monto <= 0) {
+            return 'No pude extraer el monto. Dime algo como: "gasté S/50 en farmacia" o "mi sueldo fue S/4500".';
+          }
+          const tx = await guardarTransaccion(usuario.id, parsed);
+          const esIngreso = parsed.tipo === 'ingreso';
+          const montoStr = parsed.moneda === 'USD' ? '$' + parsed.monto : 'S/' + parseFloat(parsed.monto).toFixed(0);
+          let respReg = 'Anotado. ' + montoStr + ' en ' + (esIngreso ? 'Ingresos' : (parsed.categoria || 'Otros') + ' > ' + (parsed.subcategoria || 'sin_categoria')) + ' el ' + parsed.fecha + '.';
+          if (!esIngreso && parsed.categoria) {
+            const alerta = await verificarAlertaPresupuesto(usuario.id, parsed.categoria, null);
+            if (alerta) respReg += '\n\n' + alerta;
+          }
+          respReg += '\n\n\u00bfHay otro que quieras anotar?';
+          return respReg;
+        } catch(e) {
+          console.error('[REGISTRAR_MANUAL]', e.message);
+          return 'No pude procesar eso. Dime: "gasté S/50 en farmacia ayer" y lo anoto.';
+        }
       }
 
       case 'saludo': {
         const gastosSaludo = await obtenerGastosMes(usuario.id);
         const totalSaludo = gastosSaludo.reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
+        const { data: ingresosSaludo } = await supabase.from('transacciones').select('monto_pen,monto').eq('usuario_id', usuario.id).eq('tipo', 'ingreso').gte('fecha', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]);
+        const totalIngresosSaludo = (ingresosSaludo || []).reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
         const pendSaludo = await obtenerConsultasPendientes(usuario.id);
-        const ctxSaludo = 'El usuario saluda. Contexto: este mes lleva S/ ' + totalSaludo.toFixed(0) + ' en ' + gastosSaludo.length + ' movimientos.' +
+        const ctxSaludo = 'El usuario saluda. Contexto: este mes lleva S/ ' + totalSaludo.toFixed(0) + ' en gastos (' + gastosSaludo.length + ' movimientos)' + (totalIngresosSaludo > 0 ? ', S/ ' + totalIngresosSaludo.toFixed(0) + ' en ingresos registrados, balance S/ ' + (totalIngresosSaludo - totalSaludo).toFixed(0) : ', sin ingresos registrados') + '.' +
           (pendSaludo.length > 0 ? ' Tiene ' + pendSaludo.length + ' gasto(s) sin identificar.' : ' Sin pendientes.');
         const respSaludo = await redactarConNETO(netoPrompt, ctxSaludo, msg, historialConv);
         return respSaludo || ('\uD83D\uDC4B Hola' + (usuario.nombre ? ', ' + usuario.nombre.split(' ')[0] : '') + '. Soy NETO.\n\nEste mes llevas *S/ ' + totalSaludo.toFixed(0) + '* en ' + gastosSaludo.length + ' movimientos.\n\n\u00bfQue revisamos?');

@@ -61,7 +61,7 @@ function generarReporteHTML(data) {
   const metodos = Object.entries(porMetodo).sort((a,b) => b[1]-a[1]);
   const maxMetodo = metodos.length > 0 ? metodos[0][1] : 1;
 
-  const suscripciones = gastos.filter(t => t.categoria === 'Streaming');
+  const suscripciones = gastos.filter(t => t.categoria === 'Entretenimiento' || t.categoria === 'Streaming');
   const totalSubs = suscripciones.reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
 
   const txsUsd = gastos.filter(t => t.moneda === 'USD');
@@ -76,8 +76,8 @@ function generarReporteHTML(data) {
   const diasMes = new Date(anioNum, mesNum, 0).getDate();
   const diaActual = (mesNum === hoy.getMonth()+1 && anioNum === hoy.getFullYear()) ? hoy.getDate() : diasMes;
   const proyeccion = diaActual > 0 ? (totalG / diaActual) * diasMes : totalG;
-  const gastosFijos = totalSubs + catOrd.filter(([c]) => c === 'Hogar').reduce((s,[,m]) => s+m, 0);
-  const gastoVar = catOrd.filter(([c]) => c !== 'Hogar' && c !== 'Streaming').reduce((s,[,m]) => s+m, 0);
+  const gastosFijos = totalSubs + catOrd.filter(([c]) => c === 'Vivienda').reduce((s,[,m]) => s+m, 0);
+  const gastoVar = catOrd.filter(([c]) => c !== 'Vivienda' && c !== 'Entretenimiento' && c !== 'Streaming').reduce((s,[,m]) => s+m, 0);
 
   // Insight del mes
   let insightMes = '';
@@ -288,7 +288,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#2
     <div class="section-title">Gastos fijos detectados</div>
     ${suscripciones.slice(0,5).map(t => `
     <div class="rec-item">
-      <span>${(t.comercio || 'Streaming').substring(0,24)}</span>
+      <span>${(t.comercio || 'Entretenimiento').substring(0,24)}</span>
       <span><span class="pill pill-green">recurrente</span></span>
       <span style="font-weight:500">${t.moneda === 'USD' ? '$' : 'S/ '}${parseFloat(t.monto||0).toFixed(2)}/mes</span>
     </div>`).join('')}
@@ -399,4 +399,81 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#2
 </html>`;
 }
 
-module.exports = { generarReporteHTML };
+function generarDashboardHTML(usuario, transacciones) {
+  const nombre = (usuario.nombre || 'Usuario').split(' ')[0];
+  const ahora = new Date();
+  const fechaGen = ahora.toLocaleDateString('es-PE', { day: '2-digit', month: 'long', year: 'numeric' });
+
+  const meses = [];
+  for (let i = 2; i >= 0; i--) {
+    const d = new Date(ahora.getFullYear(), ahora.getMonth() - i, 1);
+    meses.push({ mes: d.getMonth() + 1, anio: d.getFullYear(), label: d.toLocaleDateString('es-PE', { month: 'short', year: 'numeric' }), total: 0 });
+  }
+  transacciones.forEach(t => {
+    const parts = (t.fecha || '').split('-');
+    if (parts.length < 2) return;
+    const y = parseInt(parts[0]), m = parseInt(parts[1]);
+    const idx = meses.findIndex(mx => mx.mes === m && mx.anio === y);
+    if (idx >= 0) meses[idx].total += parseFloat(t.monto_pen || t.monto || 0);
+  });
+  const mesActual = meses[2];
+  const totalTresMeses = meses.reduce((s, m) => s + m.total, 0);
+  const promMensual = totalTresMeses / 3;
+
+  const porCat = {};
+  transacciones.filter(t => { const parts = (t.fecha||'').split('-'); return parseInt(parts[1]) === mesActual.mes && parseInt(parts[0]) === mesActual.anio; })
+    .forEach(t => { const c = t.categoria || 'Otros'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto_pen || t.monto || 0); });
+  const catOrd = Object.entries(porCat).sort((a, b) => b[1] - a[1]);
+
+  const porComercio = {};
+  transacciones.forEach(t => { const c = t.comercio || t.banco || 'Sin nombre'; porComercio[c] = (porComercio[c] || 0) + parseFloat(t.monto_pen || t.monto || 0); });
+  const topComercio = Object.entries(porComercio).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+  const col = ['#1D9E75','#3498DB','#F39C12','#E74C3C','#9B59B6','#1ABC9C','#E67E22','#2ECC71'];
+
+  return `<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NETO Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F0F4F8;color:#2C3E50}
+.hdr{background:linear-gradient(135deg,#1D9E75,#16A085);color:#fff;padding:24px 20px 18px}
+.hdr h1{font-size:21px;font-weight:700}.hdr p{font-size:13px;opacity:.85;margin-top:4px}
+.wrap{max-width:480px;margin:0 auto;padding:14px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+.card{background:#fff;border-radius:12px;padding:16px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.card.full{grid-column:1/-1}
+.lbl{font-size:11px;color:#7F8C8D;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.val{font-size:22px;font-weight:700;color:#1D9E75}
+.sub{font-size:12px;color:#95A5A6;margin-top:4px}
+.ch{position:relative;height:200px}
+.ch2{position:relative;height:170px}
+.stitle{font-size:12px;font-weight:600;color:#7F8C8D;text-transform:uppercase;letter-spacing:.5px;margin:14px 0 8px}
+.row{display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:13px}
+.rlbl{width:110px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.trk{flex:1;height:8px;background:#ECF0F1;border-radius:4px}
+.fill{height:100%;border-radius:4px}
+.rval{width:65px;text-align:right;font-weight:600;flex-shrink:0}
+.ft{text-align:center;font-size:11px;color:#BDC3C7;padding:20px 0 32px}
+</style></head><body>
+<div class="hdr"><h1>📊 Dashboard — ${nombre}</h1><p>Últimos 3 meses · ${fechaGen}</p></div>
+<div class="wrap">
+<div class="grid">
+  <div class="card"><div class="lbl">Mes actual</div><div class="val">S/ ${mesActual.total.toFixed(0)}</div><div class="sub">${mesActual.label}</div></div>
+  <div class="card"><div class="lbl">Promedio/mes</div><div class="val">S/ ${promMensual.toFixed(0)}</div><div class="sub">3 meses</div></div>
+  <div class="card full"><div class="lbl">Gastos por mes</div><div class="ch"><canvas id="barC"></canvas></div></div>
+  ${catOrd.length > 0 ? `<div class="card full"><div class="lbl">Por categoría — ${mesActual.label}</div><div class="ch2"><canvas id="donutC"></canvas></div></div>` : ''}
+</div>
+${catOrd.length > 0 ? `<div class="stitle">Desglose categorías</div>${catOrd.map(([c,m],i)=>`<div class="row"><div class="rlbl">${c}</div><div class="trk"><div class="fill" style="width:${Math.min(100,m/mesActual.total*100).toFixed(0)}%;background:${col[i%col.length]}"></div></div><div class="rval">S/ ${m.toFixed(0)}</div></div>`).join('')}` : ''}
+${topComercio.length > 0 ? `<div class="stitle">Top comercios (3 meses)</div>${topComercio.map(([c,m],i)=>`<div class="row"><div class="rlbl">${c.substring(0,16)}</div><div class="trk"><div class="fill" style="width:${Math.min(100,totalTresMeses>0?m/totalTresMeses*100:0).toFixed(0)}%;background:${col[i%col.length]}"></div></div><div class="rval">S/ ${m.toFixed(0)}</div></div>`).join('')}` : ''}
+<div class="ft">NETO · neto.pe · Datos de tus correos bancarios</div>
+</div>
+<script>
+new Chart(document.getElementById('barC'),{type:'bar',data:{labels:${JSON.stringify(meses.map(m=>m.label))},datasets:[{data:${JSON.stringify(meses.map(m=>parseFloat(m.total.toFixed(2))))},backgroundColor:['#BDC3C7','#BDC3C7','#1D9E75'],borderRadius:6}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,grid:{color:'#F0F4F8'},ticks:{callback:v=>'S/ '+v}},x:{grid:{display:false}}}}});
+${catOrd.length > 0 ? `new Chart(document.getElementById('donutC'),{type:'doughnut',data:{labels:${JSON.stringify(catOrd.map(([c])=>c))},datasets:[{data:${JSON.stringify(catOrd.map(([,m])=>parseFloat(m.toFixed(2))))},backgroundColor:${JSON.stringify(col.slice(0,catOrd.length))},borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{font:{size:11}}}}}});` : ''}
+</script></body></html>`;
+}
+
+module.exports = { generarReporteHTML, generarDashboardHTML };
