@@ -7,7 +7,7 @@ const crypto = require('crypto');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
-const { generarUrlAutorizacion, guardarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle } = require('./gmail');
+const { generarUrlAutorizacion, guardarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail } = require('./gmail');
 
 const app = express();
 app.use(express.urlencoded({ extended: false }));
@@ -834,8 +834,58 @@ app.post('/webhook', async (req, res) => {
     const messages = value && value.messages;
     if (!messages || messages.length === 0) return;
     const message = messages[0];
-    if (message.type !== 'text') return;
     const from = message.from;
+
+    // --- Manejo de imágenes ---
+    if (message.type === 'image') {
+      const usuario = await obtenerOCrearUsuario(from);
+      const mediaId = message.image && message.image.id;
+      if (!mediaId) { await enviarWhatsapp(from, 'No pude recibir la imagen. Intenta de nuevo.'); return; }
+      try {
+        // 1. Obtener URL de la imagen desde Meta API
+        const metaRes = await fetch('https://graph.facebook.com/v19.0/' + mediaId, {
+          headers: { Authorization: 'Bearer ' + process.env.WHATSAPP_TOKEN }
+        });
+        const metaJson = await metaRes.json();
+        // 2. Descargar imagen como base64
+        const imgRes = await fetch(metaJson.url, {
+          headers: { Authorization: 'Bearer ' + process.env.WHATSAPP_TOKEN }
+        });
+        const imgBuffer = await imgRes.arrayBuffer();
+        const base64 = Buffer.from(imgBuffer).toString('base64');
+        const mimeType = metaJson.mime_type || 'image/jpeg';
+        // 3. Parsear con GPT-4o vision
+        const hoy = new Date().toISOString().split('T')[0];
+        const visionRes = await openai.chat.completions.create({
+          model: 'gpt-4o',
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Esta imagen es una notificación de pago (Yape, Plin, banco peruano). Extrae la transacción y devuelve SOLO JSON:\n{"tipo":"gasto","monto":numero,"moneda":"PEN","comercio":"destinatario o descripcion","categoria":"Alimentación|Transporte|Vivienda|Salud|Entretenimiento|Compras|Educación|Finanzas|Trabajo_Negocio|Otros","subcategoria":"string","fecha":"YYYY-MM-DD o null","descripcion_original":"texto extraido"}\nSi no es una notificación de pago, devuelve {"tipo":"no_pago"}.\nFecha de hoy: ' + hoy },
+              { type: 'image_url', image_url: { url: 'data:' + mimeType + ';base64,' + base64 } }
+            ]
+          }],
+          temperature: 0, max_tokens: 300
+        });
+        const rawV = visionRes.choices[0].message.content.trim();
+        const parsed = JSON.parse(rawV.startsWith('{') ? rawV : rawV.slice(rawV.indexOf('{'), rawV.lastIndexOf('}') + 1));
+        if (parsed.tipo === 'no_pago') {
+          await enviarWhatsapp(from, 'No reconocí ningún pago en esta imagen. Envíame la captura de la notificación de Yape, Plin o tu banco.');
+          return;
+        }
+        parsed.fecha = parsed.fecha || hoy;
+        const tx = await guardarTransaccion(usuario.id, parsed);
+        const montoStr = parsed.moneda === 'USD' ? '$' + parseFloat(parsed.monto).toFixed(2) : 'S/ ' + parseFloat(parsed.monto).toFixed(2);
+        const emoji = getEmojiCategoria(parsed.categoria) || '📋';
+        await enviarWhatsapp(from, '📸 ¡Listo! Registré el pago desde la imagen:\n\n' + emoji + ' *' + (parsed.comercio || 'Pago') + '* — ' + montoStr + '\nCategoría: ' + parsed.categoria + '\nFecha: ' + parsed.fecha + '\n\n_¿La categoría está bien? Si no, dímelo._');
+      } catch(e) {
+        console.error('[IMAGEN]', e.message);
+        await enviarWhatsapp(from, 'No pude leer la imagen. Envíame una captura más clara de la notificación de pago.');
+      }
+      return;
+    }
+
+    if (message.type !== 'text') return;
     const msg = (message.text.body || '').trim();
     console.log('[MSG] [' + from + ']: ' + msg);
 
@@ -1148,30 +1198,60 @@ app.get('/auth/callback', async (req, res) => {
   try {
     const { tokens } = await oauth2Client.getToken(code);
     oauth2Client.setCredentials(tokens);
-    let whatsappNum = null;
-    if (req.query.state) { try { whatsappNum = Buffer.from(req.query.state, 'base64').toString('utf8'); } catch(e) {} }
+    // Decodificar state: puede ser JSON {num, modo} o string legacy
+    let whatsappNum = null; let modoConexion = 'inicial';
+    if (req.query.state) {
+      try {
+        const decoded = Buffer.from(req.query.state, 'base64').toString('utf8');
+        if (decoded.startsWith('{')) {
+          const stateObj = JSON.parse(decoded);
+          whatsappNum = stateObj.num; modoConexion = stateObj.modo || 'inicial';
+        } else { whatsappNum = decoded; }
+      } catch(e) {}
+    }
     let usuario = null;
     if (whatsappNum) { const { data } = await supabase.from('usuarios').select('*').eq('whatsapp', whatsappNum).single(); usuario = data; }
     if (!usuario) { const { data } = await supabase.from('usuarios').select('*').is('gmail_access_token', null).order('created_at', { ascending: false }).limit(1).single(); usuario = data; }
     if (!usuario) return res.send('<h2>No se encontro el usuario. Escribe /conectar en WhatsApp.</h2>');
-    await guardarTokens(usuario.id, tokens);
+
     const perfil = await obtenerPerfilGoogle(oauth2Client);
-    if (perfil.nombre || perfil.email) { await supabase.from('usuarios').update({ nombre: perfil.nombre, email: perfil.email }).eq('id', usuario.id); usuario.nombre = perfil.nombre; }
+    const emailConectado = perfil.email;
+    await guardarTokens(usuario.id, tokens, emailConectado, modoConexion);
+    if (perfil.nombre || emailConectado) {
+      await supabase.from('usuarios').update({ nombre: usuario.nombre || perfil.nombre, email: emailConectado }).eq('id', usuario.id);
+      usuario.nombre = usuario.nombre || perfil.nombre;
+    }
+
     const nombre = usuario.nombre ? ', ' + usuario.nombre : '';
-    res.send('<html><body style="font-family:Arial;text-align:center;padding:50px;background:#0d1b2a;color:white"><h1 style="color:#4CAF50">Gmail conectado' + nombre + '!</h1><p style="font-size:18px">Vuelve a WhatsApp, el bot te escribira en un momento.</p></body></html>');
+    const emailMsg = emailConectado ? ' (' + emailConectado + ')' : '';
+    res.send('<html><body style="font-family:Arial;text-align:center;padding:50px;background:#0d1b2a;color:white"><h1 style="color:#4CAF50">Gmail conectado' + nombre + '!</h1><p style="font-size:18px">' + emailMsg + '</p><p>Vuelve a WhatsApp, el bot te escribira en un momento.</p></body></html>');
     const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : 'por ahi';
-    await enviarWhatsapp(usuario.whatsapp, '\u2705 *Gmail conectado, ' + primerNombre + '!*\n\nEscaneando tus correos bancarios... \uD83D\uDD0D');
+
     setTimeout(async () => {
       try {
+        if (modoConexion === 'agregar') {
+          // Cuenta adicional agregada
+          const cuentasNow = await obtenerCuentasGmail(usuario.id);
+          await enviarWhatsapp(usuario.whatsapp, '✅ *Cuenta Gmail adicional conectada!*\n📧 ' + emailConectado + '\n\nAhora tienes ' + cuentasNow.length + ' cuentas. ¿Cómo quieres ver tus reportes?\n\n1️⃣ *Unificado* — todo junto\n2️⃣ *Separado* — una sección por cuenta\n\n_Responde 1 o 2._');
+          await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
+          return;
+        }
+        if (modoConexion === 'reemplazar') {
+          await enviarWhatsapp(usuario.whatsapp, '🔄 *Cuenta Gmail actualizada, ' + primerNombre + '!*\n📧 ' + emailConectado + '\n\nEscaneando tus correos... 🔍');
+        } else {
+          await enviarWhatsapp(usuario.whatsapp, '✅ *Gmail conectado, ' + primerNombre + '!*\n📧 ' + emailConectado + '\n\nEscaneando tus correos bancarios... 🔍');
+        }
         const resultado = await escanearGmailYRegistrar(usuario);
         if (resultado) {
           await enviarWhatsapp(usuario.whatsapp, resultado);
           await new Promise(r => setTimeout(r, 2000));
-          await enviarWhatsapp(usuario.whatsapp, '*Paso 2 de 2: Elige tus categorias* \uD83C\uDFF7\uFE0F\n\n' + CATEGORIAS_SUGERIDAS.map((c,i) => (i+1)+'. '+c.emoji+' '+c.nombre).join('\n') + '\n\n_Responde con los numeros (ej: 1 3 5) o escribe "todas"_');
-          await supabase.from('usuarios').update({ onboarding_paso: 10 }).eq('id', usuario.id);
+          if (modoConexion === 'inicial') {
+            await enviarWhatsapp(usuario.whatsapp, '*Paso 2 de 2: Elige tus categorias* 🏷️\n\n' + CATEGORIAS_SUGERIDAS.map((c,i) => (i+1)+'. '+c.emoji+' '+c.nombre).join('\n') + '\n\n_Responde con los numeros (ej: 1 3 5) o escribe "todas"_');
+            await supabase.from('usuarios').update({ onboarding_paso: 10 }).eq('id', usuario.id);
+          }
         } else {
-          await enviarWhatsapp(usuario.whatsapp, '\uD83D\uDCED No encontre correos bancarios recientes.\n\nTe avisare cuando llegue uno.\n\nMientras tanto puedes escribirme:\n_"cuanto gaste esta semana"_');
-          await supabase.from('usuarios').update({ onboarding_paso: 0, onboarding_completado: true }).eq('id', usuario.id);
+          await enviarWhatsapp(usuario.whatsapp, '🔍 No encontré correos bancarios recientes.\n\nTe avisaré cuando llegue uno.');
+          if (modoConexion === 'inicial') await supabase.from('usuarios').update({ onboarding_paso: 0, onboarding_completado: true }).eq('id', usuario.id);
         }
       } catch(e) { console.error('[CALLBACK]', e.message); }
     }, 2000);
@@ -1285,7 +1365,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       model: 'gpt-4o-mini',
       messages: [{
         role: 'system',
-        content: 'Eres el clasificador de intenciones de NETO, bot de finanzas personales por WhatsApp para usuarios peruanos.\nEl mes actual es ' + mE[mesActual] + ' ' + anioActual + '.\n\nAnaliza el mensaje y devuelve SOLO JSON.\n\nINTENCIONES:\n1. "listar_gastos_mes" - ver resumen/lista de gastos del mes\n   Ej: "cuales son mis gastos", "que gaste este mes", "gastos registrados", "que tengo registrado", "mis compras", "transacciones"\n   Datos: mes (numero, default=mes_actual), anio\n\n2. "listar_gastos_semana" - gastos de los ultimos 7 dias\n   Ej: "que gaste esta semana", "gastos recientes", "mis compras de los ultimos dias"\n\n3. "listar_gastos_categoria" - gastos de UNA categoria especifica\n   Ej: "que hay en Otros", "gastos de Alimentación", "que esta en Transporte", "detalle de Hogar", "cuales estan en otros"\n   Datos: categoria (nombre exacto), mes (default=mes_actual)\n\n4. "ver_total_gastado" - saber el TOTAL numerico gastado\n   Ej: "cuanto gaste", "cuanto llevo gastado", "total de gastos"\n   Datos: periodo ("semana" o "mes"), categoria (o null)\n\n5. "ver_presupuesto" - ver estado del presupuesto\n   Ej: "como va mi presupuesto", "cuanto me queda", "mis limites"\n\n6. "configurar_presupuesto" - configurar limite de gasto\n   Ej: "pon limite de 500 en comida", "presupuesto de 300 para transporte"\n   Datos: categoria, monto\n\n7. "ver_categorias" - ver categorias configuradas del sistema\n   Ej: "que categorias hay", "muestra las categorias del sistema"\n   IMPORTANTE: Si el historial muestra que NETO estaba hablando de gastos por categoria, NO usar esta intencion\n\n8. "ver_reporte" - reporte PDF\n   Ej: "dame mi reporte", "informe mensual", "reporte de marzo", "genera pdf"\n   Datos: mes (default=mes_actual), anio\n\n9. "corregir_categoria" - cambiar categoria de un gasto\n   Ej: "netflix es streaming", "cambia uber a transporte", "ponlo en Hogar", "muevelo a Delivery", "este gasto es de Comida", "ponlo en la categoria NETO", "categorizalo en Trabajo", "muevelo a Herramientas"\n   IMPORTANTE: Usar cuando el usuario quiere mover/cambiar/reclasificar un gasto a cualquier categoria (incluso una categoría personalizada no canónica como "NETO", "Mascota", etc). comercio puede ser null.\n   Datos: comercio (null si no se menciona), categoria_nueva (el nombre exacto que dijo el usuario)\n\n10. "ver_pendientes" - gastos sin identificar\n    Ej: "gastos pendientes", "que no identificaste", "gastos sin categoria"\n\n11. "escanear_gmail" - escanear correos\n    Ej: "escanea mi correo", "busca transacciones nuevas", "hay correos nuevos"\n\n12. "ver_premium" - info del plan premium\n    Ej: "cuanto cuesta premium", "que incluye el plan"\n\n13. "saludo" - saludo sin intencion especifica\n    Ej: "buenos dias", "que tal", "como estas"\n\n14. "ayuda" - pide ayuda\n    Ej: "que puedes hacer", "ayuda", "como funciona"\n\n15. "registrar_manual" - el usuario quiere registrar un gasto o ingreso NUEVO\n   Ej: "gaste 50 soles en farmacia", "anota S/120 en ropa", "mi sueldo fue S/4500", "cobré S/800 de honorarios", "registra un ingreso de S/3500", "pague 200 en gasolina ayer"\n   IMPORTANTE: NO usar si el historial muestra que NETO acaba de notificar un gasto existente y el usuario está corrigiendo su moneda o monto (ej: "el gasto es USD 95", "son dolares", "el importe es 25 USD" → usar corregir_monto_moneda).\n   Datos: ninguno (se parsea el mensaje completo)\n\n16. "desconocido" - no encaja con ninguna intencion clara, o es continuacion de conversacion\n    Usar cuando: el mensaje es "si", "no", "dale", "ok", "mas", o cualquier respuesta corta a algo que NETO pregunto\n\n17. "corregir_monto_moneda" - el usuario indica que la moneda o monto de un gasto YA REGISTRADO está incorrecto\n   Ej: "el gasto es en dolares", "es en USD no en soles", "corrígelo son $25", "el monto es USD 25", "son 25 dolares", "el importe es en dolares", "eso es en USD", "el gasto es USD 95.07", "cambiale la moneda a dolares", "es dolar no sol"\n   IMPORTANTE: Solo cuando el historial muestra que se habla de un gasto existente ya notificado por NETO.\n   Datos: monto (numero o null), moneda ("USD" o "PEN" o null)\n\n18. "corregir_multiple" - el usuario da 2 o más instrucciones de corrección de categoría en el mismo mensaje, cada una referenciando un comercio/gasto diferente\n   Ej: "Netflix pasalo a Entretenimiento · Uber a Transporte · BCP comision a Finanzas", "E S NEUQUEN pasalo a gasolina\\nEdita Pal menu\\nEdita Pal (18/03) pasalo a menu"\n   IMPORTANTE: Usar cuando hay CLARAMENTE múltiples correcciones distintas en el mensaje (2+). Si solo hay una, usar corregir_categoria.\n   Datos: ninguno (se parsea el mensaje completo)\n\nREGLAS CRITICAS:\n- Si el historial muestra que NETO hizo una pregunta y el usuario responde con "si", "no", "dale", "ok", "mas detalle", "eso", "las dos", o cualquier respuesta corta -> usar "desconocido" para que NETO maneje la continuacion\n- Si NETO acaba de notificar "Nuevo gasto" y el usuario dice algo como "el gasto es USD X" o "son dolares" -> usar "corregir_monto_moneda", NO "registrar_manual"\n- Si el historial muestra que NETO hablaba de gastos por categoria y el usuario dice "otras categorias" o similar -> usar "desconocido" no "ver_categorias"\n- "otros" como categoria de gasto -> listar_gastos_categoria con categoria="Otros"\n- "cuanto gaste" sin periodo -> ver_total_gastado con periodo="mes"\n- "gastos registrados"/"que tengo" -> listar_gastos_mes\n- mes: enero=1, febrero=2, marzo=3, ..., diciembre=12\n- Si no especifica mes -> usar mes_actual' + histCtx
+        content: 'Eres el clasificador de intenciones de NETO, bot de finanzas personales por WhatsApp para usuarios peruanos.\nEl mes actual es ' + mE[mesActual] + ' ' + anioActual + '.\n\nAnaliza el mensaje y devuelve SOLO JSON.\n\nINTENCIONES:\n1. "listar_gastos_mes" - ver resumen/lista de gastos del mes\n   Ej: "cuales son mis gastos", "que gaste este mes", "gastos registrados", "que tengo registrado", "mis compras", "transacciones"\n   Datos: mes (numero, default=mes_actual), anio\n\n2. "listar_gastos_semana" - gastos de los ultimos 7 dias\n   Ej: "que gaste esta semana", "gastos recientes", "mis compras de los ultimos dias"\n\n3. "listar_gastos_categoria" - gastos de UNA categoria especifica\n   Ej: "que hay en Otros", "gastos de Alimentación", "que esta en Transporte", "detalle de Hogar", "cuales estan en otros"\n   Datos: categoria (nombre exacto), mes (default=mes_actual)\n\n4. "ver_total_gastado" - saber el TOTAL numerico gastado\n   Ej: "cuanto gaste", "cuanto llevo gastado", "total de gastos"\n   Datos: periodo ("semana" o "mes"), categoria (o null)\n\n5. "ver_presupuesto" - ver estado del presupuesto\n   Ej: "como va mi presupuesto", "cuanto me queda", "mis limites"\n\n6. "configurar_presupuesto" - configurar limite de gasto\n   Ej: "pon limite de 500 en comida", "presupuesto de 300 para transporte"\n   Datos: categoria, monto\n\n7. "ver_categorias" - ver categorias configuradas del sistema\n   Ej: "que categorias hay", "muestra las categorias del sistema"\n   IMPORTANTE: Si el historial muestra que NETO estaba hablando de gastos por categoria, NO usar esta intencion\n\n8. "ver_reporte" - reporte PDF\n   Ej: "dame mi reporte", "informe mensual", "reporte de marzo", "genera pdf"\n   Datos: mes (default=mes_actual), anio\n\n9. "corregir_categoria" - cambiar categoria de un gasto\n   Ej: "netflix es streaming", "cambia uber a transporte", "ponlo en Hogar", "muevelo a Delivery", "este gasto es de Comida", "ponlo en la categoria NETO", "categorizalo en Trabajo", "muevelo a Herramientas"\n   IMPORTANTE: Usar cuando el usuario quiere mover/cambiar/reclasificar un gasto a cualquier categoria (incluso una categoría personalizada no canónica como "NETO", "Mascota", etc). comercio puede ser null.\n   Datos: comercio (null si no se menciona), categoria_nueva (el nombre exacto que dijo el usuario)\n\n10. "ver_pendientes" - gastos sin identificar\n    Ej: "gastos pendientes", "que no identificaste", "gastos sin categoria"\n\n11. "escanear_gmail" - escanear correos\n    Ej: "escanea mi correo", "busca transacciones nuevas", "hay correos nuevos"\n\n12. "ver_premium" - info del plan premium\n    Ej: "cuanto cuesta premium", "que incluye el plan"\n\n13. "saludo" - saludo sin intencion especifica\n    Ej: "buenos dias", "que tal", "como estas"\n\n14. "ayuda" - pide ayuda\n    Ej: "que puedes hacer", "ayuda", "como funciona"\n\n15. "registrar_manual" - el usuario quiere registrar un gasto o ingreso NUEVO\n   Ej: "gaste 50 soles en farmacia", "anota S/120 en ropa", "mi sueldo fue S/4500", "cobré S/800 de honorarios", "registra un ingreso de S/3500", "pague 200 en gasolina ayer"\n   IMPORTANTE: NO usar si el historial muestra que NETO acaba de notificar un gasto existente y el usuario está corrigiendo su moneda o monto (ej: "el gasto es USD 95", "son dolares", "el importe es 25 USD" → usar corregir_monto_moneda).\n   Datos: ninguno (se parsea el mensaje completo)\n\n16. "desconocido" - no encaja con ninguna intencion clara, o es continuacion de conversacion\n    Usar cuando: el mensaje es "si", "no", "dale", "ok", "mas", o cualquier respuesta corta a algo que NETO pregunto\n\n17. "corregir_monto_moneda" - el usuario indica que la moneda o monto de un gasto YA REGISTRADO está incorrecto\n   Ej: "el gasto es en dolares", "es en USD no en soles", "corrígelo son $25", "el monto es USD 25", "son 25 dolares", "el importe es en dolares", "eso es en USD", "el gasto es USD 95.07", "cambiale la moneda a dolares", "es dolar no sol"\n   IMPORTANTE: Solo cuando el historial muestra que se habla de un gasto existente ya notificado por NETO.\n   Datos: monto (numero o null), moneda ("USD" o "PEN" o null)\n\n18. "corregir_multiple" - el usuario da 2 o más instrucciones de corrección de categoría en el mismo mensaje, cada una referenciando un comercio/gasto diferente\n   Ej: "Netflix pasalo a Entretenimiento · Uber a Transporte · BCP comision a Finanzas", "E S NEUQUEN pasalo a gasolina\\nEdita Pal menu\\nEdita Pal (18/03) pasalo a menu"\n   IMPORTANTE: Usar cuando hay CLARAMENTE múltiples correcciones distintas en el mensaje (2+). Si solo hay una, usar corregir_categoria.\n   Datos: ninguno (se parsea el mensaje completo)\n\n19. "agregar_gmail" - el usuario quiere conectar una cuenta Gmail adicional (ya tiene una conectada)\n   Ej: "quiero agregar otro correo", "conectar una segunda cuenta de gmail", "agregar otro gmail", "tengo otro correo que quiero añadir"\n   Datos: ninguno\n\n20. "cambiar_gmail" - el usuario quiere reemplazar/cambiar su cuenta Gmail actual\n   Ej: "quiero cambiar mi cuenta", "me equivoqué de correo", "cambiar el gmail", "reconectar mi correo", "el correo que puse está mal", "quiero usar otro gmail"\n   Datos: ninguno\n\n21. "preferencia_reporte_gmail" - el usuario quiere configurar si sus reportes son unificados o separados por cuenta Gmail\n   Ej: "quiero los reportes separados por cuenta", "unifica mis correos en un solo reporte", "muéstrame por separado cada gmail"\n   Datos: modo ("unificado" o "separado")\n\nREGLAS CRITICAS:\n- Si el historial muestra que NETO hizo una pregunta y el usuario responde con "si", "no", "dale", "ok", "mas detalle", "eso", "las dos", o cualquier respuesta corta -> usar "desconocido" para que NETO maneje la continuacion\n- Si NETO acaba de notificar "Nuevo gasto" y el usuario dice algo como "el gasto es USD X" o "son dolares" -> usar "corregir_monto_moneda", NO "registrar_manual"\n- Si el historial muestra que NETO hablaba de gastos por categoria y el usuario dice "otras categorias" o similar -> usar "desconocido" no "ver_categorias"\n- "otros" como categoria de gasto -> listar_gastos_categoria con categoria="Otros"\n- "cuanto gaste" sin periodo -> ver_total_gastado con periodo="mes"\n- "gastos registrados"/"que tengo" -> listar_gastos_mes\n- mes: enero=1, febrero=2, marzo=3, ..., diciembre=12\n- Si no especifica mes -> usar mes_actual' + histCtx
       }, {
         role: 'user',
         content: msg
@@ -1348,6 +1428,22 @@ async function procesarMensajeLibre(msg, usuario, from) {
     switch (intencion) {
 
       case 'listar_gastos_mes': {
+        // Si tiene 2+ cuentas Gmail y modo separado, mostrar por cuenta
+        const cuentasGm = await obtenerCuentasGmail(usuario.id);
+        if (cuentasGm.length >= 2 && usuario.reporte_gmail_modo === 'separado') {
+          const mes2 = datos.mes || mesActual; const anio2 = datos.anio || anioActual;
+          const desde2 = anio2+'-'+String(mes2).padStart(2,'0')+'-01';
+          const hasta2 = anio2+'-'+String(mes2).padStart(2,'0')+'-31';
+          const { data: txsTodas } = await supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).gte('fecha', desde2).lte('fecha', hasta2);
+          // Agrupar por cuenta_email (campo que se agrega en futuros registros)
+          let respSep = '📊 *' + mE[mes2] + ' ' + anio2 + ' — por cuenta*\n\n';
+          for (const c of cuentasGm) {
+            const txsCuenta = (txsTodas||[]).filter(t => t.cuenta_email === c.email || (!t.cuenta_email && cuentasGm.indexOf(c) === 0));
+            const totalC = txsCuenta.reduce((s,t) => s + parseFloat(t.monto_pen||t.monto||0), 0);
+            respSep += '📧 *' + c.email + '*: S/ ' + totalC.toFixed(0) + ' (' + txsCuenta.length + ' movs)\n';
+          }
+          return respSep;
+        }
         const mes = datos.mes || mesActual;
         const anio = datos.anio || anioActual;
         let txsMes;
@@ -1576,6 +1672,32 @@ async function procesarMensajeLibre(msg, usuario, from) {
 
       case 'escanear_gmail':
         return (await escanearGmailYRegistrar(usuario)) || 'No encontre correos bancarios nuevos. Te aviso automaticamente cuando llegue uno.';
+
+      case 'agregar_gmail': {
+        const cuentasAct = await obtenerCuentasGmail(usuario.id);
+        const urlAdd = generarUrlAutorizacion(usuario.whatsapp, 'agregar');
+        const listaCuentas = cuentasAct.length > 0
+          ? '\n\nActualmente tienes: ' + cuentasAct.map(c => '📧 ' + c.email).join(', ')
+          : '';
+        return '➕ *Agregar cuenta Gmail adicional*' + listaCuentas + '\n\nHaz clic para conectar:\n' + urlAdd + '\n\n_Una vez conectada, escanearé ambas cuentas automáticamente._';
+      }
+
+      case 'cambiar_gmail': {
+        const urlChange = generarUrlAutorizacion(usuario.whatsapp, 'reemplazar');
+        return '🔄 *Cambiar cuenta Gmail*\n\nHaz clic para reconectar con la cuenta correcta:\n' + urlChange + '\n\n_La cuenta anterior quedará desactivada._';
+      }
+
+      case 'preferencia_reporte_gmail': {
+        const modoNuevo = datos.modo || 'unificado';
+        await supabase.from('usuarios').update({ reporte_gmail_modo: modoNuevo }).eq('id', usuario.id);
+        const cuentasConf = await obtenerCuentasGmail(usuario.id);
+        if (modoNuevo === 'separado' && cuentasConf.length < 2) {
+          return '⚠️ Solo tienes una cuenta Gmail conectada. Agrega otra con _"agregar otro correo"_ para ver reportes separados.';
+        }
+        return modoNuevo === 'separado'
+          ? '✅ Reportes configurados: *separados por cuenta*.\nVerás cada Gmail por separado en tus resúmenes y reportes.'
+          : '✅ Reportes configurados: *unificados*.\nTodos tus correos se consolidan en un solo reporte.';
+      }
 
       case 'ver_premium': {
         const planActual2 = usuario.plan || 'free';

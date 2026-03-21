@@ -57,8 +57,9 @@ const SCOPES = [
   'https://www.googleapis.com/auth/userinfo.email'
 ];
 
-function generarUrlAutorizacion(whatsappNum) {
-  const state = Buffer.from(whatsappNum || '').toString('base64');
+function generarUrlAutorizacion(whatsappNum, modo) {
+  const stateObj = { num: whatsappNum || '', modo: modo || 'inicial' };
+  const state = Buffer.from(JSON.stringify(stateObj)).toString('base64');
   return oauth2Client.generateAuthUrl({
     access_type: 'offline',
     scope: SCOPES,
@@ -67,16 +68,36 @@ function generarUrlAutorizacion(whatsappNum) {
   });
 }
 
-async function guardarTokens(usuarioId, tokens) {
-  const updateData = {
-    gmail_access_token: tokens.access_token,
-    gmail_token_expiry: tokens.expiry_date
-  };
-  if (tokens.refresh_token) {
-    updateData.gmail_refresh_token = tokens.refresh_token;
+async function guardarTokens(usuarioId, tokens, email, modo) {
+  // Siempre sincronizar en usuarios para backwards compat
+  const updateData = { gmail_access_token: tokens.access_token, gmail_token_expiry: tokens.expiry_date };
+  if (tokens.refresh_token) updateData.gmail_refresh_token = tokens.refresh_token;
+  await supabase.from('usuarios').update(updateData).eq('id', usuarioId);
+
+  if (!email) return; // sin email no se puede guardar en gmail_cuentas
+
+  if (modo === 'reemplazar') {
+    // Desactivar todas las cuentas anteriores
+    await supabase.from('gmail_cuentas').update({ activa: false }).eq('usuario_id', usuarioId);
   }
-  const { error } = await supabase.from('usuarios').update(updateData).eq('id', usuarioId);
-  if (error) throw error;
+
+  // Upsert la cuenta nueva
+  const cuenta = {
+    usuario_id: usuarioId,
+    email,
+    access_token: tokens.access_token,
+    token_expiry: tokens.expiry_date || null,
+    activa: true,
+    updated_at: new Date().toISOString()
+  };
+  if (tokens.refresh_token) cuenta.refresh_token = tokens.refresh_token;
+  await supabase.from('gmail_cuentas').upsert(cuenta, { onConflict: 'usuario_id,email' });
+}
+
+async function obtenerCuentasGmail(usuarioId) {
+  const { data } = await supabase.from('gmail_cuentas').select('*')
+    .eq('usuario_id', usuarioId).eq('activa', true).order('created_at', { ascending: true });
+  return data || [];
 }
 
 async function obtenerPerfilGoogle(authClient) {
@@ -91,43 +112,55 @@ async function obtenerPerfilGoogle(authClient) {
 }
 
 async function cargarTokens(usuarioId) {
-  const { data } = await supabase
-    .from('usuarios')
-    .select('gmail_access_token, gmail_refresh_token, gmail_token_expiry')
-    .eq('id', usuarioId)
-    .single();
+  // Primero intenta desde gmail_cuentas (nueva estructura)
+  const cuentas = await obtenerCuentasGmail(usuarioId);
+  if (cuentas.length > 0) {
+    const c = cuentas[0];
+    return { access_token: c.access_token, refresh_token: c.refresh_token, expiry_date: c.token_expiry };
+  }
+  // Fallback a usuarios tabla
+  const { data } = await supabase.from('usuarios')
+    .select('gmail_access_token, gmail_refresh_token, gmail_token_expiry').eq('id', usuarioId).single();
   if (!data || !data.gmail_access_token) return null;
-  return {
-    access_token: data.gmail_access_token,
-    refresh_token: data.gmail_refresh_token,
-    expiry_date: data.gmail_token_expiry
-  };
+  return { access_token: data.gmail_access_token, refresh_token: data.gmail_refresh_token, expiry_date: data.gmail_token_expiry };
 }
 
-async function configurarClienteAutenticado(usuarioId) {
-  const tokens = await cargarTokens(usuarioId);
-  if (!tokens) return null;
-
-  const clienteLocal = new google.auth.OAuth2(
+function crearClienteOAuth() {
+  return new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
     (process.env.RAILWAY_URL || 'https://finbot-production-c662.up.railway.app') + '/auth/callback'
   );
-  clienteLocal.setCredentials(tokens);
+}
 
-  const necesitaRefresh = tokens.expiry_date && tokens.expiry_date < Date.now() + 5 * 60 * 1000;
-  if (necesitaRefresh && tokens.refresh_token) {
+async function configurarClienteParaCuenta(cuenta) {
+  const cliente = crearClienteOAuth();
+  cliente.setCredentials({ access_token: cuenta.access_token, refresh_token: cuenta.refresh_token, expiry_date: cuenta.token_expiry });
+  const necesitaRefresh = cuenta.token_expiry && cuenta.token_expiry < Date.now() + 5 * 60 * 1000;
+  if (necesitaRefresh && cuenta.refresh_token) {
     try {
-      const { credentials } = await clienteLocal.refreshAccessToken();
-      await guardarTokens(usuarioId, credentials);
-      clienteLocal.setCredentials(credentials);
-      console.log('[TOKEN] Token refrescado para usuario', usuarioId);
-    } catch(e) {
-      console.error('[TOKEN] Error refrescando token:', e.message);
-    }
+      const { credentials } = await cliente.refreshAccessToken();
+      // Actualizar token en gmail_cuentas
+      await supabase.from('gmail_cuentas').update({
+        access_token: credentials.access_token,
+        token_expiry: credentials.expiry_date,
+        updated_at: new Date().toISOString()
+      }).eq('usuario_id', cuenta.usuario_id).eq('email', cuenta.email);
+      cliente.setCredentials(credentials);
+    } catch(e) { console.error('[TOKEN] Error refrescando:', e.message); }
   }
+  return cliente;
+}
 
-  return clienteLocal;
+async function configurarClienteAutenticado(usuarioId) {
+  const cuentas = await obtenerCuentasGmail(usuarioId);
+  if (cuentas.length > 0) return configurarClienteParaCuenta(cuentas[0]);
+  // Fallback a tokens en usuarios tabla
+  const tokens = await cargarTokens(usuarioId);
+  if (!tokens) return null;
+  const cliente = crearClienteOAuth();
+  cliente.setCredentials(tokens);
+  return cliente;
 }
 
 function decodificarBase64(str) {
@@ -179,9 +212,7 @@ function esCorreoReenviado(headers) {
   return false;
 }
 
-async function leerCorreosBancarios(usuarioId) {
-  const authClient = await configurarClienteAutenticado(usuarioId);
-  if (!authClient) return { error: 'no_auth', mensajes: [] };
+async function leerCorreosDesdeCuenta(authClient, cuentaEmail) {
 
   const gmail = google.gmail({ version: 'v1', auth: authClient });
 
@@ -255,7 +286,43 @@ async function leerCorreosBancarios(usuarioId) {
     } catch(e) { console.error('Error obteniendo correo:', e.message); }
   }
 
-  return { error: null, mensajes };
+  return { error: null, mensajes, cuentaEmail };
 }
 
-module.exports = { generarUrlAutorizacion, guardarTokens, cargarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle };
+async function leerCorreosBancarios(usuarioId) {
+  const cuentas = await obtenerCuentasGmail(usuarioId);
+
+  if (cuentas.length === 0) {
+    // Fallback: intentar con token legacy en usuarios
+    const authClient = await configurarClienteAutenticado(usuarioId);
+    if (!authClient) return { error: 'no_auth', mensajes: [] };
+    return leerCorreosDesdeCuenta(authClient, null);
+  }
+
+  // Escanear todas las cuentas activas en paralelo
+  const resultados = await Promise.all(
+    cuentas.map(async (cuenta) => {
+      try {
+        const cliente = await configurarClienteParaCuenta(cuenta);
+        return leerCorreosDesdeCuenta(cliente, cuenta.email);
+      } catch(e) {
+        console.error('[GMAIL] Error en cuenta', cuenta.email, e.message);
+        return { error: e.message, mensajes: [], cuentaEmail: cuenta.email };
+      }
+    })
+  );
+
+  // Unificar mensajes de todas las cuentas (deduplicar por id)
+  const vistos = new Set();
+  const mensajesUnificados = [];
+  for (const r of resultados) {
+    for (const m of (r.mensajes || [])) {
+      const key = m.id + (r.cuentaEmail || '');
+      if (!vistos.has(key)) { vistos.add(key); mensajesUnificados.push({ ...m, cuentaEmail: r.cuentaEmail }); }
+    }
+  }
+
+  return { error: null, mensajes: mensajesUnificados };
+}
+
+module.exports = { generarUrlAutorizacion, guardarTokens, cargarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail };
