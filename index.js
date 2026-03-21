@@ -13,6 +13,8 @@ const { CATEGORIAS_VALIDAS, CATEGORIA_MAP, MESES, CATEGORIAS_SUGERIDAS, FREEMIUM
 const { validarMonto, normalizarCategoria } = require('./lib/validators');
 const { formatFecha, barraProgreso, getEmojiCategoria, formatearResumen, formatearPendientes, formatearCategoriasMsg, parsearIndicesRespuesta, generarRefCode } = require('./lib/formatters');
 const { enviarWhatsapp } = require('./lib/whatsapp');
+const { obtenerTipoCambio, guardarTransaccion, obtenerGastosMes, obtenerGastosSemana, obtenerUltimaTransaccion, recategorizarTransaccion, recategorizarPorId, corregirTransaccionEspecifica, guardarReglaComercio, buscarReglaComercio, retroaplicarRegla, guardarConsultaPendiente, obtenerConsultasPendientes, resolverConsulta, necesitaConsulta, mensajeConsulta } = require('./services/transactions');
+const { guardarPresupuesto, obtenerPresupuestosMes, verificarAlertaPresupuesto, formatearEstadoPresupuesto } = require('./services/budget');
 const { generarUrlAutorizacion, guardarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail } = require('./gmail');
 
 // Helper: último día real del mes (evita fechas inválidas como 02-31)
@@ -102,40 +104,7 @@ async function obtenerOCrearUsuario(numeroWhatsapp) {
   if (error) throw new Error('Error creando usuario: ' + error.message);
   return nuevo;
 }
-// Tipo de cambio USD/PEN — API dolar.pe con cache 1h y fallback
-let _tcCache = null, _tcCacheTime = 0;
-async function obtenerTipoCambio() {
-  const FALLBACK = { compra: 3.82, venta: 3.85 };
-  const now = Date.now();
-  if (_tcCache && (now - _tcCacheTime) < 3600000) return _tcCache;
-  try {
-    const hoy = hoyPeru();
-    const resp = await fetch('https://dolar.pe/api/public/series?from=' + hoy + '&to=' + hoy, {
-      headers: { 'Accept': 'application/json' },
-      signal: AbortSignal.timeout(4000)
-    });
-    if (!resp.ok) return _tcCache || FALLBACK;
-    const json = await resp.json();
-    if (json.series) {
-      for (const serie of Object.values(json.series)) {
-        const vals = serie.data || [];
-        const last = vals[vals.length - 1];
-        if (typeof last === 'number' && last > 3.5 && last < 4.5) {
-          _tcCache = { compra: parseFloat((last * 0.998).toFixed(4)), venta: last };
-          _tcCacheTime = now; return _tcCache;
-        }
-        if (last && typeof last === 'object' && parseFloat(last.venta) > 3.5) {
-          _tcCache = { compra: parseFloat(last.compra), venta: parseFloat(last.venta) };
-          _tcCacheTime = now; return _tcCache;
-        }
-      }
-    }
-    return _tcCache || FALLBACK;
-  } catch(e) {
-    log.error({ tag: 'TC', err: e.message }, 'Error tipo cambio');
-    return _tcCache || FALLBACK;
-  }
-}
+// obtenerTipoCambio movido a services/transactions.js
 
 // ─── Freemium helpers ─────────────────────────────────────────
 
@@ -154,114 +123,7 @@ function getHistoryDateLimit(usuario) {
 }
 // ─── Fin Freemium Configuration ─────────────────────────────────────
 
-async function guardarTransaccion(usuarioId, datos) {
-  const montoValidado = validarMonto(datos.monto);
-  if (montoValidado === null) throw new Error('Monto inválido: ' + datos.monto);
-  const _moneda = datos.moneda || 'PEN';
-  let _montoPen = montoValidado; let _tcUsado = null;
-  if (_moneda === 'USD') { try { const _tc = await obtenerTipoCambio(); _tcUsado = _tc.venta; _montoPen = validarMonto(montoValidado * _tc.venta) || montoValidado; } catch(e) {} }
-  // Deduplicación: generar hash para detectar transacciones duplicadas
-  const fechaTx = datos.fecha || fechaHoyPeru();
-  const dedupRaw = usuarioId + '|' + fechaTx + '|' + montoValidado + '|' + (datos.comercio || '') + '|' + (datos.tipo || 'gasto');
-  const dedupHash = crypto.createHash('md5').update(dedupRaw).digest('hex');
-  // Verificar duplicado en ventana de 5 minutos (solo para manual/imagen, no Gmail que usa message ID)
-  if (!datos.descripcion_original || !datos.descripcion_original.startsWith('gmail:')) {
-    const hace5min = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-    const { data: existente } = await supabase.from('transacciones').select('id')
-      .eq('usuario_id', usuarioId).eq('dedup_hash', dedupHash).gte('created_at', hace5min).limit(1);
-    if (existente && existente.length > 0) {
-      log.info({ tag: 'DEDUP', hash: dedupHash }, 'Transacción duplicada ignorada');
-      return existente[0];
-    }
-  }
-  // Aplicar regla aprendida si existe
-  let catFinal = normalizarCategoria(datos.categoria);
-  let subFinal = datos.subcategoria || 'sin_categoria';
-  if (datos.comercio) {
-    const regla = await buscarReglaComercio(usuarioId, datos.comercio);
-    if (regla) { catFinal = regla.categoria; if (regla.subcategoria) subFinal = regla.subcategoria; }
-  }
-  const { data, error } = await supabase.from('transacciones').insert({
-    usuario_id: usuarioId, tipo: datos.tipo || 'gasto', monto: montoValidado, moneda: _moneda,
-    monto_pen: _montoPen, tipo_cambio: _tcUsado, metodo_pago: datos.metodo_pago || null,
-    comercio: datos.comercio, categoria: catFinal,
-    subcategoria: subFinal, banco: datos.banco,
-    fecha: fechaTx,
-    descripcion_original: datos.descripcion_original, confirmado: false,
-    dedup_hash: dedupHash
-  }).select().single();
-  if (error) throw error;
-  return data;
-}
-
-async function obtenerGastosMes(usuarioId, fechaMinima) {
-  const hoy = new Date();
-  const primero = new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString().split('T')[0];
-  const desde = fechaMinima && fechaMinima > primero ? fechaMinima : primero;
-  const { data } = await supabase.from('transacciones').select('*').eq('usuario_id', usuarioId)
-    .eq('tipo', 'gasto').gte('fecha', desde).order('fecha', { ascending: false });
-  return data || [];
-}
-
-async function obtenerGastosSemana(usuarioId, fechaMinima) {
-  const hace7 = new Date();
-  hace7.setDate(hace7.getDate() - 7);
-  const desdeStr = hace7.toISOString().split('T')[0];
-  const desde = fechaMinima && fechaMinima > desdeStr ? fechaMinima : desdeStr;
-  const { data } = await supabase.from('transacciones').select('*').eq('usuario_id', usuarioId)
-    .eq('tipo', 'gasto').gte('fecha', desde).order('fecha', { ascending: false });
-  return data || [];
-}
-
-async function guardarPresupuesto(usuarioId, categoria, monto) {
-  const hoy = new Date();
-  const { data, error } = await supabase.from('presupuestos').upsert({
-    usuario_id: usuarioId, categoria, monto_limite: monto,
-    mes: hoy.getMonth() + 1, anio: hoy.getFullYear()
-  }, { onConflict: 'usuario_id,categoria,mes,anio' }).select().single();
-  if (error) throw error;
-  return data;
-}
-
-async function obtenerPresupuestosMes(usuarioId) {
-  const hoy = new Date();
-  const { data } = await supabase.from('presupuestos').select('*').eq('usuario_id', usuarioId)
-    .eq('mes', hoy.getMonth() + 1).eq('anio', hoy.getFullYear());
-  return data || [];
-}
-
-async function verificarAlertaPresupuesto(usuarioId, categoria, subcategoria) {
-  const hoy = new Date();
-  const primero = new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString().split('T')[0];
-  const alertas = [];
-  const { data: presCat } = await supabase.from('presupuestos').select('*')
-    .eq('usuario_id', usuarioId).eq('categoria', categoria)
-    .is('subcategoria', null).eq('mes', hoy.getMonth()+1).eq('anio', hoy.getFullYear()).single();
-  if (presCat) {
-    const { data: txsCat } = await supabase.from('transacciones').select('monto')
-      .eq('usuario_id', usuarioId).eq('categoria', categoria).eq('tipo', 'gasto').gte('fecha', primero);
-    const totalCat = (txsCat||[]).reduce((s,t)=>s+parseFloat(t.monto),0);
-    const limiteCat = parseFloat(presCat.monto_limite);
-    const pctCat = (totalCat/limiteCat)*100;
-    if (pctCat>=100) alertas.push('\uD83D\uDEA8 Limite de *'+categoria+'* superado: S/ '+totalCat.toFixed(2)+' / S/ '+limiteCat.toFixed(2));
-    else if (pctCat>=(presCat.alerta_porcentaje||80)) alertas.push('\u26A0\uFE0F *'+categoria+'*: llevas S/ '+totalCat.toFixed(2)+' de S/ '+limiteCat.toFixed(2)+' ('+pctCat.toFixed(0)+'%)');
-  }
-  if (subcategoria) {
-    const { data: presSub } = await supabase.from('presupuestos').select('*')
-      .eq('usuario_id', usuarioId).eq('categoria', categoria).eq('subcategoria', subcategoria)
-      .eq('mes', hoy.getMonth()+1).eq('anio', hoy.getFullYear()).single();
-    if (presSub) {
-      const { data: txsSub } = await supabase.from('transacciones').select('monto')
-        .eq('usuario_id', usuarioId).eq('categoria', categoria).eq('subcategoria', subcategoria).eq('tipo', 'gasto').gte('fecha', primero);
-      const totalSub = (txsSub||[]).reduce((s,t)=>s+parseFloat(t.monto),0);
-      const limiteSub = parseFloat(presSub.monto_limite);
-      const pctSub = (totalSub/limiteSub)*100;
-      if (pctSub>=100) alertas.push('\uD83D\uDEA8 Limite de *'+subcategoria+'* superado: S/ '+totalSub.toFixed(2)+' / S/ '+limiteSub.toFixed(2));
-      else if (pctSub>=(presSub.alerta_porcentaje||80)) alertas.push('\u26A0\uFE0F *'+subcategoria+'*: llevas S/ '+totalSub.toFixed(2)+' de S/ '+limiteSub.toFixed(2)+' ('+pctSub.toFixed(0)+'%)');
-    }
-  }
-  return alertas.length > 0 ? alertas.join('\n') : null;
-}
+// guardarTransaccion, obtenerGastos*, presupuestos movidos a services/transactions.js y services/budget.js
 
 async function parsearCorreoBancario(texto, contexto) {
   const res = await openai.chat.completions.create({
@@ -396,22 +258,7 @@ Para ingresos: comercio="Sueldo" o la fuente del ingreso, categoria="Finanzas", 
 
 // formatearResumen movido a lib/formatters.js
 
-async function formatearEstadoPresupuesto(usuarioId) {
-  const presupuestos = await obtenerPresupuestosMes(usuarioId);
-  if (!presupuestos.length) return 'No tienes presupuestos configurados.\n\nEj: _"pon limite de 500 en Comida"_';
-  const hoy = new Date();
-  const primero = new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString().split('T')[0];
-  let msg = '*Tu presupuesto de ' + hoy.toLocaleString('es-PE', { month: 'long' }) + '*\n---------------\n\n';
-  for (const p of presupuestos) {
-    const { data: txs } = await supabase.from('transacciones').select('monto')
-      .eq('usuario_id', usuarioId).eq('categoria', p.categoria).eq('tipo', 'gasto').gte('fecha', primero);
-    const gastado = (txs || []).reduce((s, t) => s + parseFloat(t.monto), 0);
-    const limite = parseFloat(p.monto_limite);
-    const pct = (gastado / limite) * 100;
-    msg += '*' + p.categoria + '*\n' + barraProgreso(pct) + '\nS/ ' + gastado.toFixed(2) + ' / S/ ' + limite.toFixed(2) + ' (resta S/ ' + Math.max(limite - gastado, 0).toFixed(2) + ')\n\n';
-  }
-  return msg;
-}
+// formatearEstadoPresupuesto movido a services/budget.js
 
 async function escanearGmailYRegistrar(usuario) {
   const { error, mensajes } = await leerCorreosBancarios(usuario.id);
@@ -495,35 +342,7 @@ async function generarYEnviarReporte(usuario, mes, anio) {
   supabase.from('reporte_cache').delete().eq('usuario_id', usuario.id).lt('expires_at', new Date().toISOString()).then(() => {}).catch(() => {});
   return { ok: true, reporteId, txCount: txs.length };
 }
-async function recategorizarTransaccion(usuarioId, comercio, categoriaNueva, subcategoriaNueva) {
-  // Buscar con ilike directo primero
-  let { data: txs } = await supabase.from('transacciones').select('*')
-    .eq('usuario_id', usuarioId).ilike('comercio', '%' + comercio + '%')
-    .order('created_at', { ascending: false }).limit(5);
-  // Fallback: buscar por cada palabra clave del comercio (maneja typos como MAF701 vs MFA701)
-  if ((!txs || txs.length === 0) && comercio.length > 3) {
-    const palabras = comercio.split(/\s+/).filter(p => p.length >= 3);
-    for (const palabra of palabras) {
-      const { data: txsPalabra } = await supabase.from('transacciones').select('*')
-        .eq('usuario_id', usuarioId).ilike('comercio', '%' + palabra + '%')
-        .order('created_at', { ascending: false }).limit(5);
-      if (txsPalabra && txsPalabra.length > 0) { txs = txsPalabra; break; }
-    }
-  }
-  if (!txs || txs.length === 0) return { ok: false, msg: 'No encontre ninguna transaccion de *' + comercio + '*.' };
-  const tx = txs[0];
-  const categoriaAnterior = tx.categoria || 'Sin categoria';
-  const updates = { categoria: categoriaNueva };
-  if (subcategoriaNueva) updates.subcategoria = subcategoriaNueva;
-  const { error } = await supabase.from('transacciones').update(updates).eq('id', tx.id);
-  if (error) return { ok: false, msg: 'Error actualizando: ' + error.message };
-  return { ok: true, tx, msg: 'Listo! Movi *' + (tx.comercio || comercio) + '* (S/ ' + tx.monto + ') de *' + categoriaAnterior + '* a *' + categoriaNueva + (subcategoriaNueva ? ' > ' + subcategoriaNueva : '') + '*.' };
-}
-async function recategorizarPorId(transaccionId, categoriaNueva) {
-  const { error } = await supabase.from('transacciones').update({ categoria: categoriaNueva }).eq('id', transaccionId);
-  if (error) return { ok: false, msg: 'Error actualizando.' };
-  return { ok: true };
-}
+// recategorizarTransaccion, recategorizarPorId movidos a services/transactions.js
 
 async function parsearCorreccionesMultiples(msg) {
   try {
@@ -568,101 +387,7 @@ IMPORTANTE: Devuelve SOLO el array JSON, sin texto adicional.`
   }
 }
 
-async function corregirTransaccionEspecifica(usuarioId, comercio, monto, fecha, categoriaNueva) {
-  let query = supabase.from('transacciones').select('*')
-    .eq('usuario_id', usuarioId)
-    .ilike('comercio', '%' + comercio + '%')
-    .order('fecha', { ascending: false })
-    .limit(10);
-  const { data: txs } = await query;
-  if (!txs || txs.length === 0) return { ok: false, comercio };
-  let tx = txs[0];
-  // Afinar match por fecha y monto si se proporcionan
-  if (fecha || monto) {
-    const match = txs.find(t => {
-      const fechaOk = !fecha || (t.fecha && t.fecha.startsWith(fecha));
-      const montoOk = !monto || Math.abs(parseFloat(t.monto) - monto) < 0.5;
-      return fechaOk && montoOk;
-    });
-    if (match) tx = match;
-  }
-  const { error } = await supabase.from('transacciones').update({ categoria: categoriaNueva }).eq('id', tx.id);
-  if (error) return { ok: false, comercio };
-  return { ok: true, comercio: tx.comercio || comercio, monto: tx.monto_pen || tx.monto, moneda: tx.moneda || 'PEN' };
-}
-
-async function interpretarComandoPresupuesto(texto) {
-  try {
-    var aiRes = await openai.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'system', content: 'Extrae datos de presupuesto. SOLO JSON: {"es_presupuesto":true/false,"categoria":"nombre","monto":numero,"alerta_porcentaje":numero 1-100 default 80}' }, { role: 'user', content: texto }], temperature: 0 });
-    var raw = aiRes.choices[0].message.content.trim();
-    return JSON.parse(raw.startsWith('{') ? raw : raw.slice(raw.indexOf('{'), raw.lastIndexOf('}')+1));
-  } catch(e) { return { es_presupuesto: false }; }
-}
-
-function necesitaConsulta(tx) {
-  if (!tx || tx.tipo !== 'gasto') return false;
-  var genericos = ['yape','plin','transferencia','bcp','bbva','interbank','scotiabank'];
-  const esGenerico = tx.comercio && genericos.indexOf(tx.comercio.toLowerCase()) >= 0;
-  const esOtros = !tx.categoria || tx.categoria === 'Otro' || tx.categoria === 'Transferencia' || tx.categoria === 'Otros';
-  return esGenerico || (esOtros && tx.comercio);
-}
-
-async function guardarReglaComercio(usuarioId, comercio, categoria, subcategoria) {
-  if (!comercio || !categoria) return;
-  const patron = comercio.toLowerCase().trim();
-  try {
-    await supabase.from('reglas_comercio').upsert({
-      usuario_id: usuarioId,
-      comercio_pattern: patron,
-      categoria,
-      subcategoria: subcategoria || null,
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'usuario_id,comercio_pattern' });
-  } catch(e) { log.error({ tag: 'REGLA', err: e.message }, 'Error guardando regla comercio'); }
-}
-
-async function buscarReglaComercio(usuarioId, comercio) {
-  if (!comercio) return null;
-  const patron = comercio.toLowerCase().trim();
-  const { data } = await supabase.from('reglas_comercio').select('categoria,subcategoria')
-    .eq('usuario_id', usuarioId)
-    .eq('comercio_pattern', patron)
-    .single();
-  return data || null;
-}
-
-async function retroaplicarRegla(usuarioId, comercio, categoria, subcategoria) {
-  if (!comercio || !categoria) return;
-  try {
-    const updates = { categoria };
-    if (subcategoria) updates.subcategoria = subcategoria;
-    // Actualizar TODAS las transacciones del comercio (incluso si ya tienen la categoría correcta pero subcategoría diferente)
-    await supabase.from('transacciones').update(updates)
-      .eq('usuario_id', usuarioId)
-      .ilike('comercio', '%' + comercio + '%');
-    log.info({ tag: 'REGLA', comercio, categoria, subcategoria }, 'Regla retroaplicada');
-  } catch(e) { log.error({ tag: 'RETROAPLICAR', err: e.message }, 'Error retroaplicando regla'); }
-}
-
-function mensajeConsulta(tx) {
-  var monto = parseFloat(tx.monto||0).toFixed(2), banco = tx.banco || tx.comercio || 'Pago', fecha = tx.fecha || 'hoy';
-  return '\uD83D\uDCB8 ' + banco + ' \u2014 S/ ' + monto + ' (' + fecha + ')\n\n\u00bfPara qu\u00e9 fue ese pago?\nDime con tus palabras: _"almuerzo"_, _"taxi"_, _"supermercado"_...';
-}
-
-async function guardarConsultaPendiente(usuario, tx) {
-  try { await supabase.from('consultas_pendientes').insert({ usuario_id: usuario.id, transaccion_id: tx.id, monto: tx.monto, banco: tx.banco||tx.comercio, fecha: tx.fecha, estado: 'pendiente' }); }
-  catch(e) { log.error({ tag: 'CONSULTA', err: e.message }, 'Error guardando consulta'); }
-}
-
-async function obtenerConsultasPendientes(usuarioId) {
-  var res = await supabase.from('consultas_pendientes').select('*').eq('usuario_id', usuarioId).eq('estado', 'pendiente').order('created_at', { ascending: true });
-  return res.data || [];
-}
-
-async function resolverConsulta(consultaId) {
-  await supabase.from('consultas_pendientes').update({ estado: 'respondida', respondida_at: new Date().toISOString() }).eq('id', consultaId);
-}
-
+// corregirTransaccionEspecifica, reglas, consultas movidos a services/transactions.js
 // formatearPendientes movido a lib/formatters.js
 
 async function intentarResolverConsulta(usuario, texto) {
@@ -2336,12 +2061,7 @@ async function enviarAlertaTransaccion(usuario, tx, resultado) {
 
 
 // Obtener la última transacción registrada del usuario (para contexto de respuestas)
-async function obtenerUltimaTransaccion(usuarioId) {
-  const { data } = await supabase.from('transacciones').select('*')
-    .eq('usuario_id', usuarioId)
-    .order('created_at', { ascending: false }).limit(1).single();
-  return data || null;
-}
+// obtenerUltimaTransaccion movido a services/transactions.js
 async function escaneoAutomatico() {
   log.info({ tag: 'AUTO' }, 'Escaneo automático iniciado');
   try {
