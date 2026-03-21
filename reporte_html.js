@@ -55,7 +55,18 @@ function generarReporteHTML(data) {
 
   const porMetodo = {};
   gastos.forEach(t => {
-    const mp = t.metodo_pago || t.banco || 'Otro';
+    const metodo = t.metodo_pago || '';
+    const banco = t.banco || '';
+    let mp;
+    if (metodo === 'Debito' || metodo === 'Credito') {
+      mp = banco ? `${banco} ${metodo === 'Debito' ? 'Débito' : 'Crédito'}` : (metodo === 'Debito' ? 'Débito' : 'Crédito');
+    } else if (metodo) {
+      mp = metodo;
+    } else if (banco) {
+      mp = banco;
+    } else {
+      mp = 'Otro';
+    }
     porMetodo[mp] = (porMetodo[mp] || 0) + parseFloat(t.monto_pen || t.monto || 0);
   });
   const metodos = Object.entries(porMetodo).sort((a,b) => b[1]-a[1]);
@@ -585,11 +596,15 @@ function generarReporteJSON(data) {
   const ahorro   = totalI - totalG;
   const pctAhorro = totalI > 0 ? parseFloat((ahorro / totalI * 100).toFixed(1)) : 0;
 
-  // Categorias
+  // Categorias + subcategorias
   const porCat = {};
+  const porCatSub = {};
   gastos.forEach(t => {
     const cat = t.categoria || 'Otros';
+    const sub = t.subcategoria && t.subcategoria !== 'sin_categoria' ? t.subcategoria : (t.comercio || 'General');
     porCat[cat] = (porCat[cat] || 0) + parseFloat(t.monto_pen || t.monto || 0);
+    if (!porCatSub[cat]) porCatSub[cat] = {};
+    porCatSub[cat][sub] = (porCatSub[cat][sub] || 0) + parseFloat(t.monto_pen || t.monto || 0);
   });
   const catOrd = Object.entries(porCat).sort((a,b) => b[1]-a[1]);
 
@@ -599,7 +614,9 @@ function generarReporteJSON(data) {
     let color = '#1D9E75';
     if (lim > 0 && monto >= lim) color = '#D85A30';
     else if (lim > 0 && monto >= lim * 0.8) color = '#EF9F27';
-    return { nombre, monto: parseFloat(monto.toFixed(2)), presupuesto: lim, pctPresupuesto: pct, color };
+    const subcategorias = Object.entries(porCatSub[nombre] || {}).sort((a,b) => b[1]-a[1])
+      .map(([n, m]) => ({ nombre: n, monto: parseFloat(m.toFixed(2)) }));
+    return { nombre, monto: parseFloat(monto.toFixed(2)), presupuesto: lim, pctPresupuesto: pct, color, subcategorias };
   });
 
   // Comercios
@@ -611,10 +628,21 @@ function generarReporteJSON(data) {
   const comercios = Object.entries(porComercio).sort((a,b) => b[1]-a[1]).slice(0,5)
     .map(([nombre, monto]) => ({ nombre, monto: parseFloat(monto.toFixed(2)) }));
 
-  // Metodos de pago
+  // Metodos de pago (combinar banco + tipo para Débito/Crédito)
   const porMetodo = {};
   gastos.forEach(t => {
-    const mp = t.metodo_pago || t.banco || 'Otro';
+    const metodo = t.metodo_pago || '';
+    const banco = t.banco || '';
+    let mp;
+    if (metodo === 'Debito' || metodo === 'Credito') {
+      mp = banco ? `${banco} ${metodo === 'Debito' ? 'Débito' : 'Crédito'}` : (metodo === 'Debito' ? 'Débito' : 'Crédito');
+    } else if (metodo) {
+      mp = metodo;
+    } else if (banco) {
+      mp = banco;
+    } else {
+      mp = 'Otro';
+    }
     porMetodo[mp] = (porMetodo[mp] || 0) + parseFloat(t.monto_pen || t.monto || 0);
   });
   const metodosPago = Object.entries(porMetodo).sort((a,b) => b[1]-a[1])

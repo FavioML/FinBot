@@ -14,15 +14,34 @@ export default function PDFDownload({ dashboardRef }: PDFDownloadProps) {
 
     setIsGenerating(true);
     try {
-      const html2canvas = (await import("html2canvas")).default;
-      const { jsPDF } = await import("jspdf");
+      // html2canvas-pro supports modern CSS (oklab, oklch) used by Tailwind v4
+      const html2canvasModule = await import("html2canvas-pro");
+      const html2canvas =
+        (html2canvasModule as unknown as { default: typeof html2canvasModule.default }).default ||
+        html2canvasModule;
 
-      const canvas = await html2canvas(dashboardRef.current, {
+      const jspdfModule = await import("jspdf");
+      const jsPDF =
+        (jspdfModule as unknown as { jsPDF: typeof jspdfModule.jsPDF }).jsPDF ||
+        (jspdfModule as unknown as { default: typeof jspdfModule.jsPDF }).default;
+
+      if (!html2canvas || !jsPDF) {
+        throw new Error("No se pudieron cargar las librerias de PDF");
+      }
+
+      const el = dashboardRef.current;
+
+      const canvas = await html2canvas(el, {
         scale: 2,
         backgroundColor: "#0E0E0C",
         useCORS: true,
+        allowTaint: true,
+        logging: false,
+        windowWidth: el.scrollWidth,
+        windowHeight: el.scrollHeight,
       });
 
+      const imgData = canvas.toDataURL("image/jpeg", 0.92);
       const imgWidth = 210; // A4 width in mm
       const pageHeight = 297; // A4 height in mm
       const imgHeight = (canvas.height * imgWidth) / canvas.width;
@@ -32,34 +51,21 @@ export default function PDFDownload({ dashboardRef }: PDFDownloadProps) {
       let position = 0;
 
       // First page
-      pdf.addImage(
-        canvas.toDataURL("image/png"),
-        "PNG",
-        0,
-        position,
-        imgWidth,
-        imgHeight
-      );
+      pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight);
       heightLeft -= pageHeight;
 
       // Additional pages
       while (heightLeft > 0) {
         position -= pageHeight;
         pdf.addPage();
-        pdf.addImage(
-          canvas.toDataURL("image/png"),
-          "PNG",
-          0,
-          position,
-          imgWidth,
-          imgHeight
-        );
+        pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight);
         heightLeft -= pageHeight;
       }
 
       pdf.save("NETO-Dashboard.pdf");
     } catch (error) {
       console.error("Error generating PDF:", error);
+      alert("Error al generar el PDF. Intenta de nuevo.");
     } finally {
       setIsGenerating(false);
     }

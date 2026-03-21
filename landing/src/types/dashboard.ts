@@ -18,6 +18,7 @@ export interface DashboardData {
     presupuesto: number;
     pctPresupuesto: number;
     color: string;
+    subcategorias?: Array<{ nombre: string; monto: number }>;
   }>;
   comercios: Array<{ nombre: string; monto: number }>;
   metodosPago: Array<{ nombre: string; monto: number }>;
