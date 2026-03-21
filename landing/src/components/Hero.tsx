@@ -1,111 +1,211 @@
 "use client";
 
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Sparkles } from "lucide-react";
 
 const WA_LINK =
   "https://wa.me/51933014505?text=Hola%20Neto%2C%20quiero%20empezar%20a%20ordenar%20mis%20finanzas%20%F0%9F%91%8B";
 
-const BANK_CHIPS = [
-  "BCP · BBVA · Interbank · Scotia",
-  "Yape · Plin",
-  "Sin contraseña bancaria",
-];
-
-const MINI_CARDS = [
-  { label: "Mayor gasto", value: "S/210", color: "text-neto-txt" },
-  { label: "Score salud", value: "72/100", color: "text-neto-green" },
-  { label: "Ahorro mes", value: "S/340", color: "text-neto-green" },
-  { label: "Reporte", value: "Listo", color: "text-neto-amber" },
+const STATS = [
+  { label: "Usuarios activos", value: "2,400+", accent: false },
+  { label: "Gastos rastreados", value: "S/12M+", accent: true },
+  { label: "Tiempo promedio", value: "2 min", accent: false },
 ];
 
 export default function Hero() {
   return (
-    <section className="relative min-h-[100svh] flex items-center pt-20 pb-16">
-      <div className="mx-auto max-w-[1200px] px-6 w-full grid grid-cols-1 min-[860px]:grid-cols-[1.1fr_1fr] gap-12 items-center">
-        {/* Left column */}
-        <div className="animate-fade-up">
-          {/* Eyebrow */}
-          <div className="flex items-center gap-2 mb-6">
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="animate-pulse-dot absolute inline-flex h-full w-full rounded-full bg-neto-green opacity-75" />
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-neto-green" />
-            </span>
-            <span className="text-sm text-neto-txt3 tracking-wide">
-              Asistente financiero · WhatsApp
-            </span>
-          </div>
+    <section className="relative min-h-[100svh] flex flex-col items-center justify-center overflow-hidden">
+      {/* ── Animated background layers ── */}
+      {/* Grid pattern */}
+      <div
+        className="absolute inset-0 -z-20 opacity-[0.04]"
+        style={{
+          backgroundImage:
+            "linear-gradient(to right, #68dbae 1px, transparent 1px), linear-gradient(to bottom, #68dbae 1px, transparent 1px)",
+          backgroundSize: "4rem 4rem",
+          maskImage: "radial-gradient(ellipse 70% 50% at 50% 40%, black 40%, transparent 100%)",
+          WebkitMaskImage: "radial-gradient(ellipse 70% 50% at 50% 40%, black 40%, transparent 100%)",
+        }}
+      />
 
-          {/* Heading */}
-          <h1 className="text-4xl min-[860px]:text-[3.5rem] font-bold leading-[1.1] tracking-tight mb-6">
-            Ordena tu{" "}
-            <span className="text-neto-green">plata</span>
-            <br />
+      {/* Radial glow — green */}
+      <div className="absolute top-[-20%] left-1/2 -translate-x-1/2 w-[800px] h-[600px] -z-10 rounded-full bg-[#1D9E75]/[0.08] blur-[120px]" />
+
+      {/* Radial glow — amber subtle */}
+      <div className="absolute bottom-[-10%] right-[10%] w-[400px] h-[400px] -z-10 rounded-full bg-[#EF9F27]/[0.05] blur-[100px]" />
+
+      {/* ── Content ── */}
+      <div className="relative mx-auto max-w-[1200px] px-6 pt-32 pb-20 w-full text-center">
+        {/* Eyebrow badge */}
+        <div className="animate-fade-up inline-flex items-center gap-2 rounded-full bg-[#1C1C19] px-5 py-2 mb-8">
+          <Sparkles size={14} className="text-[#EF9F27]" />
+          <span className="text-sm text-[#bccac1] tracking-wide">
+            Asistente financiero por WhatsApp
+          </span>
+        </div>
+
+        {/* Headline */}
+        <h1
+          className="animate-fade-up text-5xl min-[860px]:text-7xl min-[1100px]:text-[5.5rem] font-extrabold leading-[1.05] tracking-tight mb-8"
+          style={{ animationDelay: "100ms" }}
+        >
+          <span className="bg-gradient-to-b from-[#e5e2de] to-[#87948c] bg-clip-text text-transparent">
+            Ordena tu plata
+          </span>
+          <br />
+          <span className="bg-gradient-to-r from-[#68dbae] via-[#1D9E75] to-[#26a37a] bg-clip-text text-transparent">
             sin mover un dedo
-          </h1>
+          </span>
+        </h1>
 
-          {/* Subtitle */}
-          <p className="text-lg text-neto-txt2 max-w-[480px] mb-8 leading-relaxed">
-            Neto lee tus correos del banco, Yape y Plin automáticamente y te
-            manda un resumen directo a WhatsApp. Sin apps. Sin contraseñas
-            bancarias.
-          </p>
+        {/* Subtitle */}
+        <p
+          className="animate-fade-up mx-auto max-w-[600px] text-lg min-[860px]:text-xl text-[#87948c] leading-relaxed mb-12"
+          style={{ animationDelay: "200ms" }}
+        >
+          Neto lee tus correos del banco automáticamente y te manda un resumen
+          a WhatsApp. Sin apps. Sin contraseñas bancarias. Solo resultados.
+        </p>
 
-          {/* Bank chips */}
-          <div className="flex flex-wrap gap-2 mb-8">
-            {BANK_CHIPS.map((chip) => (
-              <span
-                key={chip}
-                className="rounded-full border border-white/10 bg-neto-bg2 px-4 py-1.5 text-xs text-neto-txt3"
-              >
-                {chip}
-              </span>
-            ))}
-          </div>
-
-          {/* CTA */}
+        {/* CTA buttons */}
+        <div
+          className="animate-fade-up flex flex-col min-[480px]:flex-row items-center justify-center gap-4 mb-20"
+          style={{ animationDelay: "300ms" }}
+        >
           <a
             href={WA_LINK}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 rounded-full bg-neto-green px-7 py-3.5 text-base font-semibold text-white hover:bg-neto-green-dark transition-colors duration-200 cursor-pointer"
+            className="group relative inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-[#68dbae] to-[#26a37a] px-8 py-4 text-base font-semibold text-[#002115] transition-all duration-300 hover:shadow-[0_0_40px_rgba(29,158,117,0.35)] hover:scale-[1.02] cursor-pointer"
           >
             Empezar gratis
-            <ArrowRight size={18} />
+            <ArrowRight size={18} className="transition-transform duration-300 group-hover:translate-x-1" />
+          </a>
+          <a
+            href="#precios"
+            className="inline-flex items-center gap-2 rounded-full border border-[#3D4943]/30 bg-[#1C1C19]/60 backdrop-blur-sm px-8 py-4 text-base font-medium text-[#bccac1] transition-all duration-300 hover:bg-[#20201d] hover:text-[#e5e2de] hover:border-[#3D4943]/50 cursor-pointer"
+          >
+            Ver precios
           </a>
         </div>
 
-        {/* Right column — Dashboard mockup */}
-        <div className="hidden min-[860px]:block animate-fade-up" style={{ animationDelay: "0.15s" }}>
-          <div className="space-y-4">
-            {/* Main stat card */}
-            <div className="rounded-[20px] bg-neto-bg2 border border-white/5 p-6">
-              <p className="text-sm text-neto-txt3 mb-1">Esta semana gastaste</p>
-              <p className="text-4xl font-bold text-neto-amber tracking-tight">
-                S/847
-              </p>
-              <div className="mt-4 h-1 rounded-full bg-neto-bg4 overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-neto-amber"
-                  style={{ width: "68%" }}
-                />
+        {/* ── Floating dashboard mockup ── */}
+        <div
+          className="animate-fade-up relative mx-auto max-w-[900px]"
+          style={{ animationDelay: "450ms" }}
+        >
+          {/* Glass container */}
+          <div className="relative rounded-[28px] bg-[#131311]/80 backdrop-blur-xl p-1.5 shadow-[0_32px_80px_rgba(0,0,0,0.5)]">
+            {/* Inner content */}
+            <div className="rounded-[22px] bg-[#131311] p-6 min-[860px]:p-8">
+              {/* Top bar */}
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-3 h-3 rounded-full bg-[#D85A30]/60" />
+                  <div className="w-3 h-3 rounded-full bg-[#EF9F27]/60" />
+                  <div className="w-3 h-3 rounded-full bg-[#1D9E75]/60" />
+                </div>
+                <span className="text-xs text-[#87948c]">neto.pe — Resumen Semanal</span>
+              </div>
+
+              {/* Bento dashboard */}
+              <div className="grid grid-cols-2 min-[860px]:grid-cols-4 gap-3">
+                {/* Large card — weekly spend */}
+                <div className="col-span-2 rounded-[20px] bg-[#1C1C19] p-6 transition-all duration-300 hover:bg-[#20201d]">
+                  <p className="text-xs text-[#87948c] mb-1">Esta semana gastaste</p>
+                  <p className="text-3xl min-[860px]:text-4xl font-bold text-[#EF9F27] tracking-tight mb-3">
+                    S/847
+                  </p>
+                  <div className="h-2 rounded-full bg-[#2A2A28] overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-[#EF9F27] to-[#EF9F27]/60"
+                      style={{ width: "68%" }}
+                    />
+                  </div>
+                  <div className="flex justify-between mt-2">
+                    <span className="text-xs text-[#87948c]">68% del presupuesto</span>
+                    <span className="text-xs text-[#68dbae]">S/1,250 meta</span>
+                  </div>
+                </div>
+
+                {/* Mini stat cards */}
+                <div className="rounded-[20px] bg-[#1C1C19] p-5 transition-all duration-300 hover:bg-[#20201d]">
+                  <p className="text-xs text-[#87948c] mb-1">Score salud</p>
+                  <p className="text-2xl font-bold text-[#68dbae]">72</p>
+                  <p className="text-xs text-[#87948c]">/100</p>
+                </div>
+                <div className="rounded-[20px] bg-[#1C1C19] p-5 transition-all duration-300 hover:bg-[#20201d]">
+                  <p className="text-xs text-[#87948c] mb-1">Ahorro mes</p>
+                  <p className="text-2xl font-bold text-[#68dbae]">S/340</p>
+                  <p className="text-xs text-[#1D9E75]">+12% vs ago</p>
+                </div>
+
+                {/* Category breakdown */}
+                <div className="col-span-2 min-[860px]:col-span-2 rounded-[20px] bg-[#1C1C19] p-5 transition-all duration-300 hover:bg-[#20201d]">
+                  <p className="text-xs text-[#87948c] mb-3">Top categorías</p>
+                  <div className="space-y-2">
+                    {[
+                      { cat: "Comida", pct: 35, color: "bg-[#EF9F27]" },
+                      { cat: "Transporte", pct: 22, color: "bg-[#378ADD]" },
+                      { cat: "Entretenimiento", pct: 18, color: "bg-[#68dbae]" },
+                    ].map((item) => (
+                      <div key={item.cat} className="flex items-center gap-3">
+                        <span className="text-xs text-[#bccac1] w-28">{item.cat}</span>
+                        <div className="flex-1 h-1.5 rounded-full bg-[#2A2A28] overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${item.color}`}
+                            style={{ width: `${item.pct}%` }}
+                          />
+                        </div>
+                        <span className="text-xs text-[#87948c] w-8 text-right">{item.pct}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* WhatsApp preview */}
+                <div className="col-span-2 rounded-[20px] bg-[#1C1C19] p-5 transition-all duration-300 hover:bg-[#20201d]">
+                  <p className="text-xs text-[#87948c] mb-3">Último mensaje de Neto</p>
+                  <div className="rounded-[16px] bg-[#20201d] p-4">
+                    <p className="text-sm text-[#e5e2de] leading-relaxed">
+                      &quot;Hoy gastaste <span className="text-[#EF9F27] font-semibold">S/45</span> en Rappi.
+                      Llevas <span className="text-[#68dbae] font-semibold">S/847</span> esta semana.
+                      Te quedan <span className="font-semibold">S/403</span> de tu presupuesto.&quot;
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
-
-            {/* Mini grid */}
-            <div className="grid grid-cols-2 gap-4">
-              {MINI_CARDS.map((card) => (
-                <div
-                  key={card.label}
-                  className="rounded-[20px] bg-neto-bg2 border border-white/5 p-5"
-                >
-                  <p className="text-xs text-neto-txt3 mb-1">{card.label}</p>
-                  <p className={`text-xl font-bold ${card.color}`}>
-                    {card.value}
-                  </p>
-                </div>
-              ))}
-            </div>
           </div>
+
+          {/* Bottom glow */}
+          <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 w-[70%] h-16 bg-[#1D9E75]/10 blur-[40px] rounded-full" />
+        </div>
+
+        {/* ── Social proof stats ── */}
+        <div
+          className="animate-fade-up mt-20 flex flex-col min-[640px]:flex-row items-center justify-center gap-8 min-[640px]:gap-16"
+          style={{ animationDelay: "550ms" }}
+        >
+          {STATS.map((stat) => (
+            <div key={stat.label} className="text-center">
+              <p className={`text-2xl min-[860px]:text-3xl font-bold tracking-tight ${stat.accent ? "text-[#68dbae]" : "text-[#e5e2de]"}`}>
+                {stat.value}
+              </p>
+              <p className="text-sm text-[#87948c] mt-1">{stat.label}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Bank logos */}
+        <div
+          className="animate-fade-up mt-12 flex flex-wrap items-center justify-center gap-6 opacity-40"
+          style={{ animationDelay: "650ms" }}
+        >
+          {["BCP", "BBVA", "Interbank", "Scotia", "Yape", "Plin"].map((bank) => (
+            <span key={bank} className="text-sm font-medium text-[#87948c] tracking-wide">
+              {bank}
+            </span>
+          ))}
         </div>
       </div>
     </section>
