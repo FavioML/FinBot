@@ -538,9 +538,20 @@ async function generarYEnviarReporte(usuario, mes, anio) {
   return { ok: true, reporteId, txCount: txs.length };
 }
 async function recategorizarTransaccion(usuarioId, comercio, categoriaNueva, subcategoriaNueva) {
-  const { data: txs } = await supabase.from('transacciones').select('*')
+  // Buscar con ilike directo primero
+  let { data: txs } = await supabase.from('transacciones').select('*')
     .eq('usuario_id', usuarioId).ilike('comercio', '%' + comercio + '%')
     .order('created_at', { ascending: false }).limit(5);
+  // Fallback: buscar por cada palabra clave del comercio (maneja typos como MAF701 vs MFA701)
+  if ((!txs || txs.length === 0) && comercio.length > 3) {
+    const palabras = comercio.split(/\s+/).filter(p => p.length >= 3);
+    for (const palabra of palabras) {
+      const { data: txsPalabra } = await supabase.from('transacciones').select('*')
+        .eq('usuario_id', usuarioId).ilike('comercio', '%' + palabra + '%')
+        .order('created_at', { ascending: false }).limit(5);
+      if (txsPalabra && txsPalabra.length > 0) { txs = txsPalabra; break; }
+    }
+  }
   if (!txs || txs.length === 0) return { ok: false, msg: 'No encontre ninguna transaccion de *' + comercio + '*.' };
   const tx = txs[0];
   const categoriaAnterior = tx.categoria || 'Sin categoria';
@@ -2106,11 +2117,11 @@ async function procesarMensajeLibre(msg, usuario, from) {
             if (!CATEGORIAS_VALIDAS.has(catLibre) && !CATEGORIA_MAP[catLibre]) {
               crearCategoriaLibreUsuario(usuario.id, catLibre);
             }
-            // Guardar regla de aprendizaje y retroaplicar a TODAS las transacciones pasadas del mismo comercio
-            const comercioParaRegla = comercioRaw || txActualizada?.comercio;
-            if (comercioParaRegla) {
-              guardarReglaComercio(usuario.id, comercioParaRegla, catLibre, subLibre);
-              retroaplicarRegla(usuario.id, comercioParaRegla, catLibre, subLibre);
+            // Guardar regla y retroaplicar usando el comercio REAL de la DB (no el del usuario, que puede tener typos)
+            const comercioReal = txActualizada?.comercio || comercioRaw;
+            if (comercioReal) {
+              guardarReglaComercio(usuario.id, comercioReal, catLibre, subLibre);
+              retroaplicarRegla(usuario.id, comercioReal, catLibre, subLibre);
             }
             // Respuesta con moneda correcta
             const monedaTxCorr = txActualizada.moneda || 'PEN';
