@@ -483,13 +483,16 @@ async function generarYEnviarReporte(usuario, mes, anio) {
   const { data: presupData } = await supabase.from('presupuestos').select('*').eq('usuario_id', usuario.id).eq('mes', mes).eq('anio', anio);
   const presupuestos = {};
   if (presupData) presupData.forEach(p => { presupuestos[p.categoria] = parseFloat(p.monto_limite); });
-  // Obtener historial 3 meses anteriores para grafico de evolucion
+  // Obtener historial 3 meses anteriores para grafico de evolucion (gastos + ingresos)
   const historial = [];
   for (let i = 3; i >= 1; i--) {
     const d = new Date(anio, mes - 1 - i, 1); const hm = d.getMonth()+1; const ha = d.getFullYear();
-    const { data: ht } = await supabase.from('transacciones').select('monto,monto_pen').eq('usuario_id', usuario.id).eq('tipo','gasto').gte('fecha', ha+'-'+String(hm).padStart(2,'0')+'-01').lte('fecha', ha+'-'+String(hm).padStart(2,'0')+'-'+String(ultimoDiaMes(ha,hm)).padStart(2,'0'));
-    const tot = (ht||[]).reduce((s,t) => s+parseFloat(t.monto_pen||t.monto||0), 0);
-    if (tot > 0) historial.push({ mes: hm, anio: ha, total: tot });
+    const { data: ht } = await supabase.from('transacciones').select('monto,monto_pen,tipo').eq('usuario_id', usuario.id).gte('fecha', ha+'-'+String(hm).padStart(2,'0')+'-01').lte('fecha', ha+'-'+String(hm).padStart(2,'0')+'-'+String(ultimoDiaMes(ha,hm)).padStart(2,'0'));
+    const gastos = (ht||[]).filter(t => t.tipo === 'gasto');
+    const ingr = (ht||[]).filter(t => t.tipo === 'ingreso');
+    const totG = gastos.reduce((s,t) => s+parseFloat(t.monto_pen||t.monto||0), 0);
+    const totI = ingr.reduce((s,t) => s+parseFloat(t.monto_pen||t.monto||0), 0);
+    if (totG > 0 || totI > 0) historial.push({ mes: hm, anio: ha, total: totG, totalIngresos: totI });
   }
   // Obtener TODOS los meses con transacciones del usuario para el selector
   const { data: allMonths } = await supabase.from('transacciones').select('fecha').eq('usuario_id', usuario.id);
