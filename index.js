@@ -353,6 +353,22 @@ Para ingresos: comercio="Sueldo" o la fuente del ingreso, categoria="Finanzas", 
   return JSON.parse(clean2);
 }
 
+function formatearResumen(txs, periodo) {
+  if (!txs || !txs.length) return 'No hay gastos registrados ' + periodo + '.';
+  const total = txs.reduce((s, t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
+  const porCat = {};
+  txs.forEach(t => { const c = t.categoria || 'Otros'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto_pen || t.monto || 0); });
+  const txsUsd = txs.filter(t => t.moneda === 'USD');
+  const totalUsd = txsUsd.reduce((s, t) => s + parseFloat(t.monto || 0), 0);
+  const notaUsd = txsUsd.length > 0 ? ' (incl. USD ' + totalUsd.toFixed(2) + ')' : '';
+  let msg = '📊 *' + periodo + '*\nTotal: *S/ ' + total.toFixed(0) + '*' + notaUsd + ' • ' + txs.length + ' movimientos\n\n';
+  Object.entries(porCat).sort((a, b) => b[1] - a[1]).forEach(([cat, monto]) => {
+    const em = getEmojiCategoria(cat) || '📋';
+    msg += em + ' ' + cat + ': *S/ ' + monto.toFixed(0) + '* (' + ((monto / total) * 100).toFixed(0) + '%)\n';
+  });
+  return msg;
+}
+
 async function formatearEstadoPresupuesto(usuarioId) {
   const presupuestos = await obtenerPresupuestosMes(usuarioId);
   if (!presupuestos.length) return 'No tienes presupuestos configurados.\n\nEj: _"pon limite de 500 en Comida"_';
