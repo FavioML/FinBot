@@ -27,32 +27,7 @@ export default function DashboardShell({ data, children }: DashboardShellProps) 
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
           {/* Logo */}
           <div className="flex items-center gap-2">
-            <svg
-              width="28"
-              height="28"
-              viewBox="0 0 32 32"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <rect width="32" height="32" rx="8" fill="#1D9E75" />
-              <path
-                d="M9 22V14l4 5 4-8 2 4"
-                stroke="white"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <text
-                x="7"
-                y="13"
-                fill="white"
-                fontSize="9"
-                fontWeight="bold"
-                fontFamily="system-ui"
-              >
-                N
-              </text>
-            </svg>
+            <img src="/logo-icon.svg" alt="Neto" width={28} height={28} className="rounded-lg" />
             <span className="text-lg font-bold text-neto-green">neto</span>
           </div>
 
