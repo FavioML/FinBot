@@ -1,6 +1,7 @@
 const { google } = require('googleapis');
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
+const log = require('./lib/logger');
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
@@ -106,7 +107,7 @@ async function obtenerPerfilGoogle(authClient) {
     const { data } = await oauth2.userinfo.get();
     return { nombre: data.given_name || data.name || null, email: data.email || null };
   } catch(e) {
-    console.error('[PERFIL] Error obteniendo perfil:', e.message);
+    log.error({ tag: 'PERFIL', err: e.message }, 'Error obteniendo perfil');
     return { nombre: null, email: null };
   }
 }
@@ -147,7 +148,7 @@ async function configurarClienteParaCuenta(cuenta) {
         updated_at: new Date().toISOString()
       }).eq('usuario_id', cuenta.usuario_id).eq('email', cuenta.email);
       cliente.setCredentials(credentials);
-    } catch(e) { console.error('[TOKEN] Error refrescando:', e.message); }
+    } catch(e) { log.error({ tag: 'TOKEN', err: e.message }, 'Error refrescando token'); }
   }
   return cliente;
 }
@@ -244,7 +245,7 @@ async function leerCorreosDesdeCuenta(authClient, cuentaEmail) {
           if (!mensajesIds.has(m.id)) { mensajesIds.add(m.id); todosLosIds.push(m.id); }
         }
       }
-    } catch(e) { console.error('Error en query Gmail:', e.message); }
+    } catch(e) { log.error({ tag: 'GMAIL', err: e.message }, 'Error en query Gmail'); }
   }
 
   if (todosLosIds.length === 0) return { error: null, mensajes: [] };
@@ -260,7 +261,7 @@ async function leerCorreosDesdeCuenta(authClient, cuentaEmail) {
 
       // FILTRO 1: Rechazar correos reenviados
       if (esCorreoReenviado(headers)) {
-        console.log('[GMAIL] Correo reenviado ignorado:', asunto.substring(0, 50));
+        log.debug({ tag: 'GMAIL', asunto: asunto.substring(0, 50) }, 'Correo reenviado ignorado');
         continue;
       }
 
@@ -268,7 +269,7 @@ async function leerCorreosDesdeCuenta(authClient, cuentaEmail) {
       const fechaCorreo = new Date(parseInt(detalle.internalDate));
       const hace3dias = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
       if (fechaCorreo < hace3dias) {
-        console.log('[GMAIL] Correo muy antiguo ignorado:', fecha, asunto.substring(0, 30));
+        log.debug({ tag: 'GMAIL', fecha, asunto: asunto.substring(0, 30) }, 'Correo antiguo ignorado');
         continue;
       }
 
@@ -276,14 +277,14 @@ async function leerCorreosDesdeCuenta(authClient, cuentaEmail) {
 
       // FILTRO 3: Verificar que es bancario
       if (!esBancario(asunto + '\n' + cuerpo, asunto)) {
-        console.log('[GMAIL] No bancario, ignorado:', asunto.substring(0, 50));
+        log.debug({ tag: 'GMAIL', asunto: asunto.substring(0, 50) }, 'Correo no bancario ignorado');
         continue;
       }
 
       const textoParseo = cuerpo.length > 100 ? cuerpo.substring(0, 2000) : detalle.snippet;
       mensajes.push({ id, snippet: detalle.snippet, texto: textoParseo, asunto, remitente, fecha });
-      console.log('[GMAIL] Correo bancario encontrado:', asunto.substring(0, 60));
-    } catch(e) { console.error('Error obteniendo correo:', e.message); }
+      log.info({ tag: 'GMAIL', asunto: asunto.substring(0, 60) }, 'Correo bancario encontrado');
+    } catch(e) { log.error({ tag: 'GMAIL', err: e.message }, 'Error obteniendo correo'); }
   }
 
   return { error: null, mensajes, cuentaEmail };
@@ -306,7 +307,7 @@ async function leerCorreosBancarios(usuarioId) {
         const cliente = await configurarClienteParaCuenta(cuenta);
         return leerCorreosDesdeCuenta(cliente, cuenta.email);
       } catch(e) {
-        console.error('[GMAIL] Error en cuenta', cuenta.email, e.message);
+        log.error({ tag: 'GMAIL', email: cuenta.email, err: e.message }, 'Error en cuenta Gmail');
         return { error: e.message, mensajes: [], cuentaEmail: cuenta.email };
       }
     })

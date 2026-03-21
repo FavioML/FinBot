@@ -7,6 +7,9 @@ const crypto = require('crypto');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
+const { rateLimit } = require('express-rate-limit');
+const log = require('./lib/logger');
+const { hoyPeru, ahoraPeru, primeroDeMesPeru } = require('./lib/dates');
 const { generarUrlAutorizacion, guardarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail } = require('./gmail');
 
 // Helper: último día real del mes (evita fechas inválidas como 02-31)
@@ -35,9 +38,51 @@ function formatFecha(fecha) {
   return p[2] + '-' + mes + '-' + anio;
 }
 
+// Helper: barra de progreso visual para presupuestos
+function barraProgreso(pct) {
+  const llenos = Math.min(Math.round(pct / 10), 10);
+  const vacios = 10 - llenos;
+  const emoji = pct >= 100 ? '🔴' : pct >= 80 ? '🟡' : '🟢';
+  return emoji + ' ' + '▓'.repeat(llenos) + '░'.repeat(vacios) + ' ' + Math.round(pct) + '%';
+}
+
+// Helper: validar monto (rechaza NaN, Infinity, negativos, >999999.99)
+function validarMonto(valor) {
+  const n = parseFloat(valor);
+  if (isNaN(n) || !isFinite(n) || n < 0 || n > 999999.99) return null;
+  return Math.round(n * 100) / 100;
+}
+
+// Nombres de meses en español (índice 1-12)
+const MESES = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
 const app = express();
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
+
+// Rate limiting: 300 req/min global, 30 req/min por número WhatsApp
+const webhookLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false, keyGeneratorIpFallback: false, default: true },
+  message: { error: 'Demasiadas solicitudes, intenta en un momento' },
+  keyGenerator: (req) => {
+    try {
+      const from = req.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.from;
+      if (from) return from;
+    } catch {}
+    return req.ip || '0.0.0.0';
+  },
+});
+const adminLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiadas solicitudes admin' },
+});
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
@@ -54,7 +99,7 @@ async function guardarMensaje(usuarioId, rol, mensaje) {
     if (viejos && viejos.length > 0) {
       await supabase.from('conversaciones').delete().in('id', viejos.map(v => v.id));
     }
-  } catch(e) { console.error('[HISTORIAL] Error:', e.message); }
+  } catch(e) { log.error({ tag: 'HISTORIAL', err: e.message }, 'Error guardando historial'); }
 }
 
 async function obtenerHistorial(usuarioId) {
@@ -96,7 +141,7 @@ async function obtenerTipoCambio() {
   const now = Date.now();
   if (_tcCache && (now - _tcCacheTime) < 3600000) return _tcCache;
   try {
-    const hoy = new Date().toISOString().split('T')[0];
+    const hoy = hoyPeru();
     const resp = await fetch('https://dolar.pe/api/public/series?from=' + hoy + '&to=' + hoy, {
       headers: { 'Accept': 'application/json' },
       signal: AbortSignal.timeout(4000)
@@ -119,7 +164,7 @@ async function obtenerTipoCambio() {
     }
     return _tcCache || FALLBACK;
   } catch(e) {
-    console.error('[TC]', e.message);
+    log.error({ tag: 'TC', err: e.message }, 'Error tipo cambio');
     return _tcCache || FALLBACK;
   }
 }
@@ -200,9 +245,25 @@ function getHistoryDateLimit(usuario) {
 // ─── Fin Freemium Configuration ─────────────────────────────────────
 
 async function guardarTransaccion(usuarioId, datos) {
+  const montoValidado = validarMonto(datos.monto);
+  if (montoValidado === null) throw new Error('Monto inválido: ' + datos.monto);
   const _moneda = datos.moneda || 'PEN';
-  let _montoPen = parseFloat(datos.monto); let _tcUsado = null;
-  if (_moneda === 'USD') { try { const _tc = await obtenerTipoCambio(); _tcUsado = _tc.venta; _montoPen = parseFloat((parseFloat(datos.monto) * _tc.venta).toFixed(2)); } catch(e) {} }
+  let _montoPen = montoValidado; let _tcUsado = null;
+  if (_moneda === 'USD') { try { const _tc = await obtenerTipoCambio(); _tcUsado = _tc.venta; _montoPen = validarMonto(montoValidado * _tc.venta) || montoValidado; } catch(e) {} }
+  // Deduplicación: generar hash para detectar transacciones duplicadas
+  const fechaTx = datos.fecha || fechaHoyPeru();
+  const dedupRaw = usuarioId + '|' + fechaTx + '|' + montoValidado + '|' + (datos.comercio || '') + '|' + (datos.tipo || 'gasto');
+  const dedupHash = crypto.createHash('md5').update(dedupRaw).digest('hex');
+  // Verificar duplicado en ventana de 5 minutos (solo para manual/imagen, no Gmail que usa message ID)
+  if (!datos.descripcion_original || !datos.descripcion_original.startsWith('gmail:')) {
+    const hace5min = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const { data: existente } = await supabase.from('transacciones').select('id')
+      .eq('usuario_id', usuarioId).eq('dedup_hash', dedupHash).gte('created_at', hace5min).limit(1);
+    if (existente && existente.length > 0) {
+      log.info({ tag: 'DEDUP', hash: dedupHash }, 'Transacción duplicada ignorada');
+      return existente[0];
+    }
+  }
   // Aplicar regla aprendida si existe
   let catFinal = normalizarCategoria(datos.categoria);
   let subFinal = datos.subcategoria || 'sin_categoria';
@@ -211,12 +272,13 @@ async function guardarTransaccion(usuarioId, datos) {
     if (regla) { catFinal = regla.categoria; if (regla.subcategoria) subFinal = regla.subcategoria; }
   }
   const { data, error } = await supabase.from('transacciones').insert({
-    usuario_id: usuarioId, tipo: datos.tipo || 'gasto', monto: parseFloat(datos.monto), moneda: _moneda,
+    usuario_id: usuarioId, tipo: datos.tipo || 'gasto', monto: montoValidado, moneda: _moneda,
     monto_pen: _montoPen, tipo_cambio: _tcUsado, metodo_pago: datos.metodo_pago || null,
     comercio: datos.comercio, categoria: catFinal,
     subcategoria: subFinal, banco: datos.banco,
-    fecha: datos.fecha || new Date().toISOString().split('T')[0],
-    descripcion_original: datos.descripcion_original, confirmado: false
+    fecha: fechaTx,
+    descripcion_original: datos.descripcion_original, confirmado: false,
+    dedup_hash: dedupHash
   }).select().single();
   if (error) throw error;
   return data;
@@ -475,21 +537,21 @@ async function escanearGmailYRegistrar(usuario) {
       resumen += '- ' + (resultado.tipo === 'ingreso' ? 'Ingreso' : 'Gasto') + ': ' + (resultado.comercio || resultado.banco || 'Sin nombre') + ' S/ ' + resultado.monto + '\n';
       // Alerta inmediata por transaccion nueva
       setTimeout(async function() {
-        try { await enviarAlertaTransaccion(usuario, txGuardada, resultado); } catch(e) { console.error("[ALERTA]", e.message); }
+        try { await enviarAlertaTransaccion(usuario, txGuardada, resultado); } catch(e) { log.error({ tag: 'ALERTA', err: e.message }, 'Error alerta transacción'); }
         // Verificar si el usuario referido ahora está activo (>=3 txs)
         try {
           const { data: miRef } = await supabase.from('referidos').select('referrer_id').eq('referido_id', usuario.id).single();
           if (miRef) verificarProReferidos(miRef.referrer_id);
         } catch(e) {}
       }, 5000);
-    } catch (e) { console.error('Error procesando correo:', e.message); }
+    } catch (e) { log.error({ tag: 'CORREO', err: e.message }, 'Error procesando correo'); }
   }
   if (registradas === 0) { if (ignoradas > 0) return '*Sin correos nuevos*\n\n' + ignoradas + ' correo(s) ya estaban registrados.'; return null; }
   if (txsConsultar.length > 0) {
     setTimeout(async function() {
       for (var ii=0; ii<txsConsultar.length; ii++) {
         try { await guardarConsultaPendiente(usuario, txsConsultar[ii]); await enviarWhatsapp(usuario.whatsapp, mensajeConsulta(txsConsultar[ii])); await new Promise(function(r){setTimeout(r,2000);}); }
-        catch(e) { console.error('[CONSULTA]', e.message); }
+        catch(e) { log.error({ tag: 'CONSULTA', err: e.message }, 'Error consulta pendiente'); }
       }
     }, 3000);
   }
@@ -532,7 +594,7 @@ async function generarYEnviarReporte(usuario, mes, anio) {
   const { error: cacheErr } = await supabase.from('reporte_cache').upsert({
     id: reporteId, usuario_id: usuario.id, html: JSON.stringify(jsonData), expires_at: expiresAt
   });
-  if (cacheErr) { console.error('[REPORTE] Error guardando cache:', cacheErr.message); }
+  if (cacheErr) { log.error({ tag: 'REPORTE', err: cacheErr.message }, 'Error guardando cache'); }
   // Limpiar reportes expirados del mismo usuario (housekeeping silencioso)
   supabase.from('reporte_cache').delete().eq('usuario_id', usuario.id).lt('expires_at', new Date().toISOString()).then(() => {}).catch(() => {});
   return { ok: true, reporteId, txCount: txs.length };
@@ -569,7 +631,7 @@ async function recategorizarPorId(transaccionId, categoriaNueva) {
 
 async function parsearCorreccionesMultiples(msg) {
   try {
-    const hoy = new Date().toISOString().split('T')[0];
+    const hoy = hoyPeru();
     const res = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [{
@@ -605,7 +667,7 @@ IMPORTANTE: Devuelve SOLO el array JSON, sin texto adicional.`
     const arr = JSON.parse(raw.startsWith('[') ? raw : raw.slice(raw.indexOf('['), raw.lastIndexOf(']') + 1));
     return Array.isArray(arr) ? arr : [];
   } catch(e) {
-    console.error('[PARSE_MULT]', e.message);
+    log.error({ tag: 'PARSE_MULT', err: e.message }, 'Error parseando correcciones múltiples');
     return [];
   }
 }
@@ -660,7 +722,7 @@ async function guardarReglaComercio(usuarioId, comercio, categoria, subcategoria
       subcategoria: subcategoria || null,
       updated_at: new Date().toISOString()
     }, { onConflict: 'usuario_id,comercio_pattern' });
-  } catch(e) { console.error('[REGLA]', e.message); }
+  } catch(e) { log.error({ tag: 'REGLA', err: e.message }, 'Error guardando regla comercio'); }
 }
 
 async function buscarReglaComercio(usuarioId, comercio) {
@@ -682,8 +744,8 @@ async function retroaplicarRegla(usuarioId, comercio, categoria, subcategoria) {
     await supabase.from('transacciones').update(updates)
       .eq('usuario_id', usuarioId)
       .ilike('comercio', '%' + comercio + '%');
-    console.log('[REGLA] Retroaplicada:', comercio, '->', categoria, subcategoria ? '> ' + subcategoria : '');
-  } catch(e) { console.error('[RETROAPLICAR]', e.message); }
+    log.info({ tag: 'REGLA', comercio, categoria, subcategoria }, 'Regla retroaplicada');
+  } catch(e) { log.error({ tag: 'RETROAPLICAR', err: e.message }, 'Error retroaplicando regla'); }
 }
 
 function mensajeConsulta(tx) {
@@ -693,7 +755,7 @@ function mensajeConsulta(tx) {
 
 async function guardarConsultaPendiente(usuario, tx) {
   try { await supabase.from('consultas_pendientes').insert({ usuario_id: usuario.id, transaccion_id: tx.id, monto: tx.monto, banco: tx.banco||tx.comercio, fecha: tx.fecha, estado: 'pendiente' }); }
-  catch(e) { console.error('[CONSULTA] Error guardando:', e.message); }
+  catch(e) { log.error({ tag: 'CONSULTA', err: e.message }, 'Error guardando consulta'); }
 }
 
 async function obtenerConsultasPendientes(usuarioId) {
@@ -852,7 +914,7 @@ async function registrarReferido(referrerId, referidoId) {
     const { data: referrer } = await supabase.from('usuarios').select('ref_code').eq('id', referrerId).single();
     if (!referrer) return;
     await supabase.from('referidos').insert({ ref_code: referrer.ref_code, referrer_id: referrerId, referido_id: referidoId });
-  } catch(e) { console.error('[REFERIDO] Error registrando:', e.message); }
+  } catch(e) { log.error({ tag: 'REFERIDO', err: e.message }, 'Error registrando referido'); }
 }
 
 async function verificarProReferidos(referrerId) {
@@ -874,11 +936,11 @@ async function verificarProReferidos(referrerId) {
       const { data: referrer } = await supabase.from('usuarios').select('plan, whatsapp').eq('id', referrerId).single();
       if (referrer && referrer.plan !== 'premium') {
         const vence = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-        await supabase.from('usuarios').update({ plan: 'premium', premium_desde: new Date().toISOString().split('T')[0], premium_vence: vence }).eq('id', referrerId);
+        await supabase.from('usuarios').update({ plan: 'premium', premium_desde: hoyPeru(), premium_vence: vence }).eq('id', referrerId);
         await enviarWhatsapp(referrer.whatsapp, '\u2B50 *\u00bfReferidos que funcionan!*\n\n3 de tus amigos ya usan NETO activamente.\n\nTe hemos activado *1 mes de NETO Pro gratis* \uD83C\uDF89\n\nVence: ' + vence + '\n\n_Gracias por crecer con nosotros._');
       }
     }
-  } catch(e) { console.error('[REFERIDO] Error verificando Pro:', e.message); }
+  } catch(e) { log.error({ tag: 'REFERIDO', err: e.message }, 'Error verificando Pro por referidos'); }
 }
 
 // Servir archivos estaticos
@@ -914,13 +976,13 @@ app.get('/webhook', (req, res) => {
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
   if (mode === 'subscribe' && token === process.env.META_VERIFY_TOKEN) {
-    console.log('[WEBHOOK] Verificado por Meta');
+    log.info({ tag: 'WEBHOOK' }, 'Verificado por Meta');
     return res.status(200).send(challenge);
   }
   return res.sendStatus(403);
 });
 
-app.post('/webhook', async (req, res) => {
+app.post('/webhook', webhookLimiter, async (req, res) => {
   res.sendStatus(200);
   try {
     const entry = req.body.entry && req.body.entry[0];
@@ -937,7 +999,7 @@ app.post('/webhook', async (req, res) => {
       const mediaId = message.image && message.image.id;
       const phoneId = process.env.META_PHONE_NUMBER_ID;
       const metaToken = process.env.META_ACCESS_TOKEN;
-      console.log('[IMAGEN] media_id:', mediaId, 'phone_id:', phoneId, 'token_ok:', !!metaToken);
+      log.info({ tag: 'IMAGEN', mediaId, phoneId, tokenOk: !!metaToken }, 'Procesando imagen');
       if (!mediaId) { await enviarWhatsapp(from, 'No pude recibir la imagen. Intenta de nuevo.'); return; }
       try {
         // 1. Obtener URL de la imagen desde Meta API
@@ -946,7 +1008,7 @@ app.post('/webhook', async (req, res) => {
           headers: { Authorization: 'Bearer ' + metaToken }
         });
         const metaJson = await metaRes.json();
-        console.log('[IMAGEN] metaJson:', JSON.stringify(metaJson).slice(0, 200));
+        log.debug({ tag: 'IMAGEN', metaJson: JSON.stringify(metaJson).slice(0, 200) }, 'Meta response');
         if (!metaJson.url) throw new Error('Meta no devolvió URL: ' + JSON.stringify(metaJson).slice(0, 100));
 
         // 2. Descargar imagen como base64
@@ -957,10 +1019,10 @@ app.post('/webhook', async (req, res) => {
         const imgBuffer = await imgRes.arrayBuffer();
         const base64 = Buffer.from(imgBuffer).toString('base64');
         const mimeType = metaJson.mime_type || message.image.mime_type || 'image/jpeg';
-        console.log('[IMAGEN] Descargada OK, mime:', mimeType, 'size:', imgBuffer.byteLength);
+        log.info({ tag: 'IMAGEN', mimeType, size: imgBuffer.byteLength }, 'Imagen descargada');
 
         // 3. Parsear con GPT-4o vision
-        const hoy = new Date().toISOString().split('T')[0];
+        const hoy = hoyPeru();
         const visionRes = await openai.chat.completions.create({
           model: 'gpt-4o',
           messages: [{
@@ -973,7 +1035,7 @@ app.post('/webhook', async (req, res) => {
           temperature: 0, max_tokens: 400
         });
         const rawV = visionRes.choices[0].message.content.trim();
-        console.log('[IMAGEN] GPT response:', rawV.slice(0, 200));
+        log.debug({ tag: 'IMAGEN', response: rawV.slice(0, 200) }, 'GPT vision response');
 
         // Parsear JSON de la respuesta
         let parsed;
@@ -995,7 +1057,7 @@ app.post('/webhook', async (req, res) => {
         const emoji = getEmojiCategoria(parsed.categoria) || '📋';
         await enviarWhatsapp(from, '📸 ¡Listo! Registré desde la imagen:\n\n' + emoji + ' *' + (parsed.comercio || 'Pago') + '* — ' + montoStr + '\nCategoría: ' + parsed.categoria + (parsed.subcategoria && parsed.subcategoria !== 'sin_categoria' ? ' > ' + parsed.subcategoria : '') + '\nFecha: ' + parsed.fecha + '\n\n_¿Algo está mal? Dímelo y lo corrijo._');
       } catch(e) {
-        console.error('[IMAGEN] Error:', e.message);
+        log.error({ tag: 'IMAGEN', err: e.message }, 'Error procesando imagen');
         await enviarWhatsapp(from, 'No pude procesar la imagen. Asegúrate de enviar la captura de la notificación de pago (la pantalla que muestra el monto y destinatario).');
       }
       return;
@@ -1037,7 +1099,7 @@ app.post('/webhook', async (req, res) => {
         const fileRes = await fetch(metaJson.url, { headers: { Authorization: 'Bearer ' + metaToken } });
         if (!fileRes.ok) throw new Error('Error descargando archivo: ' + fileRes.status);
         const fileBuffer = Buffer.from(await fileRes.arrayBuffer());
-        console.log('[EXCEL] Archivo descargado, size:', fileBuffer.byteLength);
+        log.info({ tag: 'EXCEL', size: fileBuffer.byteLength }, 'Archivo descargado');
 
         // 2. Parsear con exceljs
         const ExcelJS = require('exceljs');
@@ -1140,7 +1202,7 @@ app.post('/webhook', async (req, res) => {
                 });
               }
             } catch(catErr) {
-              console.error('[EXCEL] Error categorizando batch:', catErr.message);
+              log.error({ tag: 'EXCEL', err: catErr.message }, 'Error categorizando batch');
             }
           }
         }
@@ -1164,7 +1226,7 @@ app.post('/webhook', async (req, res) => {
             insertados++;
           } catch(insErr) {
             errores++;
-            console.error('[EXCEL] Error insertando fila:', insErr.message);
+            log.error({ tag: 'EXCEL', err: insErr.message }, 'Error insertando fila');
           }
         }
 
@@ -1180,9 +1242,9 @@ app.post('/webhook', async (req, res) => {
         if (errores > 0) resumenMsg += '⚠️ ' + errores + ' filas con error\n';
         resumenMsg += '\n_Escribe "mis gastos" para ver tu resumen actualizado._';
         await enviarWhatsapp(from, resumenMsg);
-        console.log('[EXCEL] Carga completada: ' + insertados + ' ok, ' + errores + ' errores');
+        log.info({ tag: 'EXCEL', insertados, errores }, 'Carga Excel completada');
       } catch(e) {
-        console.error('[EXCEL] Error:', e.message);
+        log.error({ tag: 'EXCEL', err: e.message }, 'Error procesando Excel');
         await enviarWhatsapp(from, '❌ Error procesando el archivo: ' + e.message + '\n\nDescarga la plantilla correcta en: neto.pe/plantilla_gastos.xlsx');
       }
       return;
@@ -1190,7 +1252,7 @@ app.post('/webhook', async (req, res) => {
 
     if (message.type !== 'text') return;
     const msg = (message.text.body || '').trim();
-    console.log('[MSG] [' + from + ']: ' + msg);
+    log.info({ tag: 'MSG', from, msg: msg.substring(0, 100) }, 'Mensaje recibido');
 
     let respuesta = '';
     const usuario = await obtenerOCrearUsuario(from);
@@ -1231,7 +1293,7 @@ app.post('/webhook', async (req, res) => {
           await supabase.from('categorias_usuario').delete().eq('usuario_id', usuario.id);
           await supabase.from('presupuestos').delete().eq('usuario_id', usuario.id);
           await supabase.from('gmail_cuentas').delete().eq('usuario_id', usuario.id);
-          await supabase.from('reportes').delete().eq('usuario_id', usuario.id);
+
           await supabase.from('consultas_pendientes').delete().eq('usuario_id', usuario.id);
           await supabase.from('usuarios').update({ gmail_access_token: null, gmail_refresh_token: null, gmail_token_expiry: null, email: null, onboarding_paso: 0, onboarding_completado: false }).eq('id', usuario.id);
           await enviarWhatsapp(from, '🗑️ *Cuenta limpia*\n\nTodos tus datos han sido eliminados. Si quieres volver, escribe _"hola"_ y empezamos de cero.');
@@ -1248,7 +1310,7 @@ app.post('/webhook', async (req, res) => {
           await supabase.from('categorias_usuario').delete().eq('usuario_id', usuario.id);
           await supabase.from('presupuestos').delete().eq('usuario_id', usuario.id);
           await supabase.from('gmail_cuentas').delete().eq('usuario_id', usuario.id);
-          await supabase.from('reportes').delete().eq('usuario_id', usuario.id);
+
           await supabase.from('consultas_pendientes').delete().eq('usuario_id', usuario.id);
           await supabase.from('usuarios').update({ gmail_access_token: null, gmail_refresh_token: null, gmail_token_expiry: null, email: null, onboarding_paso: 0, onboarding_completado: false }).eq('id', usuario.id);
           await enviarWhatsapp(from, '🗑️ *Cuenta limpia*\n\nTodos tus datos han sido eliminados. Si quieres volver, escribe _"hola"_ y empezamos de cero.');
@@ -1260,7 +1322,7 @@ app.post('/webhook', async (req, res) => {
           await supabase.from('transacciones').delete().eq('usuario_id', usuario.id);
           await supabase.from('categorias_usuario').delete().eq('usuario_id', usuario.id);
           await supabase.from('presupuestos').delete().eq('usuario_id', usuario.id);
-          await supabase.from('reportes').delete().eq('usuario_id', usuario.id);
+
           await supabase.from('consultas_pendientes').delete().eq('usuario_id', usuario.id);
           await supabase.from('usuarios').update({ email: null, onboarding_paso: 0, onboarding_completado: false }).eq('id', usuario.id);
           await enviarWhatsapp(from, '🗑️ *Datos eliminados*\n\nSi quieres volver, escribe _"hola"_.');
@@ -1510,7 +1572,7 @@ app.post('/webhook', async (req, res) => {
       // Guardar respuesta de NETO en historial
       try { await guardarMensaje(usuario.id, 'neto', respuesta); } catch(e) {}
     }
-  } catch (error) { console.error('ERROR:', error.message); }
+  } catch (error) { log.error({ tag: 'WEBHOOK', err: error.message }, 'Error en webhook'); }
 });
 
 app.get('/reporte/:id', async (req, res) => {
@@ -1528,7 +1590,7 @@ app.get('/reporte/:id', async (req, res) => {
     res.set('Content-Type', 'text/html; charset=utf-8');
     res.send(entry.html);
   } catch(e) {
-    console.error('[REPORTE] Error leyendo cache:', e.message);
+    log.error({ tag: 'REPORTE', err: e.message }, 'Error leyendo cache');
     res.status(500).send('<h2>Error cargando el reporte. Intenta de nuevo.</h2>');
   }
 });
@@ -1557,7 +1619,7 @@ app.get('/dashboard/:id', async (req, res) => {
     res.set('Content-Type', 'text/html; charset=utf-8');
     res.send(entry.html);
   } catch(e) {
-    console.error('[DASHBOARD] Error:', e.message);
+    log.error({ tag: 'DASHBOARD', err: e.message }, 'Error generando dashboard');
     res.status(500).send('<h2>Error cargando el dashboard.</h2>');
   }
 });
@@ -1582,7 +1644,7 @@ app.get('/api/reporte/:id', async (req, res) => {
       res.status(400).json({ error: 'Este reporte usa el formato anterior. Genera uno nuevo con /reporte' });
     }
   } catch(e) {
-    console.error('[API/REPORTE] Error:', e.message);
+    log.error({ tag: 'API_REPORTE', err: e.message }, 'Error API reporte');
     res.status(500).json({ error: 'Error interno' });
   }
 });
@@ -1640,7 +1702,7 @@ app.get('/api/reporte/:id/mes/:mes/:anio', async (req, res) => {
     const jsonData = generarReporteJSON({ nombre: usuario.nombre || 'Usuario', mes: mesNum, anio: anioNum, transacciones: txs, presupuestos, historialMeses: historial, todosMeses });
     res.json(jsonData);
   } catch(e) {
-    console.error('[API/REPORTE/MES] Error:', e.message);
+    log.error({ tag: 'API_REPORTE_MES', err: e.message }, 'Error API reporte mensual');
     res.status(500).json({ error: 'Error interno' });
   }
 });
@@ -1718,7 +1780,7 @@ app.get('/auth/callback', async (req, res) => {
           await enviarWhatsapp(usuario.whatsapp, '🔍 No encontré correos bancarios recientes.\n\nTe avisaré cuando llegue uno.');
           if (modoConexion === 'inicial') await supabase.from('usuarios').update({ onboarding_paso: 0, onboarding_completado: true }).eq('id', usuario.id);
         }
-      } catch(e) { console.error('[CALLBACK]', e.message); }
+      } catch(e) { log.error({ tag: 'CALLBACK', err: e.message }, 'Error OAuth callback'); }
     }, 2000);
   } catch (err) { res.send('<h2>Error: ' + err.message + '</h2>'); }
 });
@@ -1734,10 +1796,10 @@ app.get('/', (req, res) => res.send('NETO v5'));
 
 // Endpoint admin: activar premium via web
 // POST /admin/activar { whatsapp: "51970398192", clave: "ADMIN_KEY" }
-app.post('/admin/activar', async (req, res) => {
+app.post('/admin/activar', adminLimiter, async (req, res) => {
   const { whatsapp, clave } = req.body;
   const ADMIN_KEY = process.env.ADMIN_KEY;
-  if (!ADMIN_KEY || clave !== ADMIN_KEY) return res.status(401).json({ ok: false, msg: 'Clave incorrecta' });
+  if (!ADMIN_KEY || !clave || clave.length !== ADMIN_KEY.length || !crypto.timingSafeEqual(Buffer.from(clave), Buffer.from(ADMIN_KEY))) return res.status(401).json({ ok: false, msg: 'Clave incorrecta' });
   if (!whatsapp) return res.status(400).json({ ok: false, msg: 'Falta whatsapp' });
   const numero = whatsapp.replace(/\+/g, '').replace(/^0/, '');
   const { data: usuarioActivar } = await supabase.from('usuarios').select('*').eq('whatsapp', numero).single();
@@ -1759,9 +1821,10 @@ app.post('/admin/activar', async (req, res) => {
 
 // Endpoint admin: ver pagos pendientes
 // GET /admin/pendientes?clave=ADMIN_KEY
-app.get('/admin/pendientes', async (req, res) => {
+app.get('/admin/pendientes', adminLimiter, async (req, res) => {
   const ADMIN_KEY = process.env.ADMIN_KEY;
-  if (!ADMIN_KEY || req.query.clave !== ADMIN_KEY) return res.status(401).json({ ok: false, msg: 'Clave incorrecta' });
+  const clavePendientes = req.query.clave || '';
+  if (!ADMIN_KEY || !clavePendientes || clavePendientes.length !== ADMIN_KEY.length || !crypto.timingSafeEqual(Buffer.from(clavePendientes), Buffer.from(ADMIN_KEY))) return res.status(401).json({ ok: false, msg: 'Clave incorrecta' });
   const { data } = await supabase.from('usuarios').select('whatsapp, nombre, plan, pago_pendiente, pago_referencia, created_at').eq('pago_pendiente', true);
   res.json({ ok: true, pendientes: data || [] });
 });
@@ -1788,7 +1851,7 @@ async function redactarConNETO(netoPrompt, contexto, mensajeOriginal, historial)
     });
     return res.choices[0].message.content.trim();
   } catch(e) {
-    console.error('[NETO GPT] Error:', e.message);
+    log.error({ tag: 'NETO_GPT', err: e.message }, 'Error redactando con GPT');
     return null;
   }
 }
@@ -1812,7 +1875,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
         .replace(/\{MESES_HISTORIAL\}/g, '3')
         .replace(/\{PARSERS_ACTIVOS\}/g, parsersActivos)
         .replace(/\{ULTIMA_SYNC\}/g, ultimaSync);
-    } catch(e) { console.error('[NETO] Error cargando system prompt:', e.message); }
+    } catch(e) { log.error({ tag: 'NETO', err: e.message }, 'Error cargando system prompt'); }
 
     // Cargar historial de conversacion del usuario
     const historialConv = await obtenerHistorial(usuario.id);
@@ -1860,7 +1923,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       intencion = 'corregir_categoria';
       if (!datos.categoria_nueva) datos.categoria_nueva = 'NETO';
     }
-    console.log('[NLP] Intencion:', intencion, '| Datos:', JSON.stringify(datos));
+    log.info({ tag: 'NLP', intencion, datos }, 'Intención clasificada');
 
     // Deteccion de comprobante de pago Yape ANTES del switch
     const planActualNlp = usuario.plan || 'free';
@@ -2135,7 +2198,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
           const _respCorr = await redactarConNETO(netoPrompt, _ctxCorr, msg, historialConv);
           return _respCorr || '\u00bfA qu\u00e9 categor\u00eda lo muevo? D\u00edme y lo cambio.';
         } catch(e) {
-          console.error('[CORREGIR]', e.message);
+          log.error({ tag: 'CORREGIR', err: e.message }, 'Error corrigiendo categoría');
           return 'No pude procesar eso. Usa: /cambiar [comercio] [categoria]';
         }
       }
@@ -2165,7 +2228,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
           if (resultados.length === 0) return 'No pude aplicar ninguna corrección.';
           return 'Listo! Actualicé ' + resultados.length + ' gastos:\n\n' + resultados.join('\n');
         } catch(e) {
-          console.error('[MULT]', e.message);
+          log.error({ tag: 'MULT', err: e.message }, 'Error corrección múltiple');
           return 'No pude procesar las correcciones. Intenta una por una.';
         }
       }
@@ -2212,7 +2275,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
 
       case 'registrar_manual': {
         try {
-          const fechaHoy = new Date().toISOString().split('T')[0];
+          const fechaHoy = hoyPeru();
           const parsed = await parsearRegistroManual(msg, fechaHoy);
           if (!parsed.ok || !parsed.monto || parsed.monto <= 0) {
             return 'No pude extraer el monto. Dime algo como: "gasté S/50 en farmacia" o "mi sueldo fue S/4500".';
@@ -2228,7 +2291,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
           respReg += '\n\n\u00bfHay otro que quieras anotar?';
           return respReg;
         } catch(e) {
-          console.error('[REGISTRAR_MANUAL]', e.message);
+          log.error({ tag: 'REGISTRAR_MANUAL', err: e.message }, 'Error registro manual');
           return 'No pude procesar eso. Dime: "gasté S/50 en farmacia ayer" y lo anoto.';
         }
       }
@@ -2257,7 +2320,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
             : 'S/ ' + nuevoMonto.toFixed(2);
           return 'Corregido. *' + comercioM + '*: ' + montoStrM + ' en ' + (ultimaTxM.categoria || 'Otros') + '.';
         } catch(e) {
-          console.error('[CORREGIR_MONEDA]', e.message);
+          log.error({ tag: 'CORREGIR_MONEDA', err: e.message }, 'Error corrigiendo monto/moneda');
           return 'No pude corregir la moneda. Int\u00e9ntalo de nuevo.';
         }
       }
@@ -2279,7 +2342,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
           const montoElim = txElim.moneda === 'USD' ? '$' + parseFloat(txElim.monto).toFixed(2) : 'S/ ' + parseFloat(txElim.monto).toFixed(2);
           return 'Listo. Elimin\u00e9 *' + (txElim.comercio || 'ese gasto') + '* (' + montoElim + ') del ' + txElim.fecha + '.';
         } catch(e) {
-          console.error('[ELIMINAR]', e.message);
+          log.error({ tag: 'ELIMINAR', err: e.message }, 'Error eliminando transacción');
           return 'No pude eliminarlo. \u00bfDe cu\u00e1l gasto se trata?';
         }
       }
@@ -2356,7 +2419,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       }
     }
   } catch(e) {
-    console.error('[NLP] Error:', e.message);
+    log.error({ tag: 'NLP', err: e.message }, 'Error en procesamiento NLP');
     return 'Tuve un problema. Intenta de nuevo.';
   }
 }
@@ -2372,9 +2435,9 @@ async function enviarWhatsapp(numero, mensaje) {
       body: JSON.stringify({ messaging_product: 'whatsapp', to: dest, type: 'text', text: { body: mensaje } })
     });
     const data = await response.json();
-    if (data.messages && data.messages[0]) { console.log('[META] Enviado a', dest, '- ID:', data.messages[0].id); }
-    else { console.error('[META] Error enviando:', JSON.stringify(data)); }
-  } catch (e) { console.error('[META] Error enviando WhatsApp:', e.message); }
+    if (data.messages && data.messages[0]) { log.info({ tag: 'META', dest, msgId: data.messages[0].id }, 'Enviado'); }
+    else { log.error({ tag: 'META', data }, 'Error enviando'); }
+  } catch (e) { log.error({ tag: 'META', err: e.message, dest }, 'Error enviando WhatsApp'); }
 }
 
 async function enviarAlertaTransaccion(usuario, tx, resultado) {
@@ -2401,7 +2464,7 @@ async function enviarAlertaTransaccion(usuario, tx, resultado) {
   msg += '\uD83C\uDFEA ' + comercio + '\n';
   msg += '\uD83D\uDCB0 ' + montoStr + '\n';
   msg += '\uD83C\uDFF7\uFE0F ' + categoria + (resultado.subcategoria && resultado.subcategoria !== 'sin_categoria' ? ' > ' + resultado.subcategoria : '') + '\n';
-  msg += '\uD83D\uDCC5 ' + (resultado.fecha || new Date().toISOString().split('T')[0]);
+  msg += '\uD83D\uDCC5 ' + (resultado.fecha || hoyPeru());
   // Verificar alerta de presupuesto
   if (tipo === 'gasto') {
     const alertaPres = await verificarAlertaPresupuesto(usuario.id, categoria, null);
@@ -2427,7 +2490,7 @@ async function enviarAlertaTransaccion(usuario, tx, resultado) {
           msg += '\n\n\u26A0\uFE0F *Gasto inusual:* Este gasto es ' + factor.toFixed(1) + 'x tu promedio en ' + categoria + ' (S/ ' + promedio.toFixed(2) + ')';
         }
       }
-    } catch(e) { console.error('[INUSUAL]', e.message); }
+    } catch(e) { log.error({ tag: 'INUSUAL', err: e.message }, 'Error alerta inusual'); }
   }
 
   msg += '\n\n_Escr\u00edbeme si quieres ver el detalle del mes._';
@@ -2443,7 +2506,7 @@ async function obtenerUltimaTransaccion(usuarioId) {
   return data || null;
 }
 async function escaneoAutomatico() {
-  console.log('[AUTO] Escaneo -', new Date().toLocaleString('es-PE'));
+  log.info({ tag: 'AUTO' }, 'Escaneo automático iniciado');
   try {
     const { data: usuarios } = await supabase.from('usuarios').select('*').not('gmail_access_token', 'is', null);
     if (!usuarios || usuarios.length === 0) return;
@@ -2451,9 +2514,9 @@ async function escaneoAutomatico() {
       try {
         const resultado = await escanearGmailYRegistrar(usuario);
         if (resultado && resultado.includes('Registre')) { await enviarWhatsapp(usuario.whatsapp, '\uD83D\uDD04 *Escaneo automatico*\n\n' + resultado); }
-      } catch (e) { console.error('[AUTO] Error usuario', usuario.whatsapp, ':', e.message); }
+      } catch (e) { log.error({ tag: 'AUTO', whatsapp: usuario.whatsapp, err: e.message }, 'Error escaneo usuario'); }
     }
-  } catch (e) { console.error('[AUTO] Error general:', e.message); }
+  } catch (e) { log.error({ tag: 'AUTO', err: e.message }, 'Error general escaneo'); }
 }
 
 async function generarResumenSemanal(usuario) {
@@ -2585,31 +2648,42 @@ async function checkResumenSemanal() {
       try {
         const resumen = await generarResumenSemanal(usuario);
         if (resumen) await enviarWhatsapp(usuario.whatsapp, resumen);
-      } catch(e) { console.error('[SEMANAL] Error para', usuario.whatsapp, ':', e.message); }
+      } catch(e) { log.error({ tag: 'SEMANAL', whatsapp: usuario.whatsapp, err: e.message }, 'Error resumen semanal usuario'); }
     }
-  } catch(e) { console.error('[SEMANAL] Error general:', e.message); }
+  } catch(e) { log.error({ tag: 'SEMANAL', err: e.message }, 'Error general resumen semanal'); }
 }
+
+// Middleware centralizado de errores (debe estar después de todas las rutas)
+app.use((err, req, res, next) => {
+  log.error({ tag: 'EXPRESS', err: err.message, stack: err.stack, path: req.path, method: req.method }, 'Error no manejado');
+  if (!res.headersSent) {
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
 
 const PORT = process.env.PORT || 3000;
 const INTERVALO_HORAS = parseFloat(process.env.SCAN_INTERVAL_HOURS || '0.25');
 const INTERVALO_MS = INTERVALO_HORAS * 60 * 60 * 1000;
 
-app.listen(PORT, () => {
-  console.log('NETO v5 en http://localhost:' + PORT);
-  setTimeout(() => {
-    escaneoAutomatico();
-    setInterval(escaneoAutomatico, INTERVALO_MS);
-    console.log('[AUTO] Escaneo activo cada', INTERVALO_HORAS, 'hora(s).');
-    setInterval(checkResumenSemanal, 15 * 60 * 1000);
-    console.log('[SEMANAL] Resumen semanal activo (lunes 8am Lima).');
-  }, 30000);
-});
-
-
-// Obtener la última transacción registrada del usuario (para contexto de respuestas)
-async function obtenerUltimaTransaccion(usuarioId) {
-  const { data } = await supabase.from('transacciones').select('*')
-    .eq('usuario_id', usuarioId)
-    .order('created_at', { ascending: false }).limit(1).single();
-  return data || null;
+// Solo levantar servidor si se ejecuta directamente (no en tests)
+if (require.main === module) {
+  app.listen(PORT, () => {
+    log.info({ tag: 'SERVER', port: PORT }, 'NETO v5 iniciado');
+    setTimeout(() => {
+      escaneoAutomatico();
+      setInterval(escaneoAutomatico, INTERVALO_MS);
+      log.info({ tag: 'AUTO', intervaloHoras: INTERVALO_HORAS }, 'Escaneo automático activo');
+      setInterval(checkResumenSemanal, 15 * 60 * 1000);
+      log.info({ tag: 'SEMANAL' }, 'Resumen semanal activo (lunes 8am Lima)');
+    }, 30000);
+  });
 }
+
+// Exports para tests
+module.exports = {
+  validarMonto, normalizarCategoria, formatFecha, barraProgreso,
+  fechaHoyPeru, fechaAyerPeru, ultimoDiaMes,
+  CATEGORIAS_VALIDAS, CATEGORIA_MAP, MESES,
+  parsearCorreoBancario, parsearRegistroManual,
+  app
+};
