@@ -16,12 +16,22 @@ const REMITENTES_BANCARIOS = [
   'alertas@interbank.pe', 'notificaciones@interbank.pe', 'alertas@bbva.pe',
   'notificaciones@bbva.pe', 'notificaciones.tarjetas@scotiabank.pe',
   'alertas@scotiabank.pe', 'notificaciones@plin.pe', 'noreply@tunki.pe',
+  // Bancos adicionales
+  'notificaciones@bancofalabella.pe', 'alertas@bancofalabella.pe',
+  'notificaciones@bancoripley.com.pe', 'alertas@bancoripley.com.pe',
+  'notificaciones@banbif.com.pe', 'alertas@banbif.com.pe',
+  'notificaciones@mibanco.com.pe', 'alertas@mibanco.com.pe',
+  'notificaciones@cajahuancayo.com.pe', 'notificaciones@cmacpiura.com.pe',
+  'notificaciones@cajatrujillo.com.pe', 'notificaciones@cajacusco.com.pe',
+  'notificaciones@cmacica.com.pe', 'notificaciones@cajasullana.com.pe',
 ];
 
 const PALABRAS_BANCARIAS = [
   'realizaste', 'transaccion', 'consumo', 'pago realizado', 'transferencia',
   'operacion', 'yape', 'plin', 'izipay', 'BCP', 'Interbank', 'BBVA',
-  'Scotiabank', 'soles', 'S/', 'tarjeta', 'cuenta', 'cargo', 'abono',
+  'Scotiabank', 'Falabella', 'Ripley', 'BanBif', 'Mibanco', 'CMAC',
+  'Caja Huancayo', 'Caja Piura', 'Caja Trujillo', 'Caja Cusco',
+  'soles', 'S/', 'tarjeta', 'cuenta', 'cargo', 'abono',
   'deposito', 'retiro', 'compra', 'comercio', 'monto'
 ];
 
@@ -50,6 +60,12 @@ const SUBJECTS_BANCARIOS = [
   'interbank te informa',
   'bbva',
   'scotiabank',
+  'falabella',
+  'ripley',
+  'banbif',
+  'mibanco',
+  'caja',
+  'cmac',
 ];
 
 const SCOPES = [

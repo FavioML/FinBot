@@ -772,14 +772,21 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
       }
     }
 
-    const esUsuarioNuevo = !usuario.gmail_access_token;
+    const esUsuarioNuevo = !usuario.gmail_access_token && !usuario.onboarding_completado;
     if (cmd === 'hola' || cmd === 'hi' || cmd === 'inicio') {
       var tieneGmail = !!usuario.gmail_access_token;
       var primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
-      if (!tieneGmail) {
+      if (!tieneGmail && !usuario.onboarding_completado) {
         var urlOAuth = generarUrlAutorizacion(from);
         await supabase.from('usuarios').update({ onboarding_paso: 1 }).eq('id', usuario.id);
-        respuesta = '\uD83D\uDC4B Hola' + (primerNombre ? ', ' + primerNombre : '') + '. Soy NETO, tu asistente financiero.\n\nLeo tus correos de BCP, Interbank, BBVA, Scotiabank, Yape y Plin automaticamente.\n\nPara empezar, conecta tu Gmail:\n\n' + urlOAuth + '\n\n_Solo leemos notificaciones bancarias. Sin contrasenas bancarias._ \uD83D\uDD12';
+        respuesta = '👋 Hola' + (primerNombre ? ', ' + primerNombre : '') + '. Soy *NETO*, tu asistente financiero.\n\n*¿Cómo quieres empezar?*\n\n📧 *Opción 1 — Conectar Gmail* (recomendado)\nLeo tus correos de BCP, BBVA, Interbank, Scotiabank, Falabella, Ripley, BanBif, Mibanco, Yape y Plin automáticamente:\n' + urlOAuth + '\n\n✍️ *Opción 2 — Modo manual*\nRegistra gastos por texto o fotos de Yape/Plin. Sin conectar nada.\nEscribe */manual* para elegir esta opción.\n\n_Puedes conectar Gmail después en cualquier momento con /conectar_';
+      } else if (!tieneGmail && usuario.onboarding_completado) {
+        // Usuario en modo manual — saludo normal
+        var gastosMesHola = await obtenerGastosMes(usuario.id);
+        var totalMesHola = gastosMesHola.reduce(function(s,t){return s+parseFloat(t.monto);},0);
+        respuesta = '👋 Hola' + (primerNombre ? ', ' + primerNombre : '') + '.\n\n' +
+          (gastosMesHola.length > 0 ? 'Este mes llevas *S/ ' + totalMesHola.toFixed(2) + '* en ' + gastosMesHola.length + ' movimientos.' : 'Sin movimientos este mes aun.') +
+          '\n\n📝 Registra gastos así:\n_"gasté 50 en taxi"_\n_"almuerzo 25 soles"_\nO envía una foto de tu Yape/Plin.\n\n💡 _Conecta Gmail con /conectar para lectura automática._';
       } else {
         var gastosMesHola = await obtenerGastosMes(usuario.id);
         var totalMesHola = gastosMesHola.reduce(function(s,t){return s+parseFloat(t.monto);},0);
@@ -793,8 +800,18 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
           (pendHola.length > 0 ? '\n\n\u2757 ' + pendHola.length + ' gasto(s) sin identificar. Escribe */pendientes*.' : '') +
           '\n\n\u00bfQue revisamos?';
       }
+    } else if (cmd === '/manual') {
+      // Onboarding sin Gmail — modo manual
+      await supabase.from('usuarios').update({ onboarding_paso: 10, onboarding_completado: false }).eq('id', usuario.id);
+      respuesta = '✍️ *Modo manual activado*\n\nPuedes registrar gastos de estas formas:\n\n📝 *Por texto:* _"gasté 50 en taxi"_ o _"almuerzo 25 soles"_\n📸 *Por foto:* Envía una captura de Yape o Plin\n📊 *Por Excel:* Envía un archivo .xlsx con tus gastos\n\nAhora elige tus categorías:\n\n' + CATEGORIAS_SUGERIDAS.map(function(c,i){ return (i+1)+'. '+c.emoji+' '+c.nombre; }).join('\n') + '\n\n_(Responde con los números, ej: 1 3 5 o "todas")_';
     } else if (esUsuarioNuevo && !cmd.startsWith('/')) {
-      respuesta = '\uD83D\uDC4B Hola. Soy NETO, tu asistente financiero.\n\nEscribe *hola* para empezar.';
+      respuesta = '👋 Hola. Soy *NETO*, tu asistente financiero.\n\nEscribe *hola* para empezar.';
+    } else if (cmd === '/silenciar') {
+      await supabase.from('usuarios').update({ recordatorios_activos: false }).eq('id', usuario.id);
+      respuesta = '🔇 Recordatorios desactivados. Escribe */recordar* para reactivarlos.';
+    } else if (cmd === '/recordar') {
+      await supabase.from('usuarios').update({ recordatorios_activos: true }).eq('id', usuario.id);
+      respuesta = '🔔 Recordatorios activados. Te avisaré a las 8pm si no registras gastos.';
     } else if (cmd === '/conectar') {
       respuesta = 'Para conectar tu Gmail, abre este enlace:\n\n' + generarUrlAutorizacion(from) + '\n\n_Solo leemos notificaciones bancarias. Sin contrasenas bancarias._';
     } else if (cmd === '/escanear') {
@@ -2106,6 +2123,33 @@ async function checkResumenSemanal() {
   } catch(e) { log.error({ tag: 'SEMANAL', err: e.message }, 'Error general resumen semanal'); }
 }
 
+async function checkRecordatorioDiario() {
+  const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
+  // Solo a las 20:00-20:14 Lima
+  if (horaLima.getHours() !== 20 || horaLima.getMinutes() > 14) return;
+  const hoy = hoyPeru();
+  try {
+    const { data: usuarios } = await supabase.from('usuarios').select('id, whatsapp, nombre, recordatorios_activos')
+      .eq('onboarding_completado', true);
+    if (!usuarios || usuarios.length === 0) return;
+    for (const usuario of usuarios) {
+      try {
+        // Respetar preferencia del usuario (default: activos)
+        if (usuario.recordatorios_activos === false) continue;
+        // Verificar si tiene transacciones hoy
+        const { data: txsHoy } = await supabase.from('transacciones').select('id')
+          .eq('usuario_id', usuario.id).eq('fecha', hoy).limit(1);
+        if (txsHoy && txsHoy.length > 0) continue; // Ya tiene gastos hoy
+        const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
+        const msg = '📝 ' + (primerNombre ? primerNombre + ', ¿' : '¿') + 'registraste tus gastos de hoy?\n\n' +
+          'Escríbeme así:\n_"gasté 30 en almuerzo"_\n_"taxi 15 soles"_\n\nO envía una foto de tu Yape/Plin.\n\n' +
+          '_Para desactivar recordatorios escribe /silenciar_';
+        await enviarWhatsapp(usuario.whatsapp, msg);
+      } catch(e) { /* silencioso por usuario */ }
+    }
+  } catch(e) { log.error({ tag: 'RECORDATORIO', err: e.message }, 'Error recordatorio diario'); }
+}
+
 // Middleware centralizado de errores (debe estar después de todas las rutas)
 app.use((err, req, res, next) => {
   log.error({ tag: 'EXPRESS', err: err.message, stack: err.stack, path: req.path, method: req.method }, 'Error no manejado');
@@ -2131,6 +2175,8 @@ if (require.main === module) {
       log.info({ tag: 'SEMANAL' }, 'Resumen semanal activo (lunes 8am Lima)');
       setInterval(checkResumenMensual, 15 * 60 * 1000);
       log.info({ tag: 'MENSUAL' }, 'Resumen mensual activo (1ro de cada mes 9am Lima)');
+      setInterval(checkRecordatorioDiario, 15 * 60 * 1000);
+      log.info({ tag: 'RECORDATORIO' }, 'Recordatorios diarios activos (8pm Lima)');
     }, 30000);
   });
 }

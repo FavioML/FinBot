@@ -3,7 +3,7 @@ const { hoyPeru } = require('../lib/dates');
 const log = require('../lib/logger');
 
 const BANK_PARSER_PROMPT = `Eres un parser experto de notificaciones bancarias peruanas. Devuelve SOLO JSON sin markdown:
-{ "tipo":"gasto"|"ingreso", "monto":numero, "moneda":"PEN"|"USD", "comercio":"nombre limpio del comercio", "categoria":"ver lista", "subcategoria":"ver lista", "banco":"BCP|Interbank|BBVA|Scotiabank|Yape|Plin|Otro", "metodo_pago":"Debito|Credito|Yape|Plin|Efectivo|Otro", "fecha":"YYYY-MM-DD", "descripcion_original":"texto original" }
+{ "tipo":"gasto"|"ingreso", "monto":numero, "moneda":"PEN"|"USD", "comercio":"nombre limpio del comercio", "categoria":"ver lista", "subcategoria":"ver lista", "banco":"BCP|Interbank|BBVA|Scotiabank|Yape|Plin|Falabella|Ripley|BanBif|Mibanco|CMAC|Otro", "metodo_pago":"Debito|Credito|Yape|Plin|Efectivo|Otro", "fecha":"YYYY-MM-DD", "descripcion_original":"texto original" }
 
 CATEGORÍAS Y SUBCATEGORÍAS OBLIGATORIAS (usa EXACTAMENTE estos valores, sin variantes):
 
@@ -68,6 +68,11 @@ REGLAS POR BANCO:
   fecha del campo "Fecha y Hora de la operación", banco: Yape, tipo: gasto,
   categoria: Otros, subcategoria: sin_categoria (a menos que sea comercio conocido)
 - Plin: similar a Yape
+- Banco Falabella: buscar campo "Comercio" o "Establecimiento", banco: Falabella
+- Banco Ripley: buscar campo "Comercio", banco: Ripley
+- BanBif: buscar campo "Comercio" o "Empresa", banco: BanBif
+- Mibanco: buscar campo "Descripción" o "Empresa", banco: Mibanco
+- Cajas municipales (CMAC Huancayo, Piura, Trujillo, Cusco, Ica, Sullana): banco: CMAC
 
 REGLA CRÍTICA DE MONEDA (aplicar SIEMPRE antes de asignar moneda):
 - Si el correo contiene "$", "USD", "US$" → moneda: "USD" sin excepción
