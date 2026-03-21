@@ -841,13 +841,14 @@ app.post('/webhook', async (req, res) => {
       const usuario = await obtenerOCrearUsuario(from);
       const mediaId = message.image && message.image.id;
       const phoneId = process.env.META_PHONE_NUMBER_ID;
-      console.log('[IMAGEN] media_id:', mediaId, 'phone_id:', phoneId);
+      const metaToken = process.env.META_ACCESS_TOKEN;
+      console.log('[IMAGEN] media_id:', mediaId, 'phone_id:', phoneId, 'token_ok:', !!metaToken);
       if (!mediaId) { await enviarWhatsapp(from, 'No pude recibir la imagen. Intenta de nuevo.'); return; }
       try {
-        // 1. Obtener URL de la imagen desde Meta API (requiere phone_number_id)
+        // 1. Obtener URL de la imagen desde Meta API
         const metaUrl = 'https://graph.facebook.com/v19.0/' + mediaId + '?phone_number_id=' + phoneId;
         const metaRes = await fetch(metaUrl, {
-          headers: { Authorization: 'Bearer ' + process.env.WHATSAPP_TOKEN }
+          headers: { Authorization: 'Bearer ' + metaToken }
         });
         const metaJson = await metaRes.json();
         console.log('[IMAGEN] metaJson:', JSON.stringify(metaJson).slice(0, 200));
@@ -855,7 +856,7 @@ app.post('/webhook', async (req, res) => {
 
         // 2. Descargar imagen como base64
         const imgRes = await fetch(metaJson.url, {
-          headers: { Authorization: 'Bearer ' + process.env.WHATSAPP_TOKEN }
+          headers: { Authorization: 'Bearer ' + metaToken }
         });
         if (!imgRes.ok) throw new Error('Error descargando imagen: ' + imgRes.status);
         const imgBuffer = await imgRes.arrayBuffer();
