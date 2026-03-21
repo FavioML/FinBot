@@ -702,12 +702,30 @@ async function detectarCategoriaIA(texto, usuarioId) {
 
 
 // Crea una categoría personalizada para el usuario si no existe
+function getEmojiCategoria(nombre) {
+  const cat = CATEGORIAS_SUGERIDAS.find(c => c.nombre.toLowerCase() === (nombre||'').toLowerCase());
+  return cat ? cat.emoji : null;
+}
+
+async function sugerirEmojiConIA(nombreCategoria) {
+  try {
+    const res = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: 'Dame UN solo emoji que mejor represente la categoría de gastos llamada "' + nombreCategoria + '". Responde SOLO con el emoji, sin texto.' }],
+      temperature: 0, max_tokens: 10
+    });
+    const emoji = res.choices[0].message.content.trim();
+    return emoji.length <= 4 ? emoji : '📁';
+  } catch(e) { return '📁'; }
+}
+
 async function crearCategoriaLibreUsuario(usuarioId, nombre) {
   try {
     const { data: existe } = await supabase.from('categorias_usuario')
       .select('id').eq('usuario_id', usuarioId).eq('nombre', nombre).is('padre_id', null).single();
     if (existe) return;
-    await supabase.from('categorias_usuario').insert({ usuario_id: usuarioId, nombre, emoji: '\uD83D\uDCC1', activa: true });
+    const emoji = getEmojiCategoria(nombre) || await sugerirEmojiConIA(nombre);
+    await supabase.from('categorias_usuario').insert({ usuario_id: usuarioId, nombre, emoji, activa: true });
   } catch(e) { /* silencioso */ }
 }
 
@@ -1327,9 +1345,19 @@ async function procesarMensajeLibre(msg, usuario, from) {
         }
         const totalMesN = txsMes.reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
         const porCatMes = {};
-        txsMes.forEach(t => { const cat = t.categoria || 'Otros'; porCatMes[cat] = (porCatMes[cat]||0) + parseFloat(t.monto_pen || t.monto || 0); });
-        const catMesStr = Object.entries(porCatMes).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([c,m]) => c + ': S/ ' + m.toFixed(0)).join(', ');
-        const ctxMes = mE[mes] + ' ' + anio + ': ' + txsMes.length + ' movimientos. Total: S/ ' + totalMesN.toFixed(0) + '. Categorias: ' + (catMesStr || 'sin datos');
+        const porSubMes = {};
+        txsMes.forEach(t => {
+          const cat = t.categoria || 'Otros'; const sub = t.subcategoria || 'sin_categoria';
+          porCatMes[cat] = (porCatMes[cat]||0) + parseFloat(t.monto_pen || t.monto || 0);
+          if (!porSubMes[cat]) porSubMes[cat] = {};
+          porSubMes[cat][sub] = (porSubMes[cat][sub]||0) + parseFloat(t.monto_pen || t.monto || 0);
+        });
+        const catMesStr = Object.entries(porCatMes).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([c,m]) => (getEmojiCategoria(c)||'') + ' ' + c + ': S/ ' + m.toFixed(0)).join(', ');
+        const subMesStr = Object.entries(porCatMes).sort((a,b)=>b[1]-a[1]).slice(0,4).map(([c]) => {
+          const subs = Object.entries(porSubMes[c]||{}).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([s,m])=>s+' S/'+m.toFixed(0)).join(', ');
+          return (getEmojiCategoria(c)||'') + c + ': ' + subs;
+        }).join(' | ');
+        const ctxMes = mE[mes] + ' ' + anio + ': ' + txsMes.length + ' movimientos. Total: S/ ' + totalMesN.toFixed(0) + '. Categorias con emoji: ' + (catMesStr || 'sin datos') + '. Subcategorias: ' + (subMesStr || 'sin datos') + '. Al final de tu respuesta, agrega en una nueva linea: "¿Quieres ver el detalle por subcategorías? 📊"';
         const respMes = await redactarConNETO(netoPrompt, ctxMes, msg, historialConv);
         return respMes || formatearResumen(txsMes, 'en ' + mE[mes]);
       }
@@ -1338,18 +1366,29 @@ async function procesarMensajeLibre(msg, usuario, from) {
         const txsSem = await obtenerGastosSemana(usuario.id);
         const totalSemN = txsSem.reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
         const porCatSem = {};
-        txsSem.forEach(t => { const cat = t.categoria || 'Otros'; porCatSem[cat] = (porCatSem[cat]||0) + parseFloat(t.monto_pen || t.monto || 0); });
-        const catSemStr = Object.entries(porCatSem).sort((a,b)=>b[1]-a[1]).slice(0,4).map(([c,m]) => c + ': S/ ' + m.toFixed(0)).join(', ');
+        const porSubSem = {};
+        txsSem.forEach(t => {
+          const cat = t.categoria || 'Otros'; const sub = t.subcategoria || 'sin_categoria';
+          porCatSem[cat] = (porCatSem[cat]||0) + parseFloat(t.monto_pen || t.monto || 0);
+          if (!porSubSem[cat]) porSubSem[cat] = {};
+          porSubSem[cat][sub] = (porSubSem[cat][sub]||0) + parseFloat(t.monto_pen || t.monto || 0);
+        });
+        const catSemStr = Object.entries(porCatSem).sort((a,b)=>b[1]-a[1]).slice(0,4).map(([c,m]) => (getEmojiCategoria(c)||'') + ' ' + c + ': S/ ' + m.toFixed(0)).join(', ');
         // Comparativa semana anterior
         const hace14 = new Date(); hace14.setDate(hace14.getDate()-14);
         const hace7 = new Date(); hace7.setDate(hace7.getDate()-7);
         const { data: txsAnt } = await supabase.from('transacciones').select('monto,monto_pen').eq('usuario_id', usuario.id).eq('tipo','gasto').gte('fecha', hace14.toISOString().split('T')[0]).lte('fecha', hace7.toISOString().split('T')[0]);
         const totalAnt = (txsAnt||[]).reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
         const diffSem = totalSemN - totalAnt;
+        const subSemStr = Object.entries(porCatSem).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([c]) => {
+          const subs = Object.entries(porSubSem[c]||{}).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([s,m])=>s+' S/'+m.toFixed(0)).join(', ');
+          return (getEmojiCategoria(c)||'') + c + ': ' + subs;
+        }).join(' | ');
         const ctxSem = 'Semana: ' + txsSem.length + ' movimientos. Total: S/ ' + totalSemN.toFixed(0) + '. ' +
           (totalAnt > 0 ? 'Semana anterior: S/ ' + totalAnt.toFixed(0) + '. Diferencia: ' + (diffSem >= 0 ? '+' : '') + 'S/ ' + diffSem.toFixed(0) + '. ' : '') +
-          'Top categorias: ' + (catSemStr || 'sin datos') + '. ' +
-          'Dia mas caro: ' + (txsSem.length > 0 ? txsSem.reduce((max,t) => parseFloat(t.monto_pen||t.monto||0) > parseFloat(max.monto_pen||max.monto||0) ? t : max, txsSem[0]).fecha : 'sin datos');
+          'Top categorias con emoji: ' + (catSemStr || 'sin datos') + '. Subcategorias: ' + (subSemStr || 'sin datos') + '. ' +
+          'Dia mas caro: ' + (txsSem.length > 0 ? txsSem.reduce((max,t) => parseFloat(t.monto_pen||t.monto||0) > parseFloat(max.monto_pen||max.monto||0) ? t : max, txsSem[0]).fecha : 'sin datos') +
+          '. Al final de tu respuesta agrega: "¿Quieres ver el detalle por subcategorías? 📊"';
         const respSem = await redactarConNETO(netoPrompt, ctxSem, msg, historialConv);
         return respSem || formatearResumen(txsSem, 'esta semana');
       }
@@ -1364,9 +1403,23 @@ async function procesarMensajeLibre(msg, usuario, from) {
           .eq('usuario_id', usuario.id).ilike('categoria', '%' + cat + '%')
           .gte('fecha', desde).lte('fecha', hasta).order('fecha', { ascending: false });
         if (!txs || txs.length === 0) return 'No encontre gastos en *' + cat + '* para ' + mE[mes] + ' ' + anio + '.';
-        const total = txs.reduce((s,t) => s + parseFloat(t.monto), 0);
-        let msgCat = '*Gastos en ' + cat + '* (' + mE[mes] + ' ' + anio + ')\n---------------\nTotal: *S/ ' + total.toFixed(2) + '*\n' + txs.length + ' transacciones\n\n';
-        txs.slice(0,10).forEach(t => { msgCat += '\u2022 ' + (t.comercio || t.banco || 'Sin nombre') + ' \u2014 S/ ' + parseFloat(t.monto).toFixed(2) + ' (' + t.fecha + ')\n'; });
+        const total = txs.reduce((s,t) => s + parseFloat(t.monto_pen || t.monto), 0);
+        const emojiCat = getEmojiCategoria(cat) || '';
+        let msgCat = emojiCat + ' *Gastos en ' + cat + '* (' + mE[mes] + ' ' + anio + ')\n\nTotal: *S/ ' + total.toFixed(2) + '*\n' + txs.length + ' transacciones\n\n';
+        // Agrupar por subcategoria
+        const porSub = {};
+        txs.forEach(t => { const s = t.subcategoria || 'sin_categoria'; if (!porSub[s]) porSub[s] = []; porSub[s].push(t); });
+        const subs = Object.keys(porSub);
+        if (subs.length > 1 && subs.some(s => s !== 'sin_categoria')) {
+          // Mostrar agrupado por subcategoria
+          Object.entries(porSub).forEach(([sub, txsSub]) => {
+            const totalSub = txsSub.reduce((s,t) => s + parseFloat(t.monto_pen || t.monto), 0);
+            msgCat += '*' + sub + '* — S/ ' + totalSub.toFixed(0) + '\n';
+            txsSub.slice(0,4).forEach(t => { msgCat += '  • ' + (t.comercio || t.banco || 'Sin nombre') + ' S/ ' + parseFloat(t.monto_pen || t.monto).toFixed(0) + ' (' + t.fecha + ')\n'; });
+          });
+        } else {
+          txs.slice(0,10).forEach(t => { msgCat += '• ' + (t.comercio || t.banco || 'Sin nombre') + ' — S/ ' + parseFloat(t.monto_pen || t.monto).toFixed(2) + ' (' + t.fecha + ')\n'; });
+        }
         if (txs.length > 10) msgCat += '_...y ' + (txs.length-10) + ' mas_';
         return msgCat;
       }
@@ -1390,11 +1443,13 @@ async function procesarMensajeLibre(msg, usuario, from) {
 
       case 'configurar_presupuesto': {
         if (datos.categoria && datos.monto) {
+          const alertaPct = datos.alerta_porcentaje || 80;
           await guardarPresupuesto(usuario.id, datos.categoria, datos.monto);
-          await supabase.from('presupuestos').update({ alerta_porcentaje: 80 }).eq('usuario_id', usuario.id).eq('categoria', datos.categoria);
-          return '\u2705 Presupuesto configurado:\n*' + datos.categoria + ':* S/ ' + parseFloat(datos.monto).toFixed(2) + '/mes\nTe aviso cuando llegues al 80%.';
+          await supabase.from('presupuestos').update({ alerta_porcentaje: alertaPct }).eq('usuario_id', usuario.id).eq('categoria', datos.categoria);
+          const emojiPres = getEmojiCategoria(datos.categoria) || '💰';
+          return '✅ Presupuesto configurado:\n' + emojiPres + ' *' + datos.categoria + ':* S/ ' + parseFloat(datos.monto).toFixed(2) + '/mes\n🔔 Te aviso cuando llegues al ' + alertaPct + '%.\n\n_Puedes cambiar el % de alerta: "alerta de Comida al 70%"_';
         }
-        return 'Dime la categoria y el monto.\nEj: _"limite de 500 soles en Comida"_';
+        return '💰 Dime la categoría y el monto.\n\nEj:\n• _"límite de S/500 en Alimentación"_\n• _"presupuesto S/200 en Transporte, aviso al 70%"_';
       }
 
       case 'ver_categorias':
