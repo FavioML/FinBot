@@ -134,6 +134,45 @@ function normalizarCategoria(cat) {
   return 'Otros';
 }
 
+// ─── Freemium Configuration ─────────────────────────────────────────
+const FREEMIUM_ACTIVE = false; // Master switch: false = todos acceden a todo (fase de prueba)
+
+const PLAN_CONFIG = {
+  free: {
+    historyMonths: 3,            // Solo últimos 3 meses visibles en queries
+    reportesPerMonth: 1,         // 1 reporte por mes
+    excelUpload: false,          // Sin carga de gastos históricos
+    dashboardTTL: 1,             // 1 hora de expiración
+    weeklyResumen: false,        // Sin resumen semanal automático
+    scoreFinanciero: false,      // Sin score de salud financiera
+    resumenesConfig: false,      // Sin resúmenes configurables
+  },
+  premium: {
+    historyMonths: null,         // Ilimitado
+    reportesPerMonth: Infinity,  // Ilimitado
+    excelUpload: true,           // Carga de gastos históricos
+    dashboardTTL: 24,            // 24 horas de expiración
+    weeklyResumen: true,         // Resumen semanal automático
+    scoreFinanciero: true,       // Score de salud financiera
+    resumenesConfig: true,       // Resúmenes configurables
+  }
+};
+
+function getUserPlanConfig(usuario) {
+  if (!FREEMIUM_ACTIVE) return PLAN_CONFIG.premium;
+  const plan = usuario.plan || 'free';
+  return PLAN_CONFIG[plan] || PLAN_CONFIG.free;
+}
+
+function getHistoryDateLimit(usuario) {
+  const config = getUserPlanConfig(usuario);
+  if (!config.historyMonths) return null;
+  const limit = new Date();
+  limit.setMonth(limit.getMonth() - config.historyMonths);
+  return limit.toISOString().split('T')[0];
+}
+// ─── Fin Freemium Configuration ─────────────────────────────────────
+
 async function guardarTransaccion(usuarioId, datos) {
   const _moneda = datos.moneda || 'PEN';
   let _montoPen = parseFloat(datos.monto); let _tcUsado = null;
@@ -157,19 +196,22 @@ async function guardarTransaccion(usuarioId, datos) {
   return data;
 }
 
-async function obtenerGastosMes(usuarioId) {
+async function obtenerGastosMes(usuarioId, fechaMinima) {
   const hoy = new Date();
   const primero = new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString().split('T')[0];
+  const desde = fechaMinima && fechaMinima > primero ? fechaMinima : primero;
   const { data } = await supabase.from('transacciones').select('*').eq('usuario_id', usuarioId)
-    .eq('tipo', 'gasto').gte('fecha', primero).order('fecha', { ascending: false });
+    .eq('tipo', 'gasto').gte('fecha', desde).order('fecha', { ascending: false });
   return data || [];
 }
 
-async function obtenerGastosSemana(usuarioId) {
+async function obtenerGastosSemana(usuarioId, fechaMinima) {
   const hace7 = new Date();
   hace7.setDate(hace7.getDate() - 7);
+  const desdeStr = hace7.toISOString().split('T')[0];
+  const desde = fechaMinima && fechaMinima > desdeStr ? fechaMinima : desdeStr;
   const { data } = await supabase.from('transacciones').select('*').eq('usuario_id', usuarioId)
-    .eq('tipo', 'gasto').gte('fecha', hace7.toISOString().split('T')[0]).order('fecha', { ascending: false });
+    .eq('tipo', 'gasto').gte('fecha', desde).order('fecha', { ascending: false });
   return data || [];
 }
 
@@ -908,6 +950,160 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
+    // --- Manejo de documentos (Excel para carga de gastos históricos) ---
+    if (message.type === 'document') {
+      const usuario = await obtenerOCrearUsuario(from);
+      const config = getUserPlanConfig(usuario);
+
+      if (!config.excelUpload) {
+        await enviarWhatsapp(from, '📄 La carga de gastos históricos es una función *Pro*.\n\nEscribe */premium* para activarla.');
+        return;
+      }
+
+      const doc = message.document;
+      const fileName = (doc && doc.filename) || '';
+      const docMime = (doc && doc.mime_type) || '';
+
+      if (!fileName.endsWith('.xlsx') && !docMime.includes('spreadsheet') && !docMime.includes('excel') && !docMime.includes('officedocument')) {
+        await enviarWhatsapp(from, '📄 Solo acepto archivos Excel (.xlsx).\n\nDescarga la plantilla en: neto.pe/plantilla_gastos.xlsx');
+        return;
+      }
+
+      const mediaId = doc && doc.id;
+      if (!mediaId) { await enviarWhatsapp(from, 'No pude recibir el archivo. Intenta de nuevo.'); return; }
+
+      try {
+        await enviarWhatsapp(from, '📊 Procesando tu archivo de gastos... ⏳');
+
+        // 1. Descargar desde Meta API (mismo patrón que imágenes)
+        const metaToken = process.env.META_ACCESS_TOKEN;
+        const phoneId = process.env.META_PHONE_NUMBER_ID;
+        const metaUrl = 'https://graph.facebook.com/v19.0/' + mediaId + '?phone_number_id=' + phoneId;
+        const metaRes = await fetch(metaUrl, { headers: { Authorization: 'Bearer ' + metaToken } });
+        const metaJson = await metaRes.json();
+        if (!metaJson.url) throw new Error('Meta no devolvió URL del documento');
+
+        const fileRes = await fetch(metaJson.url, { headers: { Authorization: 'Bearer ' + metaToken } });
+        if (!fileRes.ok) throw new Error('Error descargando archivo: ' + fileRes.status);
+        const fileBuffer = Buffer.from(await fileRes.arrayBuffer());
+        console.log('[EXCEL] Archivo descargado, size:', fileBuffer.byteLength);
+
+        // 2. Parsear con exceljs
+        const ExcelJS = require('exceljs');
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.load(fileBuffer);
+        const sheet = workbook.getWorksheet(1);
+        if (!sheet) throw new Error('El archivo no tiene hojas de cálculo');
+
+        // 3. Detectar header row y extraer datos
+        const rows = [];
+        let headerRow = null;
+        sheet.eachRow((row, rowNumber) => {
+          const vals = row.values.slice(1); // exceljs es 1-indexed
+          const firstVal = String(vals[0] || '').toLowerCase();
+          if (firstVal.includes('fecha') || firstVal.includes('date')) {
+            headerRow = rowNumber;
+            return;
+          }
+          if (headerRow && rowNumber > headerRow) {
+            const fecha = vals[0];
+            const monto = parseFloat(vals[1]);
+            const comercio = String(vals[2] || '').trim();
+            const categoria = String(vals[3] || '').trim();
+            const metodo = String(vals[4] || '').trim();
+            const banco = String(vals[5] || '').trim();
+
+            if (!fecha || isNaN(monto) || monto <= 0 || !comercio) return; // Skip filas inválidas
+
+            // Normalizar fecha
+            let fechaStr;
+            if (fecha instanceof Date) {
+              fechaStr = fecha.toISOString().split('T')[0];
+            } else {
+              fechaStr = String(fecha).trim();
+              const parts = fechaStr.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+              if (parts) fechaStr = parts[3] + '-' + parts[2].padStart(2, '0') + '-' + parts[1].padStart(2, '0');
+            }
+
+            rows.push({ fecha: fechaStr, monto, comercio, categoria, subcategoria: null, metodo_pago: metodo || null, banco: banco || null });
+          }
+        });
+
+        if (rows.length === 0) throw new Error('No encontré datos válidos en el archivo. Asegúrate de usar la plantilla correcta.');
+        if (rows.length > 500) throw new Error('Máximo 500 transacciones por archivo. Tu archivo tiene ' + rows.length + '.');
+
+        // 4. Auto-categorizar filas sin categoría usando GPT-4o-mini
+        const sinCategoria = rows.filter(r => !r.categoria);
+        if (sinCategoria.length > 0) {
+          const batchSize = 50;
+          for (let i = 0; i < sinCategoria.length; i += batchSize) {
+            const batch = sinCategoria.slice(i, i + batchSize);
+            const prompt = 'Categoriza cada gasto. Categorías válidas: Alimentación, Transporte, Vivienda, Salud, Entretenimiento, Compras, Educación, Finanzas, Trabajo_Negocio, Otros.\nDevuelve SOLO un JSON array: [{"index":0,"categoria":"...","subcategoria":"..."},...].\nGastos:\n' +
+              batch.map((r, idx) => idx + '. ' + r.comercio + ' S/' + r.monto).join('\n');
+
+            try {
+              const catRes = await openai.chat.completions.create({
+                model: 'gpt-4o-mini',
+                messages: [{ role: 'user', content: prompt }],
+                temperature: 0
+              });
+              const raw = catRes.choices[0].message.content.trim();
+              const start = raw.indexOf('['); const end = raw.lastIndexOf(']');
+              if (start >= 0 && end >= 0) {
+                const cats = JSON.parse(raw.slice(start, end + 1));
+                cats.forEach(c => {
+                  if (batch[c.index]) {
+                    batch[c.index].categoria = c.categoria;
+                    batch[c.index].subcategoria = c.subcategoria;
+                  }
+                });
+              }
+            } catch(catErr) {
+              console.error('[EXCEL] Error categorizando batch:', catErr.message);
+            }
+          }
+        }
+
+        // 5. Insertar transacciones
+        let insertados = 0, errores = 0;
+        for (const row of rows) {
+          try {
+            await guardarTransaccion(usuario.id, {
+              tipo: 'gasto',
+              monto: row.monto,
+              moneda: 'PEN',
+              comercio: row.comercio,
+              categoria: row.categoria || 'Otros',
+              subcategoria: row.subcategoria || 'sin_categoria',
+              metodo_pago: row.metodo_pago,
+              banco: row.banco,
+              fecha: row.fecha,
+              descripcion_original: 'Excel: ' + row.comercio
+            });
+            insertados++;
+          } catch(insErr) {
+            errores++;
+            console.error('[EXCEL] Error insertando fila:', insErr.message);
+          }
+        }
+
+        // 6. Resumen
+        const totalMonto = rows.reduce((s, r) => s + r.monto, 0);
+        await enviarWhatsapp(from,
+          '✅ *Carga completada*\n\n' +
+          '📊 ' + insertados + ' transacciones registradas\n' +
+          '💰 Total: S/ ' + totalMonto.toFixed(2) + '\n' +
+          (errores > 0 ? '⚠️ ' + errores + ' filas con error\n' : '') +
+          '\n_Escribe "mis gastos" para ver tu resumen actualizado._'
+        );
+        console.log('[EXCEL] Carga completada: ' + insertados + ' ok, ' + errores + ' errores');
+      } catch(e) {
+        console.error('[EXCEL] Error:', e.message);
+        await enviarWhatsapp(from, '❌ Error procesando el archivo: ' + e.message + '\n\nDescarga la plantilla correcta en: neto.pe/plantilla_gastos.xlsx');
+      }
+      return;
+    }
+
     if (message.type !== 'text') return;
     const msg = (message.text.body || '').trim();
     console.log('[MSG] [' + from + ']: ' + msg);
@@ -1473,7 +1669,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       model: 'gpt-4o-mini',
       messages: [{
         role: 'system',
-        content: 'Eres el clasificador de intenciones de NETO, bot de finanzas personales por WhatsApp para usuarios peruanos.\nEl mes actual es ' + mE[mesActual] + ' ' + anioActual + '.\n\nAnaliza el mensaje y devuelve SOLO JSON.\n\nINTENCIONES:\n1. "listar_gastos_mes" - ver resumen/lista de gastos del mes\n   Ej: "cuales son mis gastos", "que gaste este mes", "gastos registrados", "que tengo registrado", "mis compras", "transacciones"\n   Datos: mes (numero, default=mes_actual), anio\n\n2. "listar_gastos_semana" - gastos de los ultimos 7 dias\n   Ej: "que gaste esta semana", "gastos recientes", "mis compras de los ultimos dias"\n\n3. "listar_gastos_categoria" - gastos de UNA categoria especifica\n   Ej: "que hay en Otros", "gastos de Alimentación", "que esta en Transporte", "detalle de Hogar", "cuales estan en otros"\n   Datos: categoria (nombre exacto), mes (default=mes_actual)\n\n4. "ver_total_gastado" - saber el TOTAL numerico gastado\n   Ej: "cuanto gaste", "cuanto llevo gastado", "total de gastos"\n   Datos: periodo ("semana" o "mes"), categoria (o null)\n\n5. "ver_presupuesto" - ver estado del presupuesto\n   Ej: "como va mi presupuesto", "cuanto me queda", "mis limites"\n\n6. "configurar_presupuesto" - configurar limite de gasto\n   Ej: "pon limite de 500 en comida", "presupuesto de 300 para transporte"\n   Datos: categoria, monto\n\n7. "ver_categorias" - ver categorias configuradas del sistema\n   Ej: "que categorias hay", "muestra las categorias del sistema"\n   IMPORTANTE: Si el historial muestra que NETO estaba hablando de gastos por categoria, NO usar esta intencion\n\n8. "ver_reporte" - reporte PDF\n   Ej: "dame mi reporte", "informe mensual", "reporte de marzo", "genera pdf"\n   Datos: mes (default=mes_actual), anio\n\n9. "corregir_categoria" - cambiar categoria de un gasto\n   Ej: "netflix es streaming", "cambia uber a transporte", "ponlo en Hogar", "muevelo a Delivery", "este gasto es de Comida", "ponlo en la categoria NETO", "categorizalo en Trabajo", "muevelo a Herramientas", "regístralo en alimentación", "es alimentación porque compré pan", "ponlo en comida", "es de transporte"\n   IMPORTANTE: Usar cuando el usuario quiere mover/cambiar/reclasificar un gasto a cualquier categoria (incluso una categoría personalizada no canónica como "NETO", "Mascota", etc). comercio puede ser null. También usar cuando el historial muestra que NETO acaba de registrar un gasto (desde imagen o notificación) y el usuario corrige la categoría.\n   Datos: comercio (null si no se menciona), categoria_nueva (el nombre exacto que dijo el usuario)\n\n10. "ver_pendientes" - gastos sin identificar\n    Ej: "gastos pendientes", "que no identificaste", "gastos sin categoria"\n\n11. "escanear_gmail" - escanear correos\n    Ej: "escanea mi correo", "busca transacciones nuevas", "hay correos nuevos"\n\n12. "ver_premium" - info del plan premium\n    Ej: "cuanto cuesta premium", "que incluye el plan"\n\n13. "saludo" - saludo sin intencion especifica\n    Ej: "buenos dias", "que tal", "como estas"\n\n14. "ayuda" - pide ayuda\n    Ej: "que puedes hacer", "ayuda", "como funciona"\n\n15. "registrar_manual" - el usuario quiere registrar un gasto o ingreso NUEVO\n   Ej: "gaste 50 soles en farmacia", "anota S/120 en ropa", "mi sueldo fue S/4500", "cobré S/800 de honorarios", "registra un ingreso de S/3500", "pague 200 en gasolina ayer"\n   IMPORTANTE: NO usar si el historial muestra que NETO acaba de notificar un gasto existente y el usuario está corrigiendo su moneda o monto (ej: "el gasto es USD 95", "son dolares", "el importe es 25 USD" → usar corregir_monto_moneda).\n   Datos: ninguno (se parsea el mensaje completo)\n\n16. "desconocido" - no encaja con ninguna intencion clara, o es continuacion de conversacion\n    Usar cuando: el mensaje es "si", "no", "dale", "ok", "mas", o cualquier respuesta corta a algo que NETO pregunto\n\n17. "corregir_monto_moneda" - el usuario indica que la moneda o monto de un gasto YA REGISTRADO está incorrecto\n   Ej: "el gasto es en dolares", "es en USD no en soles", "corrígelo son $25", "el monto es USD 25", "son 25 dolares", "el importe es en dolares", "eso es en USD", "el gasto es USD 95.07", "cambiale la moneda a dolares", "es dolar no sol"\n   IMPORTANTE: Solo cuando el historial muestra que se habla de un gasto existente ya notificado por NETO.\n   Datos: monto (numero o null), moneda ("USD" o "PEN" o null)\n\n18. "corregir_multiple" - el usuario da 2 o más instrucciones de corrección de categoría en el mismo mensaje, cada una referenciando un comercio/gasto diferente\n   Ej: "Netflix pasalo a Entretenimiento · Uber a Transporte · BCP comision a Finanzas", "E S NEUQUEN pasalo a gasolina\\nEdita Pal menu\\nEdita Pal (18/03) pasalo a menu"\n   IMPORTANTE: Usar cuando hay CLARAMENTE múltiples correcciones distintas en el mensaje (2+). Si solo hay una, usar corregir_categoria.\n   Datos: ninguno (se parsea el mensaje completo)\n\n19. "agregar_gmail" - el usuario quiere conectar una cuenta Gmail adicional (ya tiene una conectada)\n   Ej: "quiero agregar otro correo", "conectar una segunda cuenta de gmail", "agregar otro gmail", "tengo otro correo que quiero añadir"\n   Datos: ninguno\n\n20. "cambiar_gmail" - el usuario quiere reemplazar/cambiar su cuenta Gmail actual\n   Ej: "quiero cambiar mi cuenta", "me equivoqué de correo", "cambiar el gmail", "reconectar mi correo", "el correo que puse está mal", "quiero usar otro gmail"\n   Datos: ninguno\n\n21. "preferencia_reporte_gmail" - el usuario quiere configurar si sus reportes son unificados o separados por cuenta Gmail\n   Ej: "quiero los reportes separados por cuenta", "unifica mis correos en un solo reporte", "muéstrame por separado cada gmail"\n   Datos: modo ("unificado" o "separado")\n\nREGLAS CRITICAS:\n- Si el historial muestra que NETO hizo una pregunta y el usuario responde con "si", "no", "dale", "ok", "mas detalle", "eso", "las dos", o cualquier respuesta corta -> usar "desconocido" para que NETO maneje la continuacion\n- Si NETO acaba de notificar "Nuevo gasto" y el usuario dice algo como "el gasto es USD X" o "son dolares" -> usar "corregir_monto_moneda", NO "registrar_manual"\n- Si NETO acaba de registrar un gasto desde una imagen (historial muestra "Registré desde la imagen" o "📸") y el usuario dice la categoría o cómo corregirlo -> usar "corregir_categoria", NO "registrar_manual". Ej: "regístralo en alimentación", "ponlo en comida", "es alimentación porque compré pan", "cambialo a transporte"\n- Si el historial muestra que NETO hablaba de gastos por categoria y el usuario dice "otras categorias" o similar -> usar "desconocido" no "ver_categorias"\n- "otros" como categoria de gasto -> listar_gastos_categoria con categoria="Otros"\n- "cuanto gaste" sin periodo -> ver_total_gastado con periodo="mes"\n- "gastos registrados"/"que tengo" -> listar_gastos_mes\n- mes: enero=1, febrero=2, marzo=3, ..., diciembre=12\n- Si no especifica mes -> usar mes_actual' + histCtx
+        content: 'Eres el clasificador de intenciones de NETO, bot de finanzas personales por WhatsApp para usuarios peruanos.\nEl mes actual es ' + mE[mesActual] + ' ' + anioActual + '.\n\nAnaliza el mensaje y devuelve SOLO JSON.\n\nINTENCIONES:\n1. "listar_gastos_mes" - ver resumen/lista de gastos del mes\n   Ej: "cuales son mis gastos", "que gaste este mes", "gastos registrados", "que tengo registrado", "mis compras", "transacciones"\n   Datos: mes (numero, default=mes_actual), anio\n\n2. "listar_gastos_semana" - gastos de los ultimos 7 dias\n   Ej: "que gaste esta semana", "gastos recientes", "mis compras de los ultimos dias"\n\n3. "listar_gastos_categoria" - gastos de UNA categoria especifica\n   Ej: "que hay en Otros", "gastos de Alimentación", "que esta en Transporte", "detalle de Hogar", "cuales estan en otros"\n   Datos: categoria (nombre exacto), mes (default=mes_actual)\n\n4. "ver_total_gastado" - saber el TOTAL numerico gastado\n   Ej: "cuanto gaste", "cuanto llevo gastado", "total de gastos"\n   Datos: periodo ("semana" o "mes"), categoria (o null)\n\n5. "ver_presupuesto" - ver estado del presupuesto\n   Ej: "como va mi presupuesto", "cuanto me queda", "mis limites"\n\n6. "configurar_presupuesto" - configurar limite de gasto\n   Ej: "pon limite de 500 en comida", "presupuesto de 300 para transporte"\n   Datos: categoria, monto\n\n7. "ver_categorias" - ver categorias configuradas del sistema\n   Ej: "que categorias hay", "muestra las categorias del sistema"\n   IMPORTANTE: Si el historial muestra que NETO estaba hablando de gastos por categoria, NO usar esta intencion\n\n8. "ver_reporte" - reporte PDF\n   Ej: "dame mi reporte", "informe mensual", "reporte de marzo", "genera pdf"\n   Datos: mes (default=mes_actual), anio\n\n9. "corregir_categoria" - cambiar categoria de un gasto\n   Ej: "netflix es streaming", "cambia uber a transporte", "ponlo en Hogar", "muevelo a Delivery", "este gasto es de Comida", "ponlo en la categoria NETO", "categorizalo en Trabajo", "muevelo a Herramientas", "regístralo en alimentación", "es alimentación porque compré pan", "ponlo en comida", "es de transporte"\n   IMPORTANTE: Usar cuando el usuario quiere mover/cambiar/reclasificar un gasto a cualquier categoria (incluso una categoría personalizada no canónica como "NETO", "Mascota", etc). comercio puede ser null. También usar cuando el historial muestra que NETO acaba de registrar un gasto (desde imagen o notificación) y el usuario corrige la categoría.\n   Datos: comercio (null si no se menciona), categoria_nueva (el nombre exacto que dijo el usuario)\n\n10. "ver_pendientes" - gastos sin identificar\n    Ej: "gastos pendientes", "que no identificaste", "gastos sin categoria"\n\n11. "escanear_gmail" - escanear correos\n    Ej: "escanea mi correo", "busca transacciones nuevas", "hay correos nuevos"\n\n12. "ver_premium" - info del plan premium\n    Ej: "cuanto cuesta premium", "que incluye el plan"\n\n13. "saludo" - saludo sin intencion especifica\n    Ej: "buenos dias", "que tal", "como estas"\n\n14. "ayuda" - pide ayuda\n    Ej: "que puedes hacer", "ayuda", "como funciona"\n\n15. "registrar_manual" - el usuario quiere registrar un gasto o ingreso NUEVO\n   Ej: "gaste 50 soles en farmacia", "anota S/120 en ropa", "mi sueldo fue S/4500", "cobré S/800 de honorarios", "registra un ingreso de S/3500", "pague 200 en gasolina ayer"\n   IMPORTANTE: NO usar si el historial muestra que NETO acaba de notificar un gasto existente y el usuario está corrigiendo su moneda o monto (ej: "el gasto es USD 95", "son dolares", "el importe es 25 USD" → usar corregir_monto_moneda).\n   Datos: ninguno (se parsea el mensaje completo)\n\n16. "desconocido" - no encaja con ninguna intencion clara, o es continuacion de conversacion\n    Usar cuando: el mensaje es "si", "no", "dale", "ok", "mas", o cualquier respuesta corta a algo que NETO pregunto\n\n17. "corregir_monto_moneda" - el usuario indica que la moneda o monto de un gasto YA REGISTRADO está incorrecto\n   Ej: "el gasto es en dolares", "es en USD no en soles", "corrígelo son $25", "el monto es USD 25", "son 25 dolares", "el importe es en dolares", "eso es en USD", "el gasto es USD 95.07", "cambiale la moneda a dolares", "es dolar no sol"\n   IMPORTANTE: Solo cuando el historial muestra que se habla de un gasto existente ya notificado por NETO.\n   Datos: monto (numero o null), moneda ("USD" o "PEN" o null)\n\n18. "corregir_multiple" - el usuario da 2 o más instrucciones de corrección de categoría en el mismo mensaje, cada una referenciando un comercio/gasto diferente\n   Ej: "Netflix pasalo a Entretenimiento · Uber a Transporte · BCP comision a Finanzas", "E S NEUQUEN pasalo a gasolina\\nEdita Pal menu\\nEdita Pal (18/03) pasalo a menu"\n   IMPORTANTE: Usar cuando hay CLARAMENTE múltiples correcciones distintas en el mensaje (2+). Si solo hay una, usar corregir_categoria.\n   Datos: ninguno (se parsea el mensaje completo)\n\n19. "agregar_gmail" - el usuario quiere conectar una cuenta Gmail adicional (ya tiene una conectada)\n   Ej: "quiero agregar otro correo", "conectar una segunda cuenta de gmail", "agregar otro gmail", "tengo otro correo que quiero añadir"\n   Datos: ninguno\n\n20. "cambiar_gmail" - el usuario quiere reemplazar/cambiar su cuenta Gmail actual\n   Ej: "quiero cambiar mi cuenta", "me equivoqué de correo", "cambiar el gmail", "reconectar mi correo", "el correo que puse está mal", "quiero usar otro gmail"\n   Datos: ninguno\n\n21. "preferencia_reporte_gmail" - el usuario quiere configurar si sus reportes son unificados o separados por cuenta Gmail\n   Ej: "quiero los reportes separados por cuenta", "unifica mis correos en un solo reporte", "muéstrame por separado cada gmail"\n   Datos: modo ("unificado" o "separado")\n\n22. "cargar_excel" - el usuario quiere cargar gastos historicos desde un archivo Excel o quiere la plantilla\n   Ej: "quiero cargar mis gastos", "como subo mi historial", "tengo un Excel con mis gastos", "plantilla de gastos", "cargar gastos antiguos", "importar gastos"\n   Datos: ninguno\n\nREGLAS CRITICAS:\n- Si el historial muestra que NETO hizo una pregunta y el usuario responde con "si", "no", "dale", "ok", "mas detalle", "eso", "las dos", o cualquier respuesta corta -> usar "desconocido" para que NETO maneje la continuacion\n- Si NETO acaba de notificar "Nuevo gasto" y el usuario dice algo como "el gasto es USD X" o "son dolares" -> usar "corregir_monto_moneda", NO "registrar_manual"\n- Si NETO acaba de registrar un gasto desde una imagen (historial muestra "Registré desde la imagen" o "📸") y el usuario dice la categoría o cómo corregirlo -> usar "corregir_categoria", NO "registrar_manual". Ej: "regístralo en alimentación", "ponlo en comida", "es alimentación porque compré pan", "cambialo a transporte"\n- Si el historial muestra que NETO hablaba de gastos por categoria y el usuario dice "otras categorias" o similar -> usar "desconocido" no "ver_categorias"\n- "otros" como categoria de gasto -> listar_gastos_categoria con categoria="Otros"\n- "cuanto gaste" sin periodo -> ver_total_gastado con periodo="mes"\n- "gastos registrados"/"que tengo" -> listar_gastos_mes\n- mes: enero=1, febrero=2, marzo=3, ..., diciembre=12\n- Si no especifica mes -> usar mes_actual' + histCtx
       }, {
         role: 'user',
         content: msg
@@ -1536,11 +1732,13 @@ async function procesarMensajeLibre(msg, usuario, from) {
     switch (intencion) {
 
       case 'listar_gastos_mes': {
+        const fechaMinLgm = getHistoryDateLimit(usuario);
         // Si tiene 2+ cuentas Gmail y modo separado, mostrar por cuenta
         const cuentasGm = await obtenerCuentasGmail(usuario.id);
         if (cuentasGm.length >= 2 && usuario.reporte_gmail_modo === 'separado') {
           const mes2 = datos.mes || mesActual; const anio2 = datos.anio || anioActual;
           const desde2 = anio2+'-'+String(mes2).padStart(2,'0')+'-01';
+          if (fechaMinLgm && desde2 < fechaMinLgm) return '🔒 Tu plan gratuito solo muestra los últimos 3 meses de historial.\n\nEscribe */premium* para desbloquear todo tu historial.';
           const hasta2 = anio2+'-'+String(mes2).padStart(2,'0')+'-31';
           const { data: txsTodas } = await supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).gte('fecha', desde2).lte('fecha', hasta2);
           // Agrupar por cuenta_email (campo que se agrega en futuros registros)
@@ -1556,9 +1754,10 @@ async function procesarMensajeLibre(msg, usuario, from) {
         const anio = datos.anio || anioActual;
         let txsMes;
         if (mes === mesActual && anio === anioActual) {
-          txsMes = await obtenerGastosMes(usuario.id);
+          txsMes = await obtenerGastosMes(usuario.id, fechaMinLgm);
         } else {
           const desde = anio + '-' + String(mes).padStart(2,'0') + '-01';
+          if (fechaMinLgm && desde < fechaMinLgm) return '🔒 Tu plan gratuito solo muestra los últimos 3 meses de historial.\n\nEscribe */premium* para desbloquear todo tu historial.';
           const hasta = anio + '-' + String(mes).padStart(2,'0') + '-31';
           const { data } = await supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).gte('fecha', desde).lte('fecha', hasta).order('fecha', { ascending: false });
           txsMes = data || [];
@@ -1613,11 +1812,13 @@ async function procesarMensajeLibre(msg, usuario, from) {
         return respSem || formatearResumen(txsSem, 'esta semana');
       }
             case 'listar_gastos_categoria': {
+        const fechaMinLgc = getHistoryDateLimit(usuario);
         const cat = datos.categoria;
         if (!cat) return 'Dime la categoria. Ej: _"gastos de Alimentación"_, _"que hay en Transporte"_';
         const mes = datos.mes || mesActual;
         const anio = datos.anio || anioActual;
         const desde = anio + '-' + String(mes).padStart(2,'0') + '-01';
+        if (fechaMinLgc && desde < fechaMinLgc) return '🔒 Tu plan gratuito solo muestra los últimos 3 meses de historial.\n\nEscribe */premium* para desbloquear todo tu historial.';
         const hasta = anio + '-' + String(mes).padStart(2,'0') + '-31';
         const { data: txs } = await supabase.from('transacciones').select('*')
           .eq('usuario_id', usuario.id).ilike('categoria', '%' + cat + '%')
@@ -1645,9 +1846,10 @@ async function procesarMensajeLibre(msg, usuario, from) {
       }
 
       case 'ver_total_gastado': {
+        const fechaMinVt = getHistoryDateLimit(usuario);
         const periodoVt = datos.periodo || 'mes';
         const catVt = datos.categoria;
-        let txsVt = periodoVt === 'semana' ? await obtenerGastosSemana(usuario.id) : await obtenerGastosMes(usuario.id);
+        let txsVt = periodoVt === 'semana' ? await obtenerGastosSemana(usuario.id, fechaMinVt) : await obtenerGastosMes(usuario.id, fechaMinVt);
         if (catVt) txsVt = txsVt.filter(t => (t.categoria||'').toLowerCase().includes(catVt.toLowerCase()));
         const totalVt = txsVt.reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
         const ctxVt = (catVt ? 'Categoria ' + catVt + ' en ' : 'Total ') + periodoVt + ': S/ ' + totalVt.toFixed(0) + ' en ' + txsVt.length + ' movimientos.';
@@ -1902,6 +2104,18 @@ async function procesarMensajeLibre(msg, usuario, from) {
         const ctxAyu = 'El usuario pregunta que puede hacer NETO o como funciona. Explica brevemente las capacidades: ver gastos, resumen semanal y mensual, presupuestos, reporte PDF, corregir categorias. Todo en tono NETO.';
         const respAyu = await redactarConNETO(netoPrompt, ctxAyu, msg, historialConv);
         return respAyu || 'Puedo ayudarte con tus gastos, presupuestos y reportes. Escribe como quieras: _"cuanto gaste esta semana"_, _"como va mi delivery"_, _"dame mi reporte"_. \u00bfPor donde empezamos?';
+      }
+
+      case 'cargar_excel': {
+        const configCe = getUserPlanConfig(usuario);
+        if (!configCe.excelUpload) {
+          return '📄 La carga de gastos históricos es una función *Pro*.\n\nEscribe */premium* para activarla.';
+        }
+        return '📊 *Carga de gastos históricos*\n\n' +
+          '1️⃣ Descarga la plantilla: neto.pe/plantilla_gastos.xlsx\n' +
+          '2️⃣ Completa tus gastos (máximo 500)\n' +
+          '3️⃣ Envíame el archivo por este chat\n\n' +
+          '_La categoría es opcional — NETO la asigna automáticamente con IA._ 🤖';
       }
 
       default: {

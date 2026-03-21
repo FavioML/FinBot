@@ -5,15 +5,16 @@ import { Check, X, Zap, Crown } from "lucide-react";
 const WA_LINK =
   "https://wa.me/51933014505?text=Hola%20Neto%2C%20quiero%20empezar%20a%20ordenar%20mis%20finanzas%20%F0%9F%91%8B";
 
-const COMPARISON = [
-  { feature: "Resumen de gastos por WhatsApp", free: true, pro: true },
+const COMPARISON: { feature: string; free: boolean; pro: boolean; freeLabel?: string; proLabel?: string }[] = [
+  { feature: "Resumen diario, semanal y mensual", free: true, pro: true },
   { feature: "Categorización automática con IA", free: true, pro: true },
   { feature: "Corrección de categorías", free: true, pro: true },
   { feature: "Consultas en lenguaje natural", free: true, pro: true },
+  { feature: "Historial", free: true, pro: true, freeLabel: "3 meses", proLabel: "Ilimitado" },
   { feature: "Reportes web mensuales", free: false, pro: true },
-  { feature: "Historial ilimitado", free: false, pro: true },
   { feature: "Resúmenes configurables", free: false, pro: true },
   { feature: "Score de salud financiera", free: false, pro: true },
+  { feature: "Carga de gastos históricos (Excel)", free: false, pro: true },
 ];
 
 export default function Pricing() {
@@ -76,7 +77,7 @@ export default function Pricing() {
                       </div>
                     )}
                     <span className={`text-sm ${row.free ? "text-[#bccac1]" : "text-[#87948c]/40"}`}>
-                      {row.feature}
+                      {row.feature}{row.freeLabel ? ` (${row.freeLabel})` : ""}
                     </span>
                   </li>
                 ))}
@@ -132,12 +133,12 @@ export default function Pricing() {
                 {COMPARISON.map((row) => (
                   <li key={row.feature} className="flex items-start gap-3">
                     <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
-                      row.pro && !row.free ? "bg-[#1D9E75]" : "bg-[#1D9E75]/15"
+                      (row.pro && !row.free) || row.proLabel ? "bg-[#1D9E75]" : "bg-[#1D9E75]/15"
                     }`}>
-                      <Check size={12} className={row.pro && !row.free ? "text-white" : "text-[#1D9E75]"} />
+                      <Check size={12} className={(row.pro && !row.free) || row.proLabel ? "text-white" : "text-[#1D9E75]"} />
                     </div>
-                    <span className={`text-sm ${row.pro && !row.free ? "text-[#e5e2de] font-medium" : "text-[#bccac1]"}`}>
-                      {row.feature}
+                    <span className={`text-sm ${row.pro && !row.free ? "text-[#e5e2de] font-medium" : row.proLabel ? "text-[#e5e2de] font-medium" : "text-[#bccac1]"}`}>
+                      {row.proLabel ? `${row.feature} (${row.proLabel})` : row.feature}
                     </span>
                   </li>
                 ))}
