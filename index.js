@@ -840,11 +840,15 @@ app.post('/webhook', async (req, res) => {
     if (message.type === 'image') {
       const usuario = await obtenerOCrearUsuario(from);
       const mediaId = message.image && message.image.id;
-      console.log('[IMAGEN] media_id:', mediaId);
+      const phoneId = process.env.META_PHONE_NUMBER_ID;
+      console.log('[IMAGEN] media_id:', mediaId, 'phone_id:', phoneId);
       if (!mediaId) { await enviarWhatsapp(from, 'No pude recibir la imagen. Intenta de nuevo.'); return; }
       try {
-        // 1. Obtener URL de la imagen desde Meta API
-        const metaRes = await fetch('https://graph.facebook.com/v19.0/' + mediaId + '?access_token=' + process.env.WHATSAPP_TOKEN);
+        // 1. Obtener URL de la imagen desde Meta API (requiere phone_number_id)
+        const metaUrl = 'https://graph.facebook.com/v19.0/' + mediaId + '?phone_number_id=' + phoneId;
+        const metaRes = await fetch(metaUrl, {
+          headers: { Authorization: 'Bearer ' + process.env.WHATSAPP_TOKEN }
+        });
         const metaJson = await metaRes.json();
         console.log('[IMAGEN] metaJson:', JSON.stringify(metaJson).slice(0, 200));
         if (!metaJson.url) throw new Error('Meta no devolvió URL: ' + JSON.stringify(metaJson).slice(0, 100));
