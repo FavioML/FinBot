@@ -24,3 +24,11 @@ public_backup/
 public/*.txt
 public/__next.*.txt
 design-system/
+
+# Assets de marketing/diseño (no runtime)
+*.ttf
+*.zip
+*.py
+posts/
+assets/brand/
+NVIDIA Corporation/
