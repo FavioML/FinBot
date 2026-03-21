@@ -44,7 +44,7 @@ export default function TransactionList({ transacciones }: TransactionListProps)
           Sin transacciones
         </p>
       ) : (
-        <div className="max-h-[400px] overflow-y-auto [&::-webkit-scrollbar]:w-[4px] [&::-webkit-scrollbar-track]:bg-neto-bg5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-neto-bg6">
+        <div className="max-h-[400px] overflow-y-auto pr-2 [&::-webkit-scrollbar]:w-[4px] [&::-webkit-scrollbar-track]:bg-neto-bg5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-neto-bg6">
           {transacciones.map((tx, i) => (
             <div
               key={`${tx.fecha}-${tx.comercio}-${i}`}
