@@ -16,6 +16,7 @@ const { enviarWhatsapp } = require('./lib/whatsapp');
 const { obtenerTipoCambio, guardarTransaccion, obtenerGastosMes, obtenerGastosSemana, obtenerUltimaTransaccion, recategorizarTransaccion, recategorizarPorId, corregirTransaccionEspecifica, guardarReglaComercio, buscarReglaComercio, retroaplicarRegla, guardarConsultaPendiente, obtenerConsultasPendientes, resolverConsulta, necesitaConsulta, mensajeConsulta } = require('./services/transactions');
 const { guardarPresupuesto, obtenerPresupuestosMes, verificarAlertaPresupuesto, formatearEstadoPresupuesto } = require('./services/budget');
 const { parsearCorreoBancario, parsearRegistroManual, parsearCorreccionesMultiples, interpretarComandoPresupuesto } = require('./services/parsers');
+const { notificarErrorAdmin } = require('./lib/admin-notify');
 const { generarUrlAutorizacion, guardarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail } = require('./gmail');
 
 // Helper: último día real del mes (evita fechas inválidas como 02-31)
@@ -969,7 +970,7 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
       // Guardar respuesta de NETO en historial
       try { await guardarMensaje(usuario.id, 'neto', respuesta); } catch(e) {}
     }
-  } catch (error) { log.error({ tag: 'WEBHOOK', err: error.message }, 'Error en webhook'); }
+  } catch (error) { log.error({ tag: 'WEBHOOK', err: error.message }, 'Error en webhook'); notificarErrorAdmin('WEBHOOK', error.message); }
 });
 
 app.get('/reporte/:id', async (req, res) => {
@@ -1812,7 +1813,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       }
     }
   } catch(e) {
-    log.error({ tag: 'NLP', err: e.message }, 'Error en procesamiento NLP');
+    log.error({ tag: 'NLP', err: e.message }, 'Error en procesamiento NLP'); notificarErrorAdmin('NLP', e.message);
     return 'Tuve un problema. Intenta de nuevo.';
   }
 }
@@ -1888,7 +1889,7 @@ async function escaneoAutomatico() {
         if (resultado && resultado.includes('Registre')) { await enviarWhatsapp(usuario.whatsapp, '\uD83D\uDD04 *Escaneo automatico*\n\n' + resultado); }
       } catch (e) { log.error({ tag: 'AUTO', whatsapp: usuario.whatsapp, err: e.message }, 'Error escaneo usuario'); }
     }
-  } catch (e) { log.error({ tag: 'AUTO', err: e.message }, 'Error general escaneo'); }
+  } catch (e) { log.error({ tag: 'AUTO', err: e.message }, 'Error general escaneo'); notificarErrorAdmin('AUTO_SCAN', e.message); }
 }
 
 async function generarResumenSemanal(usuario) {
@@ -2010,6 +2011,86 @@ async function generarResumenSemanal(usuario) {
   return msg;
 }
 
+async function generarResumenMensual(usuario) {
+  const ahora = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
+  // Mes anterior
+  const mesAnt = ahora.getMonth() === 0 ? 12 : ahora.getMonth();
+  const anioAnt = ahora.getMonth() === 0 ? ahora.getFullYear() - 1 : ahora.getFullYear();
+  const desde = anioAnt + '-' + String(mesAnt).padStart(2, '0') + '-01';
+  const hasta = anioAnt + '-' + String(mesAnt).padStart(2, '0') + '-' + String(ultimoDiaMes(anioAnt, mesAnt)).padStart(2, '0');
+
+  const { data: txsMes } = await supabase.from('transacciones').select('*')
+    .eq('usuario_id', usuario.id).eq('tipo', 'gasto').gte('fecha', desde).lte('fecha', hasta);
+  if (!txsMes || txsMes.length === 0) return null;
+
+  const { data: ingresos } = await supabase.from('transacciones').select('monto,monto_pen')
+    .eq('usuario_id', usuario.id).eq('tipo', 'ingreso').gte('fecha', desde).lte('fecha', hasta);
+
+  const totalGastos = txsMes.reduce((s, t) => s + parseFloat(t.monto_pen || t.monto), 0);
+  const totalIngresos = (ingresos || []).reduce((s, t) => s + parseFloat(t.monto_pen || t.monto), 0);
+  const ahorro = totalIngresos - totalGastos;
+
+  // Comparativa con mes anterior al anterior
+  const mesAntAnt = mesAnt === 1 ? 12 : mesAnt - 1;
+  const anioAntAnt = mesAnt === 1 ? anioAnt - 1 : anioAnt;
+  const desdeAntAnt = anioAntAnt + '-' + String(mesAntAnt).padStart(2, '0') + '-01';
+  const hastaAntAnt = anioAntAnt + '-' + String(mesAntAnt).padStart(2, '0') + '-' + String(ultimoDiaMes(anioAntAnt, mesAntAnt)).padStart(2, '0');
+  const { data: txsAntAnt } = await supabase.from('transacciones').select('monto,monto_pen')
+    .eq('usuario_id', usuario.id).eq('tipo', 'gasto').gte('fecha', desdeAntAnt).lte('fecha', hastaAntAnt);
+  const totalAntAnt = (txsAntAnt || []).reduce((s, t) => s + parseFloat(t.monto_pen || t.monto), 0);
+
+  // Top categorías
+  const porCat = {};
+  txsMes.forEach(t => { const c = t.categoria || 'Otros'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto_pen || t.monto); });
+  const top5 = Object.entries(porCat).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+  const nombreMes = MESES[mesAnt];
+  const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
+
+  let msg = '📊 *Resumen de ' + nombreMes + (primerNombre ? ', ' + primerNombre : '') + '*\n';
+  msg += '===============\n\n';
+  msg += '💰 *Total gastado:* S/ ' + totalGastos.toFixed(2) + '\n';
+  if (totalIngresos > 0) {
+    msg += '💵 *Ingresos:* S/ ' + totalIngresos.toFixed(2) + '\n';
+    msg += (ahorro >= 0 ? '✅' : '⚠️') + ' *Balance:* S/ ' + ahorro.toFixed(2) + (ahorro >= 0 ? ' (ahorraste!)' : ' (gastaste más de lo que ganaste)') + '\n';
+  }
+  msg += '📋 *Transacciones:* ' + txsMes.length + '\n';
+
+  // Comparativa
+  if (totalAntAnt > 0) {
+    const diff = totalGastos - totalAntAnt;
+    const pct = Math.abs((diff / totalAntAnt) * 100).toFixed(0);
+    if (diff > 0) msg += '\n↗️ *' + pct + '% más* que ' + MESES[mesAntAnt] + ' (S/ ' + totalAntAnt.toFixed(2) + ')';
+    else if (diff < 0) msg += '\n↘️ *' + pct + '% menos* que ' + MESES[mesAntAnt] + ' (S/ ' + totalAntAnt.toFixed(2) + ') 👏';
+  }
+
+  msg += '\n\n🏆 *Top categorías:*\n';
+  const medallas = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
+  top5.forEach(([cat, monto], i) => {
+    const pct = ((monto / totalGastos) * 100).toFixed(0);
+    msg += medallas[i] + ' ' + cat + ': *S/ ' + monto.toFixed(2) + '* (' + pct + '%)\n';
+  });
+
+  msg += '\n_Escribe /reporte para tu dashboard detallado._';
+  return msg;
+}
+
+async function checkResumenMensual() {
+  const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
+  // Solo el día 1 del mes, entre 9:00 y 9:14 AM Lima
+  if (horaLima.getDate() !== 1 || horaLima.getHours() !== 9 || horaLima.getMinutes() > 14) return;
+  try {
+    const { data: usuarios } = await supabase.from('usuarios').select('*').not('gmail_access_token', 'is', null);
+    if (!usuarios || usuarios.length === 0) return;
+    for (const usuario of usuarios) {
+      try {
+        const resumen = await generarResumenMensual(usuario);
+        if (resumen) await enviarWhatsapp(usuario.whatsapp, resumen);
+      } catch(e) { log.error({ tag: 'MENSUAL', whatsapp: usuario.whatsapp, err: e.message }, 'Error resumen mensual usuario'); }
+    }
+  } catch(e) { log.error({ tag: 'MENSUAL', err: e.message }, 'Error general resumen mensual'); }
+}
+
 async function checkResumenSemanal() {
   const horaLima = new Date(Date.now() - 5 * 60 * 60 * 1000);
   if (horaLima.getUTCDay() !== 1 || horaLima.getUTCHours() !== 8 || horaLima.getUTCMinutes() > 14) return;
@@ -2028,6 +2109,7 @@ async function checkResumenSemanal() {
 // Middleware centralizado de errores (debe estar después de todas las rutas)
 app.use((err, req, res, next) => {
   log.error({ tag: 'EXPRESS', err: err.message, stack: err.stack, path: req.path, method: req.method }, 'Error no manejado');
+  notificarErrorAdmin('EXPRESS', err.message, req.method + ' ' + req.path);
   if (!res.headersSent) {
     res.status(500).json({ error: 'Error interno del servidor' });
   }
@@ -2047,6 +2129,8 @@ if (require.main === module) {
       log.info({ tag: 'AUTO', intervaloHoras: INTERVALO_HORAS }, 'Escaneo automático activo');
       setInterval(checkResumenSemanal, 15 * 60 * 1000);
       log.info({ tag: 'SEMANAL' }, 'Resumen semanal activo (lunes 8am Lima)');
+      setInterval(checkResumenMensual, 15 * 60 * 1000);
+      log.info({ tag: 'MENSUAL' }, 'Resumen mensual activo (1ro de cada mes 9am Lima)');
     }, 30000);
   });
 }
