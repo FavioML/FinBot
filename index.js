@@ -995,36 +995,50 @@ app.post('/webhook', async (req, res) => {
         const sheet = workbook.getWorksheet(1);
         if (!sheet) throw new Error('El archivo no tiene hojas de cálculo');
 
-        // 3. Detectar header row y extraer datos (soporta 6 cols sin Tipo o 7 cols con Tipo)
+        // 3. Detectar header row y formato de columnas (auto-detect)
         const rows = [];
         let headerRow = null;
-        let hasTipoCol = false;
+        let colFormat = 'legacy6'; // legacy6 | tipo7 | full8
         sheet.eachRow((row, rowNumber) => {
           const vals = row.values.slice(1); // exceljs es 1-indexed
           const firstVal = String(vals[0] || '').toLowerCase();
           if (firstVal.includes('fecha') || firstVal.includes('date')) {
             headerRow = rowNumber;
-            // Detectar si columna D es "Tipo"
-            const colD = String(vals[3] || '').toLowerCase();
-            hasTipoCol = colD.includes('tipo') || colD.includes('type');
+            // Detectar formato por headers
+            const headers = vals.map(v => String(v || '').toLowerCase());
+            const hasSubcatCol = headers.some(h => h.includes('subcategor'));
+            const hasTipoCol = headers.some(h => h === 'tipo' || h === 'type');
+            if (hasSubcatCol) colFormat = 'full8';
+            else if (hasTipoCol) colFormat = 'tipo7';
+            else colFormat = 'legacy6';
             return;
           }
           if (headerRow && rowNumber > headerRow) {
             const fecha = vals[0];
             const monto = parseFloat(vals[1]);
             const comercio = String(vals[2] || '').trim();
-            let tipo, categoria, metodo, banco;
-            if (hasTipoCol) {
-              // 7 columnas: Fecha, Monto, Comercio, Tipo, Categoría, Método, Banco
+            let tipo, categoria, subcategoria, metodo, banco;
+            if (colFormat === 'full8') {
+              // 8 cols: Fecha, Monto, Comercio, Tipo, Categoría, Subcategoría, Método, Banco
               const tipoRaw = String(vals[3] || '').trim().toLowerCase();
               tipo = tipoRaw.includes('ingreso') ? 'ingreso' : 'gasto';
               categoria = String(vals[4] || '').trim();
+              subcategoria = String(vals[5] || '').trim() || null;
+              metodo = String(vals[6] || '').trim();
+              banco = String(vals[7] || '').trim();
+            } else if (colFormat === 'tipo7') {
+              // 7 cols: Fecha, Monto, Comercio, Tipo, Categoría, Método, Banco
+              const tipoRaw = String(vals[3] || '').trim().toLowerCase();
+              tipo = tipoRaw.includes('ingreso') ? 'ingreso' : 'gasto';
+              categoria = String(vals[4] || '').trim();
+              subcategoria = null;
               metodo = String(vals[5] || '').trim();
               banco = String(vals[6] || '').trim();
             } else {
-              // 6 columnas legacy: Fecha, Monto, Comercio, Categoría, Método, Banco
+              // 6 cols legacy: Fecha, Monto, Comercio, Categoría, Método, Banco
               tipo = 'gasto';
               categoria = String(vals[3] || '').trim();
+              subcategoria = null;
               metodo = String(vals[4] || '').trim();
               banco = String(vals[5] || '').trim();
             }
@@ -1041,21 +1055,21 @@ app.post('/webhook', async (req, res) => {
               if (parts) fechaStr = parts[3] + '-' + parts[2].padStart(2, '0') + '-' + parts[1].padStart(2, '0');
             }
 
-            rows.push({ fecha: fechaStr, monto, comercio, tipo, categoria, subcategoria: null, metodo_pago: metodo || null, banco: banco || null });
+            rows.push({ fecha: fechaStr, monto, comercio, tipo, categoria, subcategoria, metodo_pago: metodo || null, banco: banco || null });
           }
         });
 
         if (rows.length === 0) throw new Error('No encontré datos válidos en el archivo. Asegúrate de usar la plantilla correcta.');
         if (rows.length > 500) throw new Error('Máximo 500 transacciones por archivo. Tu archivo tiene ' + rows.length + '.');
 
-        // 4. Auto-categorizar filas sin categoría usando GPT-4o-mini
-        const sinCategoria = rows.filter(r => !r.categoria);
+        // 4. Auto-categorizar filas sin categoría o sin subcategoría usando GPT-4o-mini
+        const sinCategoria = rows.filter(r => !r.categoria || !r.subcategoria);
         if (sinCategoria.length > 0) {
           const batchSize = 50;
           for (let i = 0; i < sinCategoria.length; i += batchSize) {
             const batch = sinCategoria.slice(i, i + batchSize);
-            const prompt = 'Categoriza cada gasto. Categorías válidas: Alimentación, Transporte, Vivienda, Salud, Entretenimiento, Compras, Educación, Finanzas, Trabajo_Negocio, Otros.\nDevuelve SOLO un JSON array: [{"index":0,"categoria":"...","subcategoria":"..."},...].\nGastos:\n' +
-              batch.map((r, idx) => idx + '. ' + r.comercio + ' S/' + r.monto).join('\n');
+            const prompt = 'Categoriza cada movimiento. Categorías válidas: Alimentación, Transporte, Vivienda, Salud, Entretenimiento, Compras, Educación, Finanzas, Trabajo_Negocio, Otros.\nSubcategorías por categoría: Alimentación(delivery,restaurante,supermercado,mercado,cafeteria,snacks), Transporte(uber_cabify,taxi,bus_micro,metro_bus,gasolina,peaje,estacionamiento), Vivienda(alquiler,mantenimiento,electricidad,agua,gas,internet,cable), Salud(farmacia,medico,clinica,laboratorio,seguro_salud,optica), Entretenimiento(streaming,cine,juegos,bares_clubs,eventos,hobbies), Compras(ropa,calzado,electronico,hogar,belleza,mascotas), Educación(universidad,instituto,curso_online,utiles,idiomas,colegios), Finanzas(prestamo,tarjeta_credito,seguro,ahorro,inversion,comision_banco), Trabajo_Negocio(herramientas,publicidad,oficina,logistica,contador), Otros(regalo,donacion,multa,viaje,sin_categoria).\nDevuelve SOLO un JSON array: [{"index":0,"categoria":"...","subcategoria":"..."},...].\nMovimientos:\n' +
+              batch.map((r, idx) => idx + '. ' + r.comercio + ' S/' + r.monto + (r.categoria ? ' [cat:' + r.categoria + ']' : '')).join('\n');
 
             try {
               const catRes = await openai.chat.completions.create({
@@ -1069,8 +1083,8 @@ app.post('/webhook', async (req, res) => {
                 const cats = JSON.parse(raw.slice(start, end + 1));
                 cats.forEach(c => {
                   if (batch[c.index]) {
-                    batch[c.index].categoria = c.categoria;
-                    batch[c.index].subcategoria = c.subcategoria;
+                    if (!batch[c.index].categoria) batch[c.index].categoria = c.categoria;
+                    if (!batch[c.index].subcategoria) batch[c.index].subcategoria = c.subcategoria;
                   }
                 });
               }
