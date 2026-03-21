@@ -29,7 +29,7 @@ function NetoLogo() {
           x="8"
           y="23"
           fill="white"
-          fontFamily="Space Grotesk, sans-serif"
+          fontFamily="Manrope, sans-serif"
           fontWeight="700"
           fontSize="20"
         >
