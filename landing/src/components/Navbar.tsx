@@ -7,42 +7,17 @@ const WA_LINK =
   "https://wa.me/51933014505?text=Hola%20Neto%2C%20quiero%20empezar%20a%20ordenar%20mis%20finanzas%20%F0%9F%91%8B";
 
 const NAV_LINKS = [
-  { label: "Cómo funciona", href: "#como-funciona" },
-  { label: "Precios", href: "#precios" },
+  { label: "Cómo funciona", href: "/#como-funciona" },
+  { label: "Precios", href: "/#precios" },
   { label: "FAQ", href: "/faq" },
-  { label: "Contacto", href: "mailto:hola@neto.pe" },
+  { label: "Contacto", href: "/contacto" },
 ];
 
 function NetoLogo() {
   return (
     <a href="/" className="flex items-center gap-2 cursor-pointer">
-      <svg
-        width="32"
-        height="32"
-        viewBox="0 0 32 32"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        aria-hidden="true"
-      >
-        <rect width="32" height="32" rx="8" fill="#1D9E75" />
-        <text
-          x="8"
-          y="23"
-          fill="white"
-          fontFamily="Manrope, sans-serif"
-          fontWeight="700"
-          fontSize="20"
-        >
-          N
-        </text>
-        <path
-          d="M6 22 Q12 18 16 20 Q20 22 26 12"
-          stroke="#EF9F27"
-          strokeWidth="2"
-          strokeLinecap="round"
-          fill="none"
-        />
-      </svg>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/logo-icon.svg" alt="Neto" width={32} height={32} className="rounded-lg" />
       <span className="text-neto-green font-semibold text-lg tracking-tight">
         neto
       </span>

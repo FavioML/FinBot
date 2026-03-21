@@ -39,7 +39,7 @@ export default function HowItWorks() {
           {STEPS.map((step) => (
             <div
               key={step.num}
-              className="relative rounded-[20px] bg-neto-bg2 border border-white/5 p-8 overflow-hidden"
+              className="group relative rounded-[20px] bg-neto-bg2 border border-white/5 p-8 overflow-hidden transition-all duration-300 hover:bg-[#1C1C19] hover:border-[#1D9E75]/20 hover:shadow-[0_0_30px_rgba(29,158,117,0.08)] cursor-default"
             >
               {/* Big faded number */}
               <span className="absolute top-4 right-6 text-[5rem] font-bold leading-none text-white/[0.03] select-none pointer-events-none">

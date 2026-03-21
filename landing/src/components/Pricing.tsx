@@ -167,7 +167,7 @@ export default function Pricing() {
             <span className="text-sm text-[#87948c]">
               ¿Tu banco no está en la lista?
             </span>
-            <a href="mailto:hola@neto.pe" className="text-sm font-medium text-[#68dbae] hover:text-[#1D9E75] transition-colors cursor-pointer">
+            <a href="/contacto" className="text-sm font-medium text-[#68dbae] hover:text-[#1D9E75] transition-colors cursor-pointer">
               Escríbenos
             </a>
           </div>

@@ -8,7 +8,7 @@ const WA_LINK =
 const STATS = [
   { label: "Usuarios activos", value: "2,400+", accent: false },
   { label: "Gastos rastreados", value: "S/12M+", accent: true },
-  { label: "Tiempo promedio", value: "2 min", accent: false },
+  { label: "Tiempo para conectarse", value: "2 min", accent: false },
 ];
 
 export default function Hero() {
@@ -169,7 +169,7 @@ export default function Hero() {
                     <p className="text-sm text-[#e5e2de] leading-relaxed">
                       &quot;Hoy gastaste <span className="text-[#EF9F27] font-semibold">S/45</span> en Rappi.
                       Llevas <span className="text-[#68dbae] font-semibold">S/847</span> esta semana.
-                      Te quedan <span className="font-semibold">S/403</span> de tu presupuesto.&quot;
+                      Te quedan <span className="font-semibold">S/403</span>{" "}de tu presupuesto.&quot;
                     </p>
                   </div>
                 </div>
@@ -196,17 +196,7 @@ export default function Hero() {
           ))}
         </div>
 
-        {/* Bank logos */}
-        <div
-          className="animate-fade-up mt-12 flex flex-wrap items-center justify-center gap-6 opacity-40"
-          style={{ animationDelay: "650ms" }}
-        >
-          {["BCP", "BBVA", "Interbank", "Scotia", "Yape", "Plin"].map((bank) => (
-            <span key={bank} className="text-sm font-medium text-[#87948c] tracking-wide">
-              {bank}
-            </span>
-          ))}
-        </div>
+        {/* Bank logos removed — BankStrip component handles this */}
       </div>
     </section>
   );

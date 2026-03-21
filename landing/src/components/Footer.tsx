@@ -1,6 +1,6 @@
 const PRODUCT_LINKS = [
-  { label: "Cómo funciona", href: "#como-funciona" },
-  { label: "Precios", href: "#precios" },
+  { label: "Cómo funciona", href: "/#como-funciona" },
+  { label: "Precios", href: "/#precios" },
   { label: "FAQ", href: "/faq" },
 ];
 
@@ -20,33 +20,8 @@ const LEGAL_LINKS = [
 function FooterLogo() {
   return (
     <div className="flex items-center gap-2 mb-4">
-      <svg
-        width="28"
-        height="28"
-        viewBox="0 0 32 32"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        aria-hidden="true"
-      >
-        <rect width="32" height="32" rx="8" fill="#1D9E75" />
-        <text
-          x="8"
-          y="23"
-          fill="white"
-          fontFamily="Space Grotesk, sans-serif"
-          fontWeight="700"
-          fontSize="20"
-        >
-          N
-        </text>
-        <path
-          d="M6 22 Q12 18 16 20 Q20 22 26 12"
-          stroke="#EF9F27"
-          strokeWidth="2"
-          strokeLinecap="round"
-          fill="none"
-        />
-      </svg>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/logo-icon.svg" alt="Neto" width={28} height={28} className="rounded-md" />
       <span className="text-neto-green font-semibold text-lg tracking-tight">
         neto
       </span>

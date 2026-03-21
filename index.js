@@ -650,6 +650,10 @@ app.get('/terminos', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'terminos.html'));
 });
 
+app.get('/contacto', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'contacto.html'));
+});
+
 app.get('/faq', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'faq.html'));
 });

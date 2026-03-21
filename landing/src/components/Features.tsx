@@ -63,18 +63,16 @@ const FEATURES: Feature[] = [
     accent: "text-[#68dbae]",
     glow: "bg-[#1D9E75]/10",
     visual: (
-      <div className="relative mx-auto w-[120px]">
-        <div className="rounded-2xl bg-[#20201d] p-2 shadow-lg">
-          <div className="rounded-xl bg-[#1D9E75]/10 p-3 flex flex-col items-center gap-2">
-            <div className="w-10 h-10 rounded-full bg-[#1D9E75] flex items-center justify-center">
-              <span className="text-white font-bold text-sm">N</span>
-            </div>
-            <div className="h-1.5 w-14 rounded bg-[#2A2A28]" />
-            <div className="h-1.5 w-10 rounded bg-[#2A2A28]" />
-          </div>
+      <div className="flex items-center justify-center gap-3">
+        <div className="w-8 h-8 rounded-lg bg-[#1D9E75] flex items-center justify-center">
+          <span className="text-white font-bold text-xs">N</span>
         </div>
-        <div className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-[#1D9E75] flex items-center justify-center shadow-lg">
-          <span className="text-white text-[10px] font-bold">3</span>
+        <div className="flex flex-col gap-1">
+          <div className="h-1.5 w-20 rounded bg-[#2A2A28]" />
+          <div className="h-1.5 w-14 rounded bg-[#1D9E75]/30]" />
+        </div>
+        <div className="relative w-5 h-5 rounded-full bg-[#1D9E75] flex items-center justify-center">
+          <span className="text-white text-[8px] font-bold">3</span>
         </div>
       </div>
     ),
