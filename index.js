@@ -1175,32 +1175,65 @@ app.post('/webhook', async (req, res) => {
 
     // Flujo desconectar cuenta (paso -1)
     if (usuario.onboarding_paso === -1 && !cmd.startsWith('/')) {
-      const respDesc = cmd.trim();
-      if (respDesc === '1') {
-        // Solo desconectar Gmail, conservar datos
-        await supabase.from('gmail_cuentas').update({ activa: false }).eq('usuario_id', usuario.id);
-        await supabase.from('usuarios').update({
-          gmail_access_token: null, gmail_refresh_token: null, gmail_token_expiry: null,
-          onboarding_paso: 0
-        }).eq('id', usuario.id);
-        await enviarWhatsapp(from, '✅ *Gmail desconectado*\n\nTu historial de gastos se mantiene intacto. Puedes volver a conectar tu Gmail cuando quieras escribiendo _"conectar gmail"_.');
-        return;
-      } else if (respDesc === '2') {
-        // Eliminar todo: transacciones, categorias, presupuestos, gmail_cuentas, reportes
-        await supabase.from('transacciones').delete().eq('usuario_id', usuario.id);
-        await supabase.from('categorias_usuario').delete().eq('usuario_id', usuario.id);
-        await supabase.from('presupuestos').delete().eq('usuario_id', usuario.id);
-        await supabase.from('gmail_cuentas').delete().eq('usuario_id', usuario.id);
-        await supabase.from('reportes').delete().eq('usuario_id', usuario.id);
-        await supabase.from('consultas_pendientes').delete().eq('usuario_id', usuario.id);
-        await supabase.from('usuarios').update({
-          gmail_access_token: null, gmail_refresh_token: null, gmail_token_expiry: null,
-          email: null, onboarding_paso: 0, onboarding_completado: false
-        }).eq('id', usuario.id);
-        await enviarWhatsapp(from, '🗑️ *Cuenta limpia*\n\nTodos tus datos han sido eliminados. Tu número sigue registrado — si quieres volver a usar NETO, escribe _"hola"_ y empezamos de cero.');
-        return;
+      const respDesc = parseInt(cmd.trim());
+      const cuentasActivas = await obtenerCuentasGmail(usuario.id);
+      const numCuentas = cuentasActivas.length;
+
+      if (numCuentas > 1) {
+        // Multi-cuenta: 1..N = desconectar individual, N+1 = todas, N+2 = eliminar todo
+        if (respDesc >= 1 && respDesc <= numCuentas) {
+          const cuentaTarget = cuentasActivas[respDesc - 1];
+          await supabase.from('gmail_cuentas').update({ activa: false }).eq('id', cuentaTarget.id);
+          await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
+          await enviarWhatsapp(from, '✅ *' + cuentaTarget.email + ' desconectado*\n\nTus otras cuentas siguen activas. Tu historial se mantiene intacto.');
+          return;
+        } else if (respDesc === numCuentas + 1) {
+          await supabase.from('gmail_cuentas').update({ activa: false }).eq('usuario_id', usuario.id);
+          await supabase.from('usuarios').update({ gmail_access_token: null, gmail_refresh_token: null, gmail_token_expiry: null, onboarding_paso: 0 }).eq('id', usuario.id);
+          await enviarWhatsapp(from, '✅ *Todas las cuentas Gmail desconectadas*\n\nTu historial de gastos se mantiene intacto. Puedes volver a conectar escribiendo _"conectar gmail"_.');
+          return;
+        } else if (respDesc === numCuentas + 2) {
+          await supabase.from('transacciones').delete().eq('usuario_id', usuario.id);
+          await supabase.from('categorias_usuario').delete().eq('usuario_id', usuario.id);
+          await supabase.from('presupuestos').delete().eq('usuario_id', usuario.id);
+          await supabase.from('gmail_cuentas').delete().eq('usuario_id', usuario.id);
+          await supabase.from('reportes').delete().eq('usuario_id', usuario.id);
+          await supabase.from('consultas_pendientes').delete().eq('usuario_id', usuario.id);
+          await supabase.from('usuarios').update({ gmail_access_token: null, gmail_refresh_token: null, gmail_token_expiry: null, email: null, onboarding_paso: 0, onboarding_completado: false }).eq('id', usuario.id);
+          await enviarWhatsapp(from, '🗑️ *Cuenta limpia*\n\nTodos tus datos han sido eliminados. Si quieres volver, escribe _"hola"_ y empezamos de cero.');
+          return;
+        }
+      } else if (numCuentas === 1) {
+        if (respDesc === 1) {
+          await supabase.from('gmail_cuentas').update({ activa: false }).eq('usuario_id', usuario.id);
+          await supabase.from('usuarios').update({ gmail_access_token: null, gmail_refresh_token: null, gmail_token_expiry: null, onboarding_paso: 0 }).eq('id', usuario.id);
+          await enviarWhatsapp(from, '✅ *Gmail desconectado*\n\nTu historial de gastos se mantiene intacto. Puedes volver a conectar cuando quieras escribiendo _"conectar gmail"_.');
+          return;
+        } else if (respDesc === 2) {
+          await supabase.from('transacciones').delete().eq('usuario_id', usuario.id);
+          await supabase.from('categorias_usuario').delete().eq('usuario_id', usuario.id);
+          await supabase.from('presupuestos').delete().eq('usuario_id', usuario.id);
+          await supabase.from('gmail_cuentas').delete().eq('usuario_id', usuario.id);
+          await supabase.from('reportes').delete().eq('usuario_id', usuario.id);
+          await supabase.from('consultas_pendientes').delete().eq('usuario_id', usuario.id);
+          await supabase.from('usuarios').update({ gmail_access_token: null, gmail_refresh_token: null, gmail_token_expiry: null, email: null, onboarding_paso: 0, onboarding_completado: false }).eq('id', usuario.id);
+          await enviarWhatsapp(from, '🗑️ *Cuenta limpia*\n\nTodos tus datos han sido eliminados. Si quieres volver, escribe _"hola"_ y empezamos de cero.');
+          return;
+        }
+      } else {
+        // Sin cuentas Gmail, solo opción de eliminar datos
+        if (respDesc === 1) {
+          await supabase.from('transacciones').delete().eq('usuario_id', usuario.id);
+          await supabase.from('categorias_usuario').delete().eq('usuario_id', usuario.id);
+          await supabase.from('presupuestos').delete().eq('usuario_id', usuario.id);
+          await supabase.from('reportes').delete().eq('usuario_id', usuario.id);
+          await supabase.from('consultas_pendientes').delete().eq('usuario_id', usuario.id);
+          await supabase.from('usuarios').update({ email: null, onboarding_paso: 0, onboarding_completado: false }).eq('id', usuario.id);
+          await enviarWhatsapp(from, '🗑️ *Datos eliminados*\n\nSi quieres volver, escribe _"hola"_.');
+          return;
+        }
       }
-      // Si no responde 1 o 2, cancelar el flujo
+      // Respuesta no válida → cancelar
       await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
       await enviarWhatsapp(from, 'Cancelado. Tu cuenta sigue igual. 👍');
       return;
@@ -2214,14 +2247,27 @@ async function procesarMensajeLibre(msg, usuario, from) {
 
       case 'desconectar_cuenta': {
         const cuentasDesc = await obtenerCuentasGmail(usuario.id);
-        const emailsDesc = cuentasDesc.map(c => '📧 ' + c.email).join('\n');
         await supabase.from('usuarios').update({ onboarding_paso: -1 }).eq('id', usuario.id);
-        return '⚠️ *Desconectar cuenta*\n\n' +
-          (emailsDesc ? 'Cuentas conectadas:\n' + emailsDesc + '\n\n' : '') +
-          '¿Qué deseas hacer?\n\n' +
-          '1️⃣ *Solo desconectar* — Desvinculo tu Gmail pero conservo tu historial de gastos. Puedes volver a conectarte cuando quieras.\n\n' +
-          '2️⃣ *Eliminar todo* — Borro todos tus datos (gastos, categorías, configuración). Esta acción es irreversible.\n\n' +
-          '_Responde 1 o 2._';
+        let menuDesc = '⚠️ *Desconectar cuenta*\n\n';
+        if (cuentasDesc.length > 1) {
+          menuDesc += 'Cuentas conectadas:\n' + cuentasDesc.map((c, i) => (i + 1) + '. 📧 ' + c.email).join('\n') + '\n\n';
+          menuDesc += '¿Qué deseas hacer?\n\n';
+          menuDesc += cuentasDesc.map((c, i) => (i + 1) + '️⃣ *Desconectar ' + c.email + '*').join('\n') + '\n';
+          menuDesc += (cuentasDesc.length + 1) + '️⃣ *Desconectar todas* — Conservo tu historial\n';
+          menuDesc += (cuentasDesc.length + 2) + '️⃣ *Eliminar todo* — Borro todos tus datos (irreversible)\n\n';
+          menuDesc += '_Responde con el número._';
+        } else if (cuentasDesc.length === 1) {
+          menuDesc += 'Cuenta conectada: 📧 ' + cuentasDesc[0].email + '\n\n';
+          menuDesc += '¿Qué deseas hacer?\n\n';
+          menuDesc += '1️⃣ *Solo desconectar* — Desvinculo tu Gmail pero conservo tu historial de gastos. Puedes volver a conectarte cuando quieras.\n\n';
+          menuDesc += '2️⃣ *Eliminar todo* — Borro todos tus datos (gastos, categorías, configuración). Esta acción es irreversible.\n\n';
+          menuDesc += '_Responde 1 o 2._';
+        } else {
+          menuDesc += 'No tienes cuentas Gmail conectadas.\n\n';
+          menuDesc += '1️⃣ *Eliminar mis datos* — Borro todos tus gastos, categorías y configuración. Irreversible.\n\n';
+          menuDesc += '_Responde 1 para confirmar o cualquier otra cosa para cancelar._';
+        }
+        return menuDesc;
       }
 
       default: {
