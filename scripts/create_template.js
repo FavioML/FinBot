@@ -1,5 +1,5 @@
 /**
- * Genera la plantilla Excel para carga de gastos históricos.
+ * Genera la plantilla Excel para carga de gastos e ingresos históricos.
  * Ejecutar una vez: node scripts/create_template.js
  */
 const ExcelJS = require('exceljs');
@@ -10,20 +10,20 @@ async function main() {
   wb.creator = 'NETO';
   wb.created = new Date();
 
-  const ws = wb.addWorksheet('Gastos', {
+  const ws = wb.addWorksheet('Movimientos', {
     properties: { defaultColWidth: 18 }
   });
 
   // --- Instrucciones (fila 1, celdas combinadas) ---
-  ws.mergeCells('A1:F1');
+  ws.mergeCells('A1:G1');
   const instrCell = ws.getCell('A1');
-  instrCell.value = 'PLANTILLA NETO — Carga de Gastos Históricos. Completa cada fila con un gasto. Las columnas Categoría, Método de Pago y Banco son opcionales (NETO las asigna automáticamente con IA).';
+  instrCell.value = 'PLANTILLA NETO — Carga de Gastos e Ingresos Históricos. Completa cada fila con un movimiento. Las columnas Tipo, Categoría, Método de Pago y Banco son opcionales (NETO las asigna automáticamente con IA).';
   instrCell.font = { size: 11, italic: true, color: { argb: 'FF666666' } };
   instrCell.alignment = { wrapText: true, vertical: 'middle' };
   ws.getRow(1).height = 40;
 
   // --- Headers (fila 2) ---
-  const headers = ['Fecha', 'Monto', 'Comercio / Descripción', 'Categoría', 'Método de Pago', 'Banco'];
+  const headers = ['Fecha', 'Monto', 'Comercio / Descripción', 'Tipo', 'Categoría', 'Método de Pago', 'Banco'];
   const headerRow = ws.getRow(2);
   headers.forEach((h, i) => {
     const cell = headerRow.getCell(i + 1);
@@ -42,15 +42,17 @@ async function main() {
     { width: 14 },  // Fecha
     { width: 12 },  // Monto
     { width: 30 },  // Comercio
+    { width: 12 },  // Tipo
     { width: 18 },  // Categoría
     { width: 18 },  // Método de Pago
     { width: 16 },  // Banco
   ];
 
-  // --- Ejemplos (filas 3-4) ---
+  // --- Ejemplos (filas 3-5) ---
   const ejemplos = [
-    ['15/01/2026', 45.50, 'Supermercado Metro', 'Alimentación', 'Yape', 'BCP'],
-    ['16/01/2026', 12.00, 'Taxi al centro', '', 'Efectivo', ''],
+    ['15/01/2026', 45.50, 'Supermercado Metro', 'Gasto', 'Alimentación', 'Yape', 'BCP'],
+    ['16/01/2026', 12.00, 'Taxi al centro', 'Gasto', '', 'Efectivo', ''],
+    ['01/02/2026', 4500.00, 'Sueldo febrero', 'Ingreso', 'Finanzas', 'Transferencia', 'BCP'],
   ];
   ejemplos.forEach((ej, idx) => {
     const row = ws.getRow(3 + idx);
@@ -61,14 +63,26 @@ async function main() {
     });
   });
 
-  // --- Validación: Categoría (columna D, filas 3-502) ---
+  // --- Validación: Tipo (columna D, filas 3-502) ---
+  for (let r = 3; r <= 502; r++) {
+    ws.getCell(`D${r}`).dataValidation = {
+      type: 'list',
+      allowBlank: true,
+      formulae: ['"Gasto,Ingreso"'],
+      showErrorMessage: true,
+      errorTitle: 'Tipo inválido',
+      error: 'Selecciona Gasto o Ingreso. Si lo dejas vacío, NETO lo asume como Gasto.',
+    };
+  }
+
+  // --- Validación: Categoría (columna E, filas 3-502) ---
   const categorias = [
     'Alimentación', 'Transporte', 'Vivienda', 'Salud',
     'Entretenimiento', 'Compras', 'Educación', 'Finanzas',
     'Trabajo_Negocio', 'Otros'
   ];
   for (let r = 3; r <= 502; r++) {
-    ws.getCell(`D${r}`).dataValidation = {
+    ws.getCell(`E${r}`).dataValidation = {
       type: 'list',
       allowBlank: true,
       formulae: ['"' + categorias.join(',') + '"'],
@@ -78,20 +92,20 @@ async function main() {
     };
   }
 
-  // --- Validación: Método de Pago (columna E, filas 3-502) ---
+  // --- Validación: Método de Pago (columna F, filas 3-502) ---
   const metodos = ['Yape', 'Plin', 'Débito', 'Crédito', 'Efectivo', 'Transferencia', 'Otro'];
   for (let r = 3; r <= 502; r++) {
-    ws.getCell(`E${r}`).dataValidation = {
+    ws.getCell(`F${r}`).dataValidation = {
       type: 'list',
       allowBlank: true,
       formulae: ['"' + metodos.join(',') + '"'],
     };
   }
 
-  // --- Validación: Banco (columna F, filas 3-502) ---
+  // --- Validación: Banco (columna G, filas 3-502) ---
   const bancos = ['BCP', 'Interbank', 'BBVA', 'Scotiabank', 'Yape', 'Plin', 'Otro'];
   for (let r = 3; r <= 502; r++) {
-    ws.getCell(`F${r}`).dataValidation = {
+    ws.getCell(`G${r}`).dataValidation = {
       type: 'list',
       allowBlank: true,
       formulae: ['"' + bancos.join(',') + '"'],

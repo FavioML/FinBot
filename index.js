@@ -995,23 +995,39 @@ app.post('/webhook', async (req, res) => {
         const sheet = workbook.getWorksheet(1);
         if (!sheet) throw new Error('El archivo no tiene hojas de cálculo');
 
-        // 3. Detectar header row y extraer datos
+        // 3. Detectar header row y extraer datos (soporta 6 cols sin Tipo o 7 cols con Tipo)
         const rows = [];
         let headerRow = null;
+        let hasTipoCol = false;
         sheet.eachRow((row, rowNumber) => {
           const vals = row.values.slice(1); // exceljs es 1-indexed
           const firstVal = String(vals[0] || '').toLowerCase();
           if (firstVal.includes('fecha') || firstVal.includes('date')) {
             headerRow = rowNumber;
+            // Detectar si columna D es "Tipo"
+            const colD = String(vals[3] || '').toLowerCase();
+            hasTipoCol = colD.includes('tipo') || colD.includes('type');
             return;
           }
           if (headerRow && rowNumber > headerRow) {
             const fecha = vals[0];
             const monto = parseFloat(vals[1]);
             const comercio = String(vals[2] || '').trim();
-            const categoria = String(vals[3] || '').trim();
-            const metodo = String(vals[4] || '').trim();
-            const banco = String(vals[5] || '').trim();
+            let tipo, categoria, metodo, banco;
+            if (hasTipoCol) {
+              // 7 columnas: Fecha, Monto, Comercio, Tipo, Categoría, Método, Banco
+              const tipoRaw = String(vals[3] || '').trim().toLowerCase();
+              tipo = tipoRaw.includes('ingreso') ? 'ingreso' : 'gasto';
+              categoria = String(vals[4] || '').trim();
+              metodo = String(vals[5] || '').trim();
+              banco = String(vals[6] || '').trim();
+            } else {
+              // 6 columnas legacy: Fecha, Monto, Comercio, Categoría, Método, Banco
+              tipo = 'gasto';
+              categoria = String(vals[3] || '').trim();
+              metodo = String(vals[4] || '').trim();
+              banco = String(vals[5] || '').trim();
+            }
 
             if (!fecha || isNaN(monto) || monto <= 0 || !comercio) return; // Skip filas inválidas
 
@@ -1025,7 +1041,7 @@ app.post('/webhook', async (req, res) => {
               if (parts) fechaStr = parts[3] + '-' + parts[2].padStart(2, '0') + '-' + parts[1].padStart(2, '0');
             }
 
-            rows.push({ fecha: fechaStr, monto, comercio, categoria, subcategoria: null, metodo_pago: metodo || null, banco: banco || null });
+            rows.push({ fecha: fechaStr, monto, comercio, tipo, categoria, subcategoria: null, metodo_pago: metodo || null, banco: banco || null });
           }
         });
 
@@ -1069,7 +1085,7 @@ app.post('/webhook', async (req, res) => {
         for (const row of rows) {
           try {
             await guardarTransaccion(usuario.id, {
-              tipo: 'gasto',
+              tipo: row.tipo || 'gasto',
               monto: row.monto,
               moneda: 'PEN',
               comercio: row.comercio,
@@ -1088,14 +1104,17 @@ app.post('/webhook', async (req, res) => {
         }
 
         // 6. Resumen
-        const totalMonto = rows.reduce((s, r) => s + r.monto, 0);
-        await enviarWhatsapp(from,
-          '✅ *Carga completada*\n\n' +
-          '📊 ' + insertados + ' transacciones registradas\n' +
-          '💰 Total: S/ ' + totalMonto.toFixed(2) + '\n' +
-          (errores > 0 ? '⚠️ ' + errores + ' filas con error\n' : '') +
-          '\n_Escribe "mis gastos" para ver tu resumen actualizado._'
-        );
+        const gastos = rows.filter(r => r.tipo === 'gasto');
+        const ingresos = rows.filter(r => r.tipo === 'ingreso');
+        const totalGastos = gastos.reduce((s, r) => s + r.monto, 0);
+        const totalIngresos = ingresos.reduce((s, r) => s + r.monto, 0);
+        let resumenMsg = '✅ *Carga completada*\n\n' +
+          '📊 ' + insertados + ' movimientos registrados\n';
+        if (gastos.length > 0) resumenMsg += '💸 Gastos: ' + gastos.length + ' — S/ ' + totalGastos.toFixed(2) + '\n';
+        if (ingresos.length > 0) resumenMsg += '💰 Ingresos: ' + ingresos.length + ' — S/ ' + totalIngresos.toFixed(2) + '\n';
+        if (errores > 0) resumenMsg += '⚠️ ' + errores + ' filas con error\n';
+        resumenMsg += '\n_Escribe "mis gastos" para ver tu resumen actualizado._';
+        await enviarWhatsapp(from, resumenMsg);
         console.log('[EXCEL] Carga completada: ' + insertados + ' ok, ' + errores + ' errores');
       } catch(e) {
         console.error('[EXCEL] Error:', e.message);
@@ -2111,11 +2130,11 @@ async function procesarMensajeLibre(msg, usuario, from) {
         if (!configCe.excelUpload) {
           return '📄 La carga de gastos históricos es una función *Pro*.\n\nEscribe */premium* para activarla.';
         }
-        return '📊 *Carga de gastos históricos*\n\n' +
+        return '📊 *Carga de gastos e ingresos históricos*\n\n' +
           '1️⃣ Descarga la plantilla: neto.pe/plantilla_gastos.xlsx\n' +
-          '2️⃣ Completa tus gastos (máximo 500)\n' +
+          '2️⃣ Completa tus movimientos (máximo 500)\n' +
           '3️⃣ Envíame el archivo por este chat\n\n' +
-          '_La categoría es opcional — NETO la asigna automáticamente con IA._ 🤖';
+          '_Tipo, categoría y método de pago son opcionales — NETO los asigna automáticamente con IA._ 🤖';
       }
 
       default: {
