@@ -17,6 +17,7 @@ const { obtenerTipoCambio, guardarTransaccion, obtenerGastosMes, obtenerGastosSe
 const { guardarPresupuesto, obtenerPresupuestosMes, verificarAlertaPresupuesto, formatearEstadoPresupuesto } = require('./services/budget');
 const { parsearCorreoBancario, parsearRegistroManual, parsearCorreccionesMultiples, interpretarComandoPresupuesto } = require('./services/parsers');
 const { notificarErrorAdmin } = require('./lib/admin-notify');
+const { registrarError, limpiarContadores } = require('./lib/error-monitor');
 const { generarUrlAutorizacion, guardarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail } = require('./gmail');
 
 // Helper: último día real del mes (evita fechas inválidas como 02-31)
@@ -155,7 +156,7 @@ async function escanearGmailYRegistrar(usuario) {
           if (miRef) verificarProReferidos(miRef.referrer_id);
         } catch(e) {}
       }, 5000);
-    } catch (e) { log.error({ tag: 'CORREO', err: e.message }, 'Error procesando correo'); }
+    } catch (e) { log.error({ tag: 'CORREO', err: e.message }, 'Error procesando correo'); registrarError('CORREO', e.message, { stack: e.stack, usuarioId: usuario.id }); }
   }
   if (registradas === 0) { if (ignoradas > 0) return '*Sin correos nuevos*\n\n' + ignoradas + ' correo(s) ya estaban registrados.'; return null; }
   if (txsConsultar.length > 0) {
@@ -455,7 +456,7 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
         const emoji = getEmojiCategoria(parsed.categoria) || '📋';
         await enviarWhatsapp(from, '📸 ¡Listo! Registré desde la imagen:\n\n' + emoji + ' *' + (parsed.comercio || 'Pago') + '* — ' + montoStr + '\nCategoría: ' + parsed.categoria + (parsed.subcategoria && parsed.subcategoria !== 'sin_categoria' ? ' > ' + parsed.subcategoria : '') + '\nFecha: ' + parsed.fecha + '\n\n_¿Algo está mal? Dímelo y lo corrijo._');
       } catch(e) {
-        log.error({ tag: 'IMAGEN', err: e.message }, 'Error procesando imagen');
+        log.error({ tag: 'IMAGEN', err: e.message }, 'Error procesando imagen'); registrarError('IMAGEN', e.message, { stack: e.stack, whatsapp: from });
         await enviarWhatsapp(from, 'No pude procesar la imagen. Asegúrate de enviar la captura de la notificación de pago (la pantalla que muestra el monto y destinatario).');
       }
       return;
@@ -692,7 +693,7 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
         await enviarWhatsapp(from, resumenMsg);
         log.info({ tag: 'EXCEL', insertados, errores }, 'Carga Excel completada');
       } catch(e) {
-        log.error({ tag: 'EXCEL', err: e.message }, 'Error procesando Excel');
+        log.error({ tag: 'EXCEL', err: e.message }, 'Error procesando Excel'); registrarError('EXCEL', e.message, { stack: e.stack, whatsapp: from });
         await enviarWhatsapp(from, '❌ Error procesando el archivo: ' + e.message + '\n\nDescarga la plantilla correcta en: neto.pe/plantilla_gastos.xlsx');
       }
       return;
@@ -1037,7 +1038,7 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
       // Guardar respuesta de NETO en historial
       try { await guardarMensaje(usuario.id, 'neto', respuesta); } catch(e) {}
     }
-  } catch (error) { log.error({ tag: 'WEBHOOK', err: error.message }, 'Error en webhook'); notificarErrorAdmin('WEBHOOK', error.message); }
+  } catch (error) { log.error({ tag: 'WEBHOOK', err: error.message }, 'Error en webhook'); notificarErrorAdmin('WEBHOOK', error.message); registrarError('WEBHOOK', error.message, { stack: error.stack, whatsapp: from }); }
 });
 
 app.get('/reporte/:id', async (req, res) => {
@@ -1340,6 +1341,23 @@ app.get('/admin/stats', adminLimiter, async (req, res) => {
   } catch(e) {
     log.error({ tag: 'ADMIN_STATS', err: e.message }, 'Error generando stats');
     res.status(500).json({ ok: false, msg: 'Error generando estadísticas' });
+  }
+});
+
+// GET /admin/errores?clave=ADMIN_KEY — errores recientes
+app.get('/admin/errores', adminLimiter, async (req, res) => {
+  const ADMIN_KEY = process.env.ADMIN_KEY;
+  const clave = req.query.clave || '';
+  if (!ADMIN_KEY || !clave || clave.length !== ADMIN_KEY.length || !crypto.timingSafeEqual(Buffer.from(clave), Buffer.from(ADMIN_KEY))) return res.status(401).json({ ok: false, msg: 'Clave incorrecta' });
+  try {
+    const limite = parseInt(req.query.limite) || 20;
+    const soloNoResueltos = req.query.resueltos !== 'true';
+    let query = supabase.from('errores').select('*').order('created_at', { ascending: false }).limit(limite);
+    if (soloNoResueltos) query = query.eq('resuelto', false);
+    const { data } = await query;
+    res.json({ ok: true, errores: data || [], total: (data || []).length });
+  } catch(e) {
+    res.status(500).json({ ok: false, msg: 'Error consultando errores' });
   }
 });
 
@@ -1932,7 +1950,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       }
     }
   } catch(e) {
-    log.error({ tag: 'NLP', err: e.message }, 'Error en procesamiento NLP'); notificarErrorAdmin('NLP', e.message);
+    log.error({ tag: 'NLP', err: e.message }, 'Error en procesamiento NLP'); notificarErrorAdmin('NLP', e.message); registrarError('NLP', e.message, { stack: e.stack, whatsapp: from });
     return 'Tuve un problema. Intenta de nuevo.';
   }
 }
@@ -2008,7 +2026,7 @@ async function escaneoAutomatico() {
         if (resultado && resultado.includes('Registre')) { await enviarWhatsapp(usuario.whatsapp, '\uD83D\uDD04 *Escaneo automatico*\n\n' + resultado); }
       } catch (e) { log.error({ tag: 'AUTO', whatsapp: usuario.whatsapp, err: e.message }, 'Error escaneo usuario'); }
     }
-  } catch (e) { log.error({ tag: 'AUTO', err: e.message }, 'Error general escaneo'); notificarErrorAdmin('AUTO_SCAN', e.message); }
+  } catch (e) { log.error({ tag: 'AUTO', err: e.message }, 'Error general escaneo'); notificarErrorAdmin('AUTO_SCAN', e.message); registrarError('AUTO_SCAN', e.message, { stack: e.stack }); }
 }
 
 async function generarResumenSemanal(usuario) {
@@ -2256,6 +2274,7 @@ async function checkRecordatorioDiario() {
 app.use((err, req, res, next) => {
   log.error({ tag: 'EXPRESS', err: err.message, stack: err.stack, path: req.path, method: req.method }, 'Error no manejado');
   notificarErrorAdmin('EXPRESS', err.message, req.method + ' ' + req.path);
+  registrarError('EXPRESS', err.message, { detalle: req.method + ' ' + req.path, stack: err.stack });
   if (!res.headersSent) {
     res.status(500).json({ error: 'Error interno del servidor' });
   }
@@ -2279,6 +2298,8 @@ if (require.main === module) {
       log.info({ tag: 'MENSUAL' }, 'Resumen mensual activo (1ro de cada mes 9am Lima)');
       setInterval(checkRecordatorioDiario, 15 * 60 * 1000);
       log.info({ tag: 'RECORDATORIO' }, 'Recordatorios diarios activos (8pm Lima)');
+      setInterval(limpiarContadores, 60 * 60 * 1000); // Limpiar contadores de errores cada hora
+      log.info({ tag: 'MONITOR' }, 'Monitor de errores activo');
     }, 30000);
   });
 }

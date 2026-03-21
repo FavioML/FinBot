@@ -24,6 +24,7 @@
 | POST | `/admin/activar` | ADMIN_KEY (body) | Activar premium para un usuario (rate limited: 10/min) |
 | GET | `/admin/pendientes` | ADMIN_KEY (query) | Listar pagos pendientes (rate limited: 10/min) |
 | GET | `/admin/stats` | ADMIN_KEY (query) | Métricas: usuarios, transacciones, top categorías/bancos (rate limited: 10/min) |
+| GET | `/admin/errores` | ADMIN_KEY (query) | Errores recientes con stack trace. Params: `limite` (default 20), `resueltos=true` para ver todos |
 
 ## Auth (OAuth2 Gmail)
 
