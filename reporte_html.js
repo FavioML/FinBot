@@ -72,7 +72,8 @@ function generarReporteHTML(data) {
   const metodos = Object.entries(porMetodo).sort((a,b) => b[1]-a[1]);
   const maxMetodo = metodos.length > 0 ? metodos[0][1] : 1;
 
-  const suscripciones = gastos.filter(t => t.categoria === 'Entretenimiento' || t.categoria === 'Streaming');
+  const subsSubcatsH = ['streaming', 'suscripciones', 'suscripcion'];
+  const suscripciones = gastos.filter(t => subsSubcatsH.includes((t.subcategoria||'').toLowerCase()) || (t.categoria||'').toLowerCase() === 'suscripciones');
   const totalSubs = suscripciones.reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
 
   const txsUsd = gastos.filter(t => t.moneda === 'USD');
@@ -648,14 +649,26 @@ function generarReporteJSON(data) {
   const metodosPago = Object.entries(porMetodo).sort((a,b) => b[1]-a[1])
     .map(([nombre, monto]) => ({ nombre, monto: parseFloat(monto.toFixed(2)) }));
 
-  // Suscripciones
-  const subsTxs = gastos.filter(t => t.categoria === 'Entretenimiento' || t.categoria === 'Streaming');
-  const totalSubs = subsTxs.reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
-  const suscripciones = subsTxs.map(t => ({
-    comercio: t.comercio || t.banco || 'Suscripcion',
-    monto: parseFloat(t.monto_pen || t.monto || 0),
-    moneda: t.moneda || 'PEN'
+  // Suscripciones — detectar por subcategoria (streaming, suscripciones) o categoria Suscripciones
+  const subsSubcats = ['streaming', 'suscripciones', 'suscripcion'];
+  const subsTxs = gastos.filter(t =>
+    subsSubcats.includes((t.subcategoria || '').toLowerCase()) ||
+    (t.categoria || '').toLowerCase() === 'suscripciones'
+  );
+  // Deduplicar por comercio (mostrar monto unitario, no repetidos)
+  const subsMap = {};
+  subsTxs.forEach(t => {
+    const key = (t.comercio || 'Suscripcion').toLowerCase().trim();
+    if (!subsMap[key]) subsMap[key] = { comercio: t.comercio || 'Suscripcion', monto: 0, moneda: t.moneda || 'PEN', count: 0 };
+    subsMap[key].monto += parseFloat(t.monto_pen || t.monto || 0);
+    subsMap[key].count++;
+  });
+  const suscripciones = Object.values(subsMap).map(s => ({
+    comercio: s.comercio,
+    monto: parseFloat((s.monto / s.count).toFixed(2)),
+    moneda: s.moneda
   }));
+  const totalSubs = suscripciones.reduce((s,t) => s + t.monto, 0);
 
   // USD
   const txsUsd = gastos.filter(t => t.moneda === 'USD');

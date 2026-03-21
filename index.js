@@ -283,7 +283,7 @@ Alimentación:    delivery | restaurante | supermercado | mercado | cafeteria | 
 Transporte:      uber_cabify | taxi | bus_micro | metro_bus | gasolina | peaje | estacionamiento
 Vivienda:        alquiler | mantenimiento | electricidad | agua | gas | internet | cable
 Salud:           farmacia | medico | clinica | laboratorio | seguro_salud | optica
-Entretenimiento: streaming | cine | juegos | bares_clubs | eventos | hobbies
+Entretenimiento: streaming | suscripciones | cine | juegos | bares_clubs | eventos | hobbies
 Compras:         ropa | calzado | electronico | hogar | belleza | mascotas
 Educación:       universidad | instituto | curso_online | utiles | idiomas | colegios
 Finanzas:        prestamo | tarjeta_credito | seguro | ahorro | inversion | comision_banco
@@ -305,8 +305,9 @@ REGLAS DE NORMALIZACIÓN DE COMERCIOS:
 - Claro / Entel / Movistar hogar / Bitel / internet → Vivienda > internet
 - TV cable / cableoperadora → Vivienda > cable
 - Gas LP / GLP / Zeta Gas → Vivienda > gas
-- DLOCAL*NETFLIX / Netflix / Disney+ / HBO / Spotify / YouTube Premium / Apple Music / Apple TV → Entretenimiento > streaming
-- Apple.com/bill / Apple iCloud / Google One / Google Drive → Entretenimiento > streaming
+- DLOCAL*NETFLIX / Netflix / Disney+ / HBO / Spotify / YouTube Premium / Apple Music / Apple TV → Entretenimiento > suscripciones
+- Apple.com/bill / Apple iCloud / Google One / Google Drive / Google Storage → Entretenimiento > suscripciones
+- Claude / ChatGPT / OpenAI / suscripciones de software / apps recurrentes → Entretenimiento > suscripciones
 - Cineplanet / Cinemark / UVK → Entretenimiento > cine
 - Google Play / App Store / Steam / Xbox / PlayStation → Entretenimiento > juegos
 - Bares / discotecas / pubs → Entretenimiento > bares_clubs
