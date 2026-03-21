@@ -17,7 +17,7 @@ export default function PaymentMethods({ metodosPago }: PaymentMethodsProps) {
   return (
     <DashCard>
       <p className="mb-4 text-[11px] uppercase tracking-wider text-neto-txt3">
-        Metodos de Pago
+        Métodos de Pago
       </p>
 
       <div className="flex flex-col gap-3.5">

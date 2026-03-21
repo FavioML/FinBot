@@ -106,7 +106,7 @@ export default function DashboardClient() {
             Link expirado
           </h2>
           <p className="text-neto-txt3 text-sm mb-6">
-            Este dashboard ya no esta disponible. Genera uno nuevo escribiendo{" "}
+            Este dashboard ya no está disponible. Genera uno nuevo escribiendo{" "}
             <span className="text-neto-green font-medium">/reporte</span> en
             WhatsApp.
           </p>
@@ -164,7 +164,7 @@ export default function DashboardClient() {
           <TransactionList transacciones={data.transacciones} />
         </div>
 
-        <div className="mt-4">
+        <div className="mt-6">
           <CategoryBreakdown categorias={data.categorias} />
         </div>
 

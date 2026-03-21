@@ -44,13 +44,13 @@ export default function CategoryBreakdown({ categorias }: CategoryBreakdownProps
   return (
     <DashCard>
       <p className="mb-4 text-[11px] uppercase tracking-wider text-neto-txt3">
-        Categorias
+        Categorías
       </p>
 
       <div className="flex flex-col gap-5 md:flex-row md:items-start">
         {/* Donut */}
-        <div className="relative mx-auto w-[180px] shrink-0 md:mx-0">
-          <ResponsiveContainer width="100%" height={180}>
+        <div className="relative mx-auto w-[220px] shrink-0 md:mx-0">
+          <ResponsiveContainer width="100%" height={220}>
             <PieChart>
               <Pie
                 data={pieData}
@@ -58,8 +58,8 @@ export default function CategoryBreakdown({ categorias }: CategoryBreakdownProps
                 nameKey="nombre"
                 cx="50%"
                 cy="50%"
-                innerRadius="55%"
-                outerRadius="80%"
+                innerRadius="58%"
+                outerRadius="82%"
                 strokeWidth={0}
                 animationDuration={1200}
               >
@@ -76,7 +76,7 @@ export default function CategoryBreakdown({ categorias }: CategoryBreakdownProps
           {/* Center total */}
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
             <span className="text-[11px] text-neto-txt3">Total</span>
-            <span className="text-[16px] font-semibold text-neto-txt">
+            <span className="text-[14px] font-semibold text-neto-txt">
               S/ {totalGastos.toLocaleString("es-PE", { minimumFractionDigits: 0 })}
             </span>
           </div>

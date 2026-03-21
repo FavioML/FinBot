@@ -279,7 +279,7 @@ body{font-family:'Space Grotesk',sans-serif;color:var(--txt);background:var(--bg
 
 <!-- PAGINA 1 -->
 <div class="page">
-  <div class="page-label">Pagina 1 de 3 &middot; Resumen del mes</div>
+  <div class="page-label">Página 1 de 3 &middot; Resumen del mes</div>
   <div class="page-title">Como me fue en ${MESES[mesNum]}?</div>
 
   <div class="row-3">
@@ -328,7 +328,7 @@ body{font-family:'Space Grotesk',sans-serif;color:var(--txt);background:var(--bg
 
 <!-- PAGINA 2 -->
 <div class="page">
-  <div class="page-label">Pagina 2 de 3 &middot; Detalle y habitos</div>
+  <div class="page-label">Página 2 de 3 &middot; Detalle y hábitos</div>
   <div class="page-title">Donde exactamente gaste?</div>
 
   <div class="row-2">
@@ -354,7 +354,7 @@ body{font-family:'Space Grotesk',sans-serif;color:var(--txt);background:var(--bg
           <div class="bar-amount">S/ ${monto.toFixed(0)}</div>
         </div>`;
       }).join('')}
-      ${metodos.length === 0 ? '<div style="font-size:12px;color:var(--txt3)">Sin datos de metodo de pago</div>' : ''}
+      ${metodos.length === 0 ? '<div style="font-size:12px;color:var(--txt3)">Sin datos de método de pago</div>' : ''}
     </div>
   </div>
 
@@ -368,12 +368,12 @@ body{font-family:'Space Grotesk',sans-serif;color:var(--txt);background:var(--bg
       <span style="font-weight:500;color:var(--txt)">${t.moneda === 'USD' ? '$' : 'S/ '}${parseFloat(t.monto||0).toFixed(2)}/mes</span>
     </div>`).join('')}
     <div style="font-size:12px;color:var(--txt3);margin-top:10px">
-      Total suscripciones: <strong style="color:var(--txt)">S/ ${totalSubs.toFixed(0)}/mes</strong> &middot; S/ ${(totalSubs*12).toFixed(0)} al anio
+      Total suscripciones: <strong style="color:var(--txt)">S/ ${totalSubs.toFixed(0)}/mes</strong> &middot; S/ ${(totalSubs*12).toFixed(0)} al año
     </div>
   </div>` : ''}
 
   <div class="section">
-    <div class="section-title">Evolucion de gastos (ultimos 4 meses)</div>
+    <div class="section-title">Evolución de gastos (últimos 4 meses)</div>
     <div style="display:flex;gap:14px;align-items:flex-end">
       <div style="flex:1">
         <div class="month-bars">
@@ -399,7 +399,7 @@ body{font-family:'Space Grotesk',sans-serif;color:var(--txt);background:var(--bg
 
 <!-- PAGINA 3 -->
 <div class="page">
-  <div class="page-label">Pagina 3 de 3 &middot; Salud financiera y proximo mes</div>
+  <div class="page-label">Página 3 de 3 &middot; Salud financiera y próximo mes</div>
   <div class="page-title">Y ahora que?</div>
 
   <div class="row-2">
@@ -442,11 +442,11 @@ body{font-family:'Space Grotesk',sans-serif;color:var(--txt);background:var(--bg
   </div>
 
   <div class="section">
-    <div class="section-title">Proyeccion para el proximo mes</div>
+    <div class="section-title">Proyección para el próximo mes</div>
     <div class="proj-row"><span>Gastos fijos estimados</span><span style="font-weight:500;color:var(--txt)">S/ ${gastosFijos.toFixed(0)}</span></div>
     <div class="proj-row"><span>Gastos variables (promedio)</span><span style="font-weight:500;color:var(--txt)">S/ ${gastoVar.toFixed(0)}</span></div>
     <div class="proj-row" style="${proyeccion > totalI && totalI > 0 ? 'color:var(--r)' : ''}">
-      <span>Proyeccion total del mes</span>
+      <span>Proyección total del mes</span>
       <span style="font-weight:500;color:var(--txt)">S/ ${proyeccion.toFixed(0)}</span>
     </div>
     ${totalI > 0 ? `<div class="${ahorro >= 0 ? 'insight' : 'alert-box'}" style="margin-top:8px">
@@ -555,7 +555,7 @@ body{font-family:'Space Grotesk',sans-serif;background:var(--bg);color:var(--txt
   </div>
   <div>
     <h1><span>Dashboard</span> &mdash; ${nombre}</h1>
-    <p>Ultimos 3 meses &middot; ${fechaGen}</p>
+    <p>Últimos 3 meses &middot; ${fechaGen}</p>
   </div>
 </div>
 <div class="wrap">
@@ -563,9 +563,9 @@ body{font-family:'Space Grotesk',sans-serif;background:var(--bg);color:var(--txt
   <div class="card"><div class="lbl">Mes actual</div><div class="val">S/ ${mesActual.total.toFixed(0)}</div><div class="sub">${mesActual.label}</div></div>
   <div class="card"><div class="lbl">Promedio/mes</div><div class="val">S/ ${promMensual.toFixed(0)}</div><div class="sub">3 meses</div></div>
   <div class="card full"><div class="lbl">Gastos por mes</div><div class="ch"><canvas id="barC"></canvas></div></div>
-  ${catOrd.length > 0 ? `<div class="card full"><div class="lbl">Por categoria &mdash; ${mesActual.label}</div><div class="ch2"><canvas id="donutC"></canvas></div></div>` : ''}
+  ${catOrd.length > 0 ? `<div class="card full"><div class="lbl">Por categoría &mdash; ${mesActual.label}</div><div class="ch2"><canvas id="donutC"></canvas></div></div>` : ''}
 </div>
-${catOrd.length > 0 ? `<div class="stitle">Desglose categorias</div>${catOrd.map(([c,m],i)=>`<div class="row"><div class="rlbl">${c}</div><div class="trk"><div class="fill" style="width:${Math.min(100,m/mesActual.total*100).toFixed(0)}%;background:${col[i%col.length]}"></div></div><div class="rval">S/ ${m.toFixed(0)}</div></div>`).join('')}` : ''}
+${catOrd.length > 0 ? `<div class="stitle">Desglose categorías</div>${catOrd.map(([c,m],i)=>`<div class="row"><div class="rlbl">${c}</div><div class="trk"><div class="fill" style="width:${Math.min(100,m/mesActual.total*100).toFixed(0)}%;background:${col[i%col.length]}"></div></div><div class="rval">S/ ${m.toFixed(0)}</div></div>`).join('')}` : ''}
 ${topComercio.length > 0 ? `<div class="stitle">Top comercios (3 meses)</div>${topComercio.map(([c,m],i)=>`<div class="row"><div class="rlbl">${c.substring(0,16)}</div><div class="trk"><div class="fill" style="width:${Math.min(100,totalTresMeses>0?m/totalTresMeses*100:0).toFixed(0)}%;background:${col[i%col.length]}"></div></div><div class="rval">S/ ${m.toFixed(0)}</div></div>`).join('')}` : ''}
 <div class="ft">NETO &middot; neto.pe &middot; Datos de tus correos bancarios</div>
 </div>

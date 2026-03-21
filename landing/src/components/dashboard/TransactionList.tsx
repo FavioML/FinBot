@@ -8,7 +8,7 @@ interface TransactionListProps {
 }
 
 const categoryEmojis: Record<string, string> = {
-  Alimentacion: "🍽️",
+  Alimentación: "🍽️",
   Transporte: "🚗",
   Salud: "💊",
   Entretenimiento: "🎬",

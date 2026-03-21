@@ -20,7 +20,7 @@ export default function Projections({ proyeccion, kpis }: ProjectionsProps) {
   return (
     <DashCard>
       <h3 className="mb-4 text-[15px] font-semibold text-neto-txt">
-        Proyeccion del Mes
+        Proyección del Mes
       </h3>
 
       <div>

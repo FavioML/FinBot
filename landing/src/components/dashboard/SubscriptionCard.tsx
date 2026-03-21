@@ -32,7 +32,7 @@ export default function SubscriptionCard({
             </span>
           </div>
           <p className="mt-0.5 text-[11px] text-neto-txt3">
-            S/ {(totalSuscripciones * 12).toLocaleString()}/ano
+            S/ {(totalSuscripciones * 12).toLocaleString()}/año
           </p>
 
           {/* List */}
