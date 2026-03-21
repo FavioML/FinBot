@@ -840,20 +840,25 @@ app.post('/webhook', async (req, res) => {
     if (message.type === 'image') {
       const usuario = await obtenerOCrearUsuario(from);
       const mediaId = message.image && message.image.id;
+      console.log('[IMAGEN] media_id:', mediaId);
       if (!mediaId) { await enviarWhatsapp(from, 'No pude recibir la imagen. Intenta de nuevo.'); return; }
       try {
         // 1. Obtener URL de la imagen desde Meta API
-        const metaRes = await fetch('https://graph.facebook.com/v19.0/' + mediaId, {
-          headers: { Authorization: 'Bearer ' + process.env.WHATSAPP_TOKEN }
-        });
+        const metaRes = await fetch('https://graph.facebook.com/v19.0/' + mediaId + '?access_token=' + process.env.WHATSAPP_TOKEN);
         const metaJson = await metaRes.json();
+        console.log('[IMAGEN] metaJson:', JSON.stringify(metaJson).slice(0, 200));
+        if (!metaJson.url) throw new Error('Meta no devolvió URL: ' + JSON.stringify(metaJson).slice(0, 100));
+
         // 2. Descargar imagen como base64
         const imgRes = await fetch(metaJson.url, {
           headers: { Authorization: 'Bearer ' + process.env.WHATSAPP_TOKEN }
         });
+        if (!imgRes.ok) throw new Error('Error descargando imagen: ' + imgRes.status);
         const imgBuffer = await imgRes.arrayBuffer();
         const base64 = Buffer.from(imgBuffer).toString('base64');
-        const mimeType = metaJson.mime_type || 'image/jpeg';
+        const mimeType = metaJson.mime_type || message.image.mime_type || 'image/jpeg';
+        console.log('[IMAGEN] Descargada OK, mime:', mimeType, 'size:', imgBuffer.byteLength);
+
         // 3. Parsear con GPT-4o vision
         const hoy = new Date().toISOString().split('T')[0];
         const visionRes = await openai.chat.completions.create({
@@ -861,26 +866,37 @@ app.post('/webhook', async (req, res) => {
           messages: [{
             role: 'user',
             content: [
-              { type: 'text', text: 'Esta imagen es una notificación de pago (Yape, Plin, banco peruano). Extrae la transacción y devuelve SOLO JSON:\n{"tipo":"gasto","monto":numero,"moneda":"PEN","comercio":"destinatario o descripcion","categoria":"Alimentación|Transporte|Vivienda|Salud|Entretenimiento|Compras|Educación|Finanzas|Trabajo_Negocio|Otros","subcategoria":"string","fecha":"YYYY-MM-DD o null","descripcion_original":"texto extraido"}\nSi no es una notificación de pago, devuelve {"tipo":"no_pago"}.\nFecha de hoy: ' + hoy },
-              { type: 'image_url', image_url: { url: 'data:' + mimeType + ';base64,' + base64 } }
+              { type: 'text', text: 'Esta imagen es una captura de pantalla de un pago (Yape, Plin, banco peruano). Extrae los datos y devuelve SOLO JSON válido, sin texto extra:\n{"tipo":"gasto","monto":numero,"moneda":"PEN","comercio":"nombre del destinatario o descripcion del pago","categoria":"Alimentación|Transporte|Vivienda|Salud|Entretenimiento|Compras|Educación|Finanzas|Trabajo_Negocio|Otros","subcategoria":"descripcion breve","fecha":"YYYY-MM-DD","descripcion_original":"texto clave de la imagen"}\nSi la imagen NO muestra ningún pago o transacción, devuelve: {"tipo":"no_pago"}\nFecha de hoy si no se ve en la imagen: ' + hoy },
+              { type: 'image_url', image_url: { url: 'data:' + mimeType + ';base64,' + base64, detail: 'high' } }
             ]
           }],
-          temperature: 0, max_tokens: 300
+          temperature: 0, max_tokens: 400
         });
         const rawV = visionRes.choices[0].message.content.trim();
-        const parsed = JSON.parse(rawV.startsWith('{') ? rawV : rawV.slice(rawV.indexOf('{'), rawV.lastIndexOf('}') + 1));
+        console.log('[IMAGEN] GPT response:', rawV.slice(0, 200));
+
+        // Parsear JSON de la respuesta
+        let parsed;
+        try {
+          const start = rawV.indexOf('{'); const end = rawV.lastIndexOf('}');
+          parsed = JSON.parse(start >= 0 ? rawV.slice(start, end + 1) : rawV);
+        } catch(pe) { throw new Error('GPT no devolvió JSON válido: ' + rawV.slice(0, 100)); }
+
         if (parsed.tipo === 'no_pago') {
-          await enviarWhatsapp(from, 'No reconocí ningún pago en esta imagen. Envíame la captura de la notificación de Yape, Plin o tu banco.');
+          await enviarWhatsapp(from, 'No reconocí ningún pago en esa imagen. Envíame la captura de la notificación de Yape o tu banco (la pantalla que dice "¡Yapeaste!" o similar).');
           return;
         }
+        if (!parsed.monto || isNaN(parseFloat(parsed.monto))) {
+          throw new Error('No se detectó monto en la imagen');
+        }
         parsed.fecha = parsed.fecha || hoy;
-        const tx = await guardarTransaccion(usuario.id, parsed);
+        await guardarTransaccion(usuario.id, parsed);
         const montoStr = parsed.moneda === 'USD' ? '$' + parseFloat(parsed.monto).toFixed(2) : 'S/ ' + parseFloat(parsed.monto).toFixed(2);
         const emoji = getEmojiCategoria(parsed.categoria) || '📋';
-        await enviarWhatsapp(from, '📸 ¡Listo! Registré el pago desde la imagen:\n\n' + emoji + ' *' + (parsed.comercio || 'Pago') + '* — ' + montoStr + '\nCategoría: ' + parsed.categoria + '\nFecha: ' + parsed.fecha + '\n\n_¿La categoría está bien? Si no, dímelo._');
+        await enviarWhatsapp(from, '📸 ¡Listo! Registré desde la imagen:\n\n' + emoji + ' *' + (parsed.comercio || 'Pago') + '* — ' + montoStr + '\nCategoría: ' + parsed.categoria + (parsed.subcategoria && parsed.subcategoria !== 'sin_categoria' ? ' > ' + parsed.subcategoria : '') + '\nFecha: ' + parsed.fecha + '\n\n_¿Algo está mal? Dímelo y lo corrijo._');
       } catch(e) {
-        console.error('[IMAGEN]', e.message);
-        await enviarWhatsapp(from, 'No pude leer la imagen. Envíame una captura más clara de la notificación de pago.');
+        console.error('[IMAGEN] Error:', e.message);
+        await enviarWhatsapp(from, 'No pude procesar la imagen. Asegúrate de enviar la captura de la notificación de pago (la pantalla que muestra el monto y destinatario).');
       }
       return;
     }
