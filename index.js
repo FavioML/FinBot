@@ -475,8 +475,10 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
       const fileName = (doc && doc.filename) || '';
       const docMime = (doc && doc.mime_type) || '';
 
-      if (!fileName.endsWith('.xlsx') && !docMime.includes('spreadsheet') && !docMime.includes('excel') && !docMime.includes('officedocument')) {
-        await enviarWhatsapp(from, '📄 Solo acepto archivos Excel (.xlsx).\n\nDescarga la plantilla en: neto.pe/plantilla_gastos.xlsx');
+      const esCSV = fileName.endsWith('.csv') || docMime.includes('csv') || docMime.includes('text/plain');
+      const esExcel = fileName.endsWith('.xlsx') || fileName.endsWith('.xls') || docMime.includes('spreadsheet') || docMime.includes('excel') || docMime.includes('officedocument');
+      if (!esCSV && !esExcel) {
+        await enviarWhatsapp(from, '📄 Acepto archivos Excel (.xlsx) o CSV (.csv).\n\nDescarga la plantilla en: neto.pe/plantilla_gastos.xlsx\nO envía tu estado de cuenta bancario en CSV.');
         return;
       }
 
@@ -499,7 +501,55 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
         const fileBuffer = Buffer.from(await fileRes.arrayBuffer());
         log.info({ tag: 'EXCEL', size: fileBuffer.byteLength }, 'Archivo descargado');
 
-        // 2. Parsear con exceljs
+        // 2. Parsear archivo (CSV o Excel)
+        const rows = [];
+        if (esCSV) {
+          // --- Parsing CSV (estados de cuenta bancarios) ---
+          const csvText = fileBuffer.toString('utf-8');
+          const lines = csvText.split(/\r?\n/).filter(l => l.trim());
+          if (lines.length < 2) throw new Error('El archivo CSV está vacío.');
+
+          // Detectar separador (coma, punto y coma, tab)
+          const firstLine = lines[0];
+          const sep = firstLine.includes(';') ? ';' : firstLine.includes('\t') ? '\t' : ',';
+          const headers = firstLine.split(sep).map(h => h.replace(/"/g, '').trim().toLowerCase());
+
+          // Auto-detectar columnas por nombre de header
+          const iDate = headers.findIndex(h => h.includes('fecha') || h === 'date' || h.includes('fec'));
+          const iAmount = headers.findIndex(h => h.includes('monto') || h.includes('importe') || h.includes('cargo') || h.includes('amount') || h === 'debito');
+          const iDesc = headers.findIndex(h => h.includes('descripci') || h.includes('concepto') || h.includes('detalle') || h.includes('comercio') || h.includes('description') || h.includes('movimiento'));
+          const iCredit = headers.findIndex(h => h.includes('abono') || h.includes('credito') || h.includes('credit') || h.includes('deposito'));
+
+          if (iDate < 0 || (iAmount < 0 && iDesc < 0)) throw new Error('No pude detectar las columnas del CSV. Necesito al menos Fecha y Monto/Descripción.');
+
+          for (let li = 1; li < lines.length; li++) {
+            const cols = lines[li].split(sep).map(c => c.replace(/"/g, '').trim());
+            if (!cols[iDate]) continue;
+
+            // Normalizar fecha
+            let fechaStr = cols[iDate];
+            const parts = fechaStr.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+            if (parts) {
+              const anio = parts[3].length === 2 ? '20' + parts[3] : parts[3];
+              fechaStr = anio + '-' + parts[2].padStart(2, '0') + '-' + parts[1].padStart(2, '0');
+            }
+
+            // Monto: cargo (gasto) vs abono (ingreso)
+            let monto = 0, tipo = 'gasto';
+            if (iAmount >= 0) {
+              monto = parseFloat((cols[iAmount] || '0').replace(/[,\s]/g, ''));
+            }
+            if (iCredit >= 0 && cols[iCredit] && parseFloat(cols[iCredit].replace(/[,\s]/g, '')) > 0) {
+              monto = parseFloat(cols[iCredit].replace(/[,\s]/g, ''));
+              tipo = 'ingreso';
+            }
+            if (isNaN(monto) || monto <= 0) continue;
+
+            const comercio = iDesc >= 0 ? (cols[iDesc] || 'Sin descripción').substring(0, 100) : 'Sin descripción';
+            rows.push({ fecha: fechaStr, monto, comercio, tipo, categoria: null, subcategoria: null, metodo_pago: null, banco: null });
+          }
+        } else {
+        // --- Parsing Excel ---
         const ExcelJS = require('exceljs');
         const workbook = new ExcelJS.Workbook();
         await workbook.xlsx.load(fileBuffer);
@@ -507,7 +557,6 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
         if (!sheet) throw new Error('El archivo no tiene hojas de cálculo');
 
         // 3. Detectar header row y formato de columnas (auto-detect)
-        const rows = [];
         let headerRow = null;
         let colFormat = 'legacy6'; // legacy6 | tipo7 | full8
         sheet.eachRow((row, rowNumber) => {
@@ -569,8 +618,9 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
             rows.push({ fecha: fechaStr, monto, comercio, tipo, categoria, subcategoria, metodo_pago: metodo || null, banco: banco || null });
           }
         });
+        } // fin else (Excel)
 
-        if (rows.length === 0) throw new Error('No encontré datos válidos en el archivo. Asegúrate de usar la plantilla correcta.');
+        if (rows.length === 0) throw new Error('No encontré datos válidos en el archivo. Asegúrate de usar la plantilla correcta o enviar tu estado de cuenta CSV.');
         if (rows.length > 500) throw new Error('Máximo 500 transacciones por archivo. Tu archivo tiene ' + rows.length + '.');
 
         // 4. Auto-categorizar filas sin categoría o sin subcategoría usando GPT-4o-mini

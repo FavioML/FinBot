@@ -43,7 +43,7 @@
 - [x] **Resumen mensual automatico**: 1ro de cada mes 9am Lima con comparativa vs mes anterior. ✅ 21-mar-2026
 - [ ] **Backup automatico de datos Supabase**: Programar pg_dump semanal o usar Supabase backups.
 - [x] **Notificacion al admin**: WhatsApp al admin en errores críticos (webhook, NLP, escaneo) con cooldown 5min. ✅ 21-mar-2026
-- [ ] **Excel mejorado**: Soporte para formatos bancarios de estado de cuenta (BCP, BBVA descarga CSV/XLS).
+- [x] **Excel mejorado**: Soporte CSV bancario (auto-detecta separador, columnas fecha/monto/descripción/cargo/abono). ✅ 21-mar-2026
 - [x] **Onboarding sin Gmail**: /manual para registro sin Gmail. Gastos por texto, fotos, Excel. ✅ 21-mar-2026
 - [x] **Recordatorios**: 8pm Lima si no hay gastos. /silenciar y /recordar para toggle. ✅ 21-mar-2026
 
@@ -71,11 +71,11 @@
 - Integridad referencial correcta (FKs configuradas)
 
 ### Progreso post-auditoria (21-mar-2026)
-- **25/28 items completados** (89%)
+- **26/28 items completados** (93%)
 - **56 tests automatizados** (vitest)
 - **15 módulos** extraídos (lib/ + services/)
 - **0 console.log** en producción (migrado a Pino)
 - **11 bancos** soportados (antes 6)
 - **Seguridad**: rate limiting + validación + dedup + timingSafeEqual
 - **Producto**: onboarding sin Gmail, recordatorios, resumen mensual, métricas admin
-- **Pendientes**: backup Supabase, Excel mejorado, verificación Meta (manual)
+- **Pendientes**: backup Supabase (config), verificación Meta (manual)
