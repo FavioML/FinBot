@@ -9,6 +9,11 @@ const os = require('os');
 const fs = require('fs');
 const { generarUrlAutorizacion, guardarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail } = require('./gmail');
 
+// Helper: último día real del mes (evita fechas inválidas como 02-31)
+function ultimoDiaMes(anio, mes) {
+  return new Date(anio, mes, 0).getDate();
+}
+
 const app = express();
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
@@ -471,7 +476,7 @@ async function escanearGmailYRegistrar(usuario) {
 
 async function generarYEnviarReporte(usuario, mes, anio) {
   const desde = anio + '-' + String(mes).padStart(2,'0') + '-01';
-  const hasta = anio + '-' + String(mes).padStart(2,'0') + '-31';
+  const hasta = anio + '-' + String(mes).padStart(2,'0') + '-' + String(ultimoDiaMes(anio, mes)).padStart(2,'0');
   const { data: txs } = await supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).gte('fecha', desde).lte('fecha', hasta).order('fecha', { ascending: false });
   if (!txs || txs.length === 0) return { ok: false, msg: 'No hay transacciones registradas para ese mes.' };
   const { data: presupData } = await supabase.from('presupuestos').select('*').eq('usuario_id', usuario.id).eq('mes', mes).eq('anio', anio);
@@ -481,7 +486,7 @@ async function generarYEnviarReporte(usuario, mes, anio) {
   const historial = [];
   for (let i = 3; i >= 1; i--) {
     const d = new Date(anio, mes - 1 - i, 1); const hm = d.getMonth()+1; const ha = d.getFullYear();
-    const { data: ht } = await supabase.from('transacciones').select('monto,monto_pen').eq('usuario_id', usuario.id).eq('tipo','gasto').gte('fecha', ha+'-'+String(hm).padStart(2,'0')+'-01').lte('fecha', ha+'-'+String(hm).padStart(2,'0')+'-31');
+    const { data: ht } = await supabase.from('transacciones').select('monto,monto_pen').eq('usuario_id', usuario.id).eq('tipo','gasto').gte('fecha', ha+'-'+String(hm).padStart(2,'0')+'-01').lte('fecha', ha+'-'+String(hm).padStart(2,'0')+'-'+String(ultimoDiaMes(ha,hm)).padStart(2,'0'));
     const tot = (ht||[]).reduce((s,t) => s+parseFloat(t.monto_pen||t.monto||0), 0);
     if (tot > 0) historial.push({ mes: hm, anio: ha, total: tot });
   }
@@ -1499,7 +1504,7 @@ app.get('/api/reporte/:id/mes/:mes/:anio', async (req, res) => {
 
     // Obtener transacciones del mes solicitado
     const desde = anioNum + '-' + String(mesNum).padStart(2,'0') + '-01';
-    const hasta = anioNum + '-' + String(mesNum).padStart(2,'0') + '-31';
+    const hasta = anioNum + '-' + String(mesNum).padStart(2,'0') + '-' + String(ultimoDiaMes(anioNum, mesNum)).padStart(2,'0');
     const { data: txs } = await supabase.from('transacciones').select('*').eq('usuario_id', usuarioId).gte('fecha', desde).lte('fecha', hasta).order('fecha', { ascending: false });
     if (!txs || txs.length === 0) return res.json({ error: 'Sin transacciones para ese mes', empty: true });
 
@@ -1512,7 +1517,7 @@ app.get('/api/reporte/:id/mes/:mes/:anio', async (req, res) => {
     const historial = [];
     for (let i = 3; i >= 1; i--) {
       const d = new Date(anioNum, mesNum - 1 - i, 1); const hm = d.getMonth()+1; const ha = d.getFullYear();
-      const { data: ht } = await supabase.from('transacciones').select('monto,monto_pen,tipo').eq('usuario_id', usuarioId).gte('fecha', ha+'-'+String(hm).padStart(2,'0')+'-01').lte('fecha', ha+'-'+String(hm).padStart(2,'0')+'-31');
+      const { data: ht } = await supabase.from('transacciones').select('monto,monto_pen,tipo').eq('usuario_id', usuarioId).gte('fecha', ha+'-'+String(hm).padStart(2,'0')+'-01').lte('fecha', ha+'-'+String(hm).padStart(2,'0')+'-'+String(ultimoDiaMes(ha,hm)).padStart(2,'0'));
       const gastos = (ht||[]).filter(t => t.tipo === 'gasto');
       const ingr = (ht||[]).filter(t => t.tipo === 'ingreso');
       const totG = gastos.reduce((s,t) => s+parseFloat(t.monto_pen||t.monto||0), 0);
@@ -1788,7 +1793,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
           const mes2 = datos.mes || mesActual; const anio2 = datos.anio || anioActual;
           const desde2 = anio2+'-'+String(mes2).padStart(2,'0')+'-01';
           if (fechaMinLgm && desde2 < fechaMinLgm) return '🔒 Tu plan gratuito solo muestra los últimos 3 meses de historial.\n\nEscribe */premium* para desbloquear todo tu historial.';
-          const hasta2 = anio2+'-'+String(mes2).padStart(2,'0')+'-31';
+          const hasta2 = anio2+'-'+String(mes2).padStart(2,'0')+'-'+String(ultimoDiaMes(anio2,mes2)).padStart(2,'0');
           const { data: txsTodas } = await supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).gte('fecha', desde2).lte('fecha', hasta2);
           // Agrupar por cuenta_email (campo que se agrega en futuros registros)
           let respSep = '📊 *' + mE[mes2] + ' ' + anio2 + ' — por cuenta*\n\n';
@@ -1807,7 +1812,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
         } else {
           const desde = anio + '-' + String(mes).padStart(2,'0') + '-01';
           if (fechaMinLgm && desde < fechaMinLgm) return '🔒 Tu plan gratuito solo muestra los últimos 3 meses de historial.\n\nEscribe */premium* para desbloquear todo tu historial.';
-          const hasta = anio + '-' + String(mes).padStart(2,'0') + '-31';
+          const hasta = anio + '-' + String(mes).padStart(2,'0') + '-' + String(ultimoDiaMes(anio, mes)).padStart(2,'0');
           const { data } = await supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).gte('fecha', desde).lte('fecha', hasta).order('fecha', { ascending: false });
           txsMes = data || [];
         }
@@ -1868,7 +1873,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
         const anio = datos.anio || anioActual;
         const desde = anio + '-' + String(mes).padStart(2,'0') + '-01';
         if (fechaMinLgc && desde < fechaMinLgc) return '🔒 Tu plan gratuito solo muestra los últimos 3 meses de historial.\n\nEscribe */premium* para desbloquear todo tu historial.';
-        const hasta = anio + '-' + String(mes).padStart(2,'0') + '-31';
+        const hasta = anio + '-' + String(mes).padStart(2,'0') + '-' + String(ultimoDiaMes(anio, mes)).padStart(2,'0');
         const { data: txs } = await supabase.from('transacciones').select('*')
           .eq('usuario_id', usuario.id).ilike('categoria', '%' + cat + '%')
           .gte('fecha', desde).lte('fecha', hasta).order('fecha', { ascending: false });
