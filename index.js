@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const { OpenAI } = require('openai');
 const { createClient } = require('@supabase/supabase-js');
-const { generarReporteHTML, generarDashboardHTML } = require('./reporte_html');
+const { generarReporteHTML, generarDashboardHTML, generarReporteJSON } = require('./reporte_html');
 const crypto = require('crypto');
 const path = require('path');
 const os = require('os');
@@ -443,12 +443,14 @@ async function generarYEnviarReporte(usuario, mes, anio) {
     const tot = (ht||[]).reduce((s,t) => s+parseFloat(t.monto_pen||t.monto||0), 0);
     if (tot > 0) historial.push({ mes: hm, anio: ha, total: tot });
   }
-  const html = generarReporteHTML({ nombre: usuario.nombre || 'Usuario', mes, anio, transacciones: txs, presupuestos, historialMeses: historial });
-  const reporteId = String(Date.now());
-  const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-  // Guardar en Supabase en vez de memoria — sobrevive redeployos
+  // Generar JSON para dashboard interactivo
+  const jsonData = generarReporteJSON({ nombre: usuario.nombre || 'Usuario', mes, anio, transacciones: txs, presupuestos, historialMeses: historial });
+  const reporteId = crypto.randomUUID();
+  const isPremium = usuario.plan === 'premium';
+  const expiresAt = new Date(Date.now() + (isPremium ? 24 : 1) * 60 * 60 * 1000).toISOString();
+  // Guardar JSON stringificado en campo html de reporte_cache
   const { error: cacheErr } = await supabase.from('reporte_cache').upsert({
-    id: reporteId, usuario_id: usuario.id, html, expires_at: expiresAt
+    id: reporteId, usuario_id: usuario.id, html: JSON.stringify(jsonData), expires_at: expiresAt
   });
   if (cacheErr) { console.error('[REPORTE] Error guardando cache:', cacheErr.message); }
   // Limpiar reportes expirados del mismo usuario (housekeeping silencioso)
@@ -1043,7 +1045,7 @@ app.post('/webhook', async (req, res) => {
           const railwayUrl = process.env.RAILWAY_URL || 'https://neto.pe';
           generarYEnviarReporte(usuario, mesR, anioR).then(async (result) => {
             if (!result.ok) { await enviarWhatsapp(from, result.msg); }
-            else { const mE = ['','Enero','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']; await enviarWhatsapp(from, '\uD83D\uDCC4 *Reporte ' + mE[mesR] + ' ' + anioR + ' listo!*\n\n' + result.txCount + ' transacciones.\nDisponible 30 min:\n' + railwayUrl + '/reporte/' + result.reporteId + (planUsuario === 'free' ? '\n\n_Reporte gratuito del mes usado._' : '')); }
+            else { const mE = ['','Enero','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']; const ttl = planUsuario === 'premium' ? '24 horas' : '1 hora'; await enviarWhatsapp(from, '\uD83D\uDCCA *Tu dashboard de ' + mE[mesR] + ' ' + anioR + ' esta listo!*\n\n' + result.txCount + ' transacciones analizadas.\n\n\uD83D\uDD17 ' + railwayUrl + '/mi-reporte/' + result.reporteId + '\n\n_Disponible ' + ttl + '. Incluye salud financiera, proyecciones y acciones._' + (planUsuario === 'free' ? '\n\n_Reporte gratuito del mes usado._' : '')); }
           }).catch(async (e) => { await enviarWhatsapp(from, 'Error: ' + e.message); });
           return;
         }
@@ -1070,15 +1072,17 @@ app.post('/webhook', async (req, res) => {
       const railwayUrl = process.env.RAILWAY_URL || 'https://neto.pe';
       respuesta = '\uD83C\uDF81 *Tu link de referido:*\n\n' + railwayUrl + '/r/' + refCode + '\n\nComparte con amigos. Cuando *3 de ellos usen NETO activamente*, recibes *1 mes Pro gratis* \uD83C\uDF89\n\n_Referidos: ' + totalRefs + ' | Activos: ' + activos + '/3_';
     } else if (cmd === '/dashboard') {
+      // /dashboard ahora genera el mismo dashboard interactivo que /reporte (mes actual)
       const ahora = new Date();
-      const hace3meses = new Date(ahora.getFullYear(), ahora.getMonth() - 2, 1);
-      const { data: txsDash } = await supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).eq('tipo', 'gasto').gte('fecha', hace3meses.toISOString().split('T')[0]).order('fecha', { ascending: true });
-      const dashHtml = generarDashboardHTML(usuario, txsDash || []);
-      const dashId = crypto.randomUUID();
-      const dashExp = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-      await supabase.from('reporte_cache').insert({ id: dashId, usuario_id: usuario.id, html: dashHtml, expires_at: dashExp });
+      const mesActual = ahora.getMonth() + 1;
+      const anioActual = ahora.getFullYear();
+      const result = await generarYEnviarReporte(usuario, mesActual, anioActual);
       const railwayUrl = process.env.RAILWAY_URL || 'https://neto.pe';
-      respuesta = '\uD83D\uDCCA *Tu dashboard esta listo!*\n\n' + railwayUrl + '/dashboard/' + dashId + '\n\n_Disponible 24 horas. Actualiza con */dashboard* cuando quieras._';
+      if (!result.ok) {
+        respuesta = result.msg;
+      } else {
+        respuesta = '\uD83D\uDCCA *Tu dashboard esta listo!*\n\n' + result.txCount + ' transacciones analizadas.\n\n\uD83D\uDD17 ' + railwayUrl + '/mi-reporte/' + result.reporteId + '\n\n_Disponible ' + (usuario.plan === 'premium' ? '24 horas' : '1 hora') + '. Incluye salud financiera, proyecciones y acciones._';
+      }
     } else if (cmd.startsWith('/activar ')) {
       // Comando admin: /activar <numero_whatsapp> - solo Favio puede usarlo
       const ADMIN_NUMBER = process.env.ADMIN_WHATSAPP || '51970398192';
@@ -1210,6 +1214,89 @@ app.get('/dashboard/:id', async (req, res) => {
     console.error('[DASHBOARD] Error:', e.message);
     res.status(500).send('<h2>Error cargando el dashboard.</h2>');
   }
+});
+
+// === API JSON para dashboard interactivo ===
+app.get('/api/reporte/:id', async (req, res) => {
+  const id = req.params.id;
+  try {
+    const { data: entry, error } = await supabase
+      .from('reporte_cache').select('html, expires_at').eq('id', id).single();
+    if (error || !entry) return res.status(404).json({ error: 'Reporte no encontrado o expirado.' });
+    if (new Date(entry.expires_at) < new Date()) {
+      await supabase.from('reporte_cache').delete().eq('id', id);
+      return res.status(410).json({ error: 'El link del reporte expiro. Genera uno nuevo con /reporte' });
+    }
+    // El campo html almacena JSON stringificado para dashboards interactivos
+    try {
+      const jsonData = JSON.parse(entry.html);
+      res.json(jsonData);
+    } catch {
+      // Fallback: es HTML legacy, no JSON
+      res.status(400).json({ error: 'Este reporte usa el formato anterior. Genera uno nuevo con /reporte' });
+    }
+  } catch(e) {
+    console.error('[API/REPORTE] Error:', e.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+app.get('/api/reporte/:id/mes/:mes/:anio', async (req, res) => {
+  const { id, mes, anio } = req.params;
+  const mesNum = parseInt(mes);
+  const anioNum = parseInt(anio);
+  if (!mesNum || mesNum < 1 || mesNum > 12 || !anioNum) {
+    return res.status(400).json({ error: 'Mes o anio invalido' });
+  }
+  try {
+    // Verificar que el reporte original existe y obtener usuario_id
+    const { data: entry } = await supabase
+      .from('reporte_cache').select('usuario_id, expires_at').eq('id', id).single();
+    if (!entry) return res.status(404).json({ error: 'Reporte no encontrado' });
+    if (new Date(entry.expires_at) < new Date()) {
+      return res.status(410).json({ error: 'Sesion expirada. Genera un nuevo reporte.' });
+    }
+    const usuarioId = entry.usuario_id;
+    const { data: usuario } = await supabase.from('usuarios').select('*').eq('id', usuarioId).single();
+    if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+    // Obtener transacciones del mes solicitado
+    const desde = anioNum + '-' + String(mesNum).padStart(2,'0') + '-01';
+    const hasta = anioNum + '-' + String(mesNum).padStart(2,'0') + '-31';
+    const { data: txs } = await supabase.from('transacciones').select('*').eq('usuario_id', usuarioId).gte('fecha', desde).lte('fecha', hasta).order('fecha', { ascending: false });
+    if (!txs || txs.length === 0) return res.json({ error: 'Sin transacciones para ese mes', empty: true });
+
+    // Presupuestos
+    const { data: presupData } = await supabase.from('presupuestos').select('*').eq('usuario_id', usuarioId).eq('mes', mesNum).eq('anio', anioNum);
+    const presupuestos = {};
+    if (presupData) presupData.forEach(p => { presupuestos[p.categoria] = parseFloat(p.monto_limite); });
+
+    // Historial
+    const historial = [];
+    for (let i = 3; i >= 1; i--) {
+      const d = new Date(anioNum, mesNum - 1 - i, 1); const hm = d.getMonth()+1; const ha = d.getFullYear();
+      const { data: ht } = await supabase.from('transacciones').select('monto,monto_pen,tipo').eq('usuario_id', usuarioId).gte('fecha', ha+'-'+String(hm).padStart(2,'0')+'-01').lte('fecha', ha+'-'+String(hm).padStart(2,'0')+'-31');
+      const gastos = (ht||[]).filter(t => t.tipo === 'gasto');
+      const ingr = (ht||[]).filter(t => t.tipo === 'ingreso');
+      const totG = gastos.reduce((s,t) => s+parseFloat(t.monto_pen||t.monto||0), 0);
+      const totI = ingr.reduce((s,t) => s+parseFloat(t.monto_pen||t.monto||0), 0);
+      if (totG > 0 || totI > 0) historial.push({ mes: hm, anio: ha, total: totG, totalIngresos: totI });
+    }
+
+    const jsonData = generarReporteJSON({ nombre: usuario.nombre || 'Usuario', mes: mesNum, anio: anioNum, transacciones: txs, presupuestos, historialMeses: historial });
+    res.json(jsonData);
+  } catch(e) {
+    console.error('[API/REPORTE/MES] Error:', e.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// Fallback para dashboard interactivo — sirve el shell estatico de Next.js
+// La pagina esta en /mi-reporte.html, el ID se lee del path en el cliente
+app.get('/mi-reporte/:id', (req, res) => {
+  const shellPath = path.join(__dirname, 'public', 'mi-reporte.html');
+  if (fs.existsSync(shellPath)) return res.sendFile(shellPath);
+  res.status(404).send('<h2>Dashboard no disponible. Genera uno nuevo con /reporte</h2>');
 });
 
 app.get('/auth/callback', async (req, res) => {
@@ -1605,7 +1692,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
         const railwayUrl = process.env.RAILWAY_URL || 'https://neto.pe';
         generarYEnviarReporte(usuario, mesR, anioR).then(async (result) => {
           if (!result.ok) { await enviarWhatsapp(from, result.msg); }
-          else { await enviarWhatsapp(from, '\uD83D\uDCC4 *Reporte ' + mE[mesR] + ' ' + anioR + ' listo!*\n\n' + result.txCount + ' transacciones.\nDisponible 30 min:\n' + railwayUrl + '/reporte/' + result.reporteId + (planUsuario2 === 'free' ? '\n\n_Reporte gratuito del mes usado._' : '')); }
+          else { const ttl2 = planUsuario2 === 'premium' ? '24 horas' : '1 hora'; await enviarWhatsapp(from, '\uD83D\uDCCA *Tu dashboard de ' + mE[mesR] + ' ' + anioR + ' esta listo!*\n\n' + result.txCount + ' transacciones analizadas.\n\n\uD83D\uDD17 ' + railwayUrl + '/mi-reporte/' + result.reporteId + '\n\n_Disponible ' + ttl2 + '. Incluye salud financiera, proyecciones y acciones._' + (planUsuario2 === 'free' ? '\n\n_Reporte gratuito del mes usado._' : '')); }
         }).catch(async (e) => { await enviarWhatsapp(from, 'Error: ' + e.message); });
         return null;
       }
