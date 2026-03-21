@@ -23,6 +23,7 @@
 |--------|------|------|-------------|
 | POST | `/admin/activar` | ADMIN_KEY (body) | Activar premium para un usuario (rate limited: 10/min) |
 | GET | `/admin/pendientes` | ADMIN_KEY (query) | Listar pagos pendientes (rate limited: 10/min) |
+| GET | `/admin/stats` | ADMIN_KEY (query) | Métricas: usuarios, transacciones, top categorías/bancos (rate limited: 10/min) |
 
 ## Auth (OAuth2 Gmail)
 

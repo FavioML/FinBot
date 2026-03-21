@@ -1241,6 +1241,58 @@ app.get('/admin/pendientes', adminLimiter, async (req, res) => {
   const { data } = await supabase.from('usuarios').select('whatsapp, nombre, plan, pago_pendiente, pago_referencia, created_at').eq('pago_pendiente', true);
   res.json({ ok: true, pendientes: data || [] });
 });
+
+// GET /admin/stats?clave=ADMIN_KEY — métricas de uso
+app.get('/admin/stats', adminLimiter, async (req, res) => {
+  const ADMIN_KEY = process.env.ADMIN_KEY;
+  const clave = req.query.clave || '';
+  if (!ADMIN_KEY || !clave || clave.length !== ADMIN_KEY.length || !crypto.timingSafeEqual(Buffer.from(clave), Buffer.from(ADMIN_KEY))) return res.status(401).json({ ok: false, msg: 'Clave incorrecta' });
+  try {
+    const hoy = hoyPeru();
+    const hace7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const hace30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    // Usuarios
+    const { data: allUsers } = await supabase.from('usuarios').select('id, plan, onboarding_completado, gmail_access_token, created_at');
+    const totalUsuarios = (allUsers || []).length;
+    const conGmail = (allUsers || []).filter(u => !!u.gmail_access_token).length;
+    const modoManual = (allUsers || []).filter(u => u.onboarding_completado && !u.gmail_access_token).length;
+    const premium = (allUsers || []).filter(u => u.plan === 'premium').length;
+    const nuevos7d = (allUsers || []).filter(u => u.created_at >= hace7).length;
+
+    // Transacciones
+    const { count: txsHoy } = await supabase.from('transacciones').select('id', { count: 'exact', head: true }).eq('fecha', hoy);
+    const { count: txs7d } = await supabase.from('transacciones').select('id', { count: 'exact', head: true }).gte('fecha', hace7);
+    const { count: txs30d } = await supabase.from('transacciones').select('id', { count: 'exact', head: true }).gte('fecha', hace30);
+
+    // Top categorías (últimos 30 días)
+    const { data: txsCat } = await supabase.from('transacciones').select('categoria, monto_pen').eq('tipo', 'gasto').gte('fecha', hace30);
+    const porCat = {};
+    (txsCat || []).forEach(t => { const c = t.categoria || 'Otros'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto_pen || 0); });
+    const topCategorias = Object.entries(porCat).sort((a, b) => b[1] - a[1]).slice(0, 5)
+      .map(([cat, total]) => ({ categoria: cat, total: parseFloat(total.toFixed(2)) }));
+
+    // Top bancos
+    const { data: txsBanco } = await supabase.from('transacciones').select('banco').gte('fecha', hace30).not('banco', 'is', null);
+    const porBanco = {};
+    (txsBanco || []).forEach(t => { porBanco[t.banco] = (porBanco[t.banco] || 0) + 1; });
+    const topBancos = Object.entries(porBanco).sort((a, b) => b[1] - a[1]).slice(0, 5)
+      .map(([banco, count]) => ({ banco, transacciones: count }));
+
+    res.json({
+      ok: true,
+      generado: new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' }),
+      usuarios: { total: totalUsuarios, conGmail, modoManual, premium, nuevos7d },
+      transacciones: { hoy: txsHoy || 0, ultimos7d: txs7d || 0, ultimos30d: txs30d || 0 },
+      topCategorias,
+      topBancos,
+    });
+  } catch(e) {
+    log.error({ tag: 'ADMIN_STATS', err: e.message }, 'Error generando stats');
+    res.status(500).json({ ok: false, msg: 'Error generando estadísticas' });
+  }
+});
+
 // == NETO: Redactar respuesta con GPT usando el system prompt de NETO ==
 async function redactarConNETO(netoPrompt, contexto, mensajeOriginal, historial) {
   try {

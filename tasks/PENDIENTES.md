@@ -38,14 +38,14 @@
 
 ## MEJORAS DE PRODUCTO
 
-- [ ] **Soporte para mas bancos**: Falabella, Ripley, BanBif, Mibanco, CMAC (cajas municipales).
-- [ ] **Metricas de uso**: Cuantos mensajes/dia, usuarios activos, top categorias. Dashboard interno para admin.
-- [ ] **Resumen mensual automatico**: Trigger al inicio de cada mes con comparativa mes anterior.
+- [x] **Soporte para mas bancos**: 11 bancos: BCP, BBVA, Interbank, Scotiabank, Yape, Plin + Falabella, Ripley, BanBif, Mibanco, CMAC (6 cajas). ✅ 21-mar-2026
+- [x] **Metricas de uso**: /admin/stats — usuarios, transacciones, top categorías, top bancos. ✅ 21-mar-2026
+- [x] **Resumen mensual automatico**: 1ro de cada mes 9am Lima con comparativa vs mes anterior. ✅ 21-mar-2026
 - [ ] **Backup automatico de datos Supabase**: Programar pg_dump semanal o usar Supabase backups.
-- [ ] **Notificacion al admin**: Cuando hay errores criticos o un usuario reporta un problema.
+- [x] **Notificacion al admin**: WhatsApp al admin en errores críticos (webhook, NLP, escaneo) con cooldown 5min. ✅ 21-mar-2026
 - [ ] **Excel mejorado**: Soporte para formatos bancarios de estado de cuenta (BCP, BBVA descarga CSV/XLS).
-- [ ] **Onboarding sin Gmail**: Permitir registro manual sin conectar Gmail (solo gastos manuales + imagenes).
-- [ ] **Recordatorios**: "No has registrado gastos hoy" o "Tu presupuesto de Comida esta al 80%".
+- [x] **Onboarding sin Gmail**: /manual para registro sin Gmail. Gastos por texto, fotos, Excel. ✅ 21-mar-2026
+- [x] **Recordatorios**: 8pm Lima si no hay gastos. /silenciar y /recordar para toggle. ✅ 21-mar-2026
 
 ---
 
@@ -71,8 +71,11 @@
 - Integridad referencial correcta (FKs configuradas)
 
 ### Progreso post-auditoria (21-mar-2026)
-- **19/23 items completados** (83%)
-- **40 tests automatizados** (vitest)
-- **12 módulos** extraídos de index.js
+- **25/28 items completados** (89%)
+- **56 tests automatizados** (vitest)
+- **15 módulos** extraídos (lib/ + services/)
 - **0 console.log** en producción (migrado a Pino)
+- **11 bancos** soportados (antes 6)
 - **Seguridad**: rate limiting + validación + dedup + timingSafeEqual
+- **Producto**: onboarding sin Gmail, recordatorios, resumen mensual, métricas admin
+- **Pendientes**: backup Supabase, Excel mejorado, verificación Meta (manual)
