@@ -142,8 +142,9 @@ export default function DashboardClient() {
   }
 
   return (
+    <div ref={dashboardRef}>
     <DashboardShell data={data}>
-      <div ref={dashboardRef}>
+      <div>
         <MonthSelector
           mesesDisponibles={data.mesesDisponibles}
           mesActual={data.mes}
@@ -204,5 +205,6 @@ export default function DashboardClient() {
         <PDFDownload dashboardRef={dashboardRef} />
       </div>
     </DashboardShell>
+    </div>
   );
 }

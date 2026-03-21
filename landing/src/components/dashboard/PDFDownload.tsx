@@ -14,51 +14,53 @@ export default function PDFDownload({ dashboardRef }: PDFDownloadProps) {
 
     setIsGenerating(true);
     try {
-      // html2canvas-pro supports modern CSS (oklab, oklch) used by Tailwind v4
-      const html2canvasModule = await import("html2canvas-pro");
-      const html2canvas =
-        (html2canvasModule as unknown as { default: typeof html2canvasModule.default }).default ||
-        html2canvasModule;
-
+      const { toPng } = await import("html-to-image");
       const jspdfModule = await import("jspdf");
       const jsPDF =
         (jspdfModule as unknown as { jsPDF: typeof jspdfModule.jsPDF }).jsPDF ||
         (jspdfModule as unknown as { default: typeof jspdfModule.jsPDF }).default;
 
-      if (!html2canvas || !jsPDF) {
-        throw new Error("No se pudieron cargar las librerias de PDF");
-      }
-
       const el = dashboardRef.current;
 
-      const canvas = await html2canvas(el, {
-        scale: 2,
+      // Capture with html-to-image (handles modern CSS, oklch/oklab, etc.)
+      const dataUrl = await toPng(el, {
         backgroundColor: "#0E0E0C",
-        useCORS: true,
-        allowTaint: true,
-        logging: false,
-        windowWidth: el.scrollWidth,
-        windowHeight: el.scrollHeight,
+        pixelRatio: 2,
+        cacheBust: true,
+        filter: (node: HTMLElement) => {
+          // Exclude the PDF download button itself from capture
+          if (node.tagName === "BUTTON" && node.textContent?.includes("Descargar")) {
+            return false;
+          }
+          return true;
+        },
       });
 
-      const imgData = canvas.toDataURL("image/jpeg", 0.92);
+      // Create image to get dimensions
+      const img = new Image();
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = reject;
+        img.src = dataUrl;
+      });
+
       const imgWidth = 210; // A4 width in mm
       const pageHeight = 297; // A4 height in mm
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      const imgHeight = (img.height * imgWidth) / img.width;
 
       const pdf = new jsPDF("p", "mm", "a4");
       let heightLeft = imgHeight;
       let position = 0;
 
       // First page
-      pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight);
+      pdf.addImage(dataUrl, "PNG", 0, position, imgWidth, imgHeight);
       heightLeft -= pageHeight;
 
       // Additional pages
       while (heightLeft > 0) {
         position -= pageHeight;
         pdf.addPage();
-        pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight);
+        pdf.addImage(dataUrl, "PNG", 0, position, imgWidth, imgHeight);
         heightLeft -= pageHeight;
       }
 
@@ -79,7 +81,6 @@ export default function PDFDownload({ dashboardRef }: PDFDownloadProps) {
     >
       {isGenerating ? (
         <>
-          {/* Spinner */}
           <svg
             className="h-[18px] w-[18px] animate-spin"
             viewBox="0 0 24 24"
@@ -103,7 +104,6 @@ export default function PDFDownload({ dashboardRef }: PDFDownloadProps) {
         </>
       ) : (
         <>
-          {/* Download icon */}
           <svg
             width="18"
             height="18"
