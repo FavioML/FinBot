@@ -581,7 +581,7 @@ function generarReporteJSON(data) {
   const {
     nombre = 'Usuario', mes, anio,
     transacciones = [], presupuestos = {},
-    historialMeses = []
+    historialMeses = [], todosMeses = []
   } = data;
 
   const mesNum  = mes  || new Date().getMonth() + 1;
@@ -770,8 +770,13 @@ function generarReporteJSON(data) {
       metodo_pago: t.metodo_pago || t.banco || 'Otro'
     }));
 
-  // Meses disponibles para el selector
+  // Meses disponibles para el selector — usa todosMeses (todos los meses con data del usuario)
   const mesesSet = new Set();
+  // Fuente principal: todos los meses con transacciones del usuario (query directa)
+  (todosMeses || []).forEach(h => {
+    if (h.mes && h.anio) mesesSet.add(h.anio + '-' + String(h.mes).padStart(2, '0'));
+  });
+  // Fallback: extraer de transacciones del mes actual + historial
   transacciones.forEach(t => {
     const parts = (t.fecha || '').split('-');
     if (parts.length >= 2) mesesSet.add(parts[0] + '-' + parts[1]);

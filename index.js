@@ -485,8 +485,16 @@ async function generarYEnviarReporte(usuario, mes, anio) {
     const tot = (ht||[]).reduce((s,t) => s+parseFloat(t.monto_pen||t.monto||0), 0);
     if (tot > 0) historial.push({ mes: hm, anio: ha, total: tot });
   }
+  // Obtener TODOS los meses con transacciones del usuario para el selector
+  const { data: allMonths } = await supabase.from('transacciones').select('fecha').eq('usuario_id', usuario.id);
+  const todosMeses = [];
+  if (allMonths) {
+    const mSet = new Set();
+    allMonths.forEach(t => { const p = (t.fecha||'').split('-'); if (p.length>=2) mSet.add(p[0]+'-'+p[1]); });
+    mSet.forEach(s => { const [a,m] = s.split('-').map(Number); todosMeses.push({ mes: m, anio: a }); });
+  }
   // Generar JSON para dashboard interactivo
-  const jsonData = generarReporteJSON({ nombre: usuario.nombre || 'Usuario', mes, anio, transacciones: txs, presupuestos, historialMeses: historial });
+  const jsonData = generarReporteJSON({ nombre: usuario.nombre || 'Usuario', mes, anio, transacciones: txs, presupuestos, historialMeses: historial, todosMeses });
   const reporteId = crypto.randomUUID();
   const isPremium = usuario.plan === 'premium';
   const expiresAt = new Date(Date.now() + (isPremium ? 24 : 1) * 60 * 60 * 1000).toISOString();
@@ -1512,7 +1520,15 @@ app.get('/api/reporte/:id/mes/:mes/:anio', async (req, res) => {
       if (totG > 0 || totI > 0) historial.push({ mes: hm, anio: ha, total: totG, totalIngresos: totI });
     }
 
-    const jsonData = generarReporteJSON({ nombre: usuario.nombre || 'Usuario', mes: mesNum, anio: anioNum, transacciones: txs, presupuestos, historialMeses: historial });
+    // Obtener TODOS los meses con transacciones del usuario para el selector
+    const { data: allMonths } = await supabase.from('transacciones').select('fecha').eq('usuario_id', usuarioId);
+    const todosMeses = [];
+    if (allMonths) {
+      const mSet = new Set();
+      allMonths.forEach(t => { const p = (t.fecha||'').split('-'); if (p.length>=2) mSet.add(p[0]+'-'+p[1]); });
+      mSet.forEach(s => { const [a,m] = s.split('-').map(Number); todosMeses.push({ mes: m, anio: a }); });
+    }
+    const jsonData = generarReporteJSON({ nombre: usuario.nombre || 'Usuario', mes: mesNum, anio: anioNum, transacciones: txs, presupuestos, historialMeses: historial, todosMeses });
     res.json(jsonData);
   } catch(e) {
     console.error('[API/REPORTE/MES] Error:', e.message);
