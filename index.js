@@ -138,11 +138,18 @@ async function guardarTransaccion(usuarioId, datos) {
   const _moneda = datos.moneda || 'PEN';
   let _montoPen = parseFloat(datos.monto); let _tcUsado = null;
   if (_moneda === 'USD') { try { const _tc = await obtenerTipoCambio(); _tcUsado = _tc.venta; _montoPen = parseFloat((parseFloat(datos.monto) * _tc.venta).toFixed(2)); } catch(e) {} }
+  // Aplicar regla aprendida si existe
+  let catFinal = normalizarCategoria(datos.categoria);
+  let subFinal = datos.subcategoria || 'sin_categoria';
+  if (datos.comercio) {
+    const regla = await buscarReglaComercio(usuarioId, datos.comercio);
+    if (regla) { catFinal = regla.categoria; if (regla.subcategoria) subFinal = regla.subcategoria; }
+  }
   const { data, error } = await supabase.from('transacciones').insert({
     usuario_id: usuarioId, tipo: datos.tipo || 'gasto', monto: parseFloat(datos.monto), moneda: _moneda,
     monto_pen: _montoPen, tipo_cambio: _tcUsado, metodo_pago: datos.metodo_pago || null,
-    comercio: datos.comercio, categoria: normalizarCategoria(datos.categoria),
-    subcategoria: datos.subcategoria || 'sin_categoria', banco: datos.banco,
+    comercio: datos.comercio, categoria: catFinal,
+    subcategoria: subFinal, banco: datos.banco,
     fecha: datos.fecha || new Date().toISOString().split('T')[0],
     descripcion_original: datos.descripcion_original, confirmado: false
   }).select().single();
@@ -449,6 +456,72 @@ async function recategorizarPorId(transaccionId, categoriaNueva) {
   return { ok: true };
 }
 
+async function parsearCorreccionesMultiples(msg) {
+  try {
+    const hoy = new Date().toISOString().split('T')[0];
+    const res = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [{
+        role: 'system',
+        content: `Eres un parser de correcciones de gastos financieros. La fecha de hoy es ${hoy}.
+El usuario lista varios gastos que quiere reclasificar en un solo mensaje.
+Extrae TODAS las correcciones y devuelve SOLO un array JSON con este formato:
+[
+  {
+    "comercio": "nombre del comercio tal como aparece",
+    "monto": numero o null,
+    "fecha": "YYYY-MM-DD" o null,
+    "categoria_nueva": "nombre de la categoria en español, capitalizada",
+    "subcategoria_nueva": "subcategoria si se menciona, sino null"
+  }
+]
+Reglas:
+- "menu" o "almuerzo" → categoria_nueva="Alimentación"
+- "gasolina" o "combustible" → categoria_nueva="Transporte", subcategoria_nueva="Gasolina"
+- "uber", "taxi", "bus" → categoria_nueva="Transporte"
+- "farmacia", "médico", "clinica" → categoria_nueva="Salud"
+- Si dice "pasalo a X" o "ponlo en X" o "es de X" → categoria_nueva=X
+- Si solo dice una palabra sin "pasalo"/"ponlo", esa palabra es la categoria o subcategoria
+- Capitaliza la primera letra de categoria_nueva
+IMPORTANTE: Devuelve SOLO el array JSON, sin texto adicional.`
+      }, {
+        role: 'user',
+        content: msg
+      }],
+      temperature: 0
+    });
+    const raw = res.choices[0].message.content.trim();
+    const arr = JSON.parse(raw.startsWith('[') ? raw : raw.slice(raw.indexOf('['), raw.lastIndexOf(']') + 1));
+    return Array.isArray(arr) ? arr : [];
+  } catch(e) {
+    console.error('[PARSE_MULT]', e.message);
+    return [];
+  }
+}
+
+async function corregirTransaccionEspecifica(usuarioId, comercio, monto, fecha, categoriaNueva) {
+  let query = supabase.from('transacciones').select('*')
+    .eq('usuario_id', usuarioId)
+    .ilike('comercio', '%' + comercio + '%')
+    .order('fecha', { ascending: false })
+    .limit(10);
+  const { data: txs } = await query;
+  if (!txs || txs.length === 0) return { ok: false, comercio };
+  let tx = txs[0];
+  // Afinar match por fecha y monto si se proporcionan
+  if (fecha || monto) {
+    const match = txs.find(t => {
+      const fechaOk = !fecha || (t.fecha && t.fecha.startsWith(fecha));
+      const montoOk = !monto || Math.abs(parseFloat(t.monto) - monto) < 0.5;
+      return fechaOk && montoOk;
+    });
+    if (match) tx = match;
+  }
+  const { error } = await supabase.from('transacciones').update({ categoria: categoriaNueva }).eq('id', tx.id);
+  if (error) return { ok: false, comercio };
+  return { ok: true, comercio: tx.comercio || comercio, monto: tx.monto_pen || tx.monto, moneda: tx.moneda || 'PEN' };
+}
+
 async function interpretarComandoPresupuesto(texto) {
   try {
     var aiRes = await openai.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'system', content: 'Extrae datos de presupuesto. SOLO JSON: {"es_presupuesto":true/false,"categoria":"nombre","monto":numero,"alerta_porcentaje":numero 1-100 default 80}' }, { role: 'user', content: texto }], temperature: 0 });
@@ -460,7 +533,46 @@ async function interpretarComandoPresupuesto(texto) {
 function necesitaConsulta(tx) {
   if (!tx || tx.tipo !== 'gasto') return false;
   var genericos = ['yape','plin','transferencia','bcp','bbva','interbank','scotiabank'];
-  return tx.comercio && genericos.indexOf(tx.comercio.toLowerCase()) >= 0 && (!tx.categoria || tx.categoria === 'Otro' || tx.categoria === 'Transferencia');
+  const esGenerico = tx.comercio && genericos.indexOf(tx.comercio.toLowerCase()) >= 0;
+  const esOtros = !tx.categoria || tx.categoria === 'Otro' || tx.categoria === 'Transferencia' || tx.categoria === 'Otros';
+  return esGenerico || (esOtros && tx.comercio);
+}
+
+async function guardarReglaComercio(usuarioId, comercio, categoria, subcategoria) {
+  if (!comercio || !categoria) return;
+  const patron = comercio.toLowerCase().trim();
+  try {
+    await supabase.from('reglas_comercio').upsert({
+      usuario_id: usuarioId,
+      comercio_pattern: patron,
+      categoria,
+      subcategoria: subcategoria || null,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'usuario_id,comercio_pattern' });
+  } catch(e) { console.error('[REGLA]', e.message); }
+}
+
+async function buscarReglaComercio(usuarioId, comercio) {
+  if (!comercio) return null;
+  const patron = comercio.toLowerCase().trim();
+  const { data } = await supabase.from('reglas_comercio').select('categoria,subcategoria')
+    .eq('usuario_id', usuarioId)
+    .eq('comercio_pattern', patron)
+    .single();
+  return data || null;
+}
+
+async function retroaplicarRegla(usuarioId, comercio, categoria, subcategoria) {
+  if (!comercio || !categoria) return;
+  try {
+    const updates = { categoria };
+    if (subcategoria) updates.subcategoria = subcategoria;
+    await supabase.from('transacciones').update(updates)
+      .eq('usuario_id', usuarioId)
+      .ilike('comercio', '%' + comercio + '%')
+      .neq('categoria', categoria);
+    console.log('[REGLA] Retroaplicada:', comercio, '->', categoria);
+  } catch(e) { console.error('[RETROAPLICAR]', e.message); }
 }
 
 function mensajeConsulta(tx) {
@@ -506,10 +618,16 @@ async function intentarResolverConsulta(usuario, texto) {
   var detCat = await detectarCategoriaIA(texto, usuario.id);
   var catFinal = detCat.categoria || parsed.categoria;
   var subFinal = detCat.subcategoria || null;
-  await supabase.from('transacciones').update({ categoria: catFinal, subcategoria: subFinal, comercio: parsed.descripcion||consulta.banco }).eq('id', consulta.transaccion_id);
+  const comercioFinal = parsed.descripcion || consulta.banco;
+  await supabase.from('transacciones').update({ categoria: catFinal, subcategoria: subFinal, comercio: comercioFinal }).eq('id', consulta.transaccion_id);
   await resolverConsulta(consulta.id);
+  // Guardar regla y retroaplicar a transacciones pasadas del mismo comercio
+  if (comercioFinal) {
+    guardarReglaComercio(usuario.id, comercioFinal, catFinal, subFinal);
+    retroaplicarRegla(usuario.id, comercioFinal, catFinal, subFinal);
+  }
   var resto = pendientes.length > 1 ? '\n\nAun tienes ' + (pendientes.length-1) + ' gasto(s) pendiente(s). Escribe */pendientes*.' : '';
-  return 'Listo! Actualice *'+(consulta.banco||'el pago')+'* (S/ '+parseFloat(consulta.monto).toFixed(2)+') a *'+catFinal+'*'+(subFinal?' > '+subFinal:'')+'.'+resto;
+  return 'Listo! Actualice *'+(comercioFinal||'el pago')+'* (S/ '+parseFloat(consulta.monto).toFixed(2)+') a *'+catFinal+'*'+(subFinal?' > '+subFinal:'')+'.'+resto;
 }
 
 const CATEGORIAS_SUGERIDAS = [
@@ -1133,7 +1251,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       model: 'gpt-4o-mini',
       messages: [{
         role: 'system',
-        content: 'Eres el clasificador de intenciones de NETO, bot de finanzas personales por WhatsApp para usuarios peruanos.\nEl mes actual es ' + mE[mesActual] + ' ' + anioActual + '.\n\nAnaliza el mensaje y devuelve SOLO JSON.\n\nINTENCIONES:\n1. "listar_gastos_mes" - ver resumen/lista de gastos del mes\n   Ej: "cuales son mis gastos", "que gaste este mes", "gastos registrados", "que tengo registrado", "mis compras", "transacciones"\n   Datos: mes (numero, default=mes_actual), anio\n\n2. "listar_gastos_semana" - gastos de los ultimos 7 dias\n   Ej: "que gaste esta semana", "gastos recientes", "mis compras de los ultimos dias"\n\n3. "listar_gastos_categoria" - gastos de UNA categoria especifica\n   Ej: "que hay en Otros", "gastos de Alimentación", "que esta en Transporte", "detalle de Hogar", "cuales estan en otros"\n   Datos: categoria (nombre exacto), mes (default=mes_actual)\n\n4. "ver_total_gastado" - saber el TOTAL numerico gastado\n   Ej: "cuanto gaste", "cuanto llevo gastado", "total de gastos"\n   Datos: periodo ("semana" o "mes"), categoria (o null)\n\n5. "ver_presupuesto" - ver estado del presupuesto\n   Ej: "como va mi presupuesto", "cuanto me queda", "mis limites"\n\n6. "configurar_presupuesto" - configurar limite de gasto\n   Ej: "pon limite de 500 en comida", "presupuesto de 300 para transporte"\n   Datos: categoria, monto\n\n7. "ver_categorias" - ver categorias configuradas del sistema\n   Ej: "que categorias hay", "muestra las categorias del sistema"\n   IMPORTANTE: Si el historial muestra que NETO estaba hablando de gastos por categoria, NO usar esta intencion\n\n8. "ver_reporte" - reporte PDF\n   Ej: "dame mi reporte", "informe mensual", "reporte de marzo", "genera pdf"\n   Datos: mes (default=mes_actual), anio\n\n9. "corregir_categoria" - cambiar categoria de un gasto\n   Ej: "netflix es streaming", "cambia uber a transporte", "ponlo en Hogar", "muevelo a Delivery", "este gasto es de Comida", "ponlo en la categoria NETO", "categorizalo en Trabajo", "muevelo a Herramientas"\n   IMPORTANTE: Usar cuando el usuario quiere mover/cambiar/reclasificar un gasto a cualquier categoria (incluso una categoría personalizada no canónica como "NETO", "Mascota", etc). comercio puede ser null.\n   Datos: comercio (null si no se menciona), categoria_nueva (el nombre exacto que dijo el usuario)\n\n10. "ver_pendientes" - gastos sin identificar\n    Ej: "gastos pendientes", "que no identificaste", "gastos sin categoria"\n\n11. "escanear_gmail" - escanear correos\n    Ej: "escanea mi correo", "busca transacciones nuevas", "hay correos nuevos"\n\n12. "ver_premium" - info del plan premium\n    Ej: "cuanto cuesta premium", "que incluye el plan"\n\n13. "saludo" - saludo sin intencion especifica\n    Ej: "buenos dias", "que tal", "como estas"\n\n14. "ayuda" - pide ayuda\n    Ej: "que puedes hacer", "ayuda", "como funciona"\n\n15. "registrar_manual" - el usuario quiere registrar un gasto o ingreso NUEVO\n   Ej: "gaste 50 soles en farmacia", "anota S/120 en ropa", "mi sueldo fue S/4500", "cobré S/800 de honorarios", "registra un ingreso de S/3500", "pague 200 en gasolina ayer"\n   IMPORTANTE: NO usar si el historial muestra que NETO acaba de notificar un gasto existente y el usuario está corrigiendo su moneda o monto (ej: "el gasto es USD 95", "son dolares", "el importe es 25 USD" → usar corregir_monto_moneda).\n   Datos: ninguno (se parsea el mensaje completo)\n\n16. "desconocido" - no encaja con ninguna intencion clara, o es continuacion de conversacion\n    Usar cuando: el mensaje es "si", "no", "dale", "ok", "mas", o cualquier respuesta corta a algo que NETO pregunto\n\n17. "corregir_monto_moneda" - el usuario indica que la moneda o monto de un gasto YA REGISTRADO está incorrecto\n   Ej: "el gasto es en dolares", "es en USD no en soles", "corrígelo son $25", "el monto es USD 25", "son 25 dolares", "el importe es en dolares", "eso es en USD", "el gasto es USD 95.07", "cambiale la moneda a dolares", "es dolar no sol"\n   IMPORTANTE: Solo cuando el historial muestra que se habla de un gasto existente ya notificado por NETO.\n   Datos: monto (numero o null), moneda ("USD" o "PEN" o null)\n\nREGLAS CRITICAS:\n- Si el historial muestra que NETO hizo una pregunta y el usuario responde con "si", "no", "dale", "ok", "mas detalle", "eso", "las dos", o cualquier respuesta corta -> usar "desconocido" para que NETO maneje la continuacion\n- Si NETO acaba de notificar "Nuevo gasto" y el usuario dice algo como "el gasto es USD X" o "son dolares" -> usar "corregir_monto_moneda", NO "registrar_manual"\n- Si el historial muestra que NETO hablaba de gastos por categoria y el usuario dice "otras categorias" o similar -> usar "desconocido" no "ver_categorias"\n- "otros" como categoria de gasto -> listar_gastos_categoria con categoria="Otros"\n- "cuanto gaste" sin periodo -> ver_total_gastado con periodo="mes"\n- "gastos registrados"/"que tengo" -> listar_gastos_mes\n- mes: enero=1, febrero=2, marzo=3, ..., diciembre=12\n- Si no especifica mes -> usar mes_actual' + histCtx
+        content: 'Eres el clasificador de intenciones de NETO, bot de finanzas personales por WhatsApp para usuarios peruanos.\nEl mes actual es ' + mE[mesActual] + ' ' + anioActual + '.\n\nAnaliza el mensaje y devuelve SOLO JSON.\n\nINTENCIONES:\n1. "listar_gastos_mes" - ver resumen/lista de gastos del mes\n   Ej: "cuales son mis gastos", "que gaste este mes", "gastos registrados", "que tengo registrado", "mis compras", "transacciones"\n   Datos: mes (numero, default=mes_actual), anio\n\n2. "listar_gastos_semana" - gastos de los ultimos 7 dias\n   Ej: "que gaste esta semana", "gastos recientes", "mis compras de los ultimos dias"\n\n3. "listar_gastos_categoria" - gastos de UNA categoria especifica\n   Ej: "que hay en Otros", "gastos de Alimentación", "que esta en Transporte", "detalle de Hogar", "cuales estan en otros"\n   Datos: categoria (nombre exacto), mes (default=mes_actual)\n\n4. "ver_total_gastado" - saber el TOTAL numerico gastado\n   Ej: "cuanto gaste", "cuanto llevo gastado", "total de gastos"\n   Datos: periodo ("semana" o "mes"), categoria (o null)\n\n5. "ver_presupuesto" - ver estado del presupuesto\n   Ej: "como va mi presupuesto", "cuanto me queda", "mis limites"\n\n6. "configurar_presupuesto" - configurar limite de gasto\n   Ej: "pon limite de 500 en comida", "presupuesto de 300 para transporte"\n   Datos: categoria, monto\n\n7. "ver_categorias" - ver categorias configuradas del sistema\n   Ej: "que categorias hay", "muestra las categorias del sistema"\n   IMPORTANTE: Si el historial muestra que NETO estaba hablando de gastos por categoria, NO usar esta intencion\n\n8. "ver_reporte" - reporte PDF\n   Ej: "dame mi reporte", "informe mensual", "reporte de marzo", "genera pdf"\n   Datos: mes (default=mes_actual), anio\n\n9. "corregir_categoria" - cambiar categoria de un gasto\n   Ej: "netflix es streaming", "cambia uber a transporte", "ponlo en Hogar", "muevelo a Delivery", "este gasto es de Comida", "ponlo en la categoria NETO", "categorizalo en Trabajo", "muevelo a Herramientas"\n   IMPORTANTE: Usar cuando el usuario quiere mover/cambiar/reclasificar un gasto a cualquier categoria (incluso una categoría personalizada no canónica como "NETO", "Mascota", etc). comercio puede ser null.\n   Datos: comercio (null si no se menciona), categoria_nueva (el nombre exacto que dijo el usuario)\n\n10. "ver_pendientes" - gastos sin identificar\n    Ej: "gastos pendientes", "que no identificaste", "gastos sin categoria"\n\n11. "escanear_gmail" - escanear correos\n    Ej: "escanea mi correo", "busca transacciones nuevas", "hay correos nuevos"\n\n12. "ver_premium" - info del plan premium\n    Ej: "cuanto cuesta premium", "que incluye el plan"\n\n13. "saludo" - saludo sin intencion especifica\n    Ej: "buenos dias", "que tal", "como estas"\n\n14. "ayuda" - pide ayuda\n    Ej: "que puedes hacer", "ayuda", "como funciona"\n\n15. "registrar_manual" - el usuario quiere registrar un gasto o ingreso NUEVO\n   Ej: "gaste 50 soles en farmacia", "anota S/120 en ropa", "mi sueldo fue S/4500", "cobré S/800 de honorarios", "registra un ingreso de S/3500", "pague 200 en gasolina ayer"\n   IMPORTANTE: NO usar si el historial muestra que NETO acaba de notificar un gasto existente y el usuario está corrigiendo su moneda o monto (ej: "el gasto es USD 95", "son dolares", "el importe es 25 USD" → usar corregir_monto_moneda).\n   Datos: ninguno (se parsea el mensaje completo)\n\n16. "desconocido" - no encaja con ninguna intencion clara, o es continuacion de conversacion\n    Usar cuando: el mensaje es "si", "no", "dale", "ok", "mas", o cualquier respuesta corta a algo que NETO pregunto\n\n17. "corregir_monto_moneda" - el usuario indica que la moneda o monto de un gasto YA REGISTRADO está incorrecto\n   Ej: "el gasto es en dolares", "es en USD no en soles", "corrígelo son $25", "el monto es USD 25", "son 25 dolares", "el importe es en dolares", "eso es en USD", "el gasto es USD 95.07", "cambiale la moneda a dolares", "es dolar no sol"\n   IMPORTANTE: Solo cuando el historial muestra que se habla de un gasto existente ya notificado por NETO.\n   Datos: monto (numero o null), moneda ("USD" o "PEN" o null)\n\n18. "corregir_multiple" - el usuario da 2 o más instrucciones de corrección de categoría en el mismo mensaje, cada una referenciando un comercio/gasto diferente\n   Ej: "Netflix pasalo a Entretenimiento · Uber a Transporte · BCP comision a Finanzas", "E S NEUQUEN pasalo a gasolina\\nEdita Pal menu\\nEdita Pal (18/03) pasalo a menu"\n   IMPORTANTE: Usar cuando hay CLARAMENTE múltiples correcciones distintas en el mensaje (2+). Si solo hay una, usar corregir_categoria.\n   Datos: ninguno (se parsea el mensaje completo)\n\nREGLAS CRITICAS:\n- Si el historial muestra que NETO hizo una pregunta y el usuario responde con "si", "no", "dale", "ok", "mas detalle", "eso", "las dos", o cualquier respuesta corta -> usar "desconocido" para que NETO maneje la continuacion\n- Si NETO acaba de notificar "Nuevo gasto" y el usuario dice algo como "el gasto es USD X" o "son dolares" -> usar "corregir_monto_moneda", NO "registrar_manual"\n- Si el historial muestra que NETO hablaba de gastos por categoria y el usuario dice "otras categorias" o similar -> usar "desconocido" no "ver_categorias"\n- "otros" como categoria de gasto -> listar_gastos_categoria con categoria="Otros"\n- "cuanto gaste" sin periodo -> ver_total_gastado con periodo="mes"\n- "gastos registrados"/"que tengo" -> listar_gastos_mes\n- mes: enero=1, febrero=2, marzo=3, ..., diciembre=12\n- Si no especifica mes -> usar mes_actual' + histCtx
       }, {
         role: 'user',
         content: msg
@@ -1327,6 +1445,12 @@ async function procesarMensajeLibre(msg, usuario, from) {
             if (!CATEGORIAS_VALIDAS.has(catLibre) && !CATEGORIA_MAP[catLibre]) {
               crearCategoriaLibreUsuario(usuario.id, catLibre);
             }
+            // Guardar regla de aprendizaje y retroaplicar a transacciones pasadas
+            const comercioParaRegla = comercioRaw || txActualizada?.comercio;
+            if (comercioParaRegla) {
+              guardarReglaComercio(usuario.id, comercioParaRegla, catLibre, null);
+              retroaplicarRegla(usuario.id, comercioParaRegla, catLibre, null);
+            }
             // Respuesta con moneda correcta
             const monedaTxCorr = txActualizada.moneda || 'PEN';
             const montoMostrar = monedaTxCorr === 'USD'
@@ -1343,6 +1467,37 @@ async function procesarMensajeLibre(msg, usuario, from) {
           return 'No pude procesar eso. Usa: /cambiar [comercio] [categoria]';
         }
       }
+      case 'corregir_multiple': {
+        try {
+          const correcciones = await parsearCorreccionesMultiples(msg);
+          if (!correcciones || correcciones.length === 0) {
+            return 'No pude entender las correcciones. Dime una por una: "Netflix pasalo a Entretenimiento".';
+          }
+          const resultados = [];
+          for (const corr of correcciones) {
+            if (!corr.comercio || !corr.categoria_nueva) continue;
+            const catLibre = corr.categoria_nueva.charAt(0).toUpperCase() + corr.categoria_nueva.slice(1);
+            const res = await corregirTransaccionEspecifica(usuario.id, corr.comercio, corr.monto, corr.fecha, catLibre);
+            if (!CATEGORIAS_VALIDAS.has(catLibre) && !CATEGORIA_MAP[catLibre]) {
+              crearCategoriaLibreUsuario(usuario.id, catLibre);
+            }
+            if (res.ok) {
+              guardarReglaComercio(usuario.id, corr.comercio, catLibre, corr.subcategoria_nueva || null);
+              retroaplicarRegla(usuario.id, corr.comercio, catLibre, corr.subcategoria_nueva || null);
+              const montoStr = res.moneda === 'USD' ? '$' + parseFloat(res.monto).toFixed(2) : 'S/ ' + parseFloat(res.monto).toFixed(2);
+              resultados.push('✅ *' + res.comercio + '* (' + montoStr + ') → ' + catLibre);
+            } else {
+              resultados.push('❌ No encontré gasto de *' + corr.comercio + '*');
+            }
+          }
+          if (resultados.length === 0) return 'No pude aplicar ninguna corrección.';
+          return 'Listo! Actualicé ' + resultados.length + ' gastos:\n\n' + resultados.join('\n');
+        } catch(e) {
+          console.error('[MULT]', e.message);
+          return 'No pude procesar las correcciones. Intenta una por una.';
+        }
+      }
+
       case 'ver_pendientes': {
         const lpend = await obtenerConsultasPendientes(usuario.id);
         return lpend.length === 0 ? 'No tienes gastos pendientes. Todo al dia! \uD83D\uDC4D' : formatearPendientes(lpend);
