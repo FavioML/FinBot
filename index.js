@@ -1,7 +1,6 @@
 require('dotenv').config();
 const express = require('express');
-const { OpenAI } = require('openai');
-const { createClient } = require('@supabase/supabase-js');
+// OpenAI y Supabase ahora en lib/ai.js y lib/db.js
 const { generarReporteHTML, generarDashboardHTML, generarReporteJSON } = require('./reporte_html');
 const crypto = require('crypto');
 const path = require('path');
@@ -10,6 +9,10 @@ const fs = require('fs');
 const { rateLimit } = require('express-rate-limit');
 const log = require('./lib/logger');
 const { hoyPeru, ahoraPeru, primeroDeMesPeru } = require('./lib/dates');
+const { CATEGORIAS_VALIDAS, CATEGORIA_MAP, MESES, CATEGORIAS_SUGERIDAS, FREEMIUM_ACTIVE, PLAN_CONFIG } = require('./lib/constants');
+const { validarMonto, normalizarCategoria } = require('./lib/validators');
+const { formatFecha, barraProgreso, getEmojiCategoria, formatearResumen, formatearPendientes, formatearCategoriasMsg, parsearIndicesRespuesta, generarRefCode } = require('./lib/formatters');
+const { enviarWhatsapp } = require('./lib/whatsapp');
 const { generarUrlAutorizacion, guardarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail } = require('./gmail');
 
 // Helper: último día real del mes (evita fechas inválidas como 02-31)
@@ -17,44 +20,9 @@ function ultimoDiaMes(anio, mes) {
   return new Date(anio, mes, 0).getDate();
 }
 
-// Helper: fecha actual en zona horaria de Perú (UTC-5)
-function fechaHoyPeru() {
-  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' }); // formato YYYY-MM-DD
-}
-function fechaAyerPeru() {
-  const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
-  d.setDate(d.getDate() - 1);
-  return d.toISOString().split('T')[0];
-}
-
-// Helper: formato fecha compacto (2026-03-21 → 21-mar-26)
-const _mesesCortos = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
-function formatFecha(fecha) {
-  if (!fecha) return '';
-  const p = String(fecha).split('-');
-  if (p.length < 3) return fecha;
-  const anio = p[0].length === 4 ? p[0].slice(2) : p[0];
-  const mes = _mesesCortos[parseInt(p[1], 10) - 1] || p[1];
-  return p[2] + '-' + mes + '-' + anio;
-}
-
-// Helper: barra de progreso visual para presupuestos
-function barraProgreso(pct) {
-  const llenos = Math.min(Math.round(pct / 10), 10);
-  const vacios = 10 - llenos;
-  const emoji = pct >= 100 ? '🔴' : pct >= 80 ? '🟡' : '🟢';
-  return emoji + ' ' + '▓'.repeat(llenos) + '░'.repeat(vacios) + ' ' + Math.round(pct) + '%';
-}
-
-// Helper: validar monto (rechaza NaN, Infinity, negativos, >999999.99)
-function validarMonto(valor) {
-  const n = parseFloat(valor);
-  if (isNaN(n) || !isFinite(n) || n < 0 || n > 999999.99) return null;
-  return Math.round(n * 100) / 100;
-}
-
-// Nombres de meses en español (índice 1-12)
-const MESES = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+// fechaHoyPeru y fechaAyerPeru ahora en lib/dates.js, alias para retrocompatibilidad
+function fechaHoyPeru() { return hoyPeru(); }
+function fechaAyerPeru() { const { ayerPeru } = require('./lib/dates'); return ayerPeru(); }
 
 const app = express();
 app.use(express.urlencoded({ extended: false }));
@@ -84,8 +52,8 @@ const adminLimiter = rateLimit({
   message: { error: 'Demasiadas solicitudes admin' },
 });
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+const { openai } = require('./lib/ai');
+const { supabase } = require('./lib/db');
 
 // -- Historial de conversacion --
 async function guardarMensaje(usuarioId, rol, mensaje) {
@@ -169,65 +137,7 @@ async function obtenerTipoCambio() {
   }
 }
 
-// Árbol canónico de categorías — única fuente de verdad
-// 10 categorías: Alimentación, Transporte, Vivienda, Salud, Entretenimiento,
-//                Compras, Educación, Finanzas, Trabajo_Negocio, Otros
-const CATEGORIAS_VALIDAS = new Set([
-  'Alimentación', 'Transporte', 'Vivienda', 'Salud', 'Entretenimiento',
-  'Compras', 'Educación', 'Finanzas', 'Trabajo_Negocio', 'Otros'
-]);
-
-// Mapeo de variantes → canónico (retrocompatibilidad + correcciones automáticas)
-const CATEGORIA_MAP = {
-  // Árbol anterior → canónico
-  'Comida': 'Alimentación', 'comida': 'Alimentación',
-  'Alimentacion': 'Alimentación', 'alimentacion': 'Alimentación', 'alimentación': 'Alimentación',
-  'Hogar': 'Vivienda', 'hogar': 'Vivienda', 'vivienda': 'Vivienda',
-  'Auto': 'Transporte', 'auto': 'Transporte',
-  'Streaming': 'Entretenimiento', 'streaming': 'Entretenimiento',
-  'Viajes': 'Otros', 'viajes': 'Otros',
-  'Educacion': 'Educación', 'educacion': 'Educación',
-  'Transferencia': 'Otros', 'transferencia': 'Otros',
-  // Capitalización incorrecta
-  'transporte': 'Transporte', 'salud': 'Salud',
-  'entretenimiento': 'Entretenimiento', 'compras': 'Compras',
-  'finanzas': 'Finanzas', 'trabajo_negocio': 'Trabajo_Negocio',
-  'otros': 'Otros',
-};
-
-function normalizarCategoria(cat) {
-  if (!cat) return 'Otros';
-  const mapped = CATEGORIA_MAP[cat];
-  if (mapped) return mapped;
-  if (CATEGORIAS_VALIDAS.has(cat)) return cat;
-  const cap = cat.charAt(0).toUpperCase() + cat.slice(1).toLowerCase();
-  if (CATEGORIAS_VALIDAS.has(cap)) return cap;
-  return 'Otros';
-}
-
-// ─── Freemium Configuration ─────────────────────────────────────────
-const FREEMIUM_ACTIVE = false; // Master switch: false = todos acceden a todo (fase de prueba)
-
-const PLAN_CONFIG = {
-  free: {
-    historyMonths: 3,            // Solo últimos 3 meses visibles en queries
-    reportesPerMonth: 1,         // 1 reporte por mes
-    excelUpload: false,          // Sin carga de gastos históricos
-    dashboardTTL: 1,             // 1 hora de expiración
-    weeklyResumen: false,        // Sin resumen semanal automático
-    scoreFinanciero: false,      // Sin score de salud financiera
-    resumenesConfig: false,      // Sin resúmenes configurables
-  },
-  premium: {
-    historyMonths: null,         // Ilimitado
-    reportesPerMonth: Infinity,  // Ilimitado
-    excelUpload: true,           // Carga de gastos históricos
-    dashboardTTL: 24,            // 24 horas de expiración
-    weeklyResumen: true,         // Resumen semanal automático
-    scoreFinanciero: true,       // Score de salud financiera
-    resumenesConfig: true,       // Resúmenes configurables
-  }
-};
+// ─── Freemium helpers ─────────────────────────────────────────
 
 function getUserPlanConfig(usuario) {
   if (!FREEMIUM_ACTIVE) return PLAN_CONFIG.premium;
@@ -484,21 +394,7 @@ Para ingresos: comercio="Sueldo" o la fuente del ingreso, categoria="Finanzas", 
   return JSON.parse(clean2);
 }
 
-function formatearResumen(txs, periodo) {
-  if (!txs || !txs.length) return 'No hay gastos registrados ' + periodo + '.';
-  const total = txs.reduce((s, t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
-  const porCat = {};
-  txs.forEach(t => { const c = t.categoria || 'Otros'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto_pen || t.monto || 0); });
-  const txsUsd = txs.filter(t => t.moneda === 'USD');
-  const totalUsd = txsUsd.reduce((s, t) => s + parseFloat(t.monto || 0), 0);
-  const notaUsd = txsUsd.length > 0 ? ' (incl. USD ' + totalUsd.toFixed(2) + ')' : '';
-  let msg = '📊 *' + periodo + '*\nTotal: *S/ ' + total.toFixed(2) + '*' + notaUsd + ' • ' + txs.length + ' movimientos\n\n';
-  Object.entries(porCat).sort((a, b) => b[1] - a[1]).forEach(([cat, monto]) => {
-    const em = getEmojiCategoria(cat) || '📋';
-    msg += em + ' ' + cat + ': *S/ ' + monto.toFixed(2) + '* (' + ((monto / total) * 100).toFixed(0) + '%)\n';
-  });
-  return msg;
-}
+// formatearResumen movido a lib/formatters.js
 
 async function formatearEstadoPresupuesto(usuarioId) {
   const presupuestos = await obtenerPresupuestosMes(usuarioId);
@@ -767,14 +663,7 @@ async function resolverConsulta(consultaId) {
   await supabase.from('consultas_pendientes').update({ estado: 'respondida', respondida_at: new Date().toISOString() }).eq('id', consultaId);
 }
 
-function formatearPendientes(consultas) {
-  var ahora = Date.now();
-  var items = consultas.map(function(c, i) {
-    var ms = ahora - new Date(c.created_at).getTime(), horas = Math.round(ms/3600000);
-    return (i+1) + '. *' + (c.banco||'Pago') + '* S/ ' + parseFloat(c.monto||0).toFixed(2) + ' (' + (c.fecha||'') + ') -- ' + (ms<3600000?'hace menos de 1h':horas<24?horas+'h atras':Math.round(horas/24)+'d atras');
-  });
-  return '*Tienes ' + consultas.length + ' gasto(s) sin identificar:*\n\n' + items.join('\n') + '\n\nPara categorizar responde:\n_"El 1 fue para almuerzo"_ o _"/cambiar Yape Comida"_';
-}
+// formatearPendientes movido a lib/formatters.js
 
 async function intentarResolverConsulta(usuario, texto) {
   var pendientes = await obtenerConsultasPendientes(usuario.id);
@@ -803,18 +692,7 @@ async function intentarResolverConsulta(usuario, texto) {
   return 'Listo! Actualice *'+(comercioFinal||'el pago')+'* (S/ '+parseFloat(consulta.monto).toFixed(2)+') a *'+catFinal+'*'+(subFinal?' > '+subFinal:'')+'.'+resto;
 }
 
-const CATEGORIAS_SUGERIDAS = [
-  { nombre: 'Alimentaci\u00f3n', emoji: '\uD83C\uDF7D\uFE0F', subs: ['delivery','restaurante','supermercado','mercado','cafeteria','snacks'] },
-  { nombre: 'Transporte',    emoji: '\uD83D\uDE8C',         subs: ['uber_cabify','taxi','bus_micro','metro_bus','gasolina','peaje','estacionamiento'] },
-  { nombre: 'Vivienda',      emoji: '\uD83C\uDFE0',         subs: ['alquiler','mantenimiento','electricidad','agua','gas','internet','cable'] },
-  { nombre: 'Salud',         emoji: '\uD83D\uDC8A',         subs: ['farmacia','medico','clinica','laboratorio','seguro_salud','optica'] },
-  { nombre: 'Entretenimiento', emoji: '\uD83C\uDFB0',       subs: ['streaming','cine','juegos','bares_clubs','eventos','hobbies'] },
-  { nombre: 'Compras',       emoji: '\uD83D\uDED2',         subs: ['ropa','calzado','electronico','hogar','belleza','mascotas'] },
-  { nombre: 'Educaci\u00f3n',     emoji: '\uD83D\uDCDA',         subs: ['universidad','instituto','curso_online','utiles','idiomas','colegios'] },
-  { nombre: 'Finanzas',      emoji: '\uD83D\uDCB3',         subs: ['prestamo','tarjeta_credito','seguro','ahorro','inversion','comision_banco'] },
-  { nombre: 'Trabajo_Negocio', emoji: '\uD83D\uDCBC',       subs: ['herramientas','publicidad','oficina','logistica','contador'] },
-  { nombre: 'Otros',         emoji: '\uD83D\uDCCB',         subs: ['regalo','donacion','multa','viaje','sin_categoria'] }
-];
+// CATEGORIAS_SUGERIDAS movido a lib/constants.js
 
 async function obtenerCategoriasUsuario(usuarioId) {
   const { data: cats } = await supabase.from('categorias_usuario').select('*').eq('usuario_id', usuarioId).eq('activa', true).is('padre_id', null).order('nombre');
@@ -836,27 +714,7 @@ async function crearCategoriasDesdeIndices(usuarioId, indices) {
   }
 }
 
-function formatearCategoriasMsg(categorias) {
-  if (!categorias || categorias.length === 0) {
-    return '*No tienes categorias personalizadas.*\n\nResponde con los numeros para activar:\n\n' + CATEGORIAS_SUGERIDAS.map(function(c,i){ return (i+1)+'. '+c.emoji+' '+c.nombre; }).join('\n') + '\n\n_(ej: 1 3 5 o "todas")_';
-  }
-  var msg = '*Tus categorias activas:*\n\n';
-  for (var ci = 0; ci < categorias.length; ci++) {
-    var cat = categorias[ci];
-    msg += cat.emoji + ' *' + cat.nombre + '*';
-    if (cat.subcategorias && cat.subcategorias.length > 0) msg += '\n   -> ' + cat.subcategorias.map(function(s){ return s.nombre; }).join(', ');
-    msg += '\n';
-  }
-  msg += '\n*/categorias agregar* -- activar mas categorias';
-  return msg;
-}
-
-function parsearIndicesRespuesta(texto, max) {
-  const t = texto.trim().toLowerCase();
-  if (t === 'todas' || t === 'all') return Array.from({length: max}, (_,i) => i+1);
-  const nums = t.split(/\s+/).map(Number).filter(n => n >= 1 && n <= max && !isNaN(n));
-  return [...new Set(nums)];
-}
+// formatearCategoriasMsg, parsearIndicesRespuesta movidos a lib/formatters.js
 
 async function detectarCategoriaIA(texto, usuarioId) {
   const cats = await obtenerCategoriasUsuario(usuarioId);
@@ -874,11 +732,7 @@ async function detectarCategoriaIA(texto, usuarioId) {
 }
 
 
-// Crea una categoría personalizada para el usuario si no existe
-function getEmojiCategoria(nombre) {
-  const cat = CATEGORIAS_SUGERIDAS.find(c => c.nombre.toLowerCase() === (nombre||'').toLowerCase());
-  return cat ? cat.emoji : null;
-}
+// getEmojiCategoria movido a lib/formatters.js
 
 async function sugerirEmojiConIA(nombreCategoria) {
   try {
@@ -902,10 +756,7 @@ async function crearCategoriaLibreUsuario(usuarioId, nombre) {
   } catch(e) { /* silencioso */ }
 }
 
-// --- Referidos ---
-function generarRefCode() {
-  return Math.random().toString(36).substring(2, 8).toUpperCase();
-}
+// --- Referidos --- (generarRefCode movido a lib/formatters.js)
 
 async function registrarReferido(referrerId, referidoId) {
   try {
@@ -2424,21 +2275,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
   }
 }
 
-async function enviarWhatsapp(numero, mensaje) {
-  try {
-    const phoneId = process.env.META_PHONE_NUMBER_ID;
-    const token = process.env.META_ACCESS_TOKEN;
-    const dest = numero.replace(/^whatsapp:/i, '').replace(/^\+/, '');
-    const response = await fetch('https://graph.facebook.com/v19.0/' + phoneId + '/messages', {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messaging_product: 'whatsapp', to: dest, type: 'text', text: { body: mensaje } })
-    });
-    const data = await response.json();
-    if (data.messages && data.messages[0]) { log.info({ tag: 'META', dest, msgId: data.messages[0].id }, 'Enviado'); }
-    else { log.error({ tag: 'META', data }, 'Error enviando'); }
-  } catch (e) { log.error({ tag: 'META', err: e.message, dest }, 'Error enviando WhatsApp'); }
-}
+// enviarWhatsapp movido a lib/whatsapp.js
 
 async function enviarAlertaTransaccion(usuario, tx, resultado) {
   if (!tx || !resultado || !resultado.monto) return;
