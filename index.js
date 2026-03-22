@@ -365,6 +365,16 @@ app.get('/contacto', (req, res) => {
 app.get('/faq', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'faq.html'));
 });
+
+app.get('/blog', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'blog.html'));
+});
+
+app.get('/blog/:slug', (req, res) => {
+  const htmlPath = path.join(__dirname, 'public', 'blog', `${req.params.slug}.html`);
+  if (fs.existsSync(htmlPath)) return res.sendFile(htmlPath);
+  res.status(404).sendFile(path.join(__dirname, 'public', '404.html'));
+});
 // ============================================================
 app.get('/health', (req, res) => {
   res.json({ ok: true, service: 'NETO', uptime: Math.floor(process.uptime()), ts: new Date().toISOString() });

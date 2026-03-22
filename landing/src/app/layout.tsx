@@ -38,6 +38,13 @@ export const metadata: Metadata = {
   },
   robots: { index: true, follow: true },
   alternates: { canonical: "https://neto.pe" },
+  icons: {
+    icon: [
+      { url: "/neto-icon.png", type: "image/png", sizes: "512x512" },
+      { url: "/logo-icon.svg", type: "image/svg+xml" },
+    ],
+    apple: "/neto-icon.png",
+  },
 };
 
 export default function RootLayout({
