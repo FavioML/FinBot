@@ -214,7 +214,7 @@ export default function Testimonials() {
         {/* Trust indicator */}
         <div className="mt-12 text-center">
           <p className="text-sm text-[#87948c]">
-            +2,400 personas ya ordenan su plata con Neto
+            Disponible en Perú. Empieza gratis hoy.
           </p>
         </div>
       </div>

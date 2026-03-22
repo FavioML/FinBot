@@ -6,9 +6,9 @@ const WA_LINK =
   "https://wa.me/51933014505?text=Hola%20Neto%2C%20quiero%20empezar%20a%20ordenar%20mis%20finanzas%20%F0%9F%91%8B";
 
 const STATS = [
-  { label: "Usuarios activos", value: "2,400+", accent: false },
-  { label: "Gastos rastreados", value: "S/12M+", accent: true },
-  { label: "Tiempo para conectarse", value: "2 min", accent: false },
+  { label: "Bancos soportados", value: "11", accent: false },
+  { label: "Setup completo", value: "2 min", accent: true },
+  { label: "Para empezar", value: "S/0", accent: false },
 ];
 
 export default function Hero() {

@@ -1,3 +1,18 @@
+import { Instagram, Facebook } from "lucide-react";
+
+const SOCIAL_LINKS = [
+  {
+    label: "Instagram",
+    href: "https://www.instagram.com/neto_peru/",
+    icon: Instagram,
+  },
+  {
+    label: "Facebook",
+    href: "https://www.facebook.com/profile.php?id=61578664208419",
+    icon: Facebook,
+  },
+];
+
 const PRODUCT_LINKS = [
   { label: "Cómo funciona", href: "/#como-funciona" },
   { label: "Precios", href: "/#precios" },
@@ -40,6 +55,20 @@ export default function Footer() {
             <p className="text-sm text-neto-txt3 leading-relaxed max-w-[260px]">
               Tu asistente financiero personal por WhatsApp. Hecho en Perú.
             </p>
+            <div className="flex gap-3 mt-4">
+              {SOCIAL_LINKS.map((s) => (
+                <a
+                  key={s.label}
+                  href={s.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={s.label}
+                  className="text-neto-txt3 hover:text-neto-txt transition-colors duration-200"
+                >
+                  <s.icon size={18} />
+                </a>
+              ))}
+            </div>
           </div>
 
           {/* Producto */}
