@@ -63,7 +63,7 @@ for r in range(350, 0, -3):
                  fill=(BG[0]+i//3, BG[1]+i, BG[2]+i//2))
 
 # ── Badge ──
-bt = "ASI SE VE NETO"
+bt = "ASÍ SE VE NETO"
 bw = tw(bt, f_badge)
 bx = (W - bw - 32) // 2
 by = 50
@@ -85,7 +85,7 @@ rr([chat_x, chat_y, chat_x + chat_w, chat_y + 50], r=16, fill=(18, 30, 26))
 draw.ellipse([chat_x + 14, chat_y + 11, chat_x + 38, chat_y + 35], fill=GREEN)
 draw.text((chat_x + 22, chat_y + 12), "N", fill=WHITE, font=f_chat_bold)
 draw.text((chat_x + 48, chat_y + 14), "Neto", fill=WHITE, font=f_chat_bold)
-draw.text((chat_x + chat_w - 80, chat_y + 18), "en linea", fill=GREEN_L, font=f_chat_sm)
+draw.text((chat_x + chat_w - 80, chat_y + 18), "en línea", fill=GREEN_L, font=f_chat_sm)
 
 # Chat area
 chat_bg = (15, 15, 13)

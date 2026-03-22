@@ -92,7 +92,7 @@ ct("El enemigo invisible de tu plata", f_sub, hy + 250, GREEN_L)
 
 # ── Coin rain visual (abstract, geometric) ──
 # Scattered coins falling — sizes increase top to bottom
-rain_y = 430
+rain_y = 465
 cx = W // 2
 
 coins = [

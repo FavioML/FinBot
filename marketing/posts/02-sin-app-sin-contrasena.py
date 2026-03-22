@@ -80,8 +80,10 @@ draw.text((bx+22, by+6), bt, fill=GRAY, font=f_badge)
 hy = 110
 ct("SIN APP.", f_headline, hy, WHITE)
 ct("SIN CLAVE.", f_headline, hy + 105, WHITE)
+# "SOLO WHATSAPP." needs smaller font to fit
+f_headline_sm = ImageFont.truetype(f"{FONT_DIR}/BigShoulders-Bold.ttf", 90)
 ct("SOLO", f_headline, hy + 210, GRAY_DK)
-ct("WHATSAPP.", f_headline, hy + 315, GREEN_L)
+ct("WHATSAPP.", f_headline_sm, hy + 320, GREEN_L)
 
 # ── Three "no" items with X marks ──
 items = [

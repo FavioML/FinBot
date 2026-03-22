@@ -75,7 +75,7 @@ draw.ellipse([bx+10, by+8, bx+18, by+16], fill=GREEN)
 draw.text((bx+22, by+6), bt, fill=GRAY, font=f_badge)
 
 # ── Headline ──
-ct("A DONDE SE", f_headline, 100, WHITE)
+ct("A DÓNDE SE", f_headline, 100, WHITE)
 ct("VA TU PLATA", f_headline, 195, GREEN_L)
 
 # ── Subtitle ──
