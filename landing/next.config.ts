@@ -3,6 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   output: "export",
   images: { unoptimized: true },
+  turbopack: { root: "." },
   // Rewrites only work in dev mode (ignored in static export)
   async rewrites() {
     return [

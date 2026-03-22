@@ -9,6 +9,7 @@ const WA_LINK =
 const NAV_LINKS = [
   { label: "Cómo funciona", href: "/#como-funciona" },
   { label: "Precios", href: "/#precios" },
+  { label: "Blog", href: "/blog" },
   { label: "FAQ", href: "/faq" },
   { label: "Contacto", href: "/contacto" },
 ];

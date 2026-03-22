@@ -80,3 +80,74 @@ h1, h2, h3, h4 {
     animation: none;
   }
 }
+
+/* ── Blog prose styles ── */
+.prose-neto {
+  font-size: 1rem;
+  line-height: 1.8;
+  color: var(--color-neto-txt2);
+}
+
+.prose-neto h2 {
+  font-family: var(--font-heading);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--color-neto-txt);
+  margin-top: 2.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.prose-neto h3 {
+  font-family: var(--font-heading);
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--color-neto-txt);
+  margin-top: 2rem;
+  margin-bottom: 0.5rem;
+}
+
+.prose-neto p {
+  margin-bottom: 1.25rem;
+}
+
+.prose-neto strong {
+  color: var(--color-neto-txt);
+  font-weight: 600;
+}
+
+.prose-neto a {
+  color: var(--color-neto-green);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.prose-neto a:hover {
+  color: var(--color-neto-green-light);
+}
+
+.prose-neto ul,
+.prose-neto ol {
+  padding-left: 1.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.prose-neto ul { list-style-type: disc; }
+.prose-neto ol { list-style-type: decimal; }
+
+.prose-neto li {
+  margin-bottom: 0.5rem;
+}
+
+.prose-neto blockquote {
+  border-left: 3px solid var(--color-neto-green);
+  padding-left: 1rem;
+  margin: 1.5rem 0;
+  color: var(--color-neto-txt3);
+  font-style: italic;
+}
+
+.prose-neto hr {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin: 2rem 0;
+}
