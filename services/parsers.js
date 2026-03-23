@@ -64,10 +64,16 @@ REGLAS POR BANCO:
 - BBVA: buscar campo "Comercio" o descripción de consumo
 - Interbank: buscar campo "Empresa" para pagos de servicio
 - Scotiabank: buscar campo "Empresa o institución" para el comercio real
-- YAPE: extraer monto después de "S/", comercio del campo "Nombre del Beneficiario",
-  fecha del campo "Fecha y Hora de la operación", banco: Yape, tipo: gasto,
-  categoria: Otros, subcategoria: sin_categoria (a menos que sea comercio conocido)
-- Plin: similar a Yape
+- YAPE:
+  * "Realizaste un yapeo" / "Yapeaste" / "yapeo de S/" enviado → tipo: gasto
+  * "Recibiste un yapeo" / "Te yapearon" / "yapeo recibido" → tipo: ingreso
+  * Extraer monto después de "S/", comercio del campo "Nombre del Beneficiario" o "Enviado por"
+  * fecha del campo "Fecha y Hora de la operación", banco: Yape
+  * categoria: Otros (gasto) o Finanzas (ingreso), subcategoria: sin_categoria (a menos que sea comercio conocido)
+- Plin:
+  * "Realizaste un plin" / "Pago exitoso" / "plin enviado" → tipo: gasto
+  * "Recibiste un plin" / "Te hicieron un plin" / "plin recibido" → tipo: ingreso
+  * Extraer monto, comercio del destinatario/remitente, banco: Plin
 - Banco Falabella: buscar campo "Comercio" o "Establecimiento", banco: Falabella
 - Banco Ripley: buscar campo "Comercio", banco: Ripley
 - BanBif: buscar campo "Comercio" o "Empresa", banco: BanBif
@@ -85,8 +91,18 @@ REGLA CRÍTICA DE MONEDA (aplicar SIEMPRE antes de asignar moneda):
 REGLAS GENERALES:
 - fecha en formato YYYY-MM-DD (año actual 2026)
 - monto siempre número sin símbolos
-- tipo=ingreso solo si es depósito, sueldo, abono recibido, transferencia entrante
-- tipo=gasto para consumos, pagos, transferencias enviadas
+- tipo=ingreso cuando el usuario RECIBE dinero:
+  * "Recibiste un yapeo/plin/transferencia/abono/depósito"
+  * "Te yapearon" / "Te hicieron un plin" / "Te transfirieron"
+  * "Abono recibido" / "Depósito recibido" / "Transferencia recibida"
+  * Sueldo, salario, honorarios cobrados
+  * El campo "Enviado por" indica quién mandó el dinero al usuario
+  * Para ingresos: comercio = nombre de quien envía el dinero, categoria: Finanzas, subcategoria: sin_categoria
+- tipo=gasto cuando el usuario ENVÍA dinero:
+  * "Realizaste un yapeo/plin/transferencia/pago"
+  * "Yapeaste" / "Pagaste" / "Consumo con tarjeta"
+  * Consumos, pagos, compras, transferencias enviadas
+  * El campo "Enviado a" o "Beneficiario" indica a quién le pagó el usuario
 - subcategoria NUNCA puede ser null — usar sin_categoria si no sabes
 - comercio: nombre limpio sin códigos (no "DLC*PEDIDOSYA" sino "PedidosYa")`;
 

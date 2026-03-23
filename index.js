@@ -481,7 +481,7 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
           messages: [{
             role: 'user',
             content: [
-              { type: 'text', text: 'Esta imagen es una captura de pantalla de un pago (Yape, Plin, banco peruano). Extrae los datos y devuelve SOLO JSON válido, sin texto extra:\n{"tipo":"gasto","monto":numero,"moneda":"PEN","comercio":"nombre del destinatario o descripcion del pago","categoria":"Alimentación|Transporte|Vivienda|Salud|Entretenimiento|Compras|Educación|Finanzas|Trabajo_Negocio|Otros","subcategoria":"descripcion breve","fecha":"YYYY-MM-DD","descripcion_original":"texto clave de la imagen"}\nSi la imagen NO muestra ningún pago o transacción, devuelve: {"tipo":"no_pago"}\nFecha de hoy si no se ve en la imagen: ' + hoy },
+              { type: 'text', text: 'Esta imagen es una captura de pantalla de una transacción financiera (Yape, Plin, banco peruano). Puede ser un GASTO (pago enviado) o un INGRESO (dinero recibido). Extrae los datos y devuelve SOLO JSON válido, sin texto extra:\n{"tipo":"gasto"|"ingreso","monto":numero,"moneda":"PEN","comercio":"nombre del destinatario (si gasto) o remitente (si ingreso)","categoria":"Alimentación|Transporte|Vivienda|Salud|Entretenimiento|Compras|Educación|Finanzas|Trabajo_Negocio|Otros","subcategoria":"descripcion breve","fecha":"YYYY-MM-DD","descripcion_original":"texto clave de la imagen"}\n\nREGLAS PARA DETECTAR TIPO:\n- GASTO: "¡Yapeaste!", "Pago exitoso", "Enviado a", "Realizaste un yapeo/plin", monto enviado\n- INGRESO: "¡Te yapearon!", "Recibiste", "Yapeo recibido", "Plin recibido", "Enviado por" (alguien te envió dinero)\n- Para ingresos: categoria="Finanzas", subcategoria="sin_categoria", comercio=nombre de quien envía\n\nFORMATOS DE APPS:\n- Yape: pantalla verde con "¡Yapeaste!" (gasto) o "¡Te yapearon!" (ingreso), monto grande, nombre del destinatario/remitente\n- Plin: pantalla con "¡Pago exitoso!" y monto en verde, datos de "Enviado a" (gasto) o "Recibido de" (ingreso), código de operación\n- Bancos (BCP, BBVA, Interbank, etc.): notificación de consumo/depósito\n\nSi la imagen NO muestra ningún pago o transacción, devuelve: {"tipo":"no_pago"}\nFecha de hoy si no se ve en la imagen: ' + hoy },
               { type: 'image_url', image_url: { url: 'data:' + mimeType + ';base64,' + base64, detail: 'high' } }
             ]
           }],
@@ -498,7 +498,7 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
         } catch(pe) { throw new Error('GPT no devolvió JSON válido: ' + rawV.slice(0, 100)); }
 
         if (parsed.tipo === 'no_pago') {
-          await enviarWhatsapp(from, 'No reconocí ningún pago en esa imagen. Envíame la captura de la notificación de Yape o tu banco (la pantalla que dice "¡Yapeaste!" o similar).');
+          await enviarWhatsapp(from, 'No reconocí ninguna transacción en esa imagen. Envíame la captura de Yape, Plin o tu banco (la pantalla que muestra el monto y destinatario).');
           return;
         }
         if (!parsed.monto || isNaN(parseFloat(parsed.monto))) {
@@ -507,8 +507,10 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
         parsed.fecha = parsed.fecha || hoy;
         await guardarTransaccion(usuario.id, parsed);
         const montoStr = parsed.moneda === 'USD' ? '$' + parseFloat(parsed.monto).toFixed(2) : 'S/ ' + parseFloat(parsed.monto).toFixed(2);
-        const emoji = getEmojiCategoria(parsed.categoria) || '📋';
-        await enviarWhatsapp(from, '📸 ¡Listo! Registré desde la imagen:\n\n' + emoji + ' *' + (parsed.comercio || 'Pago') + '* — ' + montoStr + '\nCategoría: ' + parsed.categoria + (parsed.subcategoria && parsed.subcategoria !== 'sin_categoria' ? ' > ' + parsed.subcategoria : '') + '\nFecha: ' + parsed.fecha + '\n\n_¿Algo está mal? Dímelo y lo corrijo._');
+        const esIngreso = parsed.tipo === 'ingreso';
+        const emoji = esIngreso ? '💵' : (getEmojiCategoria(parsed.categoria) || '📋');
+        const tipoLabel = esIngreso ? 'Ingreso registrado' : 'Gasto registrado';
+        await enviarWhatsapp(from, '📸 *' + tipoLabel + '* desde la imagen:\n\n' + emoji + ' *' + (parsed.comercio || (esIngreso ? 'Ingreso' : 'Pago')) + '* — ' + montoStr + '\nCategoría: ' + parsed.categoria + (parsed.subcategoria && parsed.subcategoria !== 'sin_categoria' ? ' > ' + parsed.subcategoria : '') + '\nFecha: ' + parsed.fecha + '\n\n_¿Algo está mal? Dímelo y lo corrijo._');
       } catch(e) {
         log.error({ tag: 'IMAGEN', err: e.message }, 'Error procesando imagen'); registrarError('IMAGEN', e.message, { stack: e.stack, whatsapp: from });
         await enviarWhatsapp(from, 'No pude procesar la imagen. Asegúrate de enviar la captura de la notificación de pago (la pantalla que muestra el monto y destinatario).');
