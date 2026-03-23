@@ -17,11 +17,13 @@ jobs:
       - run: npm ci
       - run: npm test
     env:
-      # Variables mínimas para que index.js cargue sin crash
+      NODE_ENV: test
+      # Variables requeridas por lib/config.js
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-      META_TOKEN: test
+      META_ACCESS_TOKEN: test
+      META_PHONE_NUMBER_ID: test
       META_VERIFY_TOKEN: test
       ADMIN_KEY: test
-      ADMIN_NUMBER: test
+      ADMIN_WHATSAPP: test

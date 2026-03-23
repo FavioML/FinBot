@@ -1,4 +1,6 @@
 require('dotenv').config();
+const { validateConfig } = require('./lib/config');
+validateConfig();
 const express = require('express');
 // OpenAI y Supabase ahora en lib/ai.js y lib/db.js
 const { generarReporteHTML, generarDashboardHTML, generarReporteJSON } = require('./reporte_html');
@@ -19,6 +21,7 @@ const { parsearCorreoBancario, parsearRegistroManual, parsearCorreccionesMultipl
 const { notificarErrorAdmin } = require('./lib/admin-notify');
 const { registrarError, limpiarContadores } = require('./lib/error-monitor');
 const { generarUrlAutorizacion, guardarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail } = require('./gmail');
+const { runBackup } = require('./scripts/backup');
 
 // Helper: último día real del mes (evita fechas inválidas como 02-31)
 function ultimoDiaMes(anio, mes) {
@@ -386,39 +389,7 @@ async function verificarProReferidos(referrerId) {
   } catch(e) { log.error({ tag: 'REFERIDO', err: e.message }, 'Error verificando Pro por referidos'); }
 }
 
-// Servir archivos estaticos
-app.use(express.static(path.join(__dirname, 'public')));
-
-// === RUTAS WEB ===
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-app.get('/privacidad', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'privacidad.html'));
-});
-
-app.get('/terminos', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'terminos.html'));
-});
-
-app.get('/contacto', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'contacto.html'));
-});
-
-app.get('/faq', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'faq.html'));
-});
-
-app.get('/blog', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'blog.html'));
-});
-
-app.get('/blog/:slug', (req, res) => {
-  const htmlPath = path.join(__dirname, 'public', 'blog', `${req.params.slug}.html`);
-  if (fs.existsSync(htmlPath)) return res.sendFile(htmlPath);
-  res.status(404).sendFile(path.join(__dirname, 'public', '404.html'));
-});
+// === RUTAS API ===
 // ============================================================
 app.get('/health', (req, res) => {
   res.json({ ok: true, service: 'NETO', uptime: Math.floor(process.uptime()), ts: new Date().toISOString() });
@@ -972,7 +943,7 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
         if (puedeGenerar) {
           await enviarWhatsapp(from, 'Preparando tu reporte de ' + MESES[mesR] + '... \u23F3');
           if (planUsuario === 'free') { await supabase.from('usuarios').update({ reporte_usos_mes: (usuario.reporte_usos_mes || 0) + 1 }).eq('id', usuario.id); }
-          const railwayUrl = process.env.RAILWAY_URL || 'https://neto.pe';
+          const railwayUrl = process.env.RAILWAY_URL || 'https://api.neto.pe';
           generarYEnviarReporte(usuario, mesR, anioR).then(async (result) => {
             if (!result.ok) { await enviarWhatsapp(from, result.msg); }
             else { const mE = ['','Enero','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']; const ttl = planUsuario === 'premium' ? '24 horas' : '1 hora'; await enviarWhatsapp(from, '\uD83D\uDCCA *Tu dashboard de ' + mE[mesR] + ' ' + anioR + ' esta listo!*\n\n' + result.txCount + ' transacciones analizadas.\n\n\uD83D\uDD17 ' + railwayUrl + '/mi-reporte/' + result.reporteId + '\n\n_Disponible ' + ttl + '. Incluye salud financiera, proyecciones y acciones._' + (planUsuario === 'free' ? '\n\n_Reporte gratuito del mes usado._' : '')); }
@@ -1000,7 +971,7 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
       const { data: misRefs } = await supabase.from('referidos').select('activo').eq('referrer_id', usuario.id);
       const totalRefs = (misRefs || []).length;
       const activos = (misRefs || []).filter(r => r.activo).length;
-      const railwayUrl = process.env.RAILWAY_URL || 'https://neto.pe';
+      const railwayUrl = process.env.RAILWAY_URL || 'https://api.neto.pe';
       const mesesAcumulados = Math.floor(activos / 3);
       const progreso = activos % 3;
       let estadoRef = '_Referidos: ' + totalRefs + ' | Activos: ' + activos + '_';
@@ -1017,7 +988,7 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
       const mesActual = ahora.getMonth() + 1;
       const anioActual = ahora.getFullYear();
       const result = await generarYEnviarReporte(usuario, mesActual, anioActual);
-      const railwayUrl = process.env.RAILWAY_URL || 'https://neto.pe';
+      const railwayUrl = process.env.RAILWAY_URL || 'https://api.neto.pe';
       if (!result.ok) {
         respuesta = result.msg;
       } else {
@@ -1237,12 +1208,9 @@ app.get('/api/reporte/:id/mes/:mes/:anio', async (req, res) => {
   }
 });
 
-// Fallback para dashboard interactivo — sirve el shell estatico de Next.js
-// La pagina esta en /mi-reporte.html, el ID se lee del path en el cliente
+// Redirigir dashboard interactivo a la landing (neto.pe)
 app.get('/mi-reporte/:id', (req, res) => {
-  const shellPath = path.join(__dirname, 'public', 'mi-reporte.html');
-  if (fs.existsSync(shellPath)) return res.sendFile(shellPath);
-  res.status(404).send('<h2>Dashboard no disponible. Genera uno nuevo con /reporte</h2>');
+  res.redirect(301, `https://neto.pe/mi-reporte/${req.params.id}`);
 });
 
 app.get('/auth/callback', async (req, res) => {
@@ -1742,7 +1710,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
         }
         await enviarWhatsapp(from, 'Generando tu reporte PDF... \u23F3');
         if (planUsuario2 === 'free') { await supabase.from('usuarios').update({ reporte_usos_mes: (usuario.reporte_usos_mes || 0) + 1 }).eq('id', usuario.id); }
-        const railwayUrl = process.env.RAILWAY_URL || 'https://neto.pe';
+        const railwayUrl = process.env.RAILWAY_URL || 'https://api.neto.pe';
         generarYEnviarReporte(usuario, mesR, anioR).then(async (result) => {
           if (!result.ok) { await enviarWhatsapp(from, result.msg); }
           else { const ttl2 = planUsuario2 === 'premium' ? '24 horas' : '1 hora'; await enviarWhatsapp(from, '\uD83D\uDCCA *Tu dashboard de ' + mE[mesR] + ' ' + anioR + ' esta listo!*\n\n' + result.txCount + ' transacciones analizadas.\n\n\uD83D\uDD17 ' + railwayUrl + '/mi-reporte/' + result.reporteId + '\n\n_Disponible ' + ttl2 + '. Incluye salud financiera, proyecciones y acciones._' + (planUsuario2 === 'free' ? '\n\n_Reporte gratuito del mes usado._' : '')); }
@@ -1961,7 +1929,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
         const { data: misRefsNlp } = await supabase.from('referidos').select('activo').eq('referrer_id', usuario.id);
         const totalRefsNlp = (misRefsNlp || []).length;
         const activosNlp = (misRefsNlp || []).filter(r => r.activo).length;
-        const railwayUrlRef = process.env.RAILWAY_URL || 'https://neto.pe';
+        const railwayUrlRef = process.env.RAILWAY_URL || 'https://api.neto.pe';
         const mesesAcumNlp = Math.floor(activosNlp / 3);
         const progresoNlp = activosNlp % 3;
         let estadoRefNlp = '_Referidos: ' + totalRefsNlp + ' | Activos: ' + activosNlp + '_';
@@ -2385,16 +2353,24 @@ if (require.main === module) {
   app.listen(PORT, () => {
     log.info({ tag: 'SERVER', port: PORT }, 'NETO v5 iniciado');
     setTimeout(() => {
-      escaneoAutomatico();
-      setInterval(escaneoAutomatico, INTERVALO_MS);
-      log.info({ tag: 'AUTO', intervaloHoras: INTERVALO_HORAS }, 'Escaneo automático activo');
-      setInterval(checkResumenSemanal, 15 * 60 * 1000);
-      log.info({ tag: 'SEMANAL' }, 'Resumen semanal activo (lunes 8am Lima)');
-      setInterval(checkResumenMensual, 15 * 60 * 1000);
-      log.info({ tag: 'MENSUAL' }, 'Resumen mensual activo (1ro de cada mes 9am Lima)');
-      setInterval(checkRecordatorioDiario, 15 * 60 * 1000);
-      log.info({ tag: 'RECORDATORIO' }, 'Recordatorios diarios activos (8pm Lima)');
-      setInterval(limpiarContadores, 60 * 60 * 1000); // Limpiar contadores de errores cada hora
+      // Tareas programadas solo en producción (evita enviar WhatsApps reales en dev/test)
+      if (process.env.NODE_ENV === 'production') {
+        escaneoAutomatico();
+        setInterval(escaneoAutomatico, INTERVALO_MS);
+        log.info({ tag: 'AUTO', intervaloHoras: INTERVALO_HORAS }, 'Escaneo automático activo');
+        setInterval(checkResumenSemanal, 15 * 60 * 1000);
+        log.info({ tag: 'SEMANAL' }, 'Resumen semanal activo (lunes 8am Lima)');
+        setInterval(checkResumenMensual, 15 * 60 * 1000);
+        log.info({ tag: 'MENSUAL' }, 'Resumen mensual activo (1ro de cada mes 9am Lima)');
+        setInterval(checkRecordatorioDiario, 15 * 60 * 1000);
+        log.info({ tag: 'RECORDATORIO' }, 'Recordatorios diarios activos (8pm Lima)');
+        setTimeout(runBackup, 60000); // primer backup 1 min después de arrancar
+        setInterval(runBackup, 7 * 24 * 60 * 60 * 1000); // backup semanal
+        log.info({ tag: 'BACKUP' }, 'Backup semanal activo');
+      } else {
+        log.warn({ tag: 'SERVER' }, 'Tareas programadas desactivadas (NODE_ENV !== production)');
+      }
+      setInterval(limpiarContadores, 60 * 60 * 1000);
       log.info({ tag: 'MONITOR' }, 'Monitor de errores activo');
     }, 30000);
   });

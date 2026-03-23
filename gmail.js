@@ -8,7 +8,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
-  (process.env.RAILWAY_URL || 'https://finbot-production-c662.up.railway.app') + '/auth/callback'
+  (process.env.RAILWAY_URL || 'https://api.neto.pe') + '/auth/callback'
 );
 
 const REMITENTES_BANCARIOS = [
@@ -146,7 +146,7 @@ function crearClienteOAuth() {
   return new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
-    (process.env.RAILWAY_URL || 'https://finbot-production-c662.up.railway.app') + '/auth/callback'
+    (process.env.RAILWAY_URL || 'https://api.neto.pe') + '/auth/callback'
   );
 }
 
