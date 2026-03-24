@@ -8,6 +8,7 @@ import {
   ArrowLeftRight,
   Target,
   FileBarChart,
+  CreditCard,
   Settings,
   X,
 } from 'lucide-react';
@@ -20,6 +21,7 @@ const navItems = [
   { label: 'Transacciones', href: '/dashboard/transacciones', icon: ArrowLeftRight },
   { label: 'Presupuestos', href: '/dashboard/presupuestos', icon: Target },
   { label: 'Reportes', href: '/dashboard/reportes', icon: FileBarChart },
+  { label: 'Suscripciones', href: '/dashboard/suscripciones', icon: CreditCard },
   { label: 'Configuración', href: '/dashboard/configuracion', icon: Settings },
 ];
 

@@ -147,6 +147,21 @@ Calcular escenarios concretos:
 3. "Si estableces un presupuesto de S/X en [categoría], evitas el -8 de penalidad"
 4. "Los [día] gastas S/X en promedio — S/Y más que otros días"
 
+### PASO 4.5 — Análisis de Suscripciones (si hay gastos_recurrentes)
+Si el usuario tiene gastos recurrentes detectados, analizar:
+1. **Total mensual en suscripciones** — Sumar todos los recurrentes y comparar vs ingreso total
+2. **Suscripciones duplicadas** — ¿Tiene Netflix + HBO + Disney+? Sugerir elegir 1-2
+3. **Planes familiares** — Si paga individual en Spotify/YouTube/iCloud, sugerir plan familiar compartido
+4. **Suscripciones de bajo uso** — Si un servicio aparece pero con monto bajo o inconsistente, preguntar si lo usa
+5. **Gasto anual proyectado** — "Tus suscripciones equivalen a S/X al año. Eso es un viaje a [destino]"
+6. **Rotación inteligente** — "No necesitas todas al mismo tiempo. Puedes rotar Netflix ↔ Disney+ cada 2 meses"
+
+Ejemplos de recomendaciones de suscripciones en voz NETO:
+- "Pagas Netflix ($15.49), Disney+ ($7.99) y HBO ($9.99) = $33.47/mes (≈ S/125). ¿Las usas las 3 todas las semanas?"
+- "Spotify individual: $10.99. Si lo compartes con alguien, el plan Duo sale $14.99 — S/15 menos entre los dos"
+- "ChatGPT + Claude = $40/mes. Si solo usas uno activamente, cancela el otro y ahorra S/75/mes"
+- "Tus suscripciones suman S/280/año solo en streaming. Con ese monto te pagan 3 meses de gym"
+
 ### PASO 5 — Plan de Acción (máximo 3 recomendaciones)
 Priorizar por impacto en score. Solo las 3 más importantes.
 Cada una con:

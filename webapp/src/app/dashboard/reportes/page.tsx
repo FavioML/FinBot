@@ -25,7 +25,8 @@ import { MonthSelector } from '@/components/dashboard/month-selector';
 import { UserMenu } from '@/components/dashboard/user-menu';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
-import { formatCurrency, getScoreColor, getScoreLabel } from '@/lib/utils';
+import { useBudgets } from '@/lib/hooks/use-budgets';
+import { formatCurrency, getScoreColor, getScoreLabel, calcularScoreFinanciero } from '@/lib/utils';
 import { getCategoriaEmoji, MESES } from '@/lib/constants';
 import { capitalizeDisplay } from '@/lib/format';
 import type { Transaccion } from '@/lib/types';
@@ -96,6 +97,8 @@ export default function ReportesPage() {
     mes: selectedOption.mes,
     anio: selectedOption.anio,
   });
+
+  const { data: budgets = [] } = useBudgets(user?.id);
 
   const isLoading = userLoading || txLoading;
 
@@ -194,10 +197,20 @@ export default function ReportesPage() {
     const ingresos = transactions.filter((t) => t.tipo === 'ingreso').reduce((s, t) => s + t.monto_pen, 0);
     const gastos = transactions.filter((t) => t.tipo === 'gasto').reduce((s, t) => s + t.monto_pen, 0);
     const ahorro = ingresos - gastos;
-    let score = ingresos > 0 ? Math.round(100 - (gastos / ingresos) * 50) : 50;
-    score = Math.max(0, Math.min(100, score));
+
+    // Count exceeded budgets
+    const categoryBudgets = budgets.filter(b => !b.subcategoria);
+    let presExcedidos = 0;
+    for (const b of categoryBudgets) {
+      const gastado = transactions
+        .filter(t => t.tipo === 'gasto' && t.categoria?.toLowerCase() === b.categoria?.toLowerCase())
+        .reduce((s, t) => s + t.monto_pen, 0);
+      if (gastado > parseFloat(String(b.monto_limite))) presExcedidos++;
+    }
+
+    const score = calcularScoreFinanciero(gastos, ingresos, presExcedidos);
     return { totalIngresos: ingresos, totalGastos: gastos, ahorro, score };
-  }, [transactions]);
+  }, [transactions, budgets]);
 
   const categoryBreakdown = useMemo(() => {
     const gastos = transactions.filter((t) => t.tipo === 'gasto');

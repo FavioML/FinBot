@@ -3,6 +3,7 @@ const { openai } = require('../lib/ai');
 const log = require('../lib/logger');
 const fs = require('fs');
 const path = require('path');
+const { detectarSuscripciones } = require('./subscriptions');
 
 // Benchmarks peruanos de gasto saludable (% del total)
 const BENCHMARKS = {
@@ -228,6 +229,14 @@ async function construirDatosUsuario(usuarioId) {
   const gastoDiarioPromedio = diaActual > 0 ? totalGastos / diaActual : 0;
   const proyeccionCierre = gastoDiarioPromedio * diasMes;
 
+  // Detectar suscripciones activas
+  let suscripcionesData = { suscripciones_detectadas: [], total_mensual_pen: 0, total_mensual_usd: 0 };
+  try {
+    suscripcionesData = await detectarSuscripciones(usuarioId);
+  } catch (e) {
+    log.warn({ tag: 'RECOM', err: e.message }, 'No se pudieron detectar suscripciones');
+  }
+
   return {
     usuario: {
       score_actual: scoreActual,
@@ -255,6 +264,20 @@ async function construirDatosUsuario(usuarioId) {
     gastos_hormiga: {
       cantidad: hormiga.length,
       total: Math.round(totalHormiga * 100) / 100
+    },
+    suscripciones: {
+      detectadas: suscripcionesData.suscripciones_detectadas.map(s => ({
+        nombre: s.nombre,
+        tipo: s.tipo,
+        moneda: s.moneda,
+        monto_mensual: s.monto_detectado,
+        monto_pen: s.monto_pen,
+        tiene_plan_familiar: s.tiene_plan_familiar,
+        meses_consecutivos: s.meses_detectados,
+      })),
+      total_mensual_pen: suscripcionesData.total_mensual_pen,
+      total_mensual_usd: suscripcionesData.total_mensual_usd,
+      cantidad: suscripcionesData.suscripciones_detectadas.length,
     },
     comparativa_mensual: {
       mes_actual_vs_anterior: totalGastosAnt > 0 ? Math.round(((totalGastos - totalGastosAnt) / totalGastosAnt) * 100) : null,

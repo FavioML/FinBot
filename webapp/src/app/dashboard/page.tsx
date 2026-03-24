@@ -22,7 +22,8 @@ import { TrendLine } from '@/components/charts/trend-line';
 import { UserMenu } from '@/components/dashboard/user-menu';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
-import { formatCurrency, formatFecha } from '@/lib/utils';
+import { useBudgets } from '@/lib/hooks/use-budgets';
+import { formatCurrency, formatFecha, calcularScoreFinanciero } from '@/lib/utils';
 import { getCategoriaEmoji, MESES } from '@/lib/constants';
 import type { KPIData, CategoriaGasto, TendenciaMensual } from '@/lib/types';
 
@@ -43,6 +44,9 @@ export default function DashboardPage() {
   const { data: allTransactions = [], isLoading: txLoading } = useTransactions({
     usuarioId: user?.id,
   });
+
+  // Load budgets for score calculation (presupuestos excedidos)
+  const { data: budgets = [] } = useBudgets(user?.id);
 
   // Compute available years from transaction data
   const availableYears = useMemo(() => {
@@ -77,11 +81,20 @@ export default function DashboardPage() {
     const ahorro = totalIngresos - totalGastos;
     const ahorroPorcentaje = totalIngresos > 0 ? (ahorro / totalIngresos) * 100 : 0;
 
-    let scoreFinanciero = totalIngresos > 0 ? Math.round(100 - (totalGastos / totalIngresos) * 50) : 50;
-    scoreFinanciero = Math.max(0, Math.min(100, scoreFinanciero));
+    // Count exceeded budgets (category-level only, not subcategory)
+    const categoryBudgets = budgets.filter(b => !b.subcategoria);
+    let presExcedidos = 0;
+    for (const b of categoryBudgets) {
+      const gastado = transactions
+        .filter(t => t.tipo === 'gasto' && t.categoria?.toLowerCase() === b.categoria?.toLowerCase())
+        .reduce((s, t) => s + t.monto_pen, 0);
+      if (gastado > parseFloat(String(b.monto_limite))) presExcedidos++;
+    }
+
+    const scoreFinanciero = calcularScoreFinanciero(totalGastos, totalIngresos, presExcedidos);
 
     return { totalIngresos, totalGastos, ahorro, ahorroPorcentaje, scoreFinanciero };
-  }, [transactions]);
+  }, [transactions, budgets]);
 
   // Compute category breakdown (gastos only)
   const categoryData = useMemo<CategoriaGasto[]>(() => {
