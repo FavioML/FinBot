@@ -39,9 +39,9 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           <Image
             src="/neto-logo.png"
             alt="NETO"
-            width={160}
-            height={80}
-            className="h-14 w-auto"
+            width={48}
+            height={48}
+            className="h-12 w-12 object-contain"
           />
         </Link>
         {/* Close button - mobile only */}

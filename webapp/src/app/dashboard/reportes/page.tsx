@@ -49,9 +49,9 @@ const PIE_COLORS = ['#1D9E75', '#EF9F27', '#D85A30', '#3B82F6', '#8B5CF6', '#EC4
 
 function normalizeMetodoPago(metodo: string | null | undefined): string {
   if (!metodo) return 'Sin especificar';
-  return metodo
-    .replace(/^Credito$/i, 'Crédito')
-    .replace(/^Debito$/i, 'Débito');
+  let m = metodo.trim();
+  m = m.replace(/\bCredito\b/gi, 'Crédito').replace(/\bDebito\b/gi, 'Débito');
+  return m;
 }
 
 // --- Component ---
@@ -269,7 +269,9 @@ export default function ReportesPage() {
                   tick={{ fill: '#C8C6BC', fontSize: 12 }}
                 />
                 <Tooltip
-                  contentStyle={{ background: '#1A1A18', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, color: '#F0EFE8' }}
+                  contentStyle={{ backgroundColor: '#1C1C1A', border: '1px solid #2A2A28', borderRadius: 8 }}
+                  labelStyle={{ color: '#F0EFE8' }}
+                  itemStyle={{ color: '#F0EFE8' }}
                   formatter={(v) => formatCurrency(Number(v))}
                 />
                 <Bar dataKey="total" radius={[0, 6, 6, 0]}>
@@ -326,7 +328,7 @@ export default function ReportesPage() {
                   <span className="text-sm text-[#F0EFE8]">{m.name}</span>
                 </div>
                 <div className="flex items-center gap-4">
-                  <span className="text-xs text-[#8A877D]">{m.count} tx</span>
+                  <span className="text-xs text-[#8A877D]">{m.count} {m.count === 1 ? 'transacción' : 'transacciones'}</span>
                   <span className="text-sm font-medium text-[#D85A30]">{formatCurrency(m.total)}</span>
                 </div>
               </div>
@@ -392,7 +394,7 @@ function Header({
           variant="outline"
           size="sm"
           className="border-[rgba(255,255,255,0.08)] text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.04)]"
-          onClick={() => console.log('PDF download: coming soon')}
+          onClick={() => window.print()}
         >
           <Download className="h-4 w-4 mr-2" />
           PDF

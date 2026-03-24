@@ -72,8 +72,8 @@ export function CategoryDonut({ data }: CategoryDonutProps) {
               </Pie>
               <Tooltip
                 content={<CustomTooltip />}
-                wrapperStyle={{ zIndex: 10, pointerEvents: 'none' }}
-                position={{ x: 210, y: 20 }}
+                offset={20}
+                wrapperStyle={{ zIndex: 100, pointerEvents: 'none' }}
               />
             </PieChart>
           </ResponsiveContainer>
