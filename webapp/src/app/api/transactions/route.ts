@@ -46,7 +46,6 @@ export async function POST(request: Request) {
       subcategoria: body.subcategoria || null,
       fecha: body.fecha,
       metodo_pago: body.metodo_pago || null,
-      fuente: 'webapp',
     })
     .select()
     .single();
