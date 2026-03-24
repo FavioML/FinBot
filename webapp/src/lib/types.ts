@@ -1,9 +1,11 @@
 export interface Usuario {
   id: string;
   whatsapp: string;
+  nombre?: string;
   email?: string;
   plan: 'free' | 'premium';
   plan_expiry?: string;
+  premium_vence?: string;
   supabase_auth_id?: string;
   created_at: string;
   updated_at: string;

@@ -186,7 +186,7 @@ export default function ReportesPage() {
             <span className="text-3xl font-bold" style={{ color: scoreColor }}>
               <NumberTicker value={score} />
             </span>
-            <span className="text-xs text-[#8A877D]">de 100</span>
+            <span className="text-xs text-[#C8C6BC]">de 100</span>
           </div>
         </div>
         <div>

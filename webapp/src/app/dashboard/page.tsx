@@ -27,6 +27,11 @@ export default function DashboardPage() {
     anio: currentYear,
   });
 
+  // Load last 4 months for trend chart
+  const { data: allRecentTx = [] } = useTransactions({
+    usuarioId: user?.id,
+  });
+
   // Compute KPI data
   const kpiData = useMemo<KPIData>(() => {
     const totalIngresos = transactions
@@ -38,12 +43,8 @@ export default function DashboardPage() {
     const ahorro = totalIngresos - totalGastos;
     const ahorroPorcentaje = totalIngresos > 0 ? (ahorro / totalIngresos) * 100 : 0;
 
-    // Simple score: base 50, +25 if saving >20%, +15 if saving >0%, -10 if overspending
-    let scoreFinanciero = 50;
-    if (ahorroPorcentaje >= 20) scoreFinanciero = 90;
-    else if (ahorroPorcentaje >= 10) scoreFinanciero = 75;
-    else if (ahorroPorcentaje > 0) scoreFinanciero = 65;
-    else scoreFinanciero = 40;
+    let scoreFinanciero = totalIngresos > 0 ? Math.round(100 - (totalGastos / totalIngresos) * 50) : 50;
+    scoreFinanciero = Math.max(0, Math.min(100, scoreFinanciero));
 
     return { totalIngresos, totalGastos, ahorro, ahorroPorcentaje, scoreFinanciero };
   }, [transactions]);
@@ -71,36 +72,27 @@ export default function DashboardPage() {
       .sort((a, b) => b.total - a.total);
   }, [transactions]);
 
-  // Mock trend data (last 4 months) since multi-month query needs backend
+  // Trend data from real transactions (last 4 months)
   const trendData = useMemo<TendenciaMensual[]>(() => {
     const months: TendenciaMensual[] = [];
     for (let i = 3; i >= 0; i--) {
       const d = new Date(currentYear, currentMonth - 1 - i, 1);
       const m = d.getMonth() + 1;
       const y = d.getFullYear();
-
-      if (i === 0) {
-        // Current month uses real data
-        months.push({
-          mes: MESES[m],
-          mesNum: m,
-          anio: y,
-          ingresos: kpiData.totalIngresos,
-          gastos: kpiData.totalGastos,
-        });
-      } else {
-        // Previous months use placeholder zeros (backend needed)
-        months.push({
-          mes: MESES[m],
-          mesNum: m,
-          anio: y,
-          ingresos: 0,
-          gastos: 0,
-        });
-      }
+      const monthTxs = allRecentTx.filter((t) => {
+        const txDate = new Date(t.fecha);
+        return txDate.getMonth() + 1 === m && txDate.getFullYear() === y;
+      });
+      months.push({
+        mes: MESES[m],
+        mesNum: m,
+        anio: y,
+        gastos: monthTxs.filter((t) => t.tipo === 'gasto').reduce((s, t) => s + t.monto_pen, 0),
+        ingresos: monthTxs.filter((t) => t.tipo === 'ingreso').reduce((s, t) => s + t.monto_pen, 0),
+      });
     }
     return months;
-  }, [currentMonth, currentYear, kpiData]);
+  }, [allRecentTx, currentMonth, currentYear]);
 
   const isLoading = userLoading || txLoading;
 
@@ -143,7 +135,7 @@ export default function DashboardPage() {
       {/* Welcome header */}
       <div>
         <h1 className="text-2xl font-bold text-[#F0EFE8]">
-          Hola{user.email ? `, ${user.email.split('@')[0]}` : ''}
+          Hola{user.nombre ? `, ${user.nombre}` : user.email ? `, ${user.email.split('@')[0]}` : ''}
         </h1>
         <p className="text-sm text-[#8A877D] mt-1">
           Tu resumen financiero &mdash; {MESES[currentMonth]} {currentYear}
