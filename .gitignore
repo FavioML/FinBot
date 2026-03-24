@@ -27,3 +27,6 @@ design-system/
 posts/
 assets/brand/
 NVIDIA Corporation/
+
+# Next.js build artifacts
+.next/
