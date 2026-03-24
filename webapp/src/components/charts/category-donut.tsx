@@ -70,7 +70,11 @@ export function CategoryDonut({ data }: CategoryDonutProps) {
                   <Cell key={i} fill={COLORS[i % COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip content={<CustomTooltip />} />
+              <Tooltip
+                content={<CustomTooltip />}
+                wrapperStyle={{ zIndex: 10, pointerEvents: 'none' }}
+                position={{ x: 210, y: 20 }}
+              />
             </PieChart>
           </ResponsiveContainer>
           {/* Center text */}
