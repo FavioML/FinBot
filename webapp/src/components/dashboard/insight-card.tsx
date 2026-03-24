@@ -1,6 +1,6 @@
 'use client';
 
-import { Lightbulb, Sparkles } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface InsightCardProps {
@@ -8,6 +8,8 @@ interface InsightCardProps {
 }
 
 export function InsightCard({ insight }: InsightCardProps) {
+  const text = insight || 'Conecta tus datos para recibir consejos personalizados de IA';
+
   return (
     <motion.div
       className="glass-card glass-card-glow p-5 relative overflow-hidden"
@@ -38,10 +40,66 @@ export function InsightCard({ insight }: InsightCardProps) {
         <div>
           <h3 className="text-sm font-medium text-[#F0EFE8] mb-1">Consejo del mes</h3>
           <p className="text-sm text-[#8A877D] leading-relaxed">
-            {insight || 'Conecta tus datos para recibir consejos personalizados de IA'}
+            {text}
           </p>
         </div>
       </div>
     </motion.div>
   );
+}
+
+/**
+ * Generate a rule-based financial insight from transaction data.
+ * Returns a personalized tip string based on spending patterns.
+ */
+export function generateInsight(params: {
+  totalGastos: number;
+  totalIngresos: number;
+  categorias: { categoria: string; total: number }[];
+  scoreFinanciero: number;
+  transactionCount: number;
+  subscriptionTotal?: number;
+}): string {
+  const { totalGastos, totalIngresos, categorias, scoreFinanciero, transactionCount, subscriptionTotal } = params;
+
+  if (transactionCount === 0) {
+    return 'Conecta tus datos para recibir consejos personalizados de IA';
+  }
+
+  const ratio = totalIngresos > 0 ? totalGastos / totalIngresos : 0;
+  const topCat = categorias[0];
+  const topPct = topCat && totalGastos > 0 ? Math.round((topCat.total / totalGastos) * 100) : 0;
+  const ahorro = totalIngresos - totalGastos;
+
+  // Pick the most relevant insight
+  if (ratio > 1) {
+    const exceso = totalGastos - totalIngresos;
+    return `Estás gastando S/${Math.round(exceso)} más de lo que ingresas este mes. Revisa tus gastos en ${topCat?.categoria || 'las categorías principales'} para equilibrar tu balance.`;
+  }
+
+  if (ratio > 0.9 && totalIngresos > 0) {
+    return `Solo estás ahorrando el ${Math.round((1 - ratio) * 100)}% de tus ingresos. La regla 50/30/20 sugiere ahorrar al menos el 20%. Reducir S/${Math.round(totalGastos * 0.1)} en gastos te acercaría a esa meta.`;
+  }
+
+  if (subscriptionTotal && subscriptionTotal > totalGastos * 0.15) {
+    return `Tus suscripciones representan más del 15% de tus gastos (S/${Math.round(subscriptionTotal)}/mes). Revisa si todas las sigues usando — cancelar una puede liberar presupuesto para ahorrar.`;
+  }
+
+  if (topPct > 40 && topCat) {
+    return `${topCat.categoria} concentra el ${topPct}% de tus gastos. Diversificar o establecer un presupuesto para esta categoría te ayudaría a mantener mejor control.`;
+  }
+
+  if (scoreFinanciero >= 80) {
+    return `Tu score de ${scoreFinanciero} es excelente. Mantén este ritmo — estás ahorrando S/${Math.round(ahorro)}/mes. Considera invertir parte de ese ahorro para hacerlo crecer.`;
+  }
+
+  if (ahorro > 0 && totalIngresos > 0) {
+    const ahorroMeta = totalIngresos * 0.2;
+    if (ahorro < ahorroMeta) {
+      return `Ahorras S/${Math.round(ahorro)}/mes, pero tu meta ideal sería S/${Math.round(ahorroMeta)}. Reducir S/${Math.round(ahorroMeta - ahorro)} en gastos te llevaría al 20% recomendado.`;
+    }
+    return `Buen trabajo: ahorras el ${Math.round((ahorro / totalIngresos) * 100)}% de tus ingresos. Estás por encima del 20% recomendado — sigue así.`;
+  }
+
+  return 'Registra más transacciones para que NETO pueda darte consejos personalizados sobre tus finanzas.';
 }

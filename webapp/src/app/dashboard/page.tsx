@@ -23,10 +23,11 @@ import { EmptyState } from '@/components/shared/empty-state';
 import { WhatsAppButton } from '@/components/shared/whatsapp-button';
 import { MonthSelector } from '@/components/dashboard/month-selector';
 import { KPICards } from '@/components/dashboard/kpi-cards';
-import { InsightCard } from '@/components/dashboard/insight-card';
+import { InsightCard, generateInsight } from '@/components/dashboard/insight-card';
 import { CategoryDonut } from '@/components/charts/category-donut';
 import { TrendLine } from '@/components/charts/trend-line';
 import { UserMenu } from '@/components/dashboard/user-menu';
+import { WelcomeModal } from '@/components/dashboard/welcome-modal';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
 import { useBudgets } from '@/lib/hooks/use-budgets';
@@ -155,6 +156,20 @@ export default function DashboardPage() {
   const subscriptions = useMemo(() => {
     return detectSubscriptions(allTransactions);
   }, [allTransactions]);
+
+  // Generate AI-like insight from transaction data
+  const insightText = useMemo(() => {
+    if (transactions.length === 0) return undefined;
+    const subsTotal = subscriptions.reduce((s, sub) => s + sub.monthlyAmount, 0);
+    return generateInsight({
+      totalGastos: kpiData.totalGastos,
+      totalIngresos: kpiData.totalIngresos,
+      categorias: categoryData,
+      scoreFinanciero: kpiData.scoreFinanciero,
+      transactionCount: transactions.length,
+      subscriptionTotal: subsTotal > 0 ? subsTotal : undefined,
+    });
+  }, [transactions, kpiData, categoryData, subscriptions]);
 
   const isLoading = userLoading || txLoading;
 
@@ -446,10 +461,13 @@ export default function DashboardPage() {
       </Dialog>
 
       {/* AI insight */}
-      <InsightCard />
+      <InsightCard insight={insightText} />
 
       {/* Floating WhatsApp button */}
       <WhatsAppButton />
+
+      {/* First-time welcome modal */}
+      <WelcomeModal />
     </div>
   );
 }
