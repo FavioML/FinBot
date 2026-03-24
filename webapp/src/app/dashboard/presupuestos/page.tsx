@@ -269,6 +269,7 @@ export default function PresupuestosPage() {
         onOpenChange={setCreateOpen}
         onSuccess={refreshBudgets}
         userCategorias={userCategorias}
+        existingBudgets={budgets}
       />
 
       {/* Edit dialog */}
@@ -278,6 +279,7 @@ export default function PresupuestosPage() {
         budget={editBudget}
         onSuccess={refreshBudgets}
         userCategorias={userCategorias}
+        existingBudgets={budgets}
       />
 
       {/* Delete confirmation dialog */}

@@ -32,9 +32,10 @@ interface BudgetFormProps {
   budget?: Presupuesto | null;
   onSuccess?: () => void;
   userCategorias?: CategoriaOption[];
+  existingBudgets?: Presupuesto[];
 }
 
-export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategorias }: BudgetFormProps) {
+export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategorias, existingBudgets = [] }: BudgetFormProps) {
   const isEditing = !!budget;
 
   const [categoria, setCategoria] = useState<string>('');
@@ -42,7 +43,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
   const [montoLimite, setMontoLimite] = useState<string>('');
   const [alertaPorcentaje, setAlertaPorcentaje] = useState<string>('80');
 
-  // Merge canonical + user categories (deduplicated)
+  // Merge canonical + user categories (deduplicated, case-insensitive)
   const allCategorias: CategoriaOption[] = (() => {
     const merged: CategoriaOption[] = CATEGORIAS.map(c => ({ nombre: c.nombre, emoji: c.emoji, subs: [...c.subs] }));
     if (userCategorias) {
@@ -50,12 +51,25 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
         const existing = merged.find(m => m.nombre.toLowerCase() === uc.nombre.toLowerCase());
         if (existing) {
           for (const sub of uc.subs) {
-            if (!existing.subs.includes(sub)) existing.subs.push(sub);
+            // Case-insensitive dedup for subcategories
+            if (!existing.subs.some(s => s.toLowerCase() === sub.toLowerCase())) {
+              existing.subs.push(sub);
+            }
           }
         } else {
           merged.push({ ...uc });
         }
       }
+    }
+    // Deduplicate subcategories within each category (keep first occurrence)
+    for (const cat of merged) {
+      const seen = new Map<string, string>();
+      cat.subs = cat.subs.filter(s => {
+        const lower = s.toLowerCase();
+        if (seen.has(lower)) return false;
+        seen.set(lower, s);
+        return true;
+      });
     }
     return merged;
   })();
@@ -63,6 +77,13 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
   const selectedCat = allCategorias.find((c) => c.nombre === categoria)
     || allCategorias.find((c) => c.nombre.toLowerCase() === categoria.toLowerCase());
   const subcategorias = selectedCat?.subs ?? [];
+
+  // Check if a budget already exists for selected category (prevent duplicates)
+  const isDuplicate = !isEditing && categoria && existingBudgets.some(b =>
+    b.categoria.toLowerCase() === categoria.toLowerCase() &&
+    (!subcategoria || !b.subcategoria) &&
+    (!b.subcategoria || b.subcategoria.toLowerCase() === (subcategoria || '').toLowerCase())
+  );
 
   useEffect(() => {
     if (open) {
@@ -215,6 +236,13 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
             </p>
           </div>
 
+          {/* Duplicate warning */}
+          {isDuplicate && (
+            <p className="text-xs text-[#EF9F27]">
+              Ya existe un presupuesto para esta categoría. Usa una subcategoría específica o edita el existente.
+            </p>
+          )}
+
           {/* Buttons */}
           <div className="flex justify-end gap-2 pt-2">
             <Button
@@ -227,7 +255,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
             <Button
               className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90"
               onClick={handleSubmit}
-              disabled={!categoria || !montoLimite || saving}
+              disabled={!categoria || !montoLimite || saving || !!isDuplicate}
             >
               {saving ? 'Guardando...' : isEditing ? 'Guardar cambios' : 'Crear presupuesto'}
             </Button>
