@@ -33,6 +33,10 @@ export function useTransactions(options: UseTransactionsOptions) {
           ? `${options.anio + 1}-01-01`
           : `${options.anio}-${String(options.mes + 1).padStart(2, '0')}-01`;
         query = query.gte('fecha', startDate).lt('fecha', endDate);
+      } else if (options.anio && !options.mes) {
+        const startDate = `${options.anio}-01-01`;
+        const endDate = `${options.anio + 1}-01-01`;
+        query = query.gte('fecha', startDate).lt('fecha', endDate);
       }
 
       if (options.tipo) query = query.eq('tipo', options.tipo);

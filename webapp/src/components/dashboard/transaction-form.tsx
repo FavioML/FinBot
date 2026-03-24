@@ -54,9 +54,15 @@ function getDefaultForm(tipo: 'gasto' | 'ingreso'): FormData {
   };
 }
 
+const CUSTOM_OPTION = '__otra__';
+
 export function TransactionForm({ open, onOpenChange, tipo, transaction }: TransactionFormProps) {
   const isEdit = !!transaction;
   const [form, setForm] = useState<FormData>(getDefaultForm(tipo));
+  const [customCategoria, setCustomCategoria] = useState('');
+  const [customSubcategoria, setCustomSubcategoria] = useState('');
+  const [usingCustomCategoria, setUsingCustomCategoria] = useState(false);
+  const [usingCustomSubcategoria, setUsingCustomSubcategoria] = useState(false);
 
   const selectedCat = CATEGORIAS.find((c) => c.nombre === form.categoria);
   const subcategorias = selectedCat ? selectedCat.subs : [];
@@ -65,17 +71,29 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction }: Trans
   useEffect(() => {
     if (open) {
       if (transaction) {
+        const isPresetCat = CATEGORIAS.some((c) => c.nombre === transaction.categoria);
+        const matchedCat = CATEGORIAS.find((c) => c.nombre === transaction.categoria);
+        const isPresetSub = matchedCat ? matchedCat.subs.includes(transaction.subcategoria as never) : false;
+
         setForm({
           monto: String(transaction.monto),
           comercio: transaction.comercio || '',
-          categoria: transaction.categoria,
-          subcategoria: transaction.subcategoria,
+          categoria: isPresetCat ? transaction.categoria : CUSTOM_OPTION,
+          subcategoria: isPresetSub ? transaction.subcategoria : (transaction.subcategoria ? CUSTOM_OPTION : ''),
           fecha: transaction.fecha,
           moneda: transaction.moneda,
           metodo_pago: transaction.metodo_pago || 'Debito',
         });
+        setUsingCustomCategoria(!isPresetCat);
+        setCustomCategoria(isPresetCat ? '' : transaction.categoria);
+        setUsingCustomSubcategoria(!isPresetSub && !!transaction.subcategoria);
+        setCustomSubcategoria(isPresetSub ? '' : (transaction.subcategoria || ''));
       } else {
         setForm(getDefaultForm(tipo));
+        setUsingCustomCategoria(false);
+        setUsingCustomSubcategoria(false);
+        setCustomCategoria('');
+        setCustomSubcategoria('');
       }
     }
   }, [open, transaction, tipo]);
@@ -86,18 +104,39 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction }: Trans
       // Reset subcategoria when categoria changes
       if (field === 'categoria') {
         next.subcategoria = '';
+        if (value === CUSTOM_OPTION) {
+          setUsingCustomCategoria(true);
+          setCustomCategoria('');
+        } else {
+          setUsingCustomCategoria(false);
+          setCustomCategoria('');
+        }
+        setUsingCustomSubcategoria(false);
+        setCustomSubcategoria('');
+      }
+      if (field === 'subcategoria') {
+        if (value === CUSTOM_OPTION) {
+          setUsingCustomSubcategoria(true);
+          setCustomSubcategoria('');
+        } else {
+          setUsingCustomSubcategoria(false);
+          setCustomSubcategoria('');
+        }
       }
       return next;
     });
   }, []);
 
   const handleSubmit = () => {
+    const finalCategoria = usingCustomCategoria ? customCategoria : form.categoria;
+    const finalSubcategoria = usingCustomSubcategoria ? customSubcategoria : form.subcategoria;
+
     const data = {
       tipo,
       monto: parseFloat(form.monto) || 0,
       comercio: form.comercio,
-      categoria: form.categoria,
-      subcategoria: form.subcategoria,
+      categoria: finalCategoria,
+      subcategoria: finalSubcategoria,
       fecha: form.fecha,
       moneda: form.moneda,
       metodo_pago: form.metodo_pago,
@@ -112,7 +151,8 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction }: Trans
     onOpenChange(false);
   };
 
-  const isValid = form.monto && parseFloat(form.monto) > 0 && form.categoria && form.fecha;
+  const finalCatValid = usingCustomCategoria ? customCategoria.trim().length > 0 : (form.categoria && form.categoria !== CUSTOM_OPTION);
+  const isValid = form.monto && parseFloat(form.monto) > 0 && finalCatValid && form.fecha;
 
   const isIngreso = tipo === 'ingreso';
   const title = isEdit
@@ -175,7 +215,7 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction }: Trans
           {/* Categoria + Subcategoria */}
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-xs text-[#8A877D] mb-1 block">Categoria</label>
+              <label className="text-xs text-[#8A877D] mb-1 block">Categoría</label>
               <Select value={form.categoria} onValueChange={(v) => handleChange('categoria', v as string)}>
                 <SelectTrigger className={selectTriggerClasses}>
                   <SelectValue placeholder="Seleccionar" />
@@ -186,15 +226,25 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction }: Trans
                       {cat.emoji} {cat.nombre}
                     </SelectItem>
                   ))}
+                  <SelectItem value={CUSTOM_OPTION}>✏️ Otra...</SelectItem>
                 </SelectContent>
               </Select>
+              {usingCustomCategoria && (
+                <Input
+                  placeholder="Nombre de la categoría"
+                  value={customCategoria}
+                  onChange={(e) => setCustomCategoria(e.target.value)}
+                  className={`${inputClasses} mt-1.5`}
+                  autoFocus
+                />
+              )}
             </div>
             <div>
-              <label className="text-xs text-[#8A877D] mb-1 block">Subcategoria</label>
+              <label className="text-xs text-[#8A877D] mb-1 block">Subcategoría</label>
               <Select
                 value={form.subcategoria}
                 onValueChange={(v) => handleChange('subcategoria', v as string)}
-                disabled={subcategorias.length === 0}
+                disabled={subcategorias.length === 0 && !usingCustomCategoria}
               >
                 <SelectTrigger className={selectTriggerClasses}>
                   <SelectValue placeholder="Seleccionar" />
@@ -205,8 +255,18 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction }: Trans
                       {sub.replace(/_/g, ' ')}
                     </SelectItem>
                   ))}
+                  <SelectItem value={CUSTOM_OPTION}>✏️ Otra...</SelectItem>
                 </SelectContent>
               </Select>
+              {usingCustomSubcategoria && (
+                <Input
+                  placeholder="Nombre de la subcategoría"
+                  value={customSubcategoria}
+                  onChange={(e) => setCustomSubcategoria(e.target.value)}
+                  className={`${inputClasses} mt-1.5`}
+                  autoFocus
+                />
+              )}
             </div>
           </div>
 

@@ -13,9 +13,9 @@ import {
 import { CATEGORIAS } from '@/lib/constants';
 
 const METODOS_PAGO = [
-  { value: 'all', label: 'Todos los metodos' },
-  { value: 'Debito', label: 'Debito' },
-  { value: 'Credito', label: 'Credito' },
+  { value: 'all', label: 'Todos los métodos' },
+  { value: 'Debito', label: 'Débito' },
+  { value: 'Credito', label: 'Crédito' },
   { value: 'Yape', label: 'Yape' },
   { value: 'Plin', label: 'Plin' },
   { value: 'Efectivo', label: 'Efectivo' },
@@ -28,6 +28,8 @@ interface TransactionFiltersProps {
   onTipoChange: (value: string | null) => void;
   categoriaFilter: string;
   onCategoriaChange: (value: string | null) => void;
+  subcategoriaFilter: string;
+  onSubcategoriaChange: (value: string | null) => void;
   metodoPagoFilter: string;
   onMetodoPagoChange: (value: string | null) => void;
 }
@@ -39,12 +41,17 @@ export function TransactionFilters({
   onTipoChange,
   categoriaFilter,
   onCategoriaChange,
+  subcategoriaFilter,
+  onSubcategoriaChange,
   metodoPagoFilter,
   onMetodoPagoChange,
 }: TransactionFiltersProps) {
+  const selectedCat = CATEGORIAS.find((c) => c.nombre === categoriaFilter);
+  const subcategorias = selectedCat ? selectedCat.subs : [];
+
   return (
     <div className="glass-card p-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:flex-wrap">
         {/* Search */}
         <div className="relative flex-1 min-w-0">
           <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8A877D]" />
@@ -66,12 +73,16 @@ export function TransactionFilters({
         </Tabs>
 
         {/* Category filter */}
-        <Select value={categoriaFilter} onValueChange={onCategoriaChange}>
+        <Select value={categoriaFilter} onValueChange={(val) => {
+          onCategoriaChange(val);
+          // Reset subcategory when category changes
+          onSubcategoriaChange('all');
+        }}>
           <SelectTrigger className="w-[180px] bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#C8C6BC]">
-            <SelectValue placeholder="Categoria" />
+            <SelectValue placeholder="Todas las categorías" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Todas las categorias</SelectItem>
+            <SelectItem value="all">Todas las categorías</SelectItem>
             {CATEGORIAS.map((cat) => (
               <SelectItem key={cat.nombre} value={cat.nombre}>
                 {cat.emoji} {cat.nombre}
@@ -80,10 +91,27 @@ export function TransactionFilters({
           </SelectContent>
         </Select>
 
+        {/* Subcategory filter */}
+        {categoriaFilter !== 'all' && subcategorias.length > 0 && (
+          <Select value={subcategoriaFilter} onValueChange={onSubcategoriaChange}>
+            <SelectTrigger className="w-[200px] bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#C8C6BC]">
+              <SelectValue placeholder="Todas las subcategorías" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas las subcategorías</SelectItem>
+              {subcategorias.map((sub) => (
+                <SelectItem key={sub} value={sub}>
+                  {sub.replace(/_/g, ' ')}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
         {/* Payment method filter */}
         <Select value={metodoPagoFilter} onValueChange={onMetodoPagoChange}>
           <SelectTrigger className="w-[180px] bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#C8C6BC]">
-            <SelectValue placeholder="Metodo de pago" />
+            <SelectValue placeholder="Todos los métodos" />
           </SelectTrigger>
           <SelectContent>
             {METODOS_PAGO.map((m) => (

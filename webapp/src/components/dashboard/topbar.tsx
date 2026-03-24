@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useMemo, useCallback } from 'react';
+import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { Menu, LogOut } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useUser } from '@/lib/hooks/use-user';
@@ -46,15 +46,26 @@ function generateMonthOptions() {
 
 export function Topbar({ onMenuClick }: TopbarProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { data: user } = useUser();
   const supabase = createClient();
 
   const now = new Date();
-  const [selectedMonth, setSelectedMonth] = useState(
-    `${now.getFullYear()}-${now.getMonth() + 1}`
-  );
+  const defaultMonth = `${now.getFullYear()}-${now.getMonth() + 1}`;
+  const selectedMonth = searchParams.get('mes') || defaultMonth;
 
   const monthOptions = useMemo(() => generateMonthOptions(), []);
+
+  const handleMonthChange = useCallback(
+    (value: string | null) => {
+      if (!value) return;
+      const params = new URLSearchParams(searchParams.toString());
+      params.set('mes', value);
+      router.push(`${pathname}?${params.toString()}`);
+    },
+    [router, pathname, searchParams]
+  );
 
   const initials = useMemo(() => {
     if (user?.email) {
@@ -82,7 +93,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
       </button>
 
       {/* Month selector */}
-      <Select value={selectedMonth} onValueChange={(value) => { if (value) setSelectedMonth(value); }}>
+      <Select value={selectedMonth} onValueChange={handleMonthChange}>
         <SelectTrigger className="border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.03)] text-[#F0EFE8] hover:bg-[rgba(255,255,255,0.05)]">
           <SelectValue />
         </SelectTrigger>

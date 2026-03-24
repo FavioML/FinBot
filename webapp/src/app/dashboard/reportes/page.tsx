@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import {
   Select,
   SelectContent,
@@ -49,10 +50,25 @@ const PIE_COLORS = ['#1D9E75', '#EF9F27', '#D85A30', '#3B82F6', '#8B5CF6', '#EC4
 // --- Component ---
 
 export default function ReportesPage() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const monthOptions = useMemo(() => buildMonthOptions(), []);
-  const [selected, setSelected] = useState(monthOptions[0].value);
 
-  const selectedOption = monthOptions.find((o) => o.value === selected)!;
+  const now = new Date();
+  const defaultMonth = `${now.getFullYear()}-${now.getMonth() + 1}`;
+  const selected = searchParams.get('mes') || defaultMonth;
+
+  const setSelected = useCallback(
+    (value: string) => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set('mes', value);
+      router.push(`${pathname}?${params.toString()}`);
+    },
+    [router, pathname, searchParams]
+  );
+
+  const selectedOption = monthOptions.find((o) => o.value === selected) || monthOptions[0];
 
   const { data: user, isLoading: userLoading } = useUser();
   const { data: transactions = [], isLoading: txLoading } = useTransactions({

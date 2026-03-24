@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   Plus,
   TrendingUp,
@@ -11,10 +12,20 @@ import {
   ArrowUpDown,
   ChevronLeft,
   ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -30,7 +41,7 @@ import { TransactionForm, DeleteConfirmDialog } from '@/components/dashboard/tra
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
 import { formatCurrency, formatFecha } from '@/lib/utils';
-import { CATEGORIA_EMOJI } from '@/lib/constants';
+import { CATEGORIA_EMOJI, MESES } from '@/lib/constants';
 import type { Transaccion } from '@/lib/types';
 
 const PAGE_SIZE = 20;
@@ -40,21 +51,38 @@ type SortDir = 'asc' | 'desc';
 
 export default function TransaccionesPage() {
   const { data: user, isLoading: userLoading } = useUser();
+  const searchParams = useSearchParams();
 
   const now = new Date();
-  const currentMonth = now.getMonth() + 1;
-  const currentYear = now.getFullYear();
+  const monthParam = searchParams.get('mes');
+  const [paramYear, paramMonth] = monthParam
+    ? monthParam.split('-').map(Number)
+    : [now.getFullYear(), now.getMonth() + 1];
 
-  const { data: transactions = [], isLoading: txLoading } = useTransactions({
+  // View mode: monthly or annual
+  const [viewMode, setViewMode] = useState<'mensual' | 'anual'>('mensual');
+  const [selectedMonth, setSelectedMonth] = useState(paramMonth);
+  const currentYear = paramYear;
+
+  const { data: monthlyTransactions = [], isLoading: txMonthlyLoading } = useTransactions({
     usuarioId: user?.id,
-    mes: currentMonth,
+    mes: selectedMonth,
     anio: currentYear,
   });
+
+  const { data: annualTransactions = [], isLoading: txAnnualLoading } = useTransactions({
+    usuarioId: user?.id,
+    anio: currentYear,
+  });
+
+  const transactions = viewMode === 'anual' ? annualTransactions : monthlyTransactions;
+  const txLoading = viewMode === 'anual' ? txAnnualLoading : txMonthlyLoading;
 
   // Filters
   const [search, setSearch] = useState('');
   const [tipoFilter, setTipoFilter] = useState('todos');
   const [categoriaFilter, setCategoriaFilter] = useState('all');
+  const [subcategoriaFilter, setSubcategoriaFilter] = useState('all');
   const [metodoPagoFilter, setMetodoPagoFilter] = useState('all');
 
   // Sort
@@ -82,6 +110,11 @@ export default function TransaccionesPage() {
     // Category filter
     if (categoriaFilter !== 'all') {
       result = result.filter((t) => t.categoria === categoriaFilter);
+    }
+
+    // Subcategory filter
+    if (subcategoriaFilter !== 'all') {
+      result = result.filter((t) => t.subcategoria === subcategoriaFilter);
     }
 
     // Payment method filter
@@ -113,7 +146,7 @@ export default function TransaccionesPage() {
     });
 
     return result;
-  }, [transactions, tipoFilter, categoriaFilter, metodoPagoFilter, search, sortField, sortDir]);
+  }, [transactions, tipoFilter, categoriaFilter, subcategoriaFilter, metodoPagoFilter, search, sortField, sortDir]);
 
   // Summary
   const summary = useMemo(() => {
@@ -153,6 +186,28 @@ export default function TransaccionesPage() {
     setCreateTipo(tipo);
     setCreateDialogOpen(true);
   };
+
+  // Pagination page numbers
+  const getPageNumbers = (): number[] => {
+    const pages: number[] = [];
+    const maxVisible = 5;
+    let start = Math.max(1, safeCurrentPage - Math.floor(maxVisible / 2));
+    let end = start + maxVisible - 1;
+    if (end > totalPages) {
+      end = totalPages;
+      start = Math.max(1, end - maxVisible + 1);
+    }
+    for (let i = start; i <= end; i++) {
+      pages.push(i);
+    }
+    return pages;
+  };
+
+  // Month options for selector
+  const monthOptions = MESES.slice(1).map((name, idx) => ({
+    value: String(idx + 1),
+    label: name,
+  }));
 
   const isLoading = userLoading || txLoading;
 
@@ -206,19 +261,52 @@ export default function TransaccionesPage() {
         </div>
       </div>
 
+      {/* View mode tabs + month selector */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <Tabs value={viewMode} onValueChange={(val) => { setViewMode(val as 'mensual' | 'anual'); setPage(1); }}>
+          <TabsList>
+            <TabsTrigger value="mensual">Mensual</TabsTrigger>
+            <TabsTrigger value="anual">Anual</TabsTrigger>
+          </TabsList>
+        </Tabs>
+
+        {viewMode === 'mensual' && (
+          <Select value={String(selectedMonth)} onValueChange={(val) => { setSelectedMonth(Number(val)); setPage(1); }}>
+            <SelectTrigger className="w-[160px] bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#C8C6BC]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {monthOptions.map((m) => (
+                <SelectItem key={m.value} value={m.value}>
+                  {m.label} {currentYear}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {viewMode === 'anual' && (
+          <span className="text-sm text-[#8A877D]">Mostrando todo {currentYear}</span>
+        )}
+      </div>
+
       {/* Summary cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div className="glass-card p-4">
           <div className="flex items-center gap-2 mb-2">
             <TrendingDown className="h-4 w-4 text-[#D85A30]" />
-            <span className="text-xs text-[#8A877D]">Gastos del mes</span>
+            <span className="text-xs text-[#8A877D]">
+              {viewMode === 'anual' ? 'Gastos del año' : 'Gastos del mes'}
+            </span>
           </div>
           <CurrencyDisplay amount={summary.totalGastos} className="text-[#D85A30]" size="md" />
         </div>
         <div className="glass-card p-4">
           <div className="flex items-center gap-2 mb-2">
             <TrendingUp className="h-4 w-4 text-[#1D9E75]" />
-            <span className="text-xs text-[#8A877D]">Ingresos del mes</span>
+            <span className="text-xs text-[#8A877D]">
+              {viewMode === 'anual' ? 'Ingresos del año' : 'Ingresos del mes'}
+            </span>
           </div>
           <CurrencyDisplay amount={summary.totalIngresos} className="text-[#1D9E75]" size="md" />
         </div>
@@ -239,6 +327,8 @@ export default function TransaccionesPage() {
         onTipoChange={handleFilterChange(setTipoFilter, 'todos')}
         categoriaFilter={categoriaFilter}
         onCategoriaChange={handleFilterChange(setCategoriaFilter, 'all')}
+        subcategoriaFilter={subcategoriaFilter}
+        onSubcategoriaChange={handleFilterChange(setSubcategoriaFilter, 'all')}
         metodoPagoFilter={metodoPagoFilter}
         onMetodoPagoChange={handleFilterChange(setMetodoPagoFilter, 'all')}
       />
@@ -321,30 +411,70 @@ export default function TransaccionesPage() {
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between pt-2">
+            <div className="flex flex-col gap-2 sm:flex-row items-center justify-between pt-2">
               <span className="text-xs text-[#8A877D]">
-                {filtered.length} transacciones &middot; Pagina {safeCurrentPage} de {totalPages}
+                {filtered.length} transacciones
               </span>
-              <div className="flex gap-1">
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  disabled={safeCurrentPage <= 1}
+                  onClick={() => setPage(1)}
+                  className="border-[rgba(255,255,255,0.06)] text-[#C8C6BC]"
+                  title="Primera"
+                >
+                  <ChevronsLeft className="h-4 w-4" />
+                </Button>
                 <Button
                   variant="outline"
                   size="icon-sm"
                   disabled={safeCurrentPage <= 1}
                   onClick={() => setPage((p) => p - 1)}
                   className="border-[rgba(255,255,255,0.06)] text-[#C8C6BC]"
+                  title="Anterior"
                 >
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
+                {getPageNumbers().map((p) => (
+                  <Button
+                    key={p}
+                    variant={p === safeCurrentPage ? 'default' : 'outline'}
+                    size="icon-sm"
+                    onClick={() => setPage(p)}
+                    className={
+                      p === safeCurrentPage
+                        ? 'bg-[#1D9E75] hover:bg-[#1D9E75]/90 text-white border-[#1D9E75]'
+                        : 'border-[rgba(255,255,255,0.06)] text-[#C8C6BC]'
+                    }
+                  >
+                    {p}
+                  </Button>
+                ))}
                 <Button
                   variant="outline"
                   size="icon-sm"
                   disabled={safeCurrentPage >= totalPages}
                   onClick={() => setPage((p) => p + 1)}
                   className="border-[rgba(255,255,255,0.06)] text-[#C8C6BC]"
+                  title="Siguiente"
                 >
                   <ChevronRight className="h-4 w-4" />
                 </Button>
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  disabled={safeCurrentPage >= totalPages}
+                  onClick={() => setPage(totalPages)}
+                  className="border-[rgba(255,255,255,0.06)] text-[#C8C6BC]"
+                  title="Última"
+                >
+                  <ChevronsRight className="h-4 w-4" />
+                </Button>
               </div>
+              <span className="text-xs text-[#8A877D]">
+                Página {safeCurrentPage} de {totalPages}
+              </span>
             </div>
           )}
         </>

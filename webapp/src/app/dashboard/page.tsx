@@ -1,7 +1,9 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { EmptyState } from '@/components/shared/empty-state';
 import { WhatsAppButton } from '@/components/shared/whatsapp-button';
 import { KPICards } from '@/components/dashboard/kpi-cards';
@@ -16,21 +18,31 @@ import type { KPIData, CategoriaGasto, TendenciaMensual } from '@/lib/types';
 
 export default function DashboardPage() {
   const { data: user, isLoading: userLoading } = useUser();
+  const searchParams = useSearchParams();
 
   const now = new Date();
-  const currentMonth = now.getMonth() + 1;
-  const currentYear = now.getFullYear();
+  const monthParam = searchParams.get('mes');
+  const [currentYear, currentMonth] = monthParam
+    ? monthParam.split('-').map(Number)
+    : [now.getFullYear(), now.getMonth() + 1];
 
-  const { data: transactions = [], isLoading: txLoading } = useTransactions({
-    usuarioId: user?.id,
-    mes: currentMonth,
-    anio: currentYear,
-  });
+  const [viewMode, setViewMode] = useState<string>('mensual');
 
-  // Load last 4 months for trend chart
-  const { data: allRecentTx = [] } = useTransactions({
+  // Load ALL transactions for the user (enables both monthly and annual views + trend chart)
+  const { data: allTransactions = [], isLoading: txLoading } = useTransactions({
     usuarioId: user?.id,
   });
+
+  // Filter transactions based on viewMode
+  const transactions = useMemo(() => {
+    return allTransactions.filter((t) => {
+      const txDate = new Date(t.fecha);
+      if (viewMode === 'anual') {
+        return txDate.getFullYear() === currentYear;
+      }
+      return txDate.getMonth() + 1 === currentMonth && txDate.getFullYear() === currentYear;
+    });
+  }, [allTransactions, viewMode, currentMonth, currentYear]);
 
   // Compute KPI data
   const kpiData = useMemo<KPIData>(() => {
@@ -79,7 +91,7 @@ export default function DashboardPage() {
       const d = new Date(currentYear, currentMonth - 1 - i, 1);
       const m = d.getMonth() + 1;
       const y = d.getFullYear();
-      const monthTxs = allRecentTx.filter((t) => {
+      const monthTxs = allTransactions.filter((t) => {
         const txDate = new Date(t.fecha);
         return txDate.getMonth() + 1 === m && txDate.getFullYear() === y;
       });
@@ -92,7 +104,7 @@ export default function DashboardPage() {
       });
     }
     return months;
-  }, [allRecentTx, currentMonth, currentYear]);
+  }, [allTransactions, currentMonth, currentYear]);
 
   const isLoading = userLoading || txLoading;
 
@@ -138,9 +150,17 @@ export default function DashboardPage() {
           Hola{user.nombre ? `, ${user.nombre}` : user.email ? `, ${user.email.split('@')[0]}` : ''}
         </h1>
         <p className="text-sm text-[#8A877D] mt-1">
-          Tu resumen financiero &mdash; {MESES[currentMonth]} {currentYear}
+          Tu resumen financiero &mdash; {viewMode === 'anual' ? `Año ${currentYear}` : `${MESES[currentMonth]} ${currentYear}`}
         </p>
       </div>
+
+      {/* View mode toggle */}
+      <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as string)}>
+        <TabsList className="glass-card border-0">
+          <TabsTrigger value="mensual">Mensual</TabsTrigger>
+          <TabsTrigger value="anual">Total anual</TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       {!hasTransactions ? (
         <EmptyState
