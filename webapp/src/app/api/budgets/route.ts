@@ -7,6 +7,14 @@ const serviceClient = createSupabaseClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
+/** Capitalize first letter */
+function capitalize(s: string | null | undefined): string | null {
+  if (!s) return null;
+  const trimmed = s.trim();
+  if (!trimmed) return null;
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+}
+
 async function getNetoUserId() {
   const supabase = await createClient();
   const {
@@ -33,7 +41,7 @@ export async function POST(request: Request) {
     .insert({
       usuario_id: userId,
       categoria: body.categoria,
-      subcategoria: body.subcategoria || null,
+      subcategoria: capitalize(body.subcategoria),
       monto_limite: body.monto_limite,
       alerta_porcentaje: body.alerta_porcentaje || 80,
       mes: new Date().getMonth() + 1,
@@ -57,7 +65,7 @@ export async function PUT(request: Request) {
     .from('presupuestos')
     .update({
       categoria: body.categoria,
-      subcategoria: body.subcategoria || null,
+      subcategoria: capitalize(body.subcategoria),
       monto_limite: body.monto_limite,
       alerta_porcentaje: body.alerta_porcentaje || 80,
     })
