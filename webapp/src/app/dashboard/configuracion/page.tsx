@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { toast } from 'sonner';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import {
@@ -63,6 +64,16 @@ export default function ConfiguracionPage() {
   const [copied, setCopied] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data: { user: authUser } }) => {
+      if (authUser?.user_metadata?.avatar_url) {
+        setAvatarUrl(authUser.user_metadata.avatar_url);
+      }
+    });
+  }, []);
 
   const isPremium = user?.plan === 'premium';
   const referralCode = user?.id?.slice(0, 8).toUpperCase() ?? 'CODIGO';
@@ -147,9 +158,19 @@ export default function ConfiguracionPage() {
       <div className="glass-card glass-card-glow p-6">
         <div className="flex items-start gap-4">
           {/* Avatar */}
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#1D9E75] text-xl font-bold text-white">
-            {getInitial(user.email)}
-          </div>
+          {avatarUrl ? (
+            <Image
+              src={avatarUrl}
+              alt={user.nombre || ''}
+              width={56}
+              height={56}
+              className="h-14 w-14 shrink-0 rounded-full object-cover"
+            />
+          ) : (
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#1D9E75] text-xl font-bold text-white">
+              {getInitial(user.email)}
+            </div>
+          )}
 
           <div className="flex-1 min-w-0 space-y-2">
             {/* Name + plan */}

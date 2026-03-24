@@ -70,6 +70,8 @@ export interface KPIData {
   ahorro: number;
   ahorroPorcentaje: number;
   scoreFinanciero: number;
+  prevGastos?: number;
+  prevIngresos?: number;
 }
 
 export interface CategoriaGasto {

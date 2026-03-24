@@ -105,8 +105,23 @@ export default function DashboardPage() {
 
     const scoreFinanciero = calcularScoreFinanciero(totalGastos, totalIngresos, presExcedidos);
 
-    return { totalIngresos, totalGastos, ahorro, ahorroPorcentaje, scoreFinanciero };
-  }, [transactions, budgets]);
+    // Previous month data for comparison (only in monthly view)
+    let prevGastos: number | undefined;
+    let prevIngresos: number | undefined;
+    if (viewMode === 'mensual') {
+      const prevDate = new Date(currentYear, currentMonth - 2, 1);
+      const pm = prevDate.getMonth() + 1;
+      const py = prevDate.getFullYear();
+      const prevTxs = allTransactions.filter((t) => {
+        const d = new Date(t.fecha + 'T00:00:00');
+        return d.getMonth() + 1 === pm && d.getFullYear() === py;
+      });
+      prevGastos = prevTxs.filter(t => t.tipo === 'gasto').reduce((s, t) => s + t.monto_pen, 0);
+      prevIngresos = prevTxs.filter(t => t.tipo === 'ingreso').reduce((s, t) => s + t.monto_pen, 0);
+    }
+
+    return { totalIngresos, totalGastos, ahorro, ahorroPorcentaje, scoreFinanciero, prevGastos, prevIngresos };
+  }, [transactions, budgets, allTransactions, viewMode, currentMonth, currentYear]);
 
   // Compute category breakdown (gastos only)
   const categoryData = useMemo<CategoriaGasto[]>(() => {

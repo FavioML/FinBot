@@ -1,6 +1,6 @@
 'use client';
 
-import { TrendingUp, TrendingDown, Wallet, Activity } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, Activity, ArrowUp, ArrowDown } from 'lucide-react';
 import { NumberTicker } from '@/components/ui/number-ticker';
 import { StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import { getScoreColor, getScoreLabel } from '@/lib/utils';
@@ -9,6 +9,28 @@ import type { KPIData } from '@/lib/types';
 interface KPICardsProps {
   data: KPIData;
   onScoreClick?: () => void;
+}
+
+function ComparisonBadge({ current, previous, invertColor }: { current: number; previous: number; invertColor?: boolean }) {
+  if (previous === 0) return null;
+  const pctChange = Math.round(((current - previous) / previous) * 100);
+  if (pctChange === 0) return null;
+
+  const isUp = pctChange > 0;
+  // For gastos, up is bad (red). For ingresos, up is good (green). invertColor flips this.
+  const isPositive = invertColor ? !isUp : isUp;
+  const color = isPositive ? '#1D9E75' : '#D85A30';
+  const Icon = isUp ? ArrowUp : ArrowDown;
+
+  return (
+    <span
+      className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+      style={{ backgroundColor: `${color}18`, color }}
+    >
+      <Icon className="h-2.5 w-2.5" />
+      {Math.abs(pctChange)}%
+    </span>
+  );
 }
 
 export function KPICards({ data, onScoreClick }: KPICardsProps) {
@@ -22,6 +44,8 @@ export function KPICards({ data, onScoreClick }: KPICardsProps) {
       color: '#1D9E75',
       icon: TrendingUp,
       prefix: 'S/ ',
+      prev: data.prevIngresos,
+      invertColor: false,
     },
     {
       label: 'Total Gastos',
@@ -29,6 +53,8 @@ export function KPICards({ data, onScoreClick }: KPICardsProps) {
       color: '#D85A30',
       icon: TrendingDown,
       prefix: 'S/ ',
+      prev: data.prevGastos,
+      invertColor: true,
     },
     {
       label: 'Ahorro',
@@ -64,17 +90,22 @@ export function KPICards({ data, onScoreClick }: KPICardsProps) {
           >
             <div className="flex items-center justify-between mb-3">
               <Icon className="h-5 w-5" style={{ color: '#8A877D' }} />
-              {card.badge && (
-                <span
-                  className="rounded-full px-2 py-0.5 text-xs font-medium"
-                  style={{
-                    backgroundColor: `${card.color}18`,
-                    color: card.color,
-                  }}
-                >
-                  {card.badge}
-                </span>
-              )}
+              <div className="flex items-center gap-1.5">
+                {'prev' in card && card.prev != null && card.prev > 0 && (
+                  <ComparisonBadge current={card.value} previous={card.prev} invertColor={card.invertColor} />
+                )}
+                {card.badge && (
+                  <span
+                    className="rounded-full px-2 py-0.5 text-xs font-medium"
+                    style={{
+                      backgroundColor: `${card.color}18`,
+                      color: card.color,
+                    }}
+                  >
+                    {card.badge}
+                  </span>
+                )}
+              </div>
             </div>
             <p className="text-xs font-medium mb-1" style={{ color: '#8A877D' }}>
               {card.label}

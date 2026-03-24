@@ -60,10 +60,10 @@ export default function LoginPage() {
 
           {/* Welcome text */}
           <h1 className="mb-2 text-3xl font-bold text-[#F0EFE8]">
-            Bienvenido
+            Controla tu dinero en un solo lugar
           </h1>
           <p className="mb-8 text-[#8A877D]">
-            Inicia sesión para acceder a tu panel financiero personal
+            Conecta tus bancos y WhatsApp. NETO organiza tus finanzas automaticamente.
           </p>
 
           {/* Google button */}
@@ -81,6 +81,9 @@ export default function LoginPage() {
             </svg>
             Continuar con Google
           </motion.button>
+          <p className="mt-2 text-center text-xs text-[#8A877D]">
+            Gratis para siempre &mdash; sin tarjeta de credito
+          </p>
 
           {/* Divider */}
           <div className="my-8 flex items-center gap-3">
@@ -97,8 +100,22 @@ export default function LoginPage() {
             </p>
           </div>
 
+          {/* Mobile-only benefits (hidden on desktop where right panel shows features) */}
+          <div className="mt-4 flex flex-col gap-2 lg:hidden">
+            {[
+              { emoji: '📱', text: 'Registra gastos por WhatsApp' },
+              { emoji: '🏦', text: 'Conecta BCP, BBVA, Interbank y mas' },
+              { emoji: '📊', text: 'Dashboard con graficos y score financiero' },
+            ].map((b) => (
+              <div key={b.text} className="flex items-center gap-2.5 rounded-lg bg-white/[0.02] px-3 py-2">
+                <span className="text-sm">{b.emoji}</span>
+                <span className="text-xs text-[#C8C6BC]">{b.text}</span>
+              </div>
+            ))}
+          </div>
+
           {/* WhatsApp alternative */}
-          <div className="mt-2">
+          <div className="mt-4">
             <p className="mb-3 text-center text-xs text-[#8A877D]">¿Prefieres usar solo WhatsApp?</p>
             <a
               href="https://wa.me/51933014505"
@@ -173,7 +190,7 @@ export default function LoginPage() {
               ))}
             </div>
             <p className="text-sm text-[#8A877D]">
-              Usuarios en Perú ya controlan sus gastos con NETO
+              +100 usuarios en Peru ya controlan sus gastos con NETO
             </p>
           </div>
         </motion.div>
