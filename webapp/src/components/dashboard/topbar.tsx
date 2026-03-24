@@ -122,16 +122,19 @@ export function Topbar({ onMenuClick }: TopbarProps) {
             </AvatarFallback>
           </Avatar>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="bg-[#141412] border-[rgba(255,255,255,0.06)] min-w-[180px]">
-          <DropdownMenuLabel className="text-[#8A877D]">
-            {user?.email || user?.whatsapp || 'Mi cuenta'}
+        <DropdownMenuContent align="end" className="bg-[#141412] border-[rgba(255,255,255,0.06)] min-w-[200px]">
+          <DropdownMenuLabel className="text-[#F0EFE8] font-semibold">
+            {user?.nombre || 'Mi cuenta'}
+          </DropdownMenuLabel>
+          <DropdownMenuLabel className="text-[#8A877D] text-xs font-normal -mt-2">
+            {user?.email || user?.whatsapp || ''}
           </DropdownMenuLabel>
           <DropdownMenuSeparator className="bg-[rgba(255,255,255,0.06)]" />
           <DropdownMenuItem
             className="text-[#D85A30] focus:text-[#D85A30] cursor-pointer"
-            onClick={handleSignOut}
+            onSelect={handleSignOut}
           >
-            <LogOut className="h-4 w-4" />
+            <LogOut className="h-4 w-4 mr-2" />
             Cerrar sesión
           </DropdownMenuItem>
         </DropdownMenuContent>

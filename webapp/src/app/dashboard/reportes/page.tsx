@@ -121,8 +121,10 @@ export default function ReportesPage() {
       const pdf = new jsPDF('p', 'mm', [pdfW, Math.max(pdfH, 297)]);
       pdf.addImage(imgData, 'PNG', 0, 0, pdfW, pdfH);
       const now = new Date();
-      const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-      pdf.save(`Neto-Reporte-${selectedOption.label.replace(/\s/g, '-')}-${dateStr}.pdf`);
+      const dd = String(now.getDate()).padStart(2, '0');
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const yyyy = now.getFullYear();
+      pdf.save(`Neto - Reporte - ${dd}-${mm}-${yyyy}.pdf`);
     } catch (err) {
       console.error('[PDF] Error generating:', err);
     } finally {
