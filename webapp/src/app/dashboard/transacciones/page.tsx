@@ -39,6 +39,7 @@ import { EmptyState } from '@/components/shared/empty-state';
 import { CurrencyDisplay } from '@/components/shared/currency-display';
 import { TransactionFilters } from '@/components/dashboard/transaction-filters';
 import { TransactionForm, DeleteConfirmDialog } from '@/components/dashboard/transaction-form';
+import { MonthSelector } from '@/components/dashboard/month-selector';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
 import { useBudgets } from '@/lib/hooks/use-budgets';
@@ -317,18 +318,7 @@ export default function TransaccionesPage() {
         </Tabs>
 
         {viewMode === 'mensual' && (
-          <Select value={String(selectedMonth)} onValueChange={(val) => { setSelectedMonth(Number(val)); setPage(1); }}>
-            <SelectTrigger className="w-[160px] bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#C8C6BC]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {monthOptions.map((m) => (
-                <SelectItem key={m.value} value={m.value}>
-                  {m.label} {selectedYear}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <MonthSelector />
         )}
 
         {viewMode === 'anual' && (

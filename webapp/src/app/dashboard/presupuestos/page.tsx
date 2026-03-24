@@ -15,6 +15,7 @@ import { useTransactions } from '@/lib/hooks/use-transactions';
 import { formatCurrency, formatFecha } from '@/lib/utils';
 import { capitalizeDisplay } from '@/lib/format';
 import { MESES, getCategoriaEmoji } from '@/lib/constants';
+import { MonthSelector } from '@/components/dashboard/month-selector';
 import type { Presupuesto, Transaccion } from '@/lib/types';
 import {
   Dialog,
@@ -229,17 +230,17 @@ export default function PresupuestosPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[#F0EFE8]">Presupuestos</h1>
-          <p className="text-sm text-[#8A877D] mt-1">
-            {MESES[currentMonth]} {currentYear}
-          </p>
         </div>
-        <Button
+        <div className="flex items-center gap-3">
+          <MonthSelector />
+          <Button
           className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 gap-1.5"
           onClick={() => setCreateOpen(true)}
         >
-          <Plus className="h-4 w-4" />
-          Nuevo presupuesto
-        </Button>
+            <Plus className="h-4 w-4" />
+            Nuevo presupuesto
+          </Button>
+        </div>
       </div>
 
       {hasBudgets ? (

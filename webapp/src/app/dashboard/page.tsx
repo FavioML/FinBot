@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/select';
 import { EmptyState } from '@/components/shared/empty-state';
 import { WhatsAppButton } from '@/components/shared/whatsapp-button';
+import { MonthSelector } from '@/components/dashboard/month-selector';
 import { KPICards } from '@/components/dashboard/kpi-cards';
 import { RecentTransactions } from '@/components/dashboard/recent-transactions';
 import { InsightCard } from '@/components/dashboard/insight-card';
@@ -195,6 +196,12 @@ export default function DashboardPage() {
               ))}
             </SelectContent>
           </Select>
+        )}
+
+        {viewMode === 'mensual' && (
+          <div className="sm:ml-auto">
+            <MonthSelector />
+          </div>
         )}
       </div>
 

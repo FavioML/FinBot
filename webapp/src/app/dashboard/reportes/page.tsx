@@ -21,6 +21,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/shared/empty-state';
 import { NumberTicker } from '@/components/ui/number-ticker';
 import { TransactionForm } from '@/components/dashboard/transaction-form';
+import { MonthSelector } from '@/components/dashboard/month-selector';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
 import { formatCurrency, getScoreColor, getScoreLabel } from '@/lib/utils';
@@ -700,18 +701,7 @@ function Header({
         <h1 className="text-2xl font-bold text-[#F0EFE8]">Reportes</h1>
       </div>
       <div className="flex items-center gap-3">
-        <Select value={selected} onValueChange={(v) => v && setSelected(v)}>
-          <SelectTrigger className="w-[180px] glass-card border-0">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {monthOptions.map((o) => (
-              <SelectItem key={o.value} value={o.value}>
-                {o.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <MonthSelector />
         <Button
           variant="outline"
           size="sm"
