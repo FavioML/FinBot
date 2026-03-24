@@ -8,12 +8,19 @@ import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/shared/empty-state';
 import { BudgetCard } from '@/components/dashboard/budget-card';
 import { BudgetForm, DeleteBudgetDialog } from '@/components/dashboard/budget-form';
+import type { CategoriaOption } from '@/components/dashboard/budget-form';
 import { useUser } from '@/lib/hooks/use-user';
 import { useBudgets } from '@/lib/hooks/use-budgets';
 import { useTransactions } from '@/lib/hooks/use-transactions';
-import { formatCurrency } from '@/lib/utils';
-import { MESES } from '@/lib/constants';
-import type { Presupuesto } from '@/lib/types';
+import { formatCurrency, formatFecha } from '@/lib/utils';
+import { MESES, getCategoriaEmoji } from '@/lib/constants';
+import type { Presupuesto, Transaccion } from '@/lib/types';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 /**
  * Normalize budget/transaction category names so DB-stored budget categories
@@ -70,6 +77,35 @@ export default function PresupuestosPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editBudget, setEditBudget] = useState<Presupuesto | null>(null);
   const [deleteBudget, setDeleteBudget] = useState<Presupuesto | null>(null);
+  const [detailBudget, setDetailBudget] = useState<Presupuesto | null>(null);
+
+  // Compute user's unique categories from their transactions (includes non-canonical)
+  const userCategorias = useMemo<CategoriaOption[]>(() => {
+    const catMap = new Map<string, Set<string>>();
+    for (const t of transactions) {
+      if (!catMap.has(t.categoria)) catMap.set(t.categoria, new Set());
+      if (t.subcategoria && t.subcategoria !== 'null' && t.subcategoria !== 'sin_categoria') {
+        catMap.get(t.categoria)!.add(t.subcategoria);
+      }
+    }
+    return Array.from(catMap.entries()).map(([nombre, subs]) => ({
+      nombre,
+      emoji: getCategoriaEmoji(nombre),
+      subs: Array.from(subs),
+    }));
+  }, [transactions]);
+
+  // Get transactions for a specific budget (for detail view)
+  function getTransactionsForBudget(budget: Presupuesto): Transaccion[] {
+    const budgetCatNorm = normalizeCatForMatch(budget.categoria);
+    return transactions.filter((t) => {
+      const txCatNorm = normalizeCatForMatch(t.categoria);
+      if (budget.subcategoria) {
+        return txCatNorm === budgetCatNorm && t.subcategoria?.toLowerCase() === budget.subcategoria.toLowerCase();
+      }
+      return txCatNorm === budgetCatNorm;
+    }).sort((a, b) => new Date(b.fecha + 'T00:00:00').getTime() - new Date(a.fecha + 'T00:00:00').getTime());
+  }
 
   // Compute spending per normalized category (and optionally subcategory)
   const spendingByKey = useMemo(() => {
@@ -200,6 +236,7 @@ export default function PresupuestosPage() {
                 spent={getSpentForBudget(budget)}
                 onEdit={(b) => setEditBudget(b)}
                 onDelete={(b) => setDeleteBudget(b)}
+                onClick={(b) => setDetailBudget(b)}
               />
             ))}
           </div>
@@ -231,6 +268,7 @@ export default function PresupuestosPage() {
         open={createOpen}
         onOpenChange={setCreateOpen}
         onSuccess={refreshBudgets}
+        userCategorias={userCategorias}
       />
 
       {/* Edit dialog */}
@@ -239,6 +277,7 @@ export default function PresupuestosPage() {
         onOpenChange={(open) => { if (!open) setEditBudget(null); }}
         budget={editBudget}
         onSuccess={refreshBudgets}
+        userCategorias={userCategorias}
       />
 
       {/* Delete confirmation dialog */}
@@ -248,6 +287,65 @@ export default function PresupuestosPage() {
         budget={deleteBudget}
         onSuccess={refreshBudgets}
       />
+
+      {/* Budget detail dialog - shows transactions */}
+      <Dialog open={!!detailBudget} onOpenChange={(open) => { if (!open) setDetailBudget(null); }}>
+        <DialogContent className="bg-[#1A1A18] border-[rgba(255,255,255,0.06)] sm:max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-[#F0EFE8]">
+              {detailBudget && `${getCategoriaEmoji(detailBudget.categoria)} ${detailBudget.categoria}`}
+              {detailBudget?.subcategoria && ` — ${detailBudget.subcategoria}`}
+            </DialogTitle>
+          </DialogHeader>
+          {detailBudget && (() => {
+            const txs = getTransactionsForBudget(detailBudget);
+            const spent = getSpentForBudget(detailBudget);
+            const pct = detailBudget.monto_limite > 0 ? Math.round((spent / detailBudget.monto_limite) * 100) : 0;
+            return (
+              <div className="space-y-4">
+                {/* Summary */}
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-[#8A877D]">Gastado / Límite</span>
+                  <span className="font-semibold" style={{ color: pct > 100 ? '#D85A30' : pct > 80 ? '#EF9F27' : '#1D9E75' }}>
+                    {formatCurrency(spent)} / {formatCurrency(detailBudget.monto_limite)} ({pct}%)
+                  </span>
+                </div>
+                {/* Progress bar */}
+                <div className="h-2 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all"
+                    style={{
+                      width: `${Math.min(pct, 100)}%`,
+                      backgroundColor: pct > 100 ? '#D85A30' : pct > 80 ? '#EF9F27' : '#1D9E75',
+                    }}
+                  />
+                </div>
+                {/* Transaction list */}
+                <div className="space-y-1">
+                  <p className="text-xs text-[#8A877D] font-medium">{txs.length} transacciones</p>
+                  {txs.length === 0 ? (
+                    <p className="text-sm text-[#8A877D] py-4 text-center">Sin gastos en esta categoría este mes</p>
+                  ) : (
+                    <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                      {txs.map((tx) => (
+                        <div key={tx.id} className="flex items-center justify-between py-2 border-b border-[rgba(255,255,255,0.04)]">
+                          <div className="min-w-0">
+                            <p className="text-sm text-[#F0EFE8] truncate">{tx.comercio || 'Sin comercio'}</p>
+                            <p className="text-xs text-[#8A877D]">{formatFecha(tx.fecha)}{tx.subcategoria && tx.subcategoria !== 'sin_categoria' ? ` · ${tx.subcategoria}` : ''}</p>
+                          </div>
+                          <span className="text-sm font-medium text-[#D85A30] shrink-0 ml-3">
+                            -{formatCurrency(tx.monto_pen)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -17,17 +17,24 @@ import {
 } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { CATEGORIAS } from '@/lib/constants';
+import { CATEGORIAS, getCategoriaEmoji } from '@/lib/constants';
 import type { Presupuesto } from '@/lib/types';
+
+export interface CategoriaOption {
+  nombre: string;
+  emoji: string;
+  subs: string[];
+}
 
 interface BudgetFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   budget?: Presupuesto | null;
   onSuccess?: () => void;
+  userCategorias?: CategoriaOption[];
 }
 
-export function BudgetForm({ open, onOpenChange, budget, onSuccess }: BudgetFormProps) {
+export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategorias }: BudgetFormProps) {
   const isEditing = !!budget;
 
   const [categoria, setCategoria] = useState<string>('');
@@ -35,7 +42,26 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess }: BudgetForm
   const [montoLimite, setMontoLimite] = useState<string>('');
   const [alertaPorcentaje, setAlertaPorcentaje] = useState<string>('80');
 
-  const selectedCat = CATEGORIAS.find((c) => c.nombre === categoria);
+  // Merge canonical + user categories (deduplicated)
+  const allCategorias: CategoriaOption[] = (() => {
+    const merged: CategoriaOption[] = CATEGORIAS.map(c => ({ nombre: c.nombre, emoji: c.emoji, subs: [...c.subs] }));
+    if (userCategorias) {
+      for (const uc of userCategorias) {
+        const existing = merged.find(m => m.nombre.toLowerCase() === uc.nombre.toLowerCase());
+        if (existing) {
+          for (const sub of uc.subs) {
+            if (!existing.subs.includes(sub)) existing.subs.push(sub);
+          }
+        } else {
+          merged.push({ ...uc });
+        }
+      }
+    }
+    return merged;
+  })();
+
+  const selectedCat = allCategorias.find((c) => c.nombre === categoria)
+    || allCategorias.find((c) => c.nombre.toLowerCase() === categoria.toLowerCase());
   const subcategorias = selectedCat?.subs ?? [];
 
   useEffect(() => {
@@ -124,7 +150,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess }: BudgetForm
                 <SelectValue placeholder="Selecciona una categoria" />
               </SelectTrigger>
               <SelectContent>
-                {CATEGORIAS.map((cat) => (
+                {allCategorias.map((cat) => (
                   <SelectItem key={cat.nombre} value={cat.nombre}>
                     {cat.emoji} {cat.nombre}
                   </SelectItem>

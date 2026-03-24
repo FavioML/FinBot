@@ -35,6 +35,7 @@ interface BudgetCardProps {
   spent: number;
   onEdit: (budget: Presupuesto) => void;
   onDelete: (budget: Presupuesto) => void;
+  onClick?: (budget: Presupuesto) => void;
 }
 
 function getProgressColor(percentage: number): string {
@@ -43,7 +44,7 @@ function getProgressColor(percentage: number): string {
   return '#D85A30';
 }
 
-export function BudgetCard({ budget, spent, onEdit, onDelete }: BudgetCardProps) {
+export function BudgetCard({ budget, spent, onEdit, onDelete, onClick }: BudgetCardProps) {
   const percentage = budget.monto_limite > 0
     ? Math.min((spent / budget.monto_limite) * 100, 100)
     : 0;
@@ -55,7 +56,7 @@ export function BudgetCard({ budget, spent, onEdit, onDelete }: BudgetCardProps)
   const showAlert = rawPercentage >= budget.alerta_porcentaje;
 
   return (
-    <div className="glass-card p-5 flex flex-col gap-3">
+    <div className="glass-card p-5 flex flex-col gap-3 cursor-pointer" onClick={() => onClick?.(budget)}>
       {/* Header row */}
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
