@@ -29,17 +29,11 @@ import {
  * (mixed case: "Auto", "Alimentación", "Vivienda").
  */
 function normalizeCatForMatch(cat: string): string {
+  // Only normalize encoding variants, NOT different categories
+  // "Auto" stays "Auto", "Viajes" stays "Viajes"
   const map: Record<string, string[]> = {
-    'alimentación': ['comida', 'alimentacion', 'alimentación'],
-    'vivienda': ['hogar', 'vivienda', 'casa'],
-    'transporte': ['auto', 'transporte'],
-    'entretenimiento': ['entretenimiento', 'entretención'],
-    'compras': ['compras'],
-    'salud': ['salud'],
+    'alimentación': ['alimentacion', 'alimentación'],
     'educación': ['educacion', 'educación'],
-    'finanzas': ['finanzas'],
-    'trabajo_negocio': ['trabajo_negocio', 'trabajo'],
-    'otros': ['otros', 'viajes'],
   };
   const lower = cat.toLowerCase();
   for (const [canonical, aliases] of Object.entries(map)) {
