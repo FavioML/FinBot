@@ -1,31 +1,48 @@
-import { MessageCircle } from 'lucide-react';
+'use client';
+
+import { MessageCircle, type LucideIcon } from 'lucide-react';
+import { motion } from 'motion/react';
 import { SOCIAL_LINKS } from '@/lib/constants';
 
 interface EmptyStateProps {
   title: string;
   description: string;
   showWhatsApp?: boolean;
+  icon?: LucideIcon;
 }
 
-export function EmptyState({ title, description, showWhatsApp = true }: EmptyStateProps) {
+export function EmptyState({ title, description, showWhatsApp = true, icon: Icon = MessageCircle }: EmptyStateProps) {
   return (
-    <div className="flex flex-col items-center justify-center py-16 text-center">
-      <div className="rounded-full bg-[rgba(255,255,255,0.03)] p-6 mb-4">
-        <MessageCircle className="h-8 w-8 text-[#8A877D]" />
-      </div>
+    <motion.div
+      className="flex flex-col items-center justify-center py-16 text-center"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] }}
+    >
+      <motion.div
+        className="relative rounded-full bg-[rgba(255,255,255,0.03)] p-6 mb-5"
+        initial={{ scale: 0.8 }}
+        animate={{ scale: 1 }}
+        transition={{ duration: 0.5, delay: 0.1, type: 'spring', stiffness: 200 }}
+      >
+        <div className="absolute inset-0 rounded-full bg-[#1D9E75]/5 animate-pulse" />
+        <Icon className="relative h-8 w-8 text-[#8A877D]" />
+      </motion.div>
       <h3 className="text-lg font-semibold text-[#F0EFE8] mb-2">{title}</h3>
-      <p className="text-sm text-[#8A877D] max-w-md mb-6">{description}</p>
+      <p className="text-sm text-[#8A877D] max-w-md mb-6 leading-relaxed">{description}</p>
       {showWhatsApp && (
-        <a
+        <motion.a
           href={SOCIAL_LINKS.whatsapp}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 rounded-lg bg-[#1D9E75] px-4 py-2 text-sm font-medium text-white hover:bg-[#1D9E75]/90 transition-colors"
+          className="inline-flex items-center gap-2 rounded-xl bg-[#1D9E75] px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-[#1D9E75]/20 transition-all hover:bg-[#1D9E75]/90 hover:shadow-[#1D9E75]/30 active:scale-[0.98]"
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
         >
           <MessageCircle className="h-4 w-4" />
           Registra gastos por WhatsApp
-        </a>
+        </motion.a>
       )}
-    </div>
+    </motion.div>
   );
 }

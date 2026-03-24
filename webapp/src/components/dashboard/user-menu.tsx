@@ -3,6 +3,7 @@
 import { useMemo, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LogOut } from 'lucide-react';
+import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 import { useUser } from '@/lib/hooks/use-user';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -34,14 +35,15 @@ export function UserMenu() {
   }, [user]);
 
   async function handleSignOut() {
+    toast.success('Sesión cerrada');
     await supabase.auth.signOut();
     router.push('/');
   }
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger className="cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[#1D9E75]">
-        <Avatar className="h-10 w-10">
+      <DropdownMenuTrigger className="cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[#1D9E75] transition-transform hover:scale-105 active:scale-95">
+        <Avatar className="h-10 w-10 ring-2 ring-transparent hover:ring-[#1D9E75]/30 transition-all">
           {avatarUrl && <AvatarImage src={avatarUrl} alt={user?.nombre || ''} />}
           <AvatarFallback className="bg-[rgba(29,158,117,0.12)] text-[#1D9E75] text-xs font-semibold">
             {initials}

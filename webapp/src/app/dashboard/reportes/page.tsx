@@ -3,6 +3,7 @@
 import { useState, useMemo, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
+import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import {
   Select,
   SelectContent,
@@ -38,6 +39,7 @@ import {
   FileBarChart, Download, TrendingUp, TrendingDown,
   Wallet, Activity, Pencil,
 } from 'lucide-react';
+import { motion } from 'motion/react';
 
 // --- Helpers ---
 
@@ -299,6 +301,7 @@ export default function ReportesPage() {
   }
 
   return (
+    <FadeIn>
     <div className="space-y-6">
       {/* Print styles */}
       <style jsx global>{`
@@ -702,14 +705,23 @@ export default function ReportesPage() {
               <svg viewBox="0 0 36 36" className="w-full h-full">
                 <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                   fill="none" stroke="#2A2A28" strokeWidth="3" />
-                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                <motion.path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                   fill="none" stroke={scoreColor}
-                  strokeWidth="3" strokeDasharray={`${score}, 100`} strokeLinecap="round" />
+                  strokeWidth="3" strokeLinecap="round"
+                  initial={{ strokeDasharray: '0, 100' }}
+                  animate={{ strokeDasharray: `${score}, 100` }}
+                  transition={{ duration: 1.2, ease: [0.25, 0.46, 0.45, 0.94], delay: 0.2 }}
+                />
               </svg>
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <motion.div
+                className="absolute inset-0 flex flex-col items-center justify-center"
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.5, delay: 0.4 }}
+              >
                 <span className="text-3xl font-bold" style={{ color: scoreColor }}>{score}</span>
                 <span className="text-xs text-[#8A877D]">de 100</span>
-              </div>
+              </motion.div>
             </div>
           </div>
 
@@ -750,6 +762,7 @@ export default function ReportesPage() {
         </DialogContent>
       </Dialog>
     </div>
+    </FadeIn>
   );
 }
 

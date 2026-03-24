@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import { Plus, Target, Wallet, TrendingDown } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -226,6 +227,7 @@ export default function PresupuestosPage() {
   })();
 
   return (
+    <FadeIn>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -248,8 +250,9 @@ export default function PresupuestosPage() {
       {hasBudgets ? (
         <>
           {/* Summary cards */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <div className="glass-card p-5">
+          <StaggerContainer className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <StaggerItem>
+            <div className="glass-card glass-card-glow p-5">
               <div className="flex items-center gap-2 mb-2">
                 <Target className="h-4 w-4 text-[#8A877D]" />
                 <span className="text-xs font-medium text-[#8A877D]">Total presupuestado</span>
@@ -258,7 +261,9 @@ export default function PresupuestosPage() {
                 {formatCurrency(summary.totalPresupuestado)}
               </p>
             </div>
-            <div className="glass-card p-5">
+            </StaggerItem>
+            <StaggerItem>
+            <div className="glass-card glass-card-glow p-5">
               <div className="flex items-center gap-2 mb-2">
                 <TrendingDown className="h-4 w-4 text-[#8A877D]" />
                 <span className="text-xs font-medium text-[#8A877D]">Total gastado</span>
@@ -267,7 +272,9 @@ export default function PresupuestosPage() {
                 {formatCurrency(summary.totalGastado)}
               </p>
             </div>
-            <div className="glass-card p-5">
+            </StaggerItem>
+            <StaggerItem>
+            <div className="glass-card glass-card-glow p-5">
               <div className="flex items-center gap-2 mb-2">
                 <Wallet className="h-4 w-4 text-[#8A877D]" />
                 <span className="text-xs font-medium text-[#8A877D]">Restante</span>
@@ -276,7 +283,8 @@ export default function PresupuestosPage() {
                 {formatCurrency(summary.restante)}
               </p>
             </div>
-          </div>
+            </StaggerItem>
+          </StaggerContainer>
 
           {/* Budget cards grid — one card per CATEGORY */}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -462,5 +470,6 @@ export default function PresupuestosPage() {
         userCategorias={userCategorias}
       />
     </div>
+    </FadeIn>
   );
 }

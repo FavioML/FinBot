@@ -1,6 +1,7 @@
 'use client';
 
 import Image from 'next/image';
+import { motion } from 'motion/react';
 import { createClient } from '@/lib/supabase/client';
 import {
   BarChart3,
@@ -35,7 +36,12 @@ export default function LoginPage() {
     <div className="flex min-h-screen bg-[#0E0E0C]">
       {/* Left side — Login */}
       <div className="flex w-full flex-col items-center justify-center px-6 py-12 lg:w-[45%] lg:px-16">
-        <div className="w-full max-w-md">
+        <motion.div
+          className="w-full max-w-md"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94] }}
+        >
           {/* Logo */}
           <div className="mb-12 flex items-center gap-3">
             <Image
@@ -61,9 +67,11 @@ export default function LoginPage() {
           </p>
 
           {/* Google button */}
-          <button
+          <motion.button
             onClick={handleGoogleLogin}
-            className="flex w-full cursor-pointer items-center justify-center gap-3 rounded-xl bg-[#1D9E75] px-6 py-4 text-base font-medium text-white shadow-lg shadow-[#1D9E75]/20 transition-all hover:bg-[#1D9E75]/90 hover:shadow-[#1D9E75]/30 active:scale-[0.98]"
+            className="flex w-full cursor-pointer items-center justify-center gap-3 rounded-xl bg-[#1D9E75] px-6 py-4 text-base font-medium text-white shadow-lg shadow-[#1D9E75]/20 transition-all hover:bg-[#1D9E75]/90 hover:shadow-[#1D9E75]/30"
+            whileHover={{ scale: 1.01 }}
+            whileTap={{ scale: 0.98 }}
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
               <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#fff" />
@@ -72,7 +80,7 @@ export default function LoginPage() {
               <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#fff" opacity={0.8} />
             </svg>
             Continuar con Google
-          </button>
+          </motion.button>
 
           {/* Divider */}
           <div className="my-8 flex items-center gap-3">
@@ -111,7 +119,7 @@ export default function LoginPage() {
             <span className="text-white/[0.06]">|</span>
             <a href="/terminos" className="transition-colors hover:text-[#C8C6BC]">Términos</a>
           </footer>
-        </div>
+        </motion.div>
       </div>
 
       {/* Right side — Features showcase (hidden on mobile) */}
@@ -121,7 +129,12 @@ export default function LoginPage() {
         <div className="absolute bottom-1/4 left-1/4 h-[300px] w-[300px] rounded-full bg-[#EF9F27]/[0.05] blur-[100px]" />
 
         {/* Content */}
-        <div className="relative z-10 max-w-lg">
+        <motion.div
+          className="relative z-10 max-w-lg"
+          initial={{ opacity: 0, x: 30 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.7, delay: 0.2, ease: [0.25, 0.46, 0.45, 0.94] }}
+        >
           <h2 className="mb-3 text-2xl font-bold text-[#F0EFE8]">
             Toma el control de tus finanzas
           </h2>
@@ -131,15 +144,18 @@ export default function LoginPage() {
 
           {/* Feature grid */}
           <div className="grid grid-cols-2 gap-4">
-            {features.map((f) => (
-              <div
+            {features.map((f, i) => (
+              <motion.div
                 key={f.title}
                 className="group rounded-xl border border-white/[0.04] bg-white/[0.02] p-4 backdrop-blur-sm transition-all hover:border-[#1D9E75]/20 hover:bg-white/[0.04]"
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4, delay: 0.3 + i * 0.08 }}
               >
                 <f.icon className="mb-3 h-6 w-6 text-[#1D9E75] transition-transform group-hover:scale-110" />
                 <h3 className="mb-1 text-sm font-semibold text-[#F0EFE8]">{f.title}</h3>
                 <p className="text-xs leading-relaxed text-[#8A877D]">{f.desc}</p>
-              </div>
+              </motion.div>
             ))}
           </div>
 
@@ -156,7 +172,7 @@ export default function LoginPage() {
               Usuarios en Perú ya controlan sus gastos con NETO
             </p>
           </div>
-        </div>
+        </motion.div>
       </div>
     </div>
   );

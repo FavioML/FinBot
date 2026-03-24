@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   CreditCard,
   TrendingDown,
@@ -15,6 +16,7 @@ import {
   Calendar,
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import { useUser } from '@/lib/hooks/use-user';
 import { useSubscriptions } from '@/lib/hooks/use-subscriptions';
 import { UserMenu } from '@/components/dashboard/user-menu';
@@ -46,7 +48,7 @@ function KPICard({
   accent?: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] p-4">
+    <div className="glass-card glass-card-glow p-4">
       <div className="flex items-center gap-2 text-[#8A877D] text-xs mb-2">
         <Icon className="h-4 w-4" />
         {label}
@@ -71,7 +73,7 @@ function SubscriptionCard({
   const tipoInfo = TIPO_LABELS[sub.tipo] || TIPO_LABELS.otro;
 
   return (
-    <div className="rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] overflow-hidden">
+    <div className="glass-card overflow-hidden">
       {/* Header */}
       <button
         onClick={onToggle}
@@ -111,8 +113,15 @@ function SubscriptionCard({
       </button>
 
       {/* Expanded details */}
+      <AnimatePresence>
       {expanded && (
-        <div className="border-t border-[rgba(255,255,255,0.04)] px-4 py-3 space-y-3">
+        <motion.div
+          className="border-t border-[rgba(255,255,255,0.04)] px-4 py-3 space-y-3"
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: 'auto', opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          transition={{ duration: 0.25, ease: [0.25, 0.46, 0.45, 0.94] }}
+        >
           {/* Info row */}
           <div className="grid grid-cols-2 gap-3 text-xs">
             <div>
@@ -175,8 +184,9 @@ function SubscriptionCard({
               ≈ S/{(sub.monto_pen * 12).toFixed(0)}
             </span>
           </div>
-        </div>
+        </motion.div>
       )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -194,7 +204,7 @@ function MonthlySubscriptionCard({
   const totalPen = pagos.reduce((s, p) => s + p.monto_pen, 0);
 
   return (
-    <div className="rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] p-4">
+    <div className="glass-card p-4">
       <div className="flex items-center gap-3">
         <span className="text-2xl shrink-0">{sub.icono}</span>
         <div className="flex-1 min-w-0">
@@ -316,6 +326,7 @@ export default function SuscripcionesPage() {
   }
 
   return (
+    <FadeIn>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-start justify-between">
@@ -358,7 +369,8 @@ export default function SuscripcionesPage() {
 
       {/* KPIs */}
       {subsData && (viewMode === 'todo' ? subsData.cantidad > 0 : monthlyData.count > 0) && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StaggerContainer className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <StaggerItem>
           <KPICard
             icon={CreditCard}
             label="Suscripciones"
@@ -368,21 +380,27 @@ export default function SuscripcionesPage() {
               : `con pagos en ${MESES[month]}`
             }
           />
+          </StaggerItem>
+          <StaggerItem>
           <KPICard
             icon={TrendingDown}
             label={viewMode === 'todo' ? 'Gasto mensual' : `Gasto ${MESES[month]}`}
             value={`S/${viewMode === 'todo' ? subsData.totalMensualPEN.toFixed(0) : monthlyData.totalPEN.toFixed(0)}`}
             sub={viewMode === 'todo' && subsData.totalMensualUSD > 0 ? `$${subsData.totalMensualUSD.toFixed(0)} USD` : undefined}
           />
+          </StaggerItem>
           {viewMode === 'todo' && (
+            <StaggerItem>
             <KPICard
               icon={Eye}
               label="Gasto anual"
               value={`S/${gastoAnualProyectado.toFixed(0)}`}
               sub="proyectado"
             />
+            </StaggerItem>
           )}
           {viewMode === 'todo' && subsData.ahorroPotencialFamiliar > 0 && (
+            <StaggerItem>
             <KPICard
               icon={Users}
               label="Ahorro posible"
@@ -390,8 +408,9 @@ export default function SuscripcionesPage() {
               sub="con planes familiares"
               accent
             />
+            </StaggerItem>
           )}
-        </div>
+        </StaggerContainer>
       )}
 
       {/* Empty state */}
@@ -480,7 +499,7 @@ export default function SuscripcionesPage() {
 
       {/* Summary by type */}
       {viewMode === 'todo' && subsData && subsData.cantidad > 0 && Object.keys(subsData.porTipo).length > 1 && (
-        <div className="rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] p-4">
+        <div className="glass-card p-4">
           <h3 className="text-sm font-medium text-[#C8C6BC] mb-3">Desglose por tipo</h3>
           <div className="space-y-2">
             {Object.entries(subsData.porTipo)
@@ -501,9 +520,11 @@ export default function SuscripcionesPage() {
                         </span>
                       </div>
                       <div className="h-1.5 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-[#1D9E75] transition-all"
-                          style={{ width: `${Math.min(pct, 100)}%` }}
+                        <motion.div
+                          className="h-full rounded-full bg-[#1D9E75]"
+                          initial={{ width: 0 }}
+                          animate={{ width: `${Math.min(pct, 100)}%` }}
+                          transition={{ duration: 0.8, ease: [0.25, 0.46, 0.45, 0.94], delay: 0.2 }}
                         />
                       </div>
                     </div>
@@ -526,5 +547,6 @@ export default function SuscripcionesPage() {
         </div>
       )}
     </div>
+    </FadeIn>
   );
 }

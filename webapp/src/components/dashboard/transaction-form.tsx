@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { toast } from 'sonner';
 import {
   Dialog,
   DialogContent,
@@ -217,9 +218,10 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
           body: JSON.stringify({ id: transaction!.id, ...data }),
         });
         if (!res.ok) {
-          console.error('[TransactionForm] Update failed:', res.status, await res.json().catch(() => ({})));
+          toast.error('No se pudo actualizar la transacción');
           return;
         }
+        toast.success('Transacción actualizada');
       } else {
         const res = await fetch('/api/transactions', {
           method: 'POST',
@@ -227,14 +229,15 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
           body: JSON.stringify(data),
         });
         if (!res.ok) {
-          console.error('[TransactionForm] Create failed:', res.status, await res.json().catch(() => ({})));
+          toast.error('No se pudo registrar la transacción');
           return;
         }
+        toast.success('Transacción registrada');
       }
       onOpenChange(false);
       onSuccess?.();
     } catch (err) {
-      console.error('[TransactionForm] Error:', err);
+      toast.error('Error de conexión');
     } finally {
       setSaving(false);
     }
@@ -435,9 +438,10 @@ export function DeleteConfirmDialog({ open, onOpenChange, transaction, onSuccess
     try {
       const res = await fetch(`/api/transactions?id=${transaction.id}`, { method: 'DELETE' });
       if (!res.ok) {
-        console.error('[DeleteConfirmDialog] Failed:', res.status);
+        toast.error('No se pudo eliminar la transacción');
         return;
       }
+      toast.success('Transacción eliminada');
       onOpenChange(false);
       onSuccess?.();
     } finally {

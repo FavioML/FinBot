@@ -43,7 +43,7 @@ export function TransactionFilters({
   const subcategorias = selectedCat ? selectedCat.subs : [];
 
   return (
-    <div className="glass-card p-4">
+    <div className="glass-card glass-card-glow p-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:flex-wrap">
         {/* Search */}
         <div className="relative flex-1 min-w-0">

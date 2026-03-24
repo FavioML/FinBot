@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { motion } from 'motion/react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -29,6 +30,7 @@ import { UserMenu } from '@/components/dashboard/user-menu';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
 import { useBudgets } from '@/lib/hooks/use-budgets';
+import { FadeIn } from '@/components/shared/motion-wrapper';
 import { formatCurrency, formatFecha, calcularScoreFinanciero, getScoreColor, getScoreLabel } from '@/lib/utils';
 import { getCategoriaEmoji, MESES } from '@/lib/constants';
 import { detectSubscriptions, TIPO_LABELS } from '@/lib/subscriptions-catalog';
@@ -160,7 +162,13 @@ export default function DashboardPage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <Skeleton className="h-8 w-64" />
+        <div className="flex items-start justify-between">
+          <div>
+            <Skeleton className="h-8 w-48 mb-2" />
+            <Skeleton className="h-4 w-64" />
+          </div>
+          <Skeleton className="h-10 w-10 rounded-full" />
+        </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-[120px] rounded-2xl" />
@@ -170,7 +178,7 @@ export default function DashboardPage() {
           <Skeleton className="h-[320px] rounded-2xl" />
           <Skeleton className="h-[320px] rounded-2xl" />
         </div>
-        <Skeleton className="h-[400px] rounded-2xl" />
+        <Skeleton className="h-[300px] rounded-2xl" />
       </div>
     );
   }
@@ -196,7 +204,12 @@ export default function DashboardPage() {
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[#F0EFE8]">
-            Hola{user.nombre ? `, ${user.nombre}` : user.email ? `, ${user.email.split('@')[0]}` : ''}
+            {(() => {
+              const hour = new Date().getHours();
+              const greeting = hour < 12 ? 'Buenos días' : hour < 18 ? 'Buenas tardes' : 'Buenas noches';
+              const name = user.nombre || (user.email ? user.email.split('@')[0] : '');
+              return name ? `${greeting}, ${name}` : greeting;
+            })()}
           </h1>
           <p className="text-sm text-[#8A877D] mt-1">
             Tu resumen financiero &mdash; {viewMode === 'anual' ? `Año ${selectedYear}` : `${MESES[currentMonth]} ${currentYear}`}
@@ -247,15 +260,18 @@ export default function DashboardPage() {
           <KPICards data={kpiData} onScoreClick={() => setShowScoreDialog(true)} />
 
           {/* Charts row */}
+          <FadeIn delay={0.2}>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <TrendLine data={trendData} />
             <CategoryDonut data={categoryData} />
           </div>
+          </FadeIn>
 
           {/* Transacciones Recientes + Suscripciones side by side */}
+          <FadeIn delay={0.35}>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Transacciones Recientes */}
-            <div className="glass-card p-5">
+            <div className="glass-card glass-card-glow p-5">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-medium text-[#C8C6BC]">Transacciones Recientes</h3>
                 <Link href="/dashboard/transacciones" className="text-xs text-[#1D9E75] hover:underline">Ver todas &rarr;</Link>
@@ -268,7 +284,7 @@ export default function DashboardPage() {
                     return (
                       <div
                         key={tx.id}
-                        className="flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-[rgba(255,255,255,0.03)]"
+                        className="flex items-center gap-3 rounded-lg px-3 py-2.5 transition-all hover:bg-[rgba(255,255,255,0.03)] hover:translate-x-1"
                       >
                         <span className="text-xs text-[#8A877D] w-[72px] shrink-0">{formatFecha(tx.fecha)}</span>
                         <span className="inline-flex items-center gap-1 rounded-full bg-[rgba(255,255,255,0.05)] px-2 py-0.5 text-xs text-[#C8C6BC] shrink-0">
@@ -293,7 +309,7 @@ export default function DashboardPage() {
             </div>
 
             {/* Suscripciones */}
-            <div className="glass-card p-5">
+            <div className="glass-card glass-card-glow p-5">
               <div className="flex items-center justify-between mb-4">
                 <Link href="/dashboard/suscripciones" className="text-sm font-medium text-[#C8C6BC] hover:text-[#1D9E75] transition-colors">Suscripciones detectadas</Link>
                 <Link href="/dashboard/suscripciones" className="text-xs text-[#1D9E75] hover:underline">Ver todas &rarr;</Link>
@@ -319,6 +335,7 @@ export default function DashboardPage() {
               )}
             </div>
           </div>
+          </FadeIn>
         </>
       )}
 
@@ -329,20 +346,32 @@ export default function DashboardPage() {
             <DialogTitle>Score Financiero</DialogTitle>
           </DialogHeader>
 
-          {/* Score circle - large */}
+          {/* Score circle - large animated */}
           <div className="flex justify-center py-4">
             <div className="relative w-32 h-32">
               <svg viewBox="0 0 36 36" className="w-full h-full">
                 <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                   fill="none" stroke="#2A2A28" strokeWidth="3" />
-                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                  fill="none" stroke={getScoreColor(kpiData.scoreFinanciero)}
-                  strokeWidth="3" strokeDasharray={`${kpiData.scoreFinanciero}, 100`} strokeLinecap="round" />
+                <motion.path
+                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                  fill="none"
+                  stroke={getScoreColor(kpiData.scoreFinanciero)}
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  initial={{ strokeDasharray: '0, 100' }}
+                  animate={{ strokeDasharray: `${kpiData.scoreFinanciero}, 100` }}
+                  transition={{ duration: 1.2, ease: [0.25, 0.46, 0.45, 0.94], delay: 0.2 }}
+                />
               </svg>
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <motion.div
+                className="absolute inset-0 flex flex-col items-center justify-center"
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.5, delay: 0.4 }}
+              >
                 <span className="text-3xl font-bold" style={{ color: getScoreColor(kpiData.scoreFinanciero) }}>{kpiData.scoreFinanciero}</span>
                 <span className="text-xs text-[#8A877D]">de 100</span>
-              </div>
+              </motion.div>
             </div>
           </div>
 

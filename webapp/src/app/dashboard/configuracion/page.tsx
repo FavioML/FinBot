@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
+import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import {
   User,
   Mail,
@@ -71,9 +73,10 @@ export default function ConfiguracionPage() {
     try {
       await navigator.clipboard.writeText(`https://${referralLink}`);
       setCopied(true);
+      toast.success('Link copiado al portapapeles');
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      /* fallback silently */
+      toast.error('No se pudo copiar');
     }
   }
 
@@ -130,6 +133,7 @@ export default function ConfiguracionPage() {
   /*  Render                                                           */
   /* ---------------------------------------------------------------- */
   return (
+    <FadeIn>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -140,7 +144,7 @@ export default function ConfiguracionPage() {
       {/* ============================================================ */}
       {/*  Profile                                                      */}
       {/* ============================================================ */}
-      <div className="glass-card p-6">
+      <div className="glass-card glass-card-glow p-6">
         <div className="flex items-start gap-4">
           {/* Avatar */}
           <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#1D9E75] text-xl font-bold text-white">
@@ -208,7 +212,7 @@ export default function ConfiguracionPage() {
       {/* ============================================================ */}
       {/*  Plan details                                                 */}
       {/* ============================================================ */}
-      <div className="glass-card p-6 space-y-4">
+      <div className="glass-card glass-card-glow p-6 space-y-4">
         <div className="flex items-center gap-2 mb-1">
           <Shield className="h-5 w-5 text-[#8A877D]" />
           <h2 className="text-lg font-semibold text-[#F0EFE8]">Tu plan</h2>
@@ -270,7 +274,7 @@ export default function ConfiguracionPage() {
       {/* ============================================================ */}
       {/*  Referidos                                                    */}
       {/* ============================================================ */}
-      <div className="glass-card p-6 space-y-4">
+      <div className="glass-card glass-card-glow p-6 space-y-4">
         <div className="flex items-center gap-2 mb-1">
           <Link className="h-5 w-5 text-[#8A877D]" />
           <h2 className="text-lg font-semibold text-[#F0EFE8]">
@@ -319,7 +323,7 @@ export default function ConfiguracionPage() {
       {/* ============================================================ */}
       {/*  Connected accounts                                           */}
       {/* ============================================================ */}
-      <div className="glass-card p-6 space-y-4">
+      <div className="glass-card glass-card-glow p-6 space-y-4">
         <div className="flex items-center gap-2 mb-1">
           <Mail className="h-5 w-5 text-[#8A877D]" />
           <h2 className="text-lg font-semibold text-[#F0EFE8]">
@@ -420,5 +424,6 @@ export default function ConfiguracionPage() {
         )}
       </div>
     </div>
+    </FadeIn>
   );
 }

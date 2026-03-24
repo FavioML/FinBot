@@ -2,6 +2,7 @@
 
 import { useMemo, useCallback } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
+import { Calendar } from 'lucide-react';
 import { MESES } from '@/lib/constants';
 import {
   Select,
@@ -49,8 +50,11 @@ export function MonthSelector() {
 
   return (
     <Select value={selectedMonth} onValueChange={handleChange}>
-      <SelectTrigger className="w-[180px] border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] text-[#F0EFE8] hover:bg-[rgba(255,255,255,0.05)]">
-        <SelectValue />
+      <SelectTrigger className="w-[190px] border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] text-[#F0EFE8] hover:bg-[rgba(255,255,255,0.05)] hover:border-[rgba(255,255,255,0.12)] transition-colors">
+        <div className="flex items-center gap-2">
+          <Calendar className="h-3.5 w-3.5 text-[#8A877D]" />
+          <SelectValue />
+        </div>
       </SelectTrigger>
       <SelectContent className="bg-[#141412] border-[rgba(255,255,255,0.06)]">
         {monthOptions.map((opt) => (

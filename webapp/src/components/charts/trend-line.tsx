@@ -9,6 +9,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
+import { motion } from 'motion/react';
 import { formatCurrency } from '@/lib/utils';
 import type { TendenciaMensual } from '@/lib/types';
 
@@ -41,7 +42,12 @@ export function TrendLine({ data }: TrendLineProps) {
   }
 
   return (
-    <div className="glass-card p-5">
+    <motion.div
+      className="glass-card glass-card-glow p-5"
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
+    >
       <h3 className="text-sm font-medium text-[#C8C6BC] mb-4">Ingresos vs Gastos</h3>
       <div className="h-[240px] w-full">
         <ResponsiveContainer width="100%" height="100%">
@@ -92,6 +98,6 @@ export function TrendLine({ data }: TrendLineProps) {
           </AreaChart>
         </ResponsiveContainer>
       </div>
-    </div>
+    </motion.div>
   );
 }

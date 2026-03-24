@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 import {
   Dialog,
   DialogContent,
@@ -305,10 +306,11 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
         }
       }
 
+      toast.success(isEditing ? 'Presupuesto actualizado' : 'Presupuesto creado');
       onOpenChange(false);
       onSuccess?.();
     } catch (err) {
-      console.error('[BudgetForm] Unexpected error:', err);
+      toast.error('Error al guardar el presupuesto');
     } finally {
       setSaving(false);
     }
@@ -518,10 +520,10 @@ export function DeleteBudgetDialog({ open, onOpenChange, budget, onSuccess }: De
     try {
       const res = await fetch(`/api/budgets?id=${budget.id}`, { method: 'DELETE' });
       if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        console.error('[DeleteBudget] Failed:', res.status, errData);
+        toast.error('No se pudo eliminar el presupuesto');
         return;
       }
+      toast.success('Presupuesto eliminado');
       onOpenChange(false);
       onSuccess?.();
     } finally {

@@ -3,6 +3,7 @@
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   LayoutDashboard,
   ArrowLeftRight,
@@ -14,7 +15,6 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { SOCIAL_LINKS } from '@/lib/constants';
-import { WhatsAppButton } from '@/components/shared/whatsapp-button';
 
 const navItems = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -69,12 +69,19 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               href={item.href}
               onClick={onClose}
               className={cn(
-                'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+                'relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
                 isActive
                   ? 'bg-[rgba(29,158,117,0.12)] text-[#1D9E75]'
                   : 'text-[#8A877D] hover:text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.03)]'
               )}
             >
+              {isActive && (
+                <motion.div
+                  className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-[3px] rounded-r-full bg-[#1D9E75]"
+                  layoutId="sidebar-active"
+                  transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                />
+              )}
               <item.icon className="h-5 w-5 shrink-0" />
               {item.label}
             </Link>
@@ -112,7 +119,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           href={SOCIAL_LINKS.whatsapp}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center justify-center gap-2 rounded-lg bg-[#1D9E75] px-3 py-2 text-sm font-medium text-white hover:bg-[#1D9E75]/90 transition-colors"
+          className="flex items-center justify-center gap-2 rounded-lg bg-[#1D9E75] px-3 py-2 text-sm font-medium text-white hover:bg-[#1D9E75]/90 hover:shadow-lg hover:shadow-[#1D9E75]/20 transition-all active:scale-[0.98]"
         >
           Chatea con NETO
         </a>
@@ -128,19 +135,31 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       </aside>
 
       {/* Mobile overlay */}
+      <AnimatePresence>
       {open && (
         <div className="fixed inset-0 z-50 md:hidden">
           {/* Backdrop */}
-          <div
+          <motion.div
             className="fixed inset-0 bg-black/60"
             onClick={onClose}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
           />
           {/* Sidebar panel */}
-          <aside className="fixed inset-y-0 left-0 w-60 z-50">
+          <motion.aside
+            className="fixed inset-y-0 left-0 w-60 z-50"
+            initial={{ x: '-100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '-100%' }}
+            transition={{ duration: 0.25, ease: [0.25, 0.46, 0.45, 0.94] }}
+          >
             {sidebarContent}
-          </aside>
+          </motion.aside>
         </div>
       )}
+      </AnimatePresence>
     </>
   );
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import { Pencil, Trash2, AlertTriangle } from 'lucide-react';
+import { motion } from 'motion/react';
 import { Button } from '@/components/ui/button';
 import { getCategoriaEmoji } from '@/lib/constants';
 import { formatCurrency } from '@/lib/utils';
@@ -67,9 +68,11 @@ export function BudgetCard({
   const actionBudget = totalBudget || subBudgets[0];
 
   return (
-    <div
-      className="glass-card p-5 flex flex-col gap-3 cursor-pointer"
+    <motion.div
+      className="glass-card glass-card-glow p-5 flex flex-col gap-3 cursor-pointer"
       onClick={() => onClick(categoria)}
+      whileHover={{ y: -2 }}
+      transition={{ duration: 0.2 }}
     >
       {/* Header */}
       <div className="flex items-start justify-between">
@@ -111,12 +114,12 @@ export function BudgetCard({
       {/* Main progress bar */}
       <div className="w-full">
         <div className="h-2 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
-          <div
-            className="h-full rounded-full transition-all duration-500 ease-out"
-            style={{
-              width: `${clampedPercentage}%`,
-              backgroundColor: progressColor,
-            }}
+          <motion.div
+            className="h-full rounded-full"
+            style={{ backgroundColor: progressColor }}
+            initial={{ width: 0 }}
+            animate={{ width: `${clampedPercentage}%` }}
+            transition={{ duration: 0.8, ease: [0.25, 0.46, 0.45, 0.94], delay: 0.1 }}
           />
         </div>
       </div>
@@ -142,12 +145,12 @@ export function BudgetCard({
                   </span>
                 </div>
                 <div className="h-1 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-500 ease-out"
-                    style={{
-                      width: `${subClampedPct}%`,
-                      backgroundColor: subColor,
-                    }}
+                  <motion.div
+                    className="h-full rounded-full"
+                    style={{ backgroundColor: subColor }}
+                    initial={{ width: 0 }}
+                    animate={{ width: `${subClampedPct}%` }}
+                    transition={{ duration: 0.7, ease: [0.25, 0.46, 0.45, 0.94], delay: 0.2 }}
                   />
                 </div>
               </div>
@@ -171,6 +174,6 @@ export function BudgetCard({
           {rawPercentage.toFixed(0)}%
         </span>
       </div>
-    </div>
+    </motion.div>
   );
 }

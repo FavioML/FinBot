@@ -3,6 +3,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
+import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import {
   Plus,
   TrendingUp,
@@ -296,6 +297,7 @@ export default function TransaccionesPage() {
   }
 
   return (
+    <FadeIn>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -350,8 +352,9 @@ export default function TransaccionesPage() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div className="glass-card p-4">
+      <StaggerContainer className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <StaggerItem>
+        <div className="glass-card glass-card-glow p-4">
           <div className="flex items-center gap-2 mb-2">
             <TrendingDown className="h-4 w-4 text-[#D85A30]" />
             <span className="text-xs text-[#8A877D]">
@@ -360,7 +363,9 @@ export default function TransaccionesPage() {
           </div>
           <CurrencyDisplay amount={summary.totalGastos} className="text-[#D85A30]" size="md" />
         </div>
-        <div className="glass-card p-4">
+        </StaggerItem>
+        <StaggerItem>
+        <div className="glass-card glass-card-glow p-4">
           <div className="flex items-center gap-2 mb-2">
             <TrendingUp className="h-4 w-4 text-[#1D9E75]" />
             <span className="text-xs text-[#8A877D]">
@@ -369,14 +374,17 @@ export default function TransaccionesPage() {
           </div>
           <CurrencyDisplay amount={summary.totalIngresos} className="text-[#1D9E75]" size="md" />
         </div>
-        <div className="glass-card p-4">
+        </StaggerItem>
+        <StaggerItem>
+        <div className="glass-card glass-card-glow p-4">
           <div className="flex items-center gap-2 mb-2">
             <Receipt className="h-4 w-4 text-[#378ADD]" />
             <span className="text-xs text-[#8A877D]">Transacciones</span>
           </div>
           <span className="text-xl font-semibold text-[#F0EFE8]">{summary.count}</span>
         </div>
-      </div>
+        </StaggerItem>
+      </StaggerContainer>
 
       {/* Filters */}
       <TransactionFilters
@@ -565,6 +573,7 @@ export default function TransaccionesPage() {
         onSuccess={refreshTransactions}
       />
     </div>
+    </FadeIn>
   );
 }
 
@@ -647,7 +656,10 @@ function TransactionCard({
   const emoji = getCategoriaEmoji(tx.categoria);
 
   return (
-    <div className="glass-card p-4">
+    <div
+      className="glass-card p-4 border-l-2 transition-colors hover:bg-[rgba(255,255,255,0.02)]"
+      style={{ borderLeftColor: isIngreso ? '#1D9E75' : '#D85A30' }}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">

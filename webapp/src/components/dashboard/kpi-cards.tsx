@@ -2,6 +2,7 @@
 
 import { TrendingUp, TrendingDown, Wallet, Activity } from 'lucide-react';
 import { NumberTicker } from '@/components/ui/number-ticker';
+import { StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import { getScoreColor, getScoreLabel } from '@/lib/utils';
 import type { KPIData } from '@/lib/types';
 
@@ -50,14 +51,14 @@ export function KPICards({ data, onScoreClick }: KPICardsProps) {
   ];
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <StaggerContainer className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
       {cards.map((card) => {
         const Icon = card.icon;
         const isScore = card.label === 'Score Financiero';
         return (
+          <StaggerItem key={card.label}>
           <div
-            key={card.label}
-            className={`glass-card p-5${isScore && onScoreClick ? ' cursor-pointer hover:border-[#1D9E75]/50 transition-colors' : ''}`}
+            className={`glass-card glass-card-glow p-5${isScore && onScoreClick ? ' cursor-pointer hover:border-[#1D9E75]/50 transition-colors' : ''}`}
             onClick={isScore && onScoreClick ? onScoreClick : undefined}
           >
             <div className="flex items-center justify-between mb-3">
@@ -86,8 +87,9 @@ export function KPICards({ data, onScoreClick }: KPICardsProps) {
               />
             </p>
           </div>
+          </StaggerItem>
         );
       })}
-    </div>
+    </StaggerContainer>
   );
 }

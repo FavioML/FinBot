@@ -1,6 +1,7 @@
 'use client';
 
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
+import { motion } from 'motion/react';
 import { formatCurrency } from '@/lib/utils';
 import type { CategoriaGasto } from '@/lib/types';
 
@@ -50,7 +51,12 @@ export function CategoryDonut({ data }: CategoryDonutProps) {
   }
 
   return (
-    <div className="glass-card p-5">
+    <motion.div
+      className="glass-card glass-card-glow p-5"
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, delay: 0.1, ease: [0.25, 0.46, 0.45, 0.94] }}
+    >
       <h3 className="text-sm font-medium text-[#C8C6BC] mb-4">Gastos por Categoria</h3>
       <div className="flex flex-col md:flex-row items-center gap-4">
         <div className="relative w-[200px] h-[200px] shrink-0">
@@ -106,6 +112,6 @@ export function CategoryDonut({ data }: CategoryDonutProps) {
           ))}
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

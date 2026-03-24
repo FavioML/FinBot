@@ -1,5 +1,6 @@
 'use client';
 
+import { motion } from 'motion/react';
 import { SOCIAL_LINKS } from '@/lib/constants';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
@@ -8,12 +9,17 @@ export function WhatsAppButton() {
     <Tooltip>
       <TooltipTrigger
         render={
-          <a
+          <motion.a
             href={SOCIAL_LINKS.whatsapp}
             target="_blank"
             rel="noopener noreferrer"
-            className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-[#1D9E75] text-white shadow-lg transition-transform hover:scale-110 hover:shadow-[0_0_20px_rgba(29,158,117,0.4)]"
+            className="fixed bottom-20 md:bottom-6 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-[#1D9E75] text-white shadow-lg shadow-[#1D9E75]/25 transition-colors hover:bg-[#1D9E75]/90"
             aria-label="Chatea con NETO por WhatsApp"
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ delay: 0.8, type: 'spring', stiffness: 260, damping: 20 }}
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.95 }}
           />
         }
       >
