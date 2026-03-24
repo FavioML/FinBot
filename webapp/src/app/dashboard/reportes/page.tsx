@@ -101,6 +101,7 @@ export default function ReportesPage() {
   const [detailCat, setDetailCat] = useState<string | null>(null);
   const [detailMetodo, setDetailMetodo] = useState<string | null>(null);
   const [detailComercio, setDetailComercio] = useState<string | null>(null);
+  const [detailDay, setDetailDay] = useState<number | null>(null);
   const [editTransaction, setEditTransaction] = useState<Transaccion | null>(null);
 
   const refreshAll = useCallback(() => {
@@ -141,6 +142,14 @@ export default function ReportesPage() {
     return transactions.filter((t) => t.tipo === 'gasto' && (t.comercio || 'Sin comercio') === detailComercio)
       .sort((a, b) => b.fecha.localeCompare(a.fecha));
   }, [transactions, detailComercio]);
+
+  const detailDayTransactions = useMemo(() => {
+    if (detailDay === null) return [];
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const dateStr = `${selectedOption.anio}-${pad(selectedOption.mes)}-${pad(detailDay)}`;
+    return transactions.filter((t) => t.tipo === 'gasto' && t.fecha === dateStr)
+      .sort((a, b) => b.monto_pen - a.monto_pen);
+  }, [transactions, detailDay, selectedOption]);
 
   // --- Computed data ---
 
@@ -248,12 +257,22 @@ export default function ReportesPage() {
       {/* Print styles */}
       <style jsx global>{`
         @media print {
-          body { background: white !important; color: black !important; }
-          .glass-card { background: white !important; border: 1px solid #ddd !important; color: black !important; }
-          nav, .sidebar, button, [data-slot="dialog"], aside { display: none !important; }
-          * { color: black !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-          svg text { fill: black !important; }
-          .recharts-text { fill: black !important; }
+          body, html { background: white !important; }
+          nav, aside, .sidebar, button, [data-slot="dialog"], header { display: none !important; }
+          main, [class*="ml-"] { margin-left: 0 !important; padding: 16px !important; }
+          .glass-card {
+            background: white !important;
+            border: 1px solid #ccc !important;
+            break-inside: avoid;
+            margin-bottom: 12px !important;
+          }
+          h1, h2, h3, h4, p, span, td, th, li { color: #111 !important; }
+          .text-\\[\\#D85A30\\], .text-red-500 { color: #c0392b !important; }
+          .text-\\[\\#1D9E75\\], .text-green-500 { color: #27ae60 !important; }
+          .text-\\[\\#EF9F27\\] { color: #e67e22 !important; }
+          svg { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+          .recharts-text { fill: #333 !important; }
+          .recharts-legend-item-text { color: #333 !important; }
         }
       `}</style>
 
@@ -274,8 +293,8 @@ export default function ReportesPage() {
             />
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-3xl font-bold" style={{ color: '#F0EFE8' }}>
-              <NumberTicker value={score} />
+            <span className="text-3xl font-bold text-[#F0EFE8]">
+              <NumberTicker value={score} className="!text-[#F0EFE8]" />
             </span>
             <span className="text-xs text-[#F0EFE8]">de 100</span>
           </div>
@@ -435,7 +454,9 @@ export default function ReportesPage() {
               formatter={(v) => formatCurrency(Number(v))}
               labelFormatter={(l) => `Dia ${l}`}
             />
-            <Bar dataKey="total" fill="#EF9F27" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="total" fill="#EF9F27" radius={[4, 4, 0, 0]} cursor="pointer"
+              onClick={(data: any) => { if (data && data.day && data.total > 0) setDetailDay(data.day); }}
+            />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -560,6 +581,46 @@ export default function ReportesPage() {
                 ))}
               </div>
             </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Daily detail dialog */}
+      <Dialog open={detailDay !== null} onOpenChange={(open) => { if (!open) setDetailDay(null); }}>
+        <DialogContent className="bg-[#1C1C1A] border-[#2A2A28] max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-[#F0EFE8]">
+              Día {detailDay} — {selectedOption.label}
+            </DialogTitle>
+          </DialogHeader>
+          {detailDayTransactions.length > 0 ? (
+            <div>
+              <p className="text-sm text-[#8A877D] mb-3">
+                <span className="text-[#D85A30] font-semibold">{formatCurrency(detailDayTransactions.reduce((s, t) => s + t.monto_pen, 0))}</span>
+                {' '}— {detailDayTransactions.length} {detailDayTransactions.length === 1 ? 'transacción' : 'transacciones'}
+              </p>
+              <div className="space-y-2">
+                {detailDayTransactions.map((t) => (
+                  <div key={t.id} className="flex items-start justify-between gap-2 py-2 border-b border-[#2A2A28]">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-[#F0EFE8] whitespace-normal break-words">{t.comercio || 'Sin comercio'}</p>
+                      <p className="text-xs text-[#8A877D]">
+                        {getCategoriaEmoji(t.categoria)} {capitalizeDisplay(t.categoria)}
+                        {t.subcategoria ? ` · ${capitalizeDisplay(t.subcategoria)}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-sm text-[#D85A30] font-medium">{formatCurrency(t.monto_pen)}</span>
+                      <button onClick={() => setEditTransaction(t)} className="text-[#8A877D] hover:text-[#1D9E75]">
+                        <Pencil size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-[#8A877D]">No hay gastos este día.</p>
           )}
         </DialogContent>
       </Dialog>
