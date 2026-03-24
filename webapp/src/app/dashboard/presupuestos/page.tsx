@@ -448,6 +448,7 @@ export default function PresupuestosPage() {
         tipo={editTransaction?.tipo === 'ingreso' ? 'ingreso' : 'gasto'}
         transaction={editTransaction}
         onSuccess={refreshAll}
+        userCategorias={userCategorias}
       />
     </div>
   );

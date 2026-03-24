@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -20,9 +20,16 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { CATEGORIAS } from '@/lib/constants';
+import { capitalizeDisplay } from '@/lib/format';
 import type { Transaccion } from '@/lib/types';
 
 const METODOS_PAGO = ['Debito', 'Credito', 'Yape', 'Plin', 'Efectivo'];
+
+interface CatOption {
+  nombre: string;
+  emoji: string;
+  subs: string[];
+}
 
 interface TransactionFormProps {
   open: boolean;
@@ -30,6 +37,7 @@ interface TransactionFormProps {
   tipo: 'gasto' | 'ingreso';
   transaction?: Transaccion | null;
   onSuccess?: () => void;
+  userCategorias?: CatOption[];
 }
 
 interface FormData {
@@ -57,7 +65,7 @@ function getDefaultForm(tipo: 'gasto' | 'ingreso'): FormData {
 
 const CUSTOM_OPTION = '__otra__';
 
-export function TransactionForm({ open, onOpenChange, tipo, transaction, onSuccess }: TransactionFormProps) {
+export function TransactionForm({ open, onOpenChange, tipo, transaction, onSuccess, userCategorias }: TransactionFormProps) {
   const isEdit = !!transaction;
   const [form, setForm] = useState<FormData>(getDefaultForm(tipo));
   const [customCategoria, setCustomCategoria] = useState('');
@@ -65,30 +73,83 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
   const [usingCustomCategoria, setUsingCustomCategoria] = useState(false);
   const [usingCustomSubcategoria, setUsingCustomSubcategoria] = useState(false);
 
-  const selectedCat = CATEGORIAS.find((c) => c.nombre === form.categoria);
+  // Merge canonical + user categories (deduped, with all subs)
+  const allCategorias = useMemo(() => {
+    const merged: CatOption[] = CATEGORIAS.map(c => ({
+      nombre: c.nombre,
+      emoji: c.emoji,
+      subs: [...c.subs],
+    }));
+    if (userCategorias) {
+      for (const uc of userCategorias) {
+        const existing = merged.find(m => m.nombre.toLowerCase() === uc.nombre.toLowerCase());
+        if (existing) {
+          for (const sub of uc.subs) {
+            if (!existing.subs.some(s => s.toLowerCase() === sub.toLowerCase())) {
+              existing.subs.push(sub);
+            }
+          }
+        } else {
+          merged.push({ nombre: uc.nombre, emoji: uc.emoji, subs: [...uc.subs] });
+        }
+      }
+    }
+    // Also add the transaction's own cat/sub if not already present
+    if (transaction) {
+      const txCat = merged.find(m => m.nombre.toLowerCase() === transaction.categoria.toLowerCase());
+      if (!txCat) {
+        merged.push({ nombre: transaction.categoria, emoji: '📁', subs: transaction.subcategoria ? [transaction.subcategoria] : [] });
+      } else if (transaction.subcategoria && !txCat.subs.some(s => s.toLowerCase() === transaction.subcategoria!.toLowerCase())) {
+        txCat.subs.push(transaction.subcategoria);
+      }
+    }
+    // Dedup subs and sort
+    for (const cat of merged) {
+      const seen = new Set<string>();
+      cat.subs = cat.subs.filter(s => {
+        const lower = s.toLowerCase();
+        if (seen.has(lower)) return false;
+        seen.add(lower);
+        return true;
+      }).sort((a, b) => a.localeCompare(b));
+    }
+    return merged.sort((a, b) => a.nombre.localeCompare(b.nombre));
+  }, [userCategorias, transaction]);
+
+  const selectedCat = allCategorias.find((c) => c.nombre === form.categoria)
+    || allCategorias.find((c) => c.nombre.toLowerCase() === form.categoria.toLowerCase());
   const subcategorias = selectedCat ? selectedCat.subs : [];
 
   // Reset form when dialog opens
   useEffect(() => {
     if (open) {
       if (transaction) {
-        const isPresetCat = CATEGORIAS.some((c) => c.nombre === transaction.categoria);
-        const matchedCat = CATEGORIAS.find((c) => c.nombre === transaction.categoria);
-        const isPresetSub = matchedCat ? matchedCat.subs.includes(transaction.subcategoria as never) : false;
+        // Check if category exists in merged list
+        const matchedCat = allCategorias.find(c => c.nombre.toLowerCase() === transaction.categoria.toLowerCase());
+        const isKnownCat = !!matchedCat;
+        const catValue = matchedCat ? matchedCat.nombre : CUSTOM_OPTION;
+
+        // Check if subcategory exists in the matched category's subs
+        const isKnownSub = matchedCat && transaction.subcategoria
+          ? matchedCat.subs.some(s => s.toLowerCase() === transaction.subcategoria!.toLowerCase())
+          : false;
+        const subValue = isKnownSub
+          ? matchedCat!.subs.find(s => s.toLowerCase() === transaction.subcategoria!.toLowerCase()) || ''
+          : (transaction.subcategoria ? CUSTOM_OPTION : '');
 
         setForm({
           monto: String(transaction.monto),
           comercio: transaction.comercio || '',
-          categoria: isPresetCat ? transaction.categoria : CUSTOM_OPTION,
-          subcategoria: isPresetSub ? transaction.subcategoria : (transaction.subcategoria ? CUSTOM_OPTION : ''),
+          categoria: catValue,
+          subcategoria: subValue,
           fecha: transaction.fecha,
           moneda: transaction.moneda,
           metodo_pago: transaction.metodo_pago || 'Debito',
         });
-        setUsingCustomCategoria(!isPresetCat);
-        setCustomCategoria(isPresetCat ? '' : transaction.categoria);
-        setUsingCustomSubcategoria(!isPresetSub && !!transaction.subcategoria);
-        setCustomSubcategoria(isPresetSub ? '' : (transaction.subcategoria || ''));
+        setUsingCustomCategoria(!isKnownCat);
+        setCustomCategoria(isKnownCat ? '' : transaction.categoria);
+        setUsingCustomSubcategoria(!isKnownSub && !!transaction.subcategoria);
+        setCustomSubcategoria(isKnownSub ? '' : (transaction.subcategoria || ''));
       } else {
         setForm(getDefaultForm(tipo));
         setUsingCustomCategoria(false);
@@ -97,7 +158,7 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
         setCustomSubcategoria('');
       }
     }
-  }, [open, transaction, tipo]);
+  }, [open, transaction, tipo, allCategorias]);
 
   const handleChange = useCallback((field: keyof FormData, value: string) => {
     setForm((prev) => {
@@ -246,12 +307,18 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
               <label className="text-xs text-[#8A877D] mb-1 block">Categoría</label>
               <Select value={form.categoria} onValueChange={(v) => handleChange('categoria', v as string)}>
                 <SelectTrigger className={selectTriggerClasses}>
-                  <SelectValue placeholder="Seleccionar" />
+                  <SelectValue placeholder="Seleccionar">
+                    {usingCustomCategoria
+                      ? (customCategoria ? capitalizeDisplay(customCategoria) : 'Nueva...')
+                      : form.categoria
+                        ? capitalizeDisplay(form.categoria)
+                        : 'Seleccionar'}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {CATEGORIAS.map((cat) => (
+                  {allCategorias.map((cat) => (
                     <SelectItem key={cat.nombre} value={cat.nombre}>
-                      {cat.emoji} {cat.nombre}
+                      {cat.emoji} {capitalizeDisplay(cat.nombre)}
                     </SelectItem>
                   ))}
                   <SelectItem value={CUSTOM_OPTION}>✏️ Otra...</SelectItem>
@@ -275,12 +342,18 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
                 disabled={subcategorias.length === 0 && !usingCustomCategoria}
               >
                 <SelectTrigger className={selectTriggerClasses}>
-                  <SelectValue placeholder="Seleccionar" />
+                  <SelectValue placeholder="Seleccionar">
+                    {usingCustomSubcategoria
+                      ? (customSubcategoria ? capitalizeDisplay(customSubcategoria) : 'Nueva...')
+                      : form.subcategoria && form.subcategoria !== CUSTOM_OPTION
+                        ? capitalizeDisplay(form.subcategoria)
+                        : 'Seleccionar'}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {subcategorias.map((sub) => (
                     <SelectItem key={sub} value={sub}>
-                      {sub.replace(/_/g, ' ')}
+                      {capitalizeDisplay(sub)}
                     </SelectItem>
                   ))}
                   <SelectItem value={CUSTOM_OPTION}>✏️ Otra...</SelectItem>
