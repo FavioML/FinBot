@@ -12,6 +12,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { EmptyState } from '@/components/shared/empty-state';
 import { WhatsAppButton } from '@/components/shared/whatsapp-button';
 import { MonthSelector } from '@/components/dashboard/month-selector';
@@ -23,8 +29,9 @@ import { UserMenu } from '@/components/dashboard/user-menu';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
 import { useBudgets } from '@/lib/hooks/use-budgets';
-import { formatCurrency, formatFecha, calcularScoreFinanciero } from '@/lib/utils';
+import { formatCurrency, formatFecha, calcularScoreFinanciero, getScoreColor, getScoreLabel } from '@/lib/utils';
 import { getCategoriaEmoji, MESES } from '@/lib/constants';
+import { detectSubscriptions, TIPO_LABELS } from '@/lib/subscriptions-catalog';
 import type { KPIData, CategoriaGasto, TendenciaMensual } from '@/lib/types';
 
 export default function DashboardPage() {
