@@ -185,6 +185,12 @@ function detectarSuscripcionesFromTxs(txs: Transaccion[]): DeteccionResult {
         categoria_neto: match.categoria_neto,
         subcategoria_neto: match.subcategoria_neto,
         planes_disponibles: match.planes,
+        pagos_detalle: data.pagos.map(p => ({
+          monto: p.monto,
+          monto_pen: p.montoPen,
+          moneda: moneda,
+          fecha: p.fecha,
+        })),
       })
     }
     // No generic fallback — only catalog-matched services count as subscriptions

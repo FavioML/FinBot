@@ -41,6 +41,7 @@ export interface SuscripcionDetectada {
   categoria_neto: string
   subcategoria_neto: string
   planes_disponibles: PlanSuscripcion[]
+  pagos_detalle: { monto: number; monto_pen: number; moneda: string; fecha: string }[]
 }
 
 export type TipoSuscripcion =
