@@ -46,6 +46,7 @@ export default function DashboardPage() {
 
   const [viewMode, setViewMode] = useState<string>('mensual');
   const [selectedYear, setSelectedYear] = useState(currentYear);
+  const [showScoreDialog, setShowScoreDialog] = useState(false);
 
   // Load ALL transactions for the user (enables both monthly and annual views + trend chart)
   const { data: allTransactions = [], isLoading: txLoading } = useTransactions({
@@ -270,7 +271,7 @@ export default function DashboardPage() {
       ) : (
         <>
           {/* KPI cards */}
-          <KPICards data={kpiData} />
+          <KPICards data={kpiData} onScoreClick={() => setShowScoreDialog(true)} />
 
           {/* Charts row */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -347,6 +348,67 @@ export default function DashboardPage() {
           </div>
         </>
       )}
+
+      {/* Score Financiero dialog */}
+      <Dialog open={showScoreDialog} onOpenChange={setShowScoreDialog}>
+        <DialogContent className="bg-[#1A1A18] border-[#2A2A28] text-[#F0EFE8] max-w-md">
+          <DialogHeader>
+            <DialogTitle>Score Financiero</DialogTitle>
+          </DialogHeader>
+
+          {/* Score circle - large */}
+          <div className="flex justify-center py-4">
+            <div className="relative w-32 h-32">
+              <svg viewBox="0 0 36 36" className="w-full h-full">
+                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                  fill="none" stroke="#2A2A28" strokeWidth="3" />
+                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                  fill="none" stroke={getScoreColor(kpiData.scoreFinanciero)}
+                  strokeWidth="3" strokeDasharray={`${kpiData.scoreFinanciero}, 100`} strokeLinecap="round" />
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-3xl font-bold" style={{ color: getScoreColor(kpiData.scoreFinanciero) }}>{kpiData.scoreFinanciero}</span>
+                <span className="text-xs text-[#8A877D]">de 100</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Status */}
+          <div className="text-center mb-4">
+            <span className="text-lg font-semibold" style={{ color: getScoreColor(kpiData.scoreFinanciero) }}>
+              {getScoreLabel(kpiData.scoreFinanciero)}
+            </span>
+          </div>
+
+          {/* Breakdown */}
+          <div className="space-y-2 text-sm">
+            <h4 className="font-medium text-[#C8C6BC]">Desglose</h4>
+            <div className="flex justify-between"><span className="text-[#8A877D]">Base</span><span>75 pts</span></div>
+            {kpiData.totalGastos > 0 && kpiData.totalIngresos > 0 && (
+              <div className="flex justify-between">
+                <span className="text-[#8A877D]">Ratio gastos/ingresos ({Math.round(kpiData.totalGastos / kpiData.totalIngresos * 100)}%)</span>
+                <span className={kpiData.totalGastos / kpiData.totalIngresos <= 0.7 ? 'text-[#1D9E75]' : 'text-[#D85A30]'}>
+                  {kpiData.totalGastos / kpiData.totalIngresos <= 0.7 ? '+15' : kpiData.totalGastos / kpiData.totalIngresos <= 0.9 ? '-5' : '-15'} pts
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Tips */}
+          <div className="space-y-2 text-sm mt-4">
+            <h4 className="font-medium text-[#C8C6BC]">Como mejorar</h4>
+            <ul className="space-y-1 text-[#8A877D]">
+              {kpiData.totalIngresos > 0 && kpiData.totalGastos / kpiData.totalIngresos > 0.7 && (
+                <li>&bull; Reduce gastos un {Math.round((kpiData.totalGastos / kpiData.totalIngresos - 0.7) * 100)}% para ganar hasta +15 puntos</li>
+              )}
+              {kpiData.scoreFinanciero < 70 && (
+                <li>&bull; Establece presupuestos por categoria para proteger tu score</li>
+              )}
+              <li>&bull; Tu score potencial: {Math.min(100, kpiData.scoreFinanciero + 20)} ({Math.min(100, kpiData.scoreFinanciero + 20) >= 80 ? 'Excelente' : 'Bueno'})</li>
+            </ul>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* AI insight */}
       <InsightCard />

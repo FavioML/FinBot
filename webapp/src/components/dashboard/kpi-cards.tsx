@@ -7,9 +7,10 @@ import type { KPIData } from '@/lib/types';
 
 interface KPICardsProps {
   data: KPIData;
+  onScoreClick?: () => void;
 }
 
-export function KPICards({ data }: KPICardsProps) {
+export function KPICards({ data, onScoreClick }: KPICardsProps) {
   const ahorroColor = data.ahorro >= 0 ? '#1D9E75' : '#EF9F27';
   const scoreColor = getScoreColor(data.scoreFinanciero);
 
@@ -52,8 +53,13 @@ export function KPICards({ data }: KPICardsProps) {
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
       {cards.map((card) => {
         const Icon = card.icon;
+        const isScore = card.label === 'Score Financiero';
         return (
-          <div key={card.label} className="glass-card p-5">
+          <div
+            key={card.label}
+            className={`glass-card p-5${isScore && onScoreClick ? ' cursor-pointer hover:border-[#1D9E75]/50 transition-colors' : ''}`}
+            onClick={isScore && onScoreClick ? onScoreClick : undefined}
+          >
             <div className="flex items-center justify-between mb-3">
               <Icon className="h-5 w-5" style={{ color: '#8A877D' }} />
               {card.badge && (
