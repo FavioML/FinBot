@@ -352,7 +352,13 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
               }}
             >
               <SelectTrigger className="w-full bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#F0EFE8]">
-                <SelectValue placeholder="Selecciona una categoría" />
+                <SelectValue placeholder="Selecciona una categoría">
+                  {isCustomCat
+                    ? (customCategoria ? `✨ ${capitalizeDisplay(customCategoria)}` : 'Nueva categoría...')
+                    : categoria
+                      ? `${getCategoriaEmoji(categoria)} ${categoria}`
+                      : 'Selecciona una categoría'}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {allCategorias.map((cat) => (
@@ -395,9 +401,8 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
             )}
           </div>
 
-          {/* Sub-category budgets (create mode OR edit mode when category has subcategories) */}
-          {((!isEditing && effectiveCategoria && subcategorias.length > 0) ||
-            (isEditing && effectiveCategoria && (subcategorias.length > 0 || (groupSubBudgets && groupSubBudgets.length > 0)))) && (
+          {/* Sub-category budgets — always show when a category is selected */}
+          {effectiveCategoria && (
             <div className="flex flex-col gap-3 pt-2 border-t border-[rgba(255,255,255,0.06)]">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-medium text-[#C8C6BC]">Presupuestos por subcategoría</label>
