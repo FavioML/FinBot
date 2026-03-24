@@ -82,13 +82,21 @@ export default function PresupuestosPage() {
     queryClient.invalidateQueries({ queryKey: ['transactions'] });
   }, [queryClient]);
 
-  // Compute user's unique categories from their transactions
+  // Compute user's unique categories from transactions AND budgets
   const userCategorias = useMemo<CategoriaOption[]>(() => {
     const catMap = new Map<string, Set<string>>();
+    // From transactions
     for (const t of transactions) {
       if (!catMap.has(t.categoria)) catMap.set(t.categoria, new Set());
       if (t.subcategoria && t.subcategoria !== 'null' && t.subcategoria !== 'sin_categoria') {
         catMap.get(t.categoria)!.add(t.subcategoria);
+      }
+    }
+    // From budgets (includes subcategories created as budgets but with no transactions yet)
+    for (const b of budgets) {
+      if (!catMap.has(b.categoria)) catMap.set(b.categoria, new Set());
+      if (b.subcategoria) {
+        catMap.get(b.categoria)!.add(b.subcategoria);
       }
     }
     return Array.from(catMap.entries()).map(([nombre, subs]) => ({
@@ -96,7 +104,7 @@ export default function PresupuestosPage() {
       emoji: getCategoriaEmoji(nombre),
       subs: Array.from(subs),
     }));
-  }, [transactions]);
+  }, [transactions, budgets]);
 
   // Compute spending per normalized category and subcategory
   const spendingByKey = useMemo(() => {
