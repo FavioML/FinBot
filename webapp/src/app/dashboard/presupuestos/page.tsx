@@ -13,6 +13,7 @@ import { useUser } from '@/lib/hooks/use-user';
 import { useBudgets } from '@/lib/hooks/use-budgets';
 import { useTransactions } from '@/lib/hooks/use-transactions';
 import { formatCurrency, formatFecha } from '@/lib/utils';
+import { capitalizeDisplay } from '@/lib/format';
 import { MESES, getCategoriaEmoji } from '@/lib/constants';
 import type { Presupuesto, Transaccion } from '@/lib/types';
 import {
@@ -295,8 +296,8 @@ export default function PresupuestosPage() {
         <DialogContent className="bg-[#1A1A18] border-[rgba(255,255,255,0.06)] sm:max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-[#F0EFE8]">
-              {detailBudget && `${getCategoriaEmoji(detailBudget.categoria)} ${detailBudget.categoria}`}
-              {detailBudget?.subcategoria && ` — ${detailBudget.subcategoria}`}
+              {detailBudget && `${getCategoriaEmoji(detailBudget.categoria)} ${capitalizeDisplay(detailBudget.categoria)}`}
+              {detailBudget?.subcategoria && ` — ${capitalizeDisplay(detailBudget.subcategoria)}`}
             </DialogTitle>
           </DialogHeader>
           {detailBudget && (() => {

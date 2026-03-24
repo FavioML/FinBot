@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { getCategoriaEmoji } from '@/lib/constants';
 import { formatCurrency } from '@/lib/utils';
+import { capitalizeDisplay } from '@/lib/format';
 import type { Presupuesto } from '@/lib/types';
 
 interface BudgetCardProps {
@@ -32,8 +33,7 @@ export function BudgetCard({ budget, spent, onEdit, onDelete, onClick }: BudgetC
   const emoji = getCategoriaEmoji(budget.categoria);
   const showAlert = rawPercentage >= budget.alerta_porcentaje;
 
-  // Display name: respect the original name, just capitalize first letter
-  const displayName = budget.categoria.charAt(0).toUpperCase() + budget.categoria.slice(1);
+  const displayName = capitalizeDisplay(budget.categoria);
 
   return (
     <div
@@ -61,7 +61,7 @@ export function BudgetCard({ budget, spent, onEdit, onDelete, onClick }: BudgetC
           </div>
           {budget.subcategoria && (
             <p className="text-xs text-[#8A877D] mt-0.5 ml-7">
-              {budget.subcategoria.charAt(0).toUpperCase() + budget.subcategoria.slice(1)}
+              {capitalizeDisplay(budget.subcategoria)}
             </p>
           )}
         </div>

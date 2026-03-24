@@ -17,14 +17,21 @@ import {
 } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Plus } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { CATEGORIAS, getCategoriaEmoji } from '@/lib/constants';
+import { capitalizeDisplay } from '@/lib/format';
 import type { Presupuesto } from '@/lib/types';
 
 export interface CategoriaOption {
   nombre: string;
   emoji: string;
   subs: string[];
+}
+
+interface SubBudgetRow {
+  subcategoria: string;
+  customSub: string;
+  monto: string;
 }
 
 interface BudgetFormProps {
@@ -62,7 +69,6 @@ function mergeAndDedup(userCategorias?: CategoriaOption[]): CategoriaOption[] {
     }
   }
 
-  // Final dedup: all subs lowercase, unique
   for (const cat of merged) {
     const seen = new Set<string>();
     cat.subs = cat.subs.filter(s => {
@@ -77,20 +83,21 @@ function mergeAndDedup(userCategorias?: CategoriaOption[]): CategoriaOption[] {
   return merged.sort((a, b) => a.nombre.localeCompare(b.nombre));
 }
 
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
 export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategorias, existingBudgets = [] }: BudgetFormProps) {
   const isEditing = !!budget;
 
   const [categoria, setCategoria] = useState('');
   const [customCategoria, setCustomCategoria] = useState('');
-  const [subcategoria, setSubcategoria] = useState('');
-  const [customSubcategoria, setCustomSubcategoria] = useState('');
   const [montoLimite, setMontoLimite] = useState('');
   const [alertaPorcentaje, setAlertaPorcentaje] = useState('80');
   const [saving, setSaving] = useState(false);
+
+  // For editing single budget with subcategory
+  const [subcategoria, setSubcategoria] = useState('');
+  const [customSubcategoria, setCustomSubcategoria] = useState('');
+
+  // For creating: multi-subcategory rows
+  const [subRows, setSubRows] = useState<SubBudgetRow[]>([]);
 
   const allCategorias = mergeAndDedup(userCategorias);
   const isCustomCat = categoria === '__custom__';
@@ -100,20 +107,14 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
     || allCategorias.find(c => c.nombre.toLowerCase() === categoria.toLowerCase());
   const subcategorias = selectedCat?.subs ?? [];
 
+  // For edit mode subcategory
   const isCustomSub = subcategoria === '__custom__';
-  const effectiveSubcategoria = isCustomSub ? customSubcategoria.trim().toLowerCase() : (subcategoria === '__none__' ? '' : subcategoria);
+  const effectiveSubcategoria = isCustomSub ? customSubcategoria.trim().toLowerCase() : (subcategoria === '__none__' || !subcategoria ? '' : subcategoria);
 
-  // Check duplicate: same category (and no subcategoria, or same subcategoria)
-  const isDuplicate = !isEditing && effectiveCategoria && existingBudgets.some(b => {
-    const catMatch = b.categoria.toLowerCase() === effectiveCategoria.toLowerCase();
-    if (!catMatch) return false;
-    // If user is setting a subcategory budget, check that specific sub
-    if (effectiveSubcategoria) {
-      return (b.subcategoria || '').toLowerCase() === effectiveSubcategoria.toLowerCase();
-    }
-    // If user is setting a general category budget, check if one exists without sub
-    return !b.subcategoria;
-  });
+  // Check duplicates
+  const catDuplicate = !isEditing && effectiveCategoria && existingBudgets.some(b =>
+    b.categoria.toLowerCase() === effectiveCategoria.toLowerCase() && !b.subcategoria
+  );
 
   useEffect(() => {
     if (open) {
@@ -124,6 +125,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
         setCustomSubcategoria('');
         setMontoLimite(budget.monto_limite.toString());
         setAlertaPorcentaje(budget.alerta_porcentaje.toString());
+        setSubRows([]);
       } else {
         setCategoria('');
         setCustomCategoria('');
@@ -131,38 +133,100 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
         setCustomSubcategoria('');
         setMontoLimite('');
         setAlertaPorcentaje('80');
+        setSubRows([]);
       }
     }
   }, [budget, open]);
 
+  function addSubRow() {
+    setSubRows(prev => [...prev, { subcategoria: '', customSub: '', monto: '' }]);
+  }
+
+  function updateSubRow(index: number, field: keyof SubBudgetRow, value: string) {
+    setSubRows(prev => prev.map((row, i) => i === index ? { ...row, [field]: value } : row));
+  }
+
+  function removeSubRow(index: number) {
+    setSubRows(prev => prev.filter((_, i) => i !== index));
+  }
+
+  function getEffectiveSub(row: SubBudgetRow): string {
+    if (row.subcategoria === '__custom__') return row.customSub.trim().toLowerCase();
+    return row.subcategoria;
+  }
+
+  // Get subs already used in rows (to prevent duplicate selection)
+  function getUsedSubs(): Set<string> {
+    const used = new Set<string>();
+    for (const row of subRows) {
+      const eff = getEffectiveSub(row);
+      if (eff) used.add(eff.toLowerCase());
+    }
+    // Also check existing budgets for this category
+    for (const b of existingBudgets) {
+      if (b.categoria.toLowerCase() === effectiveCategoria.toLowerCase() && b.subcategoria) {
+        used.add(b.subcategoria.toLowerCase());
+      }
+    }
+    return used;
+  }
+
   async function handleSubmit() {
-    if (!effectiveCategoria || !montoLimite || saving) return;
+    if (!effectiveCategoria || saving) return;
     setSaving(true);
 
     try {
-      const payload = {
-        categoria: effectiveCategoria,
-        subcategoria: effectiveSubcategoria || null,
-        monto_limite: parseFloat(montoLimite) || 0,
-        alerta_porcentaje: parseInt(alertaPorcentaje, 10) || 80,
-      };
+      if (isEditing) {
+        // Edit single budget
+        const payload = {
+          id: budget!.id,
+          categoria: effectiveCategoria,
+          subcategoria: effectiveSubcategoria || null,
+          monto_limite: parseFloat(montoLimite) || 0,
+          alerta_porcentaje: parseInt(alertaPorcentaje, 10) || 80,
+        };
+        const res = await fetch('/api/budgets', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) { console.error('Error:', await res.json()); return; }
+      } else {
+        // Create: main category budget + sub-budgets
+        const budgetsToCreate = [];
 
-      const res = isEditing
-        ? await fetch('/api/budgets', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: budget!.id, ...payload }),
-          })
-        : await fetch('/api/budgets', {
+        // Main category budget (if monto provided)
+        if (montoLimite) {
+          budgetsToCreate.push({
+            categoria: effectiveCategoria,
+            subcategoria: null,
+            monto_limite: parseFloat(montoLimite) || 0,
+            alerta_porcentaje: parseInt(alertaPorcentaje, 10) || 80,
+          });
+        }
+
+        // Sub-category budgets
+        for (const row of subRows) {
+          const effSub = getEffectiveSub(row);
+          if (effSub && row.monto) {
+            budgetsToCreate.push({
+              categoria: effectiveCategoria,
+              subcategoria: effSub,
+              monto_limite: parseFloat(row.monto) || 0,
+              alerta_porcentaje: parseInt(alertaPorcentaje, 10) || 80,
+            });
+          }
+        }
+
+        // Create all budgets sequentially
+        for (const payload of budgetsToCreate) {
+          const res = await fetch('/api/budgets', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
           });
-
-      if (!res.ok) {
-        const err = await res.json();
-        console.error('Error guardando presupuesto:', err);
-        return;
+          if (!res.ok) { console.error('Error:', await res.json()); }
+        }
       }
 
       onOpenChange(false);
@@ -172,9 +236,11 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
     }
   }
 
+  const canSubmit = effectiveCategoria && (montoLimite || subRows.some(r => r.monto && getEffectiveSub(r))) && !saving;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-[#1A1A18] border-[rgba(255,255,255,0.06)] sm:max-w-md">
+      <DialogContent className="bg-[#1A1A18] border-[rgba(255,255,255,0.06)] sm:max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-[#F0EFE8]">
             {isEditing ? 'Editar presupuesto' : 'Nuevo presupuesto'}
@@ -182,7 +248,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
           <DialogDescription className="text-[#8A877D]">
             {isEditing
               ? 'Modifica los datos de tu presupuesto.'
-              : 'Define un límite de gasto mensual por categoría o subcategoría.'}
+              : 'Define límites de gasto por categoría y subcategorías.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -196,7 +262,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
                 if (val) {
                   setCategoria(val);
                   setSubcategoria('');
-                  setCustomSubcategoria('');
+                  setSubRows([]);
                   if (val !== '__custom__') setCustomCategoria('');
                 }
               }}
@@ -228,12 +294,10 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
             )}
           </div>
 
-          {/* Subcategoria */}
-          {(effectiveCategoria && !isCustomCat && subcategorias.length > 0) && (
+          {/* Edit mode: single subcategory */}
+          {isEditing && effectiveCategoria && subcategorias.length > 0 && (
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-[#C8C6BC]">
-                Subcategoría <span className="text-[#8A877D]">(opcional)</span>
-              </label>
+              <label className="text-xs font-medium text-[#C8C6BC]">Subcategoría</label>
               <Select
                 value={subcategoria || undefined}
                 onValueChange={(val) => {
@@ -242,85 +306,126 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
                 }}
               >
                 <SelectTrigger className="w-full bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#F0EFE8]">
-                  <SelectValue placeholder="Ninguna (categoría general)" />
+                  <SelectValue placeholder="Ninguna" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">Ninguna (categoría general)</SelectItem>
                   {subcategorias.map((sub) => (
-                    <SelectItem key={sub} value={sub}>
-                      {capitalize(sub.replace(/_/g, ' '))}
-                    </SelectItem>
+                    <SelectItem key={sub} value={sub}>{capitalizeDisplay(sub)}</SelectItem>
                   ))}
                   <SelectItem value="__custom__">
-                    <span className="flex items-center gap-1.5">
-                      <Plus className="h-3.5 w-3.5" /> Nueva subcategoría...
-                    </span>
+                    <span className="flex items-center gap-1.5"><Plus className="h-3.5 w-3.5" /> Nueva...</span>
                   </SelectItem>
                 </SelectContent>
               </Select>
               {isCustomSub && (
-                <Input
-                  placeholder="Nombre de la subcategoría"
-                  value={customSubcategoria}
-                  onChange={(e) => setCustomSubcategoria(e.target.value)}
-                  className="mt-1 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#F0EFE8] placeholder:text-[#8A877D]"
-                  autoFocus
-                />
+                <Input placeholder="Nombre" value={customSubcategoria} onChange={(e) => setCustomSubcategoria(e.target.value)}
+                  className="mt-1 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#F0EFE8] placeholder:text-[#8A877D]" />
               )}
             </div>
           )}
 
-          {/* Monto limite */}
+          {/* Monto limite (category-level) */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-[#C8C6BC]">Monto límite (S/)</label>
+            <label className="text-xs font-medium text-[#C8C6BC]">
+              Monto límite {!isEditing ? 'de la categoría' : ''} (S/)
+            </label>
             <Input
-              type="number"
-              min="0"
-              step="0.01"
-              placeholder="500.00"
-              value={montoLimite}
-              onChange={(e) => setMontoLimite(e.target.value)}
+              type="number" min="0" step="0.01" placeholder="500.00"
+              value={montoLimite} onChange={(e) => setMontoLimite(e.target.value)}
               className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#F0EFE8] placeholder:text-[#8A877D]"
             />
+            {catDuplicate && !isEditing && (
+              <p className="text-xs text-[#EF9F27]">Ya existe un presupuesto general para {effectiveCategoria}. Se omitirá este campo.</p>
+            )}
           </div>
+
+          {/* Sub-category budgets (create mode only) */}
+          {!isEditing && effectiveCategoria && !isCustomCat && subcategorias.length > 0 && (
+            <div className="flex flex-col gap-3 pt-2 border-t border-[rgba(255,255,255,0.06)]">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-[#C8C6BC]">Presupuestos por subcategoría</label>
+                <Button
+                  variant="ghost" size="sm"
+                  className="text-[#1D9E75] text-xs h-7 px-2"
+                  onClick={addSubRow}
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Agregar
+                </Button>
+              </div>
+
+              {subRows.length === 0 && (
+                <p className="text-xs text-[#8A877D]">Opcional: define límites por subcategoría dentro de {effectiveCategoria}.</p>
+              )}
+
+              {subRows.map((row, idx) => {
+                const usedSubs = getUsedSubs();
+                return (
+                  <div key={idx} className="flex items-end gap-2">
+                    <div className="flex-1">
+                      {idx === 0 && <label className="text-[10px] text-[#8A877D] mb-1 block">Subcategoría</label>}
+                      <Select
+                        value={row.subcategoria || undefined}
+                        onValueChange={(val) => {
+                          updateSubRow(idx, 'subcategoria', val || '');
+                          if (val !== '__custom__') updateSubRow(idx, 'customSub', '');
+                        }}
+                      >
+                        <SelectTrigger className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#F0EFE8] text-sm h-9">
+                          <SelectValue placeholder="Seleccionar..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {subcategorias.filter(s => !usedSubs.has(s.toLowerCase()) || s === row.subcategoria).map((sub) => (
+                            <SelectItem key={sub} value={sub}>{capitalizeDisplay(sub)}</SelectItem>
+                          ))}
+                          <SelectItem value="__custom__">
+                            <span className="flex items-center gap-1"><Plus className="h-3 w-3" /> Nueva...</span>
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {row.subcategoria === '__custom__' && (
+                        <Input placeholder="Nombre" value={row.customSub}
+                          onChange={(e) => updateSubRow(idx, 'customSub', e.target.value)}
+                          className="mt-1 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#F0EFE8] text-sm h-8" />
+                      )}
+                    </div>
+                    <div className="w-28">
+                      {idx === 0 && <label className="text-[10px] text-[#8A877D] mb-1 block">Límite S/</label>}
+                      <Input
+                        type="number" min="0" step="0.01" placeholder="0.00"
+                        value={row.monto} onChange={(e) => updateSubRow(idx, 'monto', e.target.value)}
+                        className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#F0EFE8] text-sm h-9"
+                      />
+                    </div>
+                    <Button variant="ghost" size="icon-xs" onClick={() => removeSubRow(idx)} className="shrink-0 mb-0.5">
+                      <Trash2 className="h-3.5 w-3.5 text-[#8A877D]" />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {/* Alerta porcentaje */}
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-[#C8C6BC]">Alerta al (%)</label>
             <Input
-              type="number"
-              min="1"
-              max="100"
-              placeholder="80"
-              value={alertaPorcentaje}
-              onChange={(e) => setAlertaPorcentaje(e.target.value)}
+              type="number" min="1" max="100" placeholder="80"
+              value={alertaPorcentaje} onChange={(e) => setAlertaPorcentaje(e.target.value)}
               className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#F0EFE8] placeholder:text-[#8A877D]"
             />
-            <p className="text-xs text-[#8A877D]">
-              Recibirás una alerta cuando tu gasto supere este porcentaje.
-            </p>
+            <p className="text-xs text-[#8A877D]">Se aplica a todos los presupuestos creados.</p>
           </div>
-
-          {/* Duplicate warning */}
-          {isDuplicate && (
-            <p className="text-xs text-[#EF9F27]">
-              Ya existe un presupuesto para {effectiveCategoria}{effectiveSubcategoria ? ` → ${effectiveSubcategoria}` : ''}. Edita el existente.
-            </p>
-          )}
 
           {/* Buttons */}
           <div className="flex justify-end gap-2 pt-2">
-            <Button
-              variant="outline"
-              className="text-[#C8C6BC]"
-              onClick={() => onOpenChange(false)}
-            >
+            <Button variant="outline" className="text-[#C8C6BC]" onClick={() => onOpenChange(false)}>
               Cancelar
             </Button>
             <Button
               className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90"
               onClick={handleSubmit}
-              disabled={!effectiveCategoria || !montoLimite || saving || !!isDuplicate}
+              disabled={!canSubmit}
             >
               {saving ? 'Guardando...' : isEditing ? 'Guardar cambios' : 'Crear presupuesto'}
             </Button>
@@ -345,14 +450,9 @@ export function DeleteBudgetDialog({ open, onOpenChange, budget, onSuccess }: De
   async function handleDelete() {
     if (!budget || deleting) return;
     setDeleting(true);
-
     try {
       const res = await fetch(`/api/budgets?id=${budget.id}`, { method: 'DELETE' });
-      if (!res.ok) {
-        const err = await res.json();
-        console.error('Error eliminando presupuesto:', err);
-        return;
-      }
+      if (!res.ok) { console.error('Error:', await res.json()); return; }
       onOpenChange(false);
       onSuccess?.();
     } finally {
@@ -364,30 +464,17 @@ export function DeleteBudgetDialog({ open, onOpenChange, budget, onSuccess }: De
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="bg-[#1A1A18] border-[rgba(255,255,255,0.06)] sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-[#F0EFE8]">
-            ¿Eliminar este presupuesto?
-          </DialogTitle>
+          <DialogTitle className="text-[#F0EFE8]">¿Eliminar este presupuesto?</DialogTitle>
           <DialogDescription className="text-[#8A877D]">
             Se eliminará el presupuesto de{' '}
             <span className="text-[#C8C6BC] font-medium">
-              {budget?.categoria}{budget?.subcategoria ? ` → ${budget.subcategoria}` : ''}
-            </span>
-            . Esta acción no se puede deshacer.
+              {budget?.categoria}{budget?.subcategoria ? ` → ${capitalizeDisplay(budget.subcategoria)}` : ''}
+            </span>. Esta acción no se puede deshacer.
           </DialogDescription>
         </DialogHeader>
         <div className="flex justify-end gap-2 pt-2">
-          <Button
-            variant="outline"
-            className="text-[#C8C6BC]"
-            onClick={() => onOpenChange(false)}
-          >
-            Cancelar
-          </Button>
-          <Button
-            variant="destructive"
-            onClick={handleDelete}
-            disabled={deleting}
-          >
+          <Button variant="outline" className="text-[#C8C6BC]" onClick={() => onOpenChange(false)}>Cancelar</Button>
+          <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
             {deleting ? 'Eliminando...' : 'Eliminar'}
           </Button>
         </div>
