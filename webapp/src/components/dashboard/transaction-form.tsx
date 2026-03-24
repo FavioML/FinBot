@@ -29,6 +29,7 @@ interface TransactionFormProps {
   onOpenChange: (open: boolean) => void;
   tipo: 'gasto' | 'ingreso';
   transaction?: Transaccion | null;
+  onSuccess?: () => void;
 }
 
 interface FormData {
@@ -56,7 +57,7 @@ function getDefaultForm(tipo: 'gasto' | 'ingreso'): FormData {
 
 const CUSTOM_OPTION = '__otra__';
 
-export function TransactionForm({ open, onOpenChange, tipo, transaction }: TransactionFormProps) {
+export function TransactionForm({ open, onOpenChange, tipo, transaction, onSuccess }: TransactionFormProps) {
   const isEdit = !!transaction;
   const [form, setForm] = useState<FormData>(getDefaultForm(tipo));
   const [customCategoria, setCustomCategoria] = useState('');
@@ -127,7 +128,12 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction }: Trans
     });
   }, []);
 
-  const handleSubmit = () => {
+  const [saving, setSaving] = useState(false);
+
+  const handleSubmit = async () => {
+    if (saving) return;
+    setSaving(true);
+
     const finalCategoria = usingCustomCategoria ? customCategoria : form.categoria;
     const finalSubcategoria = usingCustomSubcategoria ? customSubcategoria : form.subcategoria;
 
@@ -136,19 +142,41 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction }: Trans
       monto: parseFloat(form.monto) || 0,
       comercio: form.comercio,
       categoria: finalCategoria,
-      subcategoria: finalSubcategoria,
+      subcategoria: finalSubcategoria || null,
       fecha: form.fecha,
       moneda: form.moneda,
       metodo_pago: form.metodo_pago,
     };
 
-    if (isEdit) {
-      console.log('[TransactionForm] Editar transaccion:', { id: transaction!.id, ...data });
-    } else {
-      console.log('[TransactionForm] Nueva transaccion:', data);
+    try {
+      if (isEdit) {
+        const res = await fetch('/api/transactions', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: transaction!.id, ...data }),
+        });
+        if (!res.ok) {
+          console.error('[TransactionForm] Update failed:', res.status, await res.json().catch(() => ({})));
+          return;
+        }
+      } else {
+        const res = await fetch('/api/transactions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+        if (!res.ok) {
+          console.error('[TransactionForm] Create failed:', res.status, await res.json().catch(() => ({})));
+          return;
+        }
+      }
+      onOpenChange(false);
+      onSuccess?.();
+    } catch (err) {
+      console.error('[TransactionForm] Error:', err);
+    } finally {
+      setSaving(false);
     }
-
-    onOpenChange(false);
   };
 
   const finalCatValid = usingCustomCategoria ? customCategoria.trim().length > 0 : (form.categoria && form.categoria !== CUSTOM_OPTION);
@@ -305,10 +333,10 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction }: Trans
           </DialogClose>
           <Button
             onClick={handleSubmit}
-            disabled={!isValid}
+            disabled={!isValid || saving}
             className={isIngreso ? 'bg-[#1D9E75] hover:bg-[#1D9E75]/90 text-white' : ''}
           >
-            {isEdit ? 'Guardar cambios' : 'Registrar'}
+            {saving ? 'Guardando...' : isEdit ? 'Guardar cambios' : 'Registrar'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -322,14 +350,26 @@ interface DeleteConfirmDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   transaction: Transaccion | null;
+  onSuccess?: () => void;
 }
 
-export function DeleteConfirmDialog({ open, onOpenChange, transaction }: DeleteConfirmDialogProps) {
-  const handleConfirm = () => {
-    if (transaction) {
-      console.log('[DeleteConfirmDialog] Eliminar transaccion:', transaction.id);
+export function DeleteConfirmDialog({ open, onOpenChange, transaction, onSuccess }: DeleteConfirmDialogProps) {
+  const [deleting, setDeleting] = useState(false);
+
+  const handleConfirm = async () => {
+    if (!transaction || deleting) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/transactions?id=${transaction.id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        console.error('[DeleteConfirmDialog] Failed:', res.status);
+        return;
+      }
+      onOpenChange(false);
+      onSuccess?.();
+    } finally {
+      setDeleting(false);
     }
-    onOpenChange(false);
   };
 
   return (
@@ -345,8 +385,8 @@ export function DeleteConfirmDialog({ open, onOpenChange, transaction }: DeleteC
           <DialogClose render={<Button variant="outline" className="text-[#C8C6BC]" />}>
             Cancelar
           </DialogClose>
-          <Button variant="destructive" onClick={handleConfirm}>
-            Eliminar
+          <Button variant="destructive" onClick={handleConfirm} disabled={deleting}>
+            {deleting ? 'Eliminando...' : 'Eliminar'}
           </Button>
         </DialogFooter>
       </DialogContent>

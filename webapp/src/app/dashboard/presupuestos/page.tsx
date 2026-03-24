@@ -22,6 +22,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { TransactionForm } from '@/components/dashboard/transaction-form';
+import { Pencil } from 'lucide-react';
 
 /**
  * Normalize budget/transaction category names so DB-stored budget categories
@@ -73,6 +75,12 @@ export default function PresupuestosPage() {
   const [editBudget, setEditBudget] = useState<Presupuesto | null>(null);
   const [deleteBudget, setDeleteBudget] = useState<Presupuesto | null>(null);
   const [detailCategoria, setDetailCategoria] = useState<string | null>(null);
+  const [editTransaction, setEditTransaction] = useState<Transaccion | null>(null);
+
+  const refreshAll = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['budgets'] });
+    queryClient.invalidateQueries({ queryKey: ['transactions'] });
+  }, [queryClient]);
 
   // Compute user's unique categories from their transactions
   const userCategorias = useMemo<CategoriaOption[]>(() => {
@@ -405,14 +413,21 @@ export default function PresupuestosPage() {
                           </p>
                           <div className="space-y-1">
                             {txs.map((tx) => (
-                              <div key={tx.id} className="flex items-center justify-between py-2 border-b border-[rgba(255,255,255,0.04)]">
+                              <div
+                                key={tx.id}
+                                className="flex items-center justify-between py-2 border-b border-[rgba(255,255,255,0.04)] cursor-pointer hover:bg-[rgba(255,255,255,0.03)] rounded px-1 -mx-1 transition-colors group"
+                                onClick={() => setEditTransaction(tx)}
+                              >
                                 <div className="min-w-0">
                                   <p className="text-sm text-[#F0EFE8] truncate">{tx.comercio || 'Sin comercio'}</p>
                                   <p className="text-xs text-[#8A877D]">{formatFecha(tx.fecha)}</p>
                                 </div>
-                                <span className="text-sm font-medium text-[#D85A30] shrink-0 ml-3">
-                                  -{formatCurrency(tx.monto_pen)}
-                                </span>
+                                <div className="flex items-center gap-2 shrink-0 ml-3">
+                                  <span className="text-sm font-medium text-[#D85A30]">
+                                    -{formatCurrency(tx.monto_pen)}
+                                  </span>
+                                  <Pencil className="h-3 w-3 text-[#8A877D] opacity-0 group-hover:opacity-100 transition-opacity" />
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -425,6 +440,15 @@ export default function PresupuestosPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Edit transaction dialog (from budget detail) */}
+      <TransactionForm
+        open={!!editTransaction}
+        onOpenChange={(open) => { if (!open) setEditTransaction(null); }}
+        tipo={editTransaction?.tipo === 'ingreso' ? 'ingreso' : 'gasto'}
+        transaction={editTransaction}
+        onSuccess={refreshAll}
+      />
     </div>
   );
 }
