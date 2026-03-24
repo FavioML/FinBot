@@ -2,7 +2,6 @@
 
 import { Pencil, Trash2, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { getCategoriaEmoji } from '@/lib/constants';
 import { formatCurrency } from '@/lib/utils';
 import { capitalizeDisplay } from '@/lib/format';
@@ -88,14 +87,9 @@ export function BudgetCard({
               {capitalizeDisplay(categoria)}
             </span>
             {showAlert && (
-              <Tooltip>
-                <TooltipTrigger>
-                  <AlertTriangle className="h-4 w-4 shrink-0" style={{ color: '#EF9F27' }} />
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Superaste el {alertPct}% de tu presupuesto</p>
-                </TooltipContent>
-              </Tooltip>
+              <span title={`Superaste el ${alertPct}% de tu presupuesto`}>
+                <AlertTriangle className="h-4 w-4 shrink-0" style={{ color: '#EF9F27' }} />
+              </span>
             )}
           </div>
         </div>

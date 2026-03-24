@@ -195,8 +195,8 @@ export default function PresupuestosPage() {
     : 0;
   const detailPct = detailTotalLimit > 0 ? Math.round((detailTotalSpent / detailTotalLimit) * 100) : 0;
 
-  // Group detail transactions by subcategory
-  const detailTxsBySubcat = useMemo(() => {
+  // Group detail transactions by subcategory (computed inline, not memoized with unstable dep)
+  const detailTxsBySubcat = (() => {
     if (!detailCategoria) return new Map<string, Transaccion[]>();
     const map = new Map<string, Transaccion[]>();
     for (const tx of detailTxs) {
@@ -205,7 +205,7 @@ export default function PresupuestosPage() {
       map.get(sub)!.push(tx);
     }
     return map;
-  }, [detailCategoria, detailTxs]);
+  })();
 
   return (
     <div className="space-y-6">
