@@ -13,7 +13,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
 import {
   Select,
@@ -123,12 +122,10 @@ export function Topbar({ onMenuClick }: TopbarProps) {
           </Avatar>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="bg-[#141412] border-[rgba(255,255,255,0.06)] min-w-[200px]">
-          <DropdownMenuLabel className="text-[#F0EFE8] font-semibold">
-            {user?.nombre || 'Mi cuenta'}
-          </DropdownMenuLabel>
-          <DropdownMenuLabel className="text-[#8A877D] text-xs font-normal -mt-2">
-            {user?.email || user?.whatsapp || ''}
-          </DropdownMenuLabel>
+          <div className="px-2 py-2">
+            <p className="text-sm font-semibold text-[#F0EFE8]">{user?.nombre || 'Mi cuenta'}</p>
+            <p className="text-xs text-[#8A877D]">{user?.email || user?.whatsapp || ''}</p>
+          </div>
           <DropdownMenuSeparator className="bg-[rgba(255,255,255,0.06)]" />
           <DropdownMenuItem
             className="text-[#D85A30] focus:text-[#D85A30] cursor-pointer"
