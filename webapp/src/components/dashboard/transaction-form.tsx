@@ -372,17 +372,17 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
           </div>
 
           {/* Fecha + Metodo pago */}
-          <div className="grid grid-cols-2 gap-2 overflow-hidden">
-            <div className="min-w-0 overflow-hidden">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div>
               <label className="text-xs text-[#8A877D] mb-1 block">Fecha</label>
               <Input
                 type="date"
                 value={form.fecha}
                 onChange={(e) => handleChange('fecha', e.target.value)}
-                className={`${inputClasses} min-w-0 w-full max-w-full [&::-webkit-datetime-edit]:text-sm`}
+                className={inputClasses}
               />
             </div>
-            <div className="min-w-0">
+            <div>
               <label className="text-xs text-[#8A877D] mb-1 block">Metodo de pago</label>
               <Select value={form.metodo_pago} onValueChange={(v) => handleChange('metodo_pago', v as string)}>
                 <SelectTrigger className={selectTriggerClasses}>
