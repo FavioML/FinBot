@@ -373,13 +373,13 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
 
           {/* Fecha + Metodo pago */}
           <div className="grid grid-cols-2 gap-2">
-            <div>
+            <div className="min-w-0">
               <label className="text-xs text-[#8A877D] mb-1 block">Fecha</label>
               <Input
                 type="date"
                 value={form.fecha}
                 onChange={(e) => handleChange('fecha', e.target.value)}
-                className={inputClasses}
+                className={`${inputClasses} min-w-0`}
               />
             </div>
             <div>
