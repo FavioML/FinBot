@@ -3,32 +3,9 @@
 import { Pencil, Trash2, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
-import { getCategoriaEmoji, CATEGORIAS } from '@/lib/constants';
+import { getCategoriaEmoji } from '@/lib/constants';
 import { formatCurrency } from '@/lib/utils';
 import type { Presupuesto } from '@/lib/types';
-
-/** Map lowercase/alias budget category names to canonical display names */
-const BUDGET_CAT_DISPLAY: Record<string, string> = {
-  'comida': 'Alimentación',
-  'alimentacion': 'Alimentación',
-  'auto': 'Transporte',
-  'hogar': 'Vivienda',
-  'casa': 'Vivienda',
-  'entretención': 'Entretenimiento',
-  'educacion': 'Educación',
-  'trabajo': 'Trabajo_Negocio',
-  'viajes': 'Otros',
-};
-
-function getDisplayName(cat: string): string {
-  // Already a canonical name?
-  if (CATEGORIAS.some(c => c.nombre === cat)) return cat;
-  // Try alias map
-  const mapped = BUDGET_CAT_DISPLAY[cat.toLowerCase()];
-  if (mapped) return mapped;
-  // Capitalize first letter as fallback
-  return cat.charAt(0).toUpperCase() + cat.slice(1);
-}
 
 interface BudgetCardProps {
   budget: Presupuesto;
@@ -55,15 +32,21 @@ export function BudgetCard({ budget, spent, onEdit, onDelete, onClick }: BudgetC
   const emoji = getCategoriaEmoji(budget.categoria);
   const showAlert = rawPercentage >= budget.alerta_porcentaje;
 
+  // Display name: respect the original name, just capitalize first letter
+  const displayName = budget.categoria.charAt(0).toUpperCase() + budget.categoria.slice(1);
+
   return (
-    <div className="glass-card p-5 flex flex-col gap-3 cursor-pointer" onClick={() => onClick?.(budget)}>
+    <div
+      className="glass-card p-5 flex flex-col gap-3 cursor-pointer"
+      onClick={() => onClick?.(budget)}
+    >
       {/* Header row */}
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-lg">{emoji}</span>
             <span className="font-semibold text-[#F0EFE8] truncate">
-              {getDisplayName(budget.categoria)}
+              {displayName}
             </span>
             {showAlert && (
               <Tooltip>
@@ -78,7 +61,7 @@ export function BudgetCard({ budget, spent, onEdit, onDelete, onClick }: BudgetC
           </div>
           {budget.subcategoria && (
             <p className="text-xs text-[#8A877D] mt-0.5 ml-7">
-              {budget.subcategoria}
+              {budget.subcategoria.charAt(0).toUpperCase() + budget.subcategoria.slice(1)}
             </p>
           )}
         </div>
@@ -86,7 +69,7 @@ export function BudgetCard({ budget, spent, onEdit, onDelete, onClick }: BudgetC
           <Button
             variant="ghost"
             size="icon-xs"
-            onClick={() => onEdit(budget)}
+            onClick={(e) => { e.stopPropagation(); onEdit(budget); }}
             aria-label="Editar presupuesto"
           >
             <Pencil className="h-3.5 w-3.5 text-[#8A877D]" />
@@ -94,7 +77,7 @@ export function BudgetCard({ budget, spent, onEdit, onDelete, onClick }: BudgetC
           <Button
             variant="ghost"
             size="icon-xs"
-            onClick={() => onDelete(budget)}
+            onClick={(e) => { e.stopPropagation(); onDelete(budget); }}
             aria-label="Eliminar presupuesto"
           >
             <Trash2 className="h-3.5 w-3.5 text-[#8A877D]" />

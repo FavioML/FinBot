@@ -150,7 +150,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
                 <SelectValue placeholder="Selecciona una categoria" />
               </SelectTrigger>
               <SelectContent>
-                {allCategorias.map((cat) => (
+                {[...allCategorias].sort((a, b) => a.nombre.localeCompare(b.nombre)).map((cat) => (
                   <SelectItem key={cat.nombre} value={cat.nombre}>
                     {cat.emoji} {cat.nombre}
                   </SelectItem>
@@ -174,7 +174,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">Ninguna</SelectItem>
-                  {subcategorias.map((sub) => (
+                  {[...subcategorias].sort((a, b) => a.localeCompare(b)).map((sub) => (
                     <SelectItem key={sub} value={sub}>
                       {sub.replace(/_/g, ' ')}
                     </SelectItem>
