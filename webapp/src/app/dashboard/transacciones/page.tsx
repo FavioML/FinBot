@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Plus,
   TrendingUp,
@@ -40,6 +41,7 @@ import { TransactionFilters } from '@/components/dashboard/transaction-filters';
 import { TransactionForm, DeleteConfirmDialog } from '@/components/dashboard/transaction-form';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
+import { useBudgets } from '@/lib/hooks/use-budgets';
 import { formatCurrency, formatFecha } from '@/lib/utils';
 import { getCategoriaEmoji, MESES } from '@/lib/constants';
 import type { Transaccion } from '@/lib/types';
@@ -51,6 +53,10 @@ type SortDir = 'asc' | 'desc';
 
 export default function TransaccionesPage() {
   const { data: user, isLoading: userLoading } = useUser();
+  const queryClient = useQueryClient();
+  const refreshTransactions = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['transactions'] });
+  }, [queryClient]);
   const searchParams = useSearchParams();
 
   const now = new Date();
@@ -94,6 +100,29 @@ export default function TransaccionesPage() {
 
   const transactions = viewMode === 'anual' ? annualTransactions : monthlyTransactions;
   const txLoading = viewMode === 'anual' ? txAnnualLoading : txMonthlyLoading;
+
+  // Fetch budgets to include user-created categories/subcategories
+  const { data: budgets = [] } = useBudgets(user?.id, selectedMonth, selectedYear);
+
+  // Compute user categories from transactions + budgets
+  const userCategorias = useMemo(() => {
+    const catMap = new Map<string, Set<string>>();
+    for (const t of allTransactions) {
+      if (!catMap.has(t.categoria)) catMap.set(t.categoria, new Set());
+      if (t.subcategoria && t.subcategoria !== 'null' && t.subcategoria !== 'sin_categoria') {
+        catMap.get(t.categoria)!.add(t.subcategoria);
+      }
+    }
+    for (const b of budgets) {
+      if (!catMap.has(b.categoria)) catMap.set(b.categoria, new Set());
+      if (b.subcategoria) catMap.get(b.categoria)!.add(b.subcategoria);
+    }
+    return Array.from(catMap.entries()).map(([nombre, subs]) => ({
+      nombre,
+      emoji: getCategoriaEmoji(nombre),
+      subs: Array.from(subs),
+    }));
+  }, [allTransactions, budgets]);
 
   // Filters
   const [search, setSearch] = useState('');
@@ -513,6 +542,8 @@ export default function TransaccionesPage() {
         open={createDialogOpen}
         onOpenChange={setCreateDialogOpen}
         tipo={createTipo}
+        onSuccess={refreshTransactions}
+        userCategorias={userCategorias}
       />
 
       <TransactionForm
@@ -520,12 +551,15 @@ export default function TransaccionesPage() {
         onOpenChange={(open) => { if (!open) setEditTransaction(null); }}
         tipo={editTransaction?.tipo || 'gasto'}
         transaction={editTransaction}
+        onSuccess={refreshTransactions}
+        userCategorias={userCategorias}
       />
 
       <DeleteConfirmDialog
         open={!!deleteTransaction}
         onOpenChange={(open) => { if (!open) setDeleteTransaction(null); }}
         transaction={deleteTransaction}
+        onSuccess={refreshTransactions}
       />
     </div>
   );
