@@ -207,60 +207,59 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
           return;
         }
 
-        // Update sub-budgets if editing a grouped budget
-        if (groupSubBudgets && groupSubBudgets.length > 0) {
-          for (let i = 0; i < subRows.length; i++) {
-            const row = subRows[i];
-            const effSub = getEffectiveSub(row);
-            if (!effSub || !row.monto) continue;
+        // Update/create/delete sub-budgets
+        const existingSubs = groupSubBudgets || [];
+        for (let i = 0; i < subRows.length; i++) {
+          const row = subRows[i];
+          const effSub = getEffectiveSub(row);
+          if (!effSub || !row.monto) continue;
 
-            const existingSub = groupSubBudgets[i];
-            if (existingSub) {
-              // Update existing sub-budget
-              const subPayload = {
-                id: existingSub.id,
-                categoria: effectiveCategoria,
-                subcategoria: effSub,
-                monto_limite: parseFloat(row.monto) || 0,
-                alerta_porcentaje: parseInt(alertaPorcentaje, 10) || 80,
-              };
-              console.log('[BudgetForm] Updating sub-budget:', subPayload);
-              const subRes = await fetch('/api/budgets', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(subPayload),
-              });
-              if (!subRes.ok) {
-                const errData = await subRes.json().catch(() => ({}));
-                console.error('[BudgetForm] Sub-budget update failed:', subRes.status, errData);
-              }
-            } else {
-              // Create new sub-budget
-              const subPayload = {
-                categoria: effectiveCategoria,
-                subcategoria: effSub,
-                monto_limite: parseFloat(row.monto) || 0,
-                alerta_porcentaje: parseInt(alertaPorcentaje, 10) || 80,
-              };
-              console.log('[BudgetForm] Creating new sub-budget:', subPayload);
-              const subRes = await fetch('/api/budgets', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(subPayload),
-              });
-              if (!subRes.ok) {
-                const errData = await subRes.json().catch(() => ({}));
-                console.error('[BudgetForm] Sub-budget create failed:', subRes.status, errData);
-              }
+          const existingSub = existingSubs[i];
+          if (existingSub) {
+            // Update existing sub-budget
+            const subPayload = {
+              id: existingSub.id,
+              categoria: effectiveCategoria,
+              subcategoria: effSub,
+              monto_limite: parseFloat(row.monto) || 0,
+              alerta_porcentaje: parseInt(alertaPorcentaje, 10) || 80,
+            };
+            console.log('[BudgetForm] Updating sub-budget:', subPayload);
+            const subRes = await fetch('/api/budgets', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(subPayload),
+            });
+            if (!subRes.ok) {
+              const errData = await subRes.json().catch(() => ({}));
+              console.error('[BudgetForm] Sub-budget update failed:', subRes.status, errData);
+            }
+          } else {
+            // Create new sub-budget
+            const subPayload = {
+              categoria: effectiveCategoria,
+              subcategoria: effSub,
+              monto_limite: parseFloat(row.monto) || 0,
+              alerta_porcentaje: parseInt(alertaPorcentaje, 10) || 80,
+            };
+            console.log('[BudgetForm] Creating new sub-budget:', subPayload);
+            const subRes = await fetch('/api/budgets', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(subPayload),
+            });
+            if (!subRes.ok) {
+              const errData = await subRes.json().catch(() => ({}));
+              console.error('[BudgetForm] Sub-budget create failed:', subRes.status, errData);
             }
           }
+        }
 
-          // Delete sub-budgets that were removed
-          for (let i = subRows.length; i < groupSubBudgets.length; i++) {
-            const toDelete = groupSubBudgets[i];
-            console.log('[BudgetForm] Deleting removed sub-budget:', toDelete.id);
-            await fetch(`/api/budgets?id=${toDelete.id}`, { method: 'DELETE' });
-          }
+        // Delete sub-budgets that were removed
+        for (let i = subRows.length; i < existingSubs.length; i++) {
+          const toDelete = existingSubs[i];
+          console.log('[BudgetForm] Deleting removed sub-budget:', toDelete.id);
+          await fetch(`/api/budgets?id=${toDelete.id}`, { method: 'DELETE' });
         }
       } else {
         // Create: main category budget + sub-budgets
@@ -431,9 +430,9 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
             )}
           </div>
 
-          {/* Sub-category budgets (create mode or edit with group sub-budgets) */}
-          {((!isEditing && effectiveCategoria && !isCustomCat && subcategorias.length > 0) ||
-            (isEditing && groupSubBudgets && groupSubBudgets.length > 0)) && (
+          {/* Sub-category budgets (create mode OR edit mode when category has subcategories) */}
+          {((!isEditing && effectiveCategoria && subcategorias.length > 0) ||
+            (isEditing && effectiveCategoria && (subcategorias.length > 0 || (groupSubBudgets && groupSubBudgets.length > 0)))) && (
             <div className="flex flex-col gap-3 pt-2 border-t border-[rgba(255,255,255,0.06)]">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-medium text-[#C8C6BC]">Presupuestos por subcategoría</label>

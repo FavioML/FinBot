@@ -23,18 +23,11 @@ function getProgressColor(percentage: number): string {
   return '#D85A30';
 }
 
+/** Simple normalize: only handle accent variants, never remap category names */
 function normalizeCatForMatch(cat: string): string {
   const map: Record<string, string[]> = {
-    'alimentación': ['comida', 'alimentacion', 'alimentación'],
-    'vivienda': ['hogar', 'vivienda', 'casa'],
-    'transporte': ['auto', 'transporte'],
-    'entretenimiento': ['entretenimiento', 'entretención'],
-    'compras': ['compras'],
-    'salud': ['salud'],
+    'alimentación': ['alimentacion', 'alimentación'],
     'educación': ['educacion', 'educación'],
-    'finanzas': ['finanzas'],
-    'trabajo_negocio': ['trabajo_negocio', 'trabajo'],
-    'otros': ['otros', 'viajes'],
   };
   const lower = cat.toLowerCase();
   for (const [canonical, aliases] of Object.entries(map)) {
