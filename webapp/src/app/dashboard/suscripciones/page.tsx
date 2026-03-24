@@ -206,10 +206,9 @@ export default function SuscripcionesPage() {
 
   if (isLoading) {
     return (
-      <div className="flex-1 p-4 md:p-6 space-y-6">
+      <div className="space-y-6 max-w-4xl">
         <div className="flex items-center justify-between">
           <Skeleton className="h-8 w-48" />
-          <UserMenu />
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[1, 2, 3, 4].map((i) => (
@@ -226,9 +225,9 @@ export default function SuscripcionesPage() {
   }
 
   return (
-    <div className="flex-1 p-4 md:p-6 space-y-6 max-w-4xl">
+    <div className="space-y-6 max-w-4xl">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between">
         <div>
           <h1 className="text-xl font-semibold text-[#C8C6BC]">Suscripciones</h1>
           <p className="text-sm text-[#8A877D] mt-0.5">

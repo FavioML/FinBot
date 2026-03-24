@@ -130,6 +130,9 @@ export default function ReportesPage() {
     }
   }, [generatingPdf, selectedOption]);
 
+  // Score dialog state
+  const [showScoreDialog, setShowScoreDialog] = useState(false);
+
   // Detail dialogs state
   const [detailCat, setDetailCat] = useState<string | null>(null);
   const [detailMetodo, setDetailMetodo] = useState<string | null>(null);
@@ -326,7 +329,10 @@ export default function ReportesPage() {
       <div ref={reportRef} className="space-y-6">
 
       {/* Score financiero */}
-      <div className="glass-card p-6 flex flex-col sm:flex-row items-center gap-6">
+      <div
+        className="glass-card p-6 flex flex-col sm:flex-row items-center gap-6 cursor-pointer hover:bg-[rgba(255,255,255,0.03)] transition-colors"
+        onClick={() => setShowScoreDialog(true)}
+      >
         <div className="relative flex-shrink-0">
           <svg width="128" height="128" viewBox="0 0 120 120">
             <circle cx="60" cy="60" r="54" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="8" />
@@ -682,6 +688,67 @@ export default function ReportesPage() {
         onSuccess={refreshAll}
         userCategorias={userCategorias}
       />
+
+      {/* Score Financiero dialog */}
+      <Dialog open={showScoreDialog} onOpenChange={setShowScoreDialog}>
+        <DialogContent className="bg-[#1A1A18] border-[#2A2A28] text-[#F0EFE8] max-w-md">
+          <DialogHeader>
+            <DialogTitle>Score Financiero</DialogTitle>
+          </DialogHeader>
+
+          {/* Score circle - large */}
+          <div className="flex justify-center py-4">
+            <div className="relative w-32 h-32">
+              <svg viewBox="0 0 36 36" className="w-full h-full">
+                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                  fill="none" stroke="#2A2A28" strokeWidth="3" />
+                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                  fill="none" stroke={scoreColor}
+                  strokeWidth="3" strokeDasharray={`${score}, 100`} strokeLinecap="round" />
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-3xl font-bold" style={{ color: scoreColor }}>{score}</span>
+                <span className="text-xs text-[#8A877D]">de 100</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Status */}
+          <div className="text-center mb-4">
+            <span className="text-lg font-semibold" style={{ color: scoreColor }}>
+              {scoreLabel}
+            </span>
+          </div>
+
+          {/* Breakdown */}
+          <div className="space-y-2 text-sm">
+            <h4 className="font-medium text-[#C8C6BC]">Desglose</h4>
+            <div className="flex justify-between"><span className="text-[#8A877D]">Base</span><span>75 pts</span></div>
+            {totalGastos > 0 && totalIngresos > 0 && (
+              <div className="flex justify-between">
+                <span className="text-[#8A877D]">Ratio gastos/ingresos ({Math.round(totalGastos / totalIngresos * 100)}%)</span>
+                <span className={totalGastos / totalIngresos <= 0.7 ? 'text-[#1D9E75]' : 'text-[#D85A30]'}>
+                  {totalGastos / totalIngresos <= 0.7 ? '+15' : totalGastos / totalIngresos <= 0.9 ? '-5' : '-15'} pts
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Tips */}
+          <div className="space-y-2 text-sm mt-4">
+            <h4 className="font-medium text-[#C8C6BC]">Como mejorar</h4>
+            <ul className="space-y-1 text-[#8A877D]">
+              {totalIngresos > 0 && totalGastos / totalIngresos > 0.7 && (
+                <li>&bull; Reduce gastos un {Math.round((totalGastos / totalIngresos - 0.7) * 100)}% para ganar hasta +15 puntos</li>
+              )}
+              {score < 70 && (
+                <li>&bull; Establece presupuestos por categoria para proteger tu score</li>
+              )}
+              <li>&bull; Tu score potencial: {Math.min(100, score + 20)} ({Math.min(100, score + 20) >= 80 ? 'Excelente' : 'Bueno'})</li>
+            </ul>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

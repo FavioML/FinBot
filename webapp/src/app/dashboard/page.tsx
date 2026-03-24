@@ -295,8 +295,8 @@ export default function DashboardPage() {
             {/* Suscripciones */}
             <div className="glass-card p-5">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-medium text-[#C8C6BC]">Suscripciones detectadas</h3>
-                <span className="text-xs text-[#8A877D]">Proyeccion anual</span>
+                <Link href="/dashboard/suscripciones" className="text-sm font-medium text-[#C8C6BC] hover:text-[#1D9E75] transition-colors">Suscripciones detectadas</Link>
+                <Link href="/dashboard/suscripciones" className="text-xs text-[#1D9E75] hover:underline">Ver todas &rarr;</Link>
               </div>
               {subscriptions.length > 0 ? (
                 <div className="space-y-3">

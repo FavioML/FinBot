@@ -136,13 +136,30 @@ function detectarSuscripcionesFromTxs(txs: Transaccion[]): DeteccionResult {
     })
   }
 
-  const suscripciones: SuscripcionDetectada[] = []
+  // First pass: group all matching transactions by catalog ID (not by comercio name)
+  const porCatalogoId: Record<string, {
+    match: CatalogoEntry
+    pagos: { monto: number; montoPen: number; fecha: string; cat: string; subcat: string }[]
+    moneda: 'USD' | 'PEN'
+  }> = {}
 
   for (const [key, data] of Object.entries(porComercio)) {
     const match = matchCatalogo(data.nombre)
+    if (match) {
+      if (!porCatalogoId[match.id]) {
+        porCatalogoId[match.id] = { match, pagos: [], moneda: data.moneda }
+      }
+      porCatalogoId[match.id].pagos.push(...data.pagos)
+    }
+  }
+
+  const suscripciones: SuscripcionDetectada[] = []
+
+  for (const [id, data] of Object.entries(porCatalogoId)) {
+    const { match } = data
     const mesesConPago = new Set(data.pagos.map(p => p.fecha.substring(0, 7)))
 
-    if (match && data.pagos.length >= 1) {
+    if (data.pagos.length >= 1) {
       const avg = data.pagos.reduce((s, p) => s + p.monto, 0) / data.pagos.length
       const ultimoPago = data.pagos.sort((a, b) => b.fecha.localeCompare(a.fecha))[0]
 
