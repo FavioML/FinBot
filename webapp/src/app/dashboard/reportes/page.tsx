@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useCallback } from 'react';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Select,
   SelectContent,
@@ -9,21 +10,30 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/shared/empty-state';
 import { NumberTicker } from '@/components/ui/number-ticker';
+import { TransactionForm } from '@/components/dashboard/transaction-form';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
 import { formatCurrency, getScoreColor, getScoreLabel } from '@/lib/utils';
 import { getCategoriaEmoji, MESES } from '@/lib/constants';
+import { capitalizeDisplay } from '@/lib/format';
+import type { Transaccion } from '@/lib/types';
 import {
   PieChart, Pie, Cell, BarChart, Bar,
   XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
 import {
   FileBarChart, Download, TrendingUp, TrendingDown,
-  Wallet, Activity,
+  Wallet, Activity, Pencil,
 } from 'lucide-react';
 
 // --- Helpers ---
@@ -60,6 +70,7 @@ export default function ReportesPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
   const monthOptions = useMemo(() => buildMonthOptions(), []);
 
   const now = new Date();
@@ -85,6 +96,44 @@ export default function ReportesPage() {
   });
 
   const isLoading = userLoading || txLoading;
+
+  // Detail dialogs state
+  const [detailCat, setDetailCat] = useState<string | null>(null);
+  const [detailMetodo, setDetailMetodo] = useState<string | null>(null);
+  const [editTransaction, setEditTransaction] = useState<Transaccion | null>(null);
+
+  const refreshAll = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['transactions'] });
+  }, [queryClient]);
+
+  // User categories for TransactionForm
+  const userCategorias = useMemo(() => {
+    const catMap = new Map<string, Set<string>>();
+    for (const t of transactions) {
+      if (!catMap.has(t.categoria)) catMap.set(t.categoria, new Set());
+      if (t.subcategoria && t.subcategoria !== 'null' && t.subcategoria !== 'sin_categoria') {
+        catMap.get(t.categoria)!.add(t.subcategoria);
+      }
+    }
+    return Array.from(catMap.entries()).map(([nombre, subs]) => ({
+      nombre,
+      emoji: getCategoriaEmoji(nombre),
+      subs: Array.from(subs),
+    }));
+  }, [transactions]);
+
+  // Filtered transactions for detail dialogs
+  const detailCatTransactions = useMemo(() => {
+    if (!detailCat) return [];
+    return transactions.filter((t) => t.tipo === 'gasto' && t.categoria === detailCat)
+      .sort((a, b) => b.fecha.localeCompare(a.fecha));
+  }, [transactions, detailCat]);
+
+  const detailMetodoTransactions = useMemo(() => {
+    if (!detailMetodo) return [];
+    return transactions.filter((t) => t.tipo === 'gasto' && normalizeMetodoPago(t.metodo_pago) === detailMetodo)
+      .sort((a, b) => b.fecha.localeCompare(a.fecha));
+  }, [transactions, detailMetodo]);
 
   // --- Computed data ---
 
@@ -206,10 +255,10 @@ export default function ReportesPage() {
             />
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-3xl font-bold" style={{ color: scoreColor }}>
+            <span className="text-3xl font-bold" style={{ color: '#F0EFE8' }}>
               <NumberTicker value={score} />
             </span>
-            <span className="text-xs text-[#C8C6BC]">de 100</span>
+            <span className="text-xs text-[#F0EFE8]">de 100</span>
           </div>
         </div>
         <div>
@@ -274,7 +323,14 @@ export default function ReportesPage() {
                   itemStyle={{ color: '#F0EFE8' }}
                   formatter={(v) => formatCurrency(Number(v))}
                 />
-                <Bar dataKey="total" radius={[0, 6, 6, 0]}>
+                <Bar
+                  dataKey="total"
+                  radius={[0, 6, 6, 0]}
+                  onClick={(data: any) => {
+                    if (data && data.categoria) setDetailCat(data.categoria);
+                  }}
+                  cursor="pointer"
+                >
                   {categoryBreakdown.map((_, i) => (
                     <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                   ))}
@@ -296,6 +352,10 @@ export default function ReportesPage() {
                   data={paymentMethods} dataKey="value" nameKey="name"
                   cx="50%" cy="50%" innerRadius={55} outerRadius={90}
                   paddingAngle={3} strokeWidth={0}
+                  onClick={(data: any) => {
+                    if (data && data.name) setDetailMetodo(data.name);
+                  }}
+                  cursor="pointer"
                 >
                   {paymentMethods.map((_, i) => (
                     <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
@@ -356,6 +416,97 @@ export default function ReportesPage() {
           </BarChart>
         </ResponsiveContainer>
       </div>
+
+      {/* Category detail dialog */}
+      <Dialog open={!!detailCat} onOpenChange={(open) => { if (!open) setDetailCat(null); }}>
+        <DialogContent className="glass-card border-[rgba(255,255,255,0.08)] max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-[#F0EFE8] text-lg">
+              {detailCat && `${getCategoriaEmoji(detailCat)} ${capitalizeDisplay(detailCat)}`}
+            </DialogTitle>
+          </DialogHeader>
+          {detailCat && (
+            <div className="space-y-3">
+              <p className="text-sm text-[#8A877D]">
+                Total: <span className="text-[#D85A30] font-medium">{formatCurrency(detailCatTransactions.reduce((s, t) => s + t.monto_pen, 0))}</span>
+                {' '}— {detailCatTransactions.length} {detailCatTransactions.length === 1 ? 'transaccion' : 'transacciones'}
+              </p>
+              <div className="space-y-2">
+                {detailCatTransactions.map((tx) => (
+                  <div key={tx.id} className="flex items-center justify-between py-2 border-b border-[rgba(255,255,255,0.06)] last:border-0">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-[#F0EFE8] truncate">{tx.comercio || 'Sin comercio'}</p>
+                      <p className="text-xs text-[#8A877D]">
+                        {tx.fecha} {tx.subcategoria && tx.subcategoria !== 'sin_categoria' ? `· ${capitalizeDisplay(tx.subcategoria)}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 ml-3">
+                      <span className="text-sm font-medium text-[#D85A30]">{formatCurrency(tx.monto_pen)}</span>
+                      <button
+                        onClick={() => setEditTransaction(tx)}
+                        className="p-1 rounded hover:bg-[rgba(255,255,255,0.06)] text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment method detail dialog */}
+      <Dialog open={!!detailMetodo} onOpenChange={(open) => { if (!open) setDetailMetodo(null); }}>
+        <DialogContent className="glass-card border-[rgba(255,255,255,0.08)] max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-[#F0EFE8] text-lg">
+              {detailMetodo && capitalizeDisplay(detailMetodo)}
+            </DialogTitle>
+          </DialogHeader>
+          {detailMetodo && (
+            <div className="space-y-3">
+              <p className="text-sm text-[#8A877D]">
+                Total: <span className="text-[#D85A30] font-medium">{formatCurrency(detailMetodoTransactions.reduce((s, t) => s + t.monto_pen, 0))}</span>
+                {' '}— {detailMetodoTransactions.length} {detailMetodoTransactions.length === 1 ? 'transaccion' : 'transacciones'}
+              </p>
+              <div className="space-y-2">
+                {detailMetodoTransactions.map((tx) => (
+                  <div key={tx.id} className="flex items-center justify-between py-2 border-b border-[rgba(255,255,255,0.06)] last:border-0">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-[#F0EFE8] truncate">{tx.comercio || 'Sin comercio'}</p>
+                      <p className="text-xs text-[#8A877D]">
+                        {tx.fecha} · {getCategoriaEmoji(tx.categoria)} {capitalizeDisplay(tx.categoria)}
+                        {tx.subcategoria && tx.subcategoria !== 'sin_categoria' ? ` · ${capitalizeDisplay(tx.subcategoria)}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 ml-3">
+                      <span className="text-sm font-medium text-[#D85A30]">{formatCurrency(tx.monto_pen)}</span>
+                      <button
+                        onClick={() => setEditTransaction(tx)}
+                        className="p-1 rounded hover:bg-[rgba(255,255,255,0.06)] text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit transaction dialog */}
+      <TransactionForm
+        open={!!editTransaction}
+        onOpenChange={(open) => { if (!open) setEditTransaction(null); }}
+        tipo={editTransaction?.tipo === 'ingreso' ? 'ingreso' : 'gasto'}
+        transaction={editTransaction}
+        onSuccess={refreshAll}
+        userCategorias={userCategorias}
+      />
     </div>
   );
 }
