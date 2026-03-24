@@ -386,6 +386,25 @@ export default function TransaccionesPage() {
         </StaggerItem>
       </StaggerContainer>
 
+      {/* Insight banner */}
+      {transactions.length >= 5 && summary.totalGastos > 0 && (() => {
+        const catMap: Record<string, number> = {};
+        for (const t of transactions) {
+          if (t.tipo === 'gasto') catMap[t.categoria] = (catMap[t.categoria] || 0) + t.monto_pen;
+        }
+        const topCat = Object.entries(catMap).sort((a, b) => b[1] - a[1])[0];
+        if (!topCat) return null;
+        const pct = Math.round((topCat[1] / summary.totalGastos) * 100);
+        return (
+          <div className="flex items-center gap-2 rounded-xl bg-[rgba(255,255,255,0.02)] border border-[rgba(255,255,255,0.04)] px-4 py-2.5">
+            <span className="text-sm">{getCategoriaEmoji(topCat[0])}</span>
+            <p className="text-xs text-[#8A877D]">
+              <span className="text-[#C8C6BC] font-medium">{topCat[0]}</span> representa el {pct}% de tus gastos este {viewMode === 'anual' ? 'año' : 'mes'} ({formatCurrency(topCat[1])})
+            </p>
+          </div>
+        );
+      })()}
+
       {/* Filters */}
       <TransactionFilters
         search={search}

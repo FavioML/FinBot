@@ -21,7 +21,7 @@ import { useUser } from '@/lib/hooks/use-user';
 import { useSubscriptions } from '@/lib/hooks/use-subscriptions';
 import { UserMenu } from '@/components/dashboard/user-menu';
 import { MonthSelector } from '@/components/dashboard/month-selector';
-import { MESES } from '@/lib/constants';
+import { MESES, SOCIAL_LINKS } from '@/lib/constants';
 import {
   TIPO_LABELS,
   formatPrecio,
@@ -532,6 +532,27 @@ export default function SuscripcionesPage() {
                 );
               })}
           </div>
+        </div>
+      )}
+
+      {/* Optimization CTA */}
+      {subsData && subsData.cantidad >= 3 && (
+        <div className="glass-card glass-card-glow p-5 text-center">
+          <p className="text-sm font-medium text-[#F0EFE8] mb-1">
+            Gastas ~S/{(subsData.totalMensualPEN).toFixed(0)}/mes en {subsData.cantidad} suscripciones
+          </p>
+          <p className="text-xs text-[#8A877D] mb-3">
+            Revisa si todas las sigues usando. Cancelar una suscripción de S/30 te ahorra S/360 al año.
+          </p>
+          <a
+            href={SOCIAL_LINKS.whatsapp}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-[#1D9E75] hover:underline"
+          >
+            Pregúntale a NETO cuáles puedes optimizar
+            <ExternalLink className="h-3 w-3" />
+          </a>
         </div>
       )}
 

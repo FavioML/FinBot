@@ -32,7 +32,7 @@ import { useTransactions } from '@/lib/hooks/use-transactions';
 import { useBudgets } from '@/lib/hooks/use-budgets';
 import { FadeIn } from '@/components/shared/motion-wrapper';
 import { formatCurrency, formatFecha, calcularScoreFinanciero, getScoreColor, getScoreLabel } from '@/lib/utils';
-import { getCategoriaEmoji, MESES } from '@/lib/constants';
+import { getCategoriaEmoji, MESES, SOCIAL_LINKS } from '@/lib/constants';
 import { detectSubscriptions, TIPO_LABELS } from '@/lib/subscriptions-catalog';
 import type { KPIData, CategoriaGasto, TendenciaMensual } from '@/lib/types';
 
@@ -250,10 +250,43 @@ export default function DashboardPage() {
       </div>
 
       {!hasTransactions ? (
-        <EmptyState
-          title="Sin transacciones este mes"
-          description="Envia tus comprobantes por WhatsApp y NETO los registra automaticamente."
-        />
+        allTransactions.length === 0 ? (
+          /* First-time user onboarding checklist */
+          <FadeIn>
+          <div className="glass-card glass-card-glow p-6 max-w-lg mx-auto">
+            <h3 className="text-lg font-semibold text-[#F0EFE8] mb-1">Bienvenido a NETO</h3>
+            <p className="text-sm text-[#8A877D] mb-5">Completa estos pasos para empezar a ver tus finanzas:</p>
+            <div className="space-y-3">
+              {[
+                { done: true, label: 'Crear tu cuenta', sub: 'Listo — ya estás aquí' },
+                { done: !!user?.email, label: 'Conectar tu Gmail', sub: 'NETO lee tus correos bancarios automáticamente', href: '/dashboard/configuracion' },
+                { done: false, label: 'Registrar tu primer gasto', sub: 'Envía un comprobante por WhatsApp o agrega uno manual', href: SOCIAL_LINKS.whatsapp, external: true },
+              ].map((step, i) => (
+                <a
+                  key={i}
+                  href={step.href}
+                  target={step.external ? '_blank' : undefined}
+                  rel={step.external ? 'noopener noreferrer' : undefined}
+                  className={`flex items-start gap-3 rounded-xl p-3 transition-all ${step.done ? 'opacity-60' : 'hover:bg-[rgba(255,255,255,0.03)] cursor-pointer'}`}
+                >
+                  <div className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold ${step.done ? 'bg-[#1D9E75] text-white' : 'border border-[#8A877D] text-[#8A877D]'}`}>
+                    {step.done ? '✓' : i + 1}
+                  </div>
+                  <div>
+                    <p className={`text-sm font-medium ${step.done ? 'text-[#8A877D] line-through' : 'text-[#F0EFE8]'}`}>{step.label}</p>
+                    <p className="text-xs text-[#8A877D]">{step.sub}</p>
+                  </div>
+                </a>
+              ))}
+            </div>
+          </div>
+          </FadeIn>
+        ) : (
+          <EmptyState
+            title="Sin transacciones este mes"
+            description="Envia tus comprobantes por WhatsApp y NETO los registra automaticamente."
+          />
+        )
       ) : (
         <>
           {/* KPI cards */}

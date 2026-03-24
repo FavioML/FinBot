@@ -92,6 +92,15 @@ export function KPICards({ data, onScoreClick }: KPICardsProps) {
                 className="!text-inherit"
               />
             </p>
+            {isScore && (
+              <p className="text-[10px] mt-1.5 text-[#8A877D]">
+                {data.scoreFinanciero >= 80
+                  ? 'Excelente control de tus finanzas'
+                  : data.scoreFinanciero >= 60
+                    ? 'Buen manejo, puedes mejorar'
+                    : 'Tus gastos superan lo recomendado'}
+              </p>
+            )}
           </div>
           </StaggerItem>
         );
