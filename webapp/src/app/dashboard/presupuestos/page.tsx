@@ -14,6 +14,31 @@ import { formatCurrency } from '@/lib/utils';
 import { MESES } from '@/lib/constants';
 import type { Presupuesto } from '@/lib/types';
 
+/**
+ * Normalize budget/transaction category names so DB-stored budget categories
+ * (lowercase: "auto", "comida", "hogar") match transaction categories
+ * (mixed case: "Auto", "Alimentación", "Vivienda").
+ */
+function normalizeCatForMatch(cat: string): string {
+  const map: Record<string, string[]> = {
+    'alimentación': ['comida', 'alimentacion', 'alimentación'],
+    'vivienda': ['hogar', 'vivienda', 'casa'],
+    'transporte': ['auto', 'transporte'],
+    'entretenimiento': ['entretenimiento', 'entretención'],
+    'compras': ['compras'],
+    'salud': ['salud'],
+    'educación': ['educacion', 'educación'],
+    'finanzas': ['finanzas'],
+    'trabajo_negocio': ['trabajo_negocio', 'trabajo'],
+    'otros': ['otros', 'viajes'],
+  };
+  const lower = cat.toLowerCase();
+  for (const [canonical, aliases] of Object.entries(map)) {
+    if (aliases.includes(lower) || lower === canonical) return canonical;
+  }
+  return lower;
+}
+
 export default function PresupuestosPage() {
   const { data: user, isLoading: userLoading } = useUser();
 
@@ -39,16 +64,16 @@ export default function PresupuestosPage() {
   const [editBudget, setEditBudget] = useState<Presupuesto | null>(null);
   const [deleteBudget, setDeleteBudget] = useState<Presupuesto | null>(null);
 
-  // Compute spending per category (and optionally subcategory)
+  // Compute spending per normalized category (and optionally subcategory)
   const spendingByKey = useMemo(() => {
     const map = new Map<string, number>();
     for (const t of transactions) {
-      // Category-level spending
-      const catKey = t.categoria;
+      // Category-level spending (normalized)
+      const catKey = normalizeCatForMatch(t.categoria);
       map.set(catKey, (map.get(catKey) || 0) + t.monto_pen);
-      // Subcategory-level spending
+      // Subcategory-level spending (normalized category + original subcategory)
       if (t.subcategoria) {
-        const subKey = `${t.categoria}::${t.subcategoria}`;
+        const subKey = `${catKey}::${t.subcategoria.toLowerCase()}`;
         map.set(subKey, (map.get(subKey) || 0) + t.monto_pen);
       }
     }
@@ -56,10 +81,11 @@ export default function PresupuestosPage() {
   }, [transactions]);
 
   function getSpentForBudget(budget: Presupuesto): number {
+    const budgetCatNorm = normalizeCatForMatch(budget.categoria);
     if (budget.subcategoria) {
-      return spendingByKey.get(`${budget.categoria}::${budget.subcategoria}`) || 0;
+      return spendingByKey.get(`${budgetCatNorm}::${budget.subcategoria.toLowerCase()}`) || 0;
     }
-    return spendingByKey.get(budget.categoria) || 0;
+    return spendingByKey.get(budgetCatNorm) || 0;
   }
 
   // Summary calculations

@@ -2,9 +2,32 @@
 
 import { Pencil, Trash2, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { CATEGORIA_EMOJI } from '@/lib/constants';
+import { getCategoriaEmoji, CATEGORIAS } from '@/lib/constants';
 import { formatCurrency } from '@/lib/utils';
 import type { Presupuesto } from '@/lib/types';
+
+/** Map lowercase/alias budget category names to canonical display names */
+const BUDGET_CAT_DISPLAY: Record<string, string> = {
+  'comida': 'Alimentación',
+  'alimentacion': 'Alimentación',
+  'auto': 'Transporte',
+  'hogar': 'Vivienda',
+  'casa': 'Vivienda',
+  'entretención': 'Entretenimiento',
+  'educacion': 'Educación',
+  'trabajo': 'Trabajo_Negocio',
+  'viajes': 'Otros',
+};
+
+function getDisplayName(cat: string): string {
+  // Already a canonical name?
+  if (CATEGORIAS.some(c => c.nombre === cat)) return cat;
+  // Try alias map
+  const mapped = BUDGET_CAT_DISPLAY[cat.toLowerCase()];
+  if (mapped) return mapped;
+  // Capitalize first letter as fallback
+  return cat.charAt(0).toUpperCase() + cat.slice(1);
+}
 
 interface BudgetCardProps {
   budget: Presupuesto;
@@ -27,7 +50,7 @@ export function BudgetCard({ budget, spent, onEdit, onDelete }: BudgetCardProps)
     ? (spent / budget.monto_limite) * 100
     : 0;
   const progressColor = getProgressColor(rawPercentage);
-  const emoji = CATEGORIA_EMOJI[budget.categoria] || '';
+  const emoji = getCategoriaEmoji(budget.categoria);
   const showAlert = rawPercentage >= budget.alerta_porcentaje;
 
   return (
@@ -38,7 +61,7 @@ export function BudgetCard({ budget, spent, onEdit, onDelete }: BudgetCardProps)
           <div className="flex items-center gap-2">
             <span className="text-lg">{emoji}</span>
             <span className="font-semibold text-[#F0EFE8] truncate">
-              {budget.categoria}
+              {getDisplayName(budget.categoria)}
             </span>
             {showAlert && (
               <AlertTriangle className="h-4 w-4 shrink-0" style={{ color: '#EF9F27' }} />

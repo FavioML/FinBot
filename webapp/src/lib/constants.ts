@@ -15,6 +15,50 @@ export const CATEGORIA_EMOJI: Record<string, string> = Object.fromEntries(
   CATEGORIAS.map(c => [c.nombre, c.emoji])
 );
 
+// Extended emoji mapping including non-canonical category names
+const EMOJI_FALLBACK: Record<string, string> = {
+  'Auto': '🚗',
+  'Viajes': '✈️',
+  'auto': '🚗',
+  'viajes': '✈️',
+  'comida': '🍽️',
+  'hogar': '🏠',
+  'entretenimiento': '🎰',
+  'transporte': '🚌',
+  'salud': '💊',
+  'compras': '🛒',
+  'educacion': '📚',
+  'educación': '📚',
+  'finanzas': '💳',
+  'trabajo': '💼',
+  'otros': '📋',
+};
+
+export function getCategoriaEmoji(categoria: string): string {
+  // First try exact match in canonical
+  if (CATEGORIA_EMOJI[categoria]) return CATEGORIA_EMOJI[categoria];
+  // Then try fallback map
+  if (EMOJI_FALLBACK[categoria]) return EMOJI_FALLBACK[categoria];
+  // Try case-insensitive
+  const lower = categoria.toLowerCase();
+  for (const [key, emoji] of Object.entries(EMOJI_FALLBACK)) {
+    if (key.toLowerCase() === lower) return emoji;
+  }
+  // Try partial match
+  if (lower.includes('comida') || lower.includes('aliment')) return '🍽️';
+  if (lower.includes('auto') || lower.includes('transport')) return '🚗';
+  if (lower.includes('viaje')) return '✈️';
+  if (lower.includes('casa') || lower.includes('hogar') || lower.includes('vivien')) return '🏠';
+  if (lower.includes('salud') || lower.includes('medic')) return '💊';
+  if (lower.includes('entret')) return '🎰';
+  if (lower.includes('compra')) return '🛒';
+  if (lower.includes('educ')) return '📚';
+  if (lower.includes('finanz')) return '💳';
+  if (lower.includes('trabaj') || lower.includes('negocio')) return '💼';
+  // Default
+  return '📋';
+}
+
 export const MESES = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
 export const SOCIAL_LINKS = {

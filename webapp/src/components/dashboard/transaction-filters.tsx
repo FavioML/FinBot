@@ -79,7 +79,9 @@ export function TransactionFilters({
           onSubcategoriaChange('all');
         }}>
           <SelectTrigger className="w-[180px] bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#C8C6BC]">
-            <SelectValue placeholder="Todas las categorías" />
+            <SelectValue>
+              {categoriaFilter === 'all' ? 'Todas las categorías' : `${CATEGORIAS.find(c => c.nombre === categoriaFilter)?.emoji || ''} ${categoriaFilter}`}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Todas las categorías</SelectItem>
@@ -95,7 +97,9 @@ export function TransactionFilters({
         {categoriaFilter !== 'all' && subcategorias.length > 0 && (
           <Select value={subcategoriaFilter} onValueChange={onSubcategoriaChange}>
             <SelectTrigger className="w-[200px] bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#C8C6BC]">
-              <SelectValue placeholder="Todas las subcategorías" />
+              <SelectValue>
+                {subcategoriaFilter === 'all' ? 'Todas las subcategorías' : subcategoriaFilter.replace(/_/g, ' ')}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todas las subcategorías</SelectItem>
@@ -111,7 +115,9 @@ export function TransactionFilters({
         {/* Payment method filter */}
         <Select value={metodoPagoFilter} onValueChange={onMetodoPagoChange}>
           <SelectTrigger className="w-[180px] bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#C8C6BC]">
-            <SelectValue placeholder="Todos los métodos" />
+            <SelectValue>
+              {metodoPagoFilter === 'all' ? 'Todos los métodos' : METODOS_PAGO.find(m => m.value === metodoPagoFilter)?.label || metodoPagoFilter}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {METODOS_PAGO.map((m) => (

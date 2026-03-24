@@ -72,7 +72,7 @@ export function BudgetForm({ open, onOpenChange, budget }: BudgetFormProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-[#1A1A18] border-[rgba(255,255,255,0.06)]">
+      <DialogContent className="bg-[#1A1A18] border-[rgba(255,255,255,0.06)] sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="text-[#F0EFE8]">
             {isEditing ? 'Editar presupuesto' : 'Nuevo presupuesto'}
@@ -164,12 +164,8 @@ export function BudgetForm({ open, onOpenChange, budget }: BudgetFormProps) {
             </p>
           </div>
 
-          <DialogFooter className="bg-transparent border-none p-0 m-0 flex-row gap-2">
-            <DialogClose
-              render={
-                <Button variant="outline" type="button" className="border-[rgba(255,255,255,0.06)] text-[#C8C6BC]" />
-              }
-            >
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" className="text-[#C8C6BC]" />}>
               Cancelar
             </DialogClose>
             <Button
@@ -203,7 +199,7 @@ export function DeleteBudgetDialog({ open, onOpenChange, budget }: DeleteBudgetD
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-[#1A1A18] border-[rgba(255,255,255,0.06)]">
+      <DialogContent className="bg-[#1A1A18] border-[rgba(255,255,255,0.06)] sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="text-[#F0EFE8]">
             ¿Eliminar este presupuesto?
@@ -216,12 +212,8 @@ export function DeleteBudgetDialog({ open, onOpenChange, budget }: DeleteBudgetD
             . Esta acción no se puede deshacer.
           </DialogDescription>
         </DialogHeader>
-        <DialogFooter className="bg-transparent border-none p-0 m-0 flex-row gap-2">
-          <DialogClose
-            render={
-              <Button variant="outline" className="border-[rgba(255,255,255,0.06)] text-[#C8C6BC]" />
-            }
-          >
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" className="text-[#C8C6BC]" />}>
             Cancelar
           </DialogClose>
           <Button

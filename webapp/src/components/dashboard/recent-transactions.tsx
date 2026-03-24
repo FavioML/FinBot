@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { formatCurrency, formatFecha } from '@/lib/utils';
-import { CATEGORIA_EMOJI } from '@/lib/constants';
+import { getCategoriaEmoji } from '@/lib/constants';
 import type { Transaccion } from '@/lib/types';
 
 interface RecentTransactionsProps {
@@ -33,7 +33,7 @@ export function RecentTransactions({ transactions }: RecentTransactionsProps) {
       </div>
       <div className="space-y-1">
         {transactions.slice(0, 10).map((tx) => {
-          const emoji = CATEGORIA_EMOJI[tx.categoria] || '';
+          const emoji = getCategoriaEmoji(tx.categoria);
           const isIngreso = tx.tipo === 'ingreso';
 
           return (

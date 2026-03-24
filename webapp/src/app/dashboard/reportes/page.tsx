@@ -16,7 +16,7 @@ import { NumberTicker } from '@/components/ui/number-ticker';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
 import { formatCurrency, getScoreColor, getScoreLabel } from '@/lib/utils';
-import { CATEGORIA_EMOJI, MESES } from '@/lib/constants';
+import { getCategoriaEmoji, MESES } from '@/lib/constants';
 import {
   PieChart, Pie, Cell, BarChart, Bar,
   XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
@@ -46,6 +46,13 @@ function buildMonthOptions() {
 }
 
 const PIE_COLORS = ['#1D9E75', '#EF9F27', '#D85A30', '#3B82F6', '#8B5CF6', '#EC4899', '#14B8A6', '#F97316'];
+
+function normalizeMetodoPago(metodo: string | null | undefined): string {
+  if (!metodo) return 'Sin especificar';
+  return metodo
+    .replace(/^Credito$/i, 'Crédito')
+    .replace(/^Debito$/i, 'Débito');
+}
 
 // --- Component ---
 
@@ -97,9 +104,9 @@ export default function ReportesPage() {
     return Array.from(map.entries())
       .map(([cat, total]) => ({
         categoria: cat,
-        emoji: CATEGORIA_EMOJI[cat] || '',
+        emoji: getCategoriaEmoji(cat),
         total,
-        label: `${CATEGORIA_EMOJI[cat] || ''} ${cat}`,
+        label: `${getCategoriaEmoji(cat)} ${cat}`,
       }))
       .sort((a, b) => b.total - a.total);
   }, [transactions]);
@@ -107,7 +114,7 @@ export default function ReportesPage() {
   const paymentMethods = useMemo(() => {
     const map = new Map<string, number>();
     for (const t of transactions.filter((t) => t.tipo === 'gasto')) {
-      const method = t.metodo_pago || 'Sin especificar';
+      const method = normalizeMetodoPago(t.metodo_pago);
       map.set(method, (map.get(method) || 0) + t.monto_pen);
     }
     return Array.from(map.entries())
@@ -415,7 +422,7 @@ function KPICard({
         <span className="text-xs text-[#8A877D]">{label}</span>
       </div>
       <p className="text-xl font-bold" style={{ color }}>
-        {isCurrency ? formatCurrency(value) : <NumberTicker value={value} />}
+        {isCurrency ? formatCurrency(value) : <NumberTicker value={value} className="!text-inherit" />}
       </p>
     </div>
   );

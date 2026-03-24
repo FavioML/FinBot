@@ -41,7 +41,7 @@ import { TransactionForm, DeleteConfirmDialog } from '@/components/dashboard/tra
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
 import { formatCurrency, formatFecha } from '@/lib/utils';
-import { CATEGORIA_EMOJI, MESES } from '@/lib/constants';
+import { getCategoriaEmoji, MESES } from '@/lib/constants';
 import type { Transaccion } from '@/lib/types';
 
 const PAGE_SIZE = 20;
@@ -543,7 +543,7 @@ function TransactionTableRow({
   onDelete: () => void;
 }) {
   const isIngreso = tx.tipo === 'ingreso';
-  const emoji = CATEGORIA_EMOJI[tx.categoria] || '';
+  const emoji = getCategoriaEmoji(tx.categoria);
 
   return (
     <TableRow className="border-[rgba(255,255,255,0.06)] hover:bg-[rgba(255,255,255,0.02)]">
@@ -607,7 +607,7 @@ function TransactionCard({
   onDelete: () => void;
 }) {
   const isIngreso = tx.tipo === 'ingreso';
-  const emoji = CATEGORIA_EMOJI[tx.categoria] || '';
+  const emoji = getCategoriaEmoji(tx.categoria);
 
   return (
     <div className="glass-card p-4">

@@ -20,7 +20,7 @@ import { CategoryDonut } from '@/components/charts/category-donut';
 import { TrendLine } from '@/components/charts/trend-line';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
-import { CATEGORIA_EMOJI, MESES } from '@/lib/constants';
+import { getCategoriaEmoji, MESES } from '@/lib/constants';
 import type { KPIData, CategoriaGasto, TendenciaMensual } from '@/lib/types';
 
 export default function DashboardPage() {
@@ -95,7 +95,7 @@ export default function DashboardPage() {
     return Array.from(map.entries())
       .map(([categoria, { total, count }]) => ({
         categoria,
-        emoji: CATEGORIA_EMOJI[categoria] || '',
+        emoji: getCategoriaEmoji(categoria),
         total,
         porcentaje: (total / totalGastos) * 100,
         transacciones: count,
