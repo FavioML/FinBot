@@ -24,6 +24,8 @@ interface CatalogoEntry {
   subcategoria_neto: string
   planes: { nombre: string; precio: number }[]
   patrones: string[]
+  /** If set, only match transactions with amounts close to these values (±20%) */
+  montos_validos?: number[]
 }
 
 const CATALOGO: CatalogoEntry[] = [
@@ -65,7 +67,7 @@ const CATALOGO: CatalogoEntry[] = [
 
   // Delivery Perú
   { id: 'rappi_prime', nombre: 'Rappi Prime', tipo: 'delivery', icono: '🛵', moneda: 'PEN', precio_mensual: 14.90, tiene_plan_familiar: false, precio_familiar: null, categoria_neto: 'Alimentación', subcategoria_neto: 'delivery', planes: [{ nombre: 'Prime', precio: 14.90 }], patrones: ['rappi prime', 'rappi pro'] },
-  { id: 'pedidosya_plus', nombre: 'PedidosYa Plus', tipo: 'delivery', icono: '🍔', moneda: 'PEN', precio_mensual: 9.90, tiene_plan_familiar: false, precio_familiar: null, categoria_neto: 'Alimentación', subcategoria_neto: 'delivery', planes: [{ nombre: 'Plus', precio: 9.90 }], patrones: ['pedidosya plus', 'dlc*pedidosya plus'] },
+  { id: 'pedidosya_plus', nombre: 'PedidosYa Plus', tipo: 'delivery', icono: '🍔', moneda: 'PEN', precio_mensual: 16.90, tiene_plan_familiar: false, precio_familiar: null, categoria_neto: 'Alimentación', subcategoria_neto: 'delivery', planes: [{ nombre: 'Plus', precio: 16.90 }, { nombre: 'Plus (precio anterior)', precio: 9.90 }], patrones: ['pedidosya', 'pedidos ya'], montos_validos: [9.90, 16.90] },
 
   // Educación
   { id: 'platzi', nombre: 'Platzi', tipo: 'educacion', icono: '🎓', moneda: 'USD', precio_mensual: 26.00, tiene_plan_familiar: false, precio_familiar: null, categoria_neto: 'Educación', subcategoria_neto: 'curso_online', planes: [{ nombre: 'Expert', precio: 26.00 }], patrones: ['platzi'] },
@@ -94,7 +96,7 @@ function matchCatalogo(comercio: string): CatalogoEntry | null {
   const lower = comercio.toLowerCase().trim()
   for (const sub of CATALOGO) {
     for (const patron of sub.patrones) {
-      if (lower.includes(patron) || patron.includes(lower)) {
+      if (lower.includes(patron)) {
         return sub
       }
     }
@@ -149,7 +151,11 @@ function detectarSuscripcionesFromTxs(txs: Transaccion[]): DeteccionResult {
       if (!porCatalogoId[match.id]) {
         porCatalogoId[match.id] = { match, pagos: [], moneda: data.moneda }
       }
-      porCatalogoId[match.id].pagos.push(...data.pagos)
+      // If montos_validos is set, only include payments close to valid amounts (±20%)
+      const pagosToAdd = match.montos_validos
+        ? data.pagos.filter(p => match.montos_validos!.some(v => Math.abs(p.monto - v) / v <= 0.2))
+        : data.pagos
+      porCatalogoId[match.id].pagos.push(...pagosToAdd)
     }
   }
 

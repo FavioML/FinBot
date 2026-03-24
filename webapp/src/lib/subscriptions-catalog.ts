@@ -90,6 +90,8 @@ export interface SubscriptionPattern {
   icono: string
   tipo: TipoSuscripcion
   patrones: string[]
+  /** If set, only match transactions with amounts close to these values (±20%) */
+  montos_validos?: number[]
 }
 
 export const SUBSCRIPTION_PATTERNS: SubscriptionPattern[] = [
@@ -147,7 +149,7 @@ export const SUBSCRIPTION_PATTERNS: SubscriptionPattern[] = [
 
   // Delivery (solo suscripciones, NO pedidos individuales)
   { id: 'rappi_prime', nombre: 'Rappi Prime', icono: '🛵', tipo: 'delivery', patrones: ['rappi prime', 'rappi pro'] },
-  { id: 'pedidosya_plus', nombre: 'PedidosYa Plus', icono: '🍔', tipo: 'delivery', patrones: ['pedidosya plus', 'dlc*pedidosya plus'] },
+  { id: 'pedidosya_plus', nombre: 'PedidosYa Plus', icono: '🍔', tipo: 'delivery', patrones: ['pedidosya', 'pedidos ya'], montos_validos: [9.90, 16.90] },
   { id: 'didi_club', nombre: 'DiDi Club', icono: '🚗', tipo: 'delivery', patrones: ['didi club'] },
 
   // Educacion
@@ -222,6 +224,11 @@ export function detectSubscriptions(
     for (const sub of SUBSCRIPTION_PATTERNS) {
       const matched = sub.patrones.some(p => comercio.includes(p.toLowerCase()))
       if (matched) {
+        // If montos_validos is set, only include payments close to valid amounts (±20%)
+        if (sub.montos_validos) {
+          const isValidAmount = sub.montos_validos.some(v => Math.abs(tx.monto_pen - v) / v <= 0.2)
+          if (!isValidAmount) continue
+        }
         if (!matchMap.has(sub.id)) {
           matchMap.set(sub.id, {
             pattern: sub,
