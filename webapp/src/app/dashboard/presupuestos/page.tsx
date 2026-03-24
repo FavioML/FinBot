@@ -322,6 +322,11 @@ export default function PresupuestosPage() {
         onSuccess={refreshBudgets}
         userCategorias={userCategorias}
         existingBudgets={budgets}
+        groupSubBudgets={
+          editBudget
+            ? (groupedBudgets.get(editBudget.categoria)?.subs ?? [])
+            : undefined
+        }
       />
 
       {/* Delete confirmation dialog */}
@@ -359,6 +364,36 @@ export default function PresupuestosPage() {
                   }}
                 />
               </div>
+
+              {/* Sub-budget breakdown */}
+              {detailGroup?.subs && detailGroup.subs.length > 0 && (
+                <div className="space-y-3">
+                  <h4 className="text-sm font-medium text-[#C8C6BC]">Presupuestos por subcategoría</h4>
+                  {detailGroup.subs.map(sub => {
+                    const subKey = `${detailCatKey}::${(sub.subcategoria || '').toLowerCase()}`;
+                    const subSpent = spendingByKey.get(subKey) || 0;
+                    const subLimit = Number(sub.monto_limite);
+                    const subPct = subLimit > 0 ? Math.round((subSpent / subLimit) * 100) : 0;
+                    const subColor = subPct >= 90 ? '#D85A30' : subPct >= 60 ? '#EF9F27' : '#1D9E75';
+                    return (
+                      <div key={sub.id} className="space-y-1">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-[#F0EFE8]">{capitalizeDisplay(sub.subcategoria || '')}</span>
+                          <span style={{ color: subColor }}>
+                            S/ {subSpent.toFixed(2)} / S/ {subLimit.toFixed(2)} ({subPct}%)
+                          </span>
+                        </div>
+                        <div className="h-1.5 bg-[#2A2A28] rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all"
+                            style={{ width: `${Math.min(subPct, 100)}%`, backgroundColor: subColor }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* Transactions grouped by subcategory */}
               <div className="space-y-3">

@@ -41,6 +41,7 @@ interface BudgetFormProps {
   onSuccess?: () => void;
   userCategorias?: CategoriaOption[];
   existingBudgets?: Presupuesto[];
+  groupSubBudgets?: Presupuesto[];
 }
 
 function mergeAndDedup(userCategorias?: CategoriaOption[]): CategoriaOption[] {
@@ -83,7 +84,7 @@ function mergeAndDedup(userCategorias?: CategoriaOption[]): CategoriaOption[] {
   return merged.sort((a, b) => a.nombre.localeCompare(b.nombre));
 }
 
-export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategorias, existingBudgets = [] }: BudgetFormProps) {
+export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategorias, existingBudgets = [], groupSubBudgets }: BudgetFormProps) {
   const isEditing = !!budget;
 
   const [categoria, setCategoria] = useState('');
@@ -125,7 +126,16 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
         setCustomSubcategoria('');
         setMontoLimite(budget.monto_limite.toString());
         setAlertaPorcentaje(budget.alerta_porcentaje.toString());
-        setSubRows([]);
+        // Populate sub-budget rows from groupSubBudgets when editing a grouped budget
+        if (groupSubBudgets && groupSubBudgets.length > 0) {
+          setSubRows(groupSubBudgets.map(sb => ({
+            subcategoria: sb.subcategoria || '',
+            customSub: '',
+            monto: sb.monto_limite.toString(),
+          })));
+        } else {
+          setSubRows([]);
+        }
       } else {
         setCategoria('');
         setCustomCategoria('');
@@ -136,7 +146,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
         setSubRows([]);
       }
     }
-  }, [budget, open]);
+  }, [budget, open, groupSubBudgets]);
 
   function addSubRow() {
     setSubRows(prev => [...prev, { subcategoria: '', customSub: '', monto: '' }]);
@@ -177,7 +187,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
 
     try {
       if (isEditing) {
-        // Edit single budget
+        // Update main (total) budget
         const payload = {
           id: budget!.id,
           categoria: effectiveCategoria,
@@ -195,6 +205,62 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
           const errData = await res.json().catch(() => ({}));
           console.error('[BudgetForm] Update failed:', res.status, errData);
           return;
+        }
+
+        // Update sub-budgets if editing a grouped budget
+        if (groupSubBudgets && groupSubBudgets.length > 0) {
+          for (let i = 0; i < subRows.length; i++) {
+            const row = subRows[i];
+            const effSub = getEffectiveSub(row);
+            if (!effSub || !row.monto) continue;
+
+            const existingSub = groupSubBudgets[i];
+            if (existingSub) {
+              // Update existing sub-budget
+              const subPayload = {
+                id: existingSub.id,
+                categoria: effectiveCategoria,
+                subcategoria: effSub,
+                monto_limite: parseFloat(row.monto) || 0,
+                alerta_porcentaje: parseInt(alertaPorcentaje, 10) || 80,
+              };
+              console.log('[BudgetForm] Updating sub-budget:', subPayload);
+              const subRes = await fetch('/api/budgets', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(subPayload),
+              });
+              if (!subRes.ok) {
+                const errData = await subRes.json().catch(() => ({}));
+                console.error('[BudgetForm] Sub-budget update failed:', subRes.status, errData);
+              }
+            } else {
+              // Create new sub-budget
+              const subPayload = {
+                categoria: effectiveCategoria,
+                subcategoria: effSub,
+                monto_limite: parseFloat(row.monto) || 0,
+                alerta_porcentaje: parseInt(alertaPorcentaje, 10) || 80,
+              };
+              console.log('[BudgetForm] Creating new sub-budget:', subPayload);
+              const subRes = await fetch('/api/budgets', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(subPayload),
+              });
+              if (!subRes.ok) {
+                const errData = await subRes.json().catch(() => ({}));
+                console.error('[BudgetForm] Sub-budget create failed:', subRes.status, errData);
+              }
+            }
+          }
+
+          // Delete sub-budgets that were removed
+          for (let i = subRows.length; i < groupSubBudgets.length; i++) {
+            const toDelete = groupSubBudgets[i];
+            console.log('[BudgetForm] Deleting removed sub-budget:', toDelete.id);
+            await fetch(`/api/budgets?id=${toDelete.id}`, { method: 'DELETE' });
+          }
         }
       } else {
         // Create: main category budget + sub-budgets
@@ -313,8 +379,8 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
             )}
           </div>
 
-          {/* Edit mode: single subcategory */}
-          {isEditing && effectiveCategoria && subcategorias.length > 0 && (
+          {/* Edit mode: single subcategory (hidden when editing grouped budget with sub-rows) */}
+          {isEditing && effectiveCategoria && subcategorias.length > 0 && !(groupSubBudgets && groupSubBudgets.length > 0) && (
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-medium text-[#C8C6BC]">Subcategoría</label>
               <Select
@@ -365,8 +431,9 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
             )}
           </div>
 
-          {/* Sub-category budgets (create mode only) */}
-          {!isEditing && effectiveCategoria && !isCustomCat && subcategorias.length > 0 && (
+          {/* Sub-category budgets (create mode or edit with group sub-budgets) */}
+          {((!isEditing && effectiveCategoria && !isCustomCat && subcategorias.length > 0) ||
+            (isEditing && groupSubBudgets && groupSubBudgets.length > 0)) && (
             <div className="flex flex-col gap-3 pt-2 border-t border-[rgba(255,255,255,0.06)]">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-medium text-[#C8C6BC]">Presupuestos por subcategoría</label>
