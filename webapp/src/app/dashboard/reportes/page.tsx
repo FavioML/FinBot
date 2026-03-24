@@ -100,6 +100,7 @@ export default function ReportesPage() {
   // Detail dialogs state
   const [detailCat, setDetailCat] = useState<string | null>(null);
   const [detailMetodo, setDetailMetodo] = useState<string | null>(null);
+  const [detailComercio, setDetailComercio] = useState<string | null>(null);
   const [editTransaction, setEditTransaction] = useState<Transaccion | null>(null);
 
   const refreshAll = useCallback(() => {
@@ -134,6 +135,12 @@ export default function ReportesPage() {
     return transactions.filter((t) => t.tipo === 'gasto' && normalizeMetodoPago(t.metodo_pago) === detailMetodo)
       .sort((a, b) => b.fecha.localeCompare(a.fecha));
   }, [transactions, detailMetodo]);
+
+  const detailComercioTransactions = useMemo(() => {
+    if (!detailComercio) return [];
+    return transactions.filter((t) => t.tipo === 'gasto' && (t.comercio || 'Sin comercio') === detailComercio)
+      .sort((a, b) => b.fecha.localeCompare(a.fecha));
+  }, [transactions, detailComercio]);
 
   // --- Computed data ---
 
@@ -238,6 +245,18 @@ export default function ReportesPage() {
 
   return (
     <div className="space-y-6">
+      {/* Print styles */}
+      <style jsx global>{`
+        @media print {
+          body { background: white !important; color: black !important; }
+          .glass-card { background: white !important; border: 1px solid #ddd !important; color: black !important; }
+          nav, .sidebar, button, [data-slot="dialog"], aside { display: none !important; }
+          * { color: black !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+          svg text { fill: black !important; }
+          .recharts-text { fill: black !important; }
+        }
+      `}</style>
+
       {/* Header */}
       <Header selected={selected} setSelected={setSelected} monthOptions={monthOptions} />
 
@@ -382,7 +401,11 @@ export default function ReportesPage() {
           <h4 className="text-sm font-medium text-[#C8C6BC] mb-4">Top comercios</h4>
           <div className="space-y-3">
             {topMerchants.map((m, i) => (
-              <div key={m.name} className="flex items-center justify-between">
+              <div
+                key={m.name}
+                className="flex items-center justify-between cursor-pointer rounded-lg px-2 py-1 -mx-2 hover:bg-[rgba(255,255,255,0.04)] transition-colors"
+                onClick={() => setDetailComercio(m.name)}
+              >
                 <div className="flex items-center gap-3">
                   <span className="text-xs font-mono text-[#8A877D] w-5 text-right">{i + 1}.</span>
                   <span className="text-sm text-[#F0EFE8]">{m.name}</span>
@@ -419,7 +442,7 @@ export default function ReportesPage() {
 
       {/* Category detail dialog */}
       <Dialog open={!!detailCat} onOpenChange={(open) => { if (!open) setDetailCat(null); }}>
-        <DialogContent className="glass-card border-[rgba(255,255,255,0.08)] max-w-lg max-h-[80vh] overflow-y-auto">
+        <DialogContent className="bg-[#1C1C1A] border-[#2A2A28] max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-[#F0EFE8] text-lg">
               {detailCat && `${getCategoriaEmoji(detailCat)} ${capitalizeDisplay(detailCat)}`}
@@ -435,7 +458,7 @@ export default function ReportesPage() {
                 {detailCatTransactions.map((tx) => (
                   <div key={tx.id} className="flex items-center justify-between py-2 border-b border-[rgba(255,255,255,0.06)] last:border-0">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-[#F0EFE8] truncate">{tx.comercio || 'Sin comercio'}</p>
+                      <p className="text-sm text-[#F0EFE8] whitespace-normal break-words">{tx.comercio || 'Sin comercio'}</p>
                       <p className="text-xs text-[#8A877D]">
                         {tx.fecha} {tx.subcategoria && tx.subcategoria !== 'sin_categoria' ? `· ${capitalizeDisplay(tx.subcategoria)}` : ''}
                       </p>
@@ -459,7 +482,7 @@ export default function ReportesPage() {
 
       {/* Payment method detail dialog */}
       <Dialog open={!!detailMetodo} onOpenChange={(open) => { if (!open) setDetailMetodo(null); }}>
-        <DialogContent className="glass-card border-[rgba(255,255,255,0.08)] max-w-lg max-h-[80vh] overflow-y-auto">
+        <DialogContent className="bg-[#1C1C1A] border-[#2A2A28] max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-[#F0EFE8] text-lg">
               {detailMetodo && capitalizeDisplay(detailMetodo)}
@@ -475,9 +498,52 @@ export default function ReportesPage() {
                 {detailMetodoTransactions.map((tx) => (
                   <div key={tx.id} className="flex items-center justify-between py-2 border-b border-[rgba(255,255,255,0.06)] last:border-0">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-[#F0EFE8] truncate">{tx.comercio || 'Sin comercio'}</p>
+                      <p className="text-sm text-[#F0EFE8] whitespace-normal break-words">{tx.comercio || 'Sin comercio'}</p>
                       <p className="text-xs text-[#8A877D]">
                         {tx.fecha} · {getCategoriaEmoji(tx.categoria)} {capitalizeDisplay(tx.categoria)}
+                        {tx.subcategoria && tx.subcategoria !== 'sin_categoria' ? ` · ${capitalizeDisplay(tx.subcategoria)}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 ml-3">
+                      <span className="text-sm font-medium text-[#D85A30]">{formatCurrency(tx.monto_pen)}</span>
+                      <button
+                        onClick={() => setEditTransaction(tx)}
+                        className="p-1 rounded hover:bg-[rgba(255,255,255,0.06)] text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Comercio detail dialog */}
+      <Dialog open={!!detailComercio} onOpenChange={(open) => { if (!open) setDetailComercio(null); }}>
+        <DialogContent className="bg-[#1C1C1A] border-[#2A2A28] max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-[#F0EFE8] text-lg">
+              {detailComercio}
+            </DialogTitle>
+          </DialogHeader>
+          {detailComercio && (
+            <div className="space-y-3">
+              <p className="text-sm text-[#8A877D]">
+                Total: <span className="text-[#D85A30] font-medium">{formatCurrency(detailComercioTransactions.reduce((s, t) => s + t.monto_pen, 0))}</span>
+                {' '}— {detailComercioTransactions.length} {detailComercioTransactions.length === 1 ? 'transaccion' : 'transacciones'}
+              </p>
+              <div className="space-y-2">
+                {detailComercioTransactions.map((tx) => (
+                  <div key={tx.id} className="flex items-center justify-between py-2 border-b border-[rgba(255,255,255,0.06)] last:border-0">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-[#F0EFE8]">
+                        {getCategoriaEmoji(tx.categoria)} {capitalizeDisplay(tx.categoria)}
+                      </p>
+                      <p className="text-xs text-[#8A877D]">
+                        {tx.fecha}
                         {tx.subcategoria && tx.subcategoria !== 'sin_categoria' ? ` · ${capitalizeDisplay(tx.subcategoria)}` : ''}
                       </p>
                     </div>

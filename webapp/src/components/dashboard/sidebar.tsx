@@ -34,16 +34,15 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const sidebarContent = (
     <div className="flex h-full flex-col bg-[#141412] border-r border-[rgba(255,255,255,0.06)]">
       {/* Logo */}
-      <div className="flex h-24 items-center px-4">
-        <Link href="/dashboard" className="flex items-center gap-3">
+      <div className="flex h-24 items-center justify-center px-4">
+        <Link href="/dashboard" className="flex items-center justify-center">
           <Image
             src="/neto-logo.png"
             alt="NETO"
-            width={64}
-            height={64}
-            className="h-16 w-16 object-contain"
+            width={80}
+            height={80}
+            className="h-20 w-20 object-contain mx-auto"
           />
-          <span className="text-xl font-bold text-[#F0EFE8]">neto</span>
         </Link>
         {/* Close button - mobile only */}
         <button
