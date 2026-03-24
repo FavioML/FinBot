@@ -165,35 +165,8 @@ function detectarSuscripcionesFromTxs(txs: Transaccion[]): DeteccionResult {
         subcategoria_neto: match.subcategoria_neto,
         planes_disponibles: match.planes,
       })
-    } else if (mesesConPago.size >= 2) {
-      const montos = data.pagos.map(p => p.monto)
-      const avg = montos.reduce((a, b) => a + b, 0) / montos.length
-      const varianza = montos.reduce((s, m) => s + Math.pow(m - avg, 2), 0) / montos.length
-      const coefVar = avg > 0 ? Math.sqrt(varianza) / avg : 1
-
-      if (coefVar < 0.3 && avg > 2) {
-        const ultimoPago = data.pagos.sort((a, b) => b.fecha.localeCompare(a.fecha))[0]
-        suscripciones.push({
-          id: 'custom_' + key.replace(/[^a-z0-9]/g, '_'),
-          nombre: data.nombre,
-          tipo: 'otro',
-          icono: '🔄',
-          fuente: 'patron',
-          estado: 'posible',
-          moneda: data.moneda,
-          monto_detectado: Math.round(avg * 100) / 100,
-          monto_pen: data.moneda === 'USD' ? Math.round(avg * TC_APROXIMADO * 100) / 100 : Math.round(avg * 100) / 100,
-          precio_referencia: null,
-          tiene_plan_familiar: false,
-          precio_familiar: null,
-          meses_detectados: mesesConPago.size,
-          ultimo_pago: ultimoPago.fecha,
-          categoria_neto: ultimoPago.cat || 'Otros',
-          subcategoria_neto: ultimoPago.subcat || 'sin_categoria',
-          planes_disponibles: [],
-        })
-      }
     }
+    // No generic fallback — only catalog-matched services count as subscriptions
   }
 
   suscripciones.sort((a, b) => b.monto_pen - a.monto_pen)
