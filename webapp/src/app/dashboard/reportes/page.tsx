@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -96,6 +96,39 @@ export default function ReportesPage() {
   });
 
   const isLoading = userLoading || txLoading;
+
+  const reportRef = useRef<HTMLDivElement>(null);
+  const [generatingPdf, setGeneratingPdf] = useState(false);
+
+  const handleDownloadPDF = useCallback(async () => {
+    if (!reportRef.current || generatingPdf) return;
+    setGeneratingPdf(true);
+    try {
+      const html2canvas = (await import('html2canvas-pro')).default;
+      const { jsPDF } = await import('jspdf');
+      const canvas = await html2canvas(reportRef.current, {
+        backgroundColor: '#0E0E0C',
+        scale: 2,
+        useCORS: true,
+        logging: false,
+      });
+      const imgData = canvas.toDataURL('image/png');
+      const imgW = canvas.width;
+      const imgH = canvas.height;
+      // A4 in mm
+      const pdfW = 210;
+      const pdfH = (imgH * pdfW) / imgW;
+      const pdf = new jsPDF('p', 'mm', [pdfW, Math.max(pdfH, 297)]);
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfW, pdfH);
+      const now = new Date();
+      const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      pdf.save(`Neto-Reporte-${selectedOption.label.replace(/\s/g, '-')}-${dateStr}.pdf`);
+    } catch (err) {
+      console.error('[PDF] Error generating:', err);
+    } finally {
+      setGeneratingPdf(false);
+    }
+  }, [generatingPdf, selectedOption]);
 
   // Detail dialogs state
   const [detailCat, setDetailCat] = useState<string | null>(null);
@@ -243,7 +276,7 @@ export default function ReportesPage() {
   if (!isLoading && transactions.length === 0) {
     return (
       <div className="space-y-6">
-        <Header selected={selected} setSelected={setSelected} monthOptions={monthOptions} />
+        <Header selected={selected} setSelected={setSelected} monthOptions={monthOptions} onDownloadPDF={handleDownloadPDF} generatingPdf={generatingPdf} />
         <EmptyState
           title="Sin datos para este mes"
           description="Registra tus ingresos y gastos por WhatsApp para generar tu reporte mensual."
@@ -277,7 +310,10 @@ export default function ReportesPage() {
       `}</style>
 
       {/* Header */}
-      <Header selected={selected} setSelected={setSelected} monthOptions={monthOptions} />
+      <Header selected={selected} setSelected={setSelected} monthOptions={monthOptions} onDownloadPDF={handleDownloadPDF} generatingPdf={generatingPdf} />
+
+      {/* Report content for PDF capture */}
+      <div ref={reportRef} className="space-y-6">
 
       {/* Score financiero */}
       <div className="glass-card p-6 flex flex-col sm:flex-row items-center gap-6">
@@ -460,6 +496,8 @@ export default function ReportesPage() {
           </BarChart>
         </ResponsiveContainer>
       </div>
+
+      </div>{/* end reportRef */}
 
       {/* Category detail dialog */}
       <Dialog open={!!detailCat} onOpenChange={(open) => { if (!open) setDetailCat(null); }}>
@@ -644,10 +682,14 @@ function Header({
   selected,
   setSelected,
   monthOptions,
+  onDownloadPDF,
+  generatingPdf,
 }: {
   selected: string;
   setSelected: (v: string) => void;
   monthOptions: { label: string; value: string }[];
+  onDownloadPDF: () => void;
+  generatingPdf: boolean;
 }) {
   return (
     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -672,10 +714,11 @@ function Header({
           variant="outline"
           size="sm"
           className="border-[rgba(255,255,255,0.08)] text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.04)]"
-          onClick={() => window.print()}
+          onClick={onDownloadPDF}
+          disabled={generatingPdf}
         >
           <Download className="h-4 w-4 mr-2" />
-          PDF
+          {generatingPdf ? 'Generando...' : 'PDF'}
         </Button>
       </div>
     </div>
