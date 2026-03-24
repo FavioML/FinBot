@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Plus, Target, Wallet, TrendingDown } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -58,6 +59,12 @@ export default function PresupuestosPage() {
     anio: currentYear,
     tipo: 'gasto',
   });
+
+  const queryClient = useQueryClient();
+  const refreshBudgets = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: ['budgets'] }),
+    [queryClient],
+  );
 
   // Dialog state
   const [createOpen, setCreateOpen] = useState(false);
@@ -223,6 +230,7 @@ export default function PresupuestosPage() {
       <BudgetForm
         open={createOpen}
         onOpenChange={setCreateOpen}
+        onSuccess={refreshBudgets}
       />
 
       {/* Edit dialog */}
@@ -230,6 +238,7 @@ export default function PresupuestosPage() {
         open={!!editBudget}
         onOpenChange={(open) => { if (!open) setEditBudget(null); }}
         budget={editBudget}
+        onSuccess={refreshBudgets}
       />
 
       {/* Delete confirmation dialog */}
@@ -237,6 +246,7 @@ export default function PresupuestosPage() {
         open={!!deleteBudget}
         onOpenChange={(open) => { if (!open) setDeleteBudget(null); }}
         budget={deleteBudget}
+        onSuccess={refreshBudgets}
       />
     </div>
   );

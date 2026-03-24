@@ -24,9 +24,10 @@ interface BudgetFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   budget?: Presupuesto | null;
+  onSuccess?: () => void;
 }
 
-export function BudgetForm({ open, onOpenChange, budget }: BudgetFormProps) {
+export function BudgetForm({ open, onOpenChange, budget, onSuccess }: BudgetFormProps) {
   const isEditing = !!budget;
 
   const [categoria, setCategoria] = useState<string>('');
@@ -53,19 +54,43 @@ export function BudgetForm({ open, onOpenChange, budget }: BudgetFormProps) {
     }
   }, [budget, open]);
 
-  function handleSubmit() {
-    if (!categoria || !montoLimite) return;
+  const [saving, setSaving] = useState(false);
 
-    const data = {
-      id: budget?.id,
-      categoria,
-      subcategoria: subcategoria || undefined,
-      monto_limite: parseFloat(montoLimite) || 0,
-      alerta_porcentaje: parseInt(alertaPorcentaje, 10) || 80,
-    };
+  async function handleSubmit() {
+    if (!categoria || !montoLimite || saving) return;
+    setSaving(true);
 
-    console.log(isEditing ? 'Editar presupuesto:' : 'Crear presupuesto:', data);
-    onOpenChange(false);
+    try {
+      const payload = {
+        categoria,
+        subcategoria: subcategoria || null,
+        monto_limite: parseFloat(montoLimite) || 0,
+        alerta_porcentaje: parseInt(alertaPorcentaje, 10) || 80,
+      };
+
+      const res = isEditing
+        ? await fetch('/api/budgets', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: budget!.id, ...payload }),
+          })
+        : await fetch('/api/budgets', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+
+      if (!res.ok) {
+        const err = await res.json();
+        console.error('Error guardando presupuesto:', err);
+        return;
+      }
+
+      onOpenChange(false);
+      onSuccess?.();
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -175,10 +200,10 @@ export function BudgetForm({ open, onOpenChange, budget }: BudgetFormProps) {
             </Button>
             <Button
               className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90"
-              disabled={!categoria || !montoLimite}
               onClick={handleSubmit}
+              disabled={!categoria || !montoLimite || saving}
             >
-              {isEditing ? 'Guardar cambios' : 'Crear presupuesto'}
+              {saving ? 'Guardando...' : isEditing ? 'Guardar cambios' : 'Crear presupuesto'}
             </Button>
           </div>
         </div>
@@ -192,14 +217,28 @@ interface DeleteBudgetDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   budget: Presupuesto | null;
+  onSuccess?: () => void;
 }
 
-export function DeleteBudgetDialog({ open, onOpenChange, budget }: DeleteBudgetDialogProps) {
-  function handleDelete() {
-    if (budget) {
-      console.log('Eliminar presupuesto:', { id: budget.id, categoria: budget.categoria });
+export function DeleteBudgetDialog({ open, onOpenChange, budget, onSuccess }: DeleteBudgetDialogProps) {
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDelete() {
+    if (!budget || deleting) return;
+    setDeleting(true);
+
+    try {
+      const res = await fetch(`/api/budgets?id=${budget.id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const err = await res.json();
+        console.error('Error eliminando presupuesto:', err);
+        return;
+      }
+      onOpenChange(false);
+      onSuccess?.();
+    } finally {
+      setDeleting(false);
     }
-    onOpenChange(false);
   }
 
   return (
@@ -228,8 +267,9 @@ export function DeleteBudgetDialog({ open, onOpenChange, budget }: DeleteBudgetD
           <Button
             variant="destructive"
             onClick={handleDelete}
+            disabled={deleting}
           >
-            Eliminar
+            {deleting ? 'Eliminando...' : 'Eliminar'}
           </Button>
         </div>
       </DialogContent>

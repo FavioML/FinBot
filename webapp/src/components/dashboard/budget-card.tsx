@@ -2,6 +2,7 @@
 
 import { Pencil, Trash2, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { getCategoriaEmoji, CATEGORIAS } from '@/lib/constants';
 import { formatCurrency } from '@/lib/utils';
 import type { Presupuesto } from '@/lib/types';
@@ -64,7 +65,14 @@ export function BudgetCard({ budget, spent, onEdit, onDelete }: BudgetCardProps)
               {getDisplayName(budget.categoria)}
             </span>
             {showAlert && (
-              <AlertTriangle className="h-4 w-4 shrink-0" style={{ color: '#EF9F27' }} />
+              <Tooltip>
+                <TooltipTrigger>
+                  <AlertTriangle className="h-4 w-4 shrink-0" style={{ color: '#EF9F27' }} />
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Superaste el {budget.alerta_porcentaje}% de tu presupuesto</p>
+                </TooltipContent>
+              </Tooltip>
             )}
           </div>
           {budget.subcategoria && (
