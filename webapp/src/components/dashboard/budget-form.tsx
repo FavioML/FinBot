@@ -185,18 +185,23 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
           monto_limite: parseFloat(montoLimite) || 0,
           alerta_porcentaje: parseInt(alertaPorcentaje, 10) || 80,
         };
+        console.log('[BudgetForm] Updating budget:', payload);
         const res = await fetch('/api/budgets', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
-        if (!res.ok) { console.error('Error:', await res.json()); return; }
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          console.error('[BudgetForm] Update failed:', res.status, errData);
+          return;
+        }
       } else {
         // Create: main category budget + sub-budgets
         const budgetsToCreate = [];
 
-        // Main category budget (if monto provided)
-        if (montoLimite) {
+        // Main category budget (if monto provided and no duplicate)
+        if (montoLimite && !catDuplicate) {
           budgetsToCreate.push({
             categoria: effectiveCategoria,
             subcategoria: null,
@@ -218,25 +223,39 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
           }
         }
 
+        console.log('[BudgetForm] Creating budgets:', budgetsToCreate);
+
         // Create all budgets sequentially
         for (const payload of budgetsToCreate) {
+          console.log('[BudgetForm] Creating:', payload);
           const res = await fetch('/api/budgets', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
           });
-          if (!res.ok) { console.error('Error:', await res.json()); }
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            console.error('[BudgetForm] Create failed:', res.status, errData, 'Payload:', payload);
+          }
         }
       }
 
       onOpenChange(false);
       onSuccess?.();
+    } catch (err) {
+      console.error('[BudgetForm] Unexpected error:', err);
     } finally {
       setSaving(false);
     }
   }
 
   const canSubmit = effectiveCategoria && (montoLimite || subRows.some(r => r.monto && getEffectiveSub(r))) && !saving;
+
+  // Helper to get capitalized display for a subcategory value in Select trigger
+  function getSubDisplayText(value: string): string {
+    if (!value || value === '__custom__' || value === '__none__') return '';
+    return capitalizeDisplay(value);
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -306,7 +325,13 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
                 }}
               >
                 <SelectTrigger className="w-full bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#F0EFE8]">
-                  <SelectValue placeholder="Ninguna" />
+                  <SelectValue>
+                    {subcategoria && subcategoria !== '__custom__' && subcategoria !== '__none__'
+                      ? capitalizeDisplay(subcategoria)
+                      : subcategoria === '__none__'
+                        ? 'Ninguna (categoría general)'
+                        : 'Ninguna'}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">Ninguna (categoría general)</SelectItem>
@@ -372,7 +397,11 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
                         }}
                       >
                         <SelectTrigger className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#F0EFE8] text-sm h-9">
-                          <SelectValue placeholder="Seleccionar..." />
+                          <SelectValue>
+                            {row.subcategoria && row.subcategoria !== '__custom__'
+                              ? capitalizeDisplay(row.subcategoria)
+                              : 'Seleccionar...'}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           {subcategorias.filter(s => !usedSubs.has(s.toLowerCase()) || s === row.subcategoria).map((sub) => (
@@ -452,7 +481,11 @@ export function DeleteBudgetDialog({ open, onOpenChange, budget, onSuccess }: De
     setDeleting(true);
     try {
       const res = await fetch(`/api/budgets?id=${budget.id}`, { method: 'DELETE' });
-      if (!res.ok) { console.error('Error:', await res.json()); return; }
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        console.error('[DeleteBudget] Failed:', res.status, errData);
+        return;
+      }
       onOpenChange(false);
       onSuccess?.();
     } finally {

@@ -78,9 +78,9 @@ export default function PresupuestosPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editBudget, setEditBudget] = useState<Presupuesto | null>(null);
   const [deleteBudget, setDeleteBudget] = useState<Presupuesto | null>(null);
-  const [detailBudget, setDetailBudget] = useState<Presupuesto | null>(null);
+  const [detailCategoria, setDetailCategoria] = useState<string | null>(null);
 
-  // Compute user's unique categories from their transactions (includes non-canonical)
+  // Compute user's unique categories from their transactions
   const userCategorias = useMemo<CategoriaOption[]>(() => {
     const catMap = new Map<string, Set<string>>();
     for (const t of transactions) {
@@ -96,26 +96,12 @@ export default function PresupuestosPage() {
     }));
   }, [transactions]);
 
-  // Get transactions for a specific budget (for detail view)
-  function getTransactionsForBudget(budget: Presupuesto): Transaccion[] {
-    const budgetCatNorm = normalizeCatForMatch(budget.categoria);
-    return transactions.filter((t) => {
-      const txCatNorm = normalizeCatForMatch(t.categoria);
-      if (budget.subcategoria) {
-        return txCatNorm === budgetCatNorm && t.subcategoria?.toLowerCase() === budget.subcategoria.toLowerCase();
-      }
-      return txCatNorm === budgetCatNorm;
-    }).sort((a, b) => new Date(b.fecha + 'T00:00:00').getTime() - new Date(a.fecha + 'T00:00:00').getTime());
-  }
-
-  // Compute spending per normalized category (and optionally subcategory)
+  // Compute spending per normalized category and subcategory
   const spendingByKey = useMemo(() => {
     const map = new Map<string, number>();
     for (const t of transactions) {
-      // Category-level spending (normalized)
       const catKey = normalizeCatForMatch(t.categoria);
       map.set(catKey, (map.get(catKey) || 0) + t.monto_pen);
-      // Subcategory-level spending (normalized category + original subcategory)
       if (t.subcategoria) {
         const subKey = `${catKey}::${t.subcategoria.toLowerCase()}`;
         map.set(subKey, (map.get(subKey) || 0) + t.monto_pen);
@@ -124,21 +110,50 @@ export default function PresupuestosPage() {
     return map;
   }, [transactions]);
 
-  function getSpentForBudget(budget: Presupuesto): number {
-    const budgetCatNorm = normalizeCatForMatch(budget.categoria);
-    if (budget.subcategoria) {
-      return spendingByKey.get(`${budgetCatNorm}::${budget.subcategoria.toLowerCase()}`) || 0;
+  // Group budgets by category: one card per category
+  const groupedBudgets = useMemo(() => {
+    const groups = new Map<string, { total: Presupuesto | null; subs: Presupuesto[] }>();
+    for (const b of budgets) {
+      const cat = b.categoria;
+      if (!groups.has(cat)) groups.set(cat, { total: null, subs: [] });
+      const group = groups.get(cat)!;
+      if (b.subcategoria) {
+        group.subs.push(b);
+      } else {
+        group.total = b;
+      }
     }
-    return spendingByKey.get(budgetCatNorm) || 0;
+    // Sort subs alphabetically
+    for (const group of groups.values()) {
+      group.subs.sort((a, b) => (a.subcategoria || '').localeCompare(b.subcategoria || ''));
+    }
+    return groups;
+  }, [budgets]);
+
+  // Get transactions for a category (for detail view)
+  function getTransactionsForCategory(categoria: string): Transaccion[] {
+    const budgetCatNorm = normalizeCatForMatch(categoria);
+    return transactions
+      .filter((t) => normalizeCatForMatch(t.categoria) === budgetCatNorm)
+      .sort((a, b) => new Date(b.fecha + 'T00:00:00').getTime() - new Date(a.fecha + 'T00:00:00').getTime());
   }
 
-  // Summary calculations
+  // Summary calculations: only count total rows (or sum of subs if no total)
   const summary = useMemo(() => {
-    const totalPresupuestado = budgets.reduce((sum, b) => sum + b.monto_limite, 0);
-    const totalGastado = budgets.reduce((sum, b) => sum + getSpentForBudget(b), 0);
-    const restante = totalPresupuestado - totalGastado;
-    return { totalPresupuestado, totalGastado, restante };
-  }, [budgets, spendingByKey]);
+    let totalPresupuestado = 0;
+    let totalGastado = 0;
+
+    for (const [cat, group] of groupedBudgets.entries()) {
+      const catKey = normalizeCatForMatch(cat);
+      const limit = group.total
+        ? group.total.monto_limite
+        : group.subs.reduce((sum, b) => sum + b.monto_limite, 0);
+      totalPresupuestado += limit;
+      totalGastado += spendingByKey.get(catKey) || 0;
+    }
+
+    return { totalPresupuestado, totalGastado, restante: totalPresupuestado - totalGastado };
+  }, [groupedBudgets, spendingByKey]);
 
   const isLoading = userLoading || budgetsLoading || txLoading;
 
@@ -173,8 +188,30 @@ export default function PresupuestosPage() {
     );
   }
 
-  const hasBudgets = budgets.length > 0;
+  const hasBudgets = groupedBudgets.size > 0;
   const restanteColor = summary.restante >= 0 ? '#1D9E75' : '#D85A30';
+
+  // Detail dialog data
+  const detailGroup = detailCategoria ? groupedBudgets.get(detailCategoria) : null;
+  const detailTxs = detailCategoria ? getTransactionsForCategory(detailCategoria) : [];
+  const detailCatKey = detailCategoria ? normalizeCatForMatch(detailCategoria) : '';
+  const detailTotalSpent = detailCatKey ? (spendingByKey.get(detailCatKey) || 0) : 0;
+  const detailTotalLimit = detailGroup
+    ? (detailGroup.total ? detailGroup.total.monto_limite : detailGroup.subs.reduce((s, b) => s + b.monto_limite, 0))
+    : 0;
+  const detailPct = detailTotalLimit > 0 ? Math.round((detailTotalSpent / detailTotalLimit) * 100) : 0;
+
+  // Group detail transactions by subcategory
+  const detailTxsBySubcat = useMemo(() => {
+    if (!detailCategoria) return new Map<string, Transaccion[]>();
+    const map = new Map<string, Transaccion[]>();
+    for (const tx of detailTxs) {
+      const sub = (tx.subcategoria && tx.subcategoria !== 'sin_categoria') ? tx.subcategoria : '(General)';
+      if (!map.has(sub)) map.set(sub, []);
+      map.get(sub)!.push(tx);
+    }
+    return map;
+  }, [detailCategoria, detailTxs]);
 
   return (
     <div className="space-y-6">
@@ -228,18 +265,22 @@ export default function PresupuestosPage() {
             </div>
           </div>
 
-          {/* Budget cards grid */}
+          {/* Budget cards grid — one card per CATEGORY */}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {[...budgets].sort((a, b) => a.categoria.localeCompare(b.categoria)).map((budget) => (
-              <BudgetCard
-                key={budget.id}
-                budget={budget}
-                spent={getSpentForBudget(budget)}
-                onEdit={(b) => setEditBudget(b)}
-                onDelete={(b) => setDeleteBudget(b)}
-                onClick={(b) => setDetailBudget(b)}
-              />
-            ))}
+            {Array.from(groupedBudgets.entries())
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([cat, group]) => (
+                <BudgetCard
+                  key={cat}
+                  categoria={cat}
+                  totalBudget={group.total}
+                  subBudgets={group.subs}
+                  spendingByKey={spendingByKey}
+                  onEdit={(b) => setEditBudget(b)}
+                  onDelete={(b) => setDeleteBudget(b)}
+                  onClick={(c) => setDetailCategoria(c)}
+                />
+              ))}
           </div>
         </>
       ) : (
@@ -291,62 +332,68 @@ export default function PresupuestosPage() {
         onSuccess={refreshBudgets}
       />
 
-      {/* Budget detail dialog - shows transactions */}
-      <Dialog open={!!detailBudget} onOpenChange={(open) => { if (!open) setDetailBudget(null); }}>
+      {/* Category detail dialog — shows transactions grouped by subcategory */}
+      <Dialog open={!!detailCategoria} onOpenChange={(open) => { if (!open) setDetailCategoria(null); }}>
         <DialogContent className="bg-[#1A1A18] border-[rgba(255,255,255,0.06)] sm:max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-[#F0EFE8]">
-              {detailBudget && `${getCategoriaEmoji(detailBudget.categoria)} ${capitalizeDisplay(detailBudget.categoria)}`}
-              {detailBudget?.subcategoria && ` — ${capitalizeDisplay(detailBudget.subcategoria)}`}
+              {detailCategoria && `${getCategoriaEmoji(detailCategoria)} ${capitalizeDisplay(detailCategoria)}`}
             </DialogTitle>
           </DialogHeader>
-          {detailBudget && (() => {
-            const txs = getTransactionsForBudget(detailBudget);
-            const spent = getSpentForBudget(detailBudget);
-            const pct = detailBudget.monto_limite > 0 ? Math.round((spent / detailBudget.monto_limite) * 100) : 0;
-            return (
-              <div className="space-y-4">
-                {/* Summary */}
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-[#8A877D]">Gastado / Límite</span>
-                  <span className="font-semibold" style={{ color: pct > 100 ? '#D85A30' : pct > 80 ? '#EF9F27' : '#1D9E75' }}>
-                    {formatCurrency(spent)} / {formatCurrency(detailBudget.monto_limite)} ({pct}%)
-                  </span>
-                </div>
-                {/* Progress bar */}
-                <div className="h-2 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all"
-                    style={{
-                      width: `${Math.min(pct, 100)}%`,
-                      backgroundColor: pct > 100 ? '#D85A30' : pct > 80 ? '#EF9F27' : '#1D9E75',
-                    }}
-                  />
-                </div>
-                {/* Transaction list */}
-                <div className="space-y-1">
-                  <p className="text-xs text-[#8A877D] font-medium">{txs.length} transacciones</p>
-                  {txs.length === 0 ? (
-                    <p className="text-sm text-[#8A877D] py-4 text-center">Sin gastos en esta categoría este mes</p>
-                  ) : (
-                    <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                      {txs.map((tx) => (
-                        <div key={tx.id} className="flex items-center justify-between py-2 border-b border-[rgba(255,255,255,0.04)]">
-                          <div className="min-w-0">
-                            <p className="text-sm text-[#F0EFE8] truncate">{tx.comercio || 'Sin comercio'}</p>
-                            <p className="text-xs text-[#8A877D]">{formatFecha(tx.fecha)}{tx.subcategoria && tx.subcategoria !== 'sin_categoria' ? ` · ${tx.subcategoria}` : ''}</p>
+          {detailCategoria && (
+            <div className="space-y-4">
+              {/* Summary */}
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-[#8A877D]">Gastado / Límite</span>
+                <span className="font-semibold" style={{ color: detailPct > 100 ? '#D85A30' : detailPct > 80 ? '#EF9F27' : '#1D9E75' }}>
+                  {formatCurrency(detailTotalSpent)} / {formatCurrency(detailTotalLimit)} ({detailPct}%)
+                </span>
+              </div>
+              {/* Progress bar */}
+              <div className="h-2 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{
+                    width: `${Math.min(detailPct, 100)}%`,
+                    backgroundColor: detailPct > 100 ? '#D85A30' : detailPct > 80 ? '#EF9F27' : '#1D9E75',
+                  }}
+                />
+              </div>
+
+              {/* Transactions grouped by subcategory */}
+              <div className="space-y-3">
+                <p className="text-xs text-[#8A877D] font-medium">{detailTxs.length} transacciones</p>
+                {detailTxs.length === 0 ? (
+                  <p className="text-sm text-[#8A877D] py-4 text-center">Sin gastos en esta categoría este mes</p>
+                ) : (
+                  <div className="space-y-4 max-h-[400px] overflow-y-auto">
+                    {Array.from(detailTxsBySubcat.entries())
+                      .sort(([a], [b]) => a.localeCompare(b))
+                      .map(([subName, txs]) => (
+                        <div key={subName}>
+                          <p className="text-xs font-medium text-[#C8C6BC] mb-1.5">
+                            {subName === '(General)' ? subName : capitalizeDisplay(subName)}
+                          </p>
+                          <div className="space-y-1">
+                            {txs.map((tx) => (
+                              <div key={tx.id} className="flex items-center justify-between py-2 border-b border-[rgba(255,255,255,0.04)]">
+                                <div className="min-w-0">
+                                  <p className="text-sm text-[#F0EFE8] truncate">{tx.comercio || 'Sin comercio'}</p>
+                                  <p className="text-xs text-[#8A877D]">{formatFecha(tx.fecha)}</p>
+                                </div>
+                                <span className="text-sm font-medium text-[#D85A30] shrink-0 ml-3">
+                                  -{formatCurrency(tx.monto_pen)}
+                                </span>
+                              </div>
+                            ))}
                           </div>
-                          <span className="text-sm font-medium text-[#D85A30] shrink-0 ml-3">
-                            -{formatCurrency(tx.monto_pen)}
-                          </span>
                         </div>
                       ))}
-                    </div>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
-            );
-          })()}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

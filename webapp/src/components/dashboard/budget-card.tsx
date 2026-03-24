@@ -9,11 +9,13 @@ import { capitalizeDisplay } from '@/lib/format';
 import type { Presupuesto } from '@/lib/types';
 
 interface BudgetCardProps {
-  budget: Presupuesto;
-  spent: number;
+  categoria: string;
+  totalBudget: Presupuesto | null;
+  subBudgets: Presupuesto[];
+  spendingByKey: Map<string, number>;
   onEdit: (budget: Presupuesto) => void;
   onDelete: (budget: Presupuesto) => void;
-  onClick?: (budget: Presupuesto) => void;
+  onClick: (categoria: string) => void;
 }
 
 function getProgressColor(percentage: number): string {
@@ -22,31 +24,68 @@ function getProgressColor(percentage: number): string {
   return '#D85A30';
 }
 
-export function BudgetCard({ budget, spent, onEdit, onDelete, onClick }: BudgetCardProps) {
-  const percentage = budget.monto_limite > 0
-    ? Math.min((spent / budget.monto_limite) * 100, 100)
-    : 0;
-  const rawPercentage = budget.monto_limite > 0
-    ? (spent / budget.monto_limite) * 100
-    : 0;
-  const progressColor = getProgressColor(rawPercentage);
-  const emoji = getCategoriaEmoji(budget.categoria);
-  const showAlert = rawPercentage >= budget.alerta_porcentaje;
+function normalizeCatForMatch(cat: string): string {
+  const map: Record<string, string[]> = {
+    'alimentación': ['comida', 'alimentacion', 'alimentación'],
+    'vivienda': ['hogar', 'vivienda', 'casa'],
+    'transporte': ['auto', 'transporte'],
+    'entretenimiento': ['entretenimiento', 'entretención'],
+    'compras': ['compras'],
+    'salud': ['salud'],
+    'educación': ['educacion', 'educación'],
+    'finanzas': ['finanzas'],
+    'trabajo_negocio': ['trabajo_negocio', 'trabajo'],
+    'otros': ['otros', 'viajes'],
+  };
+  const lower = cat.toLowerCase();
+  for (const [canonical, aliases] of Object.entries(map)) {
+    if (aliases.includes(lower) || lower === canonical) return canonical;
+  }
+  return lower;
+}
 
-  const displayName = capitalizeDisplay(budget.categoria);
+export function BudgetCard({
+  categoria,
+  totalBudget,
+  subBudgets,
+  spendingByKey,
+  onEdit,
+  onDelete,
+  onClick,
+}: BudgetCardProps) {
+  const catKey = normalizeCatForMatch(categoria);
+
+  // Compute the effective total limit
+  const totalLimit = totalBudget
+    ? totalBudget.monto_limite
+    : subBudgets.reduce((sum, b) => sum + b.monto_limite, 0);
+
+  // Total spending for the category
+  const totalSpent = spendingByKey.get(catKey) || 0;
+
+  const rawPercentage = totalLimit > 0 ? (totalSpent / totalLimit) * 100 : 0;
+  const clampedPercentage = Math.min(rawPercentage, 100);
+  const progressColor = getProgressColor(rawPercentage);
+
+  const emoji = getCategoriaEmoji(categoria);
+  const alertPct = totalBudget?.alerta_porcentaje ?? 80;
+  const showAlert = rawPercentage >= alertPct;
+
+  // The budget to use for edit/delete actions (total row preferred, else first sub)
+  const actionBudget = totalBudget || subBudgets[0];
 
   return (
     <div
       className="glass-card p-5 flex flex-col gap-3 cursor-pointer"
-      onClick={() => onClick?.(budget)}
+      onClick={() => onClick(categoria)}
     >
-      {/* Header row */}
+      {/* Header */}
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-lg">{emoji}</span>
             <span className="font-semibold text-[#F0EFE8] truncate">
-              {displayName}
+              {capitalizeDisplay(categoria)}
             </span>
             {showAlert && (
               <Tooltip>
@@ -54,54 +93,86 @@ export function BudgetCard({ budget, spent, onEdit, onDelete, onClick }: BudgetC
                   <AlertTriangle className="h-4 w-4 shrink-0" style={{ color: '#EF9F27' }} />
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Superaste el {budget.alerta_porcentaje}% de tu presupuesto</p>
+                  <p>Superaste el {alertPct}% de tu presupuesto</p>
                 </TooltipContent>
               </Tooltip>
             )}
           </div>
-          {budget.subcategoria && (
-            <p className="text-xs text-[#8A877D] mt-0.5 ml-7">
-              {capitalizeDisplay(budget.subcategoria)}
-            </p>
-          )}
         </div>
-        <div className="flex items-center gap-1 shrink-0">
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            onClick={(e) => { e.stopPropagation(); onEdit(budget); }}
-            aria-label="Editar presupuesto"
-          >
-            <Pencil className="h-3.5 w-3.5 text-[#8A877D]" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            onClick={(e) => { e.stopPropagation(); onDelete(budget); }}
-            aria-label="Eliminar presupuesto"
-          >
-            <Trash2 className="h-3.5 w-3.5 text-[#8A877D]" />
-          </Button>
-        </div>
+        {actionBudget && (
+          <div className="flex items-center gap-1 shrink-0">
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={(e) => { e.stopPropagation(); onEdit(actionBudget); }}
+              aria-label="Editar presupuesto"
+            >
+              <Pencil className="h-3.5 w-3.5 text-[#8A877D]" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={(e) => { e.stopPropagation(); onDelete(actionBudget); }}
+              aria-label="Eliminar presupuesto"
+            >
+              <Trash2 className="h-3.5 w-3.5 text-[#8A877D]" />
+            </Button>
+          </div>
+        )}
       </div>
 
-      {/* Progress bar */}
+      {/* Main progress bar */}
       <div className="w-full">
         <div className="h-2 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
           <div
             className="h-full rounded-full transition-all duration-500 ease-out"
             style={{
-              width: `${percentage}%`,
+              width: `${clampedPercentage}%`,
               backgroundColor: progressColor,
             }}
           />
         </div>
       </div>
 
-      {/* Footer info */}
+      {/* Sub-budget rows */}
+      {subBudgets.length > 0 && (
+        <div className="flex flex-col gap-2 pt-1">
+          {subBudgets.map((sub) => {
+            const subKey = `${catKey}::${(sub.subcategoria || '').toLowerCase()}`;
+            const subSpent = spendingByKey.get(subKey) || 0;
+            const subRawPct = sub.monto_limite > 0 ? (subSpent / sub.monto_limite) * 100 : 0;
+            const subClampedPct = Math.min(subRawPct, 100);
+            const subColor = getProgressColor(subRawPct);
+
+            return (
+              <div key={sub.id} className="flex flex-col gap-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-[#C8C6BC]">
+                    {capitalizeDisplay(sub.subcategoria || '')}
+                  </span>
+                  <span className="text-[10px] text-[#8A877D]">
+                    {formatCurrency(subSpent)} / {formatCurrency(sub.monto_limite)}
+                  </span>
+                </div>
+                <div className="h-1 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-500 ease-out"
+                    style={{
+                      width: `${subClampedPct}%`,
+                      backgroundColor: subColor,
+                    }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Footer */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-[#C8C6BC]">
-          {formatCurrency(spent)} / {formatCurrency(budget.monto_limite)}
+          {formatCurrency(totalSpent)} / {formatCurrency(totalLimit)}
         </p>
         <span
           className="text-xs font-medium rounded-full px-2 py-0.5"
