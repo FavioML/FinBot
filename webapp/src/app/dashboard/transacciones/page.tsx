@@ -40,6 +40,7 @@ import { CurrencyDisplay } from '@/components/shared/currency-display';
 import { TransactionFilters } from '@/components/dashboard/transaction-filters';
 import { TransactionForm, DeleteConfirmDialog } from '@/components/dashboard/transaction-form';
 import { MonthSelector } from '@/components/dashboard/month-selector';
+import { UserMenu } from '@/components/dashboard/user-menu';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
 import { useBudgets } from '@/lib/hooks/use-budgets';
@@ -289,7 +290,7 @@ export default function TransaccionesPage() {
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-bold text-[#F0EFE8]">Transacciones</h1>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-3">
           <Button
             variant="outline"
             className="border-[rgba(255,255,255,0.06)] text-[#C8C6BC]"
@@ -305,6 +306,7 @@ export default function TransaccionesPage() {
             <Plus className="h-4 w-4" data-icon="inline-start" />
             Nuevo ingreso
           </Button>
+          <UserMenu />
         </div>
       </div>
 

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -15,12 +16,13 @@ import { EmptyState } from '@/components/shared/empty-state';
 import { WhatsAppButton } from '@/components/shared/whatsapp-button';
 import { MonthSelector } from '@/components/dashboard/month-selector';
 import { KPICards } from '@/components/dashboard/kpi-cards';
-import { RecentTransactions } from '@/components/dashboard/recent-transactions';
 import { InsightCard } from '@/components/dashboard/insight-card';
 import { CategoryDonut } from '@/components/charts/category-donut';
 import { TrendLine } from '@/components/charts/trend-line';
+import { UserMenu } from '@/components/dashboard/user-menu';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
+import { formatCurrency, formatFecha } from '@/lib/utils';
 import { getCategoriaEmoji, MESES } from '@/lib/constants';
 import type { KPIData, CategoriaGasto, TendenciaMensual } from '@/lib/types';
 
@@ -126,6 +128,38 @@ export default function DashboardPage() {
     return months;
   }, [allTransactions, currentMonth, currentYear]);
 
+  // Detect recurring subscriptions from ALL transactions
+  const subscriptions = useMemo(() => {
+    const gastos = allTransactions.filter(t => t.tipo === 'gasto');
+    const byComercio = new Map<string, { months: Set<string>; amounts: number[]; categoria: string }>();
+
+    for (const t of gastos) {
+      const key = (t.comercio || '').toLowerCase().trim();
+      if (!key || key === 'sin comercio') continue;
+      if (!byComercio.has(key)) byComercio.set(key, { months: new Set(), amounts: [], categoria: t.categoria });
+      const entry = byComercio.get(key)!;
+      entry.months.add(t.fecha.substring(0, 7));
+      entry.amounts.push(t.monto_pen);
+    }
+
+    const subs: { comercio: string; monthlyAvg: number; annualProjection: number; categoria: string; months: number }[] = [];
+
+    for (const [comercio, data] of byComercio) {
+      if (data.months.size >= 2) {
+        const avg = data.amounts.reduce((s, a) => s + a, 0) / data.months.size;
+        subs.push({
+          comercio: comercio.charAt(0).toUpperCase() + comercio.slice(1),
+          monthlyAvg: avg,
+          annualProjection: avg * 12,
+          categoria: data.categoria,
+          months: data.months.size,
+        });
+      }
+    }
+
+    return subs.sort((a, b) => b.annualProjection - a.annualProjection);
+  }, [allTransactions]);
+
   const isLoading = userLoading || txLoading;
 
   // Loading skeleton
@@ -165,13 +199,16 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       {/* Welcome header */}
-      <div>
-        <h1 className="text-2xl font-bold text-[#F0EFE8]">
-          Hola{user.nombre ? `, ${user.nombre}` : user.email ? `, ${user.email.split('@')[0]}` : ''}
-        </h1>
-        <p className="text-sm text-[#8A877D] mt-1">
-          Tu resumen financiero &mdash; {viewMode === 'anual' ? `Año ${selectedYear}` : `${MESES[currentMonth]} ${currentYear}`}
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-[#F0EFE8]">
+            Hola{user.nombre ? `, ${user.nombre}` : user.email ? `, ${user.email.split('@')[0]}` : ''}
+          </h1>
+          <p className="text-sm text-[#8A877D] mt-1">
+            Tu resumen financiero &mdash; {viewMode === 'anual' ? `Año ${selectedYear}` : `${MESES[currentMonth]} ${currentYear}`}
+          </p>
+        </div>
+        <UserMenu />
       </div>
 
       {/* View mode toggle */}
@@ -221,8 +258,73 @@ export default function DashboardPage() {
             <CategoryDonut data={categoryData} />
           </div>
 
-          {/* Recent transactions */}
-          <RecentTransactions transactions={transactions} />
+          {/* Transacciones Recientes + Suscripciones side by side */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Transacciones Recientes */}
+            <div className="glass-card p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-medium text-[#C8C6BC]">Transacciones Recientes</h3>
+                <Link href="/dashboard/transacciones" className="text-xs text-[#1D9E75] hover:underline">Ver todas &rarr;</Link>
+              </div>
+              {transactions.length > 0 ? (
+                <div className="space-y-1">
+                  {transactions.slice(0, 8).map((tx) => {
+                    const emoji = getCategoriaEmoji(tx.categoria);
+                    const isIngreso = tx.tipo === 'ingreso';
+                    return (
+                      <div
+                        key={tx.id}
+                        className="flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-[rgba(255,255,255,0.03)]"
+                      >
+                        <span className="text-xs text-[#8A877D] w-[72px] shrink-0">{formatFecha(tx.fecha)}</span>
+                        <span className="inline-flex items-center gap-1 rounded-full bg-[rgba(255,255,255,0.05)] px-2 py-0.5 text-xs text-[#C8C6BC] shrink-0">
+                          {emoji} {tx.categoria}
+                        </span>
+                        <span className="truncate text-sm text-[#F0EFE8] flex-1 min-w-0">
+                          {tx.comercio || tx.descripcion_original || tx.subcategoria}
+                        </span>
+                        <span
+                          className="text-sm font-semibold tabular-nums shrink-0"
+                          style={{ color: isIngreso ? '#1D9E75' : '#D85A30' }}
+                        >
+                          {isIngreso ? '+' : '-'}{formatCurrency(tx.monto_pen)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-sm text-[#8A877D]">Sin transacciones recientes</p>
+              )}
+            </div>
+
+            {/* Suscripciones */}
+            <div className="glass-card p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-medium text-[#C8C6BC]">Suscripciones detectadas</h3>
+                <span className="text-xs text-[#8A877D]">Proyeccion anual</span>
+              </div>
+              {subscriptions.length > 0 ? (
+                <div className="space-y-3">
+                  {subscriptions.slice(0, 8).map((sub) => (
+                    <div key={sub.comercio} className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-[#F0EFE8]">{getCategoriaEmoji(sub.categoria)} {sub.comercio}</p>
+                        <p className="text-xs text-[#8A877D]">{sub.months} meses &middot; ~{formatCurrency(sub.monthlyAvg)}/mes</p>
+                      </div>
+                      <p className="text-sm text-[#D85A30] font-medium">{formatCurrency(sub.annualProjection)}/ano</p>
+                    </div>
+                  ))}
+                  <div className="border-t border-[rgba(255,255,255,0.06)] pt-3 flex justify-between">
+                    <p className="text-sm font-medium text-[#C8C6BC]">Total proyectado anual</p>
+                    <p className="text-sm font-bold text-[#D85A30]">{formatCurrency(subscriptions.reduce((s, sub) => s + sub.annualProjection, 0))}</p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-[#8A877D]">No se detectaron suscripciones recurrentes.</p>
+              )}
+            </div>
+          </div>
         </>
       )}
 

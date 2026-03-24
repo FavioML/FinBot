@@ -22,6 +22,7 @@ import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useUser } from '@/lib/hooks/use-user';
 import { createClient } from '@/lib/supabase/client';
+import { UserMenu } from '@/components/dashboard/user-menu';
 import { SOCIAL_LINKS } from '@/lib/constants';
 
 /* ------------------------------------------------------------------ */
@@ -131,7 +132,10 @@ export default function ConfiguracionPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <h1 className="text-2xl font-bold text-[#F0EFE8]">Configuracion</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-[#F0EFE8]">Configuracion</h1>
+        <UserMenu />
+      </div>
 
       {/* ============================================================ */}
       {/*  Profile                                                      */}

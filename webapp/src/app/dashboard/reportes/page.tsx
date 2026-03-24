@@ -22,6 +22,7 @@ import { EmptyState } from '@/components/shared/empty-state';
 import { NumberTicker } from '@/components/ui/number-ticker';
 import { TransactionForm } from '@/components/dashboard/transaction-form';
 import { MonthSelector } from '@/components/dashboard/month-selector';
+import { UserMenu } from '@/components/dashboard/user-menu';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
 import { formatCurrency, getScoreColor, getScoreLabel } from '@/lib/utils';
@@ -712,6 +713,7 @@ function Header({
           <Download className="h-4 w-4 mr-2" />
           {generatingPdf ? 'Generando...' : 'PDF'}
         </Button>
+        <UserMenu />
       </div>
     </div>
   );
