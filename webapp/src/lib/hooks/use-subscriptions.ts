@@ -160,8 +160,12 @@ function detectarSuscripcionesFromTxs(txs: Transaccion[]): DeteccionResult {
     const mesesConPago = new Set(data.pagos.map(p => p.fecha.substring(0, 7)))
 
     if (data.pagos.length >= 1) {
-      const avg = data.pagos.reduce((s, p) => s + p.monto, 0) / data.pagos.length
+      // Use monto_pen for consistent averaging (handles mixed currencies)
+      const avgPen = data.pagos.reduce((s, p) => s + p.montoPen, 0) / mesesConPago.size
       const ultimoPago = data.pagos.sort((a, b) => b.fecha.localeCompare(a.fecha))[0]
+      // Use catalog's moneda for display, calculate display amount from PEN avg
+      const moneda = match.moneda
+      const montoDisplay = moneda === 'USD' ? Math.round(avgPen / TC_APROXIMADO * 100) / 100 : Math.round(avgPen * 100) / 100
 
       suscripciones.push({
         id: match.id,
@@ -170,9 +174,9 @@ function detectarSuscripcionesFromTxs(txs: Transaccion[]): DeteccionResult {
         icono: match.icono,
         fuente: 'catalogo',
         estado: 'activa',
-        moneda: data.moneda,
-        monto_detectado: Math.round(avg * 100) / 100,
-        monto_pen: data.moneda === 'USD' ? Math.round(avg * TC_APROXIMADO * 100) / 100 : Math.round(avg * 100) / 100,
+        moneda,
+        monto_detectado: montoDisplay,
+        monto_pen: Math.round(avgPen * 100) / 100,
         precio_referencia: match.precio_mensual,
         tiene_plan_familiar: match.tiene_plan_familiar,
         precio_familiar: match.precio_familiar,
