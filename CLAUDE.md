@@ -13,7 +13,7 @@ NETO es un asistente financiero personal por WhatsApp para el mercado peruano.
 - Número WhatsApp producción: +51 933 014 505
 - Admin WhatsApp: +51970398192
 
-## Estado actual (23 Mar 2026)
+## Estado actual (24 Mar 2026)
 
 ### Arquitectura de código (modularizado)
 - `index.js` — core (~2245 líneas: webhook, NLP 23 intenciones, router)
@@ -65,36 +65,45 @@ NETO es un asistente financiero personal por WhatsApp para el mercado peruano.
 
 ## Pendientes actuales
 
-### ACTIVO — Webapp (app.neto.pe)
-- [x] **Fase 1 — Setup + Login + Dashboard Overview** (en progreso)
+### Webapp (app.neto.pe) — LIVE en producción
+- [x] **Fase 1 — Setup + Login + Dashboard Overview**
   - [x] Next.js 16 + TypeScript + Tailwind + shadcn/ui + Magic UI + Recharts
   - [x] Theme "Nocturnal Precision" (dark only, glassmorphism)
-  - [x] Login page con Google OAuth (Supabase Auth)
+  - [x] Login page con Google OAuth (Supabase Auth) + diseño "Bienvenido"
   - [x] Middleware de auth (protege /dashboard)
   - [x] Dashboard layout: sidebar + topbar + WhatsApp button
   - [x] Dashboard overview: KPI cards, donut categorías, trend chart, transacciones recientes
-  - [x] Build exitoso, preview verificado
-  - [ ] Pendiente: configurar Supabase Auth Google provider + anon key
-  - [ ] Pendiente: deploy a Vercel (app.neto.pe)
+  - [x] Supabase Auth Google provider configurado + anon key
+  - [x] Deploy a Vercel (app.neto.pe + neto-app.vercel.app)
+  - [x] DNS CNAME en Cloudflare + redirect URIs en Google Cloud Console
 - [x] **Fase 2 — Transacciones + Presupuestos**
-  - [x] Transacciones: filtros, búsqueda, tabla/cards, CRUD dialogs, paginación
-  - [x] Presupuestos: cards con barras de progreso, CRUD dialogs
+  - [x] Transacciones: filtros en español, búsqueda, tabla/cards, CRUD completo, paginación con números
+  - [x] Presupuestos: cards agrupadas por categoría, sub-presupuestos, CRUD completo, barras de progreso
+  - [x] Categorías/subcategorías del usuario dinámicas (desde transacciones + presupuestos)
+  - [x] Vista mensual + anual con selector de año dinámico
 - [x] **Fase 3 — Reportes + Configuración**
-  - [x] Reportes: score financiero SVG, KPIs, charts categorías/métodos pago, top merchants, gasto diario
+  - [x] Reportes: score financiero SVG clickeable con desglose, KPIs, charts, top merchants, gasto diario
+  - [x] PDF descargable con nombre "Neto - Reporte - dd-mm-yyyy.pdf"
   - [x] Configuración: perfil, plan free/premium, referidos, cuentas conectadas, cerrar sesión
-- [ ] **Pendiente: Conectar con datos reales**
-  - [ ] Configurar Supabase Auth Google provider + obtener anon key
-  - [ ] Agregar columnas email + supabase_auth_id a tabla usuarios
-  - [ ] RLS policies para webapp
-  - [ ] Deploy a Vercel (app.neto.pe)
-  - [ ] Endpoints API en backend (CRUD transacciones, presupuestos)
-  - [ ] Consejo IA via API route (proxy a OpenAI)
+- [x] **Conectado con datos reales**
+  - [x] Supabase Auth vinculado a tabla usuarios (email + supabase_auth_id)
+  - [x] RLS policies para webapp (SELECT, INSERT, UPDATE, DELETE)
+  - [x] API routes: /api/transactions, /api/budgets, /api/user
+  - [x] Avatar Google (user_metadata.avatar_url) + dropdown con logout
+  - [x] Selector de mes inline (no en topbar)
+  - [x] Suscripciones detectadas por catálogo (50+ servicios digitales)
+  - [x] Score financiero fórmula unificada (base 75, penalties)
+  - [x] Nombre real del usuario (no email)
+
+### Pendientes webapp
+- [ ] Métodos de pago consolidados ("BCP Crédito" + "Crédito" → unificar)
+- [ ] Consejo IA via API route (proxy a OpenAI)
 
 ### Pendientes menores
 - [ ] Verificación de negocio en Meta (manual, límite 250 conv/día)
 - [ ] Modularizar más index.js (parsers, NLP, webhook — 600+ líneas pendientes)
 
-### Completados (sesiones 20-23 Mar)
+### Completados (sesiones 20-24 Mar)
 - [x] Separación landing/backend: neto.pe → Cloudflare Pages, api.neto.pe → Railway
 - [x] Separación de entornos: .env.example + config validation + NODE_ENV guards
 - [x] Backup automático: semanal a GitHub Gist (245KB, 9 tablas)
@@ -110,6 +119,15 @@ NETO es un asistente financiero personal por WhatsApp para el mercado peruano.
 - [x] Rate limiting + validación + dedup + logging Pino
 - [x] CI/CD + Dependabot
 - [x] 56 tests unitarios
+- [x] Webapp live en app.neto.pe (Vercel) con datos reales de Supabase
+- [x] Login Google OAuth + avatar + dropdown logout
+- [x] Dashboard: KPIs, charts, transacciones recientes, suscripciones por catálogo
+- [x] Transacciones: CRUD completo, filtros español, paginación, vista anual
+- [x] Presupuestos: agrupados por categoría, sub-presupuestos, CRUD completo
+- [x] Reportes: score clickeable, PDF descargable, charts interactivos
+- [x] Score financiero unificado (fórmula base 75 con penalties)
+- [x] Categorías/subcategorías dinámicas del usuario
+- [x] Favicon NETO (reemplaza el de Vercel)
 
 ## Convenciones críticas
 - Archivos grandes (>10KB): editar con Edit tool, nunca reescribir completo

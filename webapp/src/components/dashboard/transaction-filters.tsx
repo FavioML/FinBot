@@ -12,15 +12,6 @@ import {
 } from '@/components/ui/select';
 import { CATEGORIAS } from '@/lib/constants';
 
-const METODOS_PAGO = [
-  { value: 'all', label: 'Todos los métodos' },
-  { value: 'Debito', label: 'Débito' },
-  { value: 'Credito', label: 'Crédito' },
-  { value: 'Yape', label: 'Yape' },
-  { value: 'Plin', label: 'Plin' },
-  { value: 'Efectivo', label: 'Efectivo' },
-];
-
 interface TransactionFiltersProps {
   search: string;
   onSearchChange: (value: string | null) => void;
@@ -32,6 +23,7 @@ interface TransactionFiltersProps {
   onSubcategoriaChange: (value: string | null) => void;
   metodoPagoFilter: string;
   onMetodoPagoChange: (value: string | null) => void;
+  availableMetodos?: string[];
 }
 
 export function TransactionFilters({
@@ -45,6 +37,7 @@ export function TransactionFilters({
   onSubcategoriaChange,
   metodoPagoFilter,
   onMetodoPagoChange,
+  availableMetodos = [],
 }: TransactionFiltersProps) {
   const selectedCat = CATEGORIAS.find((c) => c.nombre === categoriaFilter);
   const subcategorias = selectedCat ? selectedCat.subs : [];
@@ -116,13 +109,14 @@ export function TransactionFilters({
         <Select value={metodoPagoFilter} onValueChange={onMetodoPagoChange}>
           <SelectTrigger className="w-[180px] bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#C8C6BC]">
             <SelectValue>
-              {metodoPagoFilter === 'all' ? 'Todos los métodos' : METODOS_PAGO.find(m => m.value === metodoPagoFilter)?.label || metodoPagoFilter}
+              {metodoPagoFilter === 'all' ? 'Todos los métodos' : metodoPagoFilter}
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {METODOS_PAGO.map((m) => (
-              <SelectItem key={m.value} value={m.value}>
-                {m.label}
+            <SelectItem value="all">Todos los métodos</SelectItem>
+            {availableMetodos.map((m) => (
+              <SelectItem key={m} value={m}>
+                {m}
               </SelectItem>
             ))}
           </SelectContent>

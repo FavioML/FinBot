@@ -46,6 +46,7 @@ import { useTransactions } from '@/lib/hooks/use-transactions';
 import { useBudgets } from '@/lib/hooks/use-budgets';
 import { formatCurrency, formatFecha } from '@/lib/utils';
 import { getCategoriaEmoji, MESES } from '@/lib/constants';
+import { normalizeMetodoPago } from '@/lib/format';
 import type { Transaccion } from '@/lib/types';
 
 const PAGE_SIZE = 20;
@@ -167,7 +168,7 @@ export default function TransaccionesPage() {
 
     // Payment method filter
     if (metodoPagoFilter !== 'all') {
-      result = result.filter((t) => t.metodo_pago === metodoPagoFilter);
+      result = result.filter((t) => normalizeMetodoPago(t.metodo_pago, t.banco) === metodoPagoFilter);
     }
 
     // Search by comercio
@@ -205,6 +206,15 @@ export default function TransaccionesPage() {
       totalIngresos: ingresos.reduce((sum, t) => sum + t.monto_pen, 0),
       count: transactions.length,
     };
+  }, [transactions]);
+
+  // Available payment methods (normalized, from user's data)
+  const availableMetodos = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of transactions) {
+      set.add(normalizeMetodoPago(t.metodo_pago, t.banco));
+    }
+    return Array.from(set).sort();
   }, [transactions]);
 
   // Pagination
@@ -380,6 +390,7 @@ export default function TransaccionesPage() {
         onSubcategoriaChange={handleFilterChange(setSubcategoriaFilter, 'all')}
         metodoPagoFilter={metodoPagoFilter}
         onMetodoPagoChange={handleFilterChange(setMetodoPagoFilter, 'all')}
+        availableMetodos={availableMetodos}
       />
 
       {/* Transaction list */}
@@ -588,7 +599,7 @@ function TransactionTableRow({
       <TableCell className="text-xs text-[#8A877D] capitalize">
         {tx.subcategoria?.replace(/_/g, ' ') || '-'}
       </TableCell>
-      <TableCell className="text-xs text-[#8A877D]">{tx.metodo_pago || '-'}</TableCell>
+      <TableCell className="text-xs text-[#8A877D]">{normalizeMetodoPago(tx.metodo_pago, tx.banco)}</TableCell>
       <TableCell>
         <span
           className="text-sm font-semibold tabular-nums"
@@ -658,7 +669,7 @@ function TransactionCard({
               </span>
             )}
             {tx.metodo_pago && (
-              <span className="text-xs text-[#8A877D]">&middot; {tx.metodo_pago}</span>
+              <span className="text-xs text-[#8A877D]">&middot; {normalizeMetodoPago(tx.metodo_pago, tx.banco)}</span>
             )}
           </div>
         </div>

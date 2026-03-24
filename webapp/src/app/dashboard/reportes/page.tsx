@@ -28,7 +28,7 @@ import { useTransactions } from '@/lib/hooks/use-transactions';
 import { useBudgets } from '@/lib/hooks/use-budgets';
 import { formatCurrency, getScoreColor, getScoreLabel, calcularScoreFinanciero } from '@/lib/utils';
 import { getCategoriaEmoji, MESES } from '@/lib/constants';
-import { capitalizeDisplay } from '@/lib/format';
+import { capitalizeDisplay, normalizeMetodoPago } from '@/lib/format';
 import type { Transaccion } from '@/lib/types';
 import {
   PieChart, Pie, Cell, BarChart, Bar,
@@ -59,13 +59,6 @@ function buildMonthOptions() {
 }
 
 const PIE_COLORS = ['#1D9E75', '#EF9F27', '#D85A30', '#3B82F6', '#8B5CF6', '#EC4899', '#14B8A6', '#F97316'];
-
-function normalizeMetodoPago(metodo: string | null | undefined): string {
-  if (!metodo) return 'Sin especificar';
-  let m = metodo.trim();
-  m = m.replace(/\bCredito\b/gi, 'Crédito').replace(/\bDebito\b/gi, 'Débito');
-  return m;
-}
 
 // --- Component ---
 
@@ -173,7 +166,7 @@ export default function ReportesPage() {
 
   const detailMetodoTransactions = useMemo(() => {
     if (!detailMetodo) return [];
-    return transactions.filter((t) => t.tipo === 'gasto' && normalizeMetodoPago(t.metodo_pago) === detailMetodo)
+    return transactions.filter((t) => t.tipo === 'gasto' && normalizeMetodoPago(t.metodo_pago, t.banco) === detailMetodo)
       .sort((a, b) => b.fecha.localeCompare(a.fecha));
   }, [transactions, detailMetodo]);
 
@@ -229,7 +222,7 @@ export default function ReportesPage() {
   const paymentMethods = useMemo(() => {
     const map = new Map<string, number>();
     for (const t of transactions.filter((t) => t.tipo === 'gasto')) {
-      const method = normalizeMetodoPago(t.metodo_pago);
+      const method = normalizeMetodoPago(t.metodo_pago, t.banco);
       map.set(method, (map.get(method) || 0) + t.monto_pen);
     }
     return Array.from(map.entries())
