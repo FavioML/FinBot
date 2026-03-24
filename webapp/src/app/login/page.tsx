@@ -81,21 +81,23 @@ export default function LoginPage() {
             <div className="h-px flex-1 bg-white/[0.06]" />
           </div>
 
-          {/* WhatsApp CTA */}
+          {/* Info */}
+          <p className="text-center text-sm text-[#8A877D]">
+            Al continuar con Google, podrás registrarte o iniciar sesión
+          </p>
+
+          {/* WhatsApp alternative */}
           <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 text-center">
             <p className="text-sm text-[#C8C6BC]">
-              ¿Aún no tienes cuenta?{' '}
+              ¿Prefieres usar solo WhatsApp?{' '}
               <a
                 href="https://wa.me/51933014505"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="font-semibold text-[#1D9E75] transition-colors hover:text-[#1D9E75]/80"
               >
-                Escríbenos por WhatsApp
+                Escríbenos al +51 933 014 505
               </a>
-            </p>
-            <p className="mt-1 text-xs text-[#8A877D]">
-              Registra tus gastos desde WhatsApp en segundos
             </p>
           </div>
 
