@@ -58,8 +58,9 @@ export function KPICards({ data, onScoreClick }: KPICardsProps) {
         return (
           <StaggerItem key={card.label}>
           <div
-            className={`glass-card glass-card-glow p-5${isScore && onScoreClick ? ' cursor-pointer hover:border-[#1D9E75]/50 transition-colors' : ''}`}
+            className={`glass-card glass-card-glow p-5${isScore && onScoreClick ? ' cursor-pointer hover:border-[#1D9E75]/50 transition-colors group' : ''}`}
             onClick={isScore && onScoreClick ? onScoreClick : undefined}
+            title={isScore && onScoreClick ? 'Click para ver desglose' : undefined}
           >
             <div className="flex items-center justify-between mb-3">
               <Icon className="h-5 w-5" style={{ color: '#8A877D' }} />
@@ -77,6 +78,11 @@ export function KPICards({ data, onScoreClick }: KPICardsProps) {
             </div>
             <p className="text-xs font-medium mb-1" style={{ color: '#8A877D' }}>
               {card.label}
+              {isScore && onScoreClick && (
+                <span className="ml-1.5 opacity-0 group-hover:opacity-100 transition-opacity text-[#1D9E75]">
+                  ver desglose &rarr;
+                </span>
+              )}
             </p>
             <p className="text-2xl font-bold tracking-tight" style={{ color: card.color }}>
               {card.prefix}

@@ -366,7 +366,7 @@ export default function ConfiguracionPage() {
       {/* ============================================================ */}
       {/*  Danger zone                                                  */}
       {/* ============================================================ */}
-      <div className="glass-card p-6 space-y-4 border border-[#D85A30]/30">
+      <div className="glass-card p-6 space-y-4 border-[#D85A30]/20 hover:border-[#D85A30]/40 transition-colors">
         <div className="flex items-center gap-2 mb-1">
           <Settings className="h-5 w-5 text-[#D85A30]" />
           <h2 className="text-lg font-semibold text-[#F0EFE8]">Zona de peligro</h2>

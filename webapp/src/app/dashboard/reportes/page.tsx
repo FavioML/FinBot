@@ -40,6 +40,7 @@ import {
   Wallet, Activity, Pencil,
 } from 'lucide-react';
 import { motion } from 'motion/react';
+import { toast } from 'sonner';
 
 // --- Helpers ---
 
@@ -125,8 +126,10 @@ export default function ReportesPage() {
       const mm = String(now.getMonth() + 1).padStart(2, '0');
       const yyyy = now.getFullYear();
       pdf.save(`Neto - Reporte - ${dd}-${mm}-${yyyy}.pdf`);
+      toast.success('Reporte PDF descargado');
     } catch (err) {
       console.error('[PDF] Error generating:', err);
+      toast.error('Error al generar el PDF');
     } finally {
       setGeneratingPdf(false);
     }
@@ -333,7 +336,7 @@ export default function ReportesPage() {
 
       {/* Score financiero */}
       <div
-        className="glass-card p-6 flex flex-col sm:flex-row items-center gap-6 cursor-pointer hover:bg-[rgba(255,255,255,0.03)] transition-colors"
+        className="glass-card glass-card-glow p-6 flex flex-col sm:flex-row items-center gap-6 cursor-pointer hover:bg-[rgba(255,255,255,0.03)] transition-colors"
         onClick={() => setShowScoreDialog(true)}
       >
         <div className="relative flex-shrink-0">
@@ -369,25 +372,32 @@ export default function ReportesPage() {
       </div>
 
       {/* KPI row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <StaggerContainer className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StaggerItem>
         <KPICard
           label="Ingresos"
           value={totalIngresos}
           icon={<TrendingUp className="h-4 w-4" />}
           color="#1D9E75"
         />
+        </StaggerItem>
+        <StaggerItem>
         <KPICard
           label="Gastos"
           value={totalGastos}
           icon={<TrendingDown className="h-4 w-4" />}
           color="#D85A30"
         />
+        </StaggerItem>
+        <StaggerItem>
         <KPICard
           label="Ahorro neto"
           value={ahorro}
           icon={<Wallet className="h-4 w-4" />}
           color={ahorro >= 0 ? '#1D9E75' : '#D85A30'}
         />
+        </StaggerItem>
+        <StaggerItem>
         <KPICard
           label="Transacciones"
           value={txCount}
@@ -395,12 +405,13 @@ export default function ReportesPage() {
           color="#EF9F27"
           isCurrency={false}
         />
-      </div>
+        </StaggerItem>
+      </StaggerContainer>
 
       {/* Charts row */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Category BarChart */}
-        <div className="glass-card p-5">
+        <div className="glass-card glass-card-glow p-5">
           <h4 className="text-sm font-medium text-[#C8C6BC] mb-4">Gastos por categoria</h4>
           {categoryBreakdown.length > 0 ? (
             <ResponsiveContainer width="100%" height={Math.max(200, categoryBreakdown.length * 40)}>
@@ -436,7 +447,7 @@ export default function ReportesPage() {
         </div>
 
         {/* Payment methods PieChart */}
-        <div className="glass-card p-5">
+        <div className="glass-card glass-card-glow p-5">
           <h4 className="text-sm font-medium text-[#C8C6BC] mb-4">Metodos de pago</h4>
           {paymentMethods.length > 0 ? (
             <ResponsiveContainer width="100%" height={280}>
@@ -471,7 +482,7 @@ export default function ReportesPage() {
 
       {/* Top merchants */}
       {topMerchants.length > 0 && (
-        <div className="glass-card p-5">
+        <div className="glass-card glass-card-glow p-5">
           <h4 className="text-sm font-medium text-[#C8C6BC] mb-4">Top comercios</h4>
           <div className="space-y-3">
             {topMerchants.map((m, i) => (
@@ -495,7 +506,7 @@ export default function ReportesPage() {
       )}
 
       {/* Daily spending */}
-      <div className="glass-card p-5">
+      <div className="glass-card glass-card-glow p-5">
         <h4 className="text-sm font-medium text-[#C8C6BC] mb-4">Gasto diario</h4>
         <ResponsiveContainer width="100%" height={220}>
           <BarChart data={dailySpending} margin={{ left: 0, right: 0 }}>
@@ -819,7 +830,7 @@ function KPICard({
   isCurrency?: boolean;
 }) {
   return (
-    <div className="glass-card p-4">
+    <div className="glass-card glass-card-glow p-4">
       <div className="flex items-center gap-2 mb-2">
         <span style={{ color }}>{icon}</span>
         <span className="text-xs text-[#8A877D]">{label}</span>

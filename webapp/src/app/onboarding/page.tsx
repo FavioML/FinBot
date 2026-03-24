@@ -3,6 +3,8 @@
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { motion } from 'motion/react';
+import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 
 export default function OnboardingPage() {
@@ -46,6 +48,7 @@ export default function OnboardingPage() {
 
     if (digits.length !== 9) {
       setError('Ingresa un numero de 9 digitos');
+      toast.error('Ingresa un numero de 9 digitos');
       return;
     }
 
@@ -82,7 +85,12 @@ export default function OnboardingPage() {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-[#0E0E0C] px-4">
-      <div className="w-full max-w-md">
+      <motion.div
+        className="w-full max-w-md"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94] }}
+      >
         {/* Logo */}
         <div className="mb-10 flex items-center gap-3">
           <Image
@@ -113,7 +121,7 @@ export default function OnboardingPage() {
           <input
             value={name}
             readOnly
-            className="w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-sm text-[#8A877D] outline-none"
+            className="w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-sm text-[#8A877D] outline-none transition-colors"
           />
         </div>
 
@@ -124,7 +132,7 @@ export default function OnboardingPage() {
           <input
             value={email}
             readOnly
-            className="w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-sm text-[#8A877D] outline-none"
+            className="w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-sm text-[#8A877D] outline-none transition-colors"
           />
         </div>
 
@@ -157,17 +165,19 @@ export default function OnboardingPage() {
         )}
 
         {/* Submit */}
-        <button
+        <motion.button
           onClick={handleSubmit}
           disabled={submitting}
-          className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-[#1D9E75] px-6 py-4 text-base font-medium text-white shadow-lg shadow-[#1D9E75]/20 transition-all hover:bg-[#1D9E75]/90 hover:shadow-[#1D9E75]/30 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-[#1D9E75] px-6 py-4 text-base font-medium text-white shadow-lg shadow-[#1D9E75]/20 transition-all hover:bg-[#1D9E75]/90 hover:shadow-[#1D9E75]/30 disabled:cursor-not-allowed disabled:opacity-50"
+          whileHover={{ scale: 1.01 }}
+          whileTap={{ scale: 0.98 }}
         >
           {submitting ? (
             <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
           ) : (
             'Comenzar'
           )}
-        </button>
+        </motion.button>
 
         {/* Footer */}
         <footer className="mt-12 flex items-center justify-center gap-4 text-xs text-[#8A877D]">
@@ -188,7 +198,7 @@ export default function OnboardingPage() {
             Terminos
           </a>
         </footer>
-      </div>
+      </motion.div>
     </div>
   );
 }

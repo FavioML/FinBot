@@ -592,7 +592,7 @@ function TransactionTableRow({
   const emoji = getCategoriaEmoji(tx.categoria);
 
   return (
-    <TableRow className="border-[rgba(255,255,255,0.06)] hover:bg-[rgba(255,255,255,0.02)]">
+    <TableRow className="border-[rgba(255,255,255,0.06)] hover:bg-[rgba(255,255,255,0.02)] transition-colors">
       <TableCell className="text-xs text-[#8A877D]">{formatFecha(tx.fecha)}</TableCell>
       <TableCell className="text-sm text-[#F0EFE8]">
         {tx.comercio || tx.descripcion_original || '-'}
