@@ -149,36 +149,9 @@ export default function DashboardPage() {
     return months;
   }, [allTransactions, currentMonth, currentYear]);
 
-  // Detect recurring subscriptions from ALL transactions
+  // Detect subscriptions from catalog patterns only
   const subscriptions = useMemo(() => {
-    const gastos = allTransactions.filter(t => t.tipo === 'gasto');
-    const byComercio = new Map<string, { months: Set<string>; amounts: number[]; categoria: string }>();
-
-    for (const t of gastos) {
-      const key = (t.comercio || '').toLowerCase().trim();
-      if (!key || key === 'sin comercio') continue;
-      if (!byComercio.has(key)) byComercio.set(key, { months: new Set(), amounts: [], categoria: t.categoria });
-      const entry = byComercio.get(key)!;
-      entry.months.add(t.fecha.substring(0, 7));
-      entry.amounts.push(t.monto_pen);
-    }
-
-    const subs: { comercio: string; monthlyAvg: number; annualProjection: number; categoria: string; months: number }[] = [];
-
-    for (const [comercio, data] of byComercio) {
-      if (data.months.size >= 2) {
-        const avg = data.amounts.reduce((s, a) => s + a, 0) / data.months.size;
-        subs.push({
-          comercio: comercio.charAt(0).toUpperCase() + comercio.slice(1),
-          monthlyAvg: avg,
-          annualProjection: avg * 12,
-          categoria: data.categoria,
-          months: data.months.size,
-        });
-      }
-    }
-
-    return subs.sort((a, b) => b.annualProjection - a.annualProjection);
+    return detectSubscriptions(allTransactions);
   }, [allTransactions]);
 
   const isLoading = userLoading || txLoading;
@@ -328,12 +301,12 @@ export default function DashboardPage() {
               {subscriptions.length > 0 ? (
                 <div className="space-y-3">
                   {subscriptions.slice(0, 8).map((sub) => (
-                    <div key={sub.comercio} className="flex items-center justify-between">
+                    <div key={sub.id} className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-[#F0EFE8]">{getCategoriaEmoji(sub.categoria)} {sub.comercio}</p>
-                        <p className="text-xs text-[#8A877D]">{sub.months} meses &middot; ~{formatCurrency(sub.monthlyAvg)}/mes</p>
+                        <p className="text-sm text-[#F0EFE8]">{sub.icono} {sub.nombre}</p>
+                        <p className="text-xs text-[#8A877D]">{sub.monthsDetected} meses &middot; ~{formatCurrency(sub.monthlyAmount)}/mes</p>
                       </div>
-                      <p className="text-sm text-[#D85A30] font-medium">{formatCurrency(sub.annualProjection)}/ano</p>
+                      <p className="text-sm text-[#D85A30] font-medium">{formatCurrency(sub.annualProjection)}/año</p>
                     </div>
                   ))}
                   <div className="border-t border-[rgba(255,255,255,0.06)] pt-3 flex justify-between">

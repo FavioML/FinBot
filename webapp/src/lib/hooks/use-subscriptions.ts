@@ -64,8 +64,8 @@ const CATALOGO: CatalogoEntry[] = [
   { id: 'github', nombre: 'GitHub Pro', tipo: 'productividad', icono: '🐙', moneda: 'USD', precio_mensual: 4.00, tiene_plan_familiar: false, precio_familiar: null, categoria_neto: 'Trabajo_Negocio', subcategoria_neto: 'herramientas', planes: [{ nombre: 'Pro', precio: 4.00 }], patrones: ['github'] },
 
   // Delivery Perú
-  { id: 'rappi_prime', nombre: 'Rappi Prime', tipo: 'delivery', icono: '🛵', moneda: 'PEN', precio_mensual: 14.90, tiene_plan_familiar: false, precio_familiar: null, categoria_neto: 'Alimentación', subcategoria_neto: 'delivery', planes: [{ nombre: 'Prime', precio: 14.90 }], patrones: ['rappi prime', 'rappi'] },
-  { id: 'pedidosya_plus', nombre: 'PedidosYa Plus', tipo: 'delivery', icono: '🍔', moneda: 'PEN', precio_mensual: 9.90, tiene_plan_familiar: false, precio_familiar: null, categoria_neto: 'Alimentación', subcategoria_neto: 'delivery', planes: [{ nombre: 'Plus', precio: 9.90 }], patrones: ['pedidosya plus', 'pedidosya', 'dlc*pedidosya'] },
+  { id: 'rappi_prime', nombre: 'Rappi Prime', tipo: 'delivery', icono: '🛵', moneda: 'PEN', precio_mensual: 14.90, tiene_plan_familiar: false, precio_familiar: null, categoria_neto: 'Alimentación', subcategoria_neto: 'delivery', planes: [{ nombre: 'Prime', precio: 14.90 }], patrones: ['rappi prime', 'rappi pro'] },
+  { id: 'pedidosya_plus', nombre: 'PedidosYa Plus', tipo: 'delivery', icono: '🍔', moneda: 'PEN', precio_mensual: 9.90, tiene_plan_familiar: false, precio_familiar: null, categoria_neto: 'Alimentación', subcategoria_neto: 'delivery', planes: [{ nombre: 'Plus', precio: 9.90 }], patrones: ['pedidosya plus', 'dlc*pedidosya plus'] },
 
   // Educación
   { id: 'platzi', nombre: 'Platzi', tipo: 'educacion', icono: '🎓', moneda: 'USD', precio_mensual: 26.00, tiene_plan_familiar: false, precio_familiar: null, categoria_neto: 'Educación', subcategoria_neto: 'curso_online', planes: [{ nombre: 'Expert', precio: 26.00 }], patrones: ['platzi'] },

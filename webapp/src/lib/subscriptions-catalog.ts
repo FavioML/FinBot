@@ -144,10 +144,10 @@ export const SUBSCRIPTION_PATTERNS: SubscriptionPattern[] = [
   { id: 'zoom', nombre: 'Zoom', icono: '📹', tipo: 'comunicacion', patrones: ['zoom', 'zoom.us', 'zoom video'] },
   { id: 'discord_nitro', nombre: 'Discord Nitro', icono: '🎙️', tipo: 'comunicacion', patrones: ['discord', 'discord nitro'] },
 
-  // Delivery
-  { id: 'rappi_prime', nombre: 'Rappi Prime', icono: '🛵', tipo: 'delivery', patrones: ['rappi prime', 'rappi'] },
-  { id: 'pedidosya_plus', nombre: 'PedidosYa Plus', icono: '🍔', tipo: 'delivery', patrones: ['pedidosya plus', 'pedidosya', 'dlc*pedidosya'] },
-  { id: 'didi_club', nombre: 'DiDi Club', icono: '🚗', tipo: 'delivery', patrones: ['didi club', 'didi'] },
+  // Delivery (solo suscripciones, NO pedidos individuales)
+  { id: 'rappi_prime', nombre: 'Rappi Prime', icono: '🛵', tipo: 'delivery', patrones: ['rappi prime', 'rappi pro'] },
+  { id: 'pedidosya_plus', nombre: 'PedidosYa Plus', icono: '🍔', tipo: 'delivery', patrones: ['pedidosya plus', 'dlc*pedidosya plus'] },
+  { id: 'didi_club', nombre: 'DiDi Club', icono: '🚗', tipo: 'delivery', patrones: ['didi club'] },
 
   // Educacion
   { id: 'platzi', nombre: 'Platzi', icono: '🎓', tipo: 'educacion', patrones: ['platzi'] },
