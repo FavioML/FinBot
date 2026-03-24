@@ -4,6 +4,13 @@ import { useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { EmptyState } from '@/components/shared/empty-state';
 import { WhatsAppButton } from '@/components/shared/whatsapp-button';
 import { KPICards } from '@/components/dashboard/kpi-cards';
@@ -27,22 +34,34 @@ export default function DashboardPage() {
     : [now.getFullYear(), now.getMonth() + 1];
 
   const [viewMode, setViewMode] = useState<string>('mensual');
+  const [selectedYear, setSelectedYear] = useState(currentYear);
 
   // Load ALL transactions for the user (enables both monthly and annual views + trend chart)
   const { data: allTransactions = [], isLoading: txLoading } = useTransactions({
     usuarioId: user?.id,
   });
 
+  // Compute available years from transaction data
+  const availableYears = useMemo(() => {
+    const yearSet = new Set<number>();
+    for (const t of allTransactions) {
+      const y = new Date(t.fecha + 'T00:00:00').getFullYear();
+      yearSet.add(y);
+    }
+    yearSet.add(now.getFullYear());
+    return Array.from(yearSet).sort((a, b) => b - a);
+  }, [allTransactions]);
+
   // Filter transactions based on viewMode
   const transactions = useMemo(() => {
     return allTransactions.filter((t) => {
-      const txDate = new Date(t.fecha);
+      const txDate = new Date(t.fecha + 'T00:00:00');
       if (viewMode === 'anual') {
-        return txDate.getFullYear() === currentYear;
+        return txDate.getFullYear() === selectedYear;
       }
       return txDate.getMonth() + 1 === currentMonth && txDate.getFullYear() === currentYear;
     });
-  }, [allTransactions, viewMode, currentMonth, currentYear]);
+  }, [allTransactions, viewMode, currentMonth, currentYear, selectedYear]);
 
   // Compute KPI data
   const kpiData = useMemo<KPIData>(() => {
@@ -92,7 +111,7 @@ export default function DashboardPage() {
       const m = d.getMonth() + 1;
       const y = d.getFullYear();
       const monthTxs = allTransactions.filter((t) => {
-        const txDate = new Date(t.fecha);
+        const txDate = new Date(t.fecha + 'T00:00:00');
         return txDate.getMonth() + 1 === m && txDate.getFullYear() === y;
       });
       months.push({
@@ -150,17 +169,34 @@ export default function DashboardPage() {
           Hola{user.nombre ? `, ${user.nombre}` : user.email ? `, ${user.email.split('@')[0]}` : ''}
         </h1>
         <p className="text-sm text-[#8A877D] mt-1">
-          Tu resumen financiero &mdash; {viewMode === 'anual' ? `Año ${currentYear}` : `${MESES[currentMonth]} ${currentYear}`}
+          Tu resumen financiero &mdash; {viewMode === 'anual' ? `Año ${selectedYear}` : `${MESES[currentMonth]} ${currentYear}`}
         </p>
       </div>
 
       {/* View mode toggle */}
-      <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as string)}>
-        <TabsList className="glass-card border-0">
-          <TabsTrigger value="mensual">Mensual</TabsTrigger>
-          <TabsTrigger value="anual">Total anual</TabsTrigger>
-        </TabsList>
-      </Tabs>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as string)}>
+          <TabsList className="glass-card border-0">
+            <TabsTrigger value="mensual">Mensual</TabsTrigger>
+            <TabsTrigger value="anual">Total anual</TabsTrigger>
+          </TabsList>
+        </Tabs>
+
+        {viewMode === 'anual' && (
+          <Select value={String(selectedYear)} onValueChange={(val) => setSelectedYear(Number(val))}>
+            <SelectTrigger className="w-[120px] bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#C8C6BC]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {availableYears.map((y) => (
+                <SelectItem key={y} value={String(y)}>
+                  {y}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
 
       {!hasTransactions ? (
         <EmptyState

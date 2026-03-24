@@ -62,17 +62,34 @@ export default function TransaccionesPage() {
   // View mode: monthly or annual
   const [viewMode, setViewMode] = useState<'mensual' | 'anual'>('mensual');
   const [selectedMonth, setSelectedMonth] = useState(paramMonth);
-  const currentYear = paramYear;
+  const [selectedYear, setSelectedYear] = useState(paramYear);
+
+  // Fetch all transactions to compute available years
+  const { data: allTransactions = [] } = useTransactions({
+    usuarioId: user?.id,
+  });
+
+  // Compute available years from transaction data
+  const availableYears = useMemo(() => {
+    const yearSet = new Set<number>();
+    for (const t of allTransactions) {
+      const y = new Date(t.fecha + 'T00:00:00').getFullYear();
+      yearSet.add(y);
+    }
+    // Always include current year
+    yearSet.add(now.getFullYear());
+    return Array.from(yearSet).sort((a, b) => b - a);
+  }, [allTransactions]);
 
   const { data: monthlyTransactions = [], isLoading: txMonthlyLoading } = useTransactions({
     usuarioId: user?.id,
     mes: selectedMonth,
-    anio: currentYear,
+    anio: selectedYear,
   });
 
   const { data: annualTransactions = [], isLoading: txAnnualLoading } = useTransactions({
     usuarioId: user?.id,
-    anio: currentYear,
+    anio: selectedYear,
   });
 
   const transactions = viewMode === 'anual' ? annualTransactions : monthlyTransactions;
@@ -278,7 +295,7 @@ export default function TransaccionesPage() {
             <SelectContent>
               {monthOptions.map((m) => (
                 <SelectItem key={m.value} value={m.value}>
-                  {m.label} {currentYear}
+                  {m.label} {selectedYear}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -286,7 +303,18 @@ export default function TransaccionesPage() {
         )}
 
         {viewMode === 'anual' && (
-          <span className="text-sm text-[#8A877D]">Mostrando todo {currentYear}</span>
+          <Select value={String(selectedYear)} onValueChange={(val) => { setSelectedYear(Number(val)); setPage(1); }}>
+            <SelectTrigger className="w-[120px] bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#C8C6BC]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {availableYears.map((y) => (
+                <SelectItem key={y} value={String(y)}>
+                  {y}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         )}
       </div>
 
