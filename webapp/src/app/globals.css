@@ -187,3 +187,25 @@
 .glass-card-glow:hover::before {
   opacity: 1;
 }
+
+/* Focus visible ring for keyboard navigation */
+:focus-visible {
+  outline: 2px solid rgba(29, 158, 117, 0.5);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Selection color */
+::selection {
+  background: rgba(29, 158, 117, 0.3);
+  color: #F0EFE8;
+}
+
+/* Smooth page transitions */
+main {
+  animation: fadeIn 0.3s ease-out;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}

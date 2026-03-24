@@ -16,13 +16,16 @@ import {
 import { cn } from '@/lib/utils';
 import { SOCIAL_LINKS } from '@/lib/constants';
 
-const navItems = [
+const mainNav = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { label: 'Transacciones', href: '/dashboard/transacciones', icon: ArrowLeftRight },
   { label: 'Presupuestos', href: '/dashboard/presupuestos', icon: Target },
   { label: 'Reportes', href: '/dashboard/reportes', icon: FileBarChart },
   { label: 'Suscripciones', href: '/dashboard/suscripciones', icon: CreditCard },
-  { label: 'Configuración', href: '/dashboard/configuracion', icon: Settings },
+];
+
+const secondaryNav = [
+  { label: 'Configuracion', href: '/dashboard/configuracion', icon: Settings },
 ];
 
 interface SidebarProps {
@@ -56,37 +59,73 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-1 px-3 py-4">
-        {navItems.map((item) => {
-          const isActive =
-            item.href === '/dashboard'
-              ? pathname === '/dashboard'
-              : pathname.startsWith(item.href);
+      <nav className="flex-1 flex flex-col px-3 py-4">
+        {/* Main nav */}
+        <div className="space-y-1">
+          {mainNav.map((item) => {
+            const isActive =
+              item.href === '/dashboard'
+                ? pathname === '/dashboard'
+                : pathname.startsWith(item.href);
 
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={onClose}
-              className={cn(
-                'relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
-                isActive
-                  ? 'bg-[rgba(29,158,117,0.12)] text-[#1D9E75]'
-                  : 'text-[#8A877D] hover:text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.03)]'
-              )}
-            >
-              {isActive && (
-                <motion.div
-                  className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-[3px] rounded-r-full bg-[#1D9E75]"
-                  layoutId="sidebar-active"
-                  transition={{ type: 'spring', stiffness: 350, damping: 30 }}
-                />
-              )}
-              <item.icon className="h-5 w-5 shrink-0" />
-              {item.label}
-            </Link>
-          );
-        })}
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={onClose}
+                className={cn(
+                  'relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+                  isActive
+                    ? 'bg-[rgba(29,158,117,0.12)] text-[#1D9E75]'
+                    : 'text-[#8A877D] hover:text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.03)]'
+                )}
+              >
+                {isActive && (
+                  <motion.div
+                    className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-[3px] rounded-r-full bg-[#1D9E75]"
+                    layoutId="sidebar-active"
+                    transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                  />
+                )}
+                <item.icon className="h-5 w-5 shrink-0" />
+                {item.label}
+              </Link>
+            );
+          })}
+        </div>
+
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* Secondary nav */}
+        <div className="border-t border-[rgba(255,255,255,0.06)] pt-3 space-y-1">
+          {secondaryNav.map((item) => {
+            const isActive = pathname.startsWith(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={onClose}
+                className={cn(
+                  'relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+                  isActive
+                    ? 'bg-[rgba(29,158,117,0.12)] text-[#1D9E75]'
+                    : 'text-[#8A877D] hover:text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.03)]'
+                )}
+              >
+                {isActive && (
+                  <motion.div
+                    className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-[3px] rounded-r-full bg-[#1D9E75]"
+                    layoutId="sidebar-active"
+                    transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                  />
+                )}
+                <item.icon className="h-5 w-5 shrink-0" />
+                {item.label}
+              </Link>
+            );
+          })}
+        </div>
       </nav>
 
       {/* Bottom section - Social links + WhatsApp */}

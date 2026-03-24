@@ -152,6 +152,23 @@ export default function ConfiguracionPage() {
           </div>
 
           <div className="flex-1 min-w-0 space-y-2">
+            {/* Name + plan */}
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-[#F0EFE8] truncate">
+                {user.nombre || (user.email ? user.email.split('@')[0] : 'Usuario')}
+              </h2>
+              {isPremium ? (
+                <Badge className="bg-[#1D9E75]/20 text-[#1D9E75] border-[#1D9E75]/30 gap-1 shrink-0">
+                  <Crown className="h-3 w-3" />
+                  Premium
+                </Badge>
+              ) : (
+                <Badge variant="secondary" className="bg-[rgba(255,255,255,0.06)] text-[#8A877D] border-[rgba(255,255,255,0.08)] shrink-0">
+                  Free
+                </Badge>
+              )}
+            </div>
+
             {/* Email */}
             {user.email && (
               <div className="flex items-center gap-2 text-sm">
@@ -172,20 +189,6 @@ export default function ConfiguracionPage() {
               <span className="text-[#8A877D]">
                 Miembro desde {formatDate(user.created_at)}
               </span>
-            </div>
-
-            {/* Plan badge */}
-            <div className="flex items-center gap-2 pt-1">
-              {isPremium ? (
-                <Badge className="bg-[#1D9E75]/20 text-[#1D9E75] border-[#1D9E75]/30 gap-1">
-                  <Crown className="h-3 w-3" />
-                  Premium
-                </Badge>
-              ) : (
-                <Badge variant="secondary" className="bg-[rgba(255,255,255,0.06)] text-[#8A877D] border-[rgba(255,255,255,0.08)]">
-                  Free
-                </Badge>
-              )}
             </div>
           </div>
         </div>
@@ -364,32 +367,35 @@ export default function ConfiguracionPage() {
       </div>
 
       {/* ============================================================ */}
+      {/*  Session                                                       */}
+      {/* ============================================================ */}
+      <div className="glass-card glass-card-glow p-6 space-y-4">
+        <Button
+          variant="outline"
+          className="w-full border-[rgba(255,255,255,0.1)] bg-transparent text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.05)]"
+          disabled={signingOut}
+          onClick={handleSignOut}
+        >
+          {signingOut ? 'Cerrando sesion...' : 'Cerrar sesion'}
+        </Button>
+      </div>
+
+      {/* ============================================================ */}
       {/*  Danger zone                                                  */}
       {/* ============================================================ */}
       <div className="glass-card p-6 space-y-4 border-[#D85A30]/20 hover:border-[#D85A30]/40 transition-colors">
         <div className="flex items-center gap-2 mb-1">
           <Settings className="h-5 w-5 text-[#D85A30]" />
-          <h2 className="text-lg font-semibold text-[#F0EFE8]">Zona de peligro</h2>
+          <h2 className="text-sm font-semibold text-[#D85A30]">Zona de peligro</h2>
         </div>
 
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <Button
-            variant="outline"
-            className="flex-1 border-[rgba(255,255,255,0.1)] bg-transparent text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.05)]"
-            disabled={signingOut}
-            onClick={handleSignOut}
-          >
-            {signingOut ? 'Cerrando...' : 'Cerrar sesion'}
-          </Button>
-
-          <Button
-            variant="outline"
-            className="flex-1 border-[#D85A30]/40 bg-transparent text-[#D85A30] hover:bg-[#D85A30]/10"
-            onClick={() => setShowDeleteConfirm(true)}
-          >
-            Eliminar cuenta
-          </Button>
-        </div>
+        <Button
+          variant="outline"
+          className="w-full border-[#D85A30]/40 bg-transparent text-[#D85A30] hover:bg-[#D85A30]/10"
+          onClick={() => setShowDeleteConfirm(true)}
+        >
+          Eliminar cuenta
+        </Button>
 
         {/* Delete confirmation */}
         {showDeleteConfirm && (

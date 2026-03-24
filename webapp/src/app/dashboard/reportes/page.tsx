@@ -28,8 +28,8 @@ import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
 import { useBudgets } from '@/lib/hooks/use-budgets';
 import { formatCurrency, getScoreColor, getScoreLabel, calcularScoreFinanciero } from '@/lib/utils';
-import { getCategoriaEmoji, MESES } from '@/lib/constants';
-import { capitalizeDisplay, normalizeMetodoPago } from '@/lib/format';
+import { getCategoriaEmoji, MESES, SOCIAL_LINKS } from '@/lib/constants';
+import { capitalizeDisplay, normalizeMetodoPago, getMetodoIcon } from '@/lib/format';
 import type { Transaccion } from '@/lib/types';
 import {
   PieChart, Pie, Cell, BarChart, Bar,
@@ -297,7 +297,13 @@ export default function ReportesPage() {
         <Header selected={selected} setSelected={setSelected} monthOptions={monthOptions} onDownloadPDF={handleDownloadPDF} generatingPdf={generatingPdf} />
         <EmptyState
           title="Sin datos para este mes"
-          description="Registra tus ingresos y gastos por WhatsApp para generar tu reporte mensual."
+          description="Registra tus ingresos y gastos por WhatsApp para generar tu reporte mensual con graficos y score financiero."
+          icon={FileBarChart}
+          showWhatsApp={false}
+          actions={[
+            { label: 'Registra por WhatsApp', href: SOCIAL_LINKS.whatsapp, external: true },
+            { label: 'Ver transacciones', href: '/dashboard/transacciones', variant: 'secondary' as const },
+          ]}
         />
       </div>
     );
@@ -470,7 +476,7 @@ export default function ReportesPage() {
                   formatter={(v) => formatCurrency(Number(v))}
                 />
                 <Legend
-                  formatter={(value: string) => <span className="text-xs text-[#C8C6BC]">{value}</span>}
+                  formatter={(value: string) => <span className="text-xs text-[#C8C6BC]">{getMetodoIcon(value)} {value}</span>}
                 />
               </PieChart>
             </ResponsiveContainer>

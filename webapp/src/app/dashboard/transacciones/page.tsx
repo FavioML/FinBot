@@ -13,6 +13,8 @@ import {
   Trash2,
   ArrowUpDown,
   ChevronLeft,
+  Search,
+  FileText,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
@@ -46,8 +48,8 @@ import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
 import { useBudgets } from '@/lib/hooks/use-budgets';
 import { formatCurrency, formatFecha } from '@/lib/utils';
-import { getCategoriaEmoji, MESES } from '@/lib/constants';
-import { normalizeMetodoPago } from '@/lib/format';
+import { getCategoriaEmoji, MESES, SOCIAL_LINKS } from '@/lib/constants';
+import { normalizeMetodoPago, getMetodoIcon } from '@/lib/format';
 import type { Transaccion } from '@/lib/types';
 
 const PAGE_SIZE = 20;
@@ -292,6 +294,7 @@ export default function TransaccionesPage() {
       <EmptyState
         title="Inicia sesion para ver tus transacciones"
         description="Conecta tu cuenta para visualizar y gestionar tus movimientos."
+        icon={FileText}
       />
     );
   }
@@ -423,13 +426,18 @@ export default function TransaccionesPage() {
       {/* Transaction list */}
       {filtered.length === 0 ? (
         <EmptyState
-          title="Sin transacciones"
+          title={transactions.length === 0 ? 'Sin transacciones' : 'Sin resultados'}
           description={
             transactions.length === 0
               ? 'Envia tus comprobantes por WhatsApp y NETO los registra automaticamente.'
-              : 'No se encontraron transacciones con los filtros seleccionados.'
+              : 'No se encontraron transacciones con los filtros seleccionados. Prueba ajustando los filtros.'
           }
-          showWhatsApp={transactions.length === 0}
+          icon={transactions.length === 0 ? Receipt : Search}
+          showWhatsApp={false}
+          actions={transactions.length === 0 ? [
+            { label: 'Registra por WhatsApp', href: SOCIAL_LINKS.whatsapp, external: true },
+            { label: 'Agregar manual', href: '#', variant: 'secondary' as const },
+          ] : undefined}
         />
       ) : (
         <>
@@ -627,7 +635,7 @@ function TransactionTableRow({
       <TableCell className="text-xs text-[#8A877D] capitalize">
         {tx.subcategoria?.replace(/_/g, ' ') || '-'}
       </TableCell>
-      <TableCell className="text-xs text-[#8A877D]">{normalizeMetodoPago(tx.metodo_pago, tx.banco)}</TableCell>
+      <TableCell className="text-xs text-[#8A877D]">{getMetodoIcon(normalizeMetodoPago(tx.metodo_pago, tx.banco))} {normalizeMetodoPago(tx.metodo_pago, tx.banco)}</TableCell>
       <TableCell>
         <span
           className="text-sm font-semibold tabular-nums"
@@ -700,7 +708,7 @@ function TransactionCard({
               </span>
             )}
             {tx.metodo_pago && (
-              <span className="text-xs text-[#8A877D]">&middot; {normalizeMetodoPago(tx.metodo_pago, tx.banco)}</span>
+              <span className="text-xs text-[#8A877D]">&middot; {getMetodoIcon(normalizeMetodoPago(tx.metodo_pago, tx.banco))} {normalizeMetodoPago(tx.metodo_pago, tx.banco)}</span>
             )}
           </div>
         </div>

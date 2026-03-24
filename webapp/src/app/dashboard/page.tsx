@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { Receipt, CreditCard } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -204,7 +205,8 @@ export default function DashboardPage() {
       <>
         <EmptyState
           title="Inicia sesion para ver tu dashboard"
-          description="Conecta tu cuenta para visualizar tus finanzas personales."
+          description="Conecta tu cuenta de Google para visualizar tus finanzas personales."
+          showWhatsApp={false}
         />
         <WhatsAppButton />
       </>
@@ -299,7 +301,12 @@ export default function DashboardPage() {
         ) : (
           <EmptyState
             title="Sin transacciones este mes"
-            description="Envia tus comprobantes por WhatsApp y NETO los registra automaticamente."
+            description="Envia tus comprobantes por WhatsApp y NETO los registra automaticamente. Tambien puedes agregar gastos manualmente."
+            showWhatsApp={false}
+            actions={[
+              { label: 'Registra por WhatsApp', href: SOCIAL_LINKS.whatsapp, external: true },
+              { label: 'Ver transacciones', href: '/dashboard/transacciones', variant: 'secondary' as const },
+            ]}
           />
         )
       ) : (
@@ -352,7 +359,11 @@ export default function DashboardPage() {
                   })}
                 </div>
               ) : (
-                <p className="text-sm text-[#8A877D]">Sin transacciones recientes</p>
+                <div className="flex flex-col items-center justify-center py-6 text-center">
+                  <Receipt className="h-6 w-6 text-[#8A877D]/50 mb-2" />
+                  <p className="text-sm text-[#8A877D]">Sin transacciones recientes</p>
+                  <a href={SOCIAL_LINKS.whatsapp} target="_blank" rel="noopener noreferrer" className="text-xs text-[#1D9E75] hover:underline mt-1">Registra tu primer gasto</a>
+                </div>
               )}
             </div>
 
@@ -365,12 +376,12 @@ export default function DashboardPage() {
               {subscriptions.length > 0 ? (
                 <div className="space-y-3">
                   {subscriptions.slice(0, 8).map((sub) => (
-                    <div key={sub.id} className="flex items-center justify-between">
+                    <div key={sub.id} className="flex items-center justify-between rounded-lg px-2 py-1.5 -mx-2 transition-all hover:bg-[rgba(255,255,255,0.03)]">
                       <div>
                         <p className="text-sm text-[#F0EFE8]">{sub.icono} {sub.nombre}</p>
                         <p className="text-xs text-[#8A877D]">{sub.monthsDetected} meses &middot; ~{formatCurrency(sub.monthlyAmount)}/mes</p>
                       </div>
-                      <p className="text-sm text-[#D85A30] font-medium">{formatCurrency(sub.annualProjection)}/año</p>
+                      <p className="text-sm text-[#D85A30] font-medium tabular-nums">{formatCurrency(sub.annualProjection)}/año</p>
                     </div>
                   ))}
                   <div className="border-t border-[rgba(255,255,255,0.06)] pt-3 flex justify-between">
@@ -379,7 +390,11 @@ export default function DashboardPage() {
                   </div>
                 </div>
               ) : (
-                <p className="text-sm text-[#8A877D]">No se detectaron suscripciones recurrentes.</p>
+                <div className="flex flex-col items-center justify-center py-6 text-center">
+                  <CreditCard className="h-6 w-6 text-[#8A877D]/50 mb-2" />
+                  <p className="text-sm text-[#8A877D]">No se detectaron suscripciones</p>
+                  <p className="text-xs text-[#8A877D]/70 mt-1">NETO las detecta automaticamente de tus transacciones</p>
+                </div>
               )}
             </div>
           </div>

@@ -25,3 +25,27 @@ export function normalizeMetodoPago(metodo: string | null | undefined, banco?: s
   }
   return m;
 }
+
+/** Extract the base payment type (e.g. "BCP Crédito" → "Crédito", "Yape" → "Yape") */
+export function getMetodoBase(metodo: string): string {
+  const bases = ['Crédito', 'Débito', 'Yape', 'Plin', 'Transferencia', 'Efectivo'];
+  for (const base of bases) {
+    if (metodo.includes(base)) return base;
+  }
+  return metodo;
+}
+
+/** Emoji icon for payment method type */
+export function getMetodoIcon(metodo: string): string {
+  const base = getMetodoBase(metodo);
+  const icons: Record<string, string> = {
+    'Crédito': '💳',
+    'Débito': '🏧',
+    'Yape': '📱',
+    'Plin': '📲',
+    'Transferencia': '🔄',
+    'Efectivo': '💵',
+    'Sin especificar': '❓',
+  };
+  return icons[base] || '💳';
+}

@@ -7,7 +7,7 @@ import {
   ArrowLeftRight,
   Target,
   FileBarChart,
-  MoreHorizontal,
+  CreditCard,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -16,7 +16,7 @@ const navItems = [
   { label: 'Movimientos', href: '/dashboard/transacciones', icon: ArrowLeftRight },
   { label: 'Metas', href: '/dashboard/presupuestos', icon: Target },
   { label: 'Reportes', href: '/dashboard/reportes', icon: FileBarChart },
-  { label: 'Más', href: '/dashboard/configuracion', icon: MoreHorizontal },
+  { label: 'Suscripc.', href: '/dashboard/suscripciones', icon: CreditCard },
 ];
 
 export function BottomNav() {

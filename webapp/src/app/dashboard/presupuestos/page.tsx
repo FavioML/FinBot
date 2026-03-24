@@ -3,7 +3,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
-import { Plus, Target, Wallet, TrendingDown } from 'lucide-react';
+import { Plus, Target, Wallet, TrendingDown, PiggyBank } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/shared/empty-state';
@@ -195,8 +195,9 @@ export default function PresupuestosPage() {
   if (!user) {
     return (
       <EmptyState
-        title="Inicia sesión para ver tus presupuestos"
+        title="Inicia sesion para ver tus presupuestos"
         description="Conecta tu cuenta para gestionar tus limites de gasto."
+        icon={Target}
       />
     );
   }
