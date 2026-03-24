@@ -10,7 +10,6 @@ import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 
@@ -66,13 +65,13 @@ export function Topbar({ onMenuClick }: TopbarProps) {
             <p className="text-xs text-[#8A877D]">{user?.email || user?.whatsapp || ''}</p>
           </div>
           <DropdownMenuSeparator className="bg-[rgba(255,255,255,0.06)]" />
-          <DropdownMenuItem
-            className="text-[#D85A30] focus:text-[#D85A30] cursor-pointer"
-            onSelect={handleSignOut}
+          <button
+            onClick={handleSignOut}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[#D85A30] hover:bg-[rgba(255,255,255,0.05)] cursor-pointer"
           >
-            <LogOut className="h-4 w-4 mr-2" />
+            <LogOut className="h-4 w-4" />
             Cerrar sesión
-          </DropdownMenuItem>
+          </button>
         </DropdownMenuContent>
       </DropdownMenu>
     </header>
