@@ -378,42 +378,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
             )}
           </div>
 
-          {/* Edit mode: single subcategory (hidden when editing grouped budget with sub-rows) */}
-          {isEditing && effectiveCategoria && subcategorias.length > 0 && !(groupSubBudgets && groupSubBudgets.length > 0) && (
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-[#C8C6BC]">Subcategoría</label>
-              <Select
-                value={subcategoria || undefined}
-                onValueChange={(val) => {
-                  setSubcategoria(val || '');
-                  if (val !== '__custom__') setCustomSubcategoria('');
-                }}
-              >
-                <SelectTrigger className="w-full bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#F0EFE8]">
-                  <SelectValue>
-                    {subcategoria && subcategoria !== '__custom__' && subcategoria !== '__none__'
-                      ? capitalizeDisplay(subcategoria)
-                      : subcategoria === '__none__'
-                        ? 'Ninguna (categoría general)'
-                        : 'Ninguna'}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">Ninguna (categoría general)</SelectItem>
-                  {subcategorias.map((sub) => (
-                    <SelectItem key={sub} value={sub}>{capitalizeDisplay(sub)}</SelectItem>
-                  ))}
-                  <SelectItem value="__custom__">
-                    <span className="flex items-center gap-1.5"><Plus className="h-3.5 w-3.5" /> Nueva...</span>
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              {isCustomSub && (
-                <Input placeholder="Nombre" value={customSubcategoria} onChange={(e) => setCustomSubcategoria(e.target.value)}
-                  className="mt-1 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#F0EFE8] placeholder:text-[#8A877D]" />
-              )}
-            </div>
-          )}
+          {/* Single subcategory select removed — subcategories are managed via the multi-row section below */}
 
           {/* Monto limite (category-level) */}
           <div className="flex flex-col gap-1.5">
