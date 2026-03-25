@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Sidebar } from '@/components/dashboard/sidebar';
 import { Topbar } from '@/components/dashboard/topbar';
 import { BottomNav } from '@/components/dashboard/bottom-nav';
+import { QuickAddButton } from '@/components/dashboard/quick-add-button';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -29,6 +30,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           </main>
           <BottomNav />
         </div>
+        <QuickAddButton />
       </div>
     </QueryClientProvider>
   );

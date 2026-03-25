@@ -389,16 +389,14 @@ export default function SuscripcionesPage() {
             sub={viewMode === 'todo' && subsData.totalMensualUSD > 0 ? `$${subsData.totalMensualUSD.toFixed(0)} USD` : undefined}
           />
           </StaggerItem>
-          {viewMode === 'todo' && (
-            <StaggerItem>
-            <KPICard
-              icon={Eye}
-              label="Gasto anual"
-              value={`S/${gastoAnualProyectado.toFixed(0)}`}
-              sub="proyectado"
-            />
-            </StaggerItem>
-          )}
+          <StaggerItem>
+          <KPICard
+            icon={Eye}
+            label="Gasto anual"
+            value={`S/${gastoAnualProyectado.toFixed(0)}`}
+            sub="proyectado"
+          />
+          </StaggerItem>
           {viewMode === 'todo' && subsData.ahorroPotencialFamiliar > 0 && (
             <StaggerItem>
             <KPICard

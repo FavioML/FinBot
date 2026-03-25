@@ -67,9 +67,12 @@ export function BudgetCard({
   // The budget to use for edit/delete actions (total row preferred, else first sub)
   const actionBudget = totalBudget || subBudgets[0];
 
+  const isWarning = rawPercentage >= 80 && rawPercentage < 100;
+  const isExceeded = rawPercentage >= 100;
+
   return (
     <motion.div
-      className="glass-card glass-card-glow p-5 flex flex-col gap-3 cursor-pointer"
+      className={`glass-card glass-card-glow p-5 flex flex-col gap-3 cursor-pointer ${isExceeded ? 'border-[#D85A30]/30' : isWarning ? 'border-[#EF9F27]/20' : ''}`}
       onClick={() => onClick(categoria)}
       whileHover={{ y: -2 }}
       transition={{ duration: 0.2 }}
@@ -123,6 +126,23 @@ export function BudgetCard({
           />
         </div>
       </div>
+
+      {/* Warning banner */}
+      {(isWarning || isExceeded) && (
+        <div
+          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px]"
+          style={{
+            backgroundColor: isExceeded ? 'rgba(216,90,48,0.08)' : 'rgba(239,159,39,0.08)',
+            color: isExceeded ? '#D85A30' : '#EF9F27',
+          }}
+        >
+          <AlertTriangle className="h-3 w-3 shrink-0" />
+          {isExceeded
+            ? `Excediste tu presupuesto por ${formatCurrency(totalSpent - totalLimit)}`
+            : `Llevas ${rawPercentage.toFixed(0)}% — te quedan ${formatCurrency(totalLimit - totalSpent)}`
+          }
+        </div>
+      )}
 
       {/* Sub-budget rows */}
       {subBudgets.length > 0 && (
