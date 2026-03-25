@@ -6,32 +6,32 @@ const SECURITY_POINTS = [
   {
     Icon: Eye,
     title: "Solo lectura de correos bancarios",
-    desc: "Neto accede unicamente a correos de notificacion de 11 bancos. Nunca tus correos personales, laborales ni ningun otro tipo.",
+    desc: "Neto accede únicamente a correos de notificación de 11 bancos. Nunca tus correos personales, laborales ni ningún otro tipo.",
   },
   {
     Icon: KeyRound,
-    title: "Cero contrasenas bancarias",
-    desc: "Nunca pedimos usuario ni contrasena de tu banco. No accedemos a tu banca en linea. Solo leemos lo que tu banco ya te envia por correo.",
+    title: "Cero contraseñas bancarias",
+    desc: "Nunca pedimos usuario ni contraseña de tu banco. No accedemos a tu banca en línea. Solo leemos lo que tu banco ya te envía por correo.",
   },
   {
     Icon: Lock,
     title: "Datos encriptados",
-    desc: "Toda la comunicacion esta encriptada en transito (TLS). Tus datos financieros se almacenan con Row-Level Security en Supabase.",
+    desc: "Toda la comunicación está encriptada en tránsito (TLS). Tus datos financieros se almacenan con Row-Level Security en Supabase.",
   },
   {
     Icon: Fingerprint,
     title: "Login con Google OAuth",
-    desc: "No guardamos contrasenas. Tu cuenta se autentica directamente con Google. Puedes revocar el acceso en cualquier momento.",
+    desc: "No guardamos contraseñas. Tu cuenta se autentica directamente con Google. Puedes revocar el acceso en cualquier momento.",
   },
   {
     Icon: ServerCrash,
-    title: "Tu tienes el control",
+    title: "Tú tienes el control",
     desc: "Revoca el acceso de Neto a tu Gmail cuando quieras desde myaccount.google.com/permissions. Tus datos se eliminan si lo solicitas.",
   },
   {
     Icon: Shield,
-    title: "Hecho en Peru, para peruanos",
-    desc: "Somos un producto peruano con soporte local. Tu plata y tus datos se quedan contigo — nunca vendemos informacion a terceros.",
+    title: "Hecho en Perú, para peruanos",
+    desc: "Somos un producto peruano con soporte local. Tu plata y tus datos se quedan contigo — nunca vendemos información a terceros.",
   },
 ];
 
@@ -52,11 +52,11 @@ export default function Security() {
             </span>
             <br />
             <span className="bg-gradient-to-r from-[#EF9F27] to-[#D4860E] bg-clip-text text-transparent">
-              Tus datos tambien.
+              Tus datos también.
             </span>
           </h2>
           <p className="text-[#87948c] max-w-[520px] mx-auto text-lg leading-relaxed">
-            Neto esta disenado con seguridad desde el primer dia. Asi es como protegemos tu informacion.
+            Neto está diseñado con seguridad desde el primer día. Así es como protegemos tu información.
           </p>
         </div>
 

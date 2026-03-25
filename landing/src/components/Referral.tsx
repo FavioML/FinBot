@@ -21,8 +21,8 @@ const STEPS = [
   {
     Icon: Crown,
     step: "3",
-    title: "Tu ganas 1 mes Pro",
-    desc: "Cuando 3 referidos estan activos, recibes 1 mes de Neto Pro gratis. Automaticamente.",
+    title: "Tú ganas 1 mes Pro",
+    desc: "Cuando 3 referidos están activos, recibes 1 mes de Neto Pro gratis. Automáticamente.",
   },
 ];
 
@@ -51,7 +51,7 @@ export default function Referral() {
                 </span>
               </h2>
               <p className="text-[#87948c] max-w-[400px] mx-auto text-base leading-relaxed">
-                3 amigos activos = 1 mes de Neto Pro. Asi de simple.
+                3 amigos activos = 1 mes de Neto Pro. Así de simple.
               </p>
             </div>
 

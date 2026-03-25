@@ -12,7 +12,7 @@ const ROWS: {
   bankNote?: string;
 }[] = [
   {
-    feature: "Automatico (sin ingresar datos)",
+    feature: "Automático (sin ingresar datos)",
     neto: "yes",
     manual: "no",
     bank: "yes",
@@ -45,11 +45,11 @@ const ROWS: {
     bank: "no",
   },
   {
-    feature: "IA categoriza automaticamente",
+    feature: "IA categoriza automáticamente",
     neto: "yes",
     manual: "no",
     bank: "partial",
-    bankNote: "Basico",
+    bankNote: "Básico",
   },
   {
     feature: "Dashboard web interactivo",
@@ -66,13 +66,13 @@ const ROWS: {
     bank: "no",
   },
   {
-    feature: "Lectura de imagenes Yape/Plin",
+    feature: "Lectura de imágenes Yape/Plin",
     neto: "yes",
     manual: "no",
     bank: "no",
   },
   {
-    feature: "Sin contrasena bancaria",
+    feature: "Sin contraseña bancaria",
     neto: "yes",
     manual: "yes",
     bank: "no",
@@ -123,7 +123,7 @@ export default function Comparison() {
           </span>
           <h2 className="text-3xl min-[860px]:text-5xl font-extrabold tracking-tight mb-5">
             <span className="bg-gradient-to-b from-[#e5e2de] to-[#87948c] bg-clip-text text-transparent">
-              ¿Por que Neto y no
+              ¿Por qué Neto y no
             </span>
             <br />
             <span className="bg-gradient-to-r from-[#68dbae] to-[#1D9E75] bg-clip-text text-transparent">
@@ -131,7 +131,7 @@ export default function Comparison() {
             </span>
           </h2>
           <p className="text-[#87948c] max-w-[520px] mx-auto text-lg leading-relaxed">
-            El unico asistente que lee tus 11 bancos peruanos automaticamente y te resume todo por WhatsApp.
+            El único asistente que lee tus 11 bancos peruanos automáticamente y te resume todo por WhatsApp.
           </p>
         </div>
 
