@@ -149,7 +149,7 @@ export const SUBSCRIPTION_PATTERNS: SubscriptionPattern[] = [
 
   // Delivery (solo suscripciones, NO pedidos individuales)
   { id: 'rappi_prime', nombre: 'Rappi Prime', icono: '🛵', tipo: 'delivery', patrones: ['rappi prime', 'rappi pro'] },
-  { id: 'pedidosya_plus', nombre: 'PedidosYa Plus', icono: '🍔', tipo: 'delivery', patrones: ['pedidosya', 'pedidos ya'], montos_validos: [9.90, 16.90] },
+  { id: 'pedidosya_plus', nombre: 'PedidosYa Plus', icono: '🍔', tipo: 'delivery', patrones: ['pedidosya*plus', 'pedidosya plus', 'pedidos ya plus'] },
   { id: 'didi_club', nombre: 'DiDi Club', icono: '🚗', tipo: 'delivery', patrones: ['didi club'] },
 
   // Educacion

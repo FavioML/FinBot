@@ -67,7 +67,7 @@ const CATALOGO: CatalogoEntry[] = [
 
   // Delivery Perú
   { id: 'rappi_prime', nombre: 'Rappi Prime', tipo: 'delivery', icono: '🛵', moneda: 'PEN', precio_mensual: 14.90, tiene_plan_familiar: false, precio_familiar: null, categoria_neto: 'Alimentación', subcategoria_neto: 'delivery', planes: [{ nombre: 'Prime', precio: 14.90 }], patrones: ['rappi prime', 'rappi pro'] },
-  { id: 'pedidosya_plus', nombre: 'PedidosYa Plus', tipo: 'delivery', icono: '🍔', moneda: 'PEN', precio_mensual: 16.90, tiene_plan_familiar: false, precio_familiar: null, categoria_neto: 'Alimentación', subcategoria_neto: 'delivery', planes: [{ nombre: 'Plus', precio: 16.90 }, { nombre: 'Plus (precio anterior)', precio: 9.90 }], patrones: ['pedidosya', 'pedidos ya'], montos_validos: [9.90, 16.90] },
+  { id: 'pedidosya_plus', nombre: 'PedidosYa Plus', tipo: 'delivery', icono: '🍔', moneda: 'PEN', precio_mensual: 16.90, tiene_plan_familiar: false, precio_familiar: null, categoria_neto: 'Alimentación', subcategoria_neto: 'delivery', planes: [{ nombre: 'Plus', precio: 16.90 }, { nombre: 'Plus (precio anterior)', precio: 9.90 }], patrones: ['pedidosya*plus', 'pedidosya plus', 'pedidos ya plus'] },
 
   // Educación
   { id: 'platzi', nombre: 'Platzi', tipo: 'educacion', icono: '🎓', moneda: 'USD', precio_mensual: 26.00, tiene_plan_familiar: false, precio_familiar: null, categoria_neto: 'Educación', subcategoria_neto: 'curso_online', planes: [{ nombre: 'Expert', precio: 26.00 }], patrones: ['platzi'] },
