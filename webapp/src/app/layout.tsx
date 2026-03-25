@@ -14,7 +14,16 @@ export const metadata: Metadata = {
   title: "NETO — Tu asistente financiero",
   description:
     "Dashboard financiero personal. Visualiza tus gastos, ingresos, presupuestos y recibe consejos de IA.",
-  icons: { icon: "/neto-icon.png" },
+  icons: { icon: "/neto-icon.png", apple: "/neto-icon.png" },
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "NETO",
+  },
+  other: {
+    "mobile-web-app-capable": "yes",
+  },
 };
 
 export default function RootLayout({

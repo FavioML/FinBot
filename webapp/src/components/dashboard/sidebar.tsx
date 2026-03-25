@@ -10,6 +10,7 @@ import {
   Target,
   FileBarChart,
   CreditCard,
+  Flag,
   Settings,
   X,
 } from 'lucide-react';
@@ -22,6 +23,7 @@ const mainNav = [
   { label: 'Presupuestos', href: '/dashboard/presupuestos', icon: Target },
   { label: 'Reportes', href: '/dashboard/reportes', icon: FileBarChart },
   { label: 'Suscripciones', href: '/dashboard/suscripciones', icon: CreditCard },
+  { label: 'Metas', href: '/dashboard/metas', icon: Flag },
 ];
 
 const secondaryNav = [

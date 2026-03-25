@@ -96,8 +96,9 @@ NETO es un asistente financiero personal por WhatsApp para el mercado peruano.
   - [x] Nombre real del usuario (no email)
 
 ### Pendientes webapp
-- [ ] Métodos de pago consolidados ("BCP Crédito" + "Crédito" → unificar)
-- [ ] Consejo IA via API route (proxy a OpenAI)
+- [ ] Metas de ahorro (F38) — CRUD + tabla Supabase + barra progreso
+- [ ] Onboarding tour interactivo (F39) — tooltips guiados para nuevos usuarios
+- [ ] PWA install prompt (F40) — manifest.json + meta tags + standalone mode
 
 ### Pendientes menores
 - [ ] Verificación de negocio en Meta (manual, límite 250 conv/día)
@@ -128,6 +129,16 @@ NETO es un asistente financiero personal por WhatsApp para el mercado peruano.
 - [x] Score financiero unificado (fórmula base 75 con penalties)
 - [x] Categorías/subcategorías dinámicas del usuario
 - [x] Favicon NETO (reemplaza el de Vercel)
+- [x] UI/UX Rounds 1-13 (38+ mejoras): animaciones, glassmorphism, toast notifications
+- [x] FAB button (quick add gasto/ingreso), budget warnings, annual KPI projection
+- [x] CSV export, report comparisons vs mes anterior, daily average reference line
+- [x] Bulk delete transacciones, donut interactivity (click → detalle categoría)
+- [x] Budget suggestions (promedio histórico), subscription inactive alerts
+- [x] Score trend chart (4 meses), global search Ctrl+K (pages + transactions)
+- [x] Notification preferences + appearance section en configuración
+- [x] Consejo IA via /api/advice (GPT-4o-mini) con fallback rule-based
+- [x] Spending heatmap (12 semanas, estilo GitHub contributions)
+- [x] Métodos de pago unificados (VISA BCP → BCP Crédito, etc.)
 
 ## Convenciones críticas
 - Archivos grandes (>10KB): editar con Edit tool, nunca reescribir completo

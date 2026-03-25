@@ -1,0 +1,26 @@
+{
+  "name": "NETO — Tu asistente financiero",
+  "short_name": "NETO",
+  "description": "Dashboard financiero personal. Controla tus gastos, ingresos y presupuestos.",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#0E0E0C",
+  "theme_color": "#0E0E0C",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/neto-icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/neto-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "categories": ["finance", "productivity"],
+  "lang": "es-PE"
+}

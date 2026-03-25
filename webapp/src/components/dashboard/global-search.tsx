@@ -15,6 +15,7 @@ const PAGES = [
   { name: 'Presupuestos', path: '/dashboard/presupuestos', icon: Target, keywords: 'limites budget categoria' },
   { name: 'Reportes', path: '/dashboard/reportes', icon: FileBarChart, keywords: 'reporte score pdf grafico' },
   { name: 'Suscripciones', path: '/dashboard/suscripciones', icon: CreditCard, keywords: 'netflix spotify subscription' },
+  { name: 'Metas de ahorro', path: '/dashboard/metas', icon: Target, keywords: 'meta ahorro objetivo savings goal' },
   { name: 'Configuracion', path: '/dashboard/configuracion', icon: Settings, keywords: 'perfil plan cuenta gmail' },
 ];
 

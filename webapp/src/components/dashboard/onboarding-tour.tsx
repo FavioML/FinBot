@@ -1,0 +1,153 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { X, ChevronRight, Sparkles, Search, BarChart3, MessageCircle } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+
+const TOUR_KEY = 'neto_tour_completed';
+
+const STEPS = [
+  {
+    title: 'Tu score financiero',
+    description: 'Este numero refleja tu salud financiera. Mantén tus gastos bajo control para subirlo.',
+    icon: Sparkles,
+    color: '#1D9E75',
+  },
+  {
+    title: 'Busqueda rapida',
+    description: 'Presiona Ctrl+K para buscar transacciones, comercios o navegar entre paginas al instante.',
+    icon: Search,
+    color: '#EF9F27',
+  },
+  {
+    title: 'Reportes y presupuestos',
+    description: 'Establece presupuestos por categoria y descarga reportes PDF con tu analisis financiero.',
+    icon: BarChart3,
+    color: '#1D9E75',
+  },
+  {
+    title: 'WhatsApp siempre disponible',
+    description: 'Envia tus comprobantes por WhatsApp y NETO los registra automaticamente. Sin esfuerzo.',
+    icon: MessageCircle,
+    color: '#25D366',
+  },
+];
+
+export function OnboardingTour() {
+  const [step, setStep] = useState(-1); // -1 = not started / hidden
+  const [dismissed, setDismissed] = useState(true);
+
+  useEffect(() => {
+    // Only show if tour hasn't been completed and user is visiting dashboard
+    const completed = localStorage.getItem(TOUR_KEY);
+    if (!completed) {
+      // Small delay so the page renders first
+      const timer = setTimeout(() => {
+        setStep(0);
+        setDismissed(false);
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
+  function handleNext() {
+    if (step < STEPS.length - 1) {
+      setStep(step + 1);
+    } else {
+      handleComplete();
+    }
+  }
+
+  function handleComplete() {
+    localStorage.setItem(TOUR_KEY, 'true');
+    setDismissed(true);
+  }
+
+  if (dismissed || step < 0) return null;
+
+  const current = STEPS[step];
+  const Icon = current.icon;
+  const isLast = step === STEPS.length - 1;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+      >
+        {/* Backdrop */}
+        <div
+          className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+          onClick={handleComplete}
+        />
+
+        {/* Card */}
+        <motion.div
+          key={step}
+          className="relative w-full max-w-sm glass-card p-6 space-y-4 border-t-2"
+          style={{ borderTopColor: current.color }}
+          initial={{ opacity: 0, y: 30, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -20, scale: 0.95 }}
+          transition={{ duration: 0.3 }}
+        >
+          {/* Close */}
+          <button
+            onClick={handleComplete}
+            className="absolute top-3 right-3 text-[#8A877D] hover:text-[#F0EFE8] transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+
+          {/* Icon */}
+          <div
+            className="w-10 h-10 rounded-xl flex items-center justify-center"
+            style={{ backgroundColor: `${current.color}15` }}
+          >
+            <Icon className="h-5 w-5" style={{ color: current.color }} />
+          </div>
+
+          {/* Content */}
+          <div>
+            <h3 className="text-base font-semibold text-[#F0EFE8] mb-1">{current.title}</h3>
+            <p className="text-sm text-[#8A877D] leading-relaxed">{current.description}</p>
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-between pt-1">
+            {/* Progress dots */}
+            <div className="flex gap-1.5">
+              {STEPS.map((_, i) => (
+                <div
+                  key={i}
+                  className="h-1.5 rounded-full transition-all duration-300"
+                  style={{
+                    width: i === step ? 16 : 6,
+                    backgroundColor: i === step ? current.color : 'rgba(255,255,255,0.1)',
+                  }}
+                />
+              ))}
+            </div>
+
+            {/* Next / Finish button */}
+            <button
+              onClick={handleNext}
+              className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-medium text-white transition-colors"
+              style={{ backgroundColor: current.color }}
+            >
+              {isLast ? 'Empezar' : 'Siguiente'}
+              {!isLast && <ChevronRight className="h-3.5 w-3.5" />}
+            </button>
+          </div>
+
+          {/* Step counter */}
+          <p className="text-[10px] text-[#8A877D] text-center">
+            {step + 1} de {STEPS.length}
+          </p>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
