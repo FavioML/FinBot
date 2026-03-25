@@ -34,10 +34,11 @@ import type { Transaccion } from '@/lib/types';
 import {
   PieChart, Pie, Cell, BarChart, Bar,
   XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
+  ReferenceLine,
 } from 'recharts';
 import {
   FileBarChart, Download, TrendingUp, TrendingDown,
-  Wallet, Activity, Pencil,
+  Wallet, Activity, Pencil, ArrowUp, ArrowDown,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
@@ -92,6 +93,16 @@ export default function ReportesPage() {
     usuarioId: user?.id,
     mes: selectedOption.mes,
     anio: selectedOption.anio,
+  });
+
+  // Previous month transactions for comparison
+  const prevDate = new Date(selectedOption.anio, selectedOption.mes - 2, 1);
+  const prevMes = prevDate.getMonth() + 1;
+  const prevAnio = prevDate.getFullYear();
+  const { data: prevTransactions = [] } = useTransactions({
+    usuarioId: user?.id,
+    mes: prevMes,
+    anio: prevAnio,
   });
 
   const { data: budgets = [] } = useBudgets(user?.id);
@@ -194,6 +205,13 @@ export default function ReportesPage() {
 
   // --- Computed data ---
 
+  // Previous month totals for comparison
+  const prevTotals = useMemo(() => {
+    const ingresos = prevTransactions.filter((t) => t.tipo === 'ingreso').reduce((s, t) => s + t.monto_pen, 0);
+    const gastos = prevTransactions.filter((t) => t.tipo === 'gasto').reduce((s, t) => s + t.monto_pen, 0);
+    return { ingresos, gastos, ahorro: ingresos - gastos, count: prevTransactions.length };
+  }, [prevTransactions]);
+
   const { totalIngresos, totalGastos, ahorro, score } = useMemo(() => {
     const ingresos = transactions.filter((t) => t.tipo === 'ingreso').reduce((s, t) => s + t.monto_pen, 0);
     const gastos = transactions.filter((t) => t.tipo === 'gasto').reduce((s, t) => s + t.monto_pen, 0);
@@ -261,6 +279,12 @@ export default function ReportesPage() {
     }
     return Array.from(dayMap.entries()).map(([day, total]) => ({ day, total: Math.round(total * 100) / 100 }));
   }, [transactions, selectedOption]);
+
+  const dailyAverage = useMemo(() => {
+    const daysWithSpending = dailySpending.filter((d) => d.total > 0);
+    if (daysWithSpending.length === 0) return 0;
+    return Math.round(daysWithSpending.reduce((s, d) => s + d.total, 0) / daysWithSpending.length);
+  }, [dailySpending]);
 
   const txCount = transactions.length;
 
@@ -385,6 +409,7 @@ export default function ReportesPage() {
           value={totalIngresos}
           icon={<TrendingUp className="h-4 w-4" />}
           color="#1D9E75"
+          prevValue={prevTotals.ingresos}
         />
         </StaggerItem>
         <StaggerItem>
@@ -393,6 +418,8 @@ export default function ReportesPage() {
           value={totalGastos}
           icon={<TrendingDown className="h-4 w-4" />}
           color="#D85A30"
+          prevValue={prevTotals.gastos}
+          invertColor
         />
         </StaggerItem>
         <StaggerItem>
@@ -401,6 +428,7 @@ export default function ReportesPage() {
           value={ahorro}
           icon={<Wallet className="h-4 w-4" />}
           color={ahorro >= 0 ? '#1D9E75' : '#D85A30'}
+          prevValue={prevTotals.ahorro > 0 ? prevTotals.ahorro : undefined}
         />
         </StaggerItem>
         <StaggerItem>
@@ -410,6 +438,7 @@ export default function ReportesPage() {
           icon={<Activity className="h-4 w-4" />}
           color="#EF9F27"
           isCurrency={false}
+          prevValue={prevTotals.count}
         />
         </StaggerItem>
       </StaggerContainer>
@@ -513,7 +542,14 @@ export default function ReportesPage() {
 
       {/* Daily spending */}
       <div className="glass-card glass-card-glow p-5">
-        <h4 className="text-sm font-medium text-[#C8C6BC] mb-4">Gasto diario</h4>
+        <div className="flex items-center justify-between mb-4">
+          <h4 className="text-sm font-medium text-[#C8C6BC]">Gasto diario</h4>
+          {dailyAverage > 0 && (
+            <span className="text-xs text-[#8A877D]">
+              Promedio: <span className="text-[#EF9F27] font-medium">{formatCurrency(dailyAverage)}/dia</span>
+            </span>
+          )}
+        </div>
         <ResponsiveContainer width="100%" height={220}>
           <BarChart data={dailySpending} margin={{ left: 0, right: 0 }}>
             <XAxis
@@ -526,6 +562,14 @@ export default function ReportesPage() {
               formatter={(v) => formatCurrency(Number(v))}
               labelFormatter={(l) => `Dia ${l}`}
             />
+            {dailyAverage > 0 && (
+              <ReferenceLine
+                y={dailyAverage}
+                stroke="#EF9F27"
+                strokeDasharray="6 4"
+                strokeOpacity={0.5}
+              />
+            )}
             <Bar dataKey="total" fill="#EF9F27" radius={[4, 4, 0, 0]} cursor="pointer"
               onClick={(data: any) => { if (data && data.day && data.total > 0) setDetailDay(data.day); }}
             />
@@ -844,24 +888,52 @@ function Header({
   );
 }
 
+function ComparisonBadge({ current, previous, invertColor }: { current: number; previous: number; invertColor?: boolean }) {
+  if (previous === 0) return null;
+  const pctChange = Math.round(((current - previous) / previous) * 100);
+  if (pctChange === 0) return null;
+  const isUp = pctChange > 0;
+  const isPositive = invertColor ? !isUp : isUp;
+  const color = isPositive ? '#1D9E75' : '#D85A30';
+  const Icon = isUp ? ArrowUp : ArrowDown;
+  return (
+    <span
+      className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+      style={{ backgroundColor: `${color}18`, color }}
+    >
+      <Icon className="h-2.5 w-2.5" />
+      {Math.abs(pctChange)}%
+    </span>
+  );
+}
+
 function KPICard({
   label,
   value,
   icon,
   color,
   isCurrency = true,
+  prevValue,
+  invertColor,
 }: {
   label: string;
   value: number;
   icon: React.ReactNode;
   color: string;
   isCurrency?: boolean;
+  prevValue?: number;
+  invertColor?: boolean;
 }) {
   return (
     <div className="glass-card glass-card-glow p-4">
-      <div className="flex items-center gap-2 mb-2">
-        <span style={{ color }}>{icon}</span>
-        <span className="text-xs text-[#8A877D]">{label}</span>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <span style={{ color }}>{icon}</span>
+          <span className="text-xs text-[#8A877D]">{label}</span>
+        </div>
+        {prevValue != null && prevValue > 0 && (
+          <ComparisonBadge current={value} previous={prevValue} invertColor={invertColor} />
+        )}
       </div>
       <p className="text-xl font-bold" style={{ color }}>
         {isCurrency ? formatCurrency(value) : <NumberTicker value={value} className="!text-inherit" />}

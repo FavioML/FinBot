@@ -15,6 +15,7 @@ import {
   ChevronLeft,
   Search,
   FileText,
+  Download,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
@@ -248,6 +249,31 @@ export default function TransaccionesPage() {
     setCreateDialogOpen(true);
   };
 
+  const exportCSV = () => {
+    if (filtered.length === 0) return;
+    const headers = ['Fecha', 'Tipo', 'Comercio', 'Categoria', 'Subcategoria', 'Metodo', 'Monto (PEN)', 'Moneda', 'Monto Original'];
+    const rows = filtered.map((t) => [
+      t.fecha,
+      t.tipo,
+      `"${(t.comercio || '').replace(/"/g, '""')}"`,
+      t.categoria,
+      t.subcategoria || '',
+      normalizeMetodoPago(t.metodo_pago, t.banco),
+      t.monto_pen.toFixed(2),
+      t.moneda,
+      t.monto.toFixed(2),
+    ]);
+    const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const periodo = viewMode === 'anual' ? `${selectedYear}` : `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`;
+    a.download = `Neto-Transacciones-${periodo}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   // Pagination page numbers
   const getPageNumbers = (): number[] => {
     const pages: number[] = [];
@@ -305,7 +331,19 @@ export default function TransaccionesPage() {
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-bold text-[#F0EFE8]">Transacciones</h1>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          {filtered.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-[rgba(255,255,255,0.06)] text-[#8A877D] hover:text-[#C8C6BC]"
+              onClick={exportCSV}
+              title="Exportar a CSV"
+            >
+              <Download className="h-4 w-4 mr-1.5" />
+              CSV
+            </Button>
+          )}
           <Button
             variant="outline"
             className="border-[rgba(255,255,255,0.06)] text-[#C8C6BC]"
