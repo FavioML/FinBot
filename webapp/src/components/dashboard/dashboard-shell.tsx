@@ -7,6 +7,7 @@ import { Topbar } from '@/components/dashboard/topbar';
 import { BottomNav } from '@/components/dashboard/bottom-nav';
 import { QuickAddButton } from '@/components/dashboard/quick-add-button';
 import { OnboardingTour } from '@/components/dashboard/onboarding-tour';
+import { WhatsAppButton } from '@/components/shared/whatsapp-button';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -32,6 +33,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           <BottomNav />
         </div>
         <QuickAddButton />
+        <WhatsAppButton />
         <OnboardingTour />
       </div>
     </QueryClientProvider>

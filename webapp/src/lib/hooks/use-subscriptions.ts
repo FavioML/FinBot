@@ -151,9 +151,9 @@ function detectarSuscripcionesFromTxs(txs: Transaccion[]): DeteccionResult {
       if (!porCatalogoId[match.id]) {
         porCatalogoId[match.id] = { match, pagos: [], moneda: data.moneda }
       }
-      // If montos_validos is set, only include payments close to valid amounts (±20%)
+      // If montos_validos is set, only include payments close to valid amounts (±5%)
       const pagosToAdd = match.montos_validos
-        ? data.pagos.filter(p => match.montos_validos!.some(v => Math.abs(p.monto - v) / v <= 0.2))
+        ? data.pagos.filter(p => match.montos_validos!.some(v => Math.abs(p.monto - v) / v <= 0.05))
         : data.pagos
       porCatalogoId[match.id].pagos.push(...pagosToAdd)
     }

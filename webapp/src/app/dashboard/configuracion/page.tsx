@@ -70,6 +70,8 @@ export default function ConfiguracionPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [recordatoriosActivos, setRecordatoriosActivos] = useState(true);
+  const [recordatoriosLoading, setRecordatoriosLoading] = useState(false);
 
   useEffect(() => {
     const supabase = createClient();
@@ -78,6 +80,15 @@ export default function ConfiguracionPage() {
         setAvatarUrl(authUser.user_metadata.avatar_url);
       }
     });
+    // Fetch notification state
+    fetch('/api/notifications')
+      .then((r) => r.json())
+      .then((d) => {
+        if (typeof d.recordatorios_activos === 'boolean') {
+          setRecordatoriosActivos(d.recordatorios_activos);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const isPremium = user?.plan === 'premium';
@@ -439,28 +450,64 @@ export default function ConfiguracionPage() {
           Controla que notificaciones recibes por WhatsApp.
         </p>
 
+        {/* Recordatorios — functional toggle */}
+        <div className="flex items-start justify-between gap-4 rounded-lg bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-[#C8C6BC]">Recordatorios</p>
+            <p className="text-xs text-[#8A877D] mt-0.5">Recordatorio diario a las 8pm para registrar gastos</p>
+          </div>
+          <button
+            disabled={recordatoriosLoading}
+            onClick={async () => {
+              setRecordatoriosLoading(true);
+              const newVal = !recordatoriosActivos;
+              try {
+                const res = await fetch('/api/notifications', {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ recordatorios_activos: newVal }),
+                });
+                if (res.ok) {
+                  setRecordatoriosActivos(newVal);
+                  toast.success(newVal ? 'Recordatorios activados' : 'Recordatorios desactivados');
+                } else {
+                  toast.error('Error al actualizar');
+                }
+              } catch {
+                toast.error('Error de conexion');
+              } finally {
+                setRecordatoriosLoading(false);
+              }
+            }}
+            className={`shrink-0 mt-0.5 h-5 w-9 rounded-full relative transition-colors cursor-pointer ${
+              recordatoriosActivos ? 'bg-[#1D9E75]' : 'bg-[#3A3A38]'
+            } ${recordatoriosLoading ? 'opacity-50' : ''}`}
+          >
+            <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+              recordatoriosActivos ? 'right-0.5' : 'left-0.5'
+            }`} />
+          </button>
+        </div>
+
+        {/* Auto-managed toggles */}
         {[
-          { key: 'resumen_diario', label: 'Resumen diario', desc: 'Recibe un resumen de tus gastos del dia a las 8pm' },
+          { key: 'resumen_diario', label: 'Resumen diario', desc: 'Resumen de gastos del dia a las 8pm' },
           { key: 'resumen_semanal', label: 'Resumen semanal', desc: 'Analisis comparativo cada domingo' },
-          { key: 'alertas_presupuesto', label: 'Alertas de presupuesto', desc: 'Aviso cuando superas el 80% o 100% de un presupuesto' },
-          { key: 'recordatorios', label: 'Recordatorios', desc: 'Recordatorio diario para registrar gastos' },
+          { key: 'alertas_presupuesto', label: 'Alertas de presupuesto', desc: 'Aviso al superar 80% o 100% de un presupuesto' },
         ].map((pref) => (
           <div key={pref.key} className="flex items-start justify-between gap-4 rounded-lg bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] px-4 py-3">
             <div className="min-w-0">
               <p className="text-sm font-medium text-[#C8C6BC]">{pref.label}</p>
               <p className="text-xs text-[#8A877D] mt-0.5">{pref.desc}</p>
             </div>
-            <button
-              className="shrink-0 mt-0.5 h-5 w-9 rounded-full bg-[#1D9E75] relative transition-colors cursor-default"
-              title="Configurar via WhatsApp"
-            >
-              <span className="absolute right-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform" />
-            </button>
+            <div className="shrink-0 mt-0.5 h-5 w-9 rounded-full bg-[#1D9E75] relative">
+              <span className="absolute right-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm" />
+            </div>
           </div>
         ))}
 
         <p className="text-xs text-[#8A877D]">
-          Para cambiar tus preferencias, escribe <span className="font-mono text-[#C8C6BC]">/silenciar</span> o <span className="font-mono text-[#C8C6BC]">/recordar</span> en WhatsApp.
+          Los resumenes y alertas se envian automaticamente por WhatsApp. Solo los recordatorios se pueden activar o desactivar.
         </p>
       </div>
 

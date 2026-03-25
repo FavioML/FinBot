@@ -30,6 +30,7 @@ import { useBudgets } from '@/lib/hooks/use-budgets';
 import { formatCurrency, getScoreColor, getScoreLabel, calcularScoreFinanciero } from '@/lib/utils';
 import { getCategoriaEmoji, MESES, SOCIAL_LINKS } from '@/lib/constants';
 import { capitalizeDisplay, normalizeMetodoPago, getMetodoIcon } from '@/lib/format';
+import { useSubscriptions } from '@/lib/hooks/use-subscriptions';
 import type { Transaccion } from '@/lib/types';
 import {
   PieChart, Pie, Cell, BarChart, Bar,
@@ -106,6 +107,7 @@ export default function ReportesPage() {
   });
 
   const { data: budgets = [] } = useBudgets(user?.id);
+  const { data: subsData } = useSubscriptions(user?.id);
 
   const isLoading = userLoading || txLoading;
 
@@ -575,6 +577,59 @@ export default function ReportesPage() {
             />
           </BarChart>
         </ResponsiveContainer>
+      </div>
+
+      {/* Suscripciones summary */}
+      {subsData && subsData.cantidad > 0 && (
+        <div className="glass-card glass-card-glow p-5">
+          <h4 className="text-sm font-medium text-[#C8C6BC] mb-4">Suscripciones activas</h4>
+          <div className="space-y-2">
+            {subsData.suscripciones.slice(0, 8).map((sub) => (
+              <div key={sub.id} className="flex items-center justify-between text-sm">
+                <span className="text-[#F0EFE8]">{sub.icono} {sub.nombre}</span>
+                <div className="text-right">
+                  <span className="text-[#C8C6BC] font-medium">S/{sub.monto_pen.toFixed(0)}/mes</span>
+                  <span className="text-xs text-[#8A877D] ml-2">S/{(sub.monto_pen * 12).toFixed(0)}/año</span>
+                </div>
+              </div>
+            ))}
+            <div className="border-t border-[rgba(255,255,255,0.06)] pt-2 mt-2 flex justify-between">
+              <span className="text-sm text-[#C8C6BC]">Total mensual</span>
+              <span className="text-sm font-bold text-[#D85A30]">S/{subsData.totalMensualPEN.toFixed(0)}/mes</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Financial health summary */}
+      <div className="glass-card glass-card-glow p-5">
+        <h4 className="text-sm font-medium text-[#C8C6BC] mb-3">Resumen de salud financiera</h4>
+        <div className="grid grid-cols-2 gap-3 text-xs">
+          <div className="rounded-lg bg-[rgba(255,255,255,0.03)] p-3">
+            <span className="text-[#8A877D]">Tasa de ahorro</span>
+            <p className={`text-lg font-bold mt-1 ${ahorro >= 0 ? 'text-[#1D9E75]' : 'text-[#D85A30]'}`}>
+              {totalIngresos > 0 ? `${((ahorro / totalIngresos) * 100).toFixed(0)}%` : '—'}
+            </p>
+          </div>
+          <div className="rounded-lg bg-[rgba(255,255,255,0.03)] p-3">
+            <span className="text-[#8A877D]">Gasto promedio diario</span>
+            <p className="text-lg font-bold text-[#EF9F27] mt-1">
+              {dailyAverage > 0 ? `S/${dailyAverage}` : '—'}
+            </p>
+          </div>
+          <div className="rounded-lg bg-[rgba(255,255,255,0.03)] p-3">
+            <span className="text-[#8A877D]">Categoria principal</span>
+            <p className="text-lg font-bold text-[#F0EFE8] mt-1">
+              {categoryBreakdown.length > 0 ? `${categoryBreakdown[0].emoji} ${categoryBreakdown[0].categoria}` : '—'}
+            </p>
+          </div>
+          <div className="rounded-lg bg-[rgba(255,255,255,0.03)] p-3">
+            <span className="text-[#8A877D]">Comercio frecuente</span>
+            <p className="text-lg font-bold text-[#F0EFE8] mt-1 truncate">
+              {topMerchants.length > 0 ? topMerchants[0].name : '—'}
+            </p>
+          </div>
+        </div>
       </div>
 
       </div>{/* end reportRef */}

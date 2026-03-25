@@ -274,9 +274,9 @@ export default function SuscripcionesPage() {
   const monthKey = `${year}-${String(month).padStart(2, '0')}`;
   const monthLabel = `${MESES[month]} ${year}`;
 
-  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [filterTipo, setFilterTipo] = useState<TipoSuscripcion | 'all'>('all');
-  const [viewMode, setViewMode] = useState<'mensual' | 'todo'>('mensual');
+  const [viewMode, setViewMode] = useState<'mensual' | 'anual'>('mensual');
+  const [selectedYear, setSelectedYear] = useState(now.getFullYear());
 
   const isLoading = userLoading || subsLoading;
 
@@ -295,11 +295,39 @@ export default function SuscripcionesPage() {
     return { subs, totalPEN: Math.round(totalPEN * 100) / 100, count: subs.length };
   }, [subsData, monthKey]);
 
-  const filteredSubs = useMemo(() => {
-    if (!subsData) return [];
-    if (filterTipo === 'all') return subsData.suscripciones;
-    return subsData.suscripciones.filter((s) => s.tipo === filterTipo);
-  }, [subsData, filterTipo]);
+  // Annual filtered data
+  const yearKey = String(selectedYear);
+  const annualData = useMemo(() => {
+    if (!subsData) return { subs: [] as { sub: SuscripcionDetectada; pagos: { monto: number; monto_pen: number; moneda: string; fecha: string }[] }[], totalPEN: 0, count: 0 };
+    const subs: { sub: SuscripcionDetectada; pagos: { monto: number; monto_pen: number; moneda: string; fecha: string }[] }[] = [];
+    let totalPEN = 0;
+    for (const sub of subsData.suscripciones) {
+      const pagos = sub.pagos_detalle.filter(p => p.fecha.startsWith(yearKey));
+      if (pagos.length > 0) {
+        subs.push({ sub, pagos });
+        totalPEN += pagos.reduce((s, p) => s + p.monto_pen, 0);
+      }
+    }
+    return { subs, totalPEN: Math.round(totalPEN * 100) / 100, count: subs.length };
+  }, [subsData, yearKey]);
+
+  // Available years from data
+  const availableYears = useMemo(() => {
+    if (!subsData) return [now.getFullYear()];
+    const years = new Set<number>();
+    for (const sub of subsData.suscripciones) {
+      for (const p of sub.pagos_detalle) {
+        years.add(parseInt(p.fecha.substring(0, 4)));
+      }
+    }
+    if (years.size === 0) years.add(now.getFullYear());
+    return Array.from(years).sort((a, b) => b - a);
+  }, [subsData, now]);
+
+  const filteredAnnualSubs = useMemo(() => {
+    if (filterTipo === 'all') return annualData.subs;
+    return annualData.subs.filter((s) => s.sub.tipo === filterTipo);
+  }, [annualData.subs, filterTipo]);
 
   const filteredMonthlySubs = useMemo(() => {
     if (filterTipo === 'all') return monthlyData.subs;
@@ -312,10 +340,11 @@ export default function SuscripcionesPage() {
       const tipos = new Set(monthlyData.subs.map(s => s.sub.tipo));
       return Array.from(tipos) as TipoSuscripcion[];
     }
-    return Object.keys(subsData.porTipo) as TipoSuscripcion[];
-  }, [subsData, viewMode, monthlyData.subs]);
+    const tipos = new Set(annualData.subs.map(s => s.sub.tipo));
+    return Array.from(tipos) as TipoSuscripcion[];
+  }, [subsData, viewMode, monthlyData.subs, annualData.subs]);
 
-  const gastoAnualProyectado = subsData ? subsData.totalMensualPEN * 12 : 0;
+  const currentViewData = viewMode === 'mensual' ? monthlyData : annualData;
 
   if (isLoading) {
     return (
@@ -366,29 +395,46 @@ export default function SuscripcionesPage() {
             Mensual
           </button>
           <button
-            onClick={() => setViewMode('todo')}
+            onClick={() => setViewMode('anual')}
             className={`text-xs px-4 py-2 transition-colors ${
-              viewMode === 'todo'
+              viewMode === 'anual'
                 ? 'bg-[rgba(29,158,117,0.12)] text-[#1D9E75]'
                 : 'bg-[rgba(255,255,255,0.02)] text-[#8A877D] hover:text-[#C8C6BC]'
             }`}
           >
-            Todo
+            Anual
           </button>
         </div>
         {viewMode === 'mensual' && <MonthSelector />}
+        {viewMode === 'anual' && (
+          <div className="flex items-center gap-1.5">
+            {availableYears.map((y) => (
+              <button
+                key={y}
+                onClick={() => setSelectedYear(y)}
+                className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                  selectedYear === y
+                    ? 'bg-[rgba(29,158,117,0.12)] text-[#1D9E75] font-medium'
+                    : 'bg-[rgba(255,255,255,0.03)] text-[#8A877D] hover:text-[#C8C6BC]'
+                }`}
+              >
+                {y}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* KPIs */}
-      {subsData && (viewMode === 'todo' ? subsData.cantidad > 0 : monthlyData.count > 0) && (
+      {subsData && currentViewData.count > 0 && (
         <StaggerContainer className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <StaggerItem>
           <KPICard
             icon={CreditCard}
             label="Suscripciones"
-            value={String(viewMode === 'todo' ? subsData.cantidad : monthlyData.count)}
-            sub={viewMode === 'todo'
-              ? `${subsData.suscripciones.filter((s) => s.estado === 'activa').length} confirmadas`
+            value={String(currentViewData.count)}
+            sub={viewMode === 'anual'
+              ? `con pagos en ${selectedYear}`
               : `con pagos en ${MESES[month]}`
             }
           />
@@ -396,20 +442,22 @@ export default function SuscripcionesPage() {
           <StaggerItem>
           <KPICard
             icon={TrendingDown}
-            label={viewMode === 'todo' ? 'Gasto mensual' : `Gasto ${MESES[month]}`}
-            value={`S/${viewMode === 'todo' ? subsData.totalMensualPEN.toFixed(0) : monthlyData.totalPEN.toFixed(0)}`}
-            sub={viewMode === 'todo' && subsData.totalMensualUSD > 0 ? `$${subsData.totalMensualUSD.toFixed(0)} USD` : undefined}
+            label={viewMode === 'anual' ? `Gasto ${selectedYear}` : `Gasto ${MESES[month]}`}
+            value={`S/${currentViewData.totalPEN.toFixed(0)}`}
           />
           </StaggerItem>
           <StaggerItem>
           <KPICard
             icon={Eye}
-            label="Gasto anual"
-            value={`S/${gastoAnualProyectado.toFixed(0)}`}
-            sub="proyectado"
+            label={viewMode === 'anual' ? 'Promedio mensual' : 'Gasto anual proyectado'}
+            value={viewMode === 'anual'
+              ? `S/${annualData.count > 0 ? (annualData.totalPEN / 12).toFixed(0) : '0'}`
+              : `S/${(currentViewData.totalPEN * 12).toFixed(0)}`
+            }
+            sub={viewMode === 'anual' ? `en ${selectedYear}` : 'proyectado'}
           />
           </StaggerItem>
-          {viewMode === 'todo' && subsData.ahorroPotencialFamiliar > 0 && (
+          {viewMode === 'anual' && subsData.ahorroPotencialFamiliar > 0 && (
             <StaggerItem>
             <KPICard
               icon={Users}
@@ -424,28 +472,28 @@ export default function SuscripcionesPage() {
       )}
 
       {/* Empty state */}
-      {subsData && (viewMode === 'todo' ? subsData.cantidad === 0 : monthlyData.count === 0) && (
+      {subsData && currentViewData.count === 0 && (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <div className="rounded-full bg-[rgba(255,255,255,0.04)] p-4 mb-4">
             <CreditCard className="h-8 w-8 text-[#8A877D]" />
           </div>
           <h3 className="text-[#C8C6BC] font-medium mb-2">
-            {viewMode === 'todo'
-              ? 'No detectamos suscripciones activas'
+            {viewMode === 'anual'
+              ? `Sin pagos de suscripciones en ${selectedYear}`
               : `Sin pagos de suscripciones en ${monthLabel}`
             }
           </h3>
           <p className="text-sm text-[#8A877D] max-w-md">
-            {viewMode === 'todo'
-              ? 'NETO detecta suscripciones automáticamente cuando procesa tus correos bancarios. Si tienes Netflix, Spotify u otros servicios, los verás aquí cuando se registre al menos un cobro.'
-              : 'No se encontraron pagos de suscripciones en este mes. Prueba seleccionando otro mes o cambia a la vista "Todo" para ver el resumen general.'
+            {viewMode === 'anual'
+              ? `No se encontraron pagos de suscripciones en ${selectedYear}. Prueba seleccionando otro año.`
+              : 'No se encontraron pagos de suscripciones en este mes. Prueba seleccionando otro mes o cambia a la vista anual.'
             }
           </p>
         </div>
       )}
 
       {/* Filters */}
-      {subsData && (viewMode === 'todo' ? subsData.cantidad > 0 : monthlyData.count > 0) && tiposPresentes.length > 1 && (
+      {subsData && currentViewData.count > 0 && tiposPresentes.length > 1 && (
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setFilterTipo('all')}
@@ -455,13 +503,11 @@ export default function SuscripcionesPage() {
                 : 'bg-[rgba(255,255,255,0.03)] text-[#8A877D] hover:text-[#C8C6BC]'
             }`}
           >
-            Todas ({viewMode === 'todo' ? subsData.cantidad : monthlyData.count})
+            Todas ({currentViewData.count})
           </button>
           {tiposPresentes.map((tipo) => {
             const info = TIPO_LABELS[tipo] || TIPO_LABELS.otro;
-            const count = viewMode === 'todo'
-              ? (subsData.porTipo[tipo]?.cantidad || 0)
-              : monthlyData.subs.filter(s => s.sub.tipo === tipo).length;
+            const count = currentViewData.subs.filter(s => s.sub.tipo === tipo).length;
             return (
               <button
                 key={tipo}
@@ -479,15 +525,15 @@ export default function SuscripcionesPage() {
         </div>
       )}
 
-      {/* Subscription cards — Todo mode */}
-      {viewMode === 'todo' && filteredSubs.length > 0 && (
+      {/* Subscription cards — Anual mode */}
+      {viewMode === 'anual' && filteredAnnualSubs.length > 0 && (
         <div className="space-y-2">
-          {filteredSubs.map((sub) => (
-            <SubscriptionCard
+          {filteredAnnualSubs.map(({ sub, pagos }) => (
+            <MonthlySubscriptionCard
               key={sub.id}
               sub={sub}
-              expanded={expandedId === sub.id}
-              onToggle={() => setExpandedId(expandedId === sub.id ? null : sub.id)}
+              pagos={pagos}
+              monthLabel={String(selectedYear)}
             />
           ))}
         </div>
@@ -507,18 +553,22 @@ export default function SuscripcionesPage() {
         </div>
       )}
 
-      {/* Summary by type */}
-      {viewMode === 'todo' && subsData && subsData.cantidad > 0 && Object.keys(subsData.porTipo).length > 1 && (
-        <div className="glass-card p-4">
-          <h3 className="text-sm font-medium text-[#C8C6BC] mb-3">Desglose por tipo</h3>
-          <div className="space-y-2">
-            {Object.entries(subsData.porTipo)
-              .sort(([, a], [, b]) => b.totalPEN - a.totalPEN)
-              .map(([tipo, data]) => {
+      {/* Summary by type — Anual */}
+      {viewMode === 'anual' && annualData.count > 0 && (() => {
+        const tipoTotals: Record<string, number> = {};
+        for (const { sub, pagos } of annualData.subs) {
+          const total = pagos.reduce((s, p) => s + p.monto_pen, 0);
+          tipoTotals[sub.tipo] = (tipoTotals[sub.tipo] || 0) + total;
+        }
+        const entries = Object.entries(tipoTotals).sort(([, a], [, b]) => b - a);
+        if (entries.length <= 1) return null;
+        return (
+          <div className="glass-card p-4">
+            <h3 className="text-sm font-medium text-[#C8C6BC] mb-3">Desglose por tipo — {selectedYear}</h3>
+            <div className="space-y-2">
+              {entries.map(([tipo, total]) => {
                 const info = TIPO_LABELS[tipo as TipoSuscripcion] || TIPO_LABELS.otro;
-                const pct = subsData.totalMensualPEN > 0
-                  ? (data.totalPEN / subsData.totalMensualPEN) * 100
-                  : 0;
+                const pct = annualData.totalPEN > 0 ? (total / annualData.totalPEN) * 100 : 0;
                 return (
                   <div key={tipo} className="flex items-center gap-3">
                     <span className="text-sm shrink-0">{info.emoji}</span>
@@ -526,7 +576,7 @@ export default function SuscripcionesPage() {
                       <div className="flex items-center justify-between text-xs mb-1">
                         <span className="text-[#C8C6BC]">{info.label}</span>
                         <span className="text-[#8A877D]">
-                          S/{data.totalPEN.toFixed(0)} ({pct.toFixed(0)}%)
+                          S/{total.toFixed(0)} ({pct.toFixed(0)}%)
                         </span>
                       </div>
                       <div className="h-1.5 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
@@ -541,12 +591,13 @@ export default function SuscripcionesPage() {
                   </div>
                 );
               })}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Inactive subscriptions alert */}
-      {viewMode === 'todo' && subsData && (() => {
+      {viewMode === 'anual' && subsData && (() => {
         const inactive = subsData.suscripciones.filter((s) => {
           const daysSince = Math.floor((Date.now() - new Date(s.ultimo_pago + 'T12:00:00').getTime()) / (1000 * 60 * 60 * 24));
           return daysSince > 45;

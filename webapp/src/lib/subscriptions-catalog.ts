@@ -224,9 +224,9 @@ export function detectSubscriptions(
     for (const sub of SUBSCRIPTION_PATTERNS) {
       const matched = sub.patrones.some(p => comercio.includes(p.toLowerCase()))
       if (matched) {
-        // If montos_validos is set, only include payments close to valid amounts (±20%)
+        // If montos_validos is set, only include payments close to valid amounts (±5%)
         if (sub.montos_validos) {
-          const isValidAmount = sub.montos_validos.some(v => Math.abs(tx.monto_pen - v) / v <= 0.2)
+          const isValidAmount = sub.montos_validos.some(v => Math.abs(tx.monto_pen - v) / v <= 0.05)
           if (!isValidAmount) continue
         }
         if (!matchMap.has(sub.id)) {

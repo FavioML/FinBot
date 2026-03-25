@@ -22,7 +22,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { EmptyState } from '@/components/shared/empty-state';
-import { WhatsAppButton } from '@/components/shared/whatsapp-button';
 import { MonthSelector } from '@/components/dashboard/month-selector';
 import { KPICards } from '@/components/dashboard/kpi-cards';
 import { InsightCard, generateInsight } from '@/components/dashboard/insight-card';
@@ -310,7 +309,6 @@ export default function DashboardPage() {
           description="Conecta tu cuenta de Google para visualizar tus finanzas personales."
           showWhatsApp={false}
         />
-        <WhatsAppButton />
       </>
     );
   }
@@ -572,7 +570,7 @@ export default function DashboardPage() {
             {/* Suscripciones */}
             <div className="glass-card glass-card-glow p-5">
               <div className="flex items-center justify-between mb-4">
-                <Link href="/dashboard/suscripciones" className="text-sm font-medium text-[#C8C6BC] hover:text-[#1D9E75] transition-colors">Suscripciones detectadas</Link>
+                <span className="text-sm font-medium text-[#C8C6BC]">Suscripciones detectadas</span>
                 <Link href="/dashboard/suscripciones" className="text-xs text-[#1D9E75] hover:underline">Ver todas &rarr;</Link>
               </div>
               {subscriptions.length > 0 ? (
@@ -838,9 +836,6 @@ export default function DashboardPage() {
         onSuccess={refreshAll}
         userCategorias={userCategorias}
       />
-
-      {/* Floating WhatsApp button */}
-      <WhatsAppButton />
 
       {/* First-time welcome modal */}
       <WelcomeModal />
