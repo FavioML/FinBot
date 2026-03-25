@@ -30,3 +30,5 @@ NVIDIA Corporation/
 
 # Next.js build artifacts
 .next/
+landing/out/
+landing/node_modules/

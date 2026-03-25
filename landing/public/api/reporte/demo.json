@@ -1,0 +1,120 @@
+{
+  "nombre": "Favio",
+  "mes": 3,
+  "anio": 2026,
+  "mesLabel": "Marzo",
+  "fechaGeneracion": "2026-03-20T15:30:00.000Z",
+  "kpis": {
+    "totalIngresos": 8500,
+    "totalGastos": 5230,
+    "ahorro": 3270,
+    "pctAhorro": 38.5,
+    "deltaGasto": 12.3,
+    "deltaIngreso": 5.1
+  },
+  "categorias": [
+    { "nombre": "Alimentacion", "monto": 1850, "presupuesto": 2000, "pctPresupuesto": 92.5, "color": "#EF9F27", "subcategorias": [
+      { "nombre": "Wong", "monto": 850 },
+      { "nombre": "Plaza Vea", "monto": 456 },
+      { "nombre": "Rappi", "monto": 320 },
+      { "nombre": "Starbucks", "monto": 224 }
+    ]},
+    { "nombre": "Transporte", "monto": 920, "presupuesto": 800, "pctPresupuesto": 115, "color": "#D85A30", "subcategorias": [
+      { "nombre": "Uber", "monto": 520 },
+      { "nombre": "Grifo Repsol", "monto": 280 },
+      { "nombre": "Cabify", "monto": 120 }
+    ]},
+    { "nombre": "Vivienda", "monto": 1200, "presupuesto": 0, "pctPresupuesto": 0, "color": "#1D9E75", "subcategorias": [
+      { "nombre": "Alquiler", "monto": 1200 }
+    ]},
+    { "nombre": "Entretenimiento", "monto": 450, "presupuesto": 500, "pctPresupuesto": 90, "color": "#EF9F27", "subcategorias": [
+      { "nombre": "Netflix", "monto": 45 },
+      { "nombre": "Spotify", "monto": 23 },
+      { "nombre": "Disney+", "monto": 30 },
+      { "nombre": "Cine", "monto": 180 },
+      { "nombre": "Juegos", "monto": 172 }
+    ]},
+    { "nombre": "Salud", "monto": 380, "presupuesto": 0, "pctPresupuesto": 0, "color": "#1D9E75", "subcategorias": [
+      { "nombre": "Farmacia", "monto": 215 },
+      { "nombre": "Consulta medica", "monto": 165 }
+    ]},
+    { "nombre": "Compras", "monto": 430, "presupuesto": 0, "pctPresupuesto": 0, "color": "#1D9E75", "subcategorias": [
+      { "nombre": "Falabella", "monto": 230 },
+      { "nombre": "Amazon", "monto": 200 }
+    ]}
+  ],
+  "comercios": [
+    { "nombre": "Wong", "monto": 850 },
+    { "nombre": "Uber", "monto": 520 },
+    { "nombre": "Netflix", "monto": 45 },
+    { "nombre": "Starbucks", "monto": 180 },
+    { "nombre": "Rappi", "monto": 320 }
+  ],
+  "metodosPago": [
+    { "nombre": "Yape", "monto": 2100 },
+    { "nombre": "BCP Débito", "monto": 1800 },
+    { "nombre": "BBVA Crédito", "monto": 930 },
+    { "nombre": "Plin", "monto": 400 }
+  ],
+  "suscripciones": [
+    { "comercio": "Netflix", "monto": 45, "moneda": "PEN" },
+    { "comercio": "Spotify", "monto": 23, "moneda": "PEN" },
+    { "comercio": "Disney+", "monto": 30, "moneda": "PEN" }
+  ],
+  "totalSuscripciones": 98,
+  "historial": [
+    { "mes": 12, "anio": 2025, "label": "Dic", "totalGastos": 4800, "totalIngresos": 8200 },
+    { "mes": 1, "anio": 2026, "label": "Ene", "totalGastos": 5100, "totalIngresos": 8500 },
+    { "mes": 2, "anio": 2026, "label": "Feb", "totalGastos": 4650, "totalIngresos": 8100 },
+    { "mes": 3, "anio": 2026, "label": "Mar", "totalGastos": 5230, "totalIngresos": 8500 }
+  ],
+  "score": {
+    "valor": 78,
+    "label": "En camino",
+    "color": "#EF9F27",
+    "factores": [
+      { "texto": "Gastos dentro del 70% del ingreso", "estado": "green" },
+      { "texto": "1 presupuesto(s) superado(s)", "estado": "red" },
+      { "texto": "Suscripciones controladas", "estado": "green" }
+    ]
+  },
+  "proyeccion": {
+    "fijos": 1298,
+    "variables": 3932,
+    "total": 5380,
+    "insight": "Si mantienes este ritmo, ahorraras aprox. S/ 3120 este mes."
+  },
+  "acciones": [
+    { "texto": "Reducir Transporte en S/ 120", "pill": "Para estar en presupuesto", "color": "amber" },
+    { "texto": "Monitorear Alimentacion", "pill": "92% del presupuesto usado", "color": "amber" },
+    { "texto": "Mantener nivel de ahorro", "pill": "38% del ingreso ahorrado", "color": "green" }
+  ],
+  "transacciones": [
+    { "fecha": "2026-03-20", "comercio": "Wong", "categoria": "Alimentacion", "monto": 85.5, "moneda": "PEN", "tipo": "gasto", "metodo_pago": "Yape" },
+    { "fecha": "2026-03-19", "comercio": "Uber", "categoria": "Transporte", "monto": 32, "moneda": "PEN", "tipo": "gasto", "metodo_pago": "BCP Debito" },
+    { "fecha": "2026-03-19", "comercio": "Starbucks", "categoria": "Alimentacion", "monto": 22, "moneda": "PEN", "tipo": "gasto", "metodo_pago": "BBVA Credito" },
+    { "fecha": "2026-03-18", "comercio": "Netflix", "categoria": "Entretenimiento", "monto": 45, "moneda": "PEN", "tipo": "gasto", "metodo_pago": "BBVA Credito" },
+    { "fecha": "2026-03-17", "comercio": "Rappi", "categoria": "Alimentacion", "monto": 48, "moneda": "PEN", "tipo": "gasto", "metodo_pago": "Yape" },
+    { "fecha": "2026-03-16", "comercio": "Grifo Repsol", "categoria": "Transporte", "monto": 120, "moneda": "PEN", "tipo": "gasto", "metodo_pago": "BCP Debito" },
+    { "fecha": "2026-03-15", "comercio": "Empresa SAC", "categoria": "Sueldo", "monto": 8500, "moneda": "PEN", "tipo": "ingreso", "metodo_pago": "Transferencia" },
+    { "fecha": "2026-03-14", "comercio": "Farmacia", "categoria": "Salud", "monto": 65, "moneda": "PEN", "tipo": "gasto", "metodo_pago": "Yape" },
+    { "fecha": "2026-03-13", "comercio": "Plaza Vea", "categoria": "Alimentacion", "monto": 156, "moneda": "PEN", "tipo": "gasto", "metodo_pago": "BCP Debito" },
+    { "fecha": "2026-03-12", "comercio": "Falabella", "categoria": "Compras", "monto": 230, "moneda": "PEN", "tipo": "gasto", "metodo_pago": "BBVA Credito" }
+  ],
+  "gastosUsd": {
+    "total": 0,
+    "totalPen": 0,
+    "tcPromedio": 3.85,
+    "detalle": []
+  },
+  "mesesDisponibles": [
+    { "mes": 12, "anio": 2025, "label": "Dic 2025" },
+    { "mes": 1, "anio": 2026, "label": "Ene 2026" },
+    { "mes": 2, "anio": 2026, "label": "Feb 2026" },
+    { "mes": 3, "anio": 2026, "label": "Mar 2026" }
+  ],
+  "insightMes": {
+    "texto": "Ahorraste el 38% de tus ingresos este mes. Tu mayor gasto fue Alimentacion con S/ 1850.",
+    "tipo": "green"
+  }
+}
