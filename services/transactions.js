@@ -14,7 +14,7 @@ async function obtenerTipoCambio() {
   if (_tcCache && (now - _tcCacheTime) < 3600000) return _tcCache;
   try {
     const hoy = hoyPeru();
-    const resp = await fetch('https://dolar.pe/api/public/series?from=' + hoy + '&to=' + hoy, {
+    const resp = await fetch('https://dolar.pe/api/public/series?pair=USD-PEN&from=' + hoy + '&to=' + hoy, {
       headers: { 'Accept': 'application/json' },
       signal: AbortSignal.timeout(4000)
     });

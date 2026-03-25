@@ -268,8 +268,8 @@ export function detectSubscriptions(
   return results.sort((a, b) => b.annualProjection - a.annualProjection)
 }
 
-// Tipo de cambio aproximado para conversiones en el frontend
-export const TC_APROXIMADO = 3.75
+// Tipo de cambio para conversiones frontend (se actualiza via /api/exchange-rate)
+export let TC_APROXIMADO = 3.85
 
 export function convertirAPEN(monto: number, moneda: 'USD' | 'PEN'): number {
   return moneda === 'USD' ? Math.round(monto * TC_APROXIMADO * 100) / 100 : monto

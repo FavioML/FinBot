@@ -29,6 +29,9 @@ import { CategoryDonut } from '@/components/charts/category-donut';
 import { TrendLine } from '@/components/charts/trend-line';
 import { ScoreTrend } from '@/components/charts/score-trend';
 import { SpendingHeatmap } from '@/components/charts/spending-heatmap';
+import { SpendingProjection } from '@/components/dashboard/spending-projection';
+import { ExchangeRateWidget } from '@/components/dashboard/exchange-rate-widget';
+import { RecurringPayments } from '@/components/dashboard/recurring-payments';
 import { UserMenu } from '@/components/dashboard/user-menu';
 import { WelcomeModal } from '@/components/dashboard/welcome-modal';
 import { useUser } from '@/lib/hooks/use-user';
@@ -332,6 +335,21 @@ export default function DashboardPage() {
           {/* KPI cards */}
           <KPICards data={kpiData} onScoreClick={() => setShowScoreDialog(true)} />
 
+          {/* Projection + Exchange rate row */}
+          {viewMode === 'mensual' && (
+            <FadeIn delay={0.12}>
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-4">
+              <SpendingProjection
+                transactions={transactions}
+                allTransactions={allTransactions}
+                currentMonth={currentMonth}
+                currentYear={currentYear}
+              />
+              <ExchangeRateWidget />
+            </div>
+            </FadeIn>
+          )}
+
           {/* Charts row */}
           <FadeIn delay={0.2}>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -369,6 +387,11 @@ export default function DashboardPage() {
             <FadeIn delay={0.3}>
               <SpendingHeatmap transactions={allTransactions} />
             </FadeIn>
+          )}
+
+          {/* Recurring payments */}
+          {viewMode === 'mensual' && (
+            <RecurringPayments transactions={allTransactions} />
           )}
 
           {/* Transacciones Recientes + Suscripciones side by side */}

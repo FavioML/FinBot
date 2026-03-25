@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { getExchangeRate } from '@/lib/exchange-rate';
 
 const serviceClient = createSupabaseClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -29,9 +30,10 @@ export async function POST(request: Request) {
 
   const body = await request.json();
 
-  // Calculate monto_pen based on moneda
+  // Calculate monto_pen based on moneda — use live exchange rate
   const monto = parseFloat(body.monto) || 0;
-  const montoPen = body.moneda === 'USD' ? monto * 3.7 : monto;
+  const tc = body.moneda === 'USD' ? await getExchangeRate() : 1;
+  const montoPen = body.moneda === 'USD' ? monto * tc : monto;
 
   const { data, error } = await serviceClient
     .from('transacciones')
@@ -41,6 +43,7 @@ export async function POST(request: Request) {
       monto,
       monto_pen: montoPen,
       moneda: body.moneda || 'PEN',
+      tipo_cambio: body.moneda === 'USD' ? tc : null,
       comercio: body.comercio || null,
       categoria: body.categoria,
       subcategoria: body.subcategoria || null,
@@ -62,7 +65,8 @@ export async function PUT(request: Request) {
 
   const body = await request.json();
   const monto = parseFloat(body.monto) || 0;
-  const montoPen = body.moneda === 'USD' ? monto * 3.7 : monto;
+  const tc = body.moneda === 'USD' ? await getExchangeRate() : 1;
+  const montoPen = body.moneda === 'USD' ? monto * tc : monto;
 
   const { data, error } = await serviceClient
     .from('transacciones')
