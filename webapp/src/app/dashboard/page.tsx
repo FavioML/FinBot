@@ -35,6 +35,9 @@ import { SpendingProjection } from '@/components/dashboard/spending-projection';
 import { ExchangeRateWidget } from '@/components/dashboard/exchange-rate-widget';
 import { RecurringPayments } from '@/components/dashboard/recurring-payments';
 import { QuickActions } from '@/components/dashboard/quick-actions';
+import { TodaySpending } from '@/components/dashboard/today-spending';
+import { TopMerchants } from '@/components/dashboard/top-merchants';
+import { PaymentMethodDonut } from '@/components/charts/payment-method-donut';
 import { UserMenu } from '@/components/dashboard/user-menu';
 import { WelcomeModal } from '@/components/dashboard/welcome-modal';
 import { useUser } from '@/lib/hooks/use-user';
@@ -372,13 +375,18 @@ export default function DashboardPage() {
           {/* KPI cards */}
           <KPICards data={kpiData} sparklines={sparklines} onScoreClick={() => setShowScoreDialog(true)} />
 
-          {/* Projection + Exchange rate row */}
+          {/* Projection + Today spending + Exchange rate row */}
           {viewMode === 'mensual' && (
             <FadeIn delay={0.12}>
-            <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-4">
               <SpendingProjection
                 transactions={transactions}
                 allTransactions={allTransactions}
+                currentMonth={currentMonth}
+                currentYear={currentYear}
+              />
+              <TodaySpending
+                transactions={allTransactions}
                 currentMonth={currentMonth}
                 currentYear={currentYear}
               />
@@ -394,6 +402,16 @@ export default function DashboardPage() {
             <CategoryDonut data={categoryData} onCategoryClick={setDetailCategoria} />
           </div>
           </FadeIn>
+
+          {/* Top merchants + Payment methods */}
+          {viewMode === 'mensual' && (
+            <FadeIn delay={0.22}>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <TopMerchants transactions={transactions} />
+              <PaymentMethodDonut transactions={transactions} />
+            </div>
+            </FadeIn>
+          )}
 
           {/* Score trend + AI insight */}
           {viewMode === 'mensual' && (
