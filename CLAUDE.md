@@ -96,9 +96,7 @@ NETO es un asistente financiero personal por WhatsApp para el mercado peruano.
   - [x] Nombre real del usuario (no email)
 
 ### Pendientes webapp
-- [ ] Metas de ahorro (F38) — CRUD + tabla Supabase + barra progreso
-- [ ] Onboarding tour interactivo (F39) — tooltips guiados para nuevos usuarios
-- [ ] PWA install prompt (F40) — manifest.json + meta tags + standalone mode
+- [ ] (sin pendientes críticos)
 
 ### Pendientes menores
 - [ ] Verificación de negocio en Meta (manual, límite 250 conv/día)
@@ -139,6 +137,14 @@ NETO es un asistente financiero personal por WhatsApp para el mercado peruano.
 - [x] Consejo IA via /api/advice (GPT-4o-mini) con fallback rule-based
 - [x] Spending heatmap (12 semanas, estilo GitHub contributions)
 - [x] Métodos de pago unificados (VISA BCP → BCP Crédito, etc.)
+- [x] Metas de ahorro: CRUD completo + tabla Supabase + página /dashboard/metas
+- [x] Onboarding tour: 4 pasos interactivos para nuevos usuarios
+- [x] PWA: manifest.json + Apple Web App meta tags
+- [x] FIX tipo de cambio: dolar.pe API faltaba pair=USD-PEN (siempre caía a fallback)
+- [x] Tipo de cambio unificado: lib/exchange-rate.ts con cache 1h + /api/exchange-rate
+- [x] Proyección de gasto mensual con comparación vs mes anterior
+- [x] Detección de pagos recurrentes (no suscripciones) con próximo pago esperado
+- [x] Widget tipo de cambio USD/PEN en dashboard
 
 ## Convenciones críticas
 - Archivos grandes (>10KB): editar con Edit tool, nunca reescribir completo
