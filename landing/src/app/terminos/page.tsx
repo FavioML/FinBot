@@ -3,9 +3,10 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 
 export const metadata: Metadata = {
-  title: "Terminos de Uso - Neto",
+  title: "Términos de Uso — Neto",
   description:
-    "Terminos de uso de Neto - Tu asistente financiero personal por WhatsApp",
+    "Términos de uso de Neto — Tu asistente financiero personal por WhatsApp",
+  alternates: { canonical: "https://neto.pe/terminos" },
 };
 
 export default function TerminosPage() {

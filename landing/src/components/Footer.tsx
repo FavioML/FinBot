@@ -30,6 +30,7 @@ const PRODUCT_LINKS = [
   { label: "Cómo funciona", href: "/#como-funciona" },
   { label: "Precios", href: "/#precios" },
   { label: "Dashboard", href: "https://app.neto.pe" },
+  { label: "Blog", href: "/blog" },
   { label: "FAQ", href: "/faq" },
 ];
 
@@ -63,11 +64,13 @@ export default function Footer() {
     <footer className="bg-neto-bg2 border-t border-white/5">
       <div className="mx-auto max-w-[1200px] px-6 py-16">
         <div className="grid grid-cols-2 min-[860px]:grid-cols-4 gap-10">
-          {/* Brand */}
+          {/* Brand + Quiénes somos */}
           <div className="col-span-2 min-[860px]:col-span-1">
             <FooterLogo />
             <p className="text-sm text-neto-txt3 leading-relaxed max-w-[260px]">
-              Tu asistente financiero personal por WhatsApp. Hecho en Perú.
+              Somos un equipo peruano construyendo el asistente financiero que
+              nos hubiera gustado tener. Neto nació en Lima para ayudarte a
+              ordenar tu plata sin complicaciones.
             </p>
             <div className="flex gap-3 mt-4">
               {SOCIAL_LINKS.map((s) => (

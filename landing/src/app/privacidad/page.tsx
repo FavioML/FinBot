@@ -3,9 +3,10 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 
 export const metadata: Metadata = {
-  title: "Politica de Privacidad - Neto",
+  title: "Política de Privacidad — Neto",
   description:
-    "Politica de privacidad de Neto - Tu asistente financiero personal por WhatsApp",
+    "Política de privacidad de Neto — Tu asistente financiero personal por WhatsApp",
+  alternates: { canonical: "https://neto.pe/privacidad" },
 };
 
 export default function PrivacidadPage() {

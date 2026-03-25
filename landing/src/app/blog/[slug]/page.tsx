@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-import { getPost, getAllSlugs } from "@/lib/blog";
+import { getPost, getAllSlugs, posts } from "@/lib/blog";
 import { articleContent } from "@/lib/blog-content";
 
 /* Static export: generate all blog slugs at build time */
@@ -75,6 +75,35 @@ export default async function BlogPostPage({
     keywords: post.keywords.join(", "),
   };
 
+  /* JSON-LD BreadcrumbList schema */
+  const breadcrumbLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      {
+        "@type": "ListItem",
+        position: 1,
+        name: "Inicio",
+        item: "https://neto.pe",
+      },
+      {
+        "@type": "ListItem",
+        position: 2,
+        name: "Blog",
+        item: "https://neto.pe/blog",
+      },
+      {
+        "@type": "ListItem",
+        position: 3,
+        name: post.title,
+        item: `https://neto.pe/blog/${post.slug}`,
+      },
+    ],
+  };
+
+  /* Related posts (exclude current) */
+  const related = posts.filter((p) => p.slug !== slug).slice(0, 3);
+
   return (
     <>
       <Navbar />
@@ -82,6 +111,10 @@ export default async function BlogPostPage({
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
         />
 
         <article className="mx-auto max-w-[700px] px-6">
@@ -149,6 +182,29 @@ export default async function BlogPostPage({
               Empezar gratis por WhatsApp
             </a>
           </div>
+
+          {/* Related posts */}
+          {related.length > 0 && (
+            <div className="mt-16">
+              <h3 className="text-lg font-semibold mb-6">Sigue leyendo</h3>
+              <div className="grid gap-4">
+                {related.map((r) => (
+                  <Link
+                    key={r.slug}
+                    href={`/blog/${r.slug}`}
+                    className="group rounded-xl bg-neto-bg2 p-5 transition-colors duration-200 hover:bg-[#20201d]"
+                  >
+                    <h4 className="text-sm font-semibold text-neto-txt2 group-hover:text-neto-txt transition-colors duration-200 mb-1">
+                      {r.title}
+                    </h4>
+                    <p className="text-xs text-neto-txt3 line-clamp-2">
+                      {r.description}
+                    </p>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
         </article>
       </main>
       <Footer />
