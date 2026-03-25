@@ -1,9 +1,10 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useCallback, lazy, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { Receipt, CreditCard } from 'lucide-react';
+import { Receipt, CreditCard, Pencil, ChevronDown } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -28,16 +29,19 @@ import { InsightCard, generateInsight } from '@/components/dashboard/insight-car
 import { CategoryDonut } from '@/components/charts/category-donut';
 import { TrendLine } from '@/components/charts/trend-line';
 import { ScoreTrend } from '@/components/charts/score-trend';
-import { SpendingHeatmap } from '@/components/charts/spending-heatmap';
-import { FinancialCalendar } from '@/components/charts/financial-calendar';
-import { CategoryComparison } from '@/components/charts/category-comparison';
 import { SpendingProjection } from '@/components/dashboard/spending-projection';
 import { ExchangeRateWidget } from '@/components/dashboard/exchange-rate-widget';
-import { RecurringPayments } from '@/components/dashboard/recurring-payments';
 import { QuickActions } from '@/components/dashboard/quick-actions';
 import { TodaySpending } from '@/components/dashboard/today-spending';
-import { TopMerchants } from '@/components/dashboard/top-merchants';
-import { PaymentMethodDonut } from '@/components/charts/payment-method-donut';
+
+// Lazy load below-the-fold heavy components
+const FinancialCalendar = lazy(() => import('@/components/charts/financial-calendar').then(m => ({ default: m.FinancialCalendar })));
+const CategoryComparison = lazy(() => import('@/components/charts/category-comparison').then(m => ({ default: m.CategoryComparison })));
+const TopMerchants = lazy(() => import('@/components/dashboard/top-merchants').then(m => ({ default: m.TopMerchants })));
+const PaymentMethodDonut = lazy(() => import('@/components/charts/payment-method-donut').then(m => ({ default: m.PaymentMethodDonut })));
+const RecurringPayments = lazy(() => import('@/components/dashboard/recurring-payments').then(m => ({ default: m.RecurringPayments })));
+import { TransactionForm } from '@/components/dashboard/transaction-form';
+import { GlobalSearch } from '@/components/dashboard/global-search';
 import { UserMenu } from '@/components/dashboard/user-menu';
 import { WelcomeModal } from '@/components/dashboard/welcome-modal';
 import { useUser } from '@/lib/hooks/use-user';
@@ -46,8 +50,9 @@ import { useBudgets } from '@/lib/hooks/use-budgets';
 import { FadeIn } from '@/components/shared/motion-wrapper';
 import { formatCurrency, formatFecha, calcularScoreFinanciero, getScoreColor, getScoreLabel } from '@/lib/utils';
 import { getCategoriaEmoji, MESES, SOCIAL_LINKS } from '@/lib/constants';
+import { capitalizeDisplay, normalizeMetodoPago, getMetodoIcon } from '@/lib/format';
 import { detectSubscriptions, TIPO_LABELS } from '@/lib/subscriptions-catalog';
-import type { KPIData, CategoriaGasto, TendenciaMensual } from '@/lib/types';
+import type { Transaccion, KPIData, CategoriaGasto, TendenciaMensual } from '@/lib/types';
 
 export default function DashboardPage() {
   const { data: user, isLoading: userLoading } = useUser();
@@ -63,6 +68,15 @@ export default function DashboardPage() {
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [showScoreDialog, setShowScoreDialog] = useState(false);
   const [detailCategoria, setDetailCategoria] = useState<string | null>(null);
+  const [detailMetodo, setDetailMetodo] = useState<string | null>(null);
+  const [detailComercio, setDetailComercio] = useState<string | null>(null);
+  const [editTransaction, setEditTransaction] = useState<Transaccion | null>(null);
+  const [showMoreWidgets, setShowMoreWidgets] = useState(false);
+  const queryClient = useQueryClient();
+
+  const refreshAll = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['transactions'] });
+  }, [queryClient]);
 
   // Load ALL transactions for the user (enables both monthly and annual views + trend chart)
   const { data: allTransactions = [], isLoading: txLoading } = useTransactions({
@@ -230,6 +244,36 @@ export default function DashboardPage() {
     });
   }, [transactions, kpiData, categoryData, subscriptions]);
 
+  // Detail transactions for payment method dialog
+  const detailMetodoTransactions = useMemo(() => {
+    if (!detailMetodo) return [];
+    return transactions.filter((t) => t.tipo === 'gasto' && normalizeMetodoPago(t.metodo_pago, t.banco) === detailMetodo)
+      .sort((a, b) => b.fecha.localeCompare(a.fecha));
+  }, [transactions, detailMetodo]);
+
+  // Detail transactions for merchant dialog
+  const detailComercioTransactions = useMemo(() => {
+    if (!detailComercio) return [];
+    return transactions.filter((t) => t.tipo === 'gasto' && (t.comercio || 'Sin comercio') === detailComercio)
+      .sort((a, b) => b.fecha.localeCompare(a.fecha));
+  }, [transactions, detailComercio]);
+
+  // User categories for TransactionForm
+  const userCategorias = useMemo(() => {
+    const catMap = new Map<string, Set<string>>();
+    for (const t of transactions) {
+      if (!catMap.has(t.categoria)) catMap.set(t.categoria, new Set());
+      if (t.subcategoria && t.subcategoria !== 'null' && t.subcategoria !== 'sin_categoria') {
+        catMap.get(t.categoria)!.add(t.subcategoria);
+      }
+    }
+    return Array.from(catMap.entries()).map(([nombre, subs]) => ({
+      nombre,
+      emoji: getCategoriaEmoji(nombre),
+      subs: Array.from(subs),
+    }));
+  }, [transactions]);
+
   const isLoading = userLoading || txLoading;
 
   // Loading skeleton
@@ -290,7 +334,10 @@ export default function DashboardPage() {
             Tu resumen financiero &mdash; {viewMode === 'anual' ? `Año ${selectedYear}` : `${MESES[currentMonth]} ${currentYear}`}
           </p>
         </div>
-        <UserMenu />
+        <div className="flex items-center gap-2">
+          <GlobalSearch />
+          <UserMenu />
+        </div>
       </div>
 
       {/* View mode toggle */}
@@ -403,19 +450,9 @@ export default function DashboardPage() {
           </div>
           </FadeIn>
 
-          {/* Top merchants + Payment methods */}
-          {viewMode === 'mensual' && (
-            <FadeIn delay={0.22}>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <TopMerchants transactions={transactions} />
-              <PaymentMethodDonut transactions={transactions} />
-            </div>
-            </FadeIn>
-          )}
-
           {/* Score trend + AI insight */}
           {viewMode === 'mensual' && (
-            <FadeIn delay={0.25}>
+            <FadeIn delay={0.22}>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <ScoreTrend
                 allTransactions={allTransactions}
@@ -437,34 +474,54 @@ export default function DashboardPage() {
             </FadeIn>
           )}
 
-          {/* Financial calendar + Category comparison */}
+          {/* Collapsible detailed widgets — expanded on desktop, toggle on mobile */}
           {viewMode === 'mensual' && (
-            <FadeIn delay={0.3}>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <FinancialCalendar
-                transactions={allTransactions}
-                currentMonth={currentMonth}
-                currentYear={currentYear}
-              />
-              <CategoryComparison
-                allTransactions={allTransactions}
-                currentMonth={currentMonth}
-                currentYear={currentYear}
-              />
-            </div>
-            </FadeIn>
-          )}
+            <>
+              {/* Mobile toggle button */}
+              <button
+                onClick={() => setShowMoreWidgets(!showMoreWidgets)}
+                className="flex md:hidden items-center justify-center gap-2 w-full rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] py-2.5 text-xs font-medium text-[#C8C6BC] transition-colors hover:bg-[rgba(255,255,255,0.04)]"
+              >
+                {showMoreWidgets ? 'Ocultar detalles' : 'Ver mas detalles'}
+                <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showMoreWidgets ? 'rotate-180' : ''}`} />
+              </button>
 
-          {/* Spending heatmap */}
-          {viewMode === 'mensual' && (
-            <FadeIn delay={0.35}>
-              <SpendingHeatmap transactions={allTransactions} />
-            </FadeIn>
-          )}
+              <div className={`space-y-6 ${showMoreWidgets ? '' : 'hidden md:block'}`}>
+                {/* Top merchants + Payment methods */}
+                <Suspense fallback={<Skeleton className="h-[300px] rounded-2xl" />}>
+                <FadeIn delay={0.25}>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <TopMerchants transactions={transactions} onMerchantClick={setDetailComercio} />
+                  <PaymentMethodDonut transactions={transactions} onMethodClick={setDetailMetodo} />
+                </div>
+                </FadeIn>
+                </Suspense>
 
-          {/* Recurring payments */}
-          {viewMode === 'mensual' && (
-            <RecurringPayments transactions={allTransactions} />
+                {/* Financial calendar + Category comparison */}
+                <Suspense fallback={<Skeleton className="h-[300px] rounded-2xl" />}>
+                <FadeIn delay={0.3}>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <FinancialCalendar
+                    transactions={allTransactions}
+                    currentMonth={currentMonth}
+                    currentYear={currentYear}
+                  />
+                  <CategoryComparison
+                    allTransactions={allTransactions}
+                    currentMonth={currentMonth}
+                    currentYear={currentYear}
+                    onCategoryClick={setDetailCategoria}
+                  />
+                </div>
+                </FadeIn>
+                </Suspense>
+
+                {/* Recurring payments */}
+                <Suspense fallback={<Skeleton className="h-[200px] rounded-2xl" />}>
+                  <RecurringPayments transactions={allTransactions} />
+                </Suspense>
+              </div>
+            </>
           )}
 
           {/* Transacciones Recientes + Suscripciones side by side */}
@@ -574,9 +631,17 @@ export default function DashboardPage() {
                           <p className="text-sm text-[#F0EFE8] truncate">{tx.comercio || tx.subcategoria || 'Sin comercio'}</p>
                           <p className="text-xs text-[#8A877D]">{formatFecha(tx.fecha)}</p>
                         </div>
-                        <span className="text-sm font-medium text-[#D85A30] shrink-0 ml-3">
-                          -{formatCurrency(tx.monto_pen)}
-                        </span>
+                        <div className="flex items-center gap-2 shrink-0 ml-3">
+                          <span className="text-sm font-medium text-[#D85A30]">
+                            -{formatCurrency(tx.monto_pen)}
+                          </span>
+                          <button
+                            onClick={() => setEditTransaction(tx)}
+                            className="p-1 rounded hover:bg-[rgba(255,255,255,0.06)] text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                     {catTxs.length > 15 && (
@@ -680,6 +745,99 @@ export default function DashboardPage() {
           }}
         />
       )}
+
+      {/* Payment method detail dialog */}
+      <Dialog open={!!detailMetodo} onOpenChange={(open) => { if (!open) setDetailMetodo(null); }}>
+        <DialogContent className="bg-[#1C1C1A] border-[#2A2A28] max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-[#F0EFE8] text-lg">
+              {detailMetodo && `${getMetodoIcon(detailMetodo)} ${capitalizeDisplay(detailMetodo)}`}
+            </DialogTitle>
+          </DialogHeader>
+          {detailMetodo && (
+            <div className="space-y-3">
+              <p className="text-sm text-[#8A877D]">
+                Total: <span className="text-[#D85A30] font-medium">{formatCurrency(detailMetodoTransactions.reduce((s, t) => s + t.monto_pen, 0))}</span>
+                {' '}&mdash; {detailMetodoTransactions.length} {detailMetodoTransactions.length === 1 ? 'transaccion' : 'transacciones'}
+              </p>
+              <div className="space-y-2">
+                {detailMetodoTransactions.map((tx) => (
+                  <div key={tx.id} className="flex items-center justify-between py-2 border-b border-[rgba(255,255,255,0.06)] last:border-0">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-[#F0EFE8] whitespace-normal break-words">{tx.comercio || 'Sin comercio'}</p>
+                      <p className="text-xs text-[#8A877D]">
+                        {tx.fecha} &middot; {getCategoriaEmoji(tx.categoria)} {capitalizeDisplay(tx.categoria)}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 ml-3">
+                      <span className="text-sm font-medium text-[#D85A30]">{formatCurrency(tx.monto_pen)}</span>
+                      <button
+                        onClick={() => setEditTransaction(tx)}
+                        className="p-1 rounded hover:bg-[rgba(255,255,255,0.06)] text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Merchant detail dialog */}
+      <Dialog open={!!detailComercio} onOpenChange={(open) => { if (!open) setDetailComercio(null); }}>
+        <DialogContent className="bg-[#1C1C1A] border-[#2A2A28] max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-[#F0EFE8] text-lg">
+              {detailComercio}
+            </DialogTitle>
+          </DialogHeader>
+          {detailComercio && (
+            <div className="space-y-3">
+              <p className="text-sm text-[#8A877D]">
+                Total: <span className="text-[#D85A30] font-medium">{formatCurrency(detailComercioTransactions.reduce((s, t) => s + t.monto_pen, 0))}</span>
+                {' '}&mdash; {detailComercioTransactions.length} {detailComercioTransactions.length === 1 ? 'transaccion' : 'transacciones'}
+              </p>
+              <div className="space-y-2">
+                {detailComercioTransactions.map((tx) => (
+                  <div key={tx.id} className="flex items-center justify-between py-2 border-b border-[rgba(255,255,255,0.06)] last:border-0">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-[#F0EFE8]">
+                        {getCategoriaEmoji(tx.categoria)} {capitalizeDisplay(tx.categoria)}
+                      </p>
+                      <p className="text-xs text-[#8A877D]">
+                        {tx.fecha}
+                        {tx.subcategoria && tx.subcategoria !== 'sin_categoria' ? ` · ${capitalizeDisplay(tx.subcategoria)}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 ml-3">
+                      <span className="text-sm font-medium text-[#D85A30]">{formatCurrency(tx.monto_pen)}</span>
+                      <button
+                        onClick={() => setEditTransaction(tx)}
+                        className="p-1 rounded hover:bg-[rgba(255,255,255,0.06)] text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit transaction dialog */}
+      <TransactionForm
+        open={!!editTransaction}
+        onOpenChange={(open) => { if (!open) setEditTransaction(null); }}
+        tipo={editTransaction?.tipo === 'ingreso' ? 'ingreso' : 'gasto'}
+        transaction={editTransaction}
+        onSuccess={refreshAll}
+        userCategorias={userCategorias}
+      />
 
       {/* Floating WhatsApp button */}
       <WhatsAppButton />

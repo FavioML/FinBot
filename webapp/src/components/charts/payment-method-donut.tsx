@@ -9,6 +9,7 @@ import type { Transaccion } from '@/lib/types';
 
 interface PaymentMethodDonutProps {
   transactions: Transaccion[];
+  onMethodClick?: (method: string) => void;
 }
 
 const COLORS = [
@@ -31,7 +32,7 @@ function CustomTooltip({ active, payload }: any) {
   );
 }
 
-export function PaymentMethodDonut({ transactions }: PaymentMethodDonutProps) {
+export function PaymentMethodDonut({ transactions, onMethodClick }: PaymentMethodDonutProps) {
   const data = useMemo(() => {
     const gastos = transactions.filter((t) => t.tipo === 'gasto');
     const totalGastos = gastos.reduce((s, t) => s + t.monto_pen, 0);
@@ -83,6 +84,8 @@ export function PaymentMethodDonut({ transactions }: PaymentMethodDonutProps) {
                 dataKey="total"
                 stroke="none"
                 paddingAngle={2}
+                cursor={onMethodClick ? 'pointer' : undefined}
+                onClick={onMethodClick ? (entry: any) => onMethodClick(entry.metodo) : undefined}
               >
                 {data.map((_, i) => (
                   <Cell key={i} fill={COLORS[i % COLORS.length]} />
@@ -104,7 +107,11 @@ export function PaymentMethodDonut({ transactions }: PaymentMethodDonutProps) {
         {/* Legend */}
         <div className="flex flex-col gap-1.5 flex-1 min-w-0">
           {data.map((item, i) => (
-            <div key={item.metodo} className="flex items-center gap-2 text-xs">
+            <div
+              key={item.metodo}
+              className={`flex items-center gap-2 text-xs ${onMethodClick ? 'cursor-pointer rounded-lg px-1.5 py-1 -mx-1.5 hover:bg-[rgba(255,255,255,0.04)] transition-colors' : ''}`}
+              onClick={onMethodClick ? () => onMethodClick(item.metodo) : undefined}
+            >
               <span
                 className="h-2 w-2 rounded-full shrink-0"
                 style={{ backgroundColor: COLORS[i % COLORS.length] }}

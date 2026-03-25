@@ -9,9 +9,10 @@ import type { Transaccion } from '@/lib/types';
 
 interface TopMerchantsProps {
   transactions: Transaccion[];
+  onMerchantClick?: (name: string) => void;
 }
 
-export function TopMerchants({ transactions }: TopMerchantsProps) {
+export function TopMerchants({ transactions, onMerchantClick }: TopMerchantsProps) {
   const merchants = useMemo(() => {
     const gastos = transactions.filter(
       (t) => t.tipo === 'gasto' && t.comercio && t.comercio.trim() !== ''
@@ -84,7 +85,11 @@ export function TopMerchants({ transactions }: TopMerchantsProps) {
           const barPct = (data.total / maxTotal) * 100;
 
           return (
-            <div key={key} className="space-y-1">
+            <div
+              key={key}
+              className={`space-y-1 ${onMerchantClick ? 'cursor-pointer rounded-lg px-2 py-1.5 -mx-2 hover:bg-[rgba(255,255,255,0.04)] transition-colors' : ''}`}
+              onClick={onMerchantClick ? () => onMerchantClick(name) : undefined}
+            >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 min-w-0 flex-1">
                   <span className="text-xs shrink-0">{getCategoriaEmoji(data.categoria)}</span>

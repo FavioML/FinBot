@@ -145,6 +145,10 @@ NETO es un asistente financiero personal por WhatsApp para el mercado peruano.
 - [x] Proyección de gasto mensual con comparación vs mes anterior
 - [x] Detección de pagos recurrentes (no suscripciones) con próximo pago esperado
 - [x] Widget tipo de cambio USD/PEN en dashboard
+- [x] Round 16: Calendario financiero interactivo, comparativa categorías vs mes anterior, export JSON datos
+- [x] Round 17: Sparklines en KPIs, quick actions bar, shimmer skeletons mejorados
+- [x] Round 18: Gasto del día vs promedio, top 5 comercios con barras, donut métodos de pago
+- [x] Round 19: Refactoring mayor — eliminado SpendingHeatmap redundante, renombrado Reportes→Reporte PDF, click-to-detail en todos los widgets (métodos de pago, comercios, categorías), GlobalSearch movido junto a avatar, lazy loading (React.lazy+Suspense) para widgets pesados, sección colapsable en mobile "Ver mas detalles"
 
 ## Convenciones críticas
 - Archivos grandes (>10KB): editar con Edit tool, nunca reescribir completo

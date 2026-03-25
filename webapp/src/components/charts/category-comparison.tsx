@@ -11,9 +11,10 @@ interface CategoryComparisonProps {
   allTransactions: Transaccion[];
   currentMonth: number;
   currentYear: number;
+  onCategoryClick?: (categoria: string) => void;
 }
 
-export function CategoryComparison({ allTransactions, currentMonth, currentYear }: CategoryComparisonProps) {
+export function CategoryComparison({ allTransactions, currentMonth, currentYear, onCategoryClick }: CategoryComparisonProps) {
   const data = useMemo(() => {
     // Current month gastos by category
     const currentGastos = allTransactions.filter((t) => {
@@ -125,7 +126,10 @@ export function CategoryComparison({ allTransactions, currentMonth, currentYear 
               cursor={{ fill: 'rgba(255,255,255,0.02)' }}
             />
             <Bar dataKey="previous" fill="#8A877D" radius={[0, 4, 4, 0]} barSize={8} opacity={0.5} />
-            <Bar dataKey="current" radius={[0, 4, 4, 0]} barSize={8}>
+            <Bar dataKey="current" radius={[0, 4, 4, 0]} barSize={8}
+              cursor={onCategoryClick ? 'pointer' : undefined}
+              onClick={onCategoryClick ? (entry: any) => onCategoryClick(entry.categoria) : undefined}
+            >
               {data.map((entry, i) => (
                 <Cell
                   key={i}
