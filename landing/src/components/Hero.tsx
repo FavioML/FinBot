@@ -39,7 +39,7 @@ export default function Hero() {
         <div className="animate-fade-up inline-flex items-center gap-2 rounded-full bg-[#1C1C19] px-5 py-2 mb-8">
           <Sparkles size={14} className="text-[#EF9F27]" />
           <span className="text-sm text-[#bccac1] tracking-wide">
-            WhatsApp + Dashboard interactivo
+            Asistente financiero por WhatsApp
           </span>
         </div>
 
@@ -77,7 +77,7 @@ export default function Hero() {
             rel="noopener noreferrer"
             className="group relative inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-[#68dbae] to-[#26a37a] px-8 py-4 text-base font-semibold text-[#002115] transition-all duration-300 hover:shadow-[0_0_40px_rgba(29,158,117,0.35)] hover:scale-[1.02] cursor-pointer"
           >
-            Empezar gratis
+            Conecta tu banco en 2 min
             <ArrowRight size={18} className="transition-transform duration-300 group-hover:translate-x-1" />
           </a>
           <a

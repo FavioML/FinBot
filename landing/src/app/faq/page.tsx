@@ -4,6 +4,30 @@ import { useState } from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 
+/* ── FAQPage JSON-LD schema for Google rich results ── */
+function FaqSchema({ data }: { data: typeof FAQ_DATA }) {
+  const schema = {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: data.flatMap((group) =>
+      group.items.map((item) => ({
+        "@type": "Question",
+        name: item.q,
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: item.a.replace(/<[^>]*>/g, ""), // strip HTML tags for schema
+        },
+      }))
+    ),
+  };
+  return (
+    <script
+      type="application/ld+json"
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+    />
+  );
+}
+
 const FAQ_DATA = [
   {
     group: "Sobre el servicio",
@@ -130,6 +154,7 @@ export default function FaqPage() {
 
   return (
     <>
+      <FaqSchema data={FAQ_DATA} />
       <Navbar />
       <main className="bg-neto-bg min-h-screen">
         <article className="mx-auto max-w-[800px] px-6 pt-28 pb-20 md:pt-32">

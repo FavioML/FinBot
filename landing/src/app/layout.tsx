@@ -19,28 +19,33 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://neto.pe"),
-  title: "Neto — Tu asistente financiero personal",
+  title: "Neto — Asistente financiero por WhatsApp | Peru",
   description:
-    "Neto lee tus correos del banco, Yape y Plin automáticamente y te manda un resumen a WhatsApp. Sin apps. Sin contraseñas bancarias. 100% peruano.",
+    "Neto lee tus correos de 11 bancos peruanos, categoriza gastos con IA y te resume todo por WhatsApp. Sin apps. Sin contraseñas bancarias. 100% peruano.",
   keywords:
-    "finanzas personales Peru, asistente financiero WhatsApp, control de gastos Peru, Yape BCP Interbank BBVA, gastos hormiga, ahorro Peru",
+    "finanzas personales Peru, asistente financiero WhatsApp, control de gastos Peru, Yape BCP Interbank BBVA, gastos hormiga, ahorro Peru, presupuesto personal",
   openGraph: {
-    title: "Neto — Tu asistente financiero personal",
+    title: "Neto — Asistente financiero por WhatsApp | Peru",
     description:
-      "Ordena tu plata sin mover un dedo. Lee tu banco, Yape y Plin automáticamente.",
+      "Lee tus 11 bancos peruanos, categoriza con IA y te resume todo por WhatsApp. Sin contraseñas bancarias.",
     url: "https://neto.pe",
     type: "website",
     locale: "es_PE",
     siteName: "Neto",
+    images: [{ url: "/og-image.png", width: 1200, height: 630, alt: "Neto — Asistente financiero por WhatsApp para Peru" }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Neto — Tu asistente financiero personal",
+    title: "Neto — Asistente financiero por WhatsApp | Peru",
     description:
-      "Ordena tu plata sin mover un dedo. Lee tu banco, Yape y Plin automáticamente.",
+      "Lee tus 11 bancos peruanos, categoriza con IA y te resume todo por WhatsApp. Sin contraseñas bancarias.",
+    images: ["/og-image.png"],
   },
   robots: { index: true, follow: true },
-  alternates: { canonical: "https://neto.pe" },
+  alternates: {
+    canonical: "https://neto.pe",
+    languages: { "es-PE": "https://neto.pe" },
+  },
   icons: {
     icon: [
       { url: "/neto-icon.png", type: "image/png", sizes: "512x512" },
@@ -55,9 +60,48 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const organizationSchema = {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: "Neto",
+    url: "https://neto.pe",
+    logo: "https://neto.pe/neto-icon.png",
+    description:
+      "Asistente financiero personal por WhatsApp para Peru. Lee correos de 11 bancos peruanos y categoriza gastos con IA.",
+    areaServed: { "@type": "Country", name: "Peru" },
+    sameAs: [
+      "https://www.instagram.com/neto_peru",
+      "https://www.tiktok.com/@neto_peru",
+    ],
+    contactPoint: {
+      "@type": "ContactPoint",
+      contactType: "customer service",
+      availableLanguage: "Spanish",
+      url: "https://wa.me/51933014505",
+    },
+  };
+
+  const websiteSchema = {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "Neto",
+    url: "https://neto.pe",
+    inLanguage: "es-PE",
+  };
+
   return (
-    <html lang="es" className={`${manrope.variable} ${inter.variable}`}>
+    <html lang="es-PE" className={`${manrope.variable} ${inter.variable}`}>
       <head>
+        <link rel="alternate" hrefLang="es-PE" href="https://neto.pe" />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify([organizationSchema, websiteSchema]),
+          }}
+        />
+      </head>
+      <body>
+        {children}
         <Script
           src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
           strategy="afterInteractive"
@@ -70,8 +114,7 @@ export default function RootLayout({
             gtag('config', '${GA_ID}');
           `}
         </Script>
-      </head>
-      <body>{children}</body>
+      </body>
     </html>
   );
 }
