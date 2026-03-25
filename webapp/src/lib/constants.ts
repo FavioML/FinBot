@@ -65,5 +65,6 @@ export const SOCIAL_LINKS = {
   whatsapp: 'https://wa.me/51933014505',
   facebook: 'https://www.facebook.com/profile.php?id=61578664208419',
   instagram: 'https://www.instagram.com/neto_peru/',
+  tiktok: 'https://www.tiktok.com/@neto_peru',
   web: 'https://neto.pe',
 };
