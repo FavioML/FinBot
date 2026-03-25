@@ -3,11 +3,18 @@
 import { TrendingUp, TrendingDown, Wallet, Activity, ArrowUp, ArrowDown } from 'lucide-react';
 import { NumberTicker } from '@/components/ui/number-ticker';
 import { StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
+import { Sparkline } from '@/components/charts/sparkline';
 import { getScoreColor, getScoreLabel } from '@/lib/utils';
 import type { KPIData } from '@/lib/types';
 
 interface KPICardsProps {
   data: KPIData;
+  sparklines?: {
+    ingresos: number[];
+    gastos: number[];
+    ahorro: number[];
+    score: number[];
+  };
   onScoreClick?: () => void;
 }
 
@@ -33,7 +40,7 @@ function ComparisonBadge({ current, previous, invertColor }: { current: number; 
   );
 }
 
-export function KPICards({ data, onScoreClick }: KPICardsProps) {
+export function KPICards({ data, sparklines, onScoreClick }: KPICardsProps) {
   const ahorroColor = data.ahorro >= 0 ? '#1D9E75' : '#EF9F27';
   const scoreColor = getScoreColor(data.scoreFinanciero);
 
@@ -46,6 +53,7 @@ export function KPICards({ data, onScoreClick }: KPICardsProps) {
       prefix: 'S/ ',
       prev: data.prevIngresos,
       invertColor: false,
+      spark: sparklines?.ingresos,
     },
     {
       label: 'Total Gastos',
@@ -55,6 +63,7 @@ export function KPICards({ data, onScoreClick }: KPICardsProps) {
       prefix: 'S/ ',
       prev: data.prevGastos,
       invertColor: true,
+      spark: sparklines?.gastos,
     },
     {
       label: 'Ahorro',
@@ -65,6 +74,7 @@ export function KPICards({ data, onScoreClick }: KPICardsProps) {
       badge: data.ahorroPorcentaje !== 0
         ? `${data.ahorroPorcentaje >= 0 ? '+' : ''}${data.ahorroPorcentaje.toFixed(1)}%`
         : undefined,
+      spark: sparklines?.ahorro,
     },
     {
       label: 'Score Financiero',
@@ -73,6 +83,7 @@ export function KPICards({ data, onScoreClick }: KPICardsProps) {
       icon: Activity,
       prefix: '',
       badge: getScoreLabel(data.scoreFinanciero),
+      spark: sparklines?.score,
     },
   ];
 
@@ -115,14 +126,19 @@ export function KPICards({ data, onScoreClick }: KPICardsProps) {
                 </span>
               )}
             </p>
-            <p className="text-2xl font-bold tracking-tight" style={{ color: card.color }}>
-              {card.prefix}
-              <NumberTicker
-                value={card.value}
-                decimalPlaces={card.prefix === 'S/ ' ? 2 : 0}
-                className="!text-inherit"
-              />
-            </p>
+            <div className="flex items-end justify-between gap-2">
+              <p className="text-2xl font-bold tracking-tight" style={{ color: card.color }}>
+                {card.prefix}
+                <NumberTicker
+                  value={card.value}
+                  decimalPlaces={card.prefix === 'S/ ' ? 2 : 0}
+                  className="!text-inherit"
+                />
+              </p>
+              {card.spark && card.spark.length >= 2 && (
+                <Sparkline data={card.spark} color={card.color} />
+              )}
+            </div>
             {isScore && (
               <p className="text-[10px] mt-1.5 text-[#8A877D]">
                 {data.scoreFinanciero >= 80

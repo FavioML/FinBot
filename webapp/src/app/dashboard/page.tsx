@@ -34,6 +34,7 @@ import { CategoryComparison } from '@/components/charts/category-comparison';
 import { SpendingProjection } from '@/components/dashboard/spending-projection';
 import { ExchangeRateWidget } from '@/components/dashboard/exchange-rate-widget';
 import { RecurringPayments } from '@/components/dashboard/recurring-payments';
+import { QuickActions } from '@/components/dashboard/quick-actions';
 import { UserMenu } from '@/components/dashboard/user-menu';
 import { WelcomeModal } from '@/components/dashboard/welcome-modal';
 import { useUser } from '@/lib/hooks/use-user';
@@ -130,6 +131,37 @@ export default function DashboardPage() {
 
     return { totalIngresos, totalGastos, ahorro, ahorroPorcentaje, scoreFinanciero, prevGastos, prevIngresos };
   }, [transactions, budgets, allTransactions, viewMode, currentMonth, currentYear]);
+
+  // Sparkline data: daily totals for last 30 days of current view
+  const sparklines = useMemo(() => {
+    if (viewMode !== 'mensual') return undefined;
+    const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
+    const ingresos: number[] = [];
+    const gastos: number[] = [];
+    const ahorro: number[] = [];
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const key = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const dayTxs = transactions.filter(t => t.fecha === key);
+      const dayIng = dayTxs.filter(t => t.tipo === 'ingreso').reduce((s, t) => s + t.monto_pen, 0);
+      const dayGas = dayTxs.filter(t => t.tipo === 'gasto').reduce((s, t) => s + t.monto_pen, 0);
+      ingresos.push(dayIng);
+      gastos.push(dayGas);
+      ahorro.push(dayIng - dayGas);
+    }
+
+    // Cumulative for score approximation (running savings rate)
+    let cumIng = 0;
+    let cumGas = 0;
+    const score = ingresos.map((ing, i) => {
+      cumIng += ing;
+      cumGas += gastos[i];
+      const ratio = cumIng > 0 ? cumGas / cumIng : 1;
+      return Math.max(0, Math.min(100, 75 + (ratio <= 0.7 ? 15 : ratio <= 0.9 ? -5 : -15)));
+    });
+
+    return { ingresos, gastos, ahorro, score };
+  }, [transactions, viewMode, currentMonth, currentYear]);
 
   // Compute category breakdown (gastos only)
   const categoryData = useMemo<CategoriaGasto[]>(() => {
@@ -334,8 +366,11 @@ export default function DashboardPage() {
         )
       ) : (
         <>
+          {/* Quick actions */}
+          <QuickActions />
+
           {/* KPI cards */}
-          <KPICards data={kpiData} onScoreClick={() => setShowScoreDialog(true)} />
+          <KPICards data={kpiData} sparklines={sparklines} onScoreClick={() => setShowScoreDialog(true)} />
 
           {/* Projection + Exchange rate row */}
           {viewMode === 'mensual' && (
