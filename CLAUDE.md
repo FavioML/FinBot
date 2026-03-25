@@ -149,11 +149,19 @@ NETO es un asistente financiero personal por WhatsApp para el mercado peruano.
 - [x] Round 17: Sparklines en KPIs, quick actions bar, shimmer skeletons mejorados
 - [x] Round 18: Gasto del día vs promedio, top 5 comercios con barras, donut métodos de pago
 - [x] Round 19: Refactoring mayor — eliminado SpendingHeatmap redundante, renombrado Reportes→Reporte PDF, click-to-detail en todos los widgets (métodos de pago, comercios, categorías), GlobalSearch movido junto a avatar, lazy loading (React.lazy+Suspense) para widgets pesados, sección colapsable en mobile "Ver mas detalles"
+- [x] Landing page restaurada y actualizada: 11 bancos, 8 features (dashboard, metas, calendario, PDF, suscripciones), 4 pasos, pricing con 12 filas, CTAs a app.neto.pe, link "Iniciar sesion"
+- [x] Brand Voice Guidelines generadas (webapp/BRAND-VOICE.md)
+- [x] Landing CRO Analysis generado (webapp/LANDING-CRO.md)
+
+### Pendientes identificados
+- [ ] Sync notificaciones webapp ↔ WhatsApp (API route para recordatorios_activos en tabla usuarios)
+- [ ] Correcciones/ajustes del usuario (pendiente recibir lista)
 
 ## Convenciones críticas
 - Archivos grandes (>10KB): editar con Edit tool, nunca reescribir completo
 - Encoding: siempre UTF-8 sin BOM al guardar index.js
 - Git push: siempre desde terminal del usuario, nunca via API de GitHub (rompe por tamaño)
+- Landing deploy: repo separado FavioML/neto-landing → Cloudflare Pages (auto-deploy on push). Copiar cambios de landing/ en monorepo al repo neto-landing para desplegar
 - Tests: crear en tasks/tests/ con emails bancarios reales anonimizados
 - Variables de entorno: gestionar en Railway, nunca hardcodear fallbacks inseguros
 - Verificar duplicados (grep) antes de aplicar cualquier patch
