@@ -18,6 +18,10 @@ import {
   Settings,
   Shield,
   MessageCircle,
+  Bell,
+  Moon,
+  Sun,
+  Palette,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -385,6 +389,78 @@ export default function ConfiguracionPage() {
             <ExternalLink className="h-3 w-3 ml-auto opacity-60" />
           </Button>
         </a>
+      </div>
+
+      {/* ============================================================ */}
+      {/*  Appearance                                                     */}
+      {/* ============================================================ */}
+      <div className="glass-card glass-card-glow p-6 space-y-4">
+        <div className="flex items-center gap-2 mb-1">
+          <Palette className="h-5 w-5 text-[#8A877D]" />
+          <h2 className="text-lg font-semibold text-[#F0EFE8]">Apariencia</h2>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          {/* Dark mode — active */}
+          <button className="relative flex flex-col items-center gap-2 rounded-xl border-2 border-[#1D9E75] bg-[rgba(29,158,117,0.06)] p-4 transition-colors">
+            <Moon className="h-5 w-5 text-[#1D9E75]" />
+            <span className="text-xs font-medium text-[#F0EFE8]">Dark</span>
+            <span className="absolute top-2 right-2 h-2 w-2 rounded-full bg-[#1D9E75]" />
+          </button>
+
+          {/* Light mode — coming soon */}
+          <button className="flex flex-col items-center gap-2 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.02)] p-4 opacity-50 cursor-not-allowed transition-colors" disabled>
+            <Sun className="h-5 w-5 text-[#8A877D]" />
+            <span className="text-xs font-medium text-[#8A877D]">Light</span>
+            <Badge variant="secondary" className="absolute text-[8px] bg-[rgba(255,255,255,0.06)] text-[#8A877D] border-[rgba(255,255,255,0.08)] px-1.5 py-0">
+              Pronto
+            </Badge>
+          </button>
+        </div>
+
+        <p className="text-xs text-[#8A877D]">
+          Tema &quot;Nocturnal Precision&quot; — disenado para reducir fatiga visual.
+        </p>
+      </div>
+
+      {/* ============================================================ */}
+      {/*  Notification preferences                                      */}
+      {/* ============================================================ */}
+      <div className="glass-card glass-card-glow p-6 space-y-4">
+        <div className="flex items-center gap-2 mb-1">
+          <Bell className="h-5 w-5 text-[#8A877D]" />
+          <h2 className="text-lg font-semibold text-[#F0EFE8]">
+            Notificaciones
+          </h2>
+        </div>
+
+        <p className="text-sm text-[#8A877D]">
+          Controla que notificaciones recibes por WhatsApp.
+        </p>
+
+        {[
+          { key: 'resumen_diario', label: 'Resumen diario', desc: 'Recibe un resumen de tus gastos del dia a las 8pm' },
+          { key: 'resumen_semanal', label: 'Resumen semanal', desc: 'Analisis comparativo cada domingo' },
+          { key: 'alertas_presupuesto', label: 'Alertas de presupuesto', desc: 'Aviso cuando superas el 80% o 100% de un presupuesto' },
+          { key: 'recordatorios', label: 'Recordatorios', desc: 'Recordatorio diario para registrar gastos' },
+        ].map((pref) => (
+          <div key={pref.key} className="flex items-start justify-between gap-4 rounded-lg bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-[#C8C6BC]">{pref.label}</p>
+              <p className="text-xs text-[#8A877D] mt-0.5">{pref.desc}</p>
+            </div>
+            <button
+              className="shrink-0 mt-0.5 h-5 w-9 rounded-full bg-[#1D9E75] relative transition-colors cursor-default"
+              title="Configurar via WhatsApp"
+            >
+              <span className="absolute right-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform" />
+            </button>
+          </div>
+        ))}
+
+        <p className="text-xs text-[#8A877D]">
+          Para cambiar tus preferencias, escribe <span className="font-mono text-[#C8C6BC]">/silenciar</span> o <span className="font-mono text-[#C8C6BC]">/recordar</span> en WhatsApp.
+        </p>
       </div>
 
       {/* ============================================================ */}
