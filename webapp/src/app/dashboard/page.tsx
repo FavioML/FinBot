@@ -29,6 +29,8 @@ import { CategoryDonut } from '@/components/charts/category-donut';
 import { TrendLine } from '@/components/charts/trend-line';
 import { ScoreTrend } from '@/components/charts/score-trend';
 import { SpendingHeatmap } from '@/components/charts/spending-heatmap';
+import { FinancialCalendar } from '@/components/charts/financial-calendar';
+import { CategoryComparison } from '@/components/charts/category-comparison';
 import { SpendingProjection } from '@/components/dashboard/spending-projection';
 import { ExchangeRateWidget } from '@/components/dashboard/exchange-rate-widget';
 import { RecurringPayments } from '@/components/dashboard/recurring-payments';
@@ -382,9 +384,27 @@ export default function DashboardPage() {
             </FadeIn>
           )}
 
-          {/* Spending heatmap */}
+          {/* Financial calendar + Category comparison */}
           {viewMode === 'mensual' && (
             <FadeIn delay={0.3}>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <FinancialCalendar
+                transactions={allTransactions}
+                currentMonth={currentMonth}
+                currentYear={currentYear}
+              />
+              <CategoryComparison
+                allTransactions={allTransactions}
+                currentMonth={currentMonth}
+                currentYear={currentYear}
+              />
+            </div>
+            </FadeIn>
+          )}
+
+          {/* Spending heatmap */}
+          {viewMode === 'mensual' && (
+            <FadeIn delay={0.35}>
               <SpendingHeatmap transactions={allTransactions} />
             </FadeIn>
           )}

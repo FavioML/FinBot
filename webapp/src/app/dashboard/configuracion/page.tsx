@@ -22,6 +22,7 @@ import {
   Moon,
   Sun,
   Palette,
+  Download,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -461,6 +462,42 @@ export default function ConfiguracionPage() {
         <p className="text-xs text-[#8A877D]">
           Para cambiar tus preferencias, escribe <span className="font-mono text-[#C8C6BC]">/silenciar</span> o <span className="font-mono text-[#C8C6BC]">/recordar</span> en WhatsApp.
         </p>
+      </div>
+
+      {/* ============================================================ */}
+      {/*  Data export                                                    */}
+      {/* ============================================================ */}
+      <div className="glass-card glass-card-glow p-6 space-y-4">
+        <div className="flex items-center gap-2 mb-1">
+          <Download className="h-5 w-5 text-[#8A877D]" />
+          <h2 className="text-lg font-semibold text-[#F0EFE8]">Exportar datos</h2>
+        </div>
+        <p className="text-sm text-[#8A877D]">
+          Descarga todas tus transacciones, presupuestos y metas en formato JSON.
+        </p>
+        <Button
+          variant="outline"
+          className="w-full border-[rgba(255,255,255,0.1)] bg-transparent text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.05)] gap-2"
+          onClick={async () => {
+            try {
+              const res = await fetch('/api/export');
+              if (!res.ok) throw new Error('Error al exportar');
+              const blob = await res.blob();
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `neto-export-${new Date().toISOString().slice(0, 10)}.json`;
+              a.click();
+              URL.revokeObjectURL(url);
+              toast.success('Datos exportados correctamente');
+            } catch {
+              toast.error('Error al exportar datos');
+            }
+          }}
+        >
+          <Download className="h-4 w-4" />
+          Descargar mis datos
+        </Button>
       </div>
 
       {/* ============================================================ */}
