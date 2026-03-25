@@ -1,14 +1,57 @@
 'use client';
 
-import { Sparkles } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Sparkles, RefreshCw } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface InsightCardProps {
   insight?: string;
+  /** Financial context for AI advice */
+  aiContext?: {
+    totalGastos: number;
+    totalIngresos: number;
+    topCategorias: string;
+    scoreFinanciero: number;
+    subscriptionTotal?: number;
+  };
 }
 
-export function InsightCard({ insight }: InsightCardProps) {
-  const text = insight || 'Conecta tus datos para recibir consejos personalizados de IA';
+export function InsightCard({ insight, aiContext }: InsightCardProps) {
+  const [aiAdvice, setAiAdvice] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [isAI, setIsAI] = useState(false);
+
+  const fetchAiAdvice = useCallback(async () => {
+    if (!aiContext || aiContext.totalGastos === 0) return;
+    setLoading(true);
+    try {
+      const res = await fetch('/api/advice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(aiContext),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.advice) {
+          setAiAdvice(data.advice);
+          setIsAI(true);
+        }
+      }
+    } catch {
+      // Silently fall back to rule-based insight
+    } finally {
+      setLoading(false);
+    }
+  }, [aiContext]);
+
+  // Auto-fetch AI advice on mount (once)
+  useEffect(() => {
+    if (aiContext && aiContext.totalGastos > 0 && !aiAdvice && !loading) {
+      fetchAiAdvice();
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const text = aiAdvice || insight || 'Conecta tus datos para recibir consejos personalizados de IA';
 
   return (
     <motion.div
@@ -32,16 +75,36 @@ export function InsightCard({ insight }: InsightCardProps) {
       <div className="relative flex items-start gap-3">
         <motion.div
           className="rounded-lg bg-[rgba(29,158,117,0.12)] p-2 shrink-0"
-          animate={{ rotate: [0, 5, -5, 0] }}
-          transition={{ duration: 3, repeat: Infinity, repeatDelay: 5 }}
+          animate={loading ? { rotate: 360 } : { rotate: [0, 5, -5, 0] }}
+          transition={loading ? { duration: 1, repeat: Infinity, ease: 'linear' } : { duration: 3, repeat: Infinity, repeatDelay: 5 }}
         >
-          <Sparkles className="h-5 w-5 text-[#1D9E75]" />
+          {loading ? (
+            <RefreshCw className="h-5 w-5 text-[#1D9E75]" />
+          ) : (
+            <Sparkles className="h-5 w-5 text-[#1D9E75]" />
+          )}
         </motion.div>
-        <div>
-          <h3 className="text-sm font-medium text-[#F0EFE8] mb-1">Consejo del mes</h3>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <h3 className="text-sm font-medium text-[#F0EFE8]">
+              {loading ? 'Analizando...' : 'Consejo del mes'}
+            </h3>
+            {isAI && !loading && (
+              <span className="text-[9px] font-medium text-[#1D9E75] bg-[rgba(29,158,117,0.1)] rounded px-1.5 py-0.5">IA</span>
+            )}
+          </div>
           <p className="text-sm text-[#8A877D] leading-relaxed">
-            {text}
+            {loading ? 'NETO esta analizando tus finanzas con IA...' : text}
           </p>
+          {isAI && !loading && aiContext && (
+            <button
+              onClick={fetchAiAdvice}
+              className="mt-2 text-[10px] text-[#8A877D] hover:text-[#1D9E75] transition-colors flex items-center gap-1"
+            >
+              <RefreshCw className="h-2.5 w-2.5" />
+              Generar otro consejo
+            </button>
+          )}
         </div>
       </div>
     </motion.div>

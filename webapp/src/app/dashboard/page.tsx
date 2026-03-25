@@ -28,6 +28,7 @@ import { InsightCard, generateInsight } from '@/components/dashboard/insight-car
 import { CategoryDonut } from '@/components/charts/category-donut';
 import { TrendLine } from '@/components/charts/trend-line';
 import { ScoreTrend } from '@/components/charts/score-trend';
+import { SpendingHeatmap } from '@/components/charts/spending-heatmap';
 import { UserMenu } from '@/components/dashboard/user-menu';
 import { WelcomeModal } from '@/components/dashboard/welcome-modal';
 import { useUser } from '@/lib/hooks/use-user';
@@ -349,8 +350,24 @@ export default function DashboardPage() {
                 currentMonth={currentMonth}
                 currentYear={currentYear}
               />
-              <InsightCard insight={insightText} />
+              <InsightCard
+                insight={insightText}
+                aiContext={{
+                  totalGastos: kpiData.totalGastos,
+                  totalIngresos: kpiData.totalIngresos,
+                  topCategorias: categoryData.slice(0, 3).map(c => `${c.categoria} (${Math.round(c.porcentaje)}%)`).join(', '),
+                  scoreFinanciero: kpiData.scoreFinanciero,
+                  subscriptionTotal: subscriptions.reduce((s, sub) => s + sub.monthlyAmount, 0) || undefined,
+                }}
+              />
             </div>
+            </FadeIn>
+          )}
+
+          {/* Spending heatmap */}
+          {viewMode === 'mensual' && (
+            <FadeIn delay={0.3}>
+              <SpendingHeatmap transactions={allTransactions} />
             </FadeIn>
           )}
 
@@ -555,7 +572,18 @@ export default function DashboardPage() {
       </Dialog>
 
       {/* AI insight (only in annual view, monthly goes in grid above) */}
-      {viewMode === 'anual' && <InsightCard insight={insightText} />}
+      {viewMode === 'anual' && (
+        <InsightCard
+          insight={insightText}
+          aiContext={{
+            totalGastos: kpiData.totalGastos,
+            totalIngresos: kpiData.totalIngresos,
+            topCategorias: categoryData.slice(0, 3).map(c => `${c.categoria} (${Math.round(c.porcentaje)}%)`).join(', '),
+            scoreFinanciero: kpiData.scoreFinanciero,
+            subscriptionTotal: subscriptions.reduce((s, sub) => s + sub.monthlyAmount, 0) || undefined,
+          }}
+        />
+      )}
 
       {/* Floating WhatsApp button */}
       <WhatsAppButton />

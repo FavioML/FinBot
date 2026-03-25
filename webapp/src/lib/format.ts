@@ -11,19 +11,64 @@ export function capitalizeDisplay(text: string): string {
     .join(' ');
 }
 
-/** Normalize metodo_pago: add tildes and enrich generic methods with banco name */
+/**
+ * Normalize metodo_pago: fix tildes, unify variations, enrich with banco.
+ * E.g. "Credito BCP" / "BCP Crédito" / "VISA BCP" → "BCP Crédito"
+ */
 export function normalizeMetodoPago(metodo: string | null | undefined, banco?: string | null): string {
   if (!metodo) return 'Sin especificar';
   let m = metodo.trim();
+
+  // Fix tildes
   m = m.replace(/\bCredito\b/gi, 'Crédito').replace(/\bDebito\b/gi, 'Débito');
-  const isGeneric = /^(Crédito|Débito|Yape|Transferencia|Efectivo)$/i.test(m);
-  if (isGeneric && banco) {
-    const b = banco.trim();
-    if (b && !m.toLowerCase().startsWith(b.toLowerCase())) {
-      m = `${b} ${m}`;
+
+  // Known bank names for extraction
+  const BANCOS = ['BCP', 'BBVA', 'Interbank', 'Scotiabank', 'Falabella', 'Ripley', 'BanBif', 'Mibanco', 'CMAC'];
+
+  // Extract bank name from the method string itself (e.g. "Crédito BCP" → bank="BCP")
+  let extractedBank = banco?.trim() || '';
+  if (!extractedBank) {
+    for (const b of BANCOS) {
+      if (m.toLowerCase().includes(b.toLowerCase())) {
+        extractedBank = b;
+        break;
+      }
     }
   }
-  return m;
+
+  // VISA/Mastercard → Crédito
+  if (/^visa\b/i.test(m)) m = m.replace(/^visa\b/i, 'Crédito');
+  if (/^mastercard\b/i.test(m)) m = m.replace(/^mastercard\b/i, 'Crédito');
+
+  // Strip bank name from method to get the base type, then re-prepend consistently
+  let baseType = m;
+  for (const b of BANCOS) {
+    baseType = baseType.replace(new RegExp(`\\b${b}\\b`, 'gi'), '').trim();
+  }
+
+  // Normalize known base types
+  const BASE_MAP: Record<string, string> = {
+    'crédito': 'Crédito', 'credito': 'Crédito', 'tc': 'Crédito',
+    'débito': 'Débito', 'debito': 'Débito', 'td': 'Débito',
+    'yape': 'Yape', 'plin': 'Plin',
+    'transferencia': 'Transferencia', 'transf': 'Transferencia',
+    'efectivo': 'Efectivo', 'cash': 'Efectivo',
+  };
+  const normalized = BASE_MAP[baseType.toLowerCase()];
+  if (normalized) baseType = normalized;
+
+  // Re-compose: "BCP Crédito" format (bank first)
+  const isGenericBase = /^(Crédito|Débito|Yape|Plin|Transferencia|Efectivo)$/i.test(baseType);
+  if (isGenericBase && extractedBank) {
+    return `${extractedBank} ${baseType}`;
+  }
+
+  if (isGenericBase && !extractedBank) {
+    return baseType;
+  }
+
+  // Fallback: return cleaned version
+  return m || 'Sin especificar';
 }
 
 /** Extract the base payment type (e.g. "BCP Crédito" → "Crédito", "Yape" → "Yape") */
