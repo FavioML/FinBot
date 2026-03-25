@@ -162,7 +162,7 @@ NETO es un asistente financiero personal por WhatsApp para el mercado peruano.
 - Archivos grandes (>10KB): editar con Edit tool, nunca reescribir completo
 - Encoding: siempre UTF-8 sin BOM al guardar index.js
 - Git push: siempre desde terminal del usuario, nunca via API de GitHub (rompe por tamaño)
-- Landing deploy: repo separado FavioML/neto-landing → Cloudflare Pages (auto-deploy on push). Copiar cambios de landing/ en monorepo al repo neto-landing para desplegar
+- Landing deploy: Cloudflare Pages proyecto "neto-site" apunta directo a FavioML/FinBot con root directory "landing/" y build watch paths "landing/**". Auto-deploy on push
 - Tests: crear en tasks/tests/ con emails bancarios reales anonimizados
 - Variables de entorno: gestionar en Railway, nunca hardcodear fallbacks inseguros
 - Verificar duplicados (grep) antes de aplicar cualquier patch
