@@ -48,6 +48,7 @@ import { UserMenu } from '@/components/dashboard/user-menu';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
 import { useBudgets } from '@/lib/hooks/use-budgets';
+import { toast } from 'sonner';
 import { formatCurrency, formatFecha } from '@/lib/utils';
 import { getCategoriaEmoji, MESES, SOCIAL_LINKS } from '@/lib/constants';
 import { normalizeMetodoPago, getMetodoIcon } from '@/lib/format';
@@ -144,6 +145,45 @@ export default function TransaccionesPage() {
 
   // Pagination
   const [page, setPage] = useState(1);
+
+  // Bulk selection
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === paginated.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(paginated.map((t) => t.id)));
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0 || bulkDeleting) return;
+    setBulkDeleting(true);
+    try {
+      const ids = Array.from(selectedIds);
+      const results = await Promise.all(
+        ids.map((id) => fetch(`/api/transactions?id=${id}`, { method: 'DELETE' }))
+      );
+      const deleted = results.filter((r) => r.ok).length;
+      if (deleted > 0) {
+        toast.success(`${deleted} transacci${deleted === 1 ? 'ón eliminada' : 'ones eliminadas'}`);
+        refreshTransactions();
+      }
+      setSelectedIds(new Set());
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
 
   // Dialogs
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -461,6 +501,34 @@ export default function TransaccionesPage() {
         availableMetodos={availableMetodos}
       />
 
+      {/* Bulk action bar */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center justify-between rounded-xl bg-[rgba(216,90,48,0.08)] border border-[rgba(216,90,48,0.2)] px-4 py-2.5">
+          <span className="text-sm text-[#D85A30] font-medium">
+            {selectedIds.size} seleccionada{selectedIds.size !== 1 ? 's' : ''}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-[#8A877D] hover:text-[#C8C6BC]"
+              onClick={() => setSelectedIds(new Set())}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleBulkDelete}
+              disabled={bulkDeleting}
+            >
+              <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+              {bulkDeleting ? 'Eliminando...' : 'Eliminar'}
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Transaction list */}
       {filtered.length === 0 ? (
         <EmptyState
@@ -484,6 +552,14 @@ export default function TransaccionesPage() {
             <Table>
               <TableHeader>
                 <TableRow className="border-[rgba(255,255,255,0.06)] hover:bg-transparent">
+                  <TableHead className="w-10">
+                    <input
+                      type="checkbox"
+                      checked={paginated.length > 0 && selectedIds.size === paginated.length}
+                      onChange={toggleSelectAll}
+                      className="h-3.5 w-3.5 rounded border-[#8A877D] accent-[#1D9E75] cursor-pointer"
+                    />
+                  </TableHead>
                   <TableHead>
                     <button
                       onClick={() => toggleSort('fecha')}
@@ -522,6 +598,8 @@ export default function TransaccionesPage() {
                   <TransactionTableRow
                     key={tx.id}
                     tx={tx}
+                    selected={selectedIds.has(tx.id)}
+                    onToggleSelect={() => toggleSelect(tx.id)}
                     onEdit={() => setEditTransaction(tx)}
                     onDelete={() => setDeleteTransaction(tx)}
                   />
@@ -536,6 +614,8 @@ export default function TransaccionesPage() {
               <TransactionCard
                 key={tx.id}
                 tx={tx}
+                selected={selectedIds.has(tx.id)}
+                onToggleSelect={() => toggleSelect(tx.id)}
                 onEdit={() => setEditTransaction(tx)}
                 onDelete={() => setDeleteTransaction(tx)}
               />
@@ -646,10 +726,14 @@ export default function TransaccionesPage() {
 
 function TransactionTableRow({
   tx,
+  selected,
+  onToggleSelect,
   onEdit,
   onDelete,
 }: {
   tx: Transaccion;
+  selected: boolean;
+  onToggleSelect: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -657,7 +741,15 @@ function TransactionTableRow({
   const emoji = getCategoriaEmoji(tx.categoria);
 
   return (
-    <TableRow className="border-[rgba(255,255,255,0.06)] hover:bg-[rgba(255,255,255,0.02)] transition-colors">
+    <TableRow className={`border-[rgba(255,255,255,0.06)] hover:bg-[rgba(255,255,255,0.02)] transition-colors ${selected ? 'bg-[rgba(29,158,117,0.06)]' : ''}`}>
+      <TableCell>
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggleSelect}
+          className="h-3.5 w-3.5 rounded border-[#8A877D] accent-[#1D9E75] cursor-pointer"
+        />
+      </TableCell>
       <TableCell className="text-xs text-[#8A877D]">{formatFecha(tx.fecha)}</TableCell>
       <TableCell className="text-sm text-[#F0EFE8]">
         {tx.comercio || tx.descripcion_original || '-'}
@@ -710,10 +802,14 @@ function TransactionTableRow({
 
 function TransactionCard({
   tx,
+  selected,
+  onToggleSelect,
   onEdit,
   onDelete,
 }: {
   tx: Transaccion;
+  selected: boolean;
+  onToggleSelect: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -722,10 +818,16 @@ function TransactionCard({
 
   return (
     <div
-      className="glass-card p-4 border-l-2 transition-colors hover:bg-[rgba(255,255,255,0.02)]"
+      className={`glass-card p-4 border-l-2 transition-colors hover:bg-[rgba(255,255,255,0.02)] ${selected ? 'bg-[rgba(29,158,117,0.06)]' : ''}`}
       style={{ borderLeftColor: isIngreso ? '#1D9E75' : '#D85A30' }}
     >
       <div className="flex items-start justify-between gap-3">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggleSelect}
+          className="h-3.5 w-3.5 mt-1 rounded border-[#8A877D] accent-[#1D9E75] cursor-pointer shrink-0"
+        />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs text-[#8A877D]">{formatFecha(tx.fecha)}</span>

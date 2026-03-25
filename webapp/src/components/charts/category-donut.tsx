@@ -7,6 +7,7 @@ import type { CategoriaGasto } from '@/lib/types';
 
 interface CategoryDonutProps {
   data: CategoriaGasto[];
+  onCategoryClick?: (categoria: string) => void;
 }
 
 const COLORS = [
@@ -39,7 +40,7 @@ function CustomTooltip({ active, payload }: any) {
   );
 }
 
-export function CategoryDonut({ data }: CategoryDonutProps) {
+export function CategoryDonut({ data, onCategoryClick }: CategoryDonutProps) {
   const total = data.reduce((sum, d) => sum + d.total, 0);
 
   if (data.length === 0) {
@@ -71,6 +72,8 @@ export function CategoryDonut({ data }: CategoryDonutProps) {
                 dataKey="total"
                 stroke="none"
                 paddingAngle={2}
+                cursor={onCategoryClick ? 'pointer' : undefined}
+                onClick={onCategoryClick ? (entry: any) => onCategoryClick(entry.categoria) : undefined}
               >
                 {data.map((_, i) => (
                   <Cell key={i} fill={COLORS[i % COLORS.length]} />
@@ -94,7 +97,11 @@ export function CategoryDonut({ data }: CategoryDonutProps) {
         {/* Legend */}
         <div className="flex flex-col gap-2 flex-1 min-w-0">
           {data.map((item, i) => (
-            <div key={item.categoria} className="flex items-center gap-2 text-xs">
+            <div
+              key={item.categoria}
+              className={`flex items-center gap-2 text-xs ${onCategoryClick ? 'cursor-pointer rounded-lg px-1.5 py-1 -mx-1.5 hover:bg-[rgba(255,255,255,0.04)] transition-colors' : ''}`}
+              onClick={onCategoryClick ? () => onCategoryClick(item.categoria) : undefined}
+            >
               <span
                 className="h-2.5 w-2.5 rounded-full shrink-0"
                 style={{ backgroundColor: COLORS[i % COLORS.length] }}

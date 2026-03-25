@@ -287,6 +287,44 @@ export default function PresupuestosPage() {
             </StaggerItem>
           </StaggerContainer>
 
+          {/* Global progress bar */}
+          {summary.totalPresupuestado > 0 && (
+            <div className="glass-card p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-[#8A877D]">Uso total del presupuesto</span>
+                <span
+                  className="text-xs font-medium"
+                  style={{
+                    color: summary.totalGastado / summary.totalPresupuestado >= 1
+                      ? '#D85A30'
+                      : summary.totalGastado / summary.totalPresupuestado >= 0.8
+                        ? '#EF9F27'
+                        : '#1D9E75',
+                  }}
+                >
+                  {Math.round((summary.totalGastado / summary.totalPresupuestado) * 100)}%
+                </span>
+              </div>
+              <div className="h-3 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-700"
+                  style={{
+                    width: `${Math.min(100, (summary.totalGastado / summary.totalPresupuestado) * 100)}%`,
+                    backgroundColor: summary.totalGastado / summary.totalPresupuestado >= 1
+                      ? '#D85A30'
+                      : summary.totalGastado / summary.totalPresupuestado >= 0.8
+                        ? '#EF9F27'
+                        : '#1D9E75',
+                  }}
+                />
+              </div>
+              <div className="flex items-center justify-between mt-1.5 text-[10px] text-[#8A877D]">
+                <span>{formatCurrency(summary.totalGastado)} gastado</span>
+                <span>{formatCurrency(summary.totalPresupuestado)} presupuestado</span>
+              </div>
+            </div>
+          )}
+
           {/* Budget cards grid — one card per CATEGORY */}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
             {Array.from(groupedBudgets.entries())

@@ -51,6 +51,7 @@ export default function DashboardPage() {
   const [viewMode, setViewMode] = useState<string>('mensual');
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [showScoreDialog, setShowScoreDialog] = useState(false);
+  const [detailCategoria, setDetailCategoria] = useState<string | null>(null);
 
   // Load ALL transactions for the user (enables both monthly and annual views + trend chart)
   const { data: allTransactions = [], isLoading: txLoading } = useTransactions({
@@ -333,7 +334,7 @@ export default function DashboardPage() {
           <FadeIn delay={0.2}>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <TrendLine data={trendData} />
-            <CategoryDonut data={categoryData} />
+            <CategoryDonut data={categoryData} onCategoryClick={setDetailCategoria} />
           </div>
           </FadeIn>
 
@@ -416,6 +417,53 @@ export default function DashboardPage() {
           </FadeIn>
         </>
       )}
+
+      {/* Category detail dialog */}
+      <Dialog open={!!detailCategoria} onOpenChange={(open) => { if (!open) setDetailCategoria(null); }}>
+        <DialogContent className="bg-[#1A1A18] border-[#2A2A28] text-[#F0EFE8] max-w-md max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {detailCategoria && `${getCategoriaEmoji(detailCategoria)} ${detailCategoria}`}
+            </DialogTitle>
+          </DialogHeader>
+          {detailCategoria && (() => {
+            const catTxs = transactions
+              .filter((t) => t.tipo === 'gasto' && t.categoria === detailCategoria)
+              .sort((a, b) => b.fecha.localeCompare(a.fecha));
+            const catTotal = catTxs.reduce((s, t) => s + t.monto_pen, 0);
+            return (
+              <div className="space-y-3">
+                <p className="text-sm text-[#8A877D]">
+                  Total: <span className="text-[#D85A30] font-medium">{formatCurrency(catTotal)}</span>
+                  {' '}&mdash; {catTxs.length} transacci{catTxs.length === 1 ? 'on' : 'ones'}
+                </p>
+                {catTxs.length > 0 ? (
+                  <div className="space-y-1">
+                    {catTxs.slice(0, 15).map((tx) => (
+                      <div key={tx.id} className="flex items-center justify-between py-2 border-b border-[rgba(255,255,255,0.04)] last:border-0">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm text-[#F0EFE8] truncate">{tx.comercio || tx.subcategoria || 'Sin comercio'}</p>
+                          <p className="text-xs text-[#8A877D]">{formatFecha(tx.fecha)}</p>
+                        </div>
+                        <span className="text-sm font-medium text-[#D85A30] shrink-0 ml-3">
+                          -{formatCurrency(tx.monto_pen)}
+                        </span>
+                      </div>
+                    ))}
+                    {catTxs.length > 15 && (
+                      <p className="text-xs text-[#8A877D] text-center pt-2">
+                        y {catTxs.length - 15} transacciones mas...
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-[#8A877D] text-center py-4">Sin gastos en esta categoria</p>
+                )}
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
 
       {/* Score Financiero dialog */}
       <Dialog open={showScoreDialog} onOpenChange={setShowScoreDialog}>
