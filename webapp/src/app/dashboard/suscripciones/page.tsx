@@ -81,13 +81,25 @@ function SubscriptionCard({
       >
         <span className="text-2xl shrink-0">{sub.icono}</span>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[#C8C6BC] font-medium truncate">{sub.nombre}</span>
             {sub.estado === 'posible' && (
               <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full bg-[rgba(255,193,7,0.15)] text-[#FFC107]">
                 Posible
               </span>
             )}
+            {(() => {
+              const lastPayDate = new Date(sub.ultimo_pago + 'T12:00:00');
+              const daysSince = Math.floor((Date.now() - lastPayDate.getTime()) / (1000 * 60 * 60 * 24));
+              if (daysSince > 45) {
+                return (
+                  <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full bg-[rgba(239,159,39,0.12)] text-[#EF9F27]">
+                    Sin cobro hace {daysSince} dias
+                  </span>
+                );
+              }
+              return null;
+            })()}
           </div>
           <div className="flex items-center gap-2 text-xs text-[#8A877D] mt-0.5">
             <span>{tipoInfo.emoji} {tipoInfo.label}</span>
@@ -532,6 +544,29 @@ export default function SuscripcionesPage() {
           </div>
         </div>
       )}
+
+      {/* Inactive subscriptions alert */}
+      {viewMode === 'todo' && subsData && (() => {
+        const inactive = subsData.suscripciones.filter((s) => {
+          const daysSince = Math.floor((Date.now() - new Date(s.ultimo_pago + 'T12:00:00').getTime()) / (1000 * 60 * 60 * 24));
+          return daysSince > 45;
+        });
+        if (inactive.length === 0) return null;
+        const potentialSavings = inactive.reduce((s, sub) => s + sub.monto_pen, 0);
+        return (
+          <div className="flex items-start gap-3 rounded-xl bg-[rgba(239,159,39,0.06)] border border-[rgba(239,159,39,0.15)] p-4">
+            <AlertTriangle className="h-5 w-5 text-[#EF9F27] shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-[#F0EFE8]">
+                {inactive.length} suscripci{inactive.length === 1 ? 'on' : 'ones'} sin cobro reciente
+              </p>
+              <p className="text-xs text-[#8A877D] mt-0.5">
+                {inactive.map((s) => s.nombre).join(', ')} — si ya no las usas, podrias ahorrar ~S/{Math.round(potentialSavings)}/mes
+              </p>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Optimization CTA */}
       {subsData && subsData.cantidad >= 3 && (

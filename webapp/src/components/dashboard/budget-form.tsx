@@ -43,6 +43,8 @@ interface BudgetFormProps {
   userCategorias?: CategoriaOption[];
   existingBudgets?: Presupuesto[];
   groupSubBudgets?: Presupuesto[];
+  /** Average monthly spending per category (for suggestions) */
+  spendingAvgByCategory?: Map<string, number>;
 }
 
 function mergeAndDedup(userCategorias?: CategoriaOption[]): CategoriaOption[] {
@@ -85,7 +87,7 @@ function mergeAndDedup(userCategorias?: CategoriaOption[]): CategoriaOption[] {
   return merged.sort((a, b) => a.nombre.localeCompare(b.nombre));
 }
 
-export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategorias, existingBudgets = [], groupSubBudgets }: BudgetFormProps) {
+export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategorias, existingBudgets = [], groupSubBudgets, spendingAvgByCategory }: BudgetFormProps) {
   const isEditing = !!budget;
 
   const [categoria, setCategoria] = useState('');
@@ -398,6 +400,20 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
               value={montoLimite} onChange={(e) => setMontoLimite(e.target.value)}
               className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#F0EFE8] placeholder:text-[#8A877D]"
             />
+            {!isEditing && spendingAvgByCategory && effectiveCategoria && (() => {
+              const avg = spendingAvgByCategory.get(effectiveCategoria.toLowerCase());
+              if (!avg || avg <= 0) return null;
+              const suggested = Math.ceil(avg / 10) * 10; // Round up to nearest 10
+              return (
+                <button
+                  type="button"
+                  className="text-xs text-[#1D9E75] hover:underline text-left"
+                  onClick={() => setMontoLimite(String(suggested))}
+                >
+                  Sugerido: S/{suggested} (promedio mensual: S/{Math.round(avg)})
+                </button>
+              );
+            })()}
             {catDuplicate && !isEditing && (
               <p className="text-xs text-[#EF9F27]">Ya existe un presupuesto general para {effectiveCategoria}. Se omitirá este campo.</p>
             )}

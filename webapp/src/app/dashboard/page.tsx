@@ -27,6 +27,7 @@ import { KPICards } from '@/components/dashboard/kpi-cards';
 import { InsightCard, generateInsight } from '@/components/dashboard/insight-card';
 import { CategoryDonut } from '@/components/charts/category-donut';
 import { TrendLine } from '@/components/charts/trend-line';
+import { ScoreTrend } from '@/components/charts/score-trend';
 import { UserMenu } from '@/components/dashboard/user-menu';
 import { WelcomeModal } from '@/components/dashboard/welcome-modal';
 import { useUser } from '@/lib/hooks/use-user';
@@ -338,6 +339,21 @@ export default function DashboardPage() {
           </div>
           </FadeIn>
 
+          {/* Score trend + AI insight */}
+          {viewMode === 'mensual' && (
+            <FadeIn delay={0.25}>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <ScoreTrend
+                allTransactions={allTransactions}
+                budgets={budgets}
+                currentMonth={currentMonth}
+                currentYear={currentYear}
+              />
+              <InsightCard insight={insightText} />
+            </div>
+            </FadeIn>
+          )}
+
           {/* Transacciones Recientes + Suscripciones side by side */}
           <FadeIn delay={0.35}>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -538,8 +554,8 @@ export default function DashboardPage() {
         </DialogContent>
       </Dialog>
 
-      {/* AI insight */}
-      <InsightCard insight={insightText} />
+      {/* AI insight (only in annual view, monthly goes in grid above) */}
+      {viewMode === 'anual' && <InsightCard insight={insightText} />}
 
       {/* Floating WhatsApp button */}
       <WhatsAppButton />

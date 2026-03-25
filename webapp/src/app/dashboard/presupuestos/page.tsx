@@ -67,6 +67,11 @@ export default function PresupuestosPage() {
     tipo: 'gasto',
   });
 
+  // All transactions for spending average calculation
+  const { data: allTransactions = [] } = useTransactions({
+    usuarioId: user?.id,
+  });
+
   const queryClient = useQueryClient();
   const refreshBudgets = useCallback(
     () => queryClient.invalidateQueries({ queryKey: ['budgets'] }),
@@ -108,6 +113,26 @@ export default function PresupuestosPage() {
       subs: Array.from(subs),
     }));
   }, [transactions, budgets]);
+
+  // Compute average monthly spending per category (last 3 months)
+  const spendingAvgByCategory = useMemo(() => {
+    const map = new Map<string, Map<string, number>>(); // cat -> monthKey -> total
+    for (const t of allTransactions.filter(tx => tx.tipo === 'gasto')) {
+      const d = new Date(t.fecha + 'T00:00:00');
+      const monthKey = `${d.getFullYear()}-${d.getMonth() + 1}`;
+      const cat = t.categoria.toLowerCase();
+      if (!map.has(cat)) map.set(cat, new Map());
+      const catMap = map.get(cat)!;
+      catMap.set(monthKey, (catMap.get(monthKey) || 0) + t.monto_pen);
+    }
+    const avgMap = new Map<string, number>();
+    for (const [cat, monthMap] of map.entries()) {
+      const months = Math.max(1, monthMap.size);
+      const total = Array.from(monthMap.values()).reduce((s, v) => s + v, 0);
+      avgMap.set(cat, total / months);
+    }
+    return avgMap;
+  }, [allTransactions]);
 
   // Compute spending per normalized category and subcategory
   const spendingByKey = useMemo(() => {
@@ -372,6 +397,7 @@ export default function PresupuestosPage() {
         onSuccess={refreshBudgets}
         userCategorias={userCategorias}
         existingBudgets={budgets}
+        spendingAvgByCategory={spendingAvgByCategory}
       />
 
       {/* Edit dialog */}
