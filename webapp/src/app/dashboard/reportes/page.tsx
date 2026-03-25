@@ -920,10 +920,13 @@ function Header({
   generatingPdf: boolean;
 }) {
   return (
-    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-      <div className="flex items-center gap-3">
-        <FileBarChart className="h-6 w-6 text-[#EF9F27]" />
-        <h1 className="text-2xl font-bold text-[#F0EFE8]">Reportes</h1>
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <FileBarChart className="h-6 w-6 text-[#EF9F27]" />
+          <h1 className="text-2xl font-bold text-[#F0EFE8]">Reportes</h1>
+        </div>
+        <UserMenu />
       </div>
       <div className="flex items-center gap-3">
         <MonthSelector />
@@ -937,7 +940,6 @@ function Header({
           <Download className="h-4 w-4 mr-2" />
           {generatingPdf ? 'Generando...' : 'PDF'}
         </Button>
-        <UserMenu />
       </div>
     </div>
   );

@@ -369,38 +369,38 @@ export default function TransaccionesPage() {
     <FadeIn>
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-[#F0EFE8]">Transacciones</h1>
-        <div className="flex items-center gap-2">
-          {filtered.length > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-[rgba(255,255,255,0.06)] text-[#8A877D] hover:text-[#C8C6BC]"
-              onClick={exportCSV}
-              title="Exportar a CSV"
-            >
-              <Download className="h-4 w-4 mr-1.5" />
-              CSV
-            </Button>
-          )}
+        <UserMenu />
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {filtered.length > 0 && (
           <Button
             variant="outline"
-            className="border-[rgba(255,255,255,0.06)] text-[#C8C6BC]"
-            onClick={() => openCreate('gasto')}
+            size="sm"
+            className="border-[rgba(255,255,255,0.06)] text-[#8A877D] hover:text-[#C8C6BC]"
+            onClick={exportCSV}
+            title="Exportar a CSV"
           >
-            <Plus className="h-4 w-4" data-icon="inline-start" />
-            Nuevo gasto
+            <Download className="h-4 w-4 mr-1.5" />
+            CSV
           </Button>
-          <Button
-            className="bg-[#1D9E75] hover:bg-[#1D9E75]/90 text-white"
-            onClick={() => openCreate('ingreso')}
-          >
-            <Plus className="h-4 w-4" data-icon="inline-start" />
-            Nuevo ingreso
-          </Button>
-          <UserMenu />
-        </div>
+        )}
+        <Button
+          variant="outline"
+          className="border-[rgba(255,255,255,0.06)] text-[#C8C6BC]"
+          onClick={() => openCreate('gasto')}
+        >
+          <Plus className="h-4 w-4" data-icon="inline-start" />
+          Nuevo gasto
+        </Button>
+        <Button
+          className="bg-[#1D9E75] hover:bg-[#1D9E75]/90 text-white"
+          onClick={() => openCreate('ingreso')}
+        >
+          <Plus className="h-4 w-4" data-icon="inline-start" />
+          Nuevo ingreso
+        </Button>
       </div>
 
       {/* View mode tabs + month selector */}
