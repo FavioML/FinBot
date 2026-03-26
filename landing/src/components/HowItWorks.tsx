@@ -2,7 +2,7 @@ const STEPS = [
   {
     num: "01",
     title: "Conectas tu Gmail",
-    desc: "Un clic. Neto accede solo a los correos de transacciones de 11 bancos peruanos — nunca tus correos personales, nunca tus contraseñas bancarias.",
+    desc: "Un clic. Neto accede solo a los correos de transacciones bancarias — nunca tus correos personales, nunca tus contraseñas bancarias.",
   },
   {
     num: "02",

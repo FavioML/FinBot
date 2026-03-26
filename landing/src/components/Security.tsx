@@ -6,7 +6,7 @@ const SECURITY_POINTS = [
   {
     Icon: Eye,
     title: "Solo lectura de correos bancarios",
-    desc: "Neto accede únicamente a correos de notificación de 11 bancos. Nunca tus correos personales, laborales ni ningún otro tipo.",
+    desc: "Neto accede únicamente a correos de notificación bancaria. Nunca tus correos personales, laborales ni ningún otro tipo.",
   },
   {
     Icon: KeyRound,

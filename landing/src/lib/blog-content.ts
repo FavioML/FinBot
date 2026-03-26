@@ -308,7 +308,7 @@ export const articleContent: Record<string, string> = {
   banca en línea, cero contraseñas bancarias.</strong>
 </p>
 
-<h2>Los 11 bancos y billeteras compatibles</h2>
+<h2>Bancos y billeteras compatibles</h2>
 
 <h3>Bancos principales</h3>
 <ol>

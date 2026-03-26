@@ -7,7 +7,7 @@ const WA_LINK =
 
 const COMPARISON: { feature: string; free: boolean; pro: boolean; freeLabel?: string; proLabel?: string }[] = [
   { feature: "WhatsApp: registro, gastos y consultas", free: true, pro: true },
-  { feature: "Lectura automática de gastos", free: true, pro: true, freeLabel: "1 cuenta", proLabel: "Ilimitadas" },
+  { feature: "Lectura automática de gastos", free: true, pro: true, freeLabel: "1 cuenta de correo", proLabel: "Correos ilimitados" },
   { feature: "Clasificación automática con IA", free: true, pro: true },
   { feature: "11 categorías organizadas", free: true, pro: true, proLabel: "+ personalizadas" },
   { feature: "Presupuestos por categoría", free: true, pro: true, freeLabel: "3", proLabel: "Ilimitados" },

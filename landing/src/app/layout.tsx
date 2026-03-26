@@ -23,13 +23,13 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://neto.pe"),
   title: "Neto — Asistente financiero por WhatsApp | Peru",
   description:
-    "Neto lee tus correos de 11 bancos peruanos, categoriza gastos con IA y te resume todo por WhatsApp. Sin apps. Sin contraseñas bancarias. 100% peruano.",
+    "Neto lee tus correos de gastos financieros, categoriza con IA y te resume todo por WhatsApp. Sin apps. Sin contraseñas bancarias. 100% peruano.",
   keywords:
     "finanzas personales Peru, asistente financiero WhatsApp, control de gastos Peru, Yape BCP Interbank BBVA, gastos hormiga, ahorro Peru, presupuesto personal",
   openGraph: {
     title: "Neto — Asistente financiero por WhatsApp | Peru",
     description:
-      "Lee tus 11 bancos peruanos, categoriza con IA y te resume todo por WhatsApp. Sin contraseñas bancarias.",
+      "Lee tus correos de gastos financieros, categoriza con IA y te resume todo por WhatsApp. Sin contraseñas bancarias.",
     url: "https://neto.pe",
     type: "website",
     locale: "es_PE",
@@ -40,7 +40,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Neto — Asistente financiero por WhatsApp | Peru",
     description:
-      "Lee tus 11 bancos peruanos, categoriza con IA y te resume todo por WhatsApp. Sin contraseñas bancarias.",
+      "Lee tus correos de gastos financieros, categoriza con IA y te resume todo por WhatsApp. Sin contraseñas bancarias.",
     images: ["/og-image.png"],
   },
   robots: { index: true, follow: true },
@@ -69,7 +69,7 @@ export default function RootLayout({
     url: "https://neto.pe",
     logo: "https://neto.pe/neto-icon.png",
     description:
-      "Asistente financiero personal por WhatsApp para Peru. Lee correos de 11 bancos peruanos y categoriza gastos con IA.",
+      "Asistente financiero personal por WhatsApp para Peru. Lee correos de gastos financieros y categoriza con IA.",
     areaServed: { "@type": "Country", name: "Peru" },
     sameAs: [
       "https://www.instagram.com/neto_peru",

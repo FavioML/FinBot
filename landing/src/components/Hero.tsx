@@ -6,7 +6,7 @@ const WA_LINK =
   "https://wa.me/51933014505?text=Hola%20Neto%2C%20quiero%20empezar%20a%20ordenar%20mis%20finanzas%20%F0%9F%91%8B";
 
 const STATS = [
-  { label: "Bancos soportados", value: "11", accent: false },
+  { label: "Bancos soportados", value: "11+", accent: false },
   { label: "Setup completo", value: "2 min", accent: true },
   { label: "Para empezar", value: "S/0", accent: false },
 ];
@@ -62,7 +62,7 @@ export default function Hero() {
           className="animate-fade-up mx-auto max-w-[600px] text-lg min-[860px]:text-xl text-[#87948c] leading-relaxed mb-12"
           style={{ animationDelay: "200ms" }}
         >
-          Neto lee tus correos de 11 bancos peruanos, te resume todo por
+          Neto lee tus correos de gastos financieros, te resume todo por
           WhatsApp y te da un dashboard completo. Sin contraseñas bancarias. Solo resultados.
         </p>
 

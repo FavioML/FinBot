@@ -26,7 +26,7 @@ const FEATURES: Feature[] = [
   {
     Icon: Shield,
     title: "Sin contraseña bancaria",
-    desc: "Solo leemos los correos de notificación que tu banco ya te envía. Nunca accedemos a tu banca directa. 11 bancos peruanos soportados.",
+    desc: "Solo leemos los correos de notificación que tu banco ya te envía. Nunca accedemos a tu banca directa. Compatible con los principales bancos peruanos.",
     accent: "text-[#EF9F27]",
     glow: "bg-[#EF9F27]/10",
     visual: (

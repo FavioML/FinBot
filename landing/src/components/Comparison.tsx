@@ -31,7 +31,7 @@ const ROWS: {
     bank: "no",
   },
   {
-    feature: "Multi-banco (11 bancos)",
+    feature: "Multi-banco",
     neto: "yes",
     manual: "partial",
     bank: "no",
@@ -131,7 +131,7 @@ export default function Comparison() {
             </span>
           </h2>
           <p className="text-[#87948c] max-w-[520px] mx-auto text-lg leading-relaxed">
-            El único asistente que lee tus 11 bancos peruanos automáticamente y te resume todo por WhatsApp.
+            El único asistente que lee tus correos de gastos financieros y te resume todo por WhatsApp.
           </p>
         </div>
 
