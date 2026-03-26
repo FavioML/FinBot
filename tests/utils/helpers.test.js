@@ -103,7 +103,7 @@ describe('normalizarCategoria', () => {
     expect(normalizarCategoria('Comida')).toBe('Alimentación');
     expect(normalizarCategoria('comida')).toBe('Alimentación');
     expect(normalizarCategoria('Hogar')).toBe('Vivienda');
-    expect(normalizarCategoria('Streaming')).toBe('Entretenimiento');
+    expect(normalizarCategoria('Streaming')).toBe('Suscripciones');
     expect(normalizarCategoria('Auto')).toBe('Transporte');
   });
 
@@ -225,8 +225,8 @@ describe('MESES', () => {
 });
 
 describe('CATEGORIAS_VALIDAS', () => {
-  it('tiene las 10 categorías canónicas', () => {
-    expect(CATEGORIAS_VALIDAS.size).toBe(10);
+  it('tiene las 11 categorías canónicas', () => {
+    expect(CATEGORIAS_VALIDAS.size).toBe(11);
     expect(CATEGORIAS_VALIDAS.has('Alimentación')).toBe(true);
     expect(CATEGORIAS_VALIDAS.has('Transporte')).toBe(true);
     expect(CATEGORIAS_VALIDAS.has('Otros')).toBe(true);

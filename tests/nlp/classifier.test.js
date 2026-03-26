@@ -104,7 +104,7 @@ describe('Retrocompatibilidad de categorías', () => {
     expect(normalizarCategoria('Comida')).toBe('Alimentación');
     expect(normalizarCategoria('Hogar')).toBe('Vivienda');
     expect(normalizarCategoria('Auto')).toBe('Transporte');
-    expect(normalizarCategoria('Streaming')).toBe('Entretenimiento');
+    expect(normalizarCategoria('Streaming')).toBe('Suscripciones');
     expect(normalizarCategoria('Viajes')).toBe('Otros');
     expect(normalizarCategoria('Transferencia')).toBe('Otros');
   });
