@@ -7,6 +7,8 @@ import { Plus, Target, Wallet, TrendingDown, PiggyBank } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/shared/empty-state';
+import { ProBadge } from '@/components/shared/upgrade-prompt';
+import { FREE_LIMITS, hasReachedLimit } from '@/lib/plan';
 import { BudgetCard } from '@/components/dashboard/budget-card';
 import { BudgetForm, DeleteBudgetDialog } from '@/components/dashboard/budget-form';
 import type { CategoriaOption } from '@/components/dashboard/budget-form';
@@ -227,6 +229,8 @@ export default function PresupuestosPage() {
     );
   }
 
+  const isPremium = user?.plan === 'premium';
+  const budgetsLimitReached = hasReachedLimit(user?.plan, 'budgets', groupedBudgets.size);
   const hasBudgets = groupedBudgets.size > 0;
   const restanteColor = summary.restante >= 0 ? '#1D9E75' : '#D85A30';
 
@@ -262,9 +266,13 @@ export default function PresupuestosPage() {
         </div>
         <div className="flex items-center gap-3">
           <MonthSelector />
+          {budgetsLimitReached && !isPremium && (
+            <ProBadge text={`Límite: ${FREE_LIMITS.budgets} presupuestos`} />
+          )}
           <Button
             className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 gap-1.5"
             onClick={() => setCreateOpen(true)}
+            disabled={budgetsLimitReached && !isPremium}
           >
             <Plus className="h-4 w-4" />
             Nuevo presupuesto

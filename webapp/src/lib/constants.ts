@@ -3,7 +3,8 @@ export const CATEGORIAS = [
   { nombre: 'Transporte', emoji: '🚌', subs: ['uber_cabify','taxi','bus_micro','metro_bus','gasolina','peaje','estacionamiento'] },
   { nombre: 'Vivienda', emoji: '🏠', subs: ['alquiler','mantenimiento','electricidad','agua','gas','internet','cable'] },
   { nombre: 'Salud', emoji: '💊', subs: ['farmacia','medico','clinica','laboratorio','seguro_salud','optica'] },
-  { nombre: 'Entretenimiento', emoji: '🎰', subs: ['streaming','cine','juegos','bares_clubs','eventos','hobbies'] },
+  { nombre: 'Entretenimiento', emoji: '🎰', subs: ['cine','juegos','bares_clubs','eventos','hobbies'] },
+  { nombre: 'Suscripciones', emoji: '🔄', subs: ['streaming','musica','software','gaming','almacenamiento','otros'] },
   { nombre: 'Compras', emoji: '🛒', subs: ['ropa','calzado','electronico','hogar','belleza','mascotas'] },
   { nombre: 'Educación', emoji: '📚', subs: ['universidad','instituto','curso_online','utiles','idiomas','colegios'] },
   { nombre: 'Finanzas', emoji: '💳', subs: ['prestamo','tarjeta_credito','seguro','ahorro','inversion','comision_banco'] },
@@ -24,6 +25,8 @@ const EMOJI_FALLBACK: Record<string, string> = {
   'comida': '🍽️',
   'hogar': '🏠',
   'entretenimiento': '🎰',
+  'suscripciones': '🔄',
+  'suscripcion': '🔄',
   'transporte': '🚌',
   'salud': '💊',
   'compras': '🛒',
@@ -50,6 +53,7 @@ export function getCategoriaEmoji(categoria: string): string {
   if (lower.includes('viaje')) return '✈️';
   if (lower.includes('casa') || lower.includes('hogar') || lower.includes('vivien')) return '🏠';
   if (lower.includes('salud') || lower.includes('medic')) return '💊';
+  if (lower.includes('suscri')) return '🔄';
   if (lower.includes('entret')) return '🎰';
   if (lower.includes('compra')) return '🛒';
   if (lower.includes('educ')) return '📚';

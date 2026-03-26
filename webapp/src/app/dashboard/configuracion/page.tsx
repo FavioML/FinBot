@@ -37,11 +37,21 @@ import { SOCIAL_LINKS } from '@/lib/constants';
 /*  Plan comparison data                                               */
 /* ------------------------------------------------------------------ */
 const PLAN_FEATURES = [
-  { label: 'Reportes/mes', free: '1', premium: 'Ilimitados' },
-  { label: 'Historial', free: '3 meses', premium: 'Ilimitado' },
-  { label: 'Excel upload', free: false, premium: true },
-  { label: 'Score financiero', free: false, premium: true },
-  { label: 'Resumen semanal', free: false, premium: true },
+  { label: 'Lectura automática de gastos', free: '1 cuenta', premium: 'Ilimitadas' },
+  { label: 'Categorías', free: '11 fijas', premium: '11 + personalizadas' },
+  { label: 'Presupuestos', free: '3', premium: 'Ilimitados' },
+  { label: 'Dashboard', free: 'Mes actual', premium: 'Historial completo' },
+  { label: 'Resumen diario', free: false, premium: true },
+  { label: 'Resumen semanal IA', free: 'Básico', premium: 'Insights + comparativa' },
+  { label: 'Imágenes Yape/Plin', free: '5/mes', premium: 'Ilimitadas' },
+  { label: 'Score financiero', free: 'Número', premium: 'Desglose + tendencia' },
+  { label: 'Metas de ahorro', free: '1', premium: 'Ilimitadas' },
+  { label: 'Consejo IA', free: '1/semana', premium: 'Diario' },
+  { label: 'Reportes PDF', free: false, premium: true },
+  { label: 'Calendario financiero', free: false, premium: true },
+  { label: 'Export CSV/JSON', free: false, premium: true },
+  { label: 'Carga masiva Excel', free: false, premium: true },
+  { label: 'Recordatorios diarios', free: false, premium: true },
 ] as const;
 
 /* ------------------------------------------------------------------ */
@@ -241,7 +251,7 @@ export default function ConfiguracionPage() {
             >
               <Button className="w-full bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 gap-2">
                 <Crown className="h-4 w-4" />
-                Upgrade a Premium
+                Upgrade a Premium — S/10/mes o S/69/año
                 <ExternalLink className="h-3 w-3 ml-auto opacity-60" />
               </Button>
             </a>

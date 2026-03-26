@@ -6,18 +6,24 @@ const WA_LINK =
   "https://wa.me/51933014505?text=Hola%20Neto%2C%20quiero%20empezar%20a%20ordenar%20mis%20finanzas%20%F0%9F%91%8B";
 
 const COMPARISON: { feature: string; free: boolean; pro: boolean; freeLabel?: string; proLabel?: string }[] = [
-  { feature: "Lectura automatica de 11 bancos", free: true, pro: true },
-  { feature: "Resumen diario, semanal y mensual", free: true, pro: true },
-  { feature: "Categorizacion automatica con IA", free: true, pro: true },
-  { feature: "Consultas en lenguaje natural", free: true, pro: true },
-  { feature: "Historial", free: true, pro: true, freeLabel: "3 meses", proLabel: "Ilimitado" },
-  { feature: "Dashboard web interactivo", free: false, pro: true },
-  { feature: "Score financiero con tendencia", free: false, pro: true },
-  { feature: "Calendario y graficos interactivos", free: false, pro: true },
-  { feature: "Metas de ahorro", free: false, pro: true },
+  { feature: "WhatsApp: registro, gastos y consultas", free: true, pro: true },
+  { feature: "Lectura automática de gastos", free: true, pro: true, freeLabel: "1 cuenta", proLabel: "Ilimitadas" },
+  { feature: "Clasificación automática con IA", free: true, pro: true },
+  { feature: "11 categorías organizadas", free: true, pro: true, proLabel: "+ personalizadas" },
+  { feature: "Presupuestos por categoría", free: true, pro: true, freeLabel: "3", proLabel: "Ilimitados" },
+  { feature: "Dashboard web interactivo", free: true, pro: true, freeLabel: "Mes actual", proLabel: "Historial completo" },
+  { feature: "Resumen semanal con IA", free: true, pro: true, freeLabel: "Básico", proLabel: "Insights + comparativa" },
+  { feature: "Resumen mensual", free: true, pro: true },
+  { feature: "Lectura de imágenes Yape/Plin", free: true, pro: true, freeLabel: "5/mes", proLabel: "Ilimitada" },
+  { feature: "Score financiero", free: true, pro: true, freeLabel: "Número", proLabel: "Desglose + tendencia" },
+  { feature: "Suscripciones detectadas", free: true, pro: true, proLabel: "+ alertas" },
+  { feature: "Metas de ahorro", free: true, pro: true, freeLabel: "1", proLabel: "Ilimitadas" },
+  { feature: "Consejo IA personalizado", free: true, pro: true, freeLabel: "1/semana", proLabel: "Diario" },
+  { feature: "Resumen diario por WhatsApp", free: false, pro: true },
   { feature: "Reportes PDF descargables", free: false, pro: true },
-  { feature: "Deteccion de suscripciones", free: false, pro: true },
-  { feature: "Carga masiva (Excel/CSV)", free: false, pro: true },
+  { feature: "Calendario financiero", free: false, pro: true },
+  { feature: "Export CSV/JSON + carga masiva", free: false, pro: true },
+  { feature: "Recordatorios diarios (8 pm)", free: false, pro: true },
 ];
 
 export default function Pricing() {
@@ -118,7 +124,7 @@ export default function Pricing() {
                   <h3 className="text-xl font-bold text-[#e5e2de]">Pro</h3>
                 </div>
                 <span className="rounded-full bg-[#EF9F27] px-3 py-1 text-xs font-bold text-[#0E0E0C]">
-                  POPULAR
+                  PRECIO FUNDADOR
                 </span>
               </div>
 
@@ -128,7 +134,7 @@ export default function Pricing() {
                 <span className="text-sm text-[#87948c]">/mes</span>
               </div>
               <p className="text-sm text-[#87948c] mb-8">
-                o <span className="text-[#68dbae] font-medium">S/99/año</span> — 2 meses gratis
+                o <span className="text-[#68dbae] font-medium">S/69/año</span> — 42% de ahorro
               </p>
 
               {/* Features */}

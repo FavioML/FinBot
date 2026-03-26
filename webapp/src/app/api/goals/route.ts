@@ -7,7 +7,7 @@ const serviceClient = createSupabaseClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
-async function getNetoUserId() {
+async function getNetoUser() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -16,16 +16,20 @@ async function getNetoUserId() {
 
   const { data } = await serviceClient
     .from('usuarios')
-    .select('id')
+    .select('id, plan')
     .eq('supabase_auth_id', user.id)
     .single();
-  return data?.id || null;
+  return data || null;
 }
 
+const FREE_GOAL_LIMIT = 1;
+
 export async function GET() {
-  const userId = await getNetoUserId();
-  if (!userId)
+  const netoUser = await getNetoUser();
+  if (!netoUser)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const userId = netoUser.id;
 
   const { data, error } = await serviceClient
     .from('metas_ahorro')
@@ -39,9 +43,25 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const userId = await getNetoUserId();
-  if (!userId)
+  const netoUser = await getNetoUser();
+  if (!netoUser)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const userId = netoUser.id;
+
+  // Free plan: limit to 1 goal
+  if (netoUser.plan !== 'premium') {
+    const { count } = await serviceClient
+      .from('metas_ahorro')
+      .select('id', { count: 'exact', head: true })
+      .eq('usuario_id', userId);
+    if ((count ?? 0) >= FREE_GOAL_LIMIT) {
+      return NextResponse.json(
+        { error: 'Límite de metas alcanzado. Activa Pro para crear ilimitadas.', upgrade: true },
+        { status: 403 },
+      );
+    }
+  }
 
   const body = await request.json();
 
@@ -64,9 +84,11 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const userId = await getNetoUserId();
-  if (!userId)
+  const netoUser = await getNetoUser();
+  if (!netoUser)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const userId = netoUser.id;
 
   const body = await request.json();
 
@@ -92,9 +114,11 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const userId = await getNetoUserId();
-  if (!userId)
+  const netoUser = await getNetoUser();
+  if (!netoUser)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const userId = netoUser.id;
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');

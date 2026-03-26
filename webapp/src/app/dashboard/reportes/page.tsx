@@ -20,6 +20,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/shared/empty-state';
+import { UpgradePrompt } from '@/components/shared/upgrade-prompt';
 import { NumberTicker } from '@/components/ui/number-ticker';
 import { TransactionForm } from '@/components/dashboard/transaction-form';
 import { MonthSelector } from '@/components/dashboard/month-selector';
@@ -313,6 +314,20 @@ export default function ReportesPage() {
           <Skeleton className="h-72 rounded-xl" />
           <Skeleton className="h-72 rounded-xl" />
         </div>
+      </div>
+    );
+  }
+
+  const isPremium = user?.plan === 'premium';
+
+  if (!isLoading && !isPremium) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold text-[#F0EFE8]">Reporte PDF</h1>
+          <UserMenu />
+        </div>
+        <UpgradePrompt message="Descarga reportes PDF detallados con gráficos y análisis de tus finanzas." />
       </div>
     );
   }

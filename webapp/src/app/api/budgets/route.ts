@@ -15,7 +15,7 @@ function capitalize(s: string | null | undefined): string | null {
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
 }
 
-async function getNetoUserId() {
+async function getNetoUser() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -24,16 +24,34 @@ async function getNetoUserId() {
 
   const { data } = await serviceClient
     .from('usuarios')
-    .select('id')
+    .select('id, plan')
     .eq('supabase_auth_id', user.id)
     .single();
-  return data?.id || null;
+  return data || null;
 }
 
+const FREE_BUDGET_LIMIT = 3;
+
 export async function POST(request: Request) {
-  const userId = await getNetoUserId();
-  if (!userId)
+  const netoUser = await getNetoUser();
+  if (!netoUser)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const userId = netoUser.id;
+
+  // Free plan: limit to 3 budgets
+  if (netoUser.plan !== 'premium') {
+    const { count } = await serviceClient
+      .from('presupuestos')
+      .select('id', { count: 'exact', head: true })
+      .eq('usuario_id', userId);
+    if ((count ?? 0) >= FREE_BUDGET_LIMIT) {
+      return NextResponse.json(
+        { error: 'Límite de presupuestos alcanzado. Activa Pro para crear ilimitados.', upgrade: true },
+        { status: 403 },
+      );
+    }
+  }
 
   const body = await request.json();
   const { data, error } = await serviceClient
@@ -56,9 +74,11 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const userId = await getNetoUserId();
-  if (!userId)
+  const netoUser = await getNetoUser();
+  if (!netoUser)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const userId = netoUser.id;
 
   const body = await request.json();
   const { data, error } = await serviceClient
@@ -80,9 +100,11 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const userId = await getNetoUserId();
-  if (!userId)
+  const netoUser = await getNetoUser();
+  if (!netoUser)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const userId = netoUser.id;
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');

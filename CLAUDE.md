@@ -13,7 +13,7 @@ NETO es un asistente financiero personal por WhatsApp para el mercado peruano.
 - Número WhatsApp producción: +51 933 014 505
 - Admin WhatsApp: +51970398192
 
-## Estado actual (24 Mar 2026)
+## Estado actual (25 Mar 2026)
 
 ### Arquitectura de código (modularizado)
 - `index.js` — core (~2245 líneas: webhook, NLP 23 intenciones, router)
@@ -32,6 +32,11 @@ NETO es un asistente financiero personal por WhatsApp para el mercado peruano.
 - Logging: Pino con redacción de secrets (0 console.log en prod)
 - Tests: 56 tests automatizados (vitest)
 - Backup: script backup.js para pg_dump semanal
+- Cloudflare Pages: proyecto "neto-site", Account ID f5b742b797b7a03b8d25140bb9c3594f, API Token disponible
+- Google Search Console: verificado, sitemap enviado (11 páginas descubiertas, indexación en progreso)
+- Google Ads: cuenta 8115117081, tag AW-8115117081 en landing, campaña pausada
+- Meta Pixel: ID 1510666681068015 en landing
+- GA4: G-6M907HW1YM en landing
 
 ### Funcionalidades completas (19)
 1. Registro por WhatsApp (onboarding 4 pasos + sin Gmail)
@@ -153,16 +158,29 @@ NETO es un asistente financiero personal por WhatsApp para el mercado peruano.
 - [x] Landing page restaurada y actualizada: 11 bancos, 8 features (dashboard, metas, calendario, PDF, suscripciones), 4 pasos, pricing con 12 filas, CTAs a app.neto.pe, link "Iniciar sesion"
 - [x] Brand Voice Guidelines generadas (webapp/BRAND-VOICE.md)
 - [x] Landing CRO Analysis generado (webapp/LANDING-CRO.md)
+- [x] Marketing Audit completo (score 53/100) — webapp/MARKETING-AUDIT.md
+- [x] Bloque 1 CRO: SEO meta tags (title, lang, hreflang, og:image), JSON-LD (Organization, WebSite, FAQPage), CTAs optimizados, Sticky CTA bar
+- [x] Bloque 2 CRO: Sección comparativa "¿Por qué Neto?", sección Seguridad (6 cards), sección Referidos visible
+- [x] Bloque 4 SEO: BreadcrumbList JSON-LD en blog, cross-linking entre posts, canonicals en FAQ/contacto/privacidad/términos, sección "Quiénes somos" en footer
+- [x] Google Search Console verificado + sitemap enviado (11 páginas)
+- [x] Google Ads tag (AW-8115117081) en landing
+- [x] Meta Pixel (1510666681068015) en landing
 
 ### Pendientes identificados
 - [ ] Sync notificaciones webapp ↔ WhatsApp (API route para recordatorios_activos en tabla usuarios)
-- [ ] Correcciones/ajustes del usuario (pendiente recibir lista)
+- [ ] Diferenciación Plan Pro (features exclusivas reales vs Free)
+- [ ] Testimonios reales (reemplazar los actuales)
+- [ ] Video demo 30-60s (WhatsApp + dashboard)
+- [ ] Exit-intent popup con lead magnet
+- [ ] Urgencia en pricing ("Precio fundador S/10/mes")
+- [ ] Blog posts comparativos SEO ("Neto vs Monefy", "Neto vs app del banco")
+- [ ] Activar social media (3x/semana Instagram + 2x/semana TikTok)
 
 ## Convenciones críticas
 - Archivos grandes (>10KB): editar con Edit tool, nunca reescribir completo
 - Encoding: siempre UTF-8 sin BOM al guardar index.js
 - Git push: siempre desde terminal del usuario, nunca via API de GitHub (rompe por tamaño)
-- Landing deploy: Cloudflare Pages proyecto "neto-site" apunta directo a FavioML/FinBot con root directory "landing/" y build watch paths "landing/**". Auto-deploy on push
+- Landing deploy: Cloudflare Pages proyecto "neto-site" apunta directo a FavioML/FinBot con root directory "landing/" y build watch paths "landing/**". Auto-deploy on push. A veces Cloudflare skipea deploys — verificar con API (Account ID: f5b742b797b7a03b8d25140bb9c3594f)
 - Tests: crear en tasks/tests/ con emails bancarios reales anonimizados
 - Variables de entorno: gestionar en Railway, nunca hardcodear fallbacks inseguros
 - Verificar duplicados (grep) antes de aplicar cualquier patch

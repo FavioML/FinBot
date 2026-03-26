@@ -13,6 +13,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { EmptyState } from '@/components/shared/empty-state';
+import { ProBadge } from '@/components/shared/upgrade-prompt';
+import { FREE_LIMITS, hasReachedLimit } from '@/lib/plan';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import { UserMenu } from '@/components/dashboard/user-menu';
 import { useUser } from '@/lib/hooks/use-user';
@@ -143,8 +145,10 @@ export default function MetasPage() {
     return <EmptyState title="Inicia sesion" description="Conecta tu cuenta para ver tus metas de ahorro." />;
   }
 
+  const isPremium = user?.plan === 'premium';
   const activeGoals = goals.filter((g) => !g.completada);
   const completedGoals = goals.filter((g) => g.completada);
+  const goalsLimitReached = hasReachedLimit(user?.plan, 'goals', activeGoals.length);
   const totalTarget = activeGoals.reduce((s, g) => s + Number(g.monto_objetivo), 0);
   const totalSaved = activeGoals.reduce((s, g) => s + Number(g.monto_actual), 0);
 
@@ -158,9 +162,13 @@ export default function MetasPage() {
           <p className="text-sm text-[#8A877D] mt-1">Define objetivos y mide tu progreso</p>
         </div>
         <div className="flex items-center gap-3">
+          {goalsLimitReached && !isPremium && (
+            <ProBadge text={`Límite: ${FREE_LIMITS.goals} meta`} />
+          )}
           <Button
             onClick={openCreate}
             className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 gap-2"
+            disabled={goalsLimitReached && !isPremium}
           >
             <Plus className="h-4 w-4" />
             Nueva meta
