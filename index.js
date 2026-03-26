@@ -421,6 +421,23 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
     // --- Manejo de imágenes ---
     if (message.type === 'image') {
       const usuario = await obtenerOCrearUsuario(from);
+
+      // Si está en paso 2 (esperando comprobante de pago), tratar como recibo
+      if (usuario.onboarding_paso === 2) {
+        const ADMIN_NUMBER = process.env.ADMIN_WHATSAPP || '51970398192';
+        await enviarWhatsapp(ADMIN_NUMBER,
+          '💸 *Comprobante de pago recibido:*\n' +
+          'Usuario: ' + (usuario.nombre || from) + '\n' +
+          'WhatsApp: ' + from + '\n' +
+          'Plan solicitado: ' + (usuario.tipo_plan || 'mensual') + '\n\n' +
+          'Verificar y enviar: /pago ' + from + ' ' + (usuario.tipo_plan || 'mensual')
+        );
+        await enviarWhatsapp(from,
+          '📸 *Comprobante recibido.*\n\nEstamos verificando tu pago. Te confirmaremos en breve. ⏳'
+        );
+        return;
+      }
+
       const mediaId = message.image && message.image.id;
       const phoneId = process.env.META_PHONE_NUMBER_ID;
       const metaToken = process.env.META_ACCESS_TOKEN;
@@ -812,6 +829,73 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
       return;
     }
 
+    // Paso 1: Usuario confirma interés → enviar datos de pago
+    if (usuario.onboarding_paso === 1 && !cmd.startsWith('/')) {
+      const resp1 = cmd.trim().toLowerCase();
+      if (resp1 === 'si' || resp1 === 'sí' || resp1 === 'yes' || resp1 === 'dale' || resp1 === 'va' || resp1 === 'quiero') {
+        await supabase.from('usuarios').update({ onboarding_paso: 2 }).eq('id', usuario.id);
+        respuesta = '🎉 *¡Genial!*\n\n' +
+          'Elige tu plan:\n\n' +
+          '1️⃣ *Mensual* — S/10/mes\n' +
+          '2️⃣ *Anual* — S/99/año (2 meses gratis)\n\n' +
+          '📲 *Yapea al:* 970398192\n' +
+          '👤 *A nombre de:* Favio Mendoza\n\n' +
+          'Después envíame la captura del Yape aquí. 📸';
+        await enviarWhatsapp(from, respuesta);
+        return;
+      } else if (resp1 === 'no' || resp1 === 'no gracias') {
+        await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
+        respuesta = '👍 Sin problema. Si cambias de opinión, escribe *hola* cuando quieras.\n\n_También puedes usar Neto en modo manual (sin lectura de correos). Escribe */manual*._';
+        await enviarWhatsapp(from, respuesta);
+        return;
+      }
+      respuesta = 'Escribe *sí* para empezar con Neto o *no* si prefieres pensarlo.';
+      await enviarWhatsapp(from, respuesta);
+      return;
+    }
+
+    // Paso 2: Esperando selección de plan o comprobante de pago
+    if (usuario.onboarding_paso === 2 && !cmd.startsWith('/')) {
+      if (cmd === '1' || cmd.trim().toLowerCase() === 'mensual') {
+        await supabase.from('usuarios').update({ tipo_plan: 'mensual' }).eq('id', usuario.id);
+        respuesta = '✅ Plan *mensual* (S/10/mes).\n\n📲 Yapea S/10 al *970398192* (Favio Mendoza) y envíame la captura aquí. 📸';
+        await enviarWhatsapp(from, respuesta);
+        return;
+      } else if (cmd === '2' || cmd.trim().toLowerCase() === 'anual') {
+        await supabase.from('usuarios').update({ tipo_plan: 'anual' }).eq('id', usuario.id);
+        respuesta = '✅ Plan *anual* (S/99/año — 2 meses gratis).\n\n📲 Yapea S/99 al *970398192* (Favio Mendoza) y envíame la captura aquí. 📸';
+        await enviarWhatsapp(from, respuesta);
+        return;
+      }
+      respuesta = 'Elige tu plan:\n\n1️⃣ *Mensual* — S/10\n2️⃣ *Anual* — S/99\n\nO envíame la captura de tu Yape si ya pagaste. 📸';
+      await enviarWhatsapp(from, respuesta);
+      return;
+    }
+
+    // Paso 3: Pago confirmado, esperando Gmail
+    if (usuario.onboarding_paso === 3 && !cmd.startsWith('/')) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const posibleEmail = cmd.trim().toLowerCase();
+      if (emailRegex.test(posibleEmail)) {
+        await supabase.from('usuarios').update({ email: posibleEmail }).eq('id', usuario.id);
+        const ADMIN_NUMBER = process.env.ADMIN_WHATSAPP || '51970398192';
+        await enviarWhatsapp(ADMIN_NUMBER,
+          '📧 *Nuevo correo para GCC:*\n' +
+          'Usuario: ' + (usuario.nombre || from) + '\n' +
+          'Email: ' + posibleEmail + '\n' +
+          'Plan: ' + (usuario.tipo_plan || 'mensual') + '\n\n' +
+          '1. Agregar a Google Cloud Console\n' +
+          '2. Enviar: /aprobar ' + posibleEmail
+        );
+        respuesta = '✅ *Correo recibido:* ' + posibleEmail + '\n\nEstamos configurando tu cuenta. Te avisaremos en unos minutos cuando esté lista. ⏳';
+        await enviarWhatsapp(from, respuesta);
+        return;
+      }
+      respuesta = 'Envíame tu correo *Gmail* para conectar tus bancos.\n\nEj: tucorreo@gmail.com';
+      await enviarWhatsapp(from, respuesta);
+      return;
+    }
+
     if (usuario.onboarding_paso === 10 && !cmd.startsWith('/')) {
       var idxResp = parsearIndicesRespuesta(msg, CATEGORIAS_SUGERIDAS.length);
       if (idxResp.length > 0) {
@@ -856,9 +940,18 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
       var tieneGmail = !!usuario.gmail_access_token;
       var primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
       if (!tieneGmail && !usuario.onboarding_completado) {
-        var urlOAuth = generarUrlAutorizacion(from);
         await supabase.from('usuarios').update({ onboarding_paso: 1 }).eq('id', usuario.id);
-        respuesta = '👋 Hola' + (primerNombre ? ', ' + primerNombre : '') + '. Soy *NETO*, tu asistente financiero.\n\n*¿Cómo quieres empezar?*\n\n📧 *Opción 1 — Conectar Gmail* (recomendado)\nLeo tus correos de BCP, BBVA, Interbank, Scotiabank, Falabella, Ripley, BanBif, Mibanco, Yape y Plin automáticamente:\n' + urlOAuth + '\n\n✍️ *Opción 2 — Modo manual*\nRegistra gastos por texto o fotos de Yape/Plin. Sin conectar nada.\nEscribe */manual* para elegir esta opción.\n\n_Puedes conectar Gmail después en cualquier momento con /conectar_';
+        respuesta = '👋 Hola' + (primerNombre ? ', ' + primerNombre : '') + '. Soy *NETO*, tu asistente financiero.\n\n' +
+          '📊 *¿Qué hace Neto?*\n' +
+          '• Lee tus correos bancarios automáticamente\n' +
+          '• Te dice en qué gastas tu plata por WhatsApp\n' +
+          '• Dashboard con gráficos, metas y reportes PDF\n' +
+          '• Funciona con BCP, BBVA, Interbank, Scotiabank, Yape, Plin y más\n\n' +
+          '💰 *Precio fundador:*\n' +
+          '• *S/10/mes* — mensual\n' +
+          '• *S/99/año* — 2 meses gratis\n\n' +
+          '¿Te animas? Escribe *sí* para empezar.\n\n' +
+          '_O escribe */manual* para registrar gastos sin lectura de correos._';
       } else if (!tieneGmail && usuario.onboarding_completado) {
         // Usuario en modo manual — saludo normal
         var gastosMesHola = await obtenerGastosMes(usuario.id);
@@ -1030,13 +1123,73 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
           respuesta = '\u2705 Premium activado para ' + (usuarioActivar.nombre || numeroActivar) + '\nVence: ' + vence;
         }
       }
+    } else if (cmd.startsWith('/pago ')) {
+      const ADMIN_NUMBER = process.env.ADMIN_WHATSAPP || '51970398192';
+      if (from !== ADMIN_NUMBER) {
+        respuesta = 'No tienes permiso para usar este comando.';
+      } else {
+        const partes = cmd.replace('/pago ', '').trim().split(/\s+/);
+        const numeroPago = (partes[0] || '').replace(/\+/g, '');
+        const tipoPlan = partes[1] || 'mensual';
+        const { data: usuarioPago } = await supabase.from('usuarios').select('*').eq('whatsapp', numeroPago).single();
+        if (!usuarioPago) {
+          respuesta = '❌ No encontré un usuario con el número: ' + numeroPago;
+        } else {
+          const hoy = new Date();
+          const mesesAdd = tipoPlan === 'anual' ? 12 : 1;
+          const vence = new Date(hoy.getFullYear(), hoy.getMonth() + mesesAdd, hoy.getDate());
+          await supabase.from('usuarios').update({
+            plan: 'premium',
+            estado_pago: 'pagado',
+            tipo_plan: tipoPlan,
+            fecha_pago: hoy.toISOString(),
+            fecha_vencimiento: vence.toISOString(),
+            premium_desde: hoy.toISOString().split('T')[0],
+            premium_vence: vence.toISOString().split('T')[0],
+            pago_pendiente: false,
+            onboarding_paso: 3
+          }).eq('id', usuarioPago.id);
+          await enviarWhatsapp(usuarioPago.whatsapp,
+            '✅ *¡Pago confirmado!*\n\n' +
+            'Plan: *' + (tipoPlan === 'anual' ? 'Anual (S/99/año)' : 'Mensual (S/10/mes)') + '*\n' +
+            'Vence: ' + vence.toISOString().split('T')[0] + '\n\n' +
+            'Ahora necesito tu correo *Gmail* para conectar tus bancos.\n\n' +
+            '📧 Envíame tu correo aquí (ej: tucorreo@gmail.com)'
+          );
+          respuesta = '✅ Pago confirmado para ' + (usuarioPago.nombre || numeroPago) + ' (' + tipoPlan + ')\nUsuario en paso 3: esperando Gmail.';
+        }
+      }
+    } else if (cmd.startsWith('/aprobar ')) {
+      const ADMIN_NUMBER = process.env.ADMIN_WHATSAPP || '51970398192';
+      if (from !== ADMIN_NUMBER) {
+        respuesta = 'No tienes permiso para usar este comando.';
+      } else {
+        const emailAprobar = cmd.replace('/aprobar ', '').trim().toLowerCase();
+        const { data: usuarioAprobar } = await supabase.from('usuarios').select('*').eq('email', emailAprobar).single();
+        if (!usuarioAprobar) {
+          respuesta = '❌ No encontré un usuario con el correo: ' + emailAprobar;
+        } else {
+          await supabase.from('usuarios').update({
+            aprobado_gcc: true,
+            onboarding_paso: 10
+          }).eq('id', usuarioAprobar.id);
+          const urlOAuth = generarUrlAutorizacion(usuarioAprobar.whatsapp);
+          await enviarWhatsapp(usuarioAprobar.whatsapp,
+            '🎉 *¡Tu cuenta está lista!*\n\n' +
+            'Conecta tu Gmail para que Neto lea tus correos bancarios automáticamente:\n\n' +
+            '🔗 ' + urlOAuth + '\n\n' +
+            '_Solo leemos notificaciones bancarias. Sin contraseñas bancarias._'
+          );
+          respuesta = '✅ Aprobado ' + emailAprobar + ' en GCC.\nLink OAuth enviado al usuario.';
+        }
+      }
     } else if (cmd === '/usuarios' || cmd === '/admin') {
       // Panel admin rapido
       const ADMIN_NUMBER = process.env.ADMIN_WHATSAPP || '51970398192';
       if (from !== ADMIN_NUMBER) {
         respuesta = 'No tienes permiso para usar este comando.';
       } else {
-        const { data: todos } = await supabase.from('usuarios').select('whatsapp, nombre, plan, pago_pendiente, created_at').order('created_at', { ascending: false }).limit(20);
+        const { data: todos } = await supabase.from('usuarios').select('whatsapp, nombre, plan, pago_pendiente, estado_pago, created_at').order('created_at', { ascending: false }).limit(20);
         if (!todos || todos.length === 0) { respuesta = 'No hay usuarios registrados.'; }
         else {
           const premium = todos.filter(u => u.plan === 'premium').length;
@@ -1049,9 +1202,10 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
           todos.slice(0, 10).forEach(u => {
             const plan = u.plan === 'premium' ? '\u2B50' : '\uD83D\uDFE2';
             const pend = u.pago_pendiente ? ' \uD83D\uDCB8' : '';
-            msg += plan + ' ' + (u.nombre || u.whatsapp) + pend + '\n';
+            const estado = u.estado_pago === 'pagado' ? '' : (u.estado_pago === 'pendiente' ? ' \u23F3' : '');
+            msg += plan + ' ' + (u.nombre || u.whatsapp) + pend + estado + '\n';
           });
-          if (pendientes > 0) msg += '\n_Usa /activar <numero> para activar un pago._';
+          msg += '\n_Comandos:_\n/pago <num> <mensual|anual>\n/aprobar <email>\n/activar <num>';
           respuesta = msg;
         }
       }
