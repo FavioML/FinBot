@@ -204,16 +204,10 @@ export default function ConfiguracionPage() {
               <h2 className="text-lg font-semibold text-[#F0EFE8] truncate">
                 {user.nombre || (user.email ? user.email.split('@')[0] : 'Usuario')}
               </h2>
-              {isPremium ? (
-                <Badge className="bg-[#1D9E75]/20 text-[#1D9E75] border-[#1D9E75]/30 gap-1 shrink-0">
-                  <Crown className="h-3 w-3" />
-                  Premium
-                </Badge>
-              ) : (
-                <Badge variant="secondary" className="bg-[rgba(255,255,255,0.06)] text-[#8A877D] border-[rgba(255,255,255,0.08)] shrink-0">
-                  Free
-                </Badge>
-              )}
+              <Badge className="bg-[#1D9E75]/20 text-[#1D9E75] border-[#1D9E75]/30 gap-1 shrink-0">
+                <Crown className="h-3 w-3" />
+                Neto Pro
+              </Badge>
             </div>
 
             {/* Email */}
@@ -240,23 +234,6 @@ export default function ConfiguracionPage() {
           </div>
         </div>
 
-        {/* Upgrade CTA */}
-        {!isPremium && (
-          <>
-            <Separator className="my-4 bg-[rgba(255,255,255,0.06)]" />
-            <a
-              href={`${SOCIAL_LINKS.whatsapp}?text=${encodeURIComponent('Quiero activar Premium')}`}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <Button className="w-full bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 gap-2">
-                <Crown className="h-4 w-4" />
-                Upgrade a Premium — S/10/mes o S/99/año
-                <ExternalLink className="h-3 w-3 ml-auto opacity-60" />
-              </Button>
-            </a>
-          </>
-        )}
       </div>
 
       {/* ============================================================ */}
@@ -270,9 +247,7 @@ export default function ConfiguracionPage() {
 
         <div className="flex items-center justify-between">
           <span className="text-sm text-[#C8C6BC]">Plan actual</span>
-          <span className="text-sm font-medium text-[#F0EFE8]">
-            {isPremium ? 'Premium' : 'Free'}
-          </span>
+          <span className="text-sm font-medium text-[#1D9E75]">Neto Pro</span>
         </div>
 
         {isPremium && user.plan_expiry && (
@@ -286,27 +261,19 @@ export default function ConfiguracionPage() {
 
         <Separator className="bg-[rgba(255,255,255,0.06)]" />
 
-        {/* Comparison table */}
+        {/* Feature list */}
         <div className="overflow-x-auto -mx-1">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-[#8A877D]">
-                <th className="text-left font-medium py-2 pr-4">Funcion</th>
-                <th className="text-center font-medium py-2 px-3">Free</th>
-                <th className="text-center font-medium py-2 px-3">Premium</th>
+                <th className="text-left font-medium py-2 pr-4">Funcion incluida</th>
+                <th className="text-center font-medium py-2 px-3">Tu plan</th>
               </tr>
             </thead>
             <tbody>
               {PLAN_FEATURES.map((f) => (
                 <tr key={f.label} className="border-t border-[rgba(255,255,255,0.04)]">
                   <td className="py-2.5 pr-4 text-[#C8C6BC]">{f.label}</td>
-                  <td className="py-2.5 px-3 text-center">
-                    {typeof f.free === 'boolean' ? (
-                      <span className="text-[#8A877D]">{f.free ? '\u2705' : '\u274C'}</span>
-                    ) : (
-                      <span className="text-[#8A877D]">{f.free}</span>
-                    )}
-                  </td>
                   <td className="py-2.5 px-3 text-center">
                     {typeof f.premium === 'boolean' ? (
                       <span>{f.premium ? '\u2705' : '\u274C'}</span>
@@ -333,7 +300,7 @@ export default function ConfiguracionPage() {
         </div>
 
         <p className="text-sm text-[#C8C6BC]">
-          Invita a 3 amigos y obten 1 mes Premium gratis.
+          Invita a 3 amigos y obtén 1 mes gratis. Sin costo para ti ni para ellos.
         </p>
 
         {/* Referral link */}

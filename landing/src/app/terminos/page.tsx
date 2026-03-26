@@ -95,15 +95,11 @@ export default function TerminosPage() {
               <h2 className="text-lg font-bold tracking-tight mb-3">
                 4. Planes y pagos
               </h2>
-              <p className="text-sm text-neto-txt2 leading-7 mb-2">
-                <strong>Plan Gratis:</strong> acceso permanente a
-                funcionalidades basicas sin costo. No requiere tarjeta de
-                credito.
-              </p>
               <p className="text-sm text-neto-txt2 leading-7 mb-3">
-                <strong>Plan Pro:</strong> S/10.00 por mes o S/99.00 por ano. El
-                cobro es recurrente y se realiza automaticamente. Puedes
-                cancelar en cualquier momento desde tu cuenta.
+                Neto es un servicio de pago: S/10.00 por mes o S/99.00 por ano.
+                El cobro es recurrente y se realiza automaticamente. Puedes
+                cancelar en cualquier momento. Nuevos usuarios pueden acceder a
+                1 mes gratis al ser referidos por un suscriptor activo.
               </p>
               <ul className="space-y-2">
                 <li className="text-sm text-neto-txt2 leading-7 pl-5 relative before:content-['\2014'] before:absolute before:left-0 before:text-neto-green before:font-semibold">

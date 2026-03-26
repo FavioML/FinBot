@@ -67,12 +67,12 @@ const FAQ_DATA = [
     group: "Planes y pagos",
     items: [
       {
-        q: "Que incluye el plan gratis?",
-        a: 'El plan gratis incluye: resumen de gastos por WhatsApp, categorizacion automatica con IA, correccion de categorias y consultas en lenguaje natural ("cuanto gaste en delivery?"). Es gratis para siempre, sin tarjeta de credito.',
+        q: "Cuanto cuesta Neto?",
+        a: "Neto cuesta S/10/mes o S/99/ano (equivale a S/8.25/mes, 2 meses gratis). Incluye todo: dashboard web, reportes PDF, score financiero, metas de ahorro, lectura automatica de correos bancarios y mucho mas. Sin funciones bloqueadas.",
       },
       {
-        q: "Que incluye el plan Pro?",
-        a: "El plan Pro (S/10/mes o S/99/ano) incluye todo lo del plan Gratis mas: reportes mensuales web ilimitados, historial ilimitado de transacciones, resumenes automaticos configurables, score de salud financiera y la opcion de pagar con Yape o tarjeta.",
+        q: "Que incluye la suscripcion?",
+        a: "Todo. WhatsApp ilimitado, lectura automatica de correos bancarios, categorizacion con IA, dashboard interactivo, presupuestos, metas de ahorro, reportes PDF descargables, score financiero, calendario financiero, deteccion de suscripciones, export CSV/JSON y soporte directo.",
       },
       {
         q: "Puedo pagar con Yape?",
@@ -80,7 +80,7 @@ const FAQ_DATA = [
       },
       {
         q: "Puedo cancelar cuando quiera?",
-        a: "Si, sin tramites ni penalidades. Si cancelas, mantienes el acceso Pro hasta el final del periodo pagado y luego bajas automaticamente al plan Gratis. Tus datos historicos se conservan.",
+        a: "Si, sin tramites ni penalidades. Si cancelas, mantienes el acceso hasta el final del periodo pagado. Tus datos historicos se conservan.",
       },
     ],
   },
@@ -97,7 +97,7 @@ const FAQ_DATA = [
       },
       {
         q: "Cada cuanto llega el resumen automatico?",
-        a: "Con el plan Pro puedes configurar la frecuencia y el horario que prefieras. Con el plan Gratis puedes pedir tu resumen cuando quieras escribiendo a Neto por WhatsApp.",
+        a: "Puedes configurar la frecuencia y el horario que prefieras. Tambien puedes pedir tu resumen en cualquier momento escribiendo a Neto por WhatsApp.",
       },
       {
         q: "Que es el reporte mensual web?",

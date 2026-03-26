@@ -179,7 +179,7 @@ export default async function BlogPostPage({
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 rounded-full bg-neto-green px-6 py-3 text-sm font-semibold text-white hover:brightness-110 transition-all duration-200"
             >
-              Empezar gratis por WhatsApp
+              Empezar ahora por WhatsApp
             </a>
           </div>
 

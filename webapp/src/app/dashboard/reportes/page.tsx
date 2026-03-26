@@ -20,7 +20,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/shared/empty-state';
-import { UpgradePrompt } from '@/components/shared/upgrade-prompt';
 import { NumberTicker } from '@/components/ui/number-ticker';
 import { TransactionForm } from '@/components/dashboard/transaction-form';
 import { MonthSelector } from '@/components/dashboard/month-selector';
@@ -318,21 +317,7 @@ export default function ReportesPage() {
     );
   }
 
-  const isPremium = user?.plan === 'premium';
-
-  if (!isLoading && !isPremium) {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-[#F0EFE8]">Reporte PDF</h1>
-          <UserMenu />
-        </div>
-        <UpgradePrompt message="Descarga reportes PDF detallados con gráficos y análisis de tus finanzas." />
-      </div>
-    );
-  }
-
-  if (!isLoading && transactions.length === 0) {
+if (!isLoading && transactions.length === 0) {
     return (
       <div className="space-y-6">
         <Header selected={selected} setSelected={setSelected} monthOptions={monthOptions} onDownloadPDF={handleDownloadPDF} generatingPdf={generatingPdf} />
@@ -823,27 +808,6 @@ export default function ReportesPage() {
         userCategorias={userCategorias}
       />
 
-      {/* Upsell banner for free users */}
-      {user && user.plan === 'free' && transactions.length > 0 && (
-        <div className="glass-card p-5 border-[#1D9E75]/20 hover:border-[#1D9E75]/40 transition-colors">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-medium text-[#F0EFE8]">
-                Desbloquea reportes ilimitados con Pro
-              </p>
-              <p className="text-xs text-[#8A877D] mt-0.5">
-                Score financiero, resúmenes configurables y carga de Excel — S/10/mes
-              </p>
-            </div>
-            <a
-              href="/dashboard/configuracion"
-              className="shrink-0 rounded-lg bg-[#1D9E75]/10 px-4 py-2 text-xs font-medium text-[#1D9E75] transition-colors hover:bg-[#1D9E75]/20"
-            >
-              Ver planes
-            </a>
-          </div>
-        </div>
-      )}
 
       {/* Score Financiero dialog */}
       <Dialog open={showScoreDialog} onOpenChange={setShowScoreDialog}>

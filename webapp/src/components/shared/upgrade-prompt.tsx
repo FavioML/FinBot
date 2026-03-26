@@ -13,7 +13,7 @@ interface UpgradePromptProps {
   className?: string;
 }
 
-const WA_UPGRADE_LINK = `${SOCIAL_LINKS.whatsapp}?text=${encodeURIComponent('Quiero activar el plan Pro de Neto')}`;
+const WA_CONTACT_LINK = `${SOCIAL_LINKS.whatsapp}?text=${encodeURIComponent('Hola, necesito ayuda con mi cuenta Neto')}`;
 
 export function UpgradePrompt({ message, variant = 'inline', className = '' }: UpgradePromptProps) {
   if (variant === 'overlay') {
@@ -24,10 +24,10 @@ export function UpgradePrompt({ message, variant = 'inline', className = '' }: U
             <Lock className="h-5 w-5 text-[#1D9E75]" />
           </div>
           <p className="text-sm text-[#C8C6BC] mb-4">{message}</p>
-          <a href={WA_UPGRADE_LINK} target="_blank" rel="noopener noreferrer">
+          <a href={WA_CONTACT_LINK} target="_blank" rel="noopener noreferrer">
             <Button className="bg-[#1D9E75] hover:bg-[#1D9E75]/90 text-white gap-2">
               <Crown className="h-4 w-4" />
-              Activar Pro — S/10/mes
+              Activar Neto — S/10/mes
               <ArrowRight className="h-3 w-3" />
             </Button>
           </a>
@@ -42,12 +42,12 @@ export function UpgradePrompt({ message, variant = 'inline', className = '' }: U
       <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-[#1D9E75]/15">
         <Lock className="h-6 w-6 text-[#1D9E75]" />
       </div>
-      <h3 className="mb-2 text-lg font-semibold text-[#e5e2de]">Función Pro</h3>
+      <h3 className="mb-2 text-lg font-semibold text-[#e5e2de]">Función incluida</h3>
       <p className="mb-6 text-sm text-[#87948c] max-w-xs">{message}</p>
-      <a href={WA_UPGRADE_LINK} target="_blank" rel="noopener noreferrer">
+      <a href={WA_CONTACT_LINK} target="_blank" rel="noopener noreferrer">
         <Button className="bg-[#1D9E75] hover:bg-[#1D9E75]/90 text-white gap-2">
           <Crown className="h-4 w-4" />
-          Activar Pro — S/10/mes
+          Activar Neto — S/10/mes
           <ArrowRight className="h-3 w-3" />
         </Button>
       </a>
