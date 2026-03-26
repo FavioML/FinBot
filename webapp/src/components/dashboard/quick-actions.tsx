@@ -3,14 +3,13 @@
 import Link from 'next/link';
 import { Plus, FileText, Flag, CreditCard, PiggyBank } from 'lucide-react';
 import { motion } from 'motion/react';
-import { SOCIAL_LINKS } from '@/lib/constants';
 
 const actions = [
   {
     label: 'Agregar gasto',
     icon: Plus,
-    href: SOCIAL_LINKS.whatsapp,
-    external: true,
+    href: '#',
+    quickAdd: true,
     color: '#1D9E75',
   },
   {
@@ -56,11 +55,14 @@ export function QuickActions() {
           </motion.div>
         );
 
-        if (action.external) {
+        if ('quickAdd' in action && action.quickAdd) {
           return (
-            <a key={action.label} href={action.href} target="_blank" rel="noopener noreferrer">
+            <button
+              key={action.label}
+              onClick={() => window.dispatchEvent(new CustomEvent('neto:quick-add', { detail: { tipo: 'gasto' } }))}
+            >
               {content}
-            </a>
+            </button>
           );
         }
 

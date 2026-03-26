@@ -119,6 +119,8 @@ export function CategoryComparison({ allTransactions, currentMonth, currentYear,
                 fontSize: '12px',
                 color: '#F0EFE8',
               }}
+              itemStyle={{ color: '#C8C6BC' }}
+              labelStyle={{ color: '#8A877D', fontSize: '11px' }}
               formatter={(value: unknown, name: unknown) => [
                 formatCurrency(Number(value)),
                 name === 'previous' ? pmLabel : cmLabel,

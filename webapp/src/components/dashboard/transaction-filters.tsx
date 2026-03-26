@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import { Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -10,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { CATEGORIAS } from '@/lib/constants';
+import { CATEGORIAS, getCategoriaEmoji } from '@/lib/constants';
 
 interface TransactionFiltersProps {
   search: string;
@@ -24,6 +25,7 @@ interface TransactionFiltersProps {
   metodoPagoFilter: string;
   onMetodoPagoChange: (value: string | null) => void;
   availableMetodos?: string[];
+  userCategorias?: { nombre: string; emoji: string; subs: string[] }[];
 }
 
 export function TransactionFilters({
@@ -38,8 +40,32 @@ export function TransactionFilters({
   metodoPagoFilter,
   onMetodoPagoChange,
   availableMetodos = [],
+  userCategorias = [],
 }: TransactionFiltersProps) {
-  const selectedCat = CATEGORIAS.find((c) => c.nombre === categoriaFilter);
+  // Merge hardcoded CATEGORIAS with user's actual categories
+  const allCategorias = useMemo(() => {
+    const catMap = new Map<string, { nombre: string; emoji: string; subs: string[] }>();
+    // Start with hardcoded categories
+    for (const cat of CATEGORIAS) {
+      catMap.set(cat.nombre, { nombre: cat.nombre, emoji: cat.emoji, subs: [...cat.subs] });
+    }
+    // Add/merge user categories (may include custom ones like "Auto", "Viajes")
+    for (const cat of userCategorias) {
+      if (catMap.has(cat.nombre)) {
+        // Merge subcategories
+        const existing = catMap.get(cat.nombre)!;
+        for (const sub of cat.subs) {
+          if (!existing.subs.includes(sub)) existing.subs.push(sub);
+        }
+      } else {
+        // Add new user category
+        catMap.set(cat.nombre, { nombre: cat.nombre, emoji: getCategoriaEmoji(cat.nombre), subs: [...cat.subs] });
+      }
+    }
+    return Array.from(catMap.values()).sort((a, b) => a.nombre.localeCompare(b.nombre));
+  }, [userCategorias]);
+
+  const selectedCat = allCategorias.find((c) => c.nombre === categoriaFilter);
   const subcategorias = selectedCat ? selectedCat.subs : [];
 
   return (
@@ -73,12 +99,12 @@ export function TransactionFilters({
         }}>
           <SelectTrigger className="w-[180px] bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#C8C6BC]">
             <SelectValue>
-              {categoriaFilter === 'all' ? 'Todas las categorías' : `${CATEGORIAS.find(c => c.nombre === categoriaFilter)?.emoji || ''} ${categoriaFilter}`}
+              {categoriaFilter === 'all' ? 'Todas las categorías' : `${allCategorias.find(c => c.nombre === categoriaFilter)?.emoji || ''} ${categoriaFilter}`}
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Todas las categorías</SelectItem>
-            {CATEGORIAS.map((cat) => (
+            {allCategorias.map((cat) => (
               <SelectItem key={cat.nombre} value={cat.nombre}>
                 {cat.emoji} {cat.nombre}
               </SelectItem>

@@ -499,6 +499,7 @@ export default function TransaccionesPage() {
         metodoPagoFilter={metodoPagoFilter}
         onMetodoPagoChange={handleFilterChange(setMetodoPagoFilter, 'all')}
         availableMetodos={availableMetodos}
+        userCategorias={userCategorias}
       />
 
       {/* Bulk action bar */}

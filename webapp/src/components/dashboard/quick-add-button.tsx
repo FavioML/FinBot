@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Plus, X } from 'lucide-react';
 import { TransactionForm } from '@/components/dashboard/transaction-form';
@@ -18,6 +18,19 @@ export function QuickAddButton() {
   const [open, setOpen] = useState(false);
   const [tipo, setTipo] = useState<'gasto' | 'ingreso'>('gasto');
   const [showMenu, setShowMenu] = useState(false);
+
+  // Listen for quick-add events from QuickActions bar
+  const handleQuickAdd = useCallback((e: Event) => {
+    const detail = (e as CustomEvent).detail;
+    setTipo(detail?.tipo || 'gasto');
+    setShowMenu(false);
+    setOpen(true);
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener('neto:quick-add', handleQuickAdd);
+    return () => window.removeEventListener('neto:quick-add', handleQuickAdd);
+  }, [handleQuickAdd]);
 
   // Build user categories from transactions
   const userCategorias = useMemo(() => {
