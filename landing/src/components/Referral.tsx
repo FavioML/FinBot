@@ -15,7 +15,7 @@ const STEPS = [
   {
     Icon: Gift,
     step: "2",
-    title: "Ellos empiezan gratis",
+    title: "Ellos reciben 1 mes gratis",
     desc: "Tus amigos obtienen acceso completo a Neto. Sin costo, sin compromiso.",
   },
   {

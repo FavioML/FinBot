@@ -56,7 +56,7 @@ export default function Navbar() {
             rel="noopener noreferrer"
             className="rounded-full bg-neto-green px-5 py-2 text-sm font-medium text-white hover:bg-neto-green-dark transition-colors duration-200 cursor-pointer"
           >
-            Empezar gratis
+            Empezar ahora
           </a>
         </div>
 
@@ -95,7 +95,7 @@ export default function Navbar() {
             rel="noopener noreferrer"
             className="rounded-full bg-neto-green px-5 py-2.5 text-sm font-medium text-white text-center hover:bg-neto-green-dark transition-colors duration-200 cursor-pointer"
           >
-            Empezar gratis
+            Empezar ahora
           </a>
         </div>
       )}

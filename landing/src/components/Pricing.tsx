@@ -1,35 +1,37 @@
 "use client";
 
-import { Check, X, Zap, Crown } from "lucide-react";
+import { useState } from "react";
+import { Check, Crown } from "lucide-react";
 
 const WA_LINK =
   "https://wa.me/51933014505?text=Hola%20Neto%2C%20quiero%20empezar%20a%20ordenar%20mis%20finanzas%20%F0%9F%91%8B";
 
-const COMPARISON: { feature: string; free: boolean; pro: boolean; freeLabel?: string; proLabel?: string }[] = [
-  { feature: "WhatsApp: registro, gastos y consultas", free: true, pro: true },
-  { feature: "Lectura automática de gastos", free: true, pro: true, freeLabel: "1 cuenta de correo", proLabel: "Correos ilimitados" },
-  { feature: "Clasificación automática con IA", free: true, pro: true },
-  { feature: "11 categorías organizadas", free: true, pro: true, proLabel: "+ personalizadas" },
-  { feature: "Presupuestos por categoría", free: true, pro: true, freeLabel: "3", proLabel: "Ilimitados" },
-  { feature: "Dashboard web interactivo", free: true, pro: true, freeLabel: "Mes actual", proLabel: "Historial completo" },
-  { feature: "Resumen semanal con IA", free: true, pro: true, freeLabel: "Básico", proLabel: "Insights + comparativa" },
-  { feature: "Resumen mensual", free: true, pro: true },
-  { feature: "Lectura de imágenes Yape/Plin", free: true, pro: true, freeLabel: "5/mes", proLabel: "Ilimitada" },
-  { feature: "Score financiero", free: true, pro: true, freeLabel: "Número", proLabel: "Desglose + tendencia" },
-  { feature: "Suscripciones detectadas", free: true, pro: true, proLabel: "+ alertas" },
-  { feature: "Metas de ahorro", free: true, pro: true, freeLabel: "1", proLabel: "Ilimitadas" },
-  { feature: "Consejo IA personalizado", free: true, pro: true, freeLabel: "1/semana", proLabel: "Diario" },
-  { feature: "Resumen diario por WhatsApp", free: false, pro: true },
-  { feature: "Reportes PDF descargables", free: false, pro: true },
-  { feature: "Calendario financiero", free: false, pro: true },
-  { feature: "Export CSV/JSON + carga masiva", free: false, pro: true },
-  { feature: "Recordatorios diarios (8 pm)", free: false, pro: true },
+const FEATURES = [
+  "WhatsApp: registro, gastos y consultas",
+  "Lectura automática de correos bancarios",
+  "Clasificación automática con IA",
+  "Categorías personalizables",
+  "Presupuestos ilimitados",
+  "Dashboard web interactivo con historial completo",
+  "Resumen semanal con IA (insights + comparativa)",
+  "Resumen mensual",
+  "Lectura de imágenes Yape/Plin ilimitada",
+  "Score financiero con desglose + tendencia",
+  "Suscripciones detectadas + alertas",
+  "Metas de ahorro ilimitadas",
+  "Consejo IA personalizado diario",
+  "Resumen diario por WhatsApp",
+  "Reportes PDF descargables",
+  "Calendario financiero",
+  "Export CSV/JSON + carga masiva",
+  "Recordatorios diarios (8 pm)",
 ];
 
 export default function Pricing() {
+  const [annual, setAnnual] = useState(false);
+
   return (
     <section id="precios" className="py-28 relative overflow-hidden">
-      {/* Background effects */}
       <div className="absolute top-[10%] left-[50%] -translate-x-1/2 w-[800px] h-[600px] -z-10 rounded-full bg-[#1D9E75]/[0.04] blur-[150px]" />
 
       <div className="mx-auto max-w-[1100px] px-6">
@@ -44,84 +46,46 @@ export default function Pricing() {
             </span>
           </h2>
           <p className="text-[#87948c] max-w-[480px] mx-auto text-lg leading-relaxed">
-            Empieza gratis. Actualiza solo cuando veas el valor.
+            Todo incluido. Sin funciones bloqueadas.
           </p>
+
+          {/* Toggle mensual/anual */}
+          <div className="mt-8 inline-flex items-center gap-3 rounded-full bg-[#1C1C19] p-1.5">
+            <button
+              onClick={() => setAnnual(false)}
+              className={`rounded-full px-5 py-2 text-sm font-medium transition-all duration-200 cursor-pointer ${
+                !annual ? "bg-[#1D9E75] text-white" : "text-[#87948c] hover:text-[#bccac1]"
+              }`}
+            >
+              Mensual
+            </button>
+            <button
+              onClick={() => setAnnual(true)}
+              className={`rounded-full px-5 py-2 text-sm font-medium transition-all duration-200 cursor-pointer ${
+                annual ? "bg-[#1D9E75] text-white" : "text-[#87948c] hover:text-[#bccac1]"
+              }`}
+            >
+              Anual
+              <span className="ml-1.5 text-xs text-[#68dbae]">-17%</span>
+            </button>
+          </div>
         </div>
 
-        {/* Pricing cards */}
-        <div className="grid grid-cols-1 min-[860px]:grid-cols-2 gap-5 max-w-[900px] mx-auto">
-          {/* Free plan */}
-          <div className="group relative rounded-[24px] bg-[#1C1C19] overflow-hidden transition-all duration-300 hover:bg-[#20201d] cursor-default"
-               style={{ transitionTimingFunction: "cubic-bezier(0.4, 0, 0.2, 1)" }}>
-            {/* Inner shadow */}
-            <div className="absolute inset-0 rounded-[24px] pointer-events-none"
-                 style={{ boxShadow: "0 -20px 80px -20px rgba(255,255,255,0.03) inset" }} />
-
-            <div className="relative p-8 flex flex-col h-full">
-              {/* Plan icon + name */}
-              <div className="flex items-center gap-3 mb-6">
-                <div className="w-10 h-10 rounded-xl bg-[#2A2A28] flex items-center justify-center">
-                  <Zap size={20} className="text-[#87948c]" />
-                </div>
-                <h3 className="text-xl font-bold text-[#e5e2de]">Gratis</h3>
-              </div>
-
-              {/* Price */}
-              <div className="mb-2">
-                <span className="text-5xl font-extrabold text-[#e5e2de] tracking-tight">S/0</span>
-              </div>
-              <p className="text-sm text-[#87948c] mb-8">Para siempre. Sin tarjeta.</p>
-
-              {/* Features */}
-              <ul className="space-y-3.5 flex-1 mb-8">
-                {COMPARISON.map((row) => (
-                  <li key={row.feature} className="flex items-start gap-3">
-                    {row.free ? (
-                      <div className="w-5 h-5 rounded-full bg-[#1D9E75]/15 flex items-center justify-center shrink-0 mt-0.5">
-                        <Check size={12} className="text-[#1D9E75]" />
-                      </div>
-                    ) : (
-                      <div className="w-5 h-5 rounded-full bg-[#2A2A28] flex items-center justify-center shrink-0 mt-0.5">
-                        <X size={12} className="text-[#87948c]/40" />
-                      </div>
-                    )}
-                    <span className={`text-sm ${row.free ? "text-[#bccac1]" : "text-[#87948c]/40"}`}>
-                      {row.feature}{row.freeLabel ? ` (${row.freeLabel})` : ""}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-
-              {/* CTA */}
-              <a
-                href={WA_LINK}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded-full bg-[#2A2A28] text-[#e5e2de] px-6 py-3.5 text-sm font-semibold text-center transition-all duration-300 hover:bg-[#353532] cursor-pointer block"
-              >
-                Empezar gratis
-              </a>
-            </div>
-          </div>
-
-          {/* Pro plan */}
-          <div className="group relative rounded-[24px] overflow-hidden transition-all duration-300 cursor-default"
-               style={{ transitionTimingFunction: "cubic-bezier(0.4, 0, 0.2, 1)" }}>
-            {/* Gradient border effect */}
+        {/* Single pricing card */}
+        <div className="max-w-[500px] mx-auto">
+          <div className="group relative rounded-[24px] overflow-hidden transition-all duration-300 cursor-default">
             <div className="absolute inset-0 rounded-[24px] bg-gradient-to-br from-[#68dbae]/30 via-[#1D9E75]/20 to-[#0F6E56]/30" />
             <div className="absolute inset-[1px] rounded-[23px] bg-[#131311]" />
-
-            {/* Glow effect */}
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[60%] h-24 bg-[#1D9E75]/20 blur-[60px] -z-0" />
 
-            <div className="relative p-8 flex flex-col h-full">
-              {/* Plan icon + name + badge */}
+            <div className="relative p-8 flex flex-col">
+              {/* Header */}
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-[#1D9E75]/20 flex items-center justify-center">
                     <Crown size={20} className="text-[#68dbae]" />
                   </div>
-                  <h3 className="text-xl font-bold text-[#e5e2de]">Pro</h3>
+                  <h3 className="text-xl font-bold text-[#e5e2de]">Neto Pro</h3>
                 </div>
                 <span className="rounded-full bg-[#EF9F27] px-3 py-1 text-xs font-bold text-[#0E0E0C]">
                   PRECIO FUNDADOR
@@ -130,25 +94,27 @@ export default function Pricing() {
 
               {/* Price */}
               <div className="mb-2 flex items-baseline gap-2">
-                <span className="text-5xl font-extrabold text-[#e5e2de] tracking-tight">S/10</span>
-                <span className="text-sm text-[#87948c]">/mes</span>
+                <span className="text-5xl font-extrabold text-[#e5e2de] tracking-tight">
+                  {annual ? "S/99" : "S/10"}
+                </span>
+                <span className="text-sm text-[#87948c]">
+                  {annual ? "/año" : "/mes"}
+                </span>
               </div>
               <p className="text-sm text-[#87948c] mb-8">
-                o <span className="text-[#68dbae] font-medium">S/69/año</span> — 42% de ahorro
+                {annual
+                  ? "Equivale a S/8.25/mes — 2 meses gratis"
+                  : "Cancela cuando quieras"}
               </p>
 
               {/* Features */}
-              <ul className="space-y-3.5 flex-1 mb-8">
-                {COMPARISON.map((row) => (
-                  <li key={row.feature} className="flex items-start gap-3">
-                    <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
-                      (row.pro && !row.free) || row.proLabel ? "bg-[#1D9E75]" : "bg-[#1D9E75]/15"
-                    }`}>
-                      <Check size={12} className={(row.pro && !row.free) || row.proLabel ? "text-white" : "text-[#1D9E75]"} />
+              <ul className="space-y-3 mb-8">
+                {FEATURES.map((f) => (
+                  <li key={f} className="flex items-start gap-3">
+                    <div className="w-5 h-5 rounded-full bg-[#1D9E75]/15 flex items-center justify-center shrink-0 mt-0.5">
+                      <Check size={12} className="text-[#1D9E75]" />
                     </div>
-                    <span className={`text-sm ${row.pro && !row.free ? "text-[#e5e2de] font-medium" : row.proLabel ? "text-[#e5e2de] font-medium" : "text-[#bccac1]"}`}>
-                      {row.proLabel ? `${row.feature} (${row.proLabel})` : row.feature}
-                    </span>
+                    <span className="text-sm text-[#bccac1]">{f}</span>
                   </li>
                 ))}
               </ul>
@@ -160,12 +126,11 @@ export default function Pricing() {
                 rel="noopener noreferrer"
                 className="rounded-full bg-gradient-to-br from-[#68dbae] to-[#26a37a] text-[#002115] px-6 py-3.5 text-sm font-semibold text-center transition-all duration-300 hover:shadow-[0_0_40px_rgba(29,158,117,0.35)] hover:scale-[1.02] cursor-pointer block"
               >
-                Empezar con Pro
+                Empezar ahora
               </a>
 
-              {/* Payment methods */}
               <p className="text-center text-xs text-[#87948c] mt-4">
-                Paga con Yape o tarjeta
+                Paga con Yape · Setup en 5 min
               </p>
             </div>
           </div>

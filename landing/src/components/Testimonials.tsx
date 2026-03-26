@@ -214,7 +214,7 @@ export default function Testimonials() {
         {/* Trust indicator */}
         <div className="mt-12 text-center">
           <p className="text-sm text-[#87948c]">
-            Disponible en Perú. Empieza gratis hoy.
+            Disponible en Perú. Empieza hoy.
           </p>
         </div>
       </div>

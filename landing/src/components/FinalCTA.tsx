@@ -31,7 +31,7 @@ export default function FinalCTA() {
         </a>
 
         <p className="mt-6 text-sm text-white/60">
-          Gratis · Sin tarjeta · Sin contraseña bancaria
+          Setup en 5 min · Sin contraseña bancaria
         </p>
       </div>
     </section>

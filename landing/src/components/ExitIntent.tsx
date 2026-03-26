@@ -96,7 +96,7 @@ export default function ExitIntent() {
         {/* Subtext */}
         <p className="text-[#87948c] text-sm leading-relaxed mb-6 max-w-xs mx-auto">
           Los gastos hormiga (café, delivery, taxi) suman más de lo que crees.
-          Descubre cuánto pierdes cada mes — gratis, por WhatsApp.
+          Descubre cuánto pierdes cada mes — por WhatsApp.
         </p>
 
         {/* CTA */}

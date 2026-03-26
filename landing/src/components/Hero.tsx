@@ -8,7 +8,7 @@ const WA_LINK =
 const STATS = [
   { label: "Bancos soportados", value: "11+", accent: false },
   { label: "Setup completo", value: "2 min", accent: true },
-  { label: "Para empezar", value: "S/0", accent: false },
+  { label: "Desde", value: "S/10/mes", accent: false },
 ];
 
 export default function Hero() {
