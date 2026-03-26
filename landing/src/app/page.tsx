@@ -11,6 +11,7 @@ import Referral from "@/components/Referral";
 import FinalCTA from "@/components/FinalCTA";
 import Footer from "@/components/Footer";
 import StickyCTA from "@/components/StickyCTA";
+import ExitIntent from "@/components/ExitIntent";
 
 export default function Home() {
   return (
@@ -30,6 +31,7 @@ export default function Home() {
       </main>
       <Footer />
       <StickyCTA />
+      <ExitIntent />
     </>
   );
 }
