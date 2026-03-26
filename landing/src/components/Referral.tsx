@@ -15,14 +15,14 @@ const STEPS = [
   {
     Icon: Gift,
     step: "2",
-    title: "Ellos reciben 1 mes gratis",
-    desc: "Tus amigos obtienen acceso completo a Neto. Sin costo, sin compromiso.",
+    title: "Ellos se suscriben a Neto",
+    desc: "Tus amigos se registran y pagan su plan. Cuando tengan 3+ transacciones, cuentan como activos.",
   },
   {
     Icon: Crown,
     step: "3",
     title: "Tú ganas 1 mes gratis",
-    desc: "Cuando 3 referidos están activos, recibes 1 mes de Neto gratis. Automáticamente.",
+    desc: "Cuando 3 referidos están activos, tu siguiente mes es gratis. Automáticamente.",
   },
 ];
 

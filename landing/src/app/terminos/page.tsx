@@ -98,8 +98,8 @@ export default function TerminosPage() {
               <p className="text-sm text-neto-txt2 leading-7 mb-3">
                 Neto es un servicio de pago: S/10.00 por mes o S/99.00 por ano.
                 El cobro es recurrente y se realiza automaticamente. Puedes
-                cancelar en cualquier momento. Nuevos usuarios pueden acceder a
-                1 mes gratis al ser referidos por un suscriptor activo.
+                cancelar en cualquier momento. El programa de referidos
+                otorga 1 mes gratis al suscriptor que refiera a 3 usuarios activos.
               </p>
               <ul className="space-y-2">
                 <li className="text-sm text-neto-txt2 leading-7 pl-5 relative before:content-['\2014'] before:absolute before:left-0 before:text-neto-green before:font-semibold">

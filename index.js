@@ -383,7 +383,7 @@ async function verificarProReferidos(referrerId) {
         if (venceStr !== venceActual) {
           await supabase.from('usuarios').update({ plan: 'premium', premium_desde: hoyPeru(), premium_vence: venceStr }).eq('id', referrerId);
           const msgMeses = mesesGanados === 1 ? '1 mes' : mesesGanados + ' meses';
-          await enviarWhatsapp(referrer.whatsapp, '⭐ *¡Referidos que funcionan!*\n\n' + totalActivos + ' de tus amigos ya usan NETO activamente.\n\nTe hemos activado *' + msgMeses + ' de NETO Pro gratis* 🎉\n\nVence: ' + venceStr + '\n\n_Sigue invitando amigos — cada 3 referidos activos sumas 1 mes más._');
+          await enviarWhatsapp(referrer.whatsapp, '⭐ *¡Referidos que funcionan!*\n\n' + totalActivos + ' de tus amigos ya usan Neto activamente.\n\nTe hemos dado *' + msgMeses + ' gratis*. 🎉\n\nVence: ' + venceStr + '\n\n_Sigue invitando — cada 3 referidos activos sumas 1 mes más._');
         }
       }
     }

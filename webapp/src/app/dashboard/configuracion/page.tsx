@@ -300,7 +300,7 @@ export default function ConfiguracionPage() {
         </div>
 
         <p className="text-sm text-[#C8C6BC]">
-          Invita a 3 amigos y obtén 1 mes gratis. Sin costo para ti ni para ellos.
+          Invita a 3 amigos. Cuando se suscriban y estén activos, tu siguiente mes es gratis.
         </p>
 
         {/* Referral link */}
