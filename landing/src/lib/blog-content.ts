@@ -448,4 +448,170 @@ export const articleContent: Record<string, string> = {
   y conecta tu banco en 2 minutos. Gratis, sin contraseñas, sin apps.
 </p>
 `,
+
+  "neto-vs-monefy-peru": `
+<h2>¿Buscas la mejor app para controlar gastos en Perú?</h2>
+<p>
+  Si googleaste "app para controlar gastos" probablemente encontraste Monefy.
+  Es una de las apps más descargadas del mundo para finanzas personales. Pero
+  ¿funciona bien para el día a día en Perú? Comparemos punto por punto con Neto.
+</p>
+
+<h2>La diferencia principal: manual vs automático</h2>
+<p>
+  <strong>Monefy</strong> requiere que anotes cada gasto a mano. Compraste un
+  café, abres la app, eliges categoría, escribes el monto. ¿El problema? La
+  mayoría de personas deja de hacerlo después de la primera semana. La vida
+  real gana.
+</p>
+<p>
+  <strong>Neto</strong> lee automáticamente los correos de notificación que tu
+  banco ya te envía. No tienes que abrir ninguna app ni anotar nada. Cada
+  compra con BCP, BBVA, Interbank, Scotiabank, Yape o Plin se registra sola.
+</p>
+
+<h2>Comparación directa</h2>
+<table>
+  <thead>
+    <tr><th>Característica</th><th>Neto</th><th>Monefy</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Registro de gastos</td><td>Automático (lee correos bancarios)</td><td>Manual (tú anotas cada uno)</td></tr>
+    <tr><td>Funciona por WhatsApp</td><td>Sí</td><td>No (necesitas abrir la app)</td></tr>
+    <tr><td>Bancos peruanos</td><td>BCP, BBVA, Interbank, Yape, Plin y más</td><td>No se conecta a bancos</td></tr>
+    <tr><td>Categorización con IA</td><td>Sí, automática</td><td>No (manual)</td></tr>
+    <tr><td>Resumen por WhatsApp</td><td>Diario, semanal y mensual</td><td>No</td></tr>
+    <tr><td>Dashboard web</td><td>Sí (app.neto.pe)</td><td>No (solo app móvil)</td></tr>
+    <tr><td>Lectura de Yape/Plin</td><td>Sí (imagen o correo)</td><td>No</td></tr>
+    <tr><td>Precio plan gratuito</td><td>S/0</td><td>S/0 (con anuncios)</td></tr>
+    <tr><td>Precio plan premium</td><td>S/10/mes o S/69/año</td><td>~S/15/mes (Monefy Pro)</td></tr>
+    <tr><td>Sin descargar app</td><td>Sí (WhatsApp + web)</td><td>No (requiere descarga)</td></tr>
+    <tr><td>Multimoneda USD/PEN</td><td>Sí, con tipo de cambio real</td><td>Sí (manual)</td></tr>
+  </tbody>
+</table>
+
+<h2>¿Para quién es Monefy?</h2>
+<p>
+  Monefy es buena opción si te gusta el control manual, prefieres una app
+  visual con gráficos circulares y no te importa anotar cada gasto. Funciona
+  bien si manejas solo efectivo o si estás en un país donde los bancos no
+  envían notificaciones por correo.
+</p>
+
+<h2>¿Para quién es Neto?</h2>
+<p>
+  Neto es para ti si:
+</p>
+<ul>
+  <li>Quieres que tus gastos se registren <strong>solos</strong>, sin anotar nada</li>
+  <li>Usas bancos peruanos (BCP, BBVA, Interbank, Scotiabank)</li>
+  <li>Pagas con Yape o Plin frecuentemente</li>
+  <li>Prefieres recibir información por <strong>WhatsApp</strong> en vez de abrir otra app</li>
+  <li>Quieres un dashboard web con score financiero y reportes</li>
+</ul>
+
+<h2>El factor decisivo: constancia</h2>
+<p>
+  La mejor herramienta financiera es la que realmente usas. Según estudios,
+  <strong>el 80% de personas abandona las apps de finanzas manuales en el
+  primer mes</strong>. La razón es simple: anotar cada gasto es tedioso.
+</p>
+<p>
+  Neto elimina esa fricción. Como todo es automático, no necesitas disciplina
+  para mantenerlo. Tu banco envía el correo, Neto lo lee, y tú recibes el
+  resumen en WhatsApp. Cero esfuerzo.
+</p>
+
+<h2>Prueba Neto gratis</h2>
+<p>
+  No tienes que elegir a ciegas.
+  <a href="https://wa.me/51933014505?text=Hola%20Neto%2C%20quiero%20empezar%20a%20ordenar%20mis%20finanzas%20%F0%9F%91%8B">
+  Escríbele "Hola" a Neto por WhatsApp</a> y en 2 minutos tendrás tu primer
+  resumen automático. Gratis, sin descargar nada.
+</p>
+`,
+
+  "neto-vs-app-banco-peru": `
+<h2>Tu app bancaria hace mucho, pero no todo</h2>
+<p>
+  Si usas BCP, BBVA, Interbank o Scotiabank, probablemente ya tienes su app
+  instalada. Y está bien: sirve para transferir, pagar servicios y ver tus
+  movimientos. Pero tiene un problema fundamental para controlar tus gastos.
+</p>
+
+<h2>El problema: cada app solo ve un banco</h2>
+<p>
+  La app de BCP solo muestra tus movimientos de BCP. La de BBVA, solo BBVA.
+  Si tienes cuenta en dos bancos, usas Yape para pagos chicos y tienes una
+  tarjeta de crédito en otro banco, <strong>nadie te está dando la foto
+  completa</strong>.
+</p>
+<p>
+  ¿Cuánto gastaste en total este mes? ¿En qué categoría va más plata?
+  ¿Cuánto fue delivery vs supermercado? Para responder, tendrías que abrir
+  3 o 4 apps, sumar manualmente y hacer tu propio Excel. Nadie hace eso.
+</p>
+
+<h2>Qué hace Neto que tu banco no puede</h2>
+<table>
+  <thead>
+    <tr><th>Capacidad</th><th>App del banco</th><th>Neto</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Ver movimientos</td><td>Solo de ese banco</td><td>Todos tus bancos juntos</td></tr>
+    <tr><td>Categorización</td><td>Básica o ninguna</td><td>Automática con IA (11 categorías + sub)</td></tr>
+    <tr><td>Resumen por WhatsApp</td><td>No</td><td>Diario, semanal y mensual</td></tr>
+    <tr><td>Presupuestos por categoría</td><td>No</td><td>Sí, con alertas</td></tr>
+    <tr><td>Yape + Plin unificados</td><td>Solo uno (si aplica)</td><td>Ambos, automático</td></tr>
+    <tr><td>Score financiero</td><td>No</td><td>Sí, con tendencia mensual</td></tr>
+    <tr><td>Reportes PDF</td><td>Extracto bancario (crudo)</td><td>Reporte visual con gráficos</td></tr>
+    <tr><td>Dashboard web</td><td>No (solo app móvil)</td><td>Sí (app.neto.pe)</td></tr>
+    <tr><td>Detecta suscripciones</td><td>No</td><td>Sí (Netflix, Spotify, etc.)</td></tr>
+    <tr><td>Consejos con IA</td><td>No</td><td>Sí, personalizados</td></tr>
+  </tbody>
+</table>
+
+<h2>No es uno u otro, es complemento</h2>
+<p>
+  No tienes que dejar de usar la app de tu banco. Sigue usándola para
+  transferir y pagar servicios. Pero para <strong>entender en qué gastas
+  tu plata</strong>, necesitas algo que vea el panorama completo.
+</p>
+<p>
+  Neto no accede a tu banca en línea ni pide tus contraseñas. Solo lee los
+  correos de notificación que tu banco ya te envía. Eso es todo. Seguro,
+  automático y sin fricciones.
+</p>
+
+<h2>Un ejemplo real</h2>
+<p>
+  Imagina que en marzo gastaste:
+</p>
+<ul>
+  <li><strong>BCP débito:</strong> S/1,200 (supermercado, gasolina, restaurantes)</li>
+  <li><strong>BBVA crédito:</strong> S/800 (ropa, electrónicos, suscripciones)</li>
+  <li><strong>Yape:</strong> S/450 (delivery, taxi, café, tiendas)</li>
+  <li><strong>Plin:</strong> S/150 (split cuentas con amigos)</li>
+</ul>
+<p>
+  Tu app de BCP te dice que gastaste S/1,200. Tu app de BBVA dice S/800.
+  Pero <strong>tu gasto real fue S/2,600</strong>. Solo Neto te muestra ese
+  número, categorizado y con tendencias.
+</p>
+
+<h2>¿Cómo funciona?</h2>
+<ol>
+  <li><strong>Conectas tu Gmail</strong> — un clic, sin contraseñas bancarias</li>
+  <li><strong>Neto lee los correos de tus bancos</strong> — BCP, BBVA, Interbank, Scotiabank, Yape, Plin y más</li>
+  <li><strong>Recibes resúmenes por WhatsApp</strong> — diario, semanal y mensual con IA</li>
+  <li><strong>Exploras tu dashboard</strong> — gráficos, score financiero, presupuestos y reportes en app.neto.pe</li>
+</ol>
+
+<h2>Empieza gratis</h2>
+<p>
+  <a href="https://wa.me/51933014505?text=Hola%20Neto%2C%20quiero%20empezar%20a%20ordenar%20mis%20finanzas%20%F0%9F%91%8B">
+  Escríbele "Hola" a Neto por WhatsApp</a> y conecta tu primer banco en
+  2 minutos. Sin apps, sin contraseñas, sin costo.
+</p>
+`,
 };

@@ -91,6 +91,40 @@ export const posts: BlogPost[] = [
     ],
     content: "",
   },
+  {
+    slug: "neto-vs-monefy-peru",
+    title: "Neto vs Monefy: cuál te conviene más para controlar gastos en Perú",
+    description:
+      "Comparamos Neto y Monefy punto por punto: automatización, precio, bancos peruanos, WhatsApp y más. Descubre cuál se adapta mejor a tu día a día.",
+    date: "2026-03-26",
+    readingTime: "6 min",
+    keywords: [
+      "neto vs monefy",
+      "monefy peru",
+      "mejor app control de gastos peru",
+      "alternativa a monefy",
+      "app finanzas peru",
+      "comparar apps de gastos",
+    ],
+    content: "",
+  },
+  {
+    slug: "neto-vs-app-banco-peru",
+    title: "Neto vs la app de tu banco: por qué necesitas ambos",
+    description:
+      "Tu app bancaria te muestra movimientos de un solo banco. Neto unifica todos tus bancos, categoriza con IA y te resume por WhatsApp. Conoce las diferencias.",
+    date: "2026-03-26",
+    readingTime: "5 min",
+    keywords: [
+      "app banco peru",
+      "neto vs bcp app",
+      "app finanzas vs banco",
+      "control gastos multibanco peru",
+      "unificar bancos peru",
+      "alternativa app bancaria",
+    ],
+    content: "",
+  },
 ];
 
 export function getPost(slug: string): BlogPost | undefined {
