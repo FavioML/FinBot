@@ -6,6 +6,11 @@ export interface Usuario {
   plan: 'free' | 'premium';
   plan_expiry?: string;
   premium_vence?: string;
+  estado_pago?: 'pendiente' | 'pagado' | 'vencido';
+  tipo_plan?: 'mensual' | 'anual';
+  fecha_pago?: string;
+  fecha_vencimiento?: string;
+  aprobado_gcc?: boolean;
   supabase_auth_id?: string;
   created_at: string;
   updated_at: string;

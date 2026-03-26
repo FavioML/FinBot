@@ -251,7 +251,7 @@ export default function ConfiguracionPage() {
             >
               <Button className="w-full bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 gap-2">
                 <Crown className="h-4 w-4" />
-                Upgrade a Premium — S/10/mes o S/69/año
+                Upgrade a Premium — S/10/mes o S/99/año
                 <ExternalLink className="h-3 w-3 ml-auto opacity-60" />
               </Button>
             </a>

@@ -17,24 +17,16 @@ export type PlanFeature =
   | 'advice_daily'
   | 'custom_categories';
 
-/** Features that are completely blocked for free users */
-const PRO_ONLY_FEATURES: PlanFeature[] = [
-  'reports_pdf',
-  'calendar',
-  'heatmap',
-  'export',
-  'excel_upload',
-  'daily_summary',
-  'daily_reminder',
-];
+/** No features are Pro-only anymore — all users are paid */
+const PRO_ONLY_FEATURES: PlanFeature[] = [];
 
-/** Numeric limits for free plan */
+/** No free limits — all users get full access */
 export const FREE_LIMITS = {
-  budgets: 3,
-  goals: 1,
-  ocr_per_month: 5,
-  gmail_accounts: 1,
-  advice_per_week: 1,
+  budgets: Infinity,
+  goals: Infinity,
+  ocr_per_month: Infinity,
+  gmail_accounts: Infinity,
+  advice_per_week: Infinity,
 } as const;
 
 /** Check if a feature is Pro-only */

@@ -27,11 +27,11 @@ export function UpgradePrompt({ message, variant = 'inline', className = '' }: U
           <a href={WA_UPGRADE_LINK} target="_blank" rel="noopener noreferrer">
             <Button className="bg-[#1D9E75] hover:bg-[#1D9E75]/90 text-white gap-2">
               <Crown className="h-4 w-4" />
-              Activar Pro — S/6/mes
+              Activar Pro — S/10/mes
               <ArrowRight className="h-3 w-3" />
             </Button>
           </a>
-          <p className="text-xs text-[#87948c] mt-2">S/69/año (42% de ahorro)</p>
+          <p className="text-xs text-[#87948c] mt-2">S/99/año (2 meses gratis)</p>
         </div>
       </div>
     );
@@ -47,11 +47,11 @@ export function UpgradePrompt({ message, variant = 'inline', className = '' }: U
       <a href={WA_UPGRADE_LINK} target="_blank" rel="noopener noreferrer">
         <Button className="bg-[#1D9E75] hover:bg-[#1D9E75]/90 text-white gap-2">
           <Crown className="h-4 w-4" />
-          Activar Pro — S/6/mes
+          Activar Pro — S/10/mes
           <ArrowRight className="h-3 w-3" />
         </Button>
       </a>
-      <p className="text-xs text-[#87948c] mt-3">S/69/año (42% de ahorro) · Paga con Yape</p>
+      <p className="text-xs text-[#87948c] mt-3">S/99/año (2 meses gratis) · Paga con Yape</p>
     </div>
   );
 }
