@@ -59,9 +59,13 @@ export type TipoSuscripcion =
   | 'comunicacion'
   | 'dating'
   | 'finanzas'
+  | 'software'
+  | 'almacenamiento'
+  | 'otros'
   | 'otro'
 
-export const TIPO_LABELS: Record<TipoSuscripcion, { label: string; emoji: string }> = {
+// Labels for catalog tipos (used by dashboard detectSubscriptions)
+export const TIPO_LABELS: Record<string, { label: string; emoji: string }> = {
   streaming: { label: 'Streaming', emoji: '🎬' },
   musica: { label: 'Música', emoji: '🎵' },
   gaming: { label: 'Gaming', emoji: '🎮' },
@@ -76,7 +80,11 @@ export const TIPO_LABELS: Record<TipoSuscripcion, { label: string; emoji: string
   comunicacion: { label: 'Comunicación', emoji: '📹' },
   dating: { label: 'Dating', emoji: '🔥' },
   finanzas: { label: 'Finanzas', emoji: '💰' },
-  otro: { label: 'Otro', emoji: '🔄' },
+  // DB subcategorías de la categoría "Suscripciones"
+  software: { label: 'Software', emoji: '💻' },
+  almacenamiento: { label: 'Almacenamiento', emoji: '☁️' },
+  otros: { label: 'Otros', emoji: '📋' },
+  otro: { label: 'Otro', emoji: '📋' },
 }
 
 // ═══════════════════════════════════════════════════════════════
