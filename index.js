@@ -2162,6 +2162,12 @@ async function procesarMensajeLibre(msg, usuario, from) {
             }
           } catch(e) {}
         }
+        // Log NLP desconocido para revisión admin
+        supabase.from('nlp_errors').insert({
+          usuario_id: usuario.id, whatsapp: from,
+          mensaje: msg.substring(0, 500), intencion: intencion || 'desconocido',
+          error_tipo: 'desconocido', error_detalle: 'Mensaje no clasificado por NLP'
+        }).then(() => {}).catch(() => {});
         const ctxDef = 'El usuario envio un mensaje que no encaja claramente con ninguna intencion: "' + msg + '". Responde en tono NETO: reconoce el mensaje, ofrece ayuda concreta con los gastos o finanzas del usuario.';
         const respDef = await redactarConNETO(netoPrompt, ctxDef, msg, historialConv);
         return respDef || 'No entendi bien, pero estoy aqui. Escribe _"cuanto gaste esta semana"_ o _"dame mi reporte"_ y arrancamos. \u00bfQue necesitas?';
@@ -2169,6 +2175,12 @@ async function procesarMensajeLibre(msg, usuario, from) {
     }
   } catch(e) {
     log.error({ tag: 'NLP', err: e.message }, 'Error en procesamiento NLP'); notificarErrorAdmin('NLP', e.message); registrarError('NLP', e.message, { stack: e.stack, whatsapp: from });
+    // Log NLP error para revisión admin
+    supabase.from('nlp_errors').insert({
+      usuario_id: usuario ? usuario.id : null, whatsapp: from,
+      mensaje: msg.substring(0, 500), intencion: null,
+      error_tipo: 'error', error_detalle: e.message
+    }).then(() => {}).catch(() => {});
     return 'Tuve un problema. Intenta de nuevo.';
   }
 }
