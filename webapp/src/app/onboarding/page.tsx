@@ -179,6 +179,18 @@ export default function OnboardingPage() {
           )}
         </motion.button>
 
+        {/* Change account */}
+        <button
+          onClick={async () => {
+            const supabase = createClient();
+            await supabase.auth.signOut();
+            router.replace('/login');
+          }}
+          className="mt-6 w-full text-center text-sm text-[#8A877D] hover:text-[#C8C6BC] transition-colors cursor-pointer"
+        >
+          Cambiar de cuenta
+        </button>
+
         {/* Footer */}
         <footer className="mt-12 flex items-center justify-center gap-4 text-xs text-[#8A877D]">
           <a
