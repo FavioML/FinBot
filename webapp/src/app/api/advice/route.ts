@@ -7,6 +7,23 @@ const serviceClient = createSupabaseClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
+// Rate limiting simple por usuario (10 req/min)
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT_MAX = 10;
+const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minuto
+
+function checkRateLimit(userId: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(userId);
+  if (!entry || now > entry.resetAt) {
+    rateLimitMap.set(userId, { count: 1, resetAt: now + RATE_LIMIT_WINDOW });
+    return true;
+  }
+  if (entry.count >= RATE_LIMIT_MAX) return false;
+  entry.count++;
+  return true;
+}
+
 async function getNetoUserId() {
   const supabase = await createClient();
   const {
@@ -27,23 +44,35 @@ export async function POST(request: Request) {
   if (!userId)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  if (!checkRateLimit(userId)) {
+    return NextResponse.json({ error: 'Demasiadas solicitudes. Intenta en un minuto.' }, { status: 429 });
+  }
+
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     return NextResponse.json({ error: 'AI not configured' }, { status: 503 });
   }
 
   const body = await request.json();
-  const { totalGastos, totalIngresos, topCategorias, scoreFinanciero, subscriptionTotal } = body;
+
+  // Sanitizar inputs para prevenir prompt injection
+  const totalGastos = Math.round(Number(body.totalGastos) || 0);
+  const totalIngresos = Math.round(Number(body.totalIngresos) || 0);
+  const scoreFinanciero = Math.min(100, Math.max(0, Math.round(Number(body.scoreFinanciero) || 0)));
+  const topCategorias = typeof body.topCategorias === 'string'
+    ? body.topCategorias.slice(0, 200).replace(/[^\w\sáéíóúñÁÉÍÓÚÑ,.:%-]/gi, '')
+    : 'Sin datos';
+  const subscriptionTotal = Math.round(Number(body.subscriptionTotal) || 0);
 
   const prompt = `Eres NETO, un asistente financiero personal para jóvenes peruanos. Analiza estos datos del mes y da UN consejo específico, accionable y motivador en máximo 2 oraciones. Usa moneda soles (S/). Sé directo y amigable, tutea al usuario.
 
 Datos del mes:
-- Ingresos: S/${Math.round(totalIngresos || 0)}
-- Gastos: S/${Math.round(totalGastos || 0)}
-- Ahorro: S/${Math.round((totalIngresos || 0) - (totalGastos || 0))}
-- Score financiero: ${scoreFinanciero || 0}/100
-- Top categorías de gasto: ${topCategorias || 'Sin datos'}
-${subscriptionTotal ? `- Suscripciones mensuales: S/${Math.round(subscriptionTotal)}` : ''}
+- Ingresos: S/${totalIngresos}
+- Gastos: S/${totalGastos}
+- Ahorro: S/${totalIngresos - totalGastos}
+- Score financiero: ${scoreFinanciero}/100
+- Top categorías de gasto: ${topCategorias}
+${subscriptionTotal ? `- Suscripciones mensuales: S/${subscriptionTotal}` : ''}
 
 Responde SOLO con el consejo, sin introducciones ni explicaciones.`;
 

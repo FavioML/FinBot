@@ -33,9 +33,29 @@ function ultimoDiaMes(anio, mes) {
 function fechaHoyPeru() { return hoyPeru(); }
 function fechaAyerPeru() { const { ayerPeru } = require('./lib/dates'); return ayerPeru(); }
 
+const cors = require('cors');
+const helmet = require('helmet');
+
 const app = express();
+
+// Security headers
+app.use(helmet({
+  contentSecurityPolicy: false, // Reportes HTML usan scripts inline
+  crossOriginEmbedderPolicy: false
+}));
+
+// CORS: solo permitir requests desde dominios de Neto
+app.use(cors({
+  origin: ['https://app.neto.pe', 'https://neto.pe', 'https://neto-app.vercel.app'],
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 app.use(express.urlencoded({ extended: false }));
-app.use(express.json());
+// Capturar raw body para validación HMAC del webhook de Meta
+app.use(express.json({
+  verify: (req, _res, buf) => { req.rawBody = buf; }
+}));
 
 // Rate limiting: 300 req/min global, 30 req/min por número WhatsApp
 const webhookLimiter = rateLimit({
@@ -225,7 +245,7 @@ async function intentarResolverConsulta(usuario, texto) {
   var ctx = pendientes.map(function(c,i){ return (i+1)+'. '+(c.banco||'Pago')+' S/'+c.monto+' del '+c.fecha; }).join('; ');
   var parsed;
   try {
-    var aiRes = await openai.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'system', content: 'Gastos pendientes: '+ctx+'. Usuario respondio: "'+texto+'". SOLO JSON: {"resuelve":true/false,"numero":1/2/null,"categoria":"Alimentación|Transporte|Vivienda|Salud|Entretenimiento|Compras|Educación|Finanzas|Trabajo_Negocio|Otros","subcategoria":"nombre de subcategoria si el usuario la menciona, sino null","descripcion":"descripcion corta"}' }], temperature: 0 });
+    var aiRes = await openai.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'system', content: 'Eres un clasificador de gastos pendientes. Responde SOLO con JSON valido: {"resuelve":true/false,"numero":1/2/null,"categoria":"Alimentación|Transporte|Vivienda|Salud|Entretenimiento|Compras|Educación|Finanzas|Trabajo_Negocio|Otros","subcategoria":"nombre de subcategoria si el usuario la menciona, sino null","descripcion":"descripcion corta"}' }, { role: 'user', content: 'Gastos pendientes: '+ctx+'\n\nEl usuario respondio: '+texto }], temperature: 0 });
     var raw = aiRes.choices[0].message.content.trim();
     parsed = JSON.parse(raw.startsWith('{') ? raw : raw.slice(raw.indexOf('{'), raw.lastIndexOf('}')+1));
   } catch(e) { return null; }
@@ -285,7 +305,7 @@ async function detectarCategoriaIA(texto, usuarioId) {
     contexto = CATEGORIAS_SUGERIDAS.map(c => c.nombre + (c.subs.length > 0 ? ' (subs: '+c.subs.join(',')+')' : '')).join('; ');
   }
   try {
-    const res = await openai.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'system', content: 'Categorias: '+contexto+'. Para el gasto "'+texto+'", elige la mas apropiada. Si el usuario menciona explícitamente una subcategoría (ej: "con subcategoría ingredientes"), usa ese nombre exacto aunque no esté en la lista. SOLO JSON: {"categoria":"nombre exacto","subcategoria":"nombre exacto o null"}' }], temperature: 0 });
+    const res = await openai.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'system', content: 'Eres un clasificador de gastos. Elige la categoria mas apropiada de la lista proporcionada. Si el usuario menciona explicitamente una subcategoria, usa ese nombre exacto aunque no este en la lista. Responde SOLO con JSON: {"categoria":"nombre exacto","subcategoria":"nombre exacto o null"}' }, { role: 'user', content: 'Categorias disponibles: '+contexto+'\n\nGasto a clasificar: '+texto }], temperature: 0 });
     const raw = res.choices[0].message.content.trim();
     return JSON.parse(raw.startsWith('{') ? raw : raw.slice(raw.indexOf('{'), raw.lastIndexOf('}')+1));
   } catch(e) { return { categoria: null, subcategoria: null }; }
@@ -408,6 +428,20 @@ app.get('/webhook', (req, res) => {
 });
 
 app.post('/webhook', webhookLimiter, async (req, res) => {
+  // Validar firma HMAC de Meta (X-Hub-Signature-256)
+  const META_APP_SECRET = process.env.META_APP_SECRET;
+  if (META_APP_SECRET) {
+    const signature = req.headers['x-hub-signature-256'];
+    if (!signature) {
+      log.warn({ tag: 'WEBHOOK' }, 'Request sin X-Hub-Signature-256');
+      return res.sendStatus(403);
+    }
+    const expected = 'sha256=' + crypto.createHmac('sha256', META_APP_SECRET).update(req.rawBody).digest('hex');
+    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+      log.warn({ tag: 'WEBHOOK' }, 'Firma HMAC invalida');
+      return res.sendStatus(403);
+    }
+  }
   res.sendStatus(200);
   try {
     const entry = req.body.entry && req.body.entry[0];
@@ -1417,8 +1451,10 @@ app.get('/auth/callback', async (req, res) => {
   } catch (err) { res.send('<h2>Error: ' + err.message + '</h2>'); }
 });
 
-app.post('/test-parser', async (req, res) => {
-  const { correo } = req.body;
+app.post('/test-parser', adminLimiter, async (req, res) => {
+  const { correo, clave } = req.body;
+  const ADMIN_KEY = process.env.ADMIN_KEY;
+  if (!ADMIN_KEY || !clave || clave !== ADMIN_KEY) return res.status(401).json({ error: 'No autorizado' });
   if (!correo) return res.status(400).json({ error: 'Falta correo' });
   try { const r = await parsearCorreoBancario(correo); res.json({ ok: true, resultado: r }); }
   catch (e) { res.status(500).json({ ok: false, error: e.message }); }
