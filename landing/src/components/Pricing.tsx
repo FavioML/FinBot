@@ -17,7 +17,6 @@ interface Feature {
 
 const FEATURES: Feature[] = [
   { name: "Lectura automática de gastos por correo", free: false, pro: true, highlight: true },
-  { name: "Múltiples cuentas Gmail", free: false, pro: true },
   { name: "WhatsApp: registro de gastos", free: true, pro: true },
   { name: "Lectura de imágenes Yape/Plin", free: "5/mes", pro: "Ilimitada" },
   { name: "Dashboard web", free: "Mes actual", pro: "Historial completo" },

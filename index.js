@@ -917,36 +917,7 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
     }
 
     // Paso 3: Pago confirmado, esperando Gmail
-    if (usuario.onboarding_paso === 3 && !cmd.startsWith('/')) {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      const posibleEmail = cmd.trim().toLowerCase();
-      if (emailRegex.test(posibleEmail)) {
-        await supabase.from('usuarios').update({
-          email: posibleEmail,
-          aprobado_gcc: true,
-          onboarding_paso: 0
-        }).eq('id', usuario.id);
-        const urlOAuth = generarUrlAutorizacion(from);
-        await enviarWhatsapp(from,
-          '🎉 *¡Tu cuenta está lista!*\n\n' +
-          'Conecta tu Gmail para que Neto lea tus correos bancarios automáticamente:\n\n' +
-          '🔗 ' + urlOAuth + '\n\n' +
-          '_Solo leemos notificaciones bancarias. Sin contraseñas bancarias._'
-        );
-        const ADMIN_NUMBER = process.env.ADMIN_WHATSAPP || '51970398192';
-        await enviarWhatsapp(ADMIN_NUMBER,
-          '✅ *Nuevo usuario activado automáticamente:*\n' +
-          'Usuario: ' + (usuario.nombre || from) + '\n' +
-          'Email: ' + posibleEmail + '\n' +
-          'Plan: ' + (usuario.tipo_plan || 'mensual') + '\n' +
-          'Link OAuth enviado.'
-        );
-        return;
-      }
-      respuesta = 'Envíame tu correo *Gmail* para conectar tus bancos.\n\nEj: tucorreo@gmail.com';
-      await enviarWhatsapp(from, respuesta);
-      return;
-    }
+    // Paso 3 eliminado — OAuth link se envía directamente con /pago
 
     if (usuario.onboarding_paso === 10 && !cmd.startsWith('/')) {
       var idxResp = parsearIndicesRespuesta(msg, CATEGORIAS_SUGERIDAS.length);
@@ -1043,6 +1014,8 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
           'Con Pro, Neto lee tus correos bancarios automáticamente.\n\n' +
           '💰 S/10/mes o S/99/año\n' +
           '📲 Yapea al 970398192 y escríbeme aquí para activar.';
+      } else if (usuario.gmail_access_token) {
+        respuesta = '📧 Ya tienes Gmail conectado.\n\nSi necesitas cambiar tu cuenta, escríbenos por WhatsApp al 970398192.';
       } else {
         respuesta = 'Para conectar tu Gmail, abre este enlace:\n\n' + generarUrlAutorizacion(from) + '\n\n_Solo leemos notificaciones bancarias. Sin contrasenas bancarias._';
       }
@@ -1188,16 +1161,18 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
             premium_desde: hoy.toISOString().split('T')[0],
             premium_vence: vence.toISOString().split('T')[0],
             pago_pendiente: false,
-            onboarding_paso: 3
+            onboarding_paso: 0
           }).eq('id', usuarioPago.id);
+          const urlOAuth = generarUrlAutorizacion(usuarioPago.whatsapp);
           await enviarWhatsapp(usuarioPago.whatsapp,
             '✅ *¡Pago confirmado!*\n\n' +
             'Plan: *' + (tipoPlan === 'anual' ? 'Anual (S/99/año)' : 'Mensual (S/10/mes)') + '*\n' +
             'Vence: ' + vence.toISOString().split('T')[0] + '\n\n' +
-            'Ahora necesito tu correo *Gmail* para conectar tus bancos.\n\n' +
-            '📧 Envíame tu correo aquí (ej: tucorreo@gmail.com)'
+            'Conecta tu Gmail para que Neto lea tus correos bancarios automáticamente:\n\n' +
+            '🔗 ' + urlOAuth + '\n\n' +
+            '_Solo leemos notificaciones bancarias. Sin contraseñas bancarias._'
           );
-          respuesta = '✅ Pago confirmado para ' + (usuarioPago.nombre || numeroPago) + ' (' + tipoPlan + ')\nUsuario en paso 3: esperando Gmail.';
+          respuesta = '✅ Pago confirmado para ' + (usuarioPago.nombre || numeroPago) + ' (' + tipoPlan + '). Link OAuth enviado.';
         }
       }
     } else if (cmd === '/usuarios' || cmd === '/admin') {
@@ -1955,19 +1930,11 @@ async function procesarMensajeLibre(msg, usuario, from) {
       case 'escanear_gmail':
         return (await escanearGmailYRegistrar(usuario)) || 'No encontre correos bancarios nuevos. Te aviso automaticamente cuando llegue uno.';
 
-      case 'agregar_gmail': {
-        const cuentasAct = await obtenerCuentasGmail(usuario.id);
-        const urlAdd = generarUrlAutorizacion(usuario.whatsapp, 'agregar');
-        const listaCuentas = cuentasAct.length > 0
-          ? '\n\nActualmente tienes: ' + cuentasAct.map(c => '📧 ' + c.email).join(', ')
-          : '';
-        return '➕ *Agregar cuenta Gmail adicional*' + listaCuentas + '\n\nHaz clic para conectar:\n' + urlAdd + '\n\n_Una vez conectada, escanearé ambas cuentas automáticamente._';
-      }
+      case 'agregar_gmail':
+        return '📧 Por el momento solo se permite una cuenta Gmail por usuario.\n\nSi necesitas ayuda, escríbenos al 970398192.';
 
-      case 'cambiar_gmail': {
-        const urlChange = generarUrlAutorizacion(usuario.whatsapp, 'reemplazar');
-        return '🔄 *Cambiar cuenta Gmail*\n\nHaz clic para reconectar con la cuenta correcta:\n' + urlChange + '\n\n_La cuenta anterior quedará desactivada._';
-      }
+      case 'cambiar_gmail':
+        return '📧 Para cambiar tu cuenta Gmail, escríbenos al 970398192.\n\n_El cambio requiere verificación manual._';
 
       case 'preferencia_reporte_gmail': {
         const modoNuevo = datos.modo || 'unificado';
