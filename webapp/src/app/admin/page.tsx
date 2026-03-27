@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 
@@ -35,7 +35,7 @@ interface NlpError {
 }
 
 function formatDate(dateStr: string | null) {
-  if (!dateStr) return '—';
+  if (!dateStr) return '\u2014';
   return new Date(dateStr).toLocaleDateString('es-PE', {
     day: '2-digit',
     month: 'short',
@@ -78,6 +78,163 @@ function StatusDot({ active }: { active: boolean }) {
   );
 }
 
+// --- Action Menu ---
+function UserActions({
+  user,
+  onAction,
+}: {
+  user: AdminUser;
+  onAction: (userId: string, action: string, data?: Record<string, unknown>) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+        setConfirming(null);
+      }
+    }
+    if (open) document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
+  const exec = async (action: string, data?: Record<string, unknown>) => {
+    setBusy(true);
+    await onAction(user.id, action, data);
+    setBusy(false);
+    setOpen(false);
+    setConfirming(null);
+  };
+
+  const isPro = user.plan === 'premium';
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => { setOpen(!open); setConfirming(null); }}
+        className="rounded-md p-1.5 text-[#F0EFE8]/40 hover:bg-white/5 hover:text-[#F0EFE8] transition-colors"
+        title="Acciones"
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <circle cx="8" cy="3" r="1.5" />
+          <circle cx="8" cy="8" r="1.5" />
+          <circle cx="8" cy="13" r="1.5" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute right-0 z-50 mt-1 w-56 rounded-xl border border-white/10 bg-[#1A1A18] shadow-xl shadow-black/40">
+          {/* Confirming state */}
+          {confirming && (
+            <div className="p-3">
+              <p className="mb-3 text-xs text-[#F0EFE8]/70">
+                {confirming === 'delete'
+                  ? `Eliminar a ${user.nombre || user.whatsapp}? Se borran TODOS sus datos. Irreversible.`
+                  : confirming === 'deactivate'
+                    ? `Desactivar a ${user.nombre || user.whatsapp}? Se pasa a Free y se desconecta Gmail.`
+                    : `Confirmar accion?`}
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setConfirming(null)}
+                  disabled={busy}
+                  className="flex-1 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-[#F0EFE8]/60 hover:bg-white/5"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => exec(confirming)}
+                  disabled={busy}
+                  className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium text-white ${
+                    confirming === 'delete'
+                      ? 'bg-red-600 hover:bg-red-700'
+                      : 'bg-amber-600 hover:bg-amber-700'
+                  }`}
+                >
+                  {busy ? 'Procesando...' : 'Confirmar'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Menu items */}
+          {!confirming && (
+            <div className="py-1">
+              {/* Plan actions */}
+              {!isPro && (
+                <button
+                  onClick={() => exec('set_plan', { plan: 'premium' })}
+                  disabled={busy}
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-[#F0EFE8]/80 hover:bg-white/5"
+                >
+                  <span className="text-[#1D9E75]">&#9733;</span> Activar Pro (30 dias)
+                </button>
+              )}
+              {isPro && (
+                <>
+                  <button
+                    onClick={() => exec('extend_premium', { days: 30 })}
+                    disabled={busy}
+                    className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-[#F0EFE8]/80 hover:bg-white/5"
+                  >
+                    <span className="text-[#1D9E75]">+</span> Extender +30 dias
+                  </button>
+                  <button
+                    onClick={() => exec('set_plan', { plan: 'free' })}
+                    disabled={busy}
+                    className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-[#F0EFE8]/80 hover:bg-white/5"
+                  >
+                    <span className="text-[#F0EFE8]/40">&#9744;</span> Pasar a Free
+                  </button>
+                </>
+              )}
+
+              <div className="my-1 border-t border-white/5" />
+
+              {/* Deactivate */}
+              <button
+                onClick={() => setConfirming('deactivate')}
+                disabled={busy}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-amber-400/80 hover:bg-white/5"
+              >
+                <span>&#9888;</span> Desactivar cuenta
+              </button>
+
+              {/* Delete */}
+              <button
+                onClick={() => setConfirming('delete')}
+                disabled={busy}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-red-400/80 hover:bg-white/5"
+              >
+                <span>&#10005;</span> Eliminar usuario
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- Toast ---
+function Toast({ message, onClose }: { message: string; onClose: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onClose, 3000);
+    return () => clearTimeout(t);
+  }, [onClose]);
+
+  return (
+    <div className="fixed bottom-6 right-6 z-50 rounded-xl border border-white/10 bg-[#1A1A18] px-4 py-3 text-sm text-[#F0EFE8] shadow-xl shadow-black/40">
+      {message}
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -87,6 +244,7 @@ export default function AdminPage() {
   const [nlpErrors, setNlpErrors] = useState<NlpError[]>([]);
   const [nlpTotal, setNlpTotal] = useState(0);
   const [search, setSearch] = useState('');
+  const [toast, setToast] = useState<string | null>(null);
 
   // Check auth
   useEffect(() => {
@@ -125,6 +283,41 @@ export default function AdminPage() {
     fetchUsers();
     fetchNlpErrors();
   }, [authorized, fetchUsers, fetchNlpErrors]);
+
+  // Handle user actions
+  const handleUserAction = useCallback(
+    async (userId: string, action: string, data?: Record<string, unknown>) => {
+      if (action === 'delete') {
+        const res = await fetch(`/api/admin/users?id=${userId}`, { method: 'DELETE' });
+        if (res.ok) {
+          setUsers((prev) => prev.filter((u) => u.id !== userId));
+          setToast('Usuario eliminado');
+        } else {
+          setToast('Error al eliminar');
+        }
+        return;
+      }
+
+      const res = await fetch('/api/admin/users', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: userId, action, ...data }),
+      });
+
+      if (res.ok) {
+        const messages: Record<string, string> = {
+          set_plan: data?.plan === 'premium' ? 'Plan Pro activado' : 'Cambiado a Free',
+          extend_premium: 'Pro extendido +30 dias',
+          deactivate: 'Cuenta desactivada',
+        };
+        setToast(messages[action] || 'Accion completada');
+        fetchUsers();
+      } else {
+        setToast('Error en la accion');
+      }
+    },
+    [fetchUsers],
+  );
 
   if (loading) {
     return (
@@ -256,6 +449,7 @@ export default function AdminPage() {
                     <th className="px-4 py-3 text-left text-xs font-medium text-[#F0EFE8]/40">
                       Registro
                     </th>
+                    <th className="w-10 px-2 py-3" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5">
@@ -263,7 +457,7 @@ export default function AdminPage() {
                     <tr key={u.id} className="hover:bg-white/[0.02] transition-colors">
                       <td className="px-4 py-3">
                         <div className="font-medium">{u.nombre || 'Sin nombre'}</div>
-                        <div className="text-xs text-[#F0EFE8]/40">{u.email || '—'}</div>
+                        <div className="text-xs text-[#F0EFE8]/40">{u.email || '\u2014'}</div>
                       </td>
                       <td className="px-4 py-3 font-mono text-xs">{u.whatsapp}</td>
                       <td className="px-4 py-3">
@@ -272,7 +466,7 @@ export default function AdminPage() {
                       <td className="px-4 py-3 text-xs text-[#F0EFE8]/50">
                         {u.plan === 'premium' ? (
                           <div>
-                            <div>{u.estado_pago || '—'}</div>
+                            <div>{u.estado_pago || '\u2014'}</div>
                             {u.premium_vence && (
                               <div className="text-[#F0EFE8]/30">
                                 Vence: {formatDate(u.premium_vence)}
@@ -280,7 +474,7 @@ export default function AdminPage() {
                             )}
                           </div>
                         ) : (
-                          '—'
+                          '\u2014'
                         )}
                       </td>
                       <td className="px-4 py-3 text-center">
@@ -294,6 +488,9 @@ export default function AdminPage() {
                       </td>
                       <td className="px-4 py-3 text-xs text-[#F0EFE8]/40">
                         {formatDate(u.created_at)}
+                      </td>
+                      <td className="px-2 py-3">
+                        <UserActions user={u} onAction={handleUserAction} />
                       </td>
                     </tr>
                   ))}
@@ -311,9 +508,12 @@ export default function AdminPage() {
                   <div className="flex items-start justify-between">
                     <div>
                       <div className="font-medium">{u.nombre || 'Sin nombre'}</div>
-                      <div className="text-xs text-[#F0EFE8]/40">{u.email || '—'}</div>
+                      <div className="text-xs text-[#F0EFE8]/40">{u.email || '\u2014'}</div>
                     </div>
-                    <PlanBadge plan={u.plan} />
+                    <div className="flex items-center gap-2">
+                      <PlanBadge plan={u.plan} />
+                      <UserActions user={u} onAction={handleUserAction} />
+                    </div>
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
                     <div>
@@ -355,7 +555,7 @@ export default function AdminPage() {
                 No hay errores NLP registrados aun.
                 <br />
                 <span className="text-xs">
-                  Los mensajes no procesados aparecerán aqui cuando ocurran.
+                  Los mensajes no procesados apareceran aqui cuando ocurran.
                 </span>
               </div>
             ) : (
@@ -400,6 +600,9 @@ export default function AdminPage() {
           </div>
         )}
       </div>
+
+      {/* Toast */}
+      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
     </div>
   );
 }

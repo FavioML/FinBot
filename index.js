@@ -1658,7 +1658,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       if (!datos.categoria_nueva) datos.categoria_nueva = 'NETO';
     }
     // "quiero ir a mi dashboard/app" → enviar link directo a app.neto.pe
-    if (/\b(dashboard|mi app|la app|mi panel|ver mis gr[aá]ficos|abrir app|entrar a la app|ir a mi app|ir al dashboard)\b/i.test(msg)) {
+    if (/\b(dashboard|mi app|la app|al app|mi panel|ver mis gr[aá]ficos|abrir app|entrar a la app|ir a mi app|ir al app|ir a la app|ir al dashboard|ver mi dashboard|abrir mi app|abrir la app|quiero ir al app|quiero ver mi app)\b/i.test(msg)) {
       intencion = 'ver_dashboard';
     }
     log.info({ tag: 'NLP', intencion, datos }, 'Intención clasificada');
