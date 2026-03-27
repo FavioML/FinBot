@@ -863,13 +863,15 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
       if (resp1 === 'free' || resp1 === 'gratis' || resp1 === 'manual') {
         await supabase.from('usuarios').update({
           plan: 'free',
-          onboarding_paso: 10,
+          onboarding_paso: 0,
           onboarding_completado: true
         }).eq('id', usuario.id);
-        var menuCats = CATEGORIAS_SUGERIDAS.map(function(c,i){ return (i+1)+'. '+c.emoji+' '+c.nombre; }).join('\n');
         respuesta = '🆓 *¡Bienvenido a Neto Free!*\n\n' +
-          'Personaliza tus categorías:\n\n' + menuCats + '\n\n' +
-          '_Escribe los números separados por espacio (ej: 1 3 5) o "todas"._';
+          'Ya puedes usar Neto:\n\n' +
+          '📝 Registra gastos aquí: _"gasté 50 en taxi"_\n' +
+          '📸 Envía una foto de Yape o Plin\n' +
+          '📊 Tu dashboard: *app.neto.pe*\n\n' +
+          '_Escribe */help* para ver todos los comandos._';
         await enviarWhatsapp(from, respuesta);
         return;
       }

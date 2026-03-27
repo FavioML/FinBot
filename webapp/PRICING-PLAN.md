@@ -20,9 +20,9 @@
 | Feature | Free | Pro |
 |---------|------|-----|
 | WhatsApp bot (registro, gastos, consultas) | Ilimitado | Ilimitado |
-| Lectura automática de gastos | 1 cuenta Gmail | Cuentas ilimitadas |
+| Lectura automática de gastos por correo | No (Pro only, conserva OAuth slots) | 11 bancos + Yape + Plin |
 | Clasificación IA de gastos | Ilimitada | Ilimitada |
-| Categorías raíz (11 fijas) | Sí | Sí |
+| Categorías fijas (11) | Sí | Sí |
 | Categorías personalizadas adicionales | No | Ilimitadas |
 | Presupuestos | 3 presupuestos | Ilimitados |
 | Dashboard web (app.neto.pe) | Mes actual | Historial completo |
@@ -44,7 +44,7 @@
 | Multimoneda USD/PEN | Sí | Sí |
 | Tipo de cambio widget | Sí | Sí |
 | Búsqueda global (Ctrl+K) | Sí | Sí |
-| Referidos (3 = 1 mes Pro) | Sí | Sí |
+| Referidos (3 Pro activos = 1 mes gratis) | Sí | Sí |
 
 ---
 

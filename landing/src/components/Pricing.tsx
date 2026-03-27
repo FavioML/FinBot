@@ -15,16 +15,16 @@ interface Feature {
 }
 
 const FEATURES: Feature[] = [
+  { name: "Lectura automática de gastos por correo", free: false, pro: "11 bancos + Yape + Plin" },
+  { name: "Múltiples cuentas Gmail", free: false, pro: true },
   { name: "WhatsApp: registro de gastos", free: true, pro: true },
+  { name: "Lectura de imágenes Yape/Plin", free: "5/mes", pro: "Ilimitada" },
   { name: "Dashboard web", free: "Mes actual", pro: "Historial completo" },
   { name: "Clasificación automática con IA", free: true, pro: true },
-  { name: "Categorías raíz (11)", free: true, pro: true },
-  { name: "Categorías personalizadas", free: false, pro: true },
+  { name: "Categorías fijas (11)", free: true, pro: true },
+  { name: "Categorías personalizadas", free: false, pro: "Ilimitadas" },
   { name: "Presupuestos", free: "3", pro: "Ilimitados" },
   { name: "Metas de ahorro", free: "1", pro: "Ilimitadas" },
-  { name: "Lectura de imágenes Yape/Plin", free: "5/mes", pro: "Ilimitada" },
-  { name: "Lectura automática de correos bancarios", free: false, pro: true },
-  { name: "Múltiples cuentas Gmail", free: false, pro: true },
   { name: "Resumen semanal", free: "Básico", pro: "Completo con IA" },
   { name: "Resumen diario por WhatsApp", free: false, pro: true },
   { name: "Score financiero", free: "Número", pro: "Desglose + tendencia" },
@@ -35,7 +35,7 @@ const FEATURES: Feature[] = [
   { name: "Export CSV/JSON + carga masiva", free: false, pro: true },
   { name: "Recordatorios diarios (8 pm)", free: false, pro: true },
   { name: "Multimoneda USD/PEN", free: true, pro: true },
-  { name: "Referidos (3 = 1 mes Pro)", free: true, pro: true },
+  { name: "Referidos (3 Pro activos = 1 mes gratis)", free: true, pro: true },
 ];
 
 function FeatureCell({ value }: { value: string | boolean }) {
