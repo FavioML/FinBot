@@ -155,7 +155,7 @@ export default function OnboardingPage() {
             />
           </div>
           <p className="mt-1.5 text-xs text-[#8A877D]">
-            NETO te enviara un mensaje de bienvenida
+            Para registrar gastos por WhatsApp
           </p>
         </div>
 

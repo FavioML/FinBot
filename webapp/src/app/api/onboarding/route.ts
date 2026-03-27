@@ -67,7 +67,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, linked: true });
   }
 
-  // Create new user
+  // Create new user — mark as onboarded so WhatsApp bot recognizes them
   const { error } = await serviceClient.from('usuarios').insert({
     whatsapp: fullWhatsapp,
     supabase_auth_id: user.id,
@@ -77,6 +77,8 @@ export async function POST(request: Request) {
       user.user_metadata?.name ||
       null,
     plan: 'free',
+    onboarding_paso: 0,
+    onboarding_completado: true,
   });
 
   if (error) {
