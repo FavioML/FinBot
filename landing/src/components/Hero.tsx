@@ -84,7 +84,7 @@ export default function Hero() {
             href="https://app.neto.pe"
             className="inline-flex items-center gap-2 rounded-full border border-[#3D4943]/30 bg-[#1C1C19]/60 backdrop-blur-sm px-8 py-4 text-base font-medium text-[#bccac1] transition-all duration-300 hover:bg-[#20201d] hover:text-[#e5e2de] hover:border-[#3D4943]/50 cursor-pointer"
           >
-            Ver dashboard
+            Iniciar sesión
           </a>
         </div>
 
