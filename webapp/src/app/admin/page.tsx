@@ -245,6 +245,9 @@ export default function AdminPage() {
   const [nlpTotal, setNlpTotal] = useState(0);
   const [search, setSearch] = useState('');
   const [toast, setToast] = useState<string | null>(null);
+  const [nlpSearch, setNlpSearch] = useState('');
+  const [nlpTipoFilter, setNlpTipoFilter] = useState<string>('all');
+  const [nlpUserFilter, setNlpUserFilter] = useState<string>('all');
 
   // Check auth
   useEffect(() => {
@@ -548,57 +551,140 @@ export default function AdminPage() {
         )}
 
         {/* NLP Errors Tab */}
-        {tab === 'nlp' && (
-          <div className="space-y-3">
-            {nlpErrors.length === 0 ? (
-              <div className="rounded-xl border border-white/5 bg-white/[0.02] p-8 text-center text-[#F0EFE8]/40">
-                No hay errores NLP registrados aun.
-                <br />
-                <span className="text-xs">
-                  Los mensajes no procesados apareceran aqui cuando ocurran.
-                </span>
-              </div>
-            ) : (
-              nlpErrors.map((err) => (
-                <div
-                  key={err.id}
-                  className="rounded-xl border border-white/5 bg-white/[0.02] p-4"
+        {tab === 'nlp' && (() => {
+          // Derive unique types and users for filters
+          const tiposUnicos = [...new Set(nlpErrors.map((e) => e.error_tipo))];
+          const usersUnicos = [...new Set(nlpErrors.filter((e) => e.whatsapp).map((e) => e.whatsapp!))];
+
+          // Map whatsapp to user name for display
+          const whatsappToName: Record<string, string> = {};
+          for (const u of users) {
+            if (u.whatsapp) whatsappToName[u.whatsapp] = u.nombre || u.whatsapp;
+          }
+
+          const filtered = nlpErrors.filter((err) => {
+            if (nlpTipoFilter !== 'all' && err.error_tipo !== nlpTipoFilter) return false;
+            if (nlpUserFilter !== 'all' && err.whatsapp !== nlpUserFilter) return false;
+            if (nlpSearch) {
+              const s = nlpSearch.toLowerCase();
+              const matchMsg = err.mensaje.toLowerCase().includes(s);
+              const matchIntent = err.intencion?.toLowerCase().includes(s);
+              const matchDetail = err.error_detalle?.toLowerCase().includes(s);
+              const matchWhatsapp = err.whatsapp?.includes(s);
+              if (!matchMsg && !matchIntent && !matchDetail && !matchWhatsapp) return false;
+            }
+            return true;
+          });
+
+          return (
+            <div className="space-y-4">
+              {/* Filters */}
+              <div className="flex flex-wrap gap-3">
+                <input
+                  type="text"
+                  placeholder="Buscar en mensajes..."
+                  value={nlpSearch}
+                  onChange={(e) => setNlpSearch(e.target.value)}
+                  className="w-full max-w-xs rounded-lg border border-white/10 bg-white/[0.03] px-4 py-2 text-sm text-[#F0EFE8] placeholder-[#F0EFE8]/30 outline-none focus:border-[#1D9E75]/50"
+                />
+                <select
+                  value={nlpTipoFilter}
+                  onChange={(e) => setNlpTipoFilter(e.target.value)}
+                  className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-[#F0EFE8] outline-none focus:border-[#1D9E75]/50"
                 >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="rounded-lg bg-white/[0.03] px-3 py-2 text-sm">
-                        &ldquo;{err.mensaje}&rdquo;
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                        <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-red-400">
-                          {err.error_tipo}
-                        </span>
-                        {err.intencion && (
-                          <span className="rounded-full bg-white/5 px-2 py-0.5 text-[#F0EFE8]/50">
-                            Intento: {err.intencion}
-                          </span>
-                        )}
-                        {err.whatsapp && (
-                          <span className="font-mono text-[#F0EFE8]/30">
-                            {err.whatsapp}
-                          </span>
-                        )}
-                      </div>
-                      {err.error_detalle && (
-                        <div className="mt-1 text-xs text-[#F0EFE8]/30">
-                          {err.error_detalle}
+                  <option value="all" className="bg-[#1A1A18]">Todos los tipos</option>
+                  {tiposUnicos.map((t) => (
+                    <option key={t} value={t} className="bg-[#1A1A18]">{t}</option>
+                  ))}
+                </select>
+                <select
+                  value={nlpUserFilter}
+                  onChange={(e) => setNlpUserFilter(e.target.value)}
+                  className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-[#F0EFE8] outline-none focus:border-[#1D9E75]/50"
+                >
+                  <option value="all" className="bg-[#1A1A18]">Todos los usuarios</option>
+                  {usersUnicos.map((w) => (
+                    <option key={w} value={w} className="bg-[#1A1A18]">{whatsappToName[w] || w}</option>
+                  ))}
+                </select>
+                {(nlpSearch || nlpTipoFilter !== 'all' || nlpUserFilter !== 'all') && (
+                  <button
+                    onClick={() => { setNlpSearch(''); setNlpTipoFilter('all'); setNlpUserFilter('all'); }}
+                    className="rounded-lg border border-white/10 px-3 py-2 text-xs text-[#F0EFE8]/50 hover:bg-white/5 hover:text-[#F0EFE8]"
+                  >
+                    Limpiar filtros
+                  </button>
+                )}
+              </div>
+
+              {/* Count */}
+              <div className="text-xs text-[#F0EFE8]/40">
+                {filtered.length} de {nlpErrors.length} errores
+              </div>
+
+              {/* Error list */}
+              {filtered.length === 0 ? (
+                <div className="rounded-xl border border-white/5 bg-white/[0.02] p-8 text-center text-[#F0EFE8]/40">
+                  {nlpErrors.length === 0
+                    ? 'No hay errores NLP registrados aun.'
+                    : 'Ningun error coincide con los filtros.'}
+                  <br />
+                  <span className="text-xs">
+                    Los mensajes no procesados apareceran aqui cuando ocurran.
+                  </span>
+                </div>
+              ) : (
+                filtered.map((err) => (
+                  <div
+                    key={err.id}
+                    className="rounded-xl border border-white/5 bg-white/[0.02] p-4"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="rounded-lg bg-white/[0.03] px-3 py-2 text-sm">
+                          &ldquo;{err.mensaje}&rdquo;
                         </div>
-                      )}
-                    </div>
-                    <div className="ml-3 whitespace-nowrap text-xs text-[#F0EFE8]/30">
-                      {formatDateTime(err.created_at)}
+                        <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                          <span
+                            className={`rounded-full px-2 py-0.5 ${
+                              err.error_tipo === 'error'
+                                ? 'bg-red-500/10 text-red-400'
+                                : 'bg-amber-500/10 text-amber-400'
+                            }`}
+                          >
+                            {err.error_tipo}
+                          </span>
+                          {err.intencion && (
+                            <span className="rounded-full bg-white/5 px-2 py-0.5 text-[#F0EFE8]/50">
+                              Intento: {err.intencion}
+                            </span>
+                          )}
+                          {err.whatsapp && (
+                            <button
+                              onClick={() => setNlpUserFilter(err.whatsapp!)}
+                              className="font-mono text-[#F0EFE8]/30 hover:text-[#1D9E75] transition-colors"
+                              title="Filtrar por este usuario"
+                            >
+                              {whatsappToName[err.whatsapp] || err.whatsapp}
+                            </button>
+                          )}
+                        </div>
+                        {err.error_detalle && (
+                          <div className="mt-1 text-xs text-[#F0EFE8]/30">
+                            {err.error_detalle}
+                          </div>
+                        )}
+                      </div>
+                      <div className="ml-3 whitespace-nowrap text-xs text-[#F0EFE8]/30">
+                        {formatDateTime(err.created_at)}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
+                ))
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Toast */}
