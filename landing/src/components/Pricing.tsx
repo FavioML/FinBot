@@ -12,17 +12,17 @@ interface Feature {
   name: string;
   free: string | boolean;
   pro: string | boolean;
+  highlight?: boolean;
 }
 
 const FEATURES: Feature[] = [
-  { name: "Lectura automática de gastos por correo", free: false, pro: "11 bancos + Yape + Plin" },
+  { name: "Lectura automática de gastos por correo", free: false, pro: true, highlight: true },
   { name: "Múltiples cuentas Gmail", free: false, pro: true },
   { name: "WhatsApp: registro de gastos", free: true, pro: true },
   { name: "Lectura de imágenes Yape/Plin", free: "5/mes", pro: "Ilimitada" },
   { name: "Dashboard web", free: "Mes actual", pro: "Historial completo" },
   { name: "Clasificación automática con IA", free: true, pro: true },
-  { name: "Categorías fijas (11)", free: true, pro: true },
-  { name: "Categorías personalizadas", free: false, pro: "Ilimitadas" },
+  { name: "Categorías", free: "Fijas", pro: "Personalizadas" },
   { name: "Presupuestos", free: "3", pro: "Ilimitados" },
   { name: "Metas de ahorro", free: "1", pro: "Ilimitadas" },
   { name: "Resumen semanal", free: "Básico", pro: "Completo con IA" },
@@ -38,7 +38,17 @@ const FEATURES: Feature[] = [
   { name: "Referidos (3 Pro activos = 1 mes gratis)", free: true, pro: true },
 ];
 
-function FeatureCell({ value }: { value: string | boolean }) {
+function FeatureCell({ value, highlight }: { value: string | boolean; highlight?: boolean }) {
+  if (value === true && highlight)
+    return (
+      <div className="relative flex items-center justify-center">
+        <div className="absolute w-8 h-8 rounded-full bg-[#1D9E75]/25 animate-ping" style={{ animationDuration: '2s' }} />
+        <div className="absolute w-6 h-6 rounded-full bg-[#1D9E75]/20 blur-[6px]" />
+        <div className="relative w-5 h-5 rounded-full bg-[#1D9E75]/30 flex items-center justify-center ring-1 ring-[#1D9E75]/40">
+          <Check size={12} className="text-[#68dbae]" />
+        </div>
+      </div>
+    );
   if (value === true)
     return (
       <div className="w-5 h-5 rounded-full bg-[#1D9E75]/15 flex items-center justify-center">
@@ -51,7 +61,7 @@ function FeatureCell({ value }: { value: string | boolean }) {
         <X size={12} className="text-[#87948c]/50" />
       </div>
     );
-  return <span className="text-xs text-[#bccac1]">{value}</span>;
+  return <span className="text-xs text-[#bccac1] text-center">{value}</span>;
 }
 
 export default function Pricing() {
@@ -178,14 +188,14 @@ export default function Pricing() {
           {FEATURES.map((f) => (
             <div
               key={f.name}
-              className="grid grid-cols-[1fr_80px_80px] min-[860px]:grid-cols-[1fr_120px_120px] items-center px-6 py-3 border-b border-white/[0.03] last:border-0"
+              className={`grid grid-cols-[1fr_80px_80px] min-[860px]:grid-cols-[1fr_120px_120px] items-center px-6 py-3 border-b border-white/[0.03] last:border-0 ${f.highlight ? 'bg-[#1D9E75]/[0.04]' : ''}`}
             >
               <span className="text-sm text-[#bccac1]">{f.name}</span>
               <div className="flex justify-center">
                 <FeatureCell value={f.free} />
               </div>
               <div className="flex justify-center">
-                <FeatureCell value={f.pro} />
+                <FeatureCell value={f.pro} highlight={f.highlight} />
               </div>
             </div>
           ))}
