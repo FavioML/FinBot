@@ -30,7 +30,7 @@ async function getNetoUser() {
   return data || null;
 }
 
-const FREE_BUDGET_LIMIT = Infinity; // No free plan — all users have full access
+const FREE_BUDGET_LIMIT = 3;
 
 export async function POST(request: Request) {
   const netoUser = await getNetoUser();
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
       .eq('usuario_id', userId);
     if ((count ?? 0) >= FREE_BUDGET_LIMIT) {
       return NextResponse.json(
-        { error: 'Límite de presupuestos alcanzado. Contacta soporte por WhatsApp.', upgrade: false },
+        { error: 'Plan Free permite máximo 3 presupuestos. Activa Pro para presupuestos ilimitados.', upgrade: true },
         { status: 403 },
       );
     }

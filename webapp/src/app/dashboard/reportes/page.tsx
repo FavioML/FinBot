@@ -25,6 +25,8 @@ import { TransactionForm } from '@/components/dashboard/transaction-form';
 import { MonthSelector } from '@/components/dashboard/month-selector';
 import { UserMenu } from '@/components/dashboard/user-menu';
 import { useUser } from '@/lib/hooks/use-user';
+import { canAccess } from '@/lib/plan';
+import { ProGate } from '@/components/shared/pro-gate';
 import { useTransactions } from '@/lib/hooks/use-transactions';
 import { useBudgets } from '@/lib/hooks/use-budgets';
 import { formatCurrency, getScoreColor, getScoreLabel, calcularScoreFinanciero } from '@/lib/utils';
@@ -314,6 +316,15 @@ export default function ReportesPage() {
           <Skeleton className="h-72 rounded-xl" />
         </div>
       </div>
+    );
+  }
+
+  if (user && !canAccess(user.plan, 'reports_pdf')) {
+    return (
+      <ProGate
+        featureName="Reportes PDF"
+        description="Descarga reportes detallados con gráficos, score financiero y análisis de tus finanzas."
+      />
     );
   }
 

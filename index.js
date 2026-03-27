@@ -860,7 +860,20 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
     // Paso 1: Usuario confirma interés → enviar datos de pago
     if (usuario.onboarding_paso === 1 && !cmd.startsWith('/')) {
       const resp1 = cmd.trim().toLowerCase();
-      if (resp1 === 'si' || resp1 === 'sí' || resp1 === 'yes' || resp1 === 'dale' || resp1 === 'va' || resp1 === 'quiero') {
+      if (resp1 === 'free' || resp1 === 'gratis' || resp1 === 'manual') {
+        await supabase.from('usuarios').update({
+          plan: 'free',
+          onboarding_paso: 10,
+          onboarding_completado: true
+        }).eq('id', usuario.id);
+        var menuCats = CATEGORIAS_SUGERIDAS.map(function(c,i){ return (i+1)+'. '+c.emoji+' '+c.nombre; }).join('\n');
+        respuesta = '🆓 *¡Bienvenido a Neto Free!*\n\n' +
+          'Personaliza tus categorías:\n\n' + menuCats + '\n\n' +
+          '_Escribe los números separados por espacio (ej: 1 3 5) o "todas"._';
+        await enviarWhatsapp(from, respuesta);
+        return;
+      }
+      if (resp1 === 'pro' || resp1 === 'si' || resp1 === 'sí' || resp1 === 'yes' || resp1 === 'dale' || resp1 === 'va' || resp1 === 'quiero') {
         await supabase.from('usuarios').update({ onboarding_paso: 2 }).eq('id', usuario.id);
         respuesta = '🎉 *¡Genial!*\n\n' +
           'Elige tu plan:\n\n' +
@@ -871,13 +884,14 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
           'Después envíame la captura del Yape aquí. 📸';
         await enviarWhatsapp(from, respuesta);
         return;
-      } else if (resp1 === 'no' || resp1 === 'no gracias') {
+      }
+      if (resp1 === 'no' || resp1 === 'no gracias') {
         await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
-        respuesta = '👍 Sin problema. Si cambias de opinión, escribe *hola* cuando quieras.\n\n_También puedes usar Neto en modo manual (sin lectura de correos). Escribe */manual*._';
+        respuesta = '👍 Sin problema. Si cambias de opinión, escribe *hola* cuando quieras.';
         await enviarWhatsapp(from, respuesta);
         return;
       }
-      respuesta = 'Escribe *sí* para empezar con Neto o *no* si prefieres pensarlo.';
+      respuesta = 'Escribe *free* para empezar gratis o *pro* para activar el plan Pro.';
       await enviarWhatsapp(from, respuesta);
       return;
     }
@@ -905,18 +919,26 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       const posibleEmail = cmd.trim().toLowerCase();
       if (emailRegex.test(posibleEmail)) {
-        await supabase.from('usuarios').update({ email: posibleEmail }).eq('id', usuario.id);
+        await supabase.from('usuarios').update({
+          email: posibleEmail,
+          aprobado_gcc: true,
+          onboarding_paso: 0
+        }).eq('id', usuario.id);
+        const urlOAuth = generarUrlAutorizacion(from);
+        await enviarWhatsapp(from,
+          '🎉 *¡Tu cuenta está lista!*\n\n' +
+          'Conecta tu Gmail para que Neto lea tus correos bancarios automáticamente:\n\n' +
+          '🔗 ' + urlOAuth + '\n\n' +
+          '_Solo leemos notificaciones bancarias. Sin contraseñas bancarias._'
+        );
         const ADMIN_NUMBER = process.env.ADMIN_WHATSAPP || '51970398192';
         await enviarWhatsapp(ADMIN_NUMBER,
-          '📧 *Nuevo correo para GCC:*\n' +
+          '✅ *Nuevo usuario activado automáticamente:*\n' +
           'Usuario: ' + (usuario.nombre || from) + '\n' +
           'Email: ' + posibleEmail + '\n' +
-          'Plan: ' + (usuario.tipo_plan || 'mensual') + '\n\n' +
-          '1. Agregar a Google Cloud Console\n' +
-          '2. Enviar: /aprobar ' + posibleEmail
+          'Plan: ' + (usuario.tipo_plan || 'mensual') + '\n' +
+          'Link OAuth enviado.'
         );
-        respuesta = '✅ *Correo recibido:* ' + posibleEmail + '\n\nEstamos configurando tu cuenta. Te avisaremos en unos minutos cuando esté lista. ⏳';
-        await enviarWhatsapp(from, respuesta);
         return;
       }
       respuesta = 'Envíame tu correo *Gmail* para conectar tus bancos.\n\nEj: tucorreo@gmail.com';
@@ -970,15 +992,17 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
         await supabase.from('usuarios').update({ onboarding_paso: 1 }).eq('id', usuario.id);
         respuesta = '👋 Hola' + (primerNombre ? ', ' + primerNombre : '') + '. Soy *NETO*, tu asistente financiero.\n\n' +
           '📊 *¿Qué hace Neto?*\n' +
-          '• Lee tus correos bancarios automáticamente\n' +
           '• Te dice en qué gastas tu plata por WhatsApp\n' +
-          '• Dashboard con gráficos, metas y reportes PDF\n' +
-          '• Funciona con BCP, BBVA, Interbank, Scotiabank, Yape, Plin y más\n\n' +
-          '💰 *Precio fundador:*\n' +
-          '• *S/10/mes* — mensual\n' +
-          '• *S/99/año* — 2 meses gratis\n\n' +
-          '¿Te animas? Escribe *sí* para empezar.\n\n' +
-          '_O escribe */manual* para registrar gastos sin lectura de correos._';
+          '• Dashboard con gráficos, metas y reportes\n' +
+          '• Funciona con BCP, BBVA, Interbank, Yape, Plin y más\n\n' +
+          '🆓 *Plan Free* — S/0\n' +
+          '• Registra gastos manual o por foto\n' +
+          '• 3 presupuestos, 1 meta de ahorro\n' +
+          '• Dashboard del mes actual\n\n' +
+          '⭐ *Plan Pro* — S/10/mes\n' +
+          '• Lectura automática de correos bancarios\n' +
+          '• Todo ilimitado + reportes PDF\n\n' +
+          'Escribe *free* para empezar gratis o *pro* para activar Pro.';
       } else if (!tieneGmail && usuario.onboarding_completado) {
         // Usuario en modo manual — saludo normal
         var gastosMesHola = await obtenerGastosMes(usuario.id);
@@ -1000,9 +1024,9 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
           '\n\n\u00bfQue revisamos?';
       }
     } else if (cmd === '/manual') {
-      // Onboarding sin Gmail — modo manual
-      await supabase.from('usuarios').update({ onboarding_paso: 0, onboarding_completado: true }).eq('id', usuario.id);
-      respuesta = '✍️ *Modo manual activado*\n\nRegistra gastos así:\n📝 _"gasté 50 en taxi"_\n📸 Envía una foto de Yape o Plin\n📊 Envía un Excel con tus gastos\n\n📊 *Tu dashboard:* app.neto.pe\n\n¿Por dónde empezamos?';
+      // Onboarding sin Gmail — modo free
+      await supabase.from('usuarios').update({ plan: 'free', onboarding_paso: 0, onboarding_completado: true }).eq('id', usuario.id);
+      respuesta = '✍️ *Modo Free activado*\n\nRegistra gastos así:\n📝 _"gasté 50 en taxi"_\n📸 Envía una foto de Yape o Plin\n\n📊 *Tu dashboard:* app.neto.pe\n\n¿Por dónde empezamos?';
     } else if (esUsuarioNuevo && !cmd.startsWith('/')) {
       respuesta = '👋 Hola. Soy *NETO*, tu asistente financiero.\n\nEscribe *hola* para empezar.';
     } else if (cmd === '/silenciar') {
@@ -1012,7 +1036,14 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
       await supabase.from('usuarios').update({ recordatorios_activos: true }).eq('id', usuario.id);
       respuesta = '🔔 Recordatorios activados. Te avisaré a las 8pm si no registras gastos.';
     } else if (cmd === '/conectar') {
-      respuesta = 'Para conectar tu Gmail, abre este enlace:\n\n' + generarUrlAutorizacion(from) + '\n\n_Solo leemos notificaciones bancarias. Sin contrasenas bancarias._';
+      if (usuario.plan !== 'premium') {
+        respuesta = '⭐ *Conectar Gmail es una función Pro.*\n\n' +
+          'Con Pro, Neto lee tus correos bancarios automáticamente.\n\n' +
+          '💰 S/10/mes o S/99/año\n' +
+          '📲 Yapea al 970398192 y escríbeme aquí para activar.';
+      } else {
+        respuesta = 'Para conectar tu Gmail, abre este enlace:\n\n' + generarUrlAutorizacion(from) + '\n\n_Solo leemos notificaciones bancarias. Sin contrasenas bancarias._';
+      }
     } else if (cmd === '/escanear') {
       const resultado = await escanearGmailYRegistrar(usuario);
       respuesta = resultado || (!usuario.gmail_access_token ? 'No tienes Gmail conectado. Escribe */conectar*.' : 'No encontre correos bancarios nuevos.');
@@ -1167,30 +1198,6 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
           respuesta = '✅ Pago confirmado para ' + (usuarioPago.nombre || numeroPago) + ' (' + tipoPlan + ')\nUsuario en paso 3: esperando Gmail.';
         }
       }
-    } else if (cmd.startsWith('/aprobar ')) {
-      const ADMIN_NUMBER = process.env.ADMIN_WHATSAPP || '51970398192';
-      if (from !== ADMIN_NUMBER) {
-        respuesta = 'No tienes permiso para usar este comando.';
-      } else {
-        const emailAprobar = cmd.replace('/aprobar ', '').trim().toLowerCase();
-        const { data: usuarioAprobar } = await supabase.from('usuarios').select('*').eq('email', emailAprobar).single();
-        if (!usuarioAprobar) {
-          respuesta = '❌ No encontré un usuario con el correo: ' + emailAprobar;
-        } else {
-          await supabase.from('usuarios').update({
-            aprobado_gcc: true,
-            onboarding_paso: 0
-          }).eq('id', usuarioAprobar.id);
-          const urlOAuth = generarUrlAutorizacion(usuarioAprobar.whatsapp);
-          await enviarWhatsapp(usuarioAprobar.whatsapp,
-            '🎉 *¡Tu cuenta está lista!*\n\n' +
-            'Conecta tu Gmail para que Neto lea tus correos bancarios automáticamente:\n\n' +
-            '🔗 ' + urlOAuth + '\n\n' +
-            '_Solo leemos notificaciones bancarias. Sin contraseñas bancarias._'
-          );
-          respuesta = '✅ Aprobado ' + emailAprobar + ' en GCC.\nLink OAuth enviado al usuario.';
-        }
-      }
     } else if (cmd === '/usuarios' || cmd === '/admin') {
       // Panel admin rapido
       const ADMIN_NUMBER = process.env.ADMIN_WHATSAPP || '51970398192';
@@ -1213,7 +1220,7 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
             const estado = u.estado_pago === 'pagado' ? '' : (u.estado_pago === 'pendiente' ? ' \u23F3' : '');
             msg += plan + ' ' + (u.nombre || u.whatsapp) + pend + estado + '\n';
           });
-          msg += '\n_Comandos:_\n/pago <num> <mensual|anual>\n/aprobar <email>\n/activar <num>';
+          msg += '\n_Comandos:_\n/pago <num> <mensual|anual>\n/activar <num>';
           respuesta = msg;
         }
       }

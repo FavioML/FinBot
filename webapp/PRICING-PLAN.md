@@ -89,6 +89,14 @@
 
 ---
 
+## Gmail OAuth Constraint (GCC)
+
+**Gmail OAuth = Pro-only feature.** Solo 100 OAuth slots disponibles en Google Cloud Console hasta verificación CASA Tier 2 ($540 USD). Free users NO consumen slots — registran gastos manualmente. Solo Pro users que pagan reciben link OAuth.
+
+**Status actual:** 3/100 slots usados (26 Mar 2026).
+
+---
+
 ## Upgrade Triggers
 
 | Momento | Mensaje |

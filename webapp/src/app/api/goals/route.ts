@@ -22,7 +22,7 @@ async function getNetoUser() {
   return data || null;
 }
 
-const FREE_GOAL_LIMIT = Infinity; // No free plan — all users have full access
+const FREE_GOAL_LIMIT = 1;
 
 export async function GET() {
   const netoUser = await getNetoUser();
@@ -57,7 +57,7 @@ export async function POST(request: Request) {
       .eq('usuario_id', userId);
     if ((count ?? 0) >= FREE_GOAL_LIMIT) {
       return NextResponse.json(
-        { error: 'Límite de metas alcanzado. Contacta soporte por WhatsApp.', upgrade: false },
+        { error: 'Plan Free permite 1 meta de ahorro. Activa Pro para metas ilimitadas.', upgrade: true },
         { status: 403 },
       );
     }

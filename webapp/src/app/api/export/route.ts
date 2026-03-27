@@ -27,6 +27,20 @@ export async function GET() {
   if (!userId)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  // Check plan early before fetching all data
+  const { data: userData } = await serviceClient
+    .from('usuarios')
+    .select('plan')
+    .eq('id', userId)
+    .single();
+
+  if (userData?.plan !== 'premium') {
+    return NextResponse.json(
+      { error: 'Exportar datos es una función Pro. Activa Pro por WhatsApp.', upgrade: true },
+      { status: 403 },
+    );
+  }
+
   // Fetch all user data in parallel
   const [txResult, budgetResult, goalsResult, userResult] = await Promise.all([
     serviceClient

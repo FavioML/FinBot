@@ -25,7 +25,7 @@ export default function StickyCTA() {
           <p className="text-sm font-medium text-[#e5e2de] truncate">
             Ordena tu plata sin mover un dedo
           </p>
-          <p className="text-xs text-[#87948c]">Desde S/10/mes</p>
+          <p className="text-xs text-[#87948c]">Gratis · Pro desde S/10/mes</p>
         </div>
         <a
           href={WA_LINK}

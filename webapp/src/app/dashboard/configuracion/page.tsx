@@ -204,10 +204,16 @@ export default function ConfiguracionPage() {
               <h2 className="text-lg font-semibold text-[#F0EFE8] truncate">
                 {user.nombre || (user.email ? user.email.split('@')[0] : 'Usuario')}
               </h2>
-              <Badge className="bg-[#1D9E75]/20 text-[#1D9E75] border-[#1D9E75]/30 gap-1 shrink-0">
-                <Crown className="h-3 w-3" />
-                Neto Pro
-              </Badge>
+              {user.plan === 'premium' ? (
+                <Badge className="bg-[#1D9E75]/20 text-[#1D9E75] border-[#1D9E75]/30 gap-1 shrink-0">
+                  <Crown className="h-3 w-3" />
+                  Neto Pro
+                </Badge>
+              ) : (
+                <Badge className="bg-[#87948c]/20 text-[#87948c] border-[#87948c]/30 gap-1 shrink-0">
+                  Free
+                </Badge>
+              )}
             </div>
 
             {/* Email */}
@@ -233,6 +239,26 @@ export default function ConfiguracionPage() {
             </div>
           </div>
         </div>
+
+        {user.plan !== 'premium' && (
+          <div className="mt-4 rounded-xl border border-[#1D9E75]/20 bg-[#1D9E75]/5 p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Crown className="h-4 w-4 text-[#1D9E75]" />
+              <span className="text-sm font-semibold text-[#F0EFE8]">Activa Neto Pro</span>
+            </div>
+            <p className="text-xs text-[#8A877D] mb-3">
+              Gmail automático, reportes PDF, presupuestos ilimitados, metas, calendario y más.
+            </p>
+            <a
+              href="https://wa.me/51933014505?text=Hola%20Neto%2C%20quiero%20activar%20Pro%20%E2%AD%90"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 rounded-full bg-[#1D9E75] px-4 py-2 text-xs font-semibold text-white hover:bg-[#178a64] transition-colors"
+            >
+              Activar Pro — S/10/mes
+            </a>
+          </div>
+        )}
 
       </div>
 
