@@ -23,6 +23,51 @@ async function getNetoUserId() {
   return data?.id || null;
 }
 
+// Sync categoría y subcategoría custom a categorias_usuario
+async function syncCategoriasUsuario(userId: string, categoria: string, subcategoria: string | null) {
+  if (!categoria) return;
+
+  // Buscar si la categoría padre existe en categorias_usuario
+  const { data: padre } = await serviceClient
+    .from('categorias_usuario')
+    .select('id')
+    .eq('usuario_id', userId)
+    .eq('nombre', categoria)
+    .is('padre_id', null)
+    .maybeSingle();
+
+  // Si la categoría no existe, crearla
+  let padreId = padre?.id;
+  if (!padreId) {
+    const { data: nuevoPadre } = await serviceClient
+      .from('categorias_usuario')
+      .insert({ usuario_id: userId, nombre: categoria, activa: true })
+      .select('id')
+      .single();
+    padreId = nuevoPadre?.id;
+  }
+
+  // Si hay subcategoría custom, crearla si no existe
+  if (subcategoria && subcategoria !== 'sin_categoria' && padreId) {
+    const { data: existeSub } = await serviceClient
+      .from('categorias_usuario')
+      .select('id')
+      .eq('usuario_id', userId)
+      .eq('padre_id', padreId)
+      .ilike('nombre', subcategoria)
+      .maybeSingle();
+
+    if (!existeSub) {
+      await serviceClient.from('categorias_usuario').insert({
+        usuario_id: userId,
+        nombre: subcategoria,
+        padre_id: padreId,
+        activa: true,
+      });
+    }
+  }
+}
+
 export async function POST(request: Request) {
   const userId = await getNetoUserId();
   if (!userId)
@@ -35,6 +80,8 @@ export async function POST(request: Request) {
   const tc = body.moneda === 'USD' ? await getExchangeRate() : 1;
   const montoPen = body.moneda === 'USD' ? monto * tc : monto;
 
+  const subcategoria = body.subcategoria || 'sin_categoria';
+
   const { data, error } = await serviceClient
     .from('transacciones')
     .insert({
@@ -46,7 +93,7 @@ export async function POST(request: Request) {
       tipo_cambio: body.moneda === 'USD' ? tc : null,
       comercio: body.comercio || null,
       categoria: body.categoria,
-      subcategoria: body.subcategoria || null,
+      subcategoria,
       fecha: body.fecha,
       metodo_pago: body.metodo_pago || null,
     })
@@ -55,6 +102,10 @@ export async function POST(request: Request) {
 
   if (error)
     return NextResponse.json({ error: error.message }, { status: 400 });
+
+  // Sync categoría/subcategoría a categorias_usuario (fire-and-forget)
+  syncCategoriasUsuario(userId, body.categoria, body.subcategoria).catch(() => {});
+
   return NextResponse.json(data);
 }
 
@@ -68,6 +119,8 @@ export async function PUT(request: Request) {
   const tc = body.moneda === 'USD' ? await getExchangeRate() : 1;
   const montoPen = body.moneda === 'USD' ? monto * tc : monto;
 
+  const subcategoria = body.subcategoria || 'sin_categoria';
+
   const { data, error } = await serviceClient
     .from('transacciones')
     .update({
@@ -77,7 +130,7 @@ export async function PUT(request: Request) {
       moneda: body.moneda || 'PEN',
       comercio: body.comercio || null,
       categoria: body.categoria,
-      subcategoria: body.subcategoria || null,
+      subcategoria,
       fecha: body.fecha,
       metodo_pago: body.metodo_pago || null,
     })
@@ -88,6 +141,10 @@ export async function PUT(request: Request) {
 
   if (error)
     return NextResponse.json({ error: error.message }, { status: 400 });
+
+  // Sync categoría/subcategoría a categorias_usuario (fire-and-forget)
+  syncCategoriasUsuario(userId, body.categoria, body.subcategoria).catch(() => {});
+
   return NextResponse.json(data);
 }
 

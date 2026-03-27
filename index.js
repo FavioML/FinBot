@@ -982,7 +982,7 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
         var totalMesHola = gastosMesHola.reduce(function(s,t){return s+parseFloat(t.monto);},0);
         respuesta = '👋 Hola' + (primerNombre ? ', ' + primerNombre : '') + '.\n\n' +
           (gastosMesHola.length > 0 ? 'Este mes llevas *S/ ' + totalMesHola.toFixed(2) + '* en ' + gastosMesHola.length + ' movimientos.' : 'Sin movimientos este mes aun.') +
-          '\n\n📝 Registra gastos así:\n_"gasté 50 en taxi"_\n_"almuerzo 25 soles"_\nO envía una foto de tu Yape/Plin.\n\n💡 _Conecta Gmail con /conectar para lectura automática._';
+          '\n\n📝 Registra gastos así:\n_"gasté 50 en taxi"_\n_"almuerzo 25 soles"_\nO envía una foto de tu Yape/Plin.\n\n📊 *Tu dashboard:* app.neto.pe\n💡 _Escribe /conectar para lectura automática de correos._';
       } else {
         var gastosMesHola = await obtenerGastosMes(usuario.id);
         var totalMesHola = gastosMesHola.reduce(function(s,t){return s+parseFloat(t.monto);},0);
@@ -994,7 +994,7 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
         respuesta = '\uD83D\uDC4B Hola' + (primerNombre ? ', ' + primerNombre : '') + '. Soy NETO.\n\n' +
           (gastosMesHola.length > 0 ? 'Este mes llevas *S/ ' + totalMesHola.toFixed(2) + '* en ' + gastosMesHola.length + ' movimientos.' : 'Sin movimientos este mes aun.') +
           (pendHola.length > 0 ? '\n\n\u2757 ' + pendHola.length + ' gasto(s) sin identificar. Escribe */pendientes*.' : '') +
-          '\n\n\u00bfQue revisamos?';
+          '\n\n📊 Revisa tu dashboard en *app.neto.pe*\n\n\u00bfQue revisamos?';
       }
     } else if (cmd === '/manual') {
       // Onboarding sin Gmail — modo free
@@ -1052,13 +1052,10 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
       const anioR = partesR[2] ? parseInt(partesR[2]) : ahoraR.getFullYear();
       if (mesR < 1 || mesR > 12 || isNaN(mesR)) { respuesta = 'Formato: /reporte [mes] [anio]\nEj: /reporte 3 2026'; }
       else {
-        await enviarWhatsapp(from, 'Preparando tu reporte de ' + MESES[mesR] + '... \u23F3');
-        const railwayUrl = process.env.RAILWAY_URL || 'https://api.neto.pe';
-        generarYEnviarReporte(usuario, mesR, anioR).then(async (result) => {
-          if (!result.ok) { await enviarWhatsapp(from, result.msg); }
-          else { const mE = ['','Enero','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']; await enviarWhatsapp(from, '\uD83D\uDCCA *Tu dashboard de ' + mE[mesR] + ' ' + anioR + ' esta listo!*\n\n' + result.txCount + ' transacciones analizadas.\n\n\uD83D\uDD17 ' + railwayUrl + '/mi-reporte/' + result.reporteId + '\n\n_Disponible 24 horas._'); }
-        }).catch(async (e) => { await enviarWhatsapp(from, 'Error: ' + e.message); });
-        return;
+        respuesta = '📊 *Tu reporte de ' + MESES[mesR] + ' ' + anioR + '*\n\n' +
+          'Descarga tu PDF y ve tus gráficos en tu dashboard:\n\n' +
+          '🔗 https://app.neto.pe/dashboard/reporte\n\n' +
+          '_Inicia sesión con Google para ver tus datos._';
       }
     } else if (cmd === '/premium') {
       const tipoPlanActual = usuario.tipo_plan || 'mensual';
@@ -1090,18 +1087,8 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
         estadoRef += ' | ' + progreso + '/3 para tu primer mes gratis';
       }
       respuesta = '🎁 *Tu link de referido:*\n\n' + railwayUrl + '/r/' + refCode + '\n\nComparte con amigos. Cada *3 referidos* te dan *1 mes gratis* de Neto. 🎉\n\n' + estadoRef;
-    } else if (cmd === '/dashboard') {
-      // /dashboard ahora genera el mismo dashboard interactivo que /reporte (mes actual)
-      const ahora = new Date();
-      const mesActual = ahora.getMonth() + 1;
-      const anioActual = ahora.getFullYear();
-      const result = await generarYEnviarReporte(usuario, mesActual, anioActual);
-      const railwayUrl = process.env.RAILWAY_URL || 'https://api.neto.pe';
-      if (!result.ok) {
-        respuesta = result.msg;
-      } else {
-        respuesta = '\uD83D\uDCCA *Tu dashboard esta listo!*\n\n' + result.txCount + ' transacciones analizadas.\n\n\uD83D\uDD17 ' + railwayUrl + '/mi-reporte/' + result.reporteId + '\n\n_Disponible 24 horas._';
-      }
+    } else if (cmd === '/dashboard' || cmd === '/app') {
+      respuesta = '📊 *Tu dashboard está en:*\n\n🔗 https://app.neto.pe\n\nAhí puedes ver gráficos, metas, reportes PDF, suscripciones y más.\n\n_Inicia sesión con tu cuenta de Google._';
     } else if (cmd.startsWith('/activar ')) {
       // Comando admin: /activar <numero_whatsapp> - solo Favio puede usarlo
       const ADMIN_NUMBER = process.env.ADMIN_WHATSAPP || '51970398192';
@@ -1213,7 +1200,7 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
       respuesta = lpend.length === 0 ? 'No tienes gastos pendientes.' : formatearPendientes(lpend);
     } else if (cmd === '/ayuda') {
       const mesActual = new Date().getMonth() + 1;
-      respuesta = '*Comandos NETO:*\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- ver/configurar presupuesto\n*/categorias* -- categorias\n*/conectar* -- vincular Gmail\n*/escanear* -- leer correos ahora\n*/cambiar [comercio] [cat]* -- corregir categoria\n*/reporte* -- PDF del mes\n*/reporte ' + mesActual + '* -- PDF mes especifico\n*/pendientes* -- gastos sin identificar\n*/dashboard* -- ver graficos de gastos\n*/referir* -- invitar amigos y ganar Pro\n*/premium* -- plan premium\n*hola* -- estado general\n\n_Tambien puedes escribirme en lenguaje natural!_';
+      respuesta = '*Comandos NETO:*\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- ver/configurar presupuesto\n*/categorias* -- categorias\n*/conectar* -- vincular Gmail\n*/escanear* -- leer correos ahora\n*/cambiar [comercio] [cat]* -- corregir categoria\n*/reporte* -- PDF del mes\n*/reporte ' + mesActual + '* -- PDF mes especifico\n*/pendientes* -- gastos sin identificar\n*/dashboard* -- ir a tu app (app.neto.pe)\n*/referir* -- invitar amigos y ganar Pro\n*/premium* -- plan premium\n*hola* -- estado general\n\n_Tambien puedes escribirme en lenguaje natural!_';
     } else {
       respuesta = await procesarMensajeLibre(msg, usuario, from);
     }
@@ -1481,6 +1468,34 @@ app.get('/admin/pendientes', adminLimiter, async (req, res) => {
   res.json({ ok: true, pendientes: data || [] });
 });
 
+// GET /admin/usuarios?clave=ADMIN_KEY — lista de usuarios registrados
+app.get('/admin/usuarios', adminLimiter, async (req, res) => {
+  const ADMIN_KEY = process.env.ADMIN_KEY;
+  const clave = req.query.clave || '';
+  if (!ADMIN_KEY || !clave || clave.length !== ADMIN_KEY.length || !crypto.timingSafeEqual(Buffer.from(clave), Buffer.from(ADMIN_KEY))) return res.status(401).json({ ok: false, msg: 'Clave incorrecta' });
+  try {
+    const { data } = await supabase.from('usuarios')
+      .select('id, whatsapp, nombre, email, plan, onboarding_completado, gmail_access_token, created_at, premium_vence, supabase_auth_id')
+      .order('created_at', { ascending: false });
+    const usuarios = (data || []).map(u => ({
+      id: u.id,
+      whatsapp: u.whatsapp,
+      nombre: u.nombre,
+      email: u.email,
+      plan: u.plan || 'free',
+      onboarding_completado: u.onboarding_completado,
+      tiene_gmail: !!u.gmail_access_token,
+      tiene_webapp: !!u.supabase_auth_id,
+      premium_vence: u.premium_vence,
+      created_at: u.created_at,
+    }));
+    res.json({ ok: true, total: usuarios.length, usuarios });
+  } catch(e) {
+    log.error({ tag: 'ADMIN_USUARIOS', err: e.message }, 'Error listando usuarios');
+    res.status(500).json({ ok: false, msg: 'Error listando usuarios' });
+  }
+});
+
 // GET /admin/stats?clave=ADMIN_KEY — métricas de uso
 app.get('/admin/stats', adminLimiter, async (req, res) => {
   const ADMIN_KEY = process.env.ADMIN_KEY;
@@ -1642,9 +1657,16 @@ async function procesarMensajeLibre(msg, usuario, from) {
       intencion = 'corregir_categoria';
       if (!datos.categoria_nueva) datos.categoria_nueva = 'NETO';
     }
+    // "quiero ir a mi dashboard/app" → enviar link directo a app.neto.pe
+    if (/\b(dashboard|mi app|la app|mi panel|ver mis gr[aá]ficos|abrir app|entrar a la app|ir a mi app|ir al dashboard)\b/i.test(msg)) {
+      intencion = 'ver_dashboard';
+    }
     log.info({ tag: 'NLP', intencion, datos }, 'Intención clasificada');
 
     switch (intencion) {
+
+      case 'ver_dashboard':
+        return '📊 *Tu dashboard está en:*\n\n🔗 https://app.neto.pe\n\nAhí puedes ver gráficos, metas, reportes PDF, suscripciones y más.\n\n_Inicia sesión con tu cuenta de Google._';
 
       case 'listar_gastos_mes': {
         const fechaMinLgm = null; // All users are premium
@@ -1825,13 +1847,10 @@ async function procesarMensajeLibre(msg, usuario, from) {
       case 'ver_reporte': {
         const mesR = datos.mes || mesActual;
         const anioR = datos.anio || anioActual;
-        await enviarWhatsapp(from, 'Generando tu reporte PDF... \u23F3');
-        const railwayUrl = process.env.RAILWAY_URL || 'https://api.neto.pe';
-        generarYEnviarReporte(usuario, mesR, anioR).then(async (result) => {
-          if (!result.ok) { await enviarWhatsapp(from, result.msg); }
-          else { await enviarWhatsapp(from, '\uD83D\uDCCA *Tu dashboard de ' + mE[mesR] + ' ' + anioR + ' esta listo!*\n\n' + result.txCount + ' transacciones analizadas.\n\n\uD83D\uDD17 ' + railwayUrl + '/mi-reporte/' + result.reporteId + '\n\n_Disponible 24 horas._'); }
-        }).catch(async (e) => { await enviarWhatsapp(from, 'Error: ' + e.message); });
-        return null;
+        return '📊 *Tu reporte de ' + mE[mesR] + ' ' + anioR + '*\n\n' +
+          'Descarga tu PDF y ve tus gráficos en tu dashboard:\n\n' +
+          '🔗 https://app.neto.pe/dashboard/reporte\n\n' +
+          '_Inicia sesión con Google para ver tus datos._';
       }
 
       case 'corregir_categoria': {
@@ -1961,6 +1980,19 @@ async function procesarMensajeLibre(msg, usuario, from) {
           if (!parsed.ok || !parsed.monto || parsed.monto <= 0) {
             return 'No pude extraer el monto. Dime algo como: "gasté S/50 en farmacia" o "mi sueldo fue S/4500".';
           }
+          // Re-clasificar con categorías y subcategorías custom del usuario
+          const detCat = await detectarCategoriaIA(msg, usuario.id);
+          if (detCat.categoria) {
+            parsed.categoria = detCat.categoria;
+            if (detCat.subcategoria) parsed.subcategoria = detCat.subcategoria;
+          }
+          // Auto-crear categoría/subcategoría custom si es nueva
+          if (parsed.categoria && !CATEGORIAS_VALIDAS.has(parsed.categoria) && !CATEGORIA_MAP[parsed.categoria]) {
+            crearCategoriaLibreUsuario(usuario.id, parsed.categoria);
+          }
+          if (parsed.subcategoria && parsed.subcategoria !== 'sin_categoria') {
+            crearSubcategoriaLibreUsuario(usuario.id, parsed.categoria, parsed.subcategoria);
+          }
           const tx = await guardarTransaccion(usuario.id, parsed);
           const esIngreso = parsed.tipo === 'ingreso';
           const montoStr = parsed.moneda === 'USD' ? '$' + parseFloat(parsed.monto).toFixed(2) : 'S/' + parseFloat(parsed.monto).toFixed(2);
@@ -1968,6 +2000,13 @@ async function procesarMensajeLibre(msg, usuario, from) {
           if (!esIngreso && parsed.categoria) {
             const alerta = await verificarAlertaPresupuesto(usuario.id, parsed.categoria, null);
             if (alerta) respReg += '\n\n' + alerta;
+          }
+          // Cada 5 registros, recordar la app
+          const { count: txCount } = await supabase.from('transacciones')
+            .select('*', { count: 'exact', head: true })
+            .eq('usuario_id', usuario.id);
+          if (txCount && txCount % 5 === 0) {
+            respReg += '\n\n💡 _Revisa tus gráficos en app.neto.pe_';
           }
           return respReg;
         } catch(e) {

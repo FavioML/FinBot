@@ -65,6 +65,10 @@ async function guardarTransaccion(usuarioId, datos) {
     const regla = await buscarReglaComercio(usuarioId, datos.comercio);
     if (regla) { catFinal = regla.categoria; if (regla.subcategoria) subFinal = regla.subcategoria; }
   }
+  // Normalizar capitalización de subcategoría para consistencia
+  if (subFinal && subFinal !== 'sin_categoria') {
+    subFinal = subFinal.charAt(0).toUpperCase() + subFinal.slice(1);
+  }
   const { data, error } = await supabase.from('transacciones').insert({
     usuario_id: usuarioId, tipo: datos.tipo || 'gasto', monto: montoValidado, moneda: _moneda,
     monto_pen: _montoPen, tipo_cambio: _tcUsado, metodo_pago: datos.metodo_pago || null,
