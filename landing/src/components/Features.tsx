@@ -234,8 +234,8 @@ function FeatureCard({ feature, size }: { feature: Feature; size: "large" | "sma
            style={{ boxShadow: "0 -20px 80px -20px rgba(255,255,255,0.03) inset" }} />
 
       <div className={`relative ${isLarge ? "p-8" : "p-6"} h-full flex flex-col`}>
-        {/* Visual element — slides up on group hover */}
-        <div className={`${isLarge ? "mb-6 h-24" : "mb-4 h-16"} transition-transform duration-300 group-hover:-translate-y-2`}>
+        {/* Visual element */}
+        <div className={`${isLarge ? "mb-6" : "mb-4"} overflow-hidden rounded-xl`}>
           {visual}
         </div>
 

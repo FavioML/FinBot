@@ -45,7 +45,7 @@ export default function StickyCTA() {
         rel="noopener noreferrer"
         className="hidden min-[860px]:inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-[#68dbae] to-[#26a37a] px-6 py-3.5 text-sm font-semibold text-[#002115] shadow-[0_8px_32px_rgba(29,158,117,0.3)] hover:shadow-[0_8px_48px_rgba(29,158,117,0.45)] hover:scale-[1.02] transition-all duration-300 cursor-pointer"
       >
-        Conecta tu banco en 2 min
+        Regístrate en 2 minutos
         <ArrowRight size={16} />
       </a>
     </div>

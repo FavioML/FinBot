@@ -226,7 +226,7 @@ export default function ComoFunciona() {
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 rounded-full bg-[#1D9E75] hover:bg-[#1D9E75]/90 text-white font-semibold px-8 py-4 text-lg transition-colors"
             >
-              Conecta tu banco ahora
+              Regístrate ahora
               <ArrowRight size={18} />
             </a>
           </div>

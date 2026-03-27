@@ -5,11 +5,6 @@ const BANKS = [
   "Scotiabank",
   "Yape",
   "Plin",
-  "Falabella",
-  "Ripley",
-  "BanBif",
-  "Mibanco",
-  "CMAC",
 ];
 
 export default function BankStrip() {
@@ -17,7 +12,7 @@ export default function BankStrip() {
     <section className="bg-neto-bg2 border-t border-b border-white/5 py-8">
       <div className="mx-auto max-w-[1200px] px-6">
         <p className="text-center text-sm text-neto-txt3 mb-5">
-          Compatible con tu banco y billetera
+          Compatible con los bancos principales y billeteras digitales
         </p>
         <div className="flex flex-wrap justify-center gap-2">
           {BANKS.map((name) => (
@@ -28,6 +23,9 @@ export default function BankStrip() {
               {name}
             </span>
           ))}
+          <span className="rounded-full px-4 py-1.5 text-sm text-neto-txt3">
+            y más
+          </span>
         </div>
       </div>
     </section>

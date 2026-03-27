@@ -77,7 +77,7 @@ export default function Hero() {
             rel="noopener noreferrer"
             className="group relative inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-[#68dbae] to-[#26a37a] px-8 py-4 text-base font-semibold text-[#002115] transition-all duration-300 hover:shadow-[0_0_40px_rgba(29,158,117,0.35)] hover:scale-[1.02] cursor-pointer"
           >
-            Conecta tu banco en 2 min
+            Regístrate en 2 minutos
             <ArrowRight size={18} className="transition-transform duration-300 group-hover:translate-x-1" />
           </a>
           <a
