@@ -245,7 +245,13 @@ async function intentarResolverConsulta(usuario, texto) {
   var ctx = pendientes.map(function(c,i){ return (i+1)+'. '+(c.banco||'Pago')+' S/'+c.monto+' del '+c.fecha; }).join('; ');
   var parsed;
   try {
-    var aiRes = await openai.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'system', content: 'Eres un clasificador de gastos pendientes. Responde SOLO con JSON valido: {"resuelve":true/false,"numero":1/2/null,"categoria":"Alimentación|Transporte|Vivienda|Salud|Entretenimiento|Compras|Educación|Finanzas|Trabajo_Negocio|Otros","subcategoria":"nombre de subcategoria si el usuario la menciona, sino null","descripcion":"descripcion corta"}' }, { role: 'user', content: 'Gastos pendientes: '+ctx+'\n\nEl usuario respondio: '+texto }], temperature: 0 });
+    // Cargar categorías custom del usuario para que el clasificador las acepte
+    var catsUsuario = '';
+    try {
+      const { data: cats } = await supabase.from('categorias_usuario').select('nombre').eq('usuario_id', usuario.id).is('padre_id', null);
+      if (cats && cats.length > 0) catsUsuario = ' Categorias personalizadas del usuario: ' + cats.map(c => c.nombre).join(', ') + '.';
+    } catch(e) {}
+    var aiRes = await openai.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'system', content: 'Eres un clasificador de gastos pendientes. Responde SOLO con JSON valido: {"resuelve":true/false,"numero":1/2/null,"categoria":"nombre de la categoria (puede ser cualquier nombre que el usuario mencione, como Alimentación, Transporte, Auto, Hogar, etc)","subcategoria":"nombre de subcategoria si el usuario la menciona, sino null","descripcion":"descripcion corta"}. Si el usuario dice "es categoría X" o "es de X", resuelve=true y usa esa categoría.' + catsUsuario }, { role: 'user', content: 'Gastos pendientes: '+ctx+'\n\nEl usuario respondio: '+texto }], temperature: 0 });
     var raw = aiRes.choices[0].message.content.trim();
     parsed = JSON.parse(raw.startsWith('{') ? raw : raw.slice(raw.indexOf('{'), raw.lastIndexOf('}')+1));
   } catch(e) { return null; }
@@ -1824,6 +1830,15 @@ async function procesarMensajeLibre(msg, usuario, from) {
         /(?:categor[íi]a|en)\s+neto\b|ponl[oa]\s+en\s+neto|muev[elo]+\s+a\s+neto/i.test(msg)) {
       intencion = 'corregir_categoria';
       if (!datos.categoria_nueva) datos.categoria_nueva = 'NETO';
+    }
+    // "es categoría X [y subcategoría Y]" → corregir_categoria con datos extraídos
+    if (/\bes\s+categor[ií]a\b/i.test(msg)) {
+      intencion = 'corregir_categoria';
+      const mCatSub = msg.match(/\bes\s+categor[ií]a\s+([A-Za-záéíóúÁÉÍÓÚñÑ_\s]+?)(?:\s+y\s+subcategor[ií]a\s+([A-Za-záéíóúÁÉÍÓÚñÑ_\s]+))?\s*$/i);
+      if (mCatSub) {
+        datos.categoria_nueva = mCatSub[1].trim();
+        if (mCatSub[2]) datos.subcategoria_nueva = mCatSub[2].trim();
+      }
     }
     // "quiero ir a mi dashboard/app" → enviar link directo a app.neto.pe
     if (/\b(dashboard|mi app|la app|al app|mi panel|ver mis gr[aá]ficos|abrir app|entrar a la app|ir a mi app|ir al app|ir a la app|ir al dashboard|ver mi dashboard|abrir mi app|abrir la app|quiero ir al app|quiero ver mi app)\b/i.test(msg)) {
