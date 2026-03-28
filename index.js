@@ -1627,7 +1627,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       model: 'gpt-4o-mini',
       messages: [{
         role: 'system',
-        content: 'Eres el clasificador de intenciones de NETO, bot de finanzas personales por WhatsApp para usuarios peruanos.\nEl mes actual es ' + mE[mesActual] + ' ' + anioActual + '.\n\nAnaliza el mensaje y devuelve SOLO JSON.\n\nINTENCIONES:\n1. "listar_gastos_mes" - ver resumen/lista de gastos del mes\n   Ej: "cuales son mis gastos", "que gaste este mes", "gastos registrados", "que tengo registrado", "mis compras", "transacciones"\n   Datos: mes (numero, default=mes_actual), anio\n\n2. "listar_gastos_semana" - gastos de los ultimos 7 dias\n   Ej: "que gaste esta semana", "gastos recientes", "mis compras de los ultimos dias"\n\n2b. "listar_gastos_dia" - gastos de HOY o de un dia especifico\n   Ej: "que gaste hoy", "gastos de hoy", "resumen de hoy", "resumen del dia", "que compre hoy", "movimientos de hoy", "gastos de ayer", "que gaste ayer"\n   Datos: fecha (null si dice "hoy" o "del dia" — el sistema calcula la fecha real. Solo poner fecha YYYY-MM-DD si el usuario menciona una fecha especifica como "el 15 de marzo").\n\n3. "listar_gastos_categoria" - gastos de UNA categoria especifica\n   Ej: "que hay en Otros", "gastos de Alimentación", "que esta en Transporte", "detalle de Hogar", "cuales estan en otros"\n   Datos: categoria (nombre exacto), mes (default=mes_actual)\n\n4. "ver_total_gastado" - saber el TOTAL numerico gastado\n   Ej: "cuanto gaste", "cuanto llevo gastado", "total de gastos"\n   Datos: periodo ("semana" o "mes"), categoria (o null)\n\n5. "ver_presupuesto" - ver estado del presupuesto\n   Ej: "como va mi presupuesto", "cuanto me queda", "mis limites"\n\n6. "configurar_presupuesto" - configurar limite de gasto\n   Ej: "pon limite de 500 en comida", "presupuesto de 300 para transporte"\n   Datos: categoria, monto\n\n7. "ver_categorias" - ver categorias configuradas del sistema\n   Ej: "que categorias hay", "muestra las categorias del sistema"\n   IMPORTANTE: Si el historial muestra que NETO estaba hablando de gastos por categoria, NO usar esta intencion\n\n8. "ver_reporte" - reporte PDF\n   Ej: "dame mi reporte", "informe mensual", "reporte de marzo", "genera pdf"\n   Datos: mes (default=mes_actual), anio\n\n9. "corregir_categoria" - cambiar categoria de un gasto\n   Ej: "netflix es streaming", "cambia uber a transporte", "ponlo en Hogar", "muevelo a Delivery", "este gasto es de Comida", "ponlo en la categoria NETO", "categorizalo en Trabajo", "muevelo a Herramientas", "regístralo en alimentación", "es alimentación porque compré pan", "ponlo en comida", "es de transporte"\n   IMPORTANTE: Usar cuando el usuario quiere mover/cambiar/reclasificar un gasto a cualquier categoria (incluso una categoría personalizada no canónica como "NETO", "Mascota", etc). comercio puede ser null. También usar cuando el historial muestra que NETO acaba de registrar un gasto (desde imagen o notificación) y el usuario corrige la categoría.\n   Datos: comercio (null si no se menciona), categoria_nueva (el nombre de la categoria), subcategoria_nueva (null si no se menciona, o el nombre exacto de la subcategoria)\n\n10. "ver_pendientes" - gastos sin identificar\n    Ej: "gastos pendientes", "que no identificaste", "gastos sin categoria"\n\n11. "escanear_gmail" - escanear correos\n    Ej: "escanea mi correo", "busca transacciones nuevas", "hay correos nuevos"\n\n12. "ver_premium" - info del plan premium\n    Ej: "cuanto cuesta premium", "que incluye el plan"\n\n13. "saludo" - saludo sin intencion especifica\n    Ej: "buenos dias", "que tal", "como estas"\n\n14. "ayuda" - pide ayuda\n    Ej: "que puedes hacer", "ayuda", "como funciona"\n\n15. "registrar_manual" - el usuario quiere registrar un gasto o ingreso NUEVO\n   Ej: "gaste 50 soles en farmacia", "anota S/120 en ropa", "mi sueldo fue S/4500", "cobré S/800 de honorarios", "registra un ingreso de S/3500", "pague 200 en gasolina ayer"\n   IMPORTANTE: NO usar si el historial muestra que NETO acaba de notificar un gasto existente y el usuario está corrigiendo su moneda o monto (ej: "el gasto es USD 95", "son dolares", "el importe es 25 USD" → usar corregir_monto_moneda).\n   Datos: ninguno (se parsea el mensaje completo)\n\n16. "desconocido" - no encaja con ninguna intencion clara, o es continuacion de conversacion\n    Usar cuando: el mensaje es "si", "no", "dale", "ok", "mas", o cualquier respuesta corta a algo que NETO pregunto\n\n17. "corregir_monto_moneda" - el usuario indica que la moneda o monto de un gasto YA REGISTRADO está incorrecto\n   Ej: "el gasto es en dolares", "es en USD no en soles", "corrígelo son $25", "el monto es USD 25", "son 25 dolares", "el importe es en dolares", "eso es en USD", "el gasto es USD 95.07", "cambiale la moneda a dolares", "es dolar no sol"\n   IMPORTANTE: Solo cuando el historial muestra que se habla de un gasto existente ya notificado por NETO.\n   Datos: monto (numero o null), moneda ("USD" o "PEN" o null)\n\n18. "corregir_multiple" - el usuario da 2 o más instrucciones de corrección de categoría en el mismo mensaje, cada una referenciando un comercio/gasto diferente\n   Ej: "Netflix pasalo a Entretenimiento · Uber a Transporte · BCP comision a Finanzas", "E S NEUQUEN pasalo a gasolina\\nEdita Pal menu\\nEdita Pal (18/03) pasalo a menu"\n   IMPORTANTE: Usar cuando hay CLARAMENTE múltiples correcciones distintas en el mensaje (2+). Si solo hay una, usar corregir_categoria.\n   Datos: ninguno (se parsea el mensaje completo)\n\n19. "agregar_gmail" - el usuario quiere conectar una cuenta Gmail adicional (ya tiene una conectada)\n   Ej: "quiero agregar otro correo", "conectar una segunda cuenta de gmail", "agregar otro gmail", "tengo otro correo que quiero añadir"\n   Datos: ninguno\n\n20. "cambiar_gmail" - el usuario quiere reemplazar/cambiar su cuenta Gmail actual\n   Ej: "quiero cambiar mi cuenta", "me equivoqué de correo", "cambiar el gmail", "reconectar mi correo", "el correo que puse está mal", "quiero usar otro gmail"\n   Datos: ninguno\n\n21. "preferencia_reporte_gmail" - el usuario quiere configurar si sus reportes son unificados o separados por cuenta Gmail\n   Ej: "quiero los reportes separados por cuenta", "unifica mis correos en un solo reporte", "muéstrame por separado cada gmail"\n   Datos: modo ("unificado" o "separado")\n\n22. "cargar_excel" - el usuario quiere cargar gastos historicos desde un archivo Excel o quiere la plantilla\n   Ej: "quiero cargar mis gastos", "como subo mi historial", "tengo un Excel con mis gastos", "plantilla de gastos", "cargar gastos antiguos", "importar gastos"\n   Datos: ninguno\n\n23. "desconectar_cuenta" - el usuario quiere desconectar su cuenta, eliminar sus datos o darse de baja\n   Ej: "quiero desconectar mi cuenta", "eliminar mi cuenta", "borrar mis datos", "quiero darme de baja", "desconectar gmail", "eliminar todo", "ya no quiero usar Neto", "quiero salir", "desactivar mi cuenta"\n   Datos: ninguno\n\n24. "ver_referidos" - el usuario quiere referir amigos, ver su link de referido, o preguntar por el programa de referidos\n   Ej: "quiero referir a alguien", "mi link de referido", "como invito amigos", "programa de referidos", "quiero invitar a un amigo", "como refiero", "compartir neto", "recomendar neto", "mis referidos", "ganar pro gratis", "referir amigos", "como gano meses gratis"\n   Datos: ninguno\n\n25. "ver_recomendaciones" - el usuario quiere consejos financieros, saber como mejorar, donde se excede, como subir su score, o recomendaciones\n   Ej: "como mejoro mis finanzas", "donde me estoy excediendo", "como subo mi score", "dame recomendaciones", "en que puedo mejorar", "que dias gasto mas", "donde puedo ahorrar", "analiza mis gastos", "que ajusto", "tips para ahorrar", "como estoy financieramente", "que puedo mejorar"\n   Datos: tipo ("score" si pregunta por score, "excesos" si pregunta donde se excede, "general" si pide recomendaciones generales, "patrones" si pregunta por dias/patrones)\n\n26. "comparar_meses" - el usuario quiere comparar gastos entre dos meses o con el mes anterior\n   Ej: "gaste mas este mes?", "compara marzo con febrero", "como voy vs el mes pasado", "comparacion de meses", "febrero vs marzo", "me fue mejor este mes?", "gasto mas o menos que antes"\n   Datos: mes1 (numero, default=mes_actual), mes2 (numero, default=mes_anterior), anio1, anio2\n\n27. "buscar_gasto" - el usuario busca gastos de un comercio o lugar especifico\n   Ej: "cuanto gaste en Uber", "busca mis pagos de Netflix", "gastos en Plaza Vea", "que pague en Rappi", "pagos a Movistar", "cuanto llevo en gasolina"\n   IMPORTANTE: Diferente de listar_gastos_categoria. Aqui el usuario menciona un COMERCIO o servicio especifico, no una categoria.\n   Datos: comercio (nombre del comercio/servicio), mes (default=mes_actual), anio\n\n28. "ver_ingresos" - el usuario quiere ver sus ingresos (sueldo, cobros, ventas)\n   Ej: "cuanto gane este mes", "mis ingresos", "cuanto me pagaron", "ingresos de marzo", "cuanto cobre", "mi sueldo", "entradas de dinero"\n   Datos: periodo ("mes" o "semana"), mes (default=mes_actual), anio\n\n29. "ver_balance" - el usuario quiere saber su balance (ingresos menos gastos)\n   Ej: "cuanto me queda", "estoy en rojo", "mi balance", "como estoy de plata", "me alcanza", "saldo del mes", "cuanto tengo disponible", "estoy bien o mal"\n   Datos: mes (default=mes_actual), anio\n\n30. "ver_suscripciones" - ver pagos recurrentes y suscripciones activas\n   Ej: "mis suscripciones", "que pago mensual", "servicios que pago", "pagos recurrentes", "cuanto gasto en suscripciones", "cuantas suscripciones tengo"\n   Datos: ninguno\n\n31. "ver_tipo_cambio" - consultar tipo de cambio USD/PEN\n   Ej: "a cuanto esta el dolar", "tipo de cambio", "precio del dolar", "cuanto esta el dolar hoy", "tc", "cambio de dolar a sol"\n   Datos: ninguno\n\n32. "editar_monto" - corregir el monto de un gasto ya registrado (sin cambiar moneda)\n   Ej: "el monto es 50 no 500", "corrige a S/120", "el monto real es 35", "no es 100 es 10", "el monto esta mal, son 80 soles"\n   IMPORTANTE: Diferente de corregir_monto_moneda (que cambia la MONEDA). Aqui solo se corrige el numero del monto en la misma moneda.\n   Datos: monto_nuevo (numero)\n\n33. "editar_fecha" - corregir la fecha de un gasto ya registrado\n   Ej: "ese gasto fue ayer", "cambialo al 15 de marzo", "la fecha es el 20", "no fue hoy, fue el viernes", "corrige la fecha al 10"\n   Datos: fecha_nueva (YYYY-MM-DD o "ayer" o dia del mes)\n\n34. "editar_comercio" - corregir el nombre del comercio de un gasto\n   Ej: "el comercio es Plaza Vea", "no es PV, es Plaza Vea", "el nombre correcto es Sodimac", "cambia el comercio a Wong"\n   Datos: comercio_nuevo (nombre correcto)\n\n35. "dividir_gasto" - dividir un gasto entre varias personas/partes\n   Ej: "divide entre 3", "mitad es mio", "split entre 2", "solo me toca la tercera parte", "dividelo entre 4 personas", "pagamos a medias"\n   Datos: partes (numero, ej: 2 para mitad, 3 para tercios)\n\n36. "duplicar_gasto" - registrar un gasto igual al ultimo\n   Ej: "registra otro igual", "lo mismo para hoy", "repite el ultimo gasto", "otro igual", "lo mismo pero de hoy"\n   Datos: fecha (YYYY-MM-DD o null para hoy)\n\n37. "ver_metas" - ver estado de las metas de ahorro\n   Ej: "como van mis metas", "mi meta de ahorro", "cuanto me falta para mi meta", "progreso de mis metas", "mis objetivos"\n   Datos: ninguno\n\n38. "crear_meta" - crear una nueva meta de ahorro\n   Ej: "quiero ahorrar 5000 para julio", "meta de ahorro de 2000 soles", "crear meta para viaje", "ahorrar para navidad 3000"\n   Datos: nombre (descripcion corta), monto (numero), fecha_limite (YYYY-MM-DD o mes/anio)\n\n39. "agradecimiento" - el usuario agradece o felicita a NETO\n   Ej: "gracias", "gracias neto", "eres crack", "genial", "excelente", "buenazo", "eres lo mejor", "que bueno", "perfecto gracias", "chevere"\n   Datos: ninguno\n\n40. "queja" - el usuario se queja o reporta un problema\n   Ej: "no funciona", "esto esta mal", "no me lee los correos", "hay un error", "no jala", "esta fallando", "no me registra", "no sirve", "tengo un problema"\n   IMPORTANTE: Solo cuando es claramente una queja sobre el funcionamiento. Si dice "no" como respuesta a una pregunta → usar "desconocido".\n   Datos: ninguno\n\n41. "chiste_finanzas" - el usuario pide humor o entretenimiento\n   Ej: "cuentame un chiste", "hazme reir", "dime algo gracioso", "un chiste de plata", "animate", "dime un dato curioso"\n   Datos: ninguno\n\n42. "exportar_datos" - el usuario quiere exportar/descargar sus datos\n   Ej: "quiero mis datos en excel", "exportar todo", "descargar mis gastos", "bajar mi historial", "quiero un backup de mis datos", "dame mis datos"\n   Datos: ninguno\n\n43. "cambiar_nombre" - el usuario quiere cambiar su nombre en el sistema\n   Ej: "mi nombre es Juan", "cambiame el nombre", "no me llamo asi", "ponme Pedro", "mi nombre correcto es Maria", "llamame Carlos"\n   IMPORTANTE: Solo cuando el usuario EXPLICITAMENTE dice su nombre o pide cambiarlo. No confundir con editar_comercio.\n   Datos: nombre_nuevo (el nombre correcto)\n\nREGLAS CRITICAS:\n- Si el historial muestra que NETO hizo una pregunta y el usuario responde con "si", "no", "dale", "ok", "mas detalle", "eso", "las dos", o cualquier respuesta corta -> usar "desconocido" para que NETO maneje la continuacion\n- Si NETO acaba de notificar "Nuevo gasto" y el usuario dice algo como "el gasto es USD X" o "son dolares" -> usar "corregir_monto_moneda", NO "registrar_manual"\n- Si NETO acaba de registrar un gasto desde una imagen (historial muestra "Registré desde la imagen" o "📸") y el usuario dice la categoría o cómo corregirlo -> usar "corregir_categoria", NO "registrar_manual". Ej: "regístralo en alimentación", "ponlo en comida", "es alimentación porque compré pan", "cambialo a transporte"\n- Si el historial muestra que NETO hablaba de gastos por categoria y el usuario dice "otras categorias" o similar -> usar "desconocido" no "ver_categorias"\n- "otros" como categoria de gasto -> listar_gastos_categoria con categoria="Otros"\n- "cuanto gaste" sin periodo -> ver_total_gastado con periodo="mes"\n- "gastos registrados"/"que tengo" -> listar_gastos_mes\n- mes: enero=1, febrero=2, marzo=3, ..., diciembre=12\n- Si no especifica mes -> usar mes_actual\n- "gracias", "genial", "crack", "buenazo" sin otra intencion -> "agradecimiento", NO "desconocido"\n- "cuanto gaste en [comercio]" con nombre de COMERCIO -> "buscar_gasto", NO "ver_total_gastado"\n- "cuanto gane" o "mis ingresos" -> "ver_ingresos", NO "ver_total_gastado"\n- "cuanto me queda" o "mi balance" -> "ver_balance", NO "ver_presupuesto"\n- "el monto es X" SIN mencionar dolares/moneda -> "editar_monto", NO "corregir_monto_moneda"\n- "divide entre X" o "mitad" -> "dividir_gasto"\n- "otro igual" o "lo mismo" -> "duplicar_gasto"\n- "mi nombre es X" -> "cambiar_nombre", NO "desconocido"\n- "no funciona", "hay un error", "no jala" como QUEJA -> "queja", NO "desconocido"' + histCtx
+        content: 'Eres el clasificador de intenciones de NETO, bot de finanzas personales por WhatsApp para usuarios peruanos.\nEl mes actual es ' + mE[mesActual] + ' ' + anioActual + '.\n\nAnaliza el mensaje y devuelve SOLO JSON.\n\nINTENCIONES:\n1. "listar_gastos_mes" - ver resumen/lista de gastos del mes\n   Ej: "cuales son mis gastos", "que gaste este mes", "gastos registrados", "que tengo registrado", "mis compras", "transacciones"\n   Datos: mes (numero, default=mes_actual), anio\n\n2. "listar_gastos_semana" - gastos de los ultimos 7 dias\n   Ej: "que gaste esta semana", "gastos recientes", "mis compras de los ultimos dias"\n\n2b. "listar_gastos_dia" - gastos de HOY o de un dia especifico\n   Ej: "que gaste hoy", "gastos de hoy", "resumen de hoy", "resumen del dia", "que compre hoy", "movimientos de hoy", "gastos de ayer", "que gaste ayer"\n   Datos: fecha (null si dice "hoy" o "del dia" — el sistema calcula la fecha real. Solo poner fecha YYYY-MM-DD si el usuario menciona una fecha especifica como "el 15 de marzo").\n\n3. "listar_gastos_categoria" - gastos de UNA categoria especifica\n   Ej: "que hay en Otros", "gastos de Alimentación", "que esta en Transporte", "detalle de Hogar", "cuales estan en otros"\n   Datos: categoria (nombre exacto), mes (default=mes_actual)\n\n4. "ver_total_gastado" - saber el TOTAL numerico gastado\n   Ej: "cuanto gaste", "cuanto llevo gastado", "total de gastos"\n   Datos: periodo ("semana" o "mes"), categoria (o null)\n\n5. "ver_presupuesto" - ver estado del presupuesto\n   Ej: "como va mi presupuesto", "cuanto me queda", "mis limites"\n\n6. "configurar_presupuesto" - configurar limite de gasto\n   Ej: "pon limite de 500 en comida", "presupuesto de 300 para transporte"\n   Datos: categoria, monto\n\n7. "ver_categorias" - ver categorias configuradas del sistema\n   Ej: "que categorias hay", "muestra las categorias del sistema"\n   IMPORTANTE: Si el historial muestra que NETO estaba hablando de gastos por categoria, NO usar esta intencion\n\n8. "ver_reporte" - reporte PDF\n   Ej: "dame mi reporte", "informe mensual", "reporte de marzo", "genera pdf"\n   Datos: mes (default=mes_actual), anio\n\n9. "corregir_categoria" - cambiar categoria de un gasto\n   Ej: "netflix es streaming", "cambia uber a transporte", "ponlo en Hogar", "muevelo a Delivery", "este gasto es de Comida", "ponlo en la categoria NETO", "categorizalo en Trabajo", "muevelo a Herramientas", "regístralo en alimentación", "es alimentación porque compré pan", "ponlo en comida", "es de transporte"\n   IMPORTANTE: Usar cuando el usuario quiere mover/cambiar/reclasificar un gasto a cualquier categoria (incluso una categoría personalizada no canónica como "NETO", "Mascota", etc). comercio puede ser null. También usar cuando el historial muestra que NETO acaba de registrar un gasto (desde imagen o notificación) y el usuario corrige la categoría.\n   Datos: comercio (null si no se menciona), categoria_nueva (el nombre de la categoria), subcategoria_nueva (null si no se menciona, o el nombre exacto de la subcategoria)\n\n10. "ver_pendientes" - gastos sin identificar\n    Ej: "gastos pendientes", "que no identificaste", "gastos sin categoria"\n\n11. "escanear_gmail" - escanear correos\n    Ej: "escanea mi correo", "busca transacciones nuevas", "hay correos nuevos"\n\n12. "ver_premium" - info del plan premium\n    Ej: "cuanto cuesta premium", "que incluye el plan"\n\n13. "saludo" - saludo sin intencion especifica\n    Ej: "buenos dias", "que tal", "como estas"\n\n14. "ayuda" - pide ayuda\n    Ej: "que puedes hacer", "ayuda", "como funciona"\n\n15. "registrar_manual" - el usuario quiere registrar un gasto o ingreso NUEVO\n   Ej: "gaste 50 soles en farmacia", "anota S/120 en ropa", "mi sueldo fue S/4500", "cobré S/800 de honorarios", "registra un ingreso de S/3500", "pague 200 en gasolina ayer"\n   IMPORTANTE: NO usar si el historial muestra que NETO acaba de notificar un gasto existente y el usuario está corrigiendo su moneda o monto (ej: "el gasto es USD 95", "son dolares", "el importe es 25 USD" → usar corregir_monto_moneda).\n   Datos: ninguno (se parsea el mensaje completo)\n\n16. "desconocido" - no encaja con ninguna intencion clara, o es continuacion de conversacion\n    Usar cuando: el mensaje es "si", "no", "dale", "ok", "mas", o cualquier respuesta corta a algo que NETO pregunto\n\n17. "corregir_monto_moneda" - el usuario indica que la moneda o monto de un gasto YA REGISTRADO está incorrecto\n   Ej: "el gasto es en dolares", "es en USD no en soles", "corrígelo son $25", "el monto es USD 25", "son 25 dolares", "el importe es en dolares", "eso es en USD", "el gasto es USD 95.07", "cambiale la moneda a dolares", "es dolar no sol"\n   IMPORTANTE: Solo cuando el historial muestra que se habla de un gasto existente ya notificado por NETO.\n   Datos: monto (numero o null), moneda ("USD" o "PEN" o null)\n\n18. "corregir_multiple" - el usuario da 2 o más instrucciones de corrección de categoría en el mismo mensaje, cada una referenciando un comercio/gasto diferente\n   Ej: "Netflix pasalo a Entretenimiento · Uber a Transporte · BCP comision a Finanzas", "E S NEUQUEN pasalo a gasolina\\nEdita Pal menu\\nEdita Pal (18/03) pasalo a menu"\n   IMPORTANTE: Usar cuando hay CLARAMENTE múltiples correcciones distintas en el mensaje (2+). Si solo hay una, usar corregir_categoria.\n   Datos: ninguno (se parsea el mensaje completo)\n\n19. "agregar_gmail" - el usuario quiere conectar una cuenta Gmail adicional (ya tiene una conectada)\n   Ej: "quiero agregar otro correo", "conectar una segunda cuenta de gmail", "agregar otro gmail", "tengo otro correo que quiero añadir"\n   Datos: ninguno\n\n20. "cambiar_gmail" - el usuario quiere reemplazar/cambiar su cuenta Gmail actual\n   Ej: "quiero cambiar mi cuenta", "me equivoqué de correo", "cambiar el gmail", "reconectar mi correo", "el correo que puse está mal", "quiero usar otro gmail"\n   Datos: ninguno\n\n21. "preferencia_reporte_gmail" - el usuario quiere configurar si sus reportes son unificados o separados por cuenta Gmail\n   Ej: "quiero los reportes separados por cuenta", "unifica mis correos en un solo reporte", "muéstrame por separado cada gmail"\n   Datos: modo ("unificado" o "separado")\n\n22. "cargar_excel" - el usuario quiere cargar gastos historicos desde un archivo Excel o quiere la plantilla\n   Ej: "quiero cargar mis gastos", "como subo mi historial", "tengo un Excel con mis gastos", "plantilla de gastos", "cargar gastos antiguos", "importar gastos"\n   Datos: ninguno\n\n23. "desconectar_cuenta" - el usuario quiere desconectar su cuenta, eliminar sus datos o darse de baja\n   Ej: "quiero desconectar mi cuenta", "eliminar mi cuenta", "borrar mis datos", "quiero darme de baja", "desconectar gmail", "eliminar todo", "ya no quiero usar Neto", "quiero salir", "desactivar mi cuenta"\n   Datos: ninguno\n\n24. "ver_referidos" - el usuario quiere referir amigos, ver su link de referido, o preguntar por el programa de referidos\n   Ej: "quiero referir a alguien", "mi link de referido", "como invito amigos", "programa de referidos", "quiero invitar a un amigo", "como refiero", "compartir neto", "recomendar neto", "mis referidos", "ganar pro gratis", "referir amigos", "como gano meses gratis"\n   Datos: ninguno\n\n25. "ver_recomendaciones" - el usuario quiere consejos financieros, saber como mejorar, donde se excede, como subir su score, o recomendaciones\n   Ej: "como mejoro mis finanzas", "donde me estoy excediendo", "como subo mi score", "dame recomendaciones", "en que puedo mejorar", "que dias gasto mas", "donde puedo ahorrar", "analiza mis gastos", "que ajusto", "tips para ahorrar", "como estoy financieramente", "que puedo mejorar"\n   Datos: tipo ("score" si pregunta por score, "excesos" si pregunta donde se excede, "general" si pide recomendaciones generales, "patrones" si pregunta por dias/patrones)\n\n26. "comparar_meses" - el usuario quiere comparar gastos entre dos meses o con el mes anterior\n   Ej: "gaste mas este mes?", "compara marzo con febrero", "como voy vs el mes pasado", "comparacion de meses", "febrero vs marzo", "me fue mejor este mes?", "gasto mas o menos que antes"\n   Datos: mes1 (numero, default=mes_actual), mes2 (numero, default=mes_anterior), anio1, anio2\n\n27. "buscar_gasto" - el usuario busca gastos de un comercio o lugar especifico\n   Ej: "cuanto gaste en Uber", "busca mis pagos de Netflix", "gastos en Plaza Vea", "que pague en Rappi", "pagos a Movistar", "cuanto llevo en gasolina"\n   IMPORTANTE: Diferente de listar_gastos_categoria. Aqui el usuario menciona un COMERCIO o servicio especifico, no una categoria.\n   Datos: comercio (nombre del comercio/servicio), mes (default=mes_actual), anio\n\n28. "ver_ingresos" - el usuario quiere ver sus ingresos (sueldo, cobros, ventas)\n   Ej: "cuanto gane este mes", "mis ingresos", "cuanto me pagaron", "ingresos de marzo", "cuanto cobre", "mi sueldo", "entradas de dinero"\n   Datos: periodo ("mes" o "semana"), mes (default=mes_actual), anio\n\n29. "ver_balance" - el usuario quiere saber su balance (ingresos menos gastos)\n   Ej: "cuanto me queda", "estoy en rojo", "mi balance", "como estoy de plata", "me alcanza", "saldo del mes", "cuanto tengo disponible", "estoy bien o mal"\n   Datos: mes (default=mes_actual), anio\n\n30. "ver_suscripciones" - ver pagos recurrentes y suscripciones activas\n   Ej: "mis suscripciones", "que pago mensual", "servicios que pago", "pagos recurrentes", "cuanto gasto en suscripciones", "cuantas suscripciones tengo"\n   Datos: ninguno\n\n31. "ver_tipo_cambio" - consultar tipo de cambio USD/PEN\n   Ej: "a cuanto esta el dolar", "tipo de cambio", "precio del dolar", "cuanto esta el dolar hoy", "tc", "cambio de dolar a sol"\n   Datos: ninguno\n\n32. "editar_monto" - corregir el monto de un gasto ya registrado (sin cambiar moneda)\n   Ej: "el monto es 50 no 500", "corrige a S/120", "el monto real es 35", "no es 100 es 10", "el monto esta mal, son 80 soles"\n   IMPORTANTE: Diferente de corregir_monto_moneda (que cambia la MONEDA). Aqui solo se corrige el numero del monto en la misma moneda.\n   Datos: monto_nuevo (numero)\n\n33. "editar_fecha" - corregir la fecha de un gasto ya registrado\n   Ej: "ese gasto fue ayer", "cambialo al 15 de marzo", "la fecha es el 20", "no fue hoy, fue el viernes", "corrige la fecha al 10"\n   Datos: fecha_nueva (YYYY-MM-DD o "ayer" o dia del mes)\n\n34. "editar_comercio" - corregir el nombre del comercio de un gasto\n   Ej: "el comercio es Plaza Vea", "no es PV, es Plaza Vea", "el nombre correcto es Sodimac", "cambia el comercio a Wong"\n   Datos: comercio_nuevo (nombre correcto)\n\n35. "dividir_gasto" - dividir un gasto entre varias personas/partes\n   Ej: "divide entre 3", "mitad es mio", "split entre 2", "solo me toca la tercera parte", "dividelo entre 4 personas", "pagamos a medias"\n   Datos: partes (numero, ej: 2 para mitad, 3 para tercios)\n\n36. "duplicar_gasto" - registrar un gasto igual al ultimo\n   Ej: "registra otro igual", "lo mismo para hoy", "repite el ultimo gasto", "otro igual", "lo mismo pero de hoy"\n   Datos: fecha (YYYY-MM-DD o null para hoy)\n\n37. "ver_metas" - ver estado de las metas de ahorro\n   Ej: "como van mis metas", "mi meta de ahorro", "cuanto me falta para mi meta", "progreso de mis metas", "mis objetivos"\n   Datos: ninguno\n\n38. "crear_meta" - crear una nueva meta de ahorro\n   Ej: "quiero ahorrar 5000 para julio", "meta de ahorro de 2000 soles", "crear meta para viaje", "ahorrar para navidad 3000"\n   Datos: nombre (descripcion corta), monto (numero), fecha_limite (YYYY-MM-DD o mes/anio)\n\n39. "agradecimiento" - el usuario agradece o felicita a NETO\n   Ej: "gracias", "gracias neto", "eres crack", "genial", "excelente", "buenazo", "eres lo mejor", "que bueno", "perfecto gracias", "chevere"\n   Datos: ninguno\n\n40. "queja" - el usuario se queja o reporta un problema\n   Ej: "no funciona", "esto esta mal", "no me lee los correos", "hay un error", "no jala", "esta fallando", "no me registra", "no sirve", "tengo un problema"\n   IMPORTANTE: Solo cuando es claramente una queja sobre el funcionamiento. Si dice "no" como respuesta a una pregunta → usar "desconocido".\n   Datos: ninguno\n\n41. "chiste_finanzas" - el usuario pide humor o entretenimiento\n   Ej: "cuentame un chiste", "hazme reir", "dime algo gracioso", "un chiste de plata", "animate", "dime un dato curioso"\n   Datos: ninguno\n\n42. "exportar_datos" - el usuario quiere exportar/descargar sus datos\n   Ej: "quiero mis datos en excel", "exportar todo", "descargar mis gastos", "bajar mi historial", "quiero un backup de mis datos", "dame mis datos"\n   Datos: ninguno\n\n43. "cambiar_nombre" - el usuario quiere cambiar su nombre en el sistema\n   Ej: "mi nombre es Juan", "cambiame el nombre", "no me llamo asi", "ponme Pedro", "mi nombre correcto es Maria", "llamame Carlos"\n   IMPORTANTE: Solo cuando el usuario EXPLICITAMENTE dice su nombre o pide cambiarlo. No confundir con editar_comercio.\n   Datos: nombre_nuevo (el nombre correcto)\n\n44. "ver_gasto_mayor" - el gasto mas grande/caro del mes\n   Ej: "cual fue mi gasto mas grande", "mi gasto mas caro", "el mayor gasto del mes", "donde gaste mas"\n   Datos: mes (default=mes_actual), anio\n\n45. "ver_gasto_menor" - el gasto mas pequeño/barato del mes\n   Ej: "cual es mi gasto mas chiquito", "el menor gasto", "lo mas barato que compre", "mi gasto mas pequeño"\n   Datos: mes (default=mes_actual), anio\n\n46. "ver_promedio_diario" - promedio de gasto diario\n   Ej: "cuanto gasto al dia", "mi promedio diario", "gasto promedio", "cuanto gasto en promedio"\n   Datos: mes (default=mes_actual)\n\n47. "ver_frecuencia_comercio" - cuantas veces compro en un comercio especifico y total\n   Ej: "cuantas veces fui a Rappi", "cuantos pagos en Uber", "frecuencia de Netflix", "cuantas compras en Plaza Vea"\n   IMPORTANTE: Diferente de buscar_gasto (que lista gastos). Aqui pregunta por FRECUENCIA/CONTEO.\n   Datos: comercio (nombre del comercio)\n\n48. "ver_gastos_rango_fecha" - gastos en un rango de fechas especifico\n   Ej: "gastos del 1 al 15", "transacciones de la quincena", "gastos entre el 5 y el 20", "primera quincena", "segunda quincena"\n   Datos: fecha_inicio (YYYY-MM-DD), fecha_fin (YYYY-MM-DD)\n\n49. "ver_gastos_fin_de_semana" - cuanto gasta en fines de semana (sabado y domingo)\n   Ej: "cuanto gasto los fines de semana", "gastos de sabado y domingo", "fin de semana cuanto me sale", "mis gastos del finde"\n   Datos: mes (default=mes_actual)\n\n50. "deshacer_ultimo" - deshacer/cancelar el ultimo registro sin especificar cual\n   Ej: "deshaz eso", "cancela el ultimo", "me equivoque", "undo", "borra el ultimo", "quita eso"\n   IMPORTANTE: Diferente de eliminar_transaccion (que requiere comercio o especificacion). Este es genérico: "deshaz lo ultimo".\n   Datos: ninguno\n\n51. "editar_categoria_comercio" - crear una REGLA permanente para que un comercio siempre vaya a una categoria\n   Ej: "todo lo de Rappi siempre va en Delivery", "Netflix siempre es Entretenimiento", "cuando sea Uber ponlo en Transporte", "Rappi siempre delivery"\n   IMPORTANTE: Diferente de corregir_categoria (que corrige UNA transaccion). Aqui se crea una REGLA permanente.\n   Datos: comercio (nombre), categoria (categoria destino)\n\n52. "marcar_como_ingreso" - cambiar un gasto ya registrado a ingreso (o viceversa)\n   Ej: "eso no es gasto, es ingreso", "es un cobro no un pago", "marcalo como ingreso", "ese es ingreso", "no es gasto sino cobro", "es una venta"\n   Datos: tipo_nuevo ("ingreso" o "gasto")\n\n53. "eliminar_presupuesto" - eliminar/quitar un presupuesto existente\n   Ej: "quita el limite de comida", "borra el presupuesto de transporte", "elimina presupuesto de delivery", "ya no quiero limite en salud"\n   Datos: categoria (nombre de la categoria)\n\n54. "editar_meta" - modificar una meta de ahorro existente\n   Ej: "sube mi meta a 3000", "cambia la fecha de mi meta", "actualiza mi meta de viaje", "la meta ahora es 5000"\n   Datos: nombre (nombre de la meta, null si solo tiene una), monto_nuevo (numero o null), fecha_nueva (YYYY-MM-DD o null)\n\n55. "eliminar_meta" - eliminar una meta de ahorro\n   Ej: "borra la meta de viaje", "ya no quiero esa meta", "elimina mi meta", "quita la meta de navidad"\n   Datos: nombre (nombre de la meta, null si solo tiene una)\n\n56. "abonar_meta" - agregar dinero/abono a una meta de ahorro existente\n   Ej: "abone 500 a mi meta", "agrega 200 a mi ahorro", "deposite 1000 para mi viaje", "meti 300 a la meta", "ahorre 500"\n   IMPORTANTE: Diferente de registrar_manual. Aqui el dinero va a una META, no es un gasto ni ingreso.\n   Datos: monto (numero), nombre_meta (nombre de la meta o null si solo tiene una)\n\n57. "consulta_financiera" - pregunta sobre conceptos financieros peruanos\n   Ej: "que es un CTS", "como funciona una AFP", "me conviene un deposito a plazo", "que es la gratificacion", "como funciona la ONP", "que son los fondos mutuos", "que es TEA", "que significa TCEA"\n   Datos: ninguno\n\n58. "calcular_cuotas" - calcular cuanto pagaria en cuotas con intereses\n   Ej: "si pago 1500 en 12 cuotas cuanto sale", "cuanto de interes me cobran", "cuotas de 3000 soles", "quiero saber cuanto pago en 6 cuotas", "calcula las cuotas de 2000"\n   Datos: monto (numero), cuotas (numero de cuotas, default=12), tasa (TEA porcentaje o null, default=45)\n\n59. "recordatorio_pago" - quiere que le recuerden pagar algo en cierta fecha\n   Ej: "recuerdame pagar la luz el 15", "avisame del agua el 20", "recordatorio de pago", "no me dejes olvidar pagar el internet"\n   Datos: concepto (que pagar), dia (dia del mes)\n\n60. "convertir_moneda" - convertir un monto entre USD y PEN\n   Ej: "cuanto es 50 dolares en soles", "convierte 200 USD a PEN", "100 soles a dolares", "pasa 500 dolares a soles", "50 usd en pen"\n   IMPORTANTE: Diferente de ver_tipo_cambio (que solo muestra la tasa). Aqui el usuario quiere convertir un MONTO especifico.\n   Datos: monto (numero), moneda_origen ("USD" o "PEN"), moneda_destino ("PEN" o "USD")\n\n61. "feedback" - el usuario da sugerencias, ideas o feedback sobre Neto\n   Ej: "estaria bueno que", "podrias agregar", "sugiero que", "me gustaria que", "una idea", "deberian poner", "falta que"\n   Datos: ninguno\n\n62. "estado_cuenta" - el usuario pregunta por su cuenta, plan, o estado de suscripcion\n   Ej: "que plan tengo", "cuando vence mi pro", "mi cuenta", "estado de mi suscripcion", "soy free o pro", "cuanto me queda de pro", "mi perfil"\n   IMPORTANTE: Diferente de ver_premium (que muestra INFO del plan Pro). Aqui el usuario pregunta por SU estado actual.\n   Datos: ninguno\n\n63. "silenciar" - el usuario quiere desactivar recordatorios/notificaciones\n   Ej: "silencia", "no me mandes mensajes", "para los recordatorios", "deja de enviar", "no me escribas", "desactiva notificaciones", "no quiero recordatorios"\n   Datos: ninguno\n\n64. "reactivar_recordatorios" - el usuario quiere volver a recibir recordatorios\n   Ej: "activa los recordatorios", "vuelve a avisarme", "quiero recibir notificaciones", "reactiva los mensajes", "activa las alertas"\n   Datos: ninguno\n\n65. "como_empezar" - el usuario es nuevo y quiere saber como empezar\n   Ej: "soy nuevo", "como empiezo", "que hago primero", "recien empiezo", "acabo de registrarme", "por donde empiezo", "primera vez aqui"\n   IMPORTANTE: Diferente de ayuda (que lista comandos). Aqui es ONBOARDING para nuevos.\n   Datos: ninguno\n\n66. "ver_historial_cambios" - ver cambios/ediciones recientes hechas a sus transacciones\n   Ej: "que cambios hice hoy", "que corregi", "mis ultimas ediciones", "que modifique", "cambios recientes"\n   Datos: ninguno\n\n67. "compartir_resumen" - quiere compartir/enviar su resumen o reporte a alguien\n   Ej: "comparte mi resumen", "manda a mi esposa", "envia mi reporte a", "compartir mis gastos", "reenvia el reporte"\n   Datos: ninguno\n\n68. "hablar_con_humano" - quiere hablar con una persona real, soporte humano\n   Ej: "quiero hablar con alguien", "pasame con soporte", "necesito un humano", "atencion al cliente", "quiero hablar con una persona", "soporte tecnico"\n   IMPORTANTE: Diferente de queja (que reporta un problema). Aqui el usuario PIDE contacto humano directamente.\n   Datos: ninguno\n\nREGLAS CRITICAS:\n- Si el historial muestra que NETO hizo una pregunta y el usuario responde con "si", "no", "dale", "ok", "mas detalle", "eso", "las dos", o cualquier respuesta corta -> usar "desconocido" para que NETO maneje la continuacion\n- Si NETO acaba de notificar "Nuevo gasto" y el usuario dice algo como "el gasto es USD X" o "son dolares" -> usar "corregir_monto_moneda", NO "registrar_manual"\n- Si NETO acaba de registrar un gasto desde una imagen (historial muestra "Registré desde la imagen" o "📸") y el usuario dice la categoría o cómo corregirlo -> usar "corregir_categoria", NO "registrar_manual". Ej: "regístralo en alimentación", "ponlo en comida", "es alimentación porque compré pan", "cambialo a transporte"\n- Si el historial muestra que NETO hablaba de gastos por categoria y el usuario dice "otras categorias" o similar -> usar "desconocido" no "ver_categorias"\n- "otros" como categoria de gasto -> listar_gastos_categoria con categoria="Otros"\n- "cuanto gaste" sin periodo -> ver_total_gastado con periodo="mes"\n- "gastos registrados"/"que tengo" -> listar_gastos_mes\n- mes: enero=1, febrero=2, marzo=3, ..., diciembre=12\n- Si no especifica mes -> usar mes_actual\n- "gracias", "genial", "crack", "buenazo" sin otra intencion -> "agradecimiento", NO "desconocido"\n- "cuanto gaste en [comercio]" con nombre de COMERCIO -> "buscar_gasto", NO "ver_total_gastado"\n- "cuanto gane" o "mis ingresos" -> "ver_ingresos", NO "ver_total_gastado"\n- "cuanto me queda" o "mi balance" -> "ver_balance", NO "ver_presupuesto"\n- "el monto es X" SIN mencionar dolares/moneda -> "editar_monto", NO "corregir_monto_moneda"\n- "divide entre X" o "mitad" -> "dividir_gasto"\n- "otro igual" o "lo mismo" -> "duplicar_gasto"\n- "mi nombre es X" -> "cambiar_nombre", NO "desconocido"\n- "no funciona", "hay un error", "no jala" como QUEJA -> "queja", NO "desconocido"\n- "deshaz", "cancela el ultimo", "me equivoque" SIN mencionar comercio -> "deshacer_ultimo", NO "eliminar_transaccion"\n- "siempre va en X" o "todo lo de X es Y" -> "editar_categoria_comercio", NO "corregir_categoria"\n- "no es gasto, es ingreso" o "es un cobro" -> "marcar_como_ingreso", NO "corregir_categoria"\n- "que es un CTS/AFP/gratificacion/deposito a plazo" -> "consulta_financiera", NO "desconocido"\n- "cuanto es X dolares en soles" o "convierte X USD" -> "convertir_moneda", NO "ver_tipo_cambio"\n- "soy nuevo" o "como empiezo" o "que hago primero" -> "como_empezar", NO "ayuda"\n- "quiero hablar con alguien/humano/soporte" -> "hablar_con_humano", NO "queja"\n- "estaria bueno que" o "podrias agregar" o "sugiero" -> "feedback", NO "desconocido"\n- "silencia" o "no me mandes mensajes" o "para los recordatorios" -> "silenciar", NO "desconocido"\n- "que plan tengo" o "mi cuenta" o "cuando vence" -> "estado_cuenta", NO "ver_premium"\n- "cual fue mi gasto mas grande/caro" -> "ver_gasto_mayor", NO "ver_total_gastado"\n- "cuantas veces fui a [comercio]" -> "ver_frecuencia_comercio", NO "buscar_gasto"\n- "gastos del 1 al 15" o "quincena" -> "ver_gastos_rango_fecha", NO "listar_gastos_mes"\n- "cuanto gasto los fines de semana" -> "ver_gastos_fin_de_semana", NO "ver_total_gastado"\n- "abona/agrega X a mi meta" -> "abonar_meta", NO "registrar_manual"\n- "quita/borra el presupuesto de X" -> "eliminar_presupuesto", NO "configurar_presupuesto"\n- "borra la meta de X" -> "eliminar_meta", NO "eliminar_transaccion"\n- "cuotas de X" o "cuanto pago en cuotas" -> "calcular_cuotas", NO "desconocido"\n- "recuerdame pagar X el dia Y" -> "recordatorio_pago", NO "desconocido"' + histCtx
       }, {
         role: 'user',
         content: msg
@@ -1685,6 +1685,38 @@ async function procesarMensajeLibre(msg, usuario, from) {
     // "otro igual" / "lo mismo" → duplicar_gasto
     if (/\b(otro igual|lo mismo|repite|rep[ií]telo|igual que el anterior|mismo gasto)\b/i.test(msg)) {
       intencion = 'duplicar_gasto';
+    }
+    // "deshaz" / "cancela el último" / "me equivoqué" → deshacer_ultimo
+    if (/\b(desha[zs]|cancela el [uú]ltimo|me equivoqu[eé]|undo|quita eso|borra el [uú]ltimo)\b/i.test(msg) && !/\b(gasto de|pago de|cobro de)\b/i.test(msg)) {
+      intencion = 'deshacer_ultimo';
+    }
+    // "silencia" / "no me mandes mensajes" → silenciar
+    if (/\b(silenci[ao]r?|no me mandes|no me escribas|deja de enviar|desactiva.*(notificaci|recordatorio)|no quiero recordatorio)\b/i.test(msg)) {
+      intencion = 'silenciar';
+    }
+    // "activa los recordatorios" / "vuelve a avisarme" → reactivar_recordatorios
+    if (/\b(activa.*(recordatorio|notificaci|alerta)|vuelve a avisarme|reactiva.*(mensaje|recordatorio|notificaci))\b/i.test(msg)) {
+      intencion = 'reactivar_recordatorios';
+    }
+    // "quiero hablar con alguien/humano/soporte" → hablar_con_humano
+    if (/\b(hablar con (alguien|humano|persona|soporte)|p[aá]same con|atenci[oó]n al cliente|soporte t[eé]cnico|necesito.+humano|quiero.+persona)\b/i.test(msg)) {
+      intencion = 'hablar_con_humano';
+    }
+    // "soy nuevo" / "cómo empiezo" → como_empezar
+    if (/\b(soy nuev[oa]|c[oó]mo empiezo|qu[eé] hago primero|reci[eé]n empiezo|primera vez|acabo de registrarme|por d[oó]nde empiezo)\b/i.test(msg)) {
+      intencion = 'como_empezar';
+    }
+    // "cuánto es X dólares en soles" → convertir_moneda (no ver_tipo_cambio)
+    if (/\b(cu[aá]nto es|conv[ie]rt[eir]|pasa)\b.+\b(d[oó]lares?.*(en|a) soles|soles.*(en|a) d[oó]lares|USD.*(a|en) PEN|PEN.*(a|en) USD)\b/i.test(msg)) {
+      intencion = 'convertir_moneda';
+    }
+    // "estaría bueno que" / "podrías agregar" / "sugiero" → feedback
+    if (/\b(estar[ií]a bueno|podr[ií]as agregar|sugiero|sugerencia|me gustar[ií]a que|deber[ií]an|falta que|una idea)\b/i.test(msg) && !/gast/i.test(msg)) {
+      intencion = 'feedback';
+    }
+    // "qué plan tengo" / "mi cuenta" / "cuándo vence" → estado_cuenta
+    if (/\b(qu[eé] plan tengo|soy free|soy pro|cu[aá]ndo vence|estado de mi (cuenta|suscripci)|mi perfil)\b/i.test(msg)) {
+      intencion = 'estado_cuenta';
     }
     log.info({ tag: 'NLP', intencion, datos }, 'Intención clasificada');
 
@@ -2517,6 +2549,382 @@ async function procesarMensajeLibre(msg, usuario, from) {
           log.error({ tag: 'NOMBRE', err: e.message }, 'Error cambiando nombre');
           return 'No pude actualizar tu nombre. Intenta de nuevo.';
         }
+      }
+
+      // ===== BLOQUE 1: Consultas avanzadas =====
+
+      case 'ver_gasto_mayor': {
+        try {
+          const txsMayor = await obtenerGastosMes(usuario.id);
+          const gastosMayor = txsMayor.filter(t => t.tipo !== 'ingreso');
+          if (!gastosMayor.length) return 'No tienes gastos registrados este mes.';
+          gastosMayor.sort((a, b) => parseFloat(b.monto_pen || b.monto || 0) - parseFloat(a.monto_pen || a.monto || 0));
+          const top = gastosMayor[0];
+          const montoMayor = top.moneda === 'USD' ? '$' + parseFloat(top.monto).toFixed(2) : 'S/ ' + parseFloat(top.monto).toFixed(2);
+          return '🔝 *Tu gasto más grande del mes:*\n\n' + (top.comercio || 'Sin comercio') + ' — ' + montoMayor + '\n📁 ' + (top.categoria || 'Sin categoría') + '\n📅 ' + (top.fecha || '') + '\n\n_De un total de ' + gastosMayor.length + ' gastos este mes._';
+        } catch(e) {
+          log.error({ tag: 'GASTO_MAYOR', err: e.message }, 'Error ver gasto mayor');
+          return 'No pude obtener el dato. Intenta de nuevo.';
+        }
+      }
+
+      case 'ver_gasto_menor': {
+        try {
+          const txsMenor = await obtenerGastosMes(usuario.id);
+          const gastosMenor = txsMenor.filter(t => t.tipo !== 'ingreso' && parseFloat(t.monto_pen || t.monto || 0) > 0);
+          if (!gastosMenor.length) return 'No tienes gastos registrados este mes.';
+          gastosMenor.sort((a, b) => parseFloat(a.monto_pen || a.monto || 0) - parseFloat(b.monto_pen || b.monto || 0));
+          const bottom = gastosMenor[0];
+          const montoMenor = bottom.moneda === 'USD' ? '$' + parseFloat(bottom.monto).toFixed(2) : 'S/ ' + parseFloat(bottom.monto).toFixed(2);
+          return '🔻 *Tu gasto más pequeño del mes:*\n\n' + (bottom.comercio || 'Sin comercio') + ' — ' + montoMenor + '\n📁 ' + (bottom.categoria || 'Sin categoría') + '\n📅 ' + (bottom.fecha || '') + '\n\n_De un total de ' + gastosMenor.length + ' gastos este mes._';
+        } catch(e) {
+          log.error({ tag: 'GASTO_MENOR', err: e.message }, 'Error ver gasto menor');
+          return 'No pude obtener el dato. Intenta de nuevo.';
+        }
+      }
+
+      case 'ver_promedio_diario': {
+        try {
+          const txsProm = await obtenerGastosMes(usuario.id);
+          const gastosProm = txsProm.filter(t => t.tipo !== 'ingreso');
+          if (!gastosProm.length) return 'No tienes gastos registrados este mes para calcular el promedio.';
+          const totalProm = gastosProm.reduce((s, t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
+          const hoyDia = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' })).getDate();
+          const promDiario = totalProm / hoyDia;
+          const diasMes = new Date(anioActual, mesActual, 0).getDate();
+          const proyeccion = promDiario * diasMes;
+          return '📊 *Promedio diario de gasto:*\n\n💰 S/ ' + promDiario.toFixed(2) + ' por día\n📅 Basado en ' + hoyDia + ' días transcurridos\n💸 Total acumulado: S/ ' + totalProm.toFixed(2) + '\n📈 Proyección a fin de mes: S/ ' + proyeccion.toFixed(0) + '\n\n_Llevas ' + gastosProm.length + ' gastos en ' + hoyDia + ' días._';
+        } catch(e) {
+          log.error({ tag: 'PROMEDIO', err: e.message }, 'Error promedio diario');
+          return 'No pude calcular el promedio. Intenta de nuevo.';
+        }
+      }
+
+      case 'ver_frecuencia_comercio': {
+        try {
+          const comercioFreq = datos.comercio;
+          if (!comercioFreq) return '¿De qué comercio quieres saber la frecuencia? Ej: _"cuántas veces fui a Rappi"_';
+          const { data: txsFreq } = await supabase.from('transacciones').select('*')
+            .eq('usuario_id', usuario.id).ilike('comercio', '%' + comercioFreq + '%')
+            .order('fecha', { ascending: false });
+          if (!txsFreq || !txsFreq.length) return 'No encontré pagos en *' + comercioFreq + '*. ¿Seguro que se llama así?';
+          const totalFreq = txsFreq.reduce((s, t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
+          const promFreq = totalFreq / txsFreq.length;
+          return '🔄 *Frecuencia en ' + comercioFreq + ':*\n\n📍 ' + txsFreq.length + ' pagos registrados\n💰 Total: S/ ' + totalFreq.toFixed(2) + '\n📊 Promedio por pago: S/ ' + promFreq.toFixed(2) + '\n📅 Último: ' + (txsFreq[0].fecha || 'N/D') + '\n\n_Datos de todo tu historial._';
+        } catch(e) {
+          log.error({ tag: 'FRECUENCIA', err: e.message }, 'Error frecuencia comercio');
+          return 'No pude obtener la frecuencia. Intenta de nuevo.';
+        }
+      }
+
+      case 'ver_gastos_rango_fecha': {
+        try {
+          const fechaIni = datos.fecha_inicio;
+          const fechaFin = datos.fecha_fin;
+          if (!fechaIni || !fechaFin) return 'Dime el rango de fechas. Ej: _"gastos del 1 al 15"_ o _"gastos del 5 al 20 de marzo"_';
+          const { data: txsRango } = await supabase.from('transacciones').select('*')
+            .eq('usuario_id', usuario.id).gte('fecha', fechaIni).lte('fecha', fechaFin)
+            .eq('tipo', 'gasto').order('fecha', { ascending: false });
+          if (!txsRango || !txsRango.length) return 'No hay gastos entre ' + fechaIni + ' y ' + fechaFin + '.';
+          const totalRango = txsRango.reduce((s, t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
+          let respRango = '📅 *Gastos del ' + fechaIni + ' al ' + fechaFin + ':*\n\n';
+          respRango += '💰 Total: S/ ' + totalRango.toFixed(2) + ' (' + txsRango.length + ' gastos)\n\n';
+          const topRango = txsRango.slice(0, 5);
+          topRango.forEach(t => {
+            const m = t.moneda === 'USD' ? '$' + parseFloat(t.monto).toFixed(2) : 'S/ ' + parseFloat(t.monto).toFixed(2);
+            respRango += '• ' + (t.comercio || 'N/D') + ' — ' + m + ' (' + t.fecha + ')\n';
+          });
+          if (txsRango.length > 5) respRango += '\n_...y ' + (txsRango.length - 5) + ' más._';
+          return respRango;
+        } catch(e) {
+          log.error({ tag: 'RANGO_FECHA', err: e.message }, 'Error gastos rango fecha');
+          return 'No pude consultar ese rango. Intenta de nuevo.';
+        }
+      }
+
+      case 'ver_gastos_fin_de_semana': {
+        try {
+          const txsFds = await obtenerGastosMes(usuario.id);
+          const gastosFds = txsFds.filter(t => t.tipo !== 'ingreso');
+          if (!gastosFds.length) return 'No tienes gastos registrados este mes.';
+          const finDeSemana = gastosFds.filter(t => {
+            const d = new Date(t.fecha + 'T12:00:00');
+            return d.getDay() === 0 || d.getDay() === 6;
+          });
+          const entreSemana = gastosFds.filter(t => {
+            const d = new Date(t.fecha + 'T12:00:00');
+            return d.getDay() !== 0 && d.getDay() !== 6;
+          });
+          const totalFds = finDeSemana.reduce((s, t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
+          const totalEs = entreSemana.reduce((s, t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
+          const pctFds = gastosFds.length > 0 ? ((finDeSemana.length / gastosFds.length) * 100).toFixed(0) : 0;
+          return '🗓️ *Gastos de fin de semana (sáb-dom):*\n\n🎉 Fin de semana: S/ ' + totalFds.toFixed(2) + ' (' + finDeSemana.length + ' gastos)\n💼 Entre semana: S/ ' + totalEs.toFixed(2) + ' (' + entreSemana.length + ' gastos)\n📊 ' + pctFds + '% de tus gastos son en finde\n\n_Los fines de semana gastas en promedio S/ ' + (finDeSemana.length > 0 ? (totalFds / finDeSemana.length).toFixed(2) : '0') + ' por compra._';
+        } catch(e) {
+          log.error({ tag: 'FDS', err: e.message }, 'Error gastos fin de semana');
+          return 'No pude calcular los gastos del finde. Intenta de nuevo.';
+        }
+      }
+
+      // ===== BLOQUE 2: Edición y corrección =====
+
+      case 'deshacer_ultimo': {
+        try {
+          const txDeshacer = await obtenerUltimaTransaccion(usuario.id);
+          if (!txDeshacer) return 'No hay transacciones recientes para deshacer.';
+          const montoDeshacer = txDeshacer.moneda === 'USD' ? '$' + parseFloat(txDeshacer.monto).toFixed(2) : 'S/ ' + parseFloat(txDeshacer.monto).toFixed(2);
+          await supabase.from('transacciones').delete().eq('id', txDeshacer.id);
+          return '↩️ *Deshecho:*\n\nEliminé *' + (txDeshacer.comercio || 'último registro') + '* — ' + montoDeshacer + ' del ' + (txDeshacer.fecha || '') + '.\n\n_Si fue un error, puedes volver a registrarlo._';
+        } catch(e) {
+          log.error({ tag: 'DESHACER', err: e.message }, 'Error deshacer último');
+          return 'No pude deshacer la última acción. Intenta de nuevo.';
+        }
+      }
+
+      case 'editar_categoria_comercio': {
+        try {
+          const comercioRegla = datos.comercio;
+          const catRegla = datos.categoria;
+          if (!comercioRegla || !catRegla) return 'Dime el comercio y la categoría. Ej: _"todo lo de Rappi siempre va en Delivery"_';
+          await guardarReglaComercio(usuario.id, comercioRegla, catRegla, null);
+          const retro = await retroaplicarRegla(usuario.id, comercioRegla, catRegla, null);
+          return '✅ *Regla creada:*\n\n' + comercioRegla + ' → *' + catRegla + '* (siempre)\n\n' + (retro > 0 ? '🔄 Actualicé ' + retro + ' transacciones anteriores con esta regla.' : 'Se aplicará a las próximas transacciones.') + '\n\n_Puedes cambiarlo cuando quieras._';
+        } catch(e) {
+          log.error({ tag: 'REGLA_CAT', err: e.message }, 'Error editar categoría comercio');
+          return 'No pude crear la regla. Intenta de nuevo.';
+        }
+      }
+
+      case 'marcar_como_ingreso': {
+        try {
+          const txMarcar = await obtenerUltimaTransaccion(usuario.id);
+          if (!txMarcar) return 'No hay transacciones recientes para modificar.';
+          const tipoNuevo = datos.tipo_nuevo || 'ingreso';
+          await supabase.from('transacciones').update({ tipo: tipoNuevo }).eq('id', txMarcar.id);
+          const montoMarcar = txMarcar.moneda === 'USD' ? '$' + parseFloat(txMarcar.monto).toFixed(2) : 'S/ ' + parseFloat(txMarcar.monto).toFixed(2);
+          return '✅ *' + (txMarcar.comercio || 'Transacción') + '* (' + montoMarcar + ') ahora está marcado como *' + tipoNuevo + '*.\n\n_Tu balance se ha actualizado._';
+        } catch(e) {
+          log.error({ tag: 'MARCAR_INGRESO', err: e.message }, 'Error marcar como ingreso');
+          return 'No pude cambiar el tipo. Intenta de nuevo.';
+        }
+      }
+
+      // ===== BLOQUE 3: Presupuestos y metas =====
+
+      case 'eliminar_presupuesto': {
+        try {
+          const catElimP = datos.categoria;
+          if (!catElimP) return '¿De qué categoría quieres eliminar el presupuesto? Ej: _"quita el límite de comida"_';
+          const { data: presElim } = await supabase.from('presupuestos').select('*')
+            .eq('usuario_id', usuario.id).ilike('categoria', '%' + catElimP + '%')
+            .eq('mes', mesActual).eq('anio', anioActual);
+          if (!presElim || !presElim.length) return 'No tienes presupuesto de *' + catElimP + '* este mes.';
+          await supabase.from('presupuestos').delete().eq('id', presElim[0].id);
+          return '✅ Eliminé el presupuesto de *' + presElim[0].categoria + '* (era S/ ' + parseFloat(presElim[0].monto_limite).toFixed(0) + ').\n\n_Ya no recibirás alertas de esa categoría._';
+        } catch(e) {
+          log.error({ tag: 'ELIM_PRES', err: e.message }, 'Error eliminar presupuesto');
+          return 'No pude eliminar el presupuesto. Intenta de nuevo.';
+        }
+      }
+
+      case 'editar_meta': {
+        try {
+          const { data: metasEdit } = await supabase.from('metas_ahorro').select('*')
+            .eq('usuario_id', usuario.id).order('created_at', { ascending: false });
+          if (!metasEdit || !metasEdit.length) return 'No tienes metas de ahorro. Crea una con _"quiero ahorrar S/2000 para julio"_.';
+          let metaTarget = metasEdit[0];
+          if (datos.nombre && metasEdit.length > 1) {
+            const found = metasEdit.find(m => m.nombre.toLowerCase().includes(datos.nombre.toLowerCase()));
+            if (found) metaTarget = found;
+          }
+          const updates = {};
+          if (datos.monto_nuevo) updates.monto_objetivo = parseFloat(datos.monto_nuevo);
+          if (datos.fecha_nueva) updates.fecha_limite = datos.fecha_nueva;
+          if (Object.keys(updates).length === 0) return 'Dime qué quieres cambiar. Ej: _"sube mi meta a 3000"_ o _"cambia la fecha al 30 de junio"_.';
+          await supabase.from('metas_ahorro').update(updates).eq('id', metaTarget.id);
+          const montoObj = updates.monto_objetivo || metaTarget.monto_objetivo;
+          return '✅ Meta *' + metaTarget.nombre + '* actualizada.\n\n🎯 Objetivo: S/ ' + parseFloat(montoObj).toFixed(0) + '\n📅 Fecha límite: ' + (updates.fecha_limite || metaTarget.fecha_limite || 'Sin fecha') + '\n💰 Ahorrado: S/ ' + parseFloat(metaTarget.monto_actual || 0).toFixed(0);
+        } catch(e) {
+          log.error({ tag: 'EDIT_META', err: e.message }, 'Error editar meta');
+          return 'No pude editar la meta. Intenta de nuevo.';
+        }
+      }
+
+      case 'eliminar_meta': {
+        try {
+          const { data: metasDel } = await supabase.from('metas_ahorro').select('*')
+            .eq('usuario_id', usuario.id).order('created_at', { ascending: false });
+          if (!metasDel || !metasDel.length) return 'No tienes metas de ahorro para eliminar.';
+          let metaDel = metasDel[0];
+          if (datos.nombre && metasDel.length > 1) {
+            const found = metasDel.find(m => m.nombre.toLowerCase().includes(datos.nombre.toLowerCase()));
+            if (found) metaDel = found;
+          }
+          await supabase.from('metas_ahorro').delete().eq('id', metaDel.id);
+          return '✅ Eliminé la meta *' + metaDel.nombre + '* (S/ ' + parseFloat(metaDel.monto_actual || 0).toFixed(0) + ' de S/ ' + parseFloat(metaDel.monto_objetivo).toFixed(0) + ').\n\n_Puedes crear otra cuando quieras._';
+        } catch(e) {
+          log.error({ tag: 'DEL_META', err: e.message }, 'Error eliminar meta');
+          return 'No pude eliminar la meta. Intenta de nuevo.';
+        }
+      }
+
+      case 'abonar_meta': {
+        try {
+          const montoAbono = parseFloat(datos.monto);
+          if (!montoAbono || montoAbono <= 0) return 'Dime cuánto quieres abonar. Ej: _"aboné 500 a mi meta"_.';
+          const { data: metasAbono } = await supabase.from('metas_ahorro').select('*')
+            .eq('usuario_id', usuario.id).order('created_at', { ascending: false });
+          if (!metasAbono || !metasAbono.length) return 'No tienes metas de ahorro. Crea una con _"quiero ahorrar S/2000 para julio"_.';
+          let metaAbono = metasAbono[0];
+          if (datos.nombre_meta && metasAbono.length > 1) {
+            const found = metasAbono.find(m => m.nombre.toLowerCase().includes(datos.nombre_meta.toLowerCase()));
+            if (found) metaAbono = found;
+          }
+          const nuevoActual = parseFloat(metaAbono.monto_actual || 0) + montoAbono;
+          await supabase.from('metas_ahorro').update({ monto_actual: nuevoActual }).eq('id', metaAbono.id);
+          const pctAbono = ((nuevoActual / parseFloat(metaAbono.monto_objetivo)) * 100).toFixed(0);
+          const completada = nuevoActual >= parseFloat(metaAbono.monto_objetivo);
+          return (completada ? '🎉 *¡META CUMPLIDA!*' : '✅ *Abono registrado*') + '\n\n🎯 ' + metaAbono.nombre + '\n💰 S/ ' + nuevoActual.toFixed(0) + ' de S/ ' + parseFloat(metaAbono.monto_objetivo).toFixed(0) + ' (' + pctAbono + '%)\n' + (completada ? '\n¡Felicitaciones! Lograste tu meta. 🏆' : '\n_¡Sigue así! Te falta S/ ' + (parseFloat(metaAbono.monto_objetivo) - nuevoActual).toFixed(0) + '._');
+        } catch(e) {
+          log.error({ tag: 'ABONAR_META', err: e.message }, 'Error abonar meta');
+          return 'No pude registrar el abono. Intenta de nuevo.';
+        }
+      }
+
+      // ===== BLOQUE 4: Contexto peruano =====
+
+      case 'consulta_financiera': {
+        const ctxFinanciero = 'El usuario hace una pregunta sobre conceptos financieros. Responde como educador financiero peruano: breve, claro, con ejemplos locales (bancos peruanos, montos en soles). Máximo 6 líneas. Si es sobre CTS, AFP, ONP, gratificación, etc., explica el contexto peruano específico.';
+        const respFinanciero = await redactarConNETO(netoPrompt, ctxFinanciero, msg, historialConv);
+        return respFinanciero || 'Buena pregunta. Te recomiendo consultar con tu banco o la SBS (sbs.gob.pe) para información detallada.\n\n¿Necesitas algo más con tus finanzas?';
+      }
+
+      case 'calcular_cuotas': {
+        try {
+          const montoCuota = parseFloat(datos.monto);
+          if (!montoCuota || montoCuota <= 0) return 'Dime el monto y las cuotas. Ej: _"cuotas de 3000 en 12 meses"_.';
+          const numCuotas = parseInt(datos.cuotas) || 12;
+          const teaAnual = parseFloat(datos.tasa) || 45; // TEA promedio tarjetas Perú
+          const temMensual = Math.pow(1 + teaAnual / 100, 1 / 12) - 1;
+          const cuotaMensual = montoCuota * (temMensual * Math.pow(1 + temMensual, numCuotas)) / (Math.pow(1 + temMensual, numCuotas) - 1);
+          const totalPagar = cuotaMensual * numCuotas;
+          const totalInteres = totalPagar - montoCuota;
+          return '🧮 *Cálculo de cuotas:*\n\n💰 Monto: S/ ' + montoCuota.toFixed(2) + '\n📅 Cuotas: ' + numCuotas + ' meses\n📊 TEA: ' + teaAnual + '%\n\n💳 Cuota mensual: *S/ ' + cuotaMensual.toFixed(2) + '*\n💸 Total a pagar: S/ ' + totalPagar.toFixed(2) + '\n⚠️ Total intereses: S/ ' + totalInteres.toFixed(2) + '\n\n_TEA estimada. Consulta con tu banco la tasa real._';
+        } catch(e) {
+          log.error({ tag: 'CUOTAS', err: e.message }, 'Error calcular cuotas');
+          return 'No pude calcular las cuotas. Intenta con _"cuotas de 3000 en 12 meses"_.';
+        }
+      }
+
+      case 'recordatorio_pago': {
+        return '⏰ *Recordatorios de pago*\n\nPor ahora puedes configurar tus recordatorios desde la webapp:\n\n🔗 https://app.neto.pe/dashboard/configuracion\n\nAhí puedes activar/desactivar los recordatorios diarios.\n\n_Pronto podrás crear recordatorios personalizados por WhatsApp._';
+      }
+
+      case 'convertir_moneda': {
+        try {
+          const montoConv = parseFloat(datos.monto);
+          if (!montoConv || montoConv <= 0) return 'Dime cuánto quieres convertir. Ej: _"cuánto es 100 dólares en soles"_.';
+          const tc = await obtenerTipoCambio();
+          const origenConv = (datos.moneda_origen || 'USD').toUpperCase();
+          let resultado, textoConv;
+          if (origenConv === 'USD') {
+            resultado = montoConv * tc.venta;
+            textoConv = '$' + montoConv.toFixed(2) + ' = *S/ ' + resultado.toFixed(2) + '*';
+          } else {
+            resultado = montoConv / tc.compra;
+            textoConv = 'S/ ' + montoConv.toFixed(2) + ' = *$' + resultado.toFixed(2) + '*';
+          }
+          return '💱 *Conversión:*\n\n' + textoConv + '\n\n📊 TC Compra: S/ ' + tc.compra.toFixed(4) + '\n📊 TC Venta: S/ ' + tc.venta.toFixed(4) + '\n\n_Fuente: dolar.pe_';
+        } catch(e) {
+          log.error({ tag: 'CONVERTIR', err: e.message }, 'Error convertir moneda');
+          return 'No pude obtener el tipo de cambio. Intenta de nuevo.';
+        }
+      }
+
+      // ===== BLOQUE 5: Social, navegación y engagement =====
+
+      case 'feedback': {
+        // Guardar feedback para revisión admin
+        supabase.from('nlp_errors').insert({
+          usuario_id: usuario.id, whatsapp: from,
+          mensaje: msg.substring(0, 500), intencion: 'feedback',
+          error_tipo: 'feedback', error_detalle: 'Sugerencia del usuario'
+        }).then(() => {}).catch(() => {});
+        return '💡 *¡Gracias por tu sugerencia!*\n\nLa recibimos y la vamos a evaluar. Tu feedback nos ayuda a mejorar Neto.\n\n_Si quieres contarnos más, escríbenos al 970398192._';
+      }
+
+      case 'estado_cuenta': {
+        try {
+          const cuentasEst = await obtenerCuentasGmail(usuario.id);
+          const planActual = usuario.tipo_plan || usuario.plan || 'free';
+          const vencimiento = usuario.fecha_vencimiento ? usuario.fecha_vencimiento : null;
+          const nombre = usuario.nombre || 'Usuario';
+          let resp = '👤 *Tu cuenta, ' + nombre + ':*\n\n';
+          resp += '📋 Plan: *' + (planActual === 'pro' ? 'Pro ⭐' : 'Free') + '*\n';
+          if (vencimiento) resp += '📅 Vence: ' + vencimiento + '\n';
+          resp += '📧 Gmail: ' + (cuentasEst.length > 0 ? cuentasEst.map(c => c.email).join(', ') : 'No conectado') + '\n';
+          resp += '🔔 Recordatorios: ' + (usuario.recordatorios_activos !== false ? 'Activos ✅' : 'Silenciados 🔇') + '\n';
+          resp += '\n🔗 Más detalles en https://app.neto.pe/dashboard/configuracion';
+          return resp;
+        } catch(e) {
+          log.error({ tag: 'ESTADO_CUENTA', err: e.message }, 'Error estado cuenta');
+          return 'No pude consultar tu cuenta. Intenta de nuevo.';
+        }
+      }
+
+      case 'silenciar': {
+        try {
+          await supabase.from('usuarios').update({ recordatorios_activos: false }).eq('id', usuario.id);
+          return '🔇 *Recordatorios desactivados.*\n\nNo te enviaré más resúmenes diarios ni recordatorios.\n\n_Cuando quieras reactivarlos, escribe "activa los recordatorios"._';
+        } catch(e) {
+          log.error({ tag: 'SILENCIAR', err: e.message }, 'Error silenciar');
+          return 'No pude desactivar los recordatorios. Intenta de nuevo.';
+        }
+      }
+
+      case 'reactivar_recordatorios': {
+        try {
+          await supabase.from('usuarios').update({ recordatorios_activos: true }).eq('id', usuario.id);
+          return '🔔 *Recordatorios activados.*\n\nVolverás a recibir tu resumen diario a las 8pm y alertas de presupuesto.\n\n_Si quieres silenciarlos, escribe "silencia"._';
+        } catch(e) {
+          log.error({ tag: 'REACTIVAR', err: e.message }, 'Error reactivar recordatorios');
+          return 'No pude activar los recordatorios. Intenta de nuevo.';
+        }
+      }
+
+      case 'como_empezar': {
+        const ctxEmpezar = 'El usuario es nuevo o quiere saber cómo empezar. Guíalo paso a paso de forma amigable: 1) Conectar su Gmail para lectura automática de correos bancarios, 2) También puede registrar gastos manualmente ("gasté 50 en taxi"), enviar fotos de comprobantes Yape/Plin, o cargar un Excel, 3) Ver su resumen con "mis gastos del mes" o entrar a app.neto.pe. Máximo 8 líneas, tono motivador.';
+        const respEmpezar = await redactarConNETO(netoPrompt, ctxEmpezar, msg, historialConv);
+        return respEmpezar || '¡Bienvenido a Neto! 🎉\n\n*3 pasos para empezar:*\n\n1️⃣ Conecta tu Gmail → escribe _"conectar gmail"_\n2️⃣ Registra un gasto → _"gasté 50 en taxi"_\n3️⃣ Ve tu resumen → _"mis gastos del mes"_\n\n📊 También puedes ver todo en https://app.neto.pe\n\n_¿Por dónde empezamos?_';
+      }
+
+      case 'ver_historial_cambios': {
+        try {
+          const hoyStr = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' })).toISOString().split('T')[0];
+          const { data: txsModif } = await supabase.from('transacciones').select('*')
+            .eq('usuario_id', usuario.id)
+            .gte('updated_at', hoyStr + 'T00:00:00')
+            .order('updated_at', { ascending: false }).limit(10);
+          if (!txsModif || !txsModif.length) return 'No hiciste cambios hoy. Todo está igual que ayer. 👍';
+          let respHist = '📝 *Cambios recientes (hoy):*\n\n';
+          txsModif.forEach(t => {
+            const m = t.moneda === 'USD' ? '$' + parseFloat(t.monto).toFixed(2) : 'S/ ' + parseFloat(t.monto).toFixed(2);
+            respHist += '• ' + (t.comercio || 'N/D') + ' — ' + m + ' (' + (t.categoria || 'S/C') + ')\n';
+          });
+          return respHist + '\n_Mostrando las últimas ' + txsModif.length + ' transacciones modificadas hoy._';
+        } catch(e) {
+          log.error({ tag: 'HISTORIAL', err: e.message }, 'Error historial cambios');
+          return 'No pude consultar los cambios recientes. Intenta de nuevo.';
+        }
+      }
+
+      case 'compartir_resumen': {
+        return '📤 *Compartir tu resumen:*\n\n1️⃣ Pide tu reporte → _"dame mi reporte"_\n2️⃣ Neto te envía el PDF por WhatsApp\n3️⃣ Reenvíalo a quien quieras\n\nTambién puedes descargar y compartir desde:\n🔗 https://app.neto.pe/dashboard/reportes\n\n_El PDF incluye gráficos, categorías y tu score financiero._';
+      }
+
+      case 'hablar_con_humano': {
+        // Notificar al admin
+        notificarErrorAdmin('SOPORTE', 'Usuario pide soporte humano: ' + from + (usuario.nombre ? ' (' + usuario.nombre + ')' : ''));
+        return '👤 *Soporte humano:*\n\nEscríbenos directamente al:\n\n📱 WhatsApp: *970398192*\n\nTe responderemos lo antes posible.\n\n_Mientras tanto, ¿hay algo que pueda ayudarte yo?_';
       }
 
       default: {
