@@ -514,18 +514,12 @@ export default function DashboardPage() {
                 </FadeIn>
                 </Suspense>
 
-                {/* Recurring payments */}
-                <Suspense fallback={<Skeleton className="h-[200px] rounded-2xl" />}>
-                  <RecurringPayments transactions={allTransactions} />
-                </Suspense>
               </div>
             </>
           )}
 
-          {/* Transacciones Recientes + Suscripciones side by side */}
+          {/* Transacciones Recientes */}
           <FadeIn delay={0.35}>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Transacciones Recientes */}
             <div className="glass-card glass-card-glow p-5">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-medium text-[#C8C6BC]">Transacciones Recientes</h3>
@@ -566,6 +560,15 @@ export default function DashboardPage() {
                 </div>
               )}
             </div>
+          </FadeIn>
+
+          {/* Pagos Recurrentes + Suscripciones side by side */}
+          <FadeIn delay={0.4}>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Pagos Recurrentes */}
+            <Suspense fallback={<Skeleton className="h-[200px] rounded-2xl" />}>
+              <RecurringPayments transactions={allTransactions} />
+            </Suspense>
 
             {/* Suscripciones */}
             <div className="glass-card glass-card-glow p-5">
