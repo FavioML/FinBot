@@ -22,7 +22,7 @@ async function getNetoUser() {
   return data || null;
 }
 
-const FREE_GOAL_LIMIT = 1;
+
 
 export async function GET() {
   const netoUser = await getNetoUser();
@@ -49,19 +49,7 @@ export async function POST(request: Request) {
 
   const userId = netoUser.id;
 
-  // All users have full access — limit is Infinity
-  if (netoUser.plan !== 'premium') {
-    const { count } = await serviceClient
-      .from('metas_ahorro')
-      .select('id', { count: 'exact', head: true })
-      .eq('usuario_id', userId);
-    if ((count ?? 0) >= FREE_GOAL_LIMIT) {
-      return NextResponse.json(
-        { error: 'Plan Free permite 1 meta de ahorro. Activa Pro para metas ilimitadas.', upgrade: true },
-        { status: 403 },
-      );
-    }
-  }
+  // Metas ilimitadas para todos los planes (Free + Pro)
 
   const body = await request.json();
 

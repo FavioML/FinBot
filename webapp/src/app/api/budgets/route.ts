@@ -30,7 +30,7 @@ async function getNetoUser() {
   return data || null;
 }
 
-const FREE_BUDGET_LIMIT = 3;
+
 
 export async function POST(request: Request) {
   const netoUser = await getNetoUser();
@@ -39,19 +39,7 @@ export async function POST(request: Request) {
 
   const userId = netoUser.id;
 
-  // All users have full access — limit is Infinity
-  if (netoUser.plan !== 'premium') {
-    const { count } = await serviceClient
-      .from('presupuestos')
-      .select('id', { count: 'exact', head: true })
-      .eq('usuario_id', userId);
-    if ((count ?? 0) >= FREE_BUDGET_LIMIT) {
-      return NextResponse.json(
-        { error: 'Plan Free permite máximo 3 presupuestos. Activa Pro para presupuestos ilimitados.', upgrade: true },
-        { status: 403 },
-      );
-    }
-  }
+  // Presupuestos ilimitados para todos los planes (Free + Pro)
 
   const body = await request.json();
   const { data, error } = await serviceClient

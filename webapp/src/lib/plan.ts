@@ -33,9 +33,9 @@ const PRO_ONLY_FEATURES: PlanFeature[] = [
 
 /** Free plan limits for counted features */
 export const FREE_LIMITS = {
-  budgets: 3,
-  goals: 1,
-  ocr_per_month: 5,
+  budgets: Infinity,
+  goals: Infinity,
+  ocr_per_month: Infinity,
   gmail_accounts: 0,
   advice_per_week: 1,
 } as const;

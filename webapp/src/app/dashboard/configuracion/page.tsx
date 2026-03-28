@@ -37,21 +37,24 @@ import { SOCIAL_LINKS } from '@/lib/constants';
 /*  Plan comparison data                                               */
 /* ------------------------------------------------------------------ */
 const PLAN_FEATURES = [
-  { label: 'Lectura automática de gastos', free: '1 cuenta', premium: 'Ilimitadas' },
-  { label: 'Categorías', free: '11 fijas', premium: '11 + personalizadas' },
-  { label: 'Presupuestos', free: '3', premium: 'Ilimitados' },
+  { label: 'Lectura automática de correos', free: false, premium: 'Ilimitadas (11 bancos)' },
+  { label: 'Registro por WhatsApp', free: true, premium: true },
+  { label: 'Imágenes Yape/Plin', free: true, premium: true },
+  { label: 'Categorías personalizables', free: true, premium: true },
+  { label: 'Presupuestos', free: 'Ilimitados', premium: 'Ilimitados' },
+  { label: 'Metas de ahorro', free: 'Ilimitadas', premium: 'Ilimitadas' },
   { label: 'Dashboard', free: 'Mes actual', premium: 'Historial completo' },
   { label: 'Resumen diario', free: false, premium: true },
   { label: 'Resumen semanal IA', free: 'Básico', premium: 'Insights + comparativa' },
-  { label: 'Imágenes Yape/Plin', free: '5/mes', premium: 'Ilimitadas' },
   { label: 'Score financiero', free: 'Número', premium: 'Desglose + tendencia' },
-  { label: 'Metas de ahorro', free: '1', premium: 'Ilimitadas' },
-  { label: 'Consejo IA', free: '1/semana', premium: 'Diario' },
+  { label: 'Consejo IA', free: '1/semana', premium: 'Ilimitado' },
   { label: 'Reportes PDF', free: false, premium: true },
   { label: 'Calendario financiero', free: false, premium: true },
+  { label: 'Heatmap de gastos', free: false, premium: true },
   { label: 'Export CSV/JSON', free: false, premium: true },
   { label: 'Carga masiva Excel', free: false, premium: true },
   { label: 'Recordatorios diarios', free: false, premium: true },
+  { label: 'Multimoneda USD/PEN', free: true, premium: true },
 ] as const;
 
 /* ------------------------------------------------------------------ */
