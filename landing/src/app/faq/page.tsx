@@ -68,11 +68,11 @@ const FAQ_DATA = [
     items: [
       {
         q: "Cuanto cuesta Neto?",
-        a: "Neto cuesta S/10/mes o S/99/ano (equivale a S/8.25/mes, 2 meses gratis). Incluye todo: dashboard web, reportes PDF, score financiero, metas de ahorro, lectura automatica de correos bancarios y mucho mas. Sin funciones bloqueadas.",
+        a: "Neto tiene un plan Free (S/0 para siempre) con registro de gastos, presupuestos y metas ilimitados, lectura de fotos Yape/Plin y dashboard del mes actual. El plan Pro cuesta S/10/mes o S/99/ano y agrega lectura automatica de correos bancarios, historial completo, reportes PDF, resumen diario con IA, calendario financiero y mas.",
       },
       {
         q: "Que incluye la suscripcion?",
-        a: "Todo. WhatsApp ilimitado, lectura automatica de correos bancarios, categorizacion con IA, dashboard interactivo, presupuestos, metas de ahorro, reportes PDF descargables, score financiero, calendario financiero, deteccion de suscripciones, export CSV/JSON y soporte directo.",
+        a: "El plan Pro incluye todo lo del Free mas: lectura automatica de correos bancarios (11 bancos), historial completo (no solo el mes actual), reportes PDF descargables, resumen diario y semanal con IA, calendario financiero, heatmap de gastos, export CSV/JSON, carga masiva por Excel, recordatorios diarios y soporte prioritario.",
       },
       {
         q: "Puedo pagar con Yape?",

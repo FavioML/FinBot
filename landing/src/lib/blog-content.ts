@@ -484,7 +484,7 @@ export const articleContent: Record<string, string> = {
     <tr><td>Dashboard web</td><td>Sí (app.neto.pe)</td><td>No (solo app móvil)</td></tr>
     <tr><td>Lectura de Yape/Plin</td><td>Sí (imagen o correo)</td><td>No</td></tr>
     <tr><td>Precio plan gratuito</td><td>S/0</td><td>S/0 (con anuncios)</td></tr>
-    <tr><td>Precio plan premium</td><td>S/10/mes o S/69/año</td><td>~S/15/mes (Monefy Pro)</td></tr>
+    <tr><td>Precio plan premium</td><td>S/10/mes o S/99/año</td><td>~S/15/mes (Monefy Pro)</td></tr>
     <tr><td>Sin descargar app</td><td>Sí (WhatsApp + web)</td><td>No (requiere descarga)</td></tr>
     <tr><td>Multimoneda USD/PEN</td><td>Sí, con tipo de cambio real</td><td>Sí (manual)</td></tr>
   </tbody>

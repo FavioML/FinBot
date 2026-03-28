@@ -890,11 +890,12 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
         '• Funciona con BCP, BBVA, Interbank, Yape, Plin y más\n\n' +
         '🆓 *Plan Free* — S/0\n' +
         '• Registra gastos manual o por foto\n' +
-        '• 3 presupuestos, 1 meta de ahorro\n' +
+        '• Presupuestos y metas ilimitados\n' +
         '• Dashboard del mes actual\n\n' +
         '⭐ *Plan Pro* — S/10/mes\n' +
         '• Lectura automática de correos bancarios\n' +
-        '• Todo ilimitado + reportes PDF\n\n' +
+        '• Historial completo + reportes PDF\n' +
+        '• Resumen diario + consejos IA\n\n' +
         'Escribe *free* para empezar gratis o *pro* para activar Pro.';
       await enviarWhatsapp(from, respuesta);
       return;
@@ -1020,11 +1021,12 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
             '• Funciona con BCP, BBVA, Interbank, Yape, Plin y más\n\n' +
             '🆓 *Plan Free* — S/0\n' +
             '• Registra gastos manual o por foto\n' +
-            '• 3 presupuestos, 1 meta de ahorro\n' +
+            '• Presupuestos y metas ilimitados\n' +
             '• Dashboard del mes actual\n\n' +
             '⭐ *Plan Pro* — S/10/mes\n' +
             '• Lectura automática de correos bancarios\n' +
-            '• Todo ilimitado + reportes PDF\n\n' +
+            '• Historial completo + reportes PDF\n' +
+            '• Resumen diario + consejos IA\n\n' +
             'Escribe *free* para empezar gratis o *pro* para activar Pro.';
         }
       } else if (!tieneGmail && usuario.onboarding_completado) {

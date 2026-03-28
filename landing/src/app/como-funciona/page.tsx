@@ -78,7 +78,7 @@ const FAQS = [
   },
   {
     q: "¿Cuánto cuesta?",
-    a: "El plan gratuito incluye WhatsApp ilimitado, 1 cuenta de correo, 3 presupuestos, resumen semanal y más. El plan Pro cuesta S/10/mes (o S/69/año con 42% de ahorro) y desbloquea correos ilimitados, resumen diario, reportes PDF y más.",
+    a: "El plan gratuito incluye WhatsApp ilimitado, presupuestos y metas ilimitados, lectura de fotos Yape/Plin y dashboard del mes actual. El plan Pro cuesta S/10/mes (o S/99/año) y desbloquea lectura automática de correos bancarios, historial completo, reportes PDF, resumen diario con IA y más.",
   },
   {
     q: "¿Puedo dejar de usarlo cuando quiera?",
