@@ -1195,6 +1195,67 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
         respuesta = '*Personaliza tus categorias*\n\nResponde con los numeros:\n\n' + menuCatsStr + '\n\n_Ej: 1 3 5 o "todas"_';
         await supabase.from('usuarios').update({ onboarding_paso: 10 }).eq('id', usuario.id);
       } else { respuesta = formatearCategoriasMsg(catsCmd); }
+    } else if (cmd.startsWith('/responder ')) {
+      // Admin responde a un ticket de soporte: /responder 51933XXXXXX mensaje
+      const ADMIN_NUMBER = process.env.ADMIN_WHATSAPP || '51970398192';
+      if (from !== ADMIN_NUMBER) {
+        respuesta = 'No tienes permiso para usar este comando.';
+      } else {
+        const partes = msg.substring('/responder '.length).trim();
+        const spaceIdx = partes.indexOf(' ');
+        if (spaceIdx === -1) {
+          respuesta = 'Formato: /responder <número> <mensaje>\nEj: /responder 51933014505 Hola, ya revisé tu caso...';
+        } else {
+          const numDestino = partes.substring(0, spaceIdx).replace(/\+/g, '');
+          const msgAdmin = partes.substring(spaceIdx + 1).trim();
+          if (!msgAdmin) {
+            respuesta = 'Escribe el mensaje. Ej: /responder ' + numDestino + ' Ya revisé tu caso...';
+          } else {
+            try {
+              // Enviar respuesta al usuario como NETO
+              await enviarWhatsapp(numDestino, '👤 *Respuesta del equipo Neto:*\n\n' + msgAdmin + '\n\n_Si necesitas más ayuda, cuéntanos o escríbenos a hola@neto.pe_');
+              // Actualizar ticket
+              const { data: ticketAdmin } = await supabase.from('tickets_soporte').select('*')
+                .eq('whatsapp', numDestino).in('estado', ['pendiente', 'esperando_mensaje'])
+                .order('created_at', { ascending: false }).limit(1);
+              if (ticketAdmin && ticketAdmin.length > 0) {
+                await supabase.from('tickets_soporte').update({
+                  mensaje_admin: msgAdmin.substring(0, 1000),
+                  estado: 'respondido',
+                  updated_at: new Date().toISOString()
+                }).eq('id', ticketAdmin[0].id);
+              }
+              respuesta = '✅ Respuesta enviada a ' + numDestino + '.';
+            } catch(e) {
+              log.error({ tag: 'RESPONDER', err: e.message }, 'Error enviando respuesta admin');
+              respuesta = '❌ Error enviando la respuesta: ' + e.message;
+            }
+          }
+        }
+      }
+    } else if (cmd.startsWith('/tickets')) {
+      // Admin ve tickets pendientes: /tickets
+      const ADMIN_NUMBER = process.env.ADMIN_WHATSAPP || '51970398192';
+      if (from !== ADMIN_NUMBER) {
+        respuesta = 'No tienes permiso para usar este comando.';
+      } else {
+        const { data: ticketsList } = await supabase.from('tickets_soporte').select('*')
+          .in('estado', ['pendiente', 'esperando_mensaje'])
+          .order('created_at', { ascending: false }).limit(10);
+        if (!ticketsList || ticketsList.length === 0) {
+          respuesta = '📭 No hay tickets pendientes. ¡Todo tranquilo!';
+        } else {
+          let msgTickets = '🎫 *Tickets pendientes (' + ticketsList.length + '):*\n\n';
+          ticketsList.forEach((t, i) => {
+            msgTickets += (i + 1) + '. ' + (t.nombre_usuario || 'Sin nombre') + ' (' + t.whatsapp + ')\n';
+            msgTickets += '   📋 ' + t.estado + ' | ' + new Date(t.created_at).toLocaleDateString('es-PE') + '\n';
+            if (t.mensaje_usuario) msgTickets += '   💬 ' + t.mensaje_usuario.substring(0, 80) + '\n';
+            msgTickets += '\n';
+          });
+          msgTickets += '_Responde con:_\n/responder <número> <mensaje>';
+          respuesta = msgTickets;
+        }
+      }
     } else if (cmd === '/pendientes') {
       var lpend = await obtenerConsultasPendientes(usuario.id);
       respuesta = lpend.length === 0 ? 'No tienes gastos pendientes.' : formatearPendientes(lpend);
@@ -1592,6 +1653,59 @@ async function redactarConNETO(netoPrompt, contexto, mensajeOriginal, historial)
 
 async function procesarMensajeLibre(msg, usuario, from) {
   try {
+    // === Interceptar tickets de soporte pendientes ===
+    const { data: ticketPendiente } = await supabase.from('tickets_soporte').select('*')
+      .eq('usuario_id', usuario.id).eq('estado', 'esperando_mensaje')
+      .order('created_at', { ascending: false }).limit(1);
+    if (ticketPendiente && ticketPendiente.length > 0) {
+      const ticket = ticketPendiente[0];
+      // Guardar el mensaje del usuario como descripción del ticket
+      await supabase.from('tickets_soporte').update({
+        mensaje_usuario: msg.substring(0, 1000),
+        estado: 'pendiente',
+        updated_at: new Date().toISOString()
+      }).eq('id', ticket.id);
+      // Notificar al admin con contexto completo
+      const ADMIN_NUMBER = process.env.ADMIN_WHATSAPP || '51970398192';
+      const textoAdmin = '🎫 *Nuevo ticket de soporte*\n\n'
+        + '👤 ' + (usuario.nombre || 'Sin nombre') + '\n'
+        + '📱 ' + from + '\n'
+        + '📋 Plan: ' + (usuario.tipo_plan || usuario.plan || 'free') + '\n\n'
+        + '💬 *Mensaje:*\n' + msg.substring(0, 500) + '\n\n'
+        + '_Responde con:_\n/responder ' + from + ' [tu mensaje]';
+      await enviarWhatsapp(ADMIN_NUMBER, textoAdmin);
+      return '✅ *Recibido.*\n\nTu mensaje fue enviado al equipo de Neto. Te responderemos lo antes posible por este mismo chat.\n\n_Si prefieres, también puedes escribirnos a 📧 hola@neto.pe_';
+    }
+
+    // === Interceptar tickets respondidos (usuario replica) ===
+    const { data: ticketRespondido } = await supabase.from('tickets_soporte').select('*')
+      .eq('usuario_id', usuario.id).eq('estado', 'respondido')
+      .order('updated_at', { ascending: false }).limit(1);
+    if (ticketRespondido && ticketRespondido.length > 0) {
+      // Verificar si fue respondido en las últimas 2 horas (ventana de seguimiento)
+      const ticketResp = ticketRespondido[0];
+      const hace2h = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+      if (ticketResp.updated_at > hace2h) {
+        // El usuario responde después de recibir respuesta del admin — reabrir como nuevo ticket
+        await supabase.from('tickets_soporte').update({ estado: 'cerrado' }).eq('id', ticketResp.id);
+        await supabase.from('tickets_soporte').insert({
+          usuario_id: usuario.id, whatsapp: from,
+          nombre_usuario: usuario.nombre || null,
+          mensaje_usuario: msg.substring(0, 1000),
+          estado: 'pendiente'
+        });
+        const ADMIN_NUMBER = process.env.ADMIN_WHATSAPP || '51970398192';
+        const textoReopen = '🔄 *Seguimiento de ticket*\n\n'
+          + '👤 ' + (usuario.nombre || 'Sin nombre') + ' (' + from + ')\n\n'
+          + '💬 *Respuesta del usuario:*\n' + msg.substring(0, 500) + '\n\n'
+          + '📌 _El usuario no quedó conforme. Mensaje anterior:_\n'
+          + (ticketResp.mensaje_usuario || '').substring(0, 200) + '\n\n'
+          + '_Responde con:_\n/responder ' + from + ' [tu mensaje]';
+        await enviarWhatsapp(ADMIN_NUMBER, textoReopen);
+        return '📨 *Recibido.*\n\nTu mensaje fue reenviado al equipo. Si prefieres, también puedes contactarnos a:\n\n📧 hola@neto.pe\n\n_Te responderemos pronto._';
+      }
+    }
+
     const hoy = new Date();
     const mesActual = hoy.getMonth() + 1;
     const anioActual = hoy.getFullYear();
@@ -2922,9 +3036,19 @@ async function procesarMensajeLibre(msg, usuario, from) {
       }
 
       case 'hablar_con_humano': {
-        // Notificar al admin
-        notificarErrorAdmin('SOPORTE', 'Usuario pide soporte humano: ' + from + (usuario.nombre ? ' (' + usuario.nombre + ')' : ''));
-        return '👤 *Soporte humano:*\n\nEscríbenos directamente al:\n\n📱 WhatsApp: *970398192*\n\nTe responderemos lo antes posible.\n\n_Mientras tanto, ¿hay algo que pueda ayudarte yo?_';
+        try {
+          // Crear ticket en estado 'esperando_mensaje'
+          await supabase.from('tickets_soporte').insert({
+            usuario_id: usuario.id,
+            whatsapp: from,
+            nombre_usuario: usuario.nombre || null,
+            estado: 'esperando_mensaje'
+          });
+          return '👤 *Soporte humano*\n\nCuéntame tu problema o consulta en un mensaje y se lo paso al equipo.\n\n_Escríbelo a continuación ⬇️_';
+        } catch(e) {
+          log.error({ tag: 'SOPORTE', err: e.message }, 'Error creando ticket');
+          return '👤 *Soporte humano:*\n\nEscríbenos a:\n📧 hola@neto.pe\n📱 WhatsApp: 970398192';
+        }
       }
 
       default: {
