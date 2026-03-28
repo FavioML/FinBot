@@ -34,6 +34,17 @@ interface NlpError {
   created_at: string;
 }
 
+interface Ticket {
+  id: string;
+  usuario_id: string | null;
+  whatsapp: string | null;
+  mensaje: string;
+  estado: string;
+  respuesta_admin: string | null;
+  respondido_at: string | null;
+  created_at: string;
+}
+
 function formatDate(dateStr: string | null) {
   if (!dateStr) return '\u2014';
   return new Date(dateStr).toLocaleDateString('es-PE', {
@@ -239,7 +250,7 @@ export default function AdminPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [authorized, setAuthorized] = useState(false);
-  const [tab, setTab] = useState<'users' | 'nlp'>('users');
+  const [tab, setTab] = useState<'users' | 'nlp' | 'tickets'>('users');
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [nlpErrors, setNlpErrors] = useState<NlpError[]>([]);
   const [nlpTotal, setNlpTotal] = useState(0);
@@ -248,6 +259,22 @@ export default function AdminPage() {
   const [nlpSearch, setNlpSearch] = useState('');
   const [nlpTipoFilter, setNlpTipoFilter] = useState<string>('all');
   const [nlpUserFilter, setNlpUserFilter] = useState<string>('all');
+
+  // Tickets state
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [ticketsTotal, setTicketsTotal] = useState(0);
+  const [ticketEstadoFilter, setTicketEstadoFilter] = useState<string>('todos');
+  const [ticketSearch, setTicketSearch] = useState('');
+  const [ticketPage, setTicketPage] = useState(0);
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const [replyBusy, setReplyBusy] = useState(false);
+
+  // User filters state
+  const [userPlanFilter, setUserPlanFilter] = useState<string>('todos');
+  const [userOnboardingFilter, setUserOnboardingFilter] = useState<string>('todos');
+  const [userGmailFilter, setUserGmailFilter] = useState<string>('todos');
+  const [userWebappFilter, setUserWebappFilter] = useState<string>('todos');
 
   // Check auth
   useEffect(() => {
@@ -281,11 +308,25 @@ export default function AdminPage() {
     }
   }, []);
 
+  // Fetch tickets
+  const fetchTickets = useCallback(async () => {
+    const params = new URLSearchParams({ limit: '50', offset: String(ticketPage * 50) });
+    if (ticketEstadoFilter !== 'todos') params.set('estado', ticketEstadoFilter);
+    if (ticketSearch) params.set('search', ticketSearch);
+    const res = await fetch(`/api/admin/tickets?${params}`);
+    if (res.ok) {
+      const json = await res.json();
+      setTickets(json.tickets || []);
+      setTicketsTotal(json.total || 0);
+    }
+  }, [ticketPage, ticketEstadoFilter, ticketSearch]);
+
   useEffect(() => {
     if (!authorized) return;
     fetchUsers();
     fetchNlpErrors();
-  }, [authorized, fetchUsers, fetchNlpErrors]);
+    fetchTickets();
+  }, [authorized, fetchUsers, fetchNlpErrors, fetchTickets]);
 
   // Handle user actions
   const handleUserAction = useCallback(
@@ -333,15 +374,83 @@ export default function AdminPage() {
   if (!authorized) return null;
 
   const filteredUsers = users.filter((u) => {
-    if (!search) return true;
-    const s = search.toLowerCase();
-    return (
-      (u.nombre && u.nombre.toLowerCase().includes(s)) ||
-      (u.email && u.email.toLowerCase().includes(s)) ||
-      (u.whatsapp && u.whatsapp.includes(s)) ||
-      u.plan.includes(s)
-    );
+    if (search) {
+      const s = search.toLowerCase();
+      const matches =
+        (u.nombre && u.nombre.toLowerCase().includes(s)) ||
+        (u.email && u.email.toLowerCase().includes(s)) ||
+        (u.whatsapp && u.whatsapp.includes(s)) ||
+        u.plan.includes(s);
+      if (!matches) return false;
+    }
+    if (userPlanFilter === 'free' && u.plan !== 'free') return false;
+    if (userPlanFilter === 'pro' && u.plan !== 'premium') return false;
+    if (userOnboardingFilter === 'completado' && !u.onboarding_completado) return false;
+    if (userOnboardingFilter === 'pendiente' && u.onboarding_completado) return false;
+    if (userGmailFilter === 'conectado' && !u.tiene_gmail) return false;
+    if (userGmailFilter === 'no conectado' && u.tiene_gmail) return false;
+    if (userWebappFilter === 'conectado' && !u.tiene_webapp) return false;
+    if (userWebappFilter === 'no conectado' && u.tiene_webapp) return false;
+    return true;
   });
+
+  // CSV export handler
+  const handleExportCSV = () => {
+    const headers = ['nombre', 'email', 'whatsapp', 'plan', 'estado_pago', 'tiene_gmail', 'tiene_webapp', 'transacciones', 'created_at'];
+    const rows = filteredUsers.map((u) => [
+      u.nombre || '',
+      u.email || '',
+      u.whatsapp,
+      u.plan,
+      u.estado_pago || '',
+      u.tiene_gmail ? 'si' : 'no',
+      u.tiene_webapp ? 'si' : 'no',
+      String(u.transacciones),
+      u.created_at,
+    ]);
+    const csv = [headers.join(','), ...rows.map((r) => r.map((v) => `"${v.replace(/"/g, '""')}"`).join(','))].join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `neto-usuarios-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Ticket reply handler
+  const handleTicketReply = async (ticketId: string) => {
+    if (!replyText.trim()) return;
+    setReplyBusy(true);
+    const res = await fetch('/api/admin/tickets', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: ticketId, action: 'respond', respuesta: replyText.trim() }),
+    });
+    if (res.ok) {
+      setToast('Respuesta enviada');
+      setReplyingTo(null);
+      setReplyText('');
+      fetchTickets();
+    } else {
+      setToast('Error al responder');
+    }
+    setReplyBusy(false);
+  };
+
+  const handleTicketEstado = async (ticketId: string, estado: string) => {
+    const res = await fetch('/api/admin/tickets', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: ticketId, action: 'set_estado', estado }),
+    });
+    if (res.ok) {
+      setToast(`Estado cambiado a ${estado}`);
+      fetchTickets();
+    } else {
+      setToast('Error al cambiar estado');
+    }
+  };
 
   const totalPro = users.filter((u) => u.plan === 'premium').length;
   const totalGmail = users.filter((u) => u.tiene_gmail).length;
@@ -408,19 +517,86 @@ export default function AdminPage() {
           >
             NLP Errors ({nlpTotal})
           </button>
+          <button
+            onClick={() => setTab('tickets')}
+            className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+              tab === 'tickets'
+                ? 'bg-[#1D9E75]/20 text-[#1D9E75]'
+                : 'text-[#F0EFE8]/50 hover:text-[#F0EFE8]'
+            }`}
+          >
+            Tickets ({tickets.filter((t) => t.estado === 'pendiente' || t.estado === 'esperando_mensaje').length})
+          </button>
         </div>
 
         {/* Users Tab */}
         {tab === 'users' && (
           <>
-            <div className="mb-4">
-              <input
-                type="text"
-                placeholder="Buscar por nombre, email o WhatsApp..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full max-w-md rounded-lg border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-[#F0EFE8] placeholder-[#F0EFE8]/30 outline-none focus:border-[#1D9E75]/50"
-              />
+            <div className="mb-4 space-y-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <input
+                  type="text"
+                  placeholder="Buscar por nombre, email o WhatsApp..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full max-w-md rounded-lg border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-[#F0EFE8] placeholder-[#F0EFE8]/30 outline-none focus:border-[#1D9E75]/50"
+                />
+                <button
+                  onClick={handleExportCSV}
+                  className="rounded-lg border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-[#F0EFE8]/70 hover:bg-white/5 hover:text-[#F0EFE8] transition-colors"
+                >
+                  Exportar CSV
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <select
+                  value={userPlanFilter}
+                  onChange={(e) => setUserPlanFilter(e.target.value)}
+                  className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-[#F0EFE8] outline-none focus:border-[#1D9E75]/50"
+                >
+                  <option value="todos" className="bg-[#1A1A18]">Plan: Todos</option>
+                  <option value="free" className="bg-[#1A1A18]">Free</option>
+                  <option value="pro" className="bg-[#1A1A18]">Pro</option>
+                </select>
+                <select
+                  value={userOnboardingFilter}
+                  onChange={(e) => setUserOnboardingFilter(e.target.value)}
+                  className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-[#F0EFE8] outline-none focus:border-[#1D9E75]/50"
+                >
+                  <option value="todos" className="bg-[#1A1A18]">Onboarding: Todos</option>
+                  <option value="completado" className="bg-[#1A1A18]">Completado</option>
+                  <option value="pendiente" className="bg-[#1A1A18]">Pendiente</option>
+                </select>
+                <select
+                  value={userGmailFilter}
+                  onChange={(e) => setUserGmailFilter(e.target.value)}
+                  className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-[#F0EFE8] outline-none focus:border-[#1D9E75]/50"
+                >
+                  <option value="todos" className="bg-[#1A1A18]">Gmail: Todos</option>
+                  <option value="conectado" className="bg-[#1A1A18]">Conectado</option>
+                  <option value="no conectado" className="bg-[#1A1A18]">No conectado</option>
+                </select>
+                <select
+                  value={userWebappFilter}
+                  onChange={(e) => setUserWebappFilter(e.target.value)}
+                  className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-[#F0EFE8] outline-none focus:border-[#1D9E75]/50"
+                >
+                  <option value="todos" className="bg-[#1A1A18]">Webapp: Todos</option>
+                  <option value="conectado" className="bg-[#1A1A18]">Conectado</option>
+                  <option value="no conectado" className="bg-[#1A1A18]">No conectado</option>
+                </select>
+                {(userPlanFilter !== 'todos' || userOnboardingFilter !== 'todos' || userGmailFilter !== 'todos' || userWebappFilter !== 'todos') && (
+                  <button
+                    onClick={() => { setUserPlanFilter('todos'); setUserOnboardingFilter('todos'); setUserGmailFilter('todos'); setUserWebappFilter('todos'); }}
+                    className="rounded-lg border border-white/10 px-3 py-2 text-xs text-[#F0EFE8]/50 hover:bg-white/5 hover:text-[#F0EFE8]"
+                  >
+                    Limpiar filtros
+                  </button>
+                )}
+              </div>
+              <div className="text-xs text-[#F0EFE8]/40">
+                {filteredUsers.length} de {users.length} usuarios
+              </div>
             </div>
 
             {/* Desktop table */}
@@ -681,6 +857,246 @@ export default function AdminPage() {
                     </div>
                   </div>
                 ))
+              )}
+            </div>
+          );
+        })()}
+
+        {/* Tickets Tab */}
+        {tab === 'tickets' && (() => {
+          const ticketsPendientes = tickets.filter((t) => t.estado === 'pendiente' || t.estado === 'esperando_mensaje').length;
+          const totalPages = Math.ceil(ticketsTotal / 50);
+
+          const estadoBadge = (estado: string) => {
+            const styles: Record<string, string> = {
+              esperando_mensaje: 'bg-yellow-500/10 text-yellow-400',
+              pendiente: 'bg-orange-500/10 text-orange-400',
+              respondido: 'bg-[#1D9E75]/10 text-[#1D9E75]',
+              cerrado: 'bg-white/5 text-[#F0EFE8]/40',
+            };
+            const labels: Record<string, string> = {
+              esperando_mensaje: 'Esperando',
+              pendiente: 'Pendiente',
+              respondido: 'Respondido',
+              cerrado: 'Cerrado',
+            };
+            return (
+              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${styles[estado] || 'bg-white/5 text-[#F0EFE8]/40'}`}>
+                {labels[estado] || estado}
+              </span>
+            );
+          };
+
+          // Map whatsapp to user name
+          const whatsappToName: Record<string, string> = {};
+          for (const u of users) {
+            if (u.whatsapp) whatsappToName[u.whatsapp] = u.nombre || u.whatsapp;
+          }
+
+          return (
+            <div className="space-y-4">
+              {/* Filters */}
+              <div className="flex flex-wrap gap-3">
+                <input
+                  type="text"
+                  placeholder="Buscar en mensajes o WhatsApp..."
+                  value={ticketSearch}
+                  onChange={(e) => { setTicketSearch(e.target.value); setTicketPage(0); }}
+                  className="w-full max-w-xs rounded-lg border border-white/10 bg-white/[0.03] px-4 py-2 text-sm text-[#F0EFE8] placeholder-[#F0EFE8]/30 outline-none focus:border-[#1D9E75]/50"
+                />
+                <select
+                  value={ticketEstadoFilter}
+                  onChange={(e) => { setTicketEstadoFilter(e.target.value); setTicketPage(0); }}
+                  className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-[#F0EFE8] outline-none focus:border-[#1D9E75]/50"
+                >
+                  <option value="todos" className="bg-[#1A1A18]">Todos los estados</option>
+                  <option value="esperando_mensaje" className="bg-[#1A1A18]">Esperando mensaje</option>
+                  <option value="pendiente" className="bg-[#1A1A18]">Pendiente</option>
+                  <option value="respondido" className="bg-[#1A1A18]">Respondido</option>
+                  <option value="cerrado" className="bg-[#1A1A18]">Cerrado</option>
+                </select>
+                {(ticketSearch || ticketEstadoFilter !== 'todos') && (
+                  <button
+                    onClick={() => { setTicketSearch(''); setTicketEstadoFilter('todos'); setTicketPage(0); }}
+                    className="rounded-lg border border-white/10 px-3 py-2 text-xs text-[#F0EFE8]/50 hover:bg-white/5 hover:text-[#F0EFE8]"
+                  >
+                    Limpiar filtros
+                  </button>
+                )}
+              </div>
+
+              {/* Count */}
+              <div className="text-xs text-[#F0EFE8]/40">
+                {ticketsTotal} tickets total{ticketsPendientes > 0 && ` (${ticketsPendientes} pendientes)`}
+              </div>
+
+              {/* Tickets list */}
+              {tickets.length === 0 ? (
+                <div className="rounded-xl border border-white/5 bg-white/[0.02] p-8 text-center text-[#F0EFE8]/40">
+                  No hay tickets de soporte.
+                </div>
+              ) : (
+                <>
+                  {/* Desktop table */}
+                  <div className="hidden overflow-x-auto rounded-xl border border-white/5 md:block">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-white/5 bg-white/[0.02]">
+                          <th className="px-4 py-3 text-left text-xs font-medium text-[#F0EFE8]/40">Usuario</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-[#F0EFE8]/40">WhatsApp</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-[#F0EFE8]/40">Mensaje</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-[#F0EFE8]/40">Estado</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-[#F0EFE8]/40">Fecha</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-[#F0EFE8]/40">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/5">
+                        {tickets.map((t) => (
+                          <tr key={t.id} className="hover:bg-white/[0.02] transition-colors">
+                            <td className="px-4 py-3 text-sm">
+                              {t.whatsapp ? (whatsappToName[t.whatsapp] || 'Sin nombre') : '\u2014'}
+                            </td>
+                            <td className="px-4 py-3 font-mono text-xs">{t.whatsapp || '\u2014'}</td>
+                            <td className="max-w-xs px-4 py-3">
+                              <div className="truncate text-sm">{t.mensaje}</div>
+                              {t.respuesta_admin && (
+                                <div className="mt-1 truncate text-xs text-[#1D9E75]/70">
+                                  Respuesta: {t.respuesta_admin}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-4 py-3">{estadoBadge(t.estado)}</td>
+                            <td className="px-4 py-3 text-xs text-[#F0EFE8]/40 whitespace-nowrap">
+                              {formatDateTime(t.created_at)}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                {t.estado !== 'cerrado' && (
+                                  <button
+                                    onClick={() => { setReplyingTo(replyingTo === t.id ? null : t.id); setReplyText(''); }}
+                                    className="rounded-md px-2 py-1 text-xs text-[#1D9E75] hover:bg-[#1D9E75]/10 transition-colors"
+                                  >
+                                    Responder
+                                  </button>
+                                )}
+                                {t.estado !== 'cerrado' && (
+                                  <button
+                                    onClick={() => handleTicketEstado(t.id, 'cerrado')}
+                                    className="rounded-md px-2 py-1 text-xs text-[#F0EFE8]/40 hover:bg-white/5 transition-colors"
+                                  >
+                                    Cerrar
+                                  </button>
+                                )}
+                              </div>
+                              {replyingTo === t.id && (
+                                <div className="mt-2 flex gap-2">
+                                  <input
+                                    type="text"
+                                    value={replyText}
+                                    onChange={(e) => setReplyText(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') handleTicketReply(t.id); }}
+                                    placeholder="Escribir respuesta..."
+                                    className="flex-1 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-[#F0EFE8] placeholder-[#F0EFE8]/30 outline-none focus:border-[#1D9E75]/50"
+                                    autoFocus
+                                  />
+                                  <button
+                                    onClick={() => handleTicketReply(t.id)}
+                                    disabled={replyBusy || !replyText.trim()}
+                                    className="rounded-lg bg-[#1D9E75] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#1D9E75]/80 disabled:opacity-50 transition-colors"
+                                  >
+                                    {replyBusy ? '...' : 'Enviar'}
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Mobile cards */}
+                  <div className="space-y-3 md:hidden">
+                    {tickets.map((t) => (
+                      <div key={t.id} className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="text-sm font-medium">{t.whatsapp ? (whatsappToName[t.whatsapp] || t.whatsapp) : 'Sin usuario'}</div>
+                            <div className="mt-1 text-sm text-[#F0EFE8]/70">{t.mensaje}</div>
+                            {t.respuesta_admin && (
+                              <div className="mt-1 text-xs text-[#1D9E75]/70">Respuesta: {t.respuesta_admin}</div>
+                            )}
+                          </div>
+                          <div className="ml-2">{estadoBadge(t.estado)}</div>
+                        </div>
+                        <div className="mt-2 flex items-center justify-between text-xs text-[#F0EFE8]/30">
+                          <span>{formatDateTime(t.created_at)}</span>
+                          <div className="flex gap-2">
+                            {t.estado !== 'cerrado' && (
+                              <button
+                                onClick={() => { setReplyingTo(replyingTo === t.id ? null : t.id); setReplyText(''); }}
+                                className="text-[#1D9E75] hover:text-[#1D9E75]/80"
+                              >
+                                Responder
+                              </button>
+                            )}
+                            {t.estado !== 'cerrado' && (
+                              <button
+                                onClick={() => handleTicketEstado(t.id, 'cerrado')}
+                                className="text-[#F0EFE8]/40 hover:text-[#F0EFE8]"
+                              >
+                                Cerrar
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        {replyingTo === t.id && (
+                          <div className="mt-2 flex gap-2">
+                            <input
+                              type="text"
+                              value={replyText}
+                              onChange={(e) => setReplyText(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === 'Enter') handleTicketReply(t.id); }}
+                              placeholder="Escribir respuesta..."
+                              className="flex-1 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-[#F0EFE8] placeholder-[#F0EFE8]/30 outline-none focus:border-[#1D9E75]/50"
+                              autoFocus
+                            />
+                            <button
+                              onClick={() => handleTicketReply(t.id)}
+                              disabled={replyBusy || !replyText.trim()}
+                              className="rounded-lg bg-[#1D9E75] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#1D9E75]/80 disabled:opacity-50"
+                            >
+                              {replyBusy ? '...' : 'Enviar'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Pagination */}
+                  {totalPages > 1 && (
+                    <div className="flex items-center justify-center gap-2 pt-2">
+                      <button
+                        onClick={() => setTicketPage(Math.max(0, ticketPage - 1))}
+                        disabled={ticketPage === 0}
+                        className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-[#F0EFE8]/50 hover:bg-white/5 disabled:opacity-30"
+                      >
+                        Anterior
+                      </button>
+                      <span className="text-xs text-[#F0EFE8]/40">
+                        Pagina {ticketPage + 1} de {totalPages}
+                      </span>
+                      <button
+                        onClick={() => setTicketPage(Math.min(totalPages - 1, ticketPage + 1))}
+                        disabled={ticketPage >= totalPages - 1}
+                        className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-[#F0EFE8]/50 hover:bg-white/5 disabled:opacity-30"
+                      >
+                        Siguiente
+                      </button>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           );

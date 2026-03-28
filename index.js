@@ -857,6 +857,49 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
       return;
     }
 
+    // Paso 100: Recoger nombre del usuario
+    if (usuario.onboarding_paso === 100 && !cmd.startsWith('/')) {
+      const nombreInput = msg.trim();
+      if (nombreInput.length < 2 || nombreInput.length > 50 || /^\d+$/.test(nombreInput)) {
+        respuesta = 'Dime tu nombre real. Ej: _"María"_ o _"Juan Carlos"_.';
+        await enviarWhatsapp(from, respuesta);
+        return;
+      }
+      const nombreLimpio = nombreInput.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+      await supabase.from('usuarios').update({ nombre: nombreLimpio, onboarding_paso: 101 }).eq('id', usuario.id);
+      respuesta = '¡Mucho gusto, *' + nombreLimpio + '*! 🤝\n\n¿Cuál es tu correo electrónico?\n\n_Lo usaremos solo para contactarte si necesitas soporte._';
+      await enviarWhatsapp(from, respuesta);
+      return;
+    }
+
+    // Paso 101: Recoger email del usuario
+    if (usuario.onboarding_paso === 101 && !cmd.startsWith('/')) {
+      const emailInput = msg.trim().toLowerCase();
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(emailInput)) {
+        respuesta = 'Eso no parece un correo válido. Escribe tu email, ej: _"juan@gmail.com"_.';
+        await enviarWhatsapp(from, respuesta);
+        return;
+      }
+      await supabase.from('usuarios').update({ email: emailInput, onboarding_paso: 1 }).eq('id', usuario.id);
+      const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : '';
+      respuesta = '📧 ¡Perfecto' + (primerNombre ? ', ' + primerNombre : '') + '!\n\nAhora, elige tu plan:\n\n' +
+        '📊 *¿Qué hace Neto?*\n' +
+        '• Te dice en qué gastas tu plata por WhatsApp\n' +
+        '• Dashboard con gráficos, metas y reportes\n' +
+        '• Funciona con BCP, BBVA, Interbank, Yape, Plin y más\n\n' +
+        '🆓 *Plan Free* — S/0\n' +
+        '• Registra gastos manual o por foto\n' +
+        '• 3 presupuestos, 1 meta de ahorro\n' +
+        '• Dashboard del mes actual\n\n' +
+        '⭐ *Plan Pro* — S/10/mes\n' +
+        '• Lectura automática de correos bancarios\n' +
+        '• Todo ilimitado + reportes PDF\n\n' +
+        'Escribe *free* para empezar gratis o *pro* para activar Pro.';
+      await enviarWhatsapp(from, respuesta);
+      return;
+    }
+
     // Paso 1: Usuario confirma interés → enviar datos de pago
     if (usuario.onboarding_paso === 1 && !cmd.startsWith('/')) {
       const resp1 = cmd.trim().toLowerCase();
@@ -962,20 +1005,28 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
       var tieneGmail = !!usuario.gmail_access_token;
       var primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
       if (!tieneGmail && !usuario.onboarding_completado) {
-        await supabase.from('usuarios').update({ onboarding_paso: 1 }).eq('id', usuario.id);
-        respuesta = '👋 Hola' + (primerNombre ? ', ' + primerNombre : '') + '. Soy *NETO*, tu asistente financiero.\n\n' +
-          '📊 *¿Qué hace Neto?*\n' +
-          '• Te dice en qué gastas tu plata por WhatsApp\n' +
-          '• Dashboard con gráficos, metas y reportes\n' +
-          '• Funciona con BCP, BBVA, Interbank, Yape, Plin y más\n\n' +
-          '🆓 *Plan Free* — S/0\n' +
-          '• Registra gastos manual o por foto\n' +
-          '• 3 presupuestos, 1 meta de ahorro\n' +
-          '• Dashboard del mes actual\n\n' +
-          '⭐ *Plan Pro* — S/10/mes\n' +
-          '• Lectura automática de correos bancarios\n' +
-          '• Todo ilimitado + reportes PDF\n\n' +
-          'Escribe *free* para empezar gratis o *pro* para activar Pro.';
+        if (!usuario.nombre) {
+          // First ask for name
+          await supabase.from('usuarios').update({ onboarding_paso: 100 }).eq('id', usuario.id);
+          respuesta = '👋 ¡Hola! Soy *NETO*, tu asistente financiero por WhatsApp.\n\n' +
+            'Antes de empezar, ¿cómo te llamas?';
+        } else {
+          // Already has name, go to Free/Pro selection
+          await supabase.from('usuarios').update({ onboarding_paso: 1 }).eq('id', usuario.id);
+          respuesta = '👋 Hola, ' + usuario.nombre.split(' ')[0] + '. Soy *NETO*, tu asistente financiero.\n\n' +
+            '📊 *¿Qué hace Neto?*\n' +
+            '• Te dice en qué gastas tu plata por WhatsApp\n' +
+            '• Dashboard con gráficos, metas y reportes\n' +
+            '• Funciona con BCP, BBVA, Interbank, Yape, Plin y más\n\n' +
+            '🆓 *Plan Free* — S/0\n' +
+            '• Registra gastos manual o por foto\n' +
+            '• 3 presupuestos, 1 meta de ahorro\n' +
+            '• Dashboard del mes actual\n\n' +
+            '⭐ *Plan Pro* — S/10/mes\n' +
+            '• Lectura automática de correos bancarios\n' +
+            '• Todo ilimitado + reportes PDF\n\n' +
+            'Escribe *free* para empezar gratis o *pro* para activar Pro.';
+        }
       } else if (!tieneGmail && usuario.onboarding_completado) {
         // Usuario en modo manual — saludo normal
         var gastosMesHola = await obtenerGastosMes(usuario.id);
@@ -1001,7 +1052,8 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
       await supabase.from('usuarios').update({ plan: 'free', onboarding_paso: 0, onboarding_completado: true }).eq('id', usuario.id);
       respuesta = '✍️ *Modo Free activado*\n\nRegistra gastos así:\n📝 _"gasté 50 en taxi"_\n📸 Envía una foto de Yape o Plin\n\n📊 *Tu dashboard:* app.neto.pe\n\n¿Por dónde empezamos?';
     } else if (esUsuarioNuevo && !cmd.startsWith('/')) {
-      respuesta = '👋 Hola. Soy *NETO*, tu asistente financiero.\n\nEscribe *hola* para empezar.';
+      await supabase.from('usuarios').update({ onboarding_paso: 100 }).eq('id', usuario.id);
+      respuesta = '👋 ¡Hola! Soy *NETO*, tu asistente financiero.\n\nPara empezar, ¿cómo te llamas?';
     } else if (cmd === '/silenciar') {
       await supabase.from('usuarios').update({ recordatorios_activos: false }).eq('id', usuario.id);
       respuesta = '🔇 Recordatorios desactivados. Escribe */recordar* para reactivarlos.';
@@ -3434,6 +3486,47 @@ async function checkAlertasProactivas() {
   } catch (e) { log.error({ tag: 'ALERTA_PROACTIVA', err: e.message }, 'Error alertas proactivas'); }
 }
 
+async function checkRecordatorioOnboarding() {
+  const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
+  // Solo entre 9am y 9pm Lima
+  if (horaLima.getHours() < 9 || horaLima.getHours() >= 21) return;
+  try {
+    // Usuarios que se registraron hace 3-6 horas y no completaron onboarding
+    const hace6h = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
+    const hace3h = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+    const { data: usuarios } = await supabase.from('usuarios').select('id, whatsapp, nombre, onboarding_paso, onboarding_completado')
+      .or('onboarding_completado.is.null,onboarding_completado.eq.false')
+      .gte('created_at', hace6h)
+      .lte('created_at', hace3h)
+      .in('onboarding_paso', [0, 100, 101]);
+    if (!usuarios || usuarios.length === 0) return;
+    for (const u of usuarios) {
+      try {
+        const primerNombre = u.nombre ? u.nombre.split(' ')[0] : null;
+        let nudge = '';
+        if (u.onboarding_paso === 0 || u.onboarding_paso === 100) {
+          // No dio su nombre aún
+          nudge = '👋 ' + (primerNombre ? primerNombre + ', t' : 'T') + 'e faltó completar tu registro en Neto.\n\n' +
+            '¿Cómo te llamas? Escríbeme tu nombre y empezamos. 😊\n\n' +
+            '_Solo toma 1 minuto._';
+        } else if (u.onboarding_paso === 101) {
+          // Dio nombre pero no email
+          nudge = '👋 ' + (primerNombre || 'Hola') + ', te faltó tu correo para completar el registro.\n\n' +
+            '¿Cuál es tu email? Ej: _"juan@gmail.com"_\n\n' +
+            '_Es el último paso, prometido._';
+        }
+        if (nudge) {
+          await enviarWhatsapp(u.whatsapp, nudge);
+          // Mover a paso 100 o mantener en 101 para que al responder continúe el flujo
+          if (u.onboarding_paso === 0) {
+            await supabase.from('usuarios').update({ onboarding_paso: 100 }).eq('id', u.id);
+          }
+        }
+      } catch(e) { /* silencioso por usuario */ }
+    }
+  } catch(e) { log.error({ tag: 'ONBOARDING_REMINDER', err: e.message }, 'Error recordatorio onboarding'); }
+}
+
 // Middleware centralizado de errores (debe estar después de todas las rutas)
 app.use((err, req, res, next) => {
   log.error({ tag: 'EXPRESS', err: err.message, stack: err.stack, path: req.path, method: req.method }, 'Error no manejado');
@@ -3466,6 +3559,8 @@ if (require.main === module) {
         log.info({ tag: 'RECORDATORIO' }, 'Recordatorios diarios activos (8pm Lima)');
         setInterval(checkAlertasProactivas, 15 * 60 * 1000);
         log.info({ tag: 'ALERTAS' }, 'Alertas proactivas activas (miércoles 10am Lima)');
+        setInterval(checkRecordatorioOnboarding, 15 * 60 * 1000);
+        log.info({ tag: 'ONBOARDING' }, 'Recordatorio onboarding activo (3h después de registro, 9am-9pm Lima)');
         setTimeout(runBackup, 60000); // primer backup 1 min después de arrancar
         setInterval(runBackup, 7 * 24 * 60 * 60 * 1000); // backup semanal
         log.info({ tag: 'BACKUP' }, 'Backup semanal activo');
