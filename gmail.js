@@ -13,6 +13,7 @@ const oauth2Client = new google.auth.OAuth2(
 
 const REMITENTES_BANCARIOS = [
   'notificaciones@yape.pe', 'alertas@bcp.com.pe', 'notificaciones@bcp.com.pe',
+  'notificaciones@notificacionesbcp.com.pe',
   'alertas@interbank.pe', 'notificaciones@interbank.pe', 'alertas@bbva.pe',
   'notificaciones@bbva.pe', 'notificaciones.tarjetas@scotiabank.pe',
   'alertas@scotiabank.pe', 'notificaciones@plin.pe', 'noreply@tunki.pe',
@@ -54,6 +55,7 @@ const SUBJECTS_BANCARIOS = [
   'tarjeta de debito bcp',
   'retiro de efectivo',
   'pago de servicio',
+  'constancia de pago',
   'servicio de notificaciones bcp',
   'alerta de movimiento',
   'movimiento en tu cuenta',
@@ -245,6 +247,7 @@ async function leerCorreosDesdeCuenta(authClient, cuentaEmail) {
     '"Tarjeta de Debito BCP"',
     '"yapaste"',
     '"pago realizado" (BCP OR BBVA OR Interbank OR Scotiabank)',
+    '"CONSTANCIA DE PAGO" BCP',
     '"transferencia realizada"',
     '"abono en tu cuenta"',
     '"cargo en tu cuenta"',
