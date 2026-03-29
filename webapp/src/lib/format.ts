@@ -58,7 +58,14 @@ export function normalizeMetodoPago(metodo: string | null | undefined, banco?: s
   if (normalized) baseType = normalized;
 
   // Re-compose: "BCP Crédito" format (bank first)
+  // Yape/Plin are wallets — never prefix with bank name
+  const isWallet = /^(Yape|Plin)$/i.test(baseType);
   const isGenericBase = /^(Crédito|Débito|Yape|Plin|Transferencia|Efectivo)$/i.test(baseType);
+
+  if (isWallet) {
+    return baseType;
+  }
+
   if (isGenericBase && extractedBank) {
     return `${extractedBank} ${baseType}`;
   }

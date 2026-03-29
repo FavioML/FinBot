@@ -24,7 +24,9 @@ import { CATEGORIAS } from '@/lib/constants';
 import { capitalizeDisplay } from '@/lib/format';
 import type { Transaccion } from '@/lib/types';
 
-const METODOS_PAGO = ['Debito', 'Credito', 'Yape', 'Plin', 'Efectivo'];
+const METODOS_PAGO = ['Debito', 'Credito', 'Yape', 'Plin', 'Transferencia', 'Efectivo'];
+const BANCOS = ['BCP', 'BBVA', 'Interbank', 'Scotiabank', 'Falabella', 'Ripley', 'BanBif', 'Mibanco'];
+const METODOS_CON_BANCO = ['Debito', 'Credito', 'Transferencia'];
 
 interface CatOption {
   nombre: string;
@@ -49,6 +51,7 @@ interface FormData {
   fecha: string;
   moneda: string;
   metodo_pago: string;
+  banco: string;
 }
 
 function getDefaultForm(tipo: 'gasto' | 'ingreso'): FormData {
@@ -61,6 +64,7 @@ function getDefaultForm(tipo: 'gasto' | 'ingreso'): FormData {
     fecha: today,
     moneda: 'PEN',
     metodo_pago: 'Debito',
+    banco: '',
   };
 }
 
@@ -146,6 +150,7 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
           fecha: transaction.fecha,
           moneda: transaction.moneda,
           metodo_pago: transaction.metodo_pago || 'Debito',
+          banco: transaction.banco || '',
         });
         setUsingCustomCategoria(!isKnownCat);
         setCustomCategoria(isKnownCat ? '' : transaction.categoria);
@@ -176,6 +181,10 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
         }
         setUsingCustomSubcategoria(false);
         setCustomSubcategoria('');
+      }
+      // Clear banco when switching to a method that doesn't need it
+      if (field === 'metodo_pago' && !METODOS_CON_BANCO.includes(value)) {
+        next.banco = '';
       }
       if (field === 'subcategoria') {
         if (value === CUSTOM_OPTION) {
@@ -208,6 +217,7 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
       fecha: form.fecha,
       moneda: form.moneda,
       metodo_pago: form.metodo_pago,
+      banco: METODOS_CON_BANCO.includes(form.metodo_pago) ? form.banco || null : null,
     };
 
     try {
@@ -374,19 +384,21 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
             </div>
           </div>
 
-          {/* Fecha + Metodo pago */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {/* Fecha */}
+          <div>
+            <label className="text-xs text-[#8A877D] mb-1 block">Fecha</label>
+            <Input
+              type="date"
+              value={form.fecha}
+              onChange={(e) => handleChange('fecha', e.target.value)}
+              className={inputClasses}
+            />
+          </div>
+
+          {/* Metodo pago + Banco */}
+          <div className={`grid gap-2 ${METODOS_CON_BANCO.includes(form.metodo_pago) ? 'grid-cols-2' : 'grid-cols-1'}`}>
             <div>
-              <label className="text-xs text-[#8A877D] mb-1 block">Fecha</label>
-              <Input
-                type="date"
-                value={form.fecha}
-                onChange={(e) => handleChange('fecha', e.target.value)}
-                className={inputClasses}
-              />
-            </div>
-            <div>
-              <label className="text-xs text-[#8A877D] mb-1 block">Metodo de pago</label>
+              <label className="text-xs text-[#8A877D] mb-1 block">Método de pago</label>
               <Select value={form.metodo_pago} onValueChange={(v) => handleChange('metodo_pago', v as string)}>
                 <SelectTrigger className={selectTriggerClasses}>
                   <SelectValue />
@@ -400,6 +412,23 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
                 </SelectContent>
               </Select>
             </div>
+            {METODOS_CON_BANCO.includes(form.metodo_pago) && (
+              <div>
+                <label className="text-xs text-[#8A877D] mb-1 block">Banco</label>
+                <Select value={form.banco} onValueChange={(v) => handleChange('banco', v as string)}>
+                  <SelectTrigger className={selectTriggerClasses}>
+                    <SelectValue placeholder="Seleccionar" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {BANCOS.map((b) => (
+                      <SelectItem key={b} value={b}>
+                        {b}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
         </div>
 
