@@ -1907,6 +1907,10 @@ async function procesarMensajeLibre(msg, usuario, from) {
     if (/\b(qu[eé] plan tengo|soy free|soy pro|cu[aá]ndo vence|estado de mi (cuenta|suscripci)|mi perfil)\b/i.test(msg)) {
       intencion = 'estado_cuenta';
     }
+    // "gastos hormiga" / "calcular mis gastos hormiga" → gastos_hormiga
+    if (/gastos?\s+hormiga/i.test(msg)) {
+      intencion = 'gastos_hormiga';
+    }
     log.info({ tag: 'NLP', intencion, datos }, 'Intención clasificada');
 
     switch (intencion) {
@@ -3081,9 +3085,48 @@ async function procesarMensajeLibre(msg, usuario, from) {
       }
 
       case 'como_empezar': {
-        const ctxEmpezar = 'El usuario es nuevo o quiere saber cómo empezar. Guíalo paso a paso de forma amigable: 1) Conectar su Gmail para lectura automática de correos bancarios, 2) También puede registrar gastos manualmente ("gasté 50 en taxi"), enviar fotos de comprobantes Yape/Plin, o cargar un Excel, 3) Ver su resumen con "mis gastos del mes" o entrar a https://app.neto.pe. Máximo 8 líneas, tono motivador.';
+        const ctxEmpezar = 'El usuario es nuevo o quiere saber cómo empezar. Guíalo paso a paso de forma amigable: 1) Registrar gastos manualmente ("gasté 50 en taxi"), enviar fotos de comprobantes Yape/Plin, o cargar un Excel, 2) Ver su resumen con "mis gastos del mes" o entrar a https://app.neto.pe, 3) Menciona que con el Plan Pro (S/10/mes) puede conectar su Gmail y Neto lee sus correos bancarios automáticamente. Máximo 8 líneas, tono motivador.';
         const respEmpezar = await redactarConNETO(netoPrompt, ctxEmpezar, msg, historialConv);
-        return respEmpezar || '¡Bienvenido a Neto! 🎉\n\n*3 pasos para empezar:*\n\n1️⃣ Conecta tu Gmail → escribe _"conectar gmail"_\n2️⃣ Registra un gasto → _"gasté 50 en taxi"_\n3️⃣ Ve tu resumen → _"mis gastos del mes"_\n\n📊 También puedes ver todo en https://app.neto.pe\n\n_¿Por dónde empezamos?_';
+        return respEmpezar || '¡Bienvenido a Neto! 🎉\n\n*3 pasos para empezar:*\n\n1️⃣ Registra un gasto → _"gasté 50 en taxi"_\n2️⃣ Envía una foto Yape/Plin 📸\n3️⃣ Ve tu resumen → _"mis gastos del mes"_\n\n📊 Dashboard: https://app.neto.pe\n⭐ *Pro (S/10/mes):* Neto lee tus correos bancarios automáticamente\n\n_¿Empezamos? Dime tu primer gasto._';
+      }
+
+      case 'gastos_hormiga': {
+        // Buscar gastos pequeños (≤S/20) del mes actual
+        const hoyGH = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
+        const mesInicioGH = hoyGH.getFullYear() + '-' + String(hoyGH.getMonth() + 1).padStart(2, '0') + '-01';
+        const { data: gastosGH } = await supabase.from('transacciones').select('monto, monto_pen, comercio, categoria')
+          .eq('usuario_id', usuario.id).eq('tipo', 'gasto')
+          .gte('fecha', mesInicioGH).lte('monto', 20).order('fecha', { ascending: false });
+
+        if (!gastosGH || gastosGH.length < 3) {
+          // Usuario nuevo o con pocos datos → guiarlo a registrar
+          return '🐜 *¡Buena decisión! Los gastos hormiga son los que más duelen.*\n\n' +
+            'Son esos gastos chiquitos (café, delivery, taxi, snacks) que parecen nada pero suman S/200-400 al mes.\n\n' +
+            'Para calcular los tuyos necesito que registres tus gastos:\n\n' +
+            '1️⃣ *Registra manual* → _"gasté 8 en café"_\n' +
+            '2️⃣ *Envía foto* de tu comprobante Yape/Plin\n' +
+            '3️⃣ *Plan Pro:* conecto tu Gmail y leo tus notificaciones bancarias automáticamente\n\n' +
+            'Con una semana de datos ya puedo decirte exactamente cuánto pierdes en gastos hormiga. 📊\n\n' +
+            '_¿Empezamos? Dime tu primer gasto del día._';
+        }
+
+        // Usuario con datos → mostrar análisis real
+        const totalGH = gastosGH.reduce((s, t) => s + parseFloat(t.monto_pen || t.monto), 0);
+        const porCatGH = {};
+        gastosGH.forEach(t => { const c = t.categoria || 'Otros'; porCatGH[c] = (porCatGH[c] || 0) + parseFloat(t.monto_pen || t.monto); });
+        const topCatsGH = Object.entries(porCatGH).sort((a, b) => b[1] - a[1]).slice(0, 3);
+        const proyAnualGH = (totalGH / hoyGH.getDate()) * 365;
+
+        let respGH = '🐜 *Tus gastos hormiga este mes:*\n\n';
+        respGH += '💸 *' + gastosGH.length + ' gastos* menores a S/20 = *S/ ' + totalGH.toFixed(2) + '*\n\n';
+        if (topCatsGH.length > 0) {
+          respGH += '*¿En qué se van?*\n';
+          topCatsGH.forEach(([cat, monto]) => { respGH += '• ' + cat + ': S/ ' + monto.toFixed(2) + '\n'; });
+          respGH += '\n';
+        }
+        respGH += '📈 A ese ritmo serían ~*S/ ' + proyAnualGH.toFixed(0) + ' al año* en gastos hormiga.\n\n';
+        respGH += '_Tip: Pon un presupuesto para controlarlos → "pon límite de 200 en ' + (topCatsGH[0] ? topCatsGH[0][0] : 'Delivery') + '"_';
+        return respGH;
       }
 
       case 'ver_historial_cambios': {
