@@ -924,11 +924,11 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
           onboarding_completado: true
         }).eq('id', usuario.id);
         respuesta = '🆓 *¡Bienvenido a Neto Free!*\n\n' +
-          'Ya puedes usar Neto:\n\n' +
-          '📝 Registra gastos aquí: _"gasté 50 en taxi"_\n' +
-          '📸 Envía una foto de Yape o Plin\n' +
-          '📊 Tu dashboard: *https://app.neto.pe*\n\n' +
-          '_Escribe */help* para ver todos los comandos._';
+          'Registra gastos así:\n\n' +
+          '📝 _"gasté 50 en taxi"_\n' +
+          '📸 Envía una foto de Yape o Plin\n\n' +
+          '📊 Configura tus presupuestos en tu dashboard:\nhttps://app.neto.pe/dashboard/presupuestos\n\n' +
+          '¿Por dónde empezamos?';
         await enviarWhatsapp(from, respuesta);
         return;
       }
@@ -1065,7 +1065,7 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
     } else if (cmd === '/manual') {
       // Onboarding sin Gmail — modo free
       await supabase.from('usuarios').update({ plan: 'free', onboarding_paso: 0, onboarding_completado: true }).eq('id', usuario.id);
-      respuesta = '✍️ *Modo Free activado*\n\nRegistra gastos así:\n📝 _"gasté 50 en taxi"_\n📸 Envía una foto de Yape o Plin\n\n📊 *Tu dashboard:* https://app.neto.pe\n\n¿Por dónde empezamos?';
+      respuesta = '✍️ *Modo Free activado*\n\nRegistra gastos así:\n📝 _"gasté 50 en taxi"_\n📸 Envía una foto de Yape o Plin\n\n📊 Configura tus presupuestos en tu dashboard:\nhttps://app.neto.pe/dashboard/presupuestos\n\n¿Por dónde empezamos?';
     } else if (esUsuarioNuevo && !cmd.startsWith('/')) {
       await supabase.from('usuarios').update({ onboarding_paso: 100 }).eq('id', usuario.id);
       respuesta = '👋 ¡Hola! Soy *NETO*, tu asistente financiero.\n\nPara empezar, ¿cómo te llamas?';
@@ -1180,13 +1180,12 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
           // Notificar al usuario
           await enviarWhatsapp(usuarioActivar.whatsapp,
             '\u2B50 *\u00a1Bienvenido a NETO Pro!*\n\n' +
-            'Tu pago fue confirmado. Ya tienes acceso a:\n\n' +
-            '\u2705 Reportes PDF ilimitados\n' +
-            '\u2705 Resumen semanal automatico\n' +
-            '\u2705 Categorias personalizadas\n' +
-            '\u2705 Sin restricciones\n\n' +
-            '_Gracias por confiar en NETO._ \uD83D\uDC9A\n\n' +
-            'Escribe */mes* para ver tu resumen o */reporte* para tu primer PDF ilimitado.'
+            'Tu pago fue confirmado. Ya tienes acceso completo.\n\n' +
+            'Registra gastos así:\n' +
+            '📝 _"gasté 50 en taxi"_\n' +
+            '📸 Envía una foto de Yape o Plin\n\n' +
+            '📊 Configura tus presupuestos en tu dashboard:\nhttps://app.neto.pe/dashboard/presupuestos\n\n' +
+            '¿Por dónde empezamos?'
           );
           respuesta = '\u2705 Premium activado para ' + (usuarioActivar.nombre || numeroActivar) + '\nVence: ' + vence;
         }
