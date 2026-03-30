@@ -19,6 +19,7 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  Settings2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -149,6 +150,14 @@ export default function TransaccionesPage() {
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkEditing, setBulkEditing] = useState(false);
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkEditFields, setBulkEditFields] = useState({
+    metodo_pago: '',
+    banco: '',
+    categoria: '',
+    subcategoria: '',
+  });
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -184,6 +193,50 @@ export default function TransaccionesPage() {
       setBulkDeleting(false);
     }
   };
+
+  const handleBulkEdit = async () => {
+    if (selectedIds.size === 0 || bulkEditing) return;
+    // Build updates object — only include fields the user actually set
+    const updates: Record<string, string> = {};
+    if (bulkEditFields.metodo_pago) updates.metodo_pago = bulkEditFields.metodo_pago;
+    if (bulkEditFields.banco) updates.banco = bulkEditFields.banco;
+    if (bulkEditFields.categoria) updates.categoria = bulkEditFields.categoria;
+    if (bulkEditFields.subcategoria) updates.subcategoria = bulkEditFields.subcategoria;
+
+    if (Object.keys(updates).length === 0) {
+      toast.error('Selecciona al menos un campo para editar');
+      return;
+    }
+
+    setBulkEditing(true);
+    try {
+      const res = await fetch('/api/transactions', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: Array.from(selectedIds), updates }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        toast.success(`${data.updated || selectedIds.size} transacciones actualizadas`);
+        refreshTransactions();
+        setSelectedIds(new Set());
+        setBulkEditOpen(false);
+        setBulkEditFields({ metodo_pago: '', banco: '', categoria: '', subcategoria: '' });
+      } else {
+        toast.error('Error al actualizar');
+      }
+    } catch {
+      toast.error('Error de conexion');
+    }
+    setBulkEditing(false);
+  };
+
+  // Available subcategories for selected bulk edit category
+  const bulkEditSubs = useMemo(() => {
+    if (!bulkEditFields.categoria) return [];
+    const cat = userCategorias.find((c) => c.nombre === bulkEditFields.categoria);
+    return cat?.subs || [];
+  }, [bulkEditFields.categoria, userCategorias]);
 
   // Dialogs
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -504,29 +557,135 @@ export default function TransaccionesPage() {
 
       {/* Bulk action bar */}
       {selectedIds.size > 0 && (
-        <div className="flex items-center justify-between rounded-xl bg-[rgba(216,90,48,0.08)] border border-[rgba(216,90,48,0.2)] px-4 py-2.5">
-          <span className="text-sm text-[#D85A30] font-medium">
-            {selectedIds.size} seleccionada{selectedIds.size !== 1 ? 's' : ''}
-          </span>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-[#8A877D] hover:text-[#C8C6BC]"
-              onClick={() => setSelectedIds(new Set())}
-            >
-              Cancelar
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={handleBulkDelete}
-              disabled={bulkDeleting}
-            >
-              <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-              {bulkDeleting ? 'Eliminando...' : 'Eliminar'}
-            </Button>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between rounded-xl bg-[rgba(29,158,117,0.08)] border border-[rgba(29,158,117,0.2)] px-4 py-2.5">
+            <span className="text-sm text-[#1D9E75] font-medium">
+              {selectedIds.size} seleccionada{selectedIds.size !== 1 ? 's' : ''}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-[#8A877D] hover:text-[#C8C6BC]"
+                onClick={() => { setSelectedIds(new Set()); setBulkEditOpen(false); }}
+              >
+                Cancelar
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-[rgba(29,158,117,0.3)] text-[#1D9E75] hover:bg-[rgba(29,158,117,0.1)]"
+                onClick={() => setBulkEditOpen(!bulkEditOpen)}
+              >
+                <Settings2 className="h-3.5 w-3.5 mr-1.5" />
+                Editar
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleBulkDelete}
+                disabled={bulkDeleting}
+              >
+                <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                {bulkDeleting ? 'Eliminando...' : 'Eliminar'}
+              </Button>
+            </div>
           </div>
+
+          {/* Bulk edit panel */}
+          {bulkEditOpen && (
+            <div className="glass-card p-4 space-y-3 border-[rgba(29,158,117,0.2)]">
+              <p className="text-xs text-[#8A877D]">
+                Solo se actualizan los campos que selecciones. Los demas quedan igual.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {/* Método de pago */}
+                <div className="space-y-1">
+                  <label className="text-xs text-[#8A877D]">Metodo de pago</label>
+                  <Select value={bulkEditFields.metodo_pago} onValueChange={(v) => setBulkEditFields(prev => ({ ...prev, metodo_pago: v ?? '' }))}>
+                    <SelectTrigger className="h-9 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-[#C8C6BC] text-sm">
+                      <SelectValue placeholder="Sin cambiar" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {['Debito', 'Credito', 'Yape', 'Plin', 'Transferencia', 'Efectivo'].map((m) => (
+                        <SelectItem key={m} value={m}>{m}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Banco */}
+                <div className="space-y-1">
+                  <label className="text-xs text-[#8A877D]">Banco</label>
+                  <Select value={bulkEditFields.banco} onValueChange={(v) => setBulkEditFields(prev => ({ ...prev, banco: v ?? '' }))}>
+                    <SelectTrigger className="h-9 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-[#C8C6BC] text-sm">
+                      <SelectValue placeholder="Sin cambiar" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {['BCP', 'BBVA', 'Interbank', 'Scotiabank', 'Falabella', 'Ripley', 'BanBif', 'Mibanco'].map((b) => (
+                        <SelectItem key={b} value={b}>{b}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Categoría */}
+                <div className="space-y-1">
+                  <label className="text-xs text-[#8A877D]">Categoria</label>
+                  <Select value={bulkEditFields.categoria} onValueChange={(v) => setBulkEditFields(prev => ({ ...prev, categoria: v ?? '', subcategoria: '' }))}>
+                    <SelectTrigger className="h-9 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-[#C8C6BC] text-sm">
+                      <SelectValue placeholder="Sin cambiar" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {userCategorias.map((c) => (
+                        <SelectItem key={c.nombre} value={c.nombre}>{c.emoji} {c.nombre}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Subcategoría */}
+                <div className="space-y-1">
+                  <label className="text-xs text-[#8A877D]">Subcategoria</label>
+                  <Select
+                    value={bulkEditFields.subcategoria}
+                    onValueChange={(v) => setBulkEditFields(prev => ({ ...prev, subcategoria: v ?? '' }))}
+                    disabled={!bulkEditFields.categoria || bulkEditSubs.length === 0}
+                  >
+                    <SelectTrigger className="h-9 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-[#C8C6BC] text-sm">
+                      <SelectValue placeholder={!bulkEditFields.categoria ? 'Elige categoria primero' : 'Sin cambiar'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {bulkEditSubs.map((s) => (
+                        <SelectItem key={s} value={s}>{s}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <Button
+                  size="sm"
+                  className="bg-[#1D9E75] text-white hover:bg-[#178a64]"
+                  onClick={handleBulkEdit}
+                  disabled={bulkEditing}
+                >
+                  {bulkEditing ? 'Actualizando...' : `Aplicar a ${selectedIds.size} transacciones`}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-[#8A877D]"
+                  onClick={() => {
+                    setBulkEditFields({ metodo_pago: '', banco: '', categoria: '', subcategoria: '' });
+                  }}
+                >
+                  Limpiar
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -148,6 +148,51 @@ export async function PUT(request: Request) {
   return NextResponse.json(data);
 }
 
+/* PATCH — bulk update selected fields on multiple transactions */
+export async function PATCH(request: Request) {
+  const userId = await getNetoUserId();
+  if (!userId)
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const body = await request.json();
+  const { ids, updates } = body;
+
+  if (!ids || !Array.isArray(ids) || ids.length === 0)
+    return NextResponse.json({ error: 'IDs requeridos' }, { status: 400 });
+
+  if (!updates || typeof updates !== 'object')
+    return NextResponse.json({ error: 'Campos a actualizar requeridos' }, { status: 400 });
+
+  // Only allow these fields for bulk edit
+  const allowed = ['metodo_pago', 'banco', 'categoria', 'subcategoria'];
+  const cleanUpdates: Record<string, string | null> = {};
+  for (const key of allowed) {
+    if (key in updates && updates[key] !== undefined) {
+      cleanUpdates[key] = updates[key] || null;
+    }
+  }
+
+  if (Object.keys(cleanUpdates).length === 0)
+    return NextResponse.json({ error: 'Sin campos validos' }, { status: 400 });
+
+  // Update all matching transactions owned by user
+  const { error, count } = await serviceClient
+    .from('transacciones')
+    .update(cleanUpdates)
+    .in('id', ids)
+    .eq('usuario_id', userId);
+
+  if (error)
+    return NextResponse.json({ error: error.message }, { status: 400 });
+
+  // Sync category if changed
+  if (cleanUpdates.categoria) {
+    syncCategoriasUsuario(userId, cleanUpdates.categoria, cleanUpdates.subcategoria || null).catch(() => {});
+  }
+
+  return NextResponse.json({ ok: true, updated: count ?? ids.length });
+}
+
 export async function DELETE(request: Request) {
   const userId = await getNetoUserId();
   if (!userId)
