@@ -151,7 +151,15 @@ export default function Footer() {
       <div className="border-t border-white/5">
         <div className="mx-auto max-w-[1200px] px-6 py-5 flex flex-wrap items-center justify-between gap-4">
           <p className="text-xs text-neto-txt3">
-            &copy; 2026 Neto &middot; Lima, Perú
+            &copy; 2026 Neto &middot; Lima, Perú &middot; un producto de{" "}
+            <a
+              href="https://vortik.dev"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-neto-txt transition-colors duration-200"
+            >
+              Vortik
+            </a>
           </p>
           <div className="flex gap-6">
             <a
