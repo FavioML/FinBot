@@ -42,7 +42,6 @@ const RecurringPayments = lazy(() => import('@/components/dashboard/recurring-pa
 import { TransactionForm } from '@/components/dashboard/transaction-form';
 import { GlobalSearch } from '@/components/dashboard/global-search';
 import { UserMenu } from '@/components/dashboard/user-menu';
-import { WelcomeModal } from '@/components/dashboard/welcome-modal';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
 import { useBudgets } from '@/lib/hooks/use-budgets';
@@ -840,8 +839,6 @@ export default function DashboardPage() {
         userCategorias={userCategorias}
       />
 
-      {/* First-time welcome modal */}
-      <WelcomeModal />
     </div>
   );
 }

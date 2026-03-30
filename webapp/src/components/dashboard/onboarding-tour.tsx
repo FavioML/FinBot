@@ -1,35 +1,35 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, ChevronRight, Sparkles, Search, BarChart3, MessageCircle } from 'lucide-react';
+import { X, ChevronRight, Sparkles, Target, LayoutDashboard, Receipt } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-const TOUR_KEY = 'neto_tour_completed';
+const TOUR_KEY = 'neto_tour_v2';
 
 const STEPS = [
   {
+    title: 'Registra tus gastos e ingresos',
+    description: 'Agrega transacciones aqui en la app o por WhatsApp. Neto tambien lee fotos de Yape y Plin automaticamente.',
+    icon: Receipt,
+    color: '#1D9E75',
+  },
+  {
+    title: 'Establece tus presupuestos',
+    description: 'Define limites de gasto por categoria para controlar tus finanzas. Neto te avisa cuando estes cerca del limite.',
+    icon: Target,
+    color: '#EF9F27',
+  },
+  {
     title: 'Tu score financiero',
-    description: 'Este numero refleja tu salud financiera. Mantén tus gastos bajo control para subirlo.',
+    description: 'Este numero refleja tu salud financiera. Mientras mejor controles tus gastos, mas alto sera tu score.',
     icon: Sparkles,
     color: '#1D9E75',
   },
   {
-    title: 'Busqueda rapida',
-    description: 'Presiona Ctrl+K para buscar transacciones, comercios o navegar entre paginas al instante.',
-    icon: Search,
-    color: '#EF9F27',
-  },
-  {
-    title: 'Reportes y presupuestos',
-    description: 'Establece presupuestos por categoria y descarga reportes PDF con tu analisis financiero.',
-    icon: BarChart3,
-    color: '#1D9E75',
-  },
-  {
-    title: 'WhatsApp siempre disponible',
-    description: 'Envia tus comprobantes por WhatsApp y NETO los registra automaticamente. Sin esfuerzo.',
-    icon: MessageCircle,
-    color: '#25D366',
+    title: 'Todo en tu dashboard',
+    description: 'Graficos, reportes PDF, suscripciones detectadas, calendario financiero y mas. Todo en un solo lugar.',
+    icon: LayoutDashboard,
+    color: '#378ADD',
   },
 ];
 
