@@ -510,7 +510,7 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
           messages: [{
             role: 'user',
             content: [
-              { type: 'text', text: 'Esta imagen es una captura de pantalla de una transacción financiera (Yape, Plin, banco peruano). Puede ser un GASTO (pago enviado) o un INGRESO (dinero recibido). Extrae los datos y devuelve SOLO JSON válido, sin texto extra:\n{"tipo":"gasto"|"ingreso","monto":numero,"moneda":"PEN","comercio":"nombre del destinatario (si gasto) o remitente (si ingreso)","categoria":"Alimentación|Transporte|Vivienda|Salud|Entretenimiento|Compras|Educación|Finanzas|Trabajo_Negocio|Otros","subcategoria":"descripcion breve","fecha":"YYYY-MM-DD","descripcion_original":"texto clave de la imagen"}\n\nREGLAS PARA DETECTAR TIPO:\n- GASTO: "¡Yapeaste!", "Pago exitoso", "Enviado a", "Realizaste un yapeo/plin", monto enviado\n- INGRESO: "¡Te yapearon!", "Recibiste", "Yapeo recibido", "Plin recibido", "Enviado por" (alguien te envió dinero)\n- Para ingresos: categoria="Finanzas", subcategoria="sin_categoria", comercio=nombre de quien envía\n\nFORMATOS DE APPS:\n- Yape: pantalla verde con "¡Yapeaste!" (gasto) o "¡Te yapearon!" (ingreso), monto grande, nombre del destinatario/remitente\n- Plin: pantalla con "¡Pago exitoso!" y monto en verde, datos de "Enviado a" (gasto) o "Recibido de" (ingreso), código de operación\n- Bancos (BCP, BBVA, Interbank, etc.): notificación de consumo/depósito\n\nSi la imagen NO muestra ningún pago o transacción, devuelve: {"tipo":"no_pago"}\nFecha de hoy si no se ve en la imagen: ' + hoy },
+              { type: 'text', text: 'Esta imagen es una captura de pantalla de una transacción financiera (Yape, Plin, banco peruano). Puede ser un GASTO (pago enviado) o un INGRESO (dinero recibido). Extrae los datos y devuelve SOLO JSON válido, sin texto extra:\n{"tipo":"gasto"|"ingreso","monto":numero,"moneda":"PEN","comercio":"nombre del destinatario (si gasto) o remitente (si ingreso)","categoria":"Alimentación|Transporte|Vivienda|Salud|Entretenimiento|Compras|Educación|Finanzas|Trabajo_Negocio|Otros","subcategoria":"descripcion breve","fecha":"YYYY-MM-DD","descripcion_original":"texto clave de la imagen","motivo":"nota/motivo del pago si aparece"}\n\nREGLAS PARA DETECTAR TIPO:\n- GASTO: "¡Yapeaste!", "Pago exitoso", "Enviado a", "Realizaste un yapeo/plin", monto enviado\n- INGRESO: "¡Te yapearon!", "Recibiste", "Yapeo recibido", "Plin recibido", "Enviado por" (alguien te envió dinero)\n- Para ingresos: categoria="Finanzas", subcategoria="sin_categoria", comercio=nombre de quien envía\n\nMOTIVO Y CATEGORIZACIÓN:\n- El campo "motivo" es la nota/mensaje que el usuario escribe al enviar el pago (ej: "pollo a la brasa", "almuerzo", "cumpleaños")\n- Si hay motivo, USALO para determinar la categoría y subcategoría (ej: motivo "pollo a la brasa" → Alimentación > Restaurantes)\n- Si el nombre del destinatario/comercio sugiere una categoría, úsalo también (ej: "Polleria Rokys" → Alimentación > Restaurantes, "Farmacia" → Salud)\n- El motivo tiene PRIORIDAD sobre el nombre del comercio para categorizar\n\nFORMATOS DE APPS:\n- Yape: pantalla verde con "¡Yapeaste!" (gasto) o "¡Te yapearon!" (ingreso), monto grande, nombre del destinatario/remitente, campo "Motivo" o "Nota" debajo\n- Plin: pantalla con "¡Pago exitoso!" y monto en verde, datos de "Enviado a" (gasto) o "Recibido de" (ingreso), código de operación, campo "Mensaje"\n- Bancos (BCP, BBVA, Interbank, etc.): notificación de consumo/depósito\n\nSi la imagen NO muestra ningún pago o transacción, devuelve: {"tipo":"no_pago"}\nFecha de hoy si no se ve en la imagen: ' + hoy },
               { type: 'image_url', image_url: { url: 'data:' + mimeType + ';base64,' + base64, detail: 'high' } }
             ]
           }],
@@ -865,7 +865,12 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
 
     // Paso 100: Recoger nombre del usuario
     if (usuario.onboarding_paso === 100 && !cmd.startsWith('/')) {
-      const nombreInput = msg.trim();
+      // Extraer nombre inteligentemente: "Mi nombre es Annie" → "Annie", "Soy Juan Carlos" → "Juan Carlos"
+      let nombreInput = msg.trim();
+      const nombreMatch = nombreInput.match(/(?:me llamo|mi nombre es|soy|es)\s+(.+)/i);
+      if (nombreMatch) nombreInput = nombreMatch[1].trim();
+      // Limpiar posibles puntos, comas al final
+      nombreInput = nombreInput.replace(/[.,!]+$/, '').trim();
       if (nombreInput.length < 2 || nombreInput.length > 50 || /^\d+$/.test(nombreInput)) {
         respuesta = 'Dime tu nombre real. Ej: _"María"_ o _"Juan Carlos"_.';
         await enviarWhatsapp(from, respuesta);
@@ -880,9 +885,11 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
 
     // Paso 101: Recoger email del usuario
     if (usuario.onboarding_paso === 101 && !cmd.startsWith('/')) {
-      const emailInput = msg.trim().toLowerCase();
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(emailInput)) {
+      // Extraer email inteligentemente: "Mi correo es juan@gmail.com" → "juan@gmail.com"
+      const emailRegex = /[^\s@]+@[^\s@]+\.[^\s@]+/;
+      const emailMatch = msg.trim().toLowerCase().match(emailRegex);
+      const emailInput = emailMatch ? emailMatch[0].replace(/[.,;:!?]+$/, '') : '';
+      if (!emailInput || !emailRegex.test(emailInput)) {
         respuesta = 'Eso no parece un correo válido. Escribe tu email, ej: _"juan@gmail.com"_.';
         await enviarWhatsapp(from, respuesta);
         return;
@@ -920,7 +927,7 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
           'Ya puedes usar Neto:\n\n' +
           '📝 Registra gastos aquí: _"gasté 50 en taxi"_\n' +
           '📸 Envía una foto de Yape o Plin\n' +
-          '📊 Tu dashboard: *app.neto.pe*\n\n' +
+          '📊 Tu dashboard: *https://app.neto.pe*\n\n' +
           '_Escribe */help* para ver todos los comandos._';
         await enviarWhatsapp(from, respuesta);
         return;
@@ -1041,7 +1048,7 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
         var totalMesHola = gastosMesHola.reduce(function(s,t){return s+parseFloat(t.monto);},0);
         respuesta = '👋 Hola' + (primerNombre ? ', ' + primerNombre : '') + '.\n\n' +
           (gastosMesHola.length > 0 ? 'Este mes llevas *S/ ' + totalMesHola.toFixed(2) + '* en ' + gastosMesHola.length + ' movimientos.' : 'Sin movimientos este mes aun.') +
-          '\n\n📝 Registra gastos así:\n_"gasté 50 en taxi"_\n_"almuerzo 25 soles"_\nO envía una foto de tu Yape/Plin.\n\n📊 *Tu dashboard:* app.neto.pe\n💡 _Escribe /conectar para lectura automática de correos._';
+          '\n\n📝 Registra gastos así:\n_"gasté 50 en taxi"_\n_"almuerzo 25 soles"_\nO envía una foto de tu Yape/Plin.\n\n📊 *Tu dashboard:* https://app.neto.pe\n💡 _Escribe /conectar para lectura automática de correos._';
       } else {
         var gastosMesHola = await obtenerGastosMes(usuario.id);
         var totalMesHola = gastosMesHola.reduce(function(s,t){return s+parseFloat(t.monto);},0);
@@ -1053,12 +1060,12 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
         respuesta = '\uD83D\uDC4B Hola' + (primerNombre ? ', ' + primerNombre : '') + '. Soy NETO.\n\n' +
           (gastosMesHola.length > 0 ? 'Este mes llevas *S/ ' + totalMesHola.toFixed(2) + '* en ' + gastosMesHola.length + ' movimientos.' : 'Sin movimientos este mes aun.') +
           (pendHola.length > 0 ? '\n\n\u2757 ' + pendHola.length + ' gasto(s) sin identificar. Escribe */pendientes*.' : '') +
-          '\n\n📊 Revisa tu dashboard en *app.neto.pe*\n\n\u00bfQue revisamos?';
+          '\n\n📊 Revisa tu dashboard en *https://app.neto.pe*\n\n\u00bfQue revisamos?';
       }
     } else if (cmd === '/manual') {
       // Onboarding sin Gmail — modo free
       await supabase.from('usuarios').update({ plan: 'free', onboarding_paso: 0, onboarding_completado: true }).eq('id', usuario.id);
-      respuesta = '✍️ *Modo Free activado*\n\nRegistra gastos así:\n📝 _"gasté 50 en taxi"_\n📸 Envía una foto de Yape o Plin\n\n📊 *Tu dashboard:* app.neto.pe\n\n¿Por dónde empezamos?';
+      respuesta = '✍️ *Modo Free activado*\n\nRegistra gastos así:\n📝 _"gasté 50 en taxi"_\n📸 Envía una foto de Yape o Plin\n\n📊 *Tu dashboard:* https://app.neto.pe\n\n¿Por dónde empezamos?';
     } else if (esUsuarioNuevo && !cmd.startsWith('/')) {
       await supabase.from('usuarios').update({ onboarding_paso: 100 }).eq('id', usuario.id);
       respuesta = '👋 ¡Hola! Soy *NETO*, tu asistente financiero.\n\nPara empezar, ¿cómo te llamas?';
@@ -1321,7 +1328,7 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
       respuesta = lpend.length === 0 ? 'No tienes gastos pendientes.' : formatearPendientes(lpend);
     } else if (cmd === '/ayuda') {
       const mesActual = new Date().getMonth() + 1;
-      respuesta = '*Comandos NETO:*\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- ver/configurar presupuesto\n*/categorias* -- categorias\n*/conectar* -- vincular Gmail\n*/escanear* -- leer correos ahora\n*/cambiar [comercio] [cat]* -- corregir categoria\n*/reporte* -- PDF del mes\n*/reporte ' + mesActual + '* -- PDF mes especifico\n*/pendientes* -- gastos sin identificar\n*/dashboard* -- ir a tu app (app.neto.pe)\n*/referir* -- invitar amigos y ganar Pro\n*/premium* -- plan premium\n*hola* -- estado general\n\n_Tambien puedes escribirme en lenguaje natural!_';
+      respuesta = '*Comandos NETO:*\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- ver/configurar presupuesto\n*/categorias* -- categorias\n*/conectar* -- vincular Gmail\n*/escanear* -- leer correos ahora\n*/cambiar [comercio] [cat]* -- corregir categoria\n*/reporte* -- PDF del mes\n*/reporte ' + mesActual + '* -- PDF mes especifico\n*/pendientes* -- gastos sin identificar\n*/dashboard* -- ir a tu app (https://app.neto.pe)\n*/referir* -- invitar amigos y ganar Pro\n*/premium* -- plan premium\n*hola* -- estado general\n\n_Tambien puedes escribirme en lenguaje natural!_';
     } else {
       respuesta = await procesarMensajeLibre(msg, usuario, from);
     }
@@ -1530,7 +1537,7 @@ app.get('/auth/callback', async (req, res) => {
           await new Promise(r => setTimeout(r, 1500));
           await enviarWhatsapp(usuario.whatsapp,
             '🎉 *¡Listo, ' + primerNombre + '!* Tu cuenta está activa.\n\n' +
-            '📊 *Tu dashboard:* app.neto.pe\n' +
+            '📊 *Tu dashboard:* https://app.neto.pe\n' +
             'Ahí puedes ver gráficos, metas, reportes PDF y más.\n\n' +
             'Por WhatsApp escríbeme como quieras:\n' +
             '_"cuánto gasté esta semana"_\n' +
@@ -2246,7 +2253,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
             .select('*', { count: 'exact', head: true })
             .eq('usuario_id', usuario.id);
           if (txCount && txCount % 5 === 0) {
-            respReg += '\n\n💡 _Revisa tus gráficos en app.neto.pe_';
+            respReg += '\n\n💡 _Revisa tus gráficos en https://app.neto.pe_';
           }
           return respReg;
         } catch(e) {
@@ -2672,7 +2679,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
             if (m.fecha_limite) msgMetas += ' · Meta: ' + formatFecha(m.fecha_limite);
             msgMetas += '\n\n';
           });
-          msgMetas += '_Actualiza tus metas en app.neto.pe/dashboard/metas_';
+          msgMetas += '_Actualiza tus metas en https://app.neto.pe/dashboard/metas_';
           return msgMetas;
         } catch(e) {
           log.error({ tag: 'METAS', err: e.message }, 'Error consultando metas');
@@ -2689,7 +2696,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
           await supabase.from('metas_ahorro').insert({
             usuario_id: usuario.id, nombre: nombreMeta, monto_objetivo: montoMeta, monto_actual: 0, fecha_limite: fechaLimMeta
           });
-          return '✅ Meta creada!\n\n🎯 *' + nombreMeta + '*\nObjetivo: S/ ' + montoMeta.toFixed(2) + (fechaLimMeta ? '\nFecha: ' + formatFecha(fechaLimMeta) : '') + '\n\n_Actualiza tu progreso en app.neto.pe/dashboard/metas_';
+          return '✅ Meta creada!\n\n🎯 *' + nombreMeta + '*\nObjetivo: S/ ' + montoMeta.toFixed(2) + (fechaLimMeta ? '\nFecha: ' + formatFecha(fechaLimMeta) : '') + '\n\n_Actualiza tu progreso en https://app.neto.pe/dashboard/metas_';
         } catch(e) {
           log.error({ tag: 'CREAR_META', err: e.message }, 'Error creando meta');
           return 'No pude crear la meta. Intenta de nuevo.';
@@ -3075,7 +3082,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       }
 
       case 'como_empezar': {
-        const ctxEmpezar = 'El usuario es nuevo o quiere saber cómo empezar. Guíalo paso a paso de forma amigable: 1) Conectar su Gmail para lectura automática de correos bancarios, 2) También puede registrar gastos manualmente ("gasté 50 en taxi"), enviar fotos de comprobantes Yape/Plin, o cargar un Excel, 3) Ver su resumen con "mis gastos del mes" o entrar a app.neto.pe. Máximo 8 líneas, tono motivador.';
+        const ctxEmpezar = 'El usuario es nuevo o quiere saber cómo empezar. Guíalo paso a paso de forma amigable: 1) Conectar su Gmail para lectura automática de correos bancarios, 2) También puede registrar gastos manualmente ("gasté 50 en taxi"), enviar fotos de comprobantes Yape/Plin, o cargar un Excel, 3) Ver su resumen con "mis gastos del mes" o entrar a https://app.neto.pe. Máximo 8 líneas, tono motivador.';
         const respEmpezar = await redactarConNETO(netoPrompt, ctxEmpezar, msg, historialConv);
         return respEmpezar || '¡Bienvenido a Neto! 🎉\n\n*3 pasos para empezar:*\n\n1️⃣ Conecta tu Gmail → escribe _"conectar gmail"_\n2️⃣ Registra un gasto → _"gasté 50 en taxi"_\n3️⃣ Ve tu resumen → _"mis gastos del mes"_\n\n📊 También puedes ver todo en https://app.neto.pe\n\n_¿Por dónde empezamos?_';
       }

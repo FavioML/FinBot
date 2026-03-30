@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils';
 const navItems = [
   { label: 'Inicio', href: '/dashboard', icon: LayoutDashboard },
   { label: 'Movimientos', href: '/dashboard/transacciones', icon: ArrowLeftRight },
-  { label: 'Metas', href: '/dashboard/presupuestos', icon: Target },
+  { label: 'Presupuestos', href: '/dashboard/presupuestos', icon: Target },
   { label: 'Reporte', href: '/dashboard/reportes', icon: FileBarChart },
   { label: 'Suscripc.', href: '/dashboard/suscripciones', icon: CreditCard },
 ];

@@ -23,9 +23,16 @@ import {
   Sun,
   Palette,
   Download,
+  Pencil,
+  X,
+  Tag,
+  Trash2,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useUser } from '@/lib/hooks/use-user';
@@ -86,6 +93,25 @@ export default function ConfiguracionPage() {
   const [recordatoriosActivos, setRecordatoriosActivos] = useState(true);
   const [recordatoriosLoading, setRecordatoriosLoading] = useState(false);
 
+  /* ---- Edit name ---- */
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState('');
+  const [savingName, setSavingName] = useState(false);
+
+  /* ---- Categories ---- */
+  interface CategoryItem {
+    id: string;
+    nombre: string;
+    emoji?: string;
+    subcategorias: { id: string; nombre: string }[];
+  }
+  const [categories, setCategories] = useState<CategoryItem[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
+  const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set());
+  const [renamingCat, setRenamingCat] = useState<string | null>(null);
+  const [renameInput, setRenameInput] = useState('');
+  const [deletingCat, setDeletingCat] = useState<string | null>(null);
+
   useEffect(() => {
     const supabase = createClient();
     supabase.auth.getUser().then(({ data: { user: authUser } }) => {
@@ -102,7 +128,98 @@ export default function ConfiguracionPage() {
         }
       })
       .catch(() => {});
+    // Fetch categories
+    fetchCategories();
   }, []);
+
+  async function fetchCategories() {
+    setCategoriesLoading(true);
+    try {
+      const res = await fetch('/api/categories');
+      if (res.ok) {
+        const data = await res.json();
+        setCategories(data);
+      }
+    } catch { /* ignore */ }
+    setCategoriesLoading(false);
+  }
+
+  /* ---- Save name ---- */
+  async function handleSaveName() {
+    if (!nameInput.trim() || nameInput.trim().length < 2) {
+      toast.error('El nombre debe tener al menos 2 caracteres');
+      return;
+    }
+    setSavingName(true);
+    try {
+      const res = await fetch('/api/user', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nombre: nameInput.trim() }),
+      });
+      if (res.ok) {
+        toast.success('Nombre actualizado');
+        setEditingName(false);
+        // Refresh user data
+        window.location.reload();
+      } else {
+        const err = await res.json();
+        toast.error(err.error || 'Error al actualizar');
+      }
+    } catch {
+      toast.error('Error de conexion');
+    }
+    setSavingName(false);
+  }
+
+  /* ---- Delete category ---- */
+  async function handleDeleteCategory(catId: string, isSub: boolean) {
+    try {
+      const res = await fetch(`/api/categories?id=${catId}&sub=${isSub}`, { method: 'DELETE' });
+      if (res.ok) {
+        toast.success('Categoria eliminada');
+        fetchCategories();
+        setDeletingCat(null);
+      } else {
+        toast.error('Error al eliminar');
+      }
+    } catch {
+      toast.error('Error de conexion');
+    }
+  }
+
+  /* ---- Rename category ---- */
+  async function handleRenameCategory(catId: string) {
+    if (!renameInput.trim() || renameInput.trim().length < 2) {
+      toast.error('El nombre debe tener al menos 2 caracteres');
+      return;
+    }
+    try {
+      const res = await fetch('/api/categories', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: catId, nombre: renameInput.trim() }),
+      });
+      if (res.ok) {
+        toast.success('Categoria renombrada');
+        setRenamingCat(null);
+        fetchCategories();
+      } else {
+        toast.error('Error al renombrar');
+      }
+    } catch {
+      toast.error('Error de conexion');
+    }
+  }
+
+  function toggleExpand(catId: string) {
+    setExpandedCats(prev => {
+      const next = new Set(prev);
+      if (next.has(catId)) next.delete(catId);
+      else next.add(catId);
+      return next;
+    });
+  }
 
   const isPremium = user?.plan === 'premium';
   const referralCode = user?.id?.slice(0, 8).toUpperCase() ?? 'CODIGO';
@@ -204,10 +321,54 @@ export default function ConfiguracionPage() {
           <div className="flex-1 min-w-0 space-y-2">
             {/* Name + plan */}
             <div className="flex items-center gap-2">
-              <h2 className="text-lg font-semibold text-[#F0EFE8] truncate">
-                {user.nombre || (user.email ? user.email.split('@')[0] : 'Usuario')}
-              </h2>
-              {user.plan === 'premium' ? (
+              {editingName ? (
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  <Input
+                    value={nameInput}
+                    onChange={(e) => setNameInput(e.target.value)}
+                    className="h-8 text-sm bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.1)] text-[#F0EFE8] max-w-[200px]"
+                    placeholder="Tu nombre"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSaveName();
+                      if (e.key === 'Escape') setEditingName(false);
+                    }}
+                  />
+                  <Button
+                    size="sm"
+                    className="h-7 px-2 bg-[#1D9E75] text-white hover:bg-[#178a64]"
+                    onClick={handleSaveName}
+                    disabled={savingName}
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-[#8A877D] hover:text-[#F0EFE8]"
+                    onClick={() => setEditingName(false)}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <h2 className="text-lg font-semibold text-[#F0EFE8] truncate">
+                    {user.nombre || (user.email ? user.email.split('@')[0] : 'Usuario')}
+                  </h2>
+                  <button
+                    className="shrink-0 p-1 rounded-md hover:bg-[rgba(255,255,255,0.05)] text-[#8A877D] hover:text-[#F0EFE8] transition-colors"
+                    onClick={() => {
+                      setNameInput(user.nombre || '');
+                      setEditingName(true);
+                    }}
+                    title="Editar nombre"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                </>
+              )}
+              {!editingName && (user.plan === 'premium' ? (
                 <Badge className="bg-[#1D9E75]/20 text-[#1D9E75] border-[#1D9E75]/30 gap-1 shrink-0">
                   <Crown className="h-3 w-3" />
                   Neto Pro
@@ -216,7 +377,7 @@ export default function ConfiguracionPage() {
                 <Badge className="bg-[#87948c]/20 text-[#87948c] border-[#87948c]/30 gap-1 shrink-0">
                   Free
                 </Badge>
-              )}
+              ))}
             </div>
 
             {/* Email */}
@@ -407,6 +568,182 @@ export default function ConfiguracionPage() {
             <ExternalLink className="h-3 w-3 ml-auto opacity-60" />
           </Button>
         </a>
+      </div>
+
+      {/* ============================================================ */}
+      {/*  Categories management                                          */}
+      {/* ============================================================ */}
+      <div className="glass-card glass-card-glow p-6 space-y-4">
+        <div className="flex items-center gap-2 mb-1">
+          <Tag className="h-5 w-5 text-[#8A877D]" />
+          <h2 className="text-lg font-semibold text-[#F0EFE8]">
+            Gestionar categorias
+          </h2>
+        </div>
+
+        <p className="text-sm text-[#8A877D]">
+          Renombra o elimina categorias y subcategorias. Las transacciones existentes mantienen su categoria original.
+        </p>
+
+        {categoriesLoading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-10 rounded-lg" />
+            <Skeleton className="h-10 rounded-lg" />
+            <Skeleton className="h-10 rounded-lg" />
+          </div>
+        ) : categories.length === 0 ? (
+          <p className="text-sm text-[#8A877D] py-4 text-center">
+            No tienes categorias personalizadas. Se crean automaticamente al registrar gastos.
+          </p>
+        ) : (
+          <div className="space-y-1">
+            {categories.map((cat) => (
+              <div key={cat.id}>
+                {/* Category row */}
+                <div className="flex items-center gap-2 rounded-lg bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] px-3 py-2.5">
+                  {/* Expand toggle */}
+                  {cat.subcategorias.length > 0 ? (
+                    <button
+                      className="shrink-0 p-0.5 text-[#8A877D] hover:text-[#F0EFE8]"
+                      onClick={() => toggleExpand(cat.id)}
+                    >
+                      {expandedCats.has(cat.id) ? (
+                        <ChevronDown className="h-4 w-4" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4" />
+                      )}
+                    </button>
+                  ) : (
+                    <span className="shrink-0 w-5" />
+                  )}
+
+                  {/* Emoji + name */}
+                  {renamingCat === cat.id ? (
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <Input
+                        value={renameInput}
+                        onChange={(e) => setRenameInput(e.target.value)}
+                        className="h-7 text-sm bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.1)] text-[#F0EFE8] max-w-[180px]"
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleRenameCategory(cat.id);
+                          if (e.key === 'Escape') setRenamingCat(null);
+                        }}
+                      />
+                      <Button size="sm" className="h-6 px-1.5 bg-[#1D9E75] text-white hover:bg-[#178a64]" onClick={() => handleRenameCategory(cat.id)}>
+                        <Check className="h-3 w-3" />
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[#8A877D]" onClick={() => setRenamingCat(null)}>
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <span className="text-sm font-medium text-[#F0EFE8] flex-1 min-w-0 truncate">
+                        {cat.emoji ? `${cat.emoji} ` : ''}{cat.nombre}
+                      </span>
+                      <span className="text-xs text-[#8A877D] shrink-0">
+                        {cat.subcategorias.length > 0 ? `${cat.subcategorias.length} sub` : ''}
+                      </span>
+                    </>
+                  )}
+
+                  {/* Actions */}
+                  {renamingCat !== cat.id && (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        className="p-1 rounded text-[#8A877D] hover:text-[#F0EFE8] hover:bg-[rgba(255,255,255,0.05)]"
+                        onClick={() => { setRenamingCat(cat.id); setRenameInput(cat.nombre); }}
+                        title="Renombrar"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      {deletingCat === cat.id ? (
+                        <div className="flex items-center gap-1">
+                          <Button size="sm" className="h-6 px-1.5 bg-[#D85A30] text-white hover:bg-[#D85A30]/80 text-xs" onClick={() => handleDeleteCategory(cat.id, false)}>
+                            Si
+                          </Button>
+                          <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[#8A877D] text-xs" onClick={() => setDeletingCat(null)}>
+                            No
+                          </Button>
+                        </div>
+                      ) : (
+                        <button
+                          className="p-1 rounded text-[#8A877D] hover:text-[#D85A30] hover:bg-[rgba(216,90,48,0.05)]"
+                          onClick={() => setDeletingCat(cat.id)}
+                          title="Eliminar"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Subcategories */}
+                {expandedCats.has(cat.id) && cat.subcategorias.length > 0 && (
+                  <div className="ml-7 mt-0.5 space-y-0.5">
+                    {cat.subcategorias.map((sub) => (
+                      <div key={sub.id} className="flex items-center gap-2 rounded-lg bg-[rgba(255,255,255,0.015)] border border-[rgba(255,255,255,0.04)] px-3 py-2">
+                        {renamingCat === sub.id ? (
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <Input
+                              value={renameInput}
+                              onChange={(e) => setRenameInput(e.target.value)}
+                              className="h-7 text-sm bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.1)] text-[#F0EFE8] max-w-[160px]"
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleRenameCategory(sub.id);
+                                if (e.key === 'Escape') setRenamingCat(null);
+                              }}
+                            />
+                            <Button size="sm" className="h-6 px-1.5 bg-[#1D9E75] text-white hover:bg-[#178a64]" onClick={() => handleRenameCategory(sub.id)}>
+                              <Check className="h-3 w-3" />
+                            </Button>
+                            <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[#8A877D]" onClick={() => setRenamingCat(null)}>
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <>
+                            <span className="text-sm text-[#C8C6BC] flex-1 min-w-0 truncate">{sub.nombre}</span>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                className="p-1 rounded text-[#8A877D] hover:text-[#F0EFE8] hover:bg-[rgba(255,255,255,0.05)]"
+                                onClick={() => { setRenamingCat(sub.id); setRenameInput(sub.nombre); }}
+                                title="Renombrar"
+                              >
+                                <Pencil className="h-3 w-3" />
+                              </button>
+                              {deletingCat === sub.id ? (
+                                <div className="flex items-center gap-1">
+                                  <Button size="sm" className="h-6 px-1.5 bg-[#D85A30] text-white hover:bg-[#D85A30]/80 text-xs" onClick={() => handleDeleteCategory(sub.id, true)}>
+                                    Si
+                                  </Button>
+                                  <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[#8A877D] text-xs" onClick={() => setDeletingCat(null)}>
+                                    No
+                                  </Button>
+                                </div>
+                              ) : (
+                                <button
+                                  className="p-1 rounded text-[#8A877D] hover:text-[#D85A30] hover:bg-[rgba(216,90,48,0.05)]"
+                                  onClick={() => setDeletingCat(sub.id)}
+                                  title="Eliminar"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* ============================================================ */}
