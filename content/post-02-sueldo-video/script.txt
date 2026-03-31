@@ -1,0 +1,24 @@
+SCRIPT: "¿A dónde se fue mi sueldo?" (30-40 segundos)
+
+HOOK (primeros 2 segundos):
+[Texto en pantalla grande]: "S/2,500 de sueldo. S/47 en la cuenta. ¿QUÉ PASÓ?"
+[Tú a cámara, cara de confusión]
+
+DESARROLLO (segundos 3-20):
+"¿Te ha pasado que cobras y en 2 semanas ya no tienes plata y no sabes por qué?
+
+Yo era igualito. Hasta que empecé a rastrear mis gastos y descubrí que gastaba S/340 al mes en cosas que literalmente no recordaba haber comprado."
+
+SOLUCIÓN (segundos 20-35):
+[Screen recording del celular mostrando resumen de gastos por categoría]
+"Ahora mis gastos se registran solos y cada semana me llega un resumen por WhatsApp de exactamente a dónde se fue cada sol."
+
+CTA (segundos 35-40):
+[A cámara]
+"Si quieres probar, el link está en mi bio. Es gratis."
+
+---
+TIPS DE GRABACIÓN:
+- Graba en vertical (9:16)
+- Buena iluminación frontal
+- Screen recording: mostrar chat WhatsApp con Neto y resumen semanal

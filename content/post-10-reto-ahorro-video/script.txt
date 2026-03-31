@@ -1,0 +1,21 @@
+SCRIPT: "El reto que me hizo ahorrar S/500" (25-30 segundos)
+
+HOOK:
+[Texto en pantalla]: "El reto que me hizo ahorrar S/500 en un mes"
+[Tú a cámara]
+
+DESARROLLO (seg 3-20):
+"El reto es simple: esta semana, cada vez que vayas a gastar en algo que NO necesitas, anótalo en tu celular pero NO lo compres.
+
+Al final de la semana, suma todo lo que NO gastaste.
+
+Te prometo que van a ser más de S/100. En un mes, fácil S/400-500."
+
+CTA (seg 20-28):
+"¿Te animas? Comenta 'RETO' y hazlo esta semana. El viernes te pregunto cómo te fue."
+
+---
+TIPS DE GRABACIÓN:
+- Energía motivacional, challenge vibe
+- Señalar a cámara al decir "tú"
+- Texto "RETO" grande en pantalla al final

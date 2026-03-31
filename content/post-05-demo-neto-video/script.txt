@@ -1,0 +1,31 @@
+SCRIPT: "El truco de WhatsApp" — Demo de Neto (45-50 segundos)
+
+HOOK (seg 0-3):
+[Texto en pantalla]: "El truco de WhatsApp que me ayuda a no quedar sin plata"
+[Tú mostrando el celular]
+
+INTRO (seg 3-10):
+"Mira, te voy a mostrar algo que uso todas las semanas y que literalmente cambió cómo manejo mi plata."
+
+DEMO (seg 10-35):
+[Screen recording paso a paso]
+"Le escribo a este contacto por WhatsApp..."
+[Mostrar chat con Neto]
+"...y me responde con mi resumen de gastos de la semana. Mira: S/890 en total. El 35% fue comida, 22% transporte..."
+[Scroll por el resumen]
+"Todo esto se registró solo. Yo no anoté nada. Cero esfuerzo."
+
+DASHBOARD (seg 35-45):
+[Screen recording de app.neto.pe]
+"Y si quiero ver más detalle, entro a mi dashboard y veo los gráficos, las categorías, el score financiero..."
+
+CTA (seg 45-50):
+[A cámara]
+"Se llama Neto y es gratis. neto.pe — link en bio."
+
+---
+TIPS DE GRABACIÓN:
+- Este es EL video más importante — es producto directo
+- Screen recording del chat con Neto mostrando resumen real
+- Screen recording del dashboard (app.neto.pe)
+- Empezar con el celular en mano, luego pantalla completa

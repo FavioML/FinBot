@@ -17,7 +17,14 @@ rewrite_*.js
 find_id.js
 add_debug.js*.txt
 *.bat
-.claude/
+# Claude Code — ignorar estado local, compartir skills y commands
+.claude/settings.local.json
+.claude/launch.json
+.claude/agent-memory/
+.claude/worktrees/
+# Compartir via Git:
+# .claude/skills/    (skills de proyecto)
+# .claude/commands/  (commands de proyecto)
 design-system/
 
 # Assets de marketing/diseño (no runtime)
@@ -27,6 +34,9 @@ design-system/
 posts/
 assets/brand/
 NVIDIA Corporation/
+
+# Videos generados (Editor Pro Max / Remotion)
+videos/
 
 # Next.js build artifacts
 .next/

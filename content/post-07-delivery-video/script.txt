@@ -1,0 +1,21 @@
+SCRIPT: "Gasté S/430 en delivery" (20-25 segundos)
+
+HOOK:
+[Texto en pantalla]: "Gasté S/430 en delivery el mes pasado"
+[Tú a cámara con cara de shock]
+
+DESARROLLO (seg 3-15):
+"Yo pensaba que pedía delivery 'de vez en cuando'. Resulta que fueron 18 pedidos en un mes. S/430 soles. En comida que ni recuerdo."
+
+GIRO (seg 15-22):
+[Mostrar pantalla con categoría de gastos]
+"Lo peor: no lo sabía hasta que vi mis gastos organizados. Ahora sé exactamente cuánto gasto en cada categoría."
+
+CTA (seg 22-25):
+"Si quieres ver los tuyos, link en bio. Es gratis."
+
+---
+TIPS DE GRABACIÓN:
+- Cara de shock genuino al inicio
+- Mostrar screen recording de categoría "Delivery" con el monto
+- Cortes rápidos

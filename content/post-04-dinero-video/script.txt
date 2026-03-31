@@ -1,0 +1,23 @@
+SCRIPT: "3 cosas sobre el dinero que nadie te enseñó" (25-30 segundos)
+
+HOOK:
+[Texto en pantalla]: "3 cosas sobre el dinero que nadie te enseñó en el colegio"
+[Tú a cámara, señalando el texto]
+
+PUNTO 1 (seg 3-10):
+"Uno: no importa cuánto ganas, importa cuánto te queda. Hay gente que gana S/8,000 y vive al día."
+
+PUNTO 2 (seg 10-18):
+"Dos: el ahorro no es lo que sobra. Es lo PRIMERO que separas. Antes de gastar."
+
+PUNTO 3 (seg 18-27):
+"Tres: llevar tus cuentas no es de tacaños. Es de gente que quiere tener opciones."
+
+CIERRE (seg 27-30):
+"¿Cuál te faltaba? Comenta."
+
+---
+TIPS DE GRABACIÓN:
+- Enumera con los dedos cada punto
+- Cortes rápidos entre puntos
+- Texto en pantalla con el número de cada punto
