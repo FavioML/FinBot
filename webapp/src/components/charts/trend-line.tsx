@@ -20,7 +20,7 @@ interface TrendLineProps {
 function CustomTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="glass-card px-3 py-2.5 text-[12px] shadow-xl">
+    <div className="px-3 py-2.5 text-[12px] shadow-xl rounded-lg border border-[rgba(255,255,255,0.1)]" style={{ background: '#1A1A17', backdropFilter: 'blur(12px)' }}>
       <p className="font-medium text-[#F0EFE8] mb-1">{label}</p>
       {payload.map((entry: any) => (
         <p key={entry.dataKey} style={{ color: entry.color }}>

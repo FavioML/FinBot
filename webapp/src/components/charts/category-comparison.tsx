@@ -113,10 +113,10 @@ export function CategoryComparison({ allTransactions, currentMonth, currentYear,
             />
             <Tooltip
               contentStyle={{
-                background: 'rgba(255,255,255,0.03)',
+                background: '#1A1A17',
                 backdropFilter: 'blur(12px)',
-                border: '1px solid rgba(255,255,255,0.06)',
-                borderRadius: '1rem',
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: '0.75rem',
                 fontSize: '12px',
                 color: '#F0EFE8',
                 boxShadow: '0 20px 25px -5px rgba(0,0,0,0.4)',
