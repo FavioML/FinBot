@@ -12,27 +12,32 @@ async function obtenerTipoCambio() {
   const FALLBACK = { compra: 3.82, venta: 3.85 };
   const now = Date.now();
   if (_tcCache && (now - _tcCacheTime) < 3600000) return _tcCache;
-  try {
-    const hoy = hoyPeru();
-    const resp = await fetch('https://dolar.pe/api/public/series?pair=USD-PEN&from=' + hoy + '&to=' + hoy, {
+
+  async function fetchTCForDate(fecha) {
+    const resp = await fetch('https://dolar.pe/api/public/series?pair=USD-PEN&from=' + fecha + '&to=' + fecha, {
       headers: { 'Accept': 'application/json' },
-      signal: AbortSignal.timeout(4000)
+      signal: AbortSignal.timeout(5000)
     });
-    if (!resp.ok) return _tcCache || FALLBACK;
+    if (!resp.ok) return null;
     const json = await resp.json();
-    if (json.series) {
-      for (const serie of Object.values(json.series)) {
-        const vals = serie.data || [];
-        const last = vals[vals.length - 1];
-        if (typeof last === 'number' && last > 3.5 && last < 4.5) {
-          _tcCache = { compra: parseFloat((last * 0.998).toFixed(4)), venta: last };
-          _tcCacheTime = now; return _tcCache;
-        }
-        if (last && typeof last === 'object' && parseFloat(last.venta) > 3.5) {
-          _tcCache = { compra: parseFloat(last.compra), venta: parseFloat(last.venta) };
-          _tcCacheTime = now; return _tcCache;
-        }
-      }
+    const serie = json?.series?.['USD-PEN'];
+    if (!serie) return null;
+    const data = serie.data || [];
+    const last = data[data.length - 1];
+    if (typeof last === 'number' && last > 3.0 && last < 5.0) return last;
+    return null;
+  }
+
+  try {
+    let venta = await fetchTCForDate(hoyPeru());
+    if (!venta) {
+      // dolar.pe puede no tener datos del día actual antes de las ~9am Lima
+      venta = await fetchTCForDate(require('../lib/dates').ayerPeru());
+    }
+    if (venta) {
+      _tcCache = { compra: parseFloat((venta * 0.998).toFixed(4)), venta: parseFloat(venta.toFixed(4)) };
+      _tcCacheTime = now;
+      return _tcCache;
     }
     return _tcCache || FALLBACK;
   } catch(e) {
