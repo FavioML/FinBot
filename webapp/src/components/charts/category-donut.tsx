@@ -27,10 +27,7 @@ function CustomTooltip({ active, payload }: any) {
   if (!active || !payload?.[0]) return null;
   const d = payload[0].payload;
   return (
-    <div
-      className="rounded-lg px-3 py-2 text-xs shadow-lg"
-      style={{ background: '#1A1A17', border: '1px solid rgba(255,255,255,0.12)' }}
-    >
+    <div className="glass-card px-3 py-2.5 text-[12px] shadow-xl">
       <p className="text-[#F0EFE8] font-medium">
         {d.emoji} {d.categoria}
       </p>
@@ -95,7 +92,7 @@ export function CategoryDonut({ data, onCategoryClick }: CategoryDonutProps) {
           </div>
         </div>
         {/* Legend */}
-        <div className="flex flex-col gap-2 flex-1 min-w-0">
+        <div className="flex flex-col gap-2.5 flex-1 min-w-0">
           {data.map((item, i) => (
             <div
               key={item.categoria}

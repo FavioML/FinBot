@@ -1,6 +1,7 @@
 'use client';
 
 import { Lock, Crown } from 'lucide-react';
+import { motion } from 'motion/react';
 
 interface ProGateProps {
   featureName: string;
@@ -9,7 +10,12 @@ interface ProGateProps {
 
 export function ProGate({ featureName, description }: ProGateProps) {
   return (
-    <div className="flex items-center justify-center min-h-[400px] bg-gradient-to-br from-[#0a0a0a] via-[#1a1a1a] to-[#0f0f0f] rounded-2xl border border-[#2a2a2a] p-8">
+    <motion.div
+      className="flex items-center justify-center min-h-[400px] bg-gradient-to-br from-[#0a0a0a] via-[#1a1a1a] to-[#0f0f0f] rounded-2xl border border-[#2a2a2a] p-8 glass-card-glow"
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
+    >
       <div className="text-center max-w-sm space-y-6">
         <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-[#1D9E75]/10 border border-[#1D9E75]/30">
           <Lock className="w-8 h-8 text-[#1D9E75]" />
@@ -31,7 +37,7 @@ export function ProGate({ featureName, description }: ProGateProps) {
             href="https://wa.me/51933014505?text=Hola%20Neto%2C%20quiero%20activar%20Pro%20%E2%AD%90"
             target="_blank"
             rel="noopener noreferrer"
-            className="block w-full px-4 py-3 bg-[#1D9E75] hover:bg-[#1a8a6a] text-[#F0EFE8] font-semibold rounded-lg transition-colors duration-200"
+            className="block w-full px-4 py-3 bg-[#1D9E75] hover:bg-[#1a8a6a] text-[#F0EFE8] font-semibold rounded-lg transition-colors duration-200 animate-cta-pulse"
           >
             Activar Pro en WhatsApp
           </a>
@@ -40,7 +46,7 @@ export function ProGate({ featureName, description }: ProGateProps) {
           </p>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 

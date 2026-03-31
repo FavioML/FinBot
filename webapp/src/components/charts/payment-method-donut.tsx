@@ -21,10 +21,7 @@ function CustomTooltip({ active, payload }: any) {
   if (!active || !payload?.[0]) return null;
   const d = payload[0].payload;
   return (
-    <div
-      className="rounded-lg px-3 py-2 text-xs shadow-lg"
-      style={{ background: '#1A1A17', border: '1px solid rgba(255,255,255,0.12)' }}
-    >
+    <div className="glass-card px-3 py-2.5 text-[12px] shadow-xl">
       <p className="text-[#F0EFE8] font-medium">{d.icon} {d.metodo}</p>
       <p className="text-[#C8C6BC]">{formatCurrency(d.total)}</p>
       <p className="text-[#8A877D]">{d.porcentaje.toFixed(1)}% · {d.count} transacciones</p>

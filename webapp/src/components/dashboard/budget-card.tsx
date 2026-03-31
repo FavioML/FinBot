@@ -72,7 +72,7 @@ export function BudgetCard({
 
   return (
     <motion.div
-      className={`glass-card glass-card-glow p-5 flex flex-col gap-3 cursor-pointer ${isExceeded ? 'border-[#D85A30]/30' : isWarning ? 'border-[#EF9F27]/20' : ''}`}
+      className={`glass-card glass-card-glow p-5 flex flex-col gap-3 cursor-pointer ${isExceeded ? 'border-[#D85A30]/30 glow-red' : isWarning ? 'border-[#EF9F27]/20' : ''}`}
       onClick={() => onClick(categoria)}
       whileHover={{ y: -2 }}
       transition={{ duration: 0.2 }}

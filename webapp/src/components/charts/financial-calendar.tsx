@@ -148,7 +148,7 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear }: F
                   key={di}
                   onClick={() => setSelectedDay(isSelected ? null : key)}
                   disabled={isFuture}
-                  className={`relative rounded-lg p-1 min-h-[40px] flex flex-col items-center justify-center transition-all text-center ${
+                  className={`relative rounded-lg p-1 min-h-[40px] flex flex-col items-center justify-center transition-all duration-150 text-center ${
                     isSelected
                       ? 'ring-1 ring-[#1D9E75] bg-[rgba(29,158,117,0.1)]'
                       : isFuture

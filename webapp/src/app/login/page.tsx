@@ -34,10 +34,11 @@ export default function LoginPage() {
 
   return (
     <div className="flex min-h-screen bg-[#0E0E0C]">
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_30%,rgba(29,158,117,0.06)_0%,transparent_70%)] pointer-events-none" />
       {/* Left side — Login */}
       <div className="flex w-full flex-col items-center justify-center px-6 py-12 lg:w-[45%] lg:px-16">
         <motion.div
-          className="w-full max-w-md"
+          className="w-full max-w-md glass-card-glow glass-card-depth"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94] }}
@@ -73,7 +74,7 @@ export default function LoginPage() {
             </p>
             <motion.button
               onClick={handleGoogleLogin}
-              className="flex w-full cursor-pointer items-center justify-center gap-3 rounded-xl bg-[#1D9E75] px-6 py-4 text-base font-medium text-white shadow-lg shadow-[#1D9E75]/20 transition-all hover:bg-[#1D9E75]/90 hover:shadow-[#1D9E75]/30"
+              className="flex w-full cursor-pointer items-center justify-center gap-3 rounded-xl bg-[#1D9E75] px-6 py-4 text-base font-medium text-white shadow-lg shadow-[#1D9E75]/20 transition-all duration-200 hover:bg-[#1D9E75]/90 hover:shadow-[#1D9E75]/30 hover:shadow-[0_0_20px_rgba(29,158,117,0.15)]"
               whileHover={{ scale: 1.01 }}
               whileTap={{ scale: 0.98 }}
             >

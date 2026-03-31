@@ -48,9 +48,22 @@
   --radius-4xl: calc(var(--radius) * 2.6);
   /* NETO brand colors */
   --color-neto-green: #1D9E75;
+  --color-neto-green-light: #68dbae;
+  --color-neto-green-dark: #0F6E56;
   --color-neto-amber: #EF9F27;
   --color-neto-red: #D85A30;
   --color-neto-blue: #378ADD;
+  /* NETO mi-reporte surface colors */
+  --color-neto-bg: #0E0E0C;
+  --color-neto-bg2: #131311;
+  --color-neto-bg3: #1C1C19;
+  --color-neto-bg4: #20201d;
+  --color-neto-bg5: #2A2A28;
+  --color-neto-bg6: #353532;
+  /* NETO mi-reporte text colors */
+  --color-neto-txt: #e5e2de;
+  --color-neto-txt2: #bccac1;
+  --color-neto-txt3: #87948c;
 }
 
 /* NETO — "Nocturnal Precision" dark-only theme */
@@ -212,4 +225,75 @@ main {
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* ===== NETO mi-reporte animations ===== */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-up { animation: fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.75); }
+}
+.animate-pulse-dot { animation: pulse-dot 1.5s ease-in-out infinite; }
+
+@keyframes beam {
+  0% { transform: translateX(-100%) skewX(-15deg); opacity: 0; }
+  30% { opacity: 1; }
+  70% { opacity: 1; }
+  100% { transform: translateX(200%) skewX(-15deg); opacity: 0; }
+}
+.animate-beam { animation: beam 3s ease-in-out infinite; }
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-6px); }
+}
+.animate-float { animation: float 3s ease-in-out infinite; }
+
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.animate-marquee { animation: marquee 20s linear infinite; }
+
+@keyframes cta-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(29, 158, 117, 0.4); }
+  50% { box-shadow: 0 0 0 12px rgba(29, 158, 117, 0); }
+}
+.animate-cta-pulse { animation: cta-pulse 2s ease-in-out infinite; }
+
+@keyframes rotate-border {
+  from { --angle: 0deg; }
+  to { --angle: 360deg; }
+}
+.animate-rotate-border { animation: rotate-border 4s linear infinite; }
+
+/* Subtle inner shadow for depth on cards */
+.glass-card-depth {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 1px 3px rgba(0,0,0,0.2);
+}
+
+/* Ambient glow effect for highlighted elements */
+.glow-green { box-shadow: 0 0 40px rgba(29,158,117,0.08); }
+.glow-amber { box-shadow: 0 0 40px rgba(239,159,39,0.08); }
+.glow-red   { box-shadow: 0 0 40px rgba(216,90,48,0.08); }
+
+/* Scrollbar-none utility */
+.scrollbar-none::-webkit-scrollbar { display: none; }
+.scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Noise background texture overlay */
+.noise-bg::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+  background-size: 200px 200px;
 }

@@ -30,7 +30,7 @@ export function Sparkline({ data, color, height = 28, width = 64 }: SparklinePro
     <svg width={width} height={height} className="opacity-60">
       <defs>
         <linearGradient id={`spark-fill-${color.replace('#', '')}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.2" />
+          <stop offset="0%" stopColor={color} stopOpacity="0.25" />
           <stop offset="100%" stopColor={color} stopOpacity="0" />
         </linearGradient>
       </defs>

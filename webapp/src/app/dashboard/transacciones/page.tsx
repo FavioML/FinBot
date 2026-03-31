@@ -794,7 +794,7 @@ export default function TransaccionesPage() {
                   size="icon-sm"
                   disabled={safeCurrentPage <= 1}
                   onClick={() => setPage(1)}
-                  className="border-[rgba(255,255,255,0.06)] text-[#C8C6BC]"
+                  className="border-[rgba(255,255,255,0.06)] text-[#C8C6BC] transition-all duration-150"
                   title="Primera"
                 >
                   <ChevronsLeft className="h-4 w-4" />
@@ -817,8 +817,8 @@ export default function TransaccionesPage() {
                     onClick={() => setPage(p)}
                     className={
                       p === safeCurrentPage
-                        ? 'bg-[#1D9E75] hover:bg-[#1D9E75]/90 text-white border-[#1D9E75]'
-                        : 'border-[rgba(255,255,255,0.06)] text-[#C8C6BC]'
+                        ? 'bg-[#1D9E75] hover:bg-[#1D9E75]/90 text-white border-[#1D9E75] transition-all duration-150'
+                        : 'border-[rgba(255,255,255,0.06)] text-[#C8C6BC] transition-all duration-150'
                     }
                   >
                     {p}
@@ -901,7 +901,7 @@ function TransactionTableRow({
   const emoji = getCategoriaEmoji(tx.categoria);
 
   return (
-    <TableRow className={`border-[rgba(255,255,255,0.06)] hover:bg-[rgba(255,255,255,0.02)] transition-colors ${selected ? 'bg-[rgba(29,158,117,0.06)]' : ''}`}>
+    <TableRow className={`border-[rgba(255,255,255,0.06)] hover:bg-white/[0.03] transition-colors duration-150 ${selected ? 'bg-[rgba(29,158,117,0.06)]' : ''}`}>
       <TableCell>
         <input
           type="checkbox"
@@ -928,7 +928,7 @@ function TransactionTableRow({
       <TableCell className="text-xs text-[#8A877D]">{getMetodoIcon(normalizeMetodoPago(tx.metodo_pago, tx.banco))} {normalizeMetodoPago(tx.metodo_pago, tx.banco)}</TableCell>
       <TableCell>
         <span
-          className="text-sm font-semibold tabular-nums"
+          className={`text-sm font-semibold tabular-nums ${isIngreso ? 'shadow-[0_0_8px_rgba(29,158,117,0.2)]' : 'shadow-[0_0_8px_rgba(239,159,39,0.15)]'}`}
           style={{ color: isIngreso ? '#1D9E75' : '#D85A30' }}
         >
           {isIngreso ? '+' : '-'}{formatCurrency(tx.monto, tx.moneda)}

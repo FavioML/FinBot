@@ -23,19 +23,19 @@ interface EmptyStateProps {
 export function EmptyState({ title, description, showWhatsApp = true, icon: Icon = MessageCircle, actions }: EmptyStateProps) {
   return (
     <motion.div
-      className="flex flex-col items-center justify-center py-16 text-center"
+      className="glass-card flex flex-col items-center justify-center py-16 text-center"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] }}
+      transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
     >
       <motion.div
         className="relative rounded-full bg-[rgba(255,255,255,0.03)] p-6 mb-5"
         initial={{ scale: 0.8 }}
         animate={{ scale: 1 }}
-        transition={{ duration: 0.5, delay: 0.1, type: 'spring', stiffness: 200 }}
+        transition={{ duration: 0.6, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
       >
         <div className="absolute inset-0 rounded-full bg-[#1D9E75]/5 animate-pulse" />
-        <Icon className="relative h-8 w-8 text-[#8A877D]" />
+        <Icon className="relative h-8 w-8 text-[#8A877D] animate-float" />
       </motion.div>
       <h3 className="text-lg font-semibold text-[#F0EFE8] mb-2">{title}</h3>
       <p className="text-sm text-[#8A877D] max-w-md mb-6 leading-relaxed">{description}</p>

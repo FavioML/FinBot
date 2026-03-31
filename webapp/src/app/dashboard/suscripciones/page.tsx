@@ -73,7 +73,7 @@ function SubscriptionCard({
   const tipoInfo = TIPO_LABELS[sub.tipo] || TIPO_LABELS.otro;
 
   return (
-    <div className="glass-card overflow-hidden">
+    <div className="glass-card overflow-hidden hover:border-white/[0.1] transition-all duration-200">
       {/* Header */}
       <button
         onClick={onToggle}
@@ -132,7 +132,7 @@ function SubscriptionCard({
           initial={{ height: 0, opacity: 0 }}
           animate={{ height: 'auto', opacity: 1 }}
           exit={{ height: 0, opacity: 0 }}
-          transition={{ duration: 0.25, ease: [0.25, 0.46, 0.45, 0.94] }}
+          transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
         >
           {/* Info row */}
           <div className="grid grid-cols-2 gap-3 text-xs">
@@ -605,7 +605,7 @@ export default function SuscripcionesPage() {
         if (inactive.length === 0) return null;
         const potentialSavings = inactive.reduce((s, sub) => s + sub.monto_pen, 0);
         return (
-          <div className="flex items-start gap-3 rounded-xl bg-[rgba(239,159,39,0.06)] border border-[rgba(239,159,39,0.15)] p-4">
+          <div className="glow-amber flex items-start gap-3 rounded-xl bg-[rgba(239,159,39,0.06)] border border-[rgba(239,159,39,0.15)] p-4">
             <AlertTriangle className="h-5 w-5 text-[#EF9F27] shrink-0 mt-0.5" />
             <div>
               <p className="text-sm font-medium text-[#F0EFE8]">

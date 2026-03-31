@@ -76,9 +76,9 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                 href={item.href}
                 onClick={onClose}
                 className={cn(
-                  'relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+                  'relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200',
                   isActive
-                    ? 'bg-[rgba(29,158,117,0.12)] text-[#1D9E75]'
+                    ? 'bg-[rgba(29,158,117,0.12)] text-[#1D9E75] glow-green shadow-[inset_2px_0_0_rgba(29,158,117,0.6)]'
                     : 'text-[#8A877D] hover:text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.03)]'
                 )}
               >
@@ -109,9 +109,9 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                 href={item.href}
                 onClick={onClose}
                 className={cn(
-                  'relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+                  'relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200',
                   isActive
-                    ? 'bg-[rgba(29,158,117,0.12)] text-[#1D9E75]'
+                    ? 'bg-[rgba(29,158,117,0.12)] text-[#1D9E75] glow-green shadow-[inset_2px_0_0_rgba(29,158,117,0.6)]'
                     : 'text-[#8A877D] hover:text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.03)]'
                 )}
               >

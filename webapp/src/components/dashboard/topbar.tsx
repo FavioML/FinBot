@@ -26,7 +26,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
       <div className="flex items-center gap-3 px-4">
         <button
           onClick={onMenuClick}
-          className="rounded-md p-2 text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
+          className="rounded-md p-2 text-[#8A877D] hover:text-[#C8C6BC] transition-colors transition-opacity duration-200"
         >
           <Menu className="h-5 w-5" />
         </button>

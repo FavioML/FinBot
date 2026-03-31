@@ -390,7 +390,7 @@ if (!isLoading && transactions.length === 0) {
               stroke={scoreColor} strokeWidth="8" strokeLinecap="round"
               strokeDasharray={`${strokeDash} ${circumference}`}
               transform="rotate(-90 60 60)"
-              className="transition-all duration-700"
+              style={{ transition: 'stroke-dashoffset 1.5s cubic-bezier(0.16, 1, 0.3, 1)' }}
             />
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
@@ -470,9 +470,9 @@ if (!isLoading && transactions.length === 0) {
                   tick={{ fill: '#C8C6BC', fontSize: 12 }}
                 />
                 <Tooltip
-                  contentStyle={{ backgroundColor: '#1C1C1A', border: '1px solid #2A2A28', borderRadius: 8 }}
-                  labelStyle={{ color: '#F0EFE8' }}
-                  itemStyle={{ color: '#F0EFE8' }}
+                  contentStyle={{ background: 'rgba(28,28,26,0.8)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8 }}
+                  labelStyle={{ color: '#F0EFE8', fontSize: 12 }}
+                  itemStyle={{ color: '#F0EFE8', fontSize: 12 }}
                   formatter={(v) => formatCurrency(Number(v))}
                 />
                 <Bar
@@ -514,7 +514,7 @@ if (!isLoading && transactions.length === 0) {
                   ))}
                 </Pie>
                 <Tooltip
-                  contentStyle={{ background: '#1A1A18', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, color: '#F0EFE8' }}
+                  contentStyle={{ background: 'rgba(26,26,24,0.8)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, color: '#F0EFE8', fontSize: 12 }}
                   formatter={(v) => formatCurrency(Number(v))}
                 />
                 <Legend
@@ -571,7 +571,7 @@ if (!isLoading && transactions.length === 0) {
             />
             <YAxis hide />
             <Tooltip
-              contentStyle={{ background: '#1A1A18', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, color: '#F0EFE8' }}
+              contentStyle={{ background: 'rgba(26,26,24,0.8)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, color: '#F0EFE8', fontSize: 12 }}
               formatter={(v) => formatCurrency(Number(v))}
               labelFormatter={(l) => `Dia ${l}`}
             />
@@ -923,7 +923,7 @@ function Header({
         <Button
           variant="outline"
           size="sm"
-          className="border-[rgba(255,255,255,0.08)] text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.04)]"
+          className="border-[rgba(255,255,255,0.08)] text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.04)] animate-cta-pulse"
           onClick={onDownloadPDF}
           disabled={generatingPdf}
         >

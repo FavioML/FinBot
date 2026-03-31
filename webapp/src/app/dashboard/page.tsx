@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { Receipt, CreditCard, Pencil, ChevronDown } from 'lucide-react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -414,10 +414,14 @@ export default function DashboardPage() {
       ) : (
         <>
           {/* Quick actions */}
-          <QuickActions />
+          <FadeIn delay={0.04}>
+            <QuickActions />
+          </FadeIn>
 
           {/* KPI cards */}
-          <KPICards data={kpiData} sparklines={sparklines} onScoreClick={() => setShowScoreDialog(true)} />
+          <FadeIn delay={0.08}>
+            <KPICards data={kpiData} sparklines={sparklines} onScoreClick={() => setShowScoreDialog(true)} />
+          </FadeIn>
 
           {/* Projection + Today spending + Exchange rate row */}
           {viewMode === 'mensual' && (
@@ -480,10 +484,17 @@ export default function DashboardPage() {
                 className="flex md:hidden items-center justify-center gap-2 w-full rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] py-2.5 text-xs font-medium text-[#C8C6BC] transition-colors hover:bg-[rgba(255,255,255,0.04)]"
               >
                 {showMoreWidgets ? 'Ocultar detalles' : 'Ver mas detalles'}
-                <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showMoreWidgets ? 'rotate-180' : ''}`} />
+                <motion.span
+                  animate={{ rotate: showMoreWidgets ? 180 : 0 }}
+                  transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+                  className="inline-flex"
+                >
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </motion.span>
               </button>
 
-              <div className={`space-y-6 ${showMoreWidgets ? '' : 'hidden md:block'}`}>
+              {/* Desktop: always visible */}
+              <div className="hidden md:block space-y-6">
                 {/* Top merchants + Payment methods */}
                 <Suspense fallback={<Skeleton className="h-[300px] rounded-2xl" />}>
                 <FadeIn delay={0.25}>
@@ -512,8 +523,50 @@ export default function DashboardPage() {
                 </div>
                 </FadeIn>
                 </Suspense>
-
               </div>
+
+              {/* Mobile: animated collapse */}
+              <AnimatePresence initial={false}>
+                {showMoreWidgets && (
+                  <motion.div
+                    key="more-widgets-mobile"
+                    className="md:hidden overflow-hidden space-y-6"
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+                  >
+                    {/* Top merchants + Payment methods */}
+                    <Suspense fallback={<Skeleton className="h-[300px] rounded-2xl" />}>
+                    <FadeIn delay={0.05}>
+                    <div className="grid grid-cols-1 gap-4">
+                      <TopMerchants transactions={transactions} onMerchantClick={setDetailComercio} />
+                      <PaymentMethodDonut transactions={transactions} onMethodClick={setDetailMetodo} />
+                    </div>
+                    </FadeIn>
+                    </Suspense>
+
+                    {/* Financial calendar + Category comparison */}
+                    <Suspense fallback={<Skeleton className="h-[300px] rounded-2xl" />}>
+                    <FadeIn delay={0.1}>
+                    <div className="grid grid-cols-1 gap-4">
+                      <FinancialCalendar
+                        transactions={allTransactions}
+                        currentMonth={currentMonth}
+                        currentYear={currentYear}
+                      />
+                      <CategoryComparison
+                        allTransactions={allTransactions}
+                        currentMonth={currentMonth}
+                        currentYear={currentYear}
+                        onCategoryClick={setDetailCategoria}
+                      />
+                    </div>
+                    </FadeIn>
+                    </Suspense>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </>
           )}
 
@@ -618,7 +671,7 @@ export default function DashboardPage() {
               .sort((a, b) => b.fecha.localeCompare(a.fecha));
             const catTotal = catTxs.reduce((s, t) => s + t.monto_pen, 0);
             return (
-              <div className="space-y-3">
+              <div className="glass-card-depth space-y-3">
                 <p className="text-sm text-[#8A877D]">
                   Total: <span className="text-[#D85A30] font-medium">{formatCurrency(catTotal)}</span>
                   {' '}&mdash; {catTxs.length} transacci{catTxs.length === 1 ? 'on' : 'ones'}
@@ -668,7 +721,7 @@ export default function DashboardPage() {
 
           {/* Score circle - large animated */}
           <div className="flex justify-center py-4">
-            <div className="relative w-32 h-32">
+            <div className="relative w-32 h-32 transition-transform duration-200 hover:scale-[1.02]">
               <svg viewBox="0 0 36 36" className="w-full h-full">
                 <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                   fill="none" stroke="#2A2A28" strokeWidth="3" />
@@ -680,7 +733,7 @@ export default function DashboardPage() {
                   strokeLinecap="round"
                   initial={{ strokeDasharray: '0, 100' }}
                   animate={{ strokeDasharray: `${kpiData.scoreFinanciero}, 100` }}
-                  transition={{ duration: 1.2, ease: [0.25, 0.46, 0.45, 0.94], delay: 0.2 }}
+                  transition={{ duration: 1.2, ease: [0.16, 1, 0.3, 1], delay: 0.2 }}
                 />
               </svg>
               <motion.div
@@ -755,7 +808,7 @@ export default function DashboardPage() {
             </DialogTitle>
           </DialogHeader>
           {detailMetodo && (
-            <div className="space-y-3">
+            <div className="glass-card-depth space-y-3">
               <p className="text-sm text-[#8A877D]">
                 Total: <span className="text-[#D85A30] font-medium">{formatCurrency(detailMetodoTransactions.reduce((s, t) => s + t.monto_pen, 0))}</span>
                 {' '}&mdash; {detailMetodoTransactions.length} {detailMetodoTransactions.length === 1 ? 'transaccion' : 'transacciones'}
@@ -795,7 +848,7 @@ export default function DashboardPage() {
             </DialogTitle>
           </DialogHeader>
           {detailComercio && (
-            <div className="space-y-3">
+            <div className="glass-card-depth space-y-3">
               <p className="text-sm text-[#8A877D]">
                 Total: <span className="text-[#D85A30] font-medium">{formatCurrency(detailComercioTransactions.reduce((s, t) => s + t.monto_pen, 0))}</span>
                 {' '}&mdash; {detailComercioTransactions.length} {detailComercioTransactions.length === 1 ? 'transaccion' : 'transacciones'}

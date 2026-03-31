@@ -168,7 +168,7 @@ export default function OnboardingPage() {
         <motion.button
           onClick={handleSubmit}
           disabled={submitting}
-          className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-[#1D9E75] px-6 py-4 text-base font-medium text-white shadow-lg shadow-[#1D9E75]/20 transition-all hover:bg-[#1D9E75]/90 hover:shadow-[#1D9E75]/30 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-[#1D9E75] px-6 py-4 text-base font-medium text-white shadow-lg shadow-[#1D9E75]/20 transition-all hover:bg-[#1D9E75]/90 hover:shadow-[#1D9E75]/30 disabled:cursor-not-allowed disabled:opacity-50 animate-cta-pulse"
           whileHover={{ scale: 1.01 }}
           whileTap={{ scale: 0.98 }}
         >

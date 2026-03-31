@@ -14,7 +14,7 @@ export function FadeIn({ children, delay = 0, className }: FadeInProps) {
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, delay, ease: [0.25, 0.46, 0.45, 0.94] }}
+      transition={{ duration: 0.5, delay, ease: [0.16, 1, 0.3, 1] }}
       className={className}
     >
       {children}
@@ -49,7 +49,7 @@ export function StaggerItem({ children, className }: { children: ReactNode; clas
     <motion.div
       variants={{
         hidden: { opacity: 0, y: 16 },
-        visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] } },
+        visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.16, 1, 0.3, 1] } },
       }}
       className={className}
     >
@@ -63,7 +63,7 @@ export function ScaleIn({ children, delay = 0, className }: FadeInProps) {
     <motion.div
       initial={{ opacity: 0, scale: 0.92 }}
       animate={{ opacity: 1, scale: 1 }}
-      transition={{ duration: 0.35, delay, ease: [0.25, 0.46, 0.45, 0.94] }}
+      transition={{ duration: 0.45, delay, ease: [0.16, 1, 0.3, 1] }}
       className={className}
     >
       {children}

@@ -95,7 +95,7 @@ export function KPICards({ data, sparklines, onScoreClick }: KPICardsProps) {
         return (
           <StaggerItem key={card.label}>
           <div
-            className={`glass-card glass-card-glow p-5${isScore && onScoreClick ? ' cursor-pointer hover:border-[#1D9E75]/50 transition-colors group' : ''}`}
+            className={`glass-card glass-card-glow p-5${isScore && onScoreClick ? ' cursor-pointer hover:border-[#1D9E75]/50 transition-colors transition-transform duration-200 hover:scale-[1.02] group' : ''}`}
             onClick={isScore && onScoreClick ? onScoreClick : undefined}
             title={isScore && onScoreClick ? 'Click para ver desglose' : undefined}
           >

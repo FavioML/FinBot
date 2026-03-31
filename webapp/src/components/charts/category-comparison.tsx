@@ -113,11 +113,13 @@ export function CategoryComparison({ allTransactions, currentMonth, currentYear,
             />
             <Tooltip
               contentStyle={{
-                backgroundColor: '#1A1A18',
-                border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: '8px',
+                background: 'rgba(255,255,255,0.03)',
+                backdropFilter: 'blur(12px)',
+                border: '1px solid rgba(255,255,255,0.06)',
+                borderRadius: '1rem',
                 fontSize: '12px',
                 color: '#F0EFE8',
+                boxShadow: '0 20px 25px -5px rgba(0,0,0,0.4)',
               }}
               itemStyle={{ color: '#C8C6BC' }}
               labelStyle={{ color: '#8A877D', fontSize: '11px' }}
@@ -127,8 +129,8 @@ export function CategoryComparison({ allTransactions, currentMonth, currentYear,
               ]}
               cursor={{ fill: 'rgba(255,255,255,0.02)' }}
             />
-            <Bar dataKey="previous" fill="#8A877D" radius={[0, 4, 4, 0]} barSize={8} opacity={0.5} />
-            <Bar dataKey="current" radius={[0, 4, 4, 0]} barSize={8}
+            <Bar dataKey="previous" fill="#8A877D" radius={[0, 4, 4, 0]} barSize={8} opacity={0.5} isAnimationActive={true} />
+            <Bar dataKey="current" radius={[0, 4, 4, 0]} barSize={8} isAnimationActive={true}
               cursor={onCategoryClick ? 'pointer' : undefined}
               onClick={onCategoryClick ? (entry: any) => onCategoryClick(entry.categoria) : undefined}
             >

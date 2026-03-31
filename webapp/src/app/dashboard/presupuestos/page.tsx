@@ -433,7 +433,7 @@ export default function PresupuestosPage() {
 
       {/* Category detail dialog — shows transactions grouped by subcategory */}
       <Dialog open={!!detailCategoria} onOpenChange={(open) => { if (!open) setDetailCategoria(null); }}>
-        <DialogContent className="bg-[#1A1A18] border-[rgba(255,255,255,0.06)] sm:max-w-lg max-h-[80vh] overflow-y-auto">
+        <DialogContent className="bg-[#1A1A18] border-[rgba(255,255,255,0.06)] sm:max-w-lg max-h-[80vh] overflow-y-auto glass-card-depth">
           <DialogHeader>
             <DialogTitle className="text-[#F0EFE8]">
               {detailCategoria && `${getCategoriaEmoji(detailCategoria)} ${capitalizeDisplay(detailCategoria)}`}
@@ -451,7 +451,7 @@ export default function PresupuestosPage() {
               {/* Progress bar */}
               <div className="h-2 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
                 <div
-                  className="h-full rounded-full transition-all"
+                  className="h-full rounded-full transition-all duration-700"
                   style={{
                     width: `${Math.min(detailPct, 100)}%`,
                     backgroundColor: detailPct > 100 ? '#D85A30' : detailPct > 80 ? '#EF9F27' : '#1D9E75',
@@ -479,7 +479,7 @@ export default function PresupuestosPage() {
                         </div>
                         <div className="h-1.5 bg-[#2A2A28] rounded-full overflow-hidden">
                           <div
-                            className="h-full rounded-full transition-all"
+                            className="h-full rounded-full transition-all duration-700"
                             style={{ width: `${Math.min(subPct, 100)}%`, backgroundColor: subColor }}
                           />
                         </div>

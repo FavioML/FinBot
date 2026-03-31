@@ -100,7 +100,7 @@ export function SpendingHeatmap({ transactions }: SpendingHeatmapProps) {
               return (
                 <div
                   key={day.date}
-                  className="w-[14px] h-[14px] rounded-[3px] transition-colors cursor-default"
+                  className="w-[14px] h-[14px] rounded-[3px] transition-all duration-150 cursor-default"
                   style={{
                     backgroundColor: intensity < 0 ? 'transparent' : getColor(intensity),
                   }}

@@ -82,7 +82,7 @@ export function ScoreTrend({ allTransactions, budgets, currentMonth, currentYear
               <div className="w-full flex items-end" style={{ height: '72px' }}>
                 <motion.div
                   className="w-full rounded-t-md"
-                  style={{ backgroundColor: month.score > 0 ? month.color : 'rgba(255,255,255,0.04)' }}
+                  style={{ backgroundColor: month.score > 0 ? month.color : 'rgba(255,255,255,0.05)', opacity: month.score > 0 ? 0.85 : 1 }}
                   initial={{ height: 0 }}
                   animate={{ height: month.score > 0 ? `${height}%` : '8px' }}
                   transition={{ duration: 0.6, delay: i * 0.1, ease: [0.25, 0.46, 0.45, 0.94] }}

@@ -310,7 +310,7 @@ export default function ConfiguracionPage() {
               alt={user.nombre || ''}
               width={56}
               height={56}
-              className="h-14 w-14 shrink-0 rounded-full object-cover"
+              className="h-14 w-14 shrink-0 rounded-full object-cover ring-1 ring-primary/20"
             />
           ) : (
             <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#1D9E75] text-xl font-bold text-white">
@@ -452,7 +452,7 @@ export default function ConfiguracionPage() {
         <Separator className="bg-[rgba(255,255,255,0.06)]" />
 
         {/* Feature list */}
-        <div className="overflow-x-auto -mx-1">
+        <div className="overflow-x-auto -mx-1 glass-card-depth rounded-xl">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-[#8A877D]">
@@ -501,7 +501,7 @@ export default function ConfiguracionPage() {
           <Button
             variant="outline"
             size="icon"
-            className="shrink-0 border-[rgba(255,255,255,0.1)] bg-transparent hover:bg-[rgba(255,255,255,0.05)]"
+            className="shrink-0 border-[rgba(255,255,255,0.1)] bg-transparent hover:bg-[rgba(255,255,255,0.05)] transition-all duration-200 active:scale-95"
             onClick={handleCopy}
           >
             {copied ? (

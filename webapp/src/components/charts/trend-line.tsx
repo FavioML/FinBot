@@ -20,7 +20,7 @@ interface TrendLineProps {
 function CustomTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="glass-card px-3 py-2 text-xs">
+    <div className="glass-card px-3 py-2.5 text-[12px] shadow-xl">
       <p className="font-medium text-[#F0EFE8] mb-1">{label}</p>
       {payload.map((entry: any) => (
         <p key={entry.dataKey} style={{ color: entry.color }}>
@@ -54,11 +54,11 @@ export function TrendLine({ data }: TrendLineProps) {
           <AreaChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="gradIngresos" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#1D9E75" stopOpacity={0.3} />
+                <stop offset="0%" stopColor="#1D9E75" stopOpacity={0.25} />
                 <stop offset="100%" stopColor="#1D9E75" stopOpacity={0} />
               </linearGradient>
               <linearGradient id="gradGastos" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#D85A30" stopOpacity={0.3} />
+                <stop offset="0%" stopColor="#D85A30" stopOpacity={0.25} />
                 <stop offset="100%" stopColor="#D85A30" stopOpacity={0} />
               </linearGradient>
             </defs>

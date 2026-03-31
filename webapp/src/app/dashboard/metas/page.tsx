@@ -218,6 +218,9 @@ export default function MetasPage() {
                     <div className="flex items-center gap-2">
                       <span className="text-xl">{goal.icono}</span>
                       <h3 className="text-sm font-semibold text-[#F0EFE8]">{goal.nombre}</h3>
+                      {pct >= 90 && pct < 100 && (
+                        <Trophy className="h-3.5 w-3.5 text-[#EF9F27] animate-pulse" />
+                      )}
                     </div>
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button onClick={() => openEdit(goal)} className="p-1 rounded text-[#8A877D] hover:text-[#F0EFE8]">
@@ -240,7 +243,7 @@ export default function MetasPage() {
                         style={{ backgroundColor: pct >= 100 ? '#1D9E75' : pct >= 60 ? '#EF9F27' : '#1D9E75' }}
                         initial={{ width: 0 }}
                         animate={{ width: `${pct}%` }}
-                        transition={{ duration: 0.8, ease: 'easeOut' }}
+                        transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
                       />
                     </div>
                     <div className="flex justify-between text-xs">
@@ -302,7 +305,7 @@ export default function MetasPage() {
           <DialogHeader>
             <DialogTitle>{editGoal ? 'Editar meta' : 'Nueva meta de ahorro'}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="glass-card-depth space-y-4">
             {/* Icon picker */}
             <div>
               <label className="text-xs text-[#8A877D] mb-1.5 block">Icono</label>

@@ -328,7 +328,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-[#1A1A18] border-[rgba(255,255,255,0.06)] sm:max-w-lg max-h-[85vh] overflow-y-auto">
+      <DialogContent className="bg-[#1A1A18] border-[rgba(255,255,255,0.06)] sm:max-w-lg max-h-[85vh] overflow-y-auto glass-card-depth">
         <DialogHeader>
           <DialogTitle className="text-[#F0EFE8]">
             {isEditing ? 'Editar presupuesto' : 'Nuevo presupuesto'}
@@ -549,7 +549,7 @@ export function DeleteBudgetDialog({ open, onOpenChange, budget, onSuccess }: De
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-[#1A1A18] border-[rgba(255,255,255,0.06)] sm:max-w-md">
+      <DialogContent className="bg-[#1A1A18] border-[rgba(255,255,255,0.06)] sm:max-w-md glass-card-depth">
         <DialogHeader>
           <DialogTitle className="text-[#F0EFE8]">¿Eliminar este presupuesto?</DialogTitle>
           <DialogDescription className="text-[#8A877D]">
