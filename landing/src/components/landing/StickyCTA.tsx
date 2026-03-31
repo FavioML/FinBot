@@ -33,7 +33,7 @@ export default function StickyCTA() {
           {/* Left: logo + tagline (hidden on mobile) */}
           <div className="hidden sm:flex items-center gap-3">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo-icon.svg" alt="Neto" width={24} height={24} className="rounded-md" />
+            <img src="/neto-icon.png" alt="Neto" width={24} height={24} className="rounded-md" />
             <span className="text-sm text-neto-txt2">Ordena tu plata sin mover un dedo</span>
           </div>
 

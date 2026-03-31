@@ -27,7 +27,7 @@ export default function DashboardShell({ data, children }: DashboardShellProps) 
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
           {/* Logo */}
           <div className="flex items-center gap-2">
-            <img src="/logo-icon.svg" alt="Neto" width={28} height={28} className="rounded-lg" />
+            <img src="/neto-icon.png" alt="Neto" width={28} height={28} className="rounded-lg" />
             <span className="text-lg font-bold text-neto-green">neto</span>
           </div>
 

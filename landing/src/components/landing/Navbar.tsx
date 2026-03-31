@@ -36,7 +36,7 @@ export default function Navbar() {
         {/* Logo */}
         <a href="/" className="flex items-center gap-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-icon.svg" alt="Neto" width={28} height={28} className="rounded-lg" />
+          <img src="/neto-icon.png" alt="Neto" width={28} height={28} className="rounded-lg" />
           <span className="text-neto-green font-semibold text-lg tracking-tight">neto</span>
         </a>
 

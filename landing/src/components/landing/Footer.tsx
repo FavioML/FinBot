@@ -44,7 +44,7 @@ export default function Footer() {
           <div className="sm:col-span-2 lg:col-span-1">
             <a href="/" className="flex items-center gap-2 mb-4">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/logo-icon.svg" alt="Neto" width={28} height={28} className="rounded-lg" />
+              <img src="/neto-icon.png" alt="Neto" width={28} height={28} className="rounded-lg" />
               <span className="text-neto-green font-semibold text-lg tracking-tight">neto</span>
             </a>
             <p className="text-sm text-neto-txt3 leading-relaxed mb-5 max-w-[260px]">
