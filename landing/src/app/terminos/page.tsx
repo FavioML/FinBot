@@ -1,12 +1,11 @@
 import type { Metadata } from "next";
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
+import Navbar from "@/components/landing/Navbar";
+import Footer from "@/components/landing/Footer";
 
 export const metadata: Metadata = {
-  title: "Términos de Uso — Neto",
+  title: "Terminos de Uso - Neto",
   description:
-    "Términos de uso de Neto — Tu asistente financiero personal por WhatsApp",
-  alternates: { canonical: "https://neto.pe/terminos" },
+    "Terminos de uso de Neto - Tu asistente financiero personal por WhatsApp",
 };
 
 export default function TerminosPage() {
@@ -95,11 +94,15 @@ export default function TerminosPage() {
               <h2 className="text-lg font-bold tracking-tight mb-3">
                 4. Planes y pagos
               </h2>
+              <p className="text-sm text-neto-txt2 leading-7 mb-2">
+                <strong>Plan Gratis:</strong> acceso permanente a
+                funcionalidades basicas sin costo. No requiere tarjeta de
+                credito.
+              </p>
               <p className="text-sm text-neto-txt2 leading-7 mb-3">
-                Neto es un servicio de pago: S/10.00 por mes o S/99.00 por ano.
-                El cobro es recurrente y se realiza automaticamente. Puedes
-                cancelar en cualquier momento. El programa de referidos
-                otorga 1 mes gratis al suscriptor que refiera a 3 usuarios activos.
+                <strong>Plan Pro:</strong> S/10.00 por mes o S/99.00 por ano. El
+                cobro es recurrente y se realiza automaticamente. Puedes
+                cancelar en cualquier momento desde tu cuenta.
               </p>
               <ul className="space-y-2">
                 <li className="text-sm text-neto-txt2 leading-7 pl-5 relative before:content-['\2014'] before:absolute before:left-0 before:text-neto-green before:font-semibold">

@@ -1,32 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
-
-/* ── FAQPage JSON-LD schema for Google rich results ── */
-function FaqSchema({ data }: { data: typeof FAQ_DATA }) {
-  const schema = {
-    "@context": "https://schema.org",
-    "@type": "FAQPage",
-    mainEntity: data.flatMap((group) =>
-      group.items.map((item) => ({
-        "@type": "Question",
-        name: item.q,
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: item.a.replace(/<[^>]*>/g, ""), // strip HTML tags for schema
-        },
-      }))
-    ),
-  };
-  return (
-    <script
-      type="application/ld+json"
-      dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
-    />
-  );
-}
+import Navbar from "@/components/landing/Navbar";
+import Footer from "@/components/landing/Footer";
 
 const FAQ_DATA = [
   {
@@ -67,12 +43,12 @@ const FAQ_DATA = [
     group: "Planes y pagos",
     items: [
       {
-        q: "Cuanto cuesta Neto?",
-        a: "Neto tiene un plan Free (S/0 para siempre) con registro de gastos, presupuestos y metas ilimitados, lectura de fotos Yape/Plin y dashboard del mes actual. El plan Pro cuesta S/10/mes o S/99/ano y agrega lectura automatica de correos bancarios, historial completo, reportes PDF, resumen diario con IA, calendario financiero y mas.",
+        q: "Que incluye el plan gratis?",
+        a: 'El plan gratis incluye: resumen de gastos por WhatsApp, categorizacion automatica con IA, correccion de categorias y consultas en lenguaje natural ("cuanto gaste en delivery?"). Es gratis para siempre, sin tarjeta de credito.',
       },
       {
-        q: "Que incluye la suscripcion?",
-        a: "El plan Pro incluye todo lo del Free mas: lectura automatica de correos bancarios (11 bancos), historial completo (no solo el mes actual), reportes PDF descargables, resumen diario y semanal con IA, calendario financiero, heatmap de gastos, export CSV/JSON, carga masiva por Excel, recordatorios diarios y soporte prioritario.",
+        q: "Que incluye el plan Pro?",
+        a: "El plan Pro (S/10/mes o S/99/ano) incluye todo lo del plan Gratis mas: reportes mensuales web ilimitados, historial ilimitado de transacciones, resumenes automaticos configurables, score de salud financiera y la opcion de pagar con Yape o tarjeta.",
       },
       {
         q: "Puedo pagar con Yape?",
@@ -80,7 +56,7 @@ const FAQ_DATA = [
       },
       {
         q: "Puedo cancelar cuando quiera?",
-        a: "Si, sin tramites ni penalidades. Si cancelas, mantienes el acceso hasta el final del periodo pagado. Tus datos historicos se conservan.",
+        a: "Si, sin tramites ni penalidades. Si cancelas, mantienes el acceso Pro hasta el final del periodo pagado y luego bajas automaticamente al plan Gratis. Tus datos historicos se conservan.",
       },
     ],
   },
@@ -97,7 +73,7 @@ const FAQ_DATA = [
       },
       {
         q: "Cada cuanto llega el resumen automatico?",
-        a: "Puedes configurar la frecuencia y el horario que prefieras. Tambien puedes pedir tu resumen en cualquier momento escribiendo a Neto por WhatsApp.",
+        a: "Con el plan Pro puedes configurar la frecuencia y el horario que prefieras. Con el plan Gratis puedes pedir tu resumen cuando quieras escribiendo a Neto por WhatsApp.",
       },
       {
         q: "Que es el reporte mensual web?",
@@ -154,7 +130,6 @@ export default function FaqPage() {
 
   return (
     <>
-      <FaqSchema data={FAQ_DATA} />
       <Navbar />
       <main className="bg-neto-bg min-h-screen">
         <article className="mx-auto max-w-[800px] px-6 pt-28 pb-20 md:pt-32">

@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { Send, Mail, Phone, User, MessageSquare } from "lucide-react";
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
+import Navbar from "@/components/landing/Navbar";
+import Footer from "@/components/landing/Footer";
 
 export default function ContactoPage() {
   const [sent, setSent] = useState(false);

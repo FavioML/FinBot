@@ -1,17 +1,17 @@
-import Navbar from "@/components/Navbar";
-import Hero from "@/components/Hero";
-import BankStrip from "@/components/BankStrip";
-import HowItWorks from "@/components/HowItWorks";
-import Features from "@/components/Features";
-import Comparison from "@/components/Comparison";
-import Testimonials from "@/components/Testimonials";
-import Security from "@/components/Security";
-import Pricing from "@/components/Pricing";
-import Referral from "@/components/Referral";
-import FinalCTA from "@/components/FinalCTA";
-import Footer from "@/components/Footer";
-import StickyCTA from "@/components/StickyCTA";
-import ExitIntent from "@/components/ExitIntent";
+import dynamic from "next/dynamic";
+import Navbar from "@/components/landing/Navbar";
+import Hero from "@/components/landing/Hero";
+import BankTicker from "@/components/landing/BankTicker";
+
+const BentoShowcase = dynamic(() => import("@/components/landing/BentoShowcase"));
+const HowItWorks = dynamic(() => import("@/components/landing/HowItWorks"));
+const Security = dynamic(() => import("@/components/landing/Security"));
+const Testimonials = dynamic(() => import("@/components/landing/Testimonials"));
+const Pricing = dynamic(() => import("@/components/landing/Pricing"));
+const FinalCTA = dynamic(() => import("@/components/landing/FinalCTA"));
+const Footer = dynamic(() => import("@/components/landing/Footer"));
+const StickyCTA = dynamic(() => import("@/components/landing/StickyCTA"));
+const ExitIntent = dynamic(() => import("@/components/landing/ExitIntent"));
 
 export default function Home() {
   return (
@@ -19,14 +19,12 @@ export default function Home() {
       <Navbar />
       <main>
         <Hero />
-        <BankStrip />
+        <BankTicker />
+        <BentoShowcase />
         <HowItWorks />
-        <Features />
-        <Comparison />
-        <Testimonials />
         <Security />
+        <Testimonials />
         <Pricing />
-        <Referral />
         <FinalCTA />
       </main>
       <Footer />
