@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import { Plus, Target, Wallet, TrendingDown, PiggyBank } from 'lucide-react';
@@ -52,9 +53,12 @@ function normalizeCatForMatch(cat: string): string {
 export default function PresupuestosPage() {
   const { data: user, isLoading: userLoading } = useUser();
 
+  const searchParams = useSearchParams();
   const now = new Date();
-  const currentMonth = now.getMonth() + 1;
-  const currentYear = now.getFullYear();
+  const monthParam = searchParams.get('mes');
+  const [currentYear, currentMonth] = monthParam
+    ? monthParam.split('-').map(Number)
+    : [now.getFullYear(), now.getMonth() + 1];
 
   const { data: budgets = [], isLoading: budgetsLoading } = useBudgets(
     user?.id,

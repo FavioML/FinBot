@@ -76,8 +76,10 @@ export default function TransaccionesPage() {
 
   // View mode: monthly or annual
   const [viewMode, setViewMode] = useState<'mensual' | 'anual'>('mensual');
-  const [selectedMonth, setSelectedMonth] = useState(paramMonth);
-  const [selectedYear, setSelectedYear] = useState(paramYear);
+  const [annualYear, setAnnualYear] = useState(paramYear);
+  // In monthly mode, always follow URL params; in annual mode, use local state
+  const selectedMonth = paramMonth;
+  const selectedYear = viewMode === 'mensual' ? paramYear : annualYear;
 
   // Fetch all transactions to compute available years
   const { data: allTransactions = [] } = useTransactions({
@@ -470,7 +472,7 @@ export default function TransaccionesPage() {
         )}
 
         {viewMode === 'anual' && (
-          <Select value={String(selectedYear)} onValueChange={(val) => { setSelectedYear(Number(val)); setPage(1); }}>
+          <Select value={String(annualYear)} onValueChange={(val) => { setAnnualYear(Number(val)); setPage(1); }}>
             <SelectTrigger className="w-[120px] bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#C8C6BC]">
               <SelectValue />
             </SelectTrigger>

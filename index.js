@@ -1121,7 +1121,7 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
       else {
         respuesta = '📊 *Tu reporte de ' + MESES[mesR] + ' ' + anioR + '*\n\n' +
           'Descarga tu PDF y ve tus gráficos en tu dashboard:\n\n' +
-          '🔗 https://app.neto.pe/dashboard/reporte\n\n' +
+          '🔗 https://app.neto.pe/dashboard/reportes\n\n' +
           '_Inicia sesión con Google para ver tus datos._';
       }
     } else if (cmd === '/premium') {
@@ -2099,7 +2099,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
         const anioR = datos.anio || anioActual;
         return '📊 *Tu reporte de ' + mE[mesR] + ' ' + anioR + '*\n\n' +
           'Descarga tu PDF y ve tus gráficos en tu dashboard:\n\n' +
-          '🔗 https://app.neto.pe/dashboard/reporte\n\n' +
+          '🔗 https://app.neto.pe/dashboard/reportes\n\n' +
           '_Inicia sesión con Google para ver tus datos._';
       }
 
@@ -3150,7 +3150,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       }
 
       case 'compartir_resumen': {
-        return '📤 *Compartir tu resumen:*\n\n1️⃣ Pide tu reporte → _"dame mi reporte"_\n2️⃣ Neto te envía el PDF por WhatsApp\n3️⃣ Reenvíalo a quien quieras\n\nTambién puedes descargar y compartir desde:\n🔗 https://app.neto.pe/dashboard/reportes\n\n_El PDF incluye gráficos, categorías y tu score financiero._';
+        return '📤 *Compartir tu resumen:*\n\n1️⃣ Pide tu reporte → _"dame mi reporte"_\n2️⃣ Neto te envía el PDF por WhatsApp\n3️⃣ Reenvíalo a quien quieras\n\nTambién puedes descargar y compartir desde:\n🔗 https://app.neto.pe/dashboard/reportess\n\n_El PDF incluye gráficos, categorías y tu score financiero._';
       }
 
       case 'hablar_con_humano': {
