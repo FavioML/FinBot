@@ -38,7 +38,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useUser } from '@/lib/hooks/use-user';
 import { createClient } from '@/lib/supabase/client';
 import { UserMenu } from '@/components/dashboard/user-menu';
-import { SOCIAL_LINKS, getCategoriaEmoji } from '@/lib/constants';
+import { SOCIAL_LINKS, getCategoriaEmoji, CATEGORIAS } from '@/lib/constants';
+import { capitalizeDisplay } from '@/lib/format';
 
 /* ------------------------------------------------------------------ */
 /*  Plan comparison data                                               */
@@ -103,7 +104,7 @@ export default function ConfiguracionPage() {
     id: string;
     nombre: string;
     emoji?: string;
-    subcategorias: { id: string; nombre: string }[];
+    subcategorias: { id: string | null; nombre: string; system?: boolean }[];
   }
   const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
@@ -137,8 +138,23 @@ export default function ConfiguracionPage() {
     try {
       const res = await fetch('/api/categories');
       if (res.ok) {
-        const data = await res.json();
-        setCategories(data);
+        const dbCats: CategoryItem[] = await res.json();
+        // Merge DB categories with hardcoded catalog so both lists are identical
+        const merged = dbCats.map((cat) => {
+          const hardcoded = CATEGORIAS.find((c) => c.nombre.toLowerCase() === cat.nombre.toLowerCase());
+          const dbSubNames = new Set(cat.subcategorias.map((s) => s.nombre.toLowerCase()));
+          const extraSubs = hardcoded
+            ? hardcoded.subs
+                .filter((s) => !dbSubNames.has(s.toLowerCase()))
+                .map((s) => ({ id: null, nombre: capitalizeDisplay(s), system: true }))
+            : [];
+          // Normalize DB sub names to capitalizeDisplay
+          const dbSubsNormalized = cat.subcategorias.map((s) => ({ ...s, nombre: capitalizeDisplay(s.nombre) }));
+          const allSubs = [...dbSubsNormalized, ...extraSubs]
+            .sort((a, b) => a.nombre.localeCompare(b.nombre));
+          return { ...cat, subcategorias: allSubs };
+        });
+        setCategories(merged);
       }
     } catch { /* ignore */ }
     setCategoriesLoading(false);
@@ -683,8 +699,8 @@ export default function ConfiguracionPage() {
                 {/* Subcategories */}
                 {expandedCats.has(cat.id) && cat.subcategorias.length > 0 && (
                   <div className="ml-7 mt-0.5 space-y-0.5">
-                    {cat.subcategorias.map((sub) => (
-                      <div key={sub.id} className="flex items-center gap-2 rounded-lg bg-[rgba(255,255,255,0.015)] border border-[rgba(255,255,255,0.04)] px-3 py-2">
+                    {cat.subcategorias.map((sub, idx) => (
+                      <div key={sub.id ?? `sys-${idx}`} className="flex items-center gap-2 rounded-lg bg-[rgba(255,255,255,0.015)] border border-[rgba(255,255,255,0.04)] px-3 py-2">
                         {renamingCat === sub.id ? (
                           <div className="flex items-center gap-2 flex-1 min-w-0">
                             <Input
@@ -693,11 +709,11 @@ export default function ConfiguracionPage() {
                               className="h-7 text-sm bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.1)] text-[#F0EFE8] max-w-[160px]"
                               autoFocus
                               onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleRenameCategory(sub.id);
+                                if (e.key === 'Enter') handleRenameCategory(sub.id!);
                                 if (e.key === 'Escape') setRenamingCat(null);
                               }}
                             />
-                            <Button size="sm" className="h-6 px-1.5 bg-[#1D9E75] text-white hover:bg-[#178a64]" onClick={() => handleRenameCategory(sub.id)}>
+                            <Button size="sm" className="h-6 px-1.5 bg-[#1D9E75] text-white hover:bg-[#178a64]" onClick={() => handleRenameCategory(sub.id!)}>
                               <Check className="h-3 w-3" />
                             </Button>
                             <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[#8A877D]" onClick={() => setRenamingCat(null)}>
@@ -706,11 +722,15 @@ export default function ConfiguracionPage() {
                           </div>
                         ) : (
                           <>
-                            <span className="text-sm text-[#C8C6BC] flex-1 min-w-0 truncate">{sub.nombre}</span>
+                            <span className={`text-sm flex-1 min-w-0 truncate ${sub.system ? 'text-[#8A877D]' : 'text-[#C8C6BC]'}`}>
+                              {sub.nombre}
+                              {sub.system && <span className="ml-1.5 text-[10px] text-[#8A877D]/60">predeterminada</span>}
+                            </span>
+                            {!sub.system && (
                             <div className="flex items-center gap-1 shrink-0">
                               <button
                                 className="p-1 rounded text-[#8A877D] hover:text-[#F0EFE8] hover:bg-[rgba(255,255,255,0.05)]"
-                                onClick={() => { setRenamingCat(sub.id); setRenameInput(sub.nombre); }}
+                                onClick={() => { setRenamingCat(sub.id!); setRenameInput(sub.nombre); }}
                                 title="Renombrar"
                               >
                                 <Pencil className="h-3 w-3" />
@@ -727,13 +747,14 @@ export default function ConfiguracionPage() {
                               ) : (
                                 <button
                                   className="p-1 rounded text-[#8A877D] hover:text-[#D85A30] hover:bg-[rgba(216,90,48,0.05)]"
-                                  onClick={() => setDeletingCat(sub.id)}
+                                  onClick={() => setDeletingCat(sub.id!)}
                                   title="Eliminar"
                                 >
                                   <Trash2 className="h-3 w-3" />
                                 </button>
                               )}
                             </div>
+                            )}
                           </>
                         )}
                       </div>

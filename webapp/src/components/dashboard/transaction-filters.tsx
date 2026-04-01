@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { CATEGORIAS, getCategoriaEmoji } from '@/lib/constants';
+import { capitalizeDisplay } from '@/lib/format';
 
 interface TransactionFiltersProps {
   search: string;
@@ -123,14 +124,14 @@ export function TransactionFilters({
           <Select value={subcategoriaFilter} onValueChange={onSubcategoriaChange}>
             <SelectTrigger className="w-[200px] bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#C8C6BC]">
               <SelectValue>
-                {subcategoriaFilter === 'all' ? 'Todas las subcategorías' : subcategoriaFilter.replace(/_/g, ' ')}
+                {subcategoriaFilter === 'all' ? 'Todas las subcategorías' : capitalizeDisplay(subcategoriaFilter)}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todas las subcategorías</SelectItem>
               {subcategorias.map((sub) => (
                 <SelectItem key={sub} value={sub}>
-                  {sub.replace(/_/g, ' ')}
+                  {capitalizeDisplay(sub)}
                 </SelectItem>
               ))}
             </SelectContent>
