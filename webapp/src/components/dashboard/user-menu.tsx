@@ -13,6 +13,7 @@ import {
   DropdownMenuContent,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
+import { NotificationBell } from './notification-bell';
 
 export function UserMenu() {
   const router = useRouter();
@@ -41,15 +42,19 @@ export function UserMenu() {
   }
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger className="cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[#1D9E75] transition-transform hover:scale-105 active:scale-95">
-        <Avatar className="h-10 w-10 ring-2 ring-transparent hover:ring-[#1D9E75]/30 transition-all">
-          {avatarUrl && <AvatarImage src={avatarUrl} alt={user?.nombre || ''} />}
-          <AvatarFallback className="bg-[rgba(29,158,117,0.12)] text-[#1D9E75] text-xs font-semibold">
-            {initials}
-          </AvatarFallback>
-        </Avatar>
-      </DropdownMenuTrigger>
+    <div className="flex items-center gap-2">
+      <div className="hidden md:block">
+        <NotificationBell />
+      </div>
+      <DropdownMenu>
+        <DropdownMenuTrigger className="cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[#1D9E75] transition-transform hover:scale-105 active:scale-95">
+          <Avatar className="h-10 w-10 ring-2 ring-transparent hover:ring-[#1D9E75]/30 transition-all">
+            {avatarUrl && <AvatarImage src={avatarUrl} alt={user?.nombre || ''} />}
+            <AvatarFallback className="bg-[rgba(29,158,117,0.12)] text-[#1D9E75] text-xs font-semibold">
+              {initials}
+            </AvatarFallback>
+          </Avatar>
+        </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="bg-[#141412] border-[rgba(255,255,255,0.06)] min-w-[200px]">
         <div className="px-2 py-2">
           <p className="text-sm font-semibold text-[#F0EFE8]">{user?.nombre || 'Mi cuenta'}</p>
@@ -65,5 +70,6 @@ export function UserMenu() {
         </button>
       </DropdownMenuContent>
     </DropdownMenu>
+    </div>
   );
 }

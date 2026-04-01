@@ -11,6 +11,9 @@ export interface MetaAhorro {
   icono: string;
   fecha_limite: string | null;
   completada: boolean;
+  colaborativa?: boolean;
+  invite_code?: string | null;
+  max_participantes?: number;
   created_at: string;
   updated_at: string;
   meta_aportes?: MetaAporte[];

@@ -330,8 +330,8 @@ export default function MetasPage() {
                     </div>
                   </div>
 
-                  {/* Collaborative badge + invite */}
-                  {(goal as MetaAhorro & { colaborativa?: boolean }).colaborativa && (
+                  {/* Collaborative badge */}
+                  {goal.colaborativa && (
                     <div className="flex items-center gap-2">
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[rgba(239,159,39,0.1)] text-[10px] text-[#EF9F27] font-medium">
                         <Users className="h-3 w-3" /> Colaborativa
@@ -348,16 +348,14 @@ export default function MetasPage() {
                       <TrendingUp className="h-3 w-3" />
                       Aportar
                     </button>
-                    {goal.usuario_id === user?.id && (
-                      <button
-                        onClick={() => handleInvite(goal.id)}
-                        className="py-1.5 px-3 rounded-lg text-xs font-medium bg-[rgba(239,159,39,0.1)] text-[#EF9F27] hover:bg-[rgba(239,159,39,0.2)] transition-colors flex items-center justify-center gap-1.5"
-                        title="Invitar participantes"
-                      >
-                        <Link2 className="h-3 w-3" />
-                        Invitar
-                      </button>
-                    )}
+                    <button
+                      onClick={() => handleInvite(goal.id)}
+                      className="py-1.5 px-3 rounded-lg text-xs font-medium bg-[rgba(239,159,39,0.1)] text-[#EF9F27] hover:bg-[rgba(239,159,39,0.2)] transition-colors flex items-center justify-center gap-1.5"
+                      title="Invitar participantes — convierte en meta colaborativa"
+                    >
+                      <Link2 className="h-3 w-3" />
+                      Invitar
+                    </button>
                   </div>
 
                   {/* Progress bar */}

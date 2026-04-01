@@ -9,7 +9,6 @@ import { BottomNav } from '@/components/dashboard/bottom-nav';
 import { QuickAddButton } from '@/components/dashboard/quick-add-button';
 import { OnboardingTour } from '@/components/dashboard/onboarding-tour';
 import { WhatsAppButton } from '@/components/shared/whatsapp-button';
-import { NotificationBell } from '@/components/dashboard/notification-bell';
 import { useUser } from '@/lib/hooks/use-user';
 import { createClient } from '@/lib/supabase/client';
 
@@ -55,10 +54,6 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Topbar onMenuClick={() => setSidebarOpen(true)} />
-          {/* Desktop notification bar */}
-          <div className="hidden md:flex h-10 items-center justify-end px-6 border-b border-[rgba(255,255,255,0.04)]">
-            <NotificationBell />
-          </div>
           <main className="flex-1 overflow-y-auto p-4 pb-20 md:p-6 md:pb-6 lg:p-8 lg:pb-8 transition-all duration-300">
             {children}
           </main>

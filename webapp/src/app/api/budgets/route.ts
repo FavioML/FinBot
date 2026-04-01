@@ -30,7 +30,84 @@ async function getNetoUser() {
   return data || null;
 }
 
+// GET /api/budgets?mes=X&anio=Y — get budgets with carry-forward logic
+export async function GET(request: Request) {
+  const netoUser = await getNetoUser();
+  if (!netoUser)
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  const userId = netoUser.id;
+  const { searchParams } = new URL(request.url);
+  const mes = parseInt(searchParams.get('mes') || '0');
+  const anio = parseInt(searchParams.get('anio') || '0');
+
+  if (!mes || !anio)
+    return NextResponse.json({ error: 'mes and anio required' }, { status: 400 });
+
+  // Check if budgets exist for the requested month
+  const { data: existing } = await serviceClient
+    .from('presupuestos')
+    .select('*')
+    .eq('usuario_id', userId)
+    .eq('mes', mes)
+    .eq('anio', anio);
+
+  if (existing && existing.length > 0) {
+    return NextResponse.json(existing);
+  }
+
+  // No budgets for this month — find the most recent month that has budgets
+  const { data: latestBudgets } = await serviceClient
+    .from('presupuestos')
+    .select('*')
+    .eq('usuario_id', userId)
+    .order('anio', { ascending: false })
+    .order('mes', { ascending: false });
+
+  if (!latestBudgets || latestBudgets.length === 0) {
+    return NextResponse.json([]);
+  }
+
+  // Get the most recent month's budgets
+  const latestAnio = latestBudgets[0].anio;
+  const latestMes = latestBudgets[0].mes;
+
+  // Only carry forward if the requested month is AFTER the latest month
+  const requestedDate = anio * 12 + mes;
+  const latestDate = latestAnio * 12 + latestMes;
+
+  if (requestedDate <= latestDate) {
+    // Requested month is before or at the latest — no carry-forward, return empty
+    return NextResponse.json([]);
+  }
+
+  // Carry forward: copy latest month's budgets into the new month
+  const sourceBudgets = latestBudgets.filter(
+    (b) => b.mes === latestMes && b.anio === latestAnio,
+  );
+
+  const newBudgets = sourceBudgets.map((b) => ({
+    usuario_id: userId,
+    categoria: b.categoria,
+    subcategoria: b.subcategoria,
+    monto_limite: b.monto_limite,
+    alerta_porcentaje: b.alerta_porcentaje,
+    mes,
+    anio,
+  }));
+
+  const { data: inserted, error } = await serviceClient
+    .from('presupuestos')
+    .insert(newBudgets)
+    .select();
+
+  if (error) {
+    // If insert fails (e.g. unique constraint), just return empty
+    return NextResponse.json([]);
+  }
+
+  return NextResponse.json(inserted || []);
+}
 
 export async function POST(request: Request) {
   const netoUser = await getNetoUser();
