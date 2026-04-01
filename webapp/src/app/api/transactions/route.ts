@@ -236,6 +236,36 @@ export async function DELETE(request: Request) {
   if (!id)
     return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
+  // Leer transacción antes de borrar para guardar exclusión Gmail si aplica
+  const { data: txToDelete } = await serviceClient
+    .from('transacciones')
+    .select('id, descripcion_original')
+    .eq('id', id)
+    .eq('usuario_id', userId)
+    .single();
+
+  if (!txToDelete)
+    return NextResponse.json({ error: 'Transaction not found' }, { status: 404 });
+
+  // Limpiar consultas_pendientes asociadas
+  await serviceClient
+    .from('consultas_pendientes')
+    .update({ estado: 'respondida', respondida_at: new Date().toISOString() })
+    .eq('transaccion_id', id)
+    .eq('estado', 'pendiente');
+
+  // Si es transacción de Gmail, guardar en excluidos para evitar re-importación
+  if (txToDelete.descripcion_original && !txToDelete.descripcion_original.startsWith('duplicado:')) {
+    await serviceClient
+      .from('gmail_excluidos')
+      .upsert(
+        { usuario_id: userId, descripcion_original: txToDelete.descripcion_original },
+        { onConflict: 'usuario_id,descripcion_original' }
+      )
+      .then(() => {})
+      .catch(() => {});
+  }
+
   const { error } = await serviceClient
     .from('transacciones')
     .delete()

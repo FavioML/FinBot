@@ -203,13 +203,36 @@ async function retroaplicarRegla(usuarioId, comercio, categoria, subcategoria) {
 
 // --- Consultas pendientes ---
 async function guardarConsultaPendiente(usuario, tx) {
-  try { await supabase.from('consultas_pendientes').insert({ usuario_id: usuario.id, transaccion_id: tx.id, monto: tx.monto, banco: tx.banco||tx.comercio, fecha: tx.fecha, estado: 'pendiente' }); }
+  try { await supabase.from('consultas_pendientes').insert({ usuario_id: usuario.id, transaccion_id: tx.id, monto: tx.monto, banco: tx.banco||tx.comercio, fecha: tx.fecha, estado: 'pendiente', moneda: tx.moneda || 'PEN' }); }
   catch(e) { log.error({ tag: 'CONSULTA', err: e.message }, 'Error guardando consulta'); }
 }
 
 async function obtenerConsultasPendientes(usuarioId) {
-  var res = await supabase.from('consultas_pendientes').select('*').eq('usuario_id', usuarioId).eq('estado', 'pendiente').order('created_at', { ascending: true });
-  return res.data || [];
+  // Join con transacciones para verificar si ya fueron categorizadas o eliminadas
+  var res = await supabase.from('consultas_pendientes')
+    .select('*, transacciones(id, categoria)')
+    .eq('usuario_id', usuarioId).eq('estado', 'pendiente')
+    .order('created_at', { ascending: true });
+  var todos = res.data || [];
+  var pendientes = [];
+  var idsAutoResolver = [];
+  for (var i = 0; i < todos.length; i++) {
+    var c = todos[i];
+    var tx = c.transacciones;
+    // Si la transacción fue eliminada (huérfano) o ya tiene categoría real → auto-resolver
+    if (!tx || !tx.id || (tx.categoria && tx.categoria !== 'Otros' && tx.categoria !== 'Otro' && tx.categoria !== 'Transferencia')) {
+      idsAutoResolver.push(c.id);
+    } else {
+      pendientes.push(c);
+    }
+  }
+  // Auto-resolver en batch (silencioso)
+  if (idsAutoResolver.length > 0) {
+    supabase.from('consultas_pendientes')
+      .update({ estado: 'respondida', respondida_at: new Date().toISOString() })
+      .in('id', idsAutoResolver).then(function(){}).catch(function(){});
+  }
+  return pendientes;
 }
 
 async function resolverConsulta(consultaId) {
@@ -230,7 +253,8 @@ function necesitaConsulta(tx) {
 
 function mensajeConsulta(tx) {
   var monto = parseFloat(tx.monto||0).toFixed(2), banco = tx.banco || tx.comercio || 'Pago', fecha = tx.fecha || 'hoy';
-  return '💸 ' + banco + ' — S/ ' + monto + ' (' + fecha + ')\n\n¿Para qué fue ese pago?\nDime con tus palabras: _"almuerzo"_, _"taxi"_, _"supermercado"_...';
+  var sym = (tx.moneda === 'USD') ? '$' : 'S/';
+  return '💸 ' + banco + ' — ' + sym + ' ' + monto + ' (' + fecha + ')\n\n¿Para qué fue ese pago?\nDime con tus palabras: _"almuerzo"_, _"taxi"_, _"supermercado"_...';
 }
 
 module.exports = {

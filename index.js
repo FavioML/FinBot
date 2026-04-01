@@ -166,6 +166,9 @@ async function escanearGmailYRegistrar(usuario) {
       const claveDedup = msg.id;
       const { data: existente } = await supabase.from('transacciones').select('id').eq('usuario_id', usuario.id).eq('descripcion_original', claveDedup).single();
       if (existente) { ignoradas++; continue; }
+      // Verificar si el usuario eliminó intencionalmente esta transacción
+      const { data: excluido } = await supabase.from('gmail_excluidos').select('id').eq('usuario_id', usuario.id).eq('descripcion_original', claveDedup).single();
+      if (excluido) { ignoradas++; continue; }
       const resultado = await parsearCorreoBancario(textoParseo, msg.asunto);
       if (!resultado.monto) continue;
       const txGuardada = await guardarTransaccion(usuario.id, { ...resultado, fecha: msg.fecha || resultado.fecha, descripcion_original: claveDedup });
@@ -1017,7 +1020,10 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
     // Consultas pendientes: solo resolver si el usuario responde a una (no forzar)
     // NO interceptar si el mensaje es una corrección explícita de categoría — el clasificador lo maneja mejor
     const esCorreccionExplicita = /\bes\s+categor[ií]a\b/i.test(msg) || /\bcambia(r|lo)?\s+(a|la)\s+categor[ií]a\b/i.test(msg) || /\bmuev[elo]+\s+(a|en)\b/i.test(msg) || /\bponl[oa]\s+en\b/i.test(msg) || /\bcorrig[eé]\b/i.test(msg) || /\brecategoriz/i.test(msg);
-    if (!cmd.startsWith('/') && cmd !== 'hola' && cmd !== 'hi' && cmd !== 'inicio' && !esCorreccionExplicita) {
+    // NO interceptar si el mensaje claramente es una intención diferente (deudas, presupuestos, metas, etc.)
+    const esIntencionDirecta = /\b(me debe[s]?|le debo|debo\s+\S|le prest[eé]|me prest[oó]|mis deudas|ya pagu[eé]|me pag[oó]|abonar?\s+deuda)\b/i.test(msg)
+      || /\b(presupuesto|meta de ahorro|suscripci[oó]n|reporte|resumen|elimina|borra|quita)\b/i.test(msg);
+    if (!cmd.startsWith('/') && cmd !== 'hola' && cmd !== 'hi' && cmd !== 'inicio' && !esCorreccionExplicita && !esIntencionDirecta) {
       var pendInter = await obtenerConsultasPendientes(usuario.id);
       if (pendInter.length > 0) {
         var resC = await intentarResolverConsulta(usuario, msg);
@@ -2343,6 +2349,12 @@ async function procesarMensajeLibre(msg, usuario, from) {
             txElim = await obtenerUltimaTransaccion(usuario.id);
           }
           if (!txElim) return '\u00bfDe qu\u00e9 gasto me hablas? D\u00edme el comercio y lo elimino.';
+          // Limpiar consultas_pendientes asociadas antes de eliminar
+          await supabase.from('consultas_pendientes').update({ estado: 'respondida', respondida_at: new Date().toISOString() }).eq('transaccion_id', txElim.id).eq('estado', 'pendiente');
+          // Si es transacción de Gmail, guardar en excluidos para evitar re-importación
+          if (txElim.descripcion_original && !txElim.descripcion_original.startsWith('duplicado:')) {
+            await supabase.from('gmail_excluidos').upsert({ usuario_id: usuario.id, descripcion_original: txElim.descripcion_original }, { onConflict: 'usuario_id,descripcion_original' }).then(() => {}).catch(() => {});
+          }
           await supabase.from('transacciones').delete().eq('id', txElim.id);
           const montoElim = txElim.moneda === 'USD' ? '$' + parseFloat(txElim.monto).toFixed(2) : 'S/ ' + parseFloat(txElim.monto).toFixed(2);
           return 'Listo. Elimin\u00e9 *' + (txElim.comercio || 'ese gasto') + '* (' + montoElim + ') del ' + txElim.fecha + '.';
