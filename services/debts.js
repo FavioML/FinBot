@@ -106,7 +106,7 @@ async function marcarDeudaPagada(usuarioId, contraparte) {
 async function formatearResumenDeudas(usuarioId) {
   const deudas = await obtenerDeudas(usuarioId);
   if (deudas.length === 0) {
-    return 'No tienes deudas activas registradas. 👏\n\nPara registrar una escribe:\n_"debo S/200 a Juan"_\n_"Pedro me debe S/100 por la cena"_';
+    return 'Todo limpio, no tienes deudas pendientes. 👏\n\nSi necesitas anotar alguna, dime algo como:\n_"debo 200 a Juan"_ o _"Pedro me debe 100 por la cena"_';
   }
 
   const debo = deudas.filter(d => d.tipo === 'debo');
