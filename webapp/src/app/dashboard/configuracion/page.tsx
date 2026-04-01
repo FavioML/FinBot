@@ -706,7 +706,7 @@ export default function ConfiguracionPage() {
                   <div className="ml-7 mt-0.5 space-y-0.5">
                     {cat.subcategorias.map((sub, idx) => (
                       <div key={sub.id ?? `sys-${idx}`} className="flex items-center gap-2 rounded-lg bg-[rgba(255,255,255,0.015)] border border-[rgba(255,255,255,0.04)] px-3 py-2">
-                        {renamingCat === sub.id ? (
+                        {sub.id !== null && renamingCat === sub.id ? (
                           <div className="flex items-center gap-2 flex-1 min-w-0">
                             <Input
                               value={renameInput}
