@@ -179,7 +179,7 @@ async function escanearGmailYRegistrar(usuario) {
         try {
           const { data: miRef } = await supabase.from('referidos').select('referrer_id').eq('referido_id', usuario.id).single();
           if (miRef) verificarProReferidos(miRef.referrer_id);
-        } catch(e) {}
+        } catch(e) { log.warn({ tag: 'REFERIDO', err: e.message }, 'Error verificando referido'); }
       }, 5000);
     } catch (e) { log.error({ tag: 'CORREO', err: e.message }, 'Error procesando correo'); registrarError('CORREO', e.message, { stack: e.stack, usuarioId: usuario.id }); }
   }
@@ -251,7 +251,7 @@ async function intentarResolverConsulta(usuario, texto) {
     try {
       const { data: cats } = await supabase.from('categorias_usuario').select('nombre').eq('usuario_id', usuario.id).is('padre_id', null);
       if (cats && cats.length > 0) catsUsuario = ' Categorias personalizadas del usuario: ' + cats.map(c => c.nombre).join(', ') + '.';
-    } catch(e) {}
+    } catch(e) { log.warn({ tag: 'CONSULTA', err: e.message }, 'Error cargando categorias usuario'); }
     var aiRes = await openai.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'system', content: 'Eres un clasificador de gastos pendientes. Responde SOLO con JSON valido: {"resuelve":true/false,"numero":1/2/null,"categoria":"nombre de la categoria (puede ser cualquier nombre que el usuario mencione, como Alimentación, Transporte, Auto, Hogar, etc)","subcategoria":"nombre de subcategoria si el usuario la menciona, sino null","descripcion":"descripcion corta"}. Si el usuario dice "es categoría X" o "es de X", resuelve=true y usa esa categoría.' + catsUsuario }, { role: 'user', content: 'Gastos pendientes: '+ctx+'\n\nEl usuario respondio: '+texto }], temperature: 0 });
     var raw = aiRes.choices[0].message.content.trim();
     parsed = JSON.parse(raw.startsWith('{') ? raw : raw.slice(raw.indexOf('{'), raw.lastIndexOf('}')+1));
@@ -266,8 +266,10 @@ async function intentarResolverConsulta(usuario, texto) {
   // Capitalizar subcategoría
   if (subFinal) subFinal = subFinal.charAt(0).toUpperCase() + subFinal.slice(1);
   const comercioFinal = parsed.descripcion || consulta.banco;
+  // Resolver atómicamente (previene race condition si 2 mensajes llegan simultáneos)
+  const fueResuelto = await resolverConsulta(consulta.id);
+  if (!fueResuelto) return null; // Ya fue resuelta por otro mensaje concurrente
   await supabase.from('transacciones').update({ categoria: catFinal, subcategoria: subFinal || 'sin_categoria', comercio: comercioFinal }).eq('id', consulta.transaccion_id);
-  await resolverConsulta(consulta.id);
   // Crear subcategoría en categorias_usuario si es nueva
   if (subFinal && subFinal !== 'sin_categoria') {
     crearSubcategoriaLibreUsuario(usuario.id, catFinal, subFinal);
@@ -316,7 +318,11 @@ async function detectarCategoriaIA(texto, usuarioId) {
   try {
     const res = await openai.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'system', content: 'Eres un clasificador de gastos. Elige la categoria mas apropiada de la lista proporcionada. Si el usuario menciona explicitamente una subcategoria, usa ese nombre exacto aunque no este en la lista. Responde SOLO con JSON: {"categoria":"nombre exacto","subcategoria":"nombre exacto o null"}' }, { role: 'user', content: 'Categorias disponibles: '+contexto+'\n\nGasto a clasificar: '+texto }], temperature: 0 });
     const raw = res.choices[0].message.content.trim();
-    return JSON.parse(raw.startsWith('{') ? raw : raw.slice(raw.indexOf('{'), raw.lastIndexOf('}')+1));
+    const result = JSON.parse(raw.startsWith('{') ? raw : raw.slice(raw.indexOf('{'), raw.lastIndexOf('}')+1));
+    // Sanitizar strings "null" que GPT puede devolver como texto literal
+    if (result.subcategoria && /^null$/i.test(String(result.subcategoria).trim())) result.subcategoria = null;
+    if (result.categoria && /^null$/i.test(String(result.categoria).trim())) result.categoria = null;
+    return result;
   } catch(e) { return { categoria: null, subcategoria: null }; }
 }
 // getEmojiCategoria movido a lib/formatters.js
@@ -1495,7 +1501,7 @@ app.get('/auth/callback', async (req, res) => {
           const stateObj = JSON.parse(decoded);
           whatsappNum = stateObj.num; modoConexion = stateObj.modo || 'inicial';
         } else { whatsappNum = decoded; }
-      } catch(e) {}
+      } catch(e) { log.warn({ tag: 'OAUTH', err: e.message }, 'Error decodificando state OAuth'); }
     }
     let usuario = null;
     if (whatsappNum) { const { data } = await supabase.from('usuarios').select('*').eq('whatsapp', whatsappNum).single(); usuario = data; }
@@ -3279,7 +3285,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
               if (resultado.tipo === 'gasto' && resultado.categoria) { const alerta = await verificarAlertaPresupuesto(usuario.id, resultado.categoria, null); if (alerta) resp += '\n\n' + alerta; }
               return resp + '\n\n_Escribe "mis gastos del mes" para ver el resumen._';
             }
-          } catch(e) {}
+          } catch(e) { log.warn({ tag: 'FALLBACK_TX', err: e.message }, 'Error en fallback transaccion'); }
         }
         // Log NLP desconocido para revisión admin
         supabase.from('nlp_errors').insert({

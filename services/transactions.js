@@ -213,7 +213,11 @@ async function obtenerConsultasPendientes(usuarioId) {
 }
 
 async function resolverConsulta(consultaId) {
-  await supabase.from('consultas_pendientes').update({ estado: 'respondida', respondida_at: new Date().toISOString() }).eq('id', consultaId);
+  // Atómico: solo actualiza si estado sigue siendo 'pendiente' (evita race conditions)
+  const { count } = await supabase.from('consultas_pendientes')
+    .update({ estado: 'respondida', respondida_at: new Date().toISOString() }, { count: 'exact' })
+    .eq('id', consultaId).eq('estado', 'pendiente');
+  return (count || 0) > 0;
 }
 
 function necesitaConsulta(tx) {
