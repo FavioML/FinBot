@@ -1009,7 +1009,9 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
     }
 
     // Consultas pendientes: solo resolver si el usuario responde a una (no forzar)
-    if (!cmd.startsWith('/') && cmd !== 'hola' && cmd !== 'hi' && cmd !== 'inicio') {
+    // NO interceptar si el mensaje es una corrección explícita de categoría — el clasificador lo maneja mejor
+    const esCorreccionExplicita = /\bes\s+categor[ií]a\b/i.test(msg) || /\bcambia(r|lo)?\s+(a|la)\s+categor[ií]a\b/i.test(msg) || /\bmuev[elo]+\s+(a|en)\b/i.test(msg) || /\bponl[oa]\s+en\b/i.test(msg) || /\bcorrig[eé]\b/i.test(msg) || /\brecategoriz/i.test(msg);
+    if (!cmd.startsWith('/') && cmd !== 'hola' && cmd !== 'hi' && cmd !== 'inicio' && !esCorreccionExplicita) {
       var pendInter = await obtenerConsultasPendientes(usuario.id);
       if (pendInter.length > 0) {
         var resC = await intentarResolverConsulta(usuario, msg);
