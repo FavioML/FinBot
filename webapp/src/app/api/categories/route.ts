@@ -69,17 +69,36 @@ export async function GET() {
     txSubMap.get(tx.categoria)!.add(tx.subcategoria);
   }
 
-  // Merge tx-derived subs into each category (read-only if not in categorias_usuario)
+  // Materialize tx-derived subs into categorias_usuario so they become fully editable
+  const newSubsToInsert: { usuario_id: string; padre_id: string; nombre: string; activa: boolean }[] = [];
   for (const cat of result) {
     const txSubs = txSubMap.get(cat.nombre) || new Set<string>();
     const dbSubsLower = new Set(cat.subcategorias.map((s) => s.nombre.toLowerCase()));
     for (const txSub of txSubs) {
       if (!dbSubsLower.has(txSub.toLowerCase())) {
-        cat.subcategorias.push({ id: null, nombre: txSub, from_tx: true });
+        newSubsToInsert.push({ usuario_id: userId, padre_id: cat.id, nombre: txSub, activa: true });
       }
     }
-    // Sort alphabetically
-    cat.subcategorias.sort((a, b) => a.nombre.localeCompare(b.nombre));
+  }
+
+  if (newSubsToInsert.length > 0) {
+    await serviceClient.from('categorias_usuario').insert(newSubsToInsert);
+    // Re-fetch subcategories now that new rows exist
+    for (const cat of result) {
+      const { data: subs } = await serviceClient
+        .from('categorias_usuario')
+        .select('*')
+        .eq('usuario_id', userId)
+        .eq('padre_id', cat.id)
+        .eq('activa', true)
+        .order('nombre');
+      cat.subcategorias = subs || [];
+    }
+  } else {
+    // Just sort what we have
+    for (const cat of result) {
+      cat.subcategorias.sort((a, b) => a.nombre.localeCompare(b.nombre));
+    }
   }
 
   return NextResponse.json(result);

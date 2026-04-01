@@ -727,10 +727,10 @@ export default function ConfiguracionPage() {
                           </div>
                         ) : (
                           <>
-                            <span className={`text-sm flex-1 min-w-0 truncate ${(sub.system || sub.from_tx) ? 'text-[#8A877D]' : 'text-[#C8C6BC]'}`}>
+                            <span className="text-sm text-[#C8C6BC] flex-1 min-w-0 truncate">
                               {sub.nombre}
                             </span>
-                            {!sub.system && !sub.from_tx && (
+                            {(
                             <div className="flex items-center gap-1 shrink-0">
                               <button
                                 className="p-1 rounded text-[#8A877D] hover:text-[#F0EFE8] hover:bg-[rgba(255,255,255,0.05)]"
