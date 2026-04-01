@@ -1056,13 +1056,13 @@ app.post('/webhook', webhookLimiter, async (req, res) => {
       } else if (!tieneGmail && usuario.onboarding_completado) {
         // Usuario en modo manual — saludo normal
         var gastosMesHola = await obtenerGastosMes(usuario.id);
-        var totalMesHola = gastosMesHola.reduce(function(s,t){return s+parseFloat(t.monto);},0);
+        var totalMesHola = gastosMesHola.reduce(function(s,t){return s+parseFloat(t.monto_pen||t.monto);},0);
         respuesta = '👋 Hola' + (primerNombre ? ', ' + primerNombre : '') + '.\n\n' +
           (gastosMesHola.length > 0 ? 'Este mes llevas *S/ ' + totalMesHola.toFixed(2) + '* en ' + gastosMesHola.length + ' movimientos.' : 'Sin movimientos este mes aun.') +
           '\n\n📝 Registra gastos así:\n_"gasté 50 en taxi"_\n_"almuerzo 25 soles"_\nO envía una foto de tu Yape/Plin.\n\n📊 *Tu dashboard:* https://app.neto.pe\n💡 _Escribe /conectar para lectura automática de correos._';
       } else {
         var gastosMesHola = await obtenerGastosMes(usuario.id);
-        var totalMesHola = gastosMesHola.reduce(function(s,t){return s+parseFloat(t.monto);},0);
+        var totalMesHola = gastosMesHola.reduce(function(s,t){return s+parseFloat(t.monto_pen||t.monto);},0);
         var pendHola = await obtenerConsultasPendientes(usuario.id);
         var alertaPend = pendHola.length > 0 ? '\n\n\u2757 *' + pendHola.length + ' gasto(s) sin identificar.* Escribe */pendientes*.' : '';
         var catsHola = await obtenerCategoriasUsuario(usuario.id);
@@ -2251,9 +2251,12 @@ async function procesarMensajeLibre(msg, usuario, from) {
       }
 
       case 'ver_premium': {
-        const tipoPlanVp = usuario.tipo_plan || 'mensual';
-        const venceVp = usuario.fecha_vencimiento ? new Date(usuario.fecha_vencimiento).toLocaleDateString('es-PE') : null;
-        return '\u2B50 *Tu plan NETO Pro*\n\nPlan: *' + (tipoPlanVp === 'anual' ? 'Anual' : 'Mensual') + '*' + (venceVp ? '\nVence: ' + venceVp : '') + '\n\n\u2705 Reportes PDF ilimitados\n\u2705 Lectura automática de correos\n\u2705 Dashboard completo\n\u2705 Consejos IA';
+        if (usuario.plan === 'premium') {
+          const tipoPlanVp = usuario.tipo_plan || 'mensual';
+          const venceVp = (usuario.premium_vence || usuario.fecha_vencimiento) ? new Date(usuario.premium_vence || usuario.fecha_vencimiento).toLocaleDateString('es-PE') : null;
+          return '⭐ *Tu plan NETO Pro*\n\nPlan: *' + (tipoPlanVp === 'anual' ? 'Anual' : 'Mensual') + '*' + (venceVp ? '\nVence: ' + venceVp : '') + '\n\n✅ Historial ilimitado\n✅ Lectura automática de correos\n✅ Reportes PDF + CSV export\n✅ Recordatorios diarios\n✅ Consejos IA ilimitados';
+        }
+        return '⭐ *NETO Pro*\n\nDesbloquea todo el potencial de Neto:\n\n✅ Historial completo (no solo 1 mes)\n✅ Lectura automática de correos bancarios\n✅ Reportes PDF + exportar datos\n✅ Recordatorios diarios\n✅ Consejos IA ilimitados\n\n💰 *S/10/mes* o *S/99/año* (2 meses gratis)\n\n📲 Yapea al *970398192* (Favio Mendoza) y envíame la captura aquí.\n\n_¿Dudas? Escríbeme._';
       }
 
       case 'registrar_manual': {
@@ -2386,7 +2389,8 @@ async function procesarMensajeLibre(msg, usuario, from) {
       case 'saludo': {
         const gastosSaludo = await obtenerGastosMes(usuario.id);
         const totalSaludo = gastosSaludo.reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
-        const { data: ingresosSaludo } = await supabase.from('transacciones').select('monto_pen,monto').eq('usuario_id', usuario.id).eq('tipo', 'ingreso').gte('fecha', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]);
+        const _partsSaludo = hoyPeru().split('-');
+        const { data: ingresosSaludo } = await supabase.from('transacciones').select('monto_pen,monto').eq('usuario_id', usuario.id).eq('tipo', 'ingreso').gte('fecha', _partsSaludo[0] + '-' + _partsSaludo[1] + '-01');
         const totalIngresosSaludo = (ingresosSaludo || []).reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
         const pendSaludo = await obtenerConsultasPendientes(usuario.id);
         const ctxSaludo = 'El usuario saluda. Contexto: este mes lleva S/ ' + totalSaludo.toFixed(0) + ' en gastos (' + gastosSaludo.length + ' movimientos)' + (totalIngresosSaludo > 0 ? ', S/ ' + totalIngresosSaludo.toFixed(0) + ' en ingresos registrados, balance S/ ' + (totalIngresosSaludo - totalSaludo).toFixed(0) : ', sin ingresos registrados') + '.' +
@@ -2910,9 +2914,10 @@ async function procesarMensajeLibre(msg, usuario, from) {
         try {
           const comercioRegla = datos.comercio;
           const catRegla = datos.categoria;
+          const subRegla = datos.subcategoria || null;
           if (!comercioRegla || !catRegla) return 'Dime el comercio y la categoría. Ej: _"todo lo de Rappi siempre va en Delivery"_';
-          await guardarReglaComercio(usuario.id, comercioRegla, catRegla, null);
-          const retro = await retroaplicarRegla(usuario.id, comercioRegla, catRegla, null);
+          await guardarReglaComercio(usuario.id, comercioRegla, catRegla, subRegla);
+          const retro = await retroaplicarRegla(usuario.id, comercioRegla, catRegla, subRegla);
           return '✅ *Regla creada:*\n\n' + comercioRegla + ' → *' + catRegla + '* (siempre)\n\n' + (retro > 0 ? '🔄 Actualicé ' + retro + ' transacciones anteriores con esta regla.' : 'Se aplicará a las próximas transacciones.') + '\n\n_Puedes cambiarlo cuando quieras._';
         } catch(e) {
           log.error({ tag: 'REGLA_CAT', err: e.message }, 'Error editar categoría comercio');
@@ -3081,12 +3086,13 @@ async function procesarMensajeLibre(msg, usuario, from) {
       case 'estado_cuenta': {
         try {
           const cuentasEst = await obtenerCuentasGmail(usuario.id);
-          const planActual = usuario.tipo_plan || usuario.plan || 'free';
-          const vencimiento = usuario.fecha_vencimiento ? usuario.fecha_vencimiento : null;
+          const esPremium = usuario.plan === 'premium';
+          const vencimiento = usuario.premium_vence || usuario.fecha_vencimiento || null;
           const nombre = usuario.nombre || 'Usuario';
           let resp = '👤 *Tu cuenta, ' + nombre + ':*\n\n';
-          resp += '📋 Plan: *' + (planActual === 'pro' ? 'Pro ⭐' : 'Free') + '*\n';
-          if (vencimiento) resp += '📅 Vence: ' + vencimiento + '\n';
+          resp += '📋 Plan: *' + (esPremium ? 'Pro ⭐' : 'Free') + '*\n';
+          if (esPremium && vencimiento) resp += '📅 Vence: ' + new Date(vencimiento).toLocaleDateString('es-PE') + '\n';
+          if (!esPremium) resp += '\n💡 _Escribe /premium para ver los beneficios Pro._\n';
           resp += '📧 Gmail: ' + (cuentasEst.length > 0 ? cuentasEst.map(c => c.email).join(', ') : 'No conectado') + '\n';
           resp += '🔔 Recordatorios: ' + (usuario.recordatorios_activos !== false ? 'Activos ✅' : 'Silenciados 🔇') + '\n';
           resp += '\n🔗 Más detalles en https://app.neto.pe/dashboard/configuracion';
@@ -3384,12 +3390,12 @@ async function escaneoAutomatico() {
 }
 
 async function generarResumenSemanal(usuario) {
-  const hoy = new Date();
+  const hoy = ahoraPeru();
   const gastosSemana = await obtenerGastosSemana(usuario.id);
   if (!gastosSemana.length) return null;
 
-  const hace14 = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
-  const hace7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const hace14 = new Date(hoy.getTime() - 14 * 24 * 60 * 60 * 1000);
+  const hace7 = new Date(hoy.getTime() - 7 * 24 * 60 * 60 * 1000);
   const { data: gastosAnt } = await supabase.from('transacciones').select('*')
     .eq('usuario_id', usuario.id).eq('tipo', 'gasto')
     .gte('fecha', hace14.toISOString().split('T')[0])
@@ -3619,13 +3625,26 @@ async function checkRecordatorioDiario() {
   if (horaLima.getHours() !== 20 || horaLima.getMinutes() > 14) return;
   const hoy = hoyPeru();
   try {
-    const { data: usuarios } = await supabase.from('usuarios').select('id, whatsapp, nombre, recordatorios_activos')
+    const { data: usuarios } = await supabase.from('usuarios').select('id, whatsapp, nombre, plan, recordatorios_activos, created_at')
       .eq('onboarding_completado', true);
     if (!usuarios || usuarios.length === 0) return;
     for (const usuario of usuarios) {
       try {
         // Respetar preferencia del usuario (default: activos)
         if (usuario.recordatorios_activos === false) continue;
+        // Recordatorios diarios solo para premium (PLAN_CONFIG.free.recordatorios = false)
+        const planConfig = getUserPlanConfig(usuario);
+        if (!planConfig.recordatorios) {
+          // Upsell: si el usuario free cumple ~30 días, enviar invitación a Pro (una sola vez)
+          if (usuario.created_at) {
+            const diasDesdeRegistro = Math.floor((Date.now() - new Date(usuario.created_at).getTime()) / 86400000);
+            if (diasDesdeRegistro >= 28 && diasDesdeRegistro <= 30) {
+              const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
+              await enviarWhatsapp(usuario.whatsapp, '🎉 ' + (primerNombre ? primerNombre + ', ¡' : '¡') + 'llevas 1 mes usando Neto!\n\nCon *NETO Pro* desbloqueas:\n\n✅ Historial completo (no solo este mes)\n✅ Lectura automática de correos bancarios\n✅ Recordatorios diarios + consejos IA\n✅ Exportar tus datos\n\n💰 *S/10/mes* o *S/99/año*\n\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._');
+            }
+          }
+          continue;
+        }
         // Verificar si tiene transacciones hoy
         const { data: txsHoy } = await supabase.from('transacciones').select('id')
           .eq('usuario_id', usuario.id).eq('fecha', hoy).limit(1);
@@ -3638,6 +3657,24 @@ async function checkRecordatorioDiario() {
       } catch(e) { /* silencioso por usuario */ }
     }
   } catch(e) { log.error({ tag: 'RECORDATORIO', err: e.message }, 'Error recordatorio diario'); }
+}
+
+async function checkPremiumExpiry() {
+  try {
+    const hoy = hoyPeru();
+    // Encontrar usuarios premium cuyo plan venció
+    const { data: expirados } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence')
+      .eq('plan', 'premium').not('premium_vence', 'is', null).lt('premium_vence', hoy);
+    if (!expirados || expirados.length === 0) return;
+    for (const usuario of expirados) {
+      try {
+        await supabase.from('usuarios').update({ plan: 'free' }).eq('id', usuario.id);
+        const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
+        await enviarWhatsapp(usuario.whatsapp, '⏰ ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u plan *NETO Pro* venció.\n\nAhora estás en el plan Free (historial limitado a 1 mes).\n\n¿Quieres renovar?\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Tus datos siguen guardados. Al renovar recuperas acceso completo._');
+        log.info({ tag: 'EXPIRY', userId: usuario.id }, 'Premium expirado, downgradeado a free');
+      } catch(e) { log.error({ tag: 'EXPIRY', userId: usuario.id, err: e.message }, 'Error downgradeando usuario'); }
+    }
+  } catch(e) { log.error({ tag: 'EXPIRY', err: e.message }, 'Error general check premium expiry'); }
 }
 
 async function checkAlertasProactivas() {
@@ -3731,6 +3768,8 @@ if (require.main === module) {
         log.info({ tag: 'RECORDATORIO' }, 'Recordatorios diarios activos (8pm Lima)');
         setInterval(checkAlertasProactivas, 15 * 60 * 1000);
         log.info({ tag: 'ALERTAS' }, 'Alertas proactivas activas (miércoles 10am Lima)');
+        setInterval(checkPremiumExpiry, 60 * 60 * 1000); // Cada hora
+        log.info({ tag: 'EXPIRY' }, 'Check expiración premium activo (cada 1h)');
         setInterval(checkRecordatorioOnboarding, 15 * 60 * 1000);
         log.info({ tag: 'ONBOARDING' }, 'Recordatorio onboarding activo (3h después de registro, 9am-9pm Lima)');
         setTimeout(runBackup, 60000); // primer backup 1 min después de arrancar

@@ -11,9 +11,9 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "NETO — Tu asistente financiero",
+  title: "NETO — Dashboard financiero | Tu app de gastos",
   description:
-    "Dashboard financiero personal. Visualiza tus gastos, ingresos, presupuestos y recibe consejos de IA.",
+    "Tu dashboard financiero personal. Visualiza gastos, ingresos, presupuestos, metas y score financiero. Conecta tu banco por WhatsApp.",
   icons: { icon: "/neto-icon.png", apple: "/neto-icon.png" },
   manifest: "/manifest.json",
   appleWebApp: {
