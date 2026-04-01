@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import { toast } from 'sonner';
-import { Plus, Flag, Trash2, Edit2, Check, X, Trophy, TrendingUp, Flame, Award, ArrowDown, Users, Link2, Copy } from 'lucide-react';
+import { Plus, Flag, Trash2, Edit2, Check, X, Trophy, TrendingUp, Flame, Award, ArrowDown, Users, Link2, Copy, UserX, ChevronDown, ChevronUp, Phone } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -19,7 +19,7 @@ import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motio
 import { UserMenu } from '@/components/dashboard/user-menu';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
-import { useGoals, useGoalMutations, useGoalContributions, useAchievements, type MetaAhorro, type MetaAporte } from '@/lib/hooks/use-goals';
+import { useGoals, useGoalMutations, useGoalContributions, useGoalParticipants, useAchievements, type MetaAhorro, type MetaAporte, type MetaParticipante } from '@/lib/hooks/use-goals';
 import { formatCurrency } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -39,6 +39,75 @@ const LOGRO_LABELS: Record<string, { emoji: string; label: string }> = {
 };
 
 const QUICK_AMOUNTS = [50, 100, 200, 500];
+
+function ParticipantsList({ metaId, isOwner, onDisable }: { metaId: string; isOwner: boolean; onDisable: () => void }) {
+  const { data: participants = [], isLoading } = useGoalParticipants(metaId);
+  const [expanded, setExpanded] = useState(false);
+
+  if (isLoading) {
+    return <div className="text-xs text-[#8A877D] animate-pulse py-1">Cargando participantes...</div>;
+  }
+
+  if (participants.length === 0) {
+    return <p className="text-xs text-[#8A877D]">Aun no hay participantes</p>;
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1.5 text-xs text-[#EF9F27] hover:text-[#EF9F27]/80 transition-colors w-full"
+      >
+        <Users className="h-3 w-3" />
+        <span>{participants.length} participante{participants.length > 1 ? 's' : ''}</span>
+        {expanded ? <ChevronUp className="h-3 w-3 ml-auto" /> : <ChevronDown className="h-3 w-3 ml-auto" />}
+      </button>
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="space-y-2 pt-1 border-t border-[rgba(255,255,255,0.06)]">
+              {participants.map((p: MetaParticipante) => (
+                <div key={p.id} className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-full bg-[rgba(29,158,117,0.15)] flex items-center justify-center text-[10px] text-[#1D9E75] font-bold">
+                      {p.nombre.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <p className="text-[#C8C6BC] font-medium">{p.nombre}</p>
+                      {p.whatsapp && (
+                        <p className="text-[#8A877D] flex items-center gap-1">
+                          <Phone className="h-2.5 w-2.5" />
+                          {p.whatsapp}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <span className="text-[#1D9E75] font-medium tabular-nums">
+                    {formatCurrency(p.total_aportado)}
+                  </span>
+                </div>
+              ))}
+              {isOwner && (
+                <button
+                  onClick={onDisable}
+                  className="flex items-center gap-1.5 text-xs text-[#D85A30] hover:text-[#D85A30]/80 transition-colors mt-2 pt-2 border-t border-[rgba(255,255,255,0.06)] w-full"
+                >
+                  <UserX className="h-3 w-3" />
+                  Desactivar modo colaborativo
+                </button>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
 
 function calcularRitmo(goal: MetaAhorro) {
   const objetivo = Number(goal.monto_objetivo);
@@ -67,7 +136,7 @@ export default function MetasPage() {
   const { data: goals = [], isLoading: goalsLoading } = useGoals(user?.id);
   const { data: allTransactions = [] } = useTransactions({ usuarioId: user?.id });
   const { data: achievements = [] } = useAchievements(user?.id);
-  const { create, update, remove, contribute, generateInvite } = useGoalMutations();
+  const { create, update, remove, contribute, generateInvite, disableCollab } = useGoalMutations();
 
   const [showForm, setShowForm] = useState(false);
   const [editGoal, setEditGoal] = useState<MetaAhorro | null>(null);
@@ -211,6 +280,15 @@ export default function MetasPage() {
     }
   }
 
+  async function handleDisableCollab(goalId: string) {
+    try {
+      await disableCollab.mutateAsync(goalId);
+      toast.success('Modo colaborativo desactivado');
+    } catch {
+      toast.error('Error al desactivar');
+    }
+  }
+
   async function handleInvite(goalId: string) {
     try {
       const result = await generateInvite.mutateAsync(goalId);
@@ -330,12 +408,17 @@ export default function MetasPage() {
                     </div>
                   </div>
 
-                  {/* Collaborative badge */}
+                  {/* Collaborative badge + participants */}
                   {goal.colaborativa && (
-                    <div className="flex items-center gap-2">
+                    <div className="space-y-2">
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[rgba(239,159,39,0.1)] text-[10px] text-[#EF9F27] font-medium">
                         <Users className="h-3 w-3" /> Colaborativa
                       </span>
+                      <ParticipantsList
+                        metaId={goal.id}
+                        isOwner={goal.usuario_id === user?.id}
+                        onDisable={() => handleDisableCollab(goal.id)}
+                      />
                     </div>
                   )}
 

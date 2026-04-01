@@ -75,6 +75,28 @@ export function useAchievements(userId?: string) {
   });
 }
 
+export interface MetaParticipante {
+  id: string;
+  usuario_id: string;
+  rol: string;
+  fecha_union: string;
+  nombre: string;
+  whatsapp: string | null;
+  total_aportado: number;
+}
+
+export function useGoalParticipants(metaId?: string) {
+  return useQuery<MetaParticipante[]>({
+    queryKey: ['goal-participants', metaId],
+    queryFn: async () => {
+      const res = await fetch(`/api/goals/participants?meta_id=${metaId}`);
+      if (!res.ok) throw new Error('Failed to fetch participants');
+      return res.json();
+    },
+    enabled: !!metaId,
+  });
+}
+
 export function useGoalMutations() {
   const queryClient = useQueryClient();
 
@@ -174,5 +196,17 @@ export function useGoalMutations() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['goals'] }),
   });
 
-  return { create, update, remove, contribute, removeContribution, generateInvite, joinGoal };
+  const disableCollab = useMutation({
+    mutationFn: async (meta_id: string) => {
+      const res = await fetch(`/api/goals/participants?meta_id=${meta_id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to disable collaborative mode');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['goals'] });
+      queryClient.invalidateQueries({ queryKey: ['goal-participants'] });
+    },
+  });
+
+  return { create, update, remove, contribute, removeContribution, generateInvite, joinGoal, disableCollab };
 }
