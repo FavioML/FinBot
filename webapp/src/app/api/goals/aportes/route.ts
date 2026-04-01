@@ -95,23 +95,27 @@ export async function POST(request: Request) {
   if (aporteError)
     return NextResponse.json({ error: aporteError.message }, { status: 400 });
 
-  // Update meta monto_actual
-  const actualAntes = parseFloat(meta.monto_actual || '0');
-  const montoNum = parseFloat(monto);
-  const nuevoActual = tipo === 'retiro'
-    ? Math.max(0, actualAntes - montoNum)
-    : actualAntes + montoNum;
-  const completada = nuevoActual >= parseFloat(meta.monto_objetivo) && tipo === 'aporte';
+  // Recalculate monto_actual from all aportes (atomic — avoids race conditions)
+  const { data: allAportes } = await serviceClient
+    .from('meta_aportes')
+    .select('monto, tipo')
+    .eq('meta_id', meta_id);
 
-  const updates: Record<string, unknown> = {
-    monto_actual: nuevoActual,
-    updated_at: new Date().toISOString(),
-  };
-  if (completada) updates.completada = true;
+  const nuevoActual = (allAportes || []).reduce((sum, a) => {
+    const m = parseFloat(a.monto);
+    return a.tipo === 'retiro' ? sum - m : sum + m;
+  }, 0);
+  const nuevoActualClamped = Math.max(0, nuevoActual);
+  const completada = nuevoActualClamped >= parseFloat(meta.monto_objetivo);
+  const actualAntes = parseFloat(meta.monto_actual || '0');
 
   const { error: updateError } = await serviceClient
     .from('metas_ahorro')
-    .update(updates)
+    .update({
+      monto_actual: nuevoActualClamped,
+      completada,
+      updated_at: new Date().toISOString(),
+    })
     .eq('id', meta_id);
 
   if (updateError)
@@ -136,7 +140,7 @@ export async function POST(request: Request) {
         meta_id,
         fecha: new Date().toISOString().split('T')[0],
       }, { onConflict: 'usuario_id,tipo,meta_id', ignoreDuplicates: true });
-    } catch { /* silent */ }
+    } catch (e) { console.error('[logro]', e); }
   }
 
   return NextResponse.json({

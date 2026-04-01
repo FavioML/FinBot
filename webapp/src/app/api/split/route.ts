@@ -48,8 +48,12 @@ export async function POST(request: Request) {
   const body = await request.json();
   const { descripcion, monto_total, moneda = 'PEN', categoria, fecha_limite, notas, participantes } = body;
 
+  const montoTotalNum = parseFloat(monto_total);
   if (!descripcion || !monto_total || !participantes || participantes.length === 0) {
     return NextResponse.json({ error: 'descripcion, monto_total, and participantes required' }, { status: 400 });
+  }
+  if (isNaN(montoTotalNum) || !isFinite(montoTotalNum) || montoTotalNum <= 0 || montoTotalNum > 999999.99) {
+    return NextResponse.json({ error: 'Monto total inválido' }, { status: 400 });
   }
 
   // Create shared expense
@@ -58,7 +62,7 @@ export async function POST(request: Request) {
     .insert({
       creador_id: userId,
       descripcion,
-      monto_total: parseFloat(monto_total),
+      monto_total: montoTotalNum,
       moneda,
       fecha: new Date().toISOString().split('T')[0],
       categoria: categoria || null,

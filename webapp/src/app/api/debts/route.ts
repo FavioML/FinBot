@@ -98,9 +98,6 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'Monto de abono inválido' }, { status: 400 });
     }
 
-    const nuevoPendiente = Math.max(0, parseFloat(deuda.monto_pendiente) - montoAbono);
-    const completada = nuevoPendiente === 0;
-
     // Insertar abono
     await serviceClient.from('deuda_abonos').insert({
       deuda_id: id,
@@ -108,6 +105,15 @@ export async function PUT(request: Request) {
       fecha: fields.fecha || new Date().toISOString().split('T')[0],
       nota: fields.nota || null,
     });
+
+    // Recalculate monto_pendiente from all abonos (atomic — avoids race conditions)
+    const { data: allAbonos } = await serviceClient
+      .from('deuda_abonos')
+      .select('monto')
+      .eq('deuda_id', id);
+    const totalAbonado = (allAbonos || []).reduce((sum, a) => sum + parseFloat(a.monto), 0);
+    const nuevoPendiente = Math.max(0, parseFloat(deuda.monto_original) - totalAbonado);
+    const completada = nuevoPendiente === 0;
 
     // Actualizar deuda
     const { data: updated, error } = await serviceClient

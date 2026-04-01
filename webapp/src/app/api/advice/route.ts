@@ -44,6 +44,16 @@ export async function POST(request: Request) {
   if (!userId)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  // Consejo IA es Pro-only
+  const { data: usuario } = await serviceClient
+    .from('usuarios')
+    .select('plan')
+    .eq('id', userId)
+    .single();
+  if (usuario?.plan !== 'premium') {
+    return NextResponse.json({ error: 'Pro only', upsell: 'Recibe consejos IA diarios con Pro' }, { status: 403 });
+  }
+
   if (!checkRateLimit(userId)) {
     return NextResponse.json({ error: 'Demasiadas solicitudes. Intenta en un minuto.' }, { status: 429 });
   }

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 
-const ADMIN_EMAIL = 'faviomendoza27jl@gmail.com';
+const ADMIN_EMAIL = process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'faviomendoza27jl@gmail.com';
 
 interface AdminUser {
   id: string;

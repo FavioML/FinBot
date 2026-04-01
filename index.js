@@ -449,17 +449,19 @@ app.get('/webhook', (req, res) => {
 app.post('/webhook', webhookLimiter, async (req, res) => {
   // Validar firma HMAC de Meta (X-Hub-Signature-256)
   const META_APP_SECRET = process.env.META_APP_SECRET;
-  if (META_APP_SECRET) {
-    const signature = req.headers['x-hub-signature-256'];
-    if (!signature) {
-      log.warn({ tag: 'WEBHOOK' }, 'Request sin X-Hub-Signature-256');
-      return res.sendStatus(403);
-    }
-    const expected = 'sha256=' + crypto.createHmac('sha256', META_APP_SECRET).update(req.rawBody).digest('hex');
-    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
-      log.warn({ tag: 'WEBHOOK' }, 'Firma HMAC invalida');
-      return res.sendStatus(403);
-    }
+  if (!META_APP_SECRET) {
+    log.error({ tag: 'WEBHOOK' }, 'META_APP_SECRET no configurado — rechazando request');
+    return res.sendStatus(500);
+  }
+  const signature = req.headers['x-hub-signature-256'];
+  if (!signature) {
+    log.warn({ tag: 'WEBHOOK' }, 'Request sin X-Hub-Signature-256');
+    return res.sendStatus(403);
+  }
+  const expected = 'sha256=' + crypto.createHmac('sha256', META_APP_SECRET).update(req.rawBody).digest('hex');
+  if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+    log.warn({ tag: 'WEBHOOK' }, 'Firma HMAC invalida');
+    return res.sendStatus(403);
   }
   res.sendStatus(200);
   try {
@@ -1570,7 +1572,7 @@ app.get('/auth/callback', async (req, res) => {
 app.post('/test-parser', adminLimiter, async (req, res) => {
   const { correo, clave } = req.body;
   const ADMIN_KEY = process.env.ADMIN_KEY;
-  if (!ADMIN_KEY || !clave || clave !== ADMIN_KEY) return res.status(401).json({ error: 'No autorizado' });
+  if (!ADMIN_KEY || !clave || !crypto.timingSafeEqual(Buffer.from(clave), Buffer.from(ADMIN_KEY))) return res.status(401).json({ error: 'No autorizado' });
   if (!correo) return res.status(400).json({ error: 'Falta correo' });
   try { const r = await parsearCorreoBancario(correo); res.json({ ok: true, resultado: r }); }
   catch (e) { res.status(500).json({ ok: false, error: e.message }); }
@@ -2272,8 +2274,13 @@ async function procesarMensajeLibre(msg, usuario, from) {
         return lpend.length === 0 ? 'No tienes gastos pendientes. Todo al dia! \uD83D\uDC4D' : formatearPendientes(lpend);
       }
 
-      case 'escanear_gmail':
+      case 'escanear_gmail': {
+        const planConfigGmail = getUserPlanConfig(usuario);
+        if (planConfigGmail.maxGmailAccounts === 0) {
+          return '⭐ *Lectura de correos es una función Pro.*\n\nCon Pro, Neto lee tus correos bancarios automáticamente.\n\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
+        }
         return (await escanearGmailYRegistrar(usuario)) || 'No encontre correos bancarios nuevos. Te aviso automaticamente cuando llegue uno.';
+      }
 
       case 'agregar_gmail':
         return '📧 Por el momento solo se permite una cuenta Gmail por usuario.\n\nSi necesitas ayuda, escríbenos al 970398192.';
@@ -2424,6 +2431,11 @@ async function procesarMensajeLibre(msg, usuario, from) {
       }
 
       case 'ver_recomendaciones': {
+        // Consejo IA es Pro-only
+        const planConfigRecom = getUserPlanConfig(usuario);
+        if (planConfigRecom.consejoPerWeek === 0) {
+          return '⭐ *Consejos IA es una función Pro*\n\nCon NETO Pro recibes consejos financieros personalizados todos los días.\n\n💰 *S/10/mes* o *S/99/año*\n\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
+        }
         const tipoRecom = datos.tipo || 'general';
         const varianteMap = { score: 'on_demand_score', excesos: 'on_demand_excesos', patrones: 'on_demand_excesos', general: 'on_demand_general' };
         const varianteRecom = varianteMap[tipoRecom] || 'on_demand_general';
@@ -3702,6 +3714,9 @@ async function escaneoAutomatico() {
     if (!usuarios || usuarios.length === 0) return;
     for (const usuario of usuarios) {
       try {
+        // Solo escanear correos para usuarios Pro
+        const planConfigAuto = getUserPlanConfig(usuario);
+        if (planConfigAuto.maxGmailAccounts === 0) continue;
         const resultado = await escanearGmailYRegistrar(usuario);
         if (resultado && resultado.includes('Registre')) { await enviarWhatsapp(usuario.whatsapp, '\uD83D\uDD04 *Escaneo automatico*\n\n' + resultado); }
       } catch (e) { log.error({ tag: 'AUTO', whatsapp: usuario.whatsapp, err: e.message }, 'Error escaneo usuario'); }

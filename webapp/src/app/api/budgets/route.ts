@@ -116,16 +116,21 @@ export async function POST(request: Request) {
 
   const userId = netoUser.id;
 
-  // Presupuestos ilimitados para todos los planes (Free + Pro)
-
   const body = await request.json();
+
+  // Validate monto_limite
+  const montoLimite = parseFloat(body.monto_limite);
+  if (isNaN(montoLimite) || !isFinite(montoLimite) || montoLimite <= 0 || montoLimite > 999999.99) {
+    return NextResponse.json({ error: 'Monto límite inválido' }, { status: 400 });
+  }
+
   const { data, error } = await serviceClient
     .from('presupuestos')
     .insert({
       usuario_id: userId,
       categoria: body.categoria,
       subcategoria: capitalize(body.subcategoria),
-      monto_limite: body.monto_limite,
+      monto_limite: montoLimite,
       alerta_porcentaje: body.alerta_porcentaje || 80,
       mes: parseInt(new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' }).split('-')[1], 10),
       anio: parseInt(new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' }).split('-')[0], 10),

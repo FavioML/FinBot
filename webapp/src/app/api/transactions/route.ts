@@ -125,7 +125,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 400 });
 
   // Sync categoría/subcategoría a categorias_usuario (fire-and-forget)
-  syncCategoriasUsuario(userId, body.categoria, body.subcategoria).catch(() => {});
+  syncCategoriasUsuario(userId, body.categoria, body.subcategoria).catch((e) => console.error('[sync-cat]', e));
 
   return NextResponse.json(data);
 }
@@ -168,7 +168,7 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 400 });
 
   // Sync categoría/subcategoría a categorias_usuario (fire-and-forget)
-  syncCategoriasUsuario(userId, body.categoria, body.subcategoria).catch(() => {});
+  syncCategoriasUsuario(userId, body.categoria, body.subcategoria).catch((e) => console.error('[sync-cat]', e));
 
   return NextResponse.json(data);
 }
@@ -220,7 +220,7 @@ export async function PATCH(request: Request) {
 
   // Sync category if changed
   if (cleanUpdates.categoria) {
-    syncCategoriasUsuario(userId, cleanUpdates.categoria, cleanUpdates.subcategoria || null).catch(() => {});
+    syncCategoriasUsuario(userId, cleanUpdates.categoria, cleanUpdates.subcategoria || null).catch((e) => console.error('[sync-cat]', e));
   }
 
   return NextResponse.json({ ok: true, updated: count ?? ids.length });

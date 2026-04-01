@@ -75,12 +75,18 @@ export async function POST(request: Request) {
 
   const body = await request.json();
 
+  // Validate monto_objetivo
+  const montoObjetivo = parseFloat(body.monto_objetivo);
+  if (!montoObjetivo || isNaN(montoObjetivo) || montoObjetivo <= 0 || montoObjetivo > 999999.99) {
+    return NextResponse.json({ error: 'Monto objetivo inválido' }, { status: 400 });
+  }
+
   const { data, error } = await serviceClient
     .from('metas_ahorro')
     .insert({
       usuario_id: userId,
       nombre: body.nombre,
-      monto_objetivo: parseFloat(body.monto_objetivo) || 0,
+      monto_objetivo: montoObjetivo,
       monto_actual: parseFloat(body.monto_actual) || 0,
       icono: body.icono || '🎯',
       fecha_limite: body.fecha_limite || null,

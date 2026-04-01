@@ -1,6 +1,6 @@
-# Plan Freemium — Neto (Versión Final)
+# Plan Freemium — Neto (Versión Final v2)
 
-**Fecha:** 26 Mar 2026
+**Fecha:** 1 Abr 2026
 **Aprobado por:** Favio Mendoza
 
 ---
@@ -11,7 +11,7 @@
 |------|--------|---------------------|--------|
 | **Free** | S/0 | — | — |
 | **Pro Mensual** | S/10/mes | S/10/mes | — |
-| **Pro Anual** | S/69/año | S/5.75/mes | 42% (S/51/año) |
+| **Pro Anual** | S/99/año | S/8.25/mes | 17% |
 
 ---
 
@@ -20,31 +20,35 @@
 | Feature | Free | Pro |
 |---------|------|-----|
 | WhatsApp bot (registro, gastos, consultas) | Ilimitado | Ilimitado |
-| Lectura automática de gastos por correo | No (Pro only, conserva OAuth slots) | 11 bancos + Yape + Plin |
 | Clasificación IA de gastos | Ilimitada | Ilimitada |
 | Categorías fijas (11) | Sí | Sí |
-| Categorías personalizadas adicionales | No | Ilimitadas |
-| Presupuestos | 3 presupuestos | Ilimitados |
-| Dashboard web (app.neto.pe) | Mes actual | Historial completo |
-| Resumen diario por WhatsApp | No | Sí |
-| Resumen semanal | Básico (total gastado) | Completo (insights + comparativa) |
-| Resumen mensual | Sí | Sí |
-| Lectura de imágenes Yape/Plin | 5/mes | Ilimitada |
-| Reportes PDF descargables | No | Sí |
-| Score financiero | Número | Número + desglose + tendencia 4 meses |
-| Metas de ahorro | 1 meta | Ilimitadas |
-| Calendario financiero | No | Sí |
-| Suscripciones detectadas | Todas | Todas + alertas |
-| Pagos recurrentes | No | Sí |
-| Consejo IA | 1/semana | Diario |
-| Export CSV/JSON | No | Sí |
-| Carga masiva Excel/CSV | No | Sí |
-| Heatmap de gastos | No | Sí |
-| Recordatorios diarios (8pm) | No | Sí |
+| Categorías personalizadas adicionales | Ilimitadas | Ilimitadas |
+| Presupuestos | Ilimitados | Ilimitados |
+| Metas de ahorro | Ilimitadas | Ilimitadas |
+| Deudas | Ilimitadas | Ilimitadas |
+| Lectura de imágenes Yape/Plin | Ilimitada | Ilimitada |
+| Split de gastos | Sí | Sí |
 | Multimoneda USD/PEN | Sí | Sí |
 | Tipo de cambio widget | Sí | Sí |
 | Búsqueda global (Ctrl+K) | Sí | Sí |
+| Dashboard web (app.neto.pe) | Mes actual | Historial completo |
+| Resumen semanal | Básico (total gastado) | Completo (insights + comparativa) |
+| Resumen mensual | Sí | Sí |
+| Score financiero | Número | Número + desglose + tendencia 4 meses |
 | Referidos (3 Pro activos = 1 mes gratis) | Sí | Sí |
+| Google Auth (nombre, foto) | Sí | Sí |
+| Lectura automática correos bancarios | No (Pro only) | 11 bancos + Yape + Plin |
+| Consejo IA | No (Pro only) | Diario |
+| Resumen diario por WhatsApp | No | Sí |
+| Reportes PDF descargables | No | Sí |
+| Score desglose + tendencia 4 meses | No | Sí |
+| Calendario financiero | No | Sí |
+| Heatmap de gastos | No | Sí |
+| Export CSV/JSON | No | Sí |
+| Carga masiva Excel/CSV | No | Sí |
+| Recordatorios diarios (8pm) | No | Sí |
+| Suscripciones con alertas | Detección | Detección + alertas |
+| Pagos recurrentes | No | Sí |
 
 ---
 
@@ -70,10 +74,10 @@
 
 | Métrica | Free | Pro Mensual | Pro Anual |
 |---------|------|-------------|-----------|
-| Ingreso/usuario/mes | S/0 | S/10 | S/5.75 |
+| Ingreso/usuario/mes | S/0 | S/10 | S/8.25 |
 | Costo variable/usuario/mes | S/0.53 | S/3.41 | S/3.41 |
-| Margen/usuario/mes | -S/0.53 | +S/6.59 | +S/2.34 |
-| Margen % | -100% | 66% | 41% |
+| Margen/usuario/mes | -S/0.53 | +S/6.59 | +S/4.84 |
+| Margen % | -100% | 66% | 59% |
 
 ### Costos fijos mensuales (infraestructura)
 
@@ -91,7 +95,7 @@
 
 ## Gmail OAuth Constraint (GCC)
 
-**Gmail OAuth = Pro-only feature.** Solo 100 OAuth slots disponibles en Google Cloud Console hasta verificación CASA Tier 2 ($540 USD). Free users NO consumen slots — registran gastos manualmente. Solo Pro users que pagan reciben link OAuth.
+**Gmail OAuth = Pro-only feature.** Solo 100 OAuth slots disponibles en Google Cloud Console hasta verificación CASA Tier 2 ($540 USD). Free users NO consumen slots — solo reciben info básica de Google Auth (nombre, foto). Solo Pro users que pagan reciben link OAuth para lectura de correos.
 
 **Status actual:** 3/100 slots usados (26 Mar 2026).
 
@@ -101,14 +105,12 @@
 
 | Momento | Mensaje |
 |---------|---------|
-| Intenta agregar 2da cuenta Gmail | "Conecta todos tus bancos con Pro" |
+| Intenta conectar Gmail para lectura | "Conecta todos tus bancos con Pro" |
 | Ve dashboard, quiere mes anterior | "Desbloquea historial completo" |
-| Toca score financiero | Número visible, desglose borroso con candado |
+| Toca score financiero desglose | Número visible, desglose borroso con candado |
 | Intenta descargar PDF | "Descarga reportes con Pro" |
-| Después del consejo IA semanal | "Recibe consejos diarios con Pro" |
-| Crea 2da meta de ahorro | "Metas ilimitadas con Pro" |
+| Intenta pedir consejo IA | "Recibe consejos diarios con Pro" |
 | Sin resumen diario | "Activa tu resumen diario con Pro" |
 | Intenta exportar datos | "Exporta tu data con Pro" |
-| 4to presupuesto | "Presupuestos ilimitados con Pro" |
 | Intenta usar calendario | "Calendario financiero disponible con Pro" |
-| 6ta imagen Yape/Plin en el mes | "Lecturas ilimitadas con Pro" |
+| Intenta usar heatmap | "Heatmap de gastos disponible con Pro" |

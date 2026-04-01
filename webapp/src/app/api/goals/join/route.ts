@@ -97,7 +97,7 @@ export async function POST(request: Request) {
       mensaje: `${joiner?.nombre || 'Alguien'} se unio a tu meta "${meta.nombre}"`,
       datos: { meta_id: meta.id, usuario_id: userId },
     });
-  } catch { /* silent */ }
+  } catch (e) { console.error('[join-notify]', e); }
 
   return NextResponse.json({ success: true, meta_id: meta.id, nombre: meta.nombre });
 }

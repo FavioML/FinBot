@@ -15,7 +15,7 @@ export type PlanFeature =
   | 'daily_summary'
   | 'daily_reminder'
   | 'advice_daily'
-  | 'custom_categories';
+  | 'gmail_reading';
 
 /** Features only available on Pro plan */
 const PRO_ONLY_FEATURES: PlanFeature[] = [
@@ -28,7 +28,7 @@ const PRO_ONLY_FEATURES: PlanFeature[] = [
   'daily_summary',
   'daily_reminder',
   'advice_daily',
-  'custom_categories',
+  'gmail_reading',
 ];
 
 /** Free plan limits for counted features */
@@ -37,7 +37,7 @@ export const FREE_LIMITS = {
   goals: Infinity,
   ocr_per_month: Infinity,
   gmail_accounts: 0,
-  advice_per_week: 1,
+  advice_per_week: 0,
 } as const;
 
 /** Check if a feature is Pro-only */
