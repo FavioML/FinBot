@@ -256,14 +256,14 @@ export async function DELETE(request: Request) {
 
   // Si es transacción de Gmail, guardar en excluidos para evitar re-importación
   if (txToDelete.descripcion_original && !txToDelete.descripcion_original.startsWith('duplicado:')) {
-    await serviceClient
-      .from('gmail_excluidos')
-      .upsert(
-        { usuario_id: userId, descripcion_original: txToDelete.descripcion_original },
-        { onConflict: 'usuario_id,descripcion_original' }
-      )
-      .then(() => {})
-      .catch(() => {});
+    try {
+      await serviceClient
+        .from('gmail_excluidos')
+        .upsert(
+          { usuario_id: userId, descripcion_original: txToDelete.descripcion_original },
+          { onConflict: 'usuario_id,descripcion_original' }
+        );
+    } catch { /* ignore — best effort */ }
   }
 
   const { error } = await serviceClient
