@@ -10,7 +10,7 @@ const { hoyPeru } = require('../lib/dates');
  * @param {string} moneda - 'PEN' o 'USD'
  * @param {string|null} descripcion
  */
-async function registrarDeuda(usuarioId, tipo, contraparte, monto, moneda = 'PEN', descripcion = null) {
+async function registrarDeuda(usuarioId, tipo, contraparte, monto, moneda = 'PEN', descripcion = null, fechaVencimiento = null) {
   const { data, error } = await supabase.from('deudas').insert({
     usuario_id: usuarioId,
     tipo,
@@ -19,6 +19,7 @@ async function registrarDeuda(usuarioId, tipo, contraparte, monto, moneda = 'PEN
     monto_pendiente: monto,
     moneda,
     descripcion: descripcion ? descripcion.trim() : null,
+    fecha_vencimiento: fechaVencimiento || null,
     estado: 'activa',
   }).select().single();
   if (error) throw error;

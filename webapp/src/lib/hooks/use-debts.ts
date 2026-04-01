@@ -82,6 +82,19 @@ export function useDebtMutations() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['debts'] }),
   });
 
+  const update = useMutation({
+    mutationFn: async ({ id, ...fields }: { id: string; contraparte?: string; descripcion?: string | null; fecha_vencimiento?: string | null }) => {
+      const res = await fetch('/api/debts', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, ...fields }),
+      });
+      if (!res.ok) throw new Error('Failed to update debt');
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['debts'] }),
+  });
+
   const remove = useMutation({
     mutationFn: async (id: string) => {
       const res = await fetch(`/api/debts?id=${id}`, { method: 'DELETE' });
@@ -91,5 +104,5 @@ export function useDebtMutations() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['debts'] }),
   });
 
-  return { create, pay, markPaid, remove };
+  return { create, update, pay, markPaid, remove };
 }

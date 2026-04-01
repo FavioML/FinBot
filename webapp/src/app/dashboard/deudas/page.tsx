@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Plus, Trash2, Check, TrendingDown, TrendingUp, Coins } from 'lucide-react';
+import { Plus, Trash2, Check, TrendingDown, TrendingUp, Coins, Pencil } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -26,12 +26,13 @@ type Tab = 'debo' | 'me_deben' | 'pagadas';
 export default function DeudasPage() {
   const { data: user, isLoading: userLoading } = useUser();
   const { data: allDebts = [], isLoading: debtsLoading } = useDebts(user?.id);
-  const { create, pay, markPaid, remove } = useDebtMutations();
+  const { create, update, pay, markPaid, remove } = useDebtMutations();
 
   const [tab, setTab] = useState<Tab>('debo');
   const [showForm, setShowForm] = useState(false);
   const [showPayForm, setShowPayForm] = useState<Deuda | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [editDebt, setEditDebt] = useState<Deuda | null>(null);
 
   // Form state — nueva deuda
   const [tipo, setTipo] = useState<'debo' | 'me_deben'>('debo');
@@ -52,8 +53,17 @@ export default function DeudasPage() {
   const debo = activas.filter((d) => d.tipo === 'debo');
   const meDeben = activas.filter((d) => d.tipo === 'me_deben');
 
-  const totalDebo = debo.reduce((s, d) => s + Number(d.monto_pendiente), 0);
-  const totalMeDeben = meDeben.reduce((s, d) => s + Number(d.monto_pendiente), 0);
+  const deboPen = debo.filter(d => d.moneda !== 'USD').reduce((s, d) => s + Number(d.monto_pendiente), 0);
+  const deboUsd = debo.filter(d => d.moneda === 'USD').reduce((s, d) => s + Number(d.monto_pendiente), 0);
+  const meDebenPen = meDeben.filter(d => d.moneda !== 'USD').reduce((s, d) => s + Number(d.monto_pendiente), 0);
+  const meDebenUsd = meDeben.filter(d => d.moneda === 'USD').reduce((s, d) => s + Number(d.monto_pendiente), 0);
+
+  const fmtMulti = (pen: number, usd: number) => {
+    const parts: string[] = [];
+    if (pen > 0) parts.push('S/ ' + pen.toFixed(2));
+    if (usd > 0) parts.push('$ ' + usd.toFixed(2));
+    return parts.length > 0 ? parts.join(' + ') : 'S/ 0.00';
+  };
 
   const tabList: { key: Tab; label: string; count: number }[] = [
     { key: 'debo', label: 'Lo que debo', count: debo.length },
@@ -190,7 +200,7 @@ export default function DeudasPage() {
               </div>
               <div>
                 <p className="text-[10px] text-[#8A877D] uppercase tracking-wider mb-0.5">Lo que debes</p>
-                <p className="text-xl font-bold text-[#D85A30]">{formatCurrency(totalDebo)}</p>
+                <p className="text-xl font-bold text-[#D85A30]">{fmtMulti(deboPen, deboUsd)}</p>
                 <p className="text-xs text-[#8A877D]">{debo.length} deuda{debo.length !== 1 ? 's' : ''} activa{debo.length !== 1 ? 's' : ''}</p>
               </div>
             </div>
@@ -200,7 +210,7 @@ export default function DeudasPage() {
               </div>
               <div>
                 <p className="text-[10px] text-[#8A877D] uppercase tracking-wider mb-0.5">Te deben</p>
-                <p className="text-xl font-bold text-[#1D9E75]">{formatCurrency(totalMeDeben)}</p>
+                <p className="text-xl font-bold text-[#1D9E75]">{fmtMulti(meDebenPen, meDebenUsd)}</p>
                 <p className="text-xs text-[#8A877D]">{meDeben.length} deuda{meDeben.length !== 1 ? 's' : ''} activa{meDeben.length !== 1 ? 's' : ''}</p>
               </div>
             </div>
@@ -312,6 +322,13 @@ export default function DeudasPage() {
                                 title="Registrar abono"
                               >
                                 Abonar
+                              </button>
+                              <button
+                                onClick={() => setEditDebt(debt)}
+                                className="p-1.5 rounded-lg text-[#8A877D] hover:text-[#EF9F27] hover:bg-[rgba(239,159,39,0.08)] transition-colors"
+                                title="Editar"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
                               </button>
                               <button
                                 onClick={() => handleMarkPaid(debt)}
@@ -584,7 +601,104 @@ export default function DeudasPage() {
             </div>
           </DialogContent>
         </Dialog>
+        {/* Dialog: editar deuda */}
+        <Dialog open={!!editDebt} onOpenChange={(open) => { if (!open) setEditDebt(null); }}>
+          <DialogContent className="bg-[#1A1A18] border-[#2A2A28] text-[#F0EFE8] max-w-md">
+            <DialogHeader>
+              <DialogTitle>Editar deuda</DialogTitle>
+            </DialogHeader>
+            {editDebt && (
+              <EditDebtForm
+                debt={editDebt}
+                onSave={async (fields) => {
+                  try {
+                    await update.mutateAsync({ id: editDebt.id, ...fields });
+                    toast.success('Deuda actualizada');
+                    setEditDebt(null);
+                  } catch {
+                    toast.error('Error al actualizar');
+                  }
+                }}
+                onCancel={() => setEditDebt(null)}
+                isPending={update.isPending}
+              />
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </FadeIn>
+  );
+}
+
+function EditDebtForm({
+  debt,
+  onSave,
+  onCancel,
+  isPending,
+}: {
+  debt: Deuda;
+  onSave: (fields: { contraparte?: string; descripcion?: string | null; fecha_vencimiento?: string | null }) => Promise<void>;
+  onCancel: () => void;
+  isPending: boolean;
+}) {
+  const [contraparte, setContraparte] = useState(debt.contraparte);
+  const [descripcion, setDescripcion] = useState(debt.descripcion || '');
+  const [fechaVencimiento, setFechaVencimiento] = useState(debt.fecha_vencimiento || '');
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="text-xs text-[#8A877D] mb-1.5 block">
+          {debt.tipo === 'debo' ? 'Acreedor' : 'Deudor'}
+        </label>
+        <input
+          type="text"
+          value={contraparte}
+          onChange={(e) => setContraparte(e.target.value)}
+          className="w-full rounded-lg bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.08)] px-3 py-2 text-sm text-[#F0EFE8] outline-none focus:border-[#1D9E75]"
+        />
+      </div>
+      <div>
+        <label className="text-xs text-[#8A877D] mb-1.5 block">Motivo</label>
+        <input
+          type="text"
+          value={descripcion}
+          onChange={(e) => setDescripcion(e.target.value)}
+          placeholder="Ej: la cancha, cena del viernes"
+          className="w-full rounded-lg bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.08)] px-3 py-2 text-sm text-[#F0EFE8] placeholder:text-[#8A877D] outline-none focus:border-[#1D9E75]"
+        />
+      </div>
+      <div>
+        <label className="text-xs text-[#8A877D] mb-1.5 block">Fecha limite</label>
+        <input
+          type="date"
+          value={fechaVencimiento}
+          onChange={(e) => setFechaVencimiento(e.target.value)}
+          className="w-full rounded-lg bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.08)] px-3 py-2 text-sm text-[#F0EFE8] outline-none focus:border-[#1D9E75]"
+        />
+      </div>
+      <div className="flex gap-2 pt-1">
+        <Button
+          onClick={() =>
+            onSave({
+              contraparte: contraparte.trim(),
+              descripcion: descripcion.trim() || null,
+              fecha_vencimiento: fechaVencimiento || null,
+            })
+          }
+          className="flex-1 bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90"
+          disabled={isPending || !contraparte.trim()}
+        >
+          {isPending ? 'Guardando...' : 'Guardar cambios'}
+        </Button>
+        <Button
+          variant="outline"
+          onClick={onCancel}
+          className="border-[rgba(255,255,255,0.1)] bg-transparent text-[#C8C6BC]"
+        >
+          Cancelar
+        </Button>
+      </div>
+    </div>
   );
 }

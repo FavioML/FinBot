@@ -3235,6 +3235,18 @@ async function procesarMensajeLibre(msg, usuario, from) {
             if (mNombre) contraparte = mNombre[1].trim();
           }
 
+          // Extraer fecha_vencimiento del mensaje
+          let fechaVenc = null;
+          const numPalabras = { 'un':1, 'uno':1, 'dos':2, 'tres':3, 'cuatro':4, 'cinco':5, 'seis':6, 'siete':7, 'ocho':8, 'nueve':9, 'diez':10 };
+          const mDias = msg.match(/(?:en|dentro de)\s+(\d+|un[oa]?|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+d[ií]as?/i);
+          if (mDias) { const n = numPalabras[mDias[1].toLowerCase()] || parseInt(mDias[1]); if (n > 0) { const d = new Date(); d.setDate(d.getDate() + n); fechaVenc = d.toISOString().split('T')[0]; } }
+          if (!fechaVenc && /\bma[nñ]ana\b/i.test(msg)) { const d = new Date(); d.setDate(d.getDate() + 1); fechaVenc = d.toISOString().split('T')[0]; }
+          if (!fechaVenc && /\bpasado\s+ma[nñ]ana\b/i.test(msg)) { const d = new Date(); d.setDate(d.getDate() + 2); fechaVenc = d.toISOString().split('T')[0]; }
+          const mSem = !fechaVenc && msg.match(/(?:en|dentro de)\s+(\d+|una?|dos|tres|cuatro)\s+semanas?/i);
+          if (mSem) { const n = numPalabras[mSem[1].toLowerCase()] || parseInt(mSem[1]); if (n > 0) { const d = new Date(); d.setDate(d.getDate() + n * 7); fechaVenc = d.toISOString().split('T')[0]; } }
+          const mMes = !fechaVenc && msg.match(/(?:en|dentro de)\s+(\d+|un[oa]?|dos|tres)\s+mes(?:es)?/i);
+          if (mMes) { const n = numPalabras[mMes[1].toLowerCase()] || parseInt(mMes[1]); if (n > 0) { const d = new Date(); d.setMonth(d.getMonth() + n); fechaVenc = d.toISOString().split('T')[0]; } }
+
           // Detectar multi-moneda: "100 soles y 10 dólares"
           const montos = [];
           const reMontos = /(\d+(?:[.,]\d+)?)\s*(?:soles?|pen|s\/)/gi;
@@ -3248,18 +3260,21 @@ async function procesarMensajeLibre(msg, usuario, from) {
             montos.push({ monto: parseFloat((mUsd[1] || mUsd[2]).replace(',', '.')), moneda: 'USD' });
           }
 
+          // Helper para mostrar fecha de vencimiento en la respuesta
+          const fmtVenc = fechaVenc ? '\n📅 Vence: ' + new Date(fechaVenc + 'T12:00:00').toLocaleDateString('es-PE', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+
           // Si encontramos múltiples montos, registrar cada uno
           if (montos.length >= 2 && contraparte) {
             const registros = [];
             for (const m of montos) {
-              await registrarDeuda(usuario.id, tipo, contraparte, m.monto, m.moneda, descripcion);
+              await registrarDeuda(usuario.id, tipo, contraparte, m.monto, m.moneda, descripcion, fechaVenc);
               const sym = m.moneda === 'USD' ? '$' : 'S/';
               registros.push(sym + ' ' + m.monto.toFixed(2));
             }
             if (tipo === 'debo') {
-              return 'Listo, anoté que le debes a *' + contraparte + '*: ' + registros.join(' + ') + '.\n\n_Escribe "mis deudas" para ver todo._';
+              return 'Listo, anoté que le debes a *' + contraparte + '*: ' + registros.join(' + ') + '.' + fmtVenc + '\n\n_Escribe "mis deudas" para ver todo._';
             } else {
-              return 'Listo, anoté que *' + contraparte + '* te debe: ' + registros.join(' + ') + '.\n\n_Escribe "mis deudas" para ver todo._';
+              return 'Listo, anoté que *' + contraparte + '* te debe: ' + registros.join(' + ') + '.' + fmtVenc + '\n\n_Escribe "mis deudas" para ver todo._';
             }
           }
 
@@ -3273,12 +3288,12 @@ async function procesarMensajeLibre(msg, usuario, from) {
           if (!contraparte || !montoClasif || montoClasif <= 0 || isNaN(montoClasif)) {
             return 'Mmm, no pillé bien los datos. Dime algo como:\n_"debo S/200 a Juan"_\n_"Pedro me debe S/150 por la cena"_';
           }
-          await registrarDeuda(usuario.id, tipo, contraparte, montoClasif, monedaClasif, descripcion);
+          await registrarDeuda(usuario.id, tipo, contraparte, montoClasif, monedaClasif, descripcion, fechaVenc);
           const sym = monedaClasif === 'USD' ? '$' : 'S/';
           if (tipo === 'debo') {
-            return 'Anotado. Le debes *' + sym + ' ' + montoClasif.toFixed(2) + '* a *' + contraparte + '*.' + (descripcion ? ' (' + descripcion + ')' : '') + '\n\n_Escribe "mis deudas" para ver el resumen._';
+            return 'Anotado. Le debes *' + sym + ' ' + montoClasif.toFixed(2) + '* a *' + contraparte + '*.' + (descripcion ? ' (' + descripcion + ')' : '') + fmtVenc + '\n\n_Escribe "mis deudas" para ver el resumen._';
           } else {
-            return 'Anotado. *' + contraparte + '* te debe *' + sym + ' ' + montoClasif.toFixed(2) + '*.' + (descripcion ? ' (' + descripcion + ')' : '') + '\n\n_Escribe "mis deudas" para ver el resumen._';
+            return 'Anotado. *' + contraparte + '* te debe *' + sym + ' ' + montoClasif.toFixed(2) + '*.' + (descripcion ? ' (' + descripcion + ')' : '') + fmtVenc + '\n\n_Escribe "mis deudas" para ver el resumen._';
           }
         } catch(e) {
           log.error({ tag: 'DEUDA_REGISTRAR', err: e.message }, 'Error al registrar deuda');
