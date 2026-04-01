@@ -142,9 +142,9 @@ function getUserPlanConfig(usuario) {
 
 function getHistoryDateLimit(usuario) {
   const config = getUserPlanConfig(usuario);
-  if (!config.historyMonths) return null;
-  const limit = new Date();
-  limit.setMonth(limit.getMonth() - config.historyMonths);
+  if (!config.historyMonths) return null; // premium → sin límite
+  const parts = hoyPeru().split('-');
+  const limit = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1 - config.historyMonths, parseInt(parts[2]));
   return limit.toISOString().split('T')[0];
 }
 // ─── Fin Freemium Configuration ─────────────────────────────────────
@@ -1950,7 +1950,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
         return '📊 *Tu dashboard está en:*\n\n🔗 https://app.neto.pe\n\nAhí puedes ver gráficos, metas, reportes PDF, suscripciones y más.\n\n_Inicia sesión con tu cuenta de Google._';
 
       case 'listar_gastos_mes': {
-        const fechaMinLgm = null; // All users are premium
+        const fechaMinLgm = getHistoryDateLimit(usuario);
         // Si tiene 2+ cuentas Gmail y modo separado, mostrar por cuenta
         const cuentasGm = await obtenerCuentasGmail(usuario.id);
         if (cuentasGm.length >= 2 && usuario.reporte_gmail_modo === 'separado') {
@@ -2060,7 +2060,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       }
 
             case 'listar_gastos_categoria': {
-        const fechaMinLgc = null; // All users are premium
+        const fechaMinLgc = getHistoryDateLimit(usuario);
         const cat = datos.categoria;
         if (!cat) return 'Dime la categoria. Ej: _"gastos de Alimentación"_, _"que hay en Transporte"_';
         const mes = datos.mes || mesActual;
@@ -2094,7 +2094,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       }
 
       case 'ver_total_gastado': {
-        const fechaMinVt = null; // All users are premium
+        const fechaMinVt = getHistoryDateLimit(usuario);
         const periodoVt = datos.periodo || 'mes';
         const catVt = datos.categoria;
         let txsVt = periodoVt === 'semana' ? await obtenerGastosSemana(usuario.id, fechaMinVt) : await obtenerGastosMes(usuario.id, fechaMinVt);
