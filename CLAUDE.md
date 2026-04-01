@@ -1,214 +1,78 @@
-# CLAUDE.md — NETO
+# CLAUDE.md — NETO Webapp
 
 ## Contexto del Proyecto
 
 NETO es un asistente financiero personal por WhatsApp para el mercado peruano.
-- Stack: Node.js + Express + Supabase + OpenAI GPT-4o-mini + Meta Cloud API + Railway
+- Stack: Next.js 16 + TypeScript + Tailwind + shadcn/ui + Recharts + Supabase
 - Repo: github.com/FavioML/FinBot
-- Directorio: C:\Neto.pe
-- Producción backend: api.neto.pe (Railway)
-- Producción landing: neto.pe (Cloudflare Pages)
-- Webapp (próximo): app.neto.pe
+- Backend: C:\Neto.pe (NO esta en esta carpeta)
+- Produccion webapp: app.neto.pe (Vercel)
 - Supabase project: zvorjqlubmfrjtkbhqcx
-- Número WhatsApp producción: +51 933 014 505
-- Admin WhatsApp: +51970398192
+- Numero WhatsApp produccion: +51 933 014 505
 
-## Estado actual (25 Mar 2026)
-
-### Arquitectura de código (modularizado)
-- `index.js` — core (~2245 líneas: webhook, NLP 23 intenciones, router)
+## Arquitectura del backend (referencia)
+- `index.js` — core (~2245 lineas: webhook, NLP 23 intenciones, router)
 - `gmail.js` — OAuth2 + parsers de correos bancarios (11 bancos)
 - `reporte_html.js` — reportes HTML/PDF con Chart.js
-- `lib/` — 11 módulos: config, constants, validators, formatters, dates, db, ai, logger, whatsapp, admin-notify, error-monitor
-- `services/` — 3 módulos: transactions, budget, parsers
-- `scripts/backup.js` — backup semanal a GitHub Gist
-- `public/` — vacío (landing eliminada del repo en commit 669af0f)
+- `lib/` — 11 modulos: config, constants, validators, formatters, dates, db, ai, logger, whatsapp, admin-notify, error-monitor
+- `services/` — 3 modulos: transactions, budget, parsers
 
-### Infraestructura
-- Railway: online, 22+ variables configuradas, health endpoint /health
+## Infraestructura
+- Railway: backend online, 22+ variables configuradas, health endpoint /health
 - Supabase: RLS activo en todas las tablas, 11 tablas
+- Vercel: webapp app.neto.pe con Google OAuth
 - CI/CD: GitHub Actions (test en push/PR, Node 20)
-- Dependabot: npm semanal + github-actions mensual
-- Logging: Pino con redacción de secrets (0 console.log en prod)
 - Tests: 56 tests automatizados (vitest)
-- Backup: script backup.js para pg_dump semanal
-- Cloudflare Pages: proyecto "neto-site", Account ID f5b742b797b7a03b8d25140bb9c3594f, API Token disponible
-- Google Search Console: verificado, sitemap enviado (11 páginas descubiertas, indexación en progreso)
-- Google Ads: cuenta 8115117081, tag AW-8115117081 en landing, campaña pausada
-- Meta Pixel: ID 1510666681068015 en landing
-- GA4: G-6M907HW1YM en landing
+- Logging: Pino con redaccion de secrets
 
-### Funcionalidades completas (19)
-1. Registro por WhatsApp (onboarding 4 pasos + sin Gmail)
-2. Lectura automática de correos bancarios (11 bancos: BCP, BBVA, Interbank, Scotiabank, Yape, Plin, Falabella, Ripley, BanBif, Mibanco, CMAC)
-3. Clasificación de gastos con IA (GPT-4o-mini, 23 intenciones NLP)
-4. Categorías/subcategorías personalizables (árbol canónico 10 raíces)
-5. Presupuestos por categoría con alertas
+## Funcionalidades principales (19)
+1. Registro WhatsApp (onboarding 4 pasos)
+2. Lectura automatica correos bancarios (11 bancos)
+3. Clasificacion gastos con IA (GPT-4o-mini, 23 intenciones NLP)
+4. Categorias/subcategorias personalizables
+5. Presupuestos por categoria con alertas
 6. Multimoneda USD/PEN (tipo de cambio dolar.pe)
-7. Lectura de imágenes Yape/Plin (GPT-4o Vision)
-8. Carga masiva por Excel/CSV
-9. Dashboard web interactivo (Chart.js, multi-mes)
-10. Reportes HTML con gráficos (3 páginas, descarga PDF)
-11. Sistema freemium/premium (S/10/mes, pagos Yape)
-12. Sistema de referidos (3 activos = 1 mes Pro)
-13. Resumen diario (timezone Perú UTC-5)
-14. Resumen semanal con IA (comparativa e insights)
-15. Resumen mensual automático (1ro de cada mes)
-16. Aprendizaje por comercio (reglas fuzzy match)
-17. Múltiples cuentas Gmail por usuario
-18. Recordatorios diarios (8pm Lima, /silenciar, /recordar)
-19. Métricas admin (/admin/stats)
+7. Lectura imagenes Yape/Plin (GPT-4o Vision)
+8. Carga masiva Excel/CSV
+9. Dashboard web interactivo (Recharts)
+10. Reportes HTML con graficos + PDF descargable
+11. Freemium/premium (S/10/mes, pagos Yape)
+12. Referidos (3 activos = 1 mes Pro)
+13. Resumen diario/semanal/mensual con IA
+14. Aprendizaje por comercio (fuzzy match)
+15. Multiples cuentas Gmail
+16. Recordatorios diarios (8pm Lima)
+17. Metas de ahorro con CRUD
+18. Calendario financiero interactivo
+19. PWA + onboarding tour
 
-### Seguridad
+## Seguridad
 - RLS en todas las tablas Supabase
 - Rate limiting: 300 req/min global, 10/min admin
-- Validación de montos (NaN, Infinity, negativos, >999999.99)
-- Dedup hash (MD5) para transacciones duplicadas
-- ADMIN_KEY sin fallback hardcodeado
-- Error handling centralizado (middleware Express)
-- Notificaciones admin por WhatsApp en errores críticos
+- Validacion de montos (NaN, Infinity, negativos, >999999.99)
+- Dedup hash (MD5), ADMIN_KEY sin fallback hardcodeado
+- Error handling centralizado + notificaciones admin WhatsApp
 
-## Pendientes actuales
-
-### Webapp (app.neto.pe) — LIVE en producción
-- [x] **Fase 1 — Setup + Login + Dashboard Overview**
-  - [x] Next.js 16 + TypeScript + Tailwind + shadcn/ui + Magic UI + Recharts
-  - [x] Theme "Nocturnal Precision" (dark only, glassmorphism)
-  - [x] Login page con Google OAuth (Supabase Auth) + diseño "Bienvenido"
-  - [x] Middleware de auth (protege /dashboard)
-  - [x] Dashboard layout: sidebar + topbar + WhatsApp button
-  - [x] Dashboard overview: KPI cards, donut categorías, trend chart, transacciones recientes
-  - [x] Supabase Auth Google provider configurado + anon key
-  - [x] Deploy a Vercel (app.neto.pe + neto-app.vercel.app)
-  - [x] DNS CNAME en Cloudflare + redirect URIs en Google Cloud Console
-- [x] **Fase 2 — Transacciones + Presupuestos**
-  - [x] Transacciones: filtros en español, búsqueda, tabla/cards, CRUD completo, paginación con números
-  - [x] Presupuestos: cards agrupadas por categoría, sub-presupuestos, CRUD completo, barras de progreso
-  - [x] Categorías/subcategorías del usuario dinámicas (desde transacciones + presupuestos)
-  - [x] Vista mensual + anual con selector de año dinámico
-- [x] **Fase 3 — Reportes + Configuración**
-  - [x] Reportes: score financiero SVG clickeable con desglose, KPIs, charts, top merchants, gasto diario
-  - [x] PDF descargable con nombre "Neto - Reporte - dd-mm-yyyy.pdf"
-  - [x] Configuración: perfil, plan free/premium, referidos, cuentas conectadas, cerrar sesión
-- [x] **Conectado con datos reales**
-  - [x] Supabase Auth vinculado a tabla usuarios (email + supabase_auth_id)
-  - [x] RLS policies para webapp (SELECT, INSERT, UPDATE, DELETE)
-  - [x] API routes: /api/transactions, /api/budgets, /api/user
-  - [x] Avatar Google (user_metadata.avatar_url) + dropdown con logout
-  - [x] Selector de mes inline (no en topbar)
-  - [x] Suscripciones detectadas por catálogo (50+ servicios digitales)
-  - [x] Score financiero fórmula unificada (base 75, penalties)
-  - [x] Nombre real del usuario (no email)
-
-### Pendientes webapp
-- [ ] (sin pendientes críticos)
-
-### Pendientes menores
-- [ ] Verificación de negocio en Meta (manual, límite 250 conv/día)
-- [ ] Modularizar más index.js (parsers, NLP, webhook — 600+ líneas pendientes)
-
-### Completados (sesiones 20-24 Mar)
-- [x] Separación landing/backend: neto.pe → Cloudflare Pages, api.neto.pe → Railway
-- [x] Separación de entornos: .env.example + config validation + NODE_ENV guards
-- [x] Backup automático: semanal a GitHub Gist (245KB, 9 tablas)
-- [x] Validación de env vars al arrancar (lib/config.js)
-- [x] .env.example documentado
-- [x] Reconocimiento de ingresos en correos e imágenes + soporte Plin
-- [x] Subcategorías personalizables + referidos escalable
-- [x] Google Analytics 4 en landing
-- [x] Blog SEO (5 artículos)
-- [x] Posts fundacionales Instagram/Facebook
-- [x] Sistema de monitoreo inteligente de errores
-- [x] Soporte CSV bancario
-- [x] Rate limiting + validación + dedup + logging Pino
-- [x] CI/CD + Dependabot
-- [x] 56 tests unitarios
-- [x] Webapp live en app.neto.pe (Vercel) con datos reales de Supabase
-- [x] Login Google OAuth + avatar + dropdown logout
-- [x] Dashboard: KPIs, charts, transacciones recientes, suscripciones por catálogo
-- [x] Transacciones: CRUD completo, filtros español, paginación, vista anual
-- [x] Presupuestos: agrupados por categoría, sub-presupuestos, CRUD completo
-- [x] Reportes: score clickeable, PDF descargable, charts interactivos
-- [x] Score financiero unificado (fórmula base 75 con penalties)
-- [x] Categorías/subcategorías dinámicas del usuario
-- [x] Favicon NETO (reemplaza el de Vercel)
-- [x] UI/UX Rounds 1-13 (38+ mejoras): animaciones, glassmorphism, toast notifications
-- [x] FAB button (quick add gasto/ingreso), budget warnings, annual KPI projection
-- [x] CSV export, report comparisons vs mes anterior, daily average reference line
-- [x] Bulk delete transacciones, donut interactivity (click → detalle categoría)
-- [x] Budget suggestions (promedio histórico), subscription inactive alerts
-- [x] Score trend chart (4 meses), global search Ctrl+K (pages + transactions)
-- [x] Notification preferences + appearance section en configuración
-- [x] Consejo IA via /api/advice (GPT-4o-mini) con fallback rule-based
-- [x] Spending heatmap (12 semanas, estilo GitHub contributions)
-- [x] Métodos de pago unificados (VISA BCP → BCP Crédito, etc.)
-- [x] Metas de ahorro: CRUD completo + tabla Supabase + página /dashboard/metas
-- [x] Onboarding tour: 4 pasos interactivos para nuevos usuarios
-- [x] PWA: manifest.json + Apple Web App meta tags
-- [x] FIX tipo de cambio: dolar.pe API faltaba pair=USD-PEN (siempre caía a fallback)
-- [x] Tipo de cambio unificado: lib/exchange-rate.ts con cache 1h + /api/exchange-rate
-- [x] Proyección de gasto mensual con comparación vs mes anterior
-- [x] Detección de pagos recurrentes (no suscripciones) con próximo pago esperado
-- [x] Widget tipo de cambio USD/PEN en dashboard
-- [x] Round 16: Calendario financiero interactivo, comparativa categorías vs mes anterior, export JSON datos
-- [x] Round 17: Sparklines en KPIs, quick actions bar, shimmer skeletons mejorados
-- [x] Round 18: Gasto del día vs promedio, top 5 comercios con barras, donut métodos de pago
-- [x] Round 19: Refactoring mayor — eliminado SpendingHeatmap redundante, renombrado Reportes→Reporte PDF, click-to-detail en todos los widgets (métodos de pago, comercios, categorías), GlobalSearch movido junto a avatar, lazy loading (React.lazy+Suspense) para widgets pesados, sección colapsable en mobile "Ver mas detalles"
-- [x] Round 20: Correcciones usuario — suscripciones card sin click redundante, WhatsApp FAB en todas las páginas dashboard, PedidosYa Plus tolerancia ±5% (solo S/16.90), vista anual en suscripciones con selector de año, notificaciones sync webapp↔WhatsApp (API /api/notifications + toggle funcional recordatorios_activos), Reporte PDF enriquecido (suscripciones + resumen salud financiera)
-- [x] Landing page restaurada y actualizada: 11 bancos, 8 features (dashboard, metas, calendario, PDF, suscripciones), 4 pasos, pricing con 12 filas, CTAs a app.neto.pe, link "Iniciar sesion"
-- [x] Brand Voice Guidelines generadas (webapp/BRAND-VOICE.md)
-- [x] Landing CRO Analysis generado (webapp/LANDING-CRO.md)
-- [x] Marketing Audit completo (score 53/100) — webapp/MARKETING-AUDIT.md
-- [x] Bloque 1 CRO: SEO meta tags (title, lang, hreflang, og:image), JSON-LD (Organization, WebSite, FAQPage), CTAs optimizados, Sticky CTA bar
-- [x] Bloque 2 CRO: Sección comparativa "¿Por qué Neto?", sección Seguridad (6 cards), sección Referidos visible
-- [x] Bloque 4 SEO: BreadcrumbList JSON-LD en blog, cross-linking entre posts, canonicals en FAQ/contacto/privacidad/términos, sección "Quiénes somos" en footer
-- [x] Google Search Console verificado + sitemap enviado (11 páginas)
-- [x] Google Ads tag (AW-8115117081) en landing
-- [x] Meta Pixel (1510666681068015) en landing
-
-### Pendientes identificados
-- [ ] Sync notificaciones webapp ↔ WhatsApp (API route para recordatorios_activos en tabla usuarios)
-- [ ] Diferenciación Plan Pro (features exclusivas reales vs Free)
-- [ ] Testimonios reales (reemplazar los actuales)
-- [ ] Video demo 30-60s (WhatsApp + dashboard)
+## Pendientes activos
+- [ ] Sync notificaciones webapp <> WhatsApp
+- [ ] Diferenciacion Plan Pro (features exclusivas reales vs Free)
+- [ ] Testimonios reales
+- [ ] Video demo 30-60s
 - [ ] Exit-intent popup con lead magnet
-- [ ] Urgencia en pricing ("Precio fundador S/10/mes")
-- [ ] Blog posts comparativos SEO ("Neto vs Monefy", "Neto vs app del banco")
-- [ ] Activar social media (3x/semana Instagram + 2x/semana TikTok)
+- [ ] Blog posts comparativos SEO
+- [ ] Activar social media (3x/semana IG + 2x/semana TikTok)
+- [ ] Verificacion de negocio en Meta (manual)
+- [ ] Modularizar mas index.js (600+ lineas pendientes)
 
-## Convenciones críticas
+## Convenciones criticas
 - Archivos grandes (>10KB): editar con Edit tool, nunca reescribir completo
-- Encoding: siempre UTF-8 sin BOM al guardar index.js
-- Git push: siempre desde terminal del usuario, nunca via API de GitHub (rompe por tamaño)
-- Landing deploy: Cloudflare Pages proyecto "neto-site" apunta directo a FavioML/FinBot con root directory "landing/" y build watch paths "landing/**". Auto-deploy on push. A veces Cloudflare skipea deploys — verificar con API (Account ID: f5b742b797b7a03b8d25140bb9c3594f)
-- Tests: crear en tasks/tests/ con emails bancarios reales anonimizados
-- Variables de entorno: gestionar en Railway, nunca hardcodear fallbacks inseguros
+- Encoding: siempre UTF-8 sin BOM
+- Git push: siempre desde terminal del usuario
 - Verificar duplicados (grep) antes de aplicar cualquier patch
 - Patches secuenciales, nunca paralelos al mismo archivo
+- Variables de entorno: gestionar en Railway, nunca hardcodear
 
-## Orquestación del Flujo de Trabajo
-
-### 1. Modo Planificación por Defecto
-- Entrar en modo planificación para CUALQUIER tarea no trivial (3+ pasos o decisiones arquitectónicas)
-- Si algo sale mal, DETENER y replanificar de inmediato
-
-### 2. Estrategia de Subagentes
-- Usar subagentes para investigación, exploración y análisis paralelo
-- Una tarea por subagente para ejecución enfocada
-
-### 3. Bucle de Automejora
-- Después de CUALQUIER corrección del usuario: actualizar tasks/lessons.md
-- Revisar las lecciones al inicio de cada sesión
-
-### 4. Verificación Antes de Finalizar
-- Nunca marcar una tarea como completa sin demostrar que funciona
-- Ejecutar pruebas, revisar logs, demostrar que es correcto
-
-### 5. Corrección Autónoma de Bugs
-- Cuando se reporte un bug: arreglarlo directamente
-- Cero cambios de contexto requeridos del usuario
-
-## Principios Fundamentales
-- **Simplicidad Primero**: Impacto mínimo en el código
-- **Sin Pereza**: Causas raíz, no soluciones temporales
-- **Impacto Mínimo**: Tocar solo lo necesario
+## Principios
+- **Simplicidad:** Impacto minimo en el codigo
+- **Causas raiz:** No soluciones temporales
+- **Verificar:** Nunca marcar tarea como completa sin demostrar que funciona

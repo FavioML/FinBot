@@ -31,15 +31,37 @@ export async function GET() {
 
   const userId = netoUser.id;
 
-  const { data, error } = await serviceClient
+  // Get own goals
+  const { data: ownGoals, error } = await serviceClient
     .from('metas_ahorro')
-    .select('*')
+    .select('*, meta_aportes(*)')
     .eq('usuario_id', userId)
     .order('created_at', { ascending: false });
 
   if (error)
     return NextResponse.json({ error: error.message }, { status: 400 });
-  return NextResponse.json(data);
+
+  // Get participated collaborative goals
+  const { data: participations } = await serviceClient
+    .from('meta_participantes')
+    .select('meta_id')
+    .eq('usuario_id', userId);
+
+  const participatedIds = (participations || [])
+    .map((p) => p.meta_id)
+    .filter((id) => !(ownGoals || []).some((g) => g.id === id));
+
+  let participatedGoals: typeof ownGoals = [];
+  if (participatedIds.length > 0) {
+    const { data: pGoals } = await serviceClient
+      .from('metas_ahorro')
+      .select('*, meta_aportes(*)')
+      .in('id', participatedIds)
+      .order('created_at', { ascending: false });
+    participatedGoals = pGoals || [];
+  }
+
+  return NextResponse.json([...(ownGoals || []), ...participatedGoals]);
 }
 
 export async function POST(request: Request) {

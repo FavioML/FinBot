@@ -40,6 +40,29 @@ export function useDebts(userId?: string) {
   });
 }
 
+export interface DebtGroup {
+  contraparte: string;
+  pen: number;
+  usd: number;
+  debts: Deuda[];
+}
+
+export function groupDebtsByContraparte(debts: Deuda[]): DebtGroup[] {
+  const map = new Map<string, DebtGroup>();
+  for (const d of debts) {
+    const key = d.contraparte.toLowerCase().trim();
+    if (!map.has(key)) {
+      map.set(key, { contraparte: d.contraparte, pen: 0, usd: 0, debts: [] });
+    }
+    const group = map.get(key)!;
+    const monto = Number(d.monto_pendiente);
+    if (d.moneda === 'USD') group.usd += monto;
+    else group.pen += monto;
+    group.debts.push(d);
+  }
+  return Array.from(map.values()).sort((a, b) => (b.pen + b.usd) - (a.pen + a.usd));
+}
+
 export function useDebtMutations() {
   const queryClient = useQueryClient();
 

@@ -797,7 +797,7 @@ export default function ConfiguracionPage() {
         <div className="flex items-start justify-between gap-4 rounded-lg bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] px-4 py-3">
           <div className="min-w-0">
             <p className="text-sm font-medium text-[#C8C6BC]">Recordatorios</p>
-            <p className="text-xs text-[#8A877D] mt-0.5">Recordatorio diario a las 8pm para registrar gastos</p>
+            <p className="text-xs text-[#8A877D] mt-0.5">Recordatorio diario a las 8pm + avisos de deudas próximas a vencer</p>
           </div>
           <button
             disabled={recordatoriosLoading}

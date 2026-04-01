@@ -151,10 +151,85 @@ async function formatearResumenDeudas(usuarioId) {
   return msg;
 }
 
+/**
+ * Obtiene deudas activas próximas a vencer (para recordatorios cron).
+ * @returns {Array} deudas con datos del usuario (whatsapp, nombre)
+ */
+async function obtenerDeudasProximasVencer() {
+  const hoy = hoyPeru();
+  const hoyDate = new Date(hoy + 'T12:00:00');
+  const desde = new Date(hoyDate); desde.setDate(desde.getDate() - 3);
+  const hasta = new Date(hoyDate); hasta.setDate(hasta.getDate() + 3);
+
+  const { data } = await supabase.from('deudas')
+    .select('*, usuarios!inner(whatsapp, nombre, recordatorios_activos)')
+    .eq('estado', 'activa')
+    .not('fecha_vencimiento', 'is', null)
+    .gte('fecha_vencimiento', desde.toISOString().split('T')[0])
+    .lte('fecha_vencimiento', hasta.toISOString().split('T')[0]);
+
+  return data || [];
+}
+
+/**
+ * Consolida deudas activas por contraparte (totales por moneda).
+ */
+async function consolidarDeudasPorContraparte(usuarioId, contraparte) {
+  const { data: deudas } = await supabase.from('deudas')
+    .select('*')
+    .eq('usuario_id', usuarioId)
+    .eq('estado', 'activa')
+    .ilike('contraparte', '%' + contraparte.trim() + '%')
+    .order('created_at', { ascending: false });
+
+  if (!deudas || deudas.length === 0) return null;
+
+  const nombreReal = deudas[0].contraparte;
+  const totales = { PEN: 0, USD: 0 };
+  const debo = { PEN: 0, USD: 0 };
+  const meDeben = { PEN: 0, USD: 0 };
+
+  for (const d of deudas) {
+    const m = parseFloat(d.monto_pendiente);
+    totales[d.moneda || 'PEN'] += m;
+    if (d.tipo === 'debo') debo[d.moneda || 'PEN'] += m;
+    else meDeben[d.moneda || 'PEN'] += m;
+  }
+
+  return { contraparte: nombreReal, totales, debo, meDeben, deudas };
+}
+
+/**
+ * Marca TODAS las deudas activas con una contraparte como pagadas.
+ * @returns {number} cantidad de deudas saldadas
+ */
+async function saldarTodasDeudas(usuarioId, contraparte) {
+  const { data: deudas } = await supabase.from('deudas')
+    .select('id')
+    .eq('usuario_id', usuarioId)
+    .eq('estado', 'activa')
+    .ilike('contraparte', '%' + contraparte.trim() + '%');
+
+  if (!deudas || deudas.length === 0) return 0;
+
+  const ids = deudas.map(d => d.id);
+  const { error } = await supabase.from('deudas').update({
+    monto_pendiente: 0,
+    estado: 'pagada',
+    updated_at: new Date().toISOString(),
+  }).in('id', ids);
+
+  if (error) throw error;
+  return ids.length;
+}
+
 module.exports = {
   registrarDeuda,
   obtenerDeudas,
   abonarDeuda,
   marcarDeudaPagada,
   formatearResumenDeudas,
+  obtenerDeudasProximasVencer,
+  consolidarDeudasPorContraparte,
+  saldarTodasDeudas,
 };

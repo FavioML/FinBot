@@ -4,7 +4,7 @@ import { useMemo, useState, useCallback, lazy, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { Receipt, CreditCard, Pencil, ChevronDown } from 'lucide-react';
+import { Receipt, CreditCard, Pencil, ChevronDown, Target, Wallet, Award } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -45,6 +45,8 @@ import { UserMenu } from '@/components/dashboard/user-menu';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
 import { useBudgets } from '@/lib/hooks/use-budgets';
+import { useGoals, useAchievements } from '@/lib/hooks/use-goals';
+import { useDebts } from '@/lib/hooks/use-debts';
 import { FadeIn } from '@/components/shared/motion-wrapper';
 import { formatCurrency, formatFecha, calcularScoreFinanciero, getScoreColor, getScoreLabel } from '@/lib/utils';
 import { getCategoriaEmoji, MESES, SOCIAL_LINKS } from '@/lib/constants';
@@ -83,6 +85,11 @@ export default function DashboardPage() {
 
   // Load budgets for score calculation (presupuestos excedidos)
   const { data: budgets = [] } = useBudgets(user?.id);
+
+  // Load goals, debts and achievements for overview widgets
+  const { data: goals = [] } = useGoals(user?.id);
+  const { data: allDebts = [] } = useDebts(user?.id);
+  const { data: achievements = [] } = useAchievements(user?.id);
 
   // Compute available years from transaction data
   const availableYears = useMemo(() => {
@@ -513,6 +520,8 @@ export default function DashboardPage() {
                     transactions={allTransactions}
                     currentMonth={currentMonth}
                     currentYear={currentYear}
+                    debts={allDebts}
+                    goals={goals}
                   />
                   <CategoryComparison
                     allTransactions={allTransactions}
@@ -554,6 +563,8 @@ export default function DashboardPage() {
                         transactions={allTransactions}
                         currentMonth={currentMonth}
                         currentYear={currentYear}
+                        debts={allDebts}
+                        goals={goals}
                       />
                       <CategoryComparison
                         allTransactions={allTransactions}
@@ -649,6 +660,126 @@ export default function DashboardPage() {
                   <CreditCard className="h-6 w-6 text-[#8A877D]/50 mb-2" />
                   <p className="text-sm text-[#8A877D]">No se detectaron suscripciones</p>
                   <p className="text-xs text-[#8A877D]/70 mt-1">NETO las detecta automaticamente de tus transacciones</p>
+                </div>
+              )}
+            </div>
+          </div>
+          </FadeIn>
+
+          {/* Metas + Deudas + Logros widgets */}
+          <FadeIn delay={0.5}>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Metas de ahorro */}
+            <div className="glass-card glass-card-glow p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Target className="h-4 w-4 text-[#1D9E75]" />
+                  <span className="text-sm font-medium text-[#C8C6BC]">Metas de ahorro</span>
+                </div>
+                <Link href="/dashboard/metas" className="text-xs text-[#1D9E75] hover:underline">Ver todas &rarr;</Link>
+              </div>
+              {(() => {
+                const activeGoals = goals.filter((g) => !g.completada);
+                if (activeGoals.length === 0) return (
+                  <div className="flex flex-col items-center justify-center py-6 text-center">
+                    <Target className="h-6 w-6 text-[#8A877D]/50 mb-2" />
+                    <p className="text-sm text-[#8A877D]">Sin metas activas</p>
+                    <Link href="/dashboard/metas" className="text-xs text-[#1D9E75] mt-1 hover:underline">Crear una meta</Link>
+                  </div>
+                );
+                return (
+                  <div className="space-y-3">
+                    {activeGoals.slice(0, 4).map((g) => {
+                      const pct = Number(g.monto_objetivo) > 0
+                        ? Math.min(100, (Number(g.monto_actual) / Number(g.monto_objetivo)) * 100)
+                        : 0;
+                      return (
+                        <div key={g.id}>
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className="text-[#F0EFE8]">{g.icono} {g.nombre}</span>
+                            <span className="text-[#8A877D] tabular-nums">{pct.toFixed(0)}%</span>
+                          </div>
+                          <div className="h-1.5 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
+                            <div className="h-full rounded-full bg-[#1D9E75] transition-all" style={{ width: `${pct}%` }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Deudas resumen */}
+            <div className="glass-card glass-card-glow p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Wallet className="h-4 w-4 text-[#EF9F27]" />
+                  <span className="text-sm font-medium text-[#C8C6BC]">Deudas</span>
+                </div>
+                <Link href="/dashboard/deudas" className="text-xs text-[#1D9E75] hover:underline">Ver todas &rarr;</Link>
+              </div>
+              {(() => {
+                const activas = allDebts.filter((d) => d.estado === 'activa');
+                const deboTotal = activas.filter((d) => d.tipo === 'debo').reduce((s, d) => s + Number(d.monto_pendiente), 0);
+                const meDebenTotal = activas.filter((d) => d.tipo === 'me_deben').reduce((s, d) => s + Number(d.monto_pendiente), 0);
+                if (activas.length === 0) return (
+                  <div className="flex flex-col items-center justify-center py-6 text-center">
+                    <Wallet className="h-6 w-6 text-[#8A877D]/50 mb-2" />
+                    <p className="text-sm text-[#8A877D]">Sin deudas activas</p>
+                  </div>
+                );
+                return (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-[#8A877D]">Yo debo</span>
+                      <span className="text-sm font-bold text-[#D85A30] tabular-nums">{formatCurrency(deboTotal)}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-[#8A877D]">Me deben</span>
+                      <span className="text-sm font-bold text-[#1D9E75] tabular-nums">{formatCurrency(meDebenTotal)}</span>
+                    </div>
+                    <div className="border-t border-[rgba(255,255,255,0.06)] pt-3 flex justify-between">
+                      <span className="text-xs text-[#8A877D]">Balance neto</span>
+                      <span className={`text-sm font-bold tabular-nums ${meDebenTotal - deboTotal >= 0 ? 'text-[#1D9E75]' : 'text-[#D85A30]'}`}>
+                        {meDebenTotal - deboTotal >= 0 ? '+' : ''}{formatCurrency(meDebenTotal - deboTotal)}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-[#8A877D]">{activas.length} deuda{activas.length !== 1 ? 's' : ''} activa{activas.length !== 1 ? 's' : ''}</p>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Logros */}
+            <div className="glass-card glass-card-glow p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Award className="h-4 w-4 text-[#EF9F27]" />
+                  <span className="text-sm font-medium text-[#C8C6BC]">Logros</span>
+                </div>
+                <Link href="/dashboard/metas" className="text-xs text-[#1D9E75] hover:underline">Ver todos &rarr;</Link>
+              </div>
+              {achievements.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-6 text-center">
+                  <Award className="h-6 w-6 text-[#8A877D]/50 mb-2" />
+                  <p className="text-sm text-[#8A877D]">Sin logros aún</p>
+                  <p className="text-xs text-[#8A877D]/70 mt-1">Aporta a tus metas para desbloquear logros</p>
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {achievements.slice(0, 6).map((logro) => {
+                    const BADGE: Record<string, string> = {
+                      milestone_25: '🥉', milestone_50: '🥈', milestone_75: '🥇',
+                      meta_cumplida: '🏆', primera_meta: '🌟', primer_abono: '💫',
+                      racha_3: '🔥', racha_5: '🔥', racha_10: '💎',
+                    };
+                    return (
+                      <span key={logro.id} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[rgba(239,159,39,0.08)] text-xs text-[#EF9F27]">
+                        {BADGE[logro.tipo] || '⭐'} {logro.tipo.replace(/_/g, ' ')}
+                      </span>
+                    );
+                  })}
                 </div>
               )}
             </div>

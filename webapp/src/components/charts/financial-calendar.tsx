@@ -6,21 +6,25 @@ import { motion, AnimatePresence } from 'motion/react';
 import { formatCurrency } from '@/lib/utils';
 import { getCategoriaEmoji } from '@/lib/constants';
 import type { Transaccion } from '@/lib/types';
+import type { Deuda } from '@/lib/hooks/use-debts';
+import type { MetaAhorro } from '@/lib/hooks/use-goals';
 
 interface FinancialCalendarProps {
   transactions: Transaccion[];
   currentMonth: number;
   currentYear: number;
+  debts?: Deuda[];
+  goals?: MetaAhorro[];
 }
 
 const DIAS_SEMANA = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom'];
 
-export function FinancialCalendar({ transactions, currentMonth, currentYear }: FinancialCalendarProps) {
+export function FinancialCalendar({ transactions, currentMonth, currentYear, debts = [], goals = [] }: FinancialCalendarProps) {
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [viewMonth, setViewMonth] = useState(currentMonth);
   const [viewYear, setViewYear] = useState(currentYear);
 
-  const { grid, maxSpend, dayMap } = useMemo(() => {
+  const { grid, maxSpend, dayMap, debtDueMap, goalDeadlineMap } = useMemo(() => {
     // Build day → total spending map
     const dayMap = new Map<string, { total: number; txs: Transaccion[] }>();
     for (const t of transactions) {
@@ -31,6 +35,30 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear }: F
       if (t.tipo === 'gasto') prev.total += t.monto_pen;
       prev.txs.push(t);
       dayMap.set(key, prev);
+    }
+
+    // Build debt due date map
+    const debtDueMap = new Map<string, Deuda[]>();
+    for (const debt of debts) {
+      if (!debt.fecha_vencimiento || debt.estado !== 'activa') continue;
+      const dv = new Date(debt.fecha_vencimiento + 'T00:00:00');
+      if (dv.getMonth() + 1 !== viewMonth || dv.getFullYear() !== viewYear) continue;
+      const key = debt.fecha_vencimiento;
+      const prev = debtDueMap.get(key) || [];
+      prev.push(debt);
+      debtDueMap.set(key, prev);
+    }
+
+    // Build goal deadline map
+    const goalDeadlineMap = new Map<string, MetaAhorro[]>();
+    for (const goal of goals) {
+      if (!goal.fecha_limite || goal.completada) continue;
+      const dg = new Date(goal.fecha_limite + 'T00:00:00');
+      if (dg.getMonth() + 1 !== viewMonth || dg.getFullYear() !== viewYear) continue;
+      const key = goal.fecha_limite;
+      const prev = goalDeadlineMap.get(key) || [];
+      prev.push(goal);
+      goalDeadlineMap.set(key, prev);
     }
 
     // Build calendar grid
@@ -62,8 +90,8 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear }: F
       if (v.total > maxSpend) maxSpend = v.total;
     }
 
-    return { grid, maxSpend, dayMap };
-  }, [transactions, viewMonth, viewYear]);
+    return { grid, maxSpend, dayMap, debtDueMap, goalDeadlineMap };
+  }, [transactions, debts, goals, viewMonth, viewYear]);
 
   const selectedTxs = useMemo(() => {
     if (!selectedDay) return [];
@@ -142,16 +170,20 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear }: F
               const amount = data?.total || 0;
               const isSelected = selectedDay === key;
               const isFuture = new Date(viewYear, viewMonth - 1, day) > today;
+              const dayDebts = debtDueMap.get(key) || [];
+              const dayGoals = goalDeadlineMap.get(key) || [];
+              const hasEvents = dayDebts.length > 0 || dayGoals.length > 0;
+              const isClickable = !isFuture || hasEvents;
 
               return (
                 <button
                   key={di}
-                  onClick={() => setSelectedDay(isSelected ? null : key)}
-                  disabled={isFuture}
+                  onClick={() => isClickable && setSelectedDay(isSelected ? null : key)}
+                  disabled={!isClickable}
                   className={`relative rounded-lg p-1 min-h-[40px] flex flex-col items-center justify-center transition-all duration-150 text-center ${
                     isSelected
                       ? 'ring-1 ring-[#1D9E75] bg-[rgba(29,158,117,0.1)]'
-                      : isFuture
+                      : !isClickable
                       ? 'opacity-30 cursor-default'
                       : 'hover:bg-[rgba(255,255,255,0.04)] cursor-pointer'
                   }`}
@@ -170,6 +202,12 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear }: F
                   {isToday(day) && (
                     <span className="absolute top-0.5 right-0.5 h-1.5 w-1.5 rounded-full bg-[#1D9E75]" />
                   )}
+                  {dayDebts.length > 0 && (
+                    <span className="absolute bottom-0.5 left-1 h-1.5 w-1.5 rounded-full bg-[#D85A30]" title={`${dayDebts.length} deuda(s)`} />
+                  )}
+                  {dayGoals.length > 0 && (
+                    <span className="absolute bottom-0.5 right-1 h-1.5 w-1.5 rounded-full bg-[#1D9E75]" title={`${dayGoals.length} meta(s)`} />
+                  )}
                 </button>
               );
             })}
@@ -177,9 +215,21 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear }: F
         ))}
       </div>
 
+      {/* Legend */}
+      <div className="flex items-center gap-4 mt-3 pt-2 border-t border-[rgba(255,255,255,0.04)]">
+        <div className="flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-[#D85A30]" />
+          <span className="text-[9px] text-[#8A877D]">Vencimiento deuda</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-[#1D9E75]" />
+          <span className="text-[9px] text-[#8A877D]">Deadline meta</span>
+        </div>
+      </div>
+
       {/* Selected day detail */}
       <AnimatePresence>
-        {selectedDay && selectedTxs.length > 0 && (
+        {selectedDay && (selectedTxs.length > 0 || (debtDueMap.get(selectedDay) || []).length > 0 || (goalDeadlineMap.get(selectedDay) || []).length > 0) && (
           <motion.div
             className="mt-4 pt-3 border-t border-[rgba(255,255,255,0.06)] space-y-1.5"
             initial={{ opacity: 0, height: 0 }}
@@ -188,11 +238,50 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear }: F
           >
             <p className="text-xs text-[#8A877D] mb-2">
               {new Date(selectedDay + 'T12:00:00').toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'long' })}
-              {' — '}
-              <span className="text-[#D85A30] font-medium">
-                {formatCurrency(dayMap.get(selectedDay)?.total || 0)} en gastos
-              </span>
+              {dayMap.get(selectedDay)?.total ? (
+                <>
+                  {' — '}
+                  <span className="text-[#D85A30] font-medium">
+                    {formatCurrency(dayMap.get(selectedDay)?.total || 0)} en gastos
+                  </span>
+                </>
+              ) : null}
             </p>
+
+            {/* Debt due dates */}
+            {(debtDueMap.get(selectedDay) || []).map((debt) => (
+              <div key={debt.id} className="flex items-center justify-between py-1.5 px-2 rounded-lg bg-[rgba(216,90,48,0.08)]">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <span className="text-xs shrink-0">📅</span>
+                  <span className="text-xs text-[#C8C6BC] truncate">
+                    Vence deuda: {debt.contraparte || 'Sin nombre'}
+                  </span>
+                </div>
+                <span className="text-xs font-medium tabular-nums shrink-0 ml-2 text-[#D85A30]">
+                  {formatCurrency(debt.monto_pendiente)}
+                </span>
+              </div>
+            ))}
+
+            {/* Goal deadlines */}
+            {(goalDeadlineMap.get(selectedDay) || []).map((goal) => {
+              const pct = goal.monto_objetivo > 0 ? Math.round((goal.monto_actual / goal.monto_objetivo) * 100) : 0;
+              return (
+                <div key={goal.id} className="flex items-center justify-between py-1.5 px-2 rounded-lg bg-[rgba(29,158,117,0.08)]">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <span className="text-xs shrink-0">{goal.icono || '🎯'}</span>
+                    <span className="text-xs text-[#C8C6BC] truncate">
+                      {goal.nombre} ({pct}%)
+                    </span>
+                  </div>
+                  <span className="text-xs font-medium tabular-nums shrink-0 ml-2 text-[#1D9E75]">
+                    {formatCurrency(goal.monto_actual)} / {formatCurrency(goal.monto_objetivo)}
+                  </span>
+                </div>
+              );
+            })}
+
+            {/* Transactions */}
             {selectedTxs.slice(0, 8).map((tx) => (
               <div key={tx.id} className="flex items-center justify-between py-1.5">
                 <div className="flex items-center gap-2 min-w-0 flex-1">

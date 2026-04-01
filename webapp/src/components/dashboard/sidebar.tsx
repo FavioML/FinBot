@@ -12,6 +12,7 @@ import {
   CreditCard,
   Flag,
   Landmark,
+  Trophy,
   Settings,
   X,
 } from 'lucide-react';
@@ -26,6 +27,7 @@ const mainNav = [
   { label: 'Suscripciones', href: '/dashboard/suscripciones', icon: CreditCard },
   { label: 'Metas', href: '/dashboard/metas', icon: Flag },
   { label: 'Deudas', href: '/dashboard/deudas', icon: Landmark },
+  { label: 'Logros', href: '/dashboard/logros', icon: Trophy },
 ];
 
 const secondaryNav = [

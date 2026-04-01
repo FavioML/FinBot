@@ -2,6 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 import { Menu } from 'lucide-react';
+import { NotificationBell } from './notification-bell';
 
 const PAGE_TITLES: Record<string, string> = {
   '/dashboard': 'Dashboard',
@@ -10,6 +11,8 @@ const PAGE_TITLES: Record<string, string> = {
   '/dashboard/reportes': 'Reporte PDF',
   '/dashboard/suscripciones': 'Suscripciones',
   '/dashboard/metas': 'Metas de ahorro',
+  '/dashboard/deudas': 'Deudas',
+  '/dashboard/logros': 'Logros',
   '/dashboard/configuracion': 'Configuracion',
 };
 
@@ -22,7 +25,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
   const title = PAGE_TITLES[pathname] || 'NETO';
 
   return (
-    <header className="flex h-12 shrink-0 items-center gap-3 border-b border-[rgba(255,255,255,0.04)] md:hidden">
+    <header className="flex h-12 shrink-0 items-center justify-between border-b border-[rgba(255,255,255,0.04)] md:hidden">
       <div className="flex items-center gap-3 px-4">
         <button
           onClick={onMenuClick}
@@ -31,6 +34,9 @@ export function Topbar({ onMenuClick }: TopbarProps) {
           <Menu className="h-5 w-5" />
         </button>
         <span className="text-sm font-medium text-[#C8C6BC]">{title}</span>
+      </div>
+      <div className="px-4">
+        <NotificationBell />
       </div>
     </header>
   );

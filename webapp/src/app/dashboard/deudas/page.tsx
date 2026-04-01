@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Plus, Trash2, Check, TrendingDown, TrendingUp, Coins, Pencil } from 'lucide-react';
+import { Plus, Trash2, Check, TrendingDown, TrendingUp, Coins, Pencil, Users, AlertTriangle, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -16,23 +16,32 @@ import { EmptyState } from '@/components/shared/empty-state';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import { UserMenu } from '@/components/dashboard/user-menu';
 import { useUser } from '@/lib/hooks/use-user';
-import { useDebts, useDebtMutations, type Deuda } from '@/lib/hooks/use-debts';
+import { useDebts, useDebtMutations, groupDebtsByContraparte, type Deuda, type DebtGroup } from '@/lib/hooks/use-debts';
+import { useSplitExpenses, useSplitMutations, type GastoCompartido } from '@/lib/hooks/use-split';
 import { formatCurrency } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
-type Tab = 'debo' | 'me_deben' | 'pagadas';
+type Tab = 'debo' | 'me_deben' | 'pagadas' | 'compartidos';
 
 export default function DeudasPage() {
   const { data: user, isLoading: userLoading } = useUser();
   const { data: allDebts = [], isLoading: debtsLoading } = useDebts(user?.id);
   const { create, update, pay, markPaid, remove } = useDebtMutations();
+  const { data: splitExpenses = [] } = useSplitExpenses(user?.id);
+  const splitMutations = useSplitMutations();
 
   const [tab, setTab] = useState<Tab>('debo');
   const [showForm, setShowForm] = useState(false);
+  const [showSplitForm, setShowSplitForm] = useState(false);
+  const [splitDesc, setSplitDesc] = useState('');
+  const [splitMonto, setSplitMonto] = useState('');
+  const [splitNumPersonas, setSplitNumPersonas] = useState('2');
+  const [splitNames, setSplitNames] = useState<string[]>([]);
   const [showPayForm, setShowPayForm] = useState<Deuda | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [editDebt, setEditDebt] = useState<Deuda | null>(null);
+  const [vistaAgrupada, setVistaAgrupada] = useState(false);
 
   // Form state — nueva deuda
   const [tipo, setTipo] = useState<'debo' | 'me_deben'>('debo');
@@ -69,10 +78,39 @@ export default function DeudasPage() {
     { key: 'debo', label: 'Lo que debo', count: debo.length },
     { key: 'me_deben', label: 'Me deben', count: meDeben.length },
     { key: 'pagadas', label: 'Saldadas', count: pagadas.length },
+    { key: 'compartidos', label: 'Compartidos', count: splitExpenses.filter(s => s.estado === 'activo').length },
   ];
 
-  const visibleDebts =
-    tab === 'debo' ? debo : tab === 'me_deben' ? meDeben : pagadas;
+  // Vencimiento badge helper
+  function getVencimientoBadge(debt: Deuda): { label: string; color: string; bgColor: string; priority: number } | null {
+    if (!debt.fecha_vencimiento || debt.estado === 'pagada') return null;
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+    const venc = new Date(debt.fecha_vencimiento + 'T12:00:00');
+    venc.setHours(0, 0, 0, 0);
+    const diffDays = Math.round((venc.getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24));
+    if (diffDays < 0) return { label: `Vencida hace ${Math.abs(diffDays)}d`, color: '#ef4444', bgColor: 'rgba(239,68,68,0.12)', priority: 0 };
+    if (diffDays === 0) return { label: 'Vence hoy', color: '#ef4444', bgColor: 'rgba(239,68,68,0.12)', priority: 1 };
+    if (diffDays <= 3) return { label: `Vence en ${diffDays}d`, color: '#EF9F27', bgColor: 'rgba(239,159,39,0.12)', priority: 2 };
+    if (diffDays <= 7) return { label: `Vence en ${diffDays}d`, color: '#8A877D', bgColor: 'rgba(138,135,125,0.1)', priority: 3 };
+    return null;
+  }
+
+  // Sort by vencimiento (urgent first), then by monto_pendiente
+  function sortDebts(debts: Deuda[]): Deuda[] {
+    return [...debts].sort((a, b) => {
+      const badgeA = getVencimientoBadge(a);
+      const badgeB = getVencimientoBadge(b);
+      const prioA = badgeA ? badgeA.priority : 99;
+      const prioB = badgeB ? badgeB.priority : 99;
+      if (prioA !== prioB) return prioA - prioB;
+      return Number(b.monto_pendiente) - Number(a.monto_pendiente);
+    });
+  }
+
+  const rawDebts = tab === 'debo' ? debo : tab === 'me_deben' ? meDeben : pagadas;
+  const visibleDebts = tab === 'pagadas' ? rawDebts : sortDebts(rawDebts);
+  const groupedDebts = tab !== 'pagadas' ? groupDebtsByContraparte(rawDebts) : [];
 
   function openCreate(tipoInicial: 'debo' | 'me_deben' = 'debo') {
     setTipo(tipoInicial);
@@ -153,6 +191,59 @@ export default function DeudasPage() {
     }
   }
 
+  async function handleCreateSplit() {
+    if (!splitDesc.trim() || !splitMonto) {
+      toast.error('Completa descripcion y monto');
+      return;
+    }
+    const total = parseFloat(splitMonto);
+    const num = parseInt(splitNumPersonas) || 2;
+    if (isNaN(total) || total <= 0 || num < 2) {
+      toast.error('Monto y numero de personas invalidos');
+      return;
+    }
+    const perPerson = Math.round((total / num) * 100) / 100;
+    const names = splitNames.filter(n => n.trim());
+    const participantes = Array.from({ length: num - 1 }, (_, i) => ({
+      nombre: names[i] || `Persona ${i + 1}`,
+      monto_debe: perPerson,
+    }));
+
+    try {
+      await splitMutations.create.mutateAsync({
+        descripcion: splitDesc.trim(),
+        monto_total: total,
+        participantes,
+      });
+      toast.success('Gasto compartido creado');
+      setShowSplitForm(false);
+      setSplitDesc('');
+      setSplitMonto('');
+      setSplitNumPersonas('2');
+      setSplitNames([]);
+    } catch {
+      toast.error('Error al crear gasto compartido');
+    }
+  }
+
+  async function handleTogglePaid(gastoId: string, participanteId: string, currentPagado: boolean) {
+    try {
+      await splitMutations.markPaid.mutateAsync({ gasto_id: gastoId, participante_id: participanteId, pagado: !currentPagado });
+      toast.success(currentPagado ? 'Marcado como pendiente' : 'Marcado como pagado');
+    } catch {
+      toast.error('Error al actualizar');
+    }
+  }
+
+  async function handleDeleteSplit(id: string) {
+    try {
+      await splitMutations.remove.mutateAsync(id);
+      toast.success('Gasto compartido eliminado');
+    } catch {
+      toast.error('Error al eliminar');
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -217,33 +308,239 @@ export default function DeudasPage() {
           </div>
         )}
 
-        {/* Tabs */}
-        <div className="flex gap-1 p-1 bg-[rgba(255,255,255,0.03)] rounded-xl border border-[rgba(255,255,255,0.06)] w-fit">
-          {tabList.map((t) => (
+        {/* Tabs + grouped toggle */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex gap-1 p-1 bg-[rgba(255,255,255,0.03)] rounded-xl border border-[rgba(255,255,255,0.06)] w-fit">
+            {tabList.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                  tab === t.key
+                    ? 'bg-[#1D9E75] text-white shadow'
+                    : 'text-[#8A877D] hover:text-[#C8C6BC]'
+                }`}
+              >
+                {t.label}
+                {t.count > 0 && (
+                  <span className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full ${
+                    tab === t.key ? 'bg-white/20' : 'bg-[rgba(255,255,255,0.08)]'
+                  }`}>
+                    {t.count}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+          {tab !== 'pagadas' && (
             <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                tab === t.key
-                  ? 'bg-[#1D9E75] text-white shadow'
-                  : 'text-[#8A877D] hover:text-[#C8C6BC]'
+              onClick={() => setVistaAgrupada(!vistaAgrupada)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                vistaAgrupada
+                  ? 'bg-[rgba(29,158,117,0.12)] text-[#1D9E75] ring-1 ring-[#1D9E75]/30'
+                  : 'bg-[rgba(255,255,255,0.04)] text-[#8A877D] hover:text-[#C8C6BC]'
               }`}
             >
-              {t.label}
-              {t.count > 0 && (
-                <span className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full ${
-                  tab === t.key ? 'bg-white/20' : 'bg-[rgba(255,255,255,0.08)]'
-                }`}>
-                  {t.count}
-                </span>
-              )}
+              <Users className="h-3.5 w-3.5" />
+              Agrupar por persona
             </button>
-          ))}
+          )}
         </div>
 
-        {/* Debt cards */}
+        {/* Debt cards / Split section */}
         <AnimatePresence mode="wait">
-          {visibleDebts.length === 0 ? (
+          {tab === 'compartidos' ? (
+            <motion.div
+              key="compartidos"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="space-y-4"
+            >
+              {/* Header + create button */}
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-[#8A877D]">Divide gastos y lleva la cuenta de quien pago</p>
+                <Button
+                  onClick={() => { setShowSplitForm(true); setSplitDesc(''); setSplitMonto(''); setSplitNumPersonas('2'); setSplitNames([]); }}
+                  className="bg-[#EF9F27] text-white hover:bg-[#EF9F27]/90 gap-2 text-xs"
+                  size="sm"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Dividir gasto
+                </Button>
+              </div>
+
+              {/* Split expenses list */}
+              {splitExpenses.length === 0 ? (
+                <EmptyState
+                  title="Sin gastos compartidos"
+                  description="Divide un gasto grupal desde el boton o desde WhatsApp: pague 300 la cena entre 4"
+                  showWhatsApp={false}
+                />
+              ) : (
+                <div className="space-y-3">
+                  {splitExpenses.map((gasto) => {
+                    const parts = gasto.gasto_participantes || [];
+                    const pagados = parts.filter(p => p.pagado).length;
+                    const total = parts.length;
+                    const allPaid = pagados === total && total > 0;
+
+                    return (
+                      <div key={gasto.id} className={`glass-card glass-card-glow p-5 group ${allPaid ? 'opacity-60' : ''}`}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="font-semibold text-sm text-[#F0EFE8]">{gasto.descripcion}</p>
+                              {allPaid && (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-[rgba(29,158,117,0.12)] text-[#1D9E75]">Liquidado</span>
+                              )}
+                            </div>
+                            <p className="text-xs text-[#8A877D] mt-0.5">
+                              {new Date(gasto.fecha + 'T12:00:00').toLocaleDateString('es-PE', { day: 'numeric', month: 'short' })}
+                              {' · '}{pagados}/{total} pagados
+                            </p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="text-base font-bold text-[#EF9F27] tabular-nums">
+                              {gasto.moneda === 'USD' ? '$' : 'S/'} {Number(gasto.monto_total).toFixed(2)}
+                            </p>
+                            <button
+                              onClick={() => handleDeleteSplit(gasto.id)}
+                              className="opacity-0 group-hover:opacity-100 p-1 rounded text-[#8A877D] hover:text-[#D85A30] transition-all mt-1"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Participants */}
+                        <div className="mt-3 space-y-1.5">
+                          {parts.map((p) => (
+                            <div key={p.id} className="flex items-center justify-between py-1.5 border-t border-[rgba(255,255,255,0.04)] first:border-0">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <button
+                                  onClick={() => handleTogglePaid(gasto.id, p.id, p.pagado)}
+                                  className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${
+                                    p.pagado
+                                      ? 'bg-[#1D9E75] border-[#1D9E75]'
+                                      : 'border-[rgba(255,255,255,0.15)] hover:border-[#1D9E75]'
+                                  }`}
+                                >
+                                  {p.pagado && <Check className="h-3 w-3 text-white" />}
+                                </button>
+                                <span className={`text-xs ${p.pagado ? 'text-[#8A877D] line-through' : 'text-[#C8C6BC]'}`}>
+                                  {p.nombre}
+                                </span>
+                              </div>
+                              <span className={`text-xs font-medium tabular-nums ${p.pagado ? 'text-[#8A877D]' : 'text-[#EF9F27]'}`}>
+                                {gasto.moneda === 'USD' ? '$' : 'S/'} {Number(p.monto_debe).toFixed(2)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Split create dialog */}
+              <Dialog open={showSplitForm} onOpenChange={setShowSplitForm}>
+                <DialogContent className="bg-[#1A1A18] border-[#2A2A28] text-[#F0EFE8] max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Dividir gasto</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs text-[#8A877D] mb-1.5 block">Descripcion</label>
+                      <input
+                        type="text"
+                        value={splitDesc}
+                        onChange={(e) => setSplitDesc(e.target.value)}
+                        placeholder="Ej: Cena del viernes, Uber, etc."
+                        className="w-full rounded-lg bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.08)] px-3 py-2 text-sm text-[#F0EFE8] placeholder:text-[#8A877D] outline-none focus:border-[#1D9E75]"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs text-[#8A877D] mb-1.5 block">Monto total (S/)</label>
+                        <input
+                          type="number"
+                          value={splitMonto}
+                          onChange={(e) => setSplitMonto(e.target.value)}
+                          placeholder="300"
+                          className="w-full rounded-lg bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.08)] px-3 py-2 text-sm text-[#F0EFE8] placeholder:text-[#8A877D] outline-none focus:border-[#1D9E75]"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-[#8A877D] mb-1.5 block">Personas (incluido tu)</label>
+                        <input
+                          type="number"
+                          value={splitNumPersonas}
+                          onChange={(e) => {
+                            setSplitNumPersonas(e.target.value);
+                            const n = parseInt(e.target.value) || 2;
+                            setSplitNames(prev => {
+                              const newNames = [...prev];
+                              while (newNames.length < n - 1) newNames.push('');
+                              return newNames.slice(0, n - 1);
+                            });
+                          }}
+                          min="2"
+                          max="20"
+                          className="w-full rounded-lg bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.08)] px-3 py-2 text-sm text-[#F0EFE8] placeholder:text-[#8A877D] outline-none focus:border-[#1D9E75]"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Per person amount preview */}
+                    {splitMonto && splitNumPersonas && (
+                      <p className="text-xs text-[#8A877D] bg-[rgba(239,159,39,0.06)] rounded-lg px-3 py-2">
+                        Cada persona: <span className="text-[#EF9F27] font-medium">
+                          S/ {(parseFloat(splitMonto) / (parseInt(splitNumPersonas) || 2)).toFixed(2)}
+                        </span>
+                      </p>
+                    )}
+
+                    {/* Participant names */}
+                    {Array.from({ length: Math.max(0, (parseInt(splitNumPersonas) || 2) - 1) }, (_, i) => (
+                      <div key={i}>
+                        <label className="text-xs text-[#8A877D] mb-1 block">Persona {i + 1}</label>
+                        <input
+                          type="text"
+                          value={splitNames[i] || ''}
+                          onChange={(e) => {
+                            const newNames = [...splitNames];
+                            newNames[i] = e.target.value;
+                            setSplitNames(newNames);
+                          }}
+                          placeholder={`Nombre persona ${i + 1}`}
+                          className="w-full rounded-lg bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.08)] px-3 py-2 text-sm text-[#F0EFE8] placeholder:text-[#8A877D] outline-none focus:border-[#1D9E75]"
+                        />
+                      </div>
+                    ))}
+
+                    <div className="flex gap-2 pt-1">
+                      <Button
+                        onClick={handleCreateSplit}
+                        className="flex-1 bg-[#EF9F27] text-white hover:bg-[#EF9F27]/90"
+                        disabled={splitMutations.create.isPending}
+                      >
+                        {splitMutations.create.isPending ? 'Creando...' : 'Crear gasto compartido'}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => setShowSplitForm(false)}
+                        className="border-[rgba(255,255,255,0.1)] bg-transparent text-[#C8C6BC]"
+                      >
+                        Cancelar
+                      </Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </motion.div>
+          ) : visibleDebts.length === 0 ? (
             <EmptyState
               key="empty"
               title={
@@ -260,6 +557,67 @@ export default function DeudasPage() {
               }
               showWhatsApp={false}
             />
+          ) : vistaAgrupada && tab !== 'pagadas' ? (
+            /* Grouped view by contraparte */
+            <StaggerContainer key={`${tab}-grouped`} className="space-y-4">
+              {groupedDebts.map((group) => (
+                <StaggerItem key={group.contraparte}>
+                  <div className="glass-card glass-card-glow p-5">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-full bg-[rgba(29,158,117,0.1)] flex items-center justify-center">
+                          <Users className="h-4 w-4 text-[#1D9E75]" />
+                        </div>
+                        <div>
+                          <p className="font-semibold text-sm text-[#F0EFE8]">{group.contraparte}</p>
+                          <p className="text-[10px] text-[#8A877D]">{group.debts.length} deuda{group.debts.length !== 1 ? 's' : ''}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        {group.pen > 0 && (
+                          <p className={`text-sm font-bold tabular-nums ${tab === 'debo' ? 'text-[#D85A30]' : 'text-[#1D9E75]'}`}>
+                            S/ {group.pen.toFixed(2)}
+                          </p>
+                        )}
+                        {group.usd > 0 && (
+                          <p className={`text-sm font-bold tabular-nums ${tab === 'debo' ? 'text-[#D85A30]' : 'text-[#1D9E75]'}`}>
+                            $ {group.usd.toFixed(2)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="space-y-2 pl-10">
+                      {group.debts.map((debt) => {
+                        const badge = getVencimientoBadge(debt);
+                        return (
+                          <div key={debt.id} className="flex items-center justify-between text-xs py-1.5 border-t border-[rgba(255,255,255,0.04)] first:border-0">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-[#8A877D] truncate">{debt.descripcion || 'Sin motivo'}</span>
+                              {badge && (
+                                <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full" style={{ backgroundColor: badge.bgColor, color: badge.color }}>
+                                  {badge.label}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="text-[#C8C6BC] font-medium tabular-nums">
+                                {debt.moneda === 'USD' ? '$' : 'S/'} {Number(debt.monto_pendiente).toFixed(2)}
+                              </span>
+                              <button
+                                onClick={() => { setShowPayForm(debt); setMontoAbono(''); setNotaAbono(''); }}
+                                className="px-2 py-0.5 rounded text-[10px] font-medium bg-[rgba(29,158,117,0.12)] text-[#1D9E75] hover:bg-[rgba(29,158,117,0.2)] transition-colors"
+                              >
+                                Abonar
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </StaggerItem>
+              ))}
+            </StaggerContainer>
           ) : (
             <StaggerContainer key={tab} className="space-y-3">
               {visibleDebts.map((debt) => {
@@ -294,11 +652,22 @@ export default function DeudasPage() {
                             {debt.descripcion && (
                               <p className="text-xs text-[#8A877D] truncate">{debt.descripcion}</p>
                             )}
-                            {debt.fecha_vencimiento && !isPagada && (
-                              <p className="text-xs text-[#EF9F27] mt-0.5">
-                                Vence: {new Date(debt.fecha_vencimiento + 'T12:00:00').toLocaleDateString('es-PE', { day: 'numeric', month: 'short', year: 'numeric' })}
-                              </p>
-                            )}
+                            {debt.fecha_vencimiento && !isPagada && (() => {
+                              const badge = getVencimientoBadge(debt);
+                              return badge ? (
+                                <span
+                                  className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full mt-1"
+                                  style={{ backgroundColor: badge.bgColor, color: badge.color }}
+                                >
+                                  {badge.priority <= 1 ? <AlertTriangle className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
+                                  {badge.label}
+                                </span>
+                              ) : (
+                                <p className="text-xs text-[#8A877D] mt-0.5">
+                                  Vence: {new Date(debt.fecha_vencimiento + 'T12:00:00').toLocaleDateString('es-PE', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                </p>
+                              );
+                            })()}
                           </div>
                         </div>
 
@@ -533,8 +902,33 @@ export default function DeudasPage() {
                     {showPayForm.moneda === 'USD' ? '$' : 'S/'} {Number(showPayForm.monto_pendiente).toFixed(2)}
                   </span>
                 </p>
+                {/* Quick % buttons */}
                 <div>
-                  <label className="text-xs text-[#8A877D] mb-1.5 block">Monto del abono</label>
+                  <label className="text-xs text-[#8A877D] mb-1.5 block">Abono rápido</label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[25, 50, 75, 100].map((pct) => {
+                      const val = (Number(showPayForm.monto_pendiente) * pct / 100);
+                      return (
+                        <button
+                          key={pct}
+                          onClick={() => setMontoAbono(val.toFixed(2))}
+                          className={`py-2 rounded-lg text-xs font-medium transition-all ${
+                            montoAbono === val.toFixed(2)
+                              ? 'bg-[rgba(29,158,117,0.2)] text-[#1D9E75] ring-1 ring-[#1D9E75]/40'
+                              : 'bg-[rgba(255,255,255,0.04)] text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.08)]'
+                          }`}
+                        >
+                          <span className="block text-sm font-bold">{pct}%</span>
+                          <span className="block text-[10px] text-[#8A877D] tabular-nums">
+                            {showPayForm.moneda === 'USD' ? '$' : 'S/'} {val.toFixed(2)}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs text-[#8A877D] mb-1.5 block">Monto personalizado</label>
                   <input
                     type="number"
                     value={montoAbono}
