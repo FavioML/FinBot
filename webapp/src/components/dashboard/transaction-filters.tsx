@@ -52,10 +52,16 @@ export function TransactionFilters({
     // Add/merge user categories (may include custom ones like "Auto", "Viajes")
     for (const cat of userCategorias) {
       if (catMap.has(cat.nombre)) {
-        // Merge subcategories
+        // Merge subcategories — deduplicate case-insensitively, prefer DB version (user's casing)
         const existing = catMap.get(cat.nombre)!;
         for (const sub of cat.subs) {
-          if (!existing.subs.includes(sub)) existing.subs.push(sub);
+          const dupIdx = existing.subs.findIndex(s => s.toLowerCase() === sub.toLowerCase());
+          if (dupIdx === -1) {
+            existing.subs.push(sub);
+          } else {
+            // Prefer DB version (user's capitalized naming) over hardcoded lowercase
+            existing.subs[dupIdx] = sub;
+          }
         }
       } else {
         // Add new user category

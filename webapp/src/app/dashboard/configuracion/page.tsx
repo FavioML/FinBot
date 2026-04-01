@@ -38,7 +38,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useUser } from '@/lib/hooks/use-user';
 import { createClient } from '@/lib/supabase/client';
 import { UserMenu } from '@/components/dashboard/user-menu';
-import { SOCIAL_LINKS } from '@/lib/constants';
+import { SOCIAL_LINKS, getCategoriaEmoji } from '@/lib/constants';
 
 /* ------------------------------------------------------------------ */
 /*  Plan comparison data                                               */
@@ -640,7 +640,7 @@ export default function ConfiguracionPage() {
                   ) : (
                     <>
                       <span className="text-sm font-medium text-[#F0EFE8] flex-1 min-w-0 truncate">
-                        {cat.emoji ? `${cat.emoji} ` : ''}{cat.nombre}
+                        {getCategoriaEmoji(cat.nombre)} {cat.nombre}
                       </span>
                       <span className="text-xs text-[#8A877D] shrink-0">
                         {cat.subcategorias.length > 0 ? `${cat.subcategorias.length} sub` : ''}

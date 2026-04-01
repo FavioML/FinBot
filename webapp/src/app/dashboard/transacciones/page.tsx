@@ -260,9 +260,10 @@ export default function TransaccionesPage() {
       result = result.filter((t) => t.categoria === categoriaFilter);
     }
 
-    // Subcategory filter
+    // Subcategory filter — case-insensitive to handle mixed casing from NLP vs hardcoded lists
     if (subcategoriaFilter !== 'all') {
-      result = result.filter((t) => t.subcategoria === subcategoriaFilter);
+      const filterLower = subcategoriaFilter.toLowerCase();
+      result = result.filter((t) => t.subcategoria?.toLowerCase() === filterLower);
     }
 
     // Payment method filter
