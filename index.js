@@ -2171,7 +2171,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
             const montoMostrar = monedaTxCorr === 'USD'
               ? '$' + parseFloat(txActualizada.monto || 0).toFixed(2) + (txActualizada.monto_pen ? ' (~S/' + parseFloat(txActualizada.monto_pen).toFixed(2) + ')' : '')
               : 'S/ ' + parseFloat(txActualizada.monto_pen || txActualizada.monto || 0).toFixed(2);
-            return 'Listo! Movi *' + (txActualizada.comercio || 'el gasto') + '* (' + montoMostrar + ') a *' + catLibre + (subLibre ? ' > ' + subLibre : '') + '*.\n\n_Aplique el cambio a todos los pagos anteriores de ' + (comercioParaRegla || 'ese comercio') + '._';
+            return 'Listo! Movi *' + (txActualizada.comercio || 'el gasto') + '* (' + montoMostrar + ') a *' + catLibre + (subLibre ? ' > ' + subLibre : '') + '*.\n\n_Aplique el cambio a todos los pagos anteriores de ' + (comercioReal || 'ese comercio') + '._';
           }
           const ultimaTx2 = await obtenerUltimaTransaccion(usuario.id);
           const _ctxCorr = 'El usuario quiere mover un gasto pero no especifico la categoria. Ultimo gasto: ' + (ultimaTx2 ? ultimaTx2.comercio + ' ' + (ultimaTx2.moneda === 'USD' ? '$' : 'S/') + ultimaTx2.monto : 'sin datos') + '. Pregunta a que categoria moverlo. Puede ser una categoria personalizada.';
@@ -2192,7 +2192,8 @@ async function procesarMensajeLibre(msg, usuario, from) {
           for (const corr of correcciones) {
             if (!corr.comercio || !corr.categoria_nueva) continue;
             const catLibre = corr.categoria_nueva.charAt(0).toUpperCase() + corr.categoria_nueva.slice(1);
-            const res = await corregirTransaccionEspecifica(usuario.id, corr.comercio, corr.monto, corr.fecha, catLibre);
+            const _subCorrTmp = corr.subcategoria_nueva ? corr.subcategoria_nueva.charAt(0).toUpperCase() + corr.subcategoria_nueva.slice(1) : null;
+            const res = await corregirTransaccionEspecifica(usuario.id, corr.comercio, corr.monto, corr.fecha, catLibre, _subCorrTmp);
             if (!CATEGORIAS_VALIDAS.has(catLibre) && !CATEGORIA_MAP[catLibre]) {
               crearCategoriaLibreUsuario(usuario.id, catLibre);
             }
@@ -2274,7 +2275,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
           const montoStr = parsed.moneda === 'USD' ? '$' + parseFloat(parsed.monto).toFixed(2) : 'S/' + parseFloat(parsed.monto).toFixed(2);
           let respReg = '✅ ' + montoStr + ' en ' + (esIngreso ? 'Ingresos' : (parsed.categoria || 'Otros') + ' > ' + (parsed.subcategoria || 'sin_categoria')) + ' · ' + formatFecha(parsed.fecha);
           if (!esIngreso && parsed.categoria) {
-            const alerta = await verificarAlertaPresupuesto(usuario.id, parsed.categoria, null);
+            const alerta = await verificarAlertaPresupuesto(usuario.id, parsed.categoria, parsed.subcategoria || null);
             if (alerta) respReg += '\n\n' + alerta;
           }
           // Cada 5 registros, recordar la app
@@ -2704,7 +2705,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
           metas.forEach(m => {
             const pctM = m.monto_objetivo > 0 ? ((m.monto_actual / m.monto_objetivo) * 100).toFixed(0) : 0;
             const barra = barraProgreso(parseFloat(pctM));
-            msgMetas += '*' + m.nombre + '*\n' + barra + ' ' + pctM + '%\nS/ ' + parseFloat(m.monto_actual || 0).toFixed(2) + ' / S/ ' + parseFloat(m.monto_objetivo).toFixed(2);
+            msgMetas += '*' + m.nombre + '*\n' + barra + '\nS/ ' + parseFloat(m.monto_actual || 0).toFixed(2) + ' / S/ ' + parseFloat(m.monto_objetivo).toFixed(2);
             if (m.fecha_limite) msgMetas += ' · Meta: ' + formatFecha(m.fecha_limite);
             msgMetas += '\n\n';
           });
@@ -3176,7 +3177,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       }
 
       case 'compartir_resumen': {
-        return '📤 *Compartir tu resumen:*\n\n1️⃣ Pide tu reporte → _"dame mi reporte"_\n2️⃣ Neto te envía el PDF por WhatsApp\n3️⃣ Reenvíalo a quien quieras\n\nTambién puedes descargar y compartir desde:\n🔗 https://app.neto.pe/dashboard/reportess\n\n_El PDF incluye gráficos, categorías y tu score financiero._';
+        return '📤 *Compartir tu resumen:*\n\n1️⃣ Pide tu reporte → _"dame mi reporte"_\n2️⃣ Neto te envía el PDF por WhatsApp\n3️⃣ Reenvíalo a quien quieras\n\nTambién puedes descargar y compartir desde:\n🔗 https://app.neto.pe/dashboard/reportes\n\n_El PDF incluye gráficos, categorías y tu score financiero._';
       }
 
       case 'hablar_con_humano': {
@@ -3332,7 +3333,7 @@ async function enviarAlertaTransaccion(usuario, tx, resultado) {
   msg += '\uD83D\uDCC5 ' + (resultado.fecha || hoyPeru());
   // Verificar alerta de presupuesto
   if (tipo === 'gasto') {
-    const alertaPres = await verificarAlertaPresupuesto(usuario.id, categoria, null);
+    const alertaPres = await verificarAlertaPresupuesto(usuario.id, categoria, resultado.subcategoria || null);
     if (alertaPres) msg += '\n\n' + alertaPres;
   }
 
@@ -3401,18 +3402,18 @@ async function generarResumenSemanal(usuario) {
   const comercioTop = Object.entries(porComercio).sort((a, b) => b[1] - a[1])[0];
 
   const porDia = {};
-  gastosSemana.forEach(t => { porDia[t.fecha] = (porDia[t.fecha] || 0) + parseFloat(t.monto); });
+  gastosSemana.forEach(t => { porDia[t.fecha] = (porDia[t.fecha] || 0) + parseFloat(t.monto_pen || t.monto); });
   const diaMasCaro = Object.entries(porDia).sort((a, b) => b[1] - a[1])[0];
 
-  const hormiga = gastosSemana.filter(t => parseFloat(t.monto) <= 20);
-  const totalHormiga = hormiga.reduce((s, t) => s + parseFloat(t.monto), 0);
+  const hormiga = gastosSemana.filter(t => parseFloat(t.monto_pen || t.monto) <= 20);
+  const totalHormiga = hormiga.reduce((s, t) => s + parseFloat(t.monto_pen || t.monto), 0);
 
   const diasMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0).getDate();
   const diaActual = hoy.getDate();
   const { data: gastosMesData } = await supabase.from('transacciones').select('monto')
     .eq('usuario_id', usuario.id).eq('tipo', 'gasto')
     .gte('fecha', hoy.getFullYear() + '-' + String(hoy.getMonth() + 1).padStart(2, '0') + '-01');
-  const totalMes = (gastosMesData || []).reduce((s, t) => s + parseFloat(t.monto), 0);
+  const totalMes = (gastosMesData || []).reduce((s, t) => s + parseFloat(t.monto_pen || t.monto), 0);
   const proyeccionMes = diaActual > 0 ? (totalMes / diaActual) * diasMes : 0;
 
   const presupuestos = await obtenerPresupuestosMes(usuario.id);

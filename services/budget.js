@@ -1,30 +1,35 @@
 const { supabase } = require('../lib/db');
 const { barraProgreso } = require('../lib/formatters');
+const { hoyPeru } = require('../lib/dates');
+
+function _mesAnioPeru() {
+  const parts = hoyPeru().split('-');
+  return { mes: parseInt(parts[1], 10), anio: parseInt(parts[0], 10), primero: parts[0] + '-' + parts[1] + '-01' };
+}
 
 async function guardarPresupuesto(usuarioId, categoria, monto) {
-  const hoy = new Date();
+  const { mes, anio } = _mesAnioPeru();
   const { data, error } = await supabase.from('presupuestos').upsert({
     usuario_id: usuarioId, categoria, monto_limite: monto,
-    mes: hoy.getMonth() + 1, anio: hoy.getFullYear()
+    mes, anio
   }, { onConflict: 'usuario_id,categoria,mes,anio' }).select().single();
   if (error) throw error;
   return data;
 }
 
 async function obtenerPresupuestosMes(usuarioId) {
-  const hoy = new Date();
+  const { mes, anio } = _mesAnioPeru();
   const { data } = await supabase.from('presupuestos').select('*').eq('usuario_id', usuarioId)
-    .eq('mes', hoy.getMonth() + 1).eq('anio', hoy.getFullYear());
+    .eq('mes', mes).eq('anio', anio);
   return data || [];
 }
 
 async function verificarAlertaPresupuesto(usuarioId, categoria, subcategoria) {
-  const hoy = new Date();
-  const primero = new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString().split('T')[0];
+  const { mes, anio, primero } = _mesAnioPeru();
   const alertas = [];
   const { data: presCat } = await supabase.from('presupuestos').select('*')
     .eq('usuario_id', usuarioId).eq('categoria', categoria)
-    .is('subcategoria', null).eq('mes', hoy.getMonth()+1).eq('anio', hoy.getFullYear()).single();
+    .is('subcategoria', null).eq('mes', mes).eq('anio', anio).single();
   if (presCat) {
     const { data: txsCat } = await supabase.from('transacciones').select('monto')
       .eq('usuario_id', usuarioId).eq('categoria', categoria).eq('tipo', 'gasto').gte('fecha', primero);
@@ -37,7 +42,7 @@ async function verificarAlertaPresupuesto(usuarioId, categoria, subcategoria) {
   if (subcategoria) {
     const { data: presSub } = await supabase.from('presupuestos').select('*')
       .eq('usuario_id', usuarioId).eq('categoria', categoria).eq('subcategoria', subcategoria)
-      .eq('mes', hoy.getMonth()+1).eq('anio', hoy.getFullYear()).single();
+      .eq('mes', mes).eq('anio', anio).single();
     if (presSub) {
       const { data: txsSub } = await supabase.from('transacciones').select('monto')
         .eq('usuario_id', usuarioId).eq('categoria', categoria).eq('subcategoria', subcategoria).eq('tipo', 'gasto').gte('fecha', primero);
@@ -54,9 +59,10 @@ async function verificarAlertaPresupuesto(usuarioId, categoria, subcategoria) {
 async function formatearEstadoPresupuesto(usuarioId) {
   const presupuestos = await obtenerPresupuestosMes(usuarioId);
   if (!presupuestos.length) return 'No tienes presupuestos configurados.\n\nEj: _"pon limite de 500 en Comida"_';
-  const hoy = new Date();
-  const primero = new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString().split('T')[0];
-  let msg = '*Tu presupuesto de ' + hoy.toLocaleString('es-PE', { month: 'long' }) + '*\n---------------\n\n';
+  const { primero } = _mesAnioPeru();
+  const MESES_LARGO = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  const mesNombre = MESES_LARGO[parseInt(primero.split('-')[1], 10) - 1];
+  let msg = '*Tu presupuesto de ' + mesNombre + '*\n---------------\n\n';
   for (const p of presupuestos) {
     const { data: txs } = await supabase.from('transacciones').select('monto')
       .eq('usuario_id', usuarioId).eq('categoria', p.categoria).eq('tipo', 'gasto').gte('fecha', primero);

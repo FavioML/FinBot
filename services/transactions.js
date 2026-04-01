@@ -88,8 +88,9 @@ async function guardarTransaccion(usuarioId, datos) {
 }
 
 async function obtenerGastosMes(usuarioId, fechaMinima) {
-  const hoy = new Date();
-  const primero = new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString().split('T')[0];
+  const hoyStr = hoyPeru();
+  const parts = hoyStr.split('-');
+  const primero = parts[0] + '-' + parts[1] + '-01';
   const desde = fechaMinima && fechaMinima > primero ? fechaMinima : primero;
   const { data } = await supabase.from('transacciones').select('*').eq('usuario_id', usuarioId)
     .eq('tipo', 'gasto').gte('fecha', desde).order('fecha', { ascending: false });
@@ -97,9 +98,10 @@ async function obtenerGastosMes(usuarioId, fechaMinima) {
 }
 
 async function obtenerGastosSemana(usuarioId, fechaMinima) {
-  const hace7 = new Date();
-  hace7.setDate(hace7.getDate() - 7);
-  const desdeStr = hace7.toISOString().split('T')[0];
+  const hoyStr = hoyPeru();
+  const hoy = new Date(hoyStr + 'T12:00:00');
+  hoy.setDate(hoy.getDate() - 7);
+  const desdeStr = hoy.toISOString().split('T')[0];
   const desde = fechaMinima && fechaMinima > desdeStr ? fechaMinima : desdeStr;
   const { data } = await supabase.from('transacciones').select('*').eq('usuario_id', usuarioId)
     .eq('tipo', 'gasto').gte('fecha', desde).order('fecha', { ascending: false });
@@ -142,7 +144,7 @@ async function recategorizarPorId(transaccionId, categoriaNueva) {
   return { ok: true };
 }
 
-async function corregirTransaccionEspecifica(usuarioId, comercio, monto, fecha, categoriaNueva) {
+async function corregirTransaccionEspecifica(usuarioId, comercio, monto, fecha, categoriaNueva, subcategoriaNueva) {
   let query = supabase.from('transacciones').select('*')
     .eq('usuario_id', usuarioId)
     .ilike('comercio', '%' + comercio + '%')
@@ -159,7 +161,9 @@ async function corregirTransaccionEspecifica(usuarioId, comercio, monto, fecha, 
     });
     if (match) tx = match;
   }
-  const { error } = await supabase.from('transacciones').update({ categoria: categoriaNueva }).eq('id', tx.id);
+  const updates = { categoria: categoriaNueva };
+  if (subcategoriaNueva) updates.subcategoria = subcategoriaNueva;
+  const { error } = await supabase.from('transacciones').update(updates).eq('id', tx.id);
   if (error) return { ok: false, comercio };
   return { ok: true, comercio: tx.comercio || comercio, monto: tx.monto_pen || tx.monto, moneda: tx.moneda || 'PEN' };
 }
@@ -186,14 +190,15 @@ async function buscarReglaComercio(usuarioId, comercio) {
 }
 
 async function retroaplicarRegla(usuarioId, comercio, categoria, subcategoria) {
-  if (!comercio || !categoria) return;
+  if (!comercio || !categoria) return 0;
   try {
     const updates = { categoria };
     if (subcategoria) updates.subcategoria = subcategoria;
-    await supabase.from('transacciones').update(updates)
+    const { count } = await supabase.from('transacciones').update(updates, { count: 'exact' })
       .eq('usuario_id', usuarioId).ilike('comercio', '%' + comercio + '%');
-    log.info({ tag: 'REGLA', comercio, categoria, subcategoria }, 'Regla retroaplicada');
-  } catch(e) { log.error({ tag: 'RETROAPLICAR', err: e.message }, 'Error retroaplicando regla'); }
+    log.info({ tag: 'REGLA', comercio, categoria, subcategoria, count }, 'Regla retroaplicada');
+    return count || 0;
+  } catch(e) { log.error({ tag: 'RETROAPLICAR', err: e.message }, 'Error retroaplicando regla'); return 0; }
 }
 
 // --- Consultas pendientes ---

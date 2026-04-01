@@ -128,6 +128,7 @@ export async function PUT(request: Request) {
       monto,
       monto_pen: montoPen,
       moneda: body.moneda || 'PEN',
+      tipo_cambio: body.moneda === 'USD' ? tc : null,
       comercio: body.comercio || null,
       categoria: body.categoria,
       subcategoria,
@@ -168,7 +169,12 @@ export async function PATCH(request: Request) {
   const cleanUpdates: Record<string, string | null> = {};
   for (const key of allowed) {
     if (key in updates && updates[key] !== undefined) {
-      cleanUpdates[key] = updates[key] || null;
+      // subcategoria debe ser 'sin_categoria' (nunca null) para consistencia con el bot
+      if (key === 'subcategoria') {
+        cleanUpdates[key] = updates[key] || 'sin_categoria';
+      } else {
+        cleanUpdates[key] = updates[key] || null;
+      }
     }
   }
 
