@@ -40,8 +40,8 @@ export async function GET() {
   if (error)
     return NextResponse.json({ error: error.message }, { status: 400 });
 
-  // Get subcategories for each
-  const result = [];
+  // Get subcategories for each category from categorias_usuario
+  const result: { id: string; nombre: string; subcategorias: { id: string | null; nombre: string; from_tx?: boolean }[] }[] = [];
   for (const cat of (cats || [])) {
     const { data: subs } = await serviceClient
       .from('categorias_usuario')
@@ -51,6 +51,35 @@ export async function GET() {
       .eq('activa', true)
       .order('nombre');
     result.push({ ...cat, subcategorias: subs || [] });
+  }
+
+  // Also pull distinct (categoria, subcategoria) pairs from real transactions
+  // so "Gestionar categorías" shows the same subcategories as the transaction filter
+  const { data: txRows } = await serviceClient
+    .from('transacciones')
+    .select('categoria, subcategoria')
+    .eq('usuario_id', userId)
+    .not('subcategoria', 'is', null);
+
+  // Build map: categoria → Set of subcategorías used in transactions
+  const txSubMap = new Map<string, Set<string>>();
+  for (const tx of txRows || []) {
+    if (!tx.subcategoria || tx.subcategoria === 'null' || tx.subcategoria === 'sin_categoria') continue;
+    if (!txSubMap.has(tx.categoria)) txSubMap.set(tx.categoria, new Set());
+    txSubMap.get(tx.categoria)!.add(tx.subcategoria);
+  }
+
+  // Merge tx-derived subs into each category (read-only if not in categorias_usuario)
+  for (const cat of result) {
+    const txSubs = txSubMap.get(cat.nombre) || new Set<string>();
+    const dbSubsLower = new Set(cat.subcategorias.map((s) => s.nombre.toLowerCase()));
+    for (const txSub of txSubs) {
+      if (!dbSubsLower.has(txSub.toLowerCase())) {
+        cat.subcategorias.push({ id: null, nombre: txSub, from_tx: true });
+      }
+    }
+    // Sort alphabetically
+    cat.subcategorias.sort((a, b) => a.nombre.localeCompare(b.nombre));
   }
 
   return NextResponse.json(result);

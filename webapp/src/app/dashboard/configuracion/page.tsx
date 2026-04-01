@@ -104,7 +104,7 @@ export default function ConfiguracionPage() {
     id: string;
     nombre: string;
     emoji?: string;
-    subcategorias: { id: string | null; nombre: string; system?: boolean }[];
+    subcategorias: { id: string | null; nombre: string; system?: boolean; from_tx?: boolean }[];
   }
   const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
@@ -139,19 +139,24 @@ export default function ConfiguracionPage() {
       const res = await fetch('/api/categories');
       if (res.ok) {
         const dbCats: CategoryItem[] = await res.json();
-        // Merge DB categories with hardcoded catalog so both lists are identical
+        // API already merges DB + transactions subcategories.
+        // Also add hardcoded subs that may not appear in either source yet.
         const merged = dbCats.map((cat) => {
           const hardcoded = CATEGORIAS.find((c) => c.nombre.toLowerCase() === cat.nombre.toLowerCase());
-          const dbSubNames = new Set(cat.subcategorias.map((s) => s.nombre.toLowerCase()));
-          const extraSubs = hardcoded
+          const existingLower = new Set(cat.subcategorias.map((s) => s.nombre.toLowerCase()));
+          const hardcodedExtras = hardcoded
             ? hardcoded.subs
-                .filter((s) => !dbSubNames.has(s.toLowerCase()))
+                .filter((s) => !existingLower.has(s.replace(/_/g, ' ').toLowerCase()) && !existingLower.has(s.toLowerCase()))
                 .map((s) => ({ id: null, nombre: capitalizeDisplay(s), system: true }))
             : [];
-          // Normalize DB sub names to capitalizeDisplay
-          const dbSubsNormalized = cat.subcategorias.map((s) => ({ ...s, nombre: capitalizeDisplay(s.nombre) }));
-          const allSubs = [...dbSubsNormalized, ...extraSubs]
-            .sort((a, b) => a.nombre.localeCompare(b.nombre));
+          const allSubs = [
+            ...cat.subcategorias.map((s) => ({
+              ...s,
+              nombre: capitalizeDisplay(s.nombre),
+              system: !s.id || undefined,
+            })),
+            ...hardcodedExtras,
+          ].sort((a, b) => a.nombre.localeCompare(b.nombre));
           return { ...cat, subcategorias: allSubs };
         });
         setCategories(merged);
@@ -722,11 +727,10 @@ export default function ConfiguracionPage() {
                           </div>
                         ) : (
                           <>
-                            <span className={`text-sm flex-1 min-w-0 truncate ${sub.system ? 'text-[#8A877D]' : 'text-[#C8C6BC]'}`}>
+                            <span className={`text-sm flex-1 min-w-0 truncate ${(sub.system || sub.from_tx) ? 'text-[#8A877D]' : 'text-[#C8C6BC]'}`}>
                               {sub.nombre}
-                              {sub.system && <span className="ml-1.5 text-[10px] text-[#8A877D]/60">predeterminada</span>}
                             </span>
-                            {!sub.system && (
+                            {!sub.system && !sub.from_tx && (
                             <div className="flex items-center gap-1 shrink-0">
                               <button
                                 className="p-1 rounded text-[#8A877D] hover:text-[#F0EFE8] hover:bg-[rgba(255,255,255,0.05)]"
