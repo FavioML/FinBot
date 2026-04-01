@@ -1956,7 +1956,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
         if (cuentasGm.length >= 2 && usuario.reporte_gmail_modo === 'separado') {
           const mes2 = datos.mes || mesActual; const anio2 = datos.anio || anioActual;
           const desde2 = anio2+'-'+String(mes2).padStart(2,'0')+'-01';
-          if (fechaMinLgm && desde2 < fechaMinLgm) return '🔒 Tu plan gratuito solo muestra los últimos 3 meses de historial.\n\nEscribe */premium* para desbloquear todo tu historial.';
+          if (fechaMinLgm && desde2 < fechaMinLgm) return '🔒 Tu plan gratuito solo muestra el último mes de historial.\n\nEscribe */premium* para desbloquear todo tu historial.';
           const hasta2 = anio2+'-'+String(mes2).padStart(2,'0')+'-'+String(ultimoDiaMes(anio2,mes2)).padStart(2,'0');
           const { data: txsTodas } = await supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).gte('fecha', desde2).lte('fecha', hasta2);
           // Agrupar por cuenta_email (campo que se agrega en futuros registros)
@@ -1975,7 +1975,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
           txsMes = await obtenerGastosMes(usuario.id, fechaMinLgm);
         } else {
           const desde = anio + '-' + String(mes).padStart(2,'0') + '-01';
-          if (fechaMinLgm && desde < fechaMinLgm) return '🔒 Tu plan gratuito solo muestra los últimos 3 meses de historial.\n\nEscribe */premium* para desbloquear todo tu historial.';
+          if (fechaMinLgm && desde < fechaMinLgm) return '🔒 Tu plan gratuito solo muestra el último mes de historial.\n\nEscribe */premium* para desbloquear todo tu historial.';
           const hasta = anio + '-' + String(mes).padStart(2,'0') + '-' + String(ultimoDiaMes(anio, mes)).padStart(2,'0');
           const { data } = await supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).gte('fecha', desde).lte('fecha', hasta).order('fecha', { ascending: false });
           txsMes = data || [];
@@ -2066,7 +2066,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
         const mes = datos.mes || mesActual;
         const anio = datos.anio || anioActual;
         const desde = anio + '-' + String(mes).padStart(2,'0') + '-01';
-        if (fechaMinLgc && desde < fechaMinLgc) return '🔒 Tu plan gratuito solo muestra los últimos 3 meses de historial.\n\nEscribe */premium* para desbloquear todo tu historial.';
+        if (fechaMinLgc && desde < fechaMinLgc) return '🔒 Tu plan gratuito solo muestra el último mes de historial.\n\nEscribe */premium* para desbloquear todo tu historial.';
         const hasta = anio + '-' + String(mes).padStart(2,'0') + '-' + String(ultimoDiaMes(anio, mes)).padStart(2,'0');
         const { data: txs } = await supabase.from('transacciones').select('*')
           .eq('usuario_id', usuario.id).ilike('categoria', '%' + cat + '%')
