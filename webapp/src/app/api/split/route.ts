@@ -46,7 +46,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json();
-  const { descripcion, monto_total, moneda = 'PEN', categoria, participantes } = body;
+  const { descripcion, monto_total, moneda = 'PEN', categoria, fecha_limite, notas, participantes } = body;
 
   if (!descripcion || !monto_total || !participantes || participantes.length === 0) {
     return NextResponse.json({ error: 'descripcion, monto_total, and participantes required' }, { status: 400 });
@@ -62,6 +62,8 @@ export async function POST(request: Request) {
       moneda,
       fecha: new Date().toISOString().split('T')[0],
       categoria: categoria || null,
+      fecha_limite: fecha_limite || null,
+      notas: notas || null,
     })
     .select()
     .single();
@@ -93,6 +95,64 @@ export async function POST(request: Request) {
     .single();
 
   return NextResponse.json(full);
+}
+
+// PATCH /api/split — edit shared expense details (description, fecha_limite, participant names)
+export async function PATCH(request: Request) {
+  const userId = await getNetoUserId();
+  if (!userId)
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const body = await request.json();
+  const { id, descripcion, fecha_limite, notas, participantes } = body;
+  if (!id)
+    return NextResponse.json({ error: 'Missing id' }, { status: 400 });
+
+  // Verify ownership
+  const { data: gasto } = await serviceClient
+    .from('gastos_compartidos')
+    .select('id')
+    .eq('id', id)
+    .eq('creador_id', userId)
+    .single();
+
+  if (!gasto)
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+
+  // Update expense fields
+  const updateFields: Record<string, unknown> = {};
+  if (descripcion !== undefined) updateFields.descripcion = descripcion;
+  if (fecha_limite !== undefined) updateFields.fecha_limite = fecha_limite || null;
+  if (notas !== undefined) updateFields.notas = notas || null;
+
+  if (Object.keys(updateFields).length > 0) {
+    await serviceClient
+      .from('gastos_compartidos')
+      .update(updateFields)
+      .eq('id', id);
+  }
+
+  // Update participant names if provided
+  if (participantes && Array.isArray(participantes)) {
+    for (const p of participantes) {
+      if (p.id && p.nombre) {
+        await serviceClient
+          .from('gasto_participantes')
+          .update({ nombre: p.nombre })
+          .eq('id', p.id)
+          .eq('gasto_id', id);
+      }
+    }
+  }
+
+  // Return updated expense with participants
+  const { data: updated } = await serviceClient
+    .from('gastos_compartidos')
+    .select('*, gasto_participantes(*)')
+    .eq('id', id)
+    .single();
+
+  return NextResponse.json(updated);
 }
 
 // PUT /api/split — mark participant as paid or update expense

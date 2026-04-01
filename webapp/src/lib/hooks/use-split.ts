@@ -9,6 +9,7 @@ export interface GastoParticipante {
   usuario_id: string | null;
   monto_debe: number;
   pagado: boolean;
+  notas: string | null;
   created_at: string;
 }
 
@@ -19,6 +20,8 @@ export interface GastoCompartido {
   monto_total: number;
   moneda: string;
   fecha: string;
+  fecha_limite: string | null;
+  notas: string | null;
   categoria: string | null;
   estado: 'activo' | 'liquidado';
   created_at: string;
@@ -40,12 +43,32 @@ export function useSplitExpenses(userId?: string) {
 export function useSplitMutations() {
   const queryClient = useQueryClient();
 
+  const update = useMutation({
+    mutationFn: async (data: {
+      id: string;
+      descripcion?: string;
+      fecha_limite?: string | null;
+      notas?: string | null;
+      participantes?: { id: string; nombre: string }[];
+    }) => {
+      const res = await fetch('/api/split', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error('Failed to update split expense');
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['split-expenses'] }),
+  });
+
   const create = useMutation({
     mutationFn: async (data: {
       descripcion: string;
       monto_total: number;
       moneda?: string;
       categoria?: string;
+      fecha_limite?: string;
       participantes: { nombre: string; monto_debe: number }[];
     }) => {
       const res = await fetch('/api/split', {
@@ -81,5 +104,5 @@ export function useSplitMutations() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['split-expenses'] }),
   });
 
-  return { create, markPaid, remove };
+  return { create, update, markPaid, remove };
 }

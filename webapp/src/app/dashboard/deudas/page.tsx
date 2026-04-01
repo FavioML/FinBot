@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Plus, Trash2, Check, TrendingDown, TrendingUp, Coins, Pencil, Users, AlertTriangle, Clock } from 'lucide-react';
+import { Plus, Trash2, Check, TrendingDown, TrendingUp, Coins, Pencil, Users, AlertTriangle, Clock, Edit2, Calendar } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -38,6 +38,13 @@ export default function DeudasPage() {
   const [splitMonto, setSplitMonto] = useState('');
   const [splitNumPersonas, setSplitNumPersonas] = useState('2');
   const [splitNames, setSplitNames] = useState<string[]>([]);
+  const [splitFechaLimite, setSplitFechaLimite] = useState('');
+  // Edit split state
+  const [editSplit, setEditSplit] = useState<GastoCompartido | null>(null);
+  const [editSplitDesc, setEditSplitDesc] = useState('');
+  const [editSplitFecha, setEditSplitFecha] = useState('');
+  const [editSplitNotas, setEditSplitNotas] = useState('');
+  const [editSplitNames, setEditSplitNames] = useState<{ id: string; nombre: string }[]>([]);
   const [showPayForm, setShowPayForm] = useState<Deuda | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [editDebt, setEditDebt] = useState<Deuda | null>(null);
@@ -213,6 +220,7 @@ export default function DeudasPage() {
       await splitMutations.create.mutateAsync({
         descripcion: splitDesc.trim(),
         monto_total: total,
+        fecha_limite: splitFechaLimite || undefined,
         participantes,
       });
       toast.success('Gasto compartido creado');
@@ -221,6 +229,7 @@ export default function DeudasPage() {
       setSplitMonto('');
       setSplitNumPersonas('2');
       setSplitNames([]);
+      setSplitFechaLimite('');
     } catch {
       toast.error('Error al crear gasto compartido');
     }
@@ -241,6 +250,34 @@ export default function DeudasPage() {
       toast.success('Gasto compartido eliminado');
     } catch {
       toast.error('Error al eliminar');
+    }
+  }
+
+  function openEditSplit(gasto: GastoCompartido) {
+    setEditSplit(gasto);
+    setEditSplitDesc(gasto.descripcion);
+    setEditSplitFecha(gasto.fecha_limite || '');
+    setEditSplitNotas(gasto.notas || '');
+    setEditSplitNames((gasto.gasto_participantes || []).map(p => ({ id: p.id, nombre: p.nombre })));
+  }
+
+  async function handleUpdateSplit() {
+    if (!editSplit || !editSplitDesc.trim()) {
+      toast.error('La descripcion no puede estar vacia');
+      return;
+    }
+    try {
+      await splitMutations.update.mutateAsync({
+        id: editSplit.id,
+        descripcion: editSplitDesc.trim(),
+        fecha_limite: editSplitFecha || null,
+        notas: editSplitNotas || null,
+        participantes: editSplitNames,
+      });
+      toast.success('Gasto compartido actualizado');
+      setEditSplit(null);
+    } catch {
+      toast.error('Error al actualizar');
     }
   }
 
@@ -399,17 +436,33 @@ export default function DeudasPage() {
                               {new Date(gasto.fecha + 'T12:00:00').toLocaleDateString('es-PE', { day: 'numeric', month: 'short' })}
                               {' · '}{pagados}/{total} pagados
                             </p>
+                            {gasto.fecha_limite && (
+                              <p className="text-xs text-[#EF9F27] flex items-center gap-1 mt-0.5">
+                                <Calendar className="h-3 w-3" />
+                                Vence: {new Date(gasto.fecha_limite + 'T12:00:00').toLocaleDateString('es-PE', { day: 'numeric', month: 'short' })}
+                              </p>
+                            )}
                           </div>
                           <div className="text-right shrink-0">
                             <p className="text-base font-bold text-[#EF9F27] tabular-nums">
                               {gasto.moneda === 'USD' ? '$' : 'S/'} {Number(gasto.monto_total).toFixed(2)}
                             </p>
-                            <button
-                              onClick={() => handleDeleteSplit(gasto.id)}
-                              className="opacity-0 group-hover:opacity-100 p-1 rounded text-[#8A877D] hover:text-[#D85A30] transition-all mt-1"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
+                            <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-all mt-1">
+                              <button
+                                onClick={() => openEditSplit(gasto)}
+                                className="p-1 rounded text-[#8A877D] hover:text-[#EF9F27]"
+                                title="Editar"
+                              >
+                                <Edit2 className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteSplit(gasto.id)}
+                                className="p-1 rounded text-[#8A877D] hover:text-[#D85A30]"
+                                title="Eliminar"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                           </div>
                         </div>
 
@@ -443,6 +496,81 @@ export default function DeudasPage() {
                   })}
                 </div>
               )}
+
+              {/* Split edit dialog */}
+              <Dialog open={!!editSplit} onOpenChange={(open) => { if (!open) setEditSplit(null); }}>
+                <DialogContent className="bg-[#1A1A18] border-[#2A2A28] text-[#F0EFE8] max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Editar gasto compartido</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs text-[#8A877D] mb-1.5 block">Descripcion</label>
+                      <input
+                        type="text"
+                        value={editSplitDesc}
+                        onChange={(e) => setEditSplitDesc(e.target.value)}
+                        className="w-full rounded-lg bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.08)] px-3 py-2 text-sm text-[#F0EFE8] placeholder:text-[#8A877D] outline-none focus:border-[#EF9F27]"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-[#8A877D] mb-1.5 block">Fecha limite de cobro (opcional)</label>
+                      <input
+                        type="date"
+                        value={editSplitFecha}
+                        onChange={(e) => setEditSplitFecha(e.target.value)}
+                        className="w-full rounded-lg bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.08)] px-3 py-2 text-sm text-[#F0EFE8] outline-none focus:border-[#EF9F27]"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-[#8A877D] mb-1.5 block">Participantes</label>
+                      <div className="space-y-2">
+                        {editSplitNames.map((p, i) => (
+                          <div key={p.id} className="flex items-center gap-2">
+                            <span className="text-xs text-[#8A877D] w-20 shrink-0">Persona {i + 1}</span>
+                            <input
+                              type="text"
+                              value={p.nombre}
+                              onChange={(e) => {
+                                const updated = [...editSplitNames];
+                                updated[i] = { ...updated[i], nombre: e.target.value };
+                                setEditSplitNames(updated);
+                              }}
+                              className="flex-1 rounded-lg bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.08)] px-3 py-1.5 text-sm text-[#F0EFE8] placeholder:text-[#8A877D] outline-none focus:border-[#EF9F27]"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs text-[#8A877D] mb-1.5 block">Notas (opcional)</label>
+                      <input
+                        type="text"
+                        value={editSplitNotas}
+                        onChange={(e) => setEditSplitNotas(e.target.value)}
+                        placeholder="Ej: Cena de cumpleanos"
+                        className="w-full rounded-lg bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.08)] px-3 py-2 text-sm text-[#F0EFE8] placeholder:text-[#8A877D] outline-none focus:border-[#EF9F27]"
+                      />
+                    </div>
+                    <div className="flex gap-2 pt-1">
+                      <Button
+                        onClick={handleUpdateSplit}
+                        className="flex-1 bg-[#EF9F27] text-white hover:bg-[#EF9F27]/90"
+                        disabled={splitMutations.update.isPending}
+                      >
+                        {splitMutations.update.isPending ? 'Guardando...' : 'Guardar cambios'}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => setEditSplit(null)}
+                        className="border-[rgba(255,255,255,0.1)] bg-transparent text-[#C8C6BC]"
+                      >
+                        Cancelar
+                      </Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
 
               {/* Split create dialog */}
               <Dialog open={showSplitForm} onOpenChange={setShowSplitForm}>
@@ -501,6 +629,17 @@ export default function DeudasPage() {
                         </span>
                       </p>
                     )}
+
+                    {/* Fecha limite */}
+                    <div>
+                      <label className="text-xs text-[#8A877D] mb-1.5 block">Fecha limite de cobro (opcional)</label>
+                      <input
+                        type="date"
+                        value={splitFechaLimite}
+                        onChange={(e) => setSplitFechaLimite(e.target.value)}
+                        className="w-full rounded-lg bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.08)] px-3 py-2 text-sm text-[#F0EFE8] outline-none focus:border-[#EF9F27]"
+                      />
+                    </div>
 
                     {/* Participant names */}
                     {Array.from({ length: Math.max(0, (parseInt(splitNumPersonas) || 2) - 1) }, (_, i) => (
