@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Manrope, Inter } from "next/font/google";
 import Script from "next/script";
+import { PostHogProvider } from "@/components/PostHogProvider";
 import "./globals.css";
 
 const GA_ID = "G-6M907HW1YM";
@@ -70,7 +71,9 @@ export default function RootLayout({
           `}
         </Script>
       </head>
-      <body className="noise-bg">{children}</body>
+      <body className="noise-bg">
+        <PostHogProvider>{children}</PostHogProvider>
+      </body>
     </html>
   );
 }
