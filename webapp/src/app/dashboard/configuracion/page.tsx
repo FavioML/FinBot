@@ -737,7 +737,7 @@ export default function ConfiguracionPage() {
                               </button>
                               {deletingCat === sub.id ? (
                                 <div className="flex items-center gap-1">
-                                  <Button size="sm" className="h-6 px-1.5 bg-[#D85A30] text-white hover:bg-[#D85A30]/80 text-xs" onClick={() => handleDeleteCategory(sub.id, true)}>
+                                  <Button size="sm" className="h-6 px-1.5 bg-[#D85A30] text-white hover:bg-[#D85A30]/80 text-xs" onClick={() => handleDeleteCategory(sub.id!, true)}>
                                     Si
                                   </Button>
                                   <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[#8A877D] text-xs" onClick={() => setDeletingCat(null)}>
