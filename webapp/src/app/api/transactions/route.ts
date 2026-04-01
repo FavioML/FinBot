@@ -2,11 +2,25 @@ import { createClient } from '@/lib/supabase/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { getExchangeRate } from '@/lib/exchange-rate';
+import crypto from 'crypto';
 
 const serviceClient = createSupabaseClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
+
+/** Validate monto: must be positive number <= 999999.99 */
+function validarMonto(valor: unknown): number | null {
+  const n = parseFloat(String(valor));
+  if (isNaN(n) || !isFinite(n) || n <= 0 || n > 999999.99) return null;
+  return Math.round(n * 100) / 100;
+}
+
+/** Generate dedup hash matching backend format */
+function generarDedupHash(userId: string, fecha: string, monto: number, comercio: string | null, tipo: string): string {
+  const raw = userId + '|' + fecha + '|' + monto + '|' + (comercio || '') + '|' + tipo;
+  return crypto.createHash('md5').update(raw).digest('hex');
+}
 
 async function getNetoUserId() {
   const supabase = await createClient();
@@ -75,18 +89,24 @@ export async function POST(request: Request) {
 
   const body = await request.json();
 
+  // Validate monto
+  const monto = validarMonto(body.monto);
+  if (monto === null)
+    return NextResponse.json({ error: 'Monto inválido' }, { status: 400 });
+
   // Calculate monto_pen based on moneda — use live exchange rate
-  const monto = parseFloat(body.monto) || 0;
   const tc = body.moneda === 'USD' ? await getExchangeRate() : 1;
-  const montoPen = body.moneda === 'USD' ? monto * tc : monto;
+  const montoPen = body.moneda === 'USD' ? Math.round(monto * tc * 100) / 100 : monto;
 
   const subcategoria = body.subcategoria || 'sin_categoria';
+  const tipo = body.tipo || 'gasto';
+  const dedupHash = generarDedupHash(userId, body.fecha, monto, body.comercio || null, tipo);
 
   const { data, error } = await serviceClient
     .from('transacciones')
     .insert({
       usuario_id: userId,
-      tipo: body.tipo || 'gasto',
+      tipo,
       monto,
       monto_pen: montoPen,
       moneda: body.moneda || 'PEN',
@@ -96,6 +116,7 @@ export async function POST(request: Request) {
       subcategoria,
       fecha: body.fecha,
       metodo_pago: body.metodo_pago || null,
+      dedup_hash: dedupHash,
     })
     .select()
     .single();
@@ -115,9 +136,12 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json();
-  const monto = parseFloat(body.monto) || 0;
+  const monto = validarMonto(body.monto);
+  if (monto === null)
+    return NextResponse.json({ error: 'Monto inválido' }, { status: 400 });
+
   const tc = body.moneda === 'USD' ? await getExchangeRate() : 1;
-  const montoPen = body.moneda === 'USD' ? monto * tc : monto;
+  const montoPen = body.moneda === 'USD' ? Math.round(monto * tc * 100) / 100 : monto;
 
   const subcategoria = body.subcategoria || 'sin_categoria';
 
@@ -160,6 +184,9 @@ export async function PATCH(request: Request) {
 
   if (!ids || !Array.isArray(ids) || ids.length === 0)
     return NextResponse.json({ error: 'IDs requeridos' }, { status: 400 });
+
+  if (ids.length > 200)
+    return NextResponse.json({ error: 'Máximo 200 transacciones por lote' }, { status: 400 });
 
   if (!updates || typeof updates !== 'object')
     return NextResponse.json({ error: 'Campos a actualizar requeridos' }, { status: 400 });

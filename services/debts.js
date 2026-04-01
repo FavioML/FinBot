@@ -1,4 +1,5 @@
 const { supabase } = require('../lib/db');
+const { hoyPeru } = require('../lib/dates');
 
 /**
  * Registra una deuda nueva.
@@ -61,7 +62,7 @@ async function abonarDeuda(usuarioId, contraparte, montoAbono) {
   const { data: abono, error: eAbono } = await supabase.from('deuda_abonos').insert({
     deuda_id: deuda.id,
     monto: montoAbono,
-    fecha: new Date().toISOString().split('T')[0],
+    fecha: hoyPeru(),
   }).select().single();
   if (eAbono) throw eAbono;
 
@@ -111,14 +112,18 @@ async function formatearResumenDeudas(usuarioId) {
   const debo = deudas.filter(d => d.tipo === 'debo');
   const meDeben = deudas.filter(d => d.tipo === 'me_deben');
 
-  const totalDebo = debo.reduce((s, d) => s + parseFloat(d.monto_pendiente), 0);
-  const totalMeDeben = meDeben.reduce((s, d) => s + parseFloat(d.monto_pendiente), 0);
+  const totalDeboPen = debo.filter(d => d.moneda !== 'USD').reduce((s, d) => s + parseFloat(d.monto_pendiente), 0);
+  const totalDeboUsd = debo.filter(d => d.moneda === 'USD').reduce((s, d) => s + parseFloat(d.monto_pendiente), 0);
+  const totalMeDebenPen = meDeben.filter(d => d.moneda !== 'USD').reduce((s, d) => s + parseFloat(d.monto_pendiente), 0);
+  const totalMeDebenUsd = meDeben.filter(d => d.moneda === 'USD').reduce((s, d) => s + parseFloat(d.monto_pendiente), 0);
 
   let msg = '';
 
   if (debo.length > 0) {
     const sym = d => d.moneda === 'USD' ? '$' : 'S/';
-    msg += '📤 *Lo que debes* (Total: S/ ' + totalDebo.toFixed(2) + '):\n\n';
+    let totalDeboStr = 'S/ ' + totalDeboPen.toFixed(2);
+    if (totalDeboUsd > 0) totalDeboStr += (totalDeboPen > 0 ? ' + ' : '') + '$ ' + totalDeboUsd.toFixed(2);
+    msg += '📤 *Lo que debes* (Total: ' + totalDeboStr + '):\n\n';
     for (const d of debo) {
       const pct = Math.round(((parseFloat(d.monto_original) - parseFloat(d.monto_pendiente)) / parseFloat(d.monto_original)) * 100);
       msg += '• *' + d.contraparte + '* → ' + sym(d) + ' ' + parseFloat(d.monto_pendiente).toFixed(2);
@@ -130,7 +135,9 @@ async function formatearResumenDeudas(usuarioId) {
 
   if (meDeben.length > 0) {
     if (msg) msg += '\n';
-    msg += '📥 *Lo que te deben* (Total: S/ ' + totalMeDeben.toFixed(2) + '):\n\n';
+    let totalMeDebenStr = 'S/ ' + totalMeDebenPen.toFixed(2);
+    if (totalMeDebenUsd > 0) totalMeDebenStr += (totalMeDebenPen > 0 ? ' + ' : '') + '$ ' + totalMeDebenUsd.toFixed(2);
+    msg += '📥 *Lo que te deben* (Total: ' + totalMeDebenStr + '):\n\n';
     const sym = d => d.moneda === 'USD' ? '$' : 'S/';
     for (const d of meDeben) {
       msg += '• *' + d.contraparte + '* → ' + sym(d) + ' ' + parseFloat(d.monto_pendiente).toFixed(2);

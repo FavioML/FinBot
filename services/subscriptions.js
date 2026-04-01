@@ -1,5 +1,6 @@
 const { supabase } = require('../lib/db');
 const log = require('../lib/logger');
+const { obtenerTipoCambio } = require('./transactions');
 
 // ═══════════════════════════════════════════════════════════════
 // CATÁLOGO DE SUSCRIPCIONES — Servicios reales usados en Perú
@@ -1267,7 +1268,8 @@ function matchCatalogo(comercio) {
  * @returns {Promise<object>} - { suscripciones_detectadas, total_mensual_pen, total_mensual_usd, resumen }
  */
 async function detectarSuscripciones(usuarioId) {
-  const TC = 3.75; // tipo de cambio aproximado USD/PEN
+  const tcData = await obtenerTipoCambio();
+  const TC = tcData.venta || 3.85;
   const hoy = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
 
   // Traer transacciones de los últimos 3 meses para detectar recurrencia
@@ -1407,7 +1409,7 @@ async function detectarSuscripciones(usuarioId) {
       por_tipo: agruparPorTipo(suscripciones),
       activas: suscripciones.filter(s => s.estado === 'activa').length,
       posibles: suscripciones.filter(s => s.estado === 'posible').length,
-      ahorro_potencial_familiar: calcularAhorroFamiliar(suscripciones),
+      ahorro_potencial_familiar: calcularAhorroFamiliar(suscripciones, TC),
     }
   };
 }
@@ -1433,9 +1435,8 @@ function agruparPorTipo(suscripciones) {
 /**
  * Calcula cuánto ahorraría el usuario si cambia a planes familiares
  */
-function calcularAhorroFamiliar(suscripciones) {
+function calcularAhorroFamiliar(suscripciones, TC = 3.85) {
   let ahorro = 0;
-  const TC = 3.75;
   for (const sub of suscripciones) {
     if (sub.tiene_plan_familiar && sub.precio_familiar && sub.precio_referencia) {
       // El familiar cuesta más, pero si compartes con alguien más, ahorras

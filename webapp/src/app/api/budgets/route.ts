@@ -50,8 +50,8 @@ export async function POST(request: Request) {
       subcategoria: capitalize(body.subcategoria),
       monto_limite: body.monto_limite,
       alerta_porcentaje: body.alerta_porcentaje || 80,
-      mes: new Date().getMonth() + 1,
-      anio: new Date().getFullYear(),
+      mes: parseInt(new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' }).split('-')[1], 10),
+      anio: parseInt(new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' }).split('-')[0], 10),
     })
     .select()
     .single();

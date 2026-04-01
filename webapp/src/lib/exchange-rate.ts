@@ -32,12 +32,14 @@ export async function getExchangeRate(): Promise<number> {
   }
 
   try {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
     let rate = await fetchRateForDate(today);
 
     if (!rate) {
       // dolar.pe may not have today's data before ~9am Lima
-      const yesterday = new Date(Date.now() - 86400_000).toISOString().slice(0, 10);
+      const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
+      d.setDate(d.getDate() - 1);
+      const yesterday = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
       rate = await fetchRateForDate(yesterday);
     }
 

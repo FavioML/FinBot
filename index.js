@@ -1783,9 +1783,9 @@ async function procesarMensajeLibre(msg, usuario, from) {
       }
     }
 
-    const hoy = new Date();
-    const mesActual = hoy.getMonth() + 1;
-    const anioActual = hoy.getFullYear();
+    const hoyParts = hoyPeru().split('-');
+    const mesActual = parseInt(hoyParts[1], 10);
+    const anioActual = parseInt(hoyParts[0], 10);
     const planUsuario = usuario.plan || 'free';
     const mE = ['','Enero','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
     // Cargar NETO system prompt con datos del usuario

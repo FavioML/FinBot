@@ -55,7 +55,7 @@ describe('validarMonto', () => {
   it('acepta montos válidos', () => {
     expect(validarMonto(50)).toBe(50);
     expect(validarMonto('45.50')).toBe(45.5);
-    expect(validarMonto(0)).toBe(0);
+    expect(validarMonto(0)).toBeNull(); // 0 no es un monto válido
     expect(validarMonto('100.999')).toBe(101); // redondeo a 2 decimales
     expect(validarMonto(999999.99)).toBe(999999.99);
   });
