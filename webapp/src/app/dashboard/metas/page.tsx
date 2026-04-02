@@ -185,7 +185,7 @@ export default function MetasPage() {
     setNombre(goal.nombre);
     setMontoObjetivo(String(goal.monto_objetivo));
     setMontoActual(String(goal.monto_actual));
-    setIcono(goal.icono);
+    setIcono(goal.icono || '');
     setFechaLimite(goal.fecha_limite || '');
     setShowForm(true);
   }
