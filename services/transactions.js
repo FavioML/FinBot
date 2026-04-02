@@ -52,6 +52,12 @@ async function guardarTransaccion(usuarioId, datos) {
   const _moneda = datos.moneda || 'PEN';
   let _montoPen = montoValidado; let _tcUsado = null;
   if (_moneda === 'USD') { try { const _tc = await obtenerTipoCambio(); _tcUsado = _tc.venta; _montoPen = validarMonto(montoValidado * _tc.venta) || montoValidado; } catch(e) {} }
+  // Limpiar comercios genéricos del parser (ej: "Gasto pendiente de BCP S/5 del 2026-04-02" → "BCP")
+  if (datos.comercio && /^(gasto|pago|cargo|operaci[oó]n|consumo)\b/i.test(datos.comercio)) {
+    const bancos = ['BCP','BBVA','Interbank','Scotiabank','Yape','Plin','Falabella','Ripley','BanBif','Mibanco'];
+    const found = bancos.find(b => datos.comercio.toUpperCase().includes(b.toUpperCase()));
+    if (found) datos.comercio = found;
+  }
   const fechaTx = datos.fecha || hoyPeru();
   const dedupRaw = usuarioId + '|' + fechaTx + '|' + montoValidado + '|' + (datos.comercio || '') + '|' + (datos.tipo || 'gasto');
   const dedupHash = crypto.createHash('md5').update(dedupRaw).digest('hex');
@@ -245,8 +251,14 @@ async function resolverConsulta(consultaId) {
 
 function necesitaConsulta(tx) {
   if (!tx || tx.tipo !== 'gasto') return false;
-  var genericos = ['yape','plin','transferencia','bcp','bbva','interbank','scotiabank'];
-  const esGenerico = tx.comercio && genericos.indexOf(tx.comercio.toLowerCase()) >= 0;
+  var genericos = ['yape','plin','transferencia','bcp','bbva','interbank','scotiabank','falabella','ripley','banbif','mibanco'];
+  var comercioLower = (tx.comercio || '').toLowerCase();
+  const esGenerico = comercioLower && (
+    genericos.indexOf(comercioLower) >= 0 ||
+    /^(gasto|pago|cargo|operaci[oó]n|consumo)\b/i.test(tx.comercio) ||
+    /\bpendiente\b/i.test(tx.comercio) ||
+    /\bS\/\d|\$\d|\d{4}-\d{2}-\d{2}/i.test(tx.comercio)
+  );
   const esOtros = !tx.categoria || tx.categoria === 'Otro' || tx.categoria === 'Transferencia' || tx.categoria === 'Otros';
   return esGenerico || (esOtros && tx.comercio);
 }

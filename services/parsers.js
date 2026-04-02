@@ -88,6 +88,15 @@ REGLA CRÍTICA DE MONEDA (aplicar SIEMPRE antes de asignar moneda):
 - Tarjeta de crédito BCP/BBVA/Interbank con símbolo "$" → moneda: "USD"
 - NUNCA registres en PEN un gasto que tenga símbolo "$" en el cuerpo del correo
 
+REGLA CRÍTICA DE COMERCIO:
+- "comercio" debe ser SOLO el nombre del establecimiento/empresa/persona (ej: "Plaza Vea", "Netflix", "Rappi")
+- NUNCA incluir montos, fechas, tipo de operación ni frases descriptivas en el campo comercio
+- Si el correo NO tiene un comercio identificable (ej: "operación pendiente", "cargo automático", "pago de servicio" sin nombre):
+  → comercio: nombre del banco (ej: "BCP", "BBVA", "Interbank")
+  → NO poner "Gasto pendiente de BCP S/5 del 2026-04-02" ni frases similares
+- Si el correo dice "consumo en APPARKA PLAZA SAN MIGUE" → comercio: "Apparka Plaza San Miguel"
+- Limpiar nombres: quitar códigos, asteriscos, números de referencia
+
 REGLAS GENERALES:
 - fecha en formato YYYY-MM-DD (año actual 2026)
 - monto siempre número sin símbolos

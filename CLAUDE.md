@@ -12,7 +12,8 @@ NETO es un asistente financiero personal por WhatsApp para el mercado peruano.
 
 ## Arquitectura del backend
 - `index.js` — Express server, routes, middleware (~120 lineas)
-- `handlers/message-processor.js` — NLP classifier + intent dispatch (~340 lineas)
+- `handlers/message-processor.js` — OpenAI Function Calling NLP + intent dispatch (~227 lineas)
+- `handlers/neto-tools.js` — 14 tool definitions + mapToolToIntent (property remapping)
 - `handlers/intent-registry.js` — Auto-loader que registra handlers desde `handlers/intents/`
 - `handlers/intents/` — 12 archivos, 79 intents totales (social, premium, gastos, transacciones, presupuestos, metas, deudas, consultas, reportes, utilidades, analytics, moderacion)
 - `gmail.js` — OAuth2 + parsers de correos bancarios (11 bancos)
@@ -23,8 +24,9 @@ NETO es un asistente financiero personal por WhatsApp para el mercado peruano.
 ### Agregar un nuevo intent
 1. Crear o editar archivo en `handlers/intents/nombre.js`
 2. Exportar `{ intents: ['nombre_intent'], handle: async ({ intencion, msg, datos, usuario, from, ctx }) => string }`
-3. Agregar el intent name al prompt del clasificador GPT en `message-processor.js`
-4. El registry lo carga automaticamente al inicio
+3. Agregar tool definition en `handlers/neto-tools.js` (NETO_TOOLS array + TOOL_INTENT_MAP)
+4. Si las propiedades del tool difieren de lo que espera el handler, agregar remap en PROPERTY_REMAP
+5. El intent-registry lo carga automaticamente al inicio
 
 ## Infraestructura
 - Railway: backend online, 22+ variables configuradas, health endpoint /health
@@ -37,7 +39,7 @@ NETO es un asistente financiero personal por WhatsApp para el mercado peruano.
 ## Funcionalidades principales (19)
 1. Registro WhatsApp (onboarding 4 pasos)
 2. Lectura automatica correos bancarios (11 bancos)
-3. Clasificacion gastos con IA (GPT-4o-mini, 23 intenciones NLP)
+3. NLP inteligente con OpenAI Function Calling (GPT-4o-mini, 14 tools → 79 intents)
 4. Categorias/subcategorias personalizables
 5. Presupuestos por categoria con alertas
 6. Multimoneda USD/PEN (tipo de cambio dolar.pe)
