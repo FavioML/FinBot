@@ -11,7 +11,7 @@ async function checkResumenMensual() {
   const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
   if (horaLima.getDate() !== 1 || horaLima.getHours() !== 9 || horaLima.getMinutes() > 14) return;
   try {
-    const { data: usuarios } = await supabase.from('usuarios').select('*').not('gmail_access_token', 'is', null);
+    const { data: usuarios } = await supabase.from('usuarios').select('*').eq('plan', 'premium').not('gmail_access_token', 'is', null);
     if (!usuarios || usuarios.length === 0) return;
     for (const usuario of usuarios) {
       try {
@@ -26,7 +26,7 @@ async function checkResumenSemanal() {
   const horaLima = new Date(Date.now() - 5 * 60 * 60 * 1000);
   if (horaLima.getUTCDay() !== 1 || horaLima.getUTCHours() !== 8 || horaLima.getUTCMinutes() > 14) return;
   try {
-    const { data: usuarios } = await supabase.from('usuarios').select('*').not('gmail_access_token', 'is', null);
+    const { data: usuarios } = await supabase.from('usuarios').select('*').eq('plan', 'premium').not('gmail_access_token', 'is', null);
     if (!usuarios || usuarios.length === 0) return;
     for (const usuario of usuarios) {
       try {
