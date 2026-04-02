@@ -17,7 +17,7 @@ import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motio
 import { UserMenu } from '@/components/dashboard/user-menu';
 import { useUser } from '@/lib/hooks/use-user';
 import { useDebts, useDebtMutations, groupDebtsByContraparte, type Deuda, type DebtGroup } from '@/lib/hooks/use-debts';
-import { useSplitExpenses, useSplitMutations, type GastoCompartido } from '@/lib/hooks/use-split';
+import { useSplitExpenses, useSplitMutations, type GastoCompartido, type GastoParticipante } from '@/lib/hooks/use-split';
 import { formatCurrency } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -45,6 +45,10 @@ export default function DeudasPage() {
   const [editSplitFecha, setEditSplitFecha] = useState('');
   const [editSplitNotas, setEditSplitNotas] = useState('');
   const [editSplitNames, setEditSplitNames] = useState<{ id: string; nombre: string }[]>([]);
+  // Split abono state
+  const [splitAbonoTarget, setSplitAbonoTarget] = useState<{ gastoId: string; participante: GastoParticipante } | null>(null);
+  const [splitAbonoMonto, setSplitAbonoMonto] = useState('');
+
   const [showPayForm, setShowPayForm] = useState<Deuda | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [editDebt, setEditDebt] = useState<Deuda | null>(null);
@@ -251,6 +255,40 @@ export default function DeudasPage() {
       toast.success(currentPagado ? 'Marcado como pendiente' : 'Marcado como pagado');
     } catch {
       toast.error('Error al actualizar');
+    }
+  }
+
+  async function handleShareSplit(gastoId: string, participanteId: string, existingCode: string | null) {
+    try {
+      if (existingCode) {
+        const baseUrl = window.location.origin;
+        await navigator.clipboard.writeText(`${baseUrl}/join/gasto/${existingCode}`);
+        toast.success('Link copiado al portapapeles');
+        return;
+      }
+      const result = await splitMutations.shareSplit.mutateAsync({ gasto_id: gastoId, participante_id: participanteId });
+      await navigator.clipboard.writeText(result.link);
+      toast.success('Link generado y copiado');
+    } catch {
+      toast.error('Error al generar link');
+    }
+  }
+
+  async function handleSplitAbono() {
+    if (!splitAbonoTarget) return;
+    const monto = parseFloat(splitAbonoMonto);
+    if (!monto || monto <= 0) { toast.error('Monto invalido'); return; }
+    try {
+      await splitMutations.addPayment.mutateAsync({
+        gasto_id: splitAbonoTarget.gastoId,
+        participante_id: splitAbonoTarget.participante.id,
+        monto,
+      });
+      toast.success('Abono registrado');
+      setSplitAbonoTarget(null);
+      setSplitAbonoMonto('');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error al registrar abono');
     }
   }
 
@@ -478,28 +516,71 @@ export default function DeudasPage() {
 
                         {/* Participants */}
                         <div className="mt-3 space-y-1.5">
-                          {parts.map((p) => (
-                            <div key={p.id} className="flex items-center justify-between py-1.5 border-t border-[rgba(255,255,255,0.04)] first:border-0">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <button
-                                  onClick={() => handleTogglePaid(gasto.id, p.id, p.pagado)}
-                                  className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${
-                                    p.pagado
-                                      ? 'bg-[#1D9E75] border-[#1D9E75]'
-                                      : 'border-[rgba(255,255,255,0.15)] hover:border-[#1D9E75]'
-                                  }`}
-                                >
-                                  {p.pagado && <Check className="h-3 w-3 text-white" />}
-                                </button>
-                                <span className={`text-xs ${p.pagado ? 'text-[#8A877D] line-through' : 'text-[#C8C6BC]'}`}>
-                                  {p.nombre}
-                                </span>
+                          {parts.map((p) => {
+                            const montoPagado = Number(p.monto_pagado || 0);
+                            const montoDebe = Number(p.monto_debe);
+                            const pendiente = montoDebe - montoPagado;
+                            const pctPagado = montoDebe > 0 ? Math.min(100, (montoPagado / montoDebe) * 100) : 0;
+                            const sym = gasto.moneda === 'USD' ? '$' : 'S/';
+
+                            return (
+                              <div key={p.id} className="py-1.5 border-t border-[rgba(255,255,255,0.04)] first:border-0">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <button
+                                      onClick={() => {
+                                        if (p.pagado) {
+                                          handleTogglePaid(gasto.id, p.id, true);
+                                        } else {
+                                          setSplitAbonoTarget({ gastoId: gasto.id, participante: p });
+                                          setSplitAbonoMonto(pendiente.toFixed(2));
+                                        }
+                                      }}
+                                      className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${
+                                        p.pagado
+                                          ? 'bg-[#1D9E75] border-[#1D9E75]'
+                                          : 'border-[rgba(255,255,255,0.15)] hover:border-[#1D9E75]'
+                                      }`}
+                                    >
+                                      {p.pagado && <Check className="h-3 w-3 text-white" />}
+                                    </button>
+                                    <div className="min-w-0">
+                                      <span className={`text-xs ${p.pagado ? 'text-[#8A877D] line-through' : 'text-[#C8C6BC]'}`}>
+                                        {p.nombre}
+                                      </span>
+                                      {montoPagado > 0 && !p.pagado && (
+                                        <div className="flex items-center gap-1.5 mt-0.5">
+                                          <div className="w-16 h-1 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
+                                            <div className="h-full rounded-full bg-[#1D9E75]" style={{ width: `${pctPagado}%` }} />
+                                          </div>
+                                          <span className="text-[10px] text-[#8A877D]">
+                                            {sym} {montoPagado.toFixed(2)} de {sym} {montoDebe.toFixed(2)}
+                                          </span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    {!p.pagado && (
+                                      <button
+                                        onClick={() => handleShareSplit(gasto.id, p.id, p.invite_code)}
+                                        className="p-1 rounded transition-colors hover:bg-[rgba(255,255,255,0.04)]"
+                                        title={p.invite_code ? 'Copiar link de cobro' : 'Generar link de cobro'}
+                                      >
+                                        {p.invite_code
+                                          ? <Link2 className="h-3 w-3 text-[#1D9E75]" />
+                                          : <Share2 className="h-3 w-3 text-[#8A877D]" />
+                                        }
+                                      </button>
+                                    )}
+                                    <span className={`text-xs font-medium tabular-nums ${p.pagado ? 'text-[#8A877D]' : 'text-[#EF9F27]'}`}>
+                                      {sym} {montoDebe.toFixed(2)}
+                                    </span>
+                                  </div>
+                                </div>
                               </div>
-                              <span className={`text-xs font-medium tabular-nums ${p.pagado ? 'text-[#8A877D]' : 'text-[#EF9F27]'}`}>
-                                {gasto.moneda === 'USD' ? '$' : 'S/'} {Number(p.monto_debe).toFixed(2)}
-                              </span>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     );
@@ -686,6 +767,53 @@ export default function DeudasPage() {
                       </Button>
                     </div>
                   </div>
+                </DialogContent>
+              </Dialog>
+
+              {/* Split abono dialog */}
+              <Dialog open={!!splitAbonoTarget} onOpenChange={(open) => { if (!open) { setSplitAbonoTarget(null); setSplitAbonoMonto(''); } }}>
+                <DialogContent className="bg-[#1A1A18] border-[#2A2A28] text-[#F0EFE8] max-w-xs">
+                  <DialogHeader>
+                    <DialogTitle>Registrar pago</DialogTitle>
+                  </DialogHeader>
+                  {splitAbonoTarget && (() => {
+                    const p = splitAbonoTarget.participante;
+                    const pendiente = Number(p.monto_debe) - Number(p.monto_pagado || 0);
+                    return (
+                      <div className="space-y-4">
+                        <p className="text-xs text-[#8A877D]">
+                          {p.nombre} — pendiente: <span className="text-[#EF9F27]">S/ {pendiente.toFixed(2)}</span>
+                        </p>
+                        <div>
+                          <label className="text-xs text-[#8A877D] mb-1.5 block">Monto del abono</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={splitAbonoMonto}
+                            onChange={(e) => setSplitAbonoMonto(e.target.value)}
+                            placeholder={pendiente.toFixed(2)}
+                            className="w-full rounded-lg bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.08)] px-3 py-2 text-sm text-[#F0EFE8] placeholder:text-[#8A877D] outline-none focus:border-[#EF9F27]"
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            onClick={handleSplitAbono}
+                            className="flex-1 bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90"
+                            disabled={splitMutations.addPayment.isPending}
+                          >
+                            {splitMutations.addPayment.isPending ? 'Registrando...' : 'Registrar abono'}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            onClick={() => { setSplitAbonoTarget(null); setSplitAbonoMonto(''); }}
+                            className="border-[rgba(255,255,255,0.1)] bg-transparent text-[#C8C6BC]"
+                          >
+                            Cancelar
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </DialogContent>
               </Dialog>
             </motion.div>

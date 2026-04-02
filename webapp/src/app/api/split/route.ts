@@ -35,7 +35,7 @@ export async function GET() {
 
   const { data, error } = await serviceClient
     .from('gastos_compartidos')
-    .select('*, gasto_participantes(*)')
+    .select('*, gasto_participantes(*, gasto_participante_abonos(*))')
     .eq('creador_id', userId)
     .order('created_at', { ascending: false });
 
@@ -103,7 +103,7 @@ export async function POST(request: Request) {
   // Re-fetch with participants
   const { data: full } = await serviceClient
     .from('gastos_compartidos')
-    .select('*, gasto_participantes(*)')
+    .select('*, gasto_participantes(*, gasto_participante_abonos(*))')
     .eq('id', gasto.id)
     .single();
 
@@ -165,7 +165,7 @@ export async function PATCH(request: Request) {
   // Return updated expense with participants
   const { data: updated } = await serviceClient
     .from('gastos_compartidos')
-    .select('*, gasto_participantes(*)')
+    .select('*, gasto_participantes(*, gasto_participante_abonos(*))')
     .eq('id', id)
     .single();
 
@@ -183,7 +183,7 @@ export async function PUT(request: Request) {
   }
 
   const body = await request.json();
-  const { gasto_id, participante_id, pagado } = body;
+  const { gasto_id, participante_id, pagado, action, monto, nota } = body;
 
   if (!gasto_id || !participante_id) {
     return NextResponse.json({ error: 'gasto_id and participante_id required' }, { status: 400 });
@@ -200,15 +200,68 @@ export async function PUT(request: Request) {
   if (!gasto)
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  // Update participant
-  const { error } = await serviceClient
-    .from('gasto_participantes')
-    .update({ pagado: pagado !== false })
-    .eq('id', participante_id)
-    .eq('gasto_id', gasto_id);
+  if (action === 'abonar') {
+    // Partial payment (abono)
+    const montoAbono = parseFloat(monto);
+    if (!montoAbono || montoAbono <= 0 || !isFinite(montoAbono))
+      return NextResponse.json({ error: 'Monto invalido' }, { status: 400 });
 
-  if (error)
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    const { data: part } = await serviceClient
+      .from('gasto_participantes')
+      .select('monto_debe, monto_pagado')
+      .eq('id', participante_id)
+      .eq('gasto_id', gasto_id)
+      .single();
+
+    if (!part)
+      return NextResponse.json({ error: 'Participant not found' }, { status: 404 });
+
+    const pendiente = parseFloat(String(part.monto_debe)) - parseFloat(String(part.monto_pagado || 0));
+    if (montoAbono > pendiente + 0.01)
+      return NextResponse.json({ error: 'Monto excede lo pendiente (S/ ' + pendiente.toFixed(2) + ')' }, { status: 400 });
+
+    // Insert abono record
+    await serviceClient.from('gasto_participante_abonos').insert({
+      participante_id,
+      monto: montoAbono,
+      nota: nota || null,
+    });
+
+    // Update monto_pagado and check if fully paid
+    const nuevoMontoPagado = parseFloat(String(part.monto_pagado || 0)) + montoAbono;
+    const fullyPaid = nuevoMontoPagado >= parseFloat(String(part.monto_debe)) - 0.01;
+
+    await serviceClient
+      .from('gasto_participantes')
+      .update({ monto_pagado: nuevoMontoPagado, pagado: fullyPaid })
+      .eq('id', participante_id);
+  } else {
+    // Toggle paid (existing behavior)
+    const newPagado = pagado !== false;
+    const updateFields: Record<string, unknown> = { pagado: newPagado };
+
+    // When marking fully paid via toggle, set monto_pagado = monto_debe
+    if (newPagado) {
+      const { data: part } = await serviceClient
+        .from('gasto_participantes')
+        .select('monto_debe')
+        .eq('id', participante_id)
+        .eq('gasto_id', gasto_id)
+        .single();
+      if (part) updateFields.monto_pagado = part.monto_debe;
+    } else {
+      updateFields.monto_pagado = 0;
+    }
+
+    const { error } = await serviceClient
+      .from('gasto_participantes')
+      .update(updateFields)
+      .eq('id', participante_id)
+      .eq('gasto_id', gasto_id);
+
+    if (error)
+      return NextResponse.json({ error: error.message }, { status: 400 });
+  }
 
   // Check if all participants paid — if so, mark expense as liquidado
   const { data: allParts } = await serviceClient
@@ -221,6 +274,11 @@ export async function PUT(request: Request) {
     await serviceClient
       .from('gastos_compartidos')
       .update({ estado: 'liquidado' })
+      .eq('id', gasto_id);
+  } else {
+    await serviceClient
+      .from('gastos_compartidos')
+      .update({ estado: 'activo' })
       .eq('id', gasto_id);
   }
 

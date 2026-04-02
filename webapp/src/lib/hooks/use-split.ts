@@ -2,15 +2,26 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
+export interface GastoParticipanteAbono {
+  id: string;
+  participante_id: string;
+  monto: number;
+  nota: string | null;
+  created_at: string;
+}
+
 export interface GastoParticipante {
   id: string;
   gasto_id: string;
   nombre: string;
   usuario_id: string | null;
   monto_debe: number;
+  monto_pagado: number;
   pagado: boolean;
+  invite_code: string | null;
   notas: string | null;
   created_at: string;
+  gasto_participante_abonos?: GastoParticipanteAbono[];
 }
 
 export interface GastoCompartido {
@@ -104,5 +115,34 @@ export function useSplitMutations() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['split-expenses'] }),
   });
 
-  return { create, update, markPaid, remove };
+  const addPayment = useMutation({
+    mutationFn: async (data: { gasto_id: string; participante_id: string; monto: number; nota?: string }) => {
+      const res = await fetch('/api/split', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...data, action: 'abonar' }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Failed' }));
+        throw new Error(err.error || 'Failed to add payment');
+      }
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['split-expenses'] }),
+  });
+
+  const shareSplit = useMutation({
+    mutationFn: async (data: { gasto_id: string; participante_id: string }) => {
+      const res = await fetch('/api/split/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error('Failed to generate invite');
+      return res.json() as Promise<{ invite_code: string; link: string }>;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['split-expenses'] }),
+  });
+
+  return { create, update, markPaid, addPayment, shareSplit, remove };
 }
