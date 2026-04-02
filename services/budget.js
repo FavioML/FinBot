@@ -12,7 +12,7 @@ async function guardarPresupuesto(usuarioId, categoria, monto) {
   const { data, error } = await supabase.from('presupuestos').upsert({
     usuario_id: usuarioId, categoria, monto_limite: monto,
     mes, anio
-  }, { onConflict: 'usuario_id,categoria,mes,anio' }).select().single();
+  }, { onConflict: 'usuario_id,categoria,subcategoria,mes,anio' }).select().single();
   if (error) throw error;
   return data;
 }
