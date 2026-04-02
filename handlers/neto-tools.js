@@ -322,15 +322,15 @@ const NETO_TOOLS = [
     function: {
       name: "manage_goals",
       description:
-        "Gestiona metas de ahorro. Usa cuando el usuario quiere ver, crear, editar, eliminar, abonar a una meta o compartir su progreso.",
+        "Gestiona planes de ahorro (metas). Usa cuando el usuario quiere ver, crear, editar, eliminar, abonar a un plan, compartir progreso, ver viabilidad, abandonar un plan o pedir sugerencias de recorte.",
       parameters: {
         type: "object",
         properties: {
           action: {
             type: "string",
-            enum: ["view", "create", "edit", "delete", "deposit", "share"],
+            enum: ["view", "create", "edit", "delete", "deposit", "share", "viability", "abandon", "suggest_cuts"],
             description:
-              "Accion: view=ver metas, create=crear meta, edit=editar meta, delete=eliminar meta, deposit=abonar a meta, share=compartir progreso",
+              "Accion: view=ver planes, create=crear plan, edit=editar, delete=eliminar, deposit=abonar, share=compartir, viability=analisis viabilidad, abandon=abandonar plan, suggest_cuts=sugerir recortes de gasto",
           },
           nombre: {
             type: "string",
@@ -653,6 +653,116 @@ const NETO_TOOLS = [
       },
     },
   },
+
+  // ─── 15. Neto Score ──────────────────────────────────────────────────
+  {
+    type: "function",
+    function: {
+      name: "neto_score",
+      description:
+        "Consulta el Neto Score (salud financiera 0-100). Usa cuando el usuario pregunta por su score, puntaje, nota financiera, salud financiera, o quiere tips para mejorar.",
+      parameters: {
+        type: "object",
+        properties: {
+          action: {
+            type: "string",
+            enum: ["view", "tips", "history"],
+            description:
+              "Accion: view=ver score actual, tips=consejos para mejorar, history=evolucion del score",
+          },
+        },
+        required: ["action"],
+        additionalProperties: false,
+      },
+    },
+  },
+
+  // ─── 16. Spending Alerts (Detector de Fugas) ─────────────────────────
+  {
+    type: "function",
+    function: {
+      name: "spending_alerts",
+      description:
+        "Detector de fugas y alertas de gasto. Usa cuando el usuario pregunta por fugas, alertas de gasto, donde se le va la plata, patrones de gasto, o quiere poner un limite a una categoria.",
+      parameters: {
+        type: "object",
+        properties: {
+          action: {
+            type: "string",
+            enum: ["view", "set_limit"],
+            description:
+              "Accion: view=ver fugas detectadas, set_limit=poner limite de gasto a una categoria",
+          },
+          categoria: {
+            type: "string",
+            description: "Categoria a limitar (para set_limit)",
+          },
+          monto_limite: {
+            type: "number",
+            description: "Monto limite mensual (para set_limit)",
+          },
+        },
+        required: ["action"],
+        additionalProperties: false,
+      },
+    },
+  },
+
+  // ─── 17. Shared Finances (Finanzas Compartidas) ───────────────────────
+  {
+    type: "function",
+    function: {
+      name: "shared_finances",
+      description:
+        "Gestiona finanzas compartidas (espacios para pareja, roommates, amigos). Usa cuando el usuario quiere crear un espacio compartido, registrar un gasto compartido, ver el balance del espacio, liquidar cuentas, invitar a alguien o unirse a un espacio.",
+      parameters: {
+        type: "object",
+        properties: {
+          action: {
+            type: "string",
+            enum: ["create_space", "view_spaces", "register_expense", "view_balance", "settle", "invite", "join"],
+            description:
+              "Accion: create_space=crear espacio, view_spaces=ver mis espacios, register_expense=registrar gasto compartido, view_balance=ver balance y deudas, settle=liquidar/pagar deuda, invite=invitar a alguien, join=unirse a un espacio",
+          },
+          nombre: {
+            type: "string",
+            description: "Nombre del espacio (para create_space)",
+          },
+          tipo: {
+            type: "string",
+            enum: ["pareja", "roommates", "custom"],
+            description: "Tipo de espacio (para create_space)",
+          },
+          nombre_espacio: {
+            type: "string",
+            description: "Nombre del espacio existente (para register_expense, view_balance, settle, invite)",
+          },
+          monto: {
+            type: "number",
+            description: "Monto del gasto compartido o pago (para register_expense, settle)",
+          },
+          descripcion: {
+            type: "string",
+            description: "Descripcion del gasto (para register_expense)",
+          },
+          categoria: {
+            type: "string",
+            description: "Categoria del gasto (para register_expense)",
+          },
+          contraparte: {
+            type: "string",
+            description: "Nombre de la persona a quien pagas (para settle)",
+          },
+          codigo: {
+            type: "string",
+            description: "Codigo de invitacion (para join)",
+          },
+        },
+        required: ["action"],
+        additionalProperties: false,
+      },
+    },
+  },
 ];
 
 // ─── Intent Mapping ────────────────────────────────────────────────────────
@@ -734,6 +844,9 @@ const TOOL_INTENT_MAP = {
     delete: "eliminar_meta",
     deposit: "abonar_meta",
     share: "compartir_meta",
+    viability: "viabilidad_plan",
+    abandon: "abandonar_plan",
+    suggest_cuts: "sugerir_recortes",
   },
 
   // manage_debts
@@ -788,6 +901,30 @@ const TOOL_INTENT_MAP = {
 
   // payment_reminder
   payment_reminder: "recordatorio_pago",
+
+  // neto_score
+  neto_score: {
+    view: "ver_neto_score",
+    tips: "tips_neto_score",
+    history: "historial_neto_score",
+  },
+
+  // spending_alerts
+  spending_alerts: {
+    view: "ver_fugas",
+    set_limit: "poner_limite_gasto",
+  },
+
+  // shared_finances
+  shared_finances: {
+    create_space: "crear_espacio",
+    view_spaces: "ver_espacios",
+    register_expense: "registrar_gasto_espacio",
+    view_balance: "ver_balance_espacio",
+    settle: "liquidar_espacio",
+    invite: "invitar_espacio",
+    join: "unirse_espacio",
+  },
 };
 
 /**

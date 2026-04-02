@@ -8,14 +8,18 @@ export interface MetaAhorro {
   nombre: string;
   monto_objetivo: number;
   monto_actual: number;
-  icono: string;
+  icono: string | null;
   fecha_limite: string | null;
   completada: boolean;
   colaborativa?: boolean;
   invite_code?: string | null;
   max_participantes?: number;
   created_at: string;
-  updated_at: string;
+  updated_at: string | null;
+  // v2 — Planes de Ahorro
+  monthly_quota: number | null;
+  status: 'active' | 'completed' | 'abandoned';
+  space_id: string | null;
   meta_aportes?: MetaAporte[];
 }
 
@@ -209,4 +213,18 @@ export function useGoalMutations() {
   });
 
   return { create, update, remove, contribute, removeContribution, generateInvite, joinGoal, disableCollab };
+}
+
+export function useAbandonPlan() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (metaId: string) => {
+      const res = await fetch(`/api/goals/${metaId}/abandon`, { method: 'POST' });
+      if (!res.ok) throw new Error('Failed to abandon plan');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['goals'] });
+    },
+  });
 }

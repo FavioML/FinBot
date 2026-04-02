@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import { toast } from 'sonner';
-import { Plus, Flag, Trash2, Edit2, Check, X, Trophy, TrendingUp, Flame, Award, ArrowDown, Users, Link2, Copy, UserX, ChevronDown, ChevronUp, Phone } from 'lucide-react';
+import { Plus, Flag, Trash2, Edit2, Check, X, Trophy, TrendingUp, Flame, Award, ArrowDown, Users, Link2, Copy, UserX, ChevronDown, ChevronUp, Phone, Calendar, XCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -19,7 +19,7 @@ import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motio
 import { UserMenu } from '@/components/dashboard/user-menu';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
-import { useGoals, useGoalMutations, useGoalContributions, useGoalParticipants, useAchievements, type MetaAhorro, type MetaAporte, type MetaParticipante } from '@/lib/hooks/use-goals';
+import { useGoals, useGoalMutations, useGoalContributions, useGoalParticipants, useAchievements, useAbandonPlan, type MetaAhorro, type MetaAporte, type MetaParticipante } from '@/lib/hooks/use-goals';
 import { formatCurrency } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -137,6 +137,7 @@ export default function MetasPage() {
   const { data: allTransactions = [] } = useTransactions({ usuarioId: user?.id });
   const { data: achievements = [] } = useAchievements(user?.id);
   const { create, update, remove, contribute, generateInvite, disableCollab } = useGoalMutations();
+  const abandonPlan = useAbandonPlan();
 
   const [showForm, setShowForm] = useState(false);
   const [editGoal, setEditGoal] = useState<MetaAhorro | null>(null);
@@ -315,8 +316,9 @@ export default function MetasPage() {
   }
 
   const isPremium = user?.plan === 'premium';
-  const activeGoals = goals.filter((g) => !g.completada);
-  const completedGoals = goals.filter((g) => g.completada);
+  const activeGoals = goals.filter((g) => (g.status === 'active' || (!g.status && !g.completada)));
+  const completedGoals = goals.filter((g) => g.status === 'completed' || (!g.status && g.completada));
+  const abandonedGoals = goals.filter((g) => g.status === 'abandoned');
   const goalsLimitReached = hasReachedLimit(user?.plan, 'goals', activeGoals.length);
   const totalTarget = activeGoals.reduce((s, g) => s + Number(g.monto_objetivo), 0);
   const totalSaved = activeGoals.reduce((s, g) => s + Number(g.monto_actual), 0);
@@ -327,8 +329,8 @@ export default function MetasPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[#F0EFE8]">Metas de ahorro</h1>
-          <p className="text-sm text-[#8A877D] mt-1">Define objetivos y mide tu progreso</p>
+          <h1 className="text-2xl font-bold text-[#F0EFE8]">Planes de ahorro</h1>
+          <p className="text-sm text-[#8A877D] mt-1">Planifica tu ahorro y Neto te guía para lograrlo</p>
         </div>
         <div className="flex items-center gap-3">
           {goalsLimitReached && !isPremium && (
@@ -340,7 +342,7 @@ export default function MetasPage() {
             disabled={goalsLimitReached && !isPremium}
           >
             <Plus className="h-4 w-4" />
-            Nueva meta
+            Nuevo plan
           </Button>
           <UserMenu />
         </div>
@@ -350,7 +352,7 @@ export default function MetasPage() {
       {activeGoals.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="glass-card glass-card-glow p-4 text-center">
-            <p className="text-[10px] text-[#8A877D] uppercase tracking-wider mb-1">Metas activas</p>
+            <p className="text-[10px] text-[#8A877D] uppercase tracking-wider mb-1">Planes activos</p>
             <p className="text-2xl font-bold text-[#F0EFE8]">{activeGoals.length}</p>
           </div>
           <div className="glass-card glass-card-glow p-4 text-center">
@@ -367,8 +369,8 @@ export default function MetasPage() {
       {/* Goals grid */}
       {goals.length === 0 ? (
         <EmptyState
-          title="Sin metas de ahorro"
-          description="Crea tu primera meta para empezar a ahorrar con proposito. Por ejemplo: viaje, fondo de emergencia, o una compra especial."
+          title="Aún no tienes planes de ahorro"
+          description="Crea uno desde WhatsApp: 'quiero ahorrar S/5000 para julio'"
           showWhatsApp={false}
         />
       ) : (
@@ -391,6 +393,12 @@ export default function MetasPage() {
                       {pct >= 90 && pct < 100 && (
                         <Trophy className="h-3.5 w-3.5 text-[#EF9F27] animate-pulse" />
                       )}
+                      {goal.status === 'completed' && (
+                        <span className="px-1.5 py-0.5 rounded-full bg-[rgba(29,158,117,0.15)] text-[10px] text-[#1D9E75] font-medium">Completado</span>
+                      )}
+                      {goal.status === 'abandoned' && (
+                        <span className="px-1.5 py-0.5 rounded-full bg-[rgba(255,255,255,0.06)] text-[10px] text-[#8A877D] font-medium">Abandonado</span>
+                      )}
                     </div>
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button onClick={() => openContribute(goal)} className="p-1 rounded text-[#1D9E75] hover:text-[#1D9E75]/80" title="Aportar">
@@ -405,8 +413,25 @@ export default function MetasPage() {
                       <button onClick={() => setDeleteId(goal.id)} className="p-1 rounded text-[#8A877D] hover:text-[#D85A30]">
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
+                      {goal.status === 'active' && !goal.completada && (
+                        <button
+                          onClick={() => abandonPlan.mutate(goal.id)}
+                          className="p-1 rounded text-[#8A877D] hover:text-[#D85A30]"
+                          title="Abandonar plan"
+                        >
+                          <XCircle className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
+
+                  {/* Monthly quota */}
+                  {goal.monthly_quota && goal.status === 'active' && (
+                    <div className="flex items-center gap-1 text-xs text-[#8A877D]">
+                      <Calendar className="h-3.5 w-3.5" />
+                      <span>Cuota: S/ {Number(goal.monthly_quota).toFixed(0)}/mes</span>
+                    </div>
+                  )}
 
                   {/* Collaborative badge + participants */}
                   {goal.colaborativa && (
@@ -519,7 +544,7 @@ export default function MetasPage() {
         <div className="space-y-3">
           <h2 className="text-sm font-medium text-[#8A877D] flex items-center gap-2">
             <Trophy className="h-4 w-4 text-[#EF9F27]" />
-            Metas completadas ({completedGoals.length})
+            Planes completados ({completedGoals.length})
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {completedGoals.map((goal) => (
@@ -539,6 +564,32 @@ export default function MetasPage() {
                   </div>
                 </div>
                 <p className="text-xs text-[#1D9E75] mt-1">{formatCurrency(Number(goal.monto_objetivo))} logrados</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Abandoned plans */}
+      {abandonedGoals.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="text-sm font-medium text-[#8A877D] flex items-center gap-2">
+            <XCircle className="h-4 w-4 text-[#8A877D]" />
+            Planes abandonados ({abandonedGoals.length})
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {abandonedGoals.map((goal) => (
+              <div key={goal.id} className="glass-card p-4 opacity-50 group">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span>{goal.icono}</span>
+                    <span className="text-sm text-[#8A877D] line-through">{goal.nombre}</span>
+                  </div>
+                  <button onClick={() => setDeleteId(goal.id)} className="p-1 rounded text-[#8A877D] hover:text-[#D85A30] opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                <p className="text-xs text-[#8A877D] mt-1">{formatCurrency(Number(goal.monto_actual))} ahorrados</p>
               </div>
             ))}
           </div>
@@ -570,7 +621,7 @@ export default function MetasPage() {
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent className="bg-[#1A1A18] border-[#2A2A28] text-[#F0EFE8] max-w-md">
           <DialogHeader>
-            <DialogTitle>{editGoal ? 'Editar meta' : 'Nueva meta de ahorro'}</DialogTitle>
+            <DialogTitle>{editGoal ? 'Editar plan' : 'Nuevo plan de ahorro'}</DialogTitle>
           </DialogHeader>
           <div className="glass-card-depth space-y-4">
             {/* Icon picker */}

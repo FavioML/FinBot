@@ -10,6 +10,11 @@ const {
   checkAlertasProactivas,
   checkRecordatorioOnboarding,
   checkRecordatorioDeudas,
+  checkCalcularNetoScore,
+  checkNotificacionScore,
+  checkDetectorFugas,
+  checkCheckInPlanes,
+  checkRecordatorioEspacios,
 } = require('./checks');
 
 function startCronJobs() {
@@ -34,6 +39,16 @@ function startCronJobs() {
     log.info({ tag: 'ONBOARDING' }, 'Recordatorio onboarding activo (3h después de registro, 9am-9pm Lima)');
     setInterval(checkRecordatorioDeudas, 15 * 60 * 1000);
     log.info({ tag: 'DEUDAS' }, 'Recordatorios de deudas activos (diario 9am Lima)');
+    setInterval(checkCalcularNetoScore, 15 * 60 * 1000);
+    log.info({ tag: 'SCORE' }, 'Cálculo diario Neto Score activo (6am Lima)');
+    setInterval(checkNotificacionScore, 15 * 60 * 1000);
+    log.info({ tag: 'SCORE' }, 'Notificación semanal Score activa (domingos 10am Lima)');
+    setInterval(checkDetectorFugas, 15 * 60 * 1000);
+    log.info({ tag: 'FUGAS' }, 'Detector de fugas activo (Pro: miércoles+15, Free: 1ro mes, 11am Lima)');
+    setInterval(checkCheckInPlanes, 15 * 60 * 1000);
+    log.info({ tag: 'PLANES' }, 'Check-in planes de ahorro activo (Pro: 1ro y 15, 11am Lima)');
+    setInterval(checkRecordatorioEspacios, 15 * 60 * 1000);
+    log.info({ tag: 'ESPACIOS' }, 'Recordatorio espacios compartidos activo (viernes 6pm Lima)');
     setTimeout(runBackup, 60000);
     setInterval(runBackup, 7 * 24 * 60 * 60 * 1000);
     log.info({ tag: 'BACKUP' }, 'Backup semanal activo');

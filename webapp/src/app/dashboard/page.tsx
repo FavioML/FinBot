@@ -4,7 +4,7 @@ import { useMemo, useState, useCallback, lazy, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { Receipt, CreditCard, Pencil, ChevronDown, Target, Wallet, Award } from 'lucide-react';
+import { Receipt, CreditCard, Pencil, ChevronDown, Target, Wallet, Award, Lock, AlertTriangle, Users } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -28,6 +28,7 @@ import { InsightCard, generateInsight } from '@/components/dashboard/insight-car
 import { CategoryDonut } from '@/components/charts/category-donut';
 import { TrendLine } from '@/components/charts/trend-line';
 import { ScoreTrend } from '@/components/charts/score-trend';
+import { ScoreGauge } from '@/components/charts/score-gauge';
 import { SpendingProjection } from '@/components/dashboard/spending-projection';
 import { ExchangeRateWidget } from '@/components/dashboard/exchange-rate-widget';
 import { QuickActions } from '@/components/dashboard/quick-actions';
@@ -43,10 +44,13 @@ import { TransactionForm } from '@/components/dashboard/transaction-form';
 import { GlobalSearch } from '@/components/dashboard/global-search';
 import { UserMenu } from '@/components/dashboard/user-menu';
 import { useUser } from '@/lib/hooks/use-user';
+import { useNetoScore } from '@/lib/hooks/use-neto-score';
+import { useSpendingAlerts } from '@/lib/hooks/use-spending-alerts';
 import { useTransactions } from '@/lib/hooks/use-transactions';
 import { useBudgets } from '@/lib/hooks/use-budgets';
 import { useGoals, useAchievements } from '@/lib/hooks/use-goals';
 import { useDebts } from '@/lib/hooks/use-debts';
+import { useSpaces } from '@/lib/hooks/use-shared-spaces';
 import { FadeIn } from '@/components/shared/motion-wrapper';
 import { formatCurrency, formatFecha, calcularScoreFinanciero, getScoreColor, getScoreLabel } from '@/lib/utils';
 import { getCategoriaEmoji, MESES, SOCIAL_LINKS } from '@/lib/constants';
@@ -89,7 +93,10 @@ export default function DashboardPage() {
   // Load goals, debts and achievements for overview widgets
   const { data: goals = [] } = useGoals(user?.id);
   const { data: allDebts = [] } = useDebts(user?.id);
+  const { data: spacesData } = useSpaces();
   const { data: achievements = [] } = useAchievements(user?.id);
+  const { data: netoScore } = useNetoScore();
+  const { data: alertsData } = useSpendingAlerts(10);
 
   // Compute available years from transaction data
   const availableYears = useMemo(() => {
@@ -430,6 +437,77 @@ export default function DashboardPage() {
             <KPICards data={kpiData} sparklines={sparklines} onScoreClick={() => setShowScoreDialog(true)} />
           </FadeIn>
 
+          {/* Neto Score widget */}
+          {netoScore?.score != null && (
+            <FadeIn delay={0.10}>
+              <div className="glass-card p-6">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-base font-semibold text-[#F0EFE8]">Tu Neto Score</h3>
+                  <Link href="/dashboard/score" className="text-[#1D9E75] text-sm hover:underline">
+                    Ver detalle →
+                  </Link>
+                </div>
+                <div className="flex items-center justify-center">
+                  <ScoreGauge score={netoScore.score} size="sm" />
+                </div>
+                {user?.plan !== 'premium' && (
+                  <p className="text-[#8A877D] text-xs text-center mt-1 flex items-center justify-center gap-1">
+                    <Lock className="w-3 h-3" />
+                    Pasa a Pro para ver el desglose completo
+                  </p>
+                )}
+              </div>
+            </FadeIn>
+          )}
+
+          {/* Alerts widget */}
+          {(alertsData?.alerts.length ?? 0) > 0 && (() => {
+            const twoWeeksAgo = new Date();
+            twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+            const recentAlerts = alertsData!.alerts.filter(
+              (a) => new Date(a.created_at) >= twoWeeksAgo
+            );
+            if (recentAlerts.length === 0) return null;
+            return (
+              <FadeIn delay={0.11}>
+                <div className="glass-card p-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-base font-semibold text-[#F0EFE8] flex items-center gap-2">
+                      <AlertTriangle className="w-5 h-5 text-yellow-500" />
+                      Fugas detectadas
+                    </h3>
+                    <Link href="/dashboard/alertas" className="text-[#1D9E75] text-sm hover:underline">
+                      Ver todas →
+                    </Link>
+                  </div>
+                  <p className="text-[#8A877D] text-sm mt-1">
+                    {recentAlerts.length} alerta{recentAlerts.length > 1 ? 's' : ''} este mes
+                  </p>
+                </div>
+              </FadeIn>
+            );
+          })()}
+
+          {/* Espacios widget */}
+          {(spacesData?.spaces.length ?? 0) > 0 && (
+            <FadeIn delay={0.115}>
+              <div className="glass-card p-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base font-semibold text-[#F0EFE8] flex items-center gap-2">
+                    <Users className="w-5 h-5 text-blue-400" />
+                    Espacios compartidos
+                  </h3>
+                  <Link href="/dashboard/espacios" className="text-[#1D9E75] text-sm hover:underline">
+                    Ver todos →
+                  </Link>
+                </div>
+                <p className="text-[#8A877D] text-sm mt-1">
+                  {spacesData!.spaces.length} espacio{spacesData!.spaces.length > 1 ? 's' : ''} activo{spacesData!.spaces.length > 1 ? 's' : ''}
+                </p>
+              </div>
+            </FadeIn>
+          )}
+
           {/* Projection + Today spending + Exchange rate row */}
           {viewMode === 'mensual' && (
             <FadeIn delay={0.12}>
@@ -674,17 +752,17 @@ export default function DashboardPage() {
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                   <Target className="h-4 w-4 text-[#1D9E75]" />
-                  <span className="text-sm font-medium text-[#C8C6BC]">Metas de ahorro</span>
+                  <span className="text-sm font-medium text-[#C8C6BC]">Planes de ahorro</span>
                 </div>
                 <Link href="/dashboard/metas" className="text-xs text-[#1D9E75] hover:underline">Ver todas &rarr;</Link>
               </div>
               {(() => {
-                const activeGoals = goals.filter((g) => !g.completada);
+                const activeGoals = goals.filter((g) => g.status === 'active' || (!g.status && !g.completada));
                 if (activeGoals.length === 0) return (
                   <div className="flex flex-col items-center justify-center py-6 text-center">
                     <Target className="h-6 w-6 text-[#8A877D]/50 mb-2" />
-                    <p className="text-sm text-[#8A877D]">Sin metas activas</p>
-                    <Link href="/dashboard/metas" className="text-xs text-[#1D9E75] mt-1 hover:underline">Crear una meta</Link>
+                    <p className="text-sm text-[#8A877D]">Sin planes activos</p>
+                    <Link href="/dashboard/metas" className="text-xs text-[#1D9E75] mt-1 hover:underline">Crear un plan</Link>
                   </div>
                 );
                 return (
@@ -697,7 +775,12 @@ export default function DashboardPage() {
                         <div key={g.id}>
                           <div className="flex justify-between text-xs mb-1">
                             <span className="text-[#F0EFE8]">{g.icono} {g.nombre}</span>
-                            <span className="text-[#8A877D] tabular-nums">{pct.toFixed(0)}%</span>
+                            <div className="flex items-center gap-2">
+                              {g.monthly_quota && g.status === 'active' && (
+                                <span className="text-[#8A877D]">S/{Number(g.monthly_quota).toFixed(0)}/mes</span>
+                              )}
+                              <span className="text-[#8A877D] tabular-nums">{pct.toFixed(0)}%</span>
+                            </div>
                           </div>
                           <div className="h-1.5 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
                             <div className="h-full rounded-full bg-[#1D9E75] transition-all" style={{ width: `${pct}%` }} />

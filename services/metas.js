@@ -78,6 +78,17 @@ async function abonarMeta(usuarioId, nombreMeta, monto, tipo = 'aporte', nota = 
     }
   }
 
+  // Dynamic adjustment: recalculate monthly_quota after deposit
+  if (metaActualizada.fecha_limite && !completada && tipo === 'aporte') {
+    const nuevaCuota = calcularCuotaMensual(objetivo, nuevoActual, metaActualizada.fecha_limite);
+    if (nuevaCuota !== null) {
+      await supabase.from('metas_ahorro')
+        .update({ monthly_quota: nuevaCuota })
+        .eq('id', meta.id);
+      metaActualizada.monthly_quota = nuevaCuota;
+    }
+  }
+
   return {
     meta: metaActualizada,
     aporte,
@@ -194,6 +205,110 @@ async function verificarRachaAportes(usuarioId, metaId) {
   return racha;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// PLANES DE AHORRO — Extended functions (v2)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Calculate monthly quota for a savings plan.
+ * @param {number} targetAmount
+ * @param {number} currentAmount
+ * @param {string|null} deadline - YYYY-MM-DD
+ * @returns {number|null} monthly amount needed, or null if no deadline
+ */
+function calcularCuotaMensual(targetAmount, currentAmount, deadline) {
+  if (!deadline) return null;
+  const remaining = Math.max(0, targetAmount - (currentAmount || 0));
+  if (remaining === 0) return 0;
+  const hoy = new Date();
+  const limite = new Date(deadline + 'T23:59:59');
+  const mesesRestantes = Math.max(0.5, (limite - hoy) / (30 * 86400000));
+  return Math.ceil(remaining / mesesRestantes);
+}
+
+/**
+ * Analyze viability: Can the user afford the monthly quota?
+ * Compares quota vs average monthly surplus (last 3 months).
+ * @returns {{ viable, margenLibre, cuota, mensaje }}
+ */
+async function analizarViabilidad(usuarioId, monthlyQuota) {
+  const { construirDatosUsuario } = require('./recommendations');
+  const datos = await construirDatosUsuario(usuarioId);
+
+  const ingresos = datos.mes_actual.ingresos;
+  const gastos = datos.mes_actual.gastos;
+  const margenLibre = Math.max(0, ingresos - gastos);
+
+  const viable = margenLibre >= monthlyQuota;
+  let mensaje = '';
+  if (viable) {
+    mensaje = `Tu margen libre es S/${margenLibre.toFixed(0)}/mes — la cuota de S/${monthlyQuota.toFixed(0)} es alcanzable 💪`;
+  } else {
+    const mesesIdeal = Math.ceil((monthlyQuota * 1) / Math.max(1, margenLibre));
+    mensaje = `Tu margen libre es S/${margenLibre.toFixed(0)}/mes. La cuota de S/${monthlyQuota.toFixed(0)} es ajustada. Considera extender el plazo ${mesesIdeal} meses más.`;
+  }
+
+  return { viable, margenLibre: Math.round(margenLibre), cuota: monthlyQuota, mensaje };
+}
+
+/**
+ * Dynamic adjustment: Recalculate monthly_quota based on actual progress.
+ */
+async function ajustarDinamico(metaId) {
+  const { data: meta } = await supabase.from('metas_ahorro')
+    .select('*').eq('id', metaId).single();
+  if (!meta || !meta.fecha_limite || meta.completada) return null;
+
+  const nuevaCuota = calcularCuotaMensual(
+    parseFloat(meta.monto_objetivo),
+    parseFloat(meta.monto_actual || 0),
+    meta.fecha_limite
+  );
+
+  if (nuevaCuota !== null) {
+    await supabase.from('metas_ahorro')
+      .update({ monthly_quota: nuevaCuota, updated_at: new Date().toISOString() })
+      .eq('id', metaId);
+  }
+
+  return { meta, nuevaCuota, cuotaAnterior: meta.monthly_quota };
+}
+
+/**
+ * Suggest spending cuts to free up monthly quota.
+ * Returns top categories where the user could reduce.
+ */
+async function sugerirRecortes(usuarioId, monthlyQuota) {
+  const { construirDatosUsuario } = require('./recommendations');
+  const datos = await construirDatosUsuario(usuarioId);
+
+  const categorias = datos.categorias
+    .filter(c => !['Vivienda', 'Salud', 'Educación'].includes(c.nombre))
+    .sort((a, b) => b.monto - a.monto)
+    .slice(0, 3);
+
+  return categorias.map(c => ({
+    categoria: c.nombre,
+    gastoActual: c.monto,
+    reduccionSugerida: Math.min(c.monto * 0.3, monthlyQuota * 0.5),
+    porcentajeDelTotal: c.porcentaje_del_total,
+  }));
+}
+
+/**
+ * Set plan status to abandoned.
+ */
+async function abandonarPlan(usuarioId, metaId) {
+  const { data, error } = await supabase.from('metas_ahorro')
+    .update({ status: 'abandoned', updated_at: new Date().toISOString() })
+    .eq('id', metaId)
+    .eq('usuario_id', usuarioId)
+    .select()
+    .single();
+  if (error) return null;
+  return data;
+}
+
 module.exports = {
   obtenerMetas,
   abonarMeta,
@@ -201,4 +316,10 @@ module.exports = {
   registrarLogro,
   obtenerLogros,
   verificarRachaAportes,
+  // v2 — Planes de Ahorro
+  calcularCuotaMensual,
+  analizarViabilidad,
+  ajustarDinamico,
+  sugerirRecortes,
+  abandonarPlan,
 };

@@ -13,6 +13,9 @@ import {
   Flag,
   Landmark,
   Trophy,
+  TrendingUp,
+  AlertTriangle,
+  Users,
   Settings,
   X,
 } from 'lucide-react';
@@ -23,9 +26,12 @@ const mainNav = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { label: 'Transacciones', href: '/dashboard/transacciones', icon: ArrowLeftRight },
   { label: 'Presupuestos', href: '/dashboard/presupuestos', icon: Target },
+  { label: 'Score', href: '/dashboard/score', icon: TrendingUp },
+  { label: 'Alertas', href: '/dashboard/alertas', icon: AlertTriangle },
+  { label: 'Espacios', href: '/dashboard/espacios', icon: Users },
   { label: 'Reporte PDF', href: '/dashboard/reportes', icon: FileBarChart },
   { label: 'Suscripciones', href: '/dashboard/suscripciones', icon: CreditCard },
-  { label: 'Metas', href: '/dashboard/metas', icon: Flag },
+  { label: 'Planes', href: '/dashboard/metas', icon: Flag },
   { label: 'Deudas', href: '/dashboard/deudas', icon: Landmark },
   { label: 'Logros', href: '/dashboard/logros', icon: Trophy },
 ];

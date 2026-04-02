@@ -213,6 +213,186 @@ async function checkRecordatorioDeudas() {
   } catch (e) { log.error({ tag: 'DEUDA_REMINDER', err: e.message }, 'Error recordatorio deudas'); }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// DETECTOR DE FUGAS — Proactive spending leak alerts
+// ═══════════════════════════════════════════════════════════════
+const { generarAlertasFugas, generarMensajeFugas, guardarAlertas } = require('../services/spending-alerts');
+
+async function checkDetectorFugas() {
+  const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
+  const dia = horaLima.getDate();
+  const diaSemana = horaLima.getDay();
+  const hora = horaLima.getHours();
+  if (hora !== 11 || horaLima.getMinutes() > 14) return;
+
+  try {
+    const { data: usuarios } = await supabase.from('usuarios').select('id, whatsapp, nombre, plan, recordatorios_activos')
+      .eq('onboarding_completado', true);
+    if (!usuarios || usuarios.length === 0) return;
+
+    for (const usuario of usuarios) {
+      try {
+        if (usuario.recordatorios_activos === false) continue;
+        const isPro = (usuario.plan || 'free') === 'premium';
+
+        // Free: only 1st of month. Pro: Wednesdays + 15th.
+        if (!isPro && dia !== 1) continue;
+        if (isPro && diaSemana !== 3 && dia !== 15) continue;
+
+        const alertas = await generarAlertasFugas(usuario.id, isPro);
+        if (alertas.length === 0) continue;
+
+        const mensaje = await generarMensajeFugas(alertas, usuario.nombre, isPro);
+        if (!mensaje) continue;
+
+        await enviarWhatsapp(usuario.whatsapp, mensaje);
+        await guardarAlertas(usuario.id, alertas, mensaje);
+        await crearNotificacion(usuario.id, 'alerta_fugas', 'Fugas de gasto detectadas', mensaje.replace(/[*_]/g, '').substring(0, 200), { link: '/dashboard/alertas' });
+      } catch (e) { /* silent per user */ }
+    }
+    log.info({ tag: 'FUGAS' }, 'Detector de fugas ejecutado');
+  } catch (e) { log.error({ tag: 'FUGAS', err: e.message }, 'Error detector de fugas'); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// NETO SCORE — Daily calculation + weekly notification (Pro)
+// ═══════════════════════════════════════════════════════════════
+const { upsertScore, obtenerTendenciaScore, scoreLabel } = require('../services/neto-score');
+
+async function checkCalcularNetoScore() {
+  const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
+  if (horaLima.getHours() !== 6 || horaLima.getMinutes() > 14) return;
+  try {
+    const { data: usuarios } = await supabase.from('usuarios').select('id')
+      .eq('onboarding_completado', true);
+    if (!usuarios || usuarios.length === 0) return;
+    let ok = 0;
+    for (const u of usuarios) {
+      try {
+        await upsertScore(u.id);
+        ok++;
+      } catch (e) { /* silent per user */ }
+    }
+    log.info({ tag: 'SCORE', count: ok }, 'Neto Scores calculados');
+  } catch (e) { log.error({ tag: 'SCORE', err: e.message }, 'Error calculando scores'); }
+}
+
+async function checkNotificacionScore() {
+  const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
+  // Domingos 10am Lima
+  if (horaLima.getDay() !== 0 || horaLima.getHours() !== 10 || horaLima.getMinutes() > 14) return;
+  try {
+    const { data: usuarios } = await supabase.from('usuarios').select('id, whatsapp, nombre, plan, recordatorios_activos')
+      .eq('plan', 'premium').eq('onboarding_completado', true);
+    if (!usuarios || usuarios.length === 0) return;
+    for (const usuario of usuarios) {
+      try {
+        if (usuario.recordatorios_activos === false) continue;
+        const trend = await obtenerTendenciaScore(usuario.id);
+        if (!trend) continue;
+        const label = scoreLabel(trend.current);
+        const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : '';
+        let arrow = '→';
+        let diffText = 'igual que la semana pasada';
+        if (trend.diff > 0) { arrow = '↑'; diffText = '+' + trend.diff + ' vs semana pasada'; }
+        else if (trend.diff < 0) { arrow = '↓'; diffText = trend.diff + ' vs semana pasada'; }
+
+        const msg = '📊 ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u Neto Score semanal:\n\n' +
+          '*' + trend.current + '/100* ' + arrow + ' — ' + label + '\n' +
+          '(' + diffText + ')\n\n' +
+          '_Escribe "mi score" para ver el desglose completo._';
+        await enviarWhatsapp(usuario.whatsapp, msg);
+      } catch (e) { /* silent per user */ }
+    }
+  } catch (e) { log.error({ tag: 'SCORE_NOTIF', err: e.message }, 'Error notificación score semanal'); }
+}
+
+// Check-in planes de ahorro: 1ro y 15 del mes, 11am Lima, Pro only
+async function checkCheckInPlanes() {
+  const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
+  const dia = horaLima.getDate();
+  if ((dia !== 1 && dia !== 15) || horaLima.getHours() !== 11 || horaLima.getMinutes() > 14) return;
+  try {
+    const { calcularRitmoAhorro } = require('../services/metas');
+    const { data: usuarios } = await supabase.from('usuarios').select('id, whatsapp, nombre, plan, recordatorios_activos')
+      .eq('plan', 'premium').eq('onboarding_completado', true);
+    if (!usuarios || usuarios.length === 0) return;
+
+    for (const usuario of usuarios) {
+      try {
+        if (usuario.recordatorios_activos === false) continue;
+        const { data: metas } = await supabase.from('metas_ahorro').select('*')
+          .eq('usuario_id', usuario.id).eq('completada', false)
+          .not('status', 'eq', 'abandoned')
+          .order('created_at', { ascending: false });
+        if (!metas || metas.length === 0) continue;
+
+        const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : '';
+        let msg = '🎯 ' + (primerNombre ? primerNombre + ', ' : '') + 'check-in de tus planes de ahorro:\n';
+
+        for (const m of metas) {
+          const pct = m.monto_objetivo > 0 ? Math.round((parseFloat(m.monto_actual || 0) / parseFloat(m.monto_objetivo)) * 100) : 0;
+          msg += '\n*' + m.nombre + '* — ' + pct + '%';
+          if (m.fecha_limite) {
+            const ritmo = calcularRitmoAhorro(m);
+            if (ritmo.enRitmo !== null) {
+              msg += ' ' + (ritmo.enRitmo ? '✅' : '⚠️');
+              if (ritmo.montoMensual > 0) msg += ' (S/' + ritmo.montoMensual.toFixed(0) + '/mes)';
+            }
+          }
+          if (m.monthly_quota) {
+            msg += '\n  Cuota: S/ ' + parseFloat(m.monthly_quota).toFixed(0) + '/mes';
+          }
+        }
+        msg += '\n\n_Escribe "ahorré X para [nombre]" para registrar un abono._';
+        await enviarWhatsapp(usuario.whatsapp, msg);
+      } catch (e) { /* silent per user */ }
+    }
+  } catch (e) { log.error({ tag: 'CHECKIN_PLANES', err: e.message }, 'Error check-in planes'); }
+}
+
+// Recordatorio espacios compartidos: viernes 6pm Lima, balances >S/50 pendientes
+async function checkRecordatorioEspacios() {
+  const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
+  if (horaLima.getDay() !== 5 || horaLima.getHours() !== 18 || horaLima.getMinutes() > 14) return;
+  try {
+    const { obtenerBalanceEspacio } = require('../services/shared-spaces');
+    // Get all active spaces
+    const { data: spaces } = await supabase.from('shared_spaces').select('id, name');
+    if (!spaces || spaces.length === 0) return;
+
+    for (const space of spaces) {
+      try {
+        const { debts } = await obtenerBalanceEspacio(space.id);
+        if (!debts || debts.length === 0) continue;
+
+        // Only remind for debts > S/50
+        const significantDebts = debts.filter(d => d.amount > 50);
+        if (significantDebts.length === 0) continue;
+
+        // Get all members to notify
+        const { data: members } = await supabase.from('space_members')
+          .select('user_id, usuarios(whatsapp, nombre, recordatorios_activos)')
+          .eq('space_id', space.id);
+
+        for (const m of (members || [])) {
+          if (!m.usuarios?.whatsapp || m.usuarios?.recordatorios_activos === false) continue;
+          const myDebts = significantDebts.filter(d => d.from === m.user_id);
+          if (myDebts.length === 0) continue;
+
+          const primerNombre = m.usuarios.nombre?.split(' ')[0] || '';
+          let msg = '🏠 ' + (primerNombre ? primerNombre + ', r' : 'R') + 'ecordatorio de *' + space.name + '*:\n\n';
+          for (const d of myDebts) {
+            msg += '  → Le debes S/ ' + d.amount.toFixed(2) + ' a ' + (d.toNombre?.split(' ')[0] || '?') + '\n';
+          }
+          msg += '\n_Escribe "le pagué X a [nombre] del ' + space.name + '" para registrar tu pago._';
+          try { await enviarWhatsapp(m.usuarios.whatsapp, msg); } catch (e) { /* silent */ }
+        }
+      } catch (e) { /* silent per space */ }
+    }
+  } catch (e) { log.error({ tag: 'ESPACIOS_REMIND', err: e.message }, 'Error recordatorio espacios'); }
+}
+
 module.exports = {
   checkResumenMensual,
   checkResumenSemanal,
@@ -221,4 +401,9 @@ module.exports = {
   checkAlertasProactivas,
   checkRecordatorioOnboarding,
   checkRecordatorioDeudas,
+  checkCalcularNetoScore,
+  checkNotificacionScore,
+  checkDetectorFugas,
+  checkCheckInPlanes,
+  checkRecordatorioEspacios,
 };
