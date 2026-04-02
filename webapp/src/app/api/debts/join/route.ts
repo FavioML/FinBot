@@ -87,5 +87,19 @@ export async function POST(request: Request) {
   if (error)
     return NextResponse.json({ error: error.message }, { status: 400 });
 
+  // Notify creditor that debt was confirmed
+  try {
+    const { data: joiner } = await serviceClient.from('usuarios').select('nombre').eq('id', userId).single();
+    await serviceClient.from('notificaciones').insert({
+      usuario_id: deudaOriginal.usuario_id,
+      tipo: 'sistema',
+      titulo: 'Deuda confirmada',
+      mensaje: (joiner?.nombre || 'Alguien') + ' confirmó la deuda de ' + (deudaOriginal.moneda === 'USD' ? '$' : 'S/') + ' ' + parseFloat(deudaOriginal.monto_original as unknown as string).toFixed(2),
+      datos: { link: '/dashboard/deudas', deuda_id: deudaOriginal.id },
+      leida: false,
+      fecha: new Date().toISOString(),
+    });
+  } catch (e) { console.error('[debt-join-notify]', e); }
+
   return NextResponse.json(nuevaDeuda);
 }

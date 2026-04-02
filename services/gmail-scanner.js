@@ -9,6 +9,7 @@ const { parsearCorreoBancario } = require('./parsers');
 const { guardarTransaccion, necesitaConsulta, guardarConsultaPendiente, mensajeConsulta } = require('./transactions');
 const { verificarProReferidos } = require('./referrals');
 const { getUserPlanConfig } = require('../helpers/db-helpers');
+const { crearNotificacion } = require('../lib/notifications-db');
 
 // Lazy-loaded to avoid circular dependency
 let _enviarAlertaTransaccion = null;
@@ -70,7 +71,10 @@ async function escaneoAutomatico() {
         const planConfigAuto = getUserPlanConfig(usuario);
         if (planConfigAuto.maxGmailAccounts === 0) continue;
         const resultado = await escanearGmailYRegistrar(usuario);
-        if (resultado && resultado.includes('Registre')) { await enviarWhatsapp(usuario.whatsapp, '\uD83D\uDD04 *Escaneo automatico*\n\n' + resultado); }
+        if (resultado && resultado.includes('Registre')) {
+          await enviarWhatsapp(usuario.whatsapp, '\uD83D\uDD04 *Escaneo automatico*\n\n' + resultado);
+          await crearNotificacion(usuario.id, 'sistema', 'Escaneo de correo completado', 'Se detectaron nuevos movimientos en tu correo bancario', { link: '/dashboard/transacciones' });
+        }
       } catch (e) { log.error({ tag: 'AUTO', whatsapp: usuario.whatsapp, err: e.message }, 'Error escaneo usuario'); }
     }
   } catch (e) { log.error({ tag: 'AUTO', err: e.message }, 'Error general escaneo'); notificarErrorAdmin('AUTO_SCAN', e.message); registrarError('AUTO_SCAN', e.message, { stack: e.stack }); }

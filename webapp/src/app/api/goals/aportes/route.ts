@@ -141,6 +141,19 @@ export async function POST(request: Request) {
         fecha: new Date().toISOString().split('T')[0],
       }, { onConflict: 'usuario_id,tipo,meta_id', ignoreDuplicates: true });
     } catch (e) { console.error('[logro]', e); }
+
+    // Dashboard notification for milestone
+    try {
+      await serviceClient.from('notificaciones').insert({
+        usuario_id: userId,
+        tipo: milestone === 100 ? 'meta_completada' : 'milestone',
+        titulo: milestone === 100 ? `Meta "${meta.nombre}" completada` : `${milestone}% de tu meta "${meta.nombre}"`,
+        mensaje: milestone === 100 ? 'Felicitaciones! Alcanzaste tu meta de ahorro' : `Llevas ${milestone}% de tu meta. Sigue asi!`,
+        datos: { link: '/dashboard/metas', meta_id },
+        leida: false,
+        fecha: new Date().toISOString(),
+      });
+    } catch (e) { console.error('[milestone-notify]', e); }
   }
 
   return NextResponse.json({

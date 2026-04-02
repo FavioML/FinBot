@@ -3,6 +3,7 @@ const log = require('../lib/logger');
 const { hoyPeru } = require('../lib/dates');
 const { enviarWhatsapp } = require('../lib/whatsapp');
 const { verificarAlertaPresupuesto } = require('./budget');
+const { crearNotificacion } = require('../lib/notifications-db');
 
 async function enviarAlertaTransaccion(usuario, tx, resultado) {
   if (!tx || !resultado || !resultado.monto) return;
@@ -48,6 +49,9 @@ async function enviarAlertaTransaccion(usuario, tx, resultado) {
         const factor = monto / promedio;
         if (factor >= 2.5 && monto > 30) {
           msg += '\n\n\u26A0\uFE0F *Gasto inusual:* Este gasto es ' + factor.toFixed(1) + 'x tu promedio en ' + categoria + ' (S/ ' + promedio.toFixed(2) + ')';
+          await crearNotificacion(usuario.id, 'alerta', 'Gasto inusual detectado',
+            comercio + ': S/' + monto.toFixed(2) + ' es ' + factor.toFixed(1) + 'x tu promedio en ' + categoria,
+            { link: '/dashboard/transacciones' });
         }
       }
     } catch(e) { log.error({ tag: 'INUSUAL', err: e.message }, 'Error alerta inusual'); }

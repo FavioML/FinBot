@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Bell, Check, X, AlertTriangle, Trophy, Target, Zap } from 'lucide-react';
+import { Bell, Check, X, AlertTriangle, Trophy, Target, Zap, ShieldAlert } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useRouter } from 'next/navigation';
 import { useUser } from '@/lib/hooks/use-user';
 import { useNotifications, useNotificationMutations, type Notificacion } from '@/lib/hooks/use-notifications';
 
@@ -12,6 +13,7 @@ const TIPO_CONFIG: Record<string, { icon: typeof Bell; color: string; bg: string
   meta_completada: { icon: Target, color: '#1D9E75', bg: 'rgba(29,158,117,0.12)' },
   recordatorio: { icon: Bell, color: '#C8C6BC', bg: 'rgba(255,255,255,0.06)' },
   sistema: { icon: Zap, color: '#C8C6BC', bg: 'rgba(255,255,255,0.06)' },
+  alerta: { icon: ShieldAlert, color: '#E53E3E', bg: 'rgba(229,62,62,0.15)' },
 };
 
 function timeAgo(dateStr: string): string {
@@ -31,6 +33,7 @@ function timeAgo(dateStr: string): string {
 export function NotificationBell() {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
   const { data: user } = useUser();
   const { data, isLoading } = useNotifications(user?.id);
   const { markRead } = useNotificationMutations();
@@ -133,8 +136,13 @@ export function NotificationBell() {
                       key={notif.id}
                       onClick={() => {
                         if (!notif.leida) handleMarkOneRead(notif.id);
+                        const link = (notif.datos as Record<string, unknown>)?.link;
+                        if (typeof link === 'string') {
+                          setOpen(false);
+                          router.push(link);
+                        }
                       }}
-                      className={`w-full text-left px-4 py-3 flex items-start gap-3 hover:bg-[rgba(255,255,255,0.03)] transition-colors ${
+                      className={`w-full text-left px-4 py-3 flex items-start gap-3 hover:bg-[rgba(255,255,255,0.03)] transition-colors cursor-pointer ${
                         !notif.leida ? 'bg-[rgba(29,158,117,0.04)]' : ''
                       }`}
                     >

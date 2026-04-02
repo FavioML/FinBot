@@ -6,6 +6,7 @@ const { getUserPlanConfig } = require('../helpers/db-helpers');
 const { generarResumenSemanal, generarResumenMensual } = require('../services/summaries');
 const { verificarAlertasProactivas } = require('../services/recommendations');
 const { obtenerDeudasProximasVencer } = require('../services/debts');
+const { crearNotificacion } = require('../lib/notifications-db');
 
 async function checkResumenMensual() {
   const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
@@ -75,6 +76,22 @@ async function checkRecordatorioDiario() {
 async function checkPremiumExpiry() {
   try {
     const hoy = hoyPeru();
+
+    // Warning 3 días antes de vencimiento
+    const en3dias = new Date(new Date(hoy + 'T12:00:00').getTime() + 3 * 86400000).toISOString().split('T')[0];
+    const { data: porVencer } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence')
+      .eq('plan', 'premium').eq('premium_vence', en3dias);
+    if (porVencer && porVencer.length > 0) {
+      for (const usuario of porVencer) {
+        try {
+          const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
+          await enviarWhatsapp(usuario.whatsapp, '⚠️ ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u plan *NETO Pro* vence en 3 días (' + usuario.premium_vence + ').\n\n¿Quieres renovar?\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Renueva antes para no perder acceso._');
+          await crearNotificacion(usuario.id, 'recordatorio', 'Plan Pro vence en 3 días', 'Tu plan NETO Pro vence el ' + usuario.premium_vence + '. Renueva para no perder acceso.', { link: '/dashboard/configuracion' });
+        } catch(e) { log.error({ tag: 'EXPIRY_WARN', userId: usuario.id, err: e.message }, 'Error warning premium 3d'); }
+      }
+    }
+
+    // Expirados — downgrade a free
     const { data: expirados } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence')
       .eq('plan', 'premium').not('premium_vence', 'is', null).lt('premium_vence', hoy);
     if (!expirados || expirados.length === 0) return;
@@ -83,6 +100,7 @@ async function checkPremiumExpiry() {
         await supabase.from('usuarios').update({ plan: 'free' }).eq('id', usuario.id);
         const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
         await enviarWhatsapp(usuario.whatsapp, '⏰ ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u plan *NETO Pro* venció.\n\nAhora estás en el plan Free (historial limitado a 1 mes).\n\n¿Quieres renovar?\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Tus datos siguen guardados. Al renovar recuperas acceso completo._');
+        await crearNotificacion(usuario.id, 'sistema', 'Plan Pro expirado', 'Tu plan NETO Pro venció. Ahora estás en el plan Free.', { link: '/dashboard/configuracion' });
         log.info({ tag: 'EXPIRY', userId: usuario.id }, 'Premium expirado, downgradeado a free');
       } catch(e) { log.error({ tag: 'EXPIRY', userId: usuario.id, err: e.message }, 'Error downgradeando usuario'); }
     }
@@ -100,7 +118,10 @@ async function checkAlertasProactivas() {
       try {
         if (usuario.recordatorios_activos === false) continue;
         const alerta = await verificarAlertasProactivas(usuario.id, usuario.nombre);
-        if (alerta) await enviarWhatsapp(usuario.whatsapp, alerta);
+        if (alerta) {
+          await enviarWhatsapp(usuario.whatsapp, alerta);
+          await crearNotificacion(usuario.id, 'recordatorio', 'Alerta de presupuesto', alerta.replace(/[*_]/g, ''), { link: '/dashboard/presupuestos' });
+        }
       } catch (e) { /* silencioso por usuario */ }
     }
   } catch (e) { log.error({ tag: 'ALERTA_PROACTIVA', err: e.message }, 'Error alertas proactivas'); }
@@ -180,6 +201,12 @@ async function checkRecordatorioDeudas() {
 
         if (msgDeuda) {
           await enviarWhatsapp(deuda.usuarios.whatsapp, msgDeuda);
+          await crearNotificacion(
+            deuda.usuario_id, 'deuda_vence',
+            diffDias === 0 ? 'Deuda vence hoy' : diffDias > 0 ? 'Deuda vence en ' + diffDias + ' días' : 'Deuda vencida hace ' + Math.abs(diffDias) + ' días',
+            msgDeuda.replace(/[*_]/g, ''),
+            { link: '/dashboard/deudas', deuda_id: deuda.id }
+          );
         }
       } catch (e) { /* silent per debt */ }
     }
