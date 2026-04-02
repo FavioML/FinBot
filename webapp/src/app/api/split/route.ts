@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 const serviceClient = createSupabaseClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -28,6 +29,10 @@ export async function GET() {
   if (!userId)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  if (!checkRateLimit(userId)) {
+    return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
+  }
+
   const { data, error } = await serviceClient
     .from('gastos_compartidos')
     .select('*, gasto_participantes(*)')
@@ -44,6 +49,10 @@ export async function POST(request: Request) {
   const userId = await getNetoUserId();
   if (!userId)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  if (!checkRateLimit(userId)) {
+    return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
+  }
 
   const body = await request.json();
   const { descripcion, monto_total, moneda = 'PEN', categoria, fecha_limite, notas, participantes } = body;
@@ -107,6 +116,10 @@ export async function PATCH(request: Request) {
   if (!userId)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  if (!checkRateLimit(userId)) {
+    return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
+  }
+
   const body = await request.json();
   const { id, descripcion, fecha_limite, notas, participantes } = body;
   if (!id)
@@ -165,6 +178,10 @@ export async function PUT(request: Request) {
   if (!userId)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  if (!checkRateLimit(userId)) {
+    return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
+  }
+
   const body = await request.json();
   const { gasto_id, participante_id, pagado } = body;
 
@@ -215,6 +232,10 @@ export async function DELETE(request: Request) {
   const userId = await getNetoUserId();
   if (!userId)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  if (!checkRateLimit(userId)) {
+    return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
+  }
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');

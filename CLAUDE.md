@@ -5,17 +5,26 @@
 NETO es un asistente financiero personal por WhatsApp para el mercado peruano.
 - Stack: Next.js 16 + TypeScript + Tailwind + shadcn/ui + Recharts + Supabase
 - Repo: github.com/FavioML/FinBot
-- Backend: C:\Neto.pe (NO esta en esta carpeta)
+- Backend: en esta misma carpeta (index.js, handlers/, services/, lib/)
 - Produccion webapp: app.neto.pe (Vercel)
 - Supabase project: zvorjqlubmfrjtkbhqcx
 - Numero WhatsApp produccion: +51 933 014 505
 
-## Arquitectura del backend (referencia)
-- `index.js` — core (~2245 lineas: webhook, NLP 23 intenciones, router)
+## Arquitectura del backend
+- `index.js` — Express server, routes, middleware (~120 lineas)
+- `handlers/message-processor.js` — NLP classifier + intent dispatch (~340 lineas)
+- `handlers/intent-registry.js` — Auto-loader que registra handlers desde `handlers/intents/`
+- `handlers/intents/` — 12 archivos, 79 intents totales (social, premium, gastos, transacciones, presupuestos, metas, deudas, consultas, reportes, utilidades, analytics, moderacion)
 - `gmail.js` — OAuth2 + parsers de correos bancarios (11 bancos)
 - `reporte_html.js` — reportes HTML/PDF con Chart.js
 - `lib/` — 11 modulos: config, constants, validators, formatters, dates, db, ai, logger, whatsapp, admin-notify, error-monitor
-- `services/` — 3 modulos: transactions, budget, parsers
+- `services/` — 14 modulos: transactions, budget, parsers, debts, metas, categories, neto-gpt, gmail-scanner, reports, summaries, notifications, recommendations, referrals, subscriptions
+
+### Agregar un nuevo intent
+1. Crear o editar archivo en `handlers/intents/nombre.js`
+2. Exportar `{ intents: ['nombre_intent'], handle: async ({ intencion, msg, datos, usuario, from, ctx }) => string }`
+3. Agregar el intent name al prompt del clasificador GPT en `message-processor.js`
+4. El registry lo carga automaticamente al inicio
 
 ## Infraestructura
 - Railway: backend online, 22+ variables configuradas, health endpoint /health

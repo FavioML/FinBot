@@ -6,7 +6,7 @@ const { rateLimit } = require('express-rate-limit');
 const cors = require('cors');
 const helmet = require('helmet');
 const log = require('./lib/logger');
-const { hoyPeru } = require('./lib/dates');
+const { hoyPeru, ultimoDiaMes } = require('./lib/dates');
 const { CATEGORIAS_VALIDAS, CATEGORIA_MAP, MESES } = require('./lib/constants');
 const { validarMonto, normalizarCategoria } = require('./lib/validators');
 const { formatFecha, barraProgreso } = require('./lib/formatters');
@@ -18,11 +18,6 @@ const adminRoutes = require('./routes/admin');
 const { startCronJobs } = require('./cron');
 const createWebhookHandler = require('./handlers/webhook');
 const { procesarMensajeLibre } = require('./handlers/message-processor');
-
-// Helper: último día real del mes (evita fechas inválidas como 02-31)
-function ultimoDiaMes(anio, mes) {
-  return new Date(anio, mes, 0).getDate();
-}
 
 // Aliases para retrocompatibilidad (exports usados en tests)
 function fechaHoyPeru() { return hoyPeru(); }

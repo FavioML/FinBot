@@ -8,11 +8,9 @@ const { oauth2Client, obtenerPerfilGoogle, guardarTokens, obtenerCuentasGmail } 
 const { parsearCorreoBancario } = require('../services/parsers');
 const { escanearGmailYRegistrar } = require('../services/gmail-scanner');
 
-const router = express.Router();
+const { ultimoDiaMes } = require('../lib/dates');
 
-function ultimoDiaMes(anio, mes) {
-  return new Date(anio, mes, 0).getDate();
-}
+const router = express.Router();
 
 // GET /reporte/:id
 router.get('/reporte/:id', async (req, res) => {

@@ -2,10 +2,7 @@ const crypto = require('crypto');
 const { supabase } = require('../lib/db');
 const log = require('../lib/logger');
 const { generarReporteJSON } = require('../reporte_html');
-
-function ultimoDiaMes(anio, mes) {
-  return new Date(anio, mes, 0).getDate();
-}
+const { ultimoDiaMes } = require('../lib/dates');
 
 async function generarYEnviarReporte(usuario, mes, anio) {
   const desde = anio + '-' + String(mes).padStart(2,'0') + '-01';

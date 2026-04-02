@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 const serviceClient = createSupabaseClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -27,6 +28,10 @@ export async function GET() {
   const userId = await getNetoUserId();
   if (!userId)
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+
+  if (!checkRateLimit(userId)) {
+    return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
+  }
 
   // Get root categories
   const { data: cats, error } = await serviceClient
@@ -110,6 +115,10 @@ export async function DELETE(request: Request) {
   if (!userId)
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
 
+  if (!checkRateLimit(userId)) {
+    return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
+  }
+
   const { searchParams } = new URL(request.url);
   const catId = searchParams.get('id');
   const isSubcategory = searchParams.get('sub') === 'true';
@@ -154,6 +163,10 @@ export async function PUT(request: Request) {
   const userId = await getNetoUserId();
   if (!userId)
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+
+  if (!checkRateLimit(userId)) {
+    return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
+  }
 
   const body = await request.json();
   const { id, nombre } = body;

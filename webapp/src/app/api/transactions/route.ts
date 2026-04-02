@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { getExchangeRate } from '@/lib/exchange-rate';
+import { checkRateLimit } from '@/lib/rate-limit';
 import crypto from 'crypto';
 
 const serviceClient = createSupabaseClient(
@@ -87,6 +88,10 @@ export async function POST(request: Request) {
   if (!userId)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  if (!checkRateLimit(userId)) {
+    return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
+  }
+
   const body = await request.json();
 
   // Validate monto
@@ -135,6 +140,10 @@ export async function PUT(request: Request) {
   if (!userId)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  if (!checkRateLimit(userId)) {
+    return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
+  }
+
   const body = await request.json();
   const monto = validarMonto(body.monto);
   if (monto === null)
@@ -178,6 +187,10 @@ export async function PATCH(request: Request) {
   const userId = await getNetoUserId();
   if (!userId)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  if (!checkRateLimit(userId)) {
+    return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
+  }
 
   const body = await request.json();
   const { ids, updates } = body;
@@ -230,6 +243,10 @@ export async function DELETE(request: Request) {
   const userId = await getNetoUserId();
   if (!userId)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  if (!checkRateLimit(userId)) {
+    return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
+  }
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');

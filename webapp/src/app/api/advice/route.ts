@@ -1,28 +1,12 @@
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 const serviceClient = createSupabaseClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
-
-// Rate limiting simple por usuario (10 req/min)
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT_MAX = 10;
-const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minuto
-
-function checkRateLimit(userId: string): boolean {
-  const now = Date.now();
-  const entry = rateLimitMap.get(userId);
-  if (!entry || now > entry.resetAt) {
-    rateLimitMap.set(userId, { count: 1, resetAt: now + RATE_LIMIT_WINDOW });
-    return true;
-  }
-  if (entry.count >= RATE_LIMIT_MAX) return false;
-  entry.count++;
-  return true;
-}
 
 async function getNetoUserId() {
   const supabase = await createClient();
@@ -54,8 +38,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Pro only', upsell: 'Recibe consejos IA diarios con Pro' }, { status: 403 });
   }
 
-  if (!checkRateLimit(userId)) {
-    return NextResponse.json({ error: 'Demasiadas solicitudes. Intenta en un minuto.' }, { status: 429 });
+  if (!checkRateLimit(userId, 10)) {
+    return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
   }
 
   const apiKey = process.env.OPENAI_API_KEY;

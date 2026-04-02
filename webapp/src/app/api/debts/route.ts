@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 const serviceClient = createSupabaseClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -24,6 +25,10 @@ export async function GET() {
   const netoUser = await getNetoUser();
   if (!netoUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  if (!checkRateLimit(netoUser.id)) {
+    return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
+  }
+
   const { data, error } = await serviceClient
     .from('deudas')
     .select('*, deuda_abonos(id, monto, fecha, nota, created_at)')
@@ -38,6 +43,10 @@ export async function GET() {
 export async function POST(request: Request) {
   const netoUser = await getNetoUser();
   if (!netoUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  if (!checkRateLimit(netoUser.id)) {
+    return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
+  }
 
   const body = await request.json();
   const { tipo, contraparte, monto_original, moneda, descripcion, fecha_vencimiento } = body;
@@ -75,6 +84,10 @@ export async function POST(request: Request) {
 export async function PUT(request: Request) {
   const netoUser = await getNetoUser();
   if (!netoUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  if (!checkRateLimit(netoUser.id)) {
+    return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
+  }
 
   const body = await request.json();
   const { id, action, ...fields } = body;
@@ -170,6 +183,10 @@ export async function PUT(request: Request) {
 export async function DELETE(request: Request) {
   const netoUser = await getNetoUser();
   if (!netoUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  if (!checkRateLimit(netoUser.id)) {
+    return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
+  }
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');

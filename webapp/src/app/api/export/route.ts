@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 const serviceClient = createSupabaseClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,6 +27,10 @@ export async function GET() {
   const userId = await getNetoUserId();
   if (!userId)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  if (!checkRateLimit(userId)) {
+    return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
+  }
 
   // Check plan early before fetching all data
   const { data: userData } = await serviceClient

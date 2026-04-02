@@ -11,7 +11,7 @@ let _tcCacheTime = 0;
 async function obtenerTipoCambio() {
   const FALLBACK = { compra: 3.82, venta: 3.85 };
   const now = Date.now();
-  if (_tcCache && (now - _tcCacheTime) < 3600000) return _tcCache;
+  if (_tcCache && (now - _tcCacheTime) < 86400000) return _tcCache;
 
   async function fetchTCForDate(fecha) {
     const resp = await fetch('https://dolar.pe/api/public/series?pair=USD-PEN&from=' + fecha + '&to=' + fecha, {

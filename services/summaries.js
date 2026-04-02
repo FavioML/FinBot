@@ -1,17 +1,13 @@
 const { supabase } = require('../lib/db');
 const { openai } = require('../lib/ai');
 const log = require('../lib/logger');
-const { ahoraPeru } = require('../lib/dates');
+const { ahoraPeru, ultimoDiaMes } = require('../lib/dates');
 const { MESES } = require('../lib/constants');
 const { obtenerGastosSemana } = require('./transactions');
 const { obtenerPresupuestosMes } = require('./budget');
 const { generarRecomendaciones, construirDatosUsuario, generarMiniRecomendacion } = require('./recommendations');
 const { obtenerDeudas } = require('./debts');
 const { calcularRitmoAhorro } = require('./metas');
-
-function ultimoDiaMes(anio, mes) {
-  return new Date(anio, mes, 0).getDate();
-}
 
 async function generarResumenSemanal(usuario) {
   const hoy = ahoraPeru();
