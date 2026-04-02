@@ -2,6 +2,25 @@ const { openai } = require('../lib/ai');
 const { hoyPeru } = require('../lib/dates');
 const log = require('../lib/logger');
 
+// Razones sociales → nombre comercial limpio (GPT no siempre normaliza)
+const COMERCIO_MAP = {
+  'SPSA PLAZA VEA': 'Plaza Vea',
+  'SPSA TOTTUS': 'Tottus',
+  'DLOCAL*NETFLIX': 'Netflix',
+  'DLOCAL*DISNEY': 'Disney+',
+  'DLOCAL*SPOTIFY': 'Spotify',
+  'DLOCAL*HBOMAX': 'Max',
+};
+
+function normalizarComercio(comercio) {
+  if (!comercio) return comercio;
+  const upper = comercio.trim().toUpperCase();
+  for (const [raw, clean] of Object.entries(COMERCIO_MAP)) {
+    if (upper === raw) return clean;
+  }
+  return comercio;
+}
+
 const BANK_PARSER_PROMPT = `Eres un parser experto de notificaciones bancarias peruanas. Devuelve SOLO JSON sin markdown:
 { "tipo":"gasto"|"ingreso", "monto":numero, "moneda":"PEN"|"USD", "comercio":"nombre limpio del comercio", "categoria":"ver lista", "subcategoria":"ver lista", "banco":"BCP|Interbank|BBVA|Scotiabank|Yape|Plin|Falabella|Ripley|BanBif|Mibanco|CMAC|Otro", "metodo_pago":"Debito|Credito|Yape|Plin|Efectivo|Otro", "fecha":"YYYY-MM-DD", "descripcion_original":"texto original" }
 
@@ -126,7 +145,9 @@ async function parsearCorreoBancario(texto, contexto) {
   });
   const raw = res.choices[0].message.content.trim();
   const clean = raw.startsWith('{') ? raw : raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
-  return JSON.parse(clean);
+  const parsed = JSON.parse(clean);
+  if (parsed.comercio) parsed.comercio = normalizarComercio(parsed.comercio);
+  return parsed;
 }
 
 async function parsearRegistroManual(msg, fechaHoy) {
