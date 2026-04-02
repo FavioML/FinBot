@@ -38,6 +38,24 @@ async function getNetoUserId() {
   return data?.id || null;
 }
 
+// Save merchant → category rule so future transactions auto-categorize
+async function syncReglaComercio(userId: string, comercio: string | null, categoria: string, subcategoria: string | null) {
+  if (!comercio || !categoria) return;
+  const patron = comercio.toLowerCase().trim();
+  if (!patron) return;
+  try {
+    await serviceClient.from('reglas_comercio').upsert({
+      usuario_id: userId,
+      comercio_pattern: patron,
+      categoria,
+      subcategoria: subcategoria && subcategoria !== 'sin_categoria' ? subcategoria : null,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'usuario_id,comercio_pattern' });
+  } catch (e) {
+    console.error('[sync-regla]', e);
+  }
+}
+
 // Sync categoría y subcategoría custom a categorias_usuario
 async function syncCategoriasUsuario(userId: string, categoria: string, subcategoria: string | null) {
   if (!categoria) return;
@@ -131,6 +149,8 @@ export async function POST(request: Request) {
 
   // Sync categoría/subcategoría a categorias_usuario (fire-and-forget)
   syncCategoriasUsuario(userId, body.categoria, body.subcategoria).catch((e) => console.error('[sync-cat]', e));
+  // Learn merchant → category rule for auto-categorization
+  syncReglaComercio(userId, body.comercio, body.categoria, body.subcategoria).catch((e) => console.error('[sync-regla]', e));
 
   return NextResponse.json(data);
 }
@@ -178,6 +198,8 @@ export async function PUT(request: Request) {
 
   // Sync categoría/subcategoría a categorias_usuario (fire-and-forget)
   syncCategoriasUsuario(userId, body.categoria, body.subcategoria).catch((e) => console.error('[sync-cat]', e));
+  // Learn merchant → category rule for auto-categorization
+  syncReglaComercio(userId, body.comercio, body.categoria, body.subcategoria).catch((e) => console.error('[sync-regla]', e));
 
   return NextResponse.json(data);
 }
