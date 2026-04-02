@@ -399,7 +399,7 @@ const NETO_TOOLS = [
           yo_debo: {
             type: "boolean",
             description:
-              "true si yo debo (me prestaron), false si me deben (yo preste)",
+              "true = YO le debo a alguien (ej: 'debo 100 a Juan', 'me prestaron 50'). false = alguien ME debe a MI (ej: 'Juan me debe 100', 'le presté 200 a Ana', 'mi tía me debe'). Si el usuario dice 'X me debe' o 'le presté a X' siempre es false.",
           },
           deuda_id: {
             type: "string",

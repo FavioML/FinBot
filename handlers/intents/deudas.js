@@ -79,6 +79,22 @@ module.exports = {
           if (!contraparte || !montoClasif || montoClasif <= 0 || isNaN(montoClasif)) {
             return 'Mmm, no pillé bien los datos. Dime algo como:\n_"debo S/200 a Juan"_\n_"Pedro me debe S/150 por la cena"_';
           }
+          // Corrección automática: si existe deuda reciente con mismo monto/contraparte pero tipo opuesto, eliminarla
+          const tipoOpuesto = tipo === 'debo' ? 'me_deben' : 'debo';
+          const { data: duplicadaOpuesta } = await supabase
+            .from('deudas')
+            .select('id')
+            .eq('usuario_id', usuario.id)
+            .eq('estado', 'activa')
+            .eq('monto_original', montoClasif)
+            .eq('tipo', tipoOpuesto)
+            .ilike('contraparte', '%' + contraparte.trim() + '%')
+            .gte('created_at', new Date(Date.now() - 5 * 60 * 1000).toISOString()) // últimos 5 min
+            .order('created_at', { ascending: false })
+            .limit(1);
+          if (duplicadaOpuesta && duplicadaOpuesta.length > 0) {
+            await supabase.from('deudas').delete().eq('id', duplicadaOpuesta[0].id);
+          }
           await registrarDeuda(usuario.id, tipo, contraparte, montoClasif, monedaClasif, descripcion, fechaVenc);
           const sym = monedaClasif === 'USD' ? '$' : 'S/';
           if (tipo === 'debo') {
@@ -106,11 +122,17 @@ module.exports = {
           let contraparte = datos.contraparte;
           let montoAbono = parseFloat(datos.monto);
 
-          // Fallback: extraer contraparte de frases como "Annie me dio 50"
+          // Fallback: extraer contraparte de frases como "Annie me dio 50", "mi tía Jenny me pagó"
           if (!contraparte) {
-            const mNombreAbono = msg.match(/\b([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)\s+me\s+(dio|transfiri[oó]|deposit[oó]|pas[oó])/i)
-              || msg.match(/(?:pagu[eé]|abon[eé]|di)\s+.*?\s+a\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)/i);
+            const mNombreAbono = msg.match(/\b([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?)\s+me\s+(?:ha\s+)?(?:dio|pag[oó]|transfiri[oó]|deposit[oó]|pas[oó]|abono)/i)
+              || msg.match(/(?:mi\s+)?(?:t[ií](?:a|o)|amig[oa]|hermano|hermana|primo|prima|pap[aá]|mam[aá]|jefe|compa(?:ñero)?)\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?)\s+me\s+(?:ha\s+)?pag/i)
+              || msg.match(/(?:pagu[eé]|abon[eé]|di|pag[oó])\s+.*?\s+a\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?)/i);
             if (mNombreAbono) contraparte = (mNombreAbono[1] || '').trim();
+          }
+          // Fallback 2: buscar "Tía Jenny", "Tío Pedro" como contraparte compuesta
+          if (!contraparte) {
+            const mTituloNombre = msg.match(/(?:mi\s+)?(?:t[ií](?:a|o)|amig[oa]|hermano|hermana|primo|prima)\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)/i);
+            if (mTituloNombre) contraparte = msg.match(/(?:t[ií](?:a|o))\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)/i)?.[0] || mTituloNombre[1];
           }
 
           // Soporte fracciones: "la mitad", "un tercio", "X%"
@@ -140,7 +162,7 @@ module.exports = {
           }
 
           if (!contraparte || !montoAbono || montoAbono <= 0 || isNaN(montoAbono)) {
-            return '¿A quién le pagaste y cuánto? Dime algo como:\n_"le pagué 100 a Juan"_\n_"Annie me dio la mitad"_';
+            return '¿A quién y cuánto? Dime algo como:\n_"le pagué 100 a Juan"_\n_"Annie me dio la mitad"_\n_"mi tía Jenny me pagó 500"_';
           }
           const resultado = await abonarDeuda(usuario.id, contraparte, montoAbono);
           if (!resultado) {
