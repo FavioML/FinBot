@@ -97,9 +97,9 @@ export async function GET(
     .order('settled_at', { ascending: false })
     .limit(10);
 
-  const membersTyped = (members || []) as MemberRow[];
-  const expensesTyped = (expenses || []) as ExpenseRow[];
-  const settlementsTyped = (settlements || []) as SettlementRow[];
+  const membersTyped = (members || []) as unknown as MemberRow[];
+  const expensesTyped = (expenses || []) as unknown as ExpenseRow[];
+  const settlementsTyped = (settlements || []) as unknown as SettlementRow[];
   const balance = computeBalances(membersTyped, expensesTyped, settlementsTyped);
 
   return NextResponse.json({
