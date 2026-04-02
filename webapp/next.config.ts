@@ -3,6 +3,9 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   // All pages that use Supabase must be dynamically rendered
   // (not pre-rendered at build time)
+  env: {
+    NEXT_PUBLIC_DEMO_MODE: process.env.NEXT_PUBLIC_DEMO_MODE || 'false',
+  },
   experimental: {},
   images: {
     remotePatterns: [
