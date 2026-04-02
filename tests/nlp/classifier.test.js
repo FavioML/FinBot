@@ -1,44 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
-// Este test verifica que el clasificador NLP se invoca correctamente.
-// Como el clasificador usa GPT-4o-mini internamente, testeamos:
-// 1. Que las constantes y mapeos de categorías son correctos
-// 2. Que normalizarCategoria cubre todos los casos del clasificador
-
-// Mock lib/ai directly — index.js imports openai from here, not from 'openai' package
-vi.mock('../../lib/ai', () => ({
-  openai: { chat: { completions: { create: vi.fn() } } }
-}));
-
-// Mock Supabase
-vi.mock('@supabase/supabase-js', () => ({
-  createClient: vi.fn(() => ({
-    from: vi.fn(() => ({
-      select: vi.fn().mockReturnThis(),
-      insert: vi.fn().mockReturnThis(),
-      update: vi.fn().mockReturnThis(),
-      delete: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: null }),
-      order: vi.fn().mockReturnThis(),
-      range: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockReturnThis(),
-      gte: vi.fn().mockReturnThis(),
-      not: vi.fn().mockReturnThis(),
-    }))
-  }))
-}));
-
-vi.mock('../../gmail', () => ({
-  generarUrlAutorizacion: vi.fn(),
-  guardarTokens: vi.fn(),
-  leerCorreosBancarios: vi.fn(),
-  oauth2Client: {},
-  obtenerPerfilGoogle: vi.fn(),
-  obtenerCuentasGmail: vi.fn(),
-}));
-
-vi.mock('dotenv', () => ({ config: vi.fn() }));
+// OpenAI is patched globally by tests/setup.js at the CJS instance level.
+// No vi.mock needed — the setup file handles CJS interop on Windows.
 
 const { normalizarCategoria, CATEGORIAS_VALIDAS, CATEGORIA_MAP } = await import('../../index.js');
 
