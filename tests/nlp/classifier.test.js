@@ -5,11 +5,9 @@ import { describe, it, expect, vi } from 'vitest';
 // 1. Que las constantes y mapeos de categorías son correctos
 // 2. Que normalizarCategoria cubre todos los casos del clasificador
 
-// Mock OpenAI
-vi.mock('openai', () => ({
-  OpenAI: vi.fn(() => ({
-    chat: { completions: { create: vi.fn() } }
-  }))
+// Mock lib/ai directly — index.js imports openai from here, not from 'openai' package
+vi.mock('../../lib/ai', () => ({
+  openai: { chat: { completions: { create: vi.fn() } } }
 }));
 
 // Mock Supabase

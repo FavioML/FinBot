@@ -3,11 +3,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Shared mock reference
 const mockCreate = vi.fn();
 
-// Mock OpenAI — the constructor returns an object whose chat.completions.create is our mock
-vi.mock('openai', () => ({
-  OpenAI: vi.fn().mockImplementation(() => ({
-    chat: { completions: { create: mockCreate } }
-  }))
+// Mock lib/ai directly — parsers.js imports openai from here, not from 'openai' package
+vi.mock('../../lib/ai', () => ({
+  openai: { chat: { completions: { create: mockCreate } } }
 }));
 
 // Mock Supabase

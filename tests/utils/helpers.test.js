@@ -3,11 +3,9 @@ import { describe, it, expect } from 'vitest';
 // Mock de dependencias externas antes de importar index.js
 import { vi } from 'vitest';
 
-// Mock OpenAI
-vi.mock('openai', () => ({
-  OpenAI: vi.fn(() => ({
-    chat: { completions: { create: vi.fn() } }
-  }))
+// Mock lib/ai directly — index.js imports openai from here, not from 'openai' package
+vi.mock('../../lib/ai', () => ({
+  openai: { chat: { completions: { create: vi.fn() } } }
 }));
 
 // Mock Supabase
