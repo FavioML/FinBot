@@ -133,6 +133,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Monto límite inválido' }, { status: 400 });
   }
 
+  // Use mes/anio from body if provided (for creating budgets in a specific month),
+  // otherwise default to current month in Lima timezone
+  const now = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+  const defaultMes = parseInt(now.split('-')[1], 10);
+  const defaultAnio = parseInt(now.split('-')[0], 10);
+  const mes = body.mes ? parseInt(body.mes, 10) : defaultMes;
+  const anio = body.anio ? parseInt(body.anio, 10) : defaultAnio;
+
   const { data, error } = await serviceClient
     .from('presupuestos')
     .insert({
@@ -141,8 +149,8 @@ export async function POST(request: Request) {
       subcategoria: capitalize(body.subcategoria),
       monto_limite: montoLimite,
       alerta_porcentaje: body.alerta_porcentaje || 80,
-      mes: parseInt(new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' }).split('-')[1], 10),
-      anio: parseInt(new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' }).split('-')[0], 10),
+      mes,
+      anio,
     })
     .select()
     .single();

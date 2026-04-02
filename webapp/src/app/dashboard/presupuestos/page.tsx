@@ -96,11 +96,11 @@ export default function PresupuestosPage() {
     queryClient.invalidateQueries({ queryKey: ['transactions'] });
   }, [queryClient]);
 
-  // Compute user's unique categories from transactions AND budgets
+  // Compute user's unique categories from ALL transactions (not just current month) AND budgets
   const userCategorias = useMemo<CategoriaOption[]>(() => {
     const catMap = new Map<string, Set<string>>();
-    // From transactions
-    for (const t of transactions) {
+    // From ALL transactions (so subcategories from any month appear in dropdowns)
+    for (const t of allTransactions) {
       if (!catMap.has(t.categoria)) catMap.set(t.categoria, new Set());
       if (t.subcategoria && t.subcategoria !== 'null' && t.subcategoria !== 'sin_categoria') {
         catMap.get(t.categoria)!.add(t.subcategoria);
@@ -118,7 +118,7 @@ export default function PresupuestosPage() {
       emoji: getCategoriaEmoji(nombre),
       subs: Array.from(subs),
     }));
-  }, [transactions, budgets]);
+  }, [allTransactions, budgets]);
 
   // Compute average monthly spending per category (last 3 months)
   const spendingAvgByCategory = useMemo(() => {
@@ -410,6 +410,8 @@ export default function PresupuestosPage() {
         userCategorias={userCategorias}
         existingBudgets={budgets}
         spendingAvgByCategory={spendingAvgByCategory}
+        mes={currentMonth}
+        anio={currentYear}
       />
 
       {/* Edit dialog */}
@@ -425,6 +427,8 @@ export default function PresupuestosPage() {
             ? (groupedBudgets.get(editBudget.categoria)?.subs ?? [])
             : undefined
         }
+        mes={currentMonth}
+        anio={currentYear}
       />
 
       {/* Delete confirmation dialog */}

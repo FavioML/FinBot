@@ -45,6 +45,9 @@ interface BudgetFormProps {
   groupSubBudgets?: Presupuesto[];
   /** Average monthly spending per category (for suggestions) */
   spendingAvgByCategory?: Map<string, number>;
+  /** Month/year to create budgets for (defaults to current month) */
+  mes?: number;
+  anio?: number;
 }
 
 function mergeAndDedup(userCategorias?: CategoriaOption[]): CategoriaOption[] {
@@ -87,7 +90,7 @@ function mergeAndDedup(userCategorias?: CategoriaOption[]): CategoriaOption[] {
   return merged.sort((a, b) => a.nombre.localeCompare(b.nombre));
 }
 
-export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategorias, existingBudgets = [], groupSubBudgets, spendingAvgByCategory }: BudgetFormProps) {
+export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategorias, existingBudgets = [], groupSubBudgets, spendingAvgByCategory, mes, anio }: BudgetFormProps) {
   const isEditing = !!budget;
 
   const [categoria, setCategoria] = useState('');
@@ -244,6 +247,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
               subcategoria: effSub,
               monto_limite: parseFloat(row.monto) || 0,
               alerta_porcentaje: parseInt(alertaPorcentaje, 10) || 80,
+              ...(mes && anio ? { mes, anio } : {}),
             };
             console.log('[BudgetForm] Creating new sub-budget:', subPayload);
             const subRes = await fetch('/api/budgets', {
@@ -275,6 +279,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
             subcategoria: null,
             monto_limite: parseFloat(montoLimite) || 0,
             alerta_porcentaje: parseInt(alertaPorcentaje, 10) || 80,
+            ...(mes && anio ? { mes, anio } : {}),
           });
         }
 
@@ -287,6 +292,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
               subcategoria: effSub,
               monto_limite: parseFloat(row.monto) || 0,
               alerta_porcentaje: parseInt(alertaPorcentaje, 10) || 80,
+              ...(mes && anio ? { mes, anio } : {}),
             });
           }
         }
