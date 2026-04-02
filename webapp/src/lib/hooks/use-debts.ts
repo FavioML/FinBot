@@ -23,6 +23,8 @@ export interface Deuda {
   fecha_inicio: string;
   fecha_vencimiento: string | null;
   estado: 'activa' | 'pagada';
+  invite_code: string | null;
+  deuda_vinculada_id: string | null;
   created_at: string;
   updated_at: string;
   deuda_abonos?: DeudaAbono[];
@@ -127,5 +129,18 @@ export function useDebtMutations() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['debts'] }),
   });
 
-  return { create, update, pay, markPaid, remove };
+  const shareDebt = useMutation({
+    mutationFn: async (deuda_id: string) => {
+      const res = await fetch('/api/debts/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deuda_id }),
+      });
+      if (!res.ok) throw new Error('Failed to generate invite link');
+      return res.json() as Promise<{ invite_code: string; link: string }>;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['debts'] }),
+  });
+
+  return { create, update, pay, markPaid, remove, shareDebt };
 }

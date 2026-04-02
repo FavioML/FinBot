@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Plus, Trash2, Check, TrendingDown, TrendingUp, Coins, Pencil, Users, AlertTriangle, Clock, Edit2, Calendar } from 'lucide-react';
+import { Plus, Trash2, Check, TrendingDown, TrendingUp, Coins, Pencil, Users, AlertTriangle, Clock, Edit2, Calendar, Share2, Link2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -27,7 +27,7 @@ type Tab = 'debo' | 'me_deben' | 'pagadas' | 'compartidos';
 export default function DeudasPage() {
   const { data: user, isLoading: userLoading } = useUser();
   const { data: allDebts = [], isLoading: debtsLoading } = useDebts(user?.id);
-  const { create, update, pay, markPaid, remove } = useDebtMutations();
+  const { create, update, pay, markPaid, remove, shareDebt } = useDebtMutations();
   const { data: splitExpenses = [] } = useSplitExpenses(user?.id);
   const splitMutations = useSplitMutations();
 
@@ -195,6 +195,16 @@ export default function DeudasPage() {
       setDeleteId(null);
     } catch {
       toast.error('Error al eliminar');
+    }
+  }
+
+  async function handleShare(debt: Deuda) {
+    try {
+      const result = await shareDebt.mutateAsync(debt.id);
+      await navigator.clipboard.writeText(result.link);
+      toast.success('Link copiado al portapapeles');
+    } catch {
+      toast.error('Error al generar el link');
     }
   }
 
@@ -831,6 +841,19 @@ export default function DeudasPage() {
                               >
                                 Abonar
                               </button>
+                              {debt.tipo === 'me_deben' && (
+                                <button
+                                  onClick={() => handleShare(debt)}
+                                  className={`p-1.5 rounded-lg transition-colors ${
+                                    debt.invite_code
+                                      ? 'text-[#1D9E75] hover:bg-[rgba(29,158,117,0.08)]'
+                                      : 'text-[#8A877D] hover:text-[#1D9E75] hover:bg-[rgba(29,158,117,0.08)]'
+                                  }`}
+                                  title={debt.invite_code ? 'Copiar link de cobro' : 'Generar link de cobro'}
+                                >
+                                  {debt.invite_code ? <Link2 className="h-3.5 w-3.5" /> : <Share2 className="h-3.5 w-3.5" />}
+                                </button>
+                              )}
                               <button
                                 onClick={() => setEditDebt(debt)}
                                 className="p-1.5 rounded-lg text-[#8A877D] hover:text-[#EF9F27] hover:bg-[rgba(239,159,39,0.08)] transition-colors"

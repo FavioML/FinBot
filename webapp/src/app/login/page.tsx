@@ -24,10 +24,15 @@ const features = [
 export default function LoginPage() {
   const handleGoogleLogin = async () => {
     const supabase = createClient();
+    const params = new URLSearchParams(window.location.search);
+    const redirect = params.get('redirect');
+    const callbackUrl = redirect
+      ? `${window.location.origin}/auth/callback?next=${encodeURIComponent(redirect)}`
+      : `${window.location.origin}/auth/callback`;
     await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: callbackUrl,
       },
     });
   };
