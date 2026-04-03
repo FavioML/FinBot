@@ -330,7 +330,7 @@ export default function SpaceDetailPage() {
               </button>
               <button
                 onClick={() => {
-                  const link = `${window.location.origin}/dashboard/espacios?join=${space.invite_code}`;
+                  const link = `${window.location.origin}/join/space/${space.invite_code}`;
                   navigator.clipboard.writeText(link);
                   setCopiedLink(true);
                   setTimeout(() => setCopiedLink(false), 2000);
