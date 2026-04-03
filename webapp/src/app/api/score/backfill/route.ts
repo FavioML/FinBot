@@ -87,7 +87,7 @@ export async function POST() {
       for (const b of budgets) {
         const spent = monthTxs
           .filter(t => t.tipo === 'gasto' && t.categoria?.toLowerCase() === b.categoria?.toLowerCase())
-          .reduce((s: number, t: { monto_pen: number }) => s + t.monto_pen, 0);
+          .reduce((s: number, t: { monto_pen: number }) => s + parseFloat(String(t.monto_pen)), 0);
         const limit = parseFloat(String(b.monto_limite));
         const pct = limit > 0 ? (spent / limit) * 100 : 0;
         if (pct <= 100) totalBudgetScore += 100;
@@ -98,8 +98,8 @@ export async function POST() {
     }
 
     // Factor 3: Savings — (income - expenses) / income
-    const income = monthTxs.filter(t => t.tipo === 'ingreso').reduce((s: number, t: { monto_pen: number }) => s + t.monto_pen, 0);
-    const expenses = monthTxs.filter(t => t.tipo === 'gasto').reduce((s: number, t: { monto_pen: number }) => s + t.monto_pen, 0);
+    const income = monthTxs.filter(t => t.tipo === 'ingreso').reduce((s: number, t: { monto_pen: number }) => s + parseFloat(String(t.monto_pen)), 0);
+    const expenses = monthTxs.filter(t => t.tipo === 'gasto').reduce((s: number, t: { monto_pen: number }) => s + parseFloat(String(t.monto_pen)), 0);
     let savings = 50;
     if (income > 0) {
       const ratio = (income - expenses) / income;
@@ -144,12 +144,12 @@ export async function POST() {
     const { error } = await getServiceClient().from('neto_scores').upsert({
       user_id: usuario.id,
       score,
-      factor_consistency: factors.consistency,
-      factor_budget: factors.budget,
-      factor_savings: factors.savings,
-      factor_goals: factors.goals,
-      factor_debts: factors.debts,
-      factor_visibility: factors.visibility,
+      factor_consistency: Math.round(factors.consistency),
+      factor_budget: Math.round(factors.budget),
+      factor_savings: Math.round(factors.savings),
+      factor_goals: Math.round(factors.goals),
+      factor_debts: Math.round(factors.debts),
+      factor_visibility: Math.round(factors.visibility),
       period,
     }, { onConflict: 'user_id,period' });
 
