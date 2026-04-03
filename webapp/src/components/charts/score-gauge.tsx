@@ -92,8 +92,9 @@ export function ScoreGauge({ score, size = 'sm', trend }: ScoreGaugeProps) {
       <svg
         width="100%"
         viewBox={`0 0 ${vbWidth} ${vbHeight}`}
+        preserveAspectRatio="xMidYMid meet"
         overflow="visible"
-        style={{ display: 'block' }}
+        style={{ display: 'block', aspectRatio: `${vbWidth} / ${vbHeight}` }}
       >
         {/* Background track */}
         <path
