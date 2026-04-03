@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { TrendingUp, TrendingDown, Wallet, ArrowUp, ArrowDown } from 'lucide-react';
 import { NumberTicker } from '@/components/ui/number-ticker';
 import { StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
@@ -14,6 +15,7 @@ interface KPICardsProps {
     ahorro: number[];
     score: number[];
   };
+  netoScore?: { score: number | null } | null;
 }
 
 function ComparisonBadge({ current, previous, invertColor }: { current: number; previous: number; invertColor?: boolean }) {
@@ -38,8 +40,40 @@ function ComparisonBadge({ current, previous, invertColor }: { current: number; 
   );
 }
 
-export function KPICards({ data, sparklines }: KPICardsProps) {
+function MiniScoreRing({ score }: { score: number }) {
+  const r = 18;
+  const strokeW = 3;
+  const size = (r + strokeW) * 2;
+  const circ = 2 * Math.PI * r;
+  const pct = Math.max(0, Math.min(100, score));
+  const offset = circ * (1 - pct / 100);
+  const color = score >= 80 ? '#1D9E75' : score >= 60 ? '#3B9EDB' : score >= 40 ? '#E8A838' : '#E85D3A';
+
+  return (
+    <Link href="/dashboard/score" className="relative shrink-0 group" title="Tu Neto Score">
+      <svg width={size} height={size} className="block -rotate-90">
+        <circle cx={r + strokeW} cy={r + strokeW} r={r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={strokeW} />
+        <circle
+          cx={r + strokeW} cy={r + strokeW} r={r} fill="none"
+          stroke={color} strokeWidth={strokeW}
+          strokeDasharray={circ} strokeDashoffset={offset}
+          strokeLinecap="round"
+          className="transition-all duration-700"
+        />
+      </svg>
+      <span
+        className="absolute inset-0 flex items-center justify-center text-[10px] font-bold"
+        style={{ color }}
+      >
+        {score}
+      </span>
+    </Link>
+  );
+}
+
+export function KPICards({ data, sparklines, netoScore }: KPICardsProps) {
   const ahorroColor = data.ahorro >= 0 ? '#1D9E75' : '#EF9F27';
+  const scoreValue = netoScore?.score;
 
   const cards = [
     {
@@ -51,6 +85,7 @@ export function KPICards({ data, sparklines }: KPICardsProps) {
       prev: data.prevIngresos,
       invertColor: false,
       spark: sparklines?.ingresos,
+      showScore: false,
     },
     {
       label: 'Total Gastos',
@@ -61,6 +96,7 @@ export function KPICards({ data, sparklines }: KPICardsProps) {
       prev: data.prevGastos,
       invertColor: true,
       spark: sparklines?.gastos,
+      showScore: false,
     },
     {
       label: 'Ahorro',
@@ -72,6 +108,7 @@ export function KPICards({ data, sparklines }: KPICardsProps) {
         ? `${data.ahorroPorcentaje >= 0 ? '+' : ''}${data.ahorroPorcentaje.toFixed(1)}%`
         : undefined,
       spark: sparklines?.ahorro,
+      showScore: true,
     },
   ];
 
@@ -113,9 +150,11 @@ export function KPICards({ data, sparklines }: KPICardsProps) {
                   className="!text-inherit"
                 />
               </p>
-              {card.spark && card.spark.length >= 2 && (
+              {card.showScore && scoreValue != null ? (
+                <MiniScoreRing score={scoreValue} />
+              ) : card.spark && card.spark.length >= 2 ? (
                 <Sparkline data={card.spark} color={card.color} />
-              )}
+              ) : null}
             </div>
           </div>
           </StaggerItem>

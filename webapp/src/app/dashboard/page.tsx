@@ -4,7 +4,7 @@ import { useMemo, useState, useCallback, lazy, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { Receipt, CreditCard, Pencil, ChevronDown, Target, Wallet, Award, Lock, AlertTriangle, Users } from 'lucide-react';
+import { Receipt, CreditCard, Pencil, ChevronDown, Target, Wallet, Award, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -28,7 +28,6 @@ import { InsightCard, generateInsight } from '@/components/dashboard/insight-car
 import { CategoryDonut } from '@/components/charts/category-donut';
 import { TrendLine } from '@/components/charts/trend-line';
 import { ScoreTrend } from '@/components/charts/score-trend';
-import { ScoreGauge } from '@/components/charts/score-gauge';
 import { SpendingProjection } from '@/components/dashboard/spending-projection';
 import { ExchangeRateWidget } from '@/components/dashboard/exchange-rate-widget';
 import { QuickActions } from '@/components/dashboard/quick-actions';
@@ -50,7 +49,6 @@ import { useTransactions } from '@/lib/hooks/use-transactions';
 import { useBudgets } from '@/lib/hooks/use-budgets';
 import { useGoals, useAchievements } from '@/lib/hooks/use-goals';
 import { useDebts } from '@/lib/hooks/use-debts';
-import { useSpaces } from '@/lib/hooks/use-shared-spaces';
 import { FadeIn } from '@/components/shared/motion-wrapper';
 import { formatCurrency, formatFecha, calcularScoreFinanciero, getScoreColor, getScoreLabel } from '@/lib/utils';
 import { getCategoriaEmoji, MESES, SOCIAL_LINKS } from '@/lib/constants';
@@ -93,7 +91,6 @@ export default function DashboardPage() {
   // Load goals, debts and achievements for overview widgets
   const { data: goals = [] } = useGoals(user?.id);
   const { data: allDebts = [] } = useDebts(user?.id);
-  const { data: spacesData } = useSpaces();
   const { data: achievements = [] } = useAchievements(user?.id);
   const { data: netoScore } = useNetoScore();
   const { data: alertsData } = useSpendingAlerts(10);
@@ -434,77 +431,30 @@ export default function DashboardPage() {
 
           {/* KPI cards */}
           <FadeIn delay={0.08}>
-            <KPICards data={kpiData} sparklines={sparklines} />
+            <KPICards data={kpiData} sparklines={sparklines} netoScore={netoScore} />
           </FadeIn>
 
-          {/* Score + Fugas + Espacios row */}
+          {/* Fugas alert banner — subtle, only when there are recent alerts */}
           {(() => {
-            const hasScore = netoScore?.score != null;
             const twoWeeksAgo = new Date();
             twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
             const recentAlerts = (alertsData?.alerts ?? []).filter(
               (a) => new Date(a.created_at) >= twoWeeksAgo
             );
-            const hasAlerts = recentAlerts.length > 0;
-            const hasSpaces = (spacesData?.spaces.length ?? 0) > 0;
-            const visibleCount = [hasScore, hasAlerts, hasSpaces].filter(Boolean).length;
-            if (visibleCount === 0) return null;
-            const gridCols = visibleCount === 3 ? 'md:grid-cols-3' : visibleCount === 2 ? 'md:grid-cols-2' : '';
+            if (recentAlerts.length === 0) return null;
             return (
               <FadeIn delay={0.10}>
-                <div className={`grid grid-cols-1 ${gridCols} gap-4`}>
-                  {hasScore && (
-                    <div className="glass-card p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-base font-semibold text-[#F0EFE8]">Tu Neto Score</h3>
-                        <Link href="/dashboard/score" className="text-[#1D9E75] text-sm hover:underline">
-                          Ver detalle →
-                        </Link>
-                      </div>
-                      <div className="flex items-center justify-center">
-                        <ScoreGauge score={netoScore!.score!} size="sm" />
-                      </div>
-                      {user?.plan !== 'premium' && (
-                        <p className="text-[#8A877D] text-xs text-center mt-1 flex items-center justify-center gap-1">
-                          <Lock className="w-3 h-3" />
-                          Pasa a Pro para ver el desglose
-                        </p>
-                      )}
-                    </div>
-                  )}
-                  {hasAlerts && (
-                    <div className="glass-card p-4">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-base font-semibold text-[#F0EFE8] flex items-center gap-2">
-                          <AlertTriangle className="w-5 h-5 text-yellow-500" />
-                          Fugas detectadas
-                        </h3>
-                        <Link href="/dashboard/alertas" className="text-[#1D9E75] text-sm hover:underline">
-                          Ver todas →
-                        </Link>
-                      </div>
-                      <p className="text-[#8A877D] text-sm mt-1">
-                        {recentAlerts.length} alerta{recentAlerts.length > 1 ? 's' : ''} este mes
-                      </p>
-                    </div>
-                  )}
-                  {hasSpaces && (
-                    <div className="glass-card p-4">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-base font-semibold text-[#F0EFE8] flex items-center gap-2">
-                          <Users className="w-5 h-5 text-blue-400" />
-                          Espacios compartidos
-                        </h3>
-                        <Link href="/dashboard/espacios" className="text-[#1D9E75] text-sm hover:underline">
-                          Ver todos →
-                        </Link>
-                      </div>
-                      <p className="text-[#8A877D] text-sm mt-1">
-                        {spacesData!.spaces.length} espacio{spacesData!.spaces.length > 1 ? 's' : ''} activo{spacesData!.spaces.length > 1 ? 's' : ''}
-                      </p>
-                    </div>
-                  )}
-                </div>
+                <Link
+                  href="/dashboard/alertas"
+                  className="flex items-center gap-3 rounded-xl px-4 py-3 transition-colors hover:bg-white/[0.04]"
+                  style={{ backgroundColor: 'rgba(232, 168, 56, 0.06)', border: '1px solid rgba(232, 168, 56, 0.12)' }}
+                >
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-[#E8A838]" />
+                  <span className="text-sm text-[#E8A838]/90">
+                    {recentAlerts.length} fuga{recentAlerts.length > 1 ? 's' : ''} detectada{recentAlerts.length > 1 ? 's' : ''} recientemente
+                  </span>
+                  <span className="ml-auto text-xs text-[#8A877D]">Ver →</span>
+                </Link>
               </FadeIn>
             );
           })()}
