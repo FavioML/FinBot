@@ -5,6 +5,8 @@ import { createClient } from '@/lib/supabase/client';
 import type { Transaccion } from '@/lib/types';
 import type { SuscripcionDetectada, TipoSuscripcion } from '@/lib/subscriptions-catalog';
 import { TIPO_LABELS, TC_APROXIMADO } from '@/lib/subscriptions-catalog';
+import { IS_DEMO } from '@/lib/demo/is-demo';
+import { DEMO_TRANSACTIONS } from '@/lib/demo/mock-data';
 
 // ═══════════════════════════════════════════════════════════════
 // CATÁLOGO DE ENRIQUECIMIENTO — Metadata extra para servicios conocidos
@@ -228,12 +230,19 @@ function detectarSuscripcionesFromTxs(txs: Transaccion[]): DeteccionResult {
 }
 
 export function useSubscriptions(usuarioId?: string) {
-  const supabase = createClient()
-
   return useQuery({
     queryKey: ['subscriptions', usuarioId],
     queryFn: async (): Promise<DeteccionResult> => {
+      if (IS_DEMO) {
+        const demoSubs = DEMO_TRANSACTIONS.filter(
+          t => t.tipo === 'gasto' && t.categoria === 'Suscripciones'
+        )
+        return detectarSuscripcionesFromTxs(demoSubs)
+      }
+
       if (!usuarioId) return { suscripciones: [], totalMensualPEN: 0, totalMensualUSD: 0, cantidad: 0, porTipo: {}, ahorroPotencialFamiliar: 0 }
+
+      const supabase = createClient()
 
       // Traer solo transacciones de la categoría "Suscripciones" (últimos 3 meses)
       const hace3Meses = new Date()
@@ -252,7 +261,7 @@ export function useSubscriptions(usuarioId?: string) {
       if (error) throw error
       return detectarSuscripcionesFromTxs(data || [])
     },
-    enabled: !!usuarioId,
+    enabled: IS_DEMO || !!usuarioId,
     staleTime: 5 * 60 * 1000, // 5 minutos
   })
 }

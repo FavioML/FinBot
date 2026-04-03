@@ -1,6 +1,8 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import { IS_DEMO } from '@/lib/demo/is-demo';
+import { DEMO_SCORE } from '@/lib/demo/mock-data';
 
 export interface NetoScoreFactors {
   consistency: number;
@@ -33,6 +35,7 @@ export function useNetoScore() {
   return useQuery<NetoScoreData>({
     queryKey: ['neto-score'],
     queryFn: async () => {
+      if (IS_DEMO) return DEMO_SCORE;
       const res = await fetch('/api/score');
       if (!res.ok) throw new Error('Failed to fetch score');
       return res.json();
@@ -46,6 +49,7 @@ export function useNetoScoreHistory(months = 6) {
   return useQuery<NetoScoreData>({
     queryKey: ['neto-score-history', months],
     queryFn: async () => {
+      if (IS_DEMO) return DEMO_SCORE;
       const res = await fetch(`/api/score?history=true&months=${months}`);
       if (!res.ok) throw new Error('Failed to fetch score history');
       return res.json();

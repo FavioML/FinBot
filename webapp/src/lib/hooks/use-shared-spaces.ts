@@ -1,6 +1,8 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { IS_DEMO } from '@/lib/demo/is-demo';
+import { DEMO_SPACES, DEMO_SPACE_DETAIL } from '@/lib/demo/mock-data';
 
 export interface SharedSpace {
   id: string;
@@ -52,6 +54,7 @@ export function useSpaces() {
   return useQuery<{ spaces: SharedSpace[]; isPro: boolean }>({
     queryKey: ['spaces'],
     queryFn: async () => {
+      if (IS_DEMO) return DEMO_SPACES;
       const res = await fetch('/api/spaces');
       if (!res.ok) throw new Error('Failed to fetch spaces');
       return res.json();
@@ -65,11 +68,12 @@ export function useSpaceDetail(spaceId: string) {
   return useQuery<SpaceDetail>({
     queryKey: ['space', spaceId],
     queryFn: async () => {
+      if (IS_DEMO) return DEMO_SPACE_DETAIL;
       const res = await fetch(`/api/spaces/${spaceId}`);
       if (!res.ok) throw new Error('Failed to fetch space');
       return res.json();
     },
-    enabled: !!spaceId,
+    enabled: IS_DEMO || !!spaceId,
     staleTime: 5 * 60 * 1000,
     retry: 1,
   });
@@ -79,6 +83,7 @@ export function useAddExpense(spaceId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: { amount: number; description: string; category?: string }) => {
+      if (IS_DEMO) return { ok: true, id: `demo-${Date.now()}` };
       const res = await fetch(`/api/spaces/${spaceId}/expenses`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -95,6 +100,7 @@ export function useSettle(spaceId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: { to_user: string; amount: number }) => {
+      if (IS_DEMO) return { ok: true };
       const res = await fetch(`/api/spaces/${spaceId}/settle`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -111,6 +117,7 @@ export function useJoinSpace() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (code: string) => {
+      if (IS_DEMO) return { ok: true, code };
       const res = await fetch('/api/spaces/join', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -127,6 +134,7 @@ export function useCreateSpace() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: { name: string; type?: string }) => {
+      if (IS_DEMO) return { ok: true, id: `demo-${Date.now()}` };
       const res = await fetch('/api/spaces', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -1,6 +1,8 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import { IS_DEMO } from '@/lib/demo/is-demo';
+import { DEMO_ALERTS } from '@/lib/demo/mock-data';
 
 export interface SpendingAlert {
   id: string;
@@ -23,6 +25,7 @@ export function useSpendingAlerts(limit = 20) {
   return useQuery<AlertsData>({
     queryKey: ['spending-alerts', limit],
     queryFn: async () => {
+      if (IS_DEMO) return { ...DEMO_ALERTS, alerts: DEMO_ALERTS.alerts.slice(0, limit) };
       const res = await fetch(`/api/alerts?limit=${limit}`);
       if (!res.ok) throw new Error('Failed to fetch alerts');
       return res.json();

@@ -11,6 +11,7 @@ import { OnboardingTour } from '@/components/dashboard/onboarding-tour';
 import { WhatsAppButton } from '@/components/shared/whatsapp-button';
 import { useUser } from '@/lib/hooks/use-user';
 import { createClient } from '@/lib/supabase/client';
+import { IS_DEMO } from '@/lib/demo/is-demo';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -27,6 +28,7 @@ function AuthRedirect() {
   const { data: user, isLoading } = useUser();
 
   useEffect(() => {
+    if (IS_DEMO) return;
     if (isLoading) return;
     if (user) return; // has usuarios record — all good
 

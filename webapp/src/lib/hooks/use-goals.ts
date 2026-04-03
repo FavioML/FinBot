@@ -1,6 +1,8 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { IS_DEMO } from '@/lib/demo/is-demo';
+import { DEMO_GOALS, DEMO_GOAL_CONTRIBUTIONS, DEMO_ACHIEVEMENTS } from '@/lib/demo/mock-data';
 
 export interface MetaAhorro {
   id: string;
@@ -47,11 +49,12 @@ export function useGoals(userId?: string) {
   return useQuery<MetaAhorro[]>({
     queryKey: ['goals', userId],
     queryFn: async () => {
+      if (IS_DEMO) return DEMO_GOALS;
       const res = await fetch('/api/goals');
       if (!res.ok) throw new Error('Failed to fetch goals');
       return res.json();
     },
-    enabled: !!userId,
+    enabled: IS_DEMO || !!userId,
   });
 }
 
@@ -59,11 +62,12 @@ export function useGoalContributions(metaId?: string) {
   return useQuery<MetaAporte[]>({
     queryKey: ['goal-contributions', metaId],
     queryFn: async () => {
+      if (IS_DEMO) return DEMO_GOAL_CONTRIBUTIONS.filter(a => a.meta_id === metaId);
       const res = await fetch(`/api/goals/aportes?meta_id=${metaId}`);
       if (!res.ok) throw new Error('Failed to fetch contributions');
       return res.json();
     },
-    enabled: !!metaId,
+    enabled: IS_DEMO || !!metaId,
   });
 }
 
@@ -71,11 +75,12 @@ export function useAchievements(userId?: string) {
   return useQuery<Logro[]>({
     queryKey: ['achievements', userId],
     queryFn: async () => {
+      if (IS_DEMO) return DEMO_ACHIEVEMENTS;
       const res = await fetch('/api/achievements');
       if (!res.ok) throw new Error('Failed to fetch achievements');
       return res.json();
     },
-    enabled: !!userId,
+    enabled: IS_DEMO || !!userId,
   });
 }
 
@@ -93,11 +98,12 @@ export function useGoalParticipants(metaId?: string) {
   return useQuery<MetaParticipante[]>({
     queryKey: ['goal-participants', metaId],
     queryFn: async () => {
+      if (IS_DEMO) return [];
       const res = await fetch(`/api/goals/participants?meta_id=${metaId}`);
       if (!res.ok) throw new Error('Failed to fetch participants');
       return res.json();
     },
-    enabled: !!metaId,
+    enabled: IS_DEMO || !!metaId,
   });
 }
 
@@ -111,6 +117,7 @@ export function useGoalMutations() {
 
   const create = useMutation({
     mutationFn: async (goal: GoalInput) => {
+      if (IS_DEMO) return { ok: true, id: `demo-${Date.now()}` };
       const res = await fetch('/api/goals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -124,6 +131,7 @@ export function useGoalMutations() {
 
   const update = useMutation({
     mutationFn: async (goal: GoalInput) => {
+      if (IS_DEMO) return { ok: true, id: `demo-${Date.now()}` };
       const res = await fetch('/api/goals', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -137,6 +145,7 @@ export function useGoalMutations() {
 
   const remove = useMutation({
     mutationFn: async (id: string) => {
+      if (IS_DEMO) return { ok: true, id };
       const res = await fetch(`/api/goals?id=${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to delete goal');
       return res.json();
@@ -146,6 +155,7 @@ export function useGoalMutations() {
 
   const contribute = useMutation({
     mutationFn: async (data: { meta_id: string; monto: number; tipo?: 'aporte' | 'retiro'; nota?: string }) => {
+      if (IS_DEMO) return { ok: true, id: `demo-${Date.now()}` };
       const res = await fetch('/api/goals/aportes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -163,6 +173,7 @@ export function useGoalMutations() {
 
   const removeContribution = useMutation({
     mutationFn: async (id: string) => {
+      if (IS_DEMO) return { ok: true, id };
       const res = await fetch(`/api/goals/aportes?id=${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to delete contribution');
       return res.json();
@@ -176,6 +187,7 @@ export function useGoalMutations() {
 
   const generateInvite = useMutation({
     mutationFn: async (meta_id: string) => {
+      if (IS_DEMO) return { invite_code: 'DEMO-INVITE', link: 'https://demo.neto.pe/join/DEMO-INVITE' };
       const res = await fetch('/api/goals/invite', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -189,6 +201,7 @@ export function useGoalMutations() {
 
   const joinGoal = useMutation({
     mutationFn: async (code: string) => {
+      if (IS_DEMO) return { ok: true, code };
       const res = await fetch('/api/goals/join', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -202,6 +215,7 @@ export function useGoalMutations() {
 
   const disableCollab = useMutation({
     mutationFn: async (meta_id: string) => {
+      if (IS_DEMO) return { ok: true, meta_id };
       const res = await fetch(`/api/goals/participants?meta_id=${meta_id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to disable collaborative mode');
       return res.json();
@@ -219,6 +233,7 @@ export function useAbandonPlan() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (metaId: string) => {
+      if (IS_DEMO) return { ok: true, id: metaId };
       const res = await fetch(`/api/goals/${metaId}/abandon`, { method: 'POST' });
       if (!res.ok) throw new Error('Failed to abandon plan');
       return res.json();

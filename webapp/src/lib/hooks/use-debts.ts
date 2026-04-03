@@ -1,6 +1,8 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { IS_DEMO } from '@/lib/demo/is-demo';
+import { DEMO_DEBTS } from '@/lib/demo/mock-data';
 
 export interface DeudaAbono {
   id: string;
@@ -34,11 +36,12 @@ export function useDebts(userId?: string) {
   return useQuery<Deuda[]>({
     queryKey: ['debts', userId],
     queryFn: async () => {
+      if (IS_DEMO) return DEMO_DEBTS;
       const res = await fetch('/api/debts');
       if (!res.ok) throw new Error('Failed to fetch debts');
       return res.json();
     },
-    enabled: !!userId,
+    enabled: IS_DEMO || !!userId,
   });
 }
 
@@ -70,6 +73,7 @@ export function useDebtMutations() {
 
   const create = useMutation({
     mutationFn: async (debt: Partial<Deuda> & { monto_original: number }) => {
+      if (IS_DEMO) return { ok: true, id: `demo-${Date.now()}` };
       const res = await fetch('/api/debts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -83,6 +87,7 @@ export function useDebtMutations() {
 
   const pay = useMutation({
     mutationFn: async ({ id, monto, nota }: { id: string; monto: number; nota?: string }) => {
+      if (IS_DEMO) return { ok: true, id };
       const res = await fetch('/api/debts', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -96,6 +101,7 @@ export function useDebtMutations() {
 
   const markPaid = useMutation({
     mutationFn: async (id: string) => {
+      if (IS_DEMO) return { ok: true, id };
       const res = await fetch('/api/debts', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -109,6 +115,7 @@ export function useDebtMutations() {
 
   const update = useMutation({
     mutationFn: async ({ id, ...fields }: { id: string; contraparte?: string; descripcion?: string | null; fecha_vencimiento?: string | null }) => {
+      if (IS_DEMO) return { ok: true, id };
       const res = await fetch('/api/debts', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -122,6 +129,7 @@ export function useDebtMutations() {
 
   const remove = useMutation({
     mutationFn: async (id: string) => {
+      if (IS_DEMO) return { ok: true, id };
       const res = await fetch(`/api/debts?id=${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to delete debt');
       return res.json();
@@ -131,6 +139,7 @@ export function useDebtMutations() {
 
   const shareDebt = useMutation({
     mutationFn: async (deuda_id: string) => {
+      if (IS_DEMO) return { invite_code: 'DEMO-DEBT-INVITE', link: 'https://demo.neto.pe/debt/DEMO-DEBT-INVITE' };
       const res = await fetch('/api/debts/invite', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

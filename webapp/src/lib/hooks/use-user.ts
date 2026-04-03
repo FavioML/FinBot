@@ -3,13 +3,16 @@
 import { useQuery } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
 import type { Usuario } from '@/lib/types';
+import { IS_DEMO } from '@/lib/demo/is-demo';
+import { DEMO_USER } from '@/lib/demo/mock-data';
 
 export function useUser() {
-  const supabase = createClient();
-
   return useQuery({
     queryKey: ['user'],
     queryFn: async (): Promise<Usuario | null> => {
+      if (IS_DEMO) return DEMO_USER;
+
+      const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return null;
 
