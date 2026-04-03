@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 import { useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Plus, CreditCard, Copy, Check, Users, Pencil, Trash2, PieChart, Target } from 'lucide-react';
+import { ArrowLeft, Plus, CreditCard, Copy, Check, Users, UserPlus, Pencil, Trash2, PieChart, Target } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -30,6 +30,7 @@ import {
   useSettle,
   useUpdateSplitRules,
   useUpdateBudgets,
+  useUpdateDefaultSplit,
   resolveSplit,
 } from '@/lib/hooks/use-shared-spaces';
 import type { SpaceSplitRule, SpaceBudget } from '@/lib/hooks/use-shared-spaces';
@@ -71,12 +72,15 @@ export default function SpaceDetailPage() {
   const settle = useSettle(spaceId);
   const updateSplitRules = useUpdateSplitRules(spaceId);
   const updateBudgets = useUpdateBudgets(spaceId);
+  const updateDefaultSplit = useUpdateDefaultSplit(spaceId);
 
   const [showExpenseDialog, setShowExpenseDialog] = useState(false);
   const [showSettleDialog, setShowSettleDialog] = useState(false);
   const [showSplitRuleDialog, setShowSplitRuleDialog] = useState(false);
   const [showBudgetDialog, setShowBudgetDialog] = useState(false);
+  const [showDefaultSplitDialog, setShowDefaultSplitDialog] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   // Expense form state
   const [expAmount, setExpAmount] = useState('');
@@ -90,6 +94,9 @@ export default function SpaceDetailPage() {
   // Budget form state
   const [budgetCategory, setBudgetCategory] = useState('');
   const [budgetLimit, setBudgetLimit] = useState('');
+
+  // Default split form state
+  const [defaultSplits, setDefaultSplits] = useState<Record<string, string>>({});
 
   // Settle form state
   const [settleToUser, setSettleToUser] = useState('');
@@ -273,13 +280,28 @@ export default function SpaceDetailPage() {
               <Users className="w-4 h-4 text-[#8A877D]" />
               Miembros ({members.length})
             </h2>
-            <button
-              onClick={copyInviteCode}
-              className="flex items-center gap-1.5 text-xs text-[#1D9E75] hover:underline"
-            >
-              {copiedCode ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-              {copiedCode ? 'Copiado' : `Código: ${space.invite_code}`}
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={copyInviteCode}
+                className="flex items-center gap-1.5 text-xs text-[#8A877D] hover:text-[#C8C6BC]"
+              >
+                {copiedCode ? <Check className="w-3.5 h-3.5 text-[#1D9E75]" /> : <Copy className="w-3.5 h-3.5" />}
+                {copiedCode ? 'Copiado' : space.invite_code}
+              </button>
+              <button
+                onClick={() => {
+                  const link = `${window.location.origin}/dashboard/espacios?join=${space.invite_code}`;
+                  navigator.clipboard.writeText(link);
+                  setCopiedLink(true);
+                  setTimeout(() => setCopiedLink(false), 2000);
+                  toast.success('Link de invitación copiado');
+                }}
+                className="flex items-center gap-1.5 text-xs text-[#1D9E75] hover:underline"
+              >
+                {copiedLink ? <Check className="w-3.5 h-3.5" /> : <UserPlus className="w-3.5 h-3.5" />}
+                {copiedLink ? 'Copiado' : 'Invitar'}
+              </button>
+            </div>
           </div>
           <div className="space-y-2">
             {members.map((m) => (
@@ -328,7 +350,18 @@ export default function SpaceDetailPage() {
 
           {/* Default rule */}
           <div className="rounded-lg bg-[rgba(255,255,255,0.02)] p-3 border border-[rgba(255,255,255,0.04)]">
-            <p className="text-xs text-[#8A877D] mb-2">Por defecto (todas las categorías sin regla)</p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs text-[#8A877D]">Por defecto (todas las categorías sin regla)</p>
+              <button
+                onClick={() => {
+                  setDefaultSplits(Object.fromEntries(members.map((m) => [m.user_id, String(m.split_percentage ?? 50)])));
+                  setShowDefaultSplitDialog(true);
+                }}
+                className="text-[#8A877D] hover:text-[#1D9E75] transition-colors"
+              >
+                <Pencil className="w-3 h-3" />
+              </button>
+            </div>
             <div className="flex items-center gap-2">
               {members.map((m) => (
                 <div key={m.user_id} className="flex-1">
@@ -445,7 +478,19 @@ export default function SpaceDetailPage() {
                         style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: barColor }}
                       />
                     </div>
-                    <p className="text-[10px] text-[#8A877D] text-right">{pct}% usado</p>
+                    <div className="flex items-center justify-between text-[10px] text-[#8A877D]">
+                      <div className="flex gap-3">
+                        {members.map((m) => {
+                          const frac = resolveSplit(budget.category, m.user_id, members, data.splitRules ?? []);
+                          return (
+                            <span key={m.user_id}>
+                              {m.usuarios?.nombre}: {formatCurrency(budget.limit * frac)}
+                            </span>
+                          );
+                        })}
+                      </div>
+                      <span>{pct}% usado</span>
+                    </div>
                   </div>
                 );
               })}
@@ -703,6 +748,62 @@ export default function SpaceDetailPage() {
             >
               Guardar presupuesto
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Default Split Dialog */}
+      <Dialog open={showDefaultSplitDialog} onOpenChange={setShowDefaultSplitDialog}>
+        <DialogContent className="bg-[#1A1A18] border-[#2A2A28] text-[#F0EFE8] max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Editar división por defecto</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-xs text-[#8A877D]">
+              Esta división se aplica a todas las categorías que no tienen una regla específica.
+            </p>
+            {members.map((m) => (
+              <div key={m.user_id}>
+                <label className="text-xs text-[#8A877D] mb-1 block">
+                  {m.usuarios?.nombre} (%)
+                </label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={defaultSplits[m.user_id] ?? ''}
+                  onChange={(e) => setDefaultSplits((prev) => ({ ...prev, [m.user_id]: e.target.value }))}
+                  className="bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.08)] text-[#F0EFE8]"
+                />
+              </div>
+            ))}
+            {(() => {
+              const total = Object.values(defaultSplits).reduce((s, v) => s + (parseFloat(v) || 0), 0);
+              const isValid = total === 100;
+              return (
+                <>
+                  <p className={`text-xs ${isValid ? 'text-[#1D9E75]' : 'text-[#E85D3A]'}`}>
+                    Total: {total}% {isValid ? '✓' : '(debe sumar 100%)'}
+                  </p>
+                  <Button
+                    onClick={() => {
+                      if (!isValid) return;
+                      const splits: Record<string, number> = {};
+                      for (const [uid, val] of Object.entries(defaultSplits)) {
+                        splits[uid] = parseFloat(val) || 0;
+                      }
+                      updateDefaultSplit.mutate(splits);
+                      toast.success('División por defecto actualizada');
+                      setShowDefaultSplitDialog(false);
+                    }}
+                    disabled={!isValid}
+                    className="w-full bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90"
+                  >
+                    Guardar
+                  </Button>
+                </>
+              );
+            })()}
           </div>
         </DialogContent>
       </Dialog>

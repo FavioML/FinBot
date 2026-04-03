@@ -35,7 +35,7 @@ function periodStr(monthsAgo: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
-const DEMO_USER_ID = 'demo-user-001';
+export const DEMO_USER_ID = 'demo-user-001';
 
 // ─── Usuario ─────────────────────────────────────────────────────────────────
 

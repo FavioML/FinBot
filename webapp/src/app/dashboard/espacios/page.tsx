@@ -42,9 +42,9 @@ export default function EspaciosPage() {
   async function handleJoin() {
     if (!joinCode.trim()) return;
     try {
-      const res = await joinSpace.mutateAsync(joinCode.trim());
+      await joinSpace.mutateAsync(joinCode.trim());
       toast.success('Te uniste al espacio');
-      router.push(`/dashboard/espacios/${res.space_id}`);
+      setJoinCode('');
     } catch {
       toast.error('Código inválido o expirado');
     }

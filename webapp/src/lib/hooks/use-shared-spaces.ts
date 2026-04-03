@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { IS_DEMO } from '@/lib/demo/is-demo';
-import { DEMO_SPACES, DEMO_SPACE_DETAIL } from '@/lib/demo/mock-data';
+import { DEMO_SPACES, DEMO_SPACE_DETAIL, DEMO_USER_ID } from '@/lib/demo/mock-data';
 
 export interface SharedSpace {
   id: string;
@@ -118,7 +118,21 @@ export function useAddExpense(spaceId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: { amount: number; description: string; category?: string }) => {
-      if (IS_DEMO) return { ok: true, id: `demo-${Date.now()}` };
+      if (IS_DEMO) {
+        const newExpense: SpaceExpense = {
+          id: `sexp-${Date.now()}`,
+          paid_by: DEMO_USER_ID,
+          amount: data.amount,
+          description: data.description,
+          category: data.category ?? null,
+          created_at: new Date().toISOString(),
+          usuarios: { nombre: 'Favio Demo' },
+        };
+        queryClient.setQueryData<SpaceDetail>(['space', spaceId], (old) =>
+          old ? { ...old, expenses: [newExpense, ...old.expenses] } : old
+        );
+        return { ok: true, id: newExpense.id };
+      }
       const res = await fetch(`/api/spaces/${spaceId}/expenses`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -127,7 +141,9 @@ export function useAddExpense(spaceId: string) {
       if (!res.ok) throw new Error('Failed to add expense');
       return res.json();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['space', spaceId] }),
+    onSuccess: () => {
+      if (!IS_DEMO) queryClient.invalidateQueries({ queryKey: ['space', spaceId] });
+    },
   });
 }
 
@@ -135,7 +151,25 @@ export function useSettle(spaceId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: { to_user: string; amount: number }) => {
-      if (IS_DEMO) return { ok: true };
+      if (IS_DEMO) {
+        queryClient.setQueryData<SpaceDetail>(['space', spaceId], (old) => {
+          if (!old) return old;
+          const newSettlement: SpaceSettlement = {
+            id: `settle-${Date.now()}`,
+            from_user: DEMO_USER_ID,
+            to_user: data.to_user,
+            amount: data.amount,
+            settled_at: new Date().toISOString(),
+            from: { nombre: 'Favio Demo' },
+            to: old.members.find((m) => m.user_id === data.to_user)?.usuarios,
+          };
+          const newBalance = { ...old.balance };
+          newBalance[DEMO_USER_ID] = (newBalance[DEMO_USER_ID] ?? 0) + data.amount;
+          newBalance[data.to_user] = (newBalance[data.to_user] ?? 0) - data.amount;
+          return { ...old, settlements: [newSettlement, ...old.settlements], balance: newBalance };
+        });
+        return { ok: true };
+      }
       const res = await fetch(`/api/spaces/${spaceId}/settle`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -144,7 +178,9 @@ export function useSettle(spaceId: string) {
       if (!res.ok) throw new Error('Failed to settle');
       return res.json();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['space', spaceId] }),
+    onSuccess: () => {
+      if (!IS_DEMO) queryClient.invalidateQueries({ queryKey: ['space', spaceId] });
+    },
   });
 }
 
@@ -152,7 +188,20 @@ export function useJoinSpace() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (code: string) => {
-      if (IS_DEMO) return { ok: true, code };
+      if (IS_DEMO) {
+        const joined: SharedSpace = {
+          id: `space-joined-${Date.now()}`,
+          name: `Espacio ${code}`,
+          type: 'custom',
+          invite_code: code,
+          role: 'member',
+          created_at: new Date().toISOString(),
+        };
+        queryClient.setQueryData<{ spaces: SharedSpace[]; isPro: boolean }>(['spaces'], (old) =>
+          old ? { ...old, spaces: [...old.spaces, joined] } : { spaces: [joined], isPro: true }
+        );
+        return { ok: true, code };
+      }
       const res = await fetch('/api/spaces/join', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -161,15 +210,50 @@ export function useJoinSpace() {
       if (!res.ok) throw new Error('Failed to join');
       return res.json();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['spaces'] }),
+    onSuccess: () => {
+      if (!IS_DEMO) queryClient.invalidateQueries({ queryKey: ['spaces'] });
+    },
   });
+}
+
+function generateCode(): string {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 8; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
 }
 
 export function useCreateSpace() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: { name: string; type?: string }) => {
-      if (IS_DEMO) return { ok: true, id: `demo-${Date.now()}` };
+      const id = `space-${Date.now()}`;
+      if (IS_DEMO) {
+        const newSpace: SharedSpace = {
+          id,
+          name: data.name,
+          type: (data.type as SharedSpace['type']) || 'custom',
+          invite_code: generateCode(),
+          role: 'owner',
+          created_at: new Date().toISOString(),
+        };
+        queryClient.setQueryData<{ spaces: SharedSpace[]; isPro: boolean }>(['spaces'], (old) =>
+          old ? { ...old, spaces: [...old.spaces, newSpace] } : { spaces: [newSpace], isPro: true }
+        );
+        // Also seed the space detail cache
+        queryClient.setQueryData<SpaceDetail>(['space', id], {
+          space: { id, name: data.name, type: data.type || 'custom', invite_code: newSpace.invite_code },
+          members: [{ user_id: DEMO_USER_ID, role: 'owner', split_percentage: 100, usuarios: { nombre: 'Favio Demo' } }],
+          expenses: [],
+          settlements: [],
+          balance: { [DEMO_USER_ID]: 0 },
+          splitRules: [],
+          budgets: [],
+          currentUserId: DEMO_USER_ID,
+          isPro: true,
+        });
+        return { ok: true, id };
+      }
       const res = await fetch('/api/spaces', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -178,7 +262,38 @@ export function useCreateSpace() {
       if (!res.ok) throw new Error('Failed to create space');
       return res.json();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['spaces'] }),
+    onSuccess: () => {
+      if (!IS_DEMO) queryClient.invalidateQueries({ queryKey: ['spaces'] });
+    },
+  });
+}
+
+export function useUpdateDefaultSplit(spaceId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (splits: Record<string, number>) => {
+      if (IS_DEMO) {
+        queryClient.setQueryData<SpaceDetail>(['space', spaceId], (old) => {
+          if (!old) return old;
+          const updatedMembers = old.members.map((m) => ({
+            ...m,
+            split_percentage: splits[m.user_id] ?? m.split_percentage,
+          }));
+          return { ...old, members: updatedMembers };
+        });
+        return { ok: true };
+      }
+      const res = await fetch(`/api/spaces/${spaceId}/default-split`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ splits }),
+      });
+      if (!res.ok) throw new Error('Failed to update default split');
+      return res.json();
+    },
+    onSuccess: () => {
+      if (!IS_DEMO) queryClient.invalidateQueries({ queryKey: ['space', spaceId] });
+    },
   });
 }
 
