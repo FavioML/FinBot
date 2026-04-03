@@ -1,6 +1,7 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { IS_DEMO } from '@/lib/demo/is-demo';
 import { DEMO_SCORE } from '@/lib/demo/mock-data';
 
@@ -46,7 +47,9 @@ export function useNetoScore() {
 }
 
 export function useNetoScoreHistory(months = 6) {
-  return useQuery<NetoScoreData>({
+  const queryClient = useQueryClient();
+
+  const query = useQuery<NetoScoreData>({
     queryKey: ['neto-score-history', months],
     queryFn: async () => {
       if (IS_DEMO) return DEMO_SCORE;
@@ -57,4 +60,22 @@ export function useNetoScoreHistory(months = 6) {
     staleTime: 5 * 60 * 1000,
     retry: 1,
   });
+
+  // Auto-backfill: if history is empty or sparse, calculate past months once
+  useEffect(() => {
+    if (IS_DEMO) return;
+    const historyCount = query.data?.history?.length ?? 0;
+    if (query.isSuccess && historyCount < months) {
+      fetch('/api/score/backfill', { method: 'POST' })
+        .then(r => r.json())
+        .then(({ backfilled }) => {
+          if (backfilled > 0) {
+            queryClient.invalidateQueries({ queryKey: ['neto-score-history'] });
+          }
+        })
+        .catch(() => {});
+    }
+  }, [query.isSuccess, query.data, months, queryClient]);
+
+  return query;
 }

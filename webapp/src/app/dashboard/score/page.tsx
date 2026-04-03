@@ -2,11 +2,9 @@
 
 export const dynamic = 'force-dynamic';
 
-import { useEffect } from 'react';
 import Link from 'next/link';
 import { Lock, Lightbulb, PartyPopper } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { useQueryClient } from '@tanstack/react-query';
 import { ScoreGauge } from '@/components/charts/score-gauge';
 import { useNetoScoreHistory, type NetoScoreFactors } from '@/lib/hooks/use-neto-score';
 import { useUser } from '@/lib/hooks/use-user';
@@ -115,20 +113,6 @@ function TipsSection({ factors }: { factors?: NetoScoreFactors }) {
 export default function ScorePage() {
   const { data: user } = useUser();
   const { data, isLoading } = useNetoScoreHistory(6);
-  const queryClient = useQueryClient();
-
-  // Auto-backfill: on mount, calculate scores for past months with transactions
-  // The endpoint is idempotent — skips months that already have a score
-  useEffect(() => {
-    fetch('/api/score/backfill', { method: 'POST' })
-      .then(r => r.json())
-      .then(({ backfilled }) => {
-        if (backfilled > 0) {
-          queryClient.invalidateQueries({ queryKey: ['neto-score'] });
-        }
-      })
-      .catch(() => {});
-  }, [queryClient]);
 
   const isPro = user?.plan === 'premium';
 
