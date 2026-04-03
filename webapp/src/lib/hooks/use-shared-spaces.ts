@@ -402,3 +402,84 @@ export function useUpdateBudgets(spaceId: string) {
     },
   });
 }
+
+export function useRenameSpace(spaceId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (name: string) => {
+      if (IS_DEMO) {
+        queryClient.setQueryData<SpaceDetail>(['space', spaceId], (old) =>
+          old ? { ...old, space: { ...old.space, name } } : old
+        );
+        queryClient.setQueryData<{ spaces: SharedSpace[]; isPro: boolean }>(['spaces'], (old) =>
+          old ? { ...old, spaces: old.spaces.map((s) => s.id === spaceId ? { ...s, name } : s) } : old
+        );
+        return { ok: true };
+      }
+      const res = await fetch(`/api/spaces/${spaceId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) throw new Error('Failed to rename space');
+      return res.json();
+    },
+    onSuccess: () => {
+      if (!IS_DEMO) {
+        queryClient.invalidateQueries({ queryKey: ['space', spaceId] });
+        queryClient.invalidateQueries({ queryKey: ['spaces'] });
+      }
+    },
+  });
+}
+
+export function useDeleteSpace() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (spaceId: string) => {
+      if (IS_DEMO) {
+        queryClient.setQueryData<{ spaces: SharedSpace[]; isPro: boolean }>(['spaces'], (old) =>
+          old ? { ...old, spaces: old.spaces.filter((s) => s.id !== spaceId) } : old
+        );
+        return { ok: true };
+      }
+      const res = await fetch(`/api/spaces/${spaceId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to delete space');
+      return res.json();
+    },
+    onSuccess: () => {
+      if (!IS_DEMO) queryClient.invalidateQueries({ queryKey: ['spaces'] });
+    },
+  });
+}
+
+export function useRemoveMember(spaceId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (userId: string) => {
+      if (IS_DEMO) {
+        queryClient.setQueryData<SpaceDetail>(['space', spaceId], (old) => {
+          if (!old) return old;
+          const newMembers = old.members.filter((m) => m.user_id !== userId);
+          const newBalance = { ...old.balance };
+          delete newBalance[userId];
+          return { ...old, members: newMembers, balance: newBalance };
+        });
+        return { ok: true };
+      }
+      const res = await fetch(`/api/spaces/${spaceId}/members?userId=${userId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to remove member');
+      return res.json();
+    },
+    onSuccess: () => {
+      if (!IS_DEMO) queryClient.invalidateQueries({ queryKey: ['space', spaceId] });
+    },
+  });
+}
+
+/** Max members per space type */
+export const SPACE_MEMBER_LIMITS: Record<string, number> = {
+  pareja: 2,
+  roommates: 6,
+  custom: 6,
+};
