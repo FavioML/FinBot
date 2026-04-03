@@ -1,11 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
-
-const serviceClient = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 interface MemberRow {
   user_id: string;
@@ -63,7 +58,7 @@ async function getNetoUserId() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
-  const { data } = await serviceClient
+  const { data } = await getServiceClient()
     .from('usuarios')
     .select('id, plan')
     .eq('supabase_auth_id', user.id)
@@ -79,7 +74,7 @@ export async function GET(
   const usuario = await getNetoUserId();
   if (!usuario) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { data: membership } = await serviceClient
+  const { data: membership } = await getServiceClient()
     .from('space_members')
     .select('id')
     .eq('space_id', id)
@@ -87,18 +82,18 @@ export async function GET(
     .single();
   if (!membership) return NextResponse.json({ error: 'Not a member' }, { status: 403 });
 
-  const { data: space } = await serviceClient.from('shared_spaces').select('*').eq('id', id).single();
-  const { data: members } = await serviceClient
+  const { data: space } = await getServiceClient().from('shared_spaces').select('*').eq('id', id).single();
+  const { data: members } = await getServiceClient()
     .from('space_members')
     .select('user_id, role, split_percentage, usuarios(nombre)')
     .eq('space_id', id);
-  const { data: expenses } = await serviceClient
+  const { data: expenses } = await getServiceClient()
     .from('space_expenses')
     .select('*, usuarios(nombre)')
     .eq('space_id', id)
     .order('created_at', { ascending: false })
     .limit(20);
-  const { data: settlements } = await serviceClient
+  const { data: settlements } = await getServiceClient()
     .from('space_settlements')
     .select('*, from:usuarios!space_settlements_from_user_fkey(nombre), to:usuarios!space_settlements_to_user_fkey(nombre)')
     .eq('space_id', id)
@@ -130,7 +125,7 @@ export async function PUT(
   if (!usuario) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   // Only owner can rename
-  const { data: membership } = await serviceClient
+  const { data: membership } = await getServiceClient()
     .from('space_members')
     .select('role')
     .eq('space_id', id)
@@ -142,7 +137,7 @@ export async function PUT(
   const { name } = body;
   if (!name || typeof name !== 'string' || !name.trim()) return NextResponse.json({ error: 'name required' }, { status: 400 });
 
-  const { error } = await serviceClient
+  const { error } = await getServiceClient()
     .from('shared_spaces')
     .update({ name: name.trim() })
     .eq('id', id);
@@ -160,7 +155,7 @@ export async function DELETE(
   if (!usuario) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   // Only owner can delete
-  const { data: membership } = await serviceClient
+  const { data: membership } = await getServiceClient()
     .from('space_members')
     .select('role')
     .eq('space_id', id)
@@ -169,10 +164,10 @@ export async function DELETE(
   if (!membership || membership.role !== 'owner') return NextResponse.json({ error: 'Only owner can delete' }, { status: 403 });
 
   // Delete in order: settlements, expenses, members, space
-  await serviceClient.from('space_settlements').delete().eq('space_id', id);
-  await serviceClient.from('space_expenses').delete().eq('space_id', id);
-  await serviceClient.from('space_members').delete().eq('space_id', id);
-  const { error } = await serviceClient.from('shared_spaces').delete().eq('id', id);
+  await getServiceClient().from('space_settlements').delete().eq('space_id', id);
+  await getServiceClient().from('space_expenses').delete().eq('space_id', id);
+  await getServiceClient().from('space_members').delete().eq('space_id', id);
+  const { error } = await getServiceClient().from('shared_spaces').delete().eq('id', id);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   return NextResponse.json({ ok: true });

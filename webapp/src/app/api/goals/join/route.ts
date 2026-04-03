@@ -1,11 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
-
-const serviceClient = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 async function getNetoUserId() {
   const supabase = await createClient();
@@ -14,7 +9,7 @@ async function getNetoUserId() {
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const { data } = await serviceClient
+  const { data } = await getServiceClient()
     .from('usuarios')
     .select('id')
     .eq('supabase_auth_id', user.id)
@@ -35,7 +30,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'code required' }, { status: 400 });
 
   // Find the goal
-  const { data: meta } = await serviceClient
+  const { data: meta } = await getServiceClient()
     .from('metas_ahorro')
     .select('id, nombre, usuario_id, max_participantes, colaborativa')
     .eq('invite_code', code)
@@ -50,7 +45,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'No puedes unirte a tu propia meta' }, { status: 400 });
 
   // Check if already joined
-  const { data: existing } = await serviceClient
+  const { data: existing } = await getServiceClient()
     .from('meta_participantes')
     .select('id')
     .eq('meta_id', meta.id)
@@ -61,7 +56,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Ya eres participante de esta meta' }, { status: 400 });
 
   // Check max participants
-  const { count } = await serviceClient
+  const { count } = await getServiceClient()
     .from('meta_participantes')
     .select('id', { count: 'exact', head: true })
     .eq('meta_id', meta.id);
@@ -71,7 +66,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Meta llena, no se pueden unir mas participantes' }, { status: 400 });
 
   // Join
-  const { error } = await serviceClient
+  const { error } = await getServiceClient()
     .from('meta_participantes')
     .insert({
       meta_id: meta.id,
@@ -84,13 +79,13 @@ export async function POST(request: Request) {
 
   // Create notification for the goal creator
   try {
-    const { data: joiner } = await serviceClient
+    const { data: joiner } = await getServiceClient()
       .from('usuarios')
       .select('nombre')
       .eq('id', userId)
       .single();
 
-    await serviceClient.from('notificaciones').insert({
+    await getServiceClient().from('notificaciones').insert({
       usuario_id: meta.usuario_id,
       tipo: 'sistema',
       titulo: 'Nuevo participante',

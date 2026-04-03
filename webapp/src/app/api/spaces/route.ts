@@ -1,17 +1,12 @@
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
-
-const serviceClient = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 async function getNetoUserId() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
-  const { data } = await serviceClient
+  const { data } = await getServiceClient()
     .from('usuarios')
     .select('id, plan')
     .eq('supabase_auth_id', user.id)
@@ -23,7 +18,7 @@ export async function GET() {
   const usuario = await getNetoUserId();
   if (!usuario) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { data: memberships } = await serviceClient
+  const { data: memberships } = await getServiceClient()
     .from('space_members')
     .select('space_id, role, shared_spaces(id, name, type, invite_code, created_at)')
     .eq('user_id', usuario.id);
@@ -44,7 +39,7 @@ export async function POST(request: Request) {
 
   const invite_code = Math.random().toString(36).slice(2, 9).toUpperCase();
 
-  const { data: space, error } = await serviceClient
+  const { data: space, error } = await getServiceClient()
     .from('shared_spaces')
     .insert({ name, type, invite_code, created_by: usuario.id })
     .select()
@@ -52,7 +47,7 @@ export async function POST(request: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-  await serviceClient.from('space_members').insert({
+  await getServiceClient().from('space_members').insert({
     space_id: space.id,
     user_id: usuario.id,
     role: 'owner',

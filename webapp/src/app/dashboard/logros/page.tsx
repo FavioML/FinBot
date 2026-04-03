@@ -7,6 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import { useUser } from '@/lib/hooks/use-user';
 import { useGoals, useAchievements, type MetaAhorro } from '@/lib/hooks/use-goals';
+import { HeaderActions } from '@/components/dashboard/topbar';
 import type { Logro } from '@/lib/hooks/use-goals';
 
 export const dynamic = 'force-dynamic';
@@ -141,6 +142,7 @@ export default function LogrosPage() {
               <p className="text-xs text-[#8A877D]">{totalUnlocked} de {LOGRO_CATALOG.length} desbloqueados</p>
             </div>
           </div>
+          <HeaderActions />
         </div>
       </FadeIn>
 

@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import { useSpaces, useJoinSpace, useCreateSpace } from '@/lib/hooks/use-shared-spaces';
+import { HeaderActions } from '@/components/dashboard/topbar';
 
 const TYPE_ICON: Record<string, string> = {
   pareja: '💑',
@@ -83,14 +84,17 @@ export default function EspaciosPage() {
             <h1 className="text-2xl font-bold text-[#F0EFE8]">Espacios Compartidos</h1>
             <p className="text-[#8A877D] text-sm mt-1">Divide gastos con tu pareja, roommates o amigos</p>
           </div>
-          <Button
-            onClick={() => setShowCreate(!showCreate)}
-            className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 gap-2 shrink-0"
-            disabled={!isPro && spaces.length >= 1}
-          >
-            <Plus className="w-4 h-4" />
-            Nuevo
-          </Button>
+          <div className="flex items-center gap-3">
+            <HeaderActions />
+            <Button
+              onClick={() => setShowCreate(!showCreate)}
+              className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 gap-2 shrink-0"
+              disabled={!isPro && spaces.length >= 1}
+            >
+              <Plus className="w-4 h-4" />
+              Nuevo
+            </Button>
+          </div>
         </div>
       </FadeIn>
 

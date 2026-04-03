@@ -10,6 +10,7 @@ import type { SpendingAlert } from '@/lib/hooks/use-spending-alerts';
 import { FadeIn } from '@/components/shared/motion-wrapper';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatCurrency } from '@/lib/utils';
+import { HeaderActions } from '@/components/dashboard/topbar';
 
 const TYPE_CONFIG = {
   spike: {
@@ -137,6 +138,7 @@ export default function AlertasPage() {
               Neto analiza tus gastos y detecta patrones que podrían estar drenando tu billetera
             </p>
           </div>
+          <HeaderActions />
         </div>
       </FadeIn>
 

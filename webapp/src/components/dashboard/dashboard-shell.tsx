@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Sidebar } from '@/components/dashboard/sidebar';
-import { Topbar, DesktopHeaderActions } from '@/components/dashboard/topbar';
+import { Topbar } from '@/components/dashboard/topbar';
 import { BottomNav } from '@/components/dashboard/bottom-nav';
 import { QuickAddButton } from '@/components/dashboard/quick-add-button';
 import { OnboardingTour } from '@/components/dashboard/onboarding-tour';
@@ -56,8 +56,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Topbar onMenuClick={() => setSidebarOpen(true)} />
-          <main className="relative flex-1 overflow-y-auto p-4 pb-20 md:p-6 md:pb-6 lg:p-8 lg:pb-8 transition-all duration-300">
-            <DesktopHeaderActions />
+          <main className="flex-1 overflow-y-auto p-4 pb-20 md:p-6 md:pb-6 lg:p-8 lg:pb-8 transition-all duration-300">
             {children}
           </main>
           <BottomNav />

@@ -28,6 +28,7 @@ import {
   TC_APROXIMADO,
 } from '@/lib/subscriptions-catalog';
 import type { SuscripcionDetectada, TipoSuscripcion } from '@/lib/subscriptions-catalog';
+import { HeaderActions } from '@/components/dashboard/topbar';
 
 // ═══════════════════════════════════════════════════════════════
 // SUSCRIPCIONES PAGE — Vista de suscripciones detectadas
@@ -376,6 +377,7 @@ export default function SuscripcionesPage() {
             Detectadas automáticamente desde tus transacciones
           </p>
         </div>
+        <HeaderActions />
       </div>
 
       {/* View mode toggle + Month selector */}

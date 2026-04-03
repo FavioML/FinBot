@@ -53,6 +53,7 @@ import { formatCurrency, formatFecha } from '@/lib/utils';
 import { getCategoriaEmoji, MESES, SOCIAL_LINKS } from '@/lib/constants';
 import { normalizeMetodoPago, getMetodoIcon } from '@/lib/format';
 import type { Transaccion } from '@/lib/types';
+import { HeaderActions } from '@/components/dashboard/topbar';
 
 const PAGE_SIZE = 20;
 
@@ -426,6 +427,7 @@ export default function TransaccionesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-[#F0EFE8]">Transacciones</h1>
+        <HeaderActions />
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {filtered.length > 0 && (

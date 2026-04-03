@@ -39,6 +39,7 @@ import { useUser } from '@/lib/hooks/use-user';
 import { createClient } from '@/lib/supabase/client';
 import { SOCIAL_LINKS, getCategoriaEmoji, CATEGORIAS } from '@/lib/constants';
 import { capitalizeDisplay } from '@/lib/format';
+import { HeaderActions } from '@/components/dashboard/topbar';
 
 /* ------------------------------------------------------------------ */
 /*  Plan comparison data                                               */
@@ -315,6 +316,7 @@ export default function ConfiguracionPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-[#F0EFE8]">Configuracion</h1>
+        <HeaderActions />
       </div>
 
       {/* ============================================================ */}

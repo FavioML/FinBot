@@ -1,12 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
-
-const serviceClient = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 async function getNetoUserId() {
   const supabase = await createClient();
@@ -15,7 +10,7 @@ async function getNetoUserId() {
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const { data } = await serviceClient
+  const { data } = await getServiceClient()
     .from('usuarios')
     .select('id')
     .eq('supabase_auth_id', user.id)
@@ -33,7 +28,7 @@ export async function GET() {
     return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
   }
 
-  const { data, error } = await serviceClient
+  const { data, error } = await getServiceClient()
     .from('gastos_compartidos')
     .select('*, gasto_participantes(*, gasto_participante_abonos(*))')
     .eq('creador_id', userId)
@@ -66,7 +61,7 @@ export async function POST(request: Request) {
   }
 
   // Create shared expense
-  const { data: gasto, error: gastoError } = await serviceClient
+  const { data: gasto, error: gastoError } = await getServiceClient()
     .from('gastos_compartidos')
     .insert({
       creador_id: userId,
@@ -93,7 +88,7 @@ export async function POST(request: Request) {
     pagado: false,
   }));
 
-  const { error: partError } = await serviceClient
+  const { error: partError } = await getServiceClient()
     .from('gasto_participantes')
     .insert(participantRows);
 
@@ -101,7 +96,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: partError.message }, { status: 400 });
 
   // Re-fetch with participants
-  const { data: full } = await serviceClient
+  const { data: full } = await getServiceClient()
     .from('gastos_compartidos')
     .select('*, gasto_participantes(*, gasto_participante_abonos(*))')
     .eq('id', gasto.id)
@@ -126,7 +121,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
   // Verify ownership
-  const { data: gasto } = await serviceClient
+  const { data: gasto } = await getServiceClient()
     .from('gastos_compartidos')
     .select('id')
     .eq('id', id)
@@ -143,7 +138,7 @@ export async function PATCH(request: Request) {
   if (notas !== undefined) updateFields.notas = notas || null;
 
   if (Object.keys(updateFields).length > 0) {
-    await serviceClient
+    await getServiceClient()
       .from('gastos_compartidos')
       .update(updateFields)
       .eq('id', id);
@@ -153,7 +148,7 @@ export async function PATCH(request: Request) {
   if (participantes && Array.isArray(participantes)) {
     for (const p of participantes) {
       if (p.id && p.nombre) {
-        await serviceClient
+        await getServiceClient()
           .from('gasto_participantes')
           .update({ nombre: p.nombre })
           .eq('id', p.id)
@@ -163,7 +158,7 @@ export async function PATCH(request: Request) {
   }
 
   // Return updated expense with participants
-  const { data: updated } = await serviceClient
+  const { data: updated } = await getServiceClient()
     .from('gastos_compartidos')
     .select('*, gasto_participantes(*, gasto_participante_abonos(*))')
     .eq('id', id)
@@ -190,7 +185,7 @@ export async function PUT(request: Request) {
   }
 
   // Verify ownership
-  const { data: gasto } = await serviceClient
+  const { data: gasto } = await getServiceClient()
     .from('gastos_compartidos')
     .select('id')
     .eq('id', gasto_id)
@@ -206,7 +201,7 @@ export async function PUT(request: Request) {
     if (!montoAbono || montoAbono <= 0 || !isFinite(montoAbono))
       return NextResponse.json({ error: 'Monto invalido' }, { status: 400 });
 
-    const { data: part } = await serviceClient
+    const { data: part } = await getServiceClient()
       .from('gasto_participantes')
       .select('monto_debe, monto_pagado')
       .eq('id', participante_id)
@@ -221,7 +216,7 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'Monto excede lo pendiente (S/ ' + pendiente.toFixed(2) + ')' }, { status: 400 });
 
     // Insert abono record
-    await serviceClient.from('gasto_participante_abonos').insert({
+    await getServiceClient().from('gasto_participante_abonos').insert({
       participante_id,
       monto: montoAbono,
       nota: nota || null,
@@ -231,7 +226,7 @@ export async function PUT(request: Request) {
     const nuevoMontoPagado = parseFloat(String(part.monto_pagado || 0)) + montoAbono;
     const fullyPaid = nuevoMontoPagado >= parseFloat(String(part.monto_debe)) - 0.01;
 
-    await serviceClient
+    await getServiceClient()
       .from('gasto_participantes')
       .update({ monto_pagado: nuevoMontoPagado, pagado: fullyPaid })
       .eq('id', participante_id);
@@ -242,7 +237,7 @@ export async function PUT(request: Request) {
 
     // When marking fully paid via toggle, set monto_pagado = monto_debe
     if (newPagado) {
-      const { data: part } = await serviceClient
+      const { data: part } = await getServiceClient()
         .from('gasto_participantes')
         .select('monto_debe')
         .eq('id', participante_id)
@@ -253,7 +248,7 @@ export async function PUT(request: Request) {
       updateFields.monto_pagado = 0;
     }
 
-    const { error } = await serviceClient
+    const { error } = await getServiceClient()
       .from('gasto_participantes')
       .update(updateFields)
       .eq('id', participante_id)
@@ -264,19 +259,19 @@ export async function PUT(request: Request) {
   }
 
   // Check if all participants paid — if so, mark expense as liquidado
-  const { data: allParts } = await serviceClient
+  const { data: allParts } = await getServiceClient()
     .from('gasto_participantes')
     .select('pagado')
     .eq('gasto_id', gasto_id);
 
   const allPaid = (allParts || []).every((p) => p.pagado);
   if (allPaid) {
-    await serviceClient
+    await getServiceClient()
       .from('gastos_compartidos')
       .update({ estado: 'liquidado' })
       .eq('id', gasto_id);
   } else {
-    await serviceClient
+    await getServiceClient()
       .from('gastos_compartidos')
       .update({ estado: 'activo' })
       .eq('id', gasto_id);
@@ -301,7 +296,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
   // Verify ownership
-  const { data: gasto } = await serviceClient
+  const { data: gasto } = await getServiceClient()
     .from('gastos_compartidos')
     .select('id')
     .eq('id', id)
@@ -312,12 +307,12 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   // Delete participants first, then expense
-  await serviceClient
+  await getServiceClient()
     .from('gasto_participantes')
     .delete()
     .eq('gasto_id', id);
 
-  const { error } = await serviceClient
+  const { error } = await getServiceClient()
     .from('gastos_compartidos')
     .delete()
     .eq('id', id);

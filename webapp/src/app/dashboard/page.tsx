@@ -41,6 +41,7 @@ const PaymentMethodDonut = lazy(() => import('@/components/charts/payment-method
 const RecurringPayments = lazy(() => import('@/components/dashboard/recurring-payments').then(m => ({ default: m.RecurringPayments })));
 import { TransactionForm } from '@/components/dashboard/transaction-form';
 import { GlobalSearch } from '@/components/dashboard/global-search';
+import { HeaderActions } from '@/components/dashboard/topbar';
 import { useUser } from '@/lib/hooks/use-user';
 import { useNetoScore } from '@/lib/hooks/use-neto-score';
 import { useSpendingAlerts } from '@/lib/hooks/use-spending-alerts';
@@ -341,9 +342,9 @@ export default function DashboardPage() {
             Tu resumen financiero &mdash; {viewMode === 'anual' ? `Año ${selectedYear}` : `${MESES[currentMonth]} ${currentYear}`}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <HeaderActions>
           <GlobalSearch />
-        </div>
+        </HeaderActions>
       </div>
 
       {/* View mode toggle */}

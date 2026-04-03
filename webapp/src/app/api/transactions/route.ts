@@ -1,14 +1,9 @@
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 import { getExchangeRate } from '@/lib/exchange-rate';
 import { checkRateLimit } from '@/lib/rate-limit';
 import crypto from 'crypto';
-
-const serviceClient = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 /** Validate monto: must be positive number <= 999999.99 */
 function validarMonto(valor: unknown): number | null {
@@ -30,7 +25,7 @@ async function getNetoUserId() {
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const { data } = await serviceClient
+  const { data } = await getServiceClient()
     .from('usuarios')
     .select('id')
     .eq('supabase_auth_id', user.id)
@@ -44,7 +39,7 @@ async function syncReglaComercio(userId: string, comercio: string | null, catego
   const patron = comercio.toLowerCase().trim();
   if (!patron) return;
   try {
-    await serviceClient.from('reglas_comercio').upsert({
+    await getServiceClient().from('reglas_comercio').upsert({
       usuario_id: userId,
       comercio_pattern: patron,
       categoria,
@@ -61,7 +56,7 @@ async function syncCategoriasUsuario(userId: string, categoria: string, subcateg
   if (!categoria) return;
 
   // Buscar si la categoría padre existe en categorias_usuario
-  const { data: padre } = await serviceClient
+  const { data: padre } = await getServiceClient()
     .from('categorias_usuario')
     .select('id')
     .eq('usuario_id', userId)
@@ -72,7 +67,7 @@ async function syncCategoriasUsuario(userId: string, categoria: string, subcateg
   // Si la categoría no existe, crearla
   let padreId = padre?.id;
   if (!padreId) {
-    const { data: nuevoPadre } = await serviceClient
+    const { data: nuevoPadre } = await getServiceClient()
       .from('categorias_usuario')
       .insert({ usuario_id: userId, nombre: categoria, activa: true })
       .select('id')
@@ -82,7 +77,7 @@ async function syncCategoriasUsuario(userId: string, categoria: string, subcateg
 
   // Si hay subcategoría custom, crearla si no existe
   if (subcategoria && subcategoria !== 'sin_categoria' && padreId) {
-    const { data: existeSub } = await serviceClient
+    const { data: existeSub } = await getServiceClient()
       .from('categorias_usuario')
       .select('id')
       .eq('usuario_id', userId)
@@ -91,7 +86,7 @@ async function syncCategoriasUsuario(userId: string, categoria: string, subcateg
       .maybeSingle();
 
     if (!existeSub) {
-      await serviceClient.from('categorias_usuario').insert({
+      await getServiceClient().from('categorias_usuario').insert({
         usuario_id: userId,
         nombre: subcategoria,
         padre_id: padreId,
@@ -125,7 +120,7 @@ export async function POST(request: Request) {
   const tipo = body.tipo || 'gasto';
   const dedupHash = generarDedupHash(userId, body.fecha, monto, body.comercio || null, tipo);
 
-  const { data, error } = await serviceClient
+  const { data, error } = await getServiceClient()
     .from('transacciones')
     .insert({
       usuario_id: userId,
@@ -174,7 +169,7 @@ export async function PUT(request: Request) {
 
   const subcategoria = body.subcategoria || 'sin_categoria';
 
-  const { data, error } = await serviceClient
+  const { data, error } = await getServiceClient()
     .from('transacciones')
     .update({
       tipo: body.tipo,
@@ -244,7 +239,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: 'Sin campos validos' }, { status: 400 });
 
   // Update all matching transactions owned by user
-  const { error, count } = await serviceClient
+  const { error, count } = await getServiceClient()
     .from('transacciones')
     .update(cleanUpdates)
     .in('id', ids)
@@ -276,7 +271,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
   // Leer transacción antes de borrar para guardar exclusión Gmail si aplica
-  const { data: txToDelete } = await serviceClient
+  const { data: txToDelete } = await getServiceClient()
     .from('transacciones')
     .select('id, descripcion_original')
     .eq('id', id)
@@ -287,7 +282,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: 'Transaction not found' }, { status: 404 });
 
   // Limpiar consultas_pendientes asociadas
-  await serviceClient
+  await getServiceClient()
     .from('consultas_pendientes')
     .update({ estado: 'respondida', respondida_at: new Date().toISOString() })
     .eq('transaccion_id', id)
@@ -296,7 +291,7 @@ export async function DELETE(request: Request) {
   // Si es transacción de Gmail, guardar en excluidos para evitar re-importación
   if (txToDelete.descripcion_original && !txToDelete.descripcion_original.startsWith('duplicado:')) {
     try {
-      await serviceClient
+      await getServiceClient()
         .from('gmail_excluidos')
         .upsert(
           { usuario_id: userId, descripcion_original: txToDelete.descripcion_original },
@@ -305,7 +300,7 @@ export async function DELETE(request: Request) {
     } catch { /* ignore — best effort */ }
   }
 
-  const { error } = await serviceClient
+  const { error } = await getServiceClient()
     .from('transacciones')
     .delete()
     .eq('id', id)

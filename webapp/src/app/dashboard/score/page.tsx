@@ -10,6 +10,7 @@ import { useNetoScoreHistory } from '@/lib/hooks/use-neto-score';
 import { useUser } from '@/lib/hooks/use-user';
 import { FadeIn } from '@/components/shared/motion-wrapper';
 import { Skeleton } from '@/components/ui/skeleton';
+import { HeaderActions } from '@/components/dashboard/topbar';
 
 const FACTORS = [
   { key: 'consistency', label: 'Consistencia de registro', description: 'Registras tus gastos con regularidad' },
@@ -86,8 +87,13 @@ export default function ScorePage() {
   return (
     <div className="space-y-6 p-4 md:p-6">
       <FadeIn>
-        <h1 className="text-2xl font-bold text-[#F0EFE8]">Neto Score</h1>
-        <p className="text-[#8A877D] text-sm mt-1">Tu puntuación de salud financiera este mes</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-[#F0EFE8]">Neto Score</h1>
+            <p className="text-[#8A877D] text-sm mt-1">Tu puntuación de salud financiera este mes</p>
+          </div>
+          <HeaderActions />
+        </div>
       </FadeIn>
 
       {/* Score gauge grande */}

@@ -18,6 +18,7 @@ import { useUser } from '@/lib/hooks/use-user';
 import { useDebts, useDebtMutations, groupDebtsByContraparte, type Deuda, type DebtGroup } from '@/lib/hooks/use-debts';
 import { useSplitExpenses, useSplitMutations, type GastoCompartido, type GastoParticipante } from '@/lib/hooks/use-split';
 import { formatCurrency } from '@/lib/utils';
+import { HeaderActions } from '@/components/dashboard/topbar';
 
 export const dynamic = 'force-dynamic';
 
@@ -355,6 +356,7 @@ export default function DeudasPage() {
             <p className="text-sm text-[#8A877D] mt-1">Lleva el control de lo que debes y te deben</p>
           </div>
           <div className="flex items-center gap-3">
+            <HeaderActions />
             <Button
               onClick={() => openCreate(tab === 'me_deben' ? 'me_deben' : 'debo')}
               className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 gap-2"

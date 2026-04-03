@@ -1,13 +1,8 @@
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'faviomendoza27jl@gmail.com';
-
-const serviceClient = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 async function getAdminEmail() {
   const supabase = await createClient();
@@ -31,7 +26,7 @@ export async function GET(request: Request) {
   const estado = searchParams.get('estado') || null;
   const search = searchParams.get('search') || null;
 
-  let query = serviceClient
+  let query = getServiceClient()
     .from('tickets_soporte')
     .select('*', { count: 'exact' })
     .order('created_at', { ascending: false });
@@ -74,7 +69,7 @@ export async function PUT(request: Request) {
       if (!respuesta) {
         return NextResponse.json({ error: 'Missing respuesta' }, { status: 400 });
       }
-      const { error } = await serviceClient
+      const { error } = await getServiceClient()
         .from('tickets_soporte')
         .update({
           respuesta_admin: respuesta,
@@ -91,7 +86,7 @@ export async function PUT(request: Request) {
       if (!estado) {
         return NextResponse.json({ error: 'Missing estado' }, { status: 400 });
       }
-      const { error } = await serviceClient
+      const { error } = await getServiceClient()
         .from('tickets_soporte')
         .update({ estado })
         .eq('id', id);

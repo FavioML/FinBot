@@ -1,11 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
-
-const serviceClient = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 async function getNetoUserId() {
   const supabase = await createClient();
@@ -14,7 +9,7 @@ async function getNetoUserId() {
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const { data } = await serviceClient
+  const { data } = await getServiceClient()
     .from('usuarios')
     .select('id')
     .eq('supabase_auth_id', user.id)
@@ -34,7 +29,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Missing meta_id' }, { status: 400 });
 
   // Verify access: must be owner or participant
-  const { data: meta } = await serviceClient
+  const { data: meta } = await getServiceClient()
     .from('metas_ahorro')
     .select('id, usuario_id')
     .eq('id', metaId)
@@ -44,7 +39,7 @@ export async function GET(request: Request) {
 
   const isOwner = meta.usuario_id === userId;
   if (!isOwner) {
-    const { data: participation } = await serviceClient
+    const { data: participation } = await getServiceClient()
       .from('meta_participantes')
       .select('id')
       .eq('meta_id', metaId)
@@ -55,7 +50,7 @@ export async function GET(request: Request) {
   }
 
   // Get participants with user info
-  const { data: participants, error } = await serviceClient
+  const { data: participants, error } = await getServiceClient()
     .from('meta_participantes')
     .select('id, usuario_id, rol, fecha_union')
     .eq('meta_id', metaId)
@@ -66,7 +61,7 @@ export async function GET(request: Request) {
 
   // Get user details for each participant
   const userIds = (participants || []).map((p) => p.usuario_id).filter(Boolean);
-  const { data: users } = await serviceClient
+  const { data: users } = await getServiceClient()
     .from('usuarios')
     .select('id, nombre, whatsapp')
     .in('id', userIds);
@@ -74,7 +69,7 @@ export async function GET(request: Request) {
   const userMap = new Map((users || []).map((u) => [u.id, u]));
 
   // Get contribution totals per user for this meta
-  const { data: aportes } = await serviceClient
+  const { data: aportes } = await getServiceClient()
     .from('meta_aportes')
     .select('usuario_id, monto, tipo')
     .eq('meta_id', metaId);
@@ -115,7 +110,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: 'Missing meta_id' }, { status: 400 });
 
   // Verify ownership
-  const { data: meta } = await serviceClient
+  const { data: meta } = await getServiceClient()
     .from('metas_ahorro')
     .select('id, usuario_id')
     .eq('id', metaId)
@@ -126,13 +121,13 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: 'Not found or not owner' }, { status: 404 });
 
   // Remove all participants except owner
-  await serviceClient
+  await getServiceClient()
     .from('meta_participantes')
     .delete()
     .eq('meta_id', metaId);
 
   // Disable collaborative mode and remove invite code
-  await serviceClient
+  await getServiceClient()
     .from('metas_ahorro')
     .update({ colaborativa: false, invite_code: null })
     .eq('id', metaId);

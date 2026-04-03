@@ -20,6 +20,7 @@ import { formatCurrency, formatFecha } from '@/lib/utils';
 import { capitalizeDisplay } from '@/lib/format';
 import { MESES, getCategoriaEmoji } from '@/lib/constants';
 import { MonthSelector } from '@/components/dashboard/month-selector';
+import { HeaderActions } from '@/components/dashboard/topbar';
 import type { Presupuesto, Transaccion } from '@/lib/types';
 import {
   Dialog,
@@ -268,6 +269,7 @@ export default function PresupuestosPage() {
           <h1 className="text-2xl font-bold text-[#F0EFE8]">Presupuestos</h1>
         </div>
         <div className="flex items-center gap-3">
+          <HeaderActions />
           <MonthSelector />
           {budgetsLimitReached && !isPremium && (
             <ProBadge text={`Límite: ${FREE_LIMITS.budgets} presupuestos`} />

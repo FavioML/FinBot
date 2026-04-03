@@ -1,10 +1,5 @@
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
-
-const serviceClient = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 // GET /api/spaces/invite?code=xxx — public preview (no auth required)
 export async function GET(request: Request) {
@@ -13,7 +8,7 @@ export async function GET(request: Request) {
   if (!code)
     return NextResponse.json({ error: 'Missing code' }, { status: 400 });
 
-  const { data: space } = await serviceClient
+  const { data: space } = await getServiceClient()
     .from('shared_spaces')
     .select('id, name, type, created_by')
     .eq('invite_code', code.toUpperCase())
@@ -23,14 +18,14 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Código inválido' }, { status: 404 });
 
   // Get creator name
-  const { data: creator } = await serviceClient
+  const { data: creator } = await getServiceClient()
     .from('usuarios')
     .select('nombre')
     .eq('id', space.created_by)
     .single();
 
   // Count members
-  const { count } = await serviceClient
+  const { count } = await getServiceClient()
     .from('space_members')
     .select('id', { count: 'exact', head: true })
     .eq('space_id', space.id);

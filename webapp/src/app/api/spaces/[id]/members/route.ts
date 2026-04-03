@@ -1,17 +1,12 @@
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
-
-const serviceClient = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 async function getNetoUserId() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
-  const { data } = await serviceClient
+  const { data } = await getServiceClient()
     .from('usuarios')
     .select('id')
     .eq('supabase_auth_id', user.id)
@@ -28,7 +23,7 @@ export async function DELETE(
   if (!usuario) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   // Only owner can remove members
-  const { data: membership } = await serviceClient
+  const { data: membership } = await getServiceClient()
     .from('space_members')
     .select('role')
     .eq('space_id', id)
@@ -43,7 +38,7 @@ export async function DELETE(
   // Can't remove yourself
   if (userId === usuario.id) return NextResponse.json({ error: 'Cannot remove yourself' }, { status: 400 });
 
-  const { error } = await serviceClient
+  const { error } = await getServiceClient()
     .from('space_members')
     .delete()
     .eq('space_id', id)

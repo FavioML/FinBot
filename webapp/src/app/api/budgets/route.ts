@@ -1,12 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
-
-const serviceClient = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 /** Capitalize first letter */
 function capitalize(s: string | null | undefined): string | null {
@@ -23,7 +18,7 @@ async function getNetoUser() {
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const { data } = await serviceClient
+  const { data } = await getServiceClient()
     .from('usuarios')
     .select('id, plan')
     .eq('supabase_auth_id', user.id)
@@ -50,7 +45,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'mes and anio required' }, { status: 400 });
 
   // Check if budgets exist for the requested month
-  const { data: existing } = await serviceClient
+  const { data: existing } = await getServiceClient()
     .from('presupuestos')
     .select('*')
     .eq('usuario_id', userId)
@@ -62,7 +57,7 @@ export async function GET(request: Request) {
   }
 
   // No budgets for this month — find the most recent month that has budgets
-  const { data: latestBudgets } = await serviceClient
+  const { data: latestBudgets } = await getServiceClient()
     .from('presupuestos')
     .select('*')
     .eq('usuario_id', userId)
@@ -101,7 +96,7 @@ export async function GET(request: Request) {
     anio,
   }));
 
-  const { data: inserted, error } = await serviceClient
+  const { data: inserted, error } = await getServiceClient()
     .from('presupuestos')
     .insert(newBudgets)
     .select();
@@ -141,7 +136,7 @@ export async function POST(request: Request) {
   const mes = body.mes ? parseInt(body.mes, 10) : defaultMes;
   const anio = body.anio ? parseInt(body.anio, 10) : defaultAnio;
 
-  const { data, error } = await serviceClient
+  const { data, error } = await getServiceClient()
     .from('presupuestos')
     .insert({
       usuario_id: userId,
@@ -172,7 +167,7 @@ export async function PUT(request: Request) {
   const userId = netoUser.id;
 
   const body = await request.json();
-  const { data, error } = await serviceClient
+  const { data, error } = await getServiceClient()
     .from('presupuestos')
     .update({
       categoria: body.categoria,
@@ -206,7 +201,7 @@ export async function DELETE(request: Request) {
   if (!id)
     return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
-  const { error } = await serviceClient
+  const { error } = await getServiceClient()
     .from('presupuestos')
     .delete()
     .eq('id', id)

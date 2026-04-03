@@ -1,11 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
-
-const serviceClient = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 async function getNetoUserId() {
   const supabase = await createClient();
@@ -14,7 +9,7 @@ async function getNetoUserId() {
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const { data } = await serviceClient
+  const { data } = await getServiceClient()
     .from('usuarios')
     .select('id')
     .eq('supabase_auth_id', user.id)
@@ -34,7 +29,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Missing meta_id' }, { status: 400 });
 
   // Verify meta belongs to user
-  const { data: meta } = await serviceClient
+  const { data: meta } = await getServiceClient()
     .from('metas_ahorro')
     .select('id')
     .eq('id', metaId)
@@ -43,7 +38,7 @@ export async function GET(request: Request) {
   if (!meta)
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  const { data, error } = await serviceClient
+  const { data, error } = await getServiceClient()
     .from('meta_aportes')
     .select('*')
     .eq('meta_id', metaId)
@@ -70,7 +65,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'tipo must be aporte or retiro' }, { status: 400 });
 
   // Verify meta belongs to user
-  const { data: meta } = await serviceClient
+  const { data: meta } = await getServiceClient()
     .from('metas_ahorro')
     .select('*')
     .eq('id', meta_id)
@@ -80,7 +75,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Goal not found' }, { status: 404 });
 
   // Insert aporte
-  const { data: aporte, error: aporteError } = await serviceClient
+  const { data: aporte, error: aporteError } = await getServiceClient()
     .from('meta_aportes')
     .insert({
       meta_id,
@@ -96,7 +91,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: aporteError.message }, { status: 400 });
 
   // Recalculate monto_actual from all aportes (atomic — avoids race conditions)
-  const { data: allAportes } = await serviceClient
+  const { data: allAportes } = await getServiceClient()
     .from('meta_aportes')
     .select('monto, tipo')
     .eq('meta_id', meta_id);
@@ -109,7 +104,7 @@ export async function POST(request: Request) {
   const completada = nuevoActualClamped >= parseFloat(meta.monto_objetivo);
   const actualAntes = parseFloat(meta.monto_actual || '0');
 
-  const { error: updateError } = await serviceClient
+  const { error: updateError } = await getServiceClient()
     .from('metas_ahorro')
     .update({
       monto_actual: nuevoActualClamped,
@@ -134,7 +129,7 @@ export async function POST(request: Request) {
   if (milestone) {
     const logroTipo = milestone === 100 ? 'meta_cumplida' : `milestone_${milestone}`;
     try {
-      await serviceClient.from('logros').upsert({
+      await getServiceClient().from('logros').upsert({
         usuario_id: userId,
         tipo: logroTipo,
         meta_id,
@@ -144,7 +139,7 @@ export async function POST(request: Request) {
 
     // Dashboard notification for milestone
     try {
-      await serviceClient.from('notificaciones').insert({
+      await getServiceClient().from('notificaciones').insert({
         usuario_id: userId,
         tipo: milestone === 100 ? 'meta_completada' : 'milestone',
         titulo: milestone === 100 ? `Meta "${meta.nombre}" completada` : `${milestone}% de tu meta "${meta.nombre}"`,
@@ -176,7 +171,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
   // Fetch aporte + verify ownership via meta
-  const { data: aporte } = await serviceClient
+  const { data: aporte } = await getServiceClient()
     .from('meta_aportes')
     .select('*, metas_ahorro!inner(id, usuario_id, monto_actual, monto_objetivo)')
     .eq('id', id)
@@ -186,7 +181,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   // Delete the aporte
-  const { error } = await serviceClient
+  const { error } = await getServiceClient()
     .from('meta_aportes')
     .delete()
     .eq('id', id);
@@ -202,7 +197,7 @@ export async function DELETE(request: Request) {
     ? actualAntes + montoAporte
     : Math.max(0, actualAntes - montoAporte);
 
-  await serviceClient
+  await getServiceClient()
     .from('metas_ahorro')
     .update({
       monto_actual: nuevoActual,

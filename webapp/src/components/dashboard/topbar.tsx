@@ -47,10 +47,11 @@ export function Topbar({ onMenuClick }: TopbarProps) {
   );
 }
 
-/** Desktop-only avatar + notifications — sits at top-right of content area, same height as page title */
-export function DesktopHeaderActions() {
+/** Reusable header actions — place in each page's top-right header area */
+export function HeaderActions({ children }: { children?: React.ReactNode }) {
   return (
-    <div className="hidden md:flex items-center gap-2 absolute top-5 right-5 z-10 lg:top-7 lg:right-7 pointer-events-auto">
+    <div className="hidden md:flex items-center gap-2">
+      {children}
       <NotificationBell />
       <UserMenu />
     </div>

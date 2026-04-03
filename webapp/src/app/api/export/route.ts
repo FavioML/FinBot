@@ -1,12 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
-
-const serviceClient = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 async function getNetoUserId() {
   const supabase = await createClient();
@@ -15,7 +10,7 @@ async function getNetoUserId() {
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const { data } = await serviceClient
+  const { data } = await getServiceClient()
     .from('usuarios')
     .select('id')
     .eq('supabase_auth_id', user.id)
@@ -33,7 +28,7 @@ export async function GET() {
   }
 
   // Check plan early before fetching all data
-  const { data: userData } = await serviceClient
+  const { data: userData } = await getServiceClient()
     .from('usuarios')
     .select('plan')
     .eq('id', userId)
@@ -48,20 +43,20 @@ export async function GET() {
 
   // Fetch all user data in parallel
   const [txResult, budgetResult, goalsResult, userResult] = await Promise.all([
-    serviceClient
+    getServiceClient()
       .from('transacciones')
       .select('*')
       .eq('usuario_id', userId)
       .order('fecha', { ascending: false }),
-    serviceClient
+    getServiceClient()
       .from('presupuestos')
       .select('*')
       .eq('usuario_id', userId),
-    serviceClient
+    getServiceClient()
       .from('metas_ahorro')
       .select('*')
       .eq('usuario_id', userId),
-    serviceClient
+    getServiceClient()
       .from('usuarios')
       .select('nombre, email, whatsapp, plan, created_at')
       .eq('id', userId)

@@ -42,6 +42,7 @@ import {
 import type { SpaceSplitRule, SpaceBudget, SpaceExpense } from '@/lib/hooks/use-shared-spaces';
 import { formatCurrency } from '@/lib/utils';
 import { CATEGORIAS, getCategoriaEmoji } from '@/lib/constants';
+import { HeaderActions } from '@/components/dashboard/topbar';
 
 function BalanceCard({
   name,
@@ -197,15 +198,18 @@ export default function SpaceDetailPage() {
               <p className="text-xs text-[#8A877D]">{members.length} miembro{members.length !== 1 ? 's' : ''}</p>
             </div>
           </div>
-          {isOwner && (
-            <button
-              onClick={() => { setRenameName(space.name); setShowSettingsDialog(true); }}
-              className="p-2 rounded-lg text-[#8A877D] hover:text-[#F0EFE8] hover:bg-[rgba(255,255,255,0.04)] transition-colors"
-              title="Configuración"
-            >
-              <Settings className="w-5 h-5" />
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            <HeaderActions />
+            {isOwner && (
+              <button
+                onClick={() => { setRenameName(space.name); setShowSettingsDialog(true); }}
+                className="p-2 rounded-lg text-[#8A877D] hover:text-[#F0EFE8] hover:bg-[rgba(255,255,255,0.04)] transition-colors"
+                title="Configuración"
+              >
+                <Settings className="w-5 h-5" />
+              </button>
+            )}
+          </div>
         </div>
       </FadeIn>
 

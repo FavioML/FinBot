@@ -1,11 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
-
-const serviceClient = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 async function getNetoUserId() {
   const supabase = await createClient();
@@ -14,7 +9,7 @@ async function getNetoUserId() {
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const { data } = await serviceClient
+  const { data } = await getServiceClient()
     .from('usuarios')
     .select('id')
     .eq('supabase_auth_id', user.id)
@@ -44,7 +39,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'meta_id required' }, { status: 400 });
 
   // Verify ownership
-  const { data: meta } = await serviceClient
+  const { data: meta } = await getServiceClient()
     .from('metas_ahorro')
     .select('id, invite_code, colaborativa')
     .eq('id', meta_id)
@@ -58,14 +53,14 @@ export async function POST(request: Request) {
   let inviteCode = meta.invite_code;
   if (!inviteCode) {
     inviteCode = generateInviteCode();
-    await serviceClient
+    await getServiceClient()
       .from('metas_ahorro')
       .update({ invite_code: inviteCode, colaborativa: true })
       .eq('id', meta_id);
   }
 
   // Ensure creator is in meta_participantes
-  const { data: existingParticipant } = await serviceClient
+  const { data: existingParticipant } = await getServiceClient()
     .from('meta_participantes')
     .select('id')
     .eq('meta_id', meta_id)
@@ -73,7 +68,7 @@ export async function POST(request: Request) {
     .single();
 
   if (!existingParticipant) {
-    await serviceClient
+    await getServiceClient()
       .from('meta_participantes')
       .insert({ meta_id, usuario_id: userId, rol: 'creador' });
   }
@@ -91,7 +86,7 @@ export async function GET(request: Request) {
   if (!code)
     return NextResponse.json({ error: 'Missing code' }, { status: 400 });
 
-  const { data: meta } = await serviceClient
+  const { data: meta } = await getServiceClient()
     .from('metas_ahorro')
     .select('id, nombre, icono, monto_objetivo, monto_actual, colaborativa, usuario_id')
     .eq('invite_code', code)
@@ -102,14 +97,14 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Invalid or expired invite' }, { status: 404 });
 
   // Get creator name
-  const { data: creator } = await serviceClient
+  const { data: creator } = await getServiceClient()
     .from('usuarios')
     .select('nombre')
     .eq('id', meta.usuario_id)
     .single();
 
   // Get participant count
-  const { count } = await serviceClient
+  const { count } = await getServiceClient()
     .from('meta_participantes')
     .select('id', { count: 'exact', head: true })
     .eq('meta_id', meta.id);

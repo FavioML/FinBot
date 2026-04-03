@@ -1,11 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
-
-const serviceClient = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -30,7 +25,7 @@ export async function POST(request: Request) {
   const fullWhatsapp = `51${digits}`;
 
   // Check if this auth user already has a record (prevent duplicates)
-  const { data: alreadyLinked } = await serviceClient
+  const { data: alreadyLinked } = await getServiceClient()
     .from('usuarios')
     .select('id')
     .eq('supabase_auth_id', user.id)
@@ -41,7 +36,7 @@ export async function POST(request: Request) {
   }
 
   // Check if a user with this WhatsApp already exists
-  const { data: existing } = await serviceClient
+  const { data: existing } = await getServiceClient()
     .from('usuarios')
     .select('id')
     .eq('whatsapp', fullWhatsapp)
@@ -49,7 +44,7 @@ export async function POST(request: Request) {
 
   if (existing) {
     // Link existing WhatsApp user to this Google account
-    const { error } = await serviceClient
+    const { error } = await getServiceClient()
       .from('usuarios')
       .update({
         supabase_auth_id: user.id,
@@ -68,7 +63,7 @@ export async function POST(request: Request) {
   }
 
   // Create new user — mark as onboarded so WhatsApp bot recognizes them
-  const { error } = await serviceClient.from('usuarios').insert({
+  const { error } = await getServiceClient().from('usuarios').insert({
     whatsapp: fullWhatsapp,
     supabase_auth_id: user.id,
     email: user.email,

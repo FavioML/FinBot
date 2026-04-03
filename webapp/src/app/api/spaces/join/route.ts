@@ -1,17 +1,12 @@
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
-
-const serviceClient = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 async function getNetoUserId() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
-  const { data } = await serviceClient
+  const { data } = await getServiceClient()
     .from('usuarios')
     .select('id')
     .eq('supabase_auth_id', user.id)
@@ -27,14 +22,14 @@ export async function POST(request: Request) {
   const { code } = body;
   if (!code) return NextResponse.json({ error: 'code required' }, { status: 400 });
 
-  const { data: space } = await serviceClient
+  const { data: space } = await getServiceClient()
     .from('shared_spaces')
     .select('id, name, type')
     .eq('invite_code', code.toUpperCase())
     .single();
   if (!space) return NextResponse.json({ error: 'Invalid invite code' }, { status: 404 });
 
-  const { data: existing } = await serviceClient
+  const { data: existing } = await getServiceClient()
     .from('space_members')
     .select('id')
     .eq('space_id', space.id)
@@ -45,7 +40,7 @@ export async function POST(request: Request) {
   // Check member limit
   const limits: Record<string, number> = { pareja: 2, roommates: 6, custom: 6 };
   const maxMembers = limits[space.type] || 6;
-  const { count } = await serviceClient
+  const { count } = await getServiceClient()
     .from('space_members')
     .select('id', { count: 'exact', head: true })
     .eq('space_id', space.id);
@@ -53,7 +48,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: `Este espacio ya tiene el máximo de ${maxMembers} miembros` }, { status: 400 });
   }
 
-  const { error } = await serviceClient.from('space_members').insert({
+  const { error } = await getServiceClient().from('space_members').insert({
     space_id: space.id,
     user_id: usuario.id,
     role: 'member',

@@ -1,17 +1,12 @@
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
-
-const serviceClient = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 async function getNetoUserId() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
-  const { data } = await serviceClient
+  const { data } = await getServiceClient()
     .from('usuarios')
     .select('id')
     .eq('supabase_auth_id', user.id)
@@ -27,7 +22,7 @@ export async function POST(
   const usuario = await getNetoUserId();
   if (!usuario) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { data: membership } = await serviceClient
+  const { data: membership } = await getServiceClient()
     .from('space_members')
     .select('id')
     .eq('space_id', id)
@@ -41,7 +36,7 @@ export async function POST(
     return NextResponse.json({ error: 'to_user and amount required' }, { status: 400 });
   }
 
-  const { data, error } = await serviceClient
+  const { data, error } = await getServiceClient()
     .from('space_settlements')
     .insert({
       space_id: id,

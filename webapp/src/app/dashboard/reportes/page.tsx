@@ -33,6 +33,7 @@ import { getCategoriaEmoji, MESES, SOCIAL_LINKS } from '@/lib/constants';
 import { capitalizeDisplay, normalizeMetodoPago, getMetodoIcon } from '@/lib/format';
 import { useSubscriptions } from '@/lib/hooks/use-subscriptions';
 import type { Transaccion } from '@/lib/types';
+import { HeaderActions } from '@/components/dashboard/topbar';
 import {
   PieChart, Pie, Cell, BarChart, Bar,
   XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
@@ -915,6 +916,7 @@ function Header({
           <FileBarChart className="h-6 w-6 text-[#EF9F27]" />
           <h1 className="text-2xl font-bold text-[#F0EFE8]">Reportes</h1>
         </div>
+        <HeaderActions />
       </div>
       <div className="flex items-center gap-3">
         <MonthSelector />

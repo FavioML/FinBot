@@ -1,11 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
-
-const serviceClient = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 async function getNetoUserId() {
   const supabase = await createClient();
@@ -14,7 +9,7 @@ async function getNetoUserId() {
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const { data } = await serviceClient
+  const { data } = await getServiceClient()
     .from('usuarios')
     .select('id')
     .eq('supabase_auth_id', user.id)
@@ -35,7 +30,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'code required' }, { status: 400 });
 
   // Find participant by invite code
-  const { data: participante } = await serviceClient
+  const { data: participante } = await getServiceClient()
     .from('gasto_participantes')
     .select('id, nombre, monto_debe, monto_pagado, gasto_id, usuario_id')
     .eq('invite_code', code)
@@ -45,7 +40,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invitacion invalida o expirada' }, { status: 404 });
 
   // Get the expense
-  const { data: gasto } = await serviceClient
+  const { data: gasto } = await getServiceClient()
     .from('gastos_compartidos')
     .select('id, creador_id, descripcion, moneda')
     .eq('id', participante.gasto_id)
@@ -63,7 +58,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Ya confirmaste esta participacion' }, { status: 409 });
 
   // Get creator name for contraparte
-  const { data: creador } = await serviceClient
+  const { data: creador } = await getServiceClient()
     .from('usuarios')
     .select('nombre')
     .eq('id', gasto.creador_id)
@@ -72,7 +67,7 @@ export async function POST(request: Request) {
   const montoPendiente = parseFloat(String(participante.monto_debe)) - parseFloat(String(participante.monto_pagado || 0));
 
   // Create a "debo" debt for the participant
-  const { data: nuevaDeuda, error: debtError } = await serviceClient
+  const { data: nuevaDeuda, error: debtError } = await getServiceClient()
     .from('deudas')
     .insert({
       usuario_id: userId,
@@ -91,15 +86,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: debtError.message }, { status: 400 });
 
   // Link the participant to this user
-  await serviceClient
+  await getServiceClient()
     .from('gasto_participantes')
     .update({ usuario_id: userId })
     .eq('id', participante.id);
 
   // Notify the expense creator
   try {
-    const { data: joiner } = await serviceClient.from('usuarios').select('nombre').eq('id', userId).single();
-    await serviceClient.from('notificaciones').insert({
+    const { data: joiner } = await getServiceClient().from('usuarios').select('nombre').eq('id', userId).single();
+    await getServiceClient().from('notificaciones').insert({
       usuario_id: gasto.creador_id,
       tipo: 'sistema',
       titulo: 'Gasto compartido confirmado',

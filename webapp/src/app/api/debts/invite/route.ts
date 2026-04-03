@@ -1,12 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
-
-const serviceClient = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 async function getNetoUserId() {
   const supabase = await createClient();
@@ -15,7 +10,7 @@ async function getNetoUserId() {
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const { data } = await serviceClient
+  const { data } = await getServiceClient()
     .from('usuarios')
     .select('id')
     .eq('supabase_auth_id', user.id)
@@ -36,7 +31,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'deuda_id required' }, { status: 400 });
 
   // Verify ownership and type
-  const { data: deuda } = await serviceClient
+  const { data: deuda } = await getServiceClient()
     .from('deudas')
     .select('id, invite_code, tipo, estado')
     .eq('id', deuda_id)
@@ -53,7 +48,7 @@ export async function POST(request: Request) {
   let inviteCode = deuda.invite_code;
   if (!inviteCode) {
     inviteCode = crypto.randomBytes(4).toString('hex'); // 8 hex chars
-    await serviceClient
+    await getServiceClient()
       .from('deudas')
       .update({ invite_code: inviteCode })
       .eq('id', deuda_id);
@@ -72,7 +67,7 @@ export async function GET(request: Request) {
   if (!code)
     return NextResponse.json({ error: 'Missing code' }, { status: 400 });
 
-  const { data: deuda } = await serviceClient
+  const { data: deuda } = await getServiceClient()
     .from('deudas')
     .select('id, contraparte, monto_original, monto_pendiente, moneda, descripcion, usuario_id, estado')
     .eq('invite_code', code)
@@ -82,14 +77,14 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Invitacion invalida o expirada' }, { status: 404 });
 
   // Get creditor name
-  const { data: acreedor } = await serviceClient
+  const { data: acreedor } = await getServiceClient()
     .from('usuarios')
     .select('nombre')
     .eq('id', deuda.usuario_id)
     .single();
 
   // Check if already linked (someone already confirmed)
-  const { count } = await serviceClient
+  const { count } = await getServiceClient()
     .from('deudas')
     .select('id', { count: 'exact', head: true })
     .eq('deuda_vinculada_id', deuda.id);

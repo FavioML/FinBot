@@ -1,11 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
-
-const serviceClient = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 async function getNetoUserId() {
   const supabase = await createClient();
@@ -14,7 +9,7 @@ async function getNetoUserId() {
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const { data } = await serviceClient
+  const { data } = await getServiceClient()
     .from('usuarios')
     .select('id')
     .eq('supabase_auth_id', user.id)
@@ -35,7 +30,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'code required' }, { status: 400 });
 
   // Find the original debt by invite code
-  const { data: deudaOriginal } = await serviceClient
+  const { data: deudaOriginal } = await getServiceClient()
     .from('deudas')
     .select('id, usuario_id, contraparte, monto_original, monto_pendiente, moneda, descripcion, fecha_vencimiento')
     .eq('invite_code', code)
@@ -49,7 +44,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'No puedes confirmar tu propia deuda' }, { status: 400 });
 
   // Check if already confirmed by this user
-  const { data: existing } = await serviceClient
+  const { data: existing } = await getServiceClient()
     .from('deudas')
     .select('id')
     .eq('usuario_id', userId)
@@ -60,14 +55,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Ya confirmaste esta deuda' }, { status: 409 });
 
   // Get creditor name to use as contraparte
-  const { data: acreedor } = await serviceClient
+  const { data: acreedor } = await getServiceClient()
     .from('usuarios')
     .select('nombre')
     .eq('id', deudaOriginal.usuario_id)
     .single();
 
   // Create mirror "debo" debt
-  const { data: nuevaDeuda, error } = await serviceClient
+  const { data: nuevaDeuda, error } = await getServiceClient()
     .from('deudas')
     .insert({
       usuario_id: userId,
@@ -89,8 +84,8 @@ export async function POST(request: Request) {
 
   // Notify creditor that debt was confirmed
   try {
-    const { data: joiner } = await serviceClient.from('usuarios').select('nombre').eq('id', userId).single();
-    await serviceClient.from('notificaciones').insert({
+    const { data: joiner } = await getServiceClient().from('usuarios').select('nombre').eq('id', userId).single();
+    await getServiceClient().from('notificaciones').insert({
       usuario_id: deudaOriginal.usuario_id,
       tipo: 'sistema',
       titulo: 'Deuda confirmada',

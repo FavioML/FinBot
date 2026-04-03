@@ -1,12 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
-
-const serviceClient = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 async function getNetoUserId() {
   const supabase = await createClient();
@@ -15,7 +10,7 @@ async function getNetoUserId() {
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const { data } = await serviceClient
+  const { data } = await getServiceClient()
     .from('usuarios')
     .select('id')
     .eq('supabase_auth_id', user.id)
@@ -34,7 +29,7 @@ export async function GET() {
   }
 
   // Get root categories
-  const { data: cats, error } = await serviceClient
+  const { data: cats, error } = await getServiceClient()
     .from('categorias_usuario')
     .select('*')
     .eq('usuario_id', userId)
@@ -48,7 +43,7 @@ export async function GET() {
   // Get subcategories for each category from categorias_usuario
   const result: { id: string; nombre: string; subcategorias: { id: string | null; nombre: string; from_tx?: boolean }[] }[] = [];
   for (const cat of (cats || [])) {
-    const { data: subs } = await serviceClient
+    const { data: subs } = await getServiceClient()
       .from('categorias_usuario')
       .select('*')
       .eq('usuario_id', userId)
@@ -60,7 +55,7 @@ export async function GET() {
 
   // Also pull distinct (categoria, subcategoria) pairs from real transactions
   // so "Gestionar categorías" shows the same subcategories as the transaction filter
-  const { data: txRows } = await serviceClient
+  const { data: txRows } = await getServiceClient()
     .from('transacciones')
     .select('categoria, subcategoria')
     .eq('usuario_id', userId)
@@ -87,10 +82,10 @@ export async function GET() {
   }
 
   if (newSubsToInsert.length > 0) {
-    await serviceClient.from('categorias_usuario').insert(newSubsToInsert);
+    await getServiceClient().from('categorias_usuario').insert(newSubsToInsert);
     // Re-fetch subcategories now that new rows exist
     for (const cat of result) {
-      const { data: subs } = await serviceClient
+      const { data: subs } = await getServiceClient()
         .from('categorias_usuario')
         .select('*')
         .eq('usuario_id', userId)
@@ -127,7 +122,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: 'ID requerido' }, { status: 400 });
 
   // Verify ownership
-  const { data: cat } = await serviceClient
+  const { data: cat } = await getServiceClient()
     .from('categorias_usuario')
     .select('id, usuario_id, padre_id')
     .eq('id', catId)
@@ -138,7 +133,7 @@ export async function DELETE(request: Request) {
 
   if (!isSubcategory && !cat.padre_id) {
     // Deleting a root category — also deactivate its subcategories
-    await serviceClient
+    await getServiceClient()
       .from('categorias_usuario')
       .update({ activa: false })
       .eq('padre_id', catId)
@@ -146,7 +141,7 @@ export async function DELETE(request: Request) {
   }
 
   // Soft-delete the category itself
-  const { error } = await serviceClient
+  const { error } = await getServiceClient()
     .from('categorias_usuario')
     .update({ activa: false })
     .eq('id', catId)
@@ -179,7 +174,7 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: 'El nombre debe tener entre 2 y 30 caracteres' }, { status: 400 });
 
   // Verify ownership
-  const { data: cat } = await serviceClient
+  const { data: cat } = await getServiceClient()
     .from('categorias_usuario')
     .select('id, usuario_id')
     .eq('id', id)
@@ -188,7 +183,7 @@ export async function PUT(request: Request) {
   if (!cat || cat.usuario_id !== userId)
     return NextResponse.json({ error: 'Categoria no encontrada' }, { status: 404 });
 
-  const { error } = await serviceClient
+  const { error } = await getServiceClient()
     .from('categorias_usuario')
     .update({ nombre: nombreLimpio })
     .eq('id', id)

@@ -20,6 +20,7 @@ import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
 import { useGoals, useGoalMutations, useGoalContributions, useGoalParticipants, useAchievements, useAbandonPlan, type MetaAhorro, type MetaAporte, type MetaParticipante } from '@/lib/hooks/use-goals';
 import { formatCurrency } from '@/lib/utils';
+import { HeaderActions } from '@/components/dashboard/topbar';
 
 export const dynamic = 'force-dynamic';
 
@@ -332,6 +333,7 @@ export default function MetasPage() {
           <p className="text-sm text-[#8A877D] mt-1">Planifica tu ahorro y Neto te guía para lograrlo</p>
         </div>
         <div className="flex items-center gap-3">
+          <HeaderActions />
           {goalsLimitReached && !isPremium && (
             <ProBadge text={`Limite: ${FREE_LIMITS.goals} meta`} />
           )}

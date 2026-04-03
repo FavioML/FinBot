@@ -1,11 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
-
-const serviceClient = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 async function getNetoUserId() {
   const supabase = await createClient();
@@ -14,7 +9,7 @@ async function getNetoUserId() {
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const { data } = await serviceClient
+  const { data } = await getServiceClient()
     .from('usuarios')
     .select('id')
     .eq('supabase_auth_id', user.id)
@@ -28,7 +23,7 @@ export async function GET() {
   if (!userId)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { data, error } = await serviceClient
+  const { data, error } = await getServiceClient()
     .from('notificaciones')
     .select('*')
     .eq('usuario_id', userId)
@@ -39,7 +34,7 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 400 });
 
   // Also get unread count
-  const { count } = await serviceClient
+  const { count } = await getServiceClient()
     .from('notificaciones')
     .select('id', { count: 'exact', head: true })
     .eq('usuario_id', userId)
@@ -58,7 +53,7 @@ export async function PUT(request: Request) {
   const { ids, markAll } = body as { ids?: string[]; markAll?: boolean };
 
   if (markAll) {
-    const { error } = await serviceClient
+    const { error } = await getServiceClient()
       .from('notificaciones')
       .update({ leida: true })
       .eq('usuario_id', userId)
@@ -67,7 +62,7 @@ export async function PUT(request: Request) {
     if (error)
       return NextResponse.json({ error: error.message }, { status: 400 });
   } else if (ids && ids.length > 0) {
-    const { error } = await serviceClient
+    const { error } = await getServiceClient()
       .from('notificaciones')
       .update({ leida: true })
       .eq('usuario_id', userId)
@@ -93,7 +88,7 @@ export async function DELETE(request: Request) {
   if (!id)
     return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
-  const { error } = await serviceClient
+  const { error } = await getServiceClient()
     .from('notificaciones')
     .delete()
     .eq('id', id)

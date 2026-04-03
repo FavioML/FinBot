@@ -1,13 +1,8 @@
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'faviomendoza27jl@gmail.com';
-
-const serviceClient = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 async function getAdminEmail() {
   const supabase = await createClient();
@@ -29,7 +24,7 @@ export async function GET(request: Request) {
   const limit = parseInt(searchParams.get('limit') || '50');
   const offset = parseInt(searchParams.get('offset') || '0');
 
-  const { data, error, count } = await serviceClient
+  const { data, error, count } = await getServiceClient()
     .from('nlp_errors')
     .select('*', { count: 'exact' })
     .order('created_at', { ascending: false })

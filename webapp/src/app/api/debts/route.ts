@@ -1,18 +1,13 @@
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
-
-const serviceClient = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 async function getNetoUser() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
-  const { data } = await serviceClient
+  const { data } = await getServiceClient()
     .from('usuarios')
     .select('id, plan')
     .eq('supabase_auth_id', user.id)
@@ -29,7 +24,7 @@ export async function GET() {
     return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
   }
 
-  const { data, error } = await serviceClient
+  const { data, error } = await getServiceClient()
     .from('deudas')
     .select('*, deuda_abonos(id, monto, fecha, nota, created_at)')
     .eq('usuario_id', netoUser.id)
@@ -60,7 +55,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Monto inválido' }, { status: 400 });
   }
 
-  const { data, error } = await serviceClient
+  const { data, error } = await getServiceClient()
     .from('deudas')
     .insert({
       usuario_id: netoUser.id,
@@ -95,7 +90,7 @@ export async function PUT(request: Request) {
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
   // Verificar que la deuda pertenece al usuario
-  const { data: deuda } = await serviceClient
+  const { data: deuda } = await getServiceClient()
     .from('deudas')
     .select('*')
     .eq('id', id)
@@ -112,7 +107,7 @@ export async function PUT(request: Request) {
     }
 
     // Insertar abono
-    await serviceClient.from('deuda_abonos').insert({
+    await getServiceClient().from('deuda_abonos').insert({
       deuda_id: id,
       monto: montoAbono,
       fecha: fields.fecha || new Date().toISOString().split('T')[0],
@@ -120,7 +115,7 @@ export async function PUT(request: Request) {
     });
 
     // Recalculate monto_pendiente from all abonos (atomic — avoids race conditions)
-    const { data: allAbonos } = await serviceClient
+    const { data: allAbonos } = await getServiceClient()
       .from('deuda_abonos')
       .select('monto')
       .eq('deuda_id', id);
@@ -129,7 +124,7 @@ export async function PUT(request: Request) {
     const completada = nuevoPendiente === 0;
 
     // Actualizar deuda
-    const { data: updated, error } = await serviceClient
+    const { data: updated, error } = await getServiceClient()
       .from('deudas')
       .update({
         monto_pendiente: nuevoPendiente,
@@ -146,7 +141,7 @@ export async function PUT(request: Request) {
 
   // action=marcar_pagada → poner monto_pendiente=0 y estado=pagada
   if (action === 'marcar_pagada') {
-    const { data: updated, error } = await serviceClient
+    const { data: updated, error } = await getServiceClient()
       .from('deudas')
       .update({
         monto_pendiente: 0,
@@ -168,7 +163,7 @@ export async function PUT(request: Request) {
   if (fields.fecha_vencimiento !== undefined) updateData.fecha_vencimiento = fields.fecha_vencimiento || null;
   if (fields.estado !== undefined) updateData.estado = fields.estado;
 
-  const { data: updated, error } = await serviceClient
+  const { data: updated, error } = await getServiceClient()
     .from('deudas')
     .update(updateData)
     .eq('id', id)
@@ -193,15 +188,15 @@ export async function DELETE(request: Request) {
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
   // Delete abonos first (FK constraint)
-  await serviceClient.from('deuda_abonos').delete().eq('deuda_id', id);
+  await getServiceClient().from('deuda_abonos').delete().eq('deuda_id', id);
 
   // Unlink any deuda that references this one (deuda_vinculada_id FK)
-  await serviceClient
+  await getServiceClient()
     .from('deudas')
     .update({ deuda_vinculada_id: null })
     .eq('deuda_vinculada_id', id);
 
-  const { error } = await serviceClient
+  const { error } = await getServiceClient()
     .from('deudas')
     .delete()
     .eq('id', id)

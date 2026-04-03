@@ -1,17 +1,12 @@
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
-
-const serviceClient = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 async function getNetoUserId() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
-  const { data } = await serviceClient
+  const { data } = await getServiceClient()
     .from('usuarios')
     .select('id')
     .eq('supabase_auth_id', user.id)
@@ -20,7 +15,7 @@ async function getNetoUserId() {
 }
 
 async function verifyMembership(spaceId: string, userId: string) {
-  const { data } = await serviceClient
+  const { data } = await getServiceClient()
     .from('space_members')
     .select('id')
     .eq('space_id', spaceId)
@@ -44,7 +39,7 @@ export async function POST(
     return NextResponse.json({ error: 'Invalid amount' }, { status: 400 });
   }
 
-  const { data, error } = await serviceClient
+  const { data, error } = await getServiceClient()
     .from('space_expenses')
     .insert({
       space_id: id,
@@ -78,7 +73,7 @@ export async function PUT(
   if (description !== undefined) update.description = description;
   if (category !== undefined) update.category = category;
 
-  const { error } = await serviceClient
+  const { error } = await getServiceClient()
     .from('space_expenses')
     .update(update)
     .eq('id', expenseId)
@@ -101,7 +96,7 @@ export async function DELETE(
   const expenseId = url.searchParams.get('id');
   if (!expenseId) return NextResponse.json({ error: 'id required' }, { status: 400 });
 
-  const { error } = await serviceClient
+  const { error } = await getServiceClient()
     .from('space_expenses')
     .delete()
     .eq('id', expenseId)

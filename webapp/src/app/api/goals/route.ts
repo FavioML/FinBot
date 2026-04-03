@@ -1,12 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
-
-const serviceClient = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 async function getNetoUser() {
   const supabase = await createClient();
@@ -15,7 +10,7 @@ async function getNetoUser() {
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const { data } = await serviceClient
+  const { data } = await getServiceClient()
     .from('usuarios')
     .select('id, plan')
     .eq('supabase_auth_id', user.id)
@@ -37,7 +32,7 @@ export async function GET() {
   const userId = netoUser.id;
 
   // Get own goals
-  const { data: ownGoals, error } = await serviceClient
+  const { data: ownGoals, error } = await getServiceClient()
     .from('metas_ahorro')
     .select('*, meta_aportes(*)')
     .eq('usuario_id', userId)
@@ -47,7 +42,7 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 400 });
 
   // Get participated collaborative goals
-  const { data: participations } = await serviceClient
+  const { data: participations } = await getServiceClient()
     .from('meta_participantes')
     .select('meta_id')
     .eq('usuario_id', userId);
@@ -58,7 +53,7 @@ export async function GET() {
 
   let participatedGoals: typeof ownGoals = [];
   if (participatedIds.length > 0) {
-    const { data: pGoals } = await serviceClient
+    const { data: pGoals } = await getServiceClient()
       .from('metas_ahorro')
       .select('*, meta_aportes(*)')
       .in('id', participatedIds)
@@ -90,7 +85,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Monto objetivo inválido' }, { status: 400 });
   }
 
-  const { data, error } = await serviceClient
+  const { data, error } = await getServiceClient()
     .from('metas_ahorro')
     .insert({
       usuario_id: userId,
@@ -121,7 +116,7 @@ export async function PUT(request: Request) {
 
   const body = await request.json();
 
-  const { data, error } = await serviceClient
+  const { data, error } = await getServiceClient()
     .from('metas_ahorro')
     .update({
       nombre: body.nombre,
@@ -158,7 +153,7 @@ export async function DELETE(request: Request) {
   if (!id)
     return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
-  const { error } = await serviceClient
+  const { error } = await getServiceClient()
     .from('metas_ahorro')
     .delete()
     .eq('id', id)
