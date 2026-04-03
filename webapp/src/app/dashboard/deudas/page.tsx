@@ -355,8 +355,7 @@ export default function DeudasPage() {
             <h1 className="text-2xl font-bold text-[#F0EFE8]">Deudas</h1>
             <p className="text-sm text-[#8A877D] mt-1">Lleva el control de lo que debes y te deben</p>
           </div>
-          <div className="flex items-center gap-3">
-            <HeaderActions />
+          <HeaderActions>
             <Button
               onClick={() => openCreate(tab === 'me_deben' ? 'me_deben' : 'debo')}
               className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 gap-2"
@@ -364,7 +363,7 @@ export default function DeudasPage() {
               <Plus className="h-4 w-4" />
               Nueva deuda
             </Button>
-          </div>
+          </HeaderActions>
         </div>
 
         {/* Summary cards */}

@@ -268,8 +268,7 @@ export default function PresupuestosPage() {
         <div>
           <h1 className="text-2xl font-bold text-[#F0EFE8]">Presupuestos</h1>
         </div>
-        <div className="flex items-center gap-3">
-          <HeaderActions />
+        <HeaderActions>
           <MonthSelector />
           {budgetsLimitReached && !isPremium && (
             <ProBadge text={`Límite: ${FREE_LIMITS.budgets} presupuestos`} />
@@ -282,7 +281,7 @@ export default function PresupuestosPage() {
             <Plus className="h-4 w-4" />
             Nuevo presupuesto
           </Button>
-        </div>
+        </HeaderActions>
       </div>
 
       {hasBudgets ? (

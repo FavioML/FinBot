@@ -198,8 +198,7 @@ export default function SpaceDetailPage() {
               <p className="text-xs text-[#8A877D]">{members.length} miembro{members.length !== 1 ? 's' : ''}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <HeaderActions />
+          <HeaderActions>
             {isOwner && (
               <button
                 onClick={() => { setRenameName(space.name); setShowSettingsDialog(true); }}
@@ -209,7 +208,7 @@ export default function SpaceDetailPage() {
                 <Settings className="w-5 h-5" />
               </button>
             )}
-          </div>
+          </HeaderActions>
         </div>
       </FadeIn>
 

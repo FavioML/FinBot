@@ -84,8 +84,7 @@ export default function EspaciosPage() {
             <h1 className="text-2xl font-bold text-[#F0EFE8]">Espacios Compartidos</h1>
             <p className="text-[#8A877D] text-sm mt-1">Divide gastos con tu pareja, roommates o amigos</p>
           </div>
-          <div className="flex items-center gap-3">
-            <HeaderActions />
+          <HeaderActions>
             <Button
               onClick={() => setShowCreate(!showCreate)}
               className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 gap-2 shrink-0"
@@ -94,7 +93,7 @@ export default function EspaciosPage() {
               <Plus className="w-4 h-4" />
               Nuevo
             </Button>
-          </div>
+          </HeaderActions>
         </div>
       </FadeIn>
 

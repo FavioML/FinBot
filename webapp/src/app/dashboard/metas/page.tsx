@@ -332,8 +332,7 @@ export default function MetasPage() {
           <h1 className="text-2xl font-bold text-[#F0EFE8]">Planes de ahorro</h1>
           <p className="text-sm text-[#8A877D] mt-1">Planifica tu ahorro y Neto te guía para lograrlo</p>
         </div>
-        <div className="flex items-center gap-3">
-          <HeaderActions />
+        <HeaderActions>
           {goalsLimitReached && !isPremium && (
             <ProBadge text={`Limite: ${FREE_LIMITS.goals} meta`} />
           )}
@@ -345,7 +344,7 @@ export default function MetasPage() {
             <Plus className="h-4 w-4" />
             Nuevo plan
           </Button>
-        </div>
+        </HeaderActions>
       </div>
 
       {/* Summary cards */}

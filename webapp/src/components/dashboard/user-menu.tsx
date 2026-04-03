@@ -13,8 +13,6 @@ import {
   DropdownMenuContent,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
-import { NotificationBell } from './notification-bell';
-
 export function UserMenu() {
   const router = useRouter();
   const { data: user } = useUser();
@@ -42,10 +40,6 @@ export function UserMenu() {
   }
 
   return (
-    <div className="flex items-center gap-2">
-      <div className="hidden md:block">
-        <NotificationBell />
-      </div>
       <DropdownMenu>
         <DropdownMenuTrigger className="cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[#1D9E75] transition-transform hover:scale-105 active:scale-95">
           <Avatar className="h-10 w-10 ring-2 ring-transparent hover:ring-[#1D9E75]/30 transition-all">
@@ -70,6 +64,5 @@ export function UserMenu() {
         </button>
       </DropdownMenuContent>
     </DropdownMenu>
-    </div>
   );
 }

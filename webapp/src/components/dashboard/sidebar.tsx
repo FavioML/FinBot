@@ -58,6 +58,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             alt="NETO"
             width={80}
             height={80}
+            loading="eager"
+            priority
             className="h-20 w-20 object-contain mx-auto"
           />
         </Link>

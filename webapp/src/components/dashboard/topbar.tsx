@@ -47,10 +47,12 @@ export function Topbar({ onMenuClick }: TopbarProps) {
   );
 }
 
-/** Reusable header actions — place in each page's top-right header area */
+/** Reusable header actions — place in each page's top-right header area.
+ *  Children (page-specific buttons) render BEFORE bell+avatar so the
+ *  user controls always sit at the far right. */
 export function HeaderActions({ children }: { children?: React.ReactNode }) {
   return (
-    <div className="hidden md:flex items-center gap-2">
+    <div className="hidden md:flex items-center gap-3">
       {children}
       <NotificationBell />
       <UserMenu />
