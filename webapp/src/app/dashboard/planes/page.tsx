@@ -399,7 +399,7 @@ export default function MetasPage() {
                         <span className="px-1.5 py-0.5 rounded-full bg-[rgba(255,255,255,0.06)] text-[10px] text-[#8A877D] font-medium">Abandonado</span>
                       )}
                     </div>
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-opacity">
                       <button onClick={() => openContribute(goal)} className="p-1 rounded text-[#1D9E75] hover:text-[#1D9E75]/80" title="Aportar">
                         <TrendingUp className="h-3.5 w-3.5" />
                       </button>
@@ -553,7 +553,7 @@ export default function MetasPage() {
                     <span>{goal.icono}</span>
                     <span className="text-sm text-[#C8C6BC] line-through">{goal.nombre}</span>
                   </div>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-opacity">
                     <button onClick={() => toggleComplete(goal)} className="p-1 rounded text-[#8A877D] hover:text-[#EF9F27]" title="Reabrir">
                       <X className="h-3.5 w-3.5" />
                     </button>
@@ -584,7 +584,7 @@ export default function MetasPage() {
                     <span>{goal.icono}</span>
                     <span className="text-sm text-[#8A877D] line-through">{goal.nombre}</span>
                   </div>
-                  <button onClick={() => setDeleteId(goal.id)} className="p-1 rounded text-[#8A877D] hover:text-[#D85A30] opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button onClick={() => setDeleteId(goal.id)} className="p-1 rounded text-[#8A877D] hover:text-[#D85A30] opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-opacity">
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </div>

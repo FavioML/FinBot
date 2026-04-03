@@ -111,6 +111,8 @@ export async function GET(
     expenses: expensesTyped,
     settlements: settlementsTyped,
     balance,
+    splitRules: (space as Record<string, unknown>)?.split_rules ?? [],
+    budgets: (space as Record<string, unknown>)?.budgets ?? [],
     currentUserId: usuario.id,
     isPro: usuario.plan === 'premium',
   });

@@ -494,7 +494,7 @@ export default function DeudasPage() {
                             <p className="text-base font-bold text-[#EF9F27] tabular-nums">
                               {gasto.moneda === 'USD' ? '$' : 'S/'} {Number(gasto.monto_total).toFixed(2)}
                             </p>
-                            <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-all mt-1">
+                            <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-all mt-1">
                               <button
                                 onClick={() => openEditSplit(gasto)}
                                 className="p-1 rounded text-[#8A877D] hover:text-[#EF9F27]"
@@ -960,7 +960,7 @@ export default function DeudasPage() {
                             </p>
                           </div>
                           {!isPagada && (
-                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-opacity">
                               <button
                                 onClick={() => { setShowPayForm(debt); setMontoAbono(''); setNotaAbono(''); }}
                                 className="px-2.5 py-1 rounded-lg text-xs font-medium bg-[rgba(29,158,117,0.12)] text-[#1D9E75] hover:bg-[rgba(29,158,117,0.2)] transition-colors"
@@ -1005,7 +1005,7 @@ export default function DeudasPage() {
                             </div>
                           )}
                           {isPagada && (
-                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-opacity">
                               <button
                                 onClick={() => setDeleteId(debt.id)}
                                 className="p-1.5 rounded-lg text-[#8A877D] hover:text-[#D85A30] hover:bg-[rgba(216,90,48,0.08)] transition-colors"

@@ -525,7 +525,7 @@ export default function PresupuestosPage() {
                                   <span className="text-sm font-medium text-[#D85A30]">
                                     -{formatCurrency(tx.monto_pen)}
                                   </span>
-                                  <Pencil className="h-3 w-3 text-[#8A877D] opacity-0 group-hover:opacity-100 transition-opacity" />
+                                  <Pencil className="h-3 w-3 text-[#8A877D] opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-opacity" />
                                 </div>
                               </div>
                             ))}
