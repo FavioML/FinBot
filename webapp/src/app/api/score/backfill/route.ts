@@ -141,7 +141,7 @@ export async function POST() {
       factors.visibility * WEIGHTS.visibility
     )));
 
-    await getServiceClient().from('neto_scores').upsert({
+    const { error } = await getServiceClient().from('neto_scores').upsert({
       user_id: usuario.id,
       score,
       factor_consistency: factors.consistency,
@@ -152,6 +152,11 @@ export async function POST() {
       factor_visibility: factors.visibility,
       period,
     }, { onConflict: 'user_id,period' });
+
+    if (error) {
+      console.error(`[backfill] upsert failed for period ${period}:`, error.message, error.details, JSON.stringify(factors));
+      continue;
+    }
 
     backfilled++;
   }
