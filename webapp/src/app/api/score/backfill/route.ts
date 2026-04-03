@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 
 const WEIGHTS = {
@@ -133,7 +134,7 @@ export async function POST() {
       factors.visibility * WEIGHTS.visibility
     )));
 
-    await supabase.from('neto_scores').upsert({
+    await getServiceClient().from('neto_scores').upsert({
       user_id: usuario.id,
       score,
       factor_consistency: factors.consistency,
