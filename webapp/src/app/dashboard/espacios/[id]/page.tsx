@@ -482,7 +482,7 @@ export default function SpaceDetailPage() {
             </div>
             <div>
               <label className="text-xs text-[#8A877D] mb-1 block">Categoría (opcional)</label>
-              <Select value={expCategory} onValueChange={setExpCategory}>
+              <Select value={expCategory} onValueChange={(v: string) => setExpCategory(v)}>
                 <SelectTrigger className="bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.08)] text-[#F0EFE8]">
                   <SelectValue placeholder="Seleccionar categoría" />
                 </SelectTrigger>
