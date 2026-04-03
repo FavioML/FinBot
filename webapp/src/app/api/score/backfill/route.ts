@@ -58,15 +58,22 @@ export async function POST() {
     monthsWithTx.get(period)!.push(tx);
   }
 
-  // Skip current month (already handled by daily cron) and months with existing scores
+  // Skip current month and future months (handled by daily cron)
   const now = new Date();
-  const currentPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+  const currentYearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+  // Normalize existing periods to YYYY-MM for comparison (cron stores exact dates like 2026-04-03)
+  const existingYearMonths = new Set(
+    Array.from(existingPeriods).map(p => p.slice(0, 7))
+  );
 
   let backfilled = 0;
 
   for (const [period, monthTxs] of monthsWithTx) {
-    if (period === currentPeriod) continue;
-    if (existingPeriods.has(period)) continue;
+    const periodYearMonth = period.slice(0, 7);
+    if (periodYearMonth >= currentYearMonth) continue; // skip current + future months
+    if (existingYearMonths.has(periodYearMonth)) continue; // skip already scored months
+    if (monthTxs.length < 5) continue; // skip months with too few transactions
 
     // Factor 1: Consistency — unique days with transactions in this month
     const uniqueDays = new Set(monthTxs.map(t => t.fecha)).size;
