@@ -482,7 +482,7 @@ export default function SpaceDetailPage() {
             </div>
             <div>
               <label className="text-xs text-[#8A877D] mb-1 block">Categoría (opcional)</label>
-              <Select value={expCategory} onValueChange={(v: string) => setExpCategory(v)}>
+              <Select value={expCategory || undefined} onValueChange={(v) => setExpCategory(v ?? '')}>
                 <SelectTrigger className="bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.08)] text-[#F0EFE8]">
                   <SelectValue placeholder="Seleccionar categoría" />
                 </SelectTrigger>
@@ -579,7 +579,7 @@ export default function SpaceDetailPage() {
           <div className="space-y-3">
             <div>
               <label className="text-xs text-[#8A877D] mb-1 block">Categoría</label>
-              <Select value={ruleCategory} onValueChange={setRuleCategory}>
+              <Select value={ruleCategory || undefined} onValueChange={(v) => setRuleCategory(v ?? '')}>
                 <SelectTrigger className="bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.08)] text-[#F0EFE8]">
                   <SelectValue placeholder="Seleccionar categoría" />
                 </SelectTrigger>
@@ -656,7 +656,7 @@ export default function SpaceDetailPage() {
           <div className="space-y-3">
             <div>
               <label className="text-xs text-[#8A877D] mb-1 block">Categoría</label>
-              <Select value={budgetCategory} onValueChange={setBudgetCategory}>
+              <Select value={budgetCategory || undefined} onValueChange={(v) => setBudgetCategory(v ?? '')}>
                 <SelectTrigger className="bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.08)] text-[#F0EFE8]">
                   <SelectValue placeholder="Seleccionar categoría" />
                 </SelectTrigger>
