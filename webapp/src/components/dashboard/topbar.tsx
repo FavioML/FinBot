@@ -29,9 +29,8 @@ export function Topbar({ onMenuClick }: TopbarProps) {
   const title = PAGE_TITLES[pathname] || 'NETO';
 
   return (
-    <header className="flex h-12 shrink-0 items-center justify-between border-b border-[rgba(255,255,255,0.04)]">
-      {/* Mobile: hamburger + title */}
-      <div className="flex items-center gap-3 px-4 md:hidden">
+    <header className="flex h-12 shrink-0 items-center justify-between border-b border-[rgba(255,255,255,0.04)] md:hidden">
+      <div className="flex items-center gap-3 px-4">
         <button
           onClick={onMenuClick}
           className="rounded-md p-2 text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
@@ -40,13 +39,20 @@ export function Topbar({ onMenuClick }: TopbarProps) {
         </button>
         <span className="text-sm font-medium text-[#C8C6BC]">{title}</span>
       </div>
-      {/* Desktop: spacer (title is in page content) */}
-      <div className="hidden md:block" />
-      {/* Both: notification + avatar */}
       <div className="flex items-center gap-2 px-4">
         <NotificationBell />
         <UserMenu />
       </div>
     </header>
+  );
+}
+
+/** Floating avatar + notifications for desktop — positioned in top-right of content area */
+export function DesktopHeaderActions() {
+  return (
+    <div className="hidden md:flex items-center gap-2 fixed top-3 right-6 z-30">
+      <NotificationBell />
+      <UserMenu />
+    </div>
   );
 }
