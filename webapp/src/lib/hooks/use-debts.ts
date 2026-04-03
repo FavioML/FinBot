@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { IS_DEMO } from '@/lib/demo/is-demo';
-import { DEMO_DEBTS } from '@/lib/demo/mock-data';
+import { DEMO_DEBTS, DEMO_USER_ID } from '@/lib/demo/mock-data';
 
 export interface DeudaAbono {
   id: string;
@@ -73,7 +73,31 @@ export function useDebtMutations() {
 
   const create = useMutation({
     mutationFn: async (debt: Partial<Deuda> & { monto_original: number }) => {
-      if (IS_DEMO) return { ok: true, id: `demo-${Date.now()}` };
+      const id = `debt-${Date.now()}`;
+      if (IS_DEMO) {
+        const newDebt: Deuda = {
+          id,
+          usuario_id: DEMO_USER_ID,
+          tipo: debt.tipo ?? 'debo',
+          contraparte: debt.contraparte ?? '',
+          monto_original: debt.monto_original,
+          monto_pendiente: debt.monto_original,
+          moneda: debt.moneda ?? 'PEN',
+          descripcion: debt.descripcion ?? null,
+          fecha_inicio: new Date().toISOString().split('T')[0],
+          fecha_vencimiento: debt.fecha_vencimiento ?? null,
+          estado: 'activa',
+          invite_code: null,
+          deuda_vinculada_id: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          deuda_abonos: [],
+        };
+        queryClient.setQueryData<Deuda[]>(['debts', DEMO_USER_ID], (old) =>
+          old ? [newDebt, ...old] : [newDebt]
+        );
+        return { ok: true, id };
+      }
       const res = await fetch('/api/debts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -82,12 +106,37 @@ export function useDebtMutations() {
       if (!res.ok) throw new Error('Failed to create debt');
       return res.json();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['debts'] }),
+    onSuccess: () => {
+      if (!IS_DEMO) queryClient.invalidateQueries({ queryKey: ['debts'] });
+    },
   });
 
   const pay = useMutation({
     mutationFn: async ({ id, monto, nota }: { id: string; monto: number; nota?: string }) => {
-      if (IS_DEMO) return { ok: true, id };
+      if (IS_DEMO) {
+        queryClient.setQueryData<Deuda[]>(['debts', DEMO_USER_ID], (old) =>
+          (old ?? []).map((d) => {
+            if (d.id !== id) return d;
+            const newPendiente = Math.max(0, d.monto_pendiente - monto);
+            const newAbono: DeudaAbono = {
+              id: `dab-${Date.now()}`,
+              deuda_id: id,
+              monto,
+              fecha: new Date().toISOString().split('T')[0],
+              nota: nota ?? null,
+              created_at: new Date().toISOString(),
+            };
+            return {
+              ...d,
+              monto_pendiente: newPendiente,
+              estado: newPendiente <= 0 ? 'pagada' as const : d.estado,
+              updated_at: new Date().toISOString(),
+              deuda_abonos: [...(d.deuda_abonos ?? []), newAbono],
+            };
+          })
+        );
+        return { ok: true, id };
+      }
       const res = await fetch('/api/debts', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -96,12 +145,21 @@ export function useDebtMutations() {
       if (!res.ok) throw new Error('Failed to register payment');
       return res.json();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['debts'] }),
+    onSuccess: () => {
+      if (!IS_DEMO) queryClient.invalidateQueries({ queryKey: ['debts'] });
+    },
   });
 
   const markPaid = useMutation({
     mutationFn: async (id: string) => {
-      if (IS_DEMO) return { ok: true, id };
+      if (IS_DEMO) {
+        queryClient.setQueryData<Deuda[]>(['debts', DEMO_USER_ID], (old) =>
+          (old ?? []).map((d) =>
+            d.id === id ? { ...d, monto_pendiente: 0, estado: 'pagada' as const, updated_at: new Date().toISOString() } : d
+          )
+        );
+        return { ok: true, id };
+      }
       const res = await fetch('/api/debts', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -110,12 +168,21 @@ export function useDebtMutations() {
       if (!res.ok) throw new Error('Failed to mark as paid');
       return res.json();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['debts'] }),
+    onSuccess: () => {
+      if (!IS_DEMO) queryClient.invalidateQueries({ queryKey: ['debts'] });
+    },
   });
 
   const update = useMutation({
     mutationFn: async ({ id, ...fields }: { id: string; contraparte?: string; descripcion?: string | null; fecha_vencimiento?: string | null }) => {
-      if (IS_DEMO) return { ok: true, id };
+      if (IS_DEMO) {
+        queryClient.setQueryData<Deuda[]>(['debts', DEMO_USER_ID], (old) =>
+          (old ?? []).map((d) =>
+            d.id === id ? { ...d, ...fields, updated_at: new Date().toISOString() } : d
+          )
+        );
+        return { ok: true, id };
+      }
       const res = await fetch('/api/debts', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -124,17 +191,26 @@ export function useDebtMutations() {
       if (!res.ok) throw new Error('Failed to update debt');
       return res.json();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['debts'] }),
+    onSuccess: () => {
+      if (!IS_DEMO) queryClient.invalidateQueries({ queryKey: ['debts'] });
+    },
   });
 
   const remove = useMutation({
     mutationFn: async (id: string) => {
-      if (IS_DEMO) return { ok: true, id };
+      if (IS_DEMO) {
+        queryClient.setQueryData<Deuda[]>(['debts', DEMO_USER_ID], (old) =>
+          (old ?? []).filter((d) => d.id !== id)
+        );
+        return { ok: true, id };
+      }
       const res = await fetch(`/api/debts?id=${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to delete debt');
       return res.json();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['debts'] }),
+    onSuccess: () => {
+      if (!IS_DEMO) queryClient.invalidateQueries({ queryKey: ['debts'] });
+    },
   });
 
   const shareDebt = useMutation({
@@ -148,7 +224,9 @@ export function useDebtMutations() {
       if (!res.ok) throw new Error('Failed to generate invite link');
       return res.json() as Promise<{ invite_code: string; link: string }>;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['debts'] }),
+    onSuccess: () => {
+      if (!IS_DEMO) queryClient.invalidateQueries({ queryKey: ['debts'] });
+    },
   });
 
   return { create, update, pay, markPaid, remove, shareDebt };

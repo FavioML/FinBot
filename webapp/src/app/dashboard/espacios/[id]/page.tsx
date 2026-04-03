@@ -27,13 +27,15 @@ import { FadeIn } from '@/components/shared/motion-wrapper';
 import {
   useSpaceDetail,
   useAddExpense,
+  useDeleteExpense,
+  useEditExpense,
   useSettle,
   useUpdateSplitRules,
   useUpdateBudgets,
   useUpdateDefaultSplit,
   resolveSplit,
 } from '@/lib/hooks/use-shared-spaces';
-import type { SpaceSplitRule, SpaceBudget } from '@/lib/hooks/use-shared-spaces';
+import type { SpaceSplitRule, SpaceBudget, SpaceExpense } from '@/lib/hooks/use-shared-spaces';
 import { formatCurrency } from '@/lib/utils';
 import { CATEGORIAS, getCategoriaEmoji } from '@/lib/constants';
 
@@ -69,12 +71,15 @@ export default function SpaceDetailPage() {
   const spaceId = params.id;
   const { data, isLoading } = useSpaceDetail(spaceId);
   const addExpense = useAddExpense(spaceId);
+  const deleteExpense = useDeleteExpense(spaceId);
+  const editExpense = useEditExpense(spaceId);
   const settle = useSettle(spaceId);
   const updateSplitRules = useUpdateSplitRules(spaceId);
   const updateBudgets = useUpdateBudgets(spaceId);
   const updateDefaultSplit = useUpdateDefaultSplit(spaceId);
 
   const [showExpenseDialog, setShowExpenseDialog] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<SpaceExpense | null>(null);
   const [showSettleDialog, setShowSettleDialog] = useState(false);
   const [showSplitRuleDialog, setShowSplitRuleDialog] = useState(false);
   const [showBudgetDialog, setShowBudgetDialog] = useState(false);
@@ -106,12 +111,18 @@ export default function SpaceDetailPage() {
     const amount = parseFloat(expAmount);
     if (!amount || amount <= 0) { toast.error('Monto inválido'); return; }
     try {
-      await addExpense.mutateAsync({ amount, description: expDescription, category: expCategory || undefined });
-      toast.success('Gasto registrado');
+      if (editingExpense) {
+        await editExpense.mutateAsync({ id: editingExpense.id, amount, description: expDescription, category: expCategory || undefined });
+        toast.success('Gasto actualizado');
+      } else {
+        await addExpense.mutateAsync({ amount, description: expDescription, category: expCategory || undefined });
+        toast.success('Gasto registrado');
+      }
       setShowExpenseDialog(false);
+      setEditingExpense(null);
       setExpAmount(''); setExpDescription(''); setExpCategory('');
     } catch {
-      toast.error('No se pudo registrar el gasto');
+      toast.error('No se pudo guardar el gasto');
     }
   }
 
@@ -229,7 +240,11 @@ export default function SpaceDetailPage() {
             <h2 className="text-sm font-semibold text-[#F0EFE8]">Gastos recientes</h2>
             <Button
               size="sm"
-              onClick={() => setShowExpenseDialog(true)}
+              onClick={() => {
+                setEditingExpense(null);
+                setExpAmount(''); setExpDescription(''); setExpCategory('');
+                setShowExpenseDialog(true);
+              }}
               className="text-xs bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 gap-1.5"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -250,7 +265,7 @@ export default function SpaceDetailPage() {
                 const myPct = Math.round(myFraction * 100);
 
                 return (
-                  <div key={exp.id} className="glass-card p-3.5 flex items-start justify-between gap-3">
+                  <div key={exp.id} className="glass-card p-3.5 flex items-start justify-between gap-3 group">
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-[#F0EFE8] truncate">{exp.description || 'Sin descripción'}</p>
                       <p className="text-xs text-[#8A877D] mt-0.5">
@@ -260,9 +275,34 @@ export default function SpaceDetailPage() {
                         {hasRule && <span className="text-[#1D9E75]"> · {myPct}%</span>}
                       </p>
                     </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-sm font-semibold text-[#F0EFE8]">{formatCurrency(Number(exp.amount))}</p>
-                      <p className="text-xs text-[#8A877D]">tu parte: {formatCurrency(myShare)}</p>
+                    <div className="flex items-start gap-2 shrink-0">
+                      <div className="text-right">
+                        <p className="text-sm font-semibold text-[#F0EFE8]">{formatCurrency(Number(exp.amount))}</p>
+                        <p className="text-xs text-[#8A877D]">tu parte: {formatCurrency(myShare)}</p>
+                      </div>
+                      <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => {
+                            setEditingExpense(exp);
+                            setExpAmount(String(exp.amount));
+                            setExpDescription(exp.description || '');
+                            setExpCategory(exp.category || '');
+                            setShowExpenseDialog(true);
+                          }}
+                          className="p-1 rounded text-[#8A877D] hover:text-[#F0EFE8]"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            deleteExpense.mutate(exp.id);
+                            toast.success('Gasto eliminado');
+                          }}
+                          className="p-1 rounded text-[#8A877D] hover:text-[#E85D3A]"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
@@ -502,11 +542,11 @@ export default function SpaceDetailPage() {
         </div>
       </FadeIn>
 
-      {/* Add Expense Dialog */}
-      <Dialog open={showExpenseDialog} onOpenChange={setShowExpenseDialog}>
+      {/* Add/Edit Expense Dialog */}
+      <Dialog open={showExpenseDialog} onOpenChange={(open) => { setShowExpenseDialog(open); if (!open) setEditingExpense(null); }}>
         <DialogContent className="bg-[#1A1A18] border-[#2A2A28] text-[#F0EFE8] max-w-sm">
           <DialogHeader>
-            <DialogTitle>Agregar gasto</DialogTitle>
+            <DialogTitle>{editingExpense ? 'Editar gasto' : 'Agregar gasto'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div>
@@ -566,7 +606,7 @@ export default function SpaceDetailPage() {
               disabled={addExpense.isPending}
               className="w-full bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90"
             >
-              {addExpense.isPending ? 'Guardando...' : 'Registrar gasto'}
+              {addExpense.isPending || editExpense.isPending ? 'Guardando...' : editingExpense ? 'Actualizar gasto' : 'Registrar gasto'}
             </Button>
           </div>
         </DialogContent>

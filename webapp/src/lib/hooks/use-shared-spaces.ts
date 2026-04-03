@@ -147,6 +147,64 @@ export function useAddExpense(spaceId: string) {
   });
 }
 
+export function useDeleteExpense(spaceId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (expenseId: string) => {
+      if (IS_DEMO) {
+        queryClient.setQueryData<SpaceDetail>(['space', spaceId], (old) =>
+          old ? { ...old, expenses: old.expenses.filter((e) => e.id !== expenseId) } : old
+        );
+        return { ok: true };
+      }
+      const res = await fetch(`/api/spaces/${spaceId}/expenses?id=${expenseId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to delete expense');
+      return res.json();
+    },
+    onSuccess: () => {
+      if (!IS_DEMO) queryClient.invalidateQueries({ queryKey: ['space', spaceId] });
+    },
+  });
+}
+
+export function useEditExpense(spaceId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { id: string; amount?: number; description?: string; category?: string }) => {
+      if (IS_DEMO) {
+        queryClient.setQueryData<SpaceDetail>(['space', spaceId], (old) =>
+          old
+            ? {
+                ...old,
+                expenses: old.expenses.map((e) =>
+                  e.id === data.id
+                    ? {
+                        ...e,
+                        amount: data.amount ?? e.amount,
+                        description: data.description ?? e.description,
+                        category: data.category ?? e.category,
+                      }
+                    : e
+                ),
+              }
+            : old
+        );
+        return { ok: true };
+      }
+      const res = await fetch(`/api/spaces/${spaceId}/expenses`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error('Failed to edit expense');
+      return res.json();
+    },
+    onSuccess: () => {
+      if (!IS_DEMO) queryClient.invalidateQueries({ queryKey: ['space', spaceId] });
+    },
+  });
+}
+
 export function useSettle(spaceId: string) {
   const queryClient = useQueryClient();
   return useMutation({
