@@ -7,6 +7,7 @@ const fechaHoyPeru = () => hoyPeru();
 const fechaAyerPeru = () => ayerPeru();
 const { CATEGORIAS_VALIDAS, CATEGORIA_MAP } = require('../lib/constants');
 const { validarMonto, normalizarCategoria } = require('../lib/validators');
+const { ADMIN_NUMBER } = require('../lib/config');
 const { getEmojiCategoria, formatearResumen, formatearPendientes, formatearCategoriasMsg, barraProgreso, generarRefCode, formatFecha } = require('../lib/formatters');
 const { enviarWhatsapp } = require('../lib/whatsapp');
 const { obtenerTipoCambio, guardarTransaccion, obtenerGastosMes, obtenerGastosSemana, obtenerUltimaTransaccion, recategorizarTransaccion, corregirTransaccionEspecifica, guardarReglaComercio, retroaplicarRegla, obtenerConsultasPendientes } = require('../services/transactions');
@@ -41,7 +42,6 @@ async function procesarMensajeLibre(msg, usuario, from) {
         updated_at: new Date().toISOString()
       }).eq('id', ticket.id);
       // Notificar al admin con contexto completo
-      const ADMIN_NUMBER = process.env.ADMIN_WHATSAPP || '51970398192';
       const textoAdmin = '🎫 *Nuevo ticket de soporte*\n\n'
         + '👤 ' + (usuario.nombre || 'Sin nombre') + '\n'
         + '📱 ' + from + '\n'
@@ -69,8 +69,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
           mensaje_usuario: msg.substring(0, 1000),
           estado: 'pendiente'
         });
-        const ADMIN_NUMBER = process.env.ADMIN_WHATSAPP || '51970398192';
-        const textoReopen = '🔄 *Seguimiento de ticket*\n\n'
+          const textoReopen = '🔄 *Seguimiento de ticket*\n\n'
           + '👤 ' + (usuario.nombre || 'Sin nombre') + ' (' + from + ')\n\n'
           + '💬 *Respuesta del usuario:*\n' + msg.substring(0, 500) + '\n\n'
           + '📌 _El usuario no quedó conforme. Mensaje anterior:_\n'

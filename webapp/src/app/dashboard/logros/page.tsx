@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { Trophy, Lock, CalendarDays } from 'lucide-react';
+import { Trophy, Lock, CalendarDays, ArrowRight } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
@@ -120,6 +120,40 @@ export default function LogrosPage() {
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           {[1, 2, 3, 4, 5, 6].map((i) => <Skeleton key={i} className="h-36 rounded-2xl" />)}
         </div>
+      </div>
+    );
+  }
+
+  // Empty state: no goals and no achievements
+  if (achievements.length === 0 && goals.length === 0) {
+    return (
+      <div className="flex-1 p-4 md:p-6">
+        <FadeIn>
+          <div className="flex items-center justify-between mb-6">
+            <h1 className="text-lg font-semibold text-[#F0EFE8]">Logros</h1>
+            <HeaderActions />
+          </div>
+        </FadeIn>
+        <FadeIn delay={0.05}>
+          <div className="glass-card p-10 flex flex-col items-center text-center gap-4">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[rgba(29,158,117,0.1)]">
+              <Trophy className="h-8 w-8 text-[#1D9E75]/40" />
+            </div>
+            <div className="space-y-1">
+              <h2 className="text-base font-semibold text-[#F0EFE8]">Aún no tienes logros</h2>
+              <p className="text-sm text-[#8A877D] max-w-xs">
+                Completa tus metas de ahorro para desbloquear logros y medallas
+              </p>
+            </div>
+            <a
+              href="/dashboard/planes"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#1D9E75] text-white text-sm font-medium hover:bg-[#1D9E75]/90 transition-colors"
+            >
+              Crear mi primera meta
+              <ArrowRight className="h-4 w-4" />
+            </a>
+          </div>
+        </FadeIn>
       </div>
     );
   }

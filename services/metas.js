@@ -41,6 +41,11 @@ async function abonarMeta(usuarioId, nombreMeta, monto, tipo = 'aporte', nota = 
     if (found) meta = found;
   }
 
+  // Validate positive amount
+  if (!monto || monto <= 0 || isNaN(monto)) {
+    return { error: 'invalid_amount' };
+  }
+
   const actualAntes = parseFloat(meta.monto_actual || 0);
   const objetivo = parseFloat(meta.monto_objetivo);
   const nuevoActual = tipo === 'retiro'
@@ -58,15 +63,25 @@ async function abonarMeta(usuarioId, nombreMeta, monto, tipo = 'aporte', nota = 
   }).select().single();
   if (eAporte) throw eAporte;
 
-  // Actualizar meta
+  // Atomic update: only mark completed if not already completed
   const updates = {
     monto_actual: nuevoActual,
     updated_at: new Date().toISOString(),
   };
   if (completada) updates.completada = true;
   const { data: metaActualizada, error: eMeta } = await supabase.from('metas_ahorro')
-    .update(updates).eq('id', meta.id).select().single();
-  if (eMeta) throw eMeta;
+    .update(updates)
+    .eq('id', meta.id)
+    .eq('completada', false) // Atomic guard: skip if already completed by concurrent request
+    .select().single();
+  if (eMeta) {
+    // If no rows matched, meta was already completed by another request
+    if (eMeta.code === 'PGRST116') {
+      const { data: current } = await supabase.from('metas_ahorro').select('*').eq('id', meta.id).single();
+      return { meta: current, aporte, completada: false, porcentaje: 100, milestone: null };
+    }
+    throw eMeta;
+  }
 
   // Detectar milestone cruzado
   const pctAntes = objetivo > 0 ? (actualAntes / objetivo) * 100 : 0;

@@ -8,6 +8,8 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 import { ScoreGauge } from '@/components/charts/score-gauge';
 import { useNetoScoreHistory, type NetoScoreFactors } from '@/lib/hooks/use-neto-score';
 import { useUser } from '@/lib/hooks/use-user';
+import { canAccess } from '@/lib/plan';
+import { ProGate } from '@/components/shared/pro-gate';
 import { FadeIn } from '@/components/shared/motion-wrapper';
 import { Skeleton } from '@/components/ui/skeleton';
 import { HeaderActions } from '@/components/dashboard/topbar';
@@ -114,7 +116,9 @@ export default function ScorePage() {
   const { data: user } = useUser();
   const { data, isLoading } = useNetoScoreHistory(6);
 
-  const isPro = user?.plan === 'premium';
+  const canBreakdown = canAccess(user?.plan, 'score_breakdown');
+  const canTips = canAccess(user?.plan, 'score_tips');
+  const canHistory = canAccess(user?.plan, 'score_history');
 
   if (isLoading) {
     return (
@@ -167,7 +171,7 @@ export default function ScorePage() {
         <div className="glass-card p-6">
           <h2 className="text-base font-semibold text-[#F0EFE8] mb-4">Desglose por factor</h2>
 
-          {isPro ? (
+          {canBreakdown ? (
             <div className="space-y-4">
               {FACTORS.map((f) => (
                 <FactorBar
@@ -180,7 +184,7 @@ export default function ScorePage() {
             </div>
           ) : (
             <div className="relative">
-              <div className="blur-sm pointer-events-none space-y-4">
+              <div className="blur-sm pointer-events-none select-none space-y-4">
                 {FACTORS.map((f) => (
                   <FactorBar key={f.key} label={f.label} description={f.description} value={60 + Math.floor(Math.random() * 30)} />
                 ))}
@@ -208,7 +212,7 @@ export default function ScorePage() {
         <div className="glass-card p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-base font-semibold text-[#F0EFE8]">Evolución</h2>
-            {!isPro && (
+            {!canHistory && (
               <span className="flex items-center gap-1 text-xs text-[#8A877D]">
                 <Lock className="w-3 h-3" /> Últimos 6 meses con Pro
               </span>
@@ -216,7 +220,7 @@ export default function ScorePage() {
           </div>
           {chartData.length > 0 ? (
             <ResponsiveContainer width="100%" height={180}>
-              <LineChart data={chartData}>
+              <LineChart data={canHistory ? chartData : chartData.slice(-1)}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
                 <XAxis
                   dataKey="period"
@@ -245,6 +249,14 @@ export default function ScorePage() {
           ) : (
             <p className="text-[#8A877D] text-sm text-center py-8">Sin historial aún</p>
           )}
+          {!canHistory && chartData.length > 0 && (
+            <div className="mt-4">
+              <ProGate
+                featureName="Historial completo"
+                description="Accede a los últimos 6 meses de evolución de tu score financiero"
+              />
+            </div>
+          )}
         </div>
       </FadeIn>
 
@@ -252,20 +264,13 @@ export default function ScorePage() {
       <FadeIn delay={0.2}>
         <div className="glass-card p-6">
           <h2 className="text-base font-semibold text-[#F0EFE8] mb-3">Tips personalizados</h2>
-          {isPro ? (
+          {canTips ? (
             <TipsSection factors={data.factors} />
           ) : (
-            <div className="flex items-start gap-3">
-              <Lock className="w-4 h-4 text-[#8A877D] mt-0.5 shrink-0" />
-              <div>
-                <p className="text-sm text-[#8A877D]">
-                  Los tips personalizados son exclusivos de Pro.{' '}
-                  <Link href="/dashboard/configuracion" className="text-[#1D9E75] hover:underline">
-                    Ver planes →
-                  </Link>
-                </p>
-              </div>
-            </div>
+            <ProGate
+              featureName="Tips personalizados"
+              description="Neto analiza tus factores más débiles y te da recomendaciones concretas para subir tu score"
+            />
           )}
         </div>
       </FadeIn>

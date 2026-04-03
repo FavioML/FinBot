@@ -56,7 +56,14 @@ async function abonarDeuda(usuarioId, contraparte, montoAbono) {
   if (!deudas || deudas.length === 0) return null;
 
   const deuda = deudas[0];
-  const nuevoPendiente = Math.max(0, parseFloat(deuda.monto_pendiente) - montoAbono);
+  const pendiente = parseFloat(deuda.monto_pendiente);
+
+  // Prevent overpayment
+  if (montoAbono > pendiente) {
+    return { error: 'overpayment', monto_pendiente: pendiente };
+  }
+
+  const nuevoPendiente = Math.max(0, pendiente - montoAbono);
   const completada = nuevoPendiente === 0;
 
   // Insertar abono

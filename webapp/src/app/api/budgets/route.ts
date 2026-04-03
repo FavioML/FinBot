@@ -81,24 +81,37 @@ export async function GET(request: Request) {
     return NextResponse.json([]);
   }
 
-  // Carry forward: copy latest month's budgets into the new month
+  // Carry forward: copy latest month's budgets into all intermediate months + the target month
   const sourceBudgets = latestBudgets.filter(
     (b) => b.mes === latestMes && b.anio === latestAnio,
   );
 
-  const newBudgets = sourceBudgets.map((b) => ({
-    usuario_id: userId,
-    categoria: b.categoria,
-    subcategoria: b.subcategoria,
-    monto_limite: b.monto_limite,
-    alerta_porcentaje: b.alerta_porcentaje,
-    mes,
-    anio,
-  }));
+  // Generate all months between source (exclusive) and target (inclusive)
+  const monthsToCreate: Array<{ mes: number; anio: number }> = [];
+  const cursor = new Date(latestAnio, latestMes); // month after source (0-indexed)
+  const targetDate = new Date(anio, mes - 1);
+
+  while (cursor <= targetDate) {
+    monthsToCreate.push({ mes: cursor.getMonth() + 1, anio: cursor.getFullYear() });
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+
+  // Build inserts for each month in the range
+  const allNewBudgets = monthsToCreate.flatMap(({ mes: m, anio: a }) =>
+    sourceBudgets.map((b) => ({
+      usuario_id: userId,
+      categoria: b.categoria,
+      subcategoria: b.subcategoria,
+      monto_limite: b.monto_limite,
+      alerta_porcentaje: b.alerta_porcentaje,
+      mes: m,
+      anio: a,
+    })),
+  );
 
   const { data: inserted, error } = await getServiceClient()
     .from('presupuestos')
-    .insert(newBudgets)
+    .insert(allNewBudgets)
     .select();
 
   if (error) {
@@ -106,7 +119,11 @@ export async function GET(request: Request) {
     return NextResponse.json([]);
   }
 
-  return NextResponse.json(inserted || []);
+  // Return only the budgets for the requested month
+  const forRequestedMonth = (inserted || []).filter(
+    (b: { mes: number; anio: number }) => b.mes === mes && b.anio === anio,
+  );
+  return NextResponse.json(forRequestedMonth);
 }
 
 export async function POST(request: Request) {

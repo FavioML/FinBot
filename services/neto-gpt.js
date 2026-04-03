@@ -14,7 +14,8 @@ async function redactarConNETO(netoPrompt, contexto, mensajeOriginal, historial)
       model: 'gpt-4o-mini',
       max_tokens: 400,
       temperature: 0.7,
-      messages: mensajes
+      messages: mensajes,
+      timeout: 30000,
     });
     return res.choices[0].message.content.trim();
   } catch(e) {

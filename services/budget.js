@@ -27,25 +27,33 @@ async function obtenerPresupuestosMes(usuarioId) {
 async function verificarAlertaPresupuesto(usuarioId, categoria, subcategoria) {
   const { mes, anio, primero } = _mesAnioPeru();
   const alertas = [];
-  const { data: presCat } = await supabase.from('presupuestos').select('*')
-    .eq('usuario_id', usuarioId).eq('categoria', categoria)
-    .is('subcategoria', null).eq('mes', mes).eq('anio', anio).single();
+
+  // Fetch budget + transactions in parallel to minimize race window
+  const [{ data: presCat }, { data: txsCat }] = await Promise.all([
+    supabase.from('presupuestos').select('*')
+      .eq('usuario_id', usuarioId).eq('categoria', categoria)
+      .is('subcategoria', null).eq('mes', mes).eq('anio', anio).single(),
+    supabase.from('transacciones').select('monto')
+      .eq('usuario_id', usuarioId).eq('categoria', categoria).eq('tipo', 'gasto').gte('fecha', primero),
+  ]);
+
   if (presCat) {
-    const { data: txsCat } = await supabase.from('transacciones').select('monto')
-      .eq('usuario_id', usuarioId).eq('categoria', categoria).eq('tipo', 'gasto').gte('fecha', primero);
     const totalCat = (txsCat||[]).reduce((s,t)=>s+parseFloat(t.monto),0);
     const limiteCat = parseFloat(presCat.monto_limite);
     const pctCat = (totalCat/limiteCat)*100;
     if (pctCat>=100) alertas.push('🚨 Limite de *'+categoria+'* superado: S/ '+totalCat.toFixed(2)+' / S/ '+limiteCat.toFixed(2));
     else if (pctCat>=(presCat.alerta_porcentaje||80)) alertas.push('⚠️ *'+categoria+'*: llevas S/ '+totalCat.toFixed(2)+' de S/ '+limiteCat.toFixed(2)+' ('+pctCat.toFixed(0)+'%)');
   }
+
   if (subcategoria) {
-    const { data: presSub } = await supabase.from('presupuestos').select('*')
-      .eq('usuario_id', usuarioId).eq('categoria', categoria).eq('subcategoria', subcategoria)
-      .eq('mes', mes).eq('anio', anio).single();
+    const [{ data: presSub }, { data: txsSub }] = await Promise.all([
+      supabase.from('presupuestos').select('*')
+        .eq('usuario_id', usuarioId).eq('categoria', categoria).eq('subcategoria', subcategoria)
+        .eq('mes', mes).eq('anio', anio).single(),
+      supabase.from('transacciones').select('monto')
+        .eq('usuario_id', usuarioId).eq('categoria', categoria).eq('subcategoria', subcategoria).eq('tipo', 'gasto').gte('fecha', primero),
+    ]);
     if (presSub) {
-      const { data: txsSub } = await supabase.from('transacciones').select('monto')
-        .eq('usuario_id', usuarioId).eq('categoria', categoria).eq('subcategoria', subcategoria).eq('tipo', 'gasto').gte('fecha', primero);
       const totalSub = (txsSub||[]).reduce((s,t)=>s+parseFloat(t.monto),0);
       const limiteSub = parseFloat(presSub.monto_limite);
       const pctSub = (totalSub/limiteSub)*100;

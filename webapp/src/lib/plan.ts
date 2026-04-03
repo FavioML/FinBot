@@ -15,7 +15,21 @@ export type PlanFeature =
   | 'daily_summary'
   | 'daily_reminder'
   | 'advice_daily'
-  | 'gmail_reading';
+  | 'gmail_reading'
+  // v2 — Score
+  | 'score_tips'
+  | 'score_history'
+  // v2 — Fugas
+  | 'fugas_weekly_alerts'
+  | 'fugas_projections'
+  | 'fugas_limits'
+  // v2 — Planes de compra
+  | 'metas_dynamic_adjust'
+  | 'metas_checkins'
+  // v2 — Espacios
+  | 'espacios_custom_split'
+  | 'espacios_shared_budget'
+  | 'espacios_full_history';
 
 /** Features only available on Pro plan */
 const PRO_ONLY_FEATURES: PlanFeature[] = [
@@ -29,12 +43,23 @@ const PRO_ONLY_FEATURES: PlanFeature[] = [
   'daily_reminder',
   'advice_daily',
   'gmail_reading',
+  // v2
+  'score_tips',
+  'score_history',
+  'fugas_weekly_alerts',
+  'fugas_projections',
+  'fugas_limits',
+  'metas_dynamic_adjust',
+  'metas_checkins',
+  'espacios_custom_split',
+  'espacios_shared_budget',
+  'espacios_full_history',
 ];
 
 /** Free plan limits for counted features */
 export const FREE_LIMITS = {
   budgets: Infinity,
-  goals: Infinity,
+  goals: 1,
   ocr_per_month: Infinity,
   gmail_accounts: 0,
   advice_per_week: 0,

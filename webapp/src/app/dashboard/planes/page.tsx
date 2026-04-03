@@ -14,7 +14,8 @@ import {
 } from '@/components/ui/dialog';
 import { EmptyState } from '@/components/shared/empty-state';
 import { ProBadge } from '@/components/shared/upgrade-prompt';
-import { FREE_LIMITS, hasReachedLimit } from '@/lib/plan';
+import { ProGate } from '@/components/shared/pro-gate';
+import { FREE_LIMITS, hasReachedLimit, canAccess } from '@/lib/plan';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
@@ -140,6 +141,7 @@ export default function MetasPage() {
   const abandonPlan = useAbandonPlan();
 
   const [showForm, setShowForm] = useState(false);
+  const [showPlanProGate, setShowPlanProGate] = useState(false);
   const [editGoal, setEditGoal] = useState<MetaAhorro | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [contributeGoal, setContributeGoal] = useState<MetaAhorro | null>(null);
@@ -320,6 +322,8 @@ export default function MetasPage() {
   const completedGoals = goals.filter((g) => g.status === 'completed' || (!g.status && g.completada));
   const abandonedGoals = goals.filter((g) => g.status === 'abandoned');
   const goalsLimitReached = hasReachedLimit(user?.plan, 'goals', activeGoals.length);
+  const canDynamicAdjust = canAccess(user?.plan, 'metas_dynamic_adjust');
+  const canCheckins = canAccess(user?.plan, 'metas_checkins');
   const totalTarget = activeGoals.reduce((s, g) => s + Number(g.monto_objetivo), 0);
   const totalSaved = activeGoals.reduce((s, g) => s + Number(g.monto_actual), 0);
 
@@ -333,28 +337,56 @@ export default function MetasPage() {
           <p className="text-sm text-[#8A877D] mt-1">Planifica tu ahorro y Neto te guía para lograrlo</p>
         </div>
         <Button
-          onClick={openCreate}
+          onClick={goalsLimitReached && !isPremium ? () => setShowPlanProGate(true) : openCreate}
           size="sm"
           className="md:hidden bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 gap-1.5"
-          disabled={goalsLimitReached && !isPremium}
         >
           <Plus className="h-4 w-4" />
           Nuevo
         </Button>
         <HeaderActions>
           {goalsLimitReached && !isPremium && (
-            <ProBadge text={`Limite: ${FREE_LIMITS.goals} meta`} />
+            <ProBadge text={`Límite: ${FREE_LIMITS.goals} plan activo`} />
           )}
           <Button
-            onClick={openCreate}
+            onClick={goalsLimitReached && !isPremium ? () => setShowPlanProGate(true) : openCreate}
             className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 gap-2"
-            disabled={goalsLimitReached && !isPremium}
           >
             <Plus className="h-4 w-4" />
             Nuevo plan
           </Button>
         </HeaderActions>
       </div>
+
+      {/* ProGate: planes limit reached */}
+      {showPlanProGate && (
+        <div>
+          <ProGate
+            featureName="Planes ilimitados"
+            description="Con Pro creas todos los planes de ahorro que necesites — viaje, casa, fondo de emergencia y más"
+          />
+          <button
+            onClick={() => setShowPlanProGate(false)}
+            className="mt-2 text-xs text-[#8A877D] hover:text-[#C8C6BC] transition-colors w-full text-center"
+          >
+            Cerrar
+          </button>
+        </div>
+      )}
+
+      {/* Pro feature hints */}
+      {!isPremium && activeGoals.length > 0 && (
+        <div className="glass-card p-4 flex flex-wrap gap-4">
+          <div className="flex items-center gap-2 text-xs text-[#8A877D]">
+            <span>Ajuste dinámico</span>
+            <ProBadge text="Pro" />
+          </div>
+          <div className="flex items-center gap-2 text-xs text-[#8A877D]">
+            <span>Check-ins por WhatsApp</span>
+            <ProBadge text="Pro" />
+          </div>
+        </div>
+      )}
 
       {/* Summary cards */}
       {activeGoals.length > 0 && (

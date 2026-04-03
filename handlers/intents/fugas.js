@@ -34,6 +34,8 @@ async function handle({ intencion, datos, usuario, from, ctx }) {
             msg += `\n🔄 *${a.detail.comercio}:* ${a.detail.frecuencia}x este mes = S/${a.amount.toFixed(0)} (prom. S/${a.detail.ticket_promedio.toFixed(0)})`;
             break;
           case 'projection':
+            // Projections are Pro-only
+            if (!isPro) continue;
             msg += `\n⚠️ *${a.category}:* al ritmo actual llegarás a S/${a.detail.proyeccion} (presupuesto: S/${a.detail.limite})`;
             break;
         }

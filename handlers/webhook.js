@@ -6,6 +6,7 @@ const { hoyPeru } = require('../lib/dates');
 const { CATEGORIAS_SUGERIDAS, MESES } = require('../lib/constants');
 const { getEmojiCategoria, formatearResumen, formatearPendientes, formatearCategoriasMsg, parsearIndicesRespuesta, generarRefCode } = require('../lib/formatters');
 const { enviarWhatsapp } = require('../lib/whatsapp');
+const { ADMIN_NUMBER } = require('../lib/config');
 const { guardarTransaccion, obtenerGastosMes, recategorizarTransaccion, obtenerConsultasPendientes } = require('../services/transactions');
 const { guardarPresupuesto, formatearEstadoPresupuesto } = require('../services/budget');
 const { parsearCorreoBancario, interpretarComandoPresupuesto } = require('../services/parsers');
@@ -52,7 +53,6 @@ function createWebhookHandler(procesarMensajeLibre) {
 
       // Si está en paso 2 (esperando comprobante de pago), tratar como recibo
       if (usuario.onboarding_paso === 2) {
-        const ADMIN_NUMBER = process.env.ADMIN_WHATSAPP || '51970398192';
         await enviarWhatsapp(ADMIN_NUMBER,
           '💸 *Comprobante de pago recibido:*\n' +
           'Usuario: ' + (usuario.nombre || from) + '\n' +
@@ -724,7 +724,7 @@ function createWebhookHandler(procesarMensajeLibre) {
         'Plan: *' + (tipoPlanActual === 'anual' ? 'Anual (S/99/año)' : 'Mensual (S/10/mes)') + '*\n' +
         (vence ? 'Vence: ' + vence + '\n' : '') +
         '\n\u2705 Reportes PDF ilimitados\n\u2705 Lectura automática de correos\n\u2705 Dashboard con gráficos y metas\n\u2705 Consejos IA personalizados\n\n' +
-        '_¿Dudas? Escribe al +51970398192_';
+        '_¿Dudas? Escribe al +' + ADMIN_NUMBER + '_';
     } else if (cmd === '/referir' || cmd === '/referidos' || cmd === '/invitar' ||
       /\b(quiero referir|referir a|mis referidos|mi link de referido|link de referido|invitar amigos|invitar a un amigo|compartir neto|recomendar neto|c[oó]digo de referido|programa de referidos|como refiero|cómo refiero|ganar pro gratis|referir amigos|quiero invitar)\b/i.test(cmd)) {
       let refCode = usuario.ref_code;
@@ -751,7 +751,6 @@ function createWebhookHandler(procesarMensajeLibre) {
       respuesta = '📊 *Tu dashboard está en:*\n\n🔗 https://app.neto.pe\n\nAhí puedes ver gráficos, metas, reportes PDF, suscripciones y más.\n\n_Inicia sesión con tu cuenta de Google._';
     } else if (cmd.startsWith('/activar ')) {
       // Comando admin: /activar <numero_whatsapp> - solo Favio puede usarlo
-      const ADMIN_NUMBER = process.env.ADMIN_WHATSAPP || '51970398192';
       if (from !== ADMIN_NUMBER) {
         respuesta = 'No tienes permiso para usar este comando.';
       } else {
@@ -784,7 +783,6 @@ function createWebhookHandler(procesarMensajeLibre) {
         }
       }
     } else if (cmd.startsWith('/pago ')) {
-      const ADMIN_NUMBER = process.env.ADMIN_WHATSAPP || '51970398192';
       if (from !== ADMIN_NUMBER) {
         respuesta = 'No tienes permiso para usar este comando.';
       } else {
@@ -823,7 +821,6 @@ function createWebhookHandler(procesarMensajeLibre) {
       }
     } else if (cmd === '/usuarios' || cmd === '/admin') {
       // Panel admin rapido
-      const ADMIN_NUMBER = process.env.ADMIN_WHATSAPP || '51970398192';
       if (from !== ADMIN_NUMBER) {
         respuesta = 'No tienes permiso para usar este comando.';
       } else {
@@ -856,7 +853,6 @@ function createWebhookHandler(procesarMensajeLibre) {
       } else { respuesta = formatearCategoriasMsg(catsCmd); }
     } else if (cmd.startsWith('/responder ')) {
       // Admin responde a un ticket de soporte: /responder 51933XXXXXX mensaje
-      const ADMIN_NUMBER = process.env.ADMIN_WHATSAPP || '51970398192';
       if (from !== ADMIN_NUMBER) {
         respuesta = 'No tienes permiso para usar este comando.';
       } else {
@@ -894,7 +890,6 @@ function createWebhookHandler(procesarMensajeLibre) {
       }
     } else if (cmd.startsWith('/tickets')) {
       // Admin ve tickets pendientes: /tickets
-      const ADMIN_NUMBER = process.env.ADMIN_WHATSAPP || '51970398192';
       if (from !== ADMIN_NUMBER) {
         respuesta = 'No tienes permiso para usar este comando.';
       } else {

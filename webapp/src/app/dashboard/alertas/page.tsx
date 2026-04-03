@@ -7,6 +7,8 @@ import { useRouter } from 'next/navigation';
 import { TrendingUp, Bug, Repeat, AlertTriangle, CheckCircle2, ShieldCheck } from 'lucide-react';
 import { useSpendingAlerts } from '@/lib/hooks/use-spending-alerts';
 import type { SpendingAlert } from '@/lib/hooks/use-spending-alerts';
+import { canAccess } from '@/lib/plan';
+import { ProGate } from '@/components/shared/pro-gate';
 import { FadeIn } from '@/components/shared/motion-wrapper';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatCurrency } from '@/lib/utils';
@@ -39,10 +41,10 @@ const TYPE_CONFIG = {
   },
 } as const;
 
-function AlertCard({ alert, isPro, onSetLimit }: { alert: SpendingAlert; isPro: boolean; onSetLimit?: (category?: string) => void }) {
+function AlertCard({ alert, canLimits, onSetLimit }: { alert: SpendingAlert; canLimits: boolean; onSetLimit?: (category?: string) => void }) {
   const config = TYPE_CONFIG[alert.type];
   const Icon = config.icon;
-  const showLimitButton = isPro && (alert.type === 'spike' || alert.type === 'projection');
+  const showLimitButton = canLimits && (alert.type === 'spike' || alert.type === 'projection');
   const diff = alert.comparison_amount > 0
     ? Math.round(((alert.amount - alert.comparison_amount) / alert.comparison_amount) * 100)
     : null;
@@ -123,10 +125,14 @@ export default function AlertasPage() {
   }
 
   const alerts = data?.alerts ?? [];
-  const isPro = data?.isPro ?? false;
+  const userPlan = data?.isPro ? 'premium' : 'free';
+
+  const canProjections = canAccess(userPlan, 'fugas_projections');
+  const canLimits = canAccess(userPlan, 'fugas_limits');
+  const canWeeklyAlerts = canAccess(userPlan, 'fugas_weekly_alerts');
 
   // Filter: only show spike/ant/recurring for free users (no projection)
-  const visibleAlerts = isPro ? alerts : alerts.filter((a) => a.type !== 'projection');
+  const visibleAlerts = canProjections ? alerts : alerts.filter((a) => a.type !== 'projection');
 
   return (
     <div className="space-y-6 p-4 md:p-6">
@@ -153,21 +159,33 @@ export default function AlertasPage() {
           </div>
         </FadeIn>
       ) : (
-        <div className="space-y-3">
-          {visibleAlerts.map((alert, i) => (
-            <FadeIn key={alert.id} delay={0.04 * i}>
-              <AlertCard
-                alert={alert}
-                isPro={isPro}
-                onSetLimit={(cat) => router.push(cat ? `/dashboard/presupuestos?categoria=${encodeURIComponent(cat)}` : '/dashboard/presupuestos')}
+        <>
+          <div className="space-y-3">
+            {visibleAlerts.map((alert, i) => (
+              <FadeIn key={alert.id} delay={0.04 * i}>
+                <AlertCard
+                  alert={alert}
+                  canLimits={canLimits}
+                  onSetLimit={(cat) => router.push(cat ? `/dashboard/presupuestos?categoria=${encodeURIComponent(cat)}` : '/dashboard/presupuestos')}
+                />
+              </FadeIn>
+            ))}
+          </div>
+
+          {/* Proyecciones gate for free users */}
+          {!canProjections && (
+            <FadeIn delay={0.1}>
+              <ProGate
+                featureName="Proyecciones de exceso"
+                description="Neto predice qué categorías van a pasarse del límite antes de que termine el mes"
               />
             </FadeIn>
-          ))}
-        </div>
+          )}
+        </>
       )}
 
       {/* Pro banner for free users */}
-      {!isPro && (
+      {!canWeeklyAlerts && (
         <FadeIn delay={0.15}>
           <div className="glass-card p-5 flex items-start gap-4 border border-[rgba(29,158,117,0.2)]">
             <div className="rounded-xl p-2.5 bg-[rgba(29,158,117,0.1)] shrink-0">

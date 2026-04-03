@@ -5,13 +5,15 @@ export const dynamic = 'force-dynamic';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Users, Plus, ArrowRight, Lock, UserPlus } from 'lucide-react';
+import { Users, Plus, ArrowRight, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import { useSpaces, useJoinSpace, useCreateSpace } from '@/lib/hooks/use-shared-spaces';
+import { canAccess } from '@/lib/plan';
+import { ProGate, ProBadge } from '@/components/shared/pro-gate';
 import { HeaderActions } from '@/components/dashboard/topbar';
 
 const TYPE_ICON: Record<string, string> = {
@@ -34,11 +36,17 @@ export default function EspaciosPage() {
 
   const [joinCode, setJoinCode] = useState('');
   const [showCreate, setShowCreate] = useState(false);
+  const [showSpaceProGate, setShowSpaceProGate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState<'pareja' | 'roommates' | 'custom'>('custom');
 
   const spaces = data?.spaces ?? [];
   const isPro = data?.isPro ?? false;
+
+  const canCustomSplit = canAccess(isPro ? 'premium' : 'free', 'espacios_custom_split');
+  const canSharedBudget = canAccess(isPro ? 'premium' : 'free', 'espacios_shared_budget');
+  const canFullHistory = canAccess(isPro ? 'premium' : 'free', 'espacios_full_history');
+  const spaceLimitReached = !isPro && spaces.length >= 1;
 
   async function handleJoin() {
     if (!joinCode.trim()) return;
@@ -86,9 +94,8 @@ export default function EspaciosPage() {
           </div>
           <HeaderActions>
             <Button
-              onClick={() => setShowCreate(!showCreate)}
+              onClick={() => spaceLimitReached ? setShowSpaceProGate(true) : setShowCreate(!showCreate)}
               className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 gap-2 shrink-0"
-              disabled={!isPro && spaces.length >= 1}
             >
               <Plus className="w-4 h-4" />
               Nuevo
@@ -96,6 +103,24 @@ export default function EspaciosPage() {
           </HeaderActions>
         </div>
       </FadeIn>
+
+      {/* ProGate: space limit reached */}
+      {showSpaceProGate && (
+        <FadeIn>
+          <div>
+            <ProGate
+              featureName="Espacios ilimitados"
+              description="Con Pro creas todos los espacios que necesites y cada uno admite hasta 6 miembros con splits personalizados"
+            />
+            <button
+              onClick={() => setShowSpaceProGate(false)}
+              className="mt-2 text-xs text-[#8A877D] hover:text-[#C8C6BC] transition-colors w-full text-center"
+            >
+              Cerrar
+            </button>
+          </div>
+        </FadeIn>
+      )}
 
       {/* Create form */}
       {showCreate && (
@@ -199,24 +224,30 @@ export default function EspaciosPage() {
         </div>
       </FadeIn>
 
-      {/* Pro wall */}
-      {!isPro && (
+      {/* Pro feature hints */}
+      {!isPro && spaces.length > 0 && (
         <FadeIn delay={0.15}>
-          <div className="glass-card p-5 flex items-start gap-4 border border-[rgba(29,158,117,0.2)]">
-            <div className="rounded-xl p-2.5 bg-[rgba(29,158,117,0.1)] shrink-0">
-              <Lock className="w-5 h-5 text-[#1D9E75]" />
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-semibold text-[#F0EFE8]">Más con Pro</p>
-              <p className="text-xs text-[#8A877D] mt-1">
-                Espacios ilimitados, hasta 6 miembros por espacio y splits personalizados.
-              </p>
-              <Link
-                href="/dashboard/configuracion"
-                className="inline-block mt-3 rounded-lg bg-[#1D9E75] px-4 py-1.5 text-sm font-medium text-white hover:bg-[#1D9E75]/90 transition-colors"
-              >
-                Ver planes →
-              </Link>
+          <div className="glass-card p-4 border border-[rgba(29,158,117,0.2)] space-y-2">
+            <p className="text-xs font-semibold text-[#C8C6BC]">Funciones Pro para espacios</p>
+            <div className="flex flex-wrap gap-x-4 gap-y-2">
+              {!canCustomSplit && (
+                <div className="flex items-center gap-1.5 text-xs text-[#8A877D]">
+                  <span>Split personalizado</span>
+                  <ProBadge />
+                </div>
+              )}
+              {!canSharedBudget && (
+                <div className="flex items-center gap-1.5 text-xs text-[#8A877D]">
+                  <span>Presupuesto conjunto</span>
+                  <ProBadge />
+                </div>
+              )}
+              {!canFullHistory && (
+                <div className="flex items-center gap-1.5 text-xs text-[#8A877D]">
+                  <span>Historial completo</span>
+                  <ProBadge />
+                </div>
+              )}
             </div>
           </div>
         </FadeIn>

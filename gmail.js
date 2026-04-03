@@ -2,6 +2,7 @@ const { google } = require('googleapis');
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 const log = require('./lib/logger');
+const { encrypt, decrypt } = require('./lib/crypto');
 
 let _supabase = null;
 function getSupabase() {
@@ -92,9 +93,9 @@ function generarUrlAutorizacion(whatsappNum, modo) {
 }
 
 async function guardarTokens(usuarioId, tokens, email, modo) {
-  // Siempre sincronizar en usuarios para backwards compat
-  const updateData = { gmail_access_token: tokens.access_token, gmail_token_expiry: tokens.expiry_date };
-  if (tokens.refresh_token) updateData.gmail_refresh_token = tokens.refresh_token;
+  // Siempre sincronizar en usuarios para backwards compat (encrypted)
+  const updateData = { gmail_access_token: encrypt(tokens.access_token), gmail_token_expiry: tokens.expiry_date };
+  if (tokens.refresh_token) updateData.gmail_refresh_token = encrypt(tokens.refresh_token);
   await getSupabase().from('usuarios').update(updateData).eq('id', usuarioId);
 
   if (!email) return; // sin email no se puede guardar en gmail_cuentas
@@ -104,16 +105,16 @@ async function guardarTokens(usuarioId, tokens, email, modo) {
     await getSupabase().from('gmail_cuentas').update({ activa: false }).eq('usuario_id', usuarioId);
   }
 
-  // Upsert la cuenta nueva
+  // Upsert la cuenta nueva (encrypted tokens)
   const cuenta = {
     usuario_id: usuarioId,
     email,
-    access_token: tokens.access_token,
+    access_token: encrypt(tokens.access_token),
     token_expiry: tokens.expiry_date || null,
     activa: true,
     updated_at: new Date().toISOString()
   };
-  if (tokens.refresh_token) cuenta.refresh_token = tokens.refresh_token;
+  if (tokens.refresh_token) cuenta.refresh_token = encrypt(tokens.refresh_token);
   await getSupabase().from('gmail_cuentas').upsert(cuenta, { onConflict: 'usuario_id,email' });
 }
 
@@ -139,13 +140,13 @@ async function cargarTokens(usuarioId) {
   const cuentas = await obtenerCuentasGmail(usuarioId);
   if (cuentas.length > 0) {
     const c = cuentas[0];
-    return { access_token: c.access_token, refresh_token: c.refresh_token, expiry_date: c.token_expiry };
+    return { access_token: decrypt(c.access_token), refresh_token: decrypt(c.refresh_token), expiry_date: c.token_expiry };
   }
   // Fallback a usuarios tabla
   const { data } = await getSupabase().from('usuarios')
     .select('gmail_access_token, gmail_refresh_token, gmail_token_expiry').eq('id', usuarioId).single();
   if (!data || !data.gmail_access_token) return null;
-  return { access_token: data.gmail_access_token, refresh_token: data.gmail_refresh_token, expiry_date: data.gmail_token_expiry };
+  return { access_token: decrypt(data.gmail_access_token), refresh_token: decrypt(data.gmail_refresh_token), expiry_date: data.gmail_token_expiry };
 }
 
 function crearClienteOAuth() {
@@ -158,14 +159,16 @@ function crearClienteOAuth() {
 
 async function configurarClienteParaCuenta(cuenta) {
   const cliente = crearClienteOAuth();
-  cliente.setCredentials({ access_token: cuenta.access_token, refresh_token: cuenta.refresh_token, expiry_date: cuenta.token_expiry });
+  const decryptedAccess = decrypt(cuenta.access_token);
+  const decryptedRefresh = decrypt(cuenta.refresh_token);
+  cliente.setCredentials({ access_token: decryptedAccess, refresh_token: decryptedRefresh, expiry_date: cuenta.token_expiry });
   const necesitaRefresh = cuenta.token_expiry && cuenta.token_expiry < Date.now() + 5 * 60 * 1000;
-  if (necesitaRefresh && cuenta.refresh_token) {
+  if (necesitaRefresh && decryptedRefresh) {
     try {
       const { credentials } = await cliente.refreshAccessToken();
-      // Actualizar token en gmail_cuentas
+      // Actualizar token en gmail_cuentas (encrypted)
       await getSupabase().from('gmail_cuentas').update({
-        access_token: credentials.access_token,
+        access_token: encrypt(credentials.access_token),
         token_expiry: credentials.expiry_date,
         updated_at: new Date().toISOString()
       }).eq('usuario_id', cuenta.usuario_id).eq('email', cuenta.email);
