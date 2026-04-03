@@ -28,7 +28,8 @@ import { canAccess } from '@/lib/plan';
 import { ProGate } from '@/components/shared/pro-gate';
 import { useTransactions } from '@/lib/hooks/use-transactions';
 import { useBudgets } from '@/lib/hooks/use-budgets';
-import { formatCurrency, getScoreColor, getScoreLabel, calcularScoreFinanciero } from '@/lib/utils';
+import { formatCurrency, getScoreColor, getScoreLabel } from '@/lib/utils';
+import { useNetoScore } from '@/lib/hooks/use-neto-score';
 import { getCategoriaEmoji, MESES, SOCIAL_LINKS } from '@/lib/constants';
 import { capitalizeDisplay, normalizeMetodoPago, getMetodoIcon } from '@/lib/format';
 import { useSubscriptions } from '@/lib/hooks/use-subscriptions';
@@ -92,6 +93,7 @@ export default function ReportesPage() {
   const selectedOption = monthOptions.find((o) => o.value === selected) || monthOptions[0];
 
   const { data: user, isLoading: userLoading } = useUser();
+  const { data: netoScoreData } = useNetoScore();
   const { data: transactions = [], isLoading: txLoading } = useTransactions({
     usuarioId: user?.id,
     mes: selectedOption.mes,
@@ -221,19 +223,9 @@ export default function ReportesPage() {
     const gastos = transactions.filter((t) => t.tipo === 'gasto').reduce((s, t) => s + t.monto_pen, 0);
     const ahorro = ingresos - gastos;
 
-    // Count exceeded budgets
-    const categoryBudgets = budgets.filter(b => !b.subcategoria);
-    let presExcedidos = 0;
-    for (const b of categoryBudgets) {
-      const gastado = transactions
-        .filter(t => t.tipo === 'gasto' && t.categoria?.toLowerCase() === b.categoria?.toLowerCase())
-        .reduce((s, t) => s + t.monto_pen, 0);
-      if (gastado > parseFloat(String(b.monto_limite))) presExcedidos++;
-    }
-
-    const score = calcularScoreFinanciero(gastos, ingresos, presExcedidos);
+    const score = netoScoreData?.score ?? 0;
     return { totalIngresos: ingresos, totalGastos: gastos, ahorro, score };
-  }, [transactions, budgets]);
+  }, [transactions, budgets, netoScoreData]);
 
   const categoryBreakdown = useMemo(() => {
     const gastos = transactions.filter((t) => t.tipo === 'gasto');

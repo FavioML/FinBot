@@ -11,7 +11,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/dashboard/presupuestos': 'Presupuestos',
   '/dashboard/reportes': 'Reporte PDF',
   '/dashboard/suscripciones': 'Suscripciones',
-  '/dashboard/metas': 'Metas de ahorro',
+  '/dashboard/planes': 'Planes de ahorro',
   '/dashboard/deudas': 'Deudas',
   '/dashboard/logros': 'Logros',
   '/dashboard/configuracion': 'Configuracion',

@@ -3,16 +3,10 @@
 import { useMemo } from 'react';
 import { motion } from 'motion/react';
 import { Activity } from 'lucide-react';
-import { calcularScoreFinanciero, getScoreColor } from '@/lib/utils';
+import { getScoreColor } from '@/lib/utils';
 import { MESES } from '@/lib/constants';
-import type { Transaccion, Presupuesto } from '@/lib/types';
-
-interface ScoreTrendProps {
-  allTransactions: Transaccion[];
-  budgets: Presupuesto[];
-  currentMonth: number;
-  currentYear: number;
-}
+import { useNetoScoreHistory } from '@/lib/hooks/use-neto-score';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface MonthScore {
   label: string;
@@ -20,46 +14,31 @@ interface MonthScore {
   color: string;
 }
 
-export function ScoreTrend({ allTransactions, budgets, currentMonth, currentYear }: ScoreTrendProps) {
+export function ScoreTrend() {
+  const { data, isLoading } = useNetoScoreHistory(4);
+
   const scores = useMemo<MonthScore[]>(() => {
-    const result: MonthScore[] = [];
-    for (let i = 3; i >= 0; i--) {
-      const d = new Date(currentYear, currentMonth - 1 - i, 1);
-      const m = d.getMonth() + 1;
-      const y = d.getFullYear();
+    if (!data?.history?.length) return [];
 
-      const monthTxs = allTransactions.filter((t) => {
-        const txDate = new Date(t.fecha + 'T00:00:00');
-        return txDate.getMonth() + 1 === m && txDate.getFullYear() === y;
-      });
+    // Take last 4 months from history
+    const recent = data.history.slice(-4);
+    return recent.map((h) => {
+      const [, monthStr] = (h.period || '').split('-');
+      const monthNum = parseInt(monthStr, 10);
+      return {
+        label: MESES[monthNum]?.slice(0, 3) || monthStr || '',
+        score: h.score,
+        color: getScoreColor(h.score),
+      };
+    });
+  }, [data]);
 
-      const gastos = monthTxs.filter((t) => t.tipo === 'gasto').reduce((s, t) => s + t.monto_pen, 0);
-      const ingresos = monthTxs.filter((t) => t.tipo === 'ingreso').reduce((s, t) => s + t.monto_pen, 0);
-
-      // Count exceeded budgets for this month
-      const categoryBudgets = budgets.filter(b => !b.subcategoria);
-      let exceeded = 0;
-      for (const b of categoryBudgets) {
-        const spent = monthTxs
-          .filter(t => t.tipo === 'gasto' && t.categoria?.toLowerCase() === b.categoria?.toLowerCase())
-          .reduce((s, t) => s + t.monto_pen, 0);
-        if (spent > parseFloat(String(b.monto_limite))) exceeded++;
-      }
-
-      const score = monthTxs.length > 0 ? calcularScoreFinanciero(gastos, ingresos, exceeded) : 0;
-
-      result.push({
-        label: MESES[m]?.slice(0, 3) || '',
-        score,
-        color: getScoreColor(score),
-      });
-    }
-    return result;
-  }, [allTransactions, budgets, currentMonth, currentYear]);
+  if (isLoading) {
+    return <Skeleton className="h-[160px] rounded-2xl" />;
+  }
 
   // Only show if at least 2 months have data
-  const monthsWithData = scores.filter((s) => s.score > 0);
-  if (monthsWithData.length < 2) return null;
+  if (scores.filter((s) => s.score > 0).length < 2) return null;
 
   const maxScore = 100;
 

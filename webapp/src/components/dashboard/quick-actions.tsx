@@ -19,9 +19,9 @@ const actions = [
     color: '#EF9F27',
   },
   {
-    label: 'Metas',
+    label: 'Planes',
     icon: Flag,
-    href: '/dashboard/metas',
+    href: '/dashboard/planes',
     color: '#1D9E75',
   },
   {

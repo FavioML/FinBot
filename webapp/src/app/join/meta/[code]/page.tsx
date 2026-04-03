@@ -59,7 +59,7 @@ export default function JoinMetaPage({ params }: { params: Promise<{ code: strin
         throw new Error(data.error || 'Error al unirse');
       }
       setSuccess(true);
-      setTimeout(() => router.push('/dashboard/metas'), 2000);
+      setTimeout(() => router.push('/dashboard/planes'), 2000);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Error al unirse');
     } finally {

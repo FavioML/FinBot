@@ -50,7 +50,7 @@ import { useBudgets } from '@/lib/hooks/use-budgets';
 import { useGoals, useAchievements } from '@/lib/hooks/use-goals';
 import { useDebts } from '@/lib/hooks/use-debts';
 import { FadeIn } from '@/components/shared/motion-wrapper';
-import { formatCurrency, formatFecha, calcularScoreFinanciero, getScoreColor, getScoreLabel } from '@/lib/utils';
+import { formatCurrency, formatFecha, getScoreColor, getScoreLabel } from '@/lib/utils';
 import { getCategoriaEmoji, MESES, SOCIAL_LINKS } from '@/lib/constants';
 import { capitalizeDisplay, normalizeMetodoPago, getMetodoIcon } from '@/lib/format';
 import { detectSubscriptions, TIPO_LABELS } from '@/lib/subscriptions-catalog';
@@ -128,18 +128,6 @@ export default function DashboardPage() {
     const ahorro = totalIngresos - totalGastos;
     const ahorroPorcentaje = totalIngresos > 0 ? (ahorro / totalIngresos) * 100 : 0;
 
-    // Count exceeded budgets (category-level only, not subcategory)
-    const categoryBudgets = budgets.filter(b => !b.subcategoria);
-    let presExcedidos = 0;
-    for (const b of categoryBudgets) {
-      const gastado = transactions
-        .filter(t => t.tipo === 'gasto' && t.categoria?.toLowerCase() === b.categoria?.toLowerCase())
-        .reduce((s, t) => s + t.monto_pen, 0);
-      if (gastado > parseFloat(String(b.monto_limite))) presExcedidos++;
-    }
-
-    const scoreFinanciero = calcularScoreFinanciero(totalGastos, totalIngresos, presExcedidos);
-
     // Previous month data for comparison (only in monthly view)
     let prevGastos: number | undefined;
     let prevIngresos: number | undefined;
@@ -155,8 +143,8 @@ export default function DashboardPage() {
       prevIngresos = prevTxs.filter(t => t.tipo === 'ingreso').reduce((s, t) => s + t.monto_pen, 0);
     }
 
-    return { totalIngresos, totalGastos, ahorro, ahorroPorcentaje, scoreFinanciero, prevGastos, prevIngresos };
-  }, [transactions, budgets, allTransactions, viewMode, currentMonth, currentYear]);
+    return { totalIngresos, totalGastos, ahorro, ahorroPorcentaje, scoreFinanciero: (netoScore?.score ?? 0), prevGastos, prevIngresos };
+  }, [transactions, budgets, allTransactions, viewMode, currentMonth, currentYear, netoScore]);
 
   // Sparkline data: daily totals for last 30 days of current view
   const sparklines = useMemo(() => {
@@ -247,7 +235,7 @@ export default function DashboardPage() {
       totalGastos: kpiData.totalGastos,
       totalIngresos: kpiData.totalIngresos,
       categorias: categoryData,
-      scoreFinanciero: kpiData.scoreFinanciero,
+      scoreFinanciero: (netoScore?.score ?? 0),
       transactionCount: transactions.length,
       subscriptionTotal: subsTotal > 0 ? subsTotal : undefined,
     });
@@ -490,19 +478,14 @@ export default function DashboardPage() {
           {viewMode === 'mensual' && (
             <FadeIn delay={0.22}>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <ScoreTrend
-                allTransactions={allTransactions}
-                budgets={budgets}
-                currentMonth={currentMonth}
-                currentYear={currentYear}
-              />
+              <ScoreTrend />
               <InsightCard
                 insight={insightText}
                 aiContext={{
                   totalGastos: kpiData.totalGastos,
                   totalIngresos: kpiData.totalIngresos,
                   topCategorias: categoryData.slice(0, 3).map(c => `${c.categoria} (${Math.round(c.porcentaje)}%)`).join(', '),
-                  scoreFinanciero: kpiData.scoreFinanciero,
+                  scoreFinanciero: (netoScore?.score ?? 0),
                   subscriptionTotal: subscriptions.reduce((s, sub) => s + sub.monthlyAmount, 0) || undefined,
                 }}
               />
@@ -704,7 +687,7 @@ export default function DashboardPage() {
                   <Target className="h-4 w-4 text-[#1D9E75]" />
                   <span className="text-sm font-medium text-[#C8C6BC]">Planes de ahorro</span>
                 </div>
-                <Link href="/dashboard/metas" className="text-xs text-[#1D9E75] hover:underline">Ver todas &rarr;</Link>
+                <Link href="/dashboard/planes" className="text-xs text-[#1D9E75] hover:underline">Ver todas &rarr;</Link>
               </div>
               {(() => {
                 const activeGoals = goals.filter((g) => g.status === 'active' || (!g.status && !g.completada));
@@ -712,7 +695,7 @@ export default function DashboardPage() {
                   <div className="flex flex-col items-center justify-center py-6 text-center">
                     <Target className="h-6 w-6 text-[#8A877D]/50 mb-2" />
                     <p className="text-sm text-[#8A877D]">Sin planes activos</p>
-                    <Link href="/dashboard/metas" className="text-xs text-[#1D9E75] mt-1 hover:underline">Crear un plan</Link>
+                    <Link href="/dashboard/planes" className="text-xs text-[#1D9E75] mt-1 hover:underline">Crear un plan</Link>
                   </div>
                 );
                 return (
@@ -791,7 +774,7 @@ export default function DashboardPage() {
                   <Award className="h-4 w-4 text-[#EF9F27]" />
                   <span className="text-sm font-medium text-[#C8C6BC]">Logros</span>
                 </div>
-                <Link href="/dashboard/metas" className="text-xs text-[#1D9E75] hover:underline">Ver todos &rarr;</Link>
+                <Link href="/dashboard/planes" className="text-xs text-[#1D9E75] hover:underline">Ver todos &rarr;</Link>
               </div>
               {achievements.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-6 text-center">
@@ -892,11 +875,11 @@ export default function DashboardPage() {
                 <motion.path
                   d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                   fill="none"
-                  stroke={getScoreColor(kpiData.scoreFinanciero)}
+                  stroke={getScoreColor((netoScore?.score ?? 0))}
                   strokeWidth="3"
                   strokeLinecap="round"
                   initial={{ strokeDasharray: '0, 100' }}
-                  animate={{ strokeDasharray: `${kpiData.scoreFinanciero}, 100` }}
+                  animate={{ strokeDasharray: `${(netoScore?.score ?? 0)}, 100` }}
                   transition={{ duration: 1.2, ease: [0.16, 1, 0.3, 1], delay: 0.2 }}
                 />
               </svg>
@@ -906,7 +889,7 @@ export default function DashboardPage() {
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.5, delay: 0.4 }}
               >
-                <span className="text-3xl font-bold" style={{ color: getScoreColor(kpiData.scoreFinanciero) }}>{kpiData.scoreFinanciero}</span>
+                <span className="text-3xl font-bold" style={{ color: getScoreColor((netoScore?.score ?? 0)) }}>{(netoScore?.score ?? 0)}</span>
                 <span className="text-xs text-[#8A877D]">de 100</span>
               </motion.div>
             </div>
@@ -914,8 +897,8 @@ export default function DashboardPage() {
 
           {/* Status */}
           <div className="text-center mb-4">
-            <span className="text-lg font-semibold" style={{ color: getScoreColor(kpiData.scoreFinanciero) }}>
-              {getScoreLabel(kpiData.scoreFinanciero)}
+            <span className="text-lg font-semibold" style={{ color: getScoreColor((netoScore?.score ?? 0)) }}>
+              {getScoreLabel((netoScore?.score ?? 0))}
             </span>
           </div>
 
@@ -940,10 +923,10 @@ export default function DashboardPage() {
               {kpiData.totalIngresos > 0 && kpiData.totalGastos / kpiData.totalIngresos > 0.7 && (
                 <li>&bull; Reduce gastos un {Math.round((kpiData.totalGastos / kpiData.totalIngresos - 0.7) * 100)}% para ganar hasta +15 puntos</li>
               )}
-              {kpiData.scoreFinanciero < 70 && (
+              {(netoScore?.score ?? 0) < 70 && (
                 <li>&bull; Establece presupuestos por categoria para proteger tu score</li>
               )}
-              <li>&bull; Tu score potencial: {Math.min(100, kpiData.scoreFinanciero + 20)} ({Math.min(100, kpiData.scoreFinanciero + 20) >= 80 ? 'Excelente' : 'Bueno'})</li>
+              <li>&bull; Tu score potencial: {Math.min(100, (netoScore?.score ?? 0) + 20)} ({Math.min(100, (netoScore?.score ?? 0) + 20) >= 80 ? 'Excelente' : 'Bueno'})</li>
             </ul>
           </div>
         </DialogContent>
@@ -957,7 +940,7 @@ export default function DashboardPage() {
             totalGastos: kpiData.totalGastos,
             totalIngresos: kpiData.totalIngresos,
             topCategorias: categoryData.slice(0, 3).map(c => `${c.categoria} (${Math.round(c.porcentaje)}%)`).join(', '),
-            scoreFinanciero: kpiData.scoreFinanciero,
+            scoreFinanciero: (netoScore?.score ?? 0),
             subscriptionTotal: subscriptions.reduce((s, sub) => s + sub.monthlyAmount, 0) || undefined,
           }}
         />

@@ -3,10 +3,10 @@
 export const dynamic = 'force-dynamic';
 
 import Link from 'next/link';
-import { Lock } from 'lucide-react';
+import { Lock, Lightbulb, PartyPopper } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { ScoreGauge } from '@/components/charts/score-gauge';
-import { useNetoScoreHistory } from '@/lib/hooks/use-neto-score';
+import { useNetoScoreHistory, type NetoScoreFactors } from '@/lib/hooks/use-neto-score';
 import { useUser } from '@/lib/hooks/use-user';
 import { FadeIn } from '@/components/shared/motion-wrapper';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -48,6 +48,64 @@ function CustomTooltip({ active, payload, label }: { active?: boolean; payload?:
     <div className="glass-card px-3 py-2 text-xs">
       <p className="text-[#8A877D] mb-0.5">{label}</p>
       <p className="text-[#1D9E75] font-semibold">{payload[0].value} pts</p>
+    </div>
+  );
+}
+
+const TIPS_MAP: Record<string, string> = {
+  consistency: 'Registra al menos un gasto al día — el hábito es lo que más pesa en tu score',
+  budget: 'Revisa las categorías donde excedes el límite y ajusta montos realistas',
+  savings: 'Intenta ahorrar al menos el 10% de tus ingresos este mes',
+  goals: 'Haz aportes semanales pequeños pero constantes a tus planes de ahorro',
+  debts: 'Prioriza las deudas con vencimiento más cercano y registra cada abono',
+  visibility: 'Crea presupuestos por categoría y conecta tu Gmail para lectura automática',
+};
+
+const FACTOR_LABELS: Record<string, string> = {
+  consistency: 'Consistencia de registro',
+  budget: 'Control de presupuesto',
+  savings: 'Capacidad de ahorro',
+  goals: 'Progreso en planes',
+  debts: 'Gestión de deudas',
+  visibility: 'Visibilidad financiera',
+};
+
+function TipsSection({ factors }: { factors?: NetoScoreFactors }) {
+  if (!factors) return <p className="text-[#8A877D] text-sm">Sin datos de factores aún.</p>;
+
+  const weak = (Object.entries(factors) as [string, number][])
+    .filter(([, v]) => v < 70)
+    .sort(([, a], [, b]) => a - b)
+    .slice(0, 3);
+
+  if (weak.length === 0) {
+    return (
+      <div className="flex items-center gap-3 py-2">
+        <PartyPopper className="w-5 h-5 text-[#1D9E75] shrink-0" />
+        <p className="text-sm text-[#C8C6BC]">
+          Todos tus factores están por encima de 70. ¡Excelente trabajo! Sigue así para mantener tu score alto.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {weak.map(([key, value]) => {
+        const color = value >= 60 ? '#3B9EDB' : value >= 40 ? '#E8A838' : '#E85D3A';
+        return (
+          <div key={key} className="flex items-start gap-3 p-3 rounded-lg bg-[rgba(255,255,255,0.02)]">
+            <Lightbulb className="w-4 h-4 mt-0.5 shrink-0" style={{ color }} />
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 mb-0.5">
+                <span className="text-xs font-medium text-[#C8C6BC]">{FACTOR_LABELS[key]}</span>
+                <span className="text-xs font-bold tabular-nums" style={{ color }}>{value}</span>
+              </div>
+              <p className="text-xs text-[#8A877D]">{TIPS_MAP[key]}</p>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -195,7 +253,7 @@ export default function ScorePage() {
         <div className="glass-card p-6">
           <h2 className="text-base font-semibold text-[#F0EFE8] mb-3">Tips personalizados</h2>
           {isPro ? (
-            <p className="text-[#8A877D] text-sm">Próximamente: recomendaciones basadas en tu score.</p>
+            <TipsSection factors={data.factors} />
           ) : (
             <div className="flex items-start gap-3">
               <Lock className="w-4 h-4 text-[#8A877D] mt-0.5 shrink-0" />

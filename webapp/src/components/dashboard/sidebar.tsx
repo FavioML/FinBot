@@ -31,7 +31,7 @@ const mainNav = [
   { label: 'Espacios', href: '/dashboard/espacios', icon: Users },
   { label: 'Reporte PDF', href: '/dashboard/reportes', icon: FileBarChart },
   { label: 'Suscripciones', href: '/dashboard/suscripciones', icon: CreditCard },
-  { label: 'Planes', href: '/dashboard/metas', icon: Flag },
+  { label: 'Planes', href: '/dashboard/planes', icon: Flag },
   { label: 'Deudas', href: '/dashboard/deudas', icon: Landmark },
   { label: 'Logros', href: '/dashboard/logros', icon: Trophy },
 ];

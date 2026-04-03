@@ -15,7 +15,7 @@ const PAGES = [
   { name: 'Presupuestos', path: '/dashboard/presupuestos', icon: Target, keywords: 'limites budget categoria' },
   { name: 'Reporte PDF', path: '/dashboard/reportes', icon: FileBarChart, keywords: 'reporte score pdf grafico descargar exportar' },
   { name: 'Suscripciones', path: '/dashboard/suscripciones', icon: CreditCard, keywords: 'netflix spotify subscription' },
-  { name: 'Metas de ahorro', path: '/dashboard/metas', icon: Target, keywords: 'meta ahorro objetivo savings goal' },
+  { name: 'Planes de ahorro', path: '/dashboard/planes', icon: Target, keywords: 'plan meta ahorro objetivo savings goal' },
   { name: 'Neto Score', path: '/dashboard/score', icon: Activity, keywords: 'score puntuacion salud financiera' },
   { name: 'Detector de Fugas', path: '/dashboard/alertas', icon: AlertTriangle, keywords: 'alertas fugas gastos hormiga spike' },
   { name: 'Espacios compartidos', path: '/dashboard/espacios', icon: Users, keywords: 'espacios compartidos grupo familia' },
