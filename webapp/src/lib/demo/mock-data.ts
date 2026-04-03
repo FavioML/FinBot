@@ -542,3 +542,32 @@ export const DEMO_SPACE_DETAIL: SpaceDetail = {
   currentUserId: DEMO_USER_ID,
   isPro: true,
 };
+
+const DEMO_SPACE_DETAIL_PAREJA: SpaceDetail = {
+  space: { id: 'space-02', name: 'Con mi pareja', type: 'pareja', invite_code: 'SPACE-PARE-001' },
+  members: [
+    { user_id: DEMO_USER_ID, role: 'owner', split_percentage: 50, usuarios: { nombre: 'Favio Demo' } },
+    { user_id: 'demo-user-003', role: 'member', split_percentage: 50, usuarios: { nombre: 'Lucía García' } },
+  ],
+  expenses: [
+    { id: 'sexp-p01', paid_by: DEMO_USER_ID, amount: 320, description: 'Cena aniversario', category: 'Alimentación', created_at: dateStr(3), usuarios: { nombre: 'Favio Demo' } },
+    { id: 'sexp-p02', paid_by: 'demo-user-003', amount: 150, description: 'Mercado semanal', category: 'Alimentación', created_at: dateStr(7), usuarios: { nombre: 'Lucía García' } },
+    { id: 'sexp-p03', paid_by: DEMO_USER_ID, amount: 89, description: 'Netflix + Disney+', category: 'Suscripciones', created_at: dateStr(10), usuarios: { nombre: 'Favio Demo' } },
+  ],
+  splitRules: [],
+  budgets: [
+    { id: 'sbud-p01', category: 'Alimentación', limit: 600 },
+  ],
+  settlements: [],
+  balance: {
+    [DEMO_USER_ID]: 129.5,
+    'demo-user-003': -129.5,
+  },
+  currentUserId: DEMO_USER_ID,
+  isPro: true,
+};
+
+export const DEMO_SPACE_DETAIL_MAP: Record<string, SpaceDetail> = {
+  'space-01': DEMO_SPACE_DETAIL,
+  'space-02': DEMO_SPACE_DETAIL_PAREJA,
+};

@@ -478,18 +478,21 @@ export default function SpaceDetailPage() {
                         style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: barColor }}
                       />
                     </div>
-                    <div className="flex items-center justify-between text-[10px] text-[#8A877D]">
-                      <div className="flex gap-3">
-                        {members.map((m) => {
-                          const frac = resolveSplit(budget.category, m.user_id, members, data.splitRules ?? []);
-                          return (
-                            <span key={m.user_id}>
-                              {m.usuarios?.nombre}: {formatCurrency(budget.limit * frac)}
+                    <div className="text-[10px] text-[#8A877D] space-y-0.5">
+                      {members.map((m) => {
+                        const frac = resolveSplit(budget.category, m.user_id, members, data.splitRules ?? []);
+                        const memberSpent = expenses
+                          .filter((e) => e.category === budget.category && e.paid_by === m.user_id)
+                          .reduce((s, e) => s + Number(e.amount), 0);
+                        return (
+                          <div key={m.user_id} className="flex justify-between">
+                            <span>{m.usuarios?.nombre}</span>
+                            <span>
+                              pagó {formatCurrency(memberSpent)} · le toca {formatCurrency(budget.limit * frac)}
                             </span>
-                          );
-                        })}
-                      </div>
-                      <span>{pct}% usado</span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 );

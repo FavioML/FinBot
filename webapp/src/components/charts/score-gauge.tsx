@@ -85,16 +85,14 @@ export function ScoreGauge({ score, size = 'sm', trend }: ScoreGaugeProps) {
   const fontSize = size === 'lg' ? 42 : 28;
   const labelFontSize = size === 'lg' ? 13 : 10;
 
-  const maxWidth = size === 'lg' ? '280px' : '180px';
+  const maxWidth = size === 'lg' ? 280 : 180;
 
   return (
-    <div className="flex flex-col items-center" style={{ width: '100%', maxWidth }}>
+    <div className="flex flex-col items-center" style={{ width: maxWidth, maxWidth }}>
       <svg
-        width="100%"
+        width={maxWidth}
+        height={Math.round(maxWidth * vbHeight / vbWidth)}
         viewBox={`0 0 ${vbWidth} ${vbHeight}`}
-        preserveAspectRatio="xMidYMid meet"
-        overflow="visible"
-        style={{ display: 'block', aspectRatio: `${vbWidth} / ${vbHeight}` }}
       >
         {/* Background track */}
         <path

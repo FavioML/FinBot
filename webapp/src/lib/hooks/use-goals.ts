@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { IS_DEMO } from '@/lib/demo/is-demo';
-import { DEMO_GOALS, DEMO_GOAL_CONTRIBUTIONS, DEMO_ACHIEVEMENTS } from '@/lib/demo/mock-data';
+import { DEMO_GOALS, DEMO_GOAL_CONTRIBUTIONS, DEMO_ACHIEVEMENTS, DEMO_USER_ID } from '@/lib/demo/mock-data';
 
 export interface MetaAhorro {
   id: string;
@@ -117,7 +117,28 @@ export function useGoalMutations() {
 
   const create = useMutation({
     mutationFn: async (goal: GoalInput) => {
-      if (IS_DEMO) return { ok: true, id: `demo-${Date.now()}` };
+      const id = `demo-${Date.now()}`;
+      if (IS_DEMO) {
+        const newGoal: MetaAhorro = {
+          id,
+          usuario_id: DEMO_USER_ID,
+          nombre: goal.nombre || '',
+          monto_objetivo: parseFloat(String(goal.monto_objetivo ?? 0)),
+          monto_actual: parseFloat(String(goal.monto_actual ?? 0)),
+          icono: goal.icono ?? '🎯',
+          fecha_limite: goal.fecha_limite ?? null,
+          completada: false,
+          monthly_quota: null,
+          status: 'active',
+          space_id: null,
+          created_at: new Date().toISOString(),
+          updated_at: null,
+        };
+        queryClient.setQueryData<MetaAhorro[]>(['goals', DEMO_USER_ID], (old) =>
+          old ? [...old, newGoal] : [newGoal]
+        );
+        return { ok: true, id };
+      }
       const res = await fetch('/api/goals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -126,12 +147,33 @@ export function useGoalMutations() {
       if (!res.ok) throw new Error('Failed to create goal');
       return res.json();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['goals'] }),
+    onSuccess: () => {
+      if (!IS_DEMO) queryClient.invalidateQueries({ queryKey: ['goals'] });
+    },
   });
 
   const update = useMutation({
     mutationFn: async (goal: GoalInput) => {
-      if (IS_DEMO) return { ok: true, id: `demo-${Date.now()}` };
+      if (IS_DEMO) {
+        queryClient.setQueryData<MetaAhorro[]>(['goals', DEMO_USER_ID], (old) =>
+          (old ?? []).map((g) =>
+            g.id === goal.id
+              ? {
+                  ...g,
+                  nombre: goal.nombre ?? g.nombre,
+                  monto_objetivo: goal.monto_objetivo !== undefined ? parseFloat(String(goal.monto_objetivo)) : g.monto_objetivo,
+                  monto_actual: goal.monto_actual !== undefined ? parseFloat(String(goal.monto_actual)) : g.monto_actual,
+                  icono: goal.icono !== undefined ? goal.icono : g.icono,
+                  fecha_limite: goal.fecha_limite !== undefined ? goal.fecha_limite ?? null : g.fecha_limite,
+                  completada: goal.completada !== undefined ? goal.completada : g.completada,
+                  status: goal.completada ? 'completed' : goal.completada === false ? 'active' : g.status,
+                  updated_at: new Date().toISOString(),
+                }
+              : g
+          )
+        );
+        return { ok: true, id: goal.id };
+      }
       const res = await fetch('/api/goals', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -140,22 +182,74 @@ export function useGoalMutations() {
       if (!res.ok) throw new Error('Failed to update goal');
       return res.json();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['goals'] }),
+    onSuccess: () => {
+      if (!IS_DEMO) queryClient.invalidateQueries({ queryKey: ['goals'] });
+    },
   });
 
   const remove = useMutation({
     mutationFn: async (id: string) => {
-      if (IS_DEMO) return { ok: true, id };
+      if (IS_DEMO) {
+        queryClient.setQueryData<MetaAhorro[]>(['goals', DEMO_USER_ID], (old) =>
+          (old ?? []).filter((g) => g.id !== id)
+        );
+        return { ok: true, id };
+      }
       const res = await fetch(`/api/goals?id=${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to delete goal');
       return res.json();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['goals'] }),
+    onSuccess: () => {
+      if (!IS_DEMO) queryClient.invalidateQueries({ queryKey: ['goals'] });
+    },
   });
 
   const contribute = useMutation({
     mutationFn: async (data: { meta_id: string; monto: number; tipo?: 'aporte' | 'retiro'; nota?: string }) => {
-      if (IS_DEMO) return { ok: true, id: `demo-${Date.now()}` };
+      const tipo = data.tipo ?? 'aporte';
+      if (IS_DEMO) {
+        const delta = tipo === 'retiro' ? -data.monto : data.monto;
+        // Update goal amount
+        queryClient.setQueryData<MetaAhorro[]>(['goals', DEMO_USER_ID], (old) =>
+          (old ?? []).map((g) => {
+            if (g.id !== data.meta_id) return g;
+            const newAmount = Math.max(0, g.monto_actual + delta);
+            const newAporte: MetaAporte = {
+              id: `ap-${Date.now()}`,
+              meta_id: data.meta_id,
+              monto: data.monto,
+              tipo,
+              fecha: new Date().toISOString().split('T')[0],
+              nota: data.nota ?? null,
+              created_at: new Date().toISOString(),
+            };
+            return {
+              ...g,
+              monto_actual: newAmount,
+              completada: newAmount >= g.monto_objetivo,
+              status: newAmount >= g.monto_objetivo ? 'completed' as const : g.status,
+              updated_at: new Date().toISOString(),
+              meta_aportes: [newAporte, ...(g.meta_aportes ?? [])],
+            };
+          })
+        );
+        // Update contributions cache
+        queryClient.setQueryData<MetaAporte[]>(['goal-contributions', data.meta_id], (old) => {
+          const newAporte: MetaAporte = {
+            id: `ap-${Date.now()}`,
+            meta_id: data.meta_id,
+            monto: data.monto,
+            tipo,
+            fecha: new Date().toISOString().split('T')[0],
+            nota: data.nota ?? null,
+            created_at: new Date().toISOString(),
+          };
+          return [newAporte, ...(old ?? [])];
+        });
+        const goal = queryClient.getQueryData<MetaAhorro[]>(['goals', DEMO_USER_ID])?.find((g) => g.id === data.meta_id);
+        const milestone = goal && goal.monto_actual >= goal.monto_objetivo ? 100 : undefined;
+        return { ok: true, id: `demo-${Date.now()}`, milestone };
+      }
       const res = await fetch('/api/goals/aportes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -165,9 +259,11 @@ export function useGoalMutations() {
       return res.json();
     },
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['goals'] });
-      queryClient.invalidateQueries({ queryKey: ['goal-contributions', variables.meta_id] });
-      queryClient.invalidateQueries({ queryKey: ['achievements'] });
+      if (!IS_DEMO) {
+        queryClient.invalidateQueries({ queryKey: ['goals'] });
+        queryClient.invalidateQueries({ queryKey: ['goal-contributions', variables.meta_id] });
+        queryClient.invalidateQueries({ queryKey: ['achievements'] });
+      }
     },
   });
 
@@ -233,13 +329,20 @@ export function useAbandonPlan() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (metaId: string) => {
-      if (IS_DEMO) return { ok: true, id: metaId };
+      if (IS_DEMO) {
+        queryClient.setQueryData<MetaAhorro[]>(['goals', DEMO_USER_ID], (old) =>
+          (old ?? []).map((g) =>
+            g.id === metaId ? { ...g, status: 'abandoned' as const, updated_at: new Date().toISOString() } : g
+          )
+        );
+        return { ok: true, id: metaId };
+      }
       const res = await fetch(`/api/goals/${metaId}/abandon`, { method: 'POST' });
       if (!res.ok) throw new Error('Failed to abandon plan');
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['goals'] });
+      if (!IS_DEMO) queryClient.invalidateQueries({ queryKey: ['goals'] });
     },
   });
 }

@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { IS_DEMO } from '@/lib/demo/is-demo';
-import { DEMO_SPACES, DEMO_SPACE_DETAIL, DEMO_USER_ID } from '@/lib/demo/mock-data';
+import { DEMO_SPACES, DEMO_SPACE_DETAIL, DEMO_SPACE_DETAIL_MAP, DEMO_USER_ID } from '@/lib/demo/mock-data';
 
 export interface SharedSpace {
   id: string;
@@ -103,7 +103,7 @@ export function useSpaceDetail(spaceId: string) {
   return useQuery<SpaceDetail>({
     queryKey: ['space', spaceId],
     queryFn: async () => {
-      if (IS_DEMO) return DEMO_SPACE_DETAIL;
+      if (IS_DEMO) return DEMO_SPACE_DETAIL_MAP[spaceId] ?? DEMO_SPACE_DETAIL;
       const res = await fetch(`/api/spaces/${spaceId}`);
       if (!res.ok) throw new Error('Failed to fetch space');
       return res.json();
