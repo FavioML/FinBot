@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Sidebar } from '@/components/dashboard/sidebar';
-import { Topbar } from '@/components/dashboard/topbar';
+import { Topbar, DesktopHeaderActions } from '@/components/dashboard/topbar';
 import { BottomNav } from '@/components/dashboard/bottom-nav';
 import { QuickAddButton } from '@/components/dashboard/quick-add-button';
 import { OnboardingTour } from '@/components/dashboard/onboarding-tour';
@@ -61,6 +61,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           </main>
           <BottomNav />
         </div>
+        <DesktopHeaderActions />
         <QuickAddButton />
         <WhatsAppButton />
         <OnboardingTour />
