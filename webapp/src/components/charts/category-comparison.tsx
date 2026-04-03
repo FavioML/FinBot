@@ -1,8 +1,9 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
+import { ChevronDown } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import { getCategoriaEmoji, MESES } from '@/lib/constants';
 import type { Transaccion } from '@/lib/types';
@@ -61,11 +62,16 @@ export function CategoryComparison({ allTransactions, currentMonth, currentYear,
           ? Math.round(((vals.current - vals.previous) / vals.previous) * 100)
           : vals.current > 0 ? 100 : 0,
       }))
-      .sort((a, b) => (b.current + b.previous) - (a.current + a.previous))
-      .slice(0, 6);
+      .sort((a, b) => (b.current + b.previous) - (a.current + a.previous));
   }, [allTransactions, currentMonth, currentYear]);
 
+  const [expanded, setExpanded] = useState(false);
+
   if (data.length === 0) return null;
+
+  const VISIBLE_COUNT = 6;
+  const chartData = expanded ? data : data.slice(0, VISIBLE_COUNT);
+  const hasMore = data.length > VISIBLE_COUNT;
 
   const prevDate = new Date(currentYear, currentMonth - 2, 1);
   const pmLabel = MESES[prevDate.getMonth() + 1];
@@ -93,9 +99,9 @@ export function CategoryComparison({ allTransactions, currentMonth, currentYear,
       </div>
 
       {/* Chart */}
-      <div className="h-[200px]">
+      <div style={{ height: Math.max(200, chartData.length * 36) }}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} layout="vertical" margin={{ left: 0, right: 8, top: 0, bottom: 0 }}>
+          <BarChart data={chartData} layout="vertical" margin={{ left: 0, right: 8, top: 0, bottom: 0 }}>
             <XAxis
               type="number"
               tick={{ fill: '#8A877D', fontSize: 10 }}
@@ -134,7 +140,7 @@ export function CategoryComparison({ allTransactions, currentMonth, currentYear,
               cursor={onCategoryClick ? 'pointer' : undefined}
               onClick={onCategoryClick ? (entry: any) => onCategoryClick(entry.categoria) : undefined}
             >
-              {data.map((entry, i) => (
+              {chartData.map((entry, i) => (
                 <Cell
                   key={i}
                   fill={entry.change > 10 ? '#D85A30' : entry.change < -10 ? '#1D9E75' : '#EF9F27'}
@@ -147,7 +153,7 @@ export function CategoryComparison({ allTransactions, currentMonth, currentYear,
 
       {/* Change badges */}
       <div className="flex flex-wrap gap-2 mt-3">
-        {data.filter((d) => d.change !== 0).slice(0, 4).map((d) => (
+        {chartData.filter((d) => d.change !== 0).slice(0, 4).map((d) => (
           <span
             key={d.categoria}
             className="rounded-full px-2 py-0.5 text-[10px] font-medium"
@@ -160,6 +166,23 @@ export function CategoryComparison({ allTransactions, currentMonth, currentYear,
           </span>
         ))}
       </div>
+
+      {/* Expand/collapse button */}
+      {hasMore && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="flex items-center justify-center gap-1.5 w-full mt-3 py-2 rounded-lg text-xs font-medium text-[#8A877D] hover:text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.03)] transition-colors"
+        >
+          {expanded ? 'Ver menos' : `Ver todas (${data.length})`}
+          <motion.span
+            animate={{ rotate: expanded ? 180 : 0 }}
+            transition={{ duration: 0.25 }}
+            className="inline-flex"
+          >
+            <ChevronDown className="h-3.5 w-3.5" />
+          </motion.span>
+        </button>
+      )}
     </motion.div>
   );
 }

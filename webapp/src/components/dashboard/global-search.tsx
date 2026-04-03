@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, ArrowRight, Receipt, Target, FileBarChart, CreditCard, Settings } from 'lucide-react';
+import { Search, ArrowRight, Receipt, Target, FileBarChart, CreditCard, Settings, Activity, AlertTriangle, Users, Award, Landmark } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
@@ -16,6 +16,11 @@ const PAGES = [
   { name: 'Reporte PDF', path: '/dashboard/reportes', icon: FileBarChart, keywords: 'reporte score pdf grafico descargar exportar' },
   { name: 'Suscripciones', path: '/dashboard/suscripciones', icon: CreditCard, keywords: 'netflix spotify subscription' },
   { name: 'Metas de ahorro', path: '/dashboard/metas', icon: Target, keywords: 'meta ahorro objetivo savings goal' },
+  { name: 'Neto Score', path: '/dashboard/score', icon: Activity, keywords: 'score puntuacion salud financiera' },
+  { name: 'Detector de Fugas', path: '/dashboard/alertas', icon: AlertTriangle, keywords: 'alertas fugas gastos hormiga spike' },
+  { name: 'Espacios compartidos', path: '/dashboard/espacios', icon: Users, keywords: 'espacios compartidos grupo familia' },
+  { name: 'Deudas', path: '/dashboard/deudas', icon: Landmark, keywords: 'deudas prestamos debo me deben' },
+  { name: 'Logros', path: '/dashboard/logros', icon: Award, keywords: 'logros medallas achievements badges' },
   { name: 'Configuracion', path: '/dashboard/configuracion', icon: Settings, keywords: 'perfil plan cuenta gmail' },
 ];
 

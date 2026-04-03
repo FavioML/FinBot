@@ -38,7 +38,7 @@ const TYPE_CONFIG = {
   },
 } as const;
 
-function AlertCard({ alert, isPro, onSetLimit }: { alert: SpendingAlert; isPro: boolean; onSetLimit?: (category: string) => void }) {
+function AlertCard({ alert, isPro, onSetLimit }: { alert: SpendingAlert; isPro: boolean; onSetLimit?: (category?: string) => void }) {
   const config = TYPE_CONFIG[alert.type];
   const Icon = config.icon;
   const showLimitButton = isPro && (alert.type === 'spike' || alert.type === 'projection');
@@ -92,7 +92,7 @@ function AlertCard({ alert, isPro, onSetLimit }: { alert: SpendingAlert; isPro: 
         {showLimitButton && !alert.limit_set && (
           <button
             className="mt-2 text-xs font-medium text-[#1D9E75] hover:underline"
-            onClick={() => alert.category && onSetLimit?.(alert.category)}
+            onClick={() => onSetLimit?.(alert.category ?? undefined)}
           >
             + Poner límite
           </button>
@@ -157,7 +157,7 @@ export default function AlertasPage() {
               <AlertCard
                 alert={alert}
                 isPro={isPro}
-                onSetLimit={(cat) => router.push(`/dashboard/presupuestos?categoria=${encodeURIComponent(cat)}`)}
+                onSetLimit={(cat) => router.push(cat ? `/dashboard/presupuestos?categoria=${encodeURIComponent(cat)}` : '/dashboard/presupuestos')}
               />
             </FadeIn>
           ))}

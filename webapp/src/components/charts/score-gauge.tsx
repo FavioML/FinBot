@@ -44,10 +44,11 @@ function buildArcPath(cx: number, cy: number, r: number, score: number): string 
 }
 
 export function ScoreGauge({ score, size = 'sm', trend }: ScoreGaugeProps) {
-  const width = size === 'lg' ? 300 : 200;
-  const height = size === 'lg' ? 160 : 110;
-  const cx = width / 2;
-  const cy = height - (size === 'lg' ? 20 : 14);
+  // Use fixed viewBox coordinates but let the SVG scale responsively
+  const vbWidth = size === 'lg' ? 300 : 200;
+  const vbHeight = size === 'lg' ? 160 : 110;
+  const cx = vbWidth / 2;
+  const cy = vbHeight - (size === 'lg' ? 20 : 14);
   const r = size === 'lg' ? 110 : 73;
   const strokeWidth = size === 'lg' ? 14 : 10;
 
@@ -84,9 +85,16 @@ export function ScoreGauge({ score, size = 'sm', trend }: ScoreGaugeProps) {
   const fontSize = size === 'lg' ? 42 : 28;
   const labelFontSize = size === 'lg' ? 13 : 10;
 
+  const maxWidth = size === 'lg' ? '280px' : '180px';
+
   return (
-    <div className="flex flex-col items-center">
-      <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} overflow="visible">
+    <div className="flex flex-col items-center" style={{ width: '100%', maxWidth }}>
+      <svg
+        width="100%"
+        viewBox={`0 0 ${vbWidth} ${vbHeight}`}
+        overflow="visible"
+        style={{ display: 'block' }}
+      >
         {/* Background track */}
         <path
           d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`}

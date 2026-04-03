@@ -437,31 +437,9 @@ export default function DashboardPage() {
             <KPICards data={kpiData} sparklines={sparklines} />
           </FadeIn>
 
-          {/* Neto Score widget */}
-          {netoScore?.score != null && (
-            <FadeIn delay={0.10}>
-              <div className="glass-card p-6">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-base font-semibold text-[#F0EFE8]">Tu Neto Score</h3>
-                  <Link href="/dashboard/score" className="text-[#1D9E75] text-sm hover:underline">
-                    Ver detalle →
-                  </Link>
-                </div>
-                <div className="flex items-center justify-center">
-                  <ScoreGauge score={netoScore.score} size="sm" />
-                </div>
-                {user?.plan !== 'premium' && (
-                  <p className="text-[#8A877D] text-xs text-center mt-1 flex items-center justify-center gap-1">
-                    <Lock className="w-3 h-3" />
-                    Pasa a Pro para ver el desglose completo
-                  </p>
-                )}
-              </div>
-            </FadeIn>
-          )}
-
-          {/* Alerts + Espacios row */}
-          {((alertsData?.alerts.length ?? 0) > 0 || (spacesData?.spaces.length ?? 0) > 0) && (() => {
+          {/* Score + Fugas + Espacios row */}
+          {(() => {
+            const hasScore = netoScore?.score != null;
             const twoWeeksAgo = new Date();
             twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
             const recentAlerts = (alertsData?.alerts ?? []).filter(
@@ -469,10 +447,31 @@ export default function DashboardPage() {
             );
             const hasAlerts = recentAlerts.length > 0;
             const hasSpaces = (spacesData?.spaces.length ?? 0) > 0;
-            if (!hasAlerts && !hasSpaces) return null;
+            const visibleCount = [hasScore, hasAlerts, hasSpaces].filter(Boolean).length;
+            if (visibleCount === 0) return null;
+            const gridCols = visibleCount === 3 ? 'md:grid-cols-3' : visibleCount === 2 ? 'md:grid-cols-2' : '';
             return (
-              <FadeIn delay={0.11}>
-                <div className={`grid gap-4 ${hasAlerts && hasSpaces ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
+              <FadeIn delay={0.10}>
+                <div className={`grid grid-cols-1 ${gridCols} gap-4`}>
+                  {hasScore && (
+                    <div className="glass-card p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-base font-semibold text-[#F0EFE8]">Tu Neto Score</h3>
+                        <Link href="/dashboard/score" className="text-[#1D9E75] text-sm hover:underline">
+                          Ver detalle →
+                        </Link>
+                      </div>
+                      <div className="flex items-center justify-center">
+                        <ScoreGauge score={netoScore!.score} size="sm" />
+                      </div>
+                      {user?.plan !== 'premium' && (
+                        <p className="text-[#8A877D] text-xs text-center mt-1 flex items-center justify-center gap-1">
+                          <Lock className="w-3 h-3" />
+                          Pasa a Pro para ver el desglose
+                        </p>
+                      )}
+                    </div>
+                  )}
                   {hasAlerts && (
                     <div className="glass-card p-4">
                       <div className="flex items-center justify-between">
