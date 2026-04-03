@@ -462,7 +462,7 @@ export default function DashboardPage() {
                         </Link>
                       </div>
                       <div className="flex items-center justify-center">
-                        <ScoreGauge score={netoScore!.score} size="sm" />
+                        <ScoreGauge score={netoScore!.score!} size="sm" />
                       </div>
                       {user?.plan !== 'premium' && (
                         <p className="text-[#8A877D] text-xs text-center mt-1 flex items-center justify-center gap-1">
