@@ -19,7 +19,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import { useUser } from '@/lib/hooks/use-user';
 import { useSubscriptions } from '@/lib/hooks/use-subscriptions';
-import { UserMenu } from '@/components/dashboard/user-menu';
 import { MonthSelector } from '@/components/dashboard/month-selector';
 import { MESES, SOCIAL_LINKS } from '@/lib/constants';
 import {
@@ -377,7 +376,6 @@ export default function SuscripcionesPage() {
             Detectadas automáticamente desde tus transacciones
           </p>
         </div>
-        <UserMenu />
       </div>
 
       {/* View mode toggle + Month selector */}

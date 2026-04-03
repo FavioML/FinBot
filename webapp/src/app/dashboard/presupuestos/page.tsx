@@ -20,7 +20,6 @@ import { formatCurrency, formatFecha } from '@/lib/utils';
 import { capitalizeDisplay } from '@/lib/format';
 import { MESES, getCategoriaEmoji } from '@/lib/constants';
 import { MonthSelector } from '@/components/dashboard/month-selector';
-import { UserMenu } from '@/components/dashboard/user-menu';
 import type { Presupuesto, Transaccion } from '@/lib/types';
 import {
   Dialog,
@@ -281,7 +280,6 @@ export default function PresupuestosPage() {
             <Plus className="h-4 w-4" />
             Nuevo presupuesto
           </Button>
-          <UserMenu />
         </div>
       </div>
 

@@ -16,7 +16,6 @@ import { EmptyState } from '@/components/shared/empty-state';
 import { ProBadge } from '@/components/shared/upgrade-prompt';
 import { FREE_LIMITS, hasReachedLimit } from '@/lib/plan';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
-import { UserMenu } from '@/components/dashboard/user-menu';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
 import { useGoals, useGoalMutations, useGoalContributions, useGoalParticipants, useAchievements, useAbandonPlan, type MetaAhorro, type MetaAporte, type MetaParticipante } from '@/lib/hooks/use-goals';
@@ -344,7 +343,6 @@ export default function MetasPage() {
             <Plus className="h-4 w-4" />
             Nuevo plan
           </Button>
-          <UserMenu />
         </div>
       </div>
 

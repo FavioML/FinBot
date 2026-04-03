@@ -14,7 +14,6 @@ import {
 } from '@/components/ui/dialog';
 import { EmptyState } from '@/components/shared/empty-state';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
-import { UserMenu } from '@/components/dashboard/user-menu';
 import { useUser } from '@/lib/hooks/use-user';
 import { useDebts, useDebtMutations, groupDebtsByContraparte, type Deuda, type DebtGroup } from '@/lib/hooks/use-debts';
 import { useSplitExpenses, useSplitMutations, type GastoCompartido, type GastoParticipante } from '@/lib/hooks/use-split';
@@ -363,7 +362,6 @@ export default function DeudasPage() {
               <Plus className="h-4 w-4" />
               Nueva deuda
             </Button>
-            <UserMenu />
           </div>
         </div>
 
