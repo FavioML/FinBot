@@ -56,7 +56,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Topbar onMenuClick={() => setSidebarOpen(true)} />
-          <main className="flex-1 overflow-y-auto p-4 pb-20 md:p-6 md:pb-6 lg:p-8 lg:pb-8 transition-all duration-300">
+          <main className="flex-1 overflow-y-auto p-4 pb-36 md:p-6 md:pb-6 lg:p-8 lg:pb-8 transition-all duration-300">
             {children}
           </main>
           <BottomNav />

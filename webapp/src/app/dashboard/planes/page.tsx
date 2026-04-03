@@ -332,6 +332,15 @@ export default function MetasPage() {
           <h1 className="text-2xl font-bold text-[#F0EFE8]">Planes de ahorro</h1>
           <p className="text-sm text-[#8A877D] mt-1">Planifica tu ahorro y Neto te guía para lograrlo</p>
         </div>
+        <Button
+          onClick={openCreate}
+          size="sm"
+          className="md:hidden bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 gap-1.5"
+          disabled={goalsLimitReached && !isPremium}
+        >
+          <Plus className="h-4 w-4" />
+          Nuevo
+        </Button>
         <HeaderActions>
           {goalsLimitReached && !isPremium && (
             <ProBadge text={`Limite: ${FREE_LIMITS.goals} meta`} />

@@ -394,7 +394,8 @@ export default function DeudasPage() {
 
         {/* Tabs + grouped toggle */}
         <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex gap-1 p-1 bg-[rgba(255,255,255,0.03)] rounded-xl border border-[rgba(255,255,255,0.06)] w-fit">
+          <div className="overflow-x-auto max-w-full -mx-1 px-1">
+          <div className="flex gap-1 p-1 bg-[rgba(255,255,255,0.03)] rounded-xl border border-[rgba(255,255,255,0.06)] w-max min-w-0">
             {tabList.map((t) => (
               <button
                 key={t.key}
@@ -415,6 +416,7 @@ export default function DeudasPage() {
                 )}
               </button>
             ))}
+          </div>
           </div>
           {tab !== 'pagadas' && (
             <button
