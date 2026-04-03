@@ -1,45 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Shared mock reference
-const mockCreate = vi.fn();
-
-// Mock OpenAI — the constructor returns an object whose chat.completions.create is our mock
-vi.mock('openai', () => ({
-  OpenAI: vi.fn().mockImplementation(() => ({
-    chat: { completions: { create: mockCreate } }
-  }))
-}));
-
-// Mock Supabase
-vi.mock('@supabase/supabase-js', () => ({
-  createClient: vi.fn(() => ({
-    from: vi.fn(() => ({
-      select: vi.fn().mockReturnThis(),
-      insert: vi.fn().mockReturnThis(),
-      update: vi.fn().mockReturnThis(),
-      delete: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: null }),
-      order: vi.fn().mockReturnThis(),
-      range: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockReturnThis(),
-      gte: vi.fn().mockReturnThis(),
-      not: vi.fn().mockReturnThis(),
-    }))
-  }))
-}));
-
-// Mock gmail
-vi.mock('../../gmail', () => ({
-  generarUrlAutorizacion: vi.fn(),
-  guardarTokens: vi.fn(),
-  leerCorreosBancarios: vi.fn(),
-  oauth2Client: {},
-  obtenerPerfilGoogle: vi.fn(),
-  obtenerCuentasGmail: vi.fn(),
-}));
-
-vi.mock('dotenv', () => ({ config: vi.fn() }));
+// Use the global mock installed by tests/setup.js on the real OpenAI instance.
+// setup.js patches ai.openai.chat.completions.create at the CJS level,
+// bypassing vi.mock's CJS interop issues on Windows.
+const mockCreate = globalThis.__mockOpenAICreate;
 
 const { parsearCorreoBancario } = await import('../../index.js');
 

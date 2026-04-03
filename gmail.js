@@ -3,7 +3,11 @@ const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 const log = require('./lib/logger');
 
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+let _supabase = null;
+function getSupabase() {
+  if (!_supabase) _supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+  return _supabase;
+}
 
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
@@ -91,13 +95,13 @@ async function guardarTokens(usuarioId, tokens, email, modo) {
   // Siempre sincronizar en usuarios para backwards compat
   const updateData = { gmail_access_token: tokens.access_token, gmail_token_expiry: tokens.expiry_date };
   if (tokens.refresh_token) updateData.gmail_refresh_token = tokens.refresh_token;
-  await supabase.from('usuarios').update(updateData).eq('id', usuarioId);
+  await getSupabase().from('usuarios').update(updateData).eq('id', usuarioId);
 
   if (!email) return; // sin email no se puede guardar en gmail_cuentas
 
   if (modo === 'reemplazar') {
     // Desactivar todas las cuentas anteriores
-    await supabase.from('gmail_cuentas').update({ activa: false }).eq('usuario_id', usuarioId);
+    await getSupabase().from('gmail_cuentas').update({ activa: false }).eq('usuario_id', usuarioId);
   }
 
   // Upsert la cuenta nueva
@@ -110,11 +114,11 @@ async function guardarTokens(usuarioId, tokens, email, modo) {
     updated_at: new Date().toISOString()
   };
   if (tokens.refresh_token) cuenta.refresh_token = tokens.refresh_token;
-  await supabase.from('gmail_cuentas').upsert(cuenta, { onConflict: 'usuario_id,email' });
+  await getSupabase().from('gmail_cuentas').upsert(cuenta, { onConflict: 'usuario_id,email' });
 }
 
 async function obtenerCuentasGmail(usuarioId) {
-  const { data } = await supabase.from('gmail_cuentas').select('*')
+  const { data } = await getSupabase().from('gmail_cuentas').select('*')
     .eq('usuario_id', usuarioId).eq('activa', true).order('created_at', { ascending: true });
   return data || [];
 }
@@ -138,7 +142,7 @@ async function cargarTokens(usuarioId) {
     return { access_token: c.access_token, refresh_token: c.refresh_token, expiry_date: c.token_expiry };
   }
   // Fallback a usuarios tabla
-  const { data } = await supabase.from('usuarios')
+  const { data } = await getSupabase().from('usuarios')
     .select('gmail_access_token, gmail_refresh_token, gmail_token_expiry').eq('id', usuarioId).single();
   if (!data || !data.gmail_access_token) return null;
   return { access_token: data.gmail_access_token, refresh_token: data.gmail_refresh_token, expiry_date: data.gmail_token_expiry };
@@ -160,7 +164,7 @@ async function configurarClienteParaCuenta(cuenta) {
     try {
       const { credentials } = await cliente.refreshAccessToken();
       // Actualizar token en gmail_cuentas
-      await supabase.from('gmail_cuentas').update({
+      await getSupabase().from('gmail_cuentas').update({
         access_token: credentials.access_token,
         token_expiry: credentials.expiry_date,
         updated_at: new Date().toISOString()
