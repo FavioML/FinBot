@@ -1,19 +1,29 @@
 import { createClient } from '@/lib/supabase/server';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
-export async function GET() {
+const serviceClient = createSupabaseClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+);
+
+async function getNetoUserId() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const { data: usuario } = await supabase
+  if (!user) return null;
+  const { data } = await serviceClient
     .from('usuarios')
     .select('id, plan')
     .eq('supabase_auth_id', user.id)
     .single();
-  if (!usuario) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+  return data;
+}
 
-  const { data: memberships } = await supabase
+export async function GET() {
+  const usuario = await getNetoUserId();
+  if (!usuario) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const { data: memberships } = await serviceClient
     .from('space_members')
     .select('space_id, role, shared_spaces(id, name, type, invite_code, created_at)')
     .eq('user_id', usuario.id);
@@ -25,16 +35,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const { data: usuario } = await supabase
-    .from('usuarios')
-    .select('id, plan')
-    .eq('supabase_auth_id', user.id)
-    .single();
-  if (!usuario) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+  const usuario = await getNetoUserId();
+  if (!usuario) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json();
   const { name, type = 'custom' } = body;
@@ -42,7 +44,7 @@ export async function POST(request: Request) {
 
   const invite_code = Math.random().toString(36).slice(2, 9).toUpperCase();
 
-  const { data: space, error } = await supabase
+  const { data: space, error } = await serviceClient
     .from('shared_spaces')
     .insert({ name, type, invite_code, created_by: usuario.id })
     .select()
@@ -50,7 +52,7 @@ export async function POST(request: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-  await supabase.from('space_members').insert({
+  await serviceClient.from('space_members').insert({
     space_id: space.id,
     user_id: usuario.id,
     role: 'owner',

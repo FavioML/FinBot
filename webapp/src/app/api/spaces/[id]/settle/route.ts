@@ -1,23 +1,33 @@
 import { createClient } from '@/lib/supabase/server';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+
+const serviceClient = createSupabaseClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+);
+
+async function getNetoUserId() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+  const { data } = await serviceClient
+    .from('usuarios')
+    .select('id')
+    .eq('supabase_auth_id', user.id)
+    .single();
+  return data;
+}
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const usuario = await getNetoUserId();
+  if (!usuario) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { data: usuario } = await supabase
-    .from('usuarios')
-    .select('id')
-    .eq('supabase_auth_id', user.id)
-    .single();
-  if (!usuario) return NextResponse.json({ error: 'User not found' }, { status: 404 });
-
-  const { data: membership } = await supabase
+  const { data: membership } = await serviceClient
     .from('space_members')
     .select('id')
     .eq('space_id', id)
@@ -31,7 +41,7 @@ export async function POST(
     return NextResponse.json({ error: 'to_user and amount required' }, { status: 400 });
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await serviceClient
     .from('space_settlements')
     .insert({
       space_id: id,

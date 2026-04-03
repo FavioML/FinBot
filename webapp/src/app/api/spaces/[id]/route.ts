@@ -1,5 +1,11 @@
 import { createClient } from '@/lib/supabase/server';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+
+const serviceClient = createSupabaseClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+);
 
 interface MemberRow {
   user_id: string;
@@ -38,9 +44,7 @@ function computeBalances(
 
   for (const exp of expenses) {
     const amount = Number(exp.amount);
-    // Payer gets credited the full amount
     balance[exp.paid_by] = (balance[exp.paid_by] || 0) + amount;
-    // Each member gets debited their share
     for (const m of members) {
       const pct = totalPct > 0 ? (m.split_percentage || 0) / totalPct : 1 / members.length;
       balance[m.user_id] = (balance[m.user_id] || 0) - amount * pct;
@@ -55,23 +59,27 @@ function computeBalances(
   return balance;
 }
 
+async function getNetoUserId() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+  const { data } = await serviceClient
+    .from('usuarios')
+    .select('id, plan')
+    .eq('supabase_auth_id', user.id)
+    .single();
+  return data;
+}
+
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const usuario = await getNetoUserId();
+  if (!usuario) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { data: usuario } = await supabase
-    .from('usuarios')
-    .select('id, plan')
-    .eq('supabase_auth_id', user.id)
-    .single();
-  if (!usuario) return NextResponse.json({ error: 'User not found' }, { status: 404 });
-
-  const { data: membership } = await supabase
+  const { data: membership } = await serviceClient
     .from('space_members')
     .select('id')
     .eq('space_id', id)
@@ -79,18 +87,18 @@ export async function GET(
     .single();
   if (!membership) return NextResponse.json({ error: 'Not a member' }, { status: 403 });
 
-  const { data: space } = await supabase.from('shared_spaces').select('*').eq('id', id).single();
-  const { data: members } = await supabase
+  const { data: space } = await serviceClient.from('shared_spaces').select('*').eq('id', id).single();
+  const { data: members } = await serviceClient
     .from('space_members')
     .select('user_id, role, split_percentage, usuarios(nombre)')
     .eq('space_id', id);
-  const { data: expenses } = await supabase
+  const { data: expenses } = await serviceClient
     .from('space_expenses')
     .select('*, usuarios(nombre)')
     .eq('space_id', id)
     .order('created_at', { ascending: false })
     .limit(20);
-  const { data: settlements } = await supabase
+  const { data: settlements } = await serviceClient
     .from('space_settlements')
     .select('*, from:usuarios!space_settlements_from_user_fkey(nombre), to:usuarios!space_settlements_to_user_fkey(nombre)')
     .eq('space_id', id)

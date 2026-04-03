@@ -1,31 +1,40 @@
 import { createClient } from '@/lib/supabase/server';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
-export async function POST(request: Request) {
+const serviceClient = createSupabaseClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+);
+
+async function getNetoUserId() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const { data: usuario } = await supabase
+  if (!user) return null;
+  const { data } = await serviceClient
     .from('usuarios')
     .select('id')
     .eq('supabase_auth_id', user.id)
     .single();
-  if (!usuario) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+  return data;
+}
+
+export async function POST(request: Request) {
+  const usuario = await getNetoUserId();
+  if (!usuario) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json();
   const { code } = body;
   if (!code) return NextResponse.json({ error: 'code required' }, { status: 400 });
 
-  const { data: space } = await supabase
+  const { data: space } = await serviceClient
     .from('shared_spaces')
     .select('id, name')
     .eq('invite_code', code.toUpperCase())
     .single();
   if (!space) return NextResponse.json({ error: 'Invalid invite code' }, { status: 404 });
 
-  // Check already a member
-  const { data: existing } = await supabase
+  const { data: existing } = await serviceClient
     .from('space_members')
     .select('id')
     .eq('space_id', space.id)
@@ -33,7 +42,7 @@ export async function POST(request: Request) {
     .single();
   if (existing) return NextResponse.json({ space_id: space.id, already_member: true });
 
-  const { error } = await supabase.from('space_members').insert({
+  const { error } = await serviceClient.from('space_members').insert({
     space_id: space.id,
     user_id: usuario.id,
     role: 'member',
