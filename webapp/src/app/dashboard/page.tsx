@@ -863,7 +863,7 @@ export default function DashboardPage() {
       <Dialog open={showScoreDialog} onOpenChange={setShowScoreDialog}>
         <DialogContent className="bg-[#1A1A18] border-[#2A2A28] text-[#F0EFE8] max-w-md">
           <DialogHeader>
-            <DialogTitle>Score Financiero</DialogTitle>
+            <DialogTitle>Neto Score</DialogTitle>
           </DialogHeader>
 
           {/* Score circle - large animated */}
@@ -902,33 +902,24 @@ export default function DashboardPage() {
             </span>
           </div>
 
-          {/* Breakdown */}
-          <div className="space-y-2 text-sm">
-            <h4 className="font-medium text-[#C8C6BC]">Desglose</h4>
-            <div className="flex justify-between"><span className="text-[#8A877D]">Base</span><span>75 pts</span></div>
-            {kpiData.totalGastos > 0 && kpiData.totalIngresos > 0 && (
-              <div className="flex justify-between">
-                <span className="text-[#8A877D]">Ratio gastos/ingresos ({Math.round(kpiData.totalGastos / kpiData.totalIngresos * 100)}%)</span>
-                <span className={kpiData.totalGastos / kpiData.totalIngresos <= 0.7 ? 'text-[#1D9E75]' : 'text-[#D85A30]'}>
-                  {kpiData.totalGastos / kpiData.totalIngresos <= 0.7 ? '+15' : kpiData.totalGastos / kpiData.totalIngresos <= 0.9 ? '-5' : '-15'} pts
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* Tips */}
-          <div className="space-y-2 text-sm mt-4">
-            <h4 className="font-medium text-[#C8C6BC]">Como mejorar</h4>
-            <ul className="space-y-1 text-[#8A877D]">
-              {kpiData.totalIngresos > 0 && kpiData.totalGastos / kpiData.totalIngresos > 0.7 && (
-                <li>&bull; Reduce gastos un {Math.round((kpiData.totalGastos / kpiData.totalIngresos - 0.7) * 100)}% para ganar hasta +15 puntos</li>
-              )}
-              {(netoScore?.score ?? 0) < 70 && (
-                <li>&bull; Establece presupuestos por categoria para proteger tu score</li>
-              )}
-              <li>&bull; Tu score potencial: {Math.min(100, (netoScore?.score ?? 0) + 20)} ({Math.min(100, (netoScore?.score ?? 0) + 20) >= 80 ? 'Excelente' : 'Bueno'})</li>
-            </ul>
-          </div>
+          {/* Breakdown — 6 factores reales */}
+          {netoScore?.factors ? (
+            <div className="space-y-2 text-sm">
+              <h4 className="font-medium text-[#C8C6BC]">Desglose por factor</h4>
+              {([ ['Consistencia', netoScore.factors.consistency, 20], ['Presupuesto', netoScore.factors.budget, 25], ['Ahorro', netoScore.factors.savings, 20], ['Planes', netoScore.factors.goals, 15], ['Deudas', netoScore.factors.debts, 10], ['Visibilidad', netoScore.factors.visibility, 10] ] as [string, number, number][]).map(([label, value, weight]) => (
+                <div key={label} className="flex items-center gap-2">
+                  <span className="text-[#8A877D] w-24 shrink-0">{label}</span>
+                  <div className="flex-1 h-1.5 rounded-full bg-[#2A2A28]">
+                    <div className="h-full rounded-full" style={{ width: `${value}%`, backgroundColor: value >= 70 ? '#1D9E75' : value >= 50 ? '#EF9F27' : '#D85A30' }} />
+                  </div>
+                  <span className="text-xs tabular-nums w-8 text-right" style={{ color: value >= 70 ? '#1D9E75' : value >= 50 ? '#EF9F27' : '#D85A30' }}>{value}</span>
+                  <span className="text-xs text-[#8A877D] w-12 text-right">{weight}% peso</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-[#8A877D]">Sin datos de factores aún.</p>
+          )}
         </DialogContent>
       </Dialog>
 
