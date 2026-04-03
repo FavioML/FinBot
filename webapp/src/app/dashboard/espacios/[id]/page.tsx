@@ -3,9 +3,9 @@
 export const dynamic = 'force-dynamic';
 
 import { useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Plus, CreditCard, Copy, Check, Users, UserPlus, Pencil, Trash2, PieChart, Target } from 'lucide-react';
+import { ArrowLeft, Plus, CreditCard, Copy, Check, Users, UserPlus, Pencil, Trash2, PieChart, Target, Settings, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,7 +33,11 @@ import {
   useUpdateSplitRules,
   useUpdateBudgets,
   useUpdateDefaultSplit,
+  useRenameSpace,
+  useDeleteSpace,
+  useRemoveMember,
   resolveSplit,
+  SPACE_MEMBER_LIMITS,
 } from '@/lib/hooks/use-shared-spaces';
 import type { SpaceSplitRule, SpaceBudget, SpaceExpense } from '@/lib/hooks/use-shared-spaces';
 import { formatCurrency } from '@/lib/utils';
@@ -68,6 +72,7 @@ function BalanceCard({
 
 export default function SpaceDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const spaceId = params.id;
   const { data, isLoading } = useSpaceDetail(spaceId);
   const addExpense = useAddExpense(spaceId);
@@ -77,6 +82,9 @@ export default function SpaceDetailPage() {
   const updateSplitRules = useUpdateSplitRules(spaceId);
   const updateBudgets = useUpdateBudgets(spaceId);
   const updateDefaultSplit = useUpdateDefaultSplit(spaceId);
+  const renameSpace = useRenameSpace(spaceId);
+  const deleteSpace = useDeleteSpace();
+  const removeMember = useRemoveMember(spaceId);
 
   const [showExpenseDialog, setShowExpenseDialog] = useState(false);
   const [editingExpense, setEditingExpense] = useState<SpaceExpense | null>(null);
@@ -84,6 +92,9 @@ export default function SpaceDetailPage() {
   const [showSplitRuleDialog, setShowSplitRuleDialog] = useState(false);
   const [showBudgetDialog, setShowBudgetDialog] = useState(false);
   const [showDefaultSplitDialog, setShowDefaultSplitDialog] = useState(false);
+  const [showSettingsDialog, setShowSettingsDialog] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [renameName, setRenameName] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
 
@@ -168,19 +179,33 @@ export default function SpaceDetailPage() {
 
   const { space, members, expenses, balance, currentUserId } = data;
   const otherMembers = members.filter((m) => m.user_id !== currentUserId);
+  const isOwner = members.find((m) => m.user_id === currentUserId)?.role === 'owner';
+  const memberLimit = SPACE_MEMBER_LIMITS[space.type] || 6;
+  const canInvite = members.length < memberLimit;
 
   return (
     <div className="space-y-6 p-4 md:p-6">
       {/* Header */}
       <FadeIn>
-        <div className="flex items-center gap-3">
-          <Link href="/dashboard/espacios" className="text-[#8A877D] hover:text-[#F0EFE8] transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-          </Link>
-          <div>
-            <h1 className="text-xl font-bold text-[#F0EFE8]">{space.name}</h1>
-            <p className="text-xs text-[#8A877D]">{members.length} miembro{members.length !== 1 ? 's' : ''}</p>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Link href="/dashboard/espacios" className="text-[#8A877D] hover:text-[#F0EFE8] transition-colors">
+              <ArrowLeft className="w-5 h-5" />
+            </Link>
+            <div>
+              <h1 className="text-xl font-bold text-[#F0EFE8]">{space.name}</h1>
+              <p className="text-xs text-[#8A877D]">{members.length} miembro{members.length !== 1 ? 's' : ''}</p>
+            </div>
           </div>
+          {isOwner && (
+            <button
+              onClick={() => { setRenameName(space.name); setShowSettingsDialog(true); }}
+              className="p-2 rounded-lg text-[#8A877D] hover:text-[#F0EFE8] hover:bg-[rgba(255,255,255,0.04)] transition-colors"
+              title="Configuración"
+            >
+              <Settings className="w-5 h-5" />
+            </button>
+          )}
         </div>
       </FadeIn>
 
@@ -318,7 +343,7 @@ export default function SpaceDetailPage() {
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-[#F0EFE8] flex items-center gap-2">
               <Users className="w-4 h-4 text-[#8A877D]" />
-              Miembros ({members.length})
+              Miembros ({members.length}/{memberLimit})
             </h2>
             <div className="flex items-center gap-3">
               <button
@@ -328,24 +353,26 @@ export default function SpaceDetailPage() {
                 {copiedCode ? <Check className="w-3.5 h-3.5 text-[#1D9E75]" /> : <Copy className="w-3.5 h-3.5" />}
                 {copiedCode ? 'Copiado' : space.invite_code}
               </button>
-              <button
-                onClick={() => {
-                  const link = `${window.location.origin}/join/space/${space.invite_code}`;
-                  navigator.clipboard.writeText(link);
-                  setCopiedLink(true);
-                  setTimeout(() => setCopiedLink(false), 2000);
-                  toast.success('Link de invitación copiado');
-                }}
-                className="flex items-center gap-1.5 text-xs text-[#1D9E75] hover:underline"
-              >
-                {copiedLink ? <Check className="w-3.5 h-3.5" /> : <UserPlus className="w-3.5 h-3.5" />}
-                {copiedLink ? 'Copiado' : 'Invitar'}
-              </button>
+              {canInvite && (
+                <button
+                  onClick={() => {
+                    const link = `${window.location.origin}/join/space/${space.invite_code}`;
+                    navigator.clipboard.writeText(link);
+                    setCopiedLink(true);
+                    setTimeout(() => setCopiedLink(false), 2000);
+                    toast.success('Link de invitación copiado');
+                  }}
+                  className="flex items-center gap-1.5 text-xs text-[#1D9E75] hover:underline"
+                >
+                  {copiedLink ? <Check className="w-3.5 h-3.5" /> : <UserPlus className="w-3.5 h-3.5" />}
+                  {copiedLink ? 'Copiado' : 'Invitar'}
+                </button>
+              )}
             </div>
           </div>
           <div className="space-y-2">
             {members.map((m) => (
-              <div key={m.user_id} className="flex items-center justify-between text-sm">
+              <div key={m.user_id} className="group flex items-center justify-between text-sm">
                 <div className="flex items-center gap-2">
                   <div className="w-7 h-7 rounded-full bg-[rgba(29,158,117,0.15)] flex items-center justify-center text-xs text-[#1D9E75] font-bold">
                     {(m.usuarios?.nombre ?? '?').charAt(0).toUpperCase()}
@@ -358,6 +385,18 @@ export default function SpaceDetailPage() {
                 <div className="flex items-center gap-2 text-xs text-[#8A877D]">
                   <span>{m.split_percentage ?? 50}%</span>
                   <span className="capitalize">{m.role}</span>
+                  {isOwner && m.user_id !== currentUserId && (
+                    <button
+                      onClick={() => {
+                        removeMember.mutate(m.user_id);
+                        toast.success(`${m.usuarios?.nombre ?? 'Miembro'} eliminado`);
+                      }}
+                      className="p-1 rounded opacity-0 group-hover:opacity-100 text-[#8A877D] hover:text-[#E85D3A] transition-all"
+                      title="Quitar del espacio"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -847,6 +886,87 @@ export default function SpaceDetailPage() {
                 </>
               );
             })()}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Settings Dialog (owner only) */}
+      <Dialog open={showSettingsDialog} onOpenChange={setShowSettingsDialog}>
+        <DialogContent className="glass-card border-[rgba(255,255,255,0.08)] max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Configuración del espacio</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-5">
+            {/* Rename */}
+            <div className="space-y-2">
+              <label className="text-xs text-[#8A877D]">Nombre del espacio</label>
+              <div className="flex gap-2">
+                <Input
+                  value={renameName}
+                  onChange={(e) => setRenameName(e.target.value)}
+                  className="bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.08)] text-[#F0EFE8]"
+                />
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    if (!renameName.trim()) return;
+                    renameSpace.mutate(renameName.trim());
+                    toast.success('Nombre actualizado');
+                    setShowSettingsDialog(false);
+                  }}
+                  disabled={!renameName.trim() || renameName.trim() === space.name}
+                  className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90"
+                >
+                  Guardar
+                </Button>
+              </div>
+            </div>
+
+            {/* Space info */}
+            <div className="rounded-lg bg-[rgba(255,255,255,0.02)] p-3 border border-[rgba(255,255,255,0.04)] space-y-1">
+              <p className="text-xs text-[#8A877D]">Tipo: <span className="text-[#C8C6BC] capitalize">{space.type}</span></p>
+              <p className="text-xs text-[#8A877D]">Límite: <span className="text-[#C8C6BC]">{memberLimit} miembros</span></p>
+              <p className="text-xs text-[#8A877D]">Código: <span className="text-[#1D9E75] font-mono">{space.invite_code}</span></p>
+            </div>
+
+            {/* Delete space */}
+            <div className="pt-3 border-t border-[rgba(255,255,255,0.06)]">
+              {showDeleteConfirm ? (
+                <div className="space-y-2">
+                  <p className="text-xs text-[#E85D3A]">¿Estás seguro? Se eliminarán todos los gastos, pagos y miembros de este espacio.</p>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowDeleteConfirm(false)}
+                      className="flex-1 text-xs"
+                    >
+                      Cancelar
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={async () => {
+                        await deleteSpace.mutateAsync(spaceId);
+                        toast.success('Espacio eliminado');
+                        router.push('/dashboard/espacios');
+                      }}
+                      className="flex-1 text-xs bg-[#E85D3A] text-white hover:bg-[#E85D3A]/90"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 mr-1" />
+                      Eliminar
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="flex items-center gap-2 text-xs text-[#E85D3A] hover:underline"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Eliminar espacio
+                </button>
+              )}
+            </div>
           </div>
         </DialogContent>
       </Dialog>

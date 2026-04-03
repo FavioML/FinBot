@@ -120,3 +120,60 @@ export async function GET(
     isPro: usuario.plan === 'premium',
   });
 }
+
+export async function PUT(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+  const usuario = await getNetoUserId();
+  if (!usuario) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  // Only owner can rename
+  const { data: membership } = await serviceClient
+    .from('space_members')
+    .select('role')
+    .eq('space_id', id)
+    .eq('user_id', usuario.id)
+    .single();
+  if (!membership || membership.role !== 'owner') return NextResponse.json({ error: 'Only owner can edit' }, { status: 403 });
+
+  const body = await request.json();
+  const { name } = body;
+  if (!name || typeof name !== 'string' || !name.trim()) return NextResponse.json({ error: 'name required' }, { status: 400 });
+
+  const { error } = await serviceClient
+    .from('shared_spaces')
+    .update({ name: name.trim() })
+    .eq('id', id);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  return NextResponse.json({ ok: true });
+}
+
+export async function DELETE(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+  const usuario = await getNetoUserId();
+  if (!usuario) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  // Only owner can delete
+  const { data: membership } = await serviceClient
+    .from('space_members')
+    .select('role')
+    .eq('space_id', id)
+    .eq('user_id', usuario.id)
+    .single();
+  if (!membership || membership.role !== 'owner') return NextResponse.json({ error: 'Only owner can delete' }, { status: 403 });
+
+  // Delete in order: settlements, expenses, members, space
+  await serviceClient.from('space_settlements').delete().eq('space_id', id);
+  await serviceClient.from('space_expenses').delete().eq('space_id', id);
+  await serviceClient.from('space_members').delete().eq('space_id', id);
+  const { error } = await serviceClient.from('shared_spaces').delete().eq('id', id);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  return NextResponse.json({ ok: true });
+}

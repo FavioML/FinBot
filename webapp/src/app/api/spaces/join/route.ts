@@ -29,7 +29,7 @@ export async function POST(request: Request) {
 
   const { data: space } = await serviceClient
     .from('shared_spaces')
-    .select('id, name')
+    .select('id, name, type')
     .eq('invite_code', code.toUpperCase())
     .single();
   if (!space) return NextResponse.json({ error: 'Invalid invite code' }, { status: 404 });
@@ -41,6 +41,17 @@ export async function POST(request: Request) {
     .eq('user_id', usuario.id)
     .single();
   if (existing) return NextResponse.json({ space_id: space.id, already_member: true });
+
+  // Check member limit
+  const limits: Record<string, number> = { pareja: 2, roommates: 6, custom: 6 };
+  const maxMembers = limits[space.type] || 6;
+  const { count } = await serviceClient
+    .from('space_members')
+    .select('id', { count: 'exact', head: true })
+    .eq('space_id', space.id);
+  if ((count || 0) >= maxMembers) {
+    return NextResponse.json({ error: `Este espacio ya tiene el máximo de ${maxMembers} miembros` }, { status: 400 });
+  }
 
   const { error } = await serviceClient.from('space_members').insert({
     space_id: space.id,
