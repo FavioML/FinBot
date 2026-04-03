@@ -94,7 +94,7 @@ export function ScoreGauge({ score, size = 'sm', trend }: ScoreGaugeProps) {
           fill="none"
           stroke="rgba(255,255,255,0.06)"
           strokeWidth={strokeW}
-          strokeLinecap="round"
+          strokeLinecap="butt"
         />
         {/* Animated score arc */}
         <path
@@ -103,8 +103,8 @@ export function ScoreGauge({ score, size = 'sm', trend }: ScoreGaugeProps) {
           fill="none"
           stroke={color}
           strokeWidth={strokeW}
-          strokeLinecap="round"
-          style={{ filter: `drop-shadow(0 0 6px ${color}66)` }}
+          strokeLinecap="butt"
+          style={{ filter: `drop-shadow(0 0 4px ${color}44)` }}
         />
         {/* Score number */}
         <foreignObject
