@@ -2,10 +2,12 @@ const fs = require('fs');
 const { supabase } = require('../lib/db');
 const { openai } = require('../lib/ai');
 const log = require('../lib/logger');
-const { hoyPeru, ultimoDiaMes } = require('../lib/dates');
+const { hoyPeru, ayerPeru, ultimoDiaMes } = require('../lib/dates');
+const fechaHoyPeru = () => hoyPeru();
+const fechaAyerPeru = () => ayerPeru();
 const { CATEGORIAS_VALIDAS, CATEGORIA_MAP } = require('../lib/constants');
 const { validarMonto, normalizarCategoria } = require('../lib/validators');
-const { getEmojiCategoria, formatearResumen, formatearPendientes, formatearCategoriasMsg, barraProgreso, generarRefCode } = require('../lib/formatters');
+const { getEmojiCategoria, formatearResumen, formatearPendientes, formatearCategoriasMsg, barraProgreso, generarRefCode, formatFecha } = require('../lib/formatters');
 const { enviarWhatsapp } = require('../lib/whatsapp');
 const { obtenerTipoCambio, guardarTransaccion, obtenerGastosMes, obtenerGastosSemana, obtenerUltimaTransaccion, recategorizarTransaccion, corregirTransaccionEspecifica, guardarReglaComercio, retroaplicarRegla, obtenerConsultasPendientes } = require('../services/transactions');
 const { guardarPresupuesto, obtenerPresupuestosMes, verificarAlertaPresupuesto, formatearEstadoPresupuesto } = require('../services/budget');
@@ -164,7 +166,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
 
     // === Intent dispatch via registry ===
     const ctx = {
-      supabase, openai, log, hoyPeru, ultimoDiaMes, mesActual, anioActual, mE,
+      supabase, openai, log, hoyPeru, fechaHoyPeru, fechaAyerPeru, formatFecha, ultimoDiaMes, mesActual, anioActual, mE,
       netoPrompt, historialConv, planUsuario,
       enviarWhatsapp, notificarErrorAdmin, registrarError,
       CATEGORIAS_VALIDAS, CATEGORIA_MAP, validarMonto, normalizarCategoria,
