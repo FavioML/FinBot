@@ -23,7 +23,6 @@ import { EmptyState } from '@/components/shared/empty-state';
 import { NumberTicker } from '@/components/ui/number-ticker';
 import { TransactionForm } from '@/components/dashboard/transaction-form';
 import { MonthSelector } from '@/components/dashboard/month-selector';
-import { UserMenu } from '@/components/dashboard/user-menu';
 import { useUser } from '@/lib/hooks/use-user';
 import { canAccess } from '@/lib/plan';
 import { ProGate } from '@/components/shared/pro-gate';
@@ -916,7 +915,6 @@ function Header({
           <FileBarChart className="h-6 w-6 text-[#EF9F27]" />
           <h1 className="text-2xl font-bold text-[#F0EFE8]">Reportes</h1>
         </div>
-        <UserMenu />
       </div>
       <div className="flex items-center gap-3">
         <MonthSelector />

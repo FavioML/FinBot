@@ -5,7 +5,6 @@ import { Trophy, Lock, CalendarDays } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
-import { UserMenu } from '@/components/dashboard/user-menu';
 import { useUser } from '@/lib/hooks/use-user';
 import { useGoals, useAchievements, type MetaAhorro } from '@/lib/hooks/use-goals';
 import type { Logro } from '@/lib/hooks/use-goals';
@@ -142,7 +141,6 @@ export default function LogrosPage() {
               <p className="text-xs text-[#8A877D]">{totalUnlocked} de {LOGRO_CATALOG.length} desbloqueados</p>
             </div>
           </div>
-          <UserMenu />
         </div>
       </FadeIn>
 

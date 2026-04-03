@@ -192,6 +192,15 @@ export async function DELETE(request: Request) {
   const id = searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
+  // Delete abonos first (FK constraint)
+  await serviceClient.from('deuda_abonos').delete().eq('deuda_id', id);
+
+  // Unlink any deuda that references this one (deuda_vinculada_id FK)
+  await serviceClient
+    .from('deudas')
+    .update({ deuda_vinculada_id: null })
+    .eq('deuda_vinculada_id', id);
+
   const { error } = await serviceClient
     .from('deudas')
     .delete()
