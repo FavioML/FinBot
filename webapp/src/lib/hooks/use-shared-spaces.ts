@@ -40,14 +40,49 @@ export interface SpaceSettlement {
   to?: { nombre: string };
 }
 
+export interface SpaceSplitRule {
+  id: string;
+  category: string;
+  splits: Record<string, number>; // user_id -> percentage (0-100)
+}
+
+export interface SpaceBudget {
+  id: string;
+  category: string;
+  limit: number; // monthly cap in PEN
+}
+
 export interface SpaceDetail {
   space: { id: string; name: string; type: string; invite_code: string };
   members: SpaceMember[];
   expenses: SpaceExpense[];
   settlements: SpaceSettlement[];
   balance: Record<string, number>;
+  splitRules: SpaceSplitRule[];
+  budgets: SpaceBudget[];
   currentUserId: string;
   isPro: boolean;
+}
+
+/** Returns the fraction (0-1) of an expense that belongs to a given user */
+export function resolveSplit(
+  category: string | null,
+  userId: string,
+  members: SpaceMember[],
+  splitRules: SpaceSplitRule[],
+): number {
+  if (category) {
+    const rule = splitRules.find((r) => r.category === category);
+    if (rule && rule.splits[userId] !== undefined) {
+      const total = Object.values(rule.splits).reduce((s, v) => s + v, 0);
+      return total > 0 ? rule.splits[userId] / total : 1 / members.length;
+    }
+  }
+  const totalPct = members.reduce((s, m) => s + (m.split_percentage || 0), 0);
+  const member = members.find((m) => m.user_id === userId);
+  return member && totalPct > 0
+    ? (member.split_percentage || 0) / totalPct
+    : 1 / members.length;
 }
 
 export function useSpaces() {
@@ -144,5 +179,53 @@ export function useCreateSpace() {
       return res.json();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['spaces'] }),
+  });
+}
+
+export function useUpdateSplitRules(spaceId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (rules: SpaceSplitRule[]) => {
+      if (IS_DEMO) {
+        queryClient.setQueryData<SpaceDetail>(['space', spaceId], (old) =>
+          old ? { ...old, splitRules: rules } : old
+        );
+        return { ok: true };
+      }
+      const res = await fetch(`/api/spaces/${spaceId}/split-rules`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rules }),
+      });
+      if (!res.ok) throw new Error('Failed to update split rules');
+      return res.json();
+    },
+    onSuccess: () => {
+      if (!IS_DEMO) queryClient.invalidateQueries({ queryKey: ['space', spaceId] });
+    },
+  });
+}
+
+export function useUpdateBudgets(spaceId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (budgets: SpaceBudget[]) => {
+      if (IS_DEMO) {
+        queryClient.setQueryData<SpaceDetail>(['space', spaceId], (old) =>
+          old ? { ...old, budgets } : old
+        );
+        return { ok: true };
+      }
+      const res = await fetch(`/api/spaces/${spaceId}/budgets`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ budgets }),
+      });
+      if (!res.ok) throw new Error('Failed to update budgets');
+      return res.json();
+    },
+    onSuccess: () => {
+      if (!IS_DEMO) queryClient.invalidateQueries({ queryKey: ['space', spaceId] });
+    },
   });
 }

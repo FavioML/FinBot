@@ -523,10 +523,20 @@ export const DEMO_SPACE_DETAIL: SpaceDetail = {
     { id: 'sexp-01', paid_by: DEMO_USER_ID, amount: 1800, description: 'Alquiler Marzo', category: 'Vivienda', created_at: dateStr(8), usuarios: { nombre: 'Favio Demo' } },
     { id: 'sexp-02', paid_by: 'demo-user-002', amount: 380, description: 'Internet + Cable', category: 'Vivienda', created_at: dateStr(10), usuarios: { nombre: 'Mario Rodríguez' } },
     { id: 'sexp-03', paid_by: DEMO_USER_ID, amount: 120, description: 'Artículos limpieza', category: 'Compras', created_at: dateStr(14), usuarios: { nombre: 'Favio Demo' } },
+    { id: 'sexp-04', paid_by: 'demo-user-002', amount: 250, description: 'Supermercado semanal', category: 'Alimentación', created_at: dateStr(5), usuarios: { nombre: 'Mario Rodríguez' } },
+  ],
+  splitRules: [
+    { id: 'rule-01', category: 'Vivienda', splits: { [DEMO_USER_ID]: 60, 'demo-user-002': 40 } },
+    { id: 'rule-02', category: 'Compras', splits: { [DEMO_USER_ID]: 80, 'demo-user-002': 20 } },
+  ],
+  budgets: [
+    { id: 'sbud-01', category: 'Vivienda', limit: 2200 },
+    { id: 'sbud-02', category: 'Compras', limit: 300 },
+    { id: 'sbud-03', category: 'Alimentación', limit: 800 },
   ],
   settlements: [],
   balance: {
-    [DEMO_USER_ID]: 710,       // Favio pagó más, Mario le debe
+    [DEMO_USER_ID]: 710,
     'demo-user-002': -710,
   },
   currentUserId: DEMO_USER_ID,
