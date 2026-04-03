@@ -434,7 +434,7 @@ export default function DashboardPage() {
 
           {/* KPI cards */}
           <FadeIn delay={0.08}>
-            <KPICards data={kpiData} sparklines={sparklines} onScoreClick={() => setShowScoreDialog(true)} />
+            <KPICards data={kpiData} sparklines={sparklines} />
           </FadeIn>
 
           {/* Neto Score widget */}
@@ -460,53 +460,55 @@ export default function DashboardPage() {
             </FadeIn>
           )}
 
-          {/* Alerts widget */}
-          {(alertsData?.alerts.length ?? 0) > 0 && (() => {
+          {/* Alerts + Espacios row */}
+          {((alertsData?.alerts.length ?? 0) > 0 || (spacesData?.spaces.length ?? 0) > 0) && (() => {
             const twoWeeksAgo = new Date();
             twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
-            const recentAlerts = alertsData!.alerts.filter(
+            const recentAlerts = (alertsData?.alerts ?? []).filter(
               (a) => new Date(a.created_at) >= twoWeeksAgo
             );
-            if (recentAlerts.length === 0) return null;
+            const hasAlerts = recentAlerts.length > 0;
+            const hasSpaces = (spacesData?.spaces.length ?? 0) > 0;
+            if (!hasAlerts && !hasSpaces) return null;
             return (
               <FadeIn delay={0.11}>
-                <div className="glass-card p-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-base font-semibold text-[#F0EFE8] flex items-center gap-2">
-                      <AlertTriangle className="w-5 h-5 text-yellow-500" />
-                      Fugas detectadas
-                    </h3>
-                    <Link href="/dashboard/alertas" className="text-[#1D9E75] text-sm hover:underline">
-                      Ver todas →
-                    </Link>
-                  </div>
-                  <p className="text-[#8A877D] text-sm mt-1">
-                    {recentAlerts.length} alerta{recentAlerts.length > 1 ? 's' : ''} este mes
-                  </p>
+                <div className={`grid gap-4 ${hasAlerts && hasSpaces ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
+                  {hasAlerts && (
+                    <div className="glass-card p-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-base font-semibold text-[#F0EFE8] flex items-center gap-2">
+                          <AlertTriangle className="w-5 h-5 text-yellow-500" />
+                          Fugas detectadas
+                        </h3>
+                        <Link href="/dashboard/alertas" className="text-[#1D9E75] text-sm hover:underline">
+                          Ver todas →
+                        </Link>
+                      </div>
+                      <p className="text-[#8A877D] text-sm mt-1">
+                        {recentAlerts.length} alerta{recentAlerts.length > 1 ? 's' : ''} este mes
+                      </p>
+                    </div>
+                  )}
+                  {hasSpaces && (
+                    <div className="glass-card p-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-base font-semibold text-[#F0EFE8] flex items-center gap-2">
+                          <Users className="w-5 h-5 text-blue-400" />
+                          Espacios compartidos
+                        </h3>
+                        <Link href="/dashboard/espacios" className="text-[#1D9E75] text-sm hover:underline">
+                          Ver todos →
+                        </Link>
+                      </div>
+                      <p className="text-[#8A877D] text-sm mt-1">
+                        {spacesData!.spaces.length} espacio{spacesData!.spaces.length > 1 ? 's' : ''} activo{spacesData!.spaces.length > 1 ? 's' : ''}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </FadeIn>
             );
           })()}
-
-          {/* Espacios widget */}
-          {(spacesData?.spaces.length ?? 0) > 0 && (
-            <FadeIn delay={0.115}>
-              <div className="glass-card p-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-base font-semibold text-[#F0EFE8] flex items-center gap-2">
-                    <Users className="w-5 h-5 text-blue-400" />
-                    Espacios compartidos
-                  </h3>
-                  <Link href="/dashboard/espacios" className="text-[#1D9E75] text-sm hover:underline">
-                    Ver todos →
-                  </Link>
-                </div>
-                <p className="text-[#8A877D] text-sm mt-1">
-                  {spacesData!.spaces.length} espacio{spacesData!.spaces.length > 1 ? 's' : ''} activo{spacesData!.spaces.length > 1 ? 's' : ''}
-                </p>
-              </div>
-            </FadeIn>
-          )}
 
           {/* Projection + Today spending + Exchange rate row */}
           {viewMode === 'mensual' && (

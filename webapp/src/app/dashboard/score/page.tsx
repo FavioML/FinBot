@@ -92,7 +92,7 @@ export default function ScorePage() {
 
       {/* Score gauge grande */}
       <FadeIn delay={0.05}>
-        <div className="glass-card p-8 flex flex-col items-center">
+        <div className="glass-card p-8 flex flex-col items-center max-w-md mx-auto">
           <ScoreGauge score={data.score} size="lg" />
           <p className="text-xs text-[#8A877D] mt-2">Periodo: {data.period?.slice(0, 7)}</p>
         </div>

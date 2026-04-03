@@ -3,6 +3,7 @@
 export const dynamic = 'force-dynamic';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { TrendingUp, Bug, Repeat, AlertTriangle, CheckCircle2, ShieldCheck } from 'lucide-react';
 import { useSpendingAlerts } from '@/lib/hooks/use-spending-alerts';
 import type { SpendingAlert } from '@/lib/hooks/use-spending-alerts';
@@ -37,7 +38,7 @@ const TYPE_CONFIG = {
   },
 } as const;
 
-function AlertCard({ alert, isPro }: { alert: SpendingAlert; isPro: boolean }) {
+function AlertCard({ alert, isPro, onSetLimit }: { alert: SpendingAlert; isPro: boolean; onSetLimit?: (category: string) => void }) {
   const config = TYPE_CONFIG[alert.type];
   const Icon = config.icon;
   const showLimitButton = isPro && (alert.type === 'spike' || alert.type === 'projection');
@@ -89,7 +90,10 @@ function AlertCard({ alert, isPro }: { alert: SpendingAlert; isPro: boolean }) {
           )}
         </div>
         {showLimitButton && !alert.limit_set && (
-          <button className="mt-2 text-xs font-medium text-[#1D9E75] hover:underline">
+          <button
+            className="mt-2 text-xs font-medium text-[#1D9E75] hover:underline"
+            onClick={() => alert.category && onSetLimit?.(alert.category)}
+          >
             + Poner límite
           </button>
         )}
@@ -102,6 +106,7 @@ function AlertCard({ alert, isPro }: { alert: SpendingAlert; isPro: boolean }) {
 }
 
 export default function AlertasPage() {
+  const router = useRouter();
   const { data, isLoading } = useSpendingAlerts(20);
 
   if (isLoading) {
@@ -149,7 +154,11 @@ export default function AlertasPage() {
         <div className="space-y-3">
           {visibleAlerts.map((alert, i) => (
             <FadeIn key={alert.id} delay={0.04 * i}>
-              <AlertCard alert={alert} isPro={isPro} />
+              <AlertCard
+                alert={alert}
+                isPro={isPro}
+                onSetLimit={(cat) => router.push(`/dashboard/presupuestos?categoria=${encodeURIComponent(cat)}`)}
+              />
             </FadeIn>
           ))}
         </div>

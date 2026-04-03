@@ -1,10 +1,9 @@
 'use client';
 
-import { TrendingUp, TrendingDown, Wallet, Activity, ArrowUp, ArrowDown } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, ArrowUp, ArrowDown } from 'lucide-react';
 import { NumberTicker } from '@/components/ui/number-ticker';
 import { StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import { Sparkline } from '@/components/charts/sparkline';
-import { getScoreColor, getScoreLabel } from '@/lib/utils';
 import type { KPIData } from '@/lib/types';
 
 interface KPICardsProps {
@@ -15,7 +14,6 @@ interface KPICardsProps {
     ahorro: number[];
     score: number[];
   };
-  onScoreClick?: () => void;
 }
 
 function ComparisonBadge({ current, previous, invertColor }: { current: number; previous: number; invertColor?: boolean }) {
@@ -40,9 +38,8 @@ function ComparisonBadge({ current, previous, invertColor }: { current: number; 
   );
 }
 
-export function KPICards({ data, sparklines, onScoreClick }: KPICardsProps) {
+export function KPICards({ data, sparklines }: KPICardsProps) {
   const ahorroColor = data.ahorro >= 0 ? '#1D9E75' : '#EF9F27';
-  const scoreColor = getScoreColor(data.scoreFinanciero);
 
   const cards = [
     {
@@ -76,29 +73,15 @@ export function KPICards({ data, sparklines, onScoreClick }: KPICardsProps) {
         : undefined,
       spark: sparklines?.ahorro,
     },
-    {
-      label: 'Score Financiero',
-      value: data.scoreFinanciero,
-      color: scoreColor,
-      icon: Activity,
-      prefix: '',
-      badge: getScoreLabel(data.scoreFinanciero),
-      spark: sparklines?.score,
-    },
   ];
 
   return (
-    <StaggerContainer className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <StaggerContainer className="grid grid-cols-1 gap-4 sm:grid-cols-3">
       {cards.map((card) => {
         const Icon = card.icon;
-        const isScore = card.label === 'Score Financiero';
         return (
           <StaggerItem key={card.label}>
-          <div
-            className={`glass-card glass-card-glow p-5${isScore && onScoreClick ? ' cursor-pointer hover:border-[#1D9E75]/50 transition-colors transition-transform duration-200 hover:scale-[1.02] group' : ''}`}
-            onClick={isScore && onScoreClick ? onScoreClick : undefined}
-            title={isScore && onScoreClick ? 'Click para ver desglose' : undefined}
-          >
+          <div className="glass-card glass-card-glow p-5">
             <div className="flex items-center justify-between mb-3">
               <Icon className="h-5 w-5" style={{ color: '#8A877D' }} />
               <div className="flex items-center gap-1.5">
@@ -120,11 +103,6 @@ export function KPICards({ data, sparklines, onScoreClick }: KPICardsProps) {
             </div>
             <p className="text-xs font-medium mb-1" style={{ color: '#8A877D' }}>
               {card.label}
-              {isScore && onScoreClick && (
-                <span className="ml-1.5 opacity-0 group-hover:opacity-100 transition-opacity text-[#1D9E75]">
-                  ver desglose &rarr;
-                </span>
-              )}
             </p>
             <div className="flex items-end justify-between gap-2">
               <p className="text-2xl font-bold tracking-tight" style={{ color: card.color }}>
@@ -139,15 +117,6 @@ export function KPICards({ data, sparklines, onScoreClick }: KPICardsProps) {
                 <Sparkline data={card.spark} color={card.color} />
               )}
             </div>
-            {isScore && (
-              <p className="text-[10px] mt-1.5 text-[#8A877D]">
-                {data.scoreFinanciero >= 80
-                  ? 'Excelente control de tus finanzas'
-                  : data.scoreFinanciero >= 60
-                    ? 'Buen manejo, puedes mejorar'
-                    : 'Tus gastos superan lo recomendado'}
-              </p>
-            )}
           </div>
           </StaggerItem>
         );
