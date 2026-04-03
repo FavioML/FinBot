@@ -1,6 +1,6 @@
-# Plan Freemium — Neto (Versión Final v2)
+# Plan Freemium — Neto (Versión Final v2.1)
 
-**Fecha:** 1 Abr 2026
+**Fecha:** 3 Abr 2026
 **Aprobado por:** Favio Mendoza
 
 ---
@@ -49,6 +49,51 @@
 | Recordatorios diarios (8pm) | No | Sí |
 | Suscripciones con alertas | Detección | Detección + alertas |
 | Pagos recurrentes | No | Sí |
+
+---
+
+## Features v2 — Diferenciación Free vs Pro
+
+### 1. Neto Score (Pro Wall modelo Spotify)
+
+| Aspecto | Free | Pro |
+|---------|------|-----|
+| Score número + tendencia | Sí | Sí |
+| Desglose por factor | No — "Pasa a Pro para ver qué mejorar" | Completo |
+| Tips personalizados IA | No | Sí |
+| Histórico de evolución | Solo último mes | 6+ meses |
+| Notificación semanal | No | Sí |
+
+### 2. Detector de Fugas
+
+| Aspecto | Free | Pro |
+|---------|------|-----|
+| Reporte mensual de fugas | Resumen básico | Detallado con recomendaciones |
+| Alertas semanales | No | Sí |
+| Alerta proactiva mid-mes | No | Sí |
+| Proyección de exceso | No | Sí |
+| "Ponme un límite" interactivo | No | Sí |
+
+### 3. Planes de Compra
+
+| Aspecto | Free | Pro |
+|---------|------|-----|
+| Crear plan de compra | 1 activo | Ilimitados |
+| Cálculo de cuota mensual | Sí | Sí |
+| Análisis de viabilidad | Básico ("necesitas S/X/mes") | Completo (cruza con margen real) |
+| Ajuste dinámico | No | Sí |
+| Check-ins WhatsApp | No | Quincenal |
+| Sugerencia de recortes | No | Sí ("Si reduces delivery S/150, llegas antes") |
+
+### 4. Espacios Compartidos
+
+| Aspecto | Free | Pro |
+|---------|------|-----|
+| Espacios compartidos | 1 espacio, 2 personas | Ilimitados |
+| Split configurable | Solo 50/50 | Cualquier proporción |
+| Presupuesto conjunto | No | Sí |
+| Historial | Último mes | Completo |
+| Plan de ahorro compartido | No | Sí |
 
 ---
 
