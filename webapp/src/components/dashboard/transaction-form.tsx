@@ -78,6 +78,9 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
   const [usingCustomCategoria, setUsingCustomCategoria] = useState(false);
   const [usingCustomSubcategoria, setUsingCustomSubcategoria] = useState(false);
 
+  // Normalize for accent-insensitive matching (Alimentación vs Alimentacion)
+  const norm = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
   // Merge canonical + user categories (deduped, with all subs)
   const allCategorias = useMemo(() => {
     const merged: CatOption[] = CATEGORIAS.map(c => ({
@@ -87,7 +90,7 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
     }));
     if (userCategorias) {
       for (const uc of userCategorias) {
-        const existing = merged.find(m => m.nombre.toLowerCase() === uc.nombre.toLowerCase());
+        const existing = merged.find(m => norm(m.nombre) === norm(uc.nombre));
         if (existing) {
           for (const sub of uc.subs) {
             if (!existing.subs.some(s => s.toLowerCase() === sub.toLowerCase())) {
@@ -101,7 +104,7 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
     }
     // Also add the transaction's own cat/sub if not already present
     if (transaction) {
-      const txCat = merged.find(m => m.nombre.toLowerCase() === transaction.categoria.toLowerCase());
+      const txCat = merged.find(m => norm(m.nombre) === norm(transaction.categoria));
       if (!txCat) {
         merged.push({ nombre: transaction.categoria, emoji: '📁', subs: transaction.subcategoria ? [transaction.subcategoria] : [] });
       } else if (transaction.subcategoria && !txCat.subs.some(s => s.toLowerCase() === transaction.subcategoria!.toLowerCase())) {
@@ -122,7 +125,7 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
   }, [userCategorias, transaction]);
 
   const selectedCat = allCategorias.find((c) => c.nombre === form.categoria)
-    || allCategorias.find((c) => c.nombre.toLowerCase() === form.categoria.toLowerCase());
+    || allCategorias.find((c) => norm(c.nombre) === norm(form.categoria));
   const subcategorias = selectedCat ? selectedCat.subs : [];
 
   // Reset form when dialog opens
