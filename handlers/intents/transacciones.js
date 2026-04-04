@@ -1,7 +1,7 @@
 const log = require('../../lib/logger');
 
 module.exports = {
-  intents: ['registrar_manual', 'corregir_categoria', 'corregir_multiple', 'corregir_monto_moneda', 'eliminar_transaccion', 'editar_monto', 'editar_fecha', 'editar_comercio', 'editar_categoria_comercio', 'deshacer_ultimo', 'marcar_como_ingreso', 'dividir_gasto', 'duplicar_gasto'],
+  intents: ['registrar_manual', 'corregir_categoria', 'corregir_multiple', 'corregir_monto_moneda', 'eliminar_transaccion', 'editar_monto', 'editar_fecha', 'editar_comercio', 'editar_categoria_comercio', 'deshacer_ultimo', 'restaurar_eliminado', 'marcar_como_ingreso', 'dividir_gasto', 'duplicar_gasto'],
   async handle({ intencion, msg, datos, usuario, from, ctx }) {
     const {
       supabase, mesActual, anioActual, netoPrompt, historialConv,
@@ -181,16 +181,57 @@ module.exports = {
       case 'eliminar_transaccion': {
         try {
           const comercioElim = datos.comercio || null;
-          let txElim = null;
-          if (comercioElim) {
-            const { data: txsElim } = await supabase.from('transacciones').select('*')
-              .eq('usuario_id', usuario.id).ilike('comercio', '%' + comercioElim + '%')
-              .order('created_at', { ascending: false }).limit(1);
-            txElim = txsElim?.[0] || null;
-          } else {
-            txElim = await obtenerUltimaTransaccion(usuario.id);
+          const montoElimReq = datos.monto != null ? parseFloat(datos.monto) : null;
+          const fechaElimReq = datos.fecha || null;
+          const EPS = 0.01;
+
+          // Build candidate query — más preciso si hay comercio+monto+fecha
+          let qElim = supabase.from('transacciones').select('*').eq('usuario_id', usuario.id);
+          if (comercioElim) qElim = qElim.ilike('comercio', '%' + comercioElim + '%');
+          if (fechaElimReq) qElim = qElim.eq('fecha', fechaElimReq);
+          qElim = qElim.order('created_at', { ascending: false }).limit(20);
+          const { data: candidatosElim } = await qElim;
+          let candidatos = candidatosElim || [];
+
+          // Filtrar por monto si fue especificado
+          if (montoElimReq != null && candidatos.length > 0) {
+            candidatos = candidatos.filter(c => Math.abs(parseFloat(c.monto) - montoElimReq) < EPS);
           }
-          if (!txElim) return '\u00bfDe qu\u00e9 gasto me hablas? D\u00edme el comercio y lo elimino.';
+
+          // Si no hubo filtro alguno, caer al último registro
+          let txElim = null;
+          if (!comercioElim && montoElimReq == null && !fechaElimReq) {
+            txElim = await obtenerUltimaTransaccion(usuario.id);
+          } else if (candidatos.length === 1) {
+            txElim = candidatos[0];
+          } else if (candidatos.length === 0) {
+            const detalle = [
+              comercioElim ? '*' + comercioElim + '*' : null,
+              montoElimReq != null ? 'S/ ' + montoElimReq.toFixed(2) : null,
+              fechaElimReq || null,
+            ].filter(Boolean).join(' · ');
+            return 'No encontré ningún gasto que coincida' + (detalle ? ' con ' + detalle : '') + '. ¿Puedes darme más datos (monto exacto o fecha)?';
+          } else {
+            // Varios matches — listar para que el usuario elija, sin borrar nada
+            const lista = candidatos.slice(0, 6).map((c, i) => {
+              const m = c.moneda === 'USD' ? '$' + parseFloat(c.monto).toFixed(2) : 'S/ ' + parseFloat(c.monto).toFixed(2);
+              return (i+1) + '. ' + (c.comercio || 'Sin comercio') + ' — ' + m + ' · ' + (c.fecha || '');
+            }).join('\n');
+            return 'Encontré ' + candidatos.length + ' gastos que coinciden. ¿A cuál te refieres?\n\n' + lista + '\n\n_Respóndeme con el monto o la fecha exacta._';
+          }
+
+          if (!txElim) return '¿De qué gasto me hablas? Dime el comercio, monto o fecha y lo elimino.';
+
+          // Snapshot para auditoría + restore
+          const snapshot = { ...txElim };
+          await supabase.from('transacciones_eliminadas').insert({
+            usuario_id: usuario.id,
+            tx_id: txElim.id,
+            snapshot,
+          }).then(() => {}).catch((err) => {
+            log.warn({ tag: 'ELIMINAR_AUDIT', err: err.message }, 'No se pudo guardar snapshot');
+          });
+
           // Limpiar consultas_pendientes asociadas antes de eliminar
           await supabase.from('consultas_pendientes').update({ estado: 'respondida', respondida_at: new Date().toISOString() }).eq('transaccion_id', txElim.id).eq('estado', 'pendiente');
           // Si es transacción de Gmail, guardar en excluidos para evitar re-importación
@@ -199,10 +240,79 @@ module.exports = {
           }
           await supabase.from('transacciones').delete().eq('id', txElim.id);
           const montoElim = txElim.moneda === 'USD' ? '$' + parseFloat(txElim.monto).toFixed(2) : 'S/ ' + parseFloat(txElim.monto).toFixed(2);
-          return 'Listo. Elimin\u00e9 *' + (txElim.comercio || 'ese gasto') + '* (' + montoElim + ') del ' + txElim.fecha + '.';
+          return 'Listo. Eliminé *' + (txElim.comercio || 'ese gasto') + '* (' + montoElim + ') del ' + txElim.fecha + '.\n\n_Si fue un error, escribe "restaura" y lo devuelvo._';
         } catch(e) {
           log.error({ tag: 'ELIMINAR', err: e.message }, 'Error eliminando transacción');
-          return 'No pude eliminarlo. \u00bfDe cu\u00e1l gasto se trata?';
+          return 'No pude eliminarlo. ¿De cuál gasto se trata?';
+        }
+      }
+
+      case 'restaurar_eliminado': {
+        try {
+          const comercioRest = datos.comercio || null;
+          const montoRest = datos.monto != null ? parseFloat(datos.monto) : null;
+          const EPS = 0.01;
+
+          const { data: pendientes } = await supabase.from('transacciones_eliminadas').select('*')
+            .eq('usuario_id', usuario.id).is('restored_at', null)
+            .order('deleted_at', { ascending: false }).limit(20);
+
+          if (!pendientes || pendientes.length === 0) {
+            return 'No tengo ningún gasto eliminado reciente para restaurar.';
+          }
+
+          // Filtrar por comercio/monto si se especificaron
+          let candidatos = pendientes;
+          if (comercioRest) {
+            const needle = comercioRest.toLowerCase();
+            candidatos = candidatos.filter(p => String(p.snapshot?.comercio || '').toLowerCase().includes(needle));
+          }
+          if (montoRest != null) {
+            candidatos = candidatos.filter(p => Math.abs(parseFloat(p.snapshot?.monto || 0) - montoRest) < EPS);
+          }
+          if (candidatos.length === 0) {
+            // Caer al más reciente si el usuario no fue específico con algo que no matcheó
+            candidatos = pendientes.slice(0, 1);
+          }
+
+          const objetivo = candidatos[0];
+          const snap = objetivo.snapshot || {};
+          // Re-insertar la fila preservando fecha/categoría/comercio original
+          const payloadRestore = {
+            usuario_id: usuario.id,
+            monto: snap.monto,
+            monto_pen: snap.monto_pen,
+            moneda: snap.moneda,
+            tipo_cambio: snap.tipo_cambio,
+            comercio: snap.comercio,
+            categoria: snap.categoria,
+            subcategoria: snap.subcategoria,
+            tipo: snap.tipo,
+            banco: snap.banco,
+            metodo_pago: snap.metodo_pago,
+            fecha: snap.fecha,
+            descripcion_original: snap.descripcion_original,
+          };
+          const { error: insErr } = await supabase.from('transacciones').insert(payloadRestore);
+          if (insErr) {
+            log.error({ tag: 'RESTAURAR', err: insErr.message }, 'Error al re-insertar tx');
+            return 'No pude restaurar el gasto. Intenta registrarlo manualmente.';
+          }
+          await supabase.from('transacciones_eliminadas').update({ restored_at: new Date().toISOString() }).eq('id', objetivo.id);
+
+          // Si estaba en gmail_excluidos, quitarlo para que vuelva a poder importarse
+          if (snap.descripcion_original && !String(snap.descripcion_original).startsWith('duplicado:')) {
+            await supabase.from('gmail_excluidos').delete()
+              .eq('usuario_id', usuario.id)
+              .eq('descripcion_original', snap.descripcion_original)
+              .then(() => {}).catch(() => {});
+          }
+
+          const montoStr = snap.moneda === 'USD' ? '$' + parseFloat(snap.monto).toFixed(2) : 'S/ ' + parseFloat(snap.monto).toFixed(2);
+          return '↩️ Restauré *' + (snap.comercio || 'el gasto') + '* (' + montoStr + ') del ' + (snap.fecha || '') + '.';
+        } catch(e) {
+          log.error({ tag: 'RESTAURAR', err: e.message }, 'Error restaurando tx');
+          return 'No pude restaurar el gasto. Intenta de nuevo.';
         }
       }
 

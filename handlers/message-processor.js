@@ -120,6 +120,9 @@ async function procesarMensajeLibre(msg, usuario, from) {
             + 'Si menciona dividir un gasto con personas (ej: "pague la cena de 100 con Annie y Diego"), usa manage_debts con action=split_group. '
             + 'Si dice "debo X a Y" o "Y me debe X", usa manage_debts con action=register. '
             + 'Si quiere recategorizar un gasto, usa manage_transaction con action=recategorize. '
+            + 'Si quiere ELIMINAR un gasto (action=delete), DEBES extraer el monto exacto que mencione el usuario (y el comercio si aparece). El usuario suele referenciar con "el de S/18.70" o "el gasto de 41": en ambos casos pasa monto=18.70 o monto=41. Si solo hay comercio sin monto, pasa comercio; nunca inventes montos. '
+            + 'Si dice "restaura", "restablece", "devuélvemelo", "trae de vuelta el gasto", usa manage_transaction con action=restore (NO delete, NO undo). Extrae monto/comercio si los menciona. '
+            + 'NUNCA uses action=delete, action=undo ni action=restore si el mensaje termina en signo de pregunta ("?"): eso es una consulta, no una orden — usa social_response o financial_query. '
             + 'Si responde con "si", "no", "dale", "ok" a algo que preguntaste antes, usa social_response con action=greeting (se manejara como continuacion). '
             + 'Extrae montos, fechas, comercios y categorias del lenguaje natural del usuario. '
             + 'Para fechas relativas: "ayer" = restar 1 dia a hoy, "el lunes" = calcular fecha correcta.\n'
@@ -158,6 +161,16 @@ async function procesarMensajeLibre(msg, usuario, from) {
       return respDirecta;
     } else {
       intencion = 'desconocido';
+    }
+
+    // Safety net: nunca ejecutar acciones destructivas si el mensaje es una pregunta
+    const DESTRUCTIVE_INTENTS = new Set(['eliminar_transaccion', 'deshacer_ultimo', 'eliminar_meta', 'eliminar_presupuesto']);
+    const msgTrim = (msg || '').trim();
+    const esPregunta = msgTrim.endsWith('?') || msgTrim.endsWith('¿');
+    if (esPregunta && DESTRUCTIVE_INTENTS.has(intencion)) {
+      log.warn({ tag: 'NLP_GUARD', intencion, msg: msgTrim.slice(0, 120) }, 'Blocked destructive intent on question');
+      intencion = 'desconocido';
+      datos = {};
     }
 
     log.info({ tag: 'NLP', intencion, datos }, 'Intención clasificada');

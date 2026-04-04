@@ -60,9 +60,19 @@ export async function GET(request: Request) {
       .gte('period', since.toISOString().split('T')[0])
       .order('period', { ascending: true });
 
+    // Dedupe: el cron guarda un registro por día. Conservamos solo el último
+    // por mes (YYYY-MM) para que el gráfico no repita meses.
+    const latestByMonth = new Map<string, NonNullable<typeof history>[number]>();
+    for (const h of history || []) {
+      const ym = (h.period || '').slice(0, 7);
+      if (!ym) continue;
+      latestByMonth.set(ym, h); // order asc → el último set es el más reciente
+    }
+    const dedupedHistory = Array.from(latestByMonth.values());
+
     response.history = isPro
-      ? history
-      : (history || []).map((h: { score: number; period: string }) => ({ score: h.score, period: h.period }));
+      ? dedupedHistory
+      : dedupedHistory.map((h) => ({ score: h.score, period: h.period }));
   }
 
   return NextResponse.json(response);

@@ -131,7 +131,7 @@ const NETO_TOOLS = [
     function: {
       name: "manage_transaction",
       description:
-        "Edita, corrige, elimina o manipula una transaccion existente. Usa para: recategorizar, cambiar monto/moneda, cambiar fecha, cambiar comercio, eliminar, deshacer ultimo registro, marcar como ingreso, duplicar, dividir entre personas, o crear regla de categoria para un comercio.",
+        "Edita, corrige, elimina, restaura o manipula una transaccion existente. Usa para: recategorizar, cambiar monto/moneda, cambiar fecha, cambiar comercio, eliminar un gasto especifico, restaurar un gasto que se borro por error, deshacer el ultimo registro recien hecho, marcar como ingreso, duplicar, dividir entre personas, o crear regla de categoria para un comercio. IMPORTANTE: Cuando el usuario pida eliminar un gasto (action=delete), SIEMPRE extrae el monto, comercio y/o fecha exactos que el usuario mencione para que el borrado sea preciso. Si el usuario pregunta algo (mensaje termina en '?'), NO uses 'undo' ni 'delete' — usa social_response o financial_query. 'restablecer', 'restaurar', 'devolver', 'trae de vuelta' = action=restore (NO es undo ni delete).",
       parameters: {
         type: "object",
         properties: {
@@ -142,6 +142,7 @@ const NETO_TOOLS = [
               "batch_recategorize",
               "edit_amount_currency",
               "delete",
+              "restore",
               "edit_amount",
               "edit_date",
               "edit_store",
@@ -152,7 +153,19 @@ const NETO_TOOLS = [
               "duplicate",
             ],
             description:
-              "Accion: recategorize=cambiar categoria, batch_recategorize=corregir varias, edit_amount_currency=corregir monto y moneda, delete=eliminar, edit_amount=editar monto, edit_date=editar fecha, edit_store=editar comercio, set_category_rule=asignar categoria a comercio, undo=deshacer ultimo, mark_income=marcar como ingreso, split=dividir gasto, duplicate=duplicar",
+              "Accion: recategorize=cambiar categoria, batch_recategorize=corregir varias, edit_amount_currency=corregir monto y moneda, delete=eliminar gasto existente, restore=restaurar un gasto eliminado por error, edit_amount=editar monto, edit_date=editar fecha, edit_store=editar comercio, set_category_rule=asignar categoria a comercio, undo=deshacer ultimo registro recien creado, mark_income=marcar como ingreso, split=dividir gasto, duplicate=duplicar",
+          },
+          comercio: {
+            type: "string",
+            description: "Nombre del comercio del gasto a eliminar o restaurar (para delete/restore). Ej: 'PedidosYa', 'Starbucks'.",
+          },
+          monto: {
+            type: "number",
+            description: "Monto exacto del gasto a eliminar o restaurar (para delete/restore). OBLIGATORIO extraerlo cuando el usuario lo mencione para evitar borrar el gasto equivocado.",
+          },
+          fecha: {
+            type: "string",
+            description: "Fecha del gasto a eliminar o restaurar YYYY-MM-DD (para delete/restore).",
           },
           transaction_id: {
             type: "string",
@@ -803,6 +816,7 @@ const TOOL_INTENT_MAP = {
     batch_recategorize: "corregir_multiple",
     edit_amount_currency: "corregir_monto_moneda",
     delete: "eliminar_transaccion",
+    restore: "restaurar_eliminado",
     edit_amount: "editar_monto",
     edit_date: "editar_fecha",
     edit_store: "editar_comercio",
