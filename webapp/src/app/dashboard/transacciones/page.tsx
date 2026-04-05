@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic';
 import { useState, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
+import { motion } from 'motion/react';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import {
   Plus,
@@ -775,15 +776,21 @@ export default function TransaccionesPage() {
 
           {/* Mobile card list */}
           <div className="md:hidden space-y-2">
-            {paginated.map((tx) => (
-              <TransactionCard
+            {paginated.map((tx, index) => (
+              <motion.div
                 key={tx.id}
-                tx={tx}
-                selected={selectedIds.has(tx.id)}
-                onToggleSelect={() => toggleSelect(tx.id)}
-                onEdit={() => setEditTransaction(tx)}
-                onDelete={() => setDeleteTransaction(tx)}
-              />
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1], delay: Math.min(index, 9) * 0.04 }}
+              >
+                <TransactionCard
+                  tx={tx}
+                  selected={selectedIds.has(tx.id)}
+                  onToggleSelect={() => toggleSelect(tx.id)}
+                  onEdit={() => setEditTransaction(tx)}
+                  onDelete={() => setDeleteTransaction(tx)}
+                />
+              </motion.div>
             ))}
           </div>
 

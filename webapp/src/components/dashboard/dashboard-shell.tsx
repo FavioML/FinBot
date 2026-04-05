@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
+import { FadeIn } from '@/components/shared/motion-wrapper';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Sidebar } from '@/components/dashboard/sidebar';
 import { Topbar } from '@/components/dashboard/topbar';
@@ -48,6 +49,7 @@ function AuthRedirect() {
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const pathname = usePathname();
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -56,8 +58,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Topbar onMenuClick={() => setSidebarOpen(true)} />
-          <main className="flex-1 overflow-y-auto p-4 pb-36 md:p-6 md:pb-6 lg:p-8 lg:pb-8 transition-all duration-300">
-            {children}
+          <main className="flex-1 overflow-y-auto p-4 pb-36 md:p-6 md:pb-6 lg:p-8 lg:pb-8">
+            <FadeIn key={pathname}>
+              {children}
+            </FadeIn>
           </main>
           <BottomNav />
         </div>
