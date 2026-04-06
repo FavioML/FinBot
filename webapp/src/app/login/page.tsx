@@ -79,7 +79,7 @@ export default function LoginPage() {
           {/* Auth error banner */}
           {authError && (
             <div className="mb-6 rounded-xl bg-[rgba(216,90,48,0.1)] border border-[rgba(216,90,48,0.2)] px-4 py-3 text-sm text-[#D85A30]">
-              No pudimos verificar tu sesión. Intenta de nuevo o usa Chrome/Safari si estás en Brave.
+              No pudimos verificar tu sesión. Intenta de nuevo, o prueba con Chrome si el problema persiste.
             </div>
           )}
 
