@@ -75,23 +75,28 @@ interface Ticket {
 
 function formatDate(dateStr: string | null) {
   if (!dateStr) return '\u2014';
-  return new Date(dateStr).toLocaleDateString('es-PE', {
+  // Supabase created_at is 'timestamp without time zone' — already in Peru time
+  // Append Z to prevent browser from applying local timezone offset
+  const d = new Date(dateStr.endsWith('Z') ? dateStr : dateStr + 'Z');
+  return d.toLocaleDateString('es-PE', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-    timeZone: 'America/Lima',
+    timeZone: 'UTC',
   });
 }
 
 function formatDateTime(dateStr: string) {
-  return new Date(dateStr).toLocaleString('es-PE', {
+  // Supabase created_at is 'timestamp without time zone' — already in Peru time
+  const d = new Date(dateStr.endsWith('Z') ? dateStr : dateStr + 'Z');
+  return d.toLocaleString('es-PE', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
     hour12: true,
-    timeZone: 'America/Lima',
+    timeZone: 'UTC',
   });
 }
 
