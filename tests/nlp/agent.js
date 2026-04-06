@@ -205,7 +205,7 @@ function printReport(results, meta, durationMs) {
   console.log('\n───────────────────────────────────────────────────────');
 
   // Exit code: 0 if >=90%, 1 if <90% (for CI/CD)
-  return pct >= 90 ? 0 : 1;
+  return { exitCode: pct >= 90 ? 0 : 1, pct, passed, failed, total: results.length, durationMs };
 }
 
 // ─── Main ───────────────────────────────────────────────────────────────────
@@ -242,8 +242,56 @@ async function main() {
   const results = await runBatch(cases);
   const duration = Date.now() - t0;
 
-  const exitCode = printReport(results, meta, duration);
-  process.exit(exitCode);
+  const report = printReport(results, meta, duration);
+
+  // ─── WhatsApp notification ─────────────────────────────────────────────
+  await notifyWhatsApp(report, meta);
+
+  process.exit(report.exitCode);
+}
+
+async function notifyWhatsApp(report, meta) {
+  const phoneId = process.env.META_PHONE_NUMBER_ID;
+  const token = process.env.META_ACCESS_TOKEN;
+  const adminNum = process.env.ADMIN_WHATSAPP;
+
+  if (!phoneId || !token || !adminNum || token === 'test') return;
+
+  const icon = report.pct >= 95 ? '✅' : report.pct >= 85 ? '⚠️' : '❌';
+  const durSec = (report.durationMs / 1000).toFixed(1);
+
+  let msg = icon + ' *NLP Agent — ' + report.pct + '%*\n\n'
+    + '🎯 ' + report.passed + '/' + report.total + ' correctos\n'
+    + '⏱ ' + durSec + 's | Seed: ' + meta.seed + '\n';
+
+  if (report.failed.length > 0) {
+    msg += '\n❌ *' + report.failed.length + ' fallos:*\n';
+    // Top 10 failures max (WhatsApp message size limit)
+    const top = report.failed.slice(0, 10);
+    for (const f of top) {
+      msg += '• "' + f.msg.substring(0, 40) + '"\n  ' + f.intent + ' → ' + f.got + '\n';
+    }
+    if (report.failed.length > 10) {
+      msg += '... y ' + (report.failed.length - 10) + ' más';
+    }
+  }
+
+  try {
+    const dest = adminNum.replace(/^\+/, '');
+    const res = await fetch('https://graph.facebook.com/v19.0/' + phoneId + '/messages', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messaging_product: 'whatsapp', to: dest, type: 'text', text: { body: msg } }),
+    });
+    const data = await res.json();
+    if (data.messages && data.messages[0]) {
+      console.log('\n📱 Notificación WhatsApp enviada al admin');
+    } else {
+      console.log('\n⚠️ WhatsApp notify failed:', JSON.stringify(data));
+    }
+  } catch (err) {
+    console.log('\n⚠️ WhatsApp notify error:', err.message);
+  }
 }
 
 main().catch(err => {

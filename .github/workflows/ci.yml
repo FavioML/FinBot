@@ -45,8 +45,8 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          META_ACCESS_TOKEN: test
-          META_PHONE_NUMBER_ID: test
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          META_PHONE_NUMBER_ID: ${{ secrets.META_PHONE_NUMBER_ID }}
           META_VERIFY_TOKEN: test
           ADMIN_KEY: test
-          ADMIN_WHATSAPP: test
+          ADMIN_WHATSAPP: ${{ secrets.ADMIN_WHATSAPP }}
