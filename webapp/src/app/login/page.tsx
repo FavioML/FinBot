@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { Suspense } from 'react';
+import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { motion } from 'motion/react';
 import { createClient } from '@/lib/supabase/client';
@@ -25,10 +25,52 @@ const features = [
 
 function AuthErrorBanner() {
   const searchParams = useSearchParams();
+  const [email, setEmail] = useState('');
+  const [sent, setSent] = useState(false);
+  const [loading, setLoading] = useState(false);
+
   if (searchParams.get('error') !== 'auth') return null;
+
+  async function handleMagicLink() {
+    if (!email.trim()) return;
+    setLoading(true);
+    const supabase = createClient();
+    await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+    });
+    setSent(true);
+    setLoading(false);
+  }
+
   return (
-    <div className="mb-6 rounded-xl bg-[rgba(216,90,48,0.1)] border border-[rgba(216,90,48,0.2)] px-4 py-3 text-sm text-[#D85A30]">
-      No pudimos verificar tu sesión. Intenta de nuevo, o prueba con Chrome si el problema persiste.
+    <div className="mb-6 rounded-xl bg-[rgba(216,90,48,0.08)] border border-[rgba(216,90,48,0.2)] px-4 py-4 space-y-3">
+      <p className="text-sm text-[#D85A30]">
+        No pudimos verificar tu sesión con Google. Ingresa tu email y te enviamos un enlace de acceso directo.
+      </p>
+      {sent ? (
+        <p className="text-sm text-[#1D9E75] font-medium">
+          ✓ Enlace enviado — revisa tu correo y haz click en el link.
+        </p>
+      ) : (
+        <div className="flex gap-2">
+          <input
+            type="email"
+            placeholder="tu@email.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleMagicLink()}
+            className="flex-1 rounded-lg bg-[rgba(255,255,255,0.06)] border border-[rgba(216,90,48,0.3)] px-3 py-2 text-sm text-[#F0EFE8] placeholder-[#8A877D] outline-none focus:border-[#D85A30]"
+          />
+          <button
+            onClick={handleMagicLink}
+            disabled={loading || !email.trim()}
+            className="rounded-lg bg-[#D85A30] px-4 py-2 text-sm font-medium text-white disabled:opacity-50 hover:bg-[#D85A30]/90 transition-colors shrink-0"
+          >
+            {loading ? '...' : 'Enviar enlace'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
