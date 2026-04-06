@@ -75,19 +75,19 @@ interface Ticket {
 
 function formatDate(dateStr: string | null) {
   if (!dateStr) return '\u2014';
-  // Supabase created_at is 'timestamp without time zone' — already in Peru time
-  // Append Z to prevent browser from applying local timezone offset
+  // Supabase created_at is 'timestamp without time zone' stored in UTC
+  // Append Z so JS parses as UTC, then convert to Lima
   const d = new Date(dateStr.endsWith('Z') ? dateStr : dateStr + 'Z');
   return d.toLocaleDateString('es-PE', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-    timeZone: 'UTC',
+    timeZone: 'America/Lima',
   });
 }
 
 function formatDateTime(dateStr: string) {
-  // Supabase created_at is 'timestamp without time zone' — already in Peru time
+  // Supabase created_at is 'timestamp without time zone' stored in UTC
   const d = new Date(dateStr.endsWith('Z') ? dateStr : dateStr + 'Z');
   return d.toLocaleString('es-PE', {
     day: '2-digit',
@@ -96,7 +96,7 @@ function formatDateTime(dateStr: string) {
     hour: '2-digit',
     minute: '2-digit',
     hour12: true,
-    timeZone: 'UTC',
+    timeZone: 'America/Lima',
   });
 }
 
