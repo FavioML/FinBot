@@ -579,22 +579,22 @@ module.exports = [
   // ══════════════════════════════════════════════════════════════
   // ANALYTICS (15) — casos #466–#480
   // ══════════════════════════════════════════════════════════════
-  { msg: 'Cuál fue mi gasto más grande este mes', intent: 'gasto_mayor', cat: 'analytics' },
-  { msg: 'El gasto más alto de la semana', intent: 'gasto_mayor', cat: 'analytics' },
-  { msg: 'Cuál es mi gasto más chiquito', intent: 'gasto_menor', cat: 'analytics' },
-  { msg: 'Gasto mínimo del mes', intent: 'gasto_menor', cat: 'analytics' },
-  { msg: 'Cuánto gasto en promedio al día', intent: 'promedio_diario', cat: 'analytics' },
-  { msg: 'Mi promedio diario de gastos', intent: 'promedio_diario', cat: 'analytics' },
-  { msg: 'Ver mis ingresos del mes', intent: 'ingresos', cat: 'analytics' },
-  { msg: 'Cuánto he ganado este mes', intent: 'ingresos', cat: 'analytics' },
-  { msg: 'Total de ingresos', intent: 'ingresos', cat: 'analytics' },
-  { msg: 'Mis suscripciones activas', intent: 'suscripciones', cat: 'analytics' },
+  { msg: 'Cuál fue mi gasto más grande este mes', intent: 'ver_gasto_mayor', cat: 'analytics' },
+  { msg: 'El gasto más alto de la semana', intent: 'ver_gasto_mayor', cat: 'analytics' },
+  { msg: 'Cuál es mi gasto más chiquito', intent: 'ver_gasto_menor', cat: 'analytics' },
+  { msg: 'Gasto mínimo del mes', intent: 'ver_gasto_menor', cat: 'analytics' },
+  { msg: 'Cuánto gasto en promedio al día', intent: 'ver_promedio_diario', cat: 'analytics' },
+  { msg: 'Mi promedio diario de gastos', intent: 'ver_promedio_diario', cat: 'analytics' },
+  { msg: 'Ver mis ingresos del mes', intent: 'ver_ingresos', cat: 'analytics' },
+  { msg: 'Cuánto he ganado este mes', intent: 'ver_ingresos', cat: 'analytics' },
+  { msg: 'Total de ingresos', intent: 'ver_ingresos', cat: 'analytics' },
+  { msg: 'Mis suscripciones activas', intent: 'ver_suscripciones', cat: 'analytics' },
   // #476
-  { msg: 'Cuánto pago en suscripciones al mes', intent: 'suscripciones', cat: 'analytics' },
-  { msg: 'Ver suscripciones', intent: 'suscripciones', cat: 'analytics' },
-  { msg: 'Cuál es mi promedio diario', intent: 'promedio_diario', cat: 'analytics' },
-  { msg: 'El gasto más grande del año', intent: 'gasto_mayor', cat: 'analytics' },
-  { msg: 'Mis ingresos totales de este año', intent: 'ingresos', cat: 'analytics' },
+  { msg: 'Cuánto pago en suscripciones al mes', intent: 'ver_suscripciones', cat: 'analytics' },
+  { msg: 'Ver suscripciones', intent: 'ver_suscripciones', cat: 'analytics' },
+  { msg: 'Cuál es mi promedio diario', intent: 'ver_promedio_diario', cat: 'analytics' },
+  { msg: 'El gasto más grande del año', intent: 'ver_gasto_mayor', cat: 'analytics' },
+  { msg: 'Mis ingresos totales de este año', intent: 'ver_ingresos', cat: 'analytics' },
 
   // ══════════════════════════════════════════════════════════════
   // EXTRA — para llegar a 500 exactos
