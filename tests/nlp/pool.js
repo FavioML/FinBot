@@ -429,7 +429,7 @@ module.exports = [
   { msg: 'Analiza si llego a mi meta de viaje', intent: 'ver_metas', cat: 'metas' },
   { msg: 'En qué puedo recortar para ahorrar más', intent: 'sugerir_recortes', cat: 'metas' },
   // #351 — marcador cada 50
-  { msg: 'Sugiere dónde recortar gastos', intent: 'consulta_financiera', cat: 'metas' },
+  { msg: 'Sugiere dónde recortar gastos', intent: 'sugerir_recortes', cat: 'metas' },
   { msg: 'Qué gastos puedo eliminar para llegar a mi meta', intent: 'ver_metas', cat: 'metas' },
   { msg: 'Ver el avance de mis metas', intent: 'ver_metas', cat: 'metas' },
   { msg: 'Cuánto me falta para mi meta de laptop', intent: 'ver_metas', cat: 'metas' },
@@ -458,7 +458,7 @@ module.exports = [
   { msg: 'Cómo puedo empezar a invertir', intent: 'consulta_financiera', cat: 'utilidades' },
   { msg: 'Ponme un recordatorio de pagar luz el 15', intent: 'recordatorio_pago', cat: 'utilidades' },
   { msg: 'Recuérdame pagar el agua cada mes', intent: 'recordatorio_pago', cat: 'utilidades' },
-  { msg: 'Comparar gastos de enero vs diciembre', intent: 'listar_gastos_mes', cat: 'utilidades' },
+  { msg: 'Comparar gastos de enero vs diciembre', intent: 'comparar_meses', cat: 'utilidades' },
 
   // ══════════════════════════════════════════════════════════════
   // EDGE PREGUNTAS (30) — casos #376–#405
@@ -528,7 +528,7 @@ module.exports = [
   { msg: 'Deshaz lo último', intent: 'deshacer_ultimo', cat: 'deshacer_restaurar' },
   { msg: 'Deshacer', intent: 'deshacer_ultimo', cat: 'deshacer_restaurar' },
   { msg: 'Ctrl Z pe', intent: 'deshacer_ultimo', cat: 'deshacer_restaurar' },
-  { msg: 'Cancela lo que acabo de hacer', intent: 'ayuda', cat: 'deshacer_restaurar' },
+  { msg: 'Cancela lo que acabo de hacer', intent: 'deshacer_ultimo', cat: 'deshacer_restaurar' },
   { msg: 'Revierte el último registro', intent: 'deshacer_ultimo', cat: 'deshacer_restaurar' },
   { msg: 'Oe deshaz eso pe', intent: 'deshacer_ultimo', cat: 'deshacer_restaurar' },
   { msg: 'No era eso deshazlo', intent: 'deshacer_ultimo', cat: 'deshacer_restaurar' },

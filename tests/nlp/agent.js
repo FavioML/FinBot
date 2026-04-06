@@ -25,7 +25,7 @@ const { execSync } = require('child_process');
 
 // ─── Config ─────────────────────────────────────────────────────────────────
 
-const CONCURRENCY = 5; // parallel API calls (avoid rate limits)
+const CONCURRENCY = 3; // parallel API calls (keep under rate limits)
 const RETRY_LIMIT = 3;
 const args = process.argv.slice(2);
 
@@ -72,6 +72,16 @@ function buildSystemPrompt() {
     + 'Si responde con "si", "no", "dale", "ok" a algo que preguntaste antes, usa social_response con action=greeting (se manejara como continuacion). '
     + 'Extrae montos, fechas, comercios y categorias del lenguaje natural del usuario. '
     + 'Para fechas relativas: "ayer" = restar 1 dia a hoy, "el lunes" = calcular fecha correcta.\n'
+    + 'REGLAS EXTRA:\n'
+    + '- "Soy Pro o Free", "que plan tengo", "soy premium" = manage_account action=account_status (NO view_premium).\n'
+    + '- "Me clavaron", "me bajaron", "me cobraron", "me descuadre" + monto = gasto → register_transaction.\n'
+    + '- "Me cayeron", "me pagaron", "gane", "recibi" + monto = ingreso → register_transaction con es_ingreso=true.\n'
+    + '- "Le pague X a Y ya esta limpio/saldado/quedamos a mano" = manage_debts action=mark_paid (NO register).\n'
+    + '- "Cuanto va el mes" (sin categoria) = query_expenses action=total.\n'
+    + '- "Como estuvo [mes] vs [mes]", "[mes] vs el anterior", "comparar [mes] con [mes]" = query_analytics action=compare_months.\n'
+    + '- "Mandame el resumen de [mes]", "reporte de [mes]" = generate_report action=report (NO share_summary).\n'
+    + '- "Es viable ahorrar X en Y meses/tiempo", "puedo ahorrar X en Y" = manage_goals action=viability.\n'
+    + '- "Saca el gasto de X", "borra el de X", "quita el de X", "gasto duplicado" = manage_transaction action=delete.\n'
     + 'IMPORTANTE: Siempre usa una herramienta. Nunca respondas sin llamar una herramienta.\n'
     + 'CATEGORIAS VALIDAS: Alimentacion, Transporte, Vivienda, Salud, Entretenimiento, Compras, Educacion, Finanzas, Trabajo_Negocio, Otros.\n'
     + 'SUBCATEGORIAS: delivery, restaurante, supermercado, mercado, cafeteria, snacks, uber_cabify, taxi, bus_micro, gasolina, farmacia, medico, streaming, suscripciones, cine, ropa, electronico, hogar, belleza, prestamo, tarjeta_credito, herramientas, publicidad, sin_categoria.'
@@ -106,8 +116,14 @@ async function classify(msg, retries = 0) {
     // GPT responded with text instead of tool call
     return { intent: '_text_response', datos: {}, raw: choice.message.content?.substring(0, 80) };
   } catch (err) {
-    if (retries < RETRY_LIMIT && (err.status === 429 || err.status >= 500 || err.code === 'ECONNRESET')) {
-      const wait = Math.min(2000 * Math.pow(2, retries), 15000);
+    const retryable = err.status === 429 || err.status >= 500
+      || err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT'
+      || err.code === 'ECONNABORTED' || err.code === 'UND_ERR_CONNECT_TIMEOUT'
+      || err.message?.includes('timeout') || err.message?.includes('ECONNRESET');
+    if (retries < RETRY_LIMIT && retryable) {
+      const wait = err.status === 429
+        ? Math.min(5000 * Math.pow(2, retries), 30000) // 429: backoff agresivo
+        : Math.min(2000 * Math.pow(2, retries), 15000);
       await sleep(wait);
       return classify(msg, retries + 1);
     }
@@ -127,6 +143,7 @@ async function runBatch(cases) {
     while (idx < cases.length) {
       const i = idx++;
       const c = cases[i];
+      if (i > 0) await sleep(150); // small delay to avoid rate limits
       const result = await classify(c.msg);
       const pass = result.intent === c.intent;
       results[i] = { ...c, got: result.intent, pass, raw: result.raw };
