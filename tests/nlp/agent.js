@@ -25,8 +25,8 @@ const { execSync } = require('child_process');
 
 // ─── Config ─────────────────────────────────────────────────────────────────
 
-const CONCURRENCY = 15; // parallel API calls
-const RETRY_LIMIT = 2;
+const CONCURRENCY = 5; // parallel API calls (avoid rate limits)
+const RETRY_LIMIT = 3;
 const args = process.argv.slice(2);
 
 function getArg(flag, def) {
@@ -105,11 +105,12 @@ async function classify(msg, retries = 0) {
     // GPT responded with text instead of tool call
     return { intent: '_text_response', datos: {}, raw: choice.message.content?.substring(0, 80) };
   } catch (err) {
-    if (retries < RETRY_LIMIT && (err.status === 429 || err.status >= 500)) {
-      await sleep(2000 * (retries + 1));
+    if (retries < RETRY_LIMIT && (err.status === 429 || err.status >= 500 || err.code === 'ECONNRESET')) {
+      const wait = Math.min(2000 * Math.pow(2, retries), 15000);
+      await sleep(wait);
       return classify(msg, retries + 1);
     }
-    return { intent: '_error', datos: {}, raw: err.message };
+    return { intent: '_error', datos: {}, raw: (err.status || '') + ' ' + err.message };
   }
 }
 
