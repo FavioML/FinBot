@@ -283,7 +283,7 @@ async function leerCorreosDesdeCuenta(authClient, cuentaEmail) {
       const headers = detalle.payload.headers || [];
       const asunto = (headers.find(h => h.name === 'Subject') || {}).value || '';
       const remitente = (headers.find(h => h.name === 'From') || {}).value || '';
-      const fecha = new Date(parseInt(detalle.internalDate)).toISOString().split('T')[0];
+      const fecha = new Date(parseInt(detalle.internalDate)).toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
 
       // FILTRO 1: Rechazar correos reenviados
       if (esCorreoReenviado(headers)) {
