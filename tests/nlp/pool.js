@@ -117,7 +117,7 @@ module.exports = [
   { msg: 'Me transfirieron 450 por el trabajo extra', intent: 'registrar_manual', cat: 'registro_ingreso' },
   { msg: 'Gané 2000 esta quincena', intent: 'registrar_manual', cat: 'registro_ingreso' },
   { msg: 'Ingreso 350 vendí ropa usada', intent: 'registrar_manual', cat: 'registro_ingreso' },
-  { msg: 'Me pagó mi tío 150 que me debía', intent: 'registrar_deuda', cat: 'registro_ingreso' },
+  { msg: 'Me pagó mi tío 150 que me debía', intent: 'abonar_deuda', cat: 'registro_ingreso' },
   { msg: 'Entró 4000 de la chamba', intent: 'registrar_manual', cat: 'registro_ingreso' },
   { msg: 'Recibí 600 de alquiler del depa', intent: 'registrar_manual', cat: 'registro_ingreso' },
   { msg: 'Me abonaron 2500 del bono', intent: 'registrar_manual', cat: 'registro_ingreso' },
@@ -590,7 +590,7 @@ module.exports = [
   { msg: 'Total de ingresos', intent: 'ver_ingresos', cat: 'analytics' },
   { msg: 'Mis suscripciones activas', intent: 'ver_suscripciones', cat: 'analytics' },
   // #476
-  { msg: 'Cuánto pago en suscripciones al mes', intent: 'ver_fugas', cat: 'analytics' },
+  { msg: 'Cuánto pago en suscripciones al mes', intent: 'ver_suscripciones', cat: 'analytics' },
   { msg: 'Ver suscripciones', intent: 'ver_suscripciones', cat: 'analytics' },
   { msg: 'Cuál es mi promedio diario', intent: 'ver_promedio_diario', cat: 'analytics' },
   { msg: 'El gasto más grande del año', intent: 'ver_gasto_mayor', cat: 'analytics' },
