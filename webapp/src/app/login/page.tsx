@@ -1,6 +1,7 @@
 'use client';
 
 import Image from 'next/image';
+import { useSearchParams } from 'next/navigation';
 import { motion } from 'motion/react';
 import { createClient } from '@/lib/supabase/client';
 import {
@@ -22,6 +23,9 @@ const features = [
 ];
 
 export default function LoginPage() {
+  const searchParams = useSearchParams();
+  const authError = searchParams.get('error') === 'auth';
+
   const handleGoogleLogin = async () => {
     const supabase = createClient();
     const params = new URLSearchParams(window.location.search);
@@ -71,6 +75,13 @@ export default function LoginPage() {
           <p className="mb-8 text-[#8A877D]">
             Neto lee tus correos bancarios y organiza todo automáticamente. Sin anotar nada.
           </p>
+
+          {/* Auth error banner */}
+          {authError && (
+            <div className="mb-6 rounded-xl bg-[rgba(216,90,48,0.1)] border border-[rgba(216,90,48,0.2)] px-4 py-3 text-sm text-[#D85A30]">
+              No pudimos verificar tu sesión. Intenta de nuevo o usa Chrome/Safari si estás en Brave.
+            </div>
+          )}
 
           {/* ── Existing users: Google login ── */}
           <div className="mb-2">
