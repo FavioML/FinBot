@@ -30,6 +30,9 @@ export async function GET(request: NextRequest) {
       }
     );
 
+    const cookieNames = request.cookies.getAll().map(c => c.name);
+    console.log('[auth/callback] cookies present:', cookieNames);
+
     const { error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (!error) {
@@ -84,7 +87,7 @@ export async function GET(request: NextRequest) {
       return response;
     }
 
-    console.error('[auth/callback] exchangeCodeForSession failed:', error);
+    console.error('[auth/callback] exchangeCodeForSession failed:', error.message, error.status, error.code);
   }
 
   return NextResponse.redirect(`${origin}/login?error=auth`);
