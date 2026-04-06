@@ -1,10 +1,37 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
+import {
+  AreaChart, Area, BarChart, Bar, LineChart, Line,
+  XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+} from 'recharts';
 
 const ADMIN_EMAIL = process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'faviomendoza27jl@gmail.com';
+
+interface AdminStats {
+  kpis: {
+    mrr: number;
+    churnRate: number;
+    dau: number;
+    wau: number;
+    mau: number;
+    conversionRate: number;
+    avgTimeToFirstTx: number;
+    txPerActiveUser: number;
+  };
+  userGrowth: { week: string; free: number; pro: number; total: number }[];
+  funnel: {
+    registered: number;
+    onboardingComplete: number;
+    firstTransaction: number;
+    magicLink: number;
+    pro: number;
+  };
+  nlpActivity: { date: string; errors: number }[];
+  revenue: { month: string; mrr: number; newPro: number; churned: number }[];
+}
 
 interface AdminUser {
   id: string;
@@ -270,11 +297,15 @@ export default function AdminPage() {
   const [replyText, setReplyText] = useState('');
   const [replyBusy, setReplyBusy] = useState(false);
 
+  // Stats state
+  const [stats, setStats] = useState<AdminStats | null>(null);
+
   // User filters state
   const [userPlanFilter, setUserPlanFilter] = useState<string>('todos');
   const [userOnboardingFilter, setUserOnboardingFilter] = useState<string>('todos');
   const [userGmailFilter, setUserGmailFilter] = useState<string>('todos');
   const [userWebappFilter, setUserWebappFilter] = useState<string>('todos');
+  const [userCanalFilter, setUserCanalFilter] = useState<string>('todos');
 
   // Check auth
   useEffect(() => {
@@ -321,12 +352,22 @@ export default function AdminPage() {
     }
   }, [ticketPage, ticketEstadoFilter, ticketSearch]);
 
+  // Fetch stats
+  const fetchStats = useCallback(async () => {
+    const res = await fetch('/api/admin/stats');
+    if (res.ok) {
+      const json = await res.json();
+      setStats(json);
+    }
+  }, []);
+
   useEffect(() => {
     if (!authorized) return;
     fetchUsers();
     fetchNlpErrors();
     fetchTickets();
-  }, [authorized, fetchUsers, fetchNlpErrors, fetchTickets]);
+    fetchStats();
+  }, [authorized, fetchUsers, fetchNlpErrors, fetchTickets, fetchStats]);
 
   // Handle user actions
   const handleUserAction = useCallback(
@@ -391,6 +432,8 @@ export default function AdminPage() {
     if (userGmailFilter === 'no conectado' && u.tiene_gmail) return false;
     if (userWebappFilter === 'conectado' && !u.tiene_webapp) return false;
     if (userWebappFilter === 'no conectado' && u.tiene_webapp) return false;
+    if (userCanalFilter === 'magic_link' && !u.tiene_webapp) return false;
+    if (userCanalFilter === 'whatsapp' && u.tiene_webapp) return false;
     return true;
   });
 
@@ -476,24 +519,155 @@ export default function AdminPage() {
       </div>
 
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-        {/* Stats cards */}
-        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
-          {[
-            { label: 'Usuarios', value: users.length },
-            { label: 'Pro', value: totalPro },
-            { label: 'Gmail', value: totalGmail },
-            { label: 'Webapp', value: totalWebapp },
-            { label: 'Transacciones', value: totalTx.toLocaleString() },
-          ].map((stat) => (
-            <div
-              key={stat.label}
-              className="rounded-xl border border-white/5 bg-white/[0.02] p-4"
-            >
-              <div className="text-xs text-[#F0EFE8]/40">{stat.label}</div>
-              <div className="mt-1 text-2xl font-semibold">{stat.value}</div>
+        {/* KPI Cards — Row 1: Core metrics */}
+        <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+            <div className="text-xs text-[#F0EFE8]/40">MRR</div>
+            <div className="mt-1 text-2xl font-semibold text-[#1D9E75]">
+              S/{stats?.kpis.mrr ?? totalPro * 10}
             </div>
-          ))}
+            <div className="mt-0.5 text-xs text-[#F0EFE8]/30">{totalPro} Pro activos</div>
+          </div>
+          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+            <div className="text-xs text-[#F0EFE8]/40">Conversion Free→Pro</div>
+            <div className="mt-1 text-2xl font-semibold">
+              {stats?.kpis.conversionRate ?? (users.length > 0 ? Math.round((totalPro / users.length) * 1000) / 10 : 0)}%
+            </div>
+            <div className="mt-0.5 text-xs text-[#F0EFE8]/30">{totalPro} de {users.length}</div>
+          </div>
+          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+            <div className="text-xs text-[#F0EFE8]/40">Usuarios Activos</div>
+            <div className="mt-1 flex items-baseline gap-2">
+              <span className="text-2xl font-semibold">{stats?.kpis.mau ?? '—'}</span>
+              <span className="text-xs text-[#F0EFE8]/40">MAU</span>
+            </div>
+            <div className="mt-0.5 flex gap-3 text-xs text-[#F0EFE8]/30">
+              <span>WAU: {stats?.kpis.wau ?? '—'}</span>
+              <span>DAU: {stats?.kpis.dau ?? '—'}</span>
+            </div>
+          </div>
+          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+            <div className="text-xs text-[#F0EFE8]/40">Txs / Usuario Activo</div>
+            <div className="mt-1 text-2xl font-semibold">{stats?.kpis.txPerActiveUser ?? '—'}</div>
+            <div className="mt-0.5 text-xs text-[#F0EFE8]/30">{totalTx.toLocaleString()} txs total</div>
+          </div>
         </div>
+
+        {/* KPI Cards — Row 2: Secondary metrics */}
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+            <div className="text-xs text-[#F0EFE8]/40">Churn Rate</div>
+            <div className={`mt-1 text-lg font-semibold ${(stats?.kpis.churnRate ?? 0) > 10 ? 'text-[#E85D3A]' : 'text-[#F0EFE8]'}`}>
+              {stats?.kpis.churnRate ?? '—'}%
+            </div>
+          </div>
+          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+            <div className="text-xs text-[#F0EFE8]/40">Avg 1a Transaccion</div>
+            <div className="mt-1 text-lg font-semibold">
+              {stats?.kpis.avgTimeToFirstTx ?? '—'} <span className="text-xs font-normal text-[#F0EFE8]/40">dias</span>
+            </div>
+          </div>
+          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+            <div className="text-xs text-[#F0EFE8]/40">Magic Link</div>
+            <div className="mt-1 text-lg font-semibold">{stats?.funnel.magicLink ?? totalWebapp}</div>
+            <div className="text-xs text-[#F0EFE8]/30">Gmail: {totalGmail}</div>
+          </div>
+          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+            <div className="text-xs text-[#F0EFE8]/40">Total Usuarios</div>
+            <div className="mt-1 text-lg font-semibold">{users.length}</div>
+            <div className="text-xs text-[#F0EFE8]/30">Onboarding: {stats?.funnel.onboardingComplete ?? '—'}</div>
+          </div>
+        </div>
+
+        {/* Charts Section */}
+        {stats && (
+          <div className="mb-6 grid gap-4 lg:grid-cols-3">
+            {/* User Growth Chart */}
+            <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+              <h3 className="mb-3 text-sm font-medium text-[#F0EFE8]/60">Crecimiento Usuarios (12 semanas)</h3>
+              <div className="h-48">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={stats.userGrowth} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+                    <defs>
+                      <linearGradient id="gradFree" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#F0EFE8" stopOpacity={0.15} />
+                        <stop offset="95%" stopColor="#F0EFE8" stopOpacity={0} />
+                      </linearGradient>
+                      <linearGradient id="gradPro" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#1D9E75" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#1D9E75" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                    <XAxis dataKey="week" tick={{ fill: '#F0EFE840', fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: '#F0EFE840', fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                    <Tooltip
+                      contentStyle={{ background: '#1A1A17', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }}
+                      labelStyle={{ color: '#F0EFE8' }}
+                    />
+                    <Area type="monotone" dataKey="free" stackId="1" stroke="#F0EFE860" fill="url(#gradFree)" name="Free" />
+                    <Area type="monotone" dataKey="pro" stackId="1" stroke="#1D9E75" fill="url(#gradPro)" name="Pro" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Onboarding Funnel */}
+            <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+              <h3 className="mb-3 text-sm font-medium text-[#F0EFE8]/60">Embudo de Onboarding</h3>
+              <div className="space-y-2.5">
+                {[
+                  { label: 'Registrados', value: stats.funnel.registered, color: '#F0EFE8' },
+                  { label: 'Onboarding OK', value: stats.funnel.onboardingComplete, color: '#E8A838' },
+                  { label: '1a Transaccion', value: stats.funnel.firstTransaction, color: '#D85A30' },
+                  { label: 'Magic Link', value: stats.funnel.magicLink, color: '#6366F1' },
+                  { label: 'Pro', value: stats.funnel.pro, color: '#1D9E75' },
+                ].map((step) => {
+                  const pct = stats.funnel.registered > 0 ? Math.round((step.value / stats.funnel.registered) * 100) : 0;
+                  return (
+                    <div key={step.label}>
+                      <div className="mb-1 flex items-center justify-between text-xs">
+                        <span className="text-[#F0EFE8]/60">{step.label}</span>
+                        <span className="font-mono text-[#F0EFE8]/80">{step.value} <span className="text-[#F0EFE8]/30">({pct}%)</span></span>
+                      </div>
+                      <div className="h-2 w-full overflow-hidden rounded-full bg-white/5">
+                        <div
+                          className="h-full rounded-full transition-all duration-500"
+                          style={{ width: `${pct}%`, backgroundColor: step.color }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* NLP Errors per Day */}
+            <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+              <h3 className="mb-3 text-sm font-medium text-[#F0EFE8]/60">Errores NLP (30 dias)</h3>
+              <div className="h-48">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={stats.nlpActivity} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fill: '#F0EFE840', fontSize: 10 }}
+                      axisLine={false}
+                      tickLine={false}
+                      interval={6}
+                    />
+                    <YAxis tick={{ fill: '#F0EFE840', fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                    <Tooltip
+                      contentStyle={{ background: '#1A1A17', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }}
+                      labelStyle={{ color: '#F0EFE8' }}
+                    />
+                    <Line type="monotone" dataKey="errors" stroke="#E85D3A" strokeWidth={1.5} dot={false} name="Errores" />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="mb-4 flex gap-1 rounded-lg bg-white/[0.03] p-1 w-fit">
@@ -585,9 +759,18 @@ export default function AdminPage() {
                   <option value="conectado" className="bg-[#1A1A18]">Conectado</option>
                   <option value="no conectado" className="bg-[#1A1A18]">No conectado</option>
                 </select>
-                {(userPlanFilter !== 'todos' || userOnboardingFilter !== 'todos' || userGmailFilter !== 'todos' || userWebappFilter !== 'todos') && (
+                <select
+                  value={userCanalFilter}
+                  onChange={(e) => setUserCanalFilter(e.target.value)}
+                  className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-[#F0EFE8] outline-none focus:border-[#1D9E75]/50"
+                >
+                  <option value="todos" className="bg-[#1A1A18]">Canal: Todos</option>
+                  <option value="whatsapp" className="bg-[#1A1A18]">Solo WhatsApp</option>
+                  <option value="magic_link" className="bg-[#1A1A18]">Magic Link</option>
+                </select>
+                {(userPlanFilter !== 'todos' || userOnboardingFilter !== 'todos' || userGmailFilter !== 'todos' || userWebappFilter !== 'todos' || userCanalFilter !== 'todos') && (
                   <button
-                    onClick={() => { setUserPlanFilter('todos'); setUserOnboardingFilter('todos'); setUserGmailFilter('todos'); setUserWebappFilter('todos'); }}
+                    onClick={() => { setUserPlanFilter('todos'); setUserOnboardingFilter('todos'); setUserGmailFilter('todos'); setUserWebappFilter('todos'); setUserCanalFilter('todos'); }}
                     className="rounded-lg border border-white/10 px-3 py-2 text-xs text-[#F0EFE8]/50 hover:bg-white/5 hover:text-[#F0EFE8]"
                   >
                     Limpiar filtros
@@ -626,6 +809,9 @@ export default function AdminPage() {
                       Txs
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-[#F0EFE8]/40">
+                      Canal
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-[#F0EFE8]/40">
                       Registro
                     </th>
                     <th className="w-10 px-2 py-3" />
@@ -646,11 +832,14 @@ export default function AdminPage() {
                         {u.plan === 'premium' ? (
                           <div>
                             <div>{u.estado_pago || '\u2014'}</div>
-                            {u.premium_vence && (
-                              <div className="text-[#F0EFE8]/30">
-                                Vence: {formatDate(u.premium_vence)}
-                              </div>
-                            )}
+                            {u.premium_vence && (() => {
+                              const daysLeft = Math.ceil((new Date(u.premium_vence).getTime() - Date.now()) / 86400000);
+                              return (
+                                <div className={daysLeft <= 7 ? 'text-[#E85D3A] font-medium' : 'text-[#F0EFE8]/30'}>
+                                  {daysLeft <= 0 ? 'Vencido' : daysLeft <= 7 ? `Vence en ${daysLeft}d` : `Vence: ${formatDate(u.premium_vence)}`}
+                                </div>
+                              );
+                            })()}
                           </div>
                         ) : (
                           '\u2014'
@@ -665,8 +854,17 @@ export default function AdminPage() {
                       <td className="px-4 py-3 text-right font-mono text-xs">
                         {u.transacciones}
                       </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                          u.tiene_webapp
+                            ? 'bg-[#6366F1]/15 text-[#818CF8]'
+                            : 'bg-white/5 text-[#F0EFE8]/50'
+                        }`}>
+                          {u.tiene_webapp ? 'Magic Link' : 'WhatsApp'}
+                        </span>
+                      </td>
                       <td className="px-4 py-3 text-xs text-[#F0EFE8]/40">
-                        {formatDate(u.created_at)}
+                        {formatDateTime(u.created_at)}
                       </td>
                       <td className="px-2 py-3">
                         <UserActions user={u} onAction={handleUserAction} />
@@ -710,14 +908,24 @@ export default function AdminPage() {
                       <StatusDot active={u.tiene_webapp} />
                       <span className="text-[#F0EFE8]/40">Webapp</span>
                     </div>
-                    {u.plan === 'premium' && u.premium_vence && (
-                      <div className="col-span-2">
-                        <span className="text-[#F0EFE8]/40">Vence:</span>{' '}
-                        {formatDate(u.premium_vence)}
-                      </div>
-                    )}
+                    <div className="flex items-center gap-1.5">
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                        u.tiene_webapp ? 'bg-[#6366F1]/15 text-[#818CF8]' : 'bg-white/5 text-[#F0EFE8]/50'
+                      }`}>
+                        {u.tiene_webapp ? 'Magic Link' : 'WhatsApp'}
+                      </span>
+                    </div>
+                    {u.plan === 'premium' && u.premium_vence && (() => {
+                      const daysLeft = Math.ceil((new Date(u.premium_vence).getTime() - Date.now()) / 86400000);
+                      return (
+                        <div className={`col-span-2 ${daysLeft <= 7 ? 'text-[#E85D3A] font-medium' : ''}`}>
+                          <span className="text-[#F0EFE8]/40">Vence:</span>{' '}
+                          {daysLeft <= 0 ? 'Vencido' : daysLeft <= 7 ? `en ${daysLeft} dias` : formatDate(u.premium_vence)}
+                        </div>
+                      );
+                    })()}
                     <div className="col-span-2 text-[#F0EFE8]/30">
-                      Registro: {formatDate(u.created_at)}
+                      Registro: {formatDateTime(u.created_at)}
                     </div>
                   </div>
                 </div>
@@ -797,6 +1005,63 @@ export default function AdminPage() {
               <div className="text-xs text-[#F0EFE8]/40">
                 {filtered.length} de {nlpErrors.length} errores
               </div>
+
+              {/* Top errores agrupados + mini chart */}
+              {nlpErrors.length > 0 && nlpTipoFilter === 'all' && nlpUserFilter === 'all' && !nlpSearch && (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {/* Top 5 mensajes más frecuentes */}
+                  <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+                    <h4 className="mb-2 text-xs font-medium text-[#F0EFE8]/50">Top 5 mensajes que fallan</h4>
+                    {(() => {
+                      const msgCounts: Record<string, number> = {};
+                      for (const err of nlpErrors) {
+                        const key = err.mensaje.toLowerCase().trim().slice(0, 80);
+                        msgCounts[key] = (msgCounts[key] || 0) + 1;
+                      }
+                      const sorted = Object.entries(msgCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+                      const maxCount = sorted[0]?.[1] || 1;
+                      return (
+                        <div className="space-y-2">
+                          {sorted.map(([msg, count]) => (
+                            <div key={msg}>
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="max-w-[200px] truncate text-[#F0EFE8]/60">&ldquo;{msg}&rdquo;</span>
+                                <span className="font-mono text-[#F0EFE8]/40">{count}x</span>
+                              </div>
+                              <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-white/5">
+                                <div className="h-full rounded-full bg-[#E85D3A]/60" style={{ width: `${(count / maxCount) * 100}%` }} />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Errores por tipo */}
+                  <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+                    <h4 className="mb-2 text-xs font-medium text-[#F0EFE8]/50">Errores por tipo</h4>
+                    {(() => {
+                      const tipoCounts: Record<string, number> = {};
+                      for (const err of nlpErrors) {
+                        tipoCounts[err.error_tipo] = (tipoCounts[err.error_tipo] || 0) + 1;
+                      }
+                      return (
+                        <div className="space-y-2">
+                          {Object.entries(tipoCounts).sort((a, b) => b[1] - a[1]).map(([tipo, count]) => (
+                            <div key={tipo} className="flex items-center justify-between text-xs">
+                              <span className={`rounded-full px-2 py-0.5 ${
+                                tipo === 'error' ? 'bg-red-500/10 text-red-400' : 'bg-amber-500/10 text-amber-400'
+                              }`}>{tipo}</span>
+                              <span className="font-mono text-[#F0EFE8]/40">{count}</span>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              )}
 
               {/* Error list */}
               {filtered.length === 0 ? (
