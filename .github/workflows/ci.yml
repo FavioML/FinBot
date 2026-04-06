@@ -27,3 +27,26 @@ jobs:
       META_VERIFY_TOKEN: test
       ADMIN_KEY: test
       ADMIN_WHATSAPP: test
+
+  nlp-agent:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Run NLP Agent (300 cases)
+        run: npm run test:nlp-agent
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          META_ACCESS_TOKEN: test
+          META_PHONE_NUMBER_ID: test
+          META_VERIFY_TOKEN: test
+          ADMIN_KEY: test
+          ADMIN_WHATSAPP: test
