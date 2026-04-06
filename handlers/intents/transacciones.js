@@ -320,7 +320,14 @@ module.exports = {
         try {
           const montoNuevo = datos.monto_nuevo ? parseFloat(datos.monto_nuevo) : null;
           if (!montoNuevo || montoNuevo <= 0) return 'Dime el monto correcto. Ej: _"el monto es 50"_, _"corrige a S/120"_.';
-          const txEditM = await obtenerUltimaTransaccion(usuario.id);
+          let txEditM = null;
+          if (datos.comercio) {
+            const { data: found } = await supabase.from('transacciones').select('*')
+              .eq('usuario_id', usuario.id).ilike('comercio', '%' + datos.comercio + '%')
+              .order('created_at', { ascending: false }).limit(1);
+            txEditM = found && found.length > 0 ? found[0] : null;
+          }
+          if (!txEditM) txEditM = await obtenerUltimaTransaccion(usuario.id);
           if (!txEditM) return 'No encuentro un gasto reciente para corregir.';
           const monedaEdit = txEditM.moneda || 'PEN';
           const updates = { monto: montoNuevo };
@@ -351,7 +358,14 @@ module.exports = {
             // Solo día → asumir mes/año actual
             fechaNueva = anioActual + '-' + String(mesActual).padStart(2,'0') + '-' + String(parseInt(fechaNueva)).padStart(2,'0');
           }
-          const txEditF = await obtenerUltimaTransaccion(usuario.id);
+          let txEditF = null;
+          if (datos.comercio) {
+            const { data: found } = await supabase.from('transacciones').select('*')
+              .eq('usuario_id', usuario.id).ilike('comercio', '%' + datos.comercio + '%')
+              .order('created_at', { ascending: false }).limit(1);
+            txEditF = found && found.length > 0 ? found[0] : null;
+          }
+          if (!txEditF) txEditF = await obtenerUltimaTransaccion(usuario.id);
           if (!txEditF) return 'No encuentro un gasto reciente para corregir.';
           await supabase.from('transacciones').update({ fecha: fechaNueva }).eq('id', txEditF.id);
           return '✅ Fecha corregida.\n*' + (txEditF.comercio || 'Gasto') + '*: ' + formatFecha(txEditF.fecha) + ' → ' + formatFecha(fechaNueva);
@@ -365,7 +379,14 @@ module.exports = {
         try {
           const comercioNuevo = datos.comercio_nuevo;
           if (!comercioNuevo) return 'Dime el nombre correcto. Ej: _"el comercio es Plaza Vea"_.';
-          const txEditC = await obtenerUltimaTransaccion(usuario.id);
+          let txEditC = null;
+          if (datos.comercio) {
+            const { data: found } = await supabase.from('transacciones').select('*')
+              .eq('usuario_id', usuario.id).ilike('comercio', '%' + datos.comercio + '%')
+              .order('created_at', { ascending: false }).limit(1);
+            txEditC = found && found.length > 0 ? found[0] : null;
+          }
+          if (!txEditC) txEditC = await obtenerUltimaTransaccion(usuario.id);
           if (!txEditC) return 'No encuentro un gasto reciente para corregir.';
           const comercioViejo = txEditC.comercio || 'Sin nombre';
           await supabase.from('transacciones').update({ comercio: comercioNuevo }).eq('id', txEditC.id);
@@ -380,7 +401,14 @@ module.exports = {
         try {
           const partes = datos.partes ? parseInt(datos.partes) : null;
           if (!partes || partes < 2 || partes > 20) return 'Dime entre cuántos dividir. Ej: _"divide entre 3"_, _"mitad es mío"_.';
-          const txDiv = await obtenerUltimaTransaccion(usuario.id);
+          let txDiv = null;
+          if (datos.comercio) {
+            const { data: found } = await supabase.from('transacciones').select('*')
+              .eq('usuario_id', usuario.id).ilike('comercio', '%' + datos.comercio + '%')
+              .order('created_at', { ascending: false }).limit(1);
+            txDiv = found && found.length > 0 ? found[0] : null;
+          }
+          if (!txDiv) txDiv = await obtenerUltimaTransaccion(usuario.id);
           if (!txDiv) return 'No encuentro un gasto reciente para dividir.';
           const montoOriginal = parseFloat(txDiv.monto);
           const montoNuevoDiv = parseFloat((montoOriginal / partes).toFixed(2));
@@ -431,8 +459,16 @@ module.exports = {
           const txDeshacer = await obtenerUltimaTransaccion(usuario.id);
           if (!txDeshacer) return 'No hay transacciones recientes para deshacer.';
           const montoDeshacer = txDeshacer.moneda === 'USD' ? '$' + parseFloat(txDeshacer.monto).toFixed(2) : 'S/ ' + parseFloat(txDeshacer.monto).toFixed(2);
+          // Guardar snapshot para permitir restaurar después
+          await supabase.from('transacciones_eliminadas').insert({
+            usuario_id: usuario.id,
+            tx_id: txDeshacer.id,
+            snapshot: { ...txDeshacer },
+          }).then(() => {}).catch((err) => {
+            log.warn({ tag: 'DESHACER_AUDIT', err: err.message }, 'No se pudo guardar snapshot');
+          });
           await supabase.from('transacciones').delete().eq('id', txDeshacer.id);
-          return '↩️ *Deshecho:*\n\nEliminé *' + (txDeshacer.comercio || 'último registro') + '* — ' + montoDeshacer + ' del ' + (txDeshacer.fecha || '') + '.\n\n_Si fue un error, puedes volver a registrarlo._';
+          return '↩️ *Deshecho:*\n\nEliminé *' + (txDeshacer.comercio || 'último registro') + '* — ' + montoDeshacer + ' del ' + (txDeshacer.fecha || '') + '.\n\n_Si fue un error, escribe "restaura" y lo devuelvo._';
         } catch(e) {
           log.error({ tag: 'DESHACER', err: e.message }, 'Error deshacer último');
           return 'No pude deshacer la última acción. Intenta de nuevo.';
@@ -456,7 +492,14 @@ module.exports = {
 
       case 'marcar_como_ingreso': {
         try {
-          const txMarcar = await obtenerUltimaTransaccion(usuario.id);
+          let txMarcar = null;
+          if (datos.comercio) {
+            const { data: found } = await supabase.from('transacciones').select('*')
+              .eq('usuario_id', usuario.id).ilike('comercio', '%' + datos.comercio + '%')
+              .order('created_at', { ascending: false }).limit(1);
+            txMarcar = found && found.length > 0 ? found[0] : null;
+          }
+          if (!txMarcar) txMarcar = await obtenerUltimaTransaccion(usuario.id);
           if (!txMarcar) return 'No hay transacciones recientes para modificar.';
           const tipoNuevo = datos.tipo_nuevo || 'ingreso';
           await supabase.from('transacciones').update({ tipo: tipoNuevo }).eq('id', txMarcar.id);

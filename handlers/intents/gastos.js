@@ -74,9 +74,11 @@ module.exports = {
           porSubSem[cat][sub] = (porSubSem[cat][sub]||0) + parseFloat(t.monto_pen || t.monto || 0);
         });
         const catSemStr = Object.entries(porCatSem).sort((a,b)=>b[1]-a[1]).slice(0,4).map(([c,m]) => (getEmojiCategoria(c)||'') + ' ' + c + ': S/ ' + m.toFixed(2)).join(', ');
-        // Comparativa semana anterior
-        const hace14 = new Date(); hace14.setDate(hace14.getDate()-14);
-        const hace7 = new Date(); hace7.setDate(hace7.getDate()-7);
+        // Comparativa semana anterior (usar fechaHoyPeru para evitar off-by-one con UTC)
+        const hoyStr = fechaHoyPeru();
+        const hoyD = new Date(hoyStr + 'T12:00:00');
+        const hace14 = new Date(hoyD); hace14.setDate(hoyD.getDate()-14);
+        const hace7 = new Date(hoyD); hace7.setDate(hoyD.getDate()-7);
         const { data: txsAnt } = await supabase.from('transacciones').select('monto,monto_pen').eq('usuario_id', usuario.id).eq('tipo','gasto').gte('fecha', hace14.toISOString().split('T')[0]).lte('fecha', hace7.toISOString().split('T')[0]);
         const totalAnt = (txsAnt||[]).reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
         const diffSem = totalSemN - totalAnt;

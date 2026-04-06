@@ -170,7 +170,8 @@ module.exports = {
             return 'No encontré deuda activa con *' + contraparte + '*. Revisa con _"mis deudas"_ a ver si el nombre está bien.';
           }
           if (resultado.error === 'overpayment') {
-            return '⚠️ El abono de S/' + montoAbono.toFixed(2) + ' excede lo pendiente (S/' + resultado.monto_pendiente.toFixed(2) + ').\n\nSi quieres liquidarla, escribe _"pagué todo a ' + contraparte + '"_.';
+            const symOver = resultado.moneda === 'USD' ? '$' : 'S/';
+            return '⚠️ El abono de ' + symOver + ' ' + montoAbono.toFixed(2) + ' excede lo pendiente (' + symOver + ' ' + resultado.monto_pendiente.toFixed(2) + ').\n\nSi quieres liquidarla, escribe _"pagué todo a ' + contraparte + '"_.';
           }
           const { deuda, completada } = resultado;
           const sym = deuda.moneda === 'USD' ? '$' : 'S/';
