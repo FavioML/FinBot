@@ -1,8 +1,7 @@
 'use client';
 
-export const dynamic = 'force-dynamic';
-
 import Image from 'next/image';
+import { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { motion } from 'motion/react';
 import { createClient } from '@/lib/supabase/client';
@@ -24,9 +23,17 @@ const features = [
   { icon: Bell, title: 'Alertas automáticas', desc: 'Notificaciones cuando te acerques a tus límites' },
 ];
 
-export default function LoginPage() {
+function AuthErrorBanner() {
   const searchParams = useSearchParams();
-  const authError = searchParams.get('error') === 'auth';
+  if (searchParams.get('error') !== 'auth') return null;
+  return (
+    <div className="mb-6 rounded-xl bg-[rgba(216,90,48,0.1)] border border-[rgba(216,90,48,0.2)] px-4 py-3 text-sm text-[#D85A30]">
+      No pudimos verificar tu sesión. Intenta de nuevo, o prueba con Chrome si el problema persiste.
+    </div>
+  );
+}
+
+export default function LoginPage() {
 
   const handleGoogleLogin = async () => {
     const supabase = createClient();
@@ -79,11 +86,9 @@ export default function LoginPage() {
           </p>
 
           {/* Auth error banner */}
-          {authError && (
-            <div className="mb-6 rounded-xl bg-[rgba(216,90,48,0.1)] border border-[rgba(216,90,48,0.2)] px-4 py-3 text-sm text-[#D85A30]">
-              No pudimos verificar tu sesión. Intenta de nuevo, o prueba con Chrome si el problema persiste.
-            </div>
-          )}
+          <Suspense>
+            <AuthErrorBanner />
+          </Suspense>
 
           {/* ── Existing users: Google login ── */}
           <div className="mb-2">
