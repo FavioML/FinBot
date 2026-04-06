@@ -55,22 +55,45 @@ export async function GET() {
     }
   }
 
-  const result = (usuarios || []).map((u) => ({
-    id: u.id,
-    whatsapp: u.whatsapp,
-    nombre: u.nombre,
-    email: u.email,
-    plan: u.plan || 'free',
-    estado_pago: u.estado_pago,
-    tipo_plan: u.tipo_plan,
-    fecha_pago: u.fecha_pago,
-    premium_vence: u.premium_vence,
-    onboarding_completado: u.onboarding_completado,
-    tiene_gmail: !!u.gmail_access_token,
-    tiene_webapp: !!u.supabase_auth_id,
-    transacciones: countMap[u.id] || 0,
-    created_at: u.created_at,
-  }));
+  // Get auth provider for users with supabase_auth_id
+  const authIds = (usuarios || []).filter((u) => u.supabase_auth_id).map((u) => u.supabase_auth_id);
+  const providerMap: Record<string, string> = {};
+  if (authIds.length > 0) {
+    const { data: { users: authUsers } } = await getServiceClient().auth.admin.listUsers({ perPage: 1000 });
+    if (authUsers) {
+      for (const au of authUsers) {
+        const provider = au.app_metadata?.provider || au.app_metadata?.providers?.[0] || 'unknown';
+        providerMap[au.id] = provider;
+      }
+    }
+  }
+
+  const result = (usuarios || []).map((u) => {
+    // Determine canal: whatsapp (no webapp), google, magic_link (email)
+    let canal: 'whatsapp' | 'google' | 'magic_link' = 'whatsapp';
+    if (u.supabase_auth_id) {
+      const provider = providerMap[u.supabase_auth_id] || 'unknown';
+      canal = provider === 'google' ? 'google' : 'magic_link';
+    }
+
+    return {
+      id: u.id,
+      whatsapp: u.whatsapp,
+      nombre: u.nombre,
+      email: u.email,
+      plan: u.plan || 'free',
+      estado_pago: u.estado_pago,
+      tipo_plan: u.tipo_plan,
+      fecha_pago: u.fecha_pago,
+      premium_vence: u.premium_vence,
+      onboarding_completado: u.onboarding_completado,
+      tiene_gmail: !!u.gmail_access_token,
+      tiene_webapp: !!u.supabase_auth_id,
+      canal,
+      transacciones: countMap[u.id] || 0,
+      created_at: u.created_at,
+    };
+  });
 
   return NextResponse.json({ ok: true, total: result.length, usuarios: result });
 }

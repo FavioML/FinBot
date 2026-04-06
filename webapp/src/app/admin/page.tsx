@@ -46,6 +46,7 @@ interface AdminUser {
   onboarding_completado: boolean;
   tiene_gmail: boolean;
   tiene_webapp: boolean;
+  canal: 'whatsapp' | 'google' | 'magic_link';
   transacciones: number;
   created_at: string;
 }
@@ -78,16 +79,19 @@ function formatDate(dateStr: string | null) {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
+    timeZone: 'America/Lima',
   });
 }
 
 function formatDateTime(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString('es-PE', {
+  return new Date(dateStr).toLocaleString('es-PE', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    hour12: true,
+    timeZone: 'America/Lima',
   });
 }
 
@@ -113,6 +117,24 @@ function StatusDot({ active }: { active: boolean }) {
         active ? 'bg-[#1D9E75]' : 'bg-white/20'
       }`}
     />
+  );
+}
+
+function CanalBadge({ canal }: { canal: 'whatsapp' | 'google' | 'magic_link' }) {
+  const styles = {
+    whatsapp: 'bg-[#25D366]/15 text-[#25D366]',
+    google: 'bg-[#4285F4]/15 text-[#7AAFFF]',
+    magic_link: 'bg-[#6366F1]/15 text-[#818CF8]',
+  };
+  const labels = {
+    whatsapp: 'WhatsApp',
+    google: 'Google',
+    magic_link: 'Magic Link',
+  };
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${styles[canal]}`}>
+      {labels[canal]}
+    </span>
   );
 }
 
@@ -432,8 +454,7 @@ export default function AdminPage() {
     if (userGmailFilter === 'no conectado' && u.tiene_gmail) return false;
     if (userWebappFilter === 'conectado' && !u.tiene_webapp) return false;
     if (userWebappFilter === 'no conectado' && u.tiene_webapp) return false;
-    if (userCanalFilter === 'magic_link' && !u.tiene_webapp) return false;
-    if (userCanalFilter === 'whatsapp' && u.tiene_webapp) return false;
+    if (userCanalFilter !== 'todos' && u.canal !== userCanalFilter) return false;
     return true;
   });
 
@@ -568,9 +589,12 @@ export default function AdminPage() {
             </div>
           </div>
           <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
-            <div className="text-xs text-[#F0EFE8]/40">Magic Link</div>
-            <div className="mt-1 text-lg font-semibold">{stats?.funnel.magicLink ?? totalWebapp}</div>
-            <div className="text-xs text-[#F0EFE8]/30">Gmail: {totalGmail}</div>
+            <div className="text-xs text-[#F0EFE8]/40">Canales Webapp</div>
+            <div className="mt-1 text-lg font-semibold">{totalWebapp}</div>
+            <div className="flex gap-2 text-xs text-[#F0EFE8]/30">
+              <span>Google: {users.filter(u => u.canal === 'google').length}</span>
+              <span>ML: {users.filter(u => u.canal === 'magic_link').length}</span>
+            </div>
           </div>
           <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
             <div className="text-xs text-[#F0EFE8]/40">Total Usuarios</div>
@@ -620,7 +644,7 @@ export default function AdminPage() {
                   { label: 'Registrados', value: stats.funnel.registered, color: '#F0EFE8' },
                   { label: 'Onboarding OK', value: stats.funnel.onboardingComplete, color: '#E8A838' },
                   { label: '1a Transaccion', value: stats.funnel.firstTransaction, color: '#D85A30' },
-                  { label: 'Magic Link', value: stats.funnel.magicLink, color: '#6366F1' },
+                  { label: 'Webapp (Google + ML)', value: stats.funnel.magicLink, color: '#6366F1' },
                   { label: 'Pro', value: stats.funnel.pro, color: '#1D9E75' },
                 ].map((step) => {
                   const pct = stats.funnel.registered > 0 ? Math.round((step.value / stats.funnel.registered) * 100) : 0;
@@ -766,6 +790,7 @@ export default function AdminPage() {
                 >
                   <option value="todos" className="bg-[#1A1A18]">Canal: Todos</option>
                   <option value="whatsapp" className="bg-[#1A1A18]">Solo WhatsApp</option>
+                  <option value="google" className="bg-[#1A1A18]">Google OAuth</option>
                   <option value="magic_link" className="bg-[#1A1A18]">Magic Link</option>
                 </select>
                 {(userPlanFilter !== 'todos' || userOnboardingFilter !== 'todos' || userGmailFilter !== 'todos' || userWebappFilter !== 'todos' || userCanalFilter !== 'todos') && (
@@ -855,13 +880,7 @@ export default function AdminPage() {
                         {u.transacciones}
                       </td>
                       <td className="px-4 py-3">
-                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                          u.tiene_webapp
-                            ? 'bg-[#6366F1]/15 text-[#818CF8]'
-                            : 'bg-white/5 text-[#F0EFE8]/50'
-                        }`}>
-                          {u.tiene_webapp ? 'Magic Link' : 'WhatsApp'}
-                        </span>
+                        <CanalBadge canal={u.canal} />
                       </td>
                       <td className="px-4 py-3 text-xs text-[#F0EFE8]/40">
                         {formatDateTime(u.created_at)}
@@ -909,11 +928,7 @@ export default function AdminPage() {
                       <span className="text-[#F0EFE8]/40">Webapp</span>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                        u.tiene_webapp ? 'bg-[#6366F1]/15 text-[#818CF8]' : 'bg-white/5 text-[#F0EFE8]/50'
-                      }`}>
-                        {u.tiene_webapp ? 'Magic Link' : 'WhatsApp'}
-                      </span>
+                      <CanalBadge canal={u.canal} />
                     </div>
                     {u.plan === 'premium' && u.premium_vence && (() => {
                       const daysLeft = Math.ceil((new Date(u.premium_vence).getTime() - Date.now()) / 86400000);
