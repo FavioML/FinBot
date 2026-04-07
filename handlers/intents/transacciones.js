@@ -117,7 +117,11 @@ module.exports = {
         try {
           const correcciones = await parsearCorreccionesMultiples(msg);
           if (!correcciones || correcciones.length === 0) {
-            return 'No pude entender las correcciones. Dime una por una: "Netflix pasalo a Entretenimiento".';
+            const { WEBAPP_URL } = require('../../lib/constants');
+            return '💡 No pude procesar eso directamente. Para cambios múltiples te recomiendo usar el dashboard:\n\n'
+              + '👉 ' + WEBAPP_URL + '/dashboard/transacciones\n\n'
+              + 'Ahí puedes filtrar y editar varios gastos de una vez.\n'
+              + '_O dime uno por uno y lo hago por acá._';
           }
           const resultados = [];
           for (const corr of correcciones) {
@@ -145,7 +149,10 @@ module.exports = {
           return 'Listo! Actualicé ' + resultados.length + ' gastos:\n\n' + resultados.join('\n');
         } catch(e) {
           log.error({ tag: 'MULT', err: e.message }, 'Error corrección múltiple');
-          return 'No pude procesar las correcciones. Intenta una por una.';
+          const { WEBAPP_URL } = require('../../lib/constants');
+          return '💡 Hubo un error procesando eso. Para cambios múltiples usa el dashboard:\n\n'
+            + '👉 ' + WEBAPP_URL + '/dashboard/transacciones\n\n'
+            + '_O dime las correcciones de una en una._';
         }
       }
 

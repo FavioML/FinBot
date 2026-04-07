@@ -5,7 +5,7 @@ const log = require('../lib/logger');
 const { hoyPeru, ayerPeru, ultimoDiaMes } = require('../lib/dates');
 const fechaHoyPeru = () => hoyPeru();
 const fechaAyerPeru = () => ayerPeru();
-const { CATEGORIAS_VALIDAS, CATEGORIA_MAP } = require('../lib/constants');
+const { CATEGORIAS_VALIDAS, CATEGORIA_MAP, WEBAPP_URL } = require('../lib/constants');
 const { validarMonto, normalizarCategoria } = require('../lib/validators');
 const { ADMIN_NUMBER } = require('../lib/config');
 const { getEmojiCategoria, formatearResumen, formatearPendientes, formatearCategoriasMsg, barraProgreso, generarRefCode, formatFecha } = require('../lib/formatters');
@@ -104,6 +104,34 @@ async function procesarMensajeLibre(msg, usuario, from) {
 
     // Guardar mensaje del usuario en historial
     await guardarMensaje(usuario.id, 'usuario', msg);
+
+    // === Detector de operaciones complejas/bulk → sugerir dashboard ===
+    const msgLower = msg.toLowerCase();
+    const BULK_PATTERNS = [
+      // "cambia estos N gastos" / "actualiza estos N"
+      /cambia\s+estos\s+\d+/,
+      /actualiza\s+estos\s+\d+/,
+      /corrige\s+estos\s+\d+/,
+      // lista de varios ítems separados por coma/y (3+)
+      /(?:cambia|mueve|pon|pasa|recategoriza|corrige)(?:[^.]{0,80}(?:,|\sy\s)){2,}/,
+      // "los últimos N gastos" + verbo de edición
+      /(?:los?\s+)?[úu]ltimos?\s+\d{1,2}\s+gastos?.{0,50}(?:cambia|mueve|pon|pasa|recategoriza|corrige)/,
+      /(?:cambia|mueve|pon|pasa|recategoriza|corrige).{0,50}(?:los?\s+)?[úu]ltimos?\s+\d{1,2}\s+gastos?/,
+      // "todos los gastos de X" + verbo
+      /todos\s+los\s+(?:gastos?\s+)?de\s+\w.{0,60}(?:cambia|mueve|pon|pasa|a\s+\w)/,
+      // corregir/cambiar varios comercios de una vez (más de 2 en mismo msg)
+      /(?:cambia|pon|mueve|pasa)\s+(?:el\s+de\s+\w+.{0,40}){3,}/,
+    ];
+    const esBulk = BULK_PATTERNS.some(p => p.test(msgLower));
+    if (esBulk) {
+      log.info({ tag: 'DASHBOARD_SUGGEST', msg: msg.substring(0, 120) }, 'Bulk op detected, suggesting dashboard');
+      const sugerencia = '💡 Para cambios múltiples es mucho más rápido usar el dashboard:\n\n'
+        + '👉 ' + WEBAPP_URL + '/dashboard/transacciones\n\n'
+        + 'Desde ahí puedes filtrar, seleccionar varios gastos y editarlos de una vez.\n'
+        + '_¿Quieres que te ayude con algo más puntual por acá?_';
+      await guardarMensaje(usuario.id, 'neto', sugerencia.substring(0, 500));
+      return sugerencia;
+    }
 
     // === OpenAI Function Calling — NLP inteligente ===
     const nlpResponse = await openai.chat.completions.create({
