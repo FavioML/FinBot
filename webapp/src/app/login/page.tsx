@@ -25,57 +25,32 @@ const features = [
 
 function AuthErrorBanner() {
   const searchParams = useSearchParams();
+  if (searchParams.get('error') !== 'auth') return null;
+  return (
+    <div className="mb-6 rounded-xl bg-[rgba(216,90,48,0.08)] border border-[rgba(216,90,48,0.2)] px-4 py-3">
+      <p className="text-sm text-[#D85A30]">
+        No pudimos verificar tu sesión con Google. Usa tu email abajo para acceder.
+      </p>
+    </div>
+  );
+}
+
+export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
-  const [loading, setLoading] = useState(false);
-
-  if (searchParams.get('error') !== 'auth') return null;
+  const [loadingMagic, setLoadingMagic] = useState(false);
 
   async function handleMagicLink() {
     if (!email.trim()) return;
-    setLoading(true);
+    setLoadingMagic(true);
     const supabase = createClient();
     await supabase.auth.signInWithOtp({
       email: email.trim(),
       options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
     });
     setSent(true);
-    setLoading(false);
+    setLoadingMagic(false);
   }
-
-  return (
-    <div className="mb-6 rounded-xl bg-[rgba(216,90,48,0.08)] border border-[rgba(216,90,48,0.2)] px-4 py-4 space-y-3">
-      <p className="text-sm text-[#D85A30]">
-        No pudimos verificar tu sesión con Google. Ingresa tu email y te enviamos un enlace de acceso directo.
-      </p>
-      {sent ? (
-        <p className="text-sm text-[#1D9E75] font-medium">
-          ✓ Enlace enviado — revisa tu correo y haz click en el link.
-        </p>
-      ) : (
-        <div className="flex gap-2">
-          <input
-            type="email"
-            placeholder="tu@email.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleMagicLink()}
-            className="flex-1 rounded-lg bg-[rgba(255,255,255,0.06)] border border-[rgba(216,90,48,0.3)] px-3 py-2 text-sm text-[#F0EFE8] placeholder-[#8A877D] outline-none focus:border-[#D85A30]"
-          />
-          <button
-            onClick={handleMagicLink}
-            disabled={loading || !email.trim()}
-            className="rounded-lg bg-[#D85A30] px-4 py-2 text-sm font-medium text-white disabled:opacity-50 hover:bg-[#D85A30]/90 transition-colors shrink-0"
-          >
-            {loading ? '...' : 'Enviar enlace'}
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-export default function LoginPage() {
 
   const handleGoogleLogin = async () => {
     const supabase = createClient();
@@ -156,15 +131,51 @@ export default function LoginPage() {
           {/* Divider */}
           <div className="my-6 flex items-center gap-3">
             <div className="h-px flex-1 bg-white/[0.06]" />
-            <span className="text-xs text-[#8A877D]">o</span>
+            <span className="text-xs text-[#8A877D]">o ingresa con tu email</span>
+            <div className="h-px flex-1 bg-white/[0.06]" />
+          </div>
+
+          {/* ── Magic link: for non-Google accounts ── */}
+          <div className="mb-6">
+            <p className="text-xs font-medium text-[#8A877D] uppercase tracking-wider mb-3">
+              Outlook, Hotmail, Yahoo y otros
+            </p>
+            {sent ? (
+              <div className="rounded-xl bg-[rgba(29,158,117,0.08)] border border-[rgba(29,158,117,0.2)] px-4 py-3">
+                <p className="text-sm text-[#1D9E75] font-medium">
+                  ✓ Enlace enviado — revisa tu correo y haz clic en el link.
+                </p>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <input
+                  type="email"
+                  placeholder="tu@email.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleMagicLink()}
+                  className="flex-1 rounded-xl bg-white/[0.04] border border-white/[0.08] px-3 py-3 text-sm text-[#F0EFE8] placeholder-[#8A877D] outline-none focus:border-[#1D9E75]/50 transition-colors"
+                />
+                <button
+                  onClick={handleMagicLink}
+                  disabled={loadingMagic || !email.trim()}
+                  className="rounded-xl bg-white/[0.06] border border-white/[0.08] px-4 py-3 text-sm font-medium text-[#F0EFE8] disabled:opacity-40 hover:bg-white/[0.10] transition-colors shrink-0"
+                >
+                  {loadingMagic ? '...' : 'Enviar enlace'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Divider */}
+          <div className="my-6 flex items-center gap-3">
+            <div className="h-px flex-1 bg-white/[0.06]" />
+            <span className="text-xs text-[#8A877D]">¿aún no tienes cuenta?</span>
             <div className="h-px flex-1 bg-white/[0.06]" />
           </div>
 
           {/* ── New users: WhatsApp registration ── */}
           <div>
-            <p className="text-xs font-medium text-[#8A877D] uppercase tracking-wider mb-3">
-              ¿Aún no tienes cuenta?
-            </p>
             <a
               href="https://wa.me/51933014505?text=Hola%20Neto%2C%20quiero%20empezar%20a%20ordenar%20mis%20finanzas%20%F0%9F%91%8B"
               target="_blank"
