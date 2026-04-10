@@ -173,7 +173,24 @@ async function configurarClienteParaCuenta(cuenta) {
         updated_at: new Date().toISOString()
       }).eq('usuario_id', cuenta.usuario_id).eq('email', cuenta.email);
       cliente.setCredentials(credentials);
-    } catch(e) { log.error({ tag: 'TOKEN', err: e.message }, 'Error refrescando token'); }
+    } catch(e) {
+      log.error({ tag: 'TOKEN', err: e.message }, 'Error refrescando token');
+      // Detectar revocación/expiración permanente del refresh token (ej: app en modo Testing)
+      const esAuthPermanente = e.message && (
+        e.message.includes('invalid_grant') ||
+        e.message.includes('Token has been expired or revoked') ||
+        e.message.includes('refresh_token') ||
+        e.message.toLowerCase().includes('revoked')
+      );
+      if (esAuthPermanente) {
+        log.warn({ tag: 'TOKEN', email: cuenta.email }, 'Refresh token revocado — cuenta necesita reconexión');
+        const authErr = new Error('AUTH_EXPIRED');
+        authErr.code = 'AUTH_EXPIRED';
+        authErr.email = cuenta.email;
+        authErr.usuarioId = cuenta.usuario_id;
+        throw authErr;
+      }
+    }
   }
   return cliente;
 }
@@ -333,11 +350,18 @@ async function leerCorreosBancarios(usuarioId) {
         const cliente = await configurarClienteParaCuenta(cuenta);
         return leerCorreosDesdeCuenta(cliente, cuenta.email);
       } catch(e) {
+        if (e.code === 'AUTH_EXPIRED') {
+          // Propagar como valor especial para que el scanner pueda notificar al usuario
+          return { error: 'AUTH_EXPIRED', mensajes: [], cuentaEmail: cuenta.email, usuarioId: cuenta.usuario_id };
+        }
         log.error({ tag: 'GMAIL', email: cuenta.email, err: e.message }, 'Error en cuenta Gmail');
         return { error: e.message, mensajes: [], cuentaEmail: cuenta.email };
       }
     })
   );
+
+  // Detectar si alguna cuenta tiene auth expirada
+  const authExpired = resultados.some(r => r.error === 'AUTH_EXPIRED');
 
   // Unificar mensajes de todas las cuentas (deduplicar por id)
   const vistos = new Set();
@@ -349,7 +373,7 @@ async function leerCorreosBancarios(usuarioId) {
     }
   }
 
-  return { error: null, mensajes: mensajesUnificados };
+  return { error: authExpired ? 'AUTH_EXPIRED' : null, mensajes: mensajesUnificados };
 }
 
 module.exports = { generarUrlAutorizacion, guardarTokens, cargarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail };

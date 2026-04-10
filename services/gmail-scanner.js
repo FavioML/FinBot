@@ -20,9 +20,25 @@ function getEnviarAlertaTransaccion() {
   return _enviarAlertaTransaccion;
 }
 
+// Throttle de notificaciones de auth expirada: máx 1 vez cada 24h por usuario
+const authErrorNotifiedAt = new Map();
+
+async function notificarAuthExpirada(usuario) {
+  const last = authErrorNotifiedAt.get(usuario.id) || 0;
+  if (Date.now() - last < 24 * 60 * 60 * 1000) return; // ya notificado hoy
+  authErrorNotifiedAt.set(usuario.id, Date.now());
+  log.warn({ tag: 'AUTH', usuarioId: usuario.id }, 'Gmail desconectado — notificando usuario');
+  await enviarWhatsapp(usuario.whatsapp,
+    '⚠️ *Tu Gmail se desconectó*\n\n' +
+    'Neto ya no puede leer tus correos bancarios para registrar tus gastos automáticamente.\n\n' +
+    'Escríbeme *"conectar gmail"* para reconectarte y que todo vuelva a funcionar 👇'
+  );
+}
+
 async function escanearGmailYRegistrar(usuario) {
   const { error, mensajes } = await leerCorreosBancarios(usuario.id);
   if (error === 'no_auth') return null;
+  if (error === 'AUTH_EXPIRED') return { authError: true };
   if (!mensajes.length) return null;
   let registradas = 0; let ignoradas = 0; let resumen = '';
   const txsConsultar = [];
@@ -85,8 +101,10 @@ async function escaneoAutomatico() {
         const planConfigAuto = getUserPlanConfig(usuario);
         if (planConfigAuto.maxGmailAccounts === 0) continue;
         const resultado = await escanearGmailYRegistrar(usuario);
-        // Bug fix: el string retornado contiene 'movimiento', no 'Registre'
-        if (resultado && resultado.includes('movimiento')) {
+        if (resultado && resultado.authError) {
+          // Gmail desconectado — notificar al usuario (máx 1 vez/24h)
+          await notificarAuthExpirada(usuario);
+        } else if (resultado && typeof resultado === 'string' && resultado.includes('movimiento')) {
           await enviarWhatsapp(usuario.whatsapp, '\uD83D\uDD04 *Escaneo automatico*\n\n' + resultado);
           await crearNotificacion(usuario.id, 'sistema', 'Escaneo de correo completado', 'Se detectaron nuevos movimientos en tu correo bancario', { link: '/dashboard/transacciones' });
         }
