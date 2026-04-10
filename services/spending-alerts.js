@@ -40,7 +40,7 @@ function detectarGastosHormiga(datosUsuario) {
       type: 'ant',
       category: null,
       amount: total,
-      comparison_amount: cantidad,
+      comparison_amount: 0,
       detail: { cantidad, total },
     }];
   }
@@ -58,7 +58,7 @@ function detectarPatronesRecurrentes(datosUsuario) {
         type: 'recurring',
         category: null,
         amount: c.monto_total,
-        comparison_amount: c.frecuencia,
+        comparison_amount: 0,
         detail: {
           comercio: c.nombre,
           frecuencia: c.frecuencia,
@@ -186,6 +186,24 @@ async function generarMensajeFugas(alertas, nombreUsuario, isPro) {
 }
 
 /**
+ * Build a specific message for a single alert based on its type and data.
+ */
+function mensajePorAlerta(a) {
+  switch (a.type) {
+    case 'spike':
+      return `Tus gastos en ${a.category} subieron ${Math.round(a.detail.variacion)}% este mes. Gastaste S/${a.detail.diff} más que el mes anterior.`;
+    case 'ant':
+      return `Acumulas ${a.detail.cantidad} compras menores de S/20 que suman S/${a.detail.total} en total este mes.`;
+    case 'recurring':
+      return `Compraste en ${a.detail.comercio} ${a.detail.frecuencia} veces este mes, ticket promedio S/${a.detail.ticket_promedio}.`;
+    case 'projection':
+      return `A este ritmo gastarás S/${a.detail.proyeccion} en ${a.category} este mes, superando tu presupuesto de S/${a.detail.limite} por S/${a.detail.exceso_proyectado}.`;
+    default:
+      return 'Se detectó un patrón de gasto inusual.';
+  }
+}
+
+/**
  * Persist alerts to spending_alerts table.
  */
 async function guardarAlertas(usuarioId, alertas, mensaje) {
@@ -195,7 +213,7 @@ async function guardarAlertas(usuarioId, alertas, mensaje) {
     category: a.category,
     amount: a.amount,
     comparison_amount: a.comparison_amount,
-    message: mensaje,
+    message: mensajePorAlerta(a),
   }));
 
   const { error } = await supabase.from('spending_alerts').insert(rows);
