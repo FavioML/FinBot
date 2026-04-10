@@ -64,14 +64,29 @@ async function escanearGmailYRegistrar(usuario) {
 async function escaneoAutomatico() {
   log.info({ tag: 'AUTO' }, 'Escaneo automático iniciado');
   try {
-    const { data: usuarios } = await supabase.from('usuarios').select('*').not('gmail_access_token', 'is', null);
-    if (!usuarios || usuarios.length === 0) return;
-    for (const usuario of usuarios) {
+    // Bug fix: incluir usuarios con token legacy Y usuarios con cuentas en gmail_cuentas
+    const [{ data: usuariosLegacy }, { data: cuentasGmail }] = await Promise.all([
+      supabase.from('usuarios').select('*').not('gmail_access_token', 'is', null),
+      supabase.from('gmail_cuentas').select('usuario_id').eq('activa', true),
+    ]);
+
+    const idsLegacy = new Set((usuariosLegacy || []).map(u => u.id));
+    const idsSoloNuevos = [...new Set((cuentasGmail || []).map(c => c.usuario_id))].filter(id => !idsLegacy.has(id));
+
+    let todosLosUsuarios = usuariosLegacy || [];
+    if (idsSoloNuevos.length > 0) {
+      const { data: usuariosNuevos } = await supabase.from('usuarios').select('*').in('id', idsSoloNuevos);
+      todosLosUsuarios = [...todosLosUsuarios, ...(usuariosNuevos || [])];
+    }
+
+    if (!todosLosUsuarios.length) return;
+    for (const usuario of todosLosUsuarios) {
       try {
         const planConfigAuto = getUserPlanConfig(usuario);
         if (planConfigAuto.maxGmailAccounts === 0) continue;
         const resultado = await escanearGmailYRegistrar(usuario);
-        if (resultado && resultado.includes('Registre')) {
+        // Bug fix: el string retornado contiene 'movimiento', no 'Registre'
+        if (resultado && resultado.includes('movimiento')) {
           await enviarWhatsapp(usuario.whatsapp, '\uD83D\uDD04 *Escaneo automatico*\n\n' + resultado);
           await crearNotificacion(usuario.id, 'sistema', 'Escaneo de correo completado', 'Se detectaron nuevos movimientos en tu correo bancario', { link: '/dashboard/transacciones' });
         }
