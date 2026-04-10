@@ -41,11 +41,17 @@ const TYPE_CONFIG = {
   },
 } as const;
 
+const COMPARISON_LABEL: Record<string, string> = {
+  spike: 'mes anterior',
+  projection: 'presupuesto',
+};
+
 function AlertCard({ alert, canLimits, onSetLimit }: { alert: SpendingAlert; canLimits: boolean; onSetLimit?: (category?: string) => void }) {
   const config = TYPE_CONFIG[alert.type];
   const Icon = config.icon;
   const showLimitButton = canLimits && (alert.type === 'spike' || alert.type === 'projection');
-  const diff = alert.comparison_amount > 0
+  const showComparison = alert.comparison_amount > 0 && (alert.type === 'spike' || alert.type === 'projection');
+  const diff = showComparison
     ? Math.round(((alert.amount - alert.comparison_amount) / alert.comparison_amount) * 100)
     : null;
 
@@ -80,9 +86,9 @@ function AlertCard({ alert, canLimits, onSetLimit }: { alert: SpendingAlert; can
           <span className="text-sm font-semibold text-[#F0EFE8]">
             {formatCurrency(alert.amount)}
           </span>
-          {alert.comparison_amount > 0 && (
+          {showComparison && (
             <span className="text-xs text-[#8A877D]">
-              vs {formatCurrency(alert.comparison_amount)} normal
+              vs {formatCurrency(alert.comparison_amount)} {COMPARISON_LABEL[alert.type] ?? ''}
               {diff !== null && ` (+${diff}%)`}
             </span>
           )}
