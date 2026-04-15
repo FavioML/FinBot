@@ -337,8 +337,8 @@ export default function DashboardPage() {
         </HeaderActions>
       </div>
 
-      {/* View mode toggle */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      {/* View mode toggle — tabs + period selector share one row on all sizes */}
+      <div className="flex flex-row items-center justify-between gap-3">
         <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as string)}>
           <TabsList className="glass-card border-0">
             <TabsTrigger value="mensual">Mensual</TabsTrigger>
@@ -361,11 +361,7 @@ export default function DashboardPage() {
           </Select>
         )}
 
-        {viewMode === 'mensual' && (
-          <div className="sm:ml-auto">
-            <MonthSelector />
-          </div>
-        )}
+        {viewMode === 'mensual' && <MonthSelector />}
       </div>
 
       {!hasTransactions ? (
@@ -413,10 +409,14 @@ export default function DashboardPage() {
         )
       ) : (
         <>
-          {/* Quick actions */}
-          <FadeIn delay={0.04}>
-            <QuickActions />
-          </FadeIn>
+          {/* Quick actions — desktop only. On mobile, the primary action
+              (+ gasto) lives in the FAB and the rest are in the bottom-nav,
+              so this bar would be redundant clutter in the first viewport. */}
+          <div className="hidden sm:block">
+            <FadeIn delay={0.04}>
+              <QuickActions />
+            </FadeIn>
+          </div>
 
           {/* KPI cards */}
           <FadeIn delay={0.08}>
