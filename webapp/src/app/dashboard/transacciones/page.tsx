@@ -462,8 +462,8 @@ export default function TransaccionesPage() {
         </Button>
       </div>
 
-      {/* View mode tabs + month selector */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      {/* View mode tabs + period selector — same row on all breakpoints */}
+      <div className="flex flex-row items-center justify-between gap-3">
         <Tabs value={viewMode} onValueChange={(val) => { setViewMode(val as 'mensual' | 'anual'); setPage(1); }}>
           <TabsList>
             <TabsTrigger value="mensual">Mensual</TabsTrigger>
@@ -471,9 +471,7 @@ export default function TransaccionesPage() {
           </TabsList>
         </Tabs>
 
-        {viewMode === 'mensual' && (
-          <MonthSelector />
-        )}
+        {viewMode === 'mensual' && <MonthSelector />}
 
         {viewMode === 'anual' && (
           <Select value={String(annualYear)} onValueChange={(val) => { setAnnualYear(Number(val)); setPage(1); }}>
