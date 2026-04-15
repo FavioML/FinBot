@@ -37,7 +37,7 @@ export function ProGate({ featureName, description }: ProGateProps) {
             href="https://wa.me/51933014505?text=Hola%20Neto%2C%20quiero%20activar%20Pro%20%E2%AD%90"
             target="_blank"
             rel="noopener noreferrer"
-            className="block w-full px-4 py-3 bg-[#1D9E75] hover:bg-[#1a8a6a] text-[#F0EFE8] font-semibold rounded-lg transition-colors duration-200 animate-cta-pulse"
+            className="block w-full px-4 py-3 bg-[#1D9E75] hover:bg-[#1a8a6a] active:scale-[0.98] text-[#F0EFE8] font-semibold rounded-lg transition-all duration-200"
           >
             Activar Pro en WhatsApp
           </a>

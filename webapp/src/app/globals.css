@@ -114,17 +114,34 @@
   }
 }
 
-/* Glass card pattern */
+/* Solid card surface (Nocturnal, no glassmorphism)
+ * Reason: blur(12px) on 20+ elements is expensive on mobile GPUs,
+ * and rgba(255,255,255,0.03) over #0E0E0C is nearly invisible —
+ * cards looked borderless. Two-tier solid surfaces using brand tokens
+ * (--color-neto-bg2 / bg3) give clear depth without GPU cost.
+ */
 .glass-card {
-  background: rgba(255, 255, 255, 0.03);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--color-neto-bg2); /* #131311 */
+  border: 1px solid rgba(240, 239, 232, 0.08);
   border-radius: 1rem;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.03) inset,
+    0 4px 16px rgba(0, 0, 0, 0.3);
 }
 
 .glass-card:hover {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.1);
+  background: var(--color-neto-bg3); /* #1C1C19 */
+  border-color: rgba(240, 239, 232, 0.12);
+}
+
+/* Elevated variant for nested cards or modals */
+.glass-card-elevated {
+  background: var(--color-neto-bg3); /* #1C1C19 */
+  border: 1px solid rgba(240, 239, 232, 0.1);
+  border-radius: 1rem;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
 /* Scrollbar styling — dark theme */
@@ -175,7 +192,6 @@
   background-size: 300% 100%;
   animation: shimmer 2s ease-in-out infinite;
   border: 1px solid rgba(255, 255, 255, 0.04);
-  backdrop-filter: blur(8px);
 }
 
 /* Safe area for bottom nav (iOS notch) */
@@ -260,11 +276,10 @@ main {
 }
 .animate-marquee { animation: marquee 20s linear infinite; }
 
-@keyframes cta-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(29, 158, 117, 0.4); }
-  50% { box-shadow: 0 0 0 12px rgba(29, 158, 117, 0); }
-}
-.animate-cta-pulse { animation: cta-pulse 2s ease-in-out infinite; }
+/* NOTE: `cta-pulse` infinite loop was removed — it fatigued the eye
+ * and drained battery on mobile. CTAs now rely on static contrast +
+ * active:scale-95 for tactile feedback. See feat/mobile-comfort audit.
+ */
 
 @keyframes rotate-border {
   from { --angle: 0deg; }
