@@ -52,7 +52,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
  *  desktop (they're already in the mobile Topbar). */
 export function HeaderActions({ children }: { children?: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-2 sm:gap-3 flex-nowrap min-w-0">
       {children}
       <div className="hidden md:flex items-center gap-3">
         <NotificationBell />
