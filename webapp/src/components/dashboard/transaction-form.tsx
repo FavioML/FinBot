@@ -335,9 +335,9 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="glass-card-elevated border-0 sm:max-w-md max-h-[92vh] overflow-y-auto p-0 gap-0">
+      <DialogContent className="glass-card-elevated border-0 w-[calc(100vw-2rem)] sm:w-full sm:max-w-md max-h-[92vh] overflow-y-auto overflow-x-hidden p-0 gap-0">
         {/* Header */}
-        <div className="px-5 pt-5 pb-3">
+        <div className="px-5 pt-5 pb-3 min-w-0">
           <DialogHeader>
             <DialogTitle className="text-[#F0EFE8] text-xl font-semibold">
               {title}
@@ -349,20 +349,23 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
         </div>
 
         {/* Hero monto — the protagonist. MonedaToggle lives in the label row
-            so the number has the full dialog width and never overflows. */}
-        <div className="px-5 pb-4">
-          <div className="flex items-center justify-between mb-2 gap-3">
-            <label className="text-xs font-medium uppercase tracking-wider text-[#8A877D]">
+            so the number has the full dialog width and never overflows.
+            `size={1}` on the input drops the intrinsic min-content from 20ch
+            (browser default) to 1ch, letting flex shrink it correctly. */}
+        <div className="px-5 pb-4 min-w-0">
+          <div className="flex items-center justify-between mb-2 gap-3 min-w-0">
+            <label className="text-xs font-medium uppercase tracking-wider text-[#8A877D] truncate">
               Monto ({form.moneda})
             </label>
             <MonedaToggle value={form.moneda} onChange={(v) => handleChange('moneda', v)} />
           </div>
-          <div className="flex items-baseline gap-2 min-w-0">
+          <div className="flex items-baseline gap-2 min-w-0 w-full">
             <span className="text-[28px] font-bold text-[#8A877D] leading-none shrink-0">S/</span>
             <input
               type="number"
               step="0.01"
               min="0"
+              size={1}
               placeholder="0.00"
               value={form.monto}
               onChange={(e) => handleChange('monto', e.target.value)}
