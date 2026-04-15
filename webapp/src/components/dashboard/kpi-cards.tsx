@@ -100,7 +100,7 @@ function MobileAhorroHero({
         {scoreValue != null && <MiniScoreRing score={scoreValue} />}
       </div>
       <p
-        className="text-[44px] font-bold tracking-tight leading-none"
+        className="text-[40px] font-bold tracking-tight leading-none"
         style={{ color }}
       >
         S/{' '}
