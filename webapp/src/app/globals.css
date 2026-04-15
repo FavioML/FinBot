@@ -152,6 +152,30 @@
     0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
+/* Form input surface — consistent with solid card tiers.
+ * Use on <input>, <select triggers>, and <textarea> in all dialogs.
+ */
+.form-input {
+  background: #1A1A17;
+  border: 1px solid rgba(240, 239, 232, 0.08);
+  color: #F0EFE8;
+  border-radius: 0.75rem;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.form-input::placeholder {
+  color: #8A877D;
+}
+.form-input:hover {
+  border-color: rgba(240, 239, 232, 0.14);
+}
+.form-input:focus,
+.form-input:focus-visible {
+  outline: none;
+  border-color: #1D9E75;
+  background: #1C1C19;
+  box-shadow: 0 0 0 3px rgba(29, 158, 117, 0.15);
+}
+
 /* Scrollbar styling — dark theme */
 ::-webkit-scrollbar {
   width: 6px;
@@ -223,6 +247,12 @@
   [role="option"]:not(.touch-exempt),
   summary:not(.touch-exempt) {
     min-height: 44px;
+  }
+  input:not([type="checkbox"]):not([type="radio"]):not(.touch-exempt),
+  select:not(.touch-exempt),
+  textarea:not(.touch-exempt) {
+    min-height: 48px;
+    font-size: 16px; /* prevents iOS zoom on focus */
   }
 }
 
