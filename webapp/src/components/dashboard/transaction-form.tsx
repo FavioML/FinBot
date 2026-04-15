@@ -337,7 +337,11 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="glass-card-elevated border-0 max-h-[92vh] overflow-y-auto overflow-x-hidden p-0 gap-0"
-        style={{ width: 'min(calc(100vw - 2rem), 28rem)' }}
+        style={{
+          width: 'min(calc(100vw - 2rem), 28rem)',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
       >
         {/* Header */}
         <div className="px-5 pt-5 pb-3 min-w-0">
@@ -373,8 +377,14 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
               value={form.monto}
               onChange={(e) => handleChange('monto', e.target.value)}
               inputMode="decimal"
-              className="flex-1 min-w-0 w-full bg-transparent border-0 outline-none text-[40px] font-bold tracking-tight leading-none text-[#F0EFE8] placeholder:text-[#2A2A28] focus:outline-none focus-visible:outline-none focus:ring-0"
-              style={{ color: isIngreso ? '#1D9E75' : '#F0EFE8' }}
+              className="min-w-0 bg-transparent border-0 outline-none text-[40px] font-bold tracking-tight leading-none text-[#F0EFE8] placeholder:text-[#2A2A28] focus:outline-none focus-visible:outline-none focus:ring-0"
+              style={{
+                color: isIngreso ? '#1D9E75' : '#F0EFE8',
+                width: '100%',
+                minWidth: 0,
+                maxWidth: '100%',
+                flex: '1 1 0%',
+              }}
             />
           </div>
         </div>
