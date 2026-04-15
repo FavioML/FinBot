@@ -49,6 +49,11 @@ export function QuickAddButton() {
   }, [transactions]);
 
   const handleAdd = (t: 'gasto' | 'ingreso') => {
+    // Haptic feedback on supported devices (Android Chrome, in-app browsers).
+    // Safe no-op on iOS Safari where Vibration API is unavailable.
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      navigator.vibrate(12);
+    }
     setTipo(t);
     setShowMenu(false);
     setOpen(true);
@@ -108,8 +113,13 @@ export function QuickAddButton() {
         <TooltipTrigger
           render={
             <motion.button
-              onClick={() => setShowMenu(!showMenu)}
-              className="fixed bottom-20 md:bottom-6 right-[5.25rem] md:right-[5.5rem] z-50 flex h-12 w-12 items-center justify-center rounded-full bg-[#1D9E75] text-white shadow-lg shadow-[#1D9E75]/25 transition-colors hover:bg-[#1D9E75]/90"
+              onClick={() => {
+                if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+                  navigator.vibrate(8);
+                }
+                setShowMenu(!showMenu);
+              }}
+              className="fixed bottom-20 md:bottom-6 right-5 md:right-6 z-50 flex h-14 w-14 md:h-12 md:w-12 items-center justify-center rounded-full bg-[#1D9E75] text-white shadow-lg shadow-[#1D9E75]/30 transition-colors hover:bg-[#1D9E75]/90"
               aria-label="Agregar transaccion"
               initial={{ scale: 0, opacity: 0 }}
               animate={{ scale: 1, opacity: 1, rotate: showMenu ? 45 : 0 }}

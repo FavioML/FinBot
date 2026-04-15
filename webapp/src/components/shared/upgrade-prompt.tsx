@@ -25,7 +25,7 @@ export function UpgradePrompt({ message, variant = 'inline', className = '' }: U
           </div>
           <p className="text-sm text-[#C8C6BC] mb-4">{message}</p>
           <a href={WA_CONTACT_LINK} target="_blank" rel="noopener noreferrer">
-            <Button className="bg-[#1D9E75] hover:bg-[#1D9E75]/90 text-white gap-2 animate-cta-pulse">
+            <Button className="bg-[#1D9E75] hover:bg-[#1D9E75]/90 active:scale-[0.98] text-white gap-2 transition-transform">
               <Crown className="h-4 w-4" />
               Activar Neto — S/10/mes
               <ArrowRight className="h-3 w-3" />
@@ -45,7 +45,7 @@ export function UpgradePrompt({ message, variant = 'inline', className = '' }: U
       <h3 className="mb-2 text-lg font-semibold text-[#e5e2de]">Función incluida</h3>
       <p className="mb-6 text-sm text-[#87948c] max-w-xs">{message}</p>
       <a href={WA_CONTACT_LINK} target="_blank" rel="noopener noreferrer">
-        <Button className="bg-[#1D9E75] hover:bg-[#1D9E75]/90 text-white gap-2 animate-cta-pulse">
+        <Button className="bg-[#1D9E75] hover:bg-[#1D9E75]/90 active:scale-[0.98] text-white gap-2 transition-transform">
           <Crown className="h-4 w-4" />
           Activar Neto — S/10/mes
           <ArrowRight className="h-3 w-3" />

@@ -97,7 +97,17 @@ export async function POST(request: Request) {
 - Dark-only, OLED-friendly
 - Background: #0E0E0C, Foreground: #F0EFE8
 - Primary: #1D9E75 (verde Neto)
-- Glassmorphism: `.glass-card` (rgba white 0.03, blur 12px)
+- Solid surface tiers (no glassmorphism): `.glass-card` uses #131311 + border
+  rgba(240,239,232,0.08) + drop shadow. `.glass-card-elevated` uses #1C1C19
+  for modals/nested content. Surface tokens live in `@theme` as
+  `--color-neto-bg2` (#131311) and `--color-neto-bg3` (#1C1C19).
+  Note: the class is named `.glass-card` for backwards compatibility but
+  the blur was removed during the mobile-comfort sprint (feat/mobile-comfort,
+  April 2026) because it drained battery on Android mid-range and was
+  nearly invisible on #0E0E0C anyway.
+- Form inputs use `.form-input` utility: #1A1A17 bg, focus ring #1D9E75.
+- Typographic tokens: `--text-display` (44px hero), `--text-hero` (52px),
+  `--text-section` (18px), `--text-label` (12px) — defined in `@theme`.
 - Tokens en `globals.css` via `@theme` (Tailwind v4)
 
 ## Deploy

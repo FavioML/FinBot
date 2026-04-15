@@ -906,7 +906,7 @@ function Header({
         <Button
           variant="outline"
           size="sm"
-          className="border-[rgba(255,255,255,0.08)] text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.04)] animate-cta-pulse"
+          className="border-[rgba(255,255,255,0.08)] text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.04)] active:scale-[0.98] transition-transform"
           onClick={onDownloadPDF}
           disabled={generatingPdf}
         >
