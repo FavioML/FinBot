@@ -199,6 +199,25 @@
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+/* Mobile-first comfort: enforce 44px minimum touch target on all
+ * interactive elements under the mobile breakpoint (Apple HIG + Material).
+ * Audit found 68/83 interactive elements below 44px threshold on /dashboard.
+ *
+ * Opt out with `.touch-exempt` on inline badges, chips, or dense
+ * tabular controls where the parent row is already large enough.
+ */
+@media (max-width: 768px) {
+  a:not(.touch-exempt),
+  button:not(.touch-exempt),
+  [role="button"]:not(.touch-exempt),
+  [role="tab"]:not(.touch-exempt),
+  [role="menuitem"]:not(.touch-exempt),
+  [role="option"]:not(.touch-exempt),
+  summary:not(.touch-exempt) {
+    min-height: 44px;
+  }
+}
+
 /* Animated gradient border on hover */
 .glass-card-glow {
   position: relative;
