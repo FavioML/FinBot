@@ -71,6 +71,98 @@ function MiniScoreRing({ score }: { score: number }) {
   );
 }
 
+/* Mobile hero — Ahorro dominates the first viewport.
+ * The single most important number in an expense tracker is "what did
+ * I keep this month?". On mobile we give it 44px+ and visual isolation.
+ */
+function MobileAhorroHero({
+  value,
+  color,
+  sparkline,
+  scoreValue,
+  porcentaje,
+}: {
+  value: number;
+  color: string;
+  sparkline?: number[];
+  scoreValue?: number | null;
+  porcentaje: number;
+}) {
+  return (
+    <div className="glass-card p-6">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <Wallet className="h-[18px] w-[18px]" style={{ color: '#8A877D' }} />
+          <p className="text-xs font-medium uppercase tracking-wider" style={{ color: '#8A877D' }}>
+            Ahorro del mes
+          </p>
+        </div>
+        {scoreValue != null && <MiniScoreRing score={scoreValue} />}
+      </div>
+      <p
+        className="text-[44px] font-bold tracking-tight leading-none"
+        style={{ color }}
+      >
+        S/{' '}
+        <NumberTicker value={value} decimalPlaces={2} className="!text-inherit" />
+      </p>
+      <div className="mt-3 flex items-center justify-between gap-3">
+        {porcentaje !== 0 && (
+          <span
+            className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium"
+            style={{ backgroundColor: `${color}1F`, color }}
+          >
+            {porcentaje >= 0 ? '+' : ''}
+            {porcentaje.toFixed(1)}% vs mes anterior
+          </span>
+        )}
+        {sparkline && sparkline.length >= 2 && (
+          <div className="ml-auto">
+            <Sparkline data={sparkline} color={color} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* Mobile compact KPI — for Ingresos / Gastos below the hero.
+ * Half-width on mobile, uses 20px number (readable but subordinate).
+ */
+function MobileCompactKPI({
+  label,
+  value,
+  color,
+  icon: Icon,
+  prev,
+  invertColor,
+}: {
+  label: string;
+  value: number;
+  color: string;
+  icon: typeof TrendingUp;
+  prev?: number;
+  invertColor?: boolean;
+}) {
+  return (
+    <div className="glass-card p-4">
+      <div className="flex items-center justify-between mb-2">
+        <Icon className="h-4 w-4" style={{ color: '#8A877D' }} />
+        {prev != null && prev > 0 && (
+          <ComparisonBadge current={value} previous={prev} invertColor={invertColor} />
+        )}
+      </div>
+      <p className="text-[11px] font-medium mb-1" style={{ color: '#8A877D' }}>
+        {label}
+      </p>
+      <p className="text-xl font-bold tracking-tight leading-none" style={{ color }}>
+        S/{' '}
+        <NumberTicker value={value} decimalPlaces={2} className="!text-inherit" />
+      </p>
+    </div>
+  );
+}
+
 export function KPICards({ data, sparklines, netoScore }: KPICardsProps) {
   const ahorroColor = data.ahorro >= 0 ? '#1D9E75' : '#EF9F27';
   const scoreValue = netoScore?.score;
@@ -113,53 +205,84 @@ export function KPICards({ data, sparklines, netoScore }: KPICardsProps) {
   ];
 
   return (
-    <StaggerContainer className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-      {cards.map((card) => {
-        const Icon = card.icon;
-        return (
-          <StaggerItem key={card.label}>
-          <div className="glass-card glass-card-glow p-5">
-            <div className="flex items-center justify-between mb-3">
-              <Icon className="h-5 w-5" style={{ color: '#8A877D' }} />
-              <div className="flex items-center gap-1.5">
-                {'prev' in card && card.prev != null && card.prev > 0 && (
-                  <ComparisonBadge current={card.value} previous={card.prev} invertColor={card.invertColor} />
-                )}
-                {card.badge && (
-                  <span
-                    className="rounded-full px-2 py-0.5 text-xs font-medium"
-                    style={{
-                      backgroundColor: `${card.color}18`,
-                      color: card.color,
-                    }}
-                  >
-                    {card.badge}
-                  </span>
-                )}
+    <>
+      {/* Mobile-only hero layout (< sm breakpoint, 640px) */}
+      <div className="sm:hidden space-y-3">
+        <MobileAhorroHero
+          value={data.ahorro}
+          color={ahorroColor}
+          sparkline={sparklines?.ahorro}
+          scoreValue={scoreValue}
+          porcentaje={data.ahorroPorcentaje}
+        />
+        <div className="grid grid-cols-2 gap-3">
+          <MobileCompactKPI
+            label="Ingresos"
+            value={data.totalIngresos}
+            color="#1D9E75"
+            icon={TrendingUp}
+            prev={data.prevIngresos}
+          />
+          <MobileCompactKPI
+            label="Gastos"
+            value={data.totalGastos}
+            color="#D85A30"
+            icon={TrendingDown}
+            prev={data.prevGastos}
+            invertColor
+          />
+        </div>
+      </div>
+
+      {/* Desktop layout — unchanged 3-col grid */}
+      <StaggerContainer className="hidden sm:grid sm:grid-cols-3 sm:gap-4">
+        {cards.map((card) => {
+          const Icon = card.icon;
+          return (
+            <StaggerItem key={card.label}>
+            <div className="glass-card glass-card-glow p-5">
+              <div className="flex items-center justify-between mb-3">
+                <Icon className="h-5 w-5" style={{ color: '#8A877D' }} />
+                <div className="flex items-center gap-1.5">
+                  {'prev' in card && card.prev != null && card.prev > 0 && (
+                    <ComparisonBadge current={card.value} previous={card.prev} invertColor={card.invertColor} />
+                  )}
+                  {card.badge && (
+                    <span
+                      className="rounded-full px-2 py-0.5 text-xs font-medium"
+                      style={{
+                        backgroundColor: `${card.color}18`,
+                        color: card.color,
+                      }}
+                    >
+                      {card.badge}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <p className="text-xs font-medium mb-1" style={{ color: '#8A877D' }}>
+                {card.label}
+              </p>
+              <div className="flex items-end justify-between gap-2">
+                <p className="text-2xl font-bold tracking-tight" style={{ color: card.color }}>
+                  {card.prefix}
+                  <NumberTicker
+                    value={card.value}
+                    decimalPlaces={card.prefix === 'S/ ' ? 2 : 0}
+                    className="!text-inherit"
+                  />
+                </p>
+                {card.showScore && scoreValue != null ? (
+                  <MiniScoreRing score={scoreValue} />
+                ) : card.spark && card.spark.length >= 2 ? (
+                  <Sparkline data={card.spark} color={card.color} />
+                ) : null}
               </div>
             </div>
-            <p className="text-xs font-medium mb-1" style={{ color: '#8A877D' }}>
-              {card.label}
-            </p>
-            <div className="flex items-end justify-between gap-2">
-              <p className="text-2xl font-bold tracking-tight" style={{ color: card.color }}>
-                {card.prefix}
-                <NumberTicker
-                  value={card.value}
-                  decimalPlaces={card.prefix === 'S/ ' ? 2 : 0}
-                  className="!text-inherit"
-                />
-              </p>
-              {card.showScore && scoreValue != null ? (
-                <MiniScoreRing score={scoreValue} />
-              ) : card.spark && card.spark.length >= 2 ? (
-                <Sparkline data={card.spark} color={card.color} />
-              ) : null}
-            </div>
-          </div>
-          </StaggerItem>
-        );
-      })}
-    </StaggerContainer>
+            </StaggerItem>
+          );
+        })}
+      </StaggerContainer>
+    </>
   );
 }

@@ -317,18 +317,18 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* Welcome header */}
+      {/* Welcome header — muted on mobile so the hero balance dominates */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[#F0EFE8]">
+          <p className="text-sm font-medium text-[#8A877D] sm:text-2xl sm:font-bold sm:text-[#F0EFE8]">
             {(() => {
               const hour = new Date().getHours();
               const greeting = hour < 12 ? 'Buenos días' : hour < 18 ? 'Buenas tardes' : 'Buenas noches';
               const name = user.nombre || (user.email ? user.email.split('@')[0] : '');
               return name ? `${greeting}, ${name}` : greeting;
             })()}
-          </h1>
-          <p className="text-sm text-[#8A877D] mt-1">
+          </p>
+          <p className="hidden sm:block text-sm text-[#8A877D] mt-1">
             Tu resumen financiero &mdash; {viewMode === 'anual' ? `Año ${selectedYear}` : `${MESES[currentMonth]} ${currentYear}`}
           </p>
         </div>
