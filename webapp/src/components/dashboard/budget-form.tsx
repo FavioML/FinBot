@@ -334,22 +334,24 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-[#1A1A18] border-[rgba(255,255,255,0.06)] sm:max-w-lg max-h-[85vh] overflow-y-auto glass-card-depth">
-        <DialogHeader>
-          <DialogTitle className="text-[#F0EFE8]">
-            {isEditing ? 'Editar presupuesto' : 'Nuevo presupuesto'}
-          </DialogTitle>
-          <DialogDescription className="text-[#8A877D]">
-            {isEditing
-              ? 'Modifica los datos de tu presupuesto.'
-              : 'Define límites de gasto por categoría y subcategorías.'}
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent className="glass-card-elevated border-0 sm:max-w-lg max-h-[92vh] overflow-y-auto p-0 gap-0">
+        <div className="px-5 pt-5 pb-3">
+          <DialogHeader>
+            <DialogTitle className="text-[#F0EFE8] text-xl font-semibold">
+              {isEditing ? 'Editar presupuesto' : 'Nuevo presupuesto'}
+            </DialogTitle>
+            <DialogDescription className="text-[#8A877D] text-sm">
+              {isEditing
+                ? 'Modifica los datos de tu presupuesto.'
+                : 'Define límites de gasto por categoría y subcategorías.'}
+            </DialogDescription>
+          </DialogHeader>
+        </div>
 
-        <div className="flex flex-col gap-4">
+        <div className="px-5 pb-4 flex flex-col gap-4">
           {/* Categoria */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-[#C8C6BC]">Categoría</label>
+            <label className="text-sm font-medium text-[#C8C6BC]">Categoría</label>
             <Select
               value={categoria || undefined}
               onValueChange={(val) => {
@@ -361,7 +363,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
                 }
               }}
             >
-              <SelectTrigger className="w-full bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#F0EFE8]">
+              <SelectTrigger className="form-input w-full">
                 <SelectValue placeholder="Selecciona una categoría">
                   {isCustomCat
                     ? (customCategoria ? `✨ ${capitalizeDisplay(customCategoria)}` : 'Nueva categoría...')
@@ -388,7 +390,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
                 placeholder="Nombre de la categoría"
                 value={customCategoria}
                 onChange={(e) => setCustomCategoria(e.target.value)}
-                className="mt-1 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#F0EFE8] placeholder:text-[#8A877D]"
+                className="form-input mt-1 placeholder:text-[#8A877D]"
                 autoFocus
               />
             )}
@@ -398,13 +400,13 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
 
           {/* Monto limite (category-level) */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-[#C8C6BC]">
+            <label className="text-sm font-medium text-[#C8C6BC]">
               Monto límite {!isEditing ? 'de la categoría' : ''} (S/)
             </label>
             <Input
               type="number" min="0" step="0.01" placeholder="500.00"
               value={montoLimite} onChange={(e) => setMontoLimite(e.target.value)}
-              className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#F0EFE8] placeholder:text-[#8A877D]"
+              className="form-input placeholder:text-[#8A877D]"
             />
             {!isEditing && spendingAvgByCategory && effectiveCategoria && (() => {
               const avg = spendingAvgByCategory.get(effectiveCategoria.toLowerCase());
@@ -429,7 +431,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
           {effectiveCategoria && (
             <div className="flex flex-col gap-3 pt-2 border-t border-[rgba(255,255,255,0.06)]">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-medium text-[#C8C6BC]">Presupuestos por subcategoría</label>
+                <label className="text-sm font-medium text-[#C8C6BC]">Presupuestos por subcategoría</label>
                 <Button
                   variant="ghost" size="sm"
                   className="text-[#1D9E75] text-xs h-7 px-2"
@@ -456,7 +458,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
                           if (val !== '__custom__') updateSubRow(idx, 'customSub', '');
                         }}
                       >
-                        <SelectTrigger className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#F0EFE8] text-sm h-9">
+                        <SelectTrigger className="form-input text-sm">
                           <SelectValue>
                             {row.subcategoria && row.subcategoria !== '__custom__'
                               ? capitalizeDisplay(row.subcategoria)
@@ -475,7 +477,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
                       {row.subcategoria === '__custom__' && (
                         <Input placeholder="Nombre" value={row.customSub}
                           onChange={(e) => updateSubRow(idx, 'customSub', e.target.value)}
-                          className="mt-1 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#F0EFE8] text-sm h-8" />
+                          className="form-input mt-1 text-sm" />
                       )}
                     </div>
                     <div className="w-28">
@@ -483,7 +485,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
                       <Input
                         type="number" min="0" step="0.01" placeholder="0.00"
                         value={row.monto} onChange={(e) => updateSubRow(idx, 'monto', e.target.value)}
-                        className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#F0EFE8] text-sm h-9"
+                        className="form-input text-sm"
                       />
                     </div>
                     <Button variant="ghost" size="icon-xs" onClick={() => removeSubRow(idx)} className="shrink-0 mb-0.5">
@@ -497,28 +499,38 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
 
           {/* Alerta porcentaje */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-[#C8C6BC]">Alerta al (%)</label>
+            <label className="text-sm font-medium text-[#C8C6BC]">Alerta al (%)</label>
             <Input
               type="number" min="1" max="100" placeholder="80"
               value={alertaPorcentaje} onChange={(e) => setAlertaPorcentaje(e.target.value)}
-              className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#F0EFE8] placeholder:text-[#8A877D]"
+              className="form-input placeholder:text-[#8A877D]"
             />
             <p className="text-xs text-[#8A877D]">Se aplica a todos los presupuestos creados.</p>
           </div>
 
-          {/* Buttons */}
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" className="text-[#C8C6BC]" onClick={() => onOpenChange(false)}>
-              Cancelar
-            </Button>
-            <Button
-              className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90"
-              onClick={handleSubmit}
-              disabled={!canSubmit}
-            >
-              {saving ? 'Guardando...' : isEditing ? 'Guardar cambios' : 'Crear presupuesto'}
-            </Button>
-          </div>
+        </div>
+
+        {/* Sticky footer */}
+        <div className="sticky bottom-0 left-0 right-0 bg-[#131311] border-t border-[rgba(240,239,232,0.06)] px-5 py-4 flex gap-3">
+          <Button
+            variant="outline"
+            className="flex-1 h-12 text-[#C8C6BC] border-[rgba(240,239,232,0.14)] hover:bg-[#1C1C19]"
+            onClick={() => onOpenChange(false)}
+          >
+            Cancelar
+          </Button>
+          <Button
+            className="flex-1 h-12 bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 active:scale-[0.98] transition-transform font-semibold disabled:opacity-50"
+            onClick={() => {
+              if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+                navigator.vibrate(14);
+              }
+              handleSubmit();
+            }}
+            disabled={!canSubmit}
+          >
+            {saving ? 'Guardando...' : isEditing ? 'Guardar cambios' : 'Crear'}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
@@ -555,7 +567,7 @@ export function DeleteBudgetDialog({ open, onOpenChange, budget, onSuccess }: De
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-[#1A1A18] border-[rgba(255,255,255,0.06)] sm:max-w-md glass-card-depth">
+      <DialogContent className="glass-card-elevated border-0 sm:max-w-md p-5">
         <DialogHeader>
           <DialogTitle className="text-[#F0EFE8]">¿Eliminar este presupuesto?</DialogTitle>
           <DialogDescription className="text-[#8A877D]">
@@ -565,9 +577,25 @@ export function DeleteBudgetDialog({ open, onOpenChange, budget, onSuccess }: De
             </span>. Esta acción no se puede deshacer.
           </DialogDescription>
         </DialogHeader>
-        <div className="flex justify-end gap-2 pt-2">
-          <Button variant="outline" className="text-[#C8C6BC]" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
+        <div className="flex justify-end gap-3 pt-2">
+          <Button
+            variant="outline"
+            className="flex-1 sm:flex-initial h-12 sm:h-10 text-[#C8C6BC] border-[rgba(240,239,232,0.14)]"
+            onClick={() => onOpenChange(false)}
+          >
+            Cancelar
+          </Button>
+          <Button
+            variant="destructive"
+            className="flex-1 sm:flex-initial h-12 sm:h-10 active:scale-[0.98] transition-transform"
+            onClick={() => {
+              if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+                navigator.vibrate(20);
+              }
+              handleDelete();
+            }}
+            disabled={deleting}
+          >
             {deleting ? 'Eliminando...' : 'Eliminar'}
           </Button>
         </div>
