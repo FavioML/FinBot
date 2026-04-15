@@ -13,7 +13,7 @@ export function WhatsAppButton() {
             href={SOCIAL_LINKS.whatsapp}
             target="_blank"
             rel="noopener noreferrer"
-            className="fixed bottom-20 md:bottom-6 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-[#1D9E75] text-white shadow-lg shadow-[#1D9E75]/25 transition-colors hover:bg-[#1D9E75]/90"
+            className="fixed bottom-20 md:bottom-6 right-[5.5rem] md:right-[5.25rem] z-40 flex h-12 w-12 items-center justify-center rounded-full bg-[#1A1A17] border border-[#1D9E75]/40 text-[#1D9E75] shadow-md transition-colors hover:bg-[#1D9E75] hover:text-white"
             aria-label="Chatea con NETO por WhatsApp"
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
