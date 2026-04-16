@@ -320,7 +320,7 @@ export default function DashboardPage() {
       {/* Welcome header — muted on mobile so the hero balance dominates */}
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-sm font-medium text-[#8A877D] sm:text-2xl sm:font-bold sm:text-[#F0EFE8]">
+          <p className="text-sm font-medium text-[#8A877D] sm:text-lg sm:font-medium sm:text-[#C8C6BC]">
             {(() => {
               const hour = new Date().getHours();
               const greeting = hour < 12 ? 'Buenos días' : hour < 18 ? 'Buenas tardes' : 'Buenas noches';
@@ -328,8 +328,8 @@ export default function DashboardPage() {
               return name ? `${greeting}, ${name}` : greeting;
             })()}
           </p>
-          <p className="hidden sm:block text-sm text-[#8A877D] mt-1">
-            Tu resumen financiero &mdash; {viewMode === 'anual' ? `Año ${selectedYear}` : `${MESES[currentMonth]} ${currentYear}`}
+          <p className="hidden sm:block text-sm font-medium text-[#F0EFE8] mt-0.5">
+            {viewMode === 'anual' ? `Resumen anual ${selectedYear}` : `${MESES[currentMonth]} ${currentYear}`}
           </p>
         </div>
         <HeaderActions>
@@ -594,11 +594,13 @@ export default function DashboardPage() {
             </>
           )}
 
-          {/* Transacciones Recientes */}
+          {/* Transacciones Recientes + Pagos Recurrentes — 2-col on desktop */}
           <FadeIn delay={0.35}>
+          <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-4">
+            {/* Transacciones Recientes */}
             <div className="glass-card glass-card-glow p-5">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-medium text-[#C8C6BC]">Transacciones Recientes</h3>
+                <h3 className="text-sm font-medium md:text-base md:font-semibold text-[#C8C6BC]">Transacciones Recientes</h3>
                 <Link href="/dashboard/transacciones" className="text-xs text-[#1D9E75] hover:underline">Ver todas &rarr;</Link>
               </div>
               {transactions.length > 0 ? (
@@ -618,6 +620,9 @@ export default function DashboardPage() {
                         <span className="truncate text-sm text-[#F0EFE8] flex-1 min-w-0">
                           {tx.comercio || tx.descripcion_original || tx.subcategoria}
                         </span>
+                        <span className="hidden lg:inline-block text-xs text-[#8A877D] w-[100px] shrink-0 truncate">
+                          {tx.metodo_pago ? capitalizeDisplay(normalizeMetodoPago(tx.metodo_pago, tx.banco)) : ''}
+                        </span>
                         <span
                           className="text-sm font-semibold tabular-nums shrink-0"
                           style={{ color: isIngreso ? '#1D9E75' : '#D85A30' }}
@@ -636,55 +641,20 @@ export default function DashboardPage() {
                 </div>
               )}
             </div>
-          </FadeIn>
 
-          {/* Pagos Recurrentes + Suscripciones side by side */}
-          <FadeIn delay={0.4}>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Pagos Recurrentes */}
             <Suspense fallback={<Skeleton className="h-[200px] rounded-2xl" />}>
               <RecurringPayments transactions={allTransactions} />
             </Suspense>
-
-            {/* Suscripciones */}
-            <div className="glass-card glass-card-glow p-5">
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-sm font-medium text-[#C8C6BC]">Suscripciones detectadas</span>
-                <Link href="/dashboard/suscripciones" className="text-xs text-[#1D9E75] hover:underline">Ver todas &rarr;</Link>
-              </div>
-              {subscriptions.length > 0 ? (
-                <div className="space-y-3">
-                  {subscriptions.slice(0, 8).map((sub) => (
-                    <div key={sub.id} className="flex items-center justify-between rounded-lg px-2 py-1.5 -mx-2 transition-all hover:bg-[rgba(255,255,255,0.03)]">
-                      <div>
-                        <p className="text-sm text-[#F0EFE8]">{sub.icono} {sub.nombre}</p>
-                        <p className="text-xs text-[#8A877D]">{sub.monthsDetected} meses &middot; ~{formatCurrency(sub.monthlyAmount)}/mes</p>
-                      </div>
-                      <p className="text-sm text-[#D85A30] font-medium tabular-nums">{formatCurrency(sub.annualProjection)}/año</p>
-                    </div>
-                  ))}
-                  <div className="border-t border-[rgba(255,255,255,0.06)] pt-3 flex justify-between">
-                    <p className="text-sm font-medium text-[#C8C6BC]">Total proyectado anual</p>
-                    <p className="text-sm font-bold text-[#D85A30]">{formatCurrency(subscriptions.reduce((s, sub) => s + sub.annualProjection, 0))}</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-6 text-center">
-                  <CreditCard className="h-6 w-6 text-[#8A877D]/50 mb-2" />
-                  <p className="text-sm text-[#8A877D]">No se detectaron suscripciones</p>
-                  <p className="text-xs text-[#8A877D]/70 mt-1">NETO las detecta automaticamente de tus transacciones</p>
-                </div>
-              )}
-            </div>
           </div>
           </FadeIn>
 
           {/* Metas + Deudas + Logros widgets */}
           <FadeIn delay={0.5}>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             {/* Metas de ahorro */}
-            <div className="glass-card glass-card-glow p-5">
-              <div className="flex items-center justify-between mb-4">
+            <div className="glass-card glass-card-glow p-4 lg:p-4">
+              <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <Target className="h-4 w-4 text-[#1D9E75]" />
                   <span className="text-sm font-medium text-[#C8C6BC]">Planes de ahorro</span>
@@ -729,8 +699,8 @@ export default function DashboardPage() {
             </div>
 
             {/* Deudas resumen */}
-            <div className="glass-card glass-card-glow p-5">
-              <div className="flex items-center justify-between mb-4">
+            <div className="glass-card glass-card-glow p-4 lg:p-4">
+              <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <Wallet className="h-4 w-4 text-[#EF9F27]" />
                   <span className="text-sm font-medium text-[#C8C6BC]">Deudas</span>
@@ -770,8 +740,8 @@ export default function DashboardPage() {
             </div>
 
             {/* Logros */}
-            <div className="glass-card glass-card-glow p-5">
-              <div className="flex items-center justify-between mb-4">
+            <div className="glass-card glass-card-glow p-4 lg:p-4">
+              <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <Award className="h-4 w-4 text-[#EF9F27]" />
                   <span className="text-sm font-medium text-[#C8C6BC]">Logros</span>

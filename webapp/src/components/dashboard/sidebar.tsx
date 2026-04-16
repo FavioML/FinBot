@@ -51,16 +51,16 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const sidebarContent = (
     <div className="flex h-full flex-col bg-[#141412] border-r border-[rgba(255,255,255,0.06)]">
       {/* Logo */}
-      <div className="flex h-24 items-center justify-center px-4">
+      <div className="flex h-16 items-center justify-center px-4">
         <Link href="/dashboard" className="flex items-center justify-center">
           <Image
             src="/neto-logo.png"
             alt="NETO"
-            width={80}
-            height={80}
+            width={48}
+            height={48}
             loading="eager"
             priority
-            className="h-20 w-20 object-contain mx-auto"
+            className="h-12 w-12 object-contain mx-auto"
           />
         </Link>
         {/* Close button - mobile only */}
@@ -149,7 +149,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             href={SOCIAL_LINKS.facebook}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
+            className="p-2.5 rounded-lg text-[#8A877D] hover:text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.03)] transition-colors"
             aria-label="Facebook"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">
@@ -160,7 +160,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             href={SOCIAL_LINKS.instagram}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
+            className="p-2.5 rounded-lg text-[#8A877D] hover:text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.03)] transition-colors"
             aria-label="Instagram"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">
@@ -171,7 +171,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             href={SOCIAL_LINKS.tiktok}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
+            className="p-2.5 rounded-lg text-[#8A877D] hover:text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.03)] transition-colors"
             aria-label="TikTok"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">

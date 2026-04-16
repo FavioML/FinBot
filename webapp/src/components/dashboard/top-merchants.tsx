@@ -74,7 +74,7 @@ export function TopMerchants({ transactions, onMerchantClick }: TopMerchantsProp
     >
       <div className="flex items-center gap-2 mb-4">
         <Store className="h-4 w-4 text-[#8A877D]" />
-        <h3 className="text-sm font-medium text-[#C8C6BC]">Top comercios</h3>
+        <h3 className="text-sm font-medium md:text-base md:font-semibold text-[#C8C6BC]">Top comercios</h3>
       </div>
 
       <div className="space-y-3">

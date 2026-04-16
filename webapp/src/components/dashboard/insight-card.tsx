@@ -86,7 +86,7 @@ export function InsightCard({ insight, aiContext }: InsightCardProps) {
         </motion.div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <h3 className="text-sm font-medium text-[#F0EFE8]">
+            <h3 className="text-sm font-medium md:text-base md:font-semibold text-[#F0EFE8]">
               {loading ? 'Analizando...' : 'Consejo del mes'}
             </h3>
             {isAI && !loading && (

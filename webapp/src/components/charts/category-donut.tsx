@@ -55,7 +55,7 @@ export function CategoryDonut({ data, onCategoryClick }: CategoryDonutProps) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: 0.1, ease: [0.25, 0.46, 0.45, 0.94] }}
     >
-      <h3 className="text-sm font-medium text-[#C8C6BC] mb-4">Gastos por Categoria</h3>
+      <h3 className="text-sm font-medium md:text-base md:font-semibold text-[#C8C6BC] mb-4">Gastos por Categoria</h3>
       <div className="flex flex-col md:flex-row items-center gap-4">
         <div className="relative w-[200px] h-[200px] shrink-0">
           <ResponsiveContainer width="100%" height="100%">

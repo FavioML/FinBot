@@ -448,17 +448,17 @@ export default function TransaccionesPage() {
         <Button
           variant="outline"
           className="border-[rgba(255,255,255,0.06)] text-[#C8C6BC]"
-          onClick={() => openCreate('gasto')}
-        >
-          <Plus className="h-4 w-4" data-icon="inline-start" />
-          Nuevo gasto
-        </Button>
-        <Button
-          className="bg-[#1D9E75] hover:bg-[#1D9E75]/90 text-white"
           onClick={() => openCreate('ingreso')}
         >
           <Plus className="h-4 w-4" data-icon="inline-start" />
           Nuevo ingreso
+        </Button>
+        <Button
+          className="bg-[#1D9E75] hover:bg-[#1D9E75]/90 text-white"
+          onClick={() => openCreate('gasto')}
+        >
+          <Plus className="h-4 w-4" data-icon="inline-start" />
+          Nuevo gasto
         </Button>
       </div>
 

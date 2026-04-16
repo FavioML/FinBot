@@ -48,8 +48,8 @@ export function TrendLine({ data }: TrendLineProps) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
     >
-      <h3 className="text-sm font-medium text-[#C8C6BC] mb-4">Ingresos vs Gastos</h3>
-      <div className="h-[240px] w-full">
+      <h3 className="text-sm font-medium md:text-base md:font-semibold text-[#C8C6BC] mb-4">Ingresos vs Gastos</h3>
+      <div className="h-[240px] lg:h-[280px] w-full">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
             <defs>

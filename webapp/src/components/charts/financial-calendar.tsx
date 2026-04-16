@@ -138,7 +138,7 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear, deb
     >
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-medium text-[#C8C6BC]">Calendario financiero</h3>
+        <h3 className="text-sm font-medium md:text-base md:font-semibold text-[#C8C6BC]">Calendario financiero</h3>
         <div className="flex items-center gap-2">
           <button onClick={prevMonth} className="p-1 rounded text-[#8A877D] hover:text-[#F0EFE8] transition-colors">
             <ChevronLeft className="h-4 w-4" />

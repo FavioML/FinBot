@@ -235,12 +235,12 @@ export function KPICards({ data, sparklines, netoScore }: KPICardsProps) {
       </div>
 
       {/* Desktop layout — unchanged 3-col grid */}
-      <StaggerContainer className="hidden sm:grid sm:grid-cols-3 sm:gap-4">
+      <StaggerContainer className="hidden sm:grid sm:grid-cols-3 sm:gap-4 lg:gap-5">
         {cards.map((card) => {
           const Icon = card.icon;
           return (
             <StaggerItem key={card.label}>
-            <div className="glass-card glass-card-glow p-5">
+            <div className="glass-card glass-card-glow p-5 lg:p-6">
               <div className="flex items-center justify-between mb-3">
                 <Icon className="h-5 w-5" style={{ color: '#8A877D' }} />
                 <div className="flex items-center gap-1.5">

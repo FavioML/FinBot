@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import { Repeat, Calendar } from 'lucide-react';
 import { motion } from 'motion/react';
 import { formatCurrency } from '@/lib/utils';
+import { SUBSCRIPTION_PATTERNS } from '@/lib/subscriptions-catalog';
 import type { Transaccion } from '@/lib/types';
 
 interface RecurringPaymentsProps {
@@ -35,10 +36,16 @@ export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
       byComercio.set(key, list);
     }
 
+    // Build a set of all subscription pattern keywords to exclude
+    const subPatterns = SUBSCRIPTION_PATTERNS.flatMap((s) => s.patrones.map((p) => p.toLowerCase()));
+
     const results: RecurringPayment[] = [];
 
-    for (const [, txs] of byComercio) {
+    for (const [key, txs] of byComercio) {
       if (txs.length < 2) continue;
+
+      // Skip if this comercio matches a known subscription pattern
+      if (subPatterns.some((p) => key.includes(p))) continue;
 
       // Check if amounts are consistent (within 20% of median)
       const amounts = txs.map((t) => t.monto_pen).sort((a, b) => a - b);
@@ -96,7 +103,7 @@ export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Repeat className="h-4 w-4 text-[#8A877D]" />
-          <h3 className="text-sm font-medium text-[#C8C6BC]">Pagos recurrentes</h3>
+          <h3 className="text-sm font-medium md:text-base md:font-semibold text-[#C8C6BC]">Pagos recurrentes</h3>
         </div>
         <span className="text-xs text-[#8A877D]">~{formatCurrency(totalMonthly)}/mes</span>
       </div>

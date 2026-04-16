@@ -85,7 +85,7 @@ export function CategoryComparison({ allTransactions, currentMonth, currentYear,
       transition={{ duration: 0.5, delay: 0.2 }}
     >
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-medium text-[#C8C6BC]">Comparativa por categoria</h3>
+        <h3 className="text-sm font-medium md:text-base md:font-semibold text-[#C8C6BC]">Comparativa por categoria</h3>
         <div className="flex items-center gap-3 text-[10px]">
           <span className="flex items-center gap-1">
             <span className="w-2 h-2 rounded-full bg-[#8A877D]" />

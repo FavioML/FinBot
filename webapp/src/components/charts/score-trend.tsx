@@ -46,7 +46,7 @@ export function ScoreTrend() {
     <div className="glass-card glass-card-glow p-5">
       <div className="flex items-center gap-2 mb-4">
         <Activity className="h-4 w-4 text-[#8A877D]" />
-        <h3 className="text-sm font-medium text-[#C8C6BC]">Tendencia del Score</h3>
+        <h3 className="text-sm font-medium md:text-base md:font-semibold text-[#C8C6BC]">Tendencia del Score</h3>
       </div>
       <div className="flex items-end gap-3 h-[100px]">
         {scores.map((month, i) => {

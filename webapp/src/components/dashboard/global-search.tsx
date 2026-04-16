@@ -87,7 +87,7 @@ export function GlobalSearch() {
       {/* Search trigger — desktop pill */}
       <button
         onClick={() => { setOpen(true); setQuery(''); }}
-        className="hidden md:flex items-center gap-2 rounded-lg bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] px-3 py-1.5 text-xs text-[#8A877D] hover:bg-[rgba(255,255,255,0.05)] hover:text-[#C8C6BC] transition-colors"
+        className="hidden md:flex items-center gap-2 w-64 rounded-lg bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] px-3 py-2 text-xs text-[#8A877D] hover:bg-[rgba(255,255,255,0.05)] hover:text-[#C8C6BC] transition-colors"
       >
         <Search className="h-3.5 w-3.5" />
         <span>Buscar...</span>

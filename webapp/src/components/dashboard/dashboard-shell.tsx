@@ -59,9 +59,11 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         <div className="flex flex-1 flex-col overflow-hidden">
           <Topbar onMenuClick={() => setSidebarOpen(true)} />
           <main className="flex-1 overflow-y-auto p-4 pb-44 md:p-6 md:pb-28 lg:p-8 lg:pb-28">
-            <FadeIn key={pathname}>
-              {children}
-            </FadeIn>
+            <div className="mx-auto max-w-7xl">
+              <FadeIn key={pathname}>
+                {children}
+              </FadeIn>
+            </div>
           </main>
           <BottomNav />
         </div>
