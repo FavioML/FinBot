@@ -358,10 +358,12 @@ export default function DeudasPage() {
           <HeaderActions>
             <Button
               onClick={() => openCreate(tab === 'me_deben' ? 'me_deben' : 'debo')}
-              className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 gap-2"
+              size="sm"
+              className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 gap-1.5"
             >
               <Plus className="h-4 w-4" />
-              Nueva deuda
+              <span className="hidden sm:inline">Nueva deuda</span>
+              <span className="sm:hidden">Nueva</span>
             </Button>
           </HeaderActions>
         </div>

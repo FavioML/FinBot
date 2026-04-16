@@ -274,12 +274,14 @@ export default function PresupuestosPage() {
             <ProBadge text={`Límite: ${FREE_LIMITS.budgets} presupuestos`} />
           )}
           <Button
+            size="sm"
             className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 gap-1.5"
             onClick={() => setCreateOpen(true)}
             disabled={budgetsLimitReached && !isPremium}
           >
             <Plus className="h-4 w-4" />
-            Nuevo presupuesto
+            <span className="hidden sm:inline">Nuevo presupuesto</span>
+            <span className="sm:hidden">Nuevo</span>
           </Button>
         </HeaderActions>
       </div>

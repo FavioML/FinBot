@@ -336,24 +336,18 @@ export default function MetasPage() {
           <h1 className="text-2xl font-bold text-[#F0EFE8]">Planes de ahorro</h1>
           <p className="text-sm text-[#8A877D] mt-1">Planifica tu ahorro y Neto te guía para lograrlo</p>
         </div>
-        <Button
-          onClick={goalsLimitReached && !isPremium ? () => setShowPlanProGate(true) : openCreate}
-          size="sm"
-          className="md:hidden bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 gap-1.5"
-        >
-          <Plus className="h-4 w-4" />
-          Nuevo
-        </Button>
         <HeaderActions>
           {goalsLimitReached && !isPremium && (
-            <ProBadge text={`Límite: ${FREE_LIMITS.goals} plan activo`} />
+            <span className="hidden md:inline-flex"><ProBadge text={`Límite: ${FREE_LIMITS.goals} plan activo`} /></span>
           )}
           <Button
             onClick={goalsLimitReached && !isPremium ? () => setShowPlanProGate(true) : openCreate}
-            className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 gap-2"
+            size="sm"
+            className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 gap-1.5"
           >
             <Plus className="h-4 w-4" />
-            Nuevo plan
+            <span className="hidden sm:inline">Nuevo plan</span>
+            <span className="sm:hidden">Nuevo</span>
           </Button>
         </HeaderActions>
       </div>
