@@ -78,6 +78,14 @@ const CATALOGO: CatalogoEntry[] = [
   // Delivery
   { id: 'rappi_prime', nombre: 'Rappi Prime', icono: '🛵', moneda: 'PEN', precio_mensual: 14.90, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Prime', precio: 14.90 }], patrones: ['rappi prime', 'rappi pro'] },
   { id: 'pedidosya_plus', nombre: 'PedidosYa Plus', icono: '🍔', moneda: 'PEN', precio_mensual: 16.90, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Plus', precio: 16.90 }, { nombre: 'Plus (precio anterior)', precio: 9.90 }], patrones: ['pedidosya*plus', 'pedidosya plus', 'pedidos ya plus'] },
+  { id: 'pedidosya', nombre: 'PedidosYa', icono: '🍔', moneda: 'PEN', precio_mensual: null, tiene_plan_familiar: false, precio_familiar: null, planes: [], patrones: ['pedidosya', 'pedidos ya'] },
+  { id: 'rappi', nombre: 'Rappi', icono: '🛵', moneda: 'PEN', precio_mensual: null, tiene_plan_familiar: false, precio_familiar: null, planes: [], patrones: ['rappi'] },
+
+  // Hosting / Infra (software)
+  { id: 'railway', nombre: 'Railway', icono: '🚂', moneda: 'USD', precio_mensual: 5.00, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Hobby', precio: 5.00 }, { nombre: 'Pro', precio: 20.00 }], patrones: ['railway', 'railway.app'] },
+  { id: 'vercel', nombre: 'Vercel', icono: '▲', moneda: 'USD', precio_mensual: 20.00, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Pro', precio: 20.00 }], patrones: ['vercel'] },
+  { id: 'cloudflare', nombre: 'Cloudflare', icono: '🌩️', moneda: 'USD', precio_mensual: 5.00, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Pro', precio: 25.00 }], patrones: ['cloudflare'] },
+  { id: 'supabase', nombre: 'Supabase', icono: '⚡', moneda: 'USD', precio_mensual: 25.00, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Pro', precio: 25.00 }], patrones: ['supabase'] },
 
   // Educación
   { id: 'platzi', nombre: 'Platzi', icono: '🎓', moneda: 'USD', precio_mensual: 26.00, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Expert', precio: 26.00 }], patrones: ['platzi'] },
@@ -135,6 +143,8 @@ function pickTipoFromCatalog(catalogId: string | null): string | null {
     nordvpn: 'vpn',
     strava: 'fitness',
     rappi_prime: 'delivery', pedidosya_plus: 'delivery',
+    pedidosya: 'delivery', rappi: 'delivery',
+    railway: 'software', vercel: 'software', cloudflare: 'software', supabase: 'software',
     platzi: 'educacion', coursera: 'educacion', duolingo: 'educacion',
     tinder: 'dating',
   }

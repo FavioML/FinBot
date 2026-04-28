@@ -159,6 +159,15 @@ export const SUBSCRIPTION_PATTERNS: SubscriptionPattern[] = [
   { id: 'rappi_prime', nombre: 'Rappi Prime', icono: '🛵', tipo: 'delivery', patrones: ['rappi prime', 'rappi pro'] },
   { id: 'pedidosya_plus', nombre: 'PedidosYa Plus', icono: '🍔', tipo: 'delivery', patrones: ['pedidosya*plus', 'pedidosya plus', 'pedidos ya plus'] },
   { id: 'didi_club', nombre: 'DiDi Club', icono: '🚗', tipo: 'delivery', patrones: ['didi club'] },
+  // Apps de delivery genéricas (pedidos individuales — usuarios que los categorizan como suscripción)
+  { id: 'pedidosya', nombre: 'PedidosYa', icono: '🍔', tipo: 'delivery', patrones: ['pedidosya', 'pedidos ya'] },
+  { id: 'rappi', nombre: 'Rappi', icono: '🛵', tipo: 'delivery', patrones: ['rappi'] },
+
+  // Hosting / Infra (software/dev tools)
+  { id: 'railway', nombre: 'Railway', icono: '🚂', tipo: 'software', patrones: ['railway', 'railway.app'] },
+  { id: 'vercel', nombre: 'Vercel', icono: '▲', tipo: 'software', patrones: ['vercel'] },
+  { id: 'cloudflare', nombre: 'Cloudflare', icono: '🌩️', tipo: 'software', patrones: ['cloudflare'] },
+  { id: 'supabase', nombre: 'Supabase', icono: '⚡', tipo: 'software', patrones: ['supabase'] },
 
   // Educacion
   { id: 'platzi', nombre: 'Platzi', icono: '🎓', tipo: 'educacion', patrones: ['platzi'] },
