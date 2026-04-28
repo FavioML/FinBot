@@ -204,6 +204,37 @@ export async function PUT(request: Request) {
       .single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+    // Sincronizar el lado vinculado (deuda compartida): si esta deuda tiene
+    // mirror (otro usuario aceptó el invite) o es el mirror de una original,
+    // propagamos monto_pendiente, estado, periodo y fechas para que ambas
+    // partes vean lo mismo.
+    try {
+      const linkedQuery = getServiceClient()
+        .from('deudas')
+        .select('id');
+      const filter = deuda.deuda_vinculada_id
+        ? linkedQuery.or(`id.eq.${deuda.deuda_vinculada_id},deuda_vinculada_id.eq.${id}`)
+        : linkedQuery.eq('deuda_vinculada_id', id);
+      const { data: linked } = await filter;
+      if (linked && linked.length > 0) {
+        const syncFields: Record<string, unknown> = {
+          monto_pendiente: updateFields.monto_pendiente,
+          estado: updateFields.estado,
+          updated_at: new Date().toISOString(),
+        };
+        if ('proxima_fecha' in updateFields) syncFields.proxima_fecha = updateFields.proxima_fecha;
+        if ('fecha_vencimiento' in updateFields) syncFields.fecha_vencimiento = updateFields.fecha_vencimiento;
+        if ('periodos_pagados' in updateFields) syncFields.periodos_pagados = updateFields.periodos_pagados;
+        await getServiceClient()
+          .from('deudas')
+          .update(syncFields)
+          .in('id', linked.map(d => d.id));
+      }
+    } catch (e) {
+      console.error('[debt-sync-linked]', e);
+    }
+
     return NextResponse.json({ ...updated, completada: completada && !recurrenteRenovada, recurrenteRenovada });
   }
 
@@ -221,6 +252,24 @@ export async function PUT(request: Request) {
       .single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+    // Sync linked debt
+    try {
+      const linkedQuery = getServiceClient().from('deudas').select('id');
+      const filter = deuda.deuda_vinculada_id
+        ? linkedQuery.or(`id.eq.${deuda.deuda_vinculada_id},deuda_vinculada_id.eq.${id}`)
+        : linkedQuery.eq('deuda_vinculada_id', id);
+      const { data: linked } = await filter;
+      if (linked && linked.length > 0) {
+        await getServiceClient()
+          .from('deudas')
+          .update({ monto_pendiente: 0, estado: 'pagada', updated_at: new Date().toISOString() })
+          .in('id', linked.map(d => d.id));
+      }
+    } catch (e) {
+      console.error('[debt-sync-linked]', e);
+    }
+
     return NextResponse.json(updated);
   }
 
@@ -254,6 +303,35 @@ export async function PUT(request: Request) {
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+  // Sync recurrencia + fecha_vencimiento + descripcion al lado vinculado.
+  // contraparte NO se sincroniza (cada usuario ve a la otra persona).
+  try {
+    const linkedQuery = getServiceClient().from('deudas').select('id');
+    const filter = deuda.deuda_vinculada_id
+      ? linkedQuery.or(`id.eq.${deuda.deuda_vinculada_id},deuda_vinculada_id.eq.${id}`)
+      : linkedQuery.eq('deuda_vinculada_id', id);
+    const { data: linked } = await filter;
+    if (linked && linked.length > 0) {
+      const linkedSync: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if ('descripcion' in updateData) linkedSync.descripcion = updateData.descripcion;
+      if ('fecha_vencimiento' in updateData) linkedSync.fecha_vencimiento = updateData.fecha_vencimiento;
+      if ('es_recurrente' in updateData) linkedSync.es_recurrente = updateData.es_recurrente;
+      if ('frecuencia' in updateData) linkedSync.frecuencia = updateData.frecuencia;
+      if ('fecha_fin' in updateData) linkedSync.fecha_fin = updateData.fecha_fin;
+      // Si se desactiva recurrencia, también limpiar proxima_fecha
+      if (updateData.es_recurrente === false) linkedSync.proxima_fecha = null;
+      if (Object.keys(linkedSync).length > 1) {
+        await getServiceClient()
+          .from('deudas')
+          .update(linkedSync)
+          .in('id', linked.map(d => d.id));
+      }
+    }
+  } catch (e) {
+    console.error('[debt-sync-linked-edit]', e);
+  }
+
   return NextResponse.json(updated);
 }
 

@@ -32,7 +32,7 @@ export async function POST(request: Request) {
   // Find the original debt by invite code
   const { data: deudaOriginal } = await getServiceClient()
     .from('deudas')
-    .select('id, usuario_id, contraparte, monto_original, monto_pendiente, moneda, descripcion, fecha_vencimiento')
+    .select('id, usuario_id, contraparte, monto_original, monto_pendiente, moneda, descripcion, fecha_vencimiento, es_recurrente, frecuencia, fecha_fin, proxima_fecha, periodos_pagados')
     .eq('invite_code', code)
     .single();
 
@@ -61,7 +61,9 @@ export async function POST(request: Request) {
     .eq('id', deudaOriginal.usuario_id)
     .single();
 
-  // Create mirror "debo" debt
+  // Create mirror "debo" debt — copia los campos de recurrencia para que el
+  // deudor también vea el compromiso como recurrente. Los abonos y avances
+  // de periodo se sincronizan en /api/debts (PUT action=abonar) via vinculación.
   const { data: nuevaDeuda, error } = await getServiceClient()
     .from('deudas')
     .insert({
@@ -75,6 +77,11 @@ export async function POST(request: Request) {
       fecha_vencimiento: deudaOriginal.fecha_vencimiento,
       estado: 'activa',
       deuda_vinculada_id: deudaOriginal.id,
+      es_recurrente: deudaOriginal.es_recurrente ?? false,
+      frecuencia: deudaOriginal.frecuencia ?? null,
+      fecha_fin: deudaOriginal.fecha_fin ?? null,
+      proxima_fecha: deudaOriginal.proxima_fecha ?? null,
+      periodos_pagados: deudaOriginal.periodos_pagados ?? 0,
     })
     .select()
     .single();
