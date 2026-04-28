@@ -3,6 +3,9 @@ import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
 
+const FRECUENCIAS = ['semanal', 'quincenal', 'mensual', 'anual'] as const;
+type Frecuencia = typeof FRECUENCIAS[number];
+
 async function getNetoUser() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -13,6 +16,16 @@ async function getNetoUser() {
     .eq('supabase_auth_id', user.id)
     .single();
   return data || null;
+}
+
+// Suma un periodo a una fecha (ISO yyyy-mm-dd) según la frecuencia
+function addPeriodo(fechaISO: string, frecuencia: Frecuencia): string {
+  const d = new Date(fechaISO + 'T12:00:00');
+  if (frecuencia === 'semanal') d.setDate(d.getDate() + 7);
+  else if (frecuencia === 'quincenal') d.setDate(d.getDate() + 15);
+  else if (frecuencia === 'mensual') d.setMonth(d.getMonth() + 1);
+  else if (frecuencia === 'anual') d.setFullYear(d.getFullYear() + 1);
+  return d.toISOString().split('T')[0];
 }
 
 // GET /api/debts — lista todas las deudas activas
@@ -44,7 +57,17 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { tipo, contraparte, monto_original, moneda, descripcion, fecha_vencimiento } = body;
+  const {
+    tipo,
+    contraparte,
+    monto_original,
+    moneda,
+    descripcion,
+    fecha_vencimiento,
+    es_recurrente,
+    frecuencia,
+    fecha_fin,
+  } = body;
 
   if (!tipo || !contraparte || !monto_original) {
     return NextResponse.json({ error: 'Faltan campos requeridos' }, { status: 400 });
@@ -53,6 +76,20 @@ export async function POST(request: Request) {
   const monto = parseFloat(monto_original);
   if (isNaN(monto) || monto <= 0) {
     return NextResponse.json({ error: 'Monto inválido' }, { status: 400 });
+  }
+
+  // Validación de campos recurrentes
+  const recurrente = !!es_recurrente;
+  let frecValida: Frecuencia | null = null;
+  let proximaFecha: string | null = null;
+  if (recurrente) {
+    if (!FRECUENCIAS.includes(frecuencia)) {
+      return NextResponse.json({ error: 'Frecuencia inválida' }, { status: 400 });
+    }
+    frecValida = frecuencia as Frecuencia;
+    // proxima_fecha = fecha_vencimiento si fue dado, sino +1 periodo desde hoy
+    const base = fecha_vencimiento || new Date().toISOString().split('T')[0];
+    proximaFecha = fecha_vencimiento ? base : addPeriodo(base, frecValida);
   }
 
   const { data, error } = await getServiceClient()
@@ -67,6 +104,10 @@ export async function POST(request: Request) {
       descripcion: descripcion?.trim() || null,
       fecha_vencimiento: fecha_vencimiento || null,
       estado: 'activa',
+      es_recurrente: recurrente,
+      frecuencia: frecValida,
+      fecha_fin: recurrente ? (fecha_fin || null) : null,
+      proxima_fecha: proximaFecha,
     })
     .select()
     .single();
@@ -123,20 +164,47 @@ export async function PUT(request: Request) {
     const nuevoPendiente = Math.max(0, parseFloat(deuda.monto_original) - totalAbonado);
     const completada = nuevoPendiente === 0;
 
+    // Si el periodo se completó y la deuda es recurrente, abrir el siguiente
+    // periodo en lugar de marcarla como pagada (a menos que ya pasó la fecha_fin).
+    let updateFields: Record<string, unknown> = {
+      monto_pendiente: nuevoPendiente,
+      estado: completada ? 'pagada' : 'activa',
+      updated_at: new Date().toISOString(),
+    };
+
+    let recurrenteRenovada = false;
+    if (completada && deuda.es_recurrente && deuda.frecuencia) {
+      const baseFecha = deuda.proxima_fecha || deuda.fecha_vencimiento || new Date().toISOString().split('T')[0];
+      const siguiente = addPeriodo(baseFecha, deuda.frecuencia as Frecuencia);
+      const seguimosVigentes = !deuda.fecha_fin || siguiente <= deuda.fecha_fin;
+
+      if (seguimosVigentes) {
+        // Reset al siguiente periodo
+        updateFields = {
+          monto_pendiente: parseFloat(deuda.monto_original),
+          estado: 'activa',
+          proxima_fecha: siguiente,
+          fecha_vencimiento: siguiente,
+          periodos_pagados: (deuda.periodos_pagados || 0) + 1,
+          updated_at: new Date().toISOString(),
+        };
+        recurrenteRenovada = true;
+      } else {
+        // Llegó al límite: queda completada de verdad
+        updateFields.periodos_pagados = (deuda.periodos_pagados || 0) + 1;
+      }
+    }
+
     // Actualizar deuda
     const { data: updated, error } = await getServiceClient()
       .from('deudas')
-      .update({
-        monto_pendiente: nuevoPendiente,
-        estado: completada ? 'pagada' : 'activa',
-        updated_at: new Date().toISOString(),
-      })
+      .update(updateFields)
       .eq('id', id)
       .select()
       .single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-    return NextResponse.json({ ...updated, completada });
+    return NextResponse.json({ ...updated, completada: completada && !recurrenteRenovada, recurrenteRenovada });
   }
 
   // action=marcar_pagada → poner monto_pendiente=0 y estado=pagada
@@ -162,6 +230,21 @@ export async function PUT(request: Request) {
   if (fields.descripcion !== undefined) updateData.descripcion = fields.descripcion?.trim() || null;
   if (fields.fecha_vencimiento !== undefined) updateData.fecha_vencimiento = fields.fecha_vencimiento || null;
   if (fields.estado !== undefined) updateData.estado = fields.estado;
+  if (fields.es_recurrente !== undefined) {
+    updateData.es_recurrente = !!fields.es_recurrente;
+    if (!fields.es_recurrente) {
+      updateData.frecuencia = null;
+      updateData.fecha_fin = null;
+      updateData.proxima_fecha = null;
+    }
+  }
+  if (fields.frecuencia !== undefined) {
+    if (fields.frecuencia && !FRECUENCIAS.includes(fields.frecuencia)) {
+      return NextResponse.json({ error: 'Frecuencia inválida' }, { status: 400 });
+    }
+    updateData.frecuencia = fields.frecuencia || null;
+  }
+  if (fields.fecha_fin !== undefined) updateData.fecha_fin = fields.fecha_fin || null;
 
   const { data: updated, error } = await getServiceClient()
     .from('deudas')

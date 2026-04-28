@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
+import { Trash2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -143,6 +144,7 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
   const [customSubcategoria, setCustomSubcategoria] = useState('');
   const [usingCustomCategoria, setUsingCustomCategoria] = useState(false);
   const [usingCustomSubcategoria, setUsingCustomSubcategoria] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   // Normalize for accent-insensitive matching (Alimentación vs Alimentacion)
   const norm = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -367,7 +369,9 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
             <MonedaToggle value={form.moneda} onChange={(v) => handleChange('moneda', v)} />
           </div>
           <div className="flex items-baseline gap-2 min-w-0 w-full">
-            <span className="text-[28px] font-bold text-[#8A877D] leading-none shrink-0">S/</span>
+            <span className="text-[28px] font-bold text-[#8A877D] leading-none shrink-0">
+              {form.moneda === 'USD' ? '$' : 'S/'}
+            </span>
             <input
               type="number"
               step="0.01"
@@ -513,6 +517,19 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
 
         {/* Sticky footer */}
         <div className="sticky bottom-0 left-0 right-0 bg-[#131311] border-t border-[rgba(240,239,232,0.06)] px-5 py-4 flex gap-3">
+          {isEdit && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setConfirmDelete(true)}
+              disabled={saving}
+              className="h-12 px-3 text-[#D85A30] border-[rgba(216,90,48,0.3)] hover:bg-[rgba(216,90,48,0.08)] hover:text-[#D85A30]"
+              aria-label="Eliminar transacción"
+            >
+              <Trash2 className="h-4 w-4" />
+              <span className="hidden sm:inline ml-1.5">Eliminar</span>
+            </Button>
+          )}
           <DialogClose render={
             <Button variant="outline" className="flex-1 h-12 text-[#C8C6BC] border-[rgba(240,239,232,0.14)] hover:bg-[#1C1C19]" />
           }>
@@ -532,6 +549,17 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
           </Button>
         </div>
       </DialogContent>
+
+      {/* Inline delete confirmation reusing the existing dialog */}
+      <DeleteConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        transaction={transaction ?? null}
+        onSuccess={() => {
+          onOpenChange(false);
+          onSuccess?.();
+        }}
+      />
     </Dialog>
   );
 }

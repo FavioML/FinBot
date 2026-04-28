@@ -13,6 +13,8 @@ export interface DeudaAbono {
   created_at: string;
 }
 
+export type Frecuencia = 'semanal' | 'quincenal' | 'mensual' | 'anual';
+
 export interface Deuda {
   id: string;
   usuario_id: string;
@@ -27,6 +29,12 @@ export interface Deuda {
   estado: 'activa' | 'pagada';
   invite_code: string | null;
   deuda_vinculada_id: string | null;
+  // Recurrencia (compromisos que se repiten cada periodo)
+  es_recurrente?: boolean;
+  frecuencia?: Frecuencia | null;
+  fecha_fin?: string | null;
+  proxima_fecha?: string | null;
+  periodos_pagados?: number;
   created_at: string;
   updated_at: string;
   deuda_abonos?: DeudaAbono[];
@@ -89,6 +97,11 @@ export function useDebtMutations() {
           estado: 'activa',
           invite_code: null,
           deuda_vinculada_id: null,
+          es_recurrente: debt.es_recurrente ?? false,
+          frecuencia: debt.frecuencia ?? null,
+          fecha_fin: debt.fecha_fin ?? null,
+          proxima_fecha: debt.proxima_fecha ?? null,
+          periodos_pagados: 0,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
           deuda_abonos: [],
@@ -174,7 +187,15 @@ export function useDebtMutations() {
   });
 
   const update = useMutation({
-    mutationFn: async ({ id, ...fields }: { id: string; contraparte?: string; descripcion?: string | null; fecha_vencimiento?: string | null }) => {
+    mutationFn: async ({ id, ...fields }: {
+      id: string;
+      contraparte?: string;
+      descripcion?: string | null;
+      fecha_vencimiento?: string | null;
+      es_recurrente?: boolean;
+      frecuencia?: Frecuencia | null;
+      fecha_fin?: string | null;
+    }) => {
       if (IS_DEMO) {
         queryClient.setQueryData<Deuda[]>(['debts', DEMO_USER_ID], (old) =>
           (old ?? []).map((d) =>

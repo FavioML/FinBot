@@ -101,6 +101,46 @@ function matchCatalogo(comercio: string): CatalogoEntry | null {
   return null
 }
 
+// Normaliza la subcategoria de la DB a una key válida de TIPO_LABELS.
+// La DB guarda valores como "Streaming", "Música", "Almacenamiento" pero las keys
+// del catálogo son lowercase sin acentos: "streaming", "musica", "almacenamiento".
+// Sin esta normalización todo cae a "otros".
+function normalizeSubcategoriaKey(raw: string | null | undefined): string {
+  if (!raw) return 'otros'
+  const norm = raw
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .trim()
+  if (!norm || norm === 'sin_categoria' || norm === 'null') return 'otros'
+  return norm
+}
+
+// Si ya hay un tipo conocido del catálogo (pattern.tipo), tiene prioridad sobre
+// la subcategoría guardada — el catálogo siempre es más específico.
+function pickTipoFromCatalog(catalogId: string | null): string | null {
+  if (!catalogId) return null
+  const map: Record<string, string> = {
+    netflix: 'streaming', disney_plus: 'streaming', hbo_max: 'streaming',
+    amazon_prime: 'streaming', apple_tv: 'streaming', paramount_plus: 'streaming',
+    crunchyroll: 'streaming',
+    spotify: 'musica', apple_music: 'musica', youtube_premium: 'musica',
+    xbox_gamepass: 'gaming', playstation_plus: 'gaming',
+    google_one: 'almacenamiento', icloud: 'almacenamiento', dropbox: 'almacenamiento',
+    chatgpt: 'ai', claude: 'ai', midjourney: 'ai',
+    microsoft_365: 'software', canva: 'software', adobe_cc: 'software',
+    notion: 'software', figma: 'software', github: 'software',
+    zoom: 'comunicacion', slack: 'comunicacion',
+    el_comercio: 'noticias',
+    nordvpn: 'vpn',
+    strava: 'fitness',
+    rappi_prime: 'delivery', pedidosya_plus: 'delivery',
+    platzi: 'educacion', coursera: 'educacion', duolingo: 'educacion',
+    tinder: 'dating',
+  }
+  return map[catalogId] || null
+}
+
 interface DeteccionResult {
   suscripciones: SuscripcionDetectada[]
   totalMensualPEN: number
@@ -126,15 +166,21 @@ function detectarSuscripcionesFromTxs(txs: Transaccion[]): DeteccionResult {
     if (!nombre) continue
     const match = matchCatalogo(nombre)
     const groupKey = match ? `catalog:${match.id}` : `comercio:${nombre.toLowerCase()}`
+    const subKey = normalizeSubcategoriaKey(tx.subcategoria)
 
     if (!groups[groupKey]) {
+      // Prioridad: catálogo > subcategoría DB > 'otros'
+      const catalogTipo = pickTipoFromCatalog(match?.id ?? null)
       groups[groupKey] = {
         catalogMatch: match,
         nombre: match ? match.nombre : nombre,
-        subcategoria: tx.subcategoria || 'otros',
+        subcategoria: catalogTipo || subKey,
         pagos: [],
         moneda: match ? match.moneda : (tx.moneda || 'PEN') as 'USD' | 'PEN',
       }
+    } else if (groups[groupKey].subcategoria === 'otros' && subKey !== 'otros') {
+      // Si la primera tx no tenía sub, usar la siguiente que sí la trae
+      groups[groupKey].subcategoria = subKey
     }
     groups[groupKey].pagos.push({
       monto: tx.monto,
@@ -159,7 +205,7 @@ function detectarSuscripcionesFromTxs(txs: Transaccion[]): DeteccionResult {
       ? Math.round(avgPen / TC_APROXIMADO * 100) / 100
       : Math.round(avgPen * 100) / 100
 
-    // tipo = subcategoría real de la DB (no del catálogo)
+    // tipo = subcategoría normalizada (catálogo tiene prioridad sobre la DB)
     const subcatLabel = TIPO_LABELS[data.subcategoria] ? data.subcategoria : 'otros'
 
     suscripciones.push({

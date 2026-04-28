@@ -15,7 +15,8 @@ import {
 import { EmptyState } from '@/components/shared/empty-state';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import { useUser } from '@/lib/hooks/use-user';
-import { useDebts, useDebtMutations, groupDebtsByContraparte, type Deuda, type DebtGroup } from '@/lib/hooks/use-debts';
+import { useDebts, useDebtMutations, groupDebtsByContraparte, type Deuda, type DebtGroup, type Frecuencia } from '@/lib/hooks/use-debts';
+import { Repeat, Infinity as InfinityIcon } from 'lucide-react';
 import { useSplitExpenses, useSplitMutations, type GastoCompartido, type GastoParticipante } from '@/lib/hooks/use-split';
 import { formatCurrency } from '@/lib/utils';
 import { HeaderActions } from '@/components/dashboard/topbar';
@@ -61,6 +62,9 @@ export default function DeudasPage() {
   const [moneda, setMoneda] = useState<'PEN' | 'USD'>('PEN');
   const [descripcion, setDescripcion] = useState('');
   const [fechaVencimiento, setFechaVencimiento] = useState('');
+  const [esRecurrente, setEsRecurrente] = useState(false);
+  const [frecuencia, setFrecuencia] = useState<Frecuencia>('mensual');
+  const [fechaFin, setFechaFin] = useState('');
 
   // Form state — abono
   const [montoAbono, setMontoAbono] = useState('');
@@ -130,6 +134,9 @@ export default function DeudasPage() {
     setMoneda('PEN');
     setDescripcion('');
     setFechaVencimiento('');
+    setEsRecurrente(false);
+    setFrecuencia('mensual');
+    setFechaFin('');
     setShowForm(true);
   }
 
@@ -143,6 +150,10 @@ export default function DeudasPage() {
       toast.error('El monto debe ser mayor a 0');
       return;
     }
+    if (esRecurrente && fechaFin && fechaVencimiento && fechaFin < fechaVencimiento) {
+      toast.error('La fecha límite debe ser posterior al primer pago');
+      return;
+    }
     try {
       await create.mutateAsync({
         tipo,
@@ -151,8 +162,11 @@ export default function DeudasPage() {
         moneda,
         descripcion: descripcion || undefined,
         fecha_vencimiento: fechaVencimiento || undefined,
+        es_recurrente: esRecurrente,
+        frecuencia: esRecurrente ? frecuencia : null,
+        fecha_fin: esRecurrente ? (fechaFin || null) : null,
       } as Parameters<typeof create.mutateAsync>[0]);
-      toast.success('Deuda registrada');
+      toast.success(esRecurrente ? 'Compromiso recurrente registrado' : 'Deuda registrada');
       setShowForm(false);
       setTab(tipo);
     } catch {
@@ -168,8 +182,10 @@ export default function DeudasPage() {
       return;
     }
     try {
-      const result = await pay.mutateAsync({ id: showPayForm.id, monto: montoNum, nota: notaAbono || undefined });
-      if (result.completada) {
+      const result = await pay.mutateAsync({ id: showPayForm.id, monto: montoNum, nota: notaAbono || undefined }) as { completada?: boolean; recurrenteRenovada?: boolean };
+      if (result.recurrenteRenovada) {
+        toast.success('Periodo cobrado · siguiente pago abierto');
+      } else if (result.completada) {
         toast.success('¡Deuda saldada completamente!');
       } else {
         toast.success('Abono registrado');
@@ -926,11 +942,28 @@ export default function DeudasPage() {
                             }`} />
                           </div>
                           <div className="min-w-0">
-                            <p className={`font-semibold text-sm ${isPagada ? 'text-[#8A877D] line-through' : 'text-[#F0EFE8]'}`}>
+                            <p className={`font-semibold text-sm ${isPagada ? 'text-[#8A877D] line-through' : 'text-[#F0EFE8]'} flex items-center gap-1.5 flex-wrap`}>
                               {debt.contraparte}
+                              {debt.es_recurrente && debt.frecuencia && (
+                                <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-[rgba(29,158,117,0.12)] text-[#1D9E75] font-medium">
+                                  <Repeat className="h-3 w-3" />
+                                  {debt.frecuencia === 'semanal' ? 'Semanal'
+                                    : debt.frecuencia === 'quincenal' ? 'Quincenal'
+                                    : debt.frecuencia === 'mensual' ? 'Mensual'
+                                    : 'Anual'}
+                                </span>
+                              )}
                             </p>
                             {debt.descripcion && (
                               <p className="text-xs text-[#8A877D] truncate">{debt.descripcion}</p>
+                            )}
+                            {debt.es_recurrente && !isPagada && (
+                              <p className="text-[10px] text-[#8A877D] mt-0.5">
+                                {debt.fecha_fin
+                                  ? `Hasta ${new Date(debt.fecha_fin + 'T12:00:00').toLocaleDateString('es-PE', { day: 'numeric', month: 'short', year: 'numeric' })}`
+                                  : 'Indefinido'}
+                                {(debt.periodos_pagados || 0) > 0 && ` · ${debt.periodos_pagados} periodo${(debt.periodos_pagados || 0) !== 1 ? 's' : ''} cobrado${(debt.periodos_pagados || 0) !== 1 ? 's' : ''}`}
+                              </p>
                             )}
                             {debt.fecha_vencimiento && !isPagada && (() => {
                               const badge = getVencimientoBadge(debt);
@@ -1149,9 +1182,11 @@ export default function DeudasPage() {
                 />
               </div>
 
-              {/* Fecha de vencimiento */}
+              {/* Fecha del próximo pago (renombrado cuando es recurrente) */}
               <div>
-                <label className="text-xs text-[#8A877D] mb-1.5 block">Fecha límite (opcional)</label>
+                <label className="text-xs text-[#8A877D] mb-1.5 block">
+                  {esRecurrente ? 'Próximo pago' : 'Fecha límite (opcional)'}
+                </label>
                 <input
                   type="date"
                   value={fechaVencimiento}
@@ -1160,13 +1195,87 @@ export default function DeudasPage() {
                 />
               </div>
 
+              {/* Toggle recurrente */}
+              <div className="rounded-lg border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.02)] p-3 space-y-3">
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={esRecurrente}
+                    onChange={(e) => setEsRecurrente(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 accent-[#1D9E75]"
+                  />
+                  <span className="flex-1">
+                    <span className="text-sm text-[#F0EFE8] font-medium flex items-center gap-1.5">
+                      <Repeat className="h-3.5 w-3.5 text-[#1D9E75]" />
+                      Compromiso recurrente
+                    </span>
+                    <span className="text-xs text-[#8A877D] block mt-0.5">
+                      {tipo === 'debo'
+                        ? 'Pagas un monto fijo cada periodo (ej: alquiler).'
+                        : 'Te pagan un monto fijo cada periodo (ej: mensualidad).'}
+                    </span>
+                  </span>
+                </label>
+
+                {esRecurrente && (
+                  <div className="pl-6 space-y-3">
+                    <div>
+                      <label className="text-xs text-[#8A877D] mb-1.5 block">Frecuencia</label>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {(['semanal', 'quincenal', 'mensual', 'anual'] as const).map((f) => (
+                          <button
+                            key={f}
+                            type="button"
+                            onClick={() => setFrecuencia(f)}
+                            className={`py-1.5 rounded-md text-xs font-medium transition-all ${
+                              frecuencia === f
+                                ? 'bg-[#1D9E75] text-white'
+                                : 'bg-[rgba(255,255,255,0.04)] text-[#8A877D] hover:text-[#C8C6BC]'
+                            }`}
+                          >
+                            {f === 'semanal' ? 'Semanal' : f === 'quincenal' ? 'Quincenal' : f === 'mensual' ? 'Mensual' : 'Anual'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs text-[#8A877D] mb-1.5 block flex items-center justify-between">
+                        <span>Hasta</span>
+                        {!fechaFin && (
+                          <span className="text-[10px] text-[#1D9E75] flex items-center gap-1">
+                            <InfinityIcon className="h-3 w-3" /> indefinido
+                          </span>
+                        )}
+                      </label>
+                      <div className="flex gap-1.5">
+                        <input
+                          type="date"
+                          value={fechaFin}
+                          onChange={(e) => setFechaFin(e.target.value)}
+                          className="flex-1 rounded-lg bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.08)] px-3 py-2 text-sm text-[#F0EFE8] outline-none focus:border-[#1D9E75]"
+                        />
+                        {fechaFin && (
+                          <button
+                            type="button"
+                            onClick={() => setFechaFin('')}
+                            className="px-2 rounded-lg text-xs text-[#8A877D] hover:text-[#C8C6BC] bg-[rgba(255,255,255,0.04)]"
+                          >
+                            Limpiar
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="flex gap-2 pt-1">
                 <Button
                   onClick={handleSave}
                   className="flex-1 bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90"
                   disabled={create.isPending}
                 >
-                  {create.isPending ? 'Guardando...' : 'Registrar deuda'}
+                  {create.isPending ? 'Guardando...' : esRecurrente ? 'Crear compromiso' : 'Registrar deuda'}
                 </Button>
                 <Button
                   variant="outline"

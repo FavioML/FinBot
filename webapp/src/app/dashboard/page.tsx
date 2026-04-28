@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic';
 
-import { useMemo, useState, useCallback, lazy, Suspense } from 'react';
+import { useMemo, useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
@@ -72,6 +72,7 @@ export default function DashboardPage() {
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [showScoreDialog, setShowScoreDialog] = useState(false);
   const [detailCategoria, setDetailCategoria] = useState<string | null>(null);
+  const [detailSubcategoria, setDetailSubcategoria] = useState<string | null>(null);
   const [detailMetodo, setDetailMetodo] = useState<string | null>(null);
   const [detailComercio, setDetailComercio] = useState<string | null>(null);
   const [editTransaction, setEditTransaction] = useState<Transaccion | null>(null);
@@ -81,6 +82,11 @@ export default function DashboardPage() {
   const refreshAll = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['transactions'] });
   }, [queryClient]);
+
+  // Reset subcategory drill-in whenever the category changes
+  useEffect(() => {
+    setDetailSubcategoria(null);
+  }, [detailCategoria]);
 
   // Load ALL transactions for the user (enables both monthly and annual views + trend chart)
   const { data: allTransactions = [], isLoading: txLoading } = useTransactions({
@@ -777,11 +783,28 @@ export default function DashboardPage() {
       )}
 
       {/* Category detail dialog */}
-      <Dialog open={!!detailCategoria} onOpenChange={(open) => { if (!open) setDetailCategoria(null); }}>
+      <Dialog open={!!detailCategoria} onOpenChange={(open) => { if (!open) { setDetailCategoria(null); setDetailSubcategoria(null); } }}>
         <DialogContent className="bg-[#1A1A18] border-[#2A2A28] text-[#F0EFE8] max-w-md max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {detailCategoria && `${getCategoriaEmoji(detailCategoria)} ${detailCategoria}`}
+              {detailCategoria && (
+                <span className="flex items-center gap-2 flex-wrap">
+                  {detailSubcategoria && (
+                    <button
+                      onClick={() => setDetailSubcategoria(null)}
+                      className="text-xs text-[#1D9E75] hover:underline"
+                    >
+                      &larr; {getCategoriaEmoji(detailCategoria)} {capitalizeDisplay(detailCategoria)}
+                    </button>
+                  )}
+                  {!detailSubcategoria && (
+                    <span>{getCategoriaEmoji(detailCategoria)} {capitalizeDisplay(detailCategoria)}</span>
+                  )}
+                  {detailSubcategoria && (
+                    <span className="text-[#F0EFE8]">/ {capitalizeDisplay(detailSubcategoria)}</span>
+                  )}
+                </span>
+              )}
             </DialogTitle>
           </DialogHeader>
           {detailCategoria && (() => {
@@ -789,19 +812,73 @@ export default function DashboardPage() {
               .filter((t) => t.tipo === 'gasto' && t.categoria === detailCategoria)
               .sort((a, b) => b.fecha.localeCompare(a.fecha));
             const catTotal = catTxs.reduce((s, t) => s + t.monto_pen, 0);
+
+            // Group by subcategory
+            const subMap = new Map<string, Transaccion[]>();
+            for (const tx of catTxs) {
+              const sub = (tx.subcategoria && tx.subcategoria !== 'sin_categoria' && tx.subcategoria !== 'null')
+                ? tx.subcategoria
+                : '(General)';
+              if (!subMap.has(sub)) subMap.set(sub, []);
+              subMap.get(sub)!.push(tx);
+            }
+            const subEntries = Array.from(subMap.entries())
+              .map(([name, txs]) => ({
+                name,
+                txs,
+                total: txs.reduce((s, t) => s + t.monto_pen, 0),
+              }))
+              .sort((a, b) => b.total - a.total);
+
+            // If a subcategory is selected, only show its txs
+            const visibleTxs = detailSubcategoria
+              ? (subMap.get(detailSubcategoria) || [])
+              : catTxs;
+
             return (
               <div className="glass-card-depth space-y-3">
                 <p className="text-sm text-[#8A877D]">
-                  Total: <span className="text-[#D85A30] font-medium">{formatCurrency(catTotal)}</span>
-                  {' '}&mdash; {catTxs.length} transacci{catTxs.length === 1 ? 'on' : 'ones'}
+                  Total{detailSubcategoria ? ' subcategoría' : ''}:{' '}
+                  <span className="text-[#D85A30] font-medium">
+                    {formatCurrency(detailSubcategoria
+                      ? (subMap.get(detailSubcategoria)?.reduce((s, t) => s + t.monto_pen, 0) || 0)
+                      : catTotal)}
+                  </span>
+                  {' '}&mdash; {visibleTxs.length} transacci{visibleTxs.length === 1 ? 'on' : 'ones'}
                 </p>
-                {catTxs.length > 0 ? (
+
+                {/* Subcategory chips — only when not drilled into one */}
+                {!detailSubcategoria && subEntries.length > 1 && (
+                  <div className="flex flex-wrap gap-1.5 pb-1">
+                    {subEntries.map(({ name, total, txs }) => (
+                      <button
+                        key={name}
+                        onClick={() => name !== '(General)' && setDetailSubcategoria(name)}
+                        disabled={name === '(General)'}
+                        className={`text-xs rounded-full px-2.5 py-1 transition-colors ${
+                          name === '(General)'
+                            ? 'bg-[rgba(255,255,255,0.04)] text-[#8A877D] cursor-default'
+                            : 'bg-[rgba(29,158,117,0.08)] text-[#1D9E75] hover:bg-[rgba(29,158,117,0.16)]'
+                        }`}
+                      >
+                        {capitalizeDisplay(name)} <span className="text-[#8A877D]">· {txs.length}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {visibleTxs.length > 0 ? (
                   <div className="space-y-1">
-                    {catTxs.slice(0, 15).map((tx) => (
+                    {visibleTxs.slice(0, 15).map((tx) => (
                       <div key={tx.id} className="flex items-center justify-between py-2 border-b border-[rgba(255,255,255,0.04)] last:border-0">
                         <div className="min-w-0 flex-1">
                           <p className="text-sm text-[#F0EFE8] truncate">{tx.comercio || tx.subcategoria || 'Sin comercio'}</p>
-                          <p className="text-xs text-[#8A877D]">{formatFecha(tx.fecha)}</p>
+                          <p className="text-xs text-[#8A877D]">
+                            {formatFecha(tx.fecha)}
+                            {!detailSubcategoria && tx.subcategoria && tx.subcategoria !== 'sin_categoria' && (
+                              <span> · {capitalizeDisplay(tx.subcategoria)}</span>
+                            )}
+                          </p>
                         </div>
                         <div className="flex items-center gap-2 shrink-0 ml-3">
                           <span className="text-sm font-medium text-[#D85A30]">
@@ -816,9 +893,9 @@ export default function DashboardPage() {
                         </div>
                       </div>
                     ))}
-                    {catTxs.length > 15 && (
+                    {visibleTxs.length > 15 && (
                       <p className="text-xs text-[#8A877D] text-center pt-2">
-                        y {catTxs.length - 15} transacciones mas...
+                        y {visibleTxs.length - 15} transacciones mas...
                       </p>
                     )}
                   </div>
