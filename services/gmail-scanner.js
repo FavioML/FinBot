@@ -7,6 +7,7 @@ const { hoyPeru } = require('../lib/dates');
 const { leerCorreosBancarios } = require('../gmail');
 const { parsearCorreoBancario } = require('./parsers');
 const { guardarTransaccion, necesitaConsulta, guardarConsultaPendiente, mensajeConsulta } = require('./transactions');
+const { obtenerCategoriasUsuario } = require('./categories');
 const { verificarProReferidos } = require('./referrals');
 const { getUserPlanConfig } = require('../helpers/db-helpers');
 const { crearNotificacion } = require('../lib/notifications-db');
@@ -42,6 +43,10 @@ async function escanearGmailYRegistrar(usuario) {
   if (!mensajes.length) return null;
   let registradas = 0; let ignoradas = 0; let resumen = '';
   const txsConsultar = [];
+  // Fetch categorías custom una sola vez por batch (no por correo)
+  let categoriasCustom = null;
+  try { categoriasCustom = await obtenerCategoriasUsuario(usuario.id); }
+  catch(e) { log.warn({ tag: 'CATS', err: e.message }, 'No se pudieron cargar categorías custom'); }
   for (const msg of mensajes) {
     try {
       const textoParseo = msg.texto || msg.snippet;
@@ -50,7 +55,7 @@ async function escanearGmailYRegistrar(usuario) {
       if (existente) { ignoradas++; continue; }
       const { data: excluido } = await supabase.from('gmail_excluidos').select('id').eq('usuario_id', usuario.id).eq('descripcion_original', claveDedup).single();
       if (excluido) { ignoradas++; continue; }
-      const resultado = await parsearCorreoBancario(textoParseo, msg.asunto);
+      const resultado = await parsearCorreoBancario(textoParseo, msg.asunto, categoriasCustom);
       if (!resultado.monto) continue;
       const txGuardada = await guardarTransaccion(usuario.id, { ...resultado, fecha: msg.fecha || resultado.fecha, descripcion_original: claveDedup });
       if (txGuardada && necesitaConsulta(txGuardada)) txsConsultar.push(txGuardada);

@@ -264,7 +264,10 @@ async function procesarMensajeLibre(msg, usuario, from) {
     // === Default/fallback (no handler found) ===
     if (/\d/.test(msg) && msg.length > 8) {
       try {
-        const resultado = await parsearCorreoBancario(msg);
+        let categoriasCustomFb = null;
+        try { categoriasCustomFb = await require('../services/categories').obtenerCategoriasUsuario(usuario.id); }
+        catch(e) { /* fall back to canonical */ }
+        const resultado = await parsearCorreoBancario(msg, undefined, categoriasCustomFb);
         if (resultado.monto && resultado.monto > 0) {
           await guardarTransaccion(usuario.id, resultado);
           let resp = '\uD83D\uDCB3 *Transaccion registrada*\n' + (resultado.tipo === 'gasto' ? 'Gasto' : 'Ingreso') + ': S/ ' + resultado.monto + '\nComercio: ' + (resultado.comercio || 'No detectado') + '\nCategoria: ' + (resultado.categoria || 'Sin categoria');

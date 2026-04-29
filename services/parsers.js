@@ -22,7 +22,7 @@ function normalizarComercio(comercio) {
 }
 
 const BANK_PARSER_PROMPT = `Eres un parser experto de notificaciones bancarias peruanas. Devuelve SOLO JSON sin markdown:
-{ "tipo":"gasto"|"ingreso", "monto":numero, "moneda":"PEN"|"USD", "comercio":"nombre limpio del comercio", "categoria":"ver lista", "subcategoria":"ver lista", "banco":"BCP|Interbank|BBVA|Scotiabank|Yape|Plin|Falabella|Ripley|BanBif|Mibanco|CMAC|Otro", "metodo_pago":"Debito|Credito|Yape|Plin|Efectivo|Otro", "fecha":"YYYY-MM-DD", "descripcion_original":"texto original" }
+{ "tipo":"gasto"|"ingreso", "monto":numero, "moneda":"PEN"|"USD", "comercio":"nombre limpio del comercio", "categoria":"ver lista", "subcategoria":"ver lista", "banco":"BCP|Interbank|BBVA|Scotiabank|Yape|Plin|Falabella|Ripley|BanBif|Mibanco|CMAC|Otro", "metodo_pago":"Debito|Credito|Transferencia|Yape|Plin|Efectivo|Otro", "fecha":"YYYY-MM-DD", "descripcion_original":"texto original" }
 
 CATEGORÍAS Y SUBCATEGORÍAS OBLIGATORIAS (usa EXACTAMENTE estos valores, sin variantes):
 
@@ -79,6 +79,25 @@ REGLAS DE NORMALIZACIÓN DE COMERCIOS:
 - Meta Ads / Google Ads / publicidad → Trabajo_Negocio > publicidad
 
 REGLAS POR BANCO:
+- BCP transferencia a terceros / interbancaria (BCP, BBVA, Interbank, Scotiabank cuando dice "Realizaste una transferencia" + "Enviado a"):
+  * tipo: gasto
+  * metodo_pago: "Transferencia"
+  * El campo "Mensaje" del correo es la SEÑAL PRIMARIA de categoría/subcategoría (más fuerte que el beneficiario).
+    Ejemplos:
+      "Cuota 3 turismo" / "viaje" / "tour" → Otros > viaje
+      "Alquiler" / "renta departamento" → Vivienda > alquiler
+      "Préstamo" / "devuelvo plata" → Finanzas > prestamo
+      "Almuerzo" / "cena" / "comida" → Alimentación > restaurante
+      "Curso" / "matrícula" / "pensión colegio" → Educación > curso_online | colegios
+      "Sueldo" / "honorarios" → tipo: ingreso, Finanzas > sin_categoria
+      sin mensaje claro → Otros > sin_categoria
+  * comercio: construir como "<Beneficiario> — <propósito principal del mensaje>" cuando el mensaje aporta contexto.
+    Ejemplos:
+      "Quipuzco Valles Danny L." + mensaje "Cuota 3 turismo" → comercio: "Quipuzco Valles Danny L. — cuota turismo"
+      "Maria Lopez" + mensaje "alquiler abril" → comercio: "Maria Lopez — alquiler"
+      "Juan Perez" sin mensaje claro → comercio: "Juan Perez"
+    El propósito debe ser 1-3 palabras lowercase, sin números, sin meses, sin "menos", "y", "más", etc.
+    Esto permite que Neto aprenda reglas distintas por propósito aunque sea el mismo beneficiario.
 - BCP débito/crédito: buscar campo "Empresa" o descripción del consumo
 - BBVA: buscar campo "Comercio" o descripción de consumo
 - Interbank: buscar campo "Empresa" para pagos de servicio
@@ -134,11 +153,37 @@ REGLAS GENERALES:
 - subcategoria NUNCA puede ser null — usar sin_categoria si no sabes
 - comercio: nombre limpio sin códigos (no "DLC*PEDIDOSYA" sino "PedidosYa")`;
 
-async function parsearCorreoBancario(texto, contexto) {
+/**
+ * Construye el bloque de prompt con categorías custom del usuario.
+ * categoriasCustom: array de { nombre, subcategorias: [{ nombre }] } obtenido
+ * con services/categories.js → obtenerCategoriasUsuario(usuarioId)
+ */
+function buildCategoriasCustomPrompt(categoriasCustom) {
+  if (!categoriasCustom || categoriasCustom.length === 0) return '';
+  const lineas = categoriasCustom.map(c => {
+    const subs = (c.subcategorias || []).map(s => s.nombre).filter(Boolean);
+    return '- ' + c.nombre + (subs.length ? ' → ' + subs.join(' | ') : ' (sin subcategorías)');
+  }).join('\n');
+  return `
+
+CATEGORÍAS CUSTOM DEL USUARIO (PRIORIDAD SOBRE CANÓNICAS):
+El usuario ha creado estas categorías propias. Si alguna encaja mejor con el contexto del correo (especialmente para transferencias con mensaje), úsala EN LUGAR de la canónica. Devuelve el "nombre" exacto tal como aparece aquí, respetando mayúsculas y acentos.
+
+${lineas}
+
+REGLA DE PRIORIDAD:
+- Si el correo describe un viaje y el usuario tiene categoría "Viajes" custom → usa "Viajes" (no "Otros > viaje")
+- Si el correo describe deudas y el usuario tiene categoría "Deudas" custom → usa "Deudas" (no la canónica más cercana)
+- Solo cae a categoría canónica si NINGUNA custom encaja con el contexto
+- subcategoria debe ser una de las listadas para esa categoría custom; si no hay match exacto, usar "sin_categoria"`;
+}
+
+async function parsearCorreoBancario(texto, contexto, categoriasCustom) {
+  const systemPrompt = BANK_PARSER_PROMPT + buildCategoriasCustomPrompt(categoriasCustom);
   const res = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
     messages: [
-      { role: 'system', content: BANK_PARSER_PROMPT },
+      { role: 'system', content: systemPrompt },
       { role: 'user', content: 'Parsea este correo bancario' + (contexto ? ' (asunto: ' + contexto + ')' : '') + ':\n\n' + texto }
     ],
     temperature: 0

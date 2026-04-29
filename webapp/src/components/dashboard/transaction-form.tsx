@@ -115,7 +115,7 @@ function MetodoPagoPills({
   options: string[];
 }) {
   return (
-    <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-none">
+    <div className="flex flex-wrap gap-2">
       {options.map((m) => {
         const active = value === m;
         return (
@@ -123,7 +123,7 @@ function MetodoPagoPills({
             key={m}
             type="button"
             onClick={() => onChange(m)}
-            className={`shrink-0 px-4 py-2.5 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
+            className={`shrink-0 px-3.5 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
               active
                 ? 'bg-[#1D9E75] text-white shadow-sm shadow-[#1D9E75]/20'
                 : 'bg-[#1A1A17] text-[#C8C6BC] border border-[rgba(240,239,232,0.08)] hover:border-[rgba(240,239,232,0.14)]'
