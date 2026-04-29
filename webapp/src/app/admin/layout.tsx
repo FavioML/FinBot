@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { getAdminContext } from '@/lib/admin';
+import { AdminQueryProvider } from './admin-query-provider';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,7 +31,7 @@ export default async function AdminLayout({
             Volver al dashboard
           </a>
         </header>
-        {children}
+        <AdminQueryProvider>{children}</AdminQueryProvider>
       </div>
     </div>
   );
