@@ -16,14 +16,14 @@ const sections = [
     title: 'Unit Economics',
     desc: 'MRR, ARR, breakeven, márgenes, CAC, LTV',
     icon: TrendingUp,
-    status: 'soon' as const,
+    status: 'live' as const,
   },
   {
     href: '/admin/costs',
     title: 'Costos & Recordatorios',
     desc: 'Railway, dominio, chip Entel — vencen hoy',
     icon: Receipt,
-    status: 'soon' as const,
+    status: 'live' as const,
   },
   {
     href: '/admin/surveys',
