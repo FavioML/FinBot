@@ -72,3 +72,27 @@ export const SOCIAL_LINKS = {
   tiktok: 'https://www.tiktok.com/@neto_peru',
   web: 'https://neto.pe',
 };
+
+// --- Admin / unit economics ---
+import type { AdminCostCategory, AdminCostFrequency } from './types-admin';
+
+export const COST_PER_PRO_USER_PEN = 0.78;
+export const PRO_PRICE_MONTHLY_PEN = 10;
+export const PRO_PRICE_YEARLY_PEN = 99;
+export const CAC_REFERIDOS_PEN = 3.33;
+
+export const ADMIN_COST_CATEGORY_LABELS: Record<AdminCostCategory, string> = {
+  infra: 'Infraestructura',
+  domain: 'Dominio',
+  comms: 'Comunicaciones',
+  ai: 'IA',
+  compliance: 'Compliance',
+  tooling: 'Herramientas',
+  other: 'Otro',
+};
+
+export const ADMIN_COST_FREQUENCY_LABELS: Record<AdminCostFrequency, string> = {
+  monthly: 'Mensual',
+  yearly: 'Anual',
+  one_time: 'Único',
+};
