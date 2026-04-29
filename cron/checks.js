@@ -7,6 +7,7 @@ const { generarResumenSemanal, generarResumenMensual } = require('../services/su
 const { verificarAlertasProactivas } = require('../services/recommendations');
 const { obtenerDeudasProximasVencer } = require('../services/debts');
 const { crearNotificacion } = require('../lib/notifications-db');
+const { ADMIN_NUMBER } = require('../lib/config');
 
 async function checkResumenMensual() {
   const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
@@ -393,6 +394,70 @@ async function checkRecordatorioEspacios() {
   } catch (e) { log.error({ tag: 'ESPACIOS_REMIND', err: e.message }, 'Error recordatorio espacios'); }
 }
 
+/**
+ * Recordatorio de costos operativos al admin (Favio).
+ * Corre 9am Lima diario. Busca filas en admin_costs con next_due_date = hoy
+ * y manda un solo mensaje WhatsApp consolidado al ADMIN_NUMBER.
+ *
+ * NO avanza next_due_date automaticamente — eso lo hace el admin desde UI
+ * cuando marca el costo como pagado. Asi el track refleja la realidad.
+ *
+ * Idempotencia: usa last_reminder_sent_at para evitar doble alerta el mismo dia
+ * (el cron corre cada 15min entre 9:00 y 9:14).
+ */
+async function checkRecordatoriosCostos() {
+  const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
+  if (horaLima.getHours() !== 9 || horaLima.getMinutes() > 14) return;
+  try {
+    const hoy = hoyPeru();
+    const { data: costos } = await supabase.from('admin_costs')
+      .select('id, label, amount_pen, currency, amount_original, frequency, last_reminder_sent_at')
+      .eq('active', true)
+      .eq('next_due_date', hoy);
+
+    if (!costos || costos.length === 0) return;
+
+    const aNotificar = costos.filter(c => {
+      if (!c.last_reminder_sent_at) return true;
+      const last = new Date(c.last_reminder_sent_at);
+      const lastDayLima = new Date(last.toLocaleString('en-US', { timeZone: 'America/Lima' }))
+        .toISOString().split('T')[0];
+      return lastDayLima !== hoy;
+    });
+
+    if (aNotificar.length === 0) return;
+
+    let msg = '💸 *Recordatorio de costos — vencen hoy*\n\n';
+    let totalPen = 0;
+    for (const c of aNotificar) {
+      const amount = parseFloat(c.amount_pen);
+      totalPen += amount;
+      const freqLabel = c.frequency === 'monthly' ? 'mensual'
+        : c.frequency === 'yearly' ? 'anual' : 'único';
+      let line = '• *' + c.label + '* — S/ ' + amount.toFixed(2);
+      if (c.currency === 'USD' && c.amount_original) {
+        line += ' ($' + parseFloat(c.amount_original).toFixed(2) + ')';
+      }
+      line += ' _(' + freqLabel + ')_\n';
+      msg += line;
+    }
+    msg += '\n*Total a pagar hoy: S/ ' + totalPen.toFixed(2) + '*\n\n';
+    msg += '_Cuando los pagues, marcalos como pagados desde app.neto.pe/admin/costs_';
+
+    await enviarWhatsapp(ADMIN_NUMBER, msg);
+
+    const ids = aNotificar.map(c => c.id);
+    await supabase.from('admin_costs')
+      .update({ last_reminder_sent_at: new Date().toISOString() })
+      .in('id', ids);
+
+    log.info({ tag: 'COSTOS_REMIND', count: aNotificar.length, total: totalPen.toFixed(2) },
+      'Recordatorios de costos enviados al admin');
+  } catch (e) {
+    log.error({ tag: 'COSTOS_REMIND', err: e.message }, 'Error recordatorio costos');
+  }
+}
+
 module.exports = {
   checkResumenMensual,
   checkResumenSemanal,
@@ -406,4 +471,5 @@ module.exports = {
   checkDetectorFugas,
   checkCheckInPlanes,
   checkRecordatorioEspacios,
+  checkRecordatoriosCostos,
 };

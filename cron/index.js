@@ -15,6 +15,7 @@ const {
   checkDetectorFugas,
   checkCheckInPlanes,
   checkRecordatorioEspacios,
+  checkRecordatoriosCostos,
 } = require('./checks');
 
 function startCronJobs() {
@@ -49,6 +50,8 @@ function startCronJobs() {
     log.info({ tag: 'PLANES' }, 'Check-in planes de ahorro activo (Pro: 1ro y 15, 11am Lima)');
     setInterval(checkRecordatorioEspacios, 15 * 60 * 1000);
     log.info({ tag: 'ESPACIOS' }, 'Recordatorio espacios compartidos activo (viernes 6pm Lima)');
+    setInterval(checkRecordatoriosCostos, 15 * 60 * 1000);
+    log.info({ tag: 'COSTOS_REMIND' }, 'Recordatorios de costos al admin activos (9am Lima diario)');
     setTimeout(runBackup, 60000);
     setInterval(runBackup, 7 * 24 * 60 * 60 * 1000);
     log.info({ tag: 'BACKUP' }, 'Backup semanal activo');
