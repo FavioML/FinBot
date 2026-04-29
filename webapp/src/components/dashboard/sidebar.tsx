@@ -17,10 +17,12 @@ import {
   AlertTriangle,
   Users,
   Settings,
+  Shield,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { SOCIAL_LINKS } from '@/lib/constants';
+import { useIsAdmin } from '@/lib/hooks/use-is-admin';
 
 const mainNav = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -47,6 +49,14 @@ interface SidebarProps {
 
 export function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname();
+  const { data: isAdmin } = useIsAdmin();
+
+  const secondaryNavItems = [
+    ...secondaryNav,
+    ...(isAdmin
+      ? [{ label: 'Admin', href: '/admin', icon: Shield }]
+      : []),
+  ];
 
   const sidebarContent = (
     <div className="flex h-full flex-col bg-[#141412] border-r border-[rgba(255,255,255,0.06)]">
@@ -113,7 +123,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
         {/* Secondary nav */}
         <div className="border-t border-[rgba(255,255,255,0.06)] pt-3 space-y-1">
-          {secondaryNav.map((item) => {
+          {secondaryNavItems.map((item) => {
             const isActive = pathname.startsWith(item.href);
             return (
               <Link
@@ -124,7 +134,9 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                   'relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200',
                   isActive
                     ? 'bg-[rgba(29,158,117,0.12)] text-[#1D9E75] glow-green shadow-[inset_2px_0_0_rgba(29,158,117,0.6)]'
-                    : 'text-[#8A877D] hover:text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.03)]'
+                    : item.label === 'Admin'
+                      ? 'text-[#EF9F27] hover:text-[#EF9F27] hover:bg-[rgba(239,159,39,0.06)]'
+                      : 'text-[#8A877D] hover:text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.03)]'
                 )}
               >
                 {isActive && (
