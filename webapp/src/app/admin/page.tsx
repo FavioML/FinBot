@@ -28,9 +28,9 @@ const sections = [
   {
     href: '/admin/surveys',
     title: 'Encuestas & Feedback',
-    desc: 'Respuestas NPS, feedback abierto, triggers',
+    desc: 'Recordatorios, NPS in-app, feedback abierto',
     icon: MessageSquare,
-    status: 'soon' as const,
+    status: 'live' as const,
   },
   {
     href: '/admin/users',

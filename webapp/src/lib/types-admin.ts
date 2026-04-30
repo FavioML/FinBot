@@ -89,3 +89,90 @@ export interface AdminEconomics {
     total: number;
   }>;
 }
+
+// ===== Survey events (UPDATE-05) =====
+
+export type SurveyEventType =
+  | 'reminder_d3'
+  | 'reminder_d7'
+  | 'reminder_d14'
+  | 'reminder_d30'
+  | 'webapp_invite_10tx'
+  | 'feedback_open_30tx'
+  | 'nps_inapp';
+
+export type SurveyChannel = 'whatsapp' | 'webapp';
+
+export interface NpsResponseData {
+  ease: number;        // 1-5
+  usefulness: number;  // 1-5
+  recommend: number;   // 1-5
+  comment?: string | null;
+}
+
+export interface FeedbackResponseData {
+  reply_text: string;
+}
+
+export interface ReminderResponseData {
+  user_replied: boolean;
+  reply_text?: string;
+}
+
+export interface WebappInviteResponseData {
+  logged_in_webapp_within_7d: boolean;
+}
+
+export type SurveyResponseData =
+  | NpsResponseData
+  | FeedbackResponseData
+  | ReminderResponseData
+  | WebappInviteResponseData
+  | Record<string, unknown>
+  | null;
+
+export interface SurveyEvent {
+  id: string;
+  user_id: string;
+  user_nombre?: string | null;
+  user_whatsapp?: string | null;
+  event_type: SurveyEventType;
+  channel: SurveyChannel;
+  triggered_at: string;
+  sent_at: string | null;
+  responded_at: string | null;
+  dismissed_at: string | null;
+  message_sent: string | null;
+  response_data: SurveyResponseData;
+  conversion_within_24h: boolean;
+  conversion_within_7d: boolean;
+  opted_out_after: boolean;
+  created_at: string;
+}
+
+export interface SurveyTypeStats {
+  count_sent: number;
+  count_responded: number;
+  count_dismissed: number;
+  response_rate: number;
+  opt_out_rate: number;
+  conversion_rate?: number;
+  nps_avg_ease?: number;
+  nps_avg_usefulness?: number;
+  nps_avg_recommend?: number;
+}
+
+export interface SurveyStats {
+  by_event_type: Partial<Record<SurveyEventType, SurveyTypeStats>>;
+  totals: {
+    total_sent: number;
+    total_responded: number;
+  };
+}
+
+export interface SurveyConversationMessage {
+  id: string;
+  rol: string; // 'user' | 'assistant' | other roles existing in conversaciones
+  mensaje: string;
+  created_at: string;
+}

@@ -34,6 +34,7 @@ import { SpendingProjection } from '@/components/dashboard/spending-projection';
 import { ExchangeRateWidget } from '@/components/dashboard/exchange-rate-widget';
 import { QuickActions } from '@/components/dashboard/quick-actions';
 import { TodaySpending } from '@/components/dashboard/today-spending';
+import { NPSCard } from '@/components/dashboard/nps-card';
 
 // Lazy load below-the-fold heavy components
 const FinancialCalendar = lazy(() => import('@/components/charts/financial-calendar').then(m => ({ default: m.FinancialCalendar })));
@@ -428,6 +429,9 @@ export default function DashboardPage() {
           <FadeIn delay={0.08}>
             <KPICards data={kpiData} sparklines={sparklines} netoScore={netoScore} />
           </FadeIn>
+
+          {/* NPS in-app card — auto-shows for eligible users (>=7d, never responded) */}
+          <NPSCard />
 
           {/* Fugas alert banner — subtle, only when there are recent alerts */}
           {(() => {
