@@ -47,7 +47,7 @@ async function evaluar(usuario) {
   if (txTotal >= 30 && !sentOneshot.has('feedback_open_30tx')) {
     return { trigger: 'feedback_open_30tx', txTotal };
   }
-  if (txTotal >= 10 && !usuario.tiene_webapp && !sentOneshot.has('webapp_invite_10tx')) {
+  if (txTotal >= 10 && !usuario.supabase_auth_id && !sentOneshot.has('webapp_invite_10tx')) {
     return { trigger: 'webapp_invite_10tx', txTotal };
   }
 
@@ -89,7 +89,7 @@ async function main() {
   const whatsappFilter = args.find(a => a.startsWith('--whatsapp'))?.split('=')[1] || args[args.indexOf('--whatsapp') + 1];
 
   let query = supabase.from('usuarios')
-    .select('id, whatsapp, nombre, created_at, recordatorios_activos, onboarding_completado, tiene_webapp');
+    .select('id, whatsapp, nombre, created_at, recordatorios_activos, onboarding_completado, supabase_auth_id');
   if (whatsappFilter) query = query.eq('whatsapp', whatsappFilter);
 
   const { data: usuarios, error } = await query;
