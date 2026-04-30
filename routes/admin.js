@@ -118,6 +118,40 @@ router.get('/stats', async (req, res) => {
   }
 });
 
+// POST /admin/notify — enviar mensaje WhatsApp manual a un usuario
+// Body: { clave, whatsapp, mensaje } | { clave, usuario_id, mensaje }
+router.post('/notify', async (req, res) => {
+  if (!verificarAdmin(req, res)) return;
+  try {
+    const { whatsapp, usuario_id, mensaje } = req.body;
+    if (!mensaje || typeof mensaje !== 'string' || mensaje.trim().length === 0) {
+      return res.status(400).json({ ok: false, msg: 'Falta mensaje' });
+    }
+    if (mensaje.length > 4000) {
+      return res.status(400).json({ ok: false, msg: 'Mensaje supera 4000 caracteres' });
+    }
+    let numero = whatsapp;
+    let nombre = null;
+    if (!numero && usuario_id) {
+      const { data: u } = await supabase.from('usuarios').select('whatsapp, nombre').eq('id', usuario_id).single();
+      if (!u) return res.status(404).json({ ok: false, msg: 'Usuario no encontrado' });
+      numero = u.whatsapp;
+      nombre = u.nombre;
+    }
+    if (!numero) return res.status(400).json({ ok: false, msg: 'Falta whatsapp o usuario_id' });
+    numero = String(numero).replace(/\+/g, '').replace(/^0/, '');
+    if (!/^\d{8,15}$/.test(numero)) {
+      return res.status(400).json({ ok: false, msg: 'Numero whatsapp invalido' });
+    }
+    await enviarWhatsapp(numero, mensaje);
+    log.info({ tag: 'ADMIN_NOTIFY', numero, len: mensaje.length }, 'Mensaje admin enviado');
+    res.json({ ok: true, msg: 'Mensaje enviado a ' + (nombre || numero) });
+  } catch(e) {
+    log.error({ tag: 'ADMIN_NOTIFY', err: e.message }, 'Error enviando mensaje admin');
+    res.status(500).json({ ok: false, msg: 'Error enviando mensaje' });
+  }
+});
+
 // GET /admin/errores — errores recientes
 router.get('/errores', async (req, res) => {
   if (!verificarAdmin(req, res)) return;
