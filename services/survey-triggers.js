@@ -155,6 +155,27 @@ function copyFeedback30(primerNombre) {
     'Lo que se te venga primero a la mente. Una línea basta.';
 }
 
+function copyWakeUpOnboardingNombre() {
+  return 'Hola, te registraste en Neto hace unos días pero el setup quedó a medias.\n\n' +
+    'Solo me faltó saber cómo te llamas. Escríbeme tu nombre y te activo en 30 segundos. Ej:\n\n' +
+    '_Carlos_\n_María Fernanda_\n\n' +
+    'Si ya no te interesa, escribe /silenciar y no te molesto más.';
+}
+
+function copyWakeUpOnboardingEmail(primerNombre) {
+  const nombre = primerNombre || 'Hola';
+  return `${nombre}, casi lo logramos pero el setup quedó a medias.\n\n` +
+    'Solo me faltó tu email para activarte. Escríbeme tu correo y arrancamos. Ej:\n\n' +
+    '_juan@gmail.com_\n\n' +
+    'Es el último paso, prometido. Si no te interesa más, escribe /silenciar.';
+}
+
+function copyWakeUpOnboardingGenerico() {
+  return 'Hola, vi que te registraste en Neto pero el setup quedó incompleto.\n\n' +
+    '¿Quieres que te ayude a terminar? Solo escríbeme tu nombre y te guío paso a paso.\n\n' +
+    'Si prefieres, escribe /silenciar y no te molesto más.';
+}
+
 // ===== Triggers =====
 
 /** Verifica si el usuario califica para reminder_d3 y manda el mensaje. */
@@ -300,6 +321,48 @@ async function maybeFeedback30(usuario) {
   return true;
 }
 
+/**
+ * Wake-up para usuarios que NO completaron onboarding y llevan >=7 dias atascados.
+ * El cron checkRecordatorioOnboarding existente solo dispara entre 3-6h
+ * post-registro, por lo que estos usuarios nunca vuelven a recibir mensaje.
+ *
+ * Variantes segun onboarding_paso:
+ *   100 / 0  : esperando nombre (mas comun)
+ *   101      : esperando email (ya dio nombre)
+ *   otro     : caso raro, copy generico
+ *
+ * One-shot por usuario via unique index. NOTA: este trigger es el unico que
+ * NO requiere onboarding_completado; los demas triggers implicitamente lo
+ * requieren porque chequean tx_count.
+ */
+async function maybeWakeUpOnboarding(usuario) {
+  if (usuario.onboarding_completado === true) return false;
+
+  const dias = (Date.now() - new Date(usuario.created_at).getTime()) / 86400000;
+  if (dias < 7) return false;
+
+  let mensaje;
+  const primer = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
+  if (usuario.onboarding_paso === 101) {
+    mensaje = copyWakeUpOnboardingEmail(primer);
+  } else if (usuario.onboarding_paso === 100 || usuario.onboarding_paso === 0) {
+    mensaje = copyWakeUpOnboardingNombre();
+  } else {
+    mensaje = copyWakeUpOnboardingGenerico();
+  }
+
+  const eventoId = await registrarEvento({
+    userId: usuario.id,
+    eventType: 'wake_up_onboarding',
+    channel: 'whatsapp',
+    messageSent: mensaje,
+  });
+  if (!eventoId) return false;
+
+  await enviarWhatsapp(usuario.whatsapp, mensaje);
+  return true;
+}
+
 // ===== Orquestador =====
 
 /**
@@ -312,9 +375,11 @@ async function checkSurveyTriggers() {
   if (horaLima.getHours() !== 10 || horaLima.getMinutes() > 14) return;
 
   try {
+    // No filtramos por onboarding_completado aqui: el trigger maybeWakeUpOnboarding
+    // necesita ver a los que NO completaron. Los demas triggers implicitamente
+    // requieren completion porque dependen de tx_count > 0.
     const { data: usuarios } = await supabase.from('usuarios')
-      .select('id, whatsapp, nombre, created_at, recordatorios_activos, onboarding_completado, supabase_auth_id')
-      .eq('onboarding_completado', true);
+      .select('id, whatsapp, nombre, created_at, recordatorios_activos, onboarding_completado, onboarding_paso, supabase_auth_id');
 
     if (!usuarios || usuarios.length === 0) return;
 
@@ -336,6 +401,7 @@ async function checkSurveyTriggers() {
           maybeReminderD14,
           maybeReminderD7,
           maybeReminderD3,
+          maybeWakeUpOnboarding,
           maybeWakeUpInactive,
         ];
 
@@ -370,6 +436,9 @@ module.exports = {
   copyFeedback30,
   copyWakeUpInactiveNuevo,
   copyWakeUpInactiveChurn,
+  copyWakeUpOnboardingNombre,
+  copyWakeUpOnboardingEmail,
+  copyWakeUpOnboardingGenerico,
   recibioMensajeRecienteProactivo,
   tuvoErrorReciente,
   contarTransacciones,
