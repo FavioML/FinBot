@@ -8,6 +8,7 @@ const { verificarAlertasProactivas } = require('../services/recommendations');
 const { obtenerDeudasProximasVencer } = require('../services/debts');
 const { crearNotificacion } = require('../lib/notifications-db');
 const { ADMIN_NUMBER } = require('../lib/config');
+const { checkSurveyTriggers } = require('../services/survey-triggers');
 
 async function checkResumenMensual() {
   const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
@@ -472,4 +473,5 @@ module.exports = {
   checkCheckInPlanes,
   checkRecordatorioEspacios,
   checkRecordatoriosCostos,
+  checkSurveyTriggers,
 };
