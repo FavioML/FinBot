@@ -216,7 +216,8 @@ async function maybeReminderD30(usuario) {
 }
 
 async function maybeWebappInvite(usuario) {
-  if (usuario.tiene_webapp) return false; // ya usa la app
+  // Si tiene supabase_auth_id, ya se logueo en webapp alguna vez. No reinvitar.
+  if (usuario.supabase_auth_id) return false;
 
   const txCount = await contarTransacciones(usuario.id);
   if (txCount < 10) return false;
@@ -266,7 +267,7 @@ async function checkSurveyTriggers() {
 
   try {
     const { data: usuarios } = await supabase.from('usuarios')
-      .select('id, whatsapp, nombre, created_at, recordatorios_activos, onboarding_completado, tiene_webapp')
+      .select('id, whatsapp, nombre, created_at, recordatorios_activos, onboarding_completado, supabase_auth_id')
       .eq('onboarding_completado', true);
 
     if (!usuarios || usuarios.length === 0) return;
