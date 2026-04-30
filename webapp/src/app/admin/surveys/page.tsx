@@ -25,6 +25,7 @@ import {
   useMarkSurveyRead,
 } from '@/lib/hooks/use-admin-surveys';
 import type {
+  InactivityReminderData,
   NpsResponseData,
   ReminderResponseData,
   SurveyEvent,
@@ -39,6 +40,7 @@ const REMINDER_TYPES: SurveyEventType[] = [
   'reminder_d7',
   'reminder_d14',
   'reminder_d30',
+  'inactivity_reminder',
 ];
 
 const REMINDER_LABEL: Record<SurveyEventType, string> = {
@@ -49,6 +51,8 @@ const REMINDER_LABEL: Record<SurveyEventType, string> = {
   webapp_invite_10tx: 'Invite webapp',
   feedback_open_30tx: 'Feedback 30 tx',
   nps_inapp: 'NPS in-app',
+  inactivity_reminder: 'Inactividad',
+  pro_upsell_d28: 'Pro upsell',
 };
 
 function formatDateTimeLima(iso: string | null): string {
@@ -157,6 +161,11 @@ export default function AdminSurveysPage() {
     [events],
   );
 
+  const upsells = useMemo(
+    () => events.filter((e) => e.event_type === 'pro_upsell_d28'),
+    [events],
+  );
+
   const npsEvents = useMemo(() => {
     let list = events.filter((e) => e.event_type === 'nps_inapp');
     if (npsFromDate) {
@@ -209,6 +218,7 @@ export default function AdminSurveysPage() {
           <TabsTrigger value="invites">Webapp invites</TabsTrigger>
           <TabsTrigger value="feedback">Feedback abierto</TabsTrigger>
           <TabsTrigger value="nps">NPS in-app</TabsTrigger>
+          <TabsTrigger value="upsell">Pro upsell</TabsTrigger>
         </TabsList>
 
         {/* ===== Reminders ===== */}
@@ -249,6 +259,14 @@ export default function AdminSurveysPage() {
             setFromDate={setNpsFromDate}
           />
         </TabsContent>
+
+        {/* ===== Pro upsell ===== */}
+        <TabsContent value="upsell" className="mt-5 space-y-4">
+          <ProUpsellTab
+            upsells={upsells}
+            stats={stats?.by_event_type.pro_upsell_d28}
+          />
+        </TabsContent>
       </Tabs>
 
       <ConversationDialog
@@ -278,16 +296,25 @@ function RemindersTab({
     let conv24 = 0;
     let optOut = 0;
     let today = 0;
+    let inactivity30d = 0;
     const todayLima = new Date().toLocaleDateString('en-CA', {
       timeZone: 'America/Lima',
     });
+    const cutoff30d = Date.now() - 30 * 86400000;
     for (const r of reminders) {
       if (r.sent_at) sent += 1;
       if (r.conversion_within_24h) conv24 += 1;
       if (r.opted_out_after) optOut += 1;
       if (r.sent_at?.slice(0, 10) === todayLima) today += 1;
+      if (
+        r.event_type === 'inactivity_reminder' &&
+        r.sent_at &&
+        new Date(r.sent_at).getTime() >= cutoff30d
+      ) {
+        inactivity30d += 1;
+      }
     }
-    return { sent, conv24, optOut, today };
+    return { sent, conv24, optOut, today, inactivity30d };
   }, [reminders]);
 
   const convRate =
@@ -324,6 +351,15 @@ function RemindersTab({
         <StatCard label="Hoy" value={totals.today} />
       </div>
 
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <StatCard
+          label="Inactivity reminders (30d)"
+          value={totals.inactivity30d}
+          hint="Enviados en los últimos 30 días"
+          tone="warn"
+        />
+      </div>
+
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs text-[#8A877D]">Filtrar:</span>
         {(['all', ...REMINDER_TYPES] as const).map((t) => (
@@ -356,6 +392,15 @@ function RemindersTab({
           <tbody>
             {reminders.map((r) => {
               const reply = r.response_data as Partial<ReminderResponseData> | null;
+              const isInactivity = r.event_type === 'inactivity_reminder';
+              const inactivityData = isInactivity
+                ? (r.response_data as Partial<InactivityReminderData> | null)
+                : null;
+              const inactivityLabel = isInactivity
+                ? typeof inactivityData?.dias_sin_tx === 'number'
+                  ? `Inactividad (${inactivityData.dias_sin_tx} días)`
+                  : 'Inactividad'
+                : null;
               return (
                 <tr
                   key={r.id}
@@ -363,8 +408,16 @@ function RemindersTab({
                   title={r.message_sent || ''}
                 >
                   <td className="px-4 py-3 text-[#F0EFE8]">{userLabel(r)}</td>
-                  <td className="px-4 py-3 text-[#C8C6BC]">
-                    {REMINDER_LABEL[r.event_type]}
+                  <td className="px-4 py-3">
+                    {isInactivity ? (
+                      <span className="inline-flex items-center rounded-full bg-[rgba(239,159,39,0.14)] px-2 py-0.5 text-[11px] font-medium text-[#EF9F27]">
+                        {inactivityLabel}
+                      </span>
+                    ) : (
+                      <span className="text-[#C8C6BC]">
+                        {REMINDER_LABEL[r.event_type]}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-[#C8C6BC]">
                     {formatDateTimeLima(r.sent_at)}
@@ -806,6 +859,198 @@ function NpsTab({
                   <td className="max-w-md px-4 py-3 text-[#C8C6BC]">
                     {d?.comment || (
                       <span className="text-[#5A584F]">—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+// ===================================================================
+// Pro upsell tab
+// ===================================================================
+function ProUpsellTab({
+  upsells,
+  stats,
+}: {
+  upsells: SurveyEvent[];
+  stats?: SurveyTypeStats;
+}) {
+  const [fromDate, setFromDate] = useState<string>('');
+  const [toDate, setToDate] = useState<string>('');
+
+  const filtered = useMemo(() => {
+    let list = upsells;
+    if (fromDate) {
+      const fromTs = new Date(fromDate).getTime();
+      list = list.filter((e) => {
+        const ts = new Date(e.sent_at || e.created_at).getTime();
+        return ts >= fromTs;
+      });
+    }
+    if (toDate) {
+      const toTs = new Date(toDate).getTime() + 86400000;
+      list = list.filter((e) => {
+        const ts = new Date(e.sent_at || e.created_at).getTime();
+        return ts <= toTs;
+      });
+    }
+    return list;
+  }, [upsells, fromDate, toDate]);
+
+  const sent = filtered.filter((u) => !!u.sent_at && !u.was_pro_at_send).length;
+  const converted = filtered.filter((u) => u.converted_to_pro === true).length;
+  const pending = filtered.filter(
+    (u) =>
+      !!u.sent_at &&
+      !u.was_pro_at_send &&
+      !u.converted_to_pro &&
+      !u.responded_at,
+  ).length;
+  const convRate =
+    sent > 0 ? Math.round((converted / sent) * 1000) / 10 : 0;
+
+  const globalRate = stats?.conversion_to_pro_rate;
+  const globalConverted = stats?.count_converted_to_pro;
+
+  if (upsells.length === 0) {
+    return (
+      <EmptyTab
+        title="Sin upsells Pro enviados aún"
+        hint="Se envía a usuarios free al día 28 de uso. El cron lo dispara automáticamente."
+      />
+    );
+  }
+
+  const sortedFiltered = [...filtered].sort((a, b) => {
+    const ta = new Date(a.sent_at || a.created_at).getTime();
+    const tb = new Date(b.sent_at || b.created_at).getTime();
+    return tb - ta;
+  });
+
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard label="Upsells enviados" value={sent} hint="Excluye los que ya eran Pro" />
+        <StatCard
+          label="Convirtieron a Pro"
+          value={converted}
+          tone={converted > 0 ? 'good' : 'default'}
+        />
+        <StatCard
+          label="Conversion rate"
+          value={`${convRate}%`}
+          tone={convRate >= 5 ? 'good' : convRate >= 2 ? 'warn' : 'bad'}
+          hint="Dentro de 30d post-envío"
+        />
+        <StatCard
+          label="Pendientes (sin respuesta)"
+          value={pending}
+          tone={pending > 0 ? 'warn' : 'default'}
+        />
+      </div>
+
+      {globalRate !== undefined && (
+        <p className="text-xs text-[#8A877D]">
+          Tasa global histórica: {globalRate}%
+          {typeof globalConverted === 'number' && ` · ${globalConverted} conversiones totales`}
+        </p>
+      )}
+
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-2 text-xs text-[#C8C6BC]">
+          <span>Desde</span>
+          <input
+            type="date"
+            value={fromDate}
+            onChange={(e) => setFromDate(e.target.value)}
+            className="form-input rounded-lg border border-[rgba(255,255,255,0.08)] bg-[#1A1A17] px-2 py-1 text-xs text-[#F0EFE8]"
+          />
+        </label>
+        <label className="flex items-center gap-2 text-xs text-[#C8C6BC]">
+          <span>Hasta</span>
+          <input
+            type="date"
+            value={toDate}
+            onChange={(e) => setToDate(e.target.value)}
+            className="form-input rounded-lg border border-[rgba(255,255,255,0.08)] bg-[#1A1A17] px-2 py-1 text-xs text-[#F0EFE8]"
+          />
+        </label>
+        {(fromDate || toDate) && (
+          <button
+            onClick={() => {
+              setFromDate('');
+              setToDate('');
+            }}
+            className="rounded-full bg-[rgba(255,255,255,0.04)] px-3 py-1 text-xs text-[#C8C6BC] transition-colors hover:bg-[rgba(255,255,255,0.08)]"
+          >
+            Limpiar fechas
+          </button>
+        )}
+      </div>
+
+      <div className="glass-card overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-[rgba(255,255,255,0.06)] text-left text-xs uppercase tracking-wider text-[#8A877D]">
+              <th className="px-4 py-3 font-medium">Usuario</th>
+              <th className="px-4 py-3 font-medium">Enviado</th>
+              <th className="px-4 py-3 font-medium">¿Pasó a Pro?</th>
+              <th className="px-4 py-3 font-medium">Días para conversión</th>
+              <th className="px-4 py-3 font-medium">Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sortedFiltered.map((u) => {
+              const isConverted = u.converted_to_pro === true;
+              const wasAlreadyPro = u.was_pro_at_send === true;
+              const isOptedOut = u.opted_out_after;
+              const days = u.days_to_conversion;
+
+              return (
+                <tr
+                  key={u.id}
+                  className="border-b border-[rgba(255,255,255,0.04)] last:border-0"
+                  title={u.message_sent || ''}
+                >
+                  <td className="px-4 py-3 text-[#F0EFE8]">{userLabel(u)}</td>
+                  <td className="px-4 py-3 text-[#C8C6BC]">
+                    {formatDateTimeLima(u.sent_at)}
+                  </td>
+                  <td className="px-4 py-3">
+                    {wasAlreadyPro ? (
+                      <span className="inline-flex items-center rounded-full bg-[rgba(255,255,255,0.04)] px-2 py-0.5 text-[11px] font-medium text-[#8A877D]">
+                        Ya era Pro
+                      </span>
+                    ) : (
+                      <YesNo value={isConverted} />
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-[#C8C6BC] tabular-nums">
+                    {isConverted && typeof days === 'number' ? `${days}d` : '—'}
+                  </td>
+                  <td className="px-4 py-3">
+                    {isOptedOut ? (
+                      <span className="inline-flex items-center rounded-full bg-[rgba(216,90,48,0.14)] px-2 py-0.5 text-[11px] font-medium text-[#D85A30]">
+                        Silenciado
+                      </span>
+                    ) : isConverted ? (
+                      <span className="inline-flex items-center rounded-full bg-[rgba(29,158,117,0.14)] px-2 py-0.5 text-[11px] font-medium text-[#1D9E75]">
+                        Convertido
+                      </span>
+                    ) : u.responded_at ? (
+                      <span className="inline-flex items-center rounded-full bg-[rgba(59,157,219,0.14)] px-2 py-0.5 text-[11px] font-medium text-[#3B9DDB]">
+                        Respondió
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center rounded-full bg-[rgba(239,159,39,0.14)] px-2 py-0.5 text-[11px] font-medium text-[#EF9F27]">
+                        Pendiente
+                      </span>
                     )}
                   </td>
                 </tr>
