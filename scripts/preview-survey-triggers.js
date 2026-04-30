@@ -18,6 +18,7 @@ const { supabase } = require('../lib/db');
 const {
   copyReminderD3, copyReminderD7, copyReminderD14, copyReminderD30,
   copyWebappInvite, copyFeedback30,
+  copyWakeUpInactiveNuevo, copyWakeUpInactiveChurn,
   recibioMensajeRecienteProactivo, tuvoErrorReciente,
   contarTransacciones, contarTransaccionesUltimos,
 } = require('../services/survey-triggers');
@@ -41,7 +42,7 @@ async function evaluar(usuario) {
   // Check one-shots (DB enforce uniqueness)
   const { data: prevOneshot } = await supabase.from('survey_events')
     .select('event_type').eq('user_id', usuario.id)
-    .in('event_type', ['webapp_invite_10tx', 'feedback_open_30tx']);
+    .in('event_type', ['webapp_invite_10tx', 'feedback_open_30tx', 'wake_up_inactive']);
   const sentOneshot = new Set((prevOneshot || []).map(e => e.event_type));
 
   if (txTotal >= 30 && !sentOneshot.has('feedback_open_30tx')) {
@@ -72,10 +73,21 @@ async function evaluar(usuario) {
     return { trigger: 'reminder_d3', txTotal, dias: dias.toFixed(1) };
   }
 
+  // wake_up_inactive: ultimo en prioridad (catch-all para users viejos sin actividad)
+  if (dias >= 30 && !sentOneshot.has('wake_up_inactive')) {
+    const tx30d = await contarTransaccionesUltimos(usuario.id, 30);
+    if (tx30d === 0) {
+      return { trigger: 'wake_up_inactive', txTotal, dias: dias.toFixed(1), variant: txTotal === 0 ? 'nuevo' : 'churn' };
+    }
+  }
+
   return { trigger: null, reason: 'no aplica trigger', txTotal, dias: dias.toFixed(1) };
 }
 
-function getCopy(trigger, primerNombre) {
+function getCopy(trigger, primerNombre, variant) {
+  if (trigger === 'wake_up_inactive') {
+    return variant === 'nuevo' ? copyWakeUpInactiveNuevo(primerNombre) : copyWakeUpInactiveChurn(primerNombre);
+  }
   const c = {
     reminder_d3: copyReminderD3, reminder_d7: copyReminderD7,
     reminder_d14: copyReminderD14, reminder_d30: copyReminderD30,
@@ -98,7 +110,7 @@ async function main() {
   console.log(`\n=== Dry-run survey triggers — ${usuarios.length} usuario(s) ===\n`);
 
   const sumario = { reminder_d3: 0, reminder_d7: 0, reminder_d14: 0, reminder_d30: 0,
-    webapp_invite_10tx: 0, feedback_open_30tx: 0, skipped: 0 };
+    webapp_invite_10tx: 0, feedback_open_30tx: 0, wake_up_inactive: 0, skipped: 0 };
 
   for (const u of usuarios) {
     const result = await evaluar(u);
@@ -108,9 +120,9 @@ async function main() {
     if (result.trigger) {
       sumario[result.trigger]++;
       console.log(`✓ ${labelUsuario}`);
-      console.log(`  Trigger: ${result.trigger}`);
+      console.log(`  Trigger: ${result.trigger}${result.variant ? ' (' + result.variant + ')' : ''}`);
       if (result.txTotal !== undefined) console.log(`  Tx total: ${result.txTotal}, Dias: ${result.dias || '-'}`);
-      console.log(`  Mensaje:\n  ${getCopy(result.trigger, primer).replace(/\n/g, '\n  ')}\n`);
+      console.log(`  Mensaje:\n  ${getCopy(result.trigger, primer, result.variant).replace(/\n/g, '\n  ')}\n`);
     } else {
       sumario.skipped++;
       if (whatsappFilter) {

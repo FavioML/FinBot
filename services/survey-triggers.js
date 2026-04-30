@@ -133,6 +133,21 @@ function copyWebappInvite(primerNombre) {
     '_Si no te interesa por ahora ningún problema, seguimos por aquí._';
 }
 
+function copyWakeUpInactiveNuevo(primerNombre) {
+  const saludo = primerNombre ? primerNombre + ', hace' : 'Hace';
+  return `Hola ${saludo} tiempo que no hablamos.\n\n` +
+    'Te registraste en Neto pero quizás no llegaste a probarlo aún. ¿Quieres que te muestre cómo va? Solo escríbeme un gasto cualquiera, ej:\n\n' +
+    '_"gasté 30 en almuerzo"_\n\n' +
+    'Y verás lo rápido que es. Si ya no te interesa, escribe /silenciar y no te molesto más.';
+}
+
+function copyWakeUpInactiveChurn(primerNombre) {
+  const saludo = primerNombre ? primerNombre + ', hace' : 'Hace';
+  return `Hola ${saludo} tiempo que no registras nada en Neto.\n\n` +
+    'Sin reproches: ¿pasó algo, encontraste otra forma de llevar tus gastos, o simplemente se te olvidó? Si quieres retomarlo, mándame cualquier gasto de hoy y arrancamos.\n\n' +
+    'Si prefieres pausarlo definitivamente, escribe /silenciar.';
+}
+
 function copyFeedback30(primerNombre) {
   const nombre = primerNombre || 'Hola';
   return `${nombre}, llevamos 30 gastos juntos, ya eres usuario veterano 🙌\n\n` +
@@ -237,6 +252,37 @@ async function maybeWebappInvite(usuario) {
   return true;
 }
 
+/**
+ * Wake-up para usuarios con >=30 dias desde registro y 0 transacciones en
+ * los ultimos 30 dias. One-shot por usuario garantizado por unique index.
+ * Copy distinto segun si nunca uso (tx_total = 0) o si uso pero churned.
+ */
+async function maybeWakeUpInactive(usuario) {
+  const dias = (Date.now() - new Date(usuario.created_at).getTime()) / 86400000;
+  if (dias < 30) return false;
+
+  const tx30d = await contarTransaccionesUltimos(usuario.id, 30);
+  if (tx30d > 0) return false; // sigue activo, no aplica
+
+  const txTotal = await contarTransacciones(usuario.id);
+  const primer = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
+  const mensaje = txTotal === 0
+    ? copyWakeUpInactiveNuevo(primer)
+    : copyWakeUpInactiveChurn(primer);
+
+  // Idempotencia DB-level: si ya recibio wake_up_inactive el INSERT fallara con 23505
+  const eventoId = await registrarEvento({
+    userId: usuario.id,
+    eventType: 'wake_up_inactive',
+    channel: 'whatsapp',
+    messageSent: mensaje,
+  });
+  if (!eventoId) return false;
+
+  await enviarWhatsapp(usuario.whatsapp, mensaje);
+  return true;
+}
+
 async function maybeFeedback30(usuario) {
   const txCount = await contarTransacciones(usuario.id);
   if (txCount < 30) return false;
@@ -290,6 +336,7 @@ async function checkSurveyTriggers() {
           maybeReminderD14,
           maybeReminderD7,
           maybeReminderD3,
+          maybeWakeUpInactive,
         ];
 
         for (const fn of triggers) {
@@ -321,6 +368,8 @@ module.exports = {
   copyReminderD30,
   copyWebappInvite,
   copyFeedback30,
+  copyWakeUpInactiveNuevo,
+  copyWakeUpInactiveChurn,
   recibioMensajeRecienteProactivo,
   tuvoErrorReciente,
   contarTransacciones,
