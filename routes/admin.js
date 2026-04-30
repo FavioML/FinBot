@@ -4,6 +4,7 @@ const { supabase } = require('../lib/db');
 const log = require('../lib/logger');
 const { hoyPeru } = require('../lib/dates');
 const { enviarWhatsapp } = require('../lib/whatsapp');
+const { guardarMensaje } = require('../helpers/db-helpers');
 
 const router = express.Router();
 
@@ -132,8 +133,9 @@ router.post('/notify', async (req, res) => {
     }
     let numero = whatsapp;
     let nombre = null;
-    if (!numero && usuario_id) {
-      const { data: u } = await supabase.from('usuarios').select('whatsapp, nombre').eq('id', usuario_id).single();
+    let userId = usuario_id || null;
+    if (userId && !numero) {
+      const { data: u } = await supabase.from('usuarios').select('whatsapp, nombre').eq('id', userId).single();
       if (!u) return res.status(404).json({ ok: false, msg: 'Usuario no encontrado' });
       numero = u.whatsapp;
       nombre = u.nombre;
@@ -143,9 +145,18 @@ router.post('/notify', async (req, res) => {
     if (!/^\d{8,15}$/.test(numero)) {
       return res.status(400).json({ ok: false, msg: 'Numero whatsapp invalido' });
     }
+    if (!userId) {
+      const { data: u } = await supabase.from('usuarios').select('id, nombre').eq('whatsapp', numero).single();
+      if (u) { userId = u.id; nombre = u.nombre; }
+    }
     await enviarWhatsapp(numero, mensaje);
-    log.info({ tag: 'ADMIN_NOTIFY', numero, len: mensaje.length }, 'Mensaje admin enviado');
-    res.json({ ok: true, msg: 'Mensaje enviado a ' + (nombre || numero) });
+    let saved = false;
+    if (userId) {
+      try { await guardarMensaje(userId, 'neto', mensaje); saved = true; }
+      catch(e) { log.error({ tag: 'ADMIN_NOTIFY', err: e.message }, 'No se pudo guardar mensaje en conversaciones'); }
+    }
+    log.info({ tag: 'ADMIN_NOTIFY', numero, len: mensaje.length, saved }, 'Mensaje admin enviado');
+    res.json({ ok: true, msg: 'Mensaje enviado a ' + (nombre || numero), saved_in_history: saved });
   } catch(e) {
     log.error({ tag: 'ADMIN_NOTIFY', err: e.message }, 'Error enviando mensaje admin');
     res.status(500).json({ ok: false, msg: 'Error enviando mensaje' });
