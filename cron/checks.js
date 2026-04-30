@@ -40,39 +40,116 @@ async function checkResumenSemanal() {
   } catch(e) { log.error({ tag: 'SEMANAL', err: e.message }, 'Error general resumen semanal'); }
 }
 
+/**
+ * Recordatorio de inactividad — UPDATE-08
+ *
+ * Antes era un recordatorio DIARIO ("¿registraste tus gastos hoy?") que se
+ * mandaba todos los dias a usuarios Pro sin tx hoy. Sustituido por:
+ *
+ *   - Cadencia: 1 mensaje cada 3 dias de inactividad (no diario)
+ *   - Aplica a TODOS los usuarios con onboarding completo + recordatorios_activos
+ *     (antes solo Pro). Free ya no recibia este cron, ahora si — pero solo si
+ *     llevan 3+ dias sin tx, no diariamente
+ *   - Anti-fatiga via survey_events: skip si recibio CUALQUIER mensaje proactivo
+ *     en los ultimos 3 dias (incluye otros triggers de UPDATE-05/06/07)
+ *   - Visible en /admin/surveys con event_type = 'inactivity_reminder'
+ *
+ * Adicional: el upsell a Pro de dia 28-30 (que estaba dentro del mismo cron)
+ * tambien se migra a survey_events como pro_upsell_d28 one-shot.
+ */
 async function checkRecordatorioDiario() {
   const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
   if (horaLima.getHours() !== 20 || horaLima.getMinutes() > 14) return;
-  const hoy = hoyPeru();
   try {
-    const { data: usuarios } = await supabase.from('usuarios').select('id, whatsapp, nombre, plan, recordatorios_activos, created_at')
+    const { data: usuarios } = await supabase.from('usuarios')
+      .select('id, whatsapp, nombre, plan, recordatorios_activos, created_at')
       .eq('onboarding_completado', true);
     if (!usuarios || usuarios.length === 0) return;
+
+    let totalInactivity = 0;
+    let totalUpsell = 0;
     for (const usuario of usuarios) {
       try {
         if (usuario.recordatorios_activos === false) continue;
+        if (!usuario.whatsapp) continue;
+
         const planConfig = getUserPlanConfig(usuario);
-        if (!planConfig.recordatorios) {
-          if (usuario.created_at) {
-            const diasDesdeRegistro = Math.floor((Date.now() - new Date(usuario.created_at).getTime()) / 86400000);
-            if (diasDesdeRegistro >= 28 && diasDesdeRegistro <= 30) {
-              const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
-              await enviarWhatsapp(usuario.whatsapp, '🎉 ' + (primerNombre ? primerNombre + ', ¡' : '¡') + 'llevas 1 mes usando Neto!\n\nCon *NETO Pro* desbloqueas:\n\n✅ Historial completo (no solo este mes)\n✅ Lectura automática de correos bancarios\n✅ Recordatorios diarios + consejos IA\n✅ Exportar tus datos\n\n💰 *S/10/mes* o *S/99/año*\n\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._');
-            }
+        const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
+        const diasDesdeRegistro = Math.floor((Date.now() - new Date(usuario.created_at).getTime()) / 86400000);
+
+        // Anti-fatiga: skip si recibio cualquier survey_event WhatsApp en ultimos 3 dias
+        const cutoff3d = new Date(Date.now() - 3 * 86400000).toISOString();
+        const { data: recentEvents } = await supabase.from('survey_events')
+          .select('id').eq('user_id', usuario.id).eq('channel', 'whatsapp')
+          .gte('sent_at', cutoff3d).limit(1);
+        const recibioMensajeReciente = recentEvents && recentEvents.length > 0;
+
+        // ===== Pro upsell (one-shot, dias 28-30 desde registro) =====
+        if (!planConfig.recordatorios && diasDesdeRegistro >= 28 && diasDesdeRegistro <= 30) {
+          if (recibioMensajeReciente) continue;
+
+          const upsellMsg = '🎉 ' + (primerNombre ? primerNombre + ', ¡' : '¡') + 'llevas 1 mes usando Neto!\n\nCon *NETO Pro* desbloqueas:\n\n✅ Historial completo (no solo este mes)\n✅ Lectura automática de correos bancarios\n✅ Recordatorios de inactividad + consejos IA\n✅ Exportar tus datos\n\n💰 *S/10/mes* o *S/99/año*\n\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
+
+          // Idempotencia DB-level: one-shot via unique partial index
+          const { data: insertResult, error: insertErr } = await supabase.from('survey_events').insert({
+            user_id: usuario.id,
+            event_type: 'pro_upsell_d28',
+            channel: 'whatsapp',
+            sent_at: new Date().toISOString(),
+            message_sent: upsellMsg,
+          }).select('id').single();
+          if (insertErr) {
+            if (insertErr.code === '23505') continue; // ya recibio el upsell antes
+            throw insertErr;
           }
+
+          await enviarWhatsapp(usuario.whatsapp, upsellMsg);
+          totalUpsell++;
           continue;
         }
-        const { data: txsHoy } = await supabase.from('transacciones').select('id')
-          .eq('usuario_id', usuario.id).eq('fecha', hoy).limit(1);
-        if (txsHoy && txsHoy.length > 0) continue;
-        const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
-        const msg = '📝 ' + (primerNombre ? primerNombre + ', ¿' : '¿') + 'registraste tus gastos de hoy?\n\n' +
-          'Escríbeme así:\n_"gasté 30 en almuerzo"_\n_"taxi 15 soles"_\n\nO envía una foto de tu Yape/Plin.\n\n' +
-          '_Para desactivar recordatorios escribe /silenciar_';
+
+        if (!planConfig.recordatorios) continue;
+
+        // ===== Inactivity reminder (Pro: cada 3 dias de inactividad) =====
+        // Buscar la ultima transaccion del usuario
+        const { data: ultimaTx } = await supabase.from('transacciones')
+          .select('fecha').eq('usuario_id', usuario.id)
+          .order('fecha', { ascending: false }).limit(1);
+
+        const ultimaFecha = ultimaTx && ultimaTx.length > 0 ? ultimaTx[0].fecha : null;
+        if (!ultimaFecha) continue; // nunca uso, ya cubre wake_up_inactive/onboarding
+
+        const diasSinTx = Math.floor((Date.now() - new Date(ultimaFecha + 'T12:00:00').getTime()) / 86400000);
+        if (diasSinTx < 3) continue; // sigue activo
+
+        if (recibioMensajeReciente) continue; // anti-fatiga
+
+        const msg = (primerNombre ? primerNombre + ', hace' : 'Hace') + ' ' + diasSinTx + ' días que no registras nada en Neto.\n\n' +
+          '¿Algo te complica o solo se te pasó? Recuerda que puedes:\n' +
+          '• Escribirme un gasto: _"almuerzo 25 soles"_\n' +
+          '• Mandarme foto de tu Yape/Plin\n\n' +
+          '_Si prefieres pausar recordatorios escribe /silenciar_';
+
+        // Registrar en survey_events ANTES de enviar (audit trail)
+        await supabase.from('survey_events').insert({
+          user_id: usuario.id,
+          event_type: 'inactivity_reminder',
+          channel: 'whatsapp',
+          sent_at: new Date().toISOString(),
+          message_sent: msg,
+          response_data: { dias_sin_tx: diasSinTx },
+        });
+
         await enviarWhatsapp(usuario.whatsapp, msg);
+        totalInactivity++;
       } catch(e) { /* silencioso por usuario */ }
     }
-  } catch(e) { log.error({ tag: 'RECORDATORIO', err: e.message }, 'Error recordatorio diario'); }
+
+    if (totalInactivity > 0 || totalUpsell > 0) {
+      log.info({ tag: 'INACTIVITY', inactivity: totalInactivity, upsell: totalUpsell, candidates: usuarios.length },
+        'Recordatorios de inactividad enviados');
+    }
+  } catch(e) { log.error({ tag: 'INACTIVITY', err: e.message }, 'Error recordatorio inactividad'); }
 }
 
 async function checkPremiumExpiry() {

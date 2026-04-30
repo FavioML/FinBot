@@ -32,7 +32,7 @@ function startCronJobs() {
     setInterval(checkResumenMensual, 15 * 60 * 1000);
     log.info({ tag: 'MENSUAL' }, 'Resumen mensual activo (1ro de cada mes 9am Lima)');
     setInterval(checkRecordatorioDiario, 15 * 60 * 1000);
-    log.info({ tag: 'RECORDATORIO' }, 'Recordatorios diarios activos (8pm Lima)');
+    log.info({ tag: 'INACTIVITY' }, 'Recordatorios de inactividad activos (8pm Lima, cada 3+ dias sin tx)');
     setInterval(checkAlertasProactivas, 15 * 60 * 1000);
     log.info({ tag: 'ALERTAS' }, 'Alertas proactivas activas (miércoles 10am Lima)');
     setInterval(checkPremiumExpiry, 60 * 60 * 1000);
