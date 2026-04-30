@@ -99,7 +99,9 @@ export type SurveyEventType =
   | 'reminder_d30'
   | 'webapp_invite_10tx'
   | 'feedback_open_30tx'
-  | 'nps_inapp';
+  | 'nps_inapp'
+  | 'inactivity_reminder'
+  | 'pro_upsell_d28';
 
 export type SurveyChannel = 'whatsapp' | 'webapp';
 
@@ -123,11 +125,16 @@ export interface WebappInviteResponseData {
   logged_in_webapp_within_7d: boolean;
 }
 
+export interface InactivityReminderData {
+  dias_sin_tx: number;
+}
+
 export type SurveyResponseData =
   | NpsResponseData
   | FeedbackResponseData
   | ReminderResponseData
   | WebappInviteResponseData
+  | InactivityReminderData
   | Record<string, unknown>
   | null;
 
@@ -136,6 +143,8 @@ export interface SurveyEvent {
   user_id: string;
   user_nombre?: string | null;
   user_whatsapp?: string | null;
+  user_plan?: 'free' | 'premium' | null;
+  user_fecha_pago?: string | null;
   event_type: SurveyEventType;
   channel: SurveyChannel;
   triggered_at: string;
@@ -147,6 +156,10 @@ export interface SurveyEvent {
   conversion_within_24h: boolean;
   conversion_within_7d: boolean;
   opted_out_after: boolean;
+  // Computed server-side for pro_upsell_d28 rows
+  converted_to_pro?: boolean;
+  days_to_conversion?: number | null;
+  was_pro_at_send?: boolean;
   created_at: string;
 }
 
@@ -157,6 +170,8 @@ export interface SurveyTypeStats {
   response_rate: number;
   opt_out_rate: number;
   conversion_rate?: number;
+  conversion_to_pro_rate?: number;
+  count_converted_to_pro?: number;
   nps_avg_ease?: number;
   nps_avg_usefulness?: number;
   nps_avg_recommend?: number;
