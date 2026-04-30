@@ -12,6 +12,20 @@ module.exports = {
       case 'silenciar': {
         try {
           await supabase.from('usuarios').update({ recordatorios_activos: false }).eq('id', usuario.id);
+          // Marcar el ultimo survey_event WhatsApp como opted_out_after para tracking de fatiga (UPDATE-05)
+          try {
+            const { data: lastEvent } = await supabase.from('survey_events')
+              .select('id')
+              .eq('user_id', usuario.id)
+              .eq('channel', 'whatsapp')
+              .not('sent_at', 'is', null)
+              .order('sent_at', { ascending: false })
+              .limit(1)
+              .single();
+            if (lastEvent?.id) {
+              await supabase.from('survey_events').update({ opted_out_after: true }).eq('id', lastEvent.id);
+            }
+          } catch { /* silent — tracking secundario */ }
           return '🔇 *Recordatorios desactivados.*\n\nNo te enviaré más resúmenes diarios ni recordatorios.\n\n_Cuando quieras reactivarlos, escribe "activa los recordatorios"._';
         } catch(e) {
           log.error({ tag: 'SILENCIAR', err: e.message }, 'Error silenciar');
