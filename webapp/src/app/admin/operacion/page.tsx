@@ -69,9 +69,14 @@ interface Ticket {
   created_at: string;
 }
 
+function hasTimezone(s: string) {
+  return /Z$|[+-]\d{2}:?\d{2}$/.test(s);
+}
+
 function formatDate(dateStr: string | null) {
   if (!dateStr) return '—';
-  const d = new Date(dateStr.endsWith('Z') ? dateStr : dateStr + 'Z');
+  const d = new Date(hasTimezone(dateStr) ? dateStr : dateStr + 'Z');
+  if (isNaN(d.getTime())) return '—';
   return d.toLocaleDateString('es-PE', {
     day: '2-digit',
     month: 'short',
@@ -80,8 +85,10 @@ function formatDate(dateStr: string | null) {
   });
 }
 
-function formatDateTime(dateStr: string) {
-  const d = new Date(dateStr.endsWith('Z') ? dateStr : dateStr + 'Z');
+function formatDateTime(dateStr: string | null | undefined) {
+  if (!dateStr) return '—';
+  const d = new Date(hasTimezone(dateStr) ? dateStr : dateStr + 'Z');
+  if (isNaN(d.getTime())) return '—';
   return d.toLocaleString('es-PE', {
     day: '2-digit',
     month: 'short',
