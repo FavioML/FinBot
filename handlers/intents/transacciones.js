@@ -24,6 +24,14 @@ module.exports = {
           if (!parsed.ok || !parsed.monto || parsed.monto <= 0) {
             return 'No pude extraer el monto. Dime algo como: "gasté S/50 en farmacia" o "mi sueldo fue S/4500".';
           }
+          // Guard timezone: el modelo a veces aluciona una fecha pasada aunque el usuario no la mencione.
+          // Solo respetamos parsed.fecha si el mensaje contiene una referencia explícita de fecha.
+          const _msgL = (msg || '').toLowerCase();
+          const _tieneFechaExplicita = /\bayer\b|\bantier\b|\banteayer\b|\bhoy\b|\b(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\b|\bla\s+semana\s+pasada\b|hace\s+\d+\s*(d[ií]a|hora|semana|mes)|\bel\s+\d{1,2}(\s+de\s+\w+)?\b|\b\d{1,2}\s*\/\s*\d{1,2}\b|\b\d{1,2}-\d{1,2}\b/i.test(_msgL);
+          if (parsed.fecha && parsed.fecha !== fechaHoy && !_tieneFechaExplicita) {
+            log.warn({ tag: 'TZ_GUARD_REGISTRO', fechaModelo: parsed.fecha, fechaHoy, msg: (msg || '').substring(0, 80) }, 'Modelo extrajo fecha pasada sin mencion del usuario — forzando hoy');
+            parsed.fecha = fechaHoy;
+          }
           // Re-clasificar con categorías y subcategorías custom del usuario
           const detCat = await detectarCategoriaIA(msg, usuario.id);
           if (detCat.categoria) {
