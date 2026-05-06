@@ -208,7 +208,16 @@ Hoy es ${fechaHoy}.
 REGLA CRÍTICA DE FECHA: Si el usuario NO menciona explícitamente una fecha (palabras como "ayer", "antier", "anteayer", "hoy", "el lunes/martes/...", "la semana pasada", "hace N días", "el 5", "5/5", etc.), DEBES devolver fecha exactamente igual a "${fechaHoy}". NUNCA restes ni calcules días si el usuario no lo pide. Solo cuando el usuario diga "ayer" restas 1 día; "el lunes" / "la semana pasada" calculas la fecha correcta. En cualquier otro caso, fecha = "${fechaHoy}" sin modificar.
 
 tipo=ingreso: sueldo, salario, honorarios, abono recibido, ingreso, cobré, me pagaron, depósito recibido.
-tipo=gasto: gasté, pagué, compré, anota un gasto, registra gasto.
+tipo=gasto: gasté, pagué, compré, anota un gasto, registra gasto. También cuenta como gasto: "boté", "tiré", "se me fueron", "perdí" (en contexto de dinero).
+
+MODISMOS PERUANOS PARA SOLES (regla estricta 1:1, NUNCA multiplicar):
+- "lucas" = soles. Ej: "50 lucas" = 50 soles. NUNCA interpretar como "1 luca = 1000 soles" aunque históricamente era así.
+- "cocos" = soles. Ej: "20 cocos" = 20 soles.
+- "mangos" = soles. Ej: "100 mangos" = 100 soles.
+- "mortadelos" = soles. Ej: "30 mortadelos" = 30 soles.
+- "soles", "S/", "S/.", "PEN" = soles (estándar).
+- "dólares", "USD", "$", "verdes" = dólares (moneda=USD).
+Si el usuario escribe sólo un número sin moneda, asumir PEN (soles).
 
 CATEGORÍAS (usa exactamente):
 Alimentación: delivery|restaurante|supermercado|mercado|cafeteria|snacks
