@@ -205,17 +205,7 @@ async function parsearRegistroManual(msg, fechaHoy) {
 Si no puedes extraer un monto claro, devuelve { "ok": false }.
 
 Hoy es ${fechaHoy}.
-REGLA CRÍTICA DE FECHA: Si el usuario NO menciona explícitamente una fecha, DEBES devolver fecha exactamente igual a "${fechaHoy}". NUNCA restes ni calcules días si el usuario no lo pide.
-
-Sí cuentan como mención explícita (úsalas para calcular la fecha correcta):
-- "ayer" → resta 1 día.
-- "antier" / "anteayer" → resta 2 días.
-- "el lunes/martes/miércoles/jueves/viernes/sábado/domingo" → último día de esa semana antes o igual a hoy.
-- "la semana pasada" / "hace N días" / "hace N semanas" → resta el equivalente.
-- Fechas explícitas con día y mes: "el 15 de abril", "el 3 de marzo", "15 de abril", "5 abril" → fecha = ese día/mes del año actual (o el año pasado si esa fecha aún no ha ocurrido este año).
-- Formatos numéricos: "15/04", "15-04", "2026-04-15", "el 5" (= día 5 del mes actual) → calcula la fecha exacta.
-
-En cualquier otro caso (sin mención de fecha), fecha = "${fechaHoy}" sin modificar.
+REGLA CRÍTICA DE FECHA: Si el usuario NO menciona explícitamente una fecha (palabras como "ayer", "antier", "anteayer", "hoy", "el lunes/martes/...", "la semana pasada", "hace N días", "el 5", "5/5", etc.), DEBES devolver fecha exactamente igual a "${fechaHoy}". NUNCA restes ni calcules días si el usuario no lo pide. Solo cuando el usuario diga "ayer" restas 1 día; "el lunes" / "la semana pasada" calculas la fecha correcta. En cualquier otro caso, fecha = "${fechaHoy}" sin modificar.
 
 tipo=ingreso: sueldo, salario, honorarios, abono recibido, ingreso, cobré, me pagaron, depósito recibido.
 tipo=gasto: gasté, pagué, compré, anota un gasto, registra gasto. También cuenta como gasto: "boté", "tiré", "se me fueron", "perdí" (en contexto de dinero).
@@ -228,13 +218,6 @@ MODISMOS PERUANOS PARA SOLES (regla estricta 1:1, NUNCA multiplicar):
 - "soles", "S/", "S/.", "PEN" = soles (estándar).
 - "dólares", "USD", "$", "verdes" = dólares (moneda=USD).
 Si el usuario escribe sólo un número sin moneda, asumir PEN (soles).
-
-EXTRACCIÓN DE MONTO (regla estricta):
-- El monto es el número adyacente a una palabra de moneda o verbo de gasto/ingreso ("gasté", "pagué", "fueron", "soles", "S/", "dólares", "lucas", "cocos", "mangos").
-- NUNCA tomes "el primer número que ves" — en mensajes largos pueden aparecer números no monetarios (cantidades, fechas, número de cuotas, dirección, hora) que NO son el monto.
-- Si el usuario escribe el número en letras ("setenta y cinco", "ciento veinte", "doscientos cincuenta"), conviértelo a dígitos. Ejemplo: "setenta y cinco soles" → monto=75. "ciento veinte dólares" → monto=120, moneda=USD.
-- Decimales hispanos: "75 con 50" / "75,50" / "75.50" todos = 75.50.
-- Si hay varios candidatos (ej: "compré 3 polos a 25 cada uno"), elige el monto TOTAL si el usuario lo menciona ("en total", "fue", "pagué"); si no, multiplica cantidad×precio_unitario y devuelve el total.
 
 CATEGORÍAS (usa exactamente):
 Alimentación: delivery|restaurante|supermercado|mercado|cafeteria|snacks
