@@ -29,6 +29,18 @@ describe('parsearRegistroManual — extracción de monto en prosa larga (str-003
     expect(r.monto).toBe(75);
   });
 
+  it('system prompt incluye fechas explícitas con mes (tmp-005)', async () => {
+    let capturedPrompt = '';
+    mockCreate.mockImplementation(async (args) => {
+      const sys = (args?.messages || []).find(m => m.role === 'system');
+      capturedPrompt = sys ? sys.content : '';
+      return { choices: [{ message: { content: JSON.stringify({ ok: true, monto: 1, moneda: 'PEN', tipo: 'gasto' }) } }] };
+    });
+    await parsearRegistroManual('test', '2026-05-06');
+    // Rule: "el 15 de abril" must be honored as an explicit date.
+    expect(capturedPrompt.toLowerCase()).toMatch(/15\s+de\s+abril|d[ií]a y mes/);
+  });
+
   it('system prompt instruye sobre números escritos en letras y desambiguación', async () => {
     // Captures the actual prompt the parser sends to OpenAI, so we can
     // assert the rule that prevents "first number wins" is present.
