@@ -25,7 +25,7 @@ vi.mock('@supabase/supabase-js', () => ({
 
 vi.mock('dotenv', () => ({ config: vi.fn() }));
 
-const { necesitaConsulta, mensajeConsulta } = await import('../../services/transactions.js');
+const { necesitaConsulta, mensajeConsulta, DEDUP_WINDOW_MS } = await import('../../services/transactions.js');
 
 describe('necesitaConsulta', () => {
   it('retorna false para ingresos', () => {
@@ -59,6 +59,15 @@ describe('necesitaConsulta', () => {
 
   it('retorna falsy sin comercio', () => {
     expect(necesitaConsulta({ tipo: 'gasto', comercio: null, categoria: 'Otros' })).toBeFalsy();
+  });
+});
+
+describe('dedup window (str-001/002)', () => {
+  it('uses a short dedup window (≤30s) so rapid manual entries are not collapsed', () => {
+    // Was 5min (300_000ms); legitimate rapid entries collided into one row.
+    // Webhook double-fires retry within seconds, so a much shorter window suffices.
+    expect(DEDUP_WINDOW_MS).toBeLessThanOrEqual(30 * 1000);
+    expect(DEDUP_WINDOW_MS).toBeGreaterThan(0);
   });
 });
 

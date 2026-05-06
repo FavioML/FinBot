@@ -4,6 +4,13 @@ const { validarMonto, normalizarCategoria } = require('../lib/validators');
 const { hoyPeru } = require('../lib/dates');
 const log = require('../lib/logger');
 
+// Dedup window for manual entries (gmail entries dedup separately).
+// Short enough that legitimate rapid entries (e.g. 5 taxis of S/50 in a
+// row) don't collide; only catches webhook double-fires which retry
+// within a few seconds. Was 5min — caused str-001/002 in QA: 5/8 rapid
+// duplicate-content entries collapsed to 3 rows.
+const DEDUP_WINDOW_MS = 10 * 1000;
+
 // Cache de tipo de cambio
 let _tcCache = null;
 let _tcCacheTime = 0;
@@ -62,9 +69,9 @@ async function guardarTransaccion(usuarioId, datos) {
   const dedupRaw = usuarioId + '|' + fechaTx + '|' + montoValidado + '|' + (datos.comercio || '') + '|' + (datos.tipo || 'gasto');
   const dedupHash = crypto.createHash('md5').update(dedupRaw).digest('hex');
   if (!datos.descripcion_original || !datos.descripcion_original.startsWith('gmail:')) {
-    const hace5min = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const ventanaInicio = new Date(Date.now() - DEDUP_WINDOW_MS).toISOString();
     const { data: existente } = await supabase.from('transacciones').select('id')
-      .eq('usuario_id', usuarioId).eq('dedup_hash', dedupHash).gte('created_at', hace5min).limit(1);
+      .eq('usuario_id', usuarioId).eq('dedup_hash', dedupHash).gte('created_at', ventanaInicio).limit(1);
     if (existente && existente.length > 0) {
       log.info({ tag: 'DEDUP', hash: dedupHash }, 'Transacción duplicada ignorada');
       return existente[0];
@@ -276,4 +283,5 @@ module.exports = {
   guardarReglaComercio, buscarReglaComercio, retroaplicarRegla,
   guardarConsultaPendiente, obtenerConsultasPendientes, resolverConsulta,
   necesitaConsulta, mensajeConsulta,
+  DEDUP_WINDOW_MS,
 };
