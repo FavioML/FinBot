@@ -24,6 +24,10 @@ module.exports = {
       }
 
       case 'agregar_gmail': {
+        const planConfigAdd = getUserPlanConfig(usuario);
+        if (planConfigAdd.maxGmailAccounts === 0) {
+          return '⭐ *Conectar Gmail es una función Pro.*\n\nCon Pro, Neto lee tus correos bancarios automáticamente y registra tus gastos sin que escribas nada.\n\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
+        }
         const cuentasExistentes = await obtenerCuentasGmail(usuario.id);
         if (cuentasExistentes.length > 0) {
           // Ya tiene cuenta — ofrecer reconexión/reemplazo
@@ -35,6 +39,10 @@ module.exports = {
       }
 
       case 'cambiar_gmail': {
+        const planConfigChg = getUserPlanConfig(usuario);
+        if (planConfigChg.maxGmailAccounts === 0) {
+          return '⭐ *Conectar Gmail es una función Pro.*\n\nCon Pro, Neto lee tus correos bancarios automáticamente y registra tus gastos sin que escribas nada.\n\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
+        }
         const urlCambiar = generarUrlAutorizacion(from, 'reemplazar');
         return '🔄 *Reconecta tu Gmail*\n\nAbre este enlace para autorizar de nuevo:\n\n' + urlCambiar + '\n\n_Tu cuenta anterior será reemplazada automáticamente._';
       }
