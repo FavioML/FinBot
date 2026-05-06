@@ -183,7 +183,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
             + '- "Que incluye el plan", "cuanto cuesta Pro" = manage_account action=view_premium.\n'
             + '- "Comparte mi resumen" = generate_report action=share_summary.\n'
             + 'IMPORTANTE: Siempre usa una herramienta. Nunca respondas sin llamar una herramienta.\n'
-            + 'MULTI-INTENT: Si el mensaje contiene VARIOS gastos/ingresos en una sola frase (ej: "gasté 50 en taxi y 30 en almuerzo", "hoy 80 de luz, 50 de agua y 200 de internet", "pagué 20 al uber y 15 al menú"), DEBES llamar register_transaction UNA VEZ POR CADA monto/concepto. Es decir, devuelve múltiples tool_calls en paralelo en la misma respuesta. Lo mismo aplica para múltiples ingresos o combinaciones gasto+ingreso.\n'
+            + 'MULTI-INTENT (regla acotada): SOLO emite múltiples register_transaction en paralelo cuando el mensaje del usuario contiene LITERALMENTE varios pares "monto + concepto" separados por "y" o coma, todos del mismo tipo (todos gastos o todos ingresos). Ejemplos válidos: "gasté 50 en taxi y 30 en almuerzo", "hoy 80 de luz, 50 de agua y 200 de internet". NO uses paralelo si: (a) el mensaje es ambiguo o conversacional, (b) mezcla un gasto con una consulta/edición/borrado, (c) menciona un solo monto, (d) tienes dudas. Cuando dudes, emite UN solo tool_call.\n'
             + 'CATEGORIAS VALIDAS: Alimentacion, Transporte, Vivienda, Salud, Entretenimiento, Compras, Educacion, Finanzas, Trabajo_Negocio, Otros.\n'
             + 'SUBCATEGORIAS: delivery, restaurante, supermercado, mercado, cafeteria, snacks, uber_cabify, taxi, bus_micro, gasolina, farmacia, medico, streaming, suscripciones, cine, ropa, electronico, hogar, belleza, prestamo, tarjeta_credito, herramientas, publicidad, sin_categoria.'
         },
@@ -213,12 +213,20 @@ async function procesarMensajeLibre(msg, usuario, from) {
       const mapped = mapToolToIntent(toolName, toolArgs);
       intencion = mapped.intencion;
       datos = mapped.datos;
-      // Capture additional tool calls for multi-intent dispatch (e.g. "gasté 50 en taxi y 30 en almuerzo").
-      extraToolCalls = choice.message.tool_calls.slice(1).map(tc => {
-        let args = {};
-        try { args = JSON.parse(tc.function.arguments); } catch(e) {}
-        return mapToolToIntent(tc.function.name, args);
-      });
+      // Capture additional tool calls ONLY for the homogeneous "multiple gastos
+      // in one message" case (e.g. "gasté 50 en taxi y 30 en almuerzo"). The
+      // model with parallel_tool_calls=true sometimes emits unrelated extras
+      // (edit/delete/share) hallucinated from prior context — dispatching those
+      // creates phantom transactions. Restrict to register_transaction.
+      if (toolName === 'register_transaction') {
+        extraToolCalls = choice.message.tool_calls.slice(1)
+          .filter(tc => tc.function.name === 'register_transaction')
+          .map(tc => {
+            let args = {};
+            try { args = JSON.parse(tc.function.arguments); } catch(e) {}
+            return mapToolToIntent(tc.function.name, args);
+          });
+      }
     } else if (choice.message.content) {
       // GPT respondio con texto en vez de tool call — tratar como conversacional
       const respDirecta = choice.message.content;
