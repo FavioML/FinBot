@@ -183,6 +183,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
             + '- "Que incluye el plan", "cuanto cuesta Pro" = manage_account action=view_premium.\n'
             + '- "Comparte mi resumen" = generate_report action=share_summary.\n'
             + 'IMPORTANTE: Siempre usa una herramienta. Nunca respondas sin llamar una herramienta.\n'
+            + 'MULTI-INTENT: Si el mensaje contiene VARIOS gastos/ingresos en una sola frase (ej: "gasté 50 en taxi y 30 en almuerzo", "hoy 80 de luz, 50 de agua y 200 de internet", "pagué 20 al uber y 15 al menú"), DEBES llamar register_transaction UNA VEZ POR CADA monto/concepto. Es decir, devuelve múltiples tool_calls en paralelo en la misma respuesta. Lo mismo aplica para múltiples ingresos o combinaciones gasto+ingreso.\n'
             + 'CATEGORIAS VALIDAS: Alimentacion, Transporte, Vivienda, Salud, Entretenimiento, Compras, Educacion, Finanzas, Trabajo_Negocio, Otros.\n'
             + 'SUBCATEGORIAS: delivery, restaurante, supermercado, mercado, cafeteria, snacks, uber_cabify, taxi, bus_micro, gasolina, farmacia, medico, streaming, suscripciones, cine, ropa, electronico, hogar, belleza, prestamo, tarjeta_credito, herramientas, publicidad, sin_categoria.'
         },
@@ -194,11 +195,13 @@ async function procesarMensajeLibre(msg, usuario, from) {
       ],
       tools: NETO_TOOLS,
       tool_choice: 'auto',
+      parallel_tool_calls: true,
       temperature: 0
     });
 
     let intencion = null;
     let datos = {};
+    let extraToolCalls = [];
 
     const choice = nlpResponse.choices[0];
 
@@ -210,6 +213,12 @@ async function procesarMensajeLibre(msg, usuario, from) {
       const mapped = mapToolToIntent(toolName, toolArgs);
       intencion = mapped.intencion;
       datos = mapped.datos;
+      // Capture additional tool calls for multi-intent dispatch (e.g. "gasté 50 en taxi y 30 en almuerzo").
+      extraToolCalls = choice.message.tool_calls.slice(1).map(tc => {
+        let args = {};
+        try { args = JSON.parse(tc.function.arguments); } catch(e) {}
+        return mapToolToIntent(tc.function.name, args);
+      });
     } else if (choice.message.content) {
       // GPT respondio con texto en vez de tool call — tratar como conversacional
       const respDirecta = choice.message.content;
@@ -258,7 +267,24 @@ async function procesarMensajeLibre(msg, usuario, from) {
 
     const handler = getHandler(intencion);
     if (handler) {
-      return await handler({ intencion, msg, datos, usuario, from, ctx });
+      const respPrincipal = await handler({ intencion, msg, datos, usuario, from, ctx });
+      if (extraToolCalls.length > 0) {
+        const respuestasExtras = [];
+        for (const extra of extraToolCalls) {
+          const h = getHandler(extra.intencion);
+          if (!h) continue;
+          try {
+            const r = await h({ intencion: extra.intencion, msg, datos: extra.datos, usuario, from, ctx });
+            if (r) respuestasExtras.push(r);
+          } catch(e) {
+            log.warn({ tag: 'MULTI_INTENT', intencion: extra.intencion, err: e.message }, 'Error dispatching extra tool call');
+          }
+        }
+        if (respuestasExtras.length > 0) {
+          return [respPrincipal, ...respuestasExtras].filter(Boolean).join('\n\n');
+        }
+      }
+      return respPrincipal;
     }
 
     // === Default/fallback (no handler found) ===
