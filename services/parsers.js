@@ -219,6 +219,13 @@ MODISMOS PERUANOS PARA SOLES (regla estricta 1:1, NUNCA multiplicar):
 - "dólares", "USD", "$", "verdes" = dólares (moneda=USD).
 Si el usuario escribe sólo un número sin moneda, asumir PEN (soles).
 
+EXTRACCIÓN DE MONTO (regla estricta):
+- El monto es el número adyacente a una palabra de moneda o verbo de gasto/ingreso ("gasté", "pagué", "fueron", "soles", "S/", "dólares", "lucas", "cocos", "mangos").
+- NUNCA tomes "el primer número que ves" — en mensajes largos pueden aparecer números no monetarios (cantidades, fechas, número de cuotas, dirección, hora) que NO son el monto.
+- Si el usuario escribe el número en letras ("setenta y cinco", "ciento veinte", "doscientos cincuenta"), conviértelo a dígitos. Ejemplo: "setenta y cinco soles" → monto=75. "ciento veinte dólares" → monto=120, moneda=USD.
+- Decimales hispanos: "75 con 50" / "75,50" / "75.50" todos = 75.50.
+- Si hay varios candidatos (ej: "compré 3 polos a 25 cada uno"), elige el monto TOTAL si el usuario lo menciona ("en total", "fue", "pagué"); si no, multiplica cantidad×precio_unitario y devuelve el total.
+
 CATEGORÍAS (usa exactamente):
 Alimentación: delivery|restaurante|supermercado|mercado|cafeteria|snacks
 Transporte: uber_cabify|taxi|bus_micro|metro_bus|gasolina|peaje|estacionamiento
