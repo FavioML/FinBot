@@ -48,6 +48,10 @@ module.exports = {
       }
 
       case 'preferencia_reporte_gmail': {
+        const planConfigPref = getUserPlanConfig(usuario);
+        if (planConfigPref.maxGmailAccounts === 0 || planConfigPref.resumenDiario === false) {
+          return '⭐ *Resúmenes y reportes automáticos son una función Pro.*\n\nCon NETO Pro recibes tu resumen diario, conectas Gmail para que registre solo, y configuras el modo de reporte.\n\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
+        }
         const modoNuevo = datos.modo || 'unificado';
         await supabase.from('usuarios').update({ reporte_gmail_modo: modoNuevo }).eq('id', usuario.id);
         const cuentasConf = await obtenerCuentasGmail(usuario.id);
