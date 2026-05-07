@@ -7,8 +7,18 @@ module.exports = {
       supabase, mesActual, anioActual, mE, netoPrompt, historialConv, ultimoDiaMes,
       getHistoryDateLimit, getEmojiCategoria, formatearResumen, redactarConNETO,
       obtenerGastosMes, obtenerGastosSemana, obtenerCuentasGmail,
-      fechaHoyPeru, fechaAyerPeru, formatFecha
+      fechaHoyPeru, fechaAyerPeru, formatFecha,
+      getUserPlanConfig
     } = ctx;
+
+    const ADVICE_REGEX = /\b(anali[sz]a(?:r|me)?|consejo|recomienda(?:me|ción)?|recomendaci[oó]n|aconsej(?:a|ar|ame)|c[oó]mo\s+(?:ahorr|reduc|gast|mejorar|optimiz)|qu[eé]\s+(?:hago|deber[ií]a)|d[ií]me\s+qu[eé])\b/i;
+    const isAdviceRequest = typeof msg === 'string' && ADVICE_REGEX.test(msg);
+    if (isAdviceRequest) {
+      const planConfigAdv = getUserPlanConfig(usuario);
+      if (planConfigAdv.consejoPerWeek === 0) {
+        return '⭐ *Análisis y consejos personalizados son una función Pro.*\n\nCon NETO Pro recibes consejos financieros con IA cada semana, basados en tus gastos reales.\n\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
+      }
+    }
 
     switch (intencion) {
 

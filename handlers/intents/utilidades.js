@@ -5,7 +5,8 @@ module.exports = {
   async handle({ intencion, msg, datos, usuario, from, ctx }) {
     const {
       supabase, mesActual, anioActual, mE, netoPrompt, historialConv, ultimoDiaMes,
-      obtenerTipoCambio, redactarConNETO, getEmojiCategoria, formatFecha
+      obtenerTipoCambio, redactarConNETO, getEmojiCategoria, formatFecha,
+      getUserPlanConfig
     } = ctx;
 
     switch (intencion) {
@@ -154,6 +155,10 @@ module.exports = {
       }
 
       case 'recordatorio_pago': {
+        const planConfigRem = getUserPlanConfig(usuario);
+        if (planConfigRem.recordatorios === false || planConfigRem.resumenDiario === false) {
+          return '⭐ *Recordatorios y resúmenes diarios son una función Pro.*\n\nCon NETO Pro recibes tu resumen diario a la hora que elijas y recordatorios de pagos automáticos.\n\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
+        }
         return '⏰ *Recordatorios de pago*\n\nPor ahora puedes configurar tus recordatorios desde la webapp:\n\n🔗 https://app.neto.pe/dashboard/configuracion\n\nAhí puedes activar/desactivar los recordatorios diarios.\n\n_Pronto podrás crear recordatorios personalizados por WhatsApp._';
       }
     }
