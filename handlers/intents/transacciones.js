@@ -1,5 +1,44 @@
 const log = require('../../lib/logger');
 
+// El LLM a veces clasifica queries como register_transaction tras un burst de gastos
+// previos en el contexto (bal-001/004/005). Cuando el parser falla por falta de monto,
+// chequeamos si es una query disfrazada y redirigimos al handler correcto.
+function detectarQuerySinMonto(msg) {
+  const m = (msg || '').toLowerCase().trim();
+  if (!m) return null;
+  const reCuanto = /\bcu[aá]nto(?:s)?\b/;
+  const reGasto = /\b(gast[eéó]|llev[oó]|he\s+gastado|gastad[oa]s?)\b/;
+  const reQueda = /\b(me\s+queda|me\s+sobra|tengo\s+disponible|me\s+resta|disponible)\b/;
+  const rePresupuesto = /\bpresupuesto\b/;
+  const reMayor = /\b(mayor|m[aá]s\s+alto|m[aá]s\s+grande|m[aá]ximo)\b/;
+  const reMenor = /\b(menor|m[aá]s\s+(?:bajo|peque[nñ]o|chico)|m[ií]nimo)\b/;
+  const reCualGasto = /\bcu[aá]l(?:es)?\b.*\b(gasto|gastos)\b/;
+  const hoy = /\bhoy\b/.test(m);
+  const ayer = /\bayer\b/.test(m);
+  const semana = /\b(esta\s+semana|semana\s+actual)\b/.test(m);
+  const mesPalabra = /\b(este\s+mes|mes\s+actual|del\s+mes)\b/.test(m);
+
+  if (reCuanto.test(m) && reQueda.test(m) && rePresupuesto.test(m)) {
+    return { intencion: 'ver_presupuesto', datos: {} };
+  }
+  if ((reCualGasto.test(m) || reCuanto.test(m)) && reMayor.test(m)) {
+    return { intencion: 'ver_gasto_mayor', datos: {} };
+  }
+  if ((reCualGasto.test(m) || reCuanto.test(m)) && reMenor.test(m)) {
+    return { intencion: 'ver_gasto_menor', datos: {} };
+  }
+  if (reCuanto.test(m) && reGasto.test(m) && (hoy || ayer)) {
+    return { intencion: 'listar_gastos_dia', datos: {} };
+  }
+  if (reCuanto.test(m) && reGasto.test(m) && semana) {
+    return { intencion: 'listar_gastos_semana', datos: {} };
+  }
+  if (reCuanto.test(m) && reGasto.test(m) && mesPalabra) {
+    return { intencion: 'ver_total_gastado', datos: { periodo: 'mes' } };
+  }
+  return null;
+}
+
 module.exports = {
   intents: ['registrar_manual', 'corregir_categoria', 'corregir_multiple', 'corregir_monto_moneda', 'eliminar_transaccion', 'editar_monto', 'editar_fecha', 'editar_comercio', 'editar_categoria_comercio', 'deshacer_ultimo', 'restaurar_eliminado', 'marcar_como_ingreso', 'dividir_gasto', 'duplicar_gasto'],
   async handle({ intencion, msg, datos, usuario, from, ctx }) {
@@ -22,6 +61,17 @@ module.exports = {
           const fechaHoy = fechaHoyPeru();
           const parsed = await parsearRegistroManual(msg, fechaHoy);
           if (!parsed.ok || !parsed.monto || parsed.monto <= 0) {
+            const redirect = detectarQuerySinMonto(msg);
+            if (redirect) {
+              try {
+                const { getHandler } = require('../intent-registry');
+                const handlerRedir = getHandler(redirect.intencion);
+                if (handlerRedir) {
+                  log.info({ tag: 'QUERY_REDIRECT', from: 'registrar_manual', to: redirect.intencion, msg: msg.substring(0, 80) }, 'Query disfrazada como register, redirigiendo');
+                  return await handlerRedir({ intencion: redirect.intencion, msg, datos: redirect.datos, usuario, from, ctx });
+                }
+              } catch(eRedir) { log.warn({ tag: 'QUERY_REDIRECT', err: eRedir.message }, 'Fallback redirect falló'); }
+            }
             return 'No pude extraer el monto. Dime algo como: "gasté S/50 en farmacia" o "mi sueldo fue S/4500".';
           }
           // Guard timezone: el modelo a veces aluciona una fecha pasada aunque el usuario no la mencione.
