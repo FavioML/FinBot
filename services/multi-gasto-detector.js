@@ -3,8 +3,11 @@
 // Bypass al OpenAI Function Calling para evitar el bug de tool_calls[0]-only.
 // Cobertura objetivo: mlt-001 ('gasté 50 en taxi y 30 en almuerzo'), mlt-002 ('hoy 80 de luz, 50 de agua y 200 de internet').
 
-const VERBO_GASTO = /\b(gast[eé]|gaste|pagu[eé]|compr[eé]|hoy|ayer)\b/i;
-const RE_PAR = /(\d+(?:[.,]\d{1,2})?)\s+(?:soles?\s+)?(?:en|de|por)\s+([a-záéíóúñü]+(?:\s+[a-záéíóúñü]+)?)/gi;
+// \b en JS regex es ASCII-only: rompe cuando la palabra termina en char unicode (é/ó/etc).
+// Usamos boundary manual: inicio-de-string|espacio antes, espacio|fin-de-string después.
+const VERBO_GASTO = /(?:^|\s)(gast[eé]|gaste|pagu[eé]|compr[eé]|hoy|ayer)(?:\s|$|,)/i;
+// Comercios deben ser 2+ chars para evitar capturar conectores como "y" como segunda palabra.
+const RE_PAR = /(\d+(?:[.,]\d{1,2})?)\s+(?:soles?\s+)?(?:en|de|por)\s+([a-záéíóúñü]{2,}(?:\s+[a-záéíóúñü]{2,})?)/gi;
 
 function detectarMultiGasto(msg) {
   if (!msg || typeof msg !== 'string') return null;

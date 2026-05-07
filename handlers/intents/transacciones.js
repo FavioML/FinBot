@@ -6,13 +6,15 @@ const log = require('../../lib/logger');
 function detectarQuerySinMonto(msg) {
   const m = (msg || '').toLowerCase().trim();
   if (!m) return null;
-  const reCuanto = /\bcu[aá]nto(?:s)?\b/;
-  const reGasto = /\b(gast[eéó]|llev[oó]|he\s+gastado|gastad[oa]s?)\b/;
-  const reQueda = /\b(me\s+queda|me\s+sobra|tengo\s+disponible|me\s+resta|disponible)\b/;
-  const rePresupuesto = /\bpresupuesto\b/;
-  const reMayor = /\b(mayor|m[aá]s\s+alto|m[aá]s\s+grande|m[aá]ximo)\b/;
-  const reMenor = /\b(menor|m[aá]s\s+(?:bajo|peque[nñ]o|chico)|m[ií]nimo)\b/;
-  const reCualGasto = /\bcu[aá]l(?:es)?\b.*\b(gasto|gastos)\b/;
+  // \b en JS no se lleva con caracteres unicode (é/ó/á): /\bgasté\b/ falla porque
+  // la `é` no es word-char ASCII y el boundary post-tilde no encaja. Usamos boundary manual.
+  const reCuanto = /(?:^|\s)cu[aá]nto(?:s)?(?:\s|$|,|\?)/;
+  const reGasto = /(?:^|\s)(gast[eéó]|llev[oó]|he\s+gastado|gastad[oa]s?)(?:\s|$|,|\?)/;
+  const reQueda = /(?:^|\s)(me\s+queda|me\s+sobra|tengo\s+disponible|me\s+resta|disponible)(?:\s|$|,|\?)/;
+  const rePresupuesto = /presupuesto/;
+  const reMayor = /(?:^|\s)(mayor|m[aá]s\s+alto|m[aá]s\s+grande|m[aá]ximo)(?:\s|$|,|\?)/;
+  const reMenor = /(?:^|\s)(menor|m[aá]s\s+(?:bajo|peque[nñ]o|chico)|m[ií]nimo)(?:\s|$|,|\?)/;
+  const reCualGasto = /(?:^|\s)cu[aá]l(?:es)?\s.*(gasto|gastos)/;
   const hoy = /\bhoy\b/.test(m);
   const ayer = /\bayer\b/.test(m);
   const semana = /\b(esta\s+semana|semana\s+actual)\b/.test(m);
@@ -58,6 +60,25 @@ module.exports = {
 
       case 'registrar_manual': {
         try {
+          // Pre-check: ¿el LLM clasificó como register pero el msg es claramente una query?
+          // Bajo burst de gastos previos, gpt-4o-mini hereda contexto e inventa monto incluso
+          // cuando el usuario pregunta "cuánto gasté hoy". Solo redirigimos si NO hay un patrón
+          // literal de "verbo + monto + en/de/por + sustantivo" (eso seguiría siendo register).
+          const tienePatronGasto = /(?:gast[eé]|gaste|pagu[eé]|compr[eé])\s+\d+(?:[.,]\d{1,2})?\s+(?:soles?\s+)?(?:en|de|por)\s+[a-záéíóúñü]/i.test(msg || '');
+          if (!tienePatronGasto) {
+            const redirectPre = detectarQuerySinMonto(msg);
+            if (redirectPre) {
+              try {
+                const { getHandler } = require('../intent-registry');
+                const handlerRedirPre = getHandler(redirectPre.intencion);
+                if (handlerRedirPre) {
+                  log.info({ tag: 'QUERY_REDIRECT', from: 'registrar_manual', to: redirectPre.intencion, msg: msg.substring(0, 80) }, 'Query disfrazada como register (pre-parser)');
+                  return await handlerRedirPre({ intencion: redirectPre.intencion, msg, datos: redirectPre.datos, usuario, from, ctx });
+                }
+              } catch(eRedirPre) { log.warn({ tag: 'QUERY_REDIRECT', err: eRedirPre.message }, 'Fallback redirect pre-parser falló'); }
+            }
+          }
+
           const fechaHoy = fechaHoyPeru();
           const parsed = await parsearRegistroManual(msg, fechaHoy);
           if (!parsed.ok || !parsed.monto || parsed.monto <= 0) {
@@ -67,7 +88,7 @@ module.exports = {
                 const { getHandler } = require('../intent-registry');
                 const handlerRedir = getHandler(redirect.intencion);
                 if (handlerRedir) {
-                  log.info({ tag: 'QUERY_REDIRECT', from: 'registrar_manual', to: redirect.intencion, msg: msg.substring(0, 80) }, 'Query disfrazada como register, redirigiendo');
+                  log.info({ tag: 'QUERY_REDIRECT', from: 'registrar_manual', to: redirect.intencion, msg: msg.substring(0, 80) }, 'Query disfrazada como register (post-parser-fail)');
                   return await handlerRedir({ intencion: redirect.intencion, msg, datos: redirect.datos, usuario, from, ctx });
                 }
               } catch(eRedir) { log.warn({ tag: 'QUERY_REDIRECT', err: eRedir.message }, 'Fallback redirect falló'); }
