@@ -205,7 +205,7 @@ async function parsearRegistroManual(msg, fechaHoy) {
 Si no puedes extraer un monto claro, devuelve { "ok": false }.
 
 Hoy es ${fechaHoy}.
-REGLA CRÍTICA DE FECHA: Si el usuario NO menciona explícitamente una fecha (palabras como "ayer", "antier", "anteayer", "hoy", "el lunes/martes/...", "la semana pasada", "hace N días", "el 5", "5/5", etc.), DEBES devolver fecha exactamente igual a "${fechaHoy}". NUNCA restes ni calcules días si el usuario no lo pide. Solo cuando el usuario diga "ayer" restas 1 día; "el lunes" / "la semana pasada" calculas la fecha correcta. En cualquier otro caso, fecha = "${fechaHoy}" sin modificar.
+REGLA CRÍTICA DE FECHA: Si el usuario NO menciona explícitamente una fecha (palabras como "ayer", "antier", "anteayer", "hoy", "el lunes/martes/...", "la semana pasada", "hace N días", "el 5", "5/5", "el 15 de abril", "3 de marzo", etc.), DEBES devolver fecha exactamente igual a "${fechaHoy}". NUNCA restes ni calcules días si el usuario no lo pide. Solo cuando el usuario diga "ayer" restas 1 día; "el lunes" / "la semana pasada" calculas la fecha correcta. Para fechas con día+mes ("el 15 de abril", "3 de marzo"), usa ese día y mes del año actual (o del año anterior si esa fecha aún no ha ocurrido este año). En cualquier otro caso, fecha = "${fechaHoy}" sin modificar.
 
 tipo=ingreso: sueldo, salario, honorarios, abono recibido, ingreso, cobré, me pagaron, depósito recibido.
 tipo=gasto: gasté, pagué, compré, anota un gasto, registra gasto. También cuenta como gasto: "boté", "tiré", "se me fueron", "perdí" (en contexto de dinero).
