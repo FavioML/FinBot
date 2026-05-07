@@ -13,6 +13,7 @@ const { enviarWhatsapp } = require('../lib/whatsapp');
 const { obtenerTipoCambio, guardarTransaccion, obtenerGastosMes, obtenerGastosSemana, obtenerUltimaTransaccion, recategorizarTransaccion, corregirTransaccionEspecifica, guardarReglaComercio, retroaplicarRegla, obtenerConsultasPendientes } = require('../services/transactions');
 const { guardarPresupuesto, obtenerPresupuestosMes, verificarAlertaPresupuesto, formatearEstadoPresupuesto } = require('../services/budget');
 const { parsearCorreoBancario, parsearRegistroManual, parsearCorreccionesMultiples } = require('../services/parsers');
+const { detectarMultiGasto } = require('../services/multi-gasto-detector');
 const { notificarErrorAdmin } = require('../lib/admin-notify');
 const { registrarError } = require('../lib/error-monitor');
 const { obtenerCuentasGmail } = require('../gmail');
@@ -131,6 +132,44 @@ async function procesarMensajeLibre(msg, usuario, from) {
         + '_¿Quieres que te ayude con algo más puntual por acá?_';
       await guardarMensaje(usuario.id, 'neto', sugerencia.substring(0, 500));
       return sugerencia;
+    }
+
+    // === Detector de multi-gasto explícito (mlt-001/002) ===
+    // Si el msg lista 2+ gastos con verbo + (monto + en/de/por + sustantivo) + separador,
+    // los registramos secuencialmente sin pasar por OpenAI Function Calling
+    // (que solo procesa tool_calls[0] y descarta el resto).
+    const multiGastos = detectarMultiGasto(msg);
+    if (multiGastos && multiGastos.length >= 2) {
+      log.info({ tag: 'MULTI_GASTO', count: multiGastos.length, msg: msg.substring(0, 80) }, 'Multi-gasto detectado, fanout');
+      const fechaGasto = /\bayer\b/i.test(msg) ? fechaAyerPeru() : fechaHoyPeru();
+      const respuestas = [];
+      for (const g of multiGastos) {
+        try {
+          const detCat = await detectarCategoriaIA('gasté ' + g.monto + ' en ' + g.comercio, usuario.id);
+          const datosTx = {
+            monto: g.monto, moneda: 'PEN', comercio: g.comercio,
+            categoria: detCat.categoria || 'Otros',
+            subcategoria: detCat.subcategoria || 'sin_categoria',
+            tipo: 'gasto', fecha: fechaGasto,
+            descripcion_original: msg.substring(0, 200),
+          };
+          await guardarTransaccion(usuario.id, datosTx);
+          let lineResp = '✅ S/' + g.monto.toFixed(2) + ' en ' + datosTx.categoria + ' > ' + datosTx.subcategoria + ' · ' + formatFecha(fechaGasto);
+          try {
+            const alerta = await verificarAlertaPresupuesto(usuario.id, datosTx.categoria, datosTx.subcategoria);
+            if (alerta) lineResp += '\n' + alerta;
+          } catch(eAlert) { /* alert is best-effort */ }
+          respuestas.push(lineResp);
+        } catch(e) {
+          log.warn({ tag: 'MULTI_GASTO', err: e.message, item: g }, 'Falló item de multi-gasto');
+        }
+      }
+      if (respuestas.length > 0) {
+        const respFull = respuestas.join('\n');
+        await guardarMensaje(usuario.id, 'neto', respFull.substring(0, 500));
+        return respFull;
+      }
+      // Si todos los items fallaron, dejar continuar al pipeline normal de OpenAI
     }
 
     // === OpenAI Function Calling — NLP inteligente ===
