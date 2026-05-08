@@ -20,6 +20,23 @@ const { generarResumenSemanal } = require('../services/summaries');
 const { guardarMensaje, obtenerOCrearUsuario, getUserPlanConfig } = require('../helpers/db-helpers');
 const { intentarResolverConsulta } = require('../helpers/consultas');
 
+// Idempotencia por wamid: Meta retransmite el webhook cada 30s si OpenAI demora >timeout.
+// Map preserva orden de inserción → LRU. TTL 5 min, max 1000 entries.
+// Cero delay, cero serialización: solo evita reprocesar el mismo message.id.
+const WAMID_CACHE_TTL_MS = 5 * 60 * 1000;
+const WAMID_CACHE_MAX = 1000;
+const wamidCache = new Map();
+function isDuplicateWamid(wamid) {
+  if (!wamid) return false;
+  const now = Date.now();
+  const insertedAt = wamidCache.get(wamid);
+  if (insertedAt !== undefined && now - insertedAt < WAMID_CACHE_TTL_MS) return true;
+  if (insertedAt !== undefined) wamidCache.delete(wamid);
+  if (wamidCache.size >= WAMID_CACHE_MAX) wamidCache.delete(wamidCache.keys().next().value);
+  wamidCache.set(wamid, now);
+  return false;
+}
+
 function createWebhookHandler(procesarMensajeLibre) {
   return async function webhookHandler(req, res) {
   const META_APP_SECRET = process.env.META_APP_SECRET;
@@ -46,6 +63,10 @@ function createWebhookHandler(procesarMensajeLibre) {
     if (!messages || messages.length === 0) return;
     const message = messages[0];
     const from = message.from;
+    if (isDuplicateWamid(message.id)) {
+      log.info({ tag: 'WEBHOOK', wamid: message.id, from }, 'Wamid duplicado — skip');
+      return;
+    }
 
     // --- Manejo de imágenes ---
     if (message.type === 'image') {
