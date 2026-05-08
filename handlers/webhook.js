@@ -20,6 +20,24 @@ const { generarResumenSemanal } = require('../services/summaries');
 const { guardarMensaje, obtenerOCrearUsuario, getUserPlanConfig } = require('../helpers/db-helpers');
 const { intentarResolverConsulta } = require('../helpers/consultas');
 
+// Idempotencia por message.id de Meta. Evita reprocesar el mismo wamid en
+// caso de retry del provider o duplicado del qa-agent. In-memory: si el
+// proceso reinicia, el dedup_hash de transactions.js cubre el caso edge.
+const WAMID_CACHE = new Map(); // wamid -> timestamp
+const WAMID_TTL_MS = 5 * 60 * 1000;
+function _cleanupWamidCache() {
+  const now = Date.now();
+  for (const [k, ts] of WAMID_CACHE) {
+    if (now - ts > WAMID_TTL_MS) WAMID_CACHE.delete(k);
+  }
+}
+
+// Mutex per-user. Serializa mensajes del mismo número para evitar que N
+// msgs en burst corran en paralelo y solo M<N persistan (race con
+// obtenerHistorial, dedup_hash en ventana 10s, polling cruzado del
+// qa-agent). Otros usuarios siguen paralelos entre sí.
+const USER_LOCKS = new Map(); // userKey -> Promise (cola tail)
+
 function createWebhookHandler(procesarMensajeLibre) {
   return async function webhookHandler(req, res) {
   const META_APP_SECRET = process.env.META_APP_SECRET;
@@ -46,6 +64,31 @@ function createWebhookHandler(procesarMensajeLibre) {
     if (!messages || messages.length === 0) return;
     const message = messages[0];
     const from = message.from;
+    const wamid = message.id;
+
+    // === Idempotencia wamid + Mutex per-user ===
+    // Idempotencia: si ya procesamos este message.id (retry de Meta o
+    // duplicado del qa-agent), salir sin re-procesar.
+    if (wamid && WAMID_CACHE.has(wamid)) {
+      log.info({ tag: 'WEBHOOK_DEDUP', wamid, from }, 'wamid ya procesado, skip');
+      return;
+    }
+    if (wamid) { WAMID_CACHE.set(wamid, Date.now()); _cleanupWamidCache(); }
+
+    // Mutex: encolar mensajes del mismo número para procesarlos en orden.
+    // Soluciona race condition donde N msgs en burst corren paralelos y se
+    // pisan entre sí (str-001/002, bal-001/003/004). El finally al pie del
+    // handler libera el lock incluso si hay early returns en el cuerpo.
+    const _lockKey = from || wamid || 'anon';
+    const _prev = USER_LOCKS.get(_lockKey) || Promise.resolve();
+    let _release;
+    const _slot = new Promise(r => { _release = r; });
+    USER_LOCKS.set(_lockKey, _slot);
+    req._releaseLock = () => {
+      _release();
+      if (USER_LOCKS.get(_lockKey) === _slot) USER_LOCKS.delete(_lockKey);
+    };
+    await _prev;
 
     // --- Manejo de imágenes ---
     if (message.type === 'image') {
@@ -925,6 +968,9 @@ function createWebhookHandler(procesarMensajeLibre) {
       try { await guardarMensaje(usuario.id, 'neto', respuesta); } catch(e) {}
     }
   } catch (error) { log.error({ tag: 'WEBHOOK', err: error.message }, 'Error en webhook'); notificarErrorAdmin('WEBHOOK', error.message); registrarError('WEBHOOK', error.message, { stack: error.stack, whatsapp: from }); }
+  finally {
+    if (req._releaseLock) req._releaseLock();
+  }
 
   };
 }
