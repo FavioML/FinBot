@@ -451,6 +451,19 @@ module.exports = {
               .order('created_at', { ascending: false }).limit(1);
             txEditM = found && found.length > 0 ? found[0] : null;
           }
+          // Lookup por fecha si el continuation pasó "el de ayer/hoy" sin comercio
+          if (!txEditM && datos.fecha_token) {
+            const tok = String(datos.fecha_token).toLowerCase();
+            const fechaQ = tok === 'hoy' ? fechaHoyPeru()
+                         : (tok === 'ayer' || tok === 'antier' || tok === 'anteayer') ? fechaAyerPeru()
+                         : null;
+            if (fechaQ) {
+              const { data: foundF } = await supabase.from('transacciones').select('*')
+                .eq('usuario_id', usuario.id).eq('fecha', fechaQ)
+                .order('created_at', { ascending: false }).limit(1);
+              txEditM = foundF && foundF.length > 0 ? foundF[0] : null;
+            }
+          }
           if (!txEditM) txEditM = await obtenerUltimaTransaccion(usuario.id);
           if (!txEditM) return 'No encuentro un gasto reciente para corregir.';
           const monedaEdit = txEditM.moneda || 'PEN';
@@ -640,3 +653,4 @@ module.exports = {
     }
   }
 };
+module.exports.detectarQuerySinMonto = detectarQuerySinMonto;

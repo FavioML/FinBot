@@ -297,7 +297,23 @@ async function procesarMensajeLibre(msg, usuario, from) {
 
     const handler = getHandler(intencion);
     if (handler) {
-      return await handler({ intencion, msg, datos, usuario, from, ctx });
+      const r1 = await handler({ intencion, msg, datos, usuario, from, ctx });
+      // Multi-intent heterogéneo: si el msg tiene conjunción y la parte2 representa
+      // un intent distinto (query/edit/register), dispatchearlo vía el registry.
+      // Cubre mlt-003/004/005. Ver services/multi-intent-splitter.js
+      try {
+        const { detectarContinuacion } = require('../services/multi-intent-splitter');
+        const cont = detectarContinuacion(msg, intencion);
+        if (cont) {
+          const handlerCont = getHandler(cont.intencion);
+          if (handlerCont) {
+            log.info({ tag: 'MULTI_INTENT_CONT', from: intencion, to: cont.intencion, parte2: cont.parte2.substring(0, 80) }, 'Compound continuation');
+            const r2 = await handlerCont({ intencion: cont.intencion, msg: cont.parte2, datos: cont.datos, usuario, from, ctx });
+            if (r2 && typeof r2 === 'string') return (r1 || '') + '\n\n' + r2;
+          }
+        }
+      } catch(eCont) { log.warn({ tag: 'MULTI_INTENT_CONT', err: eCont.message }, 'Continuation failed'); }
+      return r1;
     }
 
     // === Default/fallback (no handler found) ===
