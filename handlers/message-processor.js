@@ -225,7 +225,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
             + 'CATEGORIAS VALIDAS: Alimentacion, Transporte, Vivienda, Salud, Entretenimiento, Compras, Educacion, Finanzas, Trabajo_Negocio, Otros.\n'
             + 'SUBCATEGORIAS: delivery, restaurante, supermercado, mercado, cafeteria, snacks, uber_cabify, taxi, bus_micro, gasolina, farmacia, medico, streaming, suscripciones, cine, ropa, electronico, hogar, belleza, prestamo, tarjeta_credito, herramientas, publicidad, sin_categoria.'
         },
-        ...historialConv.slice(-2).map(h => ({
+        ...historialConv.slice(-4).map(h => ({
           role: h.rol === 'neto' ? 'assistant' : 'user',
           content: h.mensaje.substring(0, 200)
         })),
