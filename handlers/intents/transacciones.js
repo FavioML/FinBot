@@ -79,6 +79,19 @@ module.exports = {
             }
           }
 
+          // Guard fecha futura: rechazar registros de gastos que aún no ocurrieron.
+          // Conservador: requiere marcador temporal futuro Y verbo futuro/perífrasis.
+          // Si solo aparece uno, dejamos pasar al parser (evita falsos positivos).
+          {
+            const _msgFutLower = (msg || '').toLowerCase();
+            const _marcadorFuturo = /\bma[ñn]ana\b|\bpasado\s+ma[ñn]ana\b|\bla\s+pr[oó]xima\s+semana\b|\bel\s+pr[oó]ximo\s+(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\b|\bel\s+(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\s+que\s+viene\b/i.test(_msgFutLower);
+            const _verboFuturo = /\bvoy\s+a\s+(gastar|pagar|comprar|invertir|salir|comer|cenar|almorzar)\b|\bgastar[eé]\b|\bpagar[eé]\b|\bcomprar[eé]\b|\bpienso\s+(gastar|comprar|pagar)\b/i.test(_msgFutLower);
+            if (_marcadorFuturo && _verboFuturo) {
+              log.info({ tag: 'FUTURE_DATE_REJECT', msg: msg.substring(0, 80) }, 'Mensaje describe gasto futuro — no registrar');
+              return 'No registro gastos futuros. Cuando ya hayas hecho el gasto, dime el monto y lo anoto. Si querés, decí "recuérdame mañana" y te aviso.';
+            }
+          }
+
           const fechaHoy = fechaHoyPeru();
           const parsed = await parsearRegistroManual(msg, fechaHoy);
           if (!parsed.ok || !parsed.monto || parsed.monto <= 0) {
