@@ -34,6 +34,25 @@ module.exports = {
 
       case 'ver_balance': {
         try {
+          // Pre-check: el LLM clasifica "cuánto me queda del presupuesto de comida"
+          // como manage_budget action=balance (general del mes), cuando el usuario
+          // en realidad pide el saldo de UN presupuesto. Espejo del pre-check de
+          // 'registrar_manual' en transacciones.js. Solo reroutea si el detector
+          // resuelve a ver_presupuesto — el resto (saldo/balance directo, totales,
+          // gasto mayor/menor) cae al flujo normal de ver_balance.
+          try {
+            const { detectarQuerySinMonto } = require('./transacciones');
+            const redirectBal = detectarQuerySinMonto(msg);
+            if (redirectBal && redirectBal.intencion === 'ver_presupuesto') {
+              const { getHandler } = require('../intent-registry');
+              const handlerVp = getHandler('ver_presupuesto');
+              if (handlerVp) {
+                log.info({ tag: 'QUERY_REDIRECT', from: 'ver_balance', to: 'ver_presupuesto', msg: (msg||'').substring(0, 80) }, 'Query de presupuesto disfrazada como balance');
+                return await handlerVp({ intencion: 'ver_presupuesto', msg, datos: redirectBal.datos, usuario, from, ctx });
+              }
+            }
+          } catch(eRedirBal) { log.warn({ tag: 'QUERY_REDIRECT', err: eRedirBal.message }, 'Fallback redirect ver_balance falló'); }
+
           const mesBal = datos.mes || mesActual;
           const anioBal = datos.anio || anioActual;
           const desdeBal = anioBal + '-' + String(mesBal).padStart(2,'0') + '-01';

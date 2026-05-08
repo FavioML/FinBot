@@ -38,6 +38,11 @@ function detectarQuerySinMonto(msg) {
     return { intencion: 'ver_balance', datos: {} };
   }
   if (reCuanto.test(m) && reQueda.test(m) && rePresupuesto.test(m)) {
+    for (const [re, cat] of CATEGORY_ALIASES) {
+      if (re.test(m)) {
+        return { intencion: 'ver_presupuesto', datos: { categoria: cat } };
+      }
+    }
     return { intencion: 'ver_presupuesto', datos: {} };
   }
   if ((reCualGasto.test(m) || reCuanto.test(m)) && reMayor.test(m)) {
