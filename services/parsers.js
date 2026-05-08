@@ -195,6 +195,43 @@ async function parsearCorreoBancario(texto, contexto, categoriasCustom) {
   return parsed;
 }
 
+// Sub-1 amount fallback: el modelo a veces devuelve ok:false o monto=0 ante microtransacciones
+// (ej. "Gasté 0.0001 USD en tus servicios ayer" — cripto/fees). Si el modelo falló pero el msg
+// contiene un patrón claro de "<1 + moneda explícita", reconstruimos el parsed manualmente.
+// Solo se activa con moneda explícita para no abrir falsos positivos en montos sin contexto.
+// Cubre ambos órdenes: "0.0001 USD" y "S/0.50".
+const RE_MONTO_POST_MONEDA = /(\d+[.,]\d+)\s*(USD|EUR|GBP|PEN|d[oó]lares?|euros?|libras?|soles?|cripto|btc|eth)\b/i;
+const RE_MONTO_PRE_MONEDA = /\b(USD|EUR|GBP|PEN|S\/\.?|\$)\s*(\d+[.,]\d+)/i;
+const RE_VERBO_GASTO_MSG = /\b(gast[eé]|gaste|pagu[eé]|compr[eé]|bot[eé]|tir[eé]|perd[ií])\b/i;
+
+function parseMonedaToken(token) {
+  const t = (token || '').toLowerCase();
+  if (/usd|d[oó]lar|^\$$/.test(t)) return 'USD';
+  if (/eur|euro/.test(t)) return 'EUR';
+  if (/gbp|libra/.test(t)) return 'GBP';
+  // soles, S/, PEN, cripto/btc/eth → tratamos como PEN para mantener compat con el resto del flujo
+  return 'PEN';
+}
+
+function extraerMontoSub1ConMoneda(msg) {
+  if (!msg) return null;
+  let m = RE_MONTO_POST_MONEDA.exec(msg);
+  if (m) {
+    const monto = parseFloat(m[1].replace(',', '.'));
+    if (Number.isFinite(monto) && monto > 0 && monto < 1) {
+      return { monto, moneda: parseMonedaToken(m[2]) };
+    }
+  }
+  m = RE_MONTO_PRE_MONEDA.exec(msg);
+  if (m) {
+    const monto = parseFloat(m[2].replace(',', '.'));
+    if (Number.isFinite(monto) && monto > 0 && monto < 1) {
+      return { monto, moneda: parseMonedaToken(m[1]) };
+    }
+  }
+  return null;
+}
+
 async function parsearRegistroManual(msg, fechaHoy) {
   const res = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
@@ -238,7 +275,26 @@ Para ingresos: comercio="Sueldo" o la fuente del ingreso, categoria="Finanzas", 
   });
   const raw2 = res.choices[0].message.content.trim();
   const clean2 = raw2.startsWith('{') ? raw2 : raw2.slice(raw2.indexOf('{'), raw2.lastIndexOf('}') + 1);
-  return JSON.parse(clean2);
+  const parsed = JSON.parse(clean2);
+  // Sub-1 fallback: si el modelo no extrajo monto pero el msg tiene "<1 + moneda explícita",
+  // reconstruimos la TX manualmente. Cubre amt-006 (microtransacciones cripto/fee).
+  if (!parsed.ok || !parsed.monto || parsed.monto <= 0) {
+    const found = extraerMontoSub1ConMoneda(msg);
+    if (found) {
+      const tipo = RE_VERBO_GASTO_MSG.test(msg) ? 'gasto' : 'ingreso';
+      return {
+        ok: true,
+        monto: found.monto,
+        moneda: found.moneda,
+        tipo,
+        comercio: 'sin_descripcion',
+        categoria: tipo === 'ingreso' ? 'Finanzas' : 'Otros',
+        subcategoria: 'sin_categoria',
+        fecha: fechaHoy,
+      };
+    }
+  }
+  return parsed;
 }
 
 async function parsearCorreccionesMultiples(msg) {
@@ -297,4 +353,5 @@ module.exports = {
   parsearRegistroManual,
   parsearCorreccionesMultiples,
   interpretarComandoPresupuesto,
+  extraerMontoSub1ConMoneda,
 };
