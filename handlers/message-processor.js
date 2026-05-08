@@ -13,7 +13,7 @@ const { enviarWhatsapp } = require('../lib/whatsapp');
 const { obtenerTipoCambio, guardarTransaccion, obtenerGastosMes, obtenerGastosSemana, obtenerUltimaTransaccion, recategorizarTransaccion, corregirTransaccionEspecifica, guardarReglaComercio, retroaplicarRegla, obtenerConsultasPendientes } = require('../services/transactions');
 const { guardarPresupuesto, obtenerPresupuestosMes, verificarAlertaPresupuesto, formatearEstadoPresupuesto } = require('../services/budget');
 const { parsearCorreoBancario, parsearRegistroManual, parsearCorreccionesMultiples } = require('../services/parsers');
-const { detectarMultiGasto } = require('../services/multi-gasto-detector');
+const { detectarMultiGasto, detectarIngresoMasGastos } = require('../services/multi-gasto-detector');
 const { notificarErrorAdmin } = require('../lib/admin-notify');
 const { registrarError } = require('../lib/error-monitor');
 const { obtenerCuentasGmail } = require('../gmail');
@@ -132,6 +132,56 @@ async function procesarMensajeLibre(msg, usuario, from) {
         + '_¿Quieres que te ayude con algo más puntual por acá?_';
       await guardarMensaje(usuario.id, 'neto', sugerencia.substring(0, 500));
       return sugerencia;
+    }
+
+    // === Detector de ingreso + lista de gastos (str-006) ===
+    // Cubre el patrón "Ingresé/gané/cobré/recibí NUMBER ..., gasté X en A, Y en B y Z en C".
+    // Fanout: 1 ingreso + N gastos. Si el detector retorna null, sigue al detector de
+    // multi-gasto homogéneo y al pipeline normal de OpenAI.
+    const ingresoMasGastos = detectarIngresoMasGastos(msg);
+    if (ingresoMasGastos) {
+      log.info({ tag: 'INCOME_PLUS_EXPENSES', expenses: ingresoMasGastos.expenses.length, income: ingresoMasGastos.income.monto, msg: msg.substring(0, 80) }, 'Ingreso + gastos detectado, fanout');
+      const fechaTx = /\bayer\b/i.test(msg) ? fechaAyerPeru() : fechaHoyPeru();
+      const respuestasIE = [];
+      try {
+        const datosIngreso = {
+          monto: ingresoMasGastos.income.monto, moneda: 'PEN', comercio: 'Ingreso',
+          categoria: 'Finanzas', subcategoria: 'sin_categoria',
+          tipo: 'ingreso', fecha: fechaTx,
+          descripcion_original: msg.substring(0, 200),
+        };
+        await guardarTransaccion(usuario.id, datosIngreso);
+        respuestasIE.push('✅ S/' + ingresoMasGastos.income.monto.toFixed(2) + ' en Ingresos · ' + formatFecha(fechaTx));
+      } catch(e) {
+        log.warn({ tag: 'INCOME_PLUS_EXPENSES', err: e.message }, 'Falló registro de ingreso');
+      }
+      for (const g of ingresoMasGastos.expenses) {
+        try {
+          const detCat = await detectarCategoriaIA('gasté ' + g.monto + ' en ' + g.comercio, usuario.id);
+          const datosTx = {
+            monto: g.monto, moneda: 'PEN', comercio: g.comercio,
+            categoria: detCat.categoria || 'Otros',
+            subcategoria: detCat.subcategoria || 'sin_categoria',
+            tipo: 'gasto', fecha: fechaTx,
+            descripcion_original: msg.substring(0, 200),
+          };
+          await guardarTransaccion(usuario.id, datosTx);
+          let lineResp = '✅ S/' + g.monto.toFixed(2) + ' en ' + datosTx.categoria + ' > ' + datosTx.subcategoria + ' · ' + formatFecha(fechaTx);
+          try {
+            const alerta = await verificarAlertaPresupuesto(usuario.id, datosTx.categoria, datosTx.subcategoria);
+            if (alerta) lineResp += '\n' + alerta;
+          } catch(eAlert) { /* alert is best-effort */ }
+          respuestasIE.push(lineResp);
+        } catch(e) {
+          log.warn({ tag: 'INCOME_PLUS_EXPENSES', err: e.message, item: g }, 'Falló item de gasto');
+        }
+      }
+      if (respuestasIE.length > 0) {
+        const respFull = respuestasIE.join('\n');
+        await guardarMensaje(usuario.id, 'neto', respFull.substring(0, 500));
+        return respFull;
+      }
+      // Si todos fallaron, dejar continuar al pipeline normal de OpenAI
     }
 
     // === Detector de multi-gasto explícito (mlt-001/002) ===

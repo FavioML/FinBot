@@ -1,9 +1,10 @@
-// Detector de multi-intent heterogéneos (mlt-003/004/005).
+// Detector de multi-intent heterogéneos (mlt-003/004/005/006).
 // El detector multi-gasto cubre listas homogéneas de gastos (mlt-001/002).
 // Este módulo cubre los compuestos mixtos:
-//   (a) register + query   (mlt-003: "gasté 100 en comida y cuánto llevo este mes")
-//   (b) register + edit    (mlt-004: "registra 50 en taxi hoy pero también edita el de ayer a 90")
-//   (c) delete + register  (mlt-005: "borra el último y registra 100 en comida")
+//   (a) register + query    (mlt-003: "gasté 100 en comida y cuánto llevo este mes")
+//   (b) register + edit     (mlt-004: "registra 50 en taxi hoy pero también edita el de ayer a 90")
+//   (c) delete + register   (mlt-005: "borra el último y registra 100 en comida")
+//   (d) register + register (mlt-006: "Ingreso 1000 cocos el próximo viernes y gasto 1000 cocos el otro viernes")
 // Estrategia: post-handler hook. El primer intent ya fue clasificado y dispatched por
 // OpenAI; detectamos si la parte después de la conjunción tiene un intent distinto y
 // lo despachamos vía el intent-registry. Cero cambios al system prompt de OpenAI.
@@ -11,6 +12,9 @@
 const CONJUNCION = /\s+(?:pero\s+tambi[eé]n|y\s+tambi[eé]n|pero|y|luego|despu[eé]s)\s+/i;
 
 const RE_REGISTER_PART = /^\s*(?:registra|anota|gast[eé]|gaste|pagu[eé]|compr[eé])\s+(?:s\/)?\s*\d+/i;
+// Cubre verbos/sustantivos de registro de TX en cualquier dirección (gasto o ingreso).
+// Usado en (d) cuando el primer intent ya fue un registrar_manual y parte2 es otro registro.
+const RE_TX_PART = /^\s*(?:registra|anota|gast[eé]|gaste|gasto|pagu[eé]|compr[eé]|ingres[eéo]|ingreso|gan[eé]|gano|cobr[eé]|cobro|recib[ií]|recibo)\s+(?:s\/)?\s*\d+/i;
 const RE_EDIT_PART = /^(?:tambi[eé]n\s+)?(?:edita|corrige|cambia|cambialo|p[oó]nlo|m[oó]dificalo|act[uú]al[ií]za[lo]?)\s/i;
 const RE_FECHA_REF = /\bel\s+de\s+(ayer|hoy|antier|anteayer)\b/i;
 const RE_MONTO_NUEVO = /\sa\s+(?:s\/)?\s*(\d+(?:[.,]\d{1,2})?)\b/i;
@@ -46,6 +50,14 @@ function detectarContinuacion(msg, intencionPrimera) {
           return { intencion: 'editar_monto', datos, parte2 };
         }
       }
+    }
+
+    // (d) register + register — heterogéneo income+expense o expense+income en un solo msg
+    // (mlt-006: "Ingreso 1000 cocos el próximo viernes y gasto 1000 cocos el otro viernes").
+    // Reusamos el handler registrar_manual con parte2 como msg; el parser OpenAI infiere
+    // tipo (gasto/ingreso) desde el verbo/sustantivo inicial.
+    if (RE_TX_PART.test(parte2)) {
+      return { intencion: 'registrar_manual', datos: {}, parte2 };
     }
   }
 
