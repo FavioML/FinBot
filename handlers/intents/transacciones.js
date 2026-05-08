@@ -138,6 +138,16 @@ module.exports = {
             }
             return 'No pude extraer el monto. Dime algo como: "gasté S/50 en farmacia" o "mi sueldo fue S/4500".';
           }
+          // Guard weekday: el clasificador a veces devuelve fecha cuyo día de la semana no
+          // coincide con "el <weekday> pasado". Validador puro post-OpenAI, cero prompt.
+          {
+            const { resolverDiaSemanaPasado } = require('../../lib/dates');
+            const _fechaCorregida = resolverDiaSemanaPasado(msg, parsed.fecha, fechaHoy);
+            if (_fechaCorregida) {
+              log.info({ tag: 'WEEKDAY_GUARD', fechaModelo: parsed.fecha, fechaCorregida: _fechaCorregida, msg: (msg || '').substring(0, 80) }, 'Ajuste post-OpenAI: weekday del msg no coincide con fecha del parser');
+              parsed.fecha = _fechaCorregida;
+            }
+          }
           // Guard timezone: el modelo a veces aluciona una fecha pasada aunque el usuario no la mencione.
           // Solo respetamos parsed.fecha si el mensaje contiene una referencia explícita de fecha.
           const _msgL = (msg || '').toLowerCase();
