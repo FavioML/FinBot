@@ -15,11 +15,28 @@ function detectarQuerySinMonto(msg) {
   const reMayor = /(?:^|\s)(mayor|m[aá]s\s+alto|m[aá]s\s+grande|m[aá]ximo)(?:\s|$|,|\?)/;
   const reMenor = /(?:^|\s)(menor|m[aá]s\s+(?:bajo|peque[nñ]o|chico)|m[ií]nimo)(?:\s|$|,|\?)/;
   const reCualGasto = /(?:^|\s)cu[aá]l(?:es)?\s.*(gasto|gastos)/;
+  const reSaldo = /(?:^|\s)(saldo|balance)(?:\s|$|,|\?|\.)/;
   const hoy = /\bhoy\b/.test(m);
   const ayer = /\bayer\b/.test(m);
   const semana = /\b(esta\s+semana|semana\s+actual)\b/.test(m);
   const mesPalabra = /\b(este\s+mes|mes\s+actual|del\s+mes)\b/.test(m);
 
+  // Palabras-clave → categoría canónica (subset de CATEGORIA_MAP, suficiente para queries WhatsApp)
+  const CATEGORY_ALIASES = [
+    [/\b(comida|alimentos?|alimentaci[oó]n)\b/, 'Alimentación'],
+    [/\b(transporte|taxis?|ubers?|bus|micro|gasolina)\b/, 'Transporte'],
+    [/\b(salud|farmacia|cl[ií]nica|m[eé]dico)\b/, 'Salud'],
+    [/\b(vivienda|hogar|alquiler|renta)\b/, 'Vivienda'],
+    [/\b(entretenimiento|cine|salidas?|fiesta)\b/, 'Entretenimiento'],
+    [/\b(compras|ropa|calzado)\b/, 'Compras'],
+    [/\b(educaci[oó]n|cursos?|colegio|universidad)\b/, 'Educación'],
+    [/\b(suscripciones|streaming|netflix|spotify)\b/, 'Suscripciones'],
+  ];
+
+  // Saldo/balance del mes: query directa, no requiere "cuánto"
+  if (reSaldo.test(m)) {
+    return { intencion: 'ver_balance', datos: {} };
+  }
   if (reCuanto.test(m) && reQueda.test(m) && rePresupuesto.test(m)) {
     return { intencion: 'ver_presupuesto', datos: {} };
   }
@@ -37,6 +54,14 @@ function detectarQuerySinMonto(msg) {
   }
   if (reCuanto.test(m) && reGasto.test(m) && mesPalabra) {
     return { intencion: 'ver_total_gastado', datos: { periodo: 'mes' } };
+  }
+  // Filtro por categoría: "cuánto he gastado en comida", "cuánto llevo en taxi"
+  if (reCuanto.test(m) && reGasto.test(m)) {
+    for (const [re, cat] of CATEGORY_ALIASES) {
+      if (re.test(m)) {
+        return { intencion: 'ver_total_gastado', datos: { categoria: cat, periodo: 'mes' } };
+      }
+    }
   }
   return null;
 }
