@@ -148,6 +148,15 @@ module.exports = {
               parsed.fecha = _fechaCorregida;
             }
           }
+          // Guard fechas relativas (ayer/anteayer/hace N días): mismo patrón que tmp-004.
+          {
+            const { resolverFechaRelativa } = require('../../lib/dates');
+            const _fechaRel = resolverFechaRelativa(msg, parsed.fecha, fechaHoy);
+            if (_fechaRel) {
+              log.info({ tag: 'RELATIVE_DATE_GUARD', fechaModelo: parsed.fecha, fechaCorregida: _fechaRel, msg: (msg || '').substring(0, 80) }, 'Ajuste post-OpenAI: marcador relativo del msg no coincide con fecha del parser');
+              parsed.fecha = _fechaRel;
+            }
+          }
           // Guard timezone: el modelo a veces aluciona una fecha pasada aunque el usuario no la mencione.
           // Solo respetamos parsed.fecha si el mensaje contiene una referencia explícita de fecha.
           const _msgL = (msg || '').toLowerCase();
