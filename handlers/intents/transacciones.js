@@ -171,6 +171,16 @@ module.exports = {
             parsed.categoria = detCat.categoria;
             if (detCat.subcategoria) parsed.subcategoria = detCat.subcategoria;
           }
+          // Override por keywords fuertes para mensajes largos (prosa) cuando el LLM
+          // clasificó como sin_categoria. Conservador: msg.length > 150 + keyword inequívoco.
+          if (msg && msg.length > 150 && (!parsed.categoria || parsed.categoria === 'sin_categoria')) {
+            const { categorizarPorKeywords } = require('../../services/categorizer-keywords');
+            const _catKw = categorizarPorKeywords(msg);
+            if (_catKw) {
+              log.info({ tag: 'CATEGORY_KW_OVERRIDE', from: parsed.categoria || null, to: _catKw, msgLen: msg.length }, 'Override post-LLM por keywords fuertes en mensaje largo');
+              parsed.categoria = _catKw;
+            }
+          }
           // Auto-crear categoría/subcategoría custom si es nueva
           if (parsed.categoria && !CATEGORIAS_VALIDAS.has(parsed.categoria) && !CATEGORIA_MAP[parsed.categoria]) {
             crearCategoriaLibreUsuario(usuario.id, parsed.categoria);
