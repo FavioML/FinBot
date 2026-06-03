@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { hoyPeru } from '@/lib/dates';
 
 async function getNetoUserId() {
   const supabase = await createClient();
@@ -68,7 +69,7 @@ export async function POST(request: Request) {
       descripcion,
       monto_total: montoTotalNum,
       moneda,
-      fecha: new Date().toISOString().split('T')[0],
+      fecha: hoyPeru(),
       categoria: categoria || null,
       fecha_limite: fecha_limite || null,
       notas: notas || null,

@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { hoyPeru } from '@/lib/dates';
 
 const FRECUENCIAS = ['semanal', 'quincenal', 'mensual', 'anual'] as const;
 type Frecuencia = typeof FRECUENCIAS[number];
@@ -88,7 +89,7 @@ export async function POST(request: Request) {
     }
     frecValida = frecuencia as Frecuencia;
     // proxima_fecha = fecha_vencimiento si fue dado, sino +1 periodo desde hoy
-    const base = fecha_vencimiento || new Date().toISOString().split('T')[0];
+    const base = fecha_vencimiento || hoyPeru();
     proximaFecha = fecha_vencimiento ? base : addPeriodo(base, frecValida);
   }
 
@@ -151,7 +152,7 @@ export async function PUT(request: Request) {
     await getServiceClient().from('deuda_abonos').insert({
       deuda_id: id,
       monto: montoAbono,
-      fecha: fields.fecha || new Date().toISOString().split('T')[0],
+      fecha: fields.fecha || hoyPeru(),
       nota: fields.nota || null,
     });
 
@@ -174,7 +175,7 @@ export async function PUT(request: Request) {
 
     let recurrenteRenovada = false;
     if (completada && deuda.es_recurrente && deuda.frecuencia) {
-      const baseFecha = deuda.proxima_fecha || deuda.fecha_vencimiento || new Date().toISOString().split('T')[0];
+      const baseFecha = deuda.proxima_fecha || deuda.fecha_vencimiento || hoyPeru();
       const siguiente = addPeriodo(baseFecha, deuda.frecuencia as Frecuencia);
       const seguimosVigentes = !deuda.fecha_fin || siguiente <= deuda.fecha_fin;
 

@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/select';
 import { CATEGORIAS } from '@/lib/constants';
 import { capitalizeDisplay } from '@/lib/format';
+import { hoyPeru } from '@/lib/dates';
 import type { Transaccion } from '@/lib/types';
 
 const METODOS_PAGO = ['Debito', 'Credito', 'Yape', 'Plin', 'Transferencia', 'Efectivo'];
@@ -56,7 +57,7 @@ interface FormData {
 }
 
 function getDefaultForm(tipo: 'gasto' | 'ingreso'): FormData {
-  const today = new Date().toISOString().split('T')[0];
+  const today = hoyPeru();
   return {
     monto: '',
     comercio: '',

@@ -120,3 +120,8 @@ export async function POST(request: Request) {
 - Imagenes remotas: solo `lh3.googleusercontent.com` (avatars Google)
 - `force-dynamic` obligatorio en TODAS las paginas dashboard
 - Service-role key SOLO en API routes server-side, NUNCA en cliente
+
+## Deploy & monitoring
+- Config: `.claude/deploy-config.json` (Vercel app.neto.pe + Supabase RLS check).
+- Daily canary 10am Lima vía scheduled task `canary-daily-deploys`. Reporte solo si hay fallo en `C:/Vortik.dev/memory/canary/`.
+- Verificación manual post-push: `curl -I https://app.neto.pe/` y `curl -I https://api.neto.pe/health`.

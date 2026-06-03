@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
+import { hoyPeru } from '@/lib/dates';
 
 async function getNetoUserId() {
   const supabase = await createClient();
@@ -81,7 +82,7 @@ export async function POST(request: Request) {
       meta_id,
       monto: parseFloat(monto),
       tipo,
-      fecha: new Date().toISOString().split('T')[0],
+      fecha: hoyPeru(),
       nota: nota || null,
     })
     .select()
@@ -133,7 +134,7 @@ export async function POST(request: Request) {
         usuario_id: userId,
         tipo: logroTipo,
         meta_id,
-        fecha: new Date().toISOString().split('T')[0],
+        fecha: hoyPeru(),
       }, { onConflict: 'usuario_id,tipo,meta_id', ignoreDuplicates: true });
     } catch (e) { console.error('[logro]', e); }
 

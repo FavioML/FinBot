@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { IS_DEMO } from '@/lib/demo/is-demo';
 import { DEMO_GOALS, DEMO_GOAL_CONTRIBUTIONS, DEMO_ACHIEVEMENTS, DEMO_USER_ID } from '@/lib/demo/mock-data';
+import { hoyPeru } from '@/lib/dates';
 
 export interface MetaAhorro {
   id: string;
@@ -219,7 +220,7 @@ export function useGoalMutations() {
               meta_id: data.meta_id,
               monto: data.monto,
               tipo,
-              fecha: new Date().toISOString().split('T')[0],
+              fecha: hoyPeru(),
               nota: data.nota ?? null,
               created_at: new Date().toISOString(),
             };
@@ -240,7 +241,7 @@ export function useGoalMutations() {
             meta_id: data.meta_id,
             monto: data.monto,
             tipo,
-            fecha: new Date().toISOString().split('T')[0],
+            fecha: hoyPeru(),
             nota: data.nota ?? null,
             created_at: new Date().toISOString(),
           };

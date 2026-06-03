@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { IS_DEMO } from '@/lib/demo/is-demo';
 import { DEMO_DEBTS, DEMO_USER_ID } from '@/lib/demo/mock-data';
+import { hoyPeru } from '@/lib/dates';
 
 export interface DeudaAbono {
   id: string;
@@ -92,7 +93,7 @@ export function useDebtMutations() {
           monto_pendiente: debt.monto_original,
           moneda: debt.moneda ?? 'PEN',
           descripcion: debt.descripcion ?? null,
-          fecha_inicio: new Date().toISOString().split('T')[0],
+          fecha_inicio: hoyPeru(),
           fecha_vencimiento: debt.fecha_vencimiento ?? null,
           estado: 'activa',
           invite_code: null,
@@ -135,7 +136,7 @@ export function useDebtMutations() {
               id: `dab-${Date.now()}`,
               deuda_id: id,
               monto,
-              fecha: new Date().toISOString().split('T')[0],
+              fecha: hoyPeru(),
               nota: nota ?? null,
               created_at: new Date().toISOString(),
             };
