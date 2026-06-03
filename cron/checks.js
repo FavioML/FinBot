@@ -9,6 +9,7 @@ const { obtenerDeudasProximasVencer } = require('../services/debts');
 const { crearNotificacion } = require('../lib/notifications-db');
 const { ADMIN_NUMBER } = require('../lib/config');
 const { checkSurveyTriggers } = require('../services/survey-triggers');
+const { solicitarComprobante } = require('../lib/pro-payment');
 
 async function checkResumenMensual() {
   const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
@@ -104,6 +105,7 @@ async function checkRecordatorioDiario() {
           }
 
           await enviarWhatsapp(usuario.whatsapp, upsellMsg);
+          await solicitarComprobante(usuario.id);
           totalUpsell++;
           continue;
         }
@@ -166,6 +168,7 @@ async function checkPremiumExpiry() {
           const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
           await enviarWhatsapp(usuario.whatsapp, '⚠️ ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u plan *NETO Pro* vence en 3 días (' + usuario.premium_vence + ').\n\n¿Quieres renovar?\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Renueva antes para no perder acceso._');
           await crearNotificacion(usuario.id, 'recordatorio', 'Plan Pro vence en 3 días', 'Tu plan NETO Pro vence el ' + usuario.premium_vence + '. Renueva para no perder acceso.', { link: '/dashboard/configuracion' });
+          await solicitarComprobante(usuario.id);
         } catch(e) { log.error({ tag: 'EXPIRY_WARN', userId: usuario.id, err: e.message }, 'Error warning premium 3d'); }
       }
     }
@@ -180,6 +183,7 @@ async function checkPremiumExpiry() {
         const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
         await enviarWhatsapp(usuario.whatsapp, '⏰ ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u plan *NETO Pro* venció.\n\nAhora estás en el plan Free (historial limitado a 1 mes).\n\n¿Quieres renovar?\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Tus datos siguen guardados. Al renovar recuperas acceso completo._');
         await crearNotificacion(usuario.id, 'sistema', 'Plan Pro expirado', 'Tu plan NETO Pro venció. Ahora estás en el plan Free.', { link: '/dashboard/configuracion' });
+        await solicitarComprobante(usuario.id);
         log.info({ tag: 'EXPIRY', userId: usuario.id }, 'Premium expirado, downgradeado a free');
       } catch(e) { log.error({ tag: 'EXPIRY', userId: usuario.id, err: e.message }, 'Error downgradeando usuario'); }
     }

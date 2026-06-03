@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const { supabase } = require('../lib/db');
 const { validarMonto, normalizarCategoria } = require('../lib/validators');
 const { hoyPeru } = require('../lib/dates');
+const { esPagoNeto } = require('../lib/config');
 const log = require('../lib/logger');
 
 // Dedup window for manual entries (gmail entries dedup separately).
@@ -86,6 +87,12 @@ async function guardarTransaccion(usuarioId, datos) {
   // Normalizar capitalización de subcategoría para consistencia
   if (subFinal && subFinal !== 'sin_categoria') {
     subFinal = subFinal.charAt(0).toUpperCase() + subFinal.slice(1);
+  }
+  // Pago de la suscripción a Neto (Yape S/10 o S/99 a Favio Mendoza) → categoría Suscripciones
+  if (esPagoNeto(datos)) {
+    datos.comercio = 'Neto';
+    catFinal = 'Suscripciones';
+    subFinal = 'Software';
   }
   const { data, error } = await supabase.from('transacciones').insert({
     usuario_id: usuarioId, tipo: datos.tipo || 'gasto', monto: montoValidado, moneda: _moneda,

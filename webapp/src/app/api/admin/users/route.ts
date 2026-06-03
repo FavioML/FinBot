@@ -24,7 +24,7 @@ export async function GET() {
   const { data: usuarios, error } = await getServiceClient()
     .from('usuarios')
     .select(
-      'id, whatsapp, nombre, email, plan, onboarding_completado, gmail_access_token, created_at, premium_vence, supabase_auth_id, estado_pago, tipo_plan, fecha_pago',
+      'id, whatsapp, nombre, email, plan, onboarding_completado, gmail_access_token, created_at, premium_vence, premium_desde, supabase_auth_id, estado_pago, tipo_plan, fecha_pago, pago_pendiente',
     )
     .order('created_at', { ascending: false });
 
@@ -39,7 +39,7 @@ export async function GET() {
   });
 
   // Fallback: count manually if RPC doesn't exist
-  let countMap: Record<string, number> = {};
+  const countMap: Record<string, number> = {};
   if (txCounts) {
     for (const row of txCounts) {
       countMap[row.usuario_id] = row.count;
@@ -86,6 +86,8 @@ export async function GET() {
       tipo_plan: u.tipo_plan,
       fecha_pago: u.fecha_pago,
       premium_vence: u.premium_vence,
+      premium_desde: u.premium_desde,
+      pago_pendiente: u.pago_pendiente,
       onboarding_completado: u.onboarding_completado,
       tiene_gmail: !!u.gmail_access_token,
       tiene_webapp: !!u.supabase_auth_id,

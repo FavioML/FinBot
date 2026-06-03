@@ -5,6 +5,8 @@ const log = require('../lib/logger');
 const { hoyPeru } = require('../lib/dates');
 const { enviarWhatsapp } = require('../lib/whatsapp');
 const { guardarMensaje } = require('../helpers/db-helpers');
+const { registrarPagoAprobado } = require('../lib/pro-payment');
+const { generarUrlAutorizacion } = require('../gmail');
 
 const router = express.Router();
 
@@ -46,6 +48,82 @@ router.get('/pendientes', async (req, res) => {
   if (!verificarAdmin(req, res)) return;
   const { data } = await supabase.from('usuarios').select('whatsapp, nombre, plan, pago_pendiente, pago_referencia, created_at').eq('pago_pendiente', true);
   res.json({ ok: true, pendientes: data || [] });
+});
+
+// POST /admin/aprobar-pago — aprueba un pago, activa Pro, registra en historial y notifica al usuario
+// Body: { clave, usuario_id | whatsapp, tipo_plan }
+router.post('/aprobar-pago', async (req, res) => {
+  if (!verificarAdmin(req, res)) return;
+  try {
+    const { usuario_id, whatsapp, tipo_plan } = req.body;
+    const tipoPlan = tipo_plan === 'anual' ? 'anual' : 'mensual';
+    let query = supabase.from('usuarios').select('*');
+    if (usuario_id) query = query.eq('id', usuario_id);
+    else if (whatsapp) query = query.eq('whatsapp', String(whatsapp).replace(/\+/g, '').replace(/^0/, ''));
+    else return res.status(400).json({ ok: false, msg: 'Falta usuario_id o whatsapp' });
+    const { data: usuario } = await query.single();
+    if (!usuario) return res.status(404).json({ ok: false, msg: 'Usuario no encontrado' });
+
+    const hoy = new Date();
+    const mesesAdd = tipoPlan === 'anual' ? 12 : 1;
+    const candidato = new Date(hoy.getFullYear(), hoy.getMonth() + mesesAdd, hoy.getDate());
+    // No acortar una suscripción ya activa: conservar el vencimiento más lejano.
+    let vence = candidato;
+    if (usuario.premium_vence) {
+      const actual = new Date(usuario.premium_vence + 'T12:00:00');
+      if (!isNaN(actual.getTime()) && actual > candidato) vence = actual;
+    }
+    const desde = usuario.premium_desde || hoy.toISOString().split('T')[0];
+    const venceStr = vence.toISOString().split('T')[0];
+
+    await supabase.from('usuarios').update({
+      plan: 'premium', estado_pago: 'pagado', tipo_plan: tipoPlan,
+      fecha_pago: hoy.toISOString(), fecha_vencimiento: vence.toISOString(),
+      premium_desde: desde, premium_vence: venceStr,
+      pago_pendiente: false, esperando_comprobante: false,
+    }).eq('id', usuario.id);
+
+    await registrarPagoAprobado(usuario.id, { tipoPlan, premiumDesde: desde, premiumVence: venceStr, aprobadoPor: 'admin:webapp' });
+
+    let urlOAuth = '';
+    try { urlOAuth = generarUrlAutorizacion(usuario.whatsapp); } catch (e) { log.warn({ tag: 'APROBAR_PAGO', err: e.message }, 'No se pudo generar URL OAuth'); }
+    const mensaje = '✅ *¡Pago confirmado!*\n\n' +
+      'Plan: *' + (tipoPlan === 'anual' ? 'Anual (S/99/año)' : 'Mensual (S/10/mes)') + '*\n' +
+      'Vence: ' + venceStr + '\n\n' +
+      (urlOAuth
+        ? 'Conecta tu Gmail para que Neto lea tus correos bancarios automáticamente:\n\n🔗 ' + urlOAuth + '\n\n_Solo leemos notificaciones bancarias. Sin contraseñas bancarias._'
+        : '_Gracias por confiar en NETO._ 💚');
+    await enviarWhatsapp(usuario.whatsapp, mensaje);
+    try { await guardarMensaje(usuario.id, 'neto', mensaje); } catch (e) { /* historial best-effort */ }
+
+    res.json({ ok: true, msg: 'Pago aprobado y Pro activado para ' + (usuario.nombre || usuario.whatsapp), premium_vence: venceStr });
+  } catch (e) {
+    log.error({ tag: 'APROBAR_PAGO', err: e.message }, 'Error aprobando pago');
+    res.status(500).json({ ok: false, msg: 'Error aprobando pago' });
+  }
+});
+
+// GET /admin/pagos?usuario_id= — historial de pagos de un usuario (constancia de suscripción)
+router.get('/pagos', async (req, res) => {
+  if (!verificarAdmin(req, res)) return;
+  try {
+    const usuarioId = req.query.usuario_id;
+    let query = supabase.from('pagos').select('*').order('created_at', { ascending: false });
+    if (usuarioId) query = query.eq('usuario_id', usuarioId);
+    else query = query.limit(100);
+    const { data: pagos } = await query;
+    // Firmar URLs de comprobantes (bucket privado, 1h)
+    for (const p of pagos || []) {
+      if (p.comprobante_url) {
+        const { data: signed } = await supabase.storage.from('comprobantes').createSignedUrl(p.comprobante_url, 3600);
+        p.comprobante_signed_url = signed ? signed.signedUrl : null;
+      }
+    }
+    res.json({ ok: true, pagos: pagos || [] });
+  } catch (e) {
+    log.error({ tag: 'ADMIN_PAGOS', err: e.message }, 'Error listando pagos');
+    res.status(500).json({ ok: false, msg: 'Error listando pagos' });
+  }
 });
 
 // GET /admin/usuarios — lista de usuarios registrados

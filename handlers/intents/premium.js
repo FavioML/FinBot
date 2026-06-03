@@ -1,6 +1,7 @@
 const log = require('../../lib/logger');
 const { generarRefCode } = require('../../lib/formatters');
 const { obtenerCuentasGmail } = require('../../gmail');
+const { solicitarComprobante } = require('../../lib/pro-payment');
 
 module.exports = {
   intents: ['ver_premium', 'ver_referidos', 'estado_cuenta'],
@@ -13,6 +14,8 @@ module.exports = {
           const venceVp = (usuario.premium_vence || usuario.fecha_vencimiento) ? new Date(usuario.premium_vence || usuario.fecha_vencimiento).toLocaleDateString('es-PE') : null;
           return '⭐ *Tu plan NETO Pro*\n\nPlan: *' + (tipoPlanVp === 'anual' ? 'Anual' : 'Mensual') + '*' + (venceVp ? '\nVence: ' + venceVp : '') + '\n\n✅ Historial ilimitado\n✅ Lectura automática de correos\n✅ Reportes PDF + CSV export\n✅ Recordatorios diarios\n✅ Consejos IA ilimitados';
         }
+        // Marcar que esperamos su comprobante: la próxima captura se trata como pago Pro, no como gasto.
+        await solicitarComprobante(usuario.id);
         return '⭐ *NETO Pro*\n\nDesbloquea todo el potencial de Neto:\n\n✅ Historial completo (no solo 1 mes)\n✅ Lectura automática de correos bancarios\n✅ Reportes PDF + exportar datos\n✅ Recordatorios diarios\n✅ Consejos IA ilimitados\n\n💰 *S/10/mes* o *S/99/año* (2 meses gratis)\n\n📲 Yapea al *970398192* (Favio Mendoza) y envíame la captura aquí.\n\n_¿Dudas? Escríbeme._';
       }
 

@@ -39,6 +39,8 @@ interface AdminUser {
   tipo_plan: string | null;
   fecha_pago: string | null;
   premium_vence: string | null;
+  premium_desde: string | null;
+  pago_pendiente: boolean | null;
   onboarding_completado: boolean;
   tiene_gmail: boolean;
   tiene_webapp: boolean;
@@ -66,6 +68,22 @@ interface Ticket {
   estado: string;
   respuesta_admin: string | null;
   respondido_at: string | null;
+  created_at: string;
+}
+
+interface Pago {
+  id: string;
+  monto: number | null;
+  moneda: string | null;
+  tipo_plan: string | null;
+  metodo_pago: string | null;
+  estado: string;
+  comprobante_signed_url: string | null;
+  monto_detectado: number | null;
+  premium_desde: string | null;
+  premium_vence: string | null;
+  detectado_at: string | null;
+  aprobado_at: string | null;
   created_at: string;
 }
 
@@ -226,6 +244,17 @@ function UserActions({
 
           {!confirming && (
             <div className="py-1">
+              <button
+                onClick={() => exec('view_payments')}
+                disabled={busy}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-[#F0EFE8]/80 hover:bg-white/5"
+              >
+                <span className="text-[#F0EFE8]/40">&#128179;</span> Ver pagos / comprobante
+                {user.pago_pendiente && <span className="ml-auto rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-400">pendiente</span>}
+              </button>
+
+              <div className="my-1 border-t border-white/5" />
+
               {!isPro && (
                 <button
                   onClick={() => exec('set_plan', { plan: 'premium' })}
@@ -237,6 +266,13 @@ function UserActions({
               )}
               {isPro && (
                 <>
+                  <button
+                    onClick={() => exec('notify_pro', { tipo_plan: user.tipo_plan || 'mensual' })}
+                    disabled={busy}
+                    className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-[#F0EFE8]/80 hover:bg-white/5"
+                  >
+                    <span className="text-[#25D366]">&#128172;</span> Notificar Pro por WhatsApp
+                  </button>
                   <button
                     onClick={() => exec('extend_premium', { days: 30 })}
                     disabled={busy}
@@ -279,6 +315,164 @@ function UserActions({
   );
 }
 
+function PagoEstadoBadge({ estado }: { estado: string }) {
+  const styles: Record<string, string> = {
+    aprobado: 'bg-[#1D9E75]/20 text-[#1D9E75]',
+    pendiente: 'bg-amber-500/15 text-amber-400',
+    rechazado: 'bg-red-500/15 text-red-400',
+  };
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${styles[estado] || 'bg-white/5 text-[#F0EFE8]/50'}`}>
+      {estado}
+    </span>
+  );
+}
+
+function PaymentsModal({
+  user,
+  onClose,
+  onApproved,
+  setToast,
+}: {
+  user: AdminUser;
+  onClose: () => void;
+  onApproved: () => void;
+  setToast: (m: string) => void;
+}) {
+  const [pagos, setPagos] = useState<Pago[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [planSel, setPlanSel] = useState<string>(user.tipo_plan || 'mensual');
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const res = await fetch(`/api/admin/payments?user_id=${user.id}`);
+      if (res.ok) {
+        const json = await res.json();
+        setPagos(json.pagos || []);
+      } else {
+        const json = await res.json().catch(() => ({}));
+        setToast(json.error || 'Error cargando pagos');
+      }
+      setLoading(false);
+    })();
+  }, [user.id, setToast]);
+
+  const hasPending = user.pago_pendiente || pagos.some((p) => p.estado === 'pendiente');
+
+  const approve = async () => {
+    setBusy(true);
+    const res = await fetch('/api/admin/payments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: user.id, tipo_plan: planSel }),
+    });
+    const json = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (res.ok && json.ok) {
+      setToast('Pro activado y usuario notificado por WhatsApp');
+      onApproved();
+      onClose();
+    } else {
+      setToast(json.error || 'Error aprobando pago');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div
+        className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-white/10 bg-[#1A1A18] p-5 shadow-xl shadow-black/40"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-4 flex items-start justify-between">
+          <div>
+            <h3 className="text-base font-semibold text-[#F0EFE8]">Pagos de {user.nombre || user.whatsapp}</h3>
+            <p className="text-xs text-[#F0EFE8]/40">
+              {user.plan === 'premium'
+                ? `Pro · vence ${formatDate(user.premium_vence)}`
+                : 'Free'}
+            </p>
+          </div>
+          <button onClick={onClose} className="rounded-md p-1 text-[#F0EFE8]/40 hover:bg-white/5 hover:text-[#F0EFE8]">
+            &#10005;
+          </button>
+        </div>
+
+        {hasPending && (
+          <div className="mb-4 rounded-xl border border-amber-500/20 bg-amber-500/[0.06] p-3">
+            <div className="mb-2 text-sm font-medium text-amber-300">Pago pendiente de aprobación</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={planSel}
+                onChange={(e) => setPlanSel(e.target.value)}
+                className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-[#F0EFE8] outline-none focus:border-[#1D9E75]/50"
+              >
+                <option value="mensual" className="bg-[#1A1A18]">Mensual (S/10)</option>
+                <option value="anual" className="bg-[#1A1A18]">Anual (S/99)</option>
+              </select>
+              <button
+                onClick={approve}
+                disabled={busy}
+                className="rounded-lg bg-[#1D9E75] px-4 py-2 text-sm font-medium text-white hover:bg-[#1D9E75]/80 disabled:opacity-50"
+              >
+                {busy ? 'Activando...' : 'Aprobar y notificar'}
+              </button>
+            </div>
+            <p className="mt-2 text-xs text-[#F0EFE8]/40">Activa Pro y le manda el WhatsApp de confirmación + link de Gmail.</p>
+          </div>
+        )}
+
+        {loading ? (
+          <div className="py-8 text-center text-sm text-[#F0EFE8]/40">Cargando...</div>
+        ) : pagos.length === 0 ? (
+          <div className="py-8 text-center text-sm text-[#F0EFE8]/40">Sin pagos registrados todavía.</div>
+        ) : (
+          <div className="space-y-3">
+            {pagos.map((p) => (
+              <div key={p.id} className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <PagoEstadoBadge estado={p.estado} />
+                    <span className="text-sm font-medium">
+                      {p.monto != null ? `S/ ${Number(p.monto).toFixed(2)}` : '—'}
+                    </span>
+                    <span className="text-xs text-[#F0EFE8]/40">{p.tipo_plan || '—'} · {p.metodo_pago || '—'}</span>
+                  </div>
+                  <span className="text-xs text-[#F0EFE8]/30">{formatDateTime(p.created_at)}</span>
+                </div>
+                {(p.premium_desde || p.premium_vence) && (
+                  <div className="mt-1 text-xs text-[#F0EFE8]/40">
+                    {p.premium_desde ? `Desde ${formatDate(p.premium_desde)}` : ''}
+                    {p.premium_vence ? ` · Vence ${formatDate(p.premium_vence)}` : ''}
+                  </div>
+                )}
+                {p.comprobante_signed_url ? (
+                  <a
+                    href={p.comprobante_signed_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-2 inline-block"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={p.comprobante_signed_url}
+                      alt="Comprobante de pago"
+                      className="max-h-40 rounded-lg border border-white/10 object-contain"
+                    />
+                  </a>
+                ) : (
+                  <div className="mt-2 text-xs text-[#F0EFE8]/30">Sin comprobante adjunto</div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Toast({ message, onClose }: { message: string; onClose: () => void }) {
   useEffect(() => {
     const t = setTimeout(onClose, 3000);
@@ -299,6 +493,7 @@ export default function AdminOperacionPage() {
   const [nlpTotal, setNlpTotal] = useState(0);
   const [search, setSearch] = useState('');
   const [toast, setToast] = useState<string | null>(null);
+  const [paymentsUser, setPaymentsUser] = useState<AdminUser | null>(null);
   const [nlpSearch, setNlpSearch] = useState('');
   const [nlpTipoFilter, setNlpTipoFilter] = useState<string>('all');
   const [nlpUserFilter, setNlpUserFilter] = useState<string>('all');
@@ -366,6 +561,28 @@ export default function AdminOperacionPage() {
 
   const handleUserAction = useCallback(
     async (userId: string, action: string, data?: Record<string, unknown>) => {
+      if (action === 'view_payments') {
+        const u = users.find((x) => x.id === userId);
+        if (u) setPaymentsUser(u);
+        return;
+      }
+
+      if (action === 'notify_pro') {
+        const res = await fetch('/api/admin/payments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: userId, tipo_plan: data?.tipo_plan || 'mensual' }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (res.ok && json.ok) {
+          setToast('Pro confirmado y WhatsApp enviado');
+          fetchUsers();
+        } else {
+          setToast(json.error || 'Error notificando');
+        }
+        return;
+      }
+
       if (action === 'delete') {
         const res = await fetch(`/api/admin/users?id=${userId}`, { method: 'DELETE' });
         if (res.ok) {
@@ -395,7 +612,7 @@ export default function AdminOperacionPage() {
         setToast('Error en la accion');
       }
     },
-    [fetchUsers],
+    [fetchUsers, users],
   );
 
   const filteredUsers = users.filter((u) => {
@@ -787,6 +1004,8 @@ export default function AdminOperacionPage() {
                             );
                           })()}
                         </div>
+                      ) : u.pago_pendiente ? (
+                        <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-400">Pendiente</span>
                       ) : (
                         '—'
                       )}
@@ -1234,6 +1453,15 @@ export default function AdminOperacionPage() {
           </div>
         );
       })()}
+
+      {paymentsUser && (
+        <PaymentsModal
+          user={paymentsUser}
+          onClose={() => setPaymentsUser(null)}
+          onApproved={fetchUsers}
+          setToast={setToast}
+        />
+      )}
 
       {toast && <Toast message={toast} onClose={() => setToast(null)} />}
     </>

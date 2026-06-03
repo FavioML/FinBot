@@ -19,6 +19,7 @@ const { escanearGmailYRegistrar } = require('../services/gmail-scanner');
 const { generarResumenSemanal } = require('../services/summaries');
 const { guardarMensaje, obtenerOCrearUsuario, getUserPlanConfig } = require('../helpers/db-helpers');
 const { intentarResolverConsulta } = require('../helpers/consultas');
+const { esperaComprobante, esPagoNeto, procesarComprobantePro, registrarPagoAprobado } = require('../lib/pro-payment');
 
 // Idempotencia por wamid: Meta retransmite el webhook cada 30s si OpenAI demora >timeout.
 // Map preserva orden de inserción → LRU. TTL 5 min, max 1000 entries.
@@ -72,21 +73,6 @@ function createWebhookHandler(procesarMensajeLibre) {
     if (message.type === 'image') {
       const usuario = await obtenerOCrearUsuario(from);
 
-      // Si está en paso 2 (esperando comprobante de pago), tratar como recibo
-      if (usuario.onboarding_paso === 2) {
-        await enviarWhatsapp(ADMIN_NUMBER,
-          '💸 *Comprobante de pago recibido:*\n' +
-          'Usuario: ' + (usuario.nombre || from) + '\n' +
-          'WhatsApp: ' + from + '\n' +
-          'Plan solicitado: ' + (usuario.tipo_plan || 'mensual') + '\n\n' +
-          'Verificar y enviar: /pago ' + from + ' ' + (usuario.tipo_plan || 'mensual')
-        );
-        await enviarWhatsapp(from,
-          '📸 *Comprobante recibido.*\n\nEstamos verificando tu pago. Te confirmaremos en breve. ⏳'
-        );
-        return;
-      }
-
       const mediaId = message.image && message.image.id;
       const phoneId = process.env.META_PHONE_NUMBER_ID;
       const metaToken = process.env.META_ACCESS_TOKEN;
@@ -134,6 +120,25 @@ function createWebhookHandler(procesarMensajeLibre) {
           const start = rawV.indexOf('{'); const end = rawV.lastIndexOf('}');
           parsed = JSON.parse(start >= 0 ? rawV.slice(start, end + 1) : rawV);
         } catch(pe) { throw new Error('GPT no devolvió JSON válido: ' + rawV.slice(0, 100)); }
+
+        // Si el usuario está esperando enviar su comprobante Pro, tratar la captura como pago Pro
+        // (cubre onboarding paso 2 y usuarios ya registrados que pidieron Pro por /premium o cron).
+        if (esperaComprobante(usuario)) {
+          if (parsed.tipo === 'no_pago' || !parsed.monto || isNaN(parseFloat(parsed.monto))) {
+            await enviarWhatsapp(from, 'No reconocí un pago en esa imagen. Envíame la captura del Yape (S/10 mensual o S/99 anual a *Favio Mendoza*) para activar tu Pro. 📸');
+            return;
+          }
+          if (!esPagoNeto(parsed)) {
+            await enviarWhatsapp(from, 'Esa captura no parece el pago a Neto (S/10 mensual o S/99 anual a *Favio Mendoza*). Si ya pagaste, reenvíame la captura correcta. 📸');
+            return;
+          }
+          parsed.fecha = parsed.fecha || hoy;
+          await procesarComprobantePro({ usuario, parsed, imgBuffer, mimeType, from });
+          // Registrar también el gasto de suscripción del usuario (se auto-categoriza a Suscripciones > Software)
+          try { await guardarTransaccion(usuario.id, parsed); }
+          catch(eTx) { log.error({ tag: 'PRO_PAGO', err: eTx.message }, 'Error registrando tx de comprobante'); }
+          return;
+        }
 
         if (parsed.tipo === 'no_pago') {
           await enviarWhatsapp(from, 'No reconocí ninguna transacción en esa imagen. Envíame la captura de Yape, Plin o tu banco (la pantalla que muestra el monto y destinatario).');
@@ -784,12 +789,15 @@ function createWebhookHandler(procesarMensajeLibre) {
         } else {
           const hoy = new Date();
           const vence = new Date(hoy.getFullYear(), hoy.getMonth() + 1, hoy.getDate()).toISOString().split('T')[0];
+          const desde = hoy.toISOString().split('T')[0];
           await supabase.from('usuarios').update({
             plan: 'premium',
             pago_pendiente: false,
-            premium_desde: hoy.toISOString().split('T')[0],
+            esperando_comprobante: false,
+            premium_desde: desde,
             premium_vence: vence
           }).eq('id', usuarioActivar.id);
+          await registrarPagoAprobado(usuarioActivar.id, { tipoPlan: usuarioActivar.tipo_plan || 'mensual', premiumDesde: desde, premiumVence: vence, aprobadoPor: 'admin:/activar' });
           // Notificar al usuario
           await enviarWhatsapp(usuarioActivar.whatsapp,
             '\u2B50 *\u00a1Bienvenido a NETO Pro!*\n\n' +
@@ -817,17 +825,21 @@ function createWebhookHandler(procesarMensajeLibre) {
           const hoy = new Date();
           const mesesAdd = tipoPlan === 'anual' ? 12 : 1;
           const vence = new Date(hoy.getFullYear(), hoy.getMonth() + mesesAdd, hoy.getDate());
+          const desdePago = hoy.toISOString().split('T')[0];
+          const vencePago = vence.toISOString().split('T')[0];
           await supabase.from('usuarios').update({
             plan: 'premium',
             estado_pago: 'pagado',
             tipo_plan: tipoPlan,
             fecha_pago: hoy.toISOString(),
             fecha_vencimiento: vence.toISOString(),
-            premium_desde: hoy.toISOString().split('T')[0],
-            premium_vence: vence.toISOString().split('T')[0],
+            premium_desde: desdePago,
+            premium_vence: vencePago,
             pago_pendiente: false,
+            esperando_comprobante: false,
             onboarding_paso: 0
           }).eq('id', usuarioPago.id);
+          await registrarPagoAprobado(usuarioPago.id, { tipoPlan, premiumDesde: desdePago, premiumVence: vencePago, aprobadoPor: 'admin:/pago' });
           const urlOAuth = generarUrlAutorizacion(usuarioPago.whatsapp);
           await enviarWhatsapp(usuarioPago.whatsapp,
             '✅ *¡Pago confirmado!*\n\n' +
