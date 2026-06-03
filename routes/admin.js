@@ -12,7 +12,8 @@ const router = express.Router();
 
 function verificarAdmin(req, res) {
   const ADMIN_KEY = process.env.ADMIN_KEY;
-  const clave = req.body.clave || req.query.clave || '';
+  // req.body puede ser undefined en GET sin body JSON → leer de forma segura
+  const clave = (req.body && req.body.clave) || req.query.clave || '';
   if (!ADMIN_KEY || !clave || clave.length !== ADMIN_KEY.length || !crypto.timingSafeEqual(Buffer.from(clave), Buffer.from(ADMIN_KEY))) {
     res.status(401).json({ ok: false, msg: 'Clave incorrecta' });
     return false;
