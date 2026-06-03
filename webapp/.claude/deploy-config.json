@@ -1,0 +1,43 @@
+{
+  "platform": "vercel",
+  "production_url": "https://app.neto.pe",
+  "health_check": {
+    "endpoint": "/",
+    "method": "GET",
+    "expected_status": 200,
+    "must_contain": ["Neto"],
+    "timeout_ms": 10000
+  },
+  "deploy_strategy": {
+    "trigger": "git push origin main",
+    "branch": "main",
+    "ci_required": true,
+    "ci_pipeline": "GitHub Actions (test) + Vercel auto-deploy",
+    "deploy_time_estimate_min": 2
+  },
+  "canary": {
+    "enabled": true,
+    "checks": [
+      { "name": "homepage", "type": "http", "url": "https://app.neto.pe/", "expect_status": [200, 307] },
+      { "name": "login", "type": "http", "url": "https://app.neto.pe/login", "expect_status": 200 },
+      { "name": "api_health", "type": "http", "url": "https://api.neto.pe/health", "expect_status": 200 }
+    ],
+    "supabase": {
+      "project_id": "zvorjqlubmfrjtkbhqcx",
+      "verify_after_deploy": true,
+      "checks": ["RLS active on all tables", "tables count = 11"]
+    },
+    "post_deploy_window_min": 10,
+    "alert_on_failure": true
+  },
+  "integrations": {
+    "posthog": { "site_property": "neto-app" },
+    "better_stack": { "monitors": ["app.neto.pe", "api.neto.pe"] },
+    "supabase": { "project_id": "zvorjqlubmfrjtkbhqcx" }
+  },
+  "notes": [
+    "Webapp Vercel (auto-deploy) + Backend Railway separado (api.neto.pe).",
+    "56 tests vitest deben pasar en GitHub Actions pre-deploy.",
+    "Google OAuth configurado en Vercel — verificar callback URL si cambia."
+  ]
+}

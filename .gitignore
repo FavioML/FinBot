@@ -42,3 +42,17 @@ videos/
 .next/
 landing/out/
 landing/node_modules/
+
+# === Claude Code: estado local / secrets (NO versionar) ===
+# settings.local.json lleva tokens (Cloudflare, etc.) y permisos de maquina.
+# Patrones **/ cubren tambien .claude anidados (webapp/.claude, etc.).
+**/.claude/settings.local.json
+**/.claude/launch.json
+**/.claude/agent-memory/
+**/.claude/worktrees/
+
+# Notas de handoff Antigravity (working docs, no codigo de producto)
+**/ANTIGRAVITY-UPDATE-*.md
+
+# Estado local de tareas / lecciones
+tasks/
