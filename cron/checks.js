@@ -8,6 +8,7 @@ const { verificarAlertasProactivas } = require('../services/recommendations');
 const { obtenerDeudasProximasVencer } = require('../services/debts');
 const { crearNotificacion } = require('../lib/notifications-db');
 const { ADMIN_NUMBER } = require('../lib/config');
+const { notificarAdmin } = require('../lib/admin-notify');
 const { checkSurveyTriggers } = require('../services/survey-triggers');
 const { solicitarComprobante } = require('../lib/pro-payment');
 
@@ -526,7 +527,7 @@ async function checkRecordatoriosCostos() {
     msg += '\n*Total a pagar hoy: S/ ' + totalPen.toFixed(2) + '*\n\n';
     msg += '_Cuando los pagues, marcalos como pagados desde app.neto.pe/admin/costs_';
 
-    await enviarWhatsapp(ADMIN_NUMBER, msg);
+    await notificarAdmin(msg);
 
     const ids = aNotificar.map(c => c.id);
     await supabase.from('admin_costs')

@@ -14,7 +14,7 @@ const { obtenerTipoCambio, guardarTransaccion, obtenerGastosMes, obtenerGastosSe
 const { guardarPresupuesto, obtenerPresupuestosMes, verificarAlertaPresupuesto, formatearEstadoPresupuesto } = require('../services/budget');
 const { parsearCorreoBancario, parsearRegistroManual, parsearCorreccionesMultiples } = require('../services/parsers');
 const { detectarMultiGasto, detectarIngresoMasGastos } = require('../services/multi-gasto-detector');
-const { notificarErrorAdmin } = require('../lib/admin-notify');
+const { notificarAdmin, notificarErrorAdmin } = require('../lib/admin-notify');
 const { registrarError } = require('../lib/error-monitor');
 const { obtenerCuentasGmail } = require('../gmail');
 const { generarRecomendaciones, construirDatosUsuario, generarMiniRecomendacion } = require('../services/recommendations');
@@ -49,7 +49,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
         + '📋 Plan: ' + (usuario.tipo_plan || usuario.plan || 'free') + '\n\n'
         + '💬 *Mensaje:*\n' + msg.substring(0, 500) + '\n\n'
         + '_Responde con:_\n/responder ' + from + ' [tu mensaje]';
-      await enviarWhatsapp(ADMIN_NUMBER, textoAdmin);
+      await notificarAdmin(textoAdmin);
       return '✅ *Recibido.*\n\nTu mensaje fue enviado al equipo de Neto. Te responderemos lo antes posible por este mismo chat.\n\n_Si prefieres, también puedes escribirnos a 📧 hola@neto.pe_';
     }
 
@@ -76,7 +76,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
           + '📌 _El usuario no quedó conforme. Mensaje anterior:_\n'
           + (ticketResp.mensaje_usuario || '').substring(0, 200) + '\n\n'
           + '_Responde con:_\n/responder ' + from + ' [tu mensaje]';
-        await enviarWhatsapp(ADMIN_NUMBER, textoReopen);
+        await notificarAdmin(textoReopen);
         return '📨 *Recibido.*\n\nTu mensaje fue reenviado al equipo. Si prefieres, también puedes contactarnos a:\n\n📧 hola@neto.pe\n\n_Te responderemos pronto._';
       }
     }
