@@ -300,16 +300,25 @@ export default function TransaccionesPage() {
     return result;
   }, [transactions, tipoFilter, categoriaFilter, subcategoriaFilter, metodoPagoFilter, search, sortField, sortDir]);
 
-  // Summary
+  // Whether any filter narrows the period's transactions
+  const hasActiveFilters =
+    tipoFilter !== 'todos' ||
+    categoriaFilter !== 'all' ||
+    subcategoriaFilter !== 'all' ||
+    metodoPagoFilter !== 'all' ||
+    search.trim() !== '';
+
+  // Summary — reflects the active filters so the consolidated totals match
+  // exactly what's shown in the table below.
   const summary = useMemo(() => {
-    const gastos = transactions.filter((t) => t.tipo === 'gasto');
-    const ingresos = transactions.filter((t) => t.tipo === 'ingreso');
+    const gastos = filtered.filter((t) => t.tipo === 'gasto');
+    const ingresos = filtered.filter((t) => t.tipo === 'ingreso');
     return {
       totalGastos: gastos.reduce((sum, t) => sum + t.monto_pen, 0),
       totalIngresos: ingresos.reduce((sum, t) => sum + t.monto_pen, 0),
-      count: transactions.length,
+      count: filtered.length,
     };
-  }, [transactions]);
+  }, [filtered]);
 
   // Available payment methods (normalized, from user's data)
   const availableMetodos = useMemo(() => {
@@ -496,7 +505,7 @@ export default function TransaccionesPage() {
           <div className="flex items-center gap-2 mb-2">
             <TrendingDown className="h-4 w-4 text-[#D85A30]" />
             <span className="text-xs text-[#8A877D]">
-              {viewMode === 'anual' ? 'Gastos del año' : 'Gastos del mes'}
+              {hasActiveFilters ? 'Gastos (filtrado)' : viewMode === 'anual' ? 'Gastos del año' : 'Gastos del mes'}
             </span>
           </div>
           <CurrencyDisplay amount={summary.totalGastos} className="text-[#D85A30]" size="md" />
@@ -507,7 +516,7 @@ export default function TransaccionesPage() {
           <div className="flex items-center gap-2 mb-2">
             <TrendingUp className="h-4 w-4 text-[#1D9E75]" />
             <span className="text-xs text-[#8A877D]">
-              {viewMode === 'anual' ? 'Ingresos del año' : 'Ingresos del mes'}
+              {hasActiveFilters ? 'Ingresos (filtrado)' : viewMode === 'anual' ? 'Ingresos del año' : 'Ingresos del mes'}
             </span>
           </div>
           <CurrencyDisplay amount={summary.totalIngresos} className="text-[#1D9E75]" size="md" />

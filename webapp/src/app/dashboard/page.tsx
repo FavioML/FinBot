@@ -851,21 +851,28 @@ export default function DashboardPage() {
                   {' '}&mdash; {visibleTxs.length} transacci{visibleTxs.length === 1 ? 'on' : 'ones'}
                 </p>
 
-                {/* Subcategory chips — only when not drilled into one */}
+                {/* Subcategory breakdown — consolidated total per subcategory.
+                    Only when not drilled into one and there's more than one. */}
                 {!detailSubcategoria && subEntries.length > 1 && (
-                  <div className="flex flex-wrap gap-1.5 pb-1">
+                  <div className="space-y-1 pb-1">
                     {subEntries.map(({ name, total, txs }) => (
                       <button
                         key={name}
                         onClick={() => name !== '(General)' && setDetailSubcategoria(name)}
                         disabled={name === '(General)'}
-                        className={`text-xs rounded-full px-2.5 py-1 transition-colors ${
+                        className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs transition-colors ${
                           name === '(General)'
-                            ? 'bg-[rgba(255,255,255,0.04)] text-[#8A877D] cursor-default'
-                            : 'bg-[rgba(29,158,117,0.08)] text-[#1D9E75] hover:bg-[rgba(29,158,117,0.16)]'
+                            ? 'cursor-default bg-[rgba(255,255,255,0.03)]'
+                            : 'bg-[rgba(255,255,255,0.03)] hover:bg-[rgba(29,158,117,0.1)]'
                         }`}
                       >
-                        {capitalizeDisplay(name)} <span className="text-[#8A877D]">· {txs.length}</span>
+                        <span className={name === '(General)' ? 'text-[#8A877D]' : 'text-[#1D9E75]'}>
+                          {capitalizeDisplay(name)}
+                        </span>
+                        <span className="text-[#8A877D]">· {txs.length}</span>
+                        <span className="ml-auto font-medium tabular-nums text-[#F0EFE8]">
+                          {formatCurrency(total)}
+                        </span>
                       </button>
                     ))}
                   </div>
@@ -998,12 +1005,65 @@ export default function DashboardPage() {
               {detailMetodo && `${getMetodoIcon(detailMetodo)} ${capitalizeDisplay(detailMetodo)}`}
             </DialogTitle>
           </DialogHeader>
-          {detailMetodo && (
+          {detailMetodo && (() => {
+            // Consolidate this payment method's spending by category → subcategory
+            const metodoTotal = detailMetodoTransactions.reduce((s, t) => s + t.monto_pen, 0);
+            const catMap = new Map<string, { total: number; count: number; subs: Map<string, number> }>();
+            for (const tx of detailMetodoTransactions) {
+              const cat = tx.categoria;
+              if (!catMap.has(cat)) catMap.set(cat, { total: 0, count: 0, subs: new Map() });
+              const entry = catMap.get(cat)!;
+              entry.total += tx.monto_pen;
+              entry.count += 1;
+              const sub = (tx.subcategoria && tx.subcategoria !== 'sin_categoria' && tx.subcategoria !== 'null')
+                ? tx.subcategoria
+                : '(General)';
+              entry.subs.set(sub, (entry.subs.get(sub) || 0) + tx.monto_pen);
+            }
+            const catBreakdown = Array.from(catMap.entries())
+              .map(([categoria, { total, count, subs }]) => ({
+                categoria,
+                total,
+                count,
+                subs: Array.from(subs.entries())
+                  .map(([name, monto]) => ({ name, monto }))
+                  .sort((a, b) => b.monto - a.monto),
+              }))
+              .sort((a, b) => b.total - a.total);
+
+            return (
             <div className="glass-card-depth space-y-3">
               <p className="text-sm text-[#8A877D]">
-                Total: <span className="text-[#D85A30] font-medium">{formatCurrency(detailMetodoTransactions.reduce((s, t) => s + t.monto_pen, 0))}</span>
+                Total: <span className="text-[#D85A30] font-medium">{formatCurrency(metodoTotal)}</span>
                 {' '}&mdash; {detailMetodoTransactions.length} {detailMetodoTransactions.length === 1 ? 'transaccion' : 'transacciones'}
               </p>
+
+              {/* Consolidated breakdown by category + subcategory */}
+              <div className="space-y-2 rounded-xl bg-[rgba(255,255,255,0.02)] p-3">
+                <h4 className="text-xs font-medium text-[#C8C6BC]">Por categoría</h4>
+                {catBreakdown.map((cat) => (
+                  <div key={cat.categoria} className="space-y-1">
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-[#F0EFE8]">
+                        {getCategoriaEmoji(cat.categoria)} {capitalizeDisplay(cat.categoria)}
+                      </span>
+                      <span className="text-xs text-[#8A877D]">· {cat.count}</span>
+                      <span className="ml-auto font-medium tabular-nums text-[#F0EFE8]">{formatCurrency(cat.total)}</span>
+                    </div>
+                    {cat.subs.length > 0 && !(cat.subs.length === 1 && cat.subs[0].name === '(General)') && (
+                      <div className="space-y-0.5 pl-5">
+                        {cat.subs.map((sub) => (
+                          <div key={sub.name} className="flex items-center gap-2 text-xs text-[#8A877D]">
+                            <span>{sub.name === '(General)' ? 'Sin subcategoría' : capitalizeDisplay(sub.name)}</span>
+                            <span className="ml-auto tabular-nums">{formatCurrency(sub.monto)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
               <div className="space-y-2">
                 {detailMetodoTransactions.map((tx) => (
                   <div key={tx.id} className="flex items-center justify-between py-2 border-b border-[rgba(255,255,255,0.06)] last:border-0">
@@ -1026,7 +1086,8 @@ export default function DashboardPage() {
                 ))}
               </div>
             </div>
-          )}
+            );
+          })()}
         </DialogContent>
       </Dialog>
 

@@ -651,6 +651,37 @@ if (!isLoading && transactions.length === 0) {
                 Total: <span className="text-[#D85A30] font-medium">{formatCurrency(detailCatTransactions.reduce((s, t) => s + t.monto_pen, 0))}</span>
                 {' '}— {detailCatTransactions.length} {detailCatTransactions.length === 1 ? 'transaccion' : 'transacciones'}
               </p>
+
+              {/* Consolidated breakdown by subcategory */}
+              {(() => {
+                const subMap = new Map<string, { total: number; count: number }>();
+                for (const tx of detailCatTransactions) {
+                  const sub = (tx.subcategoria && tx.subcategoria !== 'sin_categoria' && tx.subcategoria !== 'null')
+                    ? tx.subcategoria
+                    : '(General)';
+                  const prev = subMap.get(sub) || { total: 0, count: 0 };
+                  prev.total += tx.monto_pen;
+                  prev.count += 1;
+                  subMap.set(sub, prev);
+                }
+                const subs = Array.from(subMap.entries())
+                  .map(([name, d]) => ({ name, ...d }))
+                  .sort((a, b) => b.total - a.total);
+                if (subs.length <= 1) return null;
+                return (
+                  <div className="space-y-1 rounded-xl bg-[rgba(255,255,255,0.02)] p-3">
+                    <h4 className="text-xs font-medium text-[#C8C6BC]">Por subcategoría</h4>
+                    {subs.map((s) => (
+                      <div key={s.name} className="flex items-center gap-2 text-xs">
+                        <span className="text-[#C8C6BC]">{s.name === '(General)' ? 'Sin subcategoría' : capitalizeDisplay(s.name)}</span>
+                        <span className="text-[#8A877D]">· {s.count}</span>
+                        <span className="ml-auto font-medium tabular-nums text-[#F0EFE8]">{formatCurrency(s.total)}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
               <div className="space-y-2">
                 {detailCatTransactions.map((tx) => (
                   <div key={tx.id} className="flex items-center justify-between py-2 border-b border-[rgba(255,255,255,0.06)] last:border-0">
@@ -685,12 +716,64 @@ if (!isLoading && transactions.length === 0) {
               {detailMetodo && capitalizeDisplay(detailMetodo)}
             </DialogTitle>
           </DialogHeader>
-          {detailMetodo && (
+          {detailMetodo && (() => {
+            // Consolidate this payment method's spending by category → subcategory
+            const catMap = new Map<string, { total: number; count: number; subs: Map<string, number> }>();
+            for (const tx of detailMetodoTransactions) {
+              const cat = tx.categoria;
+              if (!catMap.has(cat)) catMap.set(cat, { total: 0, count: 0, subs: new Map() });
+              const entry = catMap.get(cat)!;
+              entry.total += tx.monto_pen;
+              entry.count += 1;
+              const sub = (tx.subcategoria && tx.subcategoria !== 'sin_categoria' && tx.subcategoria !== 'null')
+                ? tx.subcategoria
+                : '(General)';
+              entry.subs.set(sub, (entry.subs.get(sub) || 0) + tx.monto_pen);
+            }
+            const catBreakdown = Array.from(catMap.entries())
+              .map(([categoria, { total, count, subs }]) => ({
+                categoria,
+                total,
+                count,
+                subs: Array.from(subs.entries())
+                  .map(([name, monto]) => ({ name, monto }))
+                  .sort((a, b) => b.monto - a.monto),
+              }))
+              .sort((a, b) => b.total - a.total);
+
+            return (
             <div className="space-y-3">
               <p className="text-sm text-[#8A877D]">
                 Total: <span className="text-[#D85A30] font-medium">{formatCurrency(detailMetodoTransactions.reduce((s, t) => s + t.monto_pen, 0))}</span>
                 {' '}— {detailMetodoTransactions.length} {detailMetodoTransactions.length === 1 ? 'transaccion' : 'transacciones'}
               </p>
+
+              {/* Consolidated breakdown by category + subcategory */}
+              <div className="space-y-2 rounded-xl bg-[rgba(255,255,255,0.02)] p-3">
+                <h4 className="text-xs font-medium text-[#C8C6BC]">Por categoría</h4>
+                {catBreakdown.map((cat) => (
+                  <div key={cat.categoria} className="space-y-1">
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-[#F0EFE8]">
+                        {getCategoriaEmoji(cat.categoria)} {capitalizeDisplay(cat.categoria)}
+                      </span>
+                      <span className="text-xs text-[#8A877D]">· {cat.count}</span>
+                      <span className="ml-auto font-medium tabular-nums text-[#F0EFE8]">{formatCurrency(cat.total)}</span>
+                    </div>
+                    {cat.subs.length > 0 && !(cat.subs.length === 1 && cat.subs[0].name === '(General)') && (
+                      <div className="space-y-0.5 pl-5">
+                        {cat.subs.map((sub) => (
+                          <div key={sub.name} className="flex items-center gap-2 text-xs text-[#8A877D]">
+                            <span>{sub.name === '(General)' ? 'Sin subcategoría' : capitalizeDisplay(sub.name)}</span>
+                            <span className="ml-auto tabular-nums">{formatCurrency(sub.monto)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
               <div className="space-y-2">
                 {detailMetodoTransactions.map((tx) => (
                   <div key={tx.id} className="flex items-center justify-between py-2 border-b border-[rgba(255,255,255,0.06)] last:border-0">
@@ -714,7 +797,8 @@ if (!isLoading && transactions.length === 0) {
                 ))}
               </div>
             </div>
-          )}
+            );
+          })()}
         </DialogContent>
       </Dialog>
 

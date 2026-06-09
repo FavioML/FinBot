@@ -498,6 +498,41 @@ export default function PresupuestosPage() {
                 </div>
               )}
 
+              {/* Unbudgeted spending — subcategories with gasto but no sub-budget.
+                  Shows "en qué se fue el presupuesto" beyond what was planned. */}
+              {(() => {
+                const budgetedSubs = new Set(
+                  (detailGroup?.subs ?? []).map((s) => (s.subcategoria || '').toLowerCase()),
+                );
+                const unbudgeted = Array.from(detailTxsBySubcat.entries())
+                  .filter(([subName]) => subName !== '(General)' && !budgetedSubs.has(subName.toLowerCase()))
+                  .map(([subName, txs]) => ({
+                    subName,
+                    total: txs.reduce((s, t) => s + t.monto_pen, 0),
+                    count: txs.length,
+                  }))
+                  .sort((a, b) => b.total - a.total);
+                if (unbudgeted.length === 0) return null;
+                const unbudgetedTotal = unbudgeted.reduce((s, u) => s + u.total, 0);
+                return (
+                  <div className="space-y-2 rounded-xl border border-[rgba(239,159,39,0.18)] bg-[rgba(239,159,39,0.05)] p-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-medium text-[#EF9F27]">Gastos no presupuestados</h4>
+                      <span className="text-sm font-semibold tabular-nums text-[#EF9F27]">
+                        {formatCurrency(unbudgetedTotal)}
+                      </span>
+                    </div>
+                    {unbudgeted.map((u) => (
+                      <div key={u.subName} className="flex items-center gap-2 text-sm">
+                        <span className="text-[#F0EFE8]">{capitalizeDisplay(u.subName)}</span>
+                        <span className="text-xs text-[#8A877D]">· {u.count}</span>
+                        <span className="ml-auto tabular-nums text-[#C8C6BC]">{formatCurrency(u.total)}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
               {/* Transactions grouped by subcategory */}
               <div className="space-y-3">
                 <p className="text-xs text-[#8A877D] font-medium">{detailTxs.length} transacciones</p>
