@@ -56,3 +56,5 @@ landing/node_modules/
 
 # Estado local de tareas / lecciones
 tasks/
+
+_basura/
