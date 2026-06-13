@@ -1,11 +1,14 @@
 'use client';
 
+// User-specific data (Supabase) — must render dynamically, never prerendered.
+export const dynamic = 'force-dynamic';
+
 import { useState, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import { Plus, Target, Wallet, TrendingDown, PiggyBank } from 'lucide-react';
-import { Skeleton } from '@/components/ui/skeleton';
+import { PresupuestosSkeleton } from '@/components/dashboard/skeletons';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/shared/empty-state';
 import { ProBadge } from '@/components/shared/upgrade-prompt';
@@ -204,22 +207,7 @@ export default function PresupuestosPage() {
   // Loading skeleton
   if (isLoading) {
     return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <Skeleton className="h-8 w-48" />
-          <Skeleton className="h-8 w-40" />
-        </div>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-[100px] rounded-2xl" />
-          ))}
-        </div>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-[140px] rounded-2xl" />
-          ))}
-        </div>
-      </div>
+      <PresupuestosSkeleton />
     );
   }
 

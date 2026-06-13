@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import { Trophy, Lock, CalendarDays, ArrowRight } from 'lucide-react';
 import { motion } from 'motion/react';
-import { Skeleton } from '@/components/ui/skeleton';
+import { LogrosSkeleton } from '@/components/dashboard/skeletons';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import { useUser } from '@/lib/hooks/use-user';
 import { useGoals, useAchievements, type MetaAhorro } from '@/lib/hooks/use-goals';
@@ -109,18 +109,7 @@ export default function LogrosPage() {
 
   if (isLoading) {
     return (
-      <div className="flex-1 space-y-6 p-4 md:p-6">
-        <div className="flex items-center justify-between">
-          <Skeleton className="h-8 w-40" />
-          <Skeleton className="h-10 w-10 rounded-full" />
-        </div>
-        <div className="grid grid-cols-3 gap-3">
-          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-24 rounded-2xl" />)}
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-          {[1, 2, 3, 4, 5, 6].map((i) => <Skeleton key={i} className="h-36 rounded-2xl" />)}
-        </div>
-      </div>
+      <LogrosSkeleton />
     );
   }
 

@@ -9,7 +9,7 @@ import { Users, Plus, ArrowRight, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Skeleton } from '@/components/ui/skeleton';
+import { EspaciosSkeleton } from '@/components/dashboard/skeletons';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import { useSpaces, useJoinSpace, useCreateSpace } from '@/lib/hooks/use-shared-spaces';
 import { canAccess } from '@/lib/plan';
@@ -74,13 +74,7 @@ export default function EspaciosPage() {
 
   if (isLoading) {
     return (
-      <div className="space-y-4 p-4 md:p-6">
-        <Skeleton className="h-8 w-56" />
-        <Skeleton className="h-4 w-72" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
-          {[1, 2].map((i) => <Skeleton key={i} className="h-28 rounded-2xl" />)}
-        </div>
-      </div>
+      <EspaciosSkeleton />
     );
   }
 

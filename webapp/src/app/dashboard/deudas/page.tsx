@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { Plus, Trash2, Check, TrendingDown, TrendingUp, Coins, Pencil, Users, AlertTriangle, Clock, Edit2, Calendar, Share2, Link2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
+import { DeudasSkeleton } from '@/components/dashboard/skeletons';
 import {
   Dialog,
   DialogContent,
@@ -347,12 +347,7 @@ export default function DeudasPage() {
 
   if (isLoading) {
     return (
-      <div className="space-y-6">
-        <Skeleton className="h-8 w-48" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {[1, 2].map((i) => <Skeleton key={i} className="h-[180px] rounded-2xl" />)}
-        </div>
-      </div>
+      <DeudasSkeleton />
     );
   }
 

@@ -10,7 +10,7 @@ import type { SpendingAlert } from '@/lib/hooks/use-spending-alerts';
 import { canAccess } from '@/lib/plan';
 import { ProGate } from '@/components/shared/pro-gate';
 import { FadeIn } from '@/components/shared/motion-wrapper';
-import { Skeleton } from '@/components/ui/skeleton';
+import { AlertasSkeleton } from '@/components/dashboard/skeletons';
 import { formatCurrency } from '@/lib/utils';
 import { HeaderActions } from '@/components/dashboard/topbar';
 
@@ -120,13 +120,7 @@ export default function AlertasPage() {
 
   if (isLoading) {
     return (
-      <div className="space-y-4 p-4 md:p-6">
-        <Skeleton className="h-8 w-56" />
-        <Skeleton className="h-4 w-80" />
-        {[1, 2, 3].map((i) => (
-          <Skeleton key={i} className="h-24 rounded-2xl" />
-        ))}
-      </div>
+      <AlertasSkeleton />
     );
   }
 

@@ -1,5 +1,8 @@
 'use client';
 
+// User-specific data (Supabase) — must render dynamically, never prerendered.
+export const dynamic = 'force-dynamic';
+
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -35,6 +38,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ConfiguracionSkeleton } from '@/components/dashboard/skeletons';
 import { useUser } from '@/lib/hooks/use-user';
 import { createClient } from '@/lib/supabase/client';
 import { SOCIAL_LINKS, getCategoriaEmoji, CATEGORIAS } from '@/lib/constants';
@@ -271,14 +275,7 @@ export default function ConfiguracionPage() {
   /* ---------------------------------------------------------------- */
   if (isLoading) {
     return (
-      <div className="space-y-6">
-        <Skeleton className="h-8 w-52" />
-        <Skeleton className="h-[200px] rounded-2xl" />
-        <Skeleton className="h-[260px] rounded-2xl" />
-        <Skeleton className="h-[160px] rounded-2xl" />
-        <Skeleton className="h-[140px] rounded-2xl" />
-        <Skeleton className="h-[120px] rounded-2xl" />
-      </div>
+      <ConfiguracionSkeleton />
     );
   }
 

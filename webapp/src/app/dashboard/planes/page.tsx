@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { Plus, Flag, Trash2, Edit2, Check, X, Trophy, TrendingUp, Flame, Award, ArrowDown, Users, Link2, Copy, UserX, ChevronDown, ChevronUp, Phone, Calendar, XCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
+import { PlanesSkeleton } from '@/components/dashboard/skeletons';
 import {
   Dialog,
   DialogContent,
@@ -304,12 +304,7 @@ export default function MetasPage() {
 
   if (isLoading) {
     return (
-      <div className="space-y-6">
-        <Skeleton className="h-8 w-48" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-[200px] rounded-2xl" />)}
-        </div>
-      </div>
+      <PlanesSkeleton />
     );
   }
 

@@ -22,7 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Skeleton } from '@/components/ui/skeleton';
+import { EspacioDetailSkeleton } from '@/components/dashboard/skeletons';
 import { FadeIn } from '@/components/shared/motion-wrapper';
 import {
   useSpaceDetail,
@@ -161,11 +161,7 @@ export default function SpaceDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="space-y-4 p-4 md:p-6">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-[120px] rounded-2xl" />
-        <Skeleton className="h-[200px] rounded-2xl" />
-      </div>
+      <EspacioDetailSkeleton />
     );
   }
 

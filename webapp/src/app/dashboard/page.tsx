@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { Receipt, CreditCard, Pencil, ChevronDown, Target, Wallet, Award, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { OverviewSkeleton } from '@/components/dashboard/skeletons';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Select,
@@ -285,25 +286,7 @@ export default function DashboardPage() {
   // Loading skeleton
   if (isLoading) {
     return (
-      <div className="space-y-6">
-        <div className="flex items-start justify-between">
-          <div>
-            <Skeleton className="h-8 w-48 mb-2" />
-            <Skeleton className="h-4 w-64" />
-          </div>
-          <Skeleton className="h-10 w-10 rounded-full" />
-        </div>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-[120px] rounded-2xl" />
-          ))}
-        </div>
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <Skeleton className="h-[320px] rounded-2xl" />
-          <Skeleton className="h-[320px] rounded-2xl" />
-        </div>
-        <Skeleton className="h-[300px] rounded-2xl" />
-      </div>
+      <OverviewSkeleton />
     );
   }
 

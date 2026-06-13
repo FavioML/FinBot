@@ -11,7 +11,7 @@ import { useUser } from '@/lib/hooks/use-user';
 import { canAccess } from '@/lib/plan';
 import { ProGate } from '@/components/shared/pro-gate';
 import { FadeIn } from '@/components/shared/motion-wrapper';
-import { Skeleton } from '@/components/ui/skeleton';
+import { ScoreSkeleton } from '@/components/dashboard/skeletons';
 import { HeaderActions } from '@/components/dashboard/topbar';
 
 const FACTORS = [
@@ -122,11 +122,7 @@ export default function ScorePage() {
 
   if (isLoading) {
     return (
-      <div className="space-y-4 p-4 md:p-6">
-        <Skeleton className="h-8 w-40" />
-        <Skeleton className="h-[200px] rounded-2xl" />
-        <Skeleton className="h-[300px] rounded-2xl" />
-      </div>
+      <ScoreSkeleton />
     );
   }
 

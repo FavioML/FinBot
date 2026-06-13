@@ -1,5 +1,8 @@
 'use client';
 
+// User-specific data (Supabase) — must render dynamically, never prerendered.
+export const dynamic = 'force-dynamic';
+
 import { useState, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'motion/react';
@@ -15,7 +18,7 @@ import {
   Info,
   Calendar,
 } from 'lucide-react';
-import { Skeleton } from '@/components/ui/skeleton';
+import { SuscripcionesSkeleton } from '@/components/dashboard/skeletons';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import { useUser } from '@/lib/hooks/use-user';
 import { useSubscriptions } from '@/lib/hooks/use-subscriptions';
@@ -348,21 +351,7 @@ export default function SuscripcionesPage() {
 
   if (isLoading) {
     return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <Skeleton className="h-8 w-48" />
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {[1, 2, 3, 4].map((i) => (
-            <Skeleton key={i} className="h-24 rounded-xl" />
-          ))}
-        </div>
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-20 rounded-xl" />
-          ))}
-        </div>
-      </div>
+      <SuscripcionesSkeleton />
     );
   }
 
