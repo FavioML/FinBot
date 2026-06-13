@@ -9,6 +9,7 @@ import { useTransactions } from '@/lib/hooks/use-transactions';
 import { getCategoriaEmoji } from '@/lib/constants';
 import { useQueryClient } from '@tanstack/react-query';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { haptic } from '@/lib/haptics';
 
 export function QuickAddButton() {
   const { data: user } = useUser();
@@ -49,11 +50,7 @@ export function QuickAddButton() {
   }, [transactions]);
 
   const handleAdd = (t: 'gasto' | 'ingreso') => {
-    // Haptic feedback on supported devices (Android Chrome, in-app browsers).
-    // Safe no-op on iOS Safari where Vibration API is unavailable.
-    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-      navigator.vibrate(12);
-    }
+    haptic('tap');
     setTipo(t);
     setShowMenu(false);
     setOpen(true);
@@ -114,9 +111,7 @@ export function QuickAddButton() {
           render={
             <motion.button
               onClick={() => {
-                if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-                  navigator.vibrate(8);
-                }
+                haptic('tap');
                 setShowMenu(!showMenu);
               }}
               className="fixed bottom-20 md:bottom-6 right-5 md:right-6 z-50 flex h-14 w-14 md:h-12 md:w-12 items-center justify-center rounded-full bg-[#1D9E75] text-white shadow-lg shadow-[#1D9E75]/30 transition-colors hover:bg-[#1D9E75]/90"
@@ -142,6 +137,7 @@ export function QuickAddButton() {
         onOpenChange={setOpen}
         tipo={tipo}
         onSuccess={() => {
+          haptic('success');
           queryClient.invalidateQueries({ queryKey: ['transactions'] });
         }}
         userCategorias={userCategorias}

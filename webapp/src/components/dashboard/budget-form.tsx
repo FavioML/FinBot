@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
+import { haptic } from '@/lib/haptics';
 import {
   Dialog,
   DialogContent,
@@ -522,9 +523,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
           <Button
             className="flex-1 h-12 bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 active:scale-[0.98] transition-transform font-semibold disabled:opacity-50"
             onClick={() => {
-              if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-                navigator.vibrate(14);
-              }
+              haptic('tap');
               handleSubmit();
             }}
             disabled={!canSubmit}
@@ -589,9 +588,7 @@ export function DeleteBudgetDialog({ open, onOpenChange, budget, onSuccess }: De
             variant="destructive"
             className="flex-1 sm:flex-initial h-12 sm:h-10 active:scale-[0.98] transition-transform"
             onClick={() => {
-              if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-                navigator.vibrate(20);
-              }
+              haptic('warning');
               handleDelete();
             }}
             disabled={deleting}

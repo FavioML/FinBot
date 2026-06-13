@@ -100,6 +100,9 @@
   --chart-4: #D85A30;
   --chart-5: #8A877D;
   --radius: 0.75rem;
+  /* Motion — strong custom easings. CSS built-ins are too weak to feel intentional. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --sidebar: #0E0E0C;
   --sidebar-foreground: #C8C6BC;
   --sidebar-primary: #1D9E75;
@@ -114,11 +117,27 @@
   * {
     @apply border-border outline-ring/50;
   }
-  body {
-    @apply bg-background text-foreground;
-  }
   html {
     @apply font-sans;
+    /* Kill the grey/blue tap flash on Android — it reads as "browser", not "app". */
+    -webkit-tap-highlight-color: transparent;
+    /* Stop the whole-page rubber-band bounce / browser pull-to-refresh. */
+    overscroll-behavior: none;
+  }
+  body {
+    @apply bg-background text-foreground;
+    overscroll-behavior: none;
+  }
+  /* Remove the legacy 300ms tap delay + double-tap-zoom on controls. */
+  a,
+  button,
+  [role="button"],
+  [role="tab"],
+  input,
+  select,
+  textarea,
+  summary {
+    touch-action: manipulation;
   }
 }
 
@@ -291,13 +310,24 @@
   color: #F0EFE8;
 }
 
-/* Smooth page transitions */
+/* Scrollable content region. Contain overscroll so the inner scroll never
+ * chains to the browser (no bounce / accidental pull-to-refresh).
+ * Page-enter motion now lives in app/dashboard/template.tsx. */
 main {
-  animation: fadeIn 0.3s ease-out;
+  overscroll-behavior-y: contain;
 }
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(4px); }
+
+/* Route enter transition (app/dashboard/template.tsx remounts per navigation).
+ * Pure CSS so it runs off the main thread and stays smooth while the next
+ * route is still compiling/streaming. transform+opacity only. Reduced-motion
+ * neutralizes the movement via the global media query below. */
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
+}
+.page-transition {
+  animation: page-enter 220ms var(--ease-out) both;
+  will-change: transform, opacity;
 }
 
 /* ===== NETO mi-reporte animations ===== */
@@ -357,6 +387,19 @@ main {
 /* Scrollbar-none utility */
 .scrollbar-none::-webkit-scrollbar { display: none; }
 .scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Respect prefers-reduced-motion: keep opacity/color cues that aid
+ * comprehension, but remove movement and looping decorative animations. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 
 /* Noise background texture overlay */
 .noise-bg::after {

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import { Trash2 } from 'lucide-react';
+import { haptic } from '@/lib/haptics';
 import {
   Dialog,
   DialogContent,
@@ -538,9 +539,7 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
           </DialogClose>
           <Button
             onClick={() => {
-              if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-                navigator.vibrate(14);
-              }
+              haptic('tap');
               handleSubmit();
             }}
             disabled={!isValid || saving}
@@ -612,9 +611,7 @@ export function DeleteConfirmDialog({ open, onOpenChange, transaction, onSuccess
           <Button
             variant="destructive"
             onClick={() => {
-              if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-                navigator.vibrate(20);
-              }
+              haptic('warning');
               handleConfirm();
             }}
             disabled={deleting}
