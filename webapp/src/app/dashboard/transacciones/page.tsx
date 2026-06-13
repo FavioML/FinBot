@@ -493,9 +493,9 @@ export default function TransaccionesPage() {
       <StaggerContainer className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <StaggerItem>
         <div className="glass-card glass-card-glow p-4">
-          <div className="flex items-center gap-2 mb-2">
+          <div className="flex items-center gap-2 mb-1.5">
             <TrendingDown className="h-4 w-4 text-[#D85A30]" />
-            <span className="text-xs text-[#8A877D]">
+            <span className="text-label text-[#8A877D]">
               {hasActiveFilters ? 'Gastos (filtrado)' : viewMode === 'anual' ? 'Gastos del año' : 'Gastos del mes'}
             </span>
           </div>
@@ -504,9 +504,9 @@ export default function TransaccionesPage() {
         </StaggerItem>
         <StaggerItem>
         <div className="glass-card glass-card-glow p-4">
-          <div className="flex items-center gap-2 mb-2">
+          <div className="flex items-center gap-2 mb-1.5">
             <TrendingUp className="h-4 w-4 text-[#1D9E75]" />
-            <span className="text-xs text-[#8A877D]">
+            <span className="text-label text-[#8A877D]">
               {hasActiveFilters ? 'Ingresos (filtrado)' : viewMode === 'anual' ? 'Ingresos del año' : 'Ingresos del mes'}
             </span>
           </div>
@@ -515,9 +515,9 @@ export default function TransaccionesPage() {
         </StaggerItem>
         <StaggerItem>
         <div className="glass-card glass-card-glow p-4">
-          <div className="flex items-center gap-2 mb-2">
+          <div className="flex items-center gap-2 mb-1.5">
             <Receipt className="h-4 w-4 text-[#378ADD]" />
-            <span className="text-xs text-[#8A877D]">Transacciones</span>
+            <span className="text-label text-[#8A877D]">Transacciones</span>
           </div>
           <span className="text-xl font-semibold text-[#F0EFE8]">{summary.count}</span>
         </div>

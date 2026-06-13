@@ -7,10 +7,11 @@ import { useState, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
-import { Plus, Target, Wallet, TrendingDown, PiggyBank } from 'lucide-react';
+import { Plus, Target, Wallet, TrendingDown } from 'lucide-react';
 import { PresupuestosSkeleton } from '@/components/dashboard/skeletons';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/shared/empty-state';
+import { CurrencyDisplay } from '@/components/shared/currency-display';
 import { ProBadge } from '@/components/shared/upgrade-prompt';
 import { FREE_LIMITS, hasReachedLimit } from '@/lib/plan';
 import { BudgetCard } from '@/components/dashboard/budget-card';
@@ -224,7 +225,6 @@ export default function PresupuestosPage() {
   const isPremium = user?.plan === 'premium';
   const budgetsLimitReached = hasReachedLimit(user?.plan, 'budgets', groupedBudgets.size);
   const hasBudgets = groupedBudgets.size > 0;
-  const restanteColor = summary.restante >= 0 ? '#1D9E75' : '#D85A30';
 
   // Detail dialog data
   const detailGroup = detailCategoria ? groupedBudgets.get(detailCategoria) : null;
@@ -279,36 +279,34 @@ export default function PresupuestosPage() {
           {/* Summary cards */}
           <StaggerContainer className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <StaggerItem>
-            <div className="glass-card glass-card-glow p-5">
-              <div className="flex items-center gap-2 mb-2">
+            <div className="glass-card glass-card-glow p-4">
+              <div className="flex items-center gap-2 mb-1.5">
                 <Target className="h-4 w-4 text-[#8A877D]" />
-                <span className="text-xs font-medium text-[#8A877D]">Total presupuestado</span>
+                <span className="text-label text-[#8A877D]">Total presupuestado</span>
               </div>
-              <p className="text-xl font-bold text-[#F0EFE8]">
-                {formatCurrency(summary.totalPresupuestado)}
-              </p>
+              <CurrencyDisplay amount={summary.totalPresupuestado} size="md" className="text-[#F0EFE8]" />
             </div>
             </StaggerItem>
             <StaggerItem>
-            <div className="glass-card glass-card-glow p-5">
-              <div className="flex items-center gap-2 mb-2">
+            <div className="glass-card glass-card-glow p-4">
+              <div className="flex items-center gap-2 mb-1.5">
                 <TrendingDown className="h-4 w-4 text-[#8A877D]" />
-                <span className="text-xs font-medium text-[#8A877D]">Total gastado</span>
+                <span className="text-label text-[#8A877D]">Total gastado</span>
               </div>
-              <p className="text-xl font-bold text-[#D85A30]">
-                {formatCurrency(summary.totalGastado)}
-              </p>
+              <CurrencyDisplay amount={summary.totalGastado} size="md" className="text-[#D85A30]" />
             </div>
             </StaggerItem>
             <StaggerItem>
-            <div className="glass-card glass-card-glow p-5">
-              <div className="flex items-center gap-2 mb-2">
+            <div className="glass-card glass-card-glow p-4">
+              <div className="flex items-center gap-2 mb-1.5">
                 <Wallet className="h-4 w-4 text-[#8A877D]" />
-                <span className="text-xs font-medium text-[#8A877D]">Restante</span>
+                <span className="text-label text-[#8A877D]">Restante</span>
               </div>
-              <p className="text-xl font-bold" style={{ color: restanteColor }}>
-                {formatCurrency(summary.restante)}
-              </p>
+              <CurrencyDisplay
+                amount={summary.restante}
+                size="md"
+                className={summary.restante >= 0 ? 'text-[#1D9E75]' : 'text-[#D85A30]'}
+              />
             </div>
             </StaggerItem>
           </StaggerContainer>
@@ -370,25 +368,13 @@ export default function PresupuestosPage() {
           </div>
         </>
       ) : (
-        /* Empty state */
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="rounded-full bg-[rgba(255,255,255,0.03)] p-6 mb-4">
-            <Target className="h-8 w-8 text-[#8A877D]" />
-          </div>
-          <h3 className="text-lg font-semibold text-[#F0EFE8] mb-2">
-            Sin presupuestos aún
-          </h3>
-          <p className="text-sm text-[#8A877D] max-w-md mb-6">
-            Define limites de gasto por categoria para mantener tus finanzas bajo control. Te avisaremos cuando estés cerca del limite.
-          </p>
-          <Button
-            className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 gap-1.5"
-            onClick={() => setCreateOpen(true)}
-          >
-            <Plus className="h-4 w-4" />
-            Crea tu primer presupuesto
-          </Button>
-        </div>
+        <EmptyState
+          title="Sin presupuestos aún"
+          description="Define límites de gasto por categoría para mantener tus finanzas bajo control. Te avisamos cuando estés cerca del límite."
+          icon={Target}
+          showWhatsApp={false}
+          actions={[{ label: 'Crea tu primer presupuesto', onClick: () => setCreateOpen(true) }]}
+        />
       )}
 
       {/* Create dialog */}

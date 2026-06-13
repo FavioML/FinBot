@@ -7,9 +7,12 @@ import { SOCIAL_LINKS } from '@/lib/constants';
 
 interface EmptyStateAction {
   label: string;
-  href: string;
+  /** Navigation target. Omit when using `onClick` for an in-page action. */
+  href?: string;
   external?: boolean;
   variant?: 'primary' | 'secondary';
+  /** In-page action (e.g. open a dialog). Takes precedence over `href`. */
+  onClick?: () => void;
 }
 
 interface EmptyStateProps {
@@ -49,6 +52,21 @@ export function EmptyState({ title, description, showWhatsApp = true, icon: Icon
               ? 'inline-flex items-center gap-2 rounded-xl bg-[#1D9E75] px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-[#1D9E75]/20 transition-all hover:bg-[#1D9E75]/90 hover:shadow-[#1D9E75]/30 active:scale-[0.98]'
               : 'inline-flex items-center gap-2 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] px-5 py-2.5 text-sm font-medium text-[#C8C6BC] transition-all hover:bg-[rgba(255,255,255,0.06)] active:scale-[0.98]';
 
+            if (action.onClick) {
+              return (
+                <motion.button
+                  key={action.label}
+                  type="button"
+                  onClick={action.onClick}
+                  className={cls}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  {action.label}
+                </motion.button>
+              );
+            }
+
             if (action.external) {
               return (
                 <motion.a
@@ -68,7 +86,7 @@ export function EmptyState({ title, description, showWhatsApp = true, icon: Icon
 
             return (
               <motion.div key={action.label} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                <Link href={action.href} className={cls}>
+                <Link href={action.href ?? '#'} className={cls}>
                   {action.label}
                 </Link>
               </motion.div>

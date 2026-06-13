@@ -3,13 +3,14 @@
 export const dynamic = 'force-dynamic';
 
 import Link from 'next/link';
-import { Lock, Lightbulb, PartyPopper } from 'lucide-react';
+import { Lock, Lightbulb, PartyPopper, Gauge } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { ScoreGauge } from '@/components/charts/score-gauge';
 import { useNetoScoreHistory, type NetoScoreFactors } from '@/lib/hooks/use-neto-score';
 import { useUser } from '@/lib/hooks/use-user';
 import { canAccess } from '@/lib/plan';
 import { ProGate } from '@/components/shared/pro-gate';
+import { EmptyState } from '@/components/shared/empty-state';
 import { FadeIn } from '@/components/shared/motion-wrapper';
 import { ScoreSkeleton } from '@/components/dashboard/skeletons';
 import { HeaderActions } from '@/components/dashboard/topbar';
@@ -24,7 +25,7 @@ const FACTORS = [
 ] as const;
 
 function FactorBar({ label, description, value }: { label: string; description: string; value: number }) {
-  const color = value >= 80 ? '#1D9E75' : value >= 60 ? '#3B9EDB' : value >= 40 ? '#E8A838' : '#E85D3A';
+  const color = value >= 80 ? '#1D9E75' : value >= 60 ? '#378ADD' : value >= 40 ? '#EF9F27' : '#D85A30';
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
@@ -94,7 +95,7 @@ function TipsSection({ factors }: { factors?: NetoScoreFactors }) {
   return (
     <div className="space-y-3">
       {weak.map(([key, value]) => {
-        const color = value >= 60 ? '#3B9EDB' : value >= 40 ? '#E8A838' : '#E85D3A';
+        const color = value >= 60 ? '#378ADD' : value >= 40 ? '#EF9F27' : '#D85A30';
         return (
           <div key={key} className="flex items-start gap-3 p-3 rounded-lg bg-[rgba(255,255,255,0.02)]">
             <Lightbulb className="w-4 h-4 mt-0.5 shrink-0" style={{ color }} />
@@ -128,11 +129,13 @@ export default function ScorePage() {
 
   if (!data?.score) {
     return (
-      <div className="p-4 md:p-6">
-        <h1 className="text-2xl font-bold text-[#F0EFE8] mb-2">Neto Score</h1>
-        <p className="text-[#8A877D] text-sm">
-          Aún no tienes un score calculado. Registra tus gastos durante el mes y recibirás tu puntuación.
-        </p>
+      <div className="max-w-3xl mx-auto">
+        <EmptyState
+          title="Aún no tienes un Neto Score"
+          description="Registra tus gastos durante el mes y NETO calculará tu puntuación de salud financiera."
+          icon={Gauge}
+          showWhatsApp={false}
+        />
       </div>
     );
   }
@@ -143,7 +146,7 @@ export default function ScorePage() {
   }));
 
   return (
-    <div className="space-y-6 p-4 md:p-6 max-w-3xl mx-auto">
+    <div className="space-y-6 max-w-3xl mx-auto">
       <FadeIn>
         <div className="flex items-center justify-between">
           <div>
@@ -165,7 +168,7 @@ export default function ScorePage() {
       {/* Desglose por factor */}
       <FadeIn delay={0.1}>
         <div className="glass-card p-6">
-          <h2 className="text-base font-semibold text-[#F0EFE8] mb-4">Desglose por factor</h2>
+          <h2 className="text-section font-semibold text-[#F0EFE8] mb-4">Desglose por factor</h2>
 
           {canBreakdown ? (
             <div className="space-y-4">
@@ -207,7 +210,7 @@ export default function ScorePage() {
       <FadeIn delay={0.15}>
         <div className="glass-card p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-semibold text-[#F0EFE8]">Evolución</h2>
+            <h2 className="text-section font-semibold text-[#F0EFE8]">Evolución</h2>
             {!canHistory && (
               <span className="flex items-center gap-1 text-xs text-[#8A877D]">
                 <Lock className="w-3 h-3" /> Últimos 6 meses con Pro
@@ -259,7 +262,7 @@ export default function ScorePage() {
       {/* Tips section */}
       <FadeIn delay={0.2}>
         <div className="glass-card p-6">
-          <h2 className="text-base font-semibold text-[#F0EFE8] mb-3">Tips personalizados</h2>
+          <h2 className="text-section font-semibold text-[#F0EFE8] mb-3">Tips personalizados</h2>
           {canTips ? (
             <TipsSection factors={data.factors} />
           ) : (
