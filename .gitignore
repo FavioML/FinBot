@@ -54,6 +54,10 @@ landing/node_modules/
 # Notas de handoff Antigravity (working docs, no codigo de producto)
 **/ANTIGRAVITY-UPDATE-*.md
 
+# Prompts de kickoff de sesion (working docs, no codigo de producto).
+# Los prompts de referencia durables van en docs/ y SI se versionan.
+**/PROMPT-*.md
+
 # Estado local de tareas / lecciones
 tasks/
 
