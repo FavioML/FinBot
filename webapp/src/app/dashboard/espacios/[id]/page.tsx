@@ -65,7 +65,7 @@ function BalanceCard({
       ) : isPositive ? (
         <p className="text-sm font-semibold text-[#1D9E75]">Te deben {formatCurrency(abs)}</p>
       ) : (
-        <p className="text-sm font-semibold text-[#E85D3A]">Debes {formatCurrency(abs)}</p>
+        <p className="text-sm font-semibold text-[#D85A30]">Debes {formatCurrency(abs)}</p>
       )}
     </div>
   );
@@ -167,7 +167,7 @@ export default function SpaceDetailPage() {
 
   if (!data) {
     return (
-      <div className="p-4 md:p-6">
+      <div>
         <p className="text-[#8A877D]">Espacio no encontrado o sin acceso.</p>
         <Link href="/dashboard/espacios" className="text-[#1D9E75] text-sm mt-2 inline-block">← Volver</Link>
       </div>
@@ -181,7 +181,7 @@ export default function SpaceDetailPage() {
   const canInvite = members.length < memberLimit;
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
+    <div className="space-y-6">
       {/* Header */}
       <FadeIn>
         <div className="flex items-center justify-between">
@@ -190,7 +190,7 @@ export default function SpaceDetailPage() {
               <ArrowLeft className="w-5 h-5" />
             </Link>
             <div>
-              <h1 className="text-xl font-bold text-[#F0EFE8]">{space.name}</h1>
+              <h1 className="text-2xl font-bold text-[#F0EFE8]">{space.name}</h1>
               <p className="text-xs text-[#8A877D]">{members.length} miembro{members.length !== 1 ? 's' : ''}</p>
             </div>
           </div>
@@ -244,7 +244,7 @@ export default function SpaceDetailPage() {
                   if (!creditor) return null;
                   return (
                     <p key={debtor.user_id} className="text-sm text-[#C8C6BC]">
-                      <span className="text-[#E85D3A]">{debtor.usuarios?.nombre}</span>
+                      <span className="text-[#D85A30]">{debtor.usuarios?.nombre}</span>
                       {' le debe '}
                       <span className="font-semibold">{formatCurrency(Math.abs(balance[debtor.user_id]))}</span>
                       {' a '}
@@ -322,7 +322,7 @@ export default function SpaceDetailPage() {
                             deleteExpense.mutate(exp.id);
                             toast.success('Gasto eliminado');
                           }}
-                          className="p-1 rounded text-[#8A877D] hover:text-[#E85D3A]"
+                          className="p-1 rounded text-[#8A877D] hover:text-[#D85A30]"
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>
@@ -390,7 +390,7 @@ export default function SpaceDetailPage() {
                         removeMember.mutate(m.user_id);
                         toast.success(`${m.usuarios?.nombre ?? 'Miembro'} eliminado`);
                       }}
-                      className="p-1 rounded opacity-0 group-hover:opacity-100 max-sm:opacity-100 text-[#8A877D] hover:text-[#E85D3A] transition-all"
+                      className="p-1 rounded opacity-0 group-hover:opacity-100 max-sm:opacity-100 text-[#8A877D] hover:text-[#D85A30] transition-all"
                       title="Quitar del espacio"
                     >
                       <X className="w-3.5 h-3.5" />
@@ -468,7 +468,7 @@ export default function SpaceDetailPage() {
                     updateSplitRules.mutate(updated);
                     toast.success('Regla eliminada');
                   }}
-                  className="text-[#8A877D] hover:text-[#E85D3A] transition-colors"
+                  className="text-[#8A877D] hover:text-[#D85A30] transition-colors"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -526,7 +526,7 @@ export default function SpaceDetailPage() {
                   .filter((e) => e.category === budget.category)
                   .reduce((s, e) => s + Number(e.amount), 0);
                 const pct = budget.limit > 0 ? Math.round((spent / budget.limit) * 100) : 0;
-                const barColor = pct > 90 ? '#E85D3A' : pct > 70 ? '#E8A838' : '#1D9E75';
+                const barColor = pct > 90 ? '#D85A30' : pct > 70 ? '#EF9F27' : '#1D9E75';
 
                 return (
                   <div key={budget.id} className="space-y-2">
@@ -544,7 +544,7 @@ export default function SpaceDetailPage() {
                             updateBudgets.mutate(updated);
                             toast.success('Presupuesto eliminado');
                           }}
-                          className="text-[#8A877D] hover:text-[#E85D3A] transition-colors"
+                          className="text-[#8A877D] hover:text-[#D85A30] transition-colors"
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>
@@ -741,7 +741,7 @@ export default function SpaceDetailPage() {
               const isValid = total === 100;
               return (
                 <>
-                  <p className={`text-xs ${isValid ? 'text-[#1D9E75]' : 'text-[#E85D3A]'}`}>
+                  <p className={`text-xs ${isValid ? 'text-[#1D9E75]' : 'text-[#D85A30]'}`}>
                     Total: {total}% {isValid ? '✓' : '(debe sumar 100%)'}
                   </p>
                   <Button
@@ -863,7 +863,7 @@ export default function SpaceDetailPage() {
               const isValid = total === 100;
               return (
                 <>
-                  <p className={`text-xs ${isValid ? 'text-[#1D9E75]' : 'text-[#E85D3A]'}`}>
+                  <p className={`text-xs ${isValid ? 'text-[#1D9E75]' : 'text-[#D85A30]'}`}>
                     Total: {total}% {isValid ? '✓' : '(debe sumar 100%)'}
                   </p>
                   <Button
@@ -932,7 +932,7 @@ export default function SpaceDetailPage() {
             <div className="pt-3 border-t border-[rgba(255,255,255,0.06)]">
               {showDeleteConfirm ? (
                 <div className="space-y-2">
-                  <p className="text-xs text-[#E85D3A]">¿Estás seguro? Se eliminarán todos los gastos, pagos y miembros de este espacio.</p>
+                  <p className="text-xs text-[#D85A30]">¿Estás seguro? Se eliminarán todos los gastos, pagos y miembros de este espacio.</p>
                   <div className="flex gap-2">
                     <Button
                       variant="outline"
@@ -949,7 +949,7 @@ export default function SpaceDetailPage() {
                         toast.success('Espacio eliminado');
                         router.push('/dashboard/espacios');
                       }}
-                      className="flex-1 text-xs bg-[#E85D3A] text-white hover:bg-[#E85D3A]/90"
+                      className="flex-1 text-xs bg-[#D85A30] text-white hover:bg-[#D85A30]/90"
                     >
                       <Trash2 className="w-3.5 h-3.5 mr-1" />
                       Eliminar
@@ -959,7 +959,7 @@ export default function SpaceDetailPage() {
               ) : (
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
-                  className="flex items-center gap-2 text-xs text-[#E85D3A] hover:underline"
+                  className="flex items-center gap-2 text-xs text-[#D85A30] hover:underline"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   Eliminar espacio

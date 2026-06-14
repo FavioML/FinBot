@@ -19,6 +19,7 @@ import {
   Calendar,
 } from 'lucide-react';
 import { SuscripcionesSkeleton } from '@/components/dashboard/skeletons';
+import { EmptyState } from '@/components/shared/empty-state';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import { useUser } from '@/lib/hooks/use-user';
 import { useSubscriptions } from '@/lib/hooks/use-subscriptions';
@@ -361,7 +362,7 @@ export default function SuscripcionesPage() {
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-[#C8C6BC]">Suscripciones</h1>
+          <h1 className="text-2xl font-bold text-[#F0EFE8]">Suscripciones</h1>
           <p className="text-sm text-[#8A877D] mt-0.5">
             Detectadas automáticamente desde tus transacciones
           </p>
@@ -462,23 +463,18 @@ export default function SuscripcionesPage() {
 
       {/* Empty state */}
       {subsData && currentViewData.count === 0 && (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="rounded-full bg-[rgba(255,255,255,0.04)] p-4 mb-4">
-            <CreditCard className="h-8 w-8 text-[#8A877D]" />
-          </div>
-          <h3 className="text-[#C8C6BC] font-medium mb-2">
-            {viewMode === 'anual'
-              ? `Sin pagos de suscripciones en ${selectedYear}`
-              : `Sin pagos de suscripciones en ${monthLabel}`
-            }
-          </h3>
-          <p className="text-sm text-[#8A877D] max-w-md">
-            {viewMode === 'anual'
-              ? `No se encontraron pagos de suscripciones en ${selectedYear}. Prueba seleccionando otro año.`
-              : 'No se encontraron pagos de suscripciones en este mes. Prueba seleccionando otro mes o cambia a la vista anual.'
-            }
-          </p>
-        </div>
+        <EmptyState
+          icon={CreditCard}
+          title={viewMode === 'anual'
+            ? `Sin pagos de suscripciones en ${selectedYear}`
+            : `Sin pagos de suscripciones en ${monthLabel}`
+          }
+          description={viewMode === 'anual'
+            ? `No se encontraron pagos de suscripciones en ${selectedYear}. Prueba seleccionando otro año.`
+            : 'No se encontraron pagos de suscripciones en este mes. Prueba seleccionando otro mes o cambia a la vista anual.'
+          }
+          showWhatsApp={false}
+        />
       )}
 
       {/* Filters */}

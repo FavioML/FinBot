@@ -79,7 +79,7 @@ export default function EspaciosPage() {
   }
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
+    <div className="space-y-6">
       <FadeIn>
         <div className="flex items-start justify-between gap-4">
           <div>

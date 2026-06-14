@@ -116,10 +116,10 @@ export default function LogrosPage() {
   // Empty state: no goals and no achievements
   if (achievements.length === 0 && goals.length === 0) {
     return (
-      <div className="flex-1 p-4 md:p-6">
+      <div className="space-y-6">
         <FadeIn>
           <div className="flex items-center justify-between mb-6">
-            <h1 className="text-lg font-semibold text-[#F0EFE8]">Logros</h1>
+            <h1 className="text-2xl font-bold text-[#F0EFE8]">Logros</h1>
             <HeaderActions />
           </div>
         </FadeIn>
@@ -152,7 +152,7 @@ export default function LogrosPage() {
   const progressPct = LOGRO_CATALOG.length > 0 ? Math.round((totalUnlocked / LOGRO_CATALOG.length) * 100) : 0;
 
   return (
-    <div className="flex-1 space-y-6 p-4 md:p-6 pb-24 md:pb-6">
+    <div className="space-y-6">
       {/* Header */}
       <FadeIn>
         <div className="flex items-center justify-between">
@@ -161,7 +161,7 @@ export default function LogrosPage() {
               <Trophy className="h-5 w-5 text-[#1D9E75]" />
             </div>
             <div>
-              <h1 className="text-lg font-semibold text-[#F0EFE8]">Logros</h1>
+              <h1 className="text-2xl font-bold text-[#F0EFE8]">Logros</h1>
               <p className="text-xs text-[#8A877D]">{totalUnlocked} de {LOGRO_CATALOG.length} desbloqueados</p>
             </div>
           </div>

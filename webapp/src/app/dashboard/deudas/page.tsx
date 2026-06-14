@@ -104,8 +104,8 @@ export default function DeudasPage() {
     const venc = new Date(debt.fecha_vencimiento + 'T12:00:00');
     venc.setHours(0, 0, 0, 0);
     const diffDays = Math.round((venc.getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24));
-    if (diffDays < 0) return { label: `Vencida hace ${Math.abs(diffDays)}d`, color: '#ef4444', bgColor: 'rgba(239,68,68,0.12)', priority: 0 };
-    if (diffDays === 0) return { label: 'Vence hoy', color: '#ef4444', bgColor: 'rgba(239,68,68,0.12)', priority: 1 };
+    if (diffDays < 0) return { label: `Vencida hace ${Math.abs(diffDays)}d`, color: '#D85A30', bgColor: 'rgba(216,90,48,0.12)', priority: 0 };
+    if (diffDays === 0) return { label: 'Vence hoy', color: '#D85A30', bgColor: 'rgba(216,90,48,0.12)', priority: 1 };
     if (diffDays <= 3) return { label: `Vence en ${diffDays}d`, color: '#EF9F27', bgColor: 'rgba(239,159,39,0.12)', priority: 2 };
     if (diffDays <= 7) return { label: `Vence en ${diffDays}d`, color: '#8A877D', bgColor: 'rgba(138,135,125,0.1)', priority: 3 };
     return null;

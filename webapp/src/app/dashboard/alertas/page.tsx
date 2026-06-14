@@ -17,26 +17,26 @@ import { HeaderActions } from '@/components/dashboard/topbar';
 const TYPE_CONFIG = {
   spike: {
     icon: TrendingUp,
-    color: '#E85D3A',
-    bg: 'rgba(232,93,58,0.08)',
+    color: '#D85A30',
+    bg: 'rgba(216,90,48,0.08)',
     label: 'Incremento inusual',
   },
   ant: {
     icon: Bug,
-    color: '#E8A838',
-    bg: 'rgba(232,168,56,0.08)',
+    color: '#EF9F27',
+    bg: 'rgba(239,159,39,0.08)',
     label: 'Gastos hormiga',
   },
   recurring: {
     icon: Repeat,
-    color: '#3B9EDB',
-    bg: 'rgba(59,158,219,0.08)',
+    color: '#378ADD',
+    bg: 'rgba(55,138,221,0.08)',
     label: 'Patrón recurrente',
   },
   projection: {
     icon: AlertTriangle,
-    color: '#E8A838',
-    bg: 'rgba(232,168,56,0.08)',
+    color: '#EF9F27',
+    bg: 'rgba(239,159,39,0.08)',
     label: 'Proyección de exceso',
   },
 } as const;
@@ -135,7 +135,7 @@ export default function AlertasPage() {
   const visibleAlerts = canProjections ? alerts : alerts.filter((a) => a.type !== 'projection');
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
+    <div className="space-y-6">
       <FadeIn>
         <div className="flex items-start justify-between gap-4">
           <div>
