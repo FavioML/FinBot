@@ -18,6 +18,7 @@ const adminRoutes = require('./routes/admin');
 const { startCronJobs } = require('./cron');
 const createWebhookHandler = require('./handlers/webhook');
 const { procesarMensajeLibre } = require('./handlers/message-processor');
+const analytics = require('./lib/analytics');
 
 // Aliases para retrocompatibilidad (exports usados en tests)
 function fechaHoyPeru() { return hoyPeru(); }
@@ -106,6 +107,14 @@ if (require.main === module) {
     log.info({ tag: 'SERVER', port: PORT }, 'NETO v5 iniciado');
     setTimeout(() => startCronJobs(), 30000);
   });
+
+  // Flush de analytics antes de apagar (Railway envía SIGTERM en cada deploy)
+  function gracefulShutdown(signal) {
+    log.info({ tag: 'SERVER', signal }, 'Apagando — flush de analytics');
+    analytics.shutdown().finally(() => process.exit(0));
+  }
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 }
 
 // Exports para tests

@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { IS_DEMO } from '@/lib/demo/is-demo';
 import { DEMO_GOALS, DEMO_GOAL_CONTRIBUTIONS, DEMO_ACHIEVEMENTS, DEMO_USER_ID } from '@/lib/demo/mock-data';
 import { hoyPeru } from '@/lib/dates';
+import { track, EVENTS } from '@/lib/analytics';
 
 export interface MetaAhorro {
   id: string;
@@ -149,7 +150,10 @@ export function useGoalMutations() {
       return res.json();
     },
     onSuccess: () => {
-      if (!IS_DEMO) queryClient.invalidateQueries({ queryKey: ['goals'] });
+      if (!IS_DEMO) {
+        queryClient.invalidateQueries({ queryKey: ['goals'] });
+        track(EVENTS.GOAL_CREATED);
+      }
     },
   });
 

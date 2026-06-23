@@ -26,6 +26,7 @@ import { CATEGORIAS } from '@/lib/constants';
 import { capitalizeDisplay } from '@/lib/format';
 import { hoyPeru } from '@/lib/dates';
 import type { Transaccion } from '@/lib/types';
+import { track, EVENTS } from '@/lib/analytics';
 
 const METODOS_PAGO = ['Debito', 'Credito', 'Yape', 'Plin', 'Transferencia', 'Efectivo'];
 const BANCOS = ['BCP', 'BBVA', 'Interbank', 'Scotiabank', 'Falabella', 'Ripley', 'BanBif', 'Mibanco'];
@@ -316,6 +317,7 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
           return;
         }
         toast.success('Transacción registrada');
+        track(EVENTS.TRANSACTION_CREATED, { tipo, metodo_pago: form.metodo_pago });
       }
       onOpenChange(false);
       onSuccess?.();

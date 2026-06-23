@@ -20,6 +20,7 @@ const { generarResumenSemanal } = require('../services/summaries');
 const { guardarMensaje, obtenerOCrearUsuario, getUserPlanConfig } = require('../helpers/db-helpers');
 const { intentarResolverConsulta } = require('../helpers/consultas');
 const { esperaComprobante, esPagoNeto, procesarComprobantePro, registrarPagoAprobado } = require('../lib/pro-payment');
+const analytics = require('../lib/analytics');
 
 // Idempotencia por wamid: Meta retransmite el webhook cada 30s si OpenAI demora >timeout.
 // Map preserva orden de inserción → LRU. TTL 5 min, max 1000 entries.
@@ -537,6 +538,7 @@ function createWebhookHandler(procesarMensajeLibre) {
           onboarding_paso: 0,
           onboarding_completado: true
         }).eq('id', usuario.id);
+        analytics.capture(usuario.id, 'wa_onboarding_completed', { via: 'free' });
         respuesta = '🆓 *¡Bienvenido a Neto Free!*\n\n' +
           'Registra gastos así:\n\n' +
           '📝 _"gasté 50 en taxi"_\n' +
@@ -597,6 +599,7 @@ function createWebhookHandler(procesarMensajeLibre) {
         var nombresAct = idxResp.map(function(i){ return CATEGORIAS_SUGERIDAS[i-1].emoji+' '+CATEGORIAS_SUGERIDAS[i-1].nombre; }).join(', ');
         var rspCat = '\uD83C\uDF89 *Categorias activadas:*\n' + nombresAct + '\n\nCada una tiene subcategorias sugeridas.\n\n*\u00bfQuieres configurar un presupuesto mensual?* \uD83D\uDCB0\n\nEj: _"limite de 500 soles en Comida"_\n\nO escribe *listo* para empezar con NETO.';
         await supabase.from('usuarios').update({ onboarding_paso: 20, onboarding_completado: true }).eq('id', usuario.id);
+        analytics.capture(usuario.id, 'wa_onboarding_completed', { via: 'categorias' });
         await enviarWhatsapp(from, rspCat); return;
       }
     }
@@ -684,6 +687,7 @@ function createWebhookHandler(procesarMensajeLibre) {
     } else if (cmd === '/manual') {
       // Onboarding sin Gmail — modo free
       await supabase.from('usuarios').update({ plan: 'free', onboarding_paso: 0, onboarding_completado: true }).eq('id', usuario.id);
+      analytics.capture(usuario.id, 'wa_onboarding_completed', { via: 'manual' });
       respuesta = '✍️ *Modo Free activado*\n\nRegistra gastos así:\n📝 _"gasté 50 en taxi"_\n📸 Envía una foto de Yape o Plin\n\n📊 Configura tus presupuestos en tu dashboard:\nhttps://app.neto.pe/dashboard/presupuestos\n\n¿Por dónde empezamos?';
     } else if (esUsuarioNuevo && !cmd.startsWith('/')) {
       await supabase.from('usuarios').update({ onboarding_paso: 100 }).eq('id', usuario.id);

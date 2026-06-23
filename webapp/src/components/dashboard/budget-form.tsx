@@ -23,6 +23,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { CATEGORIAS, getCategoriaEmoji } from '@/lib/constants';
 import { capitalizeDisplay } from '@/lib/format';
 import type { Presupuesto } from '@/lib/types';
+import { track, EVENTS } from '@/lib/analytics';
 
 export interface CategoriaOption {
   nombre: string;
@@ -316,6 +317,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
       }
 
       toast.success(isEditing ? 'Presupuesto actualizado' : 'Presupuesto creado');
+      if (!isEditing) track(EVENTS.BUDGET_CREATED);
       onOpenChange(false);
       onSuccess?.();
     } catch (err) {

@@ -7,6 +7,7 @@ const { generarReporteJSON } = require('../reporte_html');
 const { oauth2Client, obtenerPerfilGoogle, guardarTokens, obtenerCuentasGmail } = require('../gmail');
 const { parsearCorreoBancario } = require('../services/parsers');
 const { escanearGmailYRegistrar } = require('../services/gmail-scanner');
+const analytics = require('../lib/analytics');
 
 const { ultimoDiaMes } = require('../lib/dates');
 
@@ -200,6 +201,7 @@ router.get('/auth/callback', async (req, res) => {
         }
         if (modoConexion === 'inicial') {
           await supabase.from('usuarios').update({ onboarding_paso: 0, onboarding_completado: true }).eq('id', usuario.id);
+          analytics.capture(usuario.id, 'wa_onboarding_completed', { via: 'gmail' });
           await new Promise(r => setTimeout(r, 1500));
           await enviarWhatsapp(usuario.whatsapp,
             '🎉 *¡Listo, ' + primerNombre + '!* Tu cuenta está activa.\n\n' +

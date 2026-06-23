@@ -4,6 +4,7 @@ const { validarMonto, normalizarCategoria } = require('../lib/validators');
 const { hoyPeru } = require('../lib/dates');
 const { esPagoNeto } = require('../lib/config');
 const log = require('../lib/logger');
+const analytics = require('../lib/analytics');
 
 // Dedup window for manual entries (gmail entries dedup separately).
 // Short enough that legitimate rapid entries (e.g. 5 taxis of S/50 in a
@@ -104,6 +105,17 @@ async function guardarTransaccion(usuarioId, datos) {
     dedup_hash: dedupHash
   }).select().single();
   if (error) throw error;
+  // Activación: primera transacción del usuario (excluye importación masiva de Gmail).
+  if (!datos.descripcion_original || !datos.descripcion_original.startsWith('gmail:')) {
+    try {
+      const { count } = await supabase.from('transacciones')
+        .select('id', { count: 'exact', head: true })
+        .eq('usuario_id', usuarioId);
+      if (count === 1) {
+        analytics.capture(usuarioId, 'wa_first_transaction', { tipo: data.tipo, categoria: data.categoria });
+      }
+    } catch (e) { /* nunca romper el registro por analytics */ }
+  }
   return data;
 }
 

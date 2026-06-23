@@ -2,6 +2,7 @@ const { supabase } = require('../lib/db');
 const log = require('../lib/logger');
 const { hoyPeru } = require('../lib/dates');
 const { FREEMIUM_ACTIVE, PLAN_CONFIG } = require('../lib/constants');
+const analytics = require('../lib/analytics');
 
 async function guardarMensaje(usuarioId, rol, mensaje) {
   try {
@@ -38,6 +39,11 @@ async function obtenerOCrearUsuario(numeroWhatsapp) {
   } catch (e) {}
   const { data: nuevo, error } = await supabase.from('usuarios').insert({ whatsapp: numeroNorm }).select().single();
   if (error) throw new Error('Error creando usuario: ' + error.message);
+  // Activación: primer contacto / creación de usuario por WhatsApp.
+  analytics.capture(nuevo.id, 'wa_user_registered', {
+    channel: 'whatsapp',
+    $set: { whatsapp: numeroNorm, plan: nuevo.plan || 'free', signup_channel: 'whatsapp' },
+  });
   return nuevo;
 }
 

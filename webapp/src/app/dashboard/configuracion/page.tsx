@@ -44,6 +44,7 @@ import { createClient } from '@/lib/supabase/client';
 import { SOCIAL_LINKS, getCategoriaEmoji, CATEGORIAS } from '@/lib/constants';
 import { capitalizeDisplay } from '@/lib/format';
 import { HeaderActions } from '@/components/dashboard/topbar';
+import { optOutTracking, optInTracking, hasOptedOut } from '@/lib/analytics';
 
 /* ------------------------------------------------------------------ */
 /*  Plan comparison data                                               */
@@ -97,6 +98,7 @@ export default function ConfiguracionPage() {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [recordatoriosActivos, setRecordatoriosActivos] = useState(true);
   const [recordatoriosLoading, setRecordatoriosLoading] = useState(false);
+  const [analyticsOptedOut, setAnalyticsOptedOut] = useState(false);
 
   /* ---- Edit name ---- */
   const [editingName, setEditingName] = useState(false);
@@ -135,6 +137,8 @@ export default function ConfiguracionPage() {
       .catch(() => {});
     // Fetch categories
     fetchCategories();
+    // Estado de consentimiento de analytics
+    setAnalyticsOptedOut(hasOptedOut());
   }, []);
 
   async function fetchCategories() {
@@ -874,6 +878,44 @@ export default function ConfiguracionPage() {
         <p className="text-xs text-[#8A877D]">
           Los resumenes y alertas se envian automaticamente por WhatsApp. Solo los recordatorios se pueden activar o desactivar.
         </p>
+      </div>
+
+      {/* ============================================================ */}
+      {/*  Privacy                                                        */}
+      {/* ============================================================ */}
+      <div className="glass-card glass-card-glow p-6 space-y-4">
+        <div className="flex items-center gap-2 mb-1">
+          <Shield className="h-5 w-5 text-[#8A877D]" />
+          <h2 className="text-lg font-semibold text-[#F0EFE8]">Privacidad</h2>
+        </div>
+
+        <p className="text-sm text-[#8A877D]">
+          Usamos analíticas de producto para entender cómo mejorar Neto. Tus montos y
+          transacciones siempre van enmascarados. Puedes desactivar el seguimiento cuando quieras.
+        </p>
+
+        <div className="flex items-start justify-between gap-4 rounded-lg bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-[#C8C6BC]">No rastrear mi actividad</p>
+            <p className="text-xs text-[#8A877D] mt-0.5">Desactiva analíticas y grabaciones de sesión en este navegador</p>
+          </div>
+          <button
+            onClick={() => {
+              const next = !analyticsOptedOut;
+              if (next) optOutTracking();
+              else optInTracking();
+              setAnalyticsOptedOut(next);
+              toast.success(next ? 'Seguimiento desactivado' : 'Seguimiento activado');
+            }}
+            className={`shrink-0 mt-0.5 h-5 w-9 rounded-full relative transition-colors cursor-pointer ${
+              analyticsOptedOut ? 'bg-[#1D9E75]' : 'bg-[#3A3A38]'
+            }`}
+          >
+            <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+              analyticsOptedOut ? 'right-0.5' : 'left-0.5'
+            }`} />
+          </button>
+        </div>
       </div>
 
       {/* ============================================================ */}
