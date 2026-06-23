@@ -47,7 +47,7 @@ Lanzar agentes en paralelo para verificar:
 Verificar alineación entre 4 fuentes:
 1. `webapp/PRICING-PLAN.md` — Fuente de verdad
 2. `webapp/src/lib/plan.ts` — PRO_ONLY_FEATURES array
-3. `landing/src/components/landing/Pricing.tsx` — Lo que el usuario ve
+3. `products/neto/landing/src/components/landing/Pricing.tsx` — Lo que el usuario ve (repo neto-landing)
 4. Backend `handlers/intents/` — checkProWall/checkProLimit calls
 
 Para cada feature Pro-only, verificar que:
@@ -79,5 +79,5 @@ Generar reporte con:
 - `services/debts.js` — Debt payments
 - `services/metas.js` — Savings goals
 - `handlers/intents/` — All intent handlers (12 files)
-- `landing/src/components/landing/Pricing.tsx` — Pricing display
-- `landing/public/sitemap.xml` — SEO sitemap
+- `products/neto/landing/src/components/landing/Pricing.tsx` — Pricing display (repo neto-landing)
+- `products/neto/landing/public/sitemap.xml` — SEO sitemap (repo neto-landing)

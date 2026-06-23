@@ -8,19 +8,24 @@ allowed_tools: Bash, Read, Glob, Grep, WebFetch
 
 Cuando el usuario quiera desplegar la landing page o verificar su estado en produccion.
 
+> IMPORTANTE: la landing vive en un **repo separado**, `neto-landing`, en
+> `C:\Vortik.dev\products\neto\landing` (NO en este repo FinBot). Antes vivia en
+> `app/landing/`, que se elimino el 2026-06-23 por estar muerta. Trabajar siempre
+> sobre `products/neto/landing/`.
+
 ## Flujo
 
 ### 1. Pre-checks
-- Verificar que no hay errores de build: `cd landing && npm run build`
-- Verificar que `landing/out/` se genera correctamente
+- Verificar que no hay errores de build: `cd C:\Vortik.dev\products\neto\landing && npm run build`
+- Verificar que `products/neto/landing/out/` se genera correctamente (static export)
 - Confirmar que no hay archivos grandes innecesarios (>1MB)
 
 ### 2. Deploy
-El deploy es automatico via Cloudflare Pages al hacer push a main.
-- Proyecto: `neto-site`
-- Root directory: `landing/`
-- Build watch paths: `landing/**`
-- Account ID: se obtiene de la variable CF_ACCOUNT_ID en settings.local.json
+El deploy es automatico via Cloudflare Pages al hacer push a `main` del repo
+`neto-landing` (github.com/FavioML/neto-landing).
+- Proyecto Cloudflare: `neto-site`
+- Account ID: se obtiene de `CF_ACCOUNT_ID` (settings.local.json)
+- Push: `cd C:\Vortik.dev\products\neto\landing && git push`
 
 ### 3. Verificacion post-deploy
 Verificar estado del deploy via API de Cloudflare:
@@ -41,5 +46,5 @@ console.log('Fecha:', latest.created_on);
 - Verificar JSON-LD schema (Organization, FAQPage)
 
 ## Troubleshooting
-- Cloudflare a veces skipea deploys — verificar con la API si el ultimo deploy corresponde al ultimo commit
-- Si el build falla, revisar `landing/next.config.ts` y dependencias
+- Cloudflare a veces skipea deploys — verificar con la API si el ultimo deploy corresponde al ultimo commit (`CF_PAGES_PROJECT=neto-site`)
+- Si el build falla, revisar `products/neto/landing/next.config.ts` y dependencias
