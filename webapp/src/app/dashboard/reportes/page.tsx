@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback, useRef } from 'react';
+import { useState, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
@@ -35,15 +35,16 @@ import { capitalizeDisplay, normalizeMetodoPago, getMetodoIcon } from '@/lib/for
 import { useSubscriptions } from '@/lib/hooks/use-subscriptions';
 import type { Transaccion } from '@/lib/types';
 import { HeaderActions } from '@/components/dashboard/topbar';
-import {
-  PieChart, Pie, Cell, BarChart, Bar,
-  XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
-  ReferenceLine,
-} from 'recharts';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   FileBarChart, Download, TrendingUp, TrendingDown,
   Wallet, Activity, Pencil, ArrowUp, ArrowDown,
 } from 'lucide-react';
+
+// recharts is heavy (~317 KB); load the report charts only when this page renders
+const CategoryBarChart = lazy(() => import('@/components/charts/reportes-charts').then(m => ({ default: m.CategoryBarChart })));
+const PaymentMethodsPieChart = lazy(() => import('@/components/charts/reportes-charts').then(m => ({ default: m.PaymentMethodsPieChart })));
+const DailySpendingChart = lazy(() => import('@/components/charts/reportes-charts').then(m => ({ default: m.DailySpendingChart })));
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
 
@@ -66,7 +67,6 @@ function buildMonthOptions() {
   return options;
 }
 
-const PIE_COLORS = ['#1D9E75', '#EF9F27', '#D85A30', '#3B82F6', '#8B5CF6', '#EC4899', '#14B8A6', '#F97316'];
 
 // --- Component ---
 
@@ -441,33 +441,9 @@ if (!isLoading && transactions.length === 0) {
         <div className="glass-card glass-card-glow p-5">
           <h4 className="text-sm font-medium text-[#C8C6BC] mb-4">Gastos por categoria</h4>
           {categoryBreakdown.length > 0 ? (
-            <ResponsiveContainer width="100%" height={Math.max(200, categoryBreakdown.length * 40)}>
-              <BarChart data={categoryBreakdown} layout="vertical" margin={{ left: 10, right: 20 }}>
-                <XAxis type="number" hide />
-                <YAxis
-                  type="category" dataKey="label" width={140}
-                  tick={{ fill: '#C8C6BC', fontSize: 12 }}
-                />
-                <Tooltip
-                  contentStyle={{ background: 'rgba(28,28,26,0.8)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8 }}
-                  labelStyle={{ color: '#F0EFE8', fontSize: 12 }}
-                  itemStyle={{ color: '#F0EFE8', fontSize: 12 }}
-                  formatter={(v) => formatCurrency(Number(v))}
-                />
-                <Bar
-                  dataKey="total"
-                  radius={[0, 6, 6, 0]}
-                  onClick={(data: any) => {
-                    if (data && data.categoria) setDetailCat(data.categoria);
-                  }}
-                  cursor="pointer"
-                >
-                  {categoryBreakdown.map((_, i) => (
-                    <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            <Suspense fallback={<Skeleton className="h-[200px] rounded-lg" />}>
+              <CategoryBarChart data={categoryBreakdown} onSelect={setDetailCat} />
+            </Suspense>
           ) : (
             <p className="text-sm text-[#8A877D] text-center py-8">Sin gastos registrados</p>
           )}
@@ -477,30 +453,9 @@ if (!isLoading && transactions.length === 0) {
         <div className="glass-card glass-card-glow p-5">
           <h4 className="text-sm font-medium text-[#C8C6BC] mb-4">Metodos de pago</h4>
           {paymentMethods.length > 0 ? (
-            <ResponsiveContainer width="100%" height={280}>
-              <PieChart>
-                <Pie
-                  data={paymentMethods} dataKey="value" nameKey="name"
-                  cx="50%" cy="50%" innerRadius={55} outerRadius={90}
-                  paddingAngle={3} strokeWidth={0}
-                  onClick={(data: any) => {
-                    if (data && data.name) setDetailMetodo(data.name);
-                  }}
-                  cursor="pointer"
-                >
-                  {paymentMethods.map((_, i) => (
-                    <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{ background: 'rgba(26,26,24,0.8)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, color: '#F0EFE8', fontSize: 12 }}
-                  formatter={(v) => formatCurrency(Number(v))}
-                />
-                <Legend
-                  formatter={(value: string) => <span className="text-xs text-[#C8C6BC]">{getMetodoIcon(value)} {value}</span>}
-                />
-              </PieChart>
-            </ResponsiveContainer>
+            <Suspense fallback={<Skeleton className="h-[280px] rounded-lg" />}>
+              <PaymentMethodsPieChart data={paymentMethods} onSelect={setDetailMetodo} />
+            </Suspense>
           ) : (
             <p className="text-sm text-[#8A877D] text-center py-8">Sin datos</p>
           )}
@@ -542,31 +497,9 @@ if (!isLoading && transactions.length === 0) {
             </span>
           )}
         </div>
-        <ResponsiveContainer width="100%" height={220}>
-          <BarChart data={dailySpending} margin={{ left: 0, right: 0 }}>
-            <XAxis
-              dataKey="day" tick={{ fill: '#8A877D', fontSize: 11 }}
-              axisLine={false} tickLine={false}
-            />
-            <YAxis hide />
-            <Tooltip
-              contentStyle={{ background: 'rgba(26,26,24,0.8)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, color: '#F0EFE8', fontSize: 12 }}
-              formatter={(v) => formatCurrency(Number(v))}
-              labelFormatter={(l) => `Dia ${l}`}
-            />
-            {dailyAverage > 0 && (
-              <ReferenceLine
-                y={dailyAverage}
-                stroke="#EF9F27"
-                strokeDasharray="6 4"
-                strokeOpacity={0.5}
-              />
-            )}
-            <Bar dataKey="total" fill="#EF9F27" radius={[4, 4, 0, 0]} cursor="pointer"
-              onClick={(data: any) => { if (data && data.day && data.total > 0) setDetailDay(data.day); }}
-            />
-          </BarChart>
-        </ResponsiveContainer>
+        <Suspense fallback={<Skeleton className="h-[220px] rounded-lg" />}>
+          <DailySpendingChart data={dailySpending} dailyAverage={dailyAverage} onSelect={setDetailDay} />
+        </Suspense>
       </div>
 
       {/* Suscripciones summary */}

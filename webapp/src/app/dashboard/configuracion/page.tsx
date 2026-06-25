@@ -137,8 +137,8 @@ export default function ConfiguracionPage() {
       .catch(() => {});
     // Fetch categories
     fetchCategories();
-    // Estado de consentimiento de analytics
-    setAnalyticsOptedOut(hasOptedOut());
+    // Estado de consentimiento de analytics (posthog se carga async)
+    hasOptedOut().then(setAnalyticsOptedOut);
   }, []);
 
   async function fetchCategories() {

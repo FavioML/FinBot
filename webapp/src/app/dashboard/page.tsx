@@ -28,8 +28,6 @@ import { EmptyState } from '@/components/shared/empty-state';
 import { MonthSelector } from '@/components/dashboard/month-selector';
 import { KPICards } from '@/components/dashboard/kpi-cards';
 import { InsightCard, generateInsight } from '@/components/dashboard/insight-card';
-import { CategoryDonut } from '@/components/charts/category-donut';
-import { TrendLine } from '@/components/charts/trend-line';
 import { ScoreTrend } from '@/components/charts/score-trend';
 import { SpendingProjection } from '@/components/dashboard/spending-projection';
 import { ExchangeRateWidget } from '@/components/dashboard/exchange-rate-widget';
@@ -38,6 +36,8 @@ import { TodaySpending } from '@/components/dashboard/today-spending';
 import { NPSCard } from '@/components/dashboard/nps-card';
 
 // Lazy load below-the-fold heavy components
+const CategoryDonut = lazy(() => import('@/components/charts/category-donut').then(m => ({ default: m.CategoryDonut })));
+const TrendLine = lazy(() => import('@/components/charts/trend-line').then(m => ({ default: m.TrendLine })));
 const FinancialCalendar = lazy(() => import('@/components/charts/financial-calendar').then(m => ({ default: m.FinancialCalendar })));
 const CategoryComparison = lazy(() => import('@/components/charts/category-comparison').then(m => ({ default: m.CategoryComparison })));
 const TopMerchants = lazy(() => import('@/components/dashboard/top-merchants').then(m => ({ default: m.TopMerchants })));
@@ -464,8 +464,12 @@ export default function DashboardPage() {
           {/* Charts row */}
           <FadeIn delay={0.2}>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <TrendLine data={trendData} />
-            <CategoryDonut data={categoryData} onCategoryClick={setDetailCategoria} />
+            <Suspense fallback={<Skeleton className="h-[320px] rounded-2xl" />}>
+              <TrendLine data={trendData} />
+            </Suspense>
+            <Suspense fallback={<Skeleton className="h-[320px] rounded-2xl" />}>
+              <CategoryDonut data={categoryData} onCategoryClick={setDetailCategoria} />
+            </Suspense>
           </div>
           </FadeIn>
 

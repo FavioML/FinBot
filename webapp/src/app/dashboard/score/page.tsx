@@ -2,10 +2,13 @@
 
 export const dynamic = 'force-dynamic';
 
+import { lazy, Suspense } from 'react';
 import Link from 'next/link';
 import { Lock, Lightbulb, PartyPopper, Gauge } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { Skeleton } from '@/components/ui/skeleton';
 import { ScoreGauge } from '@/components/charts/score-gauge';
+
+const ScoreEvolutionChart = lazy(() => import('@/components/charts/score-evolution-chart').then(m => ({ default: m.ScoreEvolutionChart })));
 import { useNetoScoreHistory, type NetoScoreFactors } from '@/lib/hooks/use-neto-score';
 import { useUser } from '@/lib/hooks/use-user';
 import { canAccess } from '@/lib/plan';
@@ -41,16 +44,6 @@ function FactorBar({ label, description, value }: { label: string; description: 
           style={{ width: `${value}%`, background: color, boxShadow: `0 0 8px ${color}66` }}
         />
       </div>
-    </div>
-  );
-}
-
-function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number }>; label?: string }) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="glass-card px-3 py-2 text-xs">
-      <p className="text-[#8A877D] mb-0.5">{label}</p>
-      <p className="text-[#1D9E75] font-semibold">{payload[0].value} pts</p>
     </div>
   );
 }
@@ -218,33 +211,9 @@ export default function ScorePage() {
             )}
           </div>
           {chartData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={180}>
-              <LineChart data={canHistory ? chartData : chartData.slice(-1)}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-                <XAxis
-                  dataKey="period"
-                  tick={{ fill: '#8A877D', fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  domain={[0, 100]}
-                  tick={{ fill: '#8A877D', fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                  width={28}
-                />
-                <Tooltip content={<CustomTooltip />} />
-                <Line
-                  type="monotone"
-                  dataKey="score"
-                  stroke="#1D9E75"
-                  strokeWidth={2.5}
-                  dot={{ fill: '#1D9E75', r: 4, strokeWidth: 0 }}
-                  activeDot={{ r: 6, fill: '#1D9E75' }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <Suspense fallback={<Skeleton className="h-[180px] rounded-lg" />}>
+              <ScoreEvolutionChart data={canHistory ? chartData : chartData.slice(-1)} />
+            </Suspense>
           ) : (
             <p className="text-[#8A877D] text-sm text-center py-8">Sin historial aún</p>
           )}

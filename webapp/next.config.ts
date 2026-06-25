@@ -6,7 +6,15 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_DEMO_MODE: process.env.NEXT_PUBLIC_DEMO_MODE || 'false',
   },
-  experimental: {},
+  experimental: {
+    // Tree-shake heavy libs: import only the icons/charts/animations actually used
+    optimizePackageImports: ['lucide-react', 'recharts', 'motion'],
+  },
+  // Pin the Turbopack root to this app: the backend in ../ has its own
+  // package-lock.json, so without this Turbopack infers the wrong workspace root.
+  turbopack: {
+    root: __dirname,
+  },
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: 'lh3.googleusercontent.com' },
