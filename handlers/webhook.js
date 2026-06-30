@@ -20,6 +20,7 @@ const { generarResumenSemanal } = require('../services/summaries');
 const { guardarMensaje, obtenerOCrearUsuario, getUserPlanConfig } = require('../helpers/db-helpers');
 const { intentarResolverConsulta } = require('../helpers/consultas');
 const { esperaComprobante, esPagoNeto, procesarComprobantePro, registrarPagoAprobado } = require('../lib/pro-payment');
+const { procesarComandoAdmin } = require('./admin-commands');
 const analytics = require('../lib/analytics');
 
 // Idempotencia por wamid: Meta retransmite el webhook cada 30s si OpenAI demora >timeout.
@@ -779,107 +780,13 @@ function createWebhookHandler(procesarMensajeLibre) {
       respuesta = '🎁 *Tu link de referido:*\n\n' + railwayUrl + '/r/' + refCode + '\n\nComparte con amigos. Cada *3 referidos* te dan *1 mes gratis* de Neto. 🎉\n\n' + estadoRef;
     } else if (cmd === '/dashboard' || cmd === '/app') {
       respuesta = '📊 *Tu dashboard está en:*\n\n🔗 https://app.neto.pe\n\nAhí puedes ver gráficos, metas, reportes PDF, suscripciones y más.\n\n_Inicia sesión con tu cuenta de Google._';
-    } else if (cmd.startsWith('/activar ')) {
-      // Comando admin: /activar <numero_whatsapp> - solo Favio puede usarlo
+    } else if (cmd.startsWith('/activar ') || cmd.startsWith('/pago ') || cmd === '/usuarios' || cmd === '/admin' || cmd === '/panel') {
+      // Comandos admin (solo Favio). La logica vive en handlers/admin-commands.js,
+      // compartida con el webhook de Telegram para que ambos canales se comporten igual.
       if (from !== ADMIN_NUMBER) {
         respuesta = 'No tienes permiso para usar este comando.';
       } else {
-        const numeroActivar = cmd.replace('/activar ', '').trim().replace(/\+/g, '');
-        const { data: usuarioActivar } = await supabase.from('usuarios').select('*').eq('whatsapp', numeroActivar).single();
-        if (!usuarioActivar) {
-          respuesta = '\u274C No encontre un usuario con el numero: ' + numeroActivar;
-        } else if (usuarioActivar.plan === 'premium') {
-          respuesta = '\u26A0\uFE0F ' + (usuarioActivar.nombre || numeroActivar) + ' ya tiene Premium activo.';
-        } else {
-          const hoy = new Date();
-          const vence = new Date(hoy.getFullYear(), hoy.getMonth() + 1, hoy.getDate()).toISOString().split('T')[0];
-          const desde = hoy.toISOString().split('T')[0];
-          await supabase.from('usuarios').update({
-            plan: 'premium',
-            pago_pendiente: false,
-            esperando_comprobante: false,
-            premium_desde: desde,
-            premium_vence: vence
-          }).eq('id', usuarioActivar.id);
-          await registrarPagoAprobado(usuarioActivar.id, { tipoPlan: usuarioActivar.tipo_plan || 'mensual', premiumDesde: desde, premiumVence: vence, aprobadoPor: 'admin:/activar' });
-          // Notificar al usuario
-          await enviarWhatsapp(usuarioActivar.whatsapp,
-            '\u2B50 *\u00a1Bienvenido a NETO Pro!*\n\n' +
-            'Tu pago fue confirmado. Ya tienes acceso completo.\n\n' +
-            'Registra gastos así:\n' +
-            '📝 _"gasté 50 en taxi"_\n' +
-            '📸 Envía una foto de Yape o Plin\n\n' +
-            '📊 Configura tus presupuestos en tu dashboard:\nhttps://app.neto.pe/dashboard/presupuestos\n\n' +
-            '¿Por dónde empezamos?'
-          );
-          respuesta = '\u2705 Premium activado para ' + (usuarioActivar.nombre || numeroActivar) + '\nVence: ' + vence;
-        }
-      }
-    } else if (cmd.startsWith('/pago ')) {
-      if (from !== ADMIN_NUMBER) {
-        respuesta = 'No tienes permiso para usar este comando.';
-      } else {
-        const partes = cmd.replace('/pago ', '').trim().split(/\s+/);
-        const numeroPago = (partes[0] || '').replace(/\+/g, '');
-        const tipoPlan = partes[1] || 'mensual';
-        const { data: usuarioPago } = await supabase.from('usuarios').select('*').eq('whatsapp', numeroPago).single();
-        if (!usuarioPago) {
-          respuesta = '❌ No encontré un usuario con el número: ' + numeroPago;
-        } else {
-          const hoy = new Date();
-          const mesesAdd = tipoPlan === 'anual' ? 12 : 1;
-          const vence = new Date(hoy.getFullYear(), hoy.getMonth() + mesesAdd, hoy.getDate());
-          const desdePago = hoy.toISOString().split('T')[0];
-          const vencePago = vence.toISOString().split('T')[0];
-          await supabase.from('usuarios').update({
-            plan: 'premium',
-            estado_pago: 'pagado',
-            tipo_plan: tipoPlan,
-            fecha_pago: hoy.toISOString(),
-            fecha_vencimiento: vence.toISOString(),
-            premium_desde: desdePago,
-            premium_vence: vencePago,
-            pago_pendiente: false,
-            esperando_comprobante: false,
-            onboarding_paso: 0
-          }).eq('id', usuarioPago.id);
-          await registrarPagoAprobado(usuarioPago.id, { tipoPlan, premiumDesde: desdePago, premiumVence: vencePago, aprobadoPor: 'admin:/pago' });
-          const urlOAuth = generarUrlAutorizacion(usuarioPago.whatsapp);
-          await enviarWhatsapp(usuarioPago.whatsapp,
-            '✅ *¡Pago confirmado!*\n\n' +
-            'Plan: *' + (tipoPlan === 'anual' ? 'Anual (S/99/año)' : 'Mensual (S/10/mes)') + '*\n' +
-            'Vence: ' + vence.toISOString().split('T')[0] + '\n\n' +
-            'Conecta tu Gmail para que Neto lea tus correos bancarios automáticamente:\n\n' +
-            '🔗 ' + urlOAuth + '\n\n' +
-            '_Solo leemos notificaciones bancarias. Sin contraseñas bancarias._'
-          );
-          respuesta = '✅ Pago confirmado para ' + (usuarioPago.nombre || numeroPago) + ' (' + tipoPlan + '). Link OAuth enviado.';
-        }
-      }
-    } else if (cmd === '/usuarios' || cmd === '/admin') {
-      // Panel admin rapido
-      if (from !== ADMIN_NUMBER) {
-        respuesta = 'No tienes permiso para usar este comando.';
-      } else {
-        const { data: todos } = await supabase.from('usuarios').select('whatsapp, nombre, plan, pago_pendiente, estado_pago, created_at').order('created_at', { ascending: false }).limit(20);
-        if (!todos || todos.length === 0) { respuesta = 'No hay usuarios registrados.'; }
-        else {
-          const premium = todos.filter(u => u.plan === 'premium').length;
-          const pendientes = todos.filter(u => u.pago_pendiente).length;
-          let msg = '*Panel NETO*\n---------------\n';
-          msg += 'Total: ' + todos.length + ' usuarios\n';
-          msg += 'Premium: ' + premium + ' | Free: ' + (todos.length - premium) + '\n';
-          if (pendientes > 0) msg += '\u26A0\uFE0F Pagos pendientes: ' + pendientes + '\n';
-          msg += '\n*Ultimos usuarios:*\n';
-          todos.slice(0, 10).forEach(u => {
-            const plan = u.plan === 'premium' ? '\u2B50' : '\uD83D\uDFE2';
-            const pend = u.pago_pendiente ? ' \uD83D\uDCB8' : '';
-            const estado = u.estado_pago === 'pagado' ? '' : (u.estado_pago === 'pendiente' ? ' \u23F3' : '');
-            msg += plan + ' ' + (u.nombre || u.whatsapp) + pend + estado + '\n';
-          });
-          msg += '\n_Comandos:_\n/pago <num> <mensual|anual>\n/activar <num>';
-          respuesta = msg;
-        }
+        respuesta = await procesarComandoAdmin(cmd);
       }
     } else if (cmd === '/categorias' || cmd === '/categorias agregar') {
       var catsCmd = await obtenerCategoriasUsuario(usuario.id);

@@ -17,6 +17,8 @@ const publicRoutes = require('./routes/public');
 const adminRoutes = require('./routes/admin');
 const { startCronJobs } = require('./cron');
 const createWebhookHandler = require('./handlers/webhook');
+const { telegramWebhookHandler } = require('./handlers/telegram-webhook');
+const { registrarWebhookTelegram } = require('./lib/telegram');
 const { procesarMensajeLibre } = require('./handlers/message-processor');
 const analytics = require('./lib/analytics');
 
@@ -86,6 +88,11 @@ app.get('/webhook', (req, res) => {
 
 app.post('/webhook', webhookLimiter, createWebhookHandler(procesarMensajeLibre));
 
+// Webhook entrante de Telegram: el admin aprueba pagos (/pago, /activar, /panel) desde
+// el chat donde recibe las notificaciones. Seguridad: secret header + allowlist de chat_id
+// (ver handlers/telegram-webhook.js). Limiter holgado propio.
+app.post('/telegram/webhook', adminLimiter, telegramWebhookHandler);
+
 app.use('/', publicRoutes);
 app.use('/admin', adminLimiter, adminRoutes);
 
@@ -106,6 +113,8 @@ if (require.main === module) {
   app.listen(PORT, () => {
     log.info({ tag: 'SERVER', port: PORT }, 'NETO v5 iniciado');
     setTimeout(() => startCronJobs(), 30000);
+    // Registrar el webhook entrante de Telegram (idempotente; no-op si faltan env vars).
+    registrarWebhookTelegram().catch((e) => log.error({ tag: 'TELEGRAM', err: e.message }, 'Fallo registrando webhook al boot'));
   });
 
   // Flush de analytics antes de apagar (Railway envía SIGTERM en cada deploy)
