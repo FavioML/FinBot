@@ -28,6 +28,10 @@ function fechaAyerPeru() { const { ayerPeru } = require('./lib/dates'); return a
 
 const app = express();
 
+// Railway está detrás de un proxy reverso. Confiamos en el primer hop para que
+// req.ip refleje el IP real del cliente (y desactiva el warning de express-rate-limit).
+app.set('trust proxy', 1);
+
 // Security headers
 app.use(helmet({
   contentSecurityPolicy: false,
