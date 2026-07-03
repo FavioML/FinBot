@@ -1,14 +1,33 @@
 const log = require('../../lib/logger');
 
 module.exports = {
-  intents: ['ver_gasto_mayor', 'ver_gasto_menor', 'ver_promedio_diario', 'ver_historial_cambios', 'ver_ingresos', 'ver_suscripciones'],
+  intents: ['ver_gasto_mayor', 'ver_gasto_menor', 'ver_promedio_diario', 'ver_historial_cambios', 'ver_ultima_transaccion', 'ver_ingresos', 'ver_suscripciones'],
   async handle({ intencion, msg, datos, usuario, from, ctx }) {
     const {
       supabase, mesActual, anioActual, mE, netoPrompt, historialConv, ultimoDiaMes,
-      obtenerGastosMes, redactarConNETO, formatFecha
+      obtenerGastosMes, obtenerUltimaTransaccion, redactarConNETO, formatFecha
     } = ctx;
 
     switch (intencion) {
+
+      // "el último movimiento", "mi último gasto", "qué registré último" → SOLO mostrar.
+      // Nunca borrar: este intent existe justamente porque antes "último movimiento" se
+      // clasificaba como deshacer_ultimo y borraba la transacción (caso Edgar, 23-jun).
+      case 'ver_ultima_transaccion': {
+        try {
+          const ultima = await obtenerUltimaTransaccion(usuario.id);
+          if (!ultima) return 'Todavía no tienes movimientos registrados. Escribe algo como _"gasté 20 en taxi"_ y arrancamos.';
+          const signo = ultima.tipo === 'ingreso' ? '📥 Ingreso' : '📤 Gasto';
+          const monto = ultima.moneda === 'USD' ? '$' + parseFloat(ultima.monto).toFixed(2) : 'S/ ' + parseFloat(ultima.monto).toFixed(2);
+          return '🧾 *Tu último movimiento:*\n\n' + signo + ': ' + monto + '\n🏪 ' + (ultima.comercio || 'Sin comercio') +
+            '\n📁 ' + (ultima.categoria || 'Sin categoría') + (ultima.subcategoria && ultima.subcategoria !== 'sin_categoria' ? ' > ' + ultima.subcategoria : '') +
+            '\n📅 ' + (ultima.fecha ? formatFecha(ultima.fecha) : '') +
+            '\n\n_Si querés corregirlo escribe qué cambiar; para borrarlo, "elimina el de ' + monto + '"._';
+        } catch(e) {
+          log.error({ tag: 'ULTIMA_TX', err: e.message }, 'Error ver última transacción');
+          return 'No pude traer tu último movimiento. Intenta de nuevo.';
+        }
+      }
 
       case 'ver_gasto_mayor': {
         try {

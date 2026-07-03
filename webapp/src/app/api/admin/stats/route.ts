@@ -160,6 +160,7 @@ export async function GET() {
   const { data: nlpRaw } = await db
     .from('nlp_errors')
     .select('created_at')
+    .neq('error_tipo', 'rate_limit') // 429 de OpenAI es infra, no NLP: fuera del chart
     .gte('created_at', monthAgo)
     .order('created_at', { ascending: true });
 

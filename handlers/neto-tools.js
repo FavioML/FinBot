@@ -534,12 +534,13 @@ const NETO_TOOLS = [
               "lowest_expense",
               "daily_average",
               "change_history",
+              "last_movement",
               "income",
               "subscriptions",
               "compare_months",
             ],
             description:
-              "Tipo de analisis: highest_expense=gasto mayor, lowest_expense=gasto menor, daily_average=promedio diario, change_history=historial de cambios, income=ingresos, subscriptions=suscripciones, compare_months=comparar meses",
+              "Tipo de analisis: highest_expense=gasto mayor, lowest_expense=gasto menor, daily_average=promedio diario, change_history=historial de cambios, last_movement=ver la ULTIMA transaccion/movimiento registrado (solo mostrar, NO borrar), income=ingresos, subscriptions=suscripciones, compare_months=comparar meses",
           },
           mes: {
             type: "integer",
@@ -898,6 +899,7 @@ const TOOL_INTENT_MAP = {
     lowest_expense: "ver_gasto_menor",
     daily_average: "ver_promedio_diario",
     change_history: "ver_historial_cambios",
+    last_movement: "ver_ultima_transaccion",
     income: "ver_ingresos",
     subscriptions: "ver_suscripciones",
     compare_months: "comparar_meses",

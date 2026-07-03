@@ -8,6 +8,7 @@ const fechaAyerPeru = () => ayerPeru();
 const { CATEGORIAS_VALIDAS, CATEGORIA_MAP, WEBAPP_URL } = require('../lib/constants');
 const { validarMonto, normalizarCategoria } = require('../lib/validators');
 const { ADMIN_NUMBER } = require('../lib/config');
+const { esVerUltimoMovimiento } = require('../lib/nlp-guards');
 const { getEmojiCategoria, formatearResumen, formatearPendientes, formatearCategoriasMsg, barraProgreso, generarRefCode, formatFecha } = require('../lib/formatters');
 const { enviarWhatsapp } = require('../lib/whatsapp');
 const { obtenerTipoCambio, guardarTransaccion, obtenerGastosMes, obtenerGastosSemana, obtenerUltimaTransaccion, recategorizarTransaccion, corregirTransaccionEspecifica, guardarReglaComercio, retroaplicarRegla, obtenerConsultasPendientes } = require('../services/transactions');
@@ -27,6 +28,40 @@ const { generarYEnviarReporte } = require('../services/reports');
 const { guardarMensaje, obtenerHistorial, getUserPlanConfig, getHistoryDateLimit } = require('../helpers/db-helpers');
 const { getHandler } = require('./intent-registry');
 const { NETO_TOOLS, mapToolToIntent } = require('./neto-tools');
+
+/**
+ * Salvage sin IA: cuando OpenAI está caído (429) el pipeline normal no puede clasificar,
+ * pero no queremos perder el registro del usuario (caso Ricardo: "4.10 pastillas" nunca se
+ * guardó). Extrae un gasto/ingreso simple por regex y lo guarda en categoría genérica.
+ * Best-effort: si no hay monto claro, devuelve null y el flujo cae al mensaje de reintento.
+ */
+async function salvarGastoSinIA(msg, usuario) {
+  try {
+    const texto = (msg || '').trim();
+    const m = texto.match(/(\d+(?:[.,]\d{1,2})?)/); // primer número con hasta 2 decimales
+    if (!m) return null;
+    const monto = parseFloat(m[1].replace(',', '.'));
+    if (!isFinite(monto) || monto <= 0 || monto > 999999) return null;
+    const esIngreso = /\b(cobr[eé]|me\s+pagaron|me\s+pag[oó]|sueldo|salario|dep[oó]sito|recib[ií]|abono)\b/i.test(texto);
+    let comercio = texto
+      .replace(m[0], ' ')
+      .replace(/\b(gast[eé]|pagu[eé]|compr[eé]|me\s+prest[eé]|en|de|por|soles?|s\/\.?|pen)\b/gi, ' ')
+      .replace(/\s+/g, ' ').trim();
+    if (comercio.length > 40) comercio = comercio.slice(0, 40);
+    const fecha = fechaHoyPeru();
+    const datos = {
+      monto, moneda: 'PEN', comercio: comercio || 'Sin comercio',
+      categoria: esIngreso ? 'Finanzas' : 'Otros', subcategoria: 'sin_categoria',
+      tipo: esIngreso ? 'ingreso' : 'gasto', fecha, descripcion_original: texto.substring(0, 200),
+    };
+    await guardarTransaccion(usuario.id, datos);
+    return '✅ S/' + monto.toFixed(2) + ' en ' + datos.categoria + (comercio ? ' · ' + comercio : '') + ' · ' + formatFecha(fecha) +
+      '\n\n_Lo registré al toque porque estábamos con mucho tráfico. Si la categoría no es "' + datos.categoria + '", dime y la corrijo._';
+  } catch (e) {
+    log.warn({ tag: 'SALVAGE_TX', err: e.message }, 'No se pudo salvar gasto sin IA');
+    return null;
+  }
+}
 
 async function procesarMensajeLibre(msg, usuario, from) {
   try {
@@ -241,6 +276,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
             + 'Si dice "deshacer", "deshazlo", "deshacer último", "ctrl z", "cancela lo último", "revierte", usa manage_transaction con action=undo. '
             + 'Si dice "restaura", "restablece", "devuélvemelo", "trae de vuelta el gasto", "recupera el gasto", usa manage_transaction con action=restore (NO delete, NO undo). Extrae monto/comercio si los menciona. '
             + 'NUNCA uses action=delete, action=undo ni action=restore si el mensaje termina en signo de pregunta ("?"): eso es una consulta, no una orden — usa social_response o financial_query. '
+            + 'Si dice "el último movimiento", "mi último gasto/movimiento", "cuál fue lo último que registré", "muéstrame la última transacción" (SIN verbo de borrar) = query_analytics action=last_movement. Es SOLO mostrar el último registro. NUNCA lo interpretes como deshacer/eliminar aunque diga "último". '
             + 'Si responde con "si", "no", "dale", "ok" a algo que preguntaste antes, usa social_response con action=greeting (se manejara como continuacion). '
             + 'Extrae montos, fechas, comercios y categorias del lenguaje natural del usuario. '
             + 'Para fechas relativas: "ayer" = restar 1 dia a hoy, "el lunes" = calcular fecha correcta.\n'
@@ -318,6 +354,16 @@ async function procesarMensajeLibre(msg, usuario, from) {
       datos = {};
     }
 
+    // Guard "último movimiento": ver el último movimiento es SOLO lectura. Antes "el último
+    // movimiento" se clasificaba como deshacer_ultimo y borraba el gasto (caso Edgar, 23-jun:
+    // pidió ver, Neto le borró Deysi S/9.90 y lo perdió como usuario). Si el mensaje pide ver
+    // el último movimiento/transacción y NO trae verbo de borrado, forzar el intent de ver.
+    if (esVerUltimoMovimiento(msg) && DESTRUCTIVE_INTENTS.has(intencion)) {
+      log.warn({ tag: 'NLP_GUARD', intencion, msg: msgTrim.slice(0, 120) }, 'Redirected "último movimiento" from destructive to read-only view');
+      intencion = 'ver_ultima_transaccion';
+      datos = {};
+    }
+
     log.info({ tag: 'NLP', intencion, datos }, 'Intención clasificada');
 
 
@@ -391,12 +437,30 @@ async function procesarMensajeLibre(msg, usuario, from) {
     const respDef = await redactarConNETO(netoPrompt, ctxDef, msg, historialConv);
     return respDef || 'No entendi bien, pero estoy aqui. Escribe _"cuanto gaste esta semana"_ o _"dame mi reporte"_ y arrancamos. ¿Que necesitas?';
   } catch(e) {
-    log.error({ tag: 'NLP', err: e.message }, 'Error en procesamiento NLP'); notificarErrorAdmin('NLP', e.message); registrarError('NLP', e.message, { stack: e.stack, whatsapp: from });
+    const errMsg = e && e.message ? e.message : String(e);
+    // Un 429 de OpenAI NO es un error de NLP: es saturación temporal de la organización.
+    // Antes se perdía el gasto del usuario y encima inflaba la métrica de NLP con 163 filas.
+    // Ahora: (1) salvar el gasto con parser local sin IA, (2) loguear como 'rate_limit'
+    // (separado de NLP real), (3) NO notificar al admin (era spam de 163 alertas en la ráfaga).
+    const isRateLimit = /rate limit|rate_limit|\b429\b|too many requests/i.test(errMsg);
+    if (isRateLimit) {
+      const salvado = usuario ? await salvarGastoSinIA(msg, usuario) : null;
+      supabase.from('nlp_errors').insert({
+        usuario_id: usuario ? usuario.id : null, whatsapp: from,
+        mensaje: msg.substring(0, 500), intencion: null,
+        error_tipo: 'rate_limit', error_detalle: errMsg
+      }).then(() => {}).catch(() => {});
+      log.warn({ tag: 'NLP_RATE_LIMIT', salvado: !!salvado, whatsapp: from }, 'OpenAI 429 en NLP');
+      if (salvado) return salvado;
+      return 'Estamos con mucho tráfico ahora mismo. Reenvía tu mensaje en unos segundos y lo registro. 🙏';
+    }
+
+    log.error({ tag: 'NLP', err: errMsg }, 'Error en procesamiento NLP'); notificarErrorAdmin('NLP', errMsg); registrarError('NLP', errMsg, { stack: e.stack, whatsapp: from });
     // Log NLP error para revisión admin
     supabase.from('nlp_errors').insert({
       usuario_id: usuario ? usuario.id : null, whatsapp: from,
       mensaje: msg.substring(0, 500), intencion: null,
-      error_tipo: 'error', error_detalle: e.message
+      error_tipo: 'error', error_detalle: errMsg
     }).then(() => {}).catch(() => {});
     return 'Tuve un problema. Intenta de nuevo.';
   }

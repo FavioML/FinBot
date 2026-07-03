@@ -496,6 +496,7 @@ export default function AdminOperacionPage() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [nlpErrors, setNlpErrors] = useState<NlpError[]>([]);
   const [nlpTotal, setNlpTotal] = useState(0);
+  const [nlpRateLimit, setNlpRateLimit] = useState(0);
   const [search, setSearch] = useState('');
   const [toast, setToast] = useState<string | null>(null);
   const [paymentsUser, setPaymentsUser] = useState<AdminUser | null>(null);
@@ -534,6 +535,7 @@ export default function AdminOperacionPage() {
       const json = await res.json();
       setNlpErrors(json.errors || []);
       setNlpTotal(json.total || 0);
+      setNlpRateLimit(json.rateLimitTotal || 0);
     }
   }, []);
 
@@ -1163,8 +1165,13 @@ export default function AdminOperacionPage() {
               )}
             </div>
 
-            <div className="text-xs text-[#F0EFE8]/40">
-              {filtered.length} de {nlpErrors.length} errores
+            <div className="flex flex-wrap items-center gap-2 text-xs text-[#F0EFE8]/40">
+              <span>{filtered.length} de {nlpErrors.length} errores NLP reales</span>
+              {nlpRateLimit > 0 && (
+                <span className="rounded-full bg-white/5 px-2 py-0.5 text-[#F0EFE8]/50" title="Errores 429 de OpenAI (saturación de tokens). Es infra, no NLP. Se muestran aparte.">
+                  + {nlpRateLimit} rate-limit (infra, oculto)
+                </span>
+              )}
             </div>
 
             {nlpErrors.length > 0 && nlpTipoFilter === 'all' && nlpUserFilter === 'all' && !nlpSearch && (
