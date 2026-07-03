@@ -77,12 +77,15 @@ export async function GET() {
   const churnBase = churnedUsers.length + totalPro;
   const churnRate = churnBase > 0 ? Math.round((churnedUsers.length / churnBase) * 1000) / 10 : 0;
 
-  // DAU: users with transactions today
-  const { count: dauCount } = await db
+  // DAU: distinct users with transactions today.
+  // Bug previo: usaba count:'exact' que cuenta FILAS (transacciones), no usuarios distintos,
+  // así que DAU podía salir mayor que WAU (un user con 15 tx hoy daba DAU=15). Debe contar
+  // usuarios distintos como WAU/MAU para respetar el invariante DAU <= WAU <= MAU.
+  const { data: dauData } = await db
     .from('transacciones')
-    .select('usuario_id', { count: 'exact', head: true })
+    .select('usuario_id')
     .gte('created_at', todayStr);
-  const dau = dauCount || 0;
+  const dau = new Set((dauData || []).map((t) => t.usuario_id)).size;
 
   // WAU: distinct users with transactions this week
   const { data: wauData } = await db
