@@ -9,6 +9,11 @@ import {
 interface AdminStats {
   kpis: {
     mrr: number;
+    arr: number;
+    cajaMes: number;
+    proReal: number;
+    proMonthly: number;
+    proYearly: number;
     churnRate: number;
     dau: number;
     wau: number;
@@ -584,12 +589,30 @@ export default function AdminOperacionPage() {
       }
 
       if (action === 'delete') {
-        const res = await fetch(`/api/admin/users?id=${userId}`, { method: 'DELETE' });
+        const doDelete = async (force: boolean) =>
+          fetch(`/api/admin/users?id=${userId}${force ? '&force=1' : ''}`, { method: 'DELETE' });
+
+        let res = await doDelete(false);
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({}));
+          // Pagador protegido: pedir confirmación y reintentar forzado.
+          if (res.status === 409 && json.requiresForce) {
+            const u = users.find((x) => x.id === userId);
+            if (!window.confirm(`${u?.nombre || u?.whatsapp || 'Este usuario'} tiene un pago aprobado. ¿Borrarlo igual? Se pierde su historial de pagos.`)) {
+              return;
+            }
+            res = await doDelete(true);
+          } else {
+            setToast(json.message || json.error || 'Error al eliminar');
+            return;
+          }
+        }
         if (res.ok) {
           setUsers((prev) => prev.filter((u) => u.id !== userId));
           setToast('Usuario eliminado');
         } else {
-          setToast('Error al eliminar');
+          const json = await res.json().catch(() => ({}));
+          setToast(json.message || json.error || 'Error al eliminar');
         }
         return;
       }
@@ -702,18 +725,30 @@ export default function AdminOperacionPage() {
       {/* KPI Cards — Row 1: Core metrics */}
       <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
-          <div className="text-xs text-[#F0EFE8]/40">MRR</div>
-          <div className="mt-1 text-2xl font-semibold text-[#1D9E75]">
-            S/{stats?.kpis.mrr ?? totalPro * 10}
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-[#F0EFE8]/40">MRR</span>
+            <span className="text-[10px] text-[#F0EFE8]/30" title="Ingreso anual recurrente">
+              ARR S/{(stats?.kpis.arr ?? 0).toLocaleString('es-PE')}
+            </span>
           </div>
-          <div className="mt-0.5 text-xs text-[#F0EFE8]/30">{totalPro} Pro activos</div>
+          <div className="mt-1 text-2xl font-semibold text-[#1D9E75]">
+            S/{stats?.kpis.mrr ?? '—'}
+          </div>
+          <div className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-[#F0EFE8]/30">
+            <span>{stats?.kpis.proReal ?? totalPro} Pro</span>
+            <span className="text-[#F0EFE8]/20">·</span>
+            <span>{stats?.kpis.proYearly ?? 0} anual</span>
+            <span>{stats?.kpis.proMonthly ?? 0} mensual</span>
+          </div>
         </div>
         <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
-          <div className="text-xs text-[#F0EFE8]/40">Conversion Free→Pro</div>
-          <div className="mt-1 text-2xl font-semibold">
-            {stats?.kpis.conversionRate ?? (users.length > 0 ? Math.round((totalPro / users.length) * 1000) / 10 : 0)}%
+          <div className="text-xs text-[#F0EFE8]/40">Caja del mes</div>
+          <div className="mt-1 text-2xl font-semibold text-[#F0EFE8]">
+            S/{stats?.kpis.cajaMes ?? '—'}
           </div>
-          <div className="mt-0.5 text-xs text-[#F0EFE8]/30">{totalPro} de {users.length}</div>
+          <div className="mt-0.5 text-xs text-[#F0EFE8]/30">
+            Conversion {stats?.kpis.conversionRate ?? 0}% · {stats?.kpis.proReal ?? totalPro} de {(users.length)}
+          </div>
         </div>
         <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
           <div className="text-xs text-[#F0EFE8]/40">Usuarios Activos</div>
@@ -990,11 +1025,16 @@ export default function AdminOperacionPage() {
                     <td className="px-4 py-3 font-mono text-xs">{u.whatsapp}</td>
                     <td className="px-4 py-3">
                       <PlanBadge plan={u.plan} />
+                      {u.plan === 'premium' && (
+                        <div className="mt-1 text-[10px] uppercase tracking-wide text-[#F0EFE8]/40">
+                          {u.tipo_plan === 'anual' ? 'Anual' : 'Mensual'}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-xs text-[#F0EFE8]/50">
                       {u.plan === 'premium' ? (
                         <div>
-                          <div>{u.estado_pago || '—'}</div>
+                          <div>{u.fecha_pago ? `Pagó ${formatDate(u.fecha_pago)}` : (u.estado_pago || '—')}</div>
                           {u.premium_vence && (() => {
                             const daysLeft = Math.ceil((new Date(u.premium_vence).getTime() - Date.now()) / 86400000);
                             return (

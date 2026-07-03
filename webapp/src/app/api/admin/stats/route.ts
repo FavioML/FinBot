@@ -1,6 +1,13 @@
 import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
+import {
+  computeRevenue,
+  cajaDelMes,
+  isRevenueUser,
+  monthlyValuePen,
+  EXCLUDED_REVENUE_WHATSAPP,
+} from '@/lib/admin-revenue';
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'faviomendoza27jl@gmail.com';
 
@@ -32,16 +39,32 @@ export async function GET() {
   // Fetch all users
   const { data: usuarios } = await db
     .from('usuarios')
-    .select('id, plan, onboarding_completado, created_at, premium_vence, supabase_auth_id');
+    .select('id, whatsapp, plan, tipo_plan, onboarding_completado, created_at, premium_vence, supabase_auth_id');
 
   const allUsers = usuarios || [];
   const totalUsers = allUsers.length;
   const proUsers = allUsers.filter((u) => u.plan === 'premium');
   const totalPro = proUsers.length;
 
-  // --- KPIs ---
-  const mrr = totalPro * 10;
-  const conversionRate = totalUsers > 0 ? Math.round((totalPro / totalUsers) * 1000) / 10 : 0;
+  // --- Revenue KPIs (solo usuarios reales: excluye fundador + QA) ---
+  // MRR normalizado (anual = S/99÷12), ARR, y desglose anual/mensual. Ver admin-revenue.ts.
+  const rev = computeRevenue(allUsers);
+  const mrr = rev.mrr;
+  const arr = rev.arr;
+  const realUsers = allUsers.filter(isRevenueUser);
+  const conversionRate =
+    realUsers.length > 0 ? Math.round((rev.proCount / realUsers.length) * 1000) / 10 : 0;
+
+  // Caja real cobrada este mes (pagos aprobados), distinta del MRR recurrente.
+  const startMonthIso = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  const excludedIds = new Set(
+    allUsers.filter((u) => u.whatsapp && EXCLUDED_REVENUE_WHATSAPP.has(u.whatsapp)).map((u) => u.id),
+  );
+  const { data: pagosMes } = await db
+    .from('pagos')
+    .select('monto, estado, aprobado_at, created_at, usuario_id')
+    .gte('created_at', startMonthIso);
+  const cajaMes = cajaDelMes(pagosMes || [], excludedIds, startMonthIso);
 
   // Churn: users whose premium_vence expired in last 30 days and are now free
   const churnedUsers = allUsers.filter((u) => {
@@ -193,7 +216,10 @@ export async function GET() {
 
     revenue.push({
       month: monthLabel,
-      mrr: proAtMonth.length * 10,
+      // MRR normalizado por tipo de plan, solo usuarios reales (excluye internos).
+      mrr: Math.round(
+        proAtMonth.filter(isRevenueUser).reduce((s, u) => s + monthlyValuePen(u), 0) * 100,
+      ) / 100,
       newPro: newProInMonth.length,
       churned: churnedInMonth.length,
     });
@@ -201,7 +227,21 @@ export async function GET() {
 
   return NextResponse.json({
     ok: true,
-    kpis: { mrr, churnRate, dau, wau, mau, conversionRate, avgTimeToFirstTx, txPerActiveUser },
+    kpis: {
+      mrr,
+      arr,
+      cajaMes,
+      proReal: rev.proCount,
+      proMonthly: rev.proMonthly,
+      proYearly: rev.proYearly,
+      churnRate,
+      dau,
+      wau,
+      mau,
+      conversionRate,
+      avgTimeToFirstTx,
+      txPerActiveUser,
+    },
     userGrowth,
     funnel,
     nlpActivity,

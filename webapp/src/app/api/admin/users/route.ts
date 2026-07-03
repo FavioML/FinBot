@@ -171,19 +171,42 @@ export async function DELETE(request: Request) {
   const id = searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
-  // Delete related data first (cascading)
-  await getServiceClient().from('transacciones').delete().eq('usuario_id', id);
-  await getServiceClient().from('presupuestos').delete().eq('usuario_id', id);
-  await getServiceClient().from('metas_ahorro').delete().eq('usuario_id', id);
-  await getServiceClient().from('categorias_usuario').delete().eq('usuario_id', id);
-  await getServiceClient().from('reglas_comercio').delete().eq('usuario_id', id);
-  await getServiceClient().from('consultas_pendientes').delete().eq('usuario_id', id);
-  await getServiceClient().from('referidos').delete().eq('usuario_id', id);
-  await getServiceClient().from('nlp_errors').delete().eq('usuario_id', id);
+  const db = getServiceClient();
 
-  // Delete the user
-  const { error } = await getServiceClient().from('usuarios').delete().eq('id', id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  // Protección de pagadores: no borrar por accidente un cliente que ya pagó.
+  // Los bots/free se borran sin fricción; para forzar un pagador, pasar ?force=1.
+  const force = searchParams.get('force') === '1';
+  if (!force) {
+    const { data: pagoAprobado } = await db
+      .from('pagos')
+      .select('id')
+      .eq('usuario_id', id)
+      .eq('estado', 'aprobado')
+      .limit(1)
+      .maybeSingle();
+    if (pagoAprobado) {
+      return NextResponse.json(
+        {
+          error: 'protected',
+          message: 'Este usuario tiene un pago aprobado. Confirma para borrarlo de todas formas.',
+          requiresForce: true,
+        },
+        { status: 409 },
+      );
+    }
+  }
+
+  // El borrado en cascada lo maneja la base (FK ON DELETE CASCADE, migración
+  // cascade_delete_usuarios_fks). Antes esto se hacía a mano tabla por tabla y la lista
+  // quedaba incompleta (errores, neto_scores, meta_aportes, espacios...), lo que reventaba
+  // el borrado con "error al eliminar". Ahora basta con borrar el usuario.
+  const { error } = await db.from('usuarios').delete().eq('id', id);
+  if (error) {
+    return NextResponse.json(
+      { error: error.message, message: 'No se pudo eliminar. Revisa dependencias en la base.' },
+      { status: 500 },
+    );
+  }
 
   return NextResponse.json({ ok: true, action: 'deleted' });
 }

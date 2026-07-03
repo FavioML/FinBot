@@ -5,8 +5,14 @@ import {
   CAC_REFERIDOS_PEN,
   COST_PER_PRO_USER_PEN,
   PRO_PRICE_MONTHLY_PEN,
-  PRO_PRICE_YEARLY_PEN,
 } from '@/lib/constants';
+import {
+  computeRevenue,
+  cajaDelMes,
+  isRevenueUser,
+  monthlyValuePen,
+  EXCLUDED_REVENUE_WHATSAPP,
+} from '@/lib/admin-revenue';
 import type {
   AdminCost,
   AdminCostDueSoon,
@@ -17,6 +23,7 @@ export const dynamic = 'force-dynamic';
 
 interface UsuarioRow {
   id: string;
+  whatsapp: string | null;
   plan: string | null;
   tipo_plan: string | null;
   premium_vence: string | null;
@@ -62,27 +69,27 @@ export async function GET() {
   // --- Users ---
   const { data: usuariosRaw } = await db
     .from('usuarios')
-    .select('id, plan, tipo_plan, premium_vence, created_at');
+    .select('id, whatsapp, plan, tipo_plan, premium_vence, created_at');
 
   const usuarios = (usuariosRaw || []) as UsuarioRow[];
   const totalUsers = usuarios.length;
-  const proUsers = usuarios.filter((u) => u.plan === 'premium');
   const freeUsers = usuarios.filter((u) => u.plan !== 'premium');
 
-  const proMonthly = proUsers.filter(
-    (u) => !u.tipo_plan || u.tipo_plan === 'mensual',
-  ).length;
-  const proYearly = proUsers.filter((u) => u.tipo_plan === 'anual').length;
-
-  const mrr = proMonthly * PRO_PRICE_MONTHLY_PEN + proYearly * (PRO_PRICE_YEARLY_PEN / 12);
-  const arr = mrr * 12;
+  // Ingreso: solo negocio real (excluye fundador + QA). Fuente única: admin-revenue.ts.
+  const rev = computeRevenue(usuarios);
+  const realUsers = usuarios.filter(isRevenueUser);
+  const proCountReal = rev.proCount;
+  const proMonthly = rev.proMonthly;
+  const proYearly = rev.proYearly;
+  const mrr = rev.mrr;
+  const arr = rev.arr;
 
   const newUsersThisMonth = usuarios.filter(
     (u) => new Date(u.created_at) >= startMonth,
   ).length;
 
   const conversionRate =
-    totalUsers > 0 ? Math.round((proUsers.length / totalUsers) * 1000) / 10 : 0;
+    realUsers.length > 0 ? Math.round((proCountReal / realUsers.length) * 1000) / 10 : 0;
 
   // Churn 30d: users currently free whose premium_vence expired in last 30d
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000);
@@ -91,7 +98,7 @@ export async function GET() {
     const vence = new Date(u.premium_vence);
     return vence >= thirtyDaysAgo && vence < now;
   }).length;
-  const churnBase = churned30d + proUsers.length;
+  const churnBase = churned30d + proCountReal;
   const churnRate30d =
     churnBase > 0 ? Math.round((churned30d / churnBase) * 1000) / 10 : 0;
 
@@ -151,7 +158,7 @@ export async function GET() {
     grossMarginProPen > 0
       ? Math.ceil(totalMonthlyCostsPen / grossMarginProPen)
       : 0;
-  const breakevenGap = breakevenProUsers - proUsers.length;
+  const breakevenGap = breakevenProUsers - proCountReal;
 
   // LTV = margin / churn_rate_monthly. churn_rate_30d already monthly approx.
   // If churn = 0 → fallback to S/100 (10 meses × margen).
@@ -161,11 +168,18 @@ export async function GET() {
       ? Math.round((grossMarginProPen / churnMonthly) * 100) / 100
       : Math.round(grossMarginProPen * 10 * 100) / 100;
 
-  // Revenue this month: count of pro users whose fecha_pago is this month.
-  // We don't have a payments table here yet, so approximate as pro users
-  // with premium_vence within (today, today + 30d window) created/extended this month.
-  // Conservative fallback: mrr (recurrent assumption).
-  const revenueThisMonth = Math.round(mrr * 100) / 100;
+  // Revenue this month = caja real cobrada: suma de pagos aprobados este mes
+  // (excluye cuentas internas). Ya existe la tabla `pagos`, así que es dinero de verdad,
+  // no una aproximación al MRR.
+  const excludedIds = new Set(
+    usuarios.filter((u) => u.whatsapp && EXCLUDED_REVENUE_WHATSAPP.has(u.whatsapp)).map((u) => u.id),
+  );
+  const startMonthIso = startMonth.toISOString();
+  const { data: pagosMes } = await db
+    .from('pagos')
+    .select('monto, estado, aprobado_at, created_at, usuario_id')
+    .gte('created_at', startMonthIso);
+  const revenueThisMonth = cajaDelMes(pagosMes || [], excludedIds, startMonthIso);
 
   // --- Activity ---
   const { count: txTotalCount } = await db
@@ -233,7 +247,10 @@ export async function GET() {
 
     mrrHistory.push({
       month: monthLabel,
-      mrr: proAtEnd.length * PRO_PRICE_MONTHLY_PEN,
+      // MRR normalizado por tipo de plan, solo usuarios reales (excluye internos).
+      mrr: Math.round(
+        proAtEnd.filter(isRevenueUser).reduce((s, u) => s + monthlyValuePen(u), 0) * 100,
+      ) / 100,
       new_pro: newProInMonth,
       churned: churnedInMonth,
     });
@@ -267,7 +284,7 @@ export async function GET() {
     revenue_this_month: revenueThisMonth,
     total_users: totalUsers,
     free_users: freeUsers.length,
-    pro_users: proUsers.length,
+    pro_users: proCountReal,
     conversion_rate: conversionRate,
     new_users_this_month: newUsersThisMonth,
     churn_rate_30d: churnRate30d,
