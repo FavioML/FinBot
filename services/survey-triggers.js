@@ -363,6 +363,37 @@ async function maybeWakeUpOnboarding(usuario) {
   return true;
 }
 
+// ===== Medición de respuestas (T2) =====
+
+/**
+ * Marca que el usuario RESPONDIÓ a un mensaje proactivo reciente. Best-effort,
+ * fire-and-forget: se llama desde el webhook cuando entra un mensaje del usuario.
+ *
+ * Cierra el loop de medición del audit 2026-07-03: antes `responded_at` solo se
+ * seteaba manual (admin) o por NPS webapp, por eso salía 0 en TODOS los recordatorios
+ * WhatsApp aunque el usuario respondiera. Ahora una respuesta del usuario dentro de los
+ * 7 días de un envío proactivo marca ese survey_event como respondido.
+ */
+async function marcarRespuestaProactiva(usuarioId, replyText) {
+  try {
+    const cutoff = new Date(Date.now() - 7 * 86400000).toISOString();
+    const { data: ev } = await supabase.from('survey_events')
+      .select('id, response_data')
+      .eq('user_id', usuarioId).eq('channel', 'whatsapp')
+      .is('responded_at', null)
+      .gte('sent_at', cutoff)
+      .order('sent_at', { ascending: false }).limit(1);
+    if (!ev || ev.length === 0) return;
+    const prev = (ev[0].response_data && typeof ev[0].response_data === 'object') ? ev[0].response_data : {};
+    await supabase.from('survey_events').update({
+      responded_at: new Date().toISOString(),
+      response_data: { ...prev, user_replied: true, reply_text: String(replyText || '').substring(0, 300) },
+    }).eq('id', ev[0].id);
+  } catch (e) {
+    // best-effort: nunca romper el flujo de mensaje entrante
+  }
+}
+
 // ===== Orquestador =====
 
 /**
@@ -427,6 +458,7 @@ async function checkSurveyTriggers() {
 
 module.exports = {
   checkSurveyTriggers,
+  marcarRespuestaProactiva,
   // exported for dry-run script
   copyReminderD3,
   copyReminderD7,

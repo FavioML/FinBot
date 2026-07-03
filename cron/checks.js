@@ -275,42 +275,58 @@ async function checkRecordatorioDeudas() {
     const deudasProximas = await obtenerDeudasProximasVencer();
     if (!deudasProximas.length) return;
 
+    // Touches en orden de urgencia (más avanzado primero). reached(d) = el touch ya "llegó".
+    // Se envía a lo sumo 1 por corrida: el touch más avanzado alcanzado que aún no se mandó.
+    // Esto da catch-up (si se perdió el de 3d, lo manda el día 2) sin duplicar (ledger en DB).
+    const TOUCHES = [
+      { key: 'p3', diff: -3, reached: d => d <= -3 },
+      { key: 'v0', diff: 0,  reached: d => d <= 0 },
+      { key: 'v1', diff: 1,  reached: d => d <= 1 },
+      { key: 'v3', diff: 3,  reached: d => d <= 3 },
+    ];
+
     for (const deuda of deudasProximas) {
       try {
         if (deuda.usuarios.recordatorios_activos === false) continue;
         const venc = new Date(deuda.fecha_vencimiento + 'T12:00:00');
         const diffDias = Math.round((venc - hoyDate) / 86400000);
+        const enviados = Array.isArray(deuda.recordatorios_enviados) ? deuda.recordatorios_enviados : [];
+
+        const touch = TOUCHES.find(t => t.reached(diffDias) && !enviados.includes(t.key));
+        if (!touch) continue;
+        const cd = touch.diff; // diffDias canónico del touch: copy estable aunque haya catch-up
+
         const sym = deuda.moneda === 'USD' ? '$' : 'S/';
         const primerNombre = deuda.usuarios.nombre ? deuda.usuarios.nombre.split(' ')[0] : null;
         const saludo = primerNombre ? primerNombre + ', ' : '';
         const montoStr = sym + ' ' + parseFloat(deuda.monto_pendiente).toFixed(2);
 
-        let msgDeuda = null;
-        if (diffDias === 3) {
+        let msgDeuda;
+        if (cd === 3) {
           msgDeuda = deuda.tipo === 'me_deben'
             ? '📅 ' + saludo + 'en 3 días vence lo de *' + deuda.contraparte + '* (' + montoStr + '). ¿Ya te pagó?'
             : '📅 ' + saludo + 'en 3 días vence tu deuda con *' + deuda.contraparte + '* (' + montoStr + '). ¡No te olvides!';
-        } else if (diffDias === 1) {
+        } else if (cd === 1) {
           msgDeuda = deuda.tipo === 'me_deben'
             ? '⏰ ' + saludo + 'mañana vence lo de *' + deuda.contraparte + '* (' + montoStr + '). ¿Ya te pagó?\n\n_Responde "sí, ya me pagó" o "todavía no"._'
             : '⏰ ' + saludo + 'mañana vence tu deuda con *' + deuda.contraparte + '* (' + montoStr + '). ¡Que no se te pase!';
-        } else if (diffDias === 0) {
+        } else if (cd === 0) {
           msgDeuda = '🔴 ' + saludo + '¡Hoy vence ' + (deuda.tipo === 'me_deben' ? 'lo que te debe' : 'tu deuda con') + ' *' + deuda.contraparte + '* (' + montoStr + ')!';
-        } else if (diffDias === -3) {
+        } else { // cd === -3
           msgDeuda = deuda.tipo === 'me_deben'
             ? '⚠️ ' + saludo + 'ya pasaron 3 días desde que venció lo de *' + deuda.contraparte + '* (' + montoStr + '). ¿Le recuerdas?'
             : '⚠️ ' + saludo + 'tu deuda con *' + deuda.contraparte + '* lleva 3 días vencida (' + montoStr + '). ¿Ya pagaste?';
         }
 
-        if (msgDeuda) {
-          await enviarWhatsapp(deuda.usuarios.whatsapp, msgDeuda, { tipo: 'deuda', usuarioId: deuda.usuario_id });
-          await crearNotificacion(
-            deuda.usuario_id, 'deuda_vence',
-            diffDias === 0 ? 'Deuda vence hoy' : diffDias > 0 ? 'Deuda vence en ' + diffDias + ' días' : 'Deuda vencida hace ' + Math.abs(diffDias) + ' días',
-            msgDeuda.replace(/[*_]/g, ''),
-            { link: '/dashboard/deudas', deuda_id: deuda.id }
-          );
-        }
+        await enviarWhatsapp(deuda.usuarios.whatsapp, msgDeuda, { tipo: 'deuda', usuarioId: deuda.usuario_id });
+        await crearNotificacion(
+          deuda.usuario_id, 'deuda_vence',
+          cd === 0 ? 'Deuda vence hoy' : cd > 0 ? 'Deuda vence en ' + cd + ' días' : 'Deuda vencida hace ' + Math.abs(cd) + ' días',
+          msgDeuda.replace(/[*_]/g, ''),
+          { link: '/dashboard/deudas', deuda_id: deuda.id }
+        );
+        // Ledger: registrar el touch para catch-up sin duplicar
+        await supabase.from('deudas').update({ recordatorios_enviados: [...enviados, touch.key] }).eq('id', deuda.id);
       } catch (e) { /* silent per debt */ }
     }
   } catch (e) { log.error({ tag: 'DEUDA_REMINDER', err: e.message }, 'Error recordatorio deudas'); }
@@ -485,6 +501,14 @@ async function checkRecordatorioEspacios() {
           const myDebts = significantDebts.filter(d => d.from === m.user_id);
           if (myDebts.length === 0) continue;
 
+          // Anti-fatiga: no repetir el mismo espacio a este miembro más de 1 vez cada 10 días
+          // (el cron es semanal; sin esto se re-mandaba el mismo balance estancado cada viernes).
+          const cutoff10d = new Date(Date.now() - 10 * 86400000).toISOString();
+          const { data: yaRecordado } = await supabase.from('notificaciones')
+            .select('id').eq('usuario_id', m.user_id).eq('tipo', 'recordatorio')
+            .eq('titulo', 'Recordatorio de ' + space.name).gte('fecha', cutoff10d).limit(1);
+          if (yaRecordado && yaRecordado.length > 0) continue;
+
           const primerNombre = m.usuarios.nombre?.split(' ')[0] || '';
           let msg = '🏠 ' + (primerNombre ? primerNombre + ', r' : 'R') + 'ecordatorio de *' + space.name + '*:\n\n';
           for (const d of myDebts) {
@@ -565,6 +589,52 @@ async function checkRecordatoriosCostos() {
   }
 }
 
+/**
+ * Conversión de recordatorios (T2, audit 2026-07-03).
+ * Corre 7am Lima diario. Para cada survey_event de recordatorio cuya ventana de 24h ya
+ * cerró, marca conversion_within_24h=true si el usuario registró una transacción dentro de
+ * las 24h posteriores al envío. Antes estas columnas nunca se escribían (siempre false) y el
+ * panel admin graficaba conversión 0 estructural.
+ *
+ * conversion_within_7d (webapp_invite) NO se calcula: requiere un timestamp de login en webapp
+ * que hoy no se registra (solo existe supabase_auth_id sin fecha). Queda pendiente.
+ */
+const REMINDER_CONV_TYPES = ['reminder_d3', 'reminder_d7', 'reminder_d14', 'reminder_d30', 'inactivity_reminder', 'wake_up_inactive', 'pro_upsell_d28'];
+
+async function checkSurveyConversions() {
+  const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
+  if (horaLima.getHours() !== 7 || horaLima.getMinutes() > 14) return;
+  try {
+    const desde = new Date(Date.now() - 14 * 86400000).toISOString();
+    const hasta = new Date(Date.now() - 24 * 3600 * 1000).toISOString(); // ventana 24h ya cerrada
+    const { data: eventos } = await supabase.from('survey_events')
+      .select('id, user_id, sent_at')
+      .in('event_type', REMINDER_CONV_TYPES)
+      .eq('conversion_within_24h', false)
+      .not('sent_at', 'is', null)
+      .gte('sent_at', desde).lte('sent_at', hasta);
+    if (!eventos || eventos.length === 0) return;
+
+    let marcados = 0;
+    for (const ev of eventos) {
+      try {
+        const fin = new Date(new Date(ev.sent_at).getTime() + 24 * 3600 * 1000).toISOString();
+        const { count } = await supabase.from('transacciones')
+          .select('id', { count: 'exact', head: true })
+          .eq('usuario_id', ev.user_id)
+          .gte('created_at', ev.sent_at).lt('created_at', fin);
+        if (count && count > 0) {
+          await supabase.from('survey_events').update({ conversion_within_24h: true }).eq('id', ev.id);
+          marcados++;
+        }
+      } catch (e) { /* silent per event */ }
+    }
+    if (marcados > 0) log.info({ tag: 'SURVEY_CONV', marcados, evaluados: eventos.length }, 'Conversiones de recordatorio marcadas');
+  } catch (e) {
+    log.error({ tag: 'SURVEY_CONV', err: e.message }, 'Error calculando conversiones');
+  }
+}
+
 module.exports = {
   checkResumenMensual,
   checkResumenSemanal,
@@ -580,4 +650,5 @@ module.exports = {
   checkRecordatorioEspacios,
   checkRecordatoriosCostos,
   checkSurveyTriggers,
+  checkSurveyConversions,
 };

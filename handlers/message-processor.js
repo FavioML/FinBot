@@ -141,6 +141,10 @@ async function procesarMensajeLibre(msg, usuario, from) {
     // Guardar mensaje del usuario en historial
     await guardarMensaje(usuario.id, 'usuario', msg);
 
+    // Medición (T2): si el usuario responde dentro de 7d de un mensaje proactivo, marcar
+    // ese survey_event como respondido. Fire-and-forget: nunca bloquea el flujo entrante.
+    require('../services/survey-triggers').marcarRespuestaProactiva(usuario.id, msg).catch(() => {});
+
     // === Detector de operaciones complejas/bulk → sugerir dashboard ===
     const msgLower = msg.toLowerCase();
     const BULK_PATTERNS = [
