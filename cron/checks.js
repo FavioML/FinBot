@@ -185,7 +185,14 @@ async function checkPremiumExpiry() {
             if (yaAviso && yaAviso.length > 0) continue;
 
             const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
-            await enviarWhatsapp(usuario.whatsapp, '⚠️ ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u plan *NETO Pro* vence en 3 días (' + usuario.premium_vence + ').\n\n¿Quieres renovar?\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Renueva antes para no perder acceso._', { tipo: 'premium_expiry_3d', usuarioId: usuario.id });
+            const pTemplate = process.env.WA_TEMPLATES_ENABLED === 'true' ? {
+              name: 'plan_pro_por_vencer', language: { code: 'es' },
+              components: [{ type: 'body', parameters: [
+                { type: 'text', text: primerNombre || 'Hola' },
+                { type: 'text', text: 'en 3 días (' + usuario.premium_vence + ')' },
+              ] }],
+            } : null;
+            await enviarWhatsapp(usuario.whatsapp, '⚠️ ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u plan *NETO Pro* vence en 3 días (' + usuario.premium_vence + ').\n\n¿Quieres renovar?\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Renueva antes para no perder acceso._', { tipo: 'premium_expiry_3d', usuarioId: usuario.id, template: pTemplate });
             await crearNotificacion(usuario.id, 'recordatorio', 'Plan Pro vence en 3 días', 'Tu plan NETO Pro vence el ' + usuario.premium_vence + '. Renueva para no perder acceso.', { link: '/dashboard/configuracion' });
             await solicitarComprobante(usuario.id);
           } catch(e) { log.error({ tag: 'EXPIRY_WARN', userId: usuario.id, err: e.message }, 'Error warning premium 3d'); }
@@ -318,7 +325,18 @@ async function checkRecordatorioDeudas() {
             : '⚠️ ' + saludo + 'tu deuda con *' + deuda.contraparte + '* lleva 3 días vencida (' + montoStr + '). ¿Ya pagaste?';
         }
 
-        await enviarWhatsapp(deuda.usuarios.whatsapp, msgDeuda, { tipo: 'deuda', usuarioId: deuda.usuario_id });
+        // Template utility (entrega fuera de ventana 24h) cuando está habilitado y aprobado.
+        // Si el flag está off, template=null → enviarWhatsapp usa el texto libre (msgDeuda).
+        const dTemplate = process.env.WA_TEMPLATES_ENABLED === 'true' ? {
+          name: 'deuda_por_vencer', language: { code: 'es' },
+          components: [{ type: 'body', parameters: [
+            { type: 'text', text: primerNombre || 'Hola' },
+            { type: 'text', text: (deuda.tipo === 'me_deben' ? 'lo que te debe ' : 'tu deuda con ') + deuda.contraparte },
+            { type: 'text', text: montoStr },
+            { type: 'text', text: cd === 3 ? 'en 3 días' : cd === 1 ? 'mañana' : cd === 0 ? 'hoy' : 'hace 3 días' },
+          ] }],
+        } : null;
+        await enviarWhatsapp(deuda.usuarios.whatsapp, msgDeuda, { tipo: 'deuda', usuarioId: deuda.usuario_id, template: dTemplate });
         await crearNotificacion(
           deuda.usuario_id, 'deuda_vence',
           cd === 0 ? 'Deuda vence hoy' : cd > 0 ? 'Deuda vence en ' + cd + ' días' : 'Deuda vencida hace ' + Math.abs(cd) + ' días',

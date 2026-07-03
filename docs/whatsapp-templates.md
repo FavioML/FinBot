@@ -34,37 +34,36 @@ await enviarWhatsapp(u.whatsapp, null, {
 });
 ```
 
-## Templates a crear en Meta Business Manager
-Ir a business.facebook.com → WhatsApp Manager → Plantillas de mensajes → Crear plantilla.
-Idioma `es`. Los `{{n}}` son variables posicionales.
+## Decisión (Favio, 2026-07-03)
+Solo **2 templates UTILITY** (los más baratos, protegen plata). Re-enganche/upsell quedan
+**solo in-app** (gratis), no se paga marketing por perseguir al inactivo.
 
-### Categoría UTILITY (mejor entrega, no sujeta a opt-out de marketing)
-Para recordatorios transaccionales/de servicio que el usuario espera.
+## Templates a crear — vía script
+`node scripts/create_wa_templates.js` los crea y manda a aprobación automáticamente (usa
+`META_ACCESS_TOKEN` + `META_WABA_ID`). Si el token no tiene `whatsapp_business_management`,
+crearlos a mano en business.facebook.com → WhatsApp Manager → Plantillas (idioma `es`, categoría Utility).
 
-| name | Uso (cron) | Body sugerido |
-|---|---|---|
-| `deuda_por_vencer` | checkRecordatorioDeudas (3d/1d/hoy) | `📅 {{1}}, tu deuda con {{2}} ({{3}}) vence {{4}}. Abre Neto para verla.` |
-| `plan_pro_por_vencer` | checkPremiumExpiry aviso 3d | `⚠️ {{1}}, tu plan NETO Pro vence en 3 días ({{2}}). Renueva para no perder acceso.` |
-| `plan_pro_vencido` | checkPremiumExpiry downgrade | `⏰ {{1}}, tu plan NETO Pro venció. Pasaste a Free (historial 1 mes). Tus datos siguen guardados.` |
+| name | Categoría | Cron | Body | Variables |
+|---|---|---|---|---|
+| `deuda_por_vencer` | UTILITY | checkRecordatorioDeudas (touches 3d/1d/hoy/-3d) | `Hola {{1}} 👋 Recordatorio de Neto: {{2}} por {{3}} vence {{4}}. Entra a Neto para gestionarlo.` | 1=nombre, 2="tu deuda con Juan"/"lo que te debe Juan", 3="S/ 120.00", 4="en 3 días"/"mañana"/"hoy"/"hace 3 días" |
+| `plan_pro_por_vencer` | UTILITY | checkPremiumExpiry aviso 3d | `Hola {{1}} 👋 Tu plan NETO Pro vence {{2}}. Renuévalo desde Neto para no perder tu historial y las funciones Pro.` | 1=nombre, 2="en 3 días (2026-07-06)" |
 
-### Categoría MARKETING (sujeta a opt-out de usuario; peor entrega que utility)
-Para re-enganche y upsell.
+> Body sin pricing/Yape a propósito: utility debe ser transaccional para aprobar. El detalle de
+> precio/CTA va en el mensaje libre de seguimiento (ya abre ventana cuando el usuario responde).
 
-| name | Uso | Body sugerido |
-|---|---|---|
-| `recordatorio_inactividad` | inactivity / survey reminder_d3-d30 | `{{1}}, hace {{2}} días que no registras nada en Neto. Escríbeme un gasto y retomamos. Responde BAJA para no recibir más.` |
-| `upsell_pro_mes1` | pro_upsell_d28 | `🎉 {{1}}, ¡1 mes usando Neto! Con NETO Pro desbloqueas historial completo y consejos IA. S/10/mes. Responde BAJA para no recibir más.` |
-| `wake_up_onboarding` | wake_up_onboarding | `{{1}}, dejaste tu registro en Neto a medias. Escríbeme tu nombre y te activo en 30s.` |
+## Activación (una sola variable, sin nueva sesión de código)
+El envío por template YA está cableado en `cron/checks.js` (deudas + vencimiento Pro), detrás del
+flag `WA_TEMPLATES_ENABLED`. Con el flag off manda texto libre (comportamiento actual); con el flag
+on manda template. Pasos:
+1. Correr el script → templates a aprobación.
+2. Esperar estado APPROVED en WhatsApp Manager (~24-48h).
+3. Setear `WA_TEMPLATES_ENABLED=true` en Railway (variables del servicio Neto.pe) → redeploy.
+4. Verificar entrega real a un inactivo:
+   `select canal, estado, count(*) from notification_deliveries where tipo in ('deuda','premium_expiry_3d') group by canal, estado;`
+   → los `whatsapp_template` deben dominar `sent`, no `blocked_24h`.
 
-> Marketing templates requieren botón/línea de opt-out ("responde BAJA"). Al recibir BAJA,
-> setear `recordatorios_activos=false` (ya existe /silenciar en `handlers/intents/moderacion.js`).
-
-## Activación (cuando Meta apruebe, ~24-48h por template)
-1. Crear los templates arriba y esperar aprobación (estado APPROVED en WhatsApp Manager).
-2. En cada cron, reemplazar el `enviarWhatsapp(u.whatsapp, textoLargo, {tipo, usuarioId})`
-   por la variante con `template:{...}` (empezar por los UTILITY: deudas y vencimiento Pro).
-3. Mantener el `crearNotificacion` in-app como fallback (ya está).
-4. Verificar entrega real: `select estado, count(*) from notification_deliveries where canal='whatsapp_template' group by estado;` → debe dominar `sent`, no `blocked_24h`.
+> Si Meta cambia el copy en revisión y altera el número de variables, ajustar los `parameters`
+> en `cron/checks.js` (bloques `dTemplate` / `pTemplate`) para que coincidan.
 
 ## Nota
 Los subsistemas `services/gmail-scanner.js` (confirmación de tx desde correo) y
