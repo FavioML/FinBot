@@ -10,9 +10,13 @@ import {
   computeRevenue,
   cajaDelMes,
   isRevenueUser,
-  monthlyValuePen,
+  computeChurn,
+  mrrAtMonthEnd,
+  newProInMonth,
+  churnedInMonth,
   EXCLUDED_REVENUE_WHATSAPP,
 } from '@/lib/admin-revenue';
+import { startOfDayLima, startOfMonthLima, todayIsoLima } from '@/lib/date-lima';
 import type {
   AdminCost,
   AdminCostDueSoon,
@@ -26,26 +30,9 @@ interface UsuarioRow {
   whatsapp: string | null;
   plan: string | null;
   tipo_plan: string | null;
+  premium_desde: string | null;
   premium_vence: string | null;
   created_at: string;
-}
-
-function startOfDayLima(date: Date): Date {
-  // Lima is UTC-5, no DST. Convert to Lima local Y/M/D, then back to UTC midnight.
-  const d = new Date(date.getTime() - 5 * 3600 * 1000);
-  const y = d.getUTCFullYear();
-  const m = d.getUTCMonth();
-  const day = d.getUTCDate();
-  return new Date(Date.UTC(y, m, day, 5, 0, 0));
-}
-
-function todayIsoLima(): string {
-  const now = new Date();
-  const lima = new Date(now.getTime() - 5 * 3600 * 1000);
-  const y = lima.getUTCFullYear();
-  const m = String(lima.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(lima.getUTCDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
 }
 
 function diffDaysUTC(fromIso: string, toIso: string): number {
@@ -62,14 +49,14 @@ export async function GET() {
 
   const db = getServiceClient();
   const now = new Date();
-  const todayIso = todayIsoLima();
-  const startMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const todayIso = todayIsoLima(now);
+  const startMonth = startOfMonthLima(now); // inicio de mes en día Lima
   const monthAgoIso = new Date(now.getTime() - 30 * 86400000).toISOString();
 
   // --- Users ---
   const { data: usuariosRaw } = await db
     .from('usuarios')
-    .select('id, whatsapp, plan, tipo_plan, premium_vence, created_at');
+    .select('id, whatsapp, plan, tipo_plan, premium_desde, premium_vence, created_at');
 
   const usuarios = (usuariosRaw || []) as UsuarioRow[];
   const totalUsers = usuarios.length;
@@ -91,16 +78,8 @@ export async function GET() {
   const conversionRate =
     realUsers.length > 0 ? Math.round((proCountReal / realUsers.length) * 1000) / 10 : 0;
 
-  // Churn 30d: users currently free whose premium_vence expired in last 30d
-  const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000);
-  const churned30d = usuarios.filter((u) => {
-    if (u.plan === 'premium' || !u.premium_vence) return false;
-    const vence = new Date(u.premium_vence);
-    return vence >= thirtyDaysAgo && vence < now;
-  }).length;
-  const churnBase = churned30d + proCountReal;
-  const churnRate30d =
-    churnBase > 0 ? Math.round((churned30d / churnBase) * 1000) / 10 : 0;
+  // Churn 30d (fuente única: computeChurn, excluye internos, base = churned + pro reales)
+  const churnRate30d = computeChurn(usuarios, now).rate;
 
   // --- Costs ---
   const { data: costsRaw } = await db
@@ -218,41 +197,14 @@ export async function GET() {
       timeZone: 'America/Lima',
     });
 
-    const proAtEnd = usuarios.filter((u) => {
-      if (u.plan === 'premium') {
-        return new Date(u.created_at) <= monthEnd;
-      }
-      if (u.premium_vence) {
-        const vence = new Date(u.premium_vence);
-        return vence >= monthStart && vence <= monthEnd;
-      }
-      return false;
-    });
-
-    const newProInMonth = usuarios.filter((u) => {
-      if (u.plan === 'premium' && u.premium_vence) {
-        const activated = new Date(
-          new Date(u.premium_vence).getTime() - 30 * 86400000,
-        );
-        return activated >= monthStart && activated <= monthEnd;
-      }
-      return false;
-    }).length;
-
-    const churnedInMonth = usuarios.filter((u) => {
-      if (u.plan === 'premium' || !u.premium_vence) return false;
-      const vence = new Date(u.premium_vence);
-      return vence >= monthStart && vence <= monthEnd;
-    }).length;
-
     mrrHistory.push({
       month: monthLabel,
-      // MRR normalizado por tipo de plan, solo usuarios reales (excluye internos).
-      mrr: Math.round(
-        proAtEnd.filter(isRevenueUser).reduce((s, u) => s + monthlyValuePen(u), 0) * 100,
-      ) / 100,
-      new_pro: newProInMonth,
-      churned: churnedInMonth,
+      // Mes en curso (i=0): MRR vivo (headline) para que el último punto == KPI MRR.
+      // Meses pasados: reconstruido desde premium_desde/premium_vence (no created_at ni
+      // la heurística vence−30d). Solo negocio real (excluye internos).
+      mrr: i === 0 ? mrr : mrrAtMonthEnd(usuarios, monthEnd),
+      new_pro: newProInMonth(usuarios, monthStart, monthEnd),
+      churned: churnedInMonth(usuarios, monthStart, monthEnd),
     });
   }
 

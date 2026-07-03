@@ -27,9 +27,9 @@ interface AdminStats {
     registered: number;
     onboardingComplete: number;
     firstTransaction: number;
-    magicLink: number;
     pro: number;
   };
+  webappCoverage: number;
   nlpActivity: { date: string; errors: number }[];
   revenue: { month: string; mrr: number; newPro: number; churned: number }[];
 }
@@ -838,7 +838,6 @@ export default function AdminOperacionPage() {
                 { label: 'Registrados', value: stats.funnel.registered, color: '#F0EFE8' },
                 { label: 'Onboarding OK', value: stats.funnel.onboardingComplete, color: '#E8A838' },
                 { label: '1a Transaccion', value: stats.funnel.firstTransaction, color: '#D85A30' },
-                { label: 'Webapp (Google + ML)', value: stats.funnel.magicLink, color: '#6366F1' },
                 { label: 'Pro', value: stats.funnel.pro, color: '#1D9E75' },
               ].map((step) => {
                 const pct = stats.funnel.registered > 0 ? Math.round((step.value / stats.funnel.registered) * 100) : 0;
@@ -857,6 +856,16 @@ export default function AdminOperacionPage() {
                   </div>
                 );
               })}
+            </div>
+            {/* Webapp: métrica transversal (no downstream de 1a tx), fuera del embudo. */}
+            <div className="mt-3 flex items-center justify-between border-t border-white/5 pt-3 text-xs">
+              <span className="text-[#F0EFE8]/40">Cobertura webapp (Google + ML)</span>
+              <span className="font-mono text-[#818CF8]">
+                {stats.webappCoverage}
+                <span className="text-[#F0EFE8]/30">
+                  {' '}({stats.funnel.registered > 0 ? Math.round((stats.webappCoverage / stats.funnel.registered) * 100) : 0}%)
+                </span>
+              </span>
             </div>
           </div>
 
