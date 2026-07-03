@@ -21,7 +21,10 @@ async function checkResumenMensual() {
     for (const usuario of usuarios) {
       try {
         const resumen = await generarResumenMensual(usuario);
-        if (resumen) await enviarWhatsapp(usuario.whatsapp, resumen);
+        if (resumen) {
+          await enviarWhatsapp(usuario.whatsapp, resumen, { tipo: 'resumen_mensual', usuarioId: usuario.id });
+          await crearNotificacion(usuario.id, 'sistema', 'Tu resumen mensual', resumen.replace(/[*_]/g, '').substring(0, 400), { link: '/dashboard' });
+        }
       } catch(e) { log.error({ tag: 'MENSUAL', whatsapp: usuario.whatsapp, err: e.message }, 'Error resumen mensual usuario'); }
     }
   } catch(e) { log.error({ tag: 'MENSUAL', err: e.message }, 'Error general resumen mensual'); }
@@ -36,7 +39,10 @@ async function checkResumenSemanal() {
     for (const usuario of usuarios) {
       try {
         const resumen = await generarResumenSemanal(usuario);
-        if (resumen) await enviarWhatsapp(usuario.whatsapp, resumen);
+        if (resumen) {
+          await enviarWhatsapp(usuario.whatsapp, resumen, { tipo: 'resumen_semanal', usuarioId: usuario.id });
+          await crearNotificacion(usuario.id, 'sistema', 'Tu resumen semanal', resumen.replace(/[*_]/g, '').substring(0, 400), { link: '/dashboard' });
+        }
       } catch(e) { log.error({ tag: 'SEMANAL', whatsapp: usuario.whatsapp, err: e.message }, 'Error resumen semanal usuario'); }
     }
   } catch(e) { log.error({ tag: 'SEMANAL', err: e.message }, 'Error general resumen semanal'); }
@@ -105,7 +111,7 @@ async function checkRecordatorioDiario() {
             throw insertErr;
           }
 
-          await enviarWhatsapp(usuario.whatsapp, upsellMsg);
+          await enviarWhatsapp(usuario.whatsapp, upsellMsg, { tipo: 'pro_upsell_d28', usuarioId: usuario.id });
           await solicitarComprobante(usuario.id);
           totalUpsell++;
           continue;
@@ -143,7 +149,7 @@ async function checkRecordatorioDiario() {
           response_data: { dias_sin_tx: diasSinTx },
         });
 
-        await enviarWhatsapp(usuario.whatsapp, msg);
+        await enviarWhatsapp(usuario.whatsapp, msg, { tipo: 'inactivity', usuarioId: usuario.id });
         totalInactivity++;
       } catch(e) { /* silencioso por usuario */ }
     }
@@ -158,19 +164,32 @@ async function checkRecordatorioDiario() {
 async function checkPremiumExpiry() {
   try {
     const hoy = hoyPeru();
+    const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
 
-    // Warning 3 días antes de vencimiento
-    const en3dias = new Date(new Date(hoy + 'T12:00:00').getTime() + 3 * 86400000).toISOString().split('T')[0];
-    const { data: porVencer } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence')
-      .eq('plan', 'premium').eq('premium_vence', en3dias);
-    if (porVencer && porVencer.length > 0) {
-      for (const usuario of porVencer) {
-        try {
-          const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
-          await enviarWhatsapp(usuario.whatsapp, '⚠️ ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u plan *NETO Pro* vence en 3 días (' + usuario.premium_vence + ').\n\n¿Quieres renovar?\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Renueva antes para no perder acceso._');
-          await crearNotificacion(usuario.id, 'recordatorio', 'Plan Pro vence en 3 días', 'Tu plan NETO Pro vence el ' + usuario.premium_vence + '. Renueva para no perder acceso.', { link: '/dashboard/configuracion' });
-          await solicitarComprobante(usuario.id);
-        } catch(e) { log.error({ tag: 'EXPIRY_WARN', userId: usuario.id, err: e.message }, 'Error warning premium 3d'); }
+    // Warning 3 días antes de vencimiento.
+    // El cron corre cada 1h; sin gate esto disparaba las 24 corridas del día (bug: 24
+    // notificaciones idénticas por usuario). Gate a 1 corrida/día (9am Lima) + idempotencia
+    // por día contra `notificaciones` para tolerar reinicios/cambios de intervalo.
+    if (horaLima.getHours() === 9) {
+      const en3dias = new Date(new Date(hoy + 'T12:00:00').getTime() + 3 * 86400000).toISOString().split('T')[0];
+      const inicioHoy = new Date(hoy + 'T00:00:00-05:00').toISOString();
+      const { data: porVencer } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence')
+        .eq('plan', 'premium').eq('premium_vence', en3dias);
+      if (porVencer && porVencer.length > 0) {
+        for (const usuario of porVencer) {
+          try {
+            // Dedup: ¿ya avisamos hoy a este usuario?
+            const { data: yaAviso } = await supabase.from('notificaciones')
+              .select('id').eq('usuario_id', usuario.id).eq('tipo', 'recordatorio')
+              .eq('titulo', 'Plan Pro vence en 3 días').gte('fecha', inicioHoy).limit(1);
+            if (yaAviso && yaAviso.length > 0) continue;
+
+            const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
+            await enviarWhatsapp(usuario.whatsapp, '⚠️ ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u plan *NETO Pro* vence en 3 días (' + usuario.premium_vence + ').\n\n¿Quieres renovar?\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Renueva antes para no perder acceso._', { tipo: 'premium_expiry_3d', usuarioId: usuario.id });
+            await crearNotificacion(usuario.id, 'recordatorio', 'Plan Pro vence en 3 días', 'Tu plan NETO Pro vence el ' + usuario.premium_vence + '. Renueva para no perder acceso.', { link: '/dashboard/configuracion' });
+            await solicitarComprobante(usuario.id);
+          } catch(e) { log.error({ tag: 'EXPIRY_WARN', userId: usuario.id, err: e.message }, 'Error warning premium 3d'); }
+        }
       }
     }
 
@@ -182,7 +201,7 @@ async function checkPremiumExpiry() {
       try {
         await supabase.from('usuarios').update({ plan: 'free' }).eq('id', usuario.id);
         const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
-        await enviarWhatsapp(usuario.whatsapp, '⏰ ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u plan *NETO Pro* venció.\n\nAhora estás en el plan Free (historial limitado a 1 mes).\n\n¿Quieres renovar?\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Tus datos siguen guardados. Al renovar recuperas acceso completo._');
+        await enviarWhatsapp(usuario.whatsapp, '⏰ ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u plan *NETO Pro* venció.\n\nAhora estás en el plan Free (historial limitado a 1 mes).\n\n¿Quieres renovar?\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Tus datos siguen guardados. Al renovar recuperas acceso completo._', { tipo: 'premium_expired', usuarioId: usuario.id });
         await crearNotificacion(usuario.id, 'sistema', 'Plan Pro expirado', 'Tu plan NETO Pro venció. Ahora estás en el plan Free.', { link: '/dashboard/configuracion' });
         await solicitarComprobante(usuario.id);
         log.info({ tag: 'EXPIRY', userId: usuario.id }, 'Premium expirado, downgradeado a free');
@@ -203,7 +222,7 @@ async function checkAlertasProactivas() {
         if (usuario.recordatorios_activos === false) continue;
         const alerta = await verificarAlertasProactivas(usuario.id, usuario.nombre);
         if (alerta) {
-          await enviarWhatsapp(usuario.whatsapp, alerta);
+          await enviarWhatsapp(usuario.whatsapp, alerta, { tipo: 'alerta_presupuesto', usuarioId: usuario.id });
           await crearNotificacion(usuario.id, 'recordatorio', 'Alerta de presupuesto', alerta.replace(/[*_]/g, ''), { link: '/dashboard/presupuestos' });
         }
       } catch (e) { /* silencioso por usuario */ }
@@ -237,7 +256,7 @@ async function checkRecordatorioOnboarding() {
             '_Es el último paso, prometido._';
         }
         if (nudge) {
-          await enviarWhatsapp(u.whatsapp, nudge);
+          await enviarWhatsapp(u.whatsapp, nudge, { tipo: 'onboarding', usuarioId: u.id });
           if (u.onboarding_paso === 0) {
             await supabase.from('usuarios').update({ onboarding_paso: 100 }).eq('id', u.id);
           }
@@ -284,7 +303,7 @@ async function checkRecordatorioDeudas() {
         }
 
         if (msgDeuda) {
-          await enviarWhatsapp(deuda.usuarios.whatsapp, msgDeuda);
+          await enviarWhatsapp(deuda.usuarios.whatsapp, msgDeuda, { tipo: 'deuda', usuarioId: deuda.usuario_id });
           await crearNotificacion(
             deuda.usuario_id, 'deuda_vence',
             diffDias === 0 ? 'Deuda vence hoy' : diffDias > 0 ? 'Deuda vence en ' + diffDias + ' días' : 'Deuda vencida hace ' + Math.abs(diffDias) + ' días',
@@ -329,7 +348,7 @@ async function checkDetectorFugas() {
         const mensaje = await generarMensajeFugas(alertas, usuario.nombre, isPro);
         if (!mensaje) continue;
 
-        await enviarWhatsapp(usuario.whatsapp, mensaje);
+        await enviarWhatsapp(usuario.whatsapp, mensaje, { tipo: 'fugas', usuarioId: usuario.id });
         await guardarAlertas(usuario.id, alertas, mensaje);
         await crearNotificacion(usuario.id, 'alerta_fugas', 'Fugas de gasto detectadas', mensaje.replace(/[*_]/g, '').substring(0, 200), { link: '/dashboard/alertas' });
       } catch (e) { /* silent per user */ }
@@ -385,7 +404,8 @@ async function checkNotificacionScore() {
           '*' + trend.current + '/100* ' + arrow + ' — ' + label + '\n' +
           '(' + diffText + ')\n\n' +
           '_Escribe "mi score" para ver el desglose completo._';
-        await enviarWhatsapp(usuario.whatsapp, msg);
+        await enviarWhatsapp(usuario.whatsapp, msg, { tipo: 'score_semanal', usuarioId: usuario.id });
+        await crearNotificacion(usuario.id, 'sistema', 'Tu Neto Score semanal', msg.replace(/[*_]/g, ''), { link: '/dashboard/score' });
       } catch (e) { /* silent per user */ }
     }
   } catch (e) { log.error({ tag: 'SCORE_NOTIF', err: e.message }, 'Error notificación score semanal'); }
@@ -429,7 +449,8 @@ async function checkCheckInPlanes() {
           }
         }
         msg += '\n\n_Escribe "ahorré X para [nombre]" para registrar un abono._';
-        await enviarWhatsapp(usuario.whatsapp, msg);
+        await enviarWhatsapp(usuario.whatsapp, msg, { tipo: 'checkin_planes', usuarioId: usuario.id });
+        await crearNotificacion(usuario.id, 'recordatorio', 'Check-in de tus planes de ahorro', msg.replace(/[*_]/g, ''), { link: '/dashboard/planes' });
       } catch (e) { /* silent per user */ }
     }
   } catch (e) { log.error({ tag: 'CHECKIN_PLANES', err: e.message }, 'Error check-in planes'); }
@@ -470,7 +491,10 @@ async function checkRecordatorioEspacios() {
             msg += '  → Le debes S/ ' + d.amount.toFixed(2) + ' a ' + (d.toNombre?.split(' ')[0] || '?') + '\n';
           }
           msg += '\n_Escribe "le pagué X a [nombre] del ' + space.name + '" para registrar tu pago._';
-          try { await enviarWhatsapp(m.usuarios.whatsapp, msg); } catch (e) { /* silent */ }
+          try {
+            await enviarWhatsapp(m.usuarios.whatsapp, msg, { tipo: 'espacios', usuarioId: m.user_id });
+            await crearNotificacion(m.user_id, 'recordatorio', 'Recordatorio de ' + space.name, msg.replace(/[*_]/g, ''), { link: '/dashboard/espacios' });
+          } catch (e) { /* silent */ }
         }
       } catch (e) { /* silent per space */ }
     }

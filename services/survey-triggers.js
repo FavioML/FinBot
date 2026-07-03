@@ -80,7 +80,7 @@ async function registrarEvento({ userId, eventType, channel, messageSent, respon
 
 /** Envia mensaje y registra el evento. Si falla, no registra (asi reintenta proxima vez). */
 async function enviarYRegistrar(usuario, eventType, mensaje) {
-  await enviarWhatsapp(usuario.whatsapp, mensaje);
+  await enviarWhatsapp(usuario.whatsapp, mensaje, { tipo: 'survey_' + eventType, usuarioId: usuario.id });
   return registrarEvento({
     userId: usuario.id,
     eventType,
@@ -269,7 +269,7 @@ async function maybeWebappInvite(usuario) {
   if (!eventoId) return false; // ya existia, no reenviar
 
   // Solo si el insert paso, mandamos el mensaje
-  await enviarWhatsapp(usuario.whatsapp, copyWebappInvite(primer));
+  await enviarWhatsapp(usuario.whatsapp, copyWebappInvite(primer), { tipo: 'survey_webapp_invite_10tx', usuarioId: usuario.id });
   return true;
 }
 
@@ -300,7 +300,7 @@ async function maybeWakeUpInactive(usuario) {
   });
   if (!eventoId) return false;
 
-  await enviarWhatsapp(usuario.whatsapp, mensaje);
+  await enviarWhatsapp(usuario.whatsapp, mensaje, { tipo: 'survey_wake_up_inactive', usuarioId: usuario.id });
   return true;
 }
 
@@ -317,7 +317,7 @@ async function maybeFeedback30(usuario) {
   });
   if (!eventoId) return false;
 
-  await enviarWhatsapp(usuario.whatsapp, copyFeedback30(primer));
+  await enviarWhatsapp(usuario.whatsapp, copyFeedback30(primer), { tipo: 'survey_feedback_open_30tx', usuarioId: usuario.id });
   return true;
 }
 
@@ -359,7 +359,7 @@ async function maybeWakeUpOnboarding(usuario) {
   });
   if (!eventoId) return false;
 
-  await enviarWhatsapp(usuario.whatsapp, mensaje);
+  await enviarWhatsapp(usuario.whatsapp, mensaje, { tipo: 'survey_wake_up_onboarding', usuarioId: usuario.id });
   return true;
 }
 
