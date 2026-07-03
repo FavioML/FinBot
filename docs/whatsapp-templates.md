@@ -51,10 +51,17 @@ crearlos a mano en business.facebook.com → WhatsApp Manager → Plantillas (id
 > Body sin pricing/Yape a propósito: utility debe ser transaccional para aprobar. El detalle de
 > precio/CTA va en el mensaje libre de seguimiento (ya abre ventana cuando el usuario responde).
 
+## Cambio 2026-07-03 (Favio): premium siempre free-form
+Los recordatorios de **vencimiento Pro** (3 días antes, **vence hoy** — touch nuevo — y venció)
+quedaron **free-form siempre**, desacoplados del flag, para que no cuesten. Solo entregan al usuario
+Pro que esté en ventana de 24h (activo). El template `plan_pro_por_vencer` quedó creado pero **sin
+usar** (por si algún día se quiere reactivar; recrear el wiring en `checkPremiumExpiry`).
+El flag `WA_TEMPLATES_ENABLED` ahora **solo afecta deudas**.
+
 ## Activación (una sola variable, sin nueva sesión de código)
-El envío por template YA está cableado en `cron/checks.js` (deudas + vencimiento Pro), detrás del
-flag `WA_TEMPLATES_ENABLED`. Con el flag off manda texto libre (comportamiento actual); con el flag
-on manda template. Pasos:
+El envío por template YA está cableado en `cron/checks.js` (solo **deudas**), detrás del flag
+`WA_TEMPLATES_ENABLED`. Con el flag off manda texto libre (comportamiento actual); con el flag on
+manda template. Pasos:
 1. Correr el script → templates a aprobación.
 2. Esperar estado APPROVED en WhatsApp Manager (~24-48h).
 3. Setear `WA_TEMPLATES_ENABLED=true` en Railway (variables del servicio Neto.pe) → redeploy.

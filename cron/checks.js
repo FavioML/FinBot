@@ -166,11 +166,12 @@ async function checkPremiumExpiry() {
     const hoy = hoyPeru();
     const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
 
-    // Warning 3 días antes de vencimiento.
-    // El cron corre cada 1h; sin gate esto disparaba las 24 corridas del día (bug: 24
-    // notificaciones idénticas por usuario). Gate a 1 corrida/día (9am Lima) + idempotencia
-    // por día contra `notificaciones` para tolerar reinicios/cambios de intervalo.
-    if (horaLima.getHours() === 9) {
+    // Avisos de vencimiento (3d antes + día exacto).
+    // El cron corre cada 1h; sin dedup esto disparaba las 24 corridas del día (bug: 24
+    // notificaciones idénticas por usuario). La idempotencia por día contra `notificaciones`
+    // es lo que corta el 24x; el gate horario (>=8am) solo evita mandar de madrugada y permite
+    // catch-up si se cae una corrida (sale en la primera corrida del día a partir de las 8am).
+    if (horaLima.getHours() >= 8) {
       const en3dias = new Date(new Date(hoy + 'T12:00:00').getTime() + 3 * 86400000).toISOString().split('T')[0];
       const inicioHoy = new Date(hoy + 'T00:00:00-05:00').toISOString();
       const { data: porVencer } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence')
@@ -185,17 +186,30 @@ async function checkPremiumExpiry() {
             if (yaAviso && yaAviso.length > 0) continue;
 
             const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
-            const pTemplate = process.env.WA_TEMPLATES_ENABLED === 'true' ? {
-              name: 'plan_pro_por_vencer', language: { code: 'es' },
-              components: [{ type: 'body', parameters: [
-                { type: 'text', text: primerNombre || 'Hola' },
-                { type: 'text', text: 'en 3 días (' + usuario.premium_vence + ')' },
-              ] }],
-            } : null;
-            await enviarWhatsapp(usuario.whatsapp, '⚠️ ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u plan *NETO Pro* vence en 3 días (' + usuario.premium_vence + ').\n\n¿Quieres renovar?\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Renueva antes para no perder acceso._', { tipo: 'premium_expiry_3d', usuarioId: usuario.id, template: pTemplate });
+            await enviarWhatsapp(usuario.whatsapp, '⚠️ ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u plan *NETO Pro* vence en 3 días (' + usuario.premium_vence + ').\n\n¿Quieres renovar?\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Renueva antes para no perder acceso._', { tipo: 'premium_expiry_3d', usuarioId: usuario.id });
             await crearNotificacion(usuario.id, 'recordatorio', 'Plan Pro vence en 3 días', 'Tu plan NETO Pro vence el ' + usuario.premium_vence + '. Renueva para no perder acceso.', { link: '/dashboard/configuracion' });
             await solicitarComprobante(usuario.id);
           } catch(e) { log.error({ tag: 'EXPIRY_WARN', userId: usuario.id, err: e.message }, 'Error warning premium 3d'); }
+        }
+      }
+
+      // Aviso "vence HOY" — el día exacto del vencimiento (antes no existía: había 3d antes y
+      // el downgrade al día siguiente, pero nada el día clave). Free-form + in-app, dedup por día.
+      const { data: venceHoy } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence')
+        .eq('plan', 'premium').eq('premium_vence', hoy);
+      if (venceHoy && venceHoy.length > 0) {
+        for (const usuario of venceHoy) {
+          try {
+            const { data: yaAvisoHoy } = await supabase.from('notificaciones')
+              .select('id').eq('usuario_id', usuario.id).eq('tipo', 'recordatorio')
+              .eq('titulo', 'Plan Pro vence hoy').gte('fecha', inicioHoy).limit(1);
+            if (yaAvisoHoy && yaAvisoHoy.length > 0) continue;
+
+            const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
+            await enviarWhatsapp(usuario.whatsapp, '🔔 ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u plan *NETO Pro* vence *hoy*.\n\nRenuévalo hoy para no perder acceso.\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.', { tipo: 'premium_expiry_hoy', usuarioId: usuario.id });
+            await crearNotificacion(usuario.id, 'recordatorio', 'Plan Pro vence hoy', 'Tu plan NETO Pro vence hoy. Renueva para no perder acceso.', { link: '/dashboard/configuracion' });
+            await solicitarComprobante(usuario.id);
+          } catch(e) { log.error({ tag: 'EXPIRY_HOY', userId: usuario.id, err: e.message }, 'Error aviso vence hoy'); }
         }
       }
     }
