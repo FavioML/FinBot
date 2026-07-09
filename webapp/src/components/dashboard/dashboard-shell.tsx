@@ -16,6 +16,7 @@ import {
   queryClient,
   persister,
   clearPersistedCache,
+  resumePersist,
   PERSIST_MAX_AGE,
 } from '@/lib/query-client';
 import { getAuthUserIdSync } from '@/lib/supabase/session';
@@ -77,6 +78,8 @@ function CacheIdentityGuard() {
       const drift = !authId || cachedAuthId !== authId;
       if (drift) {
         clearPersistedCache();
+        // Re-enable persistence so the correct user's refetched data is cached.
+        resumePersist();
         queryClient.invalidateQueries();
       }
     })();
@@ -127,6 +130,12 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   // session can't be read, which — with CacheIdentityGuard — errs toward
   // discarding rather than leaking.
   const [buster] = useState(() => getAuthUserIdSync() ?? '');
+
+  // A previous logout pauses persistence (to keep the cache wiped); re-enable it
+  // now that a dashboard is mounting again (i.e. a fresh authenticated session).
+  useEffect(() => {
+    resumePersist();
+  }, []);
 
   const persistOptions = useMemo(
     () => ({ persister, maxAge: PERSIST_MAX_AGE, buster }),
