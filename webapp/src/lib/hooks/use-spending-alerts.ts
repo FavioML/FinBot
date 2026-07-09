@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { IS_DEMO } from '@/lib/demo/is-demo';
 import { DEMO_ALERTS } from '@/lib/demo/mock-data';
+import { useBootstrapGate } from '@/lib/hooks/use-dashboard-bootstrap';
 
 export interface SpendingAlert {
   id: string;
@@ -22,8 +23,10 @@ export interface AlertsData {
 }
 
 export function useSpendingAlerts(limit = 20) {
+  const gate = useBootstrapGate();
   return useQuery<AlertsData>({
     queryKey: ['spending-alerts', limit],
+    enabled: IS_DEMO || gate,
     queryFn: async () => {
       if (IS_DEMO) return { ...DEMO_ALERTS, alerts: DEMO_ALERTS.alerts.slice(0, limit) };
       const res = await fetch(`/api/alerts?limit=${limit}`);

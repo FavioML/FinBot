@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { QueryClientProvider, useIsRestoring } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { Sidebar } from '@/components/dashboard/sidebar';
@@ -10,7 +10,12 @@ import { BottomNav } from '@/components/dashboard/bottom-nav';
 import { QuickAddButton } from '@/components/dashboard/quick-add-button';
 import { OnboardingTour } from '@/components/dashboard/onboarding-tour';
 import { WhatsAppButton } from '@/components/shared/whatsapp-button';
+import { OverviewSkeleton } from '@/components/dashboard/skeletons';
 import { useUser } from '@/lib/hooks/use-user';
+import {
+  useDashboardBootstrap,
+  BootstrapGateProvider,
+} from '@/lib/hooks/use-dashboard-bootstrap';
 import { createClient } from '@/lib/supabase/client';
 import {
   queryClient,
@@ -94,14 +99,22 @@ function CacheIdentityGuard() {
 
 function ShellChrome({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const pathname = usePathname();
   // The static chrome (sidebar/topbar) paints instantly from the CDN. Hold back
-  // only the page content while the persisted cache restores (a few ms, once,
-  // on first load): during that window queries are paused, so rendering the page
-  // now would flash its "no user" empty state before useUser resolves.
+  // only the page content while (a) the persisted cache restores (a few ms, once,
+  // on first load) or (b) the consolidated bootstrap (/api/dashboard) is still in
+  // flight on a cold load. During either window queries are paused/gated, so
+  // rendering the page now would flash its "no user" empty state before the
+  // seed lands. On the overview we show its skeleton; on sub-routes we hold to
+  // null (same as the restore window) — their own hooks stay gated so they never
+  // self-fetch, they just wait for the seed.
   const isRestoring = useIsRestoring();
+  const { settled, blocking } = useDashboardBootstrap();
+  const gateContent = isRestoring || blocking;
+  const fallback = pathname === '/dashboard' ? <OverviewSkeleton /> : null;
 
   return (
-    <>
+    <BootstrapGateProvider value={settled}>
       <AuthRedirect />
       <CacheIdentityGuard />
       <div className="noise-bg flex h-screen overflow-hidden">
@@ -110,7 +123,7 @@ function ShellChrome({ children }: { children: React.ReactNode }) {
           <Topbar onMenuClick={() => setSidebarOpen(true)} />
           <main className="flex-1 overflow-y-auto p-4 pb-44 md:p-6 md:pb-28 lg:p-8 lg:pb-28">
             <div className="mx-auto max-w-7xl">
-              {isRestoring ? null : children}
+              {gateContent ? fallback : children}
             </div>
           </main>
           <BottomNav />
@@ -119,7 +132,7 @@ function ShellChrome({ children }: { children: React.ReactNode }) {
         <WhatsAppButton />
         <OnboardingTour />
       </div>
-    </>
+    </BootstrapGateProvider>
   );
 }
 

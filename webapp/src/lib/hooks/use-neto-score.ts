@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { IS_DEMO } from '@/lib/demo/is-demo';
 import { DEMO_SCORE } from '@/lib/demo/mock-data';
+import { useBootstrapGate } from '@/lib/hooks/use-dashboard-bootstrap';
 
 export interface NetoScoreFactors {
   consistency: number;
@@ -33,8 +34,10 @@ export interface NetoScoreData {
 }
 
 export function useNetoScore() {
+  const gate = useBootstrapGate();
   return useQuery<NetoScoreData>({
     queryKey: ['neto-score'],
+    enabled: IS_DEMO || gate,
     queryFn: async () => {
       if (IS_DEMO) return DEMO_SCORE;
       const res = await fetch('/api/score');
@@ -48,9 +51,11 @@ export function useNetoScore() {
 
 export function useNetoScoreHistory(months = 6) {
   const queryClient = useQueryClient();
+  const gate = useBootstrapGate();
 
   const query = useQuery<NetoScoreData>({
     queryKey: ['neto-score-history', months],
+    enabled: IS_DEMO || gate,
     queryFn: async () => {
       if (IS_DEMO) return DEMO_SCORE;
       const res = await fetch(`/api/score?history=true&months=${months}`);
