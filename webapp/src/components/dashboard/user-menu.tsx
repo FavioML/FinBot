@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { LogOut } from 'lucide-react';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
+import { signOutAndClear } from '@/lib/query-client';
 import { useUser } from '@/lib/hooks/use-user';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -35,7 +36,7 @@ export function UserMenu() {
 
   async function handleSignOut() {
     toast.success('Sesión cerrada');
-    await supabase.auth.signOut();
+    await signOutAndClear();
     router.push('/');
   }
 

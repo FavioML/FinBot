@@ -1,8 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // All pages that use Supabase must be dynamically rendered
-  // (not pre-rendered at build time)
+  // Expose the demo flag to the client bundle (drives IS_DEMO / mock data).
   env: {
     NEXT_PUBLIC_DEMO_MODE: process.env.NEXT_PUBLIC_DEMO_MODE || 'false',
   },

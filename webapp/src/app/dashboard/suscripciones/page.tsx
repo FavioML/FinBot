@@ -1,7 +1,5 @@
 'use client';
 
-// User-specific data (Supabase) — must render dynamically, never prerendered.
-export const dynamic = 'force-dynamic';
 
 import { useState, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';

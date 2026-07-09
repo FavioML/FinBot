@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
+import { signOutAndClear } from '@/lib/query-client';
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -182,8 +183,7 @@ export default function OnboardingPage() {
         {/* Change account */}
         <button
           onClick={async () => {
-            const supabase = createClient();
-            await supabase.auth.signOut();
+            await signOutAndClear();
             router.replace('/login');
           }}
           className="mt-6 w-full text-center text-sm text-[#8A877D] hover:text-[#C8C6BC] transition-colors cursor-pointer"

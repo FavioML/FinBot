@@ -21,7 +21,6 @@ import { useSplitExpenses, useSplitMutations, type GastoCompartido, type GastoPa
 import { formatCurrency } from '@/lib/utils';
 import { HeaderActions } from '@/components/dashboard/topbar';
 
-export const dynamic = 'force-dynamic';
 
 type Tab = 'debo' | 'me_deben' | 'pagadas' | 'compartidos';
 

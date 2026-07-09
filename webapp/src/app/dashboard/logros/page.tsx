@@ -10,7 +10,6 @@ import { useGoals, useAchievements, type MetaAhorro } from '@/lib/hooks/use-goal
 import { HeaderActions } from '@/components/dashboard/topbar';
 import type { Logro } from '@/lib/hooks/use-goals';
 
-export const dynamic = 'force-dynamic';
 
 const LOGRO_CATALOG = [
   { tipo: 'primera_meta', emoji: '🌟', label: 'Primera meta', desc: 'Crea tu primera meta de ahorro', category: 'metas' },

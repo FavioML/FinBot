@@ -62,12 +62,19 @@ src/
 
 ## Patrones criticos
 
-### Rendering dinamico obligatorio
-Todas las paginas con Supabase deben usar:
-```typescript
-export const dynamic = 'force-dynamic'
-```
-No se puede pre-renderizar datos de usuario.
+### Rendering: shell estatico + data en cliente (NO force-dynamic)
+Las paginas del dashboard son `'use client'` y fetchean su data client-side via
+React Query (RLS-scoped). NO llevan `export const dynamic = 'force-dynamic'`: el
+shell se prerenderiza estatico y se sirve desde el CDN (primer paint instantaneo,
+sin cold start serverless). El middleware ya protege `/dashboard` y el HTML
+estatico solo contiene el skeleton (cero data de usuario). La velocidad en
+revisitas la da el cache persistido de React Query (`lib/query-client.ts` +
+`PersistQueryClientProvider` en `dashboard-shell.tsx`), no un render server que
+bloquee el shell.
+
+Usa `force-dynamic` SOLO si una ruta realmente renderiza data de usuario en el
+server (lee `cookies()`/Supabase server en el render). Hoy ninguna lo hace: el
+layout es un passthrough estatico.
 
 ### Autenticacion (2 capas)
 1. **Supabase Auth** → Google OAuth → cookie session
@@ -118,7 +125,7 @@ export async function POST(request: Request) {
 - Next.js 16 tiene breaking changes vs versiones anteriores — leer `node_modules/next/dist/docs/` antes de escribir codigo
 - Tailwind v4 usa `@import` en CSS, NO plugin en postcss.config
 - Imagenes remotas: solo `lh3.googleusercontent.com` (avatars Google)
-- `force-dynamic` obligatorio en TODAS las paginas dashboard
+- Dashboard = shell estatico (sin `force-dynamic`) + data en cliente; ver "Rendering" arriba
 - Service-role key SOLO en API routes server-side, NUNCA en cliente
 
 ## Deploy & monitoring

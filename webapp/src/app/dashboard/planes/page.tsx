@@ -23,7 +23,6 @@ import { useGoals, useGoalMutations, useGoalContributions, useGoalParticipants, 
 import { formatCurrency } from '@/lib/utils';
 import { HeaderActions } from '@/components/dashboard/topbar';
 
-export const dynamic = 'force-dynamic';
 
 const ICONOS = ['🎯', '✈️', '🏠', '🚗', '💻', '📱', '🎓', '💍', '🏖️', '💰', '🛡️', '🎮'];
 

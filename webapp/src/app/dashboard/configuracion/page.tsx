@@ -1,7 +1,5 @@
 'use client';
 
-// User-specific data (Supabase) — must render dynamically, never prerendered.
-export const dynamic = 'force-dynamic';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -41,6 +39,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ConfiguracionSkeleton } from '@/components/dashboard/skeletons';
 import { useUser } from '@/lib/hooks/use-user';
 import { createClient } from '@/lib/supabase/client';
+import { signOutAndClear } from '@/lib/query-client';
 import { SOCIAL_LINKS, getCategoriaEmoji, CATEGORIAS } from '@/lib/constants';
 import { capitalizeDisplay } from '@/lib/format';
 import { HeaderActions } from '@/components/dashboard/topbar';
@@ -269,8 +268,7 @@ export default function ConfiguracionPage() {
   /* ---- Sign out ---- */
   async function handleSignOut() {
     setSigningOut(true);
-    const supabase = createClient();
-    await supabase.auth.signOut();
+    await signOutAndClear();
     router.push('/login');
   }
 
