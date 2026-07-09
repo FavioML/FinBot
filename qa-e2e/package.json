@@ -1,0 +1,13 @@
+{
+  "name": "neto-qa-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Autonomous authenticated E2E harness for app.neto.pe (password grant + Playwright, no email/magic-link).",
+  "scripts": {
+    "dashboard": "node qa-login.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.49.0"
+  }
+}
