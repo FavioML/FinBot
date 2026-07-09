@@ -44,11 +44,15 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
       // webapp por una sola identidad, no por el supabase auth id.
       async function identifyNetoUser(authUserId: string, email?: string, name?: string) {
         try {
+          // maybeSingle (not single): corre en cada carga sin gate y puede
+          // ganarle a la propagación del token de auth; RLS devuelve 0 filas y
+          // single() responde 406 (visible en consola aunque el catch trague el
+          // error JS). maybeSingle() devuelve null sin 406.
           const { data } = await supabase
             .from('usuarios')
             .select('id')
             .eq('supabase_auth_id', authUserId)
-            .single()
+            .maybeSingle()
           if (data?.id) {
             posthog.identify(String(data.id), { email, name, supabase_auth_id: authUserId })
           }
