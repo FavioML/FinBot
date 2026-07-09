@@ -82,7 +82,14 @@ function factorsFromRow(row: ScoreRow) {
   };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  // Keep-warm ping del cron del backend (Railway, ver cron/index.js → keepWarmWebapp):
+  // arranca el lambda de Vercel sin pagar auth ni queries, para que la primera
+  // visita real de un usuario no coma el cold start (~900ms). Retorno barato.
+  if (new URL(request.url).searchParams.has('warm')) {
+    return NextResponse.json({ warm: true });
+  }
+
   const supabase = await createClient();
   const {
     data: { user: authUser },

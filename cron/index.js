@@ -20,6 +20,24 @@ const {
   checkSurveyConversions,
 } = require('./checks');
 
+// Keep-warm de la webapp (Vercel): pinguea /api/dashboard?warm=1 para mantener
+// caliente el lambda y que la primera visita de un usuario no coma el cold start
+// (~900ms). El ?warm hace un early-return barato (sin auth ni DB) en la route.
+// Railway está always-on, así que este interval es confiable y gratis (no depende
+// del plan de Vercel ni de un pinger externo).
+const WEBAPP_WARM_URL = process.env.WEBAPP_WARM_URL || 'https://app.neto.pe/api/dashboard?warm=1';
+async function keepWarmWebapp() {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000);
+    const res = await fetch(WEBAPP_WARM_URL, { signal: controller.signal, headers: { 'x-keep-warm': '1' } });
+    clearTimeout(timer);
+    log.debug({ tag: 'KEEPWARM', status: res.status }, 'ping webapp');
+  } catch (e) {
+    log.warn({ tag: 'KEEPWARM', err: e.message }, 'ping webapp falló');
+  }
+}
+
 function startCronJobs() {
   const INTERVALO_HORAS = parseFloat(process.env.SCAN_INTERVAL_HOURS || '0.25');
   const INTERVALO_MS = INTERVALO_HORAS * 60 * 60 * 1000;
@@ -61,6 +79,9 @@ function startCronJobs() {
     setTimeout(runBackup, 60000);
     setInterval(runBackup, 7 * 24 * 60 * 60 * 1000);
     log.info({ tag: 'BACKUP' }, 'Backup semanal activo');
+    keepWarmWebapp();
+    setInterval(keepWarmWebapp, 4 * 60 * 1000);
+    log.info({ tag: 'KEEPWARM' }, 'Keep-warm webapp /api/dashboard activo (cada 4min)');
   } else {
     log.warn({ tag: 'SERVER' }, 'Tareas programadas desactivadas (NODE_ENV !== production)');
   }

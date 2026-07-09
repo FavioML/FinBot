@@ -101,12 +101,29 @@ for (let i = 0; i < 30; i++) {
 }
 results.urlAfterDashboard = page.url();
 results.stayedOnDashboard = page.url().includes('/dashboard');
-// Let the remaining data queries settle so the score renders before we read.
-await page.getByText(/\b71\b/).first().waitFor({ timeout: 8000 }).catch(() => {});
+// Let the financial data render (a currency amount on screen proves the seed hydrated).
+await page.getByText(/S\/\s*[\d,]+/).first().waitFor({ timeout: 8000 }).catch(() => {});
 const mainText = await page.locator('main').innerText().catch(() => '');
 results.mainLen = mainText.length;
 results.hasGreeting = /QA Dashboard|Buenos|Buenas/.test(mainText);
-results.hasScore = /\b71\b/.test(mainText);
+// The Neto Score changes daily (the 6am cron recomputes it), so a hardcoded value
+// would false-negative. Read the seeded ['neto-score'] cache and assert it's a
+// valid 0-100 number — proves /api/dashboard returned and seeded a real score.
+const scoreFromCache = await page.evaluate(() => {
+  const raw = localStorage.getItem('neto-rq');
+  if (!raw) return null;
+  try {
+    const p = JSON.parse(raw);
+    const q = (p?.clientState?.queries || []).find(
+      (x) => JSON.stringify(x.queryKey) === '["neto-score"]',
+    );
+    return q?.state?.data?.score ?? null;
+  } catch {
+    return null;
+  }
+});
+results.score = scoreFromCache;
+results.hasScore = typeof scoreFromCache === 'number' && scoreFromCache >= 0 && scoreFromCache <= 100;
 
 // --- Check 2: W4 persistence present + buster keyed to this user ---
 results.persistPresent = rq.present;
