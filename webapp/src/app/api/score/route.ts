@@ -11,6 +11,17 @@ const WEIGHTS = {
   visibility: 0.10,
 };
 
+type ScoreFactors = {
+  consistency: number;
+  budget: number;
+  savings: number;
+  goals: number;
+  debts: number;
+  visibility: number;
+};
+
+type ScoreResult = { score: number; factors: ScoreFactors; period: string };
+
 async function getNetoUserId(supabase: Awaited<ReturnType<typeof createClient>>) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
@@ -143,24 +154,59 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const wantHistory = searchParams.get('history') === 'true';
   const months = parseInt(searchParams.get('months') || '1');
-
-  // Always calculate fresh score for current period
-  const fresh = await calculateFreshScore(usuario);
+  const forceRefresh = searchParams.get('refresh') === 'true';
 
   const isPro = usuario.plan === 'premium';
+
+  // Serve the persisted score instead of recalculating on every request.
+  // The daily cron (6am Lima) is the source of truth and writes neto_scores for
+  // every onboarded user, so the latest row is normally today's. We only compute
+  // on-demand when no score exists yet (brand-new user) or on an explicit refresh.
+  let current: ScoreResult | null = null;
+
+  if (!forceRefresh) {
+    const svc = getServiceClient();
+    const { data: rows } = await svc
+      .from('neto_scores')
+      .select('score, factor_consistency, factor_budget, factor_savings, factor_goals, factor_debts, factor_visibility, period')
+      .eq('user_id', usuario.id)
+      .order('period', { ascending: false })
+      .limit(1);
+    const row = rows?.[0];
+    if (row && row.score != null) {
+      current = {
+        score: row.score,
+        factors: {
+          consistency: row.factor_consistency ?? 0,
+          budget: row.factor_budget ?? 0,
+          savings: row.factor_savings ?? 0,
+          goals: row.factor_goals ?? 0,
+          debts: row.factor_debts ?? 0,
+          visibility: row.factor_visibility ?? 0,
+        },
+        period: row.period,
+      };
+    }
+  }
+
+  // Fallback: no persisted score yet (or forced refresh) → compute once and persist.
+  if (!current) {
+    current = await calculateFreshScore(usuario);
+  }
+
   const response: Record<string, unknown> = {
-    score: fresh.score,
-    period: fresh.period,
+    score: current.score,
+    period: current.period,
   };
 
   if (isPro) {
     response.factors = {
-      consistency: fresh.factors.consistency,
-      budget: fresh.factors.budget,
-      savings: fresh.factors.savings,
-      goals: fresh.factors.goals,
-      debts: fresh.factors.debts,
-      visibility: fresh.factors.visibility,
+      consistency: current.factors.consistency,
+      budget: current.factors.budget,
+      savings: current.factors.savings,
+      goals: current.factors.goals,
+      debts: current.factors.debts,
+      visibility: current.factors.visibility,
     };
   }
 

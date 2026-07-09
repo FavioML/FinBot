@@ -12,6 +12,7 @@ import { WhatsAppButton } from '@/components/shared/whatsapp-button';
 import { useUser } from '@/lib/hooks/use-user';
 import { createClient } from '@/lib/supabase/client';
 import { IS_DEMO } from '@/lib/demo/is-demo';
+import type { Usuario } from '@/lib/types';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -49,8 +50,22 @@ function AuthRedirect() {
   return null;
 }
 
-export function DashboardShell({ children }: { children: React.ReactNode }) {
+export function DashboardShell({
+  initialUser,
+  children,
+}: {
+  initialUser?: Usuario | null;
+  children: React.ReactNode;
+}) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Seed the ['user'] query with the value fetched on the server so useUser()
+  // resolves synchronously on first paint (no client auth round-trip) and the
+  // data hooks gated on user.id fire immediately. Guarded so we never clobber a
+  // fresher refetch. `undefined` (demo / unresolved) falls back to client fetch.
+  if (initialUser !== undefined && queryClient.getQueryData(['user']) === undefined) {
+    queryClient.setQueryData(['user'], initialUser);
+  }
 
   return (
     <QueryClientProvider client={queryClient}>
