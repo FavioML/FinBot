@@ -23,11 +23,15 @@ export function useUser() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return null;
 
+      // maybeSingle (not single): este fetch directo puede correr en una carrera
+      // antes de que el token de auth propague; entonces RLS devuelve 0 filas y
+      // single() responde 406 (visible en consola). maybeSingle() devuelve null
+      // sin error y React Query reintenta/siembra normalmente.
       const { data } = await supabase
         .from('usuarios')
         .select('*')
         .eq('supabase_auth_id', user.id)
-        .single();
+        .maybeSingle();
 
       return data;
     },
