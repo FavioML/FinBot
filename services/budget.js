@@ -39,7 +39,7 @@ async function verificarAlertaPresupuesto(usuarioId, categoria, subcategoria) {
   const [{ data: presupuestosMes }, { data: gastosMes }] = await Promise.all([
     supabase.from('presupuestos').select('*')
       .eq('usuario_id', usuarioId).eq('mes', mes).eq('anio', anio),
-    supabase.from('transacciones').select('monto,categoria,subcategoria')
+    supabase.from('transacciones').select('monto,monto_pen,categoria,subcategoria')
       .eq('usuario_id', usuarioId).eq('tipo', 'gasto').gte('fecha', primero),
   ]);
 
@@ -47,7 +47,7 @@ async function verificarAlertaPresupuesto(usuarioId, categoria, subcategoria) {
   if (presCat) {
     const totalCat = (gastosMes || [])
       .filter(t => _normCat(t.categoria) === catNorm)
-      .reduce((s, t) => s + parseFloat(t.monto), 0);
+      .reduce((s, t) => s + parseFloat(t.monto_pen ?? t.monto), 0);
     const limiteCat = parseFloat(presCat.monto_limite);
     const pctCat = (totalCat / limiteCat) * 100;
     if (pctCat >= 100) alertas.push('🚨 Limite de *' + categoria + '* superado: S/ ' + totalCat.toFixed(2) + ' / S/ ' + limiteCat.toFixed(2));
@@ -60,7 +60,7 @@ async function verificarAlertaPresupuesto(usuarioId, categoria, subcategoria) {
     if (presSub) {
       const totalSub = (gastosMes || [])
         .filter(t => _normCat(t.categoria) === catNorm && _normCat(t.subcategoria) === subNorm)
-        .reduce((s, t) => s + parseFloat(t.monto), 0);
+        .reduce((s, t) => s + parseFloat(t.monto_pen ?? t.monto), 0);
       const limiteSub = parseFloat(presSub.monto_limite);
       const pctSub = (totalSub / limiteSub) * 100;
       if (pctSub >= 100) alertas.push('🚨 Limite de *' + subcategoria + '* superado: S/ ' + totalSub.toFixed(2) + ' / S/ ' + limiteSub.toFixed(2));
@@ -77,14 +77,14 @@ async function formatearEstadoPresupuesto(usuarioId) {
   const MESES_LARGO = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
   const mesNombre = MESES_LARGO[parseInt(primero.split('-')[1], 10) - 1];
   // Una sola query del mes; filtrado por categoría se hace en JS con normalización tilde-insensible
-  const { data: allTxs } = await supabase.from('transacciones').select('monto,categoria')
+  const { data: allTxs } = await supabase.from('transacciones').select('monto,monto_pen,categoria')
     .eq('usuario_id', usuarioId).eq('tipo', 'gasto').gte('fecha', primero);
   let msg = '*Tu presupuesto de ' + mesNombre + '*\n---------------\n\n';
   for (const p of presupuestos) {
     const catNorm = _normCat(p.categoria);
     const gastado = (allTxs || [])
       .filter(t => _normCat(t.categoria) === catNorm)
-      .reduce((s, t) => s + parseFloat(t.monto), 0);
+      .reduce((s, t) => s + parseFloat(t.monto_pen ?? t.monto), 0);
     const limite = parseFloat(p.monto_limite);
     const pct = (gastado / limite) * 100;
     msg += '*' + p.categoria + '*\n' + barraProgreso(pct) + '\nS/ ' + gastado.toFixed(2) + ' / S/ ' + limite.toFixed(2) + ' (resta S/ ' + Math.max(limite - gastado, 0).toFixed(2) + ')\n\n';

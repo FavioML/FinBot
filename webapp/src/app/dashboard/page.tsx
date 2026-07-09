@@ -49,7 +49,6 @@ import { useUser } from '@/lib/hooks/use-user';
 import { useNetoScore } from '@/lib/hooks/use-neto-score';
 import { useSpendingAlerts } from '@/lib/hooks/use-spending-alerts';
 import { useTransactions } from '@/lib/hooks/use-transactions';
-import { useBudgets } from '@/lib/hooks/use-budgets';
 import { useGoals, useAchievements } from '@/lib/hooks/use-goals';
 import { useDebts } from '@/lib/hooks/use-debts';
 import { FadeIn } from '@/components/shared/motion-wrapper';
@@ -93,9 +92,6 @@ export default function DashboardPage() {
   const { data: allTransactions = [], isLoading: txLoading } = useTransactions({
     usuarioId: user?.id,
   });
-
-  // Load budgets for score calculation (presupuestos excedidos)
-  const { data: budgets = [] } = useBudgets(user?.id);
 
   // Load goals, debts and achievements for overview widgets
   const { data: goals = [] } = useGoals(user?.id);
@@ -153,7 +149,7 @@ export default function DashboardPage() {
     }
 
     return { totalIngresos, totalGastos, ahorro, ahorroPorcentaje, scoreFinanciero: (netoScore?.score ?? 0), prevGastos, prevIngresos };
-  }, [transactions, budgets, allTransactions, viewMode, currentMonth, currentYear, netoScore]);
+  }, [transactions, allTransactions, viewMode, currentMonth, currentYear, netoScore]);
 
   // Sparkline data: daily totals for last 30 days of current view
   const sparklines = useMemo(() => {

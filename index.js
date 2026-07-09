@@ -128,6 +128,24 @@ if (require.main === module) {
   }
   process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
   process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+  // Red de seguridad para rechazos/excepciones fuera de un try (p.ej. un cron async
+  // en setInterval que no atrapó su error). Sin esto, un solo rechazo tumba el proceso
+  // hasta que Railway reinicie y corta la atención de todos los usuarios. Logueamos y
+  // notificamos al admin, pero NO hacemos process.exit ciego: preferimos que el bot
+  // siga vivo y degradado a caerse entero por un error aislado.
+  process.on('unhandledRejection', (reason) => {
+    const msg = reason instanceof Error ? reason.message : String(reason);
+    const stack = reason instanceof Error ? reason.stack : undefined;
+    log.error({ tag: 'UNHANDLED_REJECTION', err: msg, stack }, 'Promesa rechazada sin catch');
+    registrarError('UNHANDLED_REJECTION', msg, { stack });
+    notificarErrorAdmin('UNHANDLED_REJECTION', msg, stack);
+  });
+  process.on('uncaughtException', (err) => {
+    log.error({ tag: 'UNCAUGHT_EXCEPTION', err: err.message, stack: err.stack }, 'Excepción no atrapada');
+    registrarError('UNCAUGHT_EXCEPTION', err.message, { stack: err.stack });
+    notificarErrorAdmin('UNCAUGHT_EXCEPTION', err.message, err.stack);
+  });
 }
 
 // Exports para tests

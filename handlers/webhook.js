@@ -53,7 +53,16 @@ function createWebhookHandler(procesarMensajeLibre) {
     return res.sendStatus(403);
   }
   const expected = 'sha256=' + crypto.createHmac('sha256', META_APP_SECRET).update(req.rawBody).digest('hex');
-  if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+  const sigBuf = Buffer.from(signature);
+  const expBuf = Buffer.from(expected);
+  // Guarda de longitud: timingSafeEqual lanza RangeError si los buffers difieren en
+  // largo. Sin esto, una firma malformada responde 500 (en vez de 403) y dispara la
+  // notificación de error al admin. Mismo patrón que telegram-webhook.js.
+  if (sigBuf.length !== expBuf.length) {
+    log.warn({ tag: 'WEBHOOK' }, 'Firma HMAC con largo invalido');
+    return res.sendStatus(403);
+  }
+  if (!crypto.timingSafeEqual(sigBuf, expBuf)) {
     log.warn({ tag: 'WEBHOOK' }, 'Firma HMAC invalida');
     return res.sendStatus(403);
   }

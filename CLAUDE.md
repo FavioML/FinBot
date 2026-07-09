@@ -11,7 +11,7 @@ NETO es un asistente financiero personal por WhatsApp para el mercado peruano.
 - Numero WhatsApp produccion: +51 933 014 505
 
 ## Arquitectura del backend
-- `index.js` — Express server, routes, middleware (~120 lineas)
+- `index.js` — Express server, routes, middleware, handlers de crash (~160 lineas)
 - `handlers/message-processor.js` — OpenAI Function Calling NLP + intent dispatch (~227 lineas)
 - `handlers/neto-tools.js` — 14 tool definitions + mapToolToIntent (property remapping)
 - `handlers/intent-registry.js` — Auto-loader que registra handlers desde `handlers/intents/`
@@ -33,7 +33,7 @@ NETO es un asistente financiero personal por WhatsApp para el mercado peruano.
 - Supabase: RLS activo en todas las tablas, 11 tablas
 - Vercel: webapp app.neto.pe con Google OAuth
 - CI/CD: GitHub Actions (test en push/PR, Node 20)
-- Tests: 56 tests automatizados (vitest)
+- Tests: 121 tests automatizados (vitest)
 - Logging: Pino con redaccion de secrets
 
 ## Funcionalidades principales (19)
@@ -73,7 +73,7 @@ NETO es un asistente financiero personal por WhatsApp para el mercado peruano.
 - [ ] Blog posts comparativos SEO
 - [ ] Activar social media (3x/semana IG + 2x/semana TikTok)
 - [ ] Verificacion de negocio en Meta (manual)
-- [ ] Modularizar mas index.js (600+ lineas pendientes)
+- [ ] Modularizar los monolitos reales: `services/subscriptions.js` (~1515 lineas) y `handlers/webhook.js` (~877, con la maquina de estados de onboarding embebida). index.js ya esta modularizado (~160 lineas).
 
 ## Convenciones criticas
 - Archivos grandes (>10KB): editar con Edit tool, nunca reescribir completo
