@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider, useIsRestoring } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { Sidebar } from '@/components/dashboard/sidebar';
 import { Topbar } from '@/components/dashboard/topbar';
@@ -25,11 +25,16 @@ import type { Usuario } from '@/lib/types';
 /** Redirects authenticated users without a `usuarios` record to onboarding */
 function AuthRedirect() {
   const router = useRouter();
-  const { data: user, isLoading } = useUser();
+  const { data: user, isPending } = useUser();
+  const isRestoring = useIsRestoring();
 
   useEffect(() => {
     if (IS_DEMO) return;
-    if (isLoading) return;
+    // Guard on isPending (not isLoading) and isRestoring: while the persisted
+    // cache is being restored, queries are paused so `isLoading` is false even
+    // though the user query hasn't resolved yet. Using isLoading here would fire
+    // a spurious /onboarding redirect for a logged-in user before useUser runs.
+    if (isRestoring || isPending) return;
     if (user) return; // has usuarios record — all good
 
     // Check if authenticated via Supabase Auth but missing usuarios record
@@ -41,7 +46,7 @@ function AuthRedirect() {
         router.replace('/login');
       }
     });
-  }, [user, isLoading, router]);
+  }, [user, isPending, isRestoring, router]);
 
   return null;
 }
@@ -86,6 +91,11 @@ function CacheIdentityGuard() {
 
 function ShellChrome({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // The static chrome (sidebar/topbar) paints instantly from the CDN. Hold back
+  // only the page content while the persisted cache restores (a few ms, once,
+  // on first load): during that window queries are paused, so rendering the page
+  // now would flash its "no user" empty state before useUser resolves.
+  const isRestoring = useIsRestoring();
 
   return (
     <>
@@ -97,7 +107,7 @@ function ShellChrome({ children }: { children: React.ReactNode }) {
           <Topbar onMenuClick={() => setSidebarOpen(true)} />
           <main className="flex-1 overflow-y-auto p-4 pb-44 md:p-6 md:pb-28 lg:p-8 lg:pb-28">
             <div className="mx-auto max-w-7xl">
-              {children}
+              {isRestoring ? null : children}
             </div>
           </main>
           <BottomNav />
