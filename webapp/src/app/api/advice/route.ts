@@ -3,6 +3,13 @@ import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
 
+// La llamada a OpenAI puede colgarse; sin un límite de duración la función
+// serverless se mata sola y Vercel lo reporta como 502 intermitente. El fetch
+// aborta a los 12s (ver OPENAI_TIMEOUT_MS), dentro de este margen.
+export const maxDuration = 20;
+
+const OPENAI_TIMEOUT_MS = 12_000;
+
 async function getNetoUserId() {
   const supabase = await createClient();
   const {
@@ -10,11 +17,13 @@ async function getNetoUserId() {
   } = await supabase.auth.getUser();
   if (!user) return null;
 
+  // maybeSingle: el usuario auth puede no tener fila en `usuarios`. single()
+  // devuelve 406 con 0 filas; maybeSingle() devuelve null y lo tratamos como null.
   const { data } = await getServiceClient()
     .from('usuarios')
     .select('id')
     .eq('supabase_auth_id', user.id)
-    .single();
+    .maybeSingle();
   return data?.id || null;
 }
 
@@ -28,7 +37,7 @@ export async function POST(request: Request) {
     .from('usuarios')
     .select('plan')
     .eq('id', userId)
-    .single();
+    .maybeSingle();
   if (usuario?.plan !== 'premium') {
     return NextResponse.json({ error: 'Pro only', upsell: 'Recibe consejos IA diarios con Pro' }, { status: 403 });
   }
@@ -65,6 +74,11 @@ ${subscriptionTotal ? `- Suscripciones mensuales: S/${subscriptionTotal}` : ''}
 
 Responde SOLO con el consejo, sin introducciones ni explicaciones.`;
 
+  // Aborta el fetch a OpenAI si tarda demasiado, para responder con un error
+  // controlado en vez de dejar que la función serverless expire (502 de Vercel).
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), OPENAI_TIMEOUT_MS);
+
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -78,12 +92,15 @@ Responde SOLO con el consejo, sin introducciones ni explicaciones.`;
         max_tokens: 150,
         temperature: 0.7,
       }),
+      signal: controller.signal,
     });
 
     if (!response.ok) {
       const err = await response.text();
-      console.error('OpenAI error:', err);
-      return NextResponse.json({ error: 'AI request failed' }, { status: 502 });
+      console.error('OpenAI error:', response.status, err);
+      // 503: dependencia externa caída/lenta. Es un fallo transitorio de un
+      // upstream, no un gateway roto de nuestra función.
+      return NextResponse.json({ error: 'AI temporarily unavailable' }, { status: 503 });
     }
 
     const data = await response.json();
@@ -91,7 +108,13 @@ Responde SOLO con el consejo, sin introducciones ni explicaciones.`;
 
     return NextResponse.json({ advice });
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.error('OpenAI advice timeout after', OPENAI_TIMEOUT_MS, 'ms');
+      return NextResponse.json({ error: 'AI timed out' }, { status: 504 });
+    }
     console.error('AI advice error:', error);
     return NextResponse.json({ error: 'AI request failed' }, { status: 500 });
+  } finally {
+    clearTimeout(timeout);
   }
 }

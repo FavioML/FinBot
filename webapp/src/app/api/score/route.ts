@@ -2,6 +2,12 @@ import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 
+// Cold starts + 5 queries paralelas + upsert pueden exceder el límite default de
+// la función serverless en el path de cálculo fresco, lo que Vercel devuelve como
+// 502. Damos headroom explícito para que la función responda antes de que la
+// plataforma la mate.
+export const maxDuration = 20;
+
 const WEIGHTS = {
   consistency: 0.20,
   budget: 0.25,
@@ -25,11 +31,14 @@ type ScoreResult = { score: number; factors: ScoreFactors; period: string };
 async function getNetoUserId(supabase: Awaited<ReturnType<typeof createClient>>) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
+  // maybeSingle (not single): un usuario autenticado en Supabase puede no tener
+  // aún fila en `usuarios` (registro WhatsApp-first). single() devuelve 406 con
+  // 0 filas; maybeSingle() devuelve data:null y lo tratamos como no-autorizado.
   const { data } = await supabase
     .from('usuarios')
     .select('id, plan, gmail_access_token, recordatorios_activos')
     .eq('supabase_auth_id', user.id)
-    .single();
+    .maybeSingle();
   return data as { id: string; plan: string; gmail_access_token: string | null; recordatorios_activos: boolean | null } | null;
 }
 
@@ -191,7 +200,14 @@ export async function GET(request: Request) {
 
   // Fallback: no persisted score yet (or forced refresh) → compute once and persist.
   if (!current) {
-    current = await calculateFreshScore(usuario);
+    try {
+      current = await calculateFreshScore(usuario);
+    } catch (error) {
+      // Un fallo en las queries/upsert de Supabase no debe crashear la función
+      // (que la plataforma reporta como 502). Devolvemos un error controlado.
+      console.error('score fresh-calc error:', error);
+      return NextResponse.json({ error: 'No se pudo calcular el score' }, { status: 500 });
+    }
   }
 
   const response: Record<string, unknown> = {
