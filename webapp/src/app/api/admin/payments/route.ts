@@ -27,10 +27,11 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const userId = searchParams.get('user_id') || '';
-  const url = `${BACKEND_URL}/admin/pagos?clave=${encodeURIComponent(ADMIN_KEY)}${userId ? `&usuario_id=${encodeURIComponent(userId)}` : ''}`;
+  // Clave admin por header (nunca en query string: se filtra a logs de Railway).
+  const url = `${BACKEND_URL}/admin/pagos${userId ? `?usuario_id=${encodeURIComponent(userId)}` : ''}`;
 
   try {
-    const res = await fetch(url, { cache: 'no-store' });
+    const res = await fetch(url, { cache: 'no-store', headers: { 'x-admin-key': ADMIN_KEY } });
     const json = await res.json();
     if (!res.ok || !json.ok) {
       return NextResponse.json({ error: json.msg || 'Error consultando pagos' }, { status: res.status || 500 });
@@ -61,8 +62,8 @@ export async function POST(request: Request) {
   try {
     const res = await fetch(`${BACKEND_URL}/admin/aprobar-pago`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clave: ADMIN_KEY, usuario_id: user_id, whatsapp, tipo_plan }),
+      headers: { 'Content-Type': 'application/json', 'x-admin-key': ADMIN_KEY },
+      body: JSON.stringify({ usuario_id: user_id, whatsapp, tipo_plan }),
     });
     const json = await res.json();
     if (!res.ok || !json.ok) {

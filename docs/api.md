@@ -21,10 +21,12 @@
 
 | Method | Path | Auth | Descripción |
 |--------|------|------|-------------|
-| POST | `/admin/activar` | ADMIN_KEY (body) | Activar premium para un usuario (rate limited: 10/min) |
-| GET | `/admin/pendientes` | ADMIN_KEY (query) | Listar pagos pendientes (rate limited: 10/min) |
-| GET | `/admin/stats` | ADMIN_KEY (query) | Métricas: usuarios, transacciones, top categorías/bancos (rate limited: 10/min) |
-| GET | `/admin/errores` | ADMIN_KEY (query) | Errores recientes con stack trace. Params: `limite` (default 20), `resueltos=true` para ver todos |
+| POST | `/admin/activar` | ADMIN_KEY (header) | Activar premium para un usuario (rate limited: 10/min) |
+| GET | `/admin/pendientes` | ADMIN_KEY (header) | Listar pagos pendientes (rate limited: 10/min) |
+| GET | `/admin/stats` | ADMIN_KEY (header) | Métricas: usuarios, transacciones, top categorías/bancos (rate limited: 10/min) |
+| GET | `/admin/errores` | ADMIN_KEY (header) | Errores recientes con stack trace. Params: `limite` (default 20), `resueltos=true` para ver todos |
+
+> **Auth admin:** la clave va en header `x-admin-key: <ADMIN_KEY>` (o `Authorization: Bearer <ADMIN_KEY>`). Nunca por query string ni body (se filtra a los access logs). Aplica a todos los endpoints `/admin/*`.
 
 ## Auth (OAuth2 Gmail)
 

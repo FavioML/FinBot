@@ -25,6 +25,10 @@ CREATE INDEX IF NOT EXISTS idx_neto_scores_user_period
 ALTER TABLE neto_scores ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policy: Users can only read their own scores
+-- ⚠️ OBSOLETO: este USING es una tautología (user_id = user_id → siempre true) y NO
+-- aísla por usuario. Reemplazado en prod el 2026-06-23 y reconciliado en el repo por
+-- `019_neto_scores_rls_hardening.sql` (aislamiento real vía supabase_auth_id). No usar
+-- esta versión en un rebuild limpio; correr la 019 después.
 CREATE POLICY "Users can view own scores"
   ON neto_scores FOR SELECT
   USING (user_id = (

@@ -12,8 +12,12 @@ const router = express.Router();
 
 function verificarAdmin(req, res) {
   const ADMIN_KEY = process.env.ADMIN_KEY;
-  // req.body puede ser undefined en GET sin body JSON → leer de forma segura
-  const clave = (req.body && req.body.clave) || req.query.clave || '';
+  // Solo por header: nunca por query string ni body. La clave en query se filtra
+  // a los access logs de Railway / Referer / historial de proxy; el body también
+  // puede quedar en logs. Aceptamos `x-admin-key` o `Authorization: Bearer <key>`.
+  const authHeader = req.get('authorization') || '';
+  const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  const clave = req.get('x-admin-key') || bearer || '';
   if (!ADMIN_KEY || !clave || clave.length !== ADMIN_KEY.length || !crypto.timingSafeEqual(Buffer.from(clave), Buffer.from(ADMIN_KEY))) {
     res.status(401).json({ ok: false, msg: 'Clave incorrecta' });
     return false;
