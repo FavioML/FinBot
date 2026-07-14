@@ -9,7 +9,7 @@ const { CATEGORIAS_VALIDAS, CATEGORIA_MAP, WEBAPP_URL } = require('../lib/consta
 const { validarMonto, normalizarCategoria } = require('../lib/validators');
 const { ADMIN_NUMBER } = require('../lib/config');
 const { esVerUltimoMovimiento } = require('../lib/nlp-guards');
-const { getEmojiCategoria, formatearResumen, formatearPendientes, formatearCategoriasMsg, barraProgreso, generarRefCode, formatFecha } = require('../lib/formatters');
+const { getEmojiCategoria, formatearResumen, formatearCategoriasMsg, barraProgreso, generarRefCode, formatFecha } = require('../lib/formatters');
 const { enviarWhatsapp } = require('../lib/whatsapp');
 const { obtenerTipoCambio, guardarTransaccion, obtenerGastosMes, obtenerGastosSemana, obtenerUltimaTransaccion, recategorizarTransaccion, corregirTransaccionEspecifica, guardarReglaComercio, retroaplicarRegla } = require('../services/transactions');
 const { guardarPresupuesto, obtenerPresupuestosMes, verificarAlertaPresupuesto, formatearEstadoPresupuesto } = require('../services/budget');
@@ -378,7 +378,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       netoPrompt, historialConv, planUsuario,
       enviarWhatsapp, notificarErrorAdmin, registrarError,
       CATEGORIAS_VALIDAS, CATEGORIA_MAP, validarMonto, normalizarCategoria,
-      getEmojiCategoria, formatearResumen, formatearPendientes, formatearCategoriasMsg,
+      getEmojiCategoria, formatearResumen, formatearCategoriasMsg,
       barraProgreso, generarRefCode,
       obtenerTipoCambio, guardarTransaccion, obtenerGastosMes, obtenerGastosSemana,
       obtenerUltimaTransaccion, recategorizarTransaccion, corregirTransaccionEspecifica,
