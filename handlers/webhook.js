@@ -403,6 +403,62 @@ function createWebhookHandler(procesarMensajeLibre) {
       return;
     }
 
+    // --- Manejo de notas de voz (audio) ---
+    // Transcribimos con Whisper (OpenAI) y reinyectamos el texto en el pipeline de
+    // texto: reasignamos message.type/text y dejamos caer el flujo hasta el bloque
+    // de texto de abajo. Así una nota de voz "gasté 20 soles en el almuerzo" registra
+    // el gasto igual que si se hubiera escrito, sin duplicar la lógica de NLP.
+    if (message.type === 'audio') {
+      const mediaId = message.audio && message.audio.id;
+      const phoneId = process.env.META_PHONE_NUMBER_ID;
+      const metaToken = process.env.META_ACCESS_TOKEN;
+      log.info({ tag: 'AUDIO', mediaId, phoneId, tokenOk: !!metaToken }, 'Procesando nota de voz');
+      if (!mediaId) { await enviarWhatsapp(from, 'No pude recibir tu nota de voz. Intenta de nuevo. 🎤'); return; }
+      try {
+        // 1. Obtener URL del audio desde Meta API (mismo patrón que imágenes)
+        const metaUrl = 'https://graph.facebook.com/v19.0/' + mediaId + '?phone_number_id=' + phoneId;
+        const metaRes = await fetch(metaUrl, { headers: { Authorization: 'Bearer ' + metaToken } });
+        const metaJson = await metaRes.json();
+        if (!metaJson.url) throw new Error('Meta no devolvió URL del audio: ' + JSON.stringify(metaJson).slice(0, 100));
+
+        // 2. Descargar el audio (WhatsApp envía las notas de voz como audio/ogg opus)
+        const audioRes = await fetch(metaJson.url, { headers: { Authorization: 'Bearer ' + metaToken } });
+        if (!audioRes.ok) throw new Error('Error descargando audio: ' + audioRes.status);
+        const audioBuffer = Buffer.from(await audioRes.arrayBuffer());
+        const mimeType = metaJson.mime_type || (message.audio && message.audio.mime_type) || 'audio/ogg';
+        // La extensión debe coincidir con el contenedor o Whisper rechaza el archivo.
+        const ext = mimeType.includes('mpeg') ? 'mp3' : mimeType.includes('mp4') || mimeType.includes('m4a') ? 'm4a'
+          : mimeType.includes('wav') ? 'wav' : mimeType.includes('amr') ? 'amr' : 'ogg';
+        log.info({ tag: 'AUDIO', mimeType, ext, size: audioBuffer.byteLength }, 'Audio descargado');
+
+        // 3. Transcribir con Whisper. gpt-4o-mini-transcribe: ~mitad del costo de
+        // whisper-1 y mejor calidad en español. language:'es' ancla el idioma.
+        const { toFile } = require('openai');
+        const file = await toFile(audioBuffer, 'audio.' + ext, { type: mimeType });
+        const transcripcion = await openai.audio.transcriptions.create({
+          file,
+          model: 'gpt-4o-mini-transcribe',
+          language: 'es',
+        });
+        const texto = (transcripcion.text || '').trim();
+        log.info({ tag: 'AUDIO', texto: texto.slice(0, 100) }, 'Nota de voz transcrita');
+
+        if (!texto) {
+          await enviarWhatsapp(from, 'No logré entender tu nota de voz. 🎤 Intenta de nuevo hablando claro, o escríbeme el gasto (ej: "gasté 20 soles en el almuerzo").');
+          return;
+        }
+
+        // 4. Reinyectar en el pipeline de texto: el resto del handler procesa `message`
+        // como si el usuario hubiera escrito la transcripción.
+        message.type = 'text';
+        message.text = { body: texto };
+      } catch (e) {
+        log.error({ tag: 'AUDIO', err: e.message }, 'Error procesando nota de voz'); registrarError('AUDIO', e.message, { stack: e.stack, whatsapp: from });
+        await enviarWhatsapp(from, 'No pude procesar tu nota de voz. 🎤 Intenta de nuevo, o escríbeme el gasto (ej: "gasté 20 soles en el almuerzo").');
+        return;
+      }
+    }
+
     if (message.type !== 'text') return;
     const msg = (message.text.body || '').trim();
     log.info({ tag: 'MSG', from, msg: msg.substring(0, 100) }, 'Mensaje recibido');
