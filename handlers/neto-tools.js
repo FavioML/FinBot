@@ -523,7 +523,7 @@ const NETO_TOOLS = [
     function: {
       name: "query_analytics",
       description:
-        "Consultas analiticas avanzadas. Usa cuando el usuario pregunta por su gasto mayor, menor, promedio diario, historial de cambios, ingresos totales, suscripciones detectadas, o quiere comparar meses.",
+        "Consultas analiticas avanzadas. Usa cuando el usuario pregunta por su gasto mayor, menor, promedio diario, historial de cambios, ingresos totales, cuanto paga en suscripciones o pagos recurrentes al mes (action=subscriptions), o quiere comparar meses.",
       parameters: {
         type: "object",
         properties: {
@@ -697,7 +697,7 @@ const NETO_TOOLS = [
     function: {
       name: "spending_alerts",
       description:
-        "Detector de fugas y alertas de gasto. Usa cuando el usuario pregunta por fugas, alertas de gasto, donde se le va la plata, patrones de gasto, o quiere poner un limite a una categoria.",
+        "Detector de fugas y alertas de gasto. Usa cuando el usuario pregunta por fugas, alertas de gasto, donde se le va/pierde la plata, gastos anomalos o disparados este mes, o quiere poner un limite a una categoria. NO uses para consultar cuanto paga en suscripciones o pagos recurrentes al mes (eso es query_analytics action=subscriptions).",
       parameters: {
         type: "object",
         properties: {

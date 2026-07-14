@@ -293,6 +293,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
             + '- "Cuanto va el mes" (sin categoria) = query_expenses action=total.\n'
             + '- "Cuanto me queda este mes", "cuanto me sobra", "cuanto tengo disponible", "supere mi presupuesto?" = manage_budget action=balance (NO query_expenses).\n'
             + '- "Como estuvo [mes] vs [mes]", "[mes] vs el anterior", "comparar [mes] con [mes]" = query_analytics action=compare_months.\n'
+            + '- "Cuanto pago/gasto en suscripciones (al mes)", "mis suscripciones", "ver suscripciones", "cuanto me cuestan mis pagos recurrentes" = query_analytics action=subscriptions. El detector de fugas (spending_alerts action=view) es SOLO para "en que se me va la plata", "detecta fugas", "donde estoy botando/perdiendo plata", alertas o anomalias de gasto — NUNCA para consultar cuanto paga en suscripciones.\n'
             + '- "Mandame el resumen de [mes]", "reporte de [mes]" = generate_report action=report (NO share_summary).\n'
             + '- "Es viable ahorrar X en Y meses/tiempo", "puedo ahorrar X en Y" = manage_goals action=viability.\n'
             + '- "Saca el gasto de X", "borra el de X", "quita el de X", "gasto duplicado" = manage_transaction action=delete.\n'
