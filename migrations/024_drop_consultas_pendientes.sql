@@ -1,0 +1,14 @@
+-- DROP de consultas_pendientes: la tabla alimentaba el flujo de "gastos pendientes"
+-- del bot de WhatsApp, eliminado en los commits bfb7941, b15edc5, 9ba71dd (el bot ya no
+-- pide categorizar; la categoria se revisa/ajusta en app.neto.pe).
+--
+-- Al momento del drop: 196 filas historicas (63 aun en estado 'pendiente', huerfanas). Ya
+-- ningun lector ni escritor quedaba en el codigo tras el commit 740892e, que retiro las
+-- ultimas referencias (webhook wipe, intents/transacciones, webapp DELETE, scripts/backup).
+--
+-- Backup de las 196 filas antes del drop:
+--   C:\Vortik.dev\memory\backups\2026-07-14_consultas_pendientes_pre-drop.json.txt
+--
+-- Aplicada a prod (zvorjqlubmfrjtkbhqcx) el 2026-07-14 con OK explicito de Favio.
+-- Verificado post-drop: transacciones/usuarios/reglas_comercio intactos.
+drop table if exists consultas_pendientes;
