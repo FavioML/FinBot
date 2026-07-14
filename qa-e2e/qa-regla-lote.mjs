@@ -72,6 +72,22 @@ const sb = async (path, init = {}) => {
 
 const results = {};
 
+// El panel de edicion masiva tiene 4 selects (Metodo de pago / Banco / Categoria /
+// Subcategoria). Localizarlos por indice es fragil — hay mas comboboxes en la
+// pagina (mes, filtro de categoria, filtro de metodo) — asi que se busca el grupo
+// por su <label> y se abre el combobox que vive dentro. 'Categoria' con exact:true
+// no colisiona con 'Subcategoria'.
+async function elegirCategoriaEnPanelBulk(page, nombre) {
+  const grupo = page
+    .locator('div.space-y-1')
+    .filter({ has: page.getByText('Categoria', { exact: true }) })
+    .first();
+  await grupo.locator('button[role="combobox"]').click();
+  await page.waitForTimeout(300);
+  await page.getByRole('option').filter({ hasText: new RegExp(`\\b${nombre}\\b`, 'i') }).first().click();
+  await page.waitForTimeout(300);
+}
+
 /* ---------- limpieza previa (por si quedo basura de una corrida anterior) ---------- */
 await sb(`transacciones?usuario_id=eq.${USUARIO_ID}&comercio=eq.${encodeURIComponent(COMERCIO)}`, { method: 'DELETE' });
 await sb(`reglas_comercio?usuario_id=eq.${USUARIO_ID}&comercio_pattern=eq.${encodeURIComponent(PATRON)}`, { method: 'DELETE' });
@@ -112,6 +128,16 @@ const context = await browser.newContext();
 await context.addCookies(ck.map((c) => ({
   ...c, domain: new URL(APP).hostname, path: '/', httpOnly: false, secure: APP.startsWith('https'), sameSite: 'Lax',
 })));
+
+// El welcome-modal y el onboarding-tour montan un overlay fixed z-50 que
+// intercepta los clicks, y se re-montan en cada navegacion (borrarlos del DOM no
+// alcanza: React los vuelve a poner). Se marcan como vistos ANTES de cargar la
+// pagina, que es lo que hace un usuario que ya paso por ahi.
+await context.addInitScript(() => {
+  localStorage.setItem('neto_welcome_seen', '1');
+  localStorage.setItem('neto_tour_v2', 'true');
+});
+
 const page = await context.newPage();
 
 let patchStatus = null;
@@ -142,13 +168,7 @@ await page.getByRole('button', { name: /^Editar$/ }).click();
 await page.waitForTimeout(400);
 
 // Elegir la categoria destino en el select "Categoria" del panel bulk.
-await page.getByRole('combobox').filter({ hasText: /Sin cambiar|Categoria/i }).nth(2).click().catch(async () => {
-  // fallback: el tercer combobox del panel es Categoria
-  await page.locator('button[role="combobox"]').nth(3).click();
-});
-await page.waitForTimeout(300);
-await page.getByRole('option', { name: new RegExp(CATEGORIA_DESTINO, 'i') }).first().click();
-await page.waitForTimeout(300);
+await elegirCategoriaEnPanelBulk(page, CATEGORIA_DESTINO);
 
 // Aplicar.
 await page.getByRole('button', { name: /Aplicar a \d+ transacciones/i }).click();
@@ -173,6 +193,37 @@ results.categoriaCorrecta = regla[0]?.categoria === CATEGORIA_DESTINO;
 const txs = await sb(`transacciones?usuario_id=eq.${USUARIO_ID}&comercio=eq.${encodeURIComponent(COMERCIO)}&select=categoria`);
 results.txsRecategorizadas = txs.filter((t) => t.categoria === CATEGORIA_DESTINO).length;
 
+/* ---------- fase 2: una regla que NO clasifica no debe guardarse ----------
+   Recategorizar el lote a "Otros" (sin subcategoria) no puede dejar regla: esa
+   regla PISARIA lo que deduzca la NLP y condenaria al comercio a caer sin
+   clasificar para siempre.
+
+   Se borra primero la regla que dejo la fase 1, para que el estado inicial sea
+   "sin regla" y un 0 al final signifique de verdad "no se guardo" (con la regla
+   vieja presente, la asercion seria ambigua). */
+await sb(`reglas_comercio?usuario_id=eq.${USUARIO_ID}&comercio_pattern=eq.${encodeURIComponent(PATRON)}`, { method: 'DELETE' });
+
+await page.reload({ waitUntil: 'domcontentloaded' });
+await page.locator('table tbody tr').first().waitFor({ timeout: 60000 }).catch(() => {});
+await page.waitForTimeout(1000);
+await page.evaluate(() => document.querySelectorAll('.fixed.inset-0.z-50').forEach((e) => e.remove()));
+await page.getByPlaceholder(/buscar por comercio/i).fill(COMERCIO);
+await page.waitForTimeout(800);
+
+const filas2 = page.locator('table tbody tr');
+const checks2 = filas2.locator('input[type="checkbox"]');
+const n2 = await checks2.count();
+for (let i = 0; i < n2; i++) await checks2.nth(i).check();
+await page.getByRole('button', { name: /^Editar$/ }).click();
+await page.waitForTimeout(400);
+await elegirCategoriaEnPanelBulk(page, 'Otros');
+await page.getByRole('button', { name: /Aplicar a \d+ transacciones/i }).click();
+await page.waitForTimeout(6000);
+
+const reglaTras = await sb(`reglas_comercio?usuario_id=eq.${USUARIO_ID}&comercio_pattern=eq.${encodeURIComponent(PATRON)}`);
+results.reglaTrasOtros = reglaTras.length;
+results.reglaOtrosNoSeGuarda = reglaTras.length === 0;
+
 /* ---------- limpieza ---------- */
 await sb(`transacciones?usuario_id=eq.${USUARIO_ID}&comercio=eq.${encodeURIComponent(COMERCIO)}`, { method: 'DELETE' });
 await sb(`reglas_comercio?usuario_id=eq.${USUARIO_ID}&comercio_pattern=eq.${encodeURIComponent(PATRON)}`, { method: 'DELETE' });
@@ -185,6 +236,7 @@ const checksMap = {
   'las transacciones se recategorizaron': results.txsRecategorizadas === 2,
   'NACIO la regla de comercio (el fix)': results.reglaCreada,
   'la regla apunta a la categoria elegida': results.categoriaCorrecta,
+  'NO se guarda regla hacia "Otros" sin subcategoria': results.reglaOtrosNoSeGuarda,
 };
 results.verdict = Object.fromEntries(Object.entries(checksMap).map(([k, v]) => [k, v ? 'PASS' : 'FAIL']));
 results.allPass = Object.values(checksMap).every(Boolean);

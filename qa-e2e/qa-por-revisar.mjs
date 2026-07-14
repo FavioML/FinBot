@@ -17,16 +17,20 @@
 //   values
 //     ('ded7e219-e5fd-4ff4-b5a3-3cd5cdffd172','gasto',33,33,'PEN','QA REVISAR OTROS','Otros',null,current_date,'Yape',true),
 //     ('ded7e219-e5fd-4ff4-b5a3-3cd5cdffd172','gasto',44,44,'PEN','QA REVISAR SINCAT','Comida','Sin_categoria',current_date,'Yape',true),
-//     ('ded7e219-e5fd-4ff4-b5a3-3cd5cdffd172','gasto',55,55,'PEN','QA OTROS CON SUB','Otros','Regalo',current_date,'Yape',true);
+//     ('ded7e219-e5fd-4ff4-b5a3-3cd5cdffd172','gasto',55,55,'PEN','QA OTROS CON SUB','Otros','Regalo',current_date,'Yape',true),
+//     ('ded7e219-e5fd-4ff4-b5a3-3cd5cdffd172','gasto',66,66,'PEN','QA REVISAR PASADO','Otros',null,current_date - interval '1 month','Yape',true);
 //
 //   -- al terminar:
-//   delete from transacciones where comercio in ('QA REVISAR OTROS','QA REVISAR SINCAT','QA OTROS CON SUB');
+//   delete from transacciones where comercio like 'QA %';
 //
-// Las tres filas cubren las tres decisiones de needsReview:
+// Las cuatro filas cubren las decisiones de needsReview y el alcance del badge:
 //   - "QA REVISAR OTROS"  -> Otros sin subcategoria      => SI aparece
 //   - "QA REVISAR SINCAT" -> Comida / Sin_categoria      => SI aparece
 //   - "QA OTROS CON SUB"  -> Otros / Regalo              => NO aparece (clasificacion
 //     deliberada: usar Otros con subcategoria propia es valido, no es un pendiente)
+//   - "QA REVISAR PASADO" -> Otros sin sub, MES ANTERIOR => SI aparece, aunque la
+//     pagina este parada en el mes actual: el badge es global (el backlog no
+//     entiende de meses y acotarlo al periodo lo volvia a esconder).
 
 import { chromium } from 'playwright';
 import { readFileSync } from 'node:fs';
@@ -35,9 +39,10 @@ import { join } from 'node:path';
 
 const APP = process.env.NETO_APP_URL || 'https://app.neto.pe';
 
-// De las 3 filas sembradas (ver cabecera), solo 2 son pendientes reales:
-// "QA OTROS CON SUB" (Otros / Regalo) esta clasificada a proposito y NO cuenta.
-const EXPECTED_POR_REVISAR = 2;
+// De las 4 filas sembradas (ver cabecera), 3 son pendientes reales: 2 del mes
+// actual + 1 del mes anterior (el badge es global). "QA OTROS CON SUB"
+// (Otros / Regalo) esta clasificada a proposito y NO cuenta.
+const EXPECTED_POR_REVISAR = 3;
 
 function loadEnv(path) {
   const env = {};
@@ -130,6 +135,9 @@ results.filterMatchesBadge = results.rowsFiltered === EXPECTED_POR_REVISAR;
 const filteredText = await page.locator('table tbody').innerText().catch(() => '');
 results.showsOtrosRow = /QA REVISAR OTROS/.test(filteredText);
 results.showsSinCatRow = /QA REVISAR SINCAT/.test(filteredText);
+// La del mes ANTERIOR tiene que salir aunque la pagina este parada en el mes
+// actual: es lo que prueba que el badge/filtro son globales.
+results.showsPastMonthRow = /QA REVISAR PASADO/.test(filteredText);
 // Y no debe colarse una bien clasificada...
 results.leaksClassifiedRow = /Netflix|Uber|Movistar/.test(filteredText);
 // ...ni "Otros / Regalo", que es Otros pero CON subcategoria deliberada.
@@ -195,6 +203,7 @@ const checks = {
   'click filtra al mismo conteo': results.filterMatchesBadge,
   'filtro captura la rama categoria (Otros)': results.showsOtrosRow,
   'filtro captura la rama subcategoria (Sin_categoria)': results.showsSinCatRow,
+  'el badge es GLOBAL: incluye el mes anterior': results.showsPastMonthRow,
   'filtro no cuela transacciones bien clasificadas': results.leaksClassifiedRow === false,
   'filtro no cuela "Otros" con subcategoria deliberada': results.leaksOtrosConSub === false,
   'select de categoria refleja el filtro': results.selectShowsPorRevisar,
