@@ -555,6 +555,18 @@ function createWebhookHandler(procesarMensajeLibre) {
         await enviarWhatsapp(from, respuesta);
         return;
       }
+      // El correo debe ser único: lo usaremos para vincular tu cuenta cuando pases a Pro.
+      const { data: emailEnUso } = await supabase
+        .from('usuarios')
+        .select('id')
+        .eq('email', emailInput)
+        .neq('id', usuario.id)
+        .limit(1);
+      if (emailEnUso && emailEnUso.length > 0) {
+        respuesta = 'Ese correo ya está registrado con otra cuenta. 🤔\n\nEscríbeme otro, porfa. Es importante que sea válido y tuyo porque lo usaremos para vincularte cuando quieras pasar a *Pro*.';
+        await enviarWhatsapp(from, respuesta);
+        return;
+      }
       await supabase.from('usuarios').update({ email: emailInput, onboarding_paso: 1 }).eq('id', usuario.id);
       const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : '';
       respuesta = '📧 ¡Perfecto' + (primerNombre ? ', ' + primerNombre : '') + '!\n\nAhora, elige tu plan:\n\n' +
