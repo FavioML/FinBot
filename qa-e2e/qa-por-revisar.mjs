@@ -16,13 +16,17 @@
 //     (usuario_id, tipo, monto, monto_pen, moneda, comercio, categoria, subcategoria, fecha, metodo_pago, confirmado)
 //   values
 //     ('ded7e219-e5fd-4ff4-b5a3-3cd5cdffd172','gasto',33,33,'PEN','QA REVISAR OTROS','Otros',null,current_date,'Yape',true),
-//     ('ded7e219-e5fd-4ff4-b5a3-3cd5cdffd172','gasto',44,44,'PEN','QA REVISAR SINCAT','Comida','Sin_categoria',current_date,'Yape',true);
+//     ('ded7e219-e5fd-4ff4-b5a3-3cd5cdffd172','gasto',44,44,'PEN','QA REVISAR SINCAT','Comida','Sin_categoria',current_date,'Yape',true),
+//     ('ded7e219-e5fd-4ff4-b5a3-3cd5cdffd172','gasto',55,55,'PEN','QA OTROS CON SUB','Otros','Regalo',current_date,'Yape',true);
 //
 //   -- al terminar:
-//   delete from transacciones where comercio in ('QA REVISAR OTROS','QA REVISAR SINCAT');
+//   delete from transacciones where comercio in ('QA REVISAR OTROS','QA REVISAR SINCAT','QA OTROS CON SUB');
 //
-// Son dos filas y no una a proposito: cubren las dos ramas del OR de needsReview
-// (categoria "Otros" por un lado, subcategoria "Sin_categoria" por el otro).
+// Las tres filas cubren las tres decisiones de needsReview:
+//   - "QA REVISAR OTROS"  -> Otros sin subcategoria      => SI aparece
+//   - "QA REVISAR SINCAT" -> Comida / Sin_categoria      => SI aparece
+//   - "QA OTROS CON SUB"  -> Otros / Regalo              => NO aparece (clasificacion
+//     deliberada: usar Otros con subcategoria propia es valido, no es un pendiente)
 
 import { chromium } from 'playwright';
 import { readFileSync } from 'node:fs';
@@ -31,9 +35,8 @@ import { join } from 'node:path';
 
 const APP = process.env.NETO_APP_URL || 'https://app.neto.pe';
 
-// Sembrado en la DB para este test (ver reference_neto_qa_test_user):
-//   - "QA REVISAR OTROS"  -> categoria Otros        (rama categoria del OR)
-//   - "QA REVISAR SINCAT" -> subcategoria Sin_categoria (rama subcategoria)
+// De las 3 filas sembradas (ver cabecera), solo 2 son pendientes reales:
+// "QA OTROS CON SUB" (Otros / Regalo) esta clasificada a proposito y NO cuenta.
 const EXPECTED_POR_REVISAR = 2;
 
 function loadEnv(path) {
@@ -127,8 +130,10 @@ results.filterMatchesBadge = results.rowsFiltered === EXPECTED_POR_REVISAR;
 const filteredText = await page.locator('table tbody').innerText().catch(() => '');
 results.showsOtrosRow = /QA REVISAR OTROS/.test(filteredText);
 results.showsSinCatRow = /QA REVISAR SINCAT/.test(filteredText);
-// Y no debe colarse una bien clasificada.
+// Y no debe colarse una bien clasificada...
 results.leaksClassifiedRow = /Netflix|Uber|Movistar/.test(filteredText);
+// ...ni "Otros / Regalo", que es Otros pero CON subcategoria deliberada.
+results.leaksOtrosConSub = /QA OTROS CON SUB/.test(filteredText);
 
 // El select de categoria refleja el filtro activo (se puede limpiar desde ahi).
 // Se busca por contenido, no por indice: la fila de filtros comparte el DOM con
@@ -191,6 +196,7 @@ const checks = {
   'filtro captura la rama categoria (Otros)': results.showsOtrosRow,
   'filtro captura la rama subcategoria (Sin_categoria)': results.showsSinCatRow,
   'filtro no cuela transacciones bien clasificadas': results.leaksClassifiedRow === false,
+  'filtro no cuela "Otros" con subcategoria deliberada': results.leaksOtrosConSub === false,
   'select de categoria refleja el filtro': results.selectShowsPorRevisar,
   'destoggle restaura la vista completa': results.untoggleRestores,
   'toggle de alertas presente': results.togglePresent,

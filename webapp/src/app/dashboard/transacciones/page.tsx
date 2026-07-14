@@ -579,8 +579,8 @@ export default function TransaccionesPage() {
             </p>
             <p className="text-xs text-[#8A877D]">
               {porRevisarActive
-                ? 'Mostrando solo las que estan en Otros o sin subcategoria. Toca para ver todas.'
-                : 'Quedaron en Otros o sin subcategoria. Toca para verlas y ajustarlas.'}
+                ? 'Mostrando solo las que quedaron sin clasificar. Toca para ver todas.'
+                : 'Neto no supo en que categoria ponerlas. Toca para verlas y ajustarlas.'}
             </p>
           </div>
           <Badge

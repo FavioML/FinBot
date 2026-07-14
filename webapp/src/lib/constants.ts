@@ -67,18 +67,24 @@ export function getCategoriaEmoji(categoria: string): string {
 // coincidir con un nombre que el usuario pueda crear.
 export const CATEGORIA_POR_REVISAR = '__por_revisar__';
 
-// Una transaccion "por revisar" es la que la clasificacion no supo ubicar: cayo
-// en la categoria paraguas "Otros", o la NLP marco la subcategoria como fallida.
-// La NLP escribe ese fallo de dos formas ('Sin_categoria' y el string 'null'), y
-// el casing varia segun la fuente, asi que se normaliza antes de comparar.
+// Una transaccion esta "por revisar" cuando no quedo ninguna clasificacion util:
 //
-// Una subcategoria NULL/vacia NO cuenta: significa "nunca se asigno subcategoria",
-// que es un estado normal (una transaccion Uber -> Transporte sin sub esta bien
-// clasificada). Meterla aqui inundaria la vista de falsos positivos.
+//   1. La NLP fallo la subcategoria. Escribe ese fallo de dos formas
+//      ('Sin_categoria' y el string literal 'null'), con casing variable.
+//   2. Cayo en la categoria paraguas "Otros" y ademas no tiene subcategoria.
+//
+// "Otros" NO alcanza por si sola: "Otros / Regalo" es una clasificacion
+// deliberada (el usuario puede querer usar Otros con su propia subcategoria) y
+// pedirle que la revise es ruido. Por eso solo cuenta cuando viene vacia.
+//
+// Una subcategoria NULL/vacia bajo una categoria REAL tampoco cuenta: significa
+// "nunca se asigno subcategoria", que es un estado normal (Uber -> Transporte sin
+// sub esta bien clasificada).
 export function needsReview(t: { categoria?: string | null; subcategoria?: string | null }): boolean {
   const cat = (t.categoria ?? '').trim().toLowerCase();
   const sub = (t.subcategoria ?? '').trim().toLowerCase();
-  return cat === 'otros' || sub === 'sin_categoria' || sub === 'null';
+  const subFallida = sub === 'sin_categoria' || sub === 'null';
+  return subFallida || (cat === 'otros' && sub === '');
 }
 
 export const MESES = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
