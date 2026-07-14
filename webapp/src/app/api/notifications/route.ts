@@ -24,13 +24,16 @@ export async function GET() {
 
   const { data, error } = await getServiceClient()
     .from('usuarios')
-    .select('recordatorios_activos')
+    .select('recordatorios_activos, manos_libres')
     .eq('id', userId)
     .single();
 
   if (error)
     return NextResponse.json({ error: error.message }, { status: 400 });
-  return NextResponse.json({ recordatorios_activos: data?.recordatorios_activos ?? true });
+  return NextResponse.json({
+    recordatorios_activos: data?.recordatorios_activos ?? true,
+    manos_libres: data?.manos_libres ?? false,
+  });
 }
 
 export async function PUT(request: Request) {
@@ -39,14 +42,22 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json();
-  const recordatorios_activos = Boolean(body.recordatorios_activos);
+
+  // Actualización parcial: solo los campos presentes en el body.
+  const update: { recordatorios_activos?: boolean; manos_libres?: boolean } = {};
+  if ('recordatorios_activos' in body)
+    update.recordatorios_activos = Boolean(body.recordatorios_activos);
+  if ('manos_libres' in body) update.manos_libres = Boolean(body.manos_libres);
+
+  if (Object.keys(update).length === 0)
+    return NextResponse.json({ error: 'Nada que actualizar' }, { status: 400 });
 
   const { error } = await getServiceClient()
     .from('usuarios')
-    .update({ recordatorios_activos })
+    .update(update)
     .eq('id', userId);
 
   if (error)
     return NextResponse.json({ error: error.message }, { status: 400 });
-  return NextResponse.json({ recordatorios_activos });
+  return NextResponse.json({ success: true, ...update });
 }

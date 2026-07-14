@@ -411,6 +411,42 @@ function createWebhookHandler(procesarMensajeLibre) {
     const usuario = await obtenerOCrearUsuario(from);
     const cmd = msg.toLowerCase().trim();
 
+    // Verificación de cuenta web (OTP inverso). El usuario se logueó con Google en
+    // app.neto.pe y, para probar posesión de su número, envía este código pre-escrito
+    // (wa.me deep link). Aquí `from` es el número REAL que envió → posesión probada.
+    // Recién aquí se vincula la cuenta Google (cierra el hueco de account-linking del
+    // onboarding webapp). Ver migrations/020_webapp_otp.sql.
+    const otpMatch = msg.match(/NETO-(\d{6})/i);
+    if (otpMatch) {
+      const code = 'NETO-' + otpMatch[1];
+      try {
+        const { data: otp } = await supabase.from('webapp_otp')
+          .select('id, supabase_auth_id, email, nombre, expires_at, verified_at')
+          .eq('code', code).is('verified_at', null).maybeSingle();
+        if (otp && new Date(otp.expires_at).getTime() > Date.now()) {
+          await supabase.from('usuarios').update({
+            supabase_auth_id: otp.supabase_auth_id,
+            email: otp.email || usuario.email,
+            nombre: usuario.nombre || otp.nombre,
+            onboarding_completado: true,
+          }).eq('id', usuario.id);
+          await supabase.from('webapp_otp').update({
+            verified_at: new Date().toISOString(),
+            whatsapp_verified: from.replace(/^\+/, ''),
+          }).eq('id', otp.id);
+          const pn = (otp.nombre || usuario.nombre || '').split(' ')[0];
+          await enviarWhatsapp(from, '✅ ' + (pn ? pn + ', t' : 'T') + 'u cuenta web quedó verificada y vinculada a este WhatsApp.\n\nYa puedes volver a app.neto.pe. 🎉');
+          log.info({ tag: 'WEBAPP_OTP', usuarioId: usuario.id }, 'Cuenta web verificada');
+        } else {
+          await enviarWhatsapp(from, '⚠️ Ese código de verificación no es válido o ya expiró.\n\nVuelve a app.neto.pe y genera uno nuevo.');
+        }
+        return;
+      } catch (e) {
+        log.error({ tag: 'WEBAPP_OTP', err: e.message }, 'Error verificando cuenta web');
+        // cae al flujo normal
+      }
+    }
+
     // Detectar referido: nuevo usuario llegó vía link /r/:code
     const refMatch = msg.match(/^hola\s+neto\s+ref:([A-Z0-9]{4,12})/i);
     if (refMatch) {
@@ -708,6 +744,16 @@ function createWebhookHandler(procesarMensajeLibre) {
     } else if (cmd === '/recordar') {
       await supabase.from('usuarios').update({ recordatorios_activos: true }).eq('id', usuario.id);
       respuesta = '🔔 Recordatorios activados. Te avisaré a las 8pm si no registras gastos.';
+    } else if (cmd === '/manoslibres') {
+      if (!getUserPlanConfig(usuario).resumenDiario) {
+        respuesta = '⭐ *El Modo Manos Libres es una función Pro.*\n\nCada noche a las 9pm te mando un resumen de lo que gastaste en el día, sin que hagas nada.\n\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.';
+      } else {
+        const nuevoEstado = !usuario.manos_libres;
+        await supabase.from('usuarios').update({ manos_libres: nuevoEstado }).eq('id', usuario.id);
+        respuesta = nuevoEstado
+          ? '🌙 *Modo Manos Libres activado.*\n\nCada noche a las 9pm te mando un resumen de lo que gastaste en el día. Escribe */manoslibres* de nuevo para desactivarlo.'
+          : '✅ Modo Manos Libres desactivado. Ya no te mandaré el resumen diario.';
+      }
     } else if (cmd === '/conectar') {
       if (usuario.plan !== 'premium') {
         respuesta = '⭐ *Conectar Gmail es una función Pro.*\n\n' +

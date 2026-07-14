@@ -97,6 +97,8 @@ export default function ConfiguracionPage() {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [recordatoriosActivos, setRecordatoriosActivos] = useState(true);
   const [recordatoriosLoading, setRecordatoriosLoading] = useState(false);
+  const [manosLibres, setManosLibres] = useState(false);
+  const [manosLibresLoading, setManosLibresLoading] = useState(false);
   const [analyticsOptedOut, setAnalyticsOptedOut] = useState(false);
 
   /* ---- Edit name ---- */
@@ -131,6 +133,9 @@ export default function ConfiguracionPage() {
       .then((d) => {
         if (typeof d.recordatorios_activos === 'boolean') {
           setRecordatoriosActivos(d.recordatorios_activos);
+        }
+        if (typeof d.manos_libres === 'boolean') {
+          setManosLibres(d.manos_libres);
         }
       })
       .catch(() => {});
@@ -856,9 +861,53 @@ export default function ConfiguracionPage() {
           </button>
         </div>
 
+        {/* Modo Manos Libres — resumen diario opt-in (Pro), toggle funcional */}
+        <div className="flex items-start justify-between gap-4 rounded-lg bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] px-4 py-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-medium text-[#C8C6BC]">Modo Manos Libres</p>
+              {!isPremium && (
+                <span className="rounded-full bg-[#1D9E75]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[#1D9E75]">Pro</span>
+              )}
+            </div>
+            <p className="text-xs text-[#8A877D] mt-0.5">Resumen de lo que gastaste en el dia, cada noche a las 9pm por WhatsApp</p>
+          </div>
+          <button
+            disabled={manosLibresLoading || !isPremium}
+            onClick={async () => {
+              if (!isPremium) return;
+              setManosLibresLoading(true);
+              const newVal = !manosLibres;
+              try {
+                const res = await fetch('/api/notifications', {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ manos_libres: newVal }),
+                });
+                if (res.ok) {
+                  setManosLibres(newVal);
+                  toast.success(newVal ? 'Modo Manos Libres activado' : 'Modo Manos Libres desactivado');
+                } else {
+                  toast.error('Error al actualizar');
+                }
+              } catch {
+                toast.error('Error de conexion');
+              } finally {
+                setManosLibresLoading(false);
+              }
+            }}
+            className={`shrink-0 mt-0.5 h-5 w-9 rounded-full relative transition-colors ${
+              manosLibres && isPremium ? 'bg-[#1D9E75]' : 'bg-[#3A3A38]'
+            } ${manosLibresLoading ? 'opacity-50' : ''} ${isPremium ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+          >
+            <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+              manosLibres && isPremium ? 'right-0.5' : 'left-0.5'
+            }`} />
+          </button>
+        </div>
+
         {/* Auto-managed toggles */}
         {[
-          { key: 'resumen_diario', label: 'Resumen diario', desc: 'Resumen de gastos del dia a las 8pm' },
           { key: 'resumen_semanal', label: 'Resumen semanal', desc: 'Analisis comparativo cada domingo' },
           { key: 'alertas_presupuesto', label: 'Alertas de presupuesto', desc: 'Aviso al superar 80% o 100% de un presupuesto' },
         ].map((pref) => (

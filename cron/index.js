@@ -5,11 +5,13 @@ const { escaneoAutomatico } = require('../services/gmail-scanner');
 const {
   checkResumenMensual,
   checkResumenSemanal,
+  checkResumenDiarioManosLibres,
   checkRecordatorioDiario,
   checkPremiumExpiry,
   checkAlertasProactivas,
   checkRecordatorioOnboarding,
   checkRecordatorioDeudas,
+  checkRecordatorioSuscripciones,
   checkCalcularNetoScore,
   checkNotificacionScore,
   checkDetectorFugas,
@@ -52,6 +54,8 @@ function startCronJobs() {
     log.info({ tag: 'MENSUAL' }, 'Resumen mensual activo (1ro de cada mes 9am Lima)');
     setInterval(checkRecordatorioDiario, 15 * 60 * 1000);
     log.info({ tag: 'INACTIVITY' }, 'Recordatorios de inactividad activos (8pm Lima, cada 3+ dias sin tx)');
+    setInterval(checkResumenDiarioManosLibres, 15 * 60 * 1000);
+    log.info({ tag: 'RESUMEN_DIARIO' }, 'Resumen diario Manos Libres activo (Pro opt-in, 9pm Lima)');
     setInterval(checkAlertasProactivas, 15 * 60 * 1000);
     log.info({ tag: 'ALERTAS' }, 'Alertas proactivas activas (miércoles 10am Lima)');
     setInterval(checkPremiumExpiry, 60 * 60 * 1000);
@@ -60,6 +64,8 @@ function startCronJobs() {
     log.info({ tag: 'ONBOARDING' }, 'Recordatorio onboarding activo (3h después de registro, 9am-9pm Lima)');
     setInterval(checkRecordatorioDeudas, 15 * 60 * 1000);
     log.info({ tag: 'DEUDAS' }, 'Recordatorios de deudas activos (diario 9am Lima)');
+    setInterval(checkRecordatorioSuscripciones, 15 * 60 * 1000);
+    log.info({ tag: 'SUB_REMIND' }, 'Recordatorios de cobro de suscripciones activos (Pro, 3d antes, 10am Lima)');
     setInterval(checkCalcularNetoScore, 15 * 60 * 1000);
     log.info({ tag: 'SCORE' }, 'Cálculo diario Neto Score activo (6am Lima)');
     setInterval(checkNotificacionScore, 15 * 60 * 1000);

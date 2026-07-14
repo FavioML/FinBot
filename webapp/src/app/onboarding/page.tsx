@@ -2,11 +2,13 @@
 
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 import { signOutAndClear } from '@/lib/query-client';
+
+type Phase = 'input' | 'verify';
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -16,6 +18,10 @@ export default function OnboardingPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [phase, setPhase] = useState<Phase>('input');
+  const [code, setCode] = useState('');
+  const [waLink, setWaLink] = useState('');
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
@@ -34,10 +40,32 @@ export default function OnboardingPage() {
     });
   }, [router]);
 
+  // Polling: una vez en fase "verify", pregunta al server si el webhook ya confirmo
+  // el codigo (el usuario lo envio por WhatsApp). Al verificar -> dashboard.
+  useEffect(() => {
+    if (phase !== 'verify') return;
+    const tick = async () => {
+      try {
+        const res = await fetch('/api/onboarding', { method: 'GET' });
+        const data = await res.json();
+        if (data.verified) {
+          if (pollRef.current) clearInterval(pollRef.current);
+          toast.success('Cuenta verificada');
+          router.replace('/dashboard');
+        }
+      } catch {
+        /* reintenta en el siguiente tick */
+      }
+    };
+    pollRef.current = setInterval(tick, 3000);
+    tick();
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [phase, router]);
+
   const formatWhatsapp = (value: string) => {
-    // Only keep digits
     const digits = value.replace(/\D/g, '').slice(0, 9);
-    // Format as 999 999 999
     if (digits.length <= 3) return digits;
     if (digits.length <= 6) return `${digits.slice(0, 3)} ${digits.slice(3)}`;
     return `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6)}`;
@@ -69,7 +97,16 @@ export default function OnboardingPage() {
         return;
       }
 
-      router.replace('/dashboard');
+      // Cuenta ya vinculada en una sesion previa -> directo al dashboard.
+      if (data.alreadyLinked) {
+        router.replace('/dashboard');
+        return;
+      }
+
+      setCode(data.code);
+      setWaLink(data.waLink);
+      setPhase('verify');
+      setSubmitting(false);
     } catch {
       setError('Error de conexion. Intenta de nuevo.');
       setSubmitting(false);
@@ -108,77 +145,121 @@ export default function OnboardingPage() {
           </div>
         </div>
 
-        {/* Heading */}
-        <h1 className="mb-2 text-2xl font-bold text-[#F0EFE8]">
-          Completa tu registro
-        </h1>
-        <p className="mb-8 text-[#8A877D]">Un ultimo paso para empezar</p>
+        {phase === 'input' && (
+          <>
+            <h1 className="mb-2 text-2xl font-bold text-[#F0EFE8]">
+              Completa tu registro
+            </h1>
+            <p className="mb-8 text-[#8A877D]">Un ultimo paso para empezar</p>
 
-        {/* Read-only user info */}
-        <div className="mb-4">
-          <label className="mb-1.5 block text-sm font-medium text-[#C8C6BC]">
-            Nombre
-          </label>
-          <input
-            value={name}
-            readOnly
-            className="w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-sm text-[#8A877D] outline-none transition-colors"
-          />
-        </div>
+            <div className="mb-4">
+              <label className="mb-1.5 block text-sm font-medium text-[#C8C6BC]">
+                Nombre
+              </label>
+              <input
+                value={name}
+                readOnly
+                className="w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-sm text-[#8A877D] outline-none transition-colors"
+              />
+            </div>
 
-        <div className="mb-4">
-          <label className="mb-1.5 block text-sm font-medium text-[#C8C6BC]">
-            Email
-          </label>
-          <input
-            value={email}
-            readOnly
-            className="w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-sm text-[#8A877D] outline-none transition-colors"
-          />
-        </div>
+            <div className="mb-4">
+              <label className="mb-1.5 block text-sm font-medium text-[#C8C6BC]">
+                Email
+              </label>
+              <input
+                value={email}
+                readOnly
+                className="w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-sm text-[#8A877D] outline-none transition-colors"
+              />
+            </div>
 
-        {/* WhatsApp input */}
-        <div className="mb-6">
-          <label className="mb-1.5 block text-sm font-medium text-[#C8C6BC]">
-            WhatsApp
-          </label>
-          <div className="flex overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.03] focus-within:border-[#1D9E75]/50">
-            <span className="flex items-center border-r border-white/[0.06] bg-white/[0.02] px-4 text-sm font-medium text-[#8A877D]">
-              +51
-            </span>
-            <input
-              type="tel"
-              placeholder="999 999 999"
-              value={whatsapp}
-              onChange={(e) => setWhatsapp(formatWhatsapp(e.target.value))}
-              className="w-full bg-transparent px-4 py-3 text-sm text-[#F0EFE8] outline-none placeholder:text-[#8A877D]/50"
-              maxLength={11}
-            />
-          </div>
-          <p className="mt-1.5 text-xs text-[#8A877D]">
-            Para registrar gastos por WhatsApp
-          </p>
-        </div>
+            <div className="mb-6">
+              <label className="mb-1.5 block text-sm font-medium text-[#C8C6BC]">
+                WhatsApp
+              </label>
+              <div className="flex overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.03] focus-within:border-[#1D9E75]/50">
+                <span className="flex items-center border-r border-white/[0.06] bg-white/[0.02] px-4 text-sm font-medium text-[#8A877D]">
+                  +51
+                </span>
+                <input
+                  type="tel"
+                  placeholder="999 999 999"
+                  value={whatsapp}
+                  onChange={(e) => setWhatsapp(formatWhatsapp(e.target.value))}
+                  className="w-full bg-transparent px-4 py-3 text-sm text-[#F0EFE8] outline-none placeholder:text-[#8A877D]/50"
+                  maxLength={11}
+                />
+              </div>
+              <p className="mt-1.5 text-xs text-[#8A877D]">
+                Para registrar gastos por WhatsApp
+              </p>
+            </div>
 
-        {/* Error */}
-        {error && (
-          <p className="mb-4 text-sm text-red-400">{error}</p>
+            {error && <p className="mb-4 text-sm text-red-400">{error}</p>}
+
+            <motion.button
+              onClick={handleSubmit}
+              disabled={submitting}
+              className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-[#1D9E75] px-6 py-4 text-base font-medium text-white shadow-lg shadow-[#1D9E75]/20 transition-all hover:bg-[#1D9E75]/90 hover:shadow-[#1D9E75]/30 disabled:cursor-not-allowed disabled:opacity-50"
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              {submitting ? (
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              ) : (
+                'Continuar'
+              )}
+            </motion.button>
+          </>
         )}
 
-        {/* Submit */}
-        <motion.button
-          onClick={handleSubmit}
-          disabled={submitting}
-          className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-[#1D9E75] px-6 py-4 text-base font-medium text-white shadow-lg shadow-[#1D9E75]/20 transition-all hover:bg-[#1D9E75]/90 hover:shadow-[#1D9E75]/30 disabled:cursor-not-allowed disabled:opacity-50"
-          whileHover={{ scale: 1.01 }}
-          whileTap={{ scale: 0.98 }}
-        >
-          {submitting ? (
-            <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-          ) : (
-            'Comenzar'
-          )}
-        </motion.button>
+        {phase === 'verify' && (
+          <>
+            <h1 className="mb-2 text-2xl font-bold text-[#F0EFE8]">
+              Verifica tu WhatsApp
+            </h1>
+            <p className="mb-6 text-[#8A877D]">
+              Toca el boton, se abrira WhatsApp con un mensaje listo. Solo
+              envialo y esta pantalla continua sola.
+            </p>
+
+            {/* Codigo (referencia visible por si el mensaje se borra) */}
+            <div className="mb-6 rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-center">
+              <p className="mb-1 text-xs text-[#8A877D]">Tu codigo</p>
+              <p className="font-mono text-lg font-bold tracking-widest text-[#F0EFE8]">
+                {code}
+              </p>
+            </div>
+
+            <motion.a
+              href={waLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-[#1D9E75] px-6 py-4 text-base font-medium text-white shadow-lg shadow-[#1D9E75]/20 transition-all hover:bg-[#1D9E75]/90 hover:shadow-[#1D9E75]/30"
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              Abrir WhatsApp y enviar
+            </motion.a>
+
+            <div className="mt-6 flex items-center justify-center gap-2 text-sm text-[#8A877D]">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#1D9E75] border-t-transparent" />
+              Esperando tu confirmacion...
+            </div>
+
+            <button
+              onClick={() => {
+                setPhase('input');
+                setCode('');
+                setWaLink('');
+              }}
+              className="mt-6 w-full text-center text-sm text-[#8A877D] transition-colors hover:text-[#C8C6BC] cursor-pointer"
+            >
+              Usar otro numero
+            </button>
+          </>
+        )}
 
         {/* Change account */}
         <button

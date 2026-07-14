@@ -3,7 +3,7 @@ const log = require('../lib/logger');
 const { hoyPeru } = require('../lib/dates');
 const { enviarWhatsapp } = require('../lib/whatsapp');
 const { getUserPlanConfig } = require('../helpers/db-helpers');
-const { generarResumenSemanal, generarResumenMensual } = require('../services/summaries');
+const { generarResumenSemanal, generarResumenMensual, generarResumenDiario } = require('../services/summaries');
 const { verificarAlertasProactivas } = require('../services/recommendations');
 const { obtenerDeudasProximasVencer } = require('../services/debts');
 const { crearNotificacion } = require('../lib/notifications-db');
@@ -667,14 +667,131 @@ async function checkSurveyConversions() {
   }
 }
 
+/**
+ * Recordatorio de cobro de suscripciones (Pro) — 10am Lima diario.
+ *
+ * Neto detecta suscripciones desde las transacciones (no hay tabla con fecha de
+ * cobro), así que la próxima fecha se estima como el mismo día del último pago,
+ * adelantada mes a mes hasta caer en el futuro. Avisa SUB_LEAD_DIAS antes.
+ *
+ * Solo suscripciones con estado 'activa' (match de catálogo, no las 'posible' por
+ * patrón, para no generar ruido). Gate a Pro (getUserPlanConfig().recordatorios),
+ * consistente con el intent recordatorio_pago.
+ *
+ * Dedup por ciclo vía `notificaciones` (mismo patrón que checkRecordatorioEspacios):
+ * 1 aviso por suscripción cada 25 días. Fuera de la ventana 24h de Meta el mensaje
+ * se bloquea igual que el resto de recordatorios proactivos (se registra en
+ * notification_deliveries); cuando haya template aprobado se puede reforzar.
+ */
+const SUB_LEAD_DIAS = 3;
+
+async function checkRecordatorioSuscripciones() {
+  const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
+  if (horaLima.getHours() !== 10 || horaLima.getMinutes() > 14) return;
+  try {
+    const { detectarSuscripciones } = require('../services/subscriptions');
+    const hoy = hoyPeru();
+    const hoyDate = new Date(hoy + 'T12:00:00');
+    const { data: usuarios } = await supabase.from('usuarios')
+      .select('id, whatsapp, nombre, plan, recordatorios_activos')
+      .eq('onboarding_completado', true);
+    if (!usuarios || usuarios.length === 0) return;
+
+    let enviados = 0;
+    for (const usuario of usuarios) {
+      try {
+        if (usuario.recordatorios_activos === false) continue;
+        if (!usuario.whatsapp) continue;
+        if (!getUserPlanConfig(usuario).recordatorios) continue; // Pro
+
+        const { suscripciones_detectadas } = await detectarSuscripciones(usuario.id);
+        if (!suscripciones_detectadas || suscripciones_detectadas.length === 0) continue;
+
+        for (const sub of suscripciones_detectadas) {
+          if (sub.estado !== 'activa' || !sub.ultimo_pago) continue;
+
+          // Próxima fecha de cobro: mismo día del último pago, adelantado mes a mes.
+          const base = new Date(sub.ultimo_pago + 'T12:00:00');
+          if (isNaN(base.getTime())) continue;
+          const next = new Date(base);
+          next.setMonth(next.getMonth() + 1);
+          let guard = 0;
+          while (next < hoyDate && guard < 24) { next.setMonth(next.getMonth() + 1); guard++; }
+          const diasFalta = Math.round((next - hoyDate) / 86400000);
+          if (diasFalta !== SUB_LEAD_DIAS) continue;
+
+          // Dedup por ciclo: ¿ya avisamos de esta suscripción en los últimos 25 días?
+          const titulo = 'Cobro próximo: ' + sub.nombre;
+          const cutoff25d = new Date(Date.now() - 25 * 86400000).toISOString();
+          const { data: yaAviso } = await supabase.from('notificaciones')
+            .select('id').eq('usuario_id', usuario.id).eq('tipo', 'recordatorio')
+            .eq('titulo', titulo).gte('fecha', cutoff25d).limit(1);
+          if (yaAviso && yaAviso.length > 0) continue;
+
+          const sym = sub.moneda === 'USD' ? '$' : 'S/';
+          const montoStr = sym + ' ' + parseFloat(sub.monto_detectado).toFixed(2);
+          const pn = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
+          const dd = String(next.getDate()).padStart(2, '0');
+          const msg = (sub.icono ? sub.icono + ' ' : '') + (pn ? pn + ', ' : '') +
+            'en 3 días se te cobra *' + sub.nombre + '* (' + montoStr + '), el ' + dd + '.\n\n' +
+            '_Si ya no la usas, es buen momento para cancelarla._';
+
+          await enviarWhatsapp(usuario.whatsapp, msg, { tipo: 'suscripcion_cobro', usuarioId: usuario.id });
+          await crearNotificacion(usuario.id, 'recordatorio', titulo, msg.replace(/[*_]/g, ''), { link: '/dashboard/suscripciones' });
+          enviados++;
+        }
+      } catch (e) { /* silent per user */ }
+    }
+    if (enviados > 0) log.info({ tag: 'SUB_REMIND', enviados }, 'Recordatorios de suscripción enviados');
+  } catch (e) { log.error({ tag: 'SUB_REMIND', err: e.message }, 'Error recordatorio suscripciones'); }
+}
+
+/**
+ * Modo Manos Libres (Pro, opt-in) — 9pm Lima diario.
+ *
+ * Solo usuarios con manos_libres = true. Envía el resumen del día (generarResumenDiario,
+ * que devuelve null si no hubo gastos → no se manda nada esos días). A diferencia del
+ * cron de inactividad (UPDATE-08, anti-fatiga), este es explícitamente opt-in: el usuario
+ * lo activa con /manoslibres o desde la webapp.
+ */
+async function checkResumenDiarioManosLibres() {
+  const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
+  if (horaLima.getHours() !== 21 || horaLima.getMinutes() > 14) return;
+  try {
+    const { data: usuarios } = await supabase.from('usuarios')
+      .select('id, whatsapp, nombre, plan, recordatorios_activos, manos_libres')
+      .eq('onboarding_completado', true).eq('manos_libres', true);
+    if (!usuarios || usuarios.length === 0) return;
+
+    let enviados = 0;
+    for (const usuario of usuarios) {
+      try {
+        if (usuario.recordatorios_activos === false) continue;
+        if (!usuario.whatsapp) continue;
+        if (!getUserPlanConfig(usuario).resumenDiario) continue; // Pro
+
+        const resumen = await generarResumenDiario(usuario);
+        if (!resumen) continue;
+
+        await enviarWhatsapp(usuario.whatsapp, resumen, { tipo: 'resumen_diario', usuarioId: usuario.id });
+        await crearNotificacion(usuario.id, 'sistema', 'Tu resumen de hoy', resumen.replace(/[*_]/g, '').substring(0, 400), { link: '/dashboard' });
+        enviados++;
+      } catch (e) { /* silent per user */ }
+    }
+    if (enviados > 0) log.info({ tag: 'RESUMEN_DIARIO', enviados }, 'Resúmenes diarios (manos libres) enviados');
+  } catch (e) { log.error({ tag: 'RESUMEN_DIARIO', err: e.message }, 'Error resumen diario manos libres'); }
+}
+
 module.exports = {
   checkResumenMensual,
   checkResumenSemanal,
+  checkResumenDiarioManosLibres,
   checkRecordatorioDiario,
   checkPremiumExpiry,
   checkAlertasProactivas,
   checkRecordatorioOnboarding,
   checkRecordatorioDeudas,
+  checkRecordatorioSuscripciones,
   checkCalcularNetoScore,
   checkNotificacionScore,
   checkDetectorFugas,

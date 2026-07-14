@@ -159,7 +159,7 @@ module.exports = {
         if (planConfigRem.recordatorios === false || planConfigRem.resumenDiario === false) {
           return '⭐ *Recordatorios y resúmenes diarios son una función Pro.*\n\nCon NETO Pro recibes tu resumen diario a la hora que elijas y recordatorios de pagos automáticos.\n\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
         }
-        return '⏰ *Recordatorios de pago*\n\nPor ahora puedes configurar tus recordatorios desde la webapp:\n\n🔗 https://app.neto.pe/dashboard/configuracion\n\nAhí puedes activar/desactivar los recordatorios diarios.\n\n_Pronto podrás crear recordatorios personalizados por WhatsApp._';
+        return '⏰ *Recordatorios de pago*\n\nYa te aviso *automáticamente 3 días antes* de que se te cobre una suscripción que detecté (Netflix, Spotify, etc.), para que decidas si la mantienes o la cancelas.\n\nTambién te recuerdo tus deudas y compromisos con fecha.\n\n🔗 Revisa o ajusta tus recordatorios en app.neto.pe/dashboard/configuracion';
       }
     }
   }

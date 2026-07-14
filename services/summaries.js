@@ -1,7 +1,7 @@
 const { supabase } = require('../lib/db');
 const { openai } = require('../lib/ai');
 const log = require('../lib/logger');
-const { ahoraPeru, ultimoDiaMes } = require('../lib/dates');
+const { ahoraPeru, ultimoDiaMes, hoyPeru } = require('../lib/dates');
 const { MESES } = require('../lib/constants');
 const { obtenerGastosSemana } = require('./transactions');
 const { obtenerPresupuestosMes } = require('./budget');
@@ -250,4 +250,48 @@ async function generarResumenMensual(usuario) {
   return msg;
 }
 
-module.exports = { generarResumenSemanal, generarResumenMensual };
+/**
+ * Resumen diario para el Modo Manos Libres. Corto a propósito (cadencia diaria):
+ * total del día, top categorías y el mayor gasto. Devuelve null si no hubo gastos
+ * hoy (no mandar "gastaste S/0" a diario — respeta la política anti-fatiga).
+ */
+async function generarResumenDiario(usuario) {
+  const hoyStr = hoyPeru();
+  const { data: txsHoy } = await supabase.from('transacciones').select('*')
+    .eq('usuario_id', usuario.id).eq('tipo', 'gasto').eq('fecha', hoyStr);
+  if (!txsHoy || txsHoy.length === 0) return null;
+
+  const total = txsHoy.reduce((s, t) => s + parseFloat(t.monto_pen || t.monto), 0);
+
+  const porCat = {};
+  txsHoy.forEach(t => { const c = t.categoria || 'Otros'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto_pen || t.monto); });
+  const top3 = Object.entries(porCat).sort((a, b) => b[1] - a[1]).slice(0, 3);
+
+  const { data: ingHoy } = await supabase.from('transacciones').select('monto,monto_pen')
+    .eq('usuario_id', usuario.id).eq('tipo', 'ingreso').eq('fecha', hoyStr);
+  const totalIng = (ingHoy || []).reduce((s, t) => s + parseFloat(t.monto_pen || t.monto), 0);
+
+  const mayor = txsHoy.slice().sort((a, b) => parseFloat(b.monto_pen || b.monto) - parseFloat(a.monto_pen || a.monto))[0];
+
+  const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
+  const emojis = ['🥇', '🥈', '🥉'];
+  const fechaLarga = new Date(hoyStr + 'T12:00:00').toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'short' });
+
+  let msg = '🌙 *Resumen de hoy' + (primerNombre ? ', ' + primerNombre : '') + '*\n';
+  msg += '_' + fechaLarga + '_\n';
+  msg += '---------------\n\n';
+  msg += '💸 *Gastaste:* S/ ' + total.toFixed(2) + ' en ' + txsHoy.length + (txsHoy.length === 1 ? ' movimiento' : ' movimientos') + '\n';
+  if (totalIng > 0) msg += '💵 *Ingresos:* S/ ' + totalIng.toFixed(2) + '\n';
+  msg += '\n';
+  top3.forEach(([cat, monto], i) => {
+    msg += emojis[i] + ' ' + cat + ': *S/ ' + monto.toFixed(2) + '*\n';
+  });
+  if (mayor && mayor.comercio) {
+    msg += '\n🔝 *Mayor gasto:* ' + mayor.comercio + ' (S/ ' + parseFloat(mayor.monto_pen || mayor.monto).toFixed(2) + ')\n';
+  }
+  msg += '\n_Si algo está mal, dime "cambia ' + (mayor && mayor.comercio ? mayor.comercio : '[comercio]') + ' a [categoría]"._\n';
+  msg += '_Para pausar el resumen diario escribe /manoslibres._';
+  return msg;
+}
+
+module.exports = { generarResumenSemanal, generarResumenMensual, generarResumenDiario };
