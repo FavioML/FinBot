@@ -191,9 +191,14 @@ export async function POST(request: Request) {
 
   // Post-respuesta via after(): en Vercel la lambda se congela apenas se devuelve
   // la respuesta, asi que un fire-and-forget pelado se puede quedar a medias.
-  after(() => {
-    syncCategoriasUsuario(userId, body.categoria, body.subcategoria).catch((e) => console.error('[sync-cat]', e));
-    syncReglaComercio(userId, body.comercio, body.categoria, body.subcategoria).catch((e) => console.error('[sync-regla]', e));
+  // OJO: el callback tiene que ser async y AWAITear el trabajo — after() solo
+  // mantiene viva la funcion mientras la promesa que devuelve el callback siga
+  // pendiente. Un callback sincrono que dispara promesas y retorna no espera nada.
+  after(async () => {
+    await Promise.allSettled([
+      syncCategoriasUsuario(userId, body.categoria, body.subcategoria).catch((e) => console.error('[sync-cat]', e)),
+      syncReglaComercio(userId, body.comercio, body.categoria, body.subcategoria).catch((e) => console.error('[sync-regla]', e)),
+    ]);
   });
 
   return NextResponse.json(data);
@@ -240,9 +245,11 @@ export async function PUT(request: Request) {
   if (error)
     return NextResponse.json({ error: error.message }, { status: 400 });
 
-  after(() => {
-    syncCategoriasUsuario(userId, body.categoria, body.subcategoria).catch((e) => console.error('[sync-cat]', e));
-    syncReglaComercio(userId, body.comercio, body.categoria, body.subcategoria).catch((e) => console.error('[sync-regla]', e));
+  after(async () => {
+    await Promise.allSettled([
+      syncCategoriasUsuario(userId, body.categoria, body.subcategoria).catch((e) => console.error('[sync-cat]', e)),
+      syncReglaComercio(userId, body.comercio, body.categoria, body.subcategoria).catch((e) => console.error('[sync-regla]', e)),
+    ]);
   });
 
   return NextResponse.json(data);
@@ -301,12 +308,14 @@ export async function PATCH(request: Request) {
   const categoria = cleanUpdates.categoria;
   if (categoria) {
     const subcategoria = cleanUpdates.subcategoria ?? null;
-    after(() => {
-      syncCategoriasUsuario(userId, categoria, subcategoria).catch((e) => console.error('[sync-cat]', e));
-      // Neto tiene que aprender tambien de las ediciones en lote: la vista "Por
-      // revisar" empuja justamente a categorizar en masa, y sin esto los mismos
-      // comercios vuelven a caer sin clasificar el mes siguiente.
-      aprenderReglasDeLote(userId, ids, categoria, subcategoria).catch((e) => console.error('[sync-regla-lote]', e));
+    after(async () => {
+      await Promise.allSettled([
+        syncCategoriasUsuario(userId, categoria, subcategoria).catch((e) => console.error('[sync-cat]', e)),
+        // Neto tiene que aprender tambien de las ediciones en lote: la vista "Por
+        // revisar" empuja justamente a categorizar en masa, y sin esto los mismos
+        // comercios vuelven a caer sin clasificar el mes siguiente.
+        aprenderReglasDeLote(userId, ids, categoria, subcategoria).catch((e) => console.error('[sync-regla-lote]', e)),
+      ]);
     });
   }
 
