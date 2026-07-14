@@ -1,83 +1,42 @@
-# CTO Audit — Neto
+---
+name: cto-audit
+description: >-
+  Auditoría técnica CTO-grade de Neto (landing neto.pe + webapp app.neto.pe + backend
+  api.neto.pe + Supabase) antes de un demo, pitch a empresas/inversores o launch. Úsala
+  cuando el usuario pida "audita Neto", "revisa que Neto esté listo para prod/demo",
+  "chequeo técnico completo de app.neto.pe", "está sólido Neto", "auditoría CTO/senior de
+  Neto", "revisa seguridad y performance de la webapp/landing", o un barrido de estado de
+  una auditoría previa. Es el override local de Neto sobre la skill global cto-audit:
+  corre el mismo motor stack-adaptive y le suma el profile de Neto (consistencia Free-vs-Pro,
+  harness E2E autenticado). NO es para code review de un diff (/code-review), QA visual
+  (/design-review) ni SEO (/seo).
+---
 
-Auditoría exhaustiva de nivel CTO senior para verificar que el producto está listo para producción, demos a empresas o lanzamientos. Cubre backend, webapp, landing, base de datos y consistencia de planes.
+# CTO Audit — Neto (override del motor global)
 
-## Cuándo usar
-- Antes de presentaciones a empresas o inversores
-- Después de implementar múltiples features nuevas
-- Auditorías periódicas de calidad (mensual recomendado)
-- Antes de un launch o anuncio público
+Esta skill NO reimplementa la auditoría: **delega en el motor global `cto-audit`**
+(`~/.claude/skills/cto-audit/SKILL.md`) y le añade lo que es específico de Neto. El motor
+es genérico y stack-adaptive; Neto solo aporta su perfil.
 
-## Ejecución
+## Cómo correrla
 
-### Fase 1: Checks automatizados (paralelo)
-Ejecutar en paralelo:
-1. **Tests backend**: `cd C:\Vortik.dev\products\neto\app && npm test` (vitest, 56+ tests)
-2. **Supabase check**: Usar skill `/supabase-check` o verificar manualmente:
-   - Proyecto activo (ID: zvorjqlubmfrjtkbhqcx)
-   - Todas las tablas con RLS activo
-   - Conteos de registros clave
-3. **Build webapp**: `cd webapp && npx next build` (debe compilar sin errores)
+1. **Leé y seguí el motor global**: `~/.claude/skills/cto-audit/SKILL.md` y sus
+   `references/`. Todas las fases (RECON en vivo, fan-out de agentes, síntesis, olas,
+   modos, tiers) vienen de ahí. No dupliques ese contenido acá.
+2. **En la Fase 1 (RECON), cargá el profile de Neto**:
+   `products/neto/app/.claude/cto-audit-profile.md`. Trae las dimensiones extra y los
+   datos de stack de Neto (3 deploys, Supabase id, harness E2E, chequeo Free-vs-Pro).
+3. El stack de Neto activa estos `references/stacks/` del motor: `supabase.md`,
+   `vercel.md` (webapp) y `cloudflare-pages.md` (landing). Además el backend Node en
+   Railway aplica los principios de `railway.md`.
 
-### Fase 2: Auditoría de seguridad
-Lanzar agentes en paralelo para verificar:
+## Qué agrega Neto sobre el motor genérico
 
-**Backend (C:\Vortik.dev\products\neto\app):**
-- Middleware auth: verificar que NO hay early return en `webapp/middleware.ts`
-- OpenAI calls: verificar timeout en `services/neto-gpt.js`
-- Gmail tokens: verificar cifrado en `services/gmail.js`
-- Input validation: verificar longitud en handlers de intents
-- Rate limiting: verificar en `index.js`
-- ADMIN_NUMBER: verificar que viene de env var
+- **Dimensión extra: consistencia Free-vs-Pro** entre las 4 fuentes de gating. Detalle en
+  el profile — es el check que el motor genérico no tiene porque es propio de Neto.
+- **Harness E2E ya construido**: `products/neto/app/qa-e2e/qa-login.mjs` (password grant →
+  cookie SSR forjada → Playwright → veredicto). El motor lo referencia como el patrón de
+  `references/e2e-harness.md`; en Neto ya existe, se corre directo.
 
-**Webapp (webapp/):**
-- `force-dynamic` en todas las páginas dashboard
-- Error boundaries (`error.tsx`) en secciones del dashboard
-- Null safety en accesos a `user.plan`
-- QueryClient singleton (no recreado por render)
-- Loading/empty states en listas
-
-**Landing (C:\Vortik.dev\products\neto\landing):**
-- sitemap.xml incluye todas las páginas y blog posts
-- robots.txt existe y es correcto
-- Links funcionales (WhatsApp, app.neto.pe, FAQ, legal)
-- Meta tags y JSON-LD en blog posts
-
-### Fase 3: Consistencia Free vs Pro
-Verificar alineación entre 4 fuentes:
-1. `webapp/PRICING-PLAN.md` — Fuente de verdad
-2. `webapp/src/lib/plan.ts` — PRO_ONLY_FEATURES array
-3. `products/neto/landing/src/components/landing/Pricing.tsx` — Lo que el usuario ve (repo neto-landing)
-4. Backend `handlers/intents/` — checkProWall/checkProLimit calls
-
-Para cada feature Pro-only, verificar que:
-- El backend tiene gate (`checkProWall` o `checkProLimit`)
-- La webapp tiene gate (`ProGate` component o `canAccess()` check)
-- La landing lo muestra correctamente en la tabla de precios
-
-### Fase 4: Reporte
-Generar reporte con:
-1. **Estado general** (tests, build, DB)
-2. **Fixes aplicados** durante la auditoría
-3. **Bugs por severidad** (CRÍTICO > ALTO > MEDIO > BAJO)
-4. **Gaps de Pro gating** (features prometidas sin enforcement)
-5. **Tabla Free vs Pro** consolidada y verificada
-
-### Severidades
-- **CRÍTICO**: Vulnerabilidad de seguridad, data leak, auth bypass — bloquea cualquier demo
-- **ALTO**: Bug que afecta funcionalidad core o datos del usuario — corregir antes del pitch
-- **MEDIO**: Inconsistencia, UX pobre, race condition teórica — siguiente sprint
-- **BAJO**: Mejora de mantenibilidad, SEO menor — nice to have
-
-## Archivos clave a revisar
-- `webapp/middleware.ts` — Auth middleware
-- `webapp/src/lib/plan.ts` — Feature gating definitions
-- `webapp/src/components/shared/pro-gate.tsx` — UI gating component
-- `services/neto-gpt.js` — OpenAI integration
-- `services/gmail.js` — Gmail OAuth tokens
-- `services/budget.js` — Budget alerts
-- `services/debts.js` — Debt payments
-- `services/metas.js` — Savings goals
-- `handlers/intents/` — All intent handlers (12 files)
-- `products/neto/landing/src/components/landing/Pricing.tsx` — Pricing display (repo neto-landing)
-- `products/neto/landing/public/sitemap.xml` — SEO sitemap (repo neto-landing)
+Todo lo demás (severidades, formato de hallazgo, artifact, ledger, barrido idempotente,
+principio de honestidad sobre complacencia) es del motor global.
