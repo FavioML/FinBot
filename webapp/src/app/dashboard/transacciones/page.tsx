@@ -251,7 +251,11 @@ export default function TransaccionesPage() {
 
   // Filtered + sorted transactions
   const filtered = useMemo(() => {
-    let result = [...transactions];
+    // "Por revisar" ignora el periodo a proposito: el backlog sin clasificar esta
+    // repartido entre meses, y acotarlo al mes visible lo volveria a esconder —
+    // justo lo contrario de para lo que existe la vista. El resto de filtros si
+    // respetan el periodo seleccionado.
+    let result = [...(categoriaFilter === CATEGORIA_POR_REVISAR ? allTransactions : transactions)];
 
     // Type filter
     if (tipoFilter !== 'todos') {
@@ -301,7 +305,7 @@ export default function TransaccionesPage() {
     });
 
     return result;
-  }, [transactions, tipoFilter, categoriaFilter, subcategoriaFilter, metodoPagoFilter, search, sortField, sortDir]);
+  }, [transactions, allTransactions, tipoFilter, categoriaFilter, subcategoriaFilter, metodoPagoFilter, search, sortField, sortDir]);
 
   // Whether any filter narrows the period's transactions
   const hasActiveFilters =
@@ -323,12 +327,12 @@ export default function TransaccionesPage() {
     };
   }, [filtered]);
 
-  // "Por revisar" — transacciones sin clasificar del periodo visible. Como el bot
-  // ya no pide categorizar por WhatsApp, este es el unico lugar donde el usuario
-  // ve lo que quedo suelto.
+  // "Por revisar" — TODAS las transacciones sin clasificar, de cualquier mes. Como
+  // el bot ya no pide categorizar por WhatsApp, este es el unico lugar donde el
+  // usuario ve lo que quedo suelto, y el backlog no entiende de meses.
   const porRevisarCount = useMemo(
-    () => transactions.filter(needsReview).length,
-    [transactions]
+    () => allTransactions.filter(needsReview).length,
+    [allTransactions]
   );
   const porRevisarActive = categoriaFilter === CATEGORIA_POR_REVISAR;
 
@@ -480,8 +484,15 @@ export default function TransaccionesPage() {
         </Button>
       </div>
 
-      {/* View mode tabs + period selector — same row on all breakpoints */}
-      <div className="flex flex-row items-center justify-between gap-3">
+      {/* View mode tabs + period selector — same row on all breakpoints.
+          Con "Por revisar" activo el periodo no aplica (el filtro barre todos los
+          meses), asi que se desactiva en vez de dejar un control que no hace nada. */}
+      <div
+        className={`flex flex-row items-center justify-between gap-3 ${
+          porRevisarActive ? 'pointer-events-none opacity-40' : ''
+        }`}
+        aria-hidden={porRevisarActive}
+      >
         <Tabs value={viewMode} onValueChange={(val) => { setViewMode(val as 'mensual' | 'anual'); setPage(1); }}>
           <TabsList>
             <TabsTrigger value="mensual">Mensual</TabsTrigger>
@@ -579,8 +590,8 @@ export default function TransaccionesPage() {
             </p>
             <p className="text-xs text-[#8A877D]">
               {porRevisarActive
-                ? 'Mostrando solo las que quedaron sin clasificar. Toca para ver todas.'
-                : 'Neto no supo en que categoria ponerlas. Toca para verlas y ajustarlas.'}
+                ? 'Mostrando las que quedaron sin clasificar, de todos los meses. Toca para volver.'
+                : 'Neto no supo en que categoria ponerlas, en todos tus meses. Toca para verlas y ajustarlas.'}
             </p>
           </div>
           <Badge

@@ -201,13 +201,42 @@ async function corregirTransaccionEspecifica(usuarioId, comercio, monto, fecha, 
 }
 
 // --- Reglas de comercio ---
+
+// Una regla PISA la categoria que dedujo la NLP (ver guardarTransaccion), asi que
+// una regla que no clasifica nada es peor que no tener regla: condena al comercio
+// a caer sin clasificar para siempre, aunque la NLP hubiera acertado. Dos casos:
+//
+//   - subcategoria 'sin_categoria' / 'null' -> se normaliza a null (la categoria
+//     sigue sirviendo: "metro" -> Comida sin sub es una regla util).
+//   - categoria "Otros" y ademas sin subcategoria -> no enseña nada. No se guarda.
+//     ("Otros / Regalo" si es legitima: es una clasificacion deliberada.)
+//
+// Espejo de needsReview() en webapp/src/lib/constants.ts — si cambia una, cambia
+// la otra (backend CommonJS y webapp TS no comparten modulo).
+function normalizarDestinoRegla(categoria, subcategoria) {
+  const cat = (categoria || '').trim();
+  const sub = (subcategoria || '').trim();
+  const subUtil = ['', 'sin_categoria', 'null'].includes(sub.toLowerCase()) ? null : sub;
+  if (!cat) return null;
+  if (cat.toLowerCase() === 'otros' && !subUtil) return null;
+  return { categoria: cat, subcategoria: subUtil };
+}
+
 async function guardarReglaComercio(usuarioId, comercio, categoria, subcategoria) {
-  if (!comercio || !categoria) return;
+  if (!comercio) return;
   const patron = comercio.toLowerCase().trim();
+  if (!patron) return;
+
+  const destino = normalizarDestinoRegla(categoria, subcategoria);
+  if (!destino) {
+    log.info({ tag: 'REGLA', comercio: patron, categoria, subcategoria }, 'Regla descartada: no clasifica nada');
+    return;
+  }
+
   try {
     await supabase.from('reglas_comercio').upsert({
       usuario_id: usuarioId, comercio_pattern: patron,
-      categoria, subcategoria: subcategoria || null,
+      categoria: destino.categoria, subcategoria: destino.subcategoria,
       updated_at: new Date().toISOString()
     }, { onConflict: 'usuario_id,comercio_pattern' });
   } catch(e) { log.error({ tag: 'REGLA', err: e.message }, 'Error guardando regla comercio'); }

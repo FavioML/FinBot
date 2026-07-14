@@ -33,6 +33,21 @@ async function getNetoUserId() {
   return data?.id || null;
 }
 
+// El destino que enseñaria la regla, o null si no enseña nada. Una regla cuyo
+// destino caeria en "Por revisar" (ver needsReview) es exactamente la que
+// perpetua el problema, asi que no se guarda.
+function normalizarDestinoRegla(
+  categoria: string | null | undefined,
+  subcategoria: string | null | undefined,
+): { categoria: string; subcategoria: string | null } | null {
+  const cat = (categoria ?? '').trim();
+  const sub = (subcategoria ?? '').trim();
+  const subUtil = ['', 'sin_categoria', 'null'].includes(sub.toLowerCase()) ? null : sub;
+  if (!cat) return null;
+  if (cat.toLowerCase() === 'otros' && !subUtil) return null;
+  return { categoria: cat, subcategoria: subUtil };
+}
+
 // Save merchant → category rules so future transactions auto-categorize.
 //
 // Un solo upsert para todo el lote: la edicion masiva puede tocar hasta 200
@@ -45,7 +60,12 @@ async function syncReglasComercio(
   categoria: string,
   subcategoria: string | null | undefined,
 ) {
-  if (!categoria) return;
+  // Una regla PISA la categoria que dedujo la NLP al ingerir (backend
+  // services/transactions.js), asi que guardar una que no clasifica nada es peor
+  // que no guardarla: condena al comercio a caer sin clasificar para siempre.
+  // Espejo de normalizarDestinoRegla() en el backend y de needsReview() abajo.
+  const destino = normalizarDestinoRegla(categoria, subcategoria);
+  if (!destino) return;
 
   // El patron es el comercio normalizado; los duplicados del lote colapsan aqui.
   const patrones = [
@@ -57,7 +77,6 @@ async function syncReglasComercio(
   ];
   if (patrones.length === 0) return;
 
-  const sub = subcategoria && subcategoria !== 'sin_categoria' ? subcategoria : null;
   const now = new Date().toISOString();
 
   try {
@@ -65,8 +84,8 @@ async function syncReglasComercio(
       patrones.map((comercio_pattern) => ({
         usuario_id: userId,
         comercio_pattern,
-        categoria,
-        subcategoria: sub,
+        categoria: destino.categoria,
+        subcategoria: destino.subcategoria,
         updated_at: now,
       })),
       { onConflict: 'usuario_id,comercio_pattern' },
