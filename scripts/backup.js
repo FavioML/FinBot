@@ -12,7 +12,6 @@ const TABLES = [
   'presupuestos',
   'errores',
   'reglas_comercio',
-  'consultas_pendientes',
   'categorias_usuario',
   'reporte_cache',
   'conversaciones',

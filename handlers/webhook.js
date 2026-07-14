@@ -546,8 +546,6 @@ function createWebhookHandler(procesarMensajeLibre) {
           await supabase.from('categorias_usuario').delete().eq('usuario_id', usuario.id);
           await supabase.from('presupuestos').delete().eq('usuario_id', usuario.id);
           await supabase.from('gmail_cuentas').delete().eq('usuario_id', usuario.id);
-
-          await supabase.from('consultas_pendientes').delete().eq('usuario_id', usuario.id);
           await supabase.from('usuarios').update({ gmail_access_token: null, gmail_refresh_token: null, gmail_token_expiry: null, email: null, onboarding_paso: 0, onboarding_completado: false }).eq('id', usuario.id);
           await enviarWhatsapp(from, '🗑️ *Cuenta limpia*\n\nTodos tus datos han sido eliminados. Si quieres volver, escribe _"hola"_ y empezamos de cero.');
           return;
@@ -563,8 +561,6 @@ function createWebhookHandler(procesarMensajeLibre) {
           await supabase.from('categorias_usuario').delete().eq('usuario_id', usuario.id);
           await supabase.from('presupuestos').delete().eq('usuario_id', usuario.id);
           await supabase.from('gmail_cuentas').delete().eq('usuario_id', usuario.id);
-
-          await supabase.from('consultas_pendientes').delete().eq('usuario_id', usuario.id);
           await supabase.from('usuarios').update({ gmail_access_token: null, gmail_refresh_token: null, gmail_token_expiry: null, email: null, onboarding_paso: 0, onboarding_completado: false }).eq('id', usuario.id);
           await enviarWhatsapp(from, '🗑️ *Cuenta limpia*\n\nTodos tus datos han sido eliminados. Si quieres volver, escribe _"hola"_ y empezamos de cero.');
           return;
@@ -575,8 +571,6 @@ function createWebhookHandler(procesarMensajeLibre) {
           await supabase.from('transacciones').delete().eq('usuario_id', usuario.id);
           await supabase.from('categorias_usuario').delete().eq('usuario_id', usuario.id);
           await supabase.from('presupuestos').delete().eq('usuario_id', usuario.id);
-
-          await supabase.from('consultas_pendientes').delete().eq('usuario_id', usuario.id);
           await supabase.from('usuarios').update({ email: null, onboarding_paso: 0, onboarding_completado: false }).eq('id', usuario.id);
           await enviarWhatsapp(from, '🗑️ *Datos eliminados*\n\nSi quieres volver, escribe _"hola"_.');
           return;

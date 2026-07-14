@@ -390,8 +390,6 @@ module.exports = {
             log.warn({ tag: 'ELIMINAR_AUDIT', err: err.message }, 'No se pudo guardar snapshot');
           });
 
-          // Limpiar consultas_pendientes asociadas antes de eliminar
-          await supabase.from('consultas_pendientes').update({ estado: 'respondida', respondida_at: new Date().toISOString() }).eq('transaccion_id', txElim.id).eq('estado', 'pendiente');
           // Si es transacción de Gmail, guardar en excluidos para evitar re-importación
           if (txElim.descripcion_original && !txElim.descripcion_original.startsWith('duplicado:')) {
             await supabase.from('gmail_excluidos').upsert({ usuario_id: usuario.id, descripcion_original: txElim.descripcion_original }, { onConflict: 'usuario_id,descripcion_original' }).then(() => {}).catch(() => {});

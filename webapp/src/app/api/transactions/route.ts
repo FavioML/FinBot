@@ -366,13 +366,6 @@ export async function DELETE(request: Request) {
   if (!txToDelete)
     return NextResponse.json({ error: 'Transaction not found' }, { status: 404 });
 
-  // Limpiar consultas_pendientes asociadas
-  await getServiceClient()
-    .from('consultas_pendientes')
-    .update({ estado: 'respondida', respondida_at: new Date().toISOString() })
-    .eq('transaccion_id', id)
-    .eq('estado', 'pendiente');
-
   // Si es transacción de Gmail, guardar en excluidos para evitar re-importación
   if (txToDelete.descripcion_original && !txToDelete.descripcion_original.startsWith('duplicado:')) {
     try {
