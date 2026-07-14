@@ -7,6 +7,10 @@ const { crearNotificacion } = require('../lib/notifications-db');
 
 async function enviarAlertaTransaccion(usuario, tx, resultado) {
   if (!tx || !resultado || !resultado.monto) return;
+  // Opt-out (/alertas o Configuracion en la webapp). Se compara contra false a
+  // proposito: si la columna aun no existe o el usuario es legacy (undefined),
+  // la alerta se envia. Apagar es una accion explicita del usuario.
+  if (usuario && usuario.alertas_transaccion === false) return;
   const monto = parseFloat(resultado.monto);
   const comercio = resultado.comercio || resultado.banco || 'Sin nombre';
   const categoria = resultado.categoria || 'Otros';

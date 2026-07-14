@@ -1,0 +1,15 @@
+-- Alertas de transaccion detectada por Gmail (opt-OUT, default true).
+--
+-- Contexto: cuando el cron de Gmail detecta un movimiento, Neto enviaba DOS mensajes:
+--   1) resumen "Escaneo automatico / N movimiento(s) nuevo(s) / Lo revisamos?"  <- ruido, eliminado
+--   2) la tarjeta "Nuevo gasto" con comercio/monto/categoria                     <- el unico util
+-- Se elimino (1) del cron. Este flag controla (2), que es la unica senal de que
+-- la lectura de correos Pro esta funcionando.
+--
+-- Default TRUE a proposito (opt-out, no opt-in): un Pro que conecta Gmail y no
+-- recibe nada por WhatsApp asume que la funcion esta rota. El usuario puede
+-- apagarla con /alertas o desde app.neto.pe (Configuracion > Notificaciones).
+--
+-- Solo aplica a transacciones detectadas por Gmail: el registro manual ya recibe
+-- su confirmacion en el handler del intent, no pasa por enviarAlertaTransaccion.
+alter table usuarios add column if not exists alertas_transaccion boolean not null default true;

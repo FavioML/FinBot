@@ -823,6 +823,23 @@ function createWebhookHandler(procesarMensajeLibre) {
           ? '🌙 *Modo Manos Libres activado.*\n\nCada noche a las 9pm te mando un resumen de lo que gastaste en el día. Escribe */manoslibres* de nuevo para desactivarlo.'
           : '✅ Modo Manos Libres desactivado. Ya no te mandaré el resumen diario.';
       }
+    } else if (cmd === '/alertas') {
+      // Opt-out de la tarjeta "Nuevo gasto" que se manda al detectar un movimiento en Gmail.
+      // Legacy/undefined cuenta como activada (default true en DB).
+      const alertasActivas = usuario.alertas_transaccion !== false;
+      const nuevoEstadoAlertas = !alertasActivas;
+      const { error: errAlertas } = await supabase.from('usuarios').update({ alertas_transaccion: nuevoEstadoAlertas }).eq('id', usuario.id);
+      if (errAlertas) {
+        // Nunca confirmar un cambio que no se persistio (ej: columna ausente).
+        log.error({ tag: 'ALERTAS', err: errAlertas.message }, 'No se pudo guardar preferencia de alertas');
+        respuesta = 'No pude guardar ese cambio ahora. Intenta de nuevo en un momento.';
+      } else {
+        respuesta = nuevoEstadoAlertas
+          ? '🔔 *Alertas activadas.*\n\nTe aviso por aquí cada vez que detecte un movimiento en tu correo. Escribe */alertas* de nuevo para apagarlas.'
+          : '🔕 *Alertas desactivadas.*\n\nYa no te aviso por WhatsApp cuando detecte un movimiento. Neto los sigue registrando y los ves en https://app.neto.pe\n\nEscribe */alertas* para reactivarlas.';
+      }
+    } else if (cmd === '/pendientes') {
+      respuesta = '✅ Ya no necesitas categorizar por aquí. Neto categoriza tus gastos automáticamente.\n\n📊 Revisa o ajusta las categorías en https://app.neto.pe/dashboard/transacciones';
     } else if (cmd === '/conectar') {
       if (usuario.plan !== 'premium') {
         respuesta = '⭐ *Conectar Gmail es una función Pro.*\n\n' +
@@ -980,7 +997,7 @@ function createWebhookHandler(procesarMensajeLibre) {
       }
     } else if (cmd === '/ayuda') {
       const mesActual = new Date().getMonth() + 1;
-      respuesta = '*Comandos NETO:*\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- ver/configurar presupuesto\n*/categorias* -- categorias\n*/conectar* -- vincular Gmail\n*/escanear* -- leer correos ahora\n*/cambiar [comercio] [cat]* -- corregir categoria\n*/reporte* -- PDF del mes\n*/reporte ' + mesActual + '* -- PDF mes especifico\n*/dashboard* -- ir a tu app (https://app.neto.pe)\n*/referir* -- invitar amigos y ganar Pro\n*/premium* -- plan premium\n*hola* -- estado general\n\n_Tambien puedes escribirme en lenguaje natural!_';
+      respuesta = '*Comandos NETO:*\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- ver/configurar presupuesto\n*/categorias* -- categorias\n*/conectar* -- vincular Gmail\n*/escanear* -- leer correos ahora\n*/cambiar [comercio] [cat]* -- corregir categoria\n*/reporte* -- PDF del mes\n*/reporte ' + mesActual + '* -- PDF mes especifico\n*/alertas* -- activar/desactivar avisos de Gmail\n*/dashboard* -- ir a tu app (https://app.neto.pe)\n*/referir* -- invitar amigos y ganar Pro\n*/premium* -- plan premium\n*hola* -- estado general\n\n_Tambien puedes escribirme en lenguaje natural!_';
     } else {
       respuesta = await procesarMensajeLibre(msg, usuario, from);
     }

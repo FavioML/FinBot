@@ -100,7 +100,9 @@ async function escaneoAutomatico() {
           // Gmail desconectado — notificar al usuario (máx 1 vez/24h)
           await notificarAuthExpirada(usuario);
         } else if (resultado && typeof resultado === 'string' && resultado.includes('movimiento')) {
-          await enviarWhatsapp(usuario.whatsapp, '\uD83D\uDD04 *Escaneo automatico*\n\n' + resultado);
+          // Sin WhatsApp de resumen: era ruido. Cada transaccion detectada ya manda su
+          // propia tarjeta "Nuevo gasto" (enviarAlertaTransaccion, gateada por
+          // usuario.alertas_transaccion). El resumen del escaneo vive en la webapp.
           await crearNotificacion(usuario.id, 'sistema', 'Escaneo de correo completado', 'Se detectaron nuevos movimientos en tu correo bancario', { link: '/dashboard/transacciones' });
         }
       } catch (e) { log.error({ tag: 'AUTO', whatsapp: usuario.whatsapp, err: e.message }, 'Error escaneo usuario'); }
