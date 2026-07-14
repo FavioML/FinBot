@@ -325,3 +325,37 @@ describe('editar_fecha', () => {
     expect(res).toContain('Dime la fecha correcta');
   });
 });
+
+// ─── editar_categoria_comercio (defensa anti-gasto-mal-clasificado) ───────────
+// Un gasto verboso ("registro un gasto de diez soles en taxi") que el clasificador
+// confunde con set_category_rule llega con un "comercio" que es en realidad una
+// frase (con monto o >4 palabras). El handler NO debe crear una regla basura.
+
+describe('editar_categoria_comercio — defensa contra gasto mal clasificado', () => {
+  it('NO crea regla si el comercio trae un monto (dígitos) y guía al usuario', async () => {
+    const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+    const ctx = buildCtx(sb);
+    const res = await handler.handle({
+      intencion: 'editar_categoria_comercio', msg: 'registra un gasto de diez soles en taxi',
+      datos: { comercio: 'gasto de diez soles en taxi', categoria: 'Transporte', subcategoria: 'Taxi' },
+      usuario: USUARIO, from: '+51999', ctx,
+    });
+    expect(res).not.toMatch(/Regla creada/i);
+    expect(res).toMatch(/registrar un gasto/i);
+    expect(ctx.guardarReglaComercio).not.toHaveBeenCalled();
+    expect(ctx.retroaplicarRegla).not.toHaveBeenCalled();
+  });
+
+  it('NO crea regla si el "comercio" es una frase de más de 4 palabras', async () => {
+    const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+    const ctx = buildCtx(sb);
+    const res = await handler.handle({
+      intencion: 'editar_categoria_comercio', msg: 'anota que gasté algo en el mercado del centro',
+      datos: { comercio: 'gasto en el mercado del centro', categoria: 'Alimentacion' },
+      usuario: USUARIO, from: '+51999', ctx,
+    });
+    expect(res).not.toMatch(/Regla creada/i);
+    expect(res).toMatch(/registrar un gasto/i);
+    expect(ctx.guardarReglaComercio).not.toHaveBeenCalled();
+  });
+});

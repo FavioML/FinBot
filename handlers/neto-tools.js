@@ -81,7 +81,7 @@ const NETO_TOOLS = [
     function: {
       name: "register_transaction",
       description:
-        "Registra un nuevo gasto o ingreso. Usa cuando el usuario dice que gasto o pago algo, o que recibio dinero. Ejemplos: 'Pague 50 soles en almuerzo', 'Me pagaron 3000', 'Gaste 20 en taxi'.",
+        "Registra un nuevo gasto o ingreso. Usa cuando el usuario dice que gasto o pago algo, o que recibio dinero. Ejemplos: 'Pague 50 soles en almuerzo', 'Me pagaron 3000', 'Gaste 20 en taxi'. TAMBIEN cubre fraseos largos o hablados (notas de voz), como 'Hola, registro por favor un gasto de diez soles en taxi' o 'quiero anotar que gaste veinte lucas en el mercado'. REGLA: si el mensaje menciona un MONTO de un gasto/pago/ingreso puntual, SIEMPRE es register_transaction, aunque el usuario use el verbo 'registrar'/'anotar' o el fraseo sea largo. NUNCA lo trates como una regla de categoria (set_category_rule).",
       parameters: {
         type: "object",
         properties: {
@@ -131,7 +131,7 @@ const NETO_TOOLS = [
     function: {
       name: "manage_transaction",
       description:
-        "Edita, corrige, elimina, restaura o manipula una transaccion existente. Usa para: recategorizar, cambiar monto/moneda, cambiar fecha, cambiar comercio, eliminar un gasto especifico, restaurar un gasto que se borro por error, deshacer el ultimo registro recien hecho, marcar como ingreso, duplicar, dividir entre personas, o crear regla de categoria para un comercio. IMPORTANTE: Cuando el usuario pida eliminar un gasto (action=delete), SIEMPRE extrae el monto, comercio y/o fecha exactos que el usuario mencione para que el borrado sea preciso. Si el usuario pregunta algo (mensaje termina en '?'), NO uses 'undo' ni 'delete' — usa social_response o financial_query. 'restablecer', 'restaurar', 'devolver', 'trae de vuelta' = action=restore (NO es undo ni delete).",
+        "Edita, corrige, elimina, restaura o manipula una transaccion existente. Usa para: recategorizar, cambiar monto/moneda, cambiar fecha, cambiar comercio, eliminar un gasto especifico, restaurar un gasto que se borro por error, deshacer el ultimo registro recien hecho, marcar como ingreso, duplicar, dividir entre personas, o crear regla de categoria para un comercio. IMPORTANTE: Cuando el usuario pida eliminar un gasto (action=delete), SIEMPRE extrae el monto, comercio y/o fecha exactos que el usuario mencione para que el borrado sea preciso. Si el usuario pregunta algo (mensaje termina en '?'), NO uses 'undo' ni 'delete' — usa social_response o financial_query. 'restablecer', 'restaurar', 'devolver', 'trae de vuelta' = action=restore (NO es undo ni delete). CRITICO: NO uses esta tool para registrar un gasto nuevo. Si el mensaje menciona un MONTO de una compra/pago/ingreso ('gaste 10 en taxi', 'registra un gasto de diez soles en taxi'), es register_transaction, NO manage_transaction. set_category_rule es SOLO para reglas generales SIN monto, del tipo 'todo lo de Rappi siempre va en Delivery' o 'clasifica Uber como Transporte'.",
       parameters: {
         type: "object",
         properties: {
@@ -153,7 +153,7 @@ const NETO_TOOLS = [
               "duplicate",
             ],
             description:
-              "Accion: recategorize=cambiar categoria, batch_recategorize=corregir varias, edit_amount_currency=corregir monto y moneda, delete=eliminar gasto existente, restore=restaurar un gasto eliminado por error, edit_amount=editar monto, edit_date=editar fecha, edit_store=editar comercio, set_category_rule=asignar categoria a comercio, undo=deshacer ultimo registro recien creado, mark_income=marcar como ingreso, split=dividir gasto, duplicate=duplicar",
+              "Accion: recategorize=cambiar categoria, batch_recategorize=corregir varias, edit_amount_currency=corregir monto y moneda, delete=eliminar gasto existente, restore=restaurar un gasto eliminado por error, edit_amount=editar monto, edit_date=editar fecha, edit_store=editar comercio, set_category_rule=asignar categoria fija a un comercio mediante una regla general SIN monto (ej: 'todo lo de Rappi va en Delivery'); NO usar si hay un monto de gasto puntual, undo=deshacer ultimo registro recien creado, mark_income=marcar como ingreso, split=dividir gasto, duplicate=duplicar",
           },
           comercio: {
             type: "string",

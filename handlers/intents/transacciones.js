@@ -652,6 +652,12 @@ module.exports = {
           const catRegla = datos.categoria;
           const subRegla = datos.subcategoria || null;
           if (!comercioRegla || !catRegla) return 'Dime el comercio y la categoría. Ej: _"todo lo de Rappi siempre va en Delivery"_';
+          // Defensa: si el "comercio" llega como una frase (con monto o demasiadas
+          // palabras) el clasificador confundió un gasto puntual con una regla. No
+          // creamos la regla basura y guiamos al usuario. Ej. "gasto de diez soles en taxi".
+          if (/\d/.test(comercioRegla) || comercioRegla.trim().split(/\s+/).length > 4) {
+            return 'Para registrar un gasto dime algo como _"gasté 10 en taxi"_.\n\nSi lo que quieres es una regla fija de categoría, dímelo sin monto: _"todo lo de taxi va en Transporte"_.';
+          }
           await guardarReglaComercio(usuario.id, comercioRegla, catRegla, subRegla);
           const retro = await retroaplicarRegla(usuario.id, comercioRegla, catRegla, subRegla);
           return '✅ *Regla creada:*\n\n' + comercioRegla + ' → *' + catRegla + '* (siempre)\n\n' + (retro > 0 ? '🔄 Actualicé ' + retro + ' transacciones anteriores con esta regla.' : 'Se aplicará a las próximas transacciones.') + '\n\n_Puedes cambiarlo cuando quieras._';
