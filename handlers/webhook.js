@@ -424,12 +424,21 @@ function createWebhookHandler(procesarMensajeLibre) {
           .select('id, supabase_auth_id, email, nombre, expires_at, verified_at')
           .eq('code', code).is('verified_at', null).maybeSingle();
         if (otp && new Date(otp.expires_at).getTime() > Date.now()) {
-          await supabase.from('usuarios').update({
+          const { error: linkErr } = await supabase.from('usuarios').update({
             supabase_auth_id: otp.supabase_auth_id,
             email: otp.email || usuario.email,
             nombre: usuario.nombre || otp.nombre,
             onboarding_completado: true,
           }).eq('id', usuario.id);
+          if (linkErr) {
+            // 23505: el correo de la cuenta web ya pertenece a otro WhatsApp
+            // (índice usuarios_email_lower_unique). No marcamos verificado.
+            if (linkErr.code === '23505') {
+              await enviarWhatsapp(from, '⚠️ Ese correo ya está vinculado a otra cuenta de WhatsApp en Neto.\n\nSi es tuyo, escríbenos a soporte y lo resolvemos.');
+              return;
+            }
+            throw linkErr;
+          }
           await supabase.from('webapp_otp').update({
             verified_at: new Date().toISOString(),
             whatsapp_verified: from.replace(/^\+/, ''),
@@ -567,7 +576,17 @@ function createWebhookHandler(procesarMensajeLibre) {
         await enviarWhatsapp(from, respuesta);
         return;
       }
-      await supabase.from('usuarios').update({ email: emailInput, onboarding_paso: 1 }).eq('id', usuario.id);
+      const { error: emailUpdErr } = await supabase.from('usuarios').update({ email: emailInput, onboarding_paso: 1 }).eq('id', usuario.id);
+      if (emailUpdErr) {
+        // 23505 = unique_violation: otro usuario tomó ese correo en la ventana
+        // entre el chequeo de arriba y este update (índice usuarios_email_lower_unique).
+        if (emailUpdErr.code === '23505') {
+          respuesta = 'Ese correo ya está registrado con otra cuenta. 🤔\n\nEscríbeme otro, porfa. Es importante que sea válido y tuyo porque lo usaremos para vincularte cuando quieras pasar a *Pro*.';
+          await enviarWhatsapp(from, respuesta);
+          return;
+        }
+        throw emailUpdErr;
+      }
       const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : '';
       respuesta = '📧 ¡Perfecto' + (primerNombre ? ', ' + primerNombre : '') + '!\n\nAhora, elige tu plan:\n\n' +
         '📊 *¿Qué hace Neto?*\n' +
