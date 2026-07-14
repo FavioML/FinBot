@@ -78,7 +78,7 @@ NETO es un asistente financiero personal por WhatsApp para el mercado peruano.
 ## Convenciones criticas
 - Archivos grandes (>10KB): editar con Edit tool, nunca reescribir completo
 - Encoding: siempre UTF-8 sin BOM
-- Git push: Claude hace commit + push directo de sus cambios (y valida en flujo E2E cuando el cambio lo amerita). Excepcion: commits que tocan `.github/workflows/**` requieren scope `workflow` que el PAT de Claude no tiene -> esos push van desde la terminal de Favio (Git Bash)
+- Git push: Claude hace commit + push directo de TODOS sus cambios, incluidos los que tocan `.github/workflows/**`, y valida en flujo E2E cuando el cambio lo amerita. Git esta configurado (`gh auth setup-git`) para usar la credencial de `gh` de FavioML (scope `workflow`), no el Git Credential Manager. Si algun push falla con "bad credentials" o falta de scope, correr `gh auth setup-git` de nuevo
 - Verificar duplicados (grep) antes de aplicar cualquier patch
 - Patches secuenciales, nunca paralelos al mismo archivo
 - Variables de entorno: gestionar en Railway, nunca hardcodear
