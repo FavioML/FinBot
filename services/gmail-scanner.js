@@ -6,7 +6,7 @@ const { notificarErrorAdmin } = require('../lib/admin-notify');
 const { hoyPeru } = require('../lib/dates');
 const { leerCorreosBancarios } = require('../gmail');
 const { parsearCorreoBancario } = require('./parsers');
-const { guardarTransaccion, necesitaConsulta, guardarConsultaPendiente, mensajeConsulta } = require('./transactions');
+const { guardarTransaccion } = require('./transactions');
 const { obtenerCategoriasUsuario } = require('./categories');
 const { verificarProReferidos } = require('./referrals');
 const { getUserPlanConfig } = require('../helpers/db-helpers');
@@ -42,7 +42,6 @@ async function escanearGmailYRegistrar(usuario) {
   if (error === 'AUTH_EXPIRED') return { authError: true };
   if (!mensajes.length) return null;
   let registradas = 0; let ignoradas = 0; let resumen = '';
-  const txsConsultar = [];
   // Fetch categorías custom una sola vez por batch (no por correo)
   let categoriasCustom = null;
   try { categoriasCustom = await obtenerCategoriasUsuario(usuario.id); }
@@ -58,7 +57,6 @@ async function escanearGmailYRegistrar(usuario) {
       const resultado = await parsearCorreoBancario(textoParseo, msg.asunto, categoriasCustom);
       if (!resultado.monto) continue;
       const txGuardada = await guardarTransaccion(usuario.id, { ...resultado, fecha: msg.fecha || resultado.fecha, descripcion_original: claveDedup });
-      if (txGuardada && necesitaConsulta(txGuardada)) txsConsultar.push(txGuardada);
       registradas++;
       resumen += '- ' + (resultado.tipo === 'ingreso' ? 'Ingreso' : 'Gasto') + ': ' + (resultado.comercio || resultado.banco || 'Sin nombre') + ' S/ ' + resultado.monto + '\n';
       setTimeout(async function() {
@@ -71,14 +69,6 @@ async function escanearGmailYRegistrar(usuario) {
     } catch (e) { log.error({ tag: 'CORREO', err: e.message }, 'Error procesando correo'); registrarError('CORREO', e.message, { stack: e.stack, usuarioId: usuario.id }); }
   }
   if (registradas === 0) { if (ignoradas > 0) return '*Sin correos nuevos*\n\n' + ignoradas + ' correo(s) ya estaban registrados.'; return null; }
-  if (txsConsultar.length > 0) {
-    setTimeout(async function() {
-      for (var ii=0; ii<txsConsultar.length; ii++) {
-        try { await guardarConsultaPendiente(usuario, txsConsultar[ii]); await enviarWhatsapp(usuario.whatsapp, mensajeConsulta(txsConsultar[ii])); await new Promise(function(r){setTimeout(r,2000);}); }
-        catch(e) { log.error({ tag: 'CONSULTA', err: e.message }, 'Error consulta pendiente'); }
-      }
-    }, 3000);
-  }
   return '\uD83D\uDCEC Revise tu Gmail \u2014 *' + registradas + ' movimiento(s) nuevo(s)*:\n\n' + resumen + '\n\u00bfLo revisamos?';
 }
 

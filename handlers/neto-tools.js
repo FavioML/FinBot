@@ -443,21 +443,20 @@ const NETO_TOOLS = [
     function: {
       name: "manage_gmail",
       description:
-        "Gestiona la integracion con Gmail para escanear recibos y boletas. Usa cuando el usuario quiere escanear su correo, agregar/cambiar su Gmail, ver pendientes de confirmacion, o cambiar preferencias de reporte.",
+        "Gestiona la integracion con Gmail para escanear recibos y boletas. Usa cuando el usuario quiere escanear su correo, agregar/cambiar su Gmail, o cambiar preferencias de reporte.",
       parameters: {
         type: "object",
         properties: {
           action: {
             type: "string",
             enum: [
-              "view_pending",
               "scan",
               "add_email",
               "change_email",
               "report_preference",
             ],
             description:
-              "Accion: view_pending=ver pendientes, scan=escanear Gmail, add_email=agregar Gmail, change_email=cambiar Gmail, report_preference=preferencia de reporte",
+              "Accion: scan=escanear Gmail, add_email=agregar Gmail, change_email=cambiar Gmail, report_preference=preferencia de reporte",
           },
           email: {
             type: "string",
@@ -877,7 +876,6 @@ const TOOL_INTENT_MAP = {
 
   // manage_gmail
   manage_gmail: {
-    view_pending: "ver_pendientes",
     scan: "escanear_gmail",
     add_email: "agregar_gmail",
     change_email: "cambiar_gmail",

@@ -1,20 +1,13 @@
 const log = require('../../lib/logger');
-const { formatearPendientes } = require('../../lib/formatters');
-const { obtenerConsultasPendientes } = require('../../services/transactions');
 const { escanearGmailYRegistrar } = require('../../services/gmail-scanner');
 const { obtenerCuentasGmail, generarUrlAutorizacion } = require('../../gmail');
 const { getUserPlanConfig } = require('../../helpers/db-helpers');
 
 module.exports = {
-  intents: ['ver_pendientes', 'escanear_gmail', 'agregar_gmail', 'cambiar_gmail', 'preferencia_reporte_gmail'],
+  intents: ['escanear_gmail', 'agregar_gmail', 'cambiar_gmail', 'preferencia_reporte_gmail'],
   async handle({ intencion, msg, datos, usuario, from, ctx }) {
     const { supabase } = ctx;
     switch (intencion) {
-      case 'ver_pendientes': {
-        const lpend = await obtenerConsultasPendientes(usuario.id);
-        return lpend.length === 0 ? 'No tienes gastos pendientes. Todo al dia! \uD83D\uDC4D' : formatearPendientes(lpend);
-      }
-
       case 'escanear_gmail': {
         const planConfigGmail = getUserPlanConfig(usuario);
         if (planConfigGmail.maxGmailAccounts === 0) {

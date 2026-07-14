@@ -13,15 +13,15 @@ describe('Cobertura de categorías NLP', () => {
     'listar_gastos_mes', 'listar_gastos_semana', 'listar_gastos_dia',
     'listar_gastos_categoria', 'ver_total_gastado', 'ver_presupuesto',
     'configurar_presupuesto', 'ver_categorias', 'ver_reporte',
-    'corregir_categoria', 'ver_pendientes', 'escanear_gmail',
+    'corregir_categoria', 'escanear_gmail',
     'ver_premium', 'saludo', 'ayuda', 'registrar_manual',
     'desconocido', 'corregir_monto_moneda', 'corregir_multiple',
     'agregar_gmail', 'cambiar_gmail', 'preferencia_reporte_gmail',
     'cargar_excel', 'desconectar_cuenta'
   ];
 
-  it('tiene 24 intenciones definidas', () => {
-    expect(INTENCIONES_ESPERADAS).toHaveLength(24);
+  it('tiene 23 intenciones definidas', () => {
+    expect(INTENCIONES_ESPERADAS).toHaveLength(23);
   });
 
   it('todas las variantes del CATEGORIA_MAP apuntan a categorías válidas', () => {

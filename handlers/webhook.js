@@ -4,10 +4,10 @@ const { openai } = require('../lib/ai');
 const log = require('../lib/logger');
 const { hoyPeru } = require('../lib/dates');
 const { CATEGORIAS_SUGERIDAS, MESES } = require('../lib/constants');
-const { getEmojiCategoria, formatearResumen, formatearPendientes, formatearCategoriasMsg, parsearIndicesRespuesta, generarRefCode } = require('../lib/formatters');
+const { getEmojiCategoria, formatearResumen, formatearCategoriasMsg, parsearIndicesRespuesta, generarRefCode } = require('../lib/formatters');
 const { enviarWhatsapp } = require('../lib/whatsapp');
 const { ADMIN_NUMBER } = require('../lib/config');
-const { guardarTransaccion, obtenerGastosMes, recategorizarTransaccion, obtenerConsultasPendientes } = require('../services/transactions');
+const { guardarTransaccion, obtenerGastosMes, recategorizarTransaccion } = require('../services/transactions');
 const { guardarPresupuesto, formatearEstadoPresupuesto } = require('../services/budget');
 const { parsearCorreoBancario, interpretarComandoPresupuesto } = require('../services/parsers');
 const { notificarErrorAdmin } = require('../lib/admin-notify');
@@ -18,8 +18,6 @@ const { obtenerCategoriasUsuario, crearCategoriasDesdeIndices } = require('../se
 const { escanearGmailYRegistrar } = require('../services/gmail-scanner');
 const { generarResumenSemanal } = require('../services/summaries');
 const { guardarMensaje, obtenerOCrearUsuario, getUserPlanConfig } = require('../helpers/db-helpers');
-const { intentarResolverConsulta } = require('../helpers/consultas');
-const { esRegistroGastoNuevo } = require('../lib/nlp-guards');
 const { esperaComprobante, esPagoNeto, procesarComprobantePro, registrarPagoAprobado } = require('../lib/pro-payment');
 const { procesarComandoAdmin } = require('./admin-commands');
 const analytics = require('../lib/analytics');
@@ -756,25 +754,6 @@ function createWebhookHandler(procesarMensajeLibre) {
       } catch(e) {}
     }
 
-    // Consultas pendientes: solo resolver si el usuario responde a una (no forzar)
-    // NO interceptar si el mensaje es una corrección explícita de categoría — el clasificador lo maneja mejor
-    const esCorreccionExplicita = /\bes\s+categor[ií]a\b/i.test(msg) || /\bcambia(r|lo)?\s+(a|la)\s+categor[ií]a\b/i.test(msg) || /\bmuev[elo]+\s+(a|en)\b/i.test(msg) || /\bponl[oa]\s+en\b/i.test(msg) || /\bcorrig[eé]\b/i.test(msg) || /\brecategoriz/i.test(msg);
-    // NO interceptar si el mensaje claramente es una intención diferente (deudas, presupuestos, metas, etc.)
-    const esIntencionDirecta = /\b(me debe[s]?|le debo|debo\s+\S|le prest[eé]|me prest[oó]|mis deudas|ya pagu[eé]|me pag[oó]|abonar?\s+deuda)\b/i.test(msg)
-      || /\b(presupuesto|meta de ahorro|suscripci[oó]n|reporte|resumen|elimina|borra|quita)\b/i.test(msg);
-    // NO interceptar si es un REGISTRO DE GASTO NUEVO (verbo de gasto/registro + monto). El
-    // intercept solo debe resolver respuestas de categorización de un pendiente ("el 1 fue
-    // almuerzo", "es transporte"). Sin esta guarda, una nota de voz "registra un gasto de diez
-    // soles en taxi" se lo tragaba el mini-clasificador de consultas, categorizaba mal un
-    // pendiente al azar y el gasto nuevo nunca se registraba.
-    if (!cmd.startsWith('/') && cmd !== 'hola' && cmd !== 'hi' && cmd !== 'inicio' && !esCorreccionExplicita && !esIntencionDirecta && !esRegistroGastoNuevo(msg)) {
-      var pendInter = await obtenerConsultasPendientes(usuario.id);
-      if (pendInter.length > 0) {
-        var resC = await intentarResolverConsulta(usuario, msg);
-        if (resC) { await enviarWhatsapp(from, resC); return; }
-      }
-    }
-
     const esUsuarioNuevo = !usuario.gmail_access_token && !usuario.onboarding_completado;
     if (cmd === 'hola' || cmd === 'hi' || cmd === 'inicio') {
       var tieneGmail = !!usuario.gmail_access_token;
@@ -813,14 +792,11 @@ function createWebhookHandler(procesarMensajeLibre) {
       } else {
         var gastosMesHola = await obtenerGastosMes(usuario.id);
         var totalMesHola = gastosMesHola.reduce(function(s,t){return s+parseFloat(t.monto_pen||t.monto);},0);
-        var pendHola = await obtenerConsultasPendientes(usuario.id);
-        var alertaPend = pendHola.length > 0 ? '\n\n\u2757 *' + pendHola.length + ' gasto(s) sin identificar.* Escribe */pendientes*.' : '';
         var catsHola = await obtenerCategoriasUsuario(usuario.id);
         var tipCats = (!usuario.onboarding_completado && !catsHola) ? '\n\n\uD83D\uDCA1 Escribe */categorias* para personalizar tus categorias.' : '';
         var saludo = primerNombre ? 'Hola, ' + primerNombre + '!' : 'Hola!';
         respuesta = '\uD83D\uDC4B Hola' + (primerNombre ? ', ' + primerNombre : '') + '. Soy NETO.\n\n' +
           (gastosMesHola.length > 0 ? 'Este mes llevas *S/ ' + totalMesHola.toFixed(2) + '* en ' + gastosMesHola.length + ' movimientos.' : 'Sin movimientos este mes aun.') +
-          (pendHola.length > 0 ? '\n\n\u2757 ' + pendHola.length + ' gasto(s) sin identificar. Escribe */pendientes*.' : '') +
           '\n\n📊 Revisa tu dashboard en *https://app.neto.pe*\n\n\u00bfQue revisamos?';
       }
     } else if (cmd === '/manual') {
@@ -1002,12 +978,9 @@ function createWebhookHandler(procesarMensajeLibre) {
           respuesta = msgTickets;
         }
       }
-    } else if (cmd === '/pendientes') {
-      var lpend = await obtenerConsultasPendientes(usuario.id);
-      respuesta = lpend.length === 0 ? 'No tienes gastos pendientes.' : formatearPendientes(lpend);
     } else if (cmd === '/ayuda') {
       const mesActual = new Date().getMonth() + 1;
-      respuesta = '*Comandos NETO:*\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- ver/configurar presupuesto\n*/categorias* -- categorias\n*/conectar* -- vincular Gmail\n*/escanear* -- leer correos ahora\n*/cambiar [comercio] [cat]* -- corregir categoria\n*/reporte* -- PDF del mes\n*/reporte ' + mesActual + '* -- PDF mes especifico\n*/pendientes* -- gastos sin identificar\n*/dashboard* -- ir a tu app (https://app.neto.pe)\n*/referir* -- invitar amigos y ganar Pro\n*/premium* -- plan premium\n*hola* -- estado general\n\n_Tambien puedes escribirme en lenguaje natural!_';
+      respuesta = '*Comandos NETO:*\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- ver/configurar presupuesto\n*/categorias* -- categorias\n*/conectar* -- vincular Gmail\n*/escanear* -- leer correos ahora\n*/cambiar [comercio] [cat]* -- corregir categoria\n*/reporte* -- PDF del mes\n*/reporte ' + mesActual + '* -- PDF mes especifico\n*/dashboard* -- ir a tu app (https://app.neto.pe)\n*/referir* -- invitar amigos y ganar Pro\n*/premium* -- plan premium\n*hola* -- estado general\n\n_Tambien puedes escribirme en lenguaje natural!_';
     } else {
       respuesta = await procesarMensajeLibre(msg, usuario, from);
     }

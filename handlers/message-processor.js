@@ -11,7 +11,7 @@ const { ADMIN_NUMBER } = require('../lib/config');
 const { esVerUltimoMovimiento } = require('../lib/nlp-guards');
 const { getEmojiCategoria, formatearResumen, formatearPendientes, formatearCategoriasMsg, barraProgreso, generarRefCode, formatFecha } = require('../lib/formatters');
 const { enviarWhatsapp } = require('../lib/whatsapp');
-const { obtenerTipoCambio, guardarTransaccion, obtenerGastosMes, obtenerGastosSemana, obtenerUltimaTransaccion, recategorizarTransaccion, corregirTransaccionEspecifica, guardarReglaComercio, retroaplicarRegla, obtenerConsultasPendientes } = require('../services/transactions');
+const { obtenerTipoCambio, guardarTransaccion, obtenerGastosMes, obtenerGastosSemana, obtenerUltimaTransaccion, recategorizarTransaccion, corregirTransaccionEspecifica, guardarReglaComercio, retroaplicarRegla } = require('../services/transactions');
 const { guardarPresupuesto, obtenerPresupuestosMes, verificarAlertaPresupuesto, formatearEstadoPresupuesto } = require('../services/budget');
 const { parsearCorreoBancario, parsearRegistroManual, parsearCorreccionesMultiples } = require('../services/parsers');
 const { detectarMultiGasto, detectarIngresoMasGastos } = require('../services/multi-gasto-detector');
@@ -382,7 +382,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       barraProgreso, generarRefCode,
       obtenerTipoCambio, guardarTransaccion, obtenerGastosMes, obtenerGastosSemana,
       obtenerUltimaTransaccion, recategorizarTransaccion, corregirTransaccionEspecifica,
-      guardarReglaComercio, retroaplicarRegla, obtenerConsultasPendientes,
+      guardarReglaComercio, retroaplicarRegla,
       guardarPresupuesto, obtenerPresupuestosMes, verificarAlertaPresupuesto, formatearEstadoPresupuesto,
       parsearCorreoBancario, parsearRegistroManual, parsearCorreccionesMultiples,
       obtenerCuentasGmail,

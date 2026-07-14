@@ -3,7 +3,7 @@ const log = require('../../lib/logger');
 module.exports = {
   intents: ['saludo', 'ayuda', 'agradecimiento', 'queja', 'chiste_finanzas', 'como_empezar', 'feedback'],
   async handle({ intencion, msg, datos, usuario, from, ctx }) {
-    const { supabase, hoyPeru, netoPrompt, historialConv, redactarConNETO, obtenerGastosMes, obtenerConsultasPendientes } = ctx;
+    const { supabase, hoyPeru, netoPrompt, historialConv, redactarConNETO, obtenerGastosMes } = ctx;
 
     switch (intencion) {
       case 'saludo': {
@@ -12,9 +12,7 @@ module.exports = {
         const _partsSaludo = hoyPeru().split('-');
         const { data: ingresosSaludo } = await supabase.from('transacciones').select('monto_pen,monto').eq('usuario_id', usuario.id).eq('tipo', 'ingreso').gte('fecha', _partsSaludo[0] + '-' + _partsSaludo[1] + '-01');
         const totalIngresosSaludo = (ingresosSaludo || []).reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
-        const pendSaludo = await obtenerConsultasPendientes(usuario.id);
-        const ctxSaludo = 'El usuario saluda. Contexto: este mes lleva S/ ' + totalSaludo.toFixed(0) + ' en gastos (' + gastosSaludo.length + ' movimientos)' + (totalIngresosSaludo > 0 ? ', S/ ' + totalIngresosSaludo.toFixed(0) + ' en ingresos registrados, balance S/ ' + (totalIngresosSaludo - totalSaludo).toFixed(0) : ', sin ingresos registrados') + '.' +
-          (pendSaludo.length > 0 ? ' Tiene ' + pendSaludo.length + ' gasto(s) sin identificar.' : ' Sin pendientes.');
+        const ctxSaludo = 'El usuario saluda. Contexto: este mes lleva S/ ' + totalSaludo.toFixed(0) + ' en gastos (' + gastosSaludo.length + ' movimientos)' + (totalIngresosSaludo > 0 ? ', S/ ' + totalIngresosSaludo.toFixed(0) + ' en ingresos registrados, balance S/ ' + (totalIngresosSaludo - totalSaludo).toFixed(0) : ', sin ingresos registrados') + '.';
         const respSaludo = await redactarConNETO(netoPrompt, ctxSaludo, msg, historialConv);
         return respSaludo || ('\uD83D\uDC4B Hola' + (usuario.nombre ? ', ' + usuario.nombre.split(' ')[0] : '') + '. Soy NETO.\n\nEste mes llevas *S/ ' + totalSaludo.toFixed(0) + '* en ' + gastosSaludo.length + ' movimientos.\n\n\u00bfQue revisamos?');
       }
