@@ -67,14 +67,18 @@ export function getCategoriaEmoji(categoria: string): string {
 // coincidir con un nombre que el usuario pueda crear.
 export const CATEGORIA_POR_REVISAR = '__por_revisar__';
 
-// Una transaccion "por revisar" es la que quedo sin clasificar: cayo en la
-// categoria paraguas "Otros" o se quedo sin subcategoria util. La NLP guarda
-// varias formas del mismo vacio ('Sin_categoria', 'null', string vacio), asi
-// que se normaliza antes de comparar.
+// Una transaccion "por revisar" es la que la clasificacion no supo ubicar: cayo
+// en la categoria paraguas "Otros", o la NLP marco la subcategoria como fallida.
+// La NLP escribe ese fallo de dos formas ('Sin_categoria' y el string 'null'), y
+// el casing varia segun la fuente, asi que se normaliza antes de comparar.
+//
+// Una subcategoria NULL/vacia NO cuenta: significa "nunca se asigno subcategoria",
+// que es un estado normal (una transaccion Uber -> Transporte sin sub esta bien
+// clasificada). Meterla aqui inundaria la vista de falsos positivos.
 export function needsReview(t: { categoria?: string | null; subcategoria?: string | null }): boolean {
   const cat = (t.categoria ?? '').trim().toLowerCase();
   const sub = (t.subcategoria ?? '').trim().toLowerCase();
-  return cat === 'otros' || sub === '' || sub === 'null' || sub === 'sin_categoria';
+  return cat === 'otros' || sub === 'sin_categoria' || sub === 'null';
 }
 
 export const MESES = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
