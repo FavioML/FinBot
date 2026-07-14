@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { getExchangeRate } from '@/lib/exchange-rate';
 import { checkRateLimit } from '@/lib/rate-limit';
 import crypto from 'crypto';
@@ -33,22 +33,69 @@ async function getNetoUserId() {
   return data?.id || null;
 }
 
-// Save merchant → category rule so future transactions auto-categorize
-async function syncReglaComercio(userId: string, comercio: string | null, categoria: string, subcategoria: string | null) {
-  if (!comercio || !categoria) return;
-  const patron = comercio.toLowerCase().trim();
-  if (!patron) return;
+// Save merchant → category rules so future transactions auto-categorize.
+//
+// Un solo upsert para todo el lote: la edicion masiva puede tocar hasta 200
+// transacciones, y disparar un round trip por comercio ahogaria la conexion sin
+// necesidad (la tabla tiene unique en usuario_id,comercio_pattern, asi que el
+// batch resuelve los repetidos solo).
+async function syncReglasComercio(
+  userId: string,
+  comercios: (string | null | undefined)[],
+  categoria: string,
+  subcategoria: string | null | undefined,
+) {
+  if (!categoria) return;
+
+  // El patron es el comercio normalizado; los duplicados del lote colapsan aqui.
+  const patrones = [
+    ...new Set(
+      comercios
+        .map((c) => (c ?? '').toLowerCase().trim())
+        .filter((p) => p !== ''),
+    ),
+  ];
+  if (patrones.length === 0) return;
+
+  const sub = subcategoria && subcategoria !== 'sin_categoria' ? subcategoria : null;
+  const now = new Date().toISOString();
+
   try {
-    await getServiceClient().from('reglas_comercio').upsert({
-      usuario_id: userId,
-      comercio_pattern: patron,
-      categoria,
-      subcategoria: subcategoria && subcategoria !== 'sin_categoria' ? subcategoria : null,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'usuario_id,comercio_pattern' });
+    await getServiceClient().from('reglas_comercio').upsert(
+      patrones.map((comercio_pattern) => ({
+        usuario_id: userId,
+        comercio_pattern,
+        categoria,
+        subcategoria: sub,
+        updated_at: now,
+      })),
+      { onConflict: 'usuario_id,comercio_pattern' },
+    );
   } catch (e) {
     console.error('[sync-regla]', e);
   }
+}
+
+// Edicion individual (POST/PUT): un comercio.
+async function syncReglaComercio(userId: string, comercio: string | null, categoria: string, subcategoria: string | null) {
+  return syncReglasComercio(userId, [comercio], categoria, subcategoria);
+}
+
+// Edicion masiva (PATCH): el body no trae los comercios, solo los ids, asi que
+// hay que leerlos. Acotado por el tope de 200 ids del lote.
+async function aprenderReglasDeLote(
+  userId: string,
+  ids: string[],
+  categoria: string,
+  subcategoria: string | null,
+) {
+  const { data } = await getServiceClient()
+    .from('transacciones')
+    .select('comercio')
+    .in('id', ids)
+    .eq('usuario_id', userId);
+
+  await syncReglasComercio(userId, (data ?? []).map((t) => t.comercio), categoria, subcategoria);
 }
 
 // Sync categoría y subcategoría custom a categorias_usuario
@@ -142,10 +189,12 @@ export async function POST(request: Request) {
   if (error)
     return NextResponse.json({ error: error.message }, { status: 400 });
 
-  // Sync categoría/subcategoría a categorias_usuario (fire-and-forget)
-  syncCategoriasUsuario(userId, body.categoria, body.subcategoria).catch((e) => console.error('[sync-cat]', e));
-  // Learn merchant → category rule for auto-categorization
-  syncReglaComercio(userId, body.comercio, body.categoria, body.subcategoria).catch((e) => console.error('[sync-regla]', e));
+  // Post-respuesta via after(): en Vercel la lambda se congela apenas se devuelve
+  // la respuesta, asi que un fire-and-forget pelado se puede quedar a medias.
+  after(() => {
+    syncCategoriasUsuario(userId, body.categoria, body.subcategoria).catch((e) => console.error('[sync-cat]', e));
+    syncReglaComercio(userId, body.comercio, body.categoria, body.subcategoria).catch((e) => console.error('[sync-regla]', e));
+  });
 
   return NextResponse.json(data);
 }
@@ -191,10 +240,10 @@ export async function PUT(request: Request) {
   if (error)
     return NextResponse.json({ error: error.message }, { status: 400 });
 
-  // Sync categoría/subcategoría a categorias_usuario (fire-and-forget)
-  syncCategoriasUsuario(userId, body.categoria, body.subcategoria).catch((e) => console.error('[sync-cat]', e));
-  // Learn merchant → category rule for auto-categorization
-  syncReglaComercio(userId, body.comercio, body.categoria, body.subcategoria).catch((e) => console.error('[sync-regla]', e));
+  after(() => {
+    syncCategoriasUsuario(userId, body.categoria, body.subcategoria).catch((e) => console.error('[sync-cat]', e));
+    syncReglaComercio(userId, body.comercio, body.categoria, body.subcategoria).catch((e) => console.error('[sync-regla]', e));
+  });
 
   return NextResponse.json(data);
 }
@@ -249,8 +298,16 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 400 });
 
   // Sync category if changed
-  if (cleanUpdates.categoria) {
-    syncCategoriasUsuario(userId, cleanUpdates.categoria, cleanUpdates.subcategoria || null).catch((e) => console.error('[sync-cat]', e));
+  const categoria = cleanUpdates.categoria;
+  if (categoria) {
+    const subcategoria = cleanUpdates.subcategoria ?? null;
+    after(() => {
+      syncCategoriasUsuario(userId, categoria, subcategoria).catch((e) => console.error('[sync-cat]', e));
+      // Neto tiene que aprender tambien de las ediciones en lote: la vista "Por
+      // revisar" empuja justamente a categorizar en masa, y sin esto los mismos
+      // comercios vuelven a caer sin clasificar el mes siguiente.
+      aprenderReglasDeLote(userId, ids, categoria, subcategoria).catch((e) => console.error('[sync-regla-lote]', e));
+    });
   }
 
   return NextResponse.json({ ok: true, updated: count ?? ids.length });
