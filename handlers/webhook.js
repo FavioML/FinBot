@@ -19,6 +19,7 @@ const { escanearGmailYRegistrar } = require('../services/gmail-scanner');
 const { generarResumenSemanal } = require('../services/summaries');
 const { guardarMensaje, obtenerOCrearUsuario, getUserPlanConfig } = require('../helpers/db-helpers');
 const { intentarResolverConsulta } = require('../helpers/consultas');
+const { esRegistroGastoNuevo } = require('../lib/nlp-guards');
 const { esperaComprobante, esPagoNeto, procesarComprobantePro, registrarPagoAprobado } = require('../lib/pro-payment');
 const { procesarComandoAdmin } = require('./admin-commands');
 const analytics = require('../lib/analytics');
@@ -761,7 +762,12 @@ function createWebhookHandler(procesarMensajeLibre) {
     // NO interceptar si el mensaje claramente es una intención diferente (deudas, presupuestos, metas, etc.)
     const esIntencionDirecta = /\b(me debe[s]?|le debo|debo\s+\S|le prest[eé]|me prest[oó]|mis deudas|ya pagu[eé]|me pag[oó]|abonar?\s+deuda)\b/i.test(msg)
       || /\b(presupuesto|meta de ahorro|suscripci[oó]n|reporte|resumen|elimina|borra|quita)\b/i.test(msg);
-    if (!cmd.startsWith('/') && cmd !== 'hola' && cmd !== 'hi' && cmd !== 'inicio' && !esCorreccionExplicita && !esIntencionDirecta) {
+    // NO interceptar si es un REGISTRO DE GASTO NUEVO (verbo de gasto/registro + monto). El
+    // intercept solo debe resolver respuestas de categorización de un pendiente ("el 1 fue
+    // almuerzo", "es transporte"). Sin esta guarda, una nota de voz "registra un gasto de diez
+    // soles en taxi" se lo tragaba el mini-clasificador de consultas, categorizaba mal un
+    // pendiente al azar y el gasto nuevo nunca se registraba.
+    if (!cmd.startsWith('/') && cmd !== 'hola' && cmd !== 'hi' && cmd !== 'inicio' && !esCorreccionExplicita && !esIntencionDirecta && !esRegistroGastoNuevo(msg)) {
       var pendInter = await obtenerConsultasPendientes(usuario.id);
       if (pendInter.length > 0) {
         var resC = await intentarResolverConsulta(usuario, msg);
