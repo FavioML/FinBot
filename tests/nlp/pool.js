@@ -622,4 +622,21 @@ module.exports = [
   { msg: 'Partelo en 5 el último gasto', intent: 'dividir_gasto', cat: 'registro_basico' },
   { msg: 'El de 3500 es ingreso cámbialo', intent: 'editar_monto', cat: 'registro_basico' },
   { msg: 'Escanear facturas de mi correo', intent: 'escanear_gmail', cat: 'registro_basico' },
+
+  // ══════════════════════════════════════════════════════════════
+  // REGISTRO POR VOZ (10) — fraseo hablado/verboso de notas de voz.
+  // Regresión del bug donde "registro un gasto de diez soles en taxi"
+  // se clasificaba como editar_categoria_comercio y perdía el gasto.
+  // ══════════════════════════════════════════════════════════════
+  { msg: 'Hola, registro por favor un gasto de diez soles en taxi, por favor', intent: 'registrar_manual', cat: 'registro_voz' },
+  { msg: 'quiero anotar que gasté veinte soles en el almuerzo', intent: 'registrar_manual', cat: 'registro_voz' },
+  { msg: 'registra por favor un gasto de quince soles en el mercado', intent: 'registrar_manual', cat: 'registro_voz' },
+  { msg: 'oye neto apunta que pagué treinta soles de gasolina', intent: 'registrar_manual', cat: 'registro_voz' },
+  { msg: 'me gasté cincuenta lucas en el cine ayer', intent: 'registrar_manual', cat: 'registro_voz' },
+  { msg: 'anota cuarenta soles de farmacia porfa', intent: 'registrar_manual', cat: 'registro_voz' },
+  { msg: 'buenas neto, hazme el favor de registrar un pago de veinticinco soles en la comida', intent: 'registrar_manual', cat: 'registro_voz' },
+  { msg: 'ya pues neto regístrame un gasto de dieciocho soles en el super', intent: 'registrar_manual', cat: 'registro_voz' },
+  // frontera: reglas legítimas SIN monto siguen siendo editar_categoria_comercio
+  { msg: 'siempre que gaste en Rappi ponlo en Delivery', intent: 'editar_categoria_comercio', cat: 'registro_voz' },
+  { msg: 'asocia Netflix a suscripciones', intent: 'editar_categoria_comercio', cat: 'registro_voz' },
 ];
