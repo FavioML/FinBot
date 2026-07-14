@@ -73,7 +73,7 @@ NETO es un asistente financiero personal por WhatsApp para el mercado peruano.
 - [ ] Blog posts comparativos SEO
 - [ ] Activar social media (3x/semana IG + 2x/semana TikTok)
 - [ ] Verificacion de negocio en Meta (manual)
-- [ ] Modularizar los monolitos reales: `services/subscriptions.js` (~1515 lineas) y `handlers/webhook.js` (~877, con la maquina de estados de onboarding embebida). index.js ya esta modularizado (~160 lineas).
+- [ ] Modularizar los monolitos reales: `services/subscriptions.js` (~1515 lineas). `handlers/webhook.js` ya se modularizo (2026-07-14): la maquina de estados de onboarding vive en `handlers/onboarding.js` (`manejarOnboarding` -> string|null; webhook solo delega), bajando webhook de ~1009 a ~758 lineas. index.js ya esta modularizado (~160 lineas).
 
 ## Convenciones criticas
 - Archivos grandes (>10KB): editar con Edit tool, nunca reescribir completo
