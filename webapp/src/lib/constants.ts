@@ -63,6 +63,20 @@ export function getCategoriaEmoji(categoria: string): string {
   return '📋';
 }
 
+// Valor centinela del filtro "Por revisar". No es una categoria real: nunca debe
+// coincidir con un nombre que el usuario pueda crear.
+export const CATEGORIA_POR_REVISAR = '__por_revisar__';
+
+// Una transaccion "por revisar" es la que quedo sin clasificar: cayo en la
+// categoria paraguas "Otros" o se quedo sin subcategoria util. La NLP guarda
+// varias formas del mismo vacio ('Sin_categoria', 'null', string vacio), asi
+// que se normaliza antes de comparar.
+export function needsReview(t: { categoria?: string | null; subcategoria?: string | null }): boolean {
+  const cat = (t.categoria ?? '').trim().toLowerCase();
+  const sub = (t.subcategoria ?? '').trim().toLowerCase();
+  return cat === 'otros' || sub === '' || sub === 'null' || sub === 'sin_categoria';
+}
+
 export const MESES = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
 export const SOCIAL_LINKS = {

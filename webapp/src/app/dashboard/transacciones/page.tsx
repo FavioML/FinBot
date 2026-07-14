@@ -22,6 +22,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Settings2,
+  AlertCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -52,7 +53,7 @@ import { useTransactions } from '@/lib/hooks/use-transactions';
 import { useBudgets } from '@/lib/hooks/use-budgets';
 import { toast } from 'sonner';
 import { formatCurrency, formatFecha } from '@/lib/utils';
-import { getCategoriaEmoji, MESES, SOCIAL_LINKS } from '@/lib/constants';
+import { getCategoriaEmoji, MESES, SOCIAL_LINKS, CATEGORIA_POR_REVISAR, needsReview } from '@/lib/constants';
 import { normalizeMetodoPago, getMetodoIcon } from '@/lib/format';
 import type { Transaccion } from '@/lib/types';
 import { HeaderActions } from '@/components/dashboard/topbar';
@@ -257,8 +258,11 @@ export default function TransaccionesPage() {
       result = result.filter((t) => t.tipo === tipoFilter);
     }
 
-    // Category filter
-    if (categoriaFilter !== 'all') {
+    // Category filter — el centinela "Por revisar" no es una categoria: cruza
+    // categoria y subcategoria (ver needsReview).
+    if (categoriaFilter === CATEGORIA_POR_REVISAR) {
+      result = result.filter(needsReview);
+    } else if (categoriaFilter !== 'all') {
       result = result.filter((t) => t.categoria === categoriaFilter);
     }
 
@@ -318,6 +322,21 @@ export default function TransaccionesPage() {
       count: filtered.length,
     };
   }, [filtered]);
+
+  // "Por revisar" — transacciones sin clasificar del periodo visible. Como el bot
+  // ya no pide categorizar por WhatsApp, este es el unico lugar donde el usuario
+  // ve lo que quedo suelto.
+  const porRevisarCount = useMemo(
+    () => transactions.filter(needsReview).length,
+    [transactions]
+  );
+  const porRevisarActive = categoriaFilter === CATEGORIA_POR_REVISAR;
+
+  const togglePorRevisar = () => {
+    setCategoriaFilter(porRevisarActive ? 'all' : CATEGORIA_POR_REVISAR);
+    setSubcategoriaFilter('all');
+    setPage(1);
+  };
 
   // Available payment methods (normalized, from user's data)
   const availableMetodos = useMemo(() => {
@@ -541,6 +560,37 @@ export default function TransaccionesPage() {
           </div>
         );
       })()}
+
+      {/* Por revisar — acceso rapido a lo que quedo sin clasificar */}
+      {porRevisarCount > 0 && (
+        <button
+          onClick={togglePorRevisar}
+          aria-pressed={porRevisarActive}
+          className={`flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors ${
+            porRevisarActive
+              ? 'border-[rgba(239,159,39,0.45)] bg-[rgba(239,159,39,0.12)]'
+              : 'border-[rgba(239,159,39,0.2)] bg-[rgba(239,159,39,0.06)] hover:bg-[rgba(239,159,39,0.1)]'
+          }`}
+        >
+          <AlertCircle className="h-4 w-4 shrink-0 text-[#EF9F27]" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-[#F0EFE8]">
+              {porRevisarCount} {porRevisarCount === 1 ? 'transaccion' : 'transacciones'} por revisar
+            </p>
+            <p className="text-xs text-[#8A877D]">
+              {porRevisarActive
+                ? 'Mostrando solo las que estan en Otros o sin subcategoria. Toca para ver todas.'
+                : 'Quedaron en Otros o sin subcategoria. Toca para verlas y ajustarlas.'}
+            </p>
+          </div>
+          <Badge
+            variant="outline"
+            className="shrink-0 border-[rgba(239,159,39,0.35)] bg-[rgba(239,159,39,0.1)] text-xs text-[#EF9F27]"
+          >
+            {porRevisarActive ? 'Filtrando' : 'Revisar'}
+          </Badge>
+        </button>
+      )}
 
       {/* Filters */}
       <TransactionFilters

@@ -24,7 +24,7 @@ export async function GET() {
 
   const { data, error } = await getServiceClient()
     .from('usuarios')
-    .select('recordatorios_activos, manos_libres')
+    .select('recordatorios_activos, manos_libres, alertas_transaccion')
     .eq('id', userId)
     .single();
 
@@ -33,6 +33,7 @@ export async function GET() {
   return NextResponse.json({
     recordatorios_activos: data?.recordatorios_activos ?? true,
     manos_libres: data?.manos_libres ?? false,
+    alertas_transaccion: data?.alertas_transaccion ?? true,
   });
 }
 
@@ -44,10 +45,16 @@ export async function PUT(request: Request) {
   const body = await request.json();
 
   // Actualización parcial: solo los campos presentes en el body.
-  const update: { recordatorios_activos?: boolean; manos_libres?: boolean } = {};
+  const update: {
+    recordatorios_activos?: boolean;
+    manos_libres?: boolean;
+    alertas_transaccion?: boolean;
+  } = {};
   if ('recordatorios_activos' in body)
     update.recordatorios_activos = Boolean(body.recordatorios_activos);
   if ('manos_libres' in body) update.manos_libres = Boolean(body.manos_libres);
+  if ('alertas_transaccion' in body)
+    update.alertas_transaccion = Boolean(body.alertas_transaccion);
 
   if (Object.keys(update).length === 0)
     return NextResponse.json({ error: 'Nada que actualizar' }, { status: 400 });

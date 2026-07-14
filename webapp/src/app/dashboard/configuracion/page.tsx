@@ -99,6 +99,8 @@ export default function ConfiguracionPage() {
   const [recordatoriosLoading, setRecordatoriosLoading] = useState(false);
   const [manosLibres, setManosLibres] = useState(false);
   const [manosLibresLoading, setManosLibresLoading] = useState(false);
+  const [alertasTransaccion, setAlertasTransaccion] = useState(true);
+  const [alertasTransaccionLoading, setAlertasTransaccionLoading] = useState(false);
   const [analyticsOptedOut, setAnalyticsOptedOut] = useState(false);
 
   /* ---- Edit name ---- */
@@ -136,6 +138,9 @@ export default function ConfiguracionPage() {
         }
         if (typeof d.manos_libres === 'boolean') {
           setManosLibres(d.manos_libres);
+        }
+        if (typeof d.alertas_transaccion === 'boolean') {
+          setAlertasTransaccion(d.alertas_transaccion);
         }
       })
       .catch(() => {});
@@ -861,6 +866,45 @@ export default function ConfiguracionPage() {
           </button>
         </div>
 
+        {/* Avisos de movimientos detectados — gate de la tarjeta "Nuevo gasto" (backend: alertas_transaccion) */}
+        <div className="flex items-start justify-between gap-4 rounded-lg bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-[#C8C6BC]">Avisos de movimientos detectados</p>
+            <p className="text-xs text-[#8A877D] mt-0.5">Te aviso por WhatsApp cuando detecte un gasto en tu correo</p>
+          </div>
+          <button
+            disabled={alertasTransaccionLoading}
+            onClick={async () => {
+              setAlertasTransaccionLoading(true);
+              const newVal = !alertasTransaccion;
+              try {
+                const res = await fetch('/api/notifications', {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ alertas_transaccion: newVal }),
+                });
+                if (res.ok) {
+                  setAlertasTransaccion(newVal);
+                  toast.success(newVal ? 'Avisos de movimientos activados' : 'Avisos de movimientos desactivados');
+                } else {
+                  toast.error('Error al actualizar');
+                }
+              } catch {
+                toast.error('Error de conexion');
+              } finally {
+                setAlertasTransaccionLoading(false);
+              }
+            }}
+            className={`shrink-0 mt-0.5 h-5 w-9 rounded-full relative transition-colors cursor-pointer ${
+              alertasTransaccion ? 'bg-[#1D9E75]' : 'bg-[#3A3A38]'
+            } ${alertasTransaccionLoading ? 'opacity-50' : ''}`}
+          >
+            <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+              alertasTransaccion ? 'right-0.5' : 'left-0.5'
+            }`} />
+          </button>
+        </div>
+
         {/* Modo Manos Libres — resumen diario opt-in (Pro), toggle funcional */}
         <div className="flex items-start justify-between gap-4 rounded-lg bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] px-4 py-3">
           <div className="min-w-0">
@@ -923,7 +967,7 @@ export default function ConfiguracionPage() {
         ))}
 
         <p className="text-xs text-[#8A877D]">
-          Los resumenes y alertas se envian automaticamente por WhatsApp. Solo los recordatorios se pueden activar o desactivar.
+          El resumen semanal y las alertas de presupuesto se envian automaticamente por WhatsApp. Los demas los activas o desactivas desde aqui.
         </p>
       </div>
 

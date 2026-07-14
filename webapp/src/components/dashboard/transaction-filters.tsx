@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { CATEGORIAS, getCategoriaEmoji } from '@/lib/constants';
+import { CATEGORIAS, getCategoriaEmoji, CATEGORIA_POR_REVISAR } from '@/lib/constants';
 import { capitalizeDisplay } from '@/lib/format';
 
 interface TransactionFiltersProps {
@@ -106,11 +106,16 @@ export function TransactionFilters({
         }}>
           <SelectTrigger className="w-[180px] bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#C8C6BC]">
             <SelectValue>
-              {categoriaFilter === 'all' ? 'Todas las categorías' : `${allCategorias.find(c => c.nombre === categoriaFilter)?.emoji || ''} ${categoriaFilter}`}
+              {categoriaFilter === 'all'
+                ? 'Todas las categorías'
+                : categoriaFilter === CATEGORIA_POR_REVISAR
+                  ? '🔍 Por revisar'
+                  : `${allCategorias.find(c => c.nombre === categoriaFilter)?.emoji || ''} ${categoriaFilter}`}
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Todas las categorías</SelectItem>
+            <SelectItem value={CATEGORIA_POR_REVISAR}>🔍 Por revisar</SelectItem>
             {allCategorias.map((cat) => (
               <SelectItem key={cat.nombre} value={cat.nombre}>
                 {cat.emoji} {cat.nombre}
