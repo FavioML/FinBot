@@ -30,7 +30,10 @@ jobs:
 
   nlp-agent:
     needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # STANDBY 2026-07-14: NLP Agent pausado mientras iteramos cambios seguidos
+    # (evita gastar créditos OpenAI ~300 llamadas en cada push). Re-activar:
+    # quitar "false &&" de la línea de abajo.
+    if: false && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
