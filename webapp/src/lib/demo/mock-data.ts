@@ -97,6 +97,16 @@ export const DEMO_TRANSACTIONS: Transaccion[] = [
   // Mes anterior — Ingresos
   { id: 'tx-31', usuario_id: DEMO_USER_ID, tipo: 'ingreso', monto: 4500, moneda: 'PEN', monto_pen: 4500, metodo_pago: 'Transferencia', comercio: 'Empresa ABC SAC', categoria: 'Sueldo', subcategoria: 'sueldo', fecha: dateStr(31), confirmado: true, created_at: dateStr(31) },
   { id: 'tx-32', usuario_id: DEMO_USER_ID, tipo: 'ingreso', monto: 500, moneda: 'PEN', monto_pen: 500, metodo_pago: 'Yape', comercio: 'Cliente Freelance 2', categoria: 'Freelance', subcategoria: 'freelance', fecha: dateStr(45), confirmado: true, created_at: dateStr(45) },
+
+  // Mismo alquiler registrado con otro nombre (transferencia a la casera): mismo monto y
+  // subcategoría que "Alquiler Miraflores" pero otro día → dispara sugerencia de fusión.
+  { id: 'tx-33', usuario_id: DEMO_USER_ID, tipo: 'gasto', monto: 1800, moneda: 'PEN', monto_pen: 1800, metodo_pago: 'Transferencia', comercio: 'Juno Luya E.', categoria: 'Vivienda', subcategoria: 'alquiler', fecha: dateStr(24), confirmado: true, created_at: dateStr(24) },
+  { id: 'tx-34', usuario_id: DEMO_USER_ID, tipo: 'gasto', monto: 1800, moneda: 'PEN', monto_pen: 1800, metodo_pago: 'Transferencia', comercio: 'Juno Luya E.', categoria: 'Vivienda', subcategoria: 'alquiler', fecha: dateStr(54), confirmado: true, created_at: dateStr(54) },
+
+  // Gimnasio que dejó de cobrarse hace meses (sin gemelo activo) → "inactivo" gris, sin
+  // la falsa alarma naranja "esperado hace X días".
+  { id: 'tx-35', usuario_id: DEMO_USER_ID, tipo: 'gasto', monto: 120, moneda: 'PEN', monto_pen: 120, metodo_pago: 'Tarjeta', comercio: 'Smart Fit', categoria: 'Salud', subcategoria: 'gimnasio', fecha: dateStr(78), confirmado: true, created_at: dateStr(78) },
+  { id: 'tx-36', usuario_id: DEMO_USER_ID, tipo: 'gasto', monto: 120, moneda: 'PEN', monto_pen: 120, metodo_pago: 'Tarjeta', comercio: 'Smart Fit', categoria: 'Salud', subcategoria: 'gimnasio', fecha: dateStr(108), confirmado: true, created_at: dateStr(108) },
 ];
 
 // ─── Presupuestos ─────────────────────────────────────────────────────────────

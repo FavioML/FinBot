@@ -282,7 +282,9 @@ export default function SuscripcionesPage() {
   const { data: subsData, isLoading: subsLoading } = useSubscriptions(user?.id);
 
   const searchParams = useSearchParams();
-  const now = new Date();
+  // Estable en el tiempo (una sola vez): evita llamada impura en render y el
+  // consecuente mismatch de hidratación.
+  const now = useMemo(() => new Date(), []);
   const defaultMonth = `${now.getFullYear()}-${now.getMonth() + 1}`;
   const selected = searchParams.get('mes') || defaultMonth;
   const [year, month] = selected.split('-').map(Number);
@@ -297,17 +299,24 @@ export default function SuscripcionesPage() {
 
   // Monthly filtered data
   const monthlyData = useMemo(() => {
-    if (!subsData) return { subs: [] as { sub: SuscripcionDetectada; pagos: PagoDetalle[] }[], totalPEN: 0, count: 0 };
+    if (!subsData) return { subs: [] as { sub: SuscripcionDetectada; pagos: PagoDetalle[] }[], totalPEN: 0, recurringPEN: 0, count: 0 };
     const subs: { sub: SuscripcionDetectada; pagos: PagoDetalle[] }[] = [];
     let totalPEN = 0;
+    let recurringPEN = 0; // solo cuotas recurrentes (excluye cargos puntuales) — base de la proyección
     for (const sub of subsData.suscripciones) {
       const pagos = sub.pagos_detalle.filter(p => p.fecha.startsWith(monthKey));
       if (pagos.length > 0) {
         subs.push({ sub, pagos });
         totalPEN += pagos.reduce((s, p) => s + p.monto_pen, 0);
+        recurringPEN += pagos.filter(p => p.recurrente).reduce((s, p) => s + p.monto_pen, 0);
       }
     }
-    return { subs, totalPEN: Math.round(totalPEN * 100) / 100, count: subs.length };
+    return {
+      subs,
+      totalPEN: Math.round(totalPEN * 100) / 100,
+      recurringPEN: Math.round(recurringPEN * 100) / 100,
+      count: subs.length,
+    };
   }, [subsData, monthKey]);
 
   // Annual filtered data
@@ -453,9 +462,9 @@ export default function SuscripcionesPage() {
             label={viewMode === 'anual' ? 'Promedio mensual' : 'Gasto anual proyectado'}
             value={viewMode === 'anual'
               ? `S/${annualData.count > 0 ? (annualData.totalPEN / 12).toFixed(0) : '0'}`
-              : `S/${(currentViewData.totalPEN * 12).toFixed(0)}`
+              : `S/${(monthlyData.recurringPEN * 12).toFixed(0)}`
             }
-            sub={viewMode === 'anual' ? `en ${selectedYear}` : 'proyectado'}
+            sub={viewMode === 'anual' ? `en ${selectedYear}` : 'solo cuotas recurrentes'}
           />
           </StaggerItem>
           {viewMode === 'anual' && subsData.ahorroPotencialFamiliar > 0 && (
@@ -595,7 +604,7 @@ export default function SuscripcionesPage() {
       {/* Inactive subscriptions alert */}
       {viewMode === 'anual' && subsData && (() => {
         const inactive = subsData.suscripciones.filter((s) => {
-          const daysSince = Math.floor((Date.now() - new Date(s.ultimo_pago + 'T12:00:00').getTime()) / (1000 * 60 * 60 * 24));
+          const daysSince = Math.floor((now.getTime() - new Date(s.ultimo_pago + 'T12:00:00').getTime()) / (1000 * 60 * 60 * 24));
           return daysSince > 45;
         });
         if (inactive.length === 0) return null;

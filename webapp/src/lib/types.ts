@@ -68,6 +68,22 @@ export interface Referido {
   created_at: string;
 }
 
+// Overrides de usuario sobre Suscripciones / Pagos Recurrentes (tabla recurrentes_overrides)
+export interface RecurringOverride {
+  id?: string;
+  usuario_id?: string;
+  dominio: 'recurrente' | 'suscripcion';
+  /** comercio normalizado (lowercase+trim) o catalog id, según el dominio */
+  clave_variante: string;
+  /** clave canónica a la que se une (alias). Si === clave_variante = "pin/separar" (no auto-fusionar) */
+  id_canonico?: string | null;
+  label_canonico?: string | null;
+  oculto?: boolean;
+  es_recurrente_manual?: boolean | null;
+  catalog_id?: string | null;
+  plan_nombre?: string | null;
+}
+
 // Dashboard aggregated types
 export interface KPIData {
   totalIngresos: number;
