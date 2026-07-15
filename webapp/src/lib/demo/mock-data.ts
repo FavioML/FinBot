@@ -107,6 +107,17 @@ export const DEMO_TRANSACTIONS: Transaccion[] = [
   // la falsa alarma naranja "esperado hace X días".
   { id: 'tx-35', usuario_id: DEMO_USER_ID, tipo: 'gasto', monto: 120, moneda: 'PEN', monto_pen: 120, metodo_pago: 'Tarjeta', comercio: 'Smart Fit', categoria: 'Salud', subcategoria: 'gimnasio', fecha: dateStr(78), confirmado: true, created_at: dateStr(78) },
   { id: 'tx-36', usuario_id: DEMO_USER_ID, tipo: 'gasto', monto: 120, moneda: 'PEN', monto_pen: 120, metodo_pago: 'Tarjeta', comercio: 'Smart Fit', categoria: 'Salud', subcategoria: 'gimnasio', fecha: dateStr(108), confirmado: true, created_at: dateStr(108) },
+
+  // Descriptor opaco de Apple: un solo comercio "APPLE.COM/BILL" que en realidad
+  // agrupa 2 servicios (Apple Music S/19.90 + iCloud S/12.90), cada uno recurrente
+  // mensual. Caso de la división manual (Fase 3): asignar cada cluster de monto a
+  // su servicio real del catálogo.
+  { id: 'tx-37', usuario_id: DEMO_USER_ID, tipo: 'gasto', monto: 19.90, moneda: 'PEN', monto_pen: 19.90, metodo_pago: 'Tarjeta', comercio: 'APPLE.COM/BILL', categoria: 'Suscripciones', subcategoria: 'suscripciones', fecha: dateStr(5), confirmado: true, created_at: dateStr(5) },
+  { id: 'tx-38', usuario_id: DEMO_USER_ID, tipo: 'gasto', monto: 12.90, moneda: 'PEN', monto_pen: 12.90, metodo_pago: 'Tarjeta', comercio: 'APPLE.COM/BILL', categoria: 'Suscripciones', subcategoria: 'suscripciones', fecha: dateStr(6), confirmado: true, created_at: dateStr(6) },
+  { id: 'tx-39', usuario_id: DEMO_USER_ID, tipo: 'gasto', monto: 19.90, moneda: 'PEN', monto_pen: 19.90, metodo_pago: 'Tarjeta', comercio: 'APPLE.COM/BILL', categoria: 'Suscripciones', subcategoria: 'suscripciones', fecha: dateStr(35), confirmado: true, created_at: dateStr(35) },
+  { id: 'tx-40', usuario_id: DEMO_USER_ID, tipo: 'gasto', monto: 12.90, moneda: 'PEN', monto_pen: 12.90, metodo_pago: 'Tarjeta', comercio: 'APPLE.COM/BILL', categoria: 'Suscripciones', subcategoria: 'suscripciones', fecha: dateStr(36), confirmado: true, created_at: dateStr(36) },
+  { id: 'tx-41', usuario_id: DEMO_USER_ID, tipo: 'gasto', monto: 19.90, moneda: 'PEN', monto_pen: 19.90, metodo_pago: 'Tarjeta', comercio: 'APPLE.COM/BILL', categoria: 'Suscripciones', subcategoria: 'suscripciones', fecha: dateStr(65), confirmado: true, created_at: dateStr(65) },
+  { id: 'tx-42', usuario_id: DEMO_USER_ID, tipo: 'gasto', monto: 12.90, moneda: 'PEN', monto_pen: 12.90, metodo_pago: 'Tarjeta', comercio: 'APPLE.COM/BILL', categoria: 'Suscripciones', subcategoria: 'suscripciones', fecha: dateStr(66), confirmado: true, created_at: dateStr(66) },
 ];
 
 // ─── Presupuestos ─────────────────────────────────────────────────────────────

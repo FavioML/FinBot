@@ -34,7 +34,7 @@ interface PagoRaw {
   moneda: string
 }
 
-interface DeteccionResult {
+export interface DeteccionResult {
   suscripciones: SuscripcionDetectada[]
   totalMensualPEN: number
   totalMensualUSD: number
@@ -43,7 +43,48 @@ interface DeteccionResult {
   ahorroPotencialFamiliar: number
 }
 
-function detectarSuscripcionesFromTxs(txs: Transaccion[]): DeteccionResult {
+// Agregados derivados de la lista de suscripciones. Se recalcula tras aplicar los
+// overrides del usuario (ocultar/dividir cambian la lista) — ver subscription-overrides.ts.
+export function computeAggregates(
+  suscripciones: SuscripcionDetectada[]
+): Omit<DeteccionResult, 'suscripciones'> {
+  let totalPEN = 0
+  let totalUSD = 0
+  for (const sub of suscripciones) {
+    if (sub.moneda === 'USD') totalUSD += sub.monto_detectado
+    else totalPEN += sub.monto_detectado
+  }
+
+  const porTipo: Record<string, { cantidad: number; totalPEN: number; items: string[] }> = {}
+  for (const sub of suscripciones) {
+    if (!porTipo[sub.tipo]) porTipo[sub.tipo] = { cantidad: 0, totalPEN: 0, items: [] }
+    porTipo[sub.tipo].cantidad += 1
+    porTipo[sub.tipo].totalPEN += sub.monto_pen
+    porTipo[sub.tipo].items.push(sub.nombre)
+  }
+
+  // Ahorro potencial si migra a plan familiar y comparte con 1 persona
+  let ahorro = 0
+  for (const sub of suscripciones) {
+    if (sub.tiene_plan_familiar && sub.precio_familiar && sub.precio_referencia) {
+      const costoCompartido = sub.precio_familiar / 2
+      if (costoCompartido < sub.monto_detectado) {
+        const diff = sub.monto_detectado - costoCompartido
+        ahorro += sub.moneda === 'USD' ? diff * TC_APROXIMADO : diff
+      }
+    }
+  }
+
+  return {
+    totalMensualPEN: Math.round((totalPEN + totalUSD * TC_APROXIMADO) * 100) / 100,
+    totalMensualUSD: Math.round(totalUSD * 100) / 100,
+    cantidad: suscripciones.length,
+    porTipo,
+    ahorroPotencialFamiliar: Math.round(ahorro * 100) / 100,
+  }
+}
+
+export function buildSuscripciones(txs: Transaccion[]): SuscripcionDetectada[] {
   // Agrupar por catalog id (para juntar grafías del mismo servicio) o por string.
   const groups: Record<string, {
     catalogMatch: CatalogEntry | null
@@ -142,42 +183,12 @@ function detectarSuscripcionesFromTxs(txs: Transaccion[]): DeteccionResult {
   }
 
   suscripciones.sort((a, b) => b.monto_pen - a.monto_pen)
+  return suscripciones
+}
 
-  let totalPEN = 0
-  let totalUSD = 0
-  for (const sub of suscripciones) {
-    if (sub.moneda === 'USD') totalUSD += sub.monto_detectado
-    else totalPEN += sub.monto_detectado
-  }
-
-  const porTipo: Record<string, { cantidad: number; totalPEN: number; items: string[] }> = {}
-  for (const sub of suscripciones) {
-    if (!porTipo[sub.tipo]) porTipo[sub.tipo] = { cantidad: 0, totalPEN: 0, items: [] }
-    porTipo[sub.tipo].cantidad += 1
-    porTipo[sub.tipo].totalPEN += sub.monto_pen
-    porTipo[sub.tipo].items.push(sub.nombre)
-  }
-
-  // Ahorro potencial si migra a plan familiar y comparte con 1 persona
-  let ahorro = 0
-  for (const sub of suscripciones) {
-    if (sub.tiene_plan_familiar && sub.precio_familiar && sub.precio_referencia) {
-      const costoCompartido = sub.precio_familiar / 2
-      if (costoCompartido < sub.monto_detectado) {
-        const diff = sub.monto_detectado - costoCompartido
-        ahorro += sub.moneda === 'USD' ? diff * TC_APROXIMADO : diff
-      }
-    }
-  }
-
-  return {
-    suscripciones,
-    totalMensualPEN: Math.round((totalPEN + totalUSD * TC_APROXIMADO) * 100) / 100,
-    totalMensualUSD: Math.round(totalUSD * 100) / 100,
-    cantidad: suscripciones.length,
-    porTipo,
-    ahorroPotencialFamiliar: Math.round(ahorro * 100) / 100,
-  }
+function detectarSuscripcionesFromTxs(txs: Transaccion[]): DeteccionResult {
+  const suscripciones = buildSuscripciones(txs)
+  return { suscripciones, ...computeAggregates(suscripciones) }
 }
 
 export function useSubscriptions(usuarioId?: string) {

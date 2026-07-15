@@ -3,24 +3,34 @@
 
 import { useState, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
+import { toast } from 'sonner';
 import {
   CreditCard,
   TrendingDown,
   Users,
   Eye,
   AlertTriangle,
-  ChevronDown,
-  ChevronUp,
   ExternalLink,
   Info,
   Calendar,
+  Pencil,
+  Check,
+  EyeOff,
+  RotateCcw,
+  Split,
 } from 'lucide-react';
 import { SuscripcionesSkeleton } from '@/components/dashboard/skeletons';
 import { EmptyState } from '@/components/shared/empty-state';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import { useUser } from '@/lib/hooks/use-user';
 import { useSubscriptions } from '@/lib/hooks/use-subscriptions';
+import { useRecurringOverrides } from '@/lib/hooks/use-recurring-overrides';
+import {
+  applySubscriptionOverrides,
+  splitKey,
+  splittableClusters,
+} from '@/lib/subscription-overrides';
 import { MonthSelector } from '@/components/dashboard/month-selector';
 import { MESES, SOCIAL_LINKS } from '@/lib/constants';
 import {
@@ -28,8 +38,16 @@ import {
   formatPrecio,
   formatPrecioConversion,
   TC_APROXIMADO,
+  CATALOGO_SUSCRIPCIONES,
 } from '@/lib/subscriptions-catalog';
 import type { SuscripcionDetectada, TipoSuscripcion } from '@/lib/subscriptions-catalog';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from '@/components/ui/sheet';
 import { HeaderActions } from '@/components/dashboard/topbar';
 
 // ═══════════════════════════════════════════════════════════════
@@ -63,158 +81,18 @@ function KPICard({
   );
 }
 
-function SubscriptionCard({
-  sub,
-  expanded,
-  onToggle,
-}: {
-  sub: SuscripcionDetectada;
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  const tipoInfo = TIPO_LABELS[sub.tipo] || TIPO_LABELS.otro;
-
-  return (
-    <div className="glass-card overflow-hidden hover:border-white/[0.1] transition-all duration-200">
-      {/* Header */}
-      <button
-        onClick={onToggle}
-        className="w-full flex items-center gap-3 p-4 hover:bg-[rgba(255,255,255,0.02)] transition-colors text-left"
-      >
-        <span className="text-2xl shrink-0">{sub.icono}</span>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[#C8C6BC] font-medium truncate">{sub.nombre}</span>
-            {sub.estado === 'posible' && (
-              <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full bg-[rgba(255,193,7,0.15)] text-[#FFC107]">
-                Posible
-              </span>
-            )}
-            {(() => {
-              const lastPayDate = new Date(sub.ultimo_pago + 'T12:00:00');
-              const daysSince = Math.floor((Date.now() - lastPayDate.getTime()) / (1000 * 60 * 60 * 24));
-              if (daysSince > 45) {
-                return (
-                  <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full bg-[rgba(239,159,39,0.12)] text-[#EF9F27]">
-                    Sin cobro hace {daysSince} dias
-                  </span>
-                );
-              }
-              return null;
-            })()}
-          </div>
-          <div className="flex items-center gap-2 text-xs text-[#8A877D] mt-0.5">
-            <span>{tipoInfo.emoji} {tipoInfo.label}</span>
-            <span>·</span>
-            <span>{sub.meses_detectados} mes{sub.meses_detectados !== 1 ? 'es' : ''}</span>
-          </div>
-        </div>
-        <div className="text-right shrink-0">
-          <p className="text-[#C8C6BC] font-medium">
-            {formatPrecio(sub.monto_detectado, sub.moneda)}
-          </p>
-          {sub.moneda === 'USD' && (
-            <p className="text-[10px] text-[#8A877D]">
-              ≈ S/{sub.monto_pen.toFixed(0)}/mes
-            </p>
-          )}
-        </div>
-        {expanded ? (
-          <ChevronUp className="h-4 w-4 text-[#8A877D] shrink-0" />
-        ) : (
-          <ChevronDown className="h-4 w-4 text-[#8A877D] shrink-0" />
-        )}
-      </button>
-
-      {/* Expanded details */}
-      <AnimatePresence>
-      {expanded && (
-        <motion.div
-          className="border-t border-[rgba(255,255,255,0.04)] px-4 py-3 space-y-3"
-          initial={{ height: 0, opacity: 0 }}
-          animate={{ height: 'auto', opacity: 1 }}
-          exit={{ height: 0, opacity: 0 }}
-          transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-        >
-          {/* Info row */}
-          <div className="grid grid-cols-2 gap-3 text-xs">
-            <div>
-              <span className="text-[#8A877D]">Último pago</span>
-              <p className="text-[#C8C6BC] mt-0.5">{formatDate(sub.ultimo_pago)}</p>
-            </div>
-            <div>
-              <span className="text-[#8A877D]">Categoría NETO</span>
-              <p className="text-[#C8C6BC] mt-0.5">{sub.categoria_neto}</p>
-            </div>
-          </div>
-
-          {/* Plans comparison */}
-          {sub.planes_disponibles.length > 0 && (
-            <div>
-              <p className="text-xs text-[#8A877D] mb-1.5">Planes disponibles</p>
-              <div className="space-y-1">
-                {sub.planes_disponibles.map((plan) => {
-                  const isCurrentPlan =
-                    sub.precio_referencia !== null &&
-                    Math.abs(plan.precio - sub.monto_detectado) < 1;
-                  return (
-                    <div
-                      key={plan.nombre}
-                      className={`flex items-center justify-between text-xs px-2.5 py-1.5 rounded-lg ${
-                        isCurrentPlan
-                          ? 'bg-[rgba(29,158,117,0.1)] border border-[rgba(29,158,117,0.2)]'
-                          : 'bg-[rgba(255,255,255,0.02)]'
-                      }`}
-                    >
-                      <span className={isCurrentPlan ? 'text-[#1D9E75]' : 'text-[#8A877D]'}>
-                        {plan.nombre}
-                        {isCurrentPlan && ' (actual)'}
-                      </span>
-                      <span className={isCurrentPlan ? 'text-[#1D9E75]' : 'text-[#C8C6BC]'}>
-                        {formatPrecioConversion(plan.precio, sub.moneda)}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Family plan tip */}
-          {sub.tiene_plan_familiar && sub.precio_familiar && (
-            <div className="flex items-start gap-2 p-2.5 rounded-lg bg-[rgba(29,158,117,0.06)] border border-[rgba(29,158,117,0.1)]">
-              <Users className="h-3.5 w-3.5 text-[#1D9E75] mt-0.5 shrink-0" />
-              <p className="text-xs text-[#1D9E75]">
-                Plan familiar: {formatPrecio(sub.precio_familiar, sub.moneda)}/mes.
-                Si compartes, cada uno paga ≈ {formatPrecio(sub.precio_familiar / 2, sub.moneda)}
-              </p>
-            </div>
-          )}
-
-          {/* Gasto anual proyectado */}
-          <div className="flex items-center justify-between text-xs px-2.5 py-2 rounded-lg bg-[rgba(255,255,255,0.02)]">
-            <span className="text-[#8A877D]">Gasto anual proyectado</span>
-            <span className="text-[#C8C6BC] font-medium">
-              ≈ S/{(sub.monto_pen * 12).toFixed(0)}
-            </span>
-          </div>
-        </motion.div>
-      )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
 type PagoDetalle = { monto: number; monto_pen: number; moneda: string; fecha: string; recurrente: boolean };
 
 function MonthlySubscriptionCard({
   sub,
   pagos,
   monthLabel,
+  onEdit,
 }: {
   sub: SuscripcionDetectada;
   pagos: PagoDetalle[];
   monthLabel: string;
+  onEdit: (sub: SuscripcionDetectada) => void;
 }) {
   const tipoInfo = TIPO_LABELS[sub.tipo] || TIPO_LABELS.otro;
   const totalPen = pagos.reduce((s, p) => s + p.monto_pen, 0);
@@ -226,8 +104,18 @@ function MonthlySubscriptionCard({
       <div className="flex items-center gap-3">
         <span className="text-2xl shrink-0">{sub.icono}</span>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[#C8C6BC] font-medium truncate">{sub.nombre}</span>
+            {sub.plan_actual && (
+              <span className="shrink-0 rounded-full bg-[rgba(29,158,117,0.12)] px-1.5 py-0.5 text-[9px] text-[#1D9E75]">
+                {sub.plan_actual}
+              </span>
+            )}
+            {sub.split_parent_id && (
+              <span className="shrink-0 rounded-full bg-[rgba(255,255,255,0.06)] px-1.5 py-0.5 text-[9px] text-[#8A877D]">
+                dividido
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2 text-xs text-[#8A877D] mt-0.5">
             <span>{tipoInfo.emoji} {tipoInfo.label}</span>
@@ -245,6 +133,13 @@ function MonthlySubscriptionCard({
               : `Pago en ${monthLabel}`}
           </p>
         </div>
+        <button
+          onClick={() => onEdit(sub)}
+          aria-label={`Editar ${sub.nombre}`}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[#8A877D] hover:bg-[rgba(29,158,117,0.15)] hover:text-[#1D9E75] transition-colors"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
       </div>
       {pagos.length > 1 && (
         <div className="mt-2 pt-2 border-t border-[rgba(255,255,255,0.04)] space-y-1">
@@ -279,7 +174,24 @@ function formatDate(dateStr: string): string {
 
 export default function SuscripcionesPage() {
   const { data: user, isLoading: userLoading } = useUser();
-  const { data: subsData, isLoading: subsLoading } = useSubscriptions(user?.id);
+  const { data: rawData, isLoading: subsLoading } = useSubscriptions(user?.id);
+  const { overrides, isLoading: overridesLoading, upsert, remove } =
+    useRecurringOverrides('suscripcion');
+
+  // Detección raw (cacheada) + overrides del usuario aplicados reactivamente (sin
+  // refetch de transacciones). Los agregados se recalculan dentro de applySubscriptionOverrides.
+  const subsData = useMemo(
+    () => applySubscriptionOverrides(rawData, overrides),
+    [rawData, overrides]
+  );
+
+  // Estado del Sheet de edición (snapshot de la sub; las mutaciones re-derivan la lista)
+  const [editSub, setEditSub] = useState<SuscripcionDetectada | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const openEdit = (sub: SuscripcionDetectada) => {
+    setRenameValue(sub.nombre);
+    setEditSub(sub);
+  };
 
   const searchParams = useSearchParams();
   // Estable en el tiempo (una sola vez): evita llamada impura en render y el
@@ -295,7 +207,7 @@ export default function SuscripcionesPage() {
   const [viewMode, setViewMode] = useState<'mensual' | 'anual'>('mensual');
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
 
-  const isLoading = userLoading || subsLoading;
+  const isLoading = userLoading || subsLoading || overridesLoading;
 
   // Monthly filtered data
   const monthlyData = useMemo(() => {
@@ -369,6 +281,64 @@ export default function SuscripcionesPage() {
   }, [subsData, viewMode, monthlyData.subs, annualData.subs]);
 
   const currentViewData = viewMode === 'mensual' ? monthlyData : annualData;
+
+  // ── Acciones del Sheet de edición ──
+  const runToast = (p: Promise<unknown>, msg: string) =>
+    p.then(() => toast.success(msg)).catch(() => toast.error('No se pudo guardar'));
+
+  const editHasOverride = !!editSub && overrides.some(
+    (o) => o.clave_variante === editSub.id || o.clave_variante.startsWith(`${editSub.id}::amt`)
+  );
+  // clusters divisibles del snapshot (≥2 cuotas recurrentes concurrentes bajo un nombre)
+  const editClusters = editSub ? splittableClusters(editSub.pagos_detalle) : [];
+  // id de la sub base para deshacer una división (hijo → su parent; base/residual → sí misma)
+  const undoParentId =
+    editSub?.split_parent_id ??
+    (editSub && overrides.some((o) => o.clave_variante.startsWith(`${editSub.id}::amt`))
+      ? editSub.id
+      : null);
+
+  const doRename = () => {
+    if (!editSub) return;
+    const label = renameValue.trim();
+    if (!label || label === editSub.nombre) return;
+    runToast(upsert.mutateAsync({ clave_variante: editSub.id, label_canonico: label }), 'Renombrado');
+    setEditSub(null);
+  };
+  const doMarkPlan = (planNombre: string) => {
+    if (!editSub) return;
+    runToast(upsert.mutateAsync({ clave_variante: editSub.id, plan_nombre: planNombre }), `Plan: ${planNombre}`);
+    setEditSub(null);
+  };
+  const doHide = () => {
+    if (!editSub) return;
+    runToast(upsert.mutateAsync({ clave_variante: editSub.id, oculto: true }), 'Suscripción oculta');
+    setEditSub(null);
+  };
+  const doAssignSplit = (centroidPen: number, catalogId: string) => {
+    if (!editSub) return;
+    runToast(
+      upsert.mutateAsync({
+        clave_variante: splitKey(editSub.id, centroidPen),
+        catalog_id: catalogId,
+        id_canonico: editSub.id,
+      }),
+      'Servicio asignado'
+    );
+  };
+  const doUndoSplit = () => {
+    if (!undoParentId) return;
+    const keys = overrides
+      .filter((o) => o.clave_variante.startsWith(`${undoParentId}::amt`))
+      .map((o) => o.clave_variante);
+    runToast(Promise.all(keys.map((k) => remove.mutateAsync(k))), 'División deshecha');
+    setEditSub(null);
+  };
+  const doReset = () => {
+    if (!editSub) return;
+    runToast(remove.mutateAsync(editSub.id), 'Restablecido');
+    setEditSub(null);
+  };
 
   if (isLoading) {
     return (
@@ -539,6 +509,7 @@ export default function SuscripcionesPage() {
               sub={sub}
               pagos={pagos}
               monthLabel={String(selectedYear)}
+              onEdit={openEdit}
             />
           ))}
         </div>
@@ -553,6 +524,7 @@ export default function SuscripcionesPage() {
               sub={sub}
               pagos={pagos}
               monthLabel={monthLabel}
+              onEdit={openEdit}
             />
           ))}
         </div>
@@ -656,6 +628,165 @@ export default function SuscripcionesPage() {
           </p>
         </div>
       )}
+
+      {/* Sheet de edición de suscripción */}
+      <Sheet open={!!editSub} onOpenChange={(o) => !o && setEditSub(null)}>
+        <SheetContent side="bottom" className="glass-card-elevated max-h-[85vh] overflow-y-auto">
+          {editSub && (
+            <>
+              <SheetHeader>
+                <SheetTitle>
+                  <span className="mr-1.5">{editSub.icono}</span>
+                  {editSub.nombre}
+                </SheetTitle>
+                <SheetDescription>
+                  {formatPrecio(editSub.monto_detectado, editSub.moneda)}/mes · {editSub.meses_detectados}{' '}
+                  mes{editSub.meses_detectados !== 1 ? 'es' : ''}
+                  {editSub.split_parent_id ? ' · división manual' : ''}
+                </SheetDescription>
+              </SheetHeader>
+
+              <div className="px-4 pb-4 space-y-4">
+                {editSub.split_parent_id ? (
+                  // ── Sub que salió de una división: solo deshacer ──
+                  <p className="text-xs text-[#8A877D]">
+                    Este servicio salió de dividir un cargo agrupado. Puedes deshacer la división
+                    para volver a verlo como un solo cargo.
+                  </p>
+                ) : (
+                  <>
+                    {/* Marcar plan */}
+                    {editSub.planes_disponibles.length > 0 && (
+                      <div>
+                        <p className="text-[11px] text-[#8A877D] mb-1.5">Tu plan</p>
+                        <div className="space-y-1">
+                          {editSub.planes_disponibles.map((plan) => {
+                            const isCurrent = editSub.plan_actual
+                              ? plan.nombre === editSub.plan_actual
+                              : Math.abs(plan.precio - editSub.monto_detectado) < 1;
+                            return (
+                              <button
+                                key={plan.nombre}
+                                onClick={() => doMarkPlan(plan.nombre)}
+                                className={`w-full flex items-center justify-between text-xs px-2.5 py-2 rounded-lg transition-colors ${
+                                  isCurrent
+                                    ? 'bg-[rgba(29,158,117,0.12)] border border-[rgba(29,158,117,0.25)]'
+                                    : 'bg-[rgba(255,255,255,0.02)] hover:bg-[rgba(255,255,255,0.05)]'
+                                }`}
+                              >
+                                <span className={`flex items-center gap-1.5 ${isCurrent ? 'text-[#1D9E75]' : 'text-[#C8C6BC]'}`}>
+                                  {isCurrent && <Check className="h-3 w-3" />}
+                                  {plan.nombre}
+                                  {isCurrent && ' (actual)'}
+                                </span>
+                                <span className={isCurrent ? 'text-[#1D9E75]' : 'text-[#8A877D]'}>
+                                  {formatPrecioConversion(plan.precio, editSub.moneda)}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Renombrar */}
+                    <div>
+                      <label className="text-[11px] text-[#8A877D] flex items-center gap-1.5 mb-1.5">
+                        <Pencil className="h-3 w-3" /> Nombre
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          className="form-input flex-1 text-sm"
+                          placeholder="Nombre de la suscripción"
+                        />
+                        <button
+                          onClick={doRename}
+                          disabled={!renameValue.trim() || renameValue.trim() === editSub.nombre}
+                          className="inline-flex items-center gap-1 rounded-lg bg-[rgba(29,158,117,0.15)] px-3 text-sm font-medium text-[#1D9E75] disabled:opacity-40 hover:bg-[rgba(29,158,117,0.25)] transition-colors"
+                        >
+                          <Check className="h-3.5 w-3.5" /> Guardar
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Dividir en varios servicios */}
+                    {editClusters.length >= 2 && (
+                      <div>
+                        <p className="text-[11px] text-[#8A877D] flex items-center gap-1.5 mb-1.5">
+                          <Split className="h-3 w-3" /> Dividir en varios servicios
+                        </p>
+                        <p className="text-[10px] text-[#8A877D] mb-2">
+                          Este cargo agrupa montos distintos. Asigna cada uno a su servicio real.
+                        </p>
+                        <div className="space-y-2">
+                          {editClusters.map((cl) => {
+                            const current = overrides.find(
+                              (o) => o.clave_variante === splitKey(editSub.id, cl.centroidPen)
+                            )?.catalog_id;
+                            return (
+                              <div
+                                key={cl.centroidPen}
+                                className="flex items-center gap-2 rounded-lg bg-[rgba(255,255,255,0.02)] px-2.5 py-2"
+                              >
+                                <span className="text-xs text-[#C8C6BC] shrink-0 tabular-nums w-24">
+                                  ≈ S/{cl.centroidPen.toFixed(2)}
+                                  <span className="text-[10px] text-[#8A877D] ml-1">/mes</span>
+                                </span>
+                                <select
+                                  value={current ?? ''}
+                                  onChange={(e) => e.target.value && doAssignSplit(cl.centroidPen, e.target.value)}
+                                  className="form-input flex-1 text-xs py-1.5"
+                                >
+                                  <option value="">Asignar a…</option>
+                                  {CATALOGO_SUSCRIPCIONES.map((c) => (
+                                    <option key={c.id} value={c.id}>
+                                      {c.icono} {c.nombre}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Acciones */}
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {!editSub.split_parent_id && (
+                    <button
+                      onClick={doHide}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-[rgba(255,255,255,0.04)] px-3 py-2 text-xs text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.07)] transition-colors"
+                    >
+                      <EyeOff className="h-3.5 w-3.5" /> No es suscripción
+                    </button>
+                  )}
+                  {undoParentId && (
+                    <button
+                      onClick={doUndoSplit}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-[rgba(255,255,255,0.04)] px-3 py-2 text-xs text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.07)] transition-colors"
+                    >
+                      <Split className="h-3.5 w-3.5" /> Deshacer división
+                    </button>
+                  )}
+                  {editHasOverride && !editSub.split_parent_id && (
+                    <button
+                      onClick={doReset}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-[rgba(255,255,255,0.04)] px-3 py-2 text-xs text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" /> Restablecer
+                    </button>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
     </FadeIn>
   );

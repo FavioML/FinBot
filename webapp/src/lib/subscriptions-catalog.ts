@@ -71,7 +71,13 @@ export interface SuscripcionDetectada {
   subcategoria_neto: string
   planes_disponibles: PlanSuscripcion[]
   /** Todos los pagos; `recurrente=false` marca cargos puntuales/recargos aparte de la cuota */
-  pagos_detalle: { monto: number; monto_pen: number; moneda: string; fecha: string; recurrente: boolean }[]
+  pagos_detalle: PagoDetalle[]
+  /** Plan marcado a mano por el usuario (override plan_nombre). Resalta ese plan como "el tuyo". */
+  plan_actual?: string | null
+  /** True si el usuario aplicó algún override (renombrar/plan/dividir) sobre esta sub. */
+  es_override?: boolean
+  /** Si la sub salió de dividir un descriptor opaco, id de la sub base (para deshacer). */
+  split_parent_id?: string | null
 }
 
 // Labels for catalog tipos
@@ -213,6 +219,12 @@ export function matchCatalogo(comercio: string | null | undefined): CatalogEntry
   return null
 }
 
+/** Lookup directo por id de catálogo (para overrides que fijan catalog_id, ej. split). */
+export function getCatalogById(id: string | null | undefined): CatalogEntry | null {
+  if (!id) return null
+  return CATALOGO_SUSCRIPCIONES.find((c) => c.id === id) ?? null
+}
+
 // ═══════════════════════════════════════════════════════════════
 // CUOTA RECURRENTE — separa la cuota que se repite de cargos puntuales
 // ═══════════════════════════════════════════════════════════════
@@ -265,6 +277,50 @@ export function recurringCluster<T extends { monto: number; fecha: string }>(
 
   const extras = pagos.filter((p) => !best.includes(p))
   return { recurring: best, extras }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CLUSTERS DE MONTO — para dividir un descriptor opaco (ej. "APPLE.COM/BILL")
+// en varias suscripciones concurrentes, cada cluster de monto = un servicio.
+// A diferencia de recurringCluster (que elige UN cluster como la cuota), acá
+// devolvemos TODOS los clusters ordenados por meses abarcados.
+// ═══════════════════════════════════════════════════════════════
+
+export interface PagoDetalle {
+  monto: number
+  monto_pen: number
+  moneda: string
+  fecha: string
+  recurrente: boolean
+}
+
+export interface AmountCluster {
+  centroidPen: number
+  pagos: PagoDetalle[]
+  months: number
+}
+
+export function amountClusters(pagos: PagoDetalle[]): AmountCluster[] {
+  const clusters: PagoDetalle[][] = []
+  for (const p of [...pagos].sort((a, b) => b.monto_pen - a.monto_pen)) {
+    let placed = false
+    for (const c of clusters) {
+      const ref = c[0].monto_pen
+      if (ref > 0 && Math.abs(p.monto_pen - ref) / ref <= 0.12) {
+        c.push(p)
+        placed = true
+        break
+      }
+    }
+    if (!placed) clusters.push([p])
+  }
+  return clusters
+    .map((c) => ({
+      centroidPen: median(c.map((p) => p.monto_pen)),
+      pagos: c,
+      months: new Set(c.map((p) => p.fecha.substring(0, 7))).size,
+    }))
+    .sort((a, b) => b.months - a.months || b.centroidPen - a.centroidPen)
 }
 
 // ═══════════════════════════════════════════════════════════════
