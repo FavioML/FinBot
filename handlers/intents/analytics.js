@@ -127,33 +127,14 @@ module.exports = {
 
       case 'ver_suscripciones': {
         try {
-          // Buscar comercios que aparecen en al menos 2 meses distintos
-          const hace90 = new Date(); hace90.setDate(hace90.getDate() - 90);
-          const desdeSub = hace90.toISOString().split('T')[0];
-          const { data: txsSub } = await supabase.from('transacciones').select('comercio,monto,monto_pen,fecha,categoria')
-            .eq('usuario_id', usuario.id).eq('tipo', 'gasto').gte('fecha', desdeSub).order('fecha', { ascending: false });
-          if (!txsSub || txsSub.length === 0) return 'No tengo suficiente historial para detectar suscripciones. Sigue registrando y en unas semanas te muestro tus pagos recurrentes.';
-          const porComercio = {};
-          (txsSub||[]).forEach(t => {
-            const c = (t.comercio||'').toLowerCase().trim();
-            if (!c || c.length < 3) return;
-            const mesKey = t.fecha.substring(0,7);
-            if (!porComercio[c]) porComercio[c] = { nombre: t.comercio, meses: new Set(), montos: [], cat: t.categoria };
-            porComercio[c].meses.add(mesKey);
-            porComercio[c].montos.push(parseFloat(t.monto_pen || t.monto || 0));
-          });
-          const recurrentes = Object.values(porComercio)
-            .filter(c => c.meses.size >= 2)
-            .map(c => ({ nombre: c.nombre, meses: c.meses.size, promedio: c.montos.reduce((s,m)=>s+m,0)/c.montos.length, cat: c.cat }))
-            .sort((a,b) => b.promedio - a.promedio);
-          if (recurrentes.length === 0) return 'No detecté pagos recurrentes en tus últimos 3 meses. Si tienes suscripciones, regístralas y las rastreo automáticamente.';
-          const totalSub = recurrentes.reduce((s,r) => s + r.promedio, 0);
-          let msgSub = '🔄 *Pagos recurrentes detectados*\n\nTotal estimado mensual: *S/ ' + totalSub.toFixed(2) + '*\n\n';
-          recurrentes.slice(0,10).forEach(r => {
-            msgSub += '• ' + (r.nombre || 'Sin nombre') + ' — ~S/ ' + r.promedio.toFixed(2) + '/mes [' + (r.cat || 'Otros') + ']\n';
-          });
-          msgSub += '\n_Basado en pagos de los últimos 3 meses._';
-          return msgSub;
+          // Detección unificada: mismo motor que usa el cron de recordatorios y el
+          // generador de recomendaciones (services/subscriptions), para que el usuario
+          // vea exactamente la misma detección. Incluye match de catálogo (Netflix,
+          // Spotify, etc.) + patrón recurrente, no la heurística de solo-2-meses que
+          // vivía acá reimplementada con umbrales distintos.
+          const { detectarSuscripciones, generarTextoSuscripciones } = require('../../services/subscriptions');
+          const dataSubs = await detectarSuscripciones(usuario.id);
+          return generarTextoSuscripciones(dataSubs, usuario.nombre);
         } catch(e) {
           log.error({ tag: 'SUBS', err: e.message }, 'Error detectando suscripciones');
           return 'No pude detectar tus suscripciones. Intenta de nuevo.';
