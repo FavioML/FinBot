@@ -77,31 +77,89 @@ describe('matchCatalogo — match de comercio contra catalogo', () => {
     expect(matchCatalogo(undefined)).toBeNull();
   });
 
-  it('caracteriza el quirk patron.includes(lower): comercio corto contenido en un patron matchea', () => {
-    // 'ea' esta contenido en el patron 'steam' ('st-EA-m'), que aparece antes en el
-    // catalogo -> matchea 'steam', no 'ea_play'. Comportamiento actual (laxo por el
-    // includes bidireccional); se fija tal cual, no se corrige en este refactor.
-    expect(matchCatalogo('ea').id).toBe('steam');
+  it('ya NO matchea por substring inverso: comercio corto contenido en un patron -> null', () => {
+    // Antes 'ea' caia dentro del patron 'steam' ('st-EA-m') por el includes bidireccional
+    // y marcaba Steam por accidente. Ahora el match es solo hacia adelante (patron dentro
+    // del comercio), asi que 'ea' no matchea nada.
+    expect(matchCatalogo('ea')).toBeNull();
+  });
+
+  it('un pedido de comida (pedidosya) ya NO matchea el plan pedidosya plus', () => {
+    // Falso positivo historico: 'pedidosya' (pedido) era substring de 'pedidosya plus' y
+    // matcheaba la suscripcion. Solo el cargo con el qualifier del plan debe matchear.
+    expect(matchCatalogo('PedidosYa')).toBeNull();
+    expect(matchCatalogo('DL*PEDIDOSYA')).toBeNull();
+    expect(matchCatalogo('PEDIDOSYA PLUS').id).toBe('pedidosya_plus');
+  });
+
+  it('una compra Amazon generica ya NO matchea Amazon Prime', () => {
+    // 'amzn' / 'amazon.com' se quitaron del catalogo: eran cualquier compra, no la suscripcion.
+    expect(matchCatalogo('AMZN*2H4KL9')).toBeNull();
+    expect(matchCatalogo('AMAZON.COM')).toBeNull();
+    expect(matchCatalogo('AMAZON PRIME').id).toBe('amazon_prime');
   });
 });
 
 describe('detectarSuscripciones — deteccion por catalogo', () => {
   beforeEach(resetState);
 
-  it('match de catalogo en PEN con 1 solo pago: estado activa, monto_pen == monto_detectado', async () => {
+  it('match de catalogo en PEN con 1 solo pago: estado POSIBLE (1 mes), monto_pen == monto_detectado', async () => {
+    // Regla nueva: un solo mes de pago no confirma recurrencia -> 'posible', no 'activa'.
+    // Asi una compra unica en un storefront de catalogo no dispara el recordatorio del cron.
     state.txs = [tx('Netflix', 25.90, '2026-07-05', { moneda: 'PEN', monto_pen: 25.90 })];
     const r = await detectarSuscripciones('u1');
 
     expect(r.cantidad).toBe(1);
     const sub = r.suscripciones_detectadas[0];
     expect(sub.nombre).toBe('Netflix');
-    expect(sub.estado).toBe('activa');
+    expect(sub.estado).toBe('posible');
     expect(sub.fuente).toBe('catalogo');
     expect(sub.moneda).toBe('PEN');
     expect(sub.monto_detectado).toBe(25.90);
     expect(sub.monto_pen).toBe(25.90); // sin conversion en PEN
     expect(sub.ultimo_pago).toBe('2026-07-05');
     expect(sub.meses_detectados).toBe(1);
+  });
+
+  it('match de catalogo con 2+ meses distintos: estado ACTIVA', async () => {
+    state.txs = [
+      tx('Netflix', 25.90, '2026-07-05', { moneda: 'PEN', monto_pen: 25.90 }),
+      tx('Netflix', 25.90, '2026-06-05', { moneda: 'PEN', monto_pen: 25.90 }),
+    ];
+    const r = await detectarSuscripciones('u1');
+    const sub = r.suscripciones_detectadas[0];
+    expect(sub.estado).toBe('activa');
+    expect(sub.meses_detectados).toBe(2);
+  });
+
+  it('deduplica por catalog id: varias grafias del mismo servicio -> 1 sola entrada', async () => {
+    // El bug reportado: "PedidosYa Plus" bajo grafias distintas salia N veces. Ahora se
+    // agrupa por catalog id y se reporta una sola vez, con el monto del pago mas reciente.
+    state.txs = [
+      tx('PedidosYa Plus', 9.90, '2026-07-10', { moneda: 'PEN', monto_pen: 9.90 }),
+      tx('PEDIDOSYA PLUS', 9.90, '2026-06-10', { moneda: 'PEN', monto_pen: 9.90 }),
+      tx('DL*PEDIDOSYAPLUS', 12.90, '2026-05-10', { moneda: 'PEN', monto_pen: 12.90 }),
+    ];
+    const r = await detectarSuscripciones('u1');
+
+    expect(r.cantidad).toBe(1);
+    const sub = r.suscripciones_detectadas[0];
+    expect(sub.id).toBe('pedidosya_plus');
+    expect(sub.estado).toBe('activa'); // 3 meses distintos
+    expect(sub.meses_detectados).toBe(3);
+    expect(sub.monto_detectado).toBe(9.90); // ultimo pago (2026-07-10), no promedio
+    expect(sub.ultimo_pago).toBe('2026-07-10');
+  });
+
+  it('pedidos de comida sueltos (pedidosya, sin plan) no se reportan como suscripcion', async () => {
+    // Montos dispares como son los pedidos reales: no matchea catalogo (ya no existe el
+    // patron 'pedidosya' suelto) y el coef. de variacion alto lo descarta de la rama patron.
+    state.txs = [
+      tx('PedidosYa', 25.00, '2026-07-10', { moneda: 'PEN', monto_pen: 25.00 }),
+      tx('PedidosYa', 78.50, '2026-06-10', { moneda: 'PEN', monto_pen: 78.50 }),
+    ];
+    const r = await detectarSuscripciones('u1');
+    expect(r.cantidad).toBe(0);
   });
 
   it('match de catalogo en USD con 2 pagos: convierte monto_pen con TC (venta 3.85)', async () => {
@@ -138,11 +196,13 @@ describe('detectarSuscripciones — deteccion por catalogo', () => {
 describe('detectarSuscripciones — deteccion por patron (sin catalogo)', () => {
   beforeEach(resetState);
 
-  it('patron recurrente con baja variacion (coefVar<0.3, avg>2): estado posible', async () => {
+  it('patron recurrente categorizado como suscripcion (coefVar<0.3, avg>2): estado posible', async () => {
+    // La rama por patron ahora exige que la transaccion este categorizada como suscripcion.
+    // Un gimnasio/software no listado en el catalogo pero marcado 'Suscripciones' entra.
     state.txs = [
-      tx('Gimnasio Local', 80, '2026-07-01'),
-      tx('Gimnasio Local', 80, '2026-06-01'),
-      tx('Gimnasio Local', 82, '2026-05-01'),
+      tx('Gimnasio Local', 80, '2026-07-01', { categoria: 'Suscripciones', subcategoria: 'Gimnasio' }),
+      tx('Gimnasio Local', 80, '2026-06-01', { categoria: 'Suscripciones', subcategoria: 'Gimnasio' }),
+      tx('Gimnasio Local', 82, '2026-05-01', { categoria: 'Suscripciones', subcategoria: 'Gimnasio' }),
     ];
     const r = await detectarSuscripciones('u1');
 
@@ -152,6 +212,37 @@ describe('detectarSuscripciones — deteccion por patron (sin catalogo)', () => 
     expect(sub.fuente).toBe('patron');
     expect(sub.id).toMatch(/^custom_/);
     expect(sub.meses_detectados).toBe(3);
+  });
+
+  it('reconoce el patron por subcategoria "suscripciones" (Entretenimiento/suscripciones)', async () => {
+    state.txs = [
+      tx('Servicio Raro', 15, '2026-07-01', { categoria: 'Entretenimiento', subcategoria: 'suscripciones' }),
+      tx('Servicio Raro', 15, '2026-06-01', { categoria: 'Entretenimiento', subcategoria: 'suscripciones' }),
+    ];
+    const r = await detectarSuscripciones('u1');
+    expect(r.cantidad).toBe(1);
+    expect(r.suscripciones_detectadas[0].fuente).toBe('patron');
+  });
+
+  it('NO detecta un gasto recurrente de monto estable si NO esta categorizado como suscripcion', async () => {
+    // El false positive de fondo: comida/gasolina/transferencias con monto parecido mes a
+    // mes pasaban el filtro de variacion. Ahora sin categoria de suscripcion no entran.
+    state.txs = [
+      tx('KFC Delivery', 30, '2026-07-01', { categoria: 'Alimentación', subcategoria: 'Delivery' }),
+      tx('KFC Delivery', 31, '2026-06-01', { categoria: 'Alimentación', subcategoria: 'Delivery' }),
+      tx('KFC Delivery', 30, '2026-05-01', { categoria: 'Alimentación', subcategoria: 'Delivery' }),
+    ];
+    const r = await detectarSuscripciones('u1');
+    expect(r.cantidad).toBe(0);
+  });
+
+  it('NO detecta una transferencia recurrente a una persona (alquiler/Yape) como suscripcion', async () => {
+    state.txs = [
+      tx('Juno Luya — transferencia', 1100, '2026-07-08', { categoria: 'Vivienda', subcategoria: 'Alquiler' }),
+      tx('Juno Luya — transferencia', 1100, '2026-06-08', { categoria: 'Vivienda', subcategoria: 'Alquiler' }),
+    ];
+    const r = await detectarSuscripciones('u1');
+    expect(r.cantidad).toBe(0);
   });
 
   it('NO detecta si la variacion es alta (coefVar >= 0.3)', async () => {
@@ -216,9 +307,11 @@ describe('detectarSuscripciones — totales y ahorro familiar', () => {
 
   it('resumen.por_tipo agrupa y cuenta activas/posibles', async () => {
     state.txs = [
+      // Netflix en 2 meses -> activa; Gimnasio (categorizado suscripcion) 2 meses -> posible.
       tx('Netflix', 25.90, '2026-07-05', { moneda: 'PEN', monto_pen: 25.90 }),
-      tx('Gimnasio Local', 80, '2026-07-01'),
-      tx('Gimnasio Local', 80, '2026-06-01'),
+      tx('Netflix', 25.90, '2026-06-05', { moneda: 'PEN', monto_pen: 25.90 }),
+      tx('Gimnasio Local', 80, '2026-07-01', { categoria: 'Suscripciones', subcategoria: 'Gimnasio' }),
+      tx('Gimnasio Local', 80, '2026-06-01', { categoria: 'Suscripciones', subcategoria: 'Gimnasio' }),
     ];
     const r = await detectarSuscripciones('u1');
     expect(r.resumen.activas).toBe(1);
@@ -261,9 +354,9 @@ describe('detectarSuscripciones — bordes y ventana temporal', () => {
 
   it('meses_detectados cuenta meses YYYY-MM distintos, no numero de pagos', async () => {
     state.txs = [
-      tx('Gimnasio Local', 80, '2026-07-20'),
-      tx('Gimnasio Local', 80, '2026-07-01'), // mismo mes que el anterior
-      tx('Gimnasio Local', 80, '2026-06-01'),
+      tx('Gimnasio Local', 80, '2026-07-20', { categoria: 'Suscripciones', subcategoria: 'Gimnasio' }),
+      tx('Gimnasio Local', 80, '2026-07-01', { categoria: 'Suscripciones', subcategoria: 'Gimnasio' }), // mismo mes
+      tx('Gimnasio Local', 80, '2026-06-01', { categoria: 'Suscripciones', subcategoria: 'Gimnasio' }),
     ];
     const r = await detectarSuscripciones('u1');
     // 3 pagos pero solo 2 meses distintos (2026-07 y 2026-06)

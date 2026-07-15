@@ -17,12 +17,34 @@ function matchCatalogo(comercio) {
   const lower = comercio.toLowerCase().trim();
   for (const sub of CATALOGO_SUSCRIPCIONES) {
     for (const patron of sub.patrones) {
-      if (lower.includes(patron) || patron.includes(lower)) {
+      // Solo match hacia adelante: el patrón del catálogo debe estar contenido en el
+      // nombre del comercio (cubre prefijos de pasarela como "DLOCAL*NETFLIX"). Se
+      // eliminó el match inverso `patron.includes(lower)`: hacía que un comercio corto
+      // matcheara por accidente ('ea' caía dentro de 'steam') y que un pedido de comida
+      // 'pedidosya' matcheara el plan 'pedidosya plus' por ser substring. Los patrones
+      // canónicos cortos (netflix, spotify, disney+) siguen como patrón directo.
+      if (lower.includes(patron)) {
         return sub;
       }
     }
   }
   return null;
+}
+
+/**
+ * ¿La transacción está categorizada como suscripción? Gate de la detección por patrón
+ * (no aplica al catálogo, que se reconoce por nombre). El categorizador de Neto marca las
+ * suscripciones con categoría 'Suscripciones' (ej. Suscripciones/Software, /Gimnasio) o
+ * subcategoría 'suscripciones' (ej. Entretenimiento/suscripciones). Utilidades como
+ * internet/celular viven bajo 'Vivienda' y quedan fuera a propósito: no son lo que el
+ * usuario entiende por "suscripciones" ni están en el catálogo.
+ * @param {{categoria?: string, subcategoria?: string}} pago
+ * @returns {boolean}
+ */
+function esCategoriaSuscripcion(pago) {
+  const cat = (pago.categoria || '').toLowerCase();
+  const sub = (pago.subcategoria || '').toLowerCase();
+  return cat === 'suscripciones' || sub === 'suscripciones';
 }
 
 /**
@@ -59,20 +81,26 @@ async function detectarSuscripciones(usuarioId) {
     return { suscripciones_detectadas: [], total_mensual_pen: 0, total_mensual_usd: 0 };
   }
 
-  // Agrupar por comercio normalizado
-  const porComercio = {};
+  // Agrupar pagos. Los matches de catálogo se agrupan por catalog id, de modo que
+  // distintas grafías del mismo servicio ("PedidosYa Plus", "pedidosya plus",
+  // "DL*PEDIDOSYAPLUS") caen en un solo grupo y no se reportan duplicadas. Los comercios
+  // sin match de catálogo se agrupan por su string normalizado. txs viene ordenado por
+  // fecha desc, así que el primer pago de cada grupo es el más reciente.
+  const grupos = {};
   for (const tx of txs) {
     const nombre = (tx.comercio || '').trim();
     if (!nombre) continue;
-    const key = nombre.toLowerCase();
-    if (!porComercio[key]) {
-      porComercio[key] = {
-        nombre_original: nombre,
+    const catalogoMatch = matchCatalogo(nombre);
+    const key = catalogoMatch ? 'cat:' + catalogoMatch.id : 'com:' + nombre.toLowerCase();
+    if (!grupos[key]) {
+      grupos[key] = {
+        catalogo: catalogoMatch,
+        nombre_original: nombre, // grafía del pago más reciente
         pagos: [],
         moneda: tx.moneda || 'PEN',
       };
     }
-    porComercio[key].pagos.push({
+    grupos[key].pagos.push({
       monto: parseFloat(tx.monto),
       monto_pen: parseFloat(tx.monto_pen || tx.monto),
       fecha: tx.fecha,
@@ -81,26 +109,25 @@ async function detectarSuscripciones(usuarioId) {
     });
   }
 
-  // Analizar cada comercio para detectar recurrencia
+  // Analizar cada grupo para detectar recurrencia
   const suscripciones = [];
-  const mesesSet = new Set();
 
-  for (const [key, data] of Object.entries(porComercio)) {
-    const catalogoMatch = matchCatalogo(data.nombre_original);
-
-    // Para entrar como suscripción detectada necesita:
-    // 1. Estar en el catálogo Y tener al menos 1 pago, O
-    // 2. Tener pagos en 2+ meses distintos con monto similar
+  for (const [key, data] of Object.entries(grupos)) {
+    const catalogoMatch = data.catalogo;
     const mesesConPago = new Set(data.pagos.map(p => p.fecha.substring(0, 7)));
+    const ultimoPago = data.pagos[0]; // más reciente (txs ordenados desc)
 
-    if (catalogoMatch && data.pagos.length >= 1) {
-      // Match directo con catálogo
-      const ultimoPago = data.pagos[0]; // ya ordenado desc
-      const montoPromedio = data.pagos.reduce((s, p) => s + p.monto, 0) / data.pagos.length;
+    if (catalogoMatch) {
+      // Match de catálogo. El estado depende de la recurrencia real:
+      //   2+ meses distintos con pago -> 'activa' (es lo que dispara el recordatorio en el cron)
+      //   1 solo mes -> 'posible' (puede ser una compra única en un storefront de catálogo,
+      //   p.ej. Amazon; no la marcamos activa ni notificamos hasta confirmar recurrencia).
+      const estado = mesesConPago.size >= 2 ? 'activa' : 'posible';
+      // Monto mostrado = último pago: refleja lo que paga hoy y coincide con un plan real.
+      const montoDetectado = ultimoPago.monto;
 
       // Usar precio_local_pen si existe (servicios que cobran en soles)
       const precioRef = catalogoMatch.precio_local_pen || catalogoMatch.precio_mensual;
-      const monedaRef = catalogoMatch.precio_local_pen ? 'PEN' : catalogoMatch.moneda;
 
       suscripciones.push({
         id: catalogoMatch.id,
@@ -108,10 +135,10 @@ async function detectarSuscripciones(usuarioId) {
         tipo: catalogoMatch.tipo,
         icono: catalogoMatch.icono,
         fuente: 'catalogo',
-        estado: 'activa',
+        estado,
         moneda: data.moneda,
-        monto_detectado: Math.round(montoPromedio * 100) / 100,
-        monto_pen: data.moneda === 'USD' ? Math.round(montoPromedio * TC * 100) / 100 : Math.round(montoPromedio * 100) / 100,
+        monto_detectado: Math.round(montoDetectado * 100) / 100,
+        monto_pen: data.moneda === 'USD' ? Math.round(montoDetectado * TC * 100) / 100 : Math.round(montoDetectado * 100) / 100,
         precio_referencia: precioRef,
         tiene_plan_familiar: catalogoMatch.tiene_plan_familiar,
         precio_familiar: catalogoMatch.precio_familiar,
@@ -121,16 +148,21 @@ async function detectarSuscripciones(usuarioId) {
         subcategoria_neto: catalogoMatch.subcategoria_neto,
         planes_disponibles: catalogoMatch.planes || [],
       });
-    } else if (mesesConPago.size >= 2) {
-      // Patrón recurrente sin match en catálogo
+    } else if (mesesConPago.size >= 2 && esCategoriaSuscripcion(ultimoPago)) {
+      // Patrón recurrente sin match en catálogo. Además de monto estable en 2+ meses,
+      // exige que la transacción esté CATEGORIZADA como suscripción. Sin este gate, la
+      // sola estabilidad de monto marcaba gastos de vida cotidiana como "suscripción":
+      // pedidos de comida, gasolina, estacionamiento, barbería, transferencias a personas
+      // (todos con montos parecidos mes a mes). El categorizador de Neto ya tiene la
+      // categoría/subcategoría "Suscripciones"; solo eso pasa la rama por patrón (p.ej.
+      // un software o gimnasio no listado en el catálogo).
       const montos = data.pagos.map(p => p.monto);
       const avg = montos.reduce((a, b) => a + b, 0) / montos.length;
       const varianza = montos.reduce((s, m) => s + Math.pow(m - avg, 2), 0) / montos.length;
       const coefVar = avg > 0 ? Math.sqrt(varianza) / avg : 1;
 
-      // Si el coeficiente de variación es bajo (<0.3), es probablemente una suscripción
+      // Coef. de variación bajo (<0.3) y monto no trivial (>2) => probablemente suscripción
       if (coefVar < 0.3 && avg > 2) {
-        const ultimoPago = data.pagos[0];
         suscripciones.push({
           id: 'custom_' + key.replace(/[^a-z0-9]/g, '_'),
           nombre: data.nombre_original,
