@@ -3,116 +3,19 @@
 import { useQuery } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
 import type { Transaccion } from '@/lib/types';
-import type { SuscripcionDetectada, TipoSuscripcion } from '@/lib/subscriptions-catalog';
-import { TIPO_LABELS, TC_APROXIMADO } from '@/lib/subscriptions-catalog';
+import type { SuscripcionDetectada, TipoSuscripcion, CatalogEntry } from '@/lib/subscriptions-catalog';
+import {
+  TIPO_LABELS,
+  TC_APROXIMADO,
+  matchCatalogo,
+  recurringCluster,
+  median,
+} from '@/lib/subscriptions-catalog';
 import { IS_DEMO } from '@/lib/demo/is-demo';
 import { DEMO_TRANSACTIONS } from '@/lib/demo/mock-data';
 
-// ═══════════════════════════════════════════════════════════════
-// CATÁLOGO DE ENRIQUECIMIENTO — Metadata extra para servicios conocidos
-// Solo se usa para agregar iconos, planes y precios de referencia
-// ═══════════════════════════════════════════════════════════════
-
-interface CatalogoEntry {
-  id: string
-  nombre: string
-  icono: string
-  moneda: 'USD' | 'PEN'
-  precio_mensual: number | null
-  tiene_plan_familiar: boolean
-  precio_familiar: number | null
-  planes: { nombre: string; precio: number }[]
-  patrones: string[]
-}
-
-const CATALOGO: CatalogoEntry[] = [
-  // Streaming
-  { id: 'netflix', nombre: 'Netflix', icono: '🎬', moneda: 'USD', precio_mensual: 15.49, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Con anuncios', precio: 6.99 }, { nombre: 'Estándar', precio: 15.49 }, { nombre: 'Premium', precio: 22.99 }], patrones: ['netflix', 'dlocal*netflix', 'nflx'] },
-  { id: 'disney_plus', nombre: 'Disney+', icono: '🏰', moneda: 'USD', precio_mensual: 7.99, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Con anuncios', precio: 7.99 }, { nombre: 'Sin anuncios', precio: 13.99 }], patrones: ['disney+', 'disney plus', 'disneyplus', 'dlocal*disney'] },
-  { id: 'hbo_max', nombre: 'Max (HBO)', icono: '🎭', moneda: 'USD', precio_mensual: 9.99, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Con anuncios', precio: 9.99 }, { nombre: 'Sin anuncios', precio: 16.99 }], patrones: ['hbo', 'hbo max', 'max.com', 'warnermedia', 'hbomax'] },
-  { id: 'amazon_prime', nombre: 'Amazon Prime', icono: '📦', moneda: 'USD', precio_mensual: 14.99, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Prime Video', precio: 8.99 }, { nombre: 'Prime completo', precio: 14.99 }], patrones: ['amazon prime', 'amzn prime', 'prime video', 'amzn'] },
-  { id: 'apple_tv', nombre: 'Apple TV+', icono: '🍎', moneda: 'USD', precio_mensual: 9.99, tiene_plan_familiar: true, precio_familiar: 9.99, planes: [{ nombre: 'Individual', precio: 9.99 }], patrones: ['apple tv'] },
-  { id: 'paramount_plus', nombre: 'Paramount+', icono: '⛰️', moneda: 'USD', precio_mensual: 5.99, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Essential', precio: 5.99 }, { nombre: 'Con SHOWTIME', precio: 11.99 }], patrones: ['paramount+', 'paramount plus', 'paramountplus'] },
-  { id: 'crunchyroll', nombre: 'Crunchyroll', icono: '🍥', moneda: 'USD', precio_mensual: 7.99, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Fan', precio: 7.99 }], patrones: ['crunchyroll'] },
-
-  // Música
-  { id: 'spotify', nombre: 'Spotify', icono: '🎵', moneda: 'USD', precio_mensual: 10.99, tiene_plan_familiar: true, precio_familiar: 16.99, planes: [{ nombre: 'Individual', precio: 10.99 }, { nombre: 'Duo', precio: 14.99 }, { nombre: 'Familiar', precio: 16.99 }, { nombre: 'Estudiante', precio: 5.99 }], patrones: ['spotify'] },
-  { id: 'apple_music', nombre: 'Apple Music', icono: '🎶', moneda: 'USD', precio_mensual: 10.99, tiene_plan_familiar: true, precio_familiar: 16.99, planes: [{ nombre: 'Individual', precio: 10.99 }, { nombre: 'Familiar', precio: 16.99 }], patrones: ['apple music'] },
-  { id: 'youtube_premium', nombre: 'YouTube Premium', icono: '▶️', moneda: 'USD', precio_mensual: 13.99, tiene_plan_familiar: true, precio_familiar: 22.99, planes: [{ nombre: 'Individual', precio: 13.99 }, { nombre: 'Familiar', precio: 22.99 }], patrones: ['youtube premium', 'youtube music', 'google*youtube', 'yt premium'] },
-
-  // Gaming
-  { id: 'xbox_gamepass', nombre: 'Xbox Game Pass', icono: '🎮', moneda: 'USD', precio_mensual: 17.99, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Core', precio: 9.99 }, { nombre: 'Ultimate', precio: 17.99 }], patrones: ['xbox', 'microsoft*xbox', 'xboxlive'] },
-  { id: 'playstation_plus', nombre: 'PlayStation Plus', icono: '🕹️', moneda: 'USD', precio_mensual: 17.99, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Essential', precio: 9.99 }, { nombre: 'Premium', precio: 17.99 }], patrones: ['playstation', 'psn', 'sony interactive'] },
-
-  // Cloud / Almacenamiento
-  { id: 'google_one', nombre: 'Google One', icono: '☁️', moneda: 'USD', precio_mensual: 1.99, tiene_plan_familiar: true, precio_familiar: 1.99, planes: [{ nombre: '100 GB', precio: 1.99 }, { nombre: '200 GB', precio: 2.99 }, { nombre: '2 TB', precio: 9.99 }], patrones: ['google one', 'google*services', 'google storage', 'google drive'] },
-  { id: 'icloud', nombre: 'iCloud+', icono: '🍏', moneda: 'USD', precio_mensual: 0.99, tiene_plan_familiar: true, precio_familiar: 0.99, planes: [{ nombre: '50 GB', precio: 0.99 }, { nombre: '200 GB', precio: 2.99 }, { nombre: '2 TB', precio: 9.99 }], patrones: ['icloud', 'apple icloud'] },
-  { id: 'dropbox', nombre: 'Dropbox', icono: '📁', moneda: 'USD', precio_mensual: 11.99, tiene_plan_familiar: true, precio_familiar: 16.99, planes: [{ nombre: 'Plus', precio: 11.99 }], patrones: ['dropbox'] },
-
-  // AI / Software
-  { id: 'chatgpt', nombre: 'ChatGPT Plus', icono: '🤖', moneda: 'USD', precio_mensual: 20.00, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Plus', precio: 20.00 }, { nombre: 'Pro', precio: 200.00 }], patrones: ['chatgpt', 'openai'] },
-  { id: 'claude', nombre: 'Claude Pro', icono: '🧠', moneda: 'USD', precio_mensual: 20.00, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Pro', precio: 20.00 }], patrones: ['claude', 'anthropic'] },
-  { id: 'midjourney', nombre: 'Midjourney', icono: '🎨', moneda: 'USD', precio_mensual: 10.00, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Basic', precio: 10.00 }, { nombre: 'Standard', precio: 30.00 }], patrones: ['midjourney'] },
-
-  // Productividad / Software
-  { id: 'microsoft_365', nombre: 'Microsoft 365', icono: '📎', moneda: 'USD', precio_mensual: 6.99, tiene_plan_familiar: true, precio_familiar: 9.99, planes: [{ nombre: 'Personal', precio: 6.99 }, { nombre: 'Familiar', precio: 9.99 }], patrones: ['microsoft 365', 'microsoft*office', 'office 365'] },
-  { id: 'canva', nombre: 'Canva Pro', icono: '🎨', moneda: 'USD', precio_mensual: 14.99, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Pro', precio: 14.99 }], patrones: ['canva'] },
-  { id: 'adobe_cc', nombre: 'Adobe Creative Cloud', icono: '🖌️', moneda: 'USD', precio_mensual: 54.99, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Fotografía', precio: 9.99 }, { nombre: 'Todas las apps', precio: 54.99 }], patrones: ['adobe', 'adobe.com', 'adobe systems'] },
-  { id: 'notion', nombre: 'Notion', icono: '📝', moneda: 'USD', precio_mensual: 10.00, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Plus', precio: 10.00 }], patrones: ['notion'] },
-  { id: 'figma', nombre: 'Figma', icono: '🖼️', moneda: 'USD', precio_mensual: 15.00, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Professional', precio: 15.00 }], patrones: ['figma'] },
-  { id: 'github', nombre: 'GitHub Pro', icono: '🐙', moneda: 'USD', precio_mensual: 4.00, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Pro', precio: 4.00 }], patrones: ['github'] },
-
-  // Comunicación
-  { id: 'zoom', nombre: 'Zoom', icono: '📹', moneda: 'USD', precio_mensual: 13.33, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Pro', precio: 13.33 }], patrones: ['zoom', 'zoom.us'] },
-  { id: 'slack', nombre: 'Slack Pro', icono: '💬', moneda: 'USD', precio_mensual: 8.75, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Pro', precio: 8.75 }], patrones: ['slack'] },
-
-  // Noticias
-  { id: 'el_comercio', nombre: 'El Comercio Digital', icono: '📰', moneda: 'PEN', precio_mensual: 29.90, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Digital', precio: 29.90 }], patrones: ['el comercio', 'elcomercio'] },
-
-  // VPN
-  { id: 'nordvpn', nombre: 'NordVPN', icono: '🔒', moneda: 'USD', precio_mensual: 12.99, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Mensual', precio: 12.99 }, { nombre: 'Anual', precio: 4.99 }], patrones: ['nordvpn', 'nordsec'] },
-
-  // Fitness
-  { id: 'strava', nombre: 'Strava', icono: '🏃', moneda: 'USD', precio_mensual: 5.00, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Premium', precio: 5.00 }], patrones: ['strava'] },
-
-  // Delivery
-  { id: 'rappi_prime', nombre: 'Rappi Prime', icono: '🛵', moneda: 'PEN', precio_mensual: 14.90, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Prime', precio: 14.90 }], patrones: ['rappi prime', 'rappi pro'] },
-  { id: 'pedidosya_plus', nombre: 'PedidosYa Plus', icono: '🍔', moneda: 'PEN', precio_mensual: 16.90, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Plus', precio: 16.90 }, { nombre: 'Plus (precio anterior)', precio: 9.90 }], patrones: ['pedidosya*plus', 'pedidosya plus', 'pedidos ya plus'] },
-  { id: 'pedidosya', nombre: 'PedidosYa', icono: '🍔', moneda: 'PEN', precio_mensual: null, tiene_plan_familiar: false, precio_familiar: null, planes: [], patrones: ['pedidosya', 'pedidos ya'] },
-  { id: 'rappi', nombre: 'Rappi', icono: '🛵', moneda: 'PEN', precio_mensual: null, tiene_plan_familiar: false, precio_familiar: null, planes: [], patrones: ['rappi'] },
-
-  // Hosting / Infra (software)
-  { id: 'railway', nombre: 'Railway', icono: '🚂', moneda: 'USD', precio_mensual: 5.00, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Hobby', precio: 5.00 }, { nombre: 'Pro', precio: 20.00 }], patrones: ['railway', 'railway.app'] },
-  { id: 'vercel', nombre: 'Vercel', icono: '▲', moneda: 'USD', precio_mensual: 20.00, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Pro', precio: 20.00 }], patrones: ['vercel'] },
-  { id: 'cloudflare', nombre: 'Cloudflare', icono: '🌩️', moneda: 'USD', precio_mensual: 5.00, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Pro', precio: 25.00 }], patrones: ['cloudflare'] },
-  { id: 'supabase', nombre: 'Supabase', icono: '⚡', moneda: 'USD', precio_mensual: 25.00, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Pro', precio: 25.00 }], patrones: ['supabase'] },
-
-  // Educación
-  { id: 'platzi', nombre: 'Platzi', icono: '🎓', moneda: 'USD', precio_mensual: 26.00, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Expert', precio: 26.00 }], patrones: ['platzi'] },
-  { id: 'coursera', nombre: 'Coursera Plus', icono: '📚', moneda: 'USD', precio_mensual: 59.00, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Plus', precio: 59.00 }], patrones: ['coursera'] },
-  { id: 'duolingo', nombre: 'Duolingo Plus', icono: '🦉', moneda: 'USD', precio_mensual: 6.99, tiene_plan_familiar: true, precio_familiar: 9.99, planes: [{ nombre: 'Super', precio: 6.99 }], patrones: ['duolingo'] },
-
-  // Dating
-  { id: 'tinder', nombre: 'Tinder', icono: '🔥', moneda: 'USD', precio_mensual: 14.99, tiene_plan_familiar: false, precio_familiar: null, planes: [{ nombre: 'Plus', precio: 9.99 }, { nombre: 'Gold', precio: 14.99 }], patrones: ['tinder', 'match group'] },
-]
-
-function matchCatalogo(comercio: string): CatalogoEntry | null {
-  if (!comercio) return null
-  const lower = comercio.toLowerCase().trim()
-  for (const sub of CATALOGO) {
-    for (const patron of sub.patrones) {
-      if (lower.includes(patron)) {
-        return sub
-      }
-    }
-  }
-  return null
-}
-
-// Normaliza la subcategoria de la DB a una key válida de TIPO_LABELS.
-// La DB guarda valores como "Streaming", "Música", "Almacenamiento" pero las keys
-// del catálogo son lowercase sin acentos: "streaming", "musica", "almacenamiento".
-// Sin esta normalización todo cae a "otros".
+// Normaliza la subcategoria de la DB a una key válida de TIPO_LABELS (para el
+// ramo por-patrón sin match de catálogo). Ej: "Software" -> "software".
 function normalizeSubcategoriaKey(raw: string | null | undefined): string {
   if (!raw) return 'otros'
   const norm = raw
@@ -121,34 +24,14 @@ function normalizeSubcategoriaKey(raw: string | null | undefined): string {
     .replace(/[̀-ͯ]/g, '')
     .trim()
   if (!norm || norm === 'sin_categoria' || norm === 'null') return 'otros'
-  return norm
+  return TIPO_LABELS[norm] ? norm : 'otros'
 }
 
-// Si ya hay un tipo conocido del catálogo (pattern.tipo), tiene prioridad sobre
-// la subcategoría guardada — el catálogo siempre es más específico.
-function pickTipoFromCatalog(catalogId: string | null): string | null {
-  if (!catalogId) return null
-  const map: Record<string, string> = {
-    netflix: 'streaming', disney_plus: 'streaming', hbo_max: 'streaming',
-    amazon_prime: 'streaming', apple_tv: 'streaming', paramount_plus: 'streaming',
-    crunchyroll: 'streaming',
-    spotify: 'musica', apple_music: 'musica', youtube_premium: 'musica',
-    xbox_gamepass: 'gaming', playstation_plus: 'gaming',
-    google_one: 'almacenamiento', icloud: 'almacenamiento', dropbox: 'almacenamiento',
-    chatgpt: 'ai', claude: 'ai', midjourney: 'ai',
-    microsoft_365: 'software', canva: 'software', adobe_cc: 'software',
-    notion: 'software', figma: 'software', github: 'software',
-    zoom: 'comunicacion', slack: 'comunicacion',
-    el_comercio: 'noticias',
-    nordvpn: 'vpn',
-    strava: 'fitness',
-    rappi_prime: 'delivery', pedidosya_plus: 'delivery',
-    pedidosya: 'delivery', rappi: 'delivery',
-    railway: 'software', vercel: 'software', cloudflare: 'software', supabase: 'software',
-    platzi: 'educacion', coursera: 'educacion', duolingo: 'educacion',
-    tinder: 'dating',
-  }
-  return map[catalogId] || null
+interface PagoRaw {
+  monto: number
+  montoPen: number
+  fecha: string
+  moneda: string
 }
 
 interface DeteccionResult {
@@ -161,12 +44,12 @@ interface DeteccionResult {
 }
 
 function detectarSuscripcionesFromTxs(txs: Transaccion[]): DeteccionResult {
-  // Agrupar por comercio — usar catalog ID para merge cuando hay match
+  // Agrupar por catalog id (para juntar grafías del mismo servicio) o por string.
   const groups: Record<string, {
-    catalogMatch: CatalogoEntry | null
+    catalogMatch: CatalogEntry | null
     nombre: string
     subcategoria: string
-    pagos: { monto: number; montoPen: number; fecha: string; moneda: string }[]
+    pagos: PagoRaw[]
     moneda: 'USD' | 'PEN'
   }> = {}
 
@@ -179,17 +62,14 @@ function detectarSuscripcionesFromTxs(txs: Transaccion[]): DeteccionResult {
     const subKey = normalizeSubcategoriaKey(tx.subcategoria)
 
     if (!groups[groupKey]) {
-      // Prioridad: catálogo > subcategoría DB > 'otros'
-      const catalogTipo = pickTipoFromCatalog(match?.id ?? null)
       groups[groupKey] = {
         catalogMatch: match,
         nombre: match ? match.nombre : nombre,
-        subcategoria: catalogTipo || subKey,
+        subcategoria: match ? match.tipo : subKey,
         pagos: [],
-        moneda: match ? match.moneda : (tx.moneda || 'PEN') as 'USD' | 'PEN',
+        moneda: (tx.moneda || 'PEN') as 'USD' | 'PEN',
       }
-    } else if (groups[groupKey].subcategoria === 'otros' && subKey !== 'otros') {
-      // Si la primera tx no tenía sub, usar la siguiente que sí la trae
+    } else if (!match && groups[groupKey].subcategoria === 'otros' && subKey !== 'otros') {
       groups[groupKey].subcategoria = subKey
     }
     groups[groupKey].pagos.push({
@@ -206,41 +86,57 @@ function detectarSuscripcionesFromTxs(txs: Transaccion[]): DeteccionResult {
     if (data.pagos.length === 0) continue
     const { catalogMatch: match } = data
 
-    const mesesConPago = new Set(data.pagos.map(p => p.fecha.substring(0, 7)))
-    const avgPen = data.pagos.reduce((s, p) => s + p.montoPen, 0) / mesesConPago.size
+    const mesesConPago = new Set(data.pagos.map((p) => p.fecha.substring(0, 7)))
     const sortedPagos = [...data.pagos].sort((a, b) => b.fecha.localeCompare(a.fecha))
     const ultimoPago = sortedPagos[0]
     const moneda = data.moneda
-    const montoDisplay = moneda === 'USD'
-      ? Math.round(avgPen / TC_APROXIMADO * 100) / 100
-      : Math.round(avgPen * 100) / 100
 
-    // tipo = subcategoría normalizada (catálogo tiene prioridad sobre la DB)
+    // Cuota recurrente = cluster de pagos que más meses abarca (no la suma del mes).
+    const { recurring } = recurringCluster(data.pagos)
+    const recSet = new Set(recurring)
+    const cuotaMonto = median(recurring.map((p) => p.monto))
+    const cuotaMontoPen = median(recurring.map((p) => p.montoPen))
+
+    if (!match) {
+      // Rama por patrón (sin catálogo): exige recurrencia real (2+ meses) y monto
+      // estable, igual que el motor del backend. La query ya filtra categoría
+      // 'Suscripciones', así que aquí solo confirmamos que es recurrente.
+      if (mesesConPago.size < 2) continue
+      const montos = data.pagos.map((p) => p.monto)
+      const avg = montos.reduce((a, b) => a + b, 0) / montos.length
+      const varianza = montos.reduce((s, m) => s + Math.pow(m - avg, 2), 0) / montos.length
+      const coefVar = avg > 0 ? Math.sqrt(varianza) / avg : 1
+      if (coefVar >= 0.3 || avg <= 2) continue
+    }
+
+    const estado: 'activa' | 'posible' = mesesConPago.size >= 2 ? 'activa' : 'posible'
     const subcatLabel = TIPO_LABELS[data.subcategoria] ? data.subcategoria : 'otros'
+    const precioRef = match ? (match.precio_local_pen ?? match.precio_mensual) : null
 
     suscripciones.push({
       id: match ? match.id : key,
       nombre: data.nombre,
-      tipo: subcatLabel as TipoSuscripcion,
-      icono: match ? match.icono : (TIPO_LABELS[subcatLabel]?.emoji || '📋'),
+      tipo: (match ? match.tipo : subcatLabel) as TipoSuscripcion,
+      icono: match ? match.icono : (TIPO_LABELS[subcatLabel]?.emoji || '🔄'),
       fuente: match ? 'catalogo' : 'patron',
-      estado: 'activa',
+      estado,
       moneda,
-      monto_detectado: montoDisplay,
-      monto_pen: Math.round(avgPen * 100) / 100,
-      precio_referencia: match ? match.precio_mensual : null,
+      monto_detectado: Math.round(cuotaMonto * 100) / 100,
+      monto_pen: Math.round(cuotaMontoPen * 100) / 100,
+      precio_referencia: precioRef,
       tiene_plan_familiar: match ? match.tiene_plan_familiar : false,
       precio_familiar: match ? match.precio_familiar : null,
       meses_detectados: mesesConPago.size,
       ultimo_pago: ultimoPago.fecha,
-      categoria_neto: 'Suscripciones',
-      subcategoria_neto: data.subcategoria,
+      categoria_neto: match ? match.categoria_neto : 'Suscripciones',
+      subcategoria_neto: match ? match.subcategoria_neto : data.subcategoria,
       planes_disponibles: match ? match.planes : [],
-      pagos_detalle: sortedPagos.map(p => ({
+      pagos_detalle: sortedPagos.map((p) => ({
         monto: p.monto,
         monto_pen: p.montoPen,
         moneda: p.moneda,
         fecha: p.fecha,
+        recurrente: recSet.has(p),
       })),
     })
   }
@@ -254,7 +150,6 @@ function detectarSuscripcionesFromTxs(txs: Transaccion[]): DeteccionResult {
     else totalPEN += sub.monto_detectado
   }
 
-  // Agrupar por subcategoría (tipo)
   const porTipo: Record<string, { cantidad: number; totalPEN: number; items: string[] }> = {}
   for (const sub of suscripciones) {
     if (!porTipo[sub.tipo]) porTipo[sub.tipo] = { cantidad: 0, totalPEN: 0, items: [] }
@@ -263,7 +158,7 @@ function detectarSuscripcionesFromTxs(txs: Transaccion[]): DeteccionResult {
     porTipo[sub.tipo].items.push(sub.nombre)
   }
 
-  // Ahorro familiar
+  // Ahorro potencial si migra a plan familiar y comparte con 1 persona
   let ahorro = 0
   for (const sub of suscripciones) {
     if (sub.tiene_plan_familiar && sub.precio_familiar && sub.precio_referencia) {
@@ -291,7 +186,7 @@ export function useSubscriptions(usuarioId?: string) {
     queryFn: async (): Promise<DeteccionResult> => {
       if (IS_DEMO) {
         const demoSubs = DEMO_TRANSACTIONS.filter(
-          t => t.tipo === 'gasto' && t.categoria === 'Suscripciones'
+          (t) => t.tipo === 'gasto' && t.categoria === 'Suscripciones'
         )
         return detectarSuscripcionesFromTxs(demoSubs)
       }

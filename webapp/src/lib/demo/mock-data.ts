@@ -97,6 +97,12 @@ export const DEMO_TRANSACTIONS: Transaccion[] = [
   // Mes anterior — Ingresos
   { id: 'tx-31', usuario_id: DEMO_USER_ID, tipo: 'ingreso', monto: 4500, moneda: 'PEN', monto_pen: 4500, metodo_pago: 'Transferencia', comercio: 'Empresa ABC SAC', categoria: 'Sueldo', subcategoria: 'sueldo', fecha: dateStr(31), confirmado: true, created_at: dateStr(31) },
   { id: 'tx-32', usuario_id: DEMO_USER_ID, tipo: 'ingreso', monto: 500, moneda: 'PEN', monto_pen: 500, metodo_pago: 'Yape', comercio: 'Cliente Freelance 2', categoria: 'Freelance', subcategoria: 'freelance', fecha: dateStr(45), confirmado: true, created_at: dateStr(45) },
+
+  // Claude Max — cuota recurrente $118 + recargo puntual $5.90 el mismo mes (caso real
+  // que el motor viejo sumaba e inflaba a ~S/460/mes). La cuota se repite en el mes previo.
+  { id: 'tx-33', usuario_id: DEMO_USER_ID, tipo: 'gasto', monto: 118, moneda: 'USD', monto_pen: 437.78, tipo_cambio: 3.71, comercio: 'Claude', categoria: 'Suscripciones', subcategoria: 'ai', fecha: dateStr(6), confirmado: true, created_at: dateStr(6) },
+  { id: 'tx-34', usuario_id: DEMO_USER_ID, tipo: 'gasto', monto: 5.90, moneda: 'USD', monto_pen: 21.89, tipo_cambio: 3.71, comercio: 'Claude', categoria: 'Suscripciones', subcategoria: 'ai', fecha: dateStr(6), confirmado: true, created_at: dateStr(6) },
+  { id: 'tx-35', usuario_id: DEMO_USER_ID, tipo: 'gasto', monto: 118, moneda: 'USD', monto_pen: 437.78, tipo_cambio: 3.71, comercio: 'Claude', categoria: 'Suscripciones', subcategoria: 'ai', fecha: dateStr(36), confirmado: true, created_at: dateStr(36) },
 ];
 
 // ─── Presupuestos ─────────────────────────────────────────────────────────────

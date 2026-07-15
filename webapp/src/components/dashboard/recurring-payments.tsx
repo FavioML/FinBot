@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import { Repeat, Calendar } from 'lucide-react';
 import { motion } from 'motion/react';
 import { formatCurrency } from '@/lib/utils';
-import { SUBSCRIPTION_PATTERNS } from '@/lib/subscriptions-catalog';
+import { matchCatalogo } from '@/lib/subscriptions-catalog';
 import type { Transaccion } from '@/lib/types';
 
 interface RecurringPaymentsProps {
@@ -36,16 +36,13 @@ export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
       byComercio.set(key, list);
     }
 
-    // Build a set of all subscription pattern keywords to exclude
-    const subPatterns = SUBSCRIPTION_PATTERNS.flatMap((s) => s.patrones.map((p) => p.toLowerCase()));
-
     const results: RecurringPayment[] = [];
 
     for (const [key, txs] of byComercio) {
       if (txs.length < 2) continue;
 
-      // Skip if this comercio matches a known subscription pattern
-      if (subPatterns.some((p) => key.includes(p))) continue;
+      // Skip if this comercio matches a known subscription (lo maneja Suscripciones)
+      if (matchCatalogo(key)) continue;
 
       // Check if amounts are consistent (within 20% of median)
       const amounts = txs.map((t) => t.monto_pen).sort((a, b) => a - b);

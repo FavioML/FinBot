@@ -205,17 +205,21 @@ function SubscriptionCard({
   );
 }
 
+type PagoDetalle = { monto: number; monto_pen: number; moneda: string; fecha: string; recurrente: boolean };
+
 function MonthlySubscriptionCard({
   sub,
   pagos,
   monthLabel,
 }: {
   sub: SuscripcionDetectada;
-  pagos: { monto: number; monto_pen: number; moneda: string; fecha: string }[];
+  pagos: PagoDetalle[];
   monthLabel: string;
 }) {
   const tipoInfo = TIPO_LABELS[sub.tipo] || TIPO_LABELS.otro;
   const totalPen = pagos.reduce((s, p) => s + p.monto_pen, 0);
+  const extrasPen = pagos.filter((p) => !p.recurrente).reduce((s, p) => s + p.monto_pen, 0);
+  const hasExtras = extrasPen > 0;
 
   return (
     <div className="glass-card p-4">
@@ -236,7 +240,9 @@ function MonthlySubscriptionCard({
             S/{totalPen.toFixed(2)}
           </p>
           <p className="text-[10px] text-[#8A877D]">
-            Pago en {monthLabel}
+            {hasExtras
+              ? `cuota S/${(totalPen - extrasPen).toFixed(2)} + S/${extrasPen.toFixed(2)} extra`
+              : `Pago en ${monthLabel}`}
           </p>
         </div>
       </div>
@@ -244,7 +250,14 @@ function MonthlySubscriptionCard({
         <div className="mt-2 pt-2 border-t border-[rgba(255,255,255,0.04)] space-y-1">
           {pagos.map((p, i) => (
             <div key={i} className="flex items-center justify-between text-xs px-2">
-              <span className="text-[#8A877D]">{formatDate(p.fecha)}</span>
+              <span className="flex items-center gap-1.5 text-[#8A877D]">
+                {formatDate(p.fecha)}
+                {!p.recurrente && (
+                  <span className="rounded bg-[rgba(239,159,39,0.12)] px-1.5 py-0.5 text-[9px] text-[#EF9F27]">
+                    cargo adicional
+                  </span>
+                )}
+              </span>
               <span className="text-[#C8C6BC]">
                 {p.moneda === 'USD' ? `$${p.monto.toFixed(2)}` : `S/${p.monto.toFixed(2)}`}
                 {p.moneda === 'USD' && (
@@ -284,8 +297,8 @@ export default function SuscripcionesPage() {
 
   // Monthly filtered data
   const monthlyData = useMemo(() => {
-    if (!subsData) return { subs: [], totalPEN: 0, count: 0 };
-    const subs: { sub: SuscripcionDetectada; pagos: { monto: number; monto_pen: number; moneda: string; fecha: string }[] }[] = [];
+    if (!subsData) return { subs: [] as { sub: SuscripcionDetectada; pagos: PagoDetalle[] }[], totalPEN: 0, count: 0 };
+    const subs: { sub: SuscripcionDetectada; pagos: PagoDetalle[] }[] = [];
     let totalPEN = 0;
     for (const sub of subsData.suscripciones) {
       const pagos = sub.pagos_detalle.filter(p => p.fecha.startsWith(monthKey));
@@ -300,8 +313,8 @@ export default function SuscripcionesPage() {
   // Annual filtered data
   const yearKey = String(selectedYear);
   const annualData = useMemo(() => {
-    if (!subsData) return { subs: [] as { sub: SuscripcionDetectada; pagos: { monto: number; monto_pen: number; moneda: string; fecha: string }[] }[], totalPEN: 0, count: 0 };
-    const subs: { sub: SuscripcionDetectada; pagos: { monto: number; monto_pen: number; moneda: string; fecha: string }[] }[] = [];
+    if (!subsData) return { subs: [] as { sub: SuscripcionDetectada; pagos: PagoDetalle[] }[], totalPEN: 0, count: 0 };
+    const subs: { sub: SuscripcionDetectada; pagos: PagoDetalle[] }[] = [];
     let totalPEN = 0;
     for (const sub of subsData.suscripciones) {
       const pagos = sub.pagos_detalle.filter(p => p.fecha.startsWith(yearKey));
