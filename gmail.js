@@ -61,13 +61,32 @@ function remitentesParaSeleccion(seleccion) {
   return remitentes.length > 0 ? remitentes : REMITENTES_BANCARIOS;
 }
 
+function listaBancosNumerada() {
+  return BANCOS_CATALOGO.map((b, i) => (i + 1) + '. ' + b.label).join('\n');
+}
+
+// Describe la selección guardada en texto legible. null/[] → "todos los bancos".
+function describirSeleccion(seleccion) {
+  if (!Array.isArray(seleccion) || seleccion.length === 0) return 'todos los bancos';
+  const labels = BANCOS_CATALOGO.filter(b => seleccion.includes(b.id)).map(b => b.label);
+  return labels.length > 0 ? labels.join(', ') : 'todos los bancos';
+}
+
 // Menú numerado de bancos para el flujo de conexión Gmail (WhatsApp).
 function menuSeleccionBancos() {
-  const lista = BANCOS_CATALOGO.map((b, i) => (i + 1) + '. ' + b.label).join('\n');
   return '📧 *Conectar Gmail*\n\n' +
     'Primero dime con qué bancos operas, así Neto lee solo esos correos y nada más.\n\n' +
     'Responde con los números separados por coma (ej: *1,3,5*) o escribe *todos*:\n\n' +
-    lista;
+    listaBancosNumerada();
+}
+
+// Menú para editar la selección en cualquier momento (comando /bancos), ya
+// conectado o no. Muestra qué lee hoy y NO entrega enlace OAuth.
+function menuEdicionBancos(seleccionActual) {
+  return '🏦 *Tus bancos*\n\n' +
+    'Hoy leo: *' + describirSeleccion(seleccionActual) + '*\n\n' +
+    'Elige con qué bancos quieres que lea tus correos. Responde con los números separados por coma (ej: *1,3,5*) o escribe *todos*:\n\n' +
+    listaBancosNumerada();
 }
 
 const PALABRAS_BANCARIAS = [
@@ -426,4 +445,4 @@ async function leerCorreosBancarios(usuarioId) {
   return { error: authExpired ? 'AUTH_EXPIRED' : null, mensajes: mensajesUnificados };
 }
 
-module.exports = { generarUrlAutorizacion, guardarTokens, cargarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail, BANCOS_CATALOGO, remitentesParaSeleccion, menuSeleccionBancos };
+module.exports = { generarUrlAutorizacion, guardarTokens, cargarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail, BANCOS_CATALOGO, remitentesParaSeleccion, menuSeleccionBancos, menuEdicionBancos, describirSeleccion };

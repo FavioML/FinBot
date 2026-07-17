@@ -12,7 +12,7 @@ const { guardarPresupuesto, formatearEstadoPresupuesto } = require('../services/
 const { parsearCorreoBancario } = require('../services/parsers');
 const { notificarErrorAdmin } = require('../lib/admin-notify');
 const { registrarError } = require('../lib/error-monitor');
-const { generarUrlAutorizacion, menuSeleccionBancos } = require('../gmail');
+const { generarUrlAutorizacion, menuSeleccionBancos, menuEdicionBancos } = require('../gmail');
 const { registrarReferido, verificarProReferidos } = require('../services/referrals');
 const { obtenerCategoriasUsuario } = require('../services/categories');
 const { escanearGmailYRegistrar } = require('../services/gmail-scanner');
@@ -591,11 +591,22 @@ function createWebhookHandler(procesarMensajeLibre) {
           '💰 S/10/mes o S/99/año\n' +
           '📲 Yapea al 970398192 y escríbeme aquí para activar.';
       } else if (usuario.gmail_access_token) {
-        respuesta = '📧 Ya tienes Gmail conectado.\n\nSi necesitas cambiar tu cuenta, escríbenos por WhatsApp al 970398192.';
+        respuesta = '📧 Ya tienes Gmail conectado.\n\nPara elegir de qué bancos leo tus correos, escribe */bancos*.\n\nSi necesitas cambiar tu cuenta, escríbenos por WhatsApp al 970398192.';
       } else {
         // Antes del enlace OAuth, el usuario elige sus bancos (paso 30 en onboarding.js)
         await supabase.from('usuarios').update({ onboarding_paso: 30 }).eq('id', usuario.id);
         respuesta = menuSeleccionBancos();
+      }
+    } else if (cmd === '/bancos') {
+      // Editar la selección de bancos en cualquier momento (paso 31 en onboarding.js)
+      if (usuario.plan !== 'premium') {
+        respuesta = '⭐ *Elegir bancos es parte del plan Pro.*\n\n' +
+          'Con Pro, Neto lee tus correos bancarios y tú decides de qué bancos.\n\n' +
+          '💰 S/10/mes o S/99/año\n' +
+          '📲 Yapea al 970398192 y escríbeme aquí para activar.';
+      } else {
+        await supabase.from('usuarios').update({ onboarding_paso: 31 }).eq('id', usuario.id);
+        respuesta = menuEdicionBancos(usuario.bancos_seleccionados);
       }
     } else if (cmd === '/escanear') {
       const resultado = await escanearGmailYRegistrar(usuario);

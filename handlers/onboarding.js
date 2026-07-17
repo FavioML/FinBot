@@ -5,7 +5,7 @@
 // usuarios.onboarding_paso; los valores en uso son: -1 (desconexion/wipe),
 // 0 (idle/completado), 1 (elige Free/Pro), 2 (elige plan / espera comprobante),
 // 10 (categorias), 20 (presupuesto opcional), 30 (elige bancos al conectar Gmail),
-// 100 (pide nombre), 101 (pide email).
+// 31 (edita bancos con /bancos), 100 (pide nombre), 101 (pide email).
 // El marcador de "alta completa" es la columna booleana onboarding_completado,
 // no un valor de paso: al terminar, onboarding_paso vuelve a 0.
 //
@@ -23,11 +23,27 @@
 const { supabase } = require('../lib/db');
 const { CATEGORIAS_SUGERIDAS } = require('../lib/constants');
 const { parsearIndicesRespuesta } = require('../lib/formatters');
-const { obtenerCuentasGmail, generarUrlAutorizacion, BANCOS_CATALOGO, menuSeleccionBancos } = require('../gmail');
+const { obtenerCuentasGmail, generarUrlAutorizacion, BANCOS_CATALOGO, describirSeleccion } = require('../gmail');
 const { crearCategoriasDesdeIndices } = require('../services/categories');
 const { interpretarComandoPresupuesto } = require('../services/parsers');
 const { guardarPresupuesto } = require('../services/budget');
 const analytics = require('../lib/analytics');
+
+const REPROMPT_BANCOS = 'No entendí. 🤔\n\nResponde con los números de tus bancos separados por coma (ej: *1,3,5*) o escribe *todos*.';
+
+// Parsea la respuesta del selector de bancos (pasos 30 y 31). Devuelve
+// { ok, ids } donde ids es un array de ids del catálogo, o null para "todos".
+// ok=false si no se reconoció ningún número válido ni "todos".
+function interpretarSeleccionBancos(cmd) {
+  const cmdLower = cmd.trim().toLowerCase();
+  if (cmdLower === 'todos' || cmdLower === 'todas' || cmdLower === 'all') return { ok: true, ids: null };
+  const indices = [...new Set(
+    cmd.split(/[\s,]+/).map(Number)
+      .filter(n => Number.isInteger(n) && n >= 1 && n <= BANCOS_CATALOGO.length)
+  )];
+  if (indices.length === 0) return { ok: false, ids: undefined };
+  return { ok: true, ids: indices.map(n => BANCOS_CATALOGO[n - 1].id) };
+}
 
 /**
  * @param {object} args
@@ -97,25 +113,23 @@ async function manejarOnboarding({ usuario, msg, cmd, from }) {
   // y recién ahí entregamos el enlace de OAuth. "todos" → null (= set completo,
   // backward-compatible y auto-incluye bancos que agreguemos luego).
   if (usuario.onboarding_paso === 30 && !cmd.startsWith('/')) {
-    const cmdLower = cmd.trim().toLowerCase();
-    let seleccionIds;
-    if (cmdLower === 'todos' || cmdLower === 'todas' || cmdLower === 'all') {
-      seleccionIds = null;
-    } else {
-      const indices = [...new Set(
-        cmd.split(/[\s,]+/).map(Number)
-          .filter(n => Number.isInteger(n) && n >= 1 && n <= BANCOS_CATALOGO.length)
-      )];
-      if (indices.length === 0) {
-        return 'No entendí. 🤔\n\nResponde con los números de tus bancos separados por coma (ej: *1,3,5*) o escribe *todos*.';
-      }
-      seleccionIds = indices.map(n => BANCOS_CATALOGO[n - 1].id);
-    }
-    await supabase.from('usuarios').update({ bancos_seleccionados: seleccionIds, onboarding_paso: 0 }).eq('id', usuario.id);
-    const cuantos = seleccionIds
-      ? (seleccionIds.length === 1 ? 'ese banco' : 'esos ' + seleccionIds.length + ' bancos')
+    const sel = interpretarSeleccionBancos(cmd);
+    if (!sel.ok) return REPROMPT_BANCOS;
+    await supabase.from('usuarios').update({ bancos_seleccionados: sel.ids, onboarding_paso: 0 }).eq('id', usuario.id);
+    const cuantos = sel.ids
+      ? (sel.ids.length === 1 ? 'ese banco' : 'esos ' + sel.ids.length + ' bancos')
       : 'todos los bancos';
     return '✅ Listo, leeré ' + cuantos + '.\n\nAhora conecta tu Gmail acá:\n\n' + generarUrlAutorizacion(from) + '\n\n_Solo leemos notificaciones bancarias. Sin contraseñas._';
+  }
+
+  // ─── Paso 31: Editar bancos en cualquier momento (comando /bancos) ─────────
+  // Igual que el paso 30 pero standalone: no entrega OAuth, solo confirma el
+  // cambio. Deja al usuario activar/desactivar bancos cuando quiera.
+  if (usuario.onboarding_paso === 31 && !cmd.startsWith('/')) {
+    const sel = interpretarSeleccionBancos(cmd);
+    if (!sel.ok) return REPROMPT_BANCOS;
+    await supabase.from('usuarios').update({ bancos_seleccionados: sel.ids, onboarding_paso: 0 }).eq('id', usuario.id);
+    return '✅ Actualizado. Ahora leo: *' + describirSeleccion(sel.ids) + '*.\n\nPuedes cambiarlo cuando quieras con */bancos*.';
   }
 
   // ─── Paso 100: Recoger nombre del usuario ──────────────────────────────────

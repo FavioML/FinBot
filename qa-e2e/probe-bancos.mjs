@@ -113,6 +113,21 @@ async function main() {
   const uBad = await dbUser();
   check('entrada inválida re-pregunta y mantiene paso 30', /no entendí|números/i.test(rBad) && uBad.onboarding_paso === 30, 'paso=' + uBad.onboarding_paso);
 
+  // 6) /bancos: editar la selección en cualquier momento (paso 31), sin OAuth
+  await supabase.from('usuarios').update({ onboarding_paso: 0, bancos_seleccionados: ['bcp', 'bbva'] }).eq('id', QA_ID);
+  const rBancos = await enviar('/bancos');
+  const uBancos = await dbUser();
+  check('/bancos muestra el editor con la selección actual', /tus bancos/i.test(rBancos) && /hoy leo/i.test(rBancos) && /BCP/.test(rBancos), rBancos.slice(0, 60).replace(/\n/g, ' '));
+  check('/bancos deja onboarding_paso=31', uBancos.onboarding_paso === 31, 'paso=' + uBancos.onboarding_paso);
+
+  const nlpAntesEdit = nlpCalls;
+  const rEdit = await enviar('2');
+  const uEdit = await dbUser();
+  check('editar bancos NO llega al NLP', nlpCalls === nlpAntesEdit, 'nlpCalls=' + nlpCalls);
+  check('editar bancos persiste la nueva selección [interbank]', JSON.stringify(uEdit.bancos_seleccionados) === JSON.stringify(['interbank']), JSON.stringify(uEdit.bancos_seleccionados));
+  check('editar bancos confirma sin entregar OAuth', /actualizado/i.test(rEdit) && !/accounts\.google\.com/.test(rEdit), rEdit.slice(0, 50).replace(/\n/g, ' '));
+  check('editar bancos resetea onboarding_paso a 0', uEdit.onboarding_paso === 0, 'paso=' + uEdit.onboarding_paso);
+
   // Cleanup → estado original
   await supabase.from('usuarios').update({ onboarding_paso: 0, bancos_seleccionados: null }).eq('id', QA_ID);
 
