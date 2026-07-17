@@ -6,7 +6,7 @@ const { enviarWhatsapp } = require('../lib/whatsapp');
 const { generarReporteJSON } = require('../reporte_html');
 const { oauth2Client, obtenerPerfilGoogle, guardarTokens, obtenerCuentasGmail } = require('../gmail');
 const { parsearCorreoBancario } = require('../services/parsers');
-const { escanearGmailYRegistrar } = require('../services/gmail-scanner');
+const { escanearGmailYRegistrar, escanearHistoricoInicial } = require('../services/gmail-scanner');
 const analytics = require('../lib/analytics');
 
 const { ultimoDiaMes } = require('../lib/dates');
@@ -195,8 +195,13 @@ router.get('/auth/callback', async (req, res) => {
         } else {
           await enviarWhatsapp(usuario.whatsapp, '✅ *Gmail conectado, ' + primerNombre + '!*\n📧 ' + emailConectado + '\n\nEscaneando tus correos bancarios... 🔍');
         }
-        const resultado = await escanearGmailYRegistrar(usuario);
-        if (resultado) {
+        // Primera conexión de Gmail → barrido único de 30 días para poblar el dashboard.
+        // 'agregar' ya retornó arriba; el flag historico_importado evita repetirlo.
+        const debeHistorico = modoConexion !== 'agregar' && !usuario.historico_importado;
+        const resultado = debeHistorico
+          ? await escanearHistoricoInicial(usuario)
+          : await escanearGmailYRegistrar(usuario);
+        if (resultado && typeof resultado === 'string') {
           await enviarWhatsapp(usuario.whatsapp, resultado);
         }
         if (modoConexion === 'inicial') {

@@ -312,14 +312,11 @@ function esCorreoReenviado(headers) {
   return false;
 }
 
-async function leerCorreosDesdeCuenta(authClient, cuentaEmail, remitentes = REMITENTES_BANCARIOS) {
-
-  const gmail = google.gmail({ version: 'v1', auth: authClient });
-
-  // Query principal: remitentes bancarios elegidos por el usuario - últimas 36 horas
-  const queryDirecto = 'from:(' + remitentes.join(' OR ') + ') newer_than:2d -in:sent';
-  
-  // Query secundaria: palabras clave bancarias más amplias para BCP crédito y otros
+// Construye las dos queries de Gmail (remitentes + palabras clave) para una ventana
+// de `windowDays` días. Pura y exportada para poder testear la ventana sin red.
+function construirQueriesBancarias(remitentes, windowDays) {
+  const ventana = 'newer_than:' + windowDays + 'd';
+  const queryDirecto = 'from:(' + remitentes.join(' OR ') + ') ' + ventana + ' -in:sent';
   const queryPalabrasClave = [
     '"Servicio de Notificaciones BCP"',
     '"realizaste un consumo"',
@@ -332,14 +329,25 @@ async function leerCorreosDesdeCuenta(authClient, cuentaEmail, remitentes = REMI
     '"transferencia realizada"',
     '"abono en tu cuenta"',
     '"cargo en tu cuenta"',
-  ].join(' OR ') + ' newer_than:2d -in:sent';
+  ].join(' OR ') + ' ' + ventana + ' -in:sent';
+  return { queryDirecto, queryPalabrasClave };
+}
+
+// opts controla la ventana y los caps del scan. Defaults = comportamiento recurrente
+// (últimos ~2-3 días, caps bajos). El barrido histórico inicial pasa windowDays=30.
+async function leerCorreosDesdeCuenta(authClient, cuentaEmail, remitentes = REMITENTES_BANCARIOS, opts = {}) {
+  const { windowDays = 2, filterDays = 3, maxPerQuery = 20, maxProcess = 25 } = opts;
+
+  const gmail = google.gmail({ version: 'v1', auth: authClient });
+
+  const { queryDirecto, queryPalabrasClave } = construirQueriesBancarias(remitentes, windowDays);
 
   const mensajesIds = new Set();
   const todosLosIds = [];
 
   for (const query of [queryDirecto, queryPalabrasClave]) {
     try {
-      const { data } = await gmail.users.messages.list({ userId: 'me', q: query, maxResults: 20 });
+      const { data } = await gmail.users.messages.list({ userId: 'me', q: query, maxResults: maxPerQuery });
       if (data.messages) {
         for (const m of data.messages) {
           if (!mensajesIds.has(m.id)) { mensajesIds.add(m.id); todosLosIds.push(m.id); }
@@ -351,7 +359,7 @@ async function leerCorreosDesdeCuenta(authClient, cuentaEmail, remitentes = REMI
   if (todosLosIds.length === 0) return { error: null, mensajes: [] };
 
   const mensajes = [];
-  for (const id of todosLosIds.slice(0, 25)) {
+  for (const id of todosLosIds.slice(0, maxProcess)) {
     try {
       const { data: detalle } = await gmail.users.messages.get({ userId: 'me', id, format: 'full' });
       const headers = detalle.payload.headers || [];
@@ -365,10 +373,10 @@ async function leerCorreosDesdeCuenta(authClient, cuentaEmail, remitentes = REMI
         continue;
       }
 
-      // FILTRO 2: Solo correos de los últimos 3 días (evitar correos viejos)
+      // FILTRO 2: Solo correos dentro de la ventana (evitar correos viejos)
       const fechaCorreo = new Date(parseInt(detalle.internalDate));
-      const hace3dias = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
-      if (fechaCorreo < hace3dias) {
+      const haceLimite = new Date(Date.now() - filterDays * 24 * 60 * 60 * 1000);
+      if (fechaCorreo < haceLimite) {
         log.debug({ tag: 'GMAIL', fecha, asunto: asunto.substring(0, 30) }, 'Correo antiguo ignorado');
         continue;
       }
@@ -401,7 +409,7 @@ async function remitentesParaUsuario(usuarioId) {
   }
 }
 
-async function leerCorreosBancarios(usuarioId) {
+async function leerCorreosBancarios(usuarioId, opts = {}) {
   const cuentas = await obtenerCuentasGmail(usuarioId);
   const remitentes = await remitentesParaUsuario(usuarioId);
 
@@ -409,7 +417,7 @@ async function leerCorreosBancarios(usuarioId) {
     // Fallback: intentar con token legacy en usuarios
     const authClient = await configurarClienteAutenticado(usuarioId);
     if (!authClient) return { error: 'no_auth', mensajes: [] };
-    return leerCorreosDesdeCuenta(authClient, null, remitentes);
+    return leerCorreosDesdeCuenta(authClient, null, remitentes, opts);
   }
 
   // Escanear todas las cuentas activas en paralelo
@@ -417,7 +425,7 @@ async function leerCorreosBancarios(usuarioId) {
     cuentas.map(async (cuenta) => {
       try {
         const cliente = await configurarClienteParaCuenta(cuenta);
-        return leerCorreosDesdeCuenta(cliente, cuenta.email, remitentes);
+        return leerCorreosDesdeCuenta(cliente, cuenta.email, remitentes, opts);
       } catch(e) {
         if (e.code === 'AUTH_EXPIRED') {
           // Propagar como valor especial para que el scanner pueda notificar al usuario
@@ -445,4 +453,4 @@ async function leerCorreosBancarios(usuarioId) {
   return { error: authExpired ? 'AUTH_EXPIRED' : null, mensajes: mensajesUnificados };
 }
 
-module.exports = { generarUrlAutorizacion, guardarTokens, cargarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail, BANCOS_CATALOGO, remitentesParaSeleccion, menuSeleccionBancos, menuEdicionBancos, describirSeleccion };
+module.exports = { generarUrlAutorizacion, guardarTokens, cargarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail, BANCOS_CATALOGO, remitentesParaSeleccion, menuSeleccionBancos, menuEdicionBancos, describirSeleccion, construirQueriesBancarias };

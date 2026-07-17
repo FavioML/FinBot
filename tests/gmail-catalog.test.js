@@ -7,7 +7,7 @@ const projectRoot = path.resolve(
   path.dirname(new URL(import.meta.url).pathname).replace(/^\/([A-Za-z]):/, '$1:'),
   '..'
 );
-const { BANCOS_CATALOGO, remitentesParaSeleccion, menuSeleccionBancos, menuEdicionBancos, describirSeleccion } = require(
+const { BANCOS_CATALOGO, remitentesParaSeleccion, menuSeleccionBancos, menuEdicionBancos, describirSeleccion, construirQueriesBancarias } = require(
   path.join(projectRoot, 'gmail.js')
 );
 
@@ -67,5 +67,30 @@ describe('BANCOS_CATALOGO / remitentesParaSeleccion (bank filter)', () => {
     expect(menu).toContain('1. ' + BANCOS_CATALOGO[0].label);
     expect(menu.toLowerCase()).toContain('todos');
     expect(menuEdicionBancos(null)).toContain('todos los bancos');
+  });
+});
+
+describe('construirQueriesBancarias (ventana del scan)', () => {
+  const remitentes = ['alertas@bcp.com.pe', 'notificaciones@yape.pe'];
+
+  it('scan recurrente usa la ventana de 2 días en ambas queries', () => {
+    const { queryDirecto, queryPalabrasClave } = construirQueriesBancarias(remitentes, 2);
+    expect(queryDirecto).toContain('newer_than:2d');
+    expect(queryPalabrasClave).toContain('newer_than:2d');
+  });
+
+  it('barrido histórico usa la ventana de 30 días en ambas queries', () => {
+    const { queryDirecto, queryPalabrasClave } = construirQueriesBancarias(remitentes, 30);
+    expect(queryDirecto).toContain('newer_than:30d');
+    expect(queryPalabrasClave).toContain('newer_than:30d');
+    // No debe quedar rastro de la ventana corta
+    expect(queryDirecto).not.toContain('newer_than:2d');
+  });
+
+  it('queryDirecto incluye los remitentes elegidos y excluye enviados', () => {
+    const { queryDirecto } = construirQueriesBancarias(remitentes, 30);
+    expect(queryDirecto).toContain('alertas@bcp.com.pe');
+    expect(queryDirecto).toContain('notificaciones@yape.pe');
+    expect(queryDirecto).toContain('-in:sent');
   });
 });
