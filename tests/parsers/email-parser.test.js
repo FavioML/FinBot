@@ -5,7 +5,46 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // bypassing vi.mock's CJS interop issues on Windows.
 const mockCreate = globalThis.__mockOpenAICreate;
 
-const { parsearCorreoBancario } = await import('../../index.js');
+const { parsearCorreoBancario, extraerLast4 } = await import('../../index.js');
+
+// ═══════════════════════════════════════════════════
+// Tests: extraerLast4 (extracción determinística de últimos 4 de tarjeta)
+// ═══════════════════════════════════════════════════
+describe('extraerLast4', () => {
+  it('extrae de "terminada en 1234"', () => {
+    expect(extraerLast4('Consumo con tu tarjeta terminada en 1234 por S/ 50')).toBe('1234');
+  });
+
+  it('extrae de "termina en 5678"', () => {
+    expect(extraerLast4('Tarjeta que termina en 5678')).toBe('5678');
+  });
+
+  it('extrae de máscara ****1234', () => {
+    expect(extraerLast4('Tarjeta ****1234')).toBe('1234');
+  });
+
+  it('extrae de máscara con espacios **** **** **** 4321', () => {
+    expect(extraerLast4('Nro. **** **** **** 4321')).toBe('4321');
+  });
+
+  it('extrae de "finaliza en 9012"', () => {
+    expect(extraerLast4('Tu TC BCP finaliza en 9012')).toBe('9012');
+  });
+
+  it('NO captura montos ni fechas sueltas', () => {
+    expect(extraerLast4('Consumo de S/ 1234 el 2026-03-21 en Plaza Vea')).toBeNull();
+  });
+
+  it('devuelve null cuando no hay tarjeta', () => {
+    expect(extraerLast4('Yapeaste S/ 25.00 a Juan Perez')).toBeNull();
+  });
+
+  it('maneja entrada vacía o no-string', () => {
+    expect(extraerLast4('')).toBeNull();
+    expect(extraerLast4(null)).toBeNull();
+    expect(extraerLast4(undefined)).toBeNull();
+  });
+});
 
 // ═══════════════════════════════════════════════════
 // Tests: parsearCorreoBancario

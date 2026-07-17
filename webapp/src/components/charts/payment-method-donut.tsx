@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { motion } from 'motion/react';
 import { formatCurrency } from '@/lib/utils';
-import { normalizeMetodoPago, getMetodoIcon } from '@/lib/format';
+import { normalizeMetodoPago, getMetodoIcon, formatLast4 } from '@/lib/format';
 import type { Transaccion } from '@/lib/types';
 
 interface PaymentMethodDonutProps {
@@ -35,19 +35,26 @@ export function PaymentMethodDonut({ transactions, onMethodClick }: PaymentMetho
     const totalGastos = gastos.reduce((s, t) => s + t.monto_pen, 0);
     if (totalGastos === 0) return [];
 
-    const map = new Map<string, { total: number; count: number }>();
+    // Se agrupa por método + tarjeta: dos tarjetas del mismo banco (mismo método)
+    // aparecen como slices separados. El click sigue filtrando por método base
+    // (metodoBase) para no romper el detalle de la página de transacciones.
+    const map = new Map<string, { metodoBase: string; last4: string; total: number; count: number }>();
     for (const t of gastos) {
-      const metodo = normalizeMetodoPago(t.metodo_pago, t.banco);
-      const prev = map.get(metodo) || { total: 0, count: 0 };
+      const metodoBase = normalizeMetodoPago(t.metodo_pago, t.banco);
+      const last4 = t.tarjeta_last4 && /^\d{4}$/.test(t.tarjeta_last4) ? t.tarjeta_last4 : '';
+      const key = metodoBase + formatLast4(last4);
+      const prev = map.get(key) || { metodoBase, last4, total: 0, count: 0 };
       prev.total += t.monto_pen;
       prev.count += 1;
-      map.set(metodo, prev);
+      map.set(key, prev);
     }
 
     return Array.from(map.entries())
-      .map(([metodo, { total, count }]) => ({
+      .map(([metodo, { metodoBase, last4, total, count }]) => ({
         metodo,
-        icon: getMetodoIcon(metodo),
+        metodoBase,
+        last4,
+        icon: getMetodoIcon(metodoBase),
         total,
         count,
         porcentaje: (total / totalGastos) * 100,
@@ -82,7 +89,7 @@ export function PaymentMethodDonut({ transactions, onMethodClick }: PaymentMetho
                 stroke="none"
                 paddingAngle={2}
                 cursor={onMethodClick ? 'pointer' : undefined}
-                onClick={onMethodClick ? (entry: any) => onMethodClick(entry.metodo) : undefined}
+                onClick={onMethodClick ? (entry: any) => onMethodClick(entry.metodoBase) : undefined}
               >
                 {data.map((_, i) => (
                   <Cell key={i} fill={COLORS[i % COLORS.length]} />
@@ -107,7 +114,7 @@ export function PaymentMethodDonut({ transactions, onMethodClick }: PaymentMetho
             <div
               key={item.metodo}
               className={`flex items-center gap-2 text-xs ${onMethodClick ? 'cursor-pointer rounded-lg px-1.5 py-1 -mx-1.5 hover:bg-[rgba(255,255,255,0.04)] transition-colors' : ''}`}
-              onClick={onMethodClick ? () => onMethodClick(item.metodo) : undefined}
+              onClick={onMethodClick ? () => onMethodClick(item.metodoBase) : undefined}
             >
               <span
                 className="h-2 w-2 rounded-full shrink-0"

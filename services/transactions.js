@@ -3,6 +3,7 @@ const { supabase } = require('../lib/db');
 const { validarMonto, normalizarCategoria } = require('../lib/validators');
 const { hoyPeru } = require('../lib/dates');
 const { esPagoNeto } = require('../lib/config');
+const { extraerLast4, normalizarLast4 } = require('./parsers');
 const log = require('../lib/logger');
 const analytics = require('../lib/analytics');
 
@@ -68,15 +69,25 @@ async function guardarTransaccion(usuarioId, datos) {
     if (found) datos.comercio = found;
   }
   const fechaTx = datos.fecha || hoyPeru();
+  // Últimos 4 de la tarjeta origen: lo que ya trae el parser, o extracción del
+  // texto original como red de seguridad (cubre registro manual "tarjeta ...1234").
+  const last4 = normalizarLast4(datos.tarjeta_last4) || extraerLast4(datos.descripcion_original);
   const dedupRaw = usuarioId + '|' + fechaTx + '|' + montoValidado + '|' + (datos.comercio || '') + '|' + (datos.tipo || 'gasto');
   const dedupHash = crypto.createHash('md5').update(dedupRaw).digest('hex');
   if (!datos.descripcion_original || !datos.descripcion_original.startsWith('gmail:')) {
     const ventanaInicio = new Date(Date.now() - DEDUP_WINDOW_MS).toISOString();
-    const { data: existente } = await supabase.from('transacciones').select('id')
-      .eq('usuario_id', usuarioId).eq('dedup_hash', dedupHash).gte('created_at', ventanaInicio).limit(1);
+    // El hash NO incluye el last4 (para no romper paridad con el hash de la webapp
+    // ni con las filas ya guardadas). El last4 refina la decisión: un candidato solo
+    // es duplicado si su tarjeta coincide o alguno de los dos lado es desconocido.
+    // Dos tarjetas distintas con mismo monto/comercio/día ya no colapsan.
+    const { data: existente } = await supabase.from('transacciones').select('id, tarjeta_last4')
+      .eq('usuario_id', usuarioId).eq('dedup_hash', dedupHash).gte('created_at', ventanaInicio).limit(5);
     if (existente && existente.length > 0) {
-      log.info({ tag: 'DEDUP', hash: dedupHash }, 'Transacción duplicada ignorada');
-      return existente[0];
+      const dup = existente.find(e => !last4 || !e.tarjeta_last4 || e.tarjeta_last4 === last4);
+      if (dup) {
+        log.info({ tag: 'DEDUP', hash: dedupHash, last4 }, 'Transacción duplicada ignorada');
+        return dup;
+      }
     }
   }
   let catFinal = normalizarCategoria(datos.categoria);
@@ -100,6 +111,7 @@ async function guardarTransaccion(usuarioId, datos) {
     monto_pen: _montoPen, tipo_cambio: _tcUsado, metodo_pago: datos.metodo_pago || null,
     comercio: datos.comercio, categoria: catFinal,
     subcategoria: subFinal, banco: datos.banco,
+    tarjeta_last4: last4 || null,
     fecha: fechaTx,
     descripcion_original: datos.descripcion_original, confirmado: false,
     dedup_hash: dedupHash

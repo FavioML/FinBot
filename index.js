@@ -10,7 +10,7 @@ const { hoyPeru, ultimoDiaMes } = require('./lib/dates');
 const { CATEGORIAS_VALIDAS, CATEGORIA_MAP, MESES } = require('./lib/constants');
 const { validarMonto, normalizarCategoria } = require('./lib/validators');
 const { formatFecha, barraProgreso } = require('./lib/formatters');
-const { parsearCorreoBancario, parsearRegistroManual } = require('./services/parsers');
+const { parsearCorreoBancario, parsearRegistroManual, extraerLast4 } = require('./services/parsers');
 const { notificarErrorAdmin } = require('./lib/admin-notify');
 const { registrarError } = require('./lib/error-monitor');
 const publicRoutes = require('./routes/public');
@@ -153,6 +153,6 @@ module.exports = {
   validarMonto, normalizarCategoria, formatFecha, barraProgreso,
   fechaHoyPeru, fechaAyerPeru, ultimoDiaMes,
   CATEGORIAS_VALIDAS, CATEGORIA_MAP, MESES,
-  parsearCorreoBancario, parsearRegistroManual,
+  parsearCorreoBancario, parsearRegistroManual, extraerLast4,
   app
 };

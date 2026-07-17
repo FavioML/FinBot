@@ -78,6 +78,12 @@ export function normalizeMetodoPago(metodo: string | null | undefined, banco?: s
   return m || 'Sin especificar';
 }
 
+/** Sufijo visual de tarjeta: "1234" → " ·· 1234". Vacío si no hay last4 válido. */
+export function formatLast4(last4: string | null | undefined): string {
+  if (!last4 || !/^\d{4}$/.test(last4)) return '';
+  return ` ·· ${last4}`;
+}
+
 /** Extract the base payment type (e.g. "BCP Crédito" → "Crédito", "Yape" → "Yape") */
 export function getMetodoBase(metodo: string): string {
   const bases = ['Crédito', 'Débito', 'Yape', 'Plin', 'Transferencia', 'Efectivo'];

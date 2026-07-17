@@ -21,6 +21,37 @@ function normalizarComercio(comercio) {
   return comercio;
 }
 
+// Extracción determinística de los últimos 4 dígitos de la tarjeta/cuenta a partir
+// del texto de una notificación bancaria. Las notificaciones peruanas exponen la
+// tarjeta con patrones muy estables ("terminada en 1234", "****1234"), así que un
+// regex es más confiable que pedírselo al LLM. Devuelve string de 4 dígitos o null.
+//
+// Conservador a propósito: solo dispara con un keyword de tarjeta ("terminada en",
+// "termina en", "terminación", "finaliza en", "acaba en") o una máscara (****, ····,
+// xxxx, ●●●●) inmediatamente antes de los 4 dígitos. Así no captura montos, fechas ni
+// códigos de operación sueltos.
+const LAST4_PATTERNS = [
+  /(?:terminad[ao]s?|que\s+termina|termina|terminaci[oó]n|finaliza(?:d[ao])?|acaba)\s+(?:en\s+)?[:#nro.\s-]*?(\d{4})\b/i,
+  /(?:[*x·●•]\s?){2,}(\d{4})\b/i,
+];
+
+function extraerLast4(texto) {
+  if (!texto || typeof texto !== 'string') return null;
+  for (const re of LAST4_PATTERNS) {
+    const m = texto.match(re);
+    if (m && /^\d{4}$/.test(m[1])) return m[1];
+  }
+  return null;
+}
+
+// Normaliza un last4 recibido de una fuente no confiable (ej. campo emitido por el
+// modelo de visión): solo acepta exactamente 4 dígitos, cualquier otra cosa → null.
+function normalizarLast4(valor) {
+  if (valor == null) return null;
+  const s = String(valor).trim();
+  return /^\d{4}$/.test(s) ? s : null;
+}
+
 const BANK_PARSER_PROMPT = `Eres un parser experto de notificaciones bancarias peruanas. Devuelve SOLO JSON sin markdown:
 { "tipo":"gasto"|"ingreso", "monto":numero, "moneda":"PEN"|"USD", "comercio":"nombre limpio del comercio", "categoria":"ver lista", "subcategoria":"ver lista", "banco":"BCP|Interbank|BBVA|Scotiabank|Yape|Plin|Falabella|Ripley|BanBif|Mibanco|CMAC|Otro", "metodo_pago":"Debito|Credito|Transferencia|Yape|Plin|Efectivo|Otro", "fecha":"YYYY-MM-DD", "descripcion_original":"texto original" }
 
@@ -192,6 +223,11 @@ async function parsearCorreoBancario(texto, contexto, categoriasCustom) {
   const clean = raw.startsWith('{') ? raw : raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
   const parsed = JSON.parse(clean);
   if (parsed.comercio) parsed.comercio = normalizarComercio(parsed.comercio);
+  // Últimos 4 de la tarjeta: extracción determinística sobre el correo original
+  // (más fiable que el LLM). Si el modelo ya devolvió tarjeta_last4, se respeta;
+  // si no, se intenta del texto.
+  const last4 = normalizarLast4(parsed.tarjeta_last4) || extraerLast4(texto);
+  if (last4) parsed.tarjeta_last4 = last4;
   return parsed;
 }
 
@@ -354,4 +390,6 @@ module.exports = {
   parsearCorreccionesMultiples,
   interpretarComandoPresupuesto,
   extraerMontoSub1ConMoneda,
+  extraerLast4,
+  normalizarLast4,
 };

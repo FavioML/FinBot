@@ -54,7 +54,7 @@ import { useBudgets } from '@/lib/hooks/use-budgets';
 import { toast } from 'sonner';
 import { formatCurrency, formatFecha } from '@/lib/utils';
 import { getCategoriaEmoji, MESES, SOCIAL_LINKS, CATEGORIA_POR_REVISAR, needsReview } from '@/lib/constants';
-import { normalizeMetodoPago, getMetodoIcon } from '@/lib/format';
+import { normalizeMetodoPago, getMetodoIcon, formatLast4 } from '@/lib/format';
 import type { Transaccion } from '@/lib/types';
 import { HeaderActions } from '@/components/dashboard/topbar';
 
@@ -995,7 +995,7 @@ function TransactionTableRow({
       <TableCell className="text-xs text-[#8A877D] capitalize">
         {tx.subcategoria?.replace(/_/g, ' ') || '-'}
       </TableCell>
-      <TableCell className="text-xs text-[#8A877D]">{getMetodoIcon(normalizeMetodoPago(tx.metodo_pago, tx.banco))} {normalizeMetodoPago(tx.metodo_pago, tx.banco)}</TableCell>
+      <TableCell className="text-xs text-[#8A877D]">{getMetodoIcon(normalizeMetodoPago(tx.metodo_pago, tx.banco))} {normalizeMetodoPago(tx.metodo_pago, tx.banco)}{formatLast4(tx.tarjeta_last4)}</TableCell>
       <TableCell>
         <span
           className={`text-sm font-semibold tabular-nums ${isIngreso ? 'shadow-[0_0_8px_rgba(29,158,117,0.2)]' : 'shadow-[0_0_8px_rgba(239,159,39,0.15)]'}`}
@@ -1078,7 +1078,7 @@ function TransactionCard({
               </span>
             )}
             {tx.metodo_pago && (
-              <span className="text-xs text-[#8A877D]">&middot; {getMetodoIcon(normalizeMetodoPago(tx.metodo_pago, tx.banco))} {normalizeMetodoPago(tx.metodo_pago, tx.banco)}</span>
+              <span className="text-xs text-[#8A877D]">&middot; {getMetodoIcon(normalizeMetodoPago(tx.metodo_pago, tx.banco))} {normalizeMetodoPago(tx.metodo_pago, tx.banco)}{formatLast4(tx.tarjeta_last4)}</span>
             )}
           </div>
         </div>

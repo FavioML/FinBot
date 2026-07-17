@@ -29,6 +29,8 @@ export interface Transaccion {
   categoria: string;
   subcategoria: string;
   banco?: string;
+  /** Últimos 4 dígitos de la tarjeta/cuenta origen (o undefined si la fuente no la expone). */
+  tarjeta_last4?: string;
   fecha: string;
   descripcion_original?: string;
   confirmado: boolean;
