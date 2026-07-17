@@ -4,7 +4,8 @@
 // (el alta) de la cascada de despacho de comandos. El estado vive en la columna
 // usuarios.onboarding_paso; los valores en uso son: -1 (desconexion/wipe),
 // 0 (idle/completado), 1 (elige Free/Pro), 2 (elige plan / espera comprobante),
-// 10 (categorias), 20 (presupuesto opcional), 100 (pide nombre), 101 (pide email).
+// 10 (categorias), 20 (presupuesto opcional), 30 (elige bancos al conectar Gmail),
+// 100 (pide nombre), 101 (pide email).
 // El marcador de "alta completa" es la columna booleana onboarding_completado,
 // no un valor de paso: al terminar, onboarding_paso vuelve a 0.
 //
@@ -22,7 +23,7 @@
 const { supabase } = require('../lib/db');
 const { CATEGORIAS_SUGERIDAS } = require('../lib/constants');
 const { parsearIndicesRespuesta } = require('../lib/formatters');
-const { obtenerCuentasGmail } = require('../gmail');
+const { obtenerCuentasGmail, generarUrlAutorizacion, BANCOS_CATALOGO, menuSeleccionBancos } = require('../gmail');
 const { crearCategoriasDesdeIndices } = require('../services/categories');
 const { interpretarComandoPresupuesto } = require('../services/parsers');
 const { guardarPresupuesto } = require('../services/budget');
@@ -88,6 +89,33 @@ async function manejarOnboarding({ usuario, msg, cmd, from }) {
     // Respuesta no válida → cancelar
     await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
     return 'Cancelado. Tu cuenta sigue igual. 👍';
+  }
+
+  // ─── Paso 30: Elegir bancos antes de conectar Gmail (Pro) ──────────────────
+  // Se entra aquí desde el flujo de conexión (/conectar en webhook, intent
+  // agregar_gmail en consultas). Guardamos la selección en bancos_seleccionados
+  // y recién ahí entregamos el enlace de OAuth. "todos" → null (= set completo,
+  // backward-compatible y auto-incluye bancos que agreguemos luego).
+  if (usuario.onboarding_paso === 30 && !cmd.startsWith('/')) {
+    const cmdLower = cmd.trim().toLowerCase();
+    let seleccionIds;
+    if (cmdLower === 'todos' || cmdLower === 'todas' || cmdLower === 'all') {
+      seleccionIds = null;
+    } else {
+      const indices = [...new Set(
+        cmd.split(/[\s,]+/).map(Number)
+          .filter(n => Number.isInteger(n) && n >= 1 && n <= BANCOS_CATALOGO.length)
+      )];
+      if (indices.length === 0) {
+        return 'No entendí. 🤔\n\nResponde con los números de tus bancos separados por coma (ej: *1,3,5*) o escribe *todos*.';
+      }
+      seleccionIds = indices.map(n => BANCOS_CATALOGO[n - 1].id);
+    }
+    await supabase.from('usuarios').update({ bancos_seleccionados: seleccionIds, onboarding_paso: 0 }).eq('id', usuario.id);
+    const cuantos = seleccionIds
+      ? (seleccionIds.length === 1 ? 'ese banco' : 'esos ' + seleccionIds.length + ' bancos')
+      : 'todos los bancos';
+    return '✅ Listo, leeré ' + cuantos + '.\n\nAhora conecta tu Gmail acá:\n\n' + generarUrlAutorizacion(from) + '\n\n_Solo leemos notificaciones bancarias. Sin contraseñas._';
   }
 
   // ─── Paso 100: Recoger nombre del usuario ──────────────────────────────────

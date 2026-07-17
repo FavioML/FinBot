@@ -9,6 +9,7 @@ const projectRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname)
 const gmailMock = {
   obtenerCuentasGmail: vi.fn().mockResolvedValue([]),
   generarUrlAutorizacion: vi.fn(() => 'https://oauth.example/start'),
+  menuSeleccionBancos: vi.fn(() => '📧 Conectar Gmail — elige tus bancos:\n1. BCP'),
 };
 const scannerMock = {
   escanearGmailYRegistrar: vi.fn().mockResolvedValue('ok'),
@@ -42,6 +43,7 @@ describe('consultas paywall — Gmail intents (prw-002)', () => {
   beforeEach(() => {
     gmailMock.obtenerCuentasGmail.mockClear();
     gmailMock.generarUrlAutorizacion.mockClear();
+    gmailMock.menuSeleccionBancos.mockClear();
     scannerMock.escanearGmailYRegistrar.mockClear();
   });
 
@@ -67,14 +69,19 @@ describe('consultas paywall — Gmail intents (prw-002)', () => {
     expect(gmailMock.generarUrlAutorizacion).not.toHaveBeenCalled();
   });
 
-  it('agregar_gmail genera URL OAuth para usuarios premium', async () => {
+  it('agregar_gmail premium pide elegir bancos antes del OAuth (paso 30)', async () => {
     const usuario = { id: 'u1', plan: 'premium' };
+    const ctx = ctxWith();
     const res = await handler.handle({
       intencion: 'agregar_gmail', msg: 'quiero conectar mi gmail',
-      datos: {}, usuario, from: '+51999', ctx: ctxWith(),
+      datos: {}, usuario, from: '+51999', ctx,
     });
-    expect(res).toContain('https://oauth.example/start');
-    expect(gmailMock.generarUrlAutorizacion).toHaveBeenCalledWith('+51999', 'inicial');
+    // El OAuth ya no se entrega directo: primero el selector de bancos. El enlace
+    // se genera recién en el paso 30 (onboarding.js) tras elegir.
+    expect(res).toContain('elige tus bancos');
+    expect(gmailMock.menuSeleccionBancos).toHaveBeenCalled();
+    expect(gmailMock.generarUrlAutorizacion).not.toHaveBeenCalled();
+    expect(ctx.supabase.from).toHaveBeenCalledWith('usuarios');
   });
 
   it('escanear_gmail bloquea a free con paywall', async () => {

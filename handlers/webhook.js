@@ -12,7 +12,7 @@ const { guardarPresupuesto, formatearEstadoPresupuesto } = require('../services/
 const { parsearCorreoBancario } = require('../services/parsers');
 const { notificarErrorAdmin } = require('../lib/admin-notify');
 const { registrarError } = require('../lib/error-monitor');
-const { generarUrlAutorizacion } = require('../gmail');
+const { generarUrlAutorizacion, menuSeleccionBancos } = require('../gmail');
 const { registrarReferido, verificarProReferidos } = require('../services/referrals');
 const { obtenerCategoriasUsuario } = require('../services/categories');
 const { escanearGmailYRegistrar } = require('../services/gmail-scanner');
@@ -593,7 +593,9 @@ function createWebhookHandler(procesarMensajeLibre) {
       } else if (usuario.gmail_access_token) {
         respuesta = '📧 Ya tienes Gmail conectado.\n\nSi necesitas cambiar tu cuenta, escríbenos por WhatsApp al 970398192.';
       } else {
-        respuesta = 'Para conectar tu Gmail, abre este enlace:\n\n' + generarUrlAutorizacion(from) + '\n\n_Solo leemos notificaciones bancarias. Sin contrasenas bancarias._';
+        // Antes del enlace OAuth, el usuario elige sus bancos (paso 30 en onboarding.js)
+        await supabase.from('usuarios').update({ onboarding_paso: 30 }).eq('id', usuario.id);
+        respuesta = menuSeleccionBancos();
       }
     } else if (cmd === '/escanear') {
       const resultado = await escanearGmailYRegistrar(usuario);

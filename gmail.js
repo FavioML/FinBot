@@ -32,6 +32,44 @@ const REMITENTES_BANCARIOS = [
   'notificaciones@cmacica.com.pe', 'notificaciones@cajasullana.com.pe',
 ];
 
+// Catálogo de bancos para que el usuario Pro elija cuáles leer al conectar Gmail.
+// Cada entrada agrupa los remitentes de REMITENTES_BANCARIOS por institución; su
+// `id` se guarda en usuarios.bancos_seleccionados y el scan lo expande a la union
+// de sus remitentes. Al agregar un remitente nuevo arriba, súmalo también aquí.
+const BANCOS_CATALOGO = [
+  { id: 'bcp', label: 'BCP', remitentes: ['alertas@bcp.com.pe', 'notificaciones@bcp.com.pe', 'notificaciones@notificacionesbcp.com.pe'] },
+  { id: 'interbank', label: 'Interbank', remitentes: ['alertas@interbank.pe', 'notificaciones@interbank.pe'] },
+  { id: 'bbva', label: 'BBVA', remitentes: ['alertas@bbva.pe', 'notificaciones@bbva.pe'] },
+  { id: 'scotiabank', label: 'Scotiabank', remitentes: ['notificaciones.tarjetas@scotiabank.pe', 'alertas@scotiabank.pe'] },
+  { id: 'yape', label: 'Yape', remitentes: ['notificaciones@yape.pe'] },
+  { id: 'plin', label: 'Plin', remitentes: ['notificaciones@plin.pe'] },
+  { id: 'tunki', label: 'Tunki', remitentes: ['noreply@tunki.pe'] },
+  { id: 'falabella', label: 'Banco Falabella', remitentes: ['notificaciones@bancofalabella.pe', 'alertas@bancofalabella.pe'] },
+  { id: 'ripley', label: 'Banco Ripley', remitentes: ['notificaciones@bancoripley.com.pe', 'alertas@bancoripley.com.pe'] },
+  { id: 'banbif', label: 'BanBif', remitentes: ['notificaciones@banbif.com.pe', 'alertas@banbif.com.pe'] },
+  { id: 'mibanco', label: 'Mibanco', remitentes: ['notificaciones@mibanco.com.pe', 'alertas@mibanco.com.pe'] },
+  { id: 'cajas', label: 'Cajas municipales (Huancayo, Piura, Trujillo, Cusco, Ica, Sullana)', remitentes: ['notificaciones@cajahuancayo.com.pe', 'notificaciones@cmacpiura.com.pe', 'notificaciones@cajatrujillo.com.pe', 'notificaciones@cajacusco.com.pe', 'notificaciones@cmacica.com.pe', 'notificaciones@cajasullana.com.pe'] },
+];
+
+// Traduce la selección del usuario (array de ids del catálogo) a la lista de
+// remitentes para el scan. Selección vacía/null/ids desconocidos → set completo
+// (backward-compatible con quienes conectaron antes de existir esta columna).
+function remitentesParaSeleccion(seleccion) {
+  if (!Array.isArray(seleccion) || seleccion.length === 0) return REMITENTES_BANCARIOS;
+  const set = new Set(seleccion);
+  const remitentes = BANCOS_CATALOGO.filter(b => set.has(b.id)).flatMap(b => b.remitentes);
+  return remitentes.length > 0 ? remitentes : REMITENTES_BANCARIOS;
+}
+
+// Menú numerado de bancos para el flujo de conexión Gmail (WhatsApp).
+function menuSeleccionBancos() {
+  const lista = BANCOS_CATALOGO.map((b, i) => (i + 1) + '. ' + b.label).join('\n');
+  return '📧 *Conectar Gmail*\n\n' +
+    'Primero dime con qué bancos operas, así Neto lee solo esos correos y nada más.\n\n' +
+    'Responde con los números separados por coma (ej: *1,3,5*) o escribe *todos*:\n\n' +
+    lista;
+}
+
 const PALABRAS_BANCARIAS = [
   'realizaste', 'transaccion', 'consumo', 'pago realizado', 'transferencia',
   'operacion', 'yape', 'plin', 'izipay', 'BCP', 'Interbank', 'BBVA',
@@ -255,12 +293,12 @@ function esCorreoReenviado(headers) {
   return false;
 }
 
-async function leerCorreosDesdeCuenta(authClient, cuentaEmail) {
+async function leerCorreosDesdeCuenta(authClient, cuentaEmail, remitentes = REMITENTES_BANCARIOS) {
 
   const gmail = google.gmail({ version: 'v1', auth: authClient });
 
-  // Query principal: remitentes bancarios conocidos - últimas 36 horas
-  const queryDirecto = 'from:(' + REMITENTES_BANCARIOS.join(' OR ') + ') newer_than:2d -in:sent';
+  // Query principal: remitentes bancarios elegidos por el usuario - últimas 36 horas
+  const queryDirecto = 'from:(' + remitentes.join(' OR ') + ') newer_than:2d -in:sent';
   
   // Query secundaria: palabras clave bancarias más amplias para BCP crédito y otros
   const queryPalabrasClave = [
@@ -333,14 +371,26 @@ async function leerCorreosDesdeCuenta(authClient, cuentaEmail) {
   return { error: null, mensajes, cuentaEmail };
 }
 
+async function remitentesParaUsuario(usuarioId) {
+  try {
+    const { data } = await getSupabase()
+      .from('usuarios').select('bancos_seleccionados').eq('id', usuarioId).single();
+    return remitentesParaSeleccion(data && data.bancos_seleccionados);
+  } catch (e) {
+    log.warn({ tag: 'GMAIL', err: e.message }, 'No se pudo leer bancos_seleccionados; uso set completo');
+    return REMITENTES_BANCARIOS;
+  }
+}
+
 async function leerCorreosBancarios(usuarioId) {
   const cuentas = await obtenerCuentasGmail(usuarioId);
+  const remitentes = await remitentesParaUsuario(usuarioId);
 
   if (cuentas.length === 0) {
     // Fallback: intentar con token legacy en usuarios
     const authClient = await configurarClienteAutenticado(usuarioId);
     if (!authClient) return { error: 'no_auth', mensajes: [] };
-    return leerCorreosDesdeCuenta(authClient, null);
+    return leerCorreosDesdeCuenta(authClient, null, remitentes);
   }
 
   // Escanear todas las cuentas activas en paralelo
@@ -348,7 +398,7 @@ async function leerCorreosBancarios(usuarioId) {
     cuentas.map(async (cuenta) => {
       try {
         const cliente = await configurarClienteParaCuenta(cuenta);
-        return leerCorreosDesdeCuenta(cliente, cuenta.email);
+        return leerCorreosDesdeCuenta(cliente, cuenta.email, remitentes);
       } catch(e) {
         if (e.code === 'AUTH_EXPIRED') {
           // Propagar como valor especial para que el scanner pueda notificar al usuario
@@ -376,4 +426,4 @@ async function leerCorreosBancarios(usuarioId) {
   return { error: authExpired ? 'AUTH_EXPIRED' : null, mensajes: mensajesUnificados };
 }
 
-module.exports = { generarUrlAutorizacion, guardarTokens, cargarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail };
+module.exports = { generarUrlAutorizacion, guardarTokens, cargarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail, BANCOS_CATALOGO, remitentesParaSeleccion, menuSeleccionBancos };

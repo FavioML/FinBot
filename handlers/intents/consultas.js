@@ -1,6 +1,6 @@
 const log = require('../../lib/logger');
 const { escanearGmailYRegistrar } = require('../../services/gmail-scanner');
-const { obtenerCuentasGmail, generarUrlAutorizacion } = require('../../gmail');
+const { obtenerCuentasGmail, generarUrlAutorizacion, menuSeleccionBancos } = require('../../gmail');
 const { getUserPlanConfig } = require('../../helpers/db-helpers');
 
 module.exports = {
@@ -27,8 +27,9 @@ module.exports = {
           const urlReconectar = generarUrlAutorizacion(from, 'reemplazar');
           return '📧 Ya tienes un Gmail conectado.\n\n¿Quieres *reemplazarlo* con otra cuenta? Abre este enlace:\n\n' + urlReconectar + '\n\n_⚠️ Esto reemplazará tu cuenta actual._';
         }
-        const urlAgregar = generarUrlAutorizacion(from, 'inicial');
-        return '📧 Conecta tu Gmail para que Neto registre tus gastos automáticamente:\n\n' + urlAgregar + '\n\n_Solo leemos notificaciones bancarias. Sin contraseñas._';
+        // Antes del enlace OAuth, el usuario elige sus bancos (paso 30 en onboarding.js)
+        await supabase.from('usuarios').update({ onboarding_paso: 30 }).eq('id', usuario.id);
+        return menuSeleccionBancos();
       }
 
       case 'cambiar_gmail': {
