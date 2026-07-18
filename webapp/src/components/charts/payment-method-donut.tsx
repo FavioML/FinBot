@@ -6,10 +6,21 @@ import { motion } from 'motion/react';
 import { formatCurrency } from '@/lib/utils';
 import { normalizeMetodoPago, getMetodoIcon, formatLast4 } from '@/lib/format';
 import type { Transaccion } from '@/lib/types';
+import type { ChartTooltipProps } from './chart-types';
 
 interface PaymentMethodDonutProps {
   transactions: Transaccion[];
   onMethodClick?: (method: string) => void;
+}
+
+interface MetodoDatum {
+  metodo: string;
+  metodoBase: string;
+  last4: string;
+  icon: string;
+  total: number;
+  count: number;
+  porcentaje: number;
 }
 
 const COLORS = [
@@ -17,7 +28,7 @@ const COLORS = [
   '#6CC4A1', '#5FA0E0', '#D4A843', '#E8845C', '#B0ADA5',
 ];
 
-function CustomTooltip({ active, payload }: any) {
+function CustomTooltip({ active, payload }: ChartTooltipProps<MetodoDatum>) {
   if (!active || !payload?.[0]) return null;
   const d = payload[0].payload;
   return (
@@ -89,7 +100,7 @@ export function PaymentMethodDonut({ transactions, onMethodClick }: PaymentMetho
                 stroke="none"
                 paddingAngle={2}
                 cursor={onMethodClick ? 'pointer' : undefined}
-                onClick={onMethodClick ? (entry: any) => onMethodClick(entry.metodoBase) : undefined}
+                onClick={onMethodClick ? (entry) => onMethodClick((entry as unknown as MetodoDatum).metodoBase) : undefined}
               >
                 {data.map((_, i) => (
                   <Cell key={i} fill={COLORS[i % COLORS.length]} />

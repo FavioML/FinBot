@@ -4,6 +4,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { motion } from 'motion/react';
 import { formatCurrency } from '@/lib/utils';
 import type { CategoriaGasto } from '@/lib/types';
+import type { ChartTooltipProps } from './chart-types';
 
 interface CategoryDonutProps {
   data: CategoriaGasto[];
@@ -23,7 +24,7 @@ const COLORS = [
   '#B0ADA5', // lighter muted
 ];
 
-function CustomTooltip({ active, payload }: any) {
+function CustomTooltip({ active, payload }: ChartTooltipProps<CategoriaGasto>) {
   if (!active || !payload?.[0]) return null;
   const d = payload[0].payload;
   return (
@@ -70,7 +71,7 @@ export function CategoryDonut({ data, onCategoryClick }: CategoryDonutProps) {
                 stroke="none"
                 paddingAngle={2}
                 cursor={onCategoryClick ? 'pointer' : undefined}
-                onClick={onCategoryClick ? (entry: any) => onCategoryClick(entry.categoria) : undefined}
+                onClick={onCategoryClick ? (entry) => onCategoryClick((entry as unknown as CategoriaGasto).categoria) : undefined}
               >
                 {data.map((_, i) => (
                   <Cell key={i} fill={COLORS[i % COLORS.length]} />

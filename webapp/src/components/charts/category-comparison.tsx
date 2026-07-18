@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
 import { ChevronDown } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import { getCategoriaEmoji, MESES } from '@/lib/constants';
@@ -138,7 +138,7 @@ export function CategoryComparison({ allTransactions, currentMonth, currentYear,
             <Bar dataKey="previous" fill="#8A877D" radius={[0, 4, 4, 0]} barSize={8} opacity={0.5} isAnimationActive={true} />
             <Bar dataKey="current" radius={[0, 4, 4, 0]} barSize={8} isAnimationActive={true}
               cursor={onCategoryClick ? 'pointer' : undefined}
-              onClick={onCategoryClick ? (entry: any) => onCategoryClick(entry.categoria) : undefined}
+              onClick={onCategoryClick ? (entry) => onCategoryClick((entry as unknown as { categoria: string }).categoria) : undefined}
             >
               {chartData.map((entry, i) => (
                 <Cell
