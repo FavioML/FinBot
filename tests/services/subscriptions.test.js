@@ -284,6 +284,27 @@ describe('detectarSuscripciones — deteccion por patron (sin catalogo)', () => 
     expect(sub.monto_detectado).toBe(10);
     expect(sub.monto_pen).toBe(37); // promedio de monto_pen persistidos, NO 10*3.85
   });
+
+  it('descriptor opaco (Apple = Music + iCloud) surface por su cuota recurrente, no se cae por varianza global', async () => {
+    // "Apple" agrupa dos servicios con montos dispares. La varianza GLOBAL de los 5
+    // montos es alta (>0.3) y antes tumbaba el grupo entero. Ahora la cuota estable
+    // (iCloud ~4.35, único cluster que abarca 2+ meses) surface; los cargos de Music
+    // quedan fuera de la cuota. txs en orden fecha-desc (como los entrega la query).
+    state.txs = [
+      tx('Apple', 4.34, '2026-07-16', { moneda: 'USD', monto_pen: 14.76, categoria: 'Suscripciones', subcategoria: 'Almacenamiento' }),
+      tx('Apple', 6.38, '2026-06-20', { moneda: 'USD', monto_pen: 21.54, categoria: 'Suscripciones', subcategoria: 'Musica' }),
+      tx('Apple', 4.36, '2026-06-16', { moneda: 'USD', monto_pen: 14.82, categoria: 'Suscripciones', subcategoria: 'Almacenamiento' }),
+      tx('Apple', 10.54, '2026-05-30', { moneda: 'USD', monto_pen: 35.84, categoria: 'Suscripciones', subcategoria: 'Musica' }),
+      tx('Apple', 12.88, '2026-05-16', { moneda: 'USD', monto_pen: 43.79, categoria: 'Suscripciones', subcategoria: 'Musica' }),
+    ];
+    const r = await detectarSuscripciones('u1');
+    const apple = r.suscripciones_detectadas.find(s => s.nombre === 'Apple');
+    expect(apple).toBeDefined();
+    expect(apple.fuente).toBe('patron');
+    expect(apple.estado).toBe('posible');
+    expect(apple.monto_detectado).toBe(4.35); // cuota recurrente (iCloud), no el promedio de los 5
+    expect(apple.meses_detectados).toBe(3);
+  });
 });
 
 describe('detectarSuscripciones — totales y ahorro familiar', () => {

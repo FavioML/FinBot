@@ -32,6 +32,38 @@ function matchCatalogo(comercio) {
 }
 
 /**
+ * Agrupa los pagos en clusters por monto (±10%) y devuelve el cluster que abarca más
+ * meses distintos como la "cuota recurrente" (desempate → monto mayor). El resto son
+ * cargos puntuales. Sirve para descriptores opacos que agrupan más de un servicio bajo
+ * un mismo comercio (ej. "Apple" = Music + iCloud): sin esto, la varianza global de los
+ * montos mezclados tumbaba el grupo entero. Paridad con recurringCluster del webapp
+ * (services/subscriptions-catalog en la app Next).
+ * @param {{monto:number, fecha:string}[]} pagos
+ * @returns {{recurring: object[], extras: object[]}}
+ */
+function recurringCluster(pagos) {
+  if (pagos.length <= 1) return { recurring: [...pagos], extras: [] };
+  const monthSpan = (arr) => new Set(arr.map(p => p.fecha.substring(0, 7))).size;
+  const clusters = [];
+  for (const p of [...pagos].sort((a, b) => b.monto - a.monto)) {
+    let placed = false;
+    for (const c of clusters) {
+      const ref = c[0].monto;
+      if (ref > 0 && Math.abs(p.monto - ref) / ref <= 0.1) { c.push(p); placed = true; break; }
+    }
+    if (!placed) clusters.push([p]);
+  }
+  let best = clusters[0];
+  let bestSpan = monthSpan(best);
+  for (const c of clusters.slice(1)) {
+    const span = monthSpan(c);
+    if (span > bestSpan || (span === bestSpan && c[0].monto > best[0].monto)) { best = c; bestSpan = span; }
+  }
+  const extras = pagos.filter(p => !best.includes(p));
+  return { recurring: best, extras };
+}
+
+/**
  * ¿La transacción está categorizada como suscripción? Gate de la detección por patrón
  * (no aplica al catálogo, que se reconoce por nombre). El categorizador de Neto marca las
  * suscripciones con categoría 'Suscripciones' (ej. Suscripciones/Software, /Gimnasio) o
@@ -151,43 +183,53 @@ async function detectarSuscripciones(usuarioId) {
         subcategoria_neto: catalogoMatch.subcategoria_neto,
         planes_disponibles: catalogoMatch.planes || [],
       });
-    } else if (mesesConPago.size >= 2 && esCategoriaSuscripcion(ultimoPago)) {
-      // Patrón recurrente sin match en catálogo. Además de monto estable en 2+ meses,
-      // exige que la transacción esté CATEGORIZADA como suscripción. Sin este gate, la
-      // sola estabilidad de monto marcaba gastos de vida cotidiana como "suscripción":
-      // pedidos de comida, gasolina, estacionamiento, barbería, transferencias a personas
-      // (todos con montos parecidos mes a mes). El categorizador de Neto ya tiene la
-      // categoría/subcategoría "Suscripciones"; solo eso pasa la rama por patrón (p.ej.
-      // un software o gimnasio no listado en el catálogo).
-      const montos = data.pagos.map(p => p.monto);
-      const avg = montos.reduce((a, b) => a + b, 0) / montos.length;
-      // Promedio de los monto_pen persistidos (C7): sin recompute con TC de hoy.
-      const montosPen = data.pagos.map(p => p.monto_pen);
-      const avgPen = montosPen.reduce((a, b) => a + b, 0) / montosPen.length;
-      const varianza = montos.reduce((s, m) => s + Math.pow(m - avg, 2), 0) / montos.length;
-      const coefVar = avg > 0 ? Math.sqrt(varianza) / avg : 1;
+    } else if (esCategoriaSuscripcion(ultimoPago)) {
+      // Patrón recurrente sin match en catálogo. Exige que la transacción esté
+      // CATEGORIZADA como suscripción. Sin este gate, la sola estabilidad de monto
+      // marcaba gastos de vida cotidiana como "suscripción": pedidos de comida, gasolina,
+      // estacionamiento, barbería, transferencias a personas (todos con montos parecidos
+      // mes a mes). El categorizador de Neto ya tiene la categoría/subcategoría
+      // "Suscripciones"; solo eso pasa la rama por patrón (p.ej. un software o gimnasio
+      // no listado en el catálogo).
+      //
+      // Clave: la estabilidad se mide sobre la CUOTA recurrente (el cluster de monto que
+      // abarca más meses), NO sobre todos los pagos. Un descriptor opaco tipo "Apple"
+      // agrupa dos servicios (Music + iCloud) con montos dispares; medir la varianza
+      // global tumbaba el grupo entero. La cuota estable (p.ej. iCloud) surface y los
+      // otros cargos quedan fuera de la cuota. Paridad con el motor del webapp.
+      const { recurring } = recurringCluster(data.pagos);
+      const recurringMonths = new Set(recurring.map(p => p.fecha.substring(0, 7))).size;
+      if (recurringMonths >= 2) {
+        const montos = recurring.map(p => p.monto);
+        const avg = montos.reduce((a, b) => a + b, 0) / montos.length;
+        // Promedio de los monto_pen persistidos (C7): sin recompute con TC de hoy.
+        const montosPen = recurring.map(p => p.monto_pen);
+        const avgPen = montosPen.reduce((a, b) => a + b, 0) / montosPen.length;
+        const varianza = montos.reduce((s, m) => s + Math.pow(m - avg, 2), 0) / montos.length;
+        const coefVar = avg > 0 ? Math.sqrt(varianza) / avg : 1;
 
-      // Coef. de variación bajo (<0.3) y monto no trivial (>2) => probablemente suscripción
-      if (coefVar < 0.3 && avg > 2) {
-        suscripciones.push({
-          id: 'custom_' + key.replace(/[^a-z0-9]/g, '_'),
-          nombre: data.nombre_original,
-          tipo: 'otro',
-          icono: '🔄',
-          fuente: 'patron',
-          estado: 'posible',
-          moneda: data.moneda,
-          monto_detectado: Math.round(avg * 100) / 100,
-          monto_pen: Math.round(avgPen * 100) / 100,
-          precio_referencia: null,
-          tiene_plan_familiar: false,
-          precio_familiar: null,
-          meses_detectados: mesesConPago.size,
-          ultimo_pago: ultimoPago.fecha,
-          categoria_neto: ultimoPago.categoria || 'Otros',
-          subcategoria_neto: ultimoPago.subcategoria || 'sin_categoria',
-          planes_disponibles: [],
-        });
+        // Coef. de variación bajo (<0.3) y monto no trivial (>2) => probablemente suscripción
+        if (coefVar < 0.3 && avg > 2) {
+          suscripciones.push({
+            id: 'custom_' + key.replace(/[^a-z0-9]/g, '_'),
+            nombre: data.nombre_original,
+            tipo: 'otro',
+            icono: '🔄',
+            fuente: 'patron',
+            estado: 'posible',
+            moneda: data.moneda,
+            monto_detectado: Math.round(avg * 100) / 100,
+            monto_pen: Math.round(avgPen * 100) / 100,
+            precio_referencia: null,
+            tiene_plan_familiar: false,
+            precio_familiar: null,
+            meses_detectados: mesesConPago.size,
+            ultimo_pago: ultimoPago.fecha,
+            categoria_neto: ultimoPago.categoria || 'Otros',
+            subcategoria_neto: ultimoPago.subcategoria || 'sin_categoria',
+            planes_disponibles: [],
+          });
+        }
       }
     }
   }
