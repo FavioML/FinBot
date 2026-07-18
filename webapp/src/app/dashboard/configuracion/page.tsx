@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import NextLink from 'next/link';
 import Image from 'next/image';
 import { toast } from 'sonner';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
@@ -443,14 +444,12 @@ export default function ConfiguracionPage() {
             <p className="text-xs text-[#8A877D] mb-3">
               Gmail automático, reportes PDF, presupuestos ilimitados, metas, calendario y más.
             </p>
-            <a
-              href="https://wa.me/51933014505?text=Hola%20Neto%2C%20quiero%20activar%20Pro%20%E2%AD%90"
-              target="_blank"
-              rel="noopener noreferrer"
+            <NextLink
+              href="/dashboard/pro"
               className="inline-flex items-center gap-2 rounded-full bg-[#1D9E75] px-4 py-2 text-xs font-semibold text-white hover:bg-[#178a64] transition-colors"
             >
-              Activar Pro — S/10/mes
-            </a>
+              Pasar a Pro — S/10/mes
+            </NextLink>
           </div>
         )}
 

@@ -18,6 +18,7 @@ import {
   Users,
   Settings,
   Shield,
+  Crown,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -39,6 +40,7 @@ const mainNav = [
 ];
 
 const secondaryNav = [
+  { label: 'Neto Pro', href: '/dashboard/pro', icon: Crown },
   { label: 'Configuracion', href: '/dashboard/configuracion', icon: Settings },
 ];
 

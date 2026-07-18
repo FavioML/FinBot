@@ -138,8 +138,9 @@ const SCOPES = [
   'https://www.googleapis.com/auth/userinfo.email'
 ];
 
-function generarUrlAutorizacion(whatsappNum, modo) {
+function generarUrlAutorizacion(whatsappNum, modo, origen) {
   const stateObj = { num: whatsappNum || '', modo: modo || 'inicial' };
+  if (origen) stateObj.origen = origen; // 'web' → el callback redirige a la webapp
   const state = Buffer.from(JSON.stringify(stateObj)).toString('base64');
   return oauth2Client.generateAuthUrl({
     access_type: 'offline',

@@ -1,7 +1,6 @@
 const { supabase } = require('../lib/db');
-const { enviarWhatsapp } = require('../lib/whatsapp');
-const { registrarPagoAprobado } = require('../lib/pro-payment');
-const { generarUrlAutorizacion } = require('../gmail');
+const { activarPro, rechazarSolicitudPro } = require('../lib/pro-payment');
+const log = require('../lib/logger');
 
 /**
  * Comandos administrativos compartidos entre canales (WhatsApp y Telegram).
@@ -29,27 +28,9 @@ async function procesarComandoAdmin(cmd) {
     if (usuarioActivar.plan === 'premium') {
       return '⚠️ ' + (usuarioActivar.nombre || numeroActivar) + ' ya tiene Premium activo.';
     }
-    const hoy = new Date();
-    const vence = new Date(hoy.getFullYear(), hoy.getMonth() + 1, hoy.getDate()).toISOString().split('T')[0];
-    const desde = hoy.toISOString().split('T')[0];
-    await supabase.from('usuarios').update({
-      plan: 'premium',
-      pago_pendiente: false,
-      esperando_comprobante: false,
-      premium_desde: desde,
-      premium_vence: vence
-    }).eq('id', usuarioActivar.id);
-    await registrarPagoAprobado(usuarioActivar.id, { tipoPlan: usuarioActivar.tipo_plan || 'mensual', premiumDesde: desde, premiumVence: vence, aprobadoPor: 'admin:/activar' });
-    await enviarWhatsapp(usuarioActivar.whatsapp,
-      '⭐ *¡Bienvenido a NETO Pro!*\n\n' +
-      'Tu pago fue confirmado. Ya tienes acceso completo.\n\n' +
-      'Registra gastos así:\n' +
-      '📝 _"gasté 50 en taxi"_\n' +
-      '📸 Envía una foto de Yape o Plin\n\n' +
-      '📊 Configura tus presupuestos en tu dashboard:\nhttps://app.neto.pe/dashboard/presupuestos\n\n' +
-      '¿Por dónde empezamos?'
-    );
-    return '✅ Premium activado para ' + (usuarioActivar.nombre || numeroActivar) + '\nVence: ' + vence;
+    // Activación rápida: 1 mes, sin link OAuth (fuente única en activarPro).
+    const { venceStr } = await activarPro({ usuario: usuarioActivar, tipoPlan: 'mensual', aprobadoPor: 'admin:/activar', enviarOAuth: false });
+    return '✅ Premium activado para ' + (usuarioActivar.nombre || numeroActivar) + '\nVence: ' + venceStr;
   }
 
   // /pago <numero_whatsapp> <mensual|anual> — confirma pago Pro + envía link OAuth
@@ -61,34 +42,8 @@ async function procesarComandoAdmin(cmd) {
     if (!usuarioPago) {
       return '❌ No encontré un usuario con el número: ' + numeroPago;
     }
-    const hoy = new Date();
-    const mesesAdd = tipoPlan === 'anual' ? 12 : 1;
-    const vence = new Date(hoy.getFullYear(), hoy.getMonth() + mesesAdd, hoy.getDate());
-    const desdePago = hoy.toISOString().split('T')[0];
-    const vencePago = vence.toISOString().split('T')[0];
-    await supabase.from('usuarios').update({
-      plan: 'premium',
-      estado_pago: 'pagado',
-      tipo_plan: tipoPlan,
-      fecha_pago: hoy.toISOString(),
-      fecha_vencimiento: vence.toISOString(),
-      premium_desde: desdePago,
-      premium_vence: vencePago,
-      pago_pendiente: false,
-      esperando_comprobante: false,
-      onboarding_paso: 0
-    }).eq('id', usuarioPago.id);
-    await registrarPagoAprobado(usuarioPago.id, { tipoPlan, premiumDesde: desdePago, premiumVence: vencePago, aprobadoPor: 'admin:/pago' });
-    const urlOAuth = generarUrlAutorizacion(usuarioPago.whatsapp);
-    await enviarWhatsapp(usuarioPago.whatsapp,
-      '✅ *¡Pago confirmado!*\n\n' +
-      'Plan: *' + (tipoPlan === 'anual' ? 'Anual (S/99/año)' : 'Mensual (S/10/mes)') + '*\n' +
-      'Vence: ' + vence.toISOString().split('T')[0] + '\n\n' +
-      'Conecta tu Gmail para que Neto lea tus correos bancarios automáticamente:\n\n' +
-      '🔗 ' + urlOAuth + '\n\n' +
-      '_Solo leemos notificaciones bancarias. Sin contraseñas bancarias._'
-    );
-    return '✅ Pago confirmado para ' + (usuarioPago.nombre || numeroPago) + ' (' + tipoPlan + '). Link OAuth enviado.';
+    await activarPro({ usuario: usuarioPago, tipoPlan, aprobadoPor: 'admin:/pago', enviarOAuth: true, resetOnboarding: true });
+    return '✅ Pago confirmado para ' + (usuarioPago.nombre || numeroPago) + ' (' + (tipoPlan === 'anual' ? 'anual' : 'mensual') + '). Link OAuth enviado.';
   }
 
   // /usuarios | /admin | /panel — panel resumen
@@ -115,4 +70,48 @@ async function procesarComandoAdmin(cmd) {
   return null;
 }
 
-module.exports = { procesarComandoAdmin };
+/**
+ * Procesa un tap de botón inline de Telegram (callback_query) sobre una solicitud Pro.
+ * Formatos de `data`: `pro:approve:mensual:<pagoId>` | `pro:approve:anual:<pagoId>` | `pro:reject:<pagoId>`.
+ *
+ * Idempotente: si el pago ya no está `pendiente`, no re-actúa (evita doble-tap).
+ * La autorización (chat del admin) la valida el caller, igual que procesarComandoAdmin.
+ *
+ * @param {string} data - callback_data.
+ * @returns {Promise<{answer:string, edit?:string}|null>} null si no es un callback Pro.
+ */
+async function procesarCallbackAdmin(data) {
+  const raw = String(data || '');
+  if (!raw.startsWith('pro:')) return null;
+  const parts = raw.split(':'); // ['pro', accion, ...]
+  const accion = parts[1];
+  try {
+    if (accion === 'approve') {
+      const tipoPlan = parts[2] === 'anual' ? 'anual' : 'mensual';
+      const pagoId = parts[3];
+      const { data: pago } = await supabase.from('pagos').select('*').eq('id', pagoId).single();
+      if (!pago) return { answer: 'Solicitud no encontrada' };
+      if (pago.estado !== 'pendiente') return { answer: 'Ya procesado (' + pago.estado + ')' };
+      const { data: usuario } = await supabase.from('usuarios').select('*').eq('id', pago.usuario_id).single();
+      if (!usuario) return { answer: 'Usuario no encontrado' };
+      const { venceStr } = await activarPro({ usuario, tipoPlan, aprobadoPor: 'admin:telegram' });
+      return { answer: 'Aprobado ✅', edit: '✅ Aprobado (' + tipoPlan + ') — ' + (usuario.nombre || usuario.whatsapp) + '\nVence: ' + venceStr };
+    }
+    if (accion === 'reject') {
+      const pagoId = parts[2];
+      const { data: pago } = await supabase.from('pagos').select('*').eq('id', pagoId).single();
+      if (!pago) return { answer: 'Solicitud no encontrada' };
+      if (pago.estado !== 'pendiente') return { answer: 'Ya procesado (' + pago.estado + ')' };
+      const { data: usuario } = await supabase.from('usuarios').select('*').eq('id', pago.usuario_id).single();
+      if (!usuario) return { answer: 'Usuario no encontrado' };
+      await rechazarSolicitudPro({ pagoId, usuario, motivo: 'No pudimos validar el comprobante.' });
+      return { answer: 'Rechazado', edit: '❌ Rechazado — ' + (usuario.nombre || usuario.whatsapp) };
+    }
+    return { answer: 'Acción no reconocida' };
+  } catch (e) {
+    log.error({ tag: 'ADMIN_CB', err: e.message }, 'Error procesando callback admin');
+    return { answer: 'Error procesando' };
+  }
+}
+
+module.exports = { procesarComandoAdmin, procesarCallbackAdmin };

@@ -15,6 +15,7 @@ const { notificarErrorAdmin } = require('./lib/admin-notify');
 const { registrarError } = require('./lib/error-monitor');
 const publicRoutes = require('./routes/public');
 const adminRoutes = require('./routes/admin');
+const proRoutes = require('./routes/pro');
 const { startCronJobs } = require('./cron');
 const createWebhookHandler = require('./handlers/webhook');
 const { telegramWebhookHandler } = require('./handlers/telegram-webhook');
@@ -73,6 +74,16 @@ const adminLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'Demasiadas solicitudes admin' },
 });
+// Rutas /pro: la webapp (Vercel) llama SIEMPRE desde su IP de egress, así que un limiter
+// por IP throttlearía a todos los usuarios juntos. Keyeamos por usuario_id (header/query).
+const proLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiadas solicitudes, intenta en un momento' },
+  keyGenerator: (req) => req.get('x-usuario-id') || req.query.usuario_id || req.ip || '0.0.0.0',
+});
 
 // === Routes ===
 app.get('/health', (req, res) => {
@@ -96,6 +107,10 @@ app.post('/webhook', webhookLimiter, createWebhookHandler(procesarMensajeLibre))
 // el chat donde recibe las notificaciones. Seguridad: secret header + allowlist de chat_id
 // (ver handlers/telegram-webhook.js). Limiter holgado propio.
 app.post('/telegram/webhook', adminLimiter, telegramWebhookHandler);
+
+// Upgrade Pro desde la webapp (solicitud + catálogo bancos + URL OAuth). Auth por
+// INTERNAL_API_KEY (ver routes/pro.js). Antes del catch-all público.
+app.use('/pro', proLimiter, proRoutes);
 
 app.use('/', publicRoutes);
 app.use('/admin', adminLimiter, adminRoutes);

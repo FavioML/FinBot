@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const log = require('./../lib/logger');
-const { enviarTelegramA } = require('../lib/telegram');
-const { procesarComandoAdmin } = require('./admin-commands');
+const { enviarTelegramA, responderCallback, editarCaptionTelegram } = require('../lib/telegram');
+const { procesarComandoAdmin, procesarCallbackAdmin } = require('./admin-commands');
 
 /**
  * Webhook entrante de Telegram. Permite al admin aprobar pagos Pro (/pago, /activar, /panel)
@@ -45,11 +45,30 @@ async function telegramWebhookHandler(req, res) {
 
   try {
     const update = req.body || {};
+    const adminChatId = process.env.TELEGRAM_ADMIN_CHAT_ID;
+
+    // ── Rama 1: tap de botón inline (callback_query) sobre una solicitud Pro ──
+    const cb = update.callback_query;
+    if (cb) {
+      const cbChatId = cb.message && cb.message.chat && cb.message.chat.id;
+      if (!adminChatId || String(cbChatId) !== String(adminChatId)) {
+        log.warn({ tag: 'TELEGRAM_IN', chatId: cbChatId }, 'Callback de chat no autorizado, ignorado');
+        return;
+      }
+      const result = await procesarCallbackAdmin(cb.data);
+      // answerCallbackQuery siempre (apaga el spinner del botón), aunque no sea un callback Pro.
+      await responderCallback(cb.id, (result && result.answer) || 'Listo');
+      if (result && result.edit) {
+        await editarCaptionTelegram(cbChatId, cb.message.message_id, result.edit);
+      }
+      return;
+    }
+
+    // ── Rama 2: mensaje de texto (comandos /pago, /activar, /panel) ──
     const message = update.message || update.edited_message;
     if (!message || !message.text) return;
 
     const chatId = message.chat && message.chat.id;
-    const adminChatId = process.env.TELEGRAM_ADMIN_CHAT_ID;
 
     // Capa 2: allowlist. Solo el chat del admin puede ejecutar comandos.
     if (!adminChatId || String(chatId) !== String(adminChatId)) {

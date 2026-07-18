@@ -152,13 +152,13 @@ router.get('/auth/callback', async (req, res) => {
   try {
     const { tokens } = await oauth2Client.getToken(code);
     oauth2Client.setCredentials(tokens);
-    let whatsappNum = null; let modoConexion = 'inicial';
+    let whatsappNum = null; let modoConexion = 'inicial'; let origenConexion = null;
     if (req.query.state) {
       try {
         const decoded = Buffer.from(req.query.state, 'base64').toString('utf8');
         if (decoded.startsWith('{')) {
           const stateObj = JSON.parse(decoded);
-          whatsappNum = stateObj.num; modoConexion = stateObj.modo || 'inicial';
+          whatsappNum = stateObj.num; modoConexion = stateObj.modo || 'inicial'; origenConexion = stateObj.origen || null;
         } else { whatsappNum = decoded; }
       } catch(e) { log.warn({ tag: 'OAUTH', err: e.message }, 'Error decodificando state OAuth'); }
     }
@@ -179,7 +179,13 @@ router.get('/auth/callback', async (req, res) => {
 
     const nombre = usuario.nombre ? ', ' + usuario.nombre : '';
     const emailMsg = emailConectado ? ' (' + emailConectado + ')' : '';
-    res.send('<html><body style="font-family:Arial;text-align:center;padding:50px;background:#0d1b2a;color:white"><h1 style="color:#4CAF50">Gmail conectado' + nombre + '!</h1><p style="font-size:18px">' + emailMsg + '</p><p>Vuelve a WhatsApp, el bot te escribira en un momento.</p></body></html>');
+    // Origen 'web' (conexión iniciada desde la webapp): redirigir de vuelta al dashboard.
+    // El escaneo asíncrono de abajo corre igual.
+    if (origenConexion === 'web') {
+      res.redirect('https://app.neto.pe/dashboard?gmail=conectado');
+    } else {
+      res.send('<html><body style="font-family:Arial;text-align:center;padding:50px;background:#0d1b2a;color:white"><h1 style="color:#4CAF50">Gmail conectado' + nombre + '!</h1><p style="font-size:18px">' + emailMsg + '</p><p>Vuelve a WhatsApp, el bot te escribira en un momento.</p></body></html>');
+    }
     const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : 'por ahi';
 
     setTimeout(async () => {

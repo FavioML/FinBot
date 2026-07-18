@@ -5,7 +5,7 @@ const log = require('../lib/logger');
 const { hoyPeru } = require('../lib/dates');
 const { enviarWhatsapp } = require('../lib/whatsapp');
 const { guardarMensaje } = require('../helpers/db-helpers');
-const { registrarPagoAprobado } = require('../lib/pro-payment');
+const { activarPro } = require('../lib/pro-payment');
 const { generarUrlAutorizacion } = require('../gmail');
 
 const router = express.Router();
@@ -69,37 +69,9 @@ router.post('/aprobar-pago', async (req, res) => {
     const { data: usuario } = await query.single();
     if (!usuario) return res.status(404).json({ ok: false, msg: 'Usuario no encontrado' });
 
-    const hoy = new Date();
-    const mesesAdd = tipoPlan === 'anual' ? 12 : 1;
-    const candidato = new Date(hoy.getFullYear(), hoy.getMonth() + mesesAdd, hoy.getDate());
-    // No acortar una suscripción ya activa: conservar el vencimiento más lejano.
-    let vence = candidato;
-    if (usuario.premium_vence) {
-      const actual = new Date(usuario.premium_vence + 'T12:00:00');
-      if (!isNaN(actual.getTime()) && actual > candidato) vence = actual;
-    }
-    const desde = usuario.premium_desde || hoy.toISOString().split('T')[0];
-    const venceStr = vence.toISOString().split('T')[0];
-
-    await supabase.from('usuarios').update({
-      plan: 'premium', estado_pago: 'pagado', tipo_plan: tipoPlan,
-      fecha_pago: hoy.toISOString(), fecha_vencimiento: vence.toISOString(),
-      premium_desde: desde, premium_vence: venceStr,
-      pago_pendiente: false, esperando_comprobante: false,
-    }).eq('id', usuario.id);
-
-    await registrarPagoAprobado(usuario.id, { tipoPlan, premiumDesde: desde, premiumVence: venceStr, aprobadoPor: 'admin:webapp' });
-
-    let urlOAuth = '';
-    try { urlOAuth = generarUrlAutorizacion(usuario.whatsapp); } catch (e) { log.warn({ tag: 'APROBAR_PAGO', err: e.message }, 'No se pudo generar URL OAuth'); }
-    const mensaje = '✅ *¡Pago confirmado!*\n\n' +
-      'Plan: *' + (tipoPlan === 'anual' ? 'Anual (S/99/año)' : 'Mensual (S/10/mes)') + '*\n' +
-      'Vence: ' + venceStr + '\n\n' +
-      (urlOAuth
-        ? 'Conecta tu Gmail para que Neto lea tus correos bancarios automáticamente:\n\n🔗 ' + urlOAuth + '\n\n_Solo leemos notificaciones bancarias. Sin contraseñas bancarias._'
-        : '_Gracias por confiar en NETO._ 💚');
-    await enviarWhatsapp(usuario.whatsapp, mensaje);
-    try { await guardarMensaje(usuario.id, 'neto', mensaje); } catch (e) { /* historial best-effort */ }
+    // Fuente única de verdad: activarPro (incluye "no acortar suscripción activa",
+    // set completo de columnas, link OAuth, WhatsApp + notificación in-app).
+    const { venceStr } = await activarPro({ usuario, tipoPlan, aprobadoPor: 'admin:webapp' });
 
     res.json({ ok: true, msg: 'Pago aprobado y Pro activado para ' + (usuario.nombre || usuario.whatsapp), premium_vence: venceStr });
   } catch (e) {

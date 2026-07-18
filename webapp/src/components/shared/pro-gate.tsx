@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { Lock, Crown } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -33,13 +34,19 @@ export function ProGate({ featureName, description }: ProGateProps) {
         </div>
 
         <div className="space-y-3">
+          <Link
+            href="/dashboard/pro"
+            className="block w-full px-4 py-3 bg-[#1D9E75] hover:bg-[#1a8a6a] active:scale-[0.98] text-[#F0EFE8] font-semibold rounded-lg transition-all duration-200"
+          >
+            Pasar a Pro
+          </Link>
           <a
             href="https://wa.me/51933014505?text=Hola%20Neto%2C%20quiero%20activar%20Pro%20%E2%AD%90"
             target="_blank"
             rel="noopener noreferrer"
-            className="block w-full px-4 py-3 bg-[#1D9E75] hover:bg-[#1a8a6a] active:scale-[0.98] text-[#F0EFE8] font-semibold rounded-lg transition-all duration-200"
+            className="block text-xs text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
           >
-            Activar Pro en WhatsApp
+            o hazlo por WhatsApp
           </a>
           <p className="text-xs text-[#8A877D]">
             S/10/mes • Cancelar en cualquier momento
