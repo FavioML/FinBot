@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -29,7 +29,7 @@ interface ProStatus {
 }
 
 export default function ProPage() {
-  const { data: status, isLoading, refetch } = useQuery<ProStatus>({
+  const { data: status, isLoading, isError, refetch } = useQuery<ProStatus>({
     queryKey: ['pro-status'],
     queryFn: async () => {
       const r = await fetch('/api/pro/status', { cache: 'no-store' });
@@ -47,6 +47,35 @@ export default function ProPage() {
       <div className="flex items-center justify-center min-h-[400px]">
         <Loader2 className="h-6 w-6 animate-spin text-[#1D9E75]" />
       </div>
+    );
+  }
+
+  // Sin estado cargado (fetch falló tras el retry) NUNCA mostramos el formulario de pago:
+  // un usuario que ya es Pro vería el form y podría yapear de nuevo. Estado neutro + reintentar.
+  if (!status) {
+    return (
+      <FadeIn>
+        <div className="mx-auto w-full max-w-5xl space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-[#F0EFE8] flex items-center gap-2">
+                <Crown className="h-6 w-6" style={{ color: '#68dbae' }} /> Neto Pro
+              </h1>
+              <p className="text-sm text-[#8A877D] mt-1">Todo el potencial de Neto, sin fricción</p>
+            </div>
+            <HeaderActions />
+          </div>
+          <div className="glass-card p-6 text-center space-y-3 mx-auto max-w-xl">
+            <h2 className="text-lg font-semibold text-[#F0EFE8]">No pudimos cargar tu estado Pro</h2>
+            <p className="text-sm text-[#8A877D] max-w-md mx-auto">
+              {isError
+                ? 'Revisa tu conexión e inténtalo de nuevo. Si ya eres Pro, tu plan sigue activo.'
+                : 'Inténtalo de nuevo en un momento.'}
+            </p>
+            <button onClick={() => refetch()} className="text-xs text-[#1D9E75] hover:underline">Reintentar</button>
+          </div>
+        </div>
+      </FadeIn>
     );
   }
 

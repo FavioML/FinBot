@@ -5,7 +5,7 @@ const log = require('../lib/logger');
 const { hoyPeru } = require('../lib/dates');
 const { enviarWhatsapp } = require('../lib/whatsapp');
 const { guardarMensaje } = require('../helpers/db-helpers');
-const { activarPro } = require('../lib/pro-payment');
+const { activarPro, reclamarPagoPendiente } = require('../lib/pro-payment');
 const { generarUrlAutorizacion } = require('../gmail');
 
 const router = express.Router();
@@ -69,9 +69,17 @@ router.post('/aprobar-pago', async (req, res) => {
     const { data: usuario } = await query.single();
     if (!usuario) return res.status(404).json({ ok: false, msg: 'Usuario no encontrado' });
 
+    // Claim atómico del pago pendiente: cierra el doble-click en el panel. Si no hay
+    // pendiente que reclamar (ya procesado / otro click ganó), respondemos idempotente
+    // sin re-activar — así no se apila un mes extra. Las altas manuales sin pago van por /admin/activar.
+    const claimed = await reclamarPagoPendiente({ usuarioId: usuario.id, aprobadoPor: 'admin:webapp' });
+    if (!claimed) {
+      return res.json({ ok: true, already: true, msg: 'El pago ya estaba procesado', premium_vence: usuario.premium_vence || null });
+    }
+
     // Fuente única de verdad: activarPro (incluye "no acortar suscripción activa",
     // set completo de columnas, link OAuth, WhatsApp + notificación in-app).
-    const { venceStr } = await activarPro({ usuario, tipoPlan, aprobadoPor: 'admin:webapp' });
+    const { venceStr } = await activarPro({ usuario, tipoPlan, aprobadoPor: 'admin:webapp', pagoId: claimed.id });
 
     res.json({ ok: true, msg: 'Pago aprobado y Pro activado para ' + (usuario.nombre || usuario.whatsapp), premium_vence: venceStr });
   } catch (e) {

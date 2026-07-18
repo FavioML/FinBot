@@ -4,7 +4,7 @@ const { supabase } = require('../lib/db');
 const log = require('../lib/logger');
 const { enviarWhatsapp } = require('../lib/whatsapp');
 const { generarReporteJSON } = require('../reporte_html');
-const { oauth2Client, obtenerPerfilGoogle, guardarTokens, obtenerCuentasGmail } = require('../gmail');
+const { oauth2Client, obtenerPerfilGoogle, guardarTokens, obtenerCuentasGmail, verificarState } = require('../gmail');
 const { parsearCorreoBancario } = require('../services/parsers');
 const { escanearGmailYRegistrar, escanearHistoricoInicial } = require('../services/gmail-scanner');
 const analytics = require('../lib/analytics');
@@ -152,20 +152,20 @@ router.get('/auth/callback', async (req, res) => {
   try {
     const { tokens } = await oauth2Client.getToken(code);
     oauth2Client.setCredentials(tokens);
-    let whatsappNum = null; let modoConexion = 'inicial'; let origenConexion = null;
-    if (req.query.state) {
-      try {
-        const decoded = Buffer.from(req.query.state, 'base64').toString('utf8');
-        if (decoded.startsWith('{')) {
-          const stateObj = JSON.parse(decoded);
-          whatsappNum = stateObj.num; modoConexion = stateObj.modo || 'inicial'; origenConexion = stateObj.origen || null;
-        } else { whatsappNum = decoded; }
-      } catch(e) { log.warn({ tag: 'OAUTH', err: e.message }, 'Error decodificando state OAuth'); }
+    // El state va firmado con HMAC (ver gmail.js). Si no valida, ABORTAMOS: nunca
+    // adivinamos el usuario. Sin esta guarda, un state ausente/forjado permitía asignar
+    // los tokens de Gmail de la víctima a la cuenta del atacante (robo de datos bancarios).
+    const stateObj = verificarState(req.query.state);
+    if (!stateObj) {
+      log.warn({ tag: 'OAUTH' }, 'State OAuth ausente, inválido o vencido — callback abortado');
+      return res.status(400).send('<h2>El enlace de conexión expiró o no es válido.</h2><p>Vuelve a WhatsApp y escribe */conectar* para generar uno nuevo.</p>');
     }
+    const whatsappNum = stateObj.num;
+    const modoConexion = stateObj.modo || 'inicial';
+    const origenConexion = stateObj.origen || null;
     let usuario = null;
     if (whatsappNum) { const { data } = await supabase.from('usuarios').select('*').eq('whatsapp', whatsappNum).single(); usuario = data; }
-    if (!usuario) { const { data } = await supabase.from('usuarios').select('*').is('gmail_access_token', null).order('created_at', { ascending: false }).limit(1).single(); usuario = data; }
-    if (!usuario) return res.send('<h2>No se encontro el usuario. Escribe /conectar en WhatsApp.</h2>');
+    if (!usuario) return res.status(404).send('<h2>No se encontró tu cuenta.</h2><p>Escribe */conectar* en WhatsApp.</p>');
 
     const perfil = await obtenerPerfilGoogle(oauth2Client);
     const emailConectado = perfil.email;

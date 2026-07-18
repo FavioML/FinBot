@@ -1,5 +1,5 @@
 const { supabase } = require('../lib/db');
-const { activarPro, rechazarSolicitudPro } = require('../lib/pro-payment');
+const { activarPro, rechazarSolicitudPro, reclamarPagoPendiente } = require('../lib/pro-payment');
 const log = require('../lib/logger');
 
 /**
@@ -89,20 +89,28 @@ async function procesarCallbackAdmin(data) {
     if (accion === 'approve') {
       const tipoPlan = parts[2] === 'anual' ? 'anual' : 'mensual';
       const pagoId = parts[3];
-      const { data: pago } = await supabase.from('pagos').select('*').eq('id', pagoId).single();
-      if (!pago) return { answer: 'Solicitud no encontrada' };
-      if (pago.estado !== 'pendiente') return { answer: 'Ya procesado (' + pago.estado + ')' };
-      const { data: usuario } = await supabase.from('usuarios').select('*').eq('id', pago.usuario_id).single();
+      // Claim atómico: solo un tap gana la fila. Un segundo tap / reintento del callback
+      // recibe null y no re-activa (antes se apilaba un mes extra + fila duplicada).
+      const claimed = await reclamarPagoPendiente({ pagoId, aprobadoPor: 'admin:telegram' });
+      if (!claimed) {
+        const { data: ex } = await supabase.from('pagos').select('estado').eq('id', pagoId).maybeSingle();
+        return { answer: ex ? 'Ya procesado (' + ex.estado + ')' : 'Solicitud no encontrada' };
+      }
+      const { data: usuario } = await supabase.from('usuarios').select('*').eq('id', claimed.usuario_id).single();
       if (!usuario) return { answer: 'Usuario no encontrado' };
-      const { venceStr } = await activarPro({ usuario, tipoPlan, aprobadoPor: 'admin:telegram' });
+      const { venceStr } = await activarPro({ usuario, tipoPlan, aprobadoPor: 'admin:telegram', pagoId: claimed.id });
       return { answer: 'Aprobado ✅', edit: '✅ Aprobado (' + tipoPlan + ') — ' + (usuario.nombre || usuario.whatsapp) + '\nVence: ' + venceStr };
     }
     if (accion === 'reject') {
       const pagoId = parts[2];
-      const { data: pago } = await supabase.from('pagos').select('*').eq('id', pagoId).single();
-      if (!pago) return { answer: 'Solicitud no encontrada' };
-      if (pago.estado !== 'pendiente') return { answer: 'Ya procesado (' + pago.estado + ')' };
-      const { data: usuario } = await supabase.from('usuarios').select('*').eq('id', pago.usuario_id).single();
+      // Claim atómico también en rechazo: evita doble mensaje "no pudimos validar" por doble-tap.
+      const { data: claimed } = await supabase.from('pagos')
+        .update({ estado: 'rechazado' }).eq('id', pagoId).eq('estado', 'pendiente').select('usuario_id').maybeSingle();
+      if (!claimed) {
+        const { data: ex } = await supabase.from('pagos').select('estado').eq('id', pagoId).maybeSingle();
+        return { answer: ex ? 'Ya procesado (' + ex.estado + ')' : 'Solicitud no encontrada' };
+      }
+      const { data: usuario } = await supabase.from('usuarios').select('*').eq('id', claimed.usuario_id).single();
       if (!usuario) return { answer: 'Usuario no encontrado' };
       await rechazarSolicitudPro({ pagoId, usuario, motivo: 'No pudimos validar el comprobante.' });
       return { answer: 'Rechazado', edit: '❌ Rechazado — ' + (usuario.nombre || usuario.whatsapp) };

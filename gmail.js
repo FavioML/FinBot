@@ -1,4 +1,5 @@
 const { google } = require('googleapis');
+const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 const log = require('./lib/logger');
@@ -138,16 +139,52 @@ const SCOPES = [
   'https://www.googleapis.com/auth/userinfo.email'
 ];
 
+// Secreto para firmar el state OAuth. Reutiliza GOOGLE_CLIENT_SECRET (server-only y
+// siempre presente si OAuth funciona) cuando no hay uno dedicado; ninguno sale del backend.
+function stateSecret() {
+  return process.env.OAUTH_STATE_SECRET || process.env.GOOGLE_CLIENT_SECRET || '';
+}
+
+function firmarState(payloadB64) {
+  return crypto.createHmac('sha256', stateSecret()).update(payloadB64).digest('base64url');
+}
+
+// TTL generoso: el enlace OAuth puede quedar en un chat de WhatsApp y abrirse horas después
+// (ej. el link post-pago). La firma es el control de seguridad; `ts` es solo anti-replay.
+// Un replay de un state legítimo es inofensivo (sin un `code` real de Google el callback falla).
+const STATE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
 function generarUrlAutorizacion(whatsappNum, modo, origen) {
-  const stateObj = { num: whatsappNum || '', modo: modo || 'inicial' };
+  const stateObj = { num: whatsappNum || '', modo: modo || 'inicial', ts: Date.now() };
   if (origen) stateObj.origen = origen; // 'web' → el callback redirige a la webapp
-  const state = Buffer.from(JSON.stringify(stateObj)).toString('base64');
+  const payload = Buffer.from(JSON.stringify(stateObj)).toString('base64url');
+  const state = payload + '.' + firmarState(payload);
   return oauth2Client.generateAuthUrl({
     access_type: 'offline',
     scope: SCOPES,
     prompt: 'consent',
     state
   });
+}
+
+// Verifica la firma HMAC del state y lo decodifica. Devuelve el objeto {num, modo, origen}
+// o null si la firma no valida, el formato es inválido o venció. Nunca adivina el usuario.
+function verificarState(state) {
+  if (!state || typeof state !== 'string' || !state.includes('.')) return null;
+  const idx = state.lastIndexOf('.');
+  const payload = state.slice(0, idx);
+  const sig = state.slice(idx + 1);
+  if (!payload || !sig) return null;
+  const esperada = firmarState(payload);
+  const a = Buffer.from(sig);
+  const b = Buffer.from(esperada);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  let obj;
+  try { obj = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')); }
+  catch { return null; }
+  if (!obj || typeof obj !== 'object') return null;
+  if (!obj.ts || (Date.now() - obj.ts) > STATE_TTL_MS) return null;
+  return obj;
 }
 
 async function guardarTokens(usuarioId, tokens, email, modo) {
@@ -454,4 +491,4 @@ async function leerCorreosBancarios(usuarioId, opts = {}) {
   return { error: authExpired ? 'AUTH_EXPIRED' : null, mensajes: mensajesUnificados };
 }
 
-module.exports = { generarUrlAutorizacion, guardarTokens, cargarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail, BANCOS_CATALOGO, remitentesParaSeleccion, menuSeleccionBancos, menuEdicionBancos, describirSeleccion, construirQueriesBancarias };
+module.exports = { generarUrlAutorizacion, verificarState, guardarTokens, cargarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail, BANCOS_CATALOGO, remitentesParaSeleccion, menuSeleccionBancos, menuEdicionBancos, describirSeleccion, construirQueriesBancarias };

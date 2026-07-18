@@ -7,16 +7,30 @@ import Module from 'module';
 // controlable vía Module.prototype.require durante la carga. `single` lee state.pagoData.
 const require = createRequire(import.meta.url);
 const state = { pagoData: null };
-const builder = new Proxy({}, {
-  get(_t, p) {
-    if (p === 'single') return async () => ({ data: state.pagoData });
-    if (p === 'maybeSingle') return async () => ({ data: null });
-    return () => builder;
-  },
-});
+// Fake de Supabase que modela el CLAIM ATÓMICO: un `UPDATE ... WHERE estado='pendiente'`
+// devuelve la fila solo si seguía pendiente (como Postgres); un SELECT devuelve la fila actual.
+function makeBuilder() {
+  let isUpdate = false;
+  let filtraPendiente = false;
+  const b = new Proxy({}, {
+    get(_t, p) {
+      if (p === 'update') return () => { isUpdate = true; return b; };
+      if (p === 'eq') return (col, val) => { if (col === 'estado' && val === 'pendiente') filtraPendiente = true; return b; };
+      if (p === 'single') return async () => ({ data: state.pagoData });
+      if (p === 'maybeSingle') return async () => {
+        if (isUpdate && filtraPendiente) {
+          return { data: state.pagoData && state.pagoData.estado === 'pendiente' ? state.pagoData : null };
+        }
+        return { data: state.pagoData };
+      };
+      return () => b;
+    },
+  });
+  return b;
+}
 const fakeDb = {
   supabase: {
-    from: () => builder,
+    from: () => makeBuilder(),
     storage: { from: () => ({ upload: async () => ({ error: null }), createSignedUrl: async () => ({ data: null }) }) },
   },
 };
