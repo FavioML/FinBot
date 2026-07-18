@@ -313,7 +313,8 @@ async function checkRecordatorioDeudas() {
         const diffDias = Math.round((venc - hoyDate) / 86400000);
         const enviados = Array.isArray(deuda.recordatorios_enviados) ? deuda.recordatorios_enviados : [];
 
-        const touch = TOUCHES.find(t => t.reached(diffDias) && !enviados.includes(t.key));
+        const reached = TOUCHES.filter(t => t.reached(diffDias));
+        const touch = reached.find(t => !enviados.includes(t.key));
         if (!touch) continue;
         const cd = touch.diff; // diffDias canónico del touch: copy estable aunque haya catch-up
 
@@ -357,8 +358,11 @@ async function checkRecordatorioDeudas() {
           msgDeuda.replace(/[*_]/g, ''),
           { link: '/dashboard/deudas', deuda_id: deuda.id }
         );
-        // Ledger: registrar el touch para catch-up sin duplicar
-        await supabase.from('deudas').update({ recordatorios_enviados: [...enviados, touch.key] }).eq('id', deuda.id);
+        // Ledger: marca el touch enviado Y todos los touches ya alcanzados. Evita el back-fill de
+        // copy caduco cuando la deuda entra ya vencida o se saltó un umbral (un touch menos avanzado
+        // ya no aplica). Preserva el catch-up: se manda el más avanzado alcanzado que faltaba.
+        const keysAlcanzados = [...new Set([...enviados, ...reached.map(t => t.key)])];
+        await supabase.from('deudas').update({ recordatorios_enviados: keysAlcanzados }).eq('id', deuda.id);
       } catch (e) { /* silent per debt */ }
     }
   } catch (e) { log.error({ tag: 'DEUDA_REMINDER', err: e.message }, 'Error recordatorio deudas'); }

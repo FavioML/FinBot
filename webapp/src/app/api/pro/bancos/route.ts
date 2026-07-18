@@ -1,5 +1,6 @@
 import { getNetoUserId } from '@/lib/supabase/auth';
 import { getServiceClient } from '@/lib/supabase/service';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { NextResponse } from 'next/server';
 
 const BACKEND_URL = process.env.NETO_BACKEND_URL || process.env.RAILWAY_URL || 'https://api.neto.pe';
@@ -34,6 +35,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const userId = await getNetoUserId();
   if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  if (!checkRateLimit(userId)) return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
 
   const body = await request.json().catch(() => ({}));
   const raw = (body as { bancos?: unknown }).bancos;

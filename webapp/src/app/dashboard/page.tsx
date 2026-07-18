@@ -92,7 +92,7 @@ export default function DashboardPage() {
   }, [detailCategoria]);
 
   // Load ALL transactions for the user (enables both monthly and annual views + trend chart)
-  const { data: allTransactions = [], isLoading: txLoading } = useTransactions({
+  const { data: allTransactions = [], isLoading: txLoading, isError: txError, refetch: refetchTx } = useTransactions({
     usuarioId: user?.id,
   });
 
@@ -298,6 +298,25 @@ export default function DashboardPage() {
           showWhatsApp={false}
         />
       </>
+    );
+  }
+
+  // Error de carga (fetch de transacciones falló y no hay cache): error explícito en vez de un
+  // dashboard vacío que parezca "perdiste tu data". Si hay cache, renderizamos normal.
+  if (txError && allTransactions.length === 0) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center p-6">
+        <div className="glass-card w-full max-w-md space-y-4 p-8 text-center">
+          <h2 className="text-xl font-bold text-[#F0EFE8]">No pudimos cargar tu dashboard</h2>
+          <p className="text-sm text-[#8A877D]">Revisa tu conexión e inténtalo de nuevo. Tu información está a salvo.</p>
+          <button
+            onClick={() => refetchTx()}
+            className="inline-flex items-center gap-2 rounded-lg bg-[#1D9E75] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1D9E75]/90"
+          >
+            Reintentar
+          </button>
+        </div>
+      </div>
     );
   }
 

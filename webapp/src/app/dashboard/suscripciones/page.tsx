@@ -174,7 +174,7 @@ function formatDate(dateStr: string): string {
 
 export default function SuscripcionesPage() {
   const { data: user, isLoading: userLoading } = useUser();
-  const { data: rawData, isLoading: subsLoading } = useSubscriptions(user?.id);
+  const { data: rawData, isLoading: subsLoading, isError: subsError, refetch: refetchSubs } = useSubscriptions(user?.id);
   const { overrides, isLoading: overridesLoading, upsert, remove } =
     useRecurringOverrides('suscripcion');
 
@@ -343,6 +343,24 @@ export default function SuscripcionesPage() {
   if (isLoading) {
     return (
       <SuscripcionesSkeleton />
+    );
+  }
+
+  // Error de carga distinto de "sin suscripciones": no mostrar el empty (parecería que perdió su data).
+  if (subsError) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center p-6">
+        <div className="glass-card w-full max-w-md space-y-4 p-8 text-center">
+          <h2 className="text-xl font-bold text-[#F0EFE8]">No pudimos cargar tus suscripciones</h2>
+          <p className="text-sm text-[#8A877D]">Revisa tu conexión e inténtalo de nuevo. Tu información está a salvo.</p>
+          <button
+            onClick={() => refetchSubs()}
+            className="inline-flex items-center gap-2 rounded-lg bg-[#1D9E75] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1D9E75]/90"
+          >
+            Reintentar
+          </button>
+        </div>
+      </div>
     );
   }
 

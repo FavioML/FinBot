@@ -74,7 +74,7 @@ async function guardarTransaccion(usuarioId, datos) {
   const last4 = normalizarLast4(datos.tarjeta_last4) || extraerLast4(datos.descripcion_original);
   const dedupRaw = usuarioId + '|' + fechaTx + '|' + montoValidado + '|' + (datos.comercio || '') + '|' + (datos.tipo || 'gasto');
   const dedupHash = crypto.createHash('md5').update(dedupRaw).digest('hex');
-  if (!datos.descripcion_original || !datos.descripcion_original.startsWith('gmail:')) {
+  if (!datos.esGmail) {
     const ventanaInicio = new Date(Date.now() - DEDUP_WINDOW_MS).toISOString();
     // El hash NO incluye el last4 (para no romper paridad con el hash de la webapp
     // ni con las filas ya guardadas). El last4 refina la decisión: un candidato solo
@@ -118,7 +118,7 @@ async function guardarTransaccion(usuarioId, datos) {
   }).select().single();
   if (error) throw error;
   // Activación: primera transacción del usuario (excluye importación masiva de Gmail).
-  if (!datos.descripcion_original || !datos.descripcion_original.startsWith('gmail:')) {
+  if (!datos.esGmail) {
     try {
       const { count } = await supabase.from('transacciones')
         .select('id', { count: 'exact', head: true })

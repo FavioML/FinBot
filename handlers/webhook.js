@@ -39,6 +39,21 @@ function isDuplicateWamid(wamid) {
   return false;
 }
 
+// Rate limit anti fuerza-bruta del OTP inverso: el código es global-by-code (el número no se
+// conoce hasta que se envía, ese es el modelo de posesión), así que la defensa contra adivinar
+// el código de otra persona es el throttle. Máx 5 intentos por número cada 15 min. In-memory
+// (asume single-instance, ver supuesto documentado del backend).
+const OTP_MAX_INTENTOS = 5;
+const OTP_VENTANA_MS = 15 * 60 * 1000;
+const otpIntentos = new Map(); // from → { count, ts }
+function otpRateLimited(from) {
+  const now = Date.now();
+  const e = otpIntentos.get(from);
+  if (!e || now - e.ts > OTP_VENTANA_MS) { otpIntentos.set(from, { count: 1, ts: now }); return false; }
+  e.count += 1;
+  return e.count > OTP_MAX_INTENTOS;
+}
+
 function createWebhookHandler(procesarMensajeLibre) {
   return async function webhookHandler(req, res) {
   const META_APP_SECRET = process.env.META_APP_SECRET;
@@ -473,6 +488,11 @@ function createWebhookHandler(procesarMensajeLibre) {
     // onboarding webapp). Ver migrations/020_webapp_otp.sql.
     const otpMatch = msg.match(/NETO-(\d{6})/i);
     if (otpMatch) {
+      if (otpRateLimited(from)) {
+        log.warn({ tag: 'WEBAPP_OTP', from }, 'OTP rate limit alcanzado (posible fuerza bruta)');
+        await enviarWhatsapp(from, '⚠️ Demasiados intentos de verificación. Espera unos minutos y vuelve a intentar desde app.neto.pe.');
+        return;
+      }
       const code = 'NETO-' + otpMatch[1];
       try {
         const { data: otp } = await supabase.from('webapp_otp')

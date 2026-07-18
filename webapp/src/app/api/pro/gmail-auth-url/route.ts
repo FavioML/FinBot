@@ -1,4 +1,5 @@
 import { getNetoUserId } from '@/lib/supabase/auth';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { NextResponse } from 'next/server';
 
 const BACKEND_URL = process.env.NETO_BACKEND_URL || process.env.RAILWAY_URL || 'https://api.neto.pe';
@@ -11,6 +12,7 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   const userId = await getNetoUserId();
   if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  if (!checkRateLimit(userId)) return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
   if (!INTERNAL_API_KEY) {
     return NextResponse.json({ error: 'INTERNAL_API_KEY no configurada en el entorno de la webapp' }, { status: 500 });
   }

@@ -62,7 +62,10 @@ async function escanearGmailYRegistrar(usuario, opts = {}) {
       if (excluido) { ignoradas++; continue; }
       const resultado = await parsearCorreoBancario(textoParseo, msg.asunto, categoriasCustom);
       if (!resultado.monto) continue;
-      const txGuardada = await guardarTransaccion(usuario.id, { ...resultado, fecha: msg.fecha || resultado.fecha, descripcion_original: claveDedup });
+      // esGmail: true → guardarTransaccion salta su dedup de ventana (10s) y el conteo de
+      // activación. El scanner ya dedup-ea por msg.id (descripcion_original) arriba; sin este
+      // flag, dos compras idénticas del mismo día colapsaban y el import disparaba wa_first_transaction.
+      const txGuardada = await guardarTransaccion(usuario.id, { ...resultado, fecha: msg.fecha || resultado.fecha, descripcion_original: claveDedup, esGmail: true });
       registradas++;
       resumen += '- ' + (resultado.tipo === 'ingreso' ? 'Ingreso' : 'Gasto') + ': ' + (resultado.comercio || resultado.banco || 'Sin nombre') + ' S/ ' + resultado.monto + '\n';
       // En el barrido histórico se registran en silencio: nada de una tarjeta por correo.
@@ -97,19 +100,27 @@ const HISTORICO_SCAN_OPTS = { windowDays: 30, filterDays: 30, maxPerQuery: 100, 
 // movimientos de los \u00FAltimos 30 d\u00EDas y marca usuarios.historico_importado para no repetir.
 async function escanearHistoricoInicial(usuario) {
   if (usuario.historico_importado) return null;
+  // Claim at\u00F3mico: pone historico_importado=true SOLO si estaba false y solo si esta ejecuci\u00F3n
+  // gana la fila corremos el barrido. Un segundo callback OAuth concurrente (Google reintenta /
+  // doble click) recibe null y no duplica los 30 d\u00EDas. Reservamos ANTES del scan; si la auth
+  // falla, liberamos para que el usuario pueda reconectar y a\u00FAn merecer el barrido.
+  const { data: claim } = await supabase.from('usuarios')
+    .update({ historico_importado: true })
+    .eq('id', usuario.id).eq('historico_importado', false)
+    .select('id').maybeSingle();
+  if (!claim) { log.info({ tag: 'HIST', usuarioId: usuario.id }, 'Barrido hist\u00F3rico ya reclamado, skip'); return null; }
+  usuario.historico_importado = true;
   log.info({ tag: 'HIST', usuarioId: usuario.id }, 'Barrido hist\u00F3rico 30d iniciado');
   const resultado = await escanearGmailYRegistrar(usuario, {
     scanOpts: HISTORICO_SCAN_OPTS,
     enviarAlertas: false,
     historico: true,
   });
-  // Si la auth fall\u00F3, NO marcar el flag: el usuario podr\u00EDa reconectar y a\u00FAn merecer el barrido.
-  if (resultado && resultado.authError) return resultado;
-  // Marcar como importado pase lo que pase (0 o N correos): el scan corri\u00F3 OK.
-  const { error: updErr } = await supabase.from('usuarios')
-    .update({ historico_importado: true }).eq('id', usuario.id);
-  if (updErr) log.warn({ tag: 'HIST', usuarioId: usuario.id, err: updErr.message }, 'No se pudo marcar historico_importado');
-  usuario.historico_importado = true;
+  if (resultado && resultado.authError) {
+    await supabase.from('usuarios').update({ historico_importado: false }).eq('id', usuario.id);
+    usuario.historico_importado = false;
+    return resultado;
+  }
   log.info({ tag: 'HIST', usuarioId: usuario.id }, 'Barrido hist\u00F3rico 30d completado');
   return resultado;
 }

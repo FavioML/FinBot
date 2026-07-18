@@ -147,8 +147,9 @@ router.get('/mi-reporte/:id', (req, res) => {
 // GET /auth/callback — OAuth2 callback de Gmail
 router.get('/auth/callback', async (req, res) => {
   const { code, error } = req.query;
-  if (error) return res.send('<h2>Error: ' + error + '</h2>');
-  if (!code) return res.send('<h2>No se recibio el codigo</h2>');
+  // No reflejar req.query.error crudo en el HTML (XSS reflejado). Lo logueamos y mostramos texto fijo.
+  if (error) { log.warn({ tag: 'OAUTH', code: String(error).slice(0, 60) }, 'Google devolvió error en el callback OAuth'); return res.status(400).send('<h2>No se pudo conectar Gmail.</h2><p>Vuelve a WhatsApp e intenta de nuevo.</p>'); }
+  if (!code) return res.status(400).send('<h2>No se recibió el código.</h2><p>Vuelve a WhatsApp e intenta de nuevo.</p>');
   // Verifica el state firmado (HMAC, ver gmail.js) ANTES de canjear el code: no gastamos
   // un token exchange en un callback forjado y NUNCA adivinamos el usuario. Sin esta guarda,
   // un state ausente/forjado permitía asignar los tokens de Gmail de la víctima a la cuenta
@@ -227,7 +228,7 @@ router.get('/auth/callback', async (req, res) => {
         }
       } catch(e) { log.error({ tag: 'CALLBACK', err: e.message }, 'Error OAuth callback'); }
     }, 2000);
-  } catch (err) { res.send('<h2>Error: ' + err.message + '</h2>'); }
+  } catch (err) { log.error({ tag: 'CALLBACK', err: err.message }, 'Error en OAuth callback'); res.status(500).send('<h2>Ocurrió un error al conectar Gmail.</h2><p>Vuelve a WhatsApp e intenta de nuevo.</p>'); }
 });
 
 // POST /test-parser — admin tool to test email parser
