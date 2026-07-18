@@ -16,7 +16,6 @@ import {
   Link,
   Copy,
   Check,
-  ExternalLink,
   Settings,
   Shield,
   MessageCircle,
@@ -581,22 +580,6 @@ export default function ConfiguracionPage() {
         ) : (
           <p className="text-sm text-[#8A877D]">No hay cuentas conectadas.</p>
         )}
-
-        {/* Connect another */}
-        <a
-          href={`${SOCIAL_LINKS.whatsapp}?text=${encodeURIComponent('Quiero conectar otra cuenta de Gmail')}`}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Button
-            variant="outline"
-            className="w-full border-[rgba(255,255,255,0.1)] bg-transparent text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.05)] gap-2"
-          >
-            <MessageCircle className="h-4 w-4" />
-            Conectar otra cuenta
-            <ExternalLink className="h-3 w-3 ml-auto opacity-60" />
-          </Button>
-        </a>
       </div>
 
       {/* ============================================================ */}

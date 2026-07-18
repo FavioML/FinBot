@@ -46,11 +46,13 @@ module.exports = {
         if (planConfigPref.maxGmailAccounts === 0 || planConfigPref.resumenDiario === false) {
           return '⭐ *Resúmenes y reportes automáticos son una función Pro.*\n\nCon NETO Pro recibes tu resumen diario, conectas Gmail para que registre solo, y configuras el modo de reporte.\n\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
         }
-        const modoNuevo = datos.modo || 'unificado';
+        // El NLP puede devolver variantes ("separado por cuenta", "separados"). Normalizamos a
+        // los dos valores canónicos que el resto del código compara exacto (ej. gastos.js).
+        const modoNuevo = /separad/i.test(datos.modo || '') ? 'separado' : 'unificado';
         await supabase.from('usuarios').update({ reporte_gmail_modo: modoNuevo }).eq('id', usuario.id);
         const cuentasConf = await obtenerCuentasGmail(usuario.id);
         if (modoNuevo === 'separado' && cuentasConf.length < 2) {
-          return '⚠️ Solo tienes una cuenta Gmail conectada. Agrega otra con _"agregar otro correo"_ para ver reportes separados.';
+          return '📧 Tienes una sola cuenta Gmail conectada, así que tus reportes ya salen en uno solo. El modo separado aplica cuando hay más de una cuenta.';
         }
         return modoNuevo === 'separado'
           ? '✅ Reportes configurados: *separados por cuenta*.\nVerás cada Gmail por separado en tus resúmenes y reportes.'
