@@ -138,7 +138,10 @@ async function detectarSuscripciones(usuarioId) {
         estado,
         moneda: data.moneda,
         monto_detectado: Math.round(montoDetectado * 100) / 100,
-        monto_pen: data.moneda === 'USD' ? Math.round(montoDetectado * TC * 100) / 100 : Math.round(montoDetectado * 100) / 100,
+        // monto_pen persistido del pago (C7): usa el TC del día en que se registró, no el
+        // de hoy. Recalcular con el TC actual metía drift en subs USD (ej. pago a 3.70,
+        // hoy 3.85). ultimoPago.monto_pen ya viene de la fila (o monto si era PEN).
+        monto_pen: Math.round(ultimoPago.monto_pen * 100) / 100,
         precio_referencia: precioRef,
         tiene_plan_familiar: catalogoMatch.tiene_plan_familiar,
         precio_familiar: catalogoMatch.precio_familiar,
@@ -158,6 +161,9 @@ async function detectarSuscripciones(usuarioId) {
       // un software o gimnasio no listado en el catálogo).
       const montos = data.pagos.map(p => p.monto);
       const avg = montos.reduce((a, b) => a + b, 0) / montos.length;
+      // Promedio de los monto_pen persistidos (C7): sin recompute con TC de hoy.
+      const montosPen = data.pagos.map(p => p.monto_pen);
+      const avgPen = montosPen.reduce((a, b) => a + b, 0) / montosPen.length;
       const varianza = montos.reduce((s, m) => s + Math.pow(m - avg, 2), 0) / montos.length;
       const coefVar = avg > 0 ? Math.sqrt(varianza) / avg : 1;
 
@@ -172,7 +178,7 @@ async function detectarSuscripciones(usuarioId) {
           estado: 'posible',
           moneda: data.moneda,
           monto_detectado: Math.round(avg * 100) / 100,
-          monto_pen: data.moneda === 'USD' ? Math.round(avg * TC * 100) / 100 : Math.round(avg * 100) / 100,
+          monto_pen: Math.round(avgPen * 100) / 100,
           precio_referencia: null,
           tiene_plan_familiar: false,
           precio_familiar: null,
@@ -186,12 +192,14 @@ async function detectarSuscripciones(usuarioId) {
     }
   }
 
-  // Calcular totales
-  let totalPEN = 0;
+  // Calcular totales. El total en PEN suma los monto_pen persistidos de cada sub (C7): sin
+  // reconvertir USD con el TC de hoy. El total en USD suma los montos USD originales (figura
+  // real en dólares), que no depende del TC.
+  let totalPenPersistido = 0;
   let totalUSD = 0;
   for (const sub of suscripciones) {
+    totalPenPersistido += sub.monto_pen;
     if (sub.moneda === 'USD') totalUSD += sub.monto_detectado;
-    else totalPEN += sub.monto_detectado;
   }
 
   // Ordenar por monto PEN descendente
@@ -199,7 +207,7 @@ async function detectarSuscripciones(usuarioId) {
 
   return {
     suscripciones_detectadas: suscripciones,
-    total_mensual_pen: Math.round((totalPEN + totalUSD * TC) * 100) / 100,
+    total_mensual_pen: Math.round(totalPenPersistido * 100) / 100,
     total_mensual_usd: Math.round(totalUSD * 100) / 100,
     cantidad: suscripciones.length,
     resumen: {

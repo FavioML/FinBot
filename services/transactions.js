@@ -123,9 +123,25 @@ async function guardarTransaccion(usuarioId, datos) {
     tarjeta_last4: last4 || null,
     fecha: fechaTx,
     descripcion_original: datos.descripcion_original, confirmado: false,
-    dedup_hash: dedupHash
+    dedup_hash: dedupHash,
+    // Identificador del correo Gmail de origen (null para registros manuales/imagen).
+    // Lo respalda el índice único parcial (usuario_id, gmail_msg_id) de la migración 031:
+    // cierra la race de doble barrido que descripcion_original no puede (columna compartida).
+    gmail_msg_id: datos.gmail_msg_id || null
   }).select().single();
-  if (error) throw error;
+  if (error) {
+    // 23505 = violación del índice único de gmail_msg_id: un barrido concurrente (sweep 30d +
+    // cron 15min solapados) ya insertó este correo. No es error: devolvemos la fila que ganó.
+    if (error.code === '23505' && datos.gmail_msg_id) {
+      const { data: yaExiste } = await supabase.from('transacciones').select('*')
+        .eq('usuario_id', usuarioId).eq('gmail_msg_id', datos.gmail_msg_id).maybeSingle();
+      if (yaExiste) {
+        log.info({ tag: 'DEDUP_GMAIL', gmailMsgId: datos.gmail_msg_id }, 'Correo ya registrado por barrido concurrente');
+        return yaExiste;
+      }
+    }
+    throw error;
+  }
   // Activación: primera transacción del usuario (excluye importación masiva de Gmail).
   if (!datos.esGmail) {
     try {

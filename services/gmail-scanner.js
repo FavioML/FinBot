@@ -24,6 +24,26 @@ function getEnviarAlertaTransaccion() {
 // Throttle de notificaciones de auth expirada: máx 1 vez cada 24h por usuario
 const authErrorNotifiedAt = new Map();
 
+// Pool de concurrencia simple (sin dependencia externa). Corre `fn` sobre `items`
+// con a lo más `concurrency` en vuelo a la vez. JS es single-thread: los contadores
+// que mutan las tareas (registradas/ignoradas/resumen) son seguros entre awaits.
+async function mapPool(items, concurrency, fn) {
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      await fn(items[i], i);
+    }
+  }
+  const n = Math.min(concurrency, items.length);
+  await Promise.all(Array.from({ length: n }, worker));
+}
+
+// Cuántos correos parsear en paralelo por sweep. Cada correo hace SELECT dedup +
+// 1 llamada GPT-4o-mini + insert; en serie, 100 correos ≈ 100s. Con 5 en vuelo el
+// wall-clock cae ~5x sin subir el número de llamadas OpenAI.
+const CONCURRENCIA_SWEEP = 5;
+
 async function notificarAuthExpirada(usuario) {
   const last = authErrorNotifiedAt.get(usuario.id) || 0;
   if (Date.now() - last < 24 * 60 * 60 * 1000) return; // ya notificado hoy
@@ -52,20 +72,27 @@ async function escanearGmailYRegistrar(usuario, opts = {}) {
   let categoriasCustom = null;
   try { categoriasCustom = await obtenerCategoriasUsuario(usuario.id); }
   catch(e) { log.warn({ tag: 'CATS', err: e.message }, 'No se pudieron cargar categorías custom'); }
-  for (const msg of mensajes) {
+  // Procesa hasta CONCURRENCIA_SWEEP correos en paralelo (P1: antes era serial, 30d
+  // podía tomar ~100s). Cada correo es independiente (distinto msg.id); el pool no
+  // introduce race porque el insert va protegido por el índice único de gmail_msg_id.
+  await mapPool(mensajes, CONCURRENCIA_SWEEP, async function(msg) {
     try {
       const textoParseo = msg.texto || msg.snippet;
       const claveDedup = msg.id;
+      // Pre-check barato por descripcion_original: evita gastar una llamada OpenAI en un
+      // correo ya registrado (cubre también filas viejas sin gmail_msg_id). NO es la
+      // garantía contra la race de doble barrido — esa la da el índice único parcial
+      // (usuario_id, gmail_msg_id) que atrapa dos inserts concurrentes del mismo correo.
       const { data: existente } = await supabase.from('transacciones').select('id').eq('usuario_id', usuario.id).eq('descripcion_original', claveDedup).single();
-      if (existente) { ignoradas++; continue; }
+      if (existente) { ignoradas++; return; }
       const { data: excluido } = await supabase.from('gmail_excluidos').select('id').eq('usuario_id', usuario.id).eq('descripcion_original', claveDedup).single();
-      if (excluido) { ignoradas++; continue; }
+      if (excluido) { ignoradas++; return; }
       const resultado = await parsearCorreoBancario(textoParseo, msg.asunto, categoriasCustom);
-      if (!resultado.monto) continue;
+      if (!resultado.monto) return;
       // esGmail: true → guardarTransaccion salta su dedup de ventana (10s) y el conteo de
-      // activación. El scanner ya dedup-ea por msg.id (descripcion_original) arriba; sin este
-      // flag, dos compras idénticas del mismo día colapsaban y el import disparaba wa_first_transaction.
-      const txGuardada = await guardarTransaccion(usuario.id, { ...resultado, fecha: msg.fecha || resultado.fecha, descripcion_original: claveDedup, esGmail: true });
+      // activación. gmail_msg_id → clave del índice único que cierra la race de doble barrido
+      // (sweep 30d + cron 15min solapados) sin poder poner unique sobre descripcion_original.
+      const txGuardada = await guardarTransaccion(usuario.id, { ...resultado, fecha: msg.fecha || resultado.fecha, descripcion_original: claveDedup, gmail_msg_id: claveDedup, esGmail: true });
       registradas++;
       resumen += '- ' + (resultado.tipo === 'ingreso' ? 'Ingreso' : 'Gasto') + ': ' + (resultado.comercio || resultado.banco || 'Sin nombre') + ' S/ ' + resultado.monto + '\n';
       // En el barrido histórico se registran en silencio: nada de una tarjeta por correo.
@@ -79,7 +106,7 @@ async function escanearGmailYRegistrar(usuario, opts = {}) {
         }, 5000);
       }
     } catch (e) { log.error({ tag: 'CORREO', err: e.message }, 'Error procesando correo'); registrarError('CORREO', e.message, { stack: e.stack, usuarioId: usuario.id }); }
-  }
+  });
   if (registradas === 0) {
     if (historico) return null;
     if (ignoradas > 0) return '*Sin correos nuevos*\n\n' + ignoradas + ' correo(s) ya estaban registrados.';
@@ -94,7 +121,7 @@ async function escanearGmailYRegistrar(usuario, opts = {}) {
 
 // Ventana y caps del barrido hist\u00F3rico \u00FAnico (30 d\u00EDas). Caps altos para poblar el
 // dashboard pero acotados para no golpear la cuota de Gmail (~2 list + hasta 100 get).
-const HISTORICO_SCAN_OPTS = { windowDays: 30, filterDays: 30, maxPerQuery: 100, maxProcess: 100 };
+const HISTORICO_SCAN_OPTS = { windowDays: 30, filterDays: 30, maxPerQuery: 100, maxProcess: 50 };
 
 // Barrido hist\u00F3rico \u00FAnico tras la primera conexi\u00F3n de Gmail. Registra en silencio los
 // movimientos de los \u00FAltimos 30 d\u00EDas y marca usuarios.historico_importado para no repetir.

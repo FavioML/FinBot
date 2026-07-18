@@ -162,10 +162,12 @@ describe('detectarSuscripciones — deteccion por catalogo', () => {
     expect(r.cantidad).toBe(0);
   });
 
-  it('match de catalogo en USD con 2 pagos: convierte monto_pen con TC (venta 3.85)', async () => {
+  it('match de catalogo en USD usa el monto_pen PERSISTIDO, no recompute con TC de hoy (C7)', async () => {
+    // Pagos USD registrados cuando el TC era 3.70 -> monto_pen 74. Reconvertir con el TC de
+    // hoy (3.85) daria 77: 3 soles de drift. La deteccion debe reflejar lo que se pago.
     state.txs = [
-      tx('ChatGPT', 20, '2026-07-10', { moneda: 'USD' }),
-      tx('ChatGPT', 20, '2026-06-10', { moneda: 'USD' }),
+      tx('ChatGPT', 20, '2026-07-10', { moneda: 'USD', monto_pen: 74 }),
+      tx('ChatGPT', 20, '2026-06-10', { moneda: 'USD', monto_pen: 74 }),
     ];
     const r = await detectarSuscripciones('u1');
 
@@ -173,7 +175,7 @@ describe('detectarSuscripciones — deteccion por catalogo', () => {
     expect(sub.nombre).toBe('ChatGPT Plus');
     expect(sub.moneda).toBe('USD');
     expect(sub.monto_detectado).toBe(20);
-    expect(sub.monto_pen).toBe(77); // 20 * 3.85
+    expect(sub.monto_pen).toBe(74); // persistido (ultimo pago), NO 20*3.85=77
     expect(sub.meses_detectados).toBe(2);
     expect(sub.estado).toBe('activa');
   });
@@ -268,21 +270,35 @@ describe('detectarSuscripciones — deteccion por patron (sin catalogo)', () => 
     const r = await detectarSuscripciones('u1');
     expect(r.cantidad).toBe(0);
   });
+
+  it('rama patron USD: monto_pen es el promedio de los persistidos, no recompute con TC (C7)', async () => {
+    // Software USD categorizado suscripcion, registrado a TC 3.70 -> monto_pen 37 cada uno.
+    // Reconvertir 10 USD con el TC de hoy (3.85) daria 38.5; el persistido es 37.
+    state.txs = [
+      tx('Software Raro', 10, '2026-07-01', { moneda: 'USD', monto_pen: 37, categoria: 'Suscripciones', subcategoria: 'Software' }),
+      tx('Software Raro', 10, '2026-06-01', { moneda: 'USD', monto_pen: 37, categoria: 'Suscripciones', subcategoria: 'Software' }),
+    ];
+    const r = await detectarSuscripciones('u1');
+    const sub = r.suscripciones_detectadas[0];
+    expect(sub.fuente).toBe('patron');
+    expect(sub.monto_detectado).toBe(10);
+    expect(sub.monto_pen).toBe(37); // promedio de monto_pen persistidos, NO 10*3.85
+  });
 });
 
 describe('detectarSuscripciones — totales y ahorro familiar', () => {
   beforeEach(resetState);
 
-  it('total_mensual_usd suma solo USD; total_mensual_pen convierte USD a PEN', async () => {
+  it('total_mensual_usd suma USD original; total_mensual_pen suma los monto_pen persistidos (C7)', async () => {
     state.txs = [
       tx('Netflix', 25.90, '2026-07-05', { moneda: 'PEN', monto_pen: 25.90 }),
-      tx('ChatGPT', 20, '2026-07-10', { moneda: 'USD' }),
+      tx('ChatGPT', 20, '2026-07-10', { moneda: 'USD', monto_pen: 74 }),
     ];
     const r = await detectarSuscripciones('u1');
 
-    expect(r.total_mensual_usd).toBe(20);
-    // 25.90 (PEN) + 20*3.85 (USD->PEN) = 25.90 + 77 = 102.90
-    expect(r.total_mensual_pen).toBe(102.90);
+    expect(r.total_mensual_usd).toBe(20); // figura USD real (no depende del TC)
+    // 25.90 (PEN) + 74 (monto_pen persistido del USD) = 99.90 — sin reconvertir con TC de hoy
+    expect(r.total_mensual_pen).toBe(99.90);
   });
 
   it('calcula ahorro familiar cuando familiar/2 < monto individual (Spotify PEN)', async () => {
