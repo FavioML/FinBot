@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Crown, Copy, Check, Upload, Loader2, Clock, ShieldCheck, Mail, ChevronDown, RefreshCw, Landmark } from 'lucide-react';
+import { Crown, Copy, Check, Upload, Loader2, Clock, ShieldCheck, Mail, RefreshCw, Landmark } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FadeIn } from '@/components/shared/motion-wrapper';
 import { HeaderActions } from '@/components/dashboard/topbar';
@@ -23,6 +23,7 @@ interface ProStatus {
   premiumVence: string | null;
   bancosSeleccionados: string[] | null;
   gmailConectado: boolean;
+  gmailEmail: string | null;
   ultimoPago: { estado: string; tipoPlan: string } | null;
 }
 
@@ -50,7 +51,7 @@ export default function ProPage() {
 
   return (
     <FadeIn>
-      <div className="space-y-6 max-w-2xl">
+      <div className="mx-auto w-full max-w-5xl space-y-6">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-[#F0EFE8] flex items-center gap-2">
@@ -84,47 +85,49 @@ function PremiumState({ status, onDone }: { status: ProStatus; onDone: () => voi
 
   return (
     <div className="space-y-4">
-      <div className="glass-card glass-card-glow p-6 text-center space-y-3">
-        <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-[#1D9E75]/15 border border-[#1D9E75]/30">
+      {/* Banner */}
+      <div className="glass-card glass-card-glow p-6 flex flex-col sm:flex-row items-center gap-4 sm:gap-6 text-center sm:text-left">
+        <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-[#1D9E75]/15 border border-[#1D9E75]/30 shrink-0">
           <ShieldCheck className="w-7 h-7 text-[#1D9E75]" />
         </div>
-        <h2 className="text-xl font-bold text-[#F0EFE8]">Eres Neto Pro ⭐</h2>
-        {status.premiumVence && (
-          <p className="text-sm text-[#8A877D]">
-            Activo hasta el{' '}
-            {new Date(status.premiumVence + 'T12:00:00').toLocaleDateString('es-PE', { day: 'numeric', month: 'long', year: 'numeric' })}
-          </p>
-        )}
+        <div className="flex-1">
+          <h2 className="text-xl font-bold text-[#F0EFE8]">Eres Neto Pro ⭐</h2>
+          {status.premiumVence && (
+            <p className="text-sm text-[#8A877D] mt-0.5">
+              Activo hasta el{' '}
+              {new Date(status.premiumVence + 'T12:00:00').toLocaleDateString('es-PE', { day: 'numeric', month: 'long', year: 'numeric' })}
+            </p>
+          )}
+        </div>
+        <button
+          onClick={() => setShowRenew((v) => !v)}
+          className="inline-flex items-center gap-2 rounded-lg border border-[rgba(255,255,255,0.1)] px-4 py-2 text-sm text-[#C8C6BC] hover:text-[#F0EFE8] hover:bg-[rgba(255,255,255,0.04)] transition-colors shrink-0"
+        >
+          <RefreshCw className="h-4 w-4" /> {showRenew ? 'Cerrar' : 'Renovar'}
+        </button>
       </div>
 
-      <BancosManager initial={status.bancosSeleccionados} />
-
-      <GmailConnect conectado={status.gmailConectado} />
-
-      {/* Renovar */}
-      {showRenew ? (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2 text-sm text-[#F0EFE8]">
+      {/* Renewal form (opens above the management grid) */}
+      {showRenew && (
+        <div className="glass-card p-5 space-y-1">
+          <div className="flex items-center gap-2 text-sm font-semibold text-[#F0EFE8] mb-2">
             <RefreshCw className="h-4 w-4 text-[#1D9E75]" /> Renovar / extender tu Pro
           </div>
           <PaymentForm renewal onDone={() => { setShowRenew(false); onDone(); }} />
         </div>
-      ) : (
-        <button
-          onClick={() => setShowRenew(true)}
-          className="w-full glass-card p-4 flex items-center justify-center gap-2 text-sm text-[#C8C6BC] hover:text-[#F0EFE8] transition-colors"
-        >
-          <RefreshCw className="h-4 w-4" /> Renovar o pagar mi próximo periodo
-        </button>
       )}
+
+      {/* Management: bancos + gmail side by side on desktop */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <BancosManager initial={status.bancosSeleccionados} />
+        <GmailConnect conectado={status.gmailConectado} email={status.gmailEmail} />
+      </div>
     </div>
   );
 }
 
 function BancosManager({ initial }: { initial: string[] | null }) {
-  const [open, setOpen] = useState(false);
-  const [todos, setTodos] = useState(initial === null);
-  const [selected, setSelected] = useState<Set<string>>(new Set(initial || []));
+  const [selected, setSelected] = useState<Set<string> | null>(null);
   const [saving, setSaving] = useState(false);
 
   const { data: bancos = [] } = useQuery<Banco[]>({
@@ -136,32 +139,36 @@ function BancosManager({ initial }: { initial: string[] | null }) {
     },
   });
 
-  const label = useMemo(() => {
-    if (todos) return 'Todos mis bancos';
-    if (selected.size === 0) return 'Ninguno seleccionado';
-    return `${selected.size} banco${selected.size > 1 ? 's' : ''}`;
-  }, [todos, selected]);
+  // Inicializa la selección una vez que carga el catálogo: null = todos.
+  useEffect(() => {
+    if (!bancos.length || selected !== null) return;
+    setSelected(initial === null ? new Set(bancos.map((b) => b.id)) : new Set(initial));
+  }, [bancos, initial, selected]);
 
+  const sel = selected ?? new Set<string>();
+  const allChecked = bancos.length > 0 && sel.size === bancos.length;
+
+  function toggleAll() {
+    setSelected(allChecked ? new Set() : new Set(bancos.map((b) => b.id)));
+  }
   function toggle(id: string) {
-    setSelected((prev) => {
-      const n = new Set(prev);
-      if (n.has(id)) n.delete(id); else n.add(id);
-      return n;
-    });
+    const n = new Set(sel);
+    if (n.has(id)) n.delete(id); else n.add(id);
+    setSelected(n);
   }
 
   async function save() {
     setSaving(true);
     try {
-      const bancosPayload = todos ? null : Array.from(selected);
+      // Si están todos marcados guardamos null (= todos, y auto-incluye bancos nuevos).
+      const payload = allChecked ? null : Array.from(sel);
       const r = await fetch('/api/pro/bancos', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ bancos: bancosPayload }),
+        body: JSON.stringify({ bancos: payload }),
       });
       if (!r.ok) throw new Error('No se pudo guardar');
       toast.success('Bancos actualizados');
-      setOpen(false);
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -169,81 +176,93 @@ function BancosManager({ initial }: { initial: string[] | null }) {
     }
   }
 
+  const resumen = allChecked ? 'Todos' : `${sel.size} seleccionado${sel.size === 1 ? '' : 's'}`;
+
   return (
     <div className="glass-card p-5 space-y-3">
-      <button onClick={() => setOpen((v) => !v)} className="w-full flex items-center justify-between">
-        <div className="flex items-center gap-2 text-left">
-          <Landmark className="h-4 w-4 text-[#1D9E75]" />
-          <div>
-            <p className="text-sm font-semibold text-[#F0EFE8]">Bancos que Neto leerá</p>
-            <p className="text-xs text-[#8A877D] mt-0.5">{label}</p>
-          </div>
+      <div className="flex items-center gap-2">
+        <Landmark className="h-4 w-4 text-[#1D9E75]" />
+        <div className="flex-1">
+          <p className="text-sm font-semibold text-[#F0EFE8]">Bancos y billeteras que Neto leerá</p>
+          <p className="text-xs text-[#8A877D] mt-0.5">Se aplica al conectar tu Gmail · {resumen}</p>
         </div>
-        <ChevronDown className={`h-4 w-4 text-[#8A877D] transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
-      {open && (
-        <div className="space-y-2 pt-2 border-t border-[rgba(255,255,255,0.06)]">
-          <p className="text-xs text-[#8A877D]">Se aplica cuando conectes tu Gmail. Elige qué correos bancarios lee Neto.</p>
-          <label className="flex items-center gap-2 py-1.5 cursor-pointer">
-            <input type="checkbox" checked={todos} onChange={(e) => setTodos(e.target.checked)} className="accent-[#1D9E75]" />
-            <span className="text-sm text-[#F0EFE8]">Todos mis bancos</span>
+      </div>
+
+      <label className="flex items-center gap-2.5 py-1.5 cursor-pointer border-b border-[rgba(255,255,255,0.06)]">
+        <input type="checkbox" checked={allChecked} onChange={toggleAll} className="accent-[#1D9E75] h-4 w-4" />
+        <span className="text-sm font-medium text-[#F0EFE8]">Todos mis bancos</span>
+      </label>
+
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+        {bancos.map((b) => (
+          <label key={b.id} className="flex items-center gap-2.5 py-1 cursor-pointer">
+            <input type="checkbox" checked={sel.has(b.id)} onChange={() => toggle(b.id)} className="accent-[#1D9E75] h-4 w-4" />
+            <span className="text-sm text-[#C8C6BC] truncate">{b.label}</span>
           </label>
-          {!todos && (
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-              {bancos.map((b) => (
-                <label key={b.id} className="flex items-center gap-2 py-1 cursor-pointer">
-                  <input type="checkbox" checked={selected.has(b.id)} onChange={() => toggle(b.id)} className="accent-[#1D9E75]" />
-                  <span className="text-sm text-[#C8C6BC]">{b.label}</span>
-                </label>
-              ))}
-            </div>
-          )}
-          <Button onClick={save} disabled={saving} size="sm" className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar bancos'}
-          </Button>
-        </div>
-      )}
+        ))}
+      </div>
+
+      <Button onClick={save} disabled={saving} size="sm" className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 mt-1">
+        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar bancos'}
+      </Button>
     </div>
   );
 }
 
-function GmailConnect({ conectado }: { conectado: boolean }) {
-  const [connecting, setConnecting] = useState(false);
+function GmailConnect({ conectado, email }: { conectado: boolean; email: string | null }) {
+  const [loading, setLoading] = useState(false);
 
-  async function connect() {
-    setConnecting(true);
+  async function connect(modo?: 'agregar') {
+    setLoading(true);
     try {
-      const r = await fetch('/api/pro/gmail-auth-url', { cache: 'no-store' });
+      const url = '/api/pro/gmail-auth-url' + (modo ? `?modo=${modo}` : '');
+      const r = await fetch(url, { cache: 'no-store' });
       const j = await r.json();
       if (!r.ok || !j.ok) throw new Error(j.error || 'No se pudo generar el enlace');
       window.location.href = j.url;
     } catch (e) {
       toast.error((e as Error).message);
-      setConnecting(false);
+      setLoading(false);
     }
   }
 
   return (
     <div className="glass-card p-5 space-y-3">
       <div className="flex items-start gap-3">
-        <div className="mt-0.5 inline-flex items-center justify-center w-9 h-9 rounded-lg bg-[#1D9E75]/10">
+        <div className="mt-0.5 inline-flex items-center justify-center w-9 h-9 rounded-lg bg-[#1D9E75]/10 shrink-0">
           <Mail className="w-5 h-5 text-[#1D9E75]" />
         </div>
-        <div className="flex-1">
-          <h3 className="text-sm font-semibold text-[#F0EFE8]">
-            {conectado ? 'Gmail conectado' : 'Conecta tu Gmail'}
-          </h3>
-          <p className="text-xs text-[#8A877D] mt-0.5">
-            {conectado
-              ? 'Neto ya lee tus notificaciones bancarias por correo automáticamente.'
-              : 'Neto leerá tus notificaciones bancarias por correo. Solo lectura de esos avisos, sin contraseñas bancarias.'}
-          </p>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-[#F0EFE8]">
+              {conectado ? 'Gmail conectado' : 'Conecta tu Gmail'}
+            </h3>
+            {conectado && <Check className="h-4 w-4 text-[#1D9E75] shrink-0" />}
+          </div>
+          {conectado ? (
+            <p className="text-xs text-[#8A877D] mt-0.5">
+              Neto lee tus notificaciones bancarias de{' '}
+              <span className="text-[#C8C6BC] font-medium break-all">{email || 'tu cuenta'}</span>. Solo lectura de esos avisos.
+            </p>
+          ) : (
+            <p className="text-xs text-[#8A877D] mt-0.5">
+              Neto leerá tus notificaciones bancarias por correo. Solo lectura de esos avisos, sin contraseñas bancarias.
+            </p>
+          )}
         </div>
-        {conectado && <Check className="h-5 w-5 text-[#1D9E75] shrink-0" />}
       </div>
-      {!conectado && (
-        <Button onClick={connect} disabled={connecting} className="w-full bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90">
-          {connecting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Conectar mi Gmail'}
+
+      {conectado ? (
+        <button
+          onClick={() => connect('agregar')}
+          disabled={loading}
+          className="text-xs text-[#8A877D] hover:text-[#1D9E75] transition-colors disabled:opacity-50"
+        >
+          {loading ? 'Abriendo…' : 'Conectar otra cuenta'}
+        </button>
+      ) : (
+        <Button onClick={() => connect()} disabled={loading} className="w-full bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90">
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Conectar mi Gmail'}
         </Button>
       )}
     </div>
@@ -254,14 +273,14 @@ function GmailConnect({ conectado }: { conectado: boolean }) {
 
 function PendingState({ renewal = false, onRefresh }: { renewal?: boolean; onRefresh: () => void }) {
   return (
-    <div className="glass-card glass-card-glow p-6 text-center space-y-3">
+    <div className="glass-card glass-card-glow p-6 text-center space-y-3 mx-auto max-w-xl">
       <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-[#EF9F27]/15 border border-[#EF9F27]/30">
         <Clock className="w-7 h-7 text-[#EF9F27]" />
       </div>
       <h2 className="text-xl font-bold text-[#F0EFE8]">
         {renewal ? 'Tu renovación está en verificación' : 'Estamos verificando tu pago'}
       </h2>
-      <p className="text-sm text-[#8A877D]">
+      <p className="text-sm text-[#8A877D] max-w-md mx-auto">
         {renewal
           ? 'Tu Pro sigue activo. Apenas validemos el pago, extendemos tu suscripción y te avisamos.'
           : 'Recibimos tu comprobante. Apenas lo validemos, activamos tu Pro y te avisamos aquí y por WhatsApp. Suele tomar pocos minutos.'}
@@ -331,7 +350,7 @@ function PaymentForm({ rejected = false, renewal = false, onDone }: { rejected?:
         </div>
       )}
 
-      {/* Plan */}
+      {/* Plan — full width */}
       <div className="glass-card p-5 space-y-3">
         <p className="text-xs uppercase tracking-wider text-[#8A877D]">1. Elige tu plan</p>
         <div className="grid grid-cols-2 gap-3">
@@ -360,49 +379,50 @@ function PaymentForm({ rejected = false, renewal = false, onDone }: { rejected?:
         </div>
       </div>
 
-      {/* Yape */}
-      <div className="glass-card p-5 space-y-4">
-        <p className="text-xs uppercase tracking-wider text-[#8A877D]">2. Yapea S/{monto}</p>
-        <div className="flex flex-col sm:flex-row gap-4 items-center">
-          <div className="shrink-0 rounded-xl overflow-hidden border border-[rgba(255,255,255,0.08)] bg-white p-2">
-            <Image src="/yape-favio-qr.jpeg" alt="QR Yape de Favio Mendoza" width={150} height={150} className="rounded-md" />
-          </div>
-          <div className="flex-1 w-full space-y-2">
-            <p className="text-sm text-[#8A877D]">Yapea a nombre de <span className="text-[#F0EFE8] font-medium">{YAPE_NOMBRE}</span></p>
-            <button
-              onClick={copyNumero}
-              className="w-full flex items-center justify-between rounded-lg bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.08)] px-4 py-3 hover:bg-[rgba(255,255,255,0.07)] transition-colors"
-            >
-              <span className="text-lg font-bold text-[#F0EFE8] tabular-nums tracking-wide">{YAPE_NUMERO}</span>
-              {copied ? <Check className="h-4 w-4 text-[#1D9E75]" /> : <Copy className="h-4 w-4 text-[#8A877D]" />}
-            </button>
-            <p className="text-xs text-[#8A877D]">Monto exacto: <span className="text-[#1D9E75] font-semibold">S/{monto}.00</span></p>
-          </div>
-        </div>
-      </div>
-
-      {/* Captura */}
-      <div className="glass-card p-5 space-y-3">
-        <p className="text-xs uppercase tracking-wider text-[#8A877D]">3. Sube tu comprobante</p>
-        <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => onPickFile(e.target.files?.[0] || null)} />
-        {preview ? (
-          <div className="flex items-center gap-3">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={preview} alt="Comprobante" className="h-20 w-20 object-cover rounded-lg border border-[rgba(255,255,255,0.08)]" />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm text-[#F0EFE8] truncate">{file?.name}</p>
-              <button onClick={() => inputRef.current?.click()} className="text-xs text-[#1D9E75] hover:underline">Cambiar</button>
+      {/* Yape + upload — two columns on desktop */}
+      <div className="grid gap-5 lg:grid-cols-2">
+        <div className="glass-card p-5 space-y-4">
+          <p className="text-xs uppercase tracking-wider text-[#8A877D]">2. Yapea S/{monto}</p>
+          <div className="flex flex-col sm:flex-row gap-4 items-center">
+            <div className="shrink-0 rounded-xl overflow-hidden border border-[rgba(255,255,255,0.08)] bg-white p-2">
+              <Image src="/yape-favio-qr.jpeg" alt="QR Yape de Favio Mendoza" width={150} height={150} className="rounded-md" />
+            </div>
+            <div className="flex-1 w-full space-y-2">
+              <p className="text-sm text-[#8A877D]">Yapea a nombre de <span className="text-[#F0EFE8] font-medium">{YAPE_NOMBRE}</span></p>
+              <button
+                onClick={copyNumero}
+                className="w-full flex items-center justify-between rounded-lg bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.08)] px-4 py-3 hover:bg-[rgba(255,255,255,0.07)] transition-colors"
+              >
+                <span className="text-lg font-bold text-[#F0EFE8] tabular-nums tracking-wide">{YAPE_NUMERO}</span>
+                {copied ? <Check className="h-4 w-4 text-[#1D9E75]" /> : <Copy className="h-4 w-4 text-[#8A877D]" />}
+              </button>
+              <p className="text-xs text-[#8A877D]">Monto exacto: <span className="text-[#1D9E75] font-semibold">S/{monto}.00</span></p>
             </div>
           </div>
-        ) : (
-          <button
-            onClick={() => inputRef.current?.click()}
-            className="w-full flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-[rgba(255,255,255,0.15)] py-8 hover:bg-[rgba(255,255,255,0.03)] transition-colors"
-          >
-            <Upload className="h-6 w-6 text-[#8A877D]" />
-            <span className="text-sm text-[#8A877D]">Toca para subir la captura del Yape</span>
-          </button>
-        )}
+        </div>
+
+        <div className="glass-card p-5 space-y-3 flex flex-col">
+          <p className="text-xs uppercase tracking-wider text-[#8A877D]">3. Sube tu comprobante</p>
+          <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => onPickFile(e.target.files?.[0] || null)} />
+          {preview ? (
+            <div className="flex items-center gap-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={preview} alt="Comprobante" className="h-20 w-20 object-cover rounded-lg border border-[rgba(255,255,255,0.08)]" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-[#F0EFE8] truncate">{file?.name}</p>
+                <button onClick={() => inputRef.current?.click()} className="text-xs text-[#1D9E75] hover:underline">Cambiar</button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => inputRef.current?.click()}
+              className="flex-1 min-h-[120px] w-full flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-[rgba(255,255,255,0.15)] py-8 hover:bg-[rgba(255,255,255,0.03)] transition-colors"
+            >
+              <Upload className="h-6 w-6 text-[#8A877D]" />
+              <span className="text-sm text-[#8A877D]">Toca para subir la captura del Yape</span>
+            </button>
+          )}
+        </div>
       </div>
 
       <Button onClick={submit} disabled={submitting || !file} className="w-full bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 h-12 text-base">
