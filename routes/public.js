@@ -149,20 +149,21 @@ router.get('/auth/callback', async (req, res) => {
   const { code, error } = req.query;
   if (error) return res.send('<h2>Error: ' + error + '</h2>');
   if (!code) return res.send('<h2>No se recibio el codigo</h2>');
+  // Verifica el state firmado (HMAC, ver gmail.js) ANTES de canjear el code: no gastamos
+  // un token exchange en un callback forjado y NUNCA adivinamos el usuario. Sin esta guarda,
+  // un state ausente/forjado permitía asignar los tokens de Gmail de la víctima a la cuenta
+  // del atacante (robo de datos bancarios).
+  const stateObj = verificarState(req.query.state);
+  if (!stateObj) {
+    log.warn({ tag: 'OAUTH' }, 'State OAuth ausente, inválido o vencido — callback abortado');
+    return res.status(400).send('<h2>El enlace de conexión expiró o no es válido.</h2><p>Vuelve a WhatsApp y escribe */conectar* para generar uno nuevo.</p>');
+  }
+  const whatsappNum = stateObj.num;
+  const modoConexion = stateObj.modo || 'inicial';
+  const origenConexion = stateObj.origen || null;
   try {
     const { tokens } = await oauth2Client.getToken(code);
     oauth2Client.setCredentials(tokens);
-    // El state va firmado con HMAC (ver gmail.js). Si no valida, ABORTAMOS: nunca
-    // adivinamos el usuario. Sin esta guarda, un state ausente/forjado permitía asignar
-    // los tokens de Gmail de la víctima a la cuenta del atacante (robo de datos bancarios).
-    const stateObj = verificarState(req.query.state);
-    if (!stateObj) {
-      log.warn({ tag: 'OAUTH' }, 'State OAuth ausente, inválido o vencido — callback abortado');
-      return res.status(400).send('<h2>El enlace de conexión expiró o no es válido.</h2><p>Vuelve a WhatsApp y escribe */conectar* para generar uno nuevo.</p>');
-    }
-    const whatsappNum = stateObj.num;
-    const modoConexion = stateObj.modo || 'inicial';
-    const origenConexion = stateObj.origen || null;
     let usuario = null;
     if (whatsappNum) { const { data } = await supabase.from('usuarios').select('*').eq('whatsapp', whatsappNum).single(); usuario = data; }
     if (!usuario) return res.status(404).send('<h2>No se encontró tu cuenta.</h2><p>Escribe */conectar* en WhatsApp.</p>');
