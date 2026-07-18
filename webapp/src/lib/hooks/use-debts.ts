@@ -59,20 +59,31 @@ export interface DebtGroup {
   pen: number;
   usd: number;
   debts: Deuda[];
+  /** fecha_vencimiento más próxima (o más vencida) entre las deudas del grupo. */
+  proximoVencimiento: string | null;
+  /** Cuántas deudas del grupo ya vencieron (fecha_vencimiento < hoy). */
+  vencidas: number;
 }
 
 export function groupDebtsByContraparte(debts: Deuda[]): DebtGroup[] {
+  const hoy = hoyPeru();
   const map = new Map<string, DebtGroup>();
   for (const d of debts) {
     const key = d.contraparte.toLowerCase().trim();
     if (!map.has(key)) {
-      map.set(key, { contraparte: d.contraparte, pen: 0, usd: 0, debts: [] });
+      map.set(key, { contraparte: d.contraparte, pen: 0, usd: 0, debts: [], proximoVencimiento: null, vencidas: 0 });
     }
     const group = map.get(key)!;
     const monto = Number(d.monto_pendiente);
     if (d.moneda === 'USD') group.usd += monto;
     else group.pen += monto;
     group.debts.push(d);
+    if (d.fecha_vencimiento) {
+      if (!group.proximoVencimiento || d.fecha_vencimiento < group.proximoVencimiento) {
+        group.proximoVencimiento = d.fecha_vencimiento;
+      }
+      if (d.fecha_vencimiento < hoy) group.vencidas += 1;
+    }
   }
   return Array.from(map.values()).sort((a, b) => (b.pen + b.usd) - (a.pen + a.usd));
 }
