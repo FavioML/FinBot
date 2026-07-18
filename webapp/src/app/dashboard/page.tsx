@@ -46,6 +46,8 @@ import { TransactionForm } from '@/components/dashboard/transaction-form';
 import { GlobalSearch } from '@/components/dashboard/global-search';
 import { HeaderActions } from '@/components/dashboard/topbar';
 import { useUser } from '@/lib/hooks/use-user';
+import { canAccess } from '@/lib/plan';
+import { ProGate } from '@/components/shared/pro-gate';
 import { useNetoScore } from '@/lib/hooks/use-neto-score';
 import { useSpendingAlerts } from '@/lib/hooks/use-spending-alerts';
 import { useTransactions } from '@/lib/hooks/use-transactions';
@@ -60,6 +62,7 @@ import type { Transaccion, KPIData, CategoriaGasto, TendenciaMensual } from '@/l
 
 export default function DashboardPage() {
   const { data: user, isLoading: userLoading } = useUser();
+  const canCalendar = canAccess(user?.plan, 'calendar'); // Calendario financiero es Pro
   const searchParams = useSearchParams();
 
   const now = new Date();
@@ -521,13 +524,17 @@ export default function DashboardPage() {
                 <Suspense fallback={<Skeleton className="h-[300px] rounded-2xl" />}>
                 <FadeIn delay={0.3}>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  <FinancialCalendar
-                    transactions={allTransactions}
-                    currentMonth={currentMonth}
-                    currentYear={currentYear}
-                    debts={allDebts}
-                    goals={goals}
-                  />
+                  {canCalendar ? (
+                    <FinancialCalendar
+                      transactions={allTransactions}
+                      currentMonth={currentMonth}
+                      currentYear={currentYear}
+                      debts={allDebts}
+                      goals={goals}
+                    />
+                  ) : (
+                    <ProGate featureName="Calendario financiero" description="Visualiza tus gastos, deudas y metas en un calendario mensual." />
+                  )}
                   <CategoryComparison
                     allTransactions={allTransactions}
                     currentMonth={currentMonth}
@@ -564,13 +571,17 @@ export default function DashboardPage() {
                     <Suspense fallback={<Skeleton className="h-[300px] rounded-2xl" />}>
                     <FadeIn delay={0.1}>
                     <div className="grid grid-cols-1 gap-4">
-                      <FinancialCalendar
-                        transactions={allTransactions}
-                        currentMonth={currentMonth}
-                        currentYear={currentYear}
-                        debts={allDebts}
-                        goals={goals}
-                      />
+                      {canCalendar ? (
+                        <FinancialCalendar
+                          transactions={allTransactions}
+                          currentMonth={currentMonth}
+                          currentYear={currentYear}
+                          debts={allDebts}
+                          goals={goals}
+                        />
+                      ) : (
+                        <ProGate featureName="Calendario financiero" description="Visualiza tus gastos, deudas y metas en un calendario mensual." />
+                      )}
                       <CategoryComparison
                         allTransactions={allTransactions}
                         currentMonth={currentMonth}

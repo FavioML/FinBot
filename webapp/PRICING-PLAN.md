@@ -24,7 +24,7 @@
 | Categorías fijas (11) | Sí | Sí |
 | Categorías personalizadas adicionales | Ilimitadas | Ilimitadas |
 | Presupuestos | Ilimitados | Ilimitados |
-| Metas de ahorro | Ilimitadas | Ilimitadas |
+| Metas de ahorro | 1 activa | Ilimitadas |
 | Deudas | Ilimitadas | Ilimitadas |
 | Lectura de imágenes Yape/Plin | Ilimitada | Ilimitada |
 | Split de gastos | Sí | Sí |

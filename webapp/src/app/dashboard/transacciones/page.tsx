@@ -18,6 +18,7 @@ import {
   Search,
   FileText,
   Download,
+  Crown,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
@@ -26,6 +27,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { canAccess } from '@/lib/plan';
 import { TransaccionesSkeleton } from '@/components/dashboard/skeletons';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -460,11 +462,18 @@ export default function TransaccionesPage() {
             variant="outline"
             size="sm"
             className="border-[rgba(255,255,255,0.06)] text-[#8A877D] hover:text-[#C8C6BC]"
-            onClick={exportCSV}
-            title="Exportar a CSV"
+            onClick={() => {
+              // Export CSV es Pro: para Free redirige al upsell en vez de exportar.
+              if (!canAccess(user.plan, 'export')) { window.location.href = '/dashboard/pro'; return; }
+              exportCSV();
+            }}
+            title={canAccess(user.plan, 'export') ? 'Exportar a CSV' : 'Exportar CSV es Pro'}
           >
             <Download className="h-4 w-4 mr-1.5" />
             CSV
+            {!canAccess(user.plan, 'export') && (
+              <Crown className="h-3 w-3 ml-1.5" style={{ color: '#68dbae' }} />
+            )}
           </Button>
         )}
         <Button

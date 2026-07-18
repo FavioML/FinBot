@@ -10,8 +10,7 @@ import { PresupuestosSkeleton } from '@/components/dashboard/skeletons';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/shared/empty-state';
 import { CurrencyDisplay } from '@/components/shared/currency-display';
-import { ProBadge } from '@/components/shared/upgrade-prompt';
-import { FREE_LIMITS, hasReachedLimit } from '@/lib/plan';
+import { hasReachedLimit } from '@/lib/plan';
 import { BudgetCard } from '@/components/dashboard/budget-card';
 import { BudgetForm, DeleteBudgetDialog } from '@/components/dashboard/budget-form';
 import type { CategoriaOption } from '@/components/dashboard/budget-form';
@@ -256,9 +255,6 @@ export default function PresupuestosPage() {
         </div>
         <HeaderActions>
           <MonthSelector />
-          {budgetsLimitReached && !isPremium && (
-            <ProBadge text={`Límite: ${FREE_LIMITS.budgets} presupuestos`} />
-          )}
           <Button
             size="sm"
             className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 gap-1.5"
