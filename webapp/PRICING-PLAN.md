@@ -159,3 +159,4 @@
 | Intenta exportar datos | "Exporta tu data con Pro" |
 | Intenta usar calendario | "Calendario financiero disponible con Pro" |
 | Intenta usar heatmap | "Heatmap de gastos disponible con Pro" |
+| Intenta cargar Excel/CSV | "Carga masiva de transacciones disponible con Pro" |

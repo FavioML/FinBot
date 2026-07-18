@@ -18,6 +18,8 @@ const { obtenerCategoriasUsuario } = require('../services/categories');
 const { escanearGmailYRegistrar } = require('../services/gmail-scanner');
 const { generarResumenSemanal } = require('../services/summaries');
 const { guardarMensaje, obtenerOCrearUsuario, getUserPlanConfig } = require('../helpers/db-helpers');
+const { checkProWall } = require('../helpers/pro-wall');
+const { parseCSV, parseExcel } = require('../services/import-parser');
 const { esperaComprobante, esPagoNeto, procesarComprobantePro, registrarPagoAprobado } = require('../lib/pro-payment');
 const { procesarComandoAdmin } = require('./admin-commands');
 const { manejarOnboarding } = require('./onboarding');
@@ -201,6 +203,13 @@ function createWebhookHandler(procesarMensajeLibre) {
         return;
       }
 
+      // Carga masiva Excel/CSV es Pro (flag excelUpload en PLAN_CONFIG). Sin gate,
+      // cualquier Free importaba gratis una feature prometida como Pro (fuga de valor).
+      if (checkProWall(usuario, 'excelUpload').blocked) {
+        await enviarWhatsapp(from, '🔒 La *carga masiva de Excel/CSV* es una función Pro.\n\nCon Pro importas tu historial completo desde tu estado de cuenta o la plantilla en segundos.\n\n👉 Escribe "ver plan" para activarlo (S/10/mes).');
+        return;
+      }
+
       const mediaId = doc && doc.id;
       if (!mediaId) { await enviarWhatsapp(from, 'No pude recibir el archivo. Intenta de nuevo.'); return; }
 
@@ -220,124 +229,10 @@ function createWebhookHandler(procesarMensajeLibre) {
         const fileBuffer = Buffer.from(await fileRes.arrayBuffer());
         log.info({ tag: 'EXCEL', size: fileBuffer.byteLength }, 'Archivo descargado');
 
-        // 2. Parsear archivo (CSV o Excel)
-        const rows = [];
-        if (esCSV) {
-          // --- Parsing CSV (estados de cuenta bancarios) ---
-          const csvText = fileBuffer.toString('utf-8');
-          const lines = csvText.split(/\r?\n/).filter(l => l.trim());
-          if (lines.length < 2) throw new Error('El archivo CSV está vacío.');
-
-          // Detectar separador (coma, punto y coma, tab)
-          const firstLine = lines[0];
-          const sep = firstLine.includes(';') ? ';' : firstLine.includes('\t') ? '\t' : ',';
-          const headers = firstLine.split(sep).map(h => h.replace(/"/g, '').trim().toLowerCase());
-
-          // Auto-detectar columnas por nombre de header
-          const iDate = headers.findIndex(h => h.includes('fecha') || h === 'date' || h.includes('fec'));
-          const iAmount = headers.findIndex(h => h.includes('monto') || h.includes('importe') || h.includes('cargo') || h.includes('amount') || h === 'debito');
-          const iDesc = headers.findIndex(h => h.includes('descripci') || h.includes('concepto') || h.includes('detalle') || h.includes('comercio') || h.includes('description') || h.includes('movimiento'));
-          const iCredit = headers.findIndex(h => h.includes('abono') || h.includes('credito') || h.includes('credit') || h.includes('deposito'));
-
-          if (iDate < 0 || (iAmount < 0 && iDesc < 0)) throw new Error('No pude detectar las columnas del CSV. Necesito al menos Fecha y Monto/Descripción.');
-
-          for (let li = 1; li < lines.length; li++) {
-            const cols = lines[li].split(sep).map(c => c.replace(/"/g, '').trim());
-            if (!cols[iDate]) continue;
-
-            // Normalizar fecha
-            let fechaStr = cols[iDate];
-            const parts = fechaStr.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
-            if (parts) {
-              const anio = parts[3].length === 2 ? '20' + parts[3] : parts[3];
-              fechaStr = anio + '-' + parts[2].padStart(2, '0') + '-' + parts[1].padStart(2, '0');
-            }
-
-            // Monto: cargo (gasto) vs abono (ingreso)
-            let monto = 0, tipo = 'gasto';
-            if (iAmount >= 0) {
-              monto = parseFloat((cols[iAmount] || '0').replace(/[,\s]/g, ''));
-            }
-            if (iCredit >= 0 && cols[iCredit] && parseFloat(cols[iCredit].replace(/[,\s]/g, '')) > 0) {
-              monto = parseFloat(cols[iCredit].replace(/[,\s]/g, ''));
-              tipo = 'ingreso';
-            }
-            if (isNaN(monto) || monto <= 0) continue;
-
-            const comercio = iDesc >= 0 ? (cols[iDesc] || 'Sin descripción').substring(0, 100) : 'Sin descripción';
-            rows.push({ fecha: fechaStr, monto, comercio, tipo, categoria: null, subcategoria: null, metodo_pago: null, banco: null });
-          }
-        } else {
-        // --- Parsing Excel ---
-        const ExcelJS = require('exceljs');
-        const workbook = new ExcelJS.Workbook();
-        await workbook.xlsx.load(fileBuffer);
-        const sheet = workbook.getWorksheet(1);
-        if (!sheet) throw new Error('El archivo no tiene hojas de cálculo');
-
-        // 3. Detectar header row y formato de columnas (auto-detect)
-        let headerRow = null;
-        let colFormat = 'legacy6'; // legacy6 | tipo7 | full8
-        sheet.eachRow((row, rowNumber) => {
-          const vals = row.values.slice(1); // exceljs es 1-indexed
-          const firstVal = String(vals[0] || '').toLowerCase();
-          if (firstVal.includes('fecha') || firstVal.includes('date')) {
-            headerRow = rowNumber;
-            // Detectar formato por headers
-            const headers = vals.map(v => String(v || '').toLowerCase());
-            const hasSubcatCol = headers.some(h => h.includes('subcategor'));
-            const hasTipoCol = headers.some(h => h === 'tipo' || h === 'type');
-            if (hasSubcatCol) colFormat = 'full8';
-            else if (hasTipoCol) colFormat = 'tipo7';
-            else colFormat = 'legacy6';
-            return;
-          }
-          if (headerRow && rowNumber > headerRow) {
-            const fecha = vals[0];
-            const monto = parseFloat(vals[1]);
-            const comercio = String(vals[2] || '').trim();
-            let tipo, categoria, subcategoria, metodo, banco;
-            if (colFormat === 'full8') {
-              // 8 cols: Fecha, Monto, Comercio, Tipo, Categoría, Subcategoría, Método, Banco
-              const tipoRaw = String(vals[3] || '').trim().toLowerCase();
-              tipo = tipoRaw.includes('ingreso') ? 'ingreso' : 'gasto';
-              categoria = String(vals[4] || '').trim();
-              subcategoria = String(vals[5] || '').trim() || null;
-              metodo = String(vals[6] || '').trim();
-              banco = String(vals[7] || '').trim();
-            } else if (colFormat === 'tipo7') {
-              // 7 cols: Fecha, Monto, Comercio, Tipo, Categoría, Método, Banco
-              const tipoRaw = String(vals[3] || '').trim().toLowerCase();
-              tipo = tipoRaw.includes('ingreso') ? 'ingreso' : 'gasto';
-              categoria = String(vals[4] || '').trim();
-              subcategoria = null;
-              metodo = String(vals[5] || '').trim();
-              banco = String(vals[6] || '').trim();
-            } else {
-              // 6 cols legacy: Fecha, Monto, Comercio, Categoría, Método, Banco
-              tipo = 'gasto';
-              categoria = String(vals[3] || '').trim();
-              subcategoria = null;
-              metodo = String(vals[4] || '').trim();
-              banco = String(vals[5] || '').trim();
-            }
-
-            if (!fecha || isNaN(monto) || monto <= 0 || !comercio) return; // Skip filas inválidas
-
-            // Normalizar fecha
-            let fechaStr;
-            if (fecha instanceof Date) {
-              fechaStr = fecha.toISOString().split('T')[0];
-            } else {
-              fechaStr = String(fecha).trim();
-              const parts = fechaStr.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-              if (parts) fechaStr = parts[3] + '-' + parts[2].padStart(2, '0') + '-' + parts[1].padStart(2, '0');
-            }
-
-            rows.push({ fecha: fechaStr, monto, comercio, tipo, categoria, subcategoria, metodo_pago: metodo || null, banco: banco || null });
-          }
-        });
-        } // fin else (Excel)
+        // 2. Parsear archivo (CSV o Excel) — parser extraído a services/import-parser.js
+        const rows = esCSV
+          ? parseCSV(fileBuffer.toString('utf-8'))
+          : await parseExcel(fileBuffer);
 
         if (rows.length === 0) throw new Error('No encontré datos válidos en el archivo. Asegúrate de usar la plantilla correcta o enviar tu estado de cuenta CSV.');
         if (rows.length > 500) throw new Error('Máximo 500 transacciones por archivo. Tu archivo tiene ' + rows.length + '.');

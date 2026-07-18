@@ -18,6 +18,7 @@ import {
   Search,
   FileText,
   Download,
+  Upload,
   Crown,
   ChevronRight,
   ChevronsLeft,
@@ -49,6 +50,7 @@ import { EmptyState } from '@/components/shared/empty-state';
 import { CurrencyDisplay } from '@/components/shared/currency-display';
 import { TransactionFilters } from '@/components/dashboard/transaction-filters';
 import { TransactionForm, DeleteConfirmDialog } from '@/components/dashboard/transaction-form';
+import { ImportDialog } from '@/components/dashboard/import-dialog';
 import { MonthSelector } from '@/components/dashboard/month-selector';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
@@ -248,6 +250,7 @@ export default function TransaccionesPage() {
   // Dialogs
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [createTipo, setCreateTipo] = useState<'gasto' | 'ingreso'>('gasto');
+  const [importOpen, setImportOpen] = useState(false);
   const [editTransaction, setEditTransaction] = useState<Transaccion | null>(null);
   const [deleteTransaction, setDeleteTransaction] = useState<Transaccion | null>(null);
 
@@ -476,6 +479,23 @@ export default function TransaccionesPage() {
             )}
           </Button>
         )}
+        <Button
+          variant="outline"
+          size="sm"
+          className="border-[rgba(255,255,255,0.06)] text-[#8A877D] hover:text-[#C8C6BC]"
+          onClick={() => {
+            // Carga masiva Excel/CSV es Pro: Free redirige al upsell.
+            if (!canAccess(user.plan, 'excel_upload')) { window.location.href = '/dashboard/pro'; return; }
+            setImportOpen(true);
+          }}
+          title={canAccess(user.plan, 'excel_upload') ? 'Importar Excel/CSV' : 'Carga masiva es Pro'}
+        >
+          <Upload className="h-4 w-4 mr-1.5" />
+          Importar
+          {!canAccess(user.plan, 'excel_upload') && (
+            <Crown className="h-3 w-3 ml-1.5" style={{ color: '#68dbae' }} />
+          )}
+        </Button>
         <Button
           variant="outline"
           className="border-[rgba(255,255,255,0.06)] text-[#C8C6BC]"
@@ -933,6 +953,12 @@ export default function TransaccionesPage() {
       )}
 
       {/* Dialogs */}
+      <ImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onSuccess={refreshTransactions}
+      />
+
       <TransactionForm
         open={createDialogOpen}
         onOpenChange={setCreateDialogOpen}

@@ -20,12 +20,11 @@ function getColor(intensity: number): string {
 }
 
 export function SpendingHeatmap({ transactions }: SpendingHeatmapProps) {
-  const { grid, weeks, maxSpend, totalDays } = useMemo(() => {
+  const { grid, maxSpend } = useMemo(() => {
     // Build a map of date → total spending (last 12 weeks)
     const today = new Date();
     const dayMap = new Map<string, number>();
     const numWeeks = 12;
-    const totalDays = numWeeks * 7;
 
     // Find start date: go back 12 weeks from end of current week
     const dayOfWeek = (today.getDay() + 6) % 7; // Monday=0
@@ -42,10 +41,9 @@ export function SpendingHeatmap({ transactions }: SpendingHeatmapProps) {
 
     // Build grid: rows = 7 days, cols = weeks
     const grid: { date: string; amount: number; dayLabel: string }[][] = [];
-    const weeks: string[] = [];
     let maxSpend = 0;
 
-    let cursor = new Date(startDate);
+    const cursor = new Date(startDate);
     for (let w = 0; w < numWeeks; w++) {
       const week: { date: string; amount: number; dayLabel: string }[] = [];
       for (let d = 0; d < 7; d++) {
@@ -60,13 +58,10 @@ export function SpendingHeatmap({ transactions }: SpendingHeatmapProps) {
         });
         cursor.setDate(cursor.getDate() + 1);
       }
-      // Week label: first day of week
-      const weekStart = new Date(week[0].date + 'T12:00:00');
-      weeks.push(`${weekStart.getDate()}/${weekStart.getMonth() + 1}`);
       grid.push(week);
     }
 
-    return { grid, weeks, maxSpend, totalDays };
+    return { grid, maxSpend };
   }, [transactions]);
 
   if (transactions.length === 0) return null;
@@ -95,7 +90,7 @@ export function SpendingHeatmap({ transactions }: SpendingHeatmapProps) {
         {/* Heatmap grid */}
         {grid.map((week, wi) => (
           <div key={wi} className="flex flex-col gap-1">
-            {week.map((day, di) => {
+            {week.map((day) => {
               const intensity = day.amount < 0 ? -1 : maxSpend > 0 ? day.amount / maxSpend : 0;
               return (
                 <div

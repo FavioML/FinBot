@@ -42,6 +42,7 @@ const CategoryComparison = lazy(() => import('@/components/charts/category-compa
 const TopMerchants = lazy(() => import('@/components/dashboard/top-merchants').then(m => ({ default: m.TopMerchants })));
 const PaymentMethodDonut = lazy(() => import('@/components/charts/payment-method-donut').then(m => ({ default: m.PaymentMethodDonut })));
 const RecurringPayments = lazy(() => import('@/components/dashboard/recurring-payments').then(m => ({ default: m.RecurringPayments })));
+const SpendingHeatmap = lazy(() => import('@/components/charts/spending-heatmap').then(m => ({ default: m.SpendingHeatmap })));
 import { TransactionForm } from '@/components/dashboard/transaction-form';
 import { GlobalSearch } from '@/components/dashboard/global-search';
 import { HeaderActions } from '@/components/dashboard/topbar';
@@ -63,6 +64,7 @@ import type { Transaccion, KPIData, CategoriaGasto, TendenciaMensual } from '@/l
 export default function DashboardPage() {
   const { data: user, isLoading: userLoading } = useUser();
   const canCalendar = canAccess(user?.plan, 'calendar'); // Calendario financiero es Pro
+  const canHeatmap = canAccess(user?.plan, 'heatmap'); // Heatmap de actividad de gastos es Pro
   const searchParams = useSearchParams();
 
   const now = new Date();
@@ -563,6 +565,17 @@ export default function DashboardPage() {
                 </div>
                 </FadeIn>
                 </Suspense>
+
+                {/* Heatmap de actividad — Pro */}
+                <Suspense fallback={<Skeleton className="h-[220px] rounded-2xl" />}>
+                <FadeIn delay={0.34}>
+                  {canHeatmap ? (
+                    <SpendingHeatmap transactions={allTransactions} />
+                  ) : (
+                    <ProGate featureName="Heatmap de gastos" description="Visualiza la intensidad de tus gastos día a día en las últimas 12 semanas." />
+                  )}
+                </FadeIn>
+                </Suspense>
               </div>
 
               {/* Mobile: animated collapse */}
@@ -608,6 +621,17 @@ export default function DashboardPage() {
                         onCategoryClick={setDetailCategoria}
                       />
                     </div>
+                    </FadeIn>
+                    </Suspense>
+
+                    {/* Heatmap de actividad — Pro */}
+                    <Suspense fallback={<Skeleton className="h-[220px] rounded-2xl" />}>
+                    <FadeIn delay={0.14}>
+                      {canHeatmap ? (
+                        <SpendingHeatmap transactions={allTransactions} />
+                      ) : (
+                        <ProGate featureName="Heatmap de gastos" description="Visualiza la intensidad de tus gastos día a día en las últimas 12 semanas." />
+                      )}
                     </FadeIn>
                     </Suspense>
                   </motion.div>
