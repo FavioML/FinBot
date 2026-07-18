@@ -8,15 +8,14 @@ export const dynamic = 'force-dynamic';
 
 // GET /api/pro/gmail-auth-url — URL de OAuth Gmail para conectar desde la webapp.
 // El callback backend redirige de vuelta a /dashboard?gmail=conectado (origen 'web').
-export async function GET(request: Request) {
+export async function GET() {
   const userId = await getNetoUserId();
   if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   if (!INTERNAL_API_KEY) {
     return NextResponse.json({ error: 'INTERNAL_API_KEY no configurada en el entorno de la webapp' }, { status: 500 });
   }
-  const modo = new URL(request.url).searchParams.get('modo') === 'agregar' ? 'agregar' : 'inicial';
   try {
-    const res = await fetch(`${BACKEND_URL}/pro/gmail-auth-url?usuario_id=${encodeURIComponent(userId)}&modo=${modo}`, {
+    const res = await fetch(`${BACKEND_URL}/pro/gmail-auth-url?usuario_id=${encodeURIComponent(userId)}`, {
       headers: { 'x-internal-key': INTERNAL_API_KEY },
       cache: 'no-store',
     });

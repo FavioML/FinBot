@@ -4,8 +4,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Crown, Copy, Check, Upload, Loader2, Clock, ShieldCheck, Mail, RefreshCw, Landmark } from 'lucide-react';
+import { Crown, Copy, Check, Upload, Loader2, Clock, ShieldCheck, Mail, RefreshCw, Landmark, ChevronDown, ZoomIn } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { FadeIn } from '@/components/shared/motion-wrapper';
 import { HeaderActions } from '@/components/dashboard/topbar';
 
@@ -129,6 +130,7 @@ function PremiumState({ status, onDone }: { status: ProStatus; onDone: () => voi
 function BancosManager({ initial }: { initial: string[] | null }) {
   const [selected, setSelected] = useState<Set<string> | null>(null);
   const [saving, setSaving] = useState(false);
+  const [open, setOpen] = useState(false);
 
   const { data: bancos = [] } = useQuery<Banco[]>({
     queryKey: ['pro-bancos'],
@@ -180,31 +182,40 @@ function BancosManager({ initial }: { initial: string[] | null }) {
 
   return (
     <div className="glass-card p-5 space-y-3">
-      <div className="flex items-center gap-2">
-        <Landmark className="h-4 w-4 text-[#1D9E75]" />
-        <div className="flex-1">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 text-left"
+      >
+        <Landmark className="h-4 w-4 text-[#1D9E75] shrink-0" />
+        <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-[#F0EFE8]">Bancos y billeteras que Neto leerá</p>
           <p className="text-xs text-[#8A877D] mt-0.5">Se aplica al conectar tu Gmail · {resumen}</p>
         </div>
-      </div>
+        <ChevronDown className={`h-4 w-4 text-[#8A877D] shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
 
-      <label className="flex items-center gap-2.5 py-1.5 cursor-pointer border-b border-[rgba(255,255,255,0.06)]">
-        <input type="checkbox" checked={allChecked} onChange={toggleAll} className="accent-[#1D9E75] h-4 w-4" />
-        <span className="text-sm font-medium text-[#F0EFE8]">Todos mis bancos</span>
-      </label>
-
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-        {bancos.map((b) => (
-          <label key={b.id} className="flex items-center gap-2.5 py-1 cursor-pointer">
-            <input type="checkbox" checked={sel.has(b.id)} onChange={() => toggle(b.id)} className="accent-[#1D9E75] h-4 w-4" />
-            <span className="text-sm text-[#C8C6BC] truncate">{b.label}</span>
+      {open && (
+        <div className="space-y-3">
+          <label className="flex items-center gap-2.5 py-1.5 cursor-pointer border-b border-[rgba(255,255,255,0.06)]">
+            <input type="checkbox" checked={allChecked} onChange={toggleAll} className="accent-[#1D9E75] h-4 w-4" />
+            <span className="text-sm font-medium text-[#F0EFE8]">Todos mis bancos</span>
           </label>
-        ))}
-      </div>
 
-      <Button onClick={save} disabled={saving} size="sm" className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 mt-1">
-        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar bancos'}
-      </Button>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+            {bancos.map((b) => (
+              <label key={b.id} className="flex items-center gap-2.5 py-1 cursor-pointer">
+                <input type="checkbox" checked={sel.has(b.id)} onChange={() => toggle(b.id)} className="accent-[#1D9E75] h-4 w-4" />
+                <span className="text-sm text-[#C8C6BC] truncate">{b.label}</span>
+              </label>
+            ))}
+          </div>
+
+          <Button onClick={save} disabled={saving} size="sm" className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 mt-1">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar bancos'}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -212,11 +223,10 @@ function BancosManager({ initial }: { initial: string[] | null }) {
 function GmailConnect({ conectado, email }: { conectado: boolean; email: string | null }) {
   const [loading, setLoading] = useState(false);
 
-  async function connect(modo?: 'agregar') {
+  async function connect() {
     setLoading(true);
     try {
-      const url = '/api/pro/gmail-auth-url' + (modo ? `?modo=${modo}` : '');
-      const r = await fetch(url, { cache: 'no-store' });
+      const r = await fetch('/api/pro/gmail-auth-url', { cache: 'no-store' });
       const j = await r.json();
       if (!r.ok || !j.ok) throw new Error(j.error || 'No se pudo generar el enlace');
       window.location.href = j.url;
@@ -252,15 +262,7 @@ function GmailConnect({ conectado, email }: { conectado: boolean; email: string 
         </div>
       </div>
 
-      {conectado ? (
-        <button
-          onClick={() => connect('agregar')}
-          disabled={loading}
-          className="text-xs text-[#8A877D] hover:text-[#1D9E75] transition-colors disabled:opacity-50"
-        >
-          {loading ? 'Abriendo…' : 'Conectar otra cuenta'}
-        </button>
-      ) : (
+      {!conectado && (
         <Button onClick={() => connect()} disabled={loading} className="w-full bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Conectar mi Gmail'}
         </Button>
@@ -384,9 +386,21 @@ function PaymentForm({ rejected = false, renewal = false, onDone }: { rejected?:
         <div className="glass-card p-5 space-y-4">
           <p className="text-xs uppercase tracking-wider text-[#8A877D]">2. Yapea S/{monto}</p>
           <div className="flex flex-col sm:flex-row gap-4 items-center">
-            <div className="shrink-0 rounded-xl overflow-hidden border border-[rgba(255,255,255,0.08)] bg-white p-2">
-              <Image src="/yape-favio-qr.jpeg" alt="QR Yape de Favio Mendoza" width={150} height={150} className="rounded-md" />
-            </div>
+            <Dialog>
+              <DialogTrigger className="group relative shrink-0 rounded-xl overflow-hidden border border-[rgba(255,255,255,0.08)] bg-white p-2 cursor-zoom-in outline-none focus-visible:ring-2 focus-visible:ring-[#1D9E75]">
+                <Image src="/yape-favio-qr.jpeg" alt="QR Yape de Favio Mendoza" width={150} height={150} className="rounded-md" />
+                <span className="absolute inset-x-1 bottom-1 flex items-center justify-center gap-1 rounded-md bg-black/55 py-0.5 text-[10px] font-medium text-white opacity-90 transition-opacity group-hover:opacity-100">
+                  <ZoomIn className="h-3 w-3" /> toca para ampliar
+                </span>
+              </DialogTrigger>
+              <DialogContent className="bg-white text-neutral-900 sm:max-w-xs flex flex-col items-center gap-3">
+                <DialogTitle className="text-neutral-900">Yapea a {YAPE_NOMBRE}</DialogTitle>
+                <div className="rounded-xl bg-white p-3">
+                  <Image src="/yape-favio-qr.jpeg" alt="QR Yape de Favio Mendoza" width={320} height={320} className="rounded-lg" />
+                </div>
+                <p className="text-sm text-neutral-500 tabular-nums">{YAPE_NUMERO}</p>
+              </DialogContent>
+            </Dialog>
             <div className="flex-1 w-full space-y-2">
               <p className="text-sm text-[#8A877D]">Yapea a nombre de <span className="text-[#F0EFE8] font-medium">{YAPE_NOMBRE}</span></p>
               <button

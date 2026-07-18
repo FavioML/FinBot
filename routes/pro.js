@@ -38,10 +38,9 @@ router.get('/gmail-auth-url', async (req, res) => {
   if (!usuarioId) return res.status(400).json({ ok: false, msg: 'Falta usuario_id' });
   const { data: usuario } = await supabase.from('usuarios').select('whatsapp').eq('id', usuarioId).single();
   if (!usuario) return res.status(404).json({ ok: false, msg: 'Usuario no encontrado' });
-  // modo: 'inicial' (primera conexión) | 'agregar' (cuenta Gmail adicional, no reemplaza la actual)
-  const modo = req.query.modo === 'agregar' ? 'agregar' : 'inicial';
+  // Un usuario conecta un solo Gmail desde la webapp: siempre 'inicial' (sin modo 'agregar').
   try {
-    const url = generarUrlAutorizacion(usuario.whatsapp, modo, 'web');
+    const url = generarUrlAutorizacion(usuario.whatsapp, 'inicial', 'web');
     res.json({ ok: true, url });
   } catch (e) {
     log.error({ tag: 'PRO_OAUTH', err: e.message }, 'No se pudo generar URL OAuth');
