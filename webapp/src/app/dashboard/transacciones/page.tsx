@@ -54,6 +54,7 @@ import { ImportDialog } from '@/components/dashboard/import-dialog';
 import { MonthSelector } from '@/components/dashboard/month-selector';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
+import { useUserCategorias } from '@/lib/hooks/use-user-categorias';
 import { useBudgets } from '@/lib/hooks/use-budgets';
 import { toast } from 'sonner';
 import { formatCurrency, formatFecha } from '@/lib/utils';
@@ -122,10 +123,15 @@ export default function TransaccionesPage() {
   // Fetch budgets to include user-created categories/subcategories
   const { data: budgets = [] } = useBudgets(user?.id, selectedMonth, selectedYear);
 
-  // Compute user categories from transactions + budgets
+  // Catálogo all-time de categorías/subcategorías (query liviana, independiente del
+  // periodo y de la lista pesada). Alimenta el selector del formulario de editar para
+  // que las subcategorías de cualquier mes estén siempre disponibles.
+  const { data: catPairs = [] } = useUserCategorias(user?.id);
+
+  // Compute user categories from all-time catalog + budgets
   const userCategorias = useMemo(() => {
     const catMap = new Map<string, Set<string>>();
-    for (const t of allTransactions) {
+    for (const t of catPairs) {
       if (!catMap.has(t.categoria)) catMap.set(t.categoria, new Set());
       if (t.subcategoria && t.subcategoria !== 'null' && t.subcategoria !== 'sin_categoria') {
         catMap.get(t.categoria)!.add(t.subcategoria);
@@ -140,12 +146,15 @@ export default function TransaccionesPage() {
       emoji: getCategoriaEmoji(nombre),
       subs: Array.from(subs),
     }));
-  }, [allTransactions, budgets]);
+  }, [catPairs, budgets]);
 
   // Filters
   const [search, setSearch] = useState('');
   const [tipoFilter, setTipoFilter] = useState('todos');
   const [categoriaFilter, setCategoriaFilter] = useState('all');
+  // Alcance del filtro "Por revisar": 'periodo' (solo el mes/año visible, respeta el
+  // selector) o 'global' (backlog de todos los meses, escape hatch).
+  const [porRevisarScope, setPorRevisarScope] = useState<'periodo' | 'global'>('periodo');
   const [subcategoriaFilter, setSubcategoriaFilter] = useState('all');
   const [metodoPagoFilter, setMetodoPagoFilter] = useState('all');
 
@@ -256,11 +265,11 @@ export default function TransaccionesPage() {
 
   // Filtered + sorted transactions
   const filtered = useMemo(() => {
-    // "Por revisar" ignora el periodo a proposito: el backlog sin clasificar esta
-    // repartido entre meses, y acotarlo al mes visible lo volveria a esconder —
-    // justo lo contrario de para lo que existe la vista. El resto de filtros si
-    // respetan el periodo seleccionado.
-    let result = [...(categoriaFilter === CATEGORIA_POR_REVISAR ? allTransactions : transactions)];
+    // "Por revisar" en alcance 'global' barre todos los meses (el backlog completo);
+    // en 'periodo' respeta el mes/año visible como cualquier otro filtro. El resto de
+    // filtros siempre respetan el periodo.
+    const porRevisarGlobal = categoriaFilter === CATEGORIA_POR_REVISAR && porRevisarScope === 'global';
+    let result = [...(porRevisarGlobal ? allTransactions : transactions)];
 
     // Type filter
     if (tipoFilter !== 'todos') {
@@ -310,7 +319,7 @@ export default function TransaccionesPage() {
     });
 
     return result;
-  }, [transactions, allTransactions, tipoFilter, categoriaFilter, subcategoriaFilter, metodoPagoFilter, search, sortField, sortDir]);
+  }, [transactions, allTransactions, tipoFilter, categoriaFilter, porRevisarScope, subcategoriaFilter, metodoPagoFilter, search, sortField, sortDir]);
 
   // Whether any filter narrows the period's transactions
   const hasActiveFilters =
@@ -332,17 +341,32 @@ export default function TransaccionesPage() {
     };
   }, [filtered]);
 
-  // "Por revisar" — TODAS las transacciones sin clasificar, de cualquier mes. Como
-  // el bot ya no pide categorizar por WhatsApp, este es el unico lugar donde el
-  // usuario ve lo que quedo suelto, y el backlog no entiende de meses.
-  const porRevisarCount = useMemo(
+  // "Por revisar" — dos contadores: el del periodo visible (lo que el banner muestra
+  // como principal, para que matchee el contexto) y el global (todos los meses, para
+  // el escape hatch). El bot ya no pide categorizar por WhatsApp, asi que este sigue
+  // siendo el unico lugar donde el usuario ve el backlog completo.
+  const porRevisarPeriodCount = useMemo(
+    () => transactions.filter(needsReview).length,
+    [transactions]
+  );
+  const porRevisarGlobalCount = useMemo(
     () => allTransactions.filter(needsReview).length,
     [allTransactions]
   );
+  const porRevisarOtherCount = Math.max(0, porRevisarGlobalCount - porRevisarPeriodCount);
   const porRevisarActive = categoriaFilter === CATEGORIA_POR_REVISAR;
+  const periodBloqueado = porRevisarActive && porRevisarScope === 'global';
 
-  const togglePorRevisar = () => {
-    setCategoriaFilter(porRevisarActive ? 'all' : CATEGORIA_POR_REVISAR);
+  const activarPorRevisar = (scope: 'periodo' | 'global') => {
+    setCategoriaFilter(CATEGORIA_POR_REVISAR);
+    setPorRevisarScope(scope);
+    setSubcategoriaFilter('all');
+    setPage(1);
+  };
+
+  const desactivarPorRevisar = () => {
+    setCategoriaFilter('all');
+    setPorRevisarScope('periodo');
     setSubcategoriaFilter('all');
     setPage(1);
   };
@@ -514,13 +538,14 @@ export default function TransaccionesPage() {
       </div>
 
       {/* View mode tabs + period selector — same row on all breakpoints.
-          Con "Por revisar" activo el periodo no aplica (el filtro barre todos los
-          meses), asi que se desactiva en vez de dejar un control que no hace nada. */}
+          Solo se desactiva con "Por revisar" en alcance global (ahi el filtro barre
+          todos los meses y el selector no aplica). En alcance por periodo el selector
+          sigue vivo para poder revisar mes por mes. */}
       <div
         className={`flex flex-row items-center justify-between gap-3 ${
-          porRevisarActive ? 'pointer-events-none opacity-40' : ''
+          periodBloqueado ? 'pointer-events-none opacity-40' : ''
         }`}
-        aria-hidden={porRevisarActive}
+        aria-hidden={periodBloqueado}
       >
         <Tabs value={viewMode} onValueChange={(val) => { setViewMode(val as 'mensual' | 'anual'); setPage(1); }}>
           <TabsList>
@@ -601,36 +626,76 @@ export default function TransaccionesPage() {
         );
       })()}
 
-      {/* Por revisar — acceso rapido a lo que quedo sin clasificar */}
-      {porRevisarCount > 0 && (
-        <button
-          onClick={togglePorRevisar}
-          aria-pressed={porRevisarActive}
-          className={`flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors ${
-            porRevisarActive
-              ? 'border-[rgba(239,159,39,0.45)] bg-[rgba(239,159,39,0.12)]'
-              : 'border-[rgba(239,159,39,0.2)] bg-[rgba(239,159,39,0.06)] hover:bg-[rgba(239,159,39,0.1)]'
-          }`}
-        >
-          <AlertCircle className="h-4 w-4 shrink-0 text-[#EF9F27]" />
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-[#F0EFE8]">
-              {porRevisarCount} {porRevisarCount === 1 ? 'transaccion' : 'transacciones'} por revisar
-            </p>
-            <p className="text-xs text-[#8A877D]">
-              {porRevisarActive
-                ? 'Mostrando las que quedaron sin clasificar, de todos los meses. Toca para volver.'
-                : 'Neto no supo en que categoria ponerlas, en todos tus meses. Toca para verlas y ajustarlas.'}
-            </p>
-          </div>
-          <Badge
-            variant="outline"
-            className="shrink-0 border-[rgba(239,159,39,0.35)] bg-[rgba(239,159,39,0.1)] text-xs text-[#EF9F27]"
+      {/* Por revisar — el banner se acota al periodo visible (matchea el contexto) y
+          ofrece un escape hatch al backlog global de otros meses. */}
+      {(() => {
+        if (porRevisarGlobalCount === 0) return null;
+        const periodLabel = viewMode === 'anual' ? String(selectedYear) : MESES[selectedMonth];
+        const plural = (n: number) => (n === 1 ? 'transaccion' : 'transacciones');
+        const scopeGlobal = porRevisarActive && porRevisarScope === 'global';
+
+        // Nada en el periodo y filtro inactivo → solo un aviso discreto (no el amber
+        // alarmante) que mantiene el acceso al backlog sin ensuciar el mes limpio.
+        if (!porRevisarActive && porRevisarPeriodCount === 0) {
+          return (
+            <button
+              onClick={() => activarPorRevisar('global')}
+              className="flex w-full items-center gap-2 rounded-xl border border-[rgba(255,255,255,0.05)] bg-[rgba(255,255,255,0.02)] px-4 py-2.5 text-left transition-colors hover:bg-[rgba(255,255,255,0.04)]"
+            >
+              <AlertCircle className="h-3.5 w-3.5 shrink-0 text-[#8A877D]" />
+              <p className="min-w-0 flex-1 text-xs text-[#8A877D]">
+                {porRevisarGlobalCount} {plural(porRevisarGlobalCount)} por revisar en otros meses
+              </p>
+              <span className="shrink-0 text-xs font-medium text-[#EF9F27]">Ver todas</span>
+            </button>
+          );
+        }
+
+        const mainCount = scopeGlobal ? porRevisarGlobalCount : porRevisarPeriodCount;
+        return (
+          <div
+            className={`rounded-xl border px-4 py-3 transition-colors ${
+              porRevisarActive
+                ? 'border-[rgba(239,159,39,0.45)] bg-[rgba(239,159,39,0.12)]'
+                : 'border-[rgba(239,159,39,0.2)] bg-[rgba(239,159,39,0.06)]'
+            }`}
           >
-            {porRevisarActive ? 'Filtrando' : 'Revisar'}
-          </Badge>
-        </button>
-      )}
+            <button
+              onClick={() => (porRevisarActive ? desactivarPorRevisar() : activarPorRevisar('periodo'))}
+              aria-pressed={porRevisarActive}
+              className="flex w-full items-center gap-3 text-left"
+            >
+              <AlertCircle className="h-4 w-4 shrink-0 text-[#EF9F27]" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-[#F0EFE8]">
+                  {mainCount} {plural(mainCount)} por revisar{!scopeGlobal && ` en ${periodLabel}`}
+                </p>
+                <p className="text-xs text-[#8A877D]">
+                  {porRevisarActive
+                    ? scopeGlobal
+                      ? 'Mostrando las de todos los meses. Toca para volver.'
+                      : `Mostrando las de ${periodLabel}. Toca para volver.`
+                    : 'Neto no supo en que categoria ponerlas. Toca para verlas y ajustarlas.'}
+                </p>
+              </div>
+              <Badge
+                variant="outline"
+                className="shrink-0 border-[rgba(239,159,39,0.35)] bg-[rgba(239,159,39,0.1)] text-xs text-[#EF9F27]"
+              >
+                {porRevisarActive ? 'Filtrando' : 'Revisar'}
+              </Badge>
+            </button>
+            {porRevisarOtherCount > 0 && !scopeGlobal && (
+              <button
+                onClick={() => activarPorRevisar('global')}
+                className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-[#8A877D] transition-colors hover:text-[#EF9F27]"
+              >
+                +{porRevisarOtherCount} en otros meses · ver todas
+              </button>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Filters */}
       <TransactionFilters

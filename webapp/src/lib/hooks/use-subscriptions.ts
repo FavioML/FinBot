@@ -139,11 +139,16 @@ export function buildSuscripciones(txs: Transaccion[]): SuscripcionDetectada[] {
     const cuotaMontoPen = median(recurring.map((p) => p.montoPen))
 
     if (!match) {
-      // Rama por patrón (sin catálogo): exige recurrencia real (2+ meses) y monto
-      // estable, igual que el motor del backend. La query ya filtra categoría
-      // 'Suscripciones', así que aquí solo confirmamos que es recurrente.
-      if (mesesConPago.size < 2) continue
-      const montos = data.pagos.map((p) => p.monto)
+      // Rama por patrón (sin catálogo). La query ya filtra categoría 'Suscripciones',
+      // así que acá confirmamos que hay una CUOTA que se repite. Clave: la estabilidad
+      // se mide sobre el cluster recurrente (la cuota), NO sobre todos los pagos.
+      // Un descriptor opaco como "Apple" agrupa dos servicios (Music + iCloud) con
+      // montos muy distintos; medir la varianza global tumbaba el grupo entero y nunca
+      // llegaba a mostrarse (ni a poder dividirse). La cuota estable (p.ej. iCloud) sí
+      // pasa, y los cargos del otro servicio quedan marcados como "cargos adicionales".
+      const recurringMonths = new Set(recurring.map((p) => p.fecha.substring(0, 7))).size
+      if (recurringMonths < 2) continue
+      const montos = recurring.map((p) => p.monto)
       const avg = montos.reduce((a, b) => a + b, 0) / montos.length
       const varianza = montos.reduce((s, m) => s + Math.pow(m - avg, 2), 0) / montos.length
       const coefVar = avg > 0 ? Math.sqrt(varianza) / avg : 1
