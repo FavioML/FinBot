@@ -26,6 +26,8 @@ export type PlanFeature =
   // v2 — Planes de compra
   | 'metas_dynamic_adjust'
   | 'metas_checkins'
+  | 'metas_viability'
+  | 'metas_cuts'
   // v2 — Espacios
   | 'espacios_custom_split'
   | 'espacios_shared_budget'
@@ -51,6 +53,8 @@ const PRO_ONLY_FEATURES: PlanFeature[] = [
   'fugas_limits',
   'metas_dynamic_adjust',
   'metas_checkins',
+  'metas_viability',
+  'metas_cuts',
   'espacios_custom_split',
   'espacios_shared_budget',
   'espacios_full_history',

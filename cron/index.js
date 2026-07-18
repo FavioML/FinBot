@@ -20,6 +20,7 @@ const {
   checkRecordatoriosCostos,
   checkSurveyTriggers,
   checkSurveyConversions,
+  limpiarOTPVencidos,
 } = require('./checks');
 
 // Keep-warm de la webapp (Vercel): pinguea /api/dashboard?warm=1 para mantener
@@ -82,6 +83,9 @@ function startCronJobs() {
     log.info({ tag: 'SURVEY_TRIG' }, 'Survey triggers activos (recordatorios + invite webapp + feedback 30tx, 10am Lima diario)');
     setInterval(checkSurveyConversions, 15 * 60 * 1000);
     log.info({ tag: 'SURVEY_CONV' }, 'Conversión de recordatorios activa (7am Lima diario)');
+    limpiarOTPVencidos();
+    setInterval(limpiarOTPVencidos, 60 * 60 * 1000);
+    log.info({ tag: 'OTP_CLEANUP' }, 'Limpieza de OTPs vencidos activa (cada 60min)');
     setTimeout(runBackup, 60000);
     setInterval(runBackup, 7 * 24 * 60 * 60 * 1000);
     log.info({ tag: 'BACKUP' }, 'Backup semanal activo');

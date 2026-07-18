@@ -235,7 +235,7 @@ router.get('/auth/callback', async (req, res) => {
 router.post('/test-parser', async (req, res) => {
   const { correo, clave } = req.body;
   const ADMIN_KEY = process.env.ADMIN_KEY;
-  if (!ADMIN_KEY || !clave || !crypto.timingSafeEqual(Buffer.from(clave), Buffer.from(ADMIN_KEY))) return res.status(401).json({ error: 'No autorizado' });
+  if (!ADMIN_KEY || !clave || clave.length !== ADMIN_KEY.length || !crypto.timingSafeEqual(Buffer.from(clave), Buffer.from(ADMIN_KEY))) return res.status(401).json({ error: 'No autorizado' });
   if (!correo) return res.status(400).json({ error: 'Falta correo' });
   try { const r = await parsearCorreoBancario(correo); res.json({ ok: true, resultado: r }); }
   catch (e) { res.status(500).json({ ok: false, error: e.message }); }

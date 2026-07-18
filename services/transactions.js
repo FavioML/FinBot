@@ -61,7 +61,16 @@ async function guardarTransaccion(usuarioId, datos) {
   if (montoValidado === null) throw new Error('Monto inválido: ' + datos.monto);
   const _moneda = datos.moneda || 'PEN';
   let _montoPen = montoValidado; let _tcUsado = null;
-  if (_moneda === 'USD') { try { const _tc = await obtenerTipoCambio(); _tcUsado = _tc.venta; _montoPen = validarMonto(montoValidado * _tc.venta) || montoValidado; } catch(e) {} }
+  if (_moneda === 'USD') {
+    try {
+      const _tc = await obtenerTipoCambio();
+      const _pen = validarMonto(montoValidado * _tc.venta);
+      // Si la conversión sale fuera de rango (monto USD gigante), NO fabricamos monto_pen con el
+      // número USD crudo: dejamos monto_pen/tipo_cambio null (dato honesto) en vez de un PEN falso.
+      if (_pen !== null) { _tcUsado = _tc.venta; _montoPen = _pen; }
+      else { _montoPen = null; log.warn({ tag: 'TC', monto: montoValidado }, 'Conversión USD→PEN fuera de rango; monto_pen queda null'); }
+    } catch(e) {}
+  }
   // Limpiar comercios genéricos del parser (ej: "Gasto pendiente de BCP S/5 del 2026-04-02" → "BCP")
   if (datos.comercio && /^(gasto|pago|cargo|operaci[oó]n|consumo)\b/i.test(datos.comercio)) {
     const bancos = ['BCP','BBVA','Interbank','Scotiabank','Yape','Plin','Falabella','Ripley','BanBif','Mibanco'];

@@ -786,10 +786,19 @@ async function checkResumenDiarioManosLibres() {
   } catch (e) { log.error({ tag: 'RESUMEN_DIARIO', err: e.message }, 'Error resumen diario manos libres'); }
 }
 
+// Limpieza periódica de OTPs de verificación web vencidos (evita acumulación de filas muertas;
+// el unique index por supabase_auth_id ya reemplaza al regenerar, esto borra los abandonados).
+async function limpiarOTPVencidos() {
+  try {
+    await supabase.from('webapp_otp').delete().lt('expires_at', new Date().toISOString());
+  } catch (e) { log.warn({ tag: 'OTP_CLEANUP', err: e.message }, 'Error limpiando OTPs vencidos'); }
+}
+
 module.exports = {
   checkResumenMensual,
   checkResumenSemanal,
   checkResumenDiarioManosLibres,
+  limpiarOTPVencidos,
   checkRecordatorioDiario,
   checkPremiumExpiry,
   checkAlertasProactivas,

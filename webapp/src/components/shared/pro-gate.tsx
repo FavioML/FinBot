@@ -12,7 +12,7 @@ interface ProGateProps {
 export function ProGate({ featureName, description }: ProGateProps) {
   return (
     <motion.div
-      className="flex items-center justify-center min-h-[400px] bg-gradient-to-br from-[#0a0a0a] via-[#1a1a1a] to-[#0f0f0f] rounded-2xl border border-[#2a2a2a] p-8 glass-card-glow"
+      className="flex items-center justify-center min-h-[400px] glass-card glass-card-glow rounded-2xl p-8"
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
