@@ -22,7 +22,6 @@ export async function POST(request: Request) {
   const form = await request.formData();
   const file = form.get('comprobante');
   const tipoPlan = String(form.get('tipo_plan') || 'mensual') === 'anual' ? 'anual' : 'mensual';
-  const bancos = form.get('bancos'); // 'todos' | 'bcp,interbank' | null (no tocar)
 
   if (!(file instanceof File)) {
     return NextResponse.json({ error: 'Falta la captura del comprobante' }, { status: 400 });
@@ -42,7 +41,6 @@ export async function POST(request: Request) {
     'x-tipo-plan': tipoPlan,
     'x-mime-type': file.type,
   };
-  if (bancos != null && bancos !== '') headers['x-bancos'] = String(bancos);
 
   try {
     const res = await fetch(`${BACKEND_URL}/pro/solicitud`, { method: 'POST', headers, body: buffer });

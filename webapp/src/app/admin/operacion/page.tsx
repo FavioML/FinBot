@@ -83,6 +83,7 @@ interface Pago {
   tipo_plan: string | null;
   metodo_pago: string | null;
   estado: string;
+  origen: string | null;
   comprobante_signed_url: string | null;
   monto_detectado: number | null;
   premium_desde: string | null;
@@ -443,6 +444,11 @@ function PaymentsModal({
                       {p.monto != null ? `S/ ${Number(p.monto).toFixed(2)}` : '—'}
                     </span>
                     <span className="text-xs text-[#F0EFE8]/40">{p.tipo_plan || '—'} · {p.metodo_pago || '—'}</span>
+                    {p.origen && (
+                      <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${p.origen === 'webapp' ? 'bg-[#1D9E75]/15 text-[#1D9E75]' : 'bg-[#EF9F27]/15 text-[#EF9F27]'}`}>
+                        {p.origen === 'webapp' ? 'webapp' : 'whatsapp'}
+                      </span>
+                    )}
                   </div>
                   <span className="text-xs text-[#F0EFE8]/30">{formatDateTime(p.created_at)}</span>
                 </div>

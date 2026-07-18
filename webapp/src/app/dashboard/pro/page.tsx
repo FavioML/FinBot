@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Crown, Copy, Check, Upload, Loader2, Clock, ShieldCheck, Mail, ChevronDown } from 'lucide-react';
+import { Crown, Copy, Check, Upload, Loader2, Clock, ShieldCheck, Mail, ChevronDown, RefreshCw, Landmark } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FadeIn } from '@/components/shared/motion-wrapper';
 import { HeaderActions } from '@/components/dashboard/topbar';
@@ -21,6 +21,8 @@ interface ProStatus {
   isPremium: boolean;
   pagoPendiente: boolean;
   premiumVence: string | null;
+  bancosSeleccionados: string[] | null;
+  gmailConectado: boolean;
   ultimoPago: { estado: string; tipoPlan: string } | null;
 }
 
@@ -60,21 +62,155 @@ export default function ProPage() {
         </div>
 
         {status?.isPremium ? (
-          <PremiumState premiumVence={status.premiumVence} />
+          pendiente ? (
+            <PendingState renewal onRefresh={() => refetch()} />
+          ) : (
+            <PremiumState status={status} onDone={() => refetch()} />
+          )
         ) : pendiente ? (
           <PendingState onRefresh={() => refetch()} />
         ) : (
-          <UpgradeFlow rejected={rechazado} onDone={() => refetch()} />
+          <PaymentForm rejected={rechazado} onDone={() => refetch()} />
         )}
       </div>
     </FadeIn>
   );
 }
 
-function PremiumState({ premiumVence }: { premiumVence: string | null }) {
+/* ----------------------------- Premium ----------------------------- */
+
+function PremiumState({ status, onDone }: { status: ProStatus; onDone: () => void }) {
+  const [showRenew, setShowRenew] = useState(false);
+
+  return (
+    <div className="space-y-4">
+      <div className="glass-card glass-card-glow p-6 text-center space-y-3">
+        <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-[#1D9E75]/15 border border-[#1D9E75]/30">
+          <ShieldCheck className="w-7 h-7 text-[#1D9E75]" />
+        </div>
+        <h2 className="text-xl font-bold text-[#F0EFE8]">Eres Neto Pro ⭐</h2>
+        {status.premiumVence && (
+          <p className="text-sm text-[#8A877D]">
+            Activo hasta el{' '}
+            {new Date(status.premiumVence + 'T12:00:00').toLocaleDateString('es-PE', { day: 'numeric', month: 'long', year: 'numeric' })}
+          </p>
+        )}
+      </div>
+
+      <BancosManager initial={status.bancosSeleccionados} />
+
+      <GmailConnect conectado={status.gmailConectado} />
+
+      {/* Renovar */}
+      {showRenew ? (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-sm text-[#F0EFE8]">
+            <RefreshCw className="h-4 w-4 text-[#1D9E75]" /> Renovar / extender tu Pro
+          </div>
+          <PaymentForm renewal onDone={() => { setShowRenew(false); onDone(); }} />
+        </div>
+      ) : (
+        <button
+          onClick={() => setShowRenew(true)}
+          className="w-full glass-card p-4 flex items-center justify-center gap-2 text-sm text-[#C8C6BC] hover:text-[#F0EFE8] transition-colors"
+        >
+          <RefreshCw className="h-4 w-4" /> Renovar o pagar mi próximo periodo
+        </button>
+      )}
+    </div>
+  );
+}
+
+function BancosManager({ initial }: { initial: string[] | null }) {
+  const [open, setOpen] = useState(false);
+  const [todos, setTodos] = useState(initial === null);
+  const [selected, setSelected] = useState<Set<string>>(new Set(initial || []));
+  const [saving, setSaving] = useState(false);
+
+  const { data: bancos = [] } = useQuery<Banco[]>({
+    queryKey: ['pro-bancos'],
+    queryFn: async () => {
+      const r = await fetch('/api/pro/bancos', { cache: 'no-store' });
+      const j = await r.json();
+      return j.bancos || [];
+    },
+  });
+
+  const label = useMemo(() => {
+    if (todos) return 'Todos mis bancos';
+    if (selected.size === 0) return 'Ninguno seleccionado';
+    return `${selected.size} banco${selected.size > 1 ? 's' : ''}`;
+  }, [todos, selected]);
+
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  }
+
+  async function save() {
+    setSaving(true);
+    try {
+      const bancosPayload = todos ? null : Array.from(selected);
+      const r = await fetch('/api/pro/bancos', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ bancos: bancosPayload }),
+      });
+      if (!r.ok) throw new Error('No se pudo guardar');
+      toast.success('Bancos actualizados');
+      setOpen(false);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="glass-card p-5 space-y-3">
+      <button onClick={() => setOpen((v) => !v)} className="w-full flex items-center justify-between">
+        <div className="flex items-center gap-2 text-left">
+          <Landmark className="h-4 w-4 text-[#1D9E75]" />
+          <div>
+            <p className="text-sm font-semibold text-[#F0EFE8]">Bancos que Neto leerá</p>
+            <p className="text-xs text-[#8A877D] mt-0.5">{label}</p>
+          </div>
+        </div>
+        <ChevronDown className={`h-4 w-4 text-[#8A877D] transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="space-y-2 pt-2 border-t border-[rgba(255,255,255,0.06)]">
+          <p className="text-xs text-[#8A877D]">Se aplica cuando conectes tu Gmail. Elige qué correos bancarios lee Neto.</p>
+          <label className="flex items-center gap-2 py-1.5 cursor-pointer">
+            <input type="checkbox" checked={todos} onChange={(e) => setTodos(e.target.checked)} className="accent-[#1D9E75]" />
+            <span className="text-sm text-[#F0EFE8]">Todos mis bancos</span>
+          </label>
+          {!todos && (
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+              {bancos.map((b) => (
+                <label key={b.id} className="flex items-center gap-2 py-1 cursor-pointer">
+                  <input type="checkbox" checked={selected.has(b.id)} onChange={() => toggle(b.id)} className="accent-[#1D9E75]" />
+                  <span className="text-sm text-[#C8C6BC]">{b.label}</span>
+                </label>
+              ))}
+            </div>
+          )}
+          <Button onClick={save} disabled={saving} size="sm" className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar bancos'}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GmailConnect({ conectado }: { conectado: boolean }) {
   const [connecting, setConnecting] = useState(false);
 
-  async function connectGmail() {
+  async function connect() {
     setConnecting(true);
     try {
       const r = await fetch('/api/pro/gmail-auth-url', { cache: 'no-store' });
@@ -88,82 +224,62 @@ function PremiumState({ premiumVence }: { premiumVence: string | null }) {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="glass-card glass-card-glow p-6 text-center space-y-3">
-        <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-[#1D9E75]/15 border border-[#1D9E75]/30">
-          <ShieldCheck className="w-7 h-7 text-[#1D9E75]" />
+    <div className="glass-card p-5 space-y-3">
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 inline-flex items-center justify-center w-9 h-9 rounded-lg bg-[#1D9E75]/10">
+          <Mail className="w-5 h-5 text-[#1D9E75]" />
         </div>
-        <h2 className="text-xl font-bold text-[#F0EFE8]">Ya eres Neto Pro ⭐</h2>
-        {premiumVence && (
-          <p className="text-sm text-[#8A877D]">
-            Tu plan está activo hasta el{' '}
-            {new Date(premiumVence + 'T12:00:00').toLocaleDateString('es-PE', { day: 'numeric', month: 'long', year: 'numeric' })}
+        <div className="flex-1">
+          <h3 className="text-sm font-semibold text-[#F0EFE8]">
+            {conectado ? 'Gmail conectado' : 'Conecta tu Gmail'}
+          </h3>
+          <p className="text-xs text-[#8A877D] mt-0.5">
+            {conectado
+              ? 'Neto ya lee tus notificaciones bancarias por correo automáticamente.'
+              : 'Neto leerá tus notificaciones bancarias por correo. Solo lectura de esos avisos, sin contraseñas bancarias.'}
           </p>
-        )}
-      </div>
-
-      <div className="glass-card p-5 space-y-3">
-        <div className="flex items-start gap-3">
-          <div className="mt-0.5 inline-flex items-center justify-center w-9 h-9 rounded-lg bg-[#1D9E75]/10">
-            <Mail className="w-5 h-5 text-[#1D9E75]" />
-          </div>
-          <div className="flex-1">
-            <h3 className="text-sm font-semibold text-[#F0EFE8]">Siguiente paso: conecta tu Gmail</h3>
-            <p className="text-xs text-[#8A877D] mt-0.5">
-              Neto lee automáticamente tus notificaciones bancarias por correo. Solo lectura de esos avisos, sin
-              contraseñas bancarias.
-            </p>
-          </div>
         </div>
-        <Button
-          onClick={connectGmail}
-          disabled={connecting}
-          className="w-full bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90"
-        >
+        {conectado && <Check className="h-5 w-5 text-[#1D9E75] shrink-0" />}
+      </div>
+      {!conectado && (
+        <Button onClick={connect} disabled={connecting} className="w-full bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90">
           {connecting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Conectar mi Gmail'}
         </Button>
-      </div>
+      )}
     </div>
   );
 }
 
-function PendingState({ onRefresh }: { onRefresh: () => void }) {
+/* --------------------------- Pending state -------------------------- */
+
+function PendingState({ renewal = false, onRefresh }: { renewal?: boolean; onRefresh: () => void }) {
   return (
     <div className="glass-card glass-card-glow p-6 text-center space-y-3">
       <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-[#EF9F27]/15 border border-[#EF9F27]/30">
         <Clock className="w-7 h-7 text-[#EF9F27]" />
       </div>
-      <h2 className="text-xl font-bold text-[#F0EFE8]">Estamos verificando tu pago</h2>
+      <h2 className="text-xl font-bold text-[#F0EFE8]">
+        {renewal ? 'Tu renovación está en verificación' : 'Estamos verificando tu pago'}
+      </h2>
       <p className="text-sm text-[#8A877D]">
-        Recibimos tu comprobante. Apenas lo validemos, activamos tu Pro y te avisamos aquí y por WhatsApp. Suele tomar
-        pocos minutos.
+        {renewal
+          ? 'Tu Pro sigue activo. Apenas validemos el pago, extendemos tu suscripción y te avisamos.'
+          : 'Recibimos tu comprobante. Apenas lo validemos, activamos tu Pro y te avisamos aquí y por WhatsApp. Suele tomar pocos minutos.'}
       </p>
-      <button onClick={onRefresh} className="text-xs text-[#1D9E75] hover:underline">
-        Actualizar estado
-      </button>
+      <button onClick={onRefresh} className="text-xs text-[#1D9E75] hover:underline">Actualizar estado</button>
     </div>
   );
 }
 
-function UpgradeFlow({ rejected, onDone }: { rejected: boolean; onDone: () => void }) {
+/* --------------------------- Payment form --------------------------- */
+
+function PaymentForm({ rejected = false, renewal = false, onDone }: { rejected?: boolean; renewal?: boolean; onDone: () => void }) {
   const [plan, setPlan] = useState<Plan>('mensual');
   const [copied, setCopied] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [bancosOpen, setBancosOpen] = useState(false);
-  const [todos, setTodos] = useState(true);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const inputRef = useRef<HTMLInputElement>(null);
-
-  const { data: bancos = [] } = useQuery<Banco[]>({
-    queryKey: ['pro-bancos'],
-    queryFn: async () => {
-      const r = await fetch('/api/pro/bancos', { cache: 'no-store' });
-      const j = await r.json();
-      return j.bancos || [];
-    },
-  });
 
   useEffect(() => {
     return () => { if (preview) URL.revokeObjectURL(preview); };
@@ -183,21 +299,6 @@ function UpgradeFlow({ rejected, onDone }: { rejected: boolean; onDone: () => vo
     setPreview(f ? URL.createObjectURL(f) : null);
   }
 
-  function toggleBanco(id: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  const bancosLabel = useMemo(() => {
-    if (todos) return 'Todos mis bancos';
-    if (selected.size === 0) return 'Ningún banco seleccionado';
-    return `${selected.size} banco${selected.size > 1 ? 's' : ''}`;
-  }, [todos, selected]);
-
   async function submit() {
     if (!file) {
       toast.error('Sube la captura de tu Yape');
@@ -208,11 +309,10 @@ function UpgradeFlow({ rejected, onDone }: { rejected: boolean; onDone: () => vo
       const fd = new FormData();
       fd.append('comprobante', file);
       fd.append('tipo_plan', plan);
-      fd.append('bancos', todos ? 'todos' : Array.from(selected).join(','));
       const r = await fetch('/api/pro/solicitud', { method: 'POST', body: fd });
       const j = await r.json();
       if (!r.ok || !j.ok) throw new Error(j.error || 'No se pudo enviar');
-      toast.success('¡Comprobante enviado! Estamos verificando tu pago.');
+      toast.success(renewal ? '¡Comprobante enviado! Verificamos tu renovación.' : '¡Comprobante enviado! Estamos verificando tu pago.');
       onDone();
     } catch (e) {
       toast.error((e as Error).message);
@@ -226,13 +326,12 @@ function UpgradeFlow({ rejected, onDone }: { rejected: boolean; onDone: () => vo
       {rejected && (
         <div className="glass-card p-4 border border-[#D85A30]/30 bg-[#D85A30]/5">
           <p className="text-sm text-[#D85A30]">
-            No pudimos validar tu comprobante anterior. Revisa que el Yape sea de S/{monto} a {YAPE_NOMBRE} y vuelve a
-            enviarlo.
+            No pudimos validar tu comprobante anterior. Revisa que el Yape sea de S/{monto} a {YAPE_NOMBRE} y vuelve a enviarlo.
           </p>
         </div>
       )}
 
-      {/* Paso 1: plan */}
+      {/* Plan */}
       <div className="glass-card p-5 space-y-3">
         <p className="text-xs uppercase tracking-wider text-[#8A877D]">1. Elige tu plan</p>
         <div className="grid grid-cols-2 gap-3">
@@ -249,9 +348,7 @@ function UpgradeFlow({ rejected, onDone }: { rejected: boolean; onDone: () => vo
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold text-[#F0EFE8] capitalize">{p}</span>
                 {p === 'anual' && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#EF9F27]/15 text-[#EF9F27] font-medium">
-                    2 meses gratis
-                  </span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#EF9F27]/15 text-[#EF9F27] font-medium">2 meses gratis</span>
                 )}
               </div>
               <p className="mt-1 text-lg font-bold text-[#1D9E75]">
@@ -263,7 +360,7 @@ function UpgradeFlow({ rejected, onDone }: { rejected: boolean; onDone: () => vo
         </div>
       </div>
 
-      {/* Paso 2: Yape */}
+      {/* Yape */}
       <div className="glass-card p-5 space-y-4">
         <p className="text-xs uppercase tracking-wider text-[#8A877D]">2. Yapea S/{monto}</p>
         <div className="flex flex-col sm:flex-row gap-4 items-center">
@@ -284,65 +381,17 @@ function UpgradeFlow({ rejected, onDone }: { rejected: boolean; onDone: () => vo
         </div>
       </div>
 
-      {/* Paso 3: bancos (opcional) */}
+      {/* Captura */}
       <div className="glass-card p-5 space-y-3">
-        <button
-          onClick={() => setBancosOpen((v) => !v)}
-          className="w-full flex items-center justify-between"
-        >
-          <div className="text-left">
-            <p className="text-xs uppercase tracking-wider text-[#8A877D]">3. Bancos a leer (opcional)</p>
-            <p className="text-sm text-[#C8C6BC] mt-0.5">{bancosLabel}</p>
-          </div>
-          <ChevronDown className={`h-4 w-4 text-[#8A877D] transition-transform ${bancosOpen ? 'rotate-180' : ''}`} />
-        </button>
-        {bancosOpen && (
-          <div className="space-y-2 pt-2 border-t border-[rgba(255,255,255,0.06)]">
-            <p className="text-xs text-[#8A877D]">
-              Se aplica cuando conectes tu Gmail (después de activar Pro). Neto leerá solo los bancos que elijas.
-            </p>
-            <label className="flex items-center gap-2 py-1.5 cursor-pointer">
-              <input type="checkbox" checked={todos} onChange={(e) => setTodos(e.target.checked)} className="accent-[#1D9E75]" />
-              <span className="text-sm text-[#F0EFE8]">Todos mis bancos</span>
-            </label>
-            {!todos && (
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                {bancos.map((b) => (
-                  <label key={b.id} className="flex items-center gap-2 py-1 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={selected.has(b.id)}
-                      onChange={() => toggleBanco(b.id)}
-                      className="accent-[#1D9E75]"
-                    />
-                    <span className="text-sm text-[#C8C6BC]">{b.label}</span>
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Paso 4: captura */}
-      <div className="glass-card p-5 space-y-3">
-        <p className="text-xs uppercase tracking-wider text-[#8A877D]">4. Sube tu comprobante</p>
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          className="hidden"
-          onChange={(e) => onPickFile(e.target.files?.[0] || null)}
-        />
+        <p className="text-xs uppercase tracking-wider text-[#8A877D]">3. Sube tu comprobante</p>
+        <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => onPickFile(e.target.files?.[0] || null)} />
         {preview ? (
           <div className="flex items-center gap-3">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={preview} alt="Comprobante" className="h-20 w-20 object-cover rounded-lg border border-[rgba(255,255,255,0.08)]" />
             <div className="flex-1 min-w-0">
               <p className="text-sm text-[#F0EFE8] truncate">{file?.name}</p>
-              <button onClick={() => inputRef.current?.click()} className="text-xs text-[#1D9E75] hover:underline">
-                Cambiar
-              </button>
+              <button onClick={() => inputRef.current?.click()} className="text-xs text-[#1D9E75] hover:underline">Cambiar</button>
             </div>
           </div>
         ) : (
@@ -356,15 +405,11 @@ function UpgradeFlow({ rejected, onDone }: { rejected: boolean; onDone: () => vo
         )}
       </div>
 
-      <Button
-        onClick={submit}
-        disabled={submitting || !file}
-        className="w-full bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 h-12 text-base"
-      >
+      <Button onClick={submit} disabled={submitting || !file} className="w-full bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 h-12 text-base">
         {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : `Enviar comprobante — S/${monto}`}
       </Button>
       <p className="text-center text-xs text-[#8A877D]">
-        Un humano revisa tu pago antes de activar Pro. Cancelas cuando quieras.
+        {renewal ? 'Extiende tu Pro. Un humano valida el pago antes de sumar el periodo.' : 'Un humano revisa tu pago antes de activar Pro. Cancelas cuando quieras.'}
       </p>
     </div>
   );

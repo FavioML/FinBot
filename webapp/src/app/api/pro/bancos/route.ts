@@ -1,4 +1,5 @@
 import { getNetoUserId } from '@/lib/supabase/auth';
+import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 
 const BACKEND_URL = process.env.NETO_BACKEND_URL || process.env.RAILWAY_URL || 'https://api.neto.pe';
@@ -26,4 +27,24 @@ export async function GET() {
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 502 });
   }
+}
+
+// POST /api/pro/bancos — guarda la selección de bancos del usuario (post-aprobación).
+// body: { bancos: string[] | null }  (null = todos). Se aplica al conectar Gmail.
+export async function POST(request: Request) {
+  const userId = await getNetoUserId();
+  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+
+  const body = await request.json().catch(() => ({}));
+  const raw = (body as { bancos?: unknown }).bancos;
+  // null = todos; array de ids = selección específica.
+  const bancos = Array.isArray(raw) ? raw.filter((x) => typeof x === 'string') : null;
+
+  const { error } = await getServiceClient()
+    .from('usuarios')
+    .update({ bancos_seleccionados: bancos })
+    .eq('id', userId);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  return NextResponse.json({ ok: true });
 }

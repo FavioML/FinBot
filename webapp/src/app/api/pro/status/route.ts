@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 
 // GET /api/pro/status — estado del plan + última solicitud (para el polling de /dashboard/pro)
 export async function GET() {
-  const user = await getNetoUser('id, plan, pago_pendiente, premium_vence, tipo_plan');
+  const user = await getNetoUser('id, plan, pago_pendiente, premium_vence, tipo_plan, bancos_seleccionados, gmail_access_token');
   if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
 
   const { data: pago } = await getServiceClient()
@@ -22,6 +22,8 @@ export async function GET() {
     isPremium: user.plan === 'premium',
     pagoPendiente: !!user.pago_pendiente,
     premiumVence: (user.premium_vence as string) || null,
+    bancosSeleccionados: (user.bancos_seleccionados as string[] | null) ?? null,
+    gmailConectado: !!user.gmail_access_token,
     ultimoPago: pago ? { estado: pago.estado, tipoPlan: pago.tipo_plan } : null,
   });
 }
