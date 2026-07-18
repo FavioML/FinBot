@@ -85,7 +85,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 flex flex-col px-3 py-4">
+      <nav className="flex-1 min-h-0 overflow-y-auto flex flex-col px-3 py-4">
         {/* Main nav */}
         <div className="space-y-1">
           {mainNav.map((item) => {
