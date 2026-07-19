@@ -60,6 +60,20 @@ import { capitalizeDisplay, normalizeMetodoPago, getMetodoIcon } from '@/lib/for
 import { detectSubscriptions, TIPO_LABELS } from '@/lib/subscriptions-catalog';
 import type { Transaccion, KPIData, CategoriaGasto, TendenciaMensual } from '@/lib/types';
 
+// Separador de intención por tier: pill + pregunta + línea. Solo agrupa
+// visualmente las secciones existentes por "¿qué pregunta responde este bloque?".
+function TierLabel({ label, question }: { label: string; question: string }) {
+  return (
+    <div className="flex items-center gap-3 pt-2">
+      <span className="whitespace-nowrap rounded-full border border-[rgba(29,158,117,0.22)] bg-[rgba(29,158,117,0.10)] px-2.5 py-[5px] text-[10px] font-bold uppercase tracking-[0.14em] text-[#1D9E75]">
+        {label}
+      </span>
+      <span className="text-[12.5px] text-[#8A877D]">{question}</span>
+      <span className="h-px flex-1 bg-[rgba(240,239,232,0.08)]" />
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const { data: user, isLoading: userLoading } = useUser();
   const canCalendar = canAccess(user?.plan, 'calendar'); // Calendario financiero es Pro
@@ -424,38 +438,16 @@ export default function DashboardPage() {
             </FadeIn>
           </div>
 
+          {/* ══════════ TIER 1 · Pulso — ¿cómo voy este mes? ══════════
+              KPIs + proyección/hoy/FX + banner de fugas: la foto rápida del mes. */}
+          {viewMode === 'mensual' && (
+            <TierLabel label="Pulso" question="¿cómo voy este mes?" />
+          )}
+
           {/* KPI cards */}
           <FadeIn delay={0.08}>
             <KPICards data={kpiData} sparklines={sparklines} netoScore={netoScore} />
           </FadeIn>
-
-          {/* NPS in-app card — auto-shows for eligible users (>=7d, never responded) */}
-          <NPSCard />
-
-          {/* Fugas alert banner — subtle, only when there are recent alerts */}
-          {(() => {
-            const twoWeeksAgo = new Date();
-            twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
-            const recentAlerts = (alertsData?.alerts ?? []).filter(
-              (a) => new Date(a.created_at) >= twoWeeksAgo
-            );
-            if (recentAlerts.length === 0) return null;
-            return (
-              <FadeIn delay={0.10}>
-                <Link
-                  href="/dashboard/alertas"
-                  className="flex items-center gap-3 rounded-xl px-4 py-3 transition-colors hover:bg-white/[0.04]"
-                  style={{ backgroundColor: 'rgba(232, 168, 56, 0.06)', border: '1px solid rgba(232, 168, 56, 0.12)' }}
-                >
-                  <AlertTriangle className="h-4 w-4 shrink-0 text-[#E8A838]" />
-                  <span className="text-sm text-[#E8A838]/90">
-                    {recentAlerts.length} fuga{recentAlerts.length > 1 ? 's' : ''} detectada{recentAlerts.length > 1 ? 's' : ''} recientemente
-                  </span>
-                  <span className="ml-auto text-xs text-[#8A877D]">Ver →</span>
-                </Link>
-              </FadeIn>
-            );
-          })()}
 
           {/* Projection + Today spending + Exchange rate row */}
           {viewMode === 'mensual' && (
@@ -477,7 +469,39 @@ export default function DashboardPage() {
             </FadeIn>
           )}
 
-          {/* Charts row */}
+          {/* Fugas alert banner — subtle, only when there are recent alerts */}
+          {(() => {
+            const twoWeeksAgo = new Date();
+            twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+            const recentAlerts = (alertsData?.alerts ?? []).filter(
+              (a) => new Date(a.created_at) >= twoWeeksAgo
+            );
+            if (recentAlerts.length === 0) return null;
+            return (
+              <FadeIn delay={0.14}>
+                <Link
+                  href="/dashboard/alertas"
+                  className="flex items-center gap-3 rounded-xl px-4 py-3 transition-colors hover:bg-white/[0.04]"
+                  style={{ backgroundColor: 'rgba(232, 168, 56, 0.06)', border: '1px solid rgba(232, 168, 56, 0.12)' }}
+                >
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-[#E8A838]" />
+                  <span className="text-sm text-[#E8A838]/90">
+                    {recentAlerts.length} fuga{recentAlerts.length > 1 ? 's' : ''} detectada{recentAlerts.length > 1 ? 's' : ''} recientemente
+                  </span>
+                  <span className="ml-auto text-xs text-[#8A877D]">Ver →</span>
+                </Link>
+              </FadeIn>
+            );
+          })()}
+
+          {/* ══════════ TIER 2 · Entender — ¿en qué y cómo gasto? ══════════
+              Trend + Donut abren (lectura macro más rápida); calendario, score,
+              insight y merchants quedan detrás como lentes de mayor detalle. */}
+          {viewMode === 'mensual' && (
+            <TierLabel label="Entender" question="¿en qué y cómo gasto?" />
+          )}
+
+          {/* Trend + category donut — the fastest read of the month */}
           <FadeIn delay={0.2}>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <Suspense fallback={<Skeleton className="h-[320px] rounded-2xl" />}>
@@ -489,26 +513,8 @@ export default function DashboardPage() {
           </div>
           </FadeIn>
 
-          {/* Score trend + AI insight */}
-          {viewMode === 'mensual' && (
-            <FadeIn delay={0.22}>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <ScoreTrend />
-              <InsightCard
-                insight={insightText}
-                aiContext={{
-                  totalGastos: kpiData.totalGastos,
-                  totalIngresos: kpiData.totalIngresos,
-                  topCategorias: categoryData.slice(0, 3).map(c => `${c.categoria} (${Math.round(c.porcentaje)}%)`).join(', '),
-                  scoreFinanciero: (netoScore?.score ?? 0),
-                  subscriptionTotal: subscriptions.reduce((s, sub) => s + sub.monthlyAmount, 0) || undefined,
-                }}
-              />
-            </div>
-            </FadeIn>
-          )}
-
-          {/* Collapsible detailed widgets — expanded on desktop, toggle on mobile */}
+          {/* Collapsible detailed widgets — expanded on desktop, toggle on mobile.
+              Order: Calendario+Comparación → Score+Insight → Merchants+Método. */}
           {viewMode === 'mensual' && (
             <>
               {/* Mobile toggle button */}
@@ -528,19 +534,9 @@ export default function DashboardPage() {
 
               {/* Desktop: always visible */}
               <div className="hidden md:block space-y-6">
-                {/* Top merchants + Payment methods */}
-                <Suspense fallback={<Skeleton className="h-[300px] rounded-2xl" />}>
-                <FadeIn delay={0.25}>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  <TopMerchants transactions={transactions} onMerchantClick={setDetailComercio} />
-                  <PaymentMethodDonut transactions={transactions} onMethodClick={setDetailMetodo} />
-                </div>
-                </FadeIn>
-                </Suspense>
-
                 {/* Financial calendar + Category comparison */}
                 <Suspense fallback={<Skeleton className="h-[300px] rounded-2xl" />}>
-                <FadeIn delay={0.3}>
+                <FadeIn delay={0.25}>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   {canCalendar ? (
                     <FinancialCalendar
@@ -562,6 +558,33 @@ export default function DashboardPage() {
                 </div>
                 </FadeIn>
                 </Suspense>
+
+                {/* Score trend + AI insight */}
+                <FadeIn delay={0.28}>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <ScoreTrend />
+                  <InsightCard
+                    insight={insightText}
+                    aiContext={{
+                      totalGastos: kpiData.totalGastos,
+                      totalIngresos: kpiData.totalIngresos,
+                      topCategorias: categoryData.slice(0, 3).map(c => `${c.categoria} (${Math.round(c.porcentaje)}%)`).join(', '),
+                      scoreFinanciero: (netoScore?.score ?? 0),
+                      subscriptionTotal: subscriptions.reduce((s, sub) => s + sub.monthlyAmount, 0) || undefined,
+                    }}
+                  />
+                </div>
+                </FadeIn>
+
+                {/* Top merchants + Payment methods */}
+                <Suspense fallback={<Skeleton className="h-[300px] rounded-2xl" />}>
+                <FadeIn delay={0.3}>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <TopMerchants transactions={transactions} onMerchantClick={setDetailComercio} />
+                  <PaymentMethodDonut transactions={transactions} onMethodClick={setDetailMetodo} />
+                </div>
+                </FadeIn>
+                </Suspense>
               </div>
 
               {/* Mobile: animated collapse */}
@@ -575,19 +598,9 @@ export default function DashboardPage() {
                     exit={{ height: 0, opacity: 0 }}
                     transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
                   >
-                    {/* Top merchants + Payment methods */}
-                    <Suspense fallback={<Skeleton className="h-[300px] rounded-2xl" />}>
-                    <FadeIn delay={0.05}>
-                    <div className="grid grid-cols-1 gap-4">
-                      <TopMerchants transactions={transactions} onMerchantClick={setDetailComercio} />
-                      <PaymentMethodDonut transactions={transactions} onMethodClick={setDetailMetodo} />
-                    </div>
-                    </FadeIn>
-                    </Suspense>
-
                     {/* Financial calendar + Category comparison */}
                     <Suspense fallback={<Skeleton className="h-[300px] rounded-2xl" />}>
-                    <FadeIn delay={0.1}>
+                    <FadeIn delay={0.05}>
                     <div className="grid grid-cols-1 gap-4">
                       {canCalendar ? (
                         <FinancialCalendar
@@ -609,10 +622,43 @@ export default function DashboardPage() {
                     </div>
                     </FadeIn>
                     </Suspense>
+
+                    {/* Score trend + AI insight */}
+                    <FadeIn delay={0.1}>
+                    <div className="grid grid-cols-1 gap-4">
+                      <ScoreTrend />
+                      <InsightCard
+                        insight={insightText}
+                        aiContext={{
+                          totalGastos: kpiData.totalGastos,
+                          totalIngresos: kpiData.totalIngresos,
+                          topCategorias: categoryData.slice(0, 3).map(c => `${c.categoria} (${Math.round(c.porcentaje)}%)`).join(', '),
+                          scoreFinanciero: (netoScore?.score ?? 0),
+                          subscriptionTotal: subscriptions.reduce((s, sub) => s + sub.monthlyAmount, 0) || undefined,
+                        }}
+                      />
+                    </div>
+                    </FadeIn>
+
+                    {/* Top merchants + Payment methods */}
+                    <Suspense fallback={<Skeleton className="h-[300px] rounded-2xl" />}>
+                    <FadeIn delay={0.15}>
+                    <div className="grid grid-cols-1 gap-4">
+                      <TopMerchants transactions={transactions} onMerchantClick={setDetailComercio} />
+                      <PaymentMethodDonut transactions={transactions} onMethodClick={setDetailMetodo} />
+                    </div>
+                    </FadeIn>
+                    </Suspense>
                   </motion.div>
                 )}
               </AnimatePresence>
             </>
+          )}
+
+          {/* ══════════ TIER 3 · Seguimiento — ¿qué debo atender? ══════════
+              Transacciones, recurrentes, metas y deudas: lo accionable. */}
+          {viewMode === 'mensual' && (
+            <TierLabel label="Seguimiento" question="¿qué debo atender?" />
           )}
 
           {/* Transacciones Recientes + Pagos Recurrentes — 2-col on desktop */}
@@ -761,6 +807,11 @@ export default function DashboardPage() {
             </div>
           </div>
           </FadeIn>
+
+          {/* NPS in-app card — encuesta de baja prioridad, bajada al pie del
+              overview para no competir con el pulso financiero. Auto-aparece
+              para usuarios elegibles (>=7d, nunca respondieron). */}
+          <NPSCard />
         </>
       )}
 
