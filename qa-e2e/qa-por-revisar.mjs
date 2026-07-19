@@ -39,10 +39,13 @@ import { join } from 'node:path';
 
 const APP = process.env.NETO_APP_URL || 'https://app.neto.pe';
 
-// De las 4 filas sembradas (ver cabecera), 3 son pendientes reales: 2 del mes
-// actual + 1 del mes anterior (el badge es global). "QA OTROS CON SUB"
-// (Otros / Regalo) esta clasificada a proposito y NO cuenta.
-const EXPECTED_POR_REVISAR = 3;
+// De las 4 filas sembradas (ver cabecera), 3 son pendientes reales. Diseno actual
+// (period-scoped + escape hatch): el badge principal se acota al periodo visible
+// (2 del mes actual) y ofrece "+N en otros meses · ver todas" para expandir al
+// backlog global (3, incluye la del mes anterior). "QA OTROS CON SUB" (Otros /
+// Regalo) esta clasificada a proposito y NO cuenta.
+const EXPECTED_PERIOD = 2; // pendientes del mes actual (badge principal)
+const EXPECTED_GLOBAL = 3; // backlog total tras abrir el escape hatch
 
 function loadEnv(path) {
   const env = {};
@@ -116,32 +119,47 @@ results.badgeText = results.badgeVisible ? (await badge.innerText()).replace(/\n
 // El conteo del badge debe ser exactamente lo sembrado.
 const m = (results.badgeText || '').match(/(\d+)\s+transaccion/i);
 results.badgeCount = m ? Number(m[1]) : null;
-results.badgeCountCorrect = results.badgeCount === EXPECTED_POR_REVISAR;
+results.badgeCountCorrect = results.badgeCount === EXPECTED_PERIOD;
 
 // Sin filtrar debe haber MAS filas que las por-revisar: si no, el filtro no
 // prueba nada (el test seria vacuo).
 results.rowsUnfiltered = await rowCount();
-results.testIsNonVacuous = results.rowsUnfiltered > EXPECTED_POR_REVISAR;
+results.testIsNonVacuous = results.rowsUnfiltered > EXPECTED_GLOBAL;
 
-// Click -> filtra.
+// Click -> filtra al alcance del PERIODO (mes actual).
 if (results.badgeVisible) {
   await badge.click();
   await page.waitForTimeout(600);
 }
 results.rowsFiltered = await rowCount();
-results.filterMatchesBadge = results.rowsFiltered === EXPECTED_POR_REVISAR;
+results.filterMatchesBadge = results.rowsFiltered === EXPECTED_PERIOD;
 
-// Las filas visibles deben ser exactamente las sembradas (no "unas 2 cualquiera").
+// Las filas visibles deben ser exactamente las sembradas del periodo (no "unas 2
+// cualquiera"): las dos de Julio si, la del mes anterior NO (esa vive en el backlog
+// global y sale solo tras abrir el escape hatch).
 const filteredText = await page.locator('table tbody').innerText().catch(() => '');
 results.showsOtrosRow = /QA REVISAR OTROS/.test(filteredText);
 results.showsSinCatRow = /QA REVISAR SINCAT/.test(filteredText);
-// La del mes ANTERIOR tiene que salir aunque la pagina este parada en el mes
-// actual: es lo que prueba que el badge/filtro son globales.
-results.showsPastMonthRow = /QA REVISAR PASADO/.test(filteredText);
-// Y no debe colarse una bien clasificada...
+results.pastRowHiddenInPeriod = !/QA REVISAR PASADO/.test(filteredText);
+// No debe colarse una bien clasificada...
 results.leaksClassifiedRow = /Netflix|Uber|Movistar/.test(filteredText);
 // ...ni "Otros / Regalo", que es Otros pero CON subcategoria deliberada.
 results.leaksOtrosConSub = /QA OTROS CON SUB/.test(filteredText);
+
+// Escape hatch: "+N en otros meses · ver todas" expande al backlog GLOBAL (3),
+// que ahora si incluye la fila del mes anterior.
+const hatch = page.getByText(/en otros meses/i).first();
+results.escapeHatchVisible = await hatch.isVisible().catch(() => false);
+if (results.escapeHatchVisible) {
+  await hatch.click().catch(() => {});
+  await page.waitForTimeout(900);
+}
+results.rowsGlobal = await rowCount();
+results.globalScopeCorrect = results.rowsGlobal === EXPECTED_GLOBAL;
+const globalText = await page.locator('table tbody').innerText().catch(() => '');
+results.showsPastMonthRow = /QA REVISAR PASADO/.test(globalText);
+// El filtro queda ACTIVO (alcance global): el destoggle de abajo lo apaga y
+// verifica que la vista vuelve completa.
 
 // El select de categoria refleja el filtro activo (se puede limpiar desde ahi).
 // Se busca por contenido, no por indice: la fila de filtros comparte el DOM con
@@ -152,7 +170,7 @@ results.selectShowsPorRevisar = comboTexts.some((t) => /por revisar/i.test(t));
 
 // Toggle off -> vuelve a mostrar todo.
 if (results.badgeVisible) {
-  await page.getByRole('button', { name: /por revisar/i }).click();
+  await page.getByRole('button', { name: /por revisar/i }).first().click();
   await page.waitForTimeout(600);
 }
 results.rowsAfterUntoggle = await rowCount();
@@ -203,7 +221,10 @@ const checks = {
   'click filtra al mismo conteo': results.filterMatchesBadge,
   'filtro captura la rama categoria (Otros)': results.showsOtrosRow,
   'filtro captura la rama subcategoria (Sin_categoria)': results.showsSinCatRow,
-  'el badge es GLOBAL: incluye el mes anterior': results.showsPastMonthRow,
+  'badge de periodo NO incluye el mes anterior': results.pastRowHiddenInPeriod,
+  'escape hatch "+N en otros meses" visible': results.escapeHatchVisible,
+  'escape hatch expande al backlog global (3)': results.globalScopeCorrect,
+  'backlog global SI incluye el mes anterior': results.showsPastMonthRow,
   'filtro no cuela transacciones bien clasificadas': results.leaksClassifiedRow === false,
   'filtro no cuela "Otros" con subcategoria deliberada': results.leaksOtrosConSub === false,
   'select de categoria refleja el filtro': results.selectShowsPorRevisar,
