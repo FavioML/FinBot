@@ -37,6 +37,44 @@ function statusLine(c: RecurringCluster): { text: string; color: string } {
   };
 }
 
+// Fila de un cluster recurrente. Reutilizada en la vista compacta del card y
+// en el sheet "ver todos". El onClick abre el sheet de edición del cluster.
+function ClusterRow({ c, onClick }: { c: RecurringCluster; onClick: () => void }) {
+  const st = statusLine(c);
+  return (
+    <button
+      onClick={onClick}
+      className="w-full flex items-center justify-between rounded-lg px-3 py-2 -mx-1 hover:bg-[rgba(255,255,255,0.03)] transition-colors text-left"
+    >
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <p className="text-sm text-[#F0EFE8] truncate">{c.label}</p>
+          {c.variantKeys.length > 1 && (
+            <span className="shrink-0 rounded bg-[rgba(29,158,117,0.12)] px-1.5 py-0.5 text-[9px] text-[#1D9E75]">
+              {c.variantKeys.length} nombres
+            </span>
+          )}
+          <span className="shrink-0 rounded bg-[rgba(255,255,255,0.06)] px-1.5 py-0.5 text-[9px] text-[#8A877D]">
+            {c.monthsDetected} meses
+          </span>
+        </div>
+        <div className="flex items-center gap-1 mt-0.5">
+          <Calendar className="h-2.5 w-2.5 text-[#8A877D]" />
+          <span className="text-[10px]" style={{ color: st.color }}>
+            {st.text}
+          </span>
+        </div>
+      </div>
+      <span
+        className="text-sm font-medium tabular-nums shrink-0 ml-3"
+        style={{ color: c.status === 'inactive' ? '#8A877D' : '#D85A30' }}
+      >
+        {formatCurrency(c.amountPen)}
+      </span>
+    </button>
+  );
+}
+
 export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
   const { overrides, upsert, remove } = useRecurringOverrides('recurrente');
   const todayISO = useMemo(() => new Date().toISOString().slice(0, 10), []);
@@ -71,6 +109,7 @@ export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
   const [renameValue, setRenameValue] = useState('');
   const [showMerge, setShowMerge] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [showAllOpen, setShowAllOpen] = useState(false);
 
   const openSheet = (c: RecurringCluster) => {
     setRenameValue(c.label);
@@ -190,48 +229,18 @@ export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
 
       {/* Filas de clusters */}
       <div className="space-y-2">
-        {visible.map((c) => {
-          const st = statusLine(c);
-          return (
-            <button
-              key={c.id}
-              onClick={() => openSheet(c)}
-              className="w-full flex items-center justify-between rounded-lg px-3 py-2 -mx-1 hover:bg-[rgba(255,255,255,0.03)] transition-colors text-left"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="text-sm text-[#F0EFE8] truncate">{c.label}</p>
-                  {c.variantKeys.length > 1 && (
-                    <span className="shrink-0 rounded bg-[rgba(29,158,117,0.12)] px-1.5 py-0.5 text-[9px] text-[#1D9E75]">
-                      {c.variantKeys.length} nombres
-                    </span>
-                  )}
-                  <span className="shrink-0 rounded bg-[rgba(255,255,255,0.06)] px-1.5 py-0.5 text-[9px] text-[#8A877D]">
-                    {c.monthsDetected} meses
-                  </span>
-                </div>
-                <div className="flex items-center gap-1 mt-0.5">
-                  <Calendar className="h-2.5 w-2.5 text-[#8A877D]" />
-                  <span className="text-[10px]" style={{ color: st.color }}>
-                    {st.text}
-                  </span>
-                </div>
-              </div>
-              <span
-                className="text-sm font-medium tabular-nums shrink-0 ml-3"
-                style={{ color: c.status === 'inactive' ? '#8A877D' : '#D85A30' }}
-              >
-                {formatCurrency(c.amountPen)}
-              </span>
-            </button>
-          );
-        })}
+        {visible.map((c) => (
+          <ClusterRow key={c.id} c={c} onClick={() => openSheet(c)} />
+        ))}
       </div>
 
       {clusters.length > visible.length && (
-        <p className="mt-3 text-center text-[11px] text-[#8A877D]">
-          y {clusters.length - visible.length} más
-        </p>
+        <button
+          onClick={() => setShowAllOpen(true)}
+          className="mt-3 w-full text-center text-[11px] text-[#8A877D] hover:text-[#C8C6BC] transition-colors py-1"
+        >
+          Ver todos ({clusters.length}) &rarr;
+        </button>
       )}
 
       {/* Sheet de edición de cluster */}
@@ -327,6 +336,30 @@ export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
               </div>
             </>
           )}
+        </SheetContent>
+      </Sheet>
+
+      {/* Sheet "ver todos" — lista completa; cada fila abre el sheet de edición */}
+      <Sheet open={showAllOpen} onOpenChange={setShowAllOpen}>
+        <SheetContent side="bottom" className="glass-card-elevated max-h-[80vh] overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Pagos recurrentes</SheetTitle>
+            <SheetDescription>
+              {clusters.length} detectados · ~{formatCurrency(totalMonthly)}/mes activos. Toca uno para editarlo.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="px-4 pb-4 space-y-1">
+            {clusters.map((c) => (
+              <ClusterRow
+                key={c.id}
+                c={c}
+                onClick={() => {
+                  setShowAllOpen(false);
+                  openSheet(c);
+                }}
+              />
+            ))}
+          </div>
         </SheetContent>
       </Sheet>
 
