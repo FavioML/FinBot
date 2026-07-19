@@ -909,7 +909,7 @@ export default function DashboardPage() {
 
                 {visibleTxs.length > 0 ? (
                   <div className="space-y-1">
-                    {visibleTxs.slice(0, 15).map((tx) => (
+                    {visibleTxs.map((tx) => (
                       <div key={tx.id} className="flex items-center justify-between py-2 border-b border-[rgba(255,255,255,0.04)] last:border-0">
                         <div className="min-w-0 flex-1">
                           <p className="text-sm text-[#F0EFE8] truncate">{tx.comercio || tx.subcategoria || 'Sin comercio'}</p>
@@ -933,11 +933,6 @@ export default function DashboardPage() {
                         </div>
                       </div>
                     ))}
-                    {visibleTxs.length > 15 && (
-                      <p className="text-xs text-[#8A877D] text-center pt-2">
-                        y {visibleTxs.length - 15} transacciones mas...
-                      </p>
-                    )}
                   </div>
                 ) : (
                   <p className="text-sm text-[#8A877D] text-center py-4">Sin gastos en esta categoria</p>

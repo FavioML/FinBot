@@ -281,23 +281,25 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear, deb
               );
             })}
 
-            {/* Transactions */}
-            {selectedTxs.slice(0, 8).map((tx) => (
-              <div key={tx.id} className="flex items-center justify-between py-1.5">
-                <div className="flex items-center gap-2 min-w-0 flex-1">
-                  <span className="text-xs shrink-0">{getCategoriaEmoji(tx.categoria)}</span>
-                  <span className="text-xs text-[#C8C6BC] truncate">{tx.comercio || tx.subcategoria || tx.categoria}</span>
-                </div>
-                <span
-                  className="text-xs font-medium tabular-nums shrink-0 ml-2"
-                  style={{ color: tx.tipo === 'ingreso' ? '#1D9E75' : '#D85A30' }}
-                >
-                  {tx.tipo === 'ingreso' ? '+' : '-'}{formatCurrency(tx.monto_pen)}
-                </span>
+            {/* Transactions — todas las del día; con scroll interno si son muchas
+                (evita el dead-end de "y N mas..." sin estirar el panel). */}
+            {selectedTxs.length > 0 && (
+              <div className={selectedTxs.length > 8 ? 'max-h-[240px] overflow-y-auto space-y-1.5 pr-1' : 'space-y-1.5'}>
+                {selectedTxs.map((tx) => (
+                  <div key={tx.id} className="flex items-center justify-between py-1.5">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <span className="text-xs shrink-0">{getCategoriaEmoji(tx.categoria)}</span>
+                      <span className="text-xs text-[#C8C6BC] truncate">{tx.comercio || tx.subcategoria || tx.categoria}</span>
+                    </div>
+                    <span
+                      className="text-xs font-medium tabular-nums shrink-0 ml-2"
+                      style={{ color: tx.tipo === 'ingreso' ? '#1D9E75' : '#D85A30' }}
+                    >
+                      {tx.tipo === 'ingreso' ? '+' : '-'}{formatCurrency(tx.monto_pen)}
+                    </span>
+                  </div>
+                ))}
               </div>
-            ))}
-            {selectedTxs.length > 8 && (
-              <p className="text-[10px] text-[#8A877D] text-center">y {selectedTxs.length - 8} mas...</p>
             )}
           </motion.div>
         )}
