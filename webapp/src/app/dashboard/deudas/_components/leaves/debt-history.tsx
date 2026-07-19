@@ -3,8 +3,8 @@
 import { useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { ChevronDown } from 'lucide-react';
-import type { Deuda } from '@/lib/hooks/use-debts';
-import { sortAbonos, fechaCorta, monedaSym } from '../../_lib/debt-helpers';
+import type { Deuda, DeudaAbono } from '@/lib/hooks/use-debts';
+import { sortAbonos, fechaCorta, fmtMoneda } from '../../_lib/debt-helpers';
 
 /**
  * Historial de abonos de una deuda. Muestra TODOS los abonos (ordenados del más
@@ -26,9 +26,21 @@ export function DebtHistory({
   const abonos = sortAbonos(debt.deuda_abonos ?? []);
   if (abonos.length === 0) return null;
 
-  const sym = monedaSym(debt.moneda);
-  const hidden = collapsible && !expanded ? Math.max(0, abonos.length - initialCount) : 0;
-  const visibles = hidden > 0 ? abonos.slice(0, initialCount) : abonos;
+  const hasMore = collapsible && abonos.length > initialCount;
+  const base = collapsible ? abonos.slice(0, initialCount) : abonos;
+  const rest = collapsible ? abonos.slice(initialCount) : [];
+
+  const row = (a: DeudaAbono) => (
+    <div key={a.id} className="flex justify-between text-xs">
+      <span className="text-[#8A877D] min-w-0 truncate">
+        {fechaCorta(a.fecha)}
+        {a.nota && <span className="ml-1 text-[#6A6760]">· {a.nota}</span>}
+      </span>
+      <span className="text-[#C8C6BC] tabular-nums font-medium shrink-0 ml-2">
+        {fmtMoneda(debt.moneda, a.monto)}
+      </span>
+    </div>
+  );
 
   return (
     <div>
@@ -37,19 +49,9 @@ export function DebtHistory({
         <span className="ml-1.5 text-[#6A6760] normal-case tracking-normal">{abonos.length}</span>
       </p>
       <div className="space-y-1">
-        {visibles.map((a) => (
-          <div key={a.id} className="flex justify-between text-xs">
-            <span className="text-[#8A877D] min-w-0 truncate">
-              {fechaCorta(a.fecha)}
-              {a.nota && <span className="ml-1 text-[#6A6760]">· {a.nota}</span>}
-            </span>
-            <span className="text-[#C8C6BC] tabular-nums font-medium shrink-0 ml-2">
-              {sym} {Number(a.monto).toFixed(2)}
-            </span>
-          </div>
-        ))}
+        {base.map(row)}
         <AnimatePresence initial={false}>
-          {hidden === 0 && collapsible && abonos.length > initialCount && (
+          {hasMore && expanded && (
             <motion.div
               key="rest"
               initial={reduce ? false : { opacity: 0, height: 0 }}
@@ -58,22 +60,12 @@ export function DebtHistory({
               transition={reduce ? { duration: 0 } : { duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
               className="space-y-1 overflow-hidden"
             >
-              {abonos.slice(initialCount).map((a) => (
-                <div key={a.id} className="flex justify-between text-xs">
-                  <span className="text-[#8A877D] min-w-0 truncate">
-                    {fechaCorta(a.fecha)}
-                    {a.nota && <span className="ml-1 text-[#6A6760]">· {a.nota}</span>}
-                  </span>
-                  <span className="text-[#C8C6BC] tabular-nums font-medium shrink-0 ml-2">
-                    {sym} {Number(a.monto).toFixed(2)}
-                  </span>
-                </div>
-              ))}
+              {rest.map(row)}
             </motion.div>
           )}
         </AnimatePresence>
       </div>
-      {collapsible && abonos.length > initialCount && (
+      {hasMore && (
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}

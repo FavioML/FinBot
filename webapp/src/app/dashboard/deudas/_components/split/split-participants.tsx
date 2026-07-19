@@ -3,12 +3,11 @@
 import { Check, Link2, Share2 } from 'lucide-react';
 import type { GastoCompartido } from '@/lib/hooks/use-split';
 import type { SplitHandlers } from '../types';
-import { monedaSym } from '../../_lib/debt-helpers';
+import { fmtMoneda } from '../../_lib/debt-helpers';
 
 /** Lista de participantes de un gasto compartido (compartida entre card mobile y panel desktop). */
 export function SplitParticipants({ gasto, handlers }: { gasto: GastoCompartido; handlers: SplitHandlers }) {
   const parts = gasto.gasto_participantes || [];
-  const sym = monedaSym(gasto.moneda);
 
   return (
     <div className="space-y-1.5">
@@ -36,7 +35,7 @@ export function SplitParticipants({ gasto, handlers }: { gasto: GastoCompartido;
                       <div className="w-16 h-1 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
                         <div className="h-full rounded-full bg-[#1D9E75]" style={{ width: `${pctPagado}%` }} />
                       </div>
-                      <span className="text-[10px] text-[#8A877D]">{sym} {montoPagado.toFixed(2)} de {sym} {montoDebe.toFixed(2)}</span>
+                      <span className="text-[10px] text-[#8A877D]">{fmtMoneda(gasto.moneda, montoPagado)} de {fmtMoneda(gasto.moneda, montoDebe)}</span>
                     </div>
                   )}
                 </div>
@@ -52,7 +51,7 @@ export function SplitParticipants({ gasto, handlers }: { gasto: GastoCompartido;
                   </button>
                 )}
                 <span className={`text-xs font-medium tabular-nums ${p.pagado ? 'text-[#8A877D]' : 'text-[#EF9F27]'}`}>
-                  {sym} {montoDebe.toFixed(2)}
+                  {fmtMoneda(gasto.moneda, montoDebe)}
                 </span>
               </div>
             </div>

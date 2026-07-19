@@ -3,7 +3,7 @@
 import { Coins, Users, ChevronRight } from 'lucide-react';
 import type { Deuda, DebtGroup } from '@/lib/hooks/use-debts';
 import { VencimientoBadge, RecurrenteBadge } from './leaves/badges';
-import { fmtMulti, monedaSym, sortDebts } from '../_lib/debt-helpers';
+import { fmtMulti, fmtMoneda, sortDebts } from '../_lib/debt-helpers';
 import type { Selection } from './selection';
 
 type DebtTipoTab = 'debo' | 'me_deben' | 'pagadas';
@@ -72,7 +72,6 @@ export function MasterList({
     <div className="space-y-1.5">
       {debts.map((debt) => {
         const active = selection?.kind === 'debt' && selection.id === debt.id;
-        const sym = monedaSym(debt.moneda);
         const esDebo = debt.tipo === 'debo';
         const isPagada = debt.estado === 'pagada';
         const rowColor = isPagada ? 'text-[#8A877D]' : esDebo ? 'text-[#D85A30]' : 'text-[#1D9E75]';
@@ -101,7 +100,7 @@ export function MasterList({
                 {!isPagada && <VencimientoBadge debt={debt} />}
               </div>
             </div>
-            <p className={`text-sm font-bold tabular-nums shrink-0 ${rowColor}`}>{sym} {Number(debt.monto_pendiente).toFixed(2)}</p>
+            <p className={`text-sm font-bold tabular-nums shrink-0 ${rowColor}`}>{fmtMoneda(debt.moneda, debt.monto_pendiente)}</p>
           </button>
         );
       })}

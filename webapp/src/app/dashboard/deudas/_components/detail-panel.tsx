@@ -10,7 +10,7 @@ import { RecurrenteBadge, VencimientoBadge } from './leaves/badges';
 import { DebtProgress } from './leaves/debt-progress';
 import { DebtHistory } from './leaves/debt-history';
 import { DebtActions } from './leaves/debt-actions';
-import { fmtMulti, monedaSym, fechaLarga, fechaCorta, sortDebts, getVencimientoBadge } from '../_lib/debt-helpers';
+import { fmtMulti, fmtMoneda, fechaLarga, fechaCorta, sortDebts, getVencimientoBadge } from '../_lib/debt-helpers';
 
 type DebtTipoTab = 'debo' | 'me_deben' | 'pagadas';
 
@@ -18,7 +18,6 @@ type DebtTipoTab = 'debo' | 'me_deben' | 'pagadas';
 function DebtDetailBlock({ debt, handlers, titleMode }: { debt: Deuda; handlers: DebtHandlers; titleMode: 'contraparte' | 'motivo' }) {
   const esDebo = debt.tipo === 'debo';
   const isPagada = debt.estado === 'pagada';
-  const sym = monedaSym(debt.moneda);
   const periodos = debt.periodos_pagados || 0;
   const title = titleMode === 'contraparte' ? debt.contraparte : debt.descripcion || 'Sin motivo';
 
@@ -46,9 +45,9 @@ function DebtDetailBlock({ debt, handlers, titleMode }: { debt: Deuda; handlers:
         </div>
         <div className="text-right shrink-0">
           <p className={`text-lg font-bold tabular-nums ${isPagada ? 'text-[#8A877D]' : esDebo ? 'text-[#D85A30]' : 'text-[#1D9E75]'}`}>
-            {sym} {Number(debt.monto_pendiente).toFixed(2)}
+            {fmtMoneda(debt.moneda, debt.monto_pendiente)}
           </p>
-          <p className="text-[10px] text-[#8A877D] tabular-nums">de {sym} {Number(debt.monto_original).toFixed(2)}</p>
+          <p className="text-[10px] text-[#8A877D] tabular-nums">de {fmtMoneda(debt.moneda, debt.monto_original)}</p>
         </div>
       </div>
 

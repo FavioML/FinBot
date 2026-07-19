@@ -4,7 +4,7 @@ import { Calendar, Edit2, Trash2 } from 'lucide-react';
 import type { GastoCompartido } from '@/lib/hooks/use-split';
 import type { SplitHandlers } from '../types';
 import { SplitParticipants } from './split-participants';
-import { monedaSym, fechaCorta } from '../../_lib/debt-helpers';
+import { fmtMoneda, fechaCorta } from '../../_lib/debt-helpers';
 
 /** Card completa de un gasto compartido (lista mobile / vista plana). */
 export function SplitCard({ gasto, handlers }: { gasto: GastoCompartido; handlers: SplitHandlers }) {
@@ -12,7 +12,6 @@ export function SplitCard({ gasto, handlers }: { gasto: GastoCompartido; handler
   const pagados = parts.filter((p) => p.pagado).length;
   const total = parts.length;
   const allPaid = pagados === total && total > 0;
-  const sym = monedaSym(gasto.moneda);
 
   return (
     <div className={`glass-card glass-card-glow p-5 group ${allPaid ? 'opacity-60' : ''}`}>
@@ -32,7 +31,7 @@ export function SplitCard({ gasto, handlers }: { gasto: GastoCompartido; handler
           )}
         </div>
         <div className="text-right shrink-0">
-          <p className="text-base font-bold text-[#EF9F27] tabular-nums">{sym} {Number(gasto.monto_total).toFixed(2)}</p>
+          <p className="text-base font-bold text-[#EF9F27] tabular-nums">{fmtMoneda(gasto.moneda, gasto.monto_total)}</p>
           <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-all mt-1">
             <button onClick={() => handlers.onEdit(gasto)} className="p-1 rounded text-[#8A877D] hover:text-[#EF9F27]" title="Editar">
               <Edit2 className="h-3.5 w-3.5" />

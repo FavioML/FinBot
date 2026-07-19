@@ -68,6 +68,11 @@ export function monedaSym(moneda: 'PEN' | 'USD' | string): string {
   return moneda === 'USD' ? '$' : 'S/';
 }
 
+/** Monto con símbolo y separador de miles: "S/ 1,500.00". */
+export function fmtMoneda(moneda: string, monto: number): string {
+  return `${monedaSym(moneda)} ${Number(monto).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 /** "S/ 1,200.00 + $ 50.00" a partir de totales por moneda. */
 export function fmtMulti(pen: number, usd: number): string {
   const parts: string[] = [];

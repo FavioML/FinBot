@@ -2,7 +2,7 @@
 
 import { Users, ChevronRight } from 'lucide-react';
 import type { GastoCompartido } from '@/lib/hooks/use-split';
-import { monedaSym } from '../../_lib/debt-helpers';
+import { fmtMoneda } from '../../_lib/debt-helpers';
 
 /** Panel izquierdo (desktop) de Compartidos: filas seleccionables de gastos. */
 export function SplitMasterList({
@@ -22,7 +22,6 @@ export function SplitMasterList({
         const total = parts.length;
         const allPaid = pagados === total && total > 0;
         const active = selectedId === gasto.id;
-        const sym = monedaSym(gasto.moneda);
         return (
           <button
             key={gasto.id}
@@ -42,7 +41,7 @@ export function SplitMasterList({
                 {pagados}/{total} pagados{allPaid && ' · liquidado'}
               </p>
             </div>
-            <p className="text-sm font-bold tabular-nums text-[#EF9F27] shrink-0">{sym} {Number(gasto.monto_total).toFixed(2)}</p>
+            <p className="text-sm font-bold tabular-nums text-[#EF9F27] shrink-0">{fmtMoneda(gasto.moneda, gasto.monto_total)}</p>
             <ChevronRight className={`h-4 w-4 shrink-0 ${active ? 'text-[#EF9F27]' : 'text-[#6A6760]'}`} />
           </button>
         );

@@ -7,7 +7,7 @@ import { RecurrenteBadge, VencimientoBadge } from './leaves/badges';
 import { DebtProgress } from './leaves/debt-progress';
 import { DebtHistory } from './leaves/debt-history';
 import { DebtActions } from './leaves/debt-actions';
-import { monedaSym, fechaLarga } from '../_lib/debt-helpers';
+import { fmtMoneda, fechaLarga } from '../_lib/debt-helpers';
 
 /**
  * Card completa de una deuda. Es la unidad de la lista apilada en mobile y de la
@@ -16,7 +16,6 @@ import { monedaSym, fechaLarga } from '../_lib/debt-helpers';
 export function DebtCard({ debt, handlers }: { debt: Deuda; handlers: DebtHandlers }) {
   const esDebo = debt.tipo === 'debo';
   const isPagada = debt.estado === 'pagada';
-  const sym = monedaSym(debt.moneda);
   const periodos = debt.periodos_pagados || 0;
 
   return (
@@ -49,9 +48,9 @@ export function DebtCard({ debt, handlers }: { debt: Deuda; handlers: DebtHandle
         <div className="flex flex-col items-end gap-2 shrink-0">
           <div className="text-right">
             <p className={`text-base font-bold tabular-nums ${isPagada ? 'text-[#8A877D]' : esDebo ? 'text-[#D85A30]' : 'text-[#1D9E75]'}`}>
-              {sym} {Number(debt.monto_pendiente).toFixed(2)}
+              {fmtMoneda(debt.moneda, debt.monto_pendiente)}
             </p>
-            <p className="text-xs text-[#8A877D] tabular-nums">de {sym} {Number(debt.monto_original).toFixed(2)}</p>
+            <p className="text-xs text-[#8A877D] tabular-nums">de {fmtMoneda(debt.moneda, debt.monto_original)}</p>
           </div>
           <div className="opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-opacity">
             <DebtActions debt={debt} handlers={handlers} />

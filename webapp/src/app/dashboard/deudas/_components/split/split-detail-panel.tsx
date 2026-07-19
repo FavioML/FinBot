@@ -5,7 +5,7 @@ import { Calendar, Edit2, Trash2, MousePointerClick } from 'lucide-react';
 import type { GastoCompartido } from '@/lib/hooks/use-split';
 import type { SplitHandlers } from '../types';
 import { SplitParticipants } from './split-participants';
-import { monedaSym, fechaCorta } from '../../_lib/debt-helpers';
+import { fmtMoneda, fechaCorta } from '../../_lib/debt-helpers';
 
 /** Panel derecho (desktop) de Compartidos: detalle del gasto seleccionado. */
 export function SplitDetailPanel({
@@ -32,7 +32,6 @@ export function SplitDetailPanel({
   const pagados = parts.filter((p) => p.pagado).length;
   const total = parts.length;
   const allPaid = pagados === total && total > 0;
-  const sym = monedaSym(gasto.moneda);
 
   return (
     <AnimatePresence mode="wait">
@@ -59,7 +58,7 @@ export function SplitDetailPanel({
             {gasto.notas && <p className="text-xs text-[#8A877D] mt-1 italic">{gasto.notas}</p>}
           </div>
           <div className="text-right shrink-0">
-            <p className="text-lg font-bold text-[#EF9F27] tabular-nums">{sym} {Number(gasto.monto_total).toFixed(2)}</p>
+            <p className="text-lg font-bold text-[#EF9F27] tabular-nums">{fmtMoneda(gasto.moneda, gasto.monto_total)}</p>
             <div className="flex gap-1 justify-end mt-1">
               <button onClick={() => handlers.onEdit(gasto)} className="p-1.5 rounded-lg text-[#8A877D] hover:text-[#EF9F27] hover:bg-[rgba(239,159,39,0.08)] transition-colors" title="Editar">
                 <Edit2 className="h-4 w-4" />
