@@ -14,15 +14,18 @@ interface InsightCardProps {
     scoreFinanciero: number;
     subscriptionTotal?: number;
   };
+  /** Si el plan permite consejos IA (/api/advice es Pro-only). Free evita la
+      llamada que siempre da 403 y usa el insight rule-based local. */
+  enableAI?: boolean;
 }
 
-export function InsightCard({ insight, aiContext }: InsightCardProps) {
+export function InsightCard({ insight, aiContext, enableAI = true }: InsightCardProps) {
   const [aiAdvice, setAiAdvice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [isAI, setIsAI] = useState(false);
 
   const fetchAiAdvice = useCallback(async () => {
-    if (!aiContext || aiContext.totalGastos === 0) return;
+    if (!enableAI || !aiContext || aiContext.totalGastos === 0) return;
     setLoading(true);
     try {
       const res = await fetch('/api/advice', {
@@ -44,9 +47,9 @@ export function InsightCard({ insight, aiContext }: InsightCardProps) {
     }
   }, [aiContext]);
 
-  // Auto-fetch AI advice on mount (once)
+  // Auto-fetch AI advice on mount (once) — solo si el plan lo permite
   useEffect(() => {
-    if (aiContext && aiContext.totalGastos > 0 && !aiAdvice && !loading) {
+    if (enableAI && aiContext && aiContext.totalGastos > 0 && !aiAdvice && !loading) {
       fetchAiAdvice();
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps

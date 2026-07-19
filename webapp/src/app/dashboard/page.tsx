@@ -564,6 +564,7 @@ export default function DashboardPage() {
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   <ScoreTrend />
                   <InsightCard
+                    enableAI={canAccess(user?.plan, 'advice_daily')}
                     insight={insightText}
                     aiContext={{
                       totalGastos: kpiData.totalGastos,
@@ -628,6 +629,7 @@ export default function DashboardPage() {
                     <div className="grid grid-cols-1 gap-4">
                       <ScoreTrend />
                       <InsightCard
+                        enableAI={canAccess(user?.plan, 'advice_daily')}
                         insight={insightText}
                         aiContext={{
                           totalGastos: kpiData.totalGastos,
@@ -1010,6 +1012,7 @@ export default function DashboardPage() {
       {/* AI insight (only in annual view, monthly goes in grid above) */}
       {viewMode === 'anual' && (
         <InsightCard
+          enableAI={canAccess(user?.plan, 'advice_daily')}
           insight={insightText}
           aiContext={{
             totalGastos: kpiData.totalGastos,
