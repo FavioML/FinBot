@@ -5,7 +5,7 @@ import { useMemo, useState, useEffect, useCallback, lazy, Suspense } from 'react
 import { useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { Receipt, CreditCard, Pencil, ChevronDown, Target, Wallet, Award, AlertTriangle } from 'lucide-react';
+import { Receipt, CreditCard, Pencil, ChevronDown, Target, Wallet, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { OverviewSkeleton } from '@/components/dashboard/skeletons';
@@ -42,7 +42,6 @@ const CategoryComparison = lazy(() => import('@/components/charts/category-compa
 const TopMerchants = lazy(() => import('@/components/dashboard/top-merchants').then(m => ({ default: m.TopMerchants })));
 const PaymentMethodDonut = lazy(() => import('@/components/charts/payment-method-donut').then(m => ({ default: m.PaymentMethodDonut })));
 const RecurringPayments = lazy(() => import('@/components/dashboard/recurring-payments').then(m => ({ default: m.RecurringPayments })));
-const SpendingHeatmap = lazy(() => import('@/components/charts/spending-heatmap').then(m => ({ default: m.SpendingHeatmap })));
 import { TransactionForm } from '@/components/dashboard/transaction-form';
 import { GlobalSearch } from '@/components/dashboard/global-search';
 import { HeaderActions } from '@/components/dashboard/topbar';
@@ -52,7 +51,7 @@ import { ProGate } from '@/components/shared/pro-gate';
 import { useNetoScore } from '@/lib/hooks/use-neto-score';
 import { useSpendingAlerts } from '@/lib/hooks/use-spending-alerts';
 import { useTransactions } from '@/lib/hooks/use-transactions';
-import { useGoals, useAchievements } from '@/lib/hooks/use-goals';
+import { useGoals } from '@/lib/hooks/use-goals';
 import { useDebts } from '@/lib/hooks/use-debts';
 import { FadeIn } from '@/components/shared/motion-wrapper';
 import { formatCurrency, formatFecha, getScoreColor, getScoreLabel } from '@/lib/utils';
@@ -64,7 +63,6 @@ import type { Transaccion, KPIData, CategoriaGasto, TendenciaMensual } from '@/l
 export default function DashboardPage() {
   const { data: user, isLoading: userLoading } = useUser();
   const canCalendar = canAccess(user?.plan, 'calendar'); // Calendario financiero es Pro
-  const canHeatmap = canAccess(user?.plan, 'heatmap'); // Heatmap de actividad de gastos es Pro
   const searchParams = useSearchParams();
 
   const now = new Date();
@@ -98,10 +96,9 @@ export default function DashboardPage() {
     usuarioId: user?.id,
   });
 
-  // Load goals, debts and achievements for overview widgets
+  // Load goals and debts for overview widgets
   const { data: goals = [] } = useGoals(user?.id);
   const { data: allDebts = [] } = useDebts(user?.id);
-  const { data: achievements = [] } = useAchievements(user?.id);
   const { data: netoScore } = useNetoScore();
   const { data: alertsData } = useSpendingAlerts(10);
 
@@ -565,17 +562,6 @@ export default function DashboardPage() {
                 </div>
                 </FadeIn>
                 </Suspense>
-
-                {/* Heatmap de actividad — Pro */}
-                <Suspense fallback={<Skeleton className="h-[220px] rounded-2xl" />}>
-                <FadeIn delay={0.34}>
-                  {canHeatmap ? (
-                    <SpendingHeatmap transactions={allTransactions} />
-                  ) : (
-                    <ProGate featureName="Heatmap de gastos" description="Visualiza la intensidad de tus gastos día a día en las últimas 12 semanas." />
-                  )}
-                </FadeIn>
-                </Suspense>
               </div>
 
               {/* Mobile: animated collapse */}
@@ -621,17 +607,6 @@ export default function DashboardPage() {
                         onCategoryClick={setDetailCategoria}
                       />
                     </div>
-                    </FadeIn>
-                    </Suspense>
-
-                    {/* Heatmap de actividad — Pro */}
-                    <Suspense fallback={<Skeleton className="h-[220px] rounded-2xl" />}>
-                    <FadeIn delay={0.14}>
-                      {canHeatmap ? (
-                        <SpendingHeatmap transactions={allTransactions} />
-                      ) : (
-                        <ProGate featureName="Heatmap de gastos" description="Visualiza la intensidad de tus gastos día a día en las últimas 12 semanas." />
-                      )}
                     </FadeIn>
                     </Suspense>
                   </motion.div>
@@ -697,7 +672,7 @@ export default function DashboardPage() {
 
           {/* Metas + Deudas + Logros widgets */}
           <FadeIn delay={0.5}>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Metas de ahorro */}
             <div className="glass-card glass-card-glow p-4 lg:p-4">
               <div className="flex items-center justify-between mb-3">
@@ -783,39 +758,6 @@ export default function DashboardPage() {
                   </div>
                 );
               })()}
-            </div>
-
-            {/* Logros */}
-            <div className="glass-card glass-card-glow p-4 lg:p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <Award className="h-4 w-4 text-[#EF9F27]" />
-                  <span className="text-sm font-medium text-[#C8C6BC]">Logros</span>
-                </div>
-                <Link href="/dashboard/planes" className="text-xs text-[#1D9E75] hover:underline">Ver todos &rarr;</Link>
-              </div>
-              {achievements.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-6 text-center">
-                  <Award className="h-6 w-6 text-[#8A877D]/50 mb-2" />
-                  <p className="text-sm text-[#8A877D]">Sin logros aún</p>
-                  <p className="text-xs text-[#8A877D]/70 mt-1">Aporta a tus metas para desbloquear logros</p>
-                </div>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {achievements.slice(0, 6).map((logro) => {
-                    const BADGE: Record<string, string> = {
-                      milestone_25: '🥉', milestone_50: '🥈', milestone_75: '🥇',
-                      meta_cumplida: '🏆', primera_meta: '🌟', primer_abono: '💫',
-                      racha_3: '🔥', racha_5: '🔥', racha_10: '💎',
-                    };
-                    return (
-                      <span key={logro.id} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[rgba(239,159,39,0.08)] text-xs text-[#EF9F27]">
-                        {BADGE[logro.tipo] || '⭐'} {logro.tipo.replace(/_/g, ' ')}
-                      </span>
-                    );
-                  })}
-                </div>
-              )}
             </div>
           </div>
           </FadeIn>

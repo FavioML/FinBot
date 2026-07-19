@@ -82,7 +82,7 @@ export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
 
   const activeClusters = clusters.filter((c) => c.status === 'active');
   const totalMonthly = activeClusters.reduce((s, c) => s + c.amountPen, 0);
-  const visible = clusters.slice(0, 8);
+  const visible = clusters.slice(0, 6);
   const others = sheetCluster ? clusters.filter((c) => c.id !== sheetCluster.id) : [];
   const sheetHasOverride =
     !!sheetCluster && sheetCluster.variantKeys.some((k) => overrides.some((o) => o.clave_variante === k));
@@ -227,6 +227,12 @@ export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
           );
         })}
       </div>
+
+      {clusters.length > visible.length && (
+        <p className="mt-3 text-center text-[11px] text-[#8A877D]">
+          y {clusters.length - visible.length} más
+        </p>
+      )}
 
       {/* Sheet de edición de cluster */}
       <Sheet open={!!sheetCluster} onOpenChange={(o) => !o && setSheetCluster(null)}>
