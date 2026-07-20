@@ -105,11 +105,19 @@ export async function POST(request: Request) {
   const completada = nuevoActualClamped >= parseFloat(meta.monto_objetivo);
   const actualAntes = parseFloat(meta.monto_actual || '0');
 
+  // Keep `status` in sync with `completada` so a goal completed via a
+  // contribution moves to "Planes completados" (a retiro back below the target
+  // reopens it). Never override an abandoned goal.
+  const nuevoStatus = meta.status === 'abandoned'
+    ? 'abandoned'
+    : (completada ? 'completed' : 'active');
+
   const { error: updateError } = await getServiceClient()
     .from('metas_ahorro')
     .update({
       monto_actual: nuevoActualClamped,
       completada,
+      status: nuevoStatus,
       updated_at: new Date().toISOString(),
     })
     .eq('id', meta_id);
@@ -174,7 +182,7 @@ export async function DELETE(request: Request) {
   // Fetch aporte + verify ownership via meta
   const { data: aporte } = await getServiceClient()
     .from('meta_aportes')
-    .select('*, metas_ahorro!inner(id, usuario_id, monto_actual, monto_objetivo)')
+    .select('*, metas_ahorro!inner(id, usuario_id, monto_actual, monto_objetivo, status)')
     .eq('id', id)
     .single();
 
@@ -197,12 +205,17 @@ export async function DELETE(request: Request) {
   const nuevoActual = aporte.tipo === 'retiro'
     ? actualAntes + montoAporte
     : Math.max(0, actualAntes - montoAporte);
+  const completada = nuevoActual >= objetivo;
+  const nuevoStatus = aporte.metas_ahorro.status === 'abandoned'
+    ? 'abandoned'
+    : (completada ? 'completed' : 'active');
 
   await getServiceClient()
     .from('metas_ahorro')
     .update({
       monto_actual: nuevoActual,
-      completada: nuevoActual >= objetivo,
+      completada,
+      status: nuevoStatus,
       updated_at: new Date().toISOString(),
     })
     .eq('id', aporte.meta_id);

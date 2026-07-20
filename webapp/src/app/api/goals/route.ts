@@ -116,6 +116,22 @@ export async function PUT(request: Request) {
 
   const body = await request.json();
 
+  const completada = body.completada || false;
+
+  // Keep `status` in sync with `completada`. The UI splits goals into
+  // activos/completados by `status` (falling back to `completada` only when
+  // status is null), so writing `completada` without `status` left completed
+  // goals stuck in the "Planes activos" list. Never resurrect an abandoned goal.
+  const { data: current } = await getServiceClient()
+    .from('metas_ahorro')
+    .select('status')
+    .eq('id', body.id)
+    .eq('usuario_id', userId)
+    .single();
+  const nuevoStatus = current?.status === 'abandoned'
+    ? 'abandoned'
+    : (completada ? 'completed' : 'active');
+
   const { data, error } = await getServiceClient()
     .from('metas_ahorro')
     .update({
@@ -124,7 +140,8 @@ export async function PUT(request: Request) {
       monto_actual: parseFloat(body.monto_actual) || 0,
       icono: body.icono || '🎯',
       fecha_limite: body.fecha_limite || null,
-      completada: body.completada || false,
+      completada,
+      status: nuevoStatus,
       updated_at: new Date().toISOString(),
     })
     .eq('id', body.id)
