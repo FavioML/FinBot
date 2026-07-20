@@ -40,7 +40,7 @@ export async function POST() {
   const [txResult, existingScores, budgetResult, goalsResult, debtsResult] = await Promise.all([
     supabase.from('transacciones').select('fecha, tipo, monto_pen, categoria').eq('usuario_id', usuario.id).gte('fecha', sinceDate),
     supabase.from('neto_scores').select('period').eq('user_id', usuario.id).gte('period', sinceDate),
-    supabase.from('presupuestos').select('categoria, monto_limite').eq('usuario_id', usuario.id),
+    supabase.from('presupuestos').select('categoria, monto_limite, mes, anio').eq('usuario_id', usuario.id),
     supabase.from('metas_ahorro').select('id, completada, monto_objetivo, monto_actual, fecha_limite, created_at').eq('usuario_id', usuario.id).eq('completada', false),
     supabase.from('deudas').select('id, tipo, monto_original, monto_pendiente, estado, fecha_vencimiento').eq('usuario_id', usuario.id).eq('tipo', 'debo'),
   ]);
@@ -81,11 +81,15 @@ export async function POST() {
     const daysPerWeek = uniqueDays / 4.3;
     const consistency = daysPerWeek >= 5 ? 100 : daysPerWeek >= 4 ? 85 : daysPerWeek >= 3 ? 70 : daysPerWeek >= 2 ? 50 : daysPerWeek >= 1 ? 30 : 10;
 
-    // Factor 2: Budget — are they within budgets?
+    // Factor 2: Budget — presupuestos de ESE mes (no aplanar todos los meses, que
+    // contaría cada categoría varias veces). Si el mes no tenía presupuestos → 50 neutral.
+    const periodMes = parseInt(period.slice(5, 7), 10);
+    const periodAnio = parseInt(period.slice(0, 4), 10);
+    const monthBudgets = budgets.filter(b => b.anio === periodAnio && b.mes === periodMes);
     let budget = 50; // neutral if no budgets
-    if (budgets.length > 0) {
+    if (monthBudgets.length > 0) {
       let totalBudgetScore = 0;
-      for (const b of budgets) {
+      for (const b of monthBudgets) {
         const spent = monthTxs
           .filter(t => t.tipo === 'gasto' && t.categoria?.toLowerCase() === b.categoria?.toLowerCase())
           .reduce((s: number, t: { monto_pen: number }) => s + parseFloat(String(t.monto_pen)), 0);
@@ -95,7 +99,7 @@ export async function POST() {
         else if (pct <= 120) totalBudgetScore += 80 - ((pct - 100) / 20) * 40;
         else totalBudgetScore += Math.max(0, 40 - ((Math.min(pct - 120, 80)) / 80) * 40);
       }
-      budget = Math.round(totalBudgetScore / budgets.length);
+      budget = Math.round(totalBudgetScore / monthBudgets.length);
     }
 
     // Factor 3: Savings — (income - expenses) / income

@@ -61,14 +61,16 @@ async function calculateFreshScore(usuario: NonNullable<Awaited<ReturnType<typeo
 
   // Current month boundaries (Lima timezone approximation: UTC-5)
   const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
-  const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-  const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const curMes = now.getMonth() + 1;
+  const curAnio = now.getFullYear();
+  const monthStart = `${curAnio}-${String(curMes).padStart(2, '0')}-01`;
+  const nextMonth = new Date(curAnio, curMes, 1);
   const monthEnd = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}-01`;
 
   const [txResult, monthTxResult, budgetResult, goalsResult, debtsResult] = await Promise.all([
     svc.from('transacciones').select('fecha').eq('usuario_id', userId).gte('fecha', sinceDate),
     svc.from('transacciones').select('tipo, monto_pen, categoria').eq('usuario_id', userId).gte('fecha', monthStart).lt('fecha', monthEnd),
-    svc.from('presupuestos').select('categoria, monto_limite').eq('usuario_id', userId),
+    svc.from('presupuestos').select('categoria, monto_limite, mes, anio').eq('usuario_id', userId),
     svc.from('metas_ahorro').select('id, completada, monto_objetivo, monto_actual, fecha_limite, created_at').eq('usuario_id', userId).eq('completada', false),
     svc.from('deudas').select('id, tipo, monto_original, monto_pendiente, estado, fecha_vencimiento').eq('usuario_id', userId).eq('tipo', 'debo'),
   ]);
@@ -79,8 +81,11 @@ async function calculateFreshScore(usuario: NonNullable<Awaited<ReturnType<typeo
   const daysPerWeek = uniqueDays / 4.3;
   const consistency = daysPerWeek >= 5 ? 100 : daysPerWeek >= 4 ? 85 : daysPerWeek >= 3 ? 70 : daysPerWeek >= 2 ? 50 : daysPerWeek >= 1 ? 30 : 10;
 
-  // Factor 2: Budget control
-  const budgets = budgetResult.data || [];
+  // Factor 2: Budget control — solo presupuestos del mes en curso (igual que el
+  // backend construirDatosUsuario, que filtra por mes/anio); usar todos contaría una
+  // categoría por cada mes con presupuesto y distorsionaría el factor.
+  const allBudgets = budgetResult.data || [];
+  const budgets = allBudgets.filter((b: { mes: number; anio: number }) => b.mes === curMes && b.anio === curAnio);
   const monthTxs = monthTxResult.data || [];
   let budget = 50;
   if (budgets.length > 0) {
@@ -115,9 +120,10 @@ async function calculateFreshScore(usuario: NonNullable<Awaited<ReturnType<typeo
   const debts = debtsResult.data || [];
   const debtScore = debtsFactor(debts, now);
 
-  // Factor 6: Financial visibility
+  // Factor 6: Financial visibility — cuenta si tiene presupuestos (cualquier mes,
+  // igual que el backend calcFactorVisibility que no filtra por mes/anio).
   let visibility = 0;
-  if (budgets.length > 0) visibility += 30;
+  if (allBudgets.length > 0) visibility += 30;
   if (activeGoals.length > 0) visibility += 25;
   if (usuario.gmail_access_token) visibility += 25;
   if (usuario.recordatorios_activos !== false) visibility += 20;
