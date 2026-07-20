@@ -36,23 +36,26 @@ export function CategoryComparison({ allTransactions, currentMonth, currentYear,
 
     if (currentGastos.length === 0 && prevGastos.length === 0) return [];
 
-    // Aggregate by category
-    const catMap = new Map<string, { current: number; previous: number }>();
+    // Aggregate by category, case-insensitive: "Transporte" y "transporte" son la
+    // misma categoria. La etiqueta es la primera variante de casing vista.
+    const catMap = new Map<string, { label: string; current: number; previous: number }>();
 
     for (const t of currentGastos) {
-      const prev = catMap.get(t.categoria) || { current: 0, previous: 0 };
+      const key = (t.categoria || '').trim().toLowerCase();
+      const prev = catMap.get(key) || { label: t.categoria, current: 0, previous: 0 };
       prev.current += t.monto_pen;
-      catMap.set(t.categoria, prev);
+      catMap.set(key, prev);
     }
 
     for (const t of prevGastos) {
-      const prev = catMap.get(t.categoria) || { current: 0, previous: 0 };
+      const key = (t.categoria || '').trim().toLowerCase();
+      const prev = catMap.get(key) || { label: t.categoria, current: 0, previous: 0 };
       prev.previous += t.monto_pen;
-      catMap.set(t.categoria, prev);
+      catMap.set(key, prev);
     }
 
-    return Array.from(catMap.entries())
-      .map(([cat, vals]) => ({
+    return Array.from(catMap.values())
+      .map(({ label: cat, ...vals }) => ({
         categoria: cat,
         emoji: getCategoriaEmoji(cat),
         label: `${getCategoriaEmoji(cat)} ${cat}`,

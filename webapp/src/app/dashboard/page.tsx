@@ -203,14 +203,23 @@ export default function DashboardPage() {
     const totalGastos = gastos.reduce((sum, t) => sum + t.monto_pen, 0);
     if (totalGastos === 0) return [];
 
-    const map = new Map<string, { total: number; count: number }>();
+    // Agrupa case-insensitive: "Transporte" y "transporte" son la misma categoria
+    // y no deben partirse en dos slices. La etiqueta es la primera variante vista
+    // (para data ya canonica no cambia nada; solo colapsa duplicados por casing).
+    const map = new Map<string, { categoria: string; total: number; count: number }>();
     for (const t of gastos) {
-      const prev = map.get(t.categoria) || { total: 0, count: 0 };
-      map.set(t.categoria, { total: prev.total + t.monto_pen, count: prev.count + 1 });
+      const key = (t.categoria || '').trim().toLowerCase();
+      const prev = map.get(key);
+      if (prev) {
+        prev.total += t.monto_pen;
+        prev.count += 1;
+      } else {
+        map.set(key, { categoria: t.categoria, total: t.monto_pen, count: 1 });
+      }
     }
 
-    return Array.from(map.entries())
-      .map(([categoria, { total, count }]) => ({
+    return Array.from(map.values())
+      .map(({ categoria, total, count }) => ({
         categoria,
         emoji: getCategoriaEmoji(categoria),
         total,
@@ -842,8 +851,9 @@ export default function DashboardPage() {
             </DialogTitle>
           </DialogHeader>
           {detailCategoria && (() => {
+            const detailKey = detailCategoria.trim().toLowerCase();
             const catTxs = transactions
-              .filter((t) => t.tipo === 'gasto' && t.categoria === detailCategoria)
+              .filter((t) => t.tipo === 'gasto' && (t.categoria || '').trim().toLowerCase() === detailKey)
               .sort((a, b) => b.fecha.localeCompare(a.fecha));
             const catTotal = catTxs.reduce((s, t) => s + t.monto_pen, 0);
 
@@ -970,11 +980,12 @@ export default function DashboardPage() {
           {detailMetodo && (() => {
             // Consolidate this payment method's spending by category → subcategory
             const metodoTotal = detailMetodoTransactions.reduce((s, t) => s + t.monto_pen, 0);
-            const catMap = new Map<string, { total: number; count: number; subs: Map<string, number> }>();
+            // Case-insensitive para no partir la misma categoria por casing.
+            const catMap = new Map<string, { label: string; total: number; count: number; subs: Map<string, number> }>();
             for (const tx of detailMetodoTransactions) {
-              const cat = tx.categoria;
-              if (!catMap.has(cat)) catMap.set(cat, { total: 0, count: 0, subs: new Map() });
-              const entry = catMap.get(cat)!;
+              const key = (tx.categoria || '').trim().toLowerCase();
+              let entry = catMap.get(key);
+              if (!entry) { entry = { label: tx.categoria, total: 0, count: 0, subs: new Map() }; catMap.set(key, entry); }
               entry.total += tx.monto_pen;
               entry.count += 1;
               const sub = (tx.subcategoria && tx.subcategoria !== 'sin_categoria' && tx.subcategoria !== 'null')
@@ -982,8 +993,8 @@ export default function DashboardPage() {
                 : '(General)';
               entry.subs.set(sub, (entry.subs.get(sub) || 0) + tx.monto_pen);
             }
-            const catBreakdown = Array.from(catMap.entries())
-              .map(([categoria, { total, count, subs }]) => ({
+            const catBreakdown = Array.from(catMap.values())
+              .map(({ label: categoria, total, count, subs }) => ({
                 categoria,
                 total,
                 count,
