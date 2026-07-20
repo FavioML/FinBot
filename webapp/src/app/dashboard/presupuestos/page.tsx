@@ -285,7 +285,7 @@ export default function PresupuestosPage() {
             <div className="glass-card glass-card-glow p-4">
               <div className="flex items-center gap-2 mb-1.5">
                 <TrendingDown className="h-4 w-4 text-[#8A877D]" />
-                <span className="text-label text-[#8A877D]">Total gastado</span>
+                <span className="text-label text-[#8A877D]">Gastado en presupuestos</span>
               </div>
               <CurrencyDisplay amount={summary.totalGastado} size="md" className="text-[#D85A30]" />
             </div>
