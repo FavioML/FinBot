@@ -465,7 +465,9 @@ export default function ConfiguracionPage() {
 
         <div className="flex items-center justify-between">
           <span className="text-sm text-[#C8C6BC]">Plan actual</span>
-          <span className="text-sm font-medium text-[#1D9E75]">Neto Pro</span>
+          <span className={`text-sm font-medium ${isPremium ? 'text-[#1D9E75]' : 'text-[#87948c]'}`}>
+            {isPremium ? 'Neto Pro' : 'Free'}
+          </span>
         </div>
 
         {isPremium && user.plan_expiry && (
@@ -489,18 +491,21 @@ export default function ConfiguracionPage() {
               </tr>
             </thead>
             <tbody>
-              {PLAN_FEATURES.map((f) => (
+              {PLAN_FEATURES.map((f) => {
+                const val = isPremium ? f.premium : f.free;
+                return (
                 <tr key={f.label} className="border-t border-[rgba(255,255,255,0.04)]">
                   <td className="py-2.5 pr-4 text-[#C8C6BC]">{f.label}</td>
                   <td className="py-2.5 px-3 text-center">
-                    {typeof f.premium === 'boolean' ? (
-                      <span>{f.premium ? '\u2705' : '\u274C'}</span>
+                    {typeof val === 'boolean' ? (
+                      <span>{val ? '\u2705' : '\u274C'}</span>
                     ) : (
-                      <span className="text-[#1D9E75] font-medium">{f.premium}</span>
+                      <span className={isPremium ? 'text-[#1D9E75] font-medium' : 'text-[#C8C6BC] font-medium'}>{val}</span>
                     )}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

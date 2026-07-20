@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 
-async function getNetoUserId() {
+async function getNetoUser() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -11,21 +11,21 @@ async function getNetoUserId() {
 
   const { data } = await getServiceClient()
     .from('usuarios')
-    .select('id')
+    .select('id, plan')
     .eq('supabase_auth_id', user.id)
     .single();
-  return data?.id || null;
+  return data; // { id, plan } | null
 }
 
 export async function GET() {
-  const userId = await getNetoUserId();
-  if (!userId)
+  const usuario = await getNetoUser();
+  if (!usuario)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { data, error } = await getServiceClient()
     .from('usuarios')
     .select('recordatorios_activos, manos_libres, alertas_transaccion')
-    .eq('id', userId)
+    .eq('id', usuario.id)
     .single();
 
   if (error)
@@ -38,8 +38,8 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
-  const userId = await getNetoUserId();
-  if (!userId)
+  const usuario = await getNetoUser();
+  if (!usuario)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json();
@@ -52,7 +52,12 @@ export async function PUT(request: Request) {
   } = {};
   if ('recordatorios_activos' in body)
     update.recordatorios_activos = Boolean(body.recordatorios_activos);
-  if ('manos_libres' in body) update.manos_libres = Boolean(body.manos_libres);
+  // Modo Manos Libres es una función Pro: solo premium puede activarlo.
+  // Un usuario free siempre puede apagarlo (defensivo), nunca prenderlo.
+  if ('manos_libres' in body) {
+    if (usuario.plan === 'premium') update.manos_libres = Boolean(body.manos_libres);
+    else if (!body.manos_libres) update.manos_libres = false;
+  }
   if ('alertas_transaccion' in body)
     update.alertas_transaccion = Boolean(body.alertas_transaccion);
 
@@ -62,7 +67,7 @@ export async function PUT(request: Request) {
   const { error } = await getServiceClient()
     .from('usuarios')
     .update(update)
-    .eq('id', userId);
+    .eq('id', usuario.id);
 
   if (error)
     return NextResponse.json({ error: error.message }, { status: 400 });
