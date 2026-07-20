@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
+import { goalsFactor, debtsFactor } from '@/lib/score-factors';
 
 // Cold starts + 5 queries paralelas + upsert pueden exceder el límite default de
 // la función serverless en el path de cálculo fresco, lo que Vercel devuelve como
@@ -42,7 +43,14 @@ async function getNetoUserId(supabase: Awaited<ReturnType<typeof createClient>>)
   return data as { id: string; plan: string; gmail_access_token: string | null; recordatorios_activos: boolean | null } | null;
 }
 
-/** Calculate fresh Neto Score using direct Supabase queries (same formula as backend). */
+/**
+ * Calculate a fresh Neto Score with direct Supabase queries. Espeja el backend
+ * `services/neto-score.js` (fuente de verdad que persiste `neto_scores` vía el
+ * cron diario). Este path solo corre cuando aún no hay score persistido (usuario
+ * nuevo) o con ?refresh=true; el resto del tiempo se sirve el valor del cron.
+ * goals y debts usan la misma lógica que el backend (ritmo de ahorro / penalidad
+ * por mora) vía lib/score-factors para no divergir del score que el cron asienta.
+ */
 async function calculateFreshScore(usuario: NonNullable<Awaited<ReturnType<typeof getNetoUserId>>>) {
   const svc = getServiceClient();
   const userId = usuario.id;
@@ -61,7 +69,7 @@ async function calculateFreshScore(usuario: NonNullable<Awaited<ReturnType<typeo
     svc.from('transacciones').select('fecha').eq('usuario_id', userId).gte('fecha', sinceDate),
     svc.from('transacciones').select('tipo, monto_pen, categoria').eq('usuario_id', userId).gte('fecha', monthStart).lt('fecha', monthEnd),
     svc.from('presupuestos').select('categoria, monto_limite').eq('usuario_id', userId),
-    svc.from('metas_ahorro').select('id, completada').eq('usuario_id', userId).eq('completada', false),
+    svc.from('metas_ahorro').select('id, completada, monto_objetivo, monto_actual, fecha_limite, created_at').eq('usuario_id', userId).eq('completada', false),
     svc.from('deudas').select('id, tipo, monto_original, monto_pendiente, estado, fecha_vencimiento').eq('usuario_id', userId).eq('tipo', 'debo'),
   ]);
 
@@ -99,27 +107,13 @@ async function calculateFreshScore(usuario: NonNullable<Awaited<ReturnType<typeo
     savings = ratio >= 0.20 ? 100 : ratio >= 0.10 ? 75 : ratio >= 0.05 ? 55 : ratio >= 0 ? 35 : Math.max(0, 20 + ratio * 100);
   }
 
-  // Factor 4: Goal progress
+  // Factor 4: Goal progress — misma lógica de ritmo que el backend (lib/score-factors)
   const activeGoals = goalsResult.data || [];
-  const goals = activeGoals.length > 0 ? 70 : 50;
+  const goals = goalsFactor(activeGoals);
 
-  // Factor 5: Debt management
+  // Factor 5: Debt management — promedio de progreso ± mora/bonus (lib/score-factors)
   const debts = debtsResult.data || [];
-  const activeDebts = debts.filter((d: { estado: string }) => d.estado === 'activa');
-  let debtScore = 80;
-  if (activeDebts.length > 0) {
-    let progressSum = 0;
-    for (const d of activeDebts) {
-      const pendiente = parseFloat(String(d.monto_pendiente));
-      const original = parseFloat(String(d.monto_original));
-      progressSum += (1 - pendiente / original) * 100;
-    }
-    debtScore = Math.max(0, Math.min(100, Math.round(progressSum / activeDebts.length)));
-  } else if (debts.length === 0) {
-    debtScore = 80;
-  } else {
-    debtScore = 100;
-  }
+  const debtScore = debtsFactor(debts, now);
 
   // Factor 6: Financial visibility
   let visibility = 0;

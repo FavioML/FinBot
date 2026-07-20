@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { IS_DEMO } from '@/lib/demo/is-demo';
 import { DEMO_SCORE } from '@/lib/demo/mock-data';
@@ -66,11 +66,18 @@ export function useNetoScoreHistory(months = 6) {
     retry: 1,
   });
 
-  // Auto-backfill: if history is empty or sparse, calculate past months once
+  // Auto-backfill: if history is empty or sparse, calculate past months once.
+  // Guarded con un ref para intentarlo UNA sola vez por montaje: en Free la API
+  // capa el history a 1 mes, así que historyCount < months se cumple siempre y sin
+  // el guard se dispararía un POST (5 queries) en cada render/refetch aunque no haya
+  // nada nuevo que backfillear. Si el POST falla, se libera el guard para reintentar.
+  const backfillTried = useRef(false);
   useEffect(() => {
     if (IS_DEMO) return;
+    if (backfillTried.current) return;
     const historyCount = query.data?.history?.length ?? 0;
     if (query.isSuccess && historyCount < months) {
+      backfillTried.current = true;
       fetch('/api/score/backfill', { method: 'POST' })
         .then(r => r.json())
         .then(({ backfilled }) => {
@@ -78,7 +85,7 @@ export function useNetoScoreHistory(months = 6) {
             queryClient.invalidateQueries({ queryKey: ['neto-score-history'] });
           }
         })
-        .catch(() => {});
+        .catch(() => { backfillTried.current = false; });
     }
   }, [query.isSuccess, query.data, months, queryClient]);
 

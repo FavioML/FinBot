@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
+import { goalsFactor, debtsFactor } from '@/lib/score-factors';
 
 const WEIGHTS = {
   consistency: 0.20,
@@ -40,7 +41,7 @@ export async function POST() {
     supabase.from('transacciones').select('fecha, tipo, monto_pen, categoria').eq('usuario_id', usuario.id).gte('fecha', sinceDate),
     supabase.from('neto_scores').select('period').eq('user_id', usuario.id).gte('period', sinceDate),
     supabase.from('presupuestos').select('categoria, monto_limite').eq('usuario_id', usuario.id),
-    supabase.from('metas_ahorro').select('id, completada').eq('usuario_id', usuario.id).eq('completada', false),
+    supabase.from('metas_ahorro').select('id, completada, monto_objetivo, monto_actual, fecha_limite, created_at').eq('usuario_id', usuario.id).eq('completada', false),
     supabase.from('deudas').select('id, tipo, monto_original, monto_pendiente, estado, fecha_vencimiento').eq('usuario_id', usuario.id).eq('tipo', 'debo'),
   ]);
 
@@ -106,24 +107,11 @@ export async function POST() {
       savings = ratio >= 0.20 ? 100 : ratio >= 0.10 ? 75 : ratio >= 0.05 ? 55 : ratio >= 0 ? 35 : Math.max(0, 20 + ratio * 100);
     }
 
-    // Factors 4-6: Use current state as approximation (these don't change much historically)
-    const goals = activeGoals.length > 0 ? 70 : 50;
-
-    let debtScore = 80;
-    const activeDebts = debts.filter(d => d.estado === 'activa');
-    if (activeDebts.length > 0) {
-      let progressSum = 0;
-      for (const d of activeDebts) {
-        const pendiente = parseFloat(String(d.monto_pendiente));
-        const original = parseFloat(String(d.monto_original));
-        progressSum += (1 - pendiente / original) * 100;
-      }
-      debtScore = Math.max(0, Math.min(100, Math.round(progressSum / activeDebts.length)));
-    } else if (debts.length === 0) {
-      debtScore = 80;
-    } else {
-      debtScore = 100; // all paid
-    }
+    // Factors 4-6: Use current state as approximation (these don't change much
+    // historically). goals/debts con la misma lógica que el backend/route fresco
+    // (lib/score-factors) para no divergir del score que el cron asienta.
+    const goals = goalsFactor(activeGoals);
+    const debtScore = debtsFactor(debts, now);
 
     let visibility = 0;
     if (budgets.length > 0) visibility += 30;
