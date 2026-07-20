@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/dialog';
 import { EspacioDetailSkeleton } from '@/components/dashboard/skeletons';
 import { FadeIn } from '@/components/shared/motion-wrapper';
+import { ProBadge } from '@/components/shared/pro-gate';
 import {
   useSpaceDetail,
   useAddExpense,
@@ -174,6 +175,10 @@ export default function SpaceDetailPage() {
   }
 
   const { space, members, expenses, balance, currentUserId } = data;
+  // "host pays": data.isPro reflects the SPACE tier (owner's plan), so a Free
+  // member invited into a Pro space still gets the Pro sections, and a Free
+  // owner's space stays basic. Custom split rules + shared budgets are Pro.
+  const isPro = data.isPro;
   const otherMembers = members.filter((m) => m.user_id !== currentUserId);
   const isOwner = members.find((m) => m.user_id === currentUserId)?.role === 'owner';
   const memberLimit = SPACE_MEMBER_LIMITS[space.type] || 6;
@@ -410,19 +415,26 @@ export default function SpaceDetailPage() {
               <PieChart className="w-4 h-4 text-[#8A877D]" />
               Reglas de División
             </h2>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                setRuleCategory('');
-                setRuleSplits(Object.fromEntries(members.map((m) => [m.user_id, ''])));
-                setShowSplitRuleDialog(true);
-              }}
-              className="text-xs border-[rgba(255,255,255,0.1)] text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.04)] gap-1.5"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Agregar regla
-            </Button>
+            {isPro ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setRuleCategory('');
+                  setRuleSplits(Object.fromEntries(members.map((m) => [m.user_id, ''])));
+                  setShowSplitRuleDialog(true);
+                }}
+                className="text-xs border-[rgba(255,255,255,0.1)] text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.04)] gap-1.5"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Agregar regla
+              </Button>
+            ) : (
+              <div className="flex items-center gap-1.5 text-xs text-[#8A877D]">
+                <span>Reglas por categoría</span>
+                <ProBadge size="sm" />
+              </div>
+            )}
           </div>
 
           {/* Default rule */}
@@ -454,8 +466,8 @@ export default function SpaceDetailPage() {
             </div>
           </div>
 
-          {/* Category-specific rules */}
-          {(data.splitRules ?? []).map((rule) => (
+          {/* Category-specific rules (Pro-tier spaces only) */}
+          {isPro && (data.splitRules ?? []).map((rule) => (
             <div key={rule.id} className="rounded-lg bg-[rgba(255,255,255,0.02)] p-3 border border-[rgba(29,158,117,0.15)]">
               <div className="flex items-center justify-between mb-2">
                 <p className="text-xs font-medium text-[#F0EFE8]">
@@ -501,22 +513,34 @@ export default function SpaceDetailPage() {
               <Target className="w-4 h-4 text-[#8A877D]" />
               Presupuestos Mensuales
             </h2>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                setBudgetCategory('');
-                setBudgetLimit('');
-                setShowBudgetDialog(true);
-              }}
-              className="text-xs border-[rgba(255,255,255,0.1)] text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.04)] gap-1.5"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Agregar
-            </Button>
+            {isPro && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setBudgetCategory('');
+                  setBudgetLimit('');
+                  setShowBudgetDialog(true);
+                }}
+                className="text-xs border-[rgba(255,255,255,0.1)] text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.04)] gap-1.5"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Agregar
+              </Button>
+            )}
           </div>
 
-          {(data.budgets ?? []).length === 0 ? (
+          {!isPro ? (
+            <div className="flex flex-col items-center text-center gap-2 py-4">
+              <p className="text-sm text-[#8A877D]">
+                Ponle un límite mensual conjunto a cada categoría del espacio.
+              </p>
+              <div className="flex items-center gap-1.5 text-xs text-[#8A877D]">
+                <span>Presupuesto conjunto</span>
+                <ProBadge size="sm" />
+              </div>
+            </div>
+          ) : (data.budgets ?? []).length === 0 ? (
             <p className="text-sm text-[#8A877D] text-center py-4">Sin presupuestos configurados</p>
           ) : (
             <div className="space-y-3">
@@ -866,20 +890,24 @@ export default function SpaceDetailPage() {
                     Total: {total}% {isValid ? '✓' : '(debe sumar 100%)'}
                   </p>
                   <Button
-                    onClick={() => {
+                    onClick={async () => {
                       if (!isValid) return;
                       const splits: Record<string, number> = {};
                       for (const [uid, val] of Object.entries(defaultSplits)) {
                         splits[uid] = parseFloat(val) || 0;
                       }
-                      updateDefaultSplit.mutate(splits);
-                      toast.success('División por defecto actualizada');
-                      setShowDefaultSplitDialog(false);
+                      try {
+                        await updateDefaultSplit.mutateAsync(splits);
+                        toast.success('División por defecto actualizada');
+                        setShowDefaultSplitDialog(false);
+                      } catch {
+                        toast.error('No se pudo actualizar la división');
+                      }
                     }}
-                    disabled={!isValid}
+                    disabled={!isValid || updateDefaultSplit.isPending}
                     className="w-full bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90"
                   >
-                    Guardar
+                    {updateDefaultSplit.isPending ? 'Guardando...' : 'Guardar'}
                   </Button>
                 </>
               );

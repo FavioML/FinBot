@@ -45,7 +45,9 @@ export default function EspaciosPage() {
   const canCustomSplit = canAccess(isPro ? 'premium' : 'free', 'espacios_custom_split');
   const canSharedBudget = canAccess(isPro ? 'premium' : 'free', 'espacios_shared_budget');
   const canFullHistory = canAccess(isPro ? 'premium' : 'free', 'espacios_full_history');
-  const spaceLimitReached = !isPro && spaces.length >= 1;
+  // Free puede crear (ser owner de) 1 espacio; ser invitado a otros no cuenta.
+  const ownedCount = spaces.filter((s) => s.role === 'owner').length;
+  const spaceLimitReached = !isPro && ownedCount >= 1;
 
   async function handleJoin() {
     if (!joinCode.trim()) return;

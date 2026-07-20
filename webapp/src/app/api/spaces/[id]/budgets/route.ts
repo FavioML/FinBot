@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
+import { getSpaceOwnerIsPro } from '@/lib/spaces-server';
 import { NextResponse } from 'next/server';
 
 async function getNetoUserId() {
@@ -29,6 +30,11 @@ export async function PUT(
     .eq('user_id', userId)
     .single();
   if (!membership) return NextResponse.json({ error: 'Not a member' }, { status: 403 });
+
+  // Presupuesto conjunto del espacio es Pro (tier del owner del espacio).
+  if (!(await getSpaceOwnerIsPro(id))) {
+    return NextResponse.json({ error: 'El presupuesto conjunto es una función Pro' }, { status: 403 });
+  }
 
   const body = await request.json();
   const { budgets } = body;
