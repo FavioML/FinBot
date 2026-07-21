@@ -185,13 +185,30 @@ owner y se descartó por tres razones:
    misma plata) abierto igual.
 
 Lo que hace que sea seguro es el **aviso**, no el permiso: `notificarRepartoEditado`
-le escribe a todos menos al que editó, con su % efectivo antes y después. Los dos
-avisos (join y edición) comparten motor en `avisarCambioDeParte`; a quien no le
-cambió la parte no se le escribe, porque un aviso de "pasó de 50% a 50%" entrena a
-ignorar los que sí importan.
+le escribe a todos menos al que editó, con su % efectivo antes y después. A quien
+no le cambió la parte no se le escribe, porque un aviso de "pasó de 50% a 50%"
+entrena a ignorar los que sí importan.
 
-**Pendiente conocido:** `PUT split-rules` (reglas Pro por categoría) todavía no
-avisa. Misma familia, mismo hueco, escala menor porque es Pro y por categoría.
+Los tres caminos que mueven plata futura avisan, y comparten la fontanería
+(`avisarAMiembros` en `services/shared-spaces.js`: a quién se le escribe, el
+encabezado, el pie, el best-effort). Lo único propio de cada uno es el cuerpo:
+
+| Camino | Aviso | Cuerpo |
+|---|---|---|
+| join (`POST /api/spaces/join`) | `notificarNuevoMiembro` | "tu parte por defecto pasó de X% a Y%" |
+| `PUT default-split` | `notificarRepartoEditado` | igual, con el actor en el encabezado |
+| `PUT split-rules` (Pro) | `notificarReglasEditadas` | una línea POR CATEGORÍA que le cambió |
+
+`split-rules` no reusa `avisarCambioDeParte` porque ahí la parte de alguien es un
+número y acá es uno por categoría: un "tu parte pasó de X% a Y%" sin nombrar la
+categoría sería falso, ya que su parte en todo lo demás no se movió. El aviso
+nombra explícitamente cuando una categoría **vuelve al reparto por defecto** (regla
+borrada), y corta a 5 categorías con un "Y N categorías más" — un WhatsApp de diez
+líneas no se lee, y el detalle completo está en la webapp.
+
+Los porcentajes de todos los avisos salen de `effectiveSplitPercentsFor` (el mismo
+motor que cobra), nunca de una fórmula aparte, y la paridad TS↔CJS la cubre
+`tests/services/spaces-split-parity.test.js`.
 - **La UI muestra el % efectivo** (`effectiveSplitPercents`), nunca la columna
   cruda. Pintar el peso con un "%" pegado le decía "70%" a quien paga 46.7%.
 

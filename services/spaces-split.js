@@ -62,6 +62,21 @@ function resolveSplit(category, userId, members, splitRules) {
 }
 
 /**
+ * Porcentaje efectivo (0-100) que paga cada miembro en una categoria dada.
+ *
+ * El mismo motor que cobra, redondeado a un decimal: lo que devuelve esto es lo
+ * que va a congelar el snapshot. Todo aviso sobre la parte de alguien lee de aca
+ * en vez de rehacer la cuenta, asi un numero anunciado nunca puede contradecir al
+ * balance.
+ */
+function effectiveSplitPercentsFor(category, members, splitRules) {
+  const fractions = splitFractions(category, members, splitRules);
+  const out = {};
+  for (const userId of Object.keys(fractions)) out[userId] = Math.round(fractions[userId] * 1000) / 10;
+  return out;
+}
+
+/**
  * Porcentaje efectivo (0-100) que paga cada miembro con el split por defecto.
  *
  * `split_percentage` es un PESO, no un porcentaje: se normaliza dividiendo entre
@@ -71,10 +86,7 @@ function resolveSplit(category, userId, members, splitRules) {
  * cobra.
  */
 function effectiveSplitPercents(members) {
-  const fractions = splitFractions(null, members, []);
-  const out = {};
-  for (const userId of Object.keys(fractions)) out[userId] = Math.round(fractions[userId] * 1000) / 10;
-  return out;
+  return effectiveSplitPercentsFor(null, members, []);
 }
 
 /**
@@ -326,6 +338,7 @@ module.exports = {
   splitFractions,
   resolveSplit,
   effectiveSplitPercents,
+  effectiveSplitPercentsFor,
   DEFAULT_SPLIT_WEIGHT,
   joinSplitWeight,
   toCents,

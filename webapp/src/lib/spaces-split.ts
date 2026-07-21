@@ -95,6 +95,25 @@ export function resolveSplit(
 }
 
 /**
+ * Effective percentage (0-100) each member pays for a given category.
+ *
+ * Same engine that charges, rounded to one decimal: whatever this returns is
+ * what the snapshot will freeze. Every notification about someone's share reads
+ * from here rather than restating the math, so an announced number can never
+ * disagree with the balance.
+ */
+export function effectiveSplitPercentsFor(
+  category: string | null,
+  members: SplitMember[],
+  splitRules: SplitRule[]
+): Record<string, number> {
+  const fractions = splitFractions(category, members, splitRules);
+  const out: Record<string, number> = {};
+  for (const [userId, f] of Object.entries(fractions)) out[userId] = Math.round(f * 1000) / 10;
+  return out;
+}
+
+/**
  * Effective percentage (0-100) each member pays under the default split.
  *
  * `split_percentage` is a WEIGHT, not a percentage: it is normalized by the sum
@@ -104,10 +123,7 @@ export function resolveSplit(
  * a member is shown is the number they are charged.
  */
 export function effectiveSplitPercents(members: SplitMember[]): Record<string, number> {
-  const fractions = splitFractions(null, members, []);
-  const out: Record<string, number> = {};
-  for (const [userId, f] of Object.entries(fractions)) out[userId] = Math.round(f * 1000) / 10;
-  return out;
+  return effectiveSplitPercentsFor(null, members, []);
 }
 
 /**

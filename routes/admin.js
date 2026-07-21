@@ -290,4 +290,25 @@ router.post('/espacio-reparto-cambiado', async (req, res) => {
   }
 });
 
+/**
+ * POST /admin/espacio-reglas-cambiadas — avisa que alguien edito las reglas de
+ * reparto por categoria (Pro) del espacio.
+ *
+ * Mismo hop y misma razon que los dos de arriba. `antes` son las reglas que habia
+ * justo antes de escribir; el "despues" lo lee el service de la DB.
+ */
+router.post('/espacio-reglas-cambiadas', async (req, res) => {
+  if (!verificarAdmin(req, res)) return;
+  const { space_id, actor_id, antes } = req.body || {};
+  if (!space_id || !actor_id) return res.status(400).json({ ok: false, msg: 'Faltan space_id y actor_id' });
+  try {
+    const { notificarReglasEditadas } = require('../services/shared-spaces');
+    await notificarReglasEditadas(space_id, actor_id, antes);
+    res.json({ ok: true });
+  } catch (e) {
+    log.error({ tag: 'ESPACIO_REGLAS_AVISO', err: e.message }, 'Error avisando del cambio de reglas');
+    res.status(500).json({ ok: false, msg: 'Error enviando el aviso' });
+  }
+});
+
 module.exports = router;

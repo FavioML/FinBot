@@ -33,6 +33,7 @@ const EXPORTS_COMPARTIDOS = [
   'splitFractions',
   'resolveSplit',
   'effectiveSplitPercents',
+  'effectiveSplitPercentsFor',
   'joinSplitWeight',
   'toCents',
   'allocateShares',
@@ -151,6 +152,10 @@ describe('paridad TS <-> CJS · casos nombrados', () => {
       expect(cjs.buildSplitSnapshot(c.amount, c.category, c.members, c.rules))
         .toEqual(ts.buildSplitSnapshot(c.amount, c.category, c.members, c.rules));
       expect(cjs.effectiveSplitPercents(c.members)).toEqual(ts.effectiveSplitPercents(c.members));
+      // El % por categoria es lo que anuncia el aviso de reglas Pro: si los dos
+      // runtimes no coinciden, el mensaje promete un numero que el balance no cobra.
+      expect(cjs.effectiveSplitPercentsFor(c.category, c.members, c.rules))
+        .toEqual(ts.effectiveSplitPercentsFor(c.category, c.members, c.rules));
       // El peso de entrada tiene que ser el mismo por los dos caminos de join, o el
       // mismo espacio divide distinto segun se haya entrado por WhatsApp o por la web.
       expect(cjs.joinSplitWeight(c.members)).toEqual(ts.joinSplitWeight(c.members));
@@ -191,6 +196,9 @@ describe('paridad TS <-> CJS · aleatorio con semilla', () => {
       const a = ts.buildSplitSnapshot(amount, category, members, rules);
       const b = cjs.buildSplitSnapshot(amount, category, members, rules);
       expect(b, `escenario ${i}`).toEqual(a);
+
+      expect(cjs.effectiveSplitPercentsFor(category, members, rules), `% por categoria en escenario ${i}`)
+        .toEqual(ts.effectiveSplitPercentsFor(category, members, rules));
 
       // El invariante, verificado sobre el mismo lote: las partes suman el total.
       if (a) {

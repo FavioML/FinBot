@@ -36,15 +36,15 @@ const BACKEND_URL = process.env.NETO_BACKEND_URL || process.env.RAILWAY_URL || '
  *
  * Vive alla porque solo el backend tiene el token de Meta; la webapp no puede
  * enviar nada. Se usa para los cambios que mueven la plata FUTURA de alguien
- * (entra un miembro, se edita el reparto): la regla del producto es que eso nunca
- * pasa en silencio.
+ * (entra un miembro, se edita el reparto por defecto o una regla por categoria):
+ * la regla del producto es que eso nunca pasa en silencio.
  *
  * Best-effort a proposito: si el hop falla, la escritura ya ocurrio y el cambio se
  * ve igual en la webapp, que es la garantia real (fuera de la ventana de 24h de
  * Meta el mensaje libre tampoco se entregaria). Nunca lanza.
  */
 export async function avisarBackendEspacio(
-  ruta: 'espacio-nuevo-miembro' | 'espacio-reparto-cambiado',
+  ruta: 'espacio-nuevo-miembro' | 'espacio-reparto-cambiado' | 'espacio-reglas-cambiadas',
   payload: Record<string, unknown>
 ): Promise<void> {
   const adminKey = process.env.ADMIN_KEY;

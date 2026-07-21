@@ -6,7 +6,9 @@ const {
   computeBalancesFromSnapshots,
   DEFAULT_SPLIT_WEIGHT,
   effectiveSplitPercents,
+  effectiveSplitPercentsFor,
   joinSplitWeight,
+  resolveSplitPlan,
   shareCents,
   simplifyDebts,
 } = require('./spaces-split');
@@ -121,11 +123,13 @@ async function unirseEspacio(userId, inviteCode) {
 }
 
 /**
- * Le dice a cada miembro como quedo SU parte despues de que algo movio el reparto.
+ * Fontaneria comun de TODO aviso de reparto: a quien se le escribe, con que
+ * encabezado y con que pie.
  *
- * Motor unico de los avisos de reparto: quien entra a un espacio y quien edita el
- * split por defecto disparan el mismo mensaje con distinto encabezado. Escribirlo
- * dos veces era garantizar que un dia anunciaran numeros distintos.
+ * Lo unico que cambia entre un aviso y otro es el cuerpo. `cuerpo(actuales)`
+ * devuelve un mapa user_id -> texto (o null/'' para "a este no le cambio nada,
+ * no lo molestes"); todo lo demas vive aca una sola vez. Escribir esta parte de
+ * nuevo por cada aviso era garantizar que un dia anunciaran cosas distintas.
  *
  * La regla que sostienen estos avisos: la plata futura de alguien no se mueve sin
  * que esa persona se entere. Por eso el permiso importa menos que el aviso.
@@ -134,7 +138,7 @@ async function unirseEspacio(userId, inviteCode) {
  * mensaje libre no se entrega, asi que la garantia real es la webapp (que muestra
  * el porcentaje efectivo) y esto es el extra.
  */
-async function avisarCambioDeParte({ spaceId, actorId, miembrosAntes, emoji, accion, tag }) {
+async function avisarAMiembros({ spaceId, actorId, emoji, accion, tag, cuerpo }) {
   try {
     const [{ data: space }, { data: actuales }] = await Promise.all([
       supabase.from('shared_spaces').select('name').eq('id', spaceId).single(),
@@ -148,24 +152,20 @@ async function avisarCambioDeParte({ spaceId, actorId, miembrosAntes, emoji, acc
     const destinatarios = actuales.filter((m) => m.user_id !== actorId);
     if (destinatarios.length === 0) return;
 
-    // Los dos porcentajes salen del mismo motor que cobra, no de una formula
-    // aparte: lo que se anuncia es exactamente lo que va a salir en el balance.
-    const antes = effectiveSplitPercents(miembrosAntes);
-    const despues = effectiveSplitPercents(actuales);
     const nombreActor = actor?.usuarios?.nombre?.split(' ')[0] || 'Alguien';
+    const cuerpos = (await cuerpo(actuales)) || {};
 
     let enviados = 0;
     let sinCambio = 0;
     for (const m of destinatarios) {
-      const a = antes[m.user_id];
-      const d = despues[m.user_id] ?? 0;
+      const texto = cuerpos[m.user_id];
       // A quien no se le movio la parte no se le escribe. Un aviso que dice
       // "paso de 50% a 50%" entrena a ignorar los avisos que si importan.
-      if (a !== undefined && a === d) { sinCambio++; continue; }
+      if (!texto) { sinCambio++; continue; }
       if (!m.usuarios?.whatsapp) continue;
 
       const msg = emoji + ' *' + nombreActor + ' ' + accion + ' ' + space.name + '*\n\n' +
-        'Tu parte por defecto pasó de ' + (a ?? 0) + '% a ' + d + '%.\n\n' +
+        texto + '\n\n' +
         '_Si prefieren otro reparto, ajústenlo acá: https://app.neto.pe/dashboard/espacios_';
       try { await enviarWhatsapp(m.usuarios.whatsapp, msg); enviados++; } catch (e) { /* silent */ }
     }
@@ -177,6 +177,35 @@ async function avisarCambioDeParte({ spaceId, actorId, miembrosAntes, emoji, acc
   } catch (e) {
     log.warn({ tag, err: e.message }, 'No se pudo avisar del cambio de reparto');
   }
+}
+
+/**
+ * Le dice a cada miembro como quedo SU parte por defecto despues de que algo la
+ * movio: alguien entro al espacio, o alguien edito el reparto.
+ *
+ * Los dos porcentajes salen del mismo motor que cobra, no de una formula aparte:
+ * lo que se anuncia es exactamente lo que va a salir en el balance.
+ */
+async function avisarCambioDeParte({ spaceId, actorId, miembrosAntes, emoji, accion, tag }) {
+  return avisarAMiembros({
+    spaceId,
+    actorId,
+    emoji,
+    accion,
+    tag,
+    cuerpo: (actuales) => {
+      const antes = effectiveSplitPercents(miembrosAntes);
+      const despues = effectiveSplitPercents(actuales);
+      const out = {};
+      for (const m of actuales) {
+        const a = antes[m.user_id];
+        const d = despues[m.user_id] ?? 0;
+        if (a !== undefined && a === d) continue;
+        out[m.user_id] = 'Tu parte por defecto pasó de ' + (a ?? 0) + '% a ' + d + '%.';
+      }
+      return out;
+    },
+  });
 }
 
 /**
@@ -223,6 +252,79 @@ async function notificarRepartoEditado(spaceId, actorId, miembrosAntes) {
     emoji: '⚖️',
     accion: 'cambió el reparto de',
     tag: 'ESPACIO_SPLIT_AVISO',
+  });
+}
+
+/** Cuantas categorias se nombran antes de resumir el resto en una linea. */
+const MAX_CATEGORIAS_EN_AVISO = 5;
+
+/**
+ * Avisa que alguien edito las reglas por categoria (feature Pro) del espacio.
+ *
+ * Mismo hueco que el reparto por defecto y misma respuesta: cualquier miembro
+ * puede editarlas y lo que hace que eso sea seguro es el aviso, no el permiso.
+ * Lo que cambia es la FORMA del cambio, y por eso no reusa `avisarCambioDeParte`:
+ * ahi la parte de alguien es un numero, aca es uno por categoria. Un "tu parte
+ * pasó de X% a Y%" sin nombrar la categoria seria falso — su parte en todo lo
+ * demas no se movio.
+ *
+ * `reglasAntes` lo manda quien edito (las reglas leidas justo antes de escribir);
+ * el "despues" se lee de la DB, ya persistido. Los miembros se leen frescos: no
+ * cambian en esta operacion, asi que sirven para los dos lados de la resta.
+ */
+async function notificarReglasEditadas(spaceId, actorId, reglasAntes) {
+  return avisarAMiembros({
+    spaceId,
+    actorId,
+    emoji: '⚖️',
+    accion: 'cambió el reparto por categoría de',
+    tag: 'ESPACIO_REGLAS_AVISO',
+    cuerpo: async (actuales) => {
+      const { data: space } = await supabase
+        .from('shared_spaces').select('split_rules').eq('id', spaceId).single();
+      const antes = Array.isArray(reglasAntes) ? reglasAntes : [];
+      const despues = Array.isArray(space?.split_rules) ? space.split_rules : [];
+
+      // Union de categorias tocadas: una regla borrada tambien mueve plata (esa
+      // categoria vuelve al reparto por defecto), asi que no basta con mirar las
+      // que quedaron. Orden alfabetico para que el mensaje sea estable.
+      const categorias = [...new Set(
+        [...antes, ...despues].map((r) => r?.category).filter((c) => typeof c === 'string' && c)
+      )].sort();
+
+      const lineas = {};
+      for (const categoria of categorias) {
+        const pctAntes = effectiveSplitPercentsFor(categoria, actuales, antes);
+        const pctDespues = effectiveSplitPercentsFor(categoria, actuales, despues);
+        // Que la categoria haya quedado sin regla se dice explicito: si no, el
+        // aviso anuncia un numero que aparenta ser una regla nueva.
+        const volvioAlDefault =
+          resolveSplitPlan(categoria, actuales, despues).source === 'default';
+
+        for (const m of actuales) {
+          const a = pctAntes[m.user_id] ?? 0;
+          const d = pctDespues[m.user_id] ?? 0;
+          if (a === d) continue;
+          (lineas[m.user_id] || (lineas[m.user_id] = [])).push(
+            'En ' + categoria + ' tu parte pasó de ' + a + '% a ' + d + '%' +
+            (volvioAlDefault ? ' (vuelve al reparto por defecto)' : '') + '.'
+          );
+        }
+      }
+
+      const out = {};
+      for (const userId of Object.keys(lineas)) {
+        const todas = lineas[userId];
+        const visibles = todas.slice(0, MAX_CATEGORIAS_EN_AVISO);
+        // Un espacio con muchas categorias puede mover diez de golpe; un WhatsApp
+        // de diez lineas no se lee. El detalle completo esta en la webapp.
+        if (todas.length > visibles.length) {
+          visibles.push('Y ' + (todas.length - visibles.length) + ' categorías más.');
+        }
+        out[userId] = visibles.join('\n');
+      }
+      return out;
+    },
   });
 }
 
@@ -401,6 +503,7 @@ module.exports = {
   unirseEspacio,
   notificarNuevoMiembro,
   notificarRepartoEditado,
+  notificarReglasEditadas,
   registrarGastoCompartido,
   obtenerBalanceEspacio,
   liquidarCuentas,
