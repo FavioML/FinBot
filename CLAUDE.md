@@ -33,7 +33,7 @@ NETO es un asistente financiero personal por WhatsApp para el mercado peruano.
 - Supabase: RLS activo en todas las tablas, 11 tablas
 - Vercel: webapp app.neto.pe con Google OAuth
 - CI/CD: GitHub Actions (test en push/PR, Node 20)
-- Tests: 121 tests automatizados (vitest)
+- Tests: 292 tests automatizados (vitest)
 - Logging: Pino con redaccion de secrets
 
 ### ⚠️ El backend asume INSTANCIA ÚNICA (Railway replicas=1)

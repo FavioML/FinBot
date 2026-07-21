@@ -117,6 +117,28 @@ if (!auth.ok) return auth.response
 
 Una ruta que se olvide ese check es IDOR directo. No repliques el chequeo a mano.
 
+### Espacios: la division de un gasto se CONGELA al registrarlo
+
+`space_expenses.split_snapshot` (JSONB, NOT NULL) guarda las partes en centavos
+enteros con las que se registro el gasto. Los balances se leen de ahi; **no** se
+recalculan desde `split_rules` / `split_percentage`. Cambiar una regla afecta
+gastos futuros, nunca los pasados (antes reescribia meses de historia, o sea que
+un cambio de regla movia plata real entre personas en silencio).
+
+Reglas que no se negocian:
+- **Centavos enteros, no fracciones.** "Las partes suman el total" solo es exacto
+  en enteros. El reparto de sobrantes es por resto mayor con desempate por
+  `user_id`, para que el backend y la webapp caigan en el mismo numero.
+- **Toda escritura de gasto pasa por `buildSplitSnapshot`** (`lib/spaces-split.ts`).
+  Hay un CHECK en la DB que rechaza un snapshot que no conserve el monto.
+- **Los balances cubren la union** de miembros actuales y de quien aparezca en el
+  historial: si un ex-miembro sale del calculo, su deuda se evapora y el pagador
+  queda acreditado por plata que nadie debe. Por eso `DELETE /members` responde
+  409 si su saldo no es 0.
+- **`services/spaces-split.js` es el espejo CommonJS** que usa el backend de
+  WhatsApp. Si tocas uno, toca el otro: `tests/services/spaces-split-parity.test.js`
+  importa los dos y falla si divergen. No relajes ese test.
+
 ### Multimoneda
 - Columnas: `monto` (original) + `monto_pen` (convertido) + `tipo_cambio`
 - Conversion en insert/update via `getExchangeRate()`
