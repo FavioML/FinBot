@@ -64,7 +64,9 @@ const CASOS = [
 // Reglas DURAS del prompt (secciones 1 y 2). Cada una es verificable sin criterio.
 const REGLAS = [
   { id: 'frase-call-center', desc: 'frases de bot prohibidas por el prompt',
-    re: /¡?\b(entendido|por supuesto|claro que s[íi]|con gusto)\b!?|estoy aqu[íi] para ayudarte/i },
+    // "estoy aquí para ayudarte" y "aquí estoy para ayudarte" son la misma frase: cubrir
+    // ambos órdenes, y también "aquí andamos/estoy" suelto como muletilla de cierre.
+    re: /¡?\b(entendido|por supuesto|claro que s[íi]|con gusto)\b!?|(estoy aqu[íi]|aqu[íi] (estoy|andamos|estamos))( para (ayudarte|lo que necesites))?/i },
   { id: 'markdown-pesado', desc: 'markdown que WhatsApp no renderiza (##, **, tablas)',
     re: /(^|\n)\s*#{2,}\s|\*\*|\|\s*-{3,}\s*\|/ },
   { id: 'moneda-soles', desc: 'soles mal formateados (debe ser S/380, no "380 soles" ni "PEN 380")',
@@ -77,6 +79,16 @@ const REGLAS = [
     re: /\b(soy (una |un )?(ia|bot|inteligencia artificial|asistente virtual|modelo)|como (ia|bot|modelo de lenguaje))\b/i },
   { id: 'largo', desc: 'más de 6 líneas (redactarConNETO pide máximo 6)',
     test: (t) => t.split('\n').filter(l => l.trim()).length > 6 },
+  // Neto WhatsApp dejó de ser conversacional por decisión de producto: confirma acciones,
+  // no le saca charla al usuario. Solo se permite preguntar lo que hace falta para poder
+  // ejecutar (a qué categoría mover algo, si un cargo duplicado es real).
+  { id: 'pregunta-relleno', desc: 'cierra con pregunta de relleno en vez de dar el dato y parar',
+    test: (t) => {
+      const ultima = t.split('\n').filter(l => l.trim()).pop() || '';
+      if (!/\?/.test(ultima)) return false;
+      const necesaria = /(a )?qu[ée] categor[íi]a|d[óo]nde lo (pongo|muevo)|es un duplicado|son dos compras|para qu[ée] fue|c[óo]mo lo registro|de qu[ée] fue/i;
+      return !necesaria.test(ultima);
+    } },
 ];
 
 // Solo aplica cuando el usuario NO tiene correo conectado, que es el caso de 68 de 74 reales.
