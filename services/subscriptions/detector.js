@@ -223,7 +223,10 @@ async function detectarSuscripciones(usuarioId) {
             precio_referencia: null,
             tiene_plan_familiar: false,
             precio_familiar: null,
-            meses_detectados: mesesConPago.size,
+            // El conteo del CLUSTER recurrente, no el global: mesesConPago incluye
+            // los pagos `extras` del otro servicio que comparte el descriptor
+            // opaco (Apple), e inflaba los meses de una cuota que no los abarca.
+            meses_detectados: recurringMonths,
             ultimo_pago: ultimoPago.fecha,
             categoria_neto: ultimoPago.categoria || 'Otros',
             subcategoria_neto: ultimoPago.subcategoria || 'sin_categoria',

@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
-import { goalsFactor, debtsFactor } from '@/lib/score-factors';
+import { goalsFactor, debtsFactor, limaToday } from '@/lib/score-factors';
 import { checkRateLimit } from '@/lib/rate-limit';
 
 const WEIGHTS = {
@@ -126,7 +126,7 @@ export async function POST() {
     // historically). goals/debts con la misma lógica que el backend/route fresco
     // (lib/score-factors) para no divergir del score que el cron asienta.
     const goals = goalsFactor(activeGoals);
-    const debtScore = debtsFactor(debts, now);
+    const debtScore = debtsFactor(debts, limaToday());
 
     let visibility = 0;
     if (budgets.length > 0) visibility += 30;

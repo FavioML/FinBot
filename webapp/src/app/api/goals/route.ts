@@ -116,18 +116,23 @@ export async function PUT(request: Request) {
 
   const body = await request.json();
 
-  const completada = body.completada || false;
-
   // Keep `status` in sync with `completada`. The UI splits goals into
   // activos/completados by `status` (falling back to `completada` only when
   // status is null), so writing `completada` without `status` left completed
   // goals stuck in the "Planes activos" list. Never resurrect an abandoned goal.
   const { data: current } = await getServiceClient()
     .from('metas_ahorro')
-    .select('status')
+    .select('status, completada')
     .eq('id', body.id)
     .eq('usuario_id', userId)
     .single();
+
+  // Solo se toca `completada` si el body lo trae explicitamente. Con `|| false`,
+  // editar el nombre de una meta ya cumplida sin reenviar el campo la marcaba
+  // como no completada y la devolvia a "Planes activos".
+  const completada = body.completada !== undefined
+    ? Boolean(body.completada)
+    : Boolean(current?.completada);
   const nuevoStatus = current?.status === 'abandoned'
     ? 'abandoned'
     : (completada ? 'completed' : 'active');

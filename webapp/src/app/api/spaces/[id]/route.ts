@@ -75,23 +75,28 @@ export async function GET(
   if (!auth.ok) return auth.response;
   const usuario = auth.user;
 
-  const { data: space } = await getServiceClient().from('shared_spaces').select('*').eq('id', id).single();
-  const { data: members } = await getServiceClient()
-    .from('space_members')
-    .select('user_id, role, split_percentage, usuarios(nombre)')
-    .eq('space_id', id);
-  const { data: expenses } = await getServiceClient()
-    .from('space_expenses')
-    .select('*, usuarios(nombre)')
-    .eq('space_id', id)
-    .order('created_at', { ascending: false })
-    .limit(20);
-  const { data: settlements } = await getServiceClient()
-    .from('space_settlements')
-    .select('*, from:usuarios!space_settlements_from_user_fkey(nombre), to:usuarios!space_settlements_to_user_fkey(nombre)')
-    .eq('space_id', id)
-    .order('settled_at', { ascending: false })
-    .limit(10);
+  // Las 4 consultas son independientes entre si: en serie eran 4 round-trips
+  // encadenados en cada carga del detalle. Solo el plan del owner depende de
+  // `space`, asi que queda como segunda ola.
+  const [{ data: space }, { data: members }, { data: expenses }, { data: settlements }] = await Promise.all([
+    getServiceClient().from('shared_spaces').select('*').eq('id', id).single(),
+    getServiceClient()
+      .from('space_members')
+      .select('user_id, role, split_percentage, usuarios(nombre)')
+      .eq('space_id', id),
+    getServiceClient()
+      .from('space_expenses')
+      .select('*, usuarios(nombre)')
+      .eq('space_id', id)
+      .order('created_at', { ascending: false })
+      .limit(20),
+    getServiceClient()
+      .from('space_settlements')
+      .select('*, from:usuarios!space_settlements_from_user_fkey(nombre), to:usuarios!space_settlements_to_user_fkey(nombre)')
+      .eq('space_id', id)
+      .order('settled_at', { ascending: false })
+      .limit(10),
+  ]);
 
   // "host pays": the space's Pro tier is the OWNER's plan, not the viewer's.
   const ownerId = (space as Record<string, unknown>)?.created_by as string | undefined;

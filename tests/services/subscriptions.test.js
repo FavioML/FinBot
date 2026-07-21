@@ -303,7 +303,10 @@ describe('detectarSuscripciones — deteccion por patron (sin catalogo)', () => 
     expect(apple.fuente).toBe('patron');
     expect(apple.estado).toBe('posible');
     expect(apple.monto_detectado).toBe(4.35); // cuota recurrente (iCloud), no el promedio de los 5
-    expect(apple.meses_detectados).toBe(3);
+    // Meses del CLUSTER recurrente (jul + jun), no los 3 meses en que aparece el
+    // comercio: los cargos de Music quedaron fuera de la cuota, asi que contarlos
+    // sobreestimaba la evidencia de un monto que solo se vio 2 veces (B7).
+    expect(apple.meses_detectados).toBe(2);
   });
 });
 

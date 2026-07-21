@@ -76,7 +76,7 @@ export default function SpaceDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const spaceId = params.id;
-  const { data, isLoading } = useSpaceDetail(spaceId);
+  const { data, isLoading, isError, refetch } = useSpaceDetail(spaceId);
   const addExpense = useAddExpense(spaceId);
   const deleteExpense = useDeleteExpense(spaceId);
   const editExpense = useEditExpense(spaceId);
@@ -163,6 +163,26 @@ export default function SpaceDetailPage() {
   if (isLoading) {
     return (
       <EspacioDetailSkeleton />
+    );
+  }
+
+  // Un fetch fallido no es un 404: presentarlo como "no encontrado" hace creer que
+  // el espacio dejó de existir. Se ofrece reintentar en vez de mandar a volver.
+  if (isError) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center p-6">
+        <div className="glass-card w-full max-w-md space-y-4 p-8 text-center">
+          <h2 className="text-xl font-bold text-[#F0EFE8]">No pudimos cargar el espacio</h2>
+          <p className="text-sm text-[#8A877D]">Revisa tu conexión e inténtalo de nuevo. Tu información está a salvo.</p>
+          <button
+            onClick={() => refetch()}
+            className="inline-flex items-center gap-2 rounded-lg bg-[#1D9E75] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1D9E75]/90"
+          >
+            Reintentar
+          </button>
+          <Link href="/dashboard/espacios" className="text-[#1D9E75] text-sm mt-2 inline-block">← Volver</Link>
+        </div>
+      </div>
     );
   }
 
@@ -459,10 +479,10 @@ export default function SpaceDetailPage() {
                 <div key={m.user_id} className="flex-1">
                   <div className="flex items-center justify-between text-xs mb-1">
                     <span className="text-[#C8C6BC]">{m.usuarios?.nombre}</span>
-                    <span className="text-[#8A877D]">{m.split_percentage}%</span>
+                    <span className="text-[#8A877D]">{m.split_percentage ?? 50}%</span>
                   </div>
                   <div className="h-1.5 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
-                    <div className="h-full rounded-full bg-[#8A877D]" style={{ width: `${m.split_percentage}%` }} />
+                    <div className="h-full rounded-full bg-[#8A877D]" style={{ width: `${m.split_percentage ?? 50}%` }} />
                   </div>
                 </div>
               ))}
@@ -659,7 +679,7 @@ export default function SpaceDetailPage() {
                     </p>
                   ) : (
                     <p className="text-[#8A877D]">
-                      Se usará la división global ({members.map((m) => `${m.split_percentage}%`).join('/')})
+                      Se usará la división global ({members.map((m) => `${m.split_percentage ?? 50}%`).join('/')})
                     </p>
                   )}
                 </div>

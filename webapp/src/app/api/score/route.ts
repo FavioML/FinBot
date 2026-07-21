@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
-import { goalsFactor, debtsFactor } from '@/lib/score-factors';
+import { goalsFactor, debtsFactor, limaToday } from '@/lib/score-factors';
 import { checkRateLimit } from '@/lib/rate-limit';
 
 // Cold starts + 5 queries paralelas + upsert pueden exceder el límite default de
@@ -129,7 +129,7 @@ async function calculateFreshScore(usuario: NonNullable<Awaited<ReturnType<typeo
 
   // Factor 5: Debt management — promedio de progreso ± mora/bonus (lib/score-factors)
   const debts = debtsResult.data || [];
-  const debtScore = debtsFactor(debts, now);
+  const debtScore = debtsFactor(debts, limaToday());
 
   // Factor 6: Financial visibility — cuenta si tiene presupuestos (cualquier mes,
   // igual que el backend calcFactorVisibility que no filtra por mes/anio).

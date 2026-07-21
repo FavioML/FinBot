@@ -2,6 +2,9 @@ import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 
+// Las preferencias viven en la MISMA fila `usuarios` que el id y el plan, asi que
+// se traen todas de una. El GET hacia 2 round-trips a la misma fila: uno para
+// resolver la sesion y otro para releerla por id.
 async function getNetoUser() {
   const supabase = await createClient();
   const {
@@ -11,10 +14,10 @@ async function getNetoUser() {
 
   const { data } = await getServiceClient()
     .from('usuarios')
-    .select('id, plan')
+    .select('id, plan, recordatorios_activos, manos_libres, alertas_transaccion')
     .eq('supabase_auth_id', user.id)
     .single();
-  return data; // { id, plan } | null
+  return data;
 }
 
 export async function GET() {
@@ -22,18 +25,10 @@ export async function GET() {
   if (!usuario)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { data, error } = await getServiceClient()
-    .from('usuarios')
-    .select('recordatorios_activos, manos_libres, alertas_transaccion')
-    .eq('id', usuario.id)
-    .single();
-
-  if (error)
-    return NextResponse.json({ error: error.message }, { status: 400 });
   return NextResponse.json({
-    recordatorios_activos: data?.recordatorios_activos ?? true,
-    manos_libres: data?.manos_libres ?? false,
-    alertas_transaccion: data?.alertas_transaccion ?? true,
+    recordatorios_activos: usuario.recordatorios_activos ?? true,
+    manos_libres: usuario.manos_libres ?? false,
+    alertas_transaccion: usuario.alertas_transaccion ?? true,
   });
 }
 

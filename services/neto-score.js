@@ -141,7 +141,11 @@ async function calcFactorDebts(usuarioId) {
   // Check payment progress
   let progressScore = 0;
   let overdueCount = 0;
-  const hoy = new Date(hoyPeru());
+  // `fecha_vencimiento` es DATE (sin hora): la comparacion va a granularidad de
+  // dia con strings ISO, igual que el espejo del webapp (lib/score-factors.ts).
+  // Comparar Dates metia la hora en el medio y hacia que una deuda que vence HOY
+  // contara como vencida en un lado y no en el otro.
+  const hoy = hoyPeru();
 
   for (const d of activas) {
     const pendiente = parseFloat(d.monto_pendiente);
@@ -149,7 +153,7 @@ async function calcFactorDebts(usuarioId) {
     const paidRatio = 1 - (pendiente / original);
     progressScore += paidRatio * 100;
 
-    if (d.fecha_vencimiento && new Date(d.fecha_vencimiento) < hoy) {
+    if (d.fecha_vencimiento && String(d.fecha_vencimiento).slice(0, 10) < hoy) {
       overdueCount++;
     }
   }

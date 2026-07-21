@@ -66,12 +66,27 @@ export function goalsFactor(metasActivas: GoalRow[] | null | undefined): number 
 }
 
 /**
+ * Fecha de hoy en Lima como `YYYY-MM-DD`.
+ *
+ * `fecha_vencimiento` es una columna DATE (sin hora), así que la comparación de
+ * "vencida" tiene que ser a granularidad de día. Comparándola contra un `Date`
+ * se colaba la hora: el backend usaba medianoche y el webapp la hora-pared, así
+ * que una deuda que vencía HOY contaba como vencida en la web (−15 pts) y no en
+ * WhatsApp. Con strings ISO la comparación lexicográfica es exacta y sin zona.
+ */
+export function limaToday(): string {
+  const lima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
+  return `${lima.getFullYear()}-${String(lima.getMonth() + 1).padStart(2, '0')}-${String(lima.getDate()).padStart(2, '0')}`;
+}
+
+/**
  * Factor 5 — Gestión de deudas. Espeja `calcFactorDebts` del backend: promedio de
  * progreso de pago menos penalidad por mora (15/deuda vencida) más bonus por
  * deudas ya pagadas. `debts` debe traer todas las deudas tipo='debo' (activas +
- * pagadas). `ahora` es la referencia temporal para detectar vencidas.
+ * pagadas). `hoyISO` es el día de referencia (`YYYY-MM-DD`, ver `limaToday`);
+ * una deuda que vence HOY todavía NO está vencida.
  */
-export function debtsFactor(debts: DebtRow[] | null | undefined, ahora: Date): number {
+export function debtsFactor(debts: DebtRow[] | null | undefined, hoyISO: string): number {
   if (!debts || debts.length === 0) return 80; // sin deudas = bien
   const activas = debts.filter((d) => d.estado === 'activa');
   const pagadas = debts.filter((d) => d.estado === 'pagada');
@@ -84,7 +99,7 @@ export function debtsFactor(debts: DebtRow[] | null | undefined, ahora: Date): n
     const original = parseFloat(String(d.monto_original));
     const paidRatio = original > 0 ? 1 - pendiente / original : 0;
     progressScore += paidRatio * 100;
-    if (d.fecha_vencimiento && new Date(d.fecha_vencimiento) < ahora) overdueCount++;
+    if (d.fecha_vencimiento && String(d.fecha_vencimiento).slice(0, 10) < hoyISO) overdueCount++;
   }
 
   const avgProgress = progressScore / activas.length;
