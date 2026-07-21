@@ -120,6 +120,19 @@ try {
   spId = sp.body?.id;
   check('crear_espacio', sp.status === 201 && !!spId, `status=${sp.status}`);
 
+  // Gate de version. Vercel tarda mas que el `curl` que devuelve 307, asi que es
+  // facil correr esto contra el build viejo: los asserts fallan en cascada y
+  // parecen bugs de producto cuando en realidad el deploy no habia aterrizado.
+  // El tope de monto es el marcador: si un gasto absurdo entra, el build es viejo.
+  const marcador = await pro.api(`/api/spaces/${spId}/expenses`, J({ amount: 1e9, description: 'QA marcador de deploy' }));
+  if (marcador.status !== 400) {
+    await pro.api(`/api/spaces/${spId}`, { method: 'DELETE' });
+    await br.close();
+    console.error(`DEPLOY VIEJO: el tope de monto todavia no esta en produccion (POST 1e9 devolvio ${marcador.status}, se esperaba 400). Espera a que termine el deploy de Vercel y vuelve a correr. No se aserto nada; el espacio de prueba se borro.`);
+    process.exit(2);
+  }
+  R.gate_deploy_al_dia = 'PASS';
+
   const det0 = await pro.api(`/api/spaces/${spId}`);
   const code = det0.body?.space?.invite_code;
   const joined = await free.api('/api/spaces/join', J({ code }));
@@ -158,8 +171,7 @@ try {
   // La columna aguanta hasta 10^10; sin tope, un miembro descuadra el balance de
   // todos. `1e999` sobrevive a JSON.parse como Infinity, y el guard viejo lo
   // dejaba pasar porque isNaN(Infinity) es false.
-  const absurdo = await pro.api(`/api/spaces/${spId}/expenses`, J({ amount: 1e9, description: 'QA tope' }));
-  check('gasto_sobre_el_tope_400', absurdo.status === 400, `status=${absurdo.status}`);
+  // (El POST sobre el tope ya se probo arriba como gate de deploy.)
   const infinito = await pro.api(`/api/spaces/${spId}/expenses`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"amount":1e999,"description":"QA inf"}' });
   check('gasto_infinito_400', infinito.status === 400, `status=${infinito.status}`);
   const editAbsurdo = await pro.api(`/api/spaces/${spId}/expenses`, JP({ id: e1.body?.id, amount: 1e9 }));
