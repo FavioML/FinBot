@@ -45,9 +45,9 @@ function useIsDesktop(): boolean {
 
 export default function DeudasPage() {
   const { data: user, isLoading: userLoading } = useUser();
-  const { data: allDebts = [], isLoading: debtsLoading } = useDebts(user?.id);
+  const { data: allDebts = [], isLoading: debtsLoading, isError: debtsError, refetch: refetchDebts } = useDebts(user?.id);
   const { create, update, pay, markPaid, remove, shareDebt } = useDebtMutations();
-  const { data: splitExpenses = [] } = useSplitExpenses(user?.id);
+  const { data: splitExpenses = [], isError: splitError } = useSplitExpenses(user?.id);
   const splitMutations = useSplitMutations();
 
   const isDesktop = useIsDesktop();
@@ -251,6 +251,25 @@ export default function DeudasPage() {
     return <EmptyState title="Inicia sesión" description="Conecta tu cuenta para ver tus deudas." />;
   }
 
+  // Error de carga (fetch de deudas falló y no hay cache): error explícito en vez de un
+  // "sin deudas pendientes" que parezca que el usuario perdió su data. Con cache, normal.
+  if (debtsError && allDebts.length === 0) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center p-6">
+        <div className="glass-card w-full max-w-md space-y-4 p-8 text-center">
+          <h2 className="text-xl font-bold text-[#F0EFE8]">No pudimos cargar tus deudas</h2>
+          <p className="text-sm text-[#8A877D]">Revisa tu conexión e inténtalo de nuevo. Tu información está a salvo.</p>
+          <button
+            onClick={() => refetchDebts()}
+            className="inline-flex items-center gap-2 rounded-lg bg-[#1D9E75] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1D9E75]/90"
+          >
+            Reintentar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const gridCls = 'grid grid-cols-1 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)] gap-4';
   const detailWrapCls = 'lg:sticky lg:top-2 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto lg:pr-1';
 
@@ -310,7 +329,13 @@ export default function DeudasPage() {
                     Dividir gasto
                   </Button>
                 </div>
-                {splitExpenses.length === 0 ? (
+                {splitError && splitExpenses.length === 0 ? (
+                  <EmptyState
+                    title="No pudimos cargar tus gastos compartidos"
+                    description="Revisa tu conexion e intentalo de nuevo. Tu informacion esta a salvo."
+                    showWhatsApp={false}
+                  />
+                ) : splitExpenses.length === 0 ? (
                   <EmptyState
                     title="Sin gastos compartidos"
                     description="Divide un gasto grupal desde el boton o desde WhatsApp: pague 300 la cena entre 4"

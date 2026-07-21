@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
 import { getSpaceOwnerIsPro } from '@/lib/spaces-server';
+import { sanitizeSplitRules } from '@/lib/spaces-split';
 import { NextResponse } from 'next/server';
 
 async function getNetoUserId() {
@@ -40,9 +41,20 @@ export async function PUT(
   const { rules } = body;
   if (!Array.isArray(rules)) return NextResponse.json({ error: 'rules must be an array' }, { status: 400 });
 
+  // Rules apply retroactively to every past expense, so never persist them raw:
+  // a weight keyed to a non-member would inflate the denominator (dropping the
+  // author's own share toward 0 across the whole history) and an Infinity/NaN
+  // weight would break the group's balance outright.
+  const { data: memberRows } = await getServiceClient()
+    .from('space_members')
+    .select('user_id')
+    .eq('space_id', id);
+  const memberIds = new Set((memberRows ?? []).map((m) => m.user_id as string));
+  const cleanRules = sanitizeSplitRules(rules, memberIds);
+
   const { error } = await getServiceClient()
     .from('shared_spaces')
-    .update({ split_rules: rules })
+    .update({ split_rules: cleanRules })
     .eq('id', id);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });

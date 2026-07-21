@@ -1,12 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
+import { splitFractions, type SplitRule } from '@/lib/spaces-split';
 import { NextResponse } from 'next/server';
-
-interface SplitRule {
-  id: string;
-  category: string;
-  splits: Record<string, number>; // user_id -> percentage
-}
 
 interface MemberRow {
   user_id: string;
@@ -33,33 +28,6 @@ interface SettlementRow {
   settled_at: string;
 }
 
-/**
- * Fraction (0-1) of an expense that belongs to each member.
- * If the expense's category has a custom split rule (Pro), it drives the split;
- * otherwise the member default split_percentage is used. Mirrors the client-side
- * resolveSplit so displayed "tu parte" and settled balances agree.
- */
-function fractionsFor(
-  category: string | null,
-  members: MemberRow[],
-  splitRules: SplitRule[]
-): Record<string, number> {
-  const rule = category ? splitRules.find((r) => r.category === category) : undefined;
-  const out: Record<string, number> = {};
-  if (rule) {
-    const total = Object.values(rule.splits).reduce((s, v) => s + Number(v || 0), 0);
-    for (const m of members) {
-      out[m.user_id] = total > 0 ? Number(rule.splits[m.user_id] || 0) / total : 1 / members.length;
-    }
-    return out;
-  }
-  const totalPct = members.reduce((s, m) => s + (m.split_percentage || 0), 0);
-  for (const m of members) {
-    out[m.user_id] = totalPct > 0 ? (m.split_percentage || 0) / totalPct : 1 / members.length;
-  }
-  return out;
-}
-
 function computeBalances(
   members: MemberRow[],
   expenses: ExpenseRow[],
@@ -69,10 +37,22 @@ function computeBalances(
   const balance: Record<string, number> = {};
   for (const m of members) balance[m.user_id] = 0;
 
+  // Fractions depend only on the category, so resolve each one once.
+  const fractionsByCategory = new Map<string, Record<string, number>>();
+  const fractionsFor = (category: string | null) => {
+    const key = category ?? '';
+    let fractions = fractionsByCategory.get(key);
+    if (!fractions) {
+      fractions = splitFractions(category, members, splitRules);
+      fractionsByCategory.set(key, fractions);
+    }
+    return fractions;
+  };
+
   for (const exp of expenses) {
     const amount = Number(exp.amount);
     balance[exp.paid_by] = (balance[exp.paid_by] || 0) + amount;
-    const fractions = fractionsFor(exp.category, members, splitRules);
+    const fractions = fractionsFor(exp.category);
     for (const m of members) {
       balance[m.user_id] = (balance[m.user_id] || 0) - amount * (fractions[m.user_id] || 0);
     }

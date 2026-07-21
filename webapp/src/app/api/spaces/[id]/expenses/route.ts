@@ -69,7 +69,15 @@ export async function PUT(
   if (!expenseId) return NextResponse.json({ error: 'id required' }, { status: 400 });
 
   const update: Record<string, unknown> = {};
-  if (amount !== undefined) update.amount = Number(amount);
+  if (amount !== undefined) {
+    // Same guard as POST: a negative or non-finite amount here would silently
+    // invert the group's balances (turning a debt into a credit).
+    const parsed = Number(amount);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return NextResponse.json({ error: 'Invalid amount' }, { status: 400 });
+    }
+    update.amount = parsed;
+  }
   if (description !== undefined) update.description = description;
   if (category !== undefined) update.category = category;
 

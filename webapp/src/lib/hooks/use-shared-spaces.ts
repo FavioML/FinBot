@@ -64,26 +64,12 @@ export interface SpaceDetail {
   isPro: boolean;
 }
 
-/** Returns the fraction (0-1) of an expense that belongs to a given user */
-export function resolveSplit(
-  category: string | null,
-  userId: string,
-  members: SpaceMember[],
-  splitRules: SpaceSplitRule[],
-): number {
-  if (category) {
-    const rule = splitRules.find((r) => r.category === category);
-    if (rule && rule.splits[userId] !== undefined) {
-      const total = Object.values(rule.splits).reduce((s, v) => s + v, 0);
-      return total > 0 ? rule.splits[userId] / total : 1 / members.length;
-    }
-  }
-  const totalPct = members.reduce((s, m) => s + (m.split_percentage || 0), 0);
-  const member = members.find((m) => m.user_id === userId);
-  return member && totalPct > 0
-    ? (member.split_percentage || 0) / totalPct
-    : 1 / members.length;
-}
+/**
+ * Fraction (0-1) of an expense that belongs to a given user.
+ * Re-exported from the shared split engine so the "tu parte" rendered here and
+ * the balances computed server-side can never drift apart again.
+ */
+export { resolveSplit } from '@/lib/spaces-split';
 
 export function useSpaces() {
   return useQuery<{ spaces: SharedSpace[]; isPro: boolean }>({
