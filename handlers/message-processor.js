@@ -121,11 +121,19 @@ async function procesarMensajeLibre(msg, usuario, from) {
     const anioActual = parseInt(hoyParts[0], 10);
     const planUsuario = usuario.plan || 'free';
     const mE = ['','Enero','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-    // Cargar NETO system prompt con datos del usuario (docs/NETO_system_prompt.txt, cacheado)
+    // Cargar NETO system prompt con datos del usuario (docs/NETO_system_prompt.txt, cacheado).
+    // El correo conectado decide si NETO puede decir que lee correos bancarios: el token puede
+    // estar en `usuarios` (legacy) o solo en `gmail_cuentas` (multi-cuenta), hay que mirar ambos.
+    let correoConectado = !!usuario.gmail_access_token;
+    if (!correoConectado) {
+      try { correoConectado = (await obtenerCuentasGmail(usuario.id)).length > 0; }
+      catch(e) { log.warn({ tag: 'NETO_PROMPT', err: e.message }, 'No se pudo verificar Gmail; asumo sin correo'); }
+    }
     const netoPrompt = construirNetoPrompt({
       nombre: usuario.nombre,
       plan: planUsuario,
       mesesHistorial: 3,
+      correoConectado,
       ultimaSync: usuario.updated_at ? new Date(usuario.updated_at).toLocaleDateString('es-PE') : 'hoy',
     });
 

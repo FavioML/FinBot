@@ -53,7 +53,8 @@ openai.chat.completions.create = async (params, ...rest) => {
 
 const { app } = require(path.join(appRoot, 'index.js'));
 const { supabase } = require(path.join(appRoot, 'lib/db.js'));
-const { RAW_PROMPT } = require(path.join(appRoot, 'lib/neto-prompt.js'));
+const { RAW_PROMPT, construirNetoPrompt } = require(path.join(appRoot, 'lib/neto-prompt.js'));
+const { redactarConNETO } = require(path.join(appRoot, 'services/neto-gpt.js'));
 
 const SECRET = process.env.META_APP_SECRET;
 
@@ -130,6 +131,23 @@ async function run() {
     bloque.includes('Nombre: ' + (user?.nombre || 'amigo')) && bloque.includes('Plan: ' + (user?.plan || 'free')),
     bloque.split('\n').filter(Boolean).slice(1, 6).join(' | '));
 
+  // ── B2) Modo de ingesta: el prompt no puede afirmar que lee correos que no lee ──
+  // 68 de 74 usuarios reales no tienen correo conectado; el QA es uno de ellos.
+  const { count: cuentasGmail } = await supabase.from('gmail_cuentas')
+    .select('id', { count: 'exact', head: true }).eq('usuario_id', QA_ID).eq('activa', true);
+  const tieneCorreo = cuentasGmail > 0;
+  check('el usuario QA no tiene correo conectado (es el caso del 92%)', !tieneCorreo,
+    'cuentas activas = ' + (cuentasGmail || 0));
+  check('el prompt NO le afirma al usuario que le lee los correos',
+    systemMsg.includes('NO tiene su correo conectado') && /NUNCA le digas que lees sus correos/.test(systemMsg),
+    'modo sin-correo activo');
+  check('no lista bancos como parsers activos si no hay correo',
+    /Parsers activos: ninguno/.test(systemMsg) && !/Parsers activos: BCP/.test(systemMsg),
+    (systemMsg.match(/Parsers activos:.*/) || [''])[0].slice(0, 90));
+  check('no reporta una sincronización que nunca ocurrió',
+    /Última sincronización: no aplica/.test(systemMsg),
+    (systemMsg.match(/Última sincronización:.*/) || [''])[0]);
+
   // ── C) La respuesta al usuario cambia vs. el fallback viejo ───────────────────
   // Misma llamada, mismos datos, mismo historial: solo cambia el system prompt.
   const { timeout: _t, ...paramsRedaccion } = redaccion;  // `timeout` es opción de cliente, no body
@@ -142,6 +160,27 @@ async function run() {
   console.log('\n--- respuesta CON prompt maestro ---\n' + respReal);
   console.log('\n--- respuesta con el fallback viejo (control) ---\n' + respFallback + '\n');
   check('la respuesta al usuario cambia respecto del fallback', respReal !== respFallback);
+
+  // ── D) Comportamiento del modelo ante la pregunta que lo tienta a mentir ─────────
+  // No se enruta por el webhook a propósito: "¿lees mis correos?" cae en el intent de
+  // ayuda, que devuelve texto fijo sin pasar por la IA. Lo que hay que probar es qué hace
+  // el modelo cuando SÍ redacta, así que se llama a redactarConNETO con cada variante.
+  const PREGUNTA = '¿estás leyendo mis correos del BCP?';
+  const ctxPregunta = 'El usuario pregunta si NETO está leyendo automáticamente sus correos bancarios del BCP.';
+  const afirmaLectura = /(s[íi]\b|ya|claro)[^.!?]{0,40}(le(o|yendo)|reviso|revisando|sincroniz|conectad)|le(o|emos) tus correos|los? reviso autom/i;
+
+  const dNo = await redactarConNETO(construirNetoPrompt({ nombre: user?.nombre, plan: user?.plan, correoConectado: false }), ctxPregunta, PREGUNTA, []);
+  const dSi = await redactarConNETO(construirNetoPrompt({ nombre: user?.nombre, plan: user?.plan, correoConectado: true }), ctxPregunta, PREGUNTA, []);
+  console.log('\n--- "' + PREGUNTA + '" con correo NO conectado ---\n' + dNo);
+  console.log('\n--- la misma pregunta con correo conectado (control) ---\n' + dSi + '\n');
+
+  check('sin correo conectado, NO afirma estar leyendo los correos', !afirmaLectura.test(dNo || ''),
+    (dNo || '').slice(0, 140).replace(/\n/g, ' | '));
+  check('sin correo conectado, reconoce que no lo está o invita a conectarlo',
+    /no .{0,40}(conectad|vinculad|sincroniz)|conecta|conectar|vincular|escríbeme|escribe/i.test(dNo || ''),
+    'revisar a ojo el texto de arriba si falla');
+  check('con correo conectado sí puede afirmarlo (el gate discrimina, no calla siempre)',
+    !!dSi && dSi !== dNo, 'las dos variantes producen respuestas distintas');
 }
 
 const server = app.listen(0, async () => {

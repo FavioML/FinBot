@@ -10,13 +10,16 @@ async function redactarConNETO(netoPrompt, contexto, mensajeOriginal, historial)
       });
     }
     mensajes.push({ role: 'user', content: 'Mensaje del usuario: "' + mensajeOriginal + '"\n\nDatos disponibles:\n' + contexto + '\n\nRedacta la respuesta de NETO. Maximo 6 lineas. Sé directo y breve. NO hagas preguntas al final. Sin markdown pesado.' });
+    // `timeout` es request option del SDK (2do argumento), NO un parámetro del API. Dentro
+    // del body el endpoint responde 400 "Unrecognized request argument supplied: timeout"
+    // y esta función devolvía null SIEMPRE, así que el usuario solo veía los textos fijos
+    // de cada handler y el system prompt de NETO nunca llegaba a redactar nada.
     const res = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       max_tokens: 400,
       temperature: 0.7,
       messages: mensajes,
-      timeout: 30000,
-    });
+    }, { timeout: 30000 });
     return res.choices[0].message.content.trim();
   } catch(e) {
     log.error({ tag: 'NETO_GPT', err: e.message }, 'Error redactando con GPT');
