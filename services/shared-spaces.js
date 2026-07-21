@@ -1,6 +1,41 @@
 const { supabase } = require('../lib/db');
 const { enviarWhatsapp } = require('../lib/whatsapp');
 const log = require('../lib/logger');
+const {
+  buildSplitSnapshot,
+  computeBalancesFromSnapshots,
+  shareCents,
+  simplifyDebts,
+} = require('./spaces-split');
+
+/**
+ * Contexto para dividir un gasto: miembros actuales y reglas que REALMENTE
+ * aplican.
+ *
+ * Modelo "host paga": las reglas por categoria son Pro y dependen del plan del
+ * OWNER del espacio, no del que registra el gasto. Si el owner no es Pro las
+ * reglas quedan stale y manda el split por defecto. Espejo de
+ * `getSpaceSplitContext` en la webapp; los dos tienen que decidir igual o un
+ * mismo gasto se dividiria distinto segun por donde se registro.
+ */
+async function obtenerContextoSplit(spaceId) {
+  const [{ data: space }, { data: members }] = await Promise.all([
+    supabase.from('shared_spaces').select('created_by, split_rules').eq('id', spaceId).single(),
+    supabase.from('space_members').select('user_id, split_percentage').eq('space_id', spaceId),
+  ]);
+
+  let ownerIsPro = false;
+  if (space && space.created_by) {
+    const { data: owner } = await supabase.from('usuarios').select('plan').eq('id', space.created_by).single();
+    ownerIsPro = owner && owner.plan === 'premium';
+  }
+
+  return {
+    members: members || [],
+    effectiveRules: ownerIsPro ? (space && space.split_rules) || [] : [],
+    ownerIsPro,
+  };
+}
 
 /**
  * Generate a random 8-char invite code (alphanumeric, no ambiguous chars).
@@ -90,16 +125,28 @@ async function unirseEspacio(userId, inviteCode) {
 
 /**
  * Register a shared expense + notify other members.
- * @returns {{ expense, splits }}
+ *
+ * La division se resuelve UNA vez, aca, y se congela en `split_snapshot`. Antes
+ * este camino dividia siempre en partes iguales e ignoraba por completo las
+ * reglas del espacio (`split_rules` no se leia en ningun lado del backend), asi
+ * que un mismo gasto valia distinto en WhatsApp que en la webapp.
+ *
+ * @returns {{ expense, snapshot, members }}
  */
-async function registrarGastoCompartido(userId, spaceId, amount, description, category = null, splitType = 'equal') {
+async function registrarGastoCompartido(userId, spaceId, amount, description, category = null) {
+  const { members: splitMembers, effectiveRules } = await obtenerContextoSplit(spaceId);
+  const snapshot = buildSplitSnapshot(amount, category, splitMembers, effectiveRules);
+  if (!snapshot) {
+    throw new Error('El espacio no tiene miembros a quienes dividir el gasto');
+  }
+
   const { data: expense, error } = await supabase.from('space_expenses').insert({
     space_id: spaceId,
     paid_by: userId,
     amount,
     description,
     category,
-    split_type: splitType,
+    split_snapshot: snapshot,
   }).select().single();
   if (error) throw error;
 
@@ -112,13 +159,12 @@ async function registrarGastoCompartido(userId, spaceId, amount, description, ca
   const payer = members?.find(m => m.user_id === userId);
   const payerName = payer?.usuarios?.nombre?.split(' ')[0] || 'Alguien';
 
-  // Notify other members
+  // Notify other members. La parte que se avisa es la MISMA que va al balance:
+  // sale del snapshot, no de una formula aparte.
   const otherMembers = (members || []).filter(m => m.user_id !== userId);
   for (const m of otherMembers) {
     if (!m.usuarios?.whatsapp) continue;
-    const share = splitType === 'equal'
-      ? Math.round(amount / (members?.length || 2) * 100) / 100
-      : Math.round(amount * (m.split_percentage / 100) * 100) / 100;
+    const share = shareCents(snapshot, m.user_id) / 100;
     const msg = '💸 *Gasto compartido*\n\n' +
       payerName + ' pagó S/ ' + amount.toFixed(2) + (description ? ' — ' + description : '') + '\n' +
       'Tu parte: S/ ' + share.toFixed(2) + '\n\n' +
@@ -126,7 +172,7 @@ async function registrarGastoCompartido(userId, spaceId, amount, description, ca
     try { await enviarWhatsapp(m.usuarios.whatsapp, msg); } catch (e) { /* silent */ }
   }
 
-  return { expense, memberCount: members?.length || 1 };
+  return { expense, snapshot, members: members || [] };
 }
 
 /**
@@ -134,9 +180,9 @@ async function registrarGastoCompartido(userId, spaceId, amount, description, ca
  * @returns {{ balances: [{ userId, nombre, balance }], debts: [{ from, to, amount }] }}
  */
 async function obtenerBalanceEspacio(spaceId) {
-  // Get all expenses
+  // Get all expenses (con su division congelada)
   const { data: expenses } = await supabase.from('space_expenses')
-    .select('paid_by, amount, split_type')
+    .select('paid_by, amount, split_snapshot')
     .eq('space_id', spaceId);
 
   // Get all settlements
@@ -146,71 +192,37 @@ async function obtenerBalanceEspacio(spaceId) {
 
   // Get members
   const { data: members } = await supabase.from('space_members')
-    .select('user_id, split_percentage, usuarios(nombre)')
+    .select('user_id, usuarios(nombre)')
     .eq('space_id', spaceId);
 
   if (!members || members.length === 0) return { balances: [], debts: [] };
 
-  const memberCount = members.length;
-  // Net balance per user: positive = others owe you, negative = you owe others
-  const net = {};
-  for (const m of members) {
-    net[m.user_id] = { userId: m.user_id, nombre: m.usuarios?.nombre || 'Usuario', balance: 0 };
-  }
+  // El balance sale de las partes CONGELADAS de cada gasto, no de recalcular con
+  // las reglas de hoy. Es literalmente la misma funcion que corre la webapp, asi
+  // que el saldo que ve el usuario por WhatsApp y el del dashboard no pueden
+  // discrepar.
+  const netos = computeBalancesFromSnapshots(
+    expenses || [],
+    settlements || [],
+    members.map(m => m.user_id)
+  );
 
-  // Process expenses
-  for (const exp of (expenses || [])) {
-    const totalAmount = parseFloat(exp.amount);
-    const payer = exp.paid_by;
-    if (!net[payer]) continue;
+  const nombres = {};
+  for (const m of members) nombres[m.user_id] = m.usuarios?.nombre || 'Usuario';
 
-    // Payer is owed by others
-    net[payer].balance += totalAmount;
-
-    // Each member owes their share
-    for (const m of members) {
-      const share = exp.split_type === 'equal'
-        ? totalAmount / memberCount
-        : totalAmount * (m.split_percentage / 100);
-      net[m.user_id].balance -= share;
-    }
-  }
-
-  // Process settlements
-  for (const s of (settlements || [])) {
-    const amount = parseFloat(s.amount);
-    if (net[s.from_user]) net[s.from_user].balance += amount; // paid off debt
-    if (net[s.to_user]) net[s.to_user].balance -= amount; // received payment
-  }
-
-  // Round balances
-  const balances = Object.values(net).map(b => ({
-    ...b,
-    balance: Math.round(b.balance * 100) / 100,
+  const balances = Object.keys(netos).map(userId => ({
+    userId,
+    nombre: nombres[userId] || 'Usuario',
+    balance: netos[userId],
   }));
 
-  // Calculate simplified debts (who owes whom)
-  const debtors = balances.filter(b => b.balance < 0).map(b => ({ ...b, balance: Math.abs(b.balance) }));
-  const creditors = balances.filter(b => b.balance > 0).sort((a, b) => b.balance - a.balance);
-  const debts = [];
-
-  // Greedy algorithm for simplifying debts
-  for (const debtor of debtors) {
-    let remaining = debtor.balance;
-    for (const creditor of creditors) {
-      if (remaining <= 0.01 || creditor.balance <= 0.01) continue;
-      const payment = Math.min(remaining, creditor.balance);
-      debts.push({
-        from: debtor.userId,
-        fromNombre: debtor.nombre,
-        to: creditor.userId,
-        toNombre: creditor.nombre,
-        amount: Math.round(payment * 100) / 100,
-      });
-      remaining -= payment;
-      creditor.balance -= payment;
-    }
-  }
+  const debts = simplifyDebts(netos).map(t => ({
+    from: t.from,
+    fromNombre: nombres[t.from] || 'Usuario',
+    to: t.to,
+    toNombre: nombres[t.to] || 'Usuario',
+    amount: Math.round(t.amount * 100) / 100,
+  }));
 
   return { balances, debts };
 }

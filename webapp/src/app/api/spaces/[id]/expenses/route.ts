@@ -1,6 +1,20 @@
 import { getServiceClient } from '@/lib/supabase/service';
-import { requireSpaceMember } from '@/lib/spaces-server';
+import { getSpaceSplitContext, requireSpaceMember } from '@/lib/spaces-server';
+import { buildSplitSnapshot } from '@/lib/spaces-split';
 import { NextResponse } from 'next/server';
+
+/**
+ * Resuelve la division con la que se registra (o se re-registra) un gasto.
+ *
+ * Se guarda congelada en `split_snapshot`: las reglas aplican a gastos FUTUROS,
+ * nunca reescriben el pasado. Si no hay a quien cobrarle, falla ruidosamente en
+ * vez de guardar un gasto que nadie debe (el balance del grupo dejaria de sumar
+ * cero y ningun settlement lo reconciliaria).
+ */
+async function resolveSnapshot(spaceId: string, amount: number, category: string | null) {
+  const { members, effectiveRules } = await getSpaceSplitContext(spaceId);
+  return buildSplitSnapshot(amount, category, members, effectiveRules);
+}
 
 export async function POST(
   request: Request,
@@ -16,6 +30,11 @@ export async function POST(
     return NextResponse.json({ error: 'Invalid amount' }, { status: 400 });
   }
 
+  const snapshot = await resolveSnapshot(id, Number(amount), category || null);
+  if (!snapshot) {
+    return NextResponse.json({ error: 'El espacio no tiene miembros a quienes dividir el gasto' }, { status: 409 });
+  }
+
   const { data, error } = await getServiceClient()
     .from('space_expenses')
     .insert({
@@ -24,6 +43,7 @@ export async function POST(
       amount: Number(amount),
       description: description || null,
       category: category || null,
+      split_snapshot: snapshot,
     })
     .select('*, usuarios(nombre)')
     .single();
@@ -56,6 +76,30 @@ export async function PUT(
   }
   if (description !== undefined) update.description = description;
   if (category !== undefined) update.category = category;
+
+  // Editar un gasto SI re-resuelve la division con las reglas de hoy. Editar es un
+  // acto explicito de un miembro sobre ESE gasto, cosa distinta de cambiar una
+  // regla (que no debe tocar historia). Asi, corregir una categoria mal puesta
+  // aplica la regla que corresponde, con un solo camino de codigo.
+  if (update.amount !== undefined || update.category !== undefined) {
+    const { data: actual } = await getServiceClient()
+      .from('space_expenses')
+      .select('amount, category')
+      .eq('id', expenseId)
+      .eq('space_id', id)
+      .single();
+    if (!actual) return NextResponse.json({ error: 'Gasto no encontrado' }, { status: 404 });
+
+    const montoFinal = update.amount !== undefined ? (update.amount as number) : Number(actual.amount);
+    const categoriaFinal =
+      update.category !== undefined ? ((update.category as string) || null) : (actual.category as string | null);
+
+    const snapshot = await resolveSnapshot(id, montoFinal, categoriaFinal);
+    if (!snapshot) {
+      return NextResponse.json({ error: 'El espacio no tiene miembros a quienes dividir el gasto' }, { status: 409 });
+    }
+    update.split_snapshot = snapshot;
+  }
 
   const { error } = await getServiceClient()
     .from('space_expenses')

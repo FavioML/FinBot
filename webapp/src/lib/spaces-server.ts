@@ -1,5 +1,12 @@
 import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
+import {
+  computeBalancesFromSnapshots,
+  type SplitMember,
+  type SplitRule,
+  type SnapshotExpense,
+  type SnapshotSettlement,
+} from '@/lib/spaces-split';
 import { NextResponse } from 'next/server';
 
 /**
@@ -111,4 +118,62 @@ export async function getSpaceOwnerIsPro(spaceId: string): Promise<boolean> {
     .eq('id', space.created_by)
     .single();
   return owner?.plan === 'premium';
+}
+
+export interface SpaceSplitContext {
+  members: SplitMember[];
+  /** Reglas que REALMENTE aplican: vacio si el espacio no es Pro (host paga). */
+  effectiveRules: SplitRule[];
+  ownerIsPro: boolean;
+}
+
+/**
+ * Todo lo necesario para dividir un gasto: miembros actuales y reglas vigentes.
+ *
+ * Aplica el gate host-paga en un solo lugar: si el owner no es Pro, las reglas
+ * personalizadas se ignoran (quedan stale tras un downgrade) y manda el split por
+ * defecto. Sin esto, cada ruta que crea o edita un gasto tendria que acordarse.
+ */
+export async function getSpaceSplitContext(spaceId: string): Promise<SpaceSplitContext> {
+  const svc = getServiceClient();
+  const [{ data: space }, { data: members }] = await Promise.all([
+    svc.from('shared_spaces').select('created_by, split_rules').eq('id', spaceId).single(),
+    svc.from('space_members').select('user_id, split_percentage').eq('space_id', spaceId),
+  ]);
+
+  let ownerIsPro = false;
+  const ownerId = space?.created_by as string | undefined;
+  if (ownerId) {
+    const { data: owner } = await svc.from('usuarios').select('plan').eq('id', ownerId).single();
+    ownerIsPro = owner?.plan === 'premium';
+  }
+
+  const rawRules = ((space?.split_rules ?? []) as SplitRule[]) || [];
+  return {
+    members: (members ?? []) as SplitMember[],
+    effectiveRules: ownerIsPro ? rawRules : [],
+    ownerIsPro,
+  };
+}
+
+/**
+ * Balances del espacio en soles, leidos de los snapshots congelados.
+ *
+ * Cubre a los miembros actuales Y a cualquiera que aparezca en un gasto o
+ * liquidacion: un ex-miembro con saldo pendiente tiene que seguir contando o su
+ * deuda se evapora y el pagador queda acreditado por plata que nadie debe.
+ */
+export async function getSpaceBalances(spaceId: string): Promise<Record<string, number>> {
+  const svc = getServiceClient();
+  const [{ data: members }, { data: expenses }, { data: settlements }] = await Promise.all([
+    svc.from('space_members').select('user_id').eq('space_id', spaceId),
+    svc.from('space_expenses').select('paid_by, amount, split_snapshot').eq('space_id', spaceId),
+    svc.from('space_settlements').select('from_user, to_user, amount').eq('space_id', spaceId),
+  ]);
+
+  return computeBalancesFromSnapshots(
+    (expenses ?? []) as unknown as SnapshotExpense[],
+    (settlements ?? []) as unknown as SnapshotSettlement[],
+    (members ?? []).map((m) => m.user_id as string)
+  );
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { buildSplitSnapshot, type SplitSnapshot } from '@/lib/spaces-split';
 import { IS_DEMO } from '@/lib/demo/is-demo';
 import { DEMO_SPACES, DEMO_SPACE_DETAIL, DEMO_SPACE_DETAIL_MAP, DEMO_USER_ID } from '@/lib/demo/mock-data';
 
@@ -27,6 +28,11 @@ export interface SpaceExpense {
   description: string | null;
   category: string | null;
   created_at: string;
+  /**
+   * Division congelada al registrar el gasto. Es la autoridad de "tu parte" y de
+   * los balances: cambiar una regla despues NO la toca.
+   */
+  split_snapshot: SplitSnapshot | null;
   usuarios: { nombre: string };
 }
 
@@ -65,11 +71,12 @@ export interface SpaceDetail {
 }
 
 /**
- * Fraction (0-1) of an expense that belongs to a given user.
- * Re-exported from the shared split engine so the "tu parte" rendered here and
- * the balances computed server-side can never drift apart again.
+ * `resolveSplit` sirve para lo que MIRA AL FUTURO: previsualizar como se
+ * dividiria un gasto que todavia no existe, o proyectar un presupuesto. Para un
+ * gasto ya registrado la verdad es su `split_snapshot`, no las reglas de hoy.
  */
-export { resolveSplit } from '@/lib/spaces-split';
+export { resolveSplit, shareCents } from '@/lib/spaces-split';
+export type { SplitSnapshot } from '@/lib/spaces-split';
 
 export function useSpaces() {
   return useQuery<{ spaces: SharedSpace[]; isPro: boolean }>({
@@ -105,19 +112,28 @@ export function useAddExpense(spaceId: string) {
   return useMutation({
     mutationFn: async (data: { amount: number; description: string; category?: string }) => {
       if (IS_DEMO) {
-        const newExpense: SpaceExpense = {
-          id: `sexp-${Date.now()}`,
-          paid_by: DEMO_USER_ID,
-          amount: data.amount,
-          description: data.description,
-          category: data.category ?? null,
-          created_at: new Date().toISOString(),
-          usuarios: { nombre: 'Favio Demo' },
-        };
-        queryClient.setQueryData<SpaceDetail>(['space', spaceId], (old) =>
-          old ? { ...old, expenses: [newExpense, ...old.expenses] } : old
-        );
-        return { ok: true, id: newExpense.id };
+        const demoId = `sexp-${Date.now()}`;
+        queryClient.setQueryData<SpaceDetail>(['space', spaceId], (old) => {
+          if (!old) return old;
+          const newExpense: SpaceExpense = {
+            id: demoId,
+            paid_by: DEMO_USER_ID,
+            amount: data.amount,
+            description: data.description,
+            category: data.category ?? null,
+            created_at: new Date().toISOString(),
+            // Igual que en produccion: la division se congela al registrar.
+            split_snapshot: buildSplitSnapshot(
+              data.amount,
+              data.category ?? null,
+              old.members,
+              old.splitRules ?? []
+            ),
+            usuarios: { nombre: 'Favio Demo' },
+          };
+          return { ...old, expenses: [newExpense, ...old.expenses] };
+        });
+        return { ok: true, id: demoId };
       }
       const res = await fetch(`/api/spaces/${spaceId}/expenses`, {
         method: 'POST',
@@ -158,23 +174,25 @@ export function useEditExpense(spaceId: string) {
   return useMutation({
     mutationFn: async (data: { id: string; amount?: number; description?: string; category?: string }) => {
       if (IS_DEMO) {
-        queryClient.setQueryData<SpaceDetail>(['space', spaceId], (old) =>
-          old
-            ? {
-                ...old,
-                expenses: old.expenses.map((e) =>
-                  e.id === data.id
-                    ? {
-                        ...e,
-                        amount: data.amount ?? e.amount,
-                        description: data.description ?? e.description,
-                        category: data.category ?? e.category,
-                      }
-                    : e
-                ),
-              }
-            : old
-        );
+        queryClient.setQueryData<SpaceDetail>(['space', spaceId], (old) => {
+          if (!old) return old;
+          return {
+            ...old,
+            expenses: old.expenses.map((e) => {
+              if (e.id !== data.id) return e;
+              const amount = data.amount ?? e.amount;
+              const category = data.category ?? e.category;
+              return {
+                ...e,
+                amount,
+                description: data.description ?? e.description,
+                category,
+                // Editar un gasto SI re-resuelve la division (igual que la API).
+                split_snapshot: buildSplitSnapshot(amount, category, old.members, old.splitRules ?? []),
+              };
+            }),
+          };
+        });
         return { ok: true };
       }
       const res = await fetch(`/api/spaces/${spaceId}/expenses`, {

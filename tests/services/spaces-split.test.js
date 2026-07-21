@@ -4,6 +4,11 @@ import {
   resolveSplit,
   sanitizeSplitRules,
   simplifyDebts,
+  allocateShares,
+  buildSplitSnapshot,
+  computeBalancesFromSnapshots,
+  shareCents,
+  toCents,
 } from '../../webapp/src/lib/spaces-split.ts';
 
 /**
@@ -197,6 +202,170 @@ describe('simplifyDebts', () => {
     // Defensivo: no debe colgarse si por un redondeo la suma no da exactamente 0.
     const ts = simplifyDebts({ a: -100, b: 30 });
     expect(totalMovido(ts)).toBeCloseTo(30);
+  });
+});
+
+describe('allocateShares (el redondeo a centavos)', () => {
+  const sumaCentavos = (shares) => Object.values(shares).reduce((s, v) => s + v, 0);
+
+  it('S/100 entre tres suma exactamente 10000 centavos', () => {
+    // El caso que rompe el reparto ingenuo: 33.33 x 3 = 99.99 y falta un centavo.
+    const shares = allocateShares(10000, { a: 1 / 3, b: 1 / 3, c: 1 / 3 });
+    expect(sumaCentavos(shares)).toBe(10000);
+    expect(Object.values(shares).sort()).toEqual([3333, 3333, 3334]);
+  });
+
+  it('un centavo entre seis se lo lleva uno solo, sin inventar centavos', () => {
+    const fractions = {};
+    for (const id of 'abcdef') fractions[id] = 1 / 6;
+    const shares = allocateShares(1, fractions);
+    expect(sumaCentavos(shares)).toBe(1);
+    expect(Object.values(shares).filter((c) => c === 1)).toHaveLength(1);
+  });
+
+  it('el monto tope de la API se reparte exacto', () => {
+    const fractions = {};
+    for (const id of 'abcdef') fractions[id] = 1 / 6;
+    expect(sumaCentavos(allocateShares(toCents(999999.99), fractions))).toBe(99999999);
+  });
+
+  it('es determinista: mismo input, mismo reparto, corra donde corra', () => {
+    const fractions = { zeta: 1 / 3, alfa: 1 / 3, mu: 1 / 3 };
+    const primera = allocateShares(10000, fractions);
+    for (let i = 0; i < 20; i++) expect(allocateShares(10000, fractions)).toEqual(primera);
+    // Empate perfecto de restos: gana el user_id menor, no el orden de inserción.
+    expect(primera.alfa).toBe(3334);
+  });
+
+  it('un miembro con fraccion 0 no recibe centavos de propina', () => {
+    const shares = allocateShares(10000, { a: 0.5, b: 0.5, c: 0 });
+    expect(shares.c).toBe(0);
+    expect(sumaCentavos(shares)).toBe(10000);
+  });
+
+  it('nunca produce partes negativas', () => {
+    const shares = allocateShares(777, { a: 0.5, b: 0.3, c: 0.2 });
+    for (const c of Object.values(shares)) expect(c).toBeGreaterThanOrEqual(0);
+    expect(sumaCentavos(shares)).toBe(777);
+  });
+
+  it('monto cero reparte ceros', () => {
+    expect(sumaCentavos(allocateShares(0, { a: 0.5, b: 0.5 }))).toBe(0);
+  });
+
+  it('sin fracciones no reparte nada', () => {
+    expect(allocateShares(10000, {})).toEqual({});
+  });
+});
+
+describe('buildSplitSnapshot (congelar la division)', () => {
+  const total = (snap) => snap.shares.reduce((s, x) => s + x.cents, 0);
+
+  it('marca la procedencia cuando manda una regla', () => {
+    const ms = members(['a', 50], ['b', 50]);
+    const rules = [{ id: 'r1', category: 'Comida', splits: { a: 70, b: 30 } }];
+    const snap = buildSplitSnapshot(100, 'Comida', ms, rules);
+    expect(snap.source).toBe('rule');
+    expect(snap.rule_id).toBe('r1');
+    expect(shareCents(snap, 'a')).toBe(7000);
+    expect(total(snap)).toBe(10000);
+  });
+
+  it('marca default cuando no hay regla aplicable', () => {
+    const ms = members(['a', 50], ['b', 50]);
+    const snap = buildSplitSnapshot(100, 'Transporte', ms, [
+      { id: 'r1', category: 'Comida', splits: { a: 70, b: 30 } },
+    ]);
+    expect(snap.source).toBe('default');
+    expect(snap.rule_id).toBeUndefined();
+    expect(total(snap)).toBe(10000);
+  });
+
+  it('el snapshot congela: cambiar la regla despues no lo toca', () => {
+    // La razon de existir de toda esta pieza. Antes, editar la regla reescribia
+    // lo que cada quien debia en gastos de hace meses.
+    const ms = members(['a', 50], ['b', 50]);
+    const snap = buildSplitSnapshot(100, 'Comida', ms, [
+      { id: 'r1', category: 'Comida', splits: { a: 70, b: 30 } },
+    ]);
+    const congelado = JSON.parse(JSON.stringify(snap));
+    buildSplitSnapshot(100, 'Comida', ms, [
+      { id: 'r1', category: 'Comida', splits: { a: 10, b: 90 } },
+    ]);
+    expect(snap).toEqual(congelado);
+  });
+
+  it('sin miembros devuelve null en vez de un gasto que nadie debe', () => {
+    expect(buildSplitSnapshot(100, 'Comida', [], [])).toBeNull();
+  });
+
+  it('las partes salen ordenadas por user_id (estable para diffs y para la DB)', () => {
+    const ms = members(['zeta', 50], ['alfa', 50], ['mu', 50]);
+    const snap = buildSplitSnapshot(100, null, ms, []);
+    expect(snap.shares.map((s) => s.user_id)).toEqual(['alfa', 'mu', 'zeta']);
+  });
+});
+
+describe('computeBalancesFromSnapshots', () => {
+  const suma = (b) => Object.values(b).reduce((s, v) => s + v, 0);
+
+  it('el pagador queda acreditado por lo que no le tocaba', () => {
+    const ms = members(['a', 50], ['b', 50]);
+    const expenses = [
+      { paid_by: 'a', amount: 100, split_snapshot: buildSplitSnapshot(100, null, ms, []) },
+    ];
+    const bal = computeBalancesFromSnapshots(expenses, [], ['a', 'b']);
+    expect(bal.a).toBeCloseTo(50);
+    expect(bal.b).toBeCloseTo(-50);
+    expect(suma(bal)).toBeCloseTo(0);
+  });
+
+  it('la liquidacion deja el espacio en cero', () => {
+    const ms = members(['a', 50], ['b', 50]);
+    const expenses = [
+      { paid_by: 'a', amount: 100, split_snapshot: buildSplitSnapshot(100, null, ms, []) },
+    ];
+    const bal = computeBalancesFromSnapshots(expenses, [{ from_user: 'b', to_user: 'a', amount: 50 }], ['a', 'b']);
+    expect(bal.a).toBeCloseTo(0);
+    expect(bal.b).toBeCloseTo(0);
+  });
+
+  it('un miembro removido sigue debiendo: su deuda no se evapora', () => {
+    // Si el balance se calculara solo sobre los miembros actuales, el debito de
+    // "removido" desapareceria y "a" quedaria acreditado por plata que nadie debe.
+    const msAlRegistrar = members(['a', 50], ['removido', 50]);
+    const expenses = [
+      { paid_by: 'a', amount: 100, split_snapshot: buildSplitSnapshot(100, null, msAlRegistrar, []) },
+    ];
+    const bal = computeBalancesFromSnapshots(expenses, [], ['a']); // 'removido' ya no es miembro
+    expect(bal.removido).toBeCloseTo(-50);
+    expect(suma(bal)).toBeCloseTo(0);
+  });
+
+  it('un gasto sin snapshot se le cobra entero al pagador, no filtra al grupo', () => {
+    const bal = computeBalancesFromSnapshots(
+      [{ paid_by: 'a', amount: 100, split_snapshot: null }],
+      [],
+      ['a', 'b']
+    );
+    expect(bal.a).toBeCloseTo(0);
+    expect(bal.b).toBeCloseTo(0);
+    expect(suma(bal)).toBeCloseTo(0);
+  });
+
+  it('con montos que no dividen exacto los balances siguen sumando cero', () => {
+    const ms = members(['a', 50], ['b', 50], ['c', 50]);
+    const expenses = [10.01, 0.01, 33.33, 999.99].map((amount, i) => ({
+      paid_by: ['a', 'b', 'c'][i % 3],
+      amount,
+      split_snapshot: buildSplitSnapshot(amount, null, ms, []),
+    }));
+    const bal = computeBalancesFromSnapshots(expenses, [], ['a', 'b', 'c']);
+    expect(suma(bal)).toBeCloseTo(0, 10);
+  });
+
+  it('el espacio vacio no explota', () => {
+    expect(computeBalancesFromSnapshots([], [], [])).toEqual({});
   });
 });
 

@@ -11,7 +11,14 @@ import type { NetoScoreData } from '@/lib/hooks/use-neto-score';
 import type { AlertsData } from '@/lib/hooks/use-spending-alerts';
 import type { Notificacion } from '@/lib/hooks/use-notifications';
 import type { GastoCompartido } from '@/lib/hooks/use-split';
-import type { SharedSpace, SpaceDetail } from '@/lib/hooks/use-shared-spaces';
+import type {
+  SharedSpace,
+  SpaceDetail,
+  SpaceExpense,
+  SpaceMember,
+  SpaceSplitRule,
+} from '@/lib/hooks/use-shared-spaces';
+import { buildSplitSnapshot, computeBalancesFromSnapshots } from '@/lib/spaces-split';
 
 // ─── Helpers de fecha ────────────────────────────────────────────────────────
 
@@ -534,56 +541,84 @@ export const DEMO_SPACES: { spaces: SharedSpace[]; isPro: boolean } = {
   ],
 };
 
+/**
+ * Los gastos compartidos llevan su division congelada, igual que en produccion.
+ * Se genera con el motor real en vez de escribirla a mano para que la demo no
+ * pueda mostrar un "tu parte" que no cuadre con el balance de al lado.
+ */
+function conSnapshots(
+  members: SpaceMember[],
+  splitRules: SpaceSplitRule[],
+  expenses: Omit<SpaceExpense, 'split_snapshot'>[]
+): SpaceExpense[] {
+  return expenses.map((e) => ({
+    ...e,
+    split_snapshot: buildSplitSnapshot(e.amount, e.category, members, splitRules),
+  }));
+}
+
+const DEMO_SPACE_01_MEMBERS: SpaceMember[] = [
+  { user_id: DEMO_USER_ID, role: 'owner', split_percentage: 50, usuarios: { nombre: 'Favio Demo' } },
+  { user_id: 'demo-user-002', role: 'member', split_percentage: 50, usuarios: { nombre: 'Mario Rodríguez' } },
+];
+
+const DEMO_SPACE_01_RULES: SpaceSplitRule[] = [
+  { id: 'rule-01', category: 'Vivienda', splits: { [DEMO_USER_ID]: 60, 'demo-user-002': 40 } },
+  { id: 'rule-02', category: 'Compras', splits: { [DEMO_USER_ID]: 80, 'demo-user-002': 20 } },
+];
+
+const DEMO_SPACE_01_EXPENSES = conSnapshots(DEMO_SPACE_01_MEMBERS, DEMO_SPACE_01_RULES, [
+  { id: 'sexp-01', paid_by: DEMO_USER_ID, amount: 1800, description: 'Alquiler Marzo', category: 'Vivienda', created_at: dateStr(8), usuarios: { nombre: 'Favio Demo' } },
+  { id: 'sexp-02', paid_by: 'demo-user-002', amount: 380, description: 'Internet + Cable', category: 'Vivienda', created_at: dateStr(10), usuarios: { nombre: 'Mario Rodríguez' } },
+  { id: 'sexp-03', paid_by: DEMO_USER_ID, amount: 120, description: 'Artículos limpieza', category: 'Compras', created_at: dateStr(14), usuarios: { nombre: 'Favio Demo' } },
+  { id: 'sexp-04', paid_by: 'demo-user-002', amount: 250, description: 'Supermercado semanal', category: 'Alimentación', created_at: dateStr(5), usuarios: { nombre: 'Mario Rodríguez' } },
+]);
+
 export const DEMO_SPACE_DETAIL: SpaceDetail = {
   space: { id: 'space-01', name: 'Depa Miraflores', type: 'roommates', invite_code: 'SPACE-ROOM-001' },
-  members: [
-    { user_id: DEMO_USER_ID, role: 'owner', split_percentage: 50, usuarios: { nombre: 'Favio Demo' } },
-    { user_id: 'demo-user-002', role: 'member', split_percentage: 50, usuarios: { nombre: 'Mario Rodríguez' } },
-  ],
-  expenses: [
-    { id: 'sexp-01', paid_by: DEMO_USER_ID, amount: 1800, description: 'Alquiler Marzo', category: 'Vivienda', created_at: dateStr(8), usuarios: { nombre: 'Favio Demo' } },
-    { id: 'sexp-02', paid_by: 'demo-user-002', amount: 380, description: 'Internet + Cable', category: 'Vivienda', created_at: dateStr(10), usuarios: { nombre: 'Mario Rodríguez' } },
-    { id: 'sexp-03', paid_by: DEMO_USER_ID, amount: 120, description: 'Artículos limpieza', category: 'Compras', created_at: dateStr(14), usuarios: { nombre: 'Favio Demo' } },
-    { id: 'sexp-04', paid_by: 'demo-user-002', amount: 250, description: 'Supermercado semanal', category: 'Alimentación', created_at: dateStr(5), usuarios: { nombre: 'Mario Rodríguez' } },
-  ],
-  splitRules: [
-    { id: 'rule-01', category: 'Vivienda', splits: { [DEMO_USER_ID]: 60, 'demo-user-002': 40 } },
-    { id: 'rule-02', category: 'Compras', splits: { [DEMO_USER_ID]: 80, 'demo-user-002': 20 } },
-  ],
+  members: DEMO_SPACE_01_MEMBERS,
+  expenses: DEMO_SPACE_01_EXPENSES,
+  splitRules: DEMO_SPACE_01_RULES,
   budgets: [
     { id: 'sbud-01', category: 'Vivienda', limit: 2200 },
     { id: 'sbud-02', category: 'Compras', limit: 300 },
     { id: 'sbud-03', category: 'Alimentación', limit: 800 },
   ],
   settlements: [],
-  balance: {
-    [DEMO_USER_ID]: 710,
-    'demo-user-002': -710,
-  },
+  balance: computeBalancesFromSnapshots(
+    DEMO_SPACE_01_EXPENSES,
+    [],
+    DEMO_SPACE_01_MEMBERS.map((m) => m.user_id)
+  ),
   currentUserId: DEMO_USER_ID,
   isPro: true,
 };
 
+const DEMO_SPACE_02_MEMBERS: SpaceMember[] = [
+  { user_id: DEMO_USER_ID, role: 'owner', split_percentage: 50, usuarios: { nombre: 'Favio Demo' } },
+  { user_id: 'demo-user-003', role: 'member', split_percentage: 50, usuarios: { nombre: 'Lucía García' } },
+];
+
+const DEMO_SPACE_02_EXPENSES = conSnapshots(DEMO_SPACE_02_MEMBERS, [], [
+  { id: 'sexp-p01', paid_by: DEMO_USER_ID, amount: 320, description: 'Cena aniversario', category: 'Alimentación', created_at: dateStr(3), usuarios: { nombre: 'Favio Demo' } },
+  { id: 'sexp-p02', paid_by: 'demo-user-003', amount: 150, description: 'Mercado semanal', category: 'Alimentación', created_at: dateStr(7), usuarios: { nombre: 'Lucía García' } },
+  { id: 'sexp-p03', paid_by: DEMO_USER_ID, amount: 89, description: 'Netflix + Disney+', category: 'Suscripciones', created_at: dateStr(10), usuarios: { nombre: 'Favio Demo' } },
+]);
+
 const DEMO_SPACE_DETAIL_PAREJA: SpaceDetail = {
   space: { id: 'space-02', name: 'Con mi pareja', type: 'pareja', invite_code: 'SPACE-PARE-001' },
-  members: [
-    { user_id: DEMO_USER_ID, role: 'owner', split_percentage: 50, usuarios: { nombre: 'Favio Demo' } },
-    { user_id: 'demo-user-003', role: 'member', split_percentage: 50, usuarios: { nombre: 'Lucía García' } },
-  ],
-  expenses: [
-    { id: 'sexp-p01', paid_by: DEMO_USER_ID, amount: 320, description: 'Cena aniversario', category: 'Alimentación', created_at: dateStr(3), usuarios: { nombre: 'Favio Demo' } },
-    { id: 'sexp-p02', paid_by: 'demo-user-003', amount: 150, description: 'Mercado semanal', category: 'Alimentación', created_at: dateStr(7), usuarios: { nombre: 'Lucía García' } },
-    { id: 'sexp-p03', paid_by: DEMO_USER_ID, amount: 89, description: 'Netflix + Disney+', category: 'Suscripciones', created_at: dateStr(10), usuarios: { nombre: 'Favio Demo' } },
-  ],
+  members: DEMO_SPACE_02_MEMBERS,
+  expenses: DEMO_SPACE_02_EXPENSES,
   splitRules: [],
   budgets: [
     { id: 'sbud-p01', category: 'Alimentación', limit: 600 },
   ],
   settlements: [],
-  balance: {
-    [DEMO_USER_ID]: 129.5,
-    'demo-user-003': -129.5,
-  },
+  balance: computeBalancesFromSnapshots(
+    DEMO_SPACE_02_EXPENSES,
+    [],
+    DEMO_SPACE_02_MEMBERS.map((m) => m.user_id)
+  ),
   currentUserId: DEMO_USER_ID,
   isPro: true,
 };

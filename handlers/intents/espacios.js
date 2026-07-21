@@ -11,6 +11,7 @@ module.exports = {
       crearEspacio, unirseEspacio, registrarGastoCompartido,
       obtenerBalanceEspacio, liquidarCuentas, obtenerEspaciosUsuario, obtenerResumenEspacio,
     } = require('../../services/shared-spaces');
+    const { shareCents } = require('../../services/spaces-split');
     const { checkProLimit } = require('../../helpers/pro-wall');
 
     switch (intencion) {
@@ -76,15 +77,23 @@ module.exports = {
 
           const descripcion = datos.descripcion || null;
           const categoria = datos.categoria || null;
-          const { expense, memberCount } = await registrarGastoCompartido(
+          const { snapshot } = await registrarGastoCompartido(
             usuario.id, space.id, monto, descripcion, categoria
           );
 
-          const share = Math.round(monto / memberCount * 100) / 100;
+          // El resumen sale de la division real con la que se guardo el gasto.
+          // Antes anunciaba siempre "partes iguales", que era mentira en cuanto el
+          // espacio tenia porcentajes desiguales o una regla por categoria.
+          const miParte = shareCents(snapshot, usuario.id) / 100;
+          const personas = snapshot.shares.filter(s => s.cents > 0).length;
+          const detalle = snapshot.source === 'rule'
+            ? '👥 Dividido según la regla de ' + (categoria || 'la categoría') + ' (tu parte: S/ ' + miParte.toFixed(2) + ')'
+            : '👥 Dividido entre ' + personas + ' persona' + (personas === 1 ? '' : 's') + ' (tu parte: S/ ' + miParte.toFixed(2) + ')';
+
           return '✅ *Gasto compartido registrado*\n\n' +
             '🏠 ' + space.name + '\n' +
             '💸 S/ ' + monto.toFixed(2) + (descripcion ? ' — ' + descripcion : '') + '\n' +
-            '👥 Dividido entre ' + memberCount + ' personas (S/ ' + share.toFixed(2) + ' c/u)\n\n' +
+            detalle + '\n\n' +
             '_Los demás miembros ya fueron notificados._';
         } catch (e) {
           log.error({ tag: 'GASTO_ESPACIO', err: e.message }, 'Error registrando gasto compartido');

@@ -1,6 +1,11 @@
 import { getServiceClient } from '@/lib/supabase/service';
 import { requireSpaceMember, requireSpaceOwner } from '@/lib/spaces-server';
-import { splitFractions, type SplitRule } from '@/lib/spaces-split';
+import {
+  computeBalancesFromSnapshots,
+  type SplitRule,
+  type SplitSnapshot,
+  type SnapshotSettlement,
+} from '@/lib/spaces-split';
 import { NextResponse } from 'next/server';
 
 interface MemberRow {
@@ -17,6 +22,7 @@ interface ExpenseRow {
   description: string | null;
   category: string | null;
   created_at: string;
+  split_snapshot: SplitSnapshot | null;
   usuarios: { nombre: string } | null;
 }
 
@@ -28,44 +34,6 @@ interface SettlementRow {
   settled_at: string;
 }
 
-function computeBalances(
-  members: MemberRow[],
-  expenses: ExpenseRow[],
-  settlements: SettlementRow[],
-  splitRules: SplitRule[]
-): Record<string, number> {
-  const balance: Record<string, number> = {};
-  for (const m of members) balance[m.user_id] = 0;
-
-  // Fractions depend only on the category, so resolve each one once.
-  const fractionsByCategory = new Map<string, Record<string, number>>();
-  const fractionsFor = (category: string | null) => {
-    const key = category ?? '';
-    let fractions = fractionsByCategory.get(key);
-    if (!fractions) {
-      fractions = splitFractions(category, members, splitRules);
-      fractionsByCategory.set(key, fractions);
-    }
-    return fractions;
-  };
-
-  for (const exp of expenses) {
-    const amount = Number(exp.amount);
-    balance[exp.paid_by] = (balance[exp.paid_by] || 0) + amount;
-    const fractions = fractionsFor(exp.category);
-    for (const m of members) {
-      balance[m.user_id] = (balance[m.user_id] || 0) - amount * (fractions[m.user_id] || 0);
-    }
-  }
-
-  for (const s of settlements) {
-    balance[s.from_user] = (balance[s.from_user] || 0) - Number(s.amount);
-    balance[s.to_user] = (balance[s.to_user] || 0) + Number(s.amount);
-  }
-
-  return balance;
-}
-
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -75,10 +43,22 @@ export async function GET(
   if (!auth.ok) return auth.response;
   const usuario = auth.user;
 
-  // Las 4 consultas son independientes entre si: en serie eran 4 round-trips
+  // Las consultas son independientes entre si: en serie eran round-trips
   // encadenados en cada carga del detalle. Solo el plan del owner depende de
   // `space`, asi que queda como segunda ola.
-  const [{ data: space }, { data: members }, { data: expenses }, { data: settlements }] = await Promise.all([
+  //
+  // Las listas de gastos/liquidaciones vienen capadas para la UI (20 y 10), pero
+  // el BALANCE necesita el historial completo: calcularlo sobre la lista capada
+  // borraba del saldo todo lo anterior a los ultimos 20 movimientos. Por eso las
+  // dos consultas "all" (solo las columnas que el balance necesita).
+  const [
+    { data: space },
+    { data: members },
+    { data: expenses },
+    { data: settlements },
+    { data: allExpenses },
+    { data: allSettlements },
+  ] = await Promise.all([
     getServiceClient().from('shared_spaces').select('*').eq('id', id).single(),
     getServiceClient()
       .from('space_members')
@@ -96,6 +76,14 @@ export async function GET(
       .eq('space_id', id)
       .order('settled_at', { ascending: false })
       .limit(10),
+    getServiceClient()
+      .from('space_expenses')
+      .select('paid_by, amount, split_snapshot')
+      .eq('space_id', id),
+    getServiceClient()
+      .from('space_settlements')
+      .select('from_user, to_user, amount')
+      .eq('space_id', id),
   ]);
 
   // "host pays": the space's Pro tier is the OWNER's plan, not the viewer's.
@@ -121,7 +109,14 @@ export async function GET(
   const membersTyped = (members || []) as unknown as MemberRow[];
   const expensesTyped = (expenses || []) as unknown as ExpenseRow[];
   const settlementsTyped = (settlements || []) as unknown as SettlementRow[];
-  const balance = computeBalances(membersTyped, expensesTyped, settlementsTyped, effectiveRules);
+
+  // Los balances se leen de la division CONGELADA de cada gasto; no se recalculan
+  // desde las reglas de hoy. Cambiar una regla ya no reescribe el pasado.
+  const balance = computeBalancesFromSnapshots(
+    (allExpenses || []) as unknown as ExpenseRow[],
+    (allSettlements || []) as unknown as SnapshotSettlement[],
+    membersTyped.map((m) => m.user_id)
+  );
 
   return NextResponse.json({
     space,

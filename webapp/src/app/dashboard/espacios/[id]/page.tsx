@@ -37,6 +37,7 @@ import {
   useDeleteSpace,
   useRemoveMember,
   resolveSplit,
+  shareCents,
   SPACE_MEMBER_LIMITS,
 } from '@/lib/hooks/use-shared-spaces';
 import type { SpaceSplitRule, SpaceBudget, SpaceExpense } from '@/lib/hooks/use-shared-spaces';
@@ -310,10 +311,14 @@ export default function SpaceDetailPage() {
             <div className="space-y-2">
               {expenses.map((exp) => {
                 const paidByMe = exp.paid_by === currentUserId;
-                const myFraction = resolveSplit(exp.category, currentUserId, members, data.splitRules ?? []);
-                const myShare = Number(exp.amount) * myFraction;
-                const hasRule = exp.category && (data.splitRules ?? []).some((r) => r.category === exp.category);
-                const myPct = Math.round(myFraction * 100);
+                // "Tu parte" sale de la division CONGELADA del gasto, no de las
+                // reglas de hoy: si alguien cambia una regla, lo que ya se
+                // registro no se mueve, y lo mostrado coincide siempre con el
+                // saldo cobrado.
+                const totalCents = Math.round(Number(exp.amount) * 100);
+                const myShare = shareCents(exp.split_snapshot, currentUserId) / 100;
+                const byRule = exp.split_snapshot?.source === 'rule';
+                const myPct = totalCents > 0 ? Math.round((myShare * 100 * 100) / totalCents) : 0;
 
                 return (
                   <div key={exp.id} className="glass-card p-3.5 flex items-start justify-between gap-3 group">
@@ -323,7 +328,7 @@ export default function SpaceDetailPage() {
                         {paidByMe ? 'Pagaste tú' : `Pagó ${exp.usuarios?.nombre}`}
                         {exp.category ? ` · ${exp.category}` : ''}
                         {' · '}{new Date(exp.created_at).toLocaleDateString('es-PE', { day: 'numeric', month: 'short' })}
-                        {hasRule && <span className="text-[#1D9E75]"> · {myPct}%</span>}
+                        {byRule && <span className="text-[#1D9E75]"> · regla {myPct}%</span>}
                       </p>
                     </div>
                     <div className="flex items-start gap-2 shrink-0">
