@@ -152,13 +152,19 @@ async function notificarNuevoMiembro(spaceId, nuevoUserId) {
     const despues = effectiveSplitPercents(actuales);
     const nombreNuevo = nuevo.usuarios?.nombre?.split(' ')[0] || 'Alguien';
 
+    let enviados = 0;
     for (const m of previos) {
       if (!m.usuarios?.whatsapp) continue;
       const msg = '👋 *' + nombreNuevo + ' se unió a ' + space.name + '*\n\n' +
         'Tu parte por defecto pasó de ' + (antes[m.user_id] ?? 0) + '% a ' + (despues[m.user_id] ?? 0) + '%.\n\n' +
         '_Si prefieren otro reparto, ajústenlo acá: https://app.neto.pe/dashboard/espacios_';
-      try { await enviarWhatsapp(m.usuarios.whatsapp, msg); } catch (e) { /* silent */ }
+      try { await enviarWhatsapp(m.usuarios.whatsapp, msg); enviados++; } catch (e) { /* silent */ }
     }
+
+    // Se loguea el exito, no solo el error: este aviso viaja webapp -> backend con
+    // ADMIN_KEY, y sin una linea por corrida no hay forma de saber desde afuera si
+    // el hop se esta haciendo o si se cae en silencio por una env var faltante.
+    log.info({ tag: 'ESPACIO_JOIN_AVISO', spaceId, previos: previos.length, enviados }, 'Aviso de nuevo miembro');
   } catch (e) {
     log.warn({ tag: 'ESPACIO_JOIN_AVISO', err: e.message }, 'No se pudo avisar del nuevo miembro');
   }
