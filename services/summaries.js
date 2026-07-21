@@ -16,10 +16,11 @@ async function generarResumenSemanal(usuario) {
 
   const hace14 = new Date(hoy.getTime() - 14 * 24 * 60 * 60 * 1000);
   const hace7 = new Date(hoy.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const { data: gastosAnt } = await supabase.from('transacciones').select('*')
+  const { data: gastosAnt, error: errGastosAnt } = await supabase.from('transacciones').select('*')
     .eq('usuario_id', usuario.id).eq('tipo', 'gasto')
     .gte('fecha', hace14.toISOString().split('T')[0])
     .lt('fecha', hace7.toISOString().split('T')[0]);
+  if (errGastosAnt) log.error({ tag: 'RESUMEN_SEM', usuarioId: usuario.id, err: errGastosAnt.message }, 'Query semana anterior fallo: el resumen sale sin comparativa');
   const gastosAnteriores = gastosAnt || [];
 
   const totalSemana = gastosSemana.reduce((s, t) => s + parseFloat(t.monto_pen || t.monto), 0);
@@ -42,9 +43,10 @@ async function generarResumenSemanal(usuario) {
 
   const diasMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0).getDate();
   const diaActual = hoy.getDate();
-  const { data: gastosMesData } = await supabase.from('transacciones').select('monto')
+  const { data: gastosMesData, error: errGastosMes } = await supabase.from('transacciones').select('monto')
     .eq('usuario_id', usuario.id).eq('tipo', 'gasto')
     .gte('fecha', hoy.getFullYear() + '-' + String(hoy.getMonth() + 1).padStart(2, '0') + '-01');
+  if (errGastosMes) log.error({ tag: 'RESUMEN_SEM', usuarioId: usuario.id, err: errGastosMes.message }, 'Query gastos del mes fallo: el resumen sale sin proyeccion');
   const totalMes = (gastosMesData || []).reduce((s, t) => s + parseFloat(t.monto_pen || t.monto), 0);
   const proyeccionMes = diaActual > 0 ? (totalMes / diaActual) * diasMes : 0;
 
@@ -149,11 +151,12 @@ async function generarResumenSemanal(usuario) {
         msg += '• ' + (d.tipo === 'me_deben' ? d.contraparte + ' te debe' : 'Le debes a ' + d.contraparte) + ': ' + sym + ' ' + parseFloat(d.monto_pendiente).toFixed(2) + ' (' + estado + ')\n';
       }
     }
-  } catch (e) { /* silent */ }
+  } catch (e) { log.error({ tag: 'RESUMEN_SEM', usuarioId: usuario.id, err: e.message }, 'Bloque deudas fallo: el resumen sale sin vencimientos'); }
 
   try {
-    const { data: metasActivas } = await supabase.from('metas_ahorro').select('*')
+    const { data: metasActivas, error: errMetas } = await supabase.from('metas_ahorro').select('*')
       .eq('usuario_id', usuario.id).eq('completada', false);
+    if (errMetas) log.error({ tag: 'RESUMEN_SEM', usuarioId: usuario.id, err: errMetas.message }, 'Query metas_ahorro fallo: el resumen sale sin la seccion de metas');
     if (metasActivas && metasActivas.length > 0) {
       msg += '\n🎯 *Metas de ahorro:*\n';
       for (const m of metasActivas.slice(0, 3)) {
@@ -168,16 +171,17 @@ async function generarResumenSemanal(usuario) {
         msg += '\n';
       }
     }
-  } catch (e) { /* silent */ }
+  } catch (e) { log.error({ tag: 'RESUMEN_SEM', usuarioId: usuario.id, err: e.message }, 'Bloque metas fallo: el resumen sale sin la seccion de metas'); }
 
   try {
-    const { data: metasSugg } = await supabase.from('metas_ahorro').select('nombre')
+    const { data: metasSugg, error: errSugg } = await supabase.from('metas_ahorro').select('nombre')
       .eq('usuario_id', usuario.id).eq('completada', false).limit(1);
+    if (errSugg) log.error({ tag: 'RESUMEN_SEM', usuarioId: usuario.id, err: errSugg.message }, 'Query metas_ahorro (sugerencia) fallo: el resumen sale sin sugerencia de ahorro');
     if (metasSugg && metasSugg.length > 0 && totalSemana < totalAnterior && totalAnterior > 0) {
       const ahorro = totalAnterior - totalSemana;
       msg += '\n💡 _Gastaste S/ ' + ahorro.toFixed(0) + ' menos que la semana pasada. ¿Lo pones en tu meta de ' + metasSugg[0].nombre + '?_\n';
     }
-  } catch (e) { /* silent */ }
+  } catch (e) { log.error({ tag: 'RESUMEN_SEM', usuarioId: usuario.id, err: e.message }, 'Bloque sugerencia de meta fallo'); }
 
   msg += '\n_Escribe /mes para el detalle o /reporte para tu PDF._';
   return msg;

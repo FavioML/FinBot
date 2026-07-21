@@ -1,5 +1,6 @@
 const { supabase } = require('../lib/db');
 const { hoyPeru } = require('../lib/dates');
+const log = require('../lib/logger');
 
 /**
  * Registra una deuda nueva.
@@ -32,7 +33,10 @@ async function registrarDeuda(usuarioId, tipo, contraparte, monto, moneda = 'PEN
 async function obtenerDeudas(usuarioId, soloActivas = true) {
   let q = supabase.from('deudas').select('*').eq('usuario_id', usuarioId).order('created_at', { ascending: false });
   if (soloActivas) q = q.eq('estado', 'activa');
-  const { data } = await q;
+  const { data, error } = await q;
+  // El fallback a [] es legitimo (usuario sin deudas), pero un error de query se veia
+  // identico a "no tiene deudas" en los 10+ call sites. Ahora deja rastro.
+  if (error) log.error({ tag: 'DEUDAS', usuarioId, err: error.message }, 'Query deudas fallo: se devuelve lista vacia');
   return data || [];
 }
 

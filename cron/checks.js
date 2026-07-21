@@ -16,7 +16,11 @@ async function checkResumenMensual() {
   const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
   if (horaLima.getDate() !== 1 || horaLima.getHours() !== 9 || horaLima.getMinutes() > 14) return;
   try {
-    const { data: usuarios } = await supabase.from('usuarios').select('*').eq('plan', 'premium').not('gmail_access_token', 'is', null);
+    // Sin filtro por gmail_access_token: el resumen se arma con transacciones, presupuestos,
+    // metas y deudas — no depende de Gmail. Exigirlo dejaba fuera a la mayoria de usuarios Pro
+    // en silencio. Si no hay movimientos, generarResumenMensual ya devuelve null.
+    const { data: usuarios, error: errUsuarios } = await supabase.from('usuarios').select('*').eq('plan', 'premium');
+    if (errUsuarios) log.error({ tag: 'MENSUAL', err: errUsuarios.message }, 'Query usuarios fallo: el resumen mensual no se envio a nadie');
     if (!usuarios || usuarios.length === 0) return;
     for (const usuario of usuarios) {
       try {
@@ -34,7 +38,9 @@ async function checkResumenSemanal() {
   const horaLima = new Date(Date.now() - 5 * 60 * 60 * 1000);
   if (horaLima.getUTCDay() !== 1 || horaLima.getUTCHours() !== 8 || horaLima.getUTCMinutes() > 14) return;
   try {
-    const { data: usuarios } = await supabase.from('usuarios').select('*').eq('plan', 'premium').not('gmail_access_token', 'is', null);
+    // Mismo criterio que el resumen mensual: sin filtro por gmail_access_token.
+    const { data: usuarios, error: errUsuarios } = await supabase.from('usuarios').select('*').eq('plan', 'premium');
+    if (errUsuarios) log.error({ tag: 'SEMANAL', err: errUsuarios.message }, 'Query usuarios fallo: el resumen semanal no se envio a nadie');
     if (!usuarios || usuarios.length === 0) return;
     for (const usuario of usuarios) {
       try {
