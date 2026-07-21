@@ -1,5 +1,5 @@
 import { getServiceClient } from '@/lib/supabase/service';
-import { getSpaceMemberIds, requireSpaceMember } from '@/lib/spaces-server';
+import { getSpaceMemberIds, parseSpaceAmount, requireSpaceMember } from '@/lib/spaces-server';
 import { NextResponse } from 'next/server';
 
 export async function POST(
@@ -12,8 +12,8 @@ export async function POST(
 
   const body = await request.json();
   const { to_user, amount } = body;
-  const montoNum = Number(amount);
-  if (!to_user || !Number.isFinite(montoNum) || montoNum <= 0) {
+  const montoNum = parseSpaceAmount(amount);
+  if (!to_user || montoNum === null) {
     return NextResponse.json({ error: 'to_user and amount required' }, { status: 400 });
   }
 

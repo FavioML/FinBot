@@ -120,6 +120,26 @@ export async function getSpaceOwnerIsPro(spaceId: string): Promise<boolean> {
   return owner?.plan === 'premium';
 }
 
+/**
+ * Tope de un movimiento de dinero en un espacio, igual que el de las metas
+ * (`api/goals/route.ts`). La columna aguanta hasta 10^10, asi que sin esto un
+ * miembro puede descuadrar el balance del grupo con un gasto absurdo.
+ */
+export const MAX_MONTO = 999999.99;
+
+/**
+ * Monto valido para un gasto o una liquidacion, o null si no lo es.
+ *
+ * `isNaN(Number(x))` no alcanza: `1e999` sobrevive a JSON.parse como Infinity y
+ * `isNaN(Infinity)` es false, asi que pasaba el guard. Es el mismo hueco que S2
+ * dejo abierto en los aportes de metas.
+ */
+export function parseSpaceAmount(raw: unknown): number | null {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0 || n > MAX_MONTO) return null;
+  return n;
+}
+
 export interface SpaceSplitContext {
   members: SplitMember[];
   /** Reglas que REALMENTE aplican: vacio si el espacio no es Pro (host paga). */

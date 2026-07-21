@@ -1,5 +1,5 @@
 import { getServiceClient } from '@/lib/supabase/service';
-import { getSpaceSplitContext, requireSpaceMember } from '@/lib/spaces-server';
+import { getSpaceSplitContext, parseSpaceAmount, requireSpaceMember } from '@/lib/spaces-server';
 import { buildSplitSnapshot } from '@/lib/spaces-split';
 import { NextResponse } from 'next/server';
 
@@ -26,11 +26,12 @@ export async function POST(
 
   const body = await request.json();
   const { amount, description, category } = body;
-  if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
+  const monto = parseSpaceAmount(amount);
+  if (monto === null) {
     return NextResponse.json({ error: 'Invalid amount' }, { status: 400 });
   }
 
-  const snapshot = await resolveSnapshot(id, Number(amount), category || null);
+  const snapshot = await resolveSnapshot(id, monto, category || null);
   if (!snapshot) {
     return NextResponse.json({ error: 'El espacio no tiene miembros a quienes dividir el gasto' }, { status: 409 });
   }
@@ -40,7 +41,7 @@ export async function POST(
     .insert({
       space_id: id,
       paid_by: auth.user.id,
-      amount: Number(amount),
+      amount: monto,
       description: description || null,
       category: category || null,
       split_snapshot: snapshot,
@@ -66,10 +67,10 @@ export async function PUT(
 
   const update: Record<string, unknown> = {};
   if (amount !== undefined) {
-    // Same guard as POST: a negative or non-finite amount here would silently
-    // invert the group's balances (turning a debt into a credit).
-    const parsed = Number(amount);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
+    // Mismo guard que el POST: un monto negativo, no finito o absurdo invierte o
+    // descuadra los balances del grupo en silencio.
+    const parsed = parseSpaceAmount(amount);
+    if (parsed === null) {
       return NextResponse.json({ error: 'Invalid amount' }, { status: 400 });
     }
     update.amount = parsed;

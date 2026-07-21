@@ -154,6 +154,19 @@ try {
     snapBackend?.source === 'rule' && snapBackend.shares.find(s => s.user_id === PRO)?.cents === 17500,
     JSON.stringify(snapBackend));
 
+  // ---------- 2b. Montos que descuadrarian el grupo -------------------------
+  // La columna aguanta hasta 10^10; sin tope, un miembro descuadra el balance de
+  // todos. `1e999` sobrevive a JSON.parse como Infinity, y el guard viejo lo
+  // dejaba pasar porque isNaN(Infinity) es false.
+  const absurdo = await pro.api(`/api/spaces/${spId}/expenses`, J({ amount: 1e9, description: 'QA tope' }));
+  check('gasto_sobre_el_tope_400', absurdo.status === 400, `status=${absurdo.status}`);
+  const infinito = await pro.api(`/api/spaces/${spId}/expenses`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"amount":1e999,"description":"QA inf"}' });
+  check('gasto_infinito_400', infinito.status === 400, `status=${infinito.status}`);
+  const editAbsurdo = await pro.api(`/api/spaces/${spId}/expenses`, JP({ id: e1.body?.id, amount: 1e9 }));
+  check('editar_sobre_el_tope_400', editAbsurdo.status === 400, `status=${editAbsurdo.status}`);
+  const settleAbsurdo = await free.api(`/api/spaces/${spId}/settle`, J({ to_user: PRO, amount: 1e9 }));
+  check('liquidacion_sobre_el_tope_400', settleAbsurdo.status === 400, `status=${settleAbsurdo.status}`);
+
   // ---------- 3. Conservacion de centavos en cada gasto ----------------------
   const { data: filas } = await svc.from('space_expenses').select('amount, split_snapshot').eq('space_id', spId);
   const conservan = (filas || []).every(f => {
