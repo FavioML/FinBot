@@ -40,6 +40,7 @@ import {
   SPACE_MEMBER_LIMITS,
 } from '@/lib/hooks/use-shared-spaces';
 import type { SpaceSplitRule, SpaceBudget, SpaceExpense } from '@/lib/hooks/use-shared-spaces';
+import { simplifyDebts } from '@/lib/spaces-split';
 import { formatCurrency } from '@/lib/utils';
 import { CATEGORIAS, getCategoriaEmoji } from '@/lib/constants';
 import { HeaderActions } from '@/components/dashboard/topbar';
@@ -184,6 +185,14 @@ export default function SpaceDetailPage() {
   const memberLimit = SPACE_MEMBER_LIMITS[space.type] || 6;
   const canInvite = members.length < memberLimit;
 
+  // Plan de liquidacion: empareja deudores con acreedores por monto. Con 2 miembros
+  // da lo mismo que antes; con 3+ evita nombrar al acreedor equivocado y cobrarle
+  // de mas (el codigo previo le imputaba a cada deudor su saldo entero contra el
+  // PRIMER acreedor de la lista).
+  const settlementPlan = simplifyDebts(balance);
+  const memberName = (userId: string) =>
+    members.find((m) => m.user_id === userId)?.usuarios?.nombre ?? userId;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -238,24 +247,18 @@ export default function SpaceDetailPage() {
             ))}
           </div>
           {/* Simplified debts */}
-          {members.some((m) => (balance[m.user_id] ?? 0) < -0.01) && (
+          {settlementPlan.length > 0 && (
             <div className="glass-card p-4 space-y-1.5">
               <p className="text-xs font-medium text-[#8A877D] uppercase tracking-wide">Resumen de deudas</p>
-              {members
-                .filter((m) => (balance[m.user_id] ?? 0) < -0.01)
-                .map((debtor) => {
-                  const creditor = members.find((m) => (balance[m.user_id] ?? 0) > 0.01);
-                  if (!creditor) return null;
-                  return (
-                    <p key={debtor.user_id} className="text-sm text-[#C8C6BC]">
-                      <span className="text-[#D85A30]">{debtor.usuarios?.nombre}</span>
-                      {' le debe '}
-                      <span className="font-semibold">{formatCurrency(Math.abs(balance[debtor.user_id]))}</span>
-                      {' a '}
-                      <span className="text-[#1D9E75]">{creditor.usuarios?.nombre}</span>
-                    </p>
-                  );
-                })}
+              {settlementPlan.map((t) => (
+                <p key={`${t.from}-${t.to}`} className="text-sm text-[#C8C6BC]">
+                  <span className="text-[#D85A30]">{memberName(t.from)}</span>
+                  {' le debe '}
+                  <span className="font-semibold">{formatCurrency(t.amount)}</span>
+                  {' a '}
+                  <span className="text-[#1D9E75]">{memberName(t.to)}</span>
+                </p>
+              ))}
             </div>
           )}
         </div>

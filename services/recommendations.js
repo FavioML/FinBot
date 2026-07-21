@@ -110,10 +110,20 @@ async function construirDatosUsuario(usuarioId) {
     porCatAnt[c] = (porCatAnt[c] || 0) + parseFloat(t.monto_pen || t.monto);
   });
 
-  // Presupuestos con estado
+  // Presupuestos con estado.
+  // El gasto se busca sin distinguir mayusculas: un gasto "comida" tiene que contar
+  // contra el presupuesto "Comida" (mismo criterio que el dashboard desde e46610a).
+  // Con la busqueda por clave exacta, una diferencia de mayusculas hacia que el
+  // presupuesto viera gastado=0: nunca alertaba "excedido" e inflaba el factor de
+  // presupuesto del score.
+  const gastoPorCatLower = {};
+  for (const [nombre, data] of Object.entries(porCat)) {
+    const k = nombre.toLowerCase();
+    gastoPorCatLower[k] = (gastoPorCatLower[k] || 0) + data.monto;
+  }
   const presConEstado = (presupuestos || []).map(p => {
     const limite = parseFloat(p.monto_limite);
-    const gastado = porCat[p.categoria] ? porCat[p.categoria].monto : 0;
+    const gastado = gastoPorCatLower[(p.categoria || '').toLowerCase()] || 0;
     const pct = limite > 0 ? (gastado / limite) * 100 : 0;
     return {
       categoria: p.categoria,

@@ -74,6 +74,57 @@ export function resolveSplit(
   return splitFractions(category, members, splitRules)[userId] ?? 0;
 }
 
+export interface SettlementTransfer {
+  /** user_id que debe pagar */
+  from: string;
+  /** user_id que debe cobrar */
+  to: string;
+  amount: number;
+}
+
+/**
+ * Turns a balance sheet into a minimal, correctly attributed list of transfers.
+ *
+ * Greedy: settle the largest debtor against the largest creditor, repeat. Yields
+ * at most (members - 1) transfers.
+ *
+ * The naive alternative -- pair every debtor with the first creditor found and
+ * charge them their whole balance -- happens to work for two people and silently
+ * lies for three or more: it names the wrong creditor and can attribute to them
+ * far more than they are actually owed.
+ */
+export function simplifyDebts(
+  balances: Record<string, number>,
+  epsilon = 0.01
+): SettlementTransfer[] {
+  const debtors = Object.entries(balances)
+    .filter(([, v]) => v < -epsilon)
+    .map(([user_id, v]) => ({ user_id, amount: -v }))
+    .sort((a, b) => b.amount - a.amount);
+  const creditors = Object.entries(balances)
+    .filter(([, v]) => v > epsilon)
+    .map(([user_id, v]) => ({ user_id, amount: v }))
+    .sort((a, b) => b.amount - a.amount);
+
+  const transfers: SettlementTransfer[] = [];
+  let i = 0;
+  let j = 0;
+
+  // Cada vuelta salda al menos a uno de los dos extremos, asi que siempre avanza.
+  while (i < debtors.length && j < creditors.length) {
+    const pay = Math.min(debtors[i].amount, creditors[j].amount);
+    if (pay > epsilon) {
+      transfers.push({ from: debtors[i].user_id, to: creditors[j].user_id, amount: pay });
+    }
+    debtors[i].amount -= pay;
+    creditors[j].amount -= pay;
+    if (debtors[i].amount <= epsilon) i++;
+    if (creditors[j].amount <= epsilon) j++;
+  }
+
+  return transfers;
+}
+
 /**
  * Normalizes split rules before they are persisted: drops weights keyed to users
  * who are not members of the space and clamps each weight to a sane 0-100.

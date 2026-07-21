@@ -94,7 +94,9 @@ export async function POST() {
           .filter(t => t.tipo === 'gasto' && t.categoria?.toLowerCase() === b.categoria?.toLowerCase())
           .reduce((s: number, t: { monto_pen: number }) => s + parseFloat(String(t.monto_pen)), 0);
         const limit = parseFloat(String(b.monto_limite));
-        const pct = limit > 0 ? (spent / limit) * 100 : 0;
+        // Mismo redondeo que el backend (ver api/score/route.ts): los tramos operan
+        // sobre el porcentaje entero, no sobre el decimal crudo.
+        const pct = limit > 0 ? Math.round((spent / limit) * 100) : 0;
         if (pct <= 100) totalBudgetScore += 100;
         else if (pct <= 120) totalBudgetScore += 80 - ((pct - 100) / 20) * 40;
         else totalBudgetScore += Math.max(0, 40 - ((Math.min(pct - 120, 80)) / 80) * 40);

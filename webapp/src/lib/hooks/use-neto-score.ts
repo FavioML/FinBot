@@ -31,6 +31,8 @@ export interface NetoScoreData {
   period: string;
   factors?: NetoScoreFactors;
   history?: NetoScoreHistoryEntry[];
+  /** Meses de historia que el plan del usuario permite ver (Free = 1). */
+  historyMonths?: number;
 }
 
 export function useNetoScore() {
@@ -67,16 +69,19 @@ export function useNetoScoreHistory(months = 6) {
   });
 
   // Auto-backfill: if history is empty or sparse, calculate past months once.
-  // Guarded con un ref para intentarlo UNA sola vez por montaje: en Free la API
-  // capa el history a 1 mes, así que historyCount < months se cumple siempre y sin
-  // el guard se dispararía un POST (5 queries) en cada render/refetch aunque no haya
-  // nada nuevo que backfillear. Si el POST falla, se libera el guard para reintentar.
+  // Se compara contra el cap EFECTIVO que reporta la API (`historyMonths`), no
+  // contra los meses pedidos: en Free la API capa el history a 1 mes, así que
+  // `historyCount < months` (1 < 6) era permanentemente verdadero y cada visita a
+  // /score y /reportes lanzaba un POST de 5 queries que devolvía backfilled: 0.
+  // El ref sigue como guard extra dentro de un mismo montaje; si el POST falla se
+  // libera para reintentar.
   const backfillTried = useRef(false);
   useEffect(() => {
     if (IS_DEMO) return;
     if (backfillTried.current) return;
     const historyCount = query.data?.history?.length ?? 0;
-    if (query.isSuccess && historyCount < months) {
+    const capacity = query.data?.historyMonths ?? months;
+    if (query.isSuccess && historyCount < capacity) {
       backfillTried.current = true;
       fetch('/api/score/backfill', { method: 'POST' })
         .then(r => r.json())

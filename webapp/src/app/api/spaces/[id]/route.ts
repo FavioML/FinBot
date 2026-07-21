@@ -197,7 +197,20 @@ export async function DELETE(
     .single();
   if (!membership || membership.role !== 'owner') return NextResponse.json({ error: 'Only owner can delete' }, { status: 403 });
 
-  // Delete in order: settlements, expenses, members, space
+  // Delete in order: metas vinculadas, settlements, expenses, members, space.
+  //
+  // `metas_ahorro.space_id` referencia shared_spaces con NO ACTION (no cascade), asi
+  // que si el espacio tiene una meta compartida el DELETE final fallaba por FK...
+  // pero para entonces settlements/expenses/members YA estaban borrados, dejando un
+  // espacio zombie sin miembros. Como el re-DELETE valida owner leyendo space_members
+  // (ahora vacio), respondia 403 para siempre: el espacio quedaba imborrable.
+  // Se desvincula primero (la meta sobrevive como meta personal del creador).
+  const { error: unlinkError } = await getServiceClient()
+    .from('metas_ahorro')
+    .update({ space_id: null })
+    .eq('space_id', id);
+  if (unlinkError) return NextResponse.json({ error: unlinkError.message }, { status: 400 });
+
   await getServiceClient().from('space_settlements').delete().eq('space_id', id);
   await getServiceClient().from('space_expenses').delete().eq('space_id', id);
   await getServiceClient().from('space_members').delete().eq('space_id', id);

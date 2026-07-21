@@ -59,8 +59,15 @@ export async function POST(request: Request) {
   const body = await request.json();
   const { meta_id, monto, tipo = 'aporte', nota } = body;
 
-  if (!meta_id || !monto || monto <= 0)
+  if (!meta_id)
     return NextResponse.json({ error: 'meta_id and monto required' }, { status: 400 });
+
+  // Misma validacion que POST /api/goals: sin el tope y el check de finitud, un
+  // monto tipo 1e309 llega como Infinity y deja monto_actual en Infinity/NaN, que
+  // despues se propaga al factor de metas del score persistido (y de ahi al bot).
+  const montoNum = parseFloat(monto);
+  if (!Number.isFinite(montoNum) || montoNum <= 0 || montoNum > 999999.99)
+    return NextResponse.json({ error: 'Monto invalido' }, { status: 400 });
 
   if (!['aporte', 'retiro'].includes(tipo))
     return NextResponse.json({ error: 'tipo must be aporte or retiro' }, { status: 400 });
@@ -80,7 +87,7 @@ export async function POST(request: Request) {
     .from('meta_aportes')
     .insert({
       meta_id,
-      monto: parseFloat(monto),
+      monto: montoNum,
       tipo,
       fecha: hoyPeru(),
       nota: nota || null,

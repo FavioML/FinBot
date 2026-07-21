@@ -3,6 +3,7 @@ import {
   splitFractions,
   resolveSplit,
   sanitizeSplitRules,
+  simplifyDebts,
 } from '../../webapp/src/lib/spaces-split.ts';
 
 /**
@@ -133,6 +134,69 @@ describe('resolveSplit (lo que ve el usuario)', () => {
   it('devuelve 0 para un usuario que no es miembro', () => {
     const ms = members(['a', 50], ['b', 50]);
     expect(resolveSplit('Comida', 'extrano', ms, [])).toBe(0);
+  });
+});
+
+describe('simplifyDebts', () => {
+  const totalMovido = (ts) => ts.reduce((s, t) => s + t.amount, 0);
+
+  it('caso de pareja: un deudor, un acreedor', () => {
+    const ts = simplifyDebts({ a: -50, b: 50 });
+    expect(ts).toEqual([{ from: 'a', to: 'b', amount: 50 }]);
+  });
+
+  it('balances saldados no generan transferencias', () => {
+    expect(simplifyDebts({ a: 0, b: 0 })).toEqual([]);
+  });
+
+  // --- F4: la regresion. Con 3+ miembros el codigo viejo imputaba a cada deudor
+  // su saldo entero contra el PRIMER acreedor, inventando plata que ese acreedor
+  // nunca puso.
+  it('F4: con dos acreedores no le cobra todo al primero', () => {
+    const ts = simplifyDebts({ deudor: -100, acreedor1: 60, acreedor2: 40 });
+    const cobraA1 = ts.filter((t) => t.to === 'acreedor1').reduce((s, t) => s + t.amount, 0);
+    const cobraA2 = ts.filter((t) => t.to === 'acreedor2').reduce((s, t) => s + t.amount, 0);
+    expect(cobraA1).toBeCloseTo(60);
+    expect(cobraA2).toBeCloseTo(40);
+    expect(totalMovido(ts)).toBeCloseTo(100);
+  });
+
+  it('F4: ningun acreedor recibe mas de lo que se le debe', () => {
+    const balances = { d1: -70, d2: -30, c1: 80, c2: 20 };
+    const ts = simplifyDebts(balances);
+    for (const [userId, saldo] of Object.entries(balances)) {
+      if (saldo <= 0) continue;
+      const recibe = ts.filter((t) => t.to === userId).reduce((s, t) => s + t.amount, 0);
+      expect(recibe).toBeLessThanOrEqual(saldo + 0.01);
+    }
+  });
+
+  it('cada deudor paga exactamente lo que debe', () => {
+    const balances = { d1: -70, d2: -30, c1: 80, c2: 20 };
+    const ts = simplifyDebts(balances);
+    for (const [userId, saldo] of Object.entries(balances)) {
+      if (saldo >= 0) continue;
+      const paga = ts.filter((t) => t.from === userId).reduce((s, t) => s + t.amount, 0);
+      expect(paga).toBeCloseTo(-saldo);
+    }
+  });
+
+  it('no genera mas de (miembros - 1) transferencias', () => {
+    const balances = { a: -40, b: -35, c: -25, d: 60, e: 40 };
+    const ts = simplifyDebts(balances);
+    expect(ts.length).toBeLessThanOrEqual(Object.keys(balances).length - 1);
+    expect(totalMovido(ts)).toBeCloseTo(100);
+  });
+
+  it('ignora saldos por debajo del epsilon (ruido de centavos)', () => {
+    const ts = simplifyDebts({ a: -0.004, b: 0.004 });
+    expect(ts).toEqual([]);
+  });
+
+  it('termina aunque los balances no cierren en cero', () => {
+    // Defensivo: no debe colgarse si por un redondeo la suma no da exactamente 0.
+    const ts = simplifyDebts({ a: -100, b: 30 });
+    expect(totalMovido(ts)).toBeCloseTo(30);
   });
 });
 

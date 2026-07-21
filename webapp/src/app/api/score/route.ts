@@ -79,7 +79,13 @@ async function calculateFreshScore(usuario: NonNullable<Awaited<ReturnType<typeo
   const txDays = txResult.data || [];
   const uniqueDays = new Set(txDays.map((t: { fecha: string }) => t.fecha)).size;
   const daysPerWeek = uniqueDays / 4.3;
-  const consistency = daysPerWeek >= 5 ? 100 : daysPerWeek >= 4 ? 85 : daysPerWeek >= 3 ? 70 : daysPerWeek >= 2 ? 50 : daysPerWeek >= 1 ? 30 : 10;
+  // Sin ninguna transaccion en la ventana el backend devuelve 0, no 10 (un mes vacio
+  // no es "poca consistencia", es ausencia de registro). Sin este caso el fresh-calc
+  // persistia 10 para un usuario nuevo y el cron lo bajaba a 0 despues: el score se
+  // caia solo sin que el usuario hiciera nada.
+  const consistency = uniqueDays === 0
+    ? 0
+    : daysPerWeek >= 5 ? 100 : daysPerWeek >= 4 ? 85 : daysPerWeek >= 3 ? 70 : daysPerWeek >= 2 ? 50 : daysPerWeek >= 1 ? 30 : 10;
 
   // Factor 2: Budget control — solo presupuestos del mes en curso (igual que el
   // backend construirDatosUsuario, que filtra por mes/anio); usar todos contaría una
@@ -95,7 +101,11 @@ async function calculateFreshScore(usuario: NonNullable<Awaited<ReturnType<typeo
         .filter((t: { tipo: string; categoria: string | null }) => t.tipo === 'gasto' && t.categoria?.toLowerCase() === b.categoria?.toLowerCase())
         .reduce((s: number, t: { monto_pen: number }) => s + parseFloat(String(t.monto_pen)), 0);
       const limit = parseFloat(String(b.monto_limite));
-      const pct = limit > 0 ? (spent / limit) * 100 : 0;
+      // El backend redondea porcentaje_usado a entero ANTES de aplicar los tramos
+      // (recommendations.js, construirDatosUsuario). Sin redondear aqui, un 100.4%
+      // caia en el tramo >100 (~79 pts) mientras el backend lo trata como 100 exacto
+      // (100 pts): ~20 pts de diferencia en el sub-factor por un decimal.
+      const pct = limit > 0 ? Math.round((spent / limit) * 100) : 0;
       if (pct <= 100) totalBudgetScore += 100;
       else if (pct <= 120) totalBudgetScore += 80 - ((pct - 100) / 20) * 40;
       else totalBudgetScore += Math.max(0, 40 - ((Math.min(pct - 120, 80)) / 80) * 40);
@@ -251,6 +261,12 @@ export async function GET(request: Request) {
     response.history = isPro
       ? dedupedHistory
       : dedupedHistory.map((h) => ({ score: h.score, period: h.period }));
+
+    // Cap efectivo que se aplico (Free = 1). El cliente lo necesita para saber si
+    // vale la pena disparar un backfill: comparar contra el `months` pedido hacia
+    // que en Free la condicion fuera SIEMPRE verdadera (1 < 6) y cada visita
+    // lanzara un POST de 5 queries que no tenia nada que backfillear.
+    response.historyMonths = maxMonths;
   }
 
   return NextResponse.json(response);
