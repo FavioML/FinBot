@@ -2,7 +2,7 @@ require('dotenv').config();
 const { validateConfig } = require('./lib/config');
 validateConfig();
 const express = require('express');
-const { rateLimit } = require('express-rate-limit');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const cors = require('cors');
 const helmet = require('helmet');
 const log = require('./lib/logger');
@@ -52,19 +52,23 @@ app.use(express.json({
 }));
 
 // Rate limiters
+// Cuando keyeamos por IP hay que pasarla por ipKeyGenerator: agrupa las IPv6 por su /56.
+// Sin eso, un cliente IPv6 rota de dirección dentro de su propio bloque y evade el límite.
+const claveIp = (req) => ipKeyGenerator(req.ip || '0.0.0.0');
+
 const webhookLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 300,
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { xForwardedForHeader: false, keyGeneratorIpFallback: false, default: true },
+  validate: { xForwardedForHeader: false, default: true },
   message: { error: 'Demasiadas solicitudes, intenta en un momento' },
   keyGenerator: (req) => {
     try {
       const from = req.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.from;
       if (from) return from;
     } catch {}
-    return req.ip || '0.0.0.0';
+    return claveIp(req);
   },
 });
 const adminLimiter = rateLimit({
@@ -82,7 +86,7 @@ const proLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Demasiadas solicitudes, intenta en un momento' },
-  keyGenerator: (req) => req.get('x-usuario-id') || req.query.usuario_id || req.ip || '0.0.0.0',
+  keyGenerator: (req) => req.get('x-usuario-id') || req.query.usuario_id || claveIp(req),
 });
 
 // === Routes ===
