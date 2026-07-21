@@ -391,6 +391,7 @@ Plan: {PLAN_USUARIO}
 Historial disponible: {MESES_HISTORIAL} meses
 Parsers activos: {PARSERS_ACTIVOS}
 Última sincronización: {ULTIMA_SYNC}
-Ingresos este mes: {INGRESOS_MES}
-Gastos este mes: {GASTOS_MES}
-Balance este mes: {BALANCE_MES}
+
+Los montos del mes (ingresos, gastos, balance, categorías) NO van aquí: llegan en el
+bloque "Datos disponibles" de cada mensaje, ya calculados. Usa solo esos. Si no vienen,
+no los inventes: dile al usuario que se los traes en un segundo.

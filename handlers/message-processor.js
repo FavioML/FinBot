@@ -1,4 +1,3 @@
-const fs = require('fs');
 const { supabase } = require('../lib/db');
 const { openai } = require('../lib/ai');
 const log = require('../lib/logger');
@@ -28,6 +27,7 @@ const { generarYEnviarReporte } = require('../services/reports');
 const { guardarMensaje, obtenerHistorial, getUserPlanConfig, getHistoryDateLimit } = require('../helpers/db-helpers');
 const { getHandler } = require('./intent-registry');
 const { NETO_TOOLS, mapToolToIntent } = require('./neto-tools');
+const { construirNetoPrompt } = require('../lib/neto-prompt');
 
 /**
  * Salvage sin IA: cuando OpenAI está caído (429) el pipeline normal no puede clasificar,
@@ -121,19 +121,13 @@ async function procesarMensajeLibre(msg, usuario, from) {
     const anioActual = parseInt(hoyParts[0], 10);
     const planUsuario = usuario.plan || 'free';
     const mE = ['','Enero','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-    // Cargar NETO system prompt con datos del usuario
-    let netoPrompt = 'Eres NETO, asistente financiero por WhatsApp. Hablas en espanol peruano, eres directo y siempre terminas con una accion o pregunta.';
-    try {
-      const rawPrompt = fs.readFileSync(require('path').join(__dirname, 'NETO_system_prompt.txt'), 'utf8');
-      const parsersActivos = ['BCP','Interbank','BBVA','Scotiabank','Yape','Plin'].join(', ');
-      const ultimaSync = usuario.updated_at ? new Date(usuario.updated_at).toLocaleDateString('es-PE') : 'hoy';
-      netoPrompt = rawPrompt
-        .replace(/\{NOMBRE_USUARIO\}/g, usuario.nombre || 'amigo')
-        .replace(/\{PLAN_USUARIO\}/g, planUsuario)
-        .replace(/\{MESES_HISTORIAL\}/g, '3')
-        .replace(/\{PARSERS_ACTIVOS\}/g, parsersActivos)
-        .replace(/\{ULTIMA_SYNC\}/g, ultimaSync);
-    } catch(e) { log.error({ tag: 'NETO', err: e.message }, 'Error cargando system prompt'); }
+    // Cargar NETO system prompt con datos del usuario (docs/NETO_system_prompt.txt, cacheado)
+    const netoPrompt = construirNetoPrompt({
+      nombre: usuario.nombre,
+      plan: planUsuario,
+      mesesHistorial: 3,
+      ultimaSync: usuario.updated_at ? new Date(usuario.updated_at).toLocaleDateString('es-PE') : 'hoy',
+    });
 
     // Cargar historial de conversacion del usuario
     const historialConv = await obtenerHistorial(usuario.id);
