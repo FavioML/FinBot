@@ -241,4 +241,31 @@ router.get('/errores', async (req, res) => {
   }
 });
 
+/**
+ * POST /admin/espacio-nuevo-miembro — avisa a los miembros de un espacio que
+ * entro alguien y como quedo su parte.
+ *
+ * Existe porque la webapp NO puede mandar WhatsApp (no tiene token ni sender de
+ * Meta) y el link de invitacion apunta justamente a la webapp, o sea que es la
+ * puerta de entrada principal. Sin este hop, unirse desde la web no avisaria a
+ * nadie y el reparto de los que ya estaban se moveria en silencio: exactamente
+ * lo que este cambio cierra.
+ *
+ * Server-to-server con ADMIN_KEY (la webapp ya la tiene para el panel de pagos).
+ * No recibe montos ni escribe nada: solo dispara el aviso.
+ */
+router.post('/espacio-nuevo-miembro', async (req, res) => {
+  if (!verificarAdmin(req, res)) return;
+  const { space_id, user_id } = req.body || {};
+  if (!space_id || !user_id) return res.status(400).json({ ok: false, msg: 'Faltan space_id y user_id' });
+  try {
+    const { notificarNuevoMiembro } = require('../services/shared-spaces');
+    await notificarNuevoMiembro(space_id, user_id);
+    res.json({ ok: true });
+  } catch (e) {
+    log.error({ tag: 'ESPACIO_JOIN_AVISO', err: e.message }, 'Error avisando del nuevo miembro');
+    res.status(500).json({ ok: false, msg: 'Error enviando el aviso' });
+  }
+});
+
 module.exports = router;

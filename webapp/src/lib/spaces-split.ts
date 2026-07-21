@@ -94,6 +94,65 @@ export function resolveSplit(
   return splitFractions(category, members, splitRules)[userId] ?? 0;
 }
 
+/**
+ * Effective percentage (0-100) each member pays under the default split.
+ *
+ * `split_percentage` is a WEIGHT, not a percentage: it is normalized by the sum
+ * at division time. Showing the raw column with a "%" glued to it is a lie as
+ * soon as the weights stop adding up to 100 (weights 70/30/50 are really
+ * 46.7/20/33.3). The UI and the join notification both read this so the number
+ * a member is shown is the number they are charged.
+ */
+export function effectiveSplitPercents(members: SplitMember[]): Record<string, number> {
+  const fractions = splitFractions(null, members, []);
+  const out: Record<string, number> = {};
+  for (const [userId, f] of Object.entries(fractions)) out[userId] = Math.round(f * 1000) / 10;
+  return out;
+}
+
+/**
+ * Weight a space is created with, and the one a member joining an empty space
+ * gets. The exact value is irrelevant (weights are normalized); what matters is
+ * that both creation paths use the same one.
+ */
+export const DEFAULT_SPLIT_WEIGHT = 50;
+
+/**
+ * Weight a joining member enters with: the average of the weights already in use.
+ *
+ * One rule covers both behaviours people expect, precisely because the weight is
+ * normalized at division time:
+ *  - Space nobody customized (everyone at 50): the newcomer enters at 50 and the
+ *    space lands on equal shares. Equitable without having rewritten anybody.
+ *  - Space with an agreed 70/30: the newcomer enters at 50 and it becomes
+ *    46.7/20/33.3. They take a third, and the two originals keep the ratio they
+ *    agreed on (still 2.33x one another).
+ *
+ * What it does NOT do is touch the existing members. Rewriting everyone to 100/n
+ * (what the WhatsApp backend did) killed an agreed split just because a third
+ * person showed up; entering at a hardcoded 50 without looking at anyone else
+ * (what this API route did) disturbed the agreement in a *different* way, so the
+ * same space divided differently depending on which door you came through.
+ *
+ * Zero weights do not average in: they are members deliberately excluded from
+ * the split, and dragging them in would shrink the newcomer's share on account
+ * of people who pay nothing.
+ */
+export function joinSplitWeight(members: SplitMember[]): number {
+  if (members.length === 0) return DEFAULT_SPLIT_WEIGHT;
+
+  const pesos = members.map((m) => weight(m.split_percentage)).filter((w) => w > 0);
+  // Nobody carries a usable weight: the space already falls back to equal shares
+  // on its own (`resolveSplitPlan` with totalPct 0). Entering with any weight
+  // would break that and leave the newcomer paying for everything.
+  if (pesos.length === 0) return 0;
+
+  const promedio = pesos.reduce((s, w) => s + w, 0) / pesos.length;
+  // Two decimals: what the NUMERIC(5,2) column holds, and rounding identically in
+  // both runtimes is what stops the same join from persisting different numbers.
+  return Math.min(100, Math.round(promedio * 100) / 100);
+}
+
 /* -------------------------------------------------------------------------- */
 /*  Snapshot: the division an expense was registered with, frozen in cents.    */
 /* -------------------------------------------------------------------------- */

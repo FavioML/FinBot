@@ -61,6 +61,64 @@ function resolveSplit(category, userId, members, splitRules) {
   return f === undefined ? 0 : f;
 }
 
+/**
+ * Porcentaje efectivo (0-100) que paga cada miembro con el split por defecto.
+ *
+ * `split_percentage` es un PESO, no un porcentaje: se normaliza dividiendo entre
+ * la suma. Mostrar la columna cruda con un "%" pegado es mentira apenas los pesos
+ * dejan de sumar 100 (pesos 70/30/50 son en realidad 46.7/20/33.3). La UI y el
+ * aviso de nuevo miembro leen de aca, asi el numero que se muestra es el que se
+ * cobra.
+ */
+function effectiveSplitPercents(members) {
+  const fractions = splitFractions(null, members, []);
+  const out = {};
+  for (const userId of Object.keys(fractions)) out[userId] = Math.round(fractions[userId] * 1000) / 10;
+  return out;
+}
+
+/**
+ * Peso con el que se crea un espacio, y con el que entra alguien a uno vacio. El
+ * valor exacto da igual (los pesos se normalizan); lo que importa es que los dos
+ * caminos de alta usen el mismo.
+ */
+const DEFAULT_SPLIT_WEIGHT = 50;
+
+/**
+ * Peso con el que entra un miembro nuevo: el promedio de los pesos vigentes.
+ *
+ * Una sola regla cubre los dos comportamientos que la gente espera, justamente
+ * porque el peso se normaliza al dividir:
+ *  - Espacio que nadie personalizo (todos en 50): el nuevo entra en 50 y el
+ *    espacio queda en partes iguales. Equitativo sin haberle reescrito el peso a
+ *    nadie.
+ *  - Espacio con un 70/30 acordado: el nuevo entra en 50 y queda 46.7/20/33.3.
+ *    Asume un tercio y los dos originales conservan la proporcion que pactaron.
+ *
+ * Lo que NO hace es tocar a los que ya estaban. Reescribir a todos a 100/n (lo
+ * que hacia este backend) mataba un reparto acordado porque aparecio un tercero,
+ * y entrar con un 50 fijo sin mirar al resto (lo que hacia la webapp) desordenaba
+ * el acuerdo de OTRA forma, asi que el mismo espacio dividia distinto segun por
+ * que puerta se hubiera entrado.
+ *
+ * Los pesos en 0 no promedian: son miembros excluidos del reparto a proposito, y
+ * arrastrarlos bajaria la parte del que entra por gente que no paga.
+ */
+function joinSplitWeight(members) {
+  if (members.length === 0) return DEFAULT_SPLIT_WEIGHT;
+
+  const pesos = members.map((m) => weight(m.split_percentage)).filter((w) => w > 0);
+  // Nadie con peso util: el espacio ya cae a partes iguales solo (`resolveSplitPlan`
+  // con totalPct 0). Entrar con peso lo romperia y dejaria al recien llegado
+  // pagandolo todo.
+  if (pesos.length === 0) return 0;
+
+  const promedio = pesos.reduce((s, w) => s + w, 0) / pesos.length;
+  // 2 decimales: lo que aguanta la columna NUMERIC(5,2), y redondear igual en los
+  // dos runtimes es lo que evita que el mismo join guarde numeros distintos.
+  return Math.min(100, Math.round(promedio * 100) / 100);
+}
+
 /** Soles -> centavos enteros. Unico punto donde un float de dinero se vuelve entero. */
 function toCents(amount) {
   const n = Number(amount);
@@ -267,6 +325,9 @@ module.exports = {
   resolveSplitPlan,
   splitFractions,
   resolveSplit,
+  effectiveSplitPercents,
+  DEFAULT_SPLIT_WEIGHT,
+  joinSplitWeight,
   toCents,
   allocateShares,
   buildSplitSnapshot,

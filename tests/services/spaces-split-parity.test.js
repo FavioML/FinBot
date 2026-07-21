@@ -32,6 +32,8 @@ const EXPORTS_COMPARTIDOS = [
   'resolveSplitPlan',
   'splitFractions',
   'resolveSplit',
+  'effectiveSplitPercents',
+  'joinSplitWeight',
   'toCents',
   'allocateShares',
   'buildSplitSnapshot',
@@ -148,6 +150,10 @@ describe('paridad TS <-> CJS · casos nombrados', () => {
         .toEqual(ts.splitFractions(c.category, c.members, c.rules));
       expect(cjs.buildSplitSnapshot(c.amount, c.category, c.members, c.rules))
         .toEqual(ts.buildSplitSnapshot(c.amount, c.category, c.members, c.rules));
+      expect(cjs.effectiveSplitPercents(c.members)).toEqual(ts.effectiveSplitPercents(c.members));
+      // El peso de entrada tiene que ser el mismo por los dos caminos de join, o el
+      // mismo espacio divide distinto segun se haya entrado por WhatsApp o por la web.
+      expect(cjs.joinSplitWeight(c.members)).toEqual(ts.joinSplitWeight(c.members));
       for (const m of c.members) {
         expect(cjs.resolveSplit(c.category, m.user_id, c.members, c.rules))
           .toEqual(ts.resolveSplit(c.category, m.user_id, c.members, c.rules));
@@ -243,6 +249,20 @@ describe('paridad TS <-> CJS · aleatorio con semilla', () => {
       // Los balances de un espacio suman cero. Si no, hay dinero fantasma.
       const suma = Object.values(a).reduce((s, v) => s + v, 0);
       expect(Math.abs(suma), `suma cero en escenario ${i}`).toBeLessThan(0.005);
+    }
+  });
+
+  it('300 espacios dan el mismo peso de entrada y los mismos % efectivos', () => {
+    const r = lcg(31415926);
+    for (let i = 0; i < 300; i++) {
+      const n = Math.floor(r() * 6);
+      const members = [];
+      for (let k = 0; k < n; k++) members.push({ user_id: `u${k}`, split_percentage: pick(pesosRaros) });
+
+      expect(cjs.joinSplitWeight(members), `peso de entrada en escenario ${i}`)
+        .toEqual(ts.joinSplitWeight(members));
+      expect(cjs.effectiveSplitPercents(members), `% efectivos en escenario ${i}`)
+        .toEqual(ts.effectiveSplitPercents(members));
     }
   });
 

@@ -41,7 +41,7 @@ import {
   SPACE_MEMBER_LIMITS,
 } from '@/lib/hooks/use-shared-spaces';
 import type { SpaceSplitRule, SpaceBudget, SpaceExpense } from '@/lib/hooks/use-shared-spaces';
-import { simplifyDebts } from '@/lib/spaces-split';
+import { effectiveSplitPercents, simplifyDebts } from '@/lib/spaces-split';
 import { formatCurrency } from '@/lib/utils';
 import { CATEGORIAS, getCategoriaEmoji } from '@/lib/constants';
 import { HeaderActions } from '@/components/dashboard/topbar';
@@ -211,6 +211,13 @@ export default function SpaceDetailPage() {
   // de mas (el codigo previo le imputaba a cada deudor su saldo entero contra el
   // PRIMER acreedor de la lista).
   const settlementPlan = simplifyDebts(balance);
+
+  // Lo que cada uno paga DE VERDAD. `split_percentage` es un peso que se normaliza
+  // al dividir, asi que pintar la columna cruda con un "%" pegado miente apenas los
+  // pesos dejan de sumar 100: con 70/30/50 la pantalla decia "70%" a alguien que
+  // paga 46.7%, y ese 46.7 es el que sale en su balance.
+  const effectivePct = effectiveSplitPercents(members);
+
   const memberName = (userId: string) =>
     members.find((m) => m.user_id === userId)?.usuarios?.nombre ?? userId;
 
@@ -414,7 +421,7 @@ export default function SpaceDetailPage() {
                   </span>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-[#8A877D]">
-                  <span>{m.split_percentage ?? 50}%</span>
+                  <span>{effectivePct[m.user_id] ?? 0}%</span>
                   <span className="capitalize">{m.role}</span>
                   {isOwner && m.user_id !== currentUserId && (
                     <button
@@ -471,7 +478,10 @@ export default function SpaceDetailPage() {
               <p className="text-xs text-[#8A877D]">Por defecto (todas las categorías sin regla)</p>
               <button
                 onClick={() => {
-                  setDefaultSplits(Object.fromEntries(members.map((m) => [m.user_id, String(m.split_percentage ?? 50)])));
+                  // Prefill con el % efectivo, no con el peso crudo: es el numero
+                  // que el usuario acaba de ver, y como los pesos se normalizan,
+                  // guardarlo tal cual reproduce exactamente el mismo reparto.
+                  setDefaultSplits(Object.fromEntries(members.map((m) => [m.user_id, String(effectivePct[m.user_id] ?? 0)])));
                   setShowDefaultSplitDialog(true);
                 }}
                 className="text-[#8A877D] hover:text-[#1D9E75] transition-colors"
@@ -484,10 +494,10 @@ export default function SpaceDetailPage() {
                 <div key={m.user_id} className="flex-1">
                   <div className="flex items-center justify-between text-xs mb-1">
                     <span className="text-[#C8C6BC]">{m.usuarios?.nombre}</span>
-                    <span className="text-[#8A877D]">{m.split_percentage ?? 50}%</span>
+                    <span className="text-[#8A877D]">{effectivePct[m.user_id] ?? 0}%</span>
                   </div>
                   <div className="h-1.5 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
-                    <div className="h-full rounded-full bg-[#8A877D]" style={{ width: `${m.split_percentage ?? 50}%` }} />
+                    <div className="h-full rounded-full bg-[#8A877D]" style={{ width: `${effectivePct[m.user_id] ?? 0}%` }} />
                   </div>
                 </div>
               ))}
@@ -684,7 +694,7 @@ export default function SpaceDetailPage() {
                     </p>
                   ) : (
                     <p className="text-[#8A877D]">
-                      Se usará la división global ({members.map((m) => `${m.split_percentage ?? 50}%`).join('/')})
+                      Se usará la división global ({members.map((m) => `${effectivePct[m.user_id] ?? 0}%`).join('/')})
                     </p>
                   )}
                 </div>

@@ -139,6 +139,36 @@ Reglas que no se negocian:
   WhatsApp. Si tocas uno, toca el otro: `tests/services/spaces-split-parity.test.js`
   importa los dos y falla si divergen. No relajes ese test.
 
+### Espacios: unirse NO reescribe el reparto de nadie
+
+`split_percentage` es un **peso**, no un porcentaje: `resolveSplitPlan` lo
+normaliza dividiendo entre la suma. Pesos 70/30/50 son en realidad 46.7/20/33.3.
+
+Cuando entra un miembro, entra con `joinSplitWeight(miembrosPrevios)` (el promedio
+de los pesos vigentes) y **a nadie más se le toca el peso**. Una sola regla cubre
+los dos casos: un espacio que nadie personalizó queda en partes iguales, y un
+70/30 acordado conserva su proporción mientras el nuevo asume su parte.
+
+Lo que había antes, y por qué no vuelve:
+- El backend reescribía a **todos** a 100/n. Un 70/30 acordado moría porque
+  apareció un tercero.
+- La webapp metía al nuevo con un **50 fijo** sin mirar al resto. El mismo espacio
+  dividía distinto según por qué puerta se hubiera entrado.
+
+Como los gastos congelan su división, nada de eso reescribía el pasado, pero sí
+cambiaba los gastos futuros sin consentimiento. Era el último camino por el que la
+parte de alguien se movía sin avisarle. Reglas que lo sostienen:
+- **Los dos caminos de join usan `joinSplitWeight`**: `services/shared-spaces.js`
+  (`unirseEspacio`) y `api/spaces/join/route.ts`. La paridad la cubre
+  `tests/services/spaces-join-split.test.js` más el test de espejo.
+- **Se avisa al que ya estaba.** `notificarNuevoMiembro` manda el % efectivo antes
+  y después. La webapp no puede mandar WhatsApp (no tiene token de Meta), así que
+  llama a `POST /admin/espacio-nuevo-miembro` con ADMIN_KEY. Es best-effort: fuera
+  de la ventana de 24h de Meta el mensaje libre no se entrega, así que la garantía
+  real es la webapp.
+- **La UI muestra el % efectivo** (`effectiveSplitPercents`), nunca la columna
+  cruda. Pintar el peso con un "%" pegado le decía "70%" a quien paga 46.7%.
+
 ### Multimoneda
 - Columnas: `monto` (original) + `monto_pen` (convertido) + `tipo_cambio`
 - Conversion en insert/update via `getExchangeRate()`

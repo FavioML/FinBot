@@ -4,6 +4,9 @@ const log = require('../lib/logger');
 const {
   buildSplitSnapshot,
   computeBalancesFromSnapshots,
+  DEFAULT_SPLIT_WEIGHT,
+  effectiveSplitPercents,
+  joinSplitWeight,
   shareCents,
   simplifyDebts,
 } = require('./spaces-split');
@@ -70,7 +73,7 @@ async function crearEspacio(userId, name, type = 'custom') {
     space_id: space.id,
     user_id: userId,
     role: 'owner',
-    split_percentage: 50,
+    split_percentage: DEFAULT_SPLIT_WEIGHT,
   });
 
   return space;
@@ -97,30 +100,68 @@ async function unirseEspacio(userId, inviteCode) {
     .single();
   if (existing) return { space, member: existing, alreadyMember: true };
 
-  // Count current members
-  const { data: members } = await supabase.from('space_members')
-    .select('id')
+  const { data: previos } = await supabase.from('space_members')
+    .select('user_id, split_percentage')
     .eq('space_id', space.id);
-  const memberCount = members ? members.length : 0;
+  const miembrosPrevios = previos || [];
 
-  // Add member with equal split (recalculated)
-  const newPct = Math.round(100 / (memberCount + 1) * 100) / 100;
+  // El que entra toma el peso promedio y NADIE MAS se toca. Antes esto reescribia
+  // el split de todo el espacio a 100/n: un 70/30 acordado moria en silencio
+  // porque aparecio un tercero. Como los gastos congelan su division, eso no
+  // reescribia el pasado, pero si cambiaba el futuro sin que nadie lo pidiera.
   const { data: member, error: eMember } = await supabase.from('space_members').insert({
     space_id: space.id,
     user_id: userId,
     role: 'member',
-    split_percentage: newPct,
+    split_percentage: joinSplitWeight(miembrosPrevios),
   }).select().single();
   if (eMember) throw eMember;
 
-  // Update all members to equal split
-  if (memberCount > 0) {
-    await supabase.from('space_members')
-      .update({ split_percentage: newPct })
-      .eq('space_id', space.id);
-  }
+  return { space, member, alreadyMember: false, miembrosPrevios };
+}
 
-  return { space, member, alreadyMember: false };
+/**
+ * Avisa a los que YA estaban que entro alguien y como quedo su parte.
+ *
+ * El reparto del espacio cambia al entrar un miembro (no porque se reescriba el
+ * peso de nadie, sino porque el peso se normaliza entre mas gente). Ese es el
+ * ultimo camino por el que la parte de alguien se movia sin que se enterara, y
+ * este aviso es lo que lo cierra.
+ *
+ * Best-effort a proposito: nunca lanza. Fuera de la ventana de 24h de Meta el
+ * mensaje libre no se entrega, asi que la garantia real es la webapp (que muestra
+ * el porcentaje efectivo) y esto es el extra.
+ */
+async function notificarNuevoMiembro(spaceId, nuevoUserId) {
+  try {
+    const [{ data: space }, { data: actuales }] = await Promise.all([
+      supabase.from('shared_spaces').select('name').eq('id', spaceId).single(),
+      supabase.from('space_members')
+        .select('user_id, split_percentage, usuarios(nombre, whatsapp)')
+        .eq('space_id', spaceId),
+    ]);
+    if (!space || !actuales || actuales.length < 2) return;
+
+    const nuevo = actuales.find((m) => m.user_id === nuevoUserId);
+    const previos = actuales.filter((m) => m.user_id !== nuevoUserId);
+    if (!nuevo || previos.length === 0) return;
+
+    // Los dos porcentajes salen del mismo motor que cobra: el "antes" es el
+    // espacio sin el que acaba de entrar, el "despues" es el espacio de ahora.
+    const antes = effectiveSplitPercents(previos);
+    const despues = effectiveSplitPercents(actuales);
+    const nombreNuevo = nuevo.usuarios?.nombre?.split(' ')[0] || 'Alguien';
+
+    for (const m of previos) {
+      if (!m.usuarios?.whatsapp) continue;
+      const msg = '👋 *' + nombreNuevo + ' se unió a ' + space.name + '*\n\n' +
+        'Tu parte por defecto pasó de ' + (antes[m.user_id] ?? 0) + '% a ' + (despues[m.user_id] ?? 0) + '%.\n\n' +
+        '_Si prefieren otro reparto, ajústenlo acá: https://app.neto.pe/dashboard/espacios_';
+      try { await enviarWhatsapp(m.usuarios.whatsapp, msg); } catch (e) { /* silent */ }
+    }
+  } catch (e) {
+    log.warn({ tag: 'ESPACIO_JOIN_AVISO', err: e.message }, 'No se pudo avisar del nuevo miembro');
+  }
 }
 
 /**
@@ -296,6 +337,7 @@ async function obtenerResumenEspacio(userId, spaceId) {
 module.exports = {
   crearEspacio,
   unirseEspacio,
+  notificarNuevoMiembro,
   registrarGastoCompartido,
   obtenerBalanceEspacio,
   liquidarCuentas,

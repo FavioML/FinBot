@@ -28,7 +28,10 @@ export async function PUT(
   }
 
   for (const [uid, raw] of entries) {
-    const pct = Math.max(0, Math.min(100, Math.round(Number(raw) || 0)));
+    // 2 decimales, no enteros: la UI prefilla con el porcentaje EFECTIVO (46.7,
+    // 33.3), asi que redondear a entero hacia que abrir el dialogo y guardar sin
+    // tocar nada corriera el reparto un poco cada vez. NUMERIC(5,2) los aguanta.
+    const pct = Math.max(0, Math.min(100, Math.round((Number(raw) || 0) * 100) / 100));
     const { error } = await getServiceClient()
       .from('space_members')
       .update({ split_percentage: pct })

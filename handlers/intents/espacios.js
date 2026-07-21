@@ -8,11 +8,12 @@ module.exports = {
   async handle({ intencion, msg, datos, usuario, from, ctx }) {
     const { supabase } = ctx;
     const {
-      crearEspacio, unirseEspacio, registrarGastoCompartido,
+      crearEspacio, unirseEspacio, notificarNuevoMiembro, registrarGastoCompartido,
       obtenerBalanceEspacio, liquidarCuentas, obtenerEspaciosUsuario, obtenerResumenEspacio,
     } = require('../../services/shared-spaces');
-    const { shareCents } = require('../../services/spaces-split');
+    const { effectiveSplitPercents, shareCents } = require('../../services/spaces-split');
     const { checkProLimit } = require('../../helpers/pro-wall');
+    const { validarMonto } = require('../../lib/validators');
 
     switch (intencion) {
 
@@ -62,8 +63,12 @@ module.exports = {
 
       case 'registrar_gasto_espacio': {
         try {
-          const monto = datos.monto ? parseFloat(datos.monto) : null;
-          if (!monto || monto <= 0) return 'Dime el monto. Ej: _"pagué 200 de luz del depa"_';
+          // `parseFloat` solo no alcanza: "1e999" sobrevive como Infinity y
+          // `!Infinity` es false, asi que un monto absurdo pasaba el guard y
+          // descuadraba el balance del grupo. `validarMonto` es el mismo tope
+          // (999999.99) que ya aplican la webapp y el resto del backend.
+          const monto = validarMonto(datos.monto);
+          if (!monto) return 'Dime el monto. Ej: _"pagué 200 de luz del depa"_';
 
           // Find the target space
           const espacios = await obtenerEspaciosUsuario(usuario.id);
@@ -159,9 +164,11 @@ module.exports = {
 
       case 'liquidar_espacio': {
         try {
-          const monto = datos.monto ? parseFloat(datos.monto) : null;
+          // Mismo guard que el gasto: una liquidacion con monto absurdo o Infinity
+          // mueve el ledger del espacio igual de lejos.
+          const monto = validarMonto(datos.monto);
           const contraparte = datos.contraparte || null;
-          if (!monto || monto <= 0) return 'Dime cuánto pagaste. Ej: _"le pagué 150 a Juan del depa"_';
+          if (!monto) return 'Dime cuánto pagaste. Ej: _"le pagué 150 a Juan del depa"_';
           if (!contraparte) return 'Dime a quién le pagaste. Ej: _"le pagué 150 a Juan del depa"_';
 
           // Find space
@@ -235,8 +242,19 @@ module.exports = {
             return '👍 Ya eres parte de *' + result.space.name + '*.\n_Escribe "ver balance espacio" para ver detalles._';
           }
 
+          await notificarNuevoMiembro(result.space.id, usuario.id);
+
+          // El % que se anuncia sale del mismo motor que cobra. Antes decia
+          // siempre "se dividiran equitativamente", que era falso en cuanto el
+          // espacio tenia un reparto personalizado.
+          const conNuevo = (result.miembrosPrevios || []).concat([
+            { user_id: usuario.id, split_percentage: result.member.split_percentage },
+          ]);
+          const miParte = effectiveSplitPercents(conNuevo)[usuario.id] ?? 0;
+
           return '🎉 *¡Te uniste a ' + result.space.name + '!*\n\n' +
-            '_Los gastos compartidos se dividirán equitativamente entre todos los miembros._\n' +
+            'Por defecto te toca el ' + miParte + '% de cada gasto compartido.\n\n' +
+            '_Pueden ajustar el reparto en https://app.neto.pe/dashboard/espacios_\n' +
             '_Escribe "ver balance espacio" para ver detalles._';
         } catch (e) {
           log.error({ tag: 'UNIRSE', err: e.message }, 'Error uniéndose');
