@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 import { goalsFactor, debtsFactor } from '@/lib/score-factors';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 // Cold starts + 5 queries paralelas + upsert pueden exceder el límite default de
 // la función serverless en el path de cálculo fresco, lo que Vercel devuelve como
@@ -174,6 +175,17 @@ export async function GET(request: Request) {
   const wantHistory = searchParams.get('history') === 'true';
   const months = parseInt(searchParams.get('months') || '1');
   const forceRefresh = searchParams.get('refresh') === 'true';
+
+  // Solo el path caro se limita: el GET normal sirve el score persistido con una
+  // sola query y lo consulta cada carga del dashboard. `?refresh=true` dispara 5
+  // queries + upsert, asi que se acota.
+  // OJO: checkRateLimit es un Map EN MEMORIA, per-instance. En Vercel serverless
+  // cada invocacion puede caer en una instancia distinta, asi que esto es una
+  // barrera best-effort contra el spam accidental, NO una defensa dura. Un limite
+  // real necesita store compartido (Supabase/Upstash) — decision de infra pendiente.
+  if (forceRefresh && !checkRateLimit(`score-refresh:${usuario.id}`, 10, 60_000)) {
+    return NextResponse.json({ error: 'Demasiadas solicitudes, intenta en un minuto' }, { status: 429 });
+  }
 
   const isPro = usuario.plan === 'premium';
 

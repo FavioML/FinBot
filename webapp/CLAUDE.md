@@ -91,6 +91,32 @@ export async function POST(request: Request) {
 }
 ```
 
+### Espacios (`space_*`): service-role-only POR DISEÑO — la autorizacion vive en el codigo
+
+Las tablas `shared_spaces`, `space_members`, `space_expenses` y `space_settlements`
+**no tienen policies RLS para `authenticated`**, y eso es deliberado, no un olvido.
+
+El modelo "host paga" obliga a leer la fila `usuarios` del OWNER del espacio para
+resolver el tier Pro. Una policy scopeada a `auth.uid()` nunca puede permitir eso:
+un miembro necesita ver data de OTROS miembros. Por eso toda la feature pasa por
+`/api/spaces/*` con service-role (que ignora RLS). RLS queda activo = deny-all.
+
+Hubo policies SELECT escritas con la intencion de habilitar lectura `authenticated`,
+pero eran **inservibles**: la de `space_members` se auto-referenciaba y fallaba con
+`42P17: infinite recursion`. Nunca se disparo en prod porque service-role las
+bypassa, pero daban falsa sensacion de cobertura. Se eliminaron (migracion 033).
+
+**Consecuencia operativa:** no hay red debajo. Toda ruta nueva bajo `/api/spaces/*`
+DEBE autorizar con el chokepoint de `lib/spaces-server.ts`:
+
+```typescript
+const auth = await requireSpaceMember(spaceId)  // o requireSpaceOwner
+if (!auth.ok) return auth.response
+// auth.user.id / auth.user.plan / auth.role
+```
+
+Una ruta que se olvide ese check es IDOR directo. No repliques el chequeo a mano.
+
 ### Multimoneda
 - Columnas: `monto` (original) + `monto_pen` (convertido) + `tipo_cambio`
 - Conversion en insert/update via `getExchangeRate()`

@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 import { goalsFactor, debtsFactor } from '@/lib/score-factors';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 const WEIGHTS = {
   consistency: 0.20,
@@ -31,6 +32,14 @@ export async function POST() {
     .single();
 
   if (!usuario) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+
+  // Barrera best-effort: el backfill corre 5 queries + N upserts. Es idempotente
+  // (tras la primera pasada devuelve backfilled: 0), pero sin limite se puede
+  // spamear para amplificar carga a Supabase. Mismo caveat que en /api/score:
+  // el Map es per-instance, no es una defensa dura en serverless.
+  if (!checkRateLimit(`score-backfill:${usuario.id}`, 5, 60_000)) {
+    return NextResponse.json({ error: 'Demasiadas solicitudes, intenta en un minuto' }, { status: 429 });
+  }
 
   // Get all transactions to find months with activity
   const sixMonthsAgo = new Date();

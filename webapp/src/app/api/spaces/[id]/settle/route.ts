@@ -1,48 +1,40 @@
-import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
+import { getSpaceMemberIds, requireSpaceMember } from '@/lib/spaces-server';
 import { NextResponse } from 'next/server';
-
-async function getNetoUserId() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-  const { data } = await getServiceClient()
-    .from('usuarios')
-    .select('id')
-    .eq('supabase_auth_id', user.id)
-    .single();
-  return data;
-}
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const usuario = await getNetoUserId();
-  if (!usuario) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const { data: membership } = await getServiceClient()
-    .from('space_members')
-    .select('id')
-    .eq('space_id', id)
-    .eq('user_id', usuario.id)
-    .single();
-  if (!membership) return NextResponse.json({ error: 'Not a member' }, { status: 403 });
+  const auth = await requireSpaceMember(id);
+  if (!auth.ok) return auth.response;
 
   const body = await request.json();
   const { to_user, amount } = body;
-  if (!to_user || !amount || isNaN(Number(amount)) || Number(amount) <= 0) {
+  const montoNum = Number(amount);
+  if (!to_user || !Number.isFinite(montoNum) || montoNum <= 0) {
     return NextResponse.json({ error: 'to_user and amount required' }, { status: 400 });
+  }
+
+  // El destinatario tiene que ser miembro del espacio: sin este check se podia
+  // registrar una liquidacion contra un user_id arbitrario, descuadrando el
+  // ledger del grupo (el saldo salia del espacio hacia alguien que no esta).
+  const memberIds = await getSpaceMemberIds(id);
+  if (!memberIds.has(to_user)) {
+    return NextResponse.json({ error: 'to_user no es miembro del espacio' }, { status: 400 });
+  }
+  if (to_user === auth.user.id) {
+    return NextResponse.json({ error: 'No puedes saldar contigo mismo' }, { status: 400 });
   }
 
   const { data, error } = await getServiceClient()
     .from('space_settlements')
     .insert({
       space_id: id,
-      from_user: usuario.id,
+      from_user: auth.user.id,
       to_user,
-      amount: Number(amount),
+      amount: montoNum,
       settled_at: new Date().toISOString(),
     })
     .select()

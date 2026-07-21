@@ -1,37 +1,14 @@
-import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
+import { requireSpaceMember } from '@/lib/spaces-server';
 import { NextResponse } from 'next/server';
-
-async function getNetoUserId() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-  const { data } = await getServiceClient()
-    .from('usuarios')
-    .select('id')
-    .eq('supabase_auth_id', user.id)
-    .single();
-  return data;
-}
-
-async function verifyMembership(spaceId: string, userId: string) {
-  const { data } = await getServiceClient()
-    .from('space_members')
-    .select('id')
-    .eq('space_id', spaceId)
-    .eq('user_id', userId)
-    .single();
-  return !!data;
-}
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const usuario = await getNetoUserId();
-  if (!usuario) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if (!(await verifyMembership(id, usuario.id))) return NextResponse.json({ error: 'Not a member' }, { status: 403 });
+  const auth = await requireSpaceMember(id);
+  if (!auth.ok) return auth.response;
 
   const body = await request.json();
   const { amount, description, category } = body;
@@ -43,7 +20,7 @@ export async function POST(
     .from('space_expenses')
     .insert({
       space_id: id,
-      paid_by: usuario.id,
+      paid_by: auth.user.id,
       amount: Number(amount),
       description: description || null,
       category: category || null,
@@ -60,9 +37,8 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const usuario = await getNetoUserId();
-  if (!usuario) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if (!(await verifyMembership(id, usuario.id))) return NextResponse.json({ error: 'Not a member' }, { status: 403 });
+  const auth = await requireSpaceMember(id);
+  if (!auth.ok) return auth.response;
 
   const body = await request.json();
   const { id: expenseId, amount, description, category } = body;
@@ -96,9 +72,8 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const usuario = await getNetoUserId();
-  if (!usuario) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if (!(await verifyMembership(id, usuario.id))) return NextResponse.json({ error: 'Not a member' }, { status: 403 });
+  const auth = await requireSpaceMember(id);
+  if (!auth.ok) return auth.response;
 
   const url = new URL(request.url);
   const expenseId = url.searchParams.get('id');

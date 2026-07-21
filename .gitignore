@@ -62,3 +62,8 @@ landing/node_modules/
 tasks/
 
 _basura/
+
+# Screenshots que dejan los harness qa-e2e en la raiz del repo
+*.png
+!assets/**/*.png
+!webapp/public/**/*.png

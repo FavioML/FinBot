@@ -1,18 +1,6 @@
-import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
+import { getSpaceMemberIds, requireSpaceMember } from '@/lib/spaces-server';
 import { NextResponse } from 'next/server';
-
-async function getNetoUserId() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-  const { data } = await getServiceClient()
-    .from('usuarios')
-    .select('id')
-    .eq('supabase_auth_id', user.id)
-    .single();
-  return data?.id ?? null;
-}
 
 // PUT /api/spaces/[id]/default-split — updates each member's split_percentage.
 // This is the default (per-member) division applied to categories without a
@@ -22,16 +10,8 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const userId = await getNetoUserId();
-  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const { data: membership } = await getServiceClient()
-    .from('space_members')
-    .select('id')
-    .eq('space_id', id)
-    .eq('user_id', userId)
-    .single();
-  if (!membership) return NextResponse.json({ error: 'Not a member' }, { status: 403 });
+  const auth = await requireSpaceMember(id);
+  if (!auth.ok) return auth.response;
 
   const body = await request.json();
   const { splits } = body;
@@ -40,11 +20,7 @@ export async function PUT(
   }
 
   // Only touch members that actually belong to this space.
-  const { data: members } = await getServiceClient()
-    .from('space_members')
-    .select('user_id')
-    .eq('space_id', id);
-  const memberIds = new Set((members || []).map((m) => m.user_id));
+  const memberIds = await getSpaceMemberIds(id);
 
   const entries = Object.entries(splits as Record<string, unknown>).filter(([uid]) => memberIds.has(uid));
   if (entries.length === 0) {
