@@ -15,7 +15,9 @@
 //   3. Un gasto registrado despues se divide con ese reparto, no en partes iguales.
 //   4. El camino de WhatsApp (`unirseEspacio`) deja EXACTAMENTE el mismo estado
 //      que el camino de la webapp sobre el mismo espacio de partida.
-//   5. Un espacio sin personalizar (50/50) sigue quedando en partes iguales.
+//   5. Un miembro que NO es owner puede editar el reparto (es un acuerdo entre las
+//      partes, no una config de admin), y guardar los % efectivos no corre nada.
+//   6. Un espacio sin personalizar (50/50) sigue quedando en partes iguales.
 //
 // El backend corre LOCAL contra la Supabase de produccion (mismo codigo que
 // Railway). `enviarWhatsapp` se stubea: aca se prueba el reparto, no la
@@ -195,7 +197,29 @@ try {
     shareCents(snapWa, M3) === 13333 && shareCents(snapWa, FREE) === 6667 && shareCents(snapWa, PRO) === 10000,
     JSON.stringify(snapWa?.shares));
 
-  // ------------------------------------- 4. espacio sin personalizar: equitativo
+  // ------------------------------- 4. editar el reparto: cualquier miembro puede
+  // El usuario QA entro como member (no es owner del espacio). Que pueda editar el
+  // reparto es deliberado: es un acuerdo entre las partes, no una config de admin.
+  // Lo que lo hace seguro es el aviso, no el permiso.
+  const edit = await api(`/api/spaces/${sp.id}/default-split`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ splits: { [M3]: 44.4, [FREE]: 22.2, [PRO]: 33.3 } }),
+  });
+  check('un member (no owner) puede editar el reparto', edit.status === 200, `status ${edit.status}`);
+
+  const editado = await miembros(sp.id);
+  check('los pesos se guardan con 2 decimales, sin redondear a entero',
+    pesoDe(editado, M3) === 44.4 && pesoDe(editado, FREE) === 22.2 && pesoDe(editado, PRO) === 33.3,
+    JSON.stringify(editado.map(m => Number(m.split_percentage))));
+  // Guardar los % efectivos tal cual reproduce el mismo reparto: abrir el dialogo
+  // y guardar sin tocar nada no puede correr lo que paga cada uno.
+  const pctEditado = effectiveSplitPercents(editado);
+  check('guardar los % efectivos no corre el reparto',
+    pctEditado[M3] === 44.4 && pctEditado[FREE] === 22.2 && pctEditado[PRO] === 33.3,
+    JSON.stringify(pctEditado));
+
+  // ------------------------------------- 5. espacio sin personalizar: equitativo
   const sp3 = await crearEspacio('QA join 50/50', { [M3]: 50, [FREE]: 50 });
   const r3 = await api('/api/spaces/join', J({ code: sp3.invite_code }));
   check('join en espacio sin personalizar responde 201', r3.status === 201, `status ${r3.status}`);
