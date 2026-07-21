@@ -166,6 +166,32 @@ parte de alguien se movía sin avisarle. Reglas que lo sostienen:
   llama a `POST /admin/espacio-nuevo-miembro` con ADMIN_KEY. Es best-effort: fuera
   de la ventana de 24h de Meta el mensaje libre no se entrega, así que la garantía
   real es la webapp.
+
+### Espacios: quién puede cambiar el reparto
+
+La línea de autorización del módulo, deliberada:
+
+| Manda el owner | Manda cualquier miembro |
+|---|---|
+| quién ESTÁ en el espacio (`members` DELETE) y si el espacio existe (`[id]` PUT/DELETE) | cómo se REPARTE y qué se gasta (`default-split`, `split-rules`, `budgets`, `expenses`, `settle`) |
+
+`default-split` es de cualquier miembro **a propósito**. Se evaluó gatearlo al
+owner y se descartó por tres razones:
+1. **No cierra el hueco, solo elige quién lo abre.** El owner podría igual cambiar
+   lo que pagan todos en silencio. El problema nunca fue el permiso.
+2. **Rompe el caso principal.** En un espacio de pareja, si tu pareja creó el
+   espacio, no podrías ajustar tu propio porcentaje sin pedírselo.
+3. **Partiría la línea de arriba a la mitad**, dejando `split-rules` (que mueve la
+   misma plata) abierto igual.
+
+Lo que hace que sea seguro es el **aviso**, no el permiso: `notificarRepartoEditado`
+le escribe a todos menos al que editó, con su % efectivo antes y después. Los dos
+avisos (join y edición) comparten motor en `avisarCambioDeParte`; a quien no le
+cambió la parte no se le escribe, porque un aviso de "pasó de 50% a 50%" entrena a
+ignorar los que sí importan.
+
+**Pendiente conocido:** `PUT split-rules` (reglas Pro por categoría) todavía no
+avisa. Misma familia, mismo hueco, escala menor porque es Pro y por categoría.
 - **La UI muestra el % efectivo** (`effectiveSplitPercents`), nunca la columna
   cruda. Pintar el peso con un "%" pegado le decía "70%" a quien paga 46.7%.
 

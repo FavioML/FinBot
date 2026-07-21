@@ -268,4 +268,26 @@ router.post('/espacio-nuevo-miembro', async (req, res) => {
   }
 });
 
+/**
+ * POST /admin/espacio-reparto-cambiado — avisa que alguien edito el split por
+ * defecto del espacio.
+ *
+ * Mismo hop que el aviso de nuevo miembro y por la misma razon: la webapp no
+ * puede mandar WhatsApp. `antes` son los pesos que habia justo antes de escribir;
+ * solo alimenta el texto del "de X% a Y%", la plata no depende de el.
+ */
+router.post('/espacio-reparto-cambiado', async (req, res) => {
+  if (!verificarAdmin(req, res)) return;
+  const { space_id, actor_id, antes } = req.body || {};
+  if (!space_id || !actor_id) return res.status(400).json({ ok: false, msg: 'Faltan space_id y actor_id' });
+  try {
+    const { notificarRepartoEditado } = require('../services/shared-spaces');
+    await notificarRepartoEditado(space_id, actor_id, antes);
+    res.json({ ok: true });
+  } catch (e) {
+    log.error({ tag: 'ESPACIO_SPLIT_AVISO', err: e.message }, 'Error avisando del cambio de reparto');
+    res.status(500).json({ ok: false, msg: 'Error enviando el aviso' });
+  }
+});
+
 module.exports = router;

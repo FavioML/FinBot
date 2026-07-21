@@ -29,6 +29,37 @@ export interface NetoUser {
   plan: string | null;
 }
 
+const BACKEND_URL = process.env.NETO_BACKEND_URL || process.env.RAILWAY_URL || 'https://api.neto.pe';
+
+/**
+ * Le pide al backend que mande un aviso por WhatsApp a los miembros de un espacio.
+ *
+ * Vive alla porque solo el backend tiene el token de Meta; la webapp no puede
+ * enviar nada. Se usa para los cambios que mueven la plata FUTURA de alguien
+ * (entra un miembro, se edita el reparto): la regla del producto es que eso nunca
+ * pasa en silencio.
+ *
+ * Best-effort a proposito: si el hop falla, la escritura ya ocurrio y el cambio se
+ * ve igual en la webapp, que es la garantia real (fuera de la ventana de 24h de
+ * Meta el mensaje libre tampoco se entregaria). Nunca lanza.
+ */
+export async function avisarBackendEspacio(
+  ruta: 'espacio-nuevo-miembro' | 'espacio-reparto-cambiado',
+  payload: Record<string, unknown>
+): Promise<void> {
+  const adminKey = process.env.ADMIN_KEY;
+  if (!adminKey) return;
+  try {
+    await fetch(`${BACKEND_URL}/admin/${ruta}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-admin-key': adminKey },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    // Silencioso a proposito: no vale la pena fallar la operacion por un aviso.
+  }
+}
+
 /** Usuario Neto detras de la sesion Supabase actual, o null si no hay sesion. */
 export async function getSessionUser(): Promise<NetoUser | null> {
   const supabase = await createClient();

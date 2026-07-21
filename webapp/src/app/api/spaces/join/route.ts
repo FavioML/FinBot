@@ -1,31 +1,7 @@
 import { getServiceClient } from '@/lib/supabase/service';
-import { getSessionUser } from '@/lib/spaces-server';
+import { avisarBackendEspacio, getSessionUser } from '@/lib/spaces-server';
 import { joinSplitWeight } from '@/lib/spaces-split';
 import { NextResponse } from 'next/server';
-
-const BACKEND_URL = process.env.NETO_BACKEND_URL || process.env.RAILWAY_URL || 'https://api.neto.pe';
-
-/**
- * Le pide al backend que avise por WhatsApp a los que ya estaban.
- *
- * Vive alla porque solo el backend tiene el token de Meta. Best-effort: si la
- * llamada falla, el que entro igual quedo adentro y el cambio de reparto se ve en
- * la webapp, que es la garantia real (fuera de la ventana de 24h de Meta el
- * mensaje libre tampoco se entregaria).
- */
-async function avisarNuevoMiembro(spaceId: string, userId: string) {
-  const adminKey = process.env.ADMIN_KEY;
-  if (!adminKey) return;
-  try {
-    await fetch(`${BACKEND_URL}/admin/espacio-nuevo-miembro`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-admin-key': adminKey },
-      body: JSON.stringify({ space_id: spaceId, user_id: userId }),
-    });
-  } catch {
-    // Silencioso a proposito: no vale la pena fallar un join por un aviso.
-  }
-}
 
 export async function POST(request: Request) {
   const usuario = await getSessionUser();
@@ -76,6 +52,6 @@ export async function POST(request: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-  await avisarNuevoMiembro(space.id, usuario.id);
+  await avisarBackendEspacio('espacio-nuevo-miembro', { space_id: space.id, user_id: usuario.id });
   return NextResponse.json({ space_id: space.id, name: space.name }, { status: 201 });
 }

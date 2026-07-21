@@ -121,18 +121,20 @@ async function unirseEspacio(userId, inviteCode) {
 }
 
 /**
- * Avisa a los que YA estaban que entro alguien y como quedo su parte.
+ * Le dice a cada miembro como quedo SU parte despues de que algo movio el reparto.
  *
- * El reparto del espacio cambia al entrar un miembro (no porque se reescriba el
- * peso de nadie, sino porque el peso se normaliza entre mas gente). Ese es el
- * ultimo camino por el que la parte de alguien se movia sin que se enterara, y
- * este aviso es lo que lo cierra.
+ * Motor unico de los avisos de reparto: quien entra a un espacio y quien edita el
+ * split por defecto disparan el mismo mensaje con distinto encabezado. Escribirlo
+ * dos veces era garantizar que un dia anunciaran numeros distintos.
+ *
+ * La regla que sostienen estos avisos: la plata futura de alguien no se mueve sin
+ * que esa persona se entere. Por eso el permiso importa menos que el aviso.
  *
  * Best-effort a proposito: nunca lanza. Fuera de la ventana de 24h de Meta el
  * mensaje libre no se entrega, asi que la garantia real es la webapp (que muestra
  * el porcentaje efectivo) y esto es el extra.
  */
-async function notificarNuevoMiembro(spaceId, nuevoUserId) {
+async function avisarCambioDeParte({ spaceId, actorId, miembrosAntes, emoji, accion, tag }) {
   try {
     const [{ data: space }, { data: actuales }] = await Promise.all([
       supabase.from('shared_spaces').select('name').eq('id', spaceId).single(),
@@ -142,32 +144,86 @@ async function notificarNuevoMiembro(spaceId, nuevoUserId) {
     ]);
     if (!space || !actuales || actuales.length < 2) return;
 
-    const nuevo = actuales.find((m) => m.user_id === nuevoUserId);
-    const previos = actuales.filter((m) => m.user_id !== nuevoUserId);
-    if (!nuevo || previos.length === 0) return;
+    const actor = actuales.find((m) => m.user_id === actorId);
+    const destinatarios = actuales.filter((m) => m.user_id !== actorId);
+    if (destinatarios.length === 0) return;
 
-    // Los dos porcentajes salen del mismo motor que cobra: el "antes" es el
-    // espacio sin el que acaba de entrar, el "despues" es el espacio de ahora.
-    const antes = effectiveSplitPercents(previos);
+    // Los dos porcentajes salen del mismo motor que cobra, no de una formula
+    // aparte: lo que se anuncia es exactamente lo que va a salir en el balance.
+    const antes = effectiveSplitPercents(miembrosAntes);
     const despues = effectiveSplitPercents(actuales);
-    const nombreNuevo = nuevo.usuarios?.nombre?.split(' ')[0] || 'Alguien';
+    const nombreActor = actor?.usuarios?.nombre?.split(' ')[0] || 'Alguien';
 
     let enviados = 0;
-    for (const m of previos) {
+    let sinCambio = 0;
+    for (const m of destinatarios) {
+      const a = antes[m.user_id];
+      const d = despues[m.user_id] ?? 0;
+      // A quien no se le movio la parte no se le escribe. Un aviso que dice
+      // "paso de 50% a 50%" entrena a ignorar los avisos que si importan.
+      if (a !== undefined && a === d) { sinCambio++; continue; }
       if (!m.usuarios?.whatsapp) continue;
-      const msg = '👋 *' + nombreNuevo + ' se unió a ' + space.name + '*\n\n' +
-        'Tu parte por defecto pasó de ' + (antes[m.user_id] ?? 0) + '% a ' + (despues[m.user_id] ?? 0) + '%.\n\n' +
+
+      const msg = emoji + ' *' + nombreActor + ' ' + accion + ' ' + space.name + '*\n\n' +
+        'Tu parte por defecto pasó de ' + (a ?? 0) + '% a ' + d + '%.\n\n' +
         '_Si prefieren otro reparto, ajústenlo acá: https://app.neto.pe/dashboard/espacios_';
       try { await enviarWhatsapp(m.usuarios.whatsapp, msg); enviados++; } catch (e) { /* silent */ }
     }
 
-    // Se loguea el exito, no solo el error: este aviso viaja webapp -> backend con
-    // ADMIN_KEY, y sin una linea por corrida no hay forma de saber desde afuera si
-    // el hop se esta haciendo o si se cae en silencio por una env var faltante.
-    log.info({ tag: 'ESPACIO_JOIN_AVISO', spaceId, previos: previos.length, enviados }, 'Aviso de nuevo miembro');
+    // Se loguea el exito, no solo el error: estos avisos viajan webapp -> backend
+    // con ADMIN_KEY, y sin una linea por corrida no hay forma de saber desde afuera
+    // si el hop se esta haciendo o si se cae en silencio por una env var faltante.
+    log.info({ tag, spaceId, destinatarios: destinatarios.length, enviados, sinCambio }, 'Aviso de cambio de reparto');
   } catch (e) {
-    log.warn({ tag: 'ESPACIO_JOIN_AVISO', err: e.message }, 'No se pudo avisar del nuevo miembro');
+    log.warn({ tag, err: e.message }, 'No se pudo avisar del cambio de reparto');
   }
+}
+
+/**
+ * Avisa a los que YA estaban que entro alguien y como quedo su parte.
+ *
+ * El reparto cambia al entrar un miembro no porque se reescriba el peso de nadie,
+ * sino porque el peso se normaliza entre mas gente. Ese era el ultimo camino por
+ * el que la parte de alguien se movia sin que se enterara.
+ */
+async function notificarNuevoMiembro(spaceId, nuevoUserId) {
+  const { data: actuales } = await supabase.from('space_members')
+    .select('user_id, split_percentage').eq('space_id', spaceId);
+  // El "antes" de un join es el espacio sin el que acaba de entrar: nadie mas
+  // cambio de peso, lo que cambia es entre cuantos se normaliza.
+  const miembrosAntes = (actuales || []).filter((m) => m.user_id !== nuevoUserId);
+  return avisarCambioDeParte({
+    spaceId,
+    actorId: nuevoUserId,
+    miembrosAntes,
+    emoji: '👋',
+    accion: 'se unió a',
+    tag: 'ESPACIO_JOIN_AVISO',
+  });
+}
+
+/**
+ * Avisa que alguien edito el reparto por defecto del espacio.
+ *
+ * Cualquier miembro puede editarlo, y eso es a proposito: el reparto es un
+ * acuerdo entre las partes, no una configuracion de administrador. En un espacio
+ * de pareja, gatearlo al que creo el espacio dejaria al otro sin poder ajustar su
+ * propio porcentaje. Lo que hace que eso sea seguro no es el permiso, es que el
+ * cambio se ANUNCIE: owner-only no cerraria el hueco, solo elegiria quien puede
+ * abrirlo en silencio.
+ *
+ * `miembrosAntes` lo manda quien edito (los pesos leidos justo antes de escribir),
+ * y solo alimenta el texto del "de X% a Y%". La plata no depende de el.
+ */
+async function notificarRepartoEditado(spaceId, actorId, miembrosAntes) {
+  return avisarCambioDeParte({
+    spaceId,
+    actorId,
+    miembrosAntes: Array.isArray(miembrosAntes) ? miembrosAntes : [],
+    emoji: '⚖️',
+    accion: 'cambió el reparto de',
+    tag: 'ESPACIO_SPLIT_AVISO',
+  });
 }
 
 /**
@@ -344,6 +400,7 @@ module.exports = {
   crearEspacio,
   unirseEspacio,
   notificarNuevoMiembro,
+  notificarRepartoEditado,
   registrarGastoCompartido,
   obtenerBalanceEspacio,
   liquidarCuentas,
