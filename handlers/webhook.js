@@ -432,8 +432,10 @@ function createWebhookHandler(procesarMensajeLibre) {
       const refCode = refMatch[1].toUpperCase();
       const { data: referrer } = await supabase.from('usuarios').select('id').eq('ref_code', refCode).neq('id', usuario.id).single();
       if (referrer) {
-        registrarReferido(referrer.id, usuario.id);
-        verificarProReferidos(referrer.id);
+        // Con await: sin él, verificarProReferidos podía leer los referidos antes de que
+        // el insert de registrarReferido aterrizara y no contar al recién llegado.
+        await registrarReferido(referrer.id, usuario.id);
+        await verificarProReferidos(referrer.id);
       }
     }
 
