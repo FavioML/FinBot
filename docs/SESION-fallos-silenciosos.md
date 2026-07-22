@@ -54,6 +54,35 @@ Relacionado y **sin resolver**: `manos_libres = true` da **0 usuarios**, o sea q
 `generarResumenDiario` no se ejecuta para nadie. Eso es producto, no robustez; va a la sesión de
 `SESION-ia-vs-texto-fijo.md`.
 
+## Bug vivo encontrado con el método corregido (22-jul-2026, commit 8843f8b)
+
+Cambiando el grep de `catch` a `const { data } = await supabase` salieron **186 sitios en backend**.
+Barriendo la clase peligrosa (lectura falla → el código cree que no existe → escribe igual) apareció
+un duplicado real de transacciones, aunque por otra causa: `services/transactions.js` saltaba el
+dedup por hash para todo lo que entra por Gmail (`if (!datos.esGmail)`), confiando solo en el índice
+único de `gmail_msg_id`. Cuando el banco manda **dos correos distintos para el mismo cargo**, cada
+uno trae su id, el índice no los ve como duplicados y entran los dos. Pasó el 20-jul: Smart Fit
+S/119.90 dos veces, correos a 1 segundo.
+
+Un SELECT-antes-de-INSERT no arregla esto: el sweep parsea 5 correos en paralelo (`CONCURRENCIA_SWEEP`),
+así que los dos duplicados consultan antes de que cualquiera inserte. El guard es un Map en memoria
+(check y marca sin `await` en medio = atómico en Node, y el backend es instancia única), y discrimina
+por **hora de llegada del correo** (`internalDate`, ahora propagado como `recibidoEnMs`), no por hora
+de proceso. Solo en escaneo incremental: en el barrido histórico dos compras legítimas del mismo día
+se procesan juntas y colapsarían mal.
+
+**Lección sobre medir antes de borrar.** El primer conteo dio "24 filas duplicadas, S/1386 inflados".
+Era el techo, no el dato: asumía que todo choque de `dedup_hash` es un duplicado. Al mirar fila por
+fila, varias eran reales (dos viajes de bus de S/2 con 3.7h de diferencia; varios cargos de ITF de
+S/0.20 el mismo día). El piso demostrable resultó ser **4 filas, S/48**: el único caso donde el mismo
+correo de Gmail entró más de una vez. Las otras 16 quedaron intactas.
+- **`descripcion_original` NO es un ID único salvo cuando el origen es Gmail.** En entrada manual
+  guarda el texto del mensaje ("Bus 2 soles") y en Yape el asunto ("¡Yapeaste!"), que se repite en
+  todos los correos de Yape. Agrupar por esa columna sin filtrar por formato de msg id (hex de 16)
+  mezcla duplicados con compras reales.
+- **Editar el monto no recalcula `dedup_hash`.** Por eso hay filas con el mismo hash y montos
+  distintos (Bar Refugio: S/15 corregido a mano + 4 copias de S/12 sin tocar).
+
 ## Candidatos concretos a revisar
 
 Salieron del grep de catch en los servicios que llaman a OpenAI. Están sin verificar: pueden estar
