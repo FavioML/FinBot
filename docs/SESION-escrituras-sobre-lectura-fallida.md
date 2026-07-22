@@ -178,13 +178,31 @@ sobre los tres guards principales.
 aplicó la regla. No cambió ninguna conclusión, pero es el recordatorio de siempre: el control tiene
 que verificarse tan en serio como el caso roto. El test sí afirma el 70/30 con lecturas sanas.
 
-## Pendiente inmediato: el espejo en la webapp
+## El espejo en la webapp — cerrado el mismo día
 
-`webapp/src/lib/spaces-server.ts` tiene la misma degradación silenciosa:
-`getSpaceOwnerIsPro` devuelve `false` si falla la lectura del espacio o del plan del owner, con lo
-que la webapp congela un gasto 50/50 que debía ser 70/30. Y `getSpaceMemberIds` devuelve un Set
-vacío con `data ?? []`. Los dos runtimes tienen que decidir igual o el mismo gasto vale distinto
-según por dónde se registró, que es justo lo que el comentario de `obtenerContextoSplit` promete.
+`webapp/src/lib/spaces-server.ts` tenía los mismos dos bugs, y uno peor que en el backend.
+
+`getSpaceBalances` leía las tres tablas con `?? []`, igual que `obtenerBalanceEspacio`. Pero acá
+ese número además **es la guarda que impide sacar a un miembro con deuda**
+(`DELETE /api/spaces/[id]/members`): con las tres lecturas caídas todos los saldos dan cero, la
+guarda pasa y alguien sale del espacio debiendo. Por el propio comentario de esa ruta, un saldo así
+ya no se puede liquidar desde la app.
+
+`getSpaceSplitContext` descartaba el error del espacio, de los miembros y del plan del owner: mismo
+congelamiento 50/50 sobre una regla 70/30, con el agravante de que los dos runtimes tienen que
+decidir igual o el mismo gasto vale distinto según por dónde se registró.
+
+`getSpaceMemberIds` devolvía un Set vacío, con lo que todo destinatario y todo split legítimo se
+rechazaba como si el usuario hubiera mandado basura. Falla cerrado, pero mintiendo sobre la causa.
+
+Los tres lanzan ahora. Verificado con `tsc --noEmit` y `npm run build`; los 57 hallazgos de
+`npm run lint` son idénticos antes y después (preexistentes, ninguno en este archivo).
+
+**Queda sin tocar y es del mismo patrón:** `getSessionUser` hace `if (!data) return null` sobre la
+lectura de `usuarios`, así que un fallo de lectura se presenta como "no hay sesión" y la ruta
+responde 401. Falla cerrado, pero un 401 espurio puede empujar al cliente a un logout. No se cambió
+en esta sesión porque toca el camino de auth de toda la webapp y merece verificarse con el cliente
+en la mano, no a ciegas.
 
 ## Método
 

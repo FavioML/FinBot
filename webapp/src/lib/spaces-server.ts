@@ -119,10 +119,16 @@ export function requireSpaceOwner(spaceId: string): Promise<SpaceAuth> {
 
 /** user_ids que pertenecen al espacio. Para validar destinatarios y splits. */
 export async function getSpaceMemberIds(spaceId: string): Promise<Set<string>> {
-  const { data } = await getServiceClient()
+  const { data, error } = await getServiceClient()
     .from('space_members')
     .select('user_id')
     .eq('space_id', spaceId);
+  // Con `?? []` una lectura caida devuelve un Set vacio, o sea "aca no hay miembros":
+  // todo destinatario y todo split valido se rechaza como si el usuario hubiera mandado
+  // basura. Falla cerrado, pero mintiendo sobre la causa.
+  if (error) {
+    throw new Error(`No se pudo leer los miembros del espacio: ${error.message}`);
+  }
   return new Set((data ?? []).map((m) => m.user_id as string));
 }
 
@@ -187,19 +193,31 @@ export interface SpaceSplitContext {
  */
 export async function getSpaceSplitContext(spaceId: string): Promise<SpaceSplitContext> {
   const svc = getServiceClient();
-  const [{ data: space }, { data: members }] = await Promise.all([
+  const [{ data: space, error: eSpace }, { data: members, error: eMembers }] = await Promise.all([
     svc.from('shared_spaces').select('created_by, split_rules').eq('id', spaceId).single(),
     svc.from('space_members').select('user_id, split_percentage').eq('space_id', spaceId),
   ]);
+  // Lo que sale de aca se CONGELA en el snapshot del gasto y ya nadie lo recalcula. Una
+  // lectura caida no puede degradar a "sin reglas": un gasto con regla 70/30 quedaria
+  // 50/50 para siempre. Espejo de `obtenerContextoSplit` en services/shared-spaces.js.
+  const contextError = eSpace ?? eMembers;
+  if (contextError) {
+    throw new Error(`No se pudo leer el contexto del espacio: ${contextError.message}`);
+  }
+
+  const rawRules = ((space?.split_rules ?? []) as SplitRule[]) || [];
 
   let ownerIsPro = false;
   const ownerId = space?.created_by as string | undefined;
   if (ownerId) {
-    const { data: owner } = await svc.from('usuarios').select('plan').eq('id', ownerId).single();
+    const { data: owner, error: eOwner } = await svc.from('usuarios').select('plan').eq('id', ownerId).single();
+    // Sin reglas configuradas el plan del owner da igual (todo cae al split por defecto);
+    // con reglas, no saber si aplican es la diferencia entre 70/30 y 50/50.
+    if (eOwner && rawRules.length > 0) {
+      throw new Error(`No se pudo verificar el plan del owner: ${eOwner.message}`);
+    }
     ownerIsPro = owner?.plan === 'premium';
   }
-
-  const rawRules = ((space?.split_rules ?? []) as SplitRule[]) || [];
   return {
     members: (members ?? []) as SplitMember[],
     effectiveRules: ownerIsPro ? rawRules : [],
@@ -216,11 +234,24 @@ export async function getSpaceSplitContext(spaceId: string): Promise<SpaceSplitC
  */
 export async function getSpaceBalances(spaceId: string): Promise<Record<string, number>> {
   const svc = getServiceClient();
-  const [{ data: members }, { data: expenses }, { data: settlements }] = await Promise.all([
+  const [
+    { data: members, error: eMembers },
+    { data: expenses, error: eExpenses },
+    { data: settlements, error: eSettlements },
+  ] = await Promise.all([
     svc.from('space_members').select('user_id').eq('space_id', spaceId),
     svc.from('space_expenses').select('paid_by, amount, split_snapshot').eq('space_id', spaceId),
     svc.from('space_settlements').select('from_user, to_user, amount').eq('space_id', spaceId),
   ]);
+  // El balance es una resta entre las tres tablas: degradar cualquiera a `?? []` no da
+  // un error, da un saldo con la direccion equivocada. Y este numero es el que deja o no
+  // sacar a un miembro (`DELETE /members`): con todo en cero, alguien sale del espacio
+  // debiendo y su saldo ya no se puede liquidar desde la app. Espejo de
+  // `obtenerBalanceEspacio` en services/shared-spaces.js.
+  const readError = eMembers ?? eExpenses ?? eSettlements;
+  if (readError) {
+    throw new Error(`No se pudo calcular el balance del espacio: ${readError.message}`);
+  }
 
   return computeBalancesFromSnapshots(
     (expenses ?? []) as unknown as SnapshotExpense[],
