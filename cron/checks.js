@@ -409,7 +409,11 @@ async function checkDetectorFugas() {
         await enviarWhatsapp(usuario.whatsapp, mensaje, { tipo: 'fugas', usuarioId: usuario.id });
         await guardarAlertas(usuario.id, alertas, mensaje);
         await crearNotificacion(usuario.id, 'alerta_fugas', 'Fugas de gasto detectadas', mensaje.replace(/[*_]/g, '').substring(0, 200), { link: '/dashboard/alertas' });
-      } catch (e) { /* silent per user */ }
+      } catch (e) {
+        // Saltar al siguiente usuario es correcto (una alerta menos es mejor que una
+        // inventada), pero sin log un fallo sistemático se ve igual que "nadie tenía fugas".
+        log.error({ tag: 'FUGAS_USER', err: e.message, usuarioId: usuario.id }, 'Fugas omitidas para el usuario');
+      }
     }
     log.info({ tag: 'FUGAS' }, 'Detector de fugas ejecutado');
   } catch (e) { log.error({ tag: 'FUGAS', err: e.message }, 'Error detector de fugas'); }
