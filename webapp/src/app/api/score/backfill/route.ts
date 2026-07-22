@@ -54,6 +54,16 @@ export async function POST() {
     supabase.from('deudas').select('id, tipo, monto_original, monto_pendiente, estado, fecha_vencimiento').eq('usuario_id', usuario.id).eq('tipo', 'debo'),
   ]);
 
+  // `existingScores` es lo que impide recalcular un mes ya asentado (el `continue` de
+  // abajo). Degradado a [] por una lectura caida, el backfill deja de saltarse esos meses
+  // y los REESCRIBE via upsert: historia pisada con numeros calculados sobre data
+  // incompleta. Los otros cuatro mueven el score del mismo modo que en el backend.
+  const readError =
+    txResult.error || existingScores.error || budgetResult.error || goalsResult.error || debtsResult.error;
+  if (readError) {
+    return NextResponse.json({ error: 'No se pudo leer tu historial para recalcularlo' }, { status: 500 });
+  }
+
   const transactions = txResult.data || [];
   const existingPeriods = new Set((existingScores.data || []).map(s => s.period));
   const budgets = budgetResult.data || [];

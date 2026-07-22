@@ -1,7 +1,6 @@
 const {
   calcularNetoScore,
   upsertScore,
-  obtenerScoreActual,
   obtenerHistorialScore,
   obtenerTendenciaScore,
   scoreLabel,

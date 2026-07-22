@@ -76,6 +76,17 @@ async function calculateFreshScore(usuario: NonNullable<Awaited<ReturnType<typeo
     svc.from('deudas').select('id, tipo, monto_original, monto_pendiente, estado, fecha_vencimiento').eq('usuario_id', userId).eq('tipo', 'debo'),
   ]);
 
+  // Las cinco lecturas son obligatorias. Degradarlas a [] no produce un error: produce
+  // un score MOVIDO, y este camino ademas lo PERSISTE en neto_scores, asi que el numero
+  // falso queda como el score vigente del usuario hasta que el cron lo pise. Espejo de
+  // los guards de services/neto-score.js. El caller ya devuelve un 500 controlado
+  // ("No se pudo calcular el score") en vez de crashear la funcion.
+  const readError =
+    txResult.error || monthTxResult.error || budgetResult.error || goalsResult.error || debtsResult.error;
+  if (readError) {
+    throw new Error(`No se pudo leer la data del score: ${readError.message}`);
+  }
+
   // Factor 1: Consistency — unique days in last 30 days
   const txDays = txResult.data || [];
   const uniqueDays = new Set(txDays.map((t: { fecha: string }) => t.fecha)).size;

@@ -29,12 +29,21 @@ async function calcFactorConsistency(usuarioId) {
   hace30.setDate(hace30.getDate() - 30);
   const desde = hace30.toISOString().split('T')[0];
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('transacciones')
     .select('fecha')
     .eq('usuario_id', usuarioId)
     .gte('fecha', desde);
 
+  // Un factor es un sumando de una media ponderada: si la lectura cae y devolvemos el
+  // default, el score no falla, se MUEVE. Acá el default es 0 con peso 0.20, o sea -20
+  // puntos y un "tu punto más débil: Consistencia de registro" sobre alguien que registra
+  // todos los días. Se corta y no se persiste nada (upsertScore devuelve null y el usuario
+  // sigue viendo el score de ayer, que es verdad).
+  if (error) {
+    log.error({ tag: 'SCORE', err: error.message, usuarioId }, 'No se pudieron leer las transacciones');
+    throw new Error('No se pudo leer las transacciones: ' + error.message);
+  }
   if (!data || data.length === 0) return 0;
 
   const diasUnicos = new Set(data.map(t => t.fecha)).size;
@@ -125,12 +134,19 @@ async function calcFactorGoals(usuarioId) {
  * Debt Management: Are debts decreasing? Payments on time?
  */
 async function calcFactorDebts(usuarioId) {
-  const { data: debts } = await supabase
+  const { data: debts, error } = await supabase
     .from('deudas')
     .select('id, tipo, monto_original, monto_pendiente, estado, fecha_vencimiento')
     .eq('usuario_id', usuarioId)
     .eq('tipo', 'debo');
 
+  // Este es el único factor que falla HACIA ARRIBA: sin datos el default es 80 ("no
+  // tiene deudas = bien"), así que una lectura caída le sube el score a alguien con una
+  // deuda vencida sin pagar, que es justo a quien el factor debería castigar.
+  if (error) {
+    log.error({ tag: 'SCORE', err: error.message, usuarioId }, 'No se pudieron leer las deudas');
+    throw new Error('No se pudo leer las deudas: ' + error.message);
+  }
   if (!debts || debts.length === 0) return 80; // No debts = good
 
   const activas = debts.filter(d => d.estado === 'activa');
@@ -170,14 +186,24 @@ async function calcFactorDebts(usuarioId) {
  */
 async function calcFactorVisibility(usuarioId) {
   const [
-    { count: presCount },
-    { count: metasCount },
-    { data: usuario },
+    { count: presCount, error: ePres },
+    { count: metasCount, error: eMetas },
+    { data: usuario, error: eUsuario },
   ] = await Promise.all([
     supabase.from('presupuestos').select('*', { count: 'exact', head: true }).eq('usuario_id', usuarioId),
     supabase.from('metas_ahorro').select('*', { count: 'exact', head: true }).eq('usuario_id', usuarioId).eq('completada', false),
     supabase.from('usuarios').select('gmail_access_token, recordatorios_activos').eq('id', usuarioId).single(),
   ]);
+
+  // Las tres suman puntos por separado, así que una caída no anula el factor: lo deja a
+  // medias. Y la de `usuarios` además engaña al alza: con `usuario` en null,
+  // `usuario?.recordatorios_activos !== false` es true y regala los 20 puntos de
+  // recordatorios activos sin haber podido comprobar que lo estén.
+  const error = ePres || eMetas || eUsuario;
+  if (error) {
+    log.error({ tag: 'SCORE', err: error.message, usuarioId }, 'No se pudo leer la visibilidad financiera');
+    throw new Error('No se pudo leer la visibilidad financiera: ' + error.message);
+  }
 
   let score = 0;
   if (presCount > 0) score += 30;        // Has budgets
@@ -261,13 +287,18 @@ async function upsertScore(usuarioId) {
  * Get the user's most recent score.
  */
 async function obtenerScoreActual(usuarioId) {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('neto_scores')
     .select('*')
     .eq('user_id', usuarioId)
     .order('period', { ascending: false })
     .limit(1)
     .single();
+  // PGRST116 = todavía no tiene ningún score, que es normal en un usuario nuevo.
+  if (error && error.code !== 'PGRST116') {
+    log.error({ tag: 'SCORE', err: error.message, usuarioId }, 'No se pudo leer el score actual');
+    throw new Error('No se pudo leer tu score: ' + error.message);
+  }
   return data;
 }
 
@@ -279,12 +310,19 @@ async function obtenerHistorialScore(usuarioId, months = 6) {
   desde.setMonth(desde.getMonth() - months);
   const desdeStr = desde.toISOString().split('T')[0];
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('neto_scores')
     .select('score, period, factor_consistency, factor_budget, factor_savings, factor_goals, factor_debts, factor_visibility')
     .eq('user_id', usuarioId)
     .gte('period', desdeStr)
     .order('period', { ascending: true });
+
+  // Lista vacía se presenta como "todavía no tienes historial". Sobre una lectura caída
+  // eso es falso: el historial existe y el usuario lo da por perdido.
+  if (error) {
+    log.error({ tag: 'SCORE', err: error.message, usuarioId }, 'No se pudo leer el historial de score');
+    throw new Error('No se pudo leer tu historial: ' + error.message);
+  }
 
   return data || [];
 }
@@ -294,13 +332,20 @@ async function obtenerHistorialScore(usuarioId, months = 6) {
  * @returns {{ current, previous, diff, trend: 'up'|'down'|'stable' }}
  */
 async function obtenerTendenciaScore(usuarioId) {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('neto_scores')
     .select('score, period')
     .eq('user_id', usuarioId)
     .order('period', { ascending: false })
     .limit(8);
 
+  // null es una respuesta legítima (aún no hay con qué comparar) y los dos callers la
+  // manejan omitiendo la tendencia, así que acá no se corta: no se muestra ningún número
+  // falso. Pero se loguea, porque si no el aviso semanal deja de salir sin dejar rastro.
+  if (error) {
+    log.error({ tag: 'SCORE', err: error.message, usuarioId }, 'No se pudo leer la tendencia del score');
+    return null;
+  }
   if (!data || data.length === 0) return null;
 
   const current = data[0].score;

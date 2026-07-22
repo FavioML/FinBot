@@ -26,7 +26,7 @@ escritura o un número que el usuario cree cierto.
 | ~~`services/referrals.js`~~ | ~~Otorga meses de Pro gratis~~ | **HECHO 22-jul-2026, ver abajo.** |
 | ~~`lib/pro-payment.js`~~ | ~~Aprobación de pagos~~ | **HECHO 22-jul-2026, ver abajo.** |
 | ~~`services/shared-spaces.js`~~ | ~~Balances entre personas reales~~ | **HECHO 22-jul-2026, ver abajo.** |
-| `services/neto-score.js` | Número que el usuario ve y en el que confía | 5 sitios. Un factor que sale 0 por query fallida baja el score sin explicación |
+| ~~`services/neto-score.js`~~ | ~~Número que el usuario ve y en el que confía~~ | **HECHO 22-jul-2026, ver abajo.** |
 
 Nota: `referidos` está en **0 filas** hoy, así que el riesgo ahí es latente, no realizado. Verificar
 antes de dimensionarlo como urgente.
@@ -203,6 +203,72 @@ lectura de `usuarios`, así que un fallo de lectura se presenta como "no hay ses
 responde 401. Falla cerrado, pero un 401 espurio puede empujar al cliente a un logout. No se cambió
 en esta sesión porque toca el camino de auth de toda la webapp y merece verificarse con el cliente
 en la mano, no a ciegas.
+
+## `services/neto-score.js` — cerrado 22-jul-2026
+
+El score es una media ponderada de 6 factores. Un factor que no puede leer sus datos no falla:
+devuelve su default y el score **se mueve**. Y el cron de las 6am persiste ese número en
+`neto_scores` todos los días como si fuera cierto.
+
+Medido sobre un usuario modelo (registra casi a diario, dentro de presupuesto, ahorra >20%, metas
+en ritmo, **una deuda vencida sin pagar un sol**, usa todas las herramientas). Score sano: **90**.
+
+| Lectura que falla | Score | Delta |
+|---|---|---|
+| `transacciones` (consistencia) | 70 | **-20** |
+| `deudas` | 98 | **+8** |
+| `presupuestos` (count) | 87 | -3 |
+| `metas_ahorro` (count) | 88 | -2 |
+| `usuarios` (visibilidad) | 88 | -2 |
+| todas menos deudas | 62 | -28 |
+
+Dos cosas que no se ven en la tabla:
+
+- El -20 de consistencia además cambia el consejo: `factorMasDebil` pasa a decir "tu punto más
+  débil: Consistencia de registro" a alguien que registra todos los días, y le ofrece tips para
+  arreglar lo que no está roto. El label también cruza (90 = "Excelente", 70 = "En camino").
+- **`deudas` es el único que falla hacia arriba.** Su default es 80 ("no tiene deudas = bien"), así
+  que una lectura caída le sube el score justo a quien el factor debería castigar. Un fallo que
+  premia es peor que uno que castiga: nadie reporta que su score subió.
+
+Los cinco cortan ahora. `upsertScore` ya tenía el `try/catch` que devuelve `null`, y los dos
+callers ya lo manejaban bien: el intent responde "No pude calcular tu score" y el cron salta a ese
+usuario. O sea que no se persiste nada y el usuario sigue viendo el score de ayer, que es verdad.
+
+`obtenerHistorialScore` decía "no tienes historial" sobre una lectura caída (ahora corta);
+`obtenerScoreActual` distingue `PGRST116` (usuario nuevo, legítimo) de un fallo real;
+`obtenerTendenciaScore` sigue devolviendo `null` a propósito — los dos callers omiten la tendencia
+y no se muestra ningún número falso — pero ahora loguea, porque si no el aviso semanal deja de
+salir sin dejar rastro. También se quitó un import muerto de `obtenerScoreActual` en el intent.
+
+### El espejo de la webapp, que era el que persistía de verdad
+
+`api/score/route.ts` recalcula el score on-demand para un usuario nuevo o con `?refresh=true`, con
+las mismas cinco lecturas degradadas a `[]`, **y lo persiste en `neto_scores`**. Ahí el número
+falso no se muestra y se olvida: queda asentado como el score vigente hasta que el cron lo pise.
+Ya cortaba con un 500 controlado si algo lanzaba, así que el guard entra limpio.
+
+`api/score/backfill/route.ts` era el peor de los dos. Entre sus cinco lecturas está la de los
+scores ya existentes, que es lo único que impide recalcular un mes ya asentado
+(`if (existingYearMonths.has(...)) continue`). Con esa lectura caída el set queda vacío, el
+`continue` no dispara y el backfill **reescribe por upsert meses de historia** con números
+calculados sobre data incompleta.
+
+Cubierto por `tests/services/neto-score-lecturas.test.js` (14 tests, incluidos los controles de que
+un usuario sin transacciones sigue dando 0 y uno sin deudas sigue dando 80 sin lanzar). Mutación
+verificada. Webapp: `tsc --noEmit` limpio, `next build` OK, los 57 hallazgos de lint idénticos
+antes y después y ninguno en estas rutas.
+
+---
+
+## Estado del doc
+
+Los 4 archivos de la tabla están cerrados. Lo que quedó anotado y sin tocar, por orden de valor:
+
+1. `getSessionUser` en la webapp (arriba): mismo patrón sobre el camino de auth.
+2. `vence.setMonth(...)` en `services/referrals.js`: desborda con vencimientos día 29-31.
+3. `docs/SESION-barrido-candidatos-restantes.md`: la otra sesión, 4 candidatos, rendimiento
+   esperado bajo.
 
 ## Método
 
