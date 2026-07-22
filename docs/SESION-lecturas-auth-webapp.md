@@ -38,6 +38,39 @@ reparto le respondían "esta función es solo Pro" al owner que **sí** es Pro. 
 También `authorizeSpace` un nivel más abajo: un fallo leyendo `space_members` era un 403
 "Not a member" sobre alguien que sí es miembro.
 
+## El espejo cliente (`use-user.ts`) — y por qué casi se escapa
+
+Al cerrar la sesión dejé fuera los dos lookups del lado cliente diciendo "no es la misma clase,
+ahí una lectura caída devuelve `null` y React Query reintenta". **Las dos mitades eran falsas, y
+lo afirmé sin trazar a los consumidores.** Commit `c1befdc`.
+
+**No reintenta.** Tragarse el `error` después de `maybeSingle()` hace que la queryFn **resuelva**
+con `null`; `retry` solo cubre promesas *rechazadas*. React Query cachea ese `null` como resultado
+bueno y lo persiste **24h en localStorage** (`PERSIST_MAX_AGE`). Un error se hubiera reintentado.
+
+**Y el `null` no es inerte.** Dos consumidores lo leen como hecho:
+
+- `canAccess(user?.plan, …)` trata `undefined` como Free (`lib/plan.ts:79`): un usuario Pro pierde
+  calendario, consejo IA, breakdown del score, y empieza a comer los límites Free de metas y
+  presupuestos.
+- `AuthRedirect` (`dashboard-shell.tsx`) leía `null` como "no tiene fila" y lo mandaba a
+  `/onboarding` a re-verificar por OTP. **Es el mismo fallo de `auth/callback`, alcanzable desde
+  adentro del dashboard**, contra alguien que ya tiene cuenta y puede estar pagándola.
+
+`fetchNetoUser` ahora lanza, así que `null` vuelve a significar una sola cosa. Arreglar el hook solo
+no alcanzaba: con `isError` la data queda `undefined` y el shell expulsaba igual, así que la
+decisión se extrajo a `decidirRedirectAuth`, donde `isError` espera en vez de expulsar.
+
+**`PostHogProvider` queda tal cual, a propósito** (resultado sano, anotado para no re-auditarlo):
+ahí el fallback es legítimo y ya está documentado en el código — la lectura corre sin gate y puede
+perderle la carrera a la propagación del token. Si falla, `identify()` no dispara y el funnel pierde
+un stitch. No le llega nada falso al usuario.
+
+**La lección de proceso, que vale más que el fix:** el método del barrido ("¿qué pasa si esta
+lectura falla SIEMPRE?") se aplicó a 36 rutas y se abandonó exactamente en los dos archivos que se
+decidió excluir. Una exclusión necesita la misma evidencia que una inclusión: trazar consumidores
+solo puede *agregar* consecuencias, nunca quitarlas, así que toda estimación sin trazar lee bajo.
+
 ## Lo que hace el cliente con un 401 (verificado, no razonado)
 
 Esto es lo que dimensiona el daño y por eso se midió antes de tocar nada:
