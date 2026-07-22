@@ -1,10 +1,11 @@
 import { getServiceClient } from '@/lib/supabase/service';
-import { getSessionUser } from '@/lib/spaces-server';
+import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 
 export async function GET() {
-  const usuario = await getSessionUser();
-  if (!usuario) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser('id, plan');
+  if (!auth.ok) return auth.response;
+  const usuario = auth.user;
 
   const { data: memberships } = await getServiceClient()
     .from('space_members')
@@ -18,8 +19,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const usuario = await getSessionUser();
-  if (!usuario) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser('id, plan');
+  if (!auth.ok) return auth.response;
+  const usuario = auth.user;
 
   const body = await request.json();
   const { name, type = 'custom' } = body;

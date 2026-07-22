@@ -1,4 +1,4 @@
-import { getNetoUserId } from '@/lib/supabase/auth';
+import { requireNetoUser } from '@/lib/supabase/auth';
 import { getServiceClient } from '@/lib/supabase/service';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { NextResponse } from 'next/server';
@@ -10,8 +10,8 @@ export const dynamic = 'force-dynamic';
 
 // GET /api/pro/bancos — catálogo de bancos (id + label) para el multiselect del upgrade.
 export async function GET() {
-  const userId = await getNetoUserId();
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  const auth = await requireNetoUser();
+  if (!auth.ok) return auth.response;
   if (!INTERNAL_API_KEY) {
     return NextResponse.json({ error: 'INTERNAL_API_KEY no configurada en el entorno de la webapp' }, { status: 500 });
   }
@@ -33,8 +33,9 @@ export async function GET() {
 // POST /api/pro/bancos — guarda la selección de bancos del usuario (post-aprobación).
 // body: { bancos: string[] | null }  (null = todos). Se aplica al conectar Gmail.
 export async function POST(request: Request) {
-  const userId = await getNetoUserId();
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  const auth = await requireNetoUser();
+  if (!auth.ok) return auth.response;
+  const userId = auth.user.id;
   if (!checkRateLimit(userId)) return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
 
   const body = await request.json().catch(() => ({}));

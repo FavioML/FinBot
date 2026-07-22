@@ -23,14 +23,22 @@ const features = [
   { icon: Bell, title: 'Alertas automáticas', desc: 'Notificaciones cuando te acerques a tus límites' },
 ];
 
+// `temporal` lo manda /auth/callback cuando la lectura de `usuarios` se cayo. Es
+// distinto de `auth`: ahi el problema fue verificar la sesion y tiene sentido
+// ofrecer el email como alternativa; aca la sesion esta bien y lo unico correcto
+// es reintentar — mandarlo por otra puerta no arregla nada.
+const AUTH_ERRORS: Record<string, string> = {
+  auth: 'No pudimos verificar tu sesión con Google. Usa tu email abajo para acceder.',
+  temporal: 'Tuvimos un problema momentáneo de nuestro lado. Vuelve a entrar en unos segundos.',
+};
+
 function AuthErrorBanner() {
   const searchParams = useSearchParams();
-  if (searchParams.get('error') !== 'auth') return null;
+  const mensaje = AUTH_ERRORS[searchParams.get('error') ?? ''];
+  if (!mensaje) return null;
   return (
     <div className="mb-6 rounded-xl bg-[rgba(216,90,48,0.08)] border border-[rgba(216,90,48,0.2)] px-4 py-3">
-      <p className="text-sm text-[#D85A30]">
-        No pudimos verificar tu sesión con Google. Usa tu email abajo para acceder.
-      </p>
+      <p className="text-sm text-[#D85A30]">{mensaje}</p>
     </div>
   );
 }

@@ -1,11 +1,13 @@
 import { getServiceClient } from '@/lib/supabase/service';
-import { avisarBackendEspacio, getSessionUser } from '@/lib/spaces-server';
+import { avisarBackendEspacio } from '@/lib/spaces-server';
+import { requireNetoUser } from '@/lib/supabase/auth';
 import { joinSplitWeight } from '@/lib/spaces-split';
 import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
-  const usuario = await getSessionUser();
-  if (!usuario) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser();
+  if (!auth.ok) return auth.response;
+  const usuario = auth.user;
 
   const body = await request.json();
   const { code } = body;

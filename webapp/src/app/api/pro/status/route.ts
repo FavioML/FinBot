@@ -1,4 +1,4 @@
-import { getNetoUser } from '@/lib/supabase/auth';
+import { requireNetoUser } from '@/lib/supabase/auth';
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 
@@ -6,8 +6,9 @@ export const dynamic = 'force-dynamic';
 
 // GET /api/pro/status — estado del plan + última solicitud (para el polling de /dashboard/pro)
 export async function GET() {
-  const user = await getNetoUser('id, plan, pago_pendiente, premium_vence, tipo_plan, bancos_seleccionados, gmail_access_token');
-  if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  const auth = await requireNetoUser('id, plan, pago_pendiente, premium_vence, tipo_plan, bancos_seleccionados, gmail_access_token');
+  if (!auth.ok) return auth.response;
+  const user = auth.user;
 
   const svc = getServiceClient();
   const userId = user.id as string;

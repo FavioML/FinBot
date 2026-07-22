@@ -1,5 +1,5 @@
-import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
+import { requireNetoUser } from '@/lib/supabase/auth';
 import {
   computeBalancesFromSnapshots,
   type SplitMember,
@@ -60,40 +60,38 @@ export async function avisarBackendEspacio(
   }
 }
 
-/** Usuario Neto detras de la sesion Supabase actual, o null si no hay sesion. */
-export async function getSessionUser(): Promise<NetoUser | null> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data } = await getServiceClient()
-    .from('usuarios')
-    .select('id, plan')
-    .eq('supabase_auth_id', user.id)
-    .single();
-
-  if (!data) return null;
-  return { id: data.id as string, plan: (data.plan as string | null) ?? null };
-}
-
 export type SpaceAuth =
   | { ok: true; user: NetoUser; role: string }
   | { ok: false; response: NextResponse };
 
 async function authorizeSpace(spaceId: string, ownerOnly: boolean): Promise<SpaceAuth> {
-  const user = await getSessionUser();
-  if (!user) {
-    return { ok: false, response: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
-  }
+  // El mapeo sesion -> `usuarios` (y sus 401/404/500) vive en `requireNetoUser`.
+  const auth = await requireNetoUser('id, plan');
+  if (!auth.ok) return { ok: false, response: auth.response };
+  const user: NetoUser = { id: auth.user.id, plan: (auth.user.plan as string | null) ?? null };
 
-  const { data: membership } = await getServiceClient()
+  // maybeSingle + error explicito: con `single()` una lectura caida y "no es
+  // miembro" llegan las dos como error, y el 403 "Not a member" se le mostraba
+  // igual a quien SI es miembro.
+  const { data: membership, error } = await getServiceClient()
     .from('space_members')
     .select('role')
     .eq('space_id', spaceId)
     .eq('user_id', user.id)
-    .single();
+    .maybeSingle();
+
+  if (error) {
+    console.error('[auth:space_members] lectura fallida', {
+      space_id: spaceId,
+      user_id: user.id,
+      code: error.code,
+      message: error.message,
+    });
+    return {
+      ok: false,
+      response: NextResponse.json({ error: 'Error temporal, intenta de nuevo' }, { status: 500 }),
+    };
+  }
 
   if (!membership) {
     return { ok: false, response: NextResponse.json({ error: 'Not a member' }, { status: 403 }) };
@@ -143,17 +141,26 @@ export async function getSpaceMemberIds(spaceId: string): Promise<Set<string>> {
  */
 export async function getSpaceOwnerIsPro(spaceId: string): Promise<boolean> {
   const svc = getServiceClient();
-  const { data: space } = await svc
+  // Degradar a `false` con la lectura caida le responde "esta funcion es solo
+  // Pro" al owner que SI es Pro, y le apaga presupuestos y reglas de reparto.
+  // Mismo criterio que `getSpaceBalances` / `getSpaceSplitContext`: lanzar.
+  const { data: space, error: eSpace } = await svc
     .from('shared_spaces')
     .select('created_by')
     .eq('id', spaceId)
-    .single();
+    .maybeSingle();
+  if (eSpace) {
+    throw new Error(`No se pudo leer el espacio: ${eSpace.message}`);
+  }
   if (!space?.created_by) return false;
-  const { data: owner } = await svc
+  const { data: owner, error: eOwner } = await svc
     .from('usuarios')
     .select('plan')
     .eq('id', space.created_by)
-    .single();
+    .maybeSingle();
+  if (eOwner) {
+    throw new Error(`No se pudo verificar el plan del owner: ${eOwner.message}`);
+  }
   return owner?.plan === 'premium';
 }
 

@@ -1,4 +1,4 @@
-import { getNetoUserId } from '@/lib/supabase/auth';
+import { requireNetoUser } from '@/lib/supabase/auth';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { NextResponse } from 'next/server';
 
@@ -11,11 +11,12 @@ const ALLOWED = ['image/jpeg', 'image/png', 'image/webp'];
 export const dynamic = 'force-dynamic';
 
 // POST /api/pro/solicitud — el usuario logueado sube su comprobante y elige plan/bancos.
-// Autenticamos aquí (getNetoUserId) y hacemos proxy al backend, que crea la solicitud
+// Autenticamos aquí (requireNetoUser) y hacemos proxy al backend, que crea la solicitud
 // pendiente y notifica al admin por Telegram con botones. No activa Pro (gate manual).
 export async function POST(request: Request) {
-  const userId = await getNetoUserId();
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  const auth = await requireNetoUser();
+  if (!auth.ok) return auth.response;
+  const userId = auth.user.id;
   if (!checkRateLimit(userId)) return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
   if (!INTERNAL_API_KEY) {
     return NextResponse.json({ error: 'INTERNAL_API_KEY no configurada en el entorno de la webapp' }, { status: 500 });

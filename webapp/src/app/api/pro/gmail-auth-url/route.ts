@@ -1,4 +1,4 @@
-import { getNetoUserId } from '@/lib/supabase/auth';
+import { requireNetoUser } from '@/lib/supabase/auth';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { NextResponse } from 'next/server';
 
@@ -10,8 +10,9 @@ export const dynamic = 'force-dynamic';
 // GET /api/pro/gmail-auth-url — URL de OAuth Gmail para conectar desde la webapp.
 // El callback backend redirige de vuelta a /dashboard?gmail=conectado (origen 'web').
 export async function GET() {
-  const userId = await getNetoUserId();
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  const auth = await requireNetoUser();
+  if (!auth.ok) return auth.response;
+  const userId = auth.user.id;
   if (!checkRateLimit(userId)) return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
   if (!INTERNAL_API_KEY) {
     return NextResponse.json({ error: 'INTERNAL_API_KEY no configurada en el entorno de la webapp' }, { status: 500 });
