@@ -157,6 +157,23 @@ npm run build             # OK, /onboarding sigue estático
 npm run lint              # 57 (21 errors, 36 warnings) — igual que el baseline
 ```
 
+**El alcance de la verificación lo define qué deploys dispara el push, no qué archivos tocaste.** Un
+push a `main` dispara Vercel **y** Railway, porque el backend y la webapp comparten repo. En esta
+sesión se verificó solo Vercel tras un cambio de webapp y quedaron dos deploys de Railway fallidos
+sin mirar. Correr los tres, siempre:
+
+```bash
+curl -I https://neto.pe/            # landing (Cloudflare)
+curl -I https://app.neto.pe/        # webapp (Vercel) — 307 en la raíz es normal
+curl -s https://api.neto.pe/health  # backend (Railway)
+```
+
+Si un deploy falló, distinguir antes de opinar: **falló el build** (hay logs, puede ser el commit)
+es distinto de **no hubo build** (`Deployment does not have an associated build`, etapas en "Not
+started" = plataforma o cuenta, no el código). Esos dos eran del segundo tipo, sobre commits sin una
+sola línea de backend. Se cerró con `railway.json` + `watchPatterns` (commit `b2c0fe2`): ver el
+razonamiento de por qué es lista negra y no blanca en `app/CLAUDE.md`.
+
 E2E contra `https://app.neto.pe` post-deploy (nunca contra `next dev`, que se queda en skeleton):
 `qa-e2e/qa-espacios-join-split.mjs`, `qa-espacios-gating-verify.mjs`, `qa-espacios-split-parity.mjs`,
 `qa-espacios-config.mjs`, `qa-login.mjs`.
