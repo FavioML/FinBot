@@ -75,14 +75,13 @@ module.exports = {
   intents: ['registrar_manual', 'corregir_categoria', 'corregir_multiple', 'corregir_monto_moneda', 'eliminar_transaccion', 'editar_monto', 'editar_fecha', 'editar_comercio', 'editar_categoria_comercio', 'deshacer_ultimo', 'restaurar_eliminado', 'marcar_como_ingreso', 'dividir_gasto', 'duplicar_gasto'],
   async handle({ intencion, msg, datos, usuario, from, ctx }) {
     const {
-      supabase, mesActual, anioActual, netoPrompt, historialConv,
+      supabase, mesActual, anioActual,
       CATEGORIAS_VALIDAS, CATEGORIA_MAP,
       obtenerUltimaTransaccion, recategorizarTransaccion, guardarReglaComercio,
       retroaplicarRegla, corregirTransaccionEspecifica, guardarTransaccion,
       obtenerTipoCambio, verificarAlertaPresupuesto,
       crearCategoriaLibreUsuario, crearSubcategoriaLibreUsuario, detectarCategoriaIA,
       parsearRegistroManual, parsearCorreccionesMultiples,
-      redactarConNETO,
       fechaHoyPeru, fechaAyerPeru, formatFecha
     } = ctx;
 
@@ -255,10 +254,12 @@ module.exports = {
               : 'S/ ' + parseFloat(txActualizada.monto_pen || txActualizada.monto || 0).toFixed(2);
             return 'Listo! Movi *' + (txActualizada.comercio || 'el gasto') + '* (' + montoMostrar + ') a *' + catLibre + (subLibre ? ' > ' + subLibre : '') + '*.\n\n_Aplique el cambio a todos los pagos anteriores de ' + (comercioReal || 'ese comercio') + '._';
           }
+          // Con IA respondia "Listo" (no hizo nada) y afirmaba que el gasto no estaba
+          // categorizado, dato que nunca estuvo en el contexto. Texto fijo con el ultimo gasto.
           const ultimaTx2 = await obtenerUltimaTransaccion(usuario.id);
-          const _ctxCorr = 'El usuario quiere mover un gasto pero no especifico la categoria. Ultimo gasto: ' + (ultimaTx2 ? ultimaTx2.comercio + ' ' + (ultimaTx2.moneda === 'USD' ? '$' : 'S/') + ultimaTx2.monto : 'sin datos') + '. Pregunta a que categoria moverlo. Puede ser una categoria personalizada.';
-          const _respCorr = await redactarConNETO(netoPrompt, _ctxCorr, msg, historialConv);
-          return _respCorr || '\u00bfA qu\u00e9 categor\u00eda lo muevo? D\u00edme y lo cambio.';
+          return ultimaTx2
+            ? '\u00bfA qu\u00e9 categor\u00eda muevo *' + (ultimaTx2.comercio || 'ese gasto') + '* (' + (ultimaTx2.moneda === 'USD' ? '$' + parseFloat(ultimaTx2.monto || 0).toFixed(2) : 'S/ ' + parseFloat(ultimaTx2.monto_pen || ultimaTx2.monto || 0).toFixed(2)) + ')? Dime y lo cambio.'
+            : '\u00bfA qu\u00e9 categor\u00eda lo muevo? Dime y lo cambio.';
         } catch(e) {
           log.error({ tag: 'CORREGIR', err: e.message }, 'Error corrigiendo categoría');
           return 'No pude procesar eso. Usa: /cambiar [comercio] [categoria]';

@@ -4,8 +4,8 @@ module.exports = {
   intents: ['ver_gasto_mayor', 'ver_gasto_menor', 'ver_promedio_diario', 'ver_historial_cambios', 'ver_ultima_transaccion', 'ver_ingresos', 'ver_suscripciones'],
   async handle({ intencion, msg, datos, usuario, from, ctx }) {
     const {
-      supabase, mesActual, anioActual, mE, netoPrompt, historialConv, ultimoDiaMes,
-      obtenerGastosMes, obtenerUltimaTransaccion, redactarConNETO, formatFecha
+      supabase, mesActual, anioActual, mE, ultimoDiaMes,
+      obtenerGastosMes, obtenerUltimaTransaccion, formatFecha
     } = ctx;
 
     switch (intencion) {
@@ -116,9 +116,8 @@ module.exports = {
           if (txsIng.length === 0) return 'No tienes ingresos registrados ' + (periodoIng === 'semana' ? 'esta semana' : 'en ' + mE[mesIng]) + '.\n\n_Registra ingresos: "mi sueldo fue S/4500"_';
           const totalIng = txsIng.reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
           const detalleIng = txsIng.slice(0,6).map(t => '💰 ' + (t.comercio || t.banco || 'Ingreso') + ' — ' + (t.moneda === 'USD' ? '$' : 'S/ ') + parseFloat(t.monto).toFixed(2) + ' (' + formatFecha(t.fecha) + ')').join('\n');
-          const ctxIng = 'Ingresos ' + (periodoIng === 'semana' ? 'de la semana' : 'de ' + mE[mesIng] + ' ' + anioIng) + ': S/ ' + totalIng.toFixed(2) + ' en ' + txsIng.length + ' movimientos. Detalle: ' + detalleIng.replace(/\n/g, ', ');
-          const respIng = await redactarConNETO(netoPrompt, ctxIng, msg, historialConv);
-          return respIng || '💰 *Ingresos ' + (periodoIng === 'semana' ? 'de la semana' : 'de ' + mE[mesIng]) + '*\n\nTotal: *S/ ' + totalIng.toFixed(2) + '*\n\n' + detalleIng;
+          // La version con IA producia exactamente lo mismo sin negritas y 0.9s mas lenta.
+          return '💰 *Ingresos ' + (periodoIng === 'semana' ? 'de la semana' : 'de ' + mE[mesIng]) + '*\n\nTotal: *S/ ' + totalIng.toFixed(2) + '*\n\n' + detalleIng;
         } catch(e) {
           log.error({ tag: 'INGRESOS', err: e.message }, 'Error consultando ingresos');
           return 'No pude consultar tus ingresos. Intenta de nuevo.';

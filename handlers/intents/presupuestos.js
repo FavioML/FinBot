@@ -4,19 +4,17 @@ module.exports = {
   intents: ['ver_presupuesto', 'configurar_presupuesto', 'eliminar_presupuesto', 'ver_balance', 'ver_categorias'],
   async handle({ intencion, msg, datos, usuario, from, ctx }) {
     const {
-      supabase, mesActual, anioActual, mE, netoPrompt, historialConv, ultimoDiaMes,
+      supabase, mesActual, anioActual, mE, ultimoDiaMes,
       formatearEstadoPresupuesto, guardarPresupuesto, getEmojiCategoria,
-      obtenerCategoriasUsuario, formatearCategoriasMsg, redactarConNETO
+      obtenerCategoriasUsuario, formatearCategoriasMsg
     } = ctx;
 
     switch (intencion) {
 
-      case 'ver_presupuesto': {
-        const presupStr = await formatearEstadoPresupuesto(usuario.id);
-        const ctxVp = 'Estado del presupuesto del usuario: ' + presupStr.replace(/[*_]/g, '');
-        const respVp = await redactarConNETO(netoPrompt, ctxVp, msg, historialConv);
-        return respVp || presupStr;
-      }
+      // formatearEstadoPresupuesto ya devuelve el texto con barras de progreso y semaforos.
+      // Pasarlo por la IA lo re-redactaba en prosa y destruia ese formato.
+      case 'ver_presupuesto':
+        return await formatearEstadoPresupuesto(usuario.id);
 
       case 'configurar_presupuesto': {
         if (datos.categoria && datos.monto) {
@@ -65,11 +63,11 @@ module.exports = {
           const totalIBal = (ingresosBal||[]).reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
           const balance = totalIBal - totalGBal;
           const pctGasto = totalIBal > 0 ? ((totalGBal / totalIBal) * 100).toFixed(0) : null;
-          const ctxBal = 'Balance de ' + mE[mesBal] + ' ' + anioBal + ': Ingresos S/' + totalIBal.toFixed(2) + ', Gastos S/' + totalGBal.toFixed(2) + ', Balance ' + (balance >= 0 ? '+' : '') + 'S/' + balance.toFixed(2) + (pctGasto ? '. Ha gastado ' + pctGasto + '% de sus ingresos.' : '. Sin ingresos registrados — solo se muestran gastos.');
-          const respBal = await redactarConNETO(netoPrompt, ctxBal, msg, historialConv);
-          return respBal || (balance >= 0
+          // El % de ingresos gastado se calculaba y solo llegaba a la IA; ahora se imprime.
+          return (balance >= 0
             ? '✅ *Balance ' + mE[mesBal] + '*\n\n💰 Ingresos: S/ ' + totalIBal.toFixed(2) + '\n💸 Gastos: S/ ' + totalGBal.toFixed(2) + '\n📊 Balance: *+S/ ' + balance.toFixed(2) + '*'
-            : '⚠️ *Balance ' + mE[mesBal] + '*\n\n💰 Ingresos: S/ ' + totalIBal.toFixed(2) + '\n💸 Gastos: S/ ' + totalGBal.toFixed(2) + '\n📊 Balance: *-S/ ' + Math.abs(balance).toFixed(2) + '*');
+            : '⚠️ *Balance ' + mE[mesBal] + '*\n\n💰 Ingresos: S/ ' + totalIBal.toFixed(2) + '\n💸 Gastos: S/ ' + totalGBal.toFixed(2) + '\n📊 Balance: *-S/ ' + Math.abs(balance).toFixed(2) + '*')
+            + (pctGasto ? '\n\n_Llevas gastado el ' + pctGasto + '% de tus ingresos._' : '');
         } catch(e) {
           log.error({ tag: 'BALANCE', err: e.message }, 'Error calculando balance');
           return 'No pude calcular tu balance. Intenta de nuevo.';

@@ -4,8 +4,8 @@ module.exports = {
   intents: ['listar_gastos_mes', 'listar_gastos_semana', 'listar_gastos_dia', 'listar_gastos_categoria', 'ver_total_gastado', 'ver_gastos_rango_fecha', 'ver_gastos_fin_de_semana', 'gastos_hormiga'],
   async handle({ intencion, msg, datos, usuario, from, ctx }) {
     const {
-      supabase, mesActual, anioActual, mE, netoPrompt, historialConv, ultimoDiaMes,
-      getHistoryDateLimit, getEmojiCategoria, formatearResumen, redactarConNETO,
+      supabase, mesActual, anioActual, mE, ultimoDiaMes,
+      getHistoryDateLimit, getEmojiCategoria, formatearResumen,
       obtenerGastosMes, obtenerGastosSemana, obtenerCuentasGmail,
       fechaHoyPeru, fechaAyerPeru, formatFecha,
       getUserPlanConfig
@@ -53,37 +53,14 @@ module.exports = {
           const { data } = await supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).gte('fecha', desde).lte('fecha', hasta).order('fecha', { ascending: false });
           txsMes = data || [];
         }
-        const totalMesN = txsMes.reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
-        const porCatMes = {};
-        const porSubMes = {};
-        txsMes.forEach(t => {
-          const cat = t.categoria || 'Otros'; const sub = t.subcategoria || 'sin_categoria';
-          porCatMes[cat] = (porCatMes[cat]||0) + parseFloat(t.monto_pen || t.monto || 0);
-          if (!porSubMes[cat]) porSubMes[cat] = {};
-          porSubMes[cat][sub] = (porSubMes[cat][sub]||0) + parseFloat(t.monto_pen || t.monto || 0);
-        });
-        const catMesStr = Object.entries(porCatMes).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([c,m]) => (getEmojiCategoria(c)||'') + ' ' + c + ': S/ ' + m.toFixed(2)).join(', ');
-        const subMesStr = Object.entries(porCatMes).sort((a,b)=>b[1]-a[1]).slice(0,4).map(([c]) => {
-          const subs = Object.entries(porSubMes[c]||{}).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([s,m])=>s+' S/'+m.toFixed(2)).join(', ');
-          return (getEmojiCategoria(c)||'') + c + ': ' + subs;
-        }).join(' | ');
-        const ctxMes = mE[mes] + ' ' + anio + ': ' + txsMes.length + ' movimientos. Total: S/ ' + totalMesN.toFixed(2) + '. Categorias con emoji: ' + (catMesStr || 'sin datos') + '. Subcategorias: ' + (subMesStr || 'sin datos') + '.';
-        const respMes = await redactarConNETO(netoPrompt, ctxMes, msg, historialConv);
-        return respMes || formatearResumen(txsMes, 'en ' + mE[mes]);
+        // formatearResumen ya ordena por monto, calcula el % de cada categoria y aplica las
+        // negritas de WhatsApp. La IA reordenaba mal las categorias y perdia los porcentajes.
+        return formatearResumen(txsMes, 'en ' + mE[mes]);
       }
 
       case 'listar_gastos_semana': {
         const txsSem = await obtenerGastosSemana(usuario.id);
         const totalSemN = txsSem.reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
-        const porCatSem = {};
-        const porSubSem = {};
-        txsSem.forEach(t => {
-          const cat = t.categoria || 'Otros'; const sub = t.subcategoria || 'sin_categoria';
-          porCatSem[cat] = (porCatSem[cat]||0) + parseFloat(t.monto_pen || t.monto || 0);
-          if (!porSubSem[cat]) porSubSem[cat] = {};
-          porSubSem[cat][sub] = (porSubSem[cat][sub]||0) + parseFloat(t.monto_pen || t.monto || 0);
-        });
-        const catSemStr = Object.entries(porCatSem).sort((a,b)=>b[1]-a[1]).slice(0,4).map(([c,m]) => (getEmojiCategoria(c)||'') + ' ' + c + ': S/ ' + m.toFixed(2)).join(', ');
         // Comparativa semana anterior (usar fechaHoyPeru para evitar off-by-one con UTC)
         const hoyStr = fechaHoyPeru();
         const hoyD = new Date(hoyStr + 'T12:00:00');
@@ -92,17 +69,17 @@ module.exports = {
         const { data: txsAnt } = await supabase.from('transacciones').select('monto,monto_pen').eq('usuario_id', usuario.id).eq('tipo','gasto').gte('fecha', hace14.toISOString().split('T')[0]).lte('fecha', hace7.toISOString().split('T')[0]);
         const totalAnt = (txsAnt||[]).reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
         const diffSem = totalSemN - totalAnt;
-        const subSemStr = Object.entries(porCatSem).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([c]) => {
-          const subs = Object.entries(porSubSem[c]||{}).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([s,m])=>s+' S/'+m.toFixed(2)).join(', ');
-          return (getEmojiCategoria(c)||'') + c + ': ' + subs;
-        }).join(' | ');
-        const ctxSem = 'Semana: ' + txsSem.length + ' movimientos. Total: S/ ' + totalSemN.toFixed(2) + '. ' +
-          (totalAnt > 0 ? 'Semana anterior: S/ ' + totalAnt.toFixed(2) + '. Diferencia: ' + (diffSem >= 0 ? '+' : '') + 'S/ ' + diffSem.toFixed(2) + '. ' : '') +
-          'Top categorias con emoji: ' + (catSemStr || 'sin datos') + '. Subcategorias: ' + (subSemStr || 'sin datos') + '. ' +
-          'Dia mas caro: ' + (txsSem.length > 0 ? txsSem.reduce((max,t) => parseFloat(t.monto_pen||t.monto||0) > parseFloat(max.monto_pen||max.monto||0) ? t : max, txsSem[0]).fecha : 'sin datos') +
-          '.';
-        const respSem = await redactarConNETO(netoPrompt, ctxSem, msg, historialConv);
-        return respSem || formatearResumen(txsSem, 'esta semana');
+        // El resumen base mas los dos datos que ya se calculan aca y el texto fijo anterior
+        // descartaba: comparativa contra la semana pasada y cual fue el gasto mas alto.
+        let respSem = formatearResumen(txsSem, 'esta semana');
+        if (totalAnt > 0) {
+          respSem += '\n' + (diffSem >= 0 ? '📈' : '📉') + ' Semana pasada: *S/ ' + totalAnt.toFixed(2) + '* (' + (diffSem >= 0 ? '+' : '-') + 'S/ ' + Math.abs(diffSem).toFixed(2) + ')';
+        }
+        if (txsSem.length > 0) {
+          const txMasCara = txsSem.reduce((max,t) => parseFloat(t.monto_pen||t.monto||0) > parseFloat(max.monto_pen||max.monto||0) ? t : max, txsSem[0]);
+          respSem += '\n🔝 Mayor gasto: ' + (txMasCara.comercio || txMasCara.banco || 'Sin nombre') + ' *S/ ' + parseFloat(txMasCara.monto_pen || txMasCara.monto || 0).toFixed(2) + '* (' + formatFecha(txMasCara.fecha) + ')';
+        }
+        return respSem;
       }
 
       case 'listar_gastos_dia': {
@@ -126,12 +103,16 @@ module.exports = {
         const porCatDia = {};
         gastosDia.forEach(t => { const c = t.categoria || 'Otros'; porCatDia[c] = (porCatDia[c]||0) + parseFloat(t.monto_pen || t.monto || 0); });
         const catDiaStr = Object.entries(porCatDia).sort((a,b)=>b[1]-a[1]).map(([c,m]) => (getEmojiCategoria(c)||'') + ' ' + c + ': S/ ' + m.toFixed(2)).join(', ');
-        let ctxDia = formatFecha(fechaDia) + ': ' + txsDia.length + ' movimientos. ';
-        if (gastosDia.length > 0) ctxDia += 'Gastos: S/ ' + totalGDia.toFixed(2) + ' en ' + gastosDia.length + ' transacciones. Categorias: ' + (catDiaStr || 'sin datos') + '. ';
-        if (ingresosDia.length > 0) ctxDia += 'Ingresos: S/ ' + totalIDia.toFixed(2) + '. ';
-        ctxDia += 'Detalle: ' + txsDia.slice(0,8).map(t => (t.tipo === 'ingreso' ? '💰' : '💸') + ' ' + (t.comercio||t.banco||'Pago') + ' ' + (t.moneda === 'USD' ? '$' : 'S/') + parseFloat(t.monto).toFixed(2) + ' [' + (t.categoria||'Otros') + ']').join(', ');
-        const respDia = await redactarConNETO(netoPrompt, ctxDia, msg, historialConv);
-        return respDia || '📊 *' + formatFecha(fechaDia) + '*\nGastos: S/ ' + totalGDia.toFixed(2) + ' (' + gastosDia.length + ' movimientos)\n\n' + catDiaStr;
+        // "Que gaste hoy" pide el detalle, no solo el total: el texto fijo anterior se quedaba
+        // en el agregado por categoria y la lista movimiento a movimiento solo la veia la IA.
+        let respDia = '📊 *' + formatFecha(fechaDia) + '*\n';
+        if (gastosDia.length > 0) respDia += 'Gastos: *S/ ' + totalGDia.toFixed(2) + '* (' + gastosDia.length + ' movimiento' + (gastosDia.length === 1 ? '' : 's') + ')\n';
+        if (ingresosDia.length > 0) respDia += 'Ingresos: *S/ ' + totalIDia.toFixed(2) + '* (' + ingresosDia.length + ')\n';
+        // Con un solo gasto el desglose por categoria repite la linea de detalle.
+        if (catDiaStr && gastosDia.length > 1) respDia += '\n' + catDiaStr + '\n';
+        respDia += '\n' + txsDia.slice(0,8).map(t => (t.tipo === 'ingreso' ? '💰' : '💸') + ' ' + (t.comercio||t.banco||'Pago') + ' ' + (t.moneda === 'USD' ? '$' : 'S/ ') + parseFloat(t.monto).toFixed(2)).join('\n');
+        if (txsDia.length > 8) respDia += '\n_...y ' + (txsDia.length - 8) + ' mas_';
+        return respDia;
       }
 
       case 'listar_gastos_categoria': {
@@ -175,9 +156,7 @@ module.exports = {
         let txsVt = periodoVt === 'semana' ? await obtenerGastosSemana(usuario.id, fechaMinVt) : await obtenerGastosMes(usuario.id, fechaMinVt);
         if (catVt) txsVt = txsVt.filter(t => (t.categoria||'').toLowerCase().includes(catVt.toLowerCase()));
         const totalVt = txsVt.reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
-        const ctxVt = (catVt ? 'Categoria ' + catVt + ' en ' : 'Total ') + periodoVt + ': S/ ' + totalVt.toFixed(2) + ' en ' + txsVt.length + ' movimientos.';
-        const respVt = await redactarConNETO(netoPrompt, ctxVt, msg, historialConv);
-        return respVt || 'Llevas *S/ ' + totalVt.toFixed(2) + '* ' + (catVt ? 'en ' + catVt + ' ' : '') + 'esta ' + periodoVt + ' (' + txsVt.length + ' movimientos).';
+        return 'Llevas *S/ ' + totalVt.toFixed(2) + '* ' + (catVt ? 'en ' + catVt + ' ' : '') + (periodoVt === 'semana' ? 'esta semana' : 'este mes') + ' (' + txsVt.length + ' movimientos).';
       }
 
       case 'ver_gastos_rango_fecha': {

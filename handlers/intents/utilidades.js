@@ -108,10 +108,15 @@ module.exports = {
           const allCats = [...new Set([...Object.keys(porCat1), ...Object.keys(porCat2)])];
           const cambios = allCats.map(c => ({ cat: c, m1: porCat1[c]||0, m2: porCat2[c]||0, diff: (porCat1[c]||0) - (porCat2[c]||0) }))
             .sort((a,b) => Math.abs(b.diff) - Math.abs(a.diff)).slice(0,4);
-          const cambiosStr = cambios.map(c => (getEmojiCategoria(c.cat)||'') + c.cat + ': S/' + c.m1.toFixed(0) + ' vs S/' + c.m2.toFixed(0) + ' (' + (c.diff > 0 ? '+' : '') + c.diff.toFixed(0) + ')').join(', ');
-          const ctxComp = mE[mes1] + ' ' + anio1 + ': S/' + total1.toFixed(2) + ' (' + (txs1||[]).length + ' gastos) vs ' + mE[mes2Raw] + ' ' + anio2 + ': S/' + total2.toFixed(2) + ' (' + (txs2||[]).length + ' gastos). Diferencia: ' + (diff > 0 ? '+' : '') + 'S/' + diff.toFixed(2) + ' (' + (diff > 0 ? '+' : '') + pct + '%). Categorias con mayor cambio: ' + cambiosStr;
-          const respComp = await redactarConNETO(netoPrompt, ctxComp, msg, historialConv);
-          return respComp || '📊 *' + mE[mes1] + ' vs ' + mE[mes2Raw] + '*\n\n' + mE[mes1] + ': S/ ' + total1.toFixed(2) + '\n' + mE[mes2Raw] + ': S/ ' + total2.toFixed(2) + '\nDiferencia: ' + (diff > 0 ? '+' : '') + 'S/ ' + diff.toFixed(2) + ' (' + (diff > 0 ? '+' : '') + pct + '%)';
+          // El desglose por categoria ya estaba calculado y solo llegaba a la IA: el texto fijo
+          // se quedaba en los dos totales y obligaba al usuario a restar de memoria.
+          // El signo va antes del simbolo de moneda: "-S/ 374.20", nunca "S/ -374.20".
+          const conSigno = (n, dec) => (n >= 0 ? '+' : '-') + 'S/ ' + Math.abs(n).toFixed(dec);
+          let respComp = '📊 *' + mE[mes1] + ' vs ' + mE[mes2Raw] + '*\n\n' + mE[mes1] + ': *S/ ' + total1.toFixed(2) + '*\n' + mE[mes2Raw] + ': *S/ ' + total2.toFixed(2) + '*\nDiferencia: *' + conSigno(diff, 2) + '* (' + (diff > 0 ? '+' : '') + pct + '%)';
+          if (cambios.length) {
+            respComp += '\n\n' + cambios.map(c => (getEmojiCategoria(c.cat)||'📋') + ' ' + c.cat + ': S/ ' + c.m1.toFixed(0) + ' vs S/ ' + c.m2.toFixed(0) + ' (' + conSigno(c.diff, 0) + ')').join('\n');
+          }
+          return respComp;
         } catch(e) {
           log.error({ tag: 'COMPARAR', err: e.message }, 'Error comparando meses');
           return 'No pude comparar los meses. Intenta: "compara marzo con febrero".';
@@ -148,9 +153,15 @@ module.exports = {
         }
       }
 
+      // Unico intent que sigue redactando con IA junto a chiste_finanzas: la pregunta es
+      // abierta y el handler no tiene ningun dato precalculado que formatear. El contexto
+      // prohibe cifras porque ahi es donde el modelo falla (ejemplo de calculo de CTS mal
+      // explicado en la corrida del 2026-07-21); la definicion en si salia correcta.
       case 'consulta_financiera': {
-        const ctxFinanciero = 'El usuario hace una pregunta sobre conceptos financieros. Responde como educador financiero peruano: breve, claro, con ejemplos locales (bancos peruanos, montos en soles). Máximo 6 líneas. Si es sobre CTS, AFP, ONP, gratificación, etc., explica el contexto peruano específico.';
-        const respFinanciero = await redactarConNETO(netoPrompt, ctxFinanciero, msg, historialConv);
+        const ctxFinanciero = 'El usuario hace una pregunta sobre conceptos financieros. Responde como educador financiero peruano: breve y claro, máximo 6 líneas. Define el concepto y su contexto peruano específico (CTS, AFP, ONP, gratificación, etc.). PROHIBIDO hacer cálculos o dar ejemplos con montos ("si ganas S/X recibirías S/Y"): nunca cites cifras de dinero ni tasas de interés. Sí puedes mencionar plazos y porcentajes fijados por ley. Si el usuario necesita un monto exacto, dile que lo confirme con su banco o en la SBS (sbs.gob.pe).';
+        // gpt-4o y no el mini por defecto: es el unico intent donde una respuesta equivocada
+        // es informacion financiera falsa para el usuario, y el volumen es bajo.
+        const respFinanciero = await redactarConNETO(netoPrompt, ctxFinanciero, msg, historialConv, { model: 'gpt-4o' });
         return respFinanciero || 'Buena pregunta. Te recomiendo consultar con tu banco o la SBS (sbs.gob.pe) para información detallada.\n\n¿Necesitas algo más con tus finanzas?';
       }
 

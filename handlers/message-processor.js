@@ -440,9 +440,9 @@ async function procesarMensajeLibre(msg, usuario, from) {
       mensaje: msg.substring(0, 500), intencion: intencion || 'desconocido',
       error_tipo: 'desconocido', error_detalle: 'Mensaje no clasificado por NLP'
     }).then(() => {}).catch(() => {});
-    const ctxDef = 'El usuario envio un mensaje que no encaja claramente con ninguna intencion: "' + msg + '". Responde en tono NETO: reconoce el mensaje, ofrece ayuda concreta con los gastos o finanzas del usuario.';
-    const respDef = await redactarConNETO(netoPrompt, ctxDef, msg, historialConv);
-    return respDef || 'No entendi bien, pero estoy aqui. Escribe _"cuanto gaste esta semana"_ o _"dame mi reporte"_ y arrancamos. ¿Que necesitas?';
+    // No decimos "no entendi": casi siempre se entendio y el mensaje simplemente esta fuera
+    // de ambito. Se acota el alcance y se dan ejemplos copiables, sin redactar con IA.
+    return 'Eso se me escapa. Lo mío son tus gastos.\n\nPrueba con _"gasté 40 en el mercado"_, _"cuanto gaste esta semana"_ o _"dame mi reporte"_.';
   } catch(e) {
     const errMsg = e && e.message ? e.message : String(e);
     // Un 429 de OpenAI NO es un error de NLP: es saturación temporal de la organización.

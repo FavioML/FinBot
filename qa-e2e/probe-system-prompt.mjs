@@ -97,7 +97,11 @@ async function run() {
     'nombre=' + user?.nombre + ' plan=' + user?.plan);
 
   const antes = sent.length;
-  const status = await postWebhook(cuerpoMensaje('¿cuánto gasté este mes?', QA_WHATSAPP), '2001:db8:5150::1');
+  // Tiene que ser un mensaje que caiga en un intent que SÍ redacta con IA. Desde el
+  // 2026-07-22 solo quedan dos (chiste_finanzas y consulta_financiera, ver
+  // docs/SESION-ia-vs-texto-fijo.md): con "¿cuánto gasté este mes?" el handler devuelve texto
+  // fijo, nunca hay llamada de redacción y el probe fallaba sin que nada estuviera roto.
+  const status = await postWebhook(cuerpoMensaje('¿qué es la CTS?', QA_WHATSAPP), '2001:db8:5150::1');
   check('webhook acepta el mensaje', status !== 429 && status < 500, 'status = ' + status);
 
   const t0 = Date.now();

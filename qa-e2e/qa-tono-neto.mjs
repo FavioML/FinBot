@@ -31,34 +31,26 @@ const { supabase } = require(path.join(appRoot, 'lib/db.js'));
 
 const AUDITAR_REALES = process.argv.includes('--reales');
 
+// Copiado literal de handlers/intents/utilidades.js → case 'consulta_financiera'.
+const CTX_FINANCIERO = 'El usuario hace una pregunta sobre conceptos financieros. Responde como educador financiero peruano: breve y claro, máximo 6 líneas. Define el concepto y su contexto peruano específico (CTS, AFP, ONP, gratificación, etc.). PROHIBIDO hacer cálculos o dar ejemplos con montos ("si ganas S/X recibirías S/Y"): nunca cites cifras de dinero ni tasas de interés. Sí puedes mencionar plazos y porcentajes fijados por ley. Si el usuario necesita un monto exacto, dile que lo confirme con su banco o en la SBS (sbs.gob.pe).';
+
 // Contextos calcados de handlers/intents/*.js: mismo formato de string que arma producción.
+//
+// Desde el 2026-07-22 solo DOS intents siguen redactando con IA (ver
+// docs/SESION-ia-vs-texto-fijo.md): chiste_finanzas y consulta_financiera. Los otros 15 volvieron
+// a texto fijo, así que auditarlos acá era lintear caminos muertos y reportaba fallas que ningún
+// usuario podía ver.
 const CASOS = [
-  { id: 'saludo', msg: 'hola',
-    ctx: 'El usuario saluda. Contexto: este mes lleva S/ 1240 en gastos (31 movimientos), S/ 3200 en ingresos registrados, balance S/ 1960.' },
-  { id: 'ayuda', msg: '¿qué puedes hacer?',
-    ctx: 'El usuario pregunta que puede hacer NETO o como funciona. Explica brevemente las capacidades: ver gastos, resumen semanal y mensual, presupuestos, reporte PDF, corregir categorias. Todo en tono NETO.' },
-  { id: 'agradecimiento', msg: 'gracias crack',
-    ctx: 'El usuario agradece o felicita a NETO. Responde breve y motivacional. No hagas preguntas. Contexto: lleva S/1240 en 31 movimientos este mes.' },
-  { id: 'queja', msg: 'no me registraste el gasto de ayer',
-    ctx: 'El usuario reporta un problema o se queja de algo que no funciona. Empatiza brevemente, ofrece verificar y da el contacto de soporte: WhatsApp 970398192. No te disculpes de mas, se directo.' },
-  { id: 'gastos_mes', msg: '¿cuánto gasté este mes?',
-    ctx: 'Jul 2026: 31 movimientos. Total: S/ 1240.50. Categorias con emoji: 🍔 Comida: S/ 480.00, 🚗 Transporte: S/ 310.00, 🎬 Entretenimiento: S/ 220.50. Subcategorias: 🍔Comida: delivery S/280.00, restaurante S/120.00.' },
-  { id: 'gastos_semana', msg: 'cuanto gaste esta semana',
-    ctx: 'Semana actual: 9 movimientos. Total: S/ 312.40. Mayor gasto: Rappi S/ 68.90 el 19/07. Semana pasada fue S/ 198.00.' },
-  { id: 'presupuesto', msg: 'como va mi presupuesto de comida',
-    ctx: 'Presupuesto Comida: limite S/ 500, gastado S/ 480.00 (96%). Quedan 9 dias del mes. Ritmo actual proyecta cierre en S/ 640.' },
-  { id: 'balance', msg: 'como voy este mes',
-    ctx: 'Ingresos del mes: S/ 3200. Gastos: S/ 1240.50. Balance: S/ 1959.50 positivo. Mes pasado el balance fue S/ 820.' },
-  { id: 'ingresos', msg: 'cuanto he ganado',
-    ctx: 'Ingresos Jul 2026: S/ 3200 en 2 movimientos (sueldo S/ 2800, freelance S/ 400).' },
-  { id: 'comparativa', msg: 'gasto mas que el mes pasado?',
-    ctx: 'Jul 2026: S/ 1240.50 en 31 movimientos. Jun 2026: S/ 1580.00 en 38 movimientos. Diferencia: S/ 339.50 menos (21% abajo). Categoria que mas bajo: Entretenimiento (S/ 210 menos).' },
-  { id: 'correccion', msg: 'netflix no es comida',
-    ctx: 'El usuario corrigio una categoria. Netflix paso de Comida a Entretenimiento > streaming. Se aplico a 3 movimientos anteriores del mismo comercio.' },
-  { id: 'desconocido', msg: 'oe y el clima como esta',
-    ctx: 'El usuario envio un mensaje que no encaja claramente con ninguna intencion: "oe y el clima como esta". Responde en tono NETO: reconoce el mensaje, ofrece ayuda concreta con los gastos o finanzas del usuario.' },
-  { id: 'correos', msg: '¿estás leyendo mis correos del BCP?',
-    ctx: 'El usuario pregunta si NETO esta leyendo automaticamente sus correos bancarios del BCP.' },
+  { id: 'chiste', msg: 'cuéntame un chiste',
+    ctx: 'El usuario quiere un chiste o dato curioso sobre finanzas. Cuenta un chiste corto y gracioso relacionado con dinero, ahorro o finanzas personales. Usa humor peruano si puedes. Máximo 3 líneas.' },
+  { id: 'consulta_cts', msg: 'que es la CTS?',
+    ctx: CTX_FINANCIERO },
+  { id: 'consulta_afp', msg: 'me conviene AFP u ONP?',
+    ctx: CTX_FINANCIERO },
+  { id: 'consulta_interes', msg: 'que es el interes compuesto',
+    ctx: CTX_FINANCIERO },
+  // "¿lees mis correos?" (restricción CASA) ya no pasa por IA: cae en el intent de ayuda,
+  // que es texto fijo. Ese chequeo vive en probe-system-prompt.mjs, sección D.
 ];
 
 // Reglas DURAS del prompt (secciones 1 y 2). Cada una es verificable sin criterio.
@@ -92,13 +84,29 @@ const REGLAS = [
 ];
 
 // Solo aplica cuando el usuario NO tiene correo conectado, que es el caso de 68 de 74 reales.
+// Los \b de le(o|yendo) no son decorativos: sin ellos "empleo" matchea "leo" y cualquier
+// respuesta que diga "si pierdes tu empleo" se reportaba como que NETO afirma leer correos.
 const REGLA_CORREOS = { id: 'miente-correos', desc: 'afirma leer correos sin correo conectado',
-  re: /(s[íi]\b|ya|claro)[^.!?]{0,40}(le(o|yendo)|reviso|revisando|sincroniz)|le(o|emos) tus correos|los? reviso autom/i };
+  re: /(s[íi]\b|ya|claro)[^.!?]{0,40}\b(le(o|yendo)|reviso|revisando|sincroniz\w*)\b|\ble(o|emos)\b tus correos|los? reviso autom/i };
 
-function auditar(texto, { chequearCorreos = true } = {}) {
+// Guardarraíl de consulta_financiera: lo que falló fue el CÁLCULO ("si tu sueldo es S/1000,
+// recibirías S/1000 al año"), no el dato regulatorio. Por eso la regla persigue montos de
+// dinero, que en una respuesta conceptual solo pueden salir de un cálculo o de la nada. Los
+// porcentajes fijados por ley (el 95.5% de retiro AFP) son correctos y no se penalizan.
+const REGLA_SIN_MONTOS = { id: 'inventa-montos', desc: 'da montos de dinero en una consulta conceptual (solo pueden venir de un cálculo)',
+  re: /S\/\s?\d|\$\s?\d|\b\d+([.,]\d+)?\s*(soles|d[óo]lares)\b|\b\d+([.,]\d+)?\s*(sueldos?|remuneraciones?)\b/i };
+
+// El chiste es prosa, no un dato: no reporta ningún monto real del usuario, así que no le
+// aplican ni la pregunta-relleno (los chistes son pregunta-respuesta) ni el formato de moneda
+// ("billete de 100 soles" es como se dice, "billete de S/100" no).
+const REGLAS_CHISTE_EXENTAS = new Set(['pregunta-relleno', 'moneda-soles', 'moneda-dolares']);
+
+function auditar(texto, { chequearCorreos = true, sinMontos = false, esChiste = false } = {}) {
   const t = (texto || '').trim();
   if (!t) return [{ id: 'vacio', desc: 'la IA no devolvió nada (revisar logs NETO_GPT)' }];
-  const reglas = chequearCorreos ? [...REGLAS, REGLA_CORREOS] : REGLAS;
+  const reglas = REGLAS.filter(r => !(esChiste && REGLAS_CHISTE_EXENTAS.has(r.id)));
+  if (chequearCorreos) reglas.push(REGLA_CORREOS);
+  if (sinMontos) reglas.push(REGLA_SIN_MONTOS);
   return reglas.filter(r => (r.test ? r.test(t) : r.re.test(t)));
 }
 
@@ -118,8 +126,10 @@ async function main() {
 
   console.log('Auditando ' + CASOS.length + ' respuestas redactadas con el prompt maestro real...\n');
   const filas = await enTandas(CASOS, async (c) => {
-    const texto = await redactarConNETO(prompt, c.ctx, c.msg, []);
-    return { ...c, texto, fallas: auditar(texto) };
+    // Mismo modelo que usa producción para ese intent: consulta_financiera corre en gpt-4o.
+    const esFinanciero = c.ctx === CTX_FINANCIERO;
+    const texto = await redactarConNETO(prompt, c.ctx, c.msg, [], esFinanciero ? { model: 'gpt-4o' } : {});
+    return { ...c, texto, fallas: auditar(texto, { sinMontos: esFinanciero, esChiste: c.id === 'chiste' }) };
   });
 
   for (const f of filas) {
