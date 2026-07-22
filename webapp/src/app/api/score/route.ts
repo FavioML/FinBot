@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { requireNetoUser } from '@/lib/supabase/auth';
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 import { goalsFactor, debtsFactor, limaToday } from '@/lib/score-factors';
@@ -30,19 +31,14 @@ type ScoreFactors = {
 
 type ScoreResult = { score: number; factors: ScoreFactors; period: string };
 
-async function getNetoUserId(supabase: Awaited<ReturnType<typeof createClient>>) {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-  // maybeSingle (not single): un usuario autenticado en Supabase puede no tener
-  // aún fila en `usuarios` (registro WhatsApp-first). single() devuelve 406 con
-  // 0 filas; maybeSingle() devuelve data:null y lo tratamos como no-autorizado.
-  const { data } = await supabase
-    .from('usuarios')
-    .select('id, plan, gmail_access_token, recordatorios_activos')
-    .eq('supabase_auth_id', user.id)
-    .maybeSingle();
-  return data as { id: string; plan: string; gmail_access_token: string | null; recordatorios_activos: boolean | null } | null;
-}
+const SCORE_USER_COLS = 'id, plan, gmail_access_token, recordatorios_activos';
+
+type ScoreUser = {
+  id: string;
+  plan: string;
+  gmail_access_token: string | null;
+  recordatorios_activos: boolean | null;
+};
 
 /**
  * Calculate a fresh Neto Score with direct Supabase queries. Espeja el backend
@@ -52,7 +48,7 @@ async function getNetoUserId(supabase: Awaited<ReturnType<typeof createClient>>)
  * goals y debts usan la misma lógica que el backend (ritmo de ahorro / penalidad
  * por mora) vía lib/score-factors para no divergir del score que el cron asienta.
  */
-async function calculateFreshScore(usuario: NonNullable<Awaited<ReturnType<typeof getNetoUserId>>>) {
+async function calculateFreshScore(usuario: ScoreUser) {
   const svc = getServiceClient();
   const userId = usuario.id;
 
@@ -178,9 +174,11 @@ async function calculateFreshScore(usuario: NonNullable<Awaited<ReturnType<typeo
 }
 
 export async function GET(request: Request) {
+  const auth = await requireNetoUser(SCORE_USER_COLS);
+  if (!auth.ok) return auth.response;
+  const usuario = auth.user as unknown as ScoreUser;
+
   const supabase = await createClient();
-  const usuario = await getNetoUserId(supabase);
-  if (!usuario) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { searchParams } = new URL(request.url);
   const wantHistory = searchParams.get('history') === 'true';

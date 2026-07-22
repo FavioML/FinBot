@@ -1,23 +1,11 @@
-import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
+import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { hoyPeru } from '@/lib/dates';
 
 const FRECUENCIAS = ['semanal', 'quincenal', 'mensual', 'anual'] as const;
 type Frecuencia = typeof FRECUENCIAS[number];
-
-async function getNetoUser() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-  const { data } = await getServiceClient()
-    .from('usuarios')
-    .select('id, plan')
-    .eq('supabase_auth_id', user.id)
-    .single();
-  return data || null;
-}
 
 // Suma un periodo a una fecha (ISO yyyy-mm-dd) según la frecuencia
 function addPeriodo(fechaISO: string, frecuencia: Frecuencia): string {
@@ -31,8 +19,9 @@ function addPeriodo(fechaISO: string, frecuencia: Frecuencia): string {
 
 // GET /api/debts — lista todas las deudas activas
 export async function GET() {
-  const netoUser = await getNetoUser();
-  if (!netoUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser('id, plan');
+  if (!auth.ok) return auth.response;
+  const netoUser = auth.user;
 
   if (!checkRateLimit(netoUser.id)) {
     return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
@@ -50,8 +39,9 @@ export async function GET() {
 
 // POST /api/debts — crear deuda
 export async function POST(request: Request) {
-  const netoUser = await getNetoUser();
-  if (!netoUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser('id, plan');
+  if (!auth.ok) return auth.response;
+  const netoUser = auth.user;
 
   if (!checkRateLimit(netoUser.id)) {
     return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
@@ -119,8 +109,9 @@ export async function POST(request: Request) {
 
 // PUT /api/debts — actualizar deuda (editar campos o registrar abono)
 export async function PUT(request: Request) {
-  const netoUser = await getNetoUser();
-  if (!netoUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser('id, plan');
+  if (!auth.ok) return auth.response;
+  const netoUser = auth.user;
 
   if (!checkRateLimit(netoUser.id)) {
     return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
@@ -338,8 +329,9 @@ export async function PUT(request: Request) {
 
 // DELETE /api/debts?id=xxx — eliminar deuda
 export async function DELETE(request: Request) {
-  const netoUser = await getNetoUser();
-  if (!netoUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser('id, plan');
+  if (!auth.ok) return auth.response;
+  const netoUser = auth.user;
 
   if (!checkRateLimit(netoUser.id)) {
     return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });

@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 
 interface AlertRow {
@@ -43,16 +44,12 @@ function alertKey(a: AlertRow): string {
 }
 
 export async function GET(request: Request) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser('id, plan');
+  if (!auth.ok) return auth.response;
+  const usuario = auth.user;
 
-  const { data: usuario } = await supabase
-    .from('usuarios')
-    .select('id, plan')
-    .eq('supabase_auth_id', user.id)
-    .single();
-  if (!usuario) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+  // El resto de la ruta sigue leyendo con el cliente RLS-scoped de la sesion.
+  const supabase = await createClient();
 
   const { searchParams } = new URL(request.url);
   const limit = parseInt(searchParams.get('limit') || '20');

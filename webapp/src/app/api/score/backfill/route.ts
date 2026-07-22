@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { requireNetoUser } from '@/lib/supabase/auth';
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 import { goalsFactor, debtsFactor, limaToday } from '@/lib/score-factors';
@@ -20,18 +21,11 @@ const WEIGHTS = {
  * with direct Supabase queries.
  */
 export async function POST() {
+  const auth = await requireNetoUser('id, plan, gmail_access_token, recordatorios_activos');
+  if (!auth.ok) return auth.response;
+  const usuario = auth.user;
+
   const supabase = await createClient();
-
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const { data: usuario } = await supabase
-    .from('usuarios')
-    .select('id, plan, gmail_access_token, recordatorios_activos')
-    .eq('supabase_auth_id', user.id)
-    .single();
-
-  if (!usuario) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
   // Barrera best-effort: el backfill corre 5 queries + N upserts. Es idempotente
   // (tras la primera pasada devuelve backfilled: 0), pero sin limite se puede

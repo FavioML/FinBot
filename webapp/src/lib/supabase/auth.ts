@@ -36,7 +36,12 @@ export interface NetoUserRow {
 }
 
 export type NetoUserAuth =
-  | { ok: true; user: NetoUserRow }
+  | {
+      ok: true;
+      user: NetoUserRow;
+      /** id de Supabase Auth (`auth.users.id`), distinto de `user.id`. */
+      authId: string;
+    }
   | { ok: false; response: NextResponse };
 
 /**
@@ -61,7 +66,9 @@ export async function requireNetoUser(columns = 'id'): Promise<NetoUserAuth> {
     return { ok: false, response: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
   }
 
-  const select = columns.split(',').some((c) => c.trim() === 'id') ? columns : `id, ${columns}`;
+  const select = columns.split(',').some((c) => ['id', '*'].includes(c.trim()))
+    ? columns
+    : `id, ${columns}`;
 
   const { data, error } = await getServiceClient()
     .from('usuarios')
@@ -87,7 +94,7 @@ export async function requireNetoUser(columns = 'id'): Promise<NetoUserAuth> {
     return { ok: false, response: NextResponse.json({ error: 'User not found' }, { status: 404 }) };
   }
 
-  return { ok: true, user: data as unknown as NetoUserRow };
+  return { ok: true, user: data as unknown as NetoUserRow, authId: user.id };
 }
 
 /**

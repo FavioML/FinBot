@@ -1,8 +1,8 @@
 'use client';
 
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
@@ -10,8 +10,32 @@ import { signOutAndClear } from '@/lib/query-client';
 
 type Phase = 'input' | 'verify';
 
+function Spinner() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-[#0E0E0C]">
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#1D9E75] border-t-transparent" />
+    </div>
+  );
+}
+
+// `useSearchParams` obliga a un limite de Suspense para que el shell siga
+// prerenderizandose estatico (mismo patron que /login).
 export default function OnboardingPage() {
+  return (
+    <Suspense fallback={<Spinner />}>
+      <Onboarding />
+    </Suspense>
+  );
+}
+
+function Onboarding() {
   const router = useRouter();
+  // A donde volver al terminar. Lo mandan las paginas /join/* cuando la API
+  // responde 404 (hay sesion pero todavia no hay cuenta Neto): sin esto el
+  // usuario se vincula y aterriza en el dashboard, con la invitacion perdida.
+  // Solo rutas internas, para que un link no lo saque de la app.
+  const destino = useSearchParams().get('redirect');
+  const volverA = destino?.startsWith('/') && !destino.startsWith('//') ? destino : '/dashboard';
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [whatsapp, setWhatsapp] = useState('');
@@ -51,7 +75,7 @@ export default function OnboardingPage() {
         if (data.verified) {
           if (pollRef.current) clearInterval(pollRef.current);
           toast.success('Cuenta verificada');
-          router.replace('/dashboard');
+          router.replace(volverA);
         }
       } catch {
         /* reintenta en el siguiente tick */
@@ -62,7 +86,7 @@ export default function OnboardingPage() {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [phase, router]);
+  }, [phase, router, volverA]);
 
   const formatWhatsapp = (value: string) => {
     const digits = value.replace(/\D/g, '').slice(0, 9);
@@ -97,9 +121,9 @@ export default function OnboardingPage() {
         return;
       }
 
-      // Cuenta ya vinculada en una sesion previa -> directo al dashboard.
+      // Cuenta ya vinculada en una sesion previa -> directo a destino.
       if (data.alreadyLinked) {
-        router.replace('/dashboard');
+        router.replace(volverA);
         return;
       }
 
@@ -114,11 +138,7 @@ export default function OnboardingPage() {
   };
 
   if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#0E0E0C]">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#1D9E75] border-t-transparent" />
-      </div>
-    );
+    return <Spinner />;
   }
 
   return (

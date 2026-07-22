@@ -1,5 +1,5 @@
-import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
+import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse, after } from 'next/server';
 import { getExchangeRate } from '@/lib/exchange-rate';
 import { checkRateLimit } from '@/lib/rate-limit';
@@ -16,21 +16,6 @@ function validarMonto(valor: unknown): number | null {
 function generarDedupHash(userId: string, fecha: string, monto: number, comercio: string | null, tipo: string): string {
   const raw = userId + '|' + fecha + '|' + monto + '|' + (comercio || '') + '|' + tipo;
   return crypto.createHash('md5').update(raw).digest('hex');
-}
-
-async function getNetoUserId() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data } = await getServiceClient()
-    .from('usuarios')
-    .select('id')
-    .eq('supabase_auth_id', user.id)
-    .single();
-  return data?.id || null;
 }
 
 // El destino que enseñaria la regla, o null si no enseña nada. Una regla cuyo
@@ -163,9 +148,9 @@ async function syncCategoriasUsuario(userId: string, categoria: string, subcateg
 }
 
 export async function POST(request: Request) {
-  const userId = await getNetoUserId();
-  if (!userId)
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser();
+  if (!auth.ok) return auth.response;
+  const userId = auth.user.id;
 
   if (!checkRateLimit(userId)) {
     return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
@@ -224,9 +209,9 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const userId = await getNetoUserId();
-  if (!userId)
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser();
+  if (!auth.ok) return auth.response;
+  const userId = auth.user.id;
 
   if (!checkRateLimit(userId)) {
     return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
@@ -276,9 +261,9 @@ export async function PUT(request: Request) {
 
 /* PATCH — bulk update selected fields on multiple transactions */
 export async function PATCH(request: Request) {
-  const userId = await getNetoUserId();
-  if (!userId)
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser();
+  if (!auth.ok) return auth.response;
+  const userId = auth.user.id;
 
   if (!checkRateLimit(userId)) {
     return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
@@ -342,9 +327,9 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const userId = await getNetoUserId();
-  if (!userId)
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser();
+  if (!auth.ok) return auth.response;
+  const userId = auth.user.id;
 
   if (!checkRateLimit(userId)) {
     return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });

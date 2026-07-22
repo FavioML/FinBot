@@ -1,5 +1,5 @@
-import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
+import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
 
@@ -11,26 +11,11 @@ function capitalize(s: string | null | undefined): string | null {
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
 }
 
-async function getNetoUser() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data } = await getServiceClient()
-    .from('usuarios')
-    .select('id, plan')
-    .eq('supabase_auth_id', user.id)
-    .single();
-  return data || null;
-}
-
 // GET /api/budgets?mes=X&anio=Y — get budgets with carry-forward logic
 export async function GET(request: Request) {
-  const netoUser = await getNetoUser();
-  if (!netoUser)
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser('id, plan');
+  if (!auth.ok) return auth.response;
+  const netoUser = auth.user;
 
   if (!checkRateLimit(netoUser.id)) {
     return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
@@ -127,9 +112,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const netoUser = await getNetoUser();
-  if (!netoUser)
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser('id, plan');
+  if (!auth.ok) return auth.response;
+  const netoUser = auth.user;
 
   if (!checkRateLimit(netoUser.id)) {
     return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
@@ -173,9 +158,9 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const netoUser = await getNetoUser();
-  if (!netoUser)
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser('id, plan');
+  if (!auth.ok) return auth.response;
+  const netoUser = auth.user;
 
   if (!checkRateLimit(netoUser.id)) {
     return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
@@ -203,9 +188,9 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const netoUser = await getNetoUser();
-  if (!netoUser)
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser('id, plan');
+  if (!auth.ok) return auth.response;
+  const netoUser = auth.user;
 
   if (!checkRateLimit(netoUser.id)) {
     return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });

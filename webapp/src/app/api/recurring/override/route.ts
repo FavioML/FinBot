@@ -1,22 +1,7 @@
-import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
+import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
-
-async function getNetoUser() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data } = await getServiceClient()
-    .from('usuarios')
-    .select('id')
-    .eq('supabase_auth_id', user.id)
-    .single();
-  return data || null;
-}
 
 const DOMINIOS = ['recurrente', 'suscripcion'] as const;
 // Campos editables del override (whitelist)
@@ -32,8 +17,9 @@ const FIELDS = [
 // Upsert con merge: cada acción manda solo los campos que cambia; se combinan sobre
 // el override existente de esa (usuario, dominio, clave_variante).
 export async function POST(request: Request) {
-  const netoUser = await getNetoUser();
-  if (!netoUser) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  const auth = await requireNetoUser();
+  if (!auth.ok) return auth.response;
+  const netoUser = auth.user;
   if (!checkRateLimit(netoUser.id)) {
     return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
   }
@@ -77,8 +63,9 @@ export async function POST(request: Request) {
 
 // Reset: borra el override de esa clave (vuelve a la heurística automática).
 export async function DELETE(request: Request) {
-  const netoUser = await getNetoUser();
-  if (!netoUser) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  const auth = await requireNetoUser();
+  if (!auth.ok) return auth.response;
+  const netoUser = auth.user;
   if (!checkRateLimit(netoUser.id)) {
     return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
   }

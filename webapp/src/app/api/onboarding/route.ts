@@ -41,12 +41,21 @@ export async function POST(request: Request) {
   const fullWhatsapp = `51${digits}`;
   const svc = getServiceClient();
 
-  // Ya vinculado: nada que verificar.
-  const { data: alreadyLinked } = await svc
+  // Ya vinculado: nada que verificar. Aca "no hay fila" es el caso NORMAL (el
+  // usuario todavia no se vinculo), asi que no puede ser un 404 — pero tampoco
+  // puede confundirse con una lectura caida: si la lectura falla y lo tomamos
+  // por "no vinculado", se le manda a re-verificar por OTP una cuenta que ya
+  // esta vinculada.
+  const { data: alreadyLinked, error: eLinked } = await svc
     .from('usuarios')
     .select('id')
     .eq('supabase_auth_id', user.id)
     .maybeSingle();
+
+  if (eLinked) {
+    console.error('[onboarding] lectura de usuarios fallida:', eLinked.message);
+    return NextResponse.json({ error: 'Error temporal, intenta de nuevo' }, { status: 500 });
+  }
 
   if (alreadyLinked) {
     return NextResponse.json({ success: true, alreadyLinked: true });
@@ -95,21 +104,34 @@ export async function GET() {
 
   const svc = getServiceClient();
 
-  const { data: linked } = await svc
+  // El cliente hace polling de esto hasta que da true. Con el error tragado, una
+  // lectura caida se ve igual que "todavia no confirmo": el usuario se queda
+  // mirando el spinner de una verificacion que ya ocurrio.
+  const { data: linked, error: eLinked } = await svc
     .from('usuarios')
     .select('id')
     .eq('supabase_auth_id', user.id)
     .maybeSingle();
 
+  if (eLinked) {
+    console.error('[onboarding] lectura de usuarios fallida:', eLinked.message);
+    return NextResponse.json({ error: 'Error temporal, intenta de nuevo' }, { status: 500 });
+  }
+
   if (linked) {
     return NextResponse.json({ verified: true });
   }
 
-  const { data: otp } = await svc
+  const { data: otp, error: eOtp } = await svc
     .from('webapp_otp')
     .select('verified_at')
     .eq('supabase_auth_id', user.id)
     .maybeSingle();
+
+  if (eOtp) {
+    console.error('[onboarding] lectura de webapp_otp fallida:', eOtp.message);
+    return NextResponse.json({ error: 'Error temporal, intenta de nuevo' }, { status: 500 });
+  }
 
   return NextResponse.json({ verified: !!otp?.verified_at });
 }

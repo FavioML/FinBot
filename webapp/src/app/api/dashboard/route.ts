@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
+import { requireNetoUser } from '@/lib/supabase/auth';
 import { getServiceClient } from '@/lib/supabase/service';
 import { isAdminAuthId } from '@/lib/admin';
 import { NextResponse } from 'next/server';
@@ -90,20 +90,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ warm: true });
   }
 
-  const supabase = await createClient();
-  const {
-    data: { user: authUser },
-  } = await supabase.auth.getUser();
-  if (!authUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser('*');
+  if (!auth.ok) return auth.response;
+  const usuario = auth.user;
 
   const svc = getServiceClient();
-
-  const { data: usuario } = await svc
-    .from('usuarios')
-    .select('*')
-    .eq('supabase_auth_id', authUser.id)
-    .single();
-  if (!usuario) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
   const userId = usuario.id as string;
   const isPro = usuario.plan === 'premium';
@@ -192,6 +183,6 @@ export async function GET(request: Request) {
     score,
     scoreHistory: { history },
     alerts: { alerts, isPro },
-    isAdmin: isAdminAuthId(authUser.id),
+    isAdmin: isAdminAuthId(auth.authId),
   });
 }

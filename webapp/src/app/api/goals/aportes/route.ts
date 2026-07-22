@@ -1,28 +1,13 @@
-import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
+import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 import { hoyPeru } from '@/lib/dates';
 
-async function getNetoUserId() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data } = await getServiceClient()
-    .from('usuarios')
-    .select('id')
-    .eq('supabase_auth_id', user.id)
-    .single();
-  return data?.id || null;
-}
-
 // GET /api/goals/aportes?meta_id=xxx — list contributions for a goal
 export async function GET(request: Request) {
-  const userId = await getNetoUserId();
-  if (!userId)
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser();
+  if (!auth.ok) return auth.response;
+  const userId = auth.user.id;
 
   const { searchParams } = new URL(request.url);
   const metaId = searchParams.get('meta_id');
@@ -52,9 +37,9 @@ export async function GET(request: Request) {
 
 // POST /api/goals/aportes — create a contribution
 export async function POST(request: Request) {
-  const userId = await getNetoUserId();
-  if (!userId)
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser();
+  if (!auth.ok) return auth.response;
+  const userId = auth.user.id;
 
   const body = await request.json();
   const { meta_id, monto, tipo = 'aporte', nota } = body;
@@ -177,9 +162,9 @@ export async function POST(request: Request) {
 
 // DELETE /api/goals/aportes?id=xxx — delete a contribution and recalculate meta
 export async function DELETE(request: Request) {
-  const userId = await getNetoUserId();
-  if (!userId)
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser();
+  if (!auth.ok) return auth.response;
+  const userId = auth.user.id;
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');

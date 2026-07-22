@@ -1,27 +1,12 @@
-import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
+import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
-
-async function getNetoUserId() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data } = await getServiceClient()
-    .from('usuarios')
-    .select('id')
-    .eq('supabase_auth_id', user.id)
-    .single();
-  return data?.id || null;
-}
 
 // GET /api/goals/participants?meta_id=xxx — list participants with their contribution totals
 export async function GET(request: Request) {
-  const userId = await getNetoUserId();
-  if (!userId)
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser();
+  if (!auth.ok) return auth.response;
+  const userId = auth.user.id;
 
   const { searchParams } = new URL(request.url);
   const metaId = searchParams.get('meta_id');
@@ -100,9 +85,9 @@ export async function GET(request: Request) {
 
 // DELETE /api/goals/participants — disable collaborative mode (owner only)
 export async function DELETE(request: Request) {
-  const userId = await getNetoUserId();
-  if (!userId)
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser();
+  if (!auth.ok) return auth.response;
+  const userId = auth.user.id;
 
   const { searchParams } = new URL(request.url);
   const metaId = searchParams.get('meta_id');

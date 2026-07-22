@@ -65,6 +65,13 @@ export default function JoinSpacePage({ params }: { params: Promise<{ code: stri
           router.push(`/login?redirect=/join/space/${code}`);
           return;
         }
+        // 404 = hay sesion pero todavia no hay cuenta Neto vinculada. Antes esto
+        // llegaba como 401 y terminaba en /login, que el middleware rebota a
+        // /dashboard por tener sesion: la invitacion se perdia sin decir nada.
+        if (res.status === 404) {
+          router.push(`/onboarding?redirect=/join/space/${code}`);
+          return;
+        }
         throw new Error(data.error || 'Error al unirse');
       }
       if (data.already_member) {

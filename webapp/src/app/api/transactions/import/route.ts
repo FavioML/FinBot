@@ -1,5 +1,5 @@
-import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
+import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { parseCSV, parseExcel, type ImportRow } from '@/lib/import-parser';
@@ -24,25 +24,10 @@ function generarDedupHash(userId: string, fecha: string, monto: number, comercio
   return crypto.createHash('md5').update(raw).digest('hex');
 }
 
-/** Resuelve el usuario_id interno + su plan desde la sesión Supabase. */
-async function getNetoUser(): Promise<{ id: string; plan: string } | null> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data } = await getServiceClient()
-    .from('usuarios')
-    .select('id, plan')
-    .eq('supabase_auth_id', user.id)
-    .single();
-  return data ? { id: data.id, plan: data.plan || 'free' } : null;
-}
-
 export async function POST(request: Request) {
-  const usuario = await getNetoUser();
-  if (!usuario) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser('id, plan');
+  if (!auth.ok) return auth.response;
+  const usuario = { id: auth.user.id, plan: (auth.user.plan as string) || 'free' };
 
   // Carga masiva Excel/CSV es Pro (paridad con el gate excelUpload del backend).
   if (usuario.plan !== 'premium') {

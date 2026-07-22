@@ -1,28 +1,13 @@
-import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
+import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
 
-async function getNetoUserId() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data } = await getServiceClient()
-    .from('usuarios')
-    .select('id')
-    .eq('supabase_auth_id', user.id)
-    .single();
-  return data?.id || null;
-}
-
 /* GET — list user categories with subcategories */
 export async function GET() {
-  const userId = await getNetoUserId();
-  if (!userId)
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  const auth = await requireNetoUser();
+  if (!auth.ok) return auth.response;
+  const userId = auth.user.id;
 
   if (!checkRateLimit(userId)) {
     return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
@@ -106,9 +91,9 @@ export async function GET() {
 
 /* DELETE — soft-delete a category (set activa=false) */
 export async function DELETE(request: Request) {
-  const userId = await getNetoUserId();
-  if (!userId)
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  const auth = await requireNetoUser();
+  if (!auth.ok) return auth.response;
+  const userId = auth.user.id;
 
   if (!checkRateLimit(userId)) {
     return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
@@ -155,9 +140,9 @@ export async function DELETE(request: Request) {
 
 /* PUT — rename a category */
 export async function PUT(request: Request) {
-  const userId = await getNetoUserId();
-  if (!userId)
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  const auth = await requireNetoUser();
+  if (!auth.ok) return auth.response;
+  const userId = auth.user.id;
 
   if (!checkRateLimit(userId)) {
     return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });

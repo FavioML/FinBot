@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 
 export async function POST(
@@ -6,17 +7,11 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const auth = await requireNetoUser();
+  if (!auth.ok) return auth.response;
+  const usuario = auth.user;
+
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const { data: usuario } = await supabase
-    .from('usuarios')
-    .select('id')
-    .eq('supabase_auth_id', user.id)
-    .single();
-  if (!usuario) return NextResponse.json({ error: 'User not found' }, { status: 404 });
-
   const { data, error } = await supabase
     .from('metas_ahorro')
     .update({ status: 'abandoned', updated_at: new Date().toISOString() })

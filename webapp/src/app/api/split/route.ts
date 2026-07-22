@@ -1,29 +1,14 @@
-import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
+import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { hoyPeru } from '@/lib/dates';
 
-async function getNetoUserId() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data } = await getServiceClient()
-    .from('usuarios')
-    .select('id')
-    .eq('supabase_auth_id', user.id)
-    .single();
-  return data?.id || null;
-}
-
 // GET /api/split — list shared expenses
 export async function GET() {
-  const userId = await getNetoUserId();
-  if (!userId)
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser();
+  if (!auth.ok) return auth.response;
+  const userId = auth.user.id;
 
   if (!checkRateLimit(userId)) {
     return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
@@ -42,9 +27,9 @@ export async function GET() {
 
 // POST /api/split — create a shared expense
 export async function POST(request: Request) {
-  const userId = await getNetoUserId();
-  if (!userId)
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser();
+  if (!auth.ok) return auth.response;
+  const userId = auth.user.id;
 
   if (!checkRateLimit(userId)) {
     return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
@@ -108,9 +93,9 @@ export async function POST(request: Request) {
 
 // PATCH /api/split — edit shared expense details (description, fecha_limite, participant names)
 export async function PATCH(request: Request) {
-  const userId = await getNetoUserId();
-  if (!userId)
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser();
+  if (!auth.ok) return auth.response;
+  const userId = auth.user.id;
 
   if (!checkRateLimit(userId)) {
     return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
@@ -170,9 +155,9 @@ export async function PATCH(request: Request) {
 
 // PUT /api/split — mark participant as paid or update expense
 export async function PUT(request: Request) {
-  const userId = await getNetoUserId();
-  if (!userId)
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser();
+  if (!auth.ok) return auth.response;
+  const userId = auth.user.id;
 
   if (!checkRateLimit(userId)) {
     return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
@@ -283,9 +268,9 @@ export async function PUT(request: Request) {
 
 // DELETE /api/split?id=xxx — delete a shared expense
 export async function DELETE(request: Request) {
-  const userId = await getNetoUserId();
-  if (!userId)
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser();
+  if (!auth.ok) return auth.response;
+  const userId = auth.user.id;
 
   if (!checkRateLimit(userId)) {
     return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });

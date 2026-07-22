@@ -1,5 +1,5 @@
-import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
+import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
 
@@ -10,27 +10,10 @@ export const maxDuration = 20;
 
 const OPENAI_TIMEOUT_MS = 12_000;
 
-async function getNetoUserId() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  // maybeSingle: el usuario auth puede no tener fila en `usuarios`. single()
-  // devuelve 406 con 0 filas; maybeSingle() devuelve null y lo tratamos como null.
-  const { data } = await getServiceClient()
-    .from('usuarios')
-    .select('id')
-    .eq('supabase_auth_id', user.id)
-    .maybeSingle();
-  return data?.id || null;
-}
-
 export async function POST(request: Request) {
-  const userId = await getNetoUserId();
-  if (!userId)
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireNetoUser();
+  if (!auth.ok) return auth.response;
+  const userId = auth.user.id;
 
   // Consejo IA es Pro-only
   const { data: usuario } = await getServiceClient()
