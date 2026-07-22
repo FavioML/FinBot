@@ -83,6 +83,16 @@ correo de Gmail entró más de una vez. Las otras 16 quedaron intactas.
 - **Editar el monto no recalcula `dedup_hash`.** Por eso hay filas con el mismo hash y montos
   distintos (Bar Refugio: S/15 corregido a mano + 4 copias de S/12 sin tocar).
 
+## Continuación (22-jul-2026)
+
+Este doc queda como registro de lo verificado. El trabajo restante se partió en dos sesiones
+independientes, en orden de valor esperado:
+
+1. `docs/SESION-escrituras-sobre-lectura-fallida.md` — la clase que sí rinde: lecturas fallidas que
+   producen escrituras (referrals, pagos Pro, balances de espacios, score).
+2. `docs/SESION-barrido-candidatos-restantes.md` — cerrar los 4 candidatos de la tabla de abajo.
+   Rendimiento esperado bajo: el único auditado de esa lista salió sano.
+
 ## Candidatos concretos a revisar
 
 Salieron del grep de catch en los servicios que llaman a OpenAI. Están sin verificar: pueden estar
