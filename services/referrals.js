@@ -1,6 +1,6 @@
 const { supabase } = require('../lib/db');
 const log = require('../lib/logger');
-const { hoyPeru } = require('../lib/dates');
+const { hoyPeru, sumarMeses } = require('../lib/dates');
 const { enviarWhatsapp } = require('../lib/whatsapp');
 
 // PostgREST devuelve PGRST116 cuando .single() no encuentra fila. Ese es el caso
@@ -71,14 +71,13 @@ async function verificarProReferidos(referrerId) {
     const yaOtorgados = referrer.referidos_meses_otorgados || 0;
     const nuevos = mesesGanados - yaOtorgados;
     if (nuevos < 1) return;
-    const ahora = new Date();
-    let base = ahora;
-    if (referrer.premium_vence && new Date(referrer.premium_vence) > ahora) {
-      base = new Date(referrer.premium_vence);
-    }
-    const vence = new Date(base);
-    vence.setMonth(base.getMonth() + nuevos);
-    const venceStr = vence.toISOString().split('T')[0];
+    // Todo en fechas 'YYYY-MM-DD' de Lima. Antes esto mezclaba un Date local con
+    // `toISOString()` (UTC): a partir de las 19:00 hora peruana el vencimiento salía un día
+    // más adelante. Las cadenas ISO se comparan lexicográficamente igual que cronológicamente.
+    const hoy = hoyPeru();
+    const venceActual = referrer.premium_vence ? String(referrer.premium_vence).slice(0, 10) : null;
+    const base = venceActual && venceActual > hoy ? venceActual : hoy;
+    const venceStr = sumarMeses(base, nuevos);
     // Claim atómico sobre el contador: solo gana la primera ejecución que vea este valor.
     // Dos correos procesados a la vez (el scanner dispara con setTimeout) no pueden
     // otorgar dos veces, y el aviso de WhatsApp sale solo si la escritura aterrizó.

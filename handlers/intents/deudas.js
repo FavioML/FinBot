@@ -1,4 +1,5 @@
 const log = require('../../lib/logger');
+const { sumarMeses } = require('../../lib/dates');
 
 module.exports = {
   intents: ['registrar_deuda', 'ver_deudas', 'abonar_deuda', 'marcar_deuda_pagada', 'consolidar_deudas', 'saldar_todo_contraparte', 'dividir_gasto_grupal'],
@@ -36,7 +37,8 @@ module.exports = {
           const mSem = !fechaVenc && msg.match(/(?:en|dentro de)\s+(\d+|una?|dos|tres|cuatro)\s+semanas?/i);
           if (mSem) { const n = numPalabras[mSem[1].toLowerCase()] || parseInt(mSem[1]); if (n > 0) { const d = new Date(); d.setDate(d.getDate() + n * 7); fechaVenc = d.toISOString().split('T')[0]; } }
           const mMes = !fechaVenc && msg.match(/(?:en|dentro de)\s+(\d+|un[oa]?|dos|tres)\s+mes(?:es)?/i);
-          if (mMes) { const n = numPalabras[mMes[1].toLowerCase()] || parseInt(mMes[1]); if (n > 0) { const d = new Date(); d.setMonth(d.getMonth() + n); fechaVenc = d.toISOString().split('T')[0]; } }
+          // `setMonth` desbordaba: "en 1 mes" un 31 de enero daba 3-mar, no 28-feb.
+          if (mMes) { const n = numPalabras[mMes[1].toLowerCase()] || parseInt(mMes[1]); if (n > 0) { fechaVenc = sumarMeses(hoyPeru(), n); } }
 
           // Detectar multi-moneda: "100 soles y 10 dólares"
           const montos = [];

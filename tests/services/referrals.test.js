@@ -176,6 +176,22 @@ describe('verificarProReferidos: idempotencia', () => {
     expect(waMock.enviarWhatsapp).toHaveBeenCalledTimes(2);
   });
 
+  // Regresion (2026-07-22): el vencimiento se calculaba con `setMonth`, que desborda al mes
+  // siguiente cuando el dia no existe en el destino. Un referrer con Pro hasta el 31-ene
+  // recibia hasta el 3-mar: casi tres dias de yapa por cada mes otorgado.
+  it('un vencimiento el 31 avanza al ultimo dia del mes destino, no al mes siguiente', async () => {
+    const db = montarDb(() => TRES_ACTIVOS, { plan: 'premium', premium_vence: '2099-01-31' });
+    await verificarProReferidos('r1');
+    expect(db.fila.premium_vence).toBe('2099-02-28');
+  });
+
+  it('con el Pro ya vencido la base es hoy, no la fecha vieja', async () => {
+    const db = montarDb(() => TRES_ACTIVOS, { plan: 'free', premium_vence: '2020-01-15' });
+    await verificarProReferidos('r1');
+    // No puede tomar 2020 como base: eso daria un vencimiento en el pasado y Pro nunca activo.
+    expect(db.fila.premium_vence > new Date().toISOString().slice(0, 10)).toBe(true);
+  });
+
   it('dos ejecuciones concurrentes otorgan un solo mes (claim atomico)', async () => {
     const db = montarDb(() => TRES_ACTIVOS);
     await Promise.all([verificarProReferidos('r1'), verificarProReferidos('r1')]);

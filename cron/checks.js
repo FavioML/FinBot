@@ -1,6 +1,6 @@
 const { supabase } = require('../lib/db');
 const log = require('../lib/logger');
-const { hoyPeru } = require('../lib/dates');
+const { hoyPeru, sumarMeses } = require('../lib/dates');
 const { enviarWhatsapp } = require('../lib/whatsapp');
 const { getUserPlanConfig } = require('../helpers/db-helpers');
 const { generarResumenSemanal, generarResumenMensual, generarResumenDiario } = require('../services/summaries');
@@ -725,12 +725,17 @@ async function checkRecordatorioSuscripciones() {
           if (sub.estado !== 'activa' || !sub.ultimo_pago) continue;
 
           // Próxima fecha de cobro: mismo día del último pago, adelantado mes a mes.
-          const base = new Date(sub.ultimo_pago + 'T12:00:00');
-          if (isNaN(base.getTime())) continue;
-          const next = new Date(base);
-          next.setMonth(next.getMonth() + 1);
-          let guard = 0;
-          while (next < hoyDate && guard < 24) { next.setMonth(next.getMonth() + 1); guard++; }
+          // Con `setMonth` el "mismo día" era mentira: un cobro del 31 saltaba al 3 del mes
+          // subsiguiente y, como el avance es iterativo, se quedaba en el 3 para siempre.
+          // El aviso solo sale si faltan exactamente SUB_LEAD_DIAS, así que el recordatorio
+          // simplemente dejaba de salir. `sumarMeses` recorta al último día del mes destino.
+          if (!/^\d{4}-\d{2}-\d{2}/.test(String(sub.ultimo_pago))) continue;
+          let meses = 1;
+          let next = new Date(sumarMeses(sub.ultimo_pago, meses) + 'T12:00:00');
+          while (next < hoyDate && meses < 25) {
+            meses++;
+            next = new Date(sumarMeses(sub.ultimo_pago, meses) + 'T12:00:00');
+          }
           const diasFalta = Math.round((next - hoyDate) / 86400000);
           if (diasFalta !== SUB_LEAD_DIAS) continue;
 
