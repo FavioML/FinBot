@@ -11,7 +11,7 @@ import { QuickAddButton } from '@/components/dashboard/quick-add-button';
 import { OnboardingTour } from '@/components/dashboard/onboarding-tour';
 import { WhatsAppButton } from '@/components/shared/whatsapp-button';
 import { OverviewSkeleton } from '@/components/dashboard/skeletons';
-import { useUser } from '@/lib/hooks/use-user';
+import { useUser, decidirRedirectAuth } from '@/lib/hooks/use-user';
 import {
   useDashboardBootstrap,
   BootstrapGateProvider,
@@ -31,19 +31,18 @@ import type { Usuario } from '@/lib/types';
 /** Redirects authenticated users without a `usuarios` record to onboarding */
 function AuthRedirect() {
   const router = useRouter();
-  const { data: user, isPending } = useUser();
+  const { data: user, isPending, isError } = useUser();
   const isRestoring = useIsRestoring();
 
   useEffect(() => {
     if (IS_DEMO) return;
-    // Guard on isPending (not isLoading) and isRestoring: while the persisted
-    // cache is being restored, queries are paused so `isLoading` is false even
-    // though the user query hasn't resolved yet. Using isLoading here would fire
-    // a spurious /onboarding redirect for a logged-in user before useUser runs.
-    if (isRestoring || isPending) return;
-    if (user) return; // has usuarios record — all good
+    // La decision vive en `decidirRedirectAuth` (probada en use-user.test.ts):
+    // hay que esperar mientras la cache restaura, mientras la query esta en
+    // vuelo, Y si la lectura se cayo — ese ultimo caso es el que expulsaba a
+    // /onboarding a un usuario existente por un hipo de Supabase.
+    if (decidirRedirectAuth({ isRestoring, isPending, isError, user }) !== 'revisar-sesion') return;
 
-    // Check if authenticated via Supabase Auth but missing usuarios record
+    // Autenticado en Supabase Auth pero sin fila en `usuarios`: falta vincular.
     const supabase = createClient();
     supabase.auth.getUser().then(({ data: { user: authUser } }) => {
       if (authUser) {
@@ -52,7 +51,7 @@ function AuthRedirect() {
         router.replace('/login');
       }
     });
-  }, [user, isPending, isRestoring, router]);
+  }, [user, isPending, isError, isRestoring, router]);
 
   return null;
 }
