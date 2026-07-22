@@ -265,10 +265,41 @@ antes y después y ninguno en estas rutas.
 
 Los 4 archivos de la tabla están cerrados. Lo que quedó anotado y sin tocar, por orden de valor:
 
-1. `getSessionUser` en la webapp (arriba): mismo patrón sobre el camino de auth.
-2. `vence.setMonth(...)` en `services/referrals.js`: desborda con vencimientos día 29-31.
-3. `docs/SESION-barrido-candidatos-restantes.md`: la otra sesión, 4 candidatos, rendimiento
-   esperado bajo.
+1. `getSessionUser` en la webapp (arriba): mismo patrón sobre el camino de auth. **Lo único
+   abierto.** Difiere del resto: es Next.js/TypeScript, el loop de verificación es browser con
+   sesión real (no vitest), y toca el auth de toda la webapp. Merece sesión propia y limpia.
+2. ~~`vence.setMonth(...)` en `services/referrals.js`~~ — **HECHO 22-jul-2026, commit `d728725`.**
+3. ~~`docs/SESION-barrido-candidatos-restantes.md`~~ — **CERRADA 22-jul-2026, commit `e183494`.**
+
+### `setMonth` — cerrado 22-jul-2026
+
+Resultó no ser solo de referrals. `setMonth` desborda al mes siguiente cuando el día no existe en
+el destino (31-ene + 1 mes = 3-mar). Helper nuevo `sumarMeses` en `lib/dates.js`: aritmética de
+calendario sobre enteros, recorta al último día, y al no usar `Date` tampoco puede correrse un día
+por `toISOString()`.
+
+Tres call sites donde el día del mes significa algo:
+
+| Sitio | Daño |
+|---|---|
+| `services/referrals.js` | ~3 días de Pro de yapa por cada mes otorgado. Además mezclaba un `Date` local con `toISOString()`: después de las 19:00 Lima el vencimiento salía un día más adelante. |
+| `cron/checks.js` (suscripciones) | **El peor.** El comentario promete "mismo día del último pago" pero el avance es iterativo: un cobro del 31 saltaba al 3 y se quedaba en el 3 para siempre. Y como el aviso solo sale si faltan exactamente `SUB_LEAD_DIAS`, no daba un recordatorio equivocado: **dejaba de darlo, en silencio.** |
+| `handlers/intents/deudas.js` | "vence en 1 mes" devolvía una fecha del mes equivocado. |
+
+Sin tocar a propósito: los `setMonth` de `neto-score.js` (ventana de historial) y
+`subscriptions/detector.js` (ventana de 3 meses). Ahí el desborde mueve el borde de una ventana 2-3
+días sin efecto visible, y cambiarlo correría los umbrales de detección sin ganar nada.
+
+**Encontrado de paso y sin tocar:** el bloque de fechas de `handlers/intents/deudas.js` usa
+`new Date()` (hora del server, UTC en Railway) + `toISOString()` para "en N días", "mañana",
+"pasado mañana" y "en N semanas". Entre las 19:00 y medianoche de Lima, UTC ya está en el día
+siguiente, así que "mañana" devuelve pasado mañana. Es un bug de zona horaria distinto del de meses
+y merece decidirse aparte.
+
+Cubierto por `tests/lib/sumar-meses.test.js` (9 tests, incluido un barrido exhaustivo del año que
+afirma que el resultado nunca se sale del mes destino) y 2 tests nuevos en
+`tests/services/referrals.test.js` sobre el call site real. Mutación verificada en ambos niveles:
+revertir a `setMonth` produce el `2026-03-03` documentado.
 
 ## Método
 
@@ -300,7 +331,7 @@ por fila, respaldar a JSON antes de tocar nada y pedir confirmación.
 ## Cómo verificar
 
 ```bash
-npx vitest run                        # 356 tests
+npx vitest run                        # 437 tests
 node qa-e2e/probe-system-prompt.mjs   # 16 checks contra el pipeline real
 curl -s https://api.neto.pe/health    # tras el push, esperar que uptime reinicie
 ```
