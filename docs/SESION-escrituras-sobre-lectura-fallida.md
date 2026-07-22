@@ -267,8 +267,12 @@ antes y después y ninguno en estas rutas.
 Los 4 archivos de la tabla están cerrados. Lo que quedó anotado y sin tocar, por orden de valor:
 
 1. `getSessionUser` en la webapp (arriba): mismo patrón sobre el camino de auth. **Lo único
-   abierto.** Difiere del resto: es Next.js/TypeScript, el loop de verificación es browser con
-   sesión real (no vitest), y toca el auth de toda la webapp. Merece sesión propia y limpia.
+   abierto**, y quedó con sesión propia: `docs/SESION-lecturas-auth-webapp.md`.
+   Al mapearlo para ese doc resultó ser más grande que la nota: no es una función sino el mismo
+   lookup de `usuarios` tras el auth en **~33 rutas y 3 formas distintas**, ninguna capturando el
+   `error`. Una lectura caída se le presenta al cliente como 401 o 404 "User not found". Se difirió
+   además porque la webapp **no tiene ningún test runner**, así que el loop de regresión + mutación
+   hay que decidirlo antes de tocar código.
 2. ~~`vence.setMonth(...)` en `services/referrals.js`~~ — **HECHO 22-jul-2026, commit `d728725`.**
 3. ~~`docs/SESION-barrido-candidatos-restantes.md`~~ — **CERRADA 22-jul-2026, commit `e183494`.**
 
