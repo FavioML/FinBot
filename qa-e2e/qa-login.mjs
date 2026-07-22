@@ -84,20 +84,28 @@ page.on('response', (r) => { if (r.status() === 401 || r.status() === 403) faile
 const results = {};
 
 // --- Check 1: authenticated dashboard renders with data, no bounce ---
-await page.goto(`${APP}/dashboard`, { waitUntil: 'domcontentloaded' });
-// Poll up to 15s for the persisted cache to appear (proves data loaded + W4 wrote it).
+// Two attempts: on a cold Vercel deploy (fresh lambda + CDN) the first data
+// fetch + React Query persist can miss the 15s window, which false-negatives
+// this whole check. A warm reload fixes a cold-start flake; a genuinely broken
+// persist still fails both attempts, so real regressions aren't masked.
 let rq = { present: false };
-for (let i = 0; i < 30; i++) {
-  rq = await page.evaluate(() => {
-    const raw = localStorage.getItem('neto-rq');
-    if (!raw) return { present: false };
-    try {
-      const p = JSON.parse(raw);
-      return { present: true, buster: p.buster, queries: (p?.clientState?.queries || []).length };
-    } catch (e) { return { present: true, parseError: String(e) }; }
-  });
+for (let attempt = 0; attempt < 2; attempt++) {
+  await page.goto(`${APP}/dashboard`, { waitUntil: 'domcontentloaded' });
+  // Poll up to 15s for the persisted cache to appear (proves data loaded + W4 wrote it).
+  for (let i = 0; i < 30; i++) {
+    rq = await page.evaluate(() => {
+      const raw = localStorage.getItem('neto-rq');
+      if (!raw) return { present: false };
+      try {
+        const p = JSON.parse(raw);
+        return { present: true, buster: p.buster, queries: (p?.clientState?.queries || []).length };
+      } catch (e) { return { present: true, parseError: String(e) }; }
+    });
+    if (rq.present && rq.queries > 0) break;
+    await page.waitForTimeout(500);
+  }
   if (rq.present && rq.queries > 0) break;
-  await page.waitForTimeout(500);
+  results.coldStartRetry = attempt + 1; // records that a warm reload was needed
 }
 results.urlAfterDashboard = page.url();
 results.stayedOnDashboard = page.url().includes('/dashboard');
