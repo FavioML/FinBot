@@ -4,6 +4,48 @@ Prompt de arranque autocontenido. Trabajar desde `C:\Vortik.dev\products\neto\ap
 
 ---
 
+## Resolución (2026-07-22) — CERRADA
+
+Prerequisito que el brief marcaba como bloqueante: **no bloquea**. Chromium está
+instalado (`$LOCALAPPDATA/ms-playwright`) y `qa-login.mjs` corre verde en el mismo
+entorno del cron. La sesión procedió.
+
+**Decisión 1 — deploy-freshness.** Se generalizó (Favio sin preferencia → decisión
+mía). Se borró `probe-deploy-fetchnetouser.mjs` (grep de string, se pudría) y se
+creó `probe-deploy-fresh.mjs`. El invariante NO es "deployed == HEAD" (frágil:
+correcto solo porque Vercel hoy redespliega cada push, verificado empíricamente),
+sino **"¿hay un commit en main después del desplegado que toque `webapp/`?"**,
+resuelto con un `gh compare` que mira los archivos del rango. Inmune a que Vercel
+active un build-skip. Requirió exponer el SHA del deployment: nuevo endpoint
+`webapp/src/app/api/version/route.ts` (lee `VERCEL_GIT_COMMIT_SHA`, que Vercel
+inyecta solo). Exit 0 = fresco / en vuelo, 1 = STALE (lista los archivos webapp
+pendientes), 2 = infra (endpoint o gh caídos). Los 4 caminos verificados
+determinísticamente.
+
+**Decisión 2 — harness pesados.** `qa-login` diario (cubre auth, casi no escribe);
+los de espacios NO (escriben en prod, minutos, dejan basura si fallan). Estos
+quedan como follow-up: gate post-deploy con hook de git cuando el push toque
+`spaces-*`. Además se endureció `qa-login` contra un flake de cold-start (el
+primer load tras un deploy fresco no populaba el cache de React Query en 15s →
+falso-negativo): ahora reintenta con un warm-reload; una persistencia realmente
+rota sigue fallando dos veces.
+
+**Decisión 3 — dónde se declara.** En `webapp/.claude/deploy-config.json` bajo
+`canary.harnesses` (name, cmd, cwd, cost, on_fail). El SKILL.md del canary ahora
+itera esa lista en vez de hardcodear. Se migró `qa-tono-neto` ahí. Fuente de
+verdad única, consistente con la regla del workspace.
+
+**Verificación (los dos escenarios del brief).** Todo sano: los 3 harness dan
+exit 0 → el canary emite una línea y no crea archivo. Fallo forzado: se simuló un
+STALE (endpoint que miente un SHA viejo + `NETO_INFLIGHT_MIN=0`) y el reporte lo
+nombra con los archivos webapp pendientes y apunta al dashboard de Vercel.
+
+Commits: `edcd973` (endpoint + probe + harnesses en config + SKILL), `3331f8e`
+(hardening qa-login), `bc6101d` (probe robusto al build-config de Vercel). Backend
+WhatsApp intacto en los tres (Railway SKIPPED: solo `webapp/` y `qa-e2e/`).
+
+---
+
 ## Por qué existe esta sesión
 
 Quedó como deuda del 22-jul-2026: al cerrar el barrido de lecturas de auth
