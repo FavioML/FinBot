@@ -27,6 +27,29 @@
       "verify_after_deploy": true,
       "checks": ["RLS active on all tables", "tables count = 11"]
     },
+    "harnesses": [
+      {
+        "name": "deploy-fresh",
+        "cmd": "node qa-e2e/probe-deploy-fresh.mjs",
+        "cwd": "C:/Vortik.dev/products/neto/app",
+        "cost": "1 fetch + 1 gh api (segundos, gratis)",
+        "on_fail": "exit 1 = STALE: app.neto.pe no sirve el HEAD de main (deploy de Vercel fallido en silencio o atrasado); revisar el ultimo deployment en Vercel. exit 2 = no se pudo determinar (endpoint /api/version caido o gh/red): infra, no necesariamente stale."
+      },
+      {
+        "name": "login-e2e",
+        "cmd": "node qa-e2e/qa-login.mjs",
+        "cwd": "C:/Vortik.dev/products/neto/app",
+        "cost": "~5s Chromium, sin writes a prod",
+        "on_fail": "exit 1 = camino de auth roto (dashboard no renderiza, persist ausente, buster no matchea, o logout no limpia). Incluir el objeto 'verdict' del JSON que imprime."
+      },
+      {
+        "name": "tono-neto",
+        "cmd": "node qa-e2e/qa-tono-neto.mjs",
+        "cwd": "C:/Vortik.dev/products/neto/app",
+        "cost": "~4 llamadas OpenAI",
+        "on_fail": "exit != 0 = el modelo se salio del prompt maestro (tono call center, montos inventados en una consulta conceptual, afirmar que lee correos sin correo conectado). Incluir la regla violada + el texto generado. Solo quedan 2 intents redactando con IA (chiste_finanzas, consulta_financiera); ver docs/SESION-ia-vs-texto-fijo.md."
+      }
+    ],
     "post_deploy_window_min": 10,
     "alert_on_failure": true
   },
