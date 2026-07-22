@@ -68,8 +68,9 @@ hace que vuelva a insertar a ciegas. Nota: el `return` tras `errUpd` es redundan
 `data` es `null` y lo atrapa el guard de `aplicado`); se dejó por claridad y porque loguea a nivel
 `error` mientras el otro loguea `warn`.
 
-Queda latente, sin tocar: `vence.setMonth(base.getMonth() + nuevos)` desborda si `premium_vence`
-cae en día 29-31 (31-ene + 1 mes → 3-mar). Regala días, no meses.
+~~Queda latente, sin tocar: `vence.setMonth(...)` desborda si `premium_vence` cae en día 29-31.~~
+**Corregido el 22-jul-2026** (commit `d728725`), y resultó no ser solo de referrals: ver la sección
+`setMonth` al final del doc.
 
 ## `lib/pro-payment.js` — cerrado 22-jul-2026
 
