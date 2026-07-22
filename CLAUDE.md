@@ -30,6 +30,26 @@ NETO es un asistente financiero personal por WhatsApp para el mercado peruano.
 
 ## Infraestructura
 - Railway: backend online, 22+ variables configuradas, health endpoint /health
+
+### `railway.json` — por que existe y por que es una lista negra
+Railway construye desde la raiz del repo, que tambien contiene `webapp/` (Vercel),
+`qa-e2e/` y `docs/`. Sin `watchPatterns`, **cada push redespliega el backend de
+WhatsApp**, incluido un commit que solo toca un markdown. Eso paso el 22-jul-2026:
+dos deploys fallidos de Railway sobre commits sin una sola linea de backend.
+
+La lista es **negra a proposito** (`**` y despues excluir), no blanca. Con una lista
+blanca, una carpeta de backend nueva dejaria de desplegarse **en silencio** y
+produccion correria codigo viejo sin que nadie se entere. Con lista negra el default
+es desplegar y cada exclusion hay que justificarla:
+- `webapp/**` — lo despliega Vercel; ningun archivo de runtime del backend lo importa
+  (verificado por grep). Ojo: `services/spaces-split.js` es el espejo CJS que el
+  backend SI usa, y **no** esta excluido, asi que tocarlo si redespliega.
+- `qa-e2e/**` — harness que corre local, nunca en el servidor.
+- `docs/**` y `*.md` de la raiz — no los ejecuta nadie.
+
+Los tests de paridad (`tests/services/spaces-split-parity.test.js`) si importan de
+`webapp/`, pero corren en GitHub Actions, no en el build de Railway (el
+`package.json` raiz no tiene script `build`). `watchPatterns` no los afecta.
 - Supabase: RLS activo en todas las tablas, 11 tablas
 - Vercel: webapp app.neto.pe con Google OAuth
 - CI/CD: GitHub Actions (test en push/PR, Node 20)
