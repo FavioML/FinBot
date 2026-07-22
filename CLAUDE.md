@@ -37,6 +37,17 @@ Railway construye desde la raiz del repo, que tambien contiene `webapp/` (Vercel
 WhatsApp**, incluido un commit que solo toca un markdown. Eso paso el 22-jul-2026:
 dos deploys fallidos de Railway sobre commits sin una sola linea de backend.
 
+**Verificado con un experimento controlado** (22-jul-2026), no asumido:
+- `b2c0fe2` (agrega `railway.json`, matchea `**`) → deployment `1379f224` SUCCESS,
+  backend reiniciado (uptime a 28s).
+- `61efbf9` (solo `docs/`) → deployment `a02fd57e` **SKIPPED**, backend NO
+  reiniciado (uptime continuo desde el proceso anterior).
+
+> **Gotcha al verificar:** Railway crea la fila del deployment y la muestra unos
+> segundos como `BUILDING` **antes** de resolverla a `SKIPPED`. Ver que aparecio
+> un deployment no significa que vaya a construir. Mirar el estado terminal, y
+> confirmar con el uptime de `/health`: si no reinicio, no se redesplego.
+
 La lista es **negra a proposito** (`**` y despues excluir), no blanca. Con una lista
 blanca, una carpeta de backend nueva dejaria de desplegarse **en silencio** y
 produccion correria codigo viejo sin que nadie se entere. Con lista negra el default
