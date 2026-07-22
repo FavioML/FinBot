@@ -33,6 +33,8 @@ function makeSupabaseMock(tableData = {}) {
     }),
     _chains: chains,
     _setData: (table, data) => { chains[table] = makeChain(data); },
+    // Simula un fallo de postgrest: NO lanza, devuelve { data: null, error }.
+    _setError: (table, error) => { chains[table] = makeChain(null, error); },
   };
   return sb;
 }
@@ -162,6 +164,33 @@ describe('eliminar_transaccion', () => {
     expect(res).toContain('No encontr');
     expect(res).toContain('Netflix');
   });
+
+  it('inserta el snapshot ANTES del delete de la transaccion', async () => {
+    const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+    const ctx = buildCtx(sb);
+    await handler.handle({
+      intencion: 'eliminar_transaccion', msg: 'borra el de 45.50',
+      datos: { monto: 45.50 }, usuario: USUARIO, from: '+51999', ctx,
+    });
+    const insertOrder = sb._chains['transacciones_eliminadas'].insert.mock.invocationCallOrder[0];
+    const deleteOrder = sb._chains['transacciones'].delete.mock.invocationCallOrder[0];
+    expect(insertOrder).toBeDefined();
+    expect(deleteOrder).toBeDefined();
+    expect(insertOrder).toBeLessThan(deleteOrder);
+  });
+
+  it('no promete restaurar cuando el insert del snapshot devuelve error', async () => {
+    const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+    sb._setError('transacciones_eliminadas', { message: 'insert failed' });
+    const ctx = buildCtx(sb);
+    const res = await handler.handle({
+      intencion: 'eliminar_transaccion', msg: 'borra el de 45.50',
+      datos: { monto: 45.50 }, usuario: USUARIO, from: '+51999', ctx,
+    });
+    expect(res).toContain('Starbucks');
+    expect(res).not.toContain('escribe \"restaura\"');
+    expect(res).toContain('no lo voy a poder restaurar');
+  });
 });
 
 // ─── deshacer_ultimo ────────────────────────────────────────────────────────
@@ -187,6 +216,35 @@ describe('deshacer_ultimo', () => {
       datos: {}, usuario: USUARIO, from: '+51999', ctx,
     });
     expect(res).toContain('No hay transacciones');
+  });
+
+  // El orden importa: si borramos primero y el snapshot falla, el gasto se pierde
+  // y le prometimos al usuario que podia restaurarlo.
+  it('inserta el snapshot ANTES del delete de la transaccion', async () => {
+    const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+    const ctx = buildCtx(sb);
+    await handler.handle({
+      intencion: 'deshacer_ultimo', msg: 'deshacer',
+      datos: {}, usuario: USUARIO, from: '+51999', ctx,
+    });
+    const insertOrder = sb._chains['transacciones_eliminadas'].insert.mock.invocationCallOrder[0];
+    const deleteOrder = sb._chains['transacciones'].delete.mock.invocationCallOrder[0];
+    expect(insertOrder).toBeDefined();
+    expect(deleteOrder).toBeDefined();
+    expect(insertOrder).toBeLessThan(deleteOrder);
+  });
+
+  it('no promete restaurar cuando el insert del snapshot devuelve error', async () => {
+    const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+    sb._setError('transacciones_eliminadas', { message: 'new row violates row-level security policy' });
+    const ctx = buildCtx(sb);
+    const res = await handler.handle({
+      intencion: 'deshacer_ultimo', msg: 'deshacer',
+      datos: {}, usuario: USUARIO, from: '+51999', ctx,
+    });
+    expect(res).toContain('Starbucks');
+    expect(res).not.toContain('escribe \"restaura\"');
+    expect(res).toContain('no lo voy a poder restaurar');
   });
 });
 
