@@ -92,7 +92,10 @@ async function escanearGmailYRegistrar(usuario, opts = {}) {
       // esGmail: true → guardarTransaccion salta su dedup de ventana (10s) y el conteo de
       // activación. gmail_msg_id → clave del índice único que cierra la race de doble barrido
       // (sweep 30d + cron 15min solapados) sin poder poner unique sobre descripcion_original.
-      const txGuardada = await guardarTransaccion(usuario.id, { ...resultado, fecha: msg.fecha || resultado.fecha, descripcion_original: claveDedup, gmail_msg_id: claveDedup, esGmail: true });
+      // dedupAvisoGmail: solo en el escaneo incremental. En el barrido histórico dos compras
+      // legítimas del mismo día se procesan con segundos de diferencia y colapsarían mal.
+      const txGuardada = await guardarTransaccion(usuario.id, { ...resultado, fecha: msg.fecha || resultado.fecha, descripcion_original: claveDedup, gmail_msg_id: claveDedup, esGmail: true, dedupAvisoGmail: !historico, recibidoEnMs: msg.recibidoEnMs });
+      if (!txGuardada) { ignoradas++; return; } // segundo aviso del mismo cargo
       registradas++;
       resumen += '- ' + (resultado.tipo === 'ingreso' ? 'Ingreso' : 'Gasto') + ': ' + (resultado.comercio || resultado.banco || 'Sin nombre') + ' S/ ' + resultado.monto + '\n';
       // En el barrido histórico se registran en silencio: nada de una tarjeta por correo.

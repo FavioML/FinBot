@@ -14,6 +14,32 @@ const analytics = require('../lib/analytics');
 // duplicate-content entries collapsed to 3 rows.
 const DEDUP_WINDOW_MS = 10 * 1000;
 
+// Dos avisos distintos del MISMO cargo: el banco manda dos correos, cada uno con su
+// gmail_msg_id, así que el índice único no los ve como duplicados y el dedup por hash
+// está desactivado para Gmail. Resultado observado en prod: Smart Fit S/119.90 (20-jul-2026)
+// entró dos veces con 1 segundo de diferencia, y antes de eso 18 grupos duplicados.
+//
+// No sirve un SELECT-antes-de-INSERT: el sweep procesa 5 correos en paralelo, o sea que los
+// dos duplicados consultan antes de que cualquiera inserte. Este guard en memoria sí es
+// confiable porque el check y la marca ocurren sin `await` en medio (Node es single-thread),
+// y el backend corre en instancia única (ver CLAUDE.md).
+//
+// Discriminador: la hora de llegada del correo (`recibidoEnMs`), NO la hora de proceso.
+// Dos avisos del mismo cargo llegan con segundos de diferencia; dos compras iguales reales
+// llegan separadas. Solo aplica al escaneo incremental: en el barrido histórico de 30 días
+// dos compras legítimas del mismo día se procesan juntas y colapsarían mal.
+const GMAIL_DEDUP_VENTANA_MS = 2 * 60 * 1000;
+const _gmailDedupVistos = new Map(); // dedupHash -> { recibidoEnMs, expiraEn }
+
+function _gmailDedupCheck(dedupHash, recibidoEnMs) {
+  const ahora = Date.now();
+  for (const [k, v] of _gmailDedupVistos) { if (v.expiraEn <= ahora) _gmailDedupVistos.delete(k); }
+  const previo = _gmailDedupVistos.get(dedupHash);
+  if (previo && Math.abs(recibidoEnMs - previo.recibidoEnMs) <= GMAIL_DEDUP_VENTANA_MS) return true;
+  _gmailDedupVistos.set(dedupHash, { recibidoEnMs, expiraEn: ahora + 10 * 60 * 1000 });
+  return false;
+}
+
 // Cache de tipo de cambio
 let _tcCache = null;
 let _tcCacheTime = 0;
@@ -97,6 +123,13 @@ async function guardarTransaccion(usuarioId, datos) {
         log.info({ tag: 'DEDUP', hash: dedupHash, last4 }, 'Transacción duplicada ignorada');
         return dup;
       }
+    }
+  } else if (datos.dedupAvisoGmail && typeof datos.recibidoEnMs === 'number') {
+    // Segundo aviso del mismo cargo dentro del mismo sweep incremental (ver comentario
+    // de GMAIL_DEDUP_VENTANA_MS). Devuelve null: el llamador lo cuenta como ignorado.
+    if (_gmailDedupCheck(dedupHash, datos.recibidoEnMs)) {
+      log.warn({ tag: 'DEDUP_GMAIL_AVISO', hash: dedupHash, comercio: datos.comercio, monto: montoValidado }, 'Segundo aviso del mismo cargo ignorado');
+      return null;
     }
   }
   let catFinal = normalizarCategoria(datos.categoria);

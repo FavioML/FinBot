@@ -428,7 +428,10 @@ async function leerCorreosDesdeCuenta(authClient, cuentaEmail, remitentes = REMI
       }
 
       const textoParseo = cuerpo.length > 100 ? cuerpo.substring(0, 2000) : detalle.snippet;
-      mensajes.push({ id, snippet: detalle.snippet, texto: textoParseo, asunto, remitente, fecha });
+      // recibidoEnMs: hora exacta de llegada del correo. `fecha` la trunca a día y se pierde
+      // la señal que distingue "dos avisos del MISMO cargo" (llegan con segundos de diferencia)
+      // de "dos compras iguales reales" (llegan con minutos u horas de diferencia).
+      mensajes.push({ id, snippet: detalle.snippet, texto: textoParseo, asunto, remitente, fecha, recibidoEnMs: parseInt(detalle.internalDate) });
       log.info({ tag: 'GMAIL', asunto: asunto.substring(0, 60) }, 'Correo bancario encontrado');
     } catch(e) { log.error({ tag: 'GMAIL', err: e.message }, 'Error obteniendo correo'); }
   }
