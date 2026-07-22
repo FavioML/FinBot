@@ -5,6 +5,39 @@ const fs = require('fs');
 const path = require('path');
 const { detectarSuscripciones } = require('./subscriptions');
 
+/**
+ * Prompt de recomendaciones. Misma doctrina que `lib/neto-prompt.js`: se lee UNA vez al
+ * require y si falta se lanza, para que un deploy roto sea visible en vez de degradarse.
+ *
+ * Historia: el archivo se movió de `prompts/` a `docs/` en 7941cb0 (31-mar-2026) y esta ruta
+ * quedó apuntando al directorio viejo. El ENOENT caía en un `catch` que devolvía `null`, y
+ * los dos call sites tenían fallback (mini-recomendación heurística en `ver_recomendaciones`,
+ * bloque omitido en el resumen mensual). Resultado: `generarRecomendaciones` devolvió `null`
+ * en el 100% de las llamadas durante ~4 meses sin que nada lo delatara.
+ */
+const PROMPT_RECOM_PATH = path.join(__dirname, '..', 'docs', 'NETO_recomendaciones_prompt.md');
+
+function cargarPromptRecomendaciones() {
+  let raw;
+  try {
+    raw = fs.readFileSync(PROMPT_RECOM_PATH, 'utf8');
+  } catch (e) {
+    throw new Error('No se pudo leer el prompt de recomendaciones en ' + PROMPT_RECOM_PATH + ': '
+      + e.message + ' — sin él, las recomendaciones IA caen en silencio al fallback.');
+  }
+  // Los 3 placeholders que el código inyecta abajo. Si el archivo pierde alguno, el modelo
+  // recibiría un "{SCORE_ACTUAL}" literal y hablaría del score equivocado.
+  const faltantes = ['NOMBRE_USUARIO', 'SCORE_ACTUAL', 'SCORE_MES_ANTERIOR']
+    .filter(p => !raw.includes('{' + p + '}'));
+  if (faltantes.length) {
+    throw new Error('Prompt de recomendaciones sin los placeholders esperados: ' + faltantes.join(', '));
+  }
+  return raw;
+}
+
+const PROMPT_RECOM = cargarPromptRecomendaciones();
+log.info({ tag: 'RECOM', bytes: PROMPT_RECOM.length, path: PROMPT_RECOM_PATH }, 'Prompt de recomendaciones cargado');
+
 // Benchmarks peruanos de gasto saludable (% del total)
 const BENCHMARKS = {
   'Vivienda': { min: 25, max: 35 },
@@ -64,13 +97,23 @@ async function construirDatosUsuario(usuarioId) {
   const ultimoDiaAnt = new Date(anioAnt, mesAnt, 0).getDate();
   const finMesAnt = anioAnt + '-' + String(mesAnt).padStart(2, '0') + '-' + String(ultimoDiaAnt).padStart(2, '0');
 
-  // Queries paralelas
+  // Queries paralelas.
+  // Los `error` NO se descartan: este objeto alimenta el 45% del Neto Score
+  // (calcFactorBudget 0.25 + calcFactorSavings 0.20), la viabilidad de metas y las alertas
+  // de fugas. Una lectura caída devuelve `data: null`, que aguas arriba es indistinguible de
+  // "el usuario no tiene nada", y el número resultante no falla: se MUEVE, y el cron lo
+  // persiste. Los tres casos medidos sobre un usuario sano (ver tests):
+  //   - presupuestos cae  -> factor budget 100 -> 50  (-12.5 pts)
+  //   - ingresos cae      -> factor savings 100 -> 50 (-12.5 pts)
+  //   - gastos cae        -> factor savings sube a 100 y analizarViabilidad declara
+  //                          "alcanzable" una cuota que no lo es (falla HACIA ARRIBA)
+  // Misma doctrina que eea8d1c en neto-score.js: se corta y no se persiste nada.
   const [
-    { data: txsMes },
-    { data: txsMesAnt },
-    { data: ingresosMes },
-    { data: ingresosMesAnt },
-    { data: presupuestos },
+    { data: txsMes, error: eTxs },
+    { data: txsMesAnt, error: eTxsAnt },
+    { data: ingresosMes, error: eIng },
+    { data: ingresosMesAnt, error: eIngAnt },
+    { data: presupuestos, error: ePres },
   ] = await Promise.all([
     supabase.from('transacciones').select('*').eq('usuario_id', usuarioId)
       .eq('tipo', 'gasto').gte('fecha', primeroDeMes).order('fecha', { ascending: false }),
@@ -83,6 +126,13 @@ async function construirDatosUsuario(usuarioId) {
     supabase.from('presupuestos').select('*').eq('usuario_id', usuarioId)
       .eq('mes', mesActual).eq('anio', anioActual),
   ]);
+
+  const errLectura = eTxs || eTxsAnt || eIng || eIngAnt || ePres;
+  if (errLectura) {
+    log.error({ tag: 'RECOM_DATOS', err: errLectura.message, usuarioId },
+      'No se pudieron leer los datos del usuario');
+    throw new Error('No se pudieron leer los datos del usuario: ' + errLectura.message);
+  }
 
   const gastos = txsMes || [];
   const gastosAnt = txsMesAnt || [];
@@ -309,15 +359,6 @@ async function generarRecomendaciones(usuarioId, nombreUsuario, variante) {
   try {
     const datos = await construirDatosUsuario(usuarioId);
 
-    // Cargar prompt de recomendaciones
-    let promptRecom = '';
-    try {
-      promptRecom = fs.readFileSync(path.join(__dirname, '..', 'prompts', 'NETO_recomendaciones_prompt.md'), 'utf8');
-    } catch (e) {
-      log.error({ tag: 'RECOM', err: e.message }, 'Error cargando prompt de recomendaciones');
-      return null;
-    }
-
     // Adaptar instrucción según variante
     let instruccionVariante = '';
     switch (variante) {
@@ -344,7 +385,7 @@ async function generarRecomendaciones(usuarioId, nombreUsuario, variante) {
       messages: [
         {
           role: 'system',
-          content: promptRecom
+          content: PROMPT_RECOM
             .replace(/\{NOMBRE_USUARIO\}/g, nombreUsuario || 'amigo')
             .replace(/\{SCORE_ACTUAL\}/g, String(datos.usuario.score_actual))
             .replace(/\{SCORE_MES_ANTERIOR\}/g, String(datos.usuario.score_mes_anterior || 'N/A'))
@@ -499,4 +540,5 @@ module.exports = {
   calcularScore,
   simularScore,
   scoreLabel,
+  PROMPT_RECOM_PATH,
 };

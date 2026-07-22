@@ -224,12 +224,15 @@ async function guardarAlertas(usuarioId, alertas, mensaje) {
  * Get alert history for a user.
  */
 async function obtenerHistorialAlertas(usuarioId, limit = 20) {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('spending_alerts')
     .select('*')
     .eq('user_id', usuarioId)
     .order('created_at', { ascending: false })
     .limit(limit);
+  // Devolver [] es aceptable acá (no se escribe ni se calcula nada sobre esto), pero sin log
+  // una lectura caída es indistinguible de "no tienes alertas" para el usuario y para nosotros.
+  if (error) log.error({ tag: 'FUGAS_HIST', err: error.message, usuarioId }, 'Error leyendo historial de alertas');
   return data || [];
 }
 

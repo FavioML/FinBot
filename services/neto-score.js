@@ -397,4 +397,7 @@ module.exports = {
   scoreLabel,
   factorMasDebil,
   WEIGHTS,
+  // Exposed for testing
+  calcFactorBudget,
+  calcFactorSavings,
 };

@@ -381,7 +381,13 @@ async function interpretarComandoPresupuesto(texto) {
     var aiRes = await openai.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'system', content: 'Extrae datos de presupuesto. SOLO JSON: {"es_presupuesto":true/false,"categoria":"nombre","monto":numero,"alerta_porcentaje":numero 1-100 default 80}' }, { role: 'user', content: texto }], temperature: 0 });
     var raw = aiRes.choices[0].message.content.trim();
     return JSON.parse(raw.startsWith('{') ? raw : raw.slice(raw.indexOf('{'), raw.lastIndexOf('}')+1));
-  } catch(e) { return { es_presupuesto: false }; }
+  } catch(e) {
+    // El fallback es legítimo (es_presupuesto:false = "no era un comando de presupuesto"),
+    // pero era el único catch del backend sin log: un fallo del parser se veía igual que un
+    // mensaje que no hablaba de presupuestos.
+    log.error({ tag: 'PARSE_PRESUP', err: e.message }, 'Error interpretando comando de presupuesto');
+    return { es_presupuesto: false };
+  }
 }
 
 module.exports = {
