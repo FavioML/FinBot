@@ -20,7 +20,7 @@ const { generarResumenSemanal } = require('../services/summaries');
 const { guardarMensaje, obtenerOCrearUsuario, getUserPlanConfig } = require('../helpers/db-helpers');
 const { checkProWall } = require('../helpers/pro-wall');
 const { parseCSV, parseExcel } = require('../services/import-parser');
-const { esperaComprobante, esPagoNeto, procesarComprobantePro, registrarPagoAprobado } = require('../lib/pro-payment');
+const { esperaComprobante, esPagoNeto, procesarComprobantePro } = require('../lib/pro-payment');
 const { procesarComandoAdmin } = require('./admin-commands');
 const { manejarOnboarding } = require('./onboarding');
 

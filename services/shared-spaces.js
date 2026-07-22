@@ -24,15 +24,34 @@ const {
  * mismo gasto se dividiria distinto segun por donde se registro.
  */
 async function obtenerContextoSplit(spaceId) {
-  const [{ data: space }, { data: members }] = await Promise.all([
+  const [{ data: space, error: eSpace }, { data: members, error: eMembers }] = await Promise.all([
     supabase.from('shared_spaces').select('created_by, split_rules').eq('id', spaceId).single(),
     supabase.from('space_members').select('user_id, split_percentage').eq('space_id', spaceId),
   ]);
+  // El snapshot que sale de acá se CONGELA en el gasto y ya nadie lo recalcula. Una
+  // lectura caída no puede degradar a "sin reglas": un gasto de supermercado con regla
+  // 70/30 se guardaría 50/50 para siempre, y al otro se le avisa una parte que no es.
+  if (eSpace) {
+    log.error({ tag: 'ESPACIO_SPLIT', err: eSpace.message, spaceId }, 'No se pudo leer el espacio');
+    throw new Error('No se pudo leer el espacio: ' + eSpace.message);
+  }
+  if (eMembers) {
+    log.error({ tag: 'ESPACIO_SPLIT', err: eMembers.message, spaceId }, 'No se pudieron leer los miembros');
+    throw new Error('No se pudo leer los miembros del espacio: ' + eMembers.message);
+  }
 
   let ownerIsPro = false;
   if (space && space.created_by) {
-    const { data: owner } = await supabase.from('usuarios').select('plan').eq('id', space.created_by).single();
-    ownerIsPro = owner && owner.plan === 'premium';
+    const { data: owner, error: eOwner } = await supabase.from('usuarios').select('plan').eq('id', space.created_by).single();
+    // Sin reglas configuradas el plan del owner da igual (todo cae al split por defecto),
+    // así que no vale la pena bloquear el registro del gasto. Con reglas sí: no saber si
+    // aplican es exactamente la diferencia entre 70/30 y 50/50.
+    if (eOwner) {
+      const hayReglas = Array.isArray(space.split_rules) && space.split_rules.length > 0;
+      log.error({ tag: 'ESPACIO_SPLIT', err: eOwner.message, spaceId, hayReglas }, 'No se pudo leer el plan del owner');
+      if (hayReglas) throw new Error('No se pudo verificar el plan del owner: ' + eOwner.message);
+    }
+    ownerIsPro = !!owner && owner.plan === 'premium';
   }
 
   return {
@@ -94,17 +113,28 @@ async function unirseEspacio(userId, inviteCode) {
     .single();
   if (eSpace || !space) return null;
 
-  // Check if already a member
-  const { data: existing } = await supabase.from('space_members')
+  // Check if already a member. PGRST116 = no encontró fila, que es el caso normal.
+  const { data: existing, error: eExisting } = await supabase.from('space_members')
     .select('id')
     .eq('space_id', space.id)
     .eq('user_id', userId)
     .single();
+  if (eExisting && eExisting.code !== 'PGRST116') {
+    log.error({ tag: 'ESPACIO_JOIN', err: eExisting.message, spaceId: space.id }, 'No se pudo verificar la membresía');
+    throw new Error('No se pudo verificar si ya eres miembro: ' + eExisting.message);
+  }
   if (existing) return { space, member: existing, alreadyMember: true };
 
-  const { data: previos } = await supabase.from('space_members')
+  const { data: previos, error: ePrevios } = await supabase.from('space_members')
     .select('user_id, split_percentage')
     .eq('space_id', space.id);
+  // `|| []` acá no es un fallback inocente: joinSplitWeight([]) devuelve el peso por
+  // defecto (50), así que el que entra se queda con un porcentaje inventado en vez del
+  // promedio real del espacio. Entrar es reintentable; un split equivocado no se nota.
+  if (ePrevios) {
+    log.error({ tag: 'ESPACIO_JOIN', err: ePrevios.message, spaceId: space.id }, 'No se pudieron leer los miembros previos');
+    throw new Error('No se pudo calcular tu parte al entrar: ' + ePrevios.message);
+  }
   const miembrosPrevios = previos || [];
 
   // El que entra toma el peso promedio y NADIE MAS se toca. Antes esto reescribia
@@ -216,8 +246,11 @@ async function avisarCambioDeParte({ spaceId, actorId, miembrosAntes, emoji, acc
  * el que la parte de alguien se movia sin que se enterara.
  */
 async function notificarNuevoMiembro(spaceId, nuevoUserId) {
-  const { data: actuales } = await supabase.from('space_members')
+  const { data: actuales, error } = await supabase.from('space_members')
     .select('user_id, split_percentage').eq('space_id', spaceId);
+  // Aviso best-effort (ver avisarAMiembros), pero si esta lectura cae nadie se entera de
+  // que su parte se renormalizó, que es justo la garantía que sostienen estos avisos.
+  if (error) log.error({ tag: 'ESPACIO_AVISO', err: error.message, spaceId }, 'Nuevo miembro sin aviso de reparto');
   // El "antes" de un join es el espacio sin el que acaba de entrar: nadie mas
   // cambio de peso, lo que cambia es entre cuantos se normaliza.
   const miembrosAntes = (actuales || []).filter((m) => m.user_id !== nuevoUserId);
@@ -355,10 +388,12 @@ async function registrarGastoCompartido(userId, spaceId, amount, description, ca
   }).select().single();
   if (error) throw error;
 
-  // Get members for notification
-  const { data: members } = await supabase.from('space_members')
+  // Get members for notification. El gasto YA está guardado con su snapshot, así que un
+  // fallo acá no mueve plata: solo deja a los demás sin aviso. Se loguea y sigue.
+  const { data: members, error: eMembers } = await supabase.from('space_members')
     .select('user_id, split_percentage, usuarios(nombre, whatsapp)')
     .eq('space_id', spaceId);
+  if (eMembers) log.error({ tag: 'ESPACIO_GASTO', err: eMembers.message, spaceId }, 'Gasto guardado pero nadie fue avisado');
 
   // Get payer name
   const payer = members?.find(m => m.user_id === userId);
@@ -385,20 +420,37 @@ async function registrarGastoCompartido(userId, spaceId, amount, description, ca
  * @returns {{ balances: [{ userId, nombre, balance }], debts: [{ from, to, amount }] }}
  */
 async function obtenerBalanceEspacio(spaceId) {
-  // Get all expenses (con su division congelada)
-  const { data: expenses } = await supabase.from('space_expenses')
+  // Las tres lecturas son OBLIGATORIAS: el balance es una resta entre ellas y a cada
+  // una le falta el signo contrario. Con `|| []` una query caida no daba un error,
+  // daba un saldo creible y falso:
+  //   - sin liquidaciones -> vuelve a cobrar lo que la otra persona YA pago
+  //   - sin gastos        -> la deuda se INVIERTE de dueño
+  //   - sin miembros      -> "estan al dia", identico a un espacio sano en cero
+  // Por eso acá se corta: el intent (handlers/intents/espacios.js:159) responde
+  // "No pude obtener el balance" y nadie le cobra de más a nadie.
+  const { data: expenses, error: eGastos } = await supabase.from('space_expenses')
     .select('paid_by, amount, split_snapshot')
     .eq('space_id', spaceId);
+  if (eGastos) {
+    log.error({ tag: 'ESPACIO_BALANCE', err: eGastos.message, spaceId }, 'No se pudieron leer los gastos');
+    throw new Error('No se pudo leer los gastos del espacio: ' + eGastos.message);
+  }
 
-  // Get all settlements
-  const { data: settlements } = await supabase.from('space_settlements')
+  const { data: settlements, error: eLiq } = await supabase.from('space_settlements')
     .select('from_user, to_user, amount')
     .eq('space_id', spaceId);
+  if (eLiq) {
+    log.error({ tag: 'ESPACIO_BALANCE', err: eLiq.message, spaceId }, 'No se pudieron leer las liquidaciones');
+    throw new Error('No se pudo leer las liquidaciones del espacio: ' + eLiq.message);
+  }
 
-  // Get members
-  const { data: members } = await supabase.from('space_members')
+  const { data: members, error: eMiembros } = await supabase.from('space_members')
     .select('user_id, usuarios(nombre)')
     .eq('space_id', spaceId);
+  if (eMiembros) {
+    log.error({ tag: 'ESPACIO_BALANCE', err: eMiembros.message, spaceId }, 'No se pudieron leer los miembros');
+    throw new Error('No se pudo leer los miembros del espacio: ' + eMiembros.message);
+  }
 
   if (!members || members.length === 0) return { balances: [], debts: [] };
 
@@ -444,9 +496,11 @@ async function liquidarCuentas(spaceId, fromUser, toUser, amount) {
   }).select().single();
   if (error) throw error;
 
-  // Notify the recipient
-  const { data: fromUsuario } = await supabase.from('usuarios').select('nombre').eq('id', fromUser).single();
-  const { data: toUsuario } = await supabase.from('usuarios').select('nombre, whatsapp').eq('id', toUser).single();
+  // Notify the recipient. La liquidación ya está registrada: un fallo acá solo silencia
+  // el aviso, el balance de los dos ya cambió.
+  const { data: fromUsuario, error: eFrom } = await supabase.from('usuarios').select('nombre').eq('id', fromUser).single();
+  const { data: toUsuario, error: eTo } = await supabase.from('usuarios').select('nombre, whatsapp').eq('id', toUser).single();
+  if (eFrom || eTo) log.error({ tag: 'ESPACIO_LIQUIDACION', err: (eFrom || eTo).message, spaceId }, 'Liquidación registrada pero sin aviso');
   if (toUsuario?.whatsapp) {
     const fromName = fromUsuario?.nombre?.split(' ')[0] || 'Alguien';
     const msg = '✅ *Pago registrado*\n\n' + fromName + ' te pagó S/ ' + parseFloat(amount).toFixed(2) + '.\n\n_Escribe "ver balance espacio" para ver tu saldo actualizado._';
@@ -460,9 +514,15 @@ async function liquidarCuentas(spaceId, fromUser, toUser, amount) {
  * Get all spaces a user belongs to.
  */
 async function obtenerEspaciosUsuario(userId) {
-  const { data: memberships } = await supabase.from('space_members')
+  const { data: memberships, error } = await supabase.from('space_members')
     .select('space_id, role, shared_spaces(id, name, type, invite_code, created_at)')
     .eq('user_id', userId);
+  // Lista vacía se traduce arriba a "No tienes espacios compartidos", que sobre una
+  // lectura caída es mentira: los espacios existen y el usuario deja de verlos.
+  if (error) {
+    log.error({ tag: 'ESPACIO', err: error.message, userId }, 'No se pudieron leer los espacios del usuario');
+    throw new Error('No se pudo leer tus espacios: ' + error.message);
+  }
 
   if (!memberships) return [];
   return memberships.map(m => ({
@@ -475,23 +535,33 @@ async function obtenerEspaciosUsuario(userId) {
  * Get full detail of a space (members, recent expenses, balance).
  */
 async function obtenerResumenEspacio(userId, spaceId) {
-  // Verify membership
-  const { data: membership } = await supabase.from('space_members')
+  // Verify membership. null se traduce arriba a "No tienes acceso a ese espacio": eso
+  // solo puede decirse cuando la lectura funcionó y de verdad no hay fila (PGRST116).
+  const { data: membership, error: eMembership } = await supabase.from('space_members')
     .select('id')
     .eq('space_id', spaceId)
     .eq('user_id', userId)
     .single();
+  if (eMembership && eMembership.code !== 'PGRST116') {
+    log.error({ tag: 'ESPACIO', err: eMembership.message, spaceId, userId }, 'No se pudo verificar la membresía');
+    throw new Error('No se pudo verificar tu acceso al espacio: ' + eMembership.message);
+  }
   if (!membership) return null;
 
-  const { data: space } = await supabase.from('shared_spaces').select('*').eq('id', spaceId).single();
-  const { data: members } = await supabase.from('space_members')
+  // Estos tres son de presentación (encabezado y lista de últimos gastos). El número que
+  // importa lo calcula obtenerBalanceEspacio, que sí corta si alguna lectura falla.
+  const { data: space, error: eSpace } = await supabase.from('shared_spaces').select('*').eq('id', spaceId).single();
+  if (eSpace) log.error({ tag: 'ESPACIO', err: eSpace.message, spaceId }, 'No se pudo leer el espacio');
+  const { data: members, error: eMembers } = await supabase.from('space_members')
     .select('user_id, role, split_percentage, usuarios(nombre)')
     .eq('space_id', spaceId);
-  const { data: recentExpenses } = await supabase.from('space_expenses')
+  if (eMembers) log.error({ tag: 'ESPACIO', err: eMembers.message, spaceId }, 'No se pudieron leer los miembros');
+  const { data: recentExpenses, error: eRecientes } = await supabase.from('space_expenses')
     .select('*, usuarios(nombre)')
     .eq('space_id', spaceId)
     .order('created_at', { ascending: false })
     .limit(10);
+  if (eRecientes) log.error({ tag: 'ESPACIO', err: eRecientes.message, spaceId }, 'No se pudieron leer los gastos recientes');
 
   const balance = await obtenerBalanceEspacio(spaceId);
 

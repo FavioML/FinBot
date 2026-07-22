@@ -1,0 +1,58 @@
+{
+  "fecha": "2026-07-22",
+  "motivo": "Respaldo previo a limpiar dos filas de `pagos` detectadas durante la auditoría de escrituras sobre lectura fallida. Ver docs/SESION-escrituras-sobre-lectura-fallida.md.",
+  "acciones": [
+    {
+      "id": "2520d6ba-984a-434d-95da-b89abc48c990",
+      "usuario": "Jose Luis (51995884588)",
+      "accion": "DELETE",
+      "razon": "Fila fantasma creada por el comando manual /pago a las 14:04 del 30-jun, ocho horas después de que su pago real (f4be24dc, con comprobante) ya hubiera sido aprobado desde la webapp a las 05:49. No tiene comprobante_url ni monto_detectado: nada de esta fila vino del usuario, la generó el camino legacy de registrarPagoAprobado. Contaba S/10 de más en el revenue de junio. El usuario recibió correctamente 1 mes (premium_vence 2026-07-30)."
+    },
+    {
+      "id": "f7986616-625d-459a-9206-ab42fe867268",
+      "usuario": "Juan Lengua (51932540735)",
+      "accion": "UPDATE estado -> rechazado + notas",
+      "razon": "Comprobante enviado a las 11:30 del 6-jun que quedó pendiente. El usuario reenvió la misma captura a las 13:17 (bdb5c83f) y esa fue la aprobada a las 16:52. Mismo monto (S/10), mismo día: es un reenvío, no un segundo pago. Se cierra como rechazado para que el próximo /pago sobre este usuario no la tome como aprobación nueva. NO se borra: tiene comprobante real del usuario."
+    }
+  ],
+  "filas_originales": [
+    {
+      "id": "f7986616-625d-459a-9206-ab42fe867268",
+      "usuario_id": "e4332f63-9f76-4e54-868f-d6e9087e8a9a",
+      "monto": 10,
+      "moneda": "PEN",
+      "tipo_plan": "mensual",
+      "metodo_pago": "Yape",
+      "comprobante_url": "e4332f63-9f76-4e54-868f-d6e9087e8a9a/1780745437085.jpg",
+      "monto_detectado": 10,
+      "estado": "pendiente",
+      "notas": null,
+      "premium_desde": null,
+      "premium_vence": null,
+      "detectado_at": "2026-06-06T11:30:37.555789+00:00",
+      "aprobado_at": null,
+      "aprobado_por": null,
+      "created_at": "2026-06-06T11:30:37.555789+00:00",
+      "origen": "whatsapp"
+    },
+    {
+      "id": "2520d6ba-984a-434d-95da-b89abc48c990",
+      "usuario_id": "ef9be664-b6f7-4fab-affb-6b8bd3005490",
+      "monto": 10,
+      "moneda": "PEN",
+      "tipo_plan": "mensual",
+      "metodo_pago": "Yape",
+      "comprobante_url": null,
+      "monto_detectado": null,
+      "estado": "aprobado",
+      "notas": null,
+      "premium_desde": "2026-06-30",
+      "premium_vence": "2026-07-30",
+      "detectado_at": "2026-06-30T14:04:38.721348+00:00",
+      "aprobado_at": "2026-06-30T14:04:38.18+00:00",
+      "aprobado_por": "admin:/pago",
+      "created_at": "2026-06-30T14:04:38.721348+00:00",
+      "origen": "whatsapp"
+    }
+  ]
+}

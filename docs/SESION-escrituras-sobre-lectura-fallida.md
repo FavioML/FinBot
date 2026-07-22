@@ -25,7 +25,7 @@ escritura o un número que el usuario cree cierto.
 |---|---|---|
 | ~~`services/referrals.js`~~ | ~~Otorga meses de Pro gratis~~ | **HECHO 22-jul-2026, ver abajo.** |
 | ~~`lib/pro-payment.js`~~ | ~~Aprobación de pagos~~ | **HECHO 22-jul-2026, ver abajo.** |
-| `services/shared-spaces.js` | Balances entre personas reales | 16 sitios sin leer `error`, es el archivo con más densidad después del cron |
+| ~~`services/shared-spaces.js`~~ | ~~Balances entre personas reales~~ | **HECHO 22-jul-2026, ver abajo.** |
 | `services/neto-score.js` | Número que el usuario ve y en el que confía | 5 sitios. Un factor que sale 0 por query fallida baja el score sin explicación |
 
 Nota: `referidos` está en **0 filas** hoy, así que el riesgo ahí es latente, no realizado. Verificar
@@ -118,6 +118,73 @@ una vez o dos. Si pagó una, sobra una fila; si pagó dos, le falta un mes de Pr
 
 Efecto vivo del huérfano: el próximo `/pago` manual sobre ese usuario marcaría como aprobación esa
 fila de hace seis semanas, no una nueva.
+
+**Resuelto el 22-jul-2026** con confirmación de Favio y respaldo en
+`docs/backups/2026-07-22-pagos-limpieza.json`:
+- La fila fantasma de Jose Luis se borró. Se pudo demostrar que no era un pago: `comprobante_url`
+  y `monto_detectado` en NULL y `created_at == aprobado_at` (la creó el comando `/pago` a las 14:04,
+  ocho horas después de que su pago real ya estuviera aprobado a las 05:49). Junio pasó de S/40 a
+  S/30, que es la caja real.
+- La pendiente de Juan Lengua se cerró como `rechazado` con nota: es el reenvío de la captura
+  aprobada en `bdb5c83f` (mismo día, mismo monto, las dos con comprobante). No se borró porque sí
+  tiene un comprobante real del usuario. `pagos` quedó sin ninguna fila pendiente.
+
+## `services/shared-spaces.js` — cerrado 22-jul-2026
+
+El archivo de mayor daño potencial de la tabla, y el que más rindió. Acá **ninguna** lectura
+fallida producía una excepción: producían un número creíble y falso entre dos personas reales.
+
+Escenario medido (Ana y Beto, gasto de S/100 pagado por Ana congelado 70/30, Beto ya liquidó sus
+S/30, saldo real cero para ambos):
+
+| Lectura que falla | Lo que Neto respondía |
+|---|---|
+| `space_settlements` | "Beto debe S/30 a Ana" — plata que Beto **ya pagó** |
+| `space_expenses` | "Ana debe S/30 a Beto" — la deuda **cambia de dueño** |
+| `space_members` | "✅ ¡Están al día!" — idéntico a un espacio sano en cero |
+
+Las tres salían del mismo `|| []` en `obtenerBalanceEspacio`. El balance es una resta entre las tres
+tablas y a cada una le falta el signo contrario, así que degradar cualquiera a vacío no da un error:
+da un saldo con la dirección equivocada. Ahora las tres cortan; el intent
+(`handlers/intents/espacios.js:159`) ya tenía el `catch` que responde "No pude obtener el balance".
+
+Segundo hallazgo, y este congela: `obtenerContextoSplit` leía el espacio y el plan del owner sin
+mirar `error`. Con cualquiera de las dos caída, `effectiveRules` quedaba en `[]` y un gasto con
+regla 70/30 **se guardaba 50/50 para siempre** (el snapshot es inmutable por diseño), y al otro se
+le avisaba "Tu parte: S/50" en vez de S/30. Ahora corta antes de insertar. Matiz: si el espacio no
+tiene reglas configuradas, el plan del owner da igual y no se bloquea el registro — solo se loguea.
+
+Tercero: `unirseEspacio` calculaba el peso del que entra con `previos || []`, y
+`joinSplitWeight([])` devuelve `DEFAULT_SPLIT_WEIGHT` (50). En un espacio 90/10 el recién llegado
+entraba con 50 inventado en vez del promedio real. Entrar es reintentable; un split equivocado no
+se nota.
+
+Los que fallan cerrado pero mentían: `obtenerEspaciosUsuario` decía "No tienes espacios
+compartidos" y `obtenerResumenEspacio` decía "No tienes acceso a ese espacio" sobre lecturas
+caídas. Ahora lanzan; `null` quedó reservado para `PGRST116` (no hay fila de verdad).
+
+Los de aviso (`registrarGastoCompartido` tras el insert, `liquidarCuentas`, `notificarNuevoMiembro`)
+siguen siendo best-effort a propósito: el dinero ya se movió, solo se loguea con tag propio.
+
+La DB ayuda menos de lo que parece: `space_members` sí tiene `UNIQUE (space_id, user_id)` y
+`space_expenses` tiene el CHECK `space_shares_conserve`, pero ninguna de las dos toca el problema —
+acá no se insertaban duplicados, se calculaban números equivocados con datos incompletos.
+
+Cubierto por `tests/services/spaces-lecturas-fallidas.test.js` (16 tests). Mutación verificada
+sobre los tres guards principales.
+
+**Nota de método:** el primer probe usó el shape equivocado para `split_rules`
+(`{categoria, pct}` en vez de `{category, splits}`), así que su control "esperado 70/30" nunca
+aplicó la regla. No cambió ninguna conclusión, pero es el recordatorio de siempre: el control tiene
+que verificarse tan en serio como el caso roto. El test sí afirma el 70/30 con lecturas sanas.
+
+## Pendiente inmediato: el espejo en la webapp
+
+`webapp/src/lib/spaces-server.ts` tiene la misma degradación silenciosa:
+`getSpaceOwnerIsPro` devuelve `false` si falla la lectura del espacio o del plan del owner, con lo
+que la webapp congela un gasto 50/50 que debía ser 70/30. Y `getSpaceMemberIds` devuelve un Set
+vacío con `data ?? []`. Los dos runtimes tienen que decidir igual o el mismo gasto vale distinto
+según por dónde se registró, que es justo lo que el comentario de `obtenerContextoSplit` promete.
 
 ## Método
 
