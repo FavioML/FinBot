@@ -90,21 +90,67 @@ independientes, en orden de valor esperado:
 
 1. `docs/SESION-escrituras-sobre-lectura-fallida.md` — la clase que sí rinde: lecturas fallidas que
    producen escrituras (referrals, pagos Pro, balances de espacios, score).
-2. `docs/SESION-barrido-candidatos-restantes.md` — cerrar los 4 candidatos de la tabla de abajo.
-   Rendimiento esperado bajo: el único auditado de esa lista salió sano.
+2. ~~`docs/SESION-barrido-candidatos-restantes.md`~~ — **CERRADA el 22-jul-2026** (commit `e183494`).
+   Rindió más de lo esperado: 3 archivos sanos y 1 bug vivo de 4 meses. Detalle abajo.
 
 ## Candidatos concretos a revisar
 
 Salieron del grep de catch en los servicios que llaman a OpenAI. Están sin verificar: pueden estar
 sanos o pueden estar fallando en silencio desde hace meses, igual que los dos anteriores.
 
-| Archivo | Qué hay |
+**Lista cerrada el 22-jul-2026** (commit `e183494`). Resultado: 1 bug vivo de 4 archivos.
+
+| Archivo | Qué hay | Veredicto |
+|---|---|---|
+| ~~`services/summaries.js`~~ | ~~3 x `catch (e) { /* silent */ }`~~ | **SANO** 21-jul, ver arriba |
+| `services/recommendations.js` | `catch → return null` en ~318, ~374; otros catch en ~246, ~488 | **BUG VIVO**, ver abajo |
+| `services/parsers.js` | `catch → return []` en ~375; `catch → return { es_presupuesto: false }` en ~384 | **SANO** |
+| `handlers/intents/score.js` | catch en ~101 alrededor de la generación de tips con IA | **SANO** |
+| `services/spending-alerts.js` | catch en ~177 | **SANO** |
+
+### Segundo bug de prompt movido: `generarRecomendaciones` (22-jul-2026, commit `e183494`)
+
+`services/recommendations.js` leía el prompt desde `prompts/`, directorio que dejó de existir en
+`7941cb0` (31-mar-2026: el archivo se movió a `docs/` y la ruta del código no se actualizó). El
+ENOENT caía en `catch → return null`, y los dos call sites tenían fallback: `ver_recomendaciones`
+servía la mini-recomendación heurística y el resumen mensual simplemente omitía el bloque.
+**`generarRecomendaciones` devolvió `null` en el 100% de las llamadas durante ~4 meses.**
+
+Es el tercer caso de la misma familia (`1a5da6e` system prompt, `6b677cf` timeout en el body): una
+dependencia que falla siempre, tapada por un fallback que se ve razonable.
+
+Lo que costó: "Consejos IA personalizados" se vende como feature Pro y está detrás del paywall
+(`consejoPerWeek === 0` → mensaje de upsell). Los usuarios Pro pagaban por una ruta de código que
+nunca corrió.
+
+**Cómo se demostró:** `generarRecomendaciones(uid, 'Favio', 'on_demand_general')` llamada directo
+contra un usuario de producción con 98 transacciones de julio. Antes: `null` + log
+`ENOENT ... app\prompts\NETO_recomendaciones_prompt.md`. Después: recomendación redactada real.
+Fix con la doctrina de `lib/neto-prompt.js` (leer una vez al require, lanzar si falta o si perdió
+un placeholder). Cubierto por `tests/services/recommendations-prompt.test.js`, que valida la
+**clase**: todo prompt que el backend lee tiene que existir donde el código lo busca.
+
+### El agujero que `eea8d1c` dejó abierto: `construirDatosUsuario`
+
+Las 5 queries paralelas de `construirDatosUsuario` descartaban su `error`. Ese objeto alimenta el
+**45% del Neto Score** (`calcFactorBudget` 0.25 + `calcFactorSavings` 0.20), la viabilidad de metas
+(`analizarViabilidad`) y las alertas de fugas. `eea8d1c` blindó los factores que hacen su propia
+query, pero budget y savings leen de acá.
+
+Magnitud medida sobre un usuario sano (dentro de presupuesto, ahorrando >20%):
+
+| Lectura que cae | Efecto |
 |---|---|
-| ~~`services/summaries.js`~~ | ~~3 x `catch (e) { /* silent */ }`~~ **HECHO 21-jul-2026, ver arriba.** |
-| `services/recommendations.js` | `catch → return null` en ~318, ~374; otros catch en ~246, ~488 |
-| `services/parsers.js` | `catch → return []` en ~375; `catch → return { es_presupuesto: false }` en ~384 |
-| `handlers/intents/score.js` | catch en ~101 alrededor de la generación de tips con IA |
-| `services/spending-alerts.js` | catch en ~177 |
+| `presupuestos` | factor budget 100 → 50 (el "neutral" de *no tiene presupuestos*) = **-12.5 pts** |
+| `ingresos` | factor savings 100 → 50 = **-12.5 pts** |
+| `gastos` | factor savings **sube a 100** y `analizarViabilidad` declara "alcanzable 💪" una cuota que no lo es |
+
+El tercero es el peligroso: **falla hacia arriba**. Nadie reporta que su score subió. Corregido con
+la misma doctrina (log con tag `RECOM_DATOS` + throw; `upsertScore` ya devuelve `null` y no persiste).
+
+**Moraleja acumulada del barrido:** los 4 candidatos elegidos por su `catch` salieron sanos salvo
+uno, y el `catch` no era el problema en ninguno. Los dos hallazgos reales fueron una **ruta de
+archivo** y un **`error` descartado**. Grepear `catch` sigue siendo el peor filtro disponible.
 
 ## Método sugerido
 

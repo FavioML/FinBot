@@ -1,70 +1,55 @@
-# Sesión: cerrar el barrido de fallos silenciosos (candidatos restantes)
+# Sesión: cerrar el barrido de fallos silenciosos (candidatos restantes) — CERRADA
 
-Prompt de arranque autocontenido. Trabajar desde `C:\Vortik.dev\products\neto\app`.
+**Estado: cerrada el 22-jul-2026, commit `e183494`. No reabrir.**
+El registro completo vive en `docs/SESION-fallos-silenciosos.md`; esto es el resumen de qué se
+miró, qué salió y cómo se demostró.
 
 ---
 
-## Qué queda y con qué expectativa
+## Resultado
 
-Son los cuatro archivos que quedaron sin auditar del barrido original de `docs/SESION-fallos-silenciosos.md`.
+La expectativa era rendimiento bajo. Salió al revés: **1 bug vivo de 4 meses** y un segundo
+hallazgo estructural que ninguno de los cuatro candidatos anunciaba.
 
-**Expectativa honesta: rendimiento bajo.** El único archivo de esta lista que ya se auditó
-(`services/summaries.js`) salió **sano**: sus tres `catch (e) { /* silent */ }` no solo no fallaban,
-sino que eran inalcanzables, porque `supabase-js` no lanza nunca (ni con columna inexistente ni con
-fallo de red total: devuelve `{ data: null, error }`). Es probable que varios de estos también estén
-sanos. Vale hacerlo igual para cerrar la lista, pero sin asumir que hay bugs esperando.
+| Archivo | Veredicto | Cómo se demostró |
+|---|---|---|
+| `services/recommendations.js` | **BUG VIVO** | `generarRecomendaciones` llamada directo contra un usuario de producción con 98 txs de julio: devolvía `null` con log `ENOENT ... app\prompts\NETO_recomendaciones_prompt.md`. El prompt se había movido a `docs/` en `7941cb0` (31-mar). Post-fix devuelve una recomendación redactada real. |
+| `services/parsers.js` | **SANO** | `parsearCorreccionesMultiples('el menu de 15 pasalo a alimentacion y la gasolina de 40 a transporte')` → 2 correcciones bien parseadas, no `[]`. `interpretarComandoPresupuesto('presupuesto de 500 en alimentacion')` → `{es_presupuesto:true, categoria:'alimentación', monto:500}`, no el fallback. |
+| `handlers/intents/score.js` | **SANO** | La llamada a OpenAI de los tips reproducida con el mismo body (`gpt-4o-mini`, `max_tokens:400`, sin `timeout` en el body) → 3 tips generados. Además su fallback no es silencioso: el usuario ve "❌ No pude generar los tips". |
+| `services/spending-alerts.js` | **SANO** | `generarAlertasFugas(uid, true)` → 5 alertas reales (spike/recurring/ant) y `generarMensajeFugas` devolvió texto redactado por IA, no ninguno de los dos textos fijos del `catch`. |
+| `detectarSuscripciones` (catch ~246) | **SANO** | Llamada directa: 5 suscripciones detectadas, S/297.06/mes. El `catch` nunca se activó. |
 
-Si el tiempo es escaso, `docs/SESION-escrituras-sobre-lectura-fallida.md` tiene mayor valor esperado.
+## Los dos hallazgos reales
 
-| Archivo | Qué hay |
-|---|---|
-| `services/recommendations.js` | `catch → return null` en ~318, ~374; otros catch en ~246, ~488 |
-| `services/parsers.js` | `catch → return []` en ~375; `catch → return { es_presupuesto: false }` en ~384 |
-| `handlers/intents/score.js` | catch en ~101, alrededor de la generación de tips con IA |
-| `services/spending-alerts.js` | catch en ~177 |
+1. **Ruta de prompt muerta** (`recommendations.js`). Tercer caso de la misma familia que `1a5da6e`
+   y `6b677cf`. El `catch` que lo tapaba era justamente el candidato de la lista, pero el bug no
+   era el `catch`: era la ruta.
+2. **`construirDatosUsuario` descartaba los 5 `error`.** No estaba en la lista de candidatos —
+   apareció aplicando la lección del 21-22 de julio (mirar el `error`, no el `catch`). Alimenta el
+   45% del Neto Score, la viabilidad de metas y las alertas de fugas, y una de las tres formas de
+   fallar **sube** el score. Es la puerta que `eea8d1c` dejó abierta.
 
-## Método
+## Cambios aplicados
 
-Para cada uno: **"¿qué pasa si esto falla SIEMPRE? ¿se notaría?"** Si la respuesta es "no", probarlo.
+- Prompt de recomendaciones cargado al require con throw si falta (doctrina `lib/neto-prompt.js`).
+- `construirDatosUsuario` lee sus 5 `error`, loguea con tag `RECOM_DATOS` y lanza.
+- `interpretarComandoPresupuesto`: era el único `catch` del backend sin log. Ahora loguea
+  (`PARSE_PRESUP`); el fallback se mantiene porque es legítimo.
+- `obtenerHistorialAlertas`: loguea el `error` descartado (`FUGAS_HIST`). Devolver `[]` está bien
+  acá — no se escribe ni se calcula nada sobre eso — pero sin log no se distinguía de "no tienes".
+- `tests/services/recommendations-prompt.test.js` (7 tests). Cubre la **clase**, no la instancia:
+  todo prompt que el backend lee tiene que existir donde el código lo busca.
 
-1. Llamar la función directo con datos reales (`node -e "require('dotenv/config'); ..."`), no a
-   través del flujo, para ver si devuelve el valor bueno o el fallback. Un fallback aguas arriba
-   puede estar tapando un 100% de fallo: fue exactamente el caso de `redactarConNETO`, que devolvía
-   `null` en todas las llamadas durante meses.
-2. **Mirar también el `error` descartado, no solo el catch.** Es la lección del 21-22 de julio:
-   `const { data } = await supabase` sin leer `error` es donde vive el fallo silencioso real. Un
-   catch vacío sobre una query de Supabase es ruido.
-3. Donde el fallback sea legítimo, subir el log a nivel error con tag propio.
-4. Donde la dependencia sea obligatoria, fallar ruidosamente (ver `lib/neto-prompt.js`).
-5. Test de regresión por cada fallo encontrado, validado con mutación: revertir el fix a mano, ver
-   fallar el test correcto, restaurar.
+Ambos fixes validados por mutación: revertir la ruta hace fallar los 7 tests con el ENOENT
+explícito; revertir el guard de lecturas hace fallar exactamente los 3 tests de lectura caída.
 
-**Registrar también lo sano.** Si un candidato resulta correcto, anotarlo en
-`docs/SESION-fallos-silenciosos.md` con cómo se demostró. Un archivo verificado sano es un resultado,
-no un no-resultado, y evita que alguien lo vuelva a auditar en tres meses.
-
-## Ya verificado, no repetir
-
-- `timeout` dentro del body de OpenAI: barrido completo hecho sobre las 12 llamadas del repo.
-  Solo `services/neto-gpt.js` lo tenía. Cubierto por `tests/services/neto-gpt.test.js`.
-- `services/summaries.js`: los 3 catch sanos e inalcanzables. Queries ahora leen `error` con tag
-  `RESUMEN_SEM`; `obtenerDeudas` con tag `DEUDAS`. Commit `62e52bf`.
-- Crons de resumen: filtraban `gmail_access_token IS NOT NULL` sin razón funcional y dejaban la
-  audiencia en 3 de 77 usuarios. Corregido y cubierto por `tests/cron/resumen-destinatarios.test.js`.
-- Ingesta Gmail: dos avisos del banco para el mismo cargo entraban como dos transacciones. Guard en
-  memoria por hora de llegada del correo. Commit `8843f8b`.
-
-## Cómo verificar
+## Verificación
 
 ```bash
-npx vitest run                        # 356 tests
-node qa-e2e/probe-system-prompt.mjs   # 16 checks contra el pipeline real
+npx vitest run                        # 426 tests
+node qa-e2e/probe-system-prompt.mjs   # 16/16 checks
 ```
 
-Patrón de test con Supabase mockeado por `require.cache`: `tests/services/summaries.test.js`.
+## Lo que queda del barrido original
 
-## Convenciones
-
-- Backend CommonJS, editar con Edit tool, UTF-8 sin BOM.
-- Commit + push directo, mensajes en inglés con prefijo.
-- Nunca correr tests contra la DB real: mockear Supabase (ver `tests/setup.js`).
+`docs/SESION-escrituras-sobre-lectura-fallida.md` es lo único abierto de esta línea.
