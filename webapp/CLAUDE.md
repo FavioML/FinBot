@@ -78,18 +78,40 @@ layout es un passthrough estatico.
 
 ### Autenticacion (2 capas)
 1. **Supabase Auth** → Google OAuth → cookie session
-2. **Mapeo interno**: `auth.user.id` → `usuarios.id` via `getNetoUserId()`
-   - Usa service-role client (privilegiado)
-   - Retorna null si no autenticado
+2. **Mapeo interno**: `auth.user.id` → `usuarios.id` via `requireNetoUser()`
+   (`lib/supabase/auth.ts`), con service-role client
 
 ### API Routes — patron estandar
 ```typescript
 export async function POST(request: Request) {
-  const userId = await getNetoUserId()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-  // ... logica con .eq('usuario_id', userId)
+  const auth = await requireNetoUser('id, plan')  // columnas que necesites
+  if (!auth.ok) return auth.response
+  // auth.user.id / auth.user.plan / auth.authId (id de Supabase Auth)
 }
 ```
+
+**No escribas el lookup a mano.** `requireNetoUser` es el unico sitio donde vive
+el mapeo, y distingue tres casos que antes estaban colapsados en `null`:
+
+| Senal | Significa | Responde |
+|---|---|---|
+| no hay sesion | no autenticado | 401 |
+| `error` en la lectura | Supabase se cayo | 500 + log `[auth:usuarios]` |
+| `data === null` | sesion valida, sin fila | 404 |
+
+Usa `.maybeSingle()` y no `.single()` a proposito: con `single()` cero filas
+TAMBIEN llega como error (PGRST116), asi que "no hay fila" y "la lectura se cayo"
+quedan indistinguibles. Ese era el bug: el lookup estaba copiado en ~30 rutas y
+ninguna leia el `error`, asi que un hipo de Supabase le decia al usuario "no eres
+tu" (401) o "no existes" (404). `src/lib/supabase/auth-callsites.test.ts` falla si
+alguien vuelve a escribirlo a mano bajo `src/app/api/`.
+
+Si "no tener fila" es un caso valido en tu ruta (el onboarding), usa
+`findNetoUser()`: devuelve null sin fila pero **lanza** si la lectura falla.
+
+### Tests
+`npm run test` (vitest, `src/**/*.test.ts`). Solo modulos de servidor — no hay
+jsdom ni testing-library. Se monto para el fix de auth de arriba.
 
 ### Espacios (`space_*`): service-role-only POR DISEÑO — la autorizacion vive en el codigo
 

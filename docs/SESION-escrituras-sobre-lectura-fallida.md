@@ -264,15 +264,14 @@ antes y después y ninguno en estas rutas.
 
 ## Estado del doc
 
-Los 4 archivos de la tabla están cerrados. Lo que quedó anotado y sin tocar, por orden de valor:
+**El barrido de fallos silenciosos está completo.** Los 4 archivos de la tabla y los tres
+pendientes que quedaban están cerrados:
 
-1. `getSessionUser` en la webapp (arriba): mismo patrón sobre el camino de auth. **Lo único
-   abierto**, y quedó con sesión propia: `docs/SESION-lecturas-auth-webapp.md`.
-   Al mapearlo para ese doc resultó ser más grande que la nota: no es una función sino el mismo
-   lookup de `usuarios` tras el auth en **~33 rutas y 3 formas distintas**, ninguna capturando el
-   `error`. Una lectura caída se le presenta al cliente como 401 o 404 "User not found". Se difirió
-   además porque la webapp **no tiene ningún test runner**, así que el loop de regresión + mutación
-   hay que decidirlo antes de tocar código.
+1. ~~`getSessionUser` en la webapp~~ — **CERRADO 22-jul-2026**, commits `fa89461` + `5121425`
+   (`docs/SESION-lecturas-auth-webapp.md`). Resultó ser el más grande de los tres: no una función
+   sino el mismo lookup de `usuarios` tras el auth en **36 sitios y 3 formas distintas**, ninguna
+   capturando el `error`. Se unificó en `requireNetoUser` (chokepoint único: 401 sin sesión / 404
+   sin fila / 500 lectura caída) y se montó vitest en la webapp, que no tenía test runner.
 2. ~~`vence.setMonth(...)` en `services/referrals.js`~~ — **HECHO 22-jul-2026, commit `d728725`.**
 3. ~~`docs/SESION-barrido-candidatos-restantes.md`~~ — **CERRADA 22-jul-2026, commit `e183494`.**
 

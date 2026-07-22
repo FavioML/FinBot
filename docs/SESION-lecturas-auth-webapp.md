@@ -1,156 +1,145 @@
 # Sesión: la lectura de `usuarios` tras el auth, en la webapp
 
-Prompt de arranque autocontenido. Trabajar desde `C:\Vortik.dev\products\neto\app\webapp`
-(el backend está un nivel arriba, en `app/`).
+**Estado: CERRADA el 22-jul-2026.** Commits `fa89461` (capa de auth + vitest) y `5121425`
+(migración de las rutas). Con esto **el barrido de fallos silenciosos queda completo**; ver
+`docs/SESION-escrituras-sobre-lectura-fallida.md`.
 
 ---
 
-## Por qué existe esta sesión
+## El alcance real: 36, no 1
 
-Es el último pendiente del barrido de fallos silenciosos (`docs/SESION-escrituras-sobre-lectura-fallida.md`,
-cerrado el 22-jul-2026). Quedó anotado como "`getSessionUser`" y diferido a propósito, con esta
-razón: *"toca el camino de auth de toda la webapp y merece verificarse con el cliente en la mano,
-no a ciegas"*.
+El pendiente estaba anotado como "`getSessionUser`". Al mapearlo resultó ser el mismo lookup —
+sesión Supabase → fila de `usuarios` — repetido en **36 sitios y 3 formas**, y **ninguna capturaba
+el `error`**:
 
-**Ese título se queda corto y conviene saberlo antes de empezar.** `getSessionUser` es solo la
-instancia de espacios. Al mapear el patrón aparecen **~33 archivos de ruta** que hacen el mismo
-lookup, en **tres formas distintas**, y **ninguna captura el `error`**:
-
-| Forma | Dónde | Qué pasa si la lectura falla |
+| Forma | Dónde | Qué pasaba si la lectura fallaba |
 |---|---|---|
-| `getSessionUser()` | `src/lib/spaces-server.ts:64` | `if (!data) return null` → el caller responde **401 Unauthorized** |
-| `getNetoUserId()` / `getNetoUser()` | `src/lib/supabase/auth.ts` (solo `/api/pro/*`) | devuelve `null` → 401 |
-| lookup inline duplicado | ~30 rutas (`dashboard`, `transactions`, `goals`, `debts`, `score`, `budgets`, `export`, …) | `if (!usuario) return 404 'User not found'` |
+| helper inline duplicado (las mismas ~8 líneas copiadas) | 30 rutas de `src/app/api/` | 401 `Unauthorized` o 404 `User not found` |
+| `getNetoUserId()` / `getNetoUser()` | `lib/supabase/auth.ts` → 4 rutas `/api/pro/*` | 401 |
+| `getSessionUser()` | `lib/spaces-server.ts` → 2 rutas + `authorizeSpace` | 401 |
 
-En los tres casos una lectura caída se le presenta al cliente como **"no eres tú" o "no existes"**,
-que es lo que un usuario legítimo con sesión válida ve cuando Supabase tose. Es exactamente la
-clase del barrido: el `error` que nadie lee, no el `catch`.
+En los tres casos, un usuario legítimo con sesión válida veía "no eres tú" o "no existes" porque
+Supabase tosió. Es exactamente la clase del barrido: el `error` que nadie lee, no el `catch`.
 
-`authorizeSpace` (`spaces-server.ts:91`) tiene el mismo problema un nivel más abajo con
-`space_members`: lectura caída → **403 "Not a member"** sobre alguien que sí es miembro.
+## Dos hallazgos que no estaban en el mapeo inicial
 
-## La decisión de alcance, primero
+**1. `auth/callback/route.ts` era la peor instancia del repo.** Busca al usuario por
+`supabase_auth_id` y, si no lo encuentra, por `email`. Las dos lecturas se comían el `error`: con
+Supabase caído ambas devuelven `null` y el callback **mandaba a `/onboarding` a un usuario que ya
+existe**, incluido uno Pro que paga, a re-verificar su número por OTP. Ahora vuelve al login con
+`?error=temporal` y un mensaje propio (distinto del `?error=auth`, que sí tiene sentido ofrecer el
+email como alternativa; acá la sesión está bien y lo único correcto es reintentar).
 
-Antes de tocar nada hay que decidir esto y sustentarlo, porque cambia el tamaño de la sesión:
+**2. `getSpaceOwnerIsPro` seguía tragando el error**, aunque el doc daba `spaces-server.ts` por
+cerrado salvo `getSessionUser`. Degradaba a `false`, así que presupuestos compartidos y reglas de
+reparto le respondían "esta función es solo Pro" al owner que **sí** es Pro. Ahora lanza, igual que
+`getSpaceBalances` y `getSpaceSplitContext` al lado.
 
-**Opción A — solo la capa de auth (recomendada de arranque).** Arreglar los dos helpers
-(`getSessionUser`, `getNetoUserId`/`getNetoUser`) y `authorizeSpace`. Cubre espacios y `/api/pro/*`
-con un cambio chico y verificable.
+También `authorizeSpace` un nivel más abajo: un fallo leyendo `space_members` era un 403
+"Not a member" sobre alguien que sí es miembro.
 
-**Opción B — unificar.** Extraer un helper único que distinga los tres casos (sin sesión → 401 /
-usuario inexistente → 404 / lectura caída → 500) y migrar las ~30 rutas inline. Es la solución de
-raíz y elimina la duplicación, pero toca 30 archivos de una y el riesgo de regresión en rutas que
-hoy funcionan es real.
+## Lo que hace el cliente con un 401 (verificado, no razonado)
 
-Lo que **no** se puede hacer es arreglar solo `getSessionUser` y declarar cerrado el pendiente: eso
-deja 30 rutas con el mismo agujero y un doc que miente. Si se elige A, hay que dejar B anotado
-explícitamente como pendiente con su alcance medido.
+Esto es lo que dimensiona el daño y por eso se midió antes de tocar nada:
 
-Punto fino que hay que resolver sí o sí: hoy `null` significa dos cosas distintas (no hay sesión /
-no hay fila). Un usuario recién registrado sin fila en `usuarios` es un 404 legítimo. La lectura
-caída tiene que ser un **500**, no un 401 ni un 404, o el cliente sigue sin poder distinguir.
+- **No hay interceptor global ni `signOut()` automático.** `signOutAndClear()`
+  (`lib/query-client.ts:73`) solo corre desde acciones explícitas del usuario (`user-menu.tsx`,
+  `configuracion/page.tsx`, `onboarding/page.tsx`). **Un 401 espurio no desloguea el dashboard**;
+  ahí el daño es data faltante, no pérdida de sesión. Esto es un resultado sano: anotado para que
+  nadie lo re-audite.
+- **Las 4 páginas de invitación sí ramificaban en 401** → `router.push('/login?redirect=…')`, y
+  `middleware.ts:63` rebota a `/dashboard` a quien ya tiene sesión. O sea que **la invitación se
+  perdía en silencio** y el usuario aparecía en el dashboard sin explicación. Ese era el daño
+  concreto.
+- El bootstrap del dashboard (`use-dashboard-bootstrap.tsx:82`) trata todo `!res.ok` igual, así que
+  pasar de 404 a 500 no cambió nada del lado cliente.
 
-## Por qué un 401 espurio importa más que un 500
+## La decisión de alcance: unificar (opción B)
 
-No es solo un código de estado feo. Un 401 en la webapp puede empujar al cliente a un logout, y el
-usuario pierde la sesión por un hipo de red. Un 404 "User not found" es peor de cara al usuario:
-sugiere que su cuenta no existe. Un 500 dice la verdad — algo se rompió de nuestro lado — y no
-destruye la sesión. **Antes de cambiar nada, verificar en el código del cliente qué hace con un 401**
-(buscar interceptores, `signOut()`, redirects a `/login`) y anotarlo: es lo que dimensiona el daño
-real y va en el commit.
+Se descartó arreglar solo los tres helpers, y no por completismo: **esa opción dejaba el fix sin
+forma de probarse**. Con el lookup copiado 30 veces harían falta 30 pruebas para demostrar una sola
+decisión. Unificando, un test del helper cubre las 36 rutas y la regla del barrido ("un fix sin una
+prueba que falle al revertirlo no está demostrado") se puede cumplir. Además *borra* código: el
+saldo de la migración es **-271 líneas**.
 
-## La restricción que define esta sesión: la webapp no tiene tests
+Se partió en dos commits revertibles por separado: la capa de auth primero (chica y verificable), la
+migración mecánica después.
 
-`webapp/package.json` no tiene vitest, jest ni ningún runner, y no hay un solo `*.test.ts` en
-`src/`. Los 437 tests del repo son **del backend** y no cubren nada de esto. O sea que el loop de
-feedback de las otras sesiones (test de regresión + mutación) **no aplica tal cual** y hay que
-decidir con qué se reemplaza. Opciones, a evaluar en la sesión:
+### El punto fino: `single()` vs `maybeSingle()`
 
-1. Montar vitest en la webapp solo para esto (es la primera vez, así que hay costo de setup y
-   queda como infraestructura para el futuro).
-2. Un harness en `qa-e2e/` que fuerce el fallo de lectura contra la app desplegada.
-3. Verificación manual con el cliente en la mano + los harness de espacios que ya existen.
+`null` significaba dos cosas. Peor: con `.single()` **cero filas también llega como `error`**
+(PGRST116), así que "no hay fila" y "la lectura se cayó" estaban mezcladas dentro del mismo objeto.
+`requireNetoUser` usa `.maybeSingle()`, donde la señal queda limpia:
 
-Sea cual sea, la regla del barrido no se negocia: **un fix sin una prueba que falle al revertirlo no
-está demostrado.** Si se elige (1), aplica mutación igual que siempre.
+| Señal | Significa | Responde |
+|---|---|---|
+| no hay sesión | no autenticado | **401** |
+| `error` presente | la lectura se cayó | **500** + log `[auth:usuarios]` (el mensaje de Postgres nunca sale al cliente) |
+| `data === null` | sesión válida, sin fila | **404** |
 
-## Cómo verificar
+Para los sitios donde no tener fila es el caso *normal* hay `findNetoUser()`: devuelve `null` sin
+fila pero **lanza** si la lectura falla.
+
+### Las tres que no fueron mecánicas
+
+- **`/api/onboarding`** es la única excepción documentada y conserva sus lecturas propias: ahí "no
+  hay fila" es lo normal (el usuario todavía no vinculó su WhatsApp), así que un 404 sería falso.
+  Captura el `error`. El GET es el que el cliente pollea, y con el error tragado una lectura caída
+  se veía igual que "todavía no confirmó" — el usuario mirando un spinner de una verificación que
+  ya había ocurrido.
+- **`/api/dashboard`** necesita el id de Supabase Auth (no el de Neto) para su gate de admin. Por
+  eso `requireNetoUser` devuelve `authId` además de la fila, en vez de obligar al caller a sacarlo
+  de las columnas seleccionadas.
+- **`/api/score`** usaba el tipo de retorno del helper como tipo. Se reemplazó por un `ScoreUser`
+  explícito.
+
+### El split 401/404 sirve solo si el cliente lo usa
+
+Las 4 páginas `/join/*` ahora ramifican también en 404 → `/onboarding`, que es el caso que antes
+desaparecía. Y `/onboarding` respeta `?redirect` (solo rutas internas), así que terminar la
+vinculación devuelve a la invitación en vez de aterrizar en el dashboard.
+
+## Cómo se verificó
+
+Loop de feedback: **vitest en la webapp** (no tenía runner). Las otras dos opciones que estaban
+sobre la mesa se descartaron con motivo: un harness contra prod no puede hacer fallar a Supabase a
+demanda sin inyectar un fault-injection env var y desplegarlo, y la verificación manual no da
+mutación.
+
+Dos pruebas, en `src/lib/supabase/`:
+- `auth.test.ts` — los tres casos del helper más `findNetoUser`. Cubre las 36 rutas de una.
+- `auth-callsites.test.ts` — **guard estático**: ninguna ruta bajo `src/app/api/` puede escribir el
+  lookup a mano. Arreglar las 30 vale poco si la 31 nace igual.
+
+**Mutación, en los dos sentidos:**
+- Tragarse el `error` en el helper → la lectura caída vuelve a responder **404** y falla
+  `auth.test.ts`. Es el bug original reproducido.
+- Revertir una ruta migrada a su helper inline → falla el guard, nombrando el archivo.
 
 ```bash
 cd C:\Vortik.dev\products\neto\app\webapp
-npx tsc --noEmit          # tiene que quedar limpio
-npm run build             # next build
-npm run lint              # BASELINE: 57 problems (21 errors, 36 warnings)
+npx tsc --noEmit          # limpio
+npm run test              # 9 tests
+npm run build             # OK, /onboarding sigue estático
+npm run lint              # 57 (21 errors, 36 warnings) — igual que el baseline
 ```
 
-El baseline de lint es **57** medido el 22-jul-2026. No hay que bajarlo, pero **no puede subir** y
-ninguno de los hallazgos puede caer en los archivos tocados.
+E2E contra `https://app.neto.pe` post-deploy (nunca contra `next dev`, que se queda en skeleton):
+`qa-e2e/qa-espacios-join-split.mjs`, `qa-espacios-gating-verify.mjs`, `qa-espacios-split-parity.mjs`,
+`qa-espacios-config.mjs`, `qa-login.mjs`.
 
-Harness de espacios que ya existen y son los más cercanos a lo que se toca (correr desde `app/`):
+### Gotchas de verificación (no re-descubrirlos)
 
-```bash
-node qa-e2e/qa-espacios-join-split.mjs
-node qa-e2e/qa-espacios-gating-verify.mjs
-node qa-e2e/qa-espacios-split-parity.mjs
-node qa-e2e/qa-espacios-config.mjs
-```
+- La API exige la cookie de sesión SSR de `@supabase/ssr`. **No acepta `Authorization: Bearer`**
+  (Bearer → 401). Si un probe da 401, descartar esto antes que el bug.
+- Overlays: `neto_welcome_seen` y `neto_tour_v2` montan un `.fixed.inset-0.z-50` que intercepta
+  clicks y **se re-monta** si se borra del DOM. Setear ambas keys con `context.addInitScript()`
+  antes de cargar.
+- Usuarios QA (creds en `~/.config/neto/qa.env`, los dos con `is_test_user=true`):
+  Pro `ded7e219-e5fd-4ff4-b5a3-3cd5cdffd172` (`NETO_QA_*`), Free `a9664eeb-ee0b-4640-b848-fdd0daa5aff0`
+  (`NETO_QA_FREE_*`).
 
-Y el login autenticado, que es la vía autónoma preferida:
-
-```bash
-cd qa-e2e && npm install && npx playwright install chromium && node qa-login.mjs
-```
-
-### Gotchas de verificación que ya costaron caro (no re-descubrirlos)
-
-- **Verificar contra `https://app.neto.pe` post-deploy, no contra `next dev`.** El dev server se
-  queda en skeleton: el bootstrap de `/api/dashboard` no dispara client-side. Contra el build real
-  de Vercel sí pinta el dashboard completo.
-- **La API de Next exige la cookie de sesión SSR de `@supabase/ssr`. NO acepta `Authorization:
-  Bearer`** (probado: Bearer → 401). Si un probe da 401, primero descartar que sea esto y no el bug.
-- **Overlays:** `neto_welcome_seen` y `neto_tour_v2` montan un `.fixed.inset-0.z-50` que intercepta
-  clicks y **se re-montan** si se borran del DOM. Setear ambas keys de localStorage con
-  `context.addInitScript()` antes de cargar.
-- **Verificar el efecto, no el HTTP 200.** Correr la prueba contra el estado actual y verla fallar
-  es lo que demuestra que la prueba sirve.
-
-### Usuarios QA
-
-Dos, ambos con auth de webapp y data sembrada (creds en `~/.config/neto/qa.env`):
-- **QA Dashboard (Pro):** `ded7e219-e5fd-4ff4-b5a3-3cd5cdffd172`, vars `NETO_QA_*`
-- **QA Free:** `a9664eeb-ee0b-4640-b848-fdd0daa5aff0`, vars `NETO_QA_FREE_*`
-
-Los dos tienen `is_test_user=true`, así que `lib/whatsapp.js` saltea los envíos reales de Meta.
-
-## Método (el que destapó todo lo anterior)
+## Método (el que destapó todo el barrido)
 
 Para cada sitio: **"¿qué pasa si esta lectura falla SIEMPRE?"** Si la respuesta es "el usuario ve
 algo creíble pero falso", es un bug aunque hoy no se haya manifestado.
-
-1. **Demostrar antes de proponer.** Forzar el fallo y ver qué recibe el cliente, no razonarlo.
-2. **Capturar `error` y loguear con tag propio** donde el fallback sea legítimo.
-3. **Fallar ruidoso** donde la dependencia sea obligatoria.
-4. **Prueba de regresión + mutación.** Revertir el fix a mano, ver fallar la prueba correcta,
-   restaurar.
-5. **Registrar también lo sano.** Un archivo verificado correcto es un resultado; anotarlo con cómo
-   se demostró evita que alguien lo re-audite en tres meses.
-
-## Contexto de lo ya hecho (no repetir)
-
-El backend está cerrado para esta clase. Ver `docs/SESION-escrituras-sobre-lectura-fallida.md`:
-`referrals.js`, `lib/pro-payment.js`, `services/shared-spaces.js` y `services/neto-score.js`, más
-sus espejos de webapp `spaces-server.ts` (`getSpaceBalances`, `getSpaceSplitContext`,
-`getSpaceMemberIds`) y `api/score/route.ts` + `api/score/backfill/route.ts`. **Esos espejos ya
-lanzan; lo que queda sin tocar en `spaces-server.ts` es específicamente `getSessionUser`.**
-
-También cerrado: `docs/SESION-barrido-candidatos-restantes.md` y `docs/SESION-fallos-silenciosos.md`.
-
-Cuando esta sesión cierre, **el barrido de fallos silenciosos queda completo**. Actualizar el
-"Estado del doc" de `SESION-escrituras-sobre-lectura-fallida.md` para decirlo.
-
-## Convenciones
-
-- Webapp: TypeScript, Next.js 16, App Router. Editar con Edit tool, UTF-8 sin BOM.
-- Commit + push directo, mensajes en inglés con prefijo. Claude pushea y valida E2E.
-- Nunca correr pruebas contra la DB real con data que no sea de los usuarios QA.
-- El deploy de la webapp es Vercel (auto on push). Verificar contra prod después, no antes.
