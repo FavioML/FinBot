@@ -33,7 +33,7 @@
         "cmd": "node qa-e2e/probe-deploy-fresh.mjs",
         "cwd": "C:/Vortik.dev/products/neto/app",
         "cost": "1 fetch + 1 gh api (segundos, gratis)",
-        "on_fail": "exit 1 = STALE: app.neto.pe no sirve el HEAD de main (deploy de Vercel fallido en silencio o atrasado); revisar el ultimo deployment en Vercel. exit 2 = no se pudo determinar (endpoint /api/version caido o gh/red): infra, no necesariamente stale."
+        "on_fail": "exit 1 = STALE: hay commits en main que tocan webapp/ y no estan desplegados (build de Vercel fallido en silencio o atrasado); el JSON lista los archivos webapp pendientes; revisar el ultimo deployment en Vercel. exit 2 = no se pudo determinar (endpoint /api/version caido, gh/red, o el SHA desplegado no es ancestro de main): infra, no necesariamente stale."
       },
       {
         "name": "login-e2e",
