@@ -36,6 +36,13 @@
         "on_fail": "exit 1 = STALE: hay commits en main que tocan webapp/ y no estan desplegados (build de Vercel fallido en silencio o atrasado); el JSON lista los archivos webapp pendientes; revisar el ultimo deployment en Vercel. exit 2 = no se pudo determinar (endpoint /api/version caido, gh/red, o el SHA desplegado no es ancestro de main): infra, no necesariamente stale."
       },
       {
+        "name": "gating-score",
+        "cmd": "node qa-e2e/qa-gating-score.mjs",
+        "cwd": "C:/Vortik.dev/products/neto/app",
+        "cost": "2 logins + 2 fetch (segundos, sin Chromium)",
+        "on_fail": "exit 1 = gating Free/Pro del score roto: Free ve `factors` (leak de una feature Pro) o Pro no los ve; el JSON muestra hasFactors por plan. exit 2 = infra (login/red)."
+      },
+      {
         "name": "login-e2e",
         "cmd": "node qa-e2e/qa-login.mjs",
         "cwd": "C:/Vortik.dev/products/neto/app",
