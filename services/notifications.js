@@ -13,7 +13,11 @@ async function enviarAlertaTransaccion(usuario, tx, resultado) {
   if (usuario && usuario.alertas_transaccion === false) return;
   const monto = parseFloat(resultado.monto);
   const comercio = resultado.comercio || resultado.banco || 'Sin nombre';
-  const categoria = resultado.categoria || 'Otros';
+  // Categoría/subcategoría YA persistidas (tx = fila devuelta por guardarTransaccion:
+  // normalizada y con reglas de comercio aplicadas), no la salida cruda del parser.
+  // Importa más que el case: una regla de comercio puede haber remapeado la categoría.
+  const categoria = tx.categoria || resultado.categoria || 'Otros';
+  const subcategoria = tx.subcategoria || resultado.subcategoria || null;
   const tipo = resultado.tipo || 'gasto';
   const emoji = tipo === 'ingreso' ? '\uD83D\uDCB5' : '\uD83D\uDCB8';
   const tipoStr = tipo === 'ingreso' ? 'Ingreso recibido' : 'Nuevo gasto';
@@ -30,11 +34,11 @@ async function enviarAlertaTransaccion(usuario, tx, resultado) {
   let msg = emoji + ' *' + tipoStr + '*\n';
   msg += '\uD83C\uDFEA ' + comercio + '\n';
   msg += '\uD83D\uDCB0 ' + montoStr + '\n';
-  msg += '\uD83C\uDFF7\uFE0F ' + categoria + (resultado.subcategoria && resultado.subcategoria !== 'sin_categoria' ? ' > ' + resultado.subcategoria : '') + '\n';
+  msg += '\uD83C\uDFF7\uFE0F ' + categoria + (subcategoria && subcategoria !== 'sin_categoria' ? ' > ' + subcategoria : '') + '\n';
   msg += '\uD83D\uDCC5 ' + (resultado.fecha || hoyPeru());
 
   if (tipo === 'gasto') {
-    const alertaPres = await verificarAlertaPresupuesto(usuario.id, categoria, resultado.subcategoria || null);
+    const alertaPres = await verificarAlertaPresupuesto(usuario.id, categoria, subcategoria);
     if (alertaPres) msg += '\n\n' + alertaPres;
   }
 
