@@ -94,6 +94,19 @@ app.get('/health', (req, res) => {
   res.json({ ok: true, service: 'NETO', uptime: Math.floor(process.uptime()), ts: new Date().toISOString() });
 });
 
+// SHA del commit desplegado, para el canary de frescura del deploy (backend-deploy-fresh).
+// `RAILWAY_GIT_COMMIT_SHA` lo inyecta Railway solo en cada deploy desde GitHub — no hay
+// env var que configurar. Espejo del /api/version del webapp (que lee VERCEL_GIT_COMMIT_SHA).
+// Sin este endpoint, un 307/200 de /health NO distingue código nuevo de viejo (solo da uptime).
+app.get('/version', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({
+    sha: process.env.RAILWAY_GIT_COMMIT_SHA || null,
+    ref: process.env.RAILWAY_GIT_BRANCH || null,
+    uptime: Math.floor(process.uptime()),
+  });
+});
+
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
