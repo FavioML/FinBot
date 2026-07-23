@@ -4,6 +4,54 @@ Prompt de arranque autocontenido. Trabajar desde `C:\Vortik.dev\products\neto\ap
 
 ---
 
+## Resolución (2026-07-22) — CERRADA
+
+Se leyeron los endpoints reales, no la intención de los sweeps. Eso cambió la
+recomendación de arranque del brief.
+
+**Rebatido — gating de alertas NO se agrega.** `/api/alerts/route.ts` no hace
+stripping por plan: devuelve `{ alerts: [...todas], isPro }`. El gate de
+"Proyección de exceso" / "Poner límite" es client-side (blur+lock en el DOM), no
+existe a nivel API. Lo único afirmable por API (`isPro` correcto + 200 + forma)
+usa el mismo `requireNetoUser` que `gating-score` ya ejercita y el render ya lo
+cubre `login-e2e` → un check que casi nunca falla. No vale un slot.
+
+**Confirmado — suscripciones NO se agrega.** La detección es 100% client-side;
+`/api/recurring/override` solo escribe (POST/DELETE). Sin data sembrada no hay
+invariante read-only. Fuera del canary.
+
+**Reportes → el gate real es otro.** El PDF se genera en el cliente
+(`html2canvas-pro` + `jsPDF`, sin endpoint server). Investigándolo apareció el
+gate que sí vale: `/api/export` (feature Pro "Exportar datos", Configuración),
+que devuelve TODA la data del usuario. Gate API limpio: Pro → 200 + payload;
+Free → 403 + `{upgrade:true}`.
+
+**Agregado 1 — `gating-export` (`qa-e2e/qa-gating-export.mjs`, nuevo slot).**
+Gemelo de `gating-score` sobre `/api/export`. Protege la fuga más cara (dump
+completo de datos a un Free). Exit 0/1/2, `process.exitCode`, read-only.
+
+**Agregado 2 — hardening de `gating-score` (sin slot nuevo).** El dashboard no
+siembra desde `/api/score` sino desde `/api/dashboard` (`route.ts:150-172`), que
+replica el mismo gate de `factors`/`history`. `gating-score` verificaba solo
+`/api/score`: un leak podía vivir en el seed con `/api/score` limpio. Se le
+sumaron 2 fetch a `/api/dashboard` con las mismas aserciones (Free sin
+`score.factors`, history del seed sin campos `factor_*`).
+
+**deploy-config:** `gating-export` agregado a `canary.harnesses`; costo de
+`gating-score` actualizado a "2 logins + 4 fetch".
+
+**Verificado (los dos escenarios del brief):**
+- Sano → `gating-export` y `gating-score` exit 0 (todos PASS contra prod).
+- Fallo forzado (slot Free apuntando a la cuenta Pro vía `process.env`) →
+  `gating-export` exit 1 (Free recibe 200 = leak) y `gating-score` exit 1 con
+  las aserciones NUEVAS del seed disparando de forma independiente
+  (`dashHasFactors` y `dashHistoryLeak` en FAIL). Los checks sirven.
+
+Nota: `qa-e2e/**` y `webapp/.claude/**` los excluye `railway.json` → el backend
+WhatsApp no se redesplegó.
+
+---
+
 ## Por qué existe esta sesión
 
 El 22-jul-2026 se cableó el canary diario de Neto con 4 harness (ver

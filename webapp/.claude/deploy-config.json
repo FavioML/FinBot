@@ -39,8 +39,15 @@
         "name": "gating-score",
         "cmd": "node qa-e2e/qa-gating-score.mjs",
         "cwd": "C:/Vortik.dev/products/neto/app",
+        "cost": "2 logins + 4 fetch (segundos, sin Chromium)",
+        "on_fail": "exit 1 = gating Free/Pro del score roto: Free ve `factors` en /api/score o en el seed /api/dashboard (leak de una feature Pro) o Pro no los ve; el JSON muestra hasFactors y dashHasFactors por plan. exit 2 = infra (login/red)."
+      },
+      {
+        "name": "gating-export",
+        "cmd": "node qa-e2e/qa-gating-export.mjs",
+        "cwd": "C:/Vortik.dev/products/neto/app",
         "cost": "2 logins + 2 fetch (segundos, sin Chromium)",
-        "on_fail": "exit 1 = gating Free/Pro del score roto: Free ve `factors` (leak de una feature Pro) o Pro no los ve; el JSON muestra hasFactors por plan. exit 2 = infra (login/red)."
+        "on_fail": "exit 1 = gating de exportacion roto: Free recibe 200 en /api/export (fuga del dump completo de datos del usuario) o Pro recibe 403; el JSON muestra status y expectStatus por plan. exit 2 = infra (login/red, 429 o 5xx)."
       },
       {
         "name": "login-e2e",

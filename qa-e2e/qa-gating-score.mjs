@@ -2,22 +2,29 @@
 //
 // El Neto Score expone `factors` (el desglose de por qué tu score es X) solo a
 // Pro. Un usuario Free debe recibir el número pero NO los factores. Este harness
-// verifica ese límite directamente contra /api/score en producción:
+// verifica ese límite en los DOS endpoints que lo sirven en producción:
+//   - /api/score        — lo consulta la página del score.
+//   - /api/dashboard     — el seed fast-path que carga CADA visita al dashboard,
+//                          y que replica el mismo gate de `factors`/`history`.
+// Verificar solo /api/score dejaba un hueco: un leak podía vivir en el seed que
+// realmente hidrata la app mientras /api/score quedaba limpio.
 //   - Pro:  status 200 y `factors` presente.
 //   - Free: status 200 y `factors` AUSENTE (si aparece = leak de una feature Pro
-//           a Free, una regresión de negocio que qa-login no ve).
+//           a Free, una regresión de negocio que qa-login no ve). Además, ninguna
+//           entrada del history del seed puede traer campos `factor_*`.
 //
 // Por qué merece un slot diario: es un check de gating (seguridad de producto),
 // no depende de data sembrada (el score se calcula igual con o sin muchas
-// transacciones), es determinista y no levanta navegador — 2 logins + 2 fetch,
+// transacciones), es determinista y no levanta navegador — 2 logins + 4 fetch,
 // segundos. Read-only: no escribe nada en prod.
 //
 // La API exige la cookie de sesión SSR de @supabase/ssr (no acepta Bearer), así
 // que se forja igual que en qa-login, pero se manda en el header Cookie de un
 // fetch plano en vez de por Playwright.
 //
-// Exit 0 = gating OK. Exit 1 = gating roto (Free ve factors, o Pro no los ve, o
-// status inesperado). Exit 2 = infra (login/red) — no necesariamente una regresión.
+// Exit 0 = gating OK. Exit 1 = gating roto (Free ve factors en /api/score o en el
+// seed /api/dashboard, o Pro no los ve, o status inesperado). Exit 2 = infra
+// (login/red) — no necesariamente una regresión.
 //
 // Usage: node qa-gating-score.mjs
 //
@@ -109,15 +116,41 @@ async function main() {
     } catch (e) {
       return done(2, { verdict: `fetch /api/score ${plan} falló`, error: String(e).split('\n')[0] });
     }
-    facts[plan] = { status, hasFactors, score, expectFactors: acct.expectFactors };
+
+    // El seed que hidrata el dashboard replica el mismo gate: `score.factors` solo
+    // para Pro, y el history sin campos `factor_*` para Free.
+    let dashStatus, dashHasFactors, dashHistoryLeak;
+    try {
+      const r = await fetch(`${APP}/api/dashboard`, { headers: { cookie } });
+      dashStatus = r.status;
+      const body = await r.json().catch(() => null);
+      dashHasFactors = !!(body && body.score && body.score.factors);
+      const hist = (body && body.scoreHistory && body.scoreHistory.history) || [];
+      // Cualquier campo factor_* en una entrada del history = leak del desglose a Free.
+      dashHistoryLeak = hist.some((h) => h && Object.keys(h).some((k) => k.startsWith('factor_')));
+    } catch (e) {
+      return done(2, { verdict: `fetch /api/dashboard ${plan} falló`, error: String(e).split('\n')[0] });
+    }
+
+    facts[plan] = {
+      status, hasFactors, score, expectFactors: acct.expectFactors,
+      dashStatus, dashHasFactors, dashHistoryLeak,
+    };
   }
 
-  // Aserciones de gating.
+  // Aserciones de gating. El seed Pro solo trae `score.factors` si ya hay una fila
+  // persistida; el fetch previo a /api/score (que calcula+persiste si falta) lo
+  // garantiza, así que aquí sí se puede exigir en Pro.
   const checks = {
     'pro: /api/score 200': facts.pro.status === 200,
     'free: /api/score 200': facts.free.status === 200,
     'pro VE factors del score': facts.pro.hasFactors === true,
     'free NO ve factors (sin leak Pro→Free)': facts.free.hasFactors === false,
+    'pro: /api/dashboard 200': facts.pro.dashStatus === 200,
+    'free: /api/dashboard 200': facts.free.dashStatus === 200,
+    'pro VE factors en el seed': facts.pro.dashHasFactors === true,
+    'free NO ve factors en el seed': facts.free.dashHasFactors === false,
+    'free: seed history sin factor_* (sin leak)': facts.free.dashHistoryLeak === false,
   };
   results.facts = facts;
   results.checks = Object.fromEntries(Object.entries(checks).map(([k, v]) => [k, v ? 'PASS' : 'FAIL']));
