@@ -143,3 +143,63 @@ cubre `/api/score` + el seed `/api/dashboard` —, `gating-export`, `login-e2e`,
 `tono-neto`). El molde de check read-only por API está probado en
 `qa-gating-score.mjs` / `qa-gating-export.mjs`. La memory
 `project_neto_qa_roadmap` lleva el estado vivo del roadmap QA.
+
+---
+
+## Resolución (2026-07-23)
+
+**Decisión: el mecanismo pesado NO vale. Se hace la opción (a) afinada + (b).**
+Nada de meter los 5 harness de escritura a `canary.harnesses`.
+
+### Por qué (sustento)
+
+Las capas ya existentes cubren casi todo sin tocar prod:
+- **Lógica del reparto** (conservación, congelamiento, join, avisos, paridad
+  TS↔CJS): la cazan los tests de CI. El gate no agrega nada.
+- **Service-role escribe en prod**: cubierto *transitivamente*. `requireNetoUser`
+  usa service-role en cada request y el canary (`gating-score`) lo ejercita a
+  diario; si estuviera roto, toda la app está en rojo antes de que espacios
+  importe. Un check de escritura dedicado a espacios es redundante acá.
+- **Conservación de monto en el write-path**: la garantiza el **CHECK de la DB**
+  (mig. 035), no la app. El peor caso de un bug de reparto es un **500 ruidoso**
+  (la DB rechaza el insert), no plata mal movida en silencio.
+
+Lo único que un gate de escritura automático cazaría y las otras capas no es el
+write/settle end-to-end contra el schema de prod: raro (migración mal aplicada una
+vez, no drift por deploy), DB-guardado, y de blast radius acotado (un Pro tocando
+un 500). No justifica un mecanismo que **escribe en prod solo**, con cleanup
+frágil y minutos de wall-clock.
+
+**Afinación sobre el (a) del doc:** un check honestamente read-only NO puede
+cubrir "service-role liquida de verdad" (liquidar es escribir). Lo que SÍ cubre, y
+resulta lo más valioso acá, es el *liveness* de los endpoints y que la migración
+corrió — y eso importa **más** en espacios que en otras features porque tiene
+~cero tráfico orgánico: un deploy que rompa sus endpoints se queda invisible
+semanas hasta que un Pro pisa un 500. El "saltaría en el primer uso real" del brief
+es débil justo por eso.
+
+### Qué se implementó
+
+1. **`qa-e2e/qa-espacios-entorno.mjs`** — read-only, molde `qa-gating-*`, en el
+   canary diario (`espacios-entorno`). Afirma:
+   - `GET /api/spaces` con cookie SSR real QA Pro → 200 + `spaces` array +
+     `isPro===true`; QA Free → `isPro===false`. Ejercita endpoint real + cookie
+     real + lectura service-role de `space_*` + join. Cero escritura.
+   - Columna `space_expenses.split_snapshot` existe (mig. 034/035) vía SELECT
+     service-role (limit 1): si la migración no corrió, PostgREST responde 400
+     "does not exist" → exit 1. **Verificado ambos caminos:** sano → exit 0;
+     columna inexistente → 400 detectado → exit 1.
+   - Exit 0 sano / 1 roto / 2 infra (creds/red o falta service-role key local).
+2. **Hook `post-git-push-reminders.mjs`** (global, `~/.claude/hooks/`): un push en
+   cwd de Neto cuyos últimos commits toquen espacios (`services/spaces-*`,
+   `services/shared-spaces*`, `api/spaces/*`, `lib/spaces-*`, `migrations/*space*`)
+   imprime un recordatorio de **correr a mano** los 5 harness de escritura
+   post-deploy y confirmar que limpian. **Recuerda, no ejecuta.** Verificado: sin
+   espacios → sin recordatorio; con espacios en el rango → dispara.
+3. Los 5 `qa-espacios-*.mjs` que escriben **quedan manuales**. No van al canary.
+
+### Cómo re-verificar
+- `node qa-e2e/qa-espacios-entorno.mjs` → exit 0 con todo PASS contra
+  `https://app.neto.pe`.
+- Fallo forzado: apuntar el SELECT a una columna inexistente → exit 1.
+- Hook: `git push` en `app/` con/ sin commits de espacios en los últimos 5.

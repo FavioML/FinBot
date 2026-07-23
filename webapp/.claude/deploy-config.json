@@ -62,6 +62,13 @@
         "cwd": "C:/Vortik.dev/products/neto/app",
         "cost": "~4 llamadas OpenAI",
         "on_fail": "exit != 0 = el modelo se salio del prompt maestro (tono call center, montos inventados en una consulta conceptual, afirmar que lee correos sin correo conectado). Incluir la regla violada + el texto generado. Solo quedan 2 intents redactando con IA (chiste_finanzas, consulta_financiera); ver docs/SESION-ia-vs-texto-fijo.md."
+      },
+      {
+        "name": "espacios-entorno",
+        "cmd": "node qa-e2e/qa-espacios-entorno.mjs",
+        "cwd": "C:/Vortik.dev/products/neto/app",
+        "cost": "2 logins + 2 fetch + 1 select service-role (segundos, sin Chromium, READ-ONLY)",
+        "on_fail": "exit 1 = entorno de Espacios roto: /api/spaces devuelve != 200 o forma inesperada (endpoint 500 o code-schema drift en una feature de ~cero trafico organico), isPro por plan mal (leak Free/Pro), o la columna space_expenses.split_snapshot NO existe = migracion 034/035 no aplicada en prod. El JSON muestra facts por plan + split_snapshot.columnExists. exit 2 = infra (login/red o falta la service-role key local). NO cubre el write/settle path (eso son los 5 qa-espacios-*.mjs que escriben, se corren A MANO post-deploy cuando un push toca espacios; el hook post-git-push lo recuerda). Ver docs/SESION-espacios-postdeploy-gate.md."
       }
     ],
     "post_deploy_window_min": 10,
