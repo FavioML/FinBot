@@ -220,7 +220,11 @@ module.exports = {
           const tx = await guardarTransaccion(usuario.id, parsed);
           const esIngreso = parsed.tipo === 'ingreso';
           const montoStr = parsed.moneda === 'USD' ? '$' + parseFloat(parsed.monto).toFixed(2) : 'S/' + parseFloat(parsed.monto).toFixed(2);
-          let respReg = '✅ ' + montoStr + ' en ' + (esIngreso ? 'Ingresos' : (parsed.categoria || 'Otros') + ' > ' + (parsed.subcategoria || 'sin_categoria')) + ' · ' + formatFecha(parsed.fecha);
+          // Mostrar la categoría/subcategoría YA persistidas (normalizadas por guardarTransaccion),
+          // no la salida cruda del parser, para que el mensaje coincida con la fila guardada.
+          const catConf = (tx && tx.categoria) || parsed.categoria || 'Otros';
+          const subConf = (tx && tx.subcategoria) || parsed.subcategoria || 'sin_categoria';
+          let respReg = '✅ ' + montoStr + ' en ' + (esIngreso ? 'Ingresos' : catConf + ' > ' + subConf) + ' · ' + formatFecha(parsed.fecha);
           if (!esIngreso && parsed.categoria) {
             const alerta = await verificarAlertaPresupuesto(usuario.id, parsed.categoria, parsed.subcategoria || null);
             if (alerta) respReg += '\n\n' + alerta;

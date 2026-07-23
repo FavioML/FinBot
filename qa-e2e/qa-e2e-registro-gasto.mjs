@@ -116,10 +116,11 @@ async function run(h) {
     console.log('  (nota) "taxi" se categorizó como ' + row.categoria + ', no Transporte — revisar si se repite.');
   }
 
-  // El texto y la DB deben coincidir en categoría. Case-insensitive a propósito: el
-  // texto de WhatsApp muestra la categoría cruda del parser (ej. "transporte") y la
-  // DB la normalizada ("Transporte") — misma categoría, distinto case. El invariante
-  // es la identidad semántica, no el case (la inconsistencia cosmética se anota aparte).
+  // El texto y la DB deben coincidir en categoría. Se compara case-insensitive por
+  // robustez, pero desde el fix de normalización el texto de WhatsApp ya muestra la
+  // categoría persistida ("Transporte > Taxi"), no la cruda del parser ("transporte >
+  // taxi"): texto y DB coinciden también en case. El invariante es la identidad
+  // semántica; el case-insensitive es un colchón, no una excusa para divergir.
   check('el texto de confirmación coincide con la categoría persistida (semántica)',
     reply.toLowerCase().includes(row.categoria.toLowerCase()),
     'DB=' + row.categoria);

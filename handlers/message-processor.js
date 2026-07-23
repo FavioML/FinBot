@@ -206,8 +206,11 @@ async function procesarMensajeLibre(msg, usuario, from) {
             tipo: 'gasto', fecha: fechaTx,
             descripcion_original: msg.substring(0, 200),
           };
-          await guardarTransaccion(usuario.id, datosTx);
-          let lineResp = '✅ S/' + g.monto.toFixed(2) + ' en ' + datosTx.categoria + ' > ' + datosTx.subcategoria + ' · ' + formatFecha(fechaTx);
+          const txIE = await guardarTransaccion(usuario.id, datosTx);
+          // Categoría/subcategoría normalizadas por guardarTransaccion, no la salida cruda del parser.
+          const catIE = (txIE && txIE.categoria) || datosTx.categoria;
+          const subIE = (txIE && txIE.subcategoria) || datosTx.subcategoria;
+          let lineResp = '✅ S/' + g.monto.toFixed(2) + ' en ' + catIE + ' > ' + subIE + ' · ' + formatFecha(fechaTx);
           try {
             const alerta = await verificarAlertaPresupuesto(usuario.id, datosTx.categoria, datosTx.subcategoria);
             if (alerta) lineResp += '\n' + alerta;
@@ -244,8 +247,11 @@ async function procesarMensajeLibre(msg, usuario, from) {
             tipo: 'gasto', fecha: fechaGasto,
             descripcion_original: msg.substring(0, 200),
           };
-          await guardarTransaccion(usuario.id, datosTx);
-          let lineResp = '✅ S/' + g.monto.toFixed(2) + ' en ' + datosTx.categoria + ' > ' + datosTx.subcategoria + ' · ' + formatFecha(fechaGasto);
+          const txMG = await guardarTransaccion(usuario.id, datosTx);
+          // Categoría/subcategoría normalizadas por guardarTransaccion, no la salida cruda del parser.
+          const catMG = (txMG && txMG.categoria) || datosTx.categoria;
+          const subMG = (txMG && txMG.subcategoria) || datosTx.subcategoria;
+          let lineResp = '✅ S/' + g.monto.toFixed(2) + ' en ' + catMG + ' > ' + subMG + ' · ' + formatFecha(fechaGasto);
           try {
             const alerta = await verificarAlertaPresupuesto(usuario.id, datosTx.categoria, datosTx.subcategoria);
             if (alerta) lineResp += '\n' + alerta;
@@ -427,8 +433,9 @@ async function procesarMensajeLibre(msg, usuario, from) {
         catch(e) { /* fall back to canonical */ }
         const resultado = await parsearCorreoBancario(msg, undefined, categoriasCustomFb);
         if (resultado.monto && resultado.monto > 0) {
-          await guardarTransaccion(usuario.id, resultado);
-          let resp = '\uD83D\uDCB3 *Transaccion registrada*\n' + (resultado.tipo === 'gasto' ? 'Gasto' : 'Ingreso') + ': S/ ' + resultado.monto + '\nComercio: ' + (resultado.comercio || 'No detectado') + '\nCategoria: ' + (resultado.categoria || 'Sin categoria');
+          const txFb = await guardarTransaccion(usuario.id, resultado);
+          const catFb = (txFb && txFb.categoria) || resultado.categoria;
+          let resp = '\uD83D\uDCB3 *Transaccion registrada*\n' + (resultado.tipo === 'gasto' ? 'Gasto' : 'Ingreso') + ': S/ ' + resultado.monto + '\nComercio: ' + (resultado.comercio || 'No detectado') + '\nCategoria: ' + (catFb || 'Sin categoria');
           if (resultado.tipo === 'gasto' && resultado.categoria) { const alerta = await verificarAlertaPresupuesto(usuario.id, resultado.categoria, null); if (alerta) resp += '\n\n' + alerta; }
           return resp + '\n\n_Escribe "mis gastos del mes" para ver el resumen._';
         }

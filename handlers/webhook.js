@@ -175,12 +175,15 @@ function createWebhookHandler(procesarMensajeLibre) {
           throw new Error('No se detectó monto en la imagen');
         }
         parsed.fecha = parsed.fecha || hoy;
-        await guardarTransaccion(usuario.id, parsed);
+        const txImg = await guardarTransaccion(usuario.id, parsed);
         const montoStr = parsed.moneda === 'USD' ? '$' + parseFloat(parsed.monto).toFixed(2) : 'S/ ' + parseFloat(parsed.monto).toFixed(2);
         const esIngreso = parsed.tipo === 'ingreso';
-        const emoji = esIngreso ? '💵' : (getEmojiCategoria(parsed.categoria) || '📋');
+        // Categoría/subcategoría YA persistidas (normalizadas por guardarTransaccion), no la salida cruda del parser.
+        const catImg = (txImg && txImg.categoria) || parsed.categoria;
+        const subImg = (txImg && txImg.subcategoria) || parsed.subcategoria;
+        const emoji = esIngreso ? '💵' : (getEmojiCategoria(catImg) || '📋');
         const tipoLabel = esIngreso ? 'Ingreso registrado' : 'Gasto registrado';
-        await enviarWhatsapp(from, '📸 *' + tipoLabel + '*\n\n' + emoji + ' *' + (parsed.comercio || (esIngreso ? 'Ingreso' : 'Pago')) + '* — ' + montoStr + '\n' + parsed.categoria + (parsed.subcategoria && parsed.subcategoria !== 'sin_categoria' ? ' > ' + parsed.subcategoria : '') + ' · ' + parsed.fecha);
+        await enviarWhatsapp(from, '📸 *' + tipoLabel + '*\n\n' + emoji + ' *' + (parsed.comercio || (esIngreso ? 'Ingreso' : 'Pago')) + '* — ' + montoStr + '\n' + catImg + (subImg && subImg !== 'sin_categoria' ? ' > ' + subImg : '') + ' · ' + parsed.fecha);
       } catch(e) {
         log.error({ tag: 'IMAGEN', err: e.message }, 'Error procesando imagen'); registrarError('IMAGEN', e.message, { stack: e.stack, whatsapp: from });
         await enviarWhatsapp(from, 'No pude procesar la imagen. Asegúrate de enviar la captura de la notificación de pago (la pantalla que muestra el monto y destinatario).');
