@@ -66,7 +66,7 @@ async function calculateFreshScore(usuario: ScoreUser) {
 
   const [txResult, monthTxResult, budgetResult, goalsResult, debtsResult] = await Promise.all([
     svc.from('transacciones').select('fecha').eq('usuario_id', userId).gte('fecha', sinceDate),
-    svc.from('transacciones').select('tipo, monto_pen, categoria').eq('usuario_id', userId).gte('fecha', monthStart).lt('fecha', monthEnd),
+    svc.from('transacciones').select('tipo, monto_pen, monto, categoria').eq('usuario_id', userId).gte('fecha', monthStart).lt('fecha', monthEnd),
     svc.from('presupuestos').select('categoria, monto_limite, mes, anio').eq('usuario_id', userId),
     svc.from('metas_ahorro').select('id, completada, monto_objetivo, monto_actual, fecha_limite, created_at').eq('usuario_id', userId).eq('completada', false),
     svc.from('deudas').select('id, tipo, monto_original, monto_pendiente, estado, fecha_vencimiento').eq('usuario_id', userId).eq('tipo', 'debo'),
@@ -101,13 +101,17 @@ async function calculateFreshScore(usuario: ScoreUser) {
   const allBudgets = budgetResult.data || [];
   const budgets = allBudgets.filter((b: { mes: number; anio: number }) => b.mes === curMes && b.anio === curAnio);
   const monthTxs = monthTxResult.data || [];
+  // Espeja el backend (`monto_pen || monto` en recommendations.js): `monto_pen` es una
+  // columna NULLABLE. Con `parseFloat(String(null))` = NaN una sola fila sin monto_pen
+  // envenenaría toda la suma → savings/budget NaN → score NaN, que este path PERSISTE.
+  const montoPen = (t: { monto_pen: number | null; monto: number }) => parseFloat(String(t.monto_pen || t.monto));
   let budget = 50;
   if (budgets.length > 0) {
     let totalBudgetScore = 0;
     for (const b of budgets) {
       const spent = monthTxs
         .filter((t: { tipo: string; categoria: string | null }) => t.tipo === 'gasto' && t.categoria?.toLowerCase() === b.categoria?.toLowerCase())
-        .reduce((s: number, t: { monto_pen: number }) => s + parseFloat(String(t.monto_pen)), 0);
+        .reduce((s: number, t) => s + montoPen(t), 0);
       const limit = parseFloat(String(b.monto_limite));
       // El backend redondea porcentaje_usado a entero ANTES de aplicar los tramos
       // (recommendations.js, construirDatosUsuario). Sin redondear aqui, un 100.4%
@@ -122,8 +126,8 @@ async function calculateFreshScore(usuario: ScoreUser) {
   }
 
   // Factor 3: Savings capacity
-  const income = monthTxs.filter((t: { tipo: string }) => t.tipo === 'ingreso').reduce((s: number, t: { monto_pen: number }) => s + parseFloat(String(t.monto_pen)), 0);
-  const expenses = monthTxs.filter((t: { tipo: string }) => t.tipo === 'gasto').reduce((s: number, t: { monto_pen: number }) => s + parseFloat(String(t.monto_pen)), 0);
+  const income = monthTxs.filter((t: { tipo: string }) => t.tipo === 'ingreso').reduce((s: number, t) => s + montoPen(t), 0);
+  const expenses = monthTxs.filter((t: { tipo: string }) => t.tipo === 'gasto').reduce((s: number, t) => s + montoPen(t), 0);
   let savings = 50;
   if (income > 0) {
     const ratio = (income - expenses) / income;

@@ -41,7 +41,7 @@ export async function POST() {
   const sinceDate = sixMonthsAgo.toISOString().split('T')[0];
 
   const [txResult, existingScores, budgetResult, goalsResult, debtsResult] = await Promise.all([
-    supabase.from('transacciones').select('fecha, tipo, monto_pen, categoria').eq('usuario_id', usuario.id).gte('fecha', sinceDate),
+    supabase.from('transacciones').select('fecha, tipo, monto_pen, monto, categoria').eq('usuario_id', usuario.id).gte('fecha', sinceDate),
     supabase.from('neto_scores').select('period').eq('user_id', usuario.id).gte('period', sinceDate),
     supabase.from('presupuestos').select('categoria, monto_limite, mes, anio').eq('usuario_id', usuario.id),
     supabase.from('metas_ahorro').select('id, completada, monto_objetivo, monto_actual, fecha_limite, created_at').eq('usuario_id', usuario.id).eq('completada', false),
@@ -59,6 +59,10 @@ export async function POST() {
   }
 
   const transactions = txResult.data || [];
+  // Espeja el backend (`monto_pen || monto`): `monto_pen` es NULLABLE y
+  // `parseFloat(String(null))` = NaN envenenaría income/expenses del mes y persistiría
+  // un score NaN histórico. Mismo guard que api/score/route.ts.
+  const montoPen = (t: { monto_pen: number | null; monto: number }) => parseFloat(String(t.monto_pen || t.monto));
   const existingPeriods = new Set((existingScores.data || []).map(s => s.period));
   const budgets = budgetResult.data || [];
   const activeGoals = goalsResult.data || [];
@@ -105,7 +109,7 @@ export async function POST() {
       for (const b of monthBudgets) {
         const spent = monthTxs
           .filter(t => t.tipo === 'gasto' && t.categoria?.toLowerCase() === b.categoria?.toLowerCase())
-          .reduce((s: number, t: { monto_pen: number }) => s + parseFloat(String(t.monto_pen)), 0);
+          .reduce((s: number, t) => s + montoPen(t), 0);
         const limit = parseFloat(String(b.monto_limite));
         // Mismo redondeo que el backend (ver api/score/route.ts): los tramos operan
         // sobre el porcentaje entero, no sobre el decimal crudo.
@@ -118,8 +122,8 @@ export async function POST() {
     }
 
     // Factor 3: Savings — (income - expenses) / income
-    const income = monthTxs.filter(t => t.tipo === 'ingreso').reduce((s: number, t: { monto_pen: number }) => s + parseFloat(String(t.monto_pen)), 0);
-    const expenses = monthTxs.filter(t => t.tipo === 'gasto').reduce((s: number, t: { monto_pen: number }) => s + parseFloat(String(t.monto_pen)), 0);
+    const income = monthTxs.filter(t => t.tipo === 'ingreso').reduce((s: number, t) => s + montoPen(t), 0);
+    const expenses = monthTxs.filter(t => t.tipo === 'gasto').reduce((s: number, t) => s + montoPen(t), 0);
     let savings = 50;
     if (income > 0) {
       const ratio = (income - expenses) / income;

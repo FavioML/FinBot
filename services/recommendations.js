@@ -89,6 +89,13 @@ async function construirDatosUsuario(usuarioId) {
   const diasMes = new Date(anioActual, mesActual, 0).getDate();
   const diaActual = hoy.getDate();
   const diasRestantes = diasMes - diaActual;
+  // Cota SUPERIOR del mes en curso. Sin ella, `.gte(primeroDeMes)` metía una tx con
+  // fecha FUTURA (un ingreso tipeado con el año siguiente, un gasto de agosto) dentro
+  // del mes actual: inflaba ingresos/gastos y, por ahí, los factores savings y budget
+  // del Neto Score que el cron persiste. El webapp fresh-calc (api/score/route.ts) ya
+  // acota el mes con `.lt(monthEnd)`, así que este era el origen de la divergencia
+  // backend↔webapp. `fecha` es DATE: `<= último día` ≡ `< primero del mes siguiente`.
+  const finDeMes = anioActual + '-' + String(mesActual).padStart(2, '0') + '-' + String(diasMes).padStart(2, '0');
 
   // Mes anterior
   const mesAnt = mesActual === 1 ? 12 : mesActual - 1;
@@ -116,11 +123,11 @@ async function construirDatosUsuario(usuarioId) {
     { data: presupuestos, error: ePres },
   ] = await Promise.all([
     supabase.from('transacciones').select('*').eq('usuario_id', usuarioId)
-      .eq('tipo', 'gasto').gte('fecha', primeroDeMes).order('fecha', { ascending: false }),
+      .eq('tipo', 'gasto').gte('fecha', primeroDeMes).lte('fecha', finDeMes).order('fecha', { ascending: false }),
     supabase.from('transacciones').select('*').eq('usuario_id', usuarioId)
       .eq('tipo', 'gasto').gte('fecha', primeroMesAnt).lte('fecha', finMesAnt),
     supabase.from('transacciones').select('monto, monto_pen').eq('usuario_id', usuarioId)
-      .eq('tipo', 'ingreso').gte('fecha', primeroDeMes),
+      .eq('tipo', 'ingreso').gte('fecha', primeroDeMes).lte('fecha', finDeMes),
     supabase.from('transacciones').select('monto, monto_pen').eq('usuario_id', usuarioId)
       .eq('tipo', 'ingreso').gte('fecha', primeroMesAnt).lte('fecha', finMesAnt),
     supabase.from('presupuestos').select('*').eq('usuario_id', usuarioId)
