@@ -103,7 +103,19 @@ async function guardarTransaccion(usuarioId, datos) {
     const found = bancos.find(b => datos.comercio.toUpperCase().includes(b.toUpperCase()));
     if (found) datos.comercio = found;
   }
-  const fechaTx = datos.fecha || hoyPeru();
+  let fechaTx = datos.fecha || hoyPeru();
+  // Guard de fecha futura: Neto registra ACTUALES, no planes. Una fecha adelantada es
+  // casi siempre un typo de año/mes (hubo un ingreso fechado 2027 que, sin cota superior
+  // de mes en construirDatosUsuario, el cron metía en el mes en curso e inflaba el
+  // savings del Neto Score). Se CLAMPEA a hoy en vez de rechazar para no perder nunca el
+  // movimiento del usuario (misma doctrina que el fallback sin-IA del rate-limit). Las
+  // comparaciones de strings 'YYYY-MM-DD' son cronológicas. Este es el chokepoint único:
+  // cubre NLP, registro manual, imagen, Excel y Gmail.
+  const hoyTx = hoyPeru();
+  if (fechaTx > hoyTx) {
+    log.warn({ tag: 'FECHA_FUTURA', usuarioId, fechaOriginal: fechaTx, corregida: hoyTx, comercio: datos.comercio }, 'Fecha futura clampeada a hoy');
+    fechaTx = hoyTx;
+  }
   // Últimos 4 de la tarjeta origen: lo que ya trae el parser, o extracción del
   // texto original como red de seguridad (cubre registro manual "tarjeta ...1234").
   const last4 = normalizarLast4(datos.tarjeta_last4) || extraerLast4(datos.descripcion_original);

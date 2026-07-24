@@ -3,7 +3,19 @@ import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse, after } from 'next/server';
 import { getExchangeRate } from '@/lib/exchange-rate';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { todayIsoLima } from '@/lib/date-lima';
 import crypto from 'crypto';
+
+/**
+ * Rechaza una fecha en el futuro. Neto registra ACTUALES: una fecha adelantada es un
+ * typo, y sin cota superior de mes en el cálculo del score inflaba el savings del cron.
+ * En la webapp (form con date-picker) se RECHAZA con mensaje claro, no se clampea en
+ * silencio como en el backend de WhatsApp: el usuario ve su input y lo corrige.
+ * `fecha` es 'YYYY-MM-DD'; la comparación de strings es cronológica.
+ */
+function fechaFutura(fecha: unknown): boolean {
+  return typeof fecha === 'string' && fecha > todayIsoLima();
+}
 
 /** Validate monto: must be positive number <= 999999.99 */
 function validarMonto(valor: unknown): number | null {
@@ -163,6 +175,9 @@ export async function POST(request: Request) {
   if (monto === null)
     return NextResponse.json({ error: 'Monto inválido' }, { status: 400 });
 
+  if (fechaFutura(body.fecha))
+    return NextResponse.json({ error: 'No puedes registrar un movimiento con fecha futura' }, { status: 400 });
+
   // Calculate monto_pen based on moneda — use live exchange rate
   const tc = body.moneda === 'USD' ? await getExchangeRate() : 1;
   const montoPen = body.moneda === 'USD' ? Math.round(monto * tc * 100) / 100 : monto;
@@ -221,6 +236,9 @@ export async function PUT(request: Request) {
   const monto = validarMonto(body.monto);
   if (monto === null)
     return NextResponse.json({ error: 'Monto inválido' }, { status: 400 });
+
+  if (fechaFutura(body.fecha))
+    return NextResponse.json({ error: 'No puedes registrar un movimiento con fecha futura' }, { status: 400 });
 
   const tc = body.moneda === 'USD' ? await getExchangeRate() : 1;
   const montoPen = body.moneda === 'USD' ? Math.round(monto * tc * 100) / 100 : monto;
