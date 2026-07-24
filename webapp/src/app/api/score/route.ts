@@ -65,7 +65,10 @@ async function calculateFreshScore(usuario: ScoreUser) {
   const monthEnd = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}-01`;
 
   const [txResult, monthTxResult, budgetResult, goalsResult, debtsResult] = await Promise.all([
-    svc.from('transacciones').select('fecha').eq('usuario_id', userId).gte('fecha', sinceDate),
+    // `.lte('fecha', limaToday())`: consistency cuenta días únicos con registro en los
+    // últimos 30 días; una tx con fecha futura (prepago legítimo) no es un día registrado
+    // y no debe inflar el factor. Espejo del backend calcFactorConsistency (`.lte(hoyPeru)`).
+    svc.from('transacciones').select('fecha').eq('usuario_id', userId).gte('fecha', sinceDate).lte('fecha', limaToday()),
     svc.from('transacciones').select('tipo, monto_pen, monto, categoria').eq('usuario_id', userId).gte('fecha', monthStart).lt('fecha', monthEnd),
     svc.from('presupuestos').select('categoria, monto_limite, mes, anio').eq('usuario_id', userId),
     svc.from('metas_ahorro').select('id, completada, monto_objetivo, monto_actual, fecha_limite, created_at').eq('usuario_id', userId).eq('completada', false),

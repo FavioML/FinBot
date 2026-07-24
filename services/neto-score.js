@@ -29,11 +29,17 @@ async function calcFactorConsistency(usuarioId) {
   hace30.setDate(hace30.getDate() - 30);
   const desde = hace30.toISOString().split('T')[0];
 
+  // Cota superior = hoy (Lima). Consistency mide días ÚNICOS con registro en los
+  // últimos 30 días; una tx con fecha futura (un prepago legítimo registrado para el
+  // mes que cubre) no es "haber registrado ese día futuro", así que no debe contar como
+  // día activo. El webapp (api/score/route.ts) aplica el mismo `.lte(hoy)` para no
+  // divergir. Espejo del criterio de la cota de mes en construirDatosUsuario.
   const { data, error } = await supabase
     .from('transacciones')
     .select('fecha')
     .eq('usuario_id', usuarioId)
-    .gte('fecha', desde);
+    .gte('fecha', desde)
+    .lte('fecha', hoyPeru());
 
   // Un factor es un sumando de una media ponderada: si la lectura cae y devolvemos el
   // default, el score no falla, se MUEVE. Acá el default es 0 con peso 0.20, o sea -20
