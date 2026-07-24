@@ -31,6 +31,7 @@
 
 import 'dotenv/config';
 import crypto from 'crypto';
+import fs from 'fs';
 import { createRequire } from 'module';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -55,6 +56,7 @@ process.env.META_APP_SECRET = process.env.META_APP_SECRET || 'qa-harness-secret'
  *   imageEnvelope: (mediaId:string, from:string, mime?:string)=>object,
  *   post: (body:object, opts?:{ip?:string, badSig?:string|null})=>Promise<number>,
  *   postText: (texto:string, from:string, opts?:object)=>Promise<number>,
+ *   postImage: (fixture:Buffer|string, from:string, opts?:{mime?:string, ip?:string})=>Promise<number>,
  *   waitForReply: (sinceIndex:number, timeoutMs?:number)=>Promise<string>,
  *   close: ()=>Promise<void>,
  * }>}
@@ -73,6 +75,29 @@ export async function startWebhookHarness() {
   const { supabase } = require(R('lib/db.js'));
   const { openai } = require(R('lib/ai.js'));
   const secret = process.env.META_APP_SECRET;
+
+  // ── Stub del media-fetch de Meta ──────────────────────────────────────────────
+  // El branch de imagen de webhook.js hace DOS fetch a graph.facebook.com (metadata
+  // → {url}, luego los bytes). Contra un mediaId falso eso revienta. Interceptamos
+  // SOLO graph.facebook.com y SOLO cuando hay un fixture armado (postImage lo arma);
+  // todo lo demás — el POST del propio harness a 127.0.0.1 y la llamada Vision del
+  // SDK de OpenAI, que queremos REAL — pasa sin tocar. El sentinela de bytes también
+  // apunta a graph.facebook.com para que la 2da llamada caiga en el mismo matcher,
+  // sin depender del host lookaside.fbsbx.com que Meta usa en producción.
+  const BYTES_SENTINEL = 'https://graph.facebook.com/_qa_media_bytes';
+  const realFetch = globalThis.fetch;
+  let armedMedia = null; // { buffer: Buffer, mime: string } | null
+  globalThis.fetch = async (input, opts) => {
+    const url = typeof input === 'string' ? input : (input && input.url) || String(input);
+    if (armedMedia && url.includes('graph.facebook.com')) {
+      if (url === BYTES_SENTINEL) {
+        return new Response(armedMedia.buffer, { status: 200 });
+      }
+      return new Response(JSON.stringify({ url: BYTES_SENTINEL, mime_type: armedMedia.mime }),
+        { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    return realFetch(input, opts);
+  };
 
   let wamidSeq = 0;
   const nextWamid = () => 'qa-h-' + Date.now() + '-' + (wamidSeq++);
@@ -110,6 +135,18 @@ export async function startWebhookHarness() {
 
   const postText = (texto, from, opts) => post(textEnvelope(texto, from), opts);
 
+  // Postea una IMAGEN por el webhook real. `fixture` es un Buffer o la ruta a un
+  // archivo. Arma el stub del media-fetch con esos bytes (queda activo hasta el
+  // próximo postImage o close(): el procesamiento es async y los fetch a graph
+  // ocurren DESPUÉS de que este método retorna, así que no se puede desarmar aquí).
+  // El mediaId es irrelevante — el stub no lo usa —, pero se pasa uno único.
+  function postImage(fixture, from, opts = {}) {
+    const buffer = Buffer.isBuffer(fixture) ? fixture : fs.readFileSync(fixture);
+    const mime = opts.mime || 'image/png';
+    armedMedia = { buffer, mime };
+    return post(imageEnvelope(nextWamid(), from, mime), { ip: opts.ip });
+  }
+
   // El webhook responde 200 y procesa async: la respuesta al usuario aparece en
   // `sent` cuando el pipeline llama a enviarWhatsapp. Poll hasta que llegue.
   async function waitForReply(sinceIndex, timeoutMs = 60000) {
@@ -121,11 +158,12 @@ export async function startWebhookHarness() {
   }
 
   async function close() {
+    globalThis.fetch = realFetch; // restaurar el fetch nativo
     await new Promise((resolve) => server.close(resolve));
   }
 
   return {
     base, sent, secret, supabase, openai, app,
-    sign, textEnvelope, imageEnvelope, post, postText, waitForReply, close,
+    sign, textEnvelope, imageEnvelope, post, postText, postImage, waitForReply, close,
   };
 }

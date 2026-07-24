@@ -67,3 +67,4 @@ _basura/
 *.png
 !assets/**/*.png
 !webapp/public/**/*.png
+!qa-e2e/fixtures/*.png

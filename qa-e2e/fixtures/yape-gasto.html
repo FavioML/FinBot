@@ -1,0 +1,56 @@
+<!doctype html>
+<!--
+  Fuente del fixture qa-e2e/fixtures/yape-gasto.png (screenshot sintético de Yape).
+  Ground-truth para qa-e2e-registro-gasto-foto.mjs:
+    tipo=gasto ("¡Yapeaste!"), monto=S/ 23.45, destinatario "Pollería El Rancho",
+    motivo "almuerzo" → categoría esperada Alimentación.
+  Regenerar: node qa-e2e/fixtures/render-yape.mjs
+-->
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 390px; height: 700px; font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+  .screen {
+    width: 390px; height: 700px;
+    background: linear-gradient(160deg, #6d1a8f 0%, #7b1fa2 45%, #611882 100%);
+    color: #fff; display: flex; flex-direction: column; align-items: center;
+    padding: 0 28px;
+  }
+  .statusbar { width: 100%; display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; padding: 14px 4px 0; opacity: .95; }
+  .logo { margin-top: 26px; font-size: 26px; font-weight: 800; letter-spacing: .5px; }
+  .check {
+    margin-top: 40px; width: 92px; height: 92px; border-radius: 50%;
+    background: rgba(255,255,255,.15); display: flex; align-items: center; justify-content: center;
+    border: 3px solid rgba(255,255,255,.6);
+  }
+  .check svg { width: 46px; height: 46px; }
+  .title { margin-top: 26px; font-size: 30px; font-weight: 800; }
+  .amount { margin-top: 18px; font-size: 52px; font-weight: 800; }
+  .to-label { margin-top: 30px; font-size: 14px; opacity: .8; }
+  .to-name { margin-top: 6px; font-size: 20px; font-weight: 700; }
+  .card {
+    margin-top: 34px; width: 100%; background: rgba(255,255,255,.12);
+    border-radius: 16px; padding: 18px 20px; font-size: 15px;
+  }
+  .row { display: flex; justify-content: space-between; padding: 7px 0; }
+  .row .k { opacity: .8; }
+  .row .v { font-weight: 600; }
+  .date { margin-top: 26px; font-size: 13px; opacity: .8; }
+</style>
+<div class="screen">
+  <div class="statusbar"><span>9:41</span><span>5G ▮▮▮▮</span></div>
+  <div class="logo">yape</div>
+  <div class="check">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+  </div>
+  <div class="title">¡Yapeaste!</div>
+  <div class="amount">S/ 23.45</div>
+  <div class="to-label">Enviado a</div>
+  <div class="to-name">Pollería El Rancho</div>
+  <div class="card">
+    <div class="row"><span class="k">Motivo</span><span class="v">almuerzo</span></div>
+    <div class="row"><span class="k">N° de operación</span><span class="v">01847592</span></div>
+    <div class="row"><span class="k">Destino</span><span class="v">*** 812</span></div>
+  </div>
+  <div class="date">24 jul. 2026 - 1:12 p. m.</div>
+</div>
