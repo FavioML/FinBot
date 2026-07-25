@@ -20,11 +20,6 @@ router.get('/r/:code', async (req, res) => {
   res.redirect('https://wa.me/' + waNum + '?text=' + waText);
 });
 
-// GET /mi-reporte/:id — redirige a landing
-router.get('/mi-reporte/:id', (req, res) => {
-  res.redirect(301, 'https://neto.pe/mi-reporte/' + req.params.id);
-});
-
 // GET /auth/callback — OAuth2 callback de Gmail
 router.get('/auth/callback', async (req, res) => {
   const { code, error } = req.query;

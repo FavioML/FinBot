@@ -7,12 +7,6 @@
 | GET | `/webhook` | Meta Verify Token | Verificación de webhook por Meta |
 | POST | `/webhook` | Meta Signature | Recibe mensajes de WhatsApp (rate limited: 300/min) |
 
-## Reportes y Dashboard
-
-| Method | Path | Auth | Descripción |
-|--------|------|------|-------------|
-| GET | `/mi-reporte/:id` | Público | Redirect a reporte personal en la landing (neto.pe) |
-
 ## Admin
 
 | Method | Path | Auth | Descripción |
