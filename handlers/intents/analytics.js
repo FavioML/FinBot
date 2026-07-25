@@ -1,4 +1,5 @@
 const log = require('../../lib/logger');
+const { ahoraPeru } = require('../../lib/dates');
 
 module.exports = {
   intents: ['ver_gasto_mayor', 'ver_gasto_menor', 'ver_promedio_diario', 'ver_historial_cambios', 'ver_ultima_transaccion', 'ver_ingresos', 'ver_suscripciones'],
@@ -103,8 +104,8 @@ module.exports = {
           const periodoIng = datos.periodo || 'mes';
           let txsIng;
           if (periodoIng === 'semana') {
-            const hace7 = new Date(); hace7.setDate(hace7.getDate() - 7);
-            const desdeIng = hace7.toISOString().split('T')[0];
+            const hace7 = ahoraPeru(); hace7.setDate(hace7.getDate() - 7);
+            const desdeIng = hace7.getFullYear() + '-' + String(hace7.getMonth() + 1).padStart(2, '0') + '-' + String(hace7.getDate()).padStart(2, '0');
             const { data } = await supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).eq('tipo', 'ingreso').gte('fecha', desdeIng).order('fecha', { ascending: false });
             txsIng = data || [];
           } else {

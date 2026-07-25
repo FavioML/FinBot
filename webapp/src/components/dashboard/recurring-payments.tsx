@@ -5,6 +5,7 @@ import { Repeat, Calendar, Plus, Link2, Pencil, EyeOff, RotateCcw, Unlink, Check
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
 import { formatCurrency } from '@/lib/utils';
+import { hoyPeru } from '@/lib/dates';
 import { matchCatalogo } from '@/lib/subscriptions-catalog';
 import type { Transaccion } from '@/lib/types';
 import { detectRecurring, type RecurringCluster } from '@/lib/recurring-detection';
@@ -77,7 +78,7 @@ function ClusterRow({ c, onClick }: { c: RecurringCluster; onClick: () => void }
 
 export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
   const { overrides, upsert, remove } = useRecurringOverrides('recurrente');
-  const todayISO = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const todayISO = useMemo(() => hoyPeru(), []);
 
   const { clusters, suggestions } = useMemo(
     () => detectRecurring(transactions, overrides, todayISO),

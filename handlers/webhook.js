@@ -556,9 +556,9 @@ function createWebhookHandler(procesarMensajeLibre) {
         respuesta = resultado.msg;
       } else { respuesta = 'Formato: /cambiar [comercio] [categoria]\nEj: /cambiar Netflix Streaming'; }
     } else if (cmd === '/reporte' || cmd.startsWith('/reporte ')) {
-      const ahoraR = new Date(), partesR = cmd.split(' ');
-      const mesR = partesR[1] ? parseInt(partesR[1]) : (ahoraR.getMonth() + 1);
-      const anioR = partesR[2] ? parseInt(partesR[2]) : ahoraR.getFullYear();
+      const [anioHoyR, mesHoyR] = hoyPeru().split('-').map(Number), partesR = cmd.split(' ');
+      const mesR = partesR[1] ? parseInt(partesR[1]) : mesHoyR;
+      const anioR = partesR[2] ? parseInt(partesR[2]) : anioHoyR;
       if (mesR < 1 || mesR > 12 || isNaN(mesR)) { respuesta = 'Formato: /reporte [mes] [anio]\nEj: /reporte 3 2026'; }
       else {
         respuesta = '📊 *Tu reporte de ' + MESES[mesR] + ' ' + anioR + '*\n\n' +
