@@ -1,0 +1,23 @@
+-- DROP de reporte_cache: alimentaba el flujo de "reporte cacheado" del backend
+-- (services/reports.js -> generarYEnviarReporte hacia upsert de reporte_cache, leido por
+-- las rutas /reporte/:id, /dashboard/:id, /api/reporte/:id y /api/reporte/:id/mes/:mes/:anio
+-- de routes/public.js). El flujo quedo huerfano: generarYEnviarReporte se pasaba al ctx en
+-- handlers/message-processor.js pero NINGUN intent lo llamaba, asi que la tabla nunca se
+-- escribia y las rutas eran inalcanzables. El comando /reporte y el intent ver_reporte solo
+-- devuelven un link a app.neto.pe; la webapp renderiza reportes client-side (React Query,
+-- sin tocar estas rutas) y la landing (neto.pe/mi-reporte) hace fetch relativo same-origin
+-- (rewrites ignorados en static export), tampoco toca api.neto.pe.
+--
+-- Codigo muerto retirado en este commit: services/reports.js y reporte_html.js borrados;
+-- las 4 rutas de routes/public.js eliminadas; wiring del ctx en message-processor.js quitado;
+-- 'reporte_cache' sacado de la lista de tablas de scripts/backup.js (solo la leia, nunca la
+-- escribia). Las funciones HTML muertas ya se habian borrado en 644f9a6.
+--
+-- Al momento del drop: 1 sola fila, expirada el 2026-03-28 (0 vigentes, sin escrituras en
+-- ~4 meses). Era un reporte de prueba del propio Favio (marzo 2026), no dato de usuario final.
+-- Backup de la fila antes del drop:
+--   C:\Vortik.dev\memory\backups\2026-07-25_reporte_cache_pre-drop.json.txt
+--
+-- Aplicada a prod (zvorjqlubmfrjtkbhqcx) el 2026-07-25.
+-- Verificado post-drop: transacciones/usuarios/presupuestos intactos.
+drop table if exists reporte_cache;

@@ -40,7 +40,6 @@ const M = R('services/metas.js');
 const C = R('services/categories.js');
 const { redactarConNETO } = R('services/neto-gpt.js');
 const { escanearGmailYRegistrar } = R('services/gmail-scanner.js');
-const { generarYEnviarReporte } = R('services/reports.js');
 const { guardarMensaje, obtenerHistorial, getUserPlanConfig, getHistoryDateLimit } = R('helpers/db-helpers.js');
 const { getHandler } = R('handlers/intent-registry.js');
 const { construirNetoPrompt } = R('lib/neto-prompt.js');
@@ -90,7 +89,7 @@ async function main() {
     obtenerMetasService: M.obtenerMetas, abonarMetaService: M.abonarMeta,
     calcularRitmoAhorro: M.calcularRitmoAhorro, registrarLogro: M.registrarLogro,
     obtenerLogros: M.obtenerLogros, verificarRachaAportes: M.verificarRachaAportes,
-    redactarConNETO, escanearGmailYRegistrar, generarYEnviarReporte,
+    redactarConNETO, escanearGmailYRegistrar,
     guardarMensaje, obtenerHistorial, getUserPlanConfig, getHistoryDateLimit,
   };
 

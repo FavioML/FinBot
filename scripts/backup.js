@@ -13,7 +13,6 @@ const TABLES = [
   'errores',
   'reglas_comercio',
   'categorias_usuario',
-  'reporte_cache',
   'conversaciones',
 ];
 

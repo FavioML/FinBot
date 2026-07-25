@@ -23,7 +23,6 @@ const { obtenerMetas: obtenerMetasService, abonarMeta: abonarMetaService, calcul
 const { obtenerCategoriasUsuario, detectarCategoriaIA, crearCategoriaLibreUsuario, crearSubcategoriaLibreUsuario } = require('../services/categories');
 const { redactarConNETO } = require('../services/neto-gpt');
 const { escanearGmailYRegistrar } = require('../services/gmail-scanner');
-const { generarYEnviarReporte } = require('../services/reports');
 const { guardarMensaje, obtenerHistorial, getUserPlanConfig, getHistoryDateLimit } = require('../helpers/db-helpers');
 const { getHandler } = require('./intent-registry');
 const { NETO_TOOLS, mapToolToIntent } = require('./neto-tools');
@@ -400,7 +399,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       obtenerMetasService, abonarMetaService, calcularRitmoAhorro,
       registrarLogro, obtenerLogros, verificarRachaAportes,
       obtenerCategoriasUsuario, detectarCategoriaIA, crearCategoriaLibreUsuario, crearSubcategoriaLibreUsuario,
-      redactarConNETO, escanearGmailYRegistrar, generarYEnviarReporte,
+      redactarConNETO, escanearGmailYRegistrar,
       guardarMensaje, obtenerHistorial, getUserPlanConfig, getHistoryDateLimit,
     };
 

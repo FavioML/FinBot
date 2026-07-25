@@ -11,11 +11,7 @@
 
 | Method | Path | Auth | Descripción |
 |--------|------|------|-------------|
-| GET | `/reporte/:id` | Público (token en URL) | Página HTML del reporte financiero |
-| GET | `/mi-reporte/:id` | Público | Redirect a reporte personal |
-| GET | `/dashboard/:id` | Público (token en URL) | Dashboard interactivo con Chart.js |
-| GET | `/api/reporte/:id` | Público | Datos del reporte en JSON |
-| GET | `/api/reporte/:id/mes/:mes/:anio` | Público | Datos de reporte mensual en JSON |
+| GET | `/mi-reporte/:id` | Público | Redirect a reporte personal en la landing (neto.pe) |
 
 ## Admin
 

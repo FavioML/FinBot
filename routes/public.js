@@ -3,36 +3,12 @@ const crypto = require('crypto');
 const { supabase } = require('../lib/db');
 const log = require('../lib/logger');
 const { enviarWhatsapp } = require('../lib/whatsapp');
-const { generarReporteJSON } = require('../reporte_html');
 const { oauth2Client, obtenerPerfilGoogle, guardarTokens, obtenerCuentasGmail, verificarState } = require('../gmail');
 const { parsearCorreoBancario } = require('../services/parsers');
 const { escanearGmailYRegistrar, escanearHistoricoInicial } = require('../services/gmail-scanner');
 const analytics = require('../lib/analytics');
 
-const { ultimoDiaMes } = require('../lib/dates');
-
 const router = express.Router();
-
-// GET /reporte/:id
-router.get('/reporte/:id', async (req, res) => {
-  const id = req.params.id;
-  try {
-    const { data: entry, error } = await supabase
-      .from('reporte_cache').select('html, expires_at').eq('id', id).single();
-    if (error || !entry) {
-      return res.status(404).send('<h2>Reporte no encontrado o expirado.</h2><p>El link es valido por 1 hora. Genera uno nuevo con /reporte</p>');
-    }
-    if (new Date(entry.expires_at) < new Date()) {
-      await supabase.from('reporte_cache').delete().eq('id', id);
-      return res.status(404).send('<h2>El link del reporte expiro.</h2><p>Genera uno nuevo escribiendo /reporte</p>');
-    }
-    res.set('Content-Type', 'text/html; charset=utf-8');
-    res.send(entry.html);
-  } catch(e) {
-    log.error({ tag: 'REPORTE', err: e.message }, 'Error leyendo cache');
-    res.status(500).send('<h2>Error cargando el reporte. Intenta de nuevo.</h2>');
-  }
-});
 
 // GET /r/:code — redirige a WhatsApp con ref_code
 router.get('/r/:code', async (req, res) => {
@@ -42,101 +18,6 @@ router.get('/r/:code', async (req, res) => {
   const waText = encodeURIComponent('Hola NETO ref:' + code);
   if (!referrer) return res.redirect('https://wa.me/' + waNum);
   res.redirect('https://wa.me/' + waNum + '?text=' + waText);
-});
-
-// GET /dashboard/:id
-router.get('/dashboard/:id', async (req, res) => {
-  const id = req.params.id;
-  try {
-    const { data: entry, error } = await supabase.from('reporte_cache').select('html, expires_at').eq('id', id).single();
-    if (error || !entry) return res.status(404).send('<h2>Dashboard no encontrado.</h2><p>Genera uno nuevo con /dashboard</p>');
-    if (new Date(entry.expires_at) < new Date()) {
-      await supabase.from('reporte_cache').delete().eq('id', id);
-      return res.status(410).send('<h2>El link expiró.</h2><p>Genera uno nuevo escribiendo */dashboard* en WhatsApp.</p>');
-    }
-    res.set('Content-Type', 'text/html; charset=utf-8');
-    res.send(entry.html);
-  } catch(e) {
-    log.error({ tag: 'DASHBOARD', err: e.message }, 'Error generando dashboard');
-    res.status(500).send('<h2>Error cargando el dashboard.</h2>');
-  }
-});
-
-// GET /api/reporte/:id — JSON para dashboard interactivo
-router.get('/api/reporte/:id', async (req, res) => {
-  const id = req.params.id;
-  try {
-    const { data: entry, error } = await supabase
-      .from('reporte_cache').select('html, expires_at').eq('id', id).single();
-    if (error || !entry) return res.status(404).json({ error: 'Reporte no encontrado o expirado.' });
-    if (new Date(entry.expires_at) < new Date()) {
-      await supabase.from('reporte_cache').delete().eq('id', id);
-      return res.status(410).json({ error: 'El link del reporte expiro. Genera uno nuevo con /reporte' });
-    }
-    try {
-      const jsonData = JSON.parse(entry.html);
-      res.json(jsonData);
-    } catch {
-      res.status(400).json({ error: 'Este reporte usa el formato anterior. Genera uno nuevo con /reporte' });
-    }
-  } catch(e) {
-    log.error({ tag: 'API_REPORTE', err: e.message }, 'Error API reporte');
-    res.status(500).json({ error: 'Error interno' });
-  }
-});
-
-// GET /api/reporte/:id/mes/:mes/:anio — datos de un mes específico
-router.get('/api/reporte/:id/mes/:mes/:anio', async (req, res) => {
-  const { id, mes, anio } = req.params;
-  const mesNum = parseInt(mes);
-  const anioNum = parseInt(anio);
-  if (!mesNum || mesNum < 1 || mesNum > 12 || !anioNum) {
-    return res.status(400).json({ error: 'Mes o anio invalido' });
-  }
-  try {
-    const { data: entry } = await supabase
-      .from('reporte_cache').select('usuario_id, expires_at').eq('id', id).single();
-    if (!entry) return res.status(404).json({ error: 'Reporte no encontrado' });
-    if (new Date(entry.expires_at) < new Date()) {
-      return res.status(410).json({ error: 'Sesion expirada. Genera un nuevo reporte.' });
-    }
-    const usuarioId = entry.usuario_id;
-    const { data: usuario } = await supabase.from('usuarios').select('*').eq('id', usuarioId).single();
-    if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado' });
-
-    const desde = anioNum + '-' + String(mesNum).padStart(2,'0') + '-01';
-    const hasta = anioNum + '-' + String(mesNum).padStart(2,'0') + '-' + String(ultimoDiaMes(anioNum, mesNum)).padStart(2,'0');
-    const { data: txs } = await supabase.from('transacciones').select('*').eq('usuario_id', usuarioId).gte('fecha', desde).lte('fecha', hasta).order('fecha', { ascending: false });
-    if (!txs || txs.length === 0) return res.json({ error: 'Sin transacciones para ese mes', empty: true });
-
-    const { data: presupData } = await supabase.from('presupuestos').select('*').eq('usuario_id', usuarioId).eq('mes', mesNum).eq('anio', anioNum);
-    const presupuestos = {};
-    if (presupData) presupData.forEach(p => { presupuestos[p.categoria] = parseFloat(p.monto_limite); });
-
-    const historial = [];
-    for (let i = 3; i >= 1; i--) {
-      const d = new Date(anioNum, mesNum - 1 - i, 1); const hm = d.getMonth()+1; const ha = d.getFullYear();
-      const { data: ht } = await supabase.from('transacciones').select('monto,monto_pen,tipo').eq('usuario_id', usuarioId).gte('fecha', ha+'-'+String(hm).padStart(2,'0')+'-01').lte('fecha', ha+'-'+String(hm).padStart(2,'0')+'-'+String(ultimoDiaMes(ha,hm)).padStart(2,'0'));
-      const gastos = (ht||[]).filter(t => t.tipo === 'gasto');
-      const ingr = (ht||[]).filter(t => t.tipo === 'ingreso');
-      const totG = gastos.reduce((s,t) => s+parseFloat(t.monto_pen||t.monto||0), 0);
-      const totI = ingr.reduce((s,t) => s+parseFloat(t.monto_pen||t.monto||0), 0);
-      if (totG > 0 || totI > 0) historial.push({ mes: hm, anio: ha, total: totG, totalIngresos: totI });
-    }
-
-    const { data: allMonths } = await supabase.from('transacciones').select('fecha').eq('usuario_id', usuarioId);
-    const todosMeses = [];
-    if (allMonths) {
-      const mSet = new Set();
-      allMonths.forEach(t => { const p = (t.fecha||'').split('-'); if (p.length>=2) mSet.add(p[0]+'-'+p[1]); });
-      mSet.forEach(s => { const [a,m] = s.split('-').map(Number); todosMeses.push({ mes: m, anio: a }); });
-    }
-    const jsonData = generarReporteJSON({ nombre: usuario.nombre || 'Usuario', mes: mesNum, anio: anioNum, transacciones: txs, presupuestos, historialMeses: historial, todosMeses });
-    res.json(jsonData);
-  } catch(e) {
-    log.error({ tag: 'API_REPORTE_MES', err: e.message }, 'Error API reporte mensual');
-    res.status(500).json({ error: 'Error interno' });
-  }
 });
 
 // GET /mi-reporte/:id — redirige a landing
