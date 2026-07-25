@@ -647,7 +647,7 @@ export default function MetasPage() {
 
       {/* Create/Edit dialog */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="bg-[#1A1A18] border-[#2A2A28] text-[#F0EFE8] max-w-md">
+        <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-md">
           <DialogHeader>
             <DialogTitle>{editGoal ? 'Editar plan' : 'Nuevo plan de ahorro'}</DialogTitle>
           </DialogHeader>
@@ -747,7 +747,7 @@ export default function MetasPage() {
 
       {/* Contribute dialog */}
       <Dialog open={!!contributeGoal} onOpenChange={(open) => { if (!open) setContributeGoal(null); }}>
-        <DialogContent className="bg-[#1A1A18] border-[#2A2A28] text-[#F0EFE8] max-w-md">
+        <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {contribTipo === 'retiro' ? <ArrowDown className="h-5 w-5 text-[#D85A30]" /> : <TrendingUp className="h-5 w-5 text-[#1D9E75]" />}
@@ -843,7 +843,7 @@ export default function MetasPage() {
 
       {/* Delete confirmation */}
       <Dialog open={!!deleteId} onOpenChange={(open) => { if (!open) setDeleteId(null); }}>
-        <DialogContent className="bg-[#1A1A18] border-[#2A2A28] text-[#F0EFE8] max-w-sm">
+        <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-sm">
           <DialogHeader>
             <DialogTitle>Eliminar meta</DialogTitle>
           </DialogHeader>

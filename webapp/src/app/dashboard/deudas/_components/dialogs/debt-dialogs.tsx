@@ -91,7 +91,7 @@ export function NuevaDeudaDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-[#1A1A18] border-[#2A2A28] text-[#F0EFE8] max-w-md">
+      <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-md">
         <DialogHeader>
           <DialogTitle>Nueva deuda</DialogTitle>
         </DialogHeader>
@@ -261,7 +261,7 @@ export function AbonoDialog({
 
   return (
     <Dialog open={!!debt} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="bg-[#1A1A18] border-[#2A2A28] text-[#F0EFE8] max-w-sm">
+      <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-sm">
         <DialogHeader>
           <DialogTitle>Registrar abono · {debt?.contraparte}</DialogTitle>
         </DialogHeader>
@@ -337,7 +337,7 @@ export function EliminarDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="bg-[#1A1A18] border-[#2A2A28] text-[#F0EFE8] max-w-sm">
+      <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-sm">
         <DialogHeader>
           <DialogTitle>Eliminar deuda</DialogTitle>
         </DialogHeader>
@@ -381,7 +381,7 @@ export function EditarDeudaDialog({
 
   return (
     <Dialog open={!!debt} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="bg-[#1A1A18] border-[#2A2A28] text-[#F0EFE8] max-w-md">
+      <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-md">
         <DialogHeader>
           <DialogTitle>Editar deuda</DialogTitle>
         </DialogHeader>

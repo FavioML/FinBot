@@ -98,7 +98,7 @@ export function GlobalSearch() {
 
       {/* Command palette dialog */}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="bg-[#1A1A18] border-[rgba(255,255,255,0.08)] p-0 sm:max-w-lg gap-0 overflow-hidden">
+        <DialogContent className="glass-card-elevated p-0 sm:max-w-lg gap-0 overflow-hidden">
           {/* Search input */}
           <div className="flex items-center gap-3 border-b border-[rgba(255,255,255,0.06)] px-4 py-3">
             <Search className="h-4 w-4 text-[#8A877D] shrink-0" />

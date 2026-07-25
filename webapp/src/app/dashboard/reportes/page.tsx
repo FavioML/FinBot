@@ -559,7 +559,7 @@ if (!isLoading && transactions.length === 0) {
 
       {/* Category detail dialog */}
       <Dialog open={!!detailCat} onOpenChange={(open) => { if (!open) setDetailCat(null); }}>
-        <DialogContent className="bg-[#1C1C1A] border-[#2A2A28] max-w-lg max-h-[80vh] overflow-y-auto">
+        <DialogContent className="glass-card-elevated max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-[#F0EFE8] text-lg">
               {detailCat && `${getCategoriaEmoji(detailCat)} ${capitalizeDisplay(detailCat)}`}
@@ -630,7 +630,7 @@ if (!isLoading && transactions.length === 0) {
 
       {/* Payment method detail dialog */}
       <Dialog open={!!detailMetodo} onOpenChange={(open) => { if (!open) setDetailMetodo(null); }}>
-        <DialogContent className="bg-[#1C1C1A] border-[#2A2A28] max-w-lg max-h-[80vh] overflow-y-auto">
+        <DialogContent className="glass-card-elevated max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-[#F0EFE8] text-lg">
               {detailMetodo && capitalizeDisplay(detailMetodo)}
@@ -724,7 +724,7 @@ if (!isLoading && transactions.length === 0) {
 
       {/* Comercio detail dialog */}
       <Dialog open={!!detailComercio} onOpenChange={(open) => { if (!open) setDetailComercio(null); }}>
-        <DialogContent className="bg-[#1C1C1A] border-[#2A2A28] max-w-lg max-h-[80vh] overflow-y-auto">
+        <DialogContent className="glass-card-elevated max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-[#F0EFE8] text-lg">
               {detailComercio}
@@ -767,7 +767,7 @@ if (!isLoading && transactions.length === 0) {
 
       {/* Daily detail dialog */}
       <Dialog open={detailDay !== null} onOpenChange={(open) => { if (!open) setDetailDay(null); }}>
-        <DialogContent className="bg-[#1C1C1A] border-[#2A2A28] max-w-lg max-h-[80vh] overflow-y-auto">
+        <DialogContent className="glass-card-elevated max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-[#F0EFE8]">
               Día {detailDay} — {selectedOption.label}
@@ -818,7 +818,7 @@ if (!isLoading && transactions.length === 0) {
 
       {/* Score Financiero dialog */}
       <Dialog open={showScoreDialog} onOpenChange={setShowScoreDialog}>
-        <DialogContent className="bg-[#1A1A18] border-[#2A2A28] text-[#F0EFE8] max-w-md">
+        <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-md">
           <DialogHeader>
             <DialogTitle>Neto Score</DialogTitle>
           </DialogHeader>

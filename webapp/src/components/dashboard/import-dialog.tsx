@@ -70,7 +70,7 @@ export function ImportDialog({ open, onOpenChange, onSuccess }: ImportDialogProp
         onOpenChange(o);
       }}
     >
-      <DialogContent className="bg-[#1C1C1A] border-[#2A2A28] text-[#F0EFE8] max-w-md">
+      <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileSpreadsheet className="h-5 w-5 text-[#1D9E75]" />

@@ -77,7 +77,7 @@ export function WelcomeModal() {
 
         {/* Modal */}
         <motion.div
-          className="relative w-full max-w-sm rounded-2xl border border-[rgba(255,255,255,0.06)] bg-[#1A1A18] p-6 shadow-2xl"
+          className="relative w-full max-w-sm glass-card-elevated p-6"
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}

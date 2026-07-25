@@ -66,7 +66,7 @@ export function SplitCreateDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-[#1A1A18] border-[#2A2A28] text-[#F0EFE8] max-w-md">
+      <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-md">
         <DialogHeader>
           <DialogTitle>Dividir gasto</DialogTitle>
         </DialogHeader>
@@ -188,7 +188,7 @@ export function SplitEditDialog({
 
   return (
     <Dialog open={!!gasto} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="bg-[#1A1A18] border-[#2A2A28] text-[#F0EFE8] max-w-md">
+      <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-md">
         <DialogHeader>
           <DialogTitle>Editar gasto compartido</DialogTitle>
         </DialogHeader>
@@ -273,7 +273,7 @@ export function SplitAbonoDialog({
 
   return (
     <Dialog open={!!target} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="bg-[#1A1A18] border-[#2A2A28] text-[#F0EFE8] max-w-xs">
+      <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-xs">
         <DialogHeader>
           <DialogTitle>Registrar pago</DialogTitle>
         </DialogHeader>

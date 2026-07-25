@@ -643,7 +643,7 @@ export default function SpaceDetailPage() {
 
       {/* Add/Edit Expense Dialog */}
       <Dialog open={showExpenseDialog} onOpenChange={(open) => { setShowExpenseDialog(open); if (!open) setEditingExpense(null); }}>
-        <DialogContent className="bg-[#1A1A18] border-[#2A2A28] text-[#F0EFE8] max-w-sm">
+        <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-sm">
           <DialogHeader>
             <DialogTitle>{editingExpense ? 'Editar gasto' : 'Agregar gasto'}</DialogTitle>
           </DialogHeader>
@@ -713,7 +713,7 @@ export default function SpaceDetailPage() {
 
       {/* Settle Dialog */}
       <Dialog open={showSettleDialog} onOpenChange={setShowSettleDialog}>
-        <DialogContent className="bg-[#1A1A18] border-[#2A2A28] text-[#F0EFE8] max-w-sm">
+        <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-sm">
           <DialogHeader>
             <DialogTitle>Registrar pago</DialogTitle>
           </DialogHeader>
@@ -759,7 +759,7 @@ export default function SpaceDetailPage() {
 
       {/* Split Rule Dialog */}
       <Dialog open={showSplitRuleDialog} onOpenChange={setShowSplitRuleDialog}>
-        <DialogContent className="bg-[#1A1A18] border-[#2A2A28] text-[#F0EFE8] max-w-sm">
+        <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-sm">
           <DialogHeader>
             <DialogTitle>Nueva regla de división</DialogTitle>
           </DialogHeader>
@@ -836,7 +836,7 @@ export default function SpaceDetailPage() {
 
       {/* Budget Dialog */}
       <Dialog open={showBudgetDialog} onOpenChange={setShowBudgetDialog}>
-        <DialogContent className="bg-[#1A1A18] border-[#2A2A28] text-[#F0EFE8] max-w-sm">
+        <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-sm">
           <DialogHeader>
             <DialogTitle>Nuevo presupuesto</DialogTitle>
           </DialogHeader>
@@ -896,7 +896,7 @@ export default function SpaceDetailPage() {
 
       {/* Default Split Dialog */}
       <Dialog open={showDefaultSplitDialog} onOpenChange={setShowDefaultSplitDialog}>
-        <DialogContent className="bg-[#1A1A18] border-[#2A2A28] text-[#F0EFE8] max-w-sm">
+        <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-sm">
           <DialogHeader>
             <DialogTitle>Editar división por defecto</DialogTitle>
           </DialogHeader>
