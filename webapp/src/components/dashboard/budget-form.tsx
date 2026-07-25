@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Check } from 'lucide-react';
 import { CATEGORIAS, getCategoriaEmoji } from '@/lib/constants';
 import { capitalizeDisplay } from '@/lib/format';
 import type { Presupuesto } from '@/lib/types';
@@ -32,6 +32,8 @@ export interface CategoriaOption {
 }
 
 interface SubBudgetRow {
+  /** id of the existing sub-budget row, undefined for newly added rows */
+  id?: string;
   subcategoria: string;
   customSub: string;
   monto: string;
@@ -100,6 +102,9 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
   const [montoLimite, setMontoLimite] = useState('');
   const [alertaPorcentaje, setAlertaPorcentaje] = useState('80');
   const [saving, setSaving] = useState(false);
+  // Recurrence scope: apply this budget to the following months too (default),
+  // or only the selected month. "Following months" is the natural recurring case.
+  const [aplicarAdelante, setAplicarAdelante] = useState(true);
 
   // For editing single budget with subcategory
   const [subcategoria, setSubcategoria] = useState('');
@@ -127,6 +132,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
 
   useEffect(() => {
     if (open) {
+      setAplicarAdelante(true);
       if (budget) {
         setCategoria(budget.categoria);
         setCustomCategoria('');
@@ -137,6 +143,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
         // Populate sub-budget rows from groupSubBudgets when editing a grouped budget
         if (groupSubBudgets && groupSubBudgets.length > 0) {
           setSubRows(groupSubBudgets.map(sb => ({
+            id: sb.id,
             subcategoria: sb.subcategoria || '',
             customSub: '',
             monto: sb.monto_limite.toString(),
@@ -203,7 +210,6 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
           monto_limite: parseFloat(montoLimite) || 0,
           alerta_porcentaje: parseInt(alertaPorcentaje, 10) || 80,
         };
-        console.log('[BudgetForm] Updating budget:', payload);
         const res = await fetch('/api/budgets', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -215,24 +221,25 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
           return;
         }
 
-        // Update/create/delete sub-budgets
+        // Update/create/delete sub-budgets — matched by row id, NEVER by position.
+        // Positional matching corrupted rows when a middle/first sub was removed:
+        // it renamed a surviving record onto an existing subcategoria and hit the
+        // unique index (usuario_id, categoria, subcategoria, mes, anio) → 400.
         const existingSubs = groupSubBudgets || [];
-        for (let i = 0; i < subRows.length; i++) {
-          const row = subRows[i];
+
+        for (const row of subRows) {
           const effSub = getEffectiveSub(row);
           if (!effSub || !row.monto) continue;
 
-          const existingSub = existingSubs[i];
-          if (existingSub) {
-            // Update existing sub-budget
+          if (row.id) {
+            // Update the existing sub-budget by its own id
             const subPayload = {
-              id: existingSub.id,
+              id: row.id,
               categoria: effectiveCategoria,
               subcategoria: effSub,
               monto_limite: parseFloat(row.monto) || 0,
               alerta_porcentaje: parseInt(alertaPorcentaje, 10) || 80,
             };
-            console.log('[BudgetForm] Updating sub-budget:', subPayload);
             const subRes = await fetch('/api/budgets', {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
@@ -243,7 +250,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
               console.error('[BudgetForm] Sub-budget update failed:', subRes.status, errData);
             }
           } else {
-            // Create new sub-budget
+            // Newly added row → create
             const subPayload = {
               categoria: effectiveCategoria,
               subcategoria: effSub,
@@ -251,7 +258,6 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
               alerta_porcentaje: parseInt(alertaPorcentaje, 10) || 80,
               ...(mes && anio ? { mes, anio } : {}),
             };
-            console.log('[BudgetForm] Creating new sub-budget:', subPayload);
             const subRes = await fetch('/api/budgets', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -264,11 +270,12 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
           }
         }
 
-        // Delete sub-budgets that were removed
-        for (let i = subRows.length; i < existingSubs.length; i++) {
-          const toDelete = existingSubs[i];
-          console.log('[BudgetForm] Deleting removed sub-budget:', toDelete.id);
-          await fetch(`/api/budgets?id=${toDelete.id}`, { method: 'DELETE' });
+        // Delete existing sub-budgets whose id is no longer present in the rows
+        const keptIds = new Set(subRows.map(r => r.id).filter(Boolean));
+        for (const existingSub of existingSubs) {
+          if (!keptIds.has(existingSub.id)) {
+            await fetch(`/api/budgets?id=${existingSub.id}`, { method: 'DELETE' });
+          }
         }
       } else {
         // Create: main category budget + sub-budgets
@@ -299,11 +306,8 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
           }
         }
 
-        console.log('[BudgetForm] Creating budgets:', budgetsToCreate);
-
         // Create all budgets sequentially
         for (const payload of budgetsToCreate) {
-          console.log('[BudgetForm] Creating:', payload);
           const res = await fetch('/api/budgets', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -314,6 +318,16 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
             console.error('[BudgetForm] Create failed:', res.status, errData, 'Payload:', payload);
           }
         }
+      }
+
+      // Recurrence: mirror this category from the current month onto the following
+      // materialized months. Best-effort — the month just saved is already correct.
+      if (aplicarAdelante && mes && anio && effectiveCategoria) {
+        await fetch('/api/budgets/apply-forward', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ categoria: effectiveCategoria, mes, anio }),
+        }).catch(() => {});
       }
 
       toast.success(isEditing ? 'Presupuesto actualizado' : 'Presupuesto creado');
@@ -327,7 +341,29 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
     }
   }
 
-  const canSubmit = effectiveCategoria && (montoLimite || subRows.some(r => r.monto && getEffectiveSub(r))) && !saving;
+  // Sum of the sub-budget rows (only rows with a subcategory and a positive amount).
+  const subsTotal = subRows.reduce((acc, r) => {
+    const m = parseFloat(r.monto);
+    return getEffectiveSub(r) && !isNaN(m) && m > 0 ? acc + m : acc;
+  }, 0);
+  const subsTotalRounded = Math.round(subsTotal * 100) / 100;
+
+  // The "monto límite" is the category total only when creating, or when editing
+  // the category (total) row — not when editing an individual sub-budget.
+  const limitIsCategoryTotal = !isEditing || !effectiveSubcategoria;
+  const montoLimiteNum = parseFloat(montoLimite);
+  const limitBelowSubs =
+    limitIsCategoryTotal &&
+    subsTotal > 0 &&
+    montoLimite.trim() !== '' &&
+    !isNaN(montoLimiteNum) &&
+    montoLimiteNum < subsTotalRounded;
+
+  const canSubmit =
+    effectiveCategoria &&
+    (montoLimite || subRows.some(r => r.monto && getEffectiveSub(r))) &&
+    !limitBelowSubs &&
+    !saving;
 
   // Helper to get capitalized display for a subcategory value in Select trigger
   function getSubDisplayText(value: string): string {
@@ -428,6 +464,18 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
             {catDuplicate && !isEditing && (
               <p className="text-xs text-[#EF9F27]">Ya existe un presupuesto general para {effectiveCategoria}. Se omitirá este campo.</p>
             )}
+            {limitBelowSubs && (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#EF9F27]">
+                <span>El límite es menor que la suma de subcategorías (S/{subsTotalRounded.toFixed(2)}).</span>
+                <button
+                  type="button"
+                  className="text-[#1D9E75] hover:underline font-medium"
+                  onClick={() => setMontoLimite(String(subsTotalRounded))}
+                >
+                  Igualar a S/{subsTotalRounded.toFixed(2)}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Sub-category budgets — always show when a category is selected */}
@@ -511,6 +559,40 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
             <p className="text-xs text-[#8A877D]">Se aplica a todos los presupuestos creados.</p>
           </div>
 
+          {/* Vigencia — recurrence scope */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-[#C8C6BC]">Vigencia</label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setAplicarAdelante(true)}
+                className={`flex-1 h-9 rounded-lg text-xs font-medium border transition-colors ${
+                  aplicarAdelante
+                    ? 'bg-[#1D9E75]/15 text-[#1D9E75] border-[#1D9E75]/40'
+                    : 'text-[#8A877D] border-[rgba(240,239,232,0.14)] hover:bg-[#1C1C19]'
+                }`}
+              >
+                Este mes y los siguientes
+              </button>
+              <button
+                type="button"
+                onClick={() => setAplicarAdelante(false)}
+                className={`flex-1 h-9 rounded-lg text-xs font-medium border transition-colors ${
+                  !aplicarAdelante
+                    ? 'bg-[#1D9E75]/15 text-[#1D9E75] border-[#1D9E75]/40'
+                    : 'text-[#8A877D] border-[rgba(240,239,232,0.14)] hover:bg-[#1C1C19]'
+                }`}
+              >
+                Solo este mes
+              </button>
+            </div>
+            <p className="text-xs text-[#8A877D]">
+              {aplicarAdelante
+                ? 'Se aplicará a los próximos meses hasta que lo cambies o elimines.'
+                : 'Solo afecta el mes seleccionado.'}
+            </p>
+          </div>
+
         </div>
 
         {/* Sticky footer */}
@@ -548,6 +630,11 @@ interface DeleteBudgetDialogProps {
 
 export function DeleteBudgetDialog({ open, onOpenChange, budget, onSuccess }: DeleteBudgetDialogProps) {
   const [deleting, setDeleting] = useState(false);
+  const [alsoForward, setAlsoForward] = useState(true);
+
+  useEffect(() => {
+    if (open) setAlsoForward(true);
+  }, [open]);
 
   async function handleDelete() {
     if (!budget || deleting) return;
@@ -557,6 +644,15 @@ export function DeleteBudgetDialog({ open, onOpenChange, budget, onSuccess }: De
       if (!res.ok) {
         toast.error('No se pudo eliminar el presupuesto');
         return;
+      }
+      // Propagate the removal to the following months so the budget stops going
+      // forward (it can be re-created later to reactivate it).
+      if (alsoForward && budget.mes && budget.anio) {
+        await fetch('/api/budgets/apply-forward', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ categoria: budget.categoria, mes: budget.mes, anio: budget.anio }),
+        }).catch(() => {});
       }
       toast.success('Presupuesto eliminado');
       onOpenChange(false);
@@ -578,6 +674,23 @@ export function DeleteBudgetDialog({ open, onOpenChange, budget, onSuccess }: De
             </span>. Esta acción no se puede deshacer.
           </DialogDescription>
         </DialogHeader>
+        <button
+          type="button"
+          onClick={() => setAlsoForward(v => !v)}
+          className="flex items-center gap-2.5 text-left py-1"
+          aria-pressed={alsoForward}
+        >
+          <span
+            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-colors ${
+              alsoForward
+                ? 'bg-[#1D9E75] border-[#1D9E75]'
+                : 'border-[rgba(240,239,232,0.24)]'
+            }`}
+          >
+            {alsoForward && <Check className="h-3.5 w-3.5 text-white" />}
+          </span>
+          <span className="text-sm text-[#C8C6BC]">También en los meses siguientes</span>
+        </button>
         <div className="flex justify-end gap-3 pt-2">
           <Button
             variant="outline"

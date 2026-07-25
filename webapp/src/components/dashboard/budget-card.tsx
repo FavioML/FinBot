@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { getCategoriaEmoji } from '@/lib/constants';
 import { formatCurrency } from '@/lib/utils';
 import { capitalizeDisplay } from '@/lib/format';
+import { budgetStatus } from '@/lib/budget-status';
 import type { Presupuesto } from '@/lib/types';
 
 interface BudgetCardProps {
@@ -16,12 +17,6 @@ interface BudgetCardProps {
   onEdit: (budget: Presupuesto) => void;
   onDelete: (budget: Presupuesto) => void;
   onClick: (categoria: string) => void;
-}
-
-function getProgressColor(percentage: number): string {
-  if (percentage < 60) return '#1D9E75';
-  if (percentage < 90) return '#EF9F27';
-  return '#D85A30';
 }
 
 /** Simple normalize: only handle accent variants, never remap category names */
@@ -48,17 +43,21 @@ export function BudgetCard({
 }: BudgetCardProps) {
   const catKey = normalizeCatForMatch(categoria);
 
-  // Compute the effective total limit
+  // Compute the effective total limit. When a category total row exists we still
+  // take the max against the sum of its subs, so legacy/incoherent data (a total
+  // below its own subcategories) never renders an impossible progress bar.
+  const subsSum = subBudgets.reduce((sum, b) => sum + b.monto_limite, 0);
   const totalLimit = totalBudget
-    ? totalBudget.monto_limite
-    : subBudgets.reduce((sum, b) => sum + b.monto_limite, 0);
+    ? Math.max(totalBudget.monto_limite, subsSum)
+    : subsSum;
 
   // Total spending for the category
   const totalSpent = spendingByKey.get(catKey) || 0;
 
-  const rawPercentage = totalLimit > 0 ? (totalSpent / totalLimit) * 100 : 0;
-  const clampedPercentage = Math.min(rawPercentage, 100);
-  const progressColor = getProgressColor(rawPercentage);
+  const status = budgetStatus(totalSpent, totalLimit);
+  const rawPercentage = status.pct;
+  const clampedPercentage = status.clampedPct;
+  const progressColor = status.color;
 
   const emoji = getCategoriaEmoji(categoria);
   const alertPct = totalBudget?.alerta_porcentaje ?? 80;
@@ -67,8 +66,8 @@ export function BudgetCard({
   // The budget to use for edit/delete actions (total row preferred, else first sub)
   const actionBudget = totalBudget || subBudgets[0];
 
-  const isWarning = rawPercentage >= 80 && rawPercentage < 100;
-  const isExceeded = rawPercentage >= 100;
+  const isWarning = status.estado === 'warning';
+  const isExceeded = status.estado === 'exceeded';
 
   return (
     <motion.div
@@ -139,7 +138,9 @@ export function BudgetCard({
           <AlertTriangle className="h-3 w-3 shrink-0" />
           {isExceeded
             ? `Excediste tu presupuesto por ${formatCurrency(totalSpent - totalLimit)}`
-            : `Llevas ${rawPercentage.toFixed(0)}% — te quedan ${formatCurrency(totalLimit - totalSpent)}`
+            : rawPercentage >= 100
+              ? `Llegaste al límite de tu presupuesto`
+              : `Llevas ${rawPercentage.toFixed(0)}% — te quedan ${formatCurrency(totalLimit - totalSpent)}`
           }
         </div>
       )}
@@ -150,9 +151,9 @@ export function BudgetCard({
           {subBudgets.map((sub) => {
             const subKey = `${catKey}::${(sub.subcategoria || '').toLowerCase()}`;
             const subSpent = spendingByKey.get(subKey) || 0;
-            const subRawPct = sub.monto_limite > 0 ? (subSpent / sub.monto_limite) * 100 : 0;
-            const subClampedPct = Math.min(subRawPct, 100);
-            const subColor = getProgressColor(subRawPct);
+            const subStatus = budgetStatus(subSpent, sub.monto_limite);
+            const subClampedPct = subStatus.clampedPct;
+            const subColor = subStatus.color;
 
             return (
               <div key={sub.id} className="flex flex-col gap-1">

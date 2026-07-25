@@ -19,6 +19,7 @@ import { useBudgets } from '@/lib/hooks/use-budgets';
 import { useTransactions } from '@/lib/hooks/use-transactions';
 import { formatCurrency, formatFecha } from '@/lib/utils';
 import { capitalizeDisplay } from '@/lib/format';
+import { budgetStatus } from '@/lib/budget-status';
 import { MESES, getCategoriaEmoji } from '@/lib/constants';
 import { MonthSelector } from '@/components/dashboard/month-selector';
 import { HeaderActions } from '@/components/dashboard/topbar';
@@ -190,9 +191,8 @@ export default function PresupuestosPage() {
 
     for (const [cat, group] of groupedBudgets.entries()) {
       const catKey = normalizeCatForMatch(cat);
-      const limit = group.total
-        ? group.total.monto_limite
-        : group.subs.reduce((sum, b) => sum + b.monto_limite, 0);
+      const subsSum = group.subs.reduce((sum, b) => sum + b.monto_limite, 0);
+      const limit = group.total ? Math.max(group.total.monto_limite, subsSum) : subsSum;
       totalPresupuestado += limit;
       totalGastado += spendingByKey.get(catKey) || 0;
     }
@@ -228,10 +228,12 @@ export default function PresupuestosPage() {
   const detailTxs = detailCategoria ? getTransactionsForCategory(detailCategoria) : [];
   const detailCatKey = detailCategoria ? normalizeCatForMatch(detailCategoria) : '';
   const detailTotalSpent = detailCatKey ? (spendingByKey.get(detailCatKey) || 0) : 0;
+  const detailSubsSum = detailGroup ? detailGroup.subs.reduce((s, b) => s + b.monto_limite, 0) : 0;
   const detailTotalLimit = detailGroup
-    ? (detailGroup.total ? detailGroup.total.monto_limite : detailGroup.subs.reduce((s, b) => s + b.monto_limite, 0))
+    ? (detailGroup.total ? Math.max(detailGroup.total.monto_limite, detailSubsSum) : detailSubsSum)
     : 0;
   const detailPct = detailTotalLimit > 0 ? Math.round((detailTotalSpent / detailTotalLimit) * 100) : 0;
+  const detailStatus = budgetStatus(detailTotalSpent, detailTotalLimit);
 
   // Group detail transactions by subcategory (computed inline, not memoized with unstable dep)
   const detailTxsBySubcat = (() => {
@@ -306,34 +308,20 @@ export default function PresupuestosPage() {
           </StaggerContainer>
 
           {/* Global progress bar */}
-          {summary.totalPresupuestado > 0 && (
+          {summary.totalPresupuestado > 0 && (() => {
+            const globalStatus = budgetStatus(summary.totalGastado, summary.totalPresupuestado);
+            return (
             <div className="glass-card p-4">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs text-[#8A877D]">Uso total del presupuesto</span>
-                <span
-                  className="text-xs font-medium"
-                  style={{
-                    color: summary.totalGastado / summary.totalPresupuestado >= 1
-                      ? '#D85A30'
-                      : summary.totalGastado / summary.totalPresupuestado >= 0.8
-                        ? '#EF9F27'
-                        : '#1D9E75',
-                  }}
-                >
-                  {Math.round((summary.totalGastado / summary.totalPresupuestado) * 100)}%
+                <span className="text-xs font-medium" style={{ color: globalStatus.color }}>
+                  {Math.round(globalStatus.pct)}%
                 </span>
               </div>
               <div className="h-3 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
                 <div
                   className="h-full rounded-full transition-all duration-700"
-                  style={{
-                    width: `${Math.min(100, (summary.totalGastado / summary.totalPresupuestado) * 100)}%`,
-                    backgroundColor: summary.totalGastado / summary.totalPresupuestado >= 1
-                      ? '#D85A30'
-                      : summary.totalGastado / summary.totalPresupuestado >= 0.8
-                        ? '#EF9F27'
-                        : '#1D9E75',
-                  }}
+                  style={{ width: `${globalStatus.clampedPct}%`, backgroundColor: globalStatus.color }}
                 />
               </div>
               <div className="flex items-center justify-between mt-1.5 text-[10px] text-[#8A877D]">
@@ -341,7 +329,8 @@ export default function PresupuestosPage() {
                 <span>{formatCurrency(summary.totalPresupuestado)} presupuestado</span>
               </div>
             </div>
-          )}
+            );
+          })()}
 
           {/* Budget cards grid — one card per CATEGORY */}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -421,7 +410,7 @@ export default function PresupuestosPage() {
               {/* Summary */}
               <div className="flex items-center justify-between text-sm">
                 <span className="text-[#8A877D]">Gastado / Límite</span>
-                <span className="font-semibold" style={{ color: detailPct > 100 ? '#D85A30' : detailPct > 80 ? '#EF9F27' : '#1D9E75' }}>
+                <span className="font-semibold" style={{ color: detailStatus.color }}>
                   {formatCurrency(detailTotalSpent)} / {formatCurrency(detailTotalLimit)} ({detailPct}%)
                 </span>
               </div>
@@ -430,8 +419,8 @@ export default function PresupuestosPage() {
                 <div
                   className="h-full rounded-full transition-all duration-700"
                   style={{
-                    width: `${Math.min(detailPct, 100)}%`,
-                    backgroundColor: detailPct > 100 ? '#D85A30' : detailPct > 80 ? '#EF9F27' : '#1D9E75',
+                    width: `${detailStatus.clampedPct}%`,
+                    backgroundColor: detailStatus.color,
                   }}
                 />
               </div>
@@ -445,7 +434,8 @@ export default function PresupuestosPage() {
                     const subSpent = spendingByKey.get(subKey) || 0;
                     const subLimit = Number(sub.monto_limite);
                     const subPct = subLimit > 0 ? Math.round((subSpent / subLimit) * 100) : 0;
-                    const subColor = subPct >= 90 ? '#D85A30' : subPct >= 60 ? '#EF9F27' : '#1D9E75';
+                    const subStatus = budgetStatus(subSpent, subLimit);
+                    const subColor = subStatus.color;
                     return (
                       <div key={sub.id} className="space-y-1">
                         <div className="flex justify-between text-sm">
@@ -457,7 +447,7 @@ export default function PresupuestosPage() {
                         <div className="h-1.5 bg-[#2A2A28] rounded-full overflow-hidden">
                           <div
                             className="h-full rounded-full transition-all duration-700"
-                            style={{ width: `${Math.min(subPct, 100)}%`, backgroundColor: subColor }}
+                            style={{ width: `${subStatus.clampedPct}%`, backgroundColor: subColor }}
                           />
                         </div>
                       </div>
