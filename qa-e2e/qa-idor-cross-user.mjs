@@ -50,7 +50,11 @@ const ANON = env.NETO_QA_ANON;
 const A = { email: env.NETO_QA_EMAIL, password: env.NETO_QA_PASSWORD, uid: env.NETO_QA_USUARIO_ID };
 const B = { email: env.NETO_QA_FREE_EMAIL, password: env.NETO_QA_FREE_PASSWORD, uid: env.NETO_QA_FREE_USUARIO_ID };
 
+// Fuente preferente: el mismo qa.env que ya guarda las demas creds del canary
+// (una sola fuente de verdad, desacoplada del .env.local de dev del webapp).
+// Fallbacks: entorno del proceso, y por ultimo webapp/.env.local (compat).
 const SERVICE =
+  env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   loadEnv(new URL('../webapp/.env.local', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'))
     .SUPABASE_SERVICE_ROLE_KEY;
@@ -60,7 +64,7 @@ if (!SUPA || !ANON || !A.email || !A.password || !B.email || !B.password) {
   process.exit(2);
 }
 if (!SERVICE) {
-  console.error('Falta SUPABASE_SERVICE_ROLE_KEY (entorno o webapp/.env.local).');
+  console.error('Falta SUPABASE_SERVICE_ROLE_KEY (qa.env, entorno o webapp/.env.local).');
   process.exit(2);
 }
 
