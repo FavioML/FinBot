@@ -83,6 +83,13 @@
         "cwd": "C:/Vortik.dev/products/neto/app",
         "cost": "1 fetch + 1 gh api (segundos, gratis)",
         "on_fail": "exit 1 = STALE: hay commits en main que tocan archivos que Railway observa (todo menos webapp/, qa-e2e/, docs/, *.md raiz -> la lista negra de railway.json) y no estan desplegados (build de Railway fallido en silencio o atrasado); el JSON lista los archivos backend pendientes; revisar el ultimo deployment en Railway. exit 2 = no se pudo determinar (endpoint /version caido, gh/red, o el SHA desplegado no es ancestro de main): infra, no necesariamente stale. Espejo backend del deploy-fresh del webapp; usa /version (RAILWAY_GIT_COMMIT_SHA)."
+      },
+      {
+        "name": "idor-cross-user",
+        "cmd": "node qa-e2e/qa-idor-cross-user.mjs",
+        "cwd": "C:/Vortik.dev/products/neto/app",
+        "cost": "2 logins + ~30 fetch + seed/clean service-role (segundos, sin Chromium; escribe y limpia filas throwaway QA-IDOR del test user B)",
+        "on_fail": "exit 1 = IDOR / AUTH CRUZADO ROTO: el usuario A (Pro) logro leer o escribir data del usuario B a traves de /api/transactions, budgets, goals(+aportes/abandon), export, score, spaces/* (no-miembro), recurring/override o notifications/inbox. Es un agujero multi-tenant critico. El JSON marca cada check SAFE/BREACH y lista summary.breaches (los que rompieron) + summary.leaks (respuesta que expuso data de B). Verifica el EFECTO via oraculo service-role, no el HTTP 200 (varias rutas responden 200/success a un no-op scoped, eso es esperado y SAFE). exit 2 = infra (login/seed/red se cayo, no se completo el barrido) o falta la service-role key local. Self-cleaning (preclean por marcadores QA-IDOR al inicio y limpieza en finally); usa 2 QA users reales A=Pro/NETO_QA_* y B=Free/NETO_QA_FREE_*. Ver memory project_idor_cross_user_sweep."
       }
     ],
     "post_deploy_window_min": 10,
