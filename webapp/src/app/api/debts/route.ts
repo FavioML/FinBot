@@ -3,6 +3,7 @@ import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { hoyPeru } from '@/lib/dates';
+import { parseMontoDinero } from '@/lib/money';
 
 const FRECUENCIAS = ['semanal', 'quincenal', 'mensual', 'anual'] as const;
 type Frecuencia = typeof FRECUENCIAS[number];
@@ -64,8 +65,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Faltan campos requeridos' }, { status: 400 });
   }
 
-  const monto = parseFloat(monto_original);
-  if (isNaN(monto) || monto <= 0) {
+  const monto = parseMontoDinero(monto_original);
+  if (monto === null) {
     return NextResponse.json({ error: 'Monto inválido' }, { status: 400 });
   }
 
@@ -134,9 +135,21 @@ export async function PUT(request: Request) {
 
   // action=abonar → registrar abono + actualizar monto_pendiente
   if (action === 'abonar') {
-    const montoAbono = parseFloat(fields.monto);
-    if (isNaN(montoAbono) || montoAbono <= 0) {
+    const montoAbono = parseMontoDinero(fields.monto);
+    if (montoAbono === null) {
       return NextResponse.json({ error: 'Monto de abono inválido' }, { status: 400 });
+    }
+    // Guard de sobrepago: el backend (services/debts.js abonarDeuda) ya lo tiene;
+    // la webapp no, y sin él un abono mayor a lo pendiente distorsiona el historial.
+    // Sin este chequeo, un Infinity pasaba el guard viejo (isNaN/<=0), se serializaba
+    // a null en deuda_abonos.monto, y el reduce de abajo daba NaN → monto_pendiente
+    // NaN → deuda envenenada de forma permanente.
+    const pendienteActual = parseFloat(deuda.monto_pendiente);
+    if (isFinite(pendienteActual) && montoAbono > pendienteActual + 0.001) {
+      return NextResponse.json(
+        { error: 'El abono supera lo que queda pendiente (S/ ' + pendienteActual.toFixed(2) + ')' },
+        { status: 400 }
+      );
     }
 
     // Insertar abono

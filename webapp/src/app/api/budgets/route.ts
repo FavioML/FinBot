@@ -2,6 +2,7 @@ import { getServiceClient } from '@/lib/supabase/service';
 import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { parseMontoDinero } from '@/lib/money';
 
 /** Capitalize first letter */
 function capitalize(s: string | null | undefined): string | null {
@@ -125,8 +126,8 @@ export async function POST(request: Request) {
   const body = await request.json();
 
   // Validate monto_limite
-  const montoLimite = parseFloat(body.monto_limite);
-  if (isNaN(montoLimite) || !isFinite(montoLimite) || montoLimite <= 0 || montoLimite > 999999.99) {
+  const montoLimite = parseMontoDinero(body.monto_limite);
+  if (montoLimite === null) {
     return NextResponse.json({ error: 'Monto límite inválido' }, { status: 400 });
   }
 
@@ -169,12 +170,21 @@ export async function PUT(request: Request) {
   const userId = netoUser.id;
 
   const body = await request.json();
+
+  // El PUT tomaba `monto_limite` crudo (el POST hermano sí valida): editar un
+  // presupuesto a 0/negativo hacía que el porcentaje usado dividiera por cero
+  // (Infinity%) y la alerta ">= 100%" nunca disparara.
+  const montoLimite = parseMontoDinero(body.monto_limite);
+  if (montoLimite === null) {
+    return NextResponse.json({ error: 'Monto límite inválido' }, { status: 400 });
+  }
+
   const { data, error } = await getServiceClient()
     .from('presupuestos')
     .update({
       categoria: body.categoria,
       subcategoria: capitalize(body.subcategoria),
-      monto_limite: body.monto_limite,
+      monto_limite: montoLimite,
       alerta_porcentaje: body.alerta_porcentaje || 80,
     })
     .eq('id', body.id)

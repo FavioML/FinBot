@@ -2,8 +2,14 @@ import { getServiceClient } from '@/lib/supabase/service';
 import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { parseMontoDinero } from '@/lib/money';
 
-
+// monto_actual = saldo ya ahorrado de la meta: vacío/ausente cuenta como 0, pero
+// si viene un valor tiene que ser válido y >= 0 (0 es legítimo: meta recién creada).
+function parseMontoActual(valor: unknown): number | null {
+  if (valor === undefined || valor === null || valor === '') return 0;
+  return parseMontoDinero(valor, { allowZero: true });
+}
 
 export async function GET() {
   const auth = await requireNetoUser('id, plan');
@@ -65,9 +71,13 @@ export async function POST(request: Request) {
   const body = await request.json();
 
   // Validate monto_objetivo
-  const montoObjetivo = parseFloat(body.monto_objetivo);
-  if (!montoObjetivo || isNaN(montoObjetivo) || montoObjetivo <= 0 || montoObjetivo > 999999.99) {
+  const montoObjetivo = parseMontoDinero(body.monto_objetivo);
+  if (montoObjetivo === null) {
     return NextResponse.json({ error: 'Monto objetivo inválido' }, { status: 400 });
+  }
+  const montoActual = parseMontoActual(body.monto_actual);
+  if (montoActual === null) {
+    return NextResponse.json({ error: 'Monto actual inválido' }, { status: 400 });
   }
 
   const { data, error } = await getServiceClient()
@@ -76,7 +86,7 @@ export async function POST(request: Request) {
       usuario_id: userId,
       nombre: body.nombre,
       monto_objetivo: montoObjetivo,
-      monto_actual: parseFloat(body.monto_actual) || 0,
+      monto_actual: montoActual,
       icono: body.icono || '🎯',
       fecha_limite: body.fecha_limite || null,
     })
@@ -100,6 +110,18 @@ export async function PUT(request: Request) {
   const userId = netoUser.id;
 
   const body = await request.json();
+
+  // Validar montos igual que el POST: el PUT los tomaba crudos (`parseFloat||0`),
+  // así que editar una meta dejaba entrar objetivo 0/negativo/Infinity y corrompía
+  // el progreso (división por 0 en la barra) y el factor de metas del score.
+  const montoObjetivo = parseMontoDinero(body.monto_objetivo);
+  if (montoObjetivo === null) {
+    return NextResponse.json({ error: 'Monto objetivo inválido' }, { status: 400 });
+  }
+  const montoActual = parseMontoActual(body.monto_actual);
+  if (montoActual === null) {
+    return NextResponse.json({ error: 'Monto actual inválido' }, { status: 400 });
+  }
 
   // Keep `status` in sync with `completada`. The UI splits goals into
   // activos/completados by `status` (falling back to `completada` only when
@@ -126,8 +148,8 @@ export async function PUT(request: Request) {
     .from('metas_ahorro')
     .update({
       nombre: body.nombre,
-      monto_objetivo: parseFloat(body.monto_objetivo) || 0,
-      monto_actual: parseFloat(body.monto_actual) || 0,
+      monto_objetivo: montoObjetivo,
+      monto_actual: montoActual,
       icono: body.icono || '🎯',
       fecha_limite: body.fecha_limite || null,
       completada,

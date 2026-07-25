@@ -92,3 +92,35 @@ describe('presupuestos: gasto en USD cuenta por monto_pen, no por monto', () => 
     expect(alerta).toContain('S/ 380.00');
   });
 });
+
+describe('guardarPresupuesto — guard de monto (era el único write de dinero sin validarMonto)', () => {
+  it('rechaza montos inválidos sin escribir a la DB', async () => {
+    let upsertLlamado = false;
+    const original = db.supabase.from;
+    db.supabase.from = () => ({ upsert: () => { upsertLlamado = true; return makeBuilder('presupuestos'); } });
+    try {
+      for (const malo of [-500, 0, 1000000, Infinity, NaN, 'abc']) {
+        await expect(budget.guardarPresupuesto('u1', 'Comida', malo)).rejects.toThrow(/inválido/i);
+      }
+      expect(upsertLlamado).toBe(false);
+    } finally {
+      db.supabase.from = original;
+    }
+  });
+
+  it('acepta los límites válidos y persiste el monto redondeado a 2 decimales', async () => {
+    const payloads = [];
+    const original = db.supabase.from;
+    db.supabase.from = () => ({
+      upsert: (p) => { payloads.push(p); return { select: () => ({ single: () => Promise.resolve({ data: { id: 'p1' }, error: null }) }) }; },
+    });
+    try {
+      await budget.guardarPresupuesto('u1', 'Comida', 999999.99);
+      await budget.guardarPresupuesto('u1', 'Comida', '123.456');
+      expect(payloads[0].monto_limite).toBe(999999.99);
+      expect(payloads[1].monto_limite).toBe(123.46);
+    } finally {
+      db.supabase.from = original;
+    }
+  });
+});

@@ -1,6 +1,7 @@
 const { supabase } = require('../lib/db');
 const { barraProgreso } = require('../lib/formatters');
 const { hoyPeru } = require('../lib/dates');
+const { validarMonto } = require('../lib/validators');
 
 function _mesAnioPeru() {
   const parts = hoyPeru().split('-');
@@ -14,9 +15,13 @@ function _normCat(s) {
 }
 
 async function guardarPresupuesto(usuarioId, categoria, monto) {
+  // Guard duro: este era el único write de dinero del backend fuera de validarMonto.
+  // El intent ya valida y da mensaje amigable; acá es defensa para cualquier otro caller.
+  const montoValidado = validarMonto(monto);
+  if (montoValidado === null) throw new Error('Monto de presupuesto inválido: ' + monto);
   const { mes, anio } = _mesAnioPeru();
   const { data, error } = await supabase.from('presupuestos').upsert({
-    usuario_id: usuarioId, categoria, monto_limite: monto,
+    usuario_id: usuarioId, categoria, monto_limite: montoValidado,
     mes, anio
   }, { onConflict: 'usuario_id,categoria,subcategoria,mes,anio' }).select().single();
   if (error) throw error;

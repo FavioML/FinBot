@@ -1,4 +1,5 @@
 const log = require('../../lib/logger');
+const { validarMonto } = require('../../lib/validators');
 
 module.exports = {
   intents: ['ver_presupuesto', 'configurar_presupuesto', 'eliminar_presupuesto', 'ver_balance', 'ver_categorias'],
@@ -18,11 +19,19 @@ module.exports = {
 
       case 'configurar_presupuesto': {
         if (datos.categoria && datos.monto) {
+          // El monto del NLP entraba sin validar (guardarPresupuesto no lo checaba):
+          // un "límite de -500" o un monto sobre el tope se persistía y rompía el
+          // cálculo de % del presupuesto. Validar acá da un mensaje amigable; el
+          // guard duro vive además en services/budget.js como defensa.
+          const montoPres = validarMonto(datos.monto);
+          if (montoPres === null) {
+            return '⚠️ Ese monto no me cuadra. Dame un número entre S/0.01 y S/999,999.99.\n\nEj: _"límite de S/500 en Alimentación"_';
+          }
           const alertaPct = datos.alerta_porcentaje || 80;
-          await guardarPresupuesto(usuario.id, datos.categoria, datos.monto);
+          await guardarPresupuesto(usuario.id, datos.categoria, montoPres);
           await supabase.from('presupuestos').update({ alerta_porcentaje: alertaPct }).eq('usuario_id', usuario.id).eq('categoria', datos.categoria);
           const emojiPres = getEmojiCategoria(datos.categoria) || '💰';
-          return '✅ Presupuesto configurado:\n' + emojiPres + ' *' + datos.categoria + ':* S/ ' + parseFloat(datos.monto).toFixed(2) + '/mes\n🔔 Te aviso cuando llegues al ' + alertaPct + '%.\n\n_Puedes cambiar el % de alerta: "alerta de Comida al 70%"_';
+          return '✅ Presupuesto configurado:\n' + emojiPres + ' *' + datos.categoria + ':* S/ ' + montoPres.toFixed(2) + '/mes\n🔔 Te aviso cuando llegues al ' + alertaPct + '%.\n\n_Puedes cambiar el % de alerta: "alerta de Comida al 70%"_';
         }
         return '💰 Dime la categoría y el monto.\n\nEj:\n• _"límite de S/500 en Alimentación"_\n• _"presupuesto S/200 en Transporte, aviso al 70%"_';
       }
