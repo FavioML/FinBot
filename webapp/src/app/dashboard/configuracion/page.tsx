@@ -259,6 +259,65 @@ function ThemeOption({
   );
 }
 
+/* ---- Confirmación de borrado de categoría/sub (con aviso de transacciones) ---- */
+function DeleteConfirmPanel({
+  loading,
+  count,
+  isRoot,
+  href,
+  onConfirm,
+  onCancel,
+}: {
+  loading: boolean;
+  count: number;
+  isRoot: boolean;
+  href: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="mt-1 rounded-lg border border-destructive/30 bg-destructive/[0.06] px-3 py-2.5">
+      {loading ? (
+        <p className="text-xs text-muted-foreground">Revisando transacciones…</p>
+      ) : count > 0 ? (
+        <div className="space-y-2">
+          <p className="text-xs text-secondary-foreground">
+            Hay <span className="font-semibold text-foreground">{count}</span>{' '}
+            {count === 1 ? 'transacción' : 'transacciones'} en esta {isRoot ? 'categoría' : 'subcategoría'}. Al eliminar,{' '}
+            {isRoot
+              ? 'pasarán a «Por revisar» para que las reclasifiques.'
+              : 'quedarán con su categoría principal.'}
+          </p>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <NextLink href={href} className="inline-flex items-center gap-0.5 text-xs font-medium text-primary hover:underline">
+              Revisar transacciones
+              <ChevronRight className="h-3.5 w-3.5" />
+            </NextLink>
+            <button className="text-xs font-medium text-destructive hover:underline" onClick={onConfirm}>
+              Eliminar de todos modos
+            </button>
+            <button className="text-xs text-muted-foreground hover:text-foreground" onClick={onCancel}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <p className="flex-1 text-xs text-secondary-foreground">
+            ¿Eliminar esta {isRoot ? 'categoría' : 'subcategoría'}?
+          </p>
+          <Button size="sm" className="h-6 bg-destructive px-2 text-xs text-white hover:bg-destructive/80" onClick={onConfirm}>
+            Eliminar
+          </Button>
+          <Button size="sm" variant="ghost" className="h-6 px-2 text-xs text-muted-foreground" onClick={onCancel}>
+            Cancelar
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /*  Page                                                               */
 /* ------------------------------------------------------------------ */
@@ -303,6 +362,8 @@ export default function ConfiguracionPage() {
   const [renamingCat, setRenamingCat] = useState<string | null>(null);
   const [renameInput, setRenameInput] = useState('');
   const [deletingCat, setDeletingCat] = useState<string | null>(null);
+  // Conteo de transacciones ligadas al ítem que se está por eliminar
+  const [deleteInfo, setDeleteInfo] = useState<{ count: number; loading: boolean }>({ count: 0, loading: false });
   // Crear categoría raíz
   const [creatingRoot, setCreatingRoot] = useState(false);
   const [newRootInput, setNewRootInput] = useState('');
@@ -601,6 +662,33 @@ export default function ConfiguracionPage() {
   // Clave estable para rename/delete: id real, o compuesta para subs system (id null).
   function subKey(catId: string, sub: { id: string | null; nombre: string }) {
     return sub.id ?? `sys:${catId}:${sub.nombre}`;
+  }
+
+  // Abrir la confirmación de borrado: marca el ítem y consulta cuántas
+  // transacciones lo referencian (para avisar + ofrecer "Revisar" antes de borrar).
+  async function startDelete(key: string, q: { categoria: string; sub?: string }) {
+    setDeletingCat(key);
+    setDeleteInfo({ count: 0, loading: true });
+    try {
+      const params = new URLSearchParams({ nombre: q.categoria });
+      if (q.sub) params.set('sub', q.sub);
+      const res = await fetch(`/api/categories/usage?${params.toString()}`);
+      const data = res.ok ? await res.json() : { count: 0 };
+      setDeleteInfo({ count: typeof data.count === 'number' ? data.count : 0, loading: false });
+    } catch {
+      setDeleteInfo({ count: 0, loading: false });
+    }
+  }
+
+  function cancelDelete() {
+    setDeletingCat(null);
+    setDeleteInfo({ count: 0, loading: false });
+  }
+
+  function reviewHref(categoria: string, sub?: string) {
+    const params = new URLSearchParams({ categoria });
+    if (sub) params.set('sub', sub);
+    return `/dashboard/transacciones?${params.toString()}`;
   }
 
   function toggleExpand(catId: string) {
@@ -1043,7 +1131,7 @@ export default function ConfiguracionPage() {
                 id="categorias"
                 icon={Tag}
                 title="Gestionar categorías"
-                description="Crea, renombra o elimina categorías y subcategorías. Las transacciones existentes mantienen su categoría original."
+                description="Crea, renombra o elimina categorías y subcategorías. Renombrar no reetiqueta tus transacciones; al eliminar, te aviso si hay transacciones y podrás revisarlas antes."
               >
                 {/* Crear categoría raíz — siempre visible arriba de la lista */}
                 {creatingRoot ? (
@@ -1179,31 +1267,28 @@ export default function ConfiguracionPage() {
                               >
                                 <Pencil className="h-3.5 w-3.5" />
                               </button>
-                              {deletingCat === cat.id ? (
-                                <div className="flex items-center gap-1">
-                                  <Button
-                                    size="sm"
-                                    className="h-6 bg-destructive px-1.5 text-xs text-white hover:bg-destructive/80"
-                                    onClick={() => handleDeleteCategory(cat.id, false)}
-                                  >
-                                    Sí
-                                  </Button>
-                                  <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs text-muted-foreground" onClick={() => setDeletingCat(null)}>
-                                    No
-                                  </Button>
-                                </div>
-                              ) : (
-                                <button
-                                  className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                                  onClick={() => setDeletingCat(cat.id)}
-                                  title="Eliminar"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
-                              )}
+                              <button
+                                className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                onClick={() => startDelete(cat.id, { categoria: cat.nombre })}
+                                title="Eliminar"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
                             </div>
                           )}
                         </div>
+
+                        {/* Confirmación de borrado de categoría raíz */}
+                        {deletingCat === cat.id && (
+                          <DeleteConfirmPanel
+                            loading={deleteInfo.loading}
+                            count={deleteInfo.count}
+                            isRoot
+                            href={reviewHref(cat.nombre)}
+                            onConfirm={() => handleDeleteCategory(cat.id, false)}
+                            onCancel={cancelDelete}
+                          />
+                        )}
 
                         {/* Subcategories */}
                         {subsShown && (
@@ -1215,8 +1300,8 @@ export default function ConfiguracionPage() {
                               const doDelete = () =>
                                 sub.id ? handleDeleteCategory(sub.id, true) : handleDeleteSystemSub(cat.id, sub.nombre);
                               return (
+                              <div key={key}>
                               <div
-                                key={key}
                                 className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2"
                               >
                                 {renamingCat === key ? (
@@ -1257,30 +1342,26 @@ export default function ConfiguracionPage() {
                                       >
                                         <Pencil className="h-3 w-3" />
                                       </button>
-                                      {deletingCat === key ? (
-                                        <div className="flex items-center gap-1">
-                                          <Button
-                                            size="sm"
-                                            className="h-6 bg-destructive px-1.5 text-xs text-white hover:bg-destructive/80"
-                                            onClick={doDelete}
-                                          >
-                                            Sí
-                                          </Button>
-                                          <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs text-muted-foreground" onClick={() => setDeletingCat(null)}>
-                                            No
-                                          </Button>
-                                        </div>
-                                      ) : (
-                                        <button
-                                          className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                                          onClick={() => setDeletingCat(key)}
-                                          title="Eliminar"
-                                        >
-                                          <Trash2 className="h-3 w-3" />
-                                        </button>
-                                      )}
+                                      <button
+                                        className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                        onClick={() => startDelete(key, { categoria: cat.nombre, sub: sub.nombre })}
+                                        title="Eliminar"
+                                      >
+                                        <Trash2 className="h-3 w-3" />
+                                      </button>
                                     </div>
                                   </>
+                                )}
+                                </div>
+                                {deletingCat === key && (
+                                  <DeleteConfirmPanel
+                                    loading={deleteInfo.loading}
+                                    count={deleteInfo.count}
+                                    isRoot={false}
+                                    href={reviewHref(cat.nombre, sub.nombre)}
+                                    onConfirm={doDelete}
+                                    onCancel={cancelDelete}
+                                  />
                                 )}
                               </div>
                               );

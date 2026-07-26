@@ -82,8 +82,13 @@ export default function TransaccionesPage() {
     ? monthParam.split('-').map(Number)
     : [now.getFullYear(), now.getMonth() + 1];
 
+  // Enlace "Revisar" desde Configuración: ?categoria=X[&sub=Y]. Preselecciona los
+  // filtros y arranca en vista anual para abarcar todo el año (no solo el mes).
+  const catParam = searchParams.get('categoria');
+  const subParam = searchParams.get('sub');
+
   // View mode: monthly or annual
-  const [viewMode, setViewMode] = useState<'mensual' | 'anual'>('mensual');
+  const [viewMode, setViewMode] = useState<'mensual' | 'anual'>(catParam ? 'anual' : 'mensual');
   const [annualYear, setAnnualYear] = useState(paramYear);
   // In monthly mode, always follow URL params; in annual mode, use local state
   const selectedMonth = paramMonth;
@@ -151,11 +156,11 @@ export default function TransaccionesPage() {
   // Filters
   const [search, setSearch] = useState('');
   const [tipoFilter, setTipoFilter] = useState('todos');
-  const [categoriaFilter, setCategoriaFilter] = useState('all');
+  const [categoriaFilter, setCategoriaFilter] = useState(catParam ?? 'all');
   // Alcance del filtro "Por revisar": 'periodo' (solo el mes/año visible, respeta el
   // selector) o 'global' (backlog de todos los meses, escape hatch).
   const [porRevisarScope, setPorRevisarScope] = useState<'periodo' | 'global'>('periodo');
-  const [subcategoriaFilter, setSubcategoriaFilter] = useState('all');
+  const [subcategoriaFilter, setSubcategoriaFilter] = useState(subParam ?? 'all');
   const [metodoPagoFilter, setMetodoPagoFilter] = useState('all');
 
   // Sort

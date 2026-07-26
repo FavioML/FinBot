@@ -54,6 +54,43 @@ async function tombstoneSystemSub(
     .insert({ usuario_id: userId, padre_id: padreId, nombre: clean, activa: false });
 }
 
+/** Escapa comodines de LIKE (%, _, \) para que `ilike` sea match exacto CI. */
+function likeEscape(s: string): string {
+  return s.replace(/[\\%_]/g, (c) => '\\' + c);
+}
+
+/**
+ * Al borrar una SUBcategoría, sus transacciones sueltan la sub y quedan con la
+ * categoría padre (subcategoria=null). Match case-insensitive porque la NLP y las
+ * listas hardcodeadas guardan el casing de forma inconsistente.
+ */
+async function detachSubTransactions(
+  svc: SupabaseClient,
+  userId: string,
+  parentNombre: string,
+  subNombre: string
+) {
+  await svc
+    .from('transacciones')
+    .update({ subcategoria: null })
+    .eq('usuario_id', userId)
+    .ilike('categoria', likeEscape(parentNombre))
+    .ilike('subcategoria', likeEscape(subNombre));
+}
+
+/**
+ * Al borrar una categoría RAÍZ, sus transacciones pasan a "Por revisar":
+ * categoria=null + subcategoria='sin_categoria' (el centinela que activa
+ * needsReview), para que el usuario las re-clasifique manualmente.
+ */
+async function detachRootTransactions(svc: SupabaseClient, userId: string, rootNombre: string) {
+  await svc
+    .from('transacciones')
+    .update({ categoria: null, subcategoria: 'sin_categoria' })
+    .eq('usuario_id', userId)
+    .ilike('categoria', likeEscape(rootNombre));
+}
+
 /* GET — list user categories with subcategories */
 export async function GET() {
   const auth = await requireNetoUser();
@@ -264,8 +301,8 @@ export async function DELETE(request: Request) {
   const { searchParams } = new URL(request.url);
   const svc = getServiceClient();
 
-  // System subcategory (hardcoded default, no real row yet): tombstone it so it
-  // stops showing, after verifying the parent belongs to the user.
+  // System subcategory (hardcoded default, no real row yet): sus transacciones
+  // sueltan la sub y luego se tombstonea, tras verificar el padre del usuario.
   if (searchParams.get('system') === 'true') {
     const padreId = searchParams.get('padreId');
     const nombre = searchParams.get('nombre');
@@ -273,19 +310,19 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'Datos incompletos' }, { status: 400 });
     const { data: padre, error: padreErr } = await svc
       .from('categorias_usuario')
-      .select('id, usuario_id')
+      .select('id, usuario_id, nombre')
       .eq('id', padreId)
       .maybeSingle();
     if (padreErr)
       return NextResponse.json({ error: padreErr.message }, { status: 500 });
     if (!padre || padre.usuario_id !== userId)
       return NextResponse.json({ error: 'Categoría no encontrada' }, { status: 404 });
+    await detachSubTransactions(svc, userId, padre.nombre, nombre);
     await tombstoneSystemSub(svc, userId, padreId, nombre);
     return NextResponse.json({ ok: true });
   }
 
   const catId = searchParams.get('id');
-  const isSubcategory = searchParams.get('sub') === 'true';
 
   if (!catId)
     return NextResponse.json({ error: 'ID requerido' }, { status: 400 });
@@ -293,7 +330,7 @@ export async function DELETE(request: Request) {
   // Verify ownership
   const { data: cat, error: catErr } = await svc
     .from('categorias_usuario')
-    .select('id, usuario_id, padre_id')
+    .select('id, usuario_id, padre_id, nombre')
     .eq('id', catId)
     .maybeSingle();
 
@@ -302,8 +339,18 @@ export async function DELETE(request: Request) {
   if (!cat || cat.usuario_id !== userId)
     return NextResponse.json({ error: 'Categoria no encontrada' }, { status: 404 });
 
-  if (!isSubcategory && !cat.padre_id) {
-    // Deleting a root category — also deactivate its subcategories
+  // Desvincular transacciones antes del soft-delete (decide por padre_id real, no
+  // por el query param). Sub → tx quedan con la categoría padre. Raíz → tx a "Por
+  // revisar" + sus subs se desactivan.
+  if (cat.padre_id) {
+    const { data: parent } = await svc
+      .from('categorias_usuario')
+      .select('nombre')
+      .eq('id', cat.padre_id)
+      .maybeSingle();
+    if (parent?.nombre) await detachSubTransactions(svc, userId, parent.nombre, cat.nombre);
+  } else {
+    await detachRootTransactions(svc, userId, cat.nombre);
     await svc
       .from('categorias_usuario')
       .update({ activa: false })

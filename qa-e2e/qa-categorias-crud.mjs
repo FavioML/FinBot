@@ -120,6 +120,7 @@ function record(name, pass, note) {
 // Hard-delete de todo lo marcado QA-CRUD para este usuario (subs antes que raíces por el FK padre_id).
 async function cleanup() {
   const like = `ilike.${TAG}*`;
+  await sb(`transacciones?usuario_id=eq.${USER.uid}&comercio=${like}`, { method: 'DELETE' }).catch(() => {});
   await sb(`categorias_usuario?usuario_id=eq.${USER.uid}&padre_id=not.is.null&nombre=${like}`, { method: 'DELETE' }).catch(() => {});
   await sb(`categorias_usuario?usuario_id=eq.${USER.uid}&padre_id=is.null&nombre=${like}`, { method: 'DELETE' }).catch(() => {});
 }
@@ -196,6 +197,36 @@ try {
   const react = await api(cookie, 'POST', '/api/categories', { nombre: `${TAG} Root2` });
   record('recrear reactiva la fila (200, mismo id)',
     react.status === 200 && react.json?.id === rootId, `status=${react.status} id=${react.json?.id}`);
+
+  // 10. Desvinculación de transacciones al borrar (aviso + detach)
+  const txroot = await api(cookie, 'POST', '/api/categories', { nombre: `${TAG} Txroot` });
+  const txrootId = txroot.json.id;
+  const txsub = await api(cookie, 'POST', '/api/categories', { nombre: `${TAG} Txsub`, padreId: txrootId });
+  const txsubId = txsub.json.id;
+  for (const c of ['t1', 't2']) {
+    await api(cookie, 'POST', '/api/transactions', { monto: 6, tipo: 'gasto', moneda: 'PEN', comercio: `${TAG} ${c}`, categoria: `${TAG} Txroot`, subcategoria: `${TAG} Txsub`, fecha: today, metodo_pago: 'Efectivo' });
+  }
+
+  // usage: cuenta las tx ligadas a la sub
+  const usageSub = await api(cookie, 'GET', `/api/categories/usage?nombre=${encodeURIComponent(`${TAG} Txroot`)}&sub=${encodeURIComponent(`${TAG} Txsub`)}`);
+  record('usage cuenta tx de la sub (>=2)', usageSub.status === 200 && (usageSub.json?.count ?? 0) >= 2, `count=${usageSub.json?.count}`);
+  const usageRoot = await api(cookie, 'GET', `/api/categories/usage?nombre=${encodeURIComponent(`${TAG} Txroot`)}`);
+  record('usage cuenta tx de la raíz (>=2)', usageRoot.status === 200 && (usageRoot.json?.count ?? 0) >= 2, `count=${usageRoot.json?.count}`);
+
+  // Borrar la sub → tx quedan con la categoría padre (subcategoria null); no reaparece
+  await api(cookie, 'DELETE', `/api/categories?id=${txsubId}&sub=true`);
+  let txAfter = await sb(`transacciones?usuario_id=eq.${USER.uid}&comercio=ilike.${TAG}*&select=categoria,subcategoria`);
+  const subDetached = (txAfter || []).length >= 2 && (txAfter || []).every((t) => t.subcategoria === null && t.categoria === `${TAG} Txroot`);
+  record('sub-delete desvincula tx (sub=null, cat intacta)', subDetached, JSON.stringify(txAfter));
+  cats = (await api(cookie, 'GET', '/api/categories')).json || [];
+  const txrootObj = cats.find((c) => c.id === txrootId);
+  record('sub borrada NO reaparece pese a tx', !(txrootObj?.subcategorias || []).some((s) => s.nombre.toLowerCase() === `${TAG.toLowerCase()} txsub`));
+
+  // Borrar la raíz → tx a "Por revisar" (categoria null, subcategoria sin_categoria)
+  await api(cookie, 'DELETE', `/api/categories?id=${txrootId}`);
+  txAfter = await sb(`transacciones?usuario_id=eq.${USER.uid}&comercio=ilike.${TAG}*&select=categoria,subcategoria`);
+  const rootDetached = (txAfter || []).length >= 2 && (txAfter || []).every((t) => t.categoria === null && t.subcategoria === 'sin_categoria');
+  record('root-delete manda tx a Por revisar', rootDetached, JSON.stringify(txAfter));
 
   // Ningún 500 en toda la corrida
   const any500 = Object.values(results.checks).some((v) => /status=500/.test(v));
