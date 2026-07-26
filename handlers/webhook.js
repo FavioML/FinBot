@@ -598,13 +598,14 @@ function createWebhookHandler(procesarMensajeLibre) {
       respuesta = '🎁 *Tu link de referido:*\n\n' + railwayUrl + '/r/' + refCode + '\n\nComparte con amigos. Cada *3 referidos* te dan *1 mes gratis* de Neto. 🎉\n\n' + estadoRef;
     } else if (cmd === '/dashboard' || cmd === '/app') {
       respuesta = '📊 *Tu dashboard está en:*\n\n🔗 https://app.neto.pe\n\nAhí puedes ver gráficos, metas, reportes PDF, suscripciones y más.\n\n_Inicia sesión con tu cuenta de Google._';
-    } else if (cmd.startsWith('/activar ') || cmd.startsWith('/pago ') || cmd === '/usuarios' || cmd === '/admin' || cmd === '/panel') {
+    } else if (cmd.startsWith('/activar ') || cmd.startsWith('/pago ') || cmd === '/usuarios' || cmd === '/admin' || cmd === '/panel' || cmd.startsWith('/responder ') || cmd.startsWith('/tickets')) {
       // Comandos admin (solo Favio). La logica vive en handlers/admin-commands.js,
       // compartida con el webhook de Telegram para que ambos canales se comporten igual.
+      // Se pasa `msg` (texto crudo) ademas de `cmd`: /responder necesita el mensaje sin lowercasear.
       if (from !== ADMIN_NUMBER) {
         respuesta = 'No tienes permiso para usar este comando.';
       } else {
-        respuesta = await procesarComandoAdmin(cmd);
+        respuesta = await procesarComandoAdmin(cmd, msg);
       }
     } else if (cmd === '/categorias' || cmd === '/categorias agregar') {
       var catsCmd = await obtenerCategoriasUsuario(usuario.id);
@@ -613,65 +614,6 @@ function createWebhookHandler(procesarMensajeLibre) {
         respuesta = '*Personaliza tus categorias*\n\nResponde con los numeros:\n\n' + menuCatsStr + '\n\n_Ej: 1 3 5 o "todas"_';
         await supabase.from('usuarios').update({ onboarding_paso: 10 }).eq('id', usuario.id);
       } else { respuesta = formatearCategoriasMsg(catsCmd); }
-    } else if (cmd.startsWith('/responder ')) {
-      // Admin responde a un ticket de soporte: /responder 51933XXXXXX mensaje
-      if (from !== ADMIN_NUMBER) {
-        respuesta = 'No tienes permiso para usar este comando.';
-      } else {
-        const partes = msg.substring('/responder '.length).trim();
-        const spaceIdx = partes.indexOf(' ');
-        if (spaceIdx === -1) {
-          respuesta = 'Formato: /responder <número> <mensaje>\nEj: /responder 51933014505 Hola, ya revisé tu caso...';
-        } else {
-          const numDestino = partes.substring(0, spaceIdx).replace(/\+/g, '');
-          const msgAdmin = partes.substring(spaceIdx + 1).trim();
-          if (!msgAdmin) {
-            respuesta = 'Escribe el mensaje. Ej: /responder ' + numDestino + ' Ya revisé tu caso...';
-          } else {
-            try {
-              // Enviar respuesta al usuario como NETO
-              await enviarWhatsapp(numDestino, '👤 *Respuesta del equipo Neto:*\n\n' + msgAdmin + '\n\n_Si necesitas más ayuda, cuéntanos o escríbenos a hola@neto.pe_');
-              // Actualizar ticket
-              const { data: ticketAdmin } = await supabase.from('tickets_soporte').select('*')
-                .eq('whatsapp', numDestino).in('estado', ['pendiente', 'esperando_mensaje'])
-                .order('created_at', { ascending: false }).limit(1);
-              if (ticketAdmin && ticketAdmin.length > 0) {
-                await supabase.from('tickets_soporte').update({
-                  mensaje_admin: msgAdmin.substring(0, 1000),
-                  estado: 'respondido',
-                  updated_at: new Date().toISOString()
-                }).eq('id', ticketAdmin[0].id);
-              }
-              respuesta = '✅ Respuesta enviada a ' + numDestino + '.';
-            } catch(e) {
-              log.error({ tag: 'RESPONDER', err: e.message }, 'Error enviando respuesta admin');
-              respuesta = '❌ Error enviando la respuesta: ' + e.message;
-            }
-          }
-        }
-      }
-    } else if (cmd.startsWith('/tickets')) {
-      // Admin ve tickets pendientes: /tickets
-      if (from !== ADMIN_NUMBER) {
-        respuesta = 'No tienes permiso para usar este comando.';
-      } else {
-        const { data: ticketsList } = await supabase.from('tickets_soporte').select('*')
-          .in('estado', ['pendiente', 'esperando_mensaje'])
-          .order('created_at', { ascending: false }).limit(10);
-        if (!ticketsList || ticketsList.length === 0) {
-          respuesta = '📭 No hay tickets pendientes. ¡Todo tranquilo!';
-        } else {
-          let msgTickets = '🎫 *Tickets pendientes (' + ticketsList.length + '):*\n\n';
-          ticketsList.forEach((t, i) => {
-            msgTickets += (i + 1) + '. ' + (t.nombre_usuario || 'Sin nombre') + ' (' + t.whatsapp + ')\n';
-            msgTickets += '   📋 ' + t.estado + ' | ' + new Date(t.created_at).toLocaleDateString('es-PE') + '\n';
-            if (t.mensaje_usuario) msgTickets += '   💬 ' + t.mensaje_usuario.substring(0, 80) + '\n';
-            msgTickets += '\n';
-          });
-          msgTickets += '_Responde con:_\n/responder <número> <mensaje>';
-          respuesta = msgTickets;
-        }
-      }
     } else if (cmd === '/ayuda') {
       const mesActual = new Date().getMonth() + 1;
       respuesta = '*Comandos NETO:*\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- ver/configurar presupuesto\n*/categorias* -- categorias\n*/conectar* -- vincular Gmail\n*/escanear* -- leer correos ahora\n*/cambiar [comercio] [cat]* -- corregir categoria\n*/reporte* -- PDF del mes\n*/reporte ' + mesActual + '* -- PDF mes especifico\n*/alertas* -- activar/desactivar avisos de Gmail\n*/dashboard* -- ir a tu app (https://app.neto.pe)\n*/referir* -- invitar amigos y ganar Pro\n*/premium* -- plan premium\n*hola* -- estado general\n\n_Tambien puedes escribirme en lenguaje natural!_';

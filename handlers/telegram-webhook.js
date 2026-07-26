@@ -77,16 +77,18 @@ async function telegramWebhookHandler(req, res) {
     }
 
     const cmd = normalizarComando(message.text);
+    const ayuda = 'Comandos disponibles:\n/tickets\n/responder <num> <mensaje>\n/pago <num> <mensual|anual>\n/activar <num>\n/panel';
     if (!cmd.startsWith('/')) {
-      await enviarTelegramA(chatId, 'Comandos disponibles:\n/pago <num> <mensual|anual>\n/activar <num>\n/panel');
+      await enviarTelegramA(chatId, ayuda);
       return;
     }
 
-    const respuesta = await procesarComandoAdmin(cmd);
+    // rawText (message.text) además de cmd: /responder necesita el mensaje sin lowercasear.
+    const respuesta = await procesarComandoAdmin(cmd, message.text);
     if (respuesta) {
       await enviarTelegramA(chatId, respuesta);
     } else {
-      await enviarTelegramA(chatId, 'Comando no reconocido. Disponibles:\n/pago <num> <mensual|anual>\n/activar <num>\n/panel');
+      await enviarTelegramA(chatId, 'Comando no reconocido. ' + ayuda);
     }
   } catch (e) {
     log.error({ tag: 'TELEGRAM_IN', err: e.message, stack: e.stack }, 'Error procesando update de Telegram');

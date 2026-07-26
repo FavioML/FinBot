@@ -6,6 +6,7 @@ const { hoyPeru } = require('../lib/dates');
 const { enviarWhatsapp } = require('../lib/whatsapp');
 const { guardarMensaje } = require('../helpers/db-helpers');
 const { activarPro, reclamarPagoPendiente } = require('../lib/pro-payment');
+const { responderTicket } = require('../lib/support-tickets');
 const { generarUrlAutorizacion } = require('../gmail');
 
 const router = express.Router();
@@ -254,6 +255,28 @@ router.get('/errores', async (req, res) => {
  * Server-to-server con ADMIN_KEY (la webapp ya la tiene para el panel de pagos).
  * No recibe montos ni escribe nada: solo dispara el aviso.
  */
+/**
+ * POST /admin/responder-ticket — responde un ticket de soporte desde el panel web.
+ *
+ * Existe por la misma razon que los avisos de espacios: la webapp NO puede mandar
+ * WhatsApp (no tiene token ni sender de Meta). El panel manda el `ticket_id` (ya
+ * tiene la fila) y aca se resuelve el numero, se envia el WhatsApp y se marca el
+ * ticket como respondido. Toda la logica vive en lib/support-tickets, compartida
+ * con el comando /responder de WhatsApp y Telegram.
+ *
+ * Body: { ticket_id?, whatsapp?, mensaje }. Server-to-server con ADMIN_KEY.
+ */
+router.post('/responder-ticket', async (req, res) => {
+  if (!verificarAdmin(req, res)) return;
+  const { ticket_id, whatsapp, mensaje } = req.body || {};
+  if (!mensaje || (!ticket_id && !whatsapp)) {
+    return res.status(400).json({ ok: false, msg: 'Falta mensaje y (ticket_id o whatsapp)' });
+  }
+  const r = await responderTicket({ numDestino: whatsapp || null, mensaje, ticketId: ticket_id || null });
+  if (!r.ok) return res.status(502).json({ ok: false, msg: r.msg });
+  res.json({ ok: true, msg: r.msg });
+});
+
 router.post('/espacio-nuevo-miembro', async (req, res) => {
   if (!verificarAdmin(req, res)) return;
   const { space_id, user_id } = req.body || {};

@@ -1,5 +1,6 @@
 const { supabase } = require('../lib/db');
 const { activarPro, rechazarSolicitudPro, reclamarPagoPendiente } = require('../lib/pro-payment');
+const { responderTicket, listarTicketsPendientes } = require('../lib/support-tickets');
 const log = require('../lib/logger');
 
 /**
@@ -11,13 +12,16 @@ const log = require('../lib/logger');
  * comando /pago solo existía en el webhook de WhatsApp).
  *
  * @param {string} cmd - comando ya normalizado (toLowerCase().trim()).
+ * @param {string} [rawText] - texto original SIN normalizar. Necesario para /responder:
+ *   el mensaje al usuario debe conservar mayúsculas y acentos (cmd viene en lower).
+ *   Por defecto es `cmd` para no romper callers que sólo pasan un argumento.
  * @returns {Promise<string|null>} respuesta para el admin, o null si no es un comando admin.
  *
  * IMPORTANTE: la autorización (¿quién es admin?) la decide el caller, no esta función.
  * Los side effects (update en usuarios, registro de pago, aviso al usuario final por
  * WhatsApp) viven aquí porque son correctos sin importar por qué canal aprobó el admin.
  */
-async function procesarComandoAdmin(cmd) {
+async function procesarComandoAdmin(cmd, rawText = cmd) {
   // /activar <numero_whatsapp> — activa Pro 1 mes (sin link OAuth)
   if (cmd.startsWith('/activar ')) {
     const numeroActivar = cmd.replace('/activar ', '').trim().replace(/\+/g, '');
@@ -63,8 +67,30 @@ async function procesarComandoAdmin(cmd) {
       const estado = u.estado_pago === 'pagado' ? '' : (u.estado_pago === 'pendiente' ? ' ⏳' : '');
       msg += plan + ' ' + (u.nombre || u.whatsapp) + pend + estado + '\n';
     });
-    msg += '\n_Comandos:_\n/pago <num> <mensual|anual>\n/activar <num>';
+    msg += '\n_Comandos:_\n/pago <num> <mensual|anual>\n/activar <num>\n/tickets\n/responder <num> <mensaje>';
     return msg;
+  }
+
+  // /responder <numero_whatsapp> <mensaje> — responde un ticket de soporte
+  // Usa rawText: el mensaje del admin conserva mayúsculas/acentos (cmd viene en lower).
+  if (cmd.startsWith('/responder ')) {
+    const resto = String(rawText).trim().substring('/responder '.length).trim();
+    const spaceIdx = resto.indexOf(' ');
+    if (spaceIdx === -1) {
+      return 'Formato: /responder <número> <mensaje>\nEj: /responder 51933014505 Hola, ya revisé tu caso...';
+    }
+    const numDestino = resto.substring(0, spaceIdx);
+    const mensaje = resto.substring(spaceIdx + 1).trim();
+    if (!mensaje) {
+      return 'Escribe el mensaje. Ej: /responder ' + numDestino.replace(/\+/g, '') + ' Ya revisé tu caso...';
+    }
+    const r = await responderTicket({ numDestino, mensaje });
+    return r.msg;
+  }
+
+  // /tickets — lista los tickets de soporte pendientes
+  if (cmd === '/tickets' || cmd.startsWith('/tickets ')) {
+    return await listarTicketsPendientes();
   }
 
   return null;

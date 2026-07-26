@@ -3,6 +3,8 @@ import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'faviomendoza27jl@gmail.com';
+const BACKEND_URL = process.env.NETO_BACKEND_URL || process.env.RAILWAY_URL || 'https://api.neto.pe';
+const ADMIN_KEY = process.env.ADMIN_KEY;
 
 async function getAdminEmail() {
   const supabase = await createClient();
@@ -36,7 +38,7 @@ export async function GET(request: Request) {
   }
 
   if (search) {
-    query = query.or(`mensaje.ilike.%${search}%,whatsapp.ilike.%${search}%`);
+    query = query.or(`mensaje_usuario.ilike.%${search}%,whatsapp.ilike.%${search}%`);
   }
 
   query = query.range(offset, offset + limit - 1);
@@ -69,16 +71,26 @@ export async function PUT(request: Request) {
       if (!respuesta) {
         return NextResponse.json({ error: 'Missing respuesta' }, { status: 400 });
       }
-      const { error } = await getServiceClient()
-        .from('tickets_soporte')
-        .update({
-          respuesta_admin: respuesta,
-          estado: 'respondido',
-          respondido_at: new Date().toISOString(),
-        })
-        .eq('id', id);
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-      return NextResponse.json({ ok: true, action: 'respond' });
+      if (!ADMIN_KEY) {
+        return NextResponse.json({ error: 'ADMIN_KEY no configurada en el entorno de la webapp' }, { status: 500 });
+      }
+      // La webapp no puede mandar WhatsApp (sin token de Meta). El backend envía el
+      // mensaje al usuario Y marca el ticket como respondido (columnas mensaje_admin /
+      // estado / updated_at). Ver routes/admin.js → /admin/responder-ticket.
+      try {
+        const res = await fetch(`${BACKEND_URL}/admin/responder-ticket`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-admin-key': ADMIN_KEY },
+          body: JSON.stringify({ ticket_id: id, mensaje: respuesta }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok || !json.ok) {
+          return NextResponse.json({ error: json.msg || 'No se pudo enviar la respuesta' }, { status: 502 });
+        }
+        return NextResponse.json({ ok: true, action: 'respond', msg: json.msg });
+      } catch (e) {
+        return NextResponse.json({ error: 'Error contactando el backend: ' + (e as Error).message }, { status: 502 });
+      }
     }
 
     case 'set_estado': {

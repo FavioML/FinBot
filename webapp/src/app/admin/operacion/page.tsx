@@ -69,11 +69,12 @@ interface Ticket {
   id: string;
   usuario_id: string | null;
   whatsapp: string | null;
-  mensaje: string;
+  nombre_usuario: string | null;
+  mensaje_usuario: string | null;
+  mensaje_admin: string | null;
   estado: string;
-  respuesta_admin: string | null;
-  respondido_at: string | null;
   created_at: string;
+  updated_at: string | null;
 }
 
 interface Pago {
@@ -1378,9 +1379,9 @@ export default function AdminOperacionPage() {
                           </td>
                           <td className="px-4 py-3 font-mono text-xs">{t.whatsapp || '—'}</td>
                           <td className="max-w-xs px-4 py-3">
-                            <div className="truncate text-sm">{t.mensaje}</div>
-                            {t.respuesta_admin && (
-                              <div className="mt-1 truncate text-xs text-[#1D9E75]/70">Respuesta: {t.respuesta_admin}</div>
+                            <div className="truncate text-sm">{t.mensaje_usuario || <span className="text-[#F0EFE8]/30">(sin mensaje aún)</span>}</div>
+                            {t.mensaje_admin && (
+                              <div className="mt-1 truncate text-xs text-[#1D9E75]/70">Respuesta: {t.mensaje_admin}</div>
                             )}
                           </td>
                           <td className="px-4 py-3">{estadoBadge(t.estado)}</td>
@@ -1437,9 +1438,9 @@ export default function AdminOperacionPage() {
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <div className="text-sm font-medium">{t.whatsapp ? (whatsappToName[t.whatsapp] || t.whatsapp) : 'Sin usuario'}</div>
-                          <div className="mt-1 text-sm text-[#F0EFE8]/70">{t.mensaje}</div>
-                          {t.respuesta_admin && (
-                            <div className="mt-1 text-xs text-[#1D9E75]/70">Respuesta: {t.respuesta_admin}</div>
+                          <div className="mt-1 text-sm text-[#F0EFE8]/70">{t.mensaje_usuario || <span className="text-[#F0EFE8]/30">(sin mensaje aún)</span>}</div>
+                          {t.mensaje_admin && (
+                            <div className="mt-1 text-xs text-[#1D9E75]/70">Respuesta: {t.mensaje_admin}</div>
                           )}
                         </div>
                         <div className="ml-2">{estadoBadge(t.estado)}</div>
