@@ -1,22 +1,20 @@
 'use client';
 
-
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode, type ComponentType } from 'react';
 import { useRouter } from 'next/navigation';
 import NextLink from 'next/link';
 import Image from 'next/image';
 import { toast } from 'sonner';
-import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
+import { FadeIn } from '@/components/shared/motion-wrapper';
 import {
   User,
   Mail,
   Phone,
   Crown,
   Calendar,
-  Link,
+  Link as LinkIcon,
   Copy,
   Check,
-  Settings,
   Shield,
   MessageCircle,
   Bell,
@@ -30,11 +28,14 @@ import {
   Trash2,
   ChevronDown,
   ChevronRight,
+  LogOut,
+  AlertTriangle,
+  Sparkles,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Separator } from '@/components/ui/separator';
+import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ConfiguracionSkeleton } from '@/components/dashboard/skeletons';
 import { useUser } from '@/lib/hooks/use-user';
@@ -42,31 +43,52 @@ import { createClient } from '@/lib/supabase/client';
 import { signOutAndClear } from '@/lib/query-client';
 import { SOCIAL_LINKS, getCategoriaEmoji, CATEGORIAS } from '@/lib/constants';
 import { capitalizeDisplay } from '@/lib/format';
+import { cn } from '@/lib/utils';
 import { HeaderActions } from '@/components/dashboard/topbar';
 import { optOutTracking, optInTracking, hasOptedOut } from '@/lib/analytics';
 
 /* ------------------------------------------------------------------ */
-/*  Plan comparison data                                               */
+/*  Plan highlights (Pro-only, para tentar a usuarios Free)            */
 /* ------------------------------------------------------------------ */
-const PLAN_FEATURES = [
-  { label: 'Lectura automática de correos', free: false, premium: 'Ilimitadas (11 bancos)' },
-  { label: 'Registro por WhatsApp', free: true, premium: true },
-  { label: 'Imágenes Yape/Plin', free: true, premium: true },
-  { label: 'Categorías personalizables', free: true, premium: true },
-  { label: 'Presupuestos', free: 'Ilimitados', premium: 'Ilimitados' },
-  { label: 'Metas de ahorro', free: '1 activa', premium: 'Ilimitadas' },
-  { label: 'Dashboard', free: 'Mes actual', premium: 'Historial completo' },
-  { label: 'Resumen diario', free: false, premium: true },
-  { label: 'Resumen semanal IA', free: 'Básico', premium: 'Insights + comparativa' },
-  { label: 'Score financiero', free: 'Número', premium: 'Desglose + tendencia' },
-  { label: 'Consejo IA', free: false, premium: 'Ilimitado' },
-  { label: 'Reportes PDF', free: false, premium: true },
-  { label: 'Calendario financiero', free: false, premium: true },
-  { label: 'Heatmap de gastos', free: false, premium: true },
-  { label: 'Export CSV/JSON', free: false, premium: true },
-  { label: 'Carga masiva Excel', free: false, premium: true },
-  { label: 'Recordatorios diarios', free: false, premium: true },
-  { label: 'Multimoneda USD/PEN', free: true, premium: true },
+const PRO_HIGHLIGHTS = [
+  'Lectura automática de correos bancarios',
+  'Reportes PDF y calendario financiero',
+  'Consejo IA ilimitado + score con desglose',
+  'Historial completo y export CSV/JSON',
+] as const;
+
+/* ------------------------------------------------------------------ */
+/*  Nav (índice sticky desktop)                                        */
+/* ------------------------------------------------------------------ */
+const NAV_GROUPS = [
+  {
+    label: 'Cuenta',
+    items: [
+      { id: 'perfil', label: 'Perfil' },
+      { id: 'plan', label: 'Tu plan' },
+      { id: 'referidos', label: 'Referidos' },
+      { id: 'cuentas', label: 'Cuentas conectadas' },
+    ],
+  },
+  {
+    label: 'Preferencias',
+    items: [
+      { id: 'apariencia', label: 'Apariencia' },
+      { id: 'notificaciones', label: 'Notificaciones' },
+      { id: 'categorias', label: 'Categorías' },
+    ],
+  },
+  {
+    label: 'Datos y privacidad',
+    items: [
+      { id: 'privacidad', label: 'Privacidad' },
+      { id: 'exportar', label: 'Exportar datos' },
+    ],
+  },
+  {
+    label: 'Sesión',
+    items: [{ id: 'sesion', label: 'Sesión y cuenta' }],
+  },
 ] as const;
 
 /* ------------------------------------------------------------------ */
@@ -82,6 +104,158 @@ function formatDate(iso: string) {
 
 function getInitial(email?: string) {
   return (email ?? 'U').charAt(0).toUpperCase();
+}
+
+/* ------------------------------------------------------------------ */
+/*  Presentational primitives                                          */
+/* ------------------------------------------------------------------ */
+function GroupHeading({ children }: { children: ReactNode }) {
+  return (
+    <h2 className="px-1 pt-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/70">
+      {children}
+    </h2>
+  );
+}
+
+function Section({
+  id,
+  icon: Icon,
+  title,
+  description,
+  action,
+  children,
+  tone = 'default',
+}: {
+  id: string;
+  icon: ComponentType<{ className?: string }>;
+  title: string;
+  description?: string;
+  action?: ReactNode;
+  children: ReactNode;
+  tone?: 'default' | 'danger';
+}) {
+  const danger = tone === 'danger';
+  return (
+    <section
+      id={id}
+      className={cn(
+        'scroll-mt-24 glass-card p-5 sm:p-6 space-y-4',
+        danger && 'border-destructive/20 hover:border-destructive/40 transition-colors'
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <Icon className={cn('h-[18px] w-[18px] shrink-0', danger ? 'text-destructive' : 'text-muted-foreground')} />
+            <h3 className={cn('text-base font-semibold', danger ? 'text-destructive' : 'text-foreground')}>{title}</h3>
+          </div>
+          {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
+        </div>
+        {action && <div className="shrink-0">{action}</div>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function ToggleRow({
+  title,
+  description,
+  checked,
+  disabled,
+  loading,
+  onToggle,
+  badge,
+}: {
+  title: string;
+  description: string;
+  checked: boolean;
+  disabled?: boolean;
+  loading?: boolean;
+  onToggle?: (v: boolean) => void;
+  badge?: ReactNode;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 rounded-xl border border-border bg-muted/40 px-4 py-3">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium text-secondary-foreground">{title}</p>
+          {badge}
+        </div>
+        <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+      </div>
+      <Switch
+        checked={checked}
+        disabled={disabled || loading}
+        onCheckedChange={(v) => onToggle?.(v)}
+        className={cn('mt-0.5 shrink-0', loading && 'opacity-50')}
+      />
+    </div>
+  );
+}
+
+/* ---- Apariencia: preview visual del tema ---- */
+function ThemePreview({ variant }: { variant: 'dark' | 'light' }) {
+  const isDark = variant === 'dark';
+  return (
+    <div
+      className={cn(
+        'flex h-14 w-full overflow-hidden rounded-lg border',
+        isDark ? 'border-white/10 bg-[#0E0E0C]' : 'border-black/10 bg-[#F4F3EE]'
+      )}
+    >
+      <div className={cn('w-1/4 border-r', isDark ? 'border-white/10 bg-[#131311]' : 'border-black/10 bg-white')} />
+      <div className="flex-1 space-y-1.5 p-2">
+        <div className={cn('h-1.5 w-2/3 rounded-full', isDark ? 'bg-white/20' : 'bg-black/15')} />
+        <div className="h-2.5 w-1/2 rounded-full bg-primary/70" />
+        <div className={cn('h-1.5 w-3/4 rounded-full', isDark ? 'bg-white/10' : 'bg-black/10')} />
+      </div>
+    </div>
+  );
+}
+
+function ThemeOption({
+  variant,
+  active,
+  disabled,
+  icon: Icon,
+  label,
+  caption,
+}: {
+  variant: 'dark' | 'light';
+  active?: boolean;
+  disabled?: boolean;
+  icon: ComponentType<{ className?: string }>;
+  label: string;
+  caption: string;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      aria-pressed={active}
+      className={cn(
+        'group relative flex flex-col gap-3 rounded-xl border p-3 text-left transition-all',
+        active
+          ? 'border-primary bg-primary/[0.06]'
+          : 'border-border bg-muted/30',
+        disabled ? 'cursor-not-allowed opacity-70' : 'cursor-pointer hover:border-border/80'
+      )}
+    >
+      <ThemePreview variant={variant} />
+      <div className="flex items-center gap-2">
+        <Icon className={cn('h-4 w-4', active ? 'text-primary' : 'text-muted-foreground')} />
+        <span className={cn('text-sm font-medium', active ? 'text-foreground' : 'text-secondary-foreground')}>{label}</span>
+        {active && <span className="ml-auto h-2 w-2 rounded-full bg-primary" />}
+        {disabled && (
+          <Badge className="ml-auto border-border bg-muted/60 px-1.5 py-0 text-[9px] text-muted-foreground">
+            Pronto
+          </Badge>
+        )}
+      </div>
+      <span className="text-[11px] text-muted-foreground">{caption}</span>
+    </button>
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -102,6 +276,7 @@ export default function ConfiguracionPage() {
   const [alertasTransaccion, setAlertasTransaccion] = useState(true);
   const [alertasTransaccionLoading, setAlertasTransaccionLoading] = useState(false);
   const [analyticsOptedOut, setAnalyticsOptedOut] = useState(false);
+  const [activeSection, setActiveSection] = useState('perfil');
 
   /* ---- Edit name ---- */
   const [editingName, setEditingName] = useState(false);
@@ -150,6 +325,27 @@ export default function ConfiguracionPage() {
     hasOptedOut().then(setAnalyticsOptedOut);
   }, []);
 
+  /* ---- Scroll spy para el índice sticky ---- */
+  useEffect(() => {
+    if (isLoading) return;
+    const ids = NAV_GROUPS.flatMap((g) => g.items.map((i) => i.id));
+    const els = ids
+      .map((id) => document.getElementById(id))
+      .filter((el): el is HTMLElement => el !== null);
+    if (els.length === 0) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        if (visible[0]) setActiveSection(visible[0].target.id);
+      },
+      { rootMargin: '-15% 0px -75% 0px' }
+    );
+    els.forEach((el) => obs.observe(el));
+    return () => obs.disconnect();
+  }, [isLoading, categoriesLoading]);
+
   async function fetchCategories() {
     setCategoriesLoading(true);
     try {
@@ -178,7 +374,9 @@ export default function ConfiguracionPage() {
         });
         setCategories(merged);
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     setCategoriesLoading(false);
   }
 
@@ -198,14 +396,13 @@ export default function ConfiguracionPage() {
       if (res.ok) {
         toast.success('Nombre actualizado');
         setEditingName(false);
-        // Refresh user data
         window.location.reload();
       } else {
         const err = await res.json();
         toast.error(err.error || 'Error al actualizar');
       }
     } catch {
-      toast.error('Error de conexion');
+      toast.error('Error de conexión');
     }
     setSavingName(false);
   }
@@ -215,14 +412,14 @@ export default function ConfiguracionPage() {
     try {
       const res = await fetch(`/api/categories?id=${catId}&sub=${isSub}`, { method: 'DELETE' });
       if (res.ok) {
-        toast.success('Categoria eliminada');
+        toast.success('Categoría eliminada');
         fetchCategories();
         setDeletingCat(null);
       } else {
         toast.error('Error al eliminar');
       }
     } catch {
-      toast.error('Error de conexion');
+      toast.error('Error de conexión');
     }
   }
 
@@ -239,19 +436,19 @@ export default function ConfiguracionPage() {
         body: JSON.stringify({ id: catId, nombre: renameInput.trim() }),
       });
       if (res.ok) {
-        toast.success('Categoria renombrada');
+        toast.success('Categoría renombrada');
         setRenamingCat(null);
         fetchCategories();
       } else {
         toast.error('Error al renombrar');
       }
     } catch {
-      toast.error('Error de conexion');
+      toast.error('Error de conexión');
     }
   }
 
   function toggleExpand(catId: string) {
-    setExpandedCats(prev => {
+    setExpandedCats((prev) => {
       const next = new Set(prev);
       if (next.has(catId)) next.delete(catId);
       else next.add(catId);
@@ -275,6 +472,35 @@ export default function ConfiguracionPage() {
     }
   }
 
+  /* ---- Notifications toggle helper ---- */
+  async function patchNotification(
+    payload: Record<string, boolean>,
+    apply: (v: boolean) => void,
+    setLoading: (v: boolean) => void,
+    okMsg: [string, string]
+  ) {
+    const key = Object.keys(payload)[0];
+    const newVal = payload[key];
+    setLoading(true);
+    try {
+      const res = await fetch('/api/notifications', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        apply(newVal);
+        toast.success(newVal ? okMsg[0] : okMsg[1]);
+      } else {
+        toast.error('Error al actualizar');
+      }
+    } catch {
+      toast.error('Error de conexión');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   /* ---- Sign out ---- */
   async function handleSignOut() {
     setSigningOut(true);
@@ -286,9 +512,7 @@ export default function ConfiguracionPage() {
   /*  Loading skeleton                                                 */
   /* ---------------------------------------------------------------- */
   if (isLoading) {
-    return (
-      <ConfiguracionSkeleton />
-    );
+    return <ConfiguracionSkeleton />;
   }
 
   /* ---------------------------------------------------------------- */
@@ -297,20 +521,13 @@ export default function ConfiguracionPage() {
   if (!user) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
-        <div className="rounded-full bg-[rgba(255,255,255,0.03)] p-6 mb-4">
-          <User className="h-8 w-8 text-[#8A877D]" />
+        <div className="mb-4 rounded-full bg-muted/40 p-6">
+          <User className="h-8 w-8 text-muted-foreground" />
         </div>
-        <h3 className="text-lg font-semibold text-[#F0EFE8] mb-2">
-          Inicia sesion para ver tu configuracion
-        </h3>
-        <p className="text-sm text-[#8A877D] max-w-md mb-6">
-          Conecta tu cuenta para administrar tu perfil y plan.
-        </p>
-        <Button
-          className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90"
-          onClick={() => router.push('/login')}
-        >
-          Iniciar sesion
+        <h3 className="mb-2 text-lg font-semibold text-foreground">Inicia sesión para ver tu configuración</h3>
+        <p className="mb-6 max-w-md text-sm text-muted-foreground">Conecta tu cuenta para administrar tu perfil y plan.</p>
+        <Button className="bg-primary text-white hover:bg-primary/90" onClick={() => router.push('/login')}>
+          Iniciar sesión
         </Button>
       </div>
     );
@@ -321,781 +538,662 @@ export default function ConfiguracionPage() {
   /* ---------------------------------------------------------------- */
   return (
     <FadeIn>
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-[#F0EFE8]">Configuracion</h1>
-        <HeaderActions />
-      </div>
+      <div className="mx-auto max-w-5xl">
+        {/* Header */}
+        <div className="mb-6 flex items-center justify-between">
+          <h1 className="text-2xl font-bold text-foreground">Configuración</h1>
+          <HeaderActions />
+        </div>
 
-      {/* ============================================================ */}
-      {/*  Profile                                                      */}
-      {/* ============================================================ */}
-      <div className="glass-card glass-card-glow p-6">
-        <div className="flex items-start gap-4">
-          {/* Avatar */}
-          {avatarUrl ? (
-            <Image
-              src={avatarUrl}
-              alt={user.nombre || ''}
-              width={56}
-              height={56}
-              className="h-14 w-14 shrink-0 rounded-full object-cover ring-1 ring-primary/20"
-            />
-          ) : (
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#1D9E75] text-xl font-bold text-white">
-              {getInitial(user.email)}
-            </div>
-          )}
-
-          <div className="flex-1 min-w-0 space-y-2">
-            {/* Name + plan */}
-            <div className="flex items-center gap-2">
-              {editingName ? (
-                <div className="flex items-center gap-2 flex-1 min-w-0">
-                  <Input
-                    value={nameInput}
-                    onChange={(e) => setNameInput(e.target.value)}
-                    className="h-8 text-sm bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.1)] text-[#F0EFE8] max-w-[200px]"
-                    placeholder="Tu nombre"
-                    autoFocus
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleSaveName();
-                      if (e.key === 'Escape') setEditingName(false);
-                    }}
-                  />
-                  <Button
-                    size="sm"
-                    className="h-7 px-2 bg-[#1D9E75] text-white hover:bg-[#178a64]"
-                    onClick={handleSaveName}
-                    disabled={savingName}
-                  >
-                    <Check className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 px-2 text-[#8A877D] hover:text-[#F0EFE8]"
-                    onClick={() => setEditingName(false)}
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </Button>
+        <div className="lg:grid lg:grid-cols-[196px_1fr] lg:items-start lg:gap-8">
+          {/* ---- Sticky nav (desktop) ---- */}
+          <nav className="sticky top-6 hidden self-start lg:block">
+            <div className="space-y-4">
+              {NAV_GROUPS.map((group) => (
+                <div key={group.label} className="space-y-1">
+                  <p className="px-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/60">
+                    {group.label}
+                  </p>
+                  {group.items.map((item) => (
+                    <a
+                      key={item.id}
+                      href={`#${item.id}`}
+                      className={cn(
+                        'block rounded-lg px-3 py-1.5 text-sm transition-colors',
+                        activeSection === item.id
+                          ? 'bg-primary/10 font-medium text-foreground'
+                          : 'text-muted-foreground hover:bg-muted/50 hover:text-secondary-foreground'
+                      )}
+                    >
+                      {item.label}
+                    </a>
+                  ))}
                 </div>
-              ) : (
-                <>
-                  <h2 className="text-lg font-semibold text-[#F0EFE8] truncate">
-                    {user.nombre || (user.email ? user.email.split('@')[0] : 'Usuario')}
-                  </h2>
-                  <button
-                    className="shrink-0 p-1 rounded-md hover:bg-[rgba(255,255,255,0.05)] text-[#8A877D] hover:text-[#F0EFE8] transition-colors"
-                    onClick={() => {
-                      setNameInput(user.nombre || '');
-                      setEditingName(true);
-                    }}
-                    title="Editar nombre"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                </>
-              )}
-              {!editingName && (user.plan === 'premium' ? (
-                <Badge className="bg-[#1D9E75]/20 text-[#1D9E75] border-[#1D9E75]/30 gap-1 shrink-0">
-                  <Crown className="h-3 w-3" />
-                  Neto Pro
-                </Badge>
-              ) : (
-                <Badge className="bg-[#87948c]/20 text-[#87948c] border-[#87948c]/30 gap-1 shrink-0">
-                  Free
-                </Badge>
               ))}
             </div>
+          </nav>
 
-            {/* Email */}
-            {user.email && (
-              <div className="flex items-center gap-2 text-sm">
-                <Mail className="h-4 w-4 text-[#8A877D] shrink-0" />
-                <span className="text-[#C8C6BC] truncate">{user.email}</span>
-              </div>
-            )}
+          {/* ---- Content ---- */}
+          <div className="space-y-8">
+            {/* ============================================================ */}
+            {/*  GROUP: Cuenta                                                */}
+            {/* ============================================================ */}
+            <div className="space-y-4">
+              <GroupHeading>Cuenta</GroupHeading>
 
-            {/* WhatsApp */}
-            <div className="flex items-center gap-2 text-sm">
-              <Phone className="h-4 w-4 text-[#8A877D] shrink-0" />
-              <span className="text-[#C8C6BC]">{user.whatsapp}</span>
-            </div>
-
-            {/* Member since */}
-            <div className="flex items-center gap-2 text-sm">
-              <Calendar className="h-4 w-4 text-[#8A877D] shrink-0" />
-              <span className="text-[#8A877D]">
-                Miembro desde {formatDate(user.created_at)}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {user.plan !== 'premium' && (
-          <div className="mt-4 rounded-xl border border-[#1D9E75]/20 bg-[#1D9E75]/5 p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Crown className="h-4 w-4 text-[#1D9E75]" />
-              <span className="text-sm font-semibold text-[#F0EFE8]">Activa Neto Pro</span>
-            </div>
-            <p className="text-xs text-[#8A877D] mb-3">
-              Gmail automático, reportes PDF, presupuestos ilimitados, metas, calendario y más.
-            </p>
-            <NextLink
-              href="/dashboard/pro"
-              className="inline-flex items-center gap-2 rounded-full bg-[#1D9E75] px-4 py-2 text-xs font-semibold text-white hover:bg-[#178a64] transition-colors"
-            >
-              Pasar a Pro — S/10/mes
-            </NextLink>
-          </div>
-        )}
-
-      </div>
-
-      {/* ============================================================ */}
-      {/*  Plan details                                                 */}
-      {/* ============================================================ */}
-      <div className="glass-card glass-card-glow p-6 space-y-4">
-        <div className="flex items-center gap-2 mb-1">
-          <Shield className="h-5 w-5 text-[#8A877D]" />
-          <h2 className="text-lg font-semibold text-[#F0EFE8]">Tu plan</h2>
-        </div>
-
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-[#C8C6BC]">Plan actual</span>
-          <span className={`text-sm font-medium ${isPremium ? 'text-[#1D9E75]' : 'text-[#87948c]'}`}>
-            {isPremium ? 'Neto Pro' : 'Free'}
-          </span>
-        </div>
-
-        {isPremium && user.plan_expiry && (
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-[#C8C6BC]">Vence el</span>
-            <span className="text-sm font-medium text-[#EF9F27]">
-              {formatDate(user.plan_expiry)}
-            </span>
-          </div>
-        )}
-
-        <Separator className="bg-[rgba(255,255,255,0.06)]" />
-
-        {/* Feature list */}
-        <div className="overflow-x-auto -mx-1 glass-card-depth rounded-xl">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-[#8A877D]">
-                <th className="text-left font-medium py-2 pr-4">Funcion incluida</th>
-                <th className="text-center font-medium py-2 px-3">Tu plan</th>
-              </tr>
-            </thead>
-            <tbody>
-              {PLAN_FEATURES.map((f) => {
-                const val = isPremium ? f.premium : f.free;
-                return (
-                <tr key={f.label} className="border-t border-[rgba(255,255,255,0.04)]">
-                  <td className="py-2.5 pr-4 text-[#C8C6BC]">{f.label}</td>
-                  <td className="py-2.5 px-3 text-center">
-                    {typeof val === 'boolean' ? (
-                      <span>{val ? '\u2705' : '\u274C'}</span>
-                    ) : (
-                      <span className={isPremium ? 'text-[#1D9E75] font-medium' : 'text-[#C8C6BC] font-medium'}>{val}</span>
-                    )}
-                  </td>
-                </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* ============================================================ */}
-      {/*  Referidos                                                    */}
-      {/* ============================================================ */}
-      <div className="glass-card glass-card-glow p-6 space-y-4">
-        <div className="flex items-center gap-2 mb-1">
-          <Link className="h-5 w-5 text-[#8A877D]" />
-          <h2 className="text-lg font-semibold text-[#F0EFE8]">
-            Programa de referidos
-          </h2>
-        </div>
-
-        <p className="text-sm text-[#C8C6BC]">
-          Invita a 3 amigos. Cuando se suscriban y estén activos, tu siguiente mes es gratis.
-        </p>
-
-        {/* Referral link */}
-        <div className="flex items-center gap-2">
-          <div className="flex-1 rounded-lg bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.08)] px-3 py-2 text-sm text-[#C8C6BC] truncate">
-            {referralLink}
-          </div>
-          <Button
-            variant="outline"
-            size="icon"
-            className="shrink-0 border-[rgba(255,255,255,0.1)] bg-transparent hover:bg-[rgba(255,255,255,0.05)] transition-all duration-200 active:scale-95"
-            onClick={handleCopy}
-          >
-            {copied ? (
-              <Check className="h-4 w-4 text-[#1D9E75]" />
-            ) : (
-              <Copy className="h-4 w-4 text-[#8A877D]" />
-            )}
-          </Button>
-        </div>
-
-        {/* Progress */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-[#8A877D]">Referidos activos</span>
-            <span className="text-[#C8C6BC] font-medium">0 / 3 necesarios</span>
-          </div>
-          <div className="h-2 w-full rounded-full bg-[rgba(255,255,255,0.06)]">
-            <div
-              className="h-full rounded-full bg-[#1D9E75] transition-all duration-500"
-              style={{ width: '0%' }}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* ============================================================ */}
-      {/*  Connected accounts                                           */}
-      {/* ============================================================ */}
-      <div className="glass-card glass-card-glow p-6 space-y-4">
-        <div className="flex items-center gap-2 mb-1">
-          <Mail className="h-5 w-5 text-[#8A877D]" />
-          <h2 className="text-lg font-semibold text-[#F0EFE8]">
-            Cuentas conectadas
-          </h2>
-        </div>
-
-        {/* Placeholder connected account */}
-        {user.email ? (
-          <div className="flex items-center justify-between rounded-lg bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] px-4 py-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <Mail className="h-4 w-4 text-[#8A877D] shrink-0" />
-              <span className="text-sm text-[#C8C6BC] truncate">{user.email}</span>
-            </div>
-            <Badge className="bg-[#1D9E75]/20 text-[#1D9E75] border-[#1D9E75]/30 text-xs shrink-0">
-              Activa
-            </Badge>
-          </div>
-        ) : (
-          <p className="text-sm text-[#8A877D]">No hay cuentas conectadas.</p>
-        )}
-      </div>
-
-      {/* ============================================================ */}
-      {/*  Categories management                                          */}
-      {/* ============================================================ */}
-      <div className="glass-card glass-card-glow p-6 space-y-4">
-        <div className="flex items-center gap-2 mb-1">
-          <Tag className="h-5 w-5 text-[#8A877D]" />
-          <h2 className="text-lg font-semibold text-[#F0EFE8]">
-            Gestionar categorias
-          </h2>
-        </div>
-
-        <p className="text-sm text-[#8A877D]">
-          Renombra o elimina categorias y subcategorias. Las transacciones existentes mantienen su categoria original.
-        </p>
-
-        {categoriesLoading ? (
-          <div className="space-y-2">
-            <Skeleton className="h-10 rounded-lg" />
-            <Skeleton className="h-10 rounded-lg" />
-            <Skeleton className="h-10 rounded-lg" />
-          </div>
-        ) : categories.length === 0 ? (
-          <p className="text-sm text-[#8A877D] py-4 text-center">
-            No tienes categorias personalizadas. Se crean automaticamente al registrar gastos.
-          </p>
-        ) : (
-          <div className="space-y-1">
-            {categories.map((cat) => (
-              <div key={cat.id}>
-                {/* Category row */}
-                <div className="flex items-center gap-2 rounded-lg bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] px-3 py-2.5">
-                  {/* Expand toggle */}
-                  {cat.subcategorias.length > 0 ? (
-                    <button
-                      className="shrink-0 p-0.5 text-[#8A877D] hover:text-[#F0EFE8]"
-                      onClick={() => toggleExpand(cat.id)}
-                    >
-                      {expandedCats.has(cat.id) ? (
-                        <ChevronDown className="h-4 w-4" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4" />
-                      )}
-                    </button>
+              {/* Perfil */}
+              <section id="perfil" className="scroll-mt-24 glass-card glass-card-glow p-5 sm:p-6">
+                <div className="flex items-start gap-4">
+                  {avatarUrl ? (
+                    <Image
+                      src={avatarUrl}
+                      alt={user.nombre || ''}
+                      width={56}
+                      height={56}
+                      className="h-14 w-14 shrink-0 rounded-full object-cover ring-1 ring-primary/20"
+                    />
                   ) : (
-                    <span className="shrink-0 w-5" />
-                  )}
-
-                  {/* Emoji + name */}
-                  {renamingCat === cat.id ? (
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <Input
-                        value={renameInput}
-                        onChange={(e) => setRenameInput(e.target.value)}
-                        className="h-7 text-sm bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.1)] text-[#F0EFE8] max-w-[180px]"
-                        autoFocus
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleRenameCategory(cat.id);
-                          if (e.key === 'Escape') setRenamingCat(null);
-                        }}
-                      />
-                      <Button size="sm" className="h-6 px-1.5 bg-[#1D9E75] text-white hover:bg-[#178a64]" onClick={() => handleRenameCategory(cat.id)}>
-                        <Check className="h-3 w-3" />
-                      </Button>
-                      <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[#8A877D]" onClick={() => setRenamingCat(null)}>
-                        <X className="h-3 w-3" />
-                      </Button>
+                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-primary text-xl font-bold text-white">
+                      {getInitial(user.email)}
                     </div>
-                  ) : (
-                    <>
-                      <span className="text-sm font-medium text-[#F0EFE8] flex-1 min-w-0 truncate">
-                        {getCategoriaEmoji(cat.nombre)} {cat.nombre}
-                      </span>
-                      <span className="text-xs text-[#8A877D] shrink-0">
-                        {cat.subcategorias.length > 0 ? `${cat.subcategorias.length} sub` : ''}
-                      </span>
-                    </>
                   )}
 
-                  {/* Actions */}
-                  {renamingCat !== cat.id && (
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        className="p-1 rounded text-[#8A877D] hover:text-[#F0EFE8] hover:bg-[rgba(255,255,255,0.05)]"
-                        onClick={() => { setRenamingCat(cat.id); setRenameInput(cat.nombre); }}
-                        title="Renombrar"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                      {deletingCat === cat.id ? (
-                        <div className="flex items-center gap-1">
-                          <Button size="sm" className="h-6 px-1.5 bg-[#D85A30] text-white hover:bg-[#D85A30]/80 text-xs" onClick={() => handleDeleteCategory(cat.id, false)}>
-                            Si
+                  <div className="min-w-0 flex-1 space-y-2">
+                    {/* Name + plan */}
+                    <div className="flex items-center gap-2">
+                      {editingName ? (
+                        <div className="flex min-w-0 flex-1 items-center gap-2">
+                          <Input
+                            value={nameInput}
+                            onChange={(e) => setNameInput(e.target.value)}
+                            className="form-input h-8 max-w-[200px] text-sm"
+                            placeholder="Tu nombre"
+                            autoFocus
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleSaveName();
+                              if (e.key === 'Escape') setEditingName(false);
+                            }}
+                          />
+                          <Button
+                            size="sm"
+                            className="h-7 bg-primary px-2 text-white hover:bg-primary/90"
+                            onClick={handleSaveName}
+                            disabled={savingName}
+                          >
+                            <Check className="h-3.5 w-3.5" />
                           </Button>
-                          <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[#8A877D] text-xs" onClick={() => setDeletingCat(null)}>
-                            No
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-2 text-muted-foreground hover:text-foreground"
+                            onClick={() => setEditingName(false)}
+                          >
+                            <X className="h-3.5 w-3.5" />
                           </Button>
                         </div>
                       ) : (
-                        <button
-                          className="p-1 rounded text-[#8A877D] hover:text-[#D85A30] hover:bg-[rgba(216,90,48,0.05)]"
-                          onClick={() => setDeletingCat(cat.id)}
-                          title="Eliminar"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        <>
+                          <h3 className="truncate text-lg font-semibold text-foreground">
+                            {user.nombre || (user.email ? user.email.split('@')[0] : 'Usuario')}
+                          </h3>
+                          <button
+                            className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-white/[0.05] hover:text-foreground"
+                            onClick={() => {
+                              setNameInput(user.nombre || '');
+                              setEditingName(true);
+                            }}
+                            title="Editar nombre"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                        </>
                       )}
+                      {!editingName &&
+                        (isPremium ? (
+                          <Badge className="shrink-0 gap-1 border-primary/30 bg-primary/20 text-primary">
+                            <Crown className="h-3 w-3" />
+                            Neto Pro
+                          </Badge>
+                        ) : (
+                          <Badge className="shrink-0 gap-1 border-secondary-foreground/30 bg-secondary-foreground/15 text-secondary-foreground">
+                            Free
+                          </Badge>
+                        ))}
+                    </div>
+
+                    {/* Email */}
+                    {user.email && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="truncate text-secondary-foreground">{user.email}</span>
+                      </div>
+                    )}
+
+                    {/* WhatsApp */}
+                    <div className="flex items-center gap-2 text-sm">
+                      <Phone className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="text-secondary-foreground">{user.whatsapp}</span>
+                    </div>
+
+                    {/* Member since */}
+                    <div className="flex items-center gap-2 text-sm">
+                      <Calendar className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="text-muted-foreground">Miembro desde {formatDate(user.created_at)}</span>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              {/* Tu plan (comprimido) */}
+              <Section id="plan" icon={Shield} title="Tu plan">
+                <div className="space-y-3 rounded-xl border border-border bg-muted/40 px-4 py-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-secondary-foreground">Plan actual</span>
+                    <span className={cn('text-sm font-semibold', isPremium ? 'text-primary' : 'text-secondary-foreground')}>
+                      {isPremium ? 'Neto Pro' : 'Free'}
+                    </span>
+                  </div>
+                  {isPremium && user.plan_expiry && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-secondary-foreground">Vence el</span>
+                      <span className="text-sm font-medium text-[var(--color-neto-amber)]">{formatDate(user.plan_expiry)}</span>
                     </div>
                   )}
                 </div>
 
-                {/* Subcategories */}
-                {expandedCats.has(cat.id) && cat.subcategorias.length > 0 && (
-                  <div className="ml-7 mt-0.5 space-y-0.5">
-                    {cat.subcategorias.map((sub, idx) => (
-                      <div key={sub.id ?? `sys-${idx}`} className="flex items-center gap-2 rounded-lg bg-[rgba(255,255,255,0.015)] border border-[rgba(255,255,255,0.04)] px-3 py-2">
-                        {sub.id !== null && renamingCat === sub.id ? (
-                          <div className="flex items-center gap-2 flex-1 min-w-0">
-                            <Input
-                              value={renameInput}
-                              onChange={(e) => setRenameInput(e.target.value)}
-                              className="h-7 text-sm bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.1)] text-[#F0EFE8] max-w-[160px]"
-                              autoFocus
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleRenameCategory(sub.id!);
-                                if (e.key === 'Escape') setRenamingCat(null);
-                              }}
-                            />
-                            <Button size="sm" className="h-6 px-1.5 bg-[#1D9E75] text-white hover:bg-[#178a64]" onClick={() => handleRenameCategory(sub.id!)}>
-                              <Check className="h-3 w-3" />
-                            </Button>
-                            <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[#8A877D]" onClick={() => setRenamingCat(null)}>
-                              <X className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        ) : (
-                          <>
-                            <span className="text-sm text-[#C8C6BC] flex-1 min-w-0 truncate">
-                              {sub.nombre}
-                            </span>
-                            {(
-                            <div className="flex items-center gap-1 shrink-0">
+                {isPremium ? (
+                  <NextLink
+                    href="/dashboard/planes"
+                    className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+                  >
+                    Ver comparación de planes
+                    <ChevronRight className="h-4 w-4" />
+                  </NextLink>
+                ) : (
+                  <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
+                    <div className="mb-2 flex items-center gap-2">
+                      <Sparkles className="h-4 w-4 text-primary" />
+                      <span className="text-sm font-semibold text-foreground">Activa Neto Pro</span>
+                    </div>
+                    <ul className="mb-3 space-y-1">
+                      {PRO_HIGHLIGHTS.map((h) => (
+                        <li key={h} className="flex items-start gap-2 text-xs text-muted-foreground">
+                          <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                          {h}
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <NextLink
+                        href="/dashboard/pro"
+                        className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-primary/90"
+                      >
+                        Pasar a Pro — S/10/mes
+                      </NextLink>
+                      <NextLink href="/dashboard/planes" className="text-xs font-medium text-muted-foreground hover:text-secondary-foreground">
+                        Ver comparación completa
+                      </NextLink>
+                    </div>
+                  </div>
+                )}
+              </Section>
+
+              {/* Referidos */}
+              <Section
+                id="referidos"
+                icon={LinkIcon}
+                title="Programa de referidos"
+                description="Invita a 3 amigos. Cuando se suscriban y estén activos, tu siguiente mes es gratis."
+              >
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 truncate rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-secondary-foreground">
+                    {referralLink}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="shrink-0 border-border bg-transparent transition-all duration-200 hover:bg-white/[0.05] active:scale-95"
+                    onClick={handleCopy}
+                  >
+                    {copied ? <Check className="h-4 w-4 text-primary" /> : <Copy className="h-4 w-4 text-muted-foreground" />}
+                  </Button>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Referidos activos</span>
+                    <span className="font-medium text-secondary-foreground">0 / 3 necesarios</span>
+                  </div>
+                  <div className="h-2 w-full rounded-full bg-muted">
+                    <div className="h-full rounded-full bg-primary transition-all duration-500" style={{ width: '0%' }} />
+                  </div>
+                </div>
+              </Section>
+
+              {/* Cuentas conectadas */}
+              <Section id="cuentas" icon={Mail} title="Cuentas conectadas">
+                {user.email ? (
+                  <div className="flex items-center justify-between rounded-xl border border-border bg-muted/40 px-4 py-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="truncate text-sm text-secondary-foreground">{user.email}</span>
+                    </div>
+                    <Badge className="shrink-0 border-primary/30 bg-primary/20 text-xs text-primary">Activa</Badge>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No hay cuentas conectadas.</p>
+                )}
+              </Section>
+            </div>
+
+            {/* ============================================================ */}
+            {/*  GROUP: Preferencias                                          */}
+            {/* ============================================================ */}
+            <div className="space-y-4">
+              <GroupHeading>Preferencias</GroupHeading>
+
+              {/* Apariencia */}
+              <Section id="apariencia" icon={Palette} title="Apariencia" description="Elige cómo se ve tu Neto.">
+                <div className="grid max-w-md grid-cols-2 gap-3">
+                  <ThemeOption variant="dark" active icon={Moon} label="Oscuro" caption="Nocturnal Precision" />
+                  <ThemeOption variant="light" disabled icon={Sun} label="Claro" caption="Muy pronto" />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  El tema oscuro está diseñado para reducir la fatiga visual. El modo claro llega pronto.
+                </p>
+              </Section>
+
+              {/* Notificaciones */}
+              <Section
+                id="notificaciones"
+                icon={Bell}
+                title="Notificaciones"
+                description="Controla qué notificaciones recibes por WhatsApp."
+              >
+                <ToggleRow
+                  title="Recordatorios"
+                  description="Recordatorio diario a las 8pm + avisos de deudas próximas a vencer"
+                  checked={recordatoriosActivos}
+                  loading={recordatoriosLoading}
+                  onToggle={(v) =>
+                    patchNotification({ recordatorios_activos: v }, setRecordatoriosActivos, setRecordatoriosLoading, [
+                      'Recordatorios activados',
+                      'Recordatorios desactivados',
+                    ])
+                  }
+                />
+
+                <ToggleRow
+                  title="Avisos de movimientos detectados"
+                  description="Te aviso por WhatsApp cuando detecte un gasto en tu correo"
+                  checked={alertasTransaccion}
+                  loading={alertasTransaccionLoading}
+                  onToggle={(v) =>
+                    patchNotification({ alertas_transaccion: v }, setAlertasTransaccion, setAlertasTransaccionLoading, [
+                      'Avisos de movimientos activados',
+                      'Avisos de movimientos desactivados',
+                    ])
+                  }
+                />
+
+                <ToggleRow
+                  title="Modo Manos Libres"
+                  description="Resumen de lo que gastaste en el día, cada noche a las 9pm por WhatsApp"
+                  checked={manosLibres && isPremium}
+                  disabled={!isPremium}
+                  loading={manosLibresLoading}
+                  badge={
+                    !isPremium ? (
+                      <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">Pro</span>
+                    ) : undefined
+                  }
+                  onToggle={(v) => {
+                    if (!isPremium) return;
+                    patchNotification({ manos_libres: v }, setManosLibres, setManosLibresLoading, [
+                      'Modo Manos Libres activado',
+                      'Modo Manos Libres desactivado',
+                    ]);
+                  }}
+                />
+
+                {/* Auto-managed (informativo, no toggle) */}
+                {[
+                  { key: 'resumen_semanal', label: 'Resumen semanal', desc: 'Análisis comparativo cada domingo' },
+                  { key: 'alertas_presupuesto', label: 'Alertas de presupuesto', desc: 'Aviso al superar 80% o 100% de un presupuesto' },
+                ].map((pref) => (
+                  <div
+                    key={pref.key}
+                    className="flex items-start justify-between gap-4 rounded-xl border border-border bg-muted/40 px-4 py-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-secondary-foreground">{pref.label}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{pref.desc}</p>
+                    </div>
+                    <Badge className="mt-0.5 shrink-0 border-primary/25 bg-primary/10 text-[10px] text-primary">Automático</Badge>
+                  </div>
+                ))}
+
+                <p className="text-xs text-muted-foreground">
+                  El resumen semanal y las alertas de presupuesto se envían automáticamente. Los demás los activas o desactivas desde aquí.
+                </p>
+              </Section>
+
+              {/* Categorías */}
+              <Section
+                id="categorias"
+                icon={Tag}
+                title="Gestionar categorías"
+                description="Renombra o elimina categorías y subcategorías. Las transacciones existentes mantienen su categoría original."
+              >
+                {categoriesLoading ? (
+                  <div className="space-y-2">
+                    <Skeleton className="h-10 rounded-lg" />
+                    <Skeleton className="h-10 rounded-lg" />
+                    <Skeleton className="h-10 rounded-lg" />
+                  </div>
+                ) : categories.length === 0 ? (
+                  <p className="py-4 text-center text-sm text-muted-foreground">
+                    No tienes categorías personalizadas. Se crean automáticamente al registrar gastos.
+                  </p>
+                ) : (
+                  <div className="space-y-1">
+                    {categories.map((cat) => (
+                      <div key={cat.id}>
+                        {/* Category row */}
+                        <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/40 px-3 py-2.5">
+                          {cat.subcategorias.length > 0 ? (
+                            <button
+                              className="shrink-0 p-0.5 text-muted-foreground hover:text-foreground"
+                              onClick={() => toggleExpand(cat.id)}
+                            >
+                              {expandedCats.has(cat.id) ? (
+                                <ChevronDown className="h-4 w-4" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4" />
+                              )}
+                            </button>
+                          ) : (
+                            <span className="w-5 shrink-0" />
+                          )}
+
+                          {renamingCat === cat.id ? (
+                            <div className="flex min-w-0 flex-1 items-center gap-2">
+                              <Input
+                                value={renameInput}
+                                onChange={(e) => setRenameInput(e.target.value)}
+                                className="form-input h-7 max-w-[180px] text-sm"
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleRenameCategory(cat.id);
+                                  if (e.key === 'Escape') setRenamingCat(null);
+                                }}
+                              />
+                              <Button
+                                size="sm"
+                                className="h-6 bg-primary px-1.5 text-white hover:bg-primary/90"
+                                onClick={() => handleRenameCategory(cat.id)}
+                              >
+                                <Check className="h-3 w-3" />
+                              </Button>
+                              <Button size="sm" variant="ghost" className="h-6 px-1.5 text-muted-foreground" onClick={() => setRenamingCat(null)}>
+                                <X className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <>
+                              <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+                                {getCategoriaEmoji(cat.nombre)} {cat.nombre}
+                              </span>
+                              <span className="shrink-0 text-xs text-muted-foreground">
+                                {cat.subcategorias.length > 0 ? `${cat.subcategorias.length} sub` : ''}
+                              </span>
+                            </>
+                          )}
+
+                          {renamingCat !== cat.id && (
+                            <div className="flex shrink-0 items-center gap-1">
                               <button
-                                className="p-1 rounded text-[#8A877D] hover:text-[#F0EFE8] hover:bg-[rgba(255,255,255,0.05)]"
-                                onClick={() => { setRenamingCat(sub.id!); setRenameInput(sub.nombre); }}
+                                className="rounded p-1 text-muted-foreground hover:bg-white/[0.05] hover:text-foreground"
+                                onClick={() => {
+                                  setRenamingCat(cat.id);
+                                  setRenameInput(cat.nombre);
+                                }}
                                 title="Renombrar"
                               >
-                                <Pencil className="h-3 w-3" />
+                                <Pencil className="h-3.5 w-3.5" />
                               </button>
-                              {deletingCat === sub.id ? (
+                              {deletingCat === cat.id ? (
                                 <div className="flex items-center gap-1">
-                                  <Button size="sm" className="h-6 px-1.5 bg-[#D85A30] text-white hover:bg-[#D85A30]/80 text-xs" onClick={() => handleDeleteCategory(sub.id!, true)}>
-                                    Si
+                                  <Button
+                                    size="sm"
+                                    className="h-6 bg-destructive px-1.5 text-xs text-white hover:bg-destructive/80"
+                                    onClick={() => handleDeleteCategory(cat.id, false)}
+                                  >
+                                    Sí
                                   </Button>
-                                  <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[#8A877D] text-xs" onClick={() => setDeletingCat(null)}>
+                                  <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs text-muted-foreground" onClick={() => setDeletingCat(null)}>
                                     No
                                   </Button>
                                 </div>
                               ) : (
                                 <button
-                                  className="p-1 rounded text-[#8A877D] hover:text-[#D85A30] hover:bg-[rgba(216,90,48,0.05)]"
-                                  onClick={() => setDeletingCat(sub.id!)}
+                                  className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                  onClick={() => setDeletingCat(cat.id)}
                                   title="Eliminar"
                                 >
-                                  <Trash2 className="h-3 w-3" />
+                                  <Trash2 className="h-3.5 w-3.5" />
                                 </button>
                               )}
                             </div>
-                            )}
-                          </>
+                          )}
+                        </div>
+
+                        {/* Subcategories */}
+                        {expandedCats.has(cat.id) && cat.subcategorias.length > 0 && (
+                          <div className="ml-7 mt-0.5 space-y-0.5">
+                            {cat.subcategorias.map((sub, idx) => (
+                              <div
+                                key={sub.id ?? `sys-${idx}`}
+                                className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2"
+                              >
+                                {sub.id !== null && renamingCat === sub.id ? (
+                                  <div className="flex min-w-0 flex-1 items-center gap-2">
+                                    <Input
+                                      value={renameInput}
+                                      onChange={(e) => setRenameInput(e.target.value)}
+                                      className="form-input h-7 max-w-[160px] text-sm"
+                                      autoFocus
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') handleRenameCategory(sub.id!);
+                                        if (e.key === 'Escape') setRenamingCat(null);
+                                      }}
+                                    />
+                                    <Button
+                                      size="sm"
+                                      className="h-6 bg-primary px-1.5 text-white hover:bg-primary/90"
+                                      onClick={() => handleRenameCategory(sub.id!)}
+                                    >
+                                      <Check className="h-3 w-3" />
+                                    </Button>
+                                    <Button size="sm" variant="ghost" className="h-6 px-1.5 text-muted-foreground" onClick={() => setRenamingCat(null)}>
+                                      <X className="h-3 w-3" />
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <span className="min-w-0 flex-1 truncate text-sm text-secondary-foreground">{sub.nombre}</span>
+                                    <div className="flex shrink-0 items-center gap-1">
+                                      <button
+                                        className="rounded p-1 text-muted-foreground hover:bg-white/[0.05] hover:text-foreground"
+                                        onClick={() => {
+                                          setRenamingCat(sub.id!);
+                                          setRenameInput(sub.nombre);
+                                        }}
+                                        title="Renombrar"
+                                      >
+                                        <Pencil className="h-3 w-3" />
+                                      </button>
+                                      {deletingCat === sub.id ? (
+                                        <div className="flex items-center gap-1">
+                                          <Button
+                                            size="sm"
+                                            className="h-6 bg-destructive px-1.5 text-xs text-white hover:bg-destructive/80"
+                                            onClick={() => handleDeleteCategory(sub.id!, true)}
+                                          >
+                                            Sí
+                                          </Button>
+                                          <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs text-muted-foreground" onClick={() => setDeletingCat(null)}>
+                                            No
+                                          </Button>
+                                        </div>
+                                      ) : (
+                                        <button
+                                          className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                          onClick={() => setDeletingCat(sub.id!)}
+                                          title="Eliminar"
+                                        >
+                                          <Trash2 className="h-3 w-3" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            ))}
+                          </div>
                         )}
                       </div>
                     ))}
                   </div>
                 )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* ============================================================ */}
-      {/*  Appearance                                                     */}
-      {/* ============================================================ */}
-      <div className="glass-card glass-card-glow p-6 space-y-4">
-        <div className="flex items-center gap-2 mb-1">
-          <Palette className="h-5 w-5 text-[#8A877D]" />
-          <h2 className="text-lg font-semibold text-[#F0EFE8]">Apariencia</h2>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          {/* Dark mode — active */}
-          <button className="relative flex flex-col items-center gap-2 rounded-xl border-2 border-[#1D9E75] bg-[rgba(29,158,117,0.06)] p-4 transition-colors">
-            <Moon className="h-5 w-5 text-[#1D9E75]" />
-            <span className="text-xs font-medium text-[#F0EFE8]">Dark</span>
-            <span className="absolute top-2 right-2 h-2 w-2 rounded-full bg-[#1D9E75]" />
-          </button>
-
-          {/* Light mode — coming soon */}
-          <button className="flex flex-col items-center gap-2 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.02)] p-4 opacity-50 cursor-not-allowed transition-colors" disabled>
-            <Sun className="h-5 w-5 text-[#8A877D]" />
-            <span className="text-xs font-medium text-[#8A877D]">Light</span>
-            <Badge variant="secondary" className="absolute text-[8px] bg-[rgba(255,255,255,0.06)] text-[#8A877D] border-[rgba(255,255,255,0.08)] px-1.5 py-0">
-              Pronto
-            </Badge>
-          </button>
-        </div>
-
-        <p className="text-xs text-[#8A877D]">
-          Tema &quot;Nocturnal Precision&quot; — disenado para reducir fatiga visual.
-        </p>
-      </div>
-
-      {/* ============================================================ */}
-      {/*  Notification preferences                                      */}
-      {/* ============================================================ */}
-      <div className="glass-card glass-card-glow p-6 space-y-4">
-        <div className="flex items-center gap-2 mb-1">
-          <Bell className="h-5 w-5 text-[#8A877D]" />
-          <h2 className="text-lg font-semibold text-[#F0EFE8]">
-            Notificaciones
-          </h2>
-        </div>
-
-        <p className="text-sm text-[#8A877D]">
-          Controla que notificaciones recibes por WhatsApp.
-        </p>
-
-        {/* Recordatorios — functional toggle */}
-        <div className="flex items-start justify-between gap-4 rounded-lg bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] px-4 py-3">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-[#C8C6BC]">Recordatorios</p>
-            <p className="text-xs text-[#8A877D] mt-0.5">Recordatorio diario a las 8pm + avisos de deudas próximas a vencer</p>
-          </div>
-          <button
-            disabled={recordatoriosLoading}
-            onClick={async () => {
-              setRecordatoriosLoading(true);
-              const newVal = !recordatoriosActivos;
-              try {
-                const res = await fetch('/api/notifications', {
-                  method: 'PUT',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ recordatorios_activos: newVal }),
-                });
-                if (res.ok) {
-                  setRecordatoriosActivos(newVal);
-                  toast.success(newVal ? 'Recordatorios activados' : 'Recordatorios desactivados');
-                } else {
-                  toast.error('Error al actualizar');
-                }
-              } catch {
-                toast.error('Error de conexion');
-              } finally {
-                setRecordatoriosLoading(false);
-              }
-            }}
-            className={`shrink-0 mt-0.5 h-5 w-9 rounded-full relative transition-colors cursor-pointer ${
-              recordatoriosActivos ? 'bg-[#1D9E75]' : 'bg-[#3A3A38]'
-            } ${recordatoriosLoading ? 'opacity-50' : ''}`}
-          >
-            <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
-              recordatoriosActivos ? 'right-0.5' : 'left-0.5'
-            }`} />
-          </button>
-        </div>
-
-        {/* Avisos de movimientos detectados — gate de la tarjeta "Nuevo gasto" (backend: alertas_transaccion) */}
-        <div className="flex items-start justify-between gap-4 rounded-lg bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] px-4 py-3">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-[#C8C6BC]">Avisos de movimientos detectados</p>
-            <p className="text-xs text-[#8A877D] mt-0.5">Te aviso por WhatsApp cuando detecte un gasto en tu correo</p>
-          </div>
-          <button
-            disabled={alertasTransaccionLoading}
-            onClick={async () => {
-              setAlertasTransaccionLoading(true);
-              const newVal = !alertasTransaccion;
-              try {
-                const res = await fetch('/api/notifications', {
-                  method: 'PUT',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ alertas_transaccion: newVal }),
-                });
-                if (res.ok) {
-                  setAlertasTransaccion(newVal);
-                  toast.success(newVal ? 'Avisos de movimientos activados' : 'Avisos de movimientos desactivados');
-                } else {
-                  toast.error('Error al actualizar');
-                }
-              } catch {
-                toast.error('Error de conexion');
-              } finally {
-                setAlertasTransaccionLoading(false);
-              }
-            }}
-            className={`shrink-0 mt-0.5 h-5 w-9 rounded-full relative transition-colors cursor-pointer ${
-              alertasTransaccion ? 'bg-[#1D9E75]' : 'bg-[#3A3A38]'
-            } ${alertasTransaccionLoading ? 'opacity-50' : ''}`}
-          >
-            <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
-              alertasTransaccion ? 'right-0.5' : 'left-0.5'
-            }`} />
-          </button>
-        </div>
-
-        {/* Modo Manos Libres — resumen diario opt-in (Pro), toggle funcional */}
-        <div className="flex items-start justify-between gap-4 rounded-lg bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] px-4 py-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <p className="text-sm font-medium text-[#C8C6BC]">Modo Manos Libres</p>
-              {!isPremium && (
-                <span className="rounded-full bg-[#1D9E75]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[#1D9E75]">Pro</span>
-              )}
+              </Section>
             </div>
-            <p className="text-xs text-[#8A877D] mt-0.5">Resumen de lo que gastaste en el dia, cada noche a las 9pm por WhatsApp</p>
-          </div>
-          <button
-            disabled={manosLibresLoading || !isPremium}
-            onClick={async () => {
-              if (!isPremium) return;
-              setManosLibresLoading(true);
-              const newVal = !manosLibres;
-              try {
-                const res = await fetch('/api/notifications', {
-                  method: 'PUT',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ manos_libres: newVal }),
-                });
-                if (res.ok) {
-                  setManosLibres(newVal);
-                  toast.success(newVal ? 'Modo Manos Libres activado' : 'Modo Manos Libres desactivado');
-                } else {
-                  toast.error('Error al actualizar');
-                }
-              } catch {
-                toast.error('Error de conexion');
-              } finally {
-                setManosLibresLoading(false);
-              }
-            }}
-            className={`shrink-0 mt-0.5 h-5 w-9 rounded-full relative transition-colors ${
-              manosLibres && isPremium ? 'bg-[#1D9E75]' : 'bg-[#3A3A38]'
-            } ${manosLibresLoading ? 'opacity-50' : ''} ${isPremium ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
-          >
-            <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
-              manosLibres && isPremium ? 'right-0.5' : 'left-0.5'
-            }`} />
-          </button>
-        </div>
 
-        {/* Auto-managed toggles */}
-        {[
-          { key: 'resumen_semanal', label: 'Resumen semanal', desc: 'Analisis comparativo cada domingo' },
-          { key: 'alertas_presupuesto', label: 'Alertas de presupuesto', desc: 'Aviso al superar 80% o 100% de un presupuesto' },
-        ].map((pref) => (
-          <div key={pref.key} className="flex items-start justify-between gap-4 rounded-lg bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] px-4 py-3">
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-[#C8C6BC]">{pref.label}</p>
-              <p className="text-xs text-[#8A877D] mt-0.5">{pref.desc}</p>
-            </div>
-            <div className="shrink-0 mt-0.5 h-5 w-9 rounded-full bg-[#1D9E75] relative">
-              <span className="absolute right-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm" />
-            </div>
-          </div>
-        ))}
+            {/* ============================================================ */}
+            {/*  GROUP: Datos y privacidad                                    */}
+            {/* ============================================================ */}
+            <div className="space-y-4">
+              <GroupHeading>Datos y privacidad</GroupHeading>
 
-        <p className="text-xs text-[#8A877D]">
-          El resumen semanal y las alertas de presupuesto se envian automaticamente por WhatsApp. Los demas los activas o desactivas desde aqui.
-        </p>
-      </div>
+              {/* Privacidad */}
+              <Section
+                id="privacidad"
+                icon={Shield}
+                title="Privacidad"
+                description="Usamos analíticas de producto para mejorar Neto. Tus montos y transacciones siempre van enmascarados."
+              >
+                <ToggleRow
+                  title="No rastrear mi actividad"
+                  description="Desactiva analíticas y grabaciones de sesión en este navegador"
+                  checked={analyticsOptedOut}
+                  onToggle={(next) => {
+                    if (next) optOutTracking();
+                    else optInTracking();
+                    setAnalyticsOptedOut(next);
+                    toast.success(next ? 'Seguimiento desactivado' : 'Seguimiento activado');
+                  }}
+                />
+              </Section>
 
-      {/* ============================================================ */}
-      {/*  Privacy                                                        */}
-      {/* ============================================================ */}
-      <div className="glass-card glass-card-glow p-6 space-y-4">
-        <div className="flex items-center gap-2 mb-1">
-          <Shield className="h-5 w-5 text-[#8A877D]" />
-          <h2 className="text-lg font-semibold text-[#F0EFE8]">Privacidad</h2>
-        </div>
-
-        <p className="text-sm text-[#8A877D]">
-          Usamos analíticas de producto para entender cómo mejorar Neto. Tus montos y
-          transacciones siempre van enmascarados. Puedes desactivar el seguimiento cuando quieras.
-        </p>
-
-        <div className="flex items-start justify-between gap-4 rounded-lg bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] px-4 py-3">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-[#C8C6BC]">No rastrear mi actividad</p>
-            <p className="text-xs text-[#8A877D] mt-0.5">Desactiva analíticas y grabaciones de sesión en este navegador</p>
-          </div>
-          <button
-            onClick={() => {
-              const next = !analyticsOptedOut;
-              if (next) optOutTracking();
-              else optInTracking();
-              setAnalyticsOptedOut(next);
-              toast.success(next ? 'Seguimiento desactivado' : 'Seguimiento activado');
-            }}
-            className={`shrink-0 mt-0.5 h-5 w-9 rounded-full relative transition-colors cursor-pointer ${
-              analyticsOptedOut ? 'bg-[#1D9E75]' : 'bg-[#3A3A38]'
-            }`}
-          >
-            <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
-              analyticsOptedOut ? 'right-0.5' : 'left-0.5'
-            }`} />
-          </button>
-        </div>
-      </div>
-
-      {/* ============================================================ */}
-      {/*  Data export                                                    */}
-      {/* ============================================================ */}
-      <div className="glass-card glass-card-glow p-6 space-y-4">
-        <div className="flex items-center gap-2 mb-1">
-          <Download className="h-5 w-5 text-[#8A877D]" />
-          <h2 className="text-lg font-semibold text-[#F0EFE8]">Exportar datos</h2>
-        </div>
-        <p className="text-sm text-[#8A877D]">
-          Descarga todas tus transacciones, presupuestos y metas en formato JSON.
-        </p>
-        <Button
-          variant="outline"
-          className="w-full border-[rgba(255,255,255,0.1)] bg-transparent text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.05)] gap-2"
-          onClick={async () => {
-            try {
-              const res = await fetch('/api/export');
-              if (!res.ok) throw new Error('Error al exportar');
-              const blob = await res.blob();
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = `neto-export-${new Date().toISOString().slice(0, 10)}.json`;
-              a.click();
-              URL.revokeObjectURL(url);
-              toast.success('Datos exportados correctamente');
-            } catch {
-              toast.error('Error al exportar datos');
-            }
-          }}
-        >
-          <Download className="h-4 w-4" />
-          Descargar mis datos
-        </Button>
-      </div>
-
-      {/* ============================================================ */}
-      {/*  Session                                                       */}
-      {/* ============================================================ */}
-      <div className="glass-card glass-card-glow p-6 space-y-4">
-        <Button
-          variant="outline"
-          className="w-full border-[rgba(255,255,255,0.1)] bg-transparent text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.05)]"
-          disabled={signingOut}
-          onClick={handleSignOut}
-        >
-          {signingOut ? 'Cerrando sesion...' : 'Cerrar sesion'}
-        </Button>
-      </div>
-
-      {/* ============================================================ */}
-      {/*  Danger zone                                                  */}
-      {/* ============================================================ */}
-      <div className="glass-card p-6 space-y-4 border-[#D85A30]/20 hover:border-[#D85A30]/40 transition-colors">
-        <div className="flex items-center gap-2 mb-1">
-          <Settings className="h-5 w-5 text-[#D85A30]" />
-          <h2 className="text-sm font-semibold text-[#D85A30]">Zona de peligro</h2>
-        </div>
-
-        <Button
-          variant="outline"
-          className="w-full border-[#D85A30]/40 bg-transparent text-[#D85A30] hover:bg-[#D85A30]/10"
-          onClick={() => setShowDeleteConfirm(true)}
-        >
-          Eliminar cuenta
-        </Button>
-
-        {/* Delete confirmation */}
-        {showDeleteConfirm && (
-          <div className="rounded-lg border border-[#D85A30]/30 bg-[#D85A30]/5 p-4 space-y-3">
-            <p className="text-sm text-[#C8C6BC]">
-              Para eliminar tu cuenta, contacta soporte por WhatsApp.
-            </p>
-            <div className="flex gap-2">
-              <a
-                href={`${SOCIAL_LINKS.whatsapp}?text=${encodeURIComponent('Quiero eliminar mi cuenta')}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex-1"
+              {/* Exportar datos */}
+              <Section
+                id="exportar"
+                icon={Download}
+                title="Exportar datos"
+                description="Descarga todas tus transacciones, presupuestos y metas en formato JSON."
               >
                 <Button
                   variant="outline"
-                  className="w-full border-[#D85A30]/40 text-[#D85A30] hover:bg-[#D85A30]/10 gap-2"
+                  className="w-full gap-2 border-border bg-transparent text-secondary-foreground hover:bg-white/[0.05]"
+                  onClick={async () => {
+                    try {
+                      const res = await fetch('/api/export');
+                      if (!res.ok) throw new Error('Error al exportar');
+                      const blob = await res.blob();
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `neto-export-${new Date().toISOString().slice(0, 10)}.json`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                      toast.success('Datos exportados correctamente');
+                    } catch {
+                      toast.error('Error al exportar datos');
+                    }
+                  }}
                 >
-                  <MessageCircle className="h-4 w-4" />
-                  Contactar soporte
+                  <Download className="h-4 w-4" />
+                  Descargar mis datos
                 </Button>
-              </a>
-              <Button
-                variant="outline"
-                className="border-[rgba(255,255,255,0.1)] bg-transparent text-[#8A877D] hover:bg-[rgba(255,255,255,0.05)]"
-                onClick={() => setShowDeleteConfirm(false)}
-              >
-                Cancelar
-              </Button>
+              </Section>
+            </div>
+
+            {/* ============================================================ */}
+            {/*  GROUP: Sesión                                                */}
+            {/* ============================================================ */}
+            <div className="space-y-4">
+              <GroupHeading>Sesión</GroupHeading>
+
+              <section id="sesion" className="scroll-mt-24 space-y-4">
+                {/* Cerrar sesión */}
+                <div className="glass-card p-5 sm:p-6">
+                  <Button
+                    variant="outline"
+                    className="w-full gap-2 border-border bg-transparent text-secondary-foreground hover:bg-white/[0.05]"
+                    disabled={signingOut}
+                    onClick={handleSignOut}
+                  >
+                    <LogOut className="h-4 w-4" />
+                    {signingOut ? 'Cerrando sesión...' : 'Cerrar sesión'}
+                  </Button>
+                </div>
+
+                {/* Danger zone */}
+                <div className="glass-card space-y-4 border-destructive/20 p-5 transition-colors hover:border-destructive/40 sm:p-6">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-[18px] w-[18px] text-destructive" />
+                    <h3 className="text-sm font-semibold text-destructive">Zona de peligro</h3>
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    className="w-full border-destructive/40 bg-transparent text-destructive hover:bg-destructive/10"
+                    onClick={() => setShowDeleteConfirm(true)}
+                  >
+                    Eliminar cuenta
+                  </Button>
+
+                  {showDeleteConfirm && (
+                    <div className="space-y-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+                      <p className="text-sm text-secondary-foreground">Para eliminar tu cuenta, contacta soporte por WhatsApp.</p>
+                      <div className="flex gap-2">
+                        <a
+                          href={`${SOCIAL_LINKS.whatsapp}?text=${encodeURIComponent('Quiero eliminar mi cuenta')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-1"
+                        >
+                          <Button variant="outline" className="w-full gap-2 border-destructive/40 text-destructive hover:bg-destructive/10">
+                            <MessageCircle className="h-4 w-4" />
+                            Contactar soporte
+                          </Button>
+                        </a>
+                        <Button
+                          variant="outline"
+                          className="border-border bg-transparent text-muted-foreground hover:bg-white/[0.05]"
+                          onClick={() => setShowDeleteConfirm(false)}
+                        >
+                          Cancelar
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </section>
             </div>
           </div>
-        )}
+        </div>
       </div>
-    </div>
     </FadeIn>
   );
 }
