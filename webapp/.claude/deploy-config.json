@@ -57,6 +57,13 @@
         "on_fail": "exit 1 = camino de auth roto (dashboard no renderiza, persist ausente, buster no matchea, o logout no limpia). Incluir el objeto 'verdict' del JSON que imprime."
       },
       {
+        "name": "config-verify",
+        "cmd": "node qa-e2e/qa-config-verify.mjs",
+        "cwd": "C:/Vortik.dev/products/neto/app",
+        "cost": "1 login + ~5s Chromium + 1 fetch (READ-ONLY, sin writes a prod)",
+        "on_fail": "exit 1 = un fix del rework de Configuracion se rompio: (a) 'Ver planes y precios' ya no apunta a /dashboard/pro, o algun link del plan volvio a /dashboard/planes (=metas de ahorro, no precios); (b) el scroll-spy del indice no resalta la seccion clicada (regresion del override de borde inferior que robaba el highlight a la ultima seccion); o (c) /api/categories devolvio raices duplicadas (volvio el bug .single() en services/categories.js que se auto-refuerza). El JSON muestra planLinks, navSpy y duplicateRootNames. Deja config-verify-shot.png. exit 2 = infra (login/red/creds). Ver memory project_categorias_dedup_singlebug."
+      },
+      {
         "name": "tono-neto",
         "cmd": "node qa-e2e/qa-tono-neto.mjs",
         "cwd": "C:/Vortik.dev/products/neto/app",
