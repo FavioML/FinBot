@@ -42,6 +42,15 @@ Prints a JSON report and exits 0 when all critical checks pass, 1 otherwise.
 - Warm navigation timing (TTFB / domInteractive / load) for the static shell.
 - Console error count.
 
+## Focused harnesses
+
+Same login pattern (password grant + forged cookie + Playwright), scoped to one page:
+
+- `node qa-config-verify.mjs` — página **Configuración**: valida que "Ver planes
+  y precios" enlace a `/dashboard/pro` (no a `/dashboard/planes`, que es metas),
+  que el scroll-spy del índice resalte la sección clicada, y que
+  `/api/categories` no devuelva raíces duplicadas. Deja `config-verify-shot.png`.
+
 ## Known limitation
 
 The forged-cookie session hydrates the client's data queries only partially
