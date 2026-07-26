@@ -26,6 +26,7 @@ import {
   X,
   Tag,
   Trash2,
+  Plus,
   ChevronDown,
   ChevronRight,
   LogOut,
@@ -294,6 +295,7 @@ export default function ConfiguracionPage() {
     nombre: string;
     emoji?: string;
     subcategorias: { id: string | null; nombre: string; system?: boolean; from_tx?: boolean }[];
+    deletedSubNames?: string[];
   }
   const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
@@ -301,6 +303,14 @@ export default function ConfiguracionPage() {
   const [renamingCat, setRenamingCat] = useState<string | null>(null);
   const [renameInput, setRenameInput] = useState('');
   const [deletingCat, setDeletingCat] = useState<string | null>(null);
+  // Crear categoría raíz
+  const [creatingRoot, setCreatingRoot] = useState(false);
+  const [newRootInput, setNewRootInput] = useState('');
+  const [savingRoot, setSavingRoot] = useState(false);
+  // Crear subcategoría (por categoría padre)
+  const [addingSubTo, setAddingSubTo] = useState<string | null>(null);
+  const [newSubInput, setNewSubInput] = useState('');
+  const [savingSub, setSavingSub] = useState(false);
 
   useEffect(() => {
     const supabase = createClient();
@@ -383,9 +393,15 @@ export default function ConfiguracionPage() {
         const merged = dbCats.map((cat) => {
           const hardcoded = CATEGORIAS.find((c) => c.nombre.toLowerCase() === cat.nombre.toLowerCase());
           const existingLower = new Set(cat.subcategorias.map((s) => s.nombre.toLowerCase()));
+          // Subs borradas/renombradas: no re-mostrar el default hardcodeado.
+          const deletedLower = new Set((cat.deletedSubNames ?? []).map((n) => n.toLowerCase()));
+          const isSuppressed = (s: string) => {
+            const variants = [s.toLowerCase(), s.replace(/_/g, ' ').toLowerCase(), capitalizeDisplay(s).toLowerCase()];
+            return variants.some((v) => existingLower.has(v) || deletedLower.has(v));
+          };
           const hardcodedExtras = hardcoded
             ? hardcoded.subs
-                .filter((s) => !existingLower.has(s.replace(/_/g, ' ').toLowerCase()) && !existingLower.has(s.toLowerCase()))
+                .filter((s) => !isSuppressed(s))
                 .map((s) => ({ id: null, nombre: capitalizeDisplay(s), system: true }))
             : [];
           const allSubs = [
@@ -471,6 +487,116 @@ export default function ConfiguracionPage() {
     } catch {
       toast.error('Error de conexión');
     }
+  }
+
+  /* ---- Create root category ---- */
+  async function handleCreateRoot() {
+    const nombre = newRootInput.trim();
+    if (nombre.length < 2) {
+      toast.error('El nombre debe tener al menos 2 caracteres');
+      return;
+    }
+    setSavingRoot(true);
+    try {
+      const res = await fetch('/api/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nombre }),
+      });
+      if (res.ok) {
+        toast.success('Categoría creada');
+        setCreatingRoot(false);
+        setNewRootInput('');
+        fetchCategories();
+      } else if (res.status === 409) {
+        toast.error('Ya existe una categoría con ese nombre');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error || 'Error al crear');
+      }
+    } catch {
+      toast.error('Error de conexión');
+    }
+    setSavingRoot(false);
+  }
+
+  /* ---- Create subcategory ---- */
+  async function handleCreateSub(catId: string) {
+    const nombre = newSubInput.trim();
+    if (nombre.length < 2) {
+      toast.error('El nombre debe tener al menos 2 caracteres');
+      return;
+    }
+    setSavingSub(true);
+    try {
+      const res = await fetch('/api/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nombre, padreId: catId }),
+      });
+      if (res.ok) {
+        toast.success('Subcategoría creada');
+        setAddingSubTo(null);
+        setNewSubInput('');
+        fetchCategories();
+      } else if (res.status === 409) {
+        toast.error('Ya existe una subcategoría con ese nombre');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error || 'Error al crear');
+      }
+    } catch {
+      toast.error('Error de conexión');
+    }
+    setSavingSub(false);
+  }
+
+  /* ---- Rename a system subcategory (materializes it) ---- */
+  async function handleRenameSystemSub(catId: string, oldNombre: string) {
+    if (!renameInput.trim() || renameInput.trim().length < 2) {
+      toast.error('El nombre debe tener al menos 2 caracteres');
+      return;
+    }
+    try {
+      const res = await fetch('/api/categories', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ system: true, padreId: catId, oldNombre, nombre: renameInput.trim() }),
+      });
+      if (res.ok) {
+        toast.success('Subcategoría renombrada');
+        setRenamingCat(null);
+        fetchCategories();
+      } else if (res.status === 409) {
+        toast.error('Ya existe una subcategoría con ese nombre');
+      } else {
+        toast.error('Error al renombrar');
+      }
+    } catch {
+      toast.error('Error de conexión');
+    }
+  }
+
+  /* ---- Delete a system subcategory (tombstones it) ---- */
+  async function handleDeleteSystemSub(catId: string, nombre: string) {
+    try {
+      const params = new URLSearchParams({ system: 'true', padreId: catId, nombre });
+      const res = await fetch(`/api/categories?${params.toString()}`, { method: 'DELETE' });
+      if (res.ok) {
+        toast.success('Subcategoría eliminada');
+        setDeletingCat(null);
+        fetchCategories();
+      } else {
+        toast.error('Error al eliminar');
+      }
+    } catch {
+      toast.error('Error de conexión');
+    }
+  }
+
+  // Clave estable para rename/delete: id real, o compuesta para subs system (id null).
+  function subKey(catId: string, sub: { id: string | null; nombre: string }) {
+    return sub.id ?? `sys:${catId}:${sub.nombre}`;
   }
 
   function toggleExpand(catId: string) {
@@ -913,8 +1039,51 @@ export default function ConfiguracionPage() {
                 id="categorias"
                 icon={Tag}
                 title="Gestionar categorías"
-                description="Renombra o elimina categorías y subcategorías. Las transacciones existentes mantienen su categoría original."
+                description="Crea, renombra o elimina categorías y subcategorías. Las transacciones existentes mantienen su categoría original."
               >
+                {/* Crear categoría raíz — siempre visible arriba de la lista */}
+                {creatingRoot ? (
+                  <div className="flex items-center gap-2 rounded-xl border border-primary/30 bg-primary/[0.06] px-3 py-2.5">
+                    <Input
+                      value={newRootInput}
+                      onChange={(e) => setNewRootInput(e.target.value)}
+                      className="form-input h-8 flex-1 text-sm"
+                      placeholder="Nombre de la categoría"
+                      autoFocus
+                      maxLength={30}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleCreateRoot();
+                        if (e.key === 'Escape') { setCreatingRoot(false); setNewRootInput(''); }
+                      }}
+                    />
+                    <Button
+                      size="sm"
+                      className="h-7 bg-primary px-2 text-white hover:bg-primary/90"
+                      onClick={handleCreateRoot}
+                      disabled={savingRoot}
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 px-2 text-muted-foreground hover:text-foreground"
+                      onClick={() => { setCreatingRoot(false); setNewRootInput(''); }}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    variant="outline"
+                    className="w-full gap-2 border-dashed border-border bg-transparent text-secondary-foreground hover:bg-white/[0.05]"
+                    onClick={() => { setCreatingRoot(true); setNewRootInput(''); }}
+                  >
+                    <Plus className="h-4 w-4" />
+                    Nueva categoría
+                  </Button>
+                )}
+
                 {categoriesLoading ? (
                   <div className="space-y-2">
                     <Skeleton className="h-10 rounded-lg" />
@@ -923,11 +1092,13 @@ export default function ConfiguracionPage() {
                   </div>
                 ) : categories.length === 0 ? (
                   <p className="py-4 text-center text-sm text-muted-foreground">
-                    No tienes categorías personalizadas. Se crean automáticamente al registrar gastos.
+                    No tienes categorías todavía. Crea la primera arriba, o se crearán solas al registrar gastos.
                   </p>
                 ) : (
                   <div className="space-y-1">
-                    {categories.map((cat) => (
+                    {categories.map((cat) => {
+                      const subsShown = expandedCats.has(cat.id) && (cat.subcategorias.length > 0 || addingSubTo === cat.id);
+                      return (
                       <div key={cat.id}>
                         {/* Category row */}
                         <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/40 px-3 py-2.5">
@@ -953,6 +1124,7 @@ export default function ConfiguracionPage() {
                                 onChange={(e) => setRenameInput(e.target.value)}
                                 className="form-input h-7 max-w-[180px] text-sm"
                                 autoFocus
+                                maxLength={30}
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') handleRenameCategory(cat.id);
                                   if (e.key === 'Escape') setRenamingCat(null);
@@ -982,6 +1154,17 @@ export default function ConfiguracionPage() {
 
                           {renamingCat !== cat.id && (
                             <div className="flex shrink-0 items-center gap-1">
+                              <button
+                                className="rounded p-1 text-muted-foreground hover:bg-white/[0.05] hover:text-foreground"
+                                onClick={() => {
+                                  setAddingSubTo(cat.id);
+                                  setNewSubInput('');
+                                  setExpandedCats((prev) => new Set(prev).add(cat.id));
+                                }}
+                                title="Agregar subcategoría"
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                              </button>
                               <button
                                 className="rounded p-1 text-muted-foreground hover:bg-white/[0.05] hover:text-foreground"
                                 onClick={() => {
@@ -1019,29 +1202,36 @@ export default function ConfiguracionPage() {
                         </div>
 
                         {/* Subcategories */}
-                        {expandedCats.has(cat.id) && cat.subcategorias.length > 0 && (
+                        {subsShown && (
                           <div className="ml-7 mt-0.5 space-y-0.5">
-                            {cat.subcategorias.map((sub, idx) => (
+                            {cat.subcategorias.map((sub) => {
+                              const key = subKey(cat.id, sub);
+                              const doRename = () =>
+                                sub.id ? handleRenameCategory(sub.id) : handleRenameSystemSub(cat.id, sub.nombre);
+                              const doDelete = () =>
+                                sub.id ? handleDeleteCategory(sub.id, true) : handleDeleteSystemSub(cat.id, sub.nombre);
+                              return (
                               <div
-                                key={sub.id ?? `sys-${idx}`}
+                                key={key}
                                 className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2"
                               >
-                                {sub.id !== null && renamingCat === sub.id ? (
+                                {renamingCat === key ? (
                                   <div className="flex min-w-0 flex-1 items-center gap-2">
                                     <Input
                                       value={renameInput}
                                       onChange={(e) => setRenameInput(e.target.value)}
                                       className="form-input h-7 max-w-[160px] text-sm"
                                       autoFocus
+                                      maxLength={30}
                                       onKeyDown={(e) => {
-                                        if (e.key === 'Enter') handleRenameCategory(sub.id!);
+                                        if (e.key === 'Enter') doRename();
                                         if (e.key === 'Escape') setRenamingCat(null);
                                       }}
                                     />
                                     <Button
                                       size="sm"
                                       className="h-6 bg-primary px-1.5 text-white hover:bg-primary/90"
-                                      onClick={() => handleRenameCategory(sub.id!)}
+                                      onClick={doRename}
                                     >
                                       <Check className="h-3 w-3" />
                                     </Button>
@@ -1056,19 +1246,19 @@ export default function ConfiguracionPage() {
                                       <button
                                         className="rounded p-1 text-muted-foreground hover:bg-white/[0.05] hover:text-foreground"
                                         onClick={() => {
-                                          setRenamingCat(sub.id!);
+                                          setRenamingCat(key);
                                           setRenameInput(sub.nombre);
                                         }}
                                         title="Renombrar"
                                       >
                                         <Pencil className="h-3 w-3" />
                                       </button>
-                                      {deletingCat === sub.id ? (
+                                      {deletingCat === key ? (
                                         <div className="flex items-center gap-1">
                                           <Button
                                             size="sm"
                                             className="h-6 bg-destructive px-1.5 text-xs text-white hover:bg-destructive/80"
-                                            onClick={() => handleDeleteCategory(sub.id!, true)}
+                                            onClick={doDelete}
                                           >
                                             Sí
                                           </Button>
@@ -1079,7 +1269,7 @@ export default function ConfiguracionPage() {
                                       ) : (
                                         <button
                                           className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                                          onClick={() => setDeletingCat(sub.id!)}
+                                          onClick={() => setDeletingCat(key)}
                                           title="Eliminar"
                                         >
                                           <Trash2 className="h-3 w-3" />
@@ -1089,11 +1279,42 @@ export default function ConfiguracionPage() {
                                   </>
                                 )}
                               </div>
-                            ))}
+                              );
+                            })}
+
+                            {/* Crear subcategoría */}
+                            {addingSubTo === cat.id && (
+                              <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/[0.06] px-3 py-2">
+                                <Input
+                                  value={newSubInput}
+                                  onChange={(e) => setNewSubInput(e.target.value)}
+                                  className="form-input h-7 flex-1 text-sm"
+                                  placeholder="Nueva subcategoría"
+                                  autoFocus
+                                  maxLength={30}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') handleCreateSub(cat.id);
+                                    if (e.key === 'Escape') { setAddingSubTo(null); setNewSubInput(''); }
+                                  }}
+                                />
+                                <Button
+                                  size="sm"
+                                  className="h-6 bg-primary px-1.5 text-white hover:bg-primary/90"
+                                  onClick={() => handleCreateSub(cat.id)}
+                                  disabled={savingSub}
+                                >
+                                  <Check className="h-3 w-3" />
+                                </Button>
+                                <Button size="sm" variant="ghost" className="h-6 px-1.5 text-muted-foreground" onClick={() => { setAddingSubTo(null); setNewSubInput(''); }}>
+                                  <X className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </Section>
