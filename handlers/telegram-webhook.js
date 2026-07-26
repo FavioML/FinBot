@@ -77,7 +77,7 @@ async function telegramWebhookHandler(req, res) {
     }
 
     const cmd = normalizarComando(message.text);
-    const ayuda = 'Comandos disponibles:\n/tickets\n/responder <num> <mensaje>\n/pago <num> <mensual|anual>\n/activar <num>\n/panel';
+    const ayuda = 'Comandos disponibles:\n/tickets\n/responder <num> <mensaje>\n/cerrar <num>\n/pago <num> <mensual|anual>\n/activar <num>\n/panel';
     if (!cmd.startsWith('/')) {
       await enviarTelegramA(chatId, ayuda);
       return;

@@ -27,6 +27,7 @@ const { guardarMensaje, obtenerHistorial, getUserPlanConfig, getHistoryDateLimit
 const { getHandler } = require('./intent-registry');
 const { NETO_TOOLS, mapToolToIntent } = require('./neto-tools');
 const { construirNetoPrompt } = require('../lib/neto-prompt');
+const { obtenerSesionAbierta } = require('../lib/support-tickets');
 
 /**
  * Salvage sin IA: cuando OpenAI está caído (429) el pipeline normal no puede clasificar,
@@ -64,55 +65,32 @@ async function salvarGastoSinIA(msg, usuario) {
 
 async function procesarMensajeLibre(msg, usuario, from) {
   try {
-    // === Interceptar tickets de soporte pendientes ===
-    const { data: ticketPendiente } = await supabase.from('tickets_soporte').select('*')
-      .eq('usuario_id', usuario.id).eq('estado', 'esperando_mensaje')
-      .order('created_at', { ascending: false }).limit(1);
-    if (ticketPendiente && ticketPendiente.length > 0) {
-      const ticket = ticketPendiente[0];
-      // Guardar el mensaje del usuario como descripción del ticket
+    // === Modo soporte: si hay una sesión abierta, TODO mensaje va al admin (no al bot) ===
+    // La sesión se abre por "quiero hablar con soporte" (NLP) o /soporte, y sigue abierta
+    // hasta que se cierre (/salir del usuario, /cerrar del admin, botón del panel, o
+    // autocierre por 48h de inactividad). Ver lib/support-tickets.
+    const sesionSoporte = await obtenerSesionAbierta(usuario.id);
+    if (sesionSoporte) {
+      const esPrimerMensaje = sesionSoporte.estado === 'esperando_mensaje';
       await supabase.from('tickets_soporte').update({
         mensaje_usuario: msg.substring(0, 1000),
         estado: 'pendiente',
-        updated_at: new Date().toISOString()
-      }).eq('id', ticket.id);
-      // Notificar al admin con contexto completo
-      const textoAdmin = '🎫 *Nuevo ticket de soporte*\n\n'
+        updated_at: new Date().toISOString(),
+      }).eq('id', sesionSoporte.id);
+
+      const encabezado = esPrimerMensaje ? '🎫 *Nuevo ticket de soporte*' : '💬 *Mensaje en conversación de soporte*';
+      const textoAdmin = encabezado + '\n\n'
         + '👤 ' + (usuario.nombre || 'Sin nombre') + '\n'
         + '📱 ' + from + '\n'
         + '📋 Plan: ' + (usuario.tipo_plan || usuario.plan || 'free') + '\n\n'
         + '💬 *Mensaje:*\n' + msg.substring(0, 500) + '\n\n'
-        + '_Responde con:_\n/responder ' + from + ' [tu mensaje]';
+        + '_Responde con:_\n/responder ' + from + ' [tu mensaje]\n'
+        + '_Cerrar la conversación:_\n/cerrar ' + from;
       await notificarAdmin(textoAdmin);
-      return '✅ *Recibido.*\n\nTu mensaje fue enviado al equipo de Neto. Te responderemos lo antes posible por este mismo chat.\n\n_Si prefieres, también puedes escribirnos a 📧 hola@neto.pe_';
-    }
 
-    // === Interceptar tickets respondidos (usuario replica) ===
-    const { data: ticketRespondido } = await supabase.from('tickets_soporte').select('*')
-      .eq('usuario_id', usuario.id).eq('estado', 'respondido')
-      .order('updated_at', { ascending: false }).limit(1);
-    if (ticketRespondido && ticketRespondido.length > 0) {
-      // Verificar si fue respondido en las últimas 2 horas (ventana de seguimiento)
-      const ticketResp = ticketRespondido[0];
-      const hace2h = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
-      if (ticketResp.updated_at > hace2h) {
-        // El usuario responde después de recibir respuesta del admin — reabrir como nuevo ticket
-        await supabase.from('tickets_soporte').update({ estado: 'cerrado' }).eq('id', ticketResp.id);
-        await supabase.from('tickets_soporte').insert({
-          usuario_id: usuario.id, whatsapp: from,
-          nombre_usuario: usuario.nombre || null,
-          mensaje_usuario: msg.substring(0, 1000),
-          estado: 'pendiente'
-        });
-          const textoReopen = '🔄 *Seguimiento de ticket*\n\n'
-          + '👤 ' + (usuario.nombre || 'Sin nombre') + ' (' + from + ')\n\n'
-          + '💬 *Respuesta del usuario:*\n' + msg.substring(0, 500) + '\n\n'
-          + '📌 _El usuario no quedó conforme. Mensaje anterior:_\n'
-          + (ticketResp.mensaje_usuario || '').substring(0, 200) + '\n\n'
-          + '_Responde con:_\n/responder ' + from + ' [tu mensaje]';
-        await notificarAdmin(textoReopen);
-        return '📨 *Recibido.*\n\nTu mensaje fue reenviado al equipo. Si prefieres, también puedes contactarnos a:\n\n📧 hola@neto.pe\n\n_Te responderemos pronto._';
-      }
+      return esPrimerMensaje
+        ? '✅ *Recibido.*\n\nTu mensaje llegó al equipo de Neto. Te responderemos por este mismo chat.\n\n_Escribe */salir* cuando quieras volver al asistente, o escríbenos a 📧 hola@neto.pe_'
+        : '📨 *Enviado al equipo.*\n\nSeguimos en tu conversación de soporte, te responderemos pronto.\n\n_Escribe */salir* para terminar y volver al asistente._';
     }
 
     const hoyParts = hoyPeru().split('-');

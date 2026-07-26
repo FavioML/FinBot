@@ -1,6 +1,6 @@
 const { supabase } = require('../lib/db');
 const { activarPro, rechazarSolicitudPro, reclamarPagoPendiente } = require('../lib/pro-payment');
-const { responderTicket, listarTicketsPendientes } = require('../lib/support-tickets');
+const { responderTicket, listarTicketsPendientes, cerrarSesion } = require('../lib/support-tickets');
 const log = require('../lib/logger');
 
 /**
@@ -67,7 +67,7 @@ async function procesarComandoAdmin(cmd, rawText = cmd) {
       const estado = u.estado_pago === 'pagado' ? '' : (u.estado_pago === 'pendiente' ? ' ⏳' : '');
       msg += plan + ' ' + (u.nombre || u.whatsapp) + pend + estado + '\n';
     });
-    msg += '\n_Comandos:_\n/pago <num> <mensual|anual>\n/activar <num>\n/tickets\n/responder <num> <mensaje>';
+    msg += '\n_Comandos:_\n/pago <num> <mensual|anual>\n/activar <num>\n/tickets\n/responder <num> <mensaje>\n/cerrar <num>';
     return msg;
   }
 
@@ -91,6 +91,14 @@ async function procesarComandoAdmin(cmd, rawText = cmd) {
   // /tickets — lista los tickets de soporte pendientes
   if (cmd === '/tickets' || cmd.startsWith('/tickets ')) {
     return await listarTicketsPendientes();
+  }
+
+  // /cerrar <numero_whatsapp> — cierra la conversación de soporte de un usuario y le avisa
+  if (cmd.startsWith('/cerrar ')) {
+    const numero = cmd.replace('/cerrar ', '').trim().replace(/\+/g, '');
+    if (!numero) return 'Formato: /cerrar <número>\nEj: /cerrar 51933014505';
+    const r = await cerrarSesion({ whatsapp: numero, avisarUsuario: true });
+    return r.msg;
   }
 
   return null;

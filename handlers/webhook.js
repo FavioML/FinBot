@@ -22,6 +22,7 @@ const { checkProWall } = require('../helpers/pro-wall');
 const { parseCSV, parseExcel } = require('../services/import-parser');
 const { esperaComprobante, esPagoNeto, procesarComprobantePro } = require('../lib/pro-payment');
 const { procesarComandoAdmin } = require('./admin-commands');
+const { abrirSesion, cerrarSesion } = require('../lib/support-tickets');
 const { manejarOnboarding } = require('./onboarding');
 
 // Idempotencia por wamid: Meta retransmite el webhook cada 30s si OpenAI demora >timeout.
@@ -598,7 +599,19 @@ function createWebhookHandler(procesarMensajeLibre) {
       respuesta = '🎁 *Tu link de referido:*\n\n' + railwayUrl + '/r/' + refCode + '\n\nComparte con amigos. Cada *3 referidos* te dan *1 mes gratis* de Neto. 🎉\n\n' + estadoRef;
     } else if (cmd === '/dashboard' || cmd === '/app') {
       respuesta = '📊 *Tu dashboard está en:*\n\n🔗 https://app.neto.pe\n\nAhí puedes ver gráficos, metas, reportes PDF, suscripciones y más.\n\n_Inicia sesión con tu cuenta de Google._';
-    } else if (cmd.startsWith('/activar ') || cmd.startsWith('/pago ') || cmd === '/usuarios' || cmd === '/admin' || cmd === '/panel' || cmd.startsWith('/responder ') || cmd.startsWith('/tickets')) {
+    } else if (cmd === '/soporte' || cmd === '/humano') {
+      // Usuario abre modo soporte: a partir de aquí sus mensajes van al equipo, no al bot.
+      const r = await abrirSesion({ usuarioId: usuario.id, whatsapp: from, nombre: usuario.nombre });
+      respuesta = r.yaAbierta
+        ? '👤 Ya estás en modo soporte. Escríbeme tu consulta y se la paso al equipo.\n\n_Escribe */salir* cuando quieras terminar._'
+        : '👤 *Modo soporte activado*\n\nEscribe tu consulta o problema en un mensaje y se lo hago llegar al equipo de Neto. Te responderemos por este mismo chat.\n\n_Escribe */salir* cuando termines para volver al asistente._';
+    } else if (cmd === '/salir') {
+      // Usuario sale del modo soporte y vuelve al asistente.
+      const r = await cerrarSesion({ usuarioId: usuario.id });
+      respuesta = r.closed > 0
+        ? '✅ Saliste del modo soporte. Vuelvo a ser tu asistente financiero 💚\n\n_Escríbeme un gasto o "hola" cuando quieras._'
+        : 'No estabas en modo soporte. Sigo aquí para ayudarte con tus finanzas 💚';
+    } else if (cmd.startsWith('/activar ') || cmd.startsWith('/pago ') || cmd === '/usuarios' || cmd === '/admin' || cmd === '/panel' || cmd.startsWith('/responder ') || cmd.startsWith('/tickets') || cmd.startsWith('/cerrar ')) {
       // Comandos admin (solo Favio). La logica vive en handlers/admin-commands.js,
       // compartida con el webhook de Telegram para que ambos canales se comporten igual.
       // Se pasa `msg` (texto crudo) ademas de `cmd`: /responder necesita el mensaje sin lowercasear.

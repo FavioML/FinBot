@@ -45,14 +45,14 @@ module.exports = {
 
       case 'hablar_con_humano': {
         try {
-          // Crear ticket en estado 'esperando_mensaje'
-          await supabase.from('tickets_soporte').insert({
-            usuario_id: usuario.id,
-            whatsapp: from,
-            nombre_usuario: usuario.nombre || null,
-            estado: 'esperando_mensaje'
-          });
-          return '👤 *Soporte humano*\n\nCuéntame tu problema o consulta en un mensaje y se lo paso al equipo.\n\n_Escríbelo a continuación ⬇️_';
+          // Abre la sesión de soporte (idempotente: no duplica si ya hay una abierta).
+          // A partir de aquí TODO mensaje del usuario va al equipo hasta /salir. Ver
+          // lib/support-tickets + message-processor.procesarMensajeLibre.
+          const { abrirSesion } = require('../../lib/support-tickets');
+          const r = await abrirSesion({ usuarioId: usuario.id, whatsapp: from, nombre: usuario.nombre || null });
+          return r.yaAbierta
+            ? '👤 Ya estás en modo soporte. Escríbeme tu consulta y se la paso al equipo.\n\n_Escribe */salir* cuando quieras terminar._'
+            : '👤 *Soporte humano*\n\nCuéntame tu problema o consulta en un mensaje y se lo paso al equipo. Te responderemos por este mismo chat.\n\n_Escribe */salir* cuando termines para volver al asistente ⬇️_';
         } catch(e) {
           log.error({ tag: 'SOPORTE', err: e.message }, 'Error creando ticket');
           return '👤 *Soporte humano:*\n\nEscríbenos a:\n📧 hola@neto.pe\n📱 WhatsApp: 970398192';
