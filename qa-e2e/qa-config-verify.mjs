@@ -121,6 +121,14 @@ async function activeNavHref() {
     return active ? active.getAttribute('href') : null;
   });
 }
+// Al cargar la página (sin scrollear) el ítem activo debe ser Perfil, no la
+// última sección. Regresión: en el primer render corto, el override de "fondo"
+// robaba el resaltado a "Sesión y cuenta".
+await page.evaluate(() => window.scrollTo(0, 0));
+await page.waitForTimeout(400);
+results.initialActive = await activeNavHref();
+results.check2b_initialActiveEsPerfil = results.initialActive === '#perfil';
+
 const navSpy = {};
 for (const id of ['privacidad', 'exportar', 'sesion']) {
   await page.locator(`nav a[href="#${id}"]`).click();
@@ -162,6 +170,7 @@ const checks = {
   'página Configuración renderiza autenticada': results.pageRendered,
   'C1: "Ver planes y precios" -> /dashboard/pro': results.check1_linkAPro,
   'C1: ningún link del plan va a /dashboard/planes': results.check1_ningunLinkAMetas,
+  'C2b: al cargar, el índice resalta Perfil (no Sesión)': results.check2b_initialActiveEsPerfil,
   'C2: scroll-spy resalta la sección clicada (no Categorías)': results.check2_scrollSpyOk,
   'C3: /api/categories sin raíces duplicadas': results.check3_noDuplicates,
 };

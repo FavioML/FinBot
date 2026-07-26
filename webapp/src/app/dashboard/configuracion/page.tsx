@@ -359,10 +359,14 @@ export default function ConfiguracionPage() {
         if (el.getBoundingClientRect().top - line <= 0) current = el.id;
         else break;
       }
-      // En el fondo del scroll, la última sección (corta) puede no cruzar la
-      // guía nunca; la forzamos para que su ítem se resalte.
-      const nearBottom = window.innerHeight + window.scrollY >= document.body.scrollHeight - 4;
-      setActiveSection(nearBottom ? els[els.length - 1].id : current);
+      // La última sección (corta) puede no cruzar la guía nunca; la forzamos
+      // SOLO si la página realmente scrollea y estamos al fondo. Sin el guard
+      // `scrollable`, una página que entra entera en el viewport —o el primer
+      // render corto antes de que cargue el contenido async— cuenta como "al
+      // fondo" y le roba el resaltado a la última sección estando arriba del todo.
+      const scrollable = document.body.scrollHeight > window.innerHeight + 8;
+      const atBottom = scrollable && window.innerHeight + window.scrollY >= document.body.scrollHeight - 4;
+      setActiveSection(atBottom ? els[els.length - 1].id : current);
     }
     function unlockSpy() { spyLocked.current = false; }
 
