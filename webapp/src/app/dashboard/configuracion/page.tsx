@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, type ReactNode, type ComponentType } from 'react';
+import { useState, useEffect, useRef, type ReactNode, type ComponentType } from 'react';
 import { useRouter } from 'next/navigation';
 import NextLink from 'next/link';
 import Image from 'next/image';
@@ -277,6 +277,9 @@ export default function ConfiguracionPage() {
   const [alertasTransaccionLoading, setAlertasTransaccionLoading] = useState(false);
   const [analyticsOptedOut, setAnalyticsOptedOut] = useState(false);
   const [activeSection, setActiveSection] = useState('perfil');
+  // Al hacer clic en el índice, fijamos la sección y bloqueamos el observer un
+  // instante para que no la "robe" de vuelta mientras el scroll aún viaja.
+  const navClickLock = useRef(0);
 
   /* ---- Edit name ---- */
   const [editingName, setEditingName] = useState(false);
@@ -333,17 +336,29 @@ export default function ConfiguracionPage() {
       .map((id) => document.getElementById(id))
       .filter((el): el is HTMLElement => el !== null);
     if (els.length === 0) return;
-    const obs = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((e) => e.isIntersecting)
-          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
-        if (visible[0]) setActiveSection(visible[0].target.id);
-      },
-      { rootMargin: '-15% 0px -75% 0px' }
-    );
-    els.forEach((el) => obs.observe(el));
-    return () => obs.disconnect();
+    // Marca activa la sección cuya parte superior está más cerca de una línea
+    // guía ~120px bajo el topbar. Recorre todas las secciones (no solo las que
+    // caen en una banda fina), así las secciones cortas del fondo también
+    // activan su ítem en vez de dejar clavada la anterior.
+    function computeActive() {
+      if (Date.now() - navClickLock.current < 700) return;
+      const line = 140;
+      let current = els[0].id;
+      for (const el of els) {
+        if (el.getBoundingClientRect().top - line <= 0) current = el.id;
+        else break;
+      }
+      // Si llegamos al fondo del scroll, forzamos la última sección.
+      const nearBottom = window.innerHeight + window.scrollY >= document.body.scrollHeight - 4;
+      setActiveSection(nearBottom ? els[els.length - 1].id : current);
+    }
+    computeActive();
+    window.addEventListener('scroll', computeActive, { passive: true });
+    window.addEventListener('resize', computeActive);
+    return () => {
+      window.removeEventListener('scroll', computeActive);
+      window.removeEventListener('resize', computeActive);
+    };
   }, [isLoading, categoriesLoading]);
 
   async function fetchCategories() {
@@ -558,6 +573,10 @@ export default function ConfiguracionPage() {
                     <a
                       key={item.id}
                       href={`#${item.id}`}
+                      onClick={() => {
+                        navClickLock.current = Date.now();
+                        setActiveSection(item.id);
+                      }}
                       className={cn(
                         'block rounded-lg px-3 py-1.5 text-sm transition-colors',
                         activeSection === item.id
@@ -703,10 +722,10 @@ export default function ConfiguracionPage() {
 
                 {isPremium ? (
                   <NextLink
-                    href="/dashboard/planes"
+                    href="/dashboard/pro"
                     className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
                   >
-                    Ver comparación de planes
+                    Ver planes y precios
                     <ChevronRight className="h-4 w-4" />
                   </NextLink>
                 ) : (
@@ -730,8 +749,8 @@ export default function ConfiguracionPage() {
                       >
                         Pasar a Pro — S/10/mes
                       </NextLink>
-                      <NextLink href="/dashboard/planes" className="text-xs font-medium text-muted-foreground hover:text-secondary-foreground">
-                        Ver comparación completa
+                      <NextLink href="/dashboard/pro" className="text-xs font-medium text-muted-foreground hover:text-secondary-foreground">
+                        Ver planes y precios
                       </NextLink>
                     </div>
                   </div>

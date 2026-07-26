@@ -53,11 +53,20 @@ async function sugerirEmojiConIA(nombreCategoria) {
   } catch(e) { return '📁'; }
 }
 
+// Devuelve la fila raíz existente (o null) SIN lanzar cuando hay duplicados.
+// `.single()` lanzaba con >1 fila; el catch se lo tragaba y el flujo insertaba
+// otra categoría igual, así que 2 duplicados se volvían 24. `.limit(1)` corta
+// ese ciclo: si ya existe al menos una con ese nombre, nunca se inserta otra.
+async function buscarCategoriaRaiz(usuarioId, nombre) {
+  const { data } = await supabase.from('categorias_usuario')
+    .select('id').eq('usuario_id', usuarioId).eq('nombre', nombre).is('padre_id', null)
+    .order('created_at', { ascending: true }).limit(1);
+  return (data && data[0]) || null;
+}
+
 async function crearCategoriaLibreUsuario(usuarioId, nombre) {
   try {
-    const { data: existe } = await supabase.from('categorias_usuario')
-      .select('id').eq('usuario_id', usuarioId).eq('nombre', nombre).is('padre_id', null).single();
-    if (existe) return;
+    if (await buscarCategoriaRaiz(usuarioId, nombre)) return;
     const emoji = getEmojiCategoria(nombre) || await sugerirEmojiConIA(nombre);
     await supabase.from('categorias_usuario').insert({ usuario_id: usuarioId, nombre, emoji, activa: true });
   } catch(e) { /* silencioso */ }
@@ -66,19 +75,15 @@ async function crearCategoriaLibreUsuario(usuarioId, nombre) {
 async function crearSubcategoriaLibreUsuario(usuarioId, categoriaNombre, subcategoriaNombre) {
   if (!categoriaNombre || !subcategoriaNombre) return;
   try {
-    const { data: padre } = await supabase.from('categorias_usuario')
-      .select('id').eq('usuario_id', usuarioId).eq('nombre', categoriaNombre).is('padre_id', null).single();
+    let padre = await buscarCategoriaRaiz(usuarioId, categoriaNombre);
     if (!padre) {
       await crearCategoriaLibreUsuario(usuarioId, categoriaNombre);
-      const { data: padreNuevo } = await supabase.from('categorias_usuario')
-        .select('id').eq('usuario_id', usuarioId).eq('nombre', categoriaNombre).is('padre_id', null).single();
-      if (!padreNuevo) return;
-      await supabase.from('categorias_usuario').insert({ usuario_id: usuarioId, nombre: subcategoriaNombre, padre_id: padreNuevo.id, activa: true });
-      return;
+      padre = await buscarCategoriaRaiz(usuarioId, categoriaNombre);
+      if (!padre) return;
     }
-    const { data: existe } = await supabase.from('categorias_usuario')
-      .select('id').eq('usuario_id', usuarioId).eq('padre_id', padre.id).ilike('nombre', subcategoriaNombre).single();
-    if (existe) return;
+    const { data: existeSub } = await supabase.from('categorias_usuario')
+      .select('id').eq('usuario_id', usuarioId).eq('padre_id', padre.id).ilike('nombre', subcategoriaNombre).limit(1);
+    if (existeSub && existeSub.length) return;
     await supabase.from('categorias_usuario').insert({ usuario_id: usuarioId, nombre: subcategoriaNombre, padre_id: padre.id, activa: true });
   } catch(e) { /* silencioso */ }
 }
