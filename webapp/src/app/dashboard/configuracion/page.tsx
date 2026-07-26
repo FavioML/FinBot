@@ -277,9 +277,11 @@ export default function ConfiguracionPage() {
   const [alertasTransaccionLoading, setAlertasTransaccionLoading] = useState(false);
   const [analyticsOptedOut, setAnalyticsOptedOut] = useState(false);
   const [activeSection, setActiveSection] = useState('perfil');
-  // Al hacer clic en el índice, fijamos la sección y bloqueamos el observer un
-  // instante para que no la "robe" de vuelta mientras el scroll aún viaja.
-  const navClickLock = useRef(0);
+  // Al hacer clic en el índice fijamos la sección y suspendemos el scroll-spy
+  // hasta que el usuario haga un gesto real (wheel/touch/teclado). Sin esto, el
+  // scroll programático del clic dispara el recálculo y en páginas cortas el
+  // borde inferior "roba" el resaltado hacia la última sección.
+  const spyLocked = useRef(false);
 
   /* ---- Edit name ---- */
   const [editingName, setEditingName] = useState(false);
@@ -336,28 +338,37 @@ export default function ConfiguracionPage() {
       .map((id) => document.getElementById(id))
       .filter((el): el is HTMLElement => el !== null);
     if (els.length === 0) return;
-    // Marca activa la sección cuya parte superior está más cerca de una línea
-    // guía ~120px bajo el topbar. Recorre todas las secciones (no solo las que
-    // caen en una banda fina), así las secciones cortas del fondo también
-    // activan su ítem en vez de dejar clavada la anterior.
+    // Marca activa la última sección cuya parte superior cruzó una línea guía
+    // ~140px bajo el topbar. Recorre todas las secciones (no una banda fina),
+    // así las secciones cortas del fondo también activan su ítem.
+    const line = 140;
     function computeActive() {
-      if (Date.now() - navClickLock.current < 700) return;
-      const line = 140;
+      if (spyLocked.current) return; // un clic en el índice manda hasta que el usuario scrollee
       let current = els[0].id;
       for (const el of els) {
         if (el.getBoundingClientRect().top - line <= 0) current = el.id;
         else break;
       }
-      // Si llegamos al fondo del scroll, forzamos la última sección.
+      // En el fondo del scroll, la última sección (corta) puede no cruzar la
+      // guía nunca; la forzamos para que su ítem se resalte.
       const nearBottom = window.innerHeight + window.scrollY >= document.body.scrollHeight - 4;
       setActiveSection(nearBottom ? els[els.length - 1].id : current);
     }
+    function unlockSpy() { spyLocked.current = false; }
+
     computeActive();
     window.addEventListener('scroll', computeActive, { passive: true });
     window.addEventListener('resize', computeActive);
+    // Solo un gesto real del usuario reactiva el scroll-spy tras un clic.
+    window.addEventListener('wheel', unlockSpy, { passive: true });
+    window.addEventListener('touchmove', unlockSpy, { passive: true });
+    window.addEventListener('keydown', unlockSpy);
     return () => {
       window.removeEventListener('scroll', computeActive);
       window.removeEventListener('resize', computeActive);
+      window.removeEventListener('wheel', unlockSpy);
+      window.removeEventListener('touchmove', unlockSpy);
+      window.removeEventListener('keydown', unlockSpy);
     };
   }, [isLoading, categoriesLoading]);
 
@@ -574,7 +585,7 @@ export default function ConfiguracionPage() {
                       key={item.id}
                       href={`#${item.id}`}
                       onClick={() => {
-                        navClickLock.current = Date.now();
+                        spyLocked.current = true;
                         setActiveSection(item.id);
                       }}
                       className={cn(
