@@ -63,6 +63,7 @@ if (!SERVICE) {
 }
 
 const cookieName = `sb-${new URL(SUPA).hostname.split('.')[0]}-auth-token`;
+const today = new Date().toISOString().slice(0, 10);
 
 // --- oráculo service-role (ignora RLS), solo para limpiar ---
 async function sb(path, init = {}) {
@@ -216,7 +217,7 @@ try {
   // Borrar la sub → tx quedan con la categoría padre (subcategoria null); no reaparece
   await api(cookie, 'DELETE', `/api/categories?id=${txsubId}&sub=true`);
   let txAfter = await sb(`transacciones?usuario_id=eq.${USER.uid}&comercio=ilike.${TAG}*&select=categoria,subcategoria`);
-  const subDetached = (txAfter || []).length >= 2 && (txAfter || []).every((t) => t.subcategoria === null && t.categoria === `${TAG} Txroot`);
+  const subDetached = (txAfter || []).length >= 2 && (txAfter || []).every((t) => t.subcategoria === null && (t.categoria || '').toLowerCase() === `${TAG} txroot`.toLowerCase());
   record('sub-delete desvincula tx (sub=null, cat intacta)', subDetached, JSON.stringify(txAfter));
   cats = (await api(cookie, 'GET', '/api/categories')).json || [];
   const txrootObj = cats.find((c) => c.id === txrootId);
@@ -225,7 +226,9 @@ try {
   // Borrar la raíz → tx a "Por revisar" (categoria null, subcategoria sin_categoria)
   await api(cookie, 'DELETE', `/api/categories?id=${txrootId}`);
   txAfter = await sb(`transacciones?usuario_id=eq.${USER.uid}&comercio=ilike.${TAG}*&select=categoria,subcategoria`);
-  const rootDetached = (txAfter || []).length >= 2 && (txAfter || []).every((t) => t.categoria === null && t.subcategoria === 'sin_categoria');
+  // needsReview() lowercatea sub antes de comparar, así que "Sin_categoria"
+  // (el trigger de DB capitaliza) igual cae en "Por revisar". Assert CI.
+  const rootDetached = (txAfter || []).length >= 2 && (txAfter || []).every((t) => t.categoria === null && (t.subcategoria || '').toLowerCase() === 'sin_categoria');
   record('root-delete manda tx a Por revisar', rootDetached, JSON.stringify(txAfter));
 
   // Ningún 500 en toda la corrida
