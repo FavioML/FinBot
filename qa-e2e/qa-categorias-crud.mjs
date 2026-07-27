@@ -263,6 +263,14 @@ try {
   // un after() (fire-and-forget, con race vs el harness), así que sembramos regla y
   // presupuesto directo por el oráculo — igual que el test de rename — para asertar
   // el cascade del DELETE de forma determinista.
+  //
+  // El rate limit del backend es 30 req/min POR USUARIO (lib/rate-limit.ts). Para
+  // este punto las secciones 1-11 ya gastaron casi toda la ventana; sin esta pausa
+  // los DELETE de abajo caen en 429 y la cascada nunca corre (falso negativo). Se
+  // espera >60s para que la ventana se resetee y esta sección arranque con
+  // presupuesto fresco.
+  await new Promise((r) => setTimeout(r, 61_000));
+
   const seedRegla = (comercio, cat, sub) =>
     sb('reglas_comercio', { method: 'POST', body: JSON.stringify({ usuario_id: USER.uid, comercio_pattern: comercio, categoria: cat, subcategoria: sub }) }).catch(() => {});
   const seedBudget = (cat, sub) =>
