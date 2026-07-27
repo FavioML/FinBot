@@ -258,6 +258,47 @@ try {
   const regRn = (await sb(`reglas_comercio?usuario_id=eq.${USER.uid}&comercio_pattern=eq.${encodeURIComponent(`${TAG} wong`)}&select=categoria,subcategoria`))?.[0];
   record('rename reetiqueta regla (cat+sub)', eqCI(regRn?.categoria, `${TAG} Rnroot2`) && eqCI(regRn?.subcategoria, `${TAG} Rnsub2`), JSON.stringify(regRn));
 
+  // 12. Borrar categoría cascadea a reglas_comercio + presupuestos (el fix del
+  // delete). El POST de /api/transactions auto-crea una regla comercio→categoría en
+  // un after() (fire-and-forget, con race vs el harness), así que sembramos regla y
+  // presupuesto directo por el oráculo — igual que el test de rename — para asertar
+  // el cascade del DELETE de forma determinista.
+  const seedRegla = (comercio, cat, sub) =>
+    sb('reglas_comercio', { method: 'POST', body: JSON.stringify({ usuario_id: USER.uid, comercio_pattern: comercio, categoria: cat, subcategoria: sub }) }).catch(() => {});
+  const seedBudget = (cat, sub) =>
+    sb('presupuestos', { method: 'POST', body: JSON.stringify({ usuario_id: USER.uid, categoria: cat, subcategoria: sub, monto_limite: 100, mes: Number(today.slice(5, 7)), anio: Number(today.slice(0, 4)), alerta_porcentaje: 80 }) }).catch(() => {});
+
+  // --- Borrar RAÍZ → regla y presupuesto se ELIMINAN (no reaparece la categoría) ---
+  const cr = await api(cookie, 'POST', '/api/categories', { nombre: `${TAG} Cascroot` });
+  const crId = cr.json.id;
+  await api(cookie, 'POST', '/api/categories', { nombre: `${TAG} Cascsub`, padreId: crId });
+  await seedRegla(`${TAG} casc`, `${TAG} Cascroot`, `${TAG} Cascsub`);
+  await seedBudget(`${TAG} Cascroot`, null);
+  await api(cookie, 'DELETE', `/api/categories?id=${crId}`);
+  const regAfterRoot = await sb(`reglas_comercio?usuario_id=eq.${USER.uid}&categoria=ilike.${encodeURIComponent(`${TAG} Cascroot`)}&select=id`);
+  record('root-delete elimina la regla (no recrea la cat)', (regAfterRoot || []).length === 0, JSON.stringify(regAfterRoot));
+  const budAfterRoot = await sb(`presupuestos?usuario_id=eq.${USER.uid}&categoria=ilike.${encodeURIComponent(`${TAG} Cascroot`)}&select=id`);
+  record('root-delete elimina el presupuesto (no zombie carry-forward)', (budAfterRoot || []).length === 0, JSON.stringify(budAfterRoot));
+
+  // --- Borrar SUB → regla suelta la sub (cat padre intacta); sub-presupuesto se
+  //     elimina; el presupuesto a nivel categoría NO se toca ---
+  const cr2 = await api(cookie, 'POST', '/api/categories', { nombre: `${TAG} Cascroot2` });
+  const cr2Id = cr2.json.id;
+  const cs2 = await api(cookie, 'POST', '/api/categories', { nombre: `${TAG} Cascsub2`, padreId: cr2Id });
+  const cs2Id = cs2.json.id;
+  await seedRegla(`${TAG} casc2`, `${TAG} Cascroot2`, `${TAG} Cascsub2`);
+  await seedBudget(`${TAG} Cascroot2`, `${TAG} Cascsub2`); // presupuesto de la sub
+  await seedBudget(`${TAG} Cascroot2`, null);              // presupuesto de la categoría
+  await api(cookie, 'DELETE', `/api/categories?id=${cs2Id}&sub=true`);
+  const regAfterSub = (await sb(`reglas_comercio?usuario_id=eq.${USER.uid}&comercio_pattern=eq.${encodeURIComponent(`${TAG} casc2`)}&select=categoria,subcategoria`))?.[0];
+  record('sub-delete: regla suelta sub, mantiene cat padre',
+    !!regAfterSub && regAfterSub.subcategoria === null && (regAfterSub.categoria || '').toLowerCase() === `${TAG} Cascroot2`.toLowerCase(),
+    JSON.stringify(regAfterSub));
+  const subBud = await sb(`presupuestos?usuario_id=eq.${USER.uid}&categoria=ilike.${encodeURIComponent(`${TAG} Cascroot2`)}&subcategoria=not.is.null&select=id`);
+  record('sub-delete elimina el presupuesto de la sub', (subBud || []).length === 0, JSON.stringify(subBud));
+  const catBud = await sb(`presupuestos?usuario_id=eq.${USER.uid}&categoria=ilike.${encodeURIComponent(`${TAG} Cascroot2`)}&subcategoria=is.null&select=id`);
+  record('sub-delete NO toca el presupuesto de la categoría', (catBud || []).length === 1, JSON.stringify(catBud));
+
   // Ningún 500 en toda la corrida
   const any500 = Object.values(results.checks).some((v) => /status=500/.test(v));
   record('ningún 500 en el flujo', !any500);

@@ -91,6 +91,79 @@ async function detachRootTransactions(svc: SupabaseClient, userId: string, rootN
     .ilike('categoria', likeEscape(rootNombre));
 }
 
+/**
+ * Al borrar una categoría RAÍZ, se ELIMINAN sus reglas comercio→categoría. El
+ * POST de /api/transactions auto-crea una regla al ingerir un gasto; si la regla
+ * quedara apuntando a la categoría borrada, la próxima transacción de ese comercio
+ * la re-clasificaría con el nombre viejo y syncCategoriasUsuario recrearía la
+ * categoría → el borrado no pegaría. Una regla a una categoría inexistente es peor
+ * que ninguna (condena al comercio a caer mal clasificado); mejor borrarla y dejar
+ * que la próxima transacción clasifique fresh por NLP.
+ */
+async function deleteRootReglas(svc: SupabaseClient, userId: string, rootNombre: string) {
+  await svc
+    .from('reglas_comercio')
+    .delete()
+    .eq('usuario_id', userId)
+    .ilike('categoria', likeEscape(rootNombre));
+}
+
+/**
+ * Al borrar una SUBcategoría, las reglas que la usaban sueltan la sub y quedan
+ * apuntando solo a la categoría padre (subcategoria=null): el comercio sigue
+ * mapeando a la categoría, sin la sub borrada. Espejo del detach de transacciones.
+ */
+async function detachSubReglas(
+  svc: SupabaseClient,
+  userId: string,
+  parentNombre: string,
+  subNombre: string
+) {
+  await svc
+    .from('reglas_comercio')
+    .update({ subcategoria: null })
+    .eq('usuario_id', userId)
+    .ilike('categoria', likeEscape(parentNombre))
+    .ilike('subcategoria', likeEscape(subNombre));
+}
+
+/**
+ * Al borrar una categoría RAÍZ, se ELIMINAN sus presupuestos (incluidos los de
+ * sus subcategorías). Un presupuesto sobre una categoría borrada nunca vuelve a
+ * matchear gasto y, peor, el carry-forward del GET de /api/budgets lo copia hacia
+ * cada mes nuevo: un zombie que se auto-propaga. Se borra en vez de dejarlo
+ * huérfano.
+ */
+async function deleteRootPresupuestos(svc: SupabaseClient, userId: string, rootNombre: string) {
+  await svc
+    .from('presupuestos')
+    .delete()
+    .eq('usuario_id', userId)
+    .ilike('categoria', likeEscape(rootNombre));
+}
+
+/**
+ * Al borrar una SUBcategoría, se ELIMINAN los presupuestos scopeados a ella
+ * (categoría padre + esa sub). A diferencia de las transacciones/reglas, aquí se
+ * borra en vez de nullear la sub: un presupuesto de "Comida > Restaurantes" que
+ * pasara a "Comida" ensancharía su scope en silencio (y chocaría con el unique
+ * constraint si ya hay un presupuesto de la categoría). Los presupuestos a nivel
+ * categoría (subcategoria=null) NO se tocan.
+ */
+async function deleteSubPresupuestos(
+  svc: SupabaseClient,
+  userId: string,
+  parentNombre: string,
+  subNombre: string
+) {
+  await svc
+    .from('presupuestos')
+    .delete()
+    .eq('usuario_id', userId)
+    .ilike('categoria', likeEscape(parentNombre))
+    .ilike('subcategoria', likeEscape(subNombre));
+}
+
 // Tablas del usuario que referencian la taxonomía por NOMBRE (no por FK). Un
 // rename debe reetiquetarlas todas o quedan inconsistentes: un presupuesto sobre
 // la categoría vieja deja de matchear, y una regla comercio→categoría vieja la
@@ -358,6 +431,8 @@ export async function DELETE(request: Request) {
     if (!padre || padre.usuario_id !== userId)
       return NextResponse.json({ error: 'Categoría no encontrada' }, { status: 404 });
     await detachSubTransactions(svc, userId, padre.nombre, nombre);
+    await detachSubReglas(svc, userId, padre.nombre, nombre);
+    await deleteSubPresupuestos(svc, userId, padre.nombre, nombre);
     await tombstoneSystemSub(svc, userId, padreId, nombre);
     return NextResponse.json({ ok: true });
   }
@@ -388,9 +463,15 @@ export async function DELETE(request: Request) {
       .select('nombre')
       .eq('id', cat.padre_id)
       .maybeSingle();
-    if (parent?.nombre) await detachSubTransactions(svc, userId, parent.nombre, cat.nombre);
+    if (parent?.nombre) {
+      await detachSubTransactions(svc, userId, parent.nombre, cat.nombre);
+      await detachSubReglas(svc, userId, parent.nombre, cat.nombre);
+      await deleteSubPresupuestos(svc, userId, parent.nombre, cat.nombre);
+    }
   } else {
     await detachRootTransactions(svc, userId, cat.nombre);
+    await deleteRootReglas(svc, userId, cat.nombre);
+    await deleteRootPresupuestos(svc, userId, cat.nombre);
     await svc
       .from('categorias_usuario')
       .update({ activa: false })
