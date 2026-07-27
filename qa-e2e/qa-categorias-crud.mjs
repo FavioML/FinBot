@@ -122,6 +122,8 @@ function record(name, pass, note) {
 async function cleanup() {
   const like = `ilike.${TAG}*`;
   await sb(`transacciones?usuario_id=eq.${USER.uid}&comercio=${like}`, { method: 'DELETE' }).catch(() => {});
+  await sb(`presupuestos?usuario_id=eq.${USER.uid}&categoria=${like}`, { method: 'DELETE' }).catch(() => {});
+  await sb(`reglas_comercio?usuario_id=eq.${USER.uid}&comercio_pattern=${like}`, { method: 'DELETE' }).catch(() => {});
   await sb(`categorias_usuario?usuario_id=eq.${USER.uid}&padre_id=not.is.null&nombre=${like}`, { method: 'DELETE' }).catch(() => {});
   await sb(`categorias_usuario?usuario_id=eq.${USER.uid}&padre_id=is.null&nombre=${like}`, { method: 'DELETE' }).catch(() => {});
 }
@@ -230,6 +232,31 @@ try {
   // (el trigger de DB capitaliza) igual cae en "Por revisar". Assert CI.
   const rootDetached = (txAfter || []).length >= 2 && (txAfter || []).every((t) => t.categoria === null && (t.subcategoria || '').toLowerCase() === 'sin_categoria');
   record('root-delete manda tx a Por revisar', rootDetached, JSON.stringify(txAfter));
+
+  // 11. Renombrar reetiqueta transacciones + presupuestos + reglas
+  const rnroot = await api(cookie, 'POST', '/api/categories', { nombre: `${TAG} Rnroot` });
+  const rnrootId = rnroot.json.id;
+  const rnsub = await api(cookie, 'POST', '/api/categories', { nombre: `${TAG} Rnsub`, padreId: rnrootId });
+  const rnsubId = rnsub.json.id;
+  await api(cookie, 'POST', '/api/transactions', { monto: 9, tipo: 'gasto', moneda: 'PEN', comercio: `${TAG} rn`, categoria: `${TAG} Rnroot`, subcategoria: `${TAG} Rnsub`, fecha: today, metodo_pago: 'Efectivo' });
+  const mm = Number(today.slice(5, 7));
+  const yy = Number(today.slice(0, 4));
+  await sb('presupuestos', { method: 'POST', body: JSON.stringify({ usuario_id: USER.uid, categoria: `${TAG} Rnroot`, monto_limite: 100, mes: mm, anio: yy, alerta_porcentaje: 80 }) }).catch(() => {});
+  await sb('reglas_comercio', { method: 'POST', body: JSON.stringify({ usuario_id: USER.uid, comercio_pattern: `${TAG} wong`, categoria: `${TAG} Rnroot`, subcategoria: `${TAG} Rnsub` }) }).catch(() => {});
+
+  // Renombrar la sub → reetiqueta subcategoria en las 3 tablas
+  await api(cookie, 'PUT', '/api/categories', { id: rnsubId, nombre: `${TAG} Rnsub2` });
+  // Renombrar la raíz → reetiqueta categoria en las 3 tablas
+  await api(cookie, 'PUT', '/api/categories', { id: rnrootId, nombre: `${TAG} Rnroot2` });
+
+  const eqCI = (a, b) => (a || '').toLowerCase() === (b || '').toLowerCase();
+  const txRn = (await sb(`transacciones?usuario_id=eq.${USER.uid}&comercio=eq.${encodeURIComponent(`${TAG} rn`)}&select=categoria,subcategoria`))?.[0];
+  record('rename raíz reetiqueta tx.categoria', eqCI(txRn?.categoria, `${TAG} Rnroot2`), txRn?.categoria);
+  record('rename sub reetiqueta tx.subcategoria', eqCI(txRn?.subcategoria, `${TAG} Rnsub2`), txRn?.subcategoria);
+  const budRn = (await sb(`presupuestos?usuario_id=eq.${USER.uid}&categoria=ilike.${TAG}*&select=categoria`))?.[0];
+  record('rename raíz reetiqueta presupuesto', eqCI(budRn?.categoria, `${TAG} Rnroot2`), budRn?.categoria);
+  const regRn = (await sb(`reglas_comercio?usuario_id=eq.${USER.uid}&comercio_pattern=ilike.${TAG}*&select=categoria,subcategoria`))?.[0];
+  record('rename reetiqueta regla (cat+sub)', eqCI(regRn?.categoria, `${TAG} Rnroot2`) && eqCI(regRn?.subcategoria, `${TAG} Rnsub2`), JSON.stringify(regRn));
 
   // Ningún 500 en toda la corrida
   const any500 = Object.values(results.checks).some((v) => /status=500/.test(v));

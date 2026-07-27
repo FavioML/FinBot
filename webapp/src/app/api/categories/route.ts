@@ -91,6 +91,45 @@ async function detachRootTransactions(svc: SupabaseClient, userId: string, rootN
     .ilike('categoria', likeEscape(rootNombre));
 }
 
+// Tablas del usuario que referencian la taxonomía por NOMBRE (no por FK). Un
+// rename debe reetiquetarlas todas o quedan inconsistentes: un presupuesto sobre
+// la categoría vieja deja de matchear, y una regla comercio→categoría vieja la
+// recrea en el próximo auto-categorizado. gastos_compartidos queda fuera a
+// propósito (es del feature de gastos compartidos, con data que ven terceros).
+const NAME_REF_TABLES = ['transacciones', 'presupuestos', 'reglas_comercio'] as const;
+
+/** Renombra una categoría RAÍZ en todas las tablas que la referencian por nombre. */
+async function relabelRootName(svc: SupabaseClient, userId: string, oldName: string, newName: string) {
+  if (oldName === newName) return;
+  for (const tbl of NAME_REF_TABLES) {
+    // Best-effort: un choque de constraint en una tabla no debe abortar el rename.
+    await svc
+      .from(tbl)
+      .update({ categoria: newName })
+      .eq('usuario_id', userId)
+      .ilike('categoria', likeEscape(oldName));
+  }
+}
+
+/** Renombra una SUBcategoría (bajo su padre) en todas esas tablas. */
+async function relabelSubName(
+  svc: SupabaseClient,
+  userId: string,
+  parentNombre: string,
+  oldSub: string,
+  newSub: string
+) {
+  if (oldSub === newSub) return;
+  for (const tbl of NAME_REF_TABLES) {
+    await svc
+      .from(tbl)
+      .update({ subcategoria: newSub })
+      .eq('usuario_id', userId)
+      .ilike('categoria', likeEscape(parentNombre))
+      .ilike('subcategoria', likeEscape(oldSub));
+  }
+}
+
 /* GET — list user categories with subcategories */
 export async function GET() {
   const auth = await requireNetoUser();
@@ -398,7 +437,7 @@ export async function PUT(request: Request) {
 
     const { data: padre, error: padreErr } = await svc
       .from('categorias_usuario')
-      .select('id, usuario_id, padre_id')
+      .select('id, usuario_id, padre_id, nombre')
       .eq('id', padreId)
       .maybeSingle();
     if (padreErr)
@@ -446,6 +485,8 @@ export async function PUT(request: Request) {
       created = data;
     }
 
+    // Reetiquetar las transacciones/presupuestos/reglas que usaban el default.
+    await relabelSubName(svc, userId, padre.nombre, oldNombre, nombre);
     await tombstoneSystemSub(svc, userId, padreId, oldNombre);
     return NextResponse.json(created ?? { ok: true, nombre });
   }
@@ -458,7 +499,7 @@ export async function PUT(request: Request) {
   // Verify ownership
   const { data: cat, error: catErr } = await svc
     .from('categorias_usuario')
-    .select('id, usuario_id')
+    .select('id, usuario_id, nombre, padre_id')
     .eq('id', id)
     .maybeSingle();
 
@@ -480,6 +521,19 @@ export async function PUT(request: Request) {
         { status: 409 }
       );
     return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  // Reetiquetar las tablas que referencian por nombre (transacciones, presupuestos,
+  // reglas). Sub → subcategoria bajo su padre; raíz → categoria.
+  if (cat.padre_id) {
+    const { data: parent } = await svc
+      .from('categorias_usuario')
+      .select('nombre')
+      .eq('id', cat.padre_id)
+      .maybeSingle();
+    if (parent?.nombre) await relabelSubName(svc, userId, parent.nombre, cat.nombre, nombre);
+  } else {
+    await relabelRootName(svc, userId, cat.nombre, nombre);
   }
 
   return NextResponse.json({ ok: true, nombre });

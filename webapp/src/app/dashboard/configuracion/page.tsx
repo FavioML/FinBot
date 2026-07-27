@@ -1131,7 +1131,7 @@ export default function ConfiguracionPage() {
                 id="categorias"
                 icon={Tag}
                 title="Gestionar categorías"
-                description="Crea, renombra o elimina categorías y subcategorías. Renombrar no reetiqueta tus transacciones; al eliminar, te aviso si hay transacciones y podrás revisarlas antes."
+                description="Crea, renombra o elimina categorías y subcategorías. Renombrar actualiza también tus transacciones, presupuestos y reglas; al eliminar, te aviso si hay transacciones y podrás revisarlas antes."
               >
                 {/* Crear categoría raíz — siempre visible arriba de la lista */}
                 {creatingRoot ? (
