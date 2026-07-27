@@ -181,7 +181,8 @@ export async function GET() {
   // Build map: categoria → Set of subcategorías used in transactions
   const txSubMap = new Map<string, Set<string>>();
   for (const tx of txRows || []) {
-    if (!tx.subcategoria || tx.subcategoria === 'null' || tx.subcategoria === 'sin_categoria') continue;
+    const s = (tx.subcategoria || '').toLowerCase();
+    if (!tx.subcategoria || s === 'null' || s === 'sin_categoria') continue;
     if (!txSubMap.has(tx.categoria)) txSubMap.set(tx.categoria, new Set());
     txSubMap.get(tx.categoria)!.add(tx.subcategoria);
   }
