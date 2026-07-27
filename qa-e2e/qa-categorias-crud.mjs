@@ -255,7 +255,7 @@ try {
   record('rename sub reetiqueta tx.subcategoria', eqCI(txRn?.subcategoria, `${TAG} Rnsub2`), txRn?.subcategoria);
   const budRn = (await sb(`presupuestos?usuario_id=eq.${USER.uid}&categoria=ilike.${TAG}*&select=categoria`))?.[0];
   record('rename raíz reetiqueta presupuesto', eqCI(budRn?.categoria, `${TAG} Rnroot2`), budRn?.categoria);
-  const regRn = (await sb(`reglas_comercio?usuario_id=eq.${USER.uid}&comercio_pattern=ilike.${TAG}*&select=categoria,subcategoria`))?.[0];
+  const regRn = (await sb(`reglas_comercio?usuario_id=eq.${USER.uid}&comercio_pattern=eq.${encodeURIComponent(`${TAG} wong`)}&select=categoria,subcategoria`))?.[0];
   record('rename reetiqueta regla (cat+sub)', eqCI(regRn?.categoria, `${TAG} Rnroot2`) && eqCI(regRn?.subcategoria, `${TAG} Rnsub2`), JSON.stringify(regRn));
 
   // Ningún 500 en toda la corrida
