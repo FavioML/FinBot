@@ -128,11 +128,18 @@ export default function AdminEconomicsPage() {
 
   return (
     <div className="space-y-8">
+      <div>
+        <h2 className="text-xl font-semibold text-[#F0EFE8]">Unit Economics</h2>
+        <p className="mt-1 text-sm text-[#8A877D]">
+          MRR, ARR, breakeven, márgenes, CAC y LTV. Todo sobre datos reales de producción.
+        </p>
+      </div>
+
       {/* Sección 1: KPI hero */}
       <section>
-        <h2 className="mb-3 text-sm font-medium uppercase tracking-wider text-[#8A877D]">
+        <h3 className="mb-3 text-sm font-medium uppercase tracking-wider text-[#8A877D]">
           KPIs principales
-        </h2>
+        </h3>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <KpiCard
             label="MRR"
@@ -162,9 +169,9 @@ export default function AdminEconomicsPage() {
 
       {/* Sección 2: KPIs secundarios */}
       <section>
-        <h2 className="mb-3 text-sm font-medium uppercase tracking-wider text-[#8A877D]">
+        <h3 className="mb-3 text-sm font-medium uppercase tracking-wider text-[#8A877D]">
           Métricas secundarias
-        </h2>
+        </h3>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <SmallKpi
             label="Total usuarios"
@@ -359,9 +366,9 @@ export default function AdminEconomicsPage() {
         data.costs_overdue > 0 ||
         data.breakeven_gap > 5) && (
         <section className="space-y-3">
-          <h2 className="text-sm font-medium uppercase tracking-wider text-[#8A877D]">
+          <h3 className="text-sm font-medium uppercase tracking-wider text-[#8A877D]">
             Alertas operacionales
-          </h2>
+          </h3>
           {data.costs_due_today > 0 && (
             <div className="rounded-xl border border-[rgba(239,159,39,0.35)] bg-[rgba(239,159,39,0.08)] p-4 text-sm text-[#EF9F27]">
               {data.costs_due_today} costo

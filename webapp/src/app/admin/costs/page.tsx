@@ -787,11 +787,16 @@ export default function AdminCostsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-xl font-semibold text-[#F0EFE8]">Costos operativos</h2>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-semibold text-[#F0EFE8]">Costos operativos</h2>
+          <p className="mt-1 text-sm text-[#8A877D]">
+            Infra, dominio, comms y compliance con recordatorio de próximo vencimiento.
+          </p>
+        </div>
         <button
           onClick={() => setCreateOpen(true)}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-[#1D9E75] px-3 py-2 text-sm font-medium text-white hover:bg-[#178a65]"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-[#1D9E75] px-3 py-2 text-sm font-medium text-white hover:bg-[#178a65]"
         >
           <Plus className="h-4 w-4" />
           Añadir costo

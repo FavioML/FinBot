@@ -673,6 +673,13 @@ export default function AdminOperacionPage() {
 
   return (
     <>
+      <div className="mb-6">
+        <h2 className="text-xl font-semibold text-[#F0EFE8]">Operación</h2>
+        <p className="mt-1 text-sm text-[#8A877D]">
+          Usuarios, KPIs, embudo de onboarding, errores NLP y tickets de soporte.
+        </p>
+      </div>
+
       {statsQuery.isLoading ? (
         <OperacionKpiSkeleton />
       ) : (
