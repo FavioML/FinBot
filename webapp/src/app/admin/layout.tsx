@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { getAdminContext } from '@/lib/admin';
 import { AdminQueryProvider } from './admin-query-provider';
+import { AdminHeaderNav } from './admin-header-nav';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,12 +25,7 @@ export default async function AdminLayout({
               Panel de control
             </h1>
           </div>
-          <a
-            href="/dashboard"
-            className="rounded-lg border border-[rgba(255,255,255,0.08)] bg-[#131311] px-3 py-2 text-sm text-[#C8C6BC] transition-colors hover:text-[#F0EFE8]"
-          >
-            Volver al dashboard
-          </a>
+          <AdminHeaderNav />
         </header>
         <AdminQueryProvider>{children}</AdminQueryProvider>
       </div>
