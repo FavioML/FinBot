@@ -12,6 +12,7 @@ import {
   EXCLUDED_REVENUE_WHATSAPP,
 } from '@/lib/admin-revenue';
 import { startOfDayLima, startOfMonthLima } from '@/lib/date-lima';
+import type { ActivityRow, UserTxStatsRow } from '@/lib/admin';
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'faviomendoza27jl@gmail.com';
 
@@ -40,11 +41,45 @@ export async function GET() {
   const weekAgo = new Date(now.getTime() - 7 * 86400000).toISOString();
   // 30 days ago
   const monthAgo = new Date(now.getTime() - 30 * 86400000).toISOString();
+  // inicio de mes día Lima
+  const startMonthIso = startOfMonthLima(now).toISOString();
 
-  // Fetch all users
-  const { data: usuarios } = await db
-    .from('usuarios')
-    .select('id, whatsapp, plan, tipo_plan, onboarding_completado, created_at, premium_desde, premium_vence, supabase_auth_id');
+  // Las cinco lecturas son independientes: en serie eran cinco roundtrips encadenados.
+  //
+  // Las dos RPC (migración 039) agregan en SQL lo que antes se agregaba en JS sobre filas
+  // crudas. PostgREST corta la respuesta en 1000 filas, así que `transacciones` (2123)
+  // llegaba truncada SIN error: el embudo veía 21 de 44 usuarios activados (25% reportado
+  // vs 52% real) y DAU/WAU/MAU estaban a una semana de congelarse igual. La regla que sale
+  // de ahí: no traigas filas para contarlas, cuéntalas en SQL.
+  const [
+    { data: usuarios },
+    { data: pagosMes },
+    { data: activityRows },
+    { data: txStats },
+    { data: nlpRaw },
+  ] = await Promise.all([
+    db
+      .from('usuarios')
+      .select(
+        'id, whatsapp, plan, tipo_plan, onboarding_completado, created_at, premium_desde, premium_vence, supabase_auth_id',
+      ),
+    db
+      .from('pagos')
+      .select('monto, estado, aprobado_at, created_at, usuario_id')
+      .gte('created_at', startMonthIso),
+    db.rpc('admin_activity_counts', {
+      p_day: todayLimaIso,
+      p_week: weekAgo,
+      p_month: monthAgo,
+    }),
+    db.rpc('admin_user_tx_stats'),
+    db
+      .from('nlp_errors')
+      .select('created_at')
+      .neq('error_tipo', 'rate_limit') // 429 de OpenAI es infra, no NLP: fuera del chart
+      .gte('created_at', monthAgo)
+      .order('created_at', { ascending: true }),
+  ]);
 
   const allUsers = usuarios || [];
   const totalUsers = allUsers.length;
@@ -59,59 +94,37 @@ export async function GET() {
     realUsers.length > 0 ? Math.round((rev.proCount / realUsers.length) * 1000) / 10 : 0;
 
   // Caja real cobrada este mes (pagos aprobados), distinta del MRR recurrente.
-  const startMonthIso = startOfMonthLima(now).toISOString(); // inicio de mes día Lima
   const excludedIds = new Set(
     allUsers.filter((u) => u.whatsapp && EXCLUDED_REVENUE_WHATSAPP.has(u.whatsapp)).map((u) => u.id),
   );
-  const { data: pagosMes } = await db
-    .from('pagos')
-    .select('monto, estado, aprobado_at, created_at, usuario_id')
-    .gte('created_at', startMonthIso);
   const cajaMes = cajaDelMes(pagosMes || [], excludedIds, startMonthIso);
 
   // Churn 30d (fuente única: computeChurn, excluye internos, base = churned + pro reales).
   // Idéntico a economics para que no diverjan las dos rutas.
   const churnRate = computeChurn(allUsers, now).rate;
 
-  // DAU: distinct users with transactions today.
-  // Bug previo: usaba count:'exact' que cuenta FILAS (transacciones), no usuarios distintos,
-  // así que DAU podía salir mayor que WAU (un user con 15 tx hoy daba DAU=15). Debe contar
-  // usuarios distintos como WAU/MAU para respetar el invariante DAU <= WAU <= MAU.
-  const { data: dauData } = await db
-    .from('transacciones')
-    .select('usuario_id')
-    .gte('created_at', todayLimaIso);
-  const dau = new Set((dauData || []).map((t) => t.usuario_id)).size;
-
-  // WAU: distinct users with transactions this week
-  const { data: wauData } = await db
-    .from('transacciones')
-    .select('usuario_id')
-    .gte('created_at', weekAgo);
-  const wau = new Set((wauData || []).map((t) => t.usuario_id)).size;
-
-  // MAU: distinct users with transactions this month
-  const { data: mauData } = await db
-    .from('transacciones')
-    .select('usuario_id')
-    .gte('created_at', monthAgo);
-  const mau = new Set((mauData || []).map((t) => t.usuario_id)).size;
+  // DAU/WAU/MAU: usuarios DISTINTOS, contados con count(distinct) en SQL.
+  // Dos bugs vividos que este bloque cierra:
+  //   1. Contar filas en vez de usuarios (un user con 15 tx hoy daba DAU=15, rompiendo el
+  //      invariante DAU <= WAU <= MAU).
+  //   2. Contar en JS sobre la respuesta de PostgREST, que viene topada en 1000 filas. MAU
+  //      iba en 765 de 1000: se habría congelado sin avisar, igual que el embudo.
+  const activity = (activityRows as ActivityRow[] | null)?.[0];
+  const dau = Number(activity?.dau ?? 0);
+  const wau = Number(activity?.wau ?? 0);
+  const mau = Number(activity?.mau ?? 0);
 
   // Txs per active user this month
-  const totalTxMonth = (mauData || []).length;
+  const totalTxMonth = Number(activity?.tx_month ?? 0);
   const txPerActiveUser = mau > 0 ? Math.round((totalTxMonth / mau) * 10) / 10 : 0;
 
-  // Avg time to first transaction (days)
-  const { data: firstTxData } = await db
-    .from('transacciones')
-    .select('usuario_id, created_at')
-    .order('created_at', { ascending: true });
-
+  // Primera transacción por usuario: min(created_at) agregado en SQL (una fila por usuario),
+  // no la tabla entera ordenada ASC. Al pedirla ordenada ascendente, el truncado a 1000 filas
+  // congelaba la ventana en el pasado y RETROCEDÍA con cada transacción nueva: el corte estaba
+  // en el 07-jun-2026 y todo usuario activado después era invisible para el embudo.
   const firstTxByUser: Record<string, string> = {};
-  for (const tx of firstTxData || []) {
-    if (!firstTxByUser[tx.usuario_id]) {
-      firstTxByUser[tx.usuario_id] = tx.created_at;
-    }
+  for (const row of (txStats as UserTxStatsRow[] | null) || []) {
+    if (row.first_tx) firstTxByUser[row.usuario_id] = row.first_tx;
   }
 
   let totalDaysToFirstTx = 0;
@@ -165,13 +178,7 @@ export async function GET() {
   const webappCoverage = allUsers.filter((u) => !!u.supabase_auth_id).length;
 
   // --- NLP Errors per day (last 30 days) ---
-  const { data: nlpRaw } = await db
-    .from('nlp_errors')
-    .select('created_at')
-    .neq('error_tipo', 'rate_limit') // 429 de OpenAI es infra, no NLP: fuera del chart
-    .gte('created_at', monthAgo)
-    .order('created_at', { ascending: true });
-
+  // La lectura sube al Promise.all de arriba; acá solo queda el agrupado por día.
   const nlpByDay: Record<string, number> = {};
   // Initialize all 30 days
   for (let i = 29; i >= 0; i--) {

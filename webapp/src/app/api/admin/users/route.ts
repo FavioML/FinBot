@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
+import type { UserTxStatsRow } from '@/lib/admin';
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'faviomendoza27jl@gmail.com';
 
@@ -20,52 +21,40 @@ export async function GET() {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  // Fetch all users
-  const { data: usuarios, error } = await getServiceClient()
-    .from('usuarios')
-    .select(
-      'id, whatsapp, nombre, email, plan, onboarding_completado, gmail_access_token, created_at, premium_vence, premium_desde, supabase_auth_id, estado_pago, tipo_plan, fecha_pago, pago_pendiente',
-    )
-    .order('created_at', { ascending: false });
+  const db = getServiceClient();
+
+  // Las tres lecturas son independientes, así que van juntas.
+  //
+  // La de counts era el cuello de botella real del panel: llamaba a
+  // `count_transactions_by_user`, una RPC que NUNCA existió en esta base (verificado contra
+  // pg_proc), así que el fallback "por si acaso" no era un fallback, era el único camino:
+  // una query por usuario, 84 roundtrips secuenciales por cada carga de pantalla. Ahora es
+  // una sola RPC agregada (migración 039), que además no puede truncarse a 1000 filas
+  // porque devuelve una fila por usuario, no una por transacción.
+  const [{ data: usuarios, error }, { data: txStats }, { data: authList }] = await Promise.all([
+    db
+      .from('usuarios')
+      .select(
+        'id, whatsapp, nombre, email, plan, onboarding_completado, gmail_access_token, created_at, premium_vence, premium_desde, supabase_auth_id, estado_pago, tipo_plan, fecha_pago, pago_pendiente',
+      )
+      .order('created_at', { ascending: false }),
+    db.rpc('admin_user_tx_stats'),
+    db.auth.admin.listUsers({ perPage: 1000 }),
+  ]);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Get transaction counts per user
-  const userIds = (usuarios || []).map((u) => u.id);
-  const { data: txCounts } = await getServiceClient().rpc('count_transactions_by_user', {
-    user_ids: userIds,
-  });
-
-  // Fallback: count manually if RPC doesn't exist
   const countMap: Record<string, number> = {};
-  if (txCounts) {
-    for (const row of txCounts) {
-      countMap[row.usuario_id] = row.count;
-    }
-  } else {
-    // Simple fallback — count per user
-    for (const u of usuarios || []) {
-      const { count } = await getServiceClient()
-        .from('transacciones')
-        .select('*', { count: 'exact', head: true })
-        .eq('usuario_id', u.id);
-      countMap[u.id] = count || 0;
-    }
+  for (const row of (txStats as UserTxStatsRow[] | null) || []) {
+    countMap[row.usuario_id] = Number(row.tx_count);
   }
 
-  // Get auth provider for users with supabase_auth_id
-  const authIds = (usuarios || []).filter((u) => u.supabase_auth_id).map((u) => u.supabase_auth_id);
+  // Auth provider (google / magic link) para los usuarios que llegaron por la webapp.
   const providerMap: Record<string, string> = {};
-  if (authIds.length > 0) {
-    const { data: { users: authUsers } } = await getServiceClient().auth.admin.listUsers({ perPage: 1000 });
-    if (authUsers) {
-      for (const au of authUsers) {
-        const provider = au.app_metadata?.provider || au.app_metadata?.providers?.[0] || 'unknown';
-        providerMap[au.id] = provider;
-      }
-    }
+  for (const au of authList?.users || []) {
+    providerMap[au.id] = au.app_metadata?.provider || au.app_metadata?.providers?.[0] || 'unknown';
   }
 
   const result = (usuarios || []).map((u) => {
