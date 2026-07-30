@@ -238,3 +238,35 @@ export interface SurveyConversationMessage {
   mensaje: string;
   created_at: string;
 }
+
+// ===== Ficha individual de usuario (Ola 4 Fase 2, RPC admin_user_features 043) =====
+export interface AdminUserFeatures {
+  transacciones: number;
+  categorias: number;
+  presupuestos: number;
+  deudas: number;
+  metas: number;
+  espacios: number;
+  alertas: number;
+  score: number;
+  gmail: boolean;
+  tickets: number;
+  pagos_aprobados: number;
+  ltv_pen: number;
+}
+
+export interface AdminUserNps {
+  responded_at: string | null;
+  response_data: {
+    ease?: number;
+    usefulness?: number;
+    recommend?: number;
+    comment?: string;
+  } | null;
+}
+
+export interface AdminUserFichaResponse {
+  ok: boolean;
+  features: AdminUserFeatures | null;
+  nps: AdminUserNps | null;
+}
