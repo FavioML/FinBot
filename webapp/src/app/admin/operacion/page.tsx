@@ -1047,7 +1047,7 @@ export default function AdminOperacionPage() {
           <div className="space-y-3 md:hidden">
             {usersQuery.isLoading && users.length === 0 && <ListSkeleton rows={4} />}
             {filteredUsers.map((u) => (
-              <div key={u.id} className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+              <div key={u.id} className="glass-card rounded-xl p-4">
                 <div className="flex items-start justify-between">
                   <div>
                     <div className="font-medium">{u.nombre || 'Sin nombre'}</div>
@@ -1156,7 +1156,7 @@ export default function AdminOperacionPage() {
 
             {nlpErrors.length > 0 && nlpTipoFilter === 'all' && nlpUserFilter === 'all' && !nlpSearch && (
               <div className="grid gap-4 sm:grid-cols-2">
-                <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+                <div className="glass-card rounded-xl p-4">
                   <h4 className="mb-2 text-xs font-medium text-[#F0EFE8]/50">Top 5 mensajes que fallan</h4>
                   {(() => {
                     const msgCounts: Record<string, number> = {};
@@ -1184,7 +1184,7 @@ export default function AdminOperacionPage() {
                   })()}
                 </div>
 
-                <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+                <div className="glass-card rounded-xl p-4">
                   <h4 className="mb-2 text-xs font-medium text-[#F0EFE8]/50">Errores por tipo</h4>
                   {(() => {
                     const tipoCounts: Record<string, number> = {};
@@ -1211,7 +1211,7 @@ export default function AdminOperacionPage() {
             {nlpQuery.isLoading ? (
               <ListSkeleton rows={6} />
             ) : filtered.length === 0 ? (
-              <div className="rounded-xl border border-white/5 bg-white/[0.02] p-8 text-center text-[#F0EFE8]/40">
+              <div className="glass-card rounded-xl p-8 text-center text-[#8A877D]">
                 {nlpErrors.length === 0
                   ? 'No hay errores NLP registrados aun.'
                   : 'Ningun error coincide con los filtros.'}
@@ -1220,7 +1220,7 @@ export default function AdminOperacionPage() {
               </div>
             ) : (
               filtered.map((err) => (
-                <div key={err.id} className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+                <div key={err.id} className="glass-card rounded-xl p-4">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="rounded-lg bg-white/[0.03] px-3 py-2 text-sm">&ldquo;{err.mensaje}&rdquo;</div>
@@ -1322,7 +1322,7 @@ export default function AdminOperacionPage() {
             {ticketsQuery.isLoading ? (
               <ListSkeleton rows={6} />
             ) : tickets.length === 0 ? (
-              <div className="rounded-xl border border-white/5 bg-white/[0.02] p-8 text-center text-[#F0EFE8]/40">
+              <div className="glass-card rounded-xl p-8 text-center text-[#8A877D]">
                 No hay tickets de soporte.
               </div>
             ) : (
@@ -1402,7 +1402,7 @@ export default function AdminOperacionPage() {
 
                 <div className="space-y-3 md:hidden">
                   {tickets.map((t) => (
-                    <div key={t.id} className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+                    <div key={t.id} className="glass-card rounded-xl p-4">
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <div className="text-sm font-medium">{t.whatsapp ? (whatsappToName[t.whatsapp] || t.whatsapp) : 'Sin usuario'}</div>
