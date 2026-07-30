@@ -186,6 +186,52 @@ export interface SurveyStats {
   };
 }
 
+// ===== Product metrics (Ola 3: retención, engagement, adopción) =====
+
+export interface RetentionCell {
+  period: number;
+  active: number;
+  rate: number | null; // null = periodo aún no maduró (no pintar como churn)
+  mature: boolean;
+}
+
+export interface RetentionCohort {
+  cohort: string; // 'YYYY-MM'
+  size: number;
+  cells: RetentionCell[];
+}
+
+export interface AdminRetention {
+  periods: number[];
+  cohorts: RetentionCohort[];
+}
+
+export interface EngagementBucket {
+  bucket: string;
+  usuarios: number;
+}
+
+export interface AdminEngagement {
+  total: number;
+  dormant: number;
+  mean: number;
+  median: number;
+  buckets: EngagementBucket[];
+}
+
+export interface FeatureAdoptionRow {
+  feature: string;
+  users: number;
+  pct: number;
+}
+
+export interface AdminProducto {
+  retention: AdminRetention;
+  engagement: AdminEngagement;
+  adoption: FeatureAdoptionRow[];
+  total_users: number;
+}
+
 export interface SurveyConversationMessage {
   id: string;
   rol: string; // 'user' | 'assistant' | other roles existing in conversaciones

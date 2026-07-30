@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { TrendingUp, Receipt, MessageSquare, Users, LayoutGrid } from 'lucide-react';
+import { TrendingUp, Receipt, MessageSquare, Users, LayoutGrid, Activity } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,6 +16,13 @@ const sections = [
     title: 'Unit Economics',
     desc: 'MRR, ARR, breakeven, márgenes, CAC, LTV',
     icon: TrendingUp,
+    status: 'live' as const,
+  },
+  {
+    href: '/admin/producto',
+    title: 'Producto & Retención',
+    desc: 'Retención por cohorte, engagement, adopción de features',
+    icon: Activity,
     status: 'live' as const,
   },
   {

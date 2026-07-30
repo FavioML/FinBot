@@ -126,6 +126,7 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
     '/api/admin/economics',
     '/api/admin/costs',
     '/api/admin/surveys',
+    '/api/admin/producto',
     '/api/admin/tickets?limit=50',
     '/api/admin/nlp-errors?limit=100',
   ];
@@ -269,6 +270,47 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
     k.mau === new Set(txMes.map(t => t.usuario_id)).size,
     `panel dice ${k.mau}, la base dice ${new Set(txMes.map(t => t.usuario_id)).size}`,
   );
+
+  // ---------- 8. Producto: invariantes entre los tres RPC (Ola 3) ----------
+  // Todo agrega en SQL, así que ninguna colección trae filas para contarlas. Las invariantes
+  // cruzan los tres RPC: si alguno truncara o contara mal, dejan de cuadrar. La más fuerte:
+  // adopción.transacciones == total - dormidos (usuarios con tx == total menos los de 0 tx).
+  const prod = resp['/api/admin/producto'];
+  if (prod) {
+    const eng = prod.engagement || {};
+    const total = Number(eng.total);
+    const bucketsSum = (eng.buckets || []).reduce((a, b) => a + Number(b.usuarios), 0);
+    ok('producto: total es número', Number.isFinite(total) && total > 0, `-> ${eng.total}`);
+    ok('producto: buckets suman el total', bucketsSum === total, `${bucketsSum} vs ${total}`);
+
+    const cohortes = prod.retention?.cohorts || [];
+    const sumaCohortes = cohortes.reduce((a, c) => a + Number(c.size), 0);
+    ok('producto: cohortes suman el total (= usuarios reales)', sumaCohortes === total, `${sumaCohortes} vs ${total}`);
+
+    const adoptMap = Object.fromEntries((prod.adoption || []).map(a => [a.feature, Number(a.users)]));
+    ok(
+      'producto: adopción.transacciones == total - dormidos',
+      adoptMap.transacciones === total - Number(eng.dormant),
+      `${adoptMap.transacciones} vs ${total - Number(eng.dormant)}`,
+    );
+    ok(
+      'producto: ninguna adopción excede el total',
+      (prod.adoption || []).every(a => Number(a.users) <= total),
+      'alguna feature reporta más usuarios que el total',
+    );
+    // El total real excluye a lo sumo las cuentas internas (fundador + QA): no puede superar el
+    // universo de usuarios ni quedar muy por debajo.
+    ok(
+      'producto: total real dentro de [usuarios-3, usuarios]',
+      total <= usuarios.length && total >= usuarios.length - 3,
+      `real ${total} vs universo ${usuarios.length}`,
+    );
+    // Ninguna celda de retención madura puede tener más activos que el tamaño de su cohorte.
+    const celdaMala = cohortes.some(c => (c.cells || []).some(cell => Number(cell.active) > Number(c.size)));
+    ok('producto: retención activos <= tamaño de cohorte', !celdaMala, 'una cohorte reporta más activos que su tamaño');
+  } else {
+    ok('producto: la ruta respondió', false, 'no hubo respuesta JSON de /api/admin/producto');
+  }
 
   // ---------- Reporte ----------
   console.log('Latencias (end-to-end, incluye red desde esta máquina):');
