@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { TrendingUp, Receipt, MessageSquare, LayoutGrid, Activity } from 'lucide-react';
+import { TrendingUp, Receipt, MessageSquare, LayoutGrid, Activity, Users } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,6 +23,13 @@ const sections = [
     title: 'Producto & Retención',
     desc: 'Retención por cohorte, engagement, adopción de features',
     icon: Activity,
+    status: 'live' as const,
+  },
+  {
+    href: '/admin/users',
+    title: 'Usuarios',
+    desc: 'Segmentos de salud, actividad reciente, adquisición por canal',
+    icon: Users,
     status: 'live' as const,
   },
   {
