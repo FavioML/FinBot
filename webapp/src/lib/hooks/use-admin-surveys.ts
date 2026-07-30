@@ -15,6 +15,9 @@ interface AdminSurveysFilters {
 interface AdminSurveysResponse {
   events: SurveyEvent[];
   stats: SurveyStats;
+  // Ventana del listado: total real de eventos mostrables y si la ventana los cubre todos.
+  total: number;
+  hasMore: boolean;
 }
 
 export function useAdminSurveys(filters?: AdminSurveysFilters) {

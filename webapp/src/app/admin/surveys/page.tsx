@@ -33,7 +33,9 @@ import type {
   SurveyTypeStats,
 } from '@/lib/types-admin';
 
-export const dynamic = 'force-dynamic';
+// Sin `export const dynamic = 'force-dynamic'`: es un componente cliente que fetchea su data
+// via React Query. El layout de /admin ya fuerza dynamic (lee cookies para el guard admin), asi
+// que el shell estatico de esta pagina puede prerenderizarse. Ver rules/webapp.md (Rendering).
 
 const REMINDER_TYPES: SurveyEventType[] = [
   'reminder_d3',
@@ -140,6 +142,8 @@ export default function AdminSurveysPage() {
   const { data, isLoading, isError } = useAdminSurveys();
   const events = useMemo(() => data?.events ?? [], [data?.events]);
   const stats = data?.stats;
+  const hasMore = data?.hasMore ?? false;
+  const total = data?.total ?? 0;
 
   const reminders = useMemo(
     () =>
@@ -211,6 +215,14 @@ export default function AdminSurveysPage() {
           Recordatorios WhatsApp, invites a webapp, feedback abierto y NPS in-app.
         </p>
       </div>
+
+      {hasMore && (
+        <div className="rounded-lg border border-[rgba(239,159,39,0.2)] bg-[rgba(239,159,39,0.06)] px-4 py-3 text-xs text-[#EF9F27]">
+          Las tablas muestran los {events.length} eventos más recientes de {total}. Los
+          porcentajes de arriba salen del total (se calculan en la base), pero para ver eventos
+          más antiguos usa los filtros por tipo o fecha.
+        </div>
+      )}
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as string)}>
         <TabsList className="glass-card border-0">
@@ -405,7 +417,6 @@ function RemindersTab({
                 <tr
                   key={r.id}
                   className="border-b border-[rgba(255,255,255,0.04)] last:border-0"
-                  title={r.message_sent || ''}
                 >
                   <td className="px-4 py-3 text-[#F0EFE8]">{userLabel(r)}</td>
                   <td className="px-4 py-3">
@@ -1016,7 +1027,6 @@ function ProUpsellTab({
                 <tr
                   key={u.id}
                   className="border-b border-[rgba(255,255,255,0.04)] last:border-0"
-                  title={u.message_sent || ''}
                 >
                   <td className="px-4 py-3 text-[#F0EFE8]">{userLabel(u)}</td>
                   <td className="px-4 py-3 text-[#C8C6BC]">

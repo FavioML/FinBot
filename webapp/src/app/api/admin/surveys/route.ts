@@ -6,7 +6,6 @@ import type {
   SurveyEventType,
   SurveyStats,
   SurveyTypeStats,
-  NpsResponseData,
 } from '@/lib/types-admin';
 
 export const dynamic = 'force-dynamic';
@@ -19,6 +18,28 @@ const REMINDER_TYPES: SurveyEventType[] = [
   'inactivity_reminder',
 ];
 
+// Los unicos event_type que el panel renderiza (5 tabs). El listado y los stats se scopean a
+// estos: los wake_up_inactive / wake_up_onboarding (sistema legado, migraciones 010-013) no
+// tienen tab ni label en la UI, asi que traerlos era 70 de 180 filas de payload muerto.
+const DISPLAY_TYPES: SurveyEventType[] = [
+  'reminder_d3',
+  'reminder_d7',
+  'reminder_d14',
+  'reminder_d30',
+  'webapp_invite_10tx',
+  'feedback_open_30tx',
+  'nps_inapp',
+  'inactivity_reminder',
+  'pro_upsell_d28',
+];
+
+// Ventana del listado. PostgREST corta en 1000 filas en esta instancia (db-max-rows=1000), asi
+// que pedir mas en una sola request es imposible: el techo es duro. El listado muestra los mas
+// recientes; los stats (globales, en SQL) no dependen de esta ventana, y `total`/`hasMore`
+// avisan cuando hay mas de lo que cabe. Ver migracion 040.
+const DEFAULT_LIMIT = 500;
+const MAX_LIMIT = 1000;
+
 const PRO_UPSELL_WINDOW_DAYS = 30;
 
 interface RawSurveyRow {
@@ -30,7 +51,6 @@ interface RawSurveyRow {
   sent_at: string | null;
   responded_at: string | null;
   dismissed_at: string | null;
-  message_sent: string | null;
   response_data: SurveyEvent['response_data'];
   conversion_within_24h: boolean;
   conversion_within_7d: boolean;
@@ -46,18 +66,83 @@ interface RawUsuario {
   fecha_pago: string | null;
 }
 
-function emptyTypeStats(): SurveyTypeStats {
-  return {
-    count_sent: 0,
-    count_responded: 0,
-    count_dismissed: 0,
-    response_rate: 0,
-    opt_out_rate: 0,
-  };
+// Fila cruda de admin_survey_stats() (migracion 040). El service client no esta tipado con el
+// schema generado, asi que sin esto las filas quedarian en `any`.
+interface SurveyStatsRow {
+  event_type: string;
+  count_sent: number | string;
+  count_responded: number | string;
+  count_dismissed: number | string;
+  count_opted_out: number | string;
+  count_conv24: number | string;
+  count_conv7: number | string;
+  nps_sum_ease: number | string;
+  nps_sum_usefulness: number | string;
+  nps_sum_recommend: number | string;
+  nps_count: number | string;
+  upsell_denom: number | string;
+  count_converted_to_pro: number | string;
 }
 
 function round1(n: number): number {
   return Math.round(n * 10) / 10;
+}
+
+// Arma SurveyStats desde los agregados en SQL. Aca solo quedan divisiones sobre conteos ya
+// hechos: la rama "que tasa aplica a que tipo" (conv24 para recordatorios, conv7 para invites)
+// vive donde es legible, no en un bucle sobre filas crudas.
+function buildStats(rows: SurveyStatsRow[]): SurveyStats {
+  const byType: Partial<Record<SurveyEventType, SurveyTypeStats>> = {};
+  let totalSent = 0;
+  let totalResponded = 0;
+
+  for (const r of rows) {
+    const t = r.event_type as SurveyEventType;
+    const sent = Number(r.count_sent);
+    const responded = Number(r.count_responded);
+    const dismissed = Number(r.count_dismissed);
+    const optedOut = Number(r.count_opted_out);
+    const conv24 = Number(r.count_conv24);
+    const conv7 = Number(r.count_conv7);
+    const npsCount = Number(r.nps_count);
+    const upsellDenom = Number(r.upsell_denom);
+    const convertedToPro = Number(r.count_converted_to_pro);
+
+    totalSent += sent;
+    totalResponded += responded;
+
+    const denom = sent || 1; // evita div-by-zero, igual que la version anterior
+    const s: SurveyTypeStats = {
+      count_sent: sent,
+      count_responded: responded,
+      count_dismissed: dismissed,
+      response_rate: round1((responded / denom) * 100),
+      opt_out_rate: round1((optedOut / denom) * 100),
+    };
+
+    if (t === 'webapp_invite_10tx' && sent > 0) {
+      s.conversion_rate = round1((conv7 / sent) * 100);
+    } else if (REMINDER_TYPES.includes(t) && sent > 0) {
+      s.conversion_rate = round1((conv24 / sent) * 100);
+    }
+
+    if (t === 'pro_upsell_d28') {
+      s.count_converted_to_pro = convertedToPro;
+      if (upsellDenom > 0) {
+        s.conversion_to_pro_rate = round1((convertedToPro / upsellDenom) * 100);
+      }
+    }
+
+    if (t === 'nps_inapp' && npsCount > 0) {
+      s.nps_avg_ease = round1(Number(r.nps_sum_ease) / npsCount);
+      s.nps_avg_usefulness = round1(Number(r.nps_sum_usefulness) / npsCount);
+      s.nps_avg_recommend = round1(Number(r.nps_sum_recommend) / npsCount);
+    }
+
+    byType[t] = s;
+  }
+
+  return { by_event_type: byType, totals: { total_sent: totalSent, total_responded: totalResponded } };
 }
 
 export async function GET(request: Request) {
@@ -69,31 +154,54 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const eventType = searchParams.get('event_type');
   const from = searchParams.get('from');
+  const limit = Math.min(
+    MAX_LIMIT,
+    Math.max(1, parseInt(searchParams.get('limit') || String(DEFAULT_LIMIT), 10) || DEFAULT_LIMIT),
+  );
+  const offset = Math.max(0, parseInt(searchParams.get('offset') || '0', 10) || 0);
 
   const db = getServiceClient();
 
+  // Listado: ventana acotada y contada. `count: 'exact'` + `.range()` reemplazan el .select()
+  // sin limite que dependia del techo implicito de PostgREST y truncaba en silencio.
   let query = db
     .from('survey_events')
     .select(
-      'id, user_id, event_type, channel, triggered_at, sent_at, responded_at, dismissed_at, message_sent, response_data, conversion_within_24h, conversion_within_7d, opted_out_after, created_at',
+      'id, user_id, event_type, channel, triggered_at, sent_at, responded_at, dismissed_at, response_data, conversion_within_24h, conversion_within_7d, opted_out_after, created_at',
+      { count: 'exact' },
     )
+    .in('event_type', eventType ? [eventType] : DISPLAY_TYPES)
     .order('sent_at', { ascending: false, nullsFirst: false })
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
 
-  if (eventType) query = query.eq('event_type', eventType);
   if (from) query = query.gte('sent_at', from);
 
-  const { data: rawEvents, error } = await query;
-  if (error) {
+  // Stats globales en SQL (no dependen de la ventana del listado). Independiente del listado,
+  // asi que van en paralelo.
+  const [listRes, statsRes] = await Promise.all([
+    query,
+    db.rpc('admin_survey_stats'),
+  ]);
+
+  if (listRes.error) {
     return NextResponse.json(
-      { error: 'No se pudieron leer encuestas', detail: error.message },
+      { error: 'No se pudieron leer encuestas', detail: listRes.error.message },
+      { status: 500 },
+    );
+  }
+  if (statsRes.error) {
+    return NextResponse.json(
+      { error: 'No se pudieron leer stats de encuestas', detail: statsRes.error.message },
       { status: 500 },
     );
   }
 
-  const events = (rawEvents ?? []) as RawSurveyRow[];
+  const events = (listRes.data ?? []) as RawSurveyRow[];
+  const total = listRes.count ?? events.length;
+  const hasMore = offset + events.length < total;
 
-  // Hydrate user info
+  // Hidrata info de usuario solo para la pagina devuelta.
   const userIds = Array.from(new Set(events.map((e) => e.user_id)));
   const usuariosById = new Map<string, RawUsuario>();
   if (userIds.length > 0) {
@@ -116,6 +224,8 @@ export async function GET(request: Request) {
       user_fecha_pago: u?.fecha_pago ?? null,
     };
 
+    // Los campos de conversion a Pro por fila (para la tabla del tab Pro upsell) se derivan
+    // aca; el AGREGADO global va por SQL (migracion 040), no se recalcula desde esta pagina.
     if (e.event_type === 'pro_upsell_d28' && e.sent_at) {
       const sentTs = new Date(e.sent_at).getTime();
       const fechaPago = u?.fecha_pago ? new Date(u.fecha_pago).getTime() : null;
@@ -139,170 +249,7 @@ export async function GET(request: Request) {
     return base;
   });
 
-  // Compute stats — always over the full table (not just filtered slice) so the
-  // KPI row stays meaningful even when the user filters the table.
-  const { data: statsRows } = await db
-    .from('survey_events')
-    .select(
-      'event_type, user_id, sent_at, responded_at, dismissed_at, conversion_within_24h, conversion_within_7d, opted_out_after, response_data',
-    );
+  const stats = buildStats((statsRes.data ?? []) as SurveyStatsRow[]);
 
-  const all = (statsRows ?? []) as Array<
-    Pick<
-      RawSurveyRow,
-      | 'event_type'
-      | 'user_id'
-      | 'sent_at'
-      | 'responded_at'
-      | 'dismissed_at'
-      | 'conversion_within_24h'
-      | 'conversion_within_7d'
-      | 'opted_out_after'
-      | 'response_data'
-    >
-  >;
-
-  // Hydrate plan + fecha_pago for any user with at least one pro_upsell_d28 sent,
-  // so we can compute conversion_to_pro_rate over the full table.
-  const proUpsellUserIds = Array.from(
-    new Set(
-      all
-        .filter((r) => r.event_type === 'pro_upsell_d28' && !!r.sent_at)
-        .map((r) => r.user_id),
-    ),
-  );
-  const proUserPlanById = new Map<
-    string,
-    { plan: 'free' | 'premium' | null; fecha_pago: string | null }
-  >();
-  if (proUpsellUserIds.length > 0) {
-    const missing = proUpsellUserIds.filter((id) => !usuariosById.has(id));
-    for (const id of proUpsellUserIds) {
-      const u = usuariosById.get(id);
-      if (u) {
-        proUserPlanById.set(id, {
-          plan: u.plan ?? null,
-          fecha_pago: u.fecha_pago ?? null,
-        });
-      }
-    }
-    if (missing.length > 0) {
-      const { data: extra } = await db
-        .from('usuarios')
-        .select('id, plan, fecha_pago')
-        .in('id', missing);
-      for (const u of (extra ?? []) as Array<{
-        id: string;
-        plan: 'free' | 'premium' | null;
-        fecha_pago: string | null;
-      }>) {
-        proUserPlanById.set(u.id, {
-          plan: u.plan ?? null,
-          fecha_pago: u.fecha_pago ?? null,
-        });
-      }
-    }
-  }
-
-  const byType: Partial<Record<SurveyEventType, SurveyTypeStats>> = {};
-  const npsAccum = { ease: 0, usefulness: 0, recommend: 0, count: 0 };
-
-  for (const row of all) {
-    const t = row.event_type;
-    if (!byType[t]) byType[t] = emptyTypeStats();
-    const s = byType[t]!;
-
-    if (row.sent_at) s.count_sent += 1;
-    if (row.responded_at) s.count_responded += 1;
-    if (row.dismissed_at) s.count_dismissed += 1;
-    if (row.opted_out_after) {
-      // count opted_out separately via opt_out_rate calc below
-    }
-
-    if (t === 'nps_inapp' && row.responded_at && row.response_data) {
-      const d = row.response_data as Partial<NpsResponseData>;
-      if (
-        typeof d.ease === 'number' &&
-        typeof d.usefulness === 'number' &&
-        typeof d.recommend === 'number'
-      ) {
-        npsAccum.ease += d.ease;
-        npsAccum.usefulness += d.usefulness;
-        npsAccum.recommend += d.recommend;
-        npsAccum.count += 1;
-      }
-    }
-  }
-
-  // opt_out and conversion rates need a second pass (need totals first)
-  for (const t of Object.keys(byType) as SurveyEventType[]) {
-    const s = byType[t]!;
-    const sent = s.count_sent || 1; // avoid div-by-zero
-    s.response_rate = round1((s.count_responded / sent) * 100);
-
-    let optOut = 0;
-    let conv24 = 0;
-    let conv7 = 0;
-    let convDenom = 0;
-    for (const row of all) {
-      if (row.event_type !== t) continue;
-      if (row.opted_out_after) optOut += 1;
-      if (row.sent_at) {
-        convDenom += 1;
-        if (row.conversion_within_24h) conv24 += 1;
-        if (row.conversion_within_7d) conv7 += 1;
-      }
-    }
-    s.opt_out_rate = round1((optOut / sent) * 100);
-
-    if (t === 'webapp_invite_10tx' && convDenom > 0) {
-      s.conversion_rate = round1((conv7 / convDenom) * 100);
-    } else if (REMINDER_TYPES.includes(t) && convDenom > 0) {
-      s.conversion_rate = round1((conv24 / convDenom) * 100);
-    }
-
-    if (t === 'pro_upsell_d28') {
-      let convertedToPro = 0;
-      let upsellSent = 0;
-      for (const row of all) {
-        if (row.event_type !== 'pro_upsell_d28' || !row.sent_at) continue;
-        const u = proUserPlanById.get(row.user_id);
-        if (!u) continue;
-        const sentTs = new Date(row.sent_at).getTime();
-        const fechaPago = u.fecha_pago ? new Date(u.fecha_pago).getTime() : null;
-        const wasProAtSend =
-          u.plan === 'premium' && fechaPago !== null && fechaPago < sentTs;
-        if (wasProAtSend) continue; // exclude false attribution
-        upsellSent += 1;
-        const windowEnd = sentTs + PRO_UPSELL_WINDOW_DAYS * 86400000;
-        if (
-          u.plan === 'premium' &&
-          fechaPago !== null &&
-          fechaPago >= sentTs &&
-          fechaPago <= windowEnd
-        ) {
-          convertedToPro += 1;
-        }
-      }
-      s.count_converted_to_pro = convertedToPro;
-      if (upsellSent > 0) {
-        s.conversion_to_pro_rate = round1((convertedToPro / upsellSent) * 100);
-      }
-    }
-
-    if (t === 'nps_inapp' && npsAccum.count > 0) {
-      s.nps_avg_ease = round1(npsAccum.ease / npsAccum.count);
-      s.nps_avg_usefulness = round1(npsAccum.usefulness / npsAccum.count);
-      s.nps_avg_recommend = round1(npsAccum.recommend / npsAccum.count);
-    }
-  }
-
-  const totals = {
-    total_sent: all.filter((r) => !!r.sent_at).length,
-    total_responded: all.filter((r) => !!r.responded_at).length,
-  };
-
-  const stats: SurveyStats = { by_event_type: byType, totals };
-
-  return NextResponse.json({ events: enriched, stats });
+  return NextResponse.json({ events: enriched, stats, total, hasMore });
 }

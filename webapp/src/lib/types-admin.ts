@@ -151,7 +151,8 @@ export interface SurveyEvent {
   sent_at: string | null;
   responded_at: string | null;
   dismissed_at: string | null;
-  message_sent: string | null;
+  // message_sent salio del listado (Ola 2): era 73% del payload de la tabla y su unico consumo
+  // era un title= de hover. El texto real de la conversacion vive en el dialogo de chat.
   response_data: SurveyResponseData;
   conversion_within_24h: boolean;
   conversion_within_7d: boolean;

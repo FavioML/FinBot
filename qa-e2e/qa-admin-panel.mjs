@@ -182,6 +182,32 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
   }
   ok('sin truncado: ninguna colección clavada en 1000', !results.some(r => r.name.startsWith('sin truncado:') && !r.pass));
 
+  // ---------- 3b. surveys: el listado tampoco puede truncarse en silencio ----------
+  // La ruta antes leía survey_events entera DOS veces sin .limit() (bug latente: mismo techo de
+  // 1000 filas que la Ola 1, esperando volumen). Ahora la ventana es acotada y CONTADA: `total`
+  // y `hasMore` deben venir, y la ventana devuelta no puede exceder el techo ni mentir sobre si
+  // cubre todo. Los stats vienen de SQL (migración 040), así que deben venir aunque el listado
+  // esté acotado.
+  const surveys = resp['/api/admin/surveys'];
+  if (surveys) {
+    const evs = surveys.events;
+    ok('surveys: listado es array', Array.isArray(evs), `-> ${typeof evs}`);
+    ok('surveys: expone total (número)', typeof surveys.total === 'number', `-> ${surveys.total}`);
+    ok('surveys: expone hasMore (bool)', typeof surveys.hasMore === 'boolean', `-> ${surveys.hasMore}`);
+    ok('surveys: ventana <= 1000 (techo PostgREST)', Array.isArray(evs) && evs.length <= 1000, `-> ${evs?.length}`);
+    // hasMore es la única fuente de verdad de "hay más": si es false, la ventana DEBE cubrir el
+    // total; si dice cubrir todo pero clava exactamente el techo, es el bug de vuelta.
+    if (surveys.hasMore === false) {
+      ok('surveys: hasMore=false ⇒ ventana == total', Array.isArray(evs) && evs.length === surveys.total, `${evs?.length} vs ${surveys.total}`);
+      ok('surveys: ventana completa no clava el techo de 1000', evs?.length !== 1000, `-> ${evs?.length}`);
+    }
+    ok('surveys: stats vienen de SQL (by_event_type presente)', !!surveys.stats?.by_event_type, `-> ${JSON.stringify(Object.keys(surveys.stats || {}))}`);
+    // El payload ya no arrastra message_sent (73% de los bytes, solo alimentaba un hover).
+    ok('surveys: message_sent fuera del listado', !Array.isArray(evs) || evs.every(e => !('message_sent' in e)), 'alguna fila aún trae message_sent');
+  } else {
+    ok('surveys: la ruta respondió', false, 'no hubo respuesta JSON de /api/admin/surveys');
+  }
+
   // ---------- 4. Invariantes de actividad ----------
   const k = resp['/api/admin/stats']?.kpis || {};
   ok('DAU <= WAU', k.dau <= k.wau, `${k.dau} <= ${k.wau}`);
