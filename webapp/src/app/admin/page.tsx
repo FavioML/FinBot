@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { TrendingUp, Receipt, MessageSquare, Users, LayoutGrid, Activity } from 'lucide-react';
+import { TrendingUp, Receipt, MessageSquare, LayoutGrid, Activity } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,13 +38,6 @@ const sections = [
     desc: 'Recordatorios, NPS in-app, feedback abierto',
     icon: MessageSquare,
     status: 'live' as const,
-  },
-  {
-    href: '/admin/users',
-    title: 'Usuarios',
-    desc: 'Free vs Pro, conversion rate, churn',
-    icon: Users,
-    status: 'soon' as const,
   },
 ];
 
