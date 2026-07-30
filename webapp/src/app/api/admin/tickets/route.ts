@@ -1,24 +1,14 @@
-import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
+import { requireAdminUser } from '@/lib/admin';
 
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'faviomendoza27jl@gmail.com';
 const BACKEND_URL = process.env.NETO_BACKEND_URL || process.env.RAILWAY_URL || 'https://api.neto.pe';
 const ADMIN_KEY = process.env.ADMIN_KEY;
-
-async function getAdminEmail() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  return user?.email || null;
-}
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
-  const email = await getAdminEmail();
-  if (email !== ADMIN_EMAIL) {
+  if (!(await requireAdminUser())) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -53,8 +43,7 @@ export async function GET(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const email = await getAdminEmail();
-  if (email !== ADMIN_EMAIL) {
+  if (!(await requireAdminUser())) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 

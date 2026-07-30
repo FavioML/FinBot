@@ -1,23 +1,11 @@
-import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
-import type { UserTxStatsRow } from '@/lib/admin';
-
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'faviomendoza27jl@gmail.com';
-
-async function getAdminEmail() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  return user?.email || null;
-}
+import { requireAdminUser, type UserTxStatsRow } from '@/lib/admin';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const email = await getAdminEmail();
-  if (email !== ADMIN_EMAIL) {
+  if (!(await requireAdminUser())) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -91,8 +79,7 @@ export async function GET() {
 
 // Update user (plan, status, etc.)
 export async function PUT(request: Request) {
-  const email = await getAdminEmail();
-  if (email !== ADMIN_EMAIL) {
+  if (!(await requireAdminUser())) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -151,8 +138,7 @@ export async function PUT(request: Request) {
 
 // Delete user and all their data
 export async function DELETE(request: Request) {
-  const email = await getAdminEmail();
-  if (email !== ADMIN_EMAIL) {
+  if (!(await requireAdminUser())) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 

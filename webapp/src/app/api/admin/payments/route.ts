@@ -1,24 +1,14 @@
-import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
+import { requireAdminUser } from '@/lib/admin';
 
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'faviomendoza27jl@gmail.com';
 const BACKEND_URL = process.env.NETO_BACKEND_URL || process.env.RAILWAY_URL || 'https://api.neto.pe';
 const ADMIN_KEY = process.env.ADMIN_KEY;
 
 export const dynamic = 'force-dynamic';
 
-async function getAdminEmail() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  return user?.email || null;
-}
-
 // GET /api/admin/payments?user_id=  → historial de pagos (constancia de suscripción)
 export async function GET(request: Request) {
-  const email = await getAdminEmail();
-  if (email !== ADMIN_EMAIL) {
+  if (!(await requireAdminUser())) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
   if (!ADMIN_KEY) {
@@ -45,8 +35,7 @@ export async function GET(request: Request) {
 // POST /api/admin/payments  → aprobar pago + activar Pro + notificar al usuario
 // Body: { user_id, whatsapp?, tipo_plan }
 export async function POST(request: Request) {
-  const email = await getAdminEmail();
-  if (email !== ADMIN_EMAIL) {
+  if (!(await requireAdminUser())) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
   if (!ADMIN_KEY) {

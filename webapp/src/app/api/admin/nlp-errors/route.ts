@@ -1,22 +1,11 @@
-import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
-
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'faviomendoza27jl@gmail.com';
-
-async function getAdminEmail() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  return user?.email || null;
-}
+import { requireAdminUser } from '@/lib/admin';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
-  const email = await getAdminEmail();
-  if (email !== ADMIN_EMAIL) {
+  if (!(await requireAdminUser())) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 

@@ -1,4 +1,3 @@
-import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 import {
@@ -12,23 +11,12 @@ import {
   EXCLUDED_REVENUE_WHATSAPP,
 } from '@/lib/admin-revenue';
 import { startOfDayLima, startOfMonthLima } from '@/lib/date-lima';
-import type { ActivityRow, UserTxStatsRow } from '@/lib/admin';
-
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'faviomendoza27jl@gmail.com';
-
-async function getAdminEmail() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  return user?.email || null;
-}
+import { requireAdminUser, type ActivityRow, type UserTxStatsRow } from '@/lib/admin';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const email = await getAdminEmail();
-  if (email !== ADMIN_EMAIL) {
+  if (!(await requireAdminUser())) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
