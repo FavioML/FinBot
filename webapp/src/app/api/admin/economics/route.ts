@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireAdminUser } from '@/lib/admin';
+import { requireAdminUser, type ActivityRow } from '@/lib/admin';
 import { getServiceClient } from '@/lib/supabase/service';
 import {
   CAC_REFERIDOS_PEN,
@@ -53,11 +53,47 @@ export async function GET() {
   const startMonth = startOfMonthLima(now); // inicio de mes en día Lima
   const monthAgoIso = new Date(now.getTime() - 30 * 86400000).toISOString();
 
-  // --- Users ---
-  const { data: usuariosRaw } = await db
-    .from('usuarios')
-    .select('id, whatsapp, plan, tipo_plan, premium_desde, premium_vence, created_at');
+  // Las seis lecturas son independientes entre sí y antes iban encadenadas.
+  //
+  // Las dos llamadas a admin_activity_counts (migración 039) reemplazan selects de
+  // `transacciones` que contaban filas en JS. Todavía no truncaban porque el mes iba en
+  // menos de 1000 filas, pero era el mismo bug que en /api/admin/stats esperando volumen:
+  // PostgREST corta en 1000 y el conteo se congela sin devolver ningún error.
+  //
+  // Se llama dos veces porque son dos ventanas distintas para dos métricas distintas:
+  // transacciones del mes CALENDARIO, y usuarios activos de los últimos 30 DÍAS. Pasar los
+  // tres parámetros iguales es la forma de pedir una sola ventana.
+  const startMonthIso = startMonth.toISOString();
+  const [
+    { data: usuariosRaw },
+    { data: costsRaw },
+    { data: pagosMes },
+    { count: txTotalCount },
+    { data: mesRows },
+    { data: treintaRows },
+  ] = await Promise.all([
+    db
+      .from('usuarios')
+      .select('id, whatsapp, plan, tipo_plan, premium_desde, premium_vence, created_at'),
+    db.from('admin_costs').select('*').order('next_due_date', { ascending: true }),
+    db
+      .from('pagos')
+      .select('monto, estado, aprobado_at, created_at, usuario_id')
+      .gte('created_at', startMonthIso),
+    db.from('transacciones').select('id', { count: 'exact', head: true }),
+    db.rpc('admin_activity_counts', {
+      p_day: startMonthIso,
+      p_week: startMonthIso,
+      p_month: startMonthIso,
+    }),
+    db.rpc('admin_activity_counts', {
+      p_day: monthAgoIso,
+      p_week: monthAgoIso,
+      p_month: monthAgoIso,
+    }),
+  ]);
 
+  // --- Users ---
   const usuarios = (usuariosRaw || []) as UsuarioRow[];
   const totalUsers = usuarios.length;
   const freeUsers = usuarios.filter((u) => u.plan !== 'premium');
@@ -82,11 +118,6 @@ export async function GET() {
   const churnRate30d = computeChurn(usuarios, now).rate;
 
   // --- Costs ---
-  const { data: costsRaw } = await db
-    .from('admin_costs')
-    .select('*')
-    .order('next_due_date', { ascending: true });
-
   const costs = (costsRaw || []) as AdminCost[];
   const activeCosts = costs.filter((c) => c.active);
 
@@ -153,31 +184,14 @@ export async function GET() {
   const excludedIds = new Set(
     usuarios.filter((u) => u.whatsapp && EXCLUDED_REVENUE_WHATSAPP.has(u.whatsapp)).map((u) => u.id),
   );
-  const startMonthIso = startMonth.toISOString();
-  const { data: pagosMes } = await db
-    .from('pagos')
-    .select('monto, estado, aprobado_at, created_at, usuario_id')
-    .gte('created_at', startMonthIso);
   const revenueThisMonth = cajaDelMes(pagosMes || [], excludedIds, startMonthIso);
 
   // --- Activity ---
-  const { count: txTotalCount } = await db
-    .from('transacciones')
-    .select('id', { count: 'exact', head: true });
+  // Agregados en SQL. `transactions_this_month` cuenta filas y `active_users_30d` cuenta
+  // usuarios distintos: las dos cosas se rompían al pasar las 1000 filas de PostgREST.
   const transactionsTotal = txTotalCount || 0;
-
-  const { data: txMonthData } = await db
-    .from('transacciones')
-    .select('usuario_id, created_at')
-    .gte('created_at', startMonth.toISOString());
-  const transactionsThisMonth = (txMonthData || []).length;
-
-  const { data: txMauData } = await db
-    .from('transacciones')
-    .select('usuario_id')
-    .gte('created_at', monthAgoIso);
-  const activeUsers30d = new Set((txMauData || []).map((t) => t.usuario_id))
-    .size;
+  const transactionsThisMonth = Number((mesRows as ActivityRow[] | null)?.[0]?.tx_month ?? 0);
+  const activeUsers30d = Number((treintaRows as ActivityRow[] | null)?.[0]?.mau ?? 0);
 
   // --- MRR history (last 6 months) ---
   const mrrHistory: AdminEconomics['mrr_history'] = [];

@@ -216,6 +216,25 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
     `suma ${sumaTx} vs ${txs.length} en la base`,
   );
 
+  // ---------- 6b. economics: mismos agregados, misma verdad ----------
+  // stats y economics calculan actividad por caminos distintos. Si divergen, uno miente.
+  const eco = resp['/api/admin/economics'] || {};
+  ok(
+    'economics: transacciones totales == verdad de la base',
+    eco.transactions_total === txs.length,
+    `panel dice ${eco.transactions_total}, la base dice ${txs.length}`,
+  );
+  ok(
+    'economics: total de usuarios == verdad de la base',
+    eco.total_users === usuarios.length,
+    `panel dice ${eco.total_users}, la base dice ${usuarios.length}`,
+  );
+  ok(
+    'economics.active_users_30d == stats.mau (no pueden divergir)',
+    eco.active_users_30d === k.mau,
+    `economics ${eco.active_users_30d} vs stats ${k.mau}`,
+  );
+
   // ---------- 7. MAU contra el oráculo ----------
   const hace30 = new Date(Date.now() - 30 * 86400000).toISOString();
   const txMes = await sbPaginado('transacciones', `usuario_id&created_at=gte.${hace30}`);
