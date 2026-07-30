@@ -292,6 +292,42 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
   const flagOk = lista.every((u) => u.is_internal === INTERNAL_WHATSAPP.has(u.whatsapp));
   ok('users: is_internal == whatsapp en lista de internas', flagOk, 'is_internal no coincide con la lista de internas');
 
+  // ---------- 7c. /users/[id]: ficha individual (Ola 4 Fase 2) ----------
+  // Endpoint dinámico (un usuario) → no entra en el loop de RUTAS estáticas. Guardado por el mismo
+  // requireAdminUser que las demás (la protección a usuario común ya la prueba el loop de arriba),
+  // así que acá basta el guard sin sesión + los invariantes de datos. El cruce fuerte:
+  // features.transacciones lo cuenta admin_user_features (043) y el count de /users viene de
+  // admin_user_tx_stats (039) — dos RPC distintas contando lo mismo, deben coincidir.
+  const target =
+    lista.find((u) => u.plan === 'premium' && (u.transacciones || 0) > 0) ||
+    lista.find((u) => (u.transacciones || 0) > 0) ||
+    lista[0];
+  if (target) {
+    const rutaFicha = `/api/admin/users/${target.id}`;
+    const fichaAnon = await get(null, rutaFicha);
+    ok('guard sin sesión: users/[id]', fichaAnon.status === 401 || fichaAnon.status === 403, `-> ${fichaAnon.status}`);
+
+    const ficha = await get(cookie, rutaFicha);
+    ok('users/[id]: 200 admin', ficha.status === 200, `-> ${ficha.status} en ${ficha.ms}ms`);
+    const f = ficha.json?.features;
+    ok('users/[id]: expone features (objeto)', !!f && typeof f === 'object', `-> ${JSON.stringify(ficha.json)?.slice(0, 80)}`);
+    if (f) {
+      ok(
+        'users/[id]: features.transacciones == count de /users (043 vs 039)',
+        Number(f.transacciones) === (target.transacciones || 0),
+        `ficha ${f.transacciones} vs users ${target.transacciones}`,
+      );
+      // LTV nunca negativo, y sin pagos aprobados el LTV tiene que ser 0 (no puede haber valor sin cobro).
+      ok(
+        'users/[id]: ltv_pen coherente con pagos_aprobados',
+        Number(f.ltv_pen) >= 0 && (Number(f.pagos_aprobados) > 0 || Number(f.ltv_pen) === 0),
+        `ltv ${f.ltv_pen} / pagos ${f.pagos_aprobados}`,
+      );
+    }
+  } else {
+    ok('users/[id]: hay un usuario para probar la ficha', false, 'la lista vino vacía');
+  }
+
   // ---------- 8. Producto: invariantes entre los tres RPC (Ola 3) ----------
   // Todo agrega en SQL, así que ninguna colección trae filas para contarlas. Las invariantes
   // cruzan los tres RPC: si alguno truncara o contara mal, dejan de cuadrar. La más fuerte:
