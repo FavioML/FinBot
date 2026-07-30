@@ -686,76 +686,76 @@ export default function AdminOperacionPage() {
         <>
       {/* KPI Cards — Row 1: Core metrics */}
       <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+        <div className="glass-card rounded-xl p-4">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-[#F0EFE8]/40">MRR</span>
-            <span className="text-[10px] text-[#F0EFE8]/30" title="Ingreso anual recurrente">
+            <span className="text-xs text-[#8A877D]">MRR</span>
+            <span className="text-[10px] text-[#8A877D]" title="Ingreso anual recurrente">
               ARR S/{(stats?.kpis.arr ?? 0).toLocaleString('es-PE')}
             </span>
           </div>
           <div className="mt-1 text-2xl font-semibold text-[#1D9E75]">
             S/{stats?.kpis.mrr ?? '—'}
           </div>
-          <div className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-[#F0EFE8]/30">
+          <div className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-[#8A877D]">
             <span>{stats?.kpis.proReal ?? totalPro} Pro</span>
-            <span className="text-[#F0EFE8]/20">·</span>
+            <span className="text-[#5A584F]">·</span>
             <span>{stats?.kpis.proYearly ?? 0} anual</span>
             <span>{stats?.kpis.proMonthly ?? 0} mensual</span>
           </div>
         </div>
-        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
-          <div className="text-xs text-[#F0EFE8]/40">Caja del mes</div>
+        <div className="glass-card rounded-xl p-4">
+          <div className="text-xs text-[#8A877D]">Caja del mes</div>
           <div className="mt-1 text-2xl font-semibold text-[#F0EFE8]">
             S/{stats?.kpis.cajaMes ?? '—'}
           </div>
-          <div className="mt-0.5 text-xs text-[#F0EFE8]/30">
+          <div className="mt-0.5 text-xs text-[#8A877D]">
             Conversion {stats?.kpis.conversionRate ?? 0}% · {stats?.kpis.proReal ?? totalPro} de {(users.length)}
           </div>
         </div>
-        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
-          <div className="text-xs text-[#F0EFE8]/40">Usuarios Activos</div>
+        <div className="glass-card rounded-xl p-4">
+          <div className="text-xs text-[#8A877D]">Usuarios Activos</div>
           <div className="mt-1 flex items-baseline gap-2">
             <span className="text-2xl font-semibold">{stats?.kpis.mau ?? '—'}</span>
-            <span className="text-xs text-[#F0EFE8]/40">MAU</span>
+            <span className="text-xs text-[#8A877D]">MAU</span>
           </div>
-          <div className="mt-0.5 flex gap-3 text-xs text-[#F0EFE8]/30">
+          <div className="mt-0.5 flex gap-3 text-xs text-[#8A877D]">
             <span>WAU: {stats?.kpis.wau ?? '—'}</span>
             <span>DAU: {stats?.kpis.dau ?? '—'}</span>
           </div>
         </div>
-        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
-          <div className="text-xs text-[#F0EFE8]/40">Txs / Usuario Activo</div>
+        <div className="glass-card rounded-xl p-4">
+          <div className="text-xs text-[#8A877D]">Txs / Usuario Activo</div>
           <div className="mt-1 text-2xl font-semibold">{stats?.kpis.txPerActiveUser ?? '—'}</div>
-          <div className="mt-0.5 text-xs text-[#F0EFE8]/30">{totalTx.toLocaleString()} txs total</div>
+          <div className="mt-0.5 text-xs text-[#8A877D]">{totalTx.toLocaleString()} txs total</div>
         </div>
       </div>
 
       {/* KPI Cards — Row 2: Secondary metrics */}
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
-          <div className="text-xs text-[#F0EFE8]/40">Churn Rate</div>
-          <div className={`mt-1 text-lg font-semibold ${(stats?.kpis.churnRate ?? 0) > 10 ? 'text-[#E85D3A]' : 'text-[#F0EFE8]'}`}>
+        <div className="glass-card rounded-xl p-3">
+          <div className="text-xs text-[#8A877D]">Churn Rate</div>
+          <div className={`mt-1 text-lg font-semibold ${(stats?.kpis.churnRate ?? 0) > 10 ? 'text-[#D85A30]' : 'text-[#F0EFE8]'}`}>
             {stats?.kpis.churnRate ?? '—'}%
           </div>
         </div>
-        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
-          <div className="text-xs text-[#F0EFE8]/40">Avg 1a Transaccion</div>
+        <div className="glass-card rounded-xl p-3">
+          <div className="text-xs text-[#8A877D]">Avg 1a Transaccion</div>
           <div className="mt-1 text-lg font-semibold">
-            {stats?.kpis.avgTimeToFirstTx ?? '—'} <span className="text-xs font-normal text-[#F0EFE8]/40">dias</span>
+            {stats?.kpis.avgTimeToFirstTx ?? '—'} <span className="text-xs font-normal text-[#8A877D]">dias</span>
           </div>
         </div>
-        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
-          <div className="text-xs text-[#F0EFE8]/40">Canales Webapp</div>
+        <div className="glass-card rounded-xl p-3">
+          <div className="text-xs text-[#8A877D]">Canales Webapp</div>
           <div className="mt-1 text-lg font-semibold">{totalWebapp}</div>
-          <div className="flex gap-2 text-xs text-[#F0EFE8]/30">
+          <div className="flex gap-2 text-xs text-[#8A877D]">
             <span>Google: {users.filter(u => u.canal === 'google').length}</span>
             <span>ML: {users.filter(u => u.canal === 'magic_link').length}</span>
           </div>
         </div>
-        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
-          <div className="text-xs text-[#F0EFE8]/40">Total Usuarios</div>
+        <div className="glass-card rounded-xl p-3">
+          <div className="text-xs text-[#8A877D]">Total Usuarios</div>
           <div className="mt-1 text-lg font-semibold">{users.length}</div>
-          <div className="text-xs text-[#F0EFE8]/30">Onboarding: {stats?.funnel.onboardingComplete ?? '—'}</div>
+          <div className="text-xs text-[#8A877D]">Onboarding: {stats?.funnel.onboardingComplete ?? '—'}</div>
         </div>
       </div>
 
