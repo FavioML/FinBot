@@ -492,6 +492,7 @@ export default function AdminOperacionPage() {
   const [userGmailFilter, setUserGmailFilter] = useState<string>('todos');
   const [userWebappFilter, setUserWebappFilter] = useState<string>('todos');
   const [userCanalFilter, setUserCanalFilter] = useState<string>('todos');
+  const [userPage, setUserPage] = useState(0);
 
   // Data via React Query (cache compartido del AdminQueryProvider): sobrevive a la navegación,
   // sin re-fetch en cada visita. Las mutaciones invalidan keys puntuales en vez de refetchear a
@@ -610,6 +611,18 @@ export default function AdminOperacionPage() {
     if (userCanalFilter !== 'todos' && u.canal !== userCanalFilter) return false;
     return true;
   });
+
+  const USERS_PAGE_SIZE = 25;
+  const totalUserPages = Math.max(1, Math.ceil(filteredUsers.length / USERS_PAGE_SIZE));
+  const pagedUsers = filteredUsers.slice(
+    userPage * USERS_PAGE_SIZE,
+    userPage * USERS_PAGE_SIZE + USERS_PAGE_SIZE,
+  );
+
+  // Volver a la primera página cuando cambian filtros o búsqueda (evita quedar en página vacía).
+  useEffect(() => {
+    setUserPage(0);
+  }, [search, userPlanFilter, userOnboardingFilter, userGmailFilter, userWebappFilter, userCanalFilter]);
 
   const handleExportCSV = () => {
     const headers = ['nombre', 'email', 'whatsapp', 'plan', 'estado_pago', 'tiene_gmail', 'tiene_webapp', 'transacciones', 'created_at'];
@@ -966,16 +979,24 @@ export default function AdminOperacionPage() {
                 </button>
               )}
             </div>
-            <div className="text-xs text-[#F0EFE8]/40">
+            <div className="text-xs text-[#8A877D]">
               {filteredUsers.length} de {users.length} usuarios
+              {filteredUsers.length > USERS_PAGE_SIZE && (
+                <>
+                  {' · mostrando '}
+                  {userPage * USERS_PAGE_SIZE + 1}–
+                  {Math.min(filteredUsers.length, (userPage + 1) * USERS_PAGE_SIZE)}
+                </>
+              )}
             </div>
           </div>
 
           {/* Desktop table */}
-          <div className="hidden overflow-x-auto glass-card md:block">
+          <div className="hidden glass-card md:block overflow-hidden">
+            <div className="max-h-[65vh] overflow-auto">
             <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-white/5 bg-white/[0.02]">
+              <thead className="sticky top-0 z-10 bg-[#131311]">
+                <tr className="border-b border-white/10">
                   <th className="px-4 py-3 text-left text-xs font-medium text-[#F0EFE8]/40">Usuario</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-[#F0EFE8]/40">WhatsApp</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-[#F0EFE8]/40">Plan</th>
@@ -997,7 +1018,7 @@ export default function AdminOperacionPage() {
                       </td>
                     </tr>
                   ))}
-                {filteredUsers.map((u) => (
+                {pagedUsers.map((u) => (
                   <tr key={u.id} className="hover:bg-white/[0.02] transition-colors">
                     <td className="px-4 py-3">
                       <div className="font-medium">{u.nombre || 'Sin nombre'}</div>
@@ -1041,12 +1062,13 @@ export default function AdminOperacionPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
 
           {/* Mobile cards */}
           <div className="space-y-3 md:hidden">
             {usersQuery.isLoading && users.length === 0 && <ListSkeleton rows={4} />}
-            {filteredUsers.map((u) => (
+            {pagedUsers.map((u) => (
               <div key={u.id} className="glass-card rounded-xl p-4">
                 <div className="flex items-start justify-between">
                   <div>
@@ -1078,6 +1100,28 @@ export default function AdminOperacionPage() {
               </div>
             ))}
           </div>
+
+          {totalUserPages > 1 && (
+            <div className="mt-4 flex items-center justify-center gap-2">
+              <button
+                onClick={() => setUserPage(Math.max(0, userPage - 1))}
+                disabled={userPage === 0}
+                className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-[#8A877D] hover:bg-white/5 hover:text-[#F0EFE8] disabled:opacity-30"
+              >
+                Anterior
+              </button>
+              <span className="text-xs text-[#8A877D]">
+                Página {userPage + 1} de {totalUserPages}
+              </span>
+              <button
+                onClick={() => setUserPage(Math.min(totalUserPages - 1, userPage + 1))}
+                disabled={userPage >= totalUserPages - 1}
+                className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-[#8A877D] hover:bg-white/5 hover:text-[#F0EFE8] disabled:opacity-30"
+              >
+                Siguiente
+              </button>
+            </div>
+          )}
         </>
       )}
 
