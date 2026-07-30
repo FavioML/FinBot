@@ -30,12 +30,14 @@ function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
-// Último instante (ms UTC) del mes de la cohorte 'YYYY-MM'. Se usa como proxy del alta más
-// tardía posible de la cohorte: un periodo solo se marca "maduro" cuando incluso ese usuario
-// completó la ventana, así que nunca se pinta un 0% que en realidad es "aún no pasó el tiempo".
-function cohortMonthEndMs(cohort: string): number {
+// Primer instante (ms UTC) del mes de la cohorte 'YYYY-MM'. Un periodo se marca "maduro" cuando
+// su ventana ya transcurrió medida desde el inicio del mes, es decir cuando incluso el miembro
+// MÁS ANTIGUO de la cohorte la completó. Convención estándar de retención: no se pinta un periodo
+// que aún no transcurrió para nadie (evitaría un 0% que en realidad es "muy pronto"); la cohorte
+// en curso muestra sus periodos como un piso que sube a medida que maduran.
+function cohortMonthStartMs(cohort: string): number {
   const [y, m] = cohort.split('-').map(Number); // m = 1..12
-  return Date.UTC(y, m, 0, 23, 59, 59); // día 0 del mes siguiente = último día del mes m
+  return Date.UTC(y, m - 1, 1);
 }
 
 export async function GET() {
@@ -91,7 +93,7 @@ export async function GET() {
       byCohort.set(raw.cohort, c);
     }
     const active = Number(raw.active);
-    const mature = cohortMonthEndMs(raw.cohort) + (raw.period + 1) * 30 * 86400000 <= now;
+    const mature = cohortMonthStartMs(raw.cohort) + (raw.period + 1) * 30 * 86400000 <= now;
     c.cells.push({
       period: raw.period,
       active,
