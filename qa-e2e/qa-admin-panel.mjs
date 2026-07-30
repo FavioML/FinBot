@@ -271,6 +271,27 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
     `panel dice ${k.mau}, la base dice ${new Set(txMes.map(t => t.usuario_id)).size}`,
   );
 
+  // ---------- 7b. /users: campos de actividad (migración 042) + flag interno (Ola 4) ----------
+  // La página admin/users segmenta la base con estas ventanas. Validamos la DATA de la ruta;
+  // la clasificación en segmentos tiene sus propios unit tests (admin-user-segments.test.ts).
+  const INTERNAL_WHATSAPP = new Set(['51970398192', '51999999997']);
+  const conActividad = lista.every(
+    (u) => 'tx_14d' in u && 'tx_30d' in u && 'last_tx_at' in u && 'is_internal' in u,
+  );
+  ok('users: cada fila trae los campos de actividad (042)', conActividad, 'falta tx_14d/tx_30d/last_tx_at/is_internal');
+  // Monotonía por usuario, no depende del reloj: 14d ⊆ 30d ⊆ total.
+  const monotono = lista.every(
+    (u) => (u.tx_14d || 0) <= (u.tx_30d || 0) && (u.tx_30d || 0) <= (u.transacciones || 0),
+  );
+  ok('users: tx_14d <= tx_30d <= transacciones (por usuario)', monotono, 'alguna fila viola la monotonía');
+  // Suma de tx_30d == tx del mes según el oráculo (±2 por el borde de 30d entre now() de la DB
+  // y Date.now() de JS; con cientos de tx la coincidencia es exacta salvo una justo en el borde).
+  const sumaTx30 = lista.reduce((a, u) => a + (u.tx_30d || 0), 0);
+  ok('users: suma tx_30d == tx del mes (oráculo, ±2)', Math.abs(sumaTx30 - txMes.length) <= 2, `suma ${sumaTx30} vs oráculo ${txMes.length}`);
+  // is_internal marca exactamente las cuentas internas conocidas (fundador + QA).
+  const flagOk = lista.every((u) => u.is_internal === INTERNAL_WHATSAPP.has(u.whatsapp));
+  ok('users: is_internal == whatsapp en lista de internas', flagOk, 'is_internal no coincide con la lista de internas');
+
   // ---------- 8. Producto: invariantes entre los tres RPC (Ola 3) ----------
   // Todo agrega en SQL, así que ninguna colección trae filas para contarlas. Las invariantes
   // cruzan los tres RPC: si alguno truncara o contara mal, dejan de cuadrar. La más fuerte:
