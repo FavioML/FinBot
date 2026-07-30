@@ -869,7 +869,7 @@ export default function AdminCostsPage() {
 
       {/* Desktop table */}
       {!isLoading && filtered.length > 0 && (
-        <div className="hidden overflow-x-auto rounded-xl border border-white/5 bg-[#131311] md:block">
+        <div className="hidden overflow-x-auto glass-card md:block">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-white/5 bg-white/[0.02] text-left text-[10px] uppercase tracking-wider text-[#8A877D]">

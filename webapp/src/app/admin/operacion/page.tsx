@@ -972,7 +972,7 @@ export default function AdminOperacionPage() {
           </div>
 
           {/* Desktop table */}
-          <div className="hidden overflow-x-auto rounded-xl border border-white/5 md:block">
+          <div className="hidden overflow-x-auto glass-card md:block">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-white/5 bg-white/[0.02]">
@@ -1327,7 +1327,7 @@ export default function AdminOperacionPage() {
               </div>
             ) : (
               <>
-                <div className="hidden overflow-x-auto rounded-xl border border-white/5 md:block">
+                <div className="hidden overflow-x-auto glass-card md:block">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-white/5 bg-white/[0.02]">
