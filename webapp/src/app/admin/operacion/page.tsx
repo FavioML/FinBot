@@ -351,7 +351,7 @@ function PaymentsModal({
               <select
                 value={planSel}
                 onChange={(e) => setPlanSel(e.target.value)}
-                className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-[#F0EFE8] outline-none focus:border-[#1D9E75]/50"
+                className="form-input px-3 py-2 text-sm"
               >
                 <option value="mensual" className="bg-[#1A1A18]">Mensual (S/10)</option>
                 <option value="anual" className="bg-[#1A1A18]">Anual (S/99)</option>
@@ -901,7 +901,7 @@ export default function AdminOperacionPage() {
                 placeholder="Buscar por nombre, email o WhatsApp..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full max-w-md rounded-lg border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-[#F0EFE8] placeholder-[#F0EFE8]/30 outline-none focus:border-[#1D9E75]/50"
+                className="form-input w-full max-w-md px-4 py-2.5 text-sm"
               />
               <button
                 onClick={handleExportCSV}
@@ -914,7 +914,7 @@ export default function AdminOperacionPage() {
               <select
                 value={userPlanFilter}
                 onChange={(e) => setUserPlanFilter(e.target.value)}
-                className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-[#F0EFE8] outline-none focus:border-[#1D9E75]/50"
+                className="form-input px-3 py-2 text-sm"
               >
                 <option value="todos" className="bg-[#1A1A18]">Plan: Todos</option>
                 <option value="free" className="bg-[#1A1A18]">Free</option>
@@ -923,7 +923,7 @@ export default function AdminOperacionPage() {
               <select
                 value={userOnboardingFilter}
                 onChange={(e) => setUserOnboardingFilter(e.target.value)}
-                className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-[#F0EFE8] outline-none focus:border-[#1D9E75]/50"
+                className="form-input px-3 py-2 text-sm"
               >
                 <option value="todos" className="bg-[#1A1A18]">Onboarding: Todos</option>
                 <option value="completado" className="bg-[#1A1A18]">Completado</option>
@@ -932,7 +932,7 @@ export default function AdminOperacionPage() {
               <select
                 value={userGmailFilter}
                 onChange={(e) => setUserGmailFilter(e.target.value)}
-                className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-[#F0EFE8] outline-none focus:border-[#1D9E75]/50"
+                className="form-input px-3 py-2 text-sm"
               >
                 <option value="todos" className="bg-[#1A1A18]">Gmail: Todos</option>
                 <option value="conectado" className="bg-[#1A1A18]">Conectado</option>
@@ -941,7 +941,7 @@ export default function AdminOperacionPage() {
               <select
                 value={userWebappFilter}
                 onChange={(e) => setUserWebappFilter(e.target.value)}
-                className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-[#F0EFE8] outline-none focus:border-[#1D9E75]/50"
+                className="form-input px-3 py-2 text-sm"
               >
                 <option value="todos" className="bg-[#1A1A18]">Webapp: Todos</option>
                 <option value="conectado" className="bg-[#1A1A18]">Conectado</option>
@@ -950,7 +950,7 @@ export default function AdminOperacionPage() {
               <select
                 value={userCanalFilter}
                 onChange={(e) => setUserCanalFilter(e.target.value)}
-                className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-[#F0EFE8] outline-none focus:border-[#1D9E75]/50"
+                className="form-input px-3 py-2 text-sm"
               >
                 <option value="todos" className="bg-[#1A1A18]">Canal: Todos</option>
                 <option value="whatsapp" className="bg-[#1A1A18]">Solo WhatsApp</option>
@@ -1113,12 +1113,12 @@ export default function AdminOperacionPage() {
                 placeholder="Buscar en mensajes..."
                 value={nlpSearch}
                 onChange={(e) => setNlpSearch(e.target.value)}
-                className="w-full max-w-xs rounded-lg border border-white/10 bg-white/[0.03] px-4 py-2 text-sm text-[#F0EFE8] placeholder-[#F0EFE8]/30 outline-none focus:border-[#1D9E75]/50"
+                className="form-input w-full max-w-xs px-4 py-2 text-sm"
               />
               <select
                 value={nlpTipoFilter}
                 onChange={(e) => setNlpTipoFilter(e.target.value)}
-                className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-[#F0EFE8] outline-none focus:border-[#1D9E75]/50"
+                className="form-input px-3 py-2 text-sm"
               >
                 <option value="all" className="bg-[#1A1A18]">Todos los tipos</option>
                 {tiposUnicos.map((t) => (
@@ -1128,7 +1128,7 @@ export default function AdminOperacionPage() {
               <select
                 value={nlpUserFilter}
                 onChange={(e) => setNlpUserFilter(e.target.value)}
-                className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-[#F0EFE8] outline-none focus:border-[#1D9E75]/50"
+                className="form-input px-3 py-2 text-sm"
               >
                 <option value="all" className="bg-[#1A1A18]">Todos los usuarios</option>
                 {usersUnicos.map((w) => (
@@ -1292,12 +1292,12 @@ export default function AdminOperacionPage() {
                 placeholder="Buscar en mensajes o WhatsApp..."
                 value={ticketSearch}
                 onChange={(e) => { setTicketSearch(e.target.value); setTicketPage(0); }}
-                className="w-full max-w-xs rounded-lg border border-white/10 bg-white/[0.03] px-4 py-2 text-sm text-[#F0EFE8] placeholder-[#F0EFE8]/30 outline-none focus:border-[#1D9E75]/50"
+                className="form-input w-full max-w-xs px-4 py-2 text-sm"
               />
               <select
                 value={ticketEstadoFilter}
                 onChange={(e) => { setTicketEstadoFilter(e.target.value); setTicketPage(0); }}
-                className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-[#F0EFE8] outline-none focus:border-[#1D9E75]/50"
+                className="form-input px-3 py-2 text-sm"
               >
                 <option value="todos" className="bg-[#1A1A18]">Todos los estados</option>
                 <option value="esperando_mensaje" className="bg-[#1A1A18]">Esperando mensaje</option>
@@ -1381,7 +1381,7 @@ export default function AdminOperacionPage() {
                                   onChange={(e) => setReplyText(e.target.value)}
                                   onKeyDown={(e) => { if (e.key === 'Enter') handleTicketReply(t.id); }}
                                   placeholder="Escribir respuesta..."
-                                  className="flex-1 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-[#F0EFE8] placeholder-[#F0EFE8]/30 outline-none focus:border-[#1D9E75]/50"
+                                  className="form-input flex-1 px-3 py-1.5 text-xs"
                                   autoFocus
                                 />
                                 <button
@@ -1442,7 +1442,7 @@ export default function AdminOperacionPage() {
                             onChange={(e) => setReplyText(e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Enter') handleTicketReply(t.id); }}
                             placeholder="Escribir respuesta..."
-                            className="flex-1 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-[#F0EFE8] placeholder-[#F0EFE8]/30 outline-none focus:border-[#1D9E75]/50"
+                            className="form-input flex-1 px-3 py-1.5 text-xs"
                             autoFocus
                           />
                           <button
