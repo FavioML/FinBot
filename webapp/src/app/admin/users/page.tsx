@@ -2,7 +2,15 @@
 
 import { useMemo, useState } from 'react';
 import { Loader2 } from 'lucide-react';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
 import { useAdminUsers, type AdminUser } from '@/lib/hooks/use-admin-operacion';
+import { useAdminUserFicha } from '@/lib/hooks/use-admin-user-ficha';
 import {
   classifyUser,
   countBySegment,
@@ -125,12 +133,176 @@ function FeedRow({ name, right }: { name: string; right: string }) {
   );
 }
 
+function fmtPen(n: number): string {
+  return `S/ ${Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+// ===================================================================
+// Ficha individual (drill-down)
+// ===================================================================
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-1.5 text-sm">
+      <span className="text-[#8A877D]">{label}</span>
+      <span className="text-right font-medium text-[#F0EFE8]">{value}</span>
+    </div>
+  );
+}
+
+function FeatureChip({ label, count }: { label: string; count: number }) {
+  const on = count > 0;
+  return (
+    <div
+      className={`rounded-lg border px-2.5 py-1.5 ${
+        on
+          ? 'border-[rgba(29,158,117,0.3)] bg-[rgba(29,158,117,0.08)]'
+          : 'border-white/5 bg-white/[0.02]'
+      }`}
+    >
+      <div className={`text-sm font-semibold tabular-nums ${on ? 'text-[#F0EFE8]' : 'text-[#5A584F]'}`}>
+        {count}
+      </div>
+      <div className={`text-[10px] uppercase tracking-wide ${on ? 'text-[#8A877D]' : 'text-[#5A584F]'}`}>
+        {label}
+      </div>
+    </div>
+  );
+}
+
+function SheetSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <h4 className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-[#8A877D]">
+        {title}
+      </h4>
+      {children}
+    </div>
+  );
+}
+
+function UserFichaSheet({ user, onClose }: { user: AdminUser | null; onClose: () => void }) {
+  const { data, isLoading } = useAdminUserFicha(user?.id ?? null);
+  const f = data?.features;
+  const nps = data?.nps?.response_data;
+  const seg = user ? classifyUser(user) : null;
+
+  return (
+    <Sheet open={!!user} onOpenChange={(o) => !o && onClose()}>
+      <SheetContent
+        side="right"
+        className="w-full gap-0 overflow-y-auto border-l border-white/10 bg-[#131311] text-[#F0EFE8] sm:max-w-md"
+      >
+        {user && (
+          <>
+            <SheetHeader className="border-b border-white/5">
+              <SheetTitle className="text-[#F0EFE8]">{userLabel(user)}</SheetTitle>
+              <SheetDescription className="text-[#8A877D]">
+                {user.email || user.whatsapp}
+              </SheetDescription>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <span
+                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                    user.plan === 'premium'
+                      ? 'bg-[rgba(29,158,117,0.14)] text-[#1D9E75]'
+                      : 'bg-white/5 text-[#8A877D]'
+                  }`}
+                >
+                  {user.plan === 'premium' ? 'Pro' : 'Free'}
+                </span>
+                {seg && (
+                  <span
+                    className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
+                    style={{
+                      backgroundColor: `${SEGMENT_TONE[seg]}22`,
+                      color: SEGMENT_TONE[seg],
+                    }}
+                  >
+                    {SEGMENT_LABEL[seg]}
+                  </span>
+                )}
+                <span className="text-xs text-[#8A877D]">{CANAL_LABEL[user.canal]}</span>
+              </div>
+            </SheetHeader>
+
+            <div className="space-y-5 px-4 py-4">
+              <SheetSection title="Timeline">
+                <DetailRow label="Registro" value={fmtDate(user.created_at)} />
+                <DetailRow label="Primera transacción" value={fmtDate(user.first_tx_at)} />
+                <DetailRow label="Última actividad" value={daysAgoLabel(user.last_tx_at)} />
+                {user.plan === 'premium' && (
+                  <>
+                    <DetailRow label="Se hizo Pro" value={fmtDate(user.premium_desde)} />
+                    <DetailRow label="Pro vence" value={fmtDate(user.premium_vence)} />
+                  </>
+                )}
+              </SheetSection>
+
+              <SheetSection title="Actividad">
+                <div className="grid grid-cols-3 gap-2">
+                  <FeatureChip label="Tx total" count={user.transacciones} />
+                  <FeatureChip label="Tx 30d" count={user.tx_30d ?? 0} />
+                  <FeatureChip label="Tx 14d" count={user.tx_14d ?? 0} />
+                </div>
+              </SheetSection>
+
+              <SheetSection title="Plan & valor">
+                <DetailRow label="LTV (pagos aprobados)" value={f ? fmtPen(f.ltv_pen) : '—'} />
+                <DetailRow label="Pagos aprobados" value={f ? f.pagos_aprobados : '—'} />
+                <DetailRow label="Tickets de soporte" value={f ? f.tickets : '—'} />
+              </SheetSection>
+
+              <SheetSection title="Features que usa">
+                {isLoading || !f ? (
+                  <div className="flex items-center gap-2 py-3 text-sm text-[#8A877D]">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Cargando…
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 gap-2">
+                    <FeatureChip label="Categorías" count={f.categorias} />
+                    <FeatureChip label="Presupuestos" count={f.presupuestos} />
+                    <FeatureChip label="Metas" count={f.metas} />
+                    <FeatureChip label="Deudas" count={f.deudas} />
+                    <FeatureChip label="Espacios" count={f.espacios} />
+                    <FeatureChip label="Alertas" count={f.alertas} />
+                    <FeatureChip label="Score" count={f.score} />
+                    <FeatureChip label="Gmail" count={f.gmail ? 1 : 0} />
+                  </div>
+                )}
+              </SheetSection>
+
+              <SheetSection title="NPS in-app">
+                {nps ? (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-3 gap-2">
+                      <FeatureChip label="Facilidad" count={nps.ease ?? 0} />
+                      <FeatureChip label="Utilidad" count={nps.usefulness ?? 0} />
+                      <FeatureChip label="Recomienda" count={nps.recommend ?? 0} />
+                    </div>
+                    {nps.comment && (
+                      <p className="rounded-lg border border-white/5 bg-white/[0.02] p-3 text-sm text-[#C8C6BC]">
+                        “{nps.comment}”
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="py-2 text-sm text-[#8A877D]">Sin respuesta NPS todavía.</p>
+                )}
+              </SheetSection>
+            </div>
+          </>
+        )}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
 // ===================================================================
 // Página
 // ===================================================================
 export default function AdminUsersPage() {
   const { data, isLoading, isError } = useAdminUsers();
   const [segment, setSegment] = useState<UserSegment | 'todos'>('todos');
+  const [fichaUser, setFichaUser] = useState<AdminUser | null>(null);
 
   // Usuarios reales (excluye cuentas internas: fundador / QA) para todo el análisis.
   const users = useMemo(
@@ -260,7 +432,9 @@ export default function AdminUsersPage() {
           <h3 className="text-base font-semibold text-[#F0EFE8]">
             {segment === 'todos' ? 'Todos los usuarios' : SEGMENT_LABEL[segment]}
           </h3>
-          <span className="text-xs text-[#8A877D]">{listedUsers.length} usuarios</span>
+          <span className="text-xs text-[#8A877D]">
+            {listedUsers.length} usuarios · click para ver la ficha
+          </span>
         </div>
         <div className="glass-card overflow-hidden">
           <div className="max-h-[60vh] overflow-auto">
@@ -279,7 +453,8 @@ export default function AdminUsersPage() {
                 {listedUsers.map((u) => (
                   <tr
                     key={u.id}
-                    className="border-b border-[rgba(255,255,255,0.04)] last:border-0"
+                    onClick={() => setFichaUser(u)}
+                    className="cursor-pointer border-b border-[rgba(255,255,255,0.04)] transition-colors last:border-0 hover:bg-white/[0.02]"
                   >
                     <td className="px-4 py-3">
                       <div className="font-medium text-[#F0EFE8]">{userLabel(u)}</div>
@@ -384,6 +559,8 @@ export default function AdminUsersPage() {
           </div>
         </div>
       </section>
+
+      <UserFichaSheet user={fichaUser} onClose={() => setFichaUser(null)} />
     </div>
   );
 }
