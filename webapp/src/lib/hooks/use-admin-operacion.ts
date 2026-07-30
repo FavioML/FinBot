@@ -53,6 +53,13 @@ export interface AdminUser {
   canal: 'whatsapp' | 'google' | 'magic_link';
   transacciones: number;
   created_at: string;
+  // Actividad (migración 042) — alimenta los segmentos de la página admin/users.
+  // Opcionales: operacion no los usa; la ruta /api/admin/users siempre los envía.
+  tx_14d?: number;
+  tx_30d?: number;
+  first_tx_at?: string | null;
+  last_tx_at?: string | null;
+  is_internal?: boolean;
 }
 
 export interface NlpError {

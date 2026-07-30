@@ -1,8 +1,17 @@
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 import { requireAdminUser, type UserTxStatsRow } from '@/lib/admin';
+import { EXCLUDED_REVENUE_WHATSAPP } from '@/lib/admin-revenue';
 
 export const dynamic = 'force-dynamic';
+
+interface UserActivityRow {
+  user_id: string;
+  tx_14d: number;
+  tx_30d: number;
+  first_tx_at: string | null;
+  last_tx_at: string | null;
+}
 
 export async function GET() {
   if (!(await requireAdminUser())) {
@@ -19,7 +28,7 @@ export async function GET() {
   // una query por usuario, 84 roundtrips secuenciales por cada carga de pantalla. Ahora es
   // una sola RPC agregada (migración 039), que además no puede truncarse a 1000 filas
   // porque devuelve una fila por usuario, no una por transacción.
-  const [{ data: usuarios, error }, { data: txStats }, { data: authList }] = await Promise.all([
+  const [{ data: usuarios, error }, { data: txStats }, { data: activity }, { data: authList }] = await Promise.all([
     db
       .from('usuarios')
       .select(
@@ -27,6 +36,9 @@ export async function GET() {
       )
       .order('created_at', { ascending: false }),
     db.rpc('admin_user_tx_stats'),
+    // Ventanas de actividad (14d/30d) + primera/ultima tx por usuario (migracion 042). Agrega en
+    // SQL, una fila por usuario. Alimenta los segmentos de la pagina admin/users.
+    db.rpc('admin_user_activity'),
     db.auth.admin.listUsers({ perPage: 1000 }),
   ]);
 
@@ -37,6 +49,11 @@ export async function GET() {
   const countMap: Record<string, number> = {};
   for (const row of (txStats as UserTxStatsRow[] | null) || []) {
     countMap[row.usuario_id] = Number(row.tx_count);
+  }
+
+  const activityMap: Record<string, UserActivityRow> = {};
+  for (const row of (activity as UserActivityRow[] | null) || []) {
+    activityMap[row.user_id] = row;
   }
 
   // Auth provider (google / magic link) para los usuarios que llegaron por la webapp.
@@ -52,6 +69,8 @@ export async function GET() {
       const provider = providerMap[u.supabase_auth_id] || 'unknown';
       canal = provider === 'google' ? 'google' : 'magic_link';
     }
+
+    const act = activityMap[u.id];
 
     return {
       id: u.id,
@@ -71,6 +90,13 @@ export async function GET() {
       canal,
       transacciones: countMap[u.id] || 0,
       created_at: u.created_at,
+      // Actividad (migracion 042) para segmentar en la pagina admin/users. Operacion los ignora.
+      tx_14d: act ? Number(act.tx_14d) : 0,
+      tx_30d: act ? Number(act.tx_30d) : 0,
+      first_tx_at: act?.first_tx_at ?? null,
+      last_tx_at: act?.last_tx_at ?? null,
+      // Cuenta interna (fundador / QA): la pagina de analisis la excluye de los segmentos.
+      is_internal: !!u.whatsapp && EXCLUDED_REVENUE_WHATSAPP.has(u.whatsapp),
     };
   });
 
