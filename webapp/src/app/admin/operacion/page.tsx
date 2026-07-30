@@ -762,8 +762,8 @@ export default function AdminOperacionPage() {
       {/* Charts Section */}
       {stats && (
         <div className="mb-6 grid gap-4 lg:grid-cols-3">
-          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
-            <h3 className="mb-3 text-sm font-medium text-[#F0EFE8]/60">Crecimiento Usuarios (12 semanas)</h3>
+          <div className="glass-card rounded-xl p-4">
+            <h3 className="mb-3 text-sm font-medium text-[#F0EFE8]">Crecimiento Usuarios (12 semanas)</h3>
             <div className="h-48">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={stats.userGrowth} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
@@ -791,8 +791,8 @@ export default function AdminOperacionPage() {
             </div>
           </div>
 
-          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
-            <h3 className="mb-3 text-sm font-medium text-[#F0EFE8]/60">Embudo de Onboarding</h3>
+          <div className="glass-card rounded-xl p-4">
+            <h3 className="mb-3 text-sm font-medium text-[#F0EFE8]">Embudo de Onboarding</h3>
             <div className="space-y-2.5">
               {[
                 { label: 'Registrados', value: stats.funnel.registered, color: '#F0EFE8' },
@@ -829,8 +829,8 @@ export default function AdminOperacionPage() {
             </div>
           </div>
 
-          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
-            <h3 className="mb-3 text-sm font-medium text-[#F0EFE8]/60">Errores NLP (30 dias)</h3>
+          <div className="glass-card rounded-xl p-4">
+            <h3 className="mb-3 text-sm font-medium text-[#F0EFE8]">Errores NLP (30 dias)</h3>
             <div className="h-48">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={stats.nlpActivity} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
@@ -847,7 +847,7 @@ export default function AdminOperacionPage() {
                     contentStyle={{ background: '#1A1A17', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }}
                     labelStyle={{ color: '#F0EFE8' }}
                   />
-                  <Line type="monotone" dataKey="errors" stroke="#E85D3A" strokeWidth={1.5} dot={false} name="Errores" />
+                  <Line type="monotone" dataKey="errors" stroke="#D85A30" strokeWidth={1.5} dot={false} name="Errores" />
                 </LineChart>
               </ResponsiveContainer>
             </div>
