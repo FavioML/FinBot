@@ -125,6 +125,7 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
     '/api/admin/users',
     '/api/admin/economics',
     '/api/admin/costs',
+    '/api/admin/pnl',
     '/api/admin/surveys',
     '/api/admin/producto',
     '/api/admin/tickets?limit=50',
@@ -367,6 +368,58 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
     ok('producto: retención activos <= tamaño de cohorte', !celdaMala, 'una cohorte reporta más activos que su tamaño');
   } else {
     ok('producto: la ruta respondió', false, 'no hubo respuesta JSON de /api/admin/producto');
+  }
+
+  // ---------- 9. P&L mensual contra el oráculo (Rework Costos, RPC admin_pnl_monthly 044) ----------
+  // Filosofía de siempre: el oráculo recomputa el P&L leyendo pagos + admin_costs directo (paginando),
+  // NO usa el RPC. Si el RPC truncara o agregara mal, deja de cuadrar. Base caja: ingreso = pagos
+  // aprobados no-internos por mes Lima (coalesce(aprobado_at, created_at)); costo = paid_history por
+  // mes Lima. NO se cruza contra economics.revenue_this_month a propósito: economics filtra por
+  // created_at del mes y el P&L bucketea por fecha de aprobación, así que en el borde de mes (pago
+  // creado un mes, aprobado el siguiente) pueden divergir legítimamente. El oráculo es el juez.
+  const pnl = resp['/api/admin/pnl'];
+  const limaMonth = (iso) => (iso ? new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/Lima' }).slice(0, 7) : null);
+  if (pnl && Array.isArray(pnl.months)) {
+    ok('pnl: expone months (array)', pnl.months.length > 0, `-> ${pnl.months.length}`);
+    // result == income - cost, por mes (aritmética interna del RPC).
+    const aritmeticaOk = pnl.months.every(
+      (m) => Math.abs(Number(m.result_pen) - (Number(m.income_pen) - Number(m.cost_pen))) < 0.01,
+    );
+    ok('pnl: result == income - cost (cada mes)', aritmeticaOk, 'alguna fila no cuadra income-cost');
+
+    // Oráculo independiente: usuarios (id+whatsapp) para excluir internos, pagos y admin_costs.
+    const usuariosWa = await sbPaginado('usuarios', 'id,whatsapp');
+    const internalIds = new Set(usuariosWa.filter((u) => INTERNAL_WHATSAPP.has(u.whatsapp)).map((u) => u.id));
+    const pagos = await sbPaginado('pagos', 'monto,estado,aprobado_at,created_at,usuario_id');
+    const costsRows = await sbPaginado('admin_costs', 'paid_history');
+
+    const incomeByMonth = {};
+    for (const p of pagos) {
+      if (p.estado !== 'aprobado' || p.monto == null) continue;
+      if (internalIds.has(p.usuario_id)) continue;
+      const mm = limaMonth(p.aprobado_at || p.created_at);
+      if (!mm) continue;
+      incomeByMonth[mm] = (incomeByMonth[mm] || 0) + Number(p.monto);
+    }
+    const costByMonth = {};
+    for (const c of costsRows) {
+      for (const e of Array.isArray(c.paid_history) ? c.paid_history : []) {
+        const mm = e && e.paid_at ? String(e.paid_at).slice(0, 7) : null;
+        if (!mm) continue;
+        costByMonth[mm] = (costByMonth[mm] || 0) + Number(e.amount_pen);
+      }
+    }
+
+    let ingresoCuadra = true, costoCuadra = true;
+    for (const m of pnl.months) {
+      const mm = String(m.month).slice(0, 7);
+      if (Math.abs(Number(m.income_pen) - (incomeByMonth[mm] || 0)) >= 0.01) ingresoCuadra = false;
+      if (Math.abs(Number(m.cost_pen) - (costByMonth[mm] || 0)) >= 0.01) costoCuadra = false;
+    }
+    ok('pnl: ingreso por mes == oráculo (pagos aprobados no-internos)', ingresoCuadra, 'algún mes no cuadra vs oráculo de pagos');
+    ok('pnl: costo por mes == oráculo (paid_history)', costoCuadra, 'algún mes no cuadra vs oráculo de paid_history');
+  } else {
+    ok('pnl: la ruta respondió con months', false, 'no hubo months en /api/admin/pnl');
   }
 
   // ---------- Reporte ----------

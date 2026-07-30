@@ -121,6 +121,10 @@ export async function PUT(
     update.active = !!body.active;
   }
 
+  if (body.auto_debit !== undefined) {
+    update.auto_debit = !!body.auto_debit;
+  }
+
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ error: 'sin campos a actualizar' }, { status: 400 });
   }

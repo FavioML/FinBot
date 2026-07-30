@@ -120,6 +120,7 @@ export async function POST(request: Request) {
     next_due_date: nextDueDate,
     notes,
     active: body.active === false ? false : true,
+    auto_debit: body.auto_debit === true,
     paid_history: [],
   };
 

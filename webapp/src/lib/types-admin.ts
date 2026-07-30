@@ -25,10 +25,25 @@ export interface AdminCost {
   frequency: AdminCostFrequency;
   next_due_date: string | null;
   active: boolean;
+  // false = manual (dispara recordatorio Telegram); true = débito automático (se cobra solo,
+  // solo informativo el día del cobro, el cron auto-avanza y auto-registra el pago).
+  auto_debit: boolean;
   paid_history: AdminCostPaidEntry[];
   last_reminder_sent_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// ===== P&L mensual (Rework Costos, RPC admin_pnl_monthly 044) =====
+export interface AdminPnlMonth {
+  month: string; // 'YYYY-MM-DD' (primer día del mes Lima)
+  income_pen: number; // caja: pagos aprobados del mes (excluye internos)
+  cost_pen: number; // suma de paid_history con paid_at en el mes
+  result_pen: number; // income_pen - cost_pen
+}
+
+export interface AdminPnlResponse {
+  months: AdminPnlMonth[];
 }
 
 export interface AdminCostDueSoon {

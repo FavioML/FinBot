@@ -13,6 +13,7 @@ export interface CostInput {
   next_due_date?: string | null;
   notes?: string | null;
   active?: boolean;
+  auto_debit?: boolean;
 }
 
 export function useAdminCosts() {

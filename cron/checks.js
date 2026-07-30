@@ -11,6 +11,7 @@ const { ADMIN_NUMBER } = require('../lib/config');
 const { notificarAdmin } = require('../lib/admin-notify');
 const { checkSurveyTriggers } = require('../services/survey-triggers');
 const { solicitarComprobante } = require('../lib/pro-payment');
+const { planCostReminders } = require('../lib/cost-reminders');
 
 async function checkResumenMensual() {
   const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
@@ -572,15 +573,17 @@ async function checkRecordatorioEspacios() {
 }
 
 /**
- * Recordatorio de costos operativos al admin (Favio).
- * Corre 9am Lima diario. Busca filas en admin_costs con next_due_date = hoy
- * y manda un solo mensaje WhatsApp consolidado al ADMIN_NUMBER.
+ * Costos operativos del admin (Favio). Corre 9am Lima diario. Toma los costos activos que vencen
+ * hoy o están atrasados y manda un solo mensaje consolidado por el canal admin (Telegram-first,
+ * via notificarAdmin). La lógica de qué hacer con cada costo vive en lib/cost-reminders.js (puro,
+ * testeado); acá solo se aplican los efectos.
  *
- * NO avanza next_due_date automaticamente — eso lo hace el admin desde UI
- * cuando marca el costo como pagado. Asi el track refleja la realidad.
- *
- * Idempotencia: usa last_reminder_sent_at para evitar doble alerta el mismo dia
- * (el cron corre cada 15min entre 9:00 y 9:14).
+ *  - MANUAL (auto_debit=false): recordatorio "por pagar" (vence hoy / atrasado). Dedup por-día vía
+ *    last_reminder_sent_at (el cron corre cada ~15min entre 9:00 y 9:14). NO avanza next_due_date:
+ *    eso pasa cuando el admin marca pagado desde la UI, para que el track refleje la realidad.
+ *  - AUTO (auto_debit=true): se cobra solo → no se molesta con "págalo". El día del cobro se
+ *    registra el pago en paid_history (para el P&L) y se avanza next_due_date (el propio avance es
+ *    el guard de idempotencia), y se manda una línea informativa "se debita X, verifica que pasó".
  */
 async function checkRecordatoriosCostos() {
   const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
@@ -588,48 +591,69 @@ async function checkRecordatoriosCostos() {
   try {
     const hoy = hoyPeru();
     const { data: costos } = await supabase.from('admin_costs')
-      .select('id, label, amount_pen, currency, amount_original, frequency, last_reminder_sent_at')
+      .select('id, label, amount_pen, currency, amount_original, frequency, next_due_date, active, auto_debit, last_reminder_sent_at, paid_history')
       .eq('active', true)
-      .eq('next_due_date', hoy);
+      .lte('next_due_date', hoy);
 
     if (!costos || costos.length === 0) return;
 
-    const aNotificar = costos.filter(c => {
-      if (!c.last_reminder_sent_at) return true;
-      const last = new Date(c.last_reminder_sent_at);
-      const lastDayLima = new Date(last.toLocaleString('en-US', { timeZone: 'America/Lima' }))
-        .toISOString().split('T')[0];
-      return lastDayLima !== hoy;
+    const { toNotify, toAutoProcess } = planCostReminders(costos, hoy);
+
+    // 1) Auto-débito: registrar el cobro (paid_history) y avanzar la fecha, por costo. Solo se
+    //    anuncia el que se registró bien (si el update falla, no mentimos que se debitó).
+    const costById = new Map(costos.map((c) => [c.id, c]));
+    const autoLines = [];
+    for (const a of toAutoProcess) {
+      const original = costById.get(a.id);
+      const history = Array.isArray(original && original.paid_history) ? original.paid_history : [];
+      const { error } = await supabase.from('admin_costs')
+        .update({ paid_history: [...history, a.paidEntry], next_due_date: a.newNextDue, active: a.newActive })
+        .eq('id', a.id);
+      if (error) {
+        log.error({ tag: 'COSTOS_REMIND', id: a.id, err: error.message }, 'Error auto-procesando costo');
+        continue;
+      }
+      let line = '• ' + a.label + ' — S/ ' + a.amount_pen.toFixed(2);
+      if (a.currency === 'USD' && a.amount_original) line += ' ($' + a.amount_original.toFixed(2) + ')';
+      autoLines.push(line);
+    }
+
+    // 2) Manual: líneas de recordatorio + total a pagar a mano.
+    let manualTotal = 0;
+    const manualLines = toNotify.map((m) => {
+      manualTotal += m.amount_pen;
+      let line = '• ' + m.label + ' — S/ ' + m.amount_pen.toFixed(2);
+      if (m.currency === 'USD' && m.amount_original) line += ' ($' + m.amount_original.toFixed(2) + ')';
+      line += m.estado === 'atrasado'
+        ? ' — ATRASADO (hace ' + m.dias_atraso + (m.dias_atraso === 1 ? ' día' : ' días') + ')'
+        : ' — vence hoy';
+      return line;
     });
 
-    if (aNotificar.length === 0) return;
+    if (manualLines.length === 0 && autoLines.length === 0) return;
 
-    let msg = '💸 *Recordatorio de costos — vencen hoy*\n\n';
-    let totalPen = 0;
-    for (const c of aNotificar) {
-      const amount = parseFloat(c.amount_pen);
-      totalPen += amount;
-      const freqLabel = c.frequency === 'monthly' ? 'mensual'
-        : c.frequency === 'yearly' ? 'anual' : 'único';
-      let line = '• *' + c.label + '* — S/ ' + amount.toFixed(2);
-      if (c.currency === 'USD' && c.amount_original) {
-        line += ' ($' + parseFloat(c.amount_original).toFixed(2) + ')';
-      }
-      line += ' _(' + freqLabel + ')_\n';
-      msg += line;
+    let msg = '💸 Costos operativos\n\n';
+    if (manualLines.length > 0) {
+      msg += 'Por pagar:\n' + manualLines.join('\n') + '\n';
+      msg += '\nTotal a pagar: S/ ' + manualTotal.toFixed(2) + '\n';
+      msg += 'Márcalos como pagados en app.neto.pe/admin/costs\n';
     }
-    msg += '\n*Total a pagar hoy: S/ ' + totalPen.toFixed(2) + '*\n\n';
-    msg += '_Cuando los pagues, marcalos como pagados desde app.neto.pe/admin/costs_';
+    if (autoLines.length > 0) {
+      if (manualLines.length > 0) msg += '\n';
+      msg += 'Débito automático hoy (verifica que pasó en tu tarjeta):\n' + autoLines.join('\n') + '\n';
+    }
 
-    await notificarAdmin(msg);
+    await notificarAdmin(msg.trim());
 
-    const ids = aNotificar.map(c => c.id);
-    await supabase.from('admin_costs')
-      .update({ last_reminder_sent_at: new Date().toISOString() })
-      .in('id', ids);
+    if (toNotify.length > 0) {
+      const ids = toNotify.map((m) => m.id);
+      await supabase.from('admin_costs')
+        .update({ last_reminder_sent_at: new Date().toISOString() })
+        .in('id', ids);
+    }
 
-    log.info({ tag: 'COSTOS_REMIND', count: aNotificar.length, total: totalPen.toFixed(2) },
-      'Recordatorios de costos enviados al admin');
+    log.info({ tag: 'COSTOS_REMIND', manual: toNotify.length, auto: toAutoProcess.length, total: manualTotal.toFixed(2) },
+      'Recordatorios/débitos de costos procesados');
   } catch (e) {
     log.error({ tag: 'COSTOS_REMIND', err: e.message }, 'Error recordatorio costos');
   }

@@ -17,6 +17,7 @@ import {
   useUpdateAdminCost,
   type CostInput,
 } from '@/lib/hooks/use-admin-costs';
+import { useAdminPnl } from '@/lib/hooks/use-admin-pnl';
 import {
   ADMIN_COST_CATEGORY_LABELS,
   ADMIN_COST_FREQUENCY_LABELS,
@@ -88,6 +89,17 @@ function CategoryBadge({ category }: { category: AdminCostCategory }) {
   );
 }
 
+function AutoDebitBadge() {
+  return (
+    <span
+      title="Débito automático: se cobra solo, solo aviso informativo"
+      className="inline-flex items-center rounded-full border border-[rgba(29,158,117,0.35)] bg-[rgba(29,158,117,0.12)] px-2 py-0.5 text-[10px] uppercase tracking-wider text-[#1D9E75]"
+    >
+      Auto
+    </span>
+  );
+}
+
 function DueBadge({ cost, today }: { cost: AdminCost; today: string }) {
   if (!cost.active) {
     return (
@@ -148,6 +160,7 @@ interface CostFormState {
   nextDueDate: string;
   notes: string;
   active: boolean;
+  autoDebit: boolean;
 }
 
 function emptyForm(): CostFormState {
@@ -162,6 +175,7 @@ function emptyForm(): CostFormState {
     nextDueDate: '',
     notes: '',
     active: true,
+    autoDebit: false,
   };
 }
 
@@ -182,6 +196,7 @@ function costToForm(cost: AdminCost): CostFormState {
     nextDueDate: cost.next_due_date || '',
     notes: cost.notes || '',
     active: cost.active,
+    autoDebit: cost.auto_debit,
   };
 }
 
@@ -207,6 +222,7 @@ function formToInput(form: CostFormState): CostInput {
         : form.nextDueDate || null,
     notes: form.notes.trim() || null,
     active: form.active,
+    auto_debit: form.autoDebit,
   };
 }
 
@@ -415,6 +431,41 @@ function CostFormModal({
               }
               className="form-input w-full"
             />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs uppercase tracking-wider text-[#8A877D]">
+              Cobro
+            </label>
+            <div className="flex rounded-lg border border-white/10 bg-[#1A1A17] p-1">
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, autoDebit: false })}
+                className={`flex-1 rounded-md px-2 py-1.5 text-xs transition-colors ${
+                  !form.autoDebit
+                    ? 'bg-[rgba(29,158,117,0.18)] text-[#1D9E75]'
+                    : 'text-[#8A877D] hover:text-[#F0EFE8]'
+                }`}
+              >
+                Manual
+              </button>
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, autoDebit: true })}
+                className={`flex-1 rounded-md px-2 py-1.5 text-xs transition-colors ${
+                  form.autoDebit
+                    ? 'bg-[rgba(29,158,117,0.18)] text-[#1D9E75]'
+                    : 'text-[#8A877D] hover:text-[#F0EFE8]'
+                }`}
+              >
+                Automático
+              </button>
+            </div>
+            <p className="mt-1 text-[11px] text-[#8A877D]">
+              {form.autoDebit
+                ? 'Se cobra solo (ej. tarjeta). Solo te aviso el día del cobro; se registra y avanza solo.'
+                : 'Te recuerdo por Telegram el día del vencimiento y cada día que siga sin pagarse.'}
+            </p>
           </div>
 
           <div>
@@ -739,6 +790,96 @@ function CostRowActions({
   );
 }
 
+function monthLabel(iso: string): string {
+  const d = new Date(iso + 'T00:00:00Z');
+  return d.toLocaleDateString('es-PE', {
+    month: 'short',
+    year: '2-digit',
+    timeZone: 'UTC',
+  });
+}
+
+function signedPen(n: number): string {
+  const sign = n > 0 ? '+' : n < 0 ? '−' : '';
+  return `${sign}${formatPen(Math.abs(n))}`;
+}
+
+function PnlSection() {
+  const { data: months, isLoading, error } = useAdminPnl();
+
+  if (error) return null; // no romper la página de costos si el P&L falla
+
+  const current = months && months.length > 0 ? months[months.length - 1] : null;
+  const currentColor =
+    !current || current.result_pen === 0
+      ? 'text-[#F0EFE8]'
+      : current.result_pen > 0
+        ? 'text-[#1D9E75]'
+        : 'text-[#D85A30]';
+
+  return (
+    <div className="glass-card rounded-xl p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-[#F0EFE8]">Ganancia / pérdida mensual</h3>
+          <p className="mt-0.5 text-xs text-[#8A877D]">
+            Caja real: pagos Pro aprobados menos costos pagados del mes.
+          </p>
+        </div>
+        {current && (
+          <div className="text-right">
+            <div className="text-[10px] uppercase tracking-wider text-[#8A877D]">Este mes</div>
+            <div className={`text-xl font-semibold ${currentColor}`}>
+              {signedPen(current.result_pen)}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {isLoading && (
+        <div className="mt-4 space-y-2">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="h-8 animate-pulse rounded-lg bg-white/[0.03]" />
+          ))}
+        </div>
+      )}
+
+      {!isLoading && months && months.length > 0 && (
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-[10px] uppercase tracking-wider text-[#8A877D]">
+                <th className="pb-2 pr-4 font-medium">Mes</th>
+                <th className="pb-2 pr-4 text-right font-medium">Ingresos</th>
+                <th className="pb-2 pr-4 text-right font-medium">Costos</th>
+                <th className="pb-2 text-right font-medium">Resultado</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {[...months].reverse().map((m) => {
+                const color =
+                  m.result_pen === 0
+                    ? 'text-[#C8C6BC]'
+                    : m.result_pen > 0
+                      ? 'text-[#1D9E75]'
+                      : 'text-[#D85A30]';
+                return (
+                  <tr key={m.month}>
+                    <td className="py-2 pr-4 capitalize text-[#F0EFE8]">{monthLabel(m.month)}</td>
+                    <td className="py-2 pr-4 text-right text-[#C8C6BC]">{formatPen(m.income_pen)}</td>
+                    <td className="py-2 pr-4 text-right text-[#8A877D]">{formatPen(m.cost_pen)}</td>
+                    <td className={`py-2 text-right font-medium ${color}`}>{signedPen(m.result_pen)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminCostsPage() {
   const { data: costs, isLoading, error } = useAdminCosts();
   const [showInactive, setShowInactive] = useState(false);
@@ -839,6 +980,9 @@ export default function AdminCostsPage() {
         </div>
       </div>
 
+      {/* P&L mensual */}
+      <PnlSection />
+
       {/* Filtro */}
       <label className="flex items-center gap-2 text-xs text-[#C8C6BC]">
         <input
@@ -888,7 +1032,10 @@ export default function AdminCostsPage() {
                   className={`hover:bg-white/[0.02] ${cost.active ? '' : 'opacity-50'}`}
                 >
                   <td className="px-4 py-3">
-                    <div className="font-medium text-[#F0EFE8]">{cost.label}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-[#F0EFE8]">{cost.label}</span>
+                      {cost.auto_debit && <AutoDebitBadge />}
+                    </div>
                     {cost.notes && (
                       <div className="mt-0.5 truncate text-xs text-[#8A877D]">
                         {cost.notes}
@@ -940,6 +1087,7 @@ export default function AdminCostsPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium text-[#F0EFE8]">{cost.label}</span>
                     <CategoryBadge category={cost.category} />
+                    {cost.auto_debit && <AutoDebitBadge />}
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[#8A877D]">
                     <span>{ADMIN_COST_FREQUENCY_LABELS[cost.frequency]}</span>
