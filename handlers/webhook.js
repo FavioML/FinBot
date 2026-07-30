@@ -84,6 +84,11 @@ function createWebhookHandler(procesarMensajeLibre) {
     return res.sendStatus(403);
   }
   res.sendStatus(200);
+  // `from` se declara fuera del try para que el catch pueda referenciarlo al
+  // registrar el error. Antes vivía dentro del try (const block-scoped) y el
+  // catch crasheaba con "from is not defined", tragándose el stack del error
+  // original y generando un unhandled rejection fantasma.
+  let from;
   try {
     const entry = req.body.entry && req.body.entry[0];
     const change = entry && entry.changes && entry.changes[0];
@@ -91,7 +96,7 @@ function createWebhookHandler(procesarMensajeLibre) {
     const messages = value && value.messages;
     if (!messages || messages.length === 0) return;
     const message = messages[0];
-    const from = message.from;
+    from = message.from;
     if (isDuplicateWamid(message.id)) {
       log.info({ tag: 'WEBHOOK', wamid: message.id, from }, 'Wamid duplicado — skip');
       return;
