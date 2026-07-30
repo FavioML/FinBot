@@ -1,81 +1,19 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   AreaChart, Area, LineChart, Line,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
-
-interface AdminStats {
-  kpis: {
-    mrr: number;
-    arr: number;
-    cajaMes: number;
-    proReal: number;
-    proMonthly: number;
-    proYearly: number;
-    churnRate: number;
-    dau: number;
-    wau: number;
-    mau: number;
-    conversionRate: number;
-    avgTimeToFirstTx: number;
-    txPerActiveUser: number;
-  };
-  userGrowth: { week: string; free: number; pro: number; total: number }[];
-  funnel: {
-    registered: number;
-    onboardingComplete: number;
-    firstTransaction: number;
-    pro: number;
-  };
-  webappCoverage: number;
-  nlpActivity: { date: string; errors: number }[];
-  revenue: { month: string; mrr: number; newPro: number; churned: number }[];
-}
-
-interface AdminUser {
-  id: string;
-  whatsapp: string;
-  nombre: string | null;
-  email: string | null;
-  plan: string;
-  estado_pago: string | null;
-  tipo_plan: string | null;
-  fecha_pago: string | null;
-  premium_vence: string | null;
-  premium_desde: string | null;
-  pago_pendiente: boolean | null;
-  onboarding_completado: boolean;
-  tiene_gmail: boolean;
-  tiene_webapp: boolean;
-  canal: 'whatsapp' | 'google' | 'magic_link';
-  transacciones: number;
-  created_at: string;
-}
-
-interface NlpError {
-  id: string;
-  usuario_id: string;
-  whatsapp: string | null;
-  mensaje: string;
-  intencion: string | null;
-  error_tipo: string;
-  error_detalle: string | null;
-  created_at: string;
-}
-
-interface Ticket {
-  id: string;
-  usuario_id: string | null;
-  whatsapp: string | null;
-  nombre_usuario: string | null;
-  mensaje_usuario: string | null;
-  mensaje_admin: string | null;
-  estado: string;
-  created_at: string;
-  updated_at: string | null;
-}
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  useAdminStats,
+  useAdminUsers,
+  useAdminNlpErrors,
+  useAdminTickets,
+  type AdminUser,
+} from '@/lib/hooks/use-admin-operacion';
 
 interface Pago {
   id: string;
@@ -498,12 +436,43 @@ function Toast({ message, onClose }: { message: string; onClose: () => void }) {
   );
 }
 
+function OperacionKpiSkeleton() {
+  return (
+    <>
+      <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+            <Skeleton className="h-3 w-16" />
+            <Skeleton className="mt-2 h-7 w-24" />
+            <Skeleton className="mt-2 h-3 w-20" />
+          </div>
+        ))}
+      </div>
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+            <Skeleton className="h-3 w-16" />
+            <Skeleton className="mt-2 h-5 w-16" />
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function ListSkeleton({ rows = 6 }: { rows?: number }) {
+  return (
+    <div className="space-y-2">
+      {Array.from({ length: rows }).map((_, i) => (
+        <Skeleton key={i} className="h-14 w-full" />
+      ))}
+    </div>
+  );
+}
+
 export default function AdminOperacionPage() {
+  const queryClient = useQueryClient();
   const [tab, setTab] = useState<'users' | 'nlp' | 'tickets'>('users');
-  const [users, setUsers] = useState<AdminUser[]>([]);
-  const [nlpErrors, setNlpErrors] = useState<NlpError[]>([]);
-  const [nlpTotal, setNlpTotal] = useState(0);
-  const [nlpRateLimit, setNlpRateLimit] = useState(0);
   const [search, setSearch] = useState('');
   const [toast, setToast] = useState<string | null>(null);
   const [paymentsUser, setPaymentsUser] = useState<AdminUser | null>(null);
@@ -511,8 +480,6 @@ export default function AdminOperacionPage() {
   const [nlpTipoFilter, setNlpTipoFilter] = useState<string>('all');
   const [nlpUserFilter, setNlpUserFilter] = useState<string>('all');
 
-  const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [ticketsTotal, setTicketsTotal] = useState(0);
   const [ticketEstadoFilter, setTicketEstadoFilter] = useState<string>('todos');
   const [ticketSearch, setTicketSearch] = useState('');
   const [ticketPage, setTicketPage] = useState(0);
@@ -520,58 +487,33 @@ export default function AdminOperacionPage() {
   const [replyText, setReplyText] = useState('');
   const [replyBusy, setReplyBusy] = useState(false);
 
-  const [stats, setStats] = useState<AdminStats | null>(null);
-
   const [userPlanFilter, setUserPlanFilter] = useState<string>('todos');
   const [userOnboardingFilter, setUserOnboardingFilter] = useState<string>('todos');
   const [userGmailFilter, setUserGmailFilter] = useState<string>('todos');
   const [userWebappFilter, setUserWebappFilter] = useState<string>('todos');
   const [userCanalFilter, setUserCanalFilter] = useState<string>('todos');
 
-  const fetchUsers = useCallback(async () => {
-    const res = await fetch('/api/admin/users');
-    if (res.ok) {
-      const json = await res.json();
-      setUsers(json.usuarios || []);
-    }
-  }, []);
+  // Data via React Query (cache compartido del AdminQueryProvider): sobrevive a la navegación,
+  // sin re-fetch en cada visita. Las mutaciones invalidan keys puntuales en vez de refetchear a
+  // mano. Ver use-admin-operacion.ts.
+  const usersQuery = useAdminUsers();
+  const statsQuery = useAdminStats();
+  const nlpQuery = useAdminNlpErrors();
+  const ticketsQuery = useAdminTickets({
+    page: ticketPage,
+    estado: ticketEstadoFilter,
+    search: ticketSearch,
+  });
 
-  const fetchNlpErrors = useCallback(async () => {
-    const res = await fetch('/api/admin/nlp-errors?limit=100');
-    if (res.ok) {
-      const json = await res.json();
-      setNlpErrors(json.errors || []);
-      setNlpTotal(json.total || 0);
-      setNlpRateLimit(json.rateLimitTotal || 0);
-    }
-  }, []);
-
-  const fetchTickets = useCallback(async () => {
-    const params = new URLSearchParams({ limit: '50', offset: String(ticketPage * 50) });
-    if (ticketEstadoFilter !== 'todos') params.set('estado', ticketEstadoFilter);
-    if (ticketSearch) params.set('search', ticketSearch);
-    const res = await fetch(`/api/admin/tickets?${params}`);
-    if (res.ok) {
-      const json = await res.json();
-      setTickets(json.tickets || []);
-      setTicketsTotal(json.total || 0);
-    }
-  }, [ticketPage, ticketEstadoFilter, ticketSearch]);
-
-  const fetchStats = useCallback(async () => {
-    const res = await fetch('/api/admin/stats');
-    if (res.ok) {
-      const json = await res.json();
-      setStats(json);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchUsers();
-    fetchNlpErrors();
-    fetchTickets();
-    fetchStats();
-  }, [fetchUsers, fetchNlpErrors, fetchTickets, fetchStats]);
+  // useMemo: `users` alimenta las deps de handleUserAction (useCallback); sin ref estable se
+  // recrearía en cada render.
+  const users = useMemo(() => usersQuery.data?.usuarios ?? [], [usersQuery.data?.usuarios]);
+  const stats = statsQuery.data ?? null;
+  const nlpErrors = nlpQuery.data?.errors ?? [];
+  const nlpTotal = nlpQuery.data?.total ?? 0;
+  const nlpRateLimit = nlpQuery.data?.rateLimitTotal ?? 0;
+  const tickets = ticketsQuery.data?.tickets ?? [];
+  const ticketsTotal = ticketsQuery.data?.total ?? 0;
 
   const handleUserAction = useCallback(
     async (userId: string, action: string, data?: Record<string, unknown>) => {
@@ -590,7 +532,7 @@ export default function AdminOperacionPage() {
         const json = await res.json().catch(() => ({}));
         if (res.ok && json.ok) {
           setToast('Pro confirmado y WhatsApp enviado');
-          fetchUsers();
+          queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
         } else {
           setToast(json.error || 'Error notificando');
         }
@@ -617,7 +559,7 @@ export default function AdminOperacionPage() {
           }
         }
         if (res.ok) {
-          setUsers((prev) => prev.filter((u) => u.id !== userId));
+          queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
           setToast('Usuario eliminado');
         } else {
           const json = await res.json().catch(() => ({}));
@@ -639,12 +581,12 @@ export default function AdminOperacionPage() {
           deactivate: 'Cuenta desactivada',
         };
         setToast(messages[action] || 'Accion completada');
-        fetchUsers();
+        queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
       } else {
         setToast('Error en la accion');
       }
     },
-    [fetchUsers, users],
+    [queryClient, users],
   );
 
   const filteredUsers = users.filter((u) => {
@@ -704,7 +646,7 @@ export default function AdminOperacionPage() {
       setToast('Respuesta enviada');
       setReplyingTo(null);
       setReplyText('');
-      fetchTickets();
+      queryClient.invalidateQueries({ queryKey: ['admin', 'tickets'] });
     } else {
       setToast('Error al responder');
     }
@@ -719,7 +661,7 @@ export default function AdminOperacionPage() {
     });
     if (res.ok) {
       setToast(`Estado cambiado a ${estado}`);
-      fetchTickets();
+      queryClient.invalidateQueries({ queryKey: ['admin', 'tickets'] });
     } else {
       setToast('Error al cambiar estado');
     }
@@ -731,6 +673,10 @@ export default function AdminOperacionPage() {
 
   return (
     <>
+      {statsQuery.isLoading ? (
+        <OperacionKpiSkeleton />
+      ) : (
+        <>
       {/* KPI Cards — Row 1: Core metrics */}
       <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
@@ -901,6 +847,8 @@ export default function AdminOperacionPage() {
           </div>
         </div>
       )}
+        </>
+      )}
 
       {/* Tabs */}
       <div className="mb-4 flex gap-1 rounded-lg bg-white/[0.03] p-1 w-fit">
@@ -1034,6 +982,14 @@ export default function AdminOperacionPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
+                {usersQuery.isLoading && users.length === 0 &&
+                  Array.from({ length: 8 }).map((_, i) => (
+                    <tr key={`sk-${i}`}>
+                      <td colSpan={10} className="px-4 py-3">
+                        <Skeleton className="h-8 w-full" />
+                      </td>
+                    </tr>
+                  ))}
                 {filteredUsers.map((u) => (
                   <tr key={u.id} className="hover:bg-white/[0.02] transition-colors">
                     <td className="px-4 py-3">
@@ -1082,6 +1038,7 @@ export default function AdminOperacionPage() {
 
           {/* Mobile cards */}
           <div className="space-y-3 md:hidden">
+            {usersQuery.isLoading && users.length === 0 && <ListSkeleton rows={4} />}
             {filteredUsers.map((u) => (
               <div key={u.id} className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
                 <div className="flex items-start justify-between">
@@ -1244,7 +1201,9 @@ export default function AdminOperacionPage() {
               </div>
             )}
 
-            {filtered.length === 0 ? (
+            {nlpQuery.isLoading ? (
+              <ListSkeleton rows={6} />
+            ) : filtered.length === 0 ? (
               <div className="rounded-xl border border-white/5 bg-white/[0.02] p-8 text-center text-[#F0EFE8]/40">
                 {nlpErrors.length === 0
                   ? 'No hay errores NLP registrados aun.'
@@ -1353,7 +1312,9 @@ export default function AdminOperacionPage() {
               {ticketsTotal} tickets total{ticketsPendientes > 0 && ` (${ticketsPendientes} pendientes)`}
             </div>
 
-            {tickets.length === 0 ? (
+            {ticketsQuery.isLoading ? (
+              <ListSkeleton rows={6} />
+            ) : tickets.length === 0 ? (
               <div className="rounded-xl border border-white/5 bg-white/[0.02] p-8 text-center text-[#F0EFE8]/40">
                 No hay tickets de soporte.
               </div>
@@ -1521,7 +1482,7 @@ export default function AdminOperacionPage() {
         <PaymentsModal
           user={paymentsUser}
           onClose={() => setPaymentsUser(null)}
-          onApproved={fetchUsers}
+          onApproved={() => queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })}
           setToast={setToast}
         />
       )}
