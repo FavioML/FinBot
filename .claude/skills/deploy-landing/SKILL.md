@@ -23,7 +23,7 @@ Cuando el usuario quiera desplegar la landing page o verificar su estado en prod
 ### 2. Deploy
 El deploy es automatico via Cloudflare Pages al hacer push a `main` del repo
 `neto-landing` (github.com/FavioML/neto-landing).
-- Proyecto Cloudflare: `neto-site`
+- Proyecto Cloudflare: `neto-landing`
 - Account ID: se obtiene de `CF_ACCOUNT_ID` (settings.local.json)
 - Push: `cd C:\Vortik.dev\products\neto\landing && git push`
 
@@ -46,5 +46,5 @@ console.log('Fecha:', latest.created_on);
 - Verificar JSON-LD schema (Organization, FAQPage)
 
 ## Troubleshooting
-- Cloudflare a veces skipea deploys — verificar con la API si el ultimo deploy corresponde al ultimo commit (`CF_PAGES_PROJECT=neto-site`)
+- Cloudflare a veces skipea deploys — verificar con la API si el ultimo deploy corresponde al ultimo commit (`CF_PAGES_PROJECT=neto-landing`)
 - Si el build falla, revisar `products/neto/landing/next.config.ts` y dependencias
