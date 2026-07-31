@@ -41,9 +41,15 @@ router.get('/auth/callback', async (req, res) => {
   try {
     const { tokens } = await oauth2Client.getToken(code);
     oauth2Client.setCredentials(tokens);
+    // Resolución por identidad primero (uid), con fallback al número. Un Pro web-only
+    // no tiene whatsapp: sin uid, el callback no sabría a quién asignar el token y
+    // devolvía 404 tras completar el OAuth. Los flujos WhatsApp no mandan uid y
+    // siguen resolviéndose por num, sin cambios.
+    const uid = stateObj.uid;
     let usuario = null;
-    if (whatsappNum) { const { data } = await supabase.from('usuarios').select('*').eq('whatsapp', whatsappNum).single(); usuario = data; }
-    if (!usuario) return res.status(404).send('<h2>No se encontró tu cuenta.</h2><p>Escribe */conectar* en WhatsApp.</p>');
+    if (uid) { const { data } = await supabase.from('usuarios').select('*').eq('id', uid).single(); usuario = data; }
+    if (!usuario && whatsappNum) { const { data } = await supabase.from('usuarios').select('*').eq('whatsapp', whatsappNum).single(); usuario = data; }
+    if (!usuario) return res.status(404).send('<h2>No se encontró tu cuenta.</h2><p>Vuelve a app.neto.pe e intenta conectar Gmail de nuevo, o escribe */conectar* en WhatsApp.</p>');
 
     const perfil = await obtenerPerfilGoogle(oauth2Client);
     const emailConectado = perfil.email;

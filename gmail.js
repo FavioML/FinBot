@@ -154,9 +154,14 @@ function firmarState(payloadB64) {
 // Un replay de un state legítimo es inofensivo (sin un `code` real de Google el callback falla).
 const STATE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-function generarUrlAutorizacion(whatsappNum, modo, origen) {
+function generarUrlAutorizacion(whatsappNum, modo, origen, usuarioId) {
   const stateObj = { num: whatsappNum || '', modo: modo || 'inicial', ts: Date.now() };
   if (origen) stateObj.origen = origen; // 'web' → el callback redirige a la webapp
+  // uid liga el vínculo por identidad, no por número: un Pro web-only no tiene
+  // whatsapp, así que sin esto el callback no sabría a quién asignar el token.
+  // Solo se agrega cuando se pasa → los states de los flujos WhatsApp (que no lo
+  // pasan) quedan idénticos y su resolución por `num` sigue igual.
+  if (usuarioId) stateObj.uid = usuarioId;
   const payload = Buffer.from(JSON.stringify(stateObj)).toString('base64url');
   const state = payload + '.' + firmarState(payload);
   return oauth2Client.generateAuthUrl({

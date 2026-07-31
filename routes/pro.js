@@ -39,8 +39,10 @@ router.get('/gmail-auth-url', async (req, res) => {
   const { data: usuario } = await supabase.from('usuarios').select('whatsapp').eq('id', usuarioId).single();
   if (!usuario) return res.status(404).json({ ok: false, msg: 'Usuario no encontrado' });
   // Un usuario conecta un solo Gmail desde la webapp: siempre 'inicial' (sin modo 'agregar').
+  // Se pasa el usuario_id → el callback resuelve por identidad, no por número (un
+  // Pro web-only tiene whatsapp null y sin uid quedaría sin poder conectar Gmail).
   try {
-    const url = generarUrlAutorizacion(usuario.whatsapp, 'inicial', 'web');
+    const url = generarUrlAutorizacion(usuario.whatsapp, 'inicial', 'web', usuarioId);
     res.json({ ok: true, url });
   } catch (e) {
     log.error({ tag: 'PRO_OAUTH', err: e.message }, 'No se pudo generar URL OAuth');

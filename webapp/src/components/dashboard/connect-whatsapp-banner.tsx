@@ -21,6 +21,16 @@ export function ConnectWhatsappBanner() {
 
   if (IS_DEMO || !user || user.whatsapp || dismissed) return null;
 
+  // Al Pro el chat le suma más (alertas de movimientos + registro por foto de Yape),
+  // así que el nudge es un poco más específico. Para Free queda la invitación base.
+  const isPremium = user.plan === 'premium';
+  const titulo = isPremium
+    ? 'Suma WhatsApp a tu Pro'
+    : 'Conecta tu WhatsApp para registrar gastos por chat';
+  const descripcion = isPremium
+    ? 'Recibe alertas de movimientos y registra gastos con una foto de tu Yape, desde el chat.'
+    : 'Es opcional. Manda un gasto o una foto de tu Yape y Neto lo anota.';
+
   const dismiss = () => {
     try {
       localStorage.setItem(DISMISS_KEY, '1');
@@ -36,12 +46,8 @@ export function ConnectWhatsappBanner() {
         <MessageCircle className="h-5 w-5" />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-[#F0EFE8]">
-          Conecta tu WhatsApp para registrar gastos por chat
-        </p>
-        <p className="text-xs text-[#8A877D]">
-          Es opcional. Manda un gasto o una foto de tu Yape y Neto lo anota.
-        </p>
+        <p className="text-sm font-medium text-[#F0EFE8]">{titulo}</p>
+        <p className="text-xs text-[#8A877D]">{descripcion}</p>
       </div>
       <Link
         href="/onboarding"
