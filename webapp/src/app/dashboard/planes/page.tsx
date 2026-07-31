@@ -398,8 +398,9 @@ export default function MetasPage() {
       {goals.length === 0 ? (
         <EmptyState
           title="Aún no tienes planes de ahorro"
-          description="Crea uno desde WhatsApp: 'quiero ahorrar S/5000 para julio'"
+          description="Créalo aquí en la app o por WhatsApp: 'quiero ahorrar S/5000 para julio'"
           showWhatsApp={false}
+          actions={[{ label: 'Nuevo plan', onClick: openCreate }]}
         />
       ) : (
         <StaggerContainer className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

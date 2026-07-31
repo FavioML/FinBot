@@ -184,8 +184,15 @@ export default function EspaciosPage() {
             <Users className="w-10 h-10 text-[#8A877D]/50" />
             <h2 className="text-base font-semibold text-[#F0EFE8]">Aún no tienes espacios compartidos</h2>
             <p className="text-sm text-[#8A877D] max-w-xs">
-              Crea uno desde WhatsApp: <span className="text-[#C8C6BC]">"crear espacio Depa"</span>
+              Créalo aquí en la app o por WhatsApp: <span className="text-[#C8C6BC]">"crear espacio Depa"</span>
             </p>
+            <button
+              onClick={() => setShowCreate(true)}
+              className="inline-flex items-center gap-2 rounded-xl bg-[#1D9E75] px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-[#1D9E75]/20 transition-all hover:bg-[#1D9E75]/90 active:scale-[0.98]"
+            >
+              <Plus className="w-4 h-4" />
+              Crear espacio
+            </button>
           </div>
         </FadeIn>
       ) : (
