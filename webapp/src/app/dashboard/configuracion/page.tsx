@@ -1067,18 +1067,21 @@ export default function ConfiguracionPage() {
                           <MessageCircle className="h-4 w-4 shrink-0 text-muted-foreground" />
                           <span className="truncate text-sm text-secondary-foreground">{user.whatsapp}</span>
                         </div>
-                        <div className="flex shrink-0 items-center gap-2">
-                          <Badge className="border-primary/30 bg-primary/20 text-xs text-primary">Conectado</Badge>
-                          {!changingNumber && (
-                            <button
-                              onClick={() => setChangingNumber(true)}
-                              className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-white/[0.05] hover:text-foreground"
-                            >
-                              Cambiar
-                            </button>
-                          )}
-                        </div>
+                        <Badge className="shrink-0 border-primary/30 bg-primary/20 text-xs text-primary">Conectado</Badge>
                       </div>
+
+                      {/* Acción alineada a la izquierda: lejos de los FAB flotantes
+                          (Agregar / WhatsApp) que viven fijos en la esquina derecha
+                          y taparían un botón puesto ahí en ciertos scrolls móviles. */}
+                      {!changingNumber && (
+                        <button
+                          onClick={() => setChangingNumber(true)}
+                          className="inline-flex items-center gap-1.5 pl-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          Cambiar número
+                        </button>
+                      )}
 
                       {/* Confirmación de desvinculación (cambiar número) */}
                       {changingNumber && (
