@@ -98,7 +98,7 @@ export default async function ActivarPage({
           {primerNombre ? `${primerNombre}, ${titular}` : titular.charAt(0).toUpperCase() + titular.slice(1)}
         </h1>
         <p className="mb-7 text-[#8A877D]">
-          Entra y los ves en gráficos, con presupuestos y tu historial completo.
+          {cuantos === 1 ? 'Entra y lo ves' : 'Entra y los ves'} en gráficos, con presupuestos y tu historial completo.
         </p>
 
         {gastos && gastos.length > 0 && (
@@ -114,9 +114,7 @@ export default async function ActivarPage({
               </div>
             ))}
             {cuantos > gastos.length && (
-              <p className="pt-3 text-xs text-[#8A877D]">
-                y {cuantos - gastos.length} {cuantos - gastos.length === 1 ? 'más' : 'más'}
-              </p>
+              <p className="pt-3 text-xs text-[#8A877D]">y {cuantos - gastos.length} más</p>
             )}
           </div>
         )}
