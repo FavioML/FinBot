@@ -17,6 +17,8 @@ export interface Usuario {
   referido_dscto_pct?: number | null;
   /** Fecha (YYYY-MM-DD, Lima) en que vence el descuento de referido (7 días desde el alta). */
   referido_dscto_vence?: string | null;
+  /** El usuario ya vio el tour de onboarding del dashboard (gate server-side, 1 vez por cuenta). */
+  tour_visto?: boolean;
   created_at: string;
   updated_at: string;
 }

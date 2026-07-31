@@ -3,6 +3,10 @@
 import { useState, useEffect } from 'react';
 import { X, ChevronRight, Sparkles, Target, LayoutDashboard, Receipt } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useUser } from '@/lib/hooks/use-user';
+import { IS_DEMO } from '@/lib/demo/is-demo';
+import type { Usuario } from '@/lib/types';
 
 const TOUR_KEY = 'neto_tour_v2';
 
@@ -34,21 +38,25 @@ const STEPS = [
 ];
 
 export function OnboardingTour() {
+  const { data: user } = useUser();
+  const queryClient = useQueryClient();
   const [step, setStep] = useState(-1); // -1 = not started / hidden
   const [dismissed, setDismissed] = useState(true);
 
   useEffect(() => {
-    // Only show if tour hasn't been completed and user is visiting dashboard
-    const completed = localStorage.getItem(TOUR_KEY);
-    if (!completed) {
-      // Small delay so the page renders first
-      const timer = setTimeout(() => {
-        setStep(0);
-        setDismissed(false);
-      }, 1500);
-      return () => clearTimeout(timer);
-    }
-  }, []);
+    // Gate 1-vez-por-CUENTA: la marca vive en usuarios.tour_visto (server), no solo en el
+    // navegador. Se espera a que cargue el usuario. localStorage queda como fast-path: quien ya
+    // cerró el tour (en este navegador, o antes de este cambio) no lo vuelve a ver aunque el
+    // flag server siga en false → el rollout no re-dispara el tour a los que ya lo vieron.
+    if (IS_DEMO || !user) return;
+    if (user.tour_visto || localStorage.getItem(TOUR_KEY)) return;
+    // Small delay so the page renders first
+    const timer = setTimeout(() => {
+      setStep(0);
+      setDismissed(false);
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [user]);
 
   function handleNext() {
     if (step < STEPS.length - 1) {
@@ -61,6 +69,13 @@ export function OnboardingTour() {
   function handleComplete() {
     localStorage.setItem(TOUR_KEY, 'true');
     setDismissed(true);
+    // Persistir en la cuenta para que NO reaparezca en otro navegador/dispositivo/incógnito.
+    // Optimista + best-effort: el localStorage ya lo cubre en este navegador; si el POST falla,
+    // se reintenta la próxima visita (el flag server sigue en false).
+    queryClient.setQueryData<Usuario | null>(['user'], (prev) =>
+      prev ? { ...prev, tour_visto: true } : prev,
+    );
+    fetch('/api/user/tour-visto', { method: 'POST' }).catch(() => {});
   }
 
   if (dismissed || step < 0) return null;
