@@ -196,7 +196,7 @@ export default function LoginPage() {
               Empezar por WhatsApp
             </a>
             <p className="mt-2 text-center text-xs text-[#8A877D]">
-              Empieza por donde quieras. Conéctalos y es una sola cuenta, sincronizada.
+              Empieza por donde quieras. Al conectarlos, es una sola cuenta con tus datos en los dos lados.
             </p>
           </div>
 

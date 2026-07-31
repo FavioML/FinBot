@@ -313,7 +313,7 @@ if (!isLoading && transactions.length === 0) {
         <Header selected={selected} setSelected={setSelected} monthOptions={monthOptions} onDownloadPDF={handleDownloadPDF} generatingPdf={generatingPdf} />
         <EmptyState
           title="Sin datos para este mes"
-          description="Registra tus ingresos y gastos por WhatsApp para generar tu reporte mensual con graficos y score financiero."
+          description="Registra tus ingresos y gastos, por WhatsApp o desde la app, y Neto arma tu reporte del mes con graficos y score financiero."
           icon={FileBarChart}
           showWhatsApp={false}
           actions={[

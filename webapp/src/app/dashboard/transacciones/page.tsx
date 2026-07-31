@@ -858,14 +858,14 @@ export default function TransaccionesPage() {
           title={transactions.length === 0 ? 'Sin transacciones' : 'Sin resultados'}
           description={
             transactions.length === 0
-              ? 'Envia tus comprobantes por WhatsApp y NETO los registra automaticamente.'
+              ? 'Manda un gasto por WhatsApp (texto, voz o foto de tu Yape) y Neto lo registra solo. Tambien puedes agregarlo a mano aqui.'
               : 'No se encontraron transacciones con los filtros seleccionados. Prueba ajustando los filtros.'
           }
           icon={transactions.length === 0 ? Receipt : Search}
           showWhatsApp={false}
           actions={transactions.length === 0 ? [
             { label: 'Registra por WhatsApp', href: SOCIAL_LINKS.whatsapp, external: true },
-            { label: 'Agregar manual', href: '#', variant: 'secondary' as const },
+            { label: 'Agregar manual', onClick: () => openCreate('gasto'), variant: 'secondary' as const },
           ] : undefined}
         />
       ) : (

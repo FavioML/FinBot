@@ -10,8 +10,8 @@ const slides = [
   {
     icon: MessageCircle,
     iconColor: '#25D366',
-    title: 'Registra gastos por WhatsApp',
-    description: 'Envía tus comprobantes de Yape, Plin o cualquier banco por WhatsApp y NETO los registra automáticamente.',
+    title: 'Registra gastos en segundos',
+    description: 'Manda un gasto por WhatsApp (texto, voz o foto de tu Yape o Plin) y Neto lo registra solo. También puedes agregarlo desde la app.',
   },
   {
     icon: Mail,
