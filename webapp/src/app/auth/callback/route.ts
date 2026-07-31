@@ -3,6 +3,7 @@ import { createClient as createServiceClient } from '@supabase/supabase-js';
 import { NextResponse, type NextRequest } from 'next/server';
 import type { EmailOtpType } from '@supabase/supabase-js';
 import { createWebUser } from '@/lib/create-web-user';
+import { linkWebReferral } from '@/lib/link-web-referral';
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
@@ -122,6 +123,15 @@ export async function GET(request: NextRequest) {
       });
 
       if (createdId) {
+        // Registro por link de referido: el middleware guardó el ?ref=CODE de la
+        // mini-landing en la cookie `neto_ref`. Al ser una cuenta NUEVA (rama web-first),
+        // la vinculamos con su referrer y se siembra el 50% off. Best-effort: el signup no
+        // se rompe si falla. La cookie se consume aquí (se limpia) para no re-vincular después.
+        const refCookie = request.cookies.get('neto_ref')?.value;
+        if (refCookie && /^[A-Za-z0-9]{4,12}$/.test(refCookie)) {
+          await linkWebReferral(refCookie.toUpperCase(), createdId);
+        }
+        if (refCookie) response.cookies.set('neto_ref', '', { maxAge: 0, path: '/' });
         return response; // redirect a next (/dashboard) con las cookies de sesión
       }
 

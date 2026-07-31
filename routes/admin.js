@@ -6,7 +6,7 @@ const { hoyPeru } = require('../lib/dates');
 const { enviarWhatsapp } = require('../lib/whatsapp');
 const { guardarMensaje } = require('../helpers/db-helpers');
 const { activarPro, reclamarPagoPendiente } = require('../lib/pro-payment');
-const { resumenReferidoParaAdmin } = require('../services/referrals');
+const { resumenReferidoParaAdmin, registrarReferido } = require('../services/referrals');
 const { responderTicket } = require('../lib/support-tickets');
 const { generarUrlAutorizacion } = require('../gmail');
 
@@ -338,6 +338,39 @@ router.post('/espacio-reglas-cambiadas', async (req, res) => {
   } catch (e) {
     log.error({ tag: 'ESPACIO_REGLAS_AVISO', err: e.message }, 'Error avisando del cambio de reglas');
     res.status(500).json({ ok: false, msg: 'Error enviando el aviso' });
+  }
+});
+
+/**
+ * POST /admin/referido-web — vincula un referido nacido por la webapp con su referrer.
+ *
+ * Gemelo web del deep-link "Hola NETO ref:CODE" de WhatsApp (handlers/webhook.js). La
+ * webapp NO puede replicar la lógica de referidos sin duplicar la siembra del descuento
+ * (ventana 7d, 50%, "no si ya es Pro"), así que la delega aquí: toda la mecánica vive en
+ * services/referrals. El callback de auth (app.neto.pe) llama esto tras crear la cuenta
+ * web-first, con el `ref` que capturó del ?ref=CODE de la mini-landing.
+ *
+ * Solo VINCULA + siembra el 50% off al referido; NO premia al referrer (eso salta recién
+ * cuando el referido PAGA Pro, en lib/pro-payment:activarPro). Idempotente por registrarReferido.
+ *
+ * Body: { ref_code, referido_id }. Server-to-server con ADMIN_KEY.
+ */
+router.post('/referido-web', async (req, res) => {
+  if (!verificarAdmin(req, res)) return;
+  const { ref_code, referido_id } = req.body || {};
+  if (!ref_code || !referido_id) return res.status(400).json({ ok: false, msg: 'Faltan ref_code y referido_id' });
+  const code = String(ref_code).toUpperCase();
+  if (!/^[A-Z0-9]{4,12}$/.test(code)) return res.status(400).json({ ok: false, msg: 'ref_code inválido' });
+  try {
+    // Resolver referrer excluyendo al propio referido (anti auto-referirse), igual que el webhook.
+    const { data: referrer } = await supabase.from('usuarios')
+      .select('id').eq('ref_code', code).neq('id', referido_id).maybeSingle();
+    if (!referrer) return res.json({ ok: true, linked: false }); // code inexistente o self: no-op silencioso
+    await registrarReferido(referrer.id, referido_id);
+    res.json({ ok: true, linked: true });
+  } catch (e) {
+    log.error({ tag: 'REFERIDO_WEB', err: e.message }, 'Error vinculando referido web');
+    res.status(500).json({ ok: false, msg: 'Error vinculando el referido' });
   }
 });
 
