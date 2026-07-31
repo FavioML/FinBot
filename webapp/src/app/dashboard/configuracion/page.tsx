@@ -328,6 +328,9 @@ export default function ConfiguracionPage() {
   const [copied, setCopied] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  // Cambiar/desvincular número de WhatsApp (self-serve)
+  const [changingNumber, setChangingNumber] = useState(false);
+  const [unlinking, setUnlinking] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [recordatoriosActivos, setRecordatoriosActivos] = useState(true);
   const [recordatoriosLoading, setRecordatoriosLoading] = useState(false);
@@ -745,6 +748,25 @@ export default function ConfiguracionPage() {
     }
   }
 
+  /* ---- Desvincular WhatsApp (cambiar número) ---- */
+  async function handleUnlinkWhatsapp() {
+    setUnlinking(true);
+    try {
+      const res = await fetch('/api/whatsapp/unlink', { method: 'POST' });
+      if (res.ok) {
+        // Re-vincula el número correcto con el flujo reverse-OTP existente.
+        router.push('/onboarding');
+        return;
+      }
+      const err = await res.json().catch(() => ({}));
+      toast.error(err.error || 'No se pudo desvincular. Intenta de nuevo.');
+      setUnlinking(false);
+    } catch {
+      toast.error('Error de conexión');
+      setUnlinking(false);
+    }
+  }
+
   /* ---- Sign out ---- */
   async function handleSignOut() {
     setSigningOut(true);
@@ -1039,12 +1061,54 @@ export default function ConfiguracionPage() {
 
                   {/* WhatsApp — conéctalo para registrar por chat (una sola cuenta) */}
                   {user.whatsapp ? (
-                    <div className="flex items-center justify-between rounded-xl border border-border bg-muted/40 px-4 py-3">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <MessageCircle className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        <span className="truncate text-sm text-secondary-foreground">{user.whatsapp}</span>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between rounded-xl border border-border bg-muted/40 px-4 py-3">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <MessageCircle className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <span className="truncate text-sm text-secondary-foreground">{user.whatsapp}</span>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <Badge className="border-primary/30 bg-primary/20 text-xs text-primary">Conectado</Badge>
+                          {!changingNumber && (
+                            <button
+                              onClick={() => setChangingNumber(true)}
+                              className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-white/[0.05] hover:text-foreground"
+                            >
+                              Cambiar
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <Badge className="shrink-0 border-primary/30 bg-primary/20 text-xs text-primary">Conectado</Badge>
+
+                      {/* Confirmación de desvinculación (cambiar número) */}
+                      {changingNumber && (
+                        <div className="space-y-2.5 rounded-lg border border-[var(--color-neto-amber)]/25 bg-[var(--color-neto-amber)]/[0.06] px-4 py-3">
+                          <p className="text-xs text-secondary-foreground">
+                            Vas a desvincular{' '}
+                            <span className="font-semibold text-foreground">{user.whatsapp}</span>. Perderás el registro por
+                            chat hasta que vincules el nuevo número. Tus datos y correos quedan intactos.
+                          </p>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              size="sm"
+                              className="h-7 bg-primary px-3 text-xs text-white hover:bg-primary/90"
+                              disabled={unlinking}
+                              onClick={handleUnlinkWhatsapp}
+                            >
+                              {unlinking ? 'Desvinculando…' : 'Desvincular y cambiar'}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 px-2 text-xs text-muted-foreground"
+                              disabled={unlinking}
+                              onClick={() => setChangingNumber(false)}
+                            >
+                              Cancelar
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-muted/40 px-4 py-3">
