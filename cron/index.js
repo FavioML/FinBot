@@ -10,6 +10,7 @@ const {
   checkPremiumExpiry,
   checkAlertasProactivas,
   checkRecordatorioOnboarding,
+  checkActivacionDia2,
   checkRecordatorioDeudas,
   checkRecordatorioSuscripciones,
   checkCalcularNetoScore,
@@ -63,6 +64,8 @@ function startCronJobs() {
     log.info({ tag: 'EXPIRY' }, 'Check expiración premium activo (cada 1h)');
     setInterval(checkRecordatorioOnboarding, 15 * 60 * 1000);
     log.info({ tag: 'ONBOARDING' }, 'Recordatorio onboarding activo (3h después de registro, 9am-9pm Lima)');
+    setInterval(checkActivacionDia2, 15 * 60 * 1000);
+    log.info({ tag: 'ACTIVACION' }, 'Empujón activación día 2 activo (24-48h tras registro, dentro de ventana 24h Meta)');
     setInterval(checkRecordatorioDeudas, 15 * 60 * 1000);
     log.info({ tag: 'DEUDAS' }, 'Recordatorios de deudas activos (diario 9am Lima)');
     setInterval(checkRecordatorioSuscripciones, 15 * 60 * 1000);

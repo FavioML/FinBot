@@ -96,5 +96,10 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/', '/dashboard/:path*', '/admin/:path*', '/login', '/onboarding'],
+  // /activar y /activar/confirmar pasan por acá SOLO para refrescar la sesión
+  // (ninguna regla de redirect los toca). Sin ese refresco, un access token
+  // vencido con refresh válido haría que /activar leyera "no hay sesión", mandara
+  // al login, y el middleware rebotara a /dashboard sin consumir el token: un
+  // link de activación que no activa nada.
+  matcher: ['/', '/dashboard/:path*', '/admin/:path*', '/login', '/onboarding', '/activar', '/activar/:path*'],
 };

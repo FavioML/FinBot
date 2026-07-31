@@ -12,6 +12,8 @@ const { notificarAdmin } = require('../lib/admin-notify');
 const { checkSurveyTriggers } = require('../services/survey-triggers');
 const { solicitarComprobante } = require('../lib/pro-payment');
 const { planCostReminders } = require('../lib/cost-reminders');
+const { mensajeActivacionDia2 } = require('../lib/activacion');
+const analytics = require('../lib/analytics');
 
 async function checkResumenMensual() {
   const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
@@ -275,13 +277,17 @@ async function checkRecordatorioOnboarding() {
         const primerNombre = u.nombre ? u.nombre.split(' ')[0] : null;
         let nudge = '';
         if (u.onboarding_paso === 0 || u.onboarding_paso === 100) {
-          nudge = '👋 ' + (primerNombre ? primerNombre + ', t' : 'T') + 'e faltó completar tu registro en Neto.\n\n' +
-            '¿Cómo te llamas? Escríbeme tu nombre y empezamos. 😊\n\n' +
-            '_Solo toma 1 minuto._';
+          // Ya no se pide "completar el registro": el registro es esto. Se pide
+          // el primer gasto, que es lo único que hace que Neto sirva de algo.
+          nudge = '👋 ' + (primerNombre ? primerNombre + ', a' : 'A') + 'nótame un gasto y te muestro cómo funciono.\n\n' +
+            '📝 _"gasté 20 en taxi"_\n' +
+            '📸 O mándame la foto de un Yape\n\n' +
+            '_Si prefieres, dime *saltar* y lo dejamos para después._';
         } else if (u.onboarding_paso === 101) {
-          nudge = '👋 ' + (primerNombre || 'Hola') + ', te faltó tu correo para completar el registro.\n\n' +
-            '¿Cuál es tu email? Ej: _"juan@gmail.com"_\n\n' +
-            '_Es el último paso, prometido._';
+          // El paso del email ya no existe (migración 051). Si igual queda alguien
+          // acá, se le pide un gasto, nunca el correo.
+          nudge = '👋 ' + (primerNombre || 'Hola') + ', tu cuenta ya está lista.\n\n' +
+            'Anótame tu primer gasto: _"gasté 20 en taxi"_ 📝';
         }
         if (nudge) {
           await enviarWhatsapp(u.whatsapp, nudge, { tipo: 'onboarding', usuarioId: u.id });
@@ -292,6 +298,61 @@ async function checkRecordatorioOnboarding() {
       } catch(e) { /* silencioso por usuario */ }
     }
   } catch(e) { log.error({ tag: 'ONBOARDING_REMINDER', err: e.message }, 'Error recordatorio onboarding'); }
+}
+
+// Empujón del día 2 a activar la cuenta web. El corte del flujo nuevo es "al
+// tercer gasto o al día 2, lo que llegue primero": esto cubre la segunda mitad,
+// para el que registró uno o dos gastos y no volvió a abrir el chat.
+//
+// El día 2 no es arbitrario: la ventana de 24h de Meta se cuenta desde el ÚLTIMO
+// mensaje del usuario, así que un empujón al día 7 sencillamente no se entrega
+// (los 16 survey_wake_up del barrido de churn tuvieron 0 respuestas y 0 entregas
+// confirmadas). Por eso se exige que haya escrito hace menos de 23h: si la
+// ventana ya se cerró, no se gasta el envío ni se quema el ledger.
+async function checkActivacionDia2() {
+  const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
+  if (horaLima.getHours() < 9 || horaLima.getHours() >= 21) return;
+  try {
+    const hace48h = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    const hace24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data: usuarios } = await supabase.from('usuarios')
+      .select('id, whatsapp, nombre, supabase_auth_id, activacion_nudge_at')
+      .is('supabase_auth_id', null)      // sin cuenta web = el objetivo
+      .is('activacion_nudge_at', null)   // ledger: un solo envío por usuario
+      .not('whatsapp', 'is', null)
+      .gte('created_at', hace48h)
+      .lte('created_at', hace24h);
+    if (!usuarios || usuarios.length === 0) return;
+
+    const limiteVentana = new Date(Date.now() - 23 * 60 * 60 * 1000).toISOString();
+    for (const u of usuarios) {
+      try {
+        // Solo a quien YA registró algo: sin un gasto propio el link no tiene qué
+        // mostrar, y a ese usuario lo trabaja checkRecordatorioOnboarding.
+        const { count: conteoTx } = await supabase.from('transacciones')
+          .select('id', { count: 'exact', head: true })
+          .eq('usuario_id', u.id);
+        if (!conteoTx) continue;
+
+        // ¿Sigue abierta la ventana de 24h? El último turno del usuario en
+        // `conversaciones` es la única marca de "cuándo escribió por última vez".
+        const { data: ultimoTurno } = await supabase.from('conversaciones')
+          .select('created_at').eq('usuario_id', u.id).eq('rol', 'usuario')
+          .order('created_at', { ascending: false }).limit(1).maybeSingle();
+        if (!ultimoTurno || ultimoTurno.created_at < limiteVentana) continue;
+
+        const mensaje = mensajeActivacionDia2(u, conteoTx);
+        if (!mensaje) continue;   // sin secreto configurado no hay link que mandar
+        const res = await enviarWhatsapp(u.whatsapp, mensaje, { tipo: 'activacion', usuarioId: u.id });
+        // El ledger se marca aunque Meta rechace: reintentar fuera de ventana no
+        // cambia el resultado y solo acumula filas blocked_24h.
+        if (res && !res.skipped) {
+          await supabase.from('usuarios').update({ activacion_nudge_at: new Date().toISOString() }).eq('id', u.id);
+          analytics.capture(u.id, 'wa_activation_link_sent', { conteo_tx: conteoTx, canal: 'cron' });
+        }
+      } catch (e) { /* silencioso por usuario */ }
+    }
+  } catch (e) { log.error({ tag: 'ACTIVACION_DIA2', err: e.message }, 'Error empujón activación día 2'); }
 }
 
 async function checkRecordatorioDeudas() {
@@ -842,6 +903,7 @@ module.exports = {
   checkPremiumExpiry,
   checkAlertasProactivas,
   checkRecordatorioOnboarding,
+  checkActivacionDia2,
   checkRecordatorioDeudas,
   checkRecordatorioSuscripciones,
   checkCalcularNetoScore,

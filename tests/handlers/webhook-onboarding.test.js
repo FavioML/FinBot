@@ -125,13 +125,22 @@ describe('Onboarding — entrada (usuario nuevo)', () => {
     expect(enviado).toMatch(/c[oó]mo te llamas/i);
   });
 
-  it('"hola" con nombre pero sin completar → muestra Free/Pro y pasa a paso 1', async () => {
+  it('"hola" con nombre pero sin completar → cierra el alta y pide el primer gasto', async () => {
     const enviado = await enviarTexto({ id: 'u1', onboarding_paso: 0, nombre: 'Juan' }, 'hola');
     expect(usuariosChain.update).toHaveBeenCalledWith(
+      expect.objectContaining({ onboarding_paso: 0, onboarding_completado: true })
+    );
+    expect(capture).toHaveBeenCalledWith('u1', 'wa_onboarding_completed', { via: 'nombre' });
+    expect(enviado).toMatch(/gast[eé] 20 en taxi/i);
+  });
+
+  it('el alta ya NO ofrece elegir plan (el modelo es probar y después pagar)', async () => {
+    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: 0, nombre: 'Juan' }, 'hola');
+    expect(usuariosChain.update).not.toHaveBeenCalledWith(
       expect.objectContaining({ onboarding_paso: 1 })
     );
-    expect(enviado).toMatch(/free/i);
-    expect(enviado).toMatch(/pro/i);
+    expect(enviado).not.toMatch(/plan pro/i);
+    expect(enviado).not.toMatch(/S\/10/);
   });
 
   it('texto libre de usuario nuevo (no comando) → pasa a paso 100', async () => {
@@ -142,13 +151,28 @@ describe('Onboarding — entrada (usuario nuevo)', () => {
     expect(enviado).toMatch(/c[oó]mo te llamas/i);
   });
 
+  it('primer mensaje que YA es un gasto → cierra el alta y lo deja pasar al pipeline', async () => {
+    // El punto de todo el reordenamiento: nadie pierde su primer gasto por un
+    // formulario. onboarding devuelve null → lo registra el pipeline normal.
+    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: 0 }, 'gasté 20 en taxi');
+    expect(usuariosChain.update).toHaveBeenCalledWith(
+      expect.objectContaining({ onboarding_paso: 0, onboarding_completado: true })
+    );
+    expect(capture).toHaveBeenCalledWith('u1', 'wa_onboarding_completed', { via: 'primer_gasto' });
+    expect(usuariosChain.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ onboarding_paso: 100 })
+    );
+    expect(enviado).toBeNull();   // no responde el alta: responde el registro del gasto
+  });
+
   it('"/manual" → activa Free, completa onboarding y captura evento', async () => {
     const enviado = await enviarTexto({ id: 'u1', onboarding_paso: 0 }, '/manual');
+    expect(usuariosChain.update).toHaveBeenCalledWith(expect.objectContaining({ plan: 'free' }));
     expect(usuariosChain.update).toHaveBeenCalledWith(
-      expect.objectContaining({ plan: 'free', onboarding_paso: 0, onboarding_completado: true })
+      expect.objectContaining({ onboarding_paso: 0, onboarding_completado: true })
     );
     expect(capture).toHaveBeenCalledWith('u1', 'wa_onboarding_completed', { via: 'manual' });
-    expect(enviado).toMatch(/free/i);
+    expect(enviado).toMatch(/gasto/i);
   });
 
   it('"hola" de usuario ya onboardeado (manual) → saludo normal, NO cambia el paso', async () => {
@@ -161,65 +185,89 @@ describe('Onboarding — entrada (usuario nuevo)', () => {
   });
 });
 
-// ─── Paso 100: nombre ────────────────────────────────────────────────────────
+// ─── Paso 100: nombre (última pregunta del alta, y salteable) ────────────────
 describe('Onboarding paso 100 — nombre', () => {
-  it('nombre valido → capitaliza, guarda y avanza a paso 101', async () => {
+  it('nombre valido → capitaliza, guarda y CIERRA el alta pidiendo el primer gasto', async () => {
     const enviado = await enviarTexto({ id: 'u1', onboarding_paso: 100 }, 'juan carlos');
     expect(usuariosChain.update).toHaveBeenCalledWith(
-      expect.objectContaining({ nombre: 'Juan Carlos', onboarding_paso: 101 })
+      expect.objectContaining({ nombre: 'Juan Carlos' })
     );
-    expect(enviado).toMatch(/correo/i);
+    expect(usuariosChain.update).toHaveBeenCalledWith(
+      expect.objectContaining({ onboarding_paso: 0, onboarding_completado: true })
+    );
+    expect(enviado).toMatch(/gast[eé] 20 en taxi/i);
+    expect(enviado).not.toMatch(/correo/i);   // el email salió del alta
   });
 
   it('extrae el nombre de "me llamo Ana"', async () => {
     await enviarTexto({ id: 'u1', onboarding_paso: 100 }, 'me llamo Ana');
     expect(usuariosChain.update).toHaveBeenCalledWith(
-      expect.objectContaining({ nombre: 'Ana', onboarding_paso: 101 })
+      expect.objectContaining({ nombre: 'Ana' })
     );
   });
 
-  it('nombre solo numerico → rechaza y NO guarda', async () => {
-    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: 100 }, '12345');
-    expect(usuariosChain.update).not.toHaveBeenCalled();
-    expect(enviado).toMatch(/nombre real/i);
+  it('"saltar" → cierra el alta sin nombre, sin insistir', async () => {
+    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: 100 }, 'saltar');
+    expect(usuariosChain.update).toHaveBeenCalledWith(
+      expect.objectContaining({ onboarding_paso: 0, onboarding_completado: true })
+    );
+    expect(capture).toHaveBeenCalledWith('u1', 'wa_onboarding_completed', { via: 'saltado' });
+    expect(enviado).toMatch(/gast[eé] 20 en taxi/i);
   });
 
-  it('nombre demasiado corto → rechaza y NO guarda', async () => {
-    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: 100 }, 'A');
-    expect(usuariosChain.update).not.toHaveBeenCalled();
-    expect(enviado).toMatch(/nombre real/i);
+  it('un gasto en vez del nombre → NO lo guarda como nombre, cierra el alta y lo deja pasar', async () => {
+    // Antes esto guardaba "Gasté 20 En Taxi" COMO nombre (el validador acepta
+    // cualquier cosa de 2-50 chars) y encima se perdía el gasto.
+    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: 100 }, 'gasté 20 en taxi');
+    expect(usuariosChain.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ nombre: expect.any(String) })
+    );
+    expect(capture).toHaveBeenCalledWith('u1', 'wa_onboarding_completed', { via: 'primer_gasto' });
+    expect(enviado).toBeNull();
+  });
+
+  it('nombre invalido, primer intento → repregunta UNA vez y cuenta el intento', async () => {
+    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: 100, nombre_intentos: 0 }, 'A');
+    expect(usuariosChain.update).toHaveBeenCalledWith({ nombre_intentos: 1 });
+    expect(capture).toHaveBeenCalledWith('u1', 'wa_onboarding_step_failed', { paso: 100, motivo: 'nombre_invalido' });
+    expect(enviado).toMatch(/saltar/i);
+  });
+
+  it('nombre invalido, segundo intento → deja de insistir y cierra el alta', async () => {
+    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: 100, nombre_intentos: 1 }, 'A');
+    expect(usuariosChain.update).toHaveBeenCalledWith(
+      expect.objectContaining({ onboarding_paso: 0, onboarding_completado: true })
+    );
+    expect(enviado).toMatch(/gast[eé] 20 en taxi/i);
   });
 });
 
-// ─── Paso 101: email unico ───────────────────────────────────────────────────
-describe('Onboarding paso 101 — email unico', () => {
-  it('rechaza el correo si ya esta registrado por otro usuario y NO lo guarda', async () => {
-    usuariosChain = makeChain([{ id: 'user-otro' }]);
-    const enviado = await enviarTexto({ id: 'user-1', onboarding_paso: 101, nombre: 'Juan' }, 'juan@gmail.com');
-    expect(enviado).toMatch(/ya está registrado/i);
-    expect(usuariosChain.update).not.toHaveBeenCalled();
-  });
-
-  it('guarda el correo y avanza a paso 1 cuando es unico', async () => {
-    usuariosChain = makeChain([]);
-    const enviado = await enviarTexto({ id: 'user-1', onboarding_paso: 101, nombre: 'Juan' }, 'juan@gmail.com');
+// ─── Paso 101: retirado (solo queda la rama de compatibilidad) ───────────────
+describe('Onboarding paso 101 — retirado', () => {
+  it('nunca pide el correo: desatasca al que quedó ahí con el flujo viejo', async () => {
+    const enviado = await enviarTexto({ id: 'user-1', onboarding_paso: 101, nombre: 'Juan' }, 'hola?');
     expect(usuariosChain.update).toHaveBeenCalledWith(
-      expect.objectContaining({ email: 'juan@gmail.com', onboarding_paso: 1 })
+      expect.objectContaining({ onboarding_paso: 0, onboarding_completado: true })
     );
-    expect(enviado).toMatch(/elige tu plan/i);
+    expect(capture).toHaveBeenCalledWith('user-1', 'wa_onboarding_completed', { via: 'desatascado_101' });
+    expect(enviado).not.toMatch(/correo|email/i);
+    expect(enviado).toMatch(/gast[eé] 20 en taxi/i);
   });
 
-  it('si el índice único rechaza el correo (23505) responde amable y no revienta', async () => {
-    usuariosChain = makeChain([], { updateResult: { error: { code: '23505' } } });
-    const enviado = await enviarTexto({ id: 'user-1', onboarding_paso: 101, nombre: 'Juan' }, 'juan@gmail.com');
-    expect(enviado).toMatch(/ya está registrado/i);
+  it('si el atascado escribe un gasto, se desatasca y el gasto se registra', async () => {
+    const enviado = await enviarTexto({ id: 'user-1', onboarding_paso: 101, nombre: 'Juan' }, 'gasté 30 en pollo');
+    expect(usuariosChain.update).toHaveBeenCalledWith(
+      expect.objectContaining({ onboarding_paso: 0, onboarding_completado: true })
+    );
+    expect(enviado).toBeNull();
   });
 
-  it('email invalido → reprompt y NO guarda', async () => {
+  it('un correo escrito a destiempo ya no se guarda como email', async () => {
     usuariosChain = makeChain([]);
-    const enviado = await enviarTexto({ id: 'user-1', onboarding_paso: 101, nombre: 'Juan' }, 'no soy un correo');
-    expect(usuariosChain.update).not.toHaveBeenCalled();
-    expect(enviado).toMatch(/correo válido/i);
+    await enviarTexto({ id: 'user-1', onboarding_paso: 101, nombre: 'Juan' }, 'juan@gmail.com');
+    expect(usuariosChain.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ email: 'juan@gmail.com' })
+    );
   });
 });
 

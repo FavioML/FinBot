@@ -4,6 +4,8 @@ import { NextResponse, type NextRequest } from 'next/server';
 import type { EmailOtpType } from '@supabase/supabase-js';
 import { createWebUser } from '@/lib/create-web-user';
 import { linkWebReferral } from '@/lib/link-web-referral';
+import { verificarTokenActivacion } from '@/lib/activacion-token';
+import { bindActivacion, notificarBackendActivacion } from '@/lib/bind-activation';
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
@@ -71,6 +73,36 @@ export async function GET(request: NextRequest) {
       // la sesion no se toca y el proximo intento entra bien.
       // (No puede usar `requireNetoUser`: la cookie de sesion todavia vive en la
       // respuesta, no en `cookies()`.)
+      // Activación desde WhatsApp: el usuario abrió el link firmado que Neto le
+      // mandó tras su primer gasto y acaba de loguearse. La cookie `neto_act`
+      // (puesta por /activar) trae el token con su identidad, así que su fila ya
+      // existe y hay que VINCULARLA — no crear una nueva. Va antes que toda la
+      // cascada de abajo justamente para eso: si dejáramos que siguiera, la rama
+      // web-first le crearía una segunda cuenta vacía y sus gastos quedarían
+      // huérfanos en la primera.
+      const actCookie = request.cookies.get('neto_act')?.value;
+      if (actCookie) {
+        response.cookies.set('neto_act', '', { maxAge: 0, path: '/' });
+        const payloadAct = verificarTokenActivacion(actCookie);
+        if (payloadAct) {
+          const nombreAct = user.user_metadata?.full_name || user.user_metadata?.name || null;
+          const resultadoAct = await bindActivacion(
+            serviceClient, payloadAct.uid, user.id, user.email ?? null, nombreAct
+          );
+          await notificarBackendActivacion(resultadoAct, payloadAct.uid);
+          if (resultadoAct.estado === 'adoptada' || resultadoAct.estado === 'fusionada') {
+            const okResponse = NextResponse.redirect(`${origin}/dashboard?activado=1`);
+            response.cookies.getAll().forEach(({ name, value, ...rest }) => {
+              okResponse.cookies.set(name, value, rest);
+            });
+            return okResponse;
+          }
+          // Cualquier otro desenlace (ya activada, conflicto, error) NO corta el
+          // login: la sesión es válida y la cascada de abajo resuelve su cuenta
+          // como en cualquier otro ingreso.
+        }
+      }
+
       const { data: byAuthId, error: eAuthId } = await serviceClient
         .from('usuarios')
         .select('id')

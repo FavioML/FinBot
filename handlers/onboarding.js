@@ -5,9 +5,15 @@
 // usuarios.onboarding_paso; los valores en uso son: -1 (desconexion/wipe),
 // 0 (idle/completado), 1 (elige Free/Pro), 2 (elige plan / espera comprobante),
 // 10 (categorias), 20 (presupuesto opcional), 30 (elige bancos al conectar Gmail),
-// 31 (edita bancos con /bancos), 100 (pide nombre), 101 (pide email).
+// 31 (edita bancos con /bancos), 100 (pide nombre).
 // El marcador de "alta completa" es la columna booleana onboarding_completado,
 // no un valor de paso: al terminar, onboarding_paso vuelve a 0.
+//
+// El alta termina en el paso 100: nombre (salteable) y listo. Los pasos 1 y 2
+// (Free/Pro y comprobante) siguen vivos porque los usa /premium y el flujo de
+// pago Yape, pero el alta ya NO enruta hacia ellos. El paso 101 (email) se
+// retiro: era el punto de fuga mas caro y su unica razon de ser era vincular la
+// cuenta web, cosa que ahora resuelve el link firmado de lib/activacion.js.
 //
 // Contrato: manejarOnboarding devuelve el texto a enviar si el mensaje pertenece
 // al alta, o null si no (para que webhook.js siga a su cascada de comandos y NLP).
@@ -38,11 +44,51 @@ const REPROMPT_BANCOS = 'No entendí. 🤔\n\nResponde con los números de tus b
 //
 // NUNCA mandar el contenido del mensaje: el motivo y el paso alcanzan para
 // diagnosticar, y el texto literal ya queda en `conversaciones`.
-function stepOk(usuario, paso, siguiente) {
-  analytics.capture(usuario.id, 'wa_onboarding_step_ok', { paso, siguiente });
+function stepOk(usuario, paso, siguiente, via) {
+  const props = { paso, siguiente };
+  if (via) props.via = via;
+  analytics.capture(usuario.id, 'wa_onboarding_step_ok', props);
 }
 function stepFailed(usuario, paso, motivo) {
   analytics.capture(usuario.id, 'wa_onboarding_step_failed', { paso, motivo });
+}
+
+// ─── Alta reordenada: el valor antes que la identidad ────────────────────────
+// El alta pedía nombre → email → plan y recién ahí dejaba registrar un gasto.
+// 21 de 82 usuarios se caían antes de haber usado Neto una sola vez. Ahora lo
+// único previo es el nombre (y es salteable); todo lo demás — vincular la cuenta
+// web, elegir plan — pasa después, cuando la persona ya vio para qué sirve esto.
+
+// ¿El mensaje trae un monto? Un nombre no lleva números. Es el mismo regex de
+// salvarGastoSinIA (message-processor.js): barato, local y determinista — un
+// discriminador NO puede costar una llamada a OpenAI en cada nombre que entra.
+function pareceTransaccion(msg) {
+  const texto = (msg || '').trim();
+  if (/(\d+(?:[.,]\d{1,2})?)/.test(texto)) return true;
+  return /\b(gast[eé]|pagu[eé]|compr[eé]|almuerzo|taxi|soles?|s\/)\b/i.test(texto);
+}
+
+function esSkipNombre(cmd) {
+  return /^(saltar|omitir|luego|despu[eé]s|paso|skip|no|prefiero no|nada)$/i.test((cmd || '').trim());
+}
+
+// Cierra el alta. El marcador real es onboarding_completado; onboarding_paso
+// vuelve a 0. `via` alimenta el embudo de PostHog.
+async function completarAlta(usuario, via) {
+  await supabase.from('usuarios').update({ onboarding_paso: 0, onboarding_completado: true }).eq('id', usuario.id);
+  stepOk(usuario, 100, 0, via);
+  analytics.capture(usuario.id, 'wa_onboarding_completed', { via });
+}
+
+// El único mensaje del alta que importa: pedir el primer gasto. Nada de plan,
+// nada de email. El link de activación llega DESPUÉS de ese gasto, no antes.
+function mensajePrimerGasto(nombre) {
+  const primerNombre = nombre ? nombre.split(' ')[0] : '';
+  return (primerNombre ? '¡Listo, *' + primerNombre + '*! 🤝' : '¡Listo! 🤝') + '\n\n' +
+    'Anótame tu primer gasto y te muestro cómo funciono:\n\n' +
+    '📝 _"gasté 20 en taxi"_\n' +
+    '📸 O mándame la foto de un Yape o Plin\n\n' +
+    '_Lo que sea, del monto que sea._';
 }
 
 // Parsea la respuesta del selector de bancos (pasos 30 y 31). Devuelve
@@ -147,70 +193,55 @@ async function manejarOnboarding({ usuario, msg, cmd, from }) {
   }
 
   // ─── Paso 100: Recoger nombre del usuario ──────────────────────────────────
+  // Ya NO es un bucle. Tenía una sola salida (dar un nombre que pasara el
+  // validador) y ahí se caían 10 de 82 usuarios, con una vida mediana de 5
+  // minutos. Ahora tiene tres, y ninguna deja a nadie atrapado: el nombre es lo
+  // único que se pide antes de que Neto sea útil, y ni siquiera es obligatorio.
   if (usuario.onboarding_paso === 100 && !cmd.startsWith('/')) {
-    // Extraer nombre inteligentemente: "Mi nombre es Annie" → "Annie", "Soy Juan Carlos" → "Juan Carlos"
+    // El usuario quiere empezar a usar Neto ya, no presentarse.
+    if (esSkipNombre(cmd)) {
+      await completarAlta(usuario, 'saltado');
+      return mensajePrimerGasto(null);
+    }
+    // Escribió un gasto en vez de su nombre. Antes esto se guardaba COMO nombre
+    // ("Gasté 20 En Taxi"): el validador acepta cualquier cosa de 2-50 chars, así
+    // que el primer gasto de la persona se perdía y encima quedaba de nombre.
+    // Ahora el alta se cierra y el mensaje cae al pipeline normal, que lo registra.
+    if (pareceTransaccion(msg)) {
+      await completarAlta(usuario, 'primer_gasto');
+      return null;   // ← fall-through: lo procesa message-processor como siempre
+    }
     let nombreInput = msg.trim();
     const nombreMatch = nombreInput.match(/(?:me llamo|mi nombre es|soy|es)\s+(.+)/i);
     if (nombreMatch) nombreInput = nombreMatch[1].trim();
-    // Limpiar posibles puntos, comas al final
     nombreInput = nombreInput.replace(/[.,!]+$/, '').trim();
     if (nombreInput.length < 2 || nombreInput.length > 50 || /^\d+$/.test(nombreInput)) {
       stepFailed(usuario, 100, 'nombre_invalido');
-      return 'Dime tu nombre real. Ej: _"María"_ o _"Juan Carlos"_.';
+      // Se repregunta UNA sola vez. Al segundo intento fallido el nombre deja de
+      // importar: vale más un usuario activo sin nombre que uno trabado con él.
+      if (usuario.nombre_intentos >= 1) {
+        await completarAlta(usuario, 'saltado');
+        return mensajePrimerGasto(null);
+      }
+      await supabase.from('usuarios').update({ nombre_intentos: (usuario.nombre_intentos || 0) + 1 }).eq('id', usuario.id);
+      return 'No pillé tu nombre. 🤔\n\nEscríbelo solito (ej: _"María"_) o dime *saltar* y empezamos de una.';
     }
     const nombreLimpio = nombreInput.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-    await supabase.from('usuarios').update({ nombre: nombreLimpio, onboarding_paso: 101 }).eq('id', usuario.id);
-    stepOk(usuario, 100, 101);
-    return '¡Mucho gusto, *' + nombreLimpio + '*! 🤝\n\n¿Cuál es tu correo electrónico?\n\n_Lo usaremos solo para contactarte si necesitas soporte._';
+    await supabase.from('usuarios').update({ nombre: nombreLimpio }).eq('id', usuario.id);
+    await completarAlta(usuario, 'nombre');
+    return mensajePrimerGasto(nombreLimpio);
   }
 
-  // ─── Paso 101: Recoger email del usuario ───────────────────────────────────
+  // ─── Paso 101 (retirado): pedía el email ───────────────────────────────────
+  // El email era el peor punto de fuga del alta (7 de 82) y no tenía razón de
+  // producto: se pedía para vincular la cuenta web, y eso ahora lo resuelve el
+  // link de activación firmado (lib/activacion.js), que ya lleva la identidad.
+  // Esta rama solo desatasca a quien quedó en 101 con el flujo viejo: data en
+  // vuelo al momento del deploy, o alguien que vuelve meses después.
   if (usuario.onboarding_paso === 101 && !cmd.startsWith('/')) {
-    // Extraer email inteligentemente: "Mi correo es juan@gmail.com" → "juan@gmail.com"
-    const emailRegex = /[^\s@]+@[^\s@]+\.[^\s@]+/;
-    const emailMatch = msg.trim().toLowerCase().match(emailRegex);
-    const emailInput = emailMatch ? emailMatch[0].replace(/[.,;:!?]+$/, '') : '';
-    if (!emailInput || !emailRegex.test(emailInput)) {
-      stepFailed(usuario, 101, 'email_formato');
-      return 'Eso no parece un correo válido. Escribe tu email, ej: _"juan@gmail.com"_.';
-    }
-    // El correo debe ser único: lo usaremos para vincular tu cuenta cuando pases a Pro.
-    const { data: emailEnUso } = await supabase
-      .from('usuarios')
-      .select('id')
-      .eq('email', emailInput)
-      .neq('id', usuario.id)
-      .limit(1);
-    if (emailEnUso && emailEnUso.length > 0) {
-      stepFailed(usuario, 101, 'email_en_uso');
-      return 'Ese correo ya está registrado con otra cuenta. 🤔\n\nEscríbeme otro, porfa. Es importante que sea válido y tuyo porque lo usaremos para vincularte cuando quieras pasar a *Pro*.';
-    }
-    const { error: emailUpdErr } = await supabase.from('usuarios').update({ email: emailInput, onboarding_paso: 1 }).eq('id', usuario.id);
-    if (emailUpdErr) {
-      // 23505 = unique_violation: otro usuario tomó ese correo en la ventana
-      // entre el chequeo de arriba y este update (índice usuarios_email_lower_unique).
-      if (emailUpdErr.code === '23505') {
-        stepFailed(usuario, 101, 'email_colision_23505');
-        return 'Ese correo ya está registrado con otra cuenta. 🤔\n\nEscríbeme otro, porfa. Es importante que sea válido y tuyo porque lo usaremos para vincularte cuando quieras pasar a *Pro*.';
-      }
-      throw emailUpdErr;
-    }
-    stepOk(usuario, 101, 1);
-    const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : '';
-    return '📧 ¡Perfecto' + (primerNombre ? ', ' + primerNombre : '') + '!\n\nAhora, elige tu plan:\n\n' +
-      '📊 *¿Qué hace Neto?*\n' +
-      '• Te dice en qué gastas tu plata por WhatsApp\n' +
-      '• Dashboard con gráficos, metas y reportes\n' +
-      '• Funciona con BCP, BBVA, Interbank, Yape, Plin y más\n\n' +
-      '🆓 *Plan Free* — S/0\n' +
-      '• Registra gastos manual o por foto\n' +
-      '• Presupuestos y metas ilimitados\n' +
-      '• Dashboard del mes actual\n\n' +
-      '⭐ *Plan Pro* — S/10/mes\n' +
-      '• Lectura automática de correos bancarios\n' +
-      '• Historial completo + reportes PDF\n' +
-      '• Resumen diario + consejos IA\n\n' +
-      'Escribe *free* para empezar gratis o *pro* para activar Pro.';
+    await completarAlta(usuario, 'desatascado_101');
+    if (pareceTransaccion(msg)) return null;   // si escribió un gasto, que se registre
+    return mensajePrimerGasto(usuario.nombre);
   }
 
   // ─── Paso 1: Usuario elige Free/Pro ────────────────────────────────────────
@@ -303,27 +334,15 @@ async function manejarOnboarding({ usuario, msg, cmd, from }) {
     const tieneGmail = !!usuario.gmail_access_token;
     if (!tieneGmail && !usuario.onboarding_completado) {
       if (!usuario.nombre) {
-        // Primero pedir el nombre
         await supabase.from('usuarios').update({ onboarding_paso: 100 }).eq('id', usuario.id);
         return '👋 ¡Hola! Soy *NETO*, tu asistente financiero por WhatsApp.\n\n' +
-          'Antes de empezar, ¿cómo te llamas?';
+          '¿Cómo te llamas?\n\n_O dime *saltar* si prefieres ir directo._';
       }
-      // Ya tiene nombre → directo a la selección Free/Pro
-      await supabase.from('usuarios').update({ onboarding_paso: 1 }).eq('id', usuario.id);
-      return '👋 Hola, ' + usuario.nombre.split(' ')[0] + '. Soy *NETO*, tu asistente financiero.\n\n' +
-        '📊 *¿Qué hace Neto?*\n' +
-        '• Te dice en qué gastas tu plata por WhatsApp\n' +
-        '• Dashboard con gráficos, metas y reportes\n' +
-        '• Funciona con BCP, BBVA, Interbank, Yape, Plin y más\n\n' +
-        '🆓 *Plan Free* — S/0\n' +
-        '• Registra gastos manual o por foto\n' +
-        '• Presupuestos y metas ilimitados\n' +
-        '• Dashboard del mes actual\n\n' +
-        '⭐ *Plan Pro* — S/10/mes\n' +
-        '• Lectura automática de correos bancarios\n' +
-        '• Historial completo + reportes PDF\n' +
-        '• Resumen diario + consejos IA\n\n' +
-        'Escribe *free* para empezar gratis o *pro* para activar Pro.';
+      // Ya tiene nombre → no queda nada que preguntar. El plan ya no se elige en
+      // el alta: el modelo es probar primero y pagar después, así que invitar a
+      // Pro el día 1 (antes de que la persona registre un solo gasto) no aplica.
+      await completarAlta(usuario, 'nombre');
+      return mensajePrimerGasto(usuario.nombre);
     }
     // Usuario ya onboardeado o con Gmail → NO es alta. El saludo normal (con
     // total del mes) lo maneja webhook.js.
@@ -331,15 +350,22 @@ async function manejarOnboarding({ usuario, msg, cmd, from }) {
   }
 
   if (cmd === '/manual') {
-    // Onboarding sin Gmail — modo free
-    await supabase.from('usuarios').update({ plan: 'free', onboarding_paso: 0, onboarding_completado: true }).eq('id', usuario.id);
-    analytics.capture(usuario.id, 'wa_onboarding_completed', { via: 'manual' });
-    return '✍️ *Modo Free activado*\n\nRegistra gastos así:\n📝 _"gasté 50 en taxi"_\n📸 Envía una foto de Yape o Plin\n\n📊 Configura tus presupuestos en tu dashboard:\nhttps://app.neto.pe/dashboard/presupuestos\n\n¿Por dónde empezamos?';
+    await supabase.from('usuarios').update({ plan: 'free' }).eq('id', usuario.id);
+    await completarAlta(usuario, 'manual');
+    return mensajePrimerGasto(usuario.nombre);
   }
 
   if (esUsuarioNuevo && !cmd.startsWith('/')) {
+    // El primer mensaje YA es un gasto. Se cierra el alta en silencio y se deja
+    // pasar: que la primera respuesta de Neto sea el gasto registrado (con el
+    // link de activación al pie) y no un formulario es el punto de todo esto.
+    if (pareceTransaccion(msg)) {
+      await completarAlta(usuario, 'primer_gasto');
+      return null;
+    }
     await supabase.from('usuarios').update({ onboarding_paso: 100 }).eq('id', usuario.id);
-    return '👋 ¡Hola! Soy *NETO*, tu asistente financiero.\n\nPara empezar, ¿cómo te llamas?';
+    return '👋 ¡Hola! Soy *NETO*, tu asistente financiero.\n\n' +
+      '¿Cómo te llamas?\n\n_O dime *saltar* y empezamos de una._';
   }
 
   // El mensaje no pertenece al alta.

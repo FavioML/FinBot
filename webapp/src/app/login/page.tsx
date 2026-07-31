@@ -43,6 +43,31 @@ function AuthErrorBanner() {
   );
 }
 
+// El usuario llegó desde el link que Neto le mandó por WhatsApp (/activar). Su
+// cuenta y sus gastos YA existen: acá solo elige con qué cuenta entrar. Decirle
+// "crea tu cuenta" en este punto sería mentirle y hacerle temer que empieza de cero.
+function ActivacionBanner() {
+  const searchParams = useSearchParams();
+  const estado = searchParams.get('activar') ? 'listo' : searchParams.get('activacion');
+  if (!estado) return null;
+  const expirado = estado === 'expirado';
+  return (
+    <div
+      className={
+        expirado
+          ? 'mb-6 rounded-xl bg-[rgba(216,90,48,0.08)] border border-[rgba(216,90,48,0.2)] px-4 py-3'
+          : 'mb-6 rounded-xl bg-[rgba(29,158,117,0.08)] border border-[rgba(29,158,117,0.2)] px-4 py-3'
+      }
+    >
+      <p className={expirado ? 'text-sm text-[#D85A30]' : 'text-sm text-[#1D9E75]'}>
+        {expirado
+          ? 'Ese enlace ya venció. Registra un gasto por WhatsApp y Neto te manda uno nuevo.'
+          : 'Un paso y listo: entra con tu cuenta y tus gastos de WhatsApp aparecen acá.'}
+      </p>
+    </div>
+  );
+}
+
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
@@ -113,6 +138,11 @@ export default function LoginPage() {
           {/* Auth error banner */}
           <Suspense>
             <AuthErrorBanner />
+          </Suspense>
+
+          {/* Llegada desde el link de activación de WhatsApp */}
+          <Suspense>
+            <ActivacionBanner />
           </Suspense>
 
           {/* ── Entra o regístrate: Google (sirve para ambos) ── */}

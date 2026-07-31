@@ -3,6 +3,7 @@
 
 import { useMemo, useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { Receipt, CreditCard, Pencil, ChevronDown, Target, Wallet, AlertTriangle } from 'lucide-react';
@@ -103,6 +104,19 @@ export default function DashboardPage() {
   useEffect(() => {
     setDetailSubcategoria(null);
   }, [detailCategoria]);
+
+  // Aterrizaje desde el link de activación de WhatsApp. Sin esto, quien acaba de
+  // activar cae en un dashboard idéntico al de siempre y no sabe si funcionó.
+  useEffect(() => {
+    const activado = searchParams.get('activado');
+    if (!activado) return;
+    if (activado === 'conflicto') {
+      toast.error('Tu cuenta necesita unirse a mano. Escríbenos por WhatsApp y lo resolvemos.');
+    } else {
+      toast.success('Cuenta activada — tus gastos de WhatsApp ya están acá.');
+    }
+    window.history.replaceState(null, '', '/dashboard');
+  }, [searchParams]);
 
   // Load ALL transactions for the user (enables both monthly and annual views + trend chart)
   const { data: allTransactions = [], isLoading: txLoading, isError: txError, refetch: refetchTx } = useTransactions({

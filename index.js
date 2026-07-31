@@ -16,6 +16,7 @@ const { registrarError } = require('./lib/error-monitor');
 const publicRoutes = require('./routes/public');
 const adminRoutes = require('./routes/admin');
 const proRoutes = require('./routes/pro');
+const internalRoutes = require('./routes/internal');
 const { startCronJobs } = require('./cron');
 const createWebhookHandler = require('./handlers/webhook');
 const { telegramWebhookHandler } = require('./handlers/telegram-webhook');
@@ -128,6 +129,10 @@ app.post('/telegram/webhook', adminLimiter, telegramWebhookHandler);
 // Upgrade Pro desde la webapp (solicitud + catálogo bancos + URL OAuth). Auth por
 // INTERNAL_API_KEY (ver routes/pro.js). Antes del catch-all público.
 app.use('/pro', proLimiter, proRoutes);
+
+// Callbacks internos de la webapp (activación de cuenta). Misma auth por
+// INTERNAL_API_KEY; ver routes/internal.js. También antes del catch-all público.
+app.use('/internal', proLimiter, internalRoutes);
 
 app.use('/', publicRoutes);
 app.use('/admin', adminLimiter, adminRoutes);

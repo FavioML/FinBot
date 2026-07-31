@@ -24,6 +24,7 @@ const { esperaComprobante, esPagoNeto, procesarComprobantePro } = require('../li
 const { procesarComandoAdmin } = require('./admin-commands');
 const { abrirSesion, cerrarSesion } = require('../lib/support-tickets');
 const { manejarOnboarding } = require('./onboarding');
+const { nudgeActivacion } = require('../lib/activacion');
 
 // Idempotencia por wamid: Meta retransmite el webhook cada 30s si OpenAI demora >timeout.
 // Map preserva orden de inserción → LRU. TTL 5 min, max 1000 entries.
@@ -197,7 +198,10 @@ function createWebhookHandler(procesarMensajeLibre) {
         const subImg = (txImg && txImg.subcategoria) || parsed.subcategoria;
         const emoji = esIngreso ? '💵' : (getEmojiCategoria(catImg) || '📋');
         const tipoLabel = esIngreso ? 'Ingreso registrado' : 'Gasto registrado';
-        await enviarWhatsapp(from, '📸 *' + tipoLabel + '*\n\n' + emoji + ' *' + (parsed.comercio || (esIngreso ? 'Ingreso' : 'Pago')) + '* — ' + montoStr + '\n' + catImg + (subImg && subImg !== 'sin_categoria' ? ' > ' + subImg : '') + ' · ' + parsed.fecha);
+        let respImg = '📸 *' + tipoLabel + '*\n\n' + emoji + ' *' + (parsed.comercio || (esIngreso ? 'Ingreso' : 'Pago')) + '* — ' + montoStr + '\n' + catImg + (subImg && subImg !== 'sin_categoria' ? ' > ' + subImg : '') + ' · ' + parsed.fecha;
+        const nudgeImg = nudgeActivacion(usuario, txImg && txImg.conteoTx);
+        if (nudgeImg) respImg += nudgeImg;
+        await enviarWhatsapp(from, respImg);
       } catch(e) {
         log.error({ tag: 'IMAGEN', err: e.message }, 'Error procesando imagen'); registrarError('IMAGEN', e.message, { stack: e.stack, whatsapp: from });
         await enviarWhatsapp(from, 'No pude procesar la imagen. Asegúrate de enviar la captura de la notificación de pago (la pantalla que muestra el monto y destinatario).');

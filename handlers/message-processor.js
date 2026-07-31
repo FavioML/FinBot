@@ -28,6 +28,7 @@ const { getHandler } = require('./intent-registry');
 const { NETO_TOOLS, mapToolToIntent } = require('./neto-tools');
 const { construirNetoPrompt } = require('../lib/neto-prompt');
 const { obtenerSesionAbierta } = require('../lib/support-tickets');
+const { nudgeActivacion } = require('../lib/activacion');
 
 /**
  * Salvage sin IA: cuando OpenAI está caído (429) el pipeline normal no puede clasificar,
@@ -161,6 +162,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       log.info({ tag: 'INCOME_PLUS_EXPENSES', expenses: ingresoMasGastos.expenses.length, income: ingresoMasGastos.income.monto, msg: msg.substring(0, 80) }, 'Ingreso + gastos detectado, fanout');
       const fechaTx = /\bayer\b/i.test(msg) ? fechaAyerPeru() : fechaHoyPeru();
       const respuestasIE = [];
+      let conteoTxIE = 0;   // el conteo del último insert = total del usuario
       try {
         const datosIngreso = {
           monto: ingresoMasGastos.income.monto, moneda: 'PEN', comercio: 'Ingreso',
@@ -184,6 +186,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
             descripcion_original: msg.substring(0, 200),
           };
           const txIE = await guardarTransaccion(usuario.id, datosTx);
+          if (txIE && txIE.conteoTx) conteoTxIE = txIE.conteoTx;
           // Categoría/subcategoría normalizadas por guardarTransaccion, no la salida cruda del parser.
           const catIE = (txIE && txIE.categoria) || datosTx.categoria;
           const subIE = (txIE && txIE.subcategoria) || datosTx.subcategoria;
@@ -198,7 +201,9 @@ async function procesarMensajeLibre(msg, usuario, from) {
         }
       }
       if (respuestasIE.length > 0) {
-        const respFull = respuestasIE.join('\n');
+        let respFull = respuestasIE.join('\n');
+        const nudgeIE = nudgeActivacion(usuario, conteoTxIE);
+        if (nudgeIE) respFull += nudgeIE;
         await guardarMensaje(usuario.id, 'neto', respFull.substring(0, 500));
         return respFull;
       }
@@ -214,6 +219,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       log.info({ tag: 'MULTI_GASTO', count: multiGastos.length, msg: msg.substring(0, 80) }, 'Multi-gasto detectado, fanout');
       const fechaGasto = /\bayer\b/i.test(msg) ? fechaAyerPeru() : fechaHoyPeru();
       const respuestas = [];
+      let conteoTxMG = 0;   // el conteo del último insert = total del usuario
       for (const g of multiGastos) {
         try {
           const detCat = await detectarCategoriaIA('gasté ' + g.monto + ' en ' + g.comercio, usuario.id);
@@ -225,6 +231,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
             descripcion_original: msg.substring(0, 200),
           };
           const txMG = await guardarTransaccion(usuario.id, datosTx);
+          if (txMG && txMG.conteoTx) conteoTxMG = txMG.conteoTx;
           // Categoría/subcategoría normalizadas por guardarTransaccion, no la salida cruda del parser.
           const catMG = (txMG && txMG.categoria) || datosTx.categoria;
           const subMG = (txMG && txMG.subcategoria) || datosTx.subcategoria;
@@ -239,7 +246,9 @@ async function procesarMensajeLibre(msg, usuario, from) {
         }
       }
       if (respuestas.length > 0) {
-        const respFull = respuestas.join('\n');
+        let respFull = respuestas.join('\n');
+        const nudgeMG = nudgeActivacion(usuario, conteoTxMG);
+        if (nudgeMG) respFull += nudgeMG;
         await guardarMensaje(usuario.id, 'neto', respFull.substring(0, 500));
         return respFull;
       }
@@ -414,7 +423,10 @@ async function procesarMensajeLibre(msg, usuario, from) {
           const catFb = (txFb && txFb.categoria) || resultado.categoria;
           let resp = '\uD83D\uDCB3 *Transaccion registrada*\n' + (resultado.tipo === 'gasto' ? 'Gasto' : 'Ingreso') + ': S/ ' + resultado.monto + '\nComercio: ' + (resultado.comercio || 'No detectado') + '\nCategoria: ' + (catFb || 'Sin categoria');
           if (resultado.tipo === 'gasto' && resultado.categoria) { const alerta = await verificarAlertaPresupuesto(usuario.id, resultado.categoria, null); if (alerta) resp += '\n\n' + alerta; }
-          return resp + '\n\n_Escribe "mis gastos del mes" para ver el resumen._';
+          resp += '\n\n_Escribe "mis gastos del mes" para ver el resumen._';
+          const nudgeFb = nudgeActivacion(usuario, txFb && txFb.conteoTx);
+          if (nudgeFb) resp += nudgeFb;
+          return resp;
         }
       } catch(e) { log.warn({ tag: 'FALLBACK_TX', err: e.message }, 'Error en fallback transaccion'); }
     }

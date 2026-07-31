@@ -176,6 +176,9 @@ async function guardarTransaccion(usuarioId, datos) {
     throw error;
   }
   // Activación: primera transacción del usuario (excluye importación masiva de Gmail).
+  // El conteo viaja de vuelta en la fila (`conteoTx`) porque es exactamente lo que
+  // necesita la cadencia del empujón a la webapp (lib/activacion.js): "cuántos
+  // gastos lleva" es la señal del corte, y calcularlo dos veces sería absurdo.
   if (!datos.esGmail) {
     try {
       const { count } = await supabase.from('transacciones')
@@ -184,6 +187,7 @@ async function guardarTransaccion(usuarioId, datos) {
       if (count === 1) {
         analytics.capture(usuarioId, 'wa_first_transaction', { tipo: data.tipo, categoria: data.categoria });
       }
+      if (data && typeof count === 'number') data.conteoTx = count;
     } catch (e) { /* nunca romper el registro por analytics */ }
   }
   return data;
