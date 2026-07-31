@@ -57,16 +57,6 @@ export interface Presupuesto {
   updated_at: string;
 }
 
-export interface ReporteCache {
-  id: string;
-  usuario_id: string;
-  mes: number;
-  anio: number;
-  json_reporte: any;
-  token: string;
-  ttl: string;
-}
-
 export interface Referido {
   id: string;
   usuario_id: string;
