@@ -4,6 +4,10 @@ import Link from 'next/link';
 import { MessageCircle, type LucideIcon } from 'lucide-react';
 import { motion } from 'motion/react';
 import { SOCIAL_LINKS } from '@/lib/constants';
+import { useUser } from '@/lib/hooks/use-user';
+
+const CTA_CLS =
+  'inline-flex items-center gap-2 rounded-xl bg-[#1D9E75] px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-[#1D9E75]/20 transition-all hover:bg-[#1D9E75]/90 hover:shadow-[#1D9E75]/30 active:scale-[0.98]';
 
 interface EmptyStateAction {
   label: string;
@@ -24,6 +28,11 @@ interface EmptyStateProps {
 }
 
 export function EmptyState({ title, description, showWhatsApp = true, icon: Icon = MessageCircle, actions }: EmptyStateProps) {
+  const { data: user } = useUser();
+  // Web-first users without a linked number can't register by chat yet — sending
+  // them to wa.me from an unlinked number would spawn a duplicate account. Route
+  // them to connect WhatsApp first instead.
+  const hasWhatsapp = !!user?.whatsapp;
   return (
     <motion.div
       className="glass-card flex flex-col items-center justify-center py-16 text-center"
@@ -95,19 +104,28 @@ export function EmptyState({ title, description, showWhatsApp = true, icon: Icon
         </div>
       )}
 
-      {/* Default WhatsApp CTA (only if no custom actions) */}
+      {/* Default CTA (only if no custom actions): channel-aware */}
       {showWhatsApp && (!actions || actions.length === 0) && (
-        <motion.a
-          href={SOCIAL_LINKS.whatsapp}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 rounded-xl bg-[#1D9E75] px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-[#1D9E75]/20 transition-all hover:bg-[#1D9E75]/90 hover:shadow-[#1D9E75]/30 active:scale-[0.98]"
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-        >
-          <MessageCircle className="h-4 w-4" />
-          Registra gastos por WhatsApp
-        </motion.a>
+        hasWhatsapp ? (
+          <motion.a
+            href={SOCIAL_LINKS.whatsapp}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={CTA_CLS}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+          >
+            <MessageCircle className="h-4 w-4" />
+            Registra gastos por WhatsApp
+          </motion.a>
+        ) : (
+          <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+            <Link href="/onboarding" className={CTA_CLS}>
+              <MessageCircle className="h-4 w-4" />
+              Conecta tu WhatsApp para registrar por chat
+            </Link>
+          </motion.div>
+        )
       )}
     </motion.div>
   );
