@@ -4,13 +4,32 @@ const { hoyPeru } = require('../lib/dates');
 const { FREEMIUM_ACTIVE, PLAN_CONFIG } = require('../lib/constants');
 const analytics = require('../lib/analytics');
 
+// Retención de `conversaciones`. La tabla cumple dos funciones a la vez: contexto
+// para el LLM (obtenerHistorial lee 6 turnos) y única evidencia de qué escribió el
+// usuario. La purga original guardaba solo los 10 turnos más recientes, así que el
+// alta se borraba apenas el usuario tenía algo de actividad — y de los que se caen
+// EN el alta no quedaba nada con qué diagnosticar.
+//
+// HEAD_PROTEGIDO: los primeros turnos de cada usuario (el onboarding) no se purgan
+// nunca. TAIL_RETENIDO: cuántos turnos recientes se conservan además del head.
+// Peor caso 55 filas por usuario.
+const HEAD_PROTEGIDO = 15;
+const TAIL_RETENIDO = 40;
+
 async function guardarMensaje(usuarioId, rol, mensaje) {
   try {
     const limiteChars = 10000;
     await supabase.from('conversaciones').insert({ usuario_id: usuarioId, rol: rol, mensaje: mensaje.substring(0, limiteChars) });
-    const { data: viejos } = await supabase.from('conversaciones').select('id').eq('usuario_id', usuarioId).order('created_at', { ascending: false }).range(10, 100);
+    // Candidatos a purga primero: mientras el usuario no pase de TAIL_RETENIDO turnos
+    // esto vuelve vacío y no se paga la query del head (el caso común).
+    const { data: viejos } = await supabase.from('conversaciones').select('id').eq('usuario_id', usuarioId).order('created_at', { ascending: false }).range(TAIL_RETENIDO, 500);
     if (viejos && viejos.length > 0) {
-      await supabase.from('conversaciones').delete().in('id', viejos.map(v => v.id));
+      const { data: head } = await supabase.from('conversaciones').select('id').eq('usuario_id', usuarioId).order('created_at', { ascending: true }).limit(HEAD_PROTEGIDO);
+      const protegidos = new Set((head || []).map(h => h.id));
+      const aBorrar = viejos.map(v => v.id).filter(id => !protegidos.has(id));
+      if (aBorrar.length > 0) {
+        await supabase.from('conversaciones').delete().in('id', aBorrar);
+      }
     }
   } catch(e) { log.error({ tag: 'HISTORIAL', err: e.message }, 'Error guardando historial'); }
 }

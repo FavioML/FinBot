@@ -31,6 +31,20 @@ const analytics = require('../lib/analytics');
 
 const REPROMPT_BANCOS = 'No entendí. 🤔\n\nResponde con los números de tus bancos separados por coma (ej: *1,3,5*) o escribe *todos*.';
 
+// Telemetría del alta. Hasta ahora solo se capturaba el inicio (wa_user_registered)
+// y el final (wa_onboarding_completed), así que los pasos intermedios — donde se cae
+// la mayor parte de la gente — solo se podían mirar a mano con SQL. Estos dos eventos
+// cierran el embudo en PostHog.
+//
+// NUNCA mandar el contenido del mensaje: el motivo y el paso alcanzan para
+// diagnosticar, y el texto literal ya queda en `conversaciones`.
+function stepOk(usuario, paso, siguiente) {
+  analytics.capture(usuario.id, 'wa_onboarding_step_ok', { paso, siguiente });
+}
+function stepFailed(usuario, paso, motivo) {
+  analytics.capture(usuario.id, 'wa_onboarding_step_failed', { paso, motivo });
+}
+
 // Parsea la respuesta del selector de bancos (pasos 30 y 31). Devuelve
 // { ok, ids } donde ids es un array de ids del catálogo, o null para "todos".
 // ok=false si no se reconoció ningún número válido ni "todos".
@@ -141,10 +155,12 @@ async function manejarOnboarding({ usuario, msg, cmd, from }) {
     // Limpiar posibles puntos, comas al final
     nombreInput = nombreInput.replace(/[.,!]+$/, '').trim();
     if (nombreInput.length < 2 || nombreInput.length > 50 || /^\d+$/.test(nombreInput)) {
+      stepFailed(usuario, 100, 'nombre_invalido');
       return 'Dime tu nombre real. Ej: _"María"_ o _"Juan Carlos"_.';
     }
     const nombreLimpio = nombreInput.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
     await supabase.from('usuarios').update({ nombre: nombreLimpio, onboarding_paso: 101 }).eq('id', usuario.id);
+    stepOk(usuario, 100, 101);
     return '¡Mucho gusto, *' + nombreLimpio + '*! 🤝\n\n¿Cuál es tu correo electrónico?\n\n_Lo usaremos solo para contactarte si necesitas soporte._';
   }
 
@@ -155,6 +171,7 @@ async function manejarOnboarding({ usuario, msg, cmd, from }) {
     const emailMatch = msg.trim().toLowerCase().match(emailRegex);
     const emailInput = emailMatch ? emailMatch[0].replace(/[.,;:!?]+$/, '') : '';
     if (!emailInput || !emailRegex.test(emailInput)) {
+      stepFailed(usuario, 101, 'email_formato');
       return 'Eso no parece un correo válido. Escribe tu email, ej: _"juan@gmail.com"_.';
     }
     // El correo debe ser único: lo usaremos para vincular tu cuenta cuando pases a Pro.
@@ -165,6 +182,7 @@ async function manejarOnboarding({ usuario, msg, cmd, from }) {
       .neq('id', usuario.id)
       .limit(1);
     if (emailEnUso && emailEnUso.length > 0) {
+      stepFailed(usuario, 101, 'email_en_uso');
       return 'Ese correo ya está registrado con otra cuenta. 🤔\n\nEscríbeme otro, porfa. Es importante que sea válido y tuyo porque lo usaremos para vincularte cuando quieras pasar a *Pro*.';
     }
     const { error: emailUpdErr } = await supabase.from('usuarios').update({ email: emailInput, onboarding_paso: 1 }).eq('id', usuario.id);
@@ -172,10 +190,12 @@ async function manejarOnboarding({ usuario, msg, cmd, from }) {
       // 23505 = unique_violation: otro usuario tomó ese correo en la ventana
       // entre el chequeo de arriba y este update (índice usuarios_email_lower_unique).
       if (emailUpdErr.code === '23505') {
+        stepFailed(usuario, 101, 'email_colision_23505');
         return 'Ese correo ya está registrado con otra cuenta. 🤔\n\nEscríbeme otro, porfa. Es importante que sea válido y tuyo porque lo usaremos para vincularte cuando quieras pasar a *Pro*.';
       }
       throw emailUpdErr;
     }
+    stepOk(usuario, 101, 1);
     const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : '';
     return '📧 ¡Perfecto' + (primerNombre ? ', ' + primerNombre : '') + '!\n\nAhora, elige tu plan:\n\n' +
       '📊 *¿Qué hace Neto?*\n' +
@@ -212,6 +232,7 @@ async function manejarOnboarding({ usuario, msg, cmd, from }) {
     }
     if (resp1 === 'pro' || resp1 === 'si' || resp1 === 'sí' || resp1 === 'yes' || resp1 === 'dale' || resp1 === 'va' || resp1 === 'quiero') {
       await supabase.from('usuarios').update({ onboarding_paso: 2 }).eq('id', usuario.id);
+      stepOk(usuario, 1, 2);
       return '🎉 *¡Genial!*\n\n' +
         'Elige tu plan:\n\n' +
         '1️⃣ *Mensual* — S/10/mes\n' +
@@ -222,8 +243,10 @@ async function manejarOnboarding({ usuario, msg, cmd, from }) {
     }
     if (resp1 === 'no' || resp1 === 'no gracias') {
       await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
+      stepFailed(usuario, 1, 'rechaza_plan');
       return '👍 Sin problema. Si cambias de opinión, escribe *hola* cuando quieras.';
     }
+    stepFailed(usuario, 1, 'plan_no_reconocido');
     return 'Escribe *free* para empezar gratis o *pro* para activar el plan Pro.';
   }
 

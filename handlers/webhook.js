@@ -5,7 +5,7 @@ const log = require('../lib/logger');
 const { hoyPeru } = require('../lib/dates');
 const { CATEGORIAS_SUGERIDAS, MESES } = require('../lib/constants');
 const { getEmojiCategoria, formatearResumen, formatearCategoriasMsg, generarRefCode } = require('../lib/formatters');
-const { enviarWhatsapp } = require('../lib/whatsapp');
+const { enviarWhatsapp, procesarStatuses } = require('../lib/whatsapp');
 const { ADMIN_NUMBER } = require('../lib/config');
 const { guardarTransaccion, obtenerGastosMes, recategorizarTransaccion } = require('../services/transactions');
 const { guardarPresupuesto, formatearEstadoPresupuesto } = require('../services/budget');
@@ -94,6 +94,14 @@ function createWebhookHandler(procesarMensajeLibre) {
     const change = entry && entry.changes && entry.changes[0];
     const value = change && change.value;
     const messages = value && value.messages;
+    // Callbacks de status (delivered/read/failed). Vienen en el mismo campo del
+    // webhook que los mensajes, pero sin `value.messages`, así que antes caían en el
+    // return de abajo y se descartaban en silencio: por eso `estado='sent'` era todo
+    // lo que sabíamos de una notificación proactiva.
+    if (value && value.statuses && value.statuses.length > 0) {
+      await procesarStatuses(value.statuses);
+      return;
+    }
     if (!messages || messages.length === 0) return;
     const message = messages[0];
     from = message.from;
@@ -510,6 +518,12 @@ function createWebhookHandler(procesarMensajeLibre) {
     const respOnb = await manejarOnboarding({ usuario, msg, cmd, from });
     if (respOnb !== null) {
       await enviarWhatsapp(from, respOnb);
+      // El alta hace short-circuit antes de message-processor, que es el único otro
+      // punto que guarda el turno del usuario. Sin esto, de quien se traba EN el
+      // onboarding no queda ni una línea de lo que escribió (era el agujero que
+      // impedía diagnosticar la fuga del paso 100/101). Best-effort como el de abajo:
+      // el historial nunca debe romper el bot.
+      try { await guardarMensaje(usuario.id, 'usuario', msg); } catch (e) {}
       try { await guardarMensaje(usuario.id, 'neto', respOnb); } catch (e) {}
       return;
     }
