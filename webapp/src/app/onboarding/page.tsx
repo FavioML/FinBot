@@ -36,8 +36,6 @@ function Onboarding() {
   // Solo rutas internas, para que un link no lo saque de la app.
   const destino = useSearchParams().get('redirect');
   const volverA = destino?.startsWith('/') && !destino.startsWith('//') ? destino : '/dashboard';
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
   const [whatsapp, setWhatsapp] = useState('');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -54,12 +52,8 @@ function Onboarding() {
         router.replace('/login');
         return;
       }
-      setName(
-        user.user_metadata?.full_name ||
-          user.user_metadata?.name ||
-          ''
-      );
-      setEmail(user.email || '');
+      // Nombre y correo ya se guardaron en el registro (Google). Esta pantalla solo
+      // pide el número; el server toma nombre/email de la sesión al generar el OTP.
       setLoading(false);
     });
   }, [router]);
@@ -173,28 +167,6 @@ function Onboarding() {
             <p className="mb-8 text-[#8A877D]">
               Opcional: registra gastos por chat y foto de Yape. Tu cuenta ya funciona sin esto.
             </p>
-
-            <div className="mb-4">
-              <label className="mb-1.5 block text-sm font-medium text-[#C8C6BC]">
-                Nombre
-              </label>
-              <input
-                value={name}
-                readOnly
-                className="w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-sm text-[#8A877D] outline-none transition-colors"
-              />
-            </div>
-
-            <div className="mb-4">
-              <label className="mb-1.5 block text-sm font-medium text-[#C8C6BC]">
-                Email
-              </label>
-              <input
-                value={email}
-                readOnly
-                className="w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-sm text-[#8A877D] outline-none transition-colors"
-              />
-            </div>
 
             <div className="mb-6">
               <label className="mb-1.5 block text-sm font-medium text-[#C8C6BC]">
