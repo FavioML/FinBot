@@ -160,6 +160,55 @@ describe('activarPro', () => {
   });
 });
 
+// Regresion 2026-07-31: un usuario que eligio Pro durante el alta queda en onboarding_paso 2
+// (espera del comprobante). Solo el comando /pago lo devolvia a 0, via flag opcional; el boton
+// de Telegram, el panel admin y /activar no. Resultado real: pago aprobado el 2026-07-21,
+// plan premium, y el usuario respondido con "elige tu plan / mandame la captura" ante cada
+// mensaje durante 10 dias, porque esperaComprobante() mira onboarding_paso === 2.
+describe('activarPro: desatasco del onboarding', () => {
+  const enPaso2 = { ...USUARIO, onboarding_paso: 2, onboarding_completado: false };
+
+  it('saca del paso 2 y marca el alta completa (sin flag, por cualquier ruta de aprobacion)', async () => {
+    router = () => ({ data: null, error: null });
+    await pro.activarPro({ usuario: enPaso2, tipoPlan: 'mensual', pagoId: 'pago-1' });
+    const payload = escrituras('usuarios')[0].payload;
+    expect(payload.onboarding_paso).toBe(0);
+    expect(payload.onboarding_completado).toBe(true);
+  });
+
+  it('el estado resultante ya no dispara esperaComprobante (el usuario puede volver a usar Neto)', async () => {
+    router = () => ({ data: null, error: null });
+    await pro.activarPro({ usuario: enPaso2, tipoPlan: 'mensual', pagoId: 'pago-1' });
+    const payload = escrituras('usuarios')[0].payload;
+    expect(pro.esperaComprobante({ ...enPaso2, ...payload })).toBe(false);
+  });
+
+  it('marcar el alta completa evita que el trigger de usuario nuevo lo mande de vuelta al paso 100', async () => {
+    router = () => ({ data: null, error: null });
+    await pro.activarPro({ usuario: enPaso2, tipoPlan: 'mensual', pagoId: 'pago-1' });
+    const final = { ...enPaso2, ...escrituras('usuarios')[0].payload };
+    // Replica del trigger en handlers/onboarding.js: sin token de Gmail, onboarding_completado
+    // en false manda al usuario a "¿como te llamas?" aunque ya haya dado nombre y correo.
+    expect(!final.gmail_access_token && !final.onboarding_completado).toBe(false);
+  });
+
+  it('no toca el onboarding de un usuario que ya lo termino (renovacion no pisa estado)', async () => {
+    router = () => ({ data: null, error: null });
+    await pro.activarPro({ usuario: { ...USUARIO, onboarding_paso: 0, onboarding_completado: true }, tipoPlan: 'mensual', pagoId: 'pago-1' });
+    const payload = escrituras('usuarios')[0].payload;
+    expect(payload).not.toHaveProperty('onboarding_paso');
+    expect(payload).not.toHaveProperty('onboarding_completado');
+  });
+
+  it('no arrastra al usuario parado en otro paso del alta (ej. 101, dando su correo)', async () => {
+    router = () => ({ data: null, error: null });
+    await pro.activarPro({ usuario: { ...USUARIO, onboarding_paso: 101, onboarding_completado: false }, tipoPlan: 'mensual', pagoId: 'pago-1' });
+    const payload = escrituras('usuarios')[0].payload;
+    expect(payload).not.toHaveProperty('onboarding_paso');
+    expect(payload).not.toHaveProperty('onboarding_completado');
+  });
+});
+
 describe('registrarSolicitudPro', () => {
   it('no ofrece botones de Telegram cuando el insert del pago fallo (callback_data seria null)', async () => {
     process.env.TELEGRAM_ADMIN_CHAT_ID = '123';

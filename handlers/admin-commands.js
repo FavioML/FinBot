@@ -46,7 +46,7 @@ async function procesarComandoAdmin(cmd, rawText = cmd) {
     if (!usuarioPago) {
       return '❌ No encontré un usuario con el número: ' + numeroPago;
     }
-    await activarPro({ usuario: usuarioPago, tipoPlan, aprobadoPor: 'admin:/pago', enviarOAuth: true, resetOnboarding: true, esConversionPagada: true });
+    await activarPro({ usuario: usuarioPago, tipoPlan, aprobadoPor: 'admin:/pago', enviarOAuth: true, esConversionPagada: true });
     return '✅ Pago confirmado para ' + (usuarioPago.nombre || numeroPago) + ' (' + (tipoPlan === 'anual' ? 'anual' : 'mensual') + '). Link OAuth enviado.';
   }
 
