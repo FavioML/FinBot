@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
 import { NextResponse, type NextRequest } from 'next/server';
 import type { EmailOtpType } from '@supabase/supabase-js';
+import { createWebUser } from '@/lib/create-web-user';
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
@@ -108,7 +109,24 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // User not found in usuarios — send to onboarding with session cookies
+      // Ninguna fila corresponde a este login (ni por auth_id ni por email):
+      // es un usuario web-first. Creamos su cuenta SIN número (whatsapp NULL) y lo
+      // mandamos directo al dashboard. WhatsApp queda como vínculo opcional posterior
+      // (banner en el dashboard → reverse-OTP). Antes esto era un embudo forzado a
+      // /onboarding hacia WhatsApp; ahora crear la cuenta desde la web es de primera clase.
+      const nombre = user.user_metadata?.full_name || user.user_metadata?.name || null;
+      const createdId = await createWebUser(serviceClient, {
+        authId: user.id,
+        email: user.email ?? null,
+        nombre,
+      });
+
+      if (createdId) {
+        return response; // redirect a next (/dashboard) con las cookies de sesión
+      }
+
+      // No se pudo crear la fila: fallback a /onboarding para que reintente / vincule
+      // por WhatsApp, en vez de dejarlo en un dashboard que respondería 404.
       const onboardingResponse = NextResponse.redirect(`${origin}/onboarding`);
       response.cookies.getAll().forEach(({ name, value, ...rest }) => {
         onboardingResponse.cookies.set(name, value, rest);

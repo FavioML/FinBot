@@ -46,9 +46,12 @@ export async function POST(request: Request) {
   // puede confundirse con una lectura caida: si la lectura falla y lo tomamos
   // por "no vinculado", se le manda a re-verificar por OTP una cuenta que ya
   // esta vinculada.
-  const { data: alreadyLinked, error: eLinked } = await svc
+  // "Ya vinculado" ahora significa "ya tiene un número de WhatsApp", NO "tiene fila":
+  // un usuario web-first tiene fila (supabase_auth_id) pero whatsapp NULL, y justamente
+  // viene aquí a conectarlo. Chequear solo la existencia de la fila lo dejaría atrapado.
+  const { data: current, error: eLinked } = await svc
     .from('usuarios')
-    .select('id')
+    .select('id, whatsapp')
     .eq('supabase_auth_id', user.id)
     .maybeSingle();
 
@@ -57,7 +60,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Error temporal, intenta de nuevo' }, { status: 500 });
   }
 
-  if (alreadyLinked) {
+  if (current?.whatsapp) {
     return NextResponse.json({ success: true, alreadyLinked: true });
   }
 
@@ -104,12 +107,14 @@ export async function GET() {
 
   const svc = getServiceClient();
 
-  // El cliente hace polling de esto hasta que da true. Con el error tragado, una
-  // lectura caida se ve igual que "todavia no confirmo": el usuario se queda
-  // mirando el spinner de una verificacion que ya ocurrio.
+  // El cliente hace polling de esto hasta que da true. La señal de que el vínculo se
+  // cerró es que la fila de esta cuenta Google YA tiene un número de WhatsApp: el webhook
+  // lo setea al confirmar el código (link directo) o al fusionar (merge_and_link). Con el
+  // error tragado, una lectura caida se ve igual que "todavia no confirmo": el usuario se
+  // queda mirando el spinner de una verificacion que ya ocurrio.
   const { data: linked, error: eLinked } = await svc
     .from('usuarios')
-    .select('id')
+    .select('id, whatsapp')
     .eq('supabase_auth_id', user.id)
     .maybeSingle();
 
@@ -118,7 +123,7 @@ export async function GET() {
     return NextResponse.json({ error: 'Error temporal, intenta de nuevo' }, { status: 500 });
   }
 
-  if (linked) {
+  if (linked?.whatsapp) {
     return NextResponse.json({ verified: true });
   }
 

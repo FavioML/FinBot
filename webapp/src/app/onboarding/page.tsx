@@ -168,9 +168,11 @@ function Onboarding() {
         {phase === 'input' && (
           <>
             <h1 className="mb-2 text-2xl font-bold text-[#F0EFE8]">
-              Completa tu registro
+              Conecta tu WhatsApp
             </h1>
-            <p className="mb-8 text-[#8A877D]">Un ultimo paso para empezar</p>
+            <p className="mb-8 text-[#8A877D]">
+              Opcional: registra gastos por chat y foto de Yape. Tu cuenta ya funciona sin esto.
+            </p>
 
             <div className="mb-4">
               <label className="mb-1.5 block text-sm font-medium text-[#C8C6BC]">
@@ -231,6 +233,13 @@ function Onboarding() {
                 'Continuar'
               )}
             </motion.button>
+
+            <button
+              onClick={() => router.replace('/dashboard')}
+              className="mt-4 w-full text-center text-sm text-[#8A877D] transition-colors hover:text-[#C8C6BC] cursor-pointer"
+            >
+              Ahora no, ir al dashboard
+            </button>
           </>
         )}
 

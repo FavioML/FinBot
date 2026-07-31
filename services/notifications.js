@@ -7,6 +7,9 @@ const { crearNotificacion } = require('../lib/notifications-db');
 
 async function enviarAlertaTransaccion(usuario, tx, resultado) {
   if (!tx || !resultado || !resultado.monto) return;
+  // Web-first: sin número no hay a quién alertar por WhatsApp (ej. gasto detectado por
+  // el scanner de Gmail de un usuario que conectó correo desde la web sin vincular chat).
+  if (!usuario || !usuario.whatsapp) return;
   // Opt-out (/alertas o Configuracion en la webapp). Se compara contra false a
   // proposito: si la columna aun no existe o el usuario es legacy (undefined),
   // la alerta se envia. Apagar es una accion explicita del usuario.

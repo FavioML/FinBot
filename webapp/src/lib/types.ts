@@ -1,6 +1,7 @@
 export interface Usuario {
   id: string;
-  whatsapp: string;
+  /** null para cuentas web-first (registradas por Google sin vincular WhatsApp aún). */
+  whatsapp: string | null;
   nombre?: string;
   email?: string;
   plan: 'free' | 'premium';

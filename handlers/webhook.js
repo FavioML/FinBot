@@ -402,7 +402,33 @@ function createWebhookHandler(procesarMensajeLibre) {
         const { data: otp } = await supabase.from('webapp_otp')
           .select('id, supabase_auth_id, email, nombre, expires_at, verified_at')
           .eq('code', code).is('verified_at', null).maybeSingle();
-        if (otp && new Date(otp.expires_at).getTime() > Date.now()) {
+
+        if (!otp || new Date(otp.expires_at).getTime() <= Date.now()) {
+          await enviarWhatsapp(from, '⚠️ Ese código de verificación no es válido o ya expiró.\n\nVuelve a app.neto.pe y genera uno nuevo.');
+          return;
+        }
+
+        // `usuario` (waRow) es la fila del número que ENVIÓ el código (posesión probada).
+        // Con onboarding web, la cuenta Google ya tiene su propia fila web-first (webRow):
+        // hay que FUSIONAR ambas en una, no vincular a ciegas (eso reventaría por el unique
+        // de supabase_auth_id). El survivor es la fila web, que conserva el auth_id de la
+        // sesión viva; la fila del número se pliega dentro y se borra.
+        const { data: webRow } = await supabase.from('usuarios')
+          .select('id, nombre')
+          .eq('supabase_auth_id', otp.supabase_auth_id)
+          .maybeSingle();
+
+        const marcarVerificado = async () => {
+          await supabase.from('webapp_otp').update({
+            verified_at: new Date().toISOString(),
+            whatsapp_verified: from.replace(/^\+/, ''),
+          }).eq('id', otp.id);
+        };
+        const primerNombre = (n) => (n || '').split(' ')[0];
+
+        if (!webRow) {
+          // La cuenta web no llegó a crear su fila (fallo de creación → fallback): vincula
+          // el auth directamente sobre la fila del número. Ese número pasa a ser su cuenta.
           const { error: linkErr } = await supabase.from('usuarios').update({
             supabase_auth_id: otp.supabase_auth_id,
             email: otp.email || usuario.email,
@@ -418,16 +444,46 @@ function createWebhookHandler(procesarMensajeLibre) {
             }
             throw linkErr;
           }
-          await supabase.from('webapp_otp').update({
-            verified_at: new Date().toISOString(),
-            whatsapp_verified: from.replace(/^\+/, ''),
-          }).eq('id', otp.id);
-          const pn = (otp.nombre || usuario.nombre || '').split(' ')[0];
+          await marcarVerificado();
+          const pn = primerNombre(otp.nombre || usuario.nombre);
           await enviarWhatsapp(from, '✅ ' + (pn ? pn + ', t' : 'T') + 'u cuenta web quedó verificada y vinculada a este WhatsApp.\n\nYa puedes volver a app.neto.pe. 🎉');
-          log.info({ tag: 'WEBAPP_OTP', usuarioId: usuario.id }, 'Cuenta web verificada');
-        } else {
-          await enviarWhatsapp(from, '⚠️ Ese código de verificación no es válido o ya expiró.\n\nVuelve a app.neto.pe y genera uno nuevo.');
+          log.info({ tag: 'WEBAPP_OTP', usuarioId: usuario.id }, 'Cuenta web verificada (link directo)');
+          return;
         }
+
+        if (webRow.id === usuario.id) {
+          // El número YA es de esta cuenta web (reenvío del código): nada que fusionar.
+          await marcarVerificado();
+          const pn = primerNombre(webRow.nombre || usuario.nombre);
+          await enviarWhatsapp(from, '✅ ' + (pn ? pn + ', t' : 'T') + 'u cuenta ya está verificada y vinculada a este WhatsApp. 🎉');
+          return;
+        }
+
+        // Dos filas distintas → fusión atómica. merge_and_link rechaza los bordes inseguros
+        // (número ligado a otra cuenta Google, o espacio/meta compartida entre ambas filas).
+        const { data: mergeResult, error: mergeErr } = await supabase.rpc('merge_and_link', {
+          p_survivor: webRow.id,
+          p_loser: usuario.id,
+        });
+        if (mergeErr) {
+          log.error({ tag: 'WEBAPP_OTP', err: mergeErr.message }, 'Error en merge_and_link');
+          await enviarWhatsapp(from, '⚠️ Tuvimos un problema al vincular tu cuenta. Intenta de nuevo en un momento o escríbenos a soporte.');
+          return;
+        }
+        if (mergeResult === 'conflict') {
+          await enviarWhatsapp(from, '⚠️ No pudimos vincular automáticamente: este número o tu cuenta ya tienen datos que necesitan revisión manual.\n\nEscríbenos a soporte y lo resolvemos rápido.');
+          log.warn({ tag: 'WEBAPP_OTP', survivor: webRow.id, loser: usuario.id }, 'Merge en conflicto → soporte');
+          return;
+        }
+        if (mergeResult !== 'linked') {
+          log.error({ tag: 'WEBAPP_OTP', result: mergeResult }, 'merge_and_link resultado inesperado');
+          await enviarWhatsapp(from, '⚠️ Tuvimos un problema al vincular tu cuenta. Intenta de nuevo en un momento o escríbenos a soporte.');
+          return;
+        }
+        await marcarVerificado();
+        const pn = primerNombre(webRow.nombre || usuario.nombre || otp.nombre);
+        await enviarWhatsapp(from, '✅ ' + (pn ? pn + ', t' : 'T') + 'u cuenta web quedó verificada y vinculada a este WhatsApp.\n\nTus datos quedaron unificados. Ya puedes volver a app.neto.pe. 🎉');
+        log.info({ tag: 'WEBAPP_OTP', survivor: webRow.id, loser: usuario.id }, 'Cuenta web verificada (merge)');
         return;
       } catch (e) {
         log.error({ tag: 'WEBAPP_OTP', err: e.message }, 'Error verificando cuenta web');

@@ -920,7 +920,13 @@ export default function ConfiguracionPage() {
                     {/* WhatsApp */}
                     <div className="flex items-center gap-2 text-sm">
                       <Phone className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="text-secondary-foreground">{user.whatsapp}</span>
+                      {user.whatsapp ? (
+                        <span className="text-secondary-foreground">{user.whatsapp}</span>
+                      ) : (
+                        <NextLink href="/onboarding" className="text-[#1D9E75] hover:underline">
+                          Conectar WhatsApp (opcional)
+                        </NextLink>
+                      )}
                     </div>
 
                     {/* Member since */}

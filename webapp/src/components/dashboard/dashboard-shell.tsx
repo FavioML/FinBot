@@ -9,6 +9,7 @@ import { Topbar } from '@/components/dashboard/topbar';
 import { BottomNav } from '@/components/dashboard/bottom-nav';
 import { QuickAddButton } from '@/components/dashboard/quick-add-button';
 import { OnboardingTour } from '@/components/dashboard/onboarding-tour';
+import { ConnectWhatsappBanner } from '@/components/dashboard/connect-whatsapp-banner';
 import { WhatsAppButton } from '@/components/shared/whatsapp-button';
 import { OverviewSkeleton } from '@/components/dashboard/skeletons';
 import { useUser, decidirRedirectAuth } from '@/lib/hooks/use-user';
@@ -122,6 +123,7 @@ function ShellChrome({ children }: { children: React.ReactNode }) {
           <Topbar onMenuClick={() => setSidebarOpen(true)} />
           <main className="flex-1 overflow-y-auto p-4 pb-44 md:p-6 md:pb-28 lg:p-8 lg:pb-28">
             <div className="mx-auto max-w-7xl">
+              {!gateContent && <ConnectWhatsappBanner />}
               {gateContent ? fallback : children}
             </div>
           </main>
