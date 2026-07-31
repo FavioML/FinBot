@@ -83,7 +83,11 @@ export interface AdminEconomics {
   breakeven_gap: number;
   ltv_pro_pen: number;
   cac_referidos_pen: number;
-  runway_months: number | null;
+  // Margen operativo mensual = MRR − costos mensuales (lo que Neto genera limpio al mes; puede ser
+  // negativo). Caja generada acumulada = suma histórica de (ingresos − costos pagados) = result_total
+  // del RPC admin_pnl_totals. Reemplazan al runway (no aplica: Neto es cash-positive en infra).
+  operating_margin_monthly_pen: number;
+  cash_generated_pen: number;
 
   // Activity
   transactions_total: number;

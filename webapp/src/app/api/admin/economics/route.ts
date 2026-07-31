@@ -71,6 +71,7 @@ export async function GET() {
     { count: txTotalCount },
     { data: mesRows },
     { data: treintaRows },
+    { data: pnlTotalsRows },
   ] = await Promise.all([
     db
       .from('usuarios')
@@ -90,6 +91,9 @@ export async function GET() {
       p_day: monthAgoIso,
       p_week: monthAgoIso,
       p_month: monthAgoIso,
+    }),
+    db.rpc('admin_pnl_totals', {
+      p_excluded: Array.from(EXCLUDED_REVENUE_WHATSAPP),
     }),
   ]);
 
@@ -244,6 +248,13 @@ export async function GET() {
     });
   }
 
+  // Margen operativo mensual = MRR − costos mensuales (lo que Neto genera limpio al mes). Caja
+  // generada acumulada = result_total del RPC admin_pnl_totals (045): suma histórica de la caja neta.
+  const operatingMarginMonthlyPen =
+    Math.round((mrr - totalMonthlyCostsPen) * 100) / 100;
+  const pnlTotals = (pnlTotalsRows as Array<{ result_total: number | string }> | null)?.[0];
+  const cashGeneratedPen = pnlTotals ? Number(pnlTotals.result_total) : 0;
+
   const economics: AdminEconomics = {
     mrr: Math.round(mrr * 100) / 100,
     arr: Math.round(arr * 100) / 100,
@@ -264,7 +275,8 @@ export async function GET() {
     breakeven_gap: breakevenGap,
     ltv_pro_pen: ltvProPen,
     cac_referidos_pen: CAC_REFERIDOS_PEN,
-    runway_months: null,
+    operating_margin_monthly_pen: operatingMarginMonthlyPen,
+    cash_generated_pen: cashGeneratedPen,
     transactions_total: transactionsTotal,
     transactions_this_month: transactionsThisMonth,
     active_users_30d: activeUsers30d,

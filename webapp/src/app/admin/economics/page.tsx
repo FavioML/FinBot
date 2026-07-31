@@ -202,6 +202,22 @@ export default function AdminEconomicsPage() {
             subtitle={`${formatPen(data.total_yearly_costs_pen, 0)} al año`}
           />
           <SmallKpi
+            label="Margen operativo / mes"
+            value={`${data.operating_margin_monthly_pen >= 0 ? '+' : '−'}${formatPen(
+              Math.abs(data.operating_margin_monthly_pen),
+              0,
+            )}`}
+            subtitle="MRR menos costos mensuales"
+          />
+          <SmallKpi
+            label="Caja generada"
+            value={`${data.cash_generated_pen >= 0 ? '+' : '−'}${formatPen(
+              Math.abs(data.cash_generated_pen),
+              0,
+            )}`}
+            subtitle="Acumulado histórico (caja real)"
+          />
+          <SmallKpi
             label="Activos 30d"
             value={data.active_users_30d}
             subtitle="Con ≥1 transacción"

@@ -262,6 +262,12 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
     eco.active_users_30d === k.mau,
     `economics ${eco.active_users_30d} vs stats ${k.mau}`,
   );
+  // Margen operativo = MRR − costos mensuales (aritmética interna de la ruta).
+  ok(
+    'economics: margen operativo == mrr − costos mensuales',
+    Math.abs(Number(eco.operating_margin_monthly_pen) - (Math.round((Number(eco.mrr) - Number(eco.total_monthly_costs_pen)) * 100) / 100)) < 0.01,
+    `margen ${eco.operating_margin_monthly_pen} vs ${eco.mrr} − ${eco.total_monthly_costs_pen}`,
+  );
 
   // ---------- 7. MAU contra el oráculo ----------
   const hace30 = new Date(Date.now() - 30 * 86400000).toISOString();
@@ -418,8 +424,33 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
     }
     ok('pnl: ingreso por mes == oráculo (pagos aprobados no-internos)', ingresoCuadra, 'algún mes no cuadra vs oráculo de pagos');
     ok('pnl: costo por mes == oráculo (paid_history)', costoCuadra, 'algún mes no cuadra vs oráculo de paid_history');
+
+    // Caja generada acumulada (economics, RPC admin_pnl_totals 045): total histórico neto == oráculo.
+    // Suma TODO el income y TODO el cost (no solo la ventana de 6 meses del /pnl).
+    const incomeTotal = Object.values(incomeByMonth).reduce((a, b) => a + b, 0);
+    const costTotal = Object.values(costByMonth).reduce((a, b) => a + b, 0);
+    const netTotal = Math.round((incomeTotal - costTotal) * 100) / 100;
+    ok(
+      'economics: caja generada == oráculo histórico (ingresos − costos)',
+      Math.abs(Number(eco.cash_generated_pen) - netTotal) < 0.01,
+      `economics ${eco.cash_generated_pen} vs oráculo ${netTotal}`,
+    );
   } else {
     ok('pnl: la ruta respondió con months', false, 'no hubo months en /api/admin/pnl');
+  }
+
+  // ---------- 10. Guard del endpoint de corrección de historial (mutación) ----------
+  // PUT /costs/[id]/paid-history sin sesión debe rechazar ANTES de tocar la DB. Se manda body {} (sin
+  // paid_history): aunque el guard se rompiera, cae en 400 de validación, nunca escribe (read-only safe).
+  const algunCosto = (resp['/api/admin/costs']?.costs || [])[0];
+  if (algunCosto) {
+    const r = await fetch(`${APP}/api/admin/costs/${algunCosto.id}/paid-history`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+      redirect: 'manual',
+    });
+    ok('guard sin sesión: PUT paid-history', r.status === 401 || r.status === 403, `-> ${r.status}`);
   }
 
   // ---------- Reporte ----------

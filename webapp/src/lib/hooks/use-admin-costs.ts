@@ -1,7 +1,12 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { AdminCost, AdminCostCategory, AdminCostFrequency } from '@/lib/types-admin';
+import type {
+  AdminCost,
+  AdminCostCategory,
+  AdminCostFrequency,
+  AdminCostPaidEntry,
+} from '@/lib/types-admin';
 
 export interface CostInput {
   label: string;
@@ -33,6 +38,9 @@ export function useAdminCosts() {
 function invalidate(queryClient: ReturnType<typeof useQueryClient>) {
   queryClient.invalidateQueries({ queryKey: ['admin', 'costs'] });
   queryClient.invalidateQueries({ queryKey: ['admin', 'economics'] });
+  // El P&L y la caja generada dependen de paid_history y de los pagos: marcar pagado, editar el
+  // historial o cambiar un costo debe refrescar la sección P&L.
+  queryClient.invalidateQueries({ queryKey: ['admin', 'pnl'] });
 }
 
 export function useCreateAdminCost() {
@@ -81,6 +89,25 @@ export function useDeleteAdminCost(id: string) {
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || 'Error al pausar costo');
+      }
+      return (await res.json()).cost as AdminCost;
+    },
+    onSuccess: () => invalidate(queryClient),
+  });
+}
+
+export function useUpdatePaidHistory(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (paid_history: AdminCostPaidEntry[]) => {
+      const res = await fetch(`/api/admin/costs/${id}/paid-history`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paid_history }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Error al actualizar historial');
       }
       return (await res.json()).cost as AdminCost;
     },
