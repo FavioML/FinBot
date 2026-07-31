@@ -185,14 +185,20 @@ export default function JoinGastoPage({ params }: { params: Promise<{ code: stri
             {/* Not a user? */}
             <div className="pt-3 border-t border-[rgba(255,255,255,0.05)] text-center">
               <p className="text-xs text-[#8A877D] mb-2">No tienes cuenta NETO?</p>
-              <a
-                href="https://wa.me/51933014505?text=Hola%20Neto%2C%20quiero%20empezar%20a%20ordenar%20mis%20finanzas%20%F0%9F%91%8B"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs text-[#1D9E75] hover:underline"
-              >
-                Registrate gratis por WhatsApp
-              </a>
+              <div className="flex items-center justify-center gap-2 text-xs">
+                <a href="/login" className="text-[#1D9E75] hover:underline">
+                  Regístrate en la app
+                </a>
+                <span className="text-[#8A877D]">o</span>
+                <a
+                  href="https://wa.me/51933014505?text=Hola%20Neto%2C%20quiero%20empezar%20a%20ordenar%20mis%20finanzas%20%F0%9F%91%8B"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[#1D9E75] hover:underline"
+                >
+                  por WhatsApp
+                </a>
+              </div>
             </div>
           </div>
         ) : null}

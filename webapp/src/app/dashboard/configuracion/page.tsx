@@ -1026,17 +1026,50 @@ export default function ConfiguracionPage() {
 
               {/* Cuentas conectadas */}
               <Section id="cuentas" icon={Mail} title="Cuentas conectadas">
-                {user.email ? (
-                  <div className="flex items-center justify-between rounded-xl border border-border bg-muted/40 px-4 py-3">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate text-sm text-secondary-foreground">{user.email}</span>
+                <div className="space-y-2.5">
+                  {user.email && (
+                    <div className="flex items-center justify-between rounded-xl border border-border bg-muted/40 px-4 py-3">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="truncate text-sm text-secondary-foreground">{user.email}</span>
+                      </div>
+                      <Badge className="shrink-0 border-primary/30 bg-primary/20 text-xs text-primary">Activa</Badge>
                     </div>
-                    <Badge className="shrink-0 border-primary/30 bg-primary/20 text-xs text-primary">Activa</Badge>
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">No hay cuentas conectadas.</p>
-                )}
+                  )}
+
+                  {/* WhatsApp — conéctalo para registrar por chat (una sola cuenta) */}
+                  {user.whatsapp ? (
+                    <div className="flex items-center justify-between rounded-xl border border-border bg-muted/40 px-4 py-3">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <MessageCircle className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="truncate text-sm text-secondary-foreground">{user.whatsapp}</span>
+                      </div>
+                      <Badge className="shrink-0 border-primary/30 bg-primary/20 text-xs text-primary">Conectado</Badge>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-muted/40 px-4 py-3">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <MessageCircle className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <div className="min-w-0">
+                          <p className="text-sm text-secondary-foreground">WhatsApp</p>
+                          <p className="text-xs text-muted-foreground">
+                            Conéctalo y registra gastos por chat. Queda todo en una sola cuenta.
+                          </p>
+                        </div>
+                      </div>
+                      <NextLink
+                        href="/onboarding"
+                        className="shrink-0 rounded-lg bg-primary px-3.5 py-1.5 text-xs font-medium text-primary-foreground transition-all hover:bg-primary/90 active:scale-95"
+                      >
+                        Conectar
+                      </NextLink>
+                    </div>
+                  )}
+
+                  {!user.email && !user.whatsapp && (
+                    <p className="text-sm text-muted-foreground">No hay cuentas conectadas.</p>
+                  )}
+                </div>
               </Section>
             </div>
 
