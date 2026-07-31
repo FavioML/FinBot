@@ -27,6 +27,30 @@ export async function middleware(request: NextRequest) {
     return res;
   };
 
+  // Captura del token de activación (?t= del link que Neto manda por WhatsApp).
+  // Mismo problema y misma solución que el ?ref de arriba: la query se pierde en
+  // el roundtrip a Google, así que se persiste apenas se ve y /auth/callback la
+  // consume para vincular la cuenta. Acá NO se verifica la firma — el middleware
+  // corre en el Edge y no tiene node:crypto; la cookie es solo transporte y la
+  // verificación real ocurre en /activar, en el callback y en la confirmación.
+  const actParam = request.nextUrl.searchParams.get('t');
+  const actToken =
+    request.nextUrl.pathname === '/activar' && actParam && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(actParam)
+      ? actParam
+      : null;
+  const withAct = (res: NextResponse): NextResponse => {
+    if (actToken) {
+      res.cookies.set('neto_act', actToken, {
+        maxAge: 60 * 60, // 1h: el login pasa ahora o no pasa. El token dura 7 días aparte.
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: true,
+        path: '/',
+      });
+    }
+    return res;
+  };
+
   // La raíz solo rebota a /login (page.tsx); no necesita el gate de auth. Pasa por el
   // middleware solo para atrapar el ?ref, así evitamos el getUser() en la home.
   if (request.nextUrl.pathname === '/') {
@@ -92,7 +116,7 @@ export async function middleware(request: NextRequest) {
     return withRef(NextResponse.redirect(url));
   }
 
-  return withRef(supabaseResponse);
+  return withAct(withRef(supabaseResponse));
 }
 
 export const config = {
