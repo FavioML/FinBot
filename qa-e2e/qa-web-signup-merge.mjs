@@ -177,12 +177,47 @@ async function escenarioConflictoEspacio() {
   }
 }
 
+async function escenarioColisiones() {
+  console.log(`\n[${TAG}] 4) Colisiones de unique (categorías/presupuesto idénticos a ambos lados)`);
+  let survivor, loser;
+  try {
+    survivor = await crearUsuario({ authId: randomUUID() });
+    loser = await crearUsuario({ whatsapp: numero() });
+    // Mismos nombres a ambos lados: sin dedup, el merge abortaría por unique_violation.
+    for (const uid of [survivor, loser]) {
+      await db.from('categorias_usuario').insert([
+        { usuario_id: uid, nombre: 'Alimentación', emoji: '🍽️' },
+        { usuario_id: uid, nombre: 'Transporte', emoji: '🚌' },
+      ]);
+      await db.from('presupuestos').insert({ usuario_id: uid, categoria: 'Comida', monto_limite: 300, mes: 7, anio: 2026 });
+    }
+    // Dato único solo del lado WhatsApp: debe migrar igual.
+    await db.from('categorias_usuario').insert({ usuario_id: loser, nombre: 'SoloWhatsApp', emoji: '📲' });
+
+    const { data: result, error } = await db.rpc('merge_and_link', { p_survivor: survivor, p_loser: loser });
+    ok(!error, `rpc sin error${error ? ': ' + error.message : ''}`);
+    ok(result === 'linked', `resultado 'linked' pese a colisiones (got '${result}')`);
+    ok(!(await existeUsuario(loser)), 'loser borrado');
+
+    const { count: alim } = await db.from('categorias_usuario').select('id', { count: 'exact', head: true }).eq('usuario_id', survivor).eq('nombre', 'Alimentación');
+    ok(alim === 1, `'Alimentación' deduplicada (1, got ${alim})`);
+    const { count: solo } = await db.from('categorias_usuario').select('id', { count: 'exact', head: true }).eq('usuario_id', survivor).eq('nombre', 'SoloWhatsApp');
+    ok(solo === 1, `categoría única del WhatsApp migró (1, got ${solo})`);
+    const { count: pres } = await db.from('presupuestos').select('id', { count: 'exact', head: true }).eq('usuario_id', survivor).eq('categoria', 'Comida').eq('mes', 7).eq('anio', 2026);
+    ok(pres === 1, `presupuesto duplicado deduplicado (1, got ${pres})`);
+  } finally {
+    await borrarUsuario(survivor);
+    await borrarUsuario(loser);
+  }
+}
+
 (async () => {
   console.log(`[${TAG}] Merge de identidad web-first — run ${RUN}`);
   try {
     await escenarioFeliz();
     await escenarioConflictoAuth();
     await escenarioConflictoEspacio();
+    await escenarioColisiones();
   } catch (e) {
     console.error(`[${TAG}] Error fatal:`, e.message);
     fail++;
