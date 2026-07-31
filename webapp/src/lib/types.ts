@@ -13,6 +13,10 @@ export interface Usuario {
   fecha_vencimiento?: string;
   aprobado_gcc?: boolean;
   supabase_auth_id?: string;
+  /** Descuento de referido: 50% off del primer mes Pro. Sembrado al registrarse con un link. */
+  referido_dscto_pct?: number | null;
+  /** Fecha (YYYY-MM-DD, Lima) en que vence el descuento de referido (7 días desde el alta). */
+  referido_dscto_vence?: string | null;
   created_at: string;
   updated_at: string;
 }
