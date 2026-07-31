@@ -6,6 +6,7 @@ const { hoyPeru } = require('../lib/dates');
 const { enviarWhatsapp } = require('../lib/whatsapp');
 const { guardarMensaje } = require('../helpers/db-helpers');
 const { activarPro, reclamarPagoPendiente } = require('../lib/pro-payment');
+const { resumenReferidoParaAdmin } = require('../services/referrals');
 const { responderTicket } = require('../lib/support-tickets');
 const { generarUrlAutorizacion } = require('../gmail');
 
@@ -80,7 +81,7 @@ router.post('/aprobar-pago', async (req, res) => {
 
     // Fuente única de verdad: activarPro (incluye "no acortar suscripción activa",
     // set completo de columnas, link OAuth, WhatsApp + notificación in-app).
-    const { venceStr } = await activarPro({ usuario, tipoPlan, aprobadoPor: 'admin:webapp', pagoId: claimed.id });
+    const { venceStr } = await activarPro({ usuario, tipoPlan, aprobadoPor: 'admin:webapp', pagoId: claimed.id, esConversionPagada: true });
 
     res.json({ ok: true, msg: 'Pago aprobado y Pro activado para ' + (usuario.nombre || usuario.whatsapp), premium_vence: venceStr });
   } catch (e) {
@@ -105,7 +106,13 @@ router.get('/pagos', async (req, res) => {
         p.comprobante_signed_url = signed ? signed.signedUrl : null;
       }
     }
-    res.json({ ok: true, pagos: pagos || [] });
+    // Contexto de referido del usuario (si se pidió por usuario_id): descuento vigente +
+    // quién lo refirió, para que el admin apruebe sabiendo que se espera S/5 y quién gana el mes.
+    let referido = null;
+    if (usuarioId) {
+      try { referido = await resumenReferidoParaAdmin(usuarioId); } catch (e) { log.warn({ tag: 'ADMIN_PAGOS', err: e.message }, 'No se pudo leer el contexto de referido'); }
+    }
+    res.json({ ok: true, pagos: pagos || [], referido });
   } catch (e) {
     log.error({ tag: 'ADMIN_PAGOS', err: e.message }, 'Error listando pagos');
     res.status(500).json({ ok: false, msg: 'Error listando pagos' });

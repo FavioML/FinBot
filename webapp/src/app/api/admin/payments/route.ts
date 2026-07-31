@@ -26,7 +26,7 @@ export async function GET(request: Request) {
     if (!res.ok || !json.ok) {
       return NextResponse.json({ error: json.msg || 'Error consultando pagos' }, { status: res.status || 500 });
     }
-    return NextResponse.json({ ok: true, pagos: json.pagos || [] });
+    return NextResponse.json({ ok: true, pagos: json.pagos || [], referido: json.referido ?? null });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 502 });
   }

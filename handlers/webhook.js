@@ -13,7 +13,7 @@ const { parsearCorreoBancario } = require('../services/parsers');
 const { notificarErrorAdmin } = require('../lib/admin-notify');
 const { registrarError } = require('../lib/error-monitor');
 const { generarUrlAutorizacion, menuSeleccionBancos, menuEdicionBancos } = require('../gmail');
-const { registrarReferido, verificarProReferidos } = require('../services/referrals');
+const { registrarReferido, obtenerEstadisticasReferidos, mensajeMisReferidos } = require('../services/referrals');
 const { obtenerCategoriasUsuario } = require('../services/categories');
 const { escanearGmailYRegistrar } = require('../services/gmail-scanner');
 const { generarResumenSemanal } = require('../services/summaries');
@@ -497,10 +497,10 @@ function createWebhookHandler(procesarMensajeLibre) {
       const refCode = refMatch[1].toUpperCase();
       const { data: referrer } = await supabase.from('usuarios').select('id').eq('ref_code', refCode).neq('id', usuario.id).single();
       if (referrer) {
-        // Con await: sin él, verificarProReferidos podía leer los referidos antes de que
-        // el insert de registrarReferido aterrizara y no contar al recién llegado.
+        // Solo vincular + sembrar el 50% off del referido. El premio al referrer NO se
+        // dispara aquí (unirse ≠ convertir): salta recién cuando el referido PAGA Pro,
+        // dentro de lib/pro-payment:activarPro.
         await registrarReferido(referrer.id, usuario.id);
-        await verificarProReferidos(referrer.id);
       }
     }
 
@@ -644,20 +644,8 @@ function createWebhookHandler(procesarMensajeLibre) {
         await supabase.from('usuarios').update({ ref_code: refCode }).eq('id', usuario.id);
         usuario.ref_code = refCode;
       }
-      const { data: misRefs } = await supabase.from('referidos').select('activo').eq('referrer_id', usuario.id);
-      const totalRefs = (misRefs || []).length;
-      const activos = (misRefs || []).filter(r => r.activo).length;
-      const railwayUrl = process.env.RAILWAY_URL || 'https://api.neto.pe';
-      const mesesAcumulados = Math.floor(activos / 3);
-      const progreso = activos % 3;
-      let estadoRef = '_Referidos: ' + totalRefs + ' | Activos: ' + activos + '_';
-      if (mesesAcumulados > 0) {
-        estadoRef += '\n✅ *' + (mesesAcumulados === 1 ? '1 mes' : mesesAcumulados + ' meses') + ' gratis ganado' + (mesesAcumulados > 1 ? 's' : '') + '*';
-        if (progreso > 0) estadoRef += ' | ' + progreso + '/3 para el siguiente';
-      } else {
-        estadoRef += ' | ' + progreso + '/3 para tu primer mes gratis';
-      }
-      respuesta = '🎁 *Tu link de referido:*\n\n' + railwayUrl + '/r/' + refCode + '\n\nComparte con amigos. Cada *3 referidos* te dan *1 mes gratis* de Neto. 🎉\n\n' + estadoRef;
+      const statsRef = await obtenerEstadisticasReferidos(usuario.id);
+      respuesta = mensajeMisReferidos(refCode, statsRef);
     } else if (cmd === '/dashboard' || cmd === '/app') {
       respuesta = '📊 *Tu dashboard está en:*\n\n🔗 https://app.neto.pe\n\nAhí puedes ver gráficos, metas, reportes PDF, suscripciones y más.\n\n_Inicia sesión con tu cuenta de Google._';
     } else if (cmd === '/soporte' || cmd === '/humano') {

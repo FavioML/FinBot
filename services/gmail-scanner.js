@@ -8,7 +8,6 @@ const { leerCorreosBancarios } = require('../gmail');
 const { parsearCorreoBancario } = require('./parsers');
 const { guardarTransaccion } = require('./transactions');
 const { obtenerCategoriasUsuario } = require('./categories');
-const { verificarProReferidos } = require('./referrals');
 const { getUserPlanConfig } = require('../helpers/db-helpers');
 const { crearNotificacion } = require('../lib/notifications-db');
 
@@ -102,12 +101,10 @@ async function escanearGmailYRegistrar(usuario, opts = {}) {
       if (enviarAlertas) {
         setTimeout(async function() {
           try { await getEnviarAlertaTransaccion()(usuario, txGuardada, resultado); } catch(e) { log.error({ tag: 'ALERTA', err: e.message }, 'Error alerta transacción'); }
-          try {
-            const { data: miRef } = await supabase.from('referidos').select('referrer_id').eq('referido_id', usuario.id).single();
-            if (miRef) verificarProReferidos(miRef.referrer_id);
-          } catch(e) { log.warn({ tag: 'REFERIDO', err: e.message }, 'Error verificando referido'); }
         }, 5000);
       }
+      // El premio de referidos ya NO se dispara por uso (correos): el modelo dos-lados
+      // premia al referrer recién cuando el referido PAGA Pro (ver lib/pro-payment:activarPro).
     } catch (e) { log.error({ tag: 'CORREO', err: e.message }, 'Error procesando correo'); registrarError('CORREO', e.message, { stack: e.stack, usuarioId: usuario.id }); }
   });
   if (registradas === 0) {

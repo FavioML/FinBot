@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 
 // GET /api/pro/status — estado del plan + última solicitud (para el polling de /dashboard/pro)
 export async function GET() {
-  const auth = await requireNetoUser('id, plan, pago_pendiente, premium_vence, tipo_plan, bancos_seleccionados, gmail_access_token');
+  const auth = await requireNetoUser('id, plan, pago_pendiente, premium_vence, tipo_plan, bancos_seleccionados, gmail_access_token, referido_dscto_pct, referido_dscto_vence');
   if (!auth.ok) return auth.response;
   const user = auth.user;
 
@@ -35,6 +35,18 @@ export async function GET() {
   const gmailConectado = !!cuentaGmail || !!user.gmail_access_token;
   const gmailEmail = (cuentaGmail?.email as string) || null;
 
+  // Descuento de referido (50% off primer mes). Se calcula server-side en fecha Lima para
+  // no depender de la zona del navegador. Solo aplica si NO es premium y no venció.
+  const hoyLima = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+  const dPct = (user.referido_dscto_pct as number | null) || null;
+  const dVence = user.referido_dscto_vence ? String(user.referido_dscto_vence).slice(0, 10) : null;
+  const descuentoActivo = !!dPct && !!dVence && dVence >= hoyLima && user.plan !== 'premium';
+  let descuento = null as null | { pct: number; vence: string; diasRestantes: number };
+  if (descuentoActivo && dPct && dVence) {
+    const ms = new Date(dVence + 'T12:00:00-05:00').getTime() - new Date(hoyLima + 'T12:00:00-05:00').getTime();
+    descuento = { pct: dPct, vence: dVence, diasRestantes: Math.max(0, Math.round(ms / 86400000)) };
+  }
+
   return NextResponse.json({
     plan: (user.plan as string) || 'free',
     isPremium: user.plan === 'premium',
@@ -44,5 +56,6 @@ export async function GET() {
     gmailConectado,
     gmailEmail,
     ultimoPago: pago ? { estado: pago.estado, tipoPlan: pago.tipo_plan } : null,
+    descuento,
   });
 }

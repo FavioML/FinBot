@@ -367,7 +367,7 @@ Factual, not pushy. State what they get. No fake urgency. No aggressive sales la
 
 {url}
 
-Comparte con amigos. Cada *3 referidos activos* te dan *1 mes de NETO Pro gratis* 🎉
+Cuando un amigo se hace Pro con tu link, ganas *1 mes gratis* — y él estrena Pro a *mitad de precio* (S/5 su primer mes) 🎉
 ```
 
 **Anti-pattern (never do this):**

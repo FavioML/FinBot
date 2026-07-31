@@ -2,7 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { supabase } = require('../lib/db');
 const log = require('../lib/logger');
-const { PRO_PRECIOS } = require('../lib/config');
+const { PRO_PRECIOS, precioProEfectivo } = require('../lib/config');
 const { registrarSolicitudPro } = require('../lib/pro-payment');
 const { generarUrlAutorizacion, BANCOS_CATALOGO } = require('../gmail');
 
@@ -74,7 +74,9 @@ router.post('/solicitud', express.raw({ type: 'application/octet-stream', limit:
       .select('id').eq('usuario_id', usuarioId).eq('estado', 'pendiente').limit(1).maybeSingle();
     if (pendiente) return res.status(409).json({ ok: false, msg: 'Ya tienes una solicitud en revisión' });
 
-    const monto = PRO_PRECIOS[tipoPlan] || null;
+    // Precio efectivo: aplica el 50% off de referido si está vigente (mensual → S/5). La fila
+    // `pagos` queda con el monto real esperado, que el admin ve al aprobar.
+    const monto = precioProEfectivo(usuario, tipoPlan) || PRO_PRECIOS[tipoPlan] || null;
     const { pagoId } = await registrarSolicitudPro({
       usuario, monto, montoDetectado: null, tipoPlan,
       metodoPago: 'Yape', comprobanteBuffer: imgBuffer, mimeType, origen: 'webapp',

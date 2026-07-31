@@ -85,10 +85,13 @@ Leyenda: ✅ disponible · ⚠️ parcial/con matiz · ❌ no (o redirige al otr
 
 ## Deuda técnica detectada en la auditoría (no es copy)
 
-- `webapp .../configuracion` Referidos: contador **"0 / 3" hardcodeado**
-  (`page.tsx:1041`) y `referralCode = user.id.slice(0,8)`; no refleja referidos
-  reales. El tracking real de referidos vive en el backend (`intents/premium.js:ver_referidos`).
-  → Cablear la webapp al dato real o quitar el contador falso.
+- ~~`webapp .../configuracion` Referidos: contador **"0 / 3" hardcodeado**
+  (`page.tsx:1041`) y `referralCode = user.id.slice(0,8)`~~ **RESUELTO (2026-07-31,
+  rediseño dos-lados)**: la webapp lee `GET /api/user/referrals` (ref_code real +
+  invitados/referidos Pro/meses). El programa pasó a modelo DOS LADOS: 1 referido que
+  se hace Pro pagado = 1 mes gratis al referrer, y el referido estrena Pro a 50% off su
+  primer mes (S/5). Disparo por conversión Pro pagada en `lib/pro-payment:activarPro`
+  (no por uso). Mini-landing `neto.pe/r/CODE`.
 
 ## Historial de alineación de copy (2026-07-31)
 

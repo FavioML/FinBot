@@ -10,14 +10,28 @@ const analytics = require('../lib/analytics');
 
 const router = express.Router();
 
-// GET /r/:code — redirige a WhatsApp con ref_code
+const LANDING_URL = process.env.LANDING_URL || 'https://neto.pe';
+
+// GET /r/:code — legacy. Antes deep-linkeaba directo a WhatsApp; ahora funnelea por la
+// mini-landing de bienvenida (neto.pe/r/:code), que muestra quién invita + la oferta y de
+// ahí deep-linkea. Los links nuevos ya apuntan a neto.pe/r/:code; esto mantiene vivos los viejos.
 router.get('/r/:code', async (req, res) => {
   const code = (req.params.code || '').toUpperCase();
-  const { data: referrer } = await supabase.from('usuarios').select('id').eq('ref_code', code).single();
-  const waNum = process.env.WA_PHONE_NUMBER || '51933014505';
-  const waText = encodeURIComponent('Hola NETO ref:' + code);
-  if (!referrer) return res.redirect('https://wa.me/' + waNum);
-  res.redirect('https://wa.me/' + waNum + '?text=' + waText);
+  if (!/^[A-Z0-9]{4,12}$/.test(code)) return res.redirect(LANDING_URL);
+  res.redirect(302, LANDING_URL + '/r/' + code);
+});
+
+// GET /api/referidor/:code — resuelve ref_code → primer nombre del referrer para la
+// mini-landing (static export, la consume client-side). Público a propósito: SOLO devuelve
+// el primer nombre, nada sensible (ni id, ni whatsapp, ni email). CORS ya permite neto.pe.
+router.get('/api/referidor/:code', async (req, res) => {
+  const code = (req.params.code || '').toUpperCase();
+  res.set('Cache-Control', 'public, max-age=300');
+  if (!/^[A-Z0-9]{4,12}$/.test(code)) return res.status(404).json({ ok: false });
+  const { data: referrer } = await supabase.from('usuarios').select('nombre').eq('ref_code', code).maybeSingle();
+  if (!referrer) return res.status(404).json({ ok: false });
+  const primerNombre = referrer.nombre ? String(referrer.nombre).split(' ')[0] : null;
+  res.json({ ok: true, nombre: primerNombre });
 });
 
 // GET /auth/callback — OAuth2 callback de Gmail

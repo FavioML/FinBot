@@ -9,13 +9,17 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { FadeIn } from '@/components/shared/motion-wrapper';
 import { HeaderActions } from '@/components/dashboard/topbar';
+import { PRO_PRICE_MONTHLY_PEN, PRO_PRICE_YEARLY_PEN } from '@/lib/constants';
 
 const YAPE_NUMERO = '970398192';
 const YAPE_NOMBRE = 'Favio Mendoza';
-const PRECIOS = { mensual: 10, anual: 99 } as const;
+const PRECIOS = { mensual: PRO_PRICE_MONTHLY_PEN, anual: PRO_PRICE_YEARLY_PEN } as const;
 
 type Plan = 'mensual' | 'anual';
 type Banco = { id: string; label: string };
+
+// Descuento de referido (50% off primer mes). Solo aplica al mensual.
+type Descuento = { pct: number; vence: string; diasRestantes: number } | null;
 
 interface ProStatus {
   plan: string;
@@ -26,6 +30,15 @@ interface ProStatus {
   gmailConectado: boolean;
   gmailEmail: string | null;
   ultimoPago: { estado: string; tipoPlan: string } | null;
+  descuento: Descuento;
+}
+
+// Precio efectivo del plan aplicando el descuento de referido (solo mensual).
+function precioEfectivo(plan: Plan, descuento: Descuento): number {
+  if (plan === 'mensual' && descuento?.pct) {
+    return Math.round(PRECIOS.mensual * (100 - descuento.pct)) / 100;
+  }
+  return PRECIOS[plan];
 }
 
 export default function ProPage() {
@@ -101,7 +114,7 @@ export default function ProPage() {
         ) : pendiente ? (
           <PendingState onRefresh={() => refetch()} />
         ) : (
-          <PaymentForm rejected={rechazado} onDone={() => refetch()} />
+          <PaymentForm rejected={rechazado} descuento={status.descuento} onDone={() => refetch()} />
         )}
       </div>
     </FadeIn>
@@ -323,7 +336,7 @@ function PendingState({ renewal = false, onRefresh }: { renewal?: boolean; onRef
 
 /* --------------------------- Payment form --------------------------- */
 
-function PaymentForm({ rejected = false, renewal = false, onDone }: { rejected?: boolean; renewal?: boolean; onDone: () => void }) {
+function PaymentForm({ rejected = false, renewal = false, descuento = null, onDone }: { rejected?: boolean; renewal?: boolean; descuento?: Descuento; onDone: () => void }) {
   const [plan, setPlan] = useState<Plan>('mensual');
   const [copied, setCopied] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -335,7 +348,7 @@ function PaymentForm({ rejected = false, renewal = false, onDone }: { rejected?:
     return () => { if (preview) URL.revokeObjectURL(preview); };
   }, [preview]);
 
-  const monto = PRECIOS[plan];
+  const monto = precioEfectivo(plan, descuento);
 
   function copyNumero() {
     navigator.clipboard.writeText(YAPE_NUMERO);
@@ -373,6 +386,25 @@ function PaymentForm({ rejected = false, renewal = false, onDone }: { rejected?:
 
   return (
     <div className="space-y-5">
+      {descuento && !renewal && (
+        <div className="glass-card p-4 border border-[#1D9E75]/30 bg-[#1D9E75]/5 flex items-start gap-3">
+          <div className="mt-0.5 inline-flex items-center justify-center w-9 h-9 rounded-lg bg-[#1D9E75]/15 shrink-0">
+            <Crown className="w-5 h-5 text-[#1D9E75]" />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-[#F0EFE8]">Tu 50% de bienvenida está activo 🎉</p>
+            <p className="text-xs text-[#8A877D] mt-0.5">
+              Estrena Neto Pro por{' '}
+              <span className="text-[#1D9E75] font-semibold">S/{precioEfectivo('mensual', descuento)}</span>{' '}
+              <span className="line-through">S/{PRECIOS.mensual}</span> tu primer mes (plan mensual).{' '}
+              {descuento.diasRestantes > 0
+                ? `Vence en ${descuento.diasRestantes} día${descuento.diasRestantes === 1 ? '' : 's'}.`
+                : 'Vence hoy.'}
+            </p>
+          </div>
+        </div>
+      )}
+
       {rejected && (
         <div className="glass-card p-4 border border-[#D85A30]/30 bg-[#D85A30]/5">
           <p className="text-sm text-[#D85A30]">
@@ -402,7 +434,14 @@ function PaymentForm({ rejected = false, renewal = false, onDone }: { rejected?:
                 )}
               </div>
               <p className="mt-1 text-lg font-bold text-[#1D9E75]">
-                S/{PRECIOS[p]}
+                {p === 'mensual' && descuento ? (
+                  <>
+                    S/{precioEfectivo('mensual', descuento)}
+                    <span className="ml-1.5 text-xs font-normal text-[#8A877D] line-through">S/{PRECIOS.mensual}</span>
+                  </>
+                ) : (
+                  <>S/{PRECIOS[p]}</>
+                )}
                 <span className="text-xs font-normal text-[#8A877D]">/{p === 'anual' ? 'año' : 'mes'}</span>
               </p>
             </button>

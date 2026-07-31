@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, type ReactNode, type ComponentType } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import NextLink from 'next/link';
 import Image from 'next/image';
@@ -704,13 +705,24 @@ export default function ConfiguracionPage() {
   }
 
   const isPremium = user?.plan === 'premium';
-  const referralCode = user?.id?.slice(0, 8).toUpperCase() ?? 'CODIGO';
-  const referralLink = `neto.pe/r/${referralCode}`;
+
+  /* ---- Referidos: link REAL (ref_code) + progreso dos-lados desde el backend ---- */
+  const { data: referrals } = useQuery({
+    queryKey: ['user-referrals'],
+    queryFn: async () => {
+      const r = await fetch('/api/user/referrals', { cache: 'no-store' });
+      if (!r.ok) throw new Error('referrals');
+      return r.json() as Promise<{ refCode: string; link: string; invitados: number; referidosPro: number; meses: number }>;
+    },
+  });
+  const referralFullLink = referrals?.link ?? '';
+  const referralLink = referralFullLink ? referralFullLink.replace(/^https?:\/\//, '') : 'Generando tu link…';
 
   /* ---- Copy referral link ---- */
   async function handleCopy() {
+    if (!referralFullLink) return;
     try {
-      await navigator.clipboard.writeText(`https://${referralLink}`);
+      await navigator.clipboard.writeText(referralFullLink);
       setCopied(true);
       toast.success('Link copiado al portapapeles');
       setTimeout(() => setCopied(false), 2000);
@@ -1019,7 +1031,7 @@ export default function ConfiguracionPage() {
                 id="referidos"
                 icon={LinkIcon}
                 title="Programa de referidos"
-                description="Invita a 3 amigos. Cuando se suscriban y estén activos, tu siguiente mes es gratis."
+                description="Cuando un amigo se hace Pro con tu link, ganas 1 mes gratis — y él estrena Pro a mitad de precio su primer mes."
               >
                 <div className="flex items-center gap-2">
                   <div className="flex-1 truncate rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-secondary-foreground">
@@ -1030,19 +1042,23 @@ export default function ConfiguracionPage() {
                     size="icon"
                     className="shrink-0 border-border bg-transparent transition-all duration-200 hover:bg-white/[0.05] active:scale-95"
                     onClick={handleCopy}
+                    disabled={!referralFullLink}
                   >
                     {copied ? <Check className="h-4 w-4 text-primary" /> : <Copy className="h-4 w-4 text-muted-foreground" />}
                   </Button>
                 </div>
 
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Referidos activos</span>
-                    <span className="font-medium text-secondary-foreground">0 / 3 necesarios</span>
-                  </div>
-                  <div className="h-2 w-full rounded-full bg-muted">
-                    <div className="h-full rounded-full bg-primary transition-all duration-500" style={{ width: '0%' }} />
-                  </div>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  {[
+                    { label: 'Invitados', value: referrals?.invitados ?? 0 },
+                    { label: 'Referidos Pro', value: referrals?.referidosPro ?? 0 },
+                    { label: 'Meses ganados', value: referrals?.meses ?? 0 },
+                  ].map((s) => (
+                    <div key={s.label} className="rounded-lg border border-border bg-muted/40 px-2 py-3">
+                      <div className="text-xl font-bold tabular-nums text-secondary-foreground">{s.value}</div>
+                      <div className="mt-0.5 text-[11px] text-muted-foreground">{s.label}</div>
+                    </div>
+                  ))}
                 </div>
               </Section>
 

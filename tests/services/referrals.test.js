@@ -5,23 +5,24 @@ import path from 'path';
 const require = createRequire(import.meta.url);
 const projectRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname).replace(/^\/([A-Za-z]):/, '$1:'), '../..');
 
-// Regresion de services/referrals.js. Dos clases de bug cubiertas aqui:
+// Regresión de services/referrals.js — modelo de referidos DOS LADOS (rediseño 2026-07-31).
 //
-// 1. NO IDEMPOTENCIA (el caro). verificarProReferidos sumaba floor(activos/3) meses a
-//    premium_vence en cada invocacion, tomando como base el propio premium_vence. Tras
-//    el primer otorgamiento la base ya era futura, asi que el guard `venceStr !== venceActual`
-//    nunca frenaba: 5 llamadas con los mismos 3 referidos = 5 meses de Pro. Y se invoca
-//    por CADA correo bancario procesado de un referido (gmail-scanner).
-// 2. ESCRITURA SOBRE LECTURA FALLIDA. Un SELECT que falla devuelve { data: null, error }
-//    sin lanzar; el codigo lo leia como "no existe" y escribia igual.
-//
-// Ver docs/SESION-escrituras-sobre-lectura-fallida.md.
+// Invariantes cubiertas:
+// 1. El premio al referrer se dispara por CONVERSIÓN Pro pagada del referido, no por uso.
+//    procesarConversionProReferido premia 1 mes por conversión, idempotente por-referido
+//    (claim atómico convertido_pro false->true).
+// 2. ANTI-DOBLE-OTORGAMIENTO. El otorgamiento del mes usa un CAS sobre
+//    referidos_meses_otorgados: dos conversiones concurrentes del mismo referrer no pisan
+//    su premium_vence (last-write-wins daría 1 mes en vez de 2).
+// 3. ESCRITURA SOBRE LECTURA FALLIDA. Un SELECT que falla no se interpreta como "no existe".
+// 4. Lado del referido: sembrarDescuentoReferido pone 50% off (7 días) solo a un free sin
+//    descuento vigente.
 
 let router;
 function makeChain(table, op) {
   const q = { table, op, payload: null, methods: [] };
   const chain = {};
-  for (const m of ['eq', 'neq', 'gte', 'lte', 'lt', 'gt', 'ilike', 'limit', 'order', 'not', 'in']) {
+  for (const m of ['eq', 'neq', 'gte', 'lte', 'lt', 'gt', 'ilike', 'limit', 'order', 'not', 'in', 'is']) {
     chain[m] = (...a) => { q.methods.push([m, ...a]); return chain; };
   }
   // .update().select('id') sigue siendo escritura: no pisar q.op.
@@ -57,15 +58,18 @@ for (const [rel, exports] of [
   require.cache[p] = { id: p, filename: p, loaded: true, exports };
 }
 
-const { registrarReferido, verificarProReferidos } = require('../../services/referrals');
+const {
+  registrarReferido,
+  sembrarDescuentoReferido,
+  procesarConversionProReferido,
+  obtenerEstadisticasReferidos,
+  resumenReferidoParaAdmin,
+  mensajeMisReferidos,
+} = require('../../services/referrals');
 
 const FALLO = { data: null, error: { message: 'read failure', code: '500' } };
 const SIN_FILA = { data: null, error: { code: 'PGRST116', message: 'no rows' } };
-const TRES_ACTIVOS = [
-  { referido_id: 'a', activo: true },
-  { referido_id: 'b', activo: true },
-  { referido_id: 'c', activo: true },
-];
+const HOY = new Date().toISOString().slice(0, 10);
 const escrituras = (tabla) => ops.filter(o => (o.op === 'insert' || o.op === 'update') && (!tabla || o.table === tabla));
 
 beforeEach(() => {
@@ -76,6 +80,15 @@ beforeEach(() => {
 });
 
 describe('registrarReferido', () => {
+  // Router base: dedup sin fila, referrer con ref_code, referido free sin descuento.
+  function routerAlta(extra) {
+    return (q) => {
+      if (q.table === 'referidos' && q.op === 'select') return SIN_FILA;
+      if (q.table === 'usuarios' && q.op === 'select') return { data: { ref_code: 'ABCD1234', plan: 'free', referido_dscto_vence: null } };
+      return (extra && extra(q)) || {};
+    };
+  }
+
   it('no inserta cuando el SELECT de dedup falla (no puede saber si ya existe)', async () => {
     router = (q) => {
       if (q.table === 'referidos' && q.op === 'select') return FALLO;
@@ -87,52 +100,70 @@ describe('registrarReferido', () => {
     expect(logMock.error).toHaveBeenCalled();
   });
 
-  it('inserta cuando el SELECT confirma que no existe', async () => {
-    router = (q) => {
-      if (q.table === 'referidos' && q.op === 'select') return SIN_FILA;
-      if (q.table === 'usuarios') return { data: { ref_code: 'ABCD1234' } };
-      return {};
-    };
+  it('inserta el vínculo y siembra el descuento cuando el referido es nuevo', async () => {
+    router = routerAlta();
     await registrarReferido('r1', 'u1');
     const ins = escrituras('referidos');
     expect(ins).toHaveLength(1);
     expect(ins[0].payload).toEqual({ ref_code: 'ABCD1234', referrer_id: 'r1', referido_id: 'u1' });
+    // Y siembra el 50% off al referido.
+    const updDscto = escrituras('usuarios').find(o => o.payload.referido_dscto_pct);
+    expect(updDscto).toBeTruthy();
+    expect(updDscto.payload.referido_dscto_pct).toBe(50);
   });
 
-  it('no loguea error cuando el insert choca con el unique index (ya existia)', async () => {
-    router = (q) => {
-      if (q.table === 'referidos' && q.op === 'select') return SIN_FILA;
-      if (q.table === 'usuarios') return { data: { ref_code: 'ABCD1234' } };
-      if (q.op === 'insert') return { data: null, error: { code: '23505', message: 'duplicate key' } };
-      return {};
-    };
+  it('no loguea error cuando el insert choca con el unique index (ya existía)', async () => {
+    router = routerAlta((q) => (q.op === 'insert' ? { data: null, error: { code: '23505', message: 'duplicate key' } } : null));
     await registrarReferido('r1', 'u1');
     expect(logMock.error).not.toHaveBeenCalled();
   });
 
-  it('loguea cuando el insert falla por cualquier otro motivo', async () => {
-    router = (q) => {
-      if (q.table === 'referidos' && q.op === 'select') return SIN_FILA;
-      if (q.table === 'usuarios') return { data: { ref_code: 'ABCD1234' } };
-      if (q.op === 'insert') return { data: null, error: { code: '23502', message: 'null value in column ref_code' } };
-      return {};
-    };
+  it('loguea y no siembra cuando el insert falla por otro motivo', async () => {
+    router = routerAlta((q) => (q.op === 'insert' ? { data: null, error: { code: '23502', message: 'null value' } } : null));
     await registrarReferido('r1', 'u1');
     expect(logMock.error).toHaveBeenCalled();
+    expect(escrituras('usuarios')).toHaveLength(0); // no llegó a sembrar el descuento
   });
 });
 
-describe('verificarProReferidos: idempotencia', () => {
-  // DB simulada con el contador de meses ya otorgados y claim atomico en el UPDATE.
-  function montarDb(activos, filaInicial) {
-    const estado = { fila: { plan: 'free', whatsapp: '51999', premium_vence: null, referidos_meses_otorgados: 0, ...filaInicial } };
+describe('sembrarDescuentoReferido', () => {
+  it('siembra 50% off por 7 días a un referido free sin descuento', async () => {
+    router = (q) => (q.table === 'usuarios' && q.op === 'select') ? { data: { plan: 'free', referido_dscto_vence: null } } : {};
+    await sembrarDescuentoReferido('u1');
+    const upd = escrituras('usuarios')[0];
+    expect(upd.payload.referido_dscto_pct).toBe(50);
+    expect(upd.payload.referido_dscto_vence > HOY).toBe(true);
+  });
+
+  it('no siembra si el referido ya es premium (no tiene primer mes)', async () => {
+    router = (q) => (q.table === 'usuarios' && q.op === 'select') ? { data: { plan: 'premium' } } : {};
+    await sembrarDescuentoReferido('u1');
+    expect(escrituras('usuarios')).toHaveLength(0);
+  });
+
+  it('no reinicia la ventana si el descuento sigue vigente', async () => {
+    router = (q) => (q.table === 'usuarios' && q.op === 'select') ? { data: { plan: 'free', referido_dscto_vence: '2099-12-31' } } : {};
+    await sembrarDescuentoReferido('u1');
+    expect(escrituras('usuarios')).toHaveLength(0);
+  });
+});
+
+describe('procesarConversionProReferido', () => {
+  // DB simulada: fila del referido (claim) + fila del referrer con CAS atómico.
+  function montar({ refRow, claim, referrer, updateReferrer } = {}) {
+    const estado = {
+      referrer: { whatsapp: '51999', nombre: 'Ana Perez', premium_desde: null, premium_vence: null, referidos_meses_otorgados: 0, ...referrer },
+    };
     router = (q) => {
-      if (q.table === 'referidos' && q.op === 'select') return { data: activos() };
-      if (q.table === 'usuarios' && q.op === 'select') return { data: { ...estado.fila } };
+      if (q.table === 'referidos' && q.op === 'select' && q.head) return { count: 3 }; // conteo de convertidos (para el aviso)
+      if (q.table === 'referidos' && q.op === 'select') return { data: refRow === undefined ? { referrer_id: 'r1', convertido_pro: false } : refRow };
+      if (q.table === 'referidos' && q.op === 'update') return { data: claim === undefined ? { referrer_id: 'r1' } : claim }; // claim atómico
+      if (q.table === 'usuarios' && q.op === 'select') return { data: { ...estado.referrer } };
       if (q.table === 'usuarios' && q.op === 'update') {
-        const claim = q.methods.find(m => m[0] === 'eq' && m[1] === 'referidos_meses_otorgados');
-        if (claim && claim[2] !== estado.fila.referidos_meses_otorgados) return { data: [] };
-        estado.fila = { ...estado.fila, ...q.payload };
+        if (updateReferrer) return updateReferrer;
+        const c = q.methods.find(m => m[0] === 'eq' && m[1] === 'referidos_meses_otorgados');
+        if (c && c[2] !== estado.referrer.referidos_meses_otorgados) return { data: [] }; // CAS perdió
+        estado.referrer = { ...estado.referrer, ...q.payload };
         return { data: [{ id: 'r1' }] };
       }
       return {};
@@ -140,125 +171,145 @@ describe('verificarProReferidos: idempotencia', () => {
     return estado;
   }
 
-  it('otorga 1 mes con 3 referidos activos', async () => {
-    const db = montarDb(() => TRES_ACTIVOS);
-    await verificarProReferidos('r1');
-    expect(db.fila.plan).toBe('premium');
-    expect(db.fila.referidos_meses_otorgados).toBe(1);
+  it('premia al referrer con 1 mes cuando el referido convierte a Pro', async () => {
+    const db = montar();
+    await procesarConversionProReferido('u1');
+    expect(db.referrer.plan).toBe('premium');
+    expect(db.referrer.referidos_meses_otorgados).toBe(1);
+    expect(db.referrer.premium_vence > HOY).toBe(true);
     expect(waMock.enviarWhatsapp).toHaveBeenCalledTimes(1);
   });
 
-  it('5 invocaciones con los mismos 3 referidos otorgan 1 mes, no 5', async () => {
-    const db = montarDb(() => TRES_ACTIVOS);
-    await verificarProReferidos('r1');
-    const venceTrasElPrimero = db.fila.premium_vence;
-    for (let i = 0; i < 4; i++) await verificarProReferidos('r1');
-    expect(db.fila.premium_vence).toBe(venceTrasElPrimero);
-    expect(db.fila.referidos_meses_otorgados).toBe(1);
-    expect(waMock.enviarWhatsapp).toHaveBeenCalledTimes(1);
-    expect(escrituras('usuarios')).toHaveLength(1);
+  it('no premia si el referido ya estaba convertido (fast path, sin UPDATE)', async () => {
+    montar({ refRow: { referrer_id: 'r1', convertido_pro: true } });
+    await procesarConversionProReferido('u1');
+    expect(escrituras()).toHaveLength(0);
+    expect(waMock.enviarWhatsapp).not.toHaveBeenCalled();
   });
 
-  it('otorga el mes adicional cuando llega el 6to referido activo', async () => {
-    let activos = TRES_ACTIVOS;
-    const db = montarDb(() => activos);
-    await verificarProReferidos('r1');
-    const venceCon3 = db.fila.premium_vence;
-    activos = TRES_ACTIVOS.concat([
-      { referido_id: 'd', activo: true },
-      { referido_id: 'e', activo: true },
-      { referido_id: 'f', activo: true },
-    ]);
-    await verificarProReferidos('r1');
-    await verificarProReferidos('r1');
-    expect(db.fila.referidos_meses_otorgados).toBe(2);
-    expect(new Date(db.fila.premium_vence) > new Date(venceCon3)).toBe(true);
-    expect(waMock.enviarWhatsapp).toHaveBeenCalledTimes(2);
-  });
-
-  // Regresion (2026-07-22): el vencimiento se calculaba con `setMonth`, que desborda al mes
-  // siguiente cuando el dia no existe en el destino. Un referrer con Pro hasta el 31-ene
-  // recibia hasta el 3-mar: casi tres dias de yapa por cada mes otorgado.
-  it('un vencimiento el 31 avanza al ultimo dia del mes destino, no al mes siguiente', async () => {
-    const db = montarDb(() => TRES_ACTIVOS, { plan: 'premium', premium_vence: '2099-01-31' });
-    await verificarProReferidos('r1');
-    expect(db.fila.premium_vence).toBe('2099-02-28');
-  });
-
-  it('con el Pro ya vencido la base es hoy, no la fecha vieja', async () => {
-    const db = montarDb(() => TRES_ACTIVOS, { plan: 'free', premium_vence: '2020-01-15' });
-    await verificarProReferidos('r1');
-    // No puede tomar 2020 como base: eso daria un vencimiento en el pasado y Pro nunca activo.
-    expect(db.fila.premium_vence > new Date().toISOString().slice(0, 10)).toBe(true);
-  });
-
-  it('dos ejecuciones concurrentes otorgan un solo mes (claim atomico)', async () => {
-    const db = montarDb(() => TRES_ACTIVOS);
-    await Promise.all([verificarProReferidos('r1'), verificarProReferidos('r1')]);
-    expect(db.fila.referidos_meses_otorgados).toBe(1);
-    expect(waMock.enviarWhatsapp).toHaveBeenCalledTimes(1);
-  });
-
-  it('el UPDATE lleva el claim sobre el contador leido', async () => {
-    montarDb(() => TRES_ACTIVOS);
-    await verificarProReferidos('r1');
-    const upd = escrituras('usuarios')[0];
-    expect(upd.methods).toContainEqual(['eq', 'referidos_meses_otorgados', 0]);
-    expect(upd.payload.referidos_meses_otorgados).toBe(1);
-  });
-});
-
-describe('verificarProReferidos: lecturas fallidas', () => {
-  it('no activa referidos cuando el count de transacciones falla', async () => {
-    router = (q) => {
-      if (q.table === 'referidos' && q.op === 'select') return { data: [{ referido_id: 'a', activo: false }] };
-      if (q.table === 'transacciones') return FALLO;
-      return {};
-    };
-    await verificarProReferidos('r1');
-    expect(escrituras('referidos')).toHaveLength(0);
-    expect(logMock.error).toHaveBeenCalled();
-  });
-
-  it('no otorga Pro cuando no puede leer el plan del referrer', async () => {
-    router = (q) => {
-      if (q.table === 'referidos' && q.op === 'select') return { data: TRES_ACTIVOS };
-      if (q.table === 'usuarios' && q.op === 'select') return FALLO;
-      return {};
-    };
-    await verificarProReferidos('r1');
+  it('no premia si otra ejecución ya se llevó el claim (convertido_pro)', async () => {
+    montar({ claim: null });
+    await procesarConversionProReferido('u1');
     expect(escrituras('usuarios')).toHaveLength(0);
     expect(waMock.enviarWhatsapp).not.toHaveBeenCalled();
   });
 
-  it('no avisa por WhatsApp si el UPDATE del otorgamiento falla', async () => {
-    router = (q) => {
-      if (q.table === 'referidos' && q.op === 'select') return { data: TRES_ACTIVOS };
-      if (q.table === 'usuarios' && q.op === 'select') return { data: { plan: 'free', whatsapp: '51999', premium_vence: null, referidos_meses_otorgados: 0 } };
-      if (q.table === 'usuarios' && q.op === 'update') return FALLO;
-      return {};
-    };
-    await verificarProReferidos('r1');
-    expect(waMock.enviarWhatsapp).not.toHaveBeenCalled();
-    expect(logMock.error).toHaveBeenCalled();
-  });
-
-  it('no avisa por WhatsApp si otra ejecucion ya se llevo el claim', async () => {
-    router = (q) => {
-      if (q.table === 'referidos' && q.op === 'select') return { data: TRES_ACTIVOS };
-      if (q.table === 'usuarios' && q.op === 'select') return { data: { plan: 'free', whatsapp: '51999', premium_vence: null, referidos_meses_otorgados: 0 } };
-      if (q.table === 'usuarios' && q.op === 'update') return { data: [] };
-      return {};
-    };
-    await verificarProReferidos('r1');
-    expect(waMock.enviarWhatsapp).not.toHaveBeenCalled();
-    expect(logMock.warn).toHaveBeenCalled();
-  });
-
-  it('no otorga nada cuando la lista de referidos no se puede leer', async () => {
-    router = (q) => (q.table === 'referidos' && q.op === 'select') ? FALLO : {};
-    await verificarProReferidos('r1');
+  it('no hace nada si el usuario no fue referido por nadie', async () => {
+    montar({ refRow: null });
+    await procesarConversionProReferido('u1');
     expect(escrituras()).toHaveLength(0);
+    expect(waMock.enviarWhatsapp).not.toHaveBeenCalled();
+  });
+
+  it('con el Pro del referrer vencido la base es hoy, no la fecha vieja', async () => {
+    const db = montar({ referrer: { premium_vence: '2020-01-15' } });
+    await procesarConversionProReferido('u1');
+    expect(db.referrer.premium_vence > HOY).toBe(true);
+  });
+
+  // El vencimiento se calcula con sumarMeses (no setMonth): un 31 avanza al último día del
+  // mes destino, no desborda al siguiente.
+  it('apila sobre el vencimiento vigente respetando fin de mes', async () => {
+    const db = montar({ referrer: { premium_vence: '2099-01-31' } });
+    await procesarConversionProReferido('u1');
+    expect(db.referrer.premium_vence).toBe('2099-02-28');
+  });
+
+  it('el UPDATE del otorgamiento lleva el claim sobre el contador leído', async () => {
+    montar();
+    await procesarConversionProReferido('u1');
+    const upd = escrituras('usuarios')[0];
+    expect(upd.methods).toContainEqual(['eq', 'referidos_meses_otorgados', 0]);
+    expect(upd.payload.referidos_meses_otorgados).toBe(1);
+  });
+
+  it('dos referidos distintos que convierten dan 2 meses (CAS serializa)', async () => {
+    const db = montar();
+    await Promise.all([procesarConversionProReferido('u1'), procesarConversionProReferido('u2')]);
+    expect(db.referrer.referidos_meses_otorgados).toBe(2);
+    expect(waMock.enviarWhatsapp).toHaveBeenCalledTimes(2);
+  });
+
+  it('no avisa por WhatsApp si no puede leer al referrer', async () => {
+    router = (q) => {
+      if (q.table === 'referidos' && q.op === 'select') return { data: { referrer_id: 'r1', convertido_pro: false } };
+      if (q.table === 'referidos' && q.op === 'update') return { data: { referrer_id: 'r1' } };
+      if (q.table === 'usuarios' && q.op === 'select') return FALLO;
+      return {};
+    };
+    await procesarConversionProReferido('u1');
+    expect(escrituras('usuarios')).toHaveLength(0);
+    expect(waMock.enviarWhatsapp).not.toHaveBeenCalled();
     expect(logMock.error).toHaveBeenCalled();
+  });
+
+  it('no avisa por WhatsApp si el UPDATE del otorgamiento falla', async () => {
+    montar({ updateReferrer: FALLO });
+    await procesarConversionProReferido('u1');
+    expect(waMock.enviarWhatsapp).not.toHaveBeenCalled();
+    expect(logMock.error).toHaveBeenCalled();
+  });
+
+  it('el referrer web-only (sin whatsapp) recibe el mes pero no se le envía WhatsApp', async () => {
+    const db = montar({ referrer: { whatsapp: null } });
+    await procesarConversionProReferido('u1');
+    expect(db.referrer.plan).toBe('premium');
+    expect(waMock.enviarWhatsapp).not.toHaveBeenCalled();
+  });
+});
+
+describe('obtenerEstadisticasReferidos', () => {
+  it('cuenta invitados (aún no Pro), referidos Pro y meses', async () => {
+    router = (q) => (q.table === 'referidos' && q.op === 'select')
+      ? { data: [{ convertido_pro: true }, { convertido_pro: false }, { convertido_pro: true }] }
+      : {};
+    const s = await obtenerEstadisticasReferidos('r1');
+    expect(s).toEqual({ invitados: 1, referidosPro: 2, meses: 2 });
+  });
+
+  it('devuelve ceros si la lectura falla (no inventa)', async () => {
+    router = (q) => (q.table === 'referidos' && q.op === 'select') ? FALLO : {};
+    const s = await obtenerEstadisticasReferidos('r1');
+    expect(s).toEqual({ invitados: 0, referidosPro: 0, meses: 0 });
+  });
+});
+
+describe('resumenReferidoParaAdmin', () => {
+  it('reporta el descuento vigente y el nombre del referrer', async () => {
+    router = (q) => {
+      if (q.table === 'usuarios' && q.op === 'select') {
+        const idEq = q.methods.find(m => m[0] === 'eq' && m[1] === 'id');
+        if (idEq && idEq[2] === 'u1') return { data: { referido_dscto_pct: 50, referido_dscto_vence: '2099-01-01' } };
+        return { data: { nombre: 'Ana Perez' } };
+      }
+      if (q.table === 'referidos' && q.op === 'select') return { data: { referrer_id: 'r1', convertido_pro: false } };
+      return {};
+    };
+    const r = await resumenReferidoParaAdmin('u1');
+    expect(r.descuentoPct).toBe(50);
+    expect(r.referrerNombre).toBe('Ana Perez');
+    expect(r.yaPremiado).toBe(false);
+  });
+
+  it('ignora un descuento ya vencido', async () => {
+    router = (q) => {
+      if (q.table === 'usuarios' && q.op === 'select') return { data: { referido_dscto_pct: 50, referido_dscto_vence: '2000-01-01' } };
+      if (q.table === 'referidos' && q.op === 'select') return { data: null };
+      return {};
+    };
+    const r = await resumenReferidoParaAdmin('u1');
+    expect(r.descuentoPct).toBe(0);
+    expect(r.referrerNombre).toBe(null);
+  });
+});
+
+describe('mensajeMisReferidos', () => {
+  it('arma el mensaje con el link a la mini-landing y el progreso dos-lados', () => {
+    const m = mensajeMisReferidos('ABC123', { invitados: 2, referidosPro: 1, meses: 1 });
+    expect(m).toContain('neto.pe/r/ABC123');
+    expect(m).toContain('1 mes gratis');
+    expect(m).toContain('Invitados: 2');
+    expect(m).toContain('Referidos Pro: 1');
+    expect(m).toContain('Meses ganados: 1');
   });
 });

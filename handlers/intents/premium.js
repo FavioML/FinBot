@@ -2,6 +2,7 @@ const log = require('../../lib/logger');
 const { generarRefCode } = require('../../lib/formatters');
 const { obtenerCuentasGmail } = require('../../gmail');
 const { solicitarComprobante } = require('../../lib/pro-payment');
+const { obtenerEstadisticasReferidos, mensajeMisReferidos } = require('../../services/referrals');
 
 module.exports = {
   intents: ['ver_premium', 'ver_referidos', 'estado_cuenta'],
@@ -25,20 +26,8 @@ module.exports = {
           refCode = generarRefCode();
           await supabase.from('usuarios').update({ ref_code: refCode }).eq('id', usuario.id);
         }
-        const { data: misRefsNlp } = await supabase.from('referidos').select('activo').eq('referrer_id', usuario.id);
-        const totalRefsNlp = (misRefsNlp || []).length;
-        const activosNlp = (misRefsNlp || []).filter(r => r.activo).length;
-        const railwayUrlRef = process.env.RAILWAY_URL || 'https://api.neto.pe';
-        const mesesAcumNlp = Math.floor(activosNlp / 3);
-        const progresoNlp = activosNlp % 3;
-        let estadoRefNlp = '_Referidos: ' + totalRefsNlp + ' | Activos: ' + activosNlp + '_';
-        if (mesesAcumNlp > 0) {
-          estadoRefNlp += '\n✅ *' + (mesesAcumNlp === 1 ? '1 mes' : mesesAcumNlp + ' meses') + ' gratis ganado' + (mesesAcumNlp > 1 ? 's' : '') + '*';
-          if (progresoNlp > 0) estadoRefNlp += ' | ' + progresoNlp + '/3 para el siguiente';
-        } else {
-          estadoRefNlp += ' | ' + progresoNlp + '/3 para tu primer mes gratis';
-        }
-        return '🎁 *Tu link de referido:*\n\n' + railwayUrlRef + '/r/' + refCode + '\n\nComparte con amigos. Cada *3 referidos* te dan *1 mes gratis* de Neto. 🎉\n\n' + estadoRefNlp;
+        const statsRefNlp = await obtenerEstadisticasReferidos(usuario.id);
+        return mensajeMisReferidos(refCode, statsRefNlp);
       }
 
       case 'estado_cuenta': {

@@ -46,7 +46,7 @@ async function procesarComandoAdmin(cmd, rawText = cmd) {
     if (!usuarioPago) {
       return '❌ No encontré un usuario con el número: ' + numeroPago;
     }
-    await activarPro({ usuario: usuarioPago, tipoPlan, aprobadoPor: 'admin:/pago', enviarOAuth: true, resetOnboarding: true });
+    await activarPro({ usuario: usuarioPago, tipoPlan, aprobadoPor: 'admin:/pago', enviarOAuth: true, resetOnboarding: true, esConversionPagada: true });
     return '✅ Pago confirmado para ' + (usuarioPago.nombre || numeroPago) + ' (' + (tipoPlan === 'anual' ? 'anual' : 'mensual') + '). Link OAuth enviado.';
   }
 
@@ -132,7 +132,7 @@ async function procesarCallbackAdmin(data) {
       }
       const { data: usuario } = await supabase.from('usuarios').select('*').eq('id', claimed.usuario_id).single();
       if (!usuario) return { answer: 'Usuario no encontrado' };
-      const { venceStr } = await activarPro({ usuario, tipoPlan, aprobadoPor: 'admin:telegram', pagoId: claimed.id });
+      const { venceStr } = await activarPro({ usuario, tipoPlan, aprobadoPor: 'admin:telegram', pagoId: claimed.id, esConversionPagada: true });
       return { answer: 'Aprobado ✅', edit: '✅ Aprobado (' + tipoPlan + ') — ' + (usuario.nombre || usuario.whatsapp) + '\nVence: ' + venceStr };
     }
     if (accion === 'reject') {

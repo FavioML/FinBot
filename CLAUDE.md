@@ -86,7 +86,7 @@ Varias piezas dependen de que corra un solo proceso. Escalar a 2+ réplicas o ha
 9. Dashboard web interactivo (Recharts)
 10. Reportes HTML con graficos + PDF descargable
 11. Freemium/premium (S/10/mes, pagos Yape)
-12. Referidos (3 activos = 1 mes Pro)
+12. Referidos dos lados (1 referido Pro pagado = 1 mes gratis; el referido estrena a 50% off)
 13. Resumen diario/semanal/mensual con IA
 14. Aprendizaje por comercio (fuzzy match)
 15. Multiples cuentas Gmail
