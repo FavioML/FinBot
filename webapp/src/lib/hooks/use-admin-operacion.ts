@@ -59,6 +59,9 @@ export interface AdminUser {
   tx_30d?: number;
   first_tx_at?: string | null;
   last_tx_at?: string | null;
+  // Última señal de vida REAL: transacción o mensaje (migración 053). last_tx_at mide
+  // activación (registrar gastos); este mide si el usuario sigue ahí.
+  last_activity_at?: string | null;
   is_internal?: boolean;
 }
 

@@ -228,7 +228,9 @@ function UserFichaSheet({ user, onClose }: { user: AdminUser | null; onClose: ()
               <SheetSection title="Timeline">
                 <DetailRow label="Registro" value={fmtDate(user.created_at)} />
                 <DetailRow label="Primera transacción" value={fmtDate(user.first_tx_at)} />
-                <DetailRow label="Última actividad" value={daysAgoLabel(user.last_tx_at)} />
+                {/* Actividad = tx O mensaje. Con last_tx_at, quien usa Neto por WhatsApp sin
+                    registrar gastos figuraba como "sin actividad" aunque escribiera ese día. */}
+                <DetailRow label="Última actividad" value={daysAgoLabel(user.last_activity_at)} />
                 {user.plan === 'premium' && (
                   <>
                     <DetailRow label="Se hizo Pro" value={fmtDate(user.premium_desde)} />
@@ -242,6 +244,14 @@ function UserFichaSheet({ user, onClose }: { user: AdminUser | null; onClose: ()
                   <FeatureChip label="Tx total" count={user.transacciones} />
                   <FeatureChip label="Tx 30d" count={user.tx_30d ?? 0} />
                   <FeatureChip label="Tx 14d" count={user.tx_14d ?? 0} />
+                </div>
+                {/* El Score vive acá y no entre las features: no es algo que el usuario
+                    elija usar (el cron se lo calcula a todos), es un indicador de su salud. */}
+                <div className="mt-2">
+                  <DetailRow
+                    label="Neto Score"
+                    value={f && f.score !== null ? `${f.score}/100` : '—'}
+                  />
                 </div>
               </SheetSection>
 
@@ -264,7 +274,6 @@ function UserFichaSheet({ user, onClose }: { user: AdminUser | null; onClose: ()
                     <FeatureChip label="Deudas" count={f.deudas} />
                     <FeatureChip label="Espacios" count={f.espacios} />
                     <FeatureChip label="Alertas" count={f.alertas} />
-                    <FeatureChip label="Score" count={f.score} />
                     <FeatureChip label="Gmail" count={f.gmail ? 1 : 0} />
                   </div>
                 )}
@@ -365,7 +374,10 @@ export default function AdminUsersPage() {
   const listedUsers = useMemo(() => {
     const list =
       segment === 'todos' ? users : users.filter((u) => classifyUser(u) === segment);
-    return [...list].sort((a, b) => +new Date(b.last_tx_at ?? 0) - +new Date(a.last_tx_at ?? 0));
+    // Ordena por la misma señal que pinta la columna "Última actividad", no por última tx.
+    return [...list].sort(
+      (a, b) => +new Date(b.last_activity_at ?? 0) - +new Date(a.last_activity_at ?? 0),
+    );
   }, [users, segment]);
 
   if (isLoading) {
@@ -475,7 +487,7 @@ export default function AdminUsersPage() {
                     <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-[#C8C6BC]">
                       {u.transacciones}
                     </td>
-                    <td className="px-4 py-3 text-[#C8C6BC]">{daysAgoLabel(u.last_tx_at)}</td>
+                    <td className="px-4 py-3 text-[#C8C6BC]">{daysAgoLabel(u.last_activity_at)}</td>
                     <td className="px-4 py-3 text-xs text-[#8A877D]">{fmtDate(u.created_at)}</td>
                   </tr>
                 ))}
@@ -507,6 +519,8 @@ export default function AdminUsersPage() {
             ))}
           </MiniList>
           <MiniList title="Enfriándose (en riesgo)" empty={enfriandose.length === 0}>
+            {/* Acá sí manda last_tx_at: el segmento "en riesgo" se define por dejar de
+                registrar gastos, así que mostrar otra fecha contradiría el criterio. */}
             {enfriandose.map((u) => (
               <FeedRow key={u.id} name={userLabel(u)} right={daysAgoLabel(u.last_tx_at)} />
             ))}

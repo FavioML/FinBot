@@ -11,6 +11,7 @@ interface UserActivityRow {
   tx_30d: number;
   first_tx_at: string | null;
   last_tx_at: string | null;
+  last_activity_at: string | null;
 }
 
 export async function GET() {
@@ -95,6 +96,7 @@ export async function GET() {
       tx_30d: act ? Number(act.tx_30d) : 0,
       first_tx_at: act?.first_tx_at ?? null,
       last_tx_at: act?.last_tx_at ?? null,
+      last_activity_at: act?.last_activity_at ?? null,
       // Cuenta interna (fundador / QA): la pagina de analisis la excluye de los segmentos.
       is_internal: !!u.whatsapp && EXCLUDED_REVENUE_WHATSAPP.has(u.whatsapp),
     };

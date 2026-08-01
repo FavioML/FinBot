@@ -267,7 +267,8 @@ export interface AdminUserFeatures {
   metas: number;
   espacios: number;
   alertas: number;
-  score: number;
+  /** Último valor del Neto Score (migración 053), no el número de cálculos. null = nunca tuvo. */
+  score: number | null;
   gmail: boolean;
   tickets: number;
   pagos_aprobados: number;
