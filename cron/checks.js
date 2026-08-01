@@ -440,8 +440,12 @@ async function checkTrialExpiry() {
 
     // Vencidos → al muro. Sin gate horario: el downgrade no molesta a nadie de madrugada y
     // dejar a alguien con Pro un día de más por una corrida perdida sería peor.
+    // `trial_estado`, `premium_desde` y `premium_vence` van en el select porque mensajeMuro
+    // ramifica por ellas. Sin `trial_estado` la fila llegaba con `undefined`, el mensaje caía
+    // en la rama de "nunca tuviste prueba" y le prometía 14 días gratis a quien acababa de
+    // terminar los suyos — el único mensaje que el trial existe para mandar, y salía al revés.
     const { data: vencidos } = await supabase.from('usuarios')
-      .select('id, whatsapp, nombre, trial_vence')
+      .select('id, whatsapp, nombre, trial_estado, trial_vence, premium_desde, premium_vence')
       .eq('trial_estado', 'activo').lt('trial_vence', hoy);
     if (!vencidos || vencidos.length === 0) return;
     for (const usuario of vencidos) {
@@ -454,6 +458,9 @@ async function checkTrialExpiry() {
           .select('id').maybeSingle();
         if (errBaja) { log.error({ tag: 'TRIAL_EXPIRY', userId: usuario.id, err: errBaja.message }, 'No se pudo bajar el plan al vencer el trial'); continue; }
         if (!bajado) continue;   // otra corrida ganó
+        // La fila en memoria es de ANTES del UPDATE. Se sincroniza para que mensajeMuro lea
+        // el estado real y no el que tenía hace tres líneas.
+        usuario.trial_estado = 'vencido';
 
         const { count: conteoTx } = await supabase.from('transacciones')
           .select('id', { count: 'exact', head: true }).eq('usuario_id', usuario.id);
