@@ -85,7 +85,7 @@ Varias piezas dependen de que corra un solo proceso. Escalar a 2+ réplicas o ha
 8. Carga masiva Excel/CSV
 9. Dashboard web interactivo (Recharts)
 10. Reportes HTML con graficos + PDF descargable
-11. Freemium/premium (S/10/mes, pagos Yape)
+11. Trial de 14 dias + muro (S/10/mes, pagos Yape) — ver abajo
 12. Referidos dos lados (1 referido Pro pagado = 1 mes gratis; el referido estrena a 50% off)
 13. Resumen diario/semanal/mensual con IA
 14. Aprendizaje por comercio (fuzzy match)
@@ -102,9 +102,43 @@ Varias piezas dependen de que corra un solo proceso. Escalar a 2+ réplicas o ha
 - Dedup hash (MD5), ADMIN_KEY sin fallback hardcodeado
 - Error handling centralizado + notificaciones admin WhatsApp
 
+## Modelo comercial: trial de 14 dias, y el muro despues
+
+No hay plan gratuito permanente. Todo usuario estrena Pro completo por 14 dias
+desde su **primer gasto** (no desde el alta: con el alta reordenada alguien tarda
+dias en registrar algo, y un trial sobre una cuenta vacia no produce un pago
+informado). Al dia 15 cae al **muro**.
+
+**La regla, y no se negocia: escribir nunca se corta; lo que se cobra es leer.**
+Registrar gastos por WhatsApp es gratis para siempre — es la promesa del sprint de
+activacion. Lo que se cobra es el dashboard, el historial, las features Pro y toda
+consulta agregada por WhatsApp. Sobrevive un solo numero: el total del mes, pegado
+a la confirmacion del gasto.
+
+**Modelado (importante antes de tocar cualquier gate):** durante el trial `plan`
+vale `'premium'`. Eso es lo que hace barato el cambio — los ~40 sitios que miran
+esa columna entregan Pro sin tocarse — pero significa que **`plan === 'premium'`
+ya NO significa "paga"**. Para eso esta `trial_estado` (migracion 052):
+`null` = nunca tuvo trial · `activo` · `vencido` · `convertido`. Las metricas de
+ingreso usan `esProPagado()` (`webapp/src/lib/admin-revenue.ts`), no el plan.
+
+Y `free` dejo de ser un plan: **es el muro**.
+
+| Pieza | Donde |
+|---|---|
+| Fuente unica del trial y del muro | `lib/trial.js` |
+| Que intent/comando es lectura | `handlers/intents-acceso.js` (+ su test: un intent sin clasificar rompe el build) |
+| Gate WhatsApp | chokepoint en `handlers/message-processor.js` antes de `getHandler` + cascada de `/` en `webhook.js` |
+| Gate webapp | `requireLectura()` en `webapp/src/lib/supabase/auth.ts` → 402 (+ `lectura-callsites.test.ts`) |
+| Avisos d11/d14 + downgrade | `cron/checks.js:checkTrialExpiry` |
+| E2E | `qa-e2e/qa-trial-gate.mjs`, `qa-e2e/qa-gate.mjs free\|pro` |
+
+Env var pendiente: `WA_TRIAL_TEMPLATE_ENABLED=true` en Railway cuando Meta apruebe
+la plantilla `trial_por_vencer` (ver `docs/whatsapp-templates.md`).
+
 ## Pendientes activos
 - [ ] Sync notificaciones webapp <> WhatsApp
-- [ ] Diferenciacion Plan Pro (features exclusivas reales vs Free)
+- [ ] Aprobar `trial_por_vencer` en Meta y activar `WA_TRIAL_TEMPLATE_ENABLED`
 - [ ] Testimonios reales
 - [ ] Video demo 30-60s
 - [ ] Exit-intent popup con lead magnet
