@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '@/components/
 import { FadeIn } from '@/components/shared/motion-wrapper';
 import { HeaderActions } from '@/components/dashboard/topbar';
 import { PRO_PRICE_MONTHLY_PEN, PRO_PRICE_YEARLY_PEN } from '@/lib/constants';
+import { pantallaPro, diasRestantesTrial, esProPagado } from '@/lib/plan';
 
 const YAPE_NUMERO = '970398192';
 const YAPE_NOMBRE = 'Favio Mendoza';
@@ -23,7 +24,10 @@ type Descuento = { pct: number; vence: string; diasRestantes: number } | null;
 
 interface ProStatus {
   plan: string;
+  /** "¿tiene Pro ahora?" — durante el trial también es true. NO significa "paga". */
   isPremium: boolean;
+  trialEstado: string | null;
+  trialVence: string | null;
   pagoPendiente: boolean;
   premiumVence: string | null;
   bancosSeleccionados: string[] | null;
@@ -54,6 +58,11 @@ export default function ProPage() {
 
   const pendiente = !!status?.pagoPendiente || status?.ultimoPago?.estado === 'pendiente';
   const rechazado = status?.ultimoPago?.estado === 'rechazado' && !pendiente && !status?.isPremium;
+  const pantalla = pantallaPro({
+    plan: status?.plan,
+    trialEstado: status?.trialEstado,
+    pagoPendiente: pendiente,
+  });
 
   if (isLoading) {
     return (
@@ -105,19 +114,90 @@ export default function ProPage() {
           <HeaderActions />
         </div>
 
-        {status?.isPremium ? (
-          pendiente ? (
-            <PendingState renewal onRefresh={() => refetch()} />
-          ) : (
-            <PremiumState status={status} onDone={() => refetch()} />
-          )
-        ) : pendiente ? (
-          <PendingState onRefresh={() => refetch()} />
+        {/* La decisión vive en `pantallaPro` (@/lib/plan, probada en plan.test.ts) y no acá:
+            ramificar con `isPremium` a secas mandaba al usuario en prueba a la pantalla de
+            "ya eres Pro", sin fecha ni precio, que es donde aterrizaban TODOS los CTA del
+            trial. Ver el comentario de `pantallaPro`. */}
+        {pantalla === 'pendiente' ? (
+          // `renewal` solo para quien YA paga: a alguien en su primer pago (venga del trial
+          // o del muro) decirle "tu renovación está en verificación, tu Pro sigue activo"
+          // describe una suscripción que todavía no tiene.
+          <PendingState renewal={esProPagado(status.plan, status.trialEstado)} onRefresh={() => refetch()} />
+        ) : pantalla === 'trial' ? (
+          <TrialState status={status} onDone={() => refetch()} />
+        ) : pantalla === 'pagado' ? (
+          <PremiumState status={status} onDone={() => refetch()} />
         ) : (
           <PaymentForm rejected={rechazado} descuento={status.descuento} onDone={() => refetch()} />
         )}
       </div>
     </FadeIn>
+  );
+}
+
+/* ------------------------------ Trial ------------------------------ */
+
+/**
+ * Lo que ve quien está PROBANDO Pro. Es la pantalla más importante del embudo: acá
+ * aterrizan el banner del dashboard, los avisos de WhatsApp del día 11 y 14, y la
+ * notificación in-app. Antes caía en `PremiumState` y leía "Eres Neto Pro ⭐" sin fecha
+ * ni precio, o sea que el trial mandaba a la gente a decidir a una pantalla que le decía
+ * que no había nada que decidir.
+ *
+ * Tres cosas, en este orden:
+ *  1. Qué tiene y hasta cuándo. La fecha es lo único que hace que el día 15 no sorprenda.
+ *  2. Qué pasa después, sin dramatizar: sigue anotando gratis, se cierra la lectura.
+ *  3. El formulario de pago ABIERTO, con el descuento. No detrás de un botón: pagar es el
+ *     único motivo por el que alguien entra acá durante la prueba.
+ *
+ * Bancos y Gmail siguen abajo porque durante el trial sí es Pro y puede configurarlos.
+ */
+function TrialState({ status, onDone }: { status: ProStatus; onDone: () => void }) {
+  const dias = diasRestantesTrial(status.plan, status.trialEstado, status.trialVence);
+  const urgente = dias !== null && dias <= 3;
+  const cuando =
+    dias === null ? null : dias === 0 ? 'Termina hoy' : dias === 1 ? 'Queda 1 día' : `Quedan ${dias} días`;
+  const fecha = status.trialVence
+    ? new Date(status.trialVence + 'T12:00:00').toLocaleDateString('es-PE', { day: 'numeric', month: 'long' })
+    : null;
+
+  return (
+    <div className="space-y-4">
+      <div className="glass-card p-6 flex flex-col sm:flex-row items-center gap-4 sm:gap-6 text-center sm:text-left">
+        <div
+          className={`inline-flex items-center justify-center w-14 h-14 rounded-full shrink-0 border ${
+            urgente
+              ? 'bg-[#EF9F27]/15 border-[#EF9F27]/30'
+              : 'bg-[#1D9E75]/15 border-[#1D9E75]/30'
+          }`}
+        >
+          <Clock className={`w-7 h-7 ${urgente ? 'text-[#EF9F27]' : 'text-[#1D9E75]'}`} />
+        </div>
+        <div className="flex-1">
+          <h2 className="text-xl font-bold text-[#F0EFE8]">Estás probando Neto Pro</h2>
+          <p className={`text-sm mt-0.5 ${urgente ? 'font-medium text-[#EF9F27]' : 'text-[#8A877D]'}`}>
+            {cuando}
+            {fecha ? ` — termina el ${fecha}` : ''}
+          </p>
+          <p className="text-sm text-[#8A877D] mt-2">
+            Después sigo anotando todos tus gastos por WhatsApp, gratis. Lo que se cierra es el
+            dashboard, el historial y los reportes.
+          </p>
+        </div>
+      </div>
+
+      <div className="glass-card p-5 space-y-1">
+        <div className="flex items-center gap-2 text-sm font-semibold text-[#F0EFE8] mb-2">
+          <Crown className="h-4 w-4 text-[#1D9E75]" /> Continúa con Pro
+        </div>
+        <PaymentForm descuento={status.descuento} onDone={onDone} />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <BancosManager initial={status.bancosSeleccionados} />
+        <GmailConnect conectado={status.gmailConectado} email={status.gmailEmail} />
+      </div>
+    </div>
   );
 }
 

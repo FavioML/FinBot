@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { enTrial, esProPagado, estaEnMuro, diasRestantesTrial } from './plan';
+import { enTrial, esProPagado, estaEnMuro, diasRestantesTrial, pantallaPro } from './plan';
 
 /**
  * El modelo tiene DOS columnas y tres preguntas distintas, y colapsarlas es lo que
@@ -72,6 +72,41 @@ describe('enTrial y esProPagado nunca son verdaderos a la vez', () => {
     for (const u of estados) {
       if (estaEnMuro(u.plan)) expect(enTrial(u.plan, u.trial_estado)).toBe(false);
     }
+  });
+});
+
+describe('pantallaPro — a dónde aterriza cada uno en /dashboard/pro', () => {
+  it('el que está probando ve SU pantalla, no la de "ya eres Pro"', () => {
+    // La regresión que costaba plata: acá aterrizan el banner del dashboard y los avisos
+    // de WhatsApp del día 11 y 14. Si esto vuelve a dar 'pagado', el trial manda a la
+    // gente a decidir a una pantalla que le dice que no hay nada que decidir.
+    expect(pantallaPro({ plan: 'premium', trialEstado: 'activo' })).toBe('trial');
+  });
+
+  it('el Pro pagado ve la gestión de su cuenta', () => {
+    expect(pantallaPro({ plan: 'premium', trialEstado: 'convertido' })).toBe('pagado');
+  });
+
+  it('el del muro ve el formulario de pago', () => {
+    expect(pantallaPro({ plan: 'free', trialEstado: 'vencido' })).toBe('pago');
+  });
+
+  it('el que nunca tuvo nada ve el formulario de pago', () => {
+    expect(pantallaPro({ plan: 'free', trialEstado: null })).toBe('pago');
+  });
+
+  it('un pago en verificación gana sobre cualquier plan', () => {
+    for (const trialEstado of ['activo', 'convertido', 'vencido', null]) {
+      expect(pantallaPro({ plan: 'premium', trialEstado, pagoPendiente: true })).toBe('pendiente');
+    }
+  });
+
+  it('el estado desincronizado cae del lado seguro (el formulario), no del lado Pro', () => {
+    expect(pantallaPro({ plan: 'free', trialEstado: 'activo' })).toBe('pago');
+  });
+
+  it('sin status cargado nunca dice que ya es Pro', () => {
+    expect(pantallaPro({})).toBe('pago');
   });
 });
 

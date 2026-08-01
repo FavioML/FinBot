@@ -1,12 +1,13 @@
 import { requireNetoUser } from '@/lib/supabase/auth';
 import { getServiceClient } from '@/lib/supabase/service';
+import { esProPagado } from '@/lib/plan';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
 // GET /api/pro/status — estado del plan + última solicitud (para el polling de /dashboard/pro)
 export async function GET() {
-  const auth = await requireNetoUser('id, plan, pago_pendiente, premium_vence, tipo_plan, bancos_seleccionados, gmail_access_token, referido_dscto_pct, referido_dscto_vence');
+  const auth = await requireNetoUser('id, plan, trial_estado, trial_vence, pago_pendiente, premium_vence, tipo_plan, bancos_seleccionados, gmail_access_token, referido_dscto_pct, referido_dscto_vence');
   if (!auth.ok) return auth.response;
   const user = auth.user;
 
@@ -36,11 +37,19 @@ export async function GET() {
   const gmailEmail = (cuentaGmail?.email as string) || null;
 
   // Descuento de referido (50% off primer mes). Se calcula server-side en fecha Lima para
-  // no depender de la zona del navegador. Solo aplica si NO es premium y no venció.
+  // no depender de la zona del navegador.
+  //
+  // Lo que descalifica es ser Pro **pagado**, no `plan === 'premium'`: durante el trial esa
+  // columna vale 'premium', así que cortar por ella escondía el descuento justo durante los
+  // 14 días en que el usuario lo tiene. Y no es un detalle de borde — la ventana del 50% se
+  // ancla al FIN del trial a propósito (`anclarDescuentoAFinDeTrial`), o sea que el único
+  // momento en que existe es el que quedaba tapado. Mismo criterio que
+  // `esProPagado` en services/referrals.js.
   const hoyLima = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
   const dPct = (user.referido_dscto_pct as number | null) || null;
   const dVence = user.referido_dscto_vence ? String(user.referido_dscto_vence).slice(0, 10) : null;
-  const descuentoActivo = !!dPct && !!dVence && dVence >= hoyLima && user.plan !== 'premium';
+  const descuentoActivo = !!dPct && !!dVence && dVence >= hoyLima
+    && !esProPagado(user.plan as string | undefined, user.trial_estado as string | null);
   let descuento = null as null | { pct: number; vence: string; diasRestantes: number };
   if (descuentoActivo && dPct && dVence) {
     const ms = new Date(dVence + 'T12:00:00-05:00').getTime() - new Date(hoyLima + 'T12:00:00-05:00').getTime();
@@ -49,7 +58,13 @@ export async function GET() {
 
   return NextResponse.json({
     plan: (user.plan as string) || 'free',
+    // `isPremium` responde "¿tiene Pro ahora?", que durante el trial también es true.
+    // Quien necesite saber si PAGA tiene que cruzarlo con `trialEstado` (helpers en
+    // `@/lib/plan`): colapsar las dos preguntas es lo que hacía que /dashboard/pro le
+    // dijera "Eres Neto Pro ⭐" a quien estaba probando, escondiéndole el precio.
     isPremium: user.plan === 'premium',
+    trialEstado: (user.trial_estado as string | null) ?? null,
+    trialVence: (user.trial_vence as string | null) ?? null,
     pagoPendiente: !!user.pago_pendiente,
     premiumVence: (user.premium_vence as string) || null,
     bancosSeleccionados: (user.bancos_seleccionados as string[] | null) ?? null,

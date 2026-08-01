@@ -152,6 +152,35 @@ export function diasRestantesTrial(
   return Math.max(0, Math.round(ms / 86400000));
 }
 
+/**
+ * Qué pantalla le toca a alguien en `/dashboard/pro`. Vive acá y no dentro del componente
+ * porque la webapp corre vitest sin jsdom: si la decisión no sale del render, no se puede
+ * probar, y esta decisión ya salió mal una vez.
+ *
+ * El bug que cierra: la página ramificaba con `isPremium` a secas, que durante el trial es
+ * `true`. O sea que TODO CTA del trial — el banner los 14 días, los avisos del día 11 y 14,
+ * la notificación in-app — aterrizaba en una pantalla que decía "Eres Neto Pro ⭐", sin
+ * fecha (`premium_vence` es NULL en trial) y sin precio, con el pago escondido detrás de un
+ * botón que decía "Renovar", palabra que no significa nada para quien nunca pagó.
+ *
+ *   'pendiente' — mandó su comprobante y espera aprobación (gana sobre todo lo demás)
+ *   'trial'     — está probando: se le muestra cuándo termina Y el formulario de pago
+ *   'pagado'    — Pro pagado: gestión de la cuenta, con la renovación colapsada
+ *   'pago'      — muro o nunca tuvo Pro: el formulario, y nada más
+ */
+export type PantallaPro = 'pendiente' | 'trial' | 'pagado' | 'pago';
+
+export function pantallaPro(opts: {
+  plan?: string;
+  trialEstado?: string | null;
+  pagoPendiente?: boolean;
+}): PantallaPro {
+  if (opts.pagoPendiente) return 'pendiente';
+  if (enTrial(opts.plan, opts.trialEstado)) return 'trial';
+  if (esProPagado(opts.plan, opts.trialEstado)) return 'pagado';
+  return 'pago';
+}
+
 /** Get the display limit for a feature */
 export function getLimit(
   plan: string | undefined,
