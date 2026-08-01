@@ -128,7 +128,7 @@ export function enTrial(
  * y las métricas de MRR. Espejo de `esProPagado` en `services/referrals.js`.
  */
 export function esProPagado(
-  plan: string | undefined,
+  plan: string | null | undefined,
   trialEstado: string | null | undefined,
 ): boolean {
   return plan === 'premium' && trialEstado !== 'activo';

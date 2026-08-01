@@ -1,4 +1,5 @@
 import { PRO_PRICE_MONTHLY_PEN, PRO_PRICE_YEARLY_PEN } from '@/lib/constants';
+import { esProPagado as esProPagadoPlan } from '@/lib/plan';
 
 /**
  * Cuentas internas (fundador + QA) que NO son negocio real. Se excluyen de las
@@ -30,9 +31,13 @@ export interface RevenueUserRow {
  * ¿Este usuario PAGA? Es lo que cuenta para MRR, ARR y churn. Un trial es plan
  * `'premium'` con `trial_estado='activo'`: entrega Pro pero no factura, así que
  * contarlo inflaría el MRR con dinero que nadie transfirió.
+ *
+ * Delega en `@/lib/plan` en vez de reimplementar la condición: es la misma pregunta que
+ * responden `/api/pro/status` (para mostrar el descuento) y `pantallaPro`. Tenerla escrita
+ * dos veces en la webapp es cómo empiezan las divergencias que esta columna ya causó.
  */
 export function esProPagado(u: RevenueUserRow): boolean {
-  return u.plan === 'premium' && u.trial_estado !== 'activo';
+  return esProPagadoPlan(u.plan, u.trial_estado);
 }
 
 /** Fila con fechas de alta/baja Pro, para reconstrucción histórica de MRR. */

@@ -64,8 +64,10 @@ async function sembrarDescuentoReferido(referidoId) {
     // OJO: durante el trial `plan` vale 'premium' (así el trial entrega Pro sin tocar los
     // ~40 gates que miran esa columna). Cortar por plan a secas dejaría a TODO referido
     // nuevo sin descuento, en silencio. Lo que descalifica es ser Pro PAGADO.
-    const esProPagado = u.plan === 'premium' && u.trial_estado !== 'activo';
-    if (esProPagado) return;
+    // require diferido: lib/trial arrastra la cadena de envío (activacion → whatsapp) y
+    // cargarlo arriba acopla referrals a algo que no necesita para esto.
+    const { esProPagado } = require('../lib/trial');
+    if (esProPagado(u)) return;
     const hoy = hoyPeru();
     // Si ya tiene un descuento vigente, no reiniciar la ventana (evita farmear el link).
     if (u.referido_dscto_vence && String(u.referido_dscto_vence).slice(0, 10) >= hoy) return;
