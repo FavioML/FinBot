@@ -16,6 +16,17 @@ interface DatosMuro {
 /** 14 días — el mismo número que TRIAL_DIAS en el backend (lib/trial.js). */
 const TRIAL_DIAS = 14;
 
+const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+
+/** '2026-07-26' → '26 de julio'. Un ISO crudo en pantalla se lee como un log, no como Neto. */
+function fechaLegible(iso: string | null): string | null {
+  if (!iso) return null;
+  const [, m, d] = String(iso).slice(0, 10).split('-');
+  const mes = MESES[parseInt(m, 10) - 1];
+  if (!mes || !d) return null;
+  return `${parseInt(d, 10)} de ${mes}`;
+}
+
 /**
  * Pantalla del muro: lo que ve en el dashboard quien terminó su prueba sin pagar.
  *
@@ -71,7 +82,9 @@ export function Paywall() {
           ) : (
             <>
               {primerNombre ? `${primerNombre}, tu ` : 'Tu '}prueba de Neto Pro terminó
-              {datos?.trialVence ? ` el ${datos.trialVence}` : ''}
+              {fechaLegible(datos?.trialVence ?? null)
+                ? ` el ${fechaLegible(datos!.trialVence)}`
+                : ''}
             </>
           )}
         </h1>
@@ -83,7 +96,11 @@ export function Paywall() {
               : 'Sigo anotando todo lo que me mandes por WhatsApp, gratis.'}
         </p>
 
-        {datos && (
+        {/* El total del mes es la señal de que su data sigue creciendo, y es lo que hace
+            que el muro muerda. Pero en S/0.00 no hay nada que morder: "activa Pro para
+            ver en qué se fue" sobre cero es una frase sin sentido, así que el bloque
+            desaparece hasta que haya un gasto del mes. */}
+        {!!datos && datos.totalMes > 0 && (
           <div className="mb-6 rounded-xl border border-[rgba(240,239,232,0.08)] bg-[#1C1C19] p-4">
             <p className="text-xs uppercase tracking-wide text-[#8A877D]">Van este mes</p>
             <p className="mt-1 text-3xl font-bold text-[#F0EFE8]">
