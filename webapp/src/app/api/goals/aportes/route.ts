@@ -1,11 +1,11 @@
 import { getServiceClient } from '@/lib/supabase/service';
-import { requireNetoUser } from '@/lib/supabase/auth';
+import { requireLectura } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 import { hoyPeru } from '@/lib/dates';
 
 // GET /api/goals/aportes?meta_id=xxx — list contributions for a goal
 export async function GET(request: Request) {
-  const auth = await requireNetoUser();
+  const auth = await requireLectura();
   if (!auth.ok) return auth.response;
   const userId = auth.user.id;
 
@@ -37,7 +37,7 @@ export async function GET(request: Request) {
 
 // POST /api/goals/aportes — create a contribution
 export async function POST(request: Request) {
-  const auth = await requireNetoUser();
+  const auth = await requireLectura();
   if (!auth.ok) return auth.response;
   const userId = auth.user.id;
 
@@ -162,7 +162,7 @@ export async function POST(request: Request) {
 
 // DELETE /api/goals/aportes?id=xxx — delete a contribution and recalculate meta
 export async function DELETE(request: Request) {
-  const auth = await requireNetoUser();
+  const auth = await requireLectura();
   if (!auth.ok) return auth.response;
   const userId = auth.user.id;
 

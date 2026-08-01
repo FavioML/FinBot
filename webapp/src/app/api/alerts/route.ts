@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
-import { requireNetoUser } from '@/lib/supabase/auth';
+import { requireLectura } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 
 interface AlertRow {
@@ -44,7 +44,7 @@ function alertKey(a: AlertRow): string {
 }
 
 export async function GET(request: Request) {
-  const auth = await requireNetoUser('id, plan');
+  const auth = await requireLectura('id, plan');
   if (!auth.ok) return auth.response;
   const usuario = auth.user;
 

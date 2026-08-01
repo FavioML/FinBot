@@ -47,6 +47,36 @@ crearlos a mano en business.facebook.com → WhatsApp Manager → Plantillas (id
 |---|---|---|---|---|
 | `deuda_por_vencer` | UTILITY | checkRecordatorioDeudas (touches 3d/1d/hoy/-3d) | `Hola {{1}} 👋 Recordatorio de Neto: {{2}} por {{3}} vence {{4}}. Entra a Neto para gestionarlo.` | 1=nombre, 2="tu deuda con Juan"/"lo que te debe Juan", 3="S/ 120.00", 4="en 3 días"/"mañana"/"hoy"/"hace 3 días" |
 | `plan_pro_por_vencer` | UTILITY | checkPremiumExpiry aviso 3d | `Hola {{1}} 👋 Tu plan NETO Pro vence {{2}}. Renuévalo desde Neto para no perder tu historial y las funciones Pro.` | 1=nombre, 2="en 3 días (2026-07-06)" |
+| `trial_por_vencer` | UTILITY | checkTrialExpiry (día 11 y día 14) | `Hola {{1}} 👋 Tu prueba de Neto Pro termina {{2}}. Entra a Neto para ver tu resumen y decidir si continúas.` | 1=nombre, 2="en 3 días (12/08)" / "hoy" |
+
+### `trial_por_vencer` — por qué es uno solo y no dos (2026-08-01)
+Los dos toques del fin de trial (día 11 = faltan 3, día 14 = último día) comparten cuerpo
+y solo cambian en el timing, así que el timing es la variable `{{2}}` — mismo molde que el
+`{{4}}` de `deuda_por_vencer`. **Una aprobación cubre los dos avisos.**
+
+No sirve reusar `plan_pro_por_vencer`: dice "Renuévalo", que da por hecho un pago anterior
+que el usuario en prueba nunca hizo.
+
+Flag propio **`WA_TRIAL_TEMPLATE_ENABLED`** (default `false`), separado de
+`WA_TEMPLATES_ENABLED` (que hoy solo gobierna deudas) para poder activar cada uno cuando
+su plantilla esté aprobada, sin arrastrar al otro.
+
+**Mientras no esté aprobada**, los dos toques salen free-form. A diferencia del win-back —
+que persigue inactivos de 70-143 días y tuvo 0 entregas confirmadas —, esta población es
+la de MEJOR caso para la ventana de 24h: por construcción registró un gasto hace ≤14 días.
+Pero no se asume; se mide:
+
+```sql
+select tipo, canal, estado,
+       count(*) filter (where delivered_at is not null) as entregados,
+       count(*) as intentos
+from notification_deliveries
+where tipo in ('trial_d11','trial_d14','trial_vencido')
+group by 1,2,3 order by 1,2;
+```
+
+Si `blocked_24h` domina, la plantilla se justifica. Si no, se ahorra el gasto. El canal
+garantizado mientras tanto es la notificación in-app + el banner del dashboard.
 
 > Body sin pricing/Yape a propósito: utility debe ser transaccional para aprobar. El detalle de
 > precio/CTA va en el mensaje libre de seguimiento (ya abre ventana cuando el usuario responde).

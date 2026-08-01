@@ -1,5 +1,5 @@
 import { getServiceClient } from '@/lib/supabase/service';
-import { requireNetoUser } from '@/lib/supabase/auth';
+import { requireLectura } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { parseMontoDinero } from '@/lib/money';
@@ -12,7 +12,7 @@ function parseMontoActual(valor: unknown): number | null {
 }
 
 export async function GET() {
-  const auth = await requireNetoUser('id, plan');
+  const auth = await requireLectura('id, plan');
   if (!auth.ok) return auth.response;
   const netoUser = auth.user;
 
@@ -56,7 +56,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const auth = await requireNetoUser('id, plan');
+  const auth = await requireLectura('id, plan');
   if (!auth.ok) return auth.response;
   const netoUser = auth.user;
 
@@ -99,7 +99,7 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const auth = await requireNetoUser('id, plan');
+  const auth = await requireLectura('id, plan');
   if (!auth.ok) return auth.response;
   const netoUser = auth.user;
 
@@ -167,7 +167,7 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const auth = await requireNetoUser('id, plan');
+  const auth = await requireLectura('id, plan');
   if (!auth.ok) return auth.response;
   const netoUser = auth.user;
 

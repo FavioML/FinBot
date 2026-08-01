@@ -11,6 +11,8 @@ import { QuickAddButton } from '@/components/dashboard/quick-add-button';
 import { OnboardingTour } from '@/components/dashboard/onboarding-tour';
 import { ConnectWhatsappBanner } from '@/components/dashboard/connect-whatsapp-banner';
 import { ReferralDiscountBanner } from '@/components/dashboard/referral-discount-banner';
+import { TrialStatusBanner } from '@/components/dashboard/trial-status-banner';
+import { Paywall } from '@/components/dashboard/paywall';
 import { WhatsAppButton } from '@/components/shared/whatsapp-button';
 import { OverviewSkeleton } from '@/components/dashboard/skeletons';
 import { useUser, decidirRedirectAuth } from '@/lib/hooks/use-user';
@@ -28,6 +30,7 @@ import {
 } from '@/lib/query-client';
 import { getAuthUserIdSync } from '@/lib/supabase/session';
 import { IS_DEMO } from '@/lib/demo/is-demo';
+import { estaEnMuro } from '@/lib/plan';
 import type { Usuario } from '@/lib/types';
 
 /** Redirects authenticated users without a `usuarios` record to onboarding */
@@ -98,6 +101,46 @@ function CacheIdentityGuard() {
   return null;
 }
 
+/**
+ * Muro o contenido. Terminó la prueba de 14 días sin pagar → se reemplaza el CONTENIDO,
+ * nunca el chrome: el sidebar y la navegación siguen ahí para que se lea como "esto está
+ * detrás del pago" y no como "esto desapareció".
+ *
+ * Quedan fuera del muro `/dashboard/pro` (es el camino de salida: taparlo sería cerrar la
+ * puerta de pagar) y `/dashboard/configuracion` (perfil, notificaciones, referidos y
+ * desvincular WhatsApp; nada de eso es data financiera acumulada).
+ *
+ * Vive en su propio componente y no en `ShellChrome` por una razón concreta: `useUser`
+ * está gateado por `BootstrapGateContext`, cuyo default es `true`. Llamándolo en el cuerpo
+ * de ShellChrome — que se ejecuta FUERA del provider — el gate valdría siempre true y el
+ * fetch directo ganaría la carrera contra el bootstrap consolidado, que es exactamente el
+ * waterfall que ese gate existe para evitar.
+ *
+ * Mientras el usuario no cargó se muestra el mismo fallback que el gate del shell, para
+ * que el usuario en el muro no vea parpadear el dashboard vacío antes del paywall.
+ *
+ * Esto es la capa de UI. La que de verdad protege es `requireLectura` en las rutas de API:
+ * sin ella bastaría con pegarle a /api/dashboard con la sesión.
+ */
+function ContenidoOMuro({
+  children,
+  fallback,
+}: {
+  children: React.ReactNode;
+  fallback: React.ReactNode;
+}) {
+  const pathname = usePathname();
+  const { data: usuario, isPending } = useUser();
+
+  if (IS_DEMO) return <>{children}</>;
+  if (pathname === '/dashboard/pro' || pathname === '/dashboard/configuracion') {
+    return <>{children}</>;
+  }
+  if (isPending) return <>{fallback}</>;
+  if (usuario && estaEnMuro(usuario.plan)) return <Paywall />;
+  return <>{children}</>;
+}
+
 function ShellChrome({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
@@ -127,7 +170,8 @@ function ShellChrome({ children }: { children: React.ReactNode }) {
               {!gateContent && <ConnectWhatsappBanner />}
               {/* En /dashboard/pro el PaymentForm ya muestra el detalle del descuento; evitar duplicar. */}
               {!gateContent && pathname !== '/dashboard/pro' && <ReferralDiscountBanner />}
-              {gateContent ? fallback : children}
+              {!gateContent && pathname !== '/dashboard/pro' && <TrialStatusBanner />}
+              {gateContent ? fallback : <ContenidoOMuro fallback={fallback}>{children}</ContenidoOMuro>}
             </div>
           </main>
           <BottomNav />

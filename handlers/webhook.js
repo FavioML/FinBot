@@ -24,7 +24,9 @@ const { esperaComprobante, esPagoNeto, procesarComprobantePro } = require('../li
 const { procesarComandoAdmin } = require('./admin-commands');
 const { abrirSesion, cerrarSesion } = require('../lib/support-tickets');
 const { manejarOnboarding } = require('./onboarding');
-const { nudgeActivacion } = require('../lib/activacion');
+const { colaConfirmacionGasto, estaEnMuro, mensajeMuro } = require('../lib/trial');
+const { comandoRequiereLectura } = require('./intents-acceso');
+const analytics = require('../lib/analytics');
 
 // Idempotencia por wamid: Meta retransmite el webhook cada 30s si OpenAI demora >timeout.
 // Map preserva orden de inserción → LRU. TTL 5 min, max 1000 entries.
@@ -199,7 +201,7 @@ function createWebhookHandler(procesarMensajeLibre) {
         const emoji = esIngreso ? '💵' : (getEmojiCategoria(catImg) || '📋');
         const tipoLabel = esIngreso ? 'Ingreso registrado' : 'Gasto registrado';
         let respImg = '📸 *' + tipoLabel + '*\n\n' + emoji + ' *' + (parsed.comercio || (esIngreso ? 'Ingreso' : 'Pago')) + '* — ' + montoStr + '\n' + catImg + (subImg && subImg !== 'sin_categoria' ? ' > ' + subImg : '') + ' · ' + parsed.fecha;
-        const nudgeImg = nudgeActivacion(usuario, txImg && txImg.conteoTx);
+        const nudgeImg = await colaConfirmacionGasto(usuario, txImg, txImg && txImg.conteoTx);
         if (nudgeImg) respImg += nudgeImg;
         await enviarWhatsapp(from, respImg);
       } catch(e) {
@@ -532,7 +534,18 @@ function createWebhookHandler(procesarMensajeLibre) {
       return;
     }
 
-    if (cmd === 'hola' || cmd === 'hi' || cmd === 'inicio') {
+    // Muro de lectura para los comandos `/`. Va como PRIMERA rama de la cascada porque
+    // esta cascada corre antes del NLP y nunca pasa por el dispatch de intents, así que
+    // el chokepoint de message-processor no la cubre: sin esto, /reporte y /mes seguirían
+    // entregando gratis exactamente lo que el muro cobra.
+    // El saludo NO está en la lista: da el total del mes y el conteo, que es justo el
+    // número que se decidió dejar del lado gratis.
+    if (comandoRequiereLectura(cmd) && estaEnMuro(usuario)) {
+      const { count: conteoMuroCmd } = await supabase.from('transacciones')
+        .select('id', { count: 'exact', head: true }).eq('usuario_id', usuario.id);
+      respuesta = mensajeMuro(usuario, conteoMuroCmd);
+      analytics.capture(usuario.id, 'wa_muro_lectura', { comando: cmd.split(/\s+/)[0] });
+    } else if (cmd === 'hola' || cmd === 'hi' || cmd === 'inicio') {
       var primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
       if (!usuario.gmail_access_token && usuario.onboarding_completado) {
         // Usuario en modo manual — saludo normal

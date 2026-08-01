@@ -90,6 +90,41 @@ export function hasReachedLimit(
   return currentCount >= FREE_LIMITS[feature];
 }
 
+/**
+ * ¿El usuario está en el MURO? Es decir: terminó su prueba de 14 días sin pagar.
+ *
+ * Espejo exacto de `estaEnMuro` en el backend (`lib/trial.js`), y complemento del
+ * entitlement Pro a propósito: una sola condición, imposible de desincronizar.
+ *
+ * La regla que aplica: **escribir nunca se corta; lo que se cobra es leer.** Registrar
+ * un gasto sigue siendo gratis para siempre; el dashboard, el historial y los reportes no.
+ */
+export function estaEnMuro(plan: string | undefined): boolean {
+  return plan !== 'premium';
+}
+
+/** ¿Está corriendo su prueba ahora mismo? */
+export function enTrial(trialEstado: string | null | undefined): boolean {
+  return trialEstado === 'activo';
+}
+
+/**
+ * Días que le quedan de prueba, en fecha Lima (0 = vence hoy, null si no está en trial).
+ * Se calcula en zona Lima y no la del navegador, igual que `/api/pro/status`.
+ */
+export function diasRestantesTrial(
+  trialEstado: string | null | undefined,
+  trialVence: string | null | undefined,
+): number | null {
+  if (!enTrial(trialEstado) || !trialVence) return null;
+  const vence = String(trialVence).slice(0, 10);
+  const hoyLima = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+  if (vence < hoyLima) return 0;
+  const ms =
+    new Date(vence + 'T12:00:00-05:00').getTime() - new Date(hoyLima + 'T12:00:00-05:00').getTime();
+  return Math.max(0, Math.round(ms / 86400000));
+}
+
 /** Get the display limit for a feature */
 export function getLimit(
   plan: string | undefined,

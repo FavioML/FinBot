@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
-import { requireNetoUser } from '@/lib/supabase/auth';
+import { requireLectura } from '@/lib/supabase/auth';
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 import { goalsFactor, debtsFactor, limaToday } from '@/lib/score-factors';
@@ -21,7 +21,7 @@ const WEIGHTS = {
  * with direct Supabase queries.
  */
 export async function POST() {
-  const auth = await requireNetoUser('id, plan, gmail_access_token, recordatorios_activos');
+  const auth = await requireLectura('id, plan, gmail_access_token, recordatorios_activos');
   if (!auth.ok) return auth.response;
   const usuario = auth.user;
 

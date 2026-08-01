@@ -28,7 +28,9 @@ const { getHandler } = require('./intent-registry');
 const { NETO_TOOLS, mapToolToIntent } = require('./neto-tools');
 const { construirNetoPrompt } = require('../lib/neto-prompt');
 const { obtenerSesionAbierta } = require('../lib/support-tickets');
-const { nudgeActivacion } = require('../lib/activacion');
+const { colaConfirmacionGasto, estaEnMuro, mensajeMuro } = require('../lib/trial');
+const { requiereLectura } = require('./intents-acceso');
+const analytics = require('../lib/analytics');
 
 /**
  * Salvage sin IA: cuando OpenAI está caído (429) el pipeline normal no puede clasificar,
@@ -163,6 +165,9 @@ async function procesarMensajeLibre(msg, usuario, from) {
       const fechaTx = /\bayer\b/i.test(msg) ? fechaAyerPeru() : fechaHoyPeru();
       const respuestasIE = [];
       let conteoTxIE = 0;   // el conteo del último insert = total del usuario
+      // El trial lo arranca el PRIMER insert del fanout, no el último: hay que
+      // acarrear la señal o la cola anunciaría el muro sobre un trial recién dado.
+      let txTrialIE = null;
       try {
         const datosIngreso = {
           monto: ingresoMasGastos.income.monto, moneda: 'PEN', comercio: 'Ingreso',
@@ -170,7 +175,8 @@ async function procesarMensajeLibre(msg, usuario, from) {
           tipo: 'ingreso', fecha: fechaTx,
           descripcion_original: msg.substring(0, 200),
         };
-        await guardarTransaccion(usuario.id, datosIngreso);
+        const txIngIE = await guardarTransaccion(usuario.id, datosIngreso);
+        if (txIngIE && txIngIE.trialIniciado) txTrialIE = txIngIE;
         respuestasIE.push('✅ S/' + ingresoMasGastos.income.monto.toFixed(2) + ' en Ingresos · ' + formatFecha(fechaTx));
       } catch(e) {
         log.warn({ tag: 'INCOME_PLUS_EXPENSES', err: e.message }, 'Falló registro de ingreso');
@@ -187,6 +193,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
           };
           const txIE = await guardarTransaccion(usuario.id, datosTx);
           if (txIE && txIE.conteoTx) conteoTxIE = txIE.conteoTx;
+          if (txIE && txIE.trialIniciado) txTrialIE = txIE;
           // Categoría/subcategoría normalizadas por guardarTransaccion, no la salida cruda del parser.
           const catIE = (txIE && txIE.categoria) || datosTx.categoria;
           const subIE = (txIE && txIE.subcategoria) || datosTx.subcategoria;
@@ -202,7 +209,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       }
       if (respuestasIE.length > 0) {
         let respFull = respuestasIE.join('\n');
-        const nudgeIE = nudgeActivacion(usuario, conteoTxIE);
+        const nudgeIE = await colaConfirmacionGasto(usuario, txTrialIE, conteoTxIE);
         if (nudgeIE) respFull += nudgeIE;
         await guardarMensaje(usuario.id, 'neto', respFull.substring(0, 500));
         return respFull;
@@ -220,6 +227,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       const fechaGasto = /\bayer\b/i.test(msg) ? fechaAyerPeru() : fechaHoyPeru();
       const respuestas = [];
       let conteoTxMG = 0;   // el conteo del último insert = total del usuario
+      let txTrialMG = null; // el trial lo arranca el primer insert, no el último
       for (const g of multiGastos) {
         try {
           const detCat = await detectarCategoriaIA('gasté ' + g.monto + ' en ' + g.comercio, usuario.id);
@@ -232,6 +240,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
           };
           const txMG = await guardarTransaccion(usuario.id, datosTx);
           if (txMG && txMG.conteoTx) conteoTxMG = txMG.conteoTx;
+          if (txMG && txMG.trialIniciado) txTrialMG = txMG;
           // Categoría/subcategoría normalizadas por guardarTransaccion, no la salida cruda del parser.
           const catMG = (txMG && txMG.categoria) || datosTx.categoria;
           const subMG = (txMG && txMG.subcategoria) || datosTx.subcategoria;
@@ -247,7 +256,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       }
       if (respuestas.length > 0) {
         let respFull = respuestas.join('\n');
-        const nudgeMG = nudgeActivacion(usuario, conteoTxMG);
+        const nudgeMG = await colaConfirmacionGasto(usuario, txTrialMG, conteoTxMG);
         if (nudgeMG) respFull += nudgeMG;
         await guardarMensaje(usuario.id, 'neto', respFull.substring(0, 500));
         return respFull;
@@ -390,6 +399,20 @@ async function procesarMensajeLibre(msg, usuario, from) {
       guardarMensaje, obtenerHistorial, getUserPlanConfig, getHistoryDateLimit,
     };
 
+    // === Muro de lectura ==================================================
+    // Chokepoint único: acá pasan TODOS los intents del NLP, así que una lectura nueva
+    // no puede filtrarse gratis por olvidar un check en su handler. Va después del
+    // dispatch de escritura (los gastos ya se registraron arriba) y antes de ejecutar
+    // nada, para no gastar queries en una respuesta que no se va a entregar.
+    if (requiereLectura(intencion) && estaEnMuro(usuario)) {
+      const { count: conteoMuro } = await supabase.from('transacciones')
+        .select('id', { count: 'exact', head: true }).eq('usuario_id', usuario.id);
+      const respMuro = mensajeMuro(usuario, conteoMuro);
+      await guardarMensaje(usuario.id, 'neto', respMuro.substring(0, 500));
+      analytics.capture(usuario.id, 'wa_muro_lectura', { intencion });
+      return respMuro;
+    }
+
     const handler = getHandler(intencion);
     if (handler) {
       const r1 = await handler({ intencion, msg, datos, usuario, from, ctx });
@@ -424,7 +447,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
           let resp = '\uD83D\uDCB3 *Transaccion registrada*\n' + (resultado.tipo === 'gasto' ? 'Gasto' : 'Ingreso') + ': S/ ' + resultado.monto + '\nComercio: ' + (resultado.comercio || 'No detectado') + '\nCategoria: ' + (catFb || 'Sin categoria');
           if (resultado.tipo === 'gasto' && resultado.categoria) { const alerta = await verificarAlertaPresupuesto(usuario.id, resultado.categoria, null); if (alerta) resp += '\n\n' + alerta; }
           resp += '\n\n_Escribe "mis gastos del mes" para ver el resumen._';
-          const nudgeFb = nudgeActivacion(usuario, txFb && txFb.conteoTx);
+          const nudgeFb = await colaConfirmacionGasto(usuario, txFb, txFb && txFb.conteoTx);
           if (nudgeFb) resp += nudgeFb;
           return resp;
         }

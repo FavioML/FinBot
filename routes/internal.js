@@ -81,4 +81,50 @@ router.post('/activacion-fallida', async (req, res) => {
   res.json({ ok: true });
 });
 
+/**
+ * POST /internal/trial-iniciar
+ * Body: { usuario_id }
+ *
+ * La webapp acaba de registrar una transacción. El trial arranca con el PRIMER
+ * gasto venga de donde venga, y el usuario web-first (que nace en app.neto.pe y
+ * anota desde el dashboard) no pasa por services/transactions.js, así que sin
+ * este endpoint sería el único que nunca recibe su prueba.
+ *
+ * Va por acá y no replicando el CAS en TypeScript por lo mismo de siempre: el
+ * arranque del trial vive en UN solo lugar (lib/trial.js), y el evento de PostHog
+ * necesita distinctId = usuarios.id — posthog-js usa otro y partiría el embudo.
+ *
+ * Idempotente por construcción (el CAS de iniciarTrialSiCorresponde), así que la
+ * webapp puede llamarlo en cada insert sin condicionar nada.
+ */
+router.post('/trial-iniciar', async (req, res) => {
+  if (!verificarInterno(req, res)) return;
+  try {
+    const usuarioId = req.body && req.body.usuario_id;
+    if (!usuarioId) return res.status(400).json({ ok: false, msg: 'Falta usuario_id' });
+    const { iniciarTrialSiCorresponde } = require('../lib/trial');
+    const r = await iniciarTrialSiCorresponde(usuarioId, { via: 'primer_gasto_web' });
+    res.json({ ok: true, iniciado: r.iniciado, trialVence: r.trialVence });
+  } catch (e) {
+    log.error({ tag: 'TRIAL', err: e.message }, 'Error arrancando trial desde la webapp');
+    res.status(500).json({ ok: false, msg: 'Error arrancando el trial' });
+  }
+});
+
+/**
+ * POST /internal/trial-evento
+ * Body: { usuario_id, evento }
+ *
+ * Telemetría de trial nacida en la webapp (hoy: `paywall_visto`). Mismo motivo que
+ * el resto de los `/internal`: emitir desde posthog-js partiría el embudo por
+ * distinct_id. Paso 401 = "vio el muro", dentro del mismo embudo del alta.
+ */
+router.post('/trial-evento', async (req, res) => {
+  if (!verificarInterno(req, res)) return;
+  const usuarioId = req.body && req.body.usuario_id;
+  const evento = (req.body && req.body.evento) || 'desconocido';
+  if (usuarioId) analytics.capture(usuarioId, 'wa_onboarding_step_ok', { paso: 401, via: evento });
+  res.json({ ok: true });
+});
+
 module.exports = router;

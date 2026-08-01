@@ -1,18 +1,20 @@
 const { supabase } = require('../lib/db');
 const log = require('../lib/logger');
-const { hoyPeru, sumarMeses } = require('../lib/dates');
+const { hoyPeru, sumarMeses, sumarDias } = require('../lib/dates');
 const { enviarWhatsapp } = require('../lib/whatsapp');
 const { getUserPlanConfig } = require('../helpers/db-helpers');
 const { generarResumenSemanal, generarResumenMensual, generarResumenDiario } = require('../services/summaries');
 const { verificarAlertasProactivas } = require('../services/recommendations');
 const { obtenerDeudasProximasVencer } = require('../services/debts');
 const { crearNotificacion } = require('../lib/notifications-db');
-const { ADMIN_NUMBER } = require('../lib/config');
+const { ADMIN_NUMBER, PRO_PRECIOS } = require('../lib/config');
+const { WEBAPP_URL } = require('../lib/constants');
 const { notificarAdmin } = require('../lib/admin-notify');
 const { checkSurveyTriggers } = require('../services/survey-triggers');
 const { solicitarComprobante } = require('../lib/pro-payment');
 const { planCostReminders } = require('../lib/cost-reminders');
-const { mensajeActivacionDia2 } = require('../lib/activacion');
+const { mensajeActivacionDia2, construirLinkActivacion } = require('../lib/activacion');
+const { mensajeMuro, AVISO_DIAS_ANTES } = require('../lib/trial');
 const analytics = require('../lib/analytics');
 
 async function checkResumenMensual() {
@@ -353,6 +355,113 @@ async function checkActivacionDia2() {
       } catch (e) { /* silencioso por usuario */ }
     }
   } catch (e) { log.error({ tag: 'ACTIVACION_DIA2', err: e.message }, 'Error empujón activación día 2'); }
+}
+
+// ─── Fin del trial: dos avisos y el downgrade ────────────────────────────────
+//
+// Día 11 (faltan 3), día 14 (último día), y al día 15 cae al muro. Corre cada hora con
+// gate >=9am Lima: el gate evita mandar de madrugada y permite catch-up si se cae una
+// corrida, y la idempotencia real la da el dedup por día contra `notificaciones` — el
+// mismo esquema que checkPremiumExpiry, que sin él mandaba el aviso 24 veces al día.
+//
+// NO colisiona con checkPremiumExpiry: durante el trial `premium_vence` queda NULL, y las
+// tres queries de ese cron filtran por premium_vence (= en3dias, = hoy, IS NOT NULL). Los
+// usuarios en prueba le son invisibles.
+//
+// Sobre la entrega: el aviso sale free-form mientras `trial_por_vencer` no esté aprobada
+// por Meta (flag WA_TRIAL_TEMPLATE_ENABLED, ver docs/whatsapp-templates.md). A diferencia
+// del win-back — que tuvo 0 entregas confirmadas porque perseguía inactivos de 70-143 días
+// —, esta población es la de MEJOR caso para la ventana de 24h: por construcción registró
+// un gasto hace <=14 días. Aun así no se asume: cada envío se etiqueta (`trial_d11`/
+// `trial_d14`) y `notification_deliveries` guarda el wamid, así que delivered_at dice la
+// verdad y a las dos semanas se decide con datos si la plantilla vale el gasto.
+// El canal garantizado, mientras tanto, es la notificación in-app.
+async function checkTrialExpiry() {
+  try {
+    const hoy = hoyPeru();
+    const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
+    const inicioHoy = new Date(hoy + 'T00:00:00-05:00').toISOString();
+    const usaTemplate = process.env.WA_TRIAL_TEMPLATE_ENABLED === 'true';
+
+    if (horaLima.getHours() >= 8) {
+      const avisos = [
+        { fecha: sumarDias(hoy, AVISO_DIAS_ANTES), titulo: 'Tu prueba Pro termina en 3 días', tipo: 'trial_d11', cuando: 'en 3 días', via: 'd11' },
+        { fecha: hoy, titulo: 'Tu prueba Pro termina hoy', tipo: 'trial_d14', cuando: 'hoy', via: 'd14' },
+      ];
+      for (const aviso of avisos) {
+        const { data: porVencer } = await supabase.from('usuarios')
+          .select('id, whatsapp, nombre, trial_vence, supabase_auth_id')
+          .eq('trial_estado', 'activo').eq('trial_vence', aviso.fecha);
+        if (!porVencer || porVencer.length === 0) continue;
+        for (const usuario of porVencer) {
+          try {
+            const { data: yaAviso } = await supabase.from('notificaciones')
+              .select('id').eq('usuario_id', usuario.id).eq('tipo', 'recordatorio')
+              .eq('titulo', aviso.titulo).gte('fecha', inicioHoy).limit(1);
+            if (yaAviso && yaAviso.length > 0) continue;
+
+            const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
+            // Al que nunca activó su cuenta web se le empuja a activarla, no a pagar: está
+            // por terminar 14 días de Pro sin haber visto una sola vez lo que se le está
+            // por acabar. Pedirle plata por algo que no vio no puede funcionar.
+            const cuerpo = usuario.supabase_auth_id
+              ? 'Después de eso sigo anotando todos tus gastos, pero el dashboard, el historial y los reportes quedan cerrados.\n\n' +
+                'Para seguir con todo abierto:\n💰 *S/' + PRO_PRECIOS.mensual + '/mes* o *S/' + PRO_PRECIOS.anual + '/año*\n' +
+                '👉 ' + WEBAPP_URL + '/dashboard/pro'
+              : 'Y todavía no has entrado ni una vez a ver tus gastos en gráficos.\n\n' +
+                'Míralos ahora, mientras sigue abierto:\n👉 ' + (construirLinkActivacion(usuario.id) || WEBAPP_URL + '/dashboard');
+            const msg = '⏳ ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u prueba de *Neto Pro* termina ' +
+              aviso.cuando + (aviso.via === 'd11' ? ' (' + usuario.trial_vence + ')' : '') + '.\n\n' + cuerpo;
+
+            const tpl = usaTemplate ? {
+              name: 'trial_por_vencer', language: { code: 'es' },
+              components: [{ type: 'body', parameters: [
+                { type: 'text', text: primerNombre || 'Hola' },
+                { type: 'text', text: aviso.via === 'd11' ? 'en 3 días (' + usuario.trial_vence + ')' : 'hoy' },
+              ] }],
+            } : null;
+
+            const res = await enviarWhatsapp(usuario.whatsapp, msg, { tipo: aviso.tipo, usuarioId: usuario.id, template: tpl });
+            await crearNotificacion(usuario.id, 'recordatorio', aviso.titulo,
+              msg.replace(/[*_]/g, ''), { link: '/dashboard/pro' });
+            // Solo se cuenta como "aviso" lo que Meta aceptó: un blocked_24h no avisó a nadie
+            // y contarlo taparía justo el problema que se está midiendo.
+            if (res && res.ok && !res.skipped) {
+              analytics.capture(usuario.id, 'wa_onboarding_step_ok', { paso: 310, via: aviso.via, canal: tpl ? 'template' : 'texto' });
+            }
+          } catch (e) { log.error({ tag: 'TRIAL_EXPIRY', userId: usuario.id, err: e.message }, 'Error avisando fin de trial'); }
+        }
+      }
+    }
+
+    // Vencidos → al muro. Sin gate horario: el downgrade no molesta a nadie de madrugada y
+    // dejar a alguien con Pro un día de más por una corrida perdida sería peor.
+    const { data: vencidos } = await supabase.from('usuarios')
+      .select('id, whatsapp, nombre, trial_vence')
+      .eq('trial_estado', 'activo').lt('trial_vence', hoy);
+    if (!vencidos || vencidos.length === 0) return;
+    for (const usuario of vencidos) {
+      try {
+        // Un UPDATE condicionado a trial_estado='activo' es el claim: si dos corridas se
+        // solapan, solo una baja el plan y solo una avisa.
+        const { data: bajado, error: errBaja } = await supabase.from('usuarios')
+          .update({ plan: 'free', trial_estado: 'vencido' })
+          .eq('id', usuario.id).eq('trial_estado', 'activo')
+          .select('id').maybeSingle();
+        if (errBaja) { log.error({ tag: 'TRIAL_EXPIRY', userId: usuario.id, err: errBaja.message }, 'No se pudo bajar el plan al vencer el trial'); continue; }
+        if (!bajado) continue;   // otra corrida ganó
+
+        const { count: conteoTx } = await supabase.from('transacciones')
+          .select('id', { count: 'exact', head: true }).eq('usuario_id', usuario.id);
+        const msg = mensajeMuro(usuario, conteoTx);
+        await enviarWhatsapp(usuario.whatsapp, msg, { tipo: 'trial_vencido', usuarioId: usuario.id });
+        await crearNotificacion(usuario.id, 'sistema', 'Tu prueba Pro terminó',
+          'Sigo anotando todos tus gastos y no se borró nada. Para volver a verlos, activa Pro.', { link: '/dashboard/pro' });
+        analytics.capture(usuario.id, 'wa_onboarding_step_failed', { paso: 400, motivo: 'trial_vencido', conteo_tx: conteoTx || 0 });
+        log.info({ tag: 'TRIAL_EXPIRY', userId: usuario.id }, 'Trial vencido, usuario al muro');
+      } catch (e) { log.error({ tag: 'TRIAL_EXPIRY', userId: usuario.id, err: e.message }, 'Error bajando al muro'); }
+    }
+  } catch (e) { log.error({ tag: 'TRIAL_EXPIRY', err: e.message }, 'Error general check trial expiry'); }
 }
 
 async function checkRecordatorioDeudas() {
@@ -901,6 +1010,7 @@ module.exports = {
   limpiarOTPVencidos,
   checkRecordatorioDiario,
   checkPremiumExpiry,
+  checkTrialExpiry,
   checkAlertasProactivas,
   checkRecordatorioOnboarding,
   checkActivacionDia2,

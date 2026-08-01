@@ -44,6 +44,28 @@ const TEMPLATES = [
       },
     ],
   },
+  {
+    // Fin del trial de 14 días. Un SOLO template para los dos toques (día 11 y día 14):
+    // el timing es la variable {{2}}, igual que el {{4}} de deuda_por_vencer. Una
+    // aprobación cubre ambos avisos.
+    //
+    // NO se reusa `plan_pro_por_vencer`: dice "Renuévalo", que da por hecho un pago
+    // anterior que el usuario en prueba nunca hizo.
+    //
+    // Sin precio, sin Yape y sin CTA de compra en el body — esa es la línea que lo
+    // mantiene UTILITY (status de una cuenta) y no MARKETING (que es más caro y más
+    // difícil de aprobar). El precio va en el mensaje libre de seguimiento.
+    name: 'trial_por_vencer',
+    language: 'es',
+    category: 'UTILITY',
+    components: [
+      {
+        type: 'BODY',
+        text: 'Hola {{1}} 👋 Tu prueba de Neto Pro termina {{2}}. Entra a Neto para ver tu resumen y decidir si continúas.',
+        example: { body_text: [['Favio', 'en 3 días (12/08)']] },
+      },
+    ],
+  },
 ];
 
 async function crearTemplate(t) {

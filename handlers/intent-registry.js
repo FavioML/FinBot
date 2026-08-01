@@ -18,4 +18,13 @@ function getHandler(intent) {
   return handlers[intent] || null;
 }
 
-module.exports = { getHandler };
+/**
+ * Todos los intents registrados. Lo usa el test de `handlers/intents-acceso.js` para
+ * exigir que cada intent esté clasificado como lectura (muro) o libre: un intent nuevo
+ * sin clasificar rompe el build en vez de filtrarse gratis en producción.
+ */
+function listIntents() {
+  return Object.keys(handlers);
+}
+
+module.exports = { getHandler, listIntents };

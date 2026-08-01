@@ -3,6 +3,7 @@ import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse, after } from 'next/server';
 import { getExchangeRate } from '@/lib/exchange-rate';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { iniciarTrialBackend } from '@/lib/trial-backend';
 import crypto from 'crypto';
 
 /** Validate monto: must be positive number <= 999999.99 */
@@ -202,6 +203,10 @@ export async function POST(request: Request) {
     await Promise.allSettled([
       syncCategoriasUsuario(userId, body.categoria, body.subcategoria).catch((e) => console.error('[sync-cat]', e)),
       syncReglaComercio(userId, body.comercio, body.categoria, body.subcategoria).catch((e) => console.error('[sync-regla]', e)),
+      // El trial arranca con el PRIMER gasto venga de donde venga. El usuario web-first
+      // (nace en app.neto.pe y anota desde el dashboard) no pasa por el backend de
+      // WhatsApp, asi que sin esta llamada seria el unico que nunca recibe su prueba.
+      iniciarTrialBackend(userId),
     ]);
   });
 

@@ -1,5 +1,5 @@
 import { getServiceClient } from '@/lib/supabase/service';
-import { requireNetoUser } from '@/lib/supabase/auth';
+import { requireLectura } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { parseCSV, parseExcel, type ImportRow } from '@/lib/import-parser';
@@ -25,7 +25,7 @@ function generarDedupHash(userId: string, fecha: string, monto: number, comercio
 }
 
 export async function POST(request: Request) {
-  const auth = await requireNetoUser('id, plan');
+  const auth = await requireLectura('id, plan');
   if (!auth.ok) return auth.response;
   const usuario = { id: auth.user.id, plan: (auth.user.plan as string) || 'free' };
 

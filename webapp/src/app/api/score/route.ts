@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
-import { requireNetoUser } from '@/lib/supabase/auth';
+import { requireLectura } from '@/lib/supabase/auth';
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 import { goalsFactor, debtsFactor, limaToday } from '@/lib/score-factors';
@@ -181,7 +181,7 @@ async function calculateFreshScore(usuario: ScoreUser) {
 }
 
 export async function GET(request: Request) {
-  const auth = await requireNetoUser(SCORE_USER_COLS);
+  const auth = await requireLectura(SCORE_USER_COLS);
   if (!auth.ok) return auth.response;
   const usuario = auth.user as unknown as ScoreUser;
 

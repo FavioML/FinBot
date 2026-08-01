@@ -1,5 +1,5 @@
 import { getServiceClient } from '@/lib/supabase/service';
-import { requireNetoUser } from '@/lib/supabase/auth';
+import { requireLectura } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
 
@@ -17,7 +17,7 @@ const FIELDS = [
 // Upsert con merge: cada acción manda solo los campos que cambia; se combinan sobre
 // el override existente de esa (usuario, dominio, clave_variante).
 export async function POST(request: Request) {
-  const auth = await requireNetoUser();
+  const auth = await requireLectura();
   if (!auth.ok) return auth.response;
   const netoUser = auth.user;
   if (!checkRateLimit(netoUser.id)) {
@@ -63,7 +63,7 @@ export async function POST(request: Request) {
 
 // Reset: borra el override de esa clave (vuelve a la heurística automática).
 export async function DELETE(request: Request) {
-  const auth = await requireNetoUser();
+  const auth = await requireLectura();
   if (!auth.ok) return auth.response;
   const netoUser = auth.user;
   if (!checkRateLimit(netoUser.id)) {

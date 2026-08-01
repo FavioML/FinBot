@@ -17,6 +17,22 @@ export interface RevenueUserRow {
   plan: string | null;
   tipo_plan: string | null;
   whatsapp?: string | null;
+  /**
+   * Estado del trial de 14 días. Durante el trial `plan` vale `'premium'` (así el
+   * usuario en prueba recibe Pro sin tocar los ~40 gates que miran esa columna), o sea
+   * que **`plan === 'premium'` ya NO significa "paga"**. Este es el único lugar donde
+   * ese truco cobra peaje, y por eso se paga acá y no en 40 sitios.
+   */
+  trial_estado?: string | null;
+}
+
+/**
+ * ¿Este usuario PAGA? Es lo que cuenta para MRR, ARR y churn. Un trial es plan
+ * `'premium'` con `trial_estado='activo'`: entrega Pro pero no factura, así que
+ * contarlo inflaría el MRR con dinero que nadie transfirió.
+ */
+export function esProPagado(u: RevenueUserRow): boolean {
+  return u.plan === 'premium' && u.trial_estado !== 'activo';
 }
 
 /** Fila con fechas de alta/baja Pro, para reconstrucción histórica de MRR. */
@@ -40,7 +56,7 @@ export function isRevenueUser(u: { whatsapp?: string | null }): boolean {
 
 /** Valor mensual normalizado: anual = precio anual / 12, mensual = precio mensual. */
 export function monthlyValuePen(u: RevenueUserRow): number {
-  if (u.plan !== 'premium') return 0;
+  if (!esProPagado(u)) return 0;
   return u.tipo_plan === 'anual'
     ? PRO_PRICE_YEARLY_PEN / 12
     : PRO_PRICE_MONTHLY_PEN;
@@ -57,7 +73,7 @@ export interface RevenueSummary {
 /** MRR/ARR normalizado sobre usuarios reales (excluye cuentas internas). */
 export function computeRevenue(users: RevenueUserRow[]): RevenueSummary {
   const real = users.filter(isRevenueUser);
-  const pro = real.filter((u) => u.plan === 'premium');
+  const pro = real.filter(esProPagado);
   const proYearly = pro.filter((u) => u.tipo_plan === 'anual').length;
   const proMonthly = pro.length - proYearly;
   const mrr = round2(pro.reduce((sum, u) => sum + monthlyValuePen(u), 0));
@@ -109,10 +125,10 @@ function historyMonthlyValue(u: HistoryUserRow): number {
  * vence−30d, que ubicaba a los anuales +11 meses en el futuro.
  */
 export function wasProAtMonthEnd(u: HistoryUserRow, monthEnd: Date): boolean {
-  if (!u.premium_desde) return u.plan === 'premium'; // Pro sin fecha de alta
+  if (!u.premium_desde) return esProPagado(u); // Pro pagado sin fecha de alta (los trials no tienen premium_desde)
   if (new Date(u.premium_desde) > monthEnd) return false; // aún no era Pro
   if (u.premium_vence) return new Date(u.premium_vence) >= monthEnd; // seguía vigente
-  return u.plan === 'premium';
+  return esProPagado(u);
 }
 
 /**
@@ -148,7 +164,7 @@ export function churnedInMonth(
   monthEnd: Date,
 ): number {
   return users.filter(isRevenueUser).filter((u) => {
-    if (u.plan === 'premium' || !u.premium_vence) return false;
+    if (esProPagado(u) || !u.premium_vence) return false;
     const vence = new Date(u.premium_vence);
     return vence >= monthStart && vence <= monthEnd;
   }).length;
@@ -167,11 +183,11 @@ export function computeChurn(users: HistoryUserRow[], now: Date): ChurnSummary {
   const real = users.filter(isRevenueUser);
   const thirtyAgo = new Date(now.getTime() - 30 * 86400000);
   const churned = real.filter((u) => {
-    if (u.plan === 'premium' || !u.premium_vence) return false;
+    if (esProPagado(u) || !u.premium_vence) return false;
     const vence = new Date(u.premium_vence);
     return vence >= thirtyAgo && vence < now;
   }).length;
-  const pro = real.filter((u) => u.plan === 'premium').length;
+  const pro = real.filter(esProPagado).length;
   const base = churned + pro;
   const rate = base > 0 ? Math.round((churned / base) * 1000) / 10 : 0;
   return { churned, rate };

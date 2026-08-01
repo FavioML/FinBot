@@ -49,7 +49,7 @@ export async function GET() {
     db
       .from('usuarios')
       .select(
-        'id, whatsapp, plan, tipo_plan, onboarding_completado, created_at, premium_desde, premium_vence, supabase_auth_id',
+        'id, whatsapp, plan, tipo_plan, trial_estado, trial_vence, onboarding_completado, created_at, premium_desde, premium_vence, supabase_auth_id',
       ),
     db
       .from('pagos')

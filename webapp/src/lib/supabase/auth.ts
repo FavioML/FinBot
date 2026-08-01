@@ -98,6 +98,53 @@ export async function requireNetoUser(columns = 'id'): Promise<NetoUserAuth> {
 }
 
 /**
+ * Como `requireNetoUser`, mas el muro de lectura: responde **402 Payment Required**
+ * si el usuario ya termino su prueba de 14 dias y no pago.
+ *
+ * La regla del producto es que **escribir nunca se corta; lo que se cobra es leer**
+ * (ver `lib/trial.js` en el backend). Toda ruta que devuelva data acumulada del
+ * usuario — su dashboard, sus transacciones, sus presupuestos, su score — tiene que
+ * usar este helper y no `requireNetoUser` a secas.
+ *
+ * Gatear solo en el cliente seria cosmetico: quien tenga la sesion puede pegarle a
+ * `/api/dashboard` directo y llevarse exactamente lo que el muro cobra.
+ *
+ * Durante el trial `plan` vale `'premium'`, asi que el usuario en prueba pasa este
+ * check sin ningun caso especial — es el mismo truco que hace que los ~40 gates de
+ * Pro funcionen sin tocarse.
+ *
+ * ```ts
+ * const auth = await requireLectura('id, plan');
+ * if (!auth.ok) return auth.response;
+ * ```
+ *
+ * `columns` siempre incluye `plan` aunque no se pida (es lo que decide el muro).
+ */
+export async function requireLectura(columns = 'id'): Promise<NetoUserAuth> {
+  const conPlan = columns.split(',').some((c) => ['plan', '*'].includes(c.trim()))
+    ? columns
+    : `${columns}, plan`;
+
+  const auth = await requireNetoUser(conPlan);
+  if (!auth.ok) return auth;
+
+  if (auth.user.plan !== 'premium') {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        {
+          error: 'trial_terminado',
+          message: 'Tu prueba de Neto Pro terminó. Tus datos siguen guardados.',
+        },
+        { status: 402 },
+      ),
+    };
+  }
+
+  return auth;
+}
+
+/**
  * Igual que `requireNetoUser` pero para los sitios donde NO tener fila es el
  * caso normal, no un error (el onboarding, el callback de auth): distingue
  * "no hay fila" de "la lectura se cayo" sin decidir la respuesta HTTP.

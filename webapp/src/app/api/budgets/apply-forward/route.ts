@@ -1,5 +1,5 @@
 import { getServiceClient } from '@/lib/supabase/service';
-import { requireNetoUser } from '@/lib/supabase/auth';
+import { requireLectura } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
 
@@ -17,7 +17,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
  * user opens, so "forever" is covered without inserting unbounded rows.
  */
 export async function POST(request: Request) {
-  const auth = await requireNetoUser('id, plan');
+  const auth = await requireLectura('id, plan');
   if (!auth.ok) return auth.response;
   const netoUser = auth.user;
 

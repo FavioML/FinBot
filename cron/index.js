@@ -8,6 +8,7 @@ const {
   checkResumenDiarioManosLibres,
   checkRecordatorioDiario,
   checkPremiumExpiry,
+  checkTrialExpiry,
   checkAlertasProactivas,
   checkRecordatorioOnboarding,
   checkActivacionDia2,
@@ -62,6 +63,8 @@ function startCronJobs() {
     log.info({ tag: 'ALERTAS' }, 'Alertas proactivas activas (miércoles 10am Lima)');
     setInterval(checkPremiumExpiry, 60 * 60 * 1000);
     log.info({ tag: 'EXPIRY' }, 'Check expiración premium activo (cada 1h)');
+    setInterval(checkTrialExpiry, 60 * 60 * 1000);
+    log.info({ tag: 'TRIAL_EXPIRY' }, 'Check fin de trial activo (avisos día 11 y 14, downgrade al muro; cada 1h)');
     setInterval(checkRecordatorioOnboarding, 15 * 60 * 1000);
     log.info({ tag: 'ONBOARDING' }, 'Recordatorio onboarding activo (3h después de registro, 9am-9pm Lima)');
     setInterval(checkActivacionDia2, 15 * 60 * 1000);

@@ -47,22 +47,56 @@ async function registrarReferido(referrerId, referidoId) {
 
 /**
  * Siembra (o refresca) el 50% off del primer mes Pro del referido, con ventana de 7 días.
- * No pisa un descuento aún vigente ni se lo da a quien ya es Pro (no tiene "primer mes").
+ * No pisa un descuento aún vigente ni se lo da a quien ya es Pro PAGADO (no tiene
+ * "primer mes").
+ *
+ * La ventana se ancla al FIN DEL TRIAL cuando el referido está probando. Anclarla a hoy
+ * la haría vencer DENTRO del trial: nadie paga mientras Pro está gratis, así que los 7
+ * días se quemarían sin que el descuento llegue a existir para el usuario. Anclado al
+ * final, el 50% deja de ser un endulzante de registro y pasa a ser lo que está esperando
+ * en el muro — justo donde ocurre la conversión.
  */
 async function sembrarDescuentoReferido(referidoId) {
   try {
-    const { data: u, error } = await supabase.from('usuarios').select('plan, referido_dscto_vence').eq('id', referidoId).single();
+    const { data: u, error } = await supabase.from('usuarios')
+      .select('plan, trial_estado, trial_vence, referido_dscto_vence').eq('id', referidoId).single();
     if (error || !u) return;
-    if (u.plan === 'premium') return; // ya es Pro: el descuento del primer mes no aplica
+    // OJO: durante el trial `plan` vale 'premium' (así el trial entrega Pro sin tocar los
+    // ~40 gates que miran esa columna). Cortar por plan a secas dejaría a TODO referido
+    // nuevo sin descuento, en silencio. Lo que descalifica es ser Pro PAGADO.
+    const esProPagado = u.plan === 'premium' && u.trial_estado !== 'activo';
+    if (esProPagado) return;
     const hoy = hoyPeru();
     // Si ya tiene un descuento vigente, no reiniciar la ventana (evita farmear el link).
     if (u.referido_dscto_vence && String(u.referido_dscto_vence).slice(0, 10) >= hoy) return;
-    const vence = sumarDias(hoy, DSCTO_REFERIDO_DIAS);
+    const base = (u.trial_estado === 'activo' && u.trial_vence)
+      ? String(u.trial_vence).slice(0, 10)
+      : hoy;
+    const vence = sumarDias(base, DSCTO_REFERIDO_DIAS);
     const { error: errUpd } = await supabase.from('usuarios')
       .update({ referido_dscto_pct: DSCTO_REFERIDO_PCT, referido_dscto_vence: vence })
       .eq('id', referidoId);
     if (errUpd) log.error({ tag: 'REFERIDO', err: errUpd.message, referidoId }, 'No se pudo sembrar el descuento de referido');
   } catch(e) { log.error({ tag: 'REFERIDO', err: e.message, referidoId }, 'Error sembrando descuento de referido'); }
+}
+
+/**
+ * Re-ancla la ventana del descuento al fin del trial. La llama lib/trial.js cuando arranca
+ * el trial de alguien que YA venía con descuento sembrado (entró por el link de referido y
+ * recién después registró su primer gasto). Sin esto, ese usuario — el camino más común
+ * del programa de referidos — tendría el descuento vencido antes de llegar al muro.
+ *
+ * @param {string} usuarioId
+ * @param {string} trialVence  'YYYY-MM-DD'
+ */
+async function anclarDescuentoAFinDeTrial(usuarioId, trialVence) {
+  if (!usuarioId || !trialVence) return;
+  const vence = sumarDias(String(trialVence).slice(0, 10), DSCTO_REFERIDO_DIAS);
+  const { error } = await supabase.from('usuarios')
+    .update({ referido_dscto_vence: vence })
+    .eq('id', usuarioId)
+    .not('referido_dscto_pct', 'is', null);
+  if (error) log.error({ tag: 'REFERIDO', err: error.message, usuarioId }, 'No se pudo anclar el descuento al fin del trial');
 }
 
 /**
@@ -213,6 +247,7 @@ async function resumenReferidoParaAdmin(referidoId) {
 module.exports = {
   registrarReferido,
   sembrarDescuentoReferido,
+  anclarDescuentoAFinDeTrial,
   procesarConversionProReferido,
   obtenerEstadisticasReferidos,
   mensajeMisReferidos,

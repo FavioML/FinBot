@@ -32,7 +32,7 @@ export async function GET() {
     db
       .from('usuarios')
       .select(
-        'id, whatsapp, nombre, email, plan, onboarding_completado, gmail_access_token, created_at, premium_vence, premium_desde, supabase_auth_id, estado_pago, tipo_plan, fecha_pago, pago_pendiente',
+        'id, whatsapp, nombre, email, plan, trial_estado, trial_vence, onboarding_completado, gmail_access_token, created_at, premium_vence, premium_desde, supabase_auth_id, estado_pago, tipo_plan, fecha_pago, pago_pendiente',
       )
       .order('created_at', { ascending: false }),
     db.rpc('admin_user_tx_stats'),

@@ -1,10 +1,10 @@
 import { getServiceClient } from '@/lib/supabase/service';
-import { requireNetoUser } from '@/lib/supabase/auth';
+import { requireLectura } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 
 // GET /api/goals/participants?meta_id=xxx — list participants with their contribution totals
 export async function GET(request: Request) {
-  const auth = await requireNetoUser();
+  const auth = await requireLectura();
   if (!auth.ok) return auth.response;
   const userId = auth.user.id;
 
@@ -85,7 +85,7 @@ export async function GET(request: Request) {
 
 // DELETE /api/goals/participants — disable collaborative mode (owner only)
 export async function DELETE(request: Request) {
-  const auth = await requireNetoUser();
+  const auth = await requireLectura();
   if (!auth.ok) return auth.response;
   const userId = auth.user.id;
 

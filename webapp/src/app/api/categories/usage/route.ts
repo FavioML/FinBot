@@ -1,5 +1,5 @@
 import { getServiceClient } from '@/lib/supabase/service';
-import { requireNetoUser } from '@/lib/supabase/auth';
+import { requireLectura } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
 
@@ -11,7 +11,7 @@ function likeEscape(s: string): string {
 
 /* GET — cuántas transacciones referencian una categoría (y opcionalmente una sub) */
 export async function GET(request: Request) {
-  const auth = await requireNetoUser();
+  const auth = await requireLectura();
   if (!auth.ok) return auth.response;
   const userId = auth.user.id;
 

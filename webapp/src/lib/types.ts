@@ -13,6 +13,17 @@ export interface Usuario {
   fecha_vencimiento?: string;
   aprobado_gcc?: boolean;
   supabase_auth_id?: string;
+  /**
+   * Trial de 14 días (migración 052). Durante el trial `plan` vale `'premium'` —
+   * así el usuario en prueba recibe Pro sin ningún caso especial en los ~40 gates
+   * que miran esa columna. Estas tres columnas son el estado COMERCIAL, que es lo
+   * que distingue un Pro que paga de uno que está probando.
+   *   null → todavía no tuvo trial (y le corresponde uno con su próximo gasto)
+   */
+  trial_estado?: 'activo' | 'vencido' | 'convertido' | null;
+  trial_inicio?: string | null;
+  /** Último día del trial, fecha Lima 'YYYY-MM-DD'. */
+  trial_vence?: string | null;
   /** Descuento de referido: 50% off del primer mes Pro. Sembrado al registrarse con un link. */
   referido_dscto_pct?: number | null;
   /** Fecha (YYYY-MM-DD, Lima) en que vence el descuento de referido (7 días desde el alta). */

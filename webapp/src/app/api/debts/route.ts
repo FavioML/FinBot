@@ -1,5 +1,5 @@
 import { getServiceClient } from '@/lib/supabase/service';
-import { requireNetoUser } from '@/lib/supabase/auth';
+import { requireLectura } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { hoyPeru } from '@/lib/dates';
@@ -20,7 +20,7 @@ function addPeriodo(fechaISO: string, frecuencia: Frecuencia): string {
 
 // GET /api/debts — lista todas las deudas activas
 export async function GET() {
-  const auth = await requireNetoUser('id, plan');
+  const auth = await requireLectura('id, plan');
   if (!auth.ok) return auth.response;
   const netoUser = auth.user;
 
@@ -40,7 +40,7 @@ export async function GET() {
 
 // POST /api/debts — crear deuda
 export async function POST(request: Request) {
-  const auth = await requireNetoUser('id, plan');
+  const auth = await requireLectura('id, plan');
   if (!auth.ok) return auth.response;
   const netoUser = auth.user;
 
@@ -110,7 +110,7 @@ export async function POST(request: Request) {
 
 // PUT /api/debts — actualizar deuda (editar campos o registrar abono)
 export async function PUT(request: Request) {
-  const auth = await requireNetoUser('id, plan');
+  const auth = await requireLectura('id, plan');
   if (!auth.ok) return auth.response;
   const netoUser = auth.user;
 
@@ -342,7 +342,7 @@ export async function PUT(request: Request) {
 
 // DELETE /api/debts?id=xxx — eliminar deuda
 export async function DELETE(request: Request) {
-  const auth = await requireNetoUser('id, plan');
+  const auth = await requireLectura('id, plan');
   if (!auth.ok) return auth.response;
   const netoUser = auth.user;
 

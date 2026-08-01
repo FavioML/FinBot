@@ -175,6 +175,25 @@ async function guardarTransaccion(usuarioId, datos) {
     }
     throw error;
   }
+  // El trial arranca con el PRIMER GASTO, y este es el chokepoint que lo garantiza para
+  // todo lo que escribe desde el backend (WhatsApp texto/foto, multi-gasto, import Excel).
+  // El CAS de iniciarTrialSiCorresponde lo hace no-op a partir del segundo, así que no
+  // hace falta preguntar antes si corresponde. Se excluye el barrido de Gmail: es Pro-only
+  // (nadie elegible para trial llega por ahí) y una importación de 30 días dispararía
+  // cientos de updates no-op.
+  //
+  // `trialIniciado` viaja de vuelta en la fila porque el llamador tiene en memoria un
+  // `usuario` con plan='free' YA VIEJO: sin esta señal, la confirmación de su primer gasto
+  // le anunciaría el muro un segundo después de haberle dado 14 días de Pro.
+  if (!datos.esGmail && data) {
+    try {
+      const { iniciarTrialSiCorresponde } = require('../lib/trial');
+      const r = await iniciarTrialSiCorresponde(usuarioId);
+      if (r.iniciado) { data.trialIniciado = true; data.trialVence = r.trialVence; }
+    } catch (e) {
+      log.error({ tag: 'TRIAL', err: e.message, usuarioId }, 'No se pudo arrancar el trial tras el gasto');
+    }
+  }
   // Activación: primera transacción del usuario (excluye importación masiva de Gmail).
   // El conteo viaja de vuelta en la fila (`conteoTx`) porque es exactamente lo que
   // necesita la cadencia del empujón a la webapp (lib/activacion.js): "cuántos

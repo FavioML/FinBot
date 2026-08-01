@@ -1,5 +1,5 @@
 const log = require('../../lib/logger');
-const { nudgeActivacion } = require('../../lib/activacion');
+const { colaConfirmacionGasto } = require('../../lib/trial');
 
 // El LLM a veces clasifica queries como register_transaction tras un burst de gastos
 // previos en el contexto (bal-001/004/005). Cuando el parser falla por falta de monto,
@@ -233,9 +233,10 @@ module.exports = {
           // El conteo ya lo trae la fila (guardarTransaccion lo calcula para su
           // propio evento de primera-tx); no hace falta una segunda query.
           const txCount = tx && tx.conteoTx;
-          // Sin cuenta web vinculada: empujón a activarla, que es la señal que más
-          // pesa en supervivencia (0 de 18 llegan al día 31 sin webapp).
-          const nudge = nudgeActivacion(usuario, txCount);
+          // Cola de la confirmación: estreno del trial, muro, o el empujón a activar la
+          // cuenta — la señal que más pesa en supervivencia (0 de 18 llegan al día 31
+          // sin webapp). Las tres son excluyentes y las decide lib/trial.
+          const nudge = await colaConfirmacionGasto(usuario, tx, txCount);
           if (nudge) respReg += nudge;
           else if (txCount && txCount % 5 === 0) {
             respReg += '\n\n💡 _Revisa tus gráficos en https://app.neto.pe_';

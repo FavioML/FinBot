@@ -75,7 +75,7 @@ export async function GET() {
   ] = await Promise.all([
     db
       .from('usuarios')
-      .select('id, whatsapp, plan, tipo_plan, premium_desde, premium_vence, created_at'),
+      .select('id, whatsapp, plan, tipo_plan, trial_estado, premium_desde, premium_vence, created_at'),
     db.from('admin_costs').select('*').order('next_due_date', { ascending: true }),
     db
       .from('pagos')
