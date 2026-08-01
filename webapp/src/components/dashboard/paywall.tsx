@@ -89,8 +89,11 @@ export function Paywall() {
           )}
         </h1>
         <p className="mb-6 text-[#8A877D]">
+          {/* Sin mencionar la tarjeta: en el mismo mensaje que pide registrar un gasto,
+              nombrar una tarjeta que nunca existió puede leerse como que anotar dispara un
+              cobro. Se dice la condición real y nada más. */}
           {nuncaTuvoTrial
-            ? 'Sin tarjeta. Se activan solos con tu próximo gasto: anótame uno por WhatsApp y entras a ver todo.'
+            ? 'Se activan cuando registres tu próximo gasto: anótalo por WhatsApp y entras a ver todo.'
             : conteo > 0
               ? `Tus ${conteo} movimientos siguen guardados — no se borró nada. Y sigo anotando todo lo que me mandes por WhatsApp, gratis.`
               : 'Sigo anotando todo lo que me mandes por WhatsApp, gratis.'}

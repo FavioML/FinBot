@@ -705,6 +705,10 @@ export default function ConfiguracionPage() {
   }
 
   const isPremium = user?.plan === 'premium';
+  // Pro pagado y Pro de prueba comparten `plan === 'premium'` (así el trial entrega Pro sin
+  // tocar los ~40 gates que miran esa columna), pero en la pantalla donde el usuario viene a
+  // ver QUÉ tiene contratado, colapsarlos es mentirle.
+  const enPrueba = isPremium && user?.trial_estado === 'activo';
 
   /* ---- Referidos: link REAL (ref_code) + progreso dos-lados desde el backend ---- */
   const { data: referrals } = useQuery({
@@ -930,8 +934,17 @@ export default function ConfiguracionPage() {
                           </button>
                         </>
                       )}
+                      {/* Durante el trial `plan` vale 'premium', así que sin este caso el
+                          badge decía "Neto Pro" a secas y la persona creía que ya paga.
+                          Eso convierte el día 15 en una sorpresa — exactamente el churn
+                          que el trial vino a evitar. */}
                       {!editingName &&
-                        (isPremium ? (
+                        (enPrueba ? (
+                          <Badge className="shrink-0 gap-1 border-primary/30 bg-primary/15 text-primary">
+                            <Sparkles className="h-3 w-3" />
+                            Prueba Pro
+                          </Badge>
+                        ) : isPremium ? (
                           <Badge className="shrink-0 gap-1 border-primary/30 bg-primary/20 text-primary">
                             <Crown className="h-3 w-3" />
                             Neto Pro
@@ -978,14 +991,30 @@ export default function ConfiguracionPage() {
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-secondary-foreground">Plan actual</span>
                     <span className={cn('text-sm font-semibold', isPremium ? 'text-primary' : 'text-secondary-foreground')}>
-                      {isPremium ? 'Neto Pro' : 'Free'}
+                      {enPrueba ? 'Neto Pro · prueba' : isPremium ? 'Neto Pro' : 'Free'}
                     </span>
                   </div>
-                  {isPremium && user.plan_expiry && (
+                  {/* En el trial la fecha NO puede faltar: `plan_expiry` está vacío durante
+                      la prueba, así que sin esto el usuario veía un plan Pro sin vencimiento
+                      y daba por hecho que era permanente. La fecha del trial es lo único que
+                      hace que el día 15 no sorprenda. */}
+                  {enPrueba && user.trial_vence && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-secondary-foreground">Termina el</span>
+                      <span className="text-sm font-medium text-[var(--color-neto-amber)]">{formatDate(user.trial_vence)}</span>
+                    </div>
+                  )}
+                  {!enPrueba && isPremium && user.plan_expiry && (
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-secondary-foreground">Vence el</span>
                       <span className="text-sm font-medium text-[var(--color-neto-amber)]">{formatDate(user.plan_expiry)}</span>
                     </div>
+                  )}
+                  {enPrueba && (
+                    <p className="text-xs text-muted-foreground">
+                      Estás probando Neto Pro gratis. Cuando termine, sigo anotando tus gastos por
+                      WhatsApp; el dashboard y el historial se cierran hasta que actives Pro.
+                    </p>
                   )}
                 </div>
 

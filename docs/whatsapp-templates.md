@@ -49,6 +49,25 @@ crearlos a mano en business.facebook.com → WhatsApp Manager → Plantillas (id
 | `plan_pro_por_vencer` | UTILITY | checkPremiumExpiry aviso 3d | `Hola {{1}} 👋 Tu plan NETO Pro vence {{2}}. Renuévalo desde Neto para no perder tu historial y las funciones Pro.` | 1=nombre, 2="en 3 días (2026-07-06)" |
 | `trial_por_vencer` | UTILITY | checkTrialExpiry (día 11 y día 14) | `Hola {{1}} 👋 Tu prueba de Neto Pro termina {{2}}. Entra a Neto para ver tu resumen y decidir si continúas.` | 1=nombre, 2="en 3 días (12/08)" / "hoy" |
 
+### DECISIÓN (Favio, 2026-08-01): el aviso de fin de trial NO se manda por plantilla
+
+`trial_por_vencer` queda **creada en el script pero sin enviar a aprobación**, y
+`WA_TRIAL_TEMPLATE_ENABLED` se queda en `false` indefinidamente.
+
+El razonamiento es de producto, no técnico: **si alguien no escribió ni registró un gasto en
+11 días, no está usando el producto**, y perseguirlo fuera de la ventana de 24h con un mensaje
+pago no cambia eso. El aviso le llega a quien sí está activo (dentro de ventana, gratis) y a
+todos por el banner del dashboard, que es el canal fiable.
+
+> Ojo para quien lea esto después: el motivo **no** es que Meta lo impida. La precondición de
+> arriba sigue vigente (verificada 2026-07-03) — los templates son viables sin Business
+> Verification, esa solo bloquea el display name. O sea que esto se puede revertir con una
+> variable de entorno el día que el cálculo cambie; no hay nada que desbloquear primero.
+
+El cableado y el flag se conservan a propósito: ya están probados (`qa-trial-flujo`, bloque A
+verifica que con el flag en `true` el envío sale por canal `whatsapp_template`), así que
+reactivarlo es un `railway variables set` y nada más.
+
 ### `trial_por_vencer` — por qué es uno solo y no dos (2026-08-01)
 Los dos toques del fin de trial (día 11 = faltan 3, día 14 = último día) comparten cuerpo
 y solo cambian en el timing, así que el timing es la variable `{{2}}` — mismo molde que el

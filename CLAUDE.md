@@ -133,12 +133,14 @@ Y `free` dejo de ser un plan: **es el muro**.
 | Avisos d11/d14 + downgrade | `cron/checks.js:checkTrialExpiry` |
 | E2E | `qa-e2e/qa-trial-gate.mjs`, `qa-e2e/qa-gate.mjs free\|pro` |
 
-Env var pendiente: `WA_TRIAL_TEMPLATE_ENABLED=true` en Railway cuando Meta apruebe
-la plantilla `trial_por_vencer` (ver `docs/whatsapp-templates.md`).
+Los avisos de fin de trial salen **solo en texto libre**, o sea que llegan a quien está dentro
+de la ventana de 24h de Meta. Decision de Favio (2026-08-01): quien no escribio en 11 dias no
+esta usando el producto, y no se paga por perseguirlo. El canal fiable para todos es el banner
+del dashboard. `WA_TRIAL_TEMPLATE_ENABLED` se queda en `false`; el cableado esta probado y
+reactivarlo es una env var. **No es un bloqueo de Meta** — ver `docs/whatsapp-templates.md`.
 
 ## Pendientes activos
 - [ ] Sync notificaciones webapp <> WhatsApp
-- [ ] Aprobar `trial_por_vencer` en Meta y activar `WA_TRIAL_TEMPLATE_ENABLED`
 - [ ] Testimonios reales
 - [ ] Video demo 30-60s
 - [ ] Exit-intent popup con lead magnet
