@@ -1,3 +1,4 @@
+import Image from 'next/image';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
@@ -46,6 +47,14 @@ export default async function ConfirmarActivacionPage() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-[#0E0E0C] px-6">
       <div className="glass-card w-full max-w-md rounded-2xl p-8">
+        <Image
+          src="/neto-logo.png"
+          alt="NETO"
+          width={48}
+          height={48}
+          priority
+          className="mb-5 h-12 w-12 object-contain"
+        />
         <h1 className="mb-2 text-2xl font-bold text-[#F0EFE8]">
           {fila.nombre ? `Activar la cuenta de ${fila.nombre.split(' ')[0]}` : 'Activar tu cuenta'}
         </h1>
