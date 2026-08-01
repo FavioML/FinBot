@@ -9,6 +9,7 @@ const { obtenerDeudasProximasVencer } = require('../services/debts');
 const { crearNotificacion } = require('../lib/notifications-db');
 const { ADMIN_NUMBER, PRO_PRECIOS } = require('../lib/config');
 const { WEBAPP_URL } = require('../lib/constants');
+const { formatFecha } = require('../lib/formatters');
 const { notificarAdmin } = require('../lib/admin-notify');
 const { checkSurveyTriggers } = require('../services/survey-triggers');
 const { solicitarComprobante } = require('../lib/pro-payment');
@@ -410,14 +411,17 @@ async function checkTrialExpiry() {
                 '👉 ' + WEBAPP_URL + '/dashboard/pro'
               : 'Y todavía no has entrado ni una vez a ver tus gastos en gráficos.\n\n' +
                 'Míralos ahora, mientras sigue abierto:\n👉 ' + (construirLinkActivacion(usuario.id) || WEBAPP_URL + '/dashboard');
+            // formatFecha y no el ISO crudo: el muro ya dice "29-jul-26" y ver "2026-08-04"
+            // en el aviso previo delata dos manos escribiendo el mismo flujo.
+            const venceLegible = formatFecha(String(usuario.trial_vence).slice(0, 10));
             const msg = '⏳ ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u prueba de *Neto Pro* termina ' +
-              aviso.cuando + (aviso.via === 'd11' ? ' (' + usuario.trial_vence + ')' : '') + '.\n\n' + cuerpo;
+              aviso.cuando + (aviso.via === 'd11' ? ' (' + venceLegible + ')' : '') + '.\n\n' + cuerpo;
 
             const tpl = usaTemplate ? {
               name: 'trial_por_vencer', language: { code: 'es' },
               components: [{ type: 'body', parameters: [
                 { type: 'text', text: primerNombre || 'Hola' },
-                { type: 'text', text: aviso.via === 'd11' ? 'en 3 días (' + usuario.trial_vence + ')' : 'hoy' },
+                { type: 'text', text: aviso.via === 'd11' ? 'en 3 días (' + venceLegible + ')' : 'hoy' },
               ] }],
             } : null;
 
