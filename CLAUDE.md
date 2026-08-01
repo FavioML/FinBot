@@ -130,8 +130,33 @@ Y `free` dejo de ser un plan: **es el muro**.
 | Que intent/comando es lectura | `handlers/intents-acceso.js` (+ su test: un intent sin clasificar rompe el build) |
 | Gate WhatsApp | chokepoint en `handlers/message-processor.js` antes de `getHandler` + cascada de `/` en `webhook.js` |
 | Gate webapp | `requireLectura()` en `webapp/src/lib/supabase/auth.ts` → 402 (+ `lectura-callsites.test.ts`) |
+| Gate crons (lo que se EMPUJA) | gate de plan en cada cron que manda WhatsApp (+ `tests/cron/lecturas-proactivas.test.js`) |
 | Avisos d11/d14 + downgrade | `cron/checks.js:checkTrialExpiry` |
-| E2E | `qa-e2e/qa-trial-gate.mjs`, `qa-e2e/qa-gate.mjs free\|pro` |
+| E2E | `qa-e2e/qa-trial-gate.mjs` (el muro bloquea), `qa-e2e/qa-trial-integridad.mjs` (el trial entrega), `qa-e2e/qa-gate.mjs free\|pro` |
+
+**Tres preguntas distintas, no una** (auditoria 2026-08-01, seis huecos). `plan === 'premium'`
+responde "¿tiene Pro AHORA?", y durante el trial eso es `true`. Las otras dos preguntas
+necesitan las DOS columnas y tienen su predicado, en `lib/trial.js` y su espejo
+`webapp/src/lib/plan.ts` — no las reimplementes inline:
+
+| Pregunta | Predicado |
+|---|---|
+| ¿esta probando? | `enTrial(usuario)` — exige `plan='premium'` **y** `trial_estado='activo'` |
+| ¿PAGA? | `esProPagado()` / `admin-revenue.ts` para MRR |
+| ¿esta en el muro? | `estaEnMuro(usuario)` |
+
+Cuatro de los seis huecos salieron de mirar una sola columna: el banner de prueba encima del
+paywall, `/dashboard/pro` diciendole "Eres Neto Pro ⭐" a quien probaba (escondiendole el
+precio y el 50% de referidos), `/premium` por WhatsApp igual, y el descuento invisible.
+
+**Dos reglas que se pagaron caras:**
+- **Una fila parcial no puede decidir.** `mensajeMuro` ramifica por `trial_estado`; el cron no
+  seleccionaba esa columna y el mensaje del dia 15 prometia otros 14 dias gratis a quien
+  acababa de gastarlos. Si tu `select` alimenta una decision, trae **todas** las columnas que
+  esa decision mira.
+- **El muro tiene dos caras.** Los chokepoints cortan lo que el usuario PIDE. Un cron EMPUJA, y
+  cuatro empujaban gratis lo que el muro cobra. Todo cron que mande WhatsApp necesita gate de
+  plan o estar declarado exento en `tests/cron/lecturas-proactivas.test.js`.
 
 Los avisos de fin de trial salen **solo en texto libre**, o sea que llegan a quien está dentro
 de la ventana de 24h de Meta. Decision de Favio (2026-08-01): quien no escribio en 11 dias no
