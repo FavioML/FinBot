@@ -23,6 +23,32 @@ const {
  * `getSpaceSplitContext` en la webapp; los dos tienen que decidir igual o un
  * mismo gasto se dividiria distinto segun por donde se registro.
  */
+/**
+ * ¿El OWNER del espacio tiene Pro? Espejo CJS de `getSpaceOwnerIsPro`
+ * (webapp/src/lib/spaces-server.ts), con su mismo criterio estricto: una lectura caída
+ * LANZA en vez de degradar a `false`. Degradar le apagaría la feature al owner que sí es
+ * Pro por un hipo de Supabase.
+ *
+ * El tier de un espacio es el de su dueño ("host paga"): es lo que hace usable la feature
+ * colaborativa, porque un Pro puede invitar a gente que no paga y todos usan lo que el
+ * dueño configuró. El backend no tenía este helper — solo `obtenerContextoSplit`, que es
+ * privada y hace dos queries de más —, así que `checkRecordatorioEspacios` mandaba balances
+ * sin mirar el tier de nadie.
+ *
+ * @param {string} spaceId
+ * @returns {Promise<boolean>}
+ */
+async function ownerEsPro(spaceId) {
+  const { data: space, error: eSpace } = await supabase.from('shared_spaces')
+    .select('created_by').eq('id', spaceId).maybeSingle();
+  if (eSpace) throw new Error('No se pudo leer el espacio: ' + eSpace.message);
+  if (!space || !space.created_by) return false;
+  const { data: owner, error: eOwner } = await supabase.from('usuarios')
+    .select('plan').eq('id', space.created_by).maybeSingle();
+  if (eOwner) throw new Error('No se pudo verificar el plan del owner: ' + eOwner.message);
+  return !!owner && owner.plan === 'premium';
+}
+
 async function obtenerContextoSplit(spaceId) {
   const [{ data: space, error: eSpace }, { data: members, error: eMembers }] = await Promise.all([
     supabase.from('shared_spaces').select('created_by, split_rules').eq('id', spaceId).single(),
@@ -579,4 +605,5 @@ module.exports = {
   liquidarCuentas,
   obtenerEspaciosUsuario,
   obtenerResumenEspacio,
+  ownerEsPro,
 };

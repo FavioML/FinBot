@@ -15,7 +15,7 @@ const { checkSurveyTriggers } = require('../services/survey-triggers');
 const { solicitarComprobante } = require('../lib/pro-payment');
 const { planCostReminders } = require('../lib/cost-reminders');
 const { mensajeActivacionDia2, construirLinkActivacion } = require('../lib/activacion');
-const { mensajeMuro, AVISO_DIAS_ANTES } = require('../lib/trial');
+const { mensajeMuro, estaEnMuro, AVISO_DIAS_ANTES } = require('../lib/trial');
 const analytics = require('../lib/analytics');
 
 async function checkResumenMensual() {
@@ -108,7 +108,19 @@ async function checkRecordatorioDiario() {
         if (!planConfig.recordatorios && diasDesdeRegistro >= 28 && diasDesdeRegistro <= 30) {
           if (recibioMensajeReciente) continue;
 
-          const upsellMsg = '🎉 ' + (primerNombre ? primerNombre + ', ¡' : '¡') + 'llevas 1 mes usando Neto!\n\nCon *NETO Pro* desbloqueas:\n\n✅ Historial completo (no solo este mes)\n✅ Lectura automática de correos bancarios\n✅ Recordatorios de inactividad + consejos IA\n✅ Exportar tus datos\n\n💰 *S/10/mes* o *S/99/año*\n\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
+          // El copy vendía el Free viejo ("historial completo, no solo este mes"), que
+          // describía un plan gratuito permanente que ya no existe: hoy `free` ES el muro
+          // y no tiene historial ninguno. A quien le llega esto ya terminó su prueba, así
+          // que lo que hay que nombrar es lo que perdió, no un límite que nunca tuvo.
+          const upsellMsg = '🎉 ' + (primerNombre ? primerNombre + ', ¡' : '¡') + 'llevas 1 mes usando Neto!\n\n' +
+            'Sigo anotando todo lo que me mandas, y ahí está todo guardado. Con *Neto Pro* vuelves a verlo:\n\n' +
+            '✅ Gráficos y desglose por categoría\n' +
+            '✅ Historial completo, sin límite de meses\n' +
+            '✅ Presupuestos, metas y reportes\n' +
+            '✅ Lectura automática de tus correos bancarios\n\n' +
+            '💰 *S/' + PRO_PRECIOS.mensual + '/mes* o *S/' + PRO_PRECIOS.anual + '/año*\n\n' +
+            '📲 Yapea al *970398192* y envíame la captura.\n\n' +
+            '_Escribe /premium para más info._';
 
           // Idempotencia DB-level: one-shot via unique partial index
           const { data: insertResult, error: insertErr } = await supabase.from('survey_events').insert({
@@ -264,12 +276,19 @@ async function checkAlertasProactivas() {
   const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
   if (horaLima.getDay() !== 3 || horaLima.getHours() !== 10 || horaLima.getMinutes() > 14) return;
   try {
-    const { data: usuarios } = await supabase.from('usuarios').select('id, whatsapp, nombre, recordatorios_activos')
+    const { data: usuarios } = await supabase.from('usuarios')
+      .select('id, whatsapp, nombre, plan, recordatorios_activos')
       .eq('onboarding_completado', true);
     if (!usuarios || usuarios.length === 0) return;
     for (const usuario of usuarios) {
       try {
         if (usuario.recordatorios_activos === false) continue;
+        // El muro es de LECTURA, y esto es una lectura: el mensaje dice cuánto llevas
+        // gastado de tu límite por categoría y cuánto bajó tu score. `ver_presupuesto` y
+        // `ver_neto_score` están los dos en INTENTS_LECTURA, o sea que por WhatsApp se
+        // cobran — pero este cron los empujaba gratis, y encima sin que el usuario los
+        // pidiera. Eran 6 usuarios en el muro recibiéndolo cada miércoles.
+        if (estaEnMuro(usuario)) continue;
         const alerta = await verificarAlertasProactivas(usuario.id, usuario.nombre);
         if (alerta) {
           await enviarWhatsapp(usuario.whatsapp, alerta, { tipo: 'alerta_presupuesto', usuarioId: usuario.id });
@@ -514,6 +533,8 @@ async function checkRecordatorioDeudas() {
     for (const deuda of deudasProximas) {
       try {
         if (deuda.usuarios.recordatorios_activos === false) continue;
+        // El recordatorio ES el ledger ("le debes S/X a Y, vence el Z"), y eso es lectura.
+        if (estaEnMuro(deuda.usuarios)) continue;
         const venc = new Date(deuda.fecha_vencimiento + 'T12:00:00');
         const diffDias = Math.round((venc - hoyDate) / 86400000);
         const enviados = Array.isArray(deuda.recordatorios_enviados) ? deuda.recordatorios_enviados : [];
@@ -593,16 +614,21 @@ async function checkDetectorFugas() {
     for (const usuario of usuarios) {
       try {
         if (usuario.recordatorios_activos === false) continue;
-        const isPro = (usuario.plan || 'free') === 'premium';
+        // El detector de fugas es una lectura agregada sobre la data del usuario
+        // (`ver_fugas` está en INTENTS_LECTURA). Acá el plan solo elegía la CADENCIA —
+        // free recibía la versión reducida el día 1 de cada mes —, que era coherente
+        // cuando free era un plan gratuito y dejó de serlo cuando free pasó a ser el muro.
+        // `PLAN_CONFIG.free.fugasFrequency` ya decía 'none' desde el sprint del trial;
+        // este cron nunca leyó esa constante, así que la seguía mandando.
+        if (estaEnMuro(usuario)) continue;
 
-        // Free: only 1st of month. Pro: Wednesdays + 15th.
-        if (!isPro && dia !== 1) continue;
-        if (isPro && diaSemana !== 3 && dia !== 15) continue;
+        // Miércoles y día 15.
+        if (diaSemana !== 3 && dia !== 15) continue;
 
-        const alertas = await generarAlertasFugas(usuario.id, isPro);
+        const alertas = await generarAlertasFugas(usuario.id, true);
         if (alertas.length === 0) continue;
 
-        const mensaje = await generarMensajeFugas(alertas, usuario.nombre, isPro);
+        const mensaje = await generarMensajeFugas(alertas, usuario.nombre, true);
         if (!mensaje) continue;
 
         await enviarWhatsapp(usuario.whatsapp, mensaje, { tipo: 'fugas', usuarioId: usuario.id });
@@ -722,13 +748,18 @@ async function checkRecordatorioEspacios() {
   const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
   if (horaLima.getDay() !== 5 || horaLima.getHours() !== 18 || horaLima.getMinutes() > 14) return;
   try {
-    const { obtenerBalanceEspacio } = require('../services/shared-spaces');
+    const { obtenerBalanceEspacio, ownerEsPro } = require('../services/shared-spaces');
     // Get all active spaces
     const { data: spaces } = await supabase.from('shared_spaces').select('id, name');
     if (!spaces || spaces.length === 0) return;
 
     for (const space of spaces) {
       try {
+        // El balance de un espacio es lectura (`ver_balance_espacio` está en
+        // INTENTS_LECTURA), y el tier que manda es el del DUEÑO, no el de cada miembro:
+        // ese es el modelo "host paga" y este cron era el único camino que se lo saltaba
+        // entero. Si el dueño cayó al muro, el espacio deja de empujar balances a nadie.
+        if (!(await ownerEsPro(space.id))) continue;
         const { debts } = await obtenerBalanceEspacio(space.id);
         if (!debts || debts.length === 0) continue;
 

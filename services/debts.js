@@ -172,8 +172,11 @@ async function obtenerDeudasProximasVencer() {
   const desde = new Date(hoyDate); desde.setDate(desde.getDate() - 3);
   const hasta = new Date(hoyDate); hasta.setDate(hasta.getDate() + 3);
 
+  // `plan` va en el embed porque el recordatorio manda el ledger de deudas por WhatsApp, y
+  // `ver_deudas` está en INTENTS_LECTURA: se cobra. Sin esta columna el cron no tenía cómo
+  // saltar a quien está en el muro.
   const { data } = await supabase.from('deudas')
-    .select('*, usuarios!inner(whatsapp, nombre, recordatorios_activos)')
+    .select('*, usuarios!inner(whatsapp, nombre, plan, recordatorios_activos)')
     .eq('estado', 'activa')
     .not('fecha_vencimiento', 'is', null)
     .gte('fecha_vencimiento', desde.toISOString().split('T')[0])
