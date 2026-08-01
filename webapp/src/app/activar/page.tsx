@@ -1,3 +1,4 @@
+import Image from 'next/image';
 import { redirect } from 'next/navigation';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
@@ -88,9 +89,14 @@ export default async function ActivarPage({
     <main className="flex min-h-screen items-center justify-center bg-[#0E0E0C] px-6 py-10">
       <div className="w-full max-w-md">
         <div className="mb-6 flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#1D9E75] text-lg font-medium text-[#0E0E0C]">
-            N
-          </div>
+          <Image
+            src="/neto-logo.png"
+            alt="NETO"
+            width={48}
+            height={48}
+            priority
+            className="h-12 w-12 object-contain"
+          />
           <span className="text-sm text-[#8A877D]">Tu cuenta de Neto ya existe</span>
         </div>
 
