@@ -23,6 +23,9 @@
 
 import 'dotenv/config';
 import { createRequire } from 'module';
+import { readFileSync } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
 
 const require = createRequire(import.meta.url);
 const { supabase } = require('../lib/db');
@@ -30,6 +33,8 @@ const trial = require('../lib/trial');
 const { guardarTransaccion } = require('../services/transactions');
 const { checkPremiumExpiry } = require('../cron/checks');
 const { hoyPeru, sumarDias } = require('../lib/dates');
+
+const APP = process.env.QA_WEBAPP_URL || 'https://app.neto.pe';
 
 const RUN = Date.now();
 const results = [];
@@ -53,6 +58,38 @@ async function sembrar(etiqueta, extra = {}) {
   if (error) throw new Error('no se pudo sembrar ' + etiqueta + ': ' + error.message);
   creados.push(data.id);
   return data;
+}
+
+// ── Sesión de la webapp: password grant + cookie SSR forjada. Mismo mecanismo que
+// qa-money-edge.mjs (el magic link se consume solo y Supabase rate-limitea el OTP).
+function loadEnv(path) {
+  const env = {};
+  try {
+    for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
+      const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/);
+      if (m) env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+    }
+  } catch { /* opcional: sin creds los checks de webapp se saltan */ }
+  return env;
+}
+const qaEnv = loadEnv(join(homedir(), '.config', 'neto', 'qa.env'));
+
+async function loginQA(prefijo) {
+  const SUPA = qaEnv.NETO_QA_URL, ANON = qaEnv.NETO_QA_ANON;
+  const email = qaEnv[prefijo + 'EMAIL'], password = qaEnv[prefijo + 'PASSWORD'];
+  if (!SUPA || !ANON || !email || !password) return null;
+  const grant = await fetch(`${SUPA}/auth/v1/token?grant_type=password`, {
+    method: 'POST', headers: { apikey: ANON, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!grant.ok) throw new Error('password grant falló: ' + grant.status);
+  const value = 'base64-' + Buffer.from(JSON.stringify(await grant.json()), 'utf8').toString('base64url');
+  const name = `sb-${new URL(SUPA).hostname.split('.')[0]}-auth-token`;
+  const MAX = 3180;
+  if (value.length <= MAX) return `${name}=${value}`;
+  const pairs = [];
+  for (let i = 0, p = 0; p < value.length; i++, p += MAX) pairs.push(`${name}.${i}=${value.slice(p, p + MAX)}`);
+  return pairs.join('; ');
 }
 
 const leer = async (id) => (await supabase.from('usuarios').select('*').eq('id', id).maybeSingle()).data;
@@ -154,6 +191,46 @@ async function run() {
     q.is('trial_estado', null).not('premium_vence', 'is', null).neq('plan', 'premium'));
   check('ningún ex-pagador quedó sin sellar (se ganaría un trial que el cron mataría)',
     exSinSellar === 0, 'encontrados=' + exSinSellar);
+
+  // ── 9. /api/pro/status con un usuario EN TRIAL (el bug que costaba plata) ──
+  // Se corre contra app.neto.pe con sesión real: el usuario QA free se pone en trial
+  // durante el check y se restaura al final. Es el único camino que prueba de punta a
+  // punta que la pantalla de pago aparece y que el descuento deja de estar escondido.
+  const cookieFree = await loginQA('NETO_QA_FREE_').catch((e) => { console.log('  (login QA falló: ' + e.message + ')'); return null; });
+  const qaFreeId = qaEnv.NETO_QA_FREE_USUARIO_ID;
+  if (!cookieFree || !qaFreeId) {
+    check('checks de webapp: creds QA presentes', false, 'faltan NETO_QA_FREE_* en ~/.config/neto/qa.env');
+  } else {
+    const antes = await leer(qaFreeId);
+    try {
+      await supabase.from('usuarios').update({
+        plan: 'premium', trial_estado: 'activo', trial_vence: sumarDias(hoyPeru(), 10),
+        premium_vence: null, referido_dscto_pct: 50, referido_dscto_vence: sumarDias(hoyPeru(), 17),
+      }).eq('id', qaFreeId);
+
+      const r = await fetch(`${APP}/api/pro/status`, { headers: { Cookie: cookieFree }, redirect: 'manual' });
+      const st = r.ok ? await r.json() : null;
+      check('/api/pro/status expone el estado del trial', !!st && st.trialEstado === 'activo' && !!st.trialVence,
+        st ? 'estado=' + st.trialEstado + ' vence=' + st.trialVence : 'status=' + r.status);
+      // Antes: descuentoActivo exigía plan !== 'premium', y en trial esa columna vale
+      // 'premium'. El 50% off anclado al fin del trial era invisible durante el trial.
+      check('el descuento de referido SE VE durante el trial (no solo en el muro)',
+        !!st && !!st.descuento && st.descuento.pct === 50,
+        st ? 'descuento=' + JSON.stringify(st.descuento) : '');
+      // Y las lecturas siguen abiertas: durante el trial es Pro de verdad.
+      const rDash = await fetch(`${APP}/api/dashboard`, { headers: { Cookie: cookieFree }, redirect: 'manual' });
+      check('en trial las lecturas NO devuelven 402', rDash.status === 200, 'status=' + rDash.status);
+    } finally {
+      await supabase.from('usuarios').update({
+        plan: antes.plan, trial_estado: antes.trial_estado, trial_vence: antes.trial_vence,
+        premium_vence: antes.premium_vence,
+        referido_dscto_pct: antes.referido_dscto_pct, referido_dscto_vence: antes.referido_dscto_vence,
+      }).eq('id', qaFreeId);
+      const post = await leer(qaFreeId);
+      check('el usuario QA quedó como estaba', post.plan === antes.plan && post.trial_estado === antes.trial_estado,
+        'plan=' + post.plan + ' estado=' + post.trial_estado);
+    }
+  }
 }
 
 async function cleanup() {
