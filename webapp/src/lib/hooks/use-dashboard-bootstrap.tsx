@@ -84,6 +84,12 @@ export function useDashboardBootstrap(): Bootstrap {
       seed(data);
       return { ok: true };
     },
+    // 402 = el usuario terminó su prueba y está en el muro. Es una respuesta
+    // DEFINITIVA, no un fallo transitorio: reintentarla solo retrasa el paywall
+    // (medido: el usuario en el muro se quedaba varios segundos mirando el
+    // skeleton antes de que apareciera nada). Los demás errores sí se reintentan
+    // una vez, que es el default de la app.
+    retry: (intentos, err) => !/\b402\b/.test(String(err?.message)) && intentos < 1,
   });
 
   if (IS_DEMO) return { settled: true, blocking: false };
