@@ -103,9 +103,35 @@ export function estaEnMuro(plan: string | undefined): boolean {
   return plan !== 'premium';
 }
 
-/** ¿Está corriendo su prueba ahora mismo? */
-export function enTrial(trialEstado: string | null | undefined): boolean {
-  return trialEstado === 'activo';
+/**
+ * ¿Está corriendo su prueba ahora mismo?
+ *
+ * Exige las DOS columnas a propósito, igual que `enTrial` en el backend (`lib/trial.js`).
+ * `trial_estado='activo'` solo dice que el reloj comercial corre; `plan='premium'` es lo
+ * que de verdad le entrega Pro. Cuando se desincronizan — le pasó a un usuario real, a
+ * quien `checkPremiumExpiry` le bajó el plan dejándole el estado en 'activo' — mirar una
+ * sola columna produce una pantalla que se contradice: el banner decía "estás en Neto Pro,
+ * quedan 30 días" justo arriba del paywall que decía "tu prueba terminó". Con las dos,
+ * esa pantalla es imposible de construir.
+ */
+export function enTrial(
+  plan: string | undefined,
+  trialEstado: string | null | undefined,
+): boolean {
+  return plan === 'premium' && trialEstado === 'activo';
+}
+
+/**
+ * ¿Es Pro **pagado**? Durante el trial `plan` vale 'premium', así que `plan === 'premium'`
+ * responde "tiene Pro", no "paga". Esta es la otra pregunta, la comercial: la usan el
+ * descuento de referido (no se le ofrece a quien ya paga, pero sí a quien está probando)
+ * y las métricas de MRR. Espejo de `esProPagado` en `services/referrals.js`.
+ */
+export function esProPagado(
+  plan: string | undefined,
+  trialEstado: string | null | undefined,
+): boolean {
+  return plan === 'premium' && trialEstado !== 'activo';
 }
 
 /**
@@ -113,10 +139,11 @@ export function enTrial(trialEstado: string | null | undefined): boolean {
  * Se calcula en zona Lima y no la del navegador, igual que `/api/pro/status`.
  */
 export function diasRestantesTrial(
+  plan: string | undefined,
   trialEstado: string | null | undefined,
   trialVence: string | null | undefined,
 ): number | null {
-  if (!enTrial(trialEstado) || !trialVence) return null;
+  if (!enTrial(plan, trialEstado) || !trialVence) return null;
   const vence = String(trialVence).slice(0, 10);
   const hoyLima = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
   if (vence < hoyLima) return 0;

@@ -31,7 +31,9 @@ export function TrialStatusBanner() {
 
   if (IS_DEMO || !user) return null;
 
-  const dias = diasRestantesTrial(user.trial_estado, user.trial_vence);
+  // `plan` entra en la cuenta a propósito: sin él, un usuario cuyo plan cayó a 'free' con
+  // el trial_estado todavía en 'activo' veía este banner ARRIBA del paywall. Ver enTrial.
+  const dias = diasRestantesTrial(user.plan, user.trial_estado, user.trial_vence);
   if (dias === null) return null;
 
   const urgente = dias <= 3;

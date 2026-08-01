@@ -45,6 +45,7 @@ import { createClient } from '@/lib/supabase/client';
 import { signOutAndClear } from '@/lib/query-client';
 import { SOCIAL_LINKS, getCategoriaEmoji, CATEGORIAS } from '@/lib/constants';
 import { capitalizeDisplay } from '@/lib/format';
+import { enTrial } from '@/lib/plan';
 import { cn } from '@/lib/utils';
 import { HeaderActions } from '@/components/dashboard/topbar';
 import { optOutTracking, optInTracking, hasOptedOut } from '@/lib/analytics';
@@ -707,8 +708,9 @@ export default function ConfiguracionPage() {
   const isPremium = user?.plan === 'premium';
   // Pro pagado y Pro de prueba comparten `plan === 'premium'` (así el trial entrega Pro sin
   // tocar los ~40 gates que miran esa columna), pero en la pantalla donde el usuario viene a
-  // ver QUÉ tiene contratado, colapsarlos es mentirle.
-  const enPrueba = isPremium && user?.trial_estado === 'activo';
+  // ver QUÉ tiene contratado, colapsarlos es mentirle. El predicado vive en `@/lib/plan`
+  // para que esta pantalla, el banner y /dashboard/pro no puedan responder distinto.
+  const enPrueba = enTrial(user?.plan, user?.trial_estado);
 
   /* ---- Referidos: link REAL (ref_code) + progreso dos-lados desde el backend ---- */
   const { data: referrals } = useQuery({

@@ -173,6 +173,20 @@ async function checkRecordatorioDiario() {
   } catch(e) { log.error({ tag: 'INACTIVITY', err: e.message }, 'Error recordatorio inactividad'); }
 }
 
+// Este cron NUNCA puede tocar a alguien que está corriendo su prueba. La invariante que lo
+// separaba del trial era "durante el trial premium_vence queda NULL", pero eso es un dato y
+// los datos se ensucian: un ex-pagador que arranca un trial trae el premium_vence de su
+// suscripción anterior, y sus tres queries lo agarraban. Pasó de verdad el 2026-08-01 — el
+// trial duró 78 minutos y el usuario recibió "tu plan Pro venció, ahora estás en Free".
+//
+// `iniciarTrialSiCorresponde` ahora limpia esa columna, así que este filtro es la segunda
+// red y no la primera. Va igual porque el downgrade es la operación destructiva: si las dos
+// fallan, alguien pierde acceso pagado o prometido.
+//
+// Se escribe con `.or()` y no con `.neq()` porque `.neq('trial_estado','activo')` descarta
+// las filas con la columna en NULL (`NULL <> 'activo'` es NULL en SQL), que son la mayoría.
+const SIN_TRIAL_ACTIVO = 'trial_estado.is.null,trial_estado.neq.activo';
+
 async function checkPremiumExpiry() {
   try {
     const hoy = hoyPeru();
@@ -187,7 +201,8 @@ async function checkPremiumExpiry() {
       const en3dias = new Date(new Date(hoy + 'T12:00:00').getTime() + 3 * 86400000).toISOString().split('T')[0];
       const inicioHoy = new Date(hoy + 'T00:00:00-05:00').toISOString();
       const { data: porVencer } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence')
-        .eq('plan', 'premium').eq('premium_vence', en3dias);
+        .eq('plan', 'premium').eq('premium_vence', en3dias)
+        .or(SIN_TRIAL_ACTIVO);
       if (porVencer && porVencer.length > 0) {
         for (const usuario of porVencer) {
           try {
@@ -208,7 +223,8 @@ async function checkPremiumExpiry() {
       // Aviso "vence HOY" — el día exacto del vencimiento (antes no existía: había 3d antes y
       // el downgrade al día siguiente, pero nada el día clave). Free-form + in-app, dedup por día.
       const { data: venceHoy } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence')
-        .eq('plan', 'premium').eq('premium_vence', hoy);
+        .eq('plan', 'premium').eq('premium_vence', hoy)
+        .or(SIN_TRIAL_ACTIVO);
       if (venceHoy && venceHoy.length > 0) {
         for (const usuario of venceHoy) {
           try {
@@ -228,7 +244,8 @@ async function checkPremiumExpiry() {
 
     // Expirados — downgrade a free
     const { data: expirados } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence')
-      .eq('plan', 'premium').not('premium_vence', 'is', null).lt('premium_vence', hoy);
+      .eq('plan', 'premium').not('premium_vence', 'is', null).lt('premium_vence', hoy)
+      .or(SIN_TRIAL_ACTIVO);
     if (!expirados || expirados.length === 0) return;
     for (const usuario of expirados) {
       try {
