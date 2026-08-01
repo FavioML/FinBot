@@ -96,9 +96,9 @@ export default function JoinSpacePage({ params }: { params: Promise<{ code: stri
         transition={{ duration: 0.4 }}
       >
         {/* Logo */}
-        <div className="flex justify-center mb-8">
-          <Image src="/neto-logo.png" alt="NETO" width={64} height={64} className="h-16 w-16 object-contain" />
-          <span className="sr-only">neto</span>
+        <div className="flex items-center justify-center gap-3 mb-8">
+          <Image src="/neto-icon.png" alt="NETO" width={56} height={56} priority className="h-14 w-14 rounded-xl object-contain" />
+          <span className="text-xl font-bold text-[#F0EFE8]">NETO</span>
         </div>
 
         {loading ? (

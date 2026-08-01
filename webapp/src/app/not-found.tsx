@@ -14,13 +14,17 @@ export default function NotFound() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
       >
-        <Image
-          src="/neto-logo.png"
-          alt="NETO"
-          width={64}
-          height={64}
-          className="h-16 w-16 object-contain mx-auto mb-6"
-        />
+        <div className="mb-6 flex items-center justify-center gap-3">
+          <Image
+            src="/neto-icon.png"
+            alt="NETO"
+            width={56}
+            height={56}
+            priority
+            className="h-14 w-14 rounded-xl object-contain"
+          />
+          <span className="text-xl font-bold text-[#F0EFE8]">NETO</span>
+        </div>
       </motion.div>
 
       {/* 404 number */}

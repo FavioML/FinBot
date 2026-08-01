@@ -90,14 +90,17 @@ export default async function ActivarPage({
       <div className="w-full max-w-md">
         <div className="mb-6 flex items-center gap-3">
           <Image
-            src="/neto-logo.png"
+            src="/neto-icon.png"
             alt="NETO"
             width={48}
             height={48}
             priority
-            className="h-12 w-12 object-contain"
+            className="h-12 w-12 rounded-xl object-contain"
           />
-          <span className="text-sm text-[#8A877D]">Tu cuenta de Neto ya existe</span>
+          <div>
+            <p className="text-lg font-bold leading-tight text-[#F0EFE8]">NETO</p>
+            <p className="text-sm text-[#8A877D]">Tu cuenta ya existe</p>
+          </div>
         </div>
 
         <h1 className="mb-2 text-3xl font-bold leading-tight text-[#F0EFE8]">

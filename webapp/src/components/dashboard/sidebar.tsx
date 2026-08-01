@@ -66,13 +66,13 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       <div className="flex h-16 items-center justify-center px-4">
         <Link href="/dashboard" className="flex items-center justify-center">
           <Image
-            src="/neto-logo.png"
+            src="/neto-icon.png"
             alt="NETO"
             width={48}
             height={48}
             loading="eager"
             priority
-            className="h-12 w-12 object-contain mx-auto"
+            className="h-12 w-12 rounded-xl object-contain mx-auto"
           />
         </Link>
         {/* Close button - mobile only */}
