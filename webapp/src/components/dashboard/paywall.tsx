@@ -11,6 +11,7 @@ interface DatosMuro {
   trialVence: string | null;
   trialEstado: string | null;
   nombre: string | null;
+  tieneWhatsapp: boolean;
 }
 
 /** 14 días — el mismo número que TRIAL_DIAS en el backend (lib/trial.js). */
@@ -65,6 +66,15 @@ export function Paywall() {
   // gasto, así que el mensaje correcto es la invitación a anotar uno — sale gratis y es
   // mejor gancho de reactivación que un cobro.
   const nuncaTuvoTrial = !!datos && !datos.trialEstado;
+  // El usuario web-first (nace en app.neto.pe con un login de Google) llega acá SIN haber
+  // registrado nada: su cuenta arranca en `plan='free'`, o sea que lo primero que ve al
+  // crear la cuenta es este paywall. Mandarlo "a WhatsApp" es mandarlo a un canal que no
+  // tiene todavía, teniendo el botón "+" a un toque en esta misma pantalla — y ese botón
+  // sí arranca el trial (POST /api/transactions llama a iniciarTrialBackend).
+  const soloWeb = !!datos && !datos.tieneWhatsapp;
+  const dondeAnotar = soloWeb
+    ? 'Toca el botón + de esta pantalla y anota tu primer gasto: con eso se activan.'
+    : `Se activan cuando registres tu ${conteo > 0 ? 'próximo' : 'primer'} gasto: anótalo por WhatsApp y entras a ver todo.`;
 
   return (
     <div className="mx-auto max-w-lg py-6">
@@ -93,7 +103,7 @@ export function Paywall() {
               nombrar una tarjeta que nunca existió puede leerse como que anotar dispara un
               cobro. Se dice la condición real y nada más. */}
           {nuncaTuvoTrial
-            ? 'Se activan cuando registres tu próximo gasto: anótalo por WhatsApp y entras a ver todo.'
+            ? dondeAnotar
             : conteo > 0
               ? `Tus ${conteo} movimientos siguen guardados — no se borró nada. Y sigo anotando todo lo que me mandes por WhatsApp, gratis.`
               : 'Sigo anotando todo lo que me mandes por WhatsApp, gratis.'}
@@ -134,9 +144,13 @@ export function Paywall() {
             : `Activar Pro — S/${PRO_PRICE_MONTHLY_PEN}/mes o S/${PRO_PRICE_YEARLY_PEN}/año`}
         </Link>
 
+        {/* Mismo motivo que arriba: a quien no conectó WhatsApp, "sigue anotando por
+            WhatsApp como siempre" le habla de una costumbre que no tiene. */}
         <p className="flex items-center justify-center gap-1.5 text-xs text-[#8A877D]">
           <MessageCircle className="h-3.5 w-3.5" />
-          Mientras tanto, sigue anotando por WhatsApp como siempre.
+          {soloWeb
+            ? 'Mientras tanto, sigues anotando gastos gratis desde acá.'
+            : 'Mientras tanto, sigue anotando por WhatsApp como siempre.'}
         </p>
       </div>
     </div>

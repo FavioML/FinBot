@@ -18,7 +18,7 @@ export const dynamic = 'force-dynamic';
  * usa otro distinct_id y partiría el embudo (mismo patrón que /internal/activacion-completada).
  */
 export async function GET(request: Request) {
-  const auth = await requireNetoUser('id, nombre, plan, trial_estado, trial_vence');
+  const auth = await requireNetoUser('id, nombre, whatsapp, plan, trial_estado, trial_vence');
   if (!auth.ok) return auth.response;
   const userId = auth.user.id as string;
 
@@ -56,5 +56,9 @@ export async function GET(request: Request) {
     trialVence: (auth.user.trial_vence as string | null) ?? null,
     trialEstado: (auth.user.trial_estado as string | null) ?? null,
     nombre: (auth.user.nombre as string | null) ?? null,
+    // El usuario web-first nace sin número (WhatsApp es un vínculo opcional posterior),
+    // así que mandarlo a "anótalo por WhatsApp" lo manda a un canal que no tiene. La
+    // pantalla necesita saberlo para apuntar al botón que sí está a su alcance.
+    tieneWhatsapp: !!auth.user.whatsapp,
   });
 }
