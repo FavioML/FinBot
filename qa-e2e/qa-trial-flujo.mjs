@@ -26,7 +26,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'module';
-import { instalarGuard } from './lib/qa-guard.mjs';
+import { instalarGuard, permitirFila } from './lib/qa-guard.mjs';
 
 const require = createRequire(import.meta.url);
 const supabase = instalarGuard(require, '../lib/db');
@@ -197,6 +197,11 @@ async function bloqueWebFirst() {
     });
     const creada = await res.json().catch(() => null);
     txId = creada && creada.id;
+    // Esta fila nació de un POST HTTP, no del cliente supabase, así que el guard no la vio
+    // crearse y bloqueaba el DELETE del `finally`. Como ese DELETE es la PRIMERA línea del
+    // finally, el bloqueo se llevaba también la restauración del fixture QA de la línea
+    // siguiente: cada corrida dejaba al usuario free en producción con un trial activo.
+    permitirFila(txId);
     check('POST /api/transactions con sesión responde 200', res.status === 200, 'status=' + res.status);
 
     // after() corre DESPUÉS de la respuesta y el hop a Railway tarda: se sondea.
