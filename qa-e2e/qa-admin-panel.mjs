@@ -327,9 +327,15 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
   // y Date.now() de JS; con cientos de tx la coincidencia es exacta salvo una justo en el borde).
   const sumaTx30 = lista.reduce((a, u) => a + (u.tx_30d || 0), 0);
   ok('users: suma tx_30d == tx del mes (oráculo, ±2)', Math.abs(sumaTx30 - txMes.length) <= 2, `suma ${sumaTx30} vs oráculo ${txMes.length}`);
-  // is_internal marca exactamente las cuentas internas conocidas (fundador + QA).
-  const flagOk = lista.every((u) => u.is_internal === INTERNAL_WHATSAPP.has(u.whatsapp));
-  ok('users: is_internal == whatsapp en lista de internas', flagOk, 'is_internal no coincide con la lista de internas');
+  // is_internal marca exactamente lo que el MRR excluye: cuenta de prueba (is_test_user) O la
+  // lista de internas (el fundador, que no es cuenta de prueba). Este check miraba SOLO la lista
+  // y por eso se puso rojo al arreglar el MRR el 2026-08-02: la definición se movió y el guard
+  // seguía comprobando la vieja. Va contra el mismo `esInterno` que usa el oráculo del MRR,
+  // así que "la lista y el MRR marcan distinto al mismo usuario" no puede volver a pasar.
+  const internosBase = new Map(usuariosPlan.map((u) => [u.id, esInterno(u)]));
+  const flagOk = lista.every((u) => u.is_internal === (internosBase.get(u.id) ?? false));
+  ok('users: is_internal == la misma definición que excluye el MRR', flagOk,
+    'is_internal no coincide con is_test_user + lista de internas');
 
   // ---------- 7c. /users/[id]: ficha individual (Ola 4 Fase 2) ----------
   // Endpoint dinámico (un usuario) → no entra en el loop de RUTAS estáticas. Guardado por el mismo
