@@ -66,6 +66,13 @@ export interface AdminEconomics {
   total_users: number;
   free_users: number;
   pro_users: number;
+  /**
+   * Pro que cuentan en el MRR y no tienen NI UN pago aprobado con monto > 0: hoy, un comp
+   * (Pro regalado por POST /admin/activar). El MRR los valora como si pagaran, así que este
+   * número es cuánto del MRR es humo. Se muestra pegado al KPI de MRR, y solo cuando > 0.
+   * Mientras siga en 0 no vale una columna nueva en `usuarios` para distinguirlos.
+   */
+  pro_sin_pago_registrado: number;
   conversion_rate: number;
   new_users_this_month: number;
   churn_rate_30d: number;

@@ -117,7 +117,9 @@ async function run(h) {
     !!r1 && r1.estado === 'aprobado', r1 ? 'estado=' + r1.estado : 'null (no reclamó)');
 
   const before = h.sent.length;
-  await activarPro({ usuario: uFresh, tipoPlan: 'mensual', aprobadoPor: 'qa-e2e', pagoId: pago1, enviarOAuth: false });
+  // esConversionPagada:true = lo que manda el flujo real de aprobación (webapp/Telegram//pago).
+  // Decide el copy ("¡Pago confirmado!"), el monto registrado y el premio al referrer.
+  await activarPro({ usuario: uFresh, tipoPlan: 'mensual', aprobadoPor: 'qa-e2e', pagoId: pago1, enviarOAuth: false, esConversionPagada: true });
 
   const uA = await getUser(h);
   const expV1 = calcVenceMensual(null);
@@ -160,7 +162,7 @@ async function run(h) {
   const uPrev = await getUser(h); // ya premium con vence V1 futuro
   const r3 = await reclamarPagoPendiente({ pagoId: pago2, aprobadoPor: 'qa-e2e' });
   check('reclamarPagoPendiente(P2) gana la fila', !!r3 && r3.estado === 'aprobado', r3 ? 'estado=' + r3.estado : 'null');
-  await activarPro({ usuario: uPrev, tipoPlan: 'mensual', aprobadoPor: 'qa-e2e', pagoId: pago2, enviarOAuth: false });
+  await activarPro({ usuario: uPrev, tipoPlan: 'mensual', aprobadoPor: 'qa-e2e', pagoId: pago2, enviarOAuth: false, esConversionPagada: true });
 
   const uC = await getUser(h);
   const expV2 = calcVenceMensual(V1); // apilado SOBRE V1
@@ -205,9 +207,14 @@ async function run(h) {
   check('el comp queda registrado en `pagos` a S/0 (constancia sí, caja del mes no)',
     pagosComp?.length === 1 && Number(pagosComp[0].monto) === 0 && pagosComp[0].estado === 'aprobado',
     'filas=' + pagosComp?.length + ' monto=' + pagosComp?.[0]?.monto);
+  const compMsgs = h.sent.slice(before4).filter((s) => s.to === WA);
   check('el comp igual le avisa al usuario (un solo aviso, el de activarPro)',
-    h.sent.slice(before4).filter((s) => s.to === WA).length === 1,
-    (h.sent.slice(before4).filter((s) => s.to === WA).length) + ' mensajes');
+    compMsgs.length === 1, compMsgs.length + ' mensajes');
+  // Al regalado no se le confirma un cobro que no existió, ni se le nombra un precio.
+  const compTexto = compMsgs.map((s) => s.msg).join('\n');
+  check('el comp NO recibe "¡Pago confirmado!" ni el precio',
+    !/pago confirmado/i.test(compTexto) && !/S\/\s*\d/.test(compTexto),
+    compTexto.slice(0, 60).replace(/\n/g, ' '));
 }
 
 async function cleanup(h) {

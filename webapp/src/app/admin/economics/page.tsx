@@ -144,7 +144,13 @@ export default function AdminEconomicsPage() {
           <KpiCard
             label="MRR"
             value={formatPen(data.mrr)}
-            subtitle={`${data.pro_users} Pro activos`}
+            /* El "sin pago registrado" va pegado al MRR y no en una tarjeta aparte: es cuánto
+               de ESTE número no es plata (comps). Solo aparece cuando existe. */
+            subtitle={
+              data.pro_sin_pago_registrado > 0
+                ? `${data.pro_users} Pro activos · ${data.pro_sin_pago_registrado} sin pago registrado`
+                : `${data.pro_users} Pro activos`
+            }
             accent="green"
           />
           <KpiCard

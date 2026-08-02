@@ -9,6 +9,7 @@ import {
 import {
   computeRevenue,
   cajaDelMes,
+  esProPagado,
   isRevenueUser,
   computeChurn,
   mrrAtMonthEnd,
@@ -30,6 +31,10 @@ interface UsuarioRow {
   whatsapp: string | null;
   plan: string | null;
   tipo_plan: string | null;
+  // Va declarada aunque acá no se lea directo: es la columna que decide si un `plan:'premium'`
+  // cuenta como ingreso (esProPagado). El select ya la traía, pero la interfaz no la nombraba,
+  // así que el compilador no veía el dato del que depende todo lo de abajo.
+  trial_estado: string | null;
   premium_desde: string | null;
   premium_vence: string | null;
   created_at: string;
@@ -110,6 +115,27 @@ export async function GET() {
   const proYearly = rev.proYearly;
   const mrr = rev.mrr;
   const arr = rev.arr;
+
+  // Cuánto del MRR es humo: Pro que cuentan como ingreso y no tienen ni un pago aprobado con
+  // monto > 0. Hoy eso solo puede ser un comp (Pro regalado por POST /admin/activar, que se
+  // registra en `pagos` con monto 0 justamente para no inflar la caja). Sale acá, pegado al
+  // MRR, en vez de con una columna nueva en `usuarios`: el eje del plan ya tiene dos columnas
+  // y mirar una sola ya costó seis huecos. Cuando este número deje de ser 0 de forma estable,
+  // ahí sí conviene modelar el comp como estado propio.
+  // La query va filtrada por los ids Pro (hoy ~7) y no por toda la tabla: PostgREST corta en
+  // 1000 filas sin avisar, y así el techo es "1000 / Pro pagados" pagos por usuario, no 1000
+  // pagos en total.
+  const proIds = realUsers.filter(esProPagado).map((u) => u.id);
+  const { data: pagosDePro } = proIds.length
+    ? await db
+        .from('pagos')
+        .select('usuario_id')
+        .eq('estado', 'aprobado')
+        .gt('monto', 0)
+        .in('usuario_id', proIds)
+    : { data: [] as Array<{ usuario_id: string | null }> };
+  const conPagoReal = new Set((pagosDePro || []).map((p) => p.usuario_id));
+  const proSinPagoRegistrado = proIds.filter((id) => !conPagoReal.has(id)).length;
 
   const newUsersThisMonth = usuarios.filter(
     (u) => new Date(u.created_at) >= startMonth,
@@ -262,6 +288,7 @@ export async function GET() {
     total_users: totalUsers,
     free_users: freeUsers.length,
     pro_users: proCountReal,
+    pro_sin_pago_registrado: proSinPagoRegistrado,
     conversion_rate: conversionRate,
     new_users_this_month: newUsersThisMonth,
     churn_rate_30d: churnRate30d,

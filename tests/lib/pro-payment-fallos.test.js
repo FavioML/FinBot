@@ -281,11 +281,21 @@ describe('activarPro: comp (esConversionPagada false)', () => {
     expect(notifDbMock.crearNotificacion).toHaveBeenCalledTimes(1);
   });
 
+  it('no le confirma un cobro que no existio: sin "Pago confirmado" y sin precio', async () => {
+    router = () => ({ data: null, error: null });
+    const { mensaje } = await comp(USUARIO);
+    expect(mensaje).not.toMatch(/pago confirmado/i);
+    expect(mensaje, 'el comp no menciona precio').not.toMatch(/S\/\s*\d/);
+    expect(mensaje).toMatch(/sin costo/i);
+  });
+
   it('contraprueba: la conversion PAGADA si premia y se registra al precio de lista', async () => {
     router = () => ({ data: null, error: null });
-    await pro.activarPro({ usuario: USUARIO, tipoPlan: 'mensual', aprobadoPor: 'admin:webapp', esConversionPagada: true });
+    const { mensaje } = await pro.activarPro({ usuario: USUARIO, tipoPlan: 'mensual', aprobadoPor: 'admin:webapp', esConversionPagada: true });
     expect(refMock.procesarConversionProReferido).toHaveBeenCalledTimes(1);
     expect(escrituras('pagos')[0].payload.monto).toBe(PRO_PRECIOS.mensual);
+    expect(mensaje).toMatch(/pago confirmado/i);
+    expect(mensaje).toContain('S/' + PRO_PRECIOS.mensual);
   });
 });
 
