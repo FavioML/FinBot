@@ -19,6 +19,7 @@ import crypto from 'crypto';
 import { createRequire } from 'module';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { instalarGuard } from './lib/qa-guard.mjs';
 
 const require = createRequire(import.meta.url);
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -52,7 +53,7 @@ openai.chat.completions.create = async (params, ...rest) => {
 };
 
 const { app } = require(path.join(appRoot, 'index.js'));
-const { supabase } = require(path.join(appRoot, 'lib/db.js'));
+const supabase = instalarGuard(require, path.join(appRoot, 'lib/db.js'));
 const { RAW_PROMPT, construirNetoPrompt } = require(path.join(appRoot, 'lib/neto-prompt.js'));
 const { redactarConNETO } = require(path.join(appRoot, 'services/neto-gpt.js'));
 

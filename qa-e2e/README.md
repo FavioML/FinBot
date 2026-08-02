@@ -12,6 +12,55 @@ consumes the single-use `verify?token` link before it can be used (every fresh
 link arrives `otp_expired`), and Supabase rate-limits OTP email (~3-4/hour on the
 built-in SMTP). This harness sidesteps all of that.
 
+## La barrera de datos (leer antes de escribir un harness nuevo)
+
+Estos harness corren contra la Supabase de **producción** con la service key, que
+ignora RLS. El 01-ago-2026 un usuario que paga apareció sin sus transacciones ni
+sus deudas, y reconstruir qué había pasado costó un día entero de trabajo.
+
+Por eso todo harness que toque la DB pasa por `lib/qa-guard.mjs`:
+
+```js
+// cliente compartido del backend (el que usan también los services que importes)
+import { instalarGuard } from './lib/qa-guard.mjs';
+const supabase = instalarGuard(require, path.join(appRoot, 'lib/db.js'));
+
+// o, si el harness arma su propio cliente
+import { clienteGuardado } from './lib/qa-guard.mjs';
+const db = clienteGuardado(SUPA, SERVICE);
+```
+
+Las lecturas pasan libres. Un UPDATE o un DELETE tiene que estar fijado a un
+usuario de la allowlist (los `NETO_QA_*_USUARIO_ID` de `qa.env`) o a una fila que
+esta corrida creó o leyó bajo un filtro de usuario QA. Cualquier otra cosa aborta
+con el detalle de lo que intentó tocar.
+
+Casos que vas a necesitar:
+
+- **Throwaway**: si lo creás con `insert` en `usuarios` con `is_test_user: true`,
+  la barrera lo adopta sola y su limpieza funciona sin más.
+- **Filas creadas por fuera del cliente** (por la API HTTP, típico en los harness
+  de Espacios): registralas con `permitirFila(id)`.
+- **Un usuario que ya existía**: `await permitirUsuarioDePrueba(id)`, que
+  verifica `is_test_user` contra la DB antes de aceptarlo.
+
+**No hay interruptor para apagarla**, y `tests/qa-guard.test.js` rompe el build si
+un harness nuevo crea su propio cliente sin pasar por acá.
+
+Lo que la barrera **no** cubre: Storage, el Admin API de Auth, y sobre todo el SQL
+ad-hoc (editor del dashboard, MCP de Supabase), que no pasa por Node. Para eso
+está el trigger de la migración 055, que deja en `borrados_auditoria` cada DELETE
+sobre `transacciones`, `deudas` y `deuda_abonos` con la fila completa y de dónde
+vino (`app_name=mgmt-api` es SQL a mano; `app_name=postgrest` con `req_path` es la
+API). Si algo vuelve a desaparecer, empezá por ahí:
+
+```sql
+select borrado_at, tabla, usuario_id, contexto, fila
+  from borrados_auditoria
+ where usuario_id = '...'
+ order by borrado_at desc;
+```
+
 ## Setup (one time)
 
 ```bash

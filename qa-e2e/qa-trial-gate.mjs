@@ -23,9 +23,10 @@
 
 import 'dotenv/config';
 import { createRequire } from 'module';
+import { instalarGuard } from './lib/qa-guard.mjs';
 
 const require = createRequire(import.meta.url);
-const { supabase } = require('../lib/db');
+const supabase = instalarGuard(require, '../lib/db');
 const trial = require('../lib/trial');
 const { guardarTransaccion } = require('../services/transactions');
 const { checkTrialExpiry } = require('../cron/checks');

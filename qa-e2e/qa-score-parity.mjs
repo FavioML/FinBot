@@ -40,11 +40,12 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { instalarGuard } from './lib/qa-guard.mjs';
 
 const require = createRequire(import.meta.url);
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const { calcularNetoScore } = require(path.join(appRoot, 'services/neto-score.js'));
-const { supabase } = require(path.join(appRoot, 'lib/db.js'));
+const supabase = instalarGuard(require, path.join(appRoot, 'lib/db.js'));
 
 const APP = process.env.NETO_APP_URL || 'https://app.neto.pe';
 const ADVERSARIAL = process.argv.includes('--adversarial');

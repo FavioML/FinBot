@@ -30,10 +30,11 @@
 
 import 'dotenv/config';
 import { createRequire } from 'module';
+import { instalarGuard } from './lib/qa-guard.mjs';
 
 const require = createRequire(import.meta.url);
 const { construirTokenActivacion, construirLinkActivacion } = require('../lib/activacion');
-const { supabase } = require('../lib/db');
+const supabase = instalarGuard(require, '../lib/db');
 
 const WEBAPP = process.env.QA_WEBAPP_URL || 'https://app.neto.pe';
 const RUN = Date.now();

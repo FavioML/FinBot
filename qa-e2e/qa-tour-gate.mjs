@@ -16,7 +16,7 @@ import { chromium } from 'playwright';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { createClient } from '@supabase/supabase-js';
+import { clienteGuardado } from './lib/qa-guard.mjs';
 
 const APP = process.env.NETO_APP_URL || 'https://app.neto.pe';
 
@@ -44,7 +44,7 @@ if (!SUPA || !ANON || !EMAIL || !PASSWORD || !SERVICE || !USER_ID) {
   process.exit(2);
 }
 
-const db = createClient(SUPA, SERVICE, { auth: { persistSession: false } });
+const db = clienteGuardado(SUPA, SERVICE, { auth: { persistSession: false } });
 
 let pass = 0, fail = 0;
 const okp = (c, l) => { if (c) { pass++; console.log(`  ✓ ${l}`); } else { fail++; console.log(`  ✗ ${l}`); } };

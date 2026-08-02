@@ -21,13 +21,14 @@ import 'dotenv/config';
 import { createRequire } from 'module';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { instalarGuard } from './lib/qa-guard.mjs';
 
 const require = createRequire(import.meta.url);
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const { redactarConNETO } = require(path.join(appRoot, 'services/neto-gpt.js'));
 const { construirNetoPrompt } = require(path.join(appRoot, 'lib/neto-prompt.js'));
-const { supabase } = require(path.join(appRoot, 'lib/db.js'));
+const supabase = instalarGuard(require, path.join(appRoot, 'lib/db.js'));
 
 const AUDITAR_REALES = process.argv.includes('--reales');
 

@@ -17,6 +17,7 @@ import crypto from 'crypto';
 import { createRequire } from 'module';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { instalarGuard } from './lib/qa-guard.mjs';
 
 const require = createRequire(import.meta.url);
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -35,7 +36,7 @@ require.cache[waPath] = {
 
 const createWebhookHandler = require(path.join(appRoot, 'handlers/webhook.js'));
 const { procesarMensajeLibre } = require(path.join(appRoot, 'handlers/message-processor.js'));
-const { supabase } = require(path.join(appRoot, 'lib/db.js'));
+const supabase = instalarGuard(require, path.join(appRoot, 'lib/db.js'));
 const { obtenerCuentasGmail } = require(path.join(appRoot, 'gmail.js'));
 
 // Handler REAL: el mensaje NL debe recorrer webhook → procesarMensajeLibre (NLP real).

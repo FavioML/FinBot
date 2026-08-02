@@ -24,6 +24,7 @@ import 'dotenv/config';
 import { createRequire } from 'module';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { instalarGuard } from './lib/qa-guard.mjs';
 
 const require = createRequire(import.meta.url);
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -69,7 +70,7 @@ require.cache[waPath].exports = {
   },
 };
 
-const { supabase } = require(path.join(appRoot, 'lib/db.js'));
+const supabase = instalarGuard(require, path.join(appRoot, 'lib/db.js'));
 
 // ── Stub del data-source: misma query real, scopeada a la deuda throwaway ──
 let THROWAWAY_ID = null;

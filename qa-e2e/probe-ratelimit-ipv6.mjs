@@ -18,6 +18,7 @@ import crypto from 'crypto';
 import { createRequire } from 'module';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { instalarGuard } from './lib/qa-guard.mjs';
 
 const require = createRequire(import.meta.url);
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -50,7 +51,7 @@ console.error = (...args) => {
 };
 
 const { app } = require(path.join(appRoot, 'index.js'));
-const { supabase } = require(path.join(appRoot, 'lib/db.js'));
+const supabase = instalarGuard(require, path.join(appRoot, 'lib/db.js'));
 const { guardarMensaje, obtenerHistorial } = require(path.join(appRoot, 'helpers/db-helpers.js'));
 
 const SECRET = process.env.META_APP_SECRET;

@@ -32,6 +32,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { instalarGuard } from './lib/qa-guard.mjs';
 
 const require = createRequire(import.meta.url);
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -65,7 +66,7 @@ require.cache[waPath] = {
 
 const createWebhookHandler = require(path.join(appRoot, 'handlers/webhook.js'));
 const { procesarMensajeLibre } = require(path.join(appRoot, 'handlers/message-processor.js'));
-const { supabase } = require(path.join(appRoot, 'lib/db.js'));
+const supabase = instalarGuard(require, path.join(appRoot, 'lib/db.js'));
 const { notificarReglasEditadas } = require(path.join(appRoot, 'services/shared-spaces.js'));
 const { effectiveSplitPercents } = require(path.join(appRoot, 'services/spaces-split.js'));
 

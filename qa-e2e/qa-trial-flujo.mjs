@@ -26,9 +26,10 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'module';
+import { instalarGuard } from './lib/qa-guard.mjs';
 
 const require = createRequire(import.meta.url);
-const { supabase } = require('../lib/db');
+const supabase = instalarGuard(require, '../lib/db');
 const { checkTrialExpiry } = require('../cron/checks');
 const { procesarMensajeLibre } = require('../handlers/message-processor');
 const { hoyPeru, sumarDias } = require('../lib/dates');

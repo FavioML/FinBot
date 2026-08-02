@@ -35,6 +35,7 @@ import fs from 'fs';
 import { createRequire } from 'module';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { instalarGuard } from './lib/qa-guard.mjs';
 
 const require = createRequire(import.meta.url);
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -72,7 +73,7 @@ export async function startWebhookHarness() {
   };
 
   const { app } = require(R('index.js'));
-  const { supabase } = require(R('lib/db.js'));
+  const supabase = instalarGuard(require, R('lib/db.js'));
   const { openai } = require(R('lib/ai.js'));
   const secret = process.env.META_APP_SECRET;
 

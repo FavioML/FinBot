@@ -14,11 +14,12 @@ import 'dotenv/config';
 import { createRequire } from 'module';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { instalarGuard } from './lib/qa-guard.mjs';
 
 const require = createRequire(import.meta.url);
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const { procesarMensajeLibre } = require(path.join(appRoot, 'handlers/message-processor.js'));
-const { supabase } = require(path.join(appRoot, 'lib/db.js'));
+const supabase = instalarGuard(require, path.join(appRoot, 'lib/db.js'));
 // El webhook guarda la respuesta de NETO en el historial DESPUES de procesarMensajeLibre.
 // Si el harness no lo replica, el historial queda con N turnos seguidos del usuario y el NLP
 // clasifica el mensaje anterior en vez del actual.

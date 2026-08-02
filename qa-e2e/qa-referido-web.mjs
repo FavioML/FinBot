@@ -22,7 +22,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { createClient } from '@supabase/supabase-js';
+import { clienteGuardado } from './lib/qa-guard.mjs';
 
 const TAG = 'QA-REF';
 const API = process.env.NETO_BACKEND_URL || 'https://api.neto.pe';
@@ -55,7 +55,7 @@ if (!SUPA || !SERVICE) {
 process.env.SUPABASE_URL = SUPA;
 process.env.SUPABASE_KEY = SERVICE;
 
-const db = createClient(SUPA, SERVICE, { auth: { persistSession: false } });
+const db = clienteGuardado(SUPA, SERVICE, { auth: { persistSession: false } });
 
 // Import dinámico tras setear el env (referrals → lib/db al cargar).
 const { registrarReferido } = await import('../services/referrals.js');

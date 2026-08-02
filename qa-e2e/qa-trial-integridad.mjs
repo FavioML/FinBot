@@ -26,9 +26,10 @@ import { createRequire } from 'module';
 import { readFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
+import { instalarGuard } from './lib/qa-guard.mjs';
 
 const require = createRequire(import.meta.url);
-const { supabase } = require('../lib/db');
+const supabase = instalarGuard(require, '../lib/db');
 const trial = require('../lib/trial');
 const { guardarTransaccion } = require('../services/transactions');
 const { checkPremiumExpiry } = require('../cron/checks');

@@ -16,7 +16,7 @@
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { createClient } from '@supabase/supabase-js';
+import { clienteGuardado } from './lib/qa-guard.mjs';
 
 const APP = process.env.NETO_APP_URL || 'https://app.neto.pe';
 function loadEnv(path) { const e = {}; try { for (const l of readFileSync(path, 'utf8').split(/\r?\n/)) { const m = l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/); if (m) e[m[1]] = m[2].replace(/^["']|["']$/g, ''); } } catch {} return e; }
@@ -28,7 +28,7 @@ const SERVICE = env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_RO
 const USUARIO_ID = env.NETO_QA_USUARIO_ID || 'ded7e219-e5fd-4ff4-b5a3-3cd5cdffd172';
 if (!SUPA || !ANON || !EMAIL || !PASSWORD || !SERVICE) { console.error('Faltan creds/service en qa.env / webapp/.env.local'); process.exit(2); }
 
-const db = createClient(SUPA, SERVICE, { auth: { persistSession: false } });
+const db = clienteGuardado(SUPA, SERVICE, { auth: { persistSession: false } });
 
 let pass = 0, fail = 0;
 const ok = (c, l) => { if (c) { pass++; console.log(`  ✓ ${l}`); } else { fail++; console.log(`  ✗ ${l}`); } };

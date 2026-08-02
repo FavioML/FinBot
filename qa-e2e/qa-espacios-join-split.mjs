@@ -26,12 +26,12 @@
 // Limpia todo lo que crea.
 
 import { chromium } from 'playwright';
-import { createClient } from '@supabase/supabase-js';
 import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { clienteGuardado } from './lib/qa-guard.mjs';
 
 const APP = 'https://app.neto.pe';
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -57,7 +57,7 @@ if (!M3 || !FREE || !PRO) {
   process.exit(1);
 }
 
-const svc = createClient(backendEnv.SUPABASE_URL, backendEnv.SUPABASE_KEY);
+const svc = clienteGuardado(backendEnv.SUPABASE_URL, backendEnv.SUPABASE_KEY);
 
 // --- backend local: stub de WhatsApp antes de cargar el servicio -------------
 process.env.SUPABASE_URL = backendEnv.SUPABASE_URL;

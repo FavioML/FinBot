@@ -14,6 +14,7 @@ import crypto from 'crypto';
 import { createRequire } from 'module';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { instalarGuard } from './lib/qa-guard.mjs';
 
 const require = createRequire(import.meta.url);
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -31,7 +32,7 @@ require.cache[waPath] = {
 };
 
 const createWebhookHandler = require(path.join(appRoot, 'handlers/webhook.js'));
-const { supabase } = require(path.join(appRoot, 'lib/db.js'));
+const supabase = instalarGuard(require, path.join(appRoot, 'lib/db.js'));
 const { remitentesParaSeleccion } = require(path.join(appRoot, 'gmail.js'));
 
 // procesarMensajeLibre espía: si se invoca para nuestros replies, el intercept falló.

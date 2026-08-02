@@ -22,7 +22,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { createClient } from '@supabase/supabase-js';
+import { clienteGuardado } from './lib/qa-guard.mjs';
 
 const TAG = 'QA-MERGE';
 
@@ -51,7 +51,7 @@ if (!SUPA || !SERVICE) {
   process.exit(2);
 }
 
-const db = createClient(SUPA, SERVICE, { auth: { persistSession: false } });
+const db = clienteGuardado(SUPA, SERVICE, { auth: { persistSession: false } });
 
 let pass = 0, fail = 0;
 function ok(cond, label) {

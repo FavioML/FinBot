@@ -15,12 +15,13 @@ import 'dotenv/config';
 import { createRequire } from 'module';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { instalarGuard } from './lib/qa-guard.mjs';
 
 const require = createRequire(import.meta.url);
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const R = (m) => require(path.join(appRoot, m));
 
-const { supabase } = R('lib/db.js');
+const supabase = instalarGuard(require, path.join(appRoot, 'lib/db.js'));
 const { openai } = R('lib/ai.js');
 const log = R('lib/logger.js');
 const { hoyPeru, ayerPeru, ultimoDiaMes } = R('lib/dates.js');
