@@ -1,0 +1,95 @@
+name: Backup DB
+
+# Backup diario de Supabase (Postgres + archivos de Storage) cifrado con age
+# hacia Cloudflare R2. Reemplaza el backup semanal a Gist, que cubria 7 de 36
+# tablas y las dejaba en texto plano.
+#
+# Corre en Actions y no en Railway a proposito: si el backup viviera en la
+# misma cuenta que la app, un problema de facturacion o un borrado accidental
+# se llevaria la app y sus respaldos juntos.
+#
+# Este workflow NO puede descifrar nada: solo conoce la clave publica. La
+# verificacion de restauracion corre aparte, donde vive la clave privada
+# (ver docs/runbook-restore.md).
+
+on:
+  schedule:
+    # 08:05 UTC = 03:05 Lima. Minuto no redondo: los cron en punto son los mas
+    # congestionados en Actions y se atrasan mas.
+    - cron: '5 8 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: backup-db
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # pg_dump tiene que ser >= al servidor. Ubuntu trae 16; produccion corre
+      # 17.6, y pg_dump 16 se niega a dumpear un servidor 17.
+      - name: Instalar postgresql-client-17 y age
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17 age
+          pg_dump --version
+          age --version
+
+      - name: Correr backup
+        env:
+          # Session pooler (puerto 5432). La conexion directa de Supabase es
+          # solo IPv6 y los runners de GitHub son solo IPv4: falla siempre.
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          AGE_PUBLIC_KEY: ${{ vars.AGE_PUBLIC_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: bash scripts/backup/backup.sh
+
+      # Que el job termine verde no prueba que el objeto quedo en R2 ni que
+      # tenga sentido: eso se comprueba leyendo el bucket de vuelta.
+      - name: Verificar frescura y tamano en R2
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: node scripts/backup/check-frescura.mjs
+
+  # Sin esto, un fallo del backup es un correo de GitHub que se pierde entre
+  # otros. Telegram es el canal donde Favio si mira las alertas de Neto.
+  avisar-si-falla:
+    needs: backup
+    if: failure()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Avisar por Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ADMIN_CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ]; then echo "sin token de Telegram, no aviso"; exit 0; fi
+          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_ADMIN_CHAT_ID}" \
+            -d "parse_mode=Markdown" \
+            --data-urlencode "text=🔴 *Backup de Neto FALLO*
+          El backup diario de Supabase no se completo.
+          Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          Mientras esto no se arregle, la base NO tiene respaldo del dia." > /dev/null

@@ -1,0 +1,8 @@
+# core.autocrlf=true en la maquina de Favio convierte a CRLF al hacer checkout.
+# Un .sh con CRLF no corre en Linux: bash lee el \r como parte del comando y
+# falla con "$'\r': command not found". Los scripts de backup corren en el
+# runner de GitHub Actions, asi que tienen que quedarse en LF si o si.
+*.sh text eol=lf
+*.mjs text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf

@@ -1,6 +1,5 @@
 const log = require('../lib/logger');
 const { limpiarContadores } = require('../lib/error-monitor');
-const { runBackup } = require('../scripts/backup');
 const { escaneoAutomatico } = require('../services/gmail-scanner');
 const {
   checkResumenMensual,
@@ -92,9 +91,10 @@ function startCronJobs() {
     limpiarOTPVencidos();
     setInterval(limpiarOTPVencidos, 60 * 60 * 1000);
     log.info({ tag: 'OTP_CLEANUP' }, 'Limpieza de OTPs vencidos activa (cada 60min)');
-    setTimeout(runBackup, 60000);
-    setInterval(runBackup, 7 * 24 * 60 * 60 * 1000);
-    log.info({ tag: 'BACKUP' }, 'Backup semanal activo');
+    // El backup ya no vive aca. Corre a diario en GitHub Actions
+    // (.github/workflows/backup-db.yml) contra Cloudflare R2, cifrado y
+    // completo. El que estaba aca subia 7 de 36 tablas en texto plano a un
+    // Gist. Ver docs/runbook-restore.md.
     keepWarmWebapp();
     setInterval(keepWarmWebapp, 4 * 60 * 1000);
     log.info({ tag: 'KEEPWARM' }, 'Keep-warm webapp /api/dashboard activo (cada 4min)');
