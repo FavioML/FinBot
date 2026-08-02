@@ -11,7 +11,7 @@
 
 | Method | Path | Auth | Descripción |
 |--------|------|------|-------------|
-| POST | `/admin/activar` | ADMIN_KEY (header) | Activar premium para un usuario (rate limited: 10/min) |
+| POST | `/admin/activar` | ADMIN_KEY (header) | Comp: regalar 1 mes de premium, sin pago de por medio. No premia al referrer y registra el pago en S/0. Para un pago real con comprobante es `/admin/aprobar-pago` (rate limited: 10/min) |
 | GET | `/admin/pendientes` | ADMIN_KEY (header) | Listar pagos pendientes (rate limited: 10/min) |
 | GET | `/admin/stats` | ADMIN_KEY (header) | Métricas: usuarios, transacciones, top categorías/bancos (rate limited: 10/min) |
 | GET | `/admin/errores` | ADMIN_KEY (header) | Errores recientes con stack trace. Params: `limite` (default 20), `resueltos=true` para ver todos |

@@ -8,6 +8,8 @@
 //     del callback, doble-click en el panel). Solo UNA ejecución gana la fila.
 //   · activarPro = flip a premium + MATEMÁTICA DE RENOVACIÓN: apila el periodo SOBRE
 //     el premium_vence vigente (no desde hoy) y NUNCA acorta. Se rompe en silencio.
+//   · el COMP (Pro regalado por POST /admin/activar o el comando /activar): mismo camino
+//     con esConversionPagada:false. Sella el trial, no acorta, y se registra a S/0.
 //
 // No pasa por webhook ni Vision: invoca directo el camino de aprobación de
 // lib/pro-payment.js (el mismo que usa el endpoint admin / callback Telegram / /pago).
@@ -70,7 +72,10 @@ function calcVenceMensual(premiumVenceStr) {
 
 async function getUser(h) {
   const { data } = await h.supabase.from('usuarios')
-    .select('id, whatsapp, plan, estado_pago, tipo_plan, premium_desde, premium_vence, pago_pendiente, esperando_comprobante')
+    // trial_estado/trial_vence van en el select porque activarPro RAMIFICA por ellas (apila
+    // sobre el fin del trial y lo sella como convertido). Una fila parcial decidiría distinto
+    // que producción, que lee el usuario completo.
+    .select('id, whatsapp, plan, estado_pago, tipo_plan, premium_desde, premium_vence, pago_pendiente, esperando_comprobante, trial_estado, trial_vence')
     .eq('id', userId).single();
   return data;
 }
@@ -168,6 +173,41 @@ async function run(h) {
   const { count: nPagosC } = await h.supabase.from('pagos')
     .select('id', { count: 'exact', head: true }).eq('usuario_id', userId).eq('estado', 'aprobado');
   check('quedan 2 filas `pagos` aprobadas (alta + renovación)', nPagosC === 2, 'aprobadas=' + nPagosC);
+
+  // ══ TEST D — COMP (POST /admin/activar): Pro regalado, sin pago ══════════════
+  // Hasta el 2026-08-02 esa ruta escribía su propio UPDATE de 4 columnas en vez de llamar
+  // activarPro. Los tres agujeros que dejaba se verifican acá contra Postgres real.
+  // El usuario entra al comp con Pro vigente (V2) y un trial 'activo' ya vencido: la
+  // combinación exacta en la que el UPDATE a mano acortaba el vencimiento y dejaba la fila
+  // en 'activo' para que checkTrialExpiry la bajara a `plan:'free'` esa misma noche.
+  const V2 = uC?.premium_vence;
+  const { error: errSeedTrial } = await h.supabase.from('usuarios')
+    .update({ trial_estado: 'activo', trial_vence: '2020-01-01' }).eq('id', userId);
+  check('se sembró el trial activo (ya vencido) sobre el usuario premium', !errSeedTrial,
+    errSeedTrial ? errSeedTrial.message : 'trial_estado=activo trial_vence=2020-01-01');
+
+  const before4 = h.sent.length;
+  const uComp = await getUser(h);
+  await activarPro({
+    usuario: uComp, tipoPlan: 'mensual', aprobadoPor: 'admin:comp',
+    enviarOAuth: false, esConversionPagada: false,
+  });
+
+  const uD = await getUser(h);
+  const expV3 = calcVenceMensual(V2);
+  check('el comp NO acorta la suscripción vigente (apila sobre ' + V2 + ')',
+    uD?.premium_vence === expV3, 'vence=' + uD?.premium_vence + ' esperado=' + expV3);
+  check('el comp sella el trial (convertido): checkTrialExpiry ya no lo baja a free',
+    uD?.trial_estado === 'convertido', 'trial_estado=' + uD?.trial_estado);
+
+  const { data: pagosComp } = await h.supabase.from('pagos')
+    .select('monto, estado, aprobado_por').eq('usuario_id', userId).eq('aprobado_por', 'admin:comp');
+  check('el comp queda registrado en `pagos` a S/0 (constancia sí, caja del mes no)',
+    pagosComp?.length === 1 && Number(pagosComp[0].monto) === 0 && pagosComp[0].estado === 'aprobado',
+    'filas=' + pagosComp?.length + ' monto=' + pagosComp?.[0]?.monto);
+  check('el comp igual le avisa al usuario (un solo aviso, el de activarPro)',
+    h.sent.slice(before4).filter((s) => s.to === WA).length === 1,
+    (h.sent.slice(before4).filter((s) => s.to === WA).length) + ' mensajes');
 }
 
 async function cleanup(h) {

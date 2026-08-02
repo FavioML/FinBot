@@ -32,8 +32,10 @@ async function procesarComandoAdmin(cmd, rawText = cmd) {
     if (usuarioActivar.plan === 'premium') {
       return '⚠️ ' + (usuarioActivar.nombre || numeroActivar) + ' ya tiene Premium activo.';
     }
-    // Activación rápida: 1 mes, sin link OAuth (fuente única en activarPro).
-    const { venceStr } = await activarPro({ usuario: usuarioActivar, tipoPlan: 'mensual', aprobadoPor: 'admin:/activar', enviarOAuth: false });
+    // Activación rápida: 1 mes, sin link OAuth (fuente única en activarPro). Es un comp, igual
+    // que POST /admin/activar: `esConversionPagada: false` va explícito (es el default, pero acá
+    // decide dos cosas que no se leen solas — no premia al referrer y el pago se registra en S/0).
+    const { venceStr } = await activarPro({ usuario: usuarioActivar, tipoPlan: 'mensual', aprobadoPor: 'admin:/activar', enviarOAuth: false, esConversionPagada: false });
     return '✅ Premium activado para ' + (usuarioActivar.nombre || numeroActivar) + '\nVence: ' + venceStr;
   }
 

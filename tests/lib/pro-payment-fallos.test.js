@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createRequire } from 'module';
+import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
 import path from 'path';
 
 const require = createRequire(import.meta.url);
@@ -51,12 +52,16 @@ const tgMock = { enviarTelegramFotoConBotones: vi.fn().mockResolvedValue({ ok: t
 const notifDbMock = { crearNotificacion: vi.fn().mockResolvedValue(true) };
 const gmailMock = { generarUrlAutorizacion: () => 'https://oauth.example/x' };
 const helpersMock = { guardarMensaje: vi.fn().mockResolvedValue(true) };
+const refMock = {
+  procesarConversionProReferido: vi.fn().mockResolvedValue(true),
+  resumenReferidoParaAdmin: vi.fn().mockResolvedValue({}),
+};
 
 for (const [rel, exports] of [
   ['lib/db.js', dbMock], ['lib/logger.js', logMock], ['lib/whatsapp.js', waMock],
   ['lib/admin-notify.js', notifyMock], ['lib/telegram.js', tgMock],
   ['lib/notifications-db.js', notifDbMock], ['gmail.js', gmailMock],
-  ['helpers/db-helpers.js', helpersMock],
+  ['helpers/db-helpers.js', helpersMock], ['services/referrals.js', refMock],
 ]) {
   const p = require.resolve(path.join(projectRoot, rel));
   require.cache[p] = { id: p, filename: p, loaded: true, exports };
@@ -70,7 +75,7 @@ const escrituras = (tabla) => ops.filter(o => (o.op === 'insert' || o.op === 'up
 
 beforeEach(() => {
   ops = [];
-  for (const m of [logMock.error, logMock.warn, waMock.enviarWhatsapp, notifyMock.notificarAdmin, tgMock.enviarTelegramFotoConBotones, notifDbMock.crearNotificacion]) m.mockClear();
+  for (const m of [logMock.error, logMock.warn, waMock.enviarWhatsapp, notifyMock.notificarAdmin, tgMock.enviarTelegramFotoConBotones, notifDbMock.crearNotificacion, refMock.procesarConversionProReferido]) m.mockClear();
 });
 
 describe('reclamarPagoPendiente', () => {
@@ -209,6 +214,81 @@ describe('activarPro: desatasco del onboarding', () => {
   });
 });
 
+// Regresion 2026-08-02: el camino COMP (Pro regalado, sin pago). Lo usan POST /admin/activar
+// y el comando /activar de WhatsApp, los dos con esConversionPagada:false. La ruta HTTP escribia
+// su propio UPDATE de 4 columnas en vez de llamar activarPro, y de esa divergencia salian los
+// tres agujeros de abajo: el trial sin sellar (checkTrialExpiry bajaba el comp a free al dia 15),
+// el periodo contado siempre desde hoy (un comp ACORTABA una suscripcion vigente) y el
+// onboarding_paso 2 sin desatascar.
+describe('activarPro: comp (esConversionPagada false)', () => {
+  const { PRO_PRECIOS } = require('../../lib/config');
+  const comp = (usuario) => pro.activarPro({
+    usuario, tipoPlan: 'mensual', aprobadoPor: 'admin:comp',
+    enviarOAuth: false, esConversionPagada: false,
+  });
+
+  it('sella el trial como convertido: el cron de vencimiento ya no lo baja a free', async () => {
+    router = () => ({ data: null, error: null });
+    await comp({ ...USUARIO, trial_estado: 'activo', trial_vence: '2099-03-10' });
+    // checkTrialExpiry (cron/checks.js) baja a `plan:'free'` todo lo que siga en 'activo'.
+    expect(escrituras('usuarios')[0].payload.trial_estado).toBe('convertido');
+  });
+
+  it('escribe el set completo de columnas que el UPDATE a mano se saltaba', async () => {
+    router = () => ({ data: null, error: null });
+    await comp(USUARIO);
+    const payload = escrituras('usuarios')[0].payload;
+    for (const col of ['plan', 'estado_pago', 'tipo_plan', 'fecha_pago', 'fecha_vencimiento',
+      'premium_desde', 'premium_vence', 'pago_pendiente', 'esperando_comprobante', 'trial_estado']) {
+      expect(payload, 'falta ' + col).toHaveProperty(col);
+    }
+    expect(payload.estado_pago).toBe('pagado');
+    expect(payload.tipo_plan).toBe('mensual');
+  });
+
+  it('no acorta una suscripcion vigente: apila sobre premium_vence', async () => {
+    router = () => ({ data: null, error: null });
+    const { venceStr } = await comp({ ...USUARIO, premium_vence: '2099-01-15' });
+    expect(venceStr > '2099-01-15', 'el comp acorto el vencimiento').toBe(true);
+    expect(venceStr).toMatch(/^2099-02-/);
+  });
+
+  it('durante el trial apila sobre trial_vence (no cobra los dias que faltaban)', async () => {
+    router = () => ({ data: null, error: null });
+    const { venceStr } = await comp({ ...USUARIO, trial_estado: 'activo', trial_vence: '2099-03-10' });
+    expect(venceStr).toMatch(/^2099-04-/);
+  });
+
+  it('no premia al referrer: un comp no puede encadenar meses gratis', async () => {
+    router = () => ({ data: null, error: null });
+    await comp(USUARIO);
+    expect(refMock.procesarConversionProReferido).not.toHaveBeenCalled();
+  });
+
+  it('registra el pago en S/0: un comp no es caja del mes', async () => {
+    router = () => ({ data: null, error: null });   // sin pendiente que reclamar -> inserta
+    await comp(USUARIO);
+    const ins = escrituras('pagos');
+    expect(ins).toHaveLength(1);
+    expect(ins[0].payload.monto).toBe(0);
+    expect(ins[0].payload.aprobado_por).toBe('admin:comp');
+  });
+
+  it('el aviso al usuario sale igual por los dos canales (no se perdio al sacarlo de la ruta)', async () => {
+    router = () => ({ data: null, error: null });
+    await comp(USUARIO);
+    expect(waMock.enviarWhatsapp).toHaveBeenCalledTimes(1);
+    expect(notifDbMock.crearNotificacion).toHaveBeenCalledTimes(1);
+  });
+
+  it('contraprueba: la conversion PAGADA si premia y se registra al precio de lista', async () => {
+    router = () => ({ data: null, error: null });
+    await pro.activarPro({ usuario: USUARIO, tipoPlan: 'mensual', aprobadoPor: 'admin:webapp', esConversionPagada: true });
+    expect(refMock.procesarConversionProReferido).toHaveBeenCalledTimes(1);
+    expect(escrituras('pagos')[0].payload.monto).toBe(PRO_PRECIOS.mensual);
+  });
+});
+
 describe('registrarSolicitudPro', () => {
   it('no ofrece botones de Telegram cuando el insert del pago fallo (callback_data seria null)', async () => {
     process.env.TELEGRAM_ADMIN_CHAT_ID = '123';
@@ -235,5 +315,61 @@ describe('solicitarComprobante', () => {
     router = () => FALLO;
     await pro.solicitarComprobante('u-1');
     expect(logMock.error).toHaveBeenCalled();
+  });
+});
+
+// Guard estatico, hermano del de tests/notificaciones-duales.test.js.
+//
+// El modo de falla que previene es el que acaba de costar caro: una ruta que "activa Pro" con
+// su propio UPDATE. Empieza identica a activarPro y se queda atras en cada columna que se
+// agrega despues (trial_estado, esperando_comprobante, el desatasco del onboarding_paso 2) y en
+// cada regla que se agrega despues (no acortar una suscripcion vigente). No falla en produccion:
+// el usuario queda premium, el admin ve exito, y el agujero aparece semanas mas tarde en el cron
+// de vencimiento o en las metricas de MRR.
+//
+// Los tres escritores declarados NO son tres formas de activar Pro: son tres eventos distintos.
+// Solo el primero es una activacion por aprobacion.
+describe('la activacion de Pro tiene un solo dueno', () => {
+  const ESCRITORES = new Map([
+    ['lib/pro-payment.js', 'activarPro: la activacion por aprobacion (fuente unica de los 4 canales)'],
+    ['lib/trial.js', 'el alta del trial de 14 dias, que no pasa por ninguna aprobacion'],
+    ['services/referrals.js', 'el premio al referrer, que NO re-entra a activarPro a proposito (anti-cadena)'],
+  ]);
+  const ACTIVA_PLAN = /plan:\s*['"]premium['"]/;
+  const DIRS = ['routes', 'handlers', 'services', 'lib', 'cron'];
+
+  const jsDe = (dir) => readdirSync(dir).flatMap((n) => {
+    const full = path.join(dir, n);
+    return statSync(full).isDirectory() ? jsDe(full) : (full.endsWith('.js') ? [full] : []);
+  });
+  const FUENTES = DIRS
+    .map((d) => path.join(projectRoot, d))
+    .filter(existsSync)
+    .flatMap(jsDe)
+    .map((full) => ({ rel: path.relative(projectRoot, full).replace(/\\/g, '/'), src: readFileSync(full, 'utf-8') }));
+
+  it('el barrido ve el backend y ve la escritura real (si no, lo de abajo miente)', () => {
+    expect(FUENTES.length).toBeGreaterThan(40);
+    const conEscritura = FUENTES.filter((f) => ACTIVA_PLAN.test(f.src)).map((f) => f.rel);
+    expect(conEscritura).toContain('lib/pro-payment.js');
+  });
+
+  it('nadie fuera de los declarados escribe plan premium a mano', () => {
+    const intrusos = FUENTES
+      .filter((f) => ACTIVA_PLAN.test(f.src))
+      .map((f) => f.rel)
+      .filter((rel) => !ESCRITORES.has(rel));
+    // Si esto se pone rojo: no subas el numero, llama a activarPro. POST /admin/activar y el
+    // comando /activar de WhatsApp son comps y pasan `esConversionPagada: false`.
+    expect(intrusos).toEqual([]);
+  });
+
+  it('los comps del panel y de WhatsApp entran por activarPro', () => {
+    for (const rel of ['routes/admin.js', 'handlers/admin-commands.js']) {
+      const f = FUENTES.find((x) => x.rel === rel);
+      expect(f, rel + ' no entro al barrido').toBeDefined();
+      expect(f.src, rel + ' dejo de delegar en activarPro').toMatch(/activarPro\(/);
+      expect(f.src, rel + ' no declara esConversionPagada en el comp').toMatch(/esConversionPagada:\s*false/);
+    }
   });
 });

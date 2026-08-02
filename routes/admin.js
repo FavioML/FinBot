@@ -4,7 +4,6 @@ const { supabase } = require('../lib/db');
 const log = require('../lib/logger');
 const { hoyPeru } = require('../lib/dates');
 const { enviarWhatsapp } = require('../lib/whatsapp');
-const { notificarUsuario, CANALES } = require('../lib/notify-user');
 const { guardarMensaje } = require('../helpers/db-helpers');
 const { activarPro, reclamarPagoPendiente } = require('../lib/pro-payment');
 const { resumenReferidoParaAdmin, registrarReferido } = require('../services/referrals');
@@ -28,7 +27,28 @@ function verificarAdmin(req, res) {
   return true;
 }
 
-// POST /admin/activar — activar premium via web
+// POST /admin/activar — comp: activar premium a mano, sin pago de por medio.
+//
+// Delega en `activarPro` (fuente única, lib/pro-payment.js), igual que el comando `/activar`
+// de WhatsApp. El UPDATE a mano que vivía acá escribía 4 de las ~10 columnas que la activación
+// necesita, y cada omisión costaba algo:
+//   · sin `trial_estado: 'convertido'`, un comp durante el trial dejaba la fila en 'activo' y
+//     `checkTrialExpiry` (cron/checks.js) la bajaba a `plan: 'free'` al vencer el trial: el
+//     comp se evaporaba solo. Además el usuario seguía contando como "en prueba" en las
+//     métricas (esProPagado filtra trial_estado <> 'activo').
+//   · sin la matemática de renovación, el periodo contaba siempre desde hoy, así que un comp
+//     sobre alguien con Pro vigente le ACORTABA el vencimiento.
+//   · sin el desatasco de `onboarding_paso === 2`, el usuario ya premium seguía recibiendo
+//     "elige tu plan / mándame la captura" ante cada mensaje.
+//
+// Los tres flags, decididos y no heredados:
+//   · `esConversionPagada: false` — un comp no premia al referrer (anti-cadena) y su fila de
+//     `pagos` se registra en S/0, para no inflar la caja del mes con plata que nadie transfirió.
+//     Si el usuario SÍ pagó y mandó comprobante, el endpoint es /admin/aprobar-pago.
+//   · `enviarOAuth: false` — conserva lo que esta ruta ya hacía (nunca mandó link de Gmail) y
+//     empata con el comp por WhatsApp. El link lo manda /pago, que sí confirma un pago.
+//   · `guardarHistorial: true` (default, explícito) — ahora sí sale un WhatsApp; sin la fila en
+//     `mensajes`, el hilo del usuario tendría un hueco justo donde Neto le escribió.
 router.post('/activar', async (req, res) => {
   if (!verificarAdmin(req, res)) return;
   const { whatsapp } = req.body;
@@ -36,32 +56,24 @@ router.post('/activar', async (req, res) => {
   const numero = whatsapp.replace(/\+/g, '').replace(/^0/, '');
   const { data: usuarioActivar } = await supabase.from('usuarios').select('*').eq('whatsapp', numero).single();
   if (!usuarioActivar) return res.status(404).json({ ok: false, msg: 'Usuario no encontrado' });
-  const hoy = new Date();
-  const vence = new Date(hoy.getFullYear(), hoy.getMonth() + 1, hoy.getDate()).toISOString().split('T')[0];
-  await supabase.from('usuarios').update({
-    plan: 'premium', pago_pendiente: false,
-    premium_desde: hoy.toISOString().split('T')[0], premium_vence: vence
-  }).eq('id', usuarioActivar.id);
-  // Los dos canales, igual que `activarPro` (lib/pro-payment.js): son dos caminos al mismo
-  // estado y avisaban distinto. OJO: la divergencia de fondo sigue \u2014 este update no escribe
-  // `trial_estado`, `estado_pago` ni `tipo_plan`, y el docblock de `activarPro` dice que los
-  // comps deber\u00EDan pasar por ah\u00ED con `esConversionPagada: false`. Eso es un cambio de la
-  // ruta de pagos, no de notificaciones.
-  await notificarUsuario({
-    canales: CANALES.AMBOS,
-    usuarioId: usuarioActivar.id,
-    whatsapp: usuarioActivar.whatsapp || null,
-    tipo: 'pro_activado_admin',
-    mensaje: '\u2B50 *\u00a1Bienvenido a NETO Pro!*\n\n' +
-      'Tu pago fue confirmado. Ya tienes acceso completo.\n\n' +
-      '\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\n' +
-      '_Gracias por confiar en NETO._ \uD83D\uDC9A',
-    titulo: '\u00a1Tu Pro fue activado! \u2B50',
-    cuerpo: 'Ya tienes acceso completo a Neto Pro. Vence el ' + vence + '.',
-    tipoInApp: 'pro',
-    link: '/dashboard/pro',
-  });
-  res.json({ ok: true, msg: 'Premium activado para ' + (usuarioActivar.nombre || numero), vence });
+  try {
+    // El aviso al usuario (WhatsApp + in-app, por el chokepoint `notificarUsuario`) sale
+    // dentro de activarPro. No lo dupliques aca.
+    const { venceStr } = await activarPro({
+      usuario: usuarioActivar,
+      tipoPlan: 'mensual',
+      aprobadoPor: 'admin:comp',
+      enviarOAuth: false,
+      guardarHistorial: true,
+      esConversionPagada: false,
+    });
+    res.json({ ok: true, msg: 'Premium activado para ' + (usuarioActivar.nombre || numero), vence: venceStr });
+  } catch (e) {
+    // activarPro lanza cuando el UPDATE que ES la activacion falla. Antes esta ruta ni leia
+    // el error y respondia ok: el admin veia exito sobre un usuario que seguia en Free.
+    log.error({ tag: 'ADMIN_ACTIVAR', err: e.message, usuarioId: usuarioActivar.id }, 'No se pudo activar Pro (comp)');
+    res.status(500).json({ ok: false, msg: 'No se pudo activar Pro' });
+  }
 });
 
 // GET /admin/pendientes — ver pagos pendientes
