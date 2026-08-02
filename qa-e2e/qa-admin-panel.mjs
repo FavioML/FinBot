@@ -216,20 +216,30 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
   ok('WAU <= MAU', k.wau <= k.mau, `${k.wau} <= ${k.mau}`);
 
   // ---------- 5. Embudo contra el oráculo ----------
+  // "No es negocio real" = cuenta de prueba O interna (el fundador no lleva is_test_user). Es la
+  // definición de isRevenueUser y de los RPC (migr 057), y se declara acá arriba porque la usan
+  // el embudo, el MRR y las métricas de producto. Si el oráculo contara todo, validaría
+  // exactamente el sesgo que el panel acaba de dejar de tener.
+  const INTERNAL_WHATSAPP = new Set(['51970398192', '51999999997']);
+  const esInterno = (u) => !!u.is_test_user || INTERNAL_WHATSAPP.has(u.whatsapp);
+  const usuariosPlan = await sbPaginado('usuarios', 'id,whatsapp,is_test_user,plan,trial_estado');
+  const idsReales = new Set(usuariosPlan.filter((u) => !esInterno(u)).map((u) => u.id));
+
   const txs = await sbPaginado('transacciones', 'usuario_id');
   const usuariosConTx = new Set(txs.map(t => t.usuario_id)).size;
+  const conTxReales = new Set(txs.filter(t => idsReales.has(t.usuario_id)).map(t => t.usuario_id)).size;
   const usuarios = await sbPaginado('usuarios', 'id');
 
   const funnel = resp['/api/admin/stats']?.funnel || {};
   ok(
-    'embudo: primera transacción == verdad de la base',
-    funnel.firstTransaction === usuariosConTx,
-    `panel dice ${funnel.firstTransaction}, la base dice ${usuariosConTx} (sobre ${txs.length} transacciones)`,
+    'embudo: primera transacción == usuarios reales con transacciones',
+    funnel.firstTransaction === conTxReales,
+    `panel dice ${funnel.firstTransaction}, la base dice ${conTxReales} (${usuariosConTx} contando pruebas)`,
   );
   ok(
-    'embudo: registrados == usuarios reales',
-    funnel.registered === usuarios.length,
-    `panel dice ${funnel.registered}, la base dice ${usuarios.length}`,
+    'embudo: registrados == usuarios reales (sin pruebas ni internos)',
+    funnel.registered === idsReales.size,
+    `panel dice ${funnel.registered}, la base dice ${idsReales.size} (${usuarios.length} en total)`,
   );
   ok('embudo: registrados >= onboarding completo', funnel.registered >= funnel.onboardingComplete);
   ok('embudo: registrados >= primera transacción', funnel.registered >= funnel.firstTransaction);
@@ -276,12 +286,6 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
   // con monto > 0. Si el panel y la base divergen, el número es decorativo y no sirve para
   // decidir si vale la pena modelar el comp como estado propio.
   // Las mismas cuentas que EXCLUDED_REVENUE_WHATSAPP en admin-revenue.ts (fundador + QA Pro).
-  // "No es negocio real" = marcado como prueba O en la lista de internos (el fundador no lleva
-  // is_test_user). Misma definición que isRevenueUser; si el oráculo usara solo la lista,
-  // repetiría el bug que se acaba de arreglar y validaría el número equivocado.
-  const INTERNAL_WHATSAPP = new Set(['51970398192', '51999999997']);
-  const esInterno = (u) => !!u.is_test_user || INTERNAL_WHATSAPP.has(u.whatsapp);
-  const usuariosPlan = await sbPaginado('usuarios', 'id,whatsapp,is_test_user,plan,trial_estado');
   const pagosOk = await sbPaginado('pagos', 'usuario_id,estado,monto');
   const conPagoReal = new Set(
     pagosOk.filter((p) => p.estado === 'aprobado' && Number(p.monto) > 0).map((p) => p.usuario_id),

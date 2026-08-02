@@ -119,7 +119,7 @@ export async function GET() {
 
   let totalDaysToFirstTx = 0;
   let usersWithTx = 0;
-  for (const u of allUsers) {
+  for (const u of realUsers) {
     const firstTx = firstTxByUser[u.id];
     if (firstTx) {
       const days = (new Date(firstTx).getTime() - new Date(u.created_at).getTime()) / 86400000;
@@ -154,9 +154,14 @@ export async function GET() {
   // Solo pasos anidados y monotónicos: registro → onboarding → 1a tx → Pro.
   // "Webapp" NO va en el embudo (no es downstream de 1a tx: un user puede tener webapp
   // sin transacción), va aparte como métrica de cobertura para no simular un embudo falso.
-  const registered = totalUsers;
-  const onboardingComplete = allUsers.filter((u) => u.onboarding_completado).length;
-  const withFirstTx = Object.keys(firstTxByUser).length;
+  // Los cuatro pasos comparten universo: gente real (sin cuentas de prueba ni internas). El paso
+  // Pro ya excluía (rev.proCount) mientras los tres primeros contaban la tabla entera, así que el
+  // embudo cambiaba de denominador a mitad de camino y hacía ver la conversión final peor de lo
+  // que es. Las altas de QA no son gente que activar.
+  const realIds = new Set(realUsers.map((u) => u.id));
+  const registered = realUsers.length;
+  const onboardingComplete = realUsers.filter((u) => u.onboarding_completado).length;
+  const withFirstTx = Object.keys(firstTxByUser).filter((id) => realIds.has(id)).length;
 
   const funnel = {
     registered,
@@ -164,8 +169,9 @@ export async function GET() {
     firstTransaction: withFirstTx,
     pro: rev.proCount, // Pro reales (excluye internos), coherente con MRR
   };
-  // Cobertura webapp (Google OAuth + Magic Link): transversal, fuera del embudo.
-  const webappCoverage = allUsers.filter((u) => !!u.supabase_auth_id).length;
+  // Cobertura webapp (Google OAuth + Magic Link): transversal, fuera del embudo pero sobre el
+  // mismo universo, o sea comparable con `registered`.
+  const webappCoverage = realUsers.filter((u) => !!u.supabase_auth_id).length;
 
   // --- NLP Errors per day (last 30 days) ---
   // La lectura sube al Promise.all de arriba; acá solo queda el agrupado por día.
