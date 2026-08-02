@@ -18,6 +18,8 @@ export interface RevenueUserRow {
   plan: string | null;
   tipo_plan: string | null;
   whatsapp?: string | null;
+  /** Marca de cuenta de prueba (harness qa-e2e, seeds de demo). Nunca es ingreso. */
+  is_test_user?: boolean | null;
   /**
    * Estado del trial de 14 días. Durante el trial `plan` vale `'premium'` (así el
    * usuario en prueba recibe Pro sin tocar los ~40 gates que miran esa columna), o sea
@@ -54,8 +56,21 @@ export interface PagoRow {
   usuario_id?: string | null;
 }
 
-/** ¿Cuenta este usuario como negocio real para métricas de ingreso? */
-export function isRevenueUser(u: { whatsapp?: string | null }): boolean {
+/**
+ * ¿Cuenta este usuario como negocio real para métricas de ingreso?
+ *
+ * Dos señales, porque la lista de números no alcanza. `is_test_user` es la marca canónica que
+ * ya ponen los harness de qa-e2e y los seeds de demo, y cubre lo que la lista no puede: una
+ * cuenta de prueba web-first (sin whatsapp que listar) y cualquier QA nuevo que nadie se acordó
+ * de agregar acá. El 2026-08-02 eran dos cuentas de prueba con `plan: 'premium'` sumando S/20
+ * al MRR del panel, sobre ~S/56 reales: la métrica con la que se decide si el producto funciona
+ * exageraba un tercio. La lista se queda para el fundador, que no es `is_test_user`.
+ */
+export function isRevenueUser(u: {
+  whatsapp?: string | null;
+  is_test_user?: boolean | null;
+}): boolean {
+  if (u.is_test_user) return false;
   return !u.whatsapp || !EXCLUDED_REVENUE_WHATSAPP.has(u.whatsapp);
 }
 

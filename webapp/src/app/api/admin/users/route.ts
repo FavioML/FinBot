@@ -1,7 +1,7 @@
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 import { requireAdminUser, type UserTxStatsRow } from '@/lib/admin';
-import { EXCLUDED_REVENUE_WHATSAPP } from '@/lib/admin-revenue';
+import { isRevenueUser } from '@/lib/admin-revenue';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,7 +33,7 @@ export async function GET() {
     db
       .from('usuarios')
       .select(
-        'id, whatsapp, nombre, email, plan, trial_estado, trial_vence, onboarding_completado, gmail_access_token, created_at, premium_vence, premium_desde, supabase_auth_id, estado_pago, tipo_plan, fecha_pago, pago_pendiente',
+        'id, whatsapp, is_test_user, nombre, email, plan, trial_estado, trial_vence, onboarding_completado, gmail_access_token, created_at, premium_vence, premium_desde, supabase_auth_id, estado_pago, tipo_plan, fecha_pago, pago_pendiente',
       )
       .order('created_at', { ascending: false }),
     db.rpc('admin_user_tx_stats'),
@@ -97,8 +97,10 @@ export async function GET() {
       first_tx_at: act?.first_tx_at ?? null,
       last_tx_at: act?.last_tx_at ?? null,
       last_activity_at: act?.last_activity_at ?? null,
-      // Cuenta interna (fundador / QA): la pagina de analisis la excluye de los segmentos.
-      is_internal: !!u.whatsapp && EXCLUDED_REVENUE_WHATSAPP.has(u.whatsapp),
+      // Cuenta interna (fundador / QA / harness): la pagina de analisis la excluye de los
+      // segmentos. Misma definicion que isRevenueUser, para que la lista y el MRR no marquen
+      // distinto al mismo usuario.
+      is_internal: !isRevenueUser(u),
     };
   });
 

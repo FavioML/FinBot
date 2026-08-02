@@ -49,7 +49,9 @@ export async function GET() {
     db
       .from('usuarios')
       .select(
-        'id, whatsapp, plan, tipo_plan, trial_estado, trial_vence, onboarding_completado, created_at, premium_desde, premium_vence, supabase_auth_id',
+        // is_test_user va en el select porque isRevenueUser decide por ella: sin traerla, la
+        // fila llega con la marca en undefined y una cuenta de prueba entra al MRR como cliente.
+        'id, whatsapp, is_test_user, plan, tipo_plan, trial_estado, trial_vence, onboarding_completado, created_at, premium_desde, premium_vence, supabase_auth_id',
       ),
     db
       .from('pagos')
@@ -83,7 +85,7 @@ export async function GET() {
 
   // Caja real cobrada este mes (pagos aprobados), distinta del MRR recurrente.
   const excludedIds = new Set(
-    allUsers.filter((u) => u.whatsapp && EXCLUDED_REVENUE_WHATSAPP.has(u.whatsapp)).map((u) => u.id),
+    allUsers.filter((u) => !isRevenueUser(u)).map((u) => u.id),
   );
   const cajaMes = cajaDelMes(pagosMes || [], excludedIds, startMonthIso);
 

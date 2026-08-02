@@ -29,6 +29,7 @@ export const dynamic = 'force-dynamic';
 interface UsuarioRow {
   id: string;
   whatsapp: string | null;
+  is_test_user: boolean | null;
   plan: string | null;
   tipo_plan: string | null;
   // Va declarada aunque acá no se lea directo: es la columna que decide si un `plan:'premium'`
@@ -80,7 +81,9 @@ export async function GET() {
   ] = await Promise.all([
     db
       .from('usuarios')
-      .select('id, whatsapp, plan, tipo_plan, trial_estado, premium_desde, premium_vence, created_at'),
+      // is_test_user va en el select porque isRevenueUser decide por ella: sin traerla, la fila
+      // llega con la marca en undefined y una cuenta de prueba entra al MRR como cliente.
+      .select('id, whatsapp, is_test_user, plan, tipo_plan, trial_estado, premium_desde, premium_vence, created_at'),
     db.from('admin_costs').select('*').order('next_due_date', { ascending: true }),
     db
       .from('pagos')
@@ -212,7 +215,7 @@ export async function GET() {
   // (excluye cuentas internas). Ya existe la tabla `pagos`, así que es dinero de verdad,
   // no una aproximación al MRR.
   const excludedIds = new Set(
-    usuarios.filter((u) => u.whatsapp && EXCLUDED_REVENUE_WHATSAPP.has(u.whatsapp)).map((u) => u.id),
+    usuarios.filter((u) => !isRevenueUser(u)).map((u) => u.id),
   );
   const revenueThisMonth = cajaDelMes(pagosMes || [], excludedIds, startMonthIso);
 

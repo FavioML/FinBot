@@ -269,6 +269,39 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
     `margen ${eco.operating_margin_monthly_pen} vs ${eco.mrr} − ${eco.total_monthly_costs_pen}`,
   );
 
+  // "Pro sin pago registrado" == cuánto del MRR no es plata. Un comp (Pro regalado por
+  // /admin/activar) entra al MRR igual que un pagador, y esta es la única señal de que pasó.
+  // El oráculo la recalcula desde `usuarios` + `pagos` con la misma definición de la ruta:
+  // Pro pagado (premium y trial_estado <> 'activo'), no interno, sin ninguna fila aprobada
+  // con monto > 0. Si el panel y la base divergen, el número es decorativo y no sirve para
+  // decidir si vale la pena modelar el comp como estado propio.
+  // Las mismas cuentas que EXCLUDED_REVENUE_WHATSAPP en admin-revenue.ts (fundador + QA Pro).
+  // "No es negocio real" = marcado como prueba O en la lista de internos (el fundador no lleva
+  // is_test_user). Misma definición que isRevenueUser; si el oráculo usara solo la lista,
+  // repetiría el bug que se acaba de arreglar y validaría el número equivocado.
+  const INTERNAL_WHATSAPP = new Set(['51970398192', '51999999997']);
+  const esInterno = (u) => !!u.is_test_user || INTERNAL_WHATSAPP.has(u.whatsapp);
+  const usuariosPlan = await sbPaginado('usuarios', 'id,whatsapp,is_test_user,plan,trial_estado');
+  const pagosOk = await sbPaginado('pagos', 'usuario_id,estado,monto');
+  const conPagoReal = new Set(
+    pagosOk.filter((p) => p.estado === 'aprobado' && Number(p.monto) > 0).map((p) => p.usuario_id),
+  );
+  const proPagadosReales = usuariosPlan.filter(
+    (u) => u.plan === 'premium' && u.trial_estado !== 'activo' && !esInterno(u),
+  );
+  ok(
+    'economics: el MRR no cuenta cuentas de prueba',
+    eco.pro_users === proPagadosReales.length,
+    `panel dice ${eco.pro_users} Pro, la base dice ${proPagadosReales.length}`,
+  );
+  const sinPagoOraculo = proPagadosReales.filter((u) => !conPagoReal.has(u.id)).length;
+  ok(
+    'economics: "Pro sin pago registrado" == verdad de la base',
+    eco.pro_sin_pago_registrado === sinPagoOraculo,
+    `panel dice ${eco.pro_sin_pago_registrado}, la base dice ${sinPagoOraculo}` +
+      (sinPagoOraculo > 0 ? ` (hay ${sinPagoOraculo} comp en el MRR: S/${sinPagoOraculo * 10} de humo)` : ''),
+  );
+
   // ---------- 7. MAU contra el oráculo ----------
   const hace30 = new Date(Date.now() - 30 * 86400000).toISOString();
   const txMes = await sbPaginado('transacciones', `usuario_id&created_at=gte.${hace30}`);
@@ -281,7 +314,6 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
   // ---------- 7b. /users: campos de actividad (migración 042) + flag interno (Ola 4) ----------
   // La página admin/users segmenta la base con estas ventanas. Validamos la DATA de la ruta;
   // la clasificación en segmentos tiene sus propios unit tests (admin-user-segments.test.ts).
-  const INTERNAL_WHATSAPP = new Set(['51970398192', '51999999997']);
   const conActividad = lista.every(
     (u) => 'tx_14d' in u && 'tx_30d' in u && 'last_tx_at' in u && 'is_internal' in u,
   );
