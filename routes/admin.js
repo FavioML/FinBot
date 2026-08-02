@@ -4,6 +4,7 @@ const { supabase } = require('../lib/db');
 const log = require('../lib/logger');
 const { hoyPeru } = require('../lib/dates');
 const { enviarWhatsapp } = require('../lib/whatsapp');
+const { notificarUsuario, CANALES } = require('../lib/notify-user');
 const { guardarMensaje } = require('../helpers/db-helpers');
 const { activarPro, reclamarPagoPendiente } = require('../lib/pro-payment');
 const { resumenReferidoParaAdmin, registrarReferido } = require('../services/referrals');
@@ -41,12 +42,25 @@ router.post('/activar', async (req, res) => {
     plan: 'premium', pago_pendiente: false,
     premium_desde: hoy.toISOString().split('T')[0], premium_vence: vence
   }).eq('id', usuarioActivar.id);
-  await enviarWhatsapp(usuarioActivar.whatsapp,
-    '\u2B50 *\u00a1Bienvenido a NETO Pro!*\n\n' +
-    'Tu pago fue confirmado. Ya tienes acceso completo.\n\n' +
-    '\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\n' +
-    '_Gracias por confiar en NETO._ \uD83D\uDC9A'
-  );
+  // Los dos canales, igual que `activarPro` (lib/pro-payment.js): son dos caminos al mismo
+  // estado y avisaban distinto. OJO: la divergencia de fondo sigue \u2014 este update no escribe
+  // `trial_estado`, `estado_pago` ni `tipo_plan`, y el docblock de `activarPro` dice que los
+  // comps deber\u00EDan pasar por ah\u00ED con `esConversionPagada: false`. Eso es un cambio de la
+  // ruta de pagos, no de notificaciones.
+  await notificarUsuario({
+    canales: CANALES.AMBOS,
+    usuarioId: usuarioActivar.id,
+    whatsapp: usuarioActivar.whatsapp || null,
+    tipo: 'pro_activado_admin',
+    mensaje: '\u2B50 *\u00a1Bienvenido a NETO Pro!*\n\n' +
+      'Tu pago fue confirmado. Ya tienes acceso completo.\n\n' +
+      '\u2705 Reportes PDF ilimitados\n\u2705 Resumen semanal automatico\n\u2705 Categorias personalizadas\n\n' +
+      '_Gracias por confiar en NETO._ \uD83D\uDC9A',
+    titulo: '\u00a1Tu Pro fue activado! \u2B50',
+    cuerpo: 'Ya tienes acceso completo a Neto Pro. Vence el ' + vence + '.',
+    tipoInApp: 'pro',
+    link: '/dashboard/pro',
+  });
   res.json({ ok: true, msg: 'Premium activado para ' + (usuarioActivar.nombre || numero), vence });
 });
 

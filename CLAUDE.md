@@ -130,7 +130,8 @@ Y `free` dejo de ser un plan: **es el muro**.
 | Que intent/comando es lectura | `handlers/intents-acceso.js` (+ su test: un intent sin clasificar rompe el build) |
 | Gate WhatsApp | chokepoint en `handlers/message-processor.js` antes de `getHandler` + cascada de `/` en `webhook.js` |
 | Gate webapp | `requireLectura()` en `webapp/src/lib/supabase/auth.ts` → 402 (+ `lectura-callsites.test.ts`) |
-| Gate crons (lo que se EMPUJA) | gate de plan en cada cron que manda WhatsApp (+ `tests/cron/lecturas-proactivas.test.js`) |
+| Gate crons (lo que se EMPUJA) | gate de plan en cada cron que empuja (+ `tests/cron/lecturas-proactivas.test.js`) |
+| Por que canales sale un aviso proactivo | `notificarUsuario()` en `lib/notify-user.js` (+ `tests/notificaciones-duales.test.js`) |
 | Avisos d11/d14 + downgrade | `cron/checks.js:checkTrialExpiry` |
 | E2E | `qa-e2e/qa-trial-gate.mjs` (el muro bloquea), `qa-e2e/qa-trial-integridad.mjs` (el trial entrega), `qa-e2e/qa-gate.mjs free\|pro` |
 
@@ -155,8 +156,8 @@ precio y el 50% de referidos), `/premium` por WhatsApp igual, y el descuento inv
   acababa de gastarlos. Si tu `select` alimenta una decision, trae **todas** las columnas que
   esa decision mira.
 - **El muro tiene dos caras.** Los chokepoints cortan lo que el usuario PIDE. Un cron EMPUJA, y
-  cuatro empujaban gratis lo que el muro cobra. Todo cron que mande WhatsApp necesita gate de
-  plan o estar declarado exento en `tests/cron/lecturas-proactivas.test.js`.
+  cuatro empujaban gratis lo que el muro cobra. Todo cron que empuje necesita gate de plan o
+  estar declarado exento en `tests/cron/lecturas-proactivas.test.js`.
 
 Los avisos de fin de trial salen **solo en texto libre**, o sea que llegan a quien está dentro
 de la ventana de 24h de Meta. Decision de Favio (2026-08-01): quien no escribio en 11 dias no
@@ -164,8 +165,50 @@ esta usando el producto, y no se paga por perseguirlo. El canal fiable para todo
 del dashboard. `WA_TRIAL_TEMPLATE_ENABLED` se queda en `false`; el cableado esta probado y
 reactivarlo es una env var. **No es un bloqueo de Meta** — ver `docs/whatsapp-templates.md`.
 
+## Todo aviso proactivo sale por los DOS canales
+
+El WhatsApp libre no se entrega fuera de la ventana de 24h de Meta (131047) y las plantillas
+estan descartadas. O sea que **un aviso que solo existe en WhatsApp, para el usuario inactivo
+no existe** — y el inactivo suele ser justo el destinatario (trial por vencer, recordatorio de
+inactividad, un gasto que le cargaron en un espacio). La in-app es el unico canal que llega a
+todos.
+
+`notificarUsuario()` (`lib/notify-user.js`) es el unico camino. Es dueño de una sola cosa: **por
+que canales sale esto**. No dedupea (eso vive en el call-site y hoy tiene cuatro mecanismos
+distintos) y no gatea por plan (eso es `lecturas-proactivas.test.js`).
+
+```js
+const { notificarUsuario, CANALES } = require('../lib/notify-user');
+
+await notificarUsuario({
+  canales: CANALES.AMBOS,          // obligatorio; sin motivo cuando es AMBOS
+  usuarioId: u.id, whatsapp: u.whatsapp || null,   // null es valido (usuario web-first)
+  tipo: 'slug_para_notification_deliveries',
+  mensaje: msgConMarkdownDeWhatsApp,
+  titulo: 'Titulo de la campana',  // obligatorio si el canal in-app esta declarado
+  tipoInApp: 'recordatorio',       // familia de icono (notification-bell.tsx). Default 'sistema'
+  link: '/dashboard/x',            // deeplink; va a datos.link
+});
+```
+
+Devuelve `{ wa, inApp }`. El canal in-app se escribe **aunque WhatsApp falle o el usuario no
+tenga numero**: cada canal tiene su try/catch, no uno global.
+
+Un canal unico (`CANALES.SOLO_WHATSAPP` / `SOLO_IN_APP`) exige `motivo` pegado al `canales`.
+Hoy hay cinco excepciones y todas comparten la misma forma: la query que selecciona al
+destinatario exige que NO tenga cuenta web, asi que no hay campana donde mostrar nada.
+`grep -rn "CANALES.SOLO_" .` es la auditoria completa.
+
+**Guard: `tests/notificaciones-duales.test.js`.** Ningun archivo fuera de los declarados puede
+llamar `enviarWhatsapp` crudo, y los conteos de los declarados estan fijados (agregar una
+llamada rompe el build a proposito: te obliga a decidir si lo tuyo es una RESPUESTA o un
+EMPUJE). Si es respuesta, subi el numero; si es empuje, usa `notificarUsuario`.
+
+Un `tipo` in-app nuevo **no** necesita migracion (`notificaciones.tipo` es varchar libre) ni
+tocar la webapp (`TIPO_CONFIG[tipo] || TIPO_CONFIG.sistema`). Agregarlo a `TIPO_CONFIG` en
+`notification-bell.tsx` es solo para que tenga icono propio.
+
 ## Pendientes activos
-- [ ] Sync notificaciones webapp <> WhatsApp
 - [ ] Testimonios reales
 - [ ] Video demo 30-60s
 - [ ] Exit-intent popup con lead magnet

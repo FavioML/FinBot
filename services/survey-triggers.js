@@ -13,7 +13,7 @@
  */
 
 const { supabase } = require('../lib/db');
-const { enviarWhatsapp } = require('../lib/whatsapp');
+const { notificarUsuario, CANALES } = require('../lib/notify-user');
 const log = require('../lib/logger');
 const { hoyPeru } = require('../lib/dates');
 
@@ -78,9 +78,33 @@ async function registrarEvento({ userId, eventType, channel, messageSent, respon
   return data?.id || null;
 }
 
+/**
+ * Titulo y deeplink de la mitad in-app de cada recordatorio. El texto del cuerpo lo deriva
+ * el chokepoint del mensaje de WhatsApp; esto es lo unico que no se puede derivar.
+ *
+ * Van los dos canales porque estos mensajes persiguen justo a quien dejo de escribir: por
+ * definicion, la poblacion con mas chances de estar fuera de la ventana de 24h de Meta.
+ */
+const IN_APP_RECORDATORIO = {
+  reminder_d3: { titulo: 'Registrar un gasto toma 2 segundos', link: '/dashboard' },
+  reminder_d7: { titulo: 'Una semana con Neto', link: '/dashboard' },
+  reminder_d14: { titulo: '¿Algo te complica con Neto?', link: '/dashboard' },
+  reminder_d30: { titulo: 'Hace dos semanas que no registras nada', link: '/dashboard' },
+};
+
 /** Envia mensaje y registra el evento. Si falla, no registra (asi reintenta proxima vez). */
 async function enviarYRegistrar(usuario, eventType, mensaje) {
-  await enviarWhatsapp(usuario.whatsapp, mensaje, { tipo: 'survey_' + eventType, usuarioId: usuario.id });
+  const inApp = IN_APP_RECORDATORIO[eventType];
+  await notificarUsuario({
+    canales: CANALES.AMBOS,
+    usuarioId: usuario.id,
+    whatsapp: usuario.whatsapp || null,
+    tipo: 'survey_' + eventType,
+    mensaje,
+    titulo: inApp ? inApp.titulo : 'Un recordatorio de Neto',
+    tipoInApp: 'recordatorio',
+    link: inApp ? inApp.link : '/dashboard',
+  });
   return registrarEvento({
     userId: usuario.id,
     eventType,
@@ -269,7 +293,12 @@ async function maybeWebappInvite(usuario) {
   if (!eventoId) return false; // ya existia, no reenviar
 
   // Solo si el insert paso, mandamos el mensaje
-  await enviarWhatsapp(usuario.whatsapp, copyWebappInvite(primer), { tipo: 'survey_webapp_invite_10tx', usuarioId: usuario.id });
+  await notificarUsuario({
+    canales: CANALES.SOLO_WHATSAPP,
+    motivo: 'el trigger exige supabase_auth_id NULL (arriba): el destinatario no tiene cuenta web, y el mensaje ES la invitación a crearla',
+    usuarioId: usuario.id, whatsapp: usuario.whatsapp,
+    tipo: 'survey_webapp_invite_10tx', mensaje: copyWebappInvite(primer),
+  });
   return true;
 }
 
@@ -300,7 +329,13 @@ async function maybeWakeUpInactive(usuario) {
   });
   if (!eventoId) return false;
 
-  await enviarWhatsapp(usuario.whatsapp, mensaje, { tipo: 'survey_wake_up_inactive', usuarioId: usuario.id });
+  await notificarUsuario({
+    canales: CANALES.AMBOS,
+    usuarioId: usuario.id, whatsapp: usuario.whatsapp || null,
+    tipo: 'survey_wake_up_inactive', mensaje,
+    titulo: 'Hace tiempo que no registras nada',
+    tipoInApp: 'recordatorio', link: '/dashboard',
+  });
   return true;
 }
 
@@ -317,7 +352,13 @@ async function maybeFeedback30(usuario) {
   });
   if (!eventoId) return false;
 
-  await enviarWhatsapp(usuario.whatsapp, copyFeedback30(primer), { tipo: 'survey_feedback_open_30tx', usuarioId: usuario.id });
+  await notificarUsuario({
+    canales: CANALES.AMBOS,
+    usuarioId: usuario.id, whatsapp: usuario.whatsapp || null,
+    tipo: 'survey_feedback_open_30tx', mensaje: copyFeedback30(primer),
+    titulo: 'Llevamos 30 gastos juntos',
+    link: '/dashboard',
+  });
   return true;
 }
 
@@ -359,7 +400,12 @@ async function maybeWakeUpOnboarding(usuario) {
   });
   if (!eventoId) return false;
 
-  await enviarWhatsapp(usuario.whatsapp, mensaje, { tipo: 'survey_wake_up_onboarding', usuarioId: usuario.id });
+  await notificarUsuario({
+    canales: CANALES.SOLO_WHATSAPP,
+    motivo: 'el trigger exige onboarding_completado !== true: el destinatario no terminó el alta y no tiene cuenta web donde mostrarle nada',
+    usuarioId: usuario.id, whatsapp: usuario.whatsapp,
+    tipo: 'survey_wake_up_onboarding', mensaje,
+  });
   return true;
 }
 

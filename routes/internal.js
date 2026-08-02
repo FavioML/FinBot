@@ -2,7 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { supabase } = require('../lib/db');
 const log = require('../lib/logger');
-const { enviarWhatsapp } = require('../lib/whatsapp');
+const { notificarUsuario, CANALES } = require('../lib/notify-user');
 const analytics = require('../lib/analytics');
 
 const router = express.Router();
@@ -50,14 +50,22 @@ router.post('/activacion-completada', async (req, res) => {
     // siendo uno solo, de "llegó un mensaje" a "activó su cuenta".
     analytics.capture(usuario.id, 'wa_onboarding_step_ok', { paso: 200, siguiente: 0, via: resultado });
 
+    // Los dos canales, y el `if (usuario.whatsapp)` se cae: este endpoint se llama JUSTO
+    // cuando la webapp terminó de vincular la cuenta, así que el buzón in-app existe por
+    // construcción y es el primero que el usuario va a mirar.
     const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : '';
-    if (usuario.whatsapp) {
-      await enviarWhatsapp(usuario.whatsapp,
-        '✅ ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u cuenta quedó activada.\n\n' +
+    await notificarUsuario({
+      canales: CANALES.AMBOS,
+      usuarioId: usuario.id,
+      whatsapp: usuario.whatsapp || null,
+      tipo: 'activacion_ok',
+      mensaje: '✅ ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u cuenta quedó activada.\n\n' +
         'Todo lo que anotes por acá lo ves en tu dashboard: gráficos, presupuestos y tu historial completo.\n\n' +
         'https://app.neto.pe/dashboard',
-        { tipo: 'activacion_ok', usuarioId: usuario.id });
-    }
+      titulo: 'Tu cuenta quedó activada',
+      cuerpo: 'Todo lo que anotes por WhatsApp lo ves acá: gráficos, presupuestos y tu historial completo.',
+      link: '/dashboard',
+    });
 
     res.json({ ok: true });
   } catch (e) {

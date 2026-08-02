@@ -1,5 +1,5 @@
 const { supabase } = require('../lib/db');
-const { enviarWhatsapp } = require('../lib/whatsapp');
+const { notificarUsuario, CANALES } = require('../lib/notify-user');
 const log = require('../lib/logger');
 const {
   buildSplitSnapshot,
@@ -190,11 +190,12 @@ async function unirseEspacio(userId, inviteCode) {
  * La regla que sostienen estos avisos: la plata futura de alguien no se mueve sin
  * que esa persona se entere. Por eso el permiso importa menos que el aviso.
  *
- * Best-effort a proposito: nunca lanza. Fuera de la ventana de 24h de Meta el
- * mensaje libre no se entrega, asi que la garantia real es la webapp (que muestra
- * el porcentaje efectivo) y esto es el extra.
+ * Best-effort a proposito: nunca lanza. Y sale por los DOS canales: fuera de la
+ * ventana de 24h de Meta el mensaje libre no se entrega, asi que si el aviso viviera
+ * solo en WhatsApp, la garantia se caeria justo para el miembro que no esta mirando
+ * el chat — que es exactamente a quien hay que avisarle.
  */
-async function avisarAMiembros({ spaceId, actorId, emoji, accion, tag, cuerpo }) {
+async function avisarAMiembros({ spaceId, actorId, emoji, accion, tag, tipo, cuerpo }) {
   try {
     const [{ data: space }, { data: actuales }] = await Promise.all([
       supabase.from('shared_spaces').select('name').eq('id', spaceId).single(),
@@ -212,24 +213,49 @@ async function avisarAMiembros({ spaceId, actorId, emoji, accion, tag, cuerpo })
     const cuerpos = (await cuerpo(actuales)) || {};
 
     let enviados = 0;
+    let enApp = 0;
     let sinCambio = 0;
     for (const m of destinatarios) {
       const texto = cuerpos[m.user_id];
       // A quien no se le movio la parte no se le escribe. Un aviso que dice
       // "paso de 50% a 50%" entrena a ignorar los avisos que si importan.
+      // Este filtro se queda ANTES del envio: es el unico freno de volumen que tiene
+      // este camino (no dedupea por tiempo, a proposito).
       if (!texto) { sinCambio++; continue; }
-      if (!m.usuarios?.whatsapp) continue;
 
-      const msg = emoji + ' *' + nombreActor + ' ' + accion + ' ' + space.name + '*\n\n' +
+      // Aca vivia un salto por numero de WhatsApp faltante. Dejaba al miembro web-only sin
+      // enterarse de que su parte se movio, que es justo la garantia que estos avisos
+      // existen para sostener. Se cayo: la in-app se escribe igual, y el envio con numero
+      // nulo hace no-op y queda registrado como skipped_no_whatsapp.
+      // El guard tests/notificaciones-duales.test.js impide que vuelva.
+      const encabezado = nombreActor + ' ' + accion + ' ' + space.name;
+      const msg = emoji + ' *' + encabezado + '*\n\n' +
         texto + '\n\n' +
         '_Si prefieren otro reparto, ajústenlo acá: https://app.neto.pe/dashboard/espacios_';
-      try { await enviarWhatsapp(m.usuarios.whatsapp, msg); enviados++; } catch (e) { /* silent */ }
+
+      // El titulo in-app no es un parametro: sale de las MISMAS piezas que el encabezado
+      // de WhatsApp. Que los dos canales puedan decir cosas distintas es exactamente lo
+      // que esta funcion existe para impedir.
+      const { wa, inApp } = await notificarUsuario({
+        canales: CANALES.AMBOS,
+        usuarioId: m.user_id,
+        whatsapp: m.usuarios?.whatsapp || null,
+        tipo,
+        mensaje: msg,
+        titulo: encabezado,
+        tipoInApp: 'espacio',
+        link: '/dashboard/espacios',
+        datos: { space_id: spaceId },
+      });
+      if (wa.ok && !wa.skipped) enviados++;
+      if (inApp) enApp++;
     }
 
     // Se loguea el exito, no solo el error: estos avisos viajan webapp -> backend
     // con ADMIN_KEY, y sin una linea por corrida no hay forma de saber desde afuera
     // si el hop se esta haciendo o si se cae en silencio por una env var faltante.
-    log.info({ tag, spaceId, destinatarios: destinatarios.length, enviados, sinCambio }, 'Aviso de cambio de reparto');
+    // `enApp` es la metrica que importa: es el canal que llega a todos.
+    log.info({ tag, spaceId, destinatarios: destinatarios.length, enviados, enApp, sinCambio }, 'Aviso de cambio de reparto');
   } catch (e) {
     log.warn({ tag, err: e.message }, 'No se pudo avisar del cambio de reparto');
   }
@@ -242,13 +268,14 @@ async function avisarAMiembros({ spaceId, actorId, emoji, accion, tag, cuerpo })
  * Los dos porcentajes salen del mismo motor que cobra, no de una formula aparte:
  * lo que se anuncia es exactamente lo que va a salir en el balance.
  */
-async function avisarCambioDeParte({ spaceId, actorId, miembrosAntes, emoji, accion, tag }) {
+async function avisarCambioDeParte({ spaceId, actorId, miembrosAntes, emoji, accion, tag, tipo }) {
   return avisarAMiembros({
     spaceId,
     actorId,
     emoji,
     accion,
     tag,
+    tipo,
     cuerpo: (actuales) => {
       const antes = effectiveSplitPercents(miembrosAntes);
       const despues = effectiveSplitPercents(actuales);
@@ -287,6 +314,7 @@ async function notificarNuevoMiembro(spaceId, nuevoUserId) {
     emoji: '👋',
     accion: 'se unió a',
     tag: 'ESPACIO_JOIN_AVISO',
+    tipo: 'espacio_nuevo_miembro',
   });
 }
 
@@ -311,6 +339,7 @@ async function notificarRepartoEditado(spaceId, actorId, miembrosAntes) {
     emoji: '⚖️',
     accion: 'cambió el reparto de',
     tag: 'ESPACIO_SPLIT_AVISO',
+    tipo: 'espacio_reparto',
   });
 }
 
@@ -338,6 +367,7 @@ async function notificarReglasEditadas(spaceId, actorId, reglasAntes) {
     emoji: '⚖️',
     accion: 'cambió el reparto por categoría de',
     tag: 'ESPACIO_REGLAS_AVISO',
+    tipo: 'espacio_reglas',
     cuerpo: async (actuales) => {
       const { data: space } = await supabase
         .from('shared_spaces').select('split_rules').eq('id', spaceId).single();
@@ -429,13 +459,25 @@ async function registrarGastoCompartido(userId, spaceId, amount, description, ca
   // sale del snapshot, no de una formula aparte.
   const otherMembers = (members || []).filter(m => m.user_id !== userId);
   for (const m of otherMembers) {
-    if (!m.usuarios?.whatsapp) continue;
+    // Sin filtro por whatsapp: el miembro web-only tiene que ver en su bandeja el gasto
+    // que le acaban de cargar. Es plata suya.
     const share = shareCents(snapshot, m.user_id) / 100;
     const msg = '💸 *Gasto compartido*\n\n' +
       payerName + ' pagó S/ ' + amount.toFixed(2) + (description ? ' — ' + description : '') + '\n' +
       'Tu parte: S/ ' + share.toFixed(2) + '\n\n' +
       '_Escribe "ver balance espacio" para ver tu saldo._';
-    try { await enviarWhatsapp(m.usuarios.whatsapp, msg); } catch (e) { /* silent */ }
+    await notificarUsuario({
+      canales: CANALES.AMBOS,
+      usuarioId: m.user_id,
+      whatsapp: m.usuarios?.whatsapp || null,
+      tipo: 'espacio_gasto',
+      mensaje: msg,
+      // El titulo lleva el numero que importa, para que se lea sin abrir la notificacion.
+      titulo: 'Gasto compartido — tu parte: S/ ' + share.toFixed(2),
+      tipoInApp: 'espacio',
+      link: '/dashboard/espacios',
+      datos: { space_id: spaceId, expense_id: expense.id },
+    });
   }
 
   return { expense, snapshot, members: members || [] };
@@ -527,11 +569,23 @@ async function liquidarCuentas(spaceId, fromUser, toUser, amount) {
   const { data: fromUsuario, error: eFrom } = await supabase.from('usuarios').select('nombre').eq('id', fromUser).single();
   const { data: toUsuario, error: eTo } = await supabase.from('usuarios').select('nombre, whatsapp').eq('id', toUser).single();
   if (eFrom || eTo) log.error({ tag: 'ESPACIO_LIQUIDACION', err: (eFrom || eTo).message, spaceId }, 'Liquidación registrada pero sin aviso');
-  if (toUsuario?.whatsapp) {
-    const fromName = fromUsuario?.nombre?.split(' ')[0] || 'Alguien';
-    const msg = '✅ *Pago registrado*\n\n' + fromName + ' te pagó S/ ' + parseFloat(amount).toFixed(2) + '.\n\n_Escribe "ver balance espacio" para ver tu saldo actualizado._';
-    try { await enviarWhatsapp(toUsuario.whatsapp, msg); } catch (e) { /* silent */ }
-  }
+  // Ya no se condiciona el aviso a tener numero: quien recibe el pago tiene que enterarse
+  // aunque nunca haya vinculado WhatsApp — y aunque la lectura de arriba se haya caido,
+  // porque `toUser` es el id y viene por parametro, no de ese select.
+  const fromName = fromUsuario?.nombre?.split(' ')[0] || 'Alguien';
+  const montoStr = 'S/ ' + parseFloat(amount).toFixed(2);
+  const msg = '✅ *Pago registrado*\n\n' + fromName + ' te pagó ' + montoStr + '.\n\n_Escribe "ver balance espacio" para ver tu saldo actualizado._';
+  await notificarUsuario({
+    canales: CANALES.AMBOS,
+    usuarioId: toUser,
+    whatsapp: toUsuario?.whatsapp || null,
+    tipo: 'espacio_liquidacion',
+    mensaje: msg,
+    titulo: fromName + ' te pagó ' + montoStr,
+    tipoInApp: 'espacio',
+    link: '/dashboard/espacios',
+    datos: { space_id: spaceId, settlement_id: data.id },
+  });
 
   return data;
 }

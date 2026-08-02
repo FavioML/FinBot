@@ -47,12 +47,20 @@ const dbMock = {
   },
 };
 const logMock = { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn(), fatal: vi.fn(), trace: vi.fn() };
-const waMock = { enviarWhatsapp: vi.fn().mockResolvedValue(true) };
+const waMock = {
+  // Replica la red de seguridad web-first del helper real: sin numero no hay envio, pero
+  // tampoco excepcion (lib/whatsapp.js).
+  enviarWhatsapp: vi.fn(async (numero) => (
+    numero ? { ok: true, msgId: 'wamid.1' } : { ok: false, skipped: 'no_whatsapp' }
+  )),
+};
+const notifMock = { crearNotificacion: vi.fn().mockResolvedValue(true) };
 
 for (const [rel, exports] of [
   ['lib/db.js', dbMock],
   ['lib/logger.js', logMock],
   ['lib/whatsapp.js', waMock],
+  ['lib/notifications-db.js', notifMock],
 ]) {
   const p = require.resolve(path.join(projectRoot, rel));
   require.cache[p] = { id: p, filename: p, loaded: true, exports };
@@ -77,6 +85,7 @@ beforeEach(() => {
   logMock.error.mockClear();
   logMock.warn.mockClear();
   waMock.enviarWhatsapp.mockClear();
+  notifMock.crearNotificacion.mockClear();
 });
 
 describe('registrarReferido', () => {
@@ -243,18 +252,36 @@ describe('procesarConversionProReferido', () => {
     expect(logMock.error).toHaveBeenCalled();
   });
 
-  it('no avisa por WhatsApp si el UPDATE del otorgamiento falla', async () => {
+  it('no avisa por ningún canal si el UPDATE del otorgamiento falla', async () => {
     montar({ updateReferrer: FALLO });
     await procesarConversionProReferido('u1');
     expect(waMock.enviarWhatsapp).not.toHaveBeenCalled();
+    expect(notifMock.crearNotificacion).not.toHaveBeenCalled();
     expect(logMock.error).toHaveBeenCalled();
   });
 
-  it('el referrer web-only (sin whatsapp) recibe el mes pero no se le envía WhatsApp', async () => {
+  it('el referrer web-only (sin whatsapp) recibe el mes Y SE ENTERA por la campana', async () => {
     const db = montar({ referrer: { whatsapp: null } });
     await procesarConversionProReferido('u1');
+
     expect(db.referrer.plan).toBe('premium');
-    expect(waMock.enviarWhatsapp).not.toHaveBeenCalled();
+    // Antes esto cortaba con `if (!referrer.whatsapp) return` y el comentario prometía que
+    // "verá el mes reflejado en la webapp" — pero eso era un premium_vence que cambiaba
+    // solo, sin una línea que dijera por qué. Es un beneficio ya otorgado e irreversible:
+    // el peor candidato para depender de la ventana de 24h de Meta.
+    expect(notifMock.crearNotificacion).toHaveBeenCalledTimes(1);
+    const [usuarioId, , titulo] = notifMock.crearNotificacion.mock.calls[0];
+    expect(usuarioId).toBe('r1');
+    expect(titulo).toBe('Ganaste 1 mes de Neto Pro gratis');
+  });
+
+  it('el referrer con whatsapp recibe los dos canales', async () => {
+    montar({});
+    await procesarConversionProReferido('u1');
+
+    const premio = waMock.enviarWhatsapp.mock.calls.find((c) => c[2]?.tipo === 'referido_premio');
+    expect(premio).toBeDefined();
+    expect(notifMock.crearNotificacion.mock.calls.map((c) => c[0])).toContain('r1');
   });
 });
 

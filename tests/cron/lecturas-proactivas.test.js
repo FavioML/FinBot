@@ -58,6 +58,21 @@ const SENALES_DE_GATE = [
   /ownerEsPro\s*\(/,                                     // modelo "host paga"
 ];
 
+/**
+ * Qué cuenta como "este cron le empuja algo al usuario".
+ *
+ * `notificarUsuario` está acá y no es opcional. Cuando los crons dejaron de llamar
+ * `enviarWhatsapp` directamente (chokepoint de canales, ver `lib/notify-user.js` y
+ * `tests/notificaciones-duales.test.js`), la regex vieja dejó de matchear y este archivo se
+ * habría puesto verde SIN revisar un solo cron. Un guard que se vacía solo es peor que no
+ * tener guard: entrena a confiar en un verde que ya no significa nada.
+ *
+ * Y matchear `notificarUsuario` incluso en su forma SOLO_IN_APP es correcto, no generoso:
+ * empujarle a la campana el estado de sus presupuestos a alguien que está en el muro regala
+ * exactamente lo mismo que regalaba el WhatsApp.
+ */
+const EMPUJA_AL_USUARIO = /\b(enviarWhatsapp|notificarUsuario)\s*\(/;
+
 /** Corta `cron/checks.js` en funciones para poder mirarlas de a una. */
 function funciones(src) {
   const nombres = [...src.matchAll(/^async function (check\w+|limpiar\w+)\s*\(/gm)]
@@ -76,9 +91,22 @@ describe('crons que empujan lecturas por WhatsApp', () => {
     expect(CRONS.map((c) => c.nombre)).toContain('checkAlertasProactivas');
   });
 
-  it('todo cron que manda WhatsApp mira el plan, o está declarado exento', () => {
+  // El parseo puede estar bien y la SEÑAL rota: eso deja los tests de abajo verdes por
+  // vacuidad, filtrando sobre una lista vacía. Es justo lo que pasaría si alguien renombra
+  // la función de envío y nadie toca este archivo.
+  it('la señal de envío sigue viva (un guard sin envíos que revisar no está limpio, está roto)', () => {
+    const empujan = CRONS.filter((c) => EMPUJA_AL_USUARIO.test(c.cuerpo));
+    expect(empujan.length).toBeGreaterThanOrEqual(12);
+
+    const nombres = empujan.map((c) => c.nombre);
+    for (const n of ['checkAlertasProactivas', 'checkRecordatorioDeudas', 'checkRecordatorioEspacios', 'checkDetectorFugas']) {
+      expect(nombres, n + ' dejó de aparecer como emisor: ¿se renombró la función de envío?').toContain(n);
+    }
+  });
+
+  it('todo cron que empuja al usuario mira el plan, o está declarado exento', () => {
     const sinGate = CRONS
-      .filter((c) => /enviarWhatsapp\s*\(/.test(c.cuerpo))
+      .filter((c) => EMPUJA_AL_USUARIO.test(c.cuerpo))
       .filter((c) => !SENALES_DE_GATE.some((re) => re.test(c.cuerpo)))
       .map((c) => c.nombre)
       .filter((n) => !SIN_GATE_DE_PLAN.has(n));
@@ -106,6 +134,8 @@ describe('crons que empujan lecturas por WhatsApp', () => {
   ])('%s tiene gate de plan (%s)', (nombre) => {
     const cron = CRONS.find((c) => c.nombre === nombre);
     expect(cron, nombre + ' ya no existe: actualiza este test').toBeDefined();
+    // Primero que sigue empujando: un cron que dejó de enviar pasaría el gate por vacuidad.
+    expect(EMPUJA_AL_USUARIO.test(cron.cuerpo), nombre + ' ya no empuja nada').toBe(true);
     expect(SENALES_DE_GATE.some((re) => re.test(cron.cuerpo))).toBe(true);
   });
 });

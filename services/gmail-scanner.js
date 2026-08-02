@@ -1,6 +1,5 @@
 const { supabase } = require('../lib/db');
 const log = require('../lib/logger');
-const { enviarWhatsapp } = require('../lib/whatsapp');
 const { registrarError } = require('../lib/error-monitor');
 const { notificarErrorAdmin } = require('../lib/admin-notify');
 const { hoyPeru } = require('../lib/dates');
@@ -9,7 +8,7 @@ const { parsearCorreoBancario } = require('./parsers');
 const { guardarTransaccion } = require('./transactions');
 const { obtenerCategoriasUsuario } = require('./categories');
 const { getUserPlanConfig } = require('../helpers/db-helpers');
-const { crearNotificacion } = require('../lib/notifications-db');
+const { notificarUsuario, CANALES } = require('../lib/notify-user');
 
 // Lazy-loaded to avoid circular dependency
 let _enviarAlertaTransaccion = null;
@@ -48,11 +47,22 @@ async function notificarAuthExpirada(usuario) {
   if (Date.now() - last < 24 * 60 * 60 * 1000) return; // ya notificado hoy
   authErrorNotifiedAt.set(usuario.id, Date.now());
   log.warn({ tag: 'AUTH', usuarioId: usuario.id }, 'Gmail desconectado — notificando usuario');
-  await enviarWhatsapp(usuario.whatsapp,
-    '⚠️ *Tu Gmail se desconectó*\n\n' +
-    'Neto ya no puede leer tus correos bancarios para registrar tus gastos automáticamente.\n\n' +
-    'Escríbeme *"conectar gmail"* para reconectarte y que todo vuelva a funcionar 👇'
-  );
+  // Por los dos canales: se rompió la ingesta automática, o sea que el usuario va a dejar
+  // de ver gastos sin haber hecho nada. Un aviso que solo vive en WhatsApp no llega a quien
+  // justamente confió en que Neto anotaba solo y por eso no escribe hace días.
+  await notificarUsuario({
+    canales: CANALES.AMBOS,
+    usuarioId: usuario.id,
+    whatsapp: usuario.whatsapp || null,
+    tipo: 'gmail_auth_expirada',
+    mensaje: '⚠️ *Tu Gmail se desconectó*\n\n' +
+      'Neto ya no puede leer tus correos bancarios para registrar tus gastos automáticamente.\n\n' +
+      'Escríbeme *"conectar gmail"* para reconectarte y que todo vuelva a funcionar 👇',
+    titulo: 'Tu Gmail se desconectó',
+    cuerpo: 'Neto ya no puede leer tus correos bancarios. Reconéctalo para que todo vuelva a funcionar.',
+    tipoInApp: 'alerta',
+    link: '/dashboard/configuracion',
+  });
 }
 
 // opts:
@@ -180,10 +190,15 @@ async function escaneoAutomatico() {
           // Gmail desconectado — notificar al usuario (máx 1 vez/24h)
           await notificarAuthExpirada(usuario);
         } else if (resultado && typeof resultado === 'string' && resultado.includes('movimiento')) {
-          // Sin WhatsApp de resumen: era ruido. Cada transaccion detectada ya manda su
-          // propia tarjeta "Nuevo gasto" (enviarAlertaTransaccion, gateada por
-          // usuario.alertas_transaccion). El resumen del escaneo vive en la webapp.
-          await crearNotificacion(usuario.id, 'sistema', 'Escaneo de correo completado', 'Se detectaron nuevos movimientos en tu correo bancario', { link: '/dashboard/transacciones' });
+          await notificarUsuario({
+            canales: CANALES.SOLO_IN_APP,
+            motivo: 'un WhatsApp de resumen del escaneo era ruido: cada transacción detectada ya manda su propia tarjeta "Nuevo gasto" (enviarAlertaTransaccion, gateada por usuario.alertas_transaccion)',
+            usuarioId: usuario.id,
+            tipo: 'gmail_escaneo',
+            titulo: 'Escaneo de correo completado',
+            cuerpo: 'Se detectaron nuevos movimientos en tu correo bancario',
+            link: '/dashboard/transacciones',
+          });
         }
       } catch (e) { log.error({ tag: 'AUTO', whatsapp: usuario.whatsapp, err: e.message }, 'Error escaneo usuario'); }
     }

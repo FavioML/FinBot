@@ -1,7 +1,7 @@
 const { supabase } = require('../lib/db');
 const log = require('../lib/logger');
 const { hoyPeru, sumarDias, sumarMeses } = require('../lib/dates');
-const { enviarWhatsapp } = require('../lib/whatsapp');
+const { notificarUsuario, CANALES } = require('../lib/notify-user');
 
 // PostgREST devuelve PGRST116 cuando .single() no encuentra fila. Ese es el caso
 // legítimo "todavía no existe"; cualquier otro código es una lectura que falló y NO
@@ -165,10 +165,16 @@ async function procesarConversionProReferido(referidoId) {
   } catch(e) { log.error({ tag: 'REFERIDO', err: e.message, referidoId }, 'Error procesando conversión Pro del referido'); }
 }
 
-/** Aviso de WhatsApp al referrer cuando gana un mes. Best-effort; el mes ya está otorgado. */
+/**
+ * Aviso al referrer cuando gana un mes. Best-effort; el mes ya está otorgado.
+ *
+ * Sale por los dos canales. Es el aviso de un beneficio económico ya otorgado e
+ * irreversible (no hay clawback), o sea el peor candidato posible para depender de la
+ * ventana de 24h de Meta: quien invitó a un amigo hace semanas probablemente no escribió
+ * hoy. Antes, el referrer web-only "vería el mes reflejado en la webapp" — pero eso era
+ * un `premium_vence` que cambiaba solo, sin una línea que dijera por qué.
+ */
 async function avisarReferrerPremio(referrer, venceStr, referrerId) {
-  // Referrer web-only (sin whatsapp): no hay canal de chat; verá el mes reflejado en la webapp.
-  if (!referrer.whatsapp) return;
   let totalPro = null;
   try {
     const { count } = await supabase.from('referidos').select('*', { count: 'exact', head: true }).eq('referrer_id', referrerId).eq('convertido_pro', true);
@@ -183,7 +189,16 @@ async function avisarReferrerPremio(referrer, venceStr, referrerId) {
     linea +
     'Tu Pro ahora vence: ' + venceStr + '\n\n' +
     '_Cada amigo que invites y se haga Pro suma 1 mes más para ti._';
-  try { await enviarWhatsapp(referrer.whatsapp, mensaje); } catch(e) { log.warn({ tag: 'REFERIDO', err: e.message }, 'No se pudo avisar el premio al referrer'); }
+  await notificarUsuario({
+    canales: CANALES.AMBOS,
+    usuarioId: referrerId,
+    whatsapp: referrer.whatsapp || null,
+    tipo: 'referido_premio',
+    mensaje,
+    titulo: 'Ganaste 1 mes de Neto Pro gratis',
+    cuerpo: 'Un referido tuyo se hizo Pro. Tu Pro ahora vence: ' + venceStr + '.',
+    link: '/dashboard/pro',
+  });
 }
 
 /**

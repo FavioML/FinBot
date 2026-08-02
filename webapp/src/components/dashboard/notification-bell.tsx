@@ -1,12 +1,22 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Bell, Check, X, AlertTriangle, Trophy, Target, Zap, ShieldAlert } from 'lucide-react';
+import { Bell, Check, X, AlertTriangle, Trophy, Target, Zap, ShieldAlert, Star, Users, TrendingDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/lib/hooks/use-user';
 import { useNotifications, useNotificationMutations, type Notificacion } from '@/lib/hooks/use-notifications';
 
+/**
+ * Icono y color por familia de notificación. Es puramente cosmético: un `tipo` que no esté
+ * acá cae al fallback `sistema` más abajo, así que agregar un emisor nuevo en el backend
+ * nunca rompe la campana — solo la deja genérica.
+ *
+ * `alerta_fugas` y `pro` estuvieron meses cayendo a ese fallback (35 y 2 filas en prod)
+ * porque el backend los emitía y esta tabla nunca se enteró. La fuente de verdad de qué
+ * tipos existen es `tipoInApp` en las llamadas a `notificarUsuario` (backend
+ * lib/notify-user.js); si agregas uno nuevo y quieres que se vea distinto, agrégalo acá.
+ */
 const TIPO_CONFIG: Record<string, { icon: typeof Bell; color: string; bg: string }> = {
   deuda_vence: { icon: AlertTriangle, color: '#D85A30', bg: 'rgba(216,90,48,0.12)' },
   milestone: { icon: Trophy, color: '#EF9F27', bg: 'rgba(239,159,39,0.12)' },
@@ -14,6 +24,9 @@ const TIPO_CONFIG: Record<string, { icon: typeof Bell; color: string; bg: string
   recordatorio: { icon: Bell, color: '#C8C6BC', bg: 'rgba(255,255,255,0.06)' },
   sistema: { icon: Zap, color: '#C8C6BC', bg: 'rgba(255,255,255,0.06)' },
   alerta: { icon: ShieldAlert, color: '#E53E3E', bg: 'rgba(229,62,62,0.15)' },
+  alerta_fugas: { icon: TrendingDown, color: '#D85A30', bg: 'rgba(216,90,48,0.12)' },
+  pro: { icon: Star, color: '#EF9F27', bg: 'rgba(239,159,39,0.12)' },
+  espacio: { icon: Users, color: '#1D9E75', bg: 'rgba(29,158,117,0.12)' },
 };
 
 function timeAgo(dateStr: string): string {
