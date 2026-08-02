@@ -400,12 +400,16 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
       (prod.adoption || []).every(a => Number(a.users) <= total),
       'alguna feature reporta más usuarios que el total',
     );
-    // El total real excluye a lo sumo las cuentas internas (fundador + QA): no puede superar el
-    // universo de usuarios ni quedar muy por debajo.
+    // El total real == universo menos lo que no es negocio real (cuentas de prueba + internas).
+    // Antes era una banda floja (`usuarios-3`) sobre la lista de internas; al empezar a excluir
+    // is_test_user (migración 057) se puso roja, porque 7 cuentas de prueba salieron de golpe.
+    // Ahora es una igualdad exacta contra el mismo `esInterno` que usa el oráculo del MRR: una
+    // banda tolera justo el tipo de error que este check existe para ver.
+    const universoReal = usuariosPlan.filter((u) => !esInterno(u)).length;
     ok(
-      'producto: total real dentro de [usuarios-3, usuarios]',
-      total <= usuarios.length && total >= usuarios.length - 3,
-      `real ${total} vs universo ${usuarios.length}`,
+      'producto: total real == usuarios que no son prueba ni internos',
+      total === universoReal,
+      `real ${total} vs universo real ${universoReal} (de ${usuarios.length} en total)`,
     );
     // Ninguna celda de retención madura puede tener más activos que el tamaño de su cohorte.
     const celdaMala = cohortes.some(c => (c.cells || []).some(cell => Number(cell.active) > Number(c.size)));
@@ -432,8 +436,11 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
     ok('pnl: result == income - cost (cada mes)', aritmeticaOk, 'alguna fila no cuadra income-cost');
 
     // Oráculo independiente: usuarios (id+whatsapp) para excluir internos, pagos y admin_costs.
-    const usuariosWa = await sbPaginado('usuarios', 'id,whatsapp');
-    const internalIds = new Set(usuariosWa.filter((u) => INTERNAL_WHATSAPP.has(u.whatsapp)).map((u) => u.id));
+    // "No es negocio real" = cuenta de prueba O interna, la misma definición del RPC (migr 057) y
+    // de isRevenueUser. Con la lista sola, un pago que un harness deje sin limpiar entraría al
+    // oráculo, saldría del RPC, y el FAIL apuntaría al lugar equivocado.
+    const usuariosWa = await sbPaginado('usuarios', 'id,whatsapp,is_test_user');
+    const internalIds = new Set(usuariosWa.filter(esInterno).map((u) => u.id));
     const pagos = await sbPaginado('pagos', 'monto,estado,aprobado_at,created_at,usuario_id');
     const costsRows = await sbPaginado('admin_costs', 'paid_history');
 

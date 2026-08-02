@@ -8,7 +8,6 @@ const { guardarMensaje } = require('../helpers/db-helpers');
 const { activarPro, reclamarPagoPendiente } = require('../lib/pro-payment');
 const { resumenReferidoParaAdmin, registrarReferido } = require('../services/referrals');
 const { responderTicket } = require('../lib/support-tickets');
-const { generarUrlAutorizacion } = require('../gmail');
 
 const router = express.Router();
 
