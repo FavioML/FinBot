@@ -120,6 +120,23 @@ describe('consultas paywall — Gmail intents (prw-002)', () => {
     expect(gmailMock.generarUrlAutorizacion).not.toHaveBeenCalled();
   });
 
+  /**
+   * `escanearGmailYRegistrar` devuelve un OBJETO (`{authError:true}`) cuando el token murió,
+   * no un string. El handler lo retornaba tal cual, así que el usuario cuyo Gmail se
+   * desconectó pedía "escanea mi correo" y recibía basura — justo en el único momento en que
+   * PREGUNTA por ese estado. Se afirma que la respuesta es texto y que nombra lo que pasó.
+   */
+  it('escanear_gmail con el token muerto responde texto, no el objeto {authError}', async () => {
+    scannerMock.escanearGmailYRegistrar.mockResolvedValueOnce({ authError: true });
+    const usuario = { id: 'u1', plan: 'premium', trial_estado: 'convertido', supabase_auth_id: 'auth-1' };
+    const res = await handler.handle({
+      intencion: 'escanear_gmail', msg: 'escanea mi gmail', datos: {}, usuario, ctx: ctxWith(),
+    });
+    expect(typeof res, 'el handler devolvió un objeto: llega crudo a enviarWhatsapp').toBe('string');
+    expect(res).toMatch(/desconect/i);
+    expect(res).toContain('/dashboard/pro');
+  });
+
   it('escanear_gmail bloquea a free con paywall', async () => {
     const usuario = { id: 'u1', plan: 'free' };
     const res = await handler.handle({

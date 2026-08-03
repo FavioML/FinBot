@@ -23,7 +23,7 @@ const { esperaComprobante, esPagoNeto, procesarComprobantePro } = require('../li
 const { procesarComandoAdmin } = require('./admin-commands');
 const { abrirSesion, cerrarSesion } = require('../lib/support-tickets');
 const { manejarOnboarding } = require('./onboarding');
-const { colaConfirmacionGasto, estaEnMuro, mensajeMuro, esProPagado, mensajeGmailProPagado, mensajeConectarEnLaApp } = require('../lib/trial');
+const { colaConfirmacionGasto, estaEnMuro, mensajeMuro, esProPagado, mensajeGmailProPagado, mensajeConectarEnLaApp, mensajeGmailDesconectado } = require('../lib/trial');
 const { comandoRequiereLectura } = require('./intents-acceso');
 const analytics = require('../lib/analytics');
 
@@ -625,7 +625,13 @@ function createWebhookHandler(procesarMensajeLibre) {
         respuesta = mensajeGmailProPagado(usuario);
       } else {
         const resultado = await escanearGmailYRegistrar(usuario);
-        respuesta = resultado || (!usuario.gmail_access_token ? mensajeConectarEnLaApp(usuario) : 'No encontre correos bancarios nuevos.');
+        // Ojo: devuelve un OBJETO ({authError:true}) si el token murió, no un string. Sin
+        // esta rama el objeto viajaba tal cual a enviarWhatsapp.
+        if (resultado && resultado.authError) {
+          respuesta = mensajeGmailDesconectado(usuario);
+        } else {
+          respuesta = resultado || (!usuario.gmail_access_token ? mensajeConectarEnLaApp(usuario) : 'No encontre correos bancarios nuevos.');
+        }
       }
     } else if (cmd === '/semana' || cmd === '/resumen') {
       const resumenSem = await generarResumenSemanal(usuario);

@@ -2,7 +2,7 @@ const log = require('../../lib/logger');
 const { escanearGmailYRegistrar } = require('../../services/gmail-scanner');
 const { obtenerCuentasGmail } = require('../../gmail');
 const { getUserPlanConfig } = require('../../helpers/db-helpers');
-const { esProPagado, mensajeGmailProPagado, mensajeConectarEnLaApp } = require('../../lib/trial');
+const { esProPagado, mensajeGmailProPagado, mensajeConectarEnLaApp, mensajeGmailDesconectado } = require('../../lib/trial');
 
 module.exports = {
   intents: ['escanear_gmail', 'agregar_gmail', 'cambiar_gmail', 'preferencia_reporte_gmail'],
@@ -16,7 +16,11 @@ module.exports = {
         if (!esProPagado(usuario)) {
           return mensajeGmailProPagado(usuario);
         }
-        return (await escanearGmailYRegistrar(usuario)) || 'No encontre correos bancarios nuevos. Te aviso automaticamente cuando llegue uno.';
+        const resultado = await escanearGmailYRegistrar(usuario);
+        // Devuelve un OBJETO ({authError:true}) cuando el token murió, no un string: sin esta
+        // rama el handler retornaba el objeto y el usuario recibía basura.
+        if (resultado && resultado.authError) return mensajeGmailDesconectado(usuario);
+        return resultado || 'No encontre correos bancarios nuevos. Te aviso automaticamente cuando llegue uno.';
       }
 
       // Conectar y reconectar el Gmail es web-only: el OAuth termina en un navegador
