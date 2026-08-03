@@ -424,7 +424,11 @@ export default function TransaccionesPage() {
       t.categoria,
       t.subcategoria || '',
       normalizeMetodoPago(t.metodo_pago, t.banco),
-      montoPen(t).toFixed(2),
+      // Un export es dato, no pantalla: si no hay conversión honesta a soles la
+      // celda va vacía. Meter acá el monto en USD lo dejaría indistinguible de
+      // un importe real en PEN. Las columnas Moneda + Monto Original conservan
+      // el dato completo.
+      t.monto_pen != null ? t.monto_pen.toFixed(2) : '',
       t.moneda,
       t.monto.toFixed(2),
     ]);
