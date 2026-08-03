@@ -41,7 +41,11 @@ poner_secret() {
     echo "  listo  $nombre ($(huella "$valor") caracteres)"
     return
   fi
-  printf '%s' "$valor" | gh secret set "$nombre" --repo "$REPO" --body-file -
+  # `gh secret set` lee el valor de stdin cuando no se pasa --body. Se hace asi
+  # y no con --body "$valor" para que el secreto no aparezca en la linea de
+  # comandos (visible en el historial del shell y en la lista de procesos).
+  # Ojo: --body-file no existe para secrets, solo para issues/releases.
+  printf '%s' "$valor" | gh secret set "$nombre" --repo "$REPO"
   echo "  ok     $nombre"
 }
 
@@ -67,7 +71,8 @@ CLAVE_PUB="${AGE_PUBLIC_KEY:-age1t38efyfp55sfl7q98vdp8m4dh5qth04kltz8ttagyxxyv0u
 if [ "$DRY" = "1" ]; then
   echo "  listo  AGE_PUBLIC_KEY = ${CLAVE_PUB}"
 else
-  gh variable set AGE_PUBLIC_KEY --repo "$REPO" --body "$CLAVE_PUB"
+  # La clave publica no es secreto, pero se pasa por stdin igual por coherencia.
+  printf '%s' "$CLAVE_PUB" | gh variable set AGE_PUBLIC_KEY --repo "$REPO"
   echo "  ok     AGE_PUBLIC_KEY = ${CLAVE_PUB}"
 fi
 
