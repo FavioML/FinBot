@@ -114,6 +114,7 @@ export async function GET(request: Request) {
     scoreRowRes,
     historyRes,
     alertsRes,
+    gmailRes,
   ] = await Promise.all([
     svc.from('transacciones').select('*').eq('usuario_id', userId).order('fecha', { ascending: false }),
     svc.from('metas_ahorro').select('*, meta_aportes(*)').eq('usuario_id', userId).order('created_at', { ascending: false }),
@@ -125,6 +126,11 @@ export async function GET(request: Request) {
     svc.from('neto_scores').select(SCORE_COLS).eq('user_id', userId).order('period', { ascending: false }).limit(1),
     svc.from('neto_scores').select(SCORE_COLS).eq('user_id', userId).gte('period', historySinceISO).order('period', { ascending: true }),
     svc.from('spending_alerts').select('*').eq('user_id', userId).gte('created_at', inicioMesLimaISO()).order('created_at', { ascending: false }).limit(100),
+    // Estado de la conexión de Gmail. Viaja acá y no en un fetch propio del banner a
+    // /api/pro/status a propósito: ese fan-out de requests es justo lo que este endpoint
+    // existe para matar, y el aviso de "tu Gmail se cayó" tiene que estar disponible en el
+    // primer paint de CUALQUIER pantalla del dashboard, no solo de /dashboard/pro.
+    svc.from('gmail_cuentas').select('auth_error_at').eq('usuario_id', userId).eq('activa', true).order('created_at', { ascending: false }).limit(1).maybeSingle(),
   ]);
 
   // Goals: incluir metas colaborativas en las que participo (paridad con /api/goals)
@@ -183,6 +189,7 @@ export async function GET(request: Request) {
     score,
     scoreHistory: { history },
     alerts: { alerts, isPro },
+    gmail: { authErrorAt: (gmailRes.data?.auth_error_at as string | null) ?? null },
     isAdmin: isAdminAuthId(auth.authId),
   });
 }

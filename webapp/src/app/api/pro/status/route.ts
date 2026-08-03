@@ -26,7 +26,7 @@ export async function GET() {
   // usuarios.gmail_access_token es legacy y puede estar vacío aunque haya cuenta activa.
   const { data: cuentaGmail } = await svc
     .from('gmail_cuentas')
-    .select('email')
+    .select('email, auth_error_at')
     .eq('usuario_id', userId)
     .eq('activa', true)
     .order('created_at', { ascending: false })
@@ -35,6 +35,17 @@ export async function GET() {
 
   const gmailConectado = !!cuentaGmail || !!user.gmail_access_token;
   const gmailEmail = (cuentaGmail?.email as string) || null;
+
+  // Conectado y CAÍDO es un estado propio, no una variante de desconectado: la fila sigue en
+  // activa=true (el cupo de Google está tomado y el correo vinculado manda el login_hint),
+  // pero Google dejó de aceptar el refresh token. Sin esto la tarjeta de /dashboard/pro decía
+  // "Gmail conectado" mientras no leía un solo correo, y por eso el enlace de reconexión tenía
+  // que estar siempre visible contradiciéndola.
+  //
+  // El fallback legacy (`user.gmail_access_token` sin fila) no puede necesitar reconexión: de
+  // esos tokens no sabemos nada, y afirmar que están rotos sería inventar.
+  const gmailAuthErrorAt = (cuentaGmail?.auth_error_at as string | null) ?? null;
+  const gmailNecesitaReconexion = !!gmailAuthErrorAt;
 
   // Descuento de referido (50% off primer mes). Se calcula server-side en fecha Lima para
   // no depender de la zona del navegador.
@@ -70,6 +81,8 @@ export async function GET() {
     bancosSeleccionados: (user.bancos_seleccionados as string[] | null) ?? null,
     gmailConectado,
     gmailEmail,
+    gmailNecesitaReconexion,
+    gmailAuthErrorAt,
     ultimoPago: pago ? { estado: pago.estado, tipoPlan: pago.tipo_plan } : null,
     descuento,
   });

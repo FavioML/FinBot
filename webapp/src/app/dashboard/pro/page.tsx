@@ -4,13 +4,14 @@ import { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Crown, Copy, Check, Upload, Loader2, Clock, ShieldCheck, Mail, RefreshCw, Landmark, ChevronDown, ZoomIn, Lock } from 'lucide-react';
+import { Crown, Copy, Check, Upload, Loader2, Clock, ShieldCheck, Mail, RefreshCw, Landmark, ChevronDown, ZoomIn, Lock, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { FadeIn } from '@/components/shared/motion-wrapper';
 import { HeaderActions } from '@/components/dashboard/topbar';
 import { PRO_PRICE_MONTHLY_PEN, PRO_PRICE_YEARLY_PEN } from '@/lib/constants';
 import { pantallaPro, diasRestantesTrial, esProPagado } from '@/lib/plan';
+import { estadoGmail, puedeAccionar } from '@/lib/gmail-estado';
 
 const YAPE_NUMERO = '970398192';
 const YAPE_NOMBRE = 'Favio Mendoza';
@@ -33,6 +34,9 @@ interface ProStatus {
   bancosSeleccionados: string[] | null;
   gmailConectado: boolean;
   gmailEmail: string | null;
+  /** Conectada pero con el token muerto. `gmailConectado` sigue en true: ver `@/lib/gmail-estado`. */
+  gmailNecesitaReconexion: boolean;
+  gmailAuthErrorAt: string | null;
   ultimoPago: { estado: string; tipoPlan: string } | null;
   descuento: Descuento;
 }
@@ -205,6 +209,8 @@ function TrialState({ status, onDone }: { status: ProStatus; onDone: () => void 
           conectado={status.gmailConectado}
           email={status.gmailEmail}
           proPagado={esProPagado(status.plan, status.trialEstado)}
+          necesitaReconexion={status.gmailNecesitaReconexion}
+          authErrorAt={status.gmailAuthErrorAt}
         />
       </div>
     </div>
@@ -257,6 +263,8 @@ function PremiumState({ status, onDone }: { status: ProStatus; onDone: () => voi
           conectado={status.gmailConectado}
           email={status.gmailEmail}
           proPagado={esProPagado(status.plan, status.trialEstado)}
+          necesitaReconexion={status.gmailNecesitaReconexion}
+          authErrorAt={status.gmailAuthErrorAt}
         />
       </div>
     </div>
@@ -399,8 +407,27 @@ function BancosManager({ initial, proPagado }: { initial: string[] | null; proPa
  * `BancosManager`. Y su copy —"es Pro" → "Pasar a Pro"— le mentiría a quien tiene Pro ahora
  * mismo. Acá el mensaje es el otro: lo tienes todo, esto pide el pago primero, y este es el
  * motivo. El `PaymentForm` que `TrialState` deja abierto está justo arriba.
+ *
+ * Son CUATRO estados, no dos. `conectado` y `sano` dejaron de ser lo mismo: la fila queda en
+ * activa=true cuando Google revoca el token, así que la tarjeta afirmaba "Gmail conectado ✓"
+ * mientras no leía nada. Por eso el enlace de reconexión tenía que estar siempre visible,
+ * contradiciendo el ✓ que estaba justo encima. Ahora el estado sano no lleva NINGUNA acción y
+ * el CTA existe solo donde hace falta. La decisión vive en `@/lib/gmail-estado` (testeada);
+ * acá solo se pinta.
  */
-function GmailConnect({ conectado, email, proPagado }: { conectado: boolean; email: string | null; proPagado: boolean }) {
+function GmailConnect({
+  conectado,
+  email,
+  proPagado,
+  necesitaReconexion,
+  authErrorAt,
+}: {
+  conectado: boolean;
+  email: string | null;
+  proPagado: boolean;
+  necesitaReconexion: boolean;
+  authErrorAt: string | null;
+}) {
   const [loading, setLoading] = useState<string | null>(null);
 
   async function connect(modo: 'inicial' | 'reemplazar') {
@@ -416,27 +443,61 @@ function GmailConnect({ conectado, email, proPagado }: { conectado: boolean; ema
     }
   }
 
-  const bloqueado = !proPagado && !conectado;
+  const estado = estadoGmail({ conectado, necesitaReconexion, proPagado });
+  const accionable = puedeAccionar(estado, proPagado);
+  const caido = estado === 'caido';
+
+  // Fecha Lima, igual que el resto de la app: "se desconectó el 3 de agosto" tiene que decir el
+  // día que fue acá, no el del navegador de quien mira.
+  const desde = authErrorAt
+    ? new Date(authErrorAt).toLocaleDateString('es-PE', { timeZone: 'America/Lima', day: 'numeric', month: 'long' })
+    : null;
+
+  const TITULOS: Record<typeof estado, string> = {
+    caido: 'Gmail desconectado',
+    sano: 'Gmail conectado',
+    bloqueado: 'Lectura de correos bancarios',
+    'sin-conectar': 'Conecta tu Gmail',
+  };
 
   return (
     <div className="glass-card p-5 space-y-3">
       <div className="flex items-start gap-3">
-        <div className="mt-0.5 inline-flex items-center justify-center w-9 h-9 rounded-lg bg-[#1D9E75]/10 shrink-0">
-          {bloqueado ? <Lock className="w-5 h-5 text-[#1D9E75]" /> : <Mail className="w-5 h-5 text-[#1D9E75]" />}
+        <div
+          className={`mt-0.5 inline-flex items-center justify-center w-9 h-9 rounded-lg shrink-0 ${
+            caido ? 'bg-[#EF9F27]/10' : 'bg-[#1D9E75]/10'
+          }`}
+        >
+          {caido ? (
+            <AlertTriangle className="w-5 h-5 text-[#EF9F27]" />
+          ) : estado === 'bloqueado' ? (
+            <Lock className="w-5 h-5 text-[#1D9E75]" />
+          ) : (
+            <Mail className="w-5 h-5 text-[#1D9E75]" />
+          )}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold text-[#F0EFE8]">
-              {conectado ? 'Gmail conectado' : bloqueado ? 'Lectura de correos bancarios' : 'Conecta tu Gmail'}
-            </h3>
-            {conectado && <Check className="h-4 w-4 text-[#1D9E75] shrink-0" />}
+            <h3 className="text-sm font-semibold text-[#F0EFE8]">{TITULOS[estado]}</h3>
+            {estado === 'sano' && <Check className="h-4 w-4 text-[#1D9E75] shrink-0" />}
           </div>
-          {conectado ? (
+          {caido ? (
+            /* Se dice QUÉ pasó y qué dejó de funcionar, porque el usuario no hizo nada para
+               romperlo y el síntoma que ve es "Neto dejó de anotar mis gastos". No se ofrece
+               cambiar de cuenta: mandarlo a Google con otro correo ya cuesta un cupo, aunque
+               el callback después lo rechace. */
+            <p className="text-xs text-[#8A877D] mt-0.5">
+              Google dejó de aceptar el permiso de{' '}
+              <span className="text-[#C8C6BC] font-medium break-all">{email || 'tu cuenta'}</span>
+              {desde ? <> el {desde}</> : null}, así que Neto ya no está registrando los gastos que te llegan por
+              correo. Lo que anotas por WhatsApp sigue igual. Vuelve a autorizar esa misma cuenta y se retoma solo.
+            </p>
+          ) : estado === 'sano' ? (
             <p className="text-xs text-[#8A877D] mt-0.5">
               Neto lee tus notificaciones bancarias de{' '}
               <span className="text-[#C8C6BC] font-medium break-all">{email || 'tu cuenta'}</span>. Solo lectura de esos avisos.
             </p>
-          ) : bloqueado ? (
+          ) : estado === 'bloqueado' ? (
             <p className="text-xs text-[#8A877D] mt-0.5">
               Neto detecta tus gastos de las notificaciones del banco y los anota solos.{' '}
               <span className="text-[#C8C6BC]">Se activa al confirmar tu pago</span> — cada conexión nos cuesta un cupo con
@@ -450,41 +511,36 @@ function GmailConnect({ conectado, email, proPagado }: { conectado: boolean; ema
         </div>
       </div>
 
-      {!conectado ? (
+      {/* El estado sano no lleva acción a propósito: un CTA debajo de un "conectado ✓" se lee
+          como paso pendiente y hace dudar de lo que la tarjeta acaba de afirmar. Reconectar es
+          una salida de emergencia (el token muere solo), no un paso del flujo normal — así que
+          aparece justo cuando la emergencia existe.
+          Un usuario, UNA cuenta, para siempre: cada cuenta de Google distinta consume otro de
+          los 100 cupos de por vida. Por eso el botón siempre reconecta LA MISMA; autorizar con
+          otro correo lo rechaza el callback.
+          `accionable` exige Pro pagado: a quien dejó de pagar se le conserva la conexión que ya
+          tiene, pero el backend responde 403 si intenta reabrirla. */}
+      {estado === 'sin-conectar' || estado === 'bloqueado' ? (
         <Button
           onClick={() => connect('inicial')}
-          disabled={!!loading || bloqueado}
+          disabled={!!loading || !accionable}
           className="w-full bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 disabled:opacity-50"
         >
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : bloqueado ? 'Se activa con Pro pagado' : 'Conectar mi Gmail'}
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : accionable ? 'Conectar mi Gmail' : 'Se activa con Pro pagado'}
         </Button>
-      ) : proPagado ? (
-        /* Un usuario, UNA cuenta, para siempre: cada cuenta de Google distinta consume otro de
-           los 100 cupos de por vida y no se cobra por cuenta conectada. Así que acá no hay ni
-           "agregar otra" ni "cambiar de cuenta" — solo reconectar LA MISMA, que es el caso real
-           que no tenía salida en la web (un `invalid_grant` deja de leer sin que el usuario
-           haga nada). Autorizar con otro correo lo rechaza el callback.
-           Se exige `proPagado` y no solo `conectado`: a quien dejó de pagar se le conserva la
-           conexión que ya tiene, pero no se le ofrece reabrirla (el backend responde 403). */
-        /* Va como enlace y no como botón: un botón de ancho completo debajo de un "Gmail
-           conectado ✓" se lee como acción pendiente y hace dudar de lo que la tarjeta acaba
-           de afirmar. Reconectar es una salida de emergencia (el token muere solo, sin que el
-           usuario haga nada), no un paso del flujo normal.
-           Pendiente de fondo: hoy no podemos distinguir "conectado y leyendo" de "conectado
-           con el token muerto" — el sweep avisa pero deja la fila en activa=true. Cuando ese
-           estado se persista, esto debería aparecer SOLO en el caso roto. */
-        <p className="text-[11px] text-[#8A877D] leading-relaxed">
-          ¿Neto dejó de registrar los gastos que te llegan por correo?{' '}
-          <button
-            type="button"
+      ) : caido && accionable ? (
+        <>
+          <Button
             onClick={() => connect('reemplazar')}
             disabled={!!loading}
-            className="underline underline-offset-2 hover:text-[#C8C6BC] disabled:opacity-50"
+            className="w-full bg-[#EF9F27] text-[#0E0E0C] hover:bg-[#EF9F27]/90 disabled:opacity-50"
           >
-            {loading ? 'Abriendo…' : 'Reconecta esta cuenta'}
-          </button>
-          . Neto lee de una sola cuenta; para cambiarla, escríbenos.
-        </p>
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Reconectar Gmail'}
+          </Button>
+          <p className="text-[11px] text-[#8A877D] leading-relaxed">
+            Neto lee de una sola cuenta; para cambiarla, escríbenos.
+          </p>
+        </>
       ) : null}
     </div>
   );

@@ -12,6 +12,7 @@ import { OnboardingTour } from '@/components/dashboard/onboarding-tour';
 import { ConnectWhatsappBanner } from '@/components/dashboard/connect-whatsapp-banner';
 import { ReferralDiscountBanner } from '@/components/dashboard/referral-discount-banner';
 import { TrialStatusBanner } from '@/components/dashboard/trial-status-banner';
+import { GmailDesconectadoBanner } from '@/components/dashboard/gmail-desconectado-banner';
 import { Paywall } from '@/components/dashboard/paywall';
 import { WhatsAppButton } from '@/components/shared/whatsapp-button';
 import { OverviewSkeleton } from '@/components/dashboard/skeletons';
@@ -171,6 +172,8 @@ function ShellChrome({ children }: { children: React.ReactNode }) {
               {/* En /dashboard/pro el PaymentForm ya muestra el detalle del descuento; evitar duplicar. */}
               {!gateContent && pathname !== '/dashboard/pro' && <ReferralDiscountBanner />}
               {!gateContent && pathname !== '/dashboard/pro' && <TrialStatusBanner />}
+              {/* En /dashboard/pro la tarjeta de Gmail ya cuenta lo mismo con el botón real. */}
+              {!gateContent && pathname !== '/dashboard/pro' && <GmailDesconectadoBanner />}
               {gateContent ? fallback : <ContenidoOMuro fallback={fallback}>{children}</ContenidoOMuro>}
             </div>
           </main>

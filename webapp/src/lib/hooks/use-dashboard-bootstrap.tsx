@@ -39,6 +39,7 @@ interface DashboardPayload {
   score: unknown | null;
   scoreHistory: { history: unknown[] };
   alerts: { alerts: unknown[]; isPro: boolean };
+  gmail: { authErrorAt: string | null };
   isAdmin: boolean;
 }
 
@@ -56,6 +57,10 @@ function seed(d: DashboardPayload) {
   if (d.score) queryClient.setQueryData(['neto-score'], d.score);
   if (d.scoreHistory?.history?.length) queryClient.setQueryData(['neto-score-history', 4], d.scoreHistory);
   queryClient.setQueryData(['spending-alerts', 10], d.alerts);
+  // `?? null` y no `if (d.gmail)`: acá "no hay cuenta" y "la cuenta está sana" son los dos
+  // authErrorAt=null, y omitir la siembra dejaría al hook cayendo a su fetch de fallback en el
+  // caso más común. Un deploy viejo sin el campo también aterriza en null, que es lo correcto.
+  queryClient.setQueryData(['gmail-estado'], { authErrorAt: d.gmail?.authErrorAt ?? null });
   queryClient.setQueryData(['is-admin'], d.isAdmin);
 }
 

@@ -252,6 +252,10 @@ async function guardarTokens(usuarioId, tokens, email) {
     access_token: encrypt(tokens.access_token),
     token_expiry: tokens.expiry_date || null,
     activa: true,
+    // Toda conexión exitosa borra la marca de auth caída: acabamos de recibir credenciales
+    // que Google aceptó, así que la fila vuelve a ser sana. Va en el mismo upsert para que
+    // no exista un instante en que la cuenta esté reconectada y la app la siga dando por rota.
+    auth_error_at: null,
     updated_at: new Date().toISOString()
   };
   if (tokens.refresh_token) cuenta.refresh_token = encrypt(tokens.refresh_token);
@@ -373,6 +377,36 @@ function crearClienteOAuth() {
   );
 }
 
+/**
+ * Persiste que Google dejó de aceptar el refresh token de esta cuenta.
+ *
+ * Sin esto el estado roto solo existía en un log y en un throttle en memoria: la fila quedaba
+ * en `activa = true`, así que la app seguía afirmando "Gmail conectado" mientras no leía nada.
+ *
+ * Va acá y no en el barrido porque este es el único punto que sabe QUÉ fila falló —
+ * `leerCorreosBancarios` colapsa N cuentas en un solo flag y `escanearGmailYRegistrar`
+ * devuelve `{authError:true}` pelado. Además así marcan los tres caminos que producen el
+ * error, no solo el barrido automático: el manual (`/escanear`) y el histórico del callback
+ * de OAuth también pasan por acá, y los dos descartan el objeto sin avisarle a nadie.
+ *
+ * Condicional a `auth_error_at is null` a propósito: la marca es CUÁNDO se rompió, no cuándo
+ * se reintentó por última vez. De paso escribe una sola vez y no en cada barrido.
+ *
+ * No propaga su error: el AUTH_EXPIRED que sigue es la señal que importa, y tragárselo por un
+ * hipo de la base dejaría al usuario sin el aviso además de sin la marca.
+ */
+async function sellarAuthCaida(cuenta) {
+  try {
+    await getSupabase().from('gmail_cuentas')
+      .update({ auth_error_at: new Date().toISOString() })
+      .eq('usuario_id', cuenta.usuario_id)
+      .eq('email', cuenta.email)
+      .is('auth_error_at', null);
+  } catch (e) {
+    log.error({ tag: 'AUTH', email: cuenta.email, err: e.message }, 'No se pudo sellar la auth caída');
+  }
+}
+
 async function configurarClienteParaCuenta(cuenta) {
   const cliente = crearClienteOAuth();
   const decryptedAccess = decrypt(cuenta.access_token);
@@ -400,6 +434,7 @@ async function configurarClienteParaCuenta(cuenta) {
       );
       if (esAuthPermanente) {
         log.warn({ tag: 'TOKEN', email: cuenta.email }, 'Refresh token revocado — cuenta necesita reconexión');
+        await sellarAuthCaida(cuenta);
         const authErr = new Error('AUTH_EXPIRED');
         authErr.code = 'AUTH_EXPIRED';
         authErr.email = cuenta.email;
