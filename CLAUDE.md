@@ -233,6 +233,40 @@ mandarlo a Google con otra cuenta ya cuesta el cupo, diga lo que diga el callbac
 `emailGmailVinculado()` mira el **historial** (`gmail_cuentas` sin filtrar por `activa`): una
 cuenta revocada ya gasto su cupo, asi que para "¿esto seria una cuenta nueva?" manda el pasado.
 
+### "Conectada" y "sana" son DOS preguntas (migracion 058)
+
+`activa = true` no significa que Neto este leyendo. Cuando Google revoca el refresh token la
+fila queda activa igual, asi que la app afirmaba **"Gmail conectado ✓" mientras no leia un solo
+correo** — y por eso el enlace de reconexion tenia que estar siempre visible, contradiciendo el
+✓ que tenia encima. El unico rastro del estado roto vivia en `authErrorNotifiedAt`, un `Map` en
+memoria que un redeploy borra.
+
+| Columna | Significa |
+|---|---|
+| `activa = false` | desconexion **deliberada** (no-pagador, reemplazo, wipe). Revocada en Google. |
+| `auth_error_at` set | sigue conectada en nuestros libros, pero Google dejo de aceptar el token. |
+
+**No se colapsan en una sola.** Poner `activa = false` en el auth caido sacaria al usuario del
+barrido y le haria perder el hilo a `emailGmailVinculado` / `login_hint`, que es lo unico que
+protege el cupo al reconectar.
+
+**El sello vive en `configurarClienteParaCuenta` (`gmail.js`), no en el barrido.** Es el unico
+punto que sabe QUE fila fallo: mas arriba `leerCorreosBancarios` colapsa N cuentas en un flag y
+`escanearGmailYRegistrar` devuelve `{authError:true}` pelado. Y asi marcan los **tres**
+productores del error, no solo el barrido automatico — `/escanear` por WhatsApp y el barrido
+historico del callback lo descartaban en silencio. El write es condicional a `is null`: la marca
+es *cuando se rompio*, no el ultimo reintento. La limpia `guardarTokens`, en el mismo upsert.
+
+Pendiente conocido, no cerrado: el throttle de la NOTIFICACION sigue en memoria y se sella
+**antes** de enviar (`gmail-scanner.js:48` antes de `:57`), asi que un envio fallido quema la
+ventana de 24h. Es cadencia de aviso, no estado; el estado ya no depende de eso.
+
+| Que | Donde |
+|---|---|
+| Los cuatro estados de la UI | `webapp/src/lib/gmail-estado.ts` (`bloqueado\|sin-conectar\|sano\|caido`) — el estado **sano no lleva ninguna accion** |
+| El banner de todo el dashboard | `components/dashboard/gmail-desconectado-banner.tsx`, alimentado por `/api/dashboard` (no por un fetch propio: eso resucita el fan-out) |
+| E2E | `qa-e2e/qa-gmail-estado-reconexion.mjs` (siembra, verifica las dos superficies y limpia sin gastar cupo) |
+
 | Que | Donde |
 |---|---|
 | La unica puerta | `routes/pro.js` → `GET /pro/gmail-auth-url?modo=` (`inicial\|reemplazar`) |
@@ -268,7 +302,7 @@ Consecuencias, y son las que mandan al priorizar:
 | Las puertas + el guard | `tests/gmail-oauth-gates.test.js` (conteo fijado por archivo) |
 | El deeplink por identidad | `tests/lib/trial-link-panel-pro.test.js` |
 | Revocacion | `revocarAccesoGmail()` en `gmail.js` + `checkGmailHuerfanos` |
-| E2E | `qa-e2e/qa-gmail-pro-pagado.mjs` (muro/trial/pagado contra prod) · `qa-e2e/probe-bancos.mjs` (WhatsApp no emite) |
+| E2E | `qa-e2e/qa-gmail-pro-pagado.mjs` (muro/trial/pagado contra prod) · `qa-e2e/probe-bancos.mjs` (WhatsApp no emite) · `qa-e2e/qa-gmail-segundo-correo.mjs` (la rama 409, sin gastar cupo) |
 
 Cuatro de los seis huecos salieron de mirar una sola columna: el banner de prueba encima del
 paywall, `/dashboard/pro` diciendole "Eres Neto Pro ⭐" a quien probaba (escondiendole el

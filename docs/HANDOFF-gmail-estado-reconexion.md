@@ -11,7 +11,33 @@ siempre.
 
 ---
 
-## P1 — La app no distingue "conectado" de "conectado pero muerto"
+## P1 — La app no distingue "conectado" de "conectado pero muerto" ✅ CERRADO 2026-08-03
+
+Cerrado en el commit `1ee3464`. Lo que quedó, y las dos desviaciones del plan de abajo:
+
+- **Migración 058** agrega `gmail_cuentas.auth_error_at`, que NO reemplaza a `activa`. Ver la
+  sección "Conectada y sana son DOS preguntas" de `app/CLAUDE.md`.
+- **El sello NO va en `gmail-scanner.js`** como decía el paso 2 de acá, sino en
+  `configurarClienteParaCuenta` (`gmail.js`), donde nace el `AUTH_EXPIRED`. Es el único punto
+  que sabe qué fila falló, y así marcan los tres productores del error en vez de solo el
+  barrido automático — los otros dos (el callback de OAuth y `/escanear`) lo tiraban en
+  silencio, cosa que este handoff no había detectado.
+- **El banner del dashboard sí se hizo** (el paso 5 lo dejaba a evaluar), colgado del bootstrap
+  consolidado `/api/dashboard`. Un `useQuery` propio en el shell resucitaba el fan-out de
+  requests que ese endpoint existe para matar.
+- Guards: `tests/gmail-estado-auth.test.js`, `webapp/src/app/api/pro/status/route.test.ts` (esa
+  ruta no tenía ninguno) y `webapp/src/lib/gmail-estado.test.ts`. Los tres vistos en rojo contra
+  `d89b3b5`. La decisión de los 4 estados se extrajo a `webapp/src/lib/gmail-estado.ts` para que
+  el guard fuera un test y no un regex sobre el JSX.
+- E2E: `qa-e2e/qa-gmail-estado-reconexion.mjs`, 12/12 contra producción. `gmail_cuentas` sigue
+  en 5 filas / 5 correos.
+
+**Lo que quedó abierto a propósito:** el throttle de la notificación sigue en memoria, y se
+sella ANTES de enviar (`gmail-scanner.js:48` antes de `:57`), así que un envío fallido quema la
+ventana de 24h. Es cadencia de aviso, no estado — y el estado, que era el problema de P1, ya no
+depende de él.
+
+<details><summary>El diagnóstico original (para contexto)</summary>
 
 **El bug.** Cuando el token de Gmail expira, `services/gmail-scanner.js` (~línea 197) detecta
 `authError`, avisa al usuario y **deja la fila en `gmail_cuentas.activa = true`**. Como
@@ -50,18 +76,26 @@ arreglo real es que aparezca **solo** en el estado roto.
 env. Mockear `lib/db` lo deja hablando con Supabase de **producción**. Hay que interceptar
 `@supabase/supabase-js` — ver `tests/gmail-una-cuenta.test.js`.
 
+</details>
+
 ---
 
-## P2 — La rama 409 (segundo correo) no tiene cobertura E2E
+## P2 — La rama 409 (segundo correo) no tiene cobertura E2E ✅ CERRADO 2026-08-03
 
-`routes/public.js` rechaza con 409 si el usuario autoriza con un correo distinto al que ya tiene
-vinculado, y revoca el grant sobrante. Hoy está cubierto **solo por guards estáticos**
-(`tests/gmail-una-cuenta.test.js`), porque ejercerlo de verdad contra Google **cuesta un cupo a
-propósito** — es justo lo que el código existe para evitar.
+`qa-e2e/qa-gmail-segundo-correo.mjs`, 11/11. Monta el callback REAL en un Express real contra
+la Supabase real, con el state firmado real; lo único falso es lo que hablaría con Google.
+`emailGmailVinculado` corre de verdad contra `gmail_cuentas`.
 
-Camino viable sin gastar cupo: un harness que stubee `obtenerPerfilGoogle` para devolver otro
-correo y `oauth2Client.getToken` para devolver tokens falsos, y maneje el callback. Asserts:
-responde 409, llama `revokeToken`, y **no** escribe fila en `gmail_cuentas`.
+Dos cosas que el plan de acá no preveía y valen para el próximo harness:
+
+- **El control anti-vacuidad es la mitad del valor.** Sin el segundo caso (el MISMO correo pasa
+  y sí vincula), un callback que respondiera 409 a todo pasaba el harness entero.
+- **Se probó por mutación**: con la condición del 409 forzada a `false`, el harness cae a 6/11.
+  Un guard nuevo que no se vio fallar no vale.
+
+Siembra una fila throwaway en `gmail_cuentas` para el usuario QA y la borra en un `finally`,
+con un check final de que el conteo total volvió a su baseline. **No gasta cupo**: el cupo se
+consume cuando alguien aprueba en la pantalla de Google, no al escribir una fila nuestra.
 
 ---
 
