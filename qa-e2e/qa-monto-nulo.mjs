@@ -80,7 +80,7 @@ if (value.length <= MAX) {
 }
 
 const browser = await chromium.launch();
-const context = await browser.newContext({ viewport: { width: 1180, height: 1400 } });
+const context = await browser.newContext({ viewport: { width: 1180, height: 1400 }, acceptDownloads: true });
 await context.addCookies(
   cookies.map((c) => ({ ...c, domain, path: '/', httpOnly: false, secure: true, sameSite: 'Lax' }))
 );
@@ -145,6 +145,35 @@ if (filaVisible) {
 
 // 3) Las otras pantallas que leen las mismas transacciones.
 await visitar('/dashboard/transacciones', 'transacciones');
+
+// 3b) El CSV de verdad: se descarga y se lee la fila nula. Antes del fix esto
+// reventaba (`null.toFixed`); ahora la celda "Monto (PEN)" tiene que ir VACIA,
+// no con el importe en otra moneda disfrazado de soles.
+try {
+  const [download] = await Promise.all([
+    page.waitForEvent('download', { timeout: 20000 }),
+    page.getByRole('button', { name: /CSV/ }).first().click(),
+  ]);
+  const ruta = await download.path();
+  const csv = readFileSync(ruta, 'utf8');
+  const cabecera = csv.split('\n')[0].replace(/^﻿/, '').split(',');
+  const iPen = cabecera.indexOf('Monto (PEN)');
+  const iMonedaOrig = cabecera.indexOf('Monto Original');
+  const fila = csv.split('\n').find((l) => l.includes(COMERCIO_NULO));
+  add('csv: se descarga sin reventar', Boolean(fila), fila ? 'fila encontrada' : 'no aparecio la fila nula');
+  if (fila) {
+    const celdas = fila.split(',');
+    add(
+      'csv: "Monto (PEN)" va vacio cuando no hay conversion honesta',
+      celdas[iPen] === '',
+      `Monto (PEN)="${celdas[iPen]}" | Monto Original="${celdas[iMonedaOrig]}"`
+    );
+    add('csv: el monto original SI se conserva', celdas[iMonedaOrig] === '1.23', celdas[iMonedaOrig]);
+  }
+} catch (e) {
+  add('csv: se descarga sin reventar', false, String(e).split('\n')[0]);
+}
+
 await visitar('/dashboard/reportes', 'reportes');
 await visitar('/dashboard/presupuestos', 'presupuestos');
 
