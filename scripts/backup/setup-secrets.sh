@@ -14,17 +14,35 @@ set -euo pipefail
 REPO="${REPO:-FavioML/FinBot}"
 BACKUP_ENV="${BACKUP_ENV:-$HOME/.config/neto/backup.env}"
 APP_ENV="${APP_ENV:-.env}"
+DRY=0
+[ "${1:-}" = "--dry-run" ] && DRY=1
 
 [ -f "$BACKUP_ENV" ] || { echo "No encuentro $BACKUP_ENV" >&2; exit 2; }
 
 # Lee una clave de un archivo .env sin evaluarlo (evita sorpresas con $ y comillas).
 leer() { sed -n "s/^$1=//p" "$2" 2>/dev/null | head -1 | tr -d '\r'; }
 
+# Solo para el dry-run: confirma que el valor existe y es plausible sin revelarlo.
+huella() { printf '%s' "$1" | wc -c | tr -d ' '; }
+
+FALTANTES=0
+# poner_secret <nombre> <valor> [opcional]
 poner_secret() {
-  local nombre="$1" valor="$2"
-  if [ -z "$valor" ]; then echo "  omitido $nombre (no lo encontre)"; return; fi
+  local nombre="$1" valor="$2" opcional="${3:-}"
+  if [ -z "$valor" ]; then
+    if [ -n "$opcional" ]; then
+      echo "  omito  $nombre (opcional, no lo encontre)"
+    else
+      echo "  FALTA  $nombre"; FALTANTES=$((FALTANTES + 1))
+    fi
+    return
+  fi
+  if [ "$DRY" = "1" ]; then
+    echo "  listo  $nombre ($(huella "$valor") caracteres)"
+    return
+  fi
   printf '%s' "$valor" | gh secret set "$nombre" --repo "$REPO" --body-file -
-  echo "  ok $nombre"
+  echo "  ok     $nombre"
 }
 
 echo "==> Secrets en ${REPO}"
@@ -33,20 +51,36 @@ for k in SUPABASE_DB_URL SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY \
   poner_secret "$k" "$(leer "$k" "$BACKUP_ENV")"
 done
 
-# Para el aviso de fallo por Telegram. Viven en Railway, no en backup.env; si
-# no estan en el .env local el workflow simplemente no avisa por ese canal
-# (GitHub igual manda correo cuando un workflow programado falla).
+# Para el aviso de fallo por Telegram. Viven en Railway, no en backup.env, asi
+# que normalmente no estaran aca. Son OPCIONALES: sin ellos el workflow
+# simplemente no avisa por ese canal, y GitHub igual manda correo cuando un
+# workflow programado falla. Para tenerlos, copiar los dos valores de Railway
+# al .env local y volver a correr este script.
 for k in TELEGRAM_BOT_TOKEN TELEGRAM_ADMIN_CHAT_ID; do
-  poner_secret "$k" "$(leer "$k" "$APP_ENV")"
+  poner_secret "$k" "$(leer "$k" "$APP_ENV")" opcional
 done
 
 # La clave publica de age NO es secreto: es publica por diseno. Va como
 # variable para que se pueda leer de un vistazo y comprobar que es la correcta.
 echo "==> Variables"
 CLAVE_PUB="${AGE_PUBLIC_KEY:-age1t38efyfp55sfl7q98vdp8m4dh5qth04kltz8ttagyxxyv0uqsvqq9kd5xq}"
-gh variable set AGE_PUBLIC_KEY --repo "$REPO" --body "$CLAVE_PUB"
-echo "  ok AGE_PUBLIC_KEY = ${CLAVE_PUB}"
+if [ "$DRY" = "1" ]; then
+  echo "  listo  AGE_PUBLIC_KEY = ${CLAVE_PUB}"
+else
+  gh variable set AGE_PUBLIC_KEY --repo "$REPO" --body "$CLAVE_PUB"
+  echo "  ok     AGE_PUBLIC_KEY = ${CLAVE_PUB}"
+fi
 
 echo
-echo "Listo. Disparar el backup a mano:"
-echo "  gh workflow run 'Backup DB' --repo ${REPO}"
+if [ "$FALTANTES" -gt 0 ]; then
+  echo "Hay ${FALTANTES} valor(es) que no encontre. Revisa ${BACKUP_ENV}."
+  exit 1
+fi
+
+if [ "$DRY" = "1" ]; then
+  echo "Prueba OK: todos los valores estan. Para cargarlos de verdad, corre el"
+  echo "mismo comando sin --dry-run."
+else
+  echo "Listo. Disparar el backup a mano:"
+  echo "  gh workflow run 'Backup DB' --repo ${REPO}"
+fi
