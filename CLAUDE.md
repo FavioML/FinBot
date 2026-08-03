@@ -211,10 +211,27 @@ Dos sutilezas que cuestan caro re-descubrir:
 
 No existe modo `'agregar'` en ninguna lista blanca. Guard: `tests/gmail-una-cuenta.test.js`.
 
-**Pendiente abierto (no lo cierra este cambio):** reemplazar con un correo DISTINTO si consume
-un cupo nuevo, asi que alguien podria reconectar con N correos y gastar N cupos pagando uno. Al
-2026-08-03 nadie lo hizo (5 usuarios, 1 email cada uno). Si aprieta, el corte natural es limitar
-los emails distintos historicos por usuario en `gmail_cuentas` (las filas se conservan).
+**Es una cuenta PARA SIEMPRE, no "una a la vez".** Reemplazar con un correo distinto tambien
+gasta un cupo nuevo y permanente, asi que alguien podria reconectar con N correos y quemar N
+cupos pagando uno. Decision de Favio (2026-08-03): un usuario, un correo, punto. Cambiar de
+correo se resuelve por soporte, a mano. Ojo que esto es OTRA cosa que cambiar el correo con el
+que entra a la app (Supabase Auth), que sigue libre.
+
+**Las dos defensas, y por que hacen falta las dos:**
+
+| Donde | Que hace | Que NO hace |
+|---|---|---|
+| `login_hint` en la emision (`routes/pro.js` → `generarUrlAutorizacion`) | Google preselecciona la cuenta ya vinculada | no la fuerza: el usuario puede cambiarla en la pantalla de Google |
+| Rechazo en el canje (`routes/public.js`, antes de `guardarTokens`) | garantiza que nadie tenga dos, y revoca el grant sobrante en el acto | **no recupera el cupo** |
+
+El orden importa entenderlo: **el cupo se gasta cuando el usuario aprueba en la pantalla de
+Google**, o sea ANTES de que nuestro callback exista. Cuando podemos mirar que correo eligio,
+ya se gasto. Por eso el `login_hint` es la unica defensa que evita la perdida y el rechazo del
+canje es solo el que sostiene el invariante. Y por eso la UI no ofrece "cambiar de cuenta":
+mandarlo a Google con otra cuenta ya cuesta el cupo, diga lo que diga el callback despues.
+
+`emailGmailVinculado()` mira el **historial** (`gmail_cuentas` sin filtrar por `activa`): una
+cuenta revocada ya gasto su cupo, asi que para "¿esto seria una cuenta nueva?" manda el pasado.
 
 | Que | Donde |
 |---|---|

@@ -177,3 +177,57 @@ describe('la exclusividad no depende del modo', () => {
     expect(CALLBACK).toMatch(/guardarTokens\(usuario\.id, tokens, emailConectado\)/);
   });
 });
+
+/**
+ * Una cuenta por usuario **para siempre**, no "una a la vez".
+ *
+ * Reemplazar por un correo distinto también gasta un cupo nuevo y permanente, así que alguien
+ * podría reconectar con N correos y quemar N cupos pagando uno solo. Decisión de Favio
+ * (2026-08-03): un usuario, un correo, punto. Cambiar de correo se resuelve por soporte.
+ *
+ * Dónde vive cada defensa, y por qué hacen falta las dos:
+ *  · `login_hint` en la EMISIÓN — la única que evita el gasto, porque el cupo se consume
+ *    cuando el usuario aprueba en la pantalla de Google, antes de nuestro callback.
+ *  · rechazo en el CANJE — la que garantiza el invariante. No des-quema el cupo (ya se gastó),
+ *    pero impide que el usuario termine con dos cuentas y suelta el permiso en el acto.
+ */
+describe('un usuario no puede vincular un segundo correo', () => {
+  const CALLBACK = require('node:fs').readFileSync(path.join(projectRoot, 'routes', 'public.js'), 'utf-8');
+  const PRO = require('node:fs').readFileSync(path.join(projectRoot, 'routes', 'pro.js'), 'utf-8');
+  const GMAIL = require('node:fs').readFileSync(path.join(projectRoot, 'gmail.js'), 'utf-8');
+
+  it('el canje compara contra el correo ya vinculado ANTES de guardar', () => {
+    const iCheck = CALLBACK.indexOf('emailGmailVinculado(');
+    const iGuarda = CALLBACK.indexOf('guardarTokens(usuario.id');
+    expect(iCheck, 'el callback no consulta el correo vinculado: un segundo correo entraría').toBeGreaterThan(-1);
+    expect(iGuarda).toBeGreaterThan(-1);
+    expect(iCheck, 'la comparación corre después de guardar: ya sería tarde').toBeLessThan(iGuarda);
+  });
+
+  // Quedarnos con el grant de una cuenta que rechazamos sería lo peor de los dos mundos:
+  // el cupo gastado Y permiso de lectura vivo sobre un buzón que no vamos a usar.
+  it('el canje rechazado revoca el grant recién otorgado', () => {
+    const bloque = CALLBACK.slice(CALLBACK.indexOf('emailPrevio !== emailConectado'), CALLBACK.indexOf('guardarTokens(usuario.id'));
+    expect(bloque).toMatch(/revokeToken\s*\(/);
+  });
+
+  // Mirar solo las cuentas ACTIVAS dejaría pasar el caso que más importa: quien revocó (o a
+  // quien le revocaron por dejar de pagar) ya gastó su cupo, y volver con otro correo gastaría
+  // un segundo. El historial es lo que decide.
+  it('el correo vinculado se busca en el historial, no solo entre las activas', () => {
+    const inicio = GMAIL.indexOf('async function emailGmailVinculado');
+    // Sin esta guarda el assert de abajo pasa por VACUIDAD si la función se renombra o se
+    // borra: `indexOf` daría -1, el slice quedaría vacío y "no contiene activa" sería cierto.
+    expect(inicio, 'emailGmailVinculado ya no existe: este test dejó de mirar nada').toBeGreaterThan(-1);
+    const fn = GMAIL.slice(inicio);
+    const cuerpo = fn.slice(0, fn.indexOf('\n}'));
+    expect(cuerpo.length, 'no se pudo aislar el cuerpo de la función').toBeGreaterThan(50);
+    expect(cuerpo, 'filtra por activa: una cuenta revocada volvería a permitir un correo nuevo')
+      .not.toMatch(/activa/);
+  });
+
+  it('la emisión manda login_hint para que Google preseleccione la cuenta vinculada', () => {
+    expect(PRO).toMatch(/emailGmailVinculado\(/);
+    expect(GMAIL).toMatch(/login_hint/);
+  });
+});

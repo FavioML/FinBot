@@ -459,12 +459,13 @@ function GmailConnect({ conectado, email, proPagado }: { conectado: boolean; ema
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : bloqueado ? 'Se activa con Pro pagado' : 'Conectar mi Gmail'}
         </Button>
       ) : proPagado ? (
-        /* Un usuario, UNA cuenta: cada cuenta de Google distinta consume otro de los 100 cupos
-           de por vida, y no se cobra por cuenta conectada. Por eso acá no hay "agregar otra",
-           solo reconectar — que es el caso real que no tenía salida en la web (un
-           `invalid_grant`, o cambiar de correo). Reemplaza la actual, no suma.
+        /* Un usuario, UNA cuenta, para siempre: cada cuenta de Google distinta consume otro de
+           los 100 cupos de por vida y no se cobra por cuenta conectada. Así que acá no hay ni
+           "agregar otra" ni "cambiar de cuenta" — solo reconectar LA MISMA, que es el caso real
+           que no tenía salida en la web (un `invalid_grant` deja de leer sin que el usuario
+           haga nada). Autorizar con otro correo lo rechaza el callback.
            Se exige `proPagado` y no solo `conectado`: a quien dejó de pagar se le conserva la
-           conexión que ya tiene, pero no se le ofrece abrir otra (el backend responde 403). */
+           conexión que ya tiene, pero no se le ofrece reabrirla (el backend responde 403). */
         <>
           <Button
             variant="outline"
@@ -472,9 +473,11 @@ function GmailConnect({ conectado, email, proPagado }: { conectado: boolean; ema
             disabled={!!loading}
             className="w-full text-xs disabled:opacity-50"
           >
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Reconectar o cambiar de cuenta'}
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Reconectar esta cuenta'}
           </Button>
-          <p className="text-[11px] text-[#8A877D]">Reemplaza la cuenta actual. Neto lee de una sola cuenta.</p>
+          <p className="text-[11px] text-[#8A877D]">
+            Neto lee de una sola cuenta. Si necesitas cambiarla, escríbenos.
+          </p>
         </>
       ) : null}
     </div>

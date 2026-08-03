@@ -5,7 +5,7 @@ const log = require('../lib/logger');
 const { PRO_PRECIOS, precioProEfectivo } = require('../lib/config');
 const { registrarSolicitudPro } = require('../lib/pro-payment');
 const { esProPagado } = require('../lib/trial');
-const { generarUrlAutorizacion, BANCOS_CATALOGO } = require('../gmail');
+const { generarUrlAutorizacion, BANCOS_CATALOGO, emailGmailVinculado } = require('../gmail');
 
 const router = express.Router();
 
@@ -58,8 +58,11 @@ router.get('/gmail-auth-url', async (req, res) => {
   // Se pasa el usuario_id → el callback resuelve por identidad, no por número (un
   // Pro web-only tiene whatsapp null y sin uid quedaría sin poder conectar Gmail).
   const modo = MODOS_CONEXION.includes(req.query.modo) ? req.query.modo : 'inicial';
+  // Si ya vinculó un correo, Google lo preselecciona. Es la única defensa REAL del cupo: se
+  // gasta al aprobar en la pantalla de Google, antes de que nuestro callback pueda opinar.
+  const emailActual = await emailGmailVinculado(usuarioId);
   try {
-    const url = generarUrlAutorizacion(usuario.whatsapp, modo, 'web', usuarioId);
+    const url = generarUrlAutorizacion(usuario.whatsapp, modo, 'web', usuarioId, emailActual);
     res.json({ ok: true, url });
   } catch (e) {
     log.error({ tag: 'PRO_OAUTH', err: e.message }, 'No se pudo generar URL OAuth');

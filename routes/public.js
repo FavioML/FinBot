@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const { supabase } = require('../lib/db');
 const log = require('../lib/logger');
 const { enviarWhatsapp } = require('../lib/whatsapp');
-const { oauth2Client, obtenerPerfilGoogle, guardarTokens, verificarState } = require('../gmail');
+const { oauth2Client, obtenerPerfilGoogle, guardarTokens, verificarState, emailGmailVinculado } = require('../gmail');
 const { esProPagado } = require('../lib/trial');
 const { parsearCorreoBancario } = require('../services/parsers');
 const { escanearGmailYRegistrar, escanearHistoricoInicial } = require('../services/gmail-scanner');
@@ -19,6 +19,14 @@ const PANEL_PRO_URL = 'https://app.neto.pe/dashboard/pro';
 // que ya no tiene botón de conectar.
 const REINTENTAR = (titulo) =>
   '<h2>' + titulo + '</h2><p>Vuelve a <a href="' + PANEL_PRO_URL + '">app.neto.pe</a> e intenta conectar Gmail de nuevo.</p>';
+
+// El email viene del perfil de Google, no de la query, pero igual es dato ajeno que termina
+// dentro del HTML. Mismo criterio que el 400 de arriba, que a propósito no refleja req.query.
+function escaparHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
 
 // GET /r/:code — legacy. Antes deep-linkeaba directo a WhatsApp; ahora funnelea por la
 // mini-landing de bienvenida (neto.pe/r/:code), que muestra quién invita + la oferta y de
@@ -88,8 +96,35 @@ router.get('/auth/callback', async (req, res) => {
 
     const perfil = await obtenerPerfilGoogle(oauth2Client);
     const emailConectado = perfil.email;
-    // El modo NO se pasa: la exclusividad de una cuenta por usuario la impone guardarTokens
-    // sin mirarlo, para que no dependa de un parámetro que viaja en un state de 7 días.
+
+    // ── Una cuenta de Gmail por usuario, para siempre ──────────────────────────
+    // Cada cuenta de Google DISTINTA consume otro de los 100 cupos de por vida, así que un
+    // usuario no puede tener dos: sería gastar dos cupos permanentes por un pago de S/10.
+    //
+    // Se compara contra el historial (`emailGmailVinculado` mira también las filas inactivas):
+    // una cuenta revocada ya gastó su cupo, y revocar no lo devuelve. Reconectar el MISMO
+    // correo pasa siempre — es el caso de `invalid_grant` y no cuesta cupo.
+    //
+    // Honestidad sobre el alcance: cuando llegamos acá el usuario YA aprobó en Google, o sea
+    // que el cupo de esta cuenta nueva ya se gastó y este rechazo no lo recupera. Lo que
+    // garantiza es que nadie termine con dos cuentas leyendo, y suelta el permiso en el acto
+    // en vez de quedarnos con acceso a un buzón que no vamos a usar. La defensa que sí evita
+    // el gasto es el `login_hint` de la emisión.
+    const emailPrevio = await emailGmailVinculado(usuario.id);
+    if (emailPrevio && emailConectado && emailPrevio !== emailConectado) {
+      log.warn({ tag: 'OAUTH', usuarioId: usuario.id, emailPrevio, emailConectado },
+        'Canje rechazado: el usuario ya tiene un Gmail vinculado y autorizó con otro (cupo gastado, se revoca)');
+      try { await oauth2Client.revokeToken(tokens.refresh_token || tokens.access_token); }
+      catch (e) { log.warn({ tag: 'OAUTH', err: e.message }, 'No se pudo revocar el grant sobrante'); }
+      return res.status(409).send(
+        '<h2>Neto lee de una sola cuenta.</h2>' +
+        '<p>Tu cuenta vinculada es <b>' + escaparHtml(emailPrevio) + '</b>, y autorizaste con otra. ' +
+        'Vuelve a <a href="' + PANEL_PRO_URL + '">app.neto.pe</a> y entra con esa misma cuenta.</p>' +
+        '<p>Si necesitas cambiarla, escríbenos y lo hacemos nosotros.</p>');
+    }
+
+    // El modo NO se pasa: la exclusividad la impone guardarTokens sin mirarlo, para que no
+    // dependa de un parámetro que viaja en un state de 7 días.
     await guardarTokens(usuario.id, tokens, emailConectado);
     if (perfil.nombre || emailConectado) {
       const updateUser = { nombre: usuario.nombre || perfil.nombre };

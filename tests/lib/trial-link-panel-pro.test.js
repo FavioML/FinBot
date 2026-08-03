@@ -84,7 +84,10 @@ describe('mensajeConectarEnLaApp — lo que recibe un Pro pagado por WhatsApp', 
   it('nombra la acción según el caso (conectar / bancos / gestionar)', () => {
     expect(mensajeConectarEnLaApp(CON_WEB, 'conectar')).toMatch(/conectar tu gmail/i);
     expect(mensajeConectarEnLaApp(CON_WEB, 'bancos')).toMatch(/bancos/i);
-    expect(mensajeConectarEnLaApp(CON_WEB, 'gestionar')).toMatch(/cuentas de gmail/i);
+    // 'gestionar' es RECONECTAR la misma cuenta, no administrar varias: un usuario tiene un
+    // solo Gmail vinculado. El copy en plural prometía algo que el sistema ya no permite.
+    expect(mensajeConectarEnLaApp(CON_WEB, 'gestionar')).toMatch(/reconectar tu gmail/i);
+    expect(mensajeConectarEnLaApp(CON_WEB, 'gestionar')).not.toMatch(/cuentas/i);
   });
 
   // Al WhatsApp-only hay que decirle que va a entrar con Google y que es SU cuenta: sin eso,

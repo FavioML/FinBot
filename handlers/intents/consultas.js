@@ -19,7 +19,7 @@ module.exports = {
         return (await escanearGmailYRegistrar(usuario)) || 'No encontre correos bancarios nuevos. Te aviso automaticamente cuando llegue uno.';
       }
 
-      // Conectar y gestionar cuentas de Gmail es web-only: el OAuth termina en un navegador
+      // Conectar y reconectar el Gmail es web-only: el OAuth termina en un navegador
       // igual, y en la app el usuario ve los bancos con checkboxes antes de autorizar. Acá
       // solo se responde con el atajo. El gate ya NO protege el cupo (no hay nada que emitir):
       // elige el copy, porque a quien no paga se le debe el pitch, no un link a una pantalla

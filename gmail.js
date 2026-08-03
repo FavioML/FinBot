@@ -136,7 +136,22 @@ function firmarState(payloadB64) {
 // Un replay de un state legítimo es inofensivo (sin un `code` real de Google el callback falla).
 const STATE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-function generarUrlAutorizacion(whatsappNum, modo, origen, usuarioId) {
+/**
+ * @param {string} whatsappNum
+ * @param {string} [modo]
+ * @param {string} [origen]
+ * @param {string} [usuarioId]
+ * @param {string|null} [emailActual]  correo ya vinculado, si lo hay. Se manda como
+ *   `login_hint` para que Google preseleccione ESA cuenta.
+ *
+ * El `login_hint` no es cosmético y es la ÚNICA defensa que existe contra gastar un cupo de
+ * más. El cupo de Google se consume cuando el usuario aprueba en la pantalla de Google, o sea
+ * ANTES de que nuestro callback corra: cuando podemos mirar qué correo eligió, el cupo ya está
+ * gastado y revocar no lo devuelve. Rechazar en el callback impide que tenga dos cuentas, pero
+ * no des-quema el cupo. Lo único que evita la pérdida es que no elija otra cuenta, y para eso
+ * está esto (Google igual le deja cambiarla, por eso el callback también valida).
+ */
+function generarUrlAutorizacion(whatsappNum, modo, origen, usuarioId, emailActual) {
   const stateObj = { num: whatsappNum || '', modo: modo || 'inicial', ts: Date.now() };
   if (origen) stateObj.origen = origen; // 'web' → el callback redirige a la webapp
   // uid liga el vínculo por identidad, no por número: un Pro web-only no tiene
@@ -146,12 +161,30 @@ function generarUrlAutorizacion(whatsappNum, modo, origen, usuarioId) {
   if (usuarioId) stateObj.uid = usuarioId;
   const payload = Buffer.from(JSON.stringify(stateObj)).toString('base64url');
   const state = payload + '.' + firmarState(payload);
-  return oauth2Client.generateAuthUrl({
+  const opciones = {
     access_type: 'offline',
     scope: SCOPES,
     prompt: 'consent',
     state
-  });
+  };
+  if (emailActual) opciones.login_hint = emailActual;
+  return oauth2Client.generateAuthUrl(opciones);
+}
+
+/**
+ * El correo de Gmail que este usuario ya vinculó ALGUNA VEZ, activo o no.
+ *
+ * Mira el historial y no solo lo activo a propósito: una fila inactiva significa que ese
+ * usuario de Google YA otorgó permiso y su cupo ya se gastó (revocar no lo devuelve). Para
+ * decidir "¿esto sería una cuenta nueva?" el pasado es lo que cuenta, no el presente.
+ *
+ * @returns {Promise<string|null>}
+ */
+async function emailGmailVinculado(usuarioId) {
+  const { data } = await getSupabase().from('gmail_cuentas')
+    .select('email').eq('usuario_id', usuarioId)
+    .order('created_at', { ascending: true }).limit(1);
+  return (data && data[0] && data[0].email) || null;
 }
 
 // Verifica la firma HMAC del state y lo decodifica. Devuelve el objeto {num, modo, origen}
@@ -582,4 +615,4 @@ async function leerCorreosBancarios(usuarioId, opts = {}) {
   return { error: authExpired ? 'AUTH_EXPIRED' : null, mensajes: mensajesUnificados };
 }
 
-module.exports = { generarUrlAutorizacion, verificarState, guardarTokens, cargarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail, revocarAccesoGmail, BANCOS_CATALOGO, remitentesParaSeleccion, describirSeleccion, construirQueriesBancarias };
+module.exports = { generarUrlAutorizacion, verificarState, guardarTokens, cargarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail, revocarAccesoGmail, BANCOS_CATALOGO, remitentesParaSeleccion, describirSeleccion, construirQueriesBancarias, emailGmailVinculado };
