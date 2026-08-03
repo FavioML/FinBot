@@ -466,19 +466,25 @@ function GmailConnect({ conectado, email, proPagado }: { conectado: boolean; ema
            haga nada). Autorizar con otro correo lo rechaza el callback.
            Se exige `proPagado` y no solo `conectado`: a quien dejó de pagar se le conserva la
            conexión que ya tiene, pero no se le ofrece reabrirla (el backend responde 403). */
-        <>
-          <Button
-            variant="outline"
+        /* Va como enlace y no como botón: un botón de ancho completo debajo de un "Gmail
+           conectado ✓" se lee como acción pendiente y hace dudar de lo que la tarjeta acaba
+           de afirmar. Reconectar es una salida de emergencia (el token muere solo, sin que el
+           usuario haga nada), no un paso del flujo normal.
+           Pendiente de fondo: hoy no podemos distinguir "conectado y leyendo" de "conectado
+           con el token muerto" — el sweep avisa pero deja la fila en activa=true. Cuando ese
+           estado se persista, esto debería aparecer SOLO en el caso roto. */
+        <p className="text-[11px] text-[#8A877D] leading-relaxed">
+          ¿Neto dejó de registrar los gastos que te llegan por correo?{' '}
+          <button
+            type="button"
             onClick={() => connect('reemplazar')}
             disabled={!!loading}
-            className="w-full text-xs disabled:opacity-50"
+            className="underline underline-offset-2 hover:text-[#C8C6BC] disabled:opacity-50"
           >
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Reconectar esta cuenta'}
-          </Button>
-          <p className="text-[11px] text-[#8A877D]">
-            Neto lee de una sola cuenta. Si necesitas cambiarla, escríbenos.
-          </p>
-        </>
+            {loading ? 'Abriendo…' : 'Reconecta esta cuenta'}
+          </button>
+          . Neto lee de una sola cuenta; para cambiarla, escríbenos.
+        </p>
       ) : null}
     </div>
   );
