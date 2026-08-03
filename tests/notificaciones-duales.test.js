@@ -75,7 +75,10 @@ const WHATSAPP_CRUDO = new Map([
   ['lib/notify-user.js', { usos: 1, familia: 'TRANSPORTE', motivo: 'el chokepoint: el único autorizado a llamarlo' }],
   ['lib/admin-notify.js', { usos: 1, familia: 'ADMIN', motivo: 'notificarAdmin escribe al número de Favio, no a un usuario' }],
   ['handlers/webhook.js', { usos: 26, familia: 'RESPUESTA', motivo: 'turnos de conversación: imágenes, audios, OTP, onboarding' }],
-  ['routes/public.js', { usos: 5, familia: 'RESPUESTA', motivo: 'callback de OAuth de Gmail: el usuario acaba de autorizar en el navegador' }],
+  // Baja de 5 a 4: se fue el aviso de "cuenta Gmail adicional conectada", que preguntaba por
+  // WhatsApp cómo agrupar los reportes. Un usuario tiene UNA cuenta (cada una cuesta un cupo
+  // de por vida), así que esa rama del callback ya no existe.
+  ['routes/public.js', { usos: 4, familia: 'RESPUESTA', motivo: 'callback de OAuth de Gmail: el usuario acaba de autorizar en el navegador' }],
   ['routes/admin.js', { usos: 1, familia: 'ADMIN', motivo: 'mensaje manual que el operador decide mandarle a un usuario' }],
   ['lib/pro-payment.js', { usos: 1, familia: 'RESPUESTA', motivo: '"comprobante recibido" contesta la captura que el usuario acaba de mandar' }],
   ['lib/support-tickets.js', { usos: 2, familia: 'SOPORTE', motivo: 'el hilo de soporte vive en WhatsApp; la webapp no tiene bandeja donde aterrizarlo' }],

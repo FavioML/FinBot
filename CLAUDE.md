@@ -89,7 +89,7 @@ Varias piezas dependen de que corra un solo proceso. Escalar a 2+ réplicas o ha
 12. Referidos dos lados (1 referido Pro pagado = 1 mes gratis; el referido estrena a 50% off)
 13. Resumen diario/semanal/mensual con IA
 14. Aprendizaje por comercio (fuzzy match)
-15. Multiples cuentas Gmail
+15. Lectura de Gmail: UNA cuenta por usuario (ver abajo — cada cuenta cuesta un cupo)
 16. Recordatorios diarios (8pm Lima)
 17. Metas de ahorro con CRUD
 18. Calendario financiero interactivo
@@ -188,12 +188,40 @@ Y el motivo estructural: los pasos 30/31 guardaban el estado de una capability d
 respuesta, asi que cada paso necesitaba su propio gate duplicado. Menos puertas es menos
 sitios donde acordarse del gate, y con un cupo irrecuperable eso importa mas que el gate.
 
+### Y UNA sola cuenta de Gmail por usuario
+
+Misma economia: cada cuenta de Google **distinta** consume OTRO cupo de por vida. Permitir
+varias dejaba a un usuario quemando N cupos permanentes por un solo pago de S/10, y cobrar
+por cuenta conectada se descarto por no complicar el modelo (decision de Favio, 2026-08-03).
+
+**El limite vive en `guardarTokens` (gmail.js) y NO mira el `modo`.** Antes dependia de que el
+state dijera `'reemplazar'`; con `'inicial'` —el modo por defecto, el que manda la webapp— el
+upsert dejaba viva la cuenta anterior. O sea que el limite no estaba en el servidor sino en que
+la UI escondiera el boton, y bastaba con volver a llamar la API teniendo ya una cuenta para
+acumular. Ahora toda conexion desactiva **y revoca en Google** las cuentas con otro email,
+venga del modo que venga (incluido un enlace viejo, que vive 7 dias).
+
+Dos sutilezas que cuestan caro re-descubrir:
+- **Se salta la cuenta con el MISMO email.** Revocar ahi tumbaria el grant que Google acaba
+  de emitir (es el mismo), rompiendo justo el caso de reconectar tras un `invalid_grant`. Y no
+  hay cupo nuevo: ese usuario de Google ya estaba contado.
+- **La revocacion va ANTES de escribir los tokens nuevos.** `revocarAccesoGmail` limpia los
+  campos legacy de `usuarios` cuando revoca la ultima cuenta activa; correrla despues borraria
+  la conexion recien hecha.
+
+No existe modo `'agregar'` en ninguna lista blanca. Guard: `tests/gmail-una-cuenta.test.js`.
+
+**Pendiente abierto (no lo cierra este cambio):** reemplazar con un correo DISTINTO si consume
+un cupo nuevo, asi que alguien podria reconectar con N correos y gastar N cupos pagando uno. Al
+2026-08-03 nadie lo hizo (5 usuarios, 1 email cada uno). Si aprieta, el corte natural es limitar
+los emails distintos historicos por usuario en `gmail_cuentas` (las filas se conservan).
+
 | Que | Donde |
 |---|---|
-| La unica puerta | `routes/pro.js` → `GET /pro/gmail-auth-url?modo=` (`inicial\|agregar\|reemplazar`) |
+| La unica puerta | `routes/pro.js` → `GET /pro/gmail-auth-url?modo=` (`inicial\|reemplazar`) |
 | La UI | `webapp/src/app/dashboard/pro/page.tsx` (`GmailConnect` + `BancosManager`) |
 | A donde manda WhatsApp | `linkPanelPro()` en `lib/trial.js` |
-| El invariante | `tests/gmail-oauth-gates.test.js`: **cero `generarUrlAutorizacion` en `handlers/`** |
+| Los invariantes | `tests/gmail-oauth-gates.test.js` (**cero `generarUrlAutorizacion` en `handlers/`**) y `tests/gmail-una-cuenta.test.js` (una cuenta por usuario) |
 
 **`linkPanelPro(usuario)` es la pieza que evita la regresion.** 43 de 93 usuarios son
 WhatsApp-only (4 Pro pagados): mandarlos a `/dashboard/pro` los deposita en `/login`,

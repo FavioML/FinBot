@@ -403,7 +403,7 @@ function BancosManager({ initial, proPagado }: { initial: string[] | null; proPa
 function GmailConnect({ conectado, email, proPagado }: { conectado: boolean; email: string | null; proPagado: boolean }) {
   const [loading, setLoading] = useState<string | null>(null);
 
-  async function connect(modo: 'inicial' | 'agregar' | 'reemplazar') {
+  async function connect(modo: 'inicial' | 'reemplazar') {
     setLoading(modo);
     try {
       const r = await fetch('/api/pro/gmail-auth-url?modo=' + modo, { cache: 'no-store' });
@@ -459,30 +459,23 @@ function GmailConnect({ conectado, email, proPagado }: { conectado: boolean; ema
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : bloqueado ? 'Se activa con Pro pagado' : 'Conectar mi Gmail'}
         </Button>
       ) : proPagado ? (
-        /* Agregar una segunda cuenta y reconectar tras un `invalid_grant` solo existían por
-           WhatsApp. Ahora que la webapp es el único camino, esconder el botón al que ya está
-           conectado dejaba esos dos casos sin ninguna salida.
-           Se exige `proPagado` y no solo `conectado`: cada cuenta nueva gasta OTRO cupo de
-           Google, así que a quien dejó de pagar se le conserva la conexión que ya tiene pero
-           no se le ofrece abrir una más (el backend lo rechaza con 403 igual). */
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={() => connect('agregar')}
-            disabled={!!loading}
-            className="flex-1 text-xs disabled:opacity-50"
-          >
-            {loading === 'agregar' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Agregar otra cuenta'}
-          </Button>
+        /* Un usuario, UNA cuenta: cada cuenta de Google distinta consume otro de los 100 cupos
+           de por vida, y no se cobra por cuenta conectada. Por eso acá no hay "agregar otra",
+           solo reconectar — que es el caso real que no tenía salida en la web (un
+           `invalid_grant`, o cambiar de correo). Reemplaza la actual, no suma.
+           Se exige `proPagado` y no solo `conectado`: a quien dejó de pagar se le conserva la
+           conexión que ya tiene, pero no se le ofrece abrir otra (el backend responde 403). */
+        <>
           <Button
             variant="outline"
             onClick={() => connect('reemplazar')}
             disabled={!!loading}
-            className="flex-1 text-xs disabled:opacity-50"
+            className="w-full text-xs disabled:opacity-50"
           >
-            {loading === 'reemplazar' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Reconectar'}
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Reconectar o cambiar de cuenta'}
           </Button>
-        </div>
+          <p className="text-[11px] text-[#8A877D]">Reemplaza la cuenta actual. Neto lee de una sola cuenta.</p>
+        </>
       ) : null}
     </div>
   );

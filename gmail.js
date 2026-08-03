@@ -174,18 +174,43 @@ function verificarState(state) {
   return obj;
 }
 
-async function guardarTokens(usuarioId, tokens, email, modo) {
+/**
+ * Guarda la conexión de Gmail recién autorizada. **UNA sola cuenta activa por usuario.**
+ *
+ * No es una preferencia de UI: cada cuenta de Google distinta consume OTRO de los 100 cupos
+ * de por vida (el límite cuenta usuarios que otorgaron permiso, y no se restablece). Permitir
+ * varias dejaba a un usuario gastando N cupos por un solo pago de S/10, y cobrar por cuenta
+ * conectada se descartó por no complicar el modelo.
+ *
+ * El límite se hace cumplir ACÁ y no en el modo, a propósito. Antes dependía de que el state
+ * firmado dijera `reemplazar`: con `inicial` —el modo por defecto, el que manda la webapp— el
+ * upsert dejaba viva la cuenta anterior, así que alcanzaba con volver a llamar la API teniendo
+ * ya una conectada para acumular. Este es el único punto por donde pasa TODA conexión, venga
+ * del modo que venga, incluido un enlace viejo emitido con un modo que ya no existe.
+ */
+async function guardarTokens(usuarioId, tokens, email) {
+  // Antes de escribir nada: soltar lo que hubiera. Va PRIMERO porque revocarAccesoGmail
+  // limpia los campos legacy de `usuarios` cuando revoca la última cuenta activa — hacerlo
+  // después borraría los tokens nuevos que acabamos de guardar.
+  //
+  // Se salta la cuenta con el MISMO email (reconexión tras un invalid_grant): revocar ahí
+  // tumbaría el grant que Google acaba de emitir, porque es el mismo. Y además no hay cupo
+  // nuevo en juego: es el mismo usuario de Google que ya estaba contado.
+  if (email) {
+    const { data: previas } = await getSupabase().from('gmail_cuentas')
+      .select('id, email').eq('usuario_id', usuarioId).eq('activa', true);
+    for (const previa of previas || []) {
+      if (previa.email === email) continue;
+      await revocarAccesoGmail(usuarioId, { motivo: 'reemplazada_por_conexion_nueva', cuentaId: previa.id });
+    }
+  }
+
   // Siempre sincronizar en usuarios para backwards compat (encrypted)
   const updateData = { gmail_access_token: encrypt(tokens.access_token), gmail_token_expiry: tokens.expiry_date };
   if (tokens.refresh_token) updateData.gmail_refresh_token = encrypt(tokens.refresh_token);
   await getSupabase().from('usuarios').update(updateData).eq('id', usuarioId);
 
   if (!email) return; // sin email no se puede guardar en gmail_cuentas
-
-  if (modo === 'reemplazar') {
-    // Desactivar todas las cuentas anteriores
-    await getSupabase().from('gmail_cuentas').update({ activa: false }).eq('usuario_id', usuarioId);
-  }
 
   // Upsert la cuenta nueva (encrypted tokens)
   const cuenta = {

@@ -8,9 +8,11 @@ const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY;
 
 export const dynamic = 'force-dynamic';
 
-// Los tres modos que entiende el callback (`guardarTokens`). Lista blanca: un modo
-// inesperado degrada a 'inicial', que es el único que no toca cuentas existentes.
-const MODOS = ['inicial', 'agregar', 'reemplazar'] as const;
+// Los modos que entiende el callback. **No existe 'agregar'**: un usuario tiene UNA sola
+// cuenta de Gmail, porque cada cuenta de Google distinta consume otro de los 100 cupos de por
+// vida y no se cobra por cuenta conectada. El modo solo elige el copy del aviso posterior; la
+// exclusividad la impone `guardarTokens` en el backend, sin mirarlo.
+const MODOS = ['inicial', 'reemplazar'] as const;
 
 // GET /api/pro/gmail-auth-url?modo= — URL de OAuth Gmail para conectar desde la webapp.
 // El callback backend redirige de vuelta a /dashboard?gmail=conectado (origen 'web').
@@ -33,8 +35,8 @@ export async function GET(request: Request) {
   if (!INTERNAL_API_KEY) {
     return NextResponse.json({ error: 'INTERNAL_API_KEY no configurada en el entorno de la webapp' }, { status: 500 });
   }
-  // `agregar` (segunda cuenta) y `reemplazar` (reconectar tras un invalid_grant) antes solo
-  // existían por WhatsApp. Ahora que la webapp es el único camino, tiene que cubrirlos.
+  // `reemplazar` (reconectar tras un invalid_grant, o cambiar de correo) antes solo existía
+  // por WhatsApp. Ahora que la webapp es el único camino, tiene que cubrirlo.
   const pedido = new URL(request.url).searchParams.get('modo');
   const modo = (MODOS as readonly string[]).includes(pedido ?? '') ? pedido! : 'inicial';
   try {

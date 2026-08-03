@@ -31,10 +31,11 @@ router.get('/bancos', (req, res) => {
   res.json({ ok: true, bancos: BANCOS_CATALOGO.map((b) => ({ id: b.id, label: b.label })) });
 });
 
-// Modos de conexión que la webapp puede pedir. Lista blanca a propósito: el modo viaja
-// firmado dentro del state y decide qué hace `guardarTokens` (agregar una cuenta más vs.
-// reemplazar la existente). Un valor inesperado degrada a 'inicial', nunca a 'agregar'.
-const MODOS_CONEXION = ['inicial', 'agregar', 'reemplazar'];
+// Modos de conexión que la webapp puede pedir. **No existe 'agregar'**: un usuario tiene una
+// sola cuenta de Gmail, porque cada cuenta de Google distinta consume otro de los 100 cupos de
+// por vida y no vamos a cobrar por cuenta conectada. El modo solo elige el copy del mensaje
+// posterior; la exclusividad la impone `guardarTokens` sin mirarlo.
+const MODOS_CONEXION = ['inicial', 'reemplazar'];
 
 // GET /pro/gmail-auth-url?usuario_id=&modo= — URL de OAuth Gmail para el usuario logueado.
 // El callback redirige de vuelta a la webapp (origen 'web'); ver routes/public.js.
@@ -52,9 +53,8 @@ router.get('/gmail-auth-url', async (req, res) => {
   if (!esProPagado(usuario)) {
     return res.status(403).json({ ok: false, motivo: 'pro_pagado_requerido', msg: 'Conectar Gmail requiere Pro pagado' });
   }
-  // La webapp es el ÚNICO camino para conectar Gmail, así que también tiene que cubrir
-  // agregar una segunda cuenta y reconectar tras un `invalid_grant` — antes eso solo
-  // existía por WhatsApp (intents agregar_gmail / cambiar_gmail).
+  // La webapp es el ÚNICO camino para conectar Gmail, así que también tiene que cubrir la
+  // reconexión tras un `invalid_grant` — antes eso solo existía por WhatsApp (cambiar_gmail).
   // Se pasa el usuario_id → el callback resuelve por identidad, no por número (un
   // Pro web-only tiene whatsapp null y sin uid quedaría sin poder conectar Gmail).
   const modo = MODOS_CONEXION.includes(req.query.modo) ? req.query.modo : 'inicial';

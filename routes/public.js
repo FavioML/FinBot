@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const { supabase } = require('../lib/db');
 const log = require('../lib/logger');
 const { enviarWhatsapp } = require('../lib/whatsapp');
-const { oauth2Client, obtenerPerfilGoogle, guardarTokens, obtenerCuentasGmail, verificarState } = require('../gmail');
+const { oauth2Client, obtenerPerfilGoogle, guardarTokens, verificarState } = require('../gmail');
 const { esProPagado } = require('../lib/trial');
 const { parsearCorreoBancario } = require('../services/parsers');
 const { escanearGmailYRegistrar, escanearHistoricoInicial } = require('../services/gmail-scanner');
@@ -88,7 +88,9 @@ router.get('/auth/callback', async (req, res) => {
 
     const perfil = await obtenerPerfilGoogle(oauth2Client);
     const emailConectado = perfil.email;
-    await guardarTokens(usuario.id, tokens, emailConectado, modoConexion);
+    // El modo NO se pasa: la exclusividad de una cuenta por usuario la impone guardarTokens
+    // sin mirarlo, para que no dependa de un parámetro que viaja en un state de 7 días.
+    await guardarTokens(usuario.id, tokens, emailConectado);
     if (perfil.nombre || emailConectado) {
       const updateUser = { nombre: usuario.nombre || perfil.nombre };
       if (!usuario.email && emailConectado) updateUser.email = emailConectado;
@@ -109,26 +111,18 @@ router.get('/auth/callback', async (req, res) => {
 
     setTimeout(async () => {
       try {
-        if (modoConexion === 'agregar') {
-          // La pregunta de reportes unificado/separado espera un "1" o un "2" por WhatsApp.
-          // Desde la web no hay dónde responderla: el usuario está mirando el dashboard, y
-          // el mensaje llegaría a un chat que no abrió. Se omite, y la preferencia se cambia
-          // igual desde la app cuando quiera.
-          if (origenConexion !== 'web') {
-            const cuentasNow = await obtenerCuentasGmail(usuario.id);
-            await enviarWhatsapp(usuario.whatsapp, '✅ *Cuenta Gmail adicional conectada!*\n📧 ' + emailConectado + '\n\nAhora tienes ' + cuentasNow.length + ' cuentas. ¿Cómo quieres ver tus reportes?\n\n1️⃣ *Unificado* — todo junto\n2️⃣ *Separado* — una sección por cuenta\n\n_Responde 1 o 2._');
-          }
-          await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
-          return;
-        }
+        // Ya no hay rama 'agregar': un usuario tiene UNA cuenta, así que conectar otra es
+        // siempre un reemplazo. Los enlaces viejos que todavía lleven ese modo en su state
+        // caen acá y se tratan como conexión normal — el reemplazo real ya lo hizo
+        // guardarTokens, que no mira el modo.
         if (modoConexion === 'reemplazar') {
           await enviarWhatsapp(usuario.whatsapp, '🔄 *Cuenta Gmail actualizada, ' + primerNombre + '!*\n📧 ' + emailConectado + '\n\nEscaneando tus correos... 🔍');
         } else {
           await enviarWhatsapp(usuario.whatsapp, '✅ *Gmail conectado, ' + primerNombre + '!*\n📧 ' + emailConectado + '\n\nEscaneando tus correos bancarios... 🔍');
         }
         // Primera conexión de Gmail → barrido único de 30 días para poblar el dashboard.
-        // 'agregar' ya retornó arriba; el flag historico_importado evita repetirlo.
-        const debeHistorico = modoConexion !== 'agregar' && !usuario.historico_importado;
+        // El flag historico_importado evita repetirlo en cada reconexión.
+        const debeHistorico = !usuario.historico_importado;
         const resultado = debeHistorico
           ? await escanearHistoricoInicial(usuario)
           : await escanearGmailYRegistrar(usuario);

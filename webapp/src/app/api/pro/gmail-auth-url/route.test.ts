@@ -86,21 +86,32 @@ describe('GET /api/pro/gmail-auth-url', () => {
   });
 
   /**
-   * El modo decide qué hace `guardarTokens` del otro lado: 'reemplazar' pisa la cuenta que ya
-   * estaba. Un modo arbitrario que viajara tal cual convertiría la query string en un control
-   * sobre las cuentas conectadas del usuario, así que degrada a 'inicial', que no toca ninguna.
+   * El modo solo elige el copy del aviso posterior. Se valida igual porque viaja firmado
+   * dentro del state y no queremos que la query string meta valores arbitrarios ahí.
+   *
+   * **'agregar' NO está en la lista**, y ese es el punto: un usuario tiene UNA cuenta de
+   * Gmail. Cada cuenta de Google distinta consume otro de los 100 cupos de por vida, así que
+   * permitir varias dejaba a alguien gastando N cupos por un pago de S/10. La exclusividad
+   * real la impone `guardarTokens` (backend) sin mirar el modo; esto es la primera puerta.
    */
   describe('modo de conexión', () => {
-    it.each(['agregar', 'reemplazar', 'inicial'])('propaga el modo válido %s', async (modo) => {
+    it.each(['reemplazar', 'inicial'])('propaga el modo válido %s', async (modo) => {
       sesion('premium', 'convertido');
       await GET(req(modo));
       expect(urlAlBackend()).toContain('modo=' + modo);
     });
 
-    it.each([undefined, 'borrar', '', 'AGREGAR'])('degrada a inicial el modo %s', async (modo) => {
+    it.each([undefined, 'agregar', 'borrar', '', 'REEMPLAZAR'])('degrada a inicial el modo %s', async (modo) => {
       sesion('premium', 'convertido');
       await GET(req(modo));
       expect(urlAlBackend()).toContain('modo=inicial');
+    });
+
+    it('no existe ningún modo que pida una cuenta ADICIONAL', async () => {
+      sesion('premium', 'convertido');
+      await GET(req('agregar'));
+      expect(urlAlBackend(), 'volvió el modo agregar: un usuario, una cuenta, un cupo')
+        .not.toContain('modo=agregar');
     });
   });
 });
