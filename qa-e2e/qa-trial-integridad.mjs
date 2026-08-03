@@ -26,18 +26,40 @@ import { createRequire } from 'module';
 import { readFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
-import { instalarGuard } from './lib/qa-guard.mjs';
+import { instalarGuard, permitirUsuarioDePrueba } from './lib/qa-guard.mjs';
 
 const require = createRequire(import.meta.url);
 const supabase = instalarGuard(require, '../lib/db');
-const trial = require('../lib/trial');
-const { guardarTransaccion } = require('../services/transactions');
-const { checkPremiumExpiry } = require('../cron/checks');
-const { hoyPeru, sumarDias } = require('../lib/dates');
 
 const APP = process.env.QA_WEBAPP_URL || 'https://app.neto.pe';
 
 const RUN = Date.now();
+// Todos los throwaway de esta corrida comparten este prefijo de número (ver sembrar()).
+const WA_PREFIJO = '51900' + String(RUN).slice(-5);
+
+// ── Spy de salida: instalado ANTES de requerir cron/checks ───────────────────────────
+// `checkPremiumExpiry` es un cron BULK: barre TODOS los usuarios con el Pro por vencer y les
+// manda "tu plan NETO Pro vence en 3 días". La barrera qa-guard cubre las escrituras a
+// Supabase, pero `notificarUsuario` manda el WhatsApp ANTES del insert in-app
+// (lib/notify-user.js:128) y ese envío es HTTP a Meta, invisible para la barrera.
+// Va acá arriba porque notify-user destructura `enviarWhatsapp` al cargar.
+const enviosAjenos = [];
+const waPath = require.resolve('../lib/whatsapp.js');
+const waReal = require(waPath);
+const realEnviar = waReal.enviarWhatsapp;
+require.cache[waPath].exports = {
+  ...waReal,
+  enviarWhatsapp: async (to, msg, opts = {}) => {
+    if (String(to).startsWith(WA_PREFIJO)) return realEnviar(to, msg, opts);
+    enviosAjenos.push(String(to));
+    return { ok: true, skipped: 'qa_destino_ajeno' };
+  },
+};
+
+const trial = require('../lib/trial');
+const { guardarTransaccion } = require('../services/transactions');
+const { checkPremiumExpiry } = require('../cron/checks');
+const { hoyPeru, sumarDias } = require('../lib/dates');
 const results = [];
 const check = (name, cond, detail) => {
   results.push({ name, pass: !!cond, detail });
@@ -51,7 +73,7 @@ const TAG = 'QA-TRIAL-INT';
 const creados = [];
 
 async function sembrar(etiqueta, extra = {}) {
-  const wa = '51900' + String(RUN).slice(-5) + String(creados.length);
+  const wa = WA_PREFIJO + String(creados.length);
   const { data, error } = await supabase.from('usuarios').insert({
     whatsapp: wa, nombre: TAG + ' ' + etiqueta, plan: 'free',
     onboarding_completado: true, is_test_user: true, ...extra,
@@ -118,6 +140,14 @@ async function run() {
   // Se le vuelve a poner el premium_vence viejo A MANO para simular el estado que producía
   // el incidente, y se corre el cron de verdad. Sin el guard, acá el plan cae a 'free'.
   await supabase.from('usuarios').update({ premium_vence: ayer }).eq('id', exPagador.id);
+  // Pre-vuelo antes de correr el cron bulk contra producción: a cuánta gente real alcanza.
+  // Con 0 en ventana solo puede tocar a los throwaway; con >0, el spy del encabezado es lo
+  // único que evita que les llegue un WhatsApp, así que el número queda impreso.
+  const { data: enVentana } = await supabase.from('usuarios').select('id, is_test_user')
+    .eq('plan', 'premium').lte('premium_vence', sumarDias(hoyPeru(), 3));
+  const realesEnVentana = (enVentana || []).filter((u) => u.is_test_user !== true);
+  check('pre-vuelo: se midió el radio del cron bulk ANTES de correrlo', true,
+    realesEnVentana.length + ' usuarios reales en la ventana del cron');
   await checkPremiumExpiry();
   const u2 = await leer(exPagador.id);
   check('checkPremiumExpiry NO baja a quien está en trial, aunque tenga premium_vence vencido',
@@ -237,9 +267,18 @@ async function run() {
 async function cleanup() {
   // Por id de esta corrida y, además, por marcador: si una corrida anterior murió a la
   // mitad, sus filas se van ahora en vez de acumularse.
+  check('el cron bulk no le escribió a NINGÚN usuario real',
+    enviosAjenos.length === 0,
+    enviosAjenos.length ? 'destinos ajenos: ' + [...new Set(enviosAjenos)].join(', ') : 'solo a los throwaway');
+
   const { data: viejos } = await supabase.from('usuarios').select('id').like('nombre', TAG + '%');
   const ids = [...new Set([...creados, ...(viejos || []).map((u) => u.id)])];
   if (ids.length === 0) { check('limpieza: nada que borrar', true, ''); return; }
+  // Los `viejos` vienen de un `like`, que NO cosecha en la barrera (solo eq./in. fijan
+  // sujeto), así que sin registrarlos el DELETE de abajo abortaría y el barrido de huérfanos
+  // de corridas muertas —el motivo por el que existe esta query— nunca borraría nada.
+  // permitirUsuarioDePrueba revalida is_test_user contra la DB antes de aceptar cada uno.
+  for (const id of ids) await permitirUsuarioDePrueba(id);
   for (const t of ['transacciones', 'notificaciones', 'categorias_usuario', 'pagos', 'notification_deliveries']) {
     await supabase.from(t).delete().in('usuario_id', ids);
   }

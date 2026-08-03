@@ -23,10 +23,43 @@
 
 import 'dotenv/config';
 import { createRequire } from 'module';
-import { instalarGuard } from './lib/qa-guard.mjs';
+import { instalarGuard, permitirUsuarioDePrueba } from './lib/qa-guard.mjs';
 
 const require = createRequire(import.meta.url);
 const supabase = instalarGuard(require, '../lib/db');
+
+const WEBAPP = process.env.QA_WEBAPP_URL || 'https://app.neto.pe';
+const RUN = Date.now();
+const WA = '51900' + String(RUN).slice(-6);
+
+// ── Spy de salida: instalado ANTES de requerir cron/checks ───────────────────────────
+// `checkTrialExpiry` es un cron BULK: barre TODOS los usuarios con el trial por vencer, no
+// solo el throwaway. La barrera qa-guard cubre las escrituras a Supabase, pero
+// `notificarUsuario` manda el WhatsApp ANTES del insert in-app (lib/notify-user.js:128) y ese
+// envío es HTTP a Meta, que la barrera no ve. Sin este spy, correr este harness le manda
+// "tu prueba Pro termina en 3 días" a usuarios REALES que caigan en la ventana.
+//
+// Va acá arriba porque notify-user destructura `enviarWhatsapp` al cargar: si el require de
+// cron/checks ocurre primero, se queda con la función real y el spy llega tarde.
+//
+// A diferencia de qa-cron-deudas.mjs, que LANZA ante un destino ajeno, acá se registra y se
+// descarta: dentro de checkTrialExpiry cada usuario va en su propio try/catch, así que un
+// throw se convertiría en una línea de log y nadie lo vería. Registrarlo permite asertarlo.
+const enviosAjenos = [];
+const waPath = require.resolve('../lib/whatsapp.js');
+const waReal = require(waPath);
+const realEnviar = waReal.enviarWhatsapp;
+require.cache[waPath].exports = {
+  ...waReal,
+  enviarWhatsapp: async (to, msg, opts = {}) => {
+    // Al throwaway se le delega al real: tiene is_test_user, así que saltea Meta pero SÍ
+    // escribe notification_deliveries, que es lo que este harness quiere ejercer.
+    if (String(to) === WA) return realEnviar(to, msg, opts);
+    enviosAjenos.push(String(to));
+    return { ok: true, skipped: 'qa_destino_ajeno' };
+  },
+};
+
 const trial = require('../lib/trial');
 const { guardarTransaccion } = require('../services/transactions');
 const { checkTrialExpiry } = require('../cron/checks');
@@ -34,10 +67,6 @@ const { activarPro } = require('../lib/pro-payment');
 const { sembrarDescuentoReferido, DSCTO_REFERIDO_DIAS } = require('../services/referrals');
 const { requiereLectura, comandoRequiereLectura } = require('../handlers/intents-acceso');
 const { hoyPeru, sumarDias } = require('../lib/dates');
-
-const WEBAPP = process.env.QA_WEBAPP_URL || 'https://app.neto.pe';
-const RUN = Date.now();
-const WA = '51900' + String(RUN).slice(-6);
 
 const results = [];
 const check = (name, cond, detail) => {
@@ -129,6 +158,15 @@ async function run() {
     plan: 'premium', trial_estado: 'activo', trial_vence: sumarDias(hoyPeru(), -1),
     premium_vence: null, premium_desde: null,
   }).eq('id', userId);
+  // Pre-vuelo obligatorio antes de correr un cron BULK contra la Supabase de producción:
+  // medir a cuánta gente real alcanza. Con 0 en ventana el cron solo puede tocar al
+  // throwaway; con >0, el spy de arriba es lo único que impide que les llegue un WhatsApp,
+  // así que el número tiene que quedar impreso en la corrida y no adivinarse después.
+  const { data: enVentana } = await supabase.from('usuarios').select('id, is_test_user')
+    .eq('trial_estado', 'activo').lte('trial_vence', sumarDias(hoyPeru(), trial.AVISO_DIAS_ANTES));
+  const realesEnVentana = (enVentana || []).filter((u) => u.is_test_user !== true && u.id !== userId);
+  check('pre-vuelo: se midió el radio del cron bulk ANTES de correrlo', true,
+    realesEnVentana.length + ' usuarios reales en la ventana del cron');
   await checkTrialExpiry();
   const uMuro = await leer();
   check('checkTrialExpiry baja el plan a free', uMuro.plan === 'free', 'plan=' + uMuro.plan);
@@ -172,6 +210,10 @@ async function run() {
     !requiereLectura('registrar_manual') && !requiereLectura('deshacer_ultimo') && !requiereLectura('editar_monto'));
   check('los caminos de pago siguen abiertos',
     !requiereLectura('ver_premium') && !requiereLectura('estado_cuenta'));
+  check('el cron bulk no le escribió a NINGÚN usuario real',
+    enviosAjenos.length === 0,
+    enviosAjenos.length ? 'destinos ajenos: ' + [...new Set(enviosAjenos)].join(', ') : 'solo al throwaway');
+
   check('los comandos / de lectura están cubiertos',
     comandoRequiereLectura('/reporte julio') && comandoRequiereLectura('/mes') && !comandoRequiereLectura('/premium'));
 
@@ -190,6 +232,10 @@ async function cleanup() {
   if (!userId) {
     const { data } = await supabase.from('usuarios').select('id').eq('whatsapp', WA).maybeSingle();
     userId = data?.id || null;
+    // Sin esto el rescate era decoración: la re-lectura por `whatsapp` NO cosecha el id en la
+    // barrera (solo `id`/`usuario_id` fijan sujeto), así que los DELETE de abajo abortaban y
+    // el huérfano sobrevivía en producción. Verificado contra la barrera real.
+    if (userId) await permitirUsuarioDePrueba(userId);
   }
   if (!userId) { check('limpieza: no quedó usuario throwaway', true, 'nada que borrar'); return; }
   await supabase.from('transacciones').delete().eq('usuario_id', userId);

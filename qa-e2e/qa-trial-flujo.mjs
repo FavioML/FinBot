@@ -26,18 +26,38 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'module';
-import { instalarGuard, permitirFila } from './lib/qa-guard.mjs';
+import { instalarGuard, permitirFila, permitirUsuarioDePrueba } from './lib/qa-guard.mjs';
 
 const require = createRequire(import.meta.url);
 const supabase = instalarGuard(require, '../lib/db');
-const { checkTrialExpiry } = require('../cron/checks');
-const { procesarMensajeLibre } = require('../handlers/message-processor');
-const { hoyPeru, sumarDias } = require('../lib/dates');
-const { AVISO_DIAS_ANTES } = require('../lib/trial');
 
 const APP = process.env.QA_WEBAPP_URL || 'https://app.neto.pe';
 const RUN = Date.now();
 const WA = '51900' + String(RUN).slice(-6);
+
+// ── Spy de salida: instalado ANTES de requerir cron/checks ───────────────────────────
+// `checkTrialExpiry` es un cron BULK sobre TODOS los usuarios con el trial por vencer. La
+// barrera qa-guard cubre las escrituras a Supabase, pero `notificarUsuario` manda el WhatsApp
+// ANTES del insert in-app (lib/notify-user.js:128) y ese envío es HTTP a Meta, invisible para
+// la barrera. Sin el spy, este harness le manda "tu prueba Pro termina en 3 días" a usuarios
+// REALES. Va acá arriba porque notify-user destructura `enviarWhatsapp` al cargar.
+const enviosAjenos = [];
+const waPath = require.resolve('../lib/whatsapp.js');
+const waReal = require(waPath);
+const realEnviar = waReal.enviarWhatsapp;
+require.cache[waPath].exports = {
+  ...waReal,
+  enviarWhatsapp: async (to, msg, opts = {}) => {
+    if (String(to) === WA) return realEnviar(to, msg, opts); // throwaway: is_test_user saltea Meta
+    enviosAjenos.push(String(to));
+    return { ok: true, skipped: 'qa_destino_ajeno' };
+  },
+};
+
+const { checkTrialExpiry } = require('../cron/checks');
+const { procesarMensajeLibre } = require('../handlers/message-processor');
+const { hoyPeru, sumarDias } = require('../lib/dates');
+const { AVISO_DIAS_ANTES } = require('../lib/trial');
 
 const results = [];
 const check = (name, cond, detail) => {
@@ -63,6 +83,16 @@ const entregas = async (tipo) => {
 // ─── A. Avisos día 11 y día 14 ──────────────────────────────────────────────
 async function bloqueAvisos() {
   seccion('── A. Avisos de fin de trial (día 11 y 14)');
+
+  // Pre-vuelo antes del primero de los cinco `checkTrialExpiry()` de este archivo: medir a
+  // cuánta gente real alcanza el cron bulk. Con 0 en ventana solo puede tocar al throwaway;
+  // con >0, el spy del encabezado es lo único que evita que les llegue un WhatsApp, así que
+  // el número queda impreso en la corrida en vez de adivinarse después.
+  const { data: enVentana } = await supabase.from('usuarios').select('id, is_test_user')
+    .eq('trial_estado', 'activo').lte('trial_vence', sumarDias(hoyPeru(), AVISO_DIAS_ANTES));
+  const realesEnVentana = (enVentana || []).filter((u) => u.is_test_user !== true && u.id !== userId);
+  check('pre-vuelo: se midió el radio del cron bulk ANTES de correrlo', true,
+    realesEnVentana.length + ' usuarios reales en la ventana del cron');
 
   // Día 11 = faltan AVISO_DIAS_ANTES. Sin cuenta web: el copy tiene que empujar a
   // ACTIVAR, no a pagar — está por terminar 14 días de Pro sin haber visto nunca lo
@@ -247,7 +277,20 @@ async function run() {
 }
 
 async function cleanup() {
-  if (!userId) return;
+  // Los cinco crons de este archivo pudieron alcanzar a alguien más: se denuncia acá, que es
+  // lo último que corre pase lo que pase (el caller llama cleanup en su propio try).
+  check('los crons bulk no le escribieron a NINGÚN usuario real',
+    enviosAjenos.length === 0,
+    enviosAjenos.length ? 'destinos ajenos: ' + [...new Set(enviosAjenos)].join(', ') : 'solo al throwaway');
+
+  // Rescate: si la corrida se murió antes de capturar el id, el usuario sigue vivo en
+  // producción. La re-lectura por `whatsapp` NO cosecha el id en la barrera, así que sin
+  // registrarlo los DELETE de abajo abortarían.
+  if (!userId) {
+    const { data } = await supabase.from('usuarios').select('id').eq('whatsapp', WA).maybeSingle();
+    if (data && data.id) { await permitirUsuarioDePrueba(data.id); userId = data.id; }
+  }
+  if (!userId) { check('limpieza: no quedó usuario throwaway', true, 'nada que borrar'); return; }
   for (const t of ['transacciones', 'notificaciones', 'categorias_usuario', 'conversaciones', 'notification_deliveries', 'nlp_errors']) {
     await supabase.from(t).delete().eq('usuario_id', userId);
   }

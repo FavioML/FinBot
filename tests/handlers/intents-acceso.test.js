@@ -77,9 +77,21 @@ describe('clasificación de acceso de intents (muro post-trial)', () => {
 describe('comandos / de lectura', () => {
   it('reconoce los comandos de consulta, con y sin argumentos', () => {
     for (const c of ['/mes', '/semana', '/resumen', '/reporte', '/reporte julio',
-                     '/presupuesto', '/presupuesto 500 comida', '/escanear', '/categorias']) {
+                     '/presupuesto', '/presupuesto 500 comida', '/escanear', '/pendientes',
+                     '/categorias']) {
       expect(acceso.comandoRequiereLectura(c), c).toBe(true);
     }
+  });
+
+  // Espejo del test de intents fantasma: si alguien saca un comando de COMANDOS_LECTURA, el
+  // caso de arriba lo caza — pero solo si el comando estaba enumerado ahí. Este cierra el
+  // otro lado: todo lo que esté en el Set tiene que estar fijado por el test, así que agregar
+  // uno obliga a listarlo. Sin esto, `/pendientes` vivió sin cobertura.
+  it('todos los comandos de COMANDOS_LECTURA están fijados en este test', () => {
+    const fijados = new Set(['/mes', '/semana', '/resumen', '/reporte', '/presupuesto',
+                             '/escanear', '/pendientes', '/categorias']);
+    const sinFijar = [...acceso.COMANDOS_LECTURA].filter((c) => !fijados.has(c));
+    expect(sinFijar).toEqual([]);
   });
 
   it('deja pasar los de servicio, conversión y escritura', () => {
