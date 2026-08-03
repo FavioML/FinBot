@@ -72,6 +72,7 @@
 import 'dotenv/config';
 import { createRequire } from 'module';
 import { startWebhookHarness } from './webhook-harness.mjs';
+import { permitirUsuarioDePrueba } from './lib/qa-guard.mjs';
 
 const require = createRequire(import.meta.url);
 
@@ -436,6 +437,22 @@ async function run() {
 }
 
 async function cleanup() {
+  // Rescate por número, ANTES de decidir que no hay nada que borrar. Si una corrida se muere
+  // entre el INSERT y la captura del id, el usuario queda vivo en producción y sin este
+  // bloque el check de limpieza daría PASS con "nada que borrar" — un falso verde de la
+  // misma familia que el harness entero existe para cazar.
+  // La re-lectura por `whatsapp` NO cosecha el id en la barrera (solo `id`/`usuario_id`
+  // fijan sujeto), así que el borrado posterior abortaría: hay que registrarlo a mano, y
+  // `permitirUsuarioDePrueba` revalida is_test_user contra la DB antes de aceptarlo.
+  for (const wa of [WA_A, WA_B]) {
+    if ((wa === WA_A && userA) || (wa === WA_B && userB)) continue;
+    const { data } = await h.supabase.from('usuarios').select('id').eq('whatsapp', wa).maybeSingle();
+    if (!data || !data.id) continue;
+    await permitirUsuarioDePrueba(data.id);
+    if (wa === WA_A) userA = data.id; else userB = data.id;
+    console.log('  (rescate: ' + wa + ' habia quedado huerfano, se borra igual)');
+  }
+
   const ids = [userA, userB].filter(Boolean);
   if (ids.length === 0) { check('limpieza: no quedó usuario throwaway', true, 'nada que borrar'); return; }
   // Hijos primero. `conversaciones` va incluido porque este harness sí las genera (cada
