@@ -43,6 +43,15 @@ async function obtenerHistorial(usuarioId) {
 }
 
 async function obtenerOCrearUsuario(numeroWhatsapp) {
+  // Sin número no hay nada que buscar ni que crear, y el throw va ANTES de todo a propósito.
+  // Dejar pasar un valor vacío no se queda en el `.replace` de abajo: llega al INSERT del
+  // final, y como `whatsapp` es NULLABLE (identidad dual web-first, migr 046) el insert NO
+  // falla — crea un usuario FANTASMA sin número, imposible de vincular a nadie, que además
+  // entra al embudo como un alta real. Fallar acá es más barato que ensuciar `usuarios`.
+  if (!numeroWhatsapp || typeof numeroWhatsapp !== 'string') {
+    throw new Error('obtenerOCrearUsuario: número de WhatsApp vacío o inválido (' +
+      JSON.stringify(numeroWhatsapp) + ')');
+  }
   const numeroNorm = numeroWhatsapp.replace(/^whatsapp:/i, '').replace(/^\+/, '');
   try {
     const { data } = await supabase.from('usuarios').select('*').eq('whatsapp', numeroNorm).single();

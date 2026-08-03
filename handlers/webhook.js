@@ -107,6 +107,24 @@ function createWebhookHandler(procesarMensajeLibre) {
     if (!messages || messages.length === 0) return;
     const message = messages[0];
     from = message.from;
+    // Meta mandó un mensaje SIN remitente. Pasó 4 veces el 01-ago-2026 (05:32 UTC) y
+    // reventaba adentro de obtenerOCrearUsuario con un TypeError opaco ("Cannot read
+    // properties of undefined (reading 'replace')"), del que no se podía sacar nada: la fila
+    // de `errores` quedaba con `detalle` vacío, así que no había forma de saber QUÉ había
+    // llegado. Sin remitente no hay nada que responder ni a quién, así que se descarta — pero
+    // se registra la FORMA del payload, que es exactamente el dato que faltaba para
+    // diagnosticarlo la próxima vez. No se loguea el contenido, solo las claves.
+    if (!from) {
+      const forma = {
+        tipo: message.type || null,
+        wamid: message.id || null,
+        clavesMensaje: Object.keys(message || {}),
+        clavesValue: Object.keys(value || {}),
+      };
+      log.error({ tag: 'WEBHOOK', ...forma }, 'Mensaje entrante sin `from` — se descarta');
+      registrarError('WEBHOOK', 'Mensaje entrante sin from', { detalle: JSON.stringify(forma) });
+      return;
+    }
     if (isDuplicateWamid(message.id)) {
       log.info({ tag: 'WEBHOOK', wamid: message.id, from }, 'Wamid duplicado — skip');
       return;
