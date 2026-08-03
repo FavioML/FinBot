@@ -4,7 +4,7 @@ const { openai } = require('../lib/ai');
 const log = require('../lib/logger');
 const { hoyPeru } = require('../lib/dates');
 const { CATEGORIAS_SUGERIDAS, MESES } = require('../lib/constants');
-const { getEmojiCategoria, formatearResumen, formatearCategoriasMsg, generarRefCode } = require('../lib/formatters');
+const { getEmojiCategoria, formatearResumen, formatearCategoriasMsg, generarRefCode, formatFecha } = require('../lib/formatters');
 const { enviarWhatsapp, procesarStatuses } = require('../lib/whatsapp');
 const { ADMIN_NUMBER } = require('../lib/config');
 const { guardarTransaccion, obtenerGastosMes, recategorizarTransaccion } = require('../services/transactions');
@@ -200,7 +200,11 @@ function createWebhookHandler(procesarMensajeLibre) {
         const subImg = (txImg && txImg.subcategoria) || parsed.subcategoria;
         const emoji = esIngreso ? '💵' : (getEmojiCategoria(catImg) || '📋');
         const tipoLabel = esIngreso ? 'Ingreso registrado' : 'Gasto registrado';
-        let respImg = '📸 *' + tipoLabel + '*\n\n' + emoji + ' *' + (parsed.comercio || (esIngreso ? 'Ingreso' : 'Pago')) + '* — ' + montoStr + '\n' + catImg + (subImg && subImg !== 'sin_categoria' ? ' > ' + subImg : '') + ' · ' + parsed.fecha;
+        // La fecha va por formatFecha ('03-ago-26'), igual que la confirmación de un gasto
+        // escrito (handlers/intents/transacciones.js). Acá se escapaba el ISO crudo, así que
+        // el MISMO evento se veía distinto según lo hubieras escrito o fotografiado, y
+        // "2026-08-03" en un chat se lee como un log, no como algo que le habla a alguien.
+        let respImg = '📸 *' + tipoLabel + '*\n\n' + emoji + ' *' + (parsed.comercio || (esIngreso ? 'Ingreso' : 'Pago')) + '* — ' + montoStr + '\n' + catImg + (subImg && subImg !== 'sin_categoria' ? ' > ' + subImg : '') + ' · ' + formatFecha(parsed.fecha);
         const nudgeImg = await colaConfirmacionGasto(usuario, txImg, txImg && txImg.conteoTx);
         if (nudgeImg) respImg += nudgeImg;
         await enviarWhatsapp(from, respImg);
