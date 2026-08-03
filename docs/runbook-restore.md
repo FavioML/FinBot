@@ -2,8 +2,10 @@
 
 Qué respalda, dónde está, y cómo devolver Neto a la vida.
 
-Última restauración de prueba verificada: **2026-08-02** (41 tablas, 11 554 filas,
-13 comprobantes, RLS y policies intactas).
+Última restauración de prueba verificada: **2026-08-03**, sobre el backup generado
+por GitHub Actions (`neto-backup-20260803T061505Z`): 41 tablas, 11 586 filas
+idénticas al origen, 13 comprobantes válidos, RLS y las 24 policies intactas,
+cero filas huérfanas.
 
 ---
 
@@ -167,7 +169,25 @@ de cobro.
 
 ---
 
-## 6. Qué NO cubre esto
+## 6. Si el backup deja de correr
+
+GitHub **deshabilita los workflows programados de un repo sin actividad por 60 días**.
+FinBot se toca seguido, así que hoy no aplica, pero si alguna vez el repo queda quieto
+un par de meses el backup se apaga en silencio. Señales de que pasó:
+
+- `gh run list --workflow "Backup DB" --repo FavioML/FinBot --limit 10` sin corridas recientes
+- La verificación mensual falla en el paso de frescura (más de 36 h sin backup nuevo)
+
+Se reactiva desde la pestaña Actions del repo, o con un `workflow_dispatch`:
+
+```bash
+gh workflow run "Backup DB" --repo FavioML/FinBot
+```
+
+El cron de Actions también se atrasa bajo carga; por eso la ventana de frescura es de
+36 h y no de 24.
+
+## 7. Qué NO cubre esto
 
 - **Edge Functions y configuración del proyecto** (providers de auth, plantillas de
   correo, secrets de Supabase). Se reconfiguran a mano en el proyecto nuevo.
