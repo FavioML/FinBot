@@ -118,6 +118,15 @@ async function manejarOnboarding({ usuario, msg, cmd }) {
     const cuentasActivas = await obtenerCuentasGmail(usuario.id);
     const numCuentas = cuentasActivas.length;
 
+    // La rama multi-cuenta NO es alcanzable con el modelo actual (un usuario, un correo, para
+    // siempre) y al 2026-08-03 ningún usuario tiene dos cuentas activas. Se evaluó borrarla y se
+    // decidió que NO, por una razón concreta: el índice único de `gmail_cuentas` es sobre
+    // `(usuario_id, email)`, no sobre `usuario_id`. O sea que la regla de una-sola vive en
+    // `guardarTokens` y en NADA de la base — dos filas siguen siendo insertables, y nunca se
+    // hizo un backfill que garantice que no existan. Sin esta rama, un usuario en ese estado
+    // cae al "Cancelado" del final y se queda SIN FORMA de soltar un Gmail que quiere soltar.
+    // Borrar 20 líneas inalcanzables no vale dejar a alguien sin la puerta de salida de sus
+    // propios datos. El menú de `handlers/intents/moderacion.js` ramifica igual, en espejo.
     if (numCuentas > 1) {
       // Multi-cuenta: 1..N = desconectar individual, N+1 = todas, N+2 = eliminar todo
       if (respDesc >= 1 && respDesc <= numCuentas) {

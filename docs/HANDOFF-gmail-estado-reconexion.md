@@ -99,23 +99,44 @@ consume cuando alguien aprueba en la pantalla de Google, no al escribir una fila
 
 ---
 
-## P3 — Código muerto de multi-cuenta
+## P3 — Código muerto de multi-cuenta ⛔ NO SE BORRA (decidido 2026-08-03)
 
-Con una cuenta por usuario, esto quedó inalcanzable. No molesta, pero contradice el modelo para
-quien lea:
+Con una cuenta por usuario esto quedó inalcanzable, y la propuesta era borrarlo. **Se revisó y
+se decidió no hacerlo**, por un dato que este handoff no tenía:
 
-- `handlers/onboarding.js` paso -1: la rama `numCuentas > 1` (dice "Tus otras cuentas siguen
-  activas"). **Ojo:** quitarla cambia el conteo de `revocarAccesoGmail` que fija
-  `tests/gmail-oauth-gates.test.js` (`>= 4`); hay que actualizarlo con criterio.
+> El índice único de `gmail_cuentas` es sobre **`(usuario_id, email)`**, no sobre `usuario_id`.
+
+O sea que la regla de "una sola cuenta" vive enteramente en `guardarTokens` y en **nada** de la
+base: dos filas por usuario siguen siendo insertables, y nunca se corrió un backfill ni se
+agregó una constraint que garantice que no existan. "0 usuarios con más de una cuenta hoy" es
+una observación sobre los datos de hoy, no un invariante.
+
+Qué pasa si se borra igual: un usuario en ese estado escribe "desconectar", el handler no
+matchea `numCuentas > 1` ni `=== 1`, y cae al `Cancelado. Tu cuenta sigue igual` del final —
+**se queda sin forma de soltar un Gmail que quiere soltar**. Borrar ~20 líneas inalcanzables no
+vale dejar a alguien sin la puerta de salida de sus propios datos. Y el precio de admisión era
+además **bajar** el `>= 4` de `revocarAccesoGmail` en `tests/gmail-oauth-gates.test.js`, que es
+justo el guard puesto para vigilar ese flujo destructivo.
+
+La queja real del handoff era "contradice el modelo para quien lea". Eso se resolvió donde
+correspondía: la rama quedó **documentada como camino legacy** en `handlers/onboarding.js`, con
+el porqué. El menú de `handlers/intents/moderacion.js` ramifica en espejo y se queda igual.
+
+**Si algún día se quiere borrar de verdad**, el orden es: primero una migración que agregue el
+índice único sobre `usuario_id` (que es la garantía que hoy falta), y recién después el código.
+Nunca al revés.
+
+Lo demás de este bloque sigue abierto y sigue siendo limpieza opcional, no un bug:
+
 - Intent `preferencia_reporte_gmail` + columna `usuarios.reporte_gmail_modo` + acción
   `report_preference` del tool: unificado/separado solo tiene sentido con 2+ cuentas. Hoy
   degrada bien ("tienes una sola cuenta..."), su probe pasa 6/6.
-- `gmail.js`: los paths que escanean todas las cuentas activas en paralelo.
+- `gmail.js`: los paths que escanean todas las cuentas activas en paralelo. Ojo que
+  `leerCorreosBancarios` **colapsa** el error de N cuentas en un solo flag (`gmail.js:638`), y
+  esa pérdida de información es la que obligó a sellar `auth_error_at` en el origen (ver P1).
 - `handlers/neto-tools.js`: la descripción del tool dice "agregar/cambiar su Gmail". Tocarla
-  mueve comportamiento del NLP, así que medir antes con `tests/nlp/`.
-
-Al 2026-08-03: **0 usuarios con más de una cuenta**, así que borrar es seguro. Es limpieza
-opcional, no un bug.
+  mueve comportamiento del NLP, así que hay que medir antes con `tests/nlp/` — y ojo que el
+  NLP agent de CI está en **STANDBY** desde 2026-07-14, así que esa medición hoy no corre sola.
 
 ---
 
