@@ -16,6 +16,21 @@
 //   - DISPLAY (pintar una fila): `formatTxMonto()` NO colapsa — muestra el
 //     monto original con su moneda, porque "S/ 0.00" para un gasto que existe
 //     es peor que no mostrarlo.
+//
+// La convención de display, decidida el 2026-08-03 y válida en TODA la webapp:
+//
+//   - TOTALES y agregados: siempre soles. No se suman monedas distintas.
+//   - FILAS individuales: primario = lo que la persona realmente pagó, en SU
+//     moneda (`formatTxMonto`); secundario = el equivalente en soles
+//     (`formatTxMontoPen`), y solo cuando `moneda != PEN`.
+//
+// El motivo: quien revisa un cargo lo compara contra su estado de cuenta, que
+// dice "$20.00". Solo soles lo obliga a hacer la cuenta mental; solo USD le
+// rompe la comparación visual de la columna. Como el secundario aparece únicamente
+// fuera de PEN, el 94.84% de las filas (1947 de 2053 al 2026-08-03) no cambia.
+//
+// El render de las dos partes vive en `components/shared/tx-monto.tsx`. Estos
+// helpers se quedan puros (strings) para que sigan siendo testeables sin jsdom.
 
 import { formatCurrency } from './utils';
 
@@ -38,12 +53,27 @@ export function montoPen(tx: TxMonto): number {
 }
 
 /**
- * Monto de una fila para mostrar. Con `monto_pen` presente pinta soles como
- * siempre; sin él cae al monto original CON su símbolo ("$ 300,000.00"), que
- * es el dato honesto: sabemos cuánto se gastó, no sabemos su equivalente en
- * soles. Nunca inventa una conversión ni pinta un cero.
+ * Monto PRIMARIO de una fila: lo que la persona pagó, con el símbolo de la
+ * moneda en que lo pagó ("$ 15.49"). No mira `monto_pen` — ese es el
+ * secundario, y para una fila en PEN no existe. Nunca inventa una conversión
+ * ni pinta un cero: `monto` es NOT NULL en la DB, así que siempre hay número.
  */
 export function formatTxMonto(tx: TxMonto): string {
-  if (tx.monto_pen != null) return formatCurrency(tx.monto_pen);
   return formatCurrency(tx.monto, tx.moneda ?? 'PEN');
+}
+
+/**
+ * Monto SECUNDARIO de una fila: el equivalente en soles, o `null` cuando no hay
+ * nada que agregar. Devuelve null en dos casos, y los dos importan:
+ *
+ *   - `moneda` PEN (o ausente): el primario YA está en soles. Repetirlo sería
+ *     ruido en el 94.84% de las filas.
+ *   - `monto_pen` null: la rama USD fuera de rango del backend NO tiene una
+ *     conversión honesta que mostrar. Se queda solo el monto original, que es
+ *     exactamente lo que esta columna es nullable para poder decir.
+ */
+export function formatTxMontoPen(tx: TxMonto): string | null {
+  if ((tx.moneda ?? 'PEN') === 'PEN') return null;
+  if (tx.monto_pen == null) return null;
+  return formatCurrency(tx.monto_pen);
 }

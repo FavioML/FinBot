@@ -24,7 +24,8 @@ import { MESES, getCategoriaEmoji } from '@/lib/constants';
 import { MonthSelector } from '@/components/dashboard/month-selector';
 import { HeaderActions } from '@/components/dashboard/topbar';
 import type { Presupuesto, Transaccion } from '@/lib/types';
-import { montoPen, formatTxMonto } from '@/lib/tx-monto';
+import { montoPen } from '@/lib/tx-monto';
+import { TxMonto } from '@/components/shared/tx-monto';
 import {
   Dialog,
   DialogContent,
@@ -518,9 +519,7 @@ export default function PresupuestosPage() {
                                   <p className="text-xs text-[#8A877D]">{formatFecha(tx.fecha)}</p>
                                 </div>
                                 <div className="flex items-center gap-2 shrink-0 ml-3">
-                                  <span className="text-sm font-medium text-[#D85A30]">
-                                    -{formatTxMonto(tx)}
-                                  </span>
+                                  <TxMonto tx={tx} signo="-" className="text-sm font-medium text-[#D85A30]" />
                                   <Pencil className="h-3 w-3 text-[#8A877D] opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-opacity" />
                                 </div>
                               </div>

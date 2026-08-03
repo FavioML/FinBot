@@ -62,6 +62,7 @@ import { getCategoriaEmoji, MESES, SOCIAL_LINKS, CATEGORIA_POR_REVISAR, needsRev
 import { normalizeMetodoPago, getMetodoIcon, formatLast4 } from '@/lib/format';
 import type { Transaccion } from '@/lib/types';
 import { montoPen } from '@/lib/tx-monto';
+import { TxMonto } from '@/components/shared/tx-monto';
 import { HeaderActions } from '@/components/dashboard/topbar';
 
 const PAGE_SIZE = 20;
@@ -1107,12 +1108,13 @@ function TransactionTableRow({
       </TableCell>
       <TableCell className="text-xs text-[#8A877D]">{getMetodoIcon(normalizeMetodoPago(tx.metodo_pago, tx.banco))} {normalizeMetodoPago(tx.metodo_pago, tx.banco)}{formatLast4(tx.tarjeta_last4)}</TableCell>
       <TableCell>
-        <span
-          className={`text-sm font-semibold tabular-nums ${isIngreso ? 'shadow-[0_0_8px_rgba(29,158,117,0.2)]' : 'shadow-[0_0_8px_rgba(239,159,39,0.15)]'}`}
+        <TxMonto
+          tx={tx}
+          signo={isIngreso ? '+' : '-'}
+          align="start"
+          className={`text-sm font-semibold ${isIngreso ? 'shadow-[0_0_8px_rgba(29,158,117,0.2)]' : 'shadow-[0_0_8px_rgba(239,159,39,0.15)]'}`}
           style={{ color: isIngreso ? '#1D9E75' : '#D85A30' }}
-        >
-          {isIngreso ? '+' : '-'}{formatCurrency(tx.monto, tx.moneda)}
-        </span>
+        />
       </TableCell>
       <TableCell>
         <div className="flex gap-1">
@@ -1193,12 +1195,12 @@ function TransactionCard({
           </div>
         </div>
         <div className="flex flex-col items-end gap-1">
-          <span
-            className="text-sm font-semibold tabular-nums"
+          <TxMonto
+            tx={tx}
+            signo={isIngreso ? '+' : '-'}
+            className="text-sm font-semibold"
             style={{ color: isIngreso ? '#1D9E75' : '#D85A30' }}
-          >
-            {isIngreso ? '+' : '-'}{formatCurrency(tx.monto, tx.moneda)}
-          </span>
+          />
           <div className="flex gap-1">
             <Button
               variant="ghost"

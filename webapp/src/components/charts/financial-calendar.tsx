@@ -6,7 +6,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { formatCurrency } from '@/lib/utils';
 import { getCategoriaEmoji } from '@/lib/constants';
 import type { Transaccion } from '@/lib/types';
-import { montoPen, formatTxMonto } from '@/lib/tx-monto';
+import { montoPen } from '@/lib/tx-monto';
+import { TxMonto } from '@/components/shared/tx-monto';
 import type { Deuda } from '@/lib/hooks/use-debts';
 import type { MetaAhorro } from '@/lib/hooks/use-goals';
 
@@ -292,12 +293,12 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear, deb
                       <span className="text-xs shrink-0">{getCategoriaEmoji(tx.categoria)}</span>
                       <span className="text-xs text-[#C8C6BC] truncate">{tx.comercio || tx.subcategoria || tx.categoria}</span>
                     </div>
-                    <span
-                      className="text-xs font-medium tabular-nums shrink-0 ml-2"
+                    <TxMonto
+                      tx={tx}
+                      signo={tx.tipo === 'ingreso' ? '+' : '-'}
+                      className="text-xs font-medium shrink-0 ml-2"
                       style={{ color: tx.tipo === 'ingreso' ? '#1D9E75' : '#D85A30' }}
-                    >
-                      {tx.tipo === 'ingreso' ? '+' : '-'}{formatTxMonto(tx)}
-                    </span>
+                    />
                   </div>
                 ))}
               </div>

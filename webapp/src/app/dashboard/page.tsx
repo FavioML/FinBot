@@ -56,7 +56,8 @@ import { useGoals } from '@/lib/hooks/use-goals';
 import { useDebts } from '@/lib/hooks/use-debts';
 import { FadeIn } from '@/components/shared/motion-wrapper';
 import { formatCurrency, formatFecha } from '@/lib/utils';
-import { montoPen, formatTxMonto } from '@/lib/tx-monto';
+import { montoPen } from '@/lib/tx-monto';
+import { TxMonto } from '@/components/shared/tx-monto';
 import { getCategoriaEmoji, MESES, SOCIAL_LINKS } from '@/lib/constants';
 import { capitalizeDisplay, normalizeMetodoPago, getMetodoIcon } from '@/lib/format';
 import { detectSubscriptions, TIPO_LABELS } from '@/lib/subscriptions-catalog';
@@ -748,12 +749,12 @@ export default function DashboardPage() {
                         <span className="hidden lg:inline-block text-xs text-[#8A877D] w-[100px] shrink-0 truncate">
                           {tx.metodo_pago ? capitalizeDisplay(normalizeMetodoPago(tx.metodo_pago, tx.banco)) : ''}
                         </span>
-                        <span
-                          className="text-sm font-semibold tabular-nums shrink-0"
+                        <TxMonto
+                          tx={tx}
+                          signo={isIngreso ? '+' : '-'}
+                          className="text-sm font-semibold shrink-0"
                           style={{ color: isIngreso ? '#1D9E75' : '#D85A30' }}
-                        >
-                          {isIngreso ? '+' : '-'}{formatTxMonto(tx)}
-                        </span>
+                        />
                       </div>
                     );
                   })}
@@ -980,9 +981,7 @@ export default function DashboardPage() {
                           </p>
                         </div>
                         <div className="flex items-center gap-2 shrink-0 ml-3">
-                          <span className="text-sm font-medium text-[#D85A30]">
-                            -{formatTxMonto(tx)}
-                          </span>
+                          <TxMonto tx={tx} signo="-" className="text-sm font-medium text-[#D85A30]" />
                           <button
                             onClick={() => setEditTransaction(tx)}
                             className="p-1 rounded hover:bg-[rgba(255,255,255,0.06)] text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
@@ -1095,7 +1094,7 @@ export default function DashboardPage() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 ml-3">
-                      <span className="text-sm font-medium text-[#D85A30]">{formatTxMonto(tx)}</span>
+                      <TxMonto tx={tx} className="text-sm font-medium text-[#D85A30]" />
                       <button
                         onClick={() => setEditTransaction(tx)}
                         className="p-1 rounded hover:bg-[rgba(255,255,255,0.06)] text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
@@ -1139,7 +1138,7 @@ export default function DashboardPage() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 ml-3">
-                      <span className="text-sm font-medium text-[#D85A30]">{formatTxMonto(tx)}</span>
+                      <TxMonto tx={tx} className="text-sm font-medium text-[#D85A30]" />
                       <button
                         onClick={() => setEditTransaction(tx)}
                         className="p-1 rounded hover:bg-[rgba(255,255,255,0.06)] text-[#8A877D] hover:text-[#C8C6BC] transition-colors"

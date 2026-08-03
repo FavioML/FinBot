@@ -6,8 +6,8 @@ import { Search, ArrowRight, Receipt, Target, FileBarChart, CreditCard, Settings
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
-import { formatCurrency, formatFecha } from '@/lib/utils';
-import { formatTxMonto } from '@/lib/tx-monto';
+import { formatFecha } from '@/lib/utils';
+import { TxMonto } from '@/components/shared/tx-monto';
 import { getCategoriaEmoji } from '@/lib/constants';
 
 const PAGES = [
@@ -154,12 +154,12 @@ export function GlobalSearch() {
                       <p className="text-sm text-[#C8C6BC] truncate">{tx.comercio || tx.descripcion_original || tx.subcategoria}</p>
                       <p className="text-[10px] text-[#8A877D]">{formatFecha(tx.fecha)} · {tx.categoria}</p>
                     </div>
-                    <span
-                      className="text-xs font-medium tabular-nums shrink-0"
+                    <TxMonto
+                      tx={tx}
+                      signo={tx.tipo === 'ingreso' ? '+' : '-'}
+                      className="text-xs font-medium shrink-0"
                       style={{ color: tx.tipo === 'ingreso' ? '#1D9E75' : '#D85A30' }}
-                    >
-                      {tx.tipo === 'ingreso' ? '+' : '-'}{formatTxMonto(tx)}
-                    </span>
+                    />
                   </button>
                 ))}
               </div>

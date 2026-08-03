@@ -34,7 +34,8 @@ import { getCategoriaEmoji, MESES, SOCIAL_LINKS } from '@/lib/constants';
 import { capitalizeDisplay, normalizeMetodoPago, getMetodoIcon } from '@/lib/format';
 import { useSubscriptions } from '@/lib/hooks/use-subscriptions';
 import type { Transaccion } from '@/lib/types';
-import { montoPen, formatTxMonto } from '@/lib/tx-monto';
+import { montoPen } from '@/lib/tx-monto';
+import { TxMonto } from '@/components/shared/tx-monto';
 import { HeaderActions } from '@/components/dashboard/topbar';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -613,7 +614,7 @@ if (!isLoading && transactions.length === 0) {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 ml-3">
-                      <span className="text-sm font-medium text-[#D85A30]">{formatTxMonto(tx)}</span>
+                      <TxMonto tx={tx} className="text-sm font-medium text-[#D85A30]" />
                       <button
                         onClick={() => setEditTransaction(tx)}
                         className="p-1 rounded hover:bg-[rgba(255,255,255,0.06)] text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
@@ -706,7 +707,7 @@ if (!isLoading && transactions.length === 0) {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 ml-3">
-                      <span className="text-sm font-medium text-[#D85A30]">{formatTxMonto(tx)}</span>
+                      <TxMonto tx={tx} className="text-sm font-medium text-[#D85A30]" />
                       <button
                         onClick={() => setEditTransaction(tx)}
                         className="p-1 rounded hover:bg-[rgba(255,255,255,0.06)] text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
@@ -750,7 +751,7 @@ if (!isLoading && transactions.length === 0) {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 ml-3">
-                      <span className="text-sm font-medium text-[#D85A30]">{formatTxMonto(tx)}</span>
+                      <TxMonto tx={tx} className="text-sm font-medium text-[#D85A30]" />
                       <button
                         onClick={() => setEditTransaction(tx)}
                         className="p-1 rounded hover:bg-[rgba(255,255,255,0.06)] text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
@@ -791,7 +792,7 @@ if (!isLoading && transactions.length === 0) {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-sm text-[#D85A30] font-medium">{formatTxMonto(t)}</span>
+                      <TxMonto tx={t} className="text-sm text-[#D85A30] font-medium" />
                       <button onClick={() => setEditTransaction(t)} className="text-[#8A877D] hover:text-[#1D9E75]">
                         <Pencil size={14} />
                       </button>
