@@ -169,7 +169,43 @@ de cobro.
 
 ---
 
-## 6. Si el backup deja de correr
+## 6. Avisos
+
+| Cuándo | Canal |
+|---|---|
+| Backup OK (diario) | Telegram, con cifras: tablas, filas, comprobantes, peso, backups retenidos |
+| Backup falla | Telegram + correo de GitHub |
+| Tabla de `public` sin RLS | Aviso dentro del mensaje de OK (no tumba el backup) |
+
+Se avisa también en el caso bueno a propósito: un sistema que solo habla cuando
+falla es indistinguible de uno que dejó de correr.
+
+Para apagar el aviso diario de éxito sin tocar el de fallo:
+
+```bash
+printf 'false' | gh variable set NOTIFICAR_EXITO --repo FavioML/FinBot
+```
+
+`notificar.sh` nunca hace fallar el job. Un backup correcto que no se pudo notificar
+sigue siendo correcto, y ponerlo en rojo entrenaría a ignorar los rojos.
+
+## 7. Qué pasa cuando el esquema crece
+
+**Tablas nuevas en `public`: entran solas.** El dump es `--schema=public`, a nivel de
+esquema y no una lista de tablas. El manifiesto las cuenta por `information_schema`, y
+la verificación compara lo que encuentre. Nada que tocar al pasar de 36 a 40 tablas.
+
+**Esquemas nuevos: el backup falla a propósito.** Un esquema fuera de la lista declarada
+no se puede incluir solo (habría que decidir si sus datos deben salir del país, si tiene
+RLS, si es temporal). Así que el backup se rechaza con el nombre del esquema y obliga a
+decidir. Para incluirlo: agregarlo al `--schema` del dump y a la lista `CONOCIDOS` en
+`scripts/backup/backup.sh`.
+
+**La verificación se ajusta sola.** El manifiesto guarda la estructura del origen
+(tablas, cuántas con RLS, policies, funciones, triggers, índices, vistas) y el restore la
+compara exacta. No hay números escritos a mano que se queden viejos.
+
+## 8. Si el backup deja de correr
 
 GitHub **deshabilita los workflows programados de un repo sin actividad por 60 días**.
 FinBot se toca seguido, así que hoy no aplica, pero si alguna vez el repo queda quieto
@@ -187,7 +223,7 @@ gh workflow run "Backup DB" --repo FavioML/FinBot
 El cron de Actions también se atrasa bajo carga; por eso la ventana de frescura es de
 36 h y no de 24.
 
-## 7. Qué NO cubre esto
+## 9. Qué NO cubre esto
 
 - **Edge Functions y configuración del proyecto** (providers de auth, plantillas de
   correo, secrets de Supabase). Se reconfiguran a mano en el proyecto nuevo.
