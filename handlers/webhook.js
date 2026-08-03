@@ -12,7 +12,7 @@ const { guardarPresupuesto, formatearEstadoPresupuesto } = require('../services/
 const { parsearCorreoBancario } = require('../services/parsers');
 const { notificarErrorAdmin } = require('../lib/admin-notify');
 const { registrarError } = require('../lib/error-monitor');
-const { generarUrlAutorizacion, menuSeleccionBancos, menuEdicionBancos } = require('../gmail');
+const { menuSeleccionBancos, menuEdicionBancos } = require('../gmail');
 const { registrarReferido, obtenerEstadisticasReferidos, mensajeMisReferidos } = require('../services/referrals');
 const { obtenerCategoriasUsuario } = require('../services/categories');
 const { escanearGmailYRegistrar } = require('../services/gmail-scanner');
@@ -24,7 +24,7 @@ const { esperaComprobante, esPagoNeto, procesarComprobantePro } = require('../li
 const { procesarComandoAdmin } = require('./admin-commands');
 const { abrirSesion, cerrarSesion } = require('../lib/support-tickets');
 const { manejarOnboarding } = require('./onboarding');
-const { colaConfirmacionGasto, estaEnMuro, mensajeMuro } = require('../lib/trial');
+const { colaConfirmacionGasto, estaEnMuro, mensajeMuro, esProPagado, mensajeGmailProPagado } = require('../lib/trial');
 const { comandoRequiereLectura } = require('./intents-acceso');
 const analytics = require('../lib/analytics');
 
@@ -598,11 +598,10 @@ function createWebhookHandler(procesarMensajeLibre) {
     } else if (cmd === '/pendientes') {
       respuesta = '✅ Ya no necesitas categorizar por aquí. Neto categoriza tus gastos automáticamente.\n\n📊 Revisa o ajusta las categorías en https://app.neto.pe/dashboard/transacciones';
     } else if (cmd === '/conectar') {
-      if (usuario.plan !== 'premium') {
-        respuesta = '⭐ *Conectar Gmail es una función Pro.*\n\n' +
-          'Con Pro, Neto lee tus correos bancarios automáticamente.\n\n' +
-          '💰 S/10/mes o S/99/año\n' +
-          '📲 Yapea al 970398192 y escríbeme aquí para activar.';
+      // Pro PAGADO, no `plan === 'premium'`: durante el trial el plan ya vale 'premium' y
+      // este gate dejaba pasar al que prueba, quemándole un cupo de Google. Ver lib/trial.js.
+      if (!esProPagado(usuario)) {
+        respuesta = mensajeGmailProPagado(usuario);
       } else if (usuario.gmail_access_token) {
         respuesta = '📧 Ya tienes Gmail conectado.\n\nPara elegir de qué bancos leo tus correos, escribe */bancos*.\n\nSi necesitas cambiar tu cuenta, escríbenos por WhatsApp al 970398192.';
       } else {

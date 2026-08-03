@@ -41,6 +41,7 @@ const SIN_GATE_DE_PLAN = new Set([
   'checkSurveyConversions',        // no manda nada, solo marca conversiones
   'checkCalcularNetoScore',        // calcula, no envía
   'checkSurveyTriggers',           // vive en services/survey-triggers.js, tiene su propio gate
+  'checkGmailHuerfanos',           // revoca cupos de Gmail; no envía nada (ya se avisó al vencer)
   'limpiarOTPVencidos',
 ]);
 

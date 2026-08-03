@@ -30,6 +30,7 @@ const { supabase } = require('../lib/db');
 const { CATEGORIAS_SUGERIDAS } = require('../lib/constants');
 const { parsearIndicesRespuesta } = require('../lib/formatters');
 const { obtenerCuentasGmail, generarUrlAutorizacion, BANCOS_CATALOGO, describirSeleccion } = require('../gmail');
+const { esProPagado, mensajeGmailProPagado } = require('../lib/trial');
 const { crearCategoriasDesdeIndices } = require('../services/categories');
 const { interpretarComandoPresupuesto } = require('../services/parsers');
 const { guardarPresupuesto } = require('../services/budget');
@@ -173,6 +174,13 @@ async function manejarOnboarding({ usuario, msg, cmd, from }) {
   // y recién ahí entregamos el enlace de OAuth. "todos" → null (= set completo,
   // backward-compatible y auto-incluye bancos que agreguemos luego).
   if (usuario.onboarding_paso === 30 && !cmd.startsWith('/')) {
+    // Gate propio, aunque quien setea el paso 30 (/conectar, agregar_gmail) ya gateó: ESTE es
+    // el sitio donde la URL sale de verdad, y el estado vive en la DB entre los dos mensajes.
+    // Sin esto, un trial que vence entre el comando y la respuesta del menú entrega el enlace.
+    if (!esProPagado(usuario)) {
+      await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
+      return mensajeGmailProPagado(usuario);
+    }
     const sel = interpretarSeleccionBancos(cmd);
     if (!sel.ok) return REPROMPT_BANCOS;
     await supabase.from('usuarios').update({ bancos_seleccionados: sel.ids, onboarding_paso: 0 }).eq('id', usuario.id);

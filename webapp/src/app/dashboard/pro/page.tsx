@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Crown, Copy, Check, Upload, Loader2, Clock, ShieldCheck, Mail, RefreshCw, Landmark, ChevronDown, ZoomIn } from 'lucide-react';
+import { Crown, Copy, Check, Upload, Loader2, Clock, ShieldCheck, Mail, RefreshCw, Landmark, ChevronDown, ZoomIn, Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { FadeIn } from '@/components/shared/motion-wrapper';
@@ -195,7 +195,14 @@ function TrialState({ status, onDone }: { status: ProStatus; onDone: () => void 
 
       <div className="grid gap-4 lg:grid-cols-2">
         <BancosManager initial={status.bancosSeleccionados} />
-        <GmailConnect conectado={status.gmailConectado} email={status.gmailEmail} />
+        {/* En prueba se muestra bloqueada, no se esconde: es el único momento del trial donde
+            pedimos el pago por algo concreto, y vale más como conversión visible. Se deriva del
+            predicado en vez de pasar `false` fijo, para que no pueda divergir del gate real. */}
+        <GmailConnect
+          conectado={status.gmailConectado}
+          email={status.gmailEmail}
+          proPagado={esProPagado(status.plan, status.trialEstado)}
+        />
       </div>
     </div>
   );
@@ -243,7 +250,11 @@ function PremiumState({ status, onDone }: { status: ProStatus; onDone: () => voi
       {/* Management: bancos + gmail side by side on desktop */}
       <div className="grid gap-4 lg:grid-cols-2">
         <BancosManager initial={status.bancosSeleccionados} />
-        <GmailConnect conectado={status.gmailConectado} email={status.gmailEmail} />
+        <GmailConnect
+          conectado={status.gmailConectado}
+          email={status.gmailEmail}
+          proPagado={esProPagado(status.plan, status.trialEstado)}
+        />
       </div>
     </div>
   );
@@ -342,7 +353,19 @@ function BancosManager({ initial }: { initial: string[] | null }) {
   );
 }
 
-function GmailConnect({ conectado, email }: { conectado: boolean; email: string | null }) {
+/**
+ * Conectar Gmail consume uno de los 100 cupos de Google que tenemos hasta la certificación
+ * CASA, así que es la única capability que se cobra por adelantado: `proPagado`, no `isPremium`
+ * (durante el trial `plan` ya vale 'premium'). El backend lo rechaza igual con 403 — esto es
+ * para que el usuario en prueba entienda por qué, en vez de chocar contra un error.
+ *
+ * La variante bloqueada vive DENTRO de la tarjeta y no usa `ProGate`: ese componente es de
+ * página entera (`min-h-[400px]`) y reventaría el grid de dos columnas donde convive con
+ * `BancosManager`. Y su copy —"es Pro" → "Pasar a Pro"— le mentiría a quien tiene Pro ahora
+ * mismo. Acá el mensaje es el otro: lo tienes todo, esto pide el pago primero, y este es el
+ * motivo. El `PaymentForm` que `TrialState` deja abierto está justo arriba.
+ */
+function GmailConnect({ conectado, email, proPagado }: { conectado: boolean; email: string | null; proPagado: boolean }) {
   const [loading, setLoading] = useState(false);
 
   async function connect() {
@@ -358,16 +381,18 @@ function GmailConnect({ conectado, email }: { conectado: boolean; email: string 
     }
   }
 
+  const bloqueado = !proPagado && !conectado;
+
   return (
     <div className="glass-card p-5 space-y-3">
       <div className="flex items-start gap-3">
         <div className="mt-0.5 inline-flex items-center justify-center w-9 h-9 rounded-lg bg-[#1D9E75]/10 shrink-0">
-          <Mail className="w-5 h-5 text-[#1D9E75]" />
+          {bloqueado ? <Lock className="w-5 h-5 text-[#1D9E75]" /> : <Mail className="w-5 h-5 text-[#1D9E75]" />}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-semibold text-[#F0EFE8]">
-              {conectado ? 'Gmail conectado' : 'Conecta tu Gmail'}
+              {conectado ? 'Gmail conectado' : bloqueado ? 'Lectura de correos bancarios' : 'Conecta tu Gmail'}
             </h3>
             {conectado && <Check className="h-4 w-4 text-[#1D9E75] shrink-0" />}
           </div>
@@ -375,6 +400,12 @@ function GmailConnect({ conectado, email }: { conectado: boolean; email: string 
             <p className="text-xs text-[#8A877D] mt-0.5">
               Neto lee tus notificaciones bancarias de{' '}
               <span className="text-[#C8C6BC] font-medium break-all">{email || 'tu cuenta'}</span>. Solo lectura de esos avisos.
+            </p>
+          ) : bloqueado ? (
+            <p className="text-xs text-[#8A877D] mt-0.5">
+              Neto detecta tus gastos de las notificaciones del banco y los anota solos.{' '}
+              <span className="text-[#C8C6BC]">Se activa al confirmar tu pago</span> — cada conexión nos cuesta un cupo con
+              Google y los tenemos contados. Actívalo aquí arriba y empieza a leer el mismo día.
             </p>
           ) : (
             <p className="text-xs text-[#8A877D] mt-0.5">
@@ -385,8 +416,12 @@ function GmailConnect({ conectado, email }: { conectado: boolean; email: string 
       </div>
 
       {!conectado && (
-        <Button onClick={() => connect()} disabled={loading} className="w-full bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90">
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Conectar mi Gmail'}
+        <Button
+          onClick={() => connect()}
+          disabled={loading || bloqueado}
+          className="w-full bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 disabled:opacity-50"
+        >
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : bloqueado ? 'Se activa con Pro pagado' : 'Conectar mi Gmail'}
         </Button>
       )}
     </div>

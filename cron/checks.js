@@ -14,8 +14,24 @@ const { checkSurveyTriggers } = require('../services/survey-triggers');
 const { solicitarComprobante } = require('../lib/pro-payment');
 const { planCostReminders } = require('../lib/cost-reminders');
 const { mensajeActivacionDia2, construirLinkActivacion } = require('../lib/activacion');
-const { mensajeMuro, estaEnMuro, AVISO_DIAS_ANTES } = require('../lib/trial');
+const { mensajeMuro, estaEnMuro, esProPagado, AVISO_DIAS_ANTES } = require('../lib/trial');
+const { revocarAccesoGmail } = require('../gmail');
 const analytics = require('../lib/analytics');
+
+/**
+ * Cola para el aviso de vencimiento cuando además se le soltó el Gmail.
+ *
+ * Va acá y no dentro de `mensajeMuro` a propósito: ese formateador ramifica por `trial_estado`
+ * y ya produjo un bug caro por decidir con una fila incompleta. Se queda puro. Acá la línea es
+ * condicional al RESULTADO real de la revocación, no a una suposición sobre el usuario.
+ *
+ * Desconectar en silencio algo que el usuario conectó a propósito se lee como un bug la
+ * próxima vez que abre /dashboard/pro y ve "Conecta tu Gmail" sin explicación.
+ */
+function avisoGmailDesconectado(revocadas) {
+  if (!revocadas) return '';
+  return '\n\n📧 También desconectamos tu Gmail. Al renovar lo reconectas en un clic.';
+}
 
 async function checkResumenMensual() {
   const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
@@ -306,12 +322,15 @@ async function checkPremiumExpiry() {
     for (const usuario of expirados) {
       try {
         await supabase.from('usuarios').update({ plan: 'free' }).eq('id', usuario.id);
+        // Bajar el plan corta la LECTURA de correos, pero el grant seguía vivo en Google y el
+        // cupo ocupado para siempre. Se suelta acá mismo, sin gracia.
+        const { revocadas } = await revocarAccesoGmail(usuario.id, { motivo: 'premium_vencido' });
         const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
         await notificarUsuario({
           canales: CANALES.AMBOS,
           usuarioId: usuario.id, whatsapp: usuario.whatsapp,
           tipo: 'premium_expired',
-          mensaje: '⏰ ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u plan *NETO Pro* venció.\n\nAhora estás en el plan Free (historial limitado a 1 mes).\n\n¿Quieres renovar?\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Tus datos siguen guardados. Al renovar recuperas acceso completo._',
+          mensaje: '⏰ ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u plan *NETO Pro* venció.\n\nAhora estás en el plan Free (historial limitado a 1 mes).\n\n¿Quieres renovar?\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Tus datos siguen guardados. Al renovar recuperas acceso completo._' + avisoGmailDesconectado(revocadas),
           titulo: 'Plan Pro expirado',
           cuerpo: 'Tu plan NETO Pro venció. Ahora estás en el plan Free.',
           link: '/dashboard/configuracion',
@@ -565,9 +584,14 @@ async function checkTrialExpiry() {
         // el estado real y no el que tenía hace tres líneas.
         usuario.trial_estado = 'vencido';
 
+        // Conectar Gmail ya es exclusivo de Pro pagado, así que un trial normal no llega acá
+        // con cuentas. Se llama igual por los que quedaron conectados de antes del gate: es
+        // barato (un select que devuelve vacío) y no depende de que el barrido pase primero.
+        const { revocadas } = await revocarAccesoGmail(usuario.id, { motivo: 'trial_vencido' });
+
         const { count: conteoTx } = await supabase.from('transacciones')
           .select('id', { count: 'exact', head: true }).eq('usuario_id', usuario.id);
-        const msg = mensajeMuro(usuario, conteoTx);
+        const msg = mensajeMuro(usuario, conteoTx) + avisoGmailDesconectado(revocadas);
         await notificarUsuario({
           canales: CANALES.AMBOS,
           usuarioId: usuario.id, whatsapp: usuario.whatsapp,
@@ -1160,6 +1184,48 @@ async function checkResumenDiarioManosLibres() {
 
 // Limpieza periódica de OTPs de verificación web vencidos (evita acumulación de filas muertas;
 // el unique index por supabase_auth_id ya reemplaza al regenerar, esto borra los abandonados).
+/**
+ * Barrido de cupos de Gmail colgados: cuentas activas de quien ya no es Pro pagado.
+ *
+ * Las dos bajas de plan (checkTrialExpiry, checkPremiumExpiry) ya revocan en el momento, así
+ * que en régimen esto no debería encontrar nada. Existe igual, y no como script de una vez,
+ * porque el cupo se fuga por caminos que no pasan por esos crons: un downgrade por SQL a mano
+ * (pasó el 01-ago), un cron que muere a mitad del loop, un plan cambiado desde el panel admin.
+ * Un one-off limpiaba las 2 cuentas colgadas de hoy y no protegía mañana.
+ *
+ * NO notifica: a estos usuarios ya se les avisó cuando venció su plan, y un WhatsApp sobre
+ * algo que pasó hace semanas se lee como spam. Por eso está exento en
+ * `tests/cron/lecturas-proactivas.test.js`.
+ */
+async function checkGmailHuerfanos() {
+  try {
+    // La verdad de "quién tiene cupo tomado" está en gmail_cuentas, así que se arranca de ahí
+    // y no de usuarios: barre también al que ya no aparecería en una query por plan.
+    const { data: cuentas } = await supabase.from('gmail_cuentas')
+      .select('usuario_id, usuarios!inner(id, plan, trial_estado)')
+      .eq('activa', true);
+    if (!cuentas || cuentas.length === 0) return;
+
+    const huerfanos = [...new Map(
+      cuentas.filter((c) => !esProPagado(c.usuarios)).map((c) => [c.usuario_id, c.usuarios]),
+    ).keys()];
+    if (huerfanos.length === 0) return;
+
+    let liberados = 0;
+    for (const usuarioId of huerfanos) {
+      try {
+        const { revocadas } = await revocarAccesoGmail(usuarioId, { motivo: 'barrido_huerfanos' });
+        liberados += revocadas;
+      } catch (e) {
+        log.error({ tag: 'GMAIL_HUERFANOS', usuarioId, err: e.message }, 'No se pudo revocar; se reintenta mañana');
+      }
+    }
+    log.info({ tag: 'GMAIL_HUERFANOS', usuarios: huerfanos.length, liberados }, 'Cupos de Gmail liberados');
+  } catch (e) {
+    log.error({ tag: 'GMAIL_HUERFANOS', err: e.message }, 'Error general en el barrido de cupos Gmail');
+  }
+}
+
 async function limpiarOTPVencidos() {
   try {
     await supabase.from('webapp_otp').delete().lt('expires_at', new Date().toISOString());
@@ -1171,6 +1237,7 @@ module.exports = {
   checkResumenSemanal,
   checkResumenDiarioManosLibres,
   limpiarOTPVencidos,
+  checkGmailHuerfanos,
   checkRecordatorioDiario,
   checkPremiumExpiry,
   checkTrialExpiry,

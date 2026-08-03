@@ -224,6 +224,70 @@ async function obtenerCuentasGmail(usuarioId) {
   return data || [];
 }
 
+/**
+ * Suelta el acceso a Gmail de un usuario: se lo dice a GOOGLE y recién después limpia acá.
+ *
+ * El orden importa y es la razón de existir de esta función. Hasta ahora "desconectar" era
+ * un flip local de `activa: false` (onboarding.js), que le corta la lectura al usuario pero
+ * deja el grant vivo del lado de Google. Y el grant es el recurso escaso: tenemos 100 cupos
+ * hasta la certificación CASA, así que un usuario que dejó de pagar hace meses seguía
+ * ocupando el suyo. Medido el 2026-08-01: 2 de 6 cuentas activas eran de usuarios en 'free'.
+ *
+ * Revocar el refresh token tumba el grant completo (todos los access tokens derivados).
+ *
+ * Tolerante a fallos A PROPÓSITO: esto se llama desde el camino que baja a alguien de plan, y
+ * un timeout con Google no puede dejar a un usuario a medio bajar. Si la revocación falla, se
+ * loguea y se limpia local igual — la próxima corrida de checkGmailHuerfanos lo reintenta.
+ * `invalid_token` no es un fallo: significa que el grant ya no existía, que es el destino.
+ *
+ * @returns {Promise<{revocadas: number, emails: string[]}>}
+ */
+async function revocarAccesoGmail(usuarioId, { motivo = 'sin_motivo' } = {}) {
+  const cuentas = await obtenerCuentasGmail(usuarioId);
+  if (cuentas.length === 0) return { revocadas: 0, emails: [] };
+
+  const emails = [];
+  for (const cuenta of cuentas) {
+    // El refresh token es el que sostiene el grant; el access token solo sirve de plan B
+    // para una fila vieja que nunca lo recibió.
+    let token = null;
+    try {
+      token = decrypt(cuenta.refresh_token) || decrypt(cuenta.access_token);
+    } catch (e) {
+      log.warn({ tag: 'GMAIL_REVOKE', usuarioId, err: e.message }, 'No se pudo descifrar el token; se limpia local igual');
+    }
+    if (token) {
+      try {
+        await oauth2Client.revokeToken(token);
+      } catch (e) {
+        const yaMuerto = /invalid_token|invalid_grant/i.test(e.message || '');
+        log[yaMuerto ? 'info' : 'error'](
+          { tag: 'GMAIL_REVOKE', usuarioId, email: cuenta.email, motivo, err: e.message },
+          yaMuerto ? 'El grant ya no existía en Google' : 'Falló la revocación en Google; se limpia local igual',
+        );
+      }
+    }
+    emails.push(cuenta.email);
+  }
+
+  // Cierre local, pase lo que pase con Google. Se conserva la fila (no `delete`): mantiene el
+  // email para historial y deja que el upsert de guardarTokens reconecte limpio por
+  // onConflict 'usuario_id,email'. Los tokens se anulan porque ya están muertos: guardarlos
+  // cifrados no aporta nada y es pasivo.
+  await getSupabase().from('gmail_cuentas')
+    .update({ activa: false, access_token: null, refresh_token: null, token_expiry: null, updated_at: new Date().toISOString() })
+    .eq('usuario_id', usuarioId).eq('activa', true);
+  await getSupabase().from('usuarios')
+    .update({ gmail_access_token: null, gmail_refresh_token: null, gmail_token_expiry: null })
+    .eq('id', usuarioId);
+
+  // Los emails van al log a propósito: si el proyecto de Google Cloud está en publishing
+  // status "Testing", el cupo de 100 es una lista de test users que se administra a mano en
+  // la consola, y revocar no la toca. Esta línea es la lista de qué podar.
+  log.info({ tag: 'GMAIL_REVOKE', usuarioId, emails, motivo }, 'Acceso a Gmail revocado y cupo liberado');
+  return { revocadas: emails.length, emails };
+}
+
 async function obtenerPerfilGoogle(authClient) {
   try {
     const oauth2 = google.oauth2({ version: 'v2', auth: authClient });
@@ -499,4 +563,4 @@ async function leerCorreosBancarios(usuarioId, opts = {}) {
   return { error: authExpired ? 'AUTH_EXPIRED' : null, mensajes: mensajesUnificados };
 }
 
-module.exports = { generarUrlAutorizacion, verificarState, guardarTokens, cargarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail, BANCOS_CATALOGO, remitentesParaSeleccion, menuSeleccionBancos, menuEdicionBancos, describirSeleccion, construirQueriesBancarias };
+module.exports = { generarUrlAutorizacion, verificarState, guardarTokens, cargarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail, revocarAccesoGmail, BANCOS_CATALOGO, remitentesParaSeleccion, menuSeleccionBancos, menuEdicionBancos, describirSeleccion, construirQueriesBancarias };

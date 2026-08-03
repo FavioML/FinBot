@@ -4,6 +4,7 @@ const { supabase } = require('../lib/db');
 const log = require('../lib/logger');
 const { enviarWhatsapp } = require('../lib/whatsapp');
 const { oauth2Client, obtenerPerfilGoogle, guardarTokens, obtenerCuentasGmail, verificarState } = require('../gmail');
+const { esProPagado } = require('../lib/trial');
 const { parsearCorreoBancario } = require('../services/parsers');
 const { escanearGmailYRegistrar, escanearHistoricoInicial } = require('../services/gmail-scanner');
 const analytics = require('../lib/analytics');
@@ -64,6 +65,19 @@ router.get('/auth/callback', async (req, res) => {
     if (uid) { const { data } = await supabase.from('usuarios').select('*').eq('id', uid).single(); usuario = data; }
     if (!usuario && whatsappNum) { const { data } = await supabase.from('usuarios').select('*').eq('whatsapp', whatsappNum).single(); usuario = data; }
     if (!usuario) return res.status(404).send('<h2>No se encontró tu cuenta.</h2><p>Vuelve a app.neto.pe e intenta conectar Gmail de nuevo, o escribe */conectar* en WhatsApp.</p>');
+
+    // ── El gate que de verdad protege el cupo ──────────────────────────────────
+    // Gatear la EMISIÓN del link no alcanza: el state vive 7 días (STATE_TTL_MS en gmail.js,
+    // generoso a propósito porque el link post-pago se abre horas o días después en el chat).
+    // Un link emitido cuando el usuario todavía pagaba se canjea igual una semana más tarde.
+    // El cupo de Google no se gasta al generar el enlace, se gasta acá. Por eso se revalida
+    // contra la fila fresca — que además es lo que hace seguro NO gatear activarPro: cuando
+    // llega acá, el UPDATE que lo dejó 'premium'/'convertido' ya está escrito.
+    if (!esProPagado(usuario)) {
+      log.warn({ tag: 'OAUTH', usuarioId: usuario.id, plan: usuario.plan, trialEstado: usuario.trial_estado },
+        'Canje de OAuth rechazado: el usuario no es Pro pagado (link emitido antes del vencimiento)');
+      return res.status(403).send('<h2>Este enlace ya no está activo.</h2><p>Conectar tu Gmail requiere Neto Pro activo. Actívalo en <a href="https://app.neto.pe/dashboard/pro">app.neto.pe</a> y te damos un enlace nuevo.</p>');
+    }
 
     const perfil = await obtenerPerfilGoogle(oauth2Client);
     const emailConectado = perfil.email;

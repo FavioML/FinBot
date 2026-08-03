@@ -22,6 +22,7 @@ const {
   checkSurveyTriggers,
   checkSurveyConversions,
   limpiarOTPVencidos,
+  checkGmailHuerfanos,
 } = require('./checks');
 
 // Keep-warm de la webapp (Vercel): pinguea /api/dashboard?warm=1 para mantener
@@ -91,6 +92,11 @@ function startCronJobs() {
     limpiarOTPVencidos();
     setInterval(limpiarOTPVencidos, 60 * 60 * 1000);
     log.info({ tag: 'OTP_CLEANUP' }, 'Limpieza de OTPs vencidos activa (cada 60min)');
+    // Arranca al boot además del intervalo: es el barrido que recoge lo que se coló por fuera
+    // de los crons de baja, y un deploy es justo cuando conviene reconciliar.
+    checkGmailHuerfanos();
+    setInterval(checkGmailHuerfanos, 24 * 60 * 60 * 1000);
+    log.info({ tag: 'GMAIL_HUERFANOS' }, 'Barrido de cupos Gmail de no-pagados activo (al boot y cada 24h)');
     // El backup ya no vive aca. Corre a diario en GitHub Actions
     // (.github/workflows/backup-db.yml) contra Cloudflare R2, cifrado y
     // completo. El que estaba aca subia 7 de 36 tablas en texto plano a un

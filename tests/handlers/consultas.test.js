@@ -84,6 +84,33 @@ describe('consultas paywall — Gmail intents (prw-002)', () => {
     expect(ctx.supabase.from).toHaveBeenCalledWith('usuarios');
   });
 
+  // El agujero que motivó el gate: durante el trial `plan` vale 'premium', así que el gate
+  // viejo (`maxGmailAccounts === 0`, o sea `plan === 'free'`) dejaba pasar al que prueba y le
+  // quemaba uno de los 100 cupos de Google. Los dos casos de arriba (free / premium sin
+  // trial) pasaban igual ANTES y DESPUÉS del cambio: no prueban nada de esto.
+  it.each([
+    ['agregar_gmail'],
+    ['cambiar_gmail'],
+  ])('%s NO entrega OAuth a quien está en su trial (plan premium + trial activo)', async (intencion) => {
+    const usuario = { id: 'u1', nombre: 'Ana', plan: 'premium', trial_estado: 'activo' };
+    const res = await handler.handle({
+      intencion, msg: 'conectar gmail', datos: {}, usuario, from: '+51999', ctx: ctxWith(),
+    });
+    expect(res).toContain('Pro pagado');
+    expect(res).not.toContain('https://oauth');
+    expect(gmailMock.generarUrlAutorizacion).not.toHaveBeenCalled();
+    expect(gmailMock.menuSeleccionBancos).not.toHaveBeenCalled();
+  });
+
+  it('cambiar_gmail SÍ entrega OAuth al Pro pagado (el gate no puede pasarse de largo)', async () => {
+    const usuario = { id: 'u1', plan: 'premium', trial_estado: 'convertido' };
+    const res = await handler.handle({
+      intencion: 'cambiar_gmail', msg: 'cambiar mi gmail', datos: {}, usuario, from: '+51999', ctx: ctxWith(),
+    });
+    expect(res).toContain('https://oauth');
+    expect(gmailMock.generarUrlAutorizacion).toHaveBeenCalled();
+  });
+
   it('escanear_gmail bloquea a free con paywall', async () => {
     const usuario = { id: 'u1', plan: 'free' };
     const res = await handler.handle({

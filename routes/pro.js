@@ -4,6 +4,7 @@ const { supabase } = require('../lib/db');
 const log = require('../lib/logger');
 const { PRO_PRECIOS, precioProEfectivo } = require('../lib/config');
 const { registrarSolicitudPro } = require('../lib/pro-payment');
+const { esProPagado } = require('../lib/trial');
 const { generarUrlAutorizacion, BANCOS_CATALOGO } = require('../gmail');
 
 const router = express.Router();
@@ -36,8 +37,16 @@ router.get('/gmail-auth-url', async (req, res) => {
   if (!verificarInterno(req, res)) return;
   const usuarioId = req.query.usuario_id;
   if (!usuarioId) return res.status(400).json({ ok: false, msg: 'Falta usuario_id' });
-  const { data: usuario } = await supabase.from('usuarios').select('whatsapp').eq('id', usuarioId).single();
+  // Trae `plan` y `trial_estado` porque las dos alimentan la decisión de abajo: una fila
+  // parcial acá decidiría con `trial_estado: undefined` y abriría el gate.
+  const { data: usuario } = await supabase.from('usuarios').select('whatsapp, plan, trial_estado').eq('id', usuarioId).single();
   if (!usuario) return res.status(404).json({ ok: false, msg: 'Usuario no encontrado' });
+  // Conectar Gmail consume un cupo de Google (100 hasta la certificación CASA), así que se
+  // reserva para quien PAGA. Durante el trial `plan` ya vale 'premium' — por eso el predicado
+  // es esProPagado y no un chequeo de plan. La webapp traduce este 403 a la tarjeta bloqueada.
+  if (!esProPagado(usuario)) {
+    return res.status(403).json({ ok: false, motivo: 'pro_pagado_requerido', msg: 'Conectar Gmail requiere Pro pagado' });
+  }
   // Un usuario conecta un solo Gmail desde la webapp: siempre 'inicial' (sin modo 'agregar').
   // Se pasa el usuario_id → el callback resuelve por identidad, no por número (un
   // Pro web-only tiene whatsapp null y sin uid quedaría sin poder conectar Gmail).

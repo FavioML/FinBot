@@ -2,6 +2,7 @@ const log = require('../../lib/logger');
 const { escanearGmailYRegistrar } = require('../../services/gmail-scanner');
 const { obtenerCuentasGmail, generarUrlAutorizacion, menuSeleccionBancos } = require('../../gmail');
 const { getUserPlanConfig } = require('../../helpers/db-helpers');
+const { esProPagado, mensajeGmailProPagado } = require('../../lib/trial');
 
 module.exports = {
   intents: ['escanear_gmail', 'agregar_gmail', 'cambiar_gmail', 'preferencia_reporte_gmail'],
@@ -17,9 +18,11 @@ module.exports = {
       }
 
       case 'agregar_gmail': {
-        const planConfigAdd = getUserPlanConfig(usuario);
-        if (planConfigAdd.maxGmailAccounts === 0) {
-          return '⭐ *Conectar Gmail es una función Pro.*\n\nCon Pro, Neto lee tus correos bancarios automáticamente y registra tus gastos sin que escribas nada.\n\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
+        // `maxGmailAccounts === 0` es `plan === 'free'` con otro nombre, y durante el trial el
+        // plan vale 'premium': dejaba conectar al que prueba. Conectar cuesta un cupo de
+        // Google, así que la pregunta correcta es si PAGA. Ver lib/trial.js.
+        if (!esProPagado(usuario)) {
+          return mensajeGmailProPagado(usuario);
         }
         const cuentasExistentes = await obtenerCuentasGmail(usuario.id);
         if (cuentasExistentes.length > 0) {
@@ -33,9 +36,8 @@ module.exports = {
       }
 
       case 'cambiar_gmail': {
-        const planConfigChg = getUserPlanConfig(usuario);
-        if (planConfigChg.maxGmailAccounts === 0) {
-          return '⭐ *Conectar Gmail es una función Pro.*\n\nCon Pro, Neto lee tus correos bancarios automáticamente y registra tus gastos sin que escribas nada.\n\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
+        if (!esProPagado(usuario)) {
+          return mensajeGmailProPagado(usuario);
         }
         const urlCambiar = generarUrlAutorizacion(from, 'reemplazar');
         return '🔄 *Reconecta tu Gmail*\n\nAbre este enlace para autorizar de nuevo:\n\n' + urlCambiar + '\n\n_Tu cuenta anterior será reemplazada automáticamente._';
