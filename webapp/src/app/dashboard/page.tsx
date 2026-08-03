@@ -125,6 +125,11 @@ export default function DashboardPage() {
     if (searchParams.get('gmail') !== 'conectado') return;
     toast.success('Gmail conectado — Neto ya está leyendo tus correos bancarios.');
     queryClient.invalidateQueries({ queryKey: ['pro-status'] });
+    // También el estado que alimenta el banner de "Gmail desconectado": si el usuario llegó
+    // acá justamente por reconectar, dejarlo cacheado sería seguir avisando de algo ya resuelto.
+    // Hoy el callback entra por una navegación completa y el bootstrap lo resiembra igual; esto
+    // lo deja explícito para que un futuro redirect client-side no reintroduzca el aviso viejo.
+    queryClient.invalidateQueries({ queryKey: ['gmail-estado'] });
     window.history.replaceState(null, '', '/dashboard');
   }, [searchParams, queryClient]);
 

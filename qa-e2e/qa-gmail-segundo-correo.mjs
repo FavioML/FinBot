@@ -98,6 +98,15 @@ async function main() {
     qa.is_test_user === true && esProPagado(qa),
     'is_test_user=' + qa.is_test_user + ' plan=' + qa.plan + ' trial=' + qa.trial_estado);
 
+  // Barrido previo: si una corrida anterior murió de golpe (Ctrl-C, kill), su `finally` no
+  // corrió y quedó una fila sembrada. `gmail_cuentas` es el marcador de cupos, así que una
+  // sobra ahí hace que el conteo mienta. Se limpia ANTES de medir el baseline.
+  const { data: sobrasPrevias } = await supabase.from('gmail_cuentas').select('id, email').eq('usuario_id', QA_ID);
+  for (const f of sobrasPrevias || []) {
+    console.log('  (limpiando sobra de una corrida anterior: ' + f.email + ')');
+    await supabase.from('gmail_cuentas').delete().eq('id', f.id);
+  }
+
   const { count: baseline } = await supabase.from('gmail_cuentas').select('id', { count: 'exact', head: true });
 
   // La cuenta "ya vinculada". Es la precondición de la rama: sin ella no hay con qué comparar.

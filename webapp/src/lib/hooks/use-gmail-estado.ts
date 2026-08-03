@@ -19,12 +19,18 @@ export interface GmailEstado {
  *
  * Gated por `useBootstrapGate()`: sin el gate este fetch gana la carrera contra el bootstrap
  * y el fallback se convierte en el camino normal.
+ *
+ * `enabled` NO es cosmético. Al usuario en el muro, `/api/dashboard` le responde 402, así que
+ * NADA se siembra y este hook caía siempre a su fetch de fallback — resucitando, justo para
+ * ellos, el fan-out que el bootstrap existe para matar. Y era gasto puro: sin Pro pagado el
+ * `checkGmailHuerfanos` ya les revocó la cuenta, o sea que nunca hay nada que avisar. Son 42
+ * de 48 usuarios con webapp.
  */
-export function useGmailEstado() {
+export function useGmailEstado({ enabled = true }: { enabled?: boolean } = {}) {
   const gate = useBootstrapGate();
   return useQuery<GmailEstado>({
     queryKey: ['gmail-estado'],
-    enabled: !IS_DEMO && gate,
+    enabled: !IS_DEMO && gate && enabled,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
       const r = await fetch('/api/pro/status', { cache: 'no-store' });

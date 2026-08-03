@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
 import { useGmailEstado } from '@/lib/hooks/use-gmail-estado';
+import { useUser } from '@/lib/hooks/use-user';
+import { esProPagado } from '@/lib/plan';
 import { IS_DEMO } from '@/lib/demo/is-demo';
 
 /**
@@ -21,9 +23,15 @@ import { IS_DEMO } from '@/lib/demo/is-demo';
  * detalle y el botón real.
  */
 export function GmailDesconectadoBanner() {
-  const { data } = useGmailEstado();
+  // Solo el Pro PAGADO puede tener una conexión de Gmail viva: al resto ya se la revocó
+  // `checkGmailHuerfanos`. Sin este gate, los 42 usuarios con webapp que no pagan disparaban
+  // un fetch a /api/pro/status por un aviso que nunca les puede aplicar — y el del muro lo
+  // disparaba SIEMPRE, porque a él /api/dashboard le responde 402 y no siembra nada.
+  const { data: user } = useUser();
+  const proPagado = !!user && esProPagado(user.plan, user.trial_estado);
+  const { data } = useGmailEstado({ enabled: proPagado });
 
-  if (IS_DEMO || !data?.authErrorAt) return null;
+  if (IS_DEMO || !proPagado || !data?.authErrorAt) return null;
 
   const desde = new Date(data.authErrorAt).toLocaleDateString('es-PE', {
     timeZone: 'America/Lima',

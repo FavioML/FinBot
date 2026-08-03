@@ -90,6 +90,14 @@ async function main() {
   const qaId = qaEnv.NETO_QA_USUARIO_ID;
   if (!qaId) throw new Error('falta NETO_QA_USUARIO_ID');
 
+  // Barrido previo: una corrida que murió de golpe (Ctrl-C, kill) no ejecutó su `finally` y
+  // dejó su fila. `gmail_cuentas` es el marcador de cupos — una sobra ahí lo hace mentir.
+  const { data: sobrasPrevias } = await supabase.from('gmail_cuentas').select('id, email').eq('usuario_id', qaId);
+  for (const f of sobrasPrevias || []) {
+    console.log('  (limpiando sobra de una corrida anterior: ' + f.email + ')');
+    await supabase.from('gmail_cuentas').delete().eq('id', f.id);
+  }
+
   const { count: baseline } = await supabase.from('gmail_cuentas').select('id', { count: 'exact', head: true });
   console.log('  baseline gmail_cuentas: ' + baseline + ' filas\n');
 

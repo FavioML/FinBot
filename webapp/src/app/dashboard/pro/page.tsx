@@ -490,7 +490,13 @@ function GmailConnect({
               Google dejó de aceptar el permiso de{' '}
               <span className="text-[#C8C6BC] font-medium break-all">{email || 'tu cuenta'}</span>
               {desde ? <> el {desde}</> : null}, así que Neto ya no está registrando los gastos que te llegan por
-              correo. Lo que anotas por WhatsApp sigue igual. Vuelve a autorizar esa misma cuenta y se retoma solo.
+              correo. Lo que anotas por WhatsApp sigue igual.{' '}
+              {/* Sin Pro pagado no hay botón (el backend responde 403), así que prometerle
+                  "vuelve a autorizar" sería mandarlo a buscar algo que no está en pantalla.
+                  Es una ventana chica —`checkGmailHuerfanos` revoca a diario— pero existe. */}
+              {accionable
+                ? 'Vuelve a autorizar esa misma cuenta y se retoma solo.'
+                : 'Se reactiva al renovar tu plan.'}
             </p>
           ) : estado === 'sano' ? (
             <p className="text-xs text-[#8A877D] mt-0.5">

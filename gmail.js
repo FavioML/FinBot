@@ -397,11 +397,16 @@ function crearClienteOAuth() {
  */
 async function sellarAuthCaida(cuenta) {
   try {
-    await getSupabase().from('gmail_cuentas')
+    // El `error` se mira explícitamente: postgrest-js NO lanza, devuelve `{ error }`. Un
+    // try/catch pelado solo atrapa fallas de red, así que un filtro mal formado dejaría el
+    // sello sin escribir EN SILENCIO — y como esto solo corre cuando un token ya murió, nadie
+    // se enteraría hasta que un usuario reclamara que la app le miente.
+    const { error } = await getSupabase().from('gmail_cuentas')
       .update({ auth_error_at: new Date().toISOString() })
       .eq('usuario_id', cuenta.usuario_id)
       .eq('email', cuenta.email)
       .is('auth_error_at', null);
+    if (error) throw new Error(error.message);
   } catch (e) {
     log.error({ tag: 'AUTH', email: cuenta.email, err: e.message }, 'No se pudo sellar la auth caída');
   }
