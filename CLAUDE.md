@@ -162,21 +162,27 @@ Dos reglas, y las dos se pagaron:
   hace pagado, con la fila en memoria todavia vieja — por eso el gate no vive dentro
   de `generarUrlAutorizacion`. El callback lo revalida.
 
-Bajar de plan **revoca en Google** (`revocarAccesoGmail` en `gmail.js`), no solo
-marca `activa: false`: el flip local le corta la lectura al usuario pero deja el
-grant vivo y el cupo tomado. Lo llaman las dos bajas, y `checkGmailHuerfanos` barre
-a diario lo que se cuele por fuera (SQL a mano, panel admin, cron muerto a mitad).
+**El cupo NO se recupera.** Verificado en la consola de Google (03-ago-2026, proyecto
+**En produccion**, no en modo prueba): el limite de usuarios de OAuth se cuenta sobre
+*todo el ciclo de vida del proyecto* y "no se puede restablecer ni cambiar". Cuenta a
+quien **alguna vez** otorgo permiso, no a quien lo tiene ahora. Marcador al cerrar
+este trabajo: **5 de 100**.
+
+Consecuencias, y son las que mandan al priorizar:
+- El **gate de entrada es lo unico** que protege el inventario. Cada conexion es
+  permanente: ~95 usuarios mas, para siempre, y despues CASA es obligatorio.
+- **Revocar es higiene, no recuperacion.** Sirve para no seguir teniendo permiso de
+  lectura sobre la bandeja de alguien que dejo de pagar, y para que el estado local
+  no mienta. No devuelve cupos.
+- La capability tiene **tres caras y las tres cobran igual**: conectar, elegir bancos
+  (sin Gmail no lee nada) y **leer** — `services/gmail-scanner.js`, que es la mitad
+  silenciosa: no tiene pantalla, y estaba gateada por plan.
 
 | Pieza | Donde |
 |---|---|
-| Las 7 puertas + el guard | `tests/gmail-oauth-gates.test.js` (conteo fijado por archivo) |
+| Las puertas + el guard | `tests/gmail-oauth-gates.test.js` (conteo fijado por archivo) |
 | Revocacion | `revocarAccesoGmail()` en `gmail.js` + `checkGmailHuerfanos` |
 | E2E | `qa-e2e/qa-gmail-pro-pagado.mjs` (muro/trial/pagado contra prod) |
-
-**Ojo si el proyecto de Google Cloud esta en publishing status "Testing":** el cap de
-100 es una lista de test users que se administra a mano en la consola, y revocar no
-la toca. Los emails revocados salen en el log con tag `GMAIL_REVOKE` para poder
-podarla.
 
 Cuatro de los seis huecos salieron de mirar una sola columna: el banner de prueba encima del
 paywall, `/dashboard/pro` diciendole "Eres Neto Pro ⭐" a quien probaba (escondiendole el

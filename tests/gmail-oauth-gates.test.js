@@ -147,6 +147,35 @@ describe('el canje del código OAuth revalida contra la base', () => {
 });
 
 /**
+ * La capability tiene tres caras y las tres cobran lo mismo:
+ *   CONECTAR (arriba) · ELEGIR BANCOS · LEER.
+ *
+ * Elegir bancos no consume cupo por sí solo, pero sin Gmail conectado no lee nada: dejarlo
+ * abierto configuraba una lectura que nunca iba a ocurrir. Y la LECTURA automática era la
+ * mitad silenciosa — gateada por plan, o sea que a un usuario en prueba con una cuenta
+ * heredada se le seguían leyendo los correos del banco sin que ninguna pantalla lo dijera.
+ */
+describe('las otras dos caras: elegir bancos y leer', () => {
+  it.each([
+    ['handlers/webhook.js', 'el comando /bancos'],
+    ['handlers/onboarding.js', 'el paso 31 (editar bancos), con el mismo punto ciego que el 30'],
+    ['services/gmail-scanner.js', 'el barrido automático: la lectura sin pantalla de por medio'],
+  ])('%s gatea por Pro pagado (%s)', (rel) => {
+    const src = readFileSync(path.join(RAIZ, rel), 'utf-8');
+    expect(SENAL_DE_GATE.test(src), rel + ' no llama esProPagado').toBe(true);
+  });
+
+  // `maxGmailAccounts === 0` es `plan === 'free'` con otro nombre: responde "¿tiene Pro?",
+  // no "¿paga?". Que sobreviva en un camino de Gmail significa que ese camino quedó abierto
+  // al trial. Se fija en cero para que reaparecer rompa el build.
+  it('ningún camino de Gmail decide con maxGmailAccounts (es plan disfrazado)', () => {
+    const sospechosos = ['services/gmail-scanner.js', 'handlers/onboarding.js', 'routes/pro.js', 'routes/public.js']
+      .filter((rel) => /maxGmailAccounts/.test(readFileSync(path.join(RAIZ, rel), 'utf-8')));
+    expect(sospechosos).toEqual([]);
+  });
+});
+
+/**
  * Todos los gates de arriba delegan en un predicado. Si alguien lo degrada a
  * `plan === 'premium'`, las puertas se abren TODAS a la vez, en silencio, y los tests de
  * arriba siguen verdes porque la llamada sigue estando escrita.

@@ -1185,13 +1185,16 @@ async function checkResumenDiarioManosLibres() {
 // Limpieza periódica de OTPs de verificación web vencidos (evita acumulación de filas muertas;
 // el unique index por supabase_auth_id ya reemplaza al regenerar, esto borra los abandonados).
 /**
- * Barrido de cupos de Gmail colgados: cuentas activas de quien ya no es Pro pagado.
+ * Barrido de accesos a Gmail colgados: cuentas activas de quien ya no es Pro pagado.
+ *
+ * Lo que corrige es un permiso VIVO, no un cupo: el cupo de Google se pierde al conectar y no
+ * vuelve (ver `revocarAccesoGmail`). Lo que este barrido evita es seguir teniendo permiso de
+ * lectura sobre la bandeja de alguien que dejó de pagar.
  *
  * Las dos bajas de plan (checkTrialExpiry, checkPremiumExpiry) ya revocan en el momento, así
  * que en régimen esto no debería encontrar nada. Existe igual, y no como script de una vez,
- * porque el cupo se fuga por caminos que no pasan por esos crons: un downgrade por SQL a mano
+ * porque se cuela por caminos que no pasan por esos crons: un downgrade por SQL a mano
  * (pasó el 01-ago), un cron que muere a mitad del loop, un plan cambiado desde el panel admin.
- * Un one-off limpiaba las 2 cuentas colgadas de hoy y no protegía mañana.
  *
  * NO notifica: a estos usuarios ya se les avisó cuando venció su plan, y un WhatsApp sobre
  * algo que pasó hace semanas se lee como spam. Por eso está exento en
@@ -1211,18 +1214,18 @@ async function checkGmailHuerfanos() {
     ).keys()];
     if (huerfanos.length === 0) return;
 
-    let liberados = 0;
+    let revocadasTotal = 0;
     for (const usuarioId of huerfanos) {
       try {
         const { revocadas } = await revocarAccesoGmail(usuarioId, { motivo: 'barrido_huerfanos' });
-        liberados += revocadas;
+        revocadasTotal += revocadas;
       } catch (e) {
         log.error({ tag: 'GMAIL_HUERFANOS', usuarioId, err: e.message }, 'No se pudo revocar; se reintenta mañana');
       }
     }
-    log.info({ tag: 'GMAIL_HUERFANOS', usuarios: huerfanos.length, liberados }, 'Cupos de Gmail liberados');
+    log.info({ tag: 'GMAIL_HUERFANOS', usuarios: huerfanos.length, revocadas: revocadasTotal }, 'Accesos a Gmail de no-pagadores revocados');
   } catch (e) {
-    log.error({ tag: 'GMAIL_HUERFANOS', err: e.message }, 'Error general en el barrido de cupos Gmail');
+    log.error({ tag: 'GMAIL_HUERFANOS', err: e.message }, 'Error general en el barrido de accesos Gmail');
   }
 }
 

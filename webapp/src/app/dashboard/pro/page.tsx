@@ -150,7 +150,10 @@ export default function ProPage() {
  *  3. El formulario de pago ABIERTO, con el descuento. No detrás de un botón: pagar es el
  *     único motivo por el que alguien entra acá durante la prueba.
  *
- * Bancos y Gmail siguen abajo porque durante el trial sí es Pro y puede configurarlos.
+ * Bancos y Gmail siguen abajo pero BLOQUEADOS: son la única capability que el trial no
+ * entrega, porque cada conexión consume un cupo de Google que no se recupera. Se muestran
+ * en vez de esconderse justamente por eso — es el único momento del trial donde hay algo
+ * concreto que solo se abre pagando, y el formulario está tres centímetros más arriba.
  */
 function TrialState({ status, onDone }: { status: ProStatus; onDone: () => void }) {
   const dias = diasRestantesTrial(status.plan, status.trialEstado, status.trialVence);
@@ -194,7 +197,7 @@ function TrialState({ status, onDone }: { status: ProStatus; onDone: () => void 
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <BancosManager initial={status.bancosSeleccionados} />
+        <BancosManager initial={status.bancosSeleccionados} proPagado={esProPagado(status.plan, status.trialEstado)} />
         {/* En prueba se muestra bloqueada, no se esconde: es el único momento del trial donde
             pedimos el pago por algo concreto, y vale más como conversión visible. Se deriva del
             predicado en vez de pasar `false` fijo, para que no pueda divergir del gate real. */}
@@ -249,7 +252,7 @@ function PremiumState({ status, onDone }: { status: ProStatus; onDone: () => voi
 
       {/* Management: bancos + gmail side by side on desktop */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <BancosManager initial={status.bancosSeleccionados} />
+        <BancosManager initial={status.bancosSeleccionados} proPagado={esProPagado(status.plan, status.trialEstado)} />
         <GmailConnect
           conectado={status.gmailConectado}
           email={status.gmailEmail}
@@ -260,13 +263,21 @@ function PremiumState({ status, onDone }: { status: ProStatus; onDone: () => voi
   );
 }
 
-function BancosManager({ initial }: { initial: string[] | null }) {
+/**
+ * Elegir bancos es la otra mitad de la lectura de correos: sin Gmail conectado no lee nada.
+ * Por eso comparte el gate de `GmailConnect` — dejarlo abierto al que no paga configuraba
+ * una lectura que nunca iba a ocurrir, que es un callejón sin salida, no una feature gratis.
+ */
+function BancosManager({ initial, proPagado }: { initial: string[] | null; proPagado: boolean }) {
   const [selected, setSelected] = useState<Set<string> | null>(null);
   const [saving, setSaving] = useState(false);
   const [open, setOpen] = useState(false);
 
   const { data: bancos = [] } = useQuery<Banco[]>({
     queryKey: ['pro-bancos'],
+    // El endpoint responde 403 a quien no paga; ni se pide para no ensuciar la consola
+    // con un error esperado ni dejar el catálogo cacheado por si el gate se cae.
+    enabled: proPagado,
     queryFn: async () => {
       const r = await fetch('/api/pro/bancos', { cache: 'no-store' });
       const j = await r.json();
@@ -312,6 +323,30 @@ function BancosManager({ initial }: { initial: string[] | null }) {
   }
 
   const resumen = allChecked ? 'Todos' : `${sel.size} seleccionado${sel.size === 1 ? '' : 's'}`;
+
+  if (!proPagado) {
+    return (
+      <div className="glass-card p-5 space-y-3 opacity-70">
+        <div className="flex w-full items-center gap-2 text-left">
+          <Lock className="h-4 w-4 text-[#8A877D] shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-[#C8C6BC]">Bancos y billeteras que Neto leerá</p>
+            <p className="text-xs text-[#8A877D] mt-0.5">
+              Vuélvete Pro para activar esta función beta
+            </p>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5" aria-hidden="true">
+          {['BCP', 'BBVA', 'Interbank', 'Scotiabank', 'Yape', 'Plin'].map((n) => (
+            <div key={n} className="flex items-center gap-2.5 py-1">
+              <span className="h-4 w-4 rounded-[3px] border border-[rgba(240,239,232,0.15)] shrink-0" />
+              <span className="text-sm text-[#8A877D] truncate blur-[2px] select-none">{n}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="glass-card p-5 space-y-3">

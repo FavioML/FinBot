@@ -229,11 +229,16 @@ async function obtenerCuentasGmail(usuarioId) {
  *
  * El orden importa y es la razón de existir de esta función. Hasta ahora "desconectar" era
  * un flip local de `activa: false` (onboarding.js), que le corta la lectura al usuario pero
- * deja el grant vivo del lado de Google. Y el grant es el recurso escaso: tenemos 100 cupos
- * hasta la certificación CASA, así que un usuario que dejó de pagar hace meses seguía
- * ocupando el suyo. Medido el 2026-08-01: 2 de 6 cuentas activas eran de usuarios en 'free'.
+ * deja el grant vivo del lado de Google: seguíamos teniendo permiso técnico para leer el
+ * correo de alguien que ya no paga. Revocar el refresh token tumba el grant completo (y con
+ * él todos los access tokens derivados).
  *
- * Revocar el refresh token tumba el grant completo (todos los access tokens derivados).
+ * ⚠️ Esto NO devuelve un cupo. El límite de 100 usuarios de OAuth de Google se cuenta sobre
+ * TODO EL CICLO DE VIDA del proyecto y su propia consola dice que "no se puede restablecer ni
+ * cambiar": cuenta a quien alguna vez otorgó permiso, no a quien lo tiene ahora. O sea que el
+ * cupo se pierde al CONECTAR y no vuelve. Lo que protege el inventario es el gate de entrada
+ * (`esProPagado` en las puertas de OAuth); esto es higiene: cortar un permiso vivo sobre la
+ * bandeja de alguien que dejó de pagar, y dejar el estado local honesto.
  *
  * Tolerante a fallos A PROPÓSITO: esto se llama desde el camino que baja a alguien de plan, y
  * un timeout con Google no puede dejar a un usuario a medio bajar. Si la revocación falla, se
@@ -281,10 +286,7 @@ async function revocarAccesoGmail(usuarioId, { motivo = 'sin_motivo' } = {}) {
     .update({ gmail_access_token: null, gmail_refresh_token: null, gmail_token_expiry: null })
     .eq('id', usuarioId);
 
-  // Los emails van al log a propósito: si el proyecto de Google Cloud está en publishing
-  // status "Testing", el cupo de 100 es una lista de test users que se administra a mano en
-  // la consola, y revocar no la toca. Esta línea es la lista de qué podar.
-  log.info({ tag: 'GMAIL_REVOKE', usuarioId, emails, motivo }, 'Acceso a Gmail revocado y cupo liberado');
+  log.info({ tag: 'GMAIL_REVOKE', usuarioId, emails, motivo }, 'Acceso a Gmail revocado en Google');
   return { revocadas: emails.length, emails };
 }
 

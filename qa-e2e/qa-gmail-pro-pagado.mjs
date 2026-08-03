@@ -77,6 +77,16 @@ async function pedirEnlace(cookie) {
   return { status: r.status, body };
 }
 
+// Elegir bancos es la otra mitad: sin Gmail conectado no lee nada, así que comparte gate.
+async function bancos(cookie, metodo = 'GET') {
+  const r = await fetch(`${APP}/api/pro/bancos`, {
+    method: metodo, headers: { Cookie: cookie, 'content-type': 'application/json' },
+    body: metodo === 'POST' ? JSON.stringify({ bancos: ['bcp'] }) : undefined,
+    redirect: 'manual',
+  });
+  return r.status;
+}
+
 async function run() {
   const cookie = await loginQA('NETO_QA_FREE_');
   const qaId = qaEnv.NETO_QA_FREE_USUARIO_ID;
@@ -86,9 +96,13 @@ async function run() {
   }
 
   const antes = await leer(qaId);
+  // `bancos_seleccionados` entra en el snapshot aunque hoy ningún check llegue a escribirlo:
+  // el POST del caso trial debe dar 403, y si un día deja de darlo el harness estaría
+  // mutando al usuario QA en silencio además de fallar.
   const estadoOriginal = {
     plan: antes.plan, trial_estado: antes.trial_estado,
     trial_vence: antes.trial_vence, premium_vence: antes.premium_vence,
+    bancos_seleccionados: antes.bancos_seleccionados,
   };
 
   try {
@@ -113,6 +127,12 @@ async function run() {
     check('...y no se filtra ninguna URL de OAuth en el cuerpo',
       !JSON.stringify(enTrial.body).includes('accounts.google.com'),
       'body=' + JSON.stringify(enTrial.body).slice(0, 90));
+    // El POST es el que importa: escribe `bancos_seleccionados`. Si solo se gateara el GET,
+    // un cliente podría configurar la lectura igual sin ver nunca el catálogo.
+    check('EN TRIAL tampoco se puede LEER el catálogo de bancos',
+      (await bancos(cookie, 'GET')) === 403, 'GET status=' + (await bancos(cookie, 'GET')));
+    check('EN TRIAL tampoco se puede GUARDAR una selección de bancos',
+      (await bancos(cookie, 'POST')) === 403, 'POST status=' + (await bancos(cookie, 'POST')));
 
     // ── 3. Pro PAGADO ────────────────────────────────────────────────────────
     // Sin este caso, un gate que niegue SIEMPRE se vería idéntico a uno correcto: los dos
@@ -128,6 +148,8 @@ async function run() {
     check('...con el scope de solo lectura de Gmail',
       String(pagado.body.url).includes('gmail.readonly'),
       'scope presente=' + String(pagado.body.url).includes('gmail.readonly'));
+    check('el Pro PAGADO sí puede elegir bancos', (await bancos(cookie, 'GET')) === 200,
+      'GET status=' + (await bancos(cookie, 'GET')));
   } finally {
     await supabase.from('usuarios').update(estadoOriginal).eq('id', qaId);
   }

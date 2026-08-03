@@ -7,7 +7,7 @@ const { leerCorreosBancarios } = require('../gmail');
 const { parsearCorreoBancario } = require('./parsers');
 const { guardarTransaccion } = require('./transactions');
 const { obtenerCategoriasUsuario } = require('./categories');
-const { getUserPlanConfig } = require('../helpers/db-helpers');
+const { esProPagado } = require('../lib/trial');
 const { notificarUsuario, CANALES } = require('../lib/notify-user');
 
 // Lazy-loaded to avoid circular dependency
@@ -183,8 +183,12 @@ async function escaneoAutomatico() {
     if (!todosLosUsuarios.length) return;
     for (const usuario of todosLosUsuarios) {
       try {
-        const planConfigAuto = getUserPlanConfig(usuario);
-        if (planConfigAuto.maxGmailAccounts === 0) continue;
+        // La LECTURA sigue al mismo predicado que la conexión: si conectar Gmail exige Pro
+        // pagado, leer también. El gate viejo era por plan, y durante el trial `plan` vale
+        // 'premium' — o sea que a un usuario en prueba con una cuenta heredada (de antes del
+        // gate, o de una baja que el barrido todavía no alcanzó) se le seguían leyendo los
+        // correos del banco. Es la mitad silenciosa de la misma capability.
+        if (!esProPagado(usuario)) continue;
         const resultado = await escanearGmailYRegistrar(usuario);
         if (resultado && resultado.authError) {
           // Gmail desconectado — notificar al usuario (máx 1 vez/24h)

@@ -194,6 +194,12 @@ async function manejarOnboarding({ usuario, msg, cmd, from }) {
   // Igual que el paso 30 pero standalone: no entrega OAuth, solo confirma el
   // cambio. Deja al usuario activar/desactivar bancos cuando quiera.
   if (usuario.onboarding_paso === 31 && !cmd.startsWith('/')) {
+    // Gate propio por lo mismo que el paso 30: el estado vive en la DB entre dos mensajes,
+    // así que el gate de /bancos ya quedó atrás cuando llega la respuesta.
+    if (!esProPagado(usuario)) {
+      await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
+      return mensajeGmailProPagado(usuario, 'bancos');
+    }
     const sel = interpretarSeleccionBancos(cmd);
     if (!sel.ok) return REPROMPT_BANCOS;
     await supabase.from('usuarios').update({ bancos_seleccionados: sel.ids, onboarding_paso: 0 }).eq('id', usuario.id);

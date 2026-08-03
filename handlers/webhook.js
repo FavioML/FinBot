@@ -610,12 +610,11 @@ function createWebhookHandler(procesarMensajeLibre) {
         respuesta = menuSeleccionBancos();
       }
     } else if (cmd === '/bancos') {
-      // Editar la selección de bancos en cualquier momento (paso 31 en onboarding.js)
-      if (usuario.plan !== 'premium') {
-        respuesta = '⭐ *Elegir bancos es parte del plan Pro.*\n\n' +
-          'Con Pro, Neto lee tus correos bancarios y tú decides de qué bancos.\n\n' +
-          '💰 S/10/mes o S/99/año\n' +
-          '📲 Yapea al 970398192 y escríbeme aquí para activar.';
+      // Editar la selección de bancos en cualquier momento (paso 31 en onboarding.js).
+      // Mismo predicado que /conectar: sin Gmail conectado la selección no lee nada, así que
+      // dejarla abierta al que no paga es un callejón sin salida, no una feature gratis.
+      if (!esProPagado(usuario)) {
+        respuesta = mensajeGmailProPagado(usuario, 'bancos');
       } else {
         await supabase.from('usuarios').update({ onboarding_paso: 31 }).eq('id', usuario.id);
         respuesta = menuEdicionBancos(usuario.bancos_seleccionados);
