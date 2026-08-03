@@ -8,6 +8,7 @@
 
 import type { Transaccion, RecurringOverride } from '@/lib/types'
 import { matchCatalogo } from '@/lib/subscriptions-catalog'
+import { montoPen } from '@/lib/tx-monto'
 
 export interface RecurringCluster {
   id: string // clave canónica (comercio normalizado raíz del cluster)
@@ -77,7 +78,7 @@ interface Unit {
 
 function buildUnit(key: string, txs: Transaccion[], override: RecurringOverride | undefined, manual: boolean): Unit {
   const sorted = [...txs].sort((a, b) => b.fecha.localeCompare(a.fecha))
-  const amounts = txs.map((t) => t.monto_pen)
+  const amounts = txs.map((t) => montoPen(t))
   const days = txs.map((t) => new Date(t.fecha + 'T00:00:00').getDate())
   return {
     key,
@@ -146,7 +147,7 @@ export function detectRecurring(
     const manual = ov?.es_recurrente_manual
     if (manual === false) continue
 
-    const amounts = txs.map((t) => t.monto_pen).sort((a, b) => a - b)
+    const amounts = txs.map((t) => montoPen(t)).sort((a, b) => a - b)
     const med = median(amounts)
     const consistent = amounts.every((a) => med > 0 && Math.abs(a - med) / med < 0.2)
     const months = new Set(txs.map((t) => t.fecha.substring(0, 7)))

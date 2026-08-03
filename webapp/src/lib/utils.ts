@@ -6,8 +6,15 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 // Currency formatting
-export function formatCurrency(amount: number, currency: string = 'PEN'): string {
+//
+// Acepta null/undefined/NaN y devuelve "S/ —" en vez de reventar: `monto_pen`
+// es una columna NULLABLE y un `null.toLocaleString()` acá tiraba el dashboard
+// completo al error boundary. El guion es el piso de seguridad, no el display
+// deseado — para una transacción usa `formatTxMonto()` (tx-monto.ts), que sabe
+// caer al monto original con su moneda.
+export function formatCurrency(amount: number | null | undefined, currency: string = 'PEN'): string {
   const symbol = currency === 'USD' ? '$' : 'S/';
+  if (amount == null || !Number.isFinite(amount)) return `${symbol} —`;
   return `${symbol} ${amount.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 

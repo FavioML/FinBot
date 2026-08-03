@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import { CalendarDays } from 'lucide-react';
 import { motion } from 'motion/react';
 import { formatCurrency } from '@/lib/utils';
+import { montoPen } from '@/lib/tx-monto';
 import type { Transaccion } from '@/lib/types';
 
 interface TodaySpendingProps {
@@ -25,9 +26,9 @@ export function TodaySpending({ transactions, currentMonth, currentYear }: Today
 
     const todayTotal = monthGastos
       .filter((t) => t.fecha === todayKey)
-      .reduce((s, t) => s + t.monto_pen, 0);
+      .reduce((s, t) => s + montoPen(t), 0);
 
-    const totalMonth = monthGastos.reduce((s, t) => s + t.monto_pen, 0);
+    const totalMonth = monthGastos.reduce((s, t) => s + montoPen(t), 0);
     const daysWithSpending = new Set(monthGastos.map((t) => t.fecha)).size;
     const dailyAvg = daysWithSpending > 0 ? totalMonth / daysWithSpending : 0;
 

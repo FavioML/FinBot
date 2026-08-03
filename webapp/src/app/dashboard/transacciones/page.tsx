@@ -61,6 +61,7 @@ import { formatCurrency, formatFecha } from '@/lib/utils';
 import { getCategoriaEmoji, MESES, SOCIAL_LINKS, CATEGORIA_POR_REVISAR, needsReview } from '@/lib/constants';
 import { normalizeMetodoPago, getMetodoIcon, formatLast4 } from '@/lib/format';
 import type { Transaccion } from '@/lib/types';
+import { montoPen } from '@/lib/tx-monto';
 import { HeaderActions } from '@/components/dashboard/topbar';
 
 const PAGE_SIZE = 20;
@@ -316,7 +317,7 @@ export default function TransaccionesPage() {
       if (sortField === 'fecha') {
         cmp = a.fecha.localeCompare(b.fecha);
       } else if (sortField === 'monto') {
-        cmp = a.monto_pen - b.monto_pen;
+        cmp = montoPen(a) - montoPen(b);
       } else if (sortField === 'comercio') {
         cmp = (a.comercio || '').localeCompare(b.comercio || '');
       }
@@ -340,8 +341,8 @@ export default function TransaccionesPage() {
     const gastos = filtered.filter((t) => t.tipo === 'gasto');
     const ingresos = filtered.filter((t) => t.tipo === 'ingreso');
     return {
-      totalGastos: gastos.reduce((sum, t) => sum + t.monto_pen, 0),
-      totalIngresos: ingresos.reduce((sum, t) => sum + t.monto_pen, 0),
+      totalGastos: gastos.reduce((sum, t) => sum + montoPen(t), 0),
+      totalIngresos: ingresos.reduce((sum, t) => sum + montoPen(t), 0),
       count: filtered.length,
     };
   }, [filtered]);
@@ -423,7 +424,7 @@ export default function TransaccionesPage() {
       t.categoria,
       t.subcategoria || '',
       normalizeMetodoPago(t.metodo_pago, t.banco),
-      t.monto_pen.toFixed(2),
+      montoPen(t).toFixed(2),
       t.moneda,
       t.monto.toFixed(2),
     ]);
@@ -616,7 +617,7 @@ export default function TransaccionesPage() {
       {transactions.length >= 5 && summary.totalGastos > 0 && (() => {
         const catMap: Record<string, number> = {};
         for (const t of transactions) {
-          if (t.tipo === 'gasto') catMap[t.categoria] = (catMap[t.categoria] || 0) + t.monto_pen;
+          if (t.tipo === 'gasto') catMap[t.categoria] = (catMap[t.categoria] || 0) + montoPen(t);
         }
         const topCat = Object.entries(catMap).sort((a, b) => b[1] - a[1])[0];
         if (!topCat) return null;

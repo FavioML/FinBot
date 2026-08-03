@@ -34,6 +34,7 @@ import { getCategoriaEmoji, MESES, SOCIAL_LINKS } from '@/lib/constants';
 import { capitalizeDisplay, normalizeMetodoPago, getMetodoIcon } from '@/lib/format';
 import { useSubscriptions } from '@/lib/hooks/use-subscriptions';
 import type { Transaccion } from '@/lib/types';
+import { montoPen, formatTxMonto } from '@/lib/tx-monto';
 import { HeaderActions } from '@/components/dashboard/topbar';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -206,21 +207,21 @@ export default function ReportesPage() {
     const pad = (n: number) => String(n).padStart(2, '0');
     const dateStr = `${selectedOption.anio}-${pad(selectedOption.mes)}-${pad(detailDay)}`;
     return transactions.filter((t) => t.tipo === 'gasto' && t.fecha === dateStr)
-      .sort((a, b) => b.monto_pen - a.monto_pen);
+      .sort((a, b) => montoPen(b) - montoPen(a));
   }, [transactions, detailDay, selectedOption]);
 
   // --- Computed data ---
 
   // Previous month totals for comparison
   const prevTotals = useMemo(() => {
-    const ingresos = prevTransactions.filter((t) => t.tipo === 'ingreso').reduce((s, t) => s + t.monto_pen, 0);
-    const gastos = prevTransactions.filter((t) => t.tipo === 'gasto').reduce((s, t) => s + t.monto_pen, 0);
+    const ingresos = prevTransactions.filter((t) => t.tipo === 'ingreso').reduce((s, t) => s + montoPen(t), 0);
+    const gastos = prevTransactions.filter((t) => t.tipo === 'gasto').reduce((s, t) => s + montoPen(t), 0);
     return { ingresos, gastos, ahorro: ingresos - gastos, count: prevTransactions.length };
   }, [prevTransactions]);
 
   const { totalIngresos, totalGastos, ahorro, score } = useMemo(() => {
-    const ingresos = transactions.filter((t) => t.tipo === 'ingreso').reduce((s, t) => s + t.monto_pen, 0);
-    const gastos = transactions.filter((t) => t.tipo === 'gasto').reduce((s, t) => s + t.monto_pen, 0);
+    const ingresos = transactions.filter((t) => t.tipo === 'ingreso').reduce((s, t) => s + montoPen(t), 0);
+    const gastos = transactions.filter((t) => t.tipo === 'gasto').reduce((s, t) => s + montoPen(t), 0);
     const ahorro = ingresos - gastos;
 
     const score = netoScoreData?.score ?? 0;
@@ -230,7 +231,7 @@ export default function ReportesPage() {
   const categoryBreakdown = useMemo(() => {
     const gastos = transactions.filter((t) => t.tipo === 'gasto');
     const map = new Map<string, number>();
-    for (const t of gastos) map.set(t.categoria, (map.get(t.categoria) || 0) + t.monto_pen);
+    for (const t of gastos) map.set(t.categoria, (map.get(t.categoria) || 0) + montoPen(t));
     return Array.from(map.entries())
       .map(([cat, total]) => ({
         categoria: cat,
@@ -245,7 +246,7 @@ export default function ReportesPage() {
     const map = new Map<string, number>();
     for (const t of transactions.filter((t) => t.tipo === 'gasto')) {
       const method = normalizeMetodoPago(t.metodo_pago, t.banco);
-      map.set(method, (map.get(method) || 0) + t.monto_pen);
+      map.set(method, (map.get(method) || 0) + montoPen(t));
     }
     return Array.from(map.entries())
       .map(([name, value]) => ({ name, value }))
@@ -257,7 +258,7 @@ export default function ReportesPage() {
     for (const t of transactions.filter((t) => t.tipo === 'gasto')) {
       const name = t.comercio || 'Sin comercio';
       const prev = map.get(name) || { total: 0, count: 0 };
-      map.set(name, { total: prev.total + t.monto_pen, count: prev.count + 1 });
+      map.set(name, { total: prev.total + montoPen(t), count: prev.count + 1 });
     }
     return Array.from(map.entries())
       .map(([name, d]) => ({ name, ...d }))
@@ -271,7 +272,7 @@ export default function ReportesPage() {
     for (let d = 1; d <= daysInMonth; d++) dayMap.set(d, 0);
     for (const t of transactions.filter((t) => t.tipo === 'gasto')) {
       const day = new Date(t.fecha + 'T00:00:00').getDate();
-      dayMap.set(day, (dayMap.get(day) || 0) + t.monto_pen);
+      dayMap.set(day, (dayMap.get(day) || 0) + montoPen(t));
     }
     return Array.from(dayMap.entries()).map(([day, total]) => ({ day, total: Math.round(total * 100) / 100 }));
   }, [transactions, selectedOption]);
@@ -568,7 +569,7 @@ if (!isLoading && transactions.length === 0) {
           {detailCat && (
             <div className="space-y-3">
               <p className="text-sm text-[#8A877D]">
-                Total: <span className="text-[#D85A30] font-medium">{formatCurrency(detailCatTransactions.reduce((s, t) => s + t.monto_pen, 0))}</span>
+                Total: <span className="text-[#D85A30] font-medium">{formatCurrency(detailCatTransactions.reduce((s, t) => s + montoPen(t), 0))}</span>
                 {' '}— {detailCatTransactions.length} {detailCatTransactions.length === 1 ? 'transaccion' : 'transacciones'}
               </p>
 
@@ -580,7 +581,7 @@ if (!isLoading && transactions.length === 0) {
                     ? tx.subcategoria
                     : '(General)';
                   const prev = subMap.get(sub) || { total: 0, count: 0 };
-                  prev.total += tx.monto_pen;
+                  prev.total += montoPen(tx);
                   prev.count += 1;
                   subMap.set(sub, prev);
                 }
@@ -612,7 +613,7 @@ if (!isLoading && transactions.length === 0) {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 ml-3">
-                      <span className="text-sm font-medium text-[#D85A30]">{formatCurrency(tx.monto_pen)}</span>
+                      <span className="text-sm font-medium text-[#D85A30]">{formatTxMonto(tx)}</span>
                       <button
                         onClick={() => setEditTransaction(tx)}
                         className="p-1 rounded hover:bg-[rgba(255,255,255,0.06)] text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
@@ -643,12 +644,12 @@ if (!isLoading && transactions.length === 0) {
               const cat = tx.categoria;
               if (!catMap.has(cat)) catMap.set(cat, { total: 0, count: 0, subs: new Map() });
               const entry = catMap.get(cat)!;
-              entry.total += tx.monto_pen;
+              entry.total += montoPen(tx);
               entry.count += 1;
               const sub = (tx.subcategoria && tx.subcategoria !== 'sin_categoria' && tx.subcategoria !== 'null')
                 ? tx.subcategoria
                 : '(General)';
-              entry.subs.set(sub, (entry.subs.get(sub) || 0) + tx.monto_pen);
+              entry.subs.set(sub, (entry.subs.get(sub) || 0) + montoPen(tx));
             }
             const catBreakdown = Array.from(catMap.entries())
               .map(([categoria, { total, count, subs }]) => ({
@@ -664,7 +665,7 @@ if (!isLoading && transactions.length === 0) {
             return (
             <div className="space-y-3">
               <p className="text-sm text-[#8A877D]">
-                Total: <span className="text-[#D85A30] font-medium">{formatCurrency(detailMetodoTransactions.reduce((s, t) => s + t.monto_pen, 0))}</span>
+                Total: <span className="text-[#D85A30] font-medium">{formatCurrency(detailMetodoTransactions.reduce((s, t) => s + montoPen(t), 0))}</span>
                 {' '}— {detailMetodoTransactions.length} {detailMetodoTransactions.length === 1 ? 'transaccion' : 'transacciones'}
               </p>
 
@@ -705,7 +706,7 @@ if (!isLoading && transactions.length === 0) {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 ml-3">
-                      <span className="text-sm font-medium text-[#D85A30]">{formatCurrency(tx.monto_pen)}</span>
+                      <span className="text-sm font-medium text-[#D85A30]">{formatTxMonto(tx)}</span>
                       <button
                         onClick={() => setEditTransaction(tx)}
                         className="p-1 rounded hover:bg-[rgba(255,255,255,0.06)] text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
@@ -733,7 +734,7 @@ if (!isLoading && transactions.length === 0) {
           {detailComercio && (
             <div className="space-y-3">
               <p className="text-sm text-[#8A877D]">
-                Total: <span className="text-[#D85A30] font-medium">{formatCurrency(detailComercioTransactions.reduce((s, t) => s + t.monto_pen, 0))}</span>
+                Total: <span className="text-[#D85A30] font-medium">{formatCurrency(detailComercioTransactions.reduce((s, t) => s + montoPen(t), 0))}</span>
                 {' '}— {detailComercioTransactions.length} {detailComercioTransactions.length === 1 ? 'transaccion' : 'transacciones'}
               </p>
               <div className="space-y-2">
@@ -749,7 +750,7 @@ if (!isLoading && transactions.length === 0) {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 ml-3">
-                      <span className="text-sm font-medium text-[#D85A30]">{formatCurrency(tx.monto_pen)}</span>
+                      <span className="text-sm font-medium text-[#D85A30]">{formatTxMonto(tx)}</span>
                       <button
                         onClick={() => setEditTransaction(tx)}
                         className="p-1 rounded hover:bg-[rgba(255,255,255,0.06)] text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
@@ -776,7 +777,7 @@ if (!isLoading && transactions.length === 0) {
           {detailDayTransactions.length > 0 ? (
             <div>
               <p className="text-sm text-[#8A877D] mb-3">
-                <span className="text-[#D85A30] font-semibold">{formatCurrency(detailDayTransactions.reduce((s, t) => s + t.monto_pen, 0))}</span>
+                <span className="text-[#D85A30] font-semibold">{formatCurrency(detailDayTransactions.reduce((s, t) => s + montoPen(t), 0))}</span>
                 {' '}— {detailDayTransactions.length} {detailDayTransactions.length === 1 ? 'transacción' : 'transacciones'}
               </p>
               <div className="space-y-2">
@@ -790,7 +791,7 @@ if (!isLoading && transactions.length === 0) {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-sm text-[#D85A30] font-medium">{formatCurrency(t.monto_pen)}</span>
+                      <span className="text-sm text-[#D85A30] font-medium">{formatTxMonto(t)}</span>
                       <button onClick={() => setEditTransaction(t)} className="text-[#8A877D] hover:text-[#1D9E75]">
                         <Pencil size={14} />
                       </button>

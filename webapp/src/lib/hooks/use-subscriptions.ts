@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
 import type { Transaccion } from '@/lib/types';
+import { montoPen } from '@/lib/tx-monto';
 import type { SuscripcionDetectada, TipoSuscripcion, CatalogEntry } from '@/lib/subscriptions-catalog';
 import {
   TIPO_LABELS,
@@ -115,7 +116,10 @@ export function buildSuscripciones(txs: Transaccion[]): SuscripcionDetectada[] {
     }
     groups[groupKey].pagos.push({
       monto: tx.monto,
-      montoPen: tx.monto_pen || tx.monto,
+      // Único borde donde `monto_pen` deja de ser nullable: de acá para abajo
+      // (PagoDetalle, SuscripcionDetectada, subscription-overrides) siempre es
+      // number. Por eso ese árbol no necesita el helper.
+      montoPen: montoPen(tx),
       fecha: tx.fecha,
       moneda: tx.moneda || 'PEN',
     })

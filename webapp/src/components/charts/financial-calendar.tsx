@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { formatCurrency } from '@/lib/utils';
 import { getCategoriaEmoji } from '@/lib/constants';
 import type { Transaccion } from '@/lib/types';
+import { montoPen, formatTxMonto } from '@/lib/tx-monto';
 import type { Deuda } from '@/lib/hooks/use-debts';
 import type { MetaAhorro } from '@/lib/hooks/use-goals';
 
@@ -32,7 +33,7 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear, deb
       if (d.getMonth() + 1 !== viewMonth || d.getFullYear() !== viewYear) continue;
       const key = t.fecha;
       const prev = dayMap.get(key) || { total: 0, txs: [] };
-      if (t.tipo === 'gasto') prev.total += t.monto_pen;
+      if (t.tipo === 'gasto') prev.total += montoPen(t);
       prev.txs.push(t);
       dayMap.set(key, prev);
     }
@@ -295,7 +296,7 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear, deb
                       className="text-xs font-medium tabular-nums shrink-0 ml-2"
                       style={{ color: tx.tipo === 'ingreso' ? '#1D9E75' : '#D85A30' }}
                     >
-                      {tx.tipo === 'ingreso' ? '+' : '-'}{formatCurrency(tx.monto_pen)}
+                      {tx.tipo === 'ingreso' ? '+' : '-'}{formatTxMonto(tx)}
                     </span>
                   </div>
                 ))}

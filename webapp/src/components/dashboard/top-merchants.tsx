@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import { Store } from 'lucide-react';
 import { motion } from 'motion/react';
 import { formatCurrency } from '@/lib/utils';
+import { montoPen } from '@/lib/tx-monto';
 import { getCategoriaEmoji } from '@/lib/constants';
 import type { Transaccion } from '@/lib/types';
 
@@ -22,7 +23,7 @@ export function TopMerchants({ transactions, onMerchantClick }: TopMerchantsProp
     for (const t of gastos) {
       const key = t.comercio!.toLowerCase().trim();
       const prev = map.get(key) || { total: 0, count: 0, categoria: t.categoria };
-      prev.total += t.monto_pen;
+      prev.total += montoPen(t);
       prev.count += 1;
       map.set(key, prev);
     }
@@ -57,7 +58,7 @@ export function TopMerchants({ transactions, onMerchantClick }: TopMerchantsProp
     const map = new Map<string, number>();
     for (const t of gastos) {
       const key = t.comercio!.toLowerCase().trim();
-      map.set(key, (map.get(key) || 0) + t.monto_pen);
+      map.set(key, (map.get(key) || 0) + montoPen(t));
     }
     return Array.from(map.entries())
       .sort((a, b) => b[1] - a[1])

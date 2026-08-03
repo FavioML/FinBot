@@ -5,6 +5,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 import { motion } from 'motion/react';
 import { ChevronDown } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
+import { montoPen } from '@/lib/tx-monto';
 import { getCategoriaEmoji, MESES } from '@/lib/constants';
 import type { Transaccion } from '@/lib/types';
 
@@ -43,14 +44,14 @@ export function CategoryComparison({ allTransactions, currentMonth, currentYear,
     for (const t of currentGastos) {
       const key = (t.categoria || '').trim().toLowerCase();
       const prev = catMap.get(key) || { label: t.categoria, current: 0, previous: 0 };
-      prev.current += t.monto_pen;
+      prev.current += montoPen(t);
       catMap.set(key, prev);
     }
 
     for (const t of prevGastos) {
       const key = (t.categoria || '').trim().toLowerCase();
       const prev = catMap.get(key) || { label: t.categoria, current: 0, previous: 0 };
-      prev.previous += t.monto_pen;
+      prev.previous += montoPen(t);
       catMap.set(key, prev);
     }
 

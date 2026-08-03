@@ -6,6 +6,7 @@ import { motion } from 'motion/react';
 import { formatCurrency } from '@/lib/utils';
 import { normalizeMetodoPago, getMetodoIcon, formatLast4 } from '@/lib/format';
 import type { Transaccion } from '@/lib/types';
+import { montoPen } from '@/lib/tx-monto';
 import type { ChartTooltipProps } from './chart-types';
 
 interface PaymentMethodDonutProps {
@@ -43,7 +44,7 @@ function CustomTooltip({ active, payload }: ChartTooltipProps<MetodoDatum>) {
 export function PaymentMethodDonut({ transactions, onMethodClick }: PaymentMethodDonutProps) {
   const data = useMemo(() => {
     const gastos = transactions.filter((t) => t.tipo === 'gasto');
-    const totalGastos = gastos.reduce((s, t) => s + t.monto_pen, 0);
+    const totalGastos = gastos.reduce((s, t) => s + montoPen(t), 0);
     if (totalGastos === 0) return [];
 
     // Se agrupa por método + tarjeta: dos tarjetas del mismo banco (mismo método)
@@ -55,7 +56,7 @@ export function PaymentMethodDonut({ transactions, onMethodClick }: PaymentMetho
       const last4 = t.tarjeta_last4 && /^\d{4}$/.test(t.tarjeta_last4) ? t.tarjeta_last4 : '';
       const key = metodoBase + formatLast4(last4);
       const prev = map.get(key) || { metodoBase, last4, total: 0, count: 0 };
-      prev.total += t.monto_pen;
+      prev.total += montoPen(t);
       prev.count += 1;
       map.set(key, prev);
     }

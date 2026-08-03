@@ -7,6 +7,8 @@
 // consumen este módulo (matchCatalogo es la única fuente de dedup).
 // ═══════════════════════════════════════════════════════════════
 
+import { montoPen, type TxMonto } from './tx-monto'
+
 export type TipoSuscripcion =
   | 'streaming'
   | 'musica'
@@ -341,12 +343,13 @@ export interface DetectedSubscription {
 }
 
 export function detectSubscriptions(
-  transactions: Array<{
-    tipo: string
-    comercio?: string
-    monto_pen: number
-    fecha: string
-  }>
+  transactions: Array<
+    TxMonto & {
+      tipo: string
+      comercio?: string
+      fecha: string
+    }
+  >
 ): DetectedSubscription[] {
   const gastos = transactions.filter((t) => t.tipo === 'gasto')
 
@@ -359,7 +362,7 @@ export function detectSubscriptions(
     const entry = matchCatalogo(tx.comercio)
     if (!entry) continue
     if (!matchMap.has(entry.id)) matchMap.set(entry.id, { entry, pagos: [] })
-    matchMap.get(entry.id)!.pagos.push({ monto: tx.monto_pen, fecha: tx.fecha })
+    matchMap.get(entry.id)!.pagos.push({ monto: montoPen(tx), fecha: tx.fecha })
   }
 
   const results: DetectedSubscription[] = []

@@ -56,6 +56,7 @@ import { useGoals } from '@/lib/hooks/use-goals';
 import { useDebts } from '@/lib/hooks/use-debts';
 import { FadeIn } from '@/components/shared/motion-wrapper';
 import { formatCurrency, formatFecha } from '@/lib/utils';
+import { montoPen, formatTxMonto } from '@/lib/tx-monto';
 import { getCategoriaEmoji, MESES, SOCIAL_LINKS } from '@/lib/constants';
 import { capitalizeDisplay, normalizeMetodoPago, getMetodoIcon } from '@/lib/format';
 import { detectSubscriptions, TIPO_LABELS } from '@/lib/subscriptions-catalog';
@@ -184,10 +185,10 @@ export default function DashboardPage() {
   const kpiData = useMemo<KPIData>(() => {
     const totalIngresos = transactions
       .filter((t) => t.tipo === 'ingreso')
-      .reduce((sum, t) => sum + t.monto_pen, 0);
+      .reduce((sum, t) => sum + montoPen(t), 0);
     const totalGastos = transactions
       .filter((t) => t.tipo === 'gasto')
-      .reduce((sum, t) => sum + t.monto_pen, 0);
+      .reduce((sum, t) => sum + montoPen(t), 0);
     const ahorro = totalIngresos - totalGastos;
     const ahorroPorcentaje = totalIngresos > 0 ? (ahorro / totalIngresos) * 100 : 0;
 
@@ -202,8 +203,8 @@ export default function DashboardPage() {
         const d = new Date(t.fecha + 'T00:00:00');
         return d.getMonth() + 1 === pm && d.getFullYear() === py;
       });
-      prevGastos = prevTxs.filter(t => t.tipo === 'gasto').reduce((s, t) => s + t.monto_pen, 0);
-      prevIngresos = prevTxs.filter(t => t.tipo === 'ingreso').reduce((s, t) => s + t.monto_pen, 0);
+      prevGastos = prevTxs.filter(t => t.tipo === 'gasto').reduce((s, t) => s + montoPen(t), 0);
+      prevIngresos = prevTxs.filter(t => t.tipo === 'ingreso').reduce((s, t) => s + montoPen(t), 0);
     }
 
     return { totalIngresos, totalGastos, ahorro, ahorroPorcentaje, scoreFinanciero: (netoScore?.score ?? 0), prevGastos, prevIngresos };
@@ -220,8 +221,8 @@ export default function DashboardPage() {
     for (let d = 1; d <= daysInMonth; d++) {
       const key = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const dayTxs = transactions.filter(t => t.fecha === key);
-      const dayIng = dayTxs.filter(t => t.tipo === 'ingreso').reduce((s, t) => s + t.monto_pen, 0);
-      const dayGas = dayTxs.filter(t => t.tipo === 'gasto').reduce((s, t) => s + t.monto_pen, 0);
+      const dayIng = dayTxs.filter(t => t.tipo === 'ingreso').reduce((s, t) => s + montoPen(t), 0);
+      const dayGas = dayTxs.filter(t => t.tipo === 'gasto').reduce((s, t) => s + montoPen(t), 0);
       ingresos.push(dayIng);
       gastos.push(dayGas);
       ahorro.push(dayIng - dayGas);
@@ -243,7 +244,7 @@ export default function DashboardPage() {
   // Compute category breakdown (gastos only)
   const categoryData = useMemo<CategoriaGasto[]>(() => {
     const gastos = transactions.filter((t) => t.tipo === 'gasto');
-    const totalGastos = gastos.reduce((sum, t) => sum + t.monto_pen, 0);
+    const totalGastos = gastos.reduce((sum, t) => sum + montoPen(t), 0);
     if (totalGastos === 0) return [];
 
     // Agrupa case-insensitive: "Transporte" y "transporte" son la misma categoria
@@ -254,10 +255,10 @@ export default function DashboardPage() {
       const key = (t.categoria || '').trim().toLowerCase();
       const prev = map.get(key);
       if (prev) {
-        prev.total += t.monto_pen;
+        prev.total += montoPen(t);
         prev.count += 1;
       } else {
-        map.set(key, { categoria: t.categoria, total: t.monto_pen, count: 1 });
+        map.set(key, { categoria: t.categoria, total: montoPen(t), count: 1 });
       }
     }
 
@@ -287,8 +288,8 @@ export default function DashboardPage() {
         mes: MESES[m],
         mesNum: m,
         anio: y,
-        gastos: monthTxs.filter((t) => t.tipo === 'gasto').reduce((s, t) => s + t.monto_pen, 0),
-        ingresos: monthTxs.filter((t) => t.tipo === 'ingreso').reduce((s, t) => s + t.monto_pen, 0),
+        gastos: monthTxs.filter((t) => t.tipo === 'gasto').reduce((s, t) => s + montoPen(t), 0),
+        ingresos: monthTxs.filter((t) => t.tipo === 'ingreso').reduce((s, t) => s + montoPen(t), 0),
       });
     }
     return months;
@@ -751,7 +752,7 @@ export default function DashboardPage() {
                           className="text-sm font-semibold tabular-nums shrink-0"
                           style={{ color: isIngreso ? '#1D9E75' : '#D85A30' }}
                         >
-                          {isIngreso ? '+' : '-'}{formatCurrency(tx.monto_pen)}
+                          {isIngreso ? '+' : '-'}{formatTxMonto(tx)}
                         </span>
                       </div>
                     );
@@ -902,7 +903,7 @@ export default function DashboardPage() {
             const catTxs = transactions
               .filter((t) => t.tipo === 'gasto' && (t.categoria || '').trim().toLowerCase() === detailKey)
               .sort((a, b) => b.fecha.localeCompare(a.fecha));
-            const catTotal = catTxs.reduce((s, t) => s + t.monto_pen, 0);
+            const catTotal = catTxs.reduce((s, t) => s + montoPen(t), 0);
 
             // Group by subcategory
             const subMap = new Map<string, Transaccion[]>();
@@ -917,7 +918,7 @@ export default function DashboardPage() {
               .map(([name, txs]) => ({
                 name,
                 txs,
-                total: txs.reduce((s, t) => s + t.monto_pen, 0),
+                total: txs.reduce((s, t) => s + montoPen(t), 0),
               }))
               .sort((a, b) => b.total - a.total);
 
@@ -932,7 +933,7 @@ export default function DashboardPage() {
                   Total{detailSubcategoria ? ' subcategoría' : ''}:{' '}
                   <span className="text-[#D85A30] font-medium">
                     {formatCurrency(detailSubcategoria
-                      ? (subMap.get(detailSubcategoria)?.reduce((s, t) => s + t.monto_pen, 0) || 0)
+                      ? (subMap.get(detailSubcategoria)?.reduce((s, t) => s + montoPen(t), 0) || 0)
                       : catTotal)}
                   </span>
                   {' '}&mdash; {visibleTxs.length} transacci{visibleTxs.length === 1 ? 'on' : 'ones'}
@@ -980,7 +981,7 @@ export default function DashboardPage() {
                         </div>
                         <div className="flex items-center gap-2 shrink-0 ml-3">
                           <span className="text-sm font-medium text-[#D85A30]">
-                            -{formatCurrency(tx.monto_pen)}
+                            -{formatTxMonto(tx)}
                           </span>
                           <button
                             onClick={() => setEditTransaction(tx)}
@@ -1026,19 +1027,19 @@ export default function DashboardPage() {
           </DialogHeader>
           {detailMetodo && (() => {
             // Consolidate this payment method's spending by category → subcategory
-            const metodoTotal = detailMetodoTransactions.reduce((s, t) => s + t.monto_pen, 0);
+            const metodoTotal = detailMetodoTransactions.reduce((s, t) => s + montoPen(t), 0);
             // Case-insensitive para no partir la misma categoria por casing.
             const catMap = new Map<string, { label: string; total: number; count: number; subs: Map<string, number> }>();
             for (const tx of detailMetodoTransactions) {
               const key = (tx.categoria || '').trim().toLowerCase();
               let entry = catMap.get(key);
               if (!entry) { entry = { label: tx.categoria, total: 0, count: 0, subs: new Map() }; catMap.set(key, entry); }
-              entry.total += tx.monto_pen;
+              entry.total += montoPen(tx);
               entry.count += 1;
               const sub = (tx.subcategoria && tx.subcategoria !== 'sin_categoria' && tx.subcategoria !== 'null')
                 ? tx.subcategoria
                 : '(General)';
-              entry.subs.set(sub, (entry.subs.get(sub) || 0) + tx.monto_pen);
+              entry.subs.set(sub, (entry.subs.get(sub) || 0) + montoPen(tx));
             }
             const catBreakdown = Array.from(catMap.values())
               .map(({ label: categoria, total, count, subs }) => ({
@@ -1094,7 +1095,7 @@ export default function DashboardPage() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 ml-3">
-                      <span className="text-sm font-medium text-[#D85A30]">{formatCurrency(tx.monto_pen)}</span>
+                      <span className="text-sm font-medium text-[#D85A30]">{formatTxMonto(tx)}</span>
                       <button
                         onClick={() => setEditTransaction(tx)}
                         className="p-1 rounded hover:bg-[rgba(255,255,255,0.06)] text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
@@ -1122,7 +1123,7 @@ export default function DashboardPage() {
           {detailComercio && (
             <div className="glass-card-depth space-y-3">
               <p className="text-sm text-[#8A877D]">
-                Total: <span className="text-[#D85A30] font-medium">{formatCurrency(detailComercioTransactions.reduce((s, t) => s + t.monto_pen, 0))}</span>
+                Total: <span className="text-[#D85A30] font-medium">{formatCurrency(detailComercioTransactions.reduce((s, t) => s + montoPen(t), 0))}</span>
                 {' '}&mdash; {detailComercioTransactions.length} {detailComercioTransactions.length === 1 ? 'transaccion' : 'transacciones'}
               </p>
               <div className="space-y-2">
@@ -1138,7 +1139,7 @@ export default function DashboardPage() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 ml-3">
-                      <span className="text-sm font-medium text-[#D85A30]">{formatCurrency(tx.monto_pen)}</span>
+                      <span className="text-sm font-medium text-[#D85A30]">{formatTxMonto(tx)}</span>
                       <button
                         onClick={() => setEditTransaction(tx)}
                         className="p-1 rounded hover:bg-[rgba(255,255,255,0.06)] text-[#8A877D] hover:text-[#C8C6BC] transition-colors"

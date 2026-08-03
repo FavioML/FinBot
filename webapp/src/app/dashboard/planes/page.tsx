@@ -21,6 +21,7 @@ import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
 import { useGoals, useGoalMutations, useGoalContributions, useGoalParticipants, useAchievements, useAbandonPlan, type MetaAhorro, type MetaAporte, type MetaParticipante } from '@/lib/hooks/use-goals';
 import { formatCurrency } from '@/lib/utils';
+import { montoPen } from '@/lib/tx-monto';
 import { HeaderActions } from '@/components/dashboard/topbar';
 
 
@@ -162,10 +163,10 @@ export default function MetasPage() {
   const totalAhorro = useMemo(() => {
     const ingresos = allTransactions
       .filter((t) => t.tipo === 'ingreso')
-      .reduce((s, t) => s + t.monto_pen, 0);
+      .reduce((s, t) => s + montoPen(t), 0);
     const gastos = allTransactions
       .filter((t) => t.tipo === 'gasto')
-      .reduce((s, t) => s + t.monto_pen, 0);
+      .reduce((s, t) => s + montoPen(t), 0);
     return Math.max(0, ingresos - gastos);
   }, [allTransactions]);
 

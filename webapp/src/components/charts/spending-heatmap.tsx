@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 import { motion } from 'motion/react';
 import { formatCurrency } from '@/lib/utils';
+import { montoPen } from '@/lib/tx-monto';
 import type { Transaccion } from '@/lib/types';
 
 interface SpendingHeatmapProps {
@@ -36,7 +37,7 @@ export function SpendingHeatmap({ transactions }: SpendingHeatmapProps) {
     for (const t of transactions) {
       if (t.tipo !== 'gasto') continue;
       const key = t.fecha; // YYYY-MM-DD
-      dayMap.set(key, (dayMap.get(key) || 0) + t.monto_pen);
+      dayMap.set(key, (dayMap.get(key) || 0) + montoPen(t));
     }
 
     // Build grid: rows = 7 days, cols = weeks

@@ -40,7 +40,7 @@ export interface Transaccion {
   tipo: 'gasto' | 'ingreso';
   monto: number;
   moneda: 'PEN' | 'USD';
-  monto_pen: number;
+  monto_pen: number | null;
   tipo_cambio?: number;
   metodo_pago?: string;
   comercio?: string;

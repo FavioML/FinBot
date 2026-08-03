@@ -24,6 +24,7 @@ import { MESES, getCategoriaEmoji } from '@/lib/constants';
 import { MonthSelector } from '@/components/dashboard/month-selector';
 import { HeaderActions } from '@/components/dashboard/topbar';
 import type { Presupuesto, Transaccion } from '@/lib/types';
+import { montoPen, formatTxMonto } from '@/lib/tx-monto';
 import {
   Dialog,
   DialogContent,
@@ -131,7 +132,7 @@ export default function PresupuestosPage() {
       const cat = t.categoria.toLowerCase();
       if (!map.has(cat)) map.set(cat, new Map());
       const catMap = map.get(cat)!;
-      catMap.set(monthKey, (catMap.get(monthKey) || 0) + t.monto_pen);
+      catMap.set(monthKey, (catMap.get(monthKey) || 0) + montoPen(t));
     }
     const avgMap = new Map<string, number>();
     for (const [cat, monthMap] of map.entries()) {
@@ -147,10 +148,10 @@ export default function PresupuestosPage() {
     const map = new Map<string, number>();
     for (const t of transactions) {
       const catKey = normalizeCatForMatch(t.categoria);
-      map.set(catKey, (map.get(catKey) || 0) + t.monto_pen);
+      map.set(catKey, (map.get(catKey) || 0) + montoPen(t));
       if (t.subcategoria) {
         const subKey = `${catKey}::${t.subcategoria.toLowerCase()}`;
-        map.set(subKey, (map.get(subKey) || 0) + t.monto_pen);
+        map.set(subKey, (map.get(subKey) || 0) + montoPen(t));
       }
     }
     return map;
@@ -466,7 +467,7 @@ export default function PresupuestosPage() {
                   .filter(([subName]) => subName !== '(General)' && !budgetedSubs.has(subName.toLowerCase()))
                   .map(([subName, txs]) => ({
                     subName,
-                    total: txs.reduce((s, t) => s + t.monto_pen, 0),
+                    total: txs.reduce((s, t) => s + montoPen(t), 0),
                     count: txs.length,
                   }))
                   .sort((a, b) => b.total - a.total);
@@ -518,7 +519,7 @@ export default function PresupuestosPage() {
                                 </div>
                                 <div className="flex items-center gap-2 shrink-0 ml-3">
                                   <span className="text-sm font-medium text-[#D85A30]">
-                                    -{formatCurrency(tx.monto_pen)}
+                                    -{formatTxMonto(tx)}
                                   </span>
                                   <Pencil className="h-3 w-3 text-[#8A877D] opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-opacity" />
                                 </div>

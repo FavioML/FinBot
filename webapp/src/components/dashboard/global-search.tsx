@@ -7,6 +7,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
 import { formatCurrency, formatFecha } from '@/lib/utils';
+import { formatTxMonto } from '@/lib/tx-monto';
 import { getCategoriaEmoji } from '@/lib/constants';
 
 const PAGES = [
@@ -157,7 +158,7 @@ export function GlobalSearch() {
                       className="text-xs font-medium tabular-nums shrink-0"
                       style={{ color: tx.tipo === 'ingreso' ? '#1D9E75' : '#D85A30' }}
                     >
-                      {tx.tipo === 'ingreso' ? '+' : '-'}{formatCurrency(tx.monto_pen)}
+                      {tx.tipo === 'ingreso' ? '+' : '-'}{formatTxMonto(tx)}
                     </span>
                   </button>
                 ))}

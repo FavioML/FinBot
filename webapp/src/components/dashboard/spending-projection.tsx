@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import { TrendingUp, TrendingDown, ArrowRight } from 'lucide-react';
 import { motion } from 'motion/react';
 import { formatCurrency } from '@/lib/utils';
+import { montoPen } from '@/lib/tx-monto';
 import type { Transaccion } from '@/lib/types';
 
 interface SpendingProjectionProps {
@@ -23,7 +24,7 @@ export function SpendingProjection({
     const gastos = transactions.filter((t) => t.tipo === 'gasto');
     if (gastos.length === 0) return null;
 
-    const totalSpent = gastos.reduce((s, t) => s + t.monto_pen, 0);
+    const totalSpent = gastos.reduce((s, t) => s + montoPen(t), 0);
 
     // Days elapsed in current month
     const today = new Date();
@@ -50,7 +51,7 @@ export function SpendingProjection({
         const d = new Date(t.fecha + 'T00:00:00');
         return d.getMonth() + 1 === pm && d.getFullYear() === py;
       })
-      .reduce((s, t) => s + t.monto_pen, 0);
+      .reduce((s, t) => s + montoPen(t), 0);
 
     const vsLastMonth = prevGastos > 0 ? ((projected - prevGastos) / prevGastos) * 100 : 0;
 
