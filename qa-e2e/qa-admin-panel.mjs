@@ -517,6 +517,11 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
   console.log(`\n${results.length - fallos.length}/${results.length} checks OK`);
   process.exit(fallos.length ? 1 : 0);
 })().catch(e => {
-  console.error('ERROR:', e.message);
-  process.exit(1);
+  // exit 2 = NO HUBO VEREDICTO, no "todo mal". Acá solo caen excepciones: login, red, Supabase
+  // o la service-role key. Ningún check de verdad lanza (todos pasan por `ok()` y se acumulan),
+  // así que confundir esto con exit 1 haría que el canary gritara "el panel miente" cada vez que
+  // se cae el wifi. A la tercera falsa alarma nadie vuelve a leer el reporte, y ahí se pierde el
+  // canary entero. Misma convención que deploy-fresh y gating-score.
+  console.error('ERROR (infra, sin veredicto):', e.message);
+  process.exit(2);
 });

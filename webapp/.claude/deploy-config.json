@@ -92,6 +92,13 @@
         "on_fail": "exit 1 = STALE: hay commits en main que tocan archivos que Railway observa (todo menos webapp/, qa-e2e/, docs/, *.md raiz -> la lista negra de railway.json) y no estan desplegados (build de Railway fallido en silencio o atrasado); el JSON lista los archivos backend pendientes; revisar el ultimo deployment en Railway. exit 2 = no se pudo determinar (endpoint /version caido, gh/red, o el SHA desplegado no es ancestro de main): infra, no necesariamente stale. Espejo backend del deploy-fresh del webapp; usa /version (RAILWAY_GIT_COMMIT_SHA)."
       },
       {
+        "name": "admin-panel",
+        "cmd": "node qa-e2e/qa-admin-panel.mjs",
+        "cwd": "C:/Vortik.dev/products/neto/app",
+        "cost": "2 logins + ~14 fetch + lecturas paginadas service-role (segundos, READ-ONLY, sin Chromium, sin OpenAI)",
+        "on_fail": "exit 1 = el panel admin DIVERGE de la base: alguna metrica cuenta lo que no debe, o una ruta admin perdio su guard. El modo de falla que cubre no se ve mirando el panel: son numeros creibles y falsos, sin error ni 500. Cada check imprime 'panel dice X, la base dice Y' contra un oraculo que pagina y NO usa las RPC del panel. Los que mas duelen: MRR/Pro contando cuentas de prueba (paso el 2026-08-02, S/20 de humo sobre S/56 reales), 'Pro sin pago registrado' (comps regalados que el MRR valora como pagadores), embudo con el denominador mezclado, y total de producto != usuarios reales. Reportar el check fallido con su linea completa. exit 2 = infra (login, red, Supabase o falta la service-role key local): NO es regresion, no hubo veredicto. Ver memory project_admin_panel_audit."
+      },
+      {
         "name": "idor-cross-user",
         "cmd": "node qa-e2e/qa-idor-cross-user.mjs",
         "cwd": "C:/Vortik.dev/products/neto/app",
