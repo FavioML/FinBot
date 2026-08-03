@@ -132,6 +132,28 @@ while IFS=$'\t' read -r bucket nombre; do
 done < "${TRABAJO}/objetos.tsv"
 echo "    ${ARCHIVOS} archivos"
 
+# --- 4b. Deteccion de esquemas nuevos ---------------------------------------
+# El dump es --schema=public, asi que una tabla NUEVA en public entra sola.
+# Un ESQUEMA nuevo, en cambio, quedaria fuera sin que nadie se entere. Esto
+# obliga a que agregar un esquema sea una decision consciente: el backup falla
+# hasta que alguien decida si va adentro (y lo agregue al dump) o no.
+echo "--> esquemas"
+CONOCIDOS="public,auth,storage,supabase_migrations,extensions,graphql,graphql_public,realtime,_realtime,vault,pgbouncer,cron,net,pgsodium,pgsodium_masks,supabase_functions,_analytics,_supavisor,pgtle,pg_toast,pg_catalog,information_schema"
+
+DESCONOCIDOS="$("$PSQL" "$SUPABASE_DB_URL" -Atq -c "
+select coalesce(string_agg(nspname, ', ' order by nspname), '')
+from pg_namespace
+where nspname not like 'pg\_%'
+  and nspname <> all (string_to_array('${CONOCIDOS}', ','));" | tr -d '\r')"
+
+if [ -n "$DESCONOCIDOS" ]; then
+  echo "BACKUP RECHAZADO: hay esquemas que el backup no cubre: ${DESCONOCIDOS}" >&2
+  echo "Decide si entran (agregalos a --schema en este script y a la lista de" >&2
+  echo "conocidos) o si se excluyen a proposito. No los ignores en silencio." >&2
+  exit 1
+fi
+echo "    ok: sin esquemas fuera del backup"
+
 # --- 5. Manifiesto: la vara contra la que se verifica cualquier restore ------
 echo "--> manifiesto"
 "$PSQL" "$SUPABASE_DB_URL" -Atq -c "
@@ -150,10 +172,27 @@ with t as (
 select coalesce(json_object_agg(sch || '.' || tbl, (substring(x from '<c>(\d+)</c>'))::bigint), '{}'::json)
 from t;" | tr -d '\r' > "${TRABAJO}/conteos.json"
 
-node - "$SALIDA" "$TS" "$ARCHIVOS" "${TRABAJO}/conteos.json" <<'NODE'
+# Estructura de public, para que el restore compare contra el origen y no
+# contra numeros escritos a mano. Asi el dia que haya 40 tablas y 30 policies
+# la verificacion sigue siendo exacta sin tocar nada.
+"$PSQL" "$SUPABASE_DB_URL" -Atq -c "
+select json_build_object(
+  'tablas',      (select count(*) from pg_tables where schemaname='public'),
+  'tablas_rls',  (select count(*) from pg_tables where schemaname='public' and rowsecurity),
+  'policies',    (select count(*) from pg_policies where schemaname='public'),
+  'funciones',   (select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public'),
+  'triggers',    (select count(*) from pg_trigger t join pg_class c on c.oid=t.tgrelid
+                    join pg_namespace n on n.oid=c.relnamespace
+                   where n.nspname='public' and not t.tgisinternal),
+  'indices',     (select count(*) from pg_indexes where schemaname='public'),
+  'vistas',      (select count(*) from pg_views where schemaname='public')
+);" | tr -d '\r' > "${TRABAJO}/estructura.json"
+
+node - "$SALIDA" "$TS" "$ARCHIVOS" "${TRABAJO}/conteos.json" "${TRABAJO}/estructura.json" <<'NODE'
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
-const [salida, ts, archivos, conteosPath] = process.argv.slice(2);
+const [salida, ts, archivos, conteosPath, estructuraPath] = process.argv.slice(2);
 const conteos = JSON.parse(fs.readFileSync(conteosPath, 'utf8').trim());
+const estructura = JSON.parse(fs.readFileSync(estructuraPath, 'utf8').trim());
 
 const sha = {};
 const caminar = (dir, base = '') => {
@@ -176,9 +215,12 @@ fs.writeFileSync(path.join(salida, 'MANIFEST.json'), JSON.stringify({
   filas_por_tabla: conteos,
   total_filas: Object.values(conteos).reduce((a, b) => a + b, 0),
   archivos_storage: Number(archivos),
+  estructura_public: estructura,
   sha256: sha,
 }, null, 2) + '\n');
 console.log(`    ${Object.keys(conteos).length} tablas, ${Object.values(conteos).reduce((a,b)=>a+b,0)} filas`);
+console.log(`    public: ${estructura.tablas} tablas (${estructura.tablas_rls} con RLS), `
+  + `${estructura.policies} policies, ${estructura.funciones} funciones, ${estructura.triggers} triggers`);
 NODE
 
 # --- 5b. Guardas antes de cifrar --------------------------------------------
@@ -233,6 +275,30 @@ if (problemas.length) {
   process.exit(1);
 }
 console.log(`    ok: ${Object.keys(MINIMOS).length} tablas criticas sobre el minimo, RLS y datos presentes`);
+
+// Avisos: NO tumban el backup. Una tabla sin RLS es un problema de seguridad,
+// pero quedarse sin respaldo del dia por eso seria peor. Sale en la
+// notificacion para que se vea el mismo dia.
+const avisos = [];
+const est = man.estructura_public;
+if (est.tablas !== est.tablas_rls) {
+  avisos.push(`${est.tablas - est.tablas_rls} tabla(s) de public SIN RLS`);
+}
+if (est.tablas_rls > 0 && est.policies === 0) {
+  avisos.push('RLS activo pero sin ninguna policy: la base quedaria cerrada a todos');
+}
+for (const a of avisos) console.log(`    AVISO: ${a}`);
+
+// Resumen que lee el workflow para armar la notificacion de Telegram.
+if (process.env.RESUMEN_OUT) {
+  fs.writeFileSync(process.env.RESUMEN_OUT, JSON.stringify({
+    tablas: Object.keys(filas).length,
+    filas: man.total_filas,
+    archivos: man.archivos_storage,
+    estructura: est,
+    avisos,
+  }) + '\n');
+}
 NODE
 
 # --- 6. Empaquetar, cifrar, subir -------------------------------------------
@@ -260,6 +326,19 @@ fi
 
 # --- 7. Retencion -----------------------------------------------------------
 echo "--> retencion"
-node "${AQUI}/r2.mjs" prune
+node "${AQUI}/r2.mjs" prune | tee "${TRABAJO}/prune.txt"
+
+# Completar el resumen con lo que solo se sabe al final.
+if [ -n "${RESUMEN_OUT:-}" ] && [ -f "${RESUMEN_OUT}" ]; then
+  RETENIDOS="$(sed -n 's/^daily\/: \([0-9]*\) quedan.*/\1/p' "${TRABAJO}/prune.txt")"
+  node -e "
+    const fs = require('fs');
+    const r = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
+    r.objeto = process.argv[2];
+    r.peso = Number(process.argv[3]);
+    r.retenidos = Number(process.argv[4] || 0);
+    fs.writeFileSync(process.argv[1], JSON.stringify(r) + '\n');
+  " "$RESUMEN_OUT" "daily/${NOMBRE}.tar.gz.age" "$PESO" "${RETENIDOS:-0}"
+fi
 
 echo "OK ${NOMBRE}.tar.gz.age (${PESO} bytes, ${ARCHIVOS} archivos de storage)"

@@ -55,13 +55,14 @@ for k in SUPABASE_DB_URL SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY \
   poner_secret "$k" "$(leer "$k" "$BACKUP_ENV")"
 done
 
-# Para el aviso de fallo por Telegram. Viven en Railway, no en backup.env, asi
-# que normalmente no estaran aca. Son OPCIONALES: sin ellos el workflow
-# simplemente no avisa por ese canal, y GitHub igual manda correo cuando un
-# workflow programado falla. Para tenerlos, copiar los dos valores de Railway
-# al .env local y volver a correr este script.
+# Avisos por Telegram (exito y fallo). Viven en Railway, asi que normalmente no
+# estaran en ningun archivo local: se buscan en backup.env y, si no, en .env.
+# Son OPCIONALES: sin ellos el workflow no avisa por ese canal, y GitHub igual
+# manda correo cuando un workflow programado falla.
 for k in TELEGRAM_BOT_TOKEN TELEGRAM_ADMIN_CHAT_ID; do
-  poner_secret "$k" "$(leer "$k" "$APP_ENV")" opcional
+  valor="$(leer "$k" "$BACKUP_ENV")"
+  [ -n "$valor" ] || valor="$(leer "$k" "$APP_ENV")"
+  poner_secret "$k" "$valor" opcional
 done
 
 # La clave publica de age NO es secreto: es publica por diseno. Va como

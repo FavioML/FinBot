@@ -212,13 +212,41 @@ verificar "identities sin user" \
 verificar "objetos de storage sin bucket" \
   "select count(*) from storage.objects o left join storage.buckets b on b.id=o.bucket_id where b.id is null;" "0"
 
-# RLS y policies: si se perdieran, el restore "funciona" pero deja la base abierta.
-RLS_ON="$("$PSQL" "$DEST" -Atq -c "select count(*) from pg_tables where schemaname='public' and rowsecurity;" | tr -d '\r')"
-POLICIES="$("$PSQL" "$DEST" -Atq -c "select count(*) from pg_policies where schemaname='public';" | tr -d '\r')"
-FUNCS="$("$PSQL" "$DEST" -Atq -c "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public';" | tr -d '\r')"
-echo "  RLS activo en ${RLS_ON} tablas, ${POLICIES} policies, ${FUNCS} funciones"
-[ "$RLS_ON" -ge 36 ] || fallo "se esperaban al menos 36 tablas con RLS, hay ${RLS_ON}"
-[ "$POLICIES" -ge 24 ] || fallo "se esperaban al menos 24 policies, hay ${POLICIES}"
+# Estructura de public contra la del origen. Se compara con el manifiesto y no
+# con numeros escritos aca: el dia que haya 40 tablas y 30 policies esto sigue
+# siendo exacto sin tocar nada. Si se perdiera una policy en el camino, el
+# restore "funcionaria" pero dejaria la base abierta, y eso tiene que fallar.
+"$PSQL" "$DEST" -Atq -c "
+select json_build_object(
+  'tablas',      (select count(*) from pg_tables where schemaname='public'),
+  'tablas_rls',  (select count(*) from pg_tables where schemaname='public' and rowsecurity),
+  'policies',    (select count(*) from pg_policies where schemaname='public'),
+  'funciones',   (select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public'),
+  'triggers',    (select count(*) from pg_trigger t join pg_class c on c.oid=t.tgrelid
+                    join pg_namespace n on n.oid=c.relnamespace
+                   where n.nspname='public' and not t.tgisinternal),
+  'indices',     (select count(*) from pg_indexes where schemaname='public'),
+  'vistas',      (select count(*) from pg_views where schemaname='public')
+);" | tr -d '\r' > "${TRABAJO}/estructura_restaurada.json"
+
+node - "$BK" "${TRABAJO}/estructura_restaurada.json" <<'NODE' || FALLAS=$((FALLAS + 1))
+const fs = require('fs'), path = require('path');
+const man = JSON.parse(fs.readFileSync(path.join(process.argv[2], 'MANIFEST.json'), 'utf8'));
+const rest = JSON.parse(fs.readFileSync(process.argv[3], 'utf8').trim());
+const origen = man.estructura_public;
+if (!origen) {
+  console.log('  aviso: el manifiesto es de una version anterior y no trae estructura_public');
+  process.exit(0);
+}
+let malas = 0;
+for (const [k, v] of Object.entries(origen)) {
+  if (rest[k] !== v) { console.log(`  FALLA: ${k} origen=${v} restaurado=${rest[k]}`); malas++; }
+}
+if (malas) process.exit(1);
+console.log(`  ok: estructura identica (${origen.tablas} tablas, ${origen.tablas_rls} con RLS, `
+  + `${origen.policies} policies, ${origen.funciones} funciones, ${origen.triggers} triggers, `
+  + `${origen.indices} indices)`);
+NODE
 
 # Una consulta de negocio de verdad, no un count.
 echo "  muestra de datos restaurados:"
