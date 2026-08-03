@@ -1,0 +1,128 @@
+# Handoff — Gmail: estado de reconexión y limpieza
+
+Pendientes que quedaron abiertos tras el trabajo del 2026-08-03 (commits `538bd64`, `f4c979c`,
+`4649ffc`, `41b3aca`, `feb109e`, `cbf267c`), en orden de valor. El prompt para retomarlos está
+al final.
+
+Contexto que hay que leer primero: la sección **"Conectar Gmail es la unica capability que
+exige Pro PAGADO"** de `app/CLAUDE.md`. Resume las tres decisiones que ya están tomadas y NO se
+reabren: conectar es web-only, exige Pro pagado, y es UNA cuenta de Gmail por usuario para
+siempre.
+
+---
+
+## P1 — La app no distingue "conectado" de "conectado pero muerto"
+
+**El bug.** Cuando el token de Gmail expira, `services/gmail-scanner.js` (~línea 197) detecta
+`authError`, avisa al usuario y **deja la fila en `gmail_cuentas.activa = true`**. Como
+`webapp/src/app/api/pro/status/route.ts` calcula `gmailConectado` desde esa columna, la tarjeta
+de `/dashboard/pro` sigue diciendo **"Gmail conectado ✓"** mientras no se lee un solo correo.
+
+**Por qué importa.** El único aviso vive en `notificarAuthExpirada`, que además tiene un
+throttle **en memoria** (`authErrorNotifiedAt`, una de las piezas que asumen instancia única —
+ver la sección de replicas=1 en `app/CLAUDE.md`): un redeploy lo borra. Si el usuario no vio ese
+aviso, no tiene forma de enterarse: la app le afirma que está todo bien.
+
+**Consecuencia visible hoy:** como no podemos distinguir los dos estados, el enlace "Reconecta
+esta cuenta" está SIEMPRE visible en la tarjeta (`webapp/src/app/dashboard/pro/page.tsx`,
+`GmailConnect`). Favio lo reportó el 2026-08-03: un llamado a la acción debajo de un "conectado ✓"
+hace dudar de lo que la tarjeta acaba de afirmar. Se bajó de botón a enlace como parche; el
+arreglo real es que aparezca **solo** en el estado roto.
+
+**Qué hay que hacer:**
+
+1. Migración `058_gmail_auth_error.sql`: `alter table gmail_cuentas add column auth_error_at
+   timestamptz` (nullable).
+2. `services/gmail-scanner.js`: donde hoy llama `notificarAuthExpirada`, sellar también
+   `auth_error_at = now()` en la cuenta. Ojo que `escanearHistoricoInicial` (~línea 160) tiene
+   su propia rama de `authError` que resetea `historico_importado`.
+3. `gmail.js` → `guardarTokens`: limpiar `auth_error_at` en toda conexión exitosa. Va en el
+   mismo upsert.
+4. `webapp/src/app/api/pro/status/route.ts`: exponer `gmailNecesitaReconexion`.
+5. `webapp/src/app/dashboard/pro/page.tsx` (`GmailConnect`): tres estados en vez de dos —
+   *conectado y sano* (sin ninguna acción), *conectado pero caído* (aviso + "Reconectar"
+   prominente + qué pasó), *sin conectar*. Evaluar además un banner en el dashboard: es el
+   canal que llega siempre, a diferencia del WhatsApp fuera de la ventana de 24h.
+6. Guards: que el sweep persista el estado y que `guardarTokens` lo limpie. Probarlos en rojo
+   contra el commit anterior (`git worktree`).
+
+**Gotcha del test:** `gmail.js` NO usa `lib/db`, arma su propio cliente con `createClient` desde
+env. Mockear `lib/db` lo deja hablando con Supabase de **producción**. Hay que interceptar
+`@supabase/supabase-js` — ver `tests/gmail-una-cuenta.test.js`.
+
+---
+
+## P2 — La rama 409 (segundo correo) no tiene cobertura E2E
+
+`routes/public.js` rechaza con 409 si el usuario autoriza con un correo distinto al que ya tiene
+vinculado, y revoca el grant sobrante. Hoy está cubierto **solo por guards estáticos**
+(`tests/gmail-una-cuenta.test.js`), porque ejercerlo de verdad contra Google **cuesta un cupo a
+propósito** — es justo lo que el código existe para evitar.
+
+Camino viable sin gastar cupo: un harness que stubee `obtenerPerfilGoogle` para devolver otro
+correo y `oauth2Client.getToken` para devolver tokens falsos, y maneje el callback. Asserts:
+responde 409, llama `revokeToken`, y **no** escribe fila en `gmail_cuentas`.
+
+---
+
+## P3 — Código muerto de multi-cuenta
+
+Con una cuenta por usuario, esto quedó inalcanzable. No molesta, pero contradice el modelo para
+quien lea:
+
+- `handlers/onboarding.js` paso -1: la rama `numCuentas > 1` (dice "Tus otras cuentas siguen
+  activas"). **Ojo:** quitarla cambia el conteo de `revocarAccesoGmail` que fija
+  `tests/gmail-oauth-gates.test.js` (`>= 4`); hay que actualizarlo con criterio.
+- Intent `preferencia_reporte_gmail` + columna `usuarios.reporte_gmail_modo` + acción
+  `report_preference` del tool: unificado/separado solo tiene sentido con 2+ cuentas. Hoy
+  degrada bien ("tienes una sola cuenta..."), su probe pasa 6/6.
+- `gmail.js`: los paths que escanean todas las cuentas activas en paralelo.
+- `handlers/neto-tools.js`: la descripción del tool dice "agregar/cambiar su Gmail". Tocarla
+  mueve comportamiento del NLP, así que medir antes con `tests/nlp/`.
+
+Al 2026-08-03: **0 usuarios con más de una cuenta**, así que borrar es seguro. Es limpieza
+opcional, no un bug.
+
+---
+
+## Prompt para retomar
+
+```
+Contexto: Neto (C:\Vortik.dev\products\neto\app). Lee primero
+docs/HANDOFF-gmail-estado-reconexion.md y la sección "Conectar Gmail es la unica
+capability que exige Pro PAGADO" de app/CLAUDE.md.
+
+NO reabras estas decisiones: conectar Gmail es web-only, exige Pro PAGADO, y es UNA
+cuenta de Gmail por usuario para siempre (cada cuenta de Google distinta quema uno de
+los 100 cupos de por vida, que no se restablecen; van 5 de 100).
+
+Quiero cerrar P1 del handoff: hoy la app dice "Gmail conectado ✓" aunque el token esté
+muerto, porque el sweep avisa pero deja gmail_cuentas.activa en true. Eso hace que el
+enlace de reconexión tenga que estar siempre visible, y que un usuario cuyo Gmail se
+cayó no se entere si se perdió el aviso.
+
+Trabaja en plan mode primero. Antes de proponer, mide contra producción:
+- cuántas cuentas activas hay y de qué usuarios
+- si alguna está en estado de auth caído hoy (cruza la tabla `errores` por tag AUTH
+  y los logs de GMAIL_REVOKE)
+
+Restricciones:
+- Español, código en inglés. Commits en inglés con prefijo.
+- No reimplementes esProPagado() ni linkPanelPro(): existen en lib/trial.js.
+- Todo cambio en un camino de Gmail deja verde tests/gmail-oauth-gates.test.js y
+  tests/gmail-una-cuenta.test.js, que tienen conteos e invariantes fijados a propósito
+  (entre ellos: CERO generarUrlAutorizacion en handlers/). Actualízalos con criterio,
+  no para que pasen.
+- Gotcha: gmail.js NO usa lib/db, arma su propio cliente con createClient desde env.
+  Mockear lib/db en un test lo deja hablando con Supabase de PRODUCCIÓN. Intercepta
+  @supabase/supabase-js (ver tests/gmail-una-cuenta.test.js).
+- Todo guard nuevo tiene que verse ROJO contra el commit anterior (git worktree) antes
+  de darlo por bueno, y sin pasar por vacuidad.
+- Verificación: npm test en app/ y app/webapp/, qa-e2e/qa-gmail-pro-pagado.mjs,
+  qa-e2e/probe-bancos.mjs, y los 3 curls (neto.pe, app.neto.pe, api.neto.pe/health).
+- Confirma al terminar que el contador de gmail_cuentas sigue en 5: la verificación no
+  puede quemar un cupo.
+
+Si sobra tiempo, sigue con P2 (cobertura de la rama 409 sin gastar cupo) y P3
+(limpieza del código muerto de multi-cuenta).
+```
