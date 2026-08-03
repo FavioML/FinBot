@@ -173,6 +173,45 @@ describe('las otras dos caras: elegir bancos y leer', () => {
       .filter((rel) => /maxGmailAccounts/.test(readFileSync(path.join(RAIZ, rel), 'utf-8')));
     expect(sospechosos).toEqual([]);
   });
+
+  // La lectura tiene tres disparadores y es fácil gatear solo el automático: los manuales
+  // no tienen pantalla de pago de por medio, así que un gate flojo ahí no se ve nunca.
+  it('los disparadores MANUALES de lectura también gatean', () => {
+    const consultas = readFileSync(path.join(RAIZ, 'handlers', 'intents', 'consultas.js'), 'utf-8');
+    const webhook = readFileSync(path.join(RAIZ, 'handlers', 'webhook.js'), 'utf-8');
+    // escanear_gmail (intent NLP) y /escanear (comando) llaman al mismo escáner.
+    expect(consultas, 'escanear_gmail dejó de gatear').toMatch(/escanear_gmail[\s\S]{0,400}?esProPagado\s*\(/);
+    expect(webhook, '/escanear dejó de gatear').toMatch(/'\/escanear'[\s\S]{0,300}?esProPagado\s*\(/);
+  });
+});
+
+/**
+ * Desconectar tiene que hablarle a Google, venga de donde venga.
+ *
+ * El `activa: false` a secas es la trampa original: le corta la lectura al usuario y deja el
+ * permiso vivo de nuestro lado. En los crons ya estaba; faltaba el camino en que el usuario
+ * lo pide él mismo, que es donde peor queda — le respondemos "Gmail desconectado" mientras
+ * seguimos con el grant. Y en el wipe importa el ORDEN: borrar la fila tira el refresh token,
+ * y sin token el grant queda vivo para siempre sin forma de alcanzarlo.
+ */
+describe('desconectar revoca en Google, no solo marca la fila', () => {
+  const ONBOARDING = readFileSync(path.join(RAIZ, 'handlers', 'onboarding.js'), 'utf-8');
+
+  it('el flujo de desconexión del usuario (paso -1) revoca', () => {
+    const paso = ONBOARDING.slice(ONBOARDING.indexOf('onboarding_paso === -1'));
+    const flips = (paso.match(/from\('gmail_cuentas'\)\s*\.update\(\{\s*activa:\s*false/g) || []).length;
+    expect(flips, 'quedó un `activa: false` suelto: revoca en Google en vez de marcar la fila').toBe(0);
+    expect((paso.match(/revocarAccesoGmail\s*\(/g) || []).length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('el wipe revoca ANTES de borrar la fila (después ya no hay token)', () => {
+    const wipe = ONBOARDING.indexOf("from('gmail_cuentas').delete()");
+    expect(wipe, 'ya no hay wipe: actualiza este test').toBeGreaterThan(-1);
+    const revocaAntes = ONBOARDING.lastIndexOf('revocarAccesoGmail(', wipe);
+    expect(revocaAntes, 'el delete no viene precedido de una revocación').toBeGreaterThan(-1);
+    // Pegados: si entre medio se coló otra cosa, es que el orden se rompió.
+    expect(wipe - revocaAntes).toBeLessThan(300);
+  });
 });
 
 /**

@@ -247,8 +247,11 @@ async function obtenerCuentasGmail(usuarioId) {
  *
  * @returns {Promise<{revocadas: number, emails: string[]}>}
  */
-async function revocarAccesoGmail(usuarioId, { motivo = 'sin_motivo' } = {}) {
-  const cuentas = await obtenerCuentasGmail(usuarioId);
+async function revocarAccesoGmail(usuarioId, { motivo = 'sin_motivo', cuentaId = null } = {}) {
+  const todas = await obtenerCuentasGmail(usuarioId);
+  // `cuentaId` sirve al usuario multi-cuenta que desconecta UNA sola: revocar las otras le
+  // apagaría en silencio una lectura que sigue pagando y no pidió cortar.
+  const cuentas = cuentaId ? todas.filter((c) => c.id === cuentaId) : todas;
   if (cuentas.length === 0) return { revocadas: 0, emails: [] };
 
   const emails = [];
@@ -279,12 +282,19 @@ async function revocarAccesoGmail(usuarioId, { motivo = 'sin_motivo' } = {}) {
   // email para historial y deja que el upsert de guardarTokens reconecte limpio por
   // onConflict 'usuario_id,email'. Los tokens se anulan porque ya están muertos: guardarlos
   // cifrados no aporta nada y es pasivo.
-  await getSupabase().from('gmail_cuentas')
+  const limpieza = getSupabase().from('gmail_cuentas')
     .update({ activa: false, access_token: null, refresh_token: null, token_expiry: null, updated_at: new Date().toISOString() })
     .eq('usuario_id', usuarioId).eq('activa', true);
-  await getSupabase().from('usuarios')
-    .update({ gmail_access_token: null, gmail_refresh_token: null, gmail_token_expiry: null })
-    .eq('id', usuarioId);
+  await (cuentaId ? limpieza.eq('id', cuentaId) : limpieza);
+
+  // Los campos legacy de `usuarios` describen "la" cuenta del usuario, así que solo se
+  // limpian cuando no le queda ninguna activa: borrarlos al desconectar una de tres dejaría
+  // al usuario viéndose desconectado con dos cuentas leyendo.
+  if (!cuentaId || todas.length === cuentas.length) {
+    await getSupabase().from('usuarios')
+      .update({ gmail_access_token: null, gmail_refresh_token: null, gmail_token_expiry: null })
+      .eq('id', usuarioId);
+  }
 
   log.info({ tag: 'GMAIL_REVOKE', usuarioId, emails, motivo }, 'Acceso a Gmail revocado en Google');
   return { revocadas: emails.length, emails };

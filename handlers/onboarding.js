@@ -29,7 +29,7 @@
 const { supabase } = require('../lib/db');
 const { CATEGORIAS_SUGERIDAS } = require('../lib/constants');
 const { parsearIndicesRespuesta } = require('../lib/formatters');
-const { obtenerCuentasGmail, generarUrlAutorizacion, BANCOS_CATALOGO, describirSeleccion } = require('../gmail');
+const { obtenerCuentasGmail, generarUrlAutorizacion, revocarAccesoGmail, BANCOS_CATALOGO, describirSeleccion } = require('../gmail');
 const { esProPagado, mensajeGmailProPagado } = require('../lib/trial');
 const { crearCategoriasDesdeIndices } = require('../services/categories');
 const { interpretarComandoPresupuesto } = require('../services/parsers');
@@ -125,30 +125,38 @@ async function manejarOnboarding({ usuario, msg, cmd, from }) {
       // Multi-cuenta: 1..N = desconectar individual, N+1 = todas, N+2 = eliminar todo
       if (respDesc >= 1 && respDesc <= numCuentas) {
         const cuentaTarget = cuentasActivas[respDesc - 1];
-        await supabase.from('gmail_cuentas').update({ activa: false }).eq('id', cuentaTarget.id);
+        // Revoca en Google, no solo marca la fila: el flip local le corta la lectura al
+        // usuario pero nos deja el permiso vivo sobre una bandeja que pidió cerrar.
+        await revocarAccesoGmail(usuario.id, { motivo: 'usuario_desconecto_una', cuentaId: cuentaTarget.id });
         await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
         return '✅ *' + cuentaTarget.email + ' desconectado*\n\nTus otras cuentas siguen activas. Tu historial se mantiene intacto.';
       } else if (respDesc === numCuentas + 1) {
-        await supabase.from('gmail_cuentas').update({ activa: false }).eq('usuario_id', usuario.id);
-        await supabase.from('usuarios').update({ gmail_access_token: null, gmail_refresh_token: null, gmail_token_expiry: null, onboarding_paso: 0 }).eq('id', usuario.id);
+        await revocarAccesoGmail(usuario.id, { motivo: 'usuario_desconecto_todas' });
+        await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
         return '✅ *Todas las cuentas Gmail desconectadas*\n\nTu historial de gastos se mantiene intacto. Puedes volver a conectar escribiendo _"conectar gmail"_.';
       } else if (respDesc === numCuentas + 2) {
         await supabase.from('transacciones').delete().eq('usuario_id', usuario.id);
         await supabase.from('categorias_usuario').delete().eq('usuario_id', usuario.id);
         await supabase.from('presupuestos').delete().eq('usuario_id', usuario.id);
+        // Revocar ANTES del delete: borrar la fila tira el refresh token, y sin token el
+        // grant queda vivo en Google para siempre, sin forma de alcanzarlo.
+        await revocarAccesoGmail(usuario.id, { motivo: 'usuario_borro_cuenta' });
         await supabase.from('gmail_cuentas').delete().eq('usuario_id', usuario.id);
         await supabase.from('usuarios').update({ gmail_access_token: null, gmail_refresh_token: null, gmail_token_expiry: null, email: null, onboarding_paso: 0, onboarding_completado: false }).eq('id', usuario.id);
         return '🗑️ *Cuenta limpia*\n\nTodos tus datos han sido eliminados. Si quieres volver, escribe _"hola"_ y empezamos de cero.';
       }
     } else if (numCuentas === 1) {
       if (respDesc === 1) {
-        await supabase.from('gmail_cuentas').update({ activa: false }).eq('usuario_id', usuario.id);
-        await supabase.from('usuarios').update({ gmail_access_token: null, gmail_refresh_token: null, gmail_token_expiry: null, onboarding_paso: 0 }).eq('id', usuario.id);
+        await revocarAccesoGmail(usuario.id, { motivo: 'usuario_desconecto' });
+        await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
         return '✅ *Gmail desconectado*\n\nTu historial de gastos se mantiene intacto. Puedes volver a conectar cuando quieras escribiendo _"conectar gmail"_.';
       } else if (respDesc === 2) {
         await supabase.from('transacciones').delete().eq('usuario_id', usuario.id);
         await supabase.from('categorias_usuario').delete().eq('usuario_id', usuario.id);
         await supabase.from('presupuestos').delete().eq('usuario_id', usuario.id);
+        // Revocar ANTES del delete: borrar la fila tira el refresh token, y sin token el
+        // grant queda vivo en Google para siempre, sin forma de alcanzarlo.
+        await revocarAccesoGmail(usuario.id, { motivo: 'usuario_borro_cuenta' });
         await supabase.from('gmail_cuentas').delete().eq('usuario_id', usuario.id);
         await supabase.from('usuarios').update({ gmail_access_token: null, gmail_refresh_token: null, gmail_token_expiry: null, email: null, onboarding_paso: 0, onboarding_completado: false }).eq('id', usuario.id);
         return '🗑️ *Cuenta limpia*\n\nTodos tus datos han sido eliminados. Si quieres volver, escribe _"hola"_ y empezamos de cero.';

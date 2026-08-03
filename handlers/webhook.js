@@ -553,7 +553,11 @@ function createWebhookHandler(procesarMensajeLibre) {
         var totalMesHola = gastosMesHola.reduce(function(s,t){return s+parseFloat(t.monto_pen||t.monto);},0);
         respuesta = '👋 Hola' + (primerNombre ? ', ' + primerNombre : '') + '.\n\n' +
           (gastosMesHola.length > 0 ? 'Este mes llevas *S/ ' + totalMesHola.toFixed(2) + '* en ' + gastosMesHola.length + ' movimientos.' : 'Sin movimientos este mes aun.') +
-          '\n\n📝 Registra gastos así:\n_"gasté 50 en taxi"_\n_"almuerzo 25 soles"_\nO envía una foto de tu Yape/Plin.\n\n📊 *Tu dashboard:* https://app.neto.pe\n💡 _Escribe /conectar para lectura automática de correos._';
+          // Acá había un "_Escribe /conectar para lectura automática de correos._". Se quitó:
+          // invitaba a conectar el banco a cualquiera que saludara, incluido quien no puede
+          // (no paga) y quien ni siquiera anotó su primer gasto. Y el sitio para conectar es
+          // la webapp, donde se eligen los bancos antes; por WhatsApp es un menú numerado.
+          '\n\n📝 Registra gastos así:\n_"gasté 50 en taxi"_\n_"almuerzo 25 soles"_\nO envía una foto de tu Yape/Plin.\n\n📊 *Tu dashboard:* https://app.neto.pe';
       } else {
         var gastosMesHola = await obtenerGastosMes(usuario.id);
         var totalMesHola = gastosMesHola.reduce(function(s,t){return s+parseFloat(t.monto_pen||t.monto);},0);
@@ -620,8 +624,13 @@ function createWebhookHandler(procesarMensajeLibre) {
         respuesta = menuEdicionBancos(usuario.bancos_seleccionados);
       }
     } else if (cmd === '/escanear') {
-      const resultado = await escanearGmailYRegistrar(usuario);
-      respuesta = resultado || (!usuario.gmail_access_token ? 'No tienes Gmail conectado. Escribe */conectar*.' : 'No encontre correos bancarios nuevos.');
+      // No tenía gate propio: heredaba el de escanearGmailYRegistrar, que no mira el plan.
+      if (!esProPagado(usuario)) {
+        respuesta = mensajeGmailProPagado(usuario);
+      } else {
+        const resultado = await escanearGmailYRegistrar(usuario);
+        respuesta = resultado || (!usuario.gmail_access_token ? 'No tienes Gmail conectado. Escribe */conectar*.' : 'No encontre correos bancarios nuevos.');
+      }
     } else if (cmd === '/semana' || cmd === '/resumen') {
       const resumenSem = await generarResumenSemanal(usuario);
       respuesta = resumenSem || 'No hay gastos registrados esta semana.';

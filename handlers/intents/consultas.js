@@ -10,9 +10,11 @@ module.exports = {
     const { supabase } = ctx;
     switch (intencion) {
       case 'escanear_gmail': {
-        const planConfigGmail = getUserPlanConfig(usuario);
-        if (planConfigGmail.maxGmailAccounts === 0) {
-          return '⭐ *Lectura de correos es una función Pro.*\n\nCon Pro, Neto lee tus correos bancarios automáticamente.\n\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
+        // La lectura MANUAL sigue al mismo predicado que la automática (gmail-scanner.js) y
+        // que la conexión. Con el gate por plan, un usuario en prueba con una cuenta heredada
+        // podía pedir "escanea mi gmail" y se le leía la bandeja igual.
+        if (!esProPagado(usuario)) {
+          return mensajeGmailProPagado(usuario);
         }
         return (await escanearGmailYRegistrar(usuario)) || 'No encontre correos bancarios nuevos. Te aviso automaticamente cuando llegue uno.';
       }

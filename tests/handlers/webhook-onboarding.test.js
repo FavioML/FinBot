@@ -25,6 +25,12 @@ require('../../helpers/db-helpers').guardarMensaje = vi.fn().mockResolvedValue(u
 const obtenerCuentasGmail = vi.fn().mockResolvedValue([]);
 require('../../gmail').obtenerCuentasGmail = obtenerCuentasGmail;
 
+// Desconectar dejó de ser un `activa: false` local y pasó a revocar el grant en Google
+// (gmail.js:revocarAccesoGmail). El flip local le cortaba la lectura al usuario pero nos
+// dejaba el permiso vivo sobre una bandeja que él acababa de pedir cerrar.
+const revocarAccesoGmail = vi.fn().mockResolvedValue({ revocadas: 1, emails: ['a@x.com'] });
+require('../../gmail').revocarAccesoGmail = revocarAccesoGmail;
+
 const obtenerGastosMes = vi.fn().mockResolvedValue([]);
 require('../../services/transactions').obtenerGastosMes = obtenerGastosMes;
 
@@ -105,6 +111,8 @@ beforeEach(() => {
   enviarWhatsapp.mockClear();
   obtenerOCrearUsuario.mockReset();
   obtenerCuentasGmail.mockReset().mockResolvedValue([]);
+  // Sin este reset las llamadas se acumulan y un test pasa por lo que hizo el anterior.
+  revocarAccesoGmail.mockReset().mockResolvedValue({ revocadas: 1, emails: ['a@x.com'] });
   obtenerGastosMes.mockReset().mockResolvedValue([]);
   crearCategoriasDesdeIndices.mockReset().mockResolvedValue(undefined);
   obtenerCategoriasUsuario.mockReset().mockResolvedValue([]);
@@ -385,7 +393,8 @@ describe('Onboarding paso -1 — desconexion / wipe', () => {
       { id: 'g1', email: 'a@x.com' }, { id: 'g2', email: 'b@x.com' },
     ]);
     const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1');
-    expect(otherChains['gmail_cuentas'].update).toHaveBeenCalledWith({ activa: false });
+    // Con cuentaId: revocar las otras le apagaría en silencio una lectura que sigue pagando.
+    expect(revocarAccesoGmail).toHaveBeenCalledWith('u1', expect.objectContaining({ cuentaId: 'g1' }));
     expect(usuariosChain.update).toHaveBeenCalledWith(
       expect.objectContaining({ onboarding_paso: 0 })
     );
@@ -398,7 +407,8 @@ describe('Onboarding paso -1 — desconexion / wipe', () => {
       { id: 'g1', email: 'a@x.com' }, { id: 'g2', email: 'b@x.com' },
     ]);
     const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '3');
-    expect(otherChains['gmail_cuentas'].update).toHaveBeenCalledWith({ activa: false });
+    // Sin cuentaId = todas.
+    expect(revocarAccesoGmail).toHaveBeenCalledWith('u1', expect.not.objectContaining({ cuentaId: expect.anything() }));
     expect(otherChains['transacciones']).toBeUndefined();
     expect(enviado).toMatch(/desconectad/i);
   });
@@ -412,6 +422,8 @@ describe('Onboarding paso -1 — desconexion / wipe', () => {
     expect(otherChains['categorias_usuario'].delete).toHaveBeenCalled();
     expect(otherChains['presupuestos'].delete).toHaveBeenCalled();
     expect(otherChains['gmail_cuentas'].delete).toHaveBeenCalled();
+    // Revocar antes del delete: borrar la fila tira el refresh token y el grant queda vivo.
+    expect(revocarAccesoGmail).toHaveBeenCalled();
     expect(usuariosChain.update).toHaveBeenCalledWith(
       expect.objectContaining({ onboarding_paso: 0, onboarding_completado: false, email: null })
     );
@@ -421,7 +433,7 @@ describe('Onboarding paso -1 — desconexion / wipe', () => {
   it('una cuenta, "1" → desconecta Gmail sin borrar datos', async () => {
     obtenerCuentasGmail.mockResolvedValue([{ id: 'g1', email: 'a@x.com' }]);
     const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1');
-    expect(otherChains['gmail_cuentas'].update).toHaveBeenCalledWith({ activa: false });
+    expect(revocarAccesoGmail).toHaveBeenCalledWith('u1', expect.anything());
     expect(otherChains['transacciones']).toBeUndefined();
     expect(enviado).toMatch(/desconectado/i);
   });
