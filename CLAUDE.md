@@ -146,6 +146,38 @@ necesitan las DOS columnas y tienen su predicado, en `lib/trial.js` y su espejo
 | ¿PAGA? | `esProPagado()` / `admin-revenue.ts` para MRR |
 | ¿esta en el muro? | `estaEnMuro(usuario)` |
 
+### Conectar Gmail es la unica capability que exige Pro PAGADO
+
+El trial entrega todo Pro menos una cosa: conectar Gmail. No es comercial, es de
+inventario — cada conexion consume uno de los **100 cupos** de Google que tenemos
+hasta la certificacion CASA, y un trial de 14 dias quemaba un cupo permanente.
+
+Dos reglas, y las dos se pagaron:
+
+- **El cupo se gasta al CANJEAR, no al generar el enlace.** `STATE_TTL_MS` son 7 dias
+  (a proposito: el link post-pago se abre horas despues en el chat), asi que gatear
+  la emision no gatea el canje. El gate que de verdad protege el cupo esta en
+  `routes/public.js`, antes de `guardarTokens`, y revalida contra la fila fresca.
+- **`activarPro` esta exento a proposito.** Arma el link DESPUES del UPDATE que lo
+  hace pagado, con la fila en memoria todavia vieja — por eso el gate no vive dentro
+  de `generarUrlAutorizacion`. El callback lo revalida.
+
+Bajar de plan **revoca en Google** (`revocarAccesoGmail` en `gmail.js`), no solo
+marca `activa: false`: el flip local le corta la lectura al usuario pero deja el
+grant vivo y el cupo tomado. Lo llaman las dos bajas, y `checkGmailHuerfanos` barre
+a diario lo que se cuele por fuera (SQL a mano, panel admin, cron muerto a mitad).
+
+| Pieza | Donde |
+|---|---|
+| Las 7 puertas + el guard | `tests/gmail-oauth-gates.test.js` (conteo fijado por archivo) |
+| Revocacion | `revocarAccesoGmail()` en `gmail.js` + `checkGmailHuerfanos` |
+| E2E | `qa-e2e/qa-gmail-pro-pagado.mjs` (muro/trial/pagado contra prod) |
+
+**Ojo si el proyecto de Google Cloud esta en publishing status "Testing":** el cap de
+100 es una lista de test users que se administra a mano en la consola, y revocar no
+la toca. Los emails revocados salen en el log con tag `GMAIL_REVOKE` para poder
+podarla.
+
 Cuatro de los seis huecos salieron de mirar una sola columna: el banner de prueba encima del
 paywall, `/dashboard/pro` diciendole "Eres Neto Pro ⭐" a quien probaba (escondiendole el
 precio y el 50% de referidos), `/premium` por WhatsApp igual, y el descuento invisible.
