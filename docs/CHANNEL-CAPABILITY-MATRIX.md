@@ -29,6 +29,14 @@ Reglas de copy que no se negocian:
 - Sincronización: **"conéctalos = una sola cuenta"**, nunca "auto-sync".
 - CASA (lectura de correos/Gmail/bancos): feature live, pero el copy **público** de la
   landing no la menciona hasta certificación. No tocar en este barrido.
+- **Conectar Gmail es la excepción a "úsalo donde rinde mejor": es solo-app, a propósito.**
+  No es que WhatsApp no pueda, es que no debe. Cada conexión quema uno de los 100 cupos de
+  Google sobre todo el ciclo de vida del proyecto (no se restablece), así que el inventario
+  se protege teniendo UNA puerta y no seis. Además el OAuth termina en un navegador igual, y
+  en la app el usuario ve los bancos con checkboxes ANTES de autorizar — por WhatsApp era un
+  menú numerado en dos mensajes con el estado guardado en la base entre uno y otro.
+  WhatsApp responde con el deeplink correcto según identidad (`linkPanelPro` en `lib/trial.js`):
+  panel si ya tiene cuenta web, link de activación firmado si es WhatsApp-only.
 
 ## Matriz
 
@@ -71,7 +79,8 @@ Leyenda: ✅ disponible · ⚠️ parcial/con matiz · ❌ no (o redirige al otr
 | Vincular WhatsApp ↔ web (OTP) | ✅ genera código | ✅ pega `NETO-XXXXXX` | Ambos (flujo cruzado) |
 | Editar perfil (nombre) | ✅ | ✅ | App |
 | Comprar/activar Pro | ✅ sube comprobante | ✅ envía captura | App · WA (aprueba humano) |
-| Conectar Gmail / elegir bancos (Pro) | ✅ OAuth | ✅ link | Ambos · **copy público = CASA, no tocar** |
+| Conectar Gmail / elegir bancos (Pro) | ✅ OAuth + multiselect | ❌ responde con deeplink | **Solo app** · copy público = CASA, no tocar |
+| Escanear correos ahora (Pro) | ❌ | ✅ `/escanear` | WhatsApp |
 | Eliminar cuenta | ❌ (deriva a soporte) | ⚠️ menú confirmación | Ninguno self-serve |
 
 ## Exclusivos por canal (resumen)

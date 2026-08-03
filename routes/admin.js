@@ -44,7 +44,7 @@ function verificarAdmin(req, res) {
 //   · `esConversionPagada: false` — un comp no premia al referrer (anti-cadena) y su fila de
 //     `pagos` se registra en S/0, para no inflar la caja del mes con plata que nadie transfirió.
 //     Si el usuario SÍ pagó y mandó comprobante, el endpoint es /admin/aprobar-pago.
-//   · `enviarOAuth: false` — conserva lo que esta ruta ya hacía (nunca mandó link de Gmail) y
+//   · `enviarLinkGmail: false` — conserva lo que esta ruta ya hacía (nunca mandó link de Gmail) y
 //     empata con el comp por WhatsApp. El link lo manda /pago, que sí confirma un pago.
 //   · `guardarHistorial: true` (default, explícito) — ahora sí sale un WhatsApp; sin la fila en
 //     `mensajes`, el hilo del usuario tendría un hueco justo donde Neto le escribió.
@@ -62,7 +62,7 @@ router.post('/activar', async (req, res) => {
       usuario: usuarioActivar,
       tipoPlan: 'mensual',
       aprobadoPor: 'admin:comp',
-      enviarOAuth: false,
+      enviarLinkGmail: false,
       guardarHistorial: true,
       esConversionPagada: false,
     });

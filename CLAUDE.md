@@ -158,15 +158,55 @@ Dos reglas, y las dos se pagaron:
   (a proposito: el link post-pago se abre horas despues en el chat), asi que gatear
   la emision no gatea el canje. El gate que de verdad protege el cupo esta en
   `routes/public.js`, antes de `guardarTokens`, y revalida contra la fila fresca.
-- **`activarPro` esta exento a proposito.** Arma el link DESPUES del UPDATE que lo
-  hace pagado, con la fila en memoria todavia vieja — por eso el gate no vive dentro
-  de `generarUrlAutorizacion`. El callback lo revalida.
+- **Ya no hay emisores exentos.** `activarPro` lo era: armaba el link DESPUES del
+  UPDATE que lo hace pagado, con la fila en memoria todavia vieja, asi que un
+  `esProPagado()` ahi le negaba el Gmail justo a quien acababa de pagar (por eso el
+  gate tampoco vive dentro de `generarUrlAutorizacion`). Hoy manda el atajo al panel
+  en vez de la URL de OAuth, y la excepcion murio con el flujo.
 
 **El cupo NO se recupera.** Verificado en la consola de Google (03-ago-2026, proyecto
 **En produccion**, no en modo prueba): el limite de usuarios de OAuth se cuenta sobre
 *todo el ciclo de vida del proyecto* y "no se puede restablecer ni cambiar". Cuenta a
 quien **alguna vez** otorgo permiso, no a quien lo tiene ahora. Marcador al cerrar
 este trabajo: **5 de 100**.
+
+### Conectar es WEB-ONLY: una sola puerta, y esa puerta es la webapp
+
+Habia **seis** puertas repartidas en dos canales (`/conectar`, `/bancos`, los intents
+`agregar_gmail` y `cambiar_gmail`, el paso 30 del onboarding y el mensaje post-pago de
+`activarPro`). Cinco eran de WhatsApp. Se consolidaron en una: `routes/pro.js`, detras
+de la sesion de la webapp.
+
+Por que, y el dato que lo cerro: de 93 usuarios, **0 llegaron a fijar
+`bancos_seleccionados`**. Los pasos 30 y 31 —menu numerado, parser de indices, dos
+gates duplicados, dos rescates a paso 0— existian para producir un valor que en
+produccion siempre fue `null`. El multiselect de la webapp produce el mismo `null`
+mostrando los bancos ANTES de autorizar.
+
+Y el motivo estructural: los pasos 30/31 guardaban el estado de una capability de pago
+**en la DB entre dos mensajes**. El gate del comando quedaba atras cuando llegaba la
+respuesta, asi que cada paso necesitaba su propio gate duplicado. Menos puertas es menos
+sitios donde acordarse del gate, y con un cupo irrecuperable eso importa mas que el gate.
+
+| Que | Donde |
+|---|---|
+| La unica puerta | `routes/pro.js` → `GET /pro/gmail-auth-url?modo=` (`inicial\|agregar\|reemplazar`) |
+| La UI | `webapp/src/app/dashboard/pro/page.tsx` (`GmailConnect` + `BancosManager`) |
+| A donde manda WhatsApp | `linkPanelPro()` en `lib/trial.js` |
+| El invariante | `tests/gmail-oauth-gates.test.js`: **cero `generarUrlAutorizacion` en `handlers/`** |
+
+**`linkPanelPro(usuario)` es la pieza que evita la regresion.** 43 de 93 usuarios son
+WhatsApp-only (4 Pro pagados): mandarlos a `/dashboard/pro` los deposita en `/login`,
+donde un "Continuar con Google" les crea una cuenta HUERFANA en vez de vincularse a su
+numero. Por eso bifurca: panel si tiene `supabase_auth_id`, link de activacion firmado
+(`lib/activacion.js`) si no. Lo usan `activarPro`, `/conectar`, `/bancos`, los intents y
+el aviso de auth expirada.
+
+Lo que **sigue** en WhatsApp: `/escanear` y el intent `escanear_gmail`. Leer no consume
+cupo (opera sobre una conexion que ya existe) y no tiene superficie web. Su gate si es un
+gate de verdad. En cambio el gate de `/conectar` y `/bancos` **cambio de rol**: ya no
+protege nada (ahi no hay nada que emitir), **elige el copy** — a quien no paga se le debe
+el pitch de Pro, no un link a una pantalla bloqueada.
 
 Consecuencias, y son las que mandan al priorizar:
 - El **gate de entrada es lo unico** que protege el inventario. Cada conexion es
@@ -181,8 +221,9 @@ Consecuencias, y son las que mandan al priorizar:
 | Pieza | Donde |
 |---|---|
 | Las puertas + el guard | `tests/gmail-oauth-gates.test.js` (conteo fijado por archivo) |
+| El deeplink por identidad | `tests/lib/trial-link-panel-pro.test.js` |
 | Revocacion | `revocarAccesoGmail()` en `gmail.js` + `checkGmailHuerfanos` |
-| E2E | `qa-e2e/qa-gmail-pro-pagado.mjs` (muro/trial/pagado contra prod) |
+| E2E | `qa-e2e/qa-gmail-pro-pagado.mjs` (muro/trial/pagado contra prod) · `qa-e2e/probe-bancos.mjs` (WhatsApp no emite) |
 
 Cuatro de los seis huecos salieron de mirar una sola columna: el banner de prueba encima del
 paywall, `/dashboard/pro` diciendole "Eres Neto Pro ⭐" a quien probaba (escondiendole el

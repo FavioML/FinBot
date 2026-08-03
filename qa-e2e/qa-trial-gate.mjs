@@ -107,7 +107,7 @@ async function run() {
     'dscto_vence=' + uRef.referido_dscto_vence + ' vs trial_vence=' + venceOriginal);
 
   // ── 5. Pagar durante el trial no cuesta los días que faltaban ─────────────
-  await activarPro({ usuario: uRef, tipoPlan: 'mensual', aprobadoPor: 'qa-trial', enviarOAuth: false, guardarHistorial: false });
+  await activarPro({ usuario: uRef, tipoPlan: 'mensual', aprobadoPor: 'qa-trial', enviarLinkGmail: false, guardarHistorial: false });
   const uPago = await leer();
   check('al pagar en trial el periodo se apila sobre trial_vence (no sobre hoy)',
     String(uPago.premium_vence).slice(0, 10) > sumarDias(hoyPeru(), 30),

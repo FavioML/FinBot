@@ -6,10 +6,12 @@ const require = createRequire(import.meta.url);
 const projectRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname).replace(/^\/([A-Za-z]):/, '$1:'), '../..');
 
 // Inject CJS mocks into require.cache BEFORE loading the handler.
+// `generarUrlAutorizacion` se mockea aunque consultas.js ya no lo importe: el mock es lo que
+// convierte "dejó de emitir" en un assert observable. Si alguien lo reintroduce, el spy lo
+// registra en vez de dejar pasar el cambio en silencio.
 const gmailMock = {
   obtenerCuentasGmail: vi.fn().mockResolvedValue([]),
   generarUrlAutorizacion: vi.fn(() => 'https://oauth.example/start'),
-  menuSeleccionBancos: vi.fn(() => '📧 Conectar Gmail — elige tus bancos:\n1. BCP'),
 };
 const scannerMock = {
   escanearGmailYRegistrar: vi.fn().mockResolvedValue('ok'),
@@ -43,7 +45,6 @@ describe('consultas paywall — Gmail intents (prw-002)', () => {
   beforeEach(() => {
     gmailMock.obtenerCuentasGmail.mockClear();
     gmailMock.generarUrlAutorizacion.mockClear();
-    gmailMock.menuSeleccionBancos.mockClear();
     scannerMock.escanearGmailYRegistrar.mockClear();
   });
 
@@ -69,19 +70,24 @@ describe('consultas paywall — Gmail intents (prw-002)', () => {
     expect(gmailMock.generarUrlAutorizacion).not.toHaveBeenCalled();
   });
 
-  it('agregar_gmail premium pide elegir bancos antes del OAuth (paso 30)', async () => {
-    const usuario = { id: 'u1', plan: 'premium' };
+  /**
+   * Conectar es web-only: el intent responde con el atajo al panel y no toca la base.
+   *
+   * El `onboarding_paso: 30` que se escribía acá era el otro extremo del problema: dejaba una
+   * capability de pago a medio camino, con su estado guardado entre dos mensajes. Que NO haya
+   * escritura es parte del contrato nuevo, no un detalle.
+   */
+  it('agregar_gmail manda al panel sin emitir OAuth ni escribir un paso de onboarding', async () => {
+    const usuario = { id: 'u1', plan: 'premium', trial_estado: 'convertido', supabase_auth_id: 'auth-1' };
     const ctx = ctxWith();
     const res = await handler.handle({
       intencion: 'agregar_gmail', msg: 'quiero conectar mi gmail',
-      datos: {}, usuario, from: '+51999', ctx,
+      datos: {}, usuario, ctx,
     });
-    // El OAuth ya no se entrega directo: primero el selector de bancos. El enlace
-    // se genera recién en el paso 30 (onboarding.js) tras elegir.
-    expect(res).toContain('elige tus bancos');
-    expect(gmailMock.menuSeleccionBancos).toHaveBeenCalled();
+    expect(res).toContain('/dashboard/pro');
+    expect(res).not.toContain('https://oauth');
     expect(gmailMock.generarUrlAutorizacion).not.toHaveBeenCalled();
-    expect(ctx.supabase.from).toHaveBeenCalledWith('usuarios');
+    expect(ctx.supabase.from).not.toHaveBeenCalled();
   });
 
   // El agujero que motivó el gate: durante el trial `plan` vale 'premium', así que el gate
@@ -96,19 +102,22 @@ describe('consultas paywall — Gmail intents (prw-002)', () => {
     const res = await handler.handle({
       intencion, msg: 'conectar gmail', datos: {}, usuario, from: '+51999', ctx: ctxWith(),
     });
+    // Ojo: el mensaje del paywall SÍ lleva a /dashboard/pro — a pagar, no a conectar. Lo que
+    // no puede llevar es un enlace de OAuth.
     expect(res).toContain('Pro pagado');
     expect(res).not.toContain('https://oauth');
     expect(gmailMock.generarUrlAutorizacion).not.toHaveBeenCalled();
-    expect(gmailMock.menuSeleccionBancos).not.toHaveBeenCalled();
   });
 
-  it('cambiar_gmail SÍ entrega OAuth al Pro pagado (el gate no puede pasarse de largo)', async () => {
-    const usuario = { id: 'u1', plan: 'premium', trial_estado: 'convertido' };
+  // Sin este caso, los dos de arriba pasarían aunque el intent estuviera roto del todo y no
+  // respondiera nada útil a nadie: un gate que niega siempre se ve igual que uno que funciona.
+  it('cambiar_gmail SÍ le da el atajo al Pro pagado (el gate no puede pasarse de largo)', async () => {
+    const usuario = { id: 'u1', plan: 'premium', trial_estado: 'convertido', supabase_auth_id: 'auth-1' };
     const res = await handler.handle({
-      intencion: 'cambiar_gmail', msg: 'cambiar mi gmail', datos: {}, usuario, from: '+51999', ctx: ctxWith(),
+      intencion: 'cambiar_gmail', msg: 'cambiar mi gmail', datos: {}, usuario, ctx: ctxWith(),
     });
-    expect(res).toContain('https://oauth');
-    expect(gmailMock.generarUrlAutorizacion).toHaveBeenCalled();
+    expect(res).toContain('/dashboard/pro');
+    expect(gmailMock.generarUrlAutorizacion).not.toHaveBeenCalled();
   });
 
   it('escanear_gmail bloquea a free con paywall', async () => {

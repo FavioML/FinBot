@@ -401,18 +401,18 @@ function BancosManager({ initial, proPagado }: { initial: string[] | null; proPa
  * motivo. El `PaymentForm` que `TrialState` deja abierto está justo arriba.
  */
 function GmailConnect({ conectado, email, proPagado }: { conectado: boolean; email: string | null; proPagado: boolean }) {
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState<string | null>(null);
 
-  async function connect() {
-    setLoading(true);
+  async function connect(modo: 'inicial' | 'agregar' | 'reemplazar') {
+    setLoading(modo);
     try {
-      const r = await fetch('/api/pro/gmail-auth-url', { cache: 'no-store' });
+      const r = await fetch('/api/pro/gmail-auth-url?modo=' + modo, { cache: 'no-store' });
       const j = await r.json();
       if (!r.ok || !j.ok) throw new Error(j.error || 'No se pudo generar el enlace');
       window.location.href = j.url;
     } catch (e) {
       toast.error((e as Error).message);
-      setLoading(false);
+      setLoading(null);
     }
   }
 
@@ -450,15 +450,40 @@ function GmailConnect({ conectado, email, proPagado }: { conectado: boolean; ema
         </div>
       </div>
 
-      {!conectado && (
+      {!conectado ? (
         <Button
-          onClick={() => connect()}
-          disabled={loading || bloqueado}
+          onClick={() => connect('inicial')}
+          disabled={!!loading || bloqueado}
           className="w-full bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 disabled:opacity-50"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : bloqueado ? 'Se activa con Pro pagado' : 'Conectar mi Gmail'}
         </Button>
-      )}
+      ) : proPagado ? (
+        /* Agregar una segunda cuenta y reconectar tras un `invalid_grant` solo existían por
+           WhatsApp. Ahora que la webapp es el único camino, esconder el botón al que ya está
+           conectado dejaba esos dos casos sin ninguna salida.
+           Se exige `proPagado` y no solo `conectado`: cada cuenta nueva gasta OTRO cupo de
+           Google, así que a quien dejó de pagar se le conserva la conexión que ya tiene pero
+           no se le ofrece abrir una más (el backend lo rechaza con 403 igual). */
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => connect('agregar')}
+            disabled={!!loading}
+            className="flex-1 text-xs disabled:opacity-50"
+          >
+            {loading === 'agregar' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Agregar otra cuenta'}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => connect('reemplazar')}
+            disabled={!!loading}
+            className="flex-1 text-xs disabled:opacity-50"
+          >
+            {loading === 'reemplazar' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Reconectar'}
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -12,7 +12,6 @@ const { guardarPresupuesto, formatearEstadoPresupuesto } = require('../services/
 const { parsearCorreoBancario } = require('../services/parsers');
 const { notificarErrorAdmin } = require('../lib/admin-notify');
 const { registrarError } = require('../lib/error-monitor');
-const { menuSeleccionBancos, menuEdicionBancos } = require('../gmail');
 const { registrarReferido, obtenerEstadisticasReferidos, mensajeMisReferidos } = require('../services/referrals');
 const { obtenerCategoriasUsuario } = require('../services/categories');
 const { escanearGmailYRegistrar } = require('../services/gmail-scanner');
@@ -24,7 +23,7 @@ const { esperaComprobante, esPagoNeto, procesarComprobantePro } = require('../li
 const { procesarComandoAdmin } = require('./admin-commands');
 const { abrirSesion, cerrarSesion } = require('../lib/support-tickets');
 const { manejarOnboarding } = require('./onboarding');
-const { colaConfirmacionGasto, estaEnMuro, mensajeMuro, esProPagado, mensajeGmailProPagado } = require('../lib/trial');
+const { colaConfirmacionGasto, estaEnMuro, mensajeMuro, esProPagado, mensajeGmailProPagado, mensajeConectarEnLaApp } = require('../lib/trial');
 const { comandoRequiereLectura } = require('./intents-acceso');
 const analytics = require('../lib/analytics');
 
@@ -605,35 +604,28 @@ function createWebhookHandler(procesarMensajeLibre) {
       }
     } else if (cmd === '/pendientes') {
       respuesta = '✅ Ya no necesitas categorizar por aquí. Neto categoriza tus gastos automáticamente.\n\n📊 Revisa o ajusta las categorías en https://app.neto.pe/dashboard/transacciones';
-    } else if (cmd === '/conectar') {
-      // Pro PAGADO, no `plan === 'premium'`: durante el trial el plan ya vale 'premium' y
-      // este gate dejaba pasar al que prueba, quemándole un cupo de Google. Ver lib/trial.js.
+    } else if (cmd === '/conectar' || cmd === '/bancos') {
+      // Conectar Gmail y elegir bancos son web-only. Estos comandos siguen vivos porque están
+      // en chats viejos y en /ayuda: borrarlos mandaba al usuario al NLP. Ya no setean ningún
+      // paso de onboarding ni emiten OAuth — responden con el atajo a la app.
+      //
+      // El gate cambió de rol: ya no protege el cupo (acá no hay nada que emitir), ELIGE EL
+      // COPY. A quien no paga se le debe el pitch de Pro, no un link a una pantalla bloqueada.
+      // La puerta real es routes/pro.js y el canje routes/public.js.
       if (!esProPagado(usuario)) {
-        respuesta = mensajeGmailProPagado(usuario);
-      } else if (usuario.gmail_access_token) {
-        respuesta = '📧 Ya tienes Gmail conectado.\n\nPara elegir de qué bancos leo tus correos, escribe */bancos*.\n\nSi necesitas cambiar tu cuenta, escríbenos por WhatsApp al 970398192.';
+        respuesta = mensajeGmailProPagado(usuario, cmd === '/bancos' ? 'bancos' : 'conectar');
       } else {
-        // Antes del enlace OAuth, el usuario elige sus bancos (paso 30 en onboarding.js)
-        await supabase.from('usuarios').update({ onboarding_paso: 30 }).eq('id', usuario.id);
-        respuesta = menuSeleccionBancos();
-      }
-    } else if (cmd === '/bancos') {
-      // Editar la selección de bancos en cualquier momento (paso 31 en onboarding.js).
-      // Mismo predicado que /conectar: sin Gmail conectado la selección no lee nada, así que
-      // dejarla abierta al que no paga es un callejón sin salida, no una feature gratis.
-      if (!esProPagado(usuario)) {
-        respuesta = mensajeGmailProPagado(usuario, 'bancos');
-      } else {
-        await supabase.from('usuarios').update({ onboarding_paso: 31 }).eq('id', usuario.id);
-        respuesta = menuEdicionBancos(usuario.bancos_seleccionados);
+        respuesta = mensajeConectarEnLaApp(usuario, cmd === '/bancos' ? 'bancos' : 'conectar');
       }
     } else if (cmd === '/escanear') {
-      // No tenía gate propio: heredaba el de escanearGmailYRegistrar, que no mira el plan.
+      // Leer SÍ se queda en WhatsApp: no consume cupo (opera sobre una conexión que ya existe)
+      // y no tiene superficie web. Su gate sí es un gate de verdad — es la mitad silenciosa de
+      // la capability, la que no tiene pantalla de por medio.
       if (!esProPagado(usuario)) {
         respuesta = mensajeGmailProPagado(usuario);
       } else {
         const resultado = await escanearGmailYRegistrar(usuario);
-        respuesta = resultado || (!usuario.gmail_access_token ? 'No tienes Gmail conectado. Escribe */conectar*.' : 'No encontre correos bancarios nuevos.');
+        respuesta = resultado || (!usuario.gmail_access_token ? mensajeConectarEnLaApp(usuario) : 'No encontre correos bancarios nuevos.');
       }
     } else if (cmd === '/semana' || cmd === '/resumen') {
       const resumenSem = await generarResumenSemanal(usuario);
@@ -720,7 +712,7 @@ function createWebhookHandler(procesarMensajeLibre) {
       } else { respuesta = formatearCategoriasMsg(catsCmd); }
     } else if (cmd === '/ayuda') {
       const mesActual = new Date().getMonth() + 1;
-      respuesta = '*Comandos NETO:*\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- ver/configurar presupuesto\n*/categorias* -- categorias\n*/conectar* -- vincular Gmail\n*/escanear* -- leer correos ahora\n*/cambiar [comercio] [cat]* -- corregir categoria\n*/reporte* -- PDF del mes\n*/reporte ' + mesActual + '* -- PDF mes especifico\n*/alertas* -- activar/desactivar avisos de Gmail\n*/dashboard* -- ir a tu app (https://app.neto.pe)\n*/referir* -- invitar amigos y ganar Pro\n*/premium* -- plan premium\n*hola* -- estado general\n\n_Tambien puedes escribirme en lenguaje natural!_';
+      respuesta = '*Comandos NETO:*\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- ver/configurar presupuesto\n*/categorias* -- categorias\n*/escanear* -- leer correos ahora\n*/cambiar [comercio] [cat]* -- corregir categoria\n*/reporte* -- PDF del mes\n*/reporte ' + mesActual + '* -- PDF mes especifico\n*/alertas* -- activar/desactivar avisos de Gmail\n*/dashboard* -- ir a tu app (https://app.neto.pe)\n*/referir* -- invitar amigos y ganar Pro\n*/premium* -- plan premium\n*hola* -- estado general\n\n_Tambien puedes escribirme en lenguaje natural!_';
     } else {
       respuesta = await procesarMensajeLibre(msg, usuario, from);
     }

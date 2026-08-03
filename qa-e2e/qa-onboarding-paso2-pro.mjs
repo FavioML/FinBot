@@ -88,7 +88,7 @@ async function run(h) {
   check('reclamarPagoPendiente gana la fila', !!rA && rA.estado === 'aprobado', 'estado=' + rA?.estado);
 
   // Ruta idéntica a la del botón de Telegram y el panel admin: sin flags extra.
-  await activarPro({ usuario: uAntes, tipoPlan: 'mensual', aprobadoPor: 'qa-e2e', pagoId: pagoA, enviarOAuth: false });
+  await activarPro({ usuario: uAntes, tipoPlan: 'mensual', aprobadoPor: 'qa-e2e', pagoId: pagoA, enviarLinkGmail: false });
 
   const uA = await getUser(h, idA);
   check('quedó premium', uA?.plan === 'premium', 'plan=' + uA?.plan + ' vence=' + uA?.premium_vence);
@@ -109,7 +109,7 @@ async function run(h) {
   const uBantes = await getUser(h, idB);
   const pagoB = await seedPago(h, idB);
   await reclamarPagoPendiente({ pagoId: pagoB, aprobadoPor: 'qa-e2e' });
-  await activarPro({ usuario: uBantes, tipoPlan: 'mensual', aprobadoPor: 'qa-e2e', pagoId: pagoB, enviarOAuth: false });
+  await activarPro({ usuario: uBantes, tipoPlan: 'mensual', aprobadoPor: 'qa-e2e', pagoId: pagoB, enviarLinkGmail: false });
 
   const uB = await getUser(h, idB);
   check('el usuario en paso 101 también queda premium', uB?.plan === 'premium', 'plan=' + uB?.plan);
@@ -123,7 +123,7 @@ async function run(h) {
   const uCantes = await getUser(h, idC);
   const pagoC = await seedPago(h, idC);
   await reclamarPagoPendiente({ pagoId: pagoC, aprobadoPor: 'qa-e2e' });
-  await activarPro({ usuario: uCantes, tipoPlan: 'mensual', aprobadoPor: 'qa-e2e', pagoId: pagoC, enviarOAuth: false });
+  await activarPro({ usuario: uCantes, tipoPlan: 'mensual', aprobadoPor: 'qa-e2e', pagoId: pagoC, enviarLinkGmail: false });
 
   const uC = await getUser(h, idC);
   check('el usuario ya onboardeado sigue en paso 0 y completo',

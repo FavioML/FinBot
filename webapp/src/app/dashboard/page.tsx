@@ -4,7 +4,7 @@
 import { useMemo, useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { Receipt, CreditCard, Pencil, ChevronDown, Target, Wallet, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -118,6 +118,16 @@ export default function DashboardPage() {
     window.history.replaceState(null, '', '/dashboard');
   }, [searchParams]);
 
+  // Aterrizaje del OAuth de Gmail: el callback del backend redirige acá con ?gmail=conectado
+  // y hasta ahora el parámetro se ignoraba, o sea que el usuario volvía de autorizar en Google
+  // a un dashboard sin una sola señal de que hubiera funcionado.
+  useEffect(() => {
+    if (searchParams.get('gmail') !== 'conectado') return;
+    toast.success('Gmail conectado — Neto ya está leyendo tus correos bancarios.');
+    queryClient.invalidateQueries({ queryKey: ['pro-status'] });
+    window.history.replaceState(null, '', '/dashboard');
+  }, [searchParams, queryClient]);
+
   // Load ALL transactions for the user (enables both monthly and annual views + trend chart)
   const { data: allTransactions = [], isLoading: txLoading, isError: txError, refetch: refetchTx } = useTransactions({
     usuarioId: user?.id,
@@ -128,6 +138,20 @@ export default function DashboardPage() {
   const { data: allDebts = [] } = useDebts(user?.id);
   const { data: netoScore } = useNetoScore();
   const { data: alertsData } = useSpendingAlerts(10);
+
+  // Solo para el checklist de bienvenida, que únicamente ve quien no tiene ni una transacción:
+  // sin `enabled` esto sería un request más en cada carga del dashboard de todos los demás.
+  // Misma clave que /dashboard/pro, así comparten cache.
+  const muestraChecklist = !txLoading && allTransactions.length === 0;
+  const { data: proStatus } = useQuery({
+    queryKey: ['pro-status'],
+    queryFn: async () => {
+      const r = await fetch('/api/pro/status', { cache: 'no-store' });
+      if (!r.ok) throw new Error('No se pudo cargar el estado Pro');
+      return r.json();
+    },
+    enabled: muestraChecklist,
+  });
 
   // Compute available years from transaction data
   const availableYears = useMemo(() => {
@@ -416,7 +440,11 @@ export default function DashboardPage() {
             <div className="space-y-3">
               {[
                 { done: true, label: 'Crear tu cuenta', sub: 'Listo — ya estás aquí' },
-                { done: !!user?.email, label: 'Conectar tu Gmail', sub: 'NETO lee tus correos bancarios automáticamente', href: '/dashboard/configuracion' },
+                /* Apunta a /dashboard/pro, que es donde vive la conexión: /dashboard/configuracion
+                   no tiene nada de Gmail, así que este paso llevaba a una pantalla sin el botón.
+                   Y `done` sale de la conexión real, no de `user.email` — ese campo se llena con
+                   el correo del login de Google, así que el paso se marcaba solo. */
+                { done: !!proStatus?.gmailConectado, label: 'Conectar tu Gmail', sub: 'Neto lee tus correos bancarios automáticamente (Neto Pro)', href: '/dashboard/pro' },
                 { done: false, label: 'Registrar tu primer gasto', sub: 'Envía un comprobante por WhatsApp o agrega uno manual', href: SOCIAL_LINKS.whatsapp, external: true },
               ].map((step, i) => (
                 <a

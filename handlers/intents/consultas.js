@@ -1,12 +1,12 @@
 const log = require('../../lib/logger');
 const { escanearGmailYRegistrar } = require('../../services/gmail-scanner');
-const { obtenerCuentasGmail, generarUrlAutorizacion, menuSeleccionBancos } = require('../../gmail');
+const { obtenerCuentasGmail } = require('../../gmail');
 const { getUserPlanConfig } = require('../../helpers/db-helpers');
-const { esProPagado, mensajeGmailProPagado } = require('../../lib/trial');
+const { esProPagado, mensajeGmailProPagado, mensajeConectarEnLaApp } = require('../../lib/trial');
 
 module.exports = {
   intents: ['escanear_gmail', 'agregar_gmail', 'cambiar_gmail', 'preferencia_reporte_gmail'],
-  async handle({ intencion, msg, datos, usuario, from, ctx }) {
+  async handle({ intencion, msg, datos, usuario, ctx }) {
     const { supabase } = ctx;
     switch (intencion) {
       case 'escanear_gmail': {
@@ -19,30 +19,24 @@ module.exports = {
         return (await escanearGmailYRegistrar(usuario)) || 'No encontre correos bancarios nuevos. Te aviso automaticamente cuando llegue uno.';
       }
 
+      // Conectar y gestionar cuentas de Gmail es web-only: el OAuth termina en un navegador
+      // igual, y en la app el usuario ve los bancos con checkboxes antes de autorizar. Acá
+      // solo se responde con el atajo. El gate ya NO protege el cupo (no hay nada que emitir):
+      // elige el copy, porque a quien no paga se le debe el pitch, no un link a una pantalla
+      // bloqueada. La puerta real vive en routes/pro.js y el canje en routes/public.js.
       case 'agregar_gmail': {
-        // `maxGmailAccounts === 0` es `plan === 'free'` con otro nombre, y durante el trial el
-        // plan vale 'premium': dejaba conectar al que prueba. Conectar cuesta un cupo de
-        // Google, así que la pregunta correcta es si PAGA. Ver lib/trial.js.
         if (!esProPagado(usuario)) {
           return mensajeGmailProPagado(usuario);
         }
         const cuentasExistentes = await obtenerCuentasGmail(usuario.id);
-        if (cuentasExistentes.length > 0) {
-          // Ya tiene cuenta — ofrecer reconexión/reemplazo
-          const urlReconectar = generarUrlAutorizacion(from, 'reemplazar');
-          return '📧 Ya tienes un Gmail conectado.\n\n¿Quieres *reemplazarlo* con otra cuenta? Abre este enlace:\n\n' + urlReconectar + '\n\n_⚠️ Esto reemplazará tu cuenta actual._';
-        }
-        // Antes del enlace OAuth, el usuario elige sus bancos (paso 30 en onboarding.js)
-        await supabase.from('usuarios').update({ onboarding_paso: 30 }).eq('id', usuario.id);
-        return menuSeleccionBancos();
+        return mensajeConectarEnLaApp(usuario, cuentasExistentes.length > 0 ? 'gestionar' : 'conectar');
       }
 
       case 'cambiar_gmail': {
         if (!esProPagado(usuario)) {
           return mensajeGmailProPagado(usuario);
         }
-        const urlCambiar = generarUrlAutorizacion(from, 'reemplazar');
-        return '🔄 *Reconecta tu Gmail*\n\nAbre este enlace para autorizar de nuevo:\n\n' + urlCambiar + '\n\n_Tu cuenta anterior será reemplazada automáticamente._';
+        return mensajeConectarEnLaApp(usuario, 'gestionar');
       }
 
       case 'preferencia_reporte_gmail': {

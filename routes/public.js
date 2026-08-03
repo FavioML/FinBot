@@ -12,6 +12,13 @@ const analytics = require('../lib/analytics');
 const router = express.Router();
 
 const LANDING_URL = process.env.LANDING_URL || 'https://neto.pe';
+const PANEL_PRO_URL = 'https://app.neto.pe/dashboard/pro';
+
+// Estas páginas las ve un navegador después de un OAuth fallido, y conectar Gmail ahora
+// empieza y termina en la webapp: mandarlo "de vuelta a WhatsApp" lo devolvía a un canal
+// que ya no tiene botón de conectar.
+const REINTENTAR = (titulo) =>
+  '<h2>' + titulo + '</h2><p>Vuelve a <a href="' + PANEL_PRO_URL + '">app.neto.pe</a> e intenta conectar Gmail de nuevo.</p>';
 
 // GET /r/:code — legacy. Antes deep-linkeaba directo a WhatsApp; ahora funnelea por la
 // mini-landing de bienvenida (neto.pe/r/:code), que muestra quién invita + la oferta y de
@@ -39,8 +46,8 @@ router.get('/api/referidor/:code', async (req, res) => {
 router.get('/auth/callback', async (req, res) => {
   const { code, error } = req.query;
   // No reflejar req.query.error crudo en el HTML (XSS reflejado). Lo logueamos y mostramos texto fijo.
-  if (error) { log.warn({ tag: 'OAUTH', code: String(error).slice(0, 60) }, 'Google devolvió error en el callback OAuth'); return res.status(400).send('<h2>No se pudo conectar Gmail.</h2><p>Vuelve a WhatsApp e intenta de nuevo.</p>'); }
-  if (!code) return res.status(400).send('<h2>No se recibió el código.</h2><p>Vuelve a WhatsApp e intenta de nuevo.</p>');
+  if (error) { log.warn({ tag: 'OAUTH', code: String(error).slice(0, 60) }, 'Google devolvió error en el callback OAuth'); return res.status(400).send(REINTENTAR('No se pudo conectar Gmail.')); }
+  if (!code) return res.status(400).send(REINTENTAR('No se recibió el código.'));
   // Verifica el state firmado (HMAC, ver gmail.js) ANTES de canjear el code: no gastamos
   // un token exchange en un callback forjado y NUNCA adivinamos el usuario. Sin esta guarda,
   // un state ausente/forjado permitía asignar los tokens de Gmail de la víctima a la cuenta
@@ -48,7 +55,7 @@ router.get('/auth/callback', async (req, res) => {
   const stateObj = verificarState(req.query.state);
   if (!stateObj) {
     log.warn({ tag: 'OAUTH' }, 'State OAuth ausente, inválido o vencido — callback abortado');
-    return res.status(400).send('<h2>El enlace de conexión expiró o no es válido.</h2><p>Vuelve a WhatsApp y escribe */conectar* para generar uno nuevo.</p>');
+    return res.status(400).send(REINTENTAR('El enlace de conexión expiró o no es válido.'));
   }
   const whatsappNum = stateObj.num;
   const modoConexion = stateObj.modo || 'inicial';
@@ -64,7 +71,7 @@ router.get('/auth/callback', async (req, res) => {
     let usuario = null;
     if (uid) { const { data } = await supabase.from('usuarios').select('*').eq('id', uid).single(); usuario = data; }
     if (!usuario && whatsappNum) { const { data } = await supabase.from('usuarios').select('*').eq('whatsapp', whatsappNum).single(); usuario = data; }
-    if (!usuario) return res.status(404).send('<h2>No se encontró tu cuenta.</h2><p>Vuelve a app.neto.pe e intenta conectar Gmail de nuevo, o escribe */conectar* en WhatsApp.</p>');
+    if (!usuario) return res.status(404).send(REINTENTAR('No se encontró tu cuenta.'));
 
     // ── El gate que de verdad protege el cupo ──────────────────────────────────
     // Gatear la EMISIÓN del link no alcanza: el state vive 7 días (STATE_TTL_MS en gmail.js,
@@ -103,8 +110,14 @@ router.get('/auth/callback', async (req, res) => {
     setTimeout(async () => {
       try {
         if (modoConexion === 'agregar') {
-          const cuentasNow = await obtenerCuentasGmail(usuario.id);
-          await enviarWhatsapp(usuario.whatsapp, '✅ *Cuenta Gmail adicional conectada!*\n📧 ' + emailConectado + '\n\nAhora tienes ' + cuentasNow.length + ' cuentas. ¿Cómo quieres ver tus reportes?\n\n1️⃣ *Unificado* — todo junto\n2️⃣ *Separado* — una sección por cuenta\n\n_Responde 1 o 2._');
+          // La pregunta de reportes unificado/separado espera un "1" o un "2" por WhatsApp.
+          // Desde la web no hay dónde responderla: el usuario está mirando el dashboard, y
+          // el mensaje llegaría a un chat que no abrió. Se omite, y la preferencia se cambia
+          // igual desde la app cuando quiera.
+          if (origenConexion !== 'web') {
+            const cuentasNow = await obtenerCuentasGmail(usuario.id);
+            await enviarWhatsapp(usuario.whatsapp, '✅ *Cuenta Gmail adicional conectada!*\n📧 ' + emailConectado + '\n\nAhora tienes ' + cuentasNow.length + ' cuentas. ¿Cómo quieres ver tus reportes?\n\n1️⃣ *Unificado* — todo junto\n2️⃣ *Separado* — una sección por cuenta\n\n_Responde 1 o 2._');
+          }
           await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
           return;
         }
@@ -138,7 +151,7 @@ router.get('/auth/callback', async (req, res) => {
         }
       } catch(e) { log.error({ tag: 'CALLBACK', err: e.message }, 'Error OAuth callback'); }
     }, 2000);
-  } catch (err) { log.error({ tag: 'CALLBACK', err: err.message }, 'Error en OAuth callback'); res.status(500).send('<h2>Ocurrió un error al conectar Gmail.</h2><p>Vuelve a WhatsApp e intenta de nuevo.</p>'); }
+  } catch (err) { log.error({ tag: 'CALLBACK', err: err.message }, 'Error en OAuth callback'); res.status(500).send(REINTENTAR('Ocurrió un error al conectar Gmail.')); }
 });
 
 // POST /test-parser — admin tool to test email parser

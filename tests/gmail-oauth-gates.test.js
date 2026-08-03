@@ -25,6 +25,19 @@ import path from 'path';
  * más tarde. El cupo no se consume al generar el link: se consume al canjearlo, en
  * `routes/public.js` justo antes de `guardarTokens`. Ese es el único gate que de verdad
  * protege el cupo, y tiene su propio test acá abajo.
+ *
+ * ── Y la SALIDA se cerró consolidando el canal ────────────────────────────────────────────
+ *
+ * Había seis puertas repartidas en dos canales. Cinco eran de WhatsApp, y la del selector de
+ * bancos (pasos 30 y 31 del onboarding) guardaba estado en la DB ENTRE dos mensajes, o sea
+ * que el gate del comando quedaba atrás cuando llegaba la respuesta: cada paso necesitaba su
+ * propio gate duplicado para que un trial vencido en el medio no se llevara el enlace.
+ *
+ * Conectar es ahora web-only y queda UNA puerta. Ese es el invariante que fija este archivo,
+ * y es más fuerte que el conteo viejo: no alcanza con que cada emisor gatee, es que `handlers/`
+ * —todo el canal de WhatsApp— no puede emitir NADA. Un callsite nuevo ahí adentro rompe el
+ * build aunque venga con su `esProPagado` al lado, porque el problema no era el gate faltante
+ * sino la cantidad de sitios donde había que acordarse de ponerlo.
  */
 
 const RAIZ = process.cwd();
@@ -36,32 +49,31 @@ const EMITE = /generarUrlAutorizacion\s*\(/g;
 /**
  * Quién puede emitir una URL de OAuth, y cuántas veces.
  *
- * Los conteos están fijados a propósito. Agregar un callsite en un archivo YA gateado rompe
+ * Los conteos están fijados a propósito. Agregar un callsite en un archivo YA declarado rompe
  * el build igual que agregarlo en uno nuevo: obliga a mirar si esa puerta concreta quedó
  * detrás del gate, en vez de asumir que el archivo "ya estaba cubierto".
+ *
+ * Hoy hay UNA sola entrada, y esa es la noticia. Antes eran cuatro archivos: los tres de
+ * WhatsApp murieron con la consolidación, y `lib/pro-payment.js` —el único exento que llegó
+ * a existir— dejó de emitir cuando el mensaje post-pago pasó a mandar el atajo al panel en
+ * vez de la URL de OAuth cruda.
  */
 const EMISORES = {
-  'handlers/intents/consultas.js': 2,   // agregar_gmail (reemplazo) y cambiar_gmail
-  'handlers/onboarding.js': 1,          // paso 30: el emisor real de /conectar y agregar_gmail
   'routes/pro.js': 1,                   // GET /pro/gmail-auth-url (lo llama la webapp)
-  'lib/pro-payment.js': 1,              // activarPro — exento, ver abajo
 };
 
 /**
  * Emisores que NO miran `esProPagado`, a propósito.
  *
- * Uno solo, y el motivo es de orden de escritura, no de permisos: `activarPro` actualiza la
- * fila a `plan='premium'` + `trial_estado='convertido'` y RECIÉN DESPUÉS arma el link. El
- * objeto `usuario` que tiene en memoria es el de ANTES de ese UPDATE, así que un
- * `esProPagado(usuario)` ahí le negaría el Gmail justo a quien acaba de pagar. Por eso el
- * gate tampoco vive dentro de `generarUrlAutorizacion`: rompería este flujo.
- *
- * Que quede sin gate no abre el agujero, porque el canje sí revalida contra la base ya
- * actualizada (ver el describe de abajo).
+ * Vacío, y se queda vacío salvo que alguien tenga un motivo escrito. El único que hubo fue
+ * `activarPro`, y el motivo era de orden de escritura, no de permisos: actualizaba la fila a
+ * `plan='premium'` + `trial_estado='convertido'` y RECIÉN DESPUÉS armaba el link, con el
+ * objeto `usuario` en memoria todavía viejo, así que un `esProPagado(usuario)` ahí le negaba
+ * el Gmail justo a quien acababa de pagar. (Ese es también el motivo de que el gate no viva
+ * dentro de `generarUrlAutorizacion`.) Hoy ese flujo no emite OAuth y la excepción murió con
+ * él: el test de exenciones fantasma de abajo impide que vuelva sin llamador.
  */
-const SIN_GATE_DE_PRO_PAGADO = new Map([
-  ['lib/pro-payment.js', 'activarPro: la fila en memoria es anterior al UPDATE que lo hace pagado; el callback revalida contra la DB'],
-]);
+const SIN_GATE_DE_PRO_PAGADO = new Map([]);
 
 const SENAL_DE_GATE = /esProPagado\s*\(/;
 
@@ -92,15 +104,34 @@ describe('puertas de OAuth de Gmail', () => {
   // Si el descubrimiento se rompe (se renombra la función, se mueve un directorio), todo lo
   // de abajo filtra sobre una lista vacía y pasa por vacuidad. Ese verde sería peor que no
   // tener el archivo: entrena a confiar en algo que ya no mira nada.
-  it('encuentra los emisores (si el descubrimiento se rompe, el resto del archivo miente)', () => {
-    expect(EMISORES_REALES.size).toBeGreaterThanOrEqual(4);
-    expect([...EMISORES_REALES.keys()]).toContain('handlers/onboarding.js');
+  //
+  // Con un solo emisor el riesgo es mayor que antes, porque "cero emisores" ya no se ve raro:
+  // es un solo paso más allá de lo esperado. De ahí que se afirme el archivo por nombre.
+  it('encuentra el emisor (si el descubrimiento se rompe, el resto del archivo miente)', () => {
+    expect([...EMISORES_REALES.keys()]).toContain('routes/pro.js');
+    expect(EMISORES_REALES.get('routes/pro.js')).toBeGreaterThan(0);
   });
 
   it('no hay emisores nuevos ni callsites nuevos sin declarar', () => {
     const declarado = Object.entries(EMISORES).sort();
     const real = [...EMISORES_REALES.entries()].sort();
     expect(real).toEqual(declarado);
+  });
+
+  /**
+   * El invariante que compró la consolidación: WhatsApp no es una puerta de OAuth.
+   *
+   * Es redundante con el conteo de arriba —un callsite en `handlers/` ya rompería `EMISORES`—
+   * y está a propósito. El de arriba se arregla agregando una línea a un objeto; este obliga
+   * a leer por qué el canal entero está cerrado. Cada conexión quema un cupo IRRECUPERABLE,
+   * así que el número de sitios donde hay que acordarse del gate importa tanto como el gate.
+   *
+   * Si alguna vez hay un motivo real para reabrirlo, hay que borrar este test a mano y dejar
+   * escrito el porqué. Esa fricción es el punto.
+   */
+  it('ningún handler de WhatsApp emite OAuth: conectar es web-only', () => {
+    const enHandlers = [...EMISORES_REALES.keys()].filter((rel) => rel.startsWith('handlers/'));
+    expect(enHandlers, 'un handler volvió a emitir OAuth: el cupo se protege cerrando el canal, no gateando otra puerta más').toEqual([]);
   });
 
   it('todo emisor mira esProPagado, o está declarado exento con su motivo', () => {
@@ -119,9 +150,7 @@ describe('puertas de OAuth de Gmail', () => {
   // `plan === 'premium'` es verdadero durante el trial. Que un emisor "mire el plan" no prueba
   // que gatee al que prueba — era exactamente el estado del código cuando el cupo se fugaba.
   it.each([
-    ['handlers/onboarding.js', 'el paso 30 es el emisor real de /conectar y de agregar_gmail'],
-    ['handlers/intents/consultas.js', 'agregar_gmail y cambiar_gmail entregan el link directo'],
-    ['routes/pro.js', 'la webapp entra por acá; era la puerta sin ningún gate de plan'],
+    ['routes/pro.js', 'la única puerta que queda; era la que no tenía ningún gate de plan'],
   ])('%s gatea por Pro pagado, no por plan a secas (%s)', (rel) => {
     const src = readFileSync(path.join(RAIZ, rel), 'utf-8');
     // Primero que sigue emitiendo: un archivo que dejó de emitir pasaría el gate por vacuidad.
@@ -156,13 +185,19 @@ describe('el canje del código OAuth revalida contra la base', () => {
  * heredada se le seguían leyendo los correos del banco sin que ninguna pantalla lo dijera.
  */
 describe('las otras dos caras: elegir bancos y leer', () => {
-  it.each([
-    ['handlers/webhook.js', 'el comando /bancos'],
-    ['handlers/onboarding.js', 'el paso 31 (editar bancos), con el mismo punto ciego que el 30'],
-    ['services/gmail-scanner.js', 'el barrido automático: la lectura sin pantalla de por medio'],
-  ])('%s gatea por Pro pagado (%s)', (rel) => {
-    const src = readFileSync(path.join(RAIZ, rel), 'utf-8');
-    expect(SENAL_DE_GATE.test(src), rel + ' no llama esProPagado').toBe(true);
+  /**
+   * Elegir bancos ya no se escribe desde el backend: la selección se guarda en
+   * `webapp/src/app/api/pro/bancos`, que tiene su gate y su propio test (`route.test.ts`).
+   * Acá quedaría un assert vacío — `handlers/onboarding.js` sigue nombrando `esProPagado`
+   * por otras razones, así que pasaría sin significar nada.
+   *
+   * Lo que sí se queda es la LECTURA, que es la mitad silenciosa: no tiene pantalla de por
+   * medio, y estaba gateada por plan, o sea que a un usuario en prueba con una cuenta
+   * heredada se le seguían leyendo los correos del banco sin que nada lo dijera.
+   */
+  it('el barrido automático gatea por Pro pagado (la lectura sin pantalla de por medio)', () => {
+    const src = readFileSync(path.join(RAIZ, 'services', 'gmail-scanner.js'), 'utf-8');
+    expect(SENAL_DE_GATE.test(src), 'services/gmail-scanner.js no llama esProPagado').toBe(true);
   });
 
   // `maxGmailAccounts === 0` es `plan === 'free'` con otro nombre: responde "¿tiene Pro?",

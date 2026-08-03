@@ -7,7 +7,7 @@ const projectRoot = path.resolve(
   path.dirname(new URL(import.meta.url).pathname).replace(/^\/([A-Za-z]):/, '$1:'),
   '..'
 );
-const { BANCOS_CATALOGO, remitentesParaSeleccion, menuSeleccionBancos, menuEdicionBancos, describirSeleccion, construirQueriesBancarias } = require(
+const { BANCOS_CATALOGO, remitentesParaSeleccion, describirSeleccion, construirQueriesBancarias } = require(
   path.join(projectRoot, 'gmail.js')
 );
 
@@ -47,26 +47,14 @@ describe('BANCOS_CATALOGO / remitentesParaSeleccion (bank filter)', () => {
     }
   });
 
-  it('el menú numera todos los bancos del catálogo', () => {
-    const menu = menuSeleccionBancos();
-    expect(menu).toContain('1. ' + BANCOS_CATALOGO[0].label);
-    expect(menu).toContain(BANCOS_CATALOGO.length + '. ' + BANCOS_CATALOGO[BANCOS_CATALOGO.length - 1].label);
-    expect(menu.toLowerCase()).toContain('todos');
-  });
-
+  // Los dos menús numerados de WhatsApp (`menuSeleccionBancos` / `menuEdicionBancos`) se
+  // borraron junto con los pasos 30 y 31: la selección se hace con checkboxes en
+  // app.neto.pe/dashboard/pro. `describirSeleccion` sigue viva — la usa el scanner.
   it('describirSeleccion: null/[] → "todos los bancos"; ids → labels', () => {
     expect(describirSeleccion(null)).toBe('todos los bancos');
     expect(describirSeleccion([])).toBe('todos los bancos');
     expect(describirSeleccion(['bcp', 'bbva'])).toBe('BCP, BBVA');
     expect(describirSeleccion(['inexistente'])).toBe('todos los bancos');
-  });
-
-  it('menuEdicionBancos muestra la selección actual y numera el catálogo', () => {
-    const menu = menuEdicionBancos(['bcp']);
-    expect(menu).toContain('Hoy leo: *BCP*');
-    expect(menu).toContain('1. ' + BANCOS_CATALOGO[0].label);
-    expect(menu.toLowerCase()).toContain('todos');
-    expect(menuEdicionBancos(null)).toContain('todos los bancos');
   });
 });
 

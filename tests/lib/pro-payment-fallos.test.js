@@ -224,7 +224,7 @@ describe('activarPro: comp (esConversionPagada false)', () => {
   const { PRO_PRECIOS } = require('../../lib/config');
   const comp = (usuario) => pro.activarPro({
     usuario, tipoPlan: 'mensual', aprobadoPor: 'admin:comp',
-    enviarOAuth: false, esConversionPagada: false,
+    enviarLinkGmail: false, esConversionPagada: false,
   });
 
   it('sella el trial como convertido: el cron de vencimiento ya no lo baja a free', async () => {

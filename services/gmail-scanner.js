@@ -7,7 +7,7 @@ const { leerCorreosBancarios } = require('../gmail');
 const { parsearCorreoBancario } = require('./parsers');
 const { guardarTransaccion } = require('./transactions');
 const { obtenerCategoriasUsuario } = require('./categories');
-const { esProPagado } = require('../lib/trial');
+const { esProPagado, linkPanelPro } = require('../lib/trial');
 const { notificarUsuario, CANALES } = require('../lib/notify-user');
 
 // Lazy-loaded to avoid circular dependency
@@ -50,6 +50,10 @@ async function notificarAuthExpirada(usuario) {
   // Por los dos canales: se rompió la ingesta automática, o sea que el usuario va a dejar
   // de ver gastos sin haber hecho nada. Un aviso que solo vive en WhatsApp no llega a quien
   // justamente confió en que Neto anotaba solo y por eso no escribe hace días.
+  // Reconectar es web-only, así que el aviso lleva el enlace en vez de pedir un comando de
+  // WhatsApp que ya no conecta nada. El deeplink in-app también cambió: /dashboard/configuracion
+  // no tiene una sola línea de Gmail, o sea que el aviso aterrizaba en una pantalla sin botón.
+  const linkReconectar = linkPanelPro(usuario);
   await notificarUsuario({
     canales: CANALES.AMBOS,
     usuarioId: usuario.id,
@@ -57,11 +61,11 @@ async function notificarAuthExpirada(usuario) {
     tipo: 'gmail_auth_expirada',
     mensaje: '⚠️ *Tu Gmail se desconectó*\n\n' +
       'Neto ya no puede leer tus correos bancarios para registrar tus gastos automáticamente.\n\n' +
-      'Escríbeme *"conectar gmail"* para reconectarte y que todo vuelva a funcionar 👇',
+      (linkReconectar ? 'Reconéctalo acá y todo vuelve a funcionar:\n' + linkReconectar : 'Reconéctalo desde tu app para que todo vuelva a funcionar.'),
     titulo: 'Tu Gmail se desconectó',
     cuerpo: 'Neto ya no puede leer tus correos bancarios. Reconéctalo para que todo vuelva a funcionar.',
     tipoInApp: 'alerta',
-    link: '/dashboard/configuracion',
+    link: '/dashboard/pro',
   });
 }
 

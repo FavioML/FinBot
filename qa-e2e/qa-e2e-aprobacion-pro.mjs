@@ -119,7 +119,7 @@ async function run(h) {
   const before = h.sent.length;
   // esConversionPagada:true = lo que manda el flujo real de aprobación (webapp/Telegram//pago).
   // Decide el copy ("¡Pago confirmado!"), el monto registrado y el premio al referrer.
-  await activarPro({ usuario: uFresh, tipoPlan: 'mensual', aprobadoPor: 'qa-e2e', pagoId: pago1, enviarOAuth: false, esConversionPagada: true });
+  await activarPro({ usuario: uFresh, tipoPlan: 'mensual', aprobadoPor: 'qa-e2e', pagoId: pago1, enviarLinkGmail: false, esConversionPagada: true });
 
   const uA = await getUser(h);
   const expV1 = calcVenceMensual(null);
@@ -162,7 +162,7 @@ async function run(h) {
   const uPrev = await getUser(h); // ya premium con vence V1 futuro
   const r3 = await reclamarPagoPendiente({ pagoId: pago2, aprobadoPor: 'qa-e2e' });
   check('reclamarPagoPendiente(P2) gana la fila', !!r3 && r3.estado === 'aprobado', r3 ? 'estado=' + r3.estado : 'null');
-  await activarPro({ usuario: uPrev, tipoPlan: 'mensual', aprobadoPor: 'qa-e2e', pagoId: pago2, enviarOAuth: false, esConversionPagada: true });
+  await activarPro({ usuario: uPrev, tipoPlan: 'mensual', aprobadoPor: 'qa-e2e', pagoId: pago2, enviarLinkGmail: false, esConversionPagada: true });
 
   const uC = await getUser(h);
   const expV2 = calcVenceMensual(V1); // apilado SOBRE V1
@@ -192,7 +192,7 @@ async function run(h) {
   const uComp = await getUser(h);
   await activarPro({
     usuario: uComp, tipoPlan: 'mensual', aprobadoPor: 'admin:comp',
-    enviarOAuth: false, esConversionPagada: false,
+    enviarLinkGmail: false, esConversionPagada: false,
   });
 
   const uD = await getUser(h);

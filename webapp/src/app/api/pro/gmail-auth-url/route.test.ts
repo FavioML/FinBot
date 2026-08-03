@@ -37,17 +37,26 @@ function sesion(plan: string | null, trial_estado: string | null) {
   requireNetoUser.mockResolvedValue({ ok: true, user: { id: 'u1', plan, trial_estado }, authId: 'a1' });
 }
 
+function req(modo?: string) {
+  return new Request('https://app.neto.pe/api/pro/gmail-auth-url' + (modo === undefined ? '' : '?modo=' + modo));
+}
+
+/** La query string con la que se llamó al backend. */
+function urlAlBackend() {
+  return String(fetchMock.mock.calls[0][0]);
+}
+
 describe('GET /api/pro/gmail-auth-url', () => {
   it('pide plan y trial_estado: una fila parcial decidiría con undefined y abriría el gate', async () => {
     sesion('premium', 'convertido');
-    await GET();
+    await GET(req());
     expect(requireNetoUser).toHaveBeenCalledWith(expect.stringContaining('trial_estado'));
     expect(requireNetoUser).toHaveBeenCalledWith(expect.stringContaining('plan'));
   });
 
   it('403 al usuario en trial, y sin llamar al backend', async () => {
     sesion('premium', 'activo');
-    const res = await GET();
+    const res = await GET(req());
     expect(res.status).toBe(403);
     await expect(res.json()).resolves.toMatchObject({ motivo: 'pro_pagado_requerido' });
     expect(fetchMock).not.toHaveBeenCalled();
@@ -55,7 +64,7 @@ describe('GET /api/pro/gmail-auth-url', () => {
 
   it('403 al usuario en el muro', async () => {
     sesion('free', 'vencido');
-    const res = await GET();
+    const res = await GET(req());
     expect(res.status).toBe(403);
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -63,7 +72,7 @@ describe('GET /api/pro/gmail-auth-url', () => {
   // Sin este caso, un gate que niegue SIEMPRE (o una ruta rota) se vería idéntico a uno bueno.
   it('deja pasar al Pro pagado y devuelve la URL del backend', async () => {
     sesion('premium', 'convertido');
-    const res = await GET();
+    const res = await GET(req());
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toMatchObject({ ok: true, url: 'https://oauth.example/start' });
     expect(fetchMock).toHaveBeenCalled();
@@ -72,7 +81,26 @@ describe('GET /api/pro/gmail-auth-url', () => {
   it('sin sesión válida devuelve la respuesta de requireNetoUser y no llama al backend', async () => {
     const SENTINEL = { marca: 'respuesta-de-requireNetoUser' } as unknown as Response;
     requireNetoUser.mockResolvedValue({ ok: false, response: SENTINEL });
-    expect(await GET()).toBe(SENTINEL);
+    expect(await GET(req())).toBe(SENTINEL);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * El modo decide qué hace `guardarTokens` del otro lado: 'reemplazar' pisa la cuenta que ya
+   * estaba. Un modo arbitrario que viajara tal cual convertiría la query string en un control
+   * sobre las cuentas conectadas del usuario, así que degrada a 'inicial', que no toca ninguna.
+   */
+  describe('modo de conexión', () => {
+    it.each(['agregar', 'reemplazar', 'inicial'])('propaga el modo válido %s', async (modo) => {
+      sesion('premium', 'convertido');
+      await GET(req(modo));
+      expect(urlAlBackend()).toContain('modo=' + modo);
+    });
+
+    it.each([undefined, 'borrar', '', 'AGREGAR'])('degrada a inicial el modo %s', async (modo) => {
+      sesion('premium', 'convertido');
+      await GET(req(modo));
+      expect(urlAlBackend()).toContain('modo=inicial');
+    });
   });
 });

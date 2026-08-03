@@ -1,11 +1,20 @@
-// E2E probe — selección de bancos en el flujo de conexión Gmail (paso 30).
+// E2E probe — conectar Gmail y elegir bancos son WEB-ONLY desde WhatsApp.
 //
-// Ejercita el WEBHOOK REAL (firma HMAC, dedup wamid, skips de imagen/OTP/referido,
-// delegación a manejarOnboarding y cascada de comandos) contra Supabase REAL, con el
-// usuario QA (ded7e219, is_test_user=true, plan premium). No manda WhatsApp: stubea
-// enviarWhatsapp para capturar la respuesta real que vería el usuario. Un
-// procesarMensajeLibre espía FALLA si un "1,3"/"todos" llegara al NLP (prueba que
-// ningún intercept/NLP secuestra el mensaje).
+// Este archivo probaba el flujo contrario: `/conectar` dejaba al usuario en el paso 30 con un
+// menú numerado de bancos, y el enlace de OAuth salía cuando respondía "1,3" o "todos". O sea
+// que el estado de una capability de pago vivía en la base ENTRE dos mensajes, y por eso los
+// pasos 30 y 31 necesitaban cada uno un gate duplicado (el del comando ya había quedado atrás).
+//
+// Ese flujo se retiró. Cada conexión quema uno de los 100 cupos de Google, el límite es sobre
+// todo el ciclo de vida del proyecto y NO se puede restablecer, así que la protección real es
+// tener UNA sola puerta: `routes/pro.js`, detrás de la sesión de la webapp. Lo que se verifica
+// acá es justo lo inverso de antes — que WhatsApp NO emita, NO capture la respuesta siguiente
+// y NO escriba un paso de onboarding.
+//
+// Ejercita el WEBHOOK REAL (firma HMAC, dedup wamid, delegación a manejarOnboarding y cascada
+// de comandos) contra Supabase REAL, con el usuario QA (ded7e219, is_test_user=true, premium
+// convertido, con cuenta web). No manda WhatsApp: stubea enviarWhatsapp para capturar la
+// respuesta real que vería el usuario.
 //
 // Correr:  node qa-e2e/probe-bancos.mjs   (desde app/)  → exit 0 si todo pasa.
 
@@ -35,9 +44,10 @@ const createWebhookHandler = require(path.join(appRoot, 'handlers/webhook.js'));
 const supabase = instalarGuard(require, path.join(appRoot, 'lib/db.js'));
 const { remitentesParaSeleccion } = require(path.join(appRoot, 'gmail.js'));
 
-// procesarMensajeLibre espía: si se invoca para nuestros replies, el intercept falló.
+// procesarMensajeLibre espía. Antes un "1,3" que llegara acá era un fallo (el paso 30 debía
+// capturarlo); ahora es lo correcto: no hay estado que capture nada.
 let nlpCalls = 0;
-const handler = createWebhookHandler(async () => { nlpCalls++; return 'NLP-NO-DEBERIA-CORRER'; });
+const handler = createWebhookHandler(async () => { nlpCalls++; return 'NLP-respuesta-generica'; });
 
 let wamidSeq = 0;
 async function enviar(texto) {
@@ -60,7 +70,7 @@ async function enviar(texto) {
 
 async function dbUser() {
   const { data } = await supabase.from('usuarios')
-    .select('onboarding_paso, bancos_seleccionados, plan, is_test_user')
+    .select('onboarding_paso, bancos_seleccionados, plan, trial_estado, is_test_user')
     .eq('id', QA_ID).single();
   return data;
 }
@@ -71,63 +81,64 @@ function check(name, cond, detail) {
   console.log((cond ? 'PASS ' : 'FAIL ') + name + (detail ? '  — ' + detail : ''));
 }
 
+/** Un enlace de OAuth de Google en una respuesta de WhatsApp es el agujero que se cerró. */
+function tieneOAuth(texto) {
+  return /accounts\.google\.com/.test(texto);
+}
+
 async function main() {
-  // Guarda de identidad
+  // Guarda de identidad: sin esto el probe podría estar escribiendo sobre un usuario real.
   const u0 = await dbUser();
-  check('QA user es de prueba y premium', u0.is_test_user === true && u0.plan === 'premium', 'plan=' + u0.plan);
+  check('QA user es de prueba y Pro PAGADO', u0.is_test_user === true && u0.plan === 'premium' && u0.trial_estado !== 'activo',
+    'plan=' + u0.plan + ' trial=' + u0.trial_estado);
 
   // Estado limpio
   await supabase.from('usuarios').update({ onboarding_paso: 0, bancos_seleccionados: null }).eq('id', QA_ID);
 
-  // 1) /conectar (Pro, sin Gmail) → menú de bancos + paso 30
+  // 1) /conectar → atajo a la app, sin OAuth y sin tocar el estado del alta
   const rConectar = await enviar('/conectar');
   const uConectar = await dbUser();
-  check('/conectar muestra el selector de bancos', /elige tus bancos|con qué bancos operas/i.test(rConectar) && /1\.\s*BCP/.test(rConectar) && /todos/i.test(rConectar), rConectar.slice(0, 60).replace(/\n/g, ' '));
-  check('/conectar deja onboarding_paso=30', uConectar.onboarding_paso === 30, 'paso=' + uConectar.onboarding_paso);
-  check('/conectar NO entrega el enlace OAuth todavía', !/accounts\.google\.com/.test(rConectar), '');
+  check('/conectar manda al panel de la app', /app\.neto\.pe/.test(rConectar), rConectar.slice(0, 70).replace(/\n/g, ' '));
+  check('/conectar NO entrega enlace de OAuth', !tieneOAuth(rConectar), '');
+  check('/conectar NO muestra el menú numerado viejo', !/1\.\s*BCP/.test(rConectar), '');
+  check('/conectar deja onboarding_paso en 0', uConectar.onboarding_paso === 0, 'paso=' + uConectar.onboarding_paso);
 
-  // 2) Reply "1,3" (BCP + BBVA) → guarda selección + entrega OAuth, sin tocar NLP
+  // 2) El mensaje siguiente ya NO es capturado: no queda estado esperando una selección.
+  //    Este es el punto del cambio — el gate duplicado existía justo por esta ventana.
   const nlpAntes = nlpCalls;
   const rSel = await enviar('1,3');
   const uSel = await dbUser();
-  check('"1,3" NO llega al NLP (ningún intercept lo secuestra)', nlpCalls === nlpAntes, 'nlpCalls=' + nlpCalls);
-  check('"1,3" entrega el enlace OAuth real', /accounts\.google\.com/.test(rSel), rSel.slice(0, 50).replace(/\n/g, ' '));
-  check('"1,3" persiste bancos_seleccionados=[bcp,bbva]', JSON.stringify(uSel.bancos_seleccionados) === JSON.stringify(['bcp', 'bbva']), JSON.stringify(uSel.bancos_seleccionados));
-  check('"1,3" resetea onboarding_paso a 0', uSel.onboarding_paso === 0, 'paso=' + uSel.onboarding_paso);
+  check('"1,3" ya no lo captura ningún paso: sigue a la cascada normal', nlpCalls > nlpAntes, 'nlpCalls=' + nlpCalls);
+  check('"1,3" NO entrega enlace de OAuth', !tieneOAuth(rSel), rSel.slice(0, 50).replace(/\n/g, ' '));
+  check('"1,3" NO escribe bancos_seleccionados desde WhatsApp', uSel.bancos_seleccionados === null, JSON.stringify(uSel.bancos_seleccionados));
 
-  // 3) El filtro del scan usa la selección persistida (DB → remitentesParaSeleccion)
-  const remSel = remitentesParaSeleccion(uSel.bancos_seleccionados);
-  check('scan filtra: incluye BCP+BBVA', remSel.includes('notificaciones@bcp.com.pe') && remSel.includes('notificaciones@bbva.pe'), '');
-  check('scan filtra: excluye no elegidos (Interbank/Yape)', !remSel.includes('notificaciones@interbank.pe') && !remSel.includes('notificaciones@yape.pe'), remSel.length + ' remitentes');
-
-  // 4) Reconectar y elegir "todos" → null (= set completo, backward-compatible)
-  await enviar('/conectar');
-  const rTodos = await enviar('todos');
-  const uTodos = await dbUser();
-  check('"todos" persiste bancos_seleccionados=null', uTodos.bancos_seleccionados === null, JSON.stringify(uTodos.bancos_seleccionados));
-  const remTodos = remitentesParaSeleccion(uTodos.bancos_seleccionados);
-  check('"todos" → set completo (incluye Interbank y Yape)', remTodos.includes('notificaciones@interbank.pe') && remTodos.includes('notificaciones@yape.pe'), remTodos.length + ' remitentes');
-
-  // 5) Entrada inválida en paso 30 no rompe ni avanza
-  await supabase.from('usuarios').update({ onboarding_paso: 30, bancos_seleccionados: null }).eq('id', QA_ID);
-  const rBad = await enviar('mmm no sé');
-  const uBad = await dbUser();
-  check('entrada inválida re-pregunta y mantiene paso 30', /no entendí|números/i.test(rBad) && uBad.onboarding_paso === 30, 'paso=' + uBad.onboarding_paso);
-
-  // 6) /bancos: editar la selección en cualquier momento (paso 31), sin OAuth
-  await supabase.from('usuarios').update({ onboarding_paso: 0, bancos_seleccionados: ['bcp', 'bbva'] }).eq('id', QA_ID);
+  // 3) /bancos → mismo trato: atajo, sin editor numerado ni paso 31
+  await supabase.from('usuarios').update({ bancos_seleccionados: ['bcp', 'bbva'] }).eq('id', QA_ID);
   const rBancos = await enviar('/bancos');
   const uBancos = await dbUser();
-  check('/bancos muestra el editor con la selección actual', /tus bancos/i.test(rBancos) && /hoy leo/i.test(rBancos) && /BCP/.test(rBancos), rBancos.slice(0, 60).replace(/\n/g, ' '));
-  check('/bancos deja onboarding_paso=31', uBancos.onboarding_paso === 31, 'paso=' + uBancos.onboarding_paso);
+  check('/bancos manda al panel de la app', /app\.neto\.pe/.test(rBancos), rBancos.slice(0, 70).replace(/\n/g, ' '));
+  check('/bancos deja onboarding_paso en 0', uBancos.onboarding_paso === 0, 'paso=' + uBancos.onboarding_paso);
+  check('/bancos NO altera la selección guardada', JSON.stringify(uBancos.bancos_seleccionados) === JSON.stringify(['bcp', 'bbva']), JSON.stringify(uBancos.bancos_seleccionados));
 
-  const nlpAntesEdit = nlpCalls;
-  const rEdit = await enviar('2');
-  const uEdit = await dbUser();
-  check('editar bancos NO llega al NLP', nlpCalls === nlpAntesEdit, 'nlpCalls=' + nlpCalls);
-  check('editar bancos persiste la nueva selección [interbank]', JSON.stringify(uEdit.bancos_seleccionados) === JSON.stringify(['interbank']), JSON.stringify(uEdit.bancos_seleccionados));
-  check('editar bancos confirma sin entregar OAuth', /actualizado/i.test(rEdit) && !/accounts\.google\.com/.test(rEdit), rEdit.slice(0, 50).replace(/\n/g, ' '));
-  check('editar bancos resetea onboarding_paso a 0', uEdit.onboarding_paso === 0, 'paso=' + uEdit.onboarding_paso);
+  // 4) La selección sigue mandando en el scan, la haya hecho quien la haya hecho. Que la UI
+  //    se mudara a la web no puede cambiar cómo se lee esa columna.
+  const remSel = remitentesParaSeleccion(uBancos.bancos_seleccionados);
+  check('scan filtra: incluye BCP+BBVA', remSel.includes('notificaciones@bcp.com.pe') && remSel.includes('notificaciones@bbva.pe'), '');
+  check('scan filtra: excluye no elegidos (Interbank/Yape)', !remSel.includes('notificaciones@interbank.pe') && !remSel.includes('notificaciones@yape.pe'), remSel.length + ' remitentes');
+  const remTodos = remitentesParaSeleccion(null);
+  check('null → set completo (incluye Interbank y Yape)', remTodos.includes('notificaciones@interbank.pe') && remTodos.includes('notificaciones@yape.pe'), remTodos.length + ' remitentes');
+
+  // 5) Un paso 30 huérfano en la DB (alguien a medias cuando se desplegó) no atrapa a nadie.
+  await supabase.from('usuarios').update({ onboarding_paso: 30 }).eq('id', QA_ID);
+  const nlpAntesHuerfano = nlpCalls;
+  await enviar('todos');
+  const uHuerfano = await dbUser();
+  check('un paso 30 huérfano no captura el mensaje', nlpCalls > nlpAntesHuerfano, 'nlpCalls=' + nlpCalls);
+  check('un paso 30 huérfano no escribe bancos', JSON.stringify(uHuerfano.bancos_seleccionados) === JSON.stringify(['bcp', 'bbva']), JSON.stringify(uHuerfano.bancos_seleccionados));
+
+  // 6) Leer SÍ se queda en WhatsApp: no consume cupo y no tiene superficie web.
+  const rEscanear = await enviar('/escanear');
+  check('/escanear sigue respondiendo por WhatsApp', rEscanear.length > 0 && !tieneOAuth(rEscanear), rEscanear.slice(0, 50).replace(/\n/g, ' '));
 
   // Cleanup → estado original
   await supabase.from('usuarios').update({ onboarding_paso: 0, bancos_seleccionados: null }).eq('id', QA_ID);

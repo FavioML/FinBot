@@ -31,7 +31,12 @@ router.get('/bancos', (req, res) => {
   res.json({ ok: true, bancos: BANCOS_CATALOGO.map((b) => ({ id: b.id, label: b.label })) });
 });
 
-// GET /pro/gmail-auth-url?usuario_id= — URL de OAuth Gmail para el usuario logueado.
+// Modos de conexión que la webapp puede pedir. Lista blanca a propósito: el modo viaja
+// firmado dentro del state y decide qué hace `guardarTokens` (agregar una cuenta más vs.
+// reemplazar la existente). Un valor inesperado degrada a 'inicial', nunca a 'agregar'.
+const MODOS_CONEXION = ['inicial', 'agregar', 'reemplazar'];
+
+// GET /pro/gmail-auth-url?usuario_id=&modo= — URL de OAuth Gmail para el usuario logueado.
 // El callback redirige de vuelta a la webapp (origen 'web'); ver routes/public.js.
 router.get('/gmail-auth-url', async (req, res) => {
   if (!verificarInterno(req, res)) return;
@@ -47,11 +52,14 @@ router.get('/gmail-auth-url', async (req, res) => {
   if (!esProPagado(usuario)) {
     return res.status(403).json({ ok: false, motivo: 'pro_pagado_requerido', msg: 'Conectar Gmail requiere Pro pagado' });
   }
-  // Un usuario conecta un solo Gmail desde la webapp: siempre 'inicial' (sin modo 'agregar').
+  // La webapp es el ÚNICO camino para conectar Gmail, así que también tiene que cubrir
+  // agregar una segunda cuenta y reconectar tras un `invalid_grant` — antes eso solo
+  // existía por WhatsApp (intents agregar_gmail / cambiar_gmail).
   // Se pasa el usuario_id → el callback resuelve por identidad, no por número (un
   // Pro web-only tiene whatsapp null y sin uid quedaría sin poder conectar Gmail).
+  const modo = MODOS_CONEXION.includes(req.query.modo) ? req.query.modo : 'inicial';
   try {
-    const url = generarUrlAutorizacion(usuario.whatsapp, 'inicial', 'web', usuarioId);
+    const url = generarUrlAutorizacion(usuario.whatsapp, modo, 'web', usuarioId);
     res.json({ ok: true, url });
   } catch (e) {
     log.error({ tag: 'PRO_OAUTH', err: e.message }, 'No se pudo generar URL OAuth');

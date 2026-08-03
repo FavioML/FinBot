@@ -4,10 +4,17 @@
 // (el alta) de la cascada de despacho de comandos. El estado vive en la columna
 // usuarios.onboarding_paso; los valores en uso son: -1 (desconexion/wipe),
 // 0 (idle/completado), 1 (elige Free/Pro), 2 (elige plan / espera comprobante),
-// 10 (categorias), 20 (presupuesto opcional), 30 (elige bancos al conectar Gmail),
-// 31 (edita bancos con /bancos), 100 (pide nombre).
+// 10 (categorias), 20 (presupuesto opcional), 100 (pide nombre).
 // El marcador de "alta completa" es la columna booleana onboarding_completado,
 // no un valor de paso: al terminar, onboarding_paso vuelve a 0.
+//
+// Los pasos 30 y 31 (elegir bancos por menu numerado, antes y despues de conectar
+// Gmail) se retiraron cuando la conexion paso a ser web-only. Eran el unico estado
+// que vivia en la DB ENTRE dos mensajes de una capability de pago, y por eso cada
+// uno necesitaba su propio gate duplicado: el gate del comando ya habia quedado
+// atras cuando llegaba la respuesta al menu. En produccion ninguno de los 93
+// usuarios llego a fijar `bancos_seleccionados`: el multiselect de la webapp
+// produce el mismo valor mostrando los bancos ANTES de autorizar.
 //
 // El alta termina en el paso 100: nombre (salteable) y listo. Los pasos 1 y 2
 // (Free/Pro y comprobante) siguen vivos porque los usa /premium y el flujo de
@@ -29,14 +36,12 @@
 const { supabase } = require('../lib/db');
 const { CATEGORIAS_SUGERIDAS } = require('../lib/constants');
 const { parsearIndicesRespuesta } = require('../lib/formatters');
-const { obtenerCuentasGmail, generarUrlAutorizacion, revocarAccesoGmail, BANCOS_CATALOGO, describirSeleccion } = require('../gmail');
-const { esProPagado, mensajeGmailProPagado } = require('../lib/trial');
+const { obtenerCuentasGmail, revocarAccesoGmail } = require('../gmail');
+const { linkPanelPro } = require('../lib/trial');
 const { crearCategoriasDesdeIndices } = require('../services/categories');
 const { interpretarComandoPresupuesto } = require('../services/parsers');
 const { guardarPresupuesto } = require('../services/budget');
 const analytics = require('../lib/analytics');
-
-const REPROMPT_BANCOS = 'No entendí. 🤔\n\nResponde con los números de tus bancos separados por coma (ej: *1,3,5*) o escribe *todos*.';
 
 // Telemetría del alta. Hasta ahora solo se capturaba el inicio (wa_user_registered)
 // y el final (wa_onboarding_completed), así que los pasos intermedios — donde se cae
@@ -92,18 +97,11 @@ function mensajePrimerGasto(nombre) {
     '_Lo que sea, del monto que sea._';
 }
 
-// Parsea la respuesta del selector de bancos (pasos 30 y 31). Devuelve
-// { ok, ids } donde ids es un array de ids del catálogo, o null para "todos".
-// ok=false si no se reconoció ningún número válido ni "todos".
-function interpretarSeleccionBancos(cmd) {
-  const cmdLower = cmd.trim().toLowerCase();
-  if (cmdLower === 'todos' || cmdLower === 'todas' || cmdLower === 'all') return { ok: true, ids: null };
-  const indices = [...new Set(
-    cmd.split(/[\s,]+/).map(Number)
-      .filter(n => Number.isInteger(n) && n >= 1 && n <= BANCOS_CATALOGO.length)
-  )];
-  if (indices.length === 0) return { ok: false, ids: undefined };
-  return { ok: true, ids: indices.map(n => BANCOS_CATALOGO[n - 1].id) };
+// Cola de los mensajes de desconexión. Decían "vuelve a conectar escribiendo _conectar
+// gmail_", que desde que la conexión es web-only devolvía al usuario a un canal sin botón.
+function colaReconexion(usuario) {
+  const link = linkPanelPro(usuario);
+  return link ? '\n\nPuedes volver a conectarlo cuando quieras desde tu app:\n' + link : '';
 }
 
 /**
@@ -111,10 +109,9 @@ function interpretarSeleccionBancos(cmd) {
  * @param {object} args.usuario  fila de usuarios (incluye onboarding_paso, nombre, ...)
  * @param {string} args.msg      texto crudo del mensaje entrante
  * @param {string} args.cmd      msg.toLowerCase().trim()
- * @param {string} args.from     numero de WhatsApp (para contexto; el envio lo hace webhook)
  * @returns {Promise<string|null>} texto a enviar, o null si no es parte del alta
  */
-async function manejarOnboarding({ usuario, msg, cmd, from }) {
+async function manejarOnboarding({ usuario, msg, cmd }) {
   // ─── Flujo desconectar cuenta / wipe (paso -1) ─────────────────────────────
   if (usuario.onboarding_paso === -1 && !cmd.startsWith('/')) {
     const respDesc = parseInt(cmd.trim());
@@ -133,7 +130,7 @@ async function manejarOnboarding({ usuario, msg, cmd, from }) {
       } else if (respDesc === numCuentas + 1) {
         await revocarAccesoGmail(usuario.id, { motivo: 'usuario_desconecto_todas' });
         await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
-        return '✅ *Todas las cuentas Gmail desconectadas*\n\nTu historial de gastos se mantiene intacto. Puedes volver a conectar escribiendo _"conectar gmail"_.';
+        return '✅ *Todas las cuentas Gmail desconectadas*\n\nTu historial de gastos se mantiene intacto.' + colaReconexion(usuario);
       } else if (respDesc === numCuentas + 2) {
         await supabase.from('transacciones').delete().eq('usuario_id', usuario.id);
         await supabase.from('categorias_usuario').delete().eq('usuario_id', usuario.id);
@@ -149,7 +146,7 @@ async function manejarOnboarding({ usuario, msg, cmd, from }) {
       if (respDesc === 1) {
         await revocarAccesoGmail(usuario.id, { motivo: 'usuario_desconecto' });
         await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
-        return '✅ *Gmail desconectado*\n\nTu historial de gastos se mantiene intacto. Puedes volver a conectar cuando quieras escribiendo _"conectar gmail"_.';
+        return '✅ *Gmail desconectado*\n\nTu historial de gastos se mantiene intacto.' + colaReconexion(usuario);
       } else if (respDesc === 2) {
         await supabase.from('transacciones').delete().eq('usuario_id', usuario.id);
         await supabase.from('categorias_usuario').delete().eq('usuario_id', usuario.id);
@@ -174,44 +171,6 @@ async function manejarOnboarding({ usuario, msg, cmd, from }) {
     // Respuesta no válida → cancelar
     await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
     return 'Cancelado. Tu cuenta sigue igual. 👍';
-  }
-
-  // ─── Paso 30: Elegir bancos antes de conectar Gmail (Pro) ──────────────────
-  // Se entra aquí desde el flujo de conexión (/conectar en webhook, intent
-  // agregar_gmail en consultas). Guardamos la selección en bancos_seleccionados
-  // y recién ahí entregamos el enlace de OAuth. "todos" → null (= set completo,
-  // backward-compatible y auto-incluye bancos que agreguemos luego).
-  if (usuario.onboarding_paso === 30 && !cmd.startsWith('/')) {
-    // Gate propio, aunque quien setea el paso 30 (/conectar, agregar_gmail) ya gateó: ESTE es
-    // el sitio donde la URL sale de verdad, y el estado vive en la DB entre los dos mensajes.
-    // Sin esto, un trial que vence entre el comando y la respuesta del menú entrega el enlace.
-    if (!esProPagado(usuario)) {
-      await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
-      return mensajeGmailProPagado(usuario);
-    }
-    const sel = interpretarSeleccionBancos(cmd);
-    if (!sel.ok) return REPROMPT_BANCOS;
-    await supabase.from('usuarios').update({ bancos_seleccionados: sel.ids, onboarding_paso: 0 }).eq('id', usuario.id);
-    const cuantos = sel.ids
-      ? (sel.ids.length === 1 ? 'ese banco' : 'esos ' + sel.ids.length + ' bancos')
-      : 'todos los bancos';
-    return '✅ Listo, leeré ' + cuantos + '.\n\nAhora conecta tu Gmail acá:\n\n' + generarUrlAutorizacion(from) + '\n\n_Solo leemos notificaciones bancarias. Sin contraseñas._';
-  }
-
-  // ─── Paso 31: Editar bancos en cualquier momento (comando /bancos) ─────────
-  // Igual que el paso 30 pero standalone: no entrega OAuth, solo confirma el
-  // cambio. Deja al usuario activar/desactivar bancos cuando quiera.
-  if (usuario.onboarding_paso === 31 && !cmd.startsWith('/')) {
-    // Gate propio por lo mismo que el paso 30: el estado vive en la DB entre dos mensajes,
-    // así que el gate de /bancos ya quedó atrás cuando llega la respuesta.
-    if (!esProPagado(usuario)) {
-      await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
-      return mensajeGmailProPagado(usuario, 'bancos');
-    }
-    const sel = interpretarSeleccionBancos(cmd);
-    if (!sel.ok) return REPROMPT_BANCOS;
-    await supabase.from('usuarios').update({ bancos_seleccionados: sel.ids, onboarding_paso: 0 }).eq('id', usuario.id);
-    return '✅ Actualizado. Ahora leo: *' + describirSeleccion(sel.ids) + '*.\n\nPuedes cambiarlo cuando quieras con */bancos*.';
   }
 
   // ─── Paso 100: Recoger nombre del usuario ──────────────────────────────────
