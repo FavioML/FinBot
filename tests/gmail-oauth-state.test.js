@@ -19,6 +19,38 @@ const projectRoot = path.resolve(
 const { generarUrlAutorizacion, verificarState } = require(path.join(projectRoot, 'gmail.js'));
 
 const stateDe = (url) => new URL(url).searchParams.get('state');
+const paramDe = (url, p) => new URL(url).searchParams.get(p);
+
+/**
+ * `login_hint` le dice a Google qué cuenta preseleccionar, y es la ÚNICA defensa que evita
+ * gastar un cupo de más: el cupo se consume cuando el usuario aprueba en la pantalla de
+ * Google, o sea antes de que nuestro callback pueda mirar qué correo eligió. Si el parámetro
+ * no llegara a la URL, esa defensa desaparecería EN SILENCIO — el resto del sistema seguiría
+ * verde, y el único síntoma serían cupos gastados de a dos.
+ *
+ * Por eso se afirma sobre la URL generada y no sobre el código: que `gmail.js` contenga la
+ * cadena "login_hint" no prueba que `generateAuthUrl` la propague.
+ */
+describe('login_hint: la defensa real del cupo', () => {
+  it('el correo ya vinculado viaja como login_hint en la URL', () => {
+    const url = generarUrlAutorizacion('51999888777', 'reemplazar', 'web', 'uid-1', 'favio@gmail.com');
+    expect(paramDe(url, 'login_hint')).toBe('favio@gmail.com');
+  });
+
+  it('sin correo vinculado (primera conexión) no se manda el parámetro', () => {
+    const url = generarUrlAutorizacion('51999888777', 'inicial', 'web', 'uid-1', null);
+    expect(paramDe(url, 'login_hint')).toBeNull();
+  });
+
+  // El hint no puede pisar nada de lo que ya viajaba: el state firmado es lo que liga la
+  // autorización a un usuario, y perderlo convertiría el callback en un 404.
+  it('agregar el hint no rompe el state ni el resto de la URL', () => {
+    const url = generarUrlAutorizacion('51999888777', 'reemplazar', 'web', 'uid-1', 'favio@gmail.com');
+    expect(verificarState(stateDe(url))).toMatchObject({ uid: 'uid-1', origen: 'web', modo: 'reemplazar' });
+    expect(paramDe(url, 'access_type')).toBe('offline');
+    expect(paramDe(url, 'prompt')).toBe('consent');
+  });
+});
 
 describe('state OAuth Gmail — uid (identidad) vs num (número)', () => {
   it('flujo web con usuario_id: el state lleva uid, num y origen', () => {
