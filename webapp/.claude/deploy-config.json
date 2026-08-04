@@ -106,6 +106,13 @@
         "on_fail": "exit 1 = IDOR / AUTH CRUZADO ROTO: el usuario A (Pro) logro leer o escribir data del usuario B a traves de /api/transactions, budgets, goals(+aportes/abandon), export, score, spaces/* (no-miembro), recurring/override o notifications/inbox. Es un agujero multi-tenant critico. El JSON marca cada check SAFE/BREACH y lista summary.breaches (los que rompieron) + summary.leaks (respuesta que expuso data de B). Verifica el EFECTO via oraculo service-role, no el HTTP 200 (varias rutas responden 200/success a un no-op scoped, eso es esperado y SAFE). exit 2 = infra (login/seed/red se cayo, no se completo el barrido) o falta la service-role key local. Self-cleaning (preclean por marcadores QA-IDOR al inicio y limpieza en finally); usa 2 QA users reales A=Pro/NETO_QA_* y B=Free/NETO_QA_FREE_*. Ver memory project_idor_cross_user_sweep."
       },
       {
+        "name": "referido-premio-trial",
+        "cmd": "node qa-e2e/qa-referido-premio-trial.mjs",
+        "cwd": "C:/Vortik.dev/products/neto/app",
+        "cost": "~12 operaciones de DB (segundos). Crea 6 usuarios throwaway con is_test_user en la Supabase de PRODUCCION y los borra en finally (el ultimo check es la re-lectura que confirma el borrado). CERO WhatsApp (lib/whatsapp y lib/notify-user stubeados), cero OpenAI, cero crons.",
+        "on_fail": "exit 1 = EL PREMIO DE REFERIDO SE PIERDE O SE CALCULA MAL. Mira que check esta rojo: (a) 'el mes se apila sobre el FIN DEL TRIAL' = volvio a calcular desde hoy, o sea que el mes regalado se solapa con la prueba que el referrer ya tenia gratis. (b) 'el trial queda sellado como convertido' + 'DESPUES del premio, el cron ya NO lo barre' = volvio el bug B1: checkTrialExpiry (que NO mira premium_vence) baja al muro el dia 15 a quien acaba de ganar un mes, y el mes anunciado por WhatsApp se evapora sin rastro. El oraculo de ese check es LA MISMA query del cron, no una parafrasis. (c) 'el aviso anuncia exactamente la fecha que quedo en la base' = se le esta prometiendo una fecha distinta a la que tiene. (d) 'al pagador el mes se le apila sobre su vencimiento vigente' = se rompio el caso normal (no-trial). El check de control 'ANTES del premio, el cron SI lo barreria' evita que los negativos sean verdes por vacuidad. exit 2 = infra (red/Supabase/falta service-role key local). Ver memory project_referrals_two_sided."
+      },
+      {
         "name": "muro-whatsapp",
         "cmd": "node qa-e2e/qa-muro-whatsapp.mjs",
         "cwd": "C:/Vortik.dev/products/neto/app",

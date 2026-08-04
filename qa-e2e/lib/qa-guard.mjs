@@ -50,7 +50,14 @@ const QA_LEGACY = 'ded7e219-e5fd-4ff4-b5a3-3cd5cdffd172';
 
 // Columnas que identifican al DUEÑO de la fila. Un filtro sobre cualquiera de
 // estas fija la operación a un usuario, y ese usuario tiene que estar permitido.
-const COLS_DUENO = ['usuario_id', 'user_id'];
+// `referrer_id`/`referido_id` son las columnas de dueño de `referidos`, que no tiene
+// `usuario_id`. Sin ellas la barrera no podía FIJAR ninguna operación sobre esa tabla, así
+// que la bloqueaba entera (fail-closed, correcto) — y el efecto colateral era que ningún
+// harness podía ejercitar referidos. Se descubrió al escribir el E2E del premio del referrer
+// en trial (auditoría 2026-08-04): la barrera tenía un punto ciego que se leía como "no se
+// puede testear esto". Agregarlas no la relaja: convierte un bloqueo total en una validación
+// de dueño, que es lo que hace con el resto de las tablas.
+const COLS_DUENO = ['usuario_id', 'user_id', 'referrer_id', 'referido_id'];
 
 // Columnas que identifican una FILA concreta. Sirven para fijar la operación si
 // la fila fue creada o leída por esta corrida.
