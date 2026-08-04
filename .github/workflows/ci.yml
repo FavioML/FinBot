@@ -47,7 +47,17 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # 24 y no 20 como el job de arriba: este job tiene que correr en el MISMO
+          # Node con el que Vercel construye la webapp (Settings -> Build -> Node.js
+          # Version = 24.x, verificado 04-ago-2026), no en el del backend, que vive
+          # en Railway y declara `engines.node >=20` en el package.json de la raiz.
+          #
+          # Con 20 el job pasaba, pero `npm ci` emitia 6 EBADENGINE: las deps de la
+          # webapp (@supabase/* 2.110.x) piden `node >=22`. O sea que validabamos
+          # sobre un runtime que las propias dependencias dicen no soportar, y por
+          # DEBAJO del que usa produccion. Un CI que corre en otra version que el
+          # build no prueba lo que uno cree que prueba.
+          node-version: '24'
           cache: 'npm'
           cache-dependency-path: webapp/package-lock.json
       - run: npm ci
