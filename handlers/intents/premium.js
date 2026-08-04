@@ -6,44 +6,69 @@ const { obtenerEstadisticasReferidos, mensajeMisReferidos } = require('../../ser
 const { enTrial, diasRestantesTrial } = require('../../lib/trial');
 const { PRO_PRECIOS } = require('../../lib/config');
 
+/**
+ * El copy de "¿qué plan tengo?" con sus TRES ramas (trial / pagado / muro). **PURO**: no
+ * escribe nada, para que quien solo quiere el texto no arrastre el efecto lateral del
+ * intent (`solicitarComprobante`) — ver `pideComprobante` abajo.
+ *
+ * El trial va primero: comparte `plan === 'premium'` con el Pro pagado, así que sin esa
+ * rama le respondía "Tu plan NETO Pro — Plan: Mensual" a alguien que está probando, sin
+ * fecha (premium_vence es NULL en el trial) y sin precio. Le decía que ya contrató algo y
+ * le escondía el camino de pagar, en el canal donde viven 36 de 82 usuarios.
+ */
+function mensajeVerPremium(usuario) {
+  if (enTrial(usuario)) {
+    const diasVp = diasRestantesTrial(usuario);
+    const venceVp = usuario.trial_vence ? formatFecha(String(usuario.trial_vence).slice(0, 10)) : null;
+    const cuantoVp = diasVp === null ? null
+      : diasVp === 0 ? 'Termina hoy'
+      : diasVp === 1 ? 'Queda 1 día'
+      : 'Quedan ' + diasVp + ' días';
+    return '⏳ *Estás probando Neto Pro*\n\n' +
+      (cuantoVp ? cuantoVp + (venceVp ? ' (' + venceVp + ')' : '') + '.\n\n' : '') +
+      'Tienes abierto todo: gráficos, categorías, presupuestos, reportes e historial completo.\n\n' +
+      'Cuando termine sigo anotando todos tus gastos gratis; lo que se cierra es verlos.\n\n' +
+      'Para continuar con Pro:\n' +
+      '💰 *S/' + PRO_PRECIOS.mensual + '/mes* o *S/' + PRO_PRECIOS.anual + '/año*\n' +
+      '📲 Yapea al *970398192* (Favio Mendoza) y envíame la captura acá.';
+  }
+  if (usuario.plan === 'premium') {
+    const tipoPlanVp = usuario.tipo_plan || 'mensual';
+    const venceVp = (usuario.premium_vence || usuario.fecha_vencimiento) ? new Date(usuario.premium_vence || usuario.fecha_vencimiento).toLocaleDateString('es-PE') : null;
+    return '⭐ *Tu plan NETO Pro*\n\nPlan: *' + (tipoPlanVp === 'anual' ? 'Anual' : 'Mensual') + '*' + (venceVp ? '\nVence: ' + venceVp : '') + '\n\n✅ Historial ilimitado\n✅ Lectura automática de correos\n✅ Reportes PDF + CSV export\n✅ Recordatorios diarios\n✅ Consejos IA ilimitados';
+  }
+  return '⭐ *NETO Pro*\n\nDesbloquea todo el potencial de Neto:\n\n✅ Historial completo\n✅ Lectura automática de correos bancarios\n✅ Reportes PDF + exportar datos\n✅ Recordatorios diarios\n✅ Consejos IA ilimitados\n\n💰 *S/' + PRO_PRECIOS.mensual + '/mes* o *S/' + PRO_PRECIOS.anual + '/año* (2 meses gratis)\n\n📲 Yapea al *970398192* (Favio Mendoza) y envíame la captura aquí.\n\n_¿Dudas? Escríbeme._';
+}
+
+/**
+ * ¿Este usuario cae en la rama de pitch (el muro)? Es la única donde el intent arma la
+ * espera del comprobante.
+ *
+ * **El efecto lateral no es gratis y por eso NO viaja con el texto.** `solicitarComprobante`
+ * abre 48h en las que toda foto se lee como comprobante: si no parece el pago a Neto, el
+ * webhook responde "esa captura no parece el pago" y **retorna sin registrar el gasto**
+ * (webhook.js, rama `esperaComprobante`). O sea que arrastrarlo a superficies que solo
+ * informan el plan le rompe el registro por foto a quien está en el muro — justo la única
+ * cosa que el muro le deja hacer. Es la misma razón por la que la rama del trial nunca lo
+ * llamó. Se separó al delegar `/premium` acá (auditoría 2026-08-04).
+ */
+function pideComprobante(usuario) {
+  return !enTrial(usuario) && usuario.plan !== 'premium';
+}
+
 module.exports = {
   intents: ['ver_premium', 'ver_referidos', 'estado_cuenta'],
+  mensajeVerPremium,
+  pideComprobante,
   async handle({ intencion, msg, datos, usuario, from, ctx }) {
     const { supabase } = ctx;
     switch (intencion) {
       case 'ver_premium': {
-        // El trial primero: comparte `plan === 'premium'` con el Pro pagado, así que sin
-        // esta rama le respondía "Tu plan NETO Pro — Plan: Mensual" a alguien que está
-        // probando, sin fecha (premium_vence es NULL en el trial) y sin precio. Le decía
-        // que ya contrató algo y le escondía el camino de pagar, en el canal donde viven
-        // 36 de 82 usuarios. Configuración ya se arregló en ca4bc8f; esto es su espejo.
-        //
-        // OJO: acá NO se llama a solicitarComprobante. Ese flag hace que la próxima foto
-        // se procese como comprobante de pago en vez de gasto, y quien está en pleno trial
-        // está justo mandando fotos de Yapes para registrar. Se le rompería el registro.
-        if (enTrial(usuario)) {
-          const diasVp = diasRestantesTrial(usuario);
-          const venceVp = usuario.trial_vence ? formatFecha(String(usuario.trial_vence).slice(0, 10)) : null;
-          const cuantoVp = diasVp === null ? null
-            : diasVp === 0 ? 'Termina hoy'
-            : diasVp === 1 ? 'Queda 1 día'
-            : 'Quedan ' + diasVp + ' días';
-          return '⏳ *Estás probando Neto Pro*\n\n' +
-            (cuantoVp ? cuantoVp + (venceVp ? ' (' + venceVp + ')' : '') + '.\n\n' : '') +
-            'Tienes abierto todo: gráficos, categorías, presupuestos, reportes e historial completo.\n\n' +
-            'Cuando termine sigo anotando todos tus gastos gratis; lo que se cierra es verlos.\n\n' +
-            'Para continuar con Pro:\n' +
-            '💰 *S/' + PRO_PRECIOS.mensual + '/mes* o *S/' + PRO_PRECIOS.anual + '/año*\n' +
-            '📲 Yapea al *970398192* (Favio Mendoza) y envíame la captura acá.';
-        }
-        if (usuario.plan === 'premium') {
-          const tipoPlanVp = usuario.tipo_plan || 'mensual';
-          const venceVp = (usuario.premium_vence || usuario.fecha_vencimiento) ? new Date(usuario.premium_vence || usuario.fecha_vencimiento).toLocaleDateString('es-PE') : null;
-          return '⭐ *Tu plan NETO Pro*\n\nPlan: *' + (tipoPlanVp === 'anual' ? 'Anual' : 'Mensual') + '*' + (venceVp ? '\nVence: ' + venceVp : '') + '\n\n✅ Historial ilimitado\n✅ Lectura automática de correos\n✅ Reportes PDF + CSV export\n✅ Recordatorios diarios\n✅ Consejos IA ilimitados';
-        }
-        // Marcar que esperamos su comprobante: la próxima captura se trata como pago Pro, no como gasto.
-        await solicitarComprobante(usuario.id);
-        return '⭐ *NETO Pro*\n\nDesbloquea todo el potencial de Neto:\n\n✅ Historial completo (no solo 1 mes)\n✅ Lectura automática de correos bancarios\n✅ Reportes PDF + exportar datos\n✅ Recordatorios diarios\n✅ Consejos IA ilimitados\n\n💰 *S/10/mes* o *S/99/año* (2 meses gratis)\n\n📲 Yapea al *970398192* (Favio Mendoza) y envíame la captura aquí.\n\n_¿Dudas? Escríbeme._';
+        // El intent NLP ("quiero pro", "cuánto cuesta") sí arma la espera del comprobante:
+        // es una intención de pago expresada en lenguaje natural, y el siguiente paso
+        // esperado es la captura del Yape.
+        if (pideComprobante(usuario)) await solicitarComprobante(usuario.id);
+        return mensajeVerPremium(usuario);
       }
 
       case 'ver_referidos': {

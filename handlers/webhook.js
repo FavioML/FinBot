@@ -692,7 +692,10 @@ function createWebhookHandler(procesarMensajeLibre) {
       // La version inline que vivia aca le decia "Tu plan NETO Pro" a cualquiera --
       // incluido el del muro, que es justo quien tipea /premium para pagar -- porque quedo
       // fuera del fix b65d993/ca4bc8f (auditoria 2026-08-03, hallazgo M2).
-      respuesta = await premiumIntents.handle({ intencion: 'ver_premium', msg, datos: {}, usuario, from, ctx: { supabase } });
+      // Solo el TEXTO, no el efecto lateral: el comando informa el plan y lo tipea
+      // cualquiera (incluida la curiosidad "cuánto cuesta"). Armar la espera del
+      // comprobante acá le tragaba 48h de fotos de gastos a quien está en el muro.
+      respuesta = premiumIntents.mensajeVerPremium(usuario);
     } else if (cmd === '/referir' || cmd === '/referidos' || cmd === '/invitar' ||
       /\b(quiero referir|referir a|mis referidos|mi link de referido|link de referido|invitar amigos|invitar a un amigo|compartir neto|recomendar neto|c[oó]digo de referido|programa de referidos|como refiero|cómo refiero|ganar pro gratis|referir amigos|quiero invitar)\b/i.test(cmd)) {
       let refCode = usuario.ref_code;
