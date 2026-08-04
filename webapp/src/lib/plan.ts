@@ -1,6 +1,11 @@
 /**
- * Plan validation utilities for Neto freemium/pro feature gating.
- * See webapp/PRICING-PLAN.md for the full approved plan.
+ * Plan validation utilities for Neto's trial+wall gating.
+ *
+ * Modelo vigente (2026-08): NO hay plan gratuito permanente. Todo usuario estrena Pro
+ * completo 14 días desde su PRIMER GASTO; al día 15 cae al muro ('free' = muro, no plan).
+ * Escribir nunca se corta; lo que se cobra es LEER. Fuente de verdad del modelo:
+ * backend `lib/trial.js` (espejo de los predicados de abajo) + `handlers/intents-acceso.js`
+ * (qué es lectura) + `webapp/PRICING-PLAN.md` (resumen comercial).
  */
 
 export type PlanType = 'free' | 'premium';
@@ -60,10 +65,18 @@ const PRO_ONLY_FEATURES: PlanFeature[] = [
   'espacios_full_history',
 ];
 
-/** Free plan limits for counted features */
+/**
+ * Límites en el MURO ('free' ya no es un plan: es la prueba terminada sin pagar).
+ * Espejo de `PLAN_CONFIG.free` en el backend (`lib/constants.js`): 0 presupuestos y
+ * 0 metas — crear/ver estas features es lectura agregada y se cobra. Antes decía
+ * `budgets: Infinity, goals: 1` (el freemium muerto de abril): era una red de seguridad
+ * que regalaba en la webapp lo que el backend cobraba (auditoría 2026-08-03, M8).
+ * El OCR queda Infinity a propósito: la foto de un Yape ES registrar un gasto, y
+ * escribir nunca se corta.
+ */
 export const FREE_LIMITS = {
-  budgets: Infinity,
-  goals: 1,
+  budgets: 0,
+  goals: 0,
   ocr_per_month: Infinity,
   gmail_accounts: 0,
   advice_per_week: 0,

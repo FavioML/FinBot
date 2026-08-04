@@ -15,7 +15,7 @@ import {
 import { EmptyState } from '@/components/shared/empty-state';
 import { ProBadge } from '@/components/shared/upgrade-prompt';
 import { ProGate } from '@/components/shared/pro-gate';
-import { FREE_LIMITS, hasReachedLimit, canAccess } from '@/lib/plan';
+import { hasReachedLimit, canAccess } from '@/lib/plan';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
@@ -333,7 +333,7 @@ export default function MetasPage() {
         </div>
         <HeaderActions>
           {goalsLimitReached && !isPremium && (
-            <span className="hidden md:inline-flex"><ProBadge text={`Límite: ${FREE_LIMITS.goals} plan activo`} /></span>
+            <span className="hidden md:inline-flex"><ProBadge text="Con Neto Pro" /></span>
           )}
           <Button
             onClick={goalsLimitReached && !isPremium ? () => setShowPlanProGate(true) : openCreate}

@@ -1,162 +1,79 @@
-# Plan Freemium — Neto (Versión Final v2.1)
+# Modelo comercial — Neto (trial 14 días + muro)
 
-**Fecha:** 3 Abr 2026
+**Vigente desde:** 2026-08-01 (sprint trial+muro) · **Reescrito:** 2026-08-04 (auditoría CTO, hallazgo M1)
 **Aprobado por:** Favio Mendoza
 
----
+> Este documento es el RESUMEN comercial. La fuente de verdad ejecutable es el código:
+> `lib/trial.js` (predicados y muro) · `handlers/intents-acceso.js` (qué es lectura) ·
+> `webapp/src/lib/plan.ts` (espejo webapp) · `lib/constants.js` PLAN_CONFIG (límites).
+> Si este doc contradice al código, manda el código y este doc se corrige.
+> ⚠️ La versión anterior de este archivo (3-abr-2026) describía un freemium con "Free
+> para siempre" que YA NO EXISTE. No revivir esas tablas.
+
+## El modelo en cuatro líneas
+
+1. **No hay plan gratuito permanente.** Todo usuario estrena Pro completo por 14 días
+   desde su **primer gasto** (no desde el alta).
+2. Al día 15 cae al **muro**: `plan='free'` significa "prueba terminada sin pagar", no un plan.
+3. **Escribir nunca se corta; se cobra LEER.** Registrar gastos por WhatsApp (texto, foto
+   Yape, audio) es gratis para siempre. Dashboard, historial, reportes, score, presupuestos,
+   metas y toda consulta agregada exigen Pro. Sobrevive un solo número: el total del mes,
+   pegado a la confirmación del gasto.
+4. Durante el trial `plan='premium'` y `trial_estado='activo'` — o sea **`plan==='premium'`
+   NO significa "paga"**. Las tres preguntas y sus predicados: `enTrial()` (¿probando?),
+   `esProPagado()` (¿paga? — MRR), `estaEnMuro()` (¿muro?). Nunca reimplementarlos inline.
 
 ## Pricing
 
-| Plan | Precio | Equivalente mensual | Ahorro |
-|------|--------|---------------------|--------|
-| **Free** | S/0 | — | — |
-| **Pro Mensual** | S/10/mes | S/10/mes | — |
-| **Pro Anual** | S/99/año | S/8.25/mes | 17% |
+| Plan | Precio | Equivalente mensual | Nota |
+|------|--------|---------------------|------|
+| Prueba | S/0 × 14 días | — | Pro completo, arranca con el primer gasto |
+| Pro Mensual | S/10/mes | S/10 | Pago por Yape, aprobación manual |
+| Pro Anual | S/99/año | S/8.25 | 2 meses gratis |
 
----
+Fuente de los precios en código: `lib/config.js` PRO_PRECIOS. Cero precios hardcodeados nuevos.
 
-## Features Free vs Pro
+## Qué queda en el muro (plan='free')
 
-| Feature | Free | Pro |
-|---------|------|-----|
-| WhatsApp bot (registro, gastos, consultas) | Ilimitado | Ilimitado |
-| Clasificación IA de gastos | Ilimitada | Ilimitada |
-| Categorías fijas (11) | Sí | Sí |
-| Categorías personalizadas adicionales | Ilimitadas | Ilimitadas |
-| Presupuestos | Ilimitados | Ilimitados |
-| Metas de ahorro | 1 activa | Ilimitadas |
-| Deudas | Ilimitadas | Ilimitadas |
-| Lectura de imágenes Yape/Plin | Ilimitada | Ilimitada |
-| Split de gastos | Sí | Sí |
-| Multimoneda USD/PEN | Sí | Sí |
-| Tipo de cambio widget | Sí | Sí |
-| Búsqueda global (Ctrl+K) | Sí | Sí |
-| Dashboard web (app.neto.pe) | Mes actual | Historial completo |
-| Resumen semanal | Básico (total gastado) | Completo (insights + comparativa) |
-| Resumen mensual | Sí | Sí |
-| Score financiero | Número | Número + desglose + tendencia 4 meses |
-| Referidos (3 Pro activos = 1 mes gratis) | Sí | Sí |
-| Google Auth (nombre, foto) | Sí | Sí |
-| Lectura automática correos bancarios | No (Pro only) | 11 bancos + Yape + Plin |
-| Consejo IA | No (Pro only) | Diario |
-| Resumen diario por WhatsApp | No | Sí |
-| Reportes PDF descargables | No | Sí |
-| Score desglose + tendencia 4 meses | No | Sí |
-| Calendario financiero | No | Sí |
-| Heatmap de gastos | No | Sí |
-| Export CSV/JSON | No | Sí |
-| Carga masiva Excel/CSV | No | Sí |
-| Recordatorios diarios (8pm) | No | Sí |
-| Suscripciones con alertas | Detección | Detección + alertas |
-| Pagos recurrentes | No | Sí |
+| Capacidad | ¿Disponible en el muro? |
+|-----------|------------------------|
+| Registrar gastos (texto/foto/audio WhatsApp) | ✅ Siempre, gratis para siempre |
+| Total del mes junto a la confirmación | ✅ (el único número que sobrevive) |
+| Comandos y consultas de lectura (`/mes`, `/resumen`, score, etc.) | ❌ pitch Pro |
+| Dashboard web (cualquier página de lectura) | ❌ paywall (402 vía `requireLectura`) |
+| Presupuestos / metas | ❌ (`PLAN_CONFIG.free`: 0 y 0 — espejado en `FREE_LIMITS`) |
+| Carga masiva Excel/CSV | ❌ (escritura, pero Pro por decisión — única excepción) |
 
----
+## Pro (trial y pagado entregan LO MISMO, con una excepción)
 
-## Features v2 — Diferenciación Free vs Pro
+Todo lo de lectura + features: dashboard completo, historial, reportes PDF/CSV, score con
+desglose y tips, calendario, heatmap, suscripciones con alertas, recordatorios, consejo IA,
+espacios (modelo "host paga": el plan del OWNER manda), manos libres.
 
-### 1. Neto Score (Pro Wall modelo Spotify)
+**La única capability que exige Pro PAGADO (ni siquiera trial): conectar Gmail.** Es de
+inventario, no comercial — cada cuenta de Google consume uno de los 100 cupos de por vida
+pre-CASA. Web-only (una sola puerta: webapp `/dashboard/pro`), UNA cuenta por usuario para
+siempre. Detalle completo en el CLAUDE.md del backend.
 
-| Aspecto | Free | Pro |
-|---------|------|-----|
-| Score número + tendencia | Sí | Sí |
-| Desglose por factor | No — "Pasa a Pro para ver qué mejorar" | Completo |
-| Tips personalizados IA | No | Sí |
-| Histórico de evolución | Solo último mes | 6+ meses |
-| Notificación semanal | No | Sí |
+## Referidos (dos lados)
 
-### 2. Detector de Fugas
+1 referido que **paga** Pro = 1 mes gratis al referrer (se apila sobre su vencimiento — o
+sobre su trial, sellándolo 'convertido'). El referido estrena a **50% off** su primer mes,
+ventana de 7 días anclada al FIN de su trial. Sin encadenamiento: el mes del referrer se
+otorga directo sin pasar por `activarPro`. Fuente: `services/referrals.js`.
 
-| Aspecto | Free | Pro |
-|---------|------|-----|
-| Reporte mensual de fugas | Resumen básico | Detallado con recomendaciones |
-| Alertas semanales | No | Sí |
-| Alerta proactiva mid-mes | No | Sí |
-| Proyección de exceso | No | Sí |
-| "Ponme un límite" interactivo | No | Sí |
+## 11 categorías raíz (para todos)
 
-### 3. Planes de Compra
+Alimentación · Transporte · Vivienda · Salud · Entretenimiento · Suscripciones · Compras ·
+Educación · Finanzas · Trabajo/Negocio · Otros. ("Suscripciones" separada de
+"Entretenimiento"; el detector clasifica ahí automáticamente.)
 
-| Aspecto | Free | Pro |
-|---------|------|-----|
-| Crear plan de compra | 1 activo | Ilimitados |
-| Cálculo de cuota mensual | Sí | Sí |
-| Análisis de viabilidad | Básico ("necesitas S/X/mes") | Completo (cruza con margen real) |
-| Ajuste dinámico | No | Sí |
-| Check-ins WhatsApp | No | Quincenal |
-| Sugerencia de recortes | No | Sí ("Si reduces delivery S/150, llegas antes") |
+## Unit economics (referencia 2026-04, revisar contra datos reales)
 
-### 4. Espacios Compartidos
-
-| Aspecto | Free | Pro |
-|---------|------|-----|
-| Espacios compartidos | 1 espacio, 2 personas | Ilimitados |
-| Split configurable | Solo 50/50 | Cualquier proporción |
-| Presupuesto conjunto | No | Sí |
-| Historial | Último mes | Completo |
-| Plan de ahorro compartido | No | Sí |
-
----
-
-## 11 Categorías Raíz (disponibles para todos)
-
-1. Alimentación
-2. Transporte
-3. Vivienda
-4. Salud
-5. Entretenimiento
-6. Suscripciones
-7. Compras
-8. Educación
-9. Finanzas
-10. Trabajo/Negocio
-11. Otros
-
-**Nota:** "Suscripciones" es categoría separada de "Entretenimiento". El detector de suscripciones (catálogo 50+ servicios) clasifica automáticamente en esta categoría.
-
----
-
-## Unit Economics
-
-| Métrica | Free | Pro Mensual | Pro Anual |
+| Métrica | Muro | Pro Mensual | Pro Anual |
 |---------|------|-------------|-----------|
 | Ingreso/usuario/mes | S/0 | S/10 | S/8.25 |
-| Costo variable/usuario/mes | S/0.53 | S/3.41 | S/3.41 |
-| Margen/usuario/mes | -S/0.53 | +S/6.59 | +S/4.84 |
-| Margen % | -100% | 66% | 59% |
+| Costo variable/usuario/mes | ~S/0.53 | ~S/3.41 | ~S/3.41 |
+| Margen/usuario/mes | −S/0.53 | +S/6.59 | +S/4.84 |
 
-### Costos fijos mensuales (infraestructura)
-
-| Servicio | Costo | Upgrade trigger |
-|----------|-------|-----------------|
-| Railway Hobby | S/19 | Al lanzar |
-| Supabase | S/0 | ~500-1,000 usuarios → S/95/mes |
-| Vercel | S/0 | ~2,000-5,000 usuarios → S/76/mes |
-| Dominio | S/9.2 | Fijo anual S/110 |
-| Total fijo | S/28.2/mes | |
-
-### Break-even: ~100 usuarios con 10% conversión a Pro
-
----
-
-## Gmail OAuth Constraint (GCC)
-
-**Gmail OAuth = Pro-only feature.** Solo 100 OAuth slots disponibles en Google Cloud Console hasta verificación CASA Tier 2 ($540 USD). Free users NO consumen slots — solo reciben info básica de Google Auth (nombre, foto). Solo Pro users que pagan reciben link OAuth para lectura de correos.
-
-**Status actual:** 3/100 slots usados (26 Mar 2026).
-
----
-
-## Upgrade Triggers
-
-| Momento | Mensaje |
-|---------|---------|
-| Intenta conectar Gmail para lectura | "Conecta todos tus bancos con Pro" |
-| Ve dashboard, quiere mes anterior | "Desbloquea historial completo" |
-| Toca score financiero desglose | Número visible, desglose borroso con candado |
-| Intenta descargar PDF | "Descarga reportes con Pro" |
-| Intenta pedir consejo IA | "Recibe consejos diarios con Pro" |
-| Sin resumen diario | "Activa tu resumen diario con Pro" |
-| Intenta exportar datos | "Exporta tu data con Pro" |
-| Intenta usar calendario | "Calendario financiero disponible con Pro" |
-| Intenta usar heatmap | "Heatmap de gastos disponible con Pro" |
-| Intenta cargar Excel/CSV | "Carga masiva de transacciones disponible con Pro" |
+Contexto de negocio vivo (umbrales de escala, CASA, SACS): memory `project_pricing_business`.
