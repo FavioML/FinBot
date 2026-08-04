@@ -230,8 +230,13 @@ async function guardarTokens(usuarioId, tokens, email) {
   // tumbaría el grant que Google acaba de emitir, porque es el mismo. Y además no hay cupo
   // nuevo en juego: es el mismo usuario de Google que ya estaba contado.
   if (email) {
-    const { data: previas } = await getSupabase().from('gmail_cuentas')
+    const { data: previas, error: errPrevias } = await getSupabase().from('gmail_cuentas')
       .select('id, email').eq('usuario_id', usuarioId).eq('activa', true);
+    // supabase-js no lanza: sin leer este error, un hipo de red devuelve data=null, el loop
+    // de revocación se salta y el upsert deja DOS cuentas activas — y la regla una-cuenta
+    // no vive en la DB (el índice único es (usuario_id,email)), así que nada la repararía
+    // después. Lanzar acá corta el canje: el callback ya tiene página de error + reintento.
+    if (errPrevias) throw new Error('guardarTokens: no se pudo leer las cuentas previas: ' + errPrevias.message);
     for (const previa of previas || []) {
       if (previa.email === email) continue;
       await revocarAccesoGmail(usuarioId, { motivo: 'reemplazada_por_conexion_nueva', cuentaId: previa.id });
@@ -241,7 +246,8 @@ async function guardarTokens(usuarioId, tokens, email) {
   // Siempre sincronizar en usuarios para backwards compat (encrypted)
   const updateData = { gmail_access_token: encrypt(tokens.access_token), gmail_token_expiry: tokens.expiry_date };
   if (tokens.refresh_token) updateData.gmail_refresh_token = encrypt(tokens.refresh_token);
-  await getSupabase().from('usuarios').update(updateData).eq('id', usuarioId);
+  const { error: errUsuario } = await getSupabase().from('usuarios').update(updateData).eq('id', usuarioId);
+  if (errUsuario) throw new Error('guardarTokens: no se pudo sincronizar los tokens en usuarios: ' + errUsuario.message);
 
   if (!email) return; // sin email no se puede guardar en gmail_cuentas
 
@@ -259,7 +265,10 @@ async function guardarTokens(usuarioId, tokens, email) {
     updated_at: new Date().toISOString()
   };
   if (tokens.refresh_token) cuenta.refresh_token = encrypt(tokens.refresh_token);
-  await getSupabase().from('gmail_cuentas').upsert(cuenta, { onConflict: 'usuario_id,email' });
+  const { error: errUpsert } = await getSupabase().from('gmail_cuentas').upsert(cuenta, { onConflict: 'usuario_id,email' });
+  // Sin esto, una conexión podía "completarse" (callback feliz) sin que la cuenta quedara
+  // escrita: el usuario vería "conectado" y el barrido no leería nada.
+  if (errUpsert) throw new Error('guardarTokens: no se pudo guardar la cuenta: ' + errUpsert.message);
 }
 
 async function obtenerCuentasGmail(usuarioId) {
