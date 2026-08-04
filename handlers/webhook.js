@@ -21,6 +21,7 @@ const { checkProWall } = require('../helpers/pro-wall');
 const { parseCSV, parseExcel } = require('../services/import-parser');
 const { esperaComprobante, esPagoNeto, procesarComprobantePro } = require('../lib/pro-payment');
 const { procesarComandoAdmin } = require('./admin-commands');
+const premiumIntents = require('./intents/premium');
 const { abrirSesion, cerrarSesion } = require('../lib/support-tickets');
 const { manejarOnboarding } = require('./onboarding');
 const { colaConfirmacionGasto, estaEnMuro, mensajeMuro, esProPagado, mensajeGmailProPagado, mensajeConectarEnLaApp, mensajeGmailDesconectado } = require('../lib/trial');
@@ -687,13 +688,11 @@ function createWebhookHandler(procesarMensajeLibre) {
           '_Inicia sesión con Google para ver tus datos._';
       }
     } else if (cmd === '/premium') {
-      const tipoPlanActual = usuario.tipo_plan || 'mensual';
-      const vence = usuario.fecha_vencimiento ? new Date(usuario.fecha_vencimiento).toLocaleDateString('es-PE') : null;
-      respuesta = '\u2B50 *Tu plan NETO Pro*\n\n' +
-        'Plan: *' + (tipoPlanActual === 'anual' ? 'Anual (S/99/año)' : 'Mensual (S/10/mes)') + '*\n' +
-        (vence ? 'Vence: ' + vence + '\n' : '') +
-        '\n\u2705 Reportes PDF ilimitados\n\u2705 Lectura automática de correos\n\u2705 Dashboard con gráficos y metas\n\u2705 Consejos IA personalizados\n\n' +
-        '_¿Dudas? Escribe al +' + ADMIN_NUMBER + '_';
+      // Delegado al intent ver_premium: mismo copy con las TRES ramas (trial/pagado/muro).
+      // La version inline que vivia aca le decia "Tu plan NETO Pro" a cualquiera --
+      // incluido el del muro, que es justo quien tipea /premium para pagar -- porque quedo
+      // fuera del fix b65d993/ca4bc8f (auditoria 2026-08-03, hallazgo M2).
+      respuesta = await premiumIntents.handle({ intencion: 'ver_premium', msg, datos: {}, usuario, from, ctx: { supabase } });
     } else if (cmd === '/referir' || cmd === '/referidos' || cmd === '/invitar' ||
       /\b(quiero referir|referir a|mis referidos|mi link de referido|link de referido|invitar amigos|invitar a un amigo|compartir neto|recomendar neto|c[oó]digo de referido|programa de referidos|como refiero|cómo refiero|ganar pro gratis|referir amigos|quiero invitar)\b/i.test(cmd)) {
       let refCode = usuario.ref_code;
