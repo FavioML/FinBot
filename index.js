@@ -79,6 +79,17 @@ const adminLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'Demasiadas solicitudes admin' },
 });
+// Rutas públicas (OAuth callback, /api/referidor de la mini-landing): superficie SIN auth.
+// Por IP y holgado — un navegador real hace un puñado de hits; lo que corta es la
+// enumeración de ref_codes (harvest de nombres) y la carga a la DB (auditoría 2026-08-03, S3).
+const publicLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiadas solicitudes, intenta en un momento' },
+  keyGenerator: claveIp,
+});
 // Rutas /pro: la webapp (Vercel) llama SIEMPRE desde su IP de egress, así que un limiter
 // por IP throttlearía a todos los usuarios juntos. Keyeamos por usuario_id (header/query).
 const proLimiter = rateLimit({
@@ -134,7 +145,7 @@ app.use('/pro', proLimiter, proRoutes);
 // INTERNAL_API_KEY; ver routes/internal.js. También antes del catch-all público.
 app.use('/internal', proLimiter, internalRoutes);
 
-app.use('/', publicRoutes);
+app.use('/', publicLimiter, publicRoutes);
 app.use('/admin', adminLimiter, adminRoutes);
 
 // Error handler (must be after all routes)
