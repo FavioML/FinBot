@@ -28,6 +28,35 @@ jobs:
       ADMIN_KEY: test
       ADMIN_WHATSAPP: test
 
+  # La webapp tiene su propio package.json, su propio lockfile y sus propios 149
+  # tests, y hasta hoy no corrian en ningun lado: el job `test` de arriba corre en
+  # la raiz, donde `vitest run` solo ve `tests/**` del backend. O sea que TODO el
+  # cinturon de la webapp —requireNetoUser, lectura-callsites, spaces-split,
+  # auth-callsites— era verde solo cuando alguien se acordaba de correrlo a mano.
+  #
+  # Ojo con lo que este job SI y NO hace: da el check rojo en el commit, pero
+  # Vercel despliega igual (su integracion de Git no espera checks de Actions).
+  # Gatear el deploy de verdad seria un "Ignored Build Step" en Vercel, que es
+  # config de la plataforma, no de este archivo. Ver deploy-config.json.
+  webapp:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: webapp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: webapp/package-lock.json
+      - run: npm ci
+      # tsc va aparte de los tests a proposito: vitest transpila sin chequear
+      # tipos, asi que una suite verde no dice nada sobre `tsc`. Los dos fallos
+      # se ven en la misma corrida (`--noEmit` no escribe nada).
+      - run: npx tsc --noEmit
+      - run: npm run test
+
   nlp-agent:
     needs: test
     # STANDBY 2026-07-14: NLP Agent pausado mientras iteramos cambios seguidos
