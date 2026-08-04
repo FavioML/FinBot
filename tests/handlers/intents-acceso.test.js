@@ -52,8 +52,21 @@ describe('clasificación de acceso de intents (muro post-trial)', () => {
       'editar_fecha', 'editar_comercio', 'eliminar_transaccion', 'deshacer_ultimo',
       'restaurar_eliminado', 'marcar_como_ingreso', 'dividir_gasto', 'duplicar_gasto',
       'ver_ultima_transaccion',
+      // Un gasto que cae en un espacio compartido sigue siendo un gasto. Estuvo del
+      // lado de LECTURA junto al resto del módulo, o sea que el muro cortaba una
+      // ESCRITURA (hallazgo M11). Las 6 lecturas de Espacios siguen cobrándose.
+      'registrar_gasto_espacio',
     ]) {
       expect(acceso.requiereLectura(i), i + ' debería seguir libre en el muro').toBe(false);
+    }
+  });
+
+  // El otro lado de M11, explícito para que no se lo lleve puesto un barrido futuro:
+  // se movió UN intent, no el módulo. Consultar el balance de un espacio se paga.
+  it('las lecturas de Espacios siguen detrás del muro', () => {
+    for (const i of ['ver_espacios', 'ver_balance_espacio', 'liquidar_espacio',
+                     'crear_espacio', 'invitar_espacio', 'unirse_espacio']) {
+      expect(acceso.requiereLectura(i), i + ' debería seguir cobrándose').toBe(true);
     }
   });
 

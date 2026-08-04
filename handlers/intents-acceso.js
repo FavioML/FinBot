@@ -43,8 +43,9 @@ const INTENTS_LECTURA = new Set([
   // registrar no se toca.
   'ver_deudas', 'registrar_deuda', 'abonar_deuda', 'marcar_deuda_pagada',
   'consolidar_deudas', 'saldar_todo_contraparte',
-  // Espacios compartidos (ya Pro por el modelo "host paga", pero se nombra explícito)
-  'crear_espacio', 'ver_espacios', 'registrar_gasto_espacio', 'ver_balance_espacio',
+  // Espacios compartidos. `registrar_gasto_espacio` NO está acá: es ESCRITURA, y
+  // escribir no se corta ni siquiera cuando el gasto va a un espacio (ver abajo).
+  'crear_espacio', 'ver_espacios', 'ver_balance_espacio',
   'liquidar_espacio', 'invitar_espacio', 'unirse_espacio',
   // Gmail (Pro de origen)
   'escanear_gmail', 'agregar_gmail', 'cambiar_gmail', 'preferencia_reporte_gmail',
@@ -71,6 +72,20 @@ const INTENTS_LIBRES = new Set([
   'editar_categoria_comercio', 'deshacer_ultimo', 'restaurar_eliminado',
   'marcar_como_ingreso', 'dividir_gasto', 'duplicar_gasto',
   'ver_ultima_transaccion', 'dividir_gasto_grupal',
+  // `registrar_gasto_espacio` registra un gasto. Que además caiga en un espacio
+  // compartido no lo convierte en lectura, y estaba del otro lado — o sea que el
+  // muro le cortaba una ESCRITURA, contra la única regla que no se negocia.
+  //
+  // Ojo que esto NO cierra la asimetría de canal completa (hallazgo M11), y es
+  // deliberado (decisión de Favio, 04-ago-2026): la webapp autoriza Espacios por
+  // el plan del OWNER ("host paga", ver webapp/src/lib/spaces-server.ts), mientras
+  // que acá el muro sigue siendo del EMISOR. Un miembro en el muro, en un espacio
+  // cuyo host paga, ve balances por web y no por WhatsApp. Se deja así porque
+  // resolverlo de verdad obliga al chokepoint a consultar shared_spaces+usuarios
+  // ANTES de saber si el mensaje siquiera va a un espacio —en el camino más
+  // caliente del bot— y abre una vía de lectura gratis: te invito a mi espacio y
+  // consultás sin pagar. El muro de WhatsApp es del usuario, no del espacio.
+  'registrar_gasto_espacio',
   // Conversión
   'ver_premium', 'ver_referidos', 'estado_cuenta', 'ver_dashboard',
   // Servicio
