@@ -1,4 +1,6 @@
 const log = require('../../lib/logger');
+const { checkProWall } = require('../../helpers/pro-wall');
+const { mensajeCargaMasivaPro } = require('../../lib/trial');
 
 module.exports = {
   intents: ['silenciar', 'reactivar_recordatorios', 'hablar_con_humano', 'desconectar_cuenta', 'cargar_excel'],
@@ -85,6 +87,9 @@ module.exports = {
       }
 
       case 'cargar_excel': {
+        // El mismo flag que corta el archivo cuando llega (webhook.js, rama `document`).
+        // Sin esto el bot invita a llenar la plantilla y recién la rechaza al enviarla.
+        if (checkProWall(usuario, 'excelUpload').blocked) return mensajeCargaMasivaPro(usuario);
         return '📊 *Carga de gastos e ingresos históricos*\n\n' +
           '1️⃣ Descarga la plantilla: neto.pe/plantilla_gastos.xlsx\n' +
           '2️⃣ Completa tus movimientos (máximo 500)\n' +

@@ -231,3 +231,71 @@ describe('un usuario no puede vincular un segundo correo', () => {
     expect(GMAIL).toMatch(/login_hint/);
   });
 });
+
+/**
+ * Hallazgo M12 de la auditoría CTO (2026-08-04): `PLAN_CONFIG.premium.maxGmailAccounts`
+ * decía `Infinity`, o sea lo contrario exacto de la regla que el producto aplica.
+ *
+ * No era explotable —nadie lo lee como límite: el único consumidor
+ * (`handlers/intents/consultas.js`) compara `=== 0` para preguntar "¿tiene Pro?"— y por eso
+ * mismo era peligroso: una constante que describe la política, que nadie ejecuta y que
+ * afirma lo contrario de lo que hacen `guardarTokens` y el canje. El primero que la lea
+ * buscando el límite va a creerle a ella.
+ *
+ * El número queda como DESCRIPCIÓN. El control sigue arriba, en los tests de este archivo.
+ */
+describe('la constante del plan no contradice la regla', () => {
+  const { PLAN_CONFIG } = require('../lib/constants');
+
+  it('premium declara UNA cuenta, no ilimitadas', () => {
+    expect(PLAN_CONFIG.premium.maxGmailAccounts).toBe(1);
+  });
+
+  it('free declara cero (es el proxy de "¿tiene Pro?" que consultas.js consulta)', () => {
+    expect(PLAN_CONFIG.free.maxGmailAccounts).toBe(0);
+  });
+
+  // Que ahora sea un número plausible abre un riesgo nuevo: que alguien lo tome por el gate
+  // y escriba un segundo control con él. Dos controles del mismo invariante es cómo se
+  // desincronizan — y con `Infinity` daba igual, porque `checkProLimit` cortocircuita ahí:
+  // con `1` un premium que ya tiene su cuenta pasaría a `blocked`, o sea que cablearlo
+  // AHORA sí cambia comportamiento.
+  //
+  // El barrido es sobre TODO el código de runtime, no sobre una lista blanca: la versión
+  // anterior de este guard enumeraba cuatro archivos y omitía justo el único que lee la
+  // constante (`handlers/intents/consultas.js`), así que habría pasado verde con el
+  // consumidor real sin mirar.
+  it('la constante solo se declara y se compara con 0: nadie la usa como límite', () => {
+    const fs = require('node:fs');
+    const IGNORAR = /^(node_modules|tests|docs|qa-e2e|webapp|scripts|\.git|out|coverage)$/;
+    const archivos = [];
+    (function barrer(dir) {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (e.isDirectory()) { if (!IGNORAR.test(e.name)) barrer(path.join(dir, e.name)); continue; }
+        if (/\.(js|cjs|mjs)$/.test(e.name)) archivos.push(path.join(dir, e.name));
+      }
+    })(projectRoot);
+
+    // Antivacuidad: si el barrido se rompe, esto cae antes que el assert de abajo.
+    expect(archivos.length, 'el barrido de archivos no encontró runtime').toBeGreaterThan(50);
+
+    const usos = archivos
+      .filter((abs) => /maxGmailAccounts/.test(fs.readFileSync(abs, 'utf-8')))
+      .map((abs) => path.relative(projectRoot, abs).split(path.sep).join('/'));
+
+    // Contraprueba de que el barrido SÍ encuentra lo que existe: los dos legítimos.
+    expect(usos, 'el barrido no ve ni la declaración: está mirando el árbol equivocado')
+      .toContain('lib/constants.js');
+    expect(usos).toContain('handlers/intents/consultas.js');
+    expect(usos.sort()).toEqual(['handlers/intents/consultas.js', 'lib/constants.js']);
+  });
+
+  // El consumidor legítimo pregunta "¿tiene Pro?" (=== 0), no "¿cuántas cuentas tiene?".
+  it('el único consumidor la compara con 0, no contra un conteo', () => {
+    const fs = require('node:fs');
+    const src = fs.readFileSync(path.join(projectRoot, 'handlers/intents/consultas.js'), 'utf-8');
+    expect(src).toMatch(/maxGmailAccounts\s*===\s*0/);
+    expect(src, 'apareció una comparación contra un conteo de cuentas')
+      .not.toMatch(/(length|cuentas)[^\n]*maxGmailAccounts|maxGmailAccounts[^\n]*(length|cuentas)/);
+  });
+});

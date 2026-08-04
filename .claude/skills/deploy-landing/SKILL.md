@@ -31,6 +31,19 @@ node scripts/verify-hero.mjs http://localhost:4321/
   quedo mintiendo: hay que actualizar `MESSAGES` en `ChatSimulator.tsx` contra
   el archivo del backend que cita el comentario, NO relajar el guard.
 
+- **Correr el guard de afirmaciones.** No necesita build ni servidor: lee `src/`
+  y `public/sitemap.xml`.
+
+```bash
+cd C:/Vortik.dev/products/neto/landing && node scripts/verify-claims.mjs
+```
+
+  Cubre lo que el sitio AFIRMA: que no promete una integracion bancaria que no
+  existe, que no niega en absoluto leer correos (falso con Gmail de Pro
+  conectado, y contradice /privacidad), y que el sitemap cubre las rutas reales
+  de `src/app`. Si falla por una pagina nueva sin sitemap, agregarla; si falla
+  por copy, corregir el copy, no la regla.
+
 ### 2. Deploy
 El deploy es automatico via Cloudflare Pages al hacer push a `main` del repo
 `neto-landing` (github.com/FavioML/neto-landing).

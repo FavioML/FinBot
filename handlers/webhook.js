@@ -24,7 +24,7 @@ const { procesarComandoAdmin } = require('./admin-commands');
 const premiumIntents = require('./intents/premium');
 const { abrirSesion, cerrarSesion } = require('../lib/support-tickets');
 const { manejarOnboarding } = require('./onboarding');
-const { colaConfirmacionGasto, estaEnMuro, mensajeMuro, esProPagado, mensajeGmailProPagado, mensajeConectarEnLaApp, mensajeGmailDesconectado } = require('../lib/trial');
+const { colaConfirmacionGasto, estaEnMuro, mensajeMuro, mensajeCargaMasivaPro, esProPagado, mensajeGmailProPagado, mensajeConectarEnLaApp, mensajeGmailDesconectado } = require('../lib/trial');
 const { comandoRequiereLectura } = require('./intents-acceso');
 const analytics = require('../lib/analytics');
 
@@ -241,17 +241,23 @@ function createWebhookHandler(procesarMensajeLibre) {
       const fileName = (doc && doc.filename) || '';
       const docMime = (doc && doc.mime_type) || '';
 
+      // Carga masiva Excel/CSV es Pro (flag excelUpload en PLAN_CONFIG). Sin gate,
+      // cualquier Free importaba gratis una feature prometida como Pro (fuga de valor).
+      //
+      // Va ANTES del chequeo de formato a propósito: el "acepto .xlsx o .csv" reparte el
+      // link de la plantilla, así que ponerlo primero reproducía M9 en la rama hermana —
+      // al del muro que manda un PDF se le decía "descarga la plantilla", la llenaba, y
+      // recién al enviarla se le cobraba. A quien no puede importar no se le explica el
+      // formato: se le dice que no puede importar.
+      if (checkProWall(usuario, 'excelUpload').blocked) {
+        await enviarWhatsapp(from, mensajeCargaMasivaPro(usuario));
+        return;
+      }
+
       const esCSV = fileName.endsWith('.csv') || docMime.includes('csv') || docMime.includes('text/plain');
       const esExcel = fileName.endsWith('.xlsx') || fileName.endsWith('.xls') || docMime.includes('spreadsheet') || docMime.includes('excel') || docMime.includes('officedocument');
       if (!esCSV && !esExcel) {
         await enviarWhatsapp(from, '📄 Acepto archivos Excel (.xlsx) o CSV (.csv).\n\nDescarga la plantilla en: neto.pe/plantilla_gastos.xlsx\nO envía tu estado de cuenta bancario en CSV.');
-        return;
-      }
-
-      // Carga masiva Excel/CSV es Pro (flag excelUpload en PLAN_CONFIG). Sin gate,
-      // cualquier Free importaba gratis una feature prometida como Pro (fuga de valor).
-      if (checkProWall(usuario, 'excelUpload').blocked) {
-        await enviarWhatsapp(from, '🔒 La *carga masiva de Excel/CSV* es una función Pro.\n\nCon Pro importas tu historial completo desde tu estado de cuenta o la plantilla en segundos.\n\n👉 Escribe "ver plan" para activarlo (S/10/mes).');
         return;
       }
 

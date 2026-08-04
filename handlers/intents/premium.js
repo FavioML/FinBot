@@ -91,7 +91,29 @@ module.exports = {
           const vencimiento = usuario.premium_vence || usuario.fecha_vencimiento || null;
           const nombre = usuario.nombre || 'Usuario';
           let resp = '👤 *Tu cuenta, ' + nombre + ':*\n\n';
-          resp += '📋 Plan: *' + (probandoEst ? 'Pro (prueba)' : esPremium ? 'Pro ⭐' : 'Free') + '*\n';
+          // "Free" era el nombre de un plan que ya no existe: hoy `plan='free'` ES el muro
+          // (registro abierto, lectura cerrada). Un usuario que terminó su prueba leía
+          // "Plan: Free" y no tenía forma de saber qué conserva. Se nombra lo que cada uno
+          // tiene — y al que todavía no gastó nada se le dice que su prueba lo espera.
+          //
+          // `undefined` NO es `null`, mismo criterio que `mensajeMuro`: el primero es una
+          // fila parcial (un select que se olvidó la columna) y es un bug del llamador, no
+          // un estado del usuario. Se loguea y se cae al nombre neutro, que es verdadero
+          // en cualquier caso, en vez de afirmar una historia que no se puede sostener.
+          const sinColumna = usuario.trial_estado === undefined;
+          if (sinColumna && !esPremium) {
+            log.error({ tag: 'ESTADO_CUENTA', usuarioId: usuario.id },
+              'estado_cuenta recibió una fila sin trial_estado: el select del llamador está incompleto');
+          }
+          const planEst = probandoEst ? 'Pro (prueba)'
+            : esPremium ? 'Pro ⭐'
+            : usuario.trial_estado ? 'Gratis (solo registro)'
+            : 'Gratis';
+          resp += '📋 Plan: *' + planEst + '*\n';
+          // Solo a quien todavía puede estrenarla: `null` es "nunca tuvo prueba".
+          if (!esPremium && usuario.trial_estado === null) {
+            resp += '🎁 Tu prueba de *14 días* se activa con tu primer gasto.\n';
+          }
           if (probandoEst && usuario.trial_vence) {
             resp += '📅 Termina: ' + formatFecha(String(usuario.trial_vence).slice(0, 10)) + '\n';
           } else if (esPremium && vencimiento) {

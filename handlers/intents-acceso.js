@@ -90,7 +90,13 @@ const INTENTS_LIBRES = new Set([
   'ver_premium', 'ver_referidos', 'estado_cuenta', 'ver_dashboard',
   // Servicio
   'saludo', 'ayuda', 'agradecimiento', 'queja', 'chiste_finanzas', 'como_empezar', 'feedback',
-  'silenciar', 'reactivar_recordatorios', 'hablar_con_humano', 'desconectar_cuenta', 'cargar_excel',
+  'silenciar', 'reactivar_recordatorios', 'hablar_con_humano', 'desconectar_cuenta',
+  // `cargar_excel` no es lectura (importar ESCRIBE), así que el muro no es su gate. Pero
+  // tampoco es libre: el flag `excelUpload` de PLAN_CONFIG lo cobra, y quien decide es
+  // `checkProWall` en los DOS puntos donde aparece —el intent (handlers/intents/moderacion.js)
+  // y el archivo cuando llega (webhook.js, rama `document`)—. Estaba solo en el segundo, así
+  // que el bot entregaba el tutorial y rechazaba el Excel ya llenado (auditoría CTO M9).
+  'cargar_excel',
   'ver_tipo_cambio', 'convertir_moneda', 'calcular_cuotas', 'cambiar_nombre', 'recordatorio_pago',
 ]);
 
