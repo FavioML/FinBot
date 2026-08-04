@@ -383,7 +383,28 @@ tocar la webapp (`TIPO_CONFIG[tipo] || TIPO_CONFIG.sistema`). Agregarlo a `TIPO_
 - Patches secuenciales, nunca paralelos al mismo archivo
 - Variables de entorno: gestionar en Railway, nunca hardcodear
 
+## Antes de pushear algo que toque plata, plan o gates
+
+Un subagente **sin memoria de mi intencion** revisa el diff antes del push. No es ceremonia:
+cuando audito e implemento el mismo cambio, el punto ciego es compartido, y el historial lo
+demuestra (los defectos de `docs/DEFECTOS.md` del 03 y 04 de agosto los encontro Favio o un
+barrido posterior, nunca mi propia verificacion, que estaba verde).
+
+Aplica a: `lib/trial.js` y sus consumidores, `services/referrals.js`, `lib/pro-payment.js`,
+los gates (`intents-acceso.js`, chokepoint, `requireLectura`), los crons que empujan, `gmail.js`
+y toda migracion. NO aplica a copy, docs ni cambios de UI sin logica de plan.
+
+El prompt del revisor, corto y adversarial: *"Aca esta el diff. Encontra las rutas que NO se
+ejercitaron: la rama de error de cada await (¿el cliente lanza o devuelve el error?), el usuario
+en el muro, el que no tiene WhatsApp, el proceso que muere sin cleanup. Si se movio o unifico
+codigo, decime que EFECTOS LATERALES viajaron con el. No valides lo que ya esta probado."*
+
+Todo defecto que aparezca —lo encuentre quien lo encuentre— se registra en `docs/DEFECTOS.md`
+el mismo dia. La lista de verificacion completa vive en la memoria
+`feedback_disciplina_de_verificacion`.
+
 ## Principios
 - **Simplicidad:** Impacto minimo en el codigo
 - **Causas raiz:** No soluciones temporales
-- **Verificar:** Nunca marcar tarea como completa sin demostrar que funciona
+- **Verificar:** Nunca marcar tarea como completa sin demostrar que funciona. Un test no vale
+  hasta verlo fallar contra el commit anterior
