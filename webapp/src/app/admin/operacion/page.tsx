@@ -353,7 +353,7 @@ function PaymentsModal({
             {referido.descuentoPct > 0 && (
               <div>
                 &#127903; Referido con {referido.descuentoPct}% off — se espera{' '}
-                <span className="font-semibold text-[#1D9E75]">S/ {(10 * (100 - referido.descuentoPct) / 100).toFixed(2)}</span> (no S/ 10.00)
+                <span className="font-semibold text-[#1D9E75]">S/ {(PRO_PRICE_MONTHLY_PEN * (100 - referido.descuentoPct) / 100).toFixed(2)}</span> (no S/ {PRO_PRICE_MONTHLY_PEN.toFixed(2)})
               </div>
             )}
             {referido.referrerNombre && (

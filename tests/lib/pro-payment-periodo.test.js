@@ -202,16 +202,16 @@ describe('B10 — el 50% off es del PRIMER mes y una conversión pagada lo consu
  * plata que nadie transfirió.
  */
 describe('B10 (bis) — aprobar un pago no puede pisar el monto acordado', () => {
-  async function aprobar({ montoEnLaFila, esConversionPagada = true }) {
+  async function aprobar({ montoEnLaFila, planEnLaFila = 'mensual', aprobadoComo = 'mensual', esConversionPagada = true }) {
     vi.setSystemTime(new Date('2026-08-04T15:00:00Z'));
     ops = [];
     router = (q) => {
-      if (q.table === 'pagos' && q.op === 'select') return { data: { monto: montoEnLaFila } };
+      if (q.table === 'pagos' && q.op === 'select') return { data: { monto: montoEnLaFila, tipo_plan: planEnLaFila } };
       return { data: null, error: null };
     };
     await pro.activarPro({
       usuario: { ...BASE_USER },
-      tipoPlan: 'mensual', aprobadoPor: 'test', enviarLinkGmail: false,
+      tipoPlan: aprobadoComo, aprobadoPor: 'test', enviarLinkGmail: false,
       esConversionPagada, pagoId: 'pago-1',
     });
     return ops.find(o => o.table === 'pagos' && o.op === 'update' && o.payload && 'monto' in o.payload);
@@ -220,6 +220,30 @@ describe('B10 (bis) — aprobar un pago no puede pisar el monto acordado', () =>
   it('preserva el S/5 del referido, no lo sube a S/10', async () => {
     const up = await aprobar({ montoEnLaFila: 5 });
     expect(up.payload.monto).toBe(5);
+  });
+
+  /**
+   * El periodo que se aprueba NO sale de la fila: sale del admin (`req.body.tipo_plan` /
+   * el botón de Telegram), que ve el comprobante y puede corregirlo. Preservar el monto sin
+   * mirar el periodo concede 12 meses registrando S/10. Lo encontró la segunda revisión
+   * adversarial, sobre código que YA estaba en producción.
+   */
+  it('si el admin aprueba OTRO periodo, el monto de la fila NO manda', async () => {
+    const up = await aprobar({ montoEnLaFila: 10, planEnLaFila: 'mensual', aprobadoComo: 'anual' });
+    expect(up.payload.monto).toBe(99);   // no 10: se conceden 12 meses, se cobran 12 meses
+    expect(up.payload.tipo_plan).toBe('anual');
+  });
+
+  it('y al revés: fila anual aprobada como mensual queda en el precio mensual', async () => {
+    const up = await aprobar({ montoEnLaFila: 99, planEnLaFila: 'anual', aprobadoComo: 'mensual' });
+    expect(up.payload.monto).toBe(10);
+  });
+
+  it('el descuento sobrevive solo cuando el periodo COINCIDE', async () => {
+    const igual = await aprobar({ montoEnLaFila: 5, planEnLaFila: 'mensual', aprobadoComo: 'mensual' });
+    expect(igual.payload.monto).toBe(5);
+    const distinto = await aprobar({ montoEnLaFila: 5, planEnLaFila: 'mensual', aprobadoComo: 'anual' });
+    expect(distinto.payload.monto).toBe(99);
   });
 
   it('un pago sin descuento sigue quedando en el precio de lista', async () => {

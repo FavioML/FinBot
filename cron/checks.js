@@ -6,7 +6,7 @@ const { generarResumenSemanal, generarResumenMensual, generarResumenDiario } = r
 const { verificarAlertasProactivas } = require('../services/recommendations');
 const { obtenerDeudasProximasVencer } = require('../services/debts');
 const { notificarUsuario, CANALES } = require('../lib/notify-user');
-const { ADMIN_NUMBER, PRO_PRECIOS, lineaPrecioPro } = require('../lib/config');
+const { ADMIN_NUMBER, lineaPrecioPro } = require('../lib/config');
 const { WEBAPP_URL } = require('../lib/constants');
 const { formatFecha } = require('../lib/formatters');
 const { notificarAdmin } = require('../lib/admin-notify');
@@ -145,7 +145,7 @@ async function checkRecordatorioDiario() {
             '✅ Historial completo, sin límite de meses\n' +
             '✅ Presupuestos, metas y reportes\n' +
             '✅ Lectura automática de tus correos bancarios\n\n' +
-            '💰 *S/' + PRO_PRECIOS.mensual + '/mes* o *S/' + PRO_PRECIOS.anual + '/año*\n\n' +
+            lineaPrecioPro() + '\n\n' +
             '📲 Yapea al *970398192* y envíame la captura.\n\n' +
             '_Escribe /premium para más info._';
 
@@ -243,6 +243,22 @@ async function checkRecordatorioDiario() {
 // las filas con la columna en NULL (`NULL <> 'activo'` es NULL en SQL), que son la mayoría.
 const SIN_TRIAL_ACTIVO = 'trial_estado.is.null,trial_estado.neq.activo';
 
+/**
+ * ¿El aviso llegó al usuario por ALGÚN canal? Es el permiso para hacer cosas que solo tienen
+ * sentido si la persona se enteró — hoy, abrir la ventana de comprobante.
+ *
+ * Se pregunta por ENTREGA y no por una causa puntual de fallo a propósito: los modos de no
+ * llegar son varios (Meta bloquea fuera de la ventana de 24h con 131047, el usuario no tiene
+ * número, el claim del in-app no se pudo escribir) y enumerarlos garantiza olvidarse de uno.
+ * Un `skipped` cualquiera —incluido `test_user`— no es entrega por WhatsApp; la in-app sí
+ * cuenta, porque es el canal que sí llega al que tiene cuenta web.
+ */
+function llegoElAviso(res) {
+  if (!res) return false;
+  const wa = res.wa || {};
+  return (wa.ok === true && !wa.skipped) || res.inApp === true;
+}
+
 async function checkPremiumExpiry() {
   try {
     const hoy = hoyPeru();
@@ -273,7 +289,7 @@ async function checkPremiumExpiry() {
               canales: CANALES.AMBOS,
               usuarioId: usuario.id, whatsapp: usuario.whatsapp,
               tipo: 'premium_expiry_3d',
-              mensaje: '⚠️ ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u plan *NETO Pro* vence en 3 días (' + usuario.premium_vence + ').\n\n¿Quieres renovar?\n💰 *S/' + PRO_PRECIOS.mensual + '/mes* o *S/' + PRO_PRECIOS.anual + '/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Renueva antes para no perder acceso._',
+              mensaje: '⚠️ ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u plan *NETO Pro* vence en 3 días (' + usuario.premium_vence + ').\n\n¿Quieres renovar?\n' + lineaPrecioPro() + '\n📲 Yapea al *970398192* y envíame la captura.\n\n_Renueva antes para no perder acceso._',
               // El título es la clave del dedup de arriba: cambiarlo sin cambiar esa query
               // reintroduce el bug de 24 notificaciones idénticas por día.
               titulo: 'Plan Pro vence en 3 días', tipoInApp: 'recordatorio',
@@ -284,14 +300,21 @@ async function checkPremiumExpiry() {
               cuerpo: 'Tu plan NETO Pro vence el ' + usuario.premium_vence + '. Renueva para no perder acceso.',
               link: '/dashboard/configuracion',
             });
-            // Solo se abre la espera de comprobante si el aviso SALIÓ. `solicitarComprobante`
-            // pone `esperando_comprobante` por 48h, y en esa ventana toda foto se lee como
-            // captura de pago: una que no parece el pago a Neto se rechaza SIN registrar el
-            // gasto. Correrlo cuando el claim falló dejaba al usuario en ese modo sin haber
-            // recibido jamás el mensaje que lo explica — o sea rompiéndole el registro por
-            // foto sin decirle por qué, que es la trampa de B12. Lo encontró el revisor del
-            // diff de la ola 4, no mi verificación (que estaba verde).
-            if (avisado3d.wa.skipped !== 'claim_in_app_fallo') await solicitarComprobante(usuario.id);
+            // Solo se abre la espera de comprobante si el aviso LLEGÓ por algún canal.
+            //
+            // `solicitarComprobante` pone `esperando_comprobante` por 48h, y en esa ventana
+            // toda foto se lee como captura de pago: una que no parece el pago a Neto se
+            // rechaza SIN registrar el gasto. Abrirla para alguien que nunca supo del aviso
+            // le rompe el registro por foto sin decirle por qué — la trampa de B12.
+            //
+            // La condición mira ENTREGA, no una causa puntual de fallo. La primera versión
+            // cortaba solo con `skipped !== 'claim_in_app_fallo'`, o sea el modo de falla
+            // raro, y dejaba pasar el FRECUENTE: Meta rechaza el texto libre fuera de la
+            // ventana de 24h (131047) devolviendo `{ok:false, code:131047}` **sin `skipped`**.
+            // Para estos avisos ese es el caso típico —el destinatario lleva días sin
+            // escribir—, y 43 de 93 usuarios son WhatsApp-only, así que para ellos tampoco
+            // hay campana donde enterarse. Lo encontró la SEGUNDA revisión del diff.
+            if (llegoElAviso(avisado3d)) await solicitarComprobante(usuario.id);
           } catch(e) { log.error({ tag: 'EXPIRY_WARN', userId: usuario.id, err: e.message }, 'Error warning premium 3d'); }
         }
       }
@@ -314,7 +337,7 @@ async function checkPremiumExpiry() {
               canales: CANALES.AMBOS,
               usuarioId: usuario.id, whatsapp: usuario.whatsapp,
               tipo: 'premium_expiry_hoy',
-              mensaje: '🔔 ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u plan *NETO Pro* vence *hoy*.\n\nRenuévalo hoy para no perder acceso.\n💰 *S/' + PRO_PRECIOS.mensual + '/mes* o *S/' + PRO_PRECIOS.anual + '/año*\n📲 Yapea al *970398192* y envíame la captura.',
+              mensaje: '🔔 ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u plan *NETO Pro* vence *hoy*.\n\nRenuévalo hoy para no perder acceso.\n' + lineaPrecioPro() + '\n📲 Yapea al *970398192* y envíame la captura.',
               titulo: 'Plan Pro vence hoy', tipoInApp: 'recordatorio',
               claimInApp: true, // ver el aviso de 3 días (B6)
               cuerpo: 'Tu plan NETO Pro vence hoy. Renueva para no perder acceso.',
@@ -322,7 +345,7 @@ async function checkPremiumExpiry() {
             });
             // Ver el aviso de 3 días: sin aviso entregado no se abre la ventana de 48h que
             // convierte toda foto en "captura de pago".
-            if (avisadoHoy.wa.skipped !== 'claim_in_app_fallo') await solicitarComprobante(usuario.id);
+            if (llegoElAviso(avisadoHoy)) await solicitarComprobante(usuario.id);
           } catch(e) { log.error({ tag: 'EXPIRY_HOY', userId: usuario.id, err: e.message }, 'Error aviso vence hoy'); }
         }
       }
@@ -572,7 +595,7 @@ async function checkTrialExpiry() {
             // por acabar. Pedirle plata por algo que no vio no puede funcionar.
             const cuerpo = usuario.supabase_auth_id
               ? 'Después de eso sigo anotando todos tus gastos, pero el dashboard, el historial y los reportes quedan cerrados.\n\n' +
-                'Para seguir con todo abierto:\n💰 *S/' + PRO_PRECIOS.mensual + '/mes* o *S/' + PRO_PRECIOS.anual + '/año*\n' +
+                'Para seguir con todo abierto:\n' + lineaPrecioPro() + '\n' +
                 '👉 ' + WEBAPP_URL + '/dashboard/pro'
               : 'Y todavía no has entrado ni una vez a ver tus gastos en gráficos.\n\n' +
                 'Míralos ahora, mientras sigue abierto:\n👉 ' + (construirLinkActivacion(usuario.id) || WEBAPP_URL + '/dashboard');
@@ -1293,6 +1316,9 @@ async function limpiarOTPVencidos() {
 }
 
 module.exports = {
+  // Exportado para su test: es el predicado que decide si se abre la ventana de comprobante,
+  // y equivocarse ahí le rompe el registro por foto a quien nunca recibió el aviso.
+  llegoElAviso,
   checkResumenMensual,
   checkResumenSemanal,
   checkResumenDiarioManosLibres,

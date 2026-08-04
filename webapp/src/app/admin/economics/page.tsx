@@ -12,6 +12,8 @@ import {
   YAxis,
 } from 'recharts';
 import { useAdminEconomics } from '@/lib/hooks/use-admin-economics';
+// El precio de Neto sale de una sola fuente, nunca escrito a mano.
+import { PRO_PRICE_MONTHLY_PEN } from '@/lib/constants';
 
 function formatPen(n: number, decimals = 2): string {
   return `S/ ${n.toLocaleString('es-PE', {
@@ -362,7 +364,8 @@ export default function AdminEconomicsPage() {
             <tbody className="divide-y divide-white/5">
               <tr>
                 <td className="px-3 py-2 font-medium text-[#1D9E75]">Neto</td>
-                <td className="px-3 py-2">S/ 10.00</td>
+                {/* Los precios de la competencia van a mano (son hechos externos); el NUESTRO no. */}
+                <td className="px-3 py-2">S/ {PRO_PRICE_MONTHLY_PEN.toFixed(2)}</td>
                 <td className="px-3 py-2 text-[#8A877D]">—</td>
               </tr>
               <tr>

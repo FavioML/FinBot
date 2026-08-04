@@ -52,7 +52,13 @@ function soloCodigo(src) {
 
 // El precio de lista de hoy. Si cambia, cambia acá Y en lib/config.js — y este test es el
 // que obliga a que el resto del código no tenga nada que cambiar.
-const PRECIOS_LITERALES = [/S\/10\b/, /S\/99\b/];
+//
+// El `\s*` NO es decorativo: la primera versión usaba `/S\/10\b/` y dejaba pasar `S/ 10.00`
+// (con espacio), que es justo como se escribe en las tablas del panel admin. Se colaron dos
+// precios a mano —uno en un archivo que este mismo test afirmaba cubrir con un `toContain`—
+// y lo encontró la segunda revisión adversarial. Un guard que no matchea la forma real del
+// dato está verde por no reconocer nada, que se ve idéntico a estar verde por estar bien.
+const PRECIOS_LITERALES = [/S\/\s*10\b/, /S\/\s*99\b/];
 
 describe('el precio de Pro no se escribe a mano', () => {
   it('el barrido alcanza el runtime de verdad, backend Y webapp', () => {
@@ -74,12 +80,16 @@ describe('el precio de Pro no se escribe a mano', () => {
 
   // Contraprueba: el regex tiene que ENCONTRAR el precio cuando de verdad está escrito. Sin
   // esto, un `soloCodigo` que devolviera cadena vacía dejaría el guard verde para siempre.
-  it('el regex detecta un precio escrito a mano (contraprueba)', () => {
-    const falso = "return 'Pro cuesta S/10 al mes';";
-    expect(PRECIOS_LITERALES[0].test(soloCodigo(falso))).toBe(true);
-    // …y no confunde otros montos que sí van a mano (validaciones, ejemplos de gasto).
+  it('el regex detecta un precio escrito a mano, con y SIN espacio (contraprueba)', () => {
+    expect(PRECIOS_LITERALES[0].test(soloCodigo("return 'Pro cuesta S/10 al mes';"))).toBe(true);
+    // Las dos formas que se colaron de verdad: la tabla del panel y el cálculo del descuento.
+    expect(PRECIOS_LITERALES[0].test(soloCodigo('<td>S/ 10.00</td>'))).toBe(true);
+    expect(PRECIOS_LITERALES[1].test(soloCodigo('<td>S/ 99.00</td>'))).toBe(true);
+    // …y no confunde otros montos que sí van a mano (validaciones, ejemplos de gasto,
+    // precios de la COMPETENCIA en la tabla comparativa del panel).
     expect(PRECIOS_LITERALES[0].test(soloCodigo("'entre S/0.01 y S/999,999.99'"))).toBe(false);
     expect(PRECIOS_LITERALES[1].test(soloCodigo("'gasté S/990 en el mercado'"))).toBe(false);
+    expect(PRECIOS_LITERALES[0].test(soloCodigo('<td>S/ 20.00</td>'))).toBe(false);
   });
 
   it('lineaPrecioPro sale de PRO_PRECIOS y no de un literal', async () => {

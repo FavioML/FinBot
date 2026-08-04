@@ -152,4 +152,24 @@ describe('ningún call-site pasa el id en vez de la fila', () => {
     const malas = llamadas.filter(l => /^['"`]/.test(l.arg));
     expect(malas, JSON.stringify(malas)).toEqual([]);
   });
+
+  /**
+   * El gate lee `usuario.plan`, y una fila que no traiga esa columna da
+   * `undefined !== 'premium'` → fail-closed. Eso es lo correcto ante la duda, pero significa
+   * que un `select` incompleto deja al Pro PAGADO sin su alerta **en silencio**: el modo de
+   * falla más caro de detectar, y exactamente la regla del CLAUDE.md ("una fila parcial no
+   * puede decidir"). Los tres call-sites traen la fila entera hoy; esto lo fija.
+   * Lo señaló la segunda revisión adversarial.
+   */
+  it('las filas que alimentan el gate traen la columna `plan`', () => {
+    const fuentes = [
+      // [archivo, qué produce la fila que llega a verificarAlertaPresupuesto]
+      ['helpers/db-helpers.js', /obtenerOCrearUsuario[\s\S]{0,600}?from\('usuarios'\)\s*\.select\('\*'\)/],
+      ['services/gmail-scanner.js', /from\('usuarios'\)\s*\.select\('\*'\)/],
+    ];
+    for (const [rel, rx] of fuentes) {
+      const src = fs.readFileSync(path.join(projectRoot, rel), 'utf8');
+      expect(rx.test(src), `${rel} dejó de traer la fila completa: el gate del muro decidiría con plan=undefined`).toBe(true);
+    }
+  });
 });

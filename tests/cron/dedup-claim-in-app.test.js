@@ -108,6 +108,29 @@ describe('claimInApp: la fila in-app es el claim, no un efecto colateral', () =>
     expect(res.wa.code).toBe(131047);
   });
 
+  /**
+   * `llegoElAviso` es el permiso para hacer lo que solo tiene sentido si la persona se
+   * enteró (hoy: abrir la ventana de comprobante de 48h). Se prueba acá porque la primera
+   * versión preguntaba por una CAUSA de fallo y no por entrega, y así dejaba pasar el modo
+   * frecuente: Meta bloquea el texto libre fuera de la ventana de 24h con `{ok:false,
+   * code:131047}` y SIN `skipped`.
+   */
+  it('llegoElAviso distingue entrega de "lo intenté"', () => {
+    const { llegoElAviso } = require('../../cron/checks');
+    expect(llegoElAviso({ wa: { ok: true }, inApp: true })).toBe(true);
+    expect(llegoElAviso({ wa: { ok: true }, inApp: false })).toBe(true);       // solo WhatsApp
+    expect(llegoElAviso({ wa: { ok: false, code: 131047 }, inApp: true })).toBe(true); // solo in-app
+
+    // Los que NO llegaron. El 131047 es el que la primera versión dejaba pasar.
+    expect(llegoElAviso({ wa: { ok: false, code: 131047 }, inApp: false })).toBe(false);
+    expect(llegoElAviso({ wa: { ok: false, skipped: 'no_whatsapp' }, inApp: false })).toBe(false);
+    expect(llegoElAviso({ wa: { ok: false, skipped: 'claim_in_app_fallo' }, inApp: false })).toBe(false);
+    expect(llegoElAviso({ wa: { ok: true, skipped: 'test_user' }, inApp: false })).toBe(false);
+    expect(llegoElAviso({ wa: { ok: false, error: 'boom' }, inApp: false })).toBe(false);
+    expect(llegoElAviso(null)).toBe(false);
+    expect(llegoElAviso({})).toBe(false);
+  });
+
   it('sin canal in-app declarado no hay claim: se degrada y avisa por log', async () => {
     const res = await notificarUsuario({
       canales: CANALES.SOLO_WHATSAPP, motivo: 'prueba', ...BASE, claimInApp: true,
@@ -189,15 +212,21 @@ describe('los cuatro crons con dedup por fecha piden el claim', () => {
     let revisadas = 0;
     for (const m of conClaim) {
       // Lo que viene inmediatamente después del bloque, hasta cerrar el try del bucle.
-      const despues = CHECKS.slice(m.index + m[0].length, m.index + m[0].length + 800);
+      // La ventana la CIERRA el `} catch`, no el número: 800 dejaba 92 chars de margen y
+      // un comentario más lo habría partido (lo midió la segunda revisión). 4000 es holgura
+      // sobre un corte que ya es estructural.
+      const despues = CHECKS.slice(m.index + m[0].length, m.index + m[0].length + 4000);
       const corte = despues.indexOf('} catch');
       const cuerpo = corte >= 0 ? despues.slice(0, corte) : despues;
       const usos = [...cuerpo.matchAll(/solicitarComprobante\(/g)];
       for (const u of usos) {
         revisadas++;
         const linea = cuerpo.slice(cuerpo.lastIndexOf('\n', u.index) + 1, cuerpo.indexOf('\n', u.index));
+        // La guarda tiene que preguntar por ENTREGA, no por una causa puntual de fallo:
+        // `skipped !== 'claim_in_app_fallo'` cubría el modo raro y dejaba pasar el frecuente
+        // (Meta 131047 devuelve ok:false SIN skipped).
         expect(linea, 'solicitarComprobante sin guarda tras un claim: ' + linea.trim())
-          .toMatch(/skipped\s*!==\s*'claim_in_app_fallo'/);
+          .toMatch(/llegoElAviso\(/);
       }
     }
     // Antivacuidad de la segunda mitad: si el recorte dejara de encontrar los usos, el
