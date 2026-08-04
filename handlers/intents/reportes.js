@@ -1,4 +1,6 @@
 const log = require('../../lib/logger');
+// La línea de precios sale de PRO_PRECIOS: nunca se escribe a mano (ver lib/config).
+const { lineaPrecioPro } = require('../../lib/config');
 
 module.exports = {
   intents: ['ver_reporte', 'ver_dashboard', 'exportar_datos', 'compartir_resumen', 'ver_recomendaciones'],
@@ -16,7 +18,7 @@ module.exports = {
       case 'ver_reporte': {
         const planConfigRep = getUserPlanConfig(usuario);
         if (planConfigRep.reportesPerMonth === 0) {
-          return '⭐ *Reportes PDF son una función Pro.*\n\nCon NETO Pro recibes tu reporte mensual con gráficos y tu score financiero, listo para descargar.\n\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
+          return '⭐ *Reportes PDF son una función Pro.*\n\nCon NETO Pro recibes tu reporte mensual con gráficos y tu score financiero, listo para descargar.\n\n' + lineaPrecioPro() + '\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
         }
         const mesR = datos.mes || mesActual;
         const anioR = datos.anio || anioActual;
@@ -29,7 +31,7 @@ module.exports = {
       case 'exportar_datos': {
         const planConfigExp = getUserPlanConfig(usuario);
         if (planConfigExp.csvExport === false) {
-          return '⭐ *Exportar a Excel/CSV es una función Pro.*\n\nCon NETO Pro descargas todos tus movimientos en CSV, Excel o JSON desde el dashboard.\n\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
+          return '⭐ *Exportar a Excel/CSV es una función Pro.*\n\nCon NETO Pro descargas todos tus movimientos en CSV, Excel o JSON desde el dashboard.\n\n' + lineaPrecioPro() + '\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
         }
         return '📥 *Exporta tus datos*\n\nEntra a tu dashboard y descarga todo:\n\n🔗 https://app.neto.pe/dashboard/transacciones\n\nAhí puedes exportar en CSV, JSON o PDF.\n\n_Inicia sesión con tu cuenta de Google._';
       }
@@ -37,7 +39,7 @@ module.exports = {
       case 'compartir_resumen': {
         const planConfigShr = getUserPlanConfig(usuario);
         if (planConfigShr.reportesPerMonth === 0) {
-          return '⭐ *Compartir tu reporte es una función Pro.*\n\nCon NETO Pro generas tu reporte mensual y lo compartes por WhatsApp en un toque.\n\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
+          return '⭐ *Compartir tu reporte es una función Pro.*\n\nCon NETO Pro generas tu reporte mensual y lo compartes por WhatsApp en un toque.\n\n' + lineaPrecioPro() + '\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
         }
         return '📤 *Compartir tu resumen:*\n\n1️⃣ Pide tu reporte → _"dame mi reporte"_\n2️⃣ Neto te envía el PDF por WhatsApp\n3️⃣ Reenvíalo a quien quieras\n\nTambién puedes descargar y compartir desde:\n🔗 https://app.neto.pe/dashboard/reportes\n\n_El PDF incluye gráficos, categorías y tu score financiero._';
       }
@@ -46,7 +48,7 @@ module.exports = {
         // Consejo IA es Pro-only
         const planConfigRecom = getUserPlanConfig(usuario);
         if (planConfigRecom.consejoPerWeek === 0) {
-          return '⭐ *Consejos IA es una función Pro*\n\nCon NETO Pro recibes consejos financieros personalizados todos los días.\n\n💰 *S/10/mes* o *S/99/año*\n\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
+          return '⭐ *Consejos IA es una función Pro*\n\nCon NETO Pro recibes consejos financieros personalizados todos los días.\n\n' + lineaPrecioPro() + '\n\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
         }
         const tipoRecom = datos.tipo || 'general';
         const varianteMap = { score: 'on_demand_score', excesos: 'on_demand_excesos', patrones: 'on_demand_excesos', general: 'on_demand_general' };

@@ -227,7 +227,7 @@ module.exports = {
           const subConf = (tx && tx.subcategoria) || parsed.subcategoria || 'sin_categoria';
           let respReg = '✅ ' + montoStr + ' en ' + (esIngreso ? 'Ingresos' : catConf + ' > ' + subConf) + ' · ' + formatFecha(parsed.fecha);
           if (!esIngreso && parsed.categoria) {
-            const alerta = await verificarAlertaPresupuesto(usuario.id, parsed.categoria, parsed.subcategoria || null);
+            const alerta = await verificarAlertaPresupuesto(usuario, parsed.categoria, parsed.subcategoria || null);
             if (alerta) respReg += '\n\n' + alerta;
           }
           // El conteo ya lo trae la fila (guardarTransaccion lo calcula para su

@@ -2,7 +2,7 @@
 
 import { Lock, Crown, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { SOCIAL_LINKS } from '@/lib/constants';
+import { SOCIAL_LINKS, PRO_PRICE_MONTHLY_PEN, PRO_PRICE_YEARLY_PEN } from '@/lib/constants';
 
 interface UpgradePromptProps {
   /** Contextual message explaining what the user would unlock */
@@ -27,11 +27,11 @@ export function UpgradePrompt({ message, variant = 'inline', className = '' }: U
           <a href={WA_CONTACT_LINK} target="_blank" rel="noopener noreferrer">
             <Button className="bg-[#1D9E75] hover:bg-[#1D9E75]/90 active:scale-[0.98] text-white gap-2 transition-transform">
               <Crown className="h-4 w-4" />
-              Activar Neto — S/10/mes
+              Activar Neto — S/{PRO_PRICE_MONTHLY_PEN}/mes
               <ArrowRight className="h-3 w-3" />
             </Button>
           </a>
-          <p className="text-xs text-[#87948c] mt-2">S/99/año (2 meses gratis)</p>
+          <p className="text-xs text-[#87948c] mt-2">S/{PRO_PRICE_YEARLY_PEN}/año (2 meses gratis)</p>
         </div>
       </div>
     );
@@ -47,11 +47,11 @@ export function UpgradePrompt({ message, variant = 'inline', className = '' }: U
       <a href={WA_CONTACT_LINK} target="_blank" rel="noopener noreferrer">
         <Button className="bg-[#1D9E75] hover:bg-[#1D9E75]/90 active:scale-[0.98] text-white gap-2 transition-transform">
           <Crown className="h-4 w-4" />
-          Activar Neto — S/10/mes
+          Activar Neto — S/{PRO_PRICE_MONTHLY_PEN}/mes
           <ArrowRight className="h-3 w-3" />
         </Button>
       </a>
-      <p className="text-xs text-[#87948c] mt-3">S/99/año (2 meses gratis) · Paga con Yape</p>
+      <p className="text-xs text-[#87948c] mt-3">S/{PRO_PRICE_YEARLY_PEN}/año (2 meses gratis) · Paga con Yape</p>
     </div>
   );
 }

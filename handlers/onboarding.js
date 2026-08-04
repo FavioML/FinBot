@@ -34,6 +34,7 @@
 // NO es alta: devuelve null y webhook maneja el saludo normal.
 
 const { supabase } = require('../lib/db');
+const { PRO_PRECIOS } = require('../lib/config');
 const { CATEGORIAS_SUGERIDAS } = require('../lib/constants');
 const { parsearIndicesRespuesta } = require('../lib/formatters');
 const { obtenerCuentasGmail, revocarAccesoGmail } = require('../gmail');
@@ -256,8 +257,8 @@ async function manejarOnboarding({ usuario, msg, cmd }) {
       stepOk(usuario, 1, 2);
       return '🎉 *¡Genial!*\n\n' +
         'Elige tu plan:\n\n' +
-        '1️⃣ *Mensual* — S/10/mes\n' +
-        '2️⃣ *Anual* — S/99/año (2 meses gratis)\n\n' +
+        '1️⃣ *Mensual* — S/' + PRO_PRECIOS.mensual + '/mes\n' +
+        '2️⃣ *Anual* — S/' + PRO_PRECIOS.anual + '/año (2 meses gratis)\n\n' +
         '📲 *Yapea al:* 970398192\n' +
         '👤 *A nombre de:* Favio Mendoza\n\n' +
         'Después envíame la captura del Yape aquí. 📸';
@@ -277,12 +278,12 @@ async function manejarOnboarding({ usuario, msg, cmd }) {
   if (usuario.onboarding_paso === 2 && !cmd.startsWith('/')) {
     if (cmd === '1' || cmd.trim().toLowerCase() === 'mensual') {
       await supabase.from('usuarios').update({ tipo_plan: 'mensual' }).eq('id', usuario.id);
-      return '✅ Plan *mensual* (S/10/mes).\n\n📲 Yapea S/10 al *970398192* (Favio Mendoza) y envíame la captura aquí. 📸';
+      return '✅ Plan *mensual* (S/' + PRO_PRECIOS.mensual + '/mes).\n\n📲 Yapea S/' + PRO_PRECIOS.mensual + ' al *970398192* (Favio Mendoza) y envíame la captura aquí. 📸';
     } else if (cmd === '2' || cmd.trim().toLowerCase() === 'anual') {
       await supabase.from('usuarios').update({ tipo_plan: 'anual' }).eq('id', usuario.id);
-      return '✅ Plan *anual* (S/99/año — 2 meses gratis).\n\n📲 Yapea S/99 al *970398192* (Favio Mendoza) y envíame la captura aquí. 📸';
+      return '✅ Plan *anual* (S/' + PRO_PRECIOS.anual + '/año — 2 meses gratis).\n\n📲 Yapea S/' + PRO_PRECIOS.anual + ' al *970398192* (Favio Mendoza) y envíame la captura aquí. 📸';
     }
-    return 'Elige tu plan:\n\n1️⃣ *Mensual* — S/10\n2️⃣ *Anual* — S/99\n\nO envíame la captura de tu Yape si ya pagaste. 📸';
+    return 'Elige tu plan:\n\n1️⃣ *Mensual* — S/' + PRO_PRECIOS.mensual + '\n2️⃣ *Anual* — S/' + PRO_PRECIOS.anual + '\n\nO envíame la captura de tu Yape si ya pagaste. 📸';
   }
 
   // ─── Paso 10: Selección de categorías ──────────────────────────────────────

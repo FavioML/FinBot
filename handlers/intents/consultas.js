@@ -1,4 +1,6 @@
 const log = require('../../lib/logger');
+// La línea de precios sale de PRO_PRECIOS: nunca se escribe a mano (ver lib/config).
+const { lineaPrecioPro } = require('../../lib/config');
 const { escanearGmailYRegistrar } = require('../../services/gmail-scanner');
 const { obtenerCuentasGmail } = require('../../gmail');
 const { getUserPlanConfig } = require('../../helpers/db-helpers');
@@ -46,7 +48,7 @@ module.exports = {
       case 'preferencia_reporte_gmail': {
         const planConfigPref = getUserPlanConfig(usuario);
         if (planConfigPref.maxGmailAccounts === 0 || planConfigPref.resumenDiario === false) {
-          return '⭐ *Resúmenes y reportes automáticos son una función Pro.*\n\nCon NETO Pro recibes tu resumen diario, conectas Gmail para que registre solo, y configuras el modo de reporte.\n\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
+          return '⭐ *Resúmenes y reportes automáticos son una función Pro.*\n\nCon NETO Pro recibes tu resumen diario, conectas Gmail para que registre solo, y configuras el modo de reporte.\n\n' + lineaPrecioPro() + '\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
         }
         // El NLP puede devolver variantes ("separado por cuenta", "separados"). Normalizamos a
         // los dos valores canónicos que el resto del código compara exacto (ej. gastos.js).

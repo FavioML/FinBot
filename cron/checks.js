@@ -6,7 +6,7 @@ const { generarResumenSemanal, generarResumenMensual, generarResumenDiario } = r
 const { verificarAlertasProactivas } = require('../services/recommendations');
 const { obtenerDeudasProximasVencer } = require('../services/debts');
 const { notificarUsuario, CANALES } = require('../lib/notify-user');
-const { ADMIN_NUMBER, PRO_PRECIOS } = require('../lib/config');
+const { ADMIN_NUMBER, PRO_PRECIOS, lineaPrecioPro } = require('../lib/config');
 const { WEBAPP_URL } = require('../lib/constants');
 const { formatFecha } = require('../lib/formatters');
 const { notificarAdmin } = require('../lib/admin-notify');
@@ -269,18 +269,29 @@ async function checkPremiumExpiry() {
             if (yaAviso && yaAviso.length > 0) continue;
 
             const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
-            await notificarUsuario({
+            const avisado3d = await notificarUsuario({
               canales: CANALES.AMBOS,
               usuarioId: usuario.id, whatsapp: usuario.whatsapp,
               tipo: 'premium_expiry_3d',
-              mensaje: '⚠️ ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u plan *NETO Pro* vence en 3 días (' + usuario.premium_vence + ').\n\n¿Quieres renovar?\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Renueva antes para no perder acceso._',
+              mensaje: '⚠️ ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u plan *NETO Pro* vence en 3 días (' + usuario.premium_vence + ').\n\n¿Quieres renovar?\n💰 *S/' + PRO_PRECIOS.mensual + '/mes* o *S/' + PRO_PRECIOS.anual + '/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Renueva antes para no perder acceso._',
               // El título es la clave del dedup de arriba: cambiarlo sin cambiar esa query
               // reintroduce el bug de 24 notificaciones idénticas por día.
               titulo: 'Plan Pro vence en 3 días', tipoInApp: 'recordatorio',
+              // La fila in-app ES el marcador que lee el dedup de arriba. Sin esto se escribe
+              // DESPUÉS del WhatsApp, así que un insert fallido dejaba el dedup ciego y este
+              // cron horario re-mandaba el mismo aviso en cada corrida desde las 8am (B6).
+              claimInApp: true,
               cuerpo: 'Tu plan NETO Pro vence el ' + usuario.premium_vence + '. Renueva para no perder acceso.',
               link: '/dashboard/configuracion',
             });
-            await solicitarComprobante(usuario.id);
+            // Solo se abre la espera de comprobante si el aviso SALIÓ. `solicitarComprobante`
+            // pone `esperando_comprobante` por 48h, y en esa ventana toda foto se lee como
+            // captura de pago: una que no parece el pago a Neto se rechaza SIN registrar el
+            // gasto. Correrlo cuando el claim falló dejaba al usuario en ese modo sin haber
+            // recibido jamás el mensaje que lo explica — o sea rompiéndole el registro por
+            // foto sin decirle por qué, que es la trampa de B12. Lo encontró el revisor del
+            // diff de la ola 4, no mi verificación (que estaba verde).
+            if (avisado3d.wa.skipped !== 'claim_in_app_fallo') await solicitarComprobante(usuario.id);
           } catch(e) { log.error({ tag: 'EXPIRY_WARN', userId: usuario.id, err: e.message }, 'Error warning premium 3d'); }
         }
       }
@@ -299,16 +310,19 @@ async function checkPremiumExpiry() {
             if (yaAvisoHoy && yaAvisoHoy.length > 0) continue;
 
             const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
-            await notificarUsuario({
+            const avisadoHoy = await notificarUsuario({
               canales: CANALES.AMBOS,
               usuarioId: usuario.id, whatsapp: usuario.whatsapp,
               tipo: 'premium_expiry_hoy',
-              mensaje: '🔔 ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u plan *NETO Pro* vence *hoy*.\n\nRenuévalo hoy para no perder acceso.\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.',
+              mensaje: '🔔 ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u plan *NETO Pro* vence *hoy*.\n\nRenuévalo hoy para no perder acceso.\n💰 *S/' + PRO_PRECIOS.mensual + '/mes* o *S/' + PRO_PRECIOS.anual + '/año*\n📲 Yapea al *970398192* y envíame la captura.',
               titulo: 'Plan Pro vence hoy', tipoInApp: 'recordatorio',
+              claimInApp: true, // ver el aviso de 3 días (B6)
               cuerpo: 'Tu plan NETO Pro vence hoy. Renueva para no perder acceso.',
               link: '/dashboard/configuracion',
             });
-            await solicitarComprobante(usuario.id);
+            // Ver el aviso de 3 días: sin aviso entregado no se abre la ventana de 48h que
+            // convierte toda foto en "captura de pago".
+            if (avisadoHoy.wa.skipped !== 'claim_in_app_fallo') await solicitarComprobante(usuario.id);
           } catch(e) { log.error({ tag: 'EXPIRY_HOY', userId: usuario.id, err: e.message }, 'Error aviso vence hoy'); }
         }
       }
@@ -357,9 +371,14 @@ async function checkPremiumExpiry() {
           canales: CANALES.AMBOS,
           usuarioId: usuario.id, whatsapp: usuario.whatsapp,
           tipo: 'premium_expired',
-          mensaje: '⏰ ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u plan *NETO Pro* venció.\n\nAhora estás en el plan Free (historial limitado a 1 mes).\n\n¿Quieres renovar?\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Tus datos siguen guardados. Al renovar recuperas acceso completo._' + avisoGmailDesconectado(revocadas),
+          // El copy describía el freemium MUERTO ("el plan Free, historial limitado a 1 mes").
+          // Hoy `free` no es un plan con límites: es el MURO. Y lo que sigue abierto —anotar
+          // gastos, para siempre— es justo lo que hay que decirle a alguien que acaba de
+          // perder el acceso, o entiende que Neto dejó de servirle y se va. Es el mismo
+          // residual que M10 sacó del bot en la ola 3; este vivía en el cron.
+          mensaje: '⏰ ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u plan *NETO Pro* venció.\n\nSigo anotando tus gastos por acá, gratis y sin límite. Lo que queda cerrado es el dashboard, el historial y los reportes.\n\n¿Quieres renovar?\n' + lineaPrecioPro() + '\n📲 Yapea al *970398192* y envíame la captura.\n\n_No se borra nada. Al renovar recuperas acceso completo._' + avisoGmailDesconectado(revocadas),
           titulo: 'Plan Pro expirado',
-          cuerpo: 'Tu plan NETO Pro venció. Ahora estás en el plan Free.',
+          cuerpo: 'Tu plan NETO Pro venció. Sigo anotando tus gastos; el dashboard y el historial quedan cerrados hasta que renueves.',
           link: '/dashboard/configuracion',
         });
         await solicitarComprobante(usuario.id);
@@ -576,6 +595,7 @@ async function checkTrialExpiry() {
               usuarioId: usuario.id, whatsapp: usuario.whatsapp,
               tipo: aviso.tipo, mensaje: msg, template: tpl,
               titulo: aviso.titulo, tipoInApp: 'recordatorio', link: '/dashboard/pro',
+              claimInApp: true, // el dedup de arriba lee la fila in-app; sin claim, re-envío horario (B6)
             });
             // Solo se cuenta como "aviso" lo que Meta aceptó: un blocked_24h no avisó a nadie
             // y contarlo taparía justo el problema que se está midiendo.
@@ -1158,6 +1178,16 @@ async function checkRecordatorioSuscripciones() {
             tipo: 'suscripcion_cobro', mensaje: msg,
             titulo, tipoInApp: 'recordatorio',
             link: '/dashboard/suscripciones',
+            // A PROPÓSITO sin `claimInApp`, a diferencia de los otros tres avisos con dedup
+            // por fecha. Acá el intercambio se da vuelta:
+            //   · No tiene el problema que el claim resuelve. B6 es "el cron re-manda hasta
+            //     16 veces al día"; este aviso solo sale si faltan EXACTAMENTE 3 días para
+            //     el cobro y en la ventana de las 10:00-10:14, o sea una vez y punto.
+            //   · Y fallar cerrado acá cuesta el aviso ENTERO: al día siguiente faltan 2
+            //     días, el `continue` de arriba lo descarta, y el ciclo de 25 días se pierde
+            //     sin reintento. El "se reintenta en la próxima corrida" que justifica el
+            //     claim no aplica a un aviso anclado a un día exacto.
+            // Lo detectó el revisor del diff de la ola 4; la primera versión sí lo llevaba.
           });
           enviados++;
         }

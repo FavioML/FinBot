@@ -199,7 +199,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
           const subIE = (txIE && txIE.subcategoria) || datosTx.subcategoria;
           let lineResp = '✅ S/' + g.monto.toFixed(2) + ' en ' + catIE + ' > ' + subIE + ' · ' + formatFecha(fechaTx);
           try {
-            const alerta = await verificarAlertaPresupuesto(usuario.id, datosTx.categoria, datosTx.subcategoria);
+            const alerta = await verificarAlertaPresupuesto(usuario, datosTx.categoria, datosTx.subcategoria);
             if (alerta) lineResp += '\n' + alerta;
           } catch(eAlert) { /* alert is best-effort */ }
           respuestasIE.push(lineResp);
@@ -246,7 +246,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
           const subMG = (txMG && txMG.subcategoria) || datosTx.subcategoria;
           let lineResp = '✅ S/' + g.monto.toFixed(2) + ' en ' + catMG + ' > ' + subMG + ' · ' + formatFecha(fechaGasto);
           try {
-            const alerta = await verificarAlertaPresupuesto(usuario.id, datosTx.categoria, datosTx.subcategoria);
+            const alerta = await verificarAlertaPresupuesto(usuario, datosTx.categoria, datosTx.subcategoria);
             if (alerta) lineResp += '\n' + alerta;
           } catch(eAlert) { /* alert is best-effort */ }
           respuestas.push(lineResp);
@@ -445,7 +445,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
           const txFb = await guardarTransaccion(usuario.id, resultado);
           const catFb = (txFb && txFb.categoria) || resultado.categoria;
           let resp = '\uD83D\uDCB3 *Transaccion registrada*\n' + (resultado.tipo === 'gasto' ? 'Gasto' : 'Ingreso') + ': S/ ' + resultado.monto + '\nComercio: ' + (resultado.comercio || 'No detectado') + '\nCategoria: ' + (catFb || 'Sin categoria');
-          if (resultado.tipo === 'gasto' && resultado.categoria) { const alerta = await verificarAlertaPresupuesto(usuario.id, resultado.categoria, null); if (alerta) resp += '\n\n' + alerta; }
+          if (resultado.tipo === 'gasto' && resultado.categoria) { const alerta = await verificarAlertaPresupuesto(usuario, resultado.categoria, null); if (alerta) resp += '\n\n' + alerta; }
           resp += '\n\n_Escribe "mis gastos del mes" para ver el resumen._';
           const nudgeFb = await colaConfirmacionGasto(usuario, txFb, txFb && txFb.conteoTx);
           if (nudgeFb) resp += nudgeFb;

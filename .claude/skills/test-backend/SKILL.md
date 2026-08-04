@@ -1,6 +1,6 @@
 ---
 name: test-backend
-description: Ejecuta los tests del backend de Neto (vitest, 56 tests) y reporta resultados con cobertura
+description: Ejecuta los tests del backend de Neto (vitest) y reporta resultados con cobertura
 allowed_tools: Bash, Read, Grep
 ---
 
@@ -14,7 +14,7 @@ Cuando el usuario quiera correr los tests del backend o verificar que todo funci
 ```bash
 npm test
 ```
-Framework: vitest (56 tests)
+Framework: vitest. El conteo NO se escribe aca: decia 56 cuando ya eran cientos. El numero de hoy lo imprime la corrida.
 Archivos de test: `tasks/tests/`
 
 ### 2. Interpretar resultados

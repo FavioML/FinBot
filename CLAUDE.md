@@ -61,10 +61,13 @@ es desplegar y cada exclusion hay que justificarla:
 Los tests de paridad (`tests/services/spaces-split-parity.test.js`) si importan de
 `webapp/`, pero corren en GitHub Actions, no en el build de Railway (el
 `package.json` raiz no tiene script `build`). `watchPatterns` no los afecta.
-- Supabase: RLS activo en todas las tablas, 11 tablas
+- Supabase: RLS activo en todas las tablas (varias con deny-all a proposito, ver migr 033). El
+  conteo de tablas no se escribe aca: decia 11 cuando ya eran 37
 - Vercel: webapp app.neto.pe con Google OAuth
 - CI/CD: GitHub Actions (test en push/PR, Node 20)
-- Tests: 292 tests automatizados (vitest)
+- Tests: vitest, backend en la raiz (`npm test`) + webapp (`npm --prefix webapp run test`). El
+  numero exacto NO va escrito: decia 292 cuando ya eran cientos mas, y un conteo desactualizado
+  en un CLAUDE.md es peor que ninguno — la siguiente sesion lo lee como verdad
 - Logging: Pino con redaccion de secrets
 
 ### ⚠️ El backend asume INSTANCIA ÚNICA (Railway replicas=1)

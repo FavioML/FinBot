@@ -1,7 +1,7 @@
 Ejecuta el flujo completo de deploy para Neto:
 
 1. **Pre-flight checks**:
-   - `npm test` — todos los tests deben pasar (56 tests vitest)
+   - `npm test` — todos los tests deben pasar (el conteo no se escribe: envejece en cada sesión)
    - Verificar que no hay `console.log` en archivos de produccion
    - `git status` — confirmar que no hay cambios sin commitear
 

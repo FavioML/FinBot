@@ -7,6 +7,8 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
 import { Skeleton } from '@/components/ui/skeleton';
+// Los precios salen de una sola fuente (lib/constants), nunca escritos a mano.
+import { PRO_PRICE_MONTHLY_PEN, PRO_PRICE_YEARLY_PEN } from '@/lib/constants';
 import {
   useAdminStats,
   useAdminUsers,
@@ -372,8 +374,8 @@ function PaymentsModal({
                 onChange={(e) => setPlanSel(e.target.value)}
                 className="form-input px-3 py-2 text-sm"
               >
-                <option value="mensual" className="bg-[#1A1A18]">Mensual (S/10)</option>
-                <option value="anual" className="bg-[#1A1A18]">Anual (S/99)</option>
+                <option value="mensual" className="bg-[#1A1A18]">Mensual (S/{PRO_PRICE_MONTHLY_PEN})</option>
+                <option value="anual" className="bg-[#1A1A18]">Anual (S/{PRO_PRICE_YEARLY_PEN})</option>
               </select>
               <button
                 onClick={approve}

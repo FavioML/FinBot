@@ -108,3 +108,33 @@ so the number of persisted queries varies (1–11) and the score KPI may not ren
 in every run. Full-data rendering (e.g. the score value) is verified separately
 against a real magic-link session. The auth / persistence / logout-purge checks
 above are reliable.
+
+## Harnesses que NO corren en el canary (se corren a mano)
+
+Los `.mjs` de esta carpeta no son todos iguales (no se escribe cuántos: ese número
+envejece en cada sesión, que es justo lo que la ola 4 sacó de los CLAUDE.md). Los que corren solos están
+declarados en `canary.harnesses` del `deploy-config.json` del webapp, y esa lista
+es la fuente de verdad. El resto vive acá sin cablear a nada — no porque sobren,
+sino porque su costo o su alcance no justifica correrlos todos los días.
+
+El problema que esta tabla resuelve (Q6, auditoría CTO ola 4) es que estaban
+**indocumentados**: un harness que nadie sabe que existe ni qué afirma es un
+archivo muerto que igual hay que mantener, y la siguiente auditoría vuelve a
+descubrirlo desde cero. Si agregás uno que no va al canary, agregá su fila.
+
+| Harness | Qué afirma | Cuándo correrlo |
+|---|---|---|
+| `qa-parity-allroutes.mjs` | Barrido Free-vs-Pro sobre las 13 rutas del dashboard: errores de consola, 4xx/5xx, si aparece el `ProGate` y a dónde redirige cada una | Después de tocar gating, rutas nuevas, o el layout del dashboard |
+| `qa-pro-features.mjs` | Importar un CSV por `/api/transactions/import` deja al heatmap "Actividad de gastos" renderizando para el Pro. Limpia sus filas (`E2E-IMPORT-TEST`) | Al tocar import o el heatmap |
+| `qa-deshacer-restaura.mjs` | El contrato de `deshacer_ultimo` → `restaurar_eliminado`: el snapshot en `transacciones_eliminadas` se escribe ANTES del borrado, que es lo único que hace verdadera la promesa "escribe *restaura* y lo devuelvo" | Al tocar borrado o restauración de transacciones |
+| `qa-join-check.mjs` | Los links de invitación colaborativa (`/join/meta/[code]`, `/join/deuda/[code]`) renderizan para un invitado SIN sesión (contexto sin cookies) | Al tocar metas/deudas compartidas o las páginas públicas de join |
+| `qa-toggles.mjs` | Round-trip de `/api/notifications` por plan: `recordatorios_activos` y `alertas_transaccion` persisten lo que se les manda, y si el gating de Pro existe también del lado del servidor y no solo en la UI | Al tocar preferencias de notificación |
+| `probe-reporte-gmail.mjs` | Con el webhook y el NLP REALES: el copy del modo de reporte respeta la regla de UNA cuenta de Gmail por usuario, aun con historial adverso sembrado que empuja a "agregar otra cuenta" | Al tocar el copy de Gmail o el ruteo de ese intent |
+
+**`shot-*.mjs` / `*-shot.mjs` son one-offs, y no se commitean.** Capturan una
+pantalla para un sprint concreto (un rediseño, un banner nuevo, una tarjeta
+bloqueada) y su valor se agota cuando ese trabajo cierra. No afirman nada: no
+tienen aserciones ni exit code útil. Dejarlos en el repo los convierte en
+mantenimiento perpetuo de código que nadie va a volver a correr. Si necesitás
+capturar algo, copiá el forjado de cookie de `qa-login.mjs` y borrá el archivo al
+terminar. Por eso se eliminó `shot-gmail-bloqueado.mjs` en la ola 4.

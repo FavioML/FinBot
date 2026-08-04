@@ -1,4 +1,6 @@
 const log = require('../../lib/logger');
+// La línea de precios sale de PRO_PRECIOS: nunca se escribe a mano (ver lib/config).
+const { lineaPrecioPro } = require('../../lib/config');
 
 module.exports = {
   intents: ['listar_gastos_mes', 'listar_gastos_semana', 'listar_gastos_dia', 'listar_gastos_categoria', 'ver_total_gastado', 'ver_gastos_rango_fecha', 'ver_gastos_fin_de_semana', 'gastos_hormiga'],
@@ -16,7 +18,7 @@ module.exports = {
     if (isAdviceRequest) {
       const planConfigAdv = getUserPlanConfig(usuario);
       if (planConfigAdv.consejoPerWeek === 0) {
-        return '⭐ *Análisis y consejos personalizados son una función Pro.*\n\nCon NETO Pro recibes consejos financieros con IA cada semana, basados en tus gastos reales.\n\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
+        return '⭐ *Análisis y consejos personalizados son una función Pro.*\n\nCon NETO Pro recibes consejos financieros con IA cada semana, basados en tus gastos reales.\n\n' + lineaPrecioPro() + '\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
       }
     }
 

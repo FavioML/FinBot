@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import { Lock, Crown } from 'lucide-react';
 import { motion } from 'motion/react';
+// Los precios salen de una sola fuente (lib/constants), nunca escritos a mano.
+import { PRO_PRICE_MONTHLY_PEN } from '@/lib/constants';
 
 interface ProGateProps {
   featureName: string;
@@ -49,7 +51,7 @@ export function ProGate({ featureName, description }: ProGateProps) {
             o hazlo por WhatsApp
           </a>
           <p className="text-xs text-[#8A877D]">
-            S/10/mes • Cancelar en cualquier momento
+            S/{PRO_PRICE_MONTHLY_PEN}/mes • Cancelar en cualquier momento
           </p>
         </div>
       </div>

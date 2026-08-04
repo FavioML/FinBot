@@ -1,4 +1,6 @@
 const log = require('../../lib/logger');
+// La línea de precios sale de PRO_PRECIOS: nunca se escribe a mano (ver lib/config).
+const { lineaPrecioPro } = require('../../lib/config');
 
 module.exports = {
   intents: ['ver_tipo_cambio', 'convertir_moneda', 'calcular_cuotas', 'buscar_gasto', 'comparar_meses', 'ver_frecuencia_comercio', 'cambiar_nombre', 'consulta_financiera', 'recordatorio_pago'],
@@ -168,7 +170,7 @@ module.exports = {
       case 'recordatorio_pago': {
         const planConfigRem = getUserPlanConfig(usuario);
         if (planConfigRem.recordatorios === false || planConfigRem.resumenDiario === false) {
-          return '⭐ *Recordatorios y resúmenes diarios son una función Pro.*\n\nCon NETO Pro recibes tu resumen diario a la hora que elijas y recordatorios de pagos automáticos.\n\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
+          return '⭐ *Recordatorios y resúmenes diarios son una función Pro.*\n\nCon NETO Pro recibes tu resumen diario a la hora que elijas y recordatorios de pagos automáticos.\n\n' + lineaPrecioPro() + '\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
         }
         return '⏰ *Recordatorios de pago*\n\nYa te aviso *automáticamente 3 días antes* de que se te cobre una suscripción que detecté (Netflix, Spotify, etc.), para que decidas si la mantienes o la cancelas.\n\nTambién te recuerdo tus deudas y compromisos con fecha.\n\n🔗 Revisa o ajusta tus recordatorios en app.neto.pe/dashboard/configuracion';
       }

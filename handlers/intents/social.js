@@ -1,4 +1,5 @@
 const log = require('../../lib/logger');
+const { PRO_PRECIOS } = require('../../lib/config');
 
 module.exports = {
   intents: ['saludo', 'ayuda', 'agradecimiento', 'queja', 'chiste_finanzas', 'como_empezar', 'feedback'],
@@ -34,7 +35,7 @@ module.exports = {
       // Onboarding: el texto fijo mantiene los 3 pasos numerados y escaneables. La IA los
       // aplanaba a un parrafo corrido por el limite de 6 lineas del redactor.
       case 'como_empezar':
-        return '¡Bienvenido a Neto! 🎉\n\n*3 pasos para empezar:*\n\n1️⃣ Registra un gasto → _"gasté 50 en taxi"_\n2️⃣ Envía una foto Yape/Plin 📸\n3️⃣ Ve tu resumen → _"mis gastos del mes"_\n\n📊 Dashboard: https://app.neto.pe\n⭐ *Pro (S/10/mes):* Neto lee tus correos bancarios automáticamente\n\n_¿Empezamos? Dime tu primer gasto._';
+        return '¡Bienvenido a Neto! 🎉\n\n*3 pasos para empezar:*\n\n1️⃣ Registra un gasto → _"gasté 50 en taxi"_\n2️⃣ Envía una foto Yape/Plin 📸\n3️⃣ Ve tu resumen → _"mis gastos del mes"_\n\n📊 Dashboard: https://app.neto.pe\n⭐ *Pro (S/' + PRO_PRECIOS.mensual + '/mes):* Neto lee tus correos bancarios automáticamente\n\n_¿Empezamos? Dime tu primer gasto._';
 
       case 'feedback': {
         // Guardar feedback para revisión admin

@@ -2,6 +2,7 @@ const { supabase } = require('../lib/db');
 const { barraProgreso } = require('../lib/formatters');
 const { hoyPeru } = require('../lib/dates');
 const { validarMonto } = require('../lib/validators');
+const log = require('../lib/logger');
 
 function _mesAnioPeru() {
   const parts = hoyPeru().split('-');
@@ -35,7 +36,38 @@ async function obtenerPresupuestosMes(usuarioId) {
   return data || [];
 }
 
-async function verificarAlertaPresupuesto(usuarioId, categoria, subcategoria) {
+/**
+ * La alerta de presupuesto que se pega a la confirmación del gasto.
+ *
+ * Recibe la FILA del usuario, no su id, y eso es el gate: "llevas S/450 de tus S/500 en
+ * Alimentación (90%)" es un agregado sobre el mes, o sea exactamente lo que el muro cobra.
+ * Se colaba gratis porque los presupuestos se crean durante el trial y seguían disparando
+ * su alerta para siempre después de caer al muro — el único agregado que sobrevive al muro
+ * es el total del mes pegado a la confirmación, y este no es ese (B9, auditoría CTO ola 4).
+ *
+ * Escribir NO se corta: el gasto ya se registró antes de llegar acá. Lo único que se calla
+ * es la lectura agregada.
+ *
+ * **La firma pide la fila a propósito.** Con un `usuarioId` el gate necesitaría una query
+ * extra en el camino más caliente del bot (cada gasto registrado), y sobre todo sería
+ * opcional: quien no la hiciera se saltaría el muro en silencio. Pidiendo la fila, un
+ * llamador que no la tenga no compila mentalmente. Si igual llega un string, se falla
+ * CERRADO (sin alerta) y se loguea: un gate que ante la duda entrega es un gate roto.
+ *
+ * @param {object} usuario  fila de `usuarios` (necesita al menos `id` y `plan`)
+ */
+async function verificarAlertaPresupuesto(usuario, categoria, subcategoria) {
+  if (!usuario || typeof usuario !== 'object' || !usuario.id) {
+    log.error({ tag: 'PRESUPUESTO', tipo: typeof usuario },
+      'verificarAlertaPresupuesto recibió algo que no es la fila del usuario: sin alerta');
+    return null;
+  }
+  // require diferido: lib/trial arrastra la cadena de envío (activacion → whatsapp) y
+  // cargarla arriba acoplaría este módulo a algo que no necesita para calcular un total.
+  const { estaEnMuro } = require('../lib/trial');
+  if (estaEnMuro(usuario)) return null;
+
+  const usuarioId = usuario.id;
   const { mes, anio, primero } = _mesAnioPeru();
   const alertas = [];
   const catNorm = _normCat(categoria);

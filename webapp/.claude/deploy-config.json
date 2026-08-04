@@ -22,11 +22,7 @@
       { "name": "login", "type": "http", "url": "https://app.neto.pe/login", "expect_status": 200 },
       { "name": "api_health", "type": "http", "url": "https://api.neto.pe/health", "expect_status": 200 }
     ],
-    "supabase": {
-      "project_id": "zvorjqlubmfrjtkbhqcx",
-      "verify_after_deploy": true,
-      "checks": ["RLS active on all tables", "tables count = 11"]
-    },
+    "_supabase_nota": "Aca vivia una seccion `supabase.checks` que declaraba ['RLS active on all tables', 'tables count = 11']. Era LETRA MUERTA por partida doble: la tarea canary-daily-deploys solo ejecuta `canary.checks` (http) y `canary.harnesses`, nunca esta seccion; y el conteo estaba en 11 cuando las tablas reales son 37. Peor que no cubrir nada: le decia a la proxima auditoria que RLS estaba cubierto por el canary. Se borro en vez de arreglar el numero — un check que nadie corre no se arregla poniendole el numero de hoy. Lo que SI cubre esto de verdad: el harness `idor-cross-user` (multi-tenant contra prod, con oraculo service-role), los advisors de Supabase, y la skill /supabase-check a mano. Si algun dia se quiere RLS en el canary, va como harness ejecutable en la lista de abajo, no como string. (Q2, auditoria CTO ola 4.)",
     "harnesses": [
       {
         "name": "deploy-fresh",
@@ -144,7 +140,8 @@
   },
   "notes": [
     "Webapp Vercel (auto-deploy) + Backend Railway separado (api.neto.pe).",
-    "56 tests vitest deben pasar en GitHub Actions pre-deploy.",
+    "Las suites de vitest (backend en la raiz + webapp) tienen que estar VERDES en GitHub Actions antes del deploy, junto con `npx tsc --noEmit` del webapp. A proposito no se escribe cuantas son: el numero decia 56 cuando ya eran cientos, o sea que el dato envejecia en cada sesion y el unico efecto era mentirle a la siguiente auditoria. El numero de hoy lo da `npm test` y `npm --prefix webapp run test`.",
+    "Ojo: el job `webapp` de ci.yml da check rojo pero NO gatea a Vercel (su integracion de Git no espera a Actions). Gatear de verdad es configurar 'Ignored Build Step' en Vercel.",
     "Google OAuth configurado en Vercel — verificar callback URL si cambia."
   ]
 }

@@ -1,6 +1,7 @@
 const { supabase } = require('../lib/db');
 const { activarPro, rechazarSolicitudPro, reclamarPagoPendiente } = require('../lib/pro-payment');
 const { responderTicket, listarTicketsPendientes, cerrarSesion } = require('../lib/support-tickets');
+const { esProPagado } = require('../lib/trial');
 const log = require('../lib/logger');
 
 /**
@@ -29,7 +30,14 @@ async function procesarComandoAdmin(cmd, rawText = cmd) {
     if (!usuarioActivar) {
       return '❌ No encontre un usuario con el numero: ' + numeroActivar;
     }
-    if (usuarioActivar.plan === 'premium') {
+    // `esProPagado` y no `plan === 'premium'`: durante el trial esa columna vale 'premium'
+    // (así los ~40 gates entregan Pro sin tocarse), así que cortar por ella hacía IMPOSIBLE
+    // compear a alguien que está probando — justo la población a la que uno le regala un mes
+    // para cerrar. El endpoint hermano POST /admin/activar nunca tuvo este chequeo y sí podía.
+    // Compear en trial es seguro: activarPro apila el periodo SOBRE `trial_vence` (no lo
+    // acorta) y sella `trial_estado: 'convertido'`, que es lo que impide que checkTrialExpiry
+    // le baje el plan al vencer la prueba y se evapore el comp.
+    if (esProPagado(usuarioActivar)) {
       return '⚠️ ' + (usuarioActivar.nombre || numeroActivar) + ' ya tiene Premium activo.';
     }
     // Activación rápida: 1 mes, sin link OAuth (fuente única en activarPro). Es un comp, igual

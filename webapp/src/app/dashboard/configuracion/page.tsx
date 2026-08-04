@@ -43,7 +43,7 @@ import { ConfiguracionSkeleton } from '@/components/dashboard/skeletons';
 import { useUser } from '@/lib/hooks/use-user';
 import { createClient } from '@/lib/supabase/client';
 import { signOutAndClear } from '@/lib/query-client';
-import { SOCIAL_LINKS, getCategoriaEmoji, CATEGORIAS } from '@/lib/constants';
+import { SOCIAL_LINKS, getCategoriaEmoji, CATEGORIAS, PRO_PRICE_MONTHLY_PEN } from '@/lib/constants';
 import { capitalizeDisplay } from '@/lib/format';
 import { enTrial } from '@/lib/plan';
 import { cn } from '@/lib/utils';
@@ -713,7 +713,12 @@ export default function ConfiguracionPage() {
   const enPrueba = enTrial(user?.plan, user?.trial_estado);
 
   /* ---- Referidos: link REAL (ref_code) + progreso dos-lados desde el backend ---- */
-  const { data: referrals } = useQuery({
+  const {
+    data: referrals,
+    isError: referralsError,
+    isFetching: referralsFetching,
+    refetch: refetchReferrals,
+  } = useQuery({
     queryKey: ['user-referrals'],
     queryFn: async () => {
       const r = await fetch('/api/user/referrals', { cache: 'no-store' });
@@ -722,7 +727,18 @@ export default function ConfiguracionPage() {
     },
   });
   const referralFullLink = referrals?.link ?? '';
-  const referralLink = referralFullLink ? referralFullLink.replace(/^https?:\/\//, '') : 'Generando tu link…';
+  // Sin estado de error, un fallo de la query dejaba "Generando tu link…" para siempre: el
+  // usuario esperaba algo que nunca iba a llegar, sin forma de reintentar y sin saber que
+  // había fallado. Y no es una pantalla cualquiera — es la que reparte los referidos, o sea
+  // el único canal de crecimiento propio (F1, auditoría CTO ola 4).
+  //
+  // El retry es explícito porque React Query ya agotó el suyo (`retry: 1`, query-client.ts):
+  // si llegamos acá, reintentar solo ya se probó y falló.
+  const referralLink = referralFullLink
+    ? referralFullLink.replace(/^https?:\/\//, '')
+    : referralsError
+      ? 'No pudimos cargar tu link'
+      : 'Generando tu link…';
 
   /* ---- Copy referral link ---- */
   async function handleCopy() {
@@ -1047,7 +1063,7 @@ export default function ConfiguracionPage() {
                         href="/dashboard/pro"
                         className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-primary/90"
                       >
-                        Pasar a Pro — S/10/mes
+                        Pasar a Pro — S/{PRO_PRICE_MONTHLY_PEN}/mes
                       </NextLink>
                       <NextLink href="/dashboard/pro" className="text-xs font-medium text-muted-foreground hover:text-secondary-foreground">
                         Ver planes y precios
@@ -1065,18 +1081,34 @@ export default function ConfiguracionPage() {
                 description="Cuando un amigo se hace Pro con tu link, ganas 1 mes gratis — y él estrena Pro a mitad de precio su primer mes."
               >
                 <div className="flex items-center gap-2">
-                  <div className="flex-1 truncate rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-secondary-foreground">
+                  <div
+                    className={`flex-1 truncate rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm ${
+                      referralsError && !referralFullLink ? 'text-muted-foreground' : 'text-secondary-foreground'
+                    }`}
+                  >
                     {referralLink}
                   </div>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="shrink-0 border-border bg-transparent transition-all duration-200 hover:bg-white/[0.05] active:scale-95"
-                    onClick={handleCopy}
-                    disabled={!referralFullLink}
-                  >
-                    {copied ? <Check className="h-4 w-4 text-primary" /> : <Copy className="h-4 w-4 text-muted-foreground" />}
-                  </Button>
+                  {referralsError && !referralFullLink ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0 border-border bg-transparent transition-all duration-200 hover:bg-white/[0.05] active:scale-95"
+                      onClick={() => refetchReferrals()}
+                      disabled={referralsFetching}
+                    >
+                      {referralsFetching ? 'Reintentando…' : 'Reintentar'}
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="shrink-0 border-border bg-transparent transition-all duration-200 hover:bg-white/[0.05] active:scale-95"
+                      onClick={handleCopy}
+                      disabled={!referralFullLink}
+                    >
+                      {copied ? <Check className="h-4 w-4 text-primary" /> : <Copy className="h-4 w-4 text-muted-foreground" />}
+                    </Button>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-3 gap-2 text-center">

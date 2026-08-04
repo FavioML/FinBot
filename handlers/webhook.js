@@ -6,7 +6,7 @@ const { hoyPeru } = require('../lib/dates');
 const { CATEGORIAS_SUGERIDAS, MESES } = require('../lib/constants');
 const { getEmojiCategoria, formatearResumen, formatearCategoriasMsg, generarRefCode, formatFecha } = require('../lib/formatters');
 const { enviarWhatsapp, procesarStatuses } = require('../lib/whatsapp');
-const { ADMIN_NUMBER } = require('../lib/config');
+const { ADMIN_NUMBER, PRO_PRECIOS, lineaPrecioPro } = require('../lib/config');
 const { guardarTransaccion, obtenerGastosMes, recategorizarTransaccion } = require('../services/transactions');
 const { guardarPresupuesto, formatearEstadoPresupuesto } = require('../services/budget');
 const { parsearCorreoBancario } = require('../services/parsers');
@@ -187,11 +187,11 @@ function createWebhookHandler(procesarMensajeLibre) {
         // (cubre onboarding paso 2 y usuarios ya registrados que pidieron Pro por /premium o cron).
         if (esperaComprobante(usuario)) {
           if (parsed.tipo === 'no_pago' || !parsed.monto || isNaN(parseFloat(parsed.monto))) {
-            await enviarWhatsapp(from, 'No reconocí un pago en esa imagen. Envíame la captura del Yape (S/10 mensual o S/99 anual a *Favio Mendoza*) para activar tu Pro. 📸');
+            await enviarWhatsapp(from, 'No reconocí un pago en esa imagen. Envíame la captura del Yape (S/' + PRO_PRECIOS.mensual + ' mensual o S/' + PRO_PRECIOS.anual + ' anual a *Favio Mendoza*) para activar tu Pro. 📸');
             return;
           }
           if (!esPagoNeto(parsed)) {
-            await enviarWhatsapp(from, 'Esa captura no parece el pago a Neto (S/10 mensual o S/99 anual a *Favio Mendoza*). Si ya pagaste, reenvíame la captura correcta. 📸');
+            await enviarWhatsapp(from, 'Esa captura no parece el pago a Neto (S/' + PRO_PRECIOS.mensual + ' mensual o S/' + PRO_PRECIOS.anual + ' anual a *Favio Mendoza*). Si ya pagaste, reenvíame la captura correcta. 📸');
             return;
           }
           parsed.fecha = parsed.fecha || hoy;
@@ -250,6 +250,9 @@ function createWebhookHandler(procesarMensajeLibre) {
       // recién al enviarla se le cobraba. A quien no puede importar no se le explica el
       // formato: se le dice que no puede importar.
       if (checkProWall(usuario, 'excelUpload').blocked) {
+        // Espejo del evento que emite el intent `cargar_excel` (moderacion.js). `via:'archivo'`
+        // es la mitad de abajo del embudo: este ya armó el archivo y lo mandó.
+        analytics.capture(usuario.id, 'wa_muro_excel', { via: 'archivo' });
         await enviarWhatsapp(from, mensajeCargaMasivaPro(usuario));
         return;
       }
@@ -604,7 +607,7 @@ function createWebhookHandler(procesarMensajeLibre) {
       respuesta = '🔔 Recordatorios activados. Te avisaré a las 8pm si no registras gastos.';
     } else if (cmd === '/manoslibres') {
       if (!getUserPlanConfig(usuario).resumenDiario) {
-        respuesta = '⭐ *El Modo Manos Libres es una función Pro.*\n\nCada noche a las 9pm te mando un resumen de lo que gastaste en el día, sin que hagas nada.\n\n💰 *S/10/mes* o *S/99/año*\n📲 Yapea al *970398192* y envíame la captura.';
+        respuesta = '⭐ *El Modo Manos Libres es una función Pro.*\n\nCada noche a las 9pm te mando un resumen de lo que gastaste en el día, sin que hagas nada.\n\n' + lineaPrecioPro() + '\n📲 Yapea al *970398192* y envíame la captura.';
       } else {
         const nuevoEstado = !usuario.manos_libres;
         await supabase.from('usuarios').update({ manos_libres: nuevoEstado }).eq('id', usuario.id);

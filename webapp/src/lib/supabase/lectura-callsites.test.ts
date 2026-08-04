@@ -39,6 +39,12 @@ const SIN_MURO = new Set([
   // Escritura
   'api/transactions/route.ts',
   'api/categories/route.ts', // el selector de categorías al anotar a mano
+  // Importar escribe transacciones, así que el muro de LECTURA no es su gate: su gate es
+  // `excelUpload` (Pro), el mismo flag que aplican las dos puertas de WhatsApp, y la ruta lo
+  // comprueba explícitamente devolviendo 403. Con `requireLectura` el resultado coincidía
+  // pero la razón era la contraria a la del backend, y el usuario recibía un 402 que decía
+  // "no puedes leer" sobre una operación de escritura.
+  'api/transactions/import/route.ts',
   // Conversión
   'api/pro/status/route.ts',
   'api/pro/bancos/route.ts',
@@ -106,6 +112,25 @@ describe('muro de lectura en las rutas de API', () => {
     );
     const fantasma = [...SIN_MURO].filter((rel) => !usan.has(rel));
     expect(fantasma).toEqual([]);
+  });
+
+  /**
+   * Importar salió del muro de lectura y quedó con UN solo gate: su propio chequeo de Pro
+   * (`excelUpload` del backend, replicado como `plan !== 'premium'` → 403). Antes tenía dos
+   * redes y este archivo cubría una; ahora no cubría ninguna, así que borrar tres líneas
+   * dejaba la importación masiva gratis desde la webapp sin que nada se pusiera rojo.
+   * Lo señaló el revisor del diff de la ola 4.
+   */
+  it('la exención de import/ trae su propio gate de Pro, no queda desnuda', () => {
+    const ruta = rutas.find((r) => r.rel === 'api/transactions/import/route.ts');
+    expect(ruta, 'la ruta de import desapareció: revisar esta exención').toBeDefined();
+    expect(ruta!.contenido).toMatch(/plan\s*!==\s*'premium'/);
+    expect(ruta!.contenido).toMatch(/status:\s*403/);
+    // Y que el gate esté ANTES de leer el archivo: rechazar después de parsear 5MB paga el
+    // trabajo de alguien que no puede importar (mismo criterio que el gate de WhatsApp,
+    // que corre antes de descargar el media de Meta).
+    expect(ruta!.contenido.indexOf("plan !== 'premium'"))
+      .toBeLessThan(ruta!.contenido.indexOf('request.formData()'));
   });
 
   // Si alguien mueve una de estas a la lista de exentas, el paywall queda decorativo:

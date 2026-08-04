@@ -41,7 +41,7 @@ async function enviarAlertaTransaccion(usuario, tx, resultado) {
   msg += '\uD83D\uDCC5 ' + (resultado.fecha || hoyPeru());
 
   if (tipo === 'gasto') {
-    const alertaPres = await verificarAlertaPresupuesto(usuario.id, categoria, subcategoria);
+    const alertaPres = await verificarAlertaPresupuesto(usuario, categoria, subcategoria);
     if (alertaPres) msg += '\n\n' + alertaPres;
   }
 

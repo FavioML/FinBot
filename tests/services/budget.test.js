@@ -85,7 +85,10 @@ describe('presupuestos: gasto en USD cuenta por monto_pen, no por monto', () => 
     DB_RESULTS['presupuestos'] = { data: [{ categoria: 'Comida', monto_limite: 300, alerta_porcentaje: 80 }] };
     DB_RESULTS['transacciones'] = { data: [{ monto: 100, monto_pen: 380, categoria: 'Comida', subcategoria: null }] };
 
-    const alerta = await budget.verificarAlertaPresupuesto('user-1', 'Comida', null);
+    // La firma pide la FILA del usuario, no su id: la alerta es una lectura agregada y se
+    // gatea contra el muro dentro de la propia función (B9). Un Pro pagado la ve.
+    const alerta = await budget.verificarAlertaPresupuesto(
+      { id: 'user-1', plan: 'premium', trial_estado: 'convertido' }, 'Comida', null);
 
     // Con monto_pen (380) supera el límite (300); con monto (100) no llegaría al 80%.
     expect(alerta).toContain('superado');

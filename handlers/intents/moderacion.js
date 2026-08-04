@@ -1,6 +1,7 @@
 const log = require('../../lib/logger');
 const { checkProWall } = require('../../helpers/pro-wall');
 const { mensajeCargaMasivaPro } = require('../../lib/trial');
+const analytics = require('../../lib/analytics');
 
 module.exports = {
   intents: ['silenciar', 'reactivar_recordatorios', 'hablar_con_humano', 'desconectar_cuenta', 'cargar_excel'],
@@ -89,7 +90,15 @@ module.exports = {
       case 'cargar_excel': {
         // El mismo flag que corta el archivo cuando llega (webhook.js, rama `document`).
         // Sin esto el bot invita a llenar la plantilla y recién la rechaza al enviarla.
-        if (checkProWall(usuario, 'excelUpload').blocked) return mensajeCargaMasivaPro(usuario);
+        if (checkProWall(usuario, 'excelUpload').blocked) {
+          // El chokepoint de lectura emite `wa_muro_lectura` y estos dos bloqueos no emitían
+          // nada, así que "alguien sin Pro quiso importar su historial" —un momento de
+          // conversión más caliente que una consulta cualquiera— era invisible en el embudo.
+          // `via` separa las dos mitades: preguntar CÓMO se hace y mandar el archivo son
+          // intenciones distintas, y la segunda está mucho más abajo en el funnel.
+          analytics.capture(usuario.id, 'wa_muro_excel', { via: 'tutorial' });
+          return mensajeCargaMasivaPro(usuario);
+        }
         return '📊 *Carga de gastos e ingresos históricos*\n\n' +
           '1️⃣ Descarga la plantilla: neto.pe/plantilla_gastos.xlsx\n' +
           '2️⃣ Completa tus movimientos (máximo 500)\n' +

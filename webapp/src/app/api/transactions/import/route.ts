@@ -1,5 +1,5 @@
 import { getServiceClient } from '@/lib/supabase/service';
-import { requireLectura } from '@/lib/supabase/auth';
+import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { parseCSV, parseExcel, type ImportRow } from '@/lib/import-parser';
@@ -24,8 +24,21 @@ function generarDedupHash(userId: string, fecha: string, monto: number, comercio
   return crypto.createHash('md5').update(raw).digest('hex');
 }
 
+// Importar ESCRIBE transacciones, así que su gate NO es el muro de lectura: es `excelUpload`,
+// el mismo flag de PLAN_CONFIG que aplica el backend en sus dos puertas de WhatsApp (el intent
+// `cargar_excel` y la rama `document` del webhook).
+//
+// Antes esta ruta encadenaba `requireLectura` y encima el chequeo de plan. El RESULTADO era el
+// mismo —el muro y "no es Pro" cubren hoy a la misma gente—, pero la JUSTIFICACIÓN era la
+// contraria a la del backend, y eso importa por dos cosas: el usuario recibía 402 ("no puedes
+// leer") en vez de 403 ("esto es Pro"), que es una razón falsa para lo que le pasó; y el día
+// que `requireLectura` cambie de semántica, los dos canales de la MISMA capability se moverían
+// en direcciones distintas sin que nada lo detecte. Alineado al backend (auditoría CTO ola 4).
+//
+// La exención del muro está declarada en `lectura-callsites.test.ts`, que es lo que impide que
+// esto se lea como un gate olvidado.
 export async function POST(request: Request) {
-  const auth = await requireLectura('id, plan');
+  const auth = await requireNetoUser('id, plan');
   if (!auth.ok) return auth.response;
   const usuario = { id: auth.user.id, plan: (auth.user.plan as string) || 'free' };
 
