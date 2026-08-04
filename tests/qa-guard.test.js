@@ -230,6 +230,120 @@ describe('qa-guard: ningún harness se salta la barrera', () => {
   });
 });
 
+// ── El spy de enviarWhatsapp en los harnesses de crons ──────────────────────
+//
+// Un harness de cron NO invoca el cron sobre su usuario throwaway: invoca la
+// función exportada de `cron/checks.js`, y esa función barre a TODOS los que
+// cumplen la condición. Contra la Supabase de PRODUCCIÓN eso significa que un
+// `checkTrialExpiry` sin spy le manda WhatsApps REALES a usuarios reales — un
+// "tu prueba venció" a alguien que no lo pidió, disparado por una corrida de QA.
+//
+// Los cinco harnesses que existen hoy lo hacen bien, y lo hacen todos igual:
+// pisan `require.cache` de `lib/whatsapp.js` ANTES de requerir el cron. El orden
+// no es estilo, es la mecánica: `lib/notify-user.js` DESESTRUCTURA
+// `enviarWhatsapp` al cargarse, así que si el require del cron ocurre primero se
+// queda con la función real para siempre y el spy llega tarde.
+//
+// Eso era convención: vivía en un comentario de cada archivo y en que quien
+// escribiera el siguiente se acordara. Esto lo convierte en build rojo.
+const RE_CRON = /require\([^)]*cron\/(?:checks|index)/;
+// La variable que sostiene la ruta RESUELTA de lib/whatsapp. Se exige esta forma
+// exacta —`const X = require.resolve(<algo con lib/whatsapp>)`— y que `X` sea la
+// clave que se pisa. Mirar "¿aparece lib/whatsapp en el archivo?" y "¿hay algún
+// require.cache[...]?" por separado NO alcanza: un harness que pisa `lib/db` y
+// nombra lib/whatsapp en un comentario pasaba el guard mandando WhatsApps reales.
+const RE_RESOLVE_WA = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\.resolve\([^)]*lib\/whatsapp[^)]*\)/g;
+
+/** La variable con la ruta de lib/whatsapp que además se usa como clave del cache. */
+function claveDelStubDeWhatsapp(src) {
+  for (const m of src.matchAll(RE_RESOLVE_WA)) {
+    const v = m[1];
+    const usa = new RegExp(`require\\.cache\\[\\s*${v}\\s*\\]\\s*(?:\\.exports\\s*)?=`);
+    const uso = src.match(usa);
+    if (uso) return { nombre: v, pos: uso.index };
+  }
+  return null;
+}
+
+/** null si está bien; el motivo si el harness puede escaparse a Meta. */
+function auditarSpyDeCron(src) {
+  const mCron = src.match(RE_CRON);
+  if (!mCron) return null; // no es un harness de crons: no aplica
+  const stub = claveDelStubDeWhatsapp(src);
+  if (!stub) {
+    return 'requiere un cron y no pisa require.cache de lib/whatsapp: los envíos salen a Meta. '
+      + "Forma esperada: `const waPath = require.resolve('../lib/whatsapp.js')` + `require.cache[waPath].exports = {...}`";
+  }
+  if (!/enviarWhatsapp\s*:/.test(src)) {
+    return 'pisa el módulo de whatsapp pero el reemplazo no define enviarWhatsapp: el cron va a llamar undefined o la real';
+  }
+  if (stub.pos > mCron.index) {
+    return 'instala el spy DESPUÉS de requerir el cron: notify-user ya se quedó con la función real';
+  }
+  return null;
+}
+
+describe('qa-guard: ningún harness de cron puede escaparse a Meta', () => {
+  it('todo harness que invoca un cron instala el spy de enviarWhatsapp antes', async () => {
+    const { readdirSync, readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const dir = join(import.meta.dirname, '..', 'qa-e2e');
+    const infractores = [];
+    let harnessesDeCron = 0;
+    for (const f of readdirSync(dir).filter((n) => n.endsWith('.mjs'))) {
+      const src = readFileSync(join(dir, f), 'utf8');
+      if (!RE_CRON.test(src)) continue;
+      harnessesDeCron++;
+      const motivo = auditarSpyDeCron(src);
+      if (motivo) infractores.push(`${f}: ${motivo}`);
+    }
+    // Antivacuidad: si el patrón deja de reconocer los harnesses de cron, el
+    // test quedaría verde revisando cero archivos. Hoy son 4 (qa-cron-deudas,
+    // qa-trial-flujo, qa-trial-gate, qa-trial-integridad). Ojo que
+    // qa-referido-premio-trial NO cuenta: nombra `cron/checks.js` en comentarios
+    // pero no lo requiere — reimplementa su query como oráculo, y stubea igual.
+    expect(harnessesDeCron, 'no se reconoció NINGÚN harness de cron').toBeGreaterThanOrEqual(4);
+    expect(infractores, 'harness de cron sin spy:\n' + infractores.join('\n')).toEqual([]);
+  });
+
+  it('el auditor reconoce las formas de romperlo', () => {
+    const cron = "const { checkTrialExpiry } = require('../cron/checks');";
+    const spy = "const waPath = require.resolve('../lib/whatsapp.js');\n"
+      + 'require.cache[waPath].exports = { enviarWhatsapp: async () => ({}) };';
+
+    // El caso bueno, y la variante con path.join que usa qa-cron-deudas.
+    expect(auditarSpyDeCron(spy + '\n' + cron)).toBeNull();
+    expect(auditarSpyDeCron(
+      "const waPath = require.resolve(path.join(appRoot, 'lib/whatsapp.js'));\n"
+      + 'require.cache[waPath].exports = { enviarWhatsapp: async () => ({}) };\n'
+      + "const { x } = require(path.join(appRoot, 'cron/checks.js'));"
+    )).toBeNull();
+
+    // Orden invertido: el spy llega tarde.
+    expect(auditarSpyDeCron(cron + '\n' + spy)).toMatch(/DESPUÉS/);
+    // Sin spy.
+    expect(auditarSpyDeCron(cron)).toMatch(/no pisa require\.cache de lib\/whatsapp/);
+    // Requiere el módulo real sin pisarlo.
+    expect(auditarSpyDeCron("const wa = require('../lib/whatsapp.js');\n" + cron)).toMatch(/no pisa require\.cache/);
+    // Pisa el módulo correcto pero el reemplazo no trae la función.
+    expect(auditarSpyDeCron(
+      "const waPath = require.resolve('../lib/whatsapp.js');\nrequire.cache[waPath].exports = {};\n" + cron
+    )).toMatch(/no define enviarWhatsapp/);
+    // Un harness que no toca crons no es asunto de este guard.
+    expect(auditarSpyDeCron("const x = require('../lib/db');")).toBeNull();
+
+    // EL FALSO NEGATIVO QUE TENÍA LA PRIMERA VERSIÓN de este guard, fijado acá
+    // para que no vuelva: pisar OTRO módulo y nombrar lib/whatsapp en prosa daba
+    // veredicto "aprobado" sobre un harness que manda WhatsApps reales.
+    expect(auditarSpyDeCron(
+      '// no hace falta pisar lib/whatsapp, este cron casi no envia\n'
+      + "const dbPath = require.resolve('../lib/db.js');\n"
+      + 'require.cache[dbPath].exports = { supabase: fake };\n'
+      + cron
+    )).toMatch(/los envíos salen a Meta/);
+  });
+});
+
 describe('qa-guard: el test detecta la regresión', () => {
   // Contraprueba: sin la barrera, exactamente la misma llamada SÍ sale a la red.
   // Sin esto, el test de arriba podría estar verde porque la operación nunca se

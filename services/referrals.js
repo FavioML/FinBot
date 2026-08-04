@@ -115,6 +115,22 @@ async function anclarDescuentoAFinDeTrial(usuarioId, trialVence) {
  * serializar conversiones concurrentes de varios referidos del mismo referrer (sin él, dos
  * conversiones leerían el mismo premium_vence y el last-write-wins daría 1 mes en vez de 2).
  *
+ * ── Qué pasa cuando algo falla DESPUÉS del claim ────────────────────────────────
+ * Son dos escrituras en dos tablas y no hay transacción entre ellas, así que existe
+ * una ventana donde el claim está puesto y el mes no. Antes esa ventana perdía el
+ * premio para siempre y en silencio (el aviso también sale después del grant). Ahora
+ * se trata según lo que se sepa, que es lo único honesto:
+ *
+ * | Falla                    | ¿Se escribió en usuarios? | Qué hacemos |
+ * |--------------------------|---------------------------|-------------|
+ * | lectura del referrer     | NO, seguro                | revertir el claim → el próximo intento reintenta limpio |
+ * | UPDATE del referrer      | NO SE SABE                | NO revertir (revertir arriesga pagar 2 meses) + avisar |
+ * | CAS agotado (6 vueltas)  | NO                        | avisar; la fila queda pendiente y visible |
+ *
+ * `premio_otorgado_at` (migración 062) es lo que hace visible el estado intermedio:
+ * `convertido_pro AND premio_otorgado_at IS NULL` = mes debido y no pagado. El aviso
+ * al admin va sin cooldown a propósito: es plata, y es raro.
+ *
  * Sin clawback: si el referido cancela luego, el mes ya otorgado no se revierte.
  *
  * @param {string} referidoId  id del usuario que acaba de pagar Pro.
@@ -136,6 +152,8 @@ async function procesarConversionProReferido(referidoId) {
     if (errClaim) { log.error({ tag: 'REFERIDO', err: errClaim.message, referidoId }, 'Falló el claim de conversión del referido'); return; }
     if (!claimed) return;   // otra ejecución concurrente ya lo tomó
     const referrerId = claimed.referrer_id;
+    // Desde acá el claim está consumido: todo camino de salida sin premio tiene que
+    // devolverlo (si es seguro) o gritar. Ver la tabla del docstring.
 
     // Otorga 1 mes al referrer con CAS sobre referidos_meses_otorgados. Si el CAS pierde
     // (otra conversión del mismo referrer escribió primero), re-lee el vence fresco y
@@ -144,7 +162,14 @@ async function procesarConversionProReferido(referidoId) {
       const { data: referrer, error: errUsr } = await supabase.from('usuarios')
         .select('whatsapp, nombre, plan, trial_estado, trial_vence, premium_desde, premium_vence, referidos_meses_otorgados')
         .eq('id', referrerId).single();
-      if (errUsr || !referrer) { log.error({ tag: 'REFERIDO', err: errUsr && errUsr.message, referrerId }, 'No se pudo leer al referrer para premiarlo'); return; }
+      if (errUsr || !referrer) {
+        // Todavía NO se tocó `usuarios`: devolver el claim es seguro y deja el
+        // reintento abierto (la aprobación se puede volver a disparar).
+        log.error({ tag: 'REFERIDO', err: errUsr && errUsr.message, referrerId }, 'No se pudo leer al referrer para premiarlo');
+        await devolverClaim(referidoId, referrerId,
+          'no se pudo leer al referrer (' + ((errUsr && errUsr.message) || 'fila ausente') + ').');
+        return;
+      }
       const ya = referrer.referidos_meses_otorgados || 0;
       const hoy = hoyPeru();
       // Todo en fechas 'YYYY-MM-DD' de Lima; se comparan lexicográfica = cronológicamente.
@@ -164,15 +189,114 @@ async function procesarConversionProReferido(referidoId) {
         .update(cambios)
         .eq('id', referrerId).eq('referidos_meses_otorgados', ya)
         .select('id');
-      if (errUpd) { log.error({ tag: 'REFERIDO', err: errUpd.message, referrerId }, 'No se pudo otorgar el mes al referrer'); return; }
+      if (errUpd) {
+        // Acá NO se sabe si el UPDATE entró (puede haber fallado la respuesta y no
+        // la escritura). Devolver el claim arriesga otorgar DOS meses por un solo
+        // referido, así que se deja pendiente y visible, y se avisa en el acto.
+        log.error({ tag: 'REFERIDO', err: errUpd.message, referrerId }, 'No se pudo otorgar el mes al referrer');
+        await avisarPremioPendiente(referidoId, referrerId, 'falló el UPDATE del referrer: ' + errUpd.message);
+        return;
+      }
       if (aplicado && aplicado.length) {
+        // El mes ya está acreditado. Sellar el premio cierra la ventana: a partir de
+        // acá la fila deja de figurar como "debido y no pagado".
+        const { error: errSello } = await supabase.from('referidos')
+          .update({ premio_otorgado_at: new Date().toISOString() })
+          .eq('referido_id', referidoId);
+        if (errSello) {
+          // El referrer YA tiene su mes; lo único roto es el sello. No se reintenta
+          // el grant por eso (sería el doble pago), pero sí se avisa: si no, la
+          // consulta de premios pendientes lo muestra para siempre como pendiente.
+          log.error({ tag: 'REFERIDO', err: errSello.message, referidoId }, 'Mes otorgado pero no se pudo sellar premio_otorgado_at');
+          await avisarPremioPendiente(referidoId, referrerId,
+            'el mes SÍ se acreditó (vence ' + venceStr + ') pero no se pudo sellar premio_otorgado_at: ' + errSello.message);
+        }
         await avisarReferrerPremio(referrer, venceStr, referrerId);
         return;
       }
       // CAS perdió: otra conversión del mismo referrer ganó. Reintentar con vence fresco.
     }
     log.warn({ tag: 'REFERIDO', referrerId }, 'No se pudo otorgar el mes tras varios reintentos de CAS');
+    await avisarPremioPendiente(referidoId, referrerId, 'el CAS sobre referidos_meses_otorgados se agotó tras 6 intentos');
   } catch(e) { log.error({ tag: 'REFERIDO', err: e.message, referidoId }, 'Error procesando conversión Pro del referido'); }
+}
+
+/**
+ * Devuelve el claim, y avisa pase lo que pase.
+ *
+ * SOLO se llama desde la rama donde se sabe que `usuarios` no se tocó.
+ *
+ * Devolver el claim NO recupera el premio por sí solo, y conviene no engañarse
+ * con eso: `procesarConversionProReferido` la dispara `activarPro`, o sea la
+ * aprobación de un pago, y volver a apretar "aprobar" **no vuelve a entrar acá**
+ * — `reclamarPagoPendiente` exige `pagos.estado='pendiente'` y después de la
+ * primera aprobación la fila ya está en `'aprobado'`, así que el panel responde
+ * `already:true` y ni llega a `activarPro`. El rollback sirve para que el estado
+ * no quede mintiendo (`convertido_pro` sin premio) y para que un reintento
+ * deliberado sea posible; quien de verdad recupera la plata es el aviso.
+ *
+ * El UPDATE lleva `.select()`: sin él, supabase-js devuelve `{data:null,
+ * error:null}` tanto si tocó una fila como si no tocó ninguna, y el aviso al
+ * admin afirmaría "el claim se devolvió" sin haberlo devuelto.
+ */
+async function devolverClaim(referidoId, referrerId, causa) {
+  const { data, error } = await supabase.from('referidos')
+    .update({ convertido_pro: false, convertido_pro_at: null })
+    .eq('referido_id', referidoId).eq('convertido_pro', true)
+    .is('premio_otorgado_at', null)   // jamás desarmar un claim ya premiado
+    .select('referido_id');
+  const devuelto = !error && Array.isArray(data) && data.length > 0;
+  if (error) log.error({ tag: 'REFERIDO', err: error.message, referidoId }, 'No se pudo devolver el claim del referido');
+  await avisarPremioPendiente(referidoId, referrerId, causa, devuelto);
+}
+
+/**
+ * Grita cuando un premio quedó debido y no pagado.
+ *
+ * Va por `notificarAdmin` y no por `notificarErrorAdmin` a propósito: el segundo
+ * tiene un cooldown de 5 minutos compartido con TODOS los errores del backend, o
+ * sea que un pico de errores no relacionados se comería justo este aviso. Esto es
+ * plata de un usuario y pasa como mucho un puñado de veces al año.
+ *
+ * El mensaje trae el SQL exacto porque las dos alternativas mienten: re-aprobar
+ * el pago no vuelve a entrar al premio (ver `devolverClaim`), y el botón de
+ * "activar Pro" del panel escribe `estado_pago='pagado'` — marcaría como pagador
+ * al referrer, que no pagó nada, y encima dejaría la fila igual de pendiente.
+ *
+ * Nunca lanza: el estado ya quedó consistente y visible en la DB; el aviso es lo
+ * que acelera el arreglo, no lo que lo garantiza. Ojo que `notificarAdmin` no
+ * informa si entregó, así que el log de arriba es el rastro que sí queda.
+ */
+async function avisarPremioPendiente(referidoId, referrerId, motivo, claimDevuelto) {
+  log.error({ tag: 'REFERIDO_PENDIENTE', referidoId, referrerId, motivo, claimDevuelto },
+    'Premio de referido DEBIDO y no otorgado');
+  try {
+    const { notificarAdmin } = require('../lib/admin-notify');
+    await notificarAdmin(
+      '⚠️ *Premio de referido pendiente*\n\n'
+      + 'Un referido pagó Pro y el mes gratis del referrer NO se pudo otorgar.\n\n'
+      + '👤 referrer: `' + referrerId + '`\n'
+      + '👤 referido: `' + referidoId + '`\n'
+      + '📋 ' + motivo + '\n'
+      + (claimDevuelto === undefined ? ''
+        : claimDevuelto
+          ? '↩️ El claim se devolvió (la fila quedó sin marcar como convertida).\n'
+          : '⛔ NO se pudo devolver el claim: la fila sigue marcada como convertida.\n')
+      + '\n*Otorgar a mano* (el botón de activar Pro NO sirve acá: marca al referrer como pagador):\n'
+      + '```\n'
+      + "update usuarios set plan='premium',\n"
+      + "  premium_vence = (greatest(coalesce(premium_vence, current_date), current_date) + interval '1 month')::date,\n"
+      + '  referidos_meses_otorgados = coalesce(referidos_meses_otorgados,0)+1\n'
+      + " where id = '" + referrerId + "';\n"
+      + "update referidos set convertido_pro=true, premio_otorgado_at=now()\n"
+      + " where referido_id = '" + referidoId + "';\n"
+      + '```\n'
+      + '_Si el referrer está EN TRIAL, la base es `trial_vence` y hay que sellar `trial_estado=\'convertido\'` (ver lib/trial.js)._\n\n'
+      + '_Todos los pendientes:_ `select * from referidos where convertido_pro and premio_otorgado_at is null;`'
+    );
+  } catch (e) {
+    log.error({ tag: 'REFERIDO', err: e.message }, 'No se pudo avisar del premio pendiente');
+  }
 }
 
 /**
@@ -215,16 +339,22 @@ async function avisarReferrerPremio(referrer, venceStr, referrerId) {
  * Estadísticas de referidos de un usuario para mostrar (WhatsApp y webapp comparten la forma).
  *   invitados     = entraron con el link pero aún NO se hicieron Pro.
  *   referidosPro  = convirtieron a Pro pagado.
- *   meses         = meses ganados (1 conversión = 1 mes).
+ *   meses         = meses REALMENTE acreditados.
+ *
+ * `meses` sale de `premio_otorgado_at` y no de `convertido_pro`: desde la migración
+ * 062 son dos hechos distintos, y en el hueco entre los dos (premio debido y no
+ * otorgado) contar conversiones le mostraría al usuario un mes que no tiene. Es
+ * mejor que el contador vaya un paso atrás de la realidad y no un paso adelante.
  */
 async function obtenerEstadisticasReferidos(referrerId) {
   const vacio = { invitados: 0, referidosPro: 0, meses: 0 };
   try {
-    const { data, error } = await supabase.from('referidos').select('convertido_pro').eq('referrer_id', referrerId);
+    const { data, error } = await supabase.from('referidos').select('convertido_pro, premio_otorgado_at').eq('referrer_id', referrerId);
     if (error) { log.error({ tag: 'REFERIDO', err: error.message, referrerId }, 'No se pudieron leer las estadísticas de referidos'); return vacio; }
     const total = (data || []).length;
     const pro = (data || []).filter(r => r.convertido_pro).length;
-    return { invitados: total - pro, referidosPro: pro, meses: pro };
+    const meses = (data || []).filter(r => r.premio_otorgado_at).length;
+    return { invitados: total - pro, referidosPro: pro, meses };
   } catch(e) { log.error({ tag: 'REFERIDO', err: e.message, referrerId }, 'Error leyendo estadísticas de referidos'); return vacio; }
 }
 
@@ -260,10 +390,14 @@ async function resumenReferidoParaAdmin(referidoId) {
       const vence = u.referido_dscto_vence ? String(u.referido_dscto_vence).slice(0, 10) : null;
       if (vence && vence >= hoy) out.descuentoPct = u.referido_dscto_pct;
     }
-    const { data: ref } = await supabase.from('referidos').select('referrer_id, convertido_pro').eq('referido_id', referidoId).maybeSingle();
+    const { data: ref } = await supabase.from('referidos').select('referrer_id, convertido_pro, premio_otorgado_at').eq('referido_id', referidoId).maybeSingle();
     if (ref && ref.referrer_id) {
       out.referrerId = ref.referrer_id;
-      out.yaPremiado = !!ref.convertido_pro;
+      // `convertido_pro` significa "el referido pagó", NO "al referrer se le pagó
+      // el mes" — desde la migración 062 son dos hechos distintos y pueden diferir
+      // (premio debido y no otorgado). Mirar solo el primero le decía al admin "ya
+      // premiado" justo en el único caso donde el mes NO se acreditó.
+      out.yaPremiado = !!ref.premio_otorgado_at;
       const { data: r } = await supabase.from('usuarios').select('nombre').eq('id', ref.referrer_id).single();
       out.referrerNombre = (r && r.nombre) || null;
     }

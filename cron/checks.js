@@ -315,13 +315,40 @@ async function checkPremiumExpiry() {
     }
 
     // Expirados — downgrade a free
-    const { data: expirados } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence')
+    const { data: expirados } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence, estado_pago')
       .eq('plan', 'premium').not('premium_vence', 'is', null).lt('premium_vence', hoy)
       .or(SIN_TRIAL_ACTIVO);
     if (!expirados || expirados.length === 0) return;
     for (const usuario of expirados) {
       try {
-        await supabase.from('usuarios').update({ plan: 'free' }).eq('id', usuario.id);
+        // `estado_pago` viaja con el plan. Bajar solo `plan` dejaba a un ex-pagador
+        // con `estado_pago='pagado'` para siempre: la columna pasaba a significar
+        // "alguna vez pagó" en vez de "está pagado", y quedaba lista para que la
+        // primera lectura que gatee por ella sola le entregue Pro gratis. Ya hay 2
+        // usuarios post-churn en ese estado (hallazgo D3 de la auditoría 03-ago).
+        //
+        // Solo se toca cuando venía en 'pagado', y por dos motivos: acá también caen
+        // Pro que nunca pagaron (meses de referido, comps) —marcarlos 'vencido' los
+        // haría figurar como pagadores que churnearon en el panel y en el CSV— y un
+        // comprobante recién subido deja 'pendiente', que este cron pisaría, borrando
+        // el ⏳ de un pago que sigue esperando aprobación.
+        //
+        // 'vencido' y no null: el CHECK de la columna tiene ese valor justamente
+        // para esto, y borrarlo perdería que sí llegó a pagar. La invariante que
+        // importa —y la que fija el test— es que después del downgrade NO puede
+        // quedar en 'pagado'.
+        const cambios = { plan: 'free' };
+        if (usuario.estado_pago === 'pagado') cambios.estado_pago = 'vencido';
+        // Leer el error NO es ceremonia: si este UPDATE no entra y seguimos, revocamos
+        // el Gmail (irreversible: el cupo de Google no vuelve) y le avisamos "tu plan
+        // venció" a alguien que en la base sigue en 'premium' — y a la hora siguiente
+        // el cron lo vuelve a seleccionar y repite el ciclo entero, cada hora, para
+        // siempre. Mejor saltarlo y reintentar en la próxima corrida.
+        const { error: errDown } = await supabase.from('usuarios').update(cambios).eq('id', usuario.id);
+        if (errDown) {
+          log.error({ tag: 'EXPIRY', userId: usuario.id, err: errDown.message }, 'No se pudo downgradear: se salta (sin revocar Gmail ni avisar)');
+          continue;
+        }
         // Bajar el plan corta la LECTURA de correos, pero el grant seguía vivo en Google y el
         // cupo ocupado para siempre. Se suelta acá mismo, sin gracia.
         const { revocadas } = await revocarAccesoGmail(usuario.id, { motivo: 'premium_vencido' });

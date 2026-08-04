@@ -157,10 +157,22 @@ presencia de `COPY` y `CREATE POLICY`, comparación de peso contra la mediana).
 y los runners de GitHub son solo IPv4. El pooler de transacciones (6543) tampoco
 sirve: no soporta `pg_dump`. Tiene que ser el de sesión, puerto 5432.
 
-**Retención con piso.** El prune borra lo más viejo de 30 días, pero **nunca deja
-menos de 7 backups**. Sin ese piso, si el backup dejara de subir, el prune iría
-vaciando el bucket por antigüedad justo cuando hace falta restaurar. Cubierto por
-`tests/backup-prune.test.js`.
+**Retención con piso, y una sola retención.** El prune borra lo más viejo de 30
+días, pero **nunca deja menos de 7 backups** (3 en `monthly/`). Sin ese piso, si
+el backup dejara de subir, iría vaciando el bucket por antigüedad justo cuando
+hace falta restaurar. Lo corre `backup.sh` después de subir; el comportamiento lo
+cubre `tests/backup-prune.test.js` y que esté *enchufado* lo cubre
+`tests/backup-retencion.test.js`.
+
+**No hay ni puede haber reglas de lifecycle en el bucket.** Una regla server-side
+expira por antigüedad y no sabe expresar un piso: instalar "daily/ a los 30 días"
+desactiva la protección de arriba para siempre, y lo hace justo en el escenario
+para el que existe (workflow roto + 30 días sin subir, donde el prune tampoco
+corre para frenar). `r2.mjs` tenía un comando que las instalaba; se eliminó, y el
+guard falla si vuelve. Para auditar que no quedó ninguna dando vueltas hay que
+mirar el dashboard de Cloudflare (**R2 → bucket → Settings → Object lifecycle
+rules**): el token del backup no tiene alcance de lifecycle y `get-lifecycle`
+responde 403 con él.
 
 **`auth.users` y los comprobantes van incluidos.** Sin `auth.users` restauras las
 transacciones pero nadie puede entrar a la webapp. Los comprobantes son archivos,

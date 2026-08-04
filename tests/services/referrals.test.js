@@ -55,12 +55,14 @@ const waMock = {
   )),
 };
 const notifMock = { crearNotificacion: vi.fn().mockResolvedValue(true) };
+const adminMock = { notificarAdmin: vi.fn().mockResolvedValue(undefined), notificarErrorAdmin: vi.fn(), ADMIN_NUMBER: '51999' };
 
 for (const [rel, exports] of [
   ['lib/db.js', dbMock],
   ['lib/logger.js', logMock],
   ['lib/whatsapp.js', waMock],
   ['lib/notifications-db.js', notifMock],
+  ['lib/admin-notify.js', adminMock],
 ]) {
   const p = require.resolve(path.join(projectRoot, rel));
   require.cache[p] = { id: p, filename: p, loaded: true, exports };
@@ -86,6 +88,7 @@ beforeEach(() => {
   logMock.warn.mockClear();
   waMock.enviarWhatsapp.mockClear();
   notifMock.crearNotificacion.mockClear();
+  adminMock.notificarAdmin.mockClear();
 });
 
 describe('registrarReferido', () => {
@@ -304,13 +307,145 @@ describe('procesarConversionProReferido', () => {
   });
 });
 
+// El claim (`convertido_pro`) se consume ANTES de otorgar el mes, y son dos tablas
+// sin transacción entre medio. Si algo falla en el hueco, el premio se perdía para
+// siempre: el reintento salía por el fast path `if (convertido_pro) return`, y el
+// aviso al referrer también estaba después del grant, así que nadie se enteraba.
+//
+// `premio_otorgado_at` (migración 062) separa "el referido pagó" de "al referrer se
+// le acreditó". Estos tests fijan las tres salidas.
+describe('procesarConversionProReferido: el premio no se pierde en silencio', () => {
+  function montarBase(overrides) {
+    const estado = { referrer: { whatsapp: '51999', nombre: 'Ana', premium_desde: null, premium_vence: null, referidos_meses_otorgados: 0 } };
+    router = (q) => {
+      if (q.table === 'referidos' && q.op === 'select' && q.head) return { count: 1 };
+      if (q.table === 'referidos' && q.op === 'select') return { data: { referrer_id: 'r1', convertido_pro: false } };
+      if (q.table === 'referidos' && q.op === 'update') {
+        const forzado = overrides && overrides.updReferidos && overrides.updReferidos(q);
+        if (forzado) return forzado;
+        // El rollback usa `.select()` sin maybeSingle: supabase devuelve un ARRAY,
+        // y de ahí sale si tocó alguna fila. El claim usa maybeSingle (objeto).
+        if (q.payload.convertido_pro === false) return { data: [{ referido_id: 'u1' }] };
+        return { data: { referrer_id: 'r1' } };
+      }
+      if (q.table === 'usuarios' && q.op === 'select') return (overrides && overrides.selUsuario) || { data: { ...estado.referrer } };
+      if (q.table === 'usuarios' && q.op === 'update') {
+        if (overrides && overrides.updUsuario) return overrides.updUsuario;
+        estado.referrer = { ...estado.referrer, ...q.payload };
+        return { data: [{ id: 'r1' }] };
+      }
+      return {};
+    };
+    return estado;
+  }
+  /** Los UPDATE sobre `referidos` posteriores al claim. */
+  const updsReferidos = () => escrituras('referidos').filter((o) => o.op === 'update');
+
+  it('al otorgar el mes SELLA premio_otorgado_at (sin sello, un premio pagado parece pendiente)', async () => {
+    montarBase();
+    await procesarConversionProReferido('u1');
+    const sello = updsReferidos().find((o) => o.payload.premio_otorgado_at);
+    expect(sello, 'no se selló premio_otorgado_at tras acreditar el mes').toBeTruthy();
+    expect(sello.methods).toContainEqual(['eq', 'referido_id', 'u1']);
+    expect(adminMock.notificarAdmin).not.toHaveBeenCalled();   // camino feliz: nada que gritar
+  });
+
+  it('si NO se puede leer al referrer, devuelve el claim y avisa (todavía no se escribió nada)', async () => {
+    montarBase({ selUsuario: FALLO });
+    await procesarConversionProReferido('u1');
+
+    // El claim vuelve a false: sin esto, un reintento sale por el fast path y el mes
+    // se pierde para siempre.
+    const rollback = updsReferidos().find((o) => o.payload.convertido_pro === false);
+    expect(rollback, 'el claim quedó consumido: el premio ya no se puede reintentar').toBeTruthy();
+    expect(rollback.payload.convertido_pro_at).toBeNull();
+    // Y no desarma un premio ya otorgado.
+    expect(rollback.methods).toContainEqual(['is', 'premio_otorgado_at', null]);
+    // Devolver el claim no alcanza: nadie re-dispara una aprobación de pago sola.
+    expect(adminMock.notificarAdmin).toHaveBeenCalledTimes(1);
+    const aviso = adminMock.notificarAdmin.mock.calls[0][0];
+    expect(aviso).toContain('El claim se devolvió');
+    // Y el aviso trae el SQL, no una instrucción que no funciona: re-aprobar el pago
+    // NO vuelve a entrar acá (reclamarPagoPendiente exige estado='pendiente') y el
+    // botón de activar Pro marcaría al referrer como pagador.
+    expect(aviso).toContain('update usuarios set');
+    expect(aviso).toContain('referidos_meses_otorgados');
+    expect(escrituras('usuarios')).toHaveLength(0);
+  });
+
+  it('no afirma que devolvió el claim cuando el UPDATE no tocó ninguna fila', async () => {
+    // supabase-js devuelve `{data:null,error:null}` tanto si actualizó 1 fila como
+    // si actualizó 0. Sin `.select()`, el aviso decía "el claim se devolvió" sobre
+    // un rollback que nunca ocurrió, y el admin seguía una instrucción falsa.
+    montarBase({ selUsuario: FALLO, updReferidos: (q) => (q.payload.convertido_pro === false ? { data: [] } : null) });
+    await procesarConversionProReferido('u1');
+    expect(adminMock.notificarAdmin).toHaveBeenCalledTimes(1);
+    expect(adminMock.notificarAdmin.mock.calls[0][0]).toContain('NO se pudo devolver el claim');
+  });
+
+  it('si falla el UPDATE del referrer NO devuelve el claim (podría pagar dos meses) pero avisa', async () => {
+    montarBase({ updUsuario: FALLO });
+    await procesarConversionProReferido('u1');
+
+    // Acá no se sabe si el UPDATE entró. Revertir arriesga otorgar dos veces.
+    expect(updsReferidos().some((o) => o.payload.convertido_pro === false)).toBe(false);
+    expect(adminMock.notificarAdmin).toHaveBeenCalledTimes(1);
+    const texto = adminMock.notificarAdmin.mock.calls[0][0];
+    expect(texto).toContain('r1');   // referrer
+    expect(texto).toContain('u1');   // referido
+    expect(texto).toContain('premio_otorgado_at is null');   // la consulta para encontrarlo
+  });
+
+  it('si el mes se acredita pero falla el sello, avisa y NO reintenta el grant', async () => {
+    // El referrer ya tiene su mes: reintentar sería pagarle dos.
+    let visto = 0;
+    const db = montarBase({
+      updReferidos: (q) => (q.payload.premio_otorgado_at ? (visto++, FALLO) : { data: { referrer_id: 'r1' } }),
+    });
+    await procesarConversionProReferido('u1');
+
+    expect(db.referrer.referidos_meses_otorgados).toBe(1);   // el mes entró
+    expect(visto).toBe(1);                                   // el sello se intentó una vez
+    expect(adminMock.notificarAdmin).toHaveBeenCalledTimes(1);
+    expect(adminMock.notificarAdmin.mock.calls[0][0]).toContain('SÍ se acreditó');
+    expect(waMock.enviarWhatsapp).toHaveBeenCalled();        // al referrer igual se le avisa su mes
+  });
+
+  it('el aviso al admin no depende del cooldown compartido de notificarErrorAdmin', async () => {
+    // notificarErrorAdmin tiene 5 min de cooldown COMPARTIDO con todos los errores
+    // del backend: un pico de errores no relacionados se comería justo este aviso.
+    montarBase({ updUsuario: FALLO });
+    await procesarConversionProReferido('u1');
+    expect(adminMock.notificarErrorAdmin).not.toHaveBeenCalled();
+    expect(adminMock.notificarAdmin).toHaveBeenCalled();
+  });
+});
+
 describe('obtenerEstadisticasReferidos', () => {
   it('cuenta invitados (aún no Pro), referidos Pro y meses', async () => {
     router = (q) => (q.table === 'referidos' && q.op === 'select')
-      ? { data: [{ convertido_pro: true }, { convertido_pro: false }, { convertido_pro: true }] }
+      ? { data: [
+          { convertido_pro: true, premio_otorgado_at: '2026-08-01T00:00:00Z' },
+          { convertido_pro: false, premio_otorgado_at: null },
+          { convertido_pro: true, premio_otorgado_at: '2026-08-02T00:00:00Z' },
+        ] }
       : {};
     const s = await obtenerEstadisticasReferidos('r1');
     expect(s).toEqual({ invitados: 1, referidosPro: 2, meses: 2 });
+  });
+
+  it('los meses cuentan lo ACREDITADO, no lo convertido (no le promete un mes que no tiene)', async () => {
+    // El hueco de B2: convertido_pro=true con premio_otorgado_at=null es un premio
+    // debido y no pagado. Contarlo como mes le muestra al referrer un beneficio que
+    // su fila de `usuarios` no tiene.
+    router = (q) => (q.table === 'referidos' && q.op === 'select')
+      ? { data: [
+          { convertido_pro: true, premio_otorgado_at: '2026-08-01T00:00:00Z' },
+          { convertido_pro: true, premio_otorgado_at: null },
+        ] }
+      : {};
+    const s = await obtenerEstadisticasReferidos('r1');
+    expect(s).toEqual({ invitados: 0, referidosPro: 2, meses: 1 });
   });
 
   it('devuelve ceros si la lectura falla (no inventa)', async () => {
@@ -328,13 +463,31 @@ describe('resumenReferidoParaAdmin', () => {
         if (idEq && idEq[2] === 'u1') return { data: { referido_dscto_pct: 50, referido_dscto_vence: '2099-01-01' } };
         return { data: { nombre: 'Ana Perez' } };
       }
-      if (q.table === 'referidos' && q.op === 'select') return { data: { referrer_id: 'r1', convertido_pro: false } };
+      if (q.table === 'referidos' && q.op === 'select') return { data: { referrer_id: 'r1', convertido_pro: false, premio_otorgado_at: null } };
       return {};
     };
     const r = await resumenReferidoParaAdmin('u1');
     expect(r.descuentoPct).toBe(50);
     expect(r.referrerNombre).toBe('Ana Perez');
     expect(r.yaPremiado).toBe(false);
+  });
+
+  it('un premio DEBIDO y no otorgado no se reporta como "ya premiado"', async () => {
+    // La pantalla donde el admin decide es justo donde no puede mentir: con
+    // convertido_pro=true y premio_otorgado_at=null, el mes NO se acreditó.
+    router = (q) => {
+      if (q.table === 'usuarios' && q.op === 'select') return { data: { nombre: 'Ana Perez' } };
+      if (q.table === 'referidos' && q.op === 'select') return { data: { referrer_id: 'r1', convertido_pro: true, premio_otorgado_at: null } };
+      return {};
+    };
+    expect((await resumenReferidoParaAdmin('u1')).yaPremiado).toBe(false);
+
+    router = (q) => {
+      if (q.table === 'usuarios' && q.op === 'select') return { data: { nombre: 'Ana Perez' } };
+      if (q.table === 'referidos' && q.op === 'select') return { data: { referrer_id: 'r1', convertido_pro: true, premio_otorgado_at: '2026-08-01T00:00:00Z' } };
+      return {};
+    };
+    expect((await resumenReferidoParaAdmin('u1')).yaPremiado).toBe(true);
   });
 
   it('ignora un descuento ya vencido', async () => {

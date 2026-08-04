@@ -146,6 +146,14 @@ export async function list(prefix = '') {
  * `pisoMinimo` objetos. El piso importa: si algo hace que el backup deje de
  * subir, sin piso el prune iria borrando los buenos hasta dejar el bucket
  * vacio justo cuando mas se necesita. Preferimos gastar de mas en storage.
+ *
+ * **Esta es LA retencion, y es la unica.** La invoca `backup.sh` despues de
+ * subir (guard: `tests/backup-retencion.test.js`). No hay reglas de lifecycle
+ * de R2 y no debe haberlas: una regla server-side expira por antiguedad y no
+ * sabe expresar un piso, asi que una sola regla de "daily/ a los 30 dias"
+ * desactiva esta proteccion para siempre — y lo hace precisamente en el
+ * escenario para el que existe (workflow roto + 30 dias sin subir), donde
+ * ademas este prune ya no corre para frenarlo.
  */
 export async function prune(prefix, dias, pisoMinimo, deps = {}) {
   const listar = deps.list ?? list;
@@ -166,29 +174,25 @@ export async function prune(prefix, dias, pisoMinimo, deps = {}) {
 }
 
 /**
- * Fija la retencion server-side. Se hace con lifecycle rules y no con un
- * script de prune para que la retencion siga siendo correcta aunque el
- * workflow se rompa, y para no necesitar permiso de borrado en el token.
+ * Solo LECTURA de las reglas de lifecycle del bucket, para diagnostico.
+ *
+ * Aca vivia tambien su gemelo de ESCRITURA, que instalaba "daily/ expira a los
+ * 30 dias" server-side, con un docstring que afirmaba que asi la retencion
+ * seguia siendo correcta aunque el workflow se rompiera. Era al reves: una
+ * regla de lifecycle borra por antiguedad sin piso, o sea que anulaba la unica
+ * proteccion que tenemos contra quedarnos sin backups, y encima justo en ese
+ * escenario. Se elimino; la retencion la hace `prune()`.
+ *
+ * El guard de `tests/backup-retencion.test.js` mira el archivo CRUDO, sin
+ * ignorar comentarios: es fail-closed a proposito, asi que ni siquiera se puede
+ * dejar la version vieja comentada esperando a que alguien la descomente. Por
+ * eso este parrafo no la nombra.
+ *
+ * Esto se queda para poder responder "¿hay alguna regla dando vueltas?".
+ * Ojo: el token del backup NO tiene permiso de lifecycle (responde 403), asi
+ * que hace falta uno con alcance de R2, o mirarlo en el dashboard de Cloudflare
+ * (R2 -> bucket -> Settings -> Object lifecycle rules).
  */
-export async function setLifecycle(reglas) {
-  const xml = '<?xml version="1.0" encoding="UTF-8"?>'
-    + '<LifecycleConfiguration>'
-    + reglas.map((r) => `<Rule><ID>${r.id}</ID><Filter><Prefix>${r.prefix}</Prefix></Filter>`
-      + `<Status>Enabled</Status><Expiration><Days>${r.days}</Days></Expiration></Rule>`).join('')
-    + '</LifecycleConfiguration>';
-  const body = Buffer.from(xml, 'utf8');
-  await pedir({
-    method: 'PUT',
-    query: 'lifecycle',
-    body,
-    extraHeaders: {
-      'content-type': 'application/xml',
-      'content-length': String(body.length),
-      'content-md5': createHash('md5').update(body).digest('base64'),
-    },
-  });
-}
-
 export async function getLifecycle() {
   const res = await pedir({ method: 'GET', query: 'lifecycle' });
   return res.text();
@@ -218,16 +222,10 @@ if (process.argv[1]?.endsWith('r2.mjs')) {
       console.log(`daily/: ${d.total - d.borrados.length} quedan (${d.borrados.length} borrados`
         + `${d.retenidosPorPiso ? `, ${d.retenidosPorPiso} retenidos por el piso de 7` : ''})`);
       console.log(`monthly/: ${m.total - m.borrados.length} quedan (${m.borrados.length} borrados)`);
-    } else if (cmd === 'set-lifecycle') {
-      await setLifecycle([
-        { id: 'daily-30d', prefix: 'daily/', days: 30 },
-        { id: 'monthly-365d', prefix: 'monthly/', days: 365 },
-      ]);
-      console.log('OK lifecycle: daily/ 30 dias, monthly/ 365 dias');
     } else if (cmd === 'get-lifecycle') {
       console.log(await getLifecycle());
     } else {
-      console.error('Uso: r2.mjs put|get|del|list|set-lifecycle|get-lifecycle ...');
+      console.error('Uso: r2.mjs put|get|del|list|prune|get-lifecycle ...');
       process.exit(2);
     }
   } catch (e) {

@@ -23,6 +23,13 @@ const projectRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname)
 const queries = [];   // todas las queries hechas sobre `usuarios`
 let usuariosData = [];
 let updatePayload = null;
+// `updatePayload` guarda solo el último. El downgrade de checkPremiumExpiry hace
+// varias escrituras (plan, y después lo que toque revocarAccesoGmail), así que
+// para afirmar sobre ESE update hace falta verlos todos.
+const updatePayloads = [];
+// Error inyectable en los UPDATE sobre `usuarios`. Sin esto no hay forma de
+// ejercitar la rama "la escritura del downgrade no entró".
+let updateError = null;
 
 function makeChain(table) {
   const q = { table, methods: [], payload: null };
@@ -47,9 +54,12 @@ const dbMock = {
       return {
         ...base,
         update: (p) => {
-          if (t === 'usuarios') { updatePayload = p; }
+          if (t === 'usuarios') { updatePayload = p; updatePayloads.push(p); }
           const c = makeChain(t);
           c.payload = p;
+          if (t === 'usuarios' && updateError) {
+            c.then = (resolve) => resolve({ data: null, error: updateError });
+          }
           // maybeSingle tiene que devolver fila para que el CAS se lea como "ganó".
           c.maybeSingle = () => Promise.resolve({ data: { id: 'u1', referido_dscto_pct: null }, error: null });
           return c;
@@ -59,11 +69,12 @@ const dbMock = {
   },
 };
 const logMock = { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn(), fatal: vi.fn(), trace: vi.fn() };
+const waMock = { enviarWhatsapp: vi.fn().mockResolvedValue({ ok: true }) };
 
 for (const [rel, exports] of [
   ['lib/db.js', dbMock],
   ['lib/logger.js', logMock],
-  ['lib/whatsapp.js', { enviarWhatsapp: vi.fn().mockResolvedValue({ ok: true }) }],
+  ['lib/whatsapp.js', waMock],
   ['lib/notifications-db.js', { crearNotificacion: vi.fn().mockResolvedValue(true) }],
   ['lib/analytics.js', { capture: vi.fn() }],
   ['lib/admin-notify.js', { notificarAdmin: vi.fn() }],
@@ -82,6 +93,10 @@ beforeEach(() => {
   queries.length = 0;
   usuariosData = [];
   updatePayload = null;
+  updatePayloads.length = 0;
+  updateError = null;
+  logMock.error.mockClear();
+  waMock.enviarWhatsapp.mockClear();
 });
 
 /** Los filtros de una query, como pares legibles: [['eq','plan','premium'], ...] */
@@ -115,6 +130,57 @@ describe('checkPremiumExpiry no puede tocar a alguien que está probando', () =>
       // usuarios con trial_estado en NULL, que son justo los que este cron sí debe barrer.
       expect(g).toContain('trial_estado.is.null');
     }
+  });
+});
+
+describe('el downgrade no deja a un ex-pagador marcado como pagado', () => {
+  // `estado_pago` viajaba sola: el cron bajaba `plan` a 'free' y dejaba
+  // `estado_pago='pagado'` intacto. La columna dejaba de significar "está pagado"
+  // y pasaba a significar "alguna vez pagó", lista para que la primera lectura que
+  // gatee por ella sola le entregue Pro gratis a quien ya se fue. Hallazgo D3: 2
+  // usuarios reales en ese estado, con `premium_vence` de abril.
+  it('el UPDATE del downgrade saca estado_pago de "pagado"', async () => {
+    vi.setSystemTime(new Date('2026-08-15T15:00:00Z'));
+    usuariosData = [{ id: 'u1', whatsapp: '51999', nombre: 'Ex Pagador', premium_vence: '2026-08-01', estado_pago: 'pagado' }];
+    await checkPremiumExpiry();
+
+    const downgrade = updatePayloads.find((p) => p && p.plan === 'free');
+    expect(downgrade, 'no se hizo el UPDATE de downgrade').toBeTruthy();
+    // La invariante es "no queda pagado", no un literal: si mañana se decide null
+    // en vez de 'vencido', esto tiene que seguir protegiendo.
+    expect(downgrade).toHaveProperty('estado_pago');
+    expect(downgrade.estado_pago).not.toBe('pagado');
+  });
+
+  it('a quien NO venía pagando no le inventa un estado de pago', async () => {
+    // Acá también caen Pro que nunca pagaron: meses ganados por referido y comps.
+    // Marcarlos 'vencido' los convierte en pagadores-que-churnearon en el panel y
+    // en el CSV de operación. Y un 'pendiente' es un comprobante esperando
+    // aprobación: pisarlo le borra el ⏳ al admin.
+    vi.setSystemTime(new Date('2026-08-15T15:00:00Z'));
+    for (const estado of [null, 'pendiente']) {
+      updatePayloads.length = 0;
+      usuariosData = [{ id: 'u1', whatsapp: '51999', nombre: 'Comp', premium_vence: '2026-08-01', estado_pago: estado }];
+      await checkPremiumExpiry();
+      const downgrade = updatePayloads.find((p) => p && p.plan === 'free');
+      expect(downgrade, 'no se hizo el UPDATE de downgrade').toBeTruthy();
+      expect('estado_pago' in downgrade, `pisó estado_pago=${estado}`).toBe(false);
+    }
+  });
+
+  it('si el UPDATE del downgrade falla, NO revoca el Gmail ni avisa que venció', async () => {
+    // Sin esto: se revoca el grant de Google (el cupo no vuelve) y se le manda "tu
+    // plan venció" a alguien que en la base sigue en 'premium' — y a la hora
+    // siguiente el cron lo vuelve a agarrar y repite el ciclo, cada hora.
+    vi.setSystemTime(new Date('2026-08-15T15:00:00Z'));
+    usuariosData = [{ id: 'u1', whatsapp: '51999', nombre: 'Ex Pagador', premium_vence: '2026-08-01', estado_pago: 'pagado' }];
+    updateError = { message: 'connection reset', code: '500' };
+    await checkPremiumExpiry();
+
+    expect(logMock.error).toHaveBeenCalled();
+    const avisoVencido = waMock.enviarWhatsapp.mock.calls
+      .find((c) => typeof c[1] === 'string' && c[1].includes('venció'));
+    expect(avisoVencido, 'le avisó que venció sin haber podido bajarle el plan').toBeUndefined();
   });
 });
 

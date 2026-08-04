@@ -1,0 +1,25 @@
+-- audit_borrado() es SECURITY DEFINER y cualquiera podía ejecutarla.
+--
+-- La 055 la creó SECURITY DEFINER (necesario: escribe en una tabla a la que la
+-- aplicación no tiene INSERT) pero no le revocó nada. El default de Postgres al
+-- crear una función es `GRANT EXECUTE TO PUBLIC`, así que `anon` —el rol de una
+-- petición sin sesión contra PostgREST— quedó con permiso de invocarla. Lo marcó
+-- el advisor de Supabase como WARN.
+--
+-- No es explotable HOY, y conviene ser exacto sobre por qué: es una función de
+-- trigger, o sea que devuelve `trigger` y Postgres rechaza llamarla directamente
+-- ("trigger functions can only be called as triggers"). Además PostgREST no
+-- expone funciones que devuelvan `trigger` en /rpc. El permiso es superficie
+-- muerta.
+--
+-- Se revoca igual porque el costo es una línea y la superficie deja de existir:
+-- si algún día alguien la convierte en una función normal para reusar la lógica
+-- —exactamente el tipo de cambio que parece inofensivo— heredaría un EXECUTE
+-- público sobre una función que corre como su dueño.
+--
+-- Revocar NO rompe el trigger. Postgres verifica el permiso sobre la función en
+-- el CREATE TRIGGER, no en cada disparo; el disparo verifica TRIGGER sobre la
+-- tabla. Verificado post-aplicación con un DELETE real (en transacción revertida)
+-- que siguió dejando su fila en borrados_auditoria.
+
+REVOKE ALL ON FUNCTION public.audit_borrado() FROM public, anon, authenticated, service_role;
