@@ -411,6 +411,27 @@ describe('procesarConversionProReferido: el premio no se pierde en silencio', ()
     expect(waMock.enviarWhatsapp).toHaveBeenCalled();        // al referrer igual se le avisa su mes
   });
 
+  it('si el CAS se agota tras 6 vueltas, tampoco se pierde en silencio', async () => {
+    // Rama que ninguna prueba tocaba: 6 conversiones concurrentes del mismo referrer
+    // ganándole al CAS. Se sale del loop sin premiar y antes esto era un log.warn.
+    montarBase({ updUsuario: { data: [] } });
+    await procesarConversionProReferido('u1');
+    expect(adminMock.notificarAdmin).toHaveBeenCalledTimes(1);
+    expect(adminMock.notificarAdmin.mock.calls[0][0]).toContain('CAS');
+    // No se devuelve el claim: seis intentos de UPDATE salieron, no se sabe si alguno entró.
+    expect(updsReferidos().some((o) => o.payload.convertido_pro === false)).toBe(false);
+  });
+
+  it('si el propio aviso al admin revienta, no se lleva puesta la conversión', async () => {
+    // `notificarAdmin` pega a Telegram y a Meta. Que falle no puede propagar hacia
+    // arriba: quien llama es `activarPro`, o sea la aprobación de un pago.
+    adminMock.notificarAdmin.mockRejectedValueOnce(new Error('telegram caído'));
+    montarBase({ updUsuario: FALLO });
+    await expect(procesarConversionProReferido('u1')).resolves.toBeUndefined();
+    // El rastro que sí queda cuando el aviso no llega.
+    expect(logMock.error.mock.calls.some((c) => c[0] && c[0].tag === 'REFERIDO_PENDIENTE')).toBe(true);
+  });
+
   it('el aviso al admin no depende del cooldown compartido de notificarErrorAdmin', async () => {
     // notificarErrorAdmin tiene 5 min de cooldown COMPARTIDO con todos los errores
     // del backend: un pico de errores no relacionados se comería justo este aviso.
