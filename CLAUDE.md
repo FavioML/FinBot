@@ -397,6 +397,17 @@ Aplica a: `lib/trial.js` y sus consumidores, `services/referrals.js`, `lib/pro-p
 los gates (`intents-acceso.js`, chokepoint, `requireLectura`), los crons que empujan, `gmail.js`
 y toda migracion. NO aplica a copy, docs ni cambios de UI sin logica de plan.
 
+**El ARREGLO al hallazgo tambien se revisa.** El ciclo no es auditar → arreglar → verificar
+→ push: es auditar → arreglar → verificar → **revisar el arreglo** → push. El 2026-08-04 se
+pago caro: el revisor encontro que `registrarPagoAprobado` pisaba el monto acordado, escribi
+el fix, verifique verde y pushee sin que nadie lo mirara. Una segunda revision sobre el codigo
+YA DESPLEGADO encontro que ese fix era una version PEOR del mismo bug (preservaba el monto sin
+mirar el `tipo_plan`, y el periodo lo elige el admin al aprobar: 12 meses concedidos, S/10
+registrados — S/89 de sub-registro contra los S/5 de sobre-registro que venia a arreglar).
+El diff de un fix escrito bajo la presion de un hallazgo es el que tiene menos ojos encima de
+todo el trabajo, y toca justo la parte delicada. Si la primera revision encontro algo real en
+las areas de arriba, el arreglo entra en una segunda vuelta.
+
 El prompt del revisor, corto y adversarial: *"Aca esta el diff. Encontra las rutas que NO se
 ejercitaron: la rama de error de cada await (¿el cliente lanza o devuelve el error?), el usuario
 en el muro, el que no tiene WhatsApp, el proceso que muere sin cleanup. Si se movio o unifico
