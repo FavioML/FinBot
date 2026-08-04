@@ -265,7 +265,10 @@ async function devolverClaim(referidoId, referrerId, causa) {
  *
  * Nunca lanza: el estado ya quedó consistente y visible en la DB; el aviso es lo
  * que acelera el arreglo, no lo que lo garantiza. Ojo que `notificarAdmin` no
- * informa si entregó, así que el log de arriba es el rastro que sí queda.
+ * informa si entregó (intenta Telegram, cae a WhatsApp y traga su excepción), así
+ * que este aviso NO es el detector: es el atajo. El detector que no se puede
+ * perder corre todos los días — `qa-e2e/qa-referidos-pendientes.mjs`, enganchado
+ * al canary en `webapp/.claude/deploy-config.json`.
  */
 async function avisarPremioPendiente(referidoId, referrerId, motivo, claimDevuelto) {
   log.error({ tag: 'REFERIDO_PENDIENTE', referidoId, referrerId, motivo, claimDevuelto },

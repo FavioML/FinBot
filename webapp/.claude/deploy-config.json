@@ -113,6 +113,13 @@
         "on_fail": "exit 1 = EL PREMIO DE REFERIDO SE PIERDE O SE CALCULA MAL. Mira que check esta rojo: (a) 'el mes se apila sobre el FIN DEL TRIAL' = volvio a calcular desde hoy, o sea que el mes regalado se solapa con la prueba que el referrer ya tenia gratis. (b) 'el trial queda sellado como convertido' + 'DESPUES del premio, el cron ya NO lo barre' = volvio el bug B1: checkTrialExpiry (que NO mira premium_vence) baja al muro el dia 15 a quien acaba de ganar un mes, y el mes anunciado por WhatsApp se evapora sin rastro. El oraculo de ese check es LA MISMA query del cron, no una parafrasis. (c) 'el aviso anuncia exactamente la fecha que quedo en la base' = se le esta prometiendo una fecha distinta a la que tiene. (d) 'al pagador el mes se le apila sobre su vencimiento vigente' = se rompio el caso normal (no-trial). El check de control 'ANTES del premio, el cron SI lo barreria' evita que los negativos sean verdes por vacuidad. exit 2 = infra (red/Supabase/falta service-role key local). Ver memory project_referrals_two_sided."
       },
       {
+        "name": "referidos-pendientes",
+        "cmd": "node qa-e2e/qa-referidos-pendientes.mjs",
+        "cwd": "C:/Vortik.dev/products/neto/app",
+        "cost": "2 fetch service-role (segundos, READ-ONLY, cero escrituras)",
+        "on_fail": "exit 1 = hay premios de referido DEBIDOS y no otorgados (convertido_pro=true con premio_otorgado_at=null): un referrer gano un mes de Pro y no lo tiene. El JSON lista las filas y trae el SQL para otorgarlo a mano. Existe porque el aviso que manda services/referrals.js en el momento es best-effort (notificarAdmin intenta Telegram y cae a WhatsApp, traga su excepcion y no informa si entrego), asi que sin esto un mes perdido dependia de que ese mensaje llegara. exit 1 tambien si la columna premio_otorgado_at NO responde: eso significa que la migracion 062 no esta aplicada y el detector esta CIEGO — el check de pendientes estaria verde por vacuidad sobre una tabla vacia. exit 2 = infra (falta la service-role key local o NETO_QA_URL, o red). Ver memory project_cto_audit_ola2."
+      },
+      {
         "name": "muro-whatsapp",
         "cmd": "node qa-e2e/qa-muro-whatsapp.mjs",
         "cwd": "C:/Vortik.dev/products/neto/app",
