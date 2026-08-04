@@ -2,6 +2,7 @@ const { supabase } = require('../lib/db');
 const log = require('../lib/logger');
 const { hoyPeru, sumarDias, sumarMeses } = require('../lib/dates');
 const { notificarUsuario, CANALES } = require('../lib/notify-user');
+const { enTrial } = require('../lib/trial');
 
 // PostgREST devuelve PGRST116 cuando .single() no encuentra fila. Ese es el caso
 // legítimo "todavía no existe"; cualquier otro código es una lectura que falló y NO
@@ -141,17 +142,26 @@ async function procesarConversionProReferido(referidoId) {
     // reintenta: un premio ya reclamado (convertido_pro=true) NO puede perderse.
     for (let intento = 0; intento < 6; intento++) {
       const { data: referrer, error: errUsr } = await supabase.from('usuarios')
-        .select('whatsapp, nombre, premium_desde, premium_vence, referidos_meses_otorgados')
+        .select('whatsapp, nombre, plan, trial_estado, trial_vence, premium_desde, premium_vence, referidos_meses_otorgados')
         .eq('id', referrerId).single();
       if (errUsr || !referrer) { log.error({ tag: 'REFERIDO', err: errUsr && errUsr.message, referrerId }, 'No se pudo leer al referrer para premiarlo'); return; }
       const ya = referrer.referidos_meses_otorgados || 0;
       const hoy = hoyPeru();
       // Todo en fechas 'YYYY-MM-DD' de Lima; se comparan lexicográfica = cronológicamente.
       const venceActual = referrer.premium_vence ? String(referrer.premium_vence).slice(0, 10) : null;
-      const base = venceActual && venceActual > hoy ? venceActual : hoy;
+      // Un referrer EN TRIAL tiene premium_vence NULL y su Pro vigente vive en trial_vence:
+      // el mes se apila sobre lo que le queda de prueba (como hace activarPro) y el grant lo
+      // sella 'convertido'. Sin el sello, checkTrialExpiry —que no mira premium_vence— lo
+      // bajaba al muro el día 15 y el mes ya anunciado por WhatsApp se evaporaba.
+      const referrerEnTrial = enTrial(referrer);
+      const trialVence = referrerEnTrial && referrer.trial_vence ? String(referrer.trial_vence).slice(0, 10) : null;
+      let base = venceActual && venceActual > hoy ? venceActual : hoy;
+      if (trialVence && trialVence > base) base = trialVence;
       const venceStr = sumarMeses(base, 1);
+      const cambios = { plan: 'premium', premium_desde: referrer.premium_desde || hoy, premium_vence: venceStr, referidos_meses_otorgados: ya + 1 };
+      if (referrerEnTrial) cambios.trial_estado = 'convertido';
       const { data: aplicado, error: errUpd } = await supabase.from('usuarios')
-        .update({ plan: 'premium', premium_desde: referrer.premium_desde || hoy, premium_vence: venceStr, referidos_meses_otorgados: ya + 1 })
+        .update(cambios)
         .eq('id', referrerId).eq('referidos_meses_otorgados', ya)
         .select('id');
       if (errUpd) { log.error({ tag: 'REFERIDO', err: errUpd.message, referrerId }, 'No se pudo otorgar el mes al referrer'); return; }

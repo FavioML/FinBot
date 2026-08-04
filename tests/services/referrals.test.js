@@ -216,6 +216,25 @@ describe('procesarConversionProReferido', () => {
     expect(db.referrer.premium_vence > HOY).toBe(true);
   });
 
+  // Un referrer EN TRIAL tiene plan='premium' + premium_vence NULL: sin mirar el trial,
+  // el mes se calculaba desde hoy (solapado con la prueba que ya tenía gratis) y —peor—
+  // checkTrialExpiry no mira premium_vence, así que el día 15 lo bajaba al muro igual y
+  // el mes anunciado por WhatsApp ("Tu Pro ahora vence: X") se evaporaba en silencio.
+  it('el referrer EN TRIAL apila el mes sobre trial_vence y queda sellado convertido', async () => {
+    const db = montar({ referrer: { plan: 'premium', trial_estado: 'activo', trial_vence: '2099-03-10', premium_vence: null } });
+    await procesarConversionProReferido('u1');
+    expect(db.referrer.premium_vence).toBe('2099-04-10'); // trial_vence + 1 mes, no hoy + 1 mes
+    expect(db.referrer.trial_estado).toBe('convertido');  // fuera del alcance del downgrade d15
+  });
+
+  it('el referrer fuera de trial recibe su mes sin que se le toque trial_estado', async () => {
+    const db = montar({ referrer: { plan: 'free', trial_estado: 'vencido', trial_vence: '2020-01-01' } });
+    await procesarConversionProReferido('u1');
+    expect(db.referrer.premium_vence > HOY).toBe(true);   // base hoy: el trial vencido no manda
+    const upd = escrituras('usuarios')[0];
+    expect('trial_estado' in upd.payload).toBe(false);    // 'vencido' se queda como historia
+  });
+
   // El vencimiento se calcula con sumarMeses (no setMonth): un 31 avanza al último día del
   // mes destino, no desborda al siguiente.
   it('apila sobre el vencimiento vigente respetando fin de mes', async () => {
