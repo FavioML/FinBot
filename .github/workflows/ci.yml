@@ -126,10 +126,11 @@ jobs:
       - run: vercel teams ls --token=$VERCEL_TOKEN
         continue-on-error: true
 
-      # `--scope` explicito. Con la sesion del CLI local el scope sale de su config.json,
-      # que en CI no existe: ahi solo hay un token, y un token personal que accede a un
-      # team necesita que se le diga cual.
-      - run: vercel pull --yes --environment=production --scope=$VERCEL_SCOPE --token=$VERCEL_TOKEN
+      # `vercel pull` NO va, y sacarlo fue el arreglo. Se habia puesto cuando el plan era
+      # `--prebuilt`, donde el runner necesita los settings del proyecto para construir.
+      # Sin `--prebuilt` no aporta nada: Vercel construye del lado suyo con su propia
+      # config. Y era el paso que rompia — `pull` resuelve el USUARIO del token, cosa que
+      # un token con scope de PROYECTO no puede hacer ("Not able to load user... 404").
 
       # Sin `--prebuilt` a proposito. Construir en el runner y subir el artefacto
       # daba la garantia mas fuerte, pero mete una clase de fallo entera —el build
@@ -149,7 +150,7 @@ jobs:
       # despues de agregar ese archivo, la premisa era falsa: borrar vercel.json
       # devuelve el auto-deploy y el plan B es `vercel deploy-hooks create --ref
       # main` + un curl desde este job.
-      - run: vercel deploy --prod --non-interactive --scope=$VERCEL_SCOPE --token=$VERCEL_TOKEN
+      - run: vercel deploy --prod --non-interactive --token=$VERCEL_TOKEN
 
   nlp-agent:
     needs: test
