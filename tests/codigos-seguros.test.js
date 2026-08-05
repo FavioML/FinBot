@@ -2,12 +2,15 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
-const projectRoot = path.resolve(
-  path.dirname(new URL(import.meta.url).pathname).replace(/^\/([A-Za-z]):/, '$1:'),
-  '..',
-);
+// `fileURLToPath` y no el `new URL(...).pathname` + regex que usan los tests vecinos:
+// ese pathname viene percent-encoded, asi que un checkout en una ruta con espacios o
+// acentos mete `%20` en el path y estos tests fallan por I/O, no por el invariante.
+// Hoy no aplica (ni local ni el runner tienen espacios), pero fallar por la razon
+// equivocada es justo lo que hace que un guard no se crea.
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const {
   generarCodigoInvitacion,
@@ -106,7 +109,7 @@ describe('los alfabetos coinciden con los de la webapp', () => {
  * del BACKEND, que es lo que aquel no podia ver.
  */
 describe('ningun secreto del backend sale de Math.random', () => {
-  const RUNTIME = ['handlers', 'lib', 'services', 'routes', 'cron', 'helpers'];
+  const RUNTIME = ['handlers', 'lib', 'services', 'routes', 'cron', 'helpers', 'scripts'];
 
   function archivosJs(dir) {
     const out = [];
@@ -119,11 +122,43 @@ describe('ningun secreto del backend sale de Math.random', () => {
     return out;
   }
 
+  /**
+   * La RAÍZ, no recursiva. La primera versión de este guard listaba solo los seis
+   * subdirectorios y dejaba **10 archivos fuera, entre ellos `gmail.js`** — el archivo
+   * más denso en credenciales del backend (OAuth, refresh tokens, el state HMAC,
+   * `guardarTokens`), que vive en la raíz. O sea que el guard escrito para cerrar
+   * "el alcance del barrido más chico que la superficie del bug" repetía el bug.
+   * Lo encontró el revisor adversarial, no mi verificación.
+   */
+  function archivosRaiz() {
+    return fs.readdirSync(projectRoot, { withFileTypes: true })
+      .filter((e) => e.isFile() && e.name.endsWith('.js'))
+      .map((e) => e.name);
+  }
+
   // SIN \b a proposito. La contraprueba de abajo demuestra que `\bcode\b` NO matchea
   // `genCode`, que es el nombre de la funcion donde estaba el bug original: el guard de la
   // webapp habria pasado verde sobre su propio hallazgo. Se prefieren falsos positivos
   // —se exceptuan con motivo— a falsos negativos, que no se ven nunca.
-  const PALABRAS_DE_SECRETO = /(otp|c[oó]digo|code|token|secret|invit|nonce)/i;
+  //
+  // La lista en español NO es decorativa y la construyó el revisor adversarial con una
+  // sonda: replicó esta misma lógica y le pasó un generador llamado
+  // `generarClaveDeAcceso()` con la variable `clave`. **Pasó verde.** Ninguna palabra de
+  // la versión original (`otp|código|code|token|secret|invit|nonce`) aparece en `clave`,
+  // `llave`, `pin` ni `acceso`, y este repo nombra en español. Peor: `soloCodigo()` borra
+  // los comentarios ANTES de matchear —correcto, para que el guard no se dispare sobre la
+  // prosa que lo explica— así que una función cuyo JSDoc dice "genera el código de
+  // invitación" pero cuyos identificadores dicen `clave` era invisible por partida doble.
+  const PALABRAS_DE_SECRETO =
+    /(otp|c[oó]digo|code|token|secret|invit|nonce|clave|llave|pin\b|acceso|passphrase|\bkey\b)/i;
+
+  /**
+   * El uso de `Math.random` en sus tres formas. `Math\.random\s*\(` solo veía la directa:
+   * el revisor probó que `Math['random']()` y `const rnd = Math.random` (alias, se llama
+   * después) **ni siquiera entraban al barrido** — no es que pasaran el filtro de
+   * palabras, es que el archivo se descartaba antes de mirarlo.
+   */
+  const USO_MATH_RANDOM = /Math\s*(?:\.\s*random|\[\s*['"`]random['"`]\s*\])/g;
 
   /**
    * Excepciones, con su razon. Una excepcion sin razon es un guard apagado.
@@ -146,14 +181,13 @@ describe('ningun secreto del backend sale de Math.random', () => {
       .join('\n');
   }
 
-  const archivos = RUNTIME.flatMap(archivosJs).map((p) => p.replace(/\\/g, '/'));
+  const archivos = [...RUNTIME.flatMap(archivosJs), ...archivosRaiz()].map((p) => p.replace(/\\/g, '/'));
   const sospechosos = [];
-  let conMathRandom = 0;
+  let bytesLeidos = 0;
   for (const rel of archivos) {
     const src = soloCodigo(fs.readFileSync(path.join(projectRoot, rel), 'utf8'));
-    if (!/Math\.random\s*\(/.test(src)) continue;
-    conMathRandom++;
-    for (const m of src.matchAll(/Math\.random\s*\(/g)) {
+    bytesLeidos += src.length;
+    for (const m of src.matchAll(USO_MATH_RANDOM)) {
       const vecindad = src.slice(Math.max(0, m.index - 300), m.index + 200);
       if (PALABRAS_DE_SECRETO.test(vecindad) && !EXENTOS.has(rel)) sospechosos.push(rel);
     }
@@ -163,29 +197,89 @@ describe('ningun secreto del backend sale de Math.random', () => {
     expect(archivos.length).toBeGreaterThan(40);
     expect(archivos).toContain('services/shared-spaces.js');
     expect(archivos).toContain('handlers/intents/metas.js');
-    // Si esto llega a 0, el barrido dejo de mirar nada y pasaria verde para siempre.
-    expect(conMathRandom).toBeGreaterThan(0);
+    // La raiz, que es el hueco que tenia la primera version.
+    expect(archivos).toContain('gmail.js');
+    expect(archivos).toContain('index.js');
+    // Y que ademas LEA los archivos, no solo que los liste.
+    //
+    // Antes esto era `expect(conMathRandom).toBeGreaterThan(0)` y estaba mal de una forma
+    // que solo se ve midiendo: `conMathRandom` valia UNO, y ese unico archivo era
+    // `lib/formatters.js`, que esta EXENTO. O sea que la antivacuidad colgaba de que
+    // `generarRefCode` siguiera usando Math.random — migrarlo a `crypto`, que es
+    // exactamente la mejora que el comentario de EXENTOS deja anotada, tiraba el contador
+    // a 0 y ROMPIA EL BUILD. Un guard que castiga hacer lo que promueve. Contar bytes
+    // mide lo que de verdad importa (esto esta mirando algo?) y no se puede romper
+    // arreglando codigo.
+    expect(bytesLeidos).toBeGreaterThan(200000);
   });
 
   it('ninguno lo usa cerca de algo que funcione como credencial', () => {
     expect([...new Set(sospechosos)], 'Math.random generando un secreto').toEqual([]);
   });
 
+  /**
+   * El barrido completo sobre un fuente arbitrario. Se prueba la MISMA funcion que corre
+   * contra el repo, no una reimplementacion: un detector probado por separado del barrido
+   * es otro sitio donde los dos pueden divergir.
+   */
+  function detecta(src) {
+    const limpio = soloCodigo(src);
+    for (const m of limpio.matchAll(USO_MATH_RANDOM)) {
+      if (PALABRAS_DE_SECRETO.test(limpio.slice(Math.max(0, m.index - 300), m.index + 200))) return true;
+    }
+    return false;
+  }
+
   it('el detector reconoce la forma real del bug (contraprueba)', () => {
-    // Las cuatro son las formas que existieron de verdad en este repo.
+    // Las cuatro primeras existieron de verdad en este repo.
     for (const s of [
       "let inviteCode = ''; for (let i=0;i<8;i++) inviteCode += chars[Math.floor(Math.random()*chars.length)];",
       'function generarCodigoInvitacion() { let code = Math.random(); }',
       'function genCode(){ const n = Math.floor(100000 + Math.random()*900000); return `NETO-${n}`; }',
       'const token = Math.random().toString(36).substring(2, 8);',
+      // Las cinco que siguen son las que el revisor adversarial probo que PASABAN VERDE
+      // con la primera version. Cada una es un modo de evasion distinto:
+      //
+      // 1-3: identificadores en espanol. Este repo nombra asi, y ninguna palabra de la
+      // lista original (otp|codigo|code|token|secret|invit|nonce) aparece en `clave`,
+      // `llave` ni `pin`. La mas realista de todas es la primera.
+      "function generarClaveDeAcceso() { let clave = ''; for (let i=0;i<8;i++) clave += L[Math.floor(Math.random()*L.length)]; return clave; }",
+      "function nuevaLlave() { return Math.random().toString(36).slice(2); }",
+      'const pin = String(Math.floor(Math.random() * 1000000)).padStart(6, "0");',
+      // 4-5: el uso de Math.random escrito de otra forma. Estas no es que pasaran el
+      // filtro de palabras: el archivo se descartaba ANTES de mirarlo, porque
+      // `Math\.random\s*\(` no las ve.
+      "const codigo = Math['random']().toString(36).slice(2, 10);",
+      'const rnd = Math.random; const token = rnd().toString(36);',
     ]) {
-      const m = s.match(/Math\.random\s*\(/);
-      expect(PALABRAS_DE_SECRETO.test(s.slice(Math.max(0, m.index - 300), m.index + 200)), s).toBe(true);
+      expect(detecta(s), 'deberia detectarse: ' + s).toBe(true);
     }
   });
 
   it('no marca los usos legitimos', () => {
-    expect(PALABRAS_DE_SECRETO.test('const delay = Math.random() * 200; // stagger')).toBe(false);
-    expect(PALABRAS_DE_SECRETO.test('const monto = Math.round(Math.random() * 500);')).toBe(false);
+    expect(detecta('const delay = Math.random() * 200;')).toBe(false);
+    expect(detecta('const monto = Math.round(Math.random() * 500);')).toBe(false);
+    expect(detecta('const jitter = base + Math.random() * 1000;')).toBe(false);
+  });
+
+  /**
+   * El comentario que EXPLICA la decision no puede romper el build, pero tampoco puede
+   * ESCONDER un generador: `soloCodigo` borra los comentarios antes de matchear, asi que
+   * una funcion con JSDoc que dice "genera el codigo de invitacion" pero identificadores
+   * que dicen `clave` quedaba invisible por partida doble. Con las palabras en espanol en
+   * la lista, el codigo se delata solo y el JSDoc ya no importa.
+   */
+  it('un generador documentado en prosa pero nombrado en espanol NO se escapa', () => {
+    const src = [
+      '/** Genera el codigo de invitacion al espacio compartido. */',
+      "function generarClaveDeAcceso() {",
+      "  let clave = '';",
+      '  for (let i = 0; i < 8; i++) clave += L[Math.floor(Math.random() * L.length)];',
+      '  return clave;',
+      '}',
+    ].join('\n');
+    expect(detecta(src)).toBe(true);
+    // Y el comentario solo sigue sin alcanzar para disparar el guard.
+    expect(detecta('// no usamos Math.random para el codigo, ver lib/codigos-seguros')).toBe(false);
   });
 });

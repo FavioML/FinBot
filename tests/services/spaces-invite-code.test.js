@@ -1,12 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createRequire } from 'module';
+import { fileURLToPath } from 'node:url';
 import path from 'path';
 
 const require = createRequire(import.meta.url);
-const projectRoot = path.resolve(
-  path.dirname(new URL(import.meta.url).pathname).replace(/^\/([A-Za-z]):/, '$1:'),
-  '../..',
-);
+// Ver la nota en tests/codigos-seguros.test.js sobre por que no se usa el pathname crudo.
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 /**
  * El wiring de `crearEspacio`, que es lo unico que ni el barrido estatico ni el unit del

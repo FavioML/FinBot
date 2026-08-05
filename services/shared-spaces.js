@@ -133,11 +133,42 @@ async function crearEspacio(userId, name, type = 'custom') {
  * @returns {{ space, member }}
  */
 async function unirseEspacio(userId, inviteCode) {
-  const { data: space, error: eSpace } = await supabase.from('shared_spaces')
-    .select('*')
-    .eq('invite_code', inviteCode)
-    .single();
-  if (eSpace || !space) return null;
+  // Búsqueda exacta primero y, si no hay nada, un segundo intento en MAYÚSCULAS.
+  //
+  // Las dos vueltas hacen falta y ninguna sobra. Desde que los códigos nuevos salen de
+  // `ALFABETO_ESPACIO` (mayúsculas), la case-sensitivity dejó de distinguir nada y solo
+  // pierde joins: el código llega dictado por teléfono o tipeado a mano —`datos.codigo`
+  // lo extrae el LLM del mensaje— y "kq7wx2mh" devolvía "No encontré un espacio con ese
+  // código", sin pista de que era cuestión de mayúsculas. La webapp normaliza desde
+  // siempre (`api/spaces/join`), así que este era el outlier del propio repo: el OTP
+  // (`webhook.js:438`) matchea con flag `i` y el ref_code (`:542`) hace `toUpperCase()`.
+  //
+  // Y por qué NO se reemplaza por un `toUpperCase()` a secas: los códigos emitidos antes
+  // del cambio de alfabeto son mixtos y hay al menos uno vivo con minúscula. Upcasear la
+  // entrada de entrada lo volvería inalcanzable también por WhatsApp —hoy es el único
+  // canal donde funciona— e invalidaría un link que alguien puede tener repartido. El
+  // exacto-primero conserva el legacy; el reintento arregla los nuevos.
+  const intentos = [inviteCode];
+  const enMayusculas = String(inviteCode || '').toUpperCase();
+  if (enMayusculas !== inviteCode) intentos.push(enMayusculas);
+
+  let space = null;
+  for (const code of intentos) {
+    const { data, error } = await supabase.from('shared_spaces')
+      .select('*')
+      .eq('invite_code', code)
+      .maybeSingle();
+    // `maybeSingle` y no `single`: con `single`, "no hay fila" llega como error PGRST116
+    // y el código viejo (`if (eSpace || !space) return null`) lo colapsaba con un fallo
+    // de lectura real. Eso le dice al usuario "tu código es inválido" cuando lo que se
+    // rompió fue la consulta. Es la clase `error-no-leido` de docs/DEFECTOS.md.
+    if (error) {
+      log.error({ tag: 'ESPACIO_JOIN', err: error.message }, 'No se pudo buscar el espacio por código');
+      throw new Error('No se pudo buscar el espacio: ' + error.message);
+    }
+    if (data) { space = data; break; }
+  }
+  if (!space) return null;
 
   // Check if already a member. PGRST116 = no encontró fila, que es el caso normal.
   const { data: existing, error: eExisting } = await supabase.from('space_members')
