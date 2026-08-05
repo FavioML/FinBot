@@ -27,6 +27,7 @@ Una memoria no es un control. Un control es algo que corre y falla.
 | `efecto-lateral-al-deduplicar` | unifiqué dos caminos que *decían* lo mismo sin mirar qué *hacían* además |
 | `consumidor-no-actualizado` | agregué estado nuevo y no actualicé a todos los que lo leen o lo copian |
 | `error-no-leido` | supabase-js no lanza; sin leer `{error}` un fallo se lee como "no había nada" |
+| `barrido-de-un-solo-arbol` | escribí el guard que cierra un hallazgo mirando solo el repo donde lo encontré, cuando el mismo hallazgo vive en los dos canales |
 
 ## Registro
 
@@ -38,6 +39,7 @@ Una memoria no es un control. Un control es algo que corre y falla.
 | 2026-08-03 | Harness que dejaba filas en prod si el proceso muere sin `finally` | `camino-feliz-unico` | barrido posterior de Favio | No | preclean por marcador al inicio |
 | 2026-08-04 | `/premium` delegado al intent arrastró `solicitarComprobante`: 48h en que la foto de un gasto se rechaza sin registrarlo, justo al usuario del muro | `efecto-lateral-al-deduplicar` | **pregunta de Favio**, no mi verificación (685 tests + E2E del muro 35/35 + 3 curls estaban verdes) | No | `tests/handlers/premium-comando-sin-comprobante.test.js` (10 casos, guard probado fallando) |
 | 2026-08-04 | Los tres fixes de la Ola 1 declarados "listos" con la rama de error / el camino real sin ejercitar (B1, B5, M8) | `camino-feliz-unico` | **pregunta de Favio** | No | `gmail-guardar-tokens-errores.test.js`, `qa-referido-premio-trial.mjs` (al canary), `plan-limites-paridad.test.js` |
+| 2026-08-05 | Declaré S4 cerrado con el backend todavía emitiendo los MISMOS dos códigos de invitación desde `Math.random()`. El guard que escribí para cerrarlo barre `webapp/src`, así que no podía verlos, y el ledger decía "las 4 pasan por lib/codigos-seguros" cuando eran las 4 **de la webapp** | `barrido-de-un-solo-arbol` | re-verificación del ledger contra el código a pedido de Favio; ninguna suite lo agarró (818+159 verdes) | No | `tests/codigos-seguros.test.js` (barrido del runtime backend) + `tests/services/spaces-invite-code.test.js` (que el helper se ESCRIBA), los dos probados por mutación |
 
 ## Defectos ajenos que enseñan lo mismo (no cuentan como míos, pero la clase sí)
 
