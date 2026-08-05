@@ -94,6 +94,9 @@ jobs:
       VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      # El slug del scope, que NO es el orgId. Sale del `vercel ls` local:
+      # "Fetching deployments in faviomendoza27jl-5408s-projects".
+      VERCEL_SCOPE: faviomendoza27jl-5408s-projects
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -113,7 +116,20 @@ jobs:
       # escribe un `vercel.json` con `experimentalServices` mas un project.json
       # con `framework: "services"`. No toca la config del proyecto en Vercel
       # (verificado), pero el build local queda basura.
-      - run: vercel pull --yes --environment=production --token=$VERCEL_TOKEN
+      # Diagnostico, no ceremonia: la primera corrida fallo con "Could not retrieve
+      # Project Settings" pese a que los dos IDs llegaron bien (se ven en el log). Eso deja
+      # dos sospechosos —el alcance del token y la version del CLI, que en el runner es 58.x
+      # contra la 53.x donde esto se verifico a mano— y sin estos dos pasos hay que adivinar
+      # cual. `continue-on-error` para que se vean AUNQUE fallen.
+      - run: vercel whoami --token=$VERCEL_TOKEN
+        continue-on-error: true
+      - run: vercel teams ls --token=$VERCEL_TOKEN
+        continue-on-error: true
+
+      # `--scope` explicito. Con la sesion del CLI local el scope sale de su config.json,
+      # que en CI no existe: ahi solo hay un token, y un token personal que accede a un
+      # team necesita que se le diga cual.
+      - run: vercel pull --yes --environment=production --scope=$VERCEL_SCOPE --token=$VERCEL_TOKEN
 
       # Sin `--prebuilt` a proposito. Construir en el runner y subir el artefacto
       # daba la garantia mas fuerte, pero mete una clase de fallo entera —el build
@@ -133,7 +149,7 @@ jobs:
       # despues de agregar ese archivo, la premisa era falsa: borrar vercel.json
       # devuelve el auto-deploy y el plan B es `vercel deploy-hooks create --ref
       # main` + un curl desde este job.
-      - run: vercel deploy --prod --non-interactive --token=$VERCEL_TOKEN
+      - run: vercel deploy --prod --non-interactive --scope=$VERCEL_SCOPE --token=$VERCEL_TOKEN
 
   nlp-agent:
     needs: test
