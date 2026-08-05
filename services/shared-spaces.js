@@ -1,5 +1,6 @@
 const { supabase } = require('../lib/db');
 const { notificarUsuario, CANALES } = require('../lib/notify-user');
+const { generarCodigoInvitacion, ALFABETO_ESPACIO } = require('../lib/codigos-seguros');
 const log = require('../lib/logger');
 const {
   buildSplitSnapshot,
@@ -88,13 +89,12 @@ async function obtenerContextoSplit(spaceId) {
 }
 
 /**
- * Generate a random 8-char invite code (alphanumeric, no ambiguous chars).
+ * Codigo de invitacion de 8 chars. Sale de `lib/codigos-seguros`, que documenta por que
+ * NO puede venir de `Math.random()` (es la credencial que da acceso a las finanzas
+ * compartidas de otro) y por que el alfabeto pasa a mayusculas.
  */
-function generarCodigoInvitacion() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
-  let code = '';
-  for (let i = 0; i < 8; i++) code += chars[Math.floor(Math.random() * chars.length)];
-  return code;
+function generarCodigoEspacio() {
+  return generarCodigoInvitacion(ALFABETO_ESPACIO, 8);
 }
 
 /**
@@ -105,7 +105,7 @@ function generarCodigoInvitacion() {
  * @returns {object} the created space
  */
 async function crearEspacio(userId, name, type = 'custom') {
-  const inviteCode = generarCodigoInvitacion();
+  const inviteCode = generarCodigoEspacio();
 
   const { data: space, error } = await supabase.from('shared_spaces').insert({
     name,

@@ -1,4 +1,5 @@
 const log = require('../../lib/logger');
+const { generarCodigoInvitacion, ALFABETO_META } = require('../../lib/codigos-seguros');
 
 module.exports = {
   intents: ['ver_metas', 'crear_meta', 'editar_meta', 'eliminar_meta', 'abonar_meta', 'compartir_meta', 'viabilidad_plan', 'abandonar_plan', 'sugerir_recortes'],
@@ -208,9 +209,9 @@ module.exports = {
           // Generate invite code if not exists
           let inviteCode = targetMeta.invite_code;
           if (!inviteCode) {
-            const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
-            inviteCode = '';
-            for (let i = 0; i < 8; i++) inviteCode += chars[Math.floor(Math.random() * chars.length)];
+            // Fuente criptografica: el codigo ES la credencial para entrar a la meta de
+            // otro. Salia de Math.random(), igual que el espejo de la webapp antes de S4.
+            inviteCode = generarCodigoInvitacion(ALFABETO_META, 8);
             await supabase.from('metas_ahorro').update({ invite_code: inviteCode, colaborativa: true }).eq('id', targetMeta.id);
             // Ensure creator is in meta_participantes
             await supabase.from('meta_participantes').upsert({ meta_id: targetMeta.id, usuario_id: usuario.id, rol: 'creador' }, { onConflict: 'meta_id,usuario_id' });
