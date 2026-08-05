@@ -67,6 +67,74 @@ jobs:
       - run: npx tsc --noEmit
       - run: npm run test
 
+  # ESTE job es el gate del deploy de la webapp, y solo funciona junto con
+  # `webapp/vercel.json`, que apaga el auto-deploy de `main` de la integracion de
+  # Git. Sin ese archivo, Vercel despliega por su cuenta apenas entra el push y
+  # este job es decorativo: los checks de Actions no frenan un deploy de Vercel.
+  #
+  # Por que este camino y no un "Ignored Build Step": el ignoreCommand arranca
+  # segundos despues del push, cuando Actions todavia esta corriendo, asi que
+  # tendria que POLLEAR la API de GitHub desde el contenedor de build. Y no hay
+  # buena respuesta para "y si la API no contesta": fallar cerrado convierte un
+  # blip de GitHub en un deploy que Vercel marca "skipped" sin avisarle a nadie,
+  # y fallar abierto devuelve el hueco. Aca el orden lo da `needs`, que no puede
+  # fallar en silencio: si algo se rompe, el job queda ROJO y se ve.
+  #
+  # `needs` incluye el backend a proposito. La suite del backend roja significa
+  # que `main` esta roto, y desplegar la webapp desde un main roto es desplegar
+  # desde un estado que ya sabemos malo. Ojo con lo que esto NO cubre: Railway
+  # sigue desplegando el backend sin gate. Es un hueco conocido y aparte.
+  deploy-webapp:
+    needs: [test, webapp]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      # IDs, no credenciales: viven como repo variables, no como secrets. Salieron
+      # de `webapp/.vercel/project.json`, que esta gitignoreado.
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm i -g vercel@latest
+
+      # Se corre desde la RAIZ del repo, no desde `webapp/`, y esto se verifico a
+      # mano el 05-ago-2026 porque la intuicion es al reves. El proyecto tiene
+      # `rootDirectory: "webapp"` en Vercel, y el CLI lo aplica RELATIVO AL CWD:
+      # desde `webapp/` sale a buscar `webapp/webapp/package.json` y explota. La
+      # integracion de Git clona la raiz y aplica rootDirectory sobre eso; esto
+      # hace lo mismo.
+      #
+      # Los dos IDs tienen que estar en el entorno ANTES del pull. Sin ellos el
+      # CLI no reconoce el proyecto desde la raiz, infiere que no hay framework y
+      # escribe un `vercel.json` con `experimentalServices` mas un project.json
+      # con `framework: "services"`. No toca la config del proyecto en Vercel
+      # (verificado), pero el build local queda basura.
+      - run: vercel pull --yes --environment=production --token=$VERCEL_TOKEN
+
+      # Sin `--prebuilt` a proposito. Construir en el runner y subir el artefacto
+      # daba la garantia mas fuerte, pero mete una clase de fallo entera —el build
+      # del runner tiene que coincidir con el de Vercel— a cambio de poco: lo que
+      # importa es que a produccion llegue el COMMIT que paso los tests, y eso ya
+      # lo garantiza `needs`. Asi Vercel construye igual que hoy, con su Node 24,
+      # su cache y sus env vars, y este job solo decide CUANDO y SI.
+      #
+      # `--non-interactive` es cinturon: con los IDs en el entorno no deberia
+      # preguntar nada, pero un prompt en CI se cuelga hasta el timeout en vez de
+      # fallar, y un job colgado no se lee como un job roto.
+      #
+      # Nota para el yo del futuro: `git.deploymentEnabled` (webapp/vercel.json)
+      # gobierna el TRIGGER de Git, no los deploys explicitos del CLI — la doc de
+      # Vercel lo describe como "automatic Git deployments" / "prevent any branch
+      # from TRIGGERING a deployment". Si aun asi este paso empieza a fallar justo
+      # despues de agregar ese archivo, la premisa era falsa: borrar vercel.json
+      # devuelve el auto-deploy y el plan B es `vercel deploy-hooks create --ref
+      # main` + un curl desde este job.
+      - run: vercel deploy --prod --non-interactive --token=$VERCEL_TOKEN
+
   nlp-agent:
     needs: test
     # STANDBY 2026-07-14: NLP Agent pausado mientras iteramos cambios seguidos
