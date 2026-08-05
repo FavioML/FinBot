@@ -130,6 +130,7 @@ descubrirlo desde cero. Si agregás uno que no va al canary, agregá su fila.
 | `qa-join-check.mjs` | Los links de invitación colaborativa (`/join/meta/[code]`, `/join/deuda/[code]`) renderizan para un invitado SIN sesión (contexto sin cookies) | Al tocar metas/deudas compartidas o las páginas públicas de join |
 | `qa-toggles.mjs` | Round-trip de `/api/notifications` por plan: `recordatorios_activos` y `alertas_transaccion` persisten lo que se les manda, y si el gating de Pro existe también del lado del servidor y no solo en la UI | Al tocar preferencias de notificación |
 | `probe-reporte-gmail.mjs` | Con el webhook y el NLP REALES: el copy del modo de reporte respeta la regla de UNA cuenta de Gmail por usuario, aun con historial adverso sembrado que empuja a "agregar otra cuenta" | Al tocar el copy de Gmail o el ruteo de ese intent |
+| `qa-unlink-overlap.mjs` | El botón "Cambiar" de Cuentas conectadas no queda tapado por los FAB flotantes en 390px. Mide intersección de rects, y antes scrollea a propósito para llevar el botón a la banda del FAB: en la posición natural no se tocan, así que probarlo ahí no prueba nada. Read-only (el único POST es el grant de auth) | Al tocar los FAB, el shell del dashboard o la sección Cuentas conectadas |
 
 **`shot-*.mjs` / `*-shot.mjs` son one-offs, y no se commitean.** Capturan una
 pantalla para un sprint concreto (un rediseño, un banner nuevo, una tarjeta
