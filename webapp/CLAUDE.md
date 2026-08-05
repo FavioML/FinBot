@@ -261,7 +261,13 @@ motor que cobra), nunca de una fórmula aparte, y la paridad TS↔CJS la cubre
 - Tokens en `globals.css` via `@theme` (Tailwind v4)
 
 ## Deploy
-- Vercel: auto-deploy on push, app.neto.pe + neto-app.vercel.app
+- Vercel: **el auto-deploy de `main` esta APAGADO** (`webapp/vercel.json`,
+  `git.deploymentEnabled.main = false`). La webapp llega a produccion por un solo
+  camino: el job `deploy-webapp` de `.github/workflows/ci.yml`, que corre despues de
+  `needs: [test, webapp]`. Un tsc o un test rojo = no hay deploy.
+  Probado el 05-ago-2026 rompiendo `estaEnMuro` a proposito: `webapp` rojo,
+  `deploy-webapp` skipped, produccion sirviendo todavia el commit anterior.
+  Los previews de PR siguen funcionando por la integracion de Git.
 - Env vars en Vercel: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, OPENAI_API_KEY
 
 ## Gotchas

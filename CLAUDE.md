@@ -64,7 +64,9 @@ Los tests de paridad (`tests/services/spaces-split-parity.test.js`) si importan 
 - Supabase: RLS activo en todas las tablas (varias con deny-all a proposito, ver migr 033). El
   conteo de tablas no se escribe aca: decia 11 cuando ya eran 37
 - Vercel: webapp app.neto.pe con Google OAuth
-- CI/CD: GitHub Actions (test en push/PR, Node 20)
+- CI/CD: GitHub Actions. `test` (backend, Node 20 = el piso que declara `engines.node`),
+  `webapp` (tsc + tests, Node 24 = el que usa Vercel) y `deploy-webapp`, que **gatea el
+  deploy**: Vercel ya no despliega `main` por su cuenta. Ver `webapp/CLAUDE.md`
 - Tests: vitest, backend en la raiz (`npm test`) + webapp (`npm --prefix webapp run test`). El
   numero exacto NO va escrito: decia 292 cuando ya eran cientos mas, y un conteo desactualizado
   en un CLAUDE.md es peor que ninguno — la siguiente sesion lo lee como verdad
