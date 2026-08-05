@@ -94,9 +94,6 @@ jobs:
       VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      # El slug del scope, que NO es el orgId. Sale del `vercel ls` local:
-      # "Fetching deployments in faviomendoza27jl-5408s-projects".
-      VERCEL_SCOPE: faviomendoza27jl-5408s-projects
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -116,16 +113,6 @@ jobs:
       # escribe un `vercel.json` con `experimentalServices` mas un project.json
       # con `framework: "services"`. No toca la config del proyecto en Vercel
       # (verificado), pero el build local queda basura.
-      # Diagnostico, no ceremonia: la primera corrida fallo con "Could not retrieve
-      # Project Settings" pese a que los dos IDs llegaron bien (se ven en el log). Eso deja
-      # dos sospechosos —el alcance del token y la version del CLI, que en el runner es 58.x
-      # contra la 53.x donde esto se verifico a mano— y sin estos dos pasos hay que adivinar
-      # cual. `continue-on-error` para que se vean AUNQUE fallen.
-      - run: vercel whoami --token=$VERCEL_TOKEN
-        continue-on-error: true
-      - run: vercel teams ls --token=$VERCEL_TOKEN
-        continue-on-error: true
-
       # `vercel pull` NO va, y sacarlo fue el arreglo. Se habia puesto cuando el plan era
       # `--prebuilt`, donde el runner necesita los settings del proyecto para construir.
       # Sin `--prebuilt` no aporta nada: Vercel construye del lado suyo con su propia
