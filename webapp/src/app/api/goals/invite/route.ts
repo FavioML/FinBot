@@ -1,14 +1,12 @@
 import { getServiceClient } from '@/lib/supabase/service';
 import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
+import { generarCodigoInvitacion } from '@/lib/codigos-seguros';
 
+const ALFABETO_INVITE = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
 function generateInviteCode(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
-  let code = '';
-  for (let i = 0; i < 8; i++) {
-    code += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return code;
+  // Fuente criptográfica: el código ES la credencial para entrar a la meta de otro.
+  return generarCodigoInvitacion(ALFABETO_INVITE, 8);
 }
 
 // POST /api/goals/invite — generate invite link for a goal

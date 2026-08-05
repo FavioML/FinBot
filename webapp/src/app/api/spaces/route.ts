@@ -1,6 +1,7 @@
 import { getServiceClient } from '@/lib/supabase/service';
 import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
+import { generarCodigoInvitacion, ALFABETO_ESPACIO } from '@/lib/codigos-seguros';
 
 export async function GET() {
   const auth = await requireNetoUser('id, plan');
@@ -41,7 +42,10 @@ export async function POST(request: Request) {
     }
   }
 
-  const invite_code = Math.random().toString(36).slice(2, 9).toUpperCase();
+  // Fuente criptográfica: el invite_code ES la credencial para entrar al espacio de otro.
+  // Antes salía de `Math.random().toString(36).slice(2,9)`, que además podía devolver menos
+  // de 7 chars cuando el float caía corto. Mismo alfabeto que el otro generador de espacios.
+  const invite_code = generarCodigoInvitacion(ALFABETO_ESPACIO, 8);
 
   const { data: space, error } = await getServiceClient()
     .from('shared_spaces')

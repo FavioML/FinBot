@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { buildSplitSnapshot, type SplitSnapshot } from '@/lib/spaces-split';
 import { IS_DEMO } from '@/lib/demo/is-demo';
 import { DEMO_SPACES, DEMO_SPACE_DETAIL, DEMO_SPACE_DETAIL_MAP, DEMO_USER_ID } from '@/lib/demo/mock-data';
+import { generarCodigoInvitacion, ALFABETO_ESPACIO } from '@/lib/codigos-seguros';
 
 export interface SharedSpace {
   id: string;
@@ -279,10 +280,8 @@ export function useJoinSpace() {
 }
 
 function generateCode(): string {
-  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-  let code = '';
-  for (let i = 0; i < 8; i++) code += chars[Math.floor(Math.random() * chars.length)];
-  return code;
+  // Fuente criptográfica: el código ES la credencial para entrar al espacio de otro.
+  return generarCodigoInvitacion(ALFABETO_ESPACIO, 8);
 }
 
 export function useCreateSpace() {

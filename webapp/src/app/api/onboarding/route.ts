@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
+import { generarCodigoOtp } from '@/lib/codigos-seguros';
 
 // Reverse-OTP: verificamos posesion del numero ANTES de vincular la cuenta Google
 // con un registro de usuario. El endpoint ya NO vincula/crea usuarios directamente
@@ -13,10 +14,9 @@ import { NextResponse } from 'next/server';
 const OTP_TTL_MIN = 15;
 const BOT_WA = '51933014505';
 
-function genCode(): string {
-  const n = Math.floor(100000 + Math.random() * 900000);
-  return `NETO-${n}`;
-}
+// El código sale de `lib/codigos-seguros`, que documenta por qué NO puede venir de Math.random()
+// y tiene su test. Acá quedaría sin poder testearse: los `route.ts` solo exportan handlers.
+const genCode = generarCodigoOtp;
 
 export async function POST(request: Request) {
   const supabase = await createClient();
