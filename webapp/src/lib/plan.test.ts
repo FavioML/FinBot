@@ -69,8 +69,55 @@ describe('enTrial y esProPagado nunca son verdaderos a la vez', () => {
   });
 
   it('y el que está en el muro nunca está en trial', () => {
-    for (const u of estados) {
-      if (estaEnMuro(u.plan)) expect(enTrial(u.plan, u.trial_estado)).toBe(false);
+    // Ojo con la forma de esta aserción: es una IMPLICACIÓN, así que se cumple por
+    // vacuidad si `estaEnMuro` devuelve false para todos. Se descubrió el 2026-08-05
+    // rompiendo `estaEnMuro` a propósito para probar el gate del deploy: devolvía
+    // `false` siempre y los 159 tests seguían verdes. Por eso abajo va el describe que
+    // la mide de frente, y por eso acá se afirma primero que el barrido no es vacío.
+    const enMuro = estados.filter((u) => estaEnMuro(u.plan));
+    expect(enMuro.length, 'ningún fixture cae en el muro: la implicación sería vacía')
+      .toBeGreaterThan(0);
+    for (const u of enMuro) expect(enTrial(u.plan, u.trial_estado)).toBe(false);
+  });
+});
+
+/**
+ * `estaEnMuro` de frente, y no dentro de una implicación.
+ *
+ * Es el predicado más caro de la webapp: su único consumidor es
+ * `dashboard-shell.tsx:141` (`if (usuario && estaEnMuro(usuario.plan)) return <Paywall />`),
+ * o sea que si miente, el dashboard entero —historial, reportes, todo lo que se cobra—
+ * queda abierto para el que no paga. Hasta hoy no tenía un solo test directo: `tsc` no lo
+ * ve (la firma no cambia) y la única aserción que lo mencionaba pasaba por vacuidad.
+ */
+describe('estaEnMuro: el paywall del dashboard cuelga de esto', () => {
+  it('el del muro está en el muro', () => {
+    expect(estaEnMuro('free')).toBe(true);
+  });
+
+  it('el Pro pagado NO', () => {
+    expect(estaEnMuro('premium')).toBe(false);
+  });
+
+  it('el que está en trial tampoco: el trial entrega Pro completo', () => {
+    expect(estaEnMuro(PROBANDO.plan)).toBe(false);
+  });
+
+  /**
+   * Fail-closed. `undefined` llega cuando el fetch del usuario todavía no resolvió o la
+   * fila vino incompleta; ante la duda se cobra, no se regala. Es el complemento exacto
+   * del entitlement (`plan === 'premium'`), que es lo que lo hace imposible de
+   * desincronizar con el backend.
+   */
+  it('sin plan, se asume muro (fail-closed)', () => {
+    expect(estaEnMuro(undefined)).toBe(true);
+    expect(estaEnMuro('')).toBe(true);
+    expect(estaEnMuro('cualquier-cosa')).toBe(true);
+  });
+
+  it('es el complemento exacto del entitlement Pro, para los dos valores del tipo', () => {
+    for (const plan of ['free', 'premium'] as const) {
+      expect(estaEnMuro(plan)).toBe(plan !== 'premium');
     }
   });
 });
