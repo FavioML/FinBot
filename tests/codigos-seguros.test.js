@@ -117,7 +117,12 @@ describe('ningun secreto del backend sale de Math.random', () => {
     if (!fs.existsSync(abs)) return out;
     for (const e of fs.readdirSync(abs, { withFileTypes: true })) {
       if (e.isDirectory()) out.push(...archivosJs(path.join(dir, e.name)));
-      else if (e.name.endsWith('.js')) out.push(path.join(dir, e.name));
+      // `.mjs`/`.cjs` tambien: ampliar el alcance de directorios y dejar el filtro de
+      // extension sin revisar es la misma clase de hueco en version chica
+      // (`scripts/backup/*.mjs` quedaba fuera). `qa-e2e/` sigue afuera a proposito: son
+      // harness que corren a mano, y varios generan invite codes de fixture con
+      // Math.random, que ahi es aceptable.
+      else if (/\.(js|mjs|cjs)$/.test(e.name)) out.push(path.join(dir, e.name));
     }
     return out;
   }
@@ -132,7 +137,7 @@ describe('ningun secreto del backend sale de Math.random', () => {
    */
   function archivosRaiz() {
     return fs.readdirSync(projectRoot, { withFileTypes: true })
-      .filter((e) => e.isFile() && e.name.endsWith('.js'))
+      .filter((e) => e.isFile() && /\.(js|mjs|cjs)$/.test(e.name))
       .map((e) => e.name);
   }
 
@@ -149,8 +154,21 @@ describe('ningun secreto del backend sale de Math.random', () => {
   // los comentarios ANTES de matchear —correcto, para que el guard no se dispare sobre la
   // prosa que lo explica— así que una función cuyo JSDoc dice "genera el código de
   // invitación" pero cuyos identificadores dicen `clave` era invisible por partida doble.
+  //
+  // Segunda vuelta del revisor: faltaba `password` y —peor, porque la tesis entera era
+  // "este repo nombra en español"— `contraseña`. Y `pin\b` sin boundary inicial matchea
+  // dentro de `spin`, `copin` y cualquier palabra terminada en pin: eso no es una decisión
+  // de política, es un error.
+  //
+  // `\bkey\b` salió y lo reemplazan las formas con prefijo. No por miedo al falso
+  // positivo en abstracto —la política declarada es preferirlos— sino porque acá la
+  // exención es POR ARCHIVO: un `const key = usuario.id` a seis líneas de un jitter
+  // legítimo te obliga a meter el archivo entero en EXENTOS, o sea a cegar el barrido
+  // sobre él para siempre. Un falso positivo que se paga con cobertura no es barato.
+  // `key` suelto en JS es abrumadoramente una clave de mapa o de cache; las que importan
+  // llevan prefijo, y `secret` ya cubre buena parte.
   const PALABRAS_DE_SECRETO =
-    /(otp|c[oó]digo|code|token|secret|invit|nonce|clave|llave|pin\b|acceso|passphrase|\bkey\b)/i;
+    /(otp|c[oó]digo|code|token|secret|invit|nonce|clave|llave|\bpin\b|acceso|passphrase|password|contrase[nñ]a|\bpass\b|(?:api|priv|private|secret|access|refresh|encryption|signing)[-_]?key)/i;
 
   /**
    * El uso de `Math.random` en sus tres formas. `Math\.random\s*\(` solo veía la directa:
@@ -158,7 +176,11 @@ describe('ningun secreto del backend sale de Math.random', () => {
    * después) **ni siquiera entraban al barrido** — no es que pasaran el filtro de
    * palabras, es que el archivo se descartaba antes de mirarlo.
    */
-  const USO_MATH_RANDOM = /Math\s*(?:\.\s*random|\[\s*['"`]random['"`]\s*\])/g;
+  // El destructuring lo agregó la segunda vuelta: `const { random } = Math` no contiene la
+  // subcadena `Math.random`, así que el archivo se descartaba antes de mirarlo. El alias
+  // `const rnd = Math.random` se detectaba de casualidad, porque esa subcadena sí está.
+  const USO_MATH_RANDOM =
+    /Math\s*(?:\.\s*random|\[\s*['"`]random['"`]\s*\])|\{\s*random\s*(?::\s*\w+\s*)?\}\s*=\s*Math\b/g;
 
   /**
    * Excepciones, con su razon. Una excepcion sin razon es un guard apagado.
@@ -172,12 +194,31 @@ describe('ningun secreto del backend sale de Math.random', () => {
    */
   const EXENTOS = new Set(['lib/formatters.js']);
 
-  /** El comentario que EXPLICA por que no se usa Math.random menciona Math.random. */
+  /**
+   * Quita comentarios: el que EXPLICA por que no se usa Math.random menciona Math.random,
+   * y no puede romper el build sobre si mismo.
+   *
+   * El `//` exige principio de linea o un espacio delante, y NO es un detalle de estilo.
+   * La version anterior usaba `/\/\/.*$/` a secas, y **toda URL literal contiene `//`**:
+   *
+   *   entrada: const link = 'https://app.neto.pe/join/meta/' + inviteCode;
+   *   salida  : const link = 'https:
+   *
+   * O sea que `inviteCode` desaparecia del texto barrido, y cualquier `Math.random()`
+   * escrito a la derecha de una URL quedaba invisible — en los dos archivos que este
+   * guard existe para proteger, que estan llenos de esas lineas. Es exactamente la clase
+   * de agujero que el guard vino a cerrar, sobreviviendo DENTRO del guard. Lo encontro la
+   * segunda revision adversarial; mi mutacion no lo toco porque puse el generador en una
+   * linea sin URL.
+   *
+   * Con el espacio exigido, `'https://x'` se conserva (el `//` viene despues de `:`) y
+   * `foo(); // comentario` se sigue cortando.
+   */
   function soloCodigo(src) {
     return src
       .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
       .split('\n')
-      .map((l) => l.replace(/\/\/.*$/, ''))
+      .map((l) => l.replace(/(^|\s)\/\/.*$/, '$1'))
       .join('\n');
   }
 
@@ -251,9 +292,47 @@ describe('ningun secreto del backend sale de Math.random', () => {
       // `Math\.random\s*\(` no las ve.
       "const codigo = Math['random']().toString(36).slice(2, 10);",
       'const rnd = Math.random; const token = rnd().toString(36);',
+      // Y estas las trajo la SEGUNDA vuelta del revisor, sobre el arreglo de las de arriba.
+      //
+      // La primera es la que mas duele: toda URL literal lleva `//`, y `soloCodigo` cortaba
+      // la linea ahi. En los dos archivos que este guard protege hay lineas asi
+      // (`'https://app.neto.pe/join/meta/' + inviteCode`), o sea que el agujero estaba
+      // justo donde mas importaba.
+      "const inviteCode = 'https://app.neto.pe/join/space/' + Math.random().toString(36).slice(2, 10);",
+      "const re = /a\\/\\/b/; const codigo = Math.random().toString(36);",
+      // Faltaban en el regex: `password` y, contra la tesis del commit anterior, la palabra
+      // espanola `contrasena`.
+      "function generarPassword(){ let password=''; for(let i=0;i<12;i++) password += A[Math.floor(Math.random()*A.length)]; return password; }",
+      "function generarContrasena(){ return Math.random().toString(36).slice(2); }",
+      'const pass = Math.random().toString(36).slice(2);',
+      // `const { random } = Math` no contiene la subcadena `Math.random`, asi que el
+      // archivo ni entraba al barrido.
+      'const { random } = Math; const inviteCode = random().toString(36).slice(2, 10);',
+      'const { random: r } = Math; const codigo = r().toString(36).slice(2, 10);',
     ]) {
       expect(detecta(s), 'deberia detectarse: ' + s).toBe(true);
     }
+  });
+
+  /**
+   * `pin\b` sin boundary inicial matcheaba dentro de `spin`. No era una decision de
+   * politica sobre falsos positivos, era un error de regex.
+   */
+  it('las palabras se matchean como palabras, no como subcadenas', () => {
+    expect(detecta('const spin = Math.random() * 360;')).toBe(false);
+    expect(detecta('const pin = String(Math.floor(Math.random() * 1000000));')).toBe(true);
+  });
+
+  /**
+   * La exencion es POR ARCHIVO, asi que un falso positivo cuesta la cobertura del archivo
+   * entero. Estas son las formas legitimas que la version anterior del regex rompia.
+   */
+  it('no rompe el build sobre codigo legitimo que solo comparte una palabra', () => {
+    expect(detecta('for (const key of Object.keys(cfg)) { const delay = Math.random() * 100; }')).toBe(false);
+    expect(detecta('const key = usuario.id; const bucket = Math.random() < 0.5 ? "a" : "b";')).toBe(false);
+    // Pero una clave que SI es credencial sigue cayendo.
+    expect(detecta('const apiKey = Math.random().toString(36).slice(2);')).toBe(true);
+    expect(detecta('const signing_key = Math.random().toString(36);')).toBe(true);
   });
 
   it('no marca los usos legitimos', () => {

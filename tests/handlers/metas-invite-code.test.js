@@ -27,21 +27,23 @@ const META = {
   colaborativa: false,
 };
 
-function makeChain(data, sink, table) {
+function makeChain(data, sink, table, errores) {
   const c = {};
+  const q = { op: 'select' };
   for (const m of ['select', 'eq', 'order', 'limit', 'single', 'maybeSingle']) {
     c[m] = vi.fn().mockReturnValue(c);
   }
-  c.update = vi.fn((p) => { sink.push({ table, op: 'update', payload: p }); return c; });
-  c.upsert = vi.fn((p) => { sink.push({ table, op: 'upsert', payload: p }); return c; });
-  c.insert = vi.fn((p) => { sink.push({ table, op: 'insert', payload: p }); return c; });
-  c.then = (ok, err) => Promise.resolve({ data, error: null }).then(ok, err);
+  for (const op of ['update', 'upsert', 'insert']) {
+    c[op] = vi.fn((p) => { q.op = op; sink.push({ table, op, payload: p }); return c; });
+  }
+  c.then = (ok, err) =>
+    Promise.resolve({ data, error: errores[table + ':' + q.op] || null }).then(ok, err);
   return c;
 }
 
-async function compartirMeta(sink) {
+async function compartirMeta(sink, { meta = META, errores = {} } = {}) {
   const supabase = {
-    from: vi.fn((t) => makeChain(t === 'metas_ahorro' ? [{ ...META }] : [], sink, t)),
+    from: vi.fn((t) => makeChain(t === 'metas_ahorro' ? [{ ...meta }] : [], sink, t, errores)),
   };
   return handler.handle({
     intencion: 'compartir_meta',
@@ -83,5 +85,44 @@ describe('compartir_meta escribe el codigo del helper criptografico', () => {
     }
     expect(codes).toHaveLength(25);
     expect(new Set(codes).size).toBeGreaterThan(1);
+  });
+
+  /**
+   * Si el update falla, el codigo NO queda en la base y `colaborativa` sigue en false,
+   * pero el link se arma igual unas lineas mas abajo: el usuario reparte una URL
+   * permanentemente muerta y nadie se entera. Clase `error-no-leido`. Lo marco la segunda
+   * revision adversarial, sobre codigo que el commit anterior habia dejado intacto a 200
+   * lineas de donde se felicitaba por cerrar esta misma clase.
+   */
+  it('si no se pudo guardar el codigo, NO reparte un link muerto', async () => {
+    const sink = [];
+    const out = await compartirMeta(sink, {
+      errores: { 'metas_ahorro:update': { message: 'connection reset' } },
+    });
+    expect(out).toBe('No pude generar el link. Intenta de nuevo.');
+    expect(out).not.toContain('app.neto.pe/join/meta/');
+  });
+
+  it('lo mismo si no se pudo registrar al creador como participante', async () => {
+    const sink = [];
+    const out = await compartirMeta(sink, {
+      errores: { 'meta_participantes:upsert': { message: 'deadlock' } },
+    });
+    expect(out).toBe('No pude generar el link. Intenta de nuevo.');
+  });
+
+  /**
+   * La meta que YA es colaborativa reparte el codigo que ya tenia. Regenerarlo invalidaria
+   * los links que la gente ya recibio, y esa regresion pasaba verde: el fixture original
+   * solo tenia `invite_code: null`, o sea que la rama del `if` solo se ejercitaba por un
+   * lado.
+   */
+  it('una meta que ya tiene codigo no lo regenera', async () => {
+    const sink = [];
+    const out = await compartirMeta(sink, {
+      meta: { ...META, invite_code: 'YaExiste', colaborativa: true },
+    });
+    expect(codigosEscritos(sink)).toEqual([]);
+    expect(out).toContain('https://app.neto.pe/join/meta/YaExiste');
   });
 });

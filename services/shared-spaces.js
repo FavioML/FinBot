@@ -148,9 +148,14 @@ async function unirseEspacio(userId, inviteCode) {
   // entrada de entrada lo volvería inalcanzable también por WhatsApp —hoy es el único
   // canal donde funciona— e invalidaría un link que alguien puede tener repartido. El
   // exacto-primero conserva el legacy; el reintento arregla los nuevos.
-  const intentos = [inviteCode];
-  const enMayusculas = String(inviteCode || '').toUpperCase();
-  if (enMayusculas !== inviteCode) intentos.push(enMayusculas);
+  // `?? ''` y `.trim()`: el mismo argumento que justifica el reintento. `datos.codigo` lo
+  // extrae el LLM de texto libre, y de ahí salen espacios sobrantes al menos tan seguido
+  // como minúsculas. Sin el `??`, un `inviteCode` nulo mandaba `invite_code=eq.null` a
+  // PostgREST en el primer intento — hoy no llega ninguno porque el intent filtra antes,
+  // pero el siguiente llamador no tiene por qué saberlo.
+  const base = String(inviteCode ?? '').trim();
+  const intentos = [base];
+  if (base.toUpperCase() !== base) intentos.push(base.toUpperCase());
 
   let space = null;
   for (const code of intentos) {

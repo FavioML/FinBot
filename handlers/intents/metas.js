@@ -212,9 +212,17 @@ module.exports = {
             // Fuente criptografica: el codigo ES la credencial para entrar a la meta de
             // otro. Salia de Math.random(), igual que el espejo de la webapp antes de S4.
             inviteCode = generarCodigoInvitacion(ALFABETO_META, 8);
-            await supabase.from('metas_ahorro').update({ invite_code: inviteCode, colaborativa: true }).eq('id', targetMeta.id);
+            // El error del update NO se puede descartar: si falla, el `invite_code` no
+            // queda en la base y `colaborativa` sigue en false, pero abajo igual se arma
+            // el link — o sea que el usuario reparte una URL permanentemente muerta y
+            // nadie se entera. Es la clase `error-no-leido` de docs/DEFECTOS.md.
+            const { error: errCodigo } = await supabase.from('metas_ahorro')
+              .update({ invite_code: inviteCode, colaborativa: true }).eq('id', targetMeta.id);
+            if (errCodigo) throw new Error('No se pudo guardar el código de invitación: ' + errCodigo.message);
             // Ensure creator is in meta_participantes
-            await supabase.from('meta_participantes').upsert({ meta_id: targetMeta.id, usuario_id: usuario.id, rol: 'creador' }, { onConflict: 'meta_id,usuario_id' });
+            const { error: errParticipante } = await supabase.from('meta_participantes')
+              .upsert({ meta_id: targetMeta.id, usuario_id: usuario.id, rol: 'creador' }, { onConflict: 'meta_id,usuario_id' });
+            if (errParticipante) throw new Error('No se pudo registrar al creador en la meta: ' + errParticipante.message);
           }
           const link = 'https://app.neto.pe/join/meta/' + inviteCode;
           const pct = targetMeta.monto_objetivo > 0 ? Math.round((targetMeta.monto_actual / targetMeta.monto_objetivo) * 100) : 0;
