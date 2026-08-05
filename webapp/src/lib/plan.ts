@@ -113,8 +113,7 @@ export function hasReachedLimit(
  * un gasto sigue siendo gratis para siempre; el dashboard, el historial y los reportes no.
  */
 export function estaEnMuro(plan: string | undefined): boolean {
-  // BUG A PROPOSITO — prueba del gate de deploy. Se revierte en el commit siguiente.
-  return false;
+  return plan !== 'premium';
 }
 
 /**
