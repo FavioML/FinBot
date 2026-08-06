@@ -119,6 +119,15 @@ WhatsApp a gente real; el margen de error no es una pantalla fea.
 > **revert** cae siempre en el segundo caso: deja el árbol idéntico al último desplegado, así
 > que Railway no tiene nada que construir y eso es correcto, no un fallo.
 
+**Salida de emergencia, si hace falta un hotfix del backend con Actions caído.** El gate falla
+cerrado, así que un outage de GitHub (o un job que no consigue runner) deja el deployment en
+`WAITING` para siempre. Pasó el 06-ago-2026, con Actions en outage mayor: `railway-gate` nunca
+consiguió runner y se canceló a los 15 min, y `test` terminó todos sus pasos bien pero quedó
+sin marcarse completo. Si eso ocurre y hay que desplegar igual: **apagar "Wait for CI" en
+Railway, desplegar, y volver a prenderlo.** El guard se pone rojo mientras está apagado, que
+es exactamente el ruido que se quiere — no lo silencies, es el recordatorio de volver a
+prenderlo. No inventes un tercer camino (`railway up` desde local salta `watchPatterns`).
+
 ```bash
 # el motivo real de un SKIPPED (requiere RAILWAY_API_TOKEN)
 curl -s -X POST https://backboard.railway.com/graphql/v2 \
