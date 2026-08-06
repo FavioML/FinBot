@@ -119,6 +119,30 @@ WhatsApp a gente real; el margen de error no es una pantalla fea.
 > **revert** cae siempre en el segundo caso: deja el árbol idéntico al último desplegado, así
 > que Railway no tiene nada que construir y eso es correcto, no un fallo.
 
+### El gate falla cerrado, MENOS en un caso: cuando la suite nunca arranca
+
+Descubierto el 06-ago-2026 durante el outage de Actions, y contradice la primera versión de
+esta sección. **"Wait for CI" espera los check suites que EXISTEN cuando Railway evalúa.** Si
+GitHub está tan degradado que todavía no creó el workflow run, Railway no encuentra nada que
+esperar y despliega.
+
+| | |
+|---|---|
+| push de `096593a` | ~17:27:35 UTC |
+| Railway crea el deployment | 17:27:36 |
+| Railway termina, `SUCCESS` | **17:28:42** |
+| GitHub crea el run de CI | **17:30:48** |
+
+Tres minutos de diferencia. El deploy salió sin gate y nadie lo frenó. Ese día no pasó nada
+—entre el último commit testeado y ese no cambió un solo archivo de runtime del backend— pero
+el agujero es real y **no tiene arreglo del lado de Railway**: no se puede esperar algo que no
+existe.
+
+Es una versión mucho más chica del problema original (ventana de segundos, y solo durante un
+incidente de GitHub), pero es exactamente cuando menos querés un deploy sin gate. Lo único que
+lo puede atrapar es **detectarlo después**: preguntar si el commit DESPLEGADO tuvo su suite
+verde. `backend-deploy-fresh` no sirve para eso — da PASS, porque el commit sí está desplegado.
+
 **Salida de emergencia, si hace falta un hotfix del backend con Actions caído.** El gate falla
 cerrado, así que un outage de GitHub (o un job que no consigue runner) deja el deployment en
 `WAITING` para siempre. Pasó el 06-ago-2026, con Actions en outage mayor: `railway-gate` nunca
