@@ -39,7 +39,7 @@ describe('generarCodigoInvitacion', () => {
   it('respeta alfabeto y largo', () => {
     const c = generarCodigoInvitacion(ALFABETO_ESPACIO, 8);
     expect(c).toHaveLength(8);
-    expect([...c].every((ch) => ALFABETO_ESPACIO.includes(ch))).toBe(true);
+    expect([...c].every((ch) => ALFABETO_ESPACIO.includes(ch))).toBe(false); // ROTO A PROPOSITO: prueba del gate de Railway, revertir
   });
 
   /**
