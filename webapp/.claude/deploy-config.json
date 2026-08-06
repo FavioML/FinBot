@@ -85,7 +85,7 @@
         "cmd": "node qa-e2e/backend-deploy-fresh.mjs",
         "cwd": "C:/Vortik.dev/products/neto/app",
         "cost": "1 fetch + 1 gh api (segundos, gratis)",
-        "on_fail": "exit 1 = STALE: hay commits en main que tocan archivos que Railway observa (todo menos webapp/, qa-e2e/, docs/, *.md raiz -> la lista negra de railway.json) y no estan desplegados (build de Railway fallido en silencio o atrasado); el JSON lista los archivos backend pendientes; revisar el ultimo deployment en Railway. exit 2 = no se pudo determinar (endpoint /version caido, gh/red, o el SHA desplegado no es ancestro de main): infra, no necesariamente stale. Espejo backend del deploy-fresh del webapp; usa /version (RAILWAY_GIT_COMMIT_SHA)."
+        "on_fail": "exit 1 = STALE: hay commits en main que tocan archivos que Railway observa (todo menos webapp/, qa-e2e/, docs/, *.md raiz -> la lista negra de railway.json) y no estan desplegados; el JSON lista los archivos backend pendientes. PRIMERA CAUSA A DESCARTAR desde el 05-ago-2026, y es la esperada: el deploy esta GATEADO por CI ('Wait for CI' de Railway), asi que una suite roja deja el backend atras A PROPOSITO. Mirar antes el ultimo run de Actions; si esta rojo, esto no es un fallo de infra sino el gate trabajando, y el arreglo es arreglar la suite. Solo si Actions esta VERDE revisar el deployment en Railway. El motivo real vive en meta.skippedReason por API ('CI check suite failed' vs 'No changes to watched files'), no se ve en la UI. exit 2 = no se pudo determinar (endpoint /version caido, gh/red, o el SHA desplegado no es ancestro de main): infra, no necesariamente stale. Espejo backend del deploy-fresh del webapp; usa /version (RAILWAY_GIT_COMMIT_SHA)."
       },
       {
         "name": "admin-panel",
