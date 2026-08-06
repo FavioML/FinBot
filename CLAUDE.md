@@ -67,6 +67,36 @@ Los tests de paridad (`tests/services/spaces-split-parity.test.js`) si importan 
 - CI/CD: GitHub Actions. `test` (backend, Node 20 = el piso que declara `engines.node`),
   `webapp` (tsc + tests, Node 24 = el que usa Vercel) y `deploy-webapp`, que **gatea el
   deploy**: Vercel ya no despliega `main` por su cuenta. Ver `webapp/CLAUDE.md`
+
+### Los dos deploys estan gateados, pero por caminos DISTINTOS
+
+Ninguna plataforma frena sola: por default las dos despliegan `main` apenas entra el push,
+mire o no la suite. Cada una se cerro donde se podia, y las formas no son intercambiables.
+
+| | Webapp (Vercel) | Backend (Railway) |
+|---|---|---|
+| Como se apago el auto-deploy | `webapp/vercel.json` (`git.deploymentEnabled: false`) | no se apago |
+| Quien decide desplegar | el job `deploy-webapp` (`vercel deploy --prod`) | Railway, con **"Wait for CI"** ON |
+| Donde vive la config | en el repo | en el **dashboard** de Railway |
+| Que lo mantiene honesto | `needs: [test, webapp]` | el job `railway-gate` |
+
+**Por que el backend no se despliega desde Actions.** `railway up` sube el directorio del
+runner y **no consulta `watchPatterns`**, asi que habria que replicar la lista negra de
+`railway.json` a mano, en otro dialecto de globs (`paths-ignore` no expresa el `!` igual).
+Esa lista es negra a proposito — ver mas arriba — y desincronizada produce exactamente el
+fallo que viene a prevenir: **una carpeta de backend nueva que deja de desplegarse en
+silencio**. Ademas `railway up` construye desde el working tree del runner, no desde el
+commit, y se pierde el enlace commit↔deployment del dashboard.
+
+**El precio, y como se paga.** El toggle de Railway es invisible desde el repo. Por eso
+`scripts/verify-railway-gate.mjs` lo consulta por API (`DeploymentTrigger.checkSuites`,
+que **el MCP de Railway no expone** — mira `ServiceInstance`, y ahi no esta) y falla si
+alguien lo apago. No frena nada: con el toggle apagado Railway ya desplego para cuando el
+guard corre. Es el testigo, no el gate.
+
+**Acoplamiento que conviene tener presente:** Railway espera el check suite ENTERO, no el
+job `test`. Si `deploy-webapp` falla, el backend tampoco sale. Deja los dos lados en el
+commit anterior — coherente, y la suite roja lo dice.
 - Tests: vitest, backend en la raiz (`npm test`) + webapp (`npm --prefix webapp run test`). El
   numero exacto NO va escrito: decia 292 cuando ya eran cientos mas, y un conteo desactualizado
   en un CLAUDE.md es peor que ninguno — la siguiente sesion lo lee como verdad

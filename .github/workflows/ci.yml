@@ -82,8 +82,14 @@ jobs:
   #
   # `needs` incluye el backend a proposito. La suite del backend roja significa
   # que `main` esta roto, y desplegar la webapp desde un main roto es desplegar
-  # desde un estado que ya sabemos malo. Ojo con lo que esto NO cubre: Railway
-  # sigue desplegando el backend sin gate. Es un hueco conocido y aparte.
+  # desde un estado que ya sabemos malo.
+  #
+  # El backend de Railway se gatea por otro camino (ver `railway-gate` mas
+  # abajo), y eso acopla los dos deploys en una direccion que conviene tener
+  # presente: Railway espera al check suite ENTERO, o sea que si ESTE job falla
+  # —un blip del token de Vercel, por ejemplo— Railway tambien skipea el
+  # backend. Se acepta: deja los dos lados en el commit anterior, que es un
+  # estado coherente, y la suite roja lo dice.
   deploy-webapp:
     needs: [test, webapp]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -138,6 +144,39 @@ jobs:
       # devuelve el auto-deploy y el plan B es `vercel deploy-hooks create --ref
       # main` + un curl desde este job.
       - run: vercel deploy --prod --non-interactive --token=$VERCEL_TOKEN
+
+  # El gate del backend NO vive en este archivo, y esa es toda la diferencia con
+  # `deploy-webapp`. Railway tiene un toggle propio —"Wait for CI"— que pone el
+  # deployment en WAITING mientras corren los workflows y lo SKIPea si alguno
+  # falla. Es la unica opcion que respeta `watchPatterns`: desplegar desde aca
+  # con `railway up` sube el directorio del runner sin consultar `railway.json`,
+  # asi que habria que replicar su lista negra a mano, en OTRO dialecto de globs
+  # (`paths-ignore` no expresa el `!` de watchPatterns igual). Una lista negra
+  # desincronizada significa backend nuevo que deja de desplegarse EN SILENCIO,
+  # que es justo el fallo que la lista negra existe para prevenir.
+  #
+  # El costo de esa eleccion es que el gate es config de dashboard, invisible
+  # desde el repo. Este job paga ese costo: la API de Railway si expone el flag
+  # (`DeploymentTrigger.checkSuites`), asi que si alguien lo apaga, esto se
+  # pone rojo. No FRENA nada —con el toggle apagado Railway ya desplego para
+  # cuando esto corre— es el testigo de que el gate sigue puesto.
+  #
+  # Corre dentro del mismo check suite que Railway espera, o sea que su rojo
+  # tambien SKIPea el deploy. Es fallar cerrado, a proposito: el skip queda
+  # visible como suite roja en el commit. (El argumento que descarto fallar
+  # cerrado en el "Ignored Build Step" de Vercel, mas arriba, era que ahi el
+  # skip era silencioso. Aca no lo es.)
+  railway-gate:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: node scripts/verify-railway-gate.mjs
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
 
   nlp-agent:
     needs: test
