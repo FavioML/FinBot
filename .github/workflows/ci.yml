@@ -117,8 +117,20 @@ jobs:
       # Los dos IDs tienen que estar en el entorno ANTES del pull. Sin ellos el
       # CLI no reconoce el proyecto desde la raiz, infiere que no hay framework y
       # escribe un `vercel.json` con `experimentalServices` mas un project.json
-      # con `framework: "services"`. No toca la config del proyecto en Vercel
-      # (verificado), pero el build local queda basura.
+      # con `framework: "services"`, y el build local queda basura.
+      #
+      # OJO, la nota vieja aca decia "no toca la config del proyecto en Vercel
+      # (verificado)" y eso era CIERTO PERO ENGANOSO: no toca `neto-app`, no —
+      # **crea un proyecto NUEVO**, bautizado con el nombre del directorio, o sea
+      # `app`. Ese proyecto queda conectado a este repo con auto-deploy de `main`
+      # PRENDIDO, y `webapp/vercel.json` no lo apaga porque su rootDirectory es
+      # la raiz y ese archivo vive en `webapp/`. Resultado: cada push a main
+      # dispara un deploy de produccion que falla y le manda un mail a Favio.
+      # Se descubrio el 06-ago-2026 por esos mails, un dia despues; los GitHub
+      # Deployments del repo muestran el momento exacto en que aparece el
+      # segundo environment ("Production – app" junto a "Production – neto-app").
+      # Si vuelve a pasar: `gh api repos/FavioML/FinBot/deployments` y borrar el
+      # proyecto sobrante desde Vercel.
       # `vercel pull` NO va, y sacarlo fue el arreglo. Se habia puesto cuando el plan era
       # `--prebuilt`, donde el runner necesita los settings del proyecto para construir.
       # Sin `--prebuilt` no aporta nada: Vercel construye del lado suyo con su propia
