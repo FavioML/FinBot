@@ -97,6 +97,34 @@ guard corre. Es el testigo, no el gate.
 **Acoplamiento que conviene tener presente:** Railway espera el check suite ENTERO, no el
 job `test`. Si `deploy-webapp` falla, el backend tampoco sale. Deja los dos lados en el
 commit anterior — coherente, y la suite roja lo dice.
+
+**Verificado con un experimento controlado el 05-ago-2026**, no asumido, y midiendo el reloj:
+
+| commit | qué era | resultado |
+|---|---|---|
+| `52241cd` | el gate mismo, suite verde | `WAITING` a los 6s → `BUILDING` 15s después de la suite verde → `SUCCESS` |
+| `6f76cbe` | una **aserción** rota a propósito | `WAITING` → **`SKIPPED`**, y `/version` siguió en `52241cd` |
+
+Push → inicio de build pasó de **~7 segundos a ~2m50s**. Ese es el delator más barato de que
+el gate sigue vivo: si un deploy vuelve a arrancar a los segundos del push, se cayó.
+
+Se rompió la ASERCIÓN del test y no el código de producción, a propósito: si el gate hubiera
+fallado, lo que llegaba a `api.neto.pe` era un backend sano igual. Acá se le escribe por
+WhatsApp a gente real; el margen de error no es una pantalla fea.
+
+> **`SKIPPED` tiene dos motivos distintos y no se distinguen desde la UI.** Railway los nombra
+> en `meta.skippedReason` del deployment (por API): `"CI check suite failed"` es el gate
+> haciendo su trabajo, `"No changes to watched files"` es `watchPatterns`. Confundirlos hace
+> creer que el gate funciona cuando en realidad nunca se evaluó. Ojo también con que un
+> **revert** cae siempre en el segundo caso: deja el árbol idéntico al último desplegado, así
+> que Railway no tiene nada que construir y eso es correcto, no un fallo.
+
+```bash
+# el motivo real de un SKIPPED (requiere RAILWAY_API_TOKEN)
+curl -s -X POST https://backboard.railway.com/graphql/v2 \
+  -H "Authorization: Bearer $RAILWAY_API_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"query":"query{deployments(first:3,input:{projectId:\"e2aac0f3-c2ee-4347-892c-b36d8c76929e\",serviceId:\"1085b433-8f29-4487-9ce7-3a66b64ef244\",environmentId:\"1600a753-bc8c-492c-aca7-27fdac946747\"}){edges{node{status meta}}}}"}'
+```
 - Tests: vitest, backend en la raiz (`npm test`) + webapp (`npm --prefix webapp run test`). El
   numero exacto NO va escrito: decia 292 cuando ya eran cientos mas, y un conteo desactualizado
   en un CLAUDE.md es peor que ninguno — la siguiente sesion lo lee como verdad
