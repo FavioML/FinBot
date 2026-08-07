@@ -253,20 +253,42 @@ commit nuevo con la suite corriendo y sale exit 1 en minutos en vez de a la mañ
 
 **`qa-e2e/backend-deploy-gated.mjs`** (07-ago-2026) es el que responde la tercera pregunta.
 Compara el fin del deployment de Railway contra el run de `ci.yml` del mismo sha: con el gate
-sano el deploy termina DESPUÉS de que la suite termina (medido en `89206ac`: **+38.7s**), y sin
-gate termina antes de que el run exista siquiera (`096593a`: **126s antes**). Ese delator ya
-estaba escrito acá sin automatizar — *"push → inicio de build pasó de ~7 segundos a ~2m50s"*.
+Compara el **INICIO del build** contra el fin del run de `ci.yml`. Es exactamente el delator que
+esta sección ya nombraba sin automatizar: *"push → inicio de build pasó de ~7 segundos a
+~2m50s"*. Con el gate sano Railway deja el deployment en `WAITING` y **no construye** hasta que
+el check suite termina, así que el inicio del build cae después por construcción.
 
-Tres cosas que conviene saber antes de tocarlo:
+> **La primera versión miraba el FIN y estaba mal.** `finDeploy − finSuite` es en realidad
+> `duraciónBuild − duraciónSuite`, y acá el build tarda 140-185s contra 39-180s de suite: un
+> deploy SIN gate termina después igual y salía *"esperó"*. Sobre el historial real del servicio
+> detectaba el **16%** de los deploys sin gate, y **0%** en los dos días en que el gate
+> demostrablemente no existía. Lo encontró una revisión adversarial el 07-ago, no la suite.
 
-- **Solo puede juzgar el deployment VIGENTE.** Railway pisa `deployment.updatedAt` con la hora
-  del reemplazo cuando pasa a `REMOVED`, así que un barrido histórico daría por bueno justo a
-  `096593a` (hoy figura con `updatedAt` del 07-ago 07:27). Por eso corre seguido, no en batch.
-- **La tolerancia de reloj es de 30s y no puede subir de ~38s**, que es el margen real de un
-  deploy gateado sano. Hay un test que lo impide.
-- El corazón es una función pura (`evaluarGate`) probada contra **los timestamps del incidente**
-  (`tests/railway-gate-timing.test.js`), no contra números inventados. Si alguien ablanda la
-  regla, el caso que se rompe es el que pasó de verdad.
+Las dos poblaciones, medidas sobre 12 deployments reales, no se solapan:
+
+| | inicio del build vs fin de la suite |
+|---|---|
+| con gate (`b6e44e8`, `0c55f6b`, `89206ac`, `52241cd`) | **+5 a +6s** |
+| sin gate (05-ago, antes del toggle: `a9c5bdf`, `3611f9b`, `9728433`, `0b697e0`, `87f3682`, `e92e2d8`) | **−44 a −159s** |
+| `096593a`, el incidente | **−1068s** |
+
+Cuatro cosas que conviene saber antes de tocarlo:
+
+- **El inicio sale del timestamp más viejo de `buildLogs`.** NO de `createdAt` (Railway crea la
+  fila apenas llega el push, incluso cuando va a quedarse en `WAITING`) ni de `updatedAt`, que
+  es el fin. Si Railway ya purgó los logs, es exit 2, nunca PASS.
+- **Solo puede juzgar el deployment VIGENTE.** Railway pisa `updatedAt` con la hora del
+  reemplazo cuando pasa a `REMOVED`, así que un barrido histórico daría por bueno justo a
+  `096593a`. Por eso corre seguido, no en batch.
+- **La tolerancia (15s) vive entre las dos poblaciones** y hay un test que la mantiene ahí: si
+  alguien la sube a 60s "por las dudas", los seis deploys sin gate pasan a verde.
+- **Un margen de más de una hora es INDETERMINADO, no PASS.** Un redeploy o rollback desde el
+  dashboard no consulta "Wait for CI" y es la vía humana más probable de saltearlo; sin cota
+  salía PASS con margen de días.
+
+El corazón es una función pura (`evaluarGate`) probada contra **los timestamps reales de las dos
+poblaciones** (`tests/railway-gate-timing.test.js`), no contra números inventados. Si alguien
+ablanda la regla, lo que se rompe son deploys que de verdad pasaron.
 
 Necesita `RAILWAY_API_TOKEN` (el mismo del `.env` local y del secret de CI) y **falla con exit 1
 si falta**: un guard que se vuelve no-op sin credencial es verde por vacuidad.
