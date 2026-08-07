@@ -44,6 +44,10 @@ const WORKFLOW = process.env.NETO_CI_WORKFLOW || 'ci.yml';
 // Cuántos runs verdes recientes se recorren buscando el ancestro verde más nuevo. Solo
 // alimenta el diagnóstico de severidad; no cambia el veredicto.
 const MAX_ANCESTROS = 5;
+// El job de `ci.yml` que de verdad responde "¿el backend pasó los tests?". Los otros del
+// mismo workflow (`webapp`, `deploy-webapp`, `railway-gate`) pueden ponerlo rojo por motivos
+// que no tienen nada que ver con este código.
+const JOB_TESTS = process.env.NETO_CI_JOB_TESTS || 'test';
 
 const short = (s) => (s ? s.slice(0, 7) : s);
 
@@ -79,6 +83,49 @@ function gh(ruta, jq) {
  * deploy sin gate no tuvo consecuencia porque entre el último commit testeado y ese no
  * cambió un solo archivo que Railway observe. Solo corre cuando ya hay veredicto malo.
  */
+/**
+ * Con el run en rojo, ¿lo rojo son los TESTS o es otro job del mismo workflow?
+ *
+ * Puro para poder probarlo contra jobs reales (`tests/backend-deploy-tested-errores.test.js`).
+ * Devuelve `culpaDeLosTests: null` cuando no se pudo leer la lista de jobs: eso es "no sé", y
+ * quien llama tiene que tratarlo como el caso grave, nunca como "entonces estaba bien".
+ */
+export function clasificarRojo(jobs, jobTests = JOB_TESTS) {
+  if (!Array.isArray(jobs)) return { culpaDeLosTests: null, jobDeTests: null, jobsRojos: [] };
+
+  const test = jobs.find((j) => j.name === jobTests);
+  const jobsRojos = jobs
+    .filter((j) => j.conclusion && j.conclusion !== 'success' && j.conclusion !== 'skipped')
+    .map((j) => `${j.name}: ${j.conclusion}`);
+
+  // Sin el job de tests en la lista no se puede afirmar que el backend esté sano. Puede que
+  // lo renombraran, y un guard que asume lo mejor ante un cambio que no entiende es el
+  // mismo fallo que `validCheckSuites`.
+  if (!test) return { culpaDeLosTests: null, jobDeTests: null, jobsRojos };
+
+  const estado = test.conclusion ?? test.status;
+  return {
+    culpaDeLosTests: estado !== 'success',
+    jobDeTests: `${jobTests}: ${estado}`,
+    jobsRojos,
+  };
+}
+
+/**
+ * Los jobs de un run. Devuelve `null` si no se pueden leer, y eso NO es lo mismo que "ningún
+ * job rojo": quien lo llama tiene que tratar el null como "no sé", nunca como "está bien".
+ * Solo se llama con el run ya en rojo, así que el costo extra no está en el camino feliz.
+ */
+function jobsDelRun(run) {
+  const id = String(run.url || '').match(/\/runs\/(\d+)/)?.[1];
+  if (!id) return null;
+  try {
+    return JSON.parse(gh(`repos/${REPO}/actions/runs/${id}/jobs?per_page=50`, '[.jobs[] | {name, status, conclusion}]'));
+  } catch {
+    return null;
+  }
+}
+
 function severidad(deployed) {
   try {
     const verdes = JSON.parse(
@@ -192,10 +239,36 @@ async function main() {
     });
   }
 
+  // 5) El run rojo NO alcanza para decir "el código no pasó los tests": `ci.yml` también
+  //    corre `deploy-webapp` (un `vercel deploy`) y `railway-gate` (que consulta la API de
+  //    Railway). Un deploy de Vercel caído o un RAILWAY_API_TOKEN vencido ponen el run en
+  //    rojo sin decir absolutamente nada sobre el backend, y este harness mandaba a
+  //    "arreglar la suite" cuando la suite del backend estaba verde. Es el mismo argumento
+  //    por el que se eligió `ci.yml` sobre los check suites —no gritar por lo que no es—,
+  //    aplicado un nivel más adentro. El oráculo preciso es el job.
   if (ultimo.conclusion !== 'success') {
+    const { culpaDeLosTests, jobDeTests, jobsRojos } = clasificarRojo(jobsDelRun(ultimo));
+
+    // El job de los tests verde con el run rojo: lo que corre en prod SÍ pasó los tests.
+    // Se reporta igual (exit 1) porque un commit desplegado con el run rojo sigue siendo
+    // anómalo, pero con el nombre correcto y sin mandar a arreglar lo que no está roto.
+    if (culpaDeLosTests === false) {
+      return done(1, `EL RUN QUEDÓ ROJO, PERO NO POR LOS TESTS (${ultimo.conclusion})`, {
+        deployed: short(deployed),
+        jobDeTests,
+        jobsRojos,
+        run: ultimo.url,
+        hint: `El backend que corre SÍ pasó \`${JOB_TESTS}\`. Lo rojo es otro job del mismo ` +
+          'workflow (típicamente `deploy-webapp` o `railway-gate`), que no dice nada sobre ' +
+          'este código. Arreglar ESE job; no hace falta redesplegar el backend.',
+      });
+    }
+
     return done(1, `EL COMMIT DESPLEGADO NO PASÓ LA SUITE (${ultimo.conclusion})`, {
       deployed: short(deployed),
       conclusion: ultimo.conclusion,
+      jobDeTests: jobDeTests ?? 'no se pudo leer: se trata como el caso grave',
+      jobsRojos,
       run: ultimo.url,
       ...severidad(deployed),
       hint: 'api.neto.pe corre código cuya suite no salió verde. Arreglar la suite y ' +

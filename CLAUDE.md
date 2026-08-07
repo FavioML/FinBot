@@ -236,6 +236,16 @@ de "problemas de red" y el gate se quedaría sin testigo, que es la misma lecci�
 `validCheckSuites`. En veredicto malo imprime qué archivos observados por Railway llegaron sin
 testear: es la diferencia entre anotarlo y arreglarlo ahora.
 
+**Y con el run rojo baja un nivel más, hasta el job.** El mismo argumento que eligió `ci.yml`
+sobre los check suites vale adentro de `ci.yml`: el run también corre `webapp`, `deploy-webapp`
+(un `vercel deploy`) y `railway-gate`. Un token de Railway vencido o un deploy de Vercel caído
+lo ponen rojo **sin decir nada sobre el backend**, y el harness mandaba a "arreglar la suite"
+con la suite del backend verde. Ahora mira la conclusion del job **`test`** y separa los dos
+casos, con un quinto veredicto: *"EL RUN QUEDÓ ROJO, PERO NO POR LOS TESTS"*. Sigue siendo exit 1
+—un commit desplegado con el run rojo es anómalo igual— pero apunta al job que hay que arreglar.
+Si la lista de jobs no se puede leer, o si el job `test` no aparece (lo renombraron), **no se
+asume que esté sano**: cae en el caso grave.
+
 **Corren en dos lados a propósito.** El canary de las 10am y el recordatorio post-push
 (`~/.claude/hooks/post-git-push-reminders.mjs`). Post-push no agrega ruido: si el gate funcionó,
 prod sigue en el commit viejo con su suite verde y da PASS; si falló abierto, prod ya saltó al

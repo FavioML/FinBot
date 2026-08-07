@@ -45,6 +45,12 @@ for (const [rel, exports] of [
 }
 
 const { notificarUsuario, CANALES } = require('../../lib/notify-user');
+// A nivel de módulo, como en `resumen-destinatarios` y `trial-premium-collision`, y NO dentro
+// del `it`. Cargar `cron/checks` arrastra medio backend, y hecho perezoso dentro del test ese
+// costo se cobra contra el `testTimeout` de 10s: con la máquina cargada el require tardó 36s
+// y el test se cayó por timeout, ~1 de cada 10 corridas. El único flaky de la suite, y no era
+// una condición de carrera sino contabilidad de dónde se paga el import. (07-ago-2026)
+const { llegoElAviso } = require('../../cron/checks');
 
 const BASE = {
   usuarioId: 'u1',
@@ -116,7 +122,6 @@ describe('claimInApp: la fila in-app es el claim, no un efecto colateral', () =>
    * code:131047}` y SIN `skipped`.
    */
   it('llegoElAviso distingue entrega de "lo intenté"', () => {
-    const { llegoElAviso } = require('../../cron/checks');
     expect(llegoElAviso({ wa: { ok: true }, inApp: true })).toBe(true);
     expect(llegoElAviso({ wa: { ok: true }, inApp: false })).toBe(true);       // solo WhatsApp
     expect(llegoElAviso({ wa: { ok: false, code: 131047 }, inApp: true })).toBe(true); // solo in-app
