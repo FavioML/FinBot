@@ -61,6 +61,18 @@ es desplegar y cada exclusion hay que justificarla:
 Los tests de paridad (`tests/services/spaces-split-parity.test.js`) si importan de
 `webapp/`, pero corren en GitHub Actions, no en el build de Railway (el
 `package.json` raiz no tiene script `build`). `watchPatterns` no los afecta.
+
+**Esta lista esta escrita DOS veces**: en `railway.json` y a mano en
+`disparaBuildRailway()` de `qa-e2e/backend-deploy-fresh.mjs`, que la necesita para
+decidir si un commit pendiente redespliega. La copia puede desincronizarse **sin
+romperse** —agregas una exclusion a `railway.json`, no tocas el harness, y el harness
+sigue verde dando veredictos equivocados—, asi que el precio lo paga
+`tests/railway-watchpatterns-paridad.test.js`: reimplementa los patrones declarados de
+forma independiente y compara las dos implementaciones sobre el arbol versionado real.
+Por eso el corpus son archivos de verdad y no una lista escrita a mano: una exclusion
+agregada solo al harness no cambia ningun patron declarado, asi que la unica manera de
+verla es que un archivo existente la ejercite. Una forma de glob que el test no conoce
+**tira** en vez de asumir un default. Si tocas `railway.json`, actualiza las dos mitades.
 - Supabase: RLS activo en todas las tablas (varias con deny-all a proposito, ver migr 033). El
   conteo de tablas no se escribe aca: decia 11 cuando ya eran 37
 - Vercel: webapp app.neto.pe con Google OAuth
@@ -112,6 +124,19 @@ Se rompió la ASERCIÓN del test y no el código de producción, a propósito: s
 fallado, lo que llegaba a `api.neto.pe` era un backend sano igual. Acá se le escribe por
 WhatsApp a gente real; el margen de error no es una pantalla fea.
 
+**Repetido el 07-ago-2026 (`a213794`) para cerrar lo que faltaba**: con el commit roto en HEAD,
+`NETO_INFLIGHT_MIN=0 node qa-e2e/backend-deploy-fresh.mjs` → **exit 1, `STALE`**, listando
+`tests/codigos-seguros.test.js`. Esa variable no es opcional para esta prueba: **sin ella el
+harness da exit 0** porque el default de 10 minutos trata el commit como deploy en vuelo, y por
+eso la corrida del 05-ago —hecha después del revert— no probaba nada.
+
+> **El `SKIPPED` del commit roto se puede atribuir sin la API.** Los dos motivos se distinguen
+> por construcción cuando el harness ya demostró que hay un archivo observado cambiado respecto
+> de lo desplegado: si hay cambios observados, `"No changes to watched files"` está descartado.
+> Para leer `meta.skippedReason` textual hace falta un **API token de cuenta**: el del CLI en
+> `~/.railway/config.json` vence (`Not Authorized`) y el `RAILWAY_API_TOKEN` vive solo como
+> secret de GitHub. El MCP confirma el estado `SKIPPED` pero no expone `meta`.
+
 > **`SKIPPED` tiene dos motivos distintos y no se distinguen desde la UI.** Railway los nombra
 > en `meta.skippedReason` del deployment (por API): `"CI check suite failed"` es el gate
 > haciendo su trabajo, `"No changes to watched files"` es `watchPatterns`. Confundirlos hace
@@ -142,6 +167,32 @@ Es una versión mucho más chica del problema original (ventana de segundos, y s
 incidente de GitHub), pero es exactamente cuando menos querés un deploy sin gate. Lo único que
 lo puede atrapar es **detectarlo después**: preguntar si el commit DESPLEGADO tuvo su suite
 verde. `backend-deploy-fresh` no sirve para eso — da PASS, porque el commit sí está desplegado.
+
+**Eso es `qa-e2e/backend-deploy-tested.mjs`** (07-ago-2026), harness `backend-deploy-tested` del
+canary. Son dos preguntas distintas sobre el mismo commit y hay que tener las dos:
+
+| harness | pregunta | el caso que solo él ve |
+|---|---|---|
+| `backend-deploy-fresh` | ¿está al día? | quedó código de backend en `main` sin desplegar |
+| `backend-deploy-tested` | ¿lo que corre pasó los tests? | se desplegó un commit **sin suite verde** |
+
+Mira el run de **`ci.yml`** del sha desplegado, no los check suites. Es a propósito: un commit
+puede tener varios suites de github-actions —`bd9b77a` tiene dos, el push de CI y el "Backup DB"
+agendado— y exigirlos todos verdes lo pondría rojo por un backup fallido, que no dice nada sobre
+si el código pasó los tests. Un guard que grita por lo que no es se termina ignorando.
+
+Distingue *nunca corrió* (el fail-open puro), *no pasó*, *todavía corriendo* (la ventana en vivo)
+y **guard ciego** si alguien renombra `ci.yml` — un 404 saliendo como exit 2 lo mandaría al cajón
+de "problemas de red" y el gate se quedaría sin testigo, que es la misma lección de
+`validCheckSuites`. En veredicto malo imprime qué archivos observados por Railway llegaron sin
+testear: es la diferencia entre anotarlo y arreglarlo ahora.
+
+**Encontró un positivo real apenas se escribió.** `api.neto.pe` seguía en `096593a` —el commit del
+incidente— con la suite en `failure` 30 horas después, porque los tres commits siguientes fueron
+de docs y Railway los saltó por `watchPatterns`. O sea que el hueco no se cierra solo: **sin un
+push que toque algo observado, prod se queda en el commit sin gatear indefinidamente.** El triage
+dijo que el único archivo observado sin testear era `.github/workflows/ci.yml` (config de CI, no
+runtime), así que no hubo consecuencia; se resolvió al desplegarse el push de ese mismo trabajo.
 
 **Salida de emergencia, si hace falta un hotfix del backend con Actions caído.** El gate falla
 cerrado, así que un outage de GitHub (o un job que no consigue runner) deja el deployment en
