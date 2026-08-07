@@ -38,19 +38,32 @@ const IN_FLIGHT_MIN = Number(process.env.NETO_INFLIGHT_MIN ?? 10);
 //
 // Está duplicada A PROPÓSITO y no derivada en runtime: implementar el dialecto de globs
 // de Railway (incluida la barra inicial de `!/*.md`, que ancla a la raíz) es más superficie
-// de error silencioso que las cuatro comparaciones de abajo. El precio de la copia es que
-// puede desincronizarse —alguien agrega una exclusión a railway.json, no toca esto, y el
-// harness empieza a dar veredictos equivocados SIN romperse—, y ese precio lo paga
+// de error silencioso que las comparaciones de abajo. El precio de la copia es que puede
+// desincronizarse —alguien agrega una exclusión a railway.json, no toca esto, y el harness
+// empieza a dar veredictos equivocados SIN romperse—, y ese precio lo paga
 // `tests/railway-watchpatterns-paridad.test.js`, que compara las dos y falla si divergen.
 // Por eso se exportan: el test necesita las dos mitades, la declarada y la implementada.
 export const WATCH_PATTERNS = ['**', '!webapp/**', '!qa-e2e/**', '!docs/**', '!/*.md'];
 
+// Las exclusiones, como DATOS y no escritas en el cuerpo de la función. No es estética:
+// el test compara este objeto contra los patrones negados de railway.json COMO CONJUNTOS,
+// y eso es lo único que ve una divergencia sobre una ruta que hoy no tiene ningún archivo
+// versionado. Con el cuerpo escrito a mano no la veía: su otro test contrasta las dos
+// implementaciones sobre el árbol real, y un directorio que todavía no existe no está en
+// el árbol. Verificado por mutación el 07-ago-2026: agregar `'infra/'` de un solo lado
+// pasaba las cuatro pruebas en verde.
+//
+// Los dos tests siguen siendo necesarios y no se solapan: éste fija QUÉ se excluye, el del
+// corpus fija CÓMO (que `.md` ancle a la raíz no se ve comparando conjuntos).
+export const EXCLUSIONES = {
+  dirs: ['webapp/', 'qa-e2e/', 'docs/'], // de los patrones `!dir/**`
+  extsRaiz: ['.md'], //                     de los patrones `!/*.ext` (solo la raíz)
+};
+
 export function disparaBuildRailway(f) {
   if (!f) return false;
-  if (f.startsWith('webapp/')) return false;
-  if (f.startsWith('qa-e2e/')) return false;
-  if (f.startsWith('docs/')) return false;
-  if (!f.includes('/') && f.endsWith('.md')) return false; // *.md de la raíz
+  if (EXCLUSIONES.dirs.some((d) => f.startsWith(d))) return false;
+  if (!f.includes('/') && EXCLUSIONES.extsRaiz.some((e) => f.endsWith(e))) return false;
   return true;
 }
 

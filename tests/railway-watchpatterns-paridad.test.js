@@ -4,7 +4,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { WATCH_PATTERNS, disparaBuildRailway } from '../qa-e2e/backend-deploy-fresh.mjs';
+import { WATCH_PATTERNS, EXCLUSIONES, disparaBuildRailway } from '../qa-e2e/backend-deploy-fresh.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -30,32 +30,38 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const railway = JSON.parse(fs.readFileSync(path.join(projectRoot, 'railway.json'), 'utf8'));
 const patronesDeclarados = railway.build?.watchPatterns;
 
+const RE_DIR = /^([\w.@-]+)\/\*\*$/; //   `dir/**`
+const RE_EXT_RAIZ = /^\/\*\.([\w]+)$/; // `/*.ext`, anclado a la raíz
+
 /**
  * Segunda implementación, independiente de la del harness. Solo soporta las formas de glob
  * que `railway.json` usa hoy, y **tira** ante cualquier otra en vez de asumir un default:
  * un patrón nuevo que este test no entiende tiene que romper el build, no pasar de largo.
  * Un `return false` acá sería exactamente el fallo silencioso que el test viene a evitar.
+ *
+ * Cada regla lleva su `forma` y su `clave` además del predicado, porque los dos tests las
+ * necesitan: el del corpus usa `test()`, el de conjuntos usa `forma`+`clave`.
  */
 function compilar(patrones) {
   return patrones.map((p) => {
     const negado = p.startsWith('!');
     const cuerpo = negado ? p.slice(1) : p;
 
-    if (cuerpo === '**') return { patron: p, negado, test: () => true };
+    if (cuerpo === '**') return { patron: p, negado, forma: 'todo', test: () => true };
 
     // `dir/**` — todo lo que cuelga de un directorio.
-    let m = cuerpo.match(/^([\w.@-]+)\/\*\*$/);
+    let m = cuerpo.match(RE_DIR);
     if (m) {
       const prefijo = `${m[1]}/`;
-      return { patron: p, negado, test: (f) => f.startsWith(prefijo) };
+      return { patron: p, negado, forma: 'dir', clave: prefijo, test: (f) => f.startsWith(prefijo) };
     }
 
     // `/*.ext` — la barra inicial ANCLA A LA RAÍZ. Sin ella el patrón sería recursivo y
     // `handlers/notas.md` dejaría de desplegar; es la parte sutil de la lista.
-    m = cuerpo.match(/^\/\*\.([\w]+)$/);
+    m = cuerpo.match(RE_EXT_RAIZ);
     if (m) {
       const ext = `.${m[1]}`;
-      return { patron: p, negado, test: (f) => !f.includes('/') && f.endsWith(ext) };
+      return { patron: p, negado, forma: 'extRaiz', clave: ext, test: (f) => !f.includes('/') && f.endsWith(ext) };
     }
 
     throw new Error(
@@ -64,6 +70,12 @@ function compilar(patrones) {
         `disparaBuildRailway() en qa-e2e/backend-deploy-fresh.mjs la implemente igual.`,
     );
   });
+}
+
+/** Las exclusiones declaradas, como conjuntos comparables con `EXCLUSIONES` del harness. */
+function exclusionesDeclaradas(reglas) {
+  const de = (forma) => reglas.filter((r) => r.negado && r.forma === forma).map((r) => r.clave).sort();
+  return { dirs: de('dir'), extsRaiz: de('extRaiz') };
 }
 
 /** Semántica de lista de globs: gana el ÚLTIMO patrón que matchea. */
@@ -111,6 +123,30 @@ describe('watchPatterns de railway.json vs. el predicado del harness', () => {
       'railway.json y WATCH_PATTERNS (qa-e2e/backend-deploy-fresh.mjs) divergieron. ' +
         'Actualizá LAS DOS mitades: la constante declarada Y el cuerpo de disparaBuildRailway().',
     ).toEqual(WATCH_PATTERNS);
+  });
+
+  /**
+   * El test que NO depende del corpus, y por eso es el que cierra el agujero. Los otros
+   * contrastan las dos implementaciones sobre archivos que existen; una exclusión sobre un
+   * directorio todavía vacío no la ejercita ninguno. Comprobado por mutación el 07-ago-2026:
+   * agregar `'!infra/**'` a railway.json sin tocar el predicado —o `'infra/'` al predicado
+   * sin tocar railway.json— pasaba las cuatro pruebas en verde, y la segunda dirección es la
+   * peligrosa: el harness sub-reporta y `backend-deploy-fresh` da PASS sobre un backend
+   * genuinamente stale.
+   */
+  it('el conjunto de exclusiones del predicado es el mismo que declara railway.json', () => {
+    const declaradas = exclusionesDeclaradas(compilar(patronesDeclarados));
+    const implementadas = {
+      dirs: [...EXCLUSIONES.dirs].sort(),
+      extsRaiz: [...EXCLUSIONES.extsRaiz].sort(),
+    };
+
+    expect(
+      implementadas,
+      'las exclusiones del predicado y las de railway.json no son el mismo conjunto. ' +
+        'Esto se ve aunque NO exista todavía un archivo versionado bajo la ruta nueva, que ' +
+        'es justo lo que los otros tests de este archivo no pueden ver.',
+    ).toEqual(declaradas);
   });
 
   it('el predicado coincide con los patrones declarados sobre todo el árbol versionado', () => {

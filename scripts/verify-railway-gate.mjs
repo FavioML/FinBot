@@ -31,17 +31,13 @@
 //   Local:  export RAILWAY_API_TOKEN=$(...)  o  ~/.config/neto/railway.env
 //   CI:     secrets.RAILWAY_API_TOKEN
 //
-// Los tres IDs NO son secretos (son identificadores, como los VERCEL_*_ID que
-// viven como repo variables) y van hardcodeados a propósito: el punto del
-// archivo es que la config del deploy se lea desde el repo.
+// Los tres IDs NO son secretos y viven en `scripts/railway-api.mjs`, junto con el
+// cliente GraphQL, porque `qa-e2e/backend-deploy-gated.mjs` los usa igual.
 
-const PROJECT_ID = process.env.RAILWAY_PROJECT_ID || 'e2aac0f3-c2ee-4347-892c-b36d8c76929e'; // peaceful-stillness
-const SERVICE_ID = process.env.RAILWAY_SERVICE_ID || '1085b433-8f29-4487-9ce7-3a66b64ef244'; // Neto.pe
-const ENVIRONMENT_ID = process.env.RAILWAY_ENVIRONMENT_ID || '1600a753-bc8c-492c-aca7-27fdac946747'; // production
+import { consultarRailway, PROJECT_ID, SERVICE_ID, ENVIRONMENT_ID } from './railway-api.mjs';
+
 const EXPECTED_REPO = process.env.NETO_REPO || 'FavioML/FinBot';
 const EXPECTED_BRANCH = 'main';
-
-const ENDPOINT = 'https://backboard.railway.com/graphql/v2';
 
 const QUERY = `query($p:String!,$s:String!,$e:String!){
   deploymentTriggers(projectId:$p, serviceId:$s, environmentId:$e){
@@ -56,43 +52,6 @@ function fail(motivo, extra = {}) {
   return false;
 }
 
-// Railway acepta dos formas de token y no se distinguen por el prefijo: los de
-// cuenta/equipo van como Bearer, los de proyecto en su propio header. Se prueban
-// los dos en vez de pedirle a quien configure el secret que sepa cuál tiene.
-async function consultar(token) {
-  const intentos = [
-    ['Bearer', { Authorization: `Bearer ${token}` }],
-    ['Project-Access-Token', { 'Project-Access-Token': token }],
-  ];
-  const errores = [];
-  for (const [nombre, headers] of intentos) {
-    let res;
-    try {
-      res = await fetch(ENDPOINT, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          query: QUERY,
-          variables: { p: PROJECT_ID, s: SERVICE_ID, e: ENVIRONMENT_ID },
-        }),
-      });
-    } catch (e) {
-      errores.push(`${nombre}: red — ${String(e).split('\n')[0]}`);
-      continue;
-    }
-    let body;
-    try {
-      body = await res.json();
-    } catch {
-      errores.push(`${nombre}: HTTP ${res.status}, respuesta no-JSON`);
-      continue;
-    }
-    if (body?.data?.deploymentTriggers) return { auth: nombre, data: body.data.deploymentTriggers };
-    errores.push(`${nombre}: ${body?.errors?.[0]?.message || `HTTP ${res.status}`}`);
-  }
-  return { errores };
-}
-
 async function main() {
   const token = process.env.RAILWAY_API_TOKEN;
   // Sin token NO se saltea: un guard que se vuelve no-op cuando falta un secret
@@ -103,7 +62,12 @@ async function main() {
     });
   }
 
-  const { auth, data, errores } = await consultar(token);
+  const { auth, data, errores } = await consultarRailway({
+    token,
+    query: QUERY,
+    variables: { p: PROJECT_ID, s: SERVICE_ID, e: ENVIRONMENT_ID },
+    campoEsperado: 'deploymentTriggers',
+  });
   if (!data) {
     return fail('no se pudo leer deploymentTriggers de la API de Railway', {
       intentos: errores,

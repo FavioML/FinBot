@@ -55,12 +55,43 @@ es desplegar y cada exclusion hay que justificarla:
 - `webapp/**` — lo despliega Vercel; ningun archivo de runtime del backend lo importa
   (verificado por grep). Ojo: `services/spaces-split.js` es el espejo CJS que el
   backend SI usa, y **no** esta excluido, asi que tocarlo si redespliega.
-- `qa-e2e/**` — harness que corre local, nunca en el servidor.
+- `qa-e2e/**` — harness que corre local o en CI, nunca en el servidor.
 - `docs/**` y `*.md` de la raiz — no los ejecuta nadie.
 
 Los tests de paridad (`tests/services/spaces-split-parity.test.js`) si importan de
 `webapp/`, pero corren en GitHub Actions, no en el build de Railway (el
 `package.json` raiz no tiene script `build`). `watchPatterns` no los afecta.
+
+**Y desde el 07-ago la flecha va tambien al reves: la suite importa de `qa-e2e/`.**
+`tests/railway-watchpatterns-paridad.test.js` y `tests/railway-gate-timing.test.js`
+importan predicados de `qa-e2e/backend-deploy-{fresh,gated}.mjs`. La exclusion sigue
+siendo correcta —Railway no necesita redesplegar por un harness— pero "nunca corre en
+el servidor" ya no significa "nadie mas lo mira": romper uno de esos archivos pone la
+suite roja y, via "Wait for CI", **frena el deploy del backend**. Es el comportamiento
+que se quiere (guard roto = no desplegar), pero no es obvio leyendo solo la exclusion.
+Por eso los dos harness tienen guarda de `import.meta.url`: sin ella, importar el
+predicado desde un test dispararia el fetch a prod como efecto secundario.
+
+**El modelo de globs no es una lectura de la sintaxis: hay comportamiento medido detras.**
+Los tres supuestos que podrian estar mal en las DOS implementaciones a la vez (y que
+ningun test de paridad puede detectar, porque comparan una copia contra la otra):
+
+| supuesto | por que podria fallar | que lo prueba |
+|---|---|---|
+| `**` matchea **dotfiles** | con minimatch/micromatch en default (`dot:false`) NO matchearia `.github/**` | `096593a` toco **solo** `.github/workflows/ci.yml` y Railway **construyo** |
+| `!/*.md` **ancla a la raiz** | sin ancla seria recursivo y `handlers/notas.md` dejaria de desplegar | `aaed32e` y `cf6029b` tocaron solo `CLAUDE.md` de raiz → `No changes to watched files` |
+| `!docs/**` excluye | — | experimento controlado del 22-jul (`61efbf9` → SKIPPED) |
+
+Lo que sigue **sin** prueba es la PRECEDENCIA (¿gana el ultimo patron que matchea, o es
+"algun include y ningun exclude"?). Hoy es inobservable: hay un solo include y las
+exclusiones no se solapan. El dia que se agregue un include despues de una exclusion,
+eso hay que medirlo antes de confiar en cualquiera de las dos implementaciones.
+
+**Ojo con una sutileza que se descubrio leyendo `meta.skippedReason`:** Railway evalua
+`watchPatterns` sobre el diff desde el ultimo commit **DESPLEGADO**, no sobre el commit
+suelto. Por eso `352356f` —un revert que toca `tests/`, ruta observada— dio
+`"No changes to watched files"`. `backend-deploy-fresh` ya lo implementa bien (compara
+`deployed...main`); no lo "arregles" a un diff por commit.
 
 **Esta lista esta escrita DOS veces**: en `railway.json` y a mano en
 `disparaBuildRailway()` de `qa-e2e/backend-deploy-fresh.mjs`, que la necesita para
@@ -179,12 +210,20 @@ lo puede atrapar es **detectarlo después**: preguntar si el commit DESPLEGADO t
 verde. `backend-deploy-fresh` no sirve para eso — da PASS, porque el commit sí está desplegado.
 
 **Eso es `qa-e2e/backend-deploy-tested.mjs`** (07-ago-2026), harness `backend-deploy-tested` del
-canary. Son dos preguntas distintas sobre el mismo commit y hay que tener las dos:
+canary. Son TRES preguntas distintas sobre el mismo commit y hay que tener las tres:
 
 | harness | pregunta | el caso que solo él ve |
 |---|---|---|
 | `backend-deploy-fresh` | ¿está al día? | quedó código de backend en `main` sin desplegar |
 | `backend-deploy-tested` | ¿lo que corre pasó los tests? | se desplegó un commit **sin suite verde** |
+| `backend-deploy-gated` | ¿el deploy **esperó** al gate? | el bypass cuya suite después salió **verde** |
+
+**Por qué hicieron falta tres, y por qué el segundo no alcanzaba.** `backend-deploy-tested` se
+escribió creyendo que tapaba el fail-open, y tapa la mitad. Pregunta si el commit desplegado tuvo
+suite verde, así que solo ve el bypass **que además salió rojo**. Si el gate se salta un commit y
+la suite después sale verde, los tres testigos dicen PASS —`fresh` porque está desplegado,
+`tested` porque la suite terminó verde, y `verify-railway-gate` porque el toggle nunca se apagó—
+y el bypass no deja un solo rastro. El 06-ago se vio de casualidad: la suite estaba roja.
 
 Mira el run de **`ci.yml`** del sha desplegado, no los check suites. Es a propósito: un commit
 puede tener varios suites de github-actions —`bd9b77a` tiene dos, el push de CI y el "Backup DB"
@@ -197,18 +236,55 @@ de "problemas de red" y el gate se quedaría sin testigo, que es la misma lecci�
 `validCheckSuites`. En veredicto malo imprime qué archivos observados por Railway llegaron sin
 testear: es la diferencia entre anotarlo y arreglarlo ahora.
 
-**Corre en dos lados a propósito.** El canary de las 10am y el recordatorio post-push
+**Corren en dos lados a propósito.** El canary de las 10am y el recordatorio post-push
 (`~/.claude/hooks/post-git-push-reminders.mjs`). Post-push no agrega ruido: si el gate funcionó,
 prod sigue en el commit viejo con su suite verde y da PASS; si falló abierto, prod ya saltó al
 commit nuevo con la suite corriendo y sale exit 1 en minutos en vez de a la mañana siguiente.
 
+**`qa-e2e/backend-deploy-gated.mjs`** (07-ago-2026) es el que responde la tercera pregunta.
+Compara el fin del deployment de Railway contra el run de `ci.yml` del mismo sha: con el gate
+sano el deploy termina DESPUÉS de que la suite termina (medido en `89206ac`: **+38.7s**), y sin
+gate termina antes de que el run exista siquiera (`096593a`: **126s antes**). Ese delator ya
+estaba escrito acá sin automatizar — *"push → inicio de build pasó de ~7 segundos a ~2m50s"*.
+
+Tres cosas que conviene saber antes de tocarlo:
+
+- **Solo puede juzgar el deployment VIGENTE.** Railway pisa `deployment.updatedAt` con la hora
+  del reemplazo cuando pasa a `REMOVED`, así que un barrido histórico daría por bueno justo a
+  `096593a` (hoy figura con `updatedAt` del 07-ago 07:27). Por eso corre seguido, no en batch.
+- **La tolerancia de reloj es de 30s y no puede subir de ~38s**, que es el margen real de un
+  deploy gateado sano. Hay un test que lo impide.
+- El corazón es una función pura (`evaluarGate`) probada contra **los timestamps del incidente**
+  (`tests/railway-gate-timing.test.js`), no contra números inventados. Si alguien ablanda la
+  regla, el caso que se rompe es el que pasó de verdad.
+
+Necesita `RAILWAY_API_TOKEN` (el mismo del `.env` local y del secret de CI) y **falla con exit 1
+si falta**: un guard que se vuelve no-op sin credencial es verde por vacuidad.
+
 **Encontró un positivo real apenas se escribió.** `api.neto.pe` seguía en `096593a` —el commit del
 incidente— con la suite en `failure` **14 horas** después (desplegado 06-ago 17:27Z, reemplazado
-07-ago 07:24Z), porque los tres commits siguientes fueron
-de docs y Railway los saltó por `watchPatterns`. O sea que el hueco no se cierra solo: **sin un
-push que toque algo observado, prod se queda en el commit sin gatear indefinidamente.** El triage
-dijo que el único archivo observado sin testear era `.github/workflows/ci.yml` (config de CI, no
-runtime), así que no hubo consecuencia; se resolvió al desplegarse el push de ese mismo trabajo.
+07-ago 07:24Z). El triage dijo que el único archivo observado sin testear era
+`.github/workflows/ci.yml` (config de CI, no runtime), así que no hubo consecuencia; se resolvió
+al desplegarse el push de ese mismo trabajo.
+
+> **Esas 14 horas NO son la prueba de que `watchPatterns` deje a prod atrás**, aunque acá decía
+> eso ("los tres commits siguientes fueron de docs"). La línea de tiempo real, reconstruida el
+> 07-ago con `git log` y la API de Railway, dice otra cosa:
+>
+> | commit | qué tocó | por qué no reemplazó a `096593a` |
+> |---|---|---|
+> | `cf6029b` 17:57Z | `CLAUDE.md` | `watchPatterns` |
+> | — | *13h 15m sin un solo push* | — |
+> | `a213794` 07:12Z | `tests/codigos-seguros.test.js` | **el gate**, haciendo su trabajo (aserción rota a propósito) |
+> | `352356f` 07:15Z | el revert | `watchPatterns` |
+> | `112734f` 07:24Z | `tests/` | ninguno: **este sí desplegó** |
+>
+> O sea: fueron cuatro commits y **uno solo** era docs; dos tocaron rutas observadas, y a uno
+> lo frenó el gate, que es lo contrario del punto que la frase quería hacer. Y 13 de las 14
+> horas no hubo actividad. La propiedad de fondo sigue siendo cierta —**sin un push que toque
+> algo observado, prod se queda en el commit sin gatear indefinidamente**— pero no se demuestra
+> con este episodio. Un número real pegado a una causa inventada es la misma trampa que el "30
+> horas" que esta sección tuvo antes.
 
 **Salida de emergencia, si hace falta un hotfix del backend con Actions caído.** El gate falla
 cerrado, así que un outage de GitHub (o un job que no consigue runner) deja el deployment en

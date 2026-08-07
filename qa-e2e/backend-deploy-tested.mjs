@@ -32,6 +32,7 @@
 // Nota Windows: process.exitCode y no process.exit, igual que el harness hermano.
 
 import { execFileSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 
 import { disparaBuildRailway } from './backend-deploy-fresh.mjs';
 
@@ -51,6 +52,14 @@ const short = (s) => (s ? s.slice(0, 7) : s);
 // la rama de guard-ciego de abajo no se alcanzara nunca y un 404 saliera como exit 2
 // (infra). Lo encontró la prueba por mutación, no la lectura del código.
 const detalleError = (e) => [e?.stderr, e?.message].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+
+// Se REPORTAN los dos, pero se CLASIFICA solo por stderr, y la diferencia importa: el
+// `message` incluye la línea de comando entera, o sea la URL con el sha desplegado pegado.
+// Un sha hex que contenga "404" (≈1% de los sha) convertía cualquier caída de red o de auth
+// en un falso "GUARD CIEGO: se renombró ci.yml", que manda a arreglar algo que no pasó. El
+// bug original era el opuesto —clasificar solo por `message`, y la rama no se alcanzaba
+// nunca—, así que la corrección de un lado había abierto el otro. stderr no lleva la URL.
+export const es404 = (e) => /HTTP 404|Not Found/i.test(String(e?.stderr ?? ''));
 
 function done(code, verdict, extra = {}) {
   console.log(JSON.stringify({ verdict, ...extra }, null, 2));
@@ -140,7 +149,7 @@ async function main() {
     // Un 404 acá NO es infra: es el guard quedándose ciego. Devolver exit 2 lo mandaría al
     // cajón de "problemas de red" y el gate se quedaría sin testigo sin que nadie se entere,
     // que es la misma lección de `validCheckSuites` en verify-railway-gate.mjs.
-    if (/404|Not Found/i.test(err)) {
+    if (es404(e)) {
       return done(1, `GUARD CIEGO: no existe el workflow ${WORKFLOW} en ${REPO}`, {
         deployed: short(deployed),
         error: err,
@@ -202,4 +211,8 @@ async function main() {
   });
 }
 
-await main();
+// Igual que el harness hermano: solo corre si se lo invoca directo. Sin esto, importar
+// `es404` desde su test dispararía el fetch a prod y el `gh api` como efecto secundario.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await main();
+}
