@@ -26,15 +26,26 @@
 // assertion de libuv al salir con el socket keep-alive de fetch aún cerrándose.
 
 import { execFileSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 
 const API = process.env.NETO_API_URL || 'https://api.neto.pe';
 const REPO = process.env.NETO_REPO || 'FavioML/FinBot';
 // Un push < IN_FLIGHT_MIN atrás puede estar todavía construyendo en Railway.
 const IN_FLIGHT_MIN = Number(process.env.NETO_INFLIGHT_MIN ?? 10);
 
-// Lista negra de railway.json: ["**", "!webapp/**", "!qa-e2e/**", "!docs/**", "!/*.md"].
-// Un archivo dispara build de Railway si NO cae en ninguna exclusión.
-function disparaBuildRailway(f) {
+// La lista negra de `railway.json`, copiada acá a mano. Un archivo dispara build de
+// Railway si NO cae en ninguna exclusión.
+//
+// Está duplicada A PROPÓSITO y no derivada en runtime: implementar el dialecto de globs
+// de Railway (incluida la barra inicial de `!/*.md`, que ancla a la raíz) es más superficie
+// de error silencioso que las cuatro comparaciones de abajo. El precio de la copia es que
+// puede desincronizarse —alguien agrega una exclusión a railway.json, no toca esto, y el
+// harness empieza a dar veredictos equivocados SIN romperse—, y ese precio lo paga
+// `tests/railway-watchpatterns-paridad.test.js`, que compara las dos y falla si divergen.
+// Por eso se exportan: el test necesita las dos mitades, la declarada y la implementada.
+export const WATCH_PATTERNS = ['**', '!webapp/**', '!qa-e2e/**', '!docs/**', '!/*.md'];
+
+export function disparaBuildRailway(f) {
   if (!f) return false;
   if (f.startsWith('webapp/')) return false;
   if (f.startsWith('qa-e2e/')) return false;
@@ -126,4 +137,8 @@ async function main() {
   });
 }
 
-await main();
+// Solo corre si se lo invoca directo. Sin esto, `import`arlo desde el test de paridad
+// dispararía el fetch a prod y el `gh api` como efecto secundario de leer el predicado.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await main();
+}
