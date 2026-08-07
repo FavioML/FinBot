@@ -12,7 +12,7 @@
     "trigger": "git push origin main",
     "branch": "main",
     "ci_required": true,
-    "ci_pipeline": "GitHub Actions (test) + Vercel auto-deploy",
+    "ci_pipeline": "GitHub Actions: `test` + `webapp` -> `deploy-webapp` (vercel deploy --prod). El auto-deploy de Vercel sobre main esta APAGADO en webapp/vercel.json.",
     "deploy_time_estimate_min": 2
   },
   "canary": {
@@ -88,6 +88,13 @@
         "on_fail": "exit 1 = STALE: hay commits en main que tocan archivos que Railway observa (todo menos webapp/, qa-e2e/, docs/, *.md raiz -> la lista negra de railway.json) y no estan desplegados; el JSON lista los archivos backend pendientes. PRIMERA CAUSA A DESCARTAR desde el 05-ago-2026, y es la esperada: el deploy esta GATEADO por CI ('Wait for CI' de Railway), asi que una suite roja deja el backend atras A PROPOSITO. Mirar antes el ultimo run de Actions; si esta rojo, esto no es un fallo de infra sino el gate trabajando, y el arreglo es arreglar la suite. Solo si Actions esta VERDE revisar el deployment en Railway. El motivo real vive en meta.skippedReason por API ('CI check suite failed' vs 'No changes to watched files'), no se ve en la UI. exit 2 = no se pudo determinar (endpoint /version caido, gh/red, o el SHA desplegado no es ancestro de main): infra, no necesariamente stale. Espejo backend del deploy-fresh del webapp; usa /version (RAILWAY_GIT_COMMIT_SHA)."
       },
       {
+        "name": "backend-deploy-tested",
+        "cmd": "node qa-e2e/backend-deploy-tested.mjs",
+        "cwd": "C:/Vortik.dev/products/neto/app",
+        "cost": "1 fetch + 1 gh api (segundos, gratis; 2 gh api mas solo cuando el veredicto es malo)",
+        "on_fail": "exit 1 = api.neto.pe esta corriendo un commit QUE NO PASO LA SUITE. Es el agujero del gate de Railway, encontrado el 06-ago-2026: 'Wait for CI' espera los check suites que EXISTEN cuando evalua, asi que con GitHub degradado (el workflow run tarda en crearse) Railway no encuentra nada que esperar y despliega igual. Falla cerrado si la suite corre y sale roja; falla ABIERTO si nunca arranca, y NO tiene arreglo del lado de Railway: lo unico que lo atrapa es este chequeo despues. Mirar el 'verdict': 'NUNCA TUVO SUITE DE CI' = el fail-open puro. 'NO PASO LA SUITE (failure|cancelled|...)' = lo que corre tiene la suite roja. 'TODAVIA CORRIENDO' = la ventana en vivo; volver a correr en unos minutos y si queda asi, salio sin gate. 'GUARD CIEGO' = se renombro .github/workflows/ci.yml y esto dejo de mirar nada; arreglar eso antes que nada. El JSON trae el triage: si 'archivosDeBackendSinTestear' viene vacio, lo que corre es el mismo runtime que si se testeo y alcanza con anotarlo; si trae archivos, revisarlos uno por uno. El arreglo es redesplegar sobre un commit con suite verde (pushear algo que Railway observe, o redeploy desde el dashboard). exit 2 = infra (endpoint /version caido, gh/red): no hubo veredicto. NO reemplaza a backend-deploy-fresh y no se solapan: aquel pregunta '¿esta al dia?', este '¿lo que corre paso los tests?'; un commit desplegado sin suite verde es PASS para aquel. Mira el run de ci.yml y no los check suites a proposito, porque un commit puede tener varios suites de github-actions (el push de CI y el 'Backup DB' agendado) y un backup fallido no dice nada sobre si el codigo paso los tests. Ver memory project_railway_deploy_gate."
+      },
+      {
         "name": "admin-panel",
         "cmd": "node qa-e2e/qa-admin-panel.mjs",
         "cwd": "C:/Vortik.dev/products/neto/app",
@@ -141,7 +148,7 @@
   "notes": [
     "Webapp Vercel (auto-deploy) + Backend Railway separado (api.neto.pe).",
     "Las suites de vitest (backend en la raiz + webapp) tienen que estar VERDES en GitHub Actions antes del deploy, junto con `npx tsc --noEmit` del webapp. A proposito no se escribe cuantas son: el numero decia 56 cuando ya eran cientos, o sea que el dato envejecia en cada sesion y el unico efecto era mentirle a la siguiente auditoria. El numero de hoy lo da `npm test` y `npm --prefix webapp run test`.",
-    "Ojo: el job `webapp` de ci.yml da check rojo pero NO gatea a Vercel (su integracion de Git no espera a Actions). Gatear de verdad es configurar 'Ignored Build Step' en Vercel.",
+    "Los DOS deploys estan gateados desde el 05-ago-2026, pero por caminos distintos. Webapp: `webapp/vercel.json` apaga el auto-deploy de main (`git.deploymentEnabled.main: false`) y despliega el job `deploy-webapp` de ci.yml, con `needs: [test, webapp]`. Backend: el toggle 'Wait for CI' de Railway, que es config de DASHBOARD (invisible desde el repo) y por eso lo vigila el job `railway-gate`. Esta nota antes decia que el job `webapp` no gateaba a Vercel y que habia que usar 'Ignored Build Step': quedo obsoleta al cerrarse Q1 y Q9 de la auditoria del 2026-08-03. Corregida el 07-ago-2026 — una nota que le miente a la proxima auditoria es peor que ninguna.",
     "Google OAuth configurado en Vercel — verificar callback URL si cambia."
   ]
 }
