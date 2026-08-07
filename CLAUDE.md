@@ -187,6 +187,11 @@ de "problemas de red" y el gate se quedaría sin testigo, que es la misma lecci�
 `validCheckSuites`. En veredicto malo imprime qué archivos observados por Railway llegaron sin
 testear: es la diferencia entre anotarlo y arreglarlo ahora.
 
+**Corre en dos lados a propósito.** El canary de las 10am y el recordatorio post-push
+(`~/.claude/hooks/post-git-push-reminders.mjs`). Post-push no agrega ruido: si el gate funcionó,
+prod sigue en el commit viejo con su suite verde y da PASS; si falló abierto, prod ya saltó al
+commit nuevo con la suite corriendo y sale exit 1 en minutos en vez de a la mañana siguiente.
+
 **Encontró un positivo real apenas se escribió.** `api.neto.pe` seguía en `096593a` —el commit del
 incidente— con la suite en `failure` 30 horas después, porque los tres commits siguientes fueron
 de docs y Railway los saltó por `watchPatterns`. O sea que el hueco no se cierra solo: **sin un
