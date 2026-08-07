@@ -13,17 +13,25 @@
 // prendido, nunca se apagó—, así que el bypass no deja un solo rastro. El 06-ago se vio solo
 // porque además la suite estaba roja. La próxima vez puede no estarlo.
 //
-// LO QUE MIRA. El delator ya estaba escrito en CLAUDE.md sin automatizar: "push → inicio de
-// build pasó de ~7 segundos a ~2m50s". Con el gate sano el deploy TERMINA después de que la
-// suite termina; sin gate, termina antes de que la suite exista siquiera. Son dos timestamps
-// que ya publican las dos APIs.
+// LO QUE MIRA: el INICIO del build, contra el fin de la suite. El delator ya estaba escrito en
+// CLAUDE.md sin automatizar: "push → inicio de build pasó de ~7 segundos a ~2m50s". Con el gate
+// sano Railway deja el deployment en WAITING y no construye hasta que el check suite termina.
 //
-// GOTCHA que define el diseño: `deployment.updatedAt` de Railway es el ÚLTIMO cambio de
-// estado, no el fin del deploy. Cuando un deployment pasa a `REMOVED` (reemplazado por el
-// siguiente) ese campo se pisa con la hora del reemplazo. O sea que solo es confiable para el
-// deployment VIGENTE, que es justo el que este harness mira. No sirve para auditar el pasado:
-// hoy `096593a` figura con `updatedAt` del 07-ago 07:27, la hora en que lo reemplazaron, y un
-// barrido histórico lo daría por bueno.
+// LA PRIMERA VERSIÓN DE ESTO MIRABA EL FIN Y ESTABA MAL. `updatedAt − runTerminado` es en
+// realidad `duraciónBuild − duraciónSuite`: cuando el build tarda más que la suite —lo normal
+// acá, 140-185s de build contra 39-180s de suite— un deploy SIN gate igual termina después y
+// salía "esperó". Sobre el historial real detectaba el **16%** de los deploys sin gate, y 0% en
+// los dos días en que el gate demostrablemente no existía. Lo encontró una revisión
+// adversarial. El inicio del build separa las dos poblaciones sin solaparse, y no depende de
+// cuánto tarde el build.
+//
+// De dónde sale el inicio: el timestamp más viejo de `buildLogs`. NO de `createdAt` (Railway
+// crea la fila apenas llega el push, incluso cuando va a quedarse en WAITING) ni de
+// `updatedAt`, que además es el ÚLTIMO cambio de estado: cuando un deployment pasa a `REMOVED`
+// ese campo se pisa con la hora del reemplazo, así que ni siquiera sirve para auditar el
+// pasado. Hoy `096593a` figura con `updatedAt` del 07-ago 07:27, la hora en que lo
+// reemplazaron. Este harness mira solo el deployment VIGENTE, y si no tiene logs de build
+// (Railway los purga) devuelve exit 2, nunca PASS.
 //
 // Exit 0 = el deploy esperó a su suite. Exit 1 = no esperó (o falta el token, que no se
 // saltea). Exit 2 = no se pudo determinar (endpoint caído, gh/red, deployment fuera de la
@@ -35,6 +43,7 @@
 import 'dotenv/config';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { realpathSync } from 'node:fs';
 
 import { consultarRailway, PROJECT_ID, SERVICE_ID, ENVIRONMENT_ID } from '../scripts/railway-api.mjs';
 
@@ -42,14 +51,23 @@ const API = process.env.NETO_API_URL || 'https://api.neto.pe';
 const REPO = process.env.NETO_REPO || 'FavioML/FinBot';
 const WORKFLOW = process.env.NETO_CI_WORKFLOW || 'ci.yml';
 // Cuántos deployments recientes se recorren buscando el del sha que corre en prod.
-const VENTANA = 30;
+const VENTANA = Number(process.env.NETO_GATE_VENTANA ?? 100);
 
-// Colchón para desfase de reloj entre Railway y GitHub. El margen real medido en un deploy
-// gateado sano (`89206ac`, 07-ago) fue de +38.7s —el deploy terminó DESPUÉS que la suite—, y
-// en el fail-open de `096593a` el deploy terminó 126 segundos ANTES de que el run existiera.
-// Con 30s no se toca ninguno de los dos casos reales. Subirla por encima de ~38s empezaría a
-// tragarse bypasses cortos, y hay un test que lo impide.
-export const TOLERANCIA_MS = Number(process.env.NETO_GATE_TOLERANCIA_MS ?? 30_000);
+// Colchón para desfase de reloj entre los relojes de Railway y de GitHub. Las dos poblaciones
+// medidas sobre el historial real del servicio (12 deployments, 07-ago-2026) no se solapan ni
+// de cerca, así que la tolerancia no es un parámetro delicado:
+//
+//   con gate   (b6e44e8, 0c55f6b, 89206ac, 52241cd) → el build arranca +5 a +6s DESPUÉS
+//   sin gate   (a9c5bdf, 3611f9b, 9728433, 0b697e0, 87f3682, e92e2d8) → −44 a −159s
+//   `096593a`  (el incidente)                        → −1068s
+//
+// El +5/+6s es el intervalo con que Railway mira el check suite. 15s deja 9s de aire sobre
+// esa constante y atrapa hasta −15s, muy por encima del peor caso sin gate (−44s).
+export const TOLERANCIA_MS = Number(process.env.NETO_GATE_TOLERANCIA_MS ?? 15_000);
+
+// Techo del margen. Más que esto y el run que se está mirando no puede ser el del push que
+// disparó este build: es un redeploy o un rollback manual, que no consulta el gate.
+export const MARGEN_MAX_MS = Number(process.env.NETO_GATE_MARGEN_MAX_MS ?? 60 * 60 * 1000);
 
 const short = (s) => (s ? s.slice(0, 7) : s);
 const seg = (ms) => Math.round(ms / 1000);
@@ -58,6 +76,9 @@ const seg = (ms) => Math.round(ms / 1000);
 // ausente pasaba el control de legibilidad como una fecha de 1970 y salía clasificado como
 // FAIL_OPEN: alarma máxima por un dato que faltaba. Lo encontró el test, no la lectura.
 const instante = (v) => (typeof v === 'string' && v ? new Date(v).getTime() : NaN);
+
+const gh = (ruta, jq) =>
+  execFileSync('gh', jq ? ['api', ruta, '--jq', jq] : ['api', ruta], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
 
 function done(code, verdict, extra = {}) {
   console.log(JSON.stringify({ verdict, ...extra }, null, 2));
@@ -73,12 +94,12 @@ function done(code, verdict, extra = {}) {
  * `ok: null` = no alcanza para decidir. Nunca se devuelve `ok: true` por falta de datos.
  */
 export function evaluarGate(
-  { deployTerminadoAt, runCreadoAt, runTerminadoAt, runCompletado },
+  { buildEmpezoAt, runCreadoAt, runTerminadoAt, runCompletado },
   toleranciaMs = TOLERANCIA_MS,
 ) {
-  const dep = instante(deployTerminadoAt);
+  const dep = instante(buildEmpezoAt);
   if (!Number.isFinite(dep)) {
-    return { ok: null, clase: 'INDETERMINADO', detalle: 'el deployment no trae un timestamp legible' };
+    return { ok: null, clase: 'INDETERMINADO', detalle: 'no se pudo determinar cuándo empezó el build' };
   }
 
   // Sin run no hay nada que Railway pudiera haber esperado. Es el fail-open en su forma pura.
@@ -91,22 +112,25 @@ export function evaluarGate(
   }
 
   const creado = instante(runCreadoAt);
-  if (Number.isFinite(creado) && dep < creado) {
+  if (!Number.isFinite(creado)) {
+    return { ok: null, clase: 'INDETERMINADO', detalle: 'el run no trae hora de creación legible' };
+  }
+  if (dep < creado) {
     return {
       ok: false,
       clase: 'FAIL_OPEN',
       margenSeg: seg(creado - dep),
-      detalle: `el deploy TERMINÓ ${seg(creado - dep)}s antes de que el run de CI existiera: ` +
-        'Railway no encontró ningún check suite que esperar y desplegó igual',
+      detalle: `el build EMPEZÓ ${seg(creado - dep)}s antes de que el run de CI existiera: ` +
+        'Railway no encontró ningún check suite que esperar y construyó igual',
     };
   }
 
-  // El deploy ya terminó y la suite sigue corriendo: se le adelantó, aunque el run exista.
+  // El build ya arrancó y la suite sigue corriendo: se le adelantó, aunque el run exista.
   if (!runCompletado) {
     return {
       ok: false,
       clase: 'NO_ESPERO',
-      detalle: 'el deploy ya terminó y su suite todavía está corriendo',
+      detalle: 'el build ya arrancó y su suite todavía está corriendo',
     };
   }
 
@@ -119,11 +143,26 @@ export function evaluarGate(
       ok: false,
       clase: 'NO_ESPERO',
       margenSeg: seg(terminado - dep),
-      detalle: `el deploy terminó ${seg(terminado - dep)}s ANTES que su suite`,
+      detalle: `el build arrancó ${seg(terminado - dep)}s ANTES de que su suite terminara`,
     };
   }
 
-  return { ok: true, clase: 'ESPERO', margenSeg: seg(dep - terminado) };
+  // Cota superior: un margen de horas o días no es "esperó muchísimo", es que el run que se
+  // está mirando no es el del push que produjo este build (redeploy manual, rollback, re-run).
+  // Sin esto un rollback desde el dashboard —que NO consulta "Wait for CI"— salía PASS con
+  // margen de días. No se puede afirmar que haya habido gate, así que es indeterminado.
+  const margen = dep - terminado;
+  if (margen > MARGEN_MAX_MS) {
+    return {
+      ok: null,
+      clase: 'INDETERMINADO',
+      margenSeg: seg(margen),
+      detalle: `el build arrancó ${seg(margen)}s después de la suite, demasiado para ser el ` +
+        'build de ese push: probablemente un redeploy o rollback manual, que no pasa por el gate',
+    };
+  }
+
+  return { ok: true, clase: 'ESPERO', margenSeg: seg(margen) };
 }
 
 const QUERY = `query($p:String!,$s:String!,$e:String!,$n:Int!){
@@ -131,6 +170,27 @@ const QUERY = `query($p:String!,$s:String!,$e:String!,$n:Int!){
     edges { node { id status createdAt updatedAt meta } }
   }
 }`;
+
+const QUERY_LOGS = `query($id:String!){ buildLogs(deploymentId:$id, limit:5000){ timestamp } }`;
+
+/**
+ * Cuándo arrancó de verdad el build: el timestamp más viejo de los logs de build.
+ *
+ * NO se usa `createdAt` (Railway crea la fila apenas llega el push, y con el gate sano se
+ * queda en WAITING sin construir) ni `updatedAt` (el FIN). La primera versión de este harness
+ * comparaba el fin, y eso mide `duraciónBuild − duraciónSuite`: cuando el build tarda más que
+ * la suite, un deploy SIN gate igual termina después y salía "esperó". Sobre el historial real
+ * del servicio esa regla detectaba el 16% de los deploys sin gate. El inicio del build separa
+ * las dos poblaciones sin solaparse, y es el delator que CLAUDE.md ya nombraba: "push → inicio
+ * de build pasó de ~7 segundos a ~2m50s".
+ */
+async function inicioDelBuild(token, deploymentId) {
+  const { data } = await consultarRailway({
+    token, query: QUERY_LOGS, variables: { id: deploymentId }, campoEsperado: 'buildLogs',
+  });
+  const ts = (data || []).map((l) => new Date(l.timestamp).getTime()).filter(Number.isFinite);
+  return ts.length ? new Date(Math.min(...ts)).toISOString() : null;
+}
 
 async function main() {
   const token = process.env.RAILWAY_API_TOKEN;
@@ -175,22 +235,40 @@ async function main() {
       deployed: short(deployed),
       ventana: VENTANA,
       hint: 'Puede ser un redeploy viejo que ya salió de la ventana consultada, o que Railway ' +
-        'todavía no refleje el deployment. Subir NETO_GATE_VENTANA o mirar el dashboard.',
+        'todavía no refleje el deployment. Subir NETO_GATE_VENTANA (hoy ' + VENTANA + ') o mirar el dashboard.',
     });
   }
 
-  // 3) El run de CI de ese sha. Se usa el MÁS VIEJO y no el más nuevo, al revés que
-  //    backend-deploy-tested: aquel quiere el último veredicto, éste quiere el run original
-  //    del push. Un re-run posterior movería la hora de finalización hacia adelante y haría
-  //    parecer que el deploy se le adelantó cuando en realidad lo esperó.
+  // 3) Cuándo arrancó el build de ese deployment.
+  const buildEmpezoAt = await inicioDelBuild(token, dep.id);
+  if (!buildEmpezoAt) {
+    return done(2, 'el deployment no tiene logs de build: no se puede saber cuándo arrancó', {
+      deployed: short(deployed),
+      deploymentId: dep.id,
+      hint: 'Railway purga los logs de builds viejos. Sin ellos NO se afirma que el gate haya ' +
+        'funcionado: esto es exit 2 (sin veredicto), no PASS.',
+    });
+  }
+
+  // 4) El run de CI de ese sha, y de él el INTENTO ORIGINAL. Un "Re-run all jobs" reusa el
+  //    mismo run id, deja `created_at` intacto y pisa `updated_at`: `cf6029b` tiene el
+  //    attempt 1 terminado 18:31Z y el objeto del run diciendo 23:14Z, cinco horas después.
+  //    Tomar ese `updated_at` daba un falso "NO ESPERÓ" de 5h con el gate perfectamente sano.
+  //    Por eso se pide `/attempts/1`, que es inmutable, y se cae al run entero solo si no está.
   let run;
   try {
     run = JSON.parse(
       execFileSync('gh', ['api',
         `repos/${REPO}/actions/workflows/${WORKFLOW}/runs?head_sha=${deployed}&per_page=20`,
-        '--jq', '[.workflow_runs[] | {created_at, updated_at, status, conclusion, url: .html_url}] | sort_by(.created_at) | first // null',
+        '--jq', '[.workflow_runs[] | {id, created_at, updated_at, status, conclusion, url: .html_url, intentos: .run_attempt}] | sort_by(.created_at) | first // null',
       ], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }),
     );
+    if (run && run.intentos > 1) {
+      try {
+        const a1 = JSON.parse(gh(`repos/${REPO}/actions/runs/${run.id}/attempts/1`, '{created_at, updated_at, status, conclusion}'));
+        run = { ...run, ...a1, deIntento: 1 };
+      } catch { run = { ...run, deIntento: `no se pudo leer el intento 1 de ${run.intentos}` }; }
+    }
   } catch (e) {
     return done(2, 'no se pudieron leer los runs de CI (gh)', {
       deployed: short(deployed),
@@ -199,7 +277,7 @@ async function main() {
   }
 
   const veredicto = evaluarGate({
-    deployTerminadoAt: dep.updatedAt,
+    buildEmpezoAt,
     runCreadoAt: run?.created_at ?? null,
     runTerminadoAt: run?.updated_at ?? null,
     runCompletado: run?.status === 'completed',
@@ -208,9 +286,11 @@ async function main() {
   const contexto = {
     deployed: short(deployed),
     deployCreado: dep.createdAt,
+    buildEmpezo: buildEmpezoAt,
     deployTerminado: dep.updatedAt,
     runCreado: run?.created_at ?? null,
     runTerminado: run?.updated_at ?? null,
+    runIntentos: run?.intentos ?? null,
     runConclusion: run?.conclusion ?? null,
     run: run?.url ?? null,
     margenSeg: veredicto.margenSeg,
@@ -219,7 +299,7 @@ async function main() {
   if (veredicto.ok === true) {
     return done(0, 'PASS', {
       ...contexto,
-      lectura: `el deploy terminó ${veredicto.margenSeg}s DESPUÉS que su suite: esperó`,
+      lectura: `el build arrancó ${veredicto.margenSeg}s DESPUÉS de que su suite terminó: esperó`,
     });
   }
   if (veredicto.ok === null) {
@@ -236,6 +316,16 @@ async function main() {
   });
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+/** Ver la nota en `backend-deploy-fresh.mjs`: la comparación cruda con `process.argv[1]` falla
+ *  detrás de un junction y deja el harness en exit 0 sin output, que el canary lee como PASS. */
+function esEntrypoint() {
+  const arg = process.argv[1];
+  if (!arg) return false;
+  let real = null;
+  try { real = realpathSync(arg); } catch { /* el path puede no existir */ }
+  return [arg, real].some((p) => p && import.meta.url === pathToFileURL(p).href);
+}
+
+if (esEntrypoint()) {
   await main();
 }

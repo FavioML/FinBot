@@ -27,6 +27,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { realpathSync } from 'node:fs';
 
 const API = process.env.NETO_API_URL || 'https://api.neto.pe';
 const REPO = process.env.NETO_REPO || 'FavioML/FinBot';
@@ -98,7 +99,7 @@ async function main() {
     const raw = execFileSync(
       'gh',
       ['api', `repos/${REPO}/compare/${deployed}...main`,
-        '--jq', '{status, ahead_by, files: [.files[]?.filename], newest: (.commits[-1]?.commit.committer.date)}'],
+        '--jq', '{status, ahead_by, truncado: ((.files|length) >= 300), files: [.files[]? | .filename, .previous_filename] | map(select(.)), newest: (.commits[-1]?.commit.committer.date)}'],
       { encoding: 'utf8' },
     );
     cmp = JSON.parse(raw);
@@ -152,6 +153,23 @@ async function main() {
 
 // Solo corre si se lo invoca directo. Sin esto, `import`arlo desde el test de paridad
 // dispararía el fetch a prod y el `gh api` como efecto secundario de leer el predicado.
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+/**
+ * ¿Se invocó este archivo directamente, o alguien lo importó?
+ *
+ * `import.meta.url` es el REALPATH; `process.argv[1]` es el path tal como se tipeó. Detrás de
+ * un junction o symlink no coinciden, y la comparación cruda daba `false`: `main()` no corría y
+ * el proceso salía con **exit 0 y cero output**, que el canary lee como PASS. Un guard que se
+ * vuelve no-op es verde por vacuidad, justo lo que `verify-railway-gate.mjs` declara
+ * inaceptable. Importa acá porque este workspace usa junctions para los worktrees.
+ */
+export function esEntrypoint() {
+  const arg = process.argv[1];
+  if (!arg) return false;
+  let real = null;
+  try { real = realpathSync(arg); } catch { /* el path puede no existir */ }
+  return [arg, real].some((p) => p && import.meta.url === pathToFileURL(p).href);
+}
+
+if (esEntrypoint()) {
   await main();
 }

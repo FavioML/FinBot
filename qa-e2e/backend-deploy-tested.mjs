@@ -33,6 +33,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { realpathSync } from 'node:fs';
 
 import { disparaBuildRailway } from './backend-deploy-fresh.mjs';
 
@@ -286,6 +287,16 @@ async function main() {
 
 // Igual que el harness hermano: solo corre si se lo invoca directo. Sin esto, importar
 // `es404` desde su test dispararía el fetch a prod y el `gh api` como efecto secundario.
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+/** Ver la nota en `backend-deploy-fresh.mjs`: la comparación cruda con `process.argv[1]` falla
+ *  detrás de un junction y deja el harness en exit 0 sin output, que el canary lee como PASS. */
+function esEntrypoint() {
+  const arg = process.argv[1];
+  if (!arg) return false;
+  let real = null;
+  try { real = realpathSync(arg); } catch { /* el path puede no existir */ }
+  return [arg, real].some((p) => p && import.meta.url === pathToFileURL(p).href);
+}
+
+if (esEntrypoint()) {
   await main();
 }
