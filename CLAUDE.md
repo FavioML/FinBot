@@ -73,19 +73,58 @@ Por eso los dos harness tienen guarda de `import.meta.url`: sin ella, importar e
 predicado desde un test dispararia el fetch a prod como efecto secundario.
 
 **El modelo de globs no es una lectura de la sintaxis: hay comportamiento medido detras.**
-Los tres supuestos que podrian estar mal en las DOS implementaciones a la vez (y que
+Los supuestos que podrian estar mal en las DOS implementaciones a la vez (y que
 ningun test de paridad puede detectar, porque comparan una copia contra la otra):
 
 | supuesto | por que podria fallar | que lo prueba |
 |---|---|---|
 | `**` matchea **dotfiles** | con minimatch/micromatch en default (`dot:false`) NO matchearia `.github/**` | `096593a` toco **solo** `.github/workflows/ci.yml` y Railway **construyo** |
-| `!/*.md` **ancla a la raiz** | sin ancla seria recursivo y `handlers/notas.md` dejaria de desplegar | `aaed32e` y `cf6029b` tocaron solo `CLAUDE.md` de raiz → `No changes to watched files` |
+| `!dir/**` excluye tambien los **sub-directorios con punto** | mismo `dot:false`: `webapp/**` no matchearia `webapp/.claude/...`, y esa ruta pasaria a estar observada | 4 observaciones independientes: `42d17d1`, `3b1d617`, `257f2f5`, `cde2525` tocaron `webapp/.claude/deploy-config.json` y salieron `No changes to watched files` |
 | `!docs/**` excluye | — | experimento controlado del 22-jul (`61efbf9` → SKIPPED) |
+| `!/*.md` **ancla a la raiz** | sin ancla seria recursivo y `handlers/notas.md` dejaria de desplegar | **NADA. Sigue sin medir** — ver abajo |
+
+**El ancla de `!/*.md` era un supuesto disfrazado de medicion, y esta fila lo decia mal
+hasta el 07-ago.** Citaba `aaed32e` y `cf6029b` ("tocaron solo `CLAUDE.md` de raiz →
+`No changes`"). Las dos observaciones son reales y no separan nada: son igual de
+compatibles con que el patron sea **recursivo**, que tambien excluiria un `.md` de raiz.
+Para distinguirlos hace falta un commit cuyo veredicto dependa de un `.md` **anidado**, y
+en 100 deployments no hubo ninguno (medido con `qa-e2e/backend-watchpatterns-real.mjs`,
+que reporta `anclaDeRaizEjercitada` justamente por esto). Una observacion que no contradice
+la hipotesis no es lo mismo que una que la prueba.
+
+Se puede vivir con el supuesto porque el error cae del lado seguro: si Railway fuera
+recursivo y el modelo anclado, el harness prediria "redespliega" donde Railway saltea, o sea
+una **falsa alarma de STALE**. Nunca un falso PASS sobre un backend viejo, que es el modo de
+falla que importa. Ningun archivo de runtime es `.md`, asi que produccion no depende de esto.
 
 Lo que sigue **sin** prueba es la PRECEDENCIA (¿gana el ultimo patron que matchea, o es
 "algun include y ningun exclude"?). Hoy es inobservable: hay un solo include y las
-exclusiones no se solapan. El dia que se agregue un include despues de una exclusion,
-eso hay que medirlo antes de confiar en cualquiera de las dos implementaciones.
+exclusiones no se solapan. Desde el 07-ago el harness ya **no adivina**: una lista que
+re-incluye despues de excluir (`[..., '!infra/**', 'infra/**']`) **no compila**, con un
+mensaje que manda a medirlo con un deploy de control primero. Antes esa lista pasaba los
+tests en verde con el harness sub-reportando.
+
+**`REMOVED` no significa "construyo".** Un deployment cae en `REMOVED` apenas deja de ser el
+vigente, y ahi adentro conviven dos cosas muy distintas: los que construyeron y fueron
+reemplazados, y los que **nunca construyeron** —el que otro push supero a mitad de build, el
+que quedo en `WAITING` esperando una suite que nunca llego—. La señal que los separa es
+**`meta.imageDigest`**, y se confirma pidiendo `buildLogs`:
+
+| commit | status | `imageDigest` | `buildLogs` |
+|---|---|---|---|
+| `89206ac`, `112465b` | `REMOVED` | si | 127 / 129 lineas |
+| `cbf267c` | `REMOVED` | **no** | 10 (superado a los 103s, menos que un build) |
+| `8e338ff` | `REMOVED` | **no** | *"Deployment does not have an associated build"* |
+
+Importa por dos cosas. Una: solo un deployment que construyo puede ser la BASE del diff que
+Railway mira despues, y tomar como base a uno que no llego inventa desacuerdos (le paso al
+harness nuevo con `112465b`, cuya base real era `41b3aca`). Dos, y es la trampa: el `meta` de
+los que no construyeron viene **sin `configFile` y con `watchPatterns: []`**, porque nunca
+llegaron a la etapa que escribe esos campos. Leer eso como *"Railway resolvio la config a una
+lista vacia y por eso desplego igual"* es una conclusion entera armada sobre un campo que
+falta — y estuvo escrita aca durante una hora el 07-ago antes de que los `buildLogs` la
+desmintieran. No hay ninguna evidencia de que Railway haya desplegado ignorando
+`watchPatterns`: **86 de 86 deployments juzgables coinciden con el modelo.**
 
 **Ojo con una sutileza que se descubrio leyendo `meta.skippedReason`:** Railway evalua
 `watchPatterns` sobre el diff desde el ultimo commit **DESPLEGADO**, no sobre el commit
@@ -93,17 +132,29 @@ suelto. Por eso `352356f` —un revert que toca `tests/`, ruta observada— dio
 `"No changes to watched files"`. `backend-deploy-fresh` ya lo implementa bien (compara
 `deployed...main`); no lo "arregles" a un diff por commit.
 
-**Esta lista esta escrita DOS veces**: en `railway.json` y a mano en
-`disparaBuildRailway()` de `qa-e2e/backend-deploy-fresh.mjs`, que la necesita para
-decidir si un commit pendiente redespliega. La copia puede desincronizarse **sin
-romperse** —agregas una exclusion a `railway.json`, no tocas el harness, y el harness
-sigue verde dando veredictos equivocados—, asi que el precio lo paga
-`tests/railway-watchpatterns-paridad.test.js`: reimplementa los patrones declarados de
-forma independiente y compara las dos implementaciones sobre el arbol versionado real.
-Por eso el corpus son archivos de verdad y no una lista escrita a mano: una exclusion
-agregada solo al harness no cambia ningun patron declarado, asi que la unica manera de
-verla es que un archivo existente la ejercite. Una forma de glob que el test no conoce
-**tira** en vez de asumir un default. Si tocas `railway.json`, actualiza las dos mitades.
+**Esta lista se escribe UNA sola vez**, en `railway.json`. `disparaBuildRailway()` de
+`qa-e2e/backend-deploy-fresh.mjs` la **deriva** de ahi (`qa-e2e/lib/railway-watch.mjs`).
+
+Hasta el 07-ago estaba copiada a mano en el harness, con un test de paridad pagando el
+precio de la copia. El argumento para copiarla era que implementar el dialecto de globs
+era mas superficie de error silencioso que comparar las dos listas. **Medido: era al reves.**
+El test comparaba PROYECCIONES de una lista contra la otra —el conjunto de exclusiones, el
+veredicto sobre los archivos que existen— y por cada proyeccion hay mutaciones que no la
+cruzan. Tres pasaban 5/5 en verde con el harness sub-reportando, que es la direccion
+peligrosa: `backend-deploy-fresh` da PASS sobre un backend genuinamente stale.
+
+Lo que queda por verificar ya no es "¿las dos copias coinciden?" sino "¿este modelo coincide
+con **Railway**?", que es otra pregunta y se responde midiendo:
+
+| que lo vigila | que prueba | que NO prueba |
+|---|---|---|
+| `tests/railway-watchpatterns-paridad.test.js` | el compilador implementa los patrones declarados, contra una reimplementacion que traduce los globs a **expresiones regulares** (otro mecanismo a proposito: una copia literal solo detecta que editaste una de las dos), sobre el arbol real + probes **derivados de cada patron** (una exclusion nueva trae sus propios casos sola, aunque no exista todavia un archivo bajo esa ruta) | que el modelo sea cierto: dos copias de acuerdo pueden estar las dos equivocadas |
+| el mismo test, tres casos mas | que el harness **se niegue a adivinar**: forma de glob nueva, lista blanca, y re-inclusion (precedencia no medida) **no compilan** | — |
+| el mismo test, tres casos mas | que **ningun eslabon** de la cadena del predicado conozca una ruta (ni una comilla ni una barra en `disparaBuildRailway`, el closure de `crearPredicado` y `evaluarReglas`), que ningun directorio real del repo quede excluido a mano, y que las dos implementaciones coincidan sobre entradas adversariales | los closures de `compilarPatrones()`, que llevan barra legitima; y un directorio que **todavia no existe** — el hueco original era sobre `infra/` |
+| `qa-e2e/backend-watchpatterns-real.mjs` | el modelo contra lo que Railway **hizo**, deployment por deployment, juzgando cada uno con SUS patrones. El 07-ago: **48/48** con la ventana por defecto, **86/86** con `NETO_WP_VENTANA=100` | las distinciones que la historia no ejercita: quitarle el ancla de raiz a `!/*.md`, o cambiar `startsWith` por `includes`, pasan en verde. Por eso reporta `ejercitado` |
+
+Si tocas `railway.json`, no hay segunda mitad que actualizar — pero **corre el harness real**:
+es lo unico que puede decirte si Railway entiende tu patron nuevo como vos.
 - Supabase: RLS activo en todas las tablas (varias con deny-all a proposito, ver migr 033). El
   conteo de tablas no se escribe aca: decia 11 cuando ya eran 37
 - Vercel: webapp app.neto.pe con Google OAuth
@@ -210,13 +261,15 @@ lo puede atrapar es **detectarlo después**: preguntar si el commit DESPLEGADO t
 verde. `backend-deploy-fresh` no sirve para eso — da PASS, porque el commit sí está desplegado.
 
 **Eso es `qa-e2e/backend-deploy-tested.mjs`** (07-ago-2026), harness `backend-deploy-tested` del
-canary. Son TRES preguntas distintas sobre el mismo commit y hay que tener las tres:
+canary. Son preguntas distintas sobre el mismo commit y hacen falta todas — las tres primeras
+sobre ESTE deploy, la cuarta sobre el modelo del que las tres dependen:
 
 | harness | pregunta | el caso que solo él ve |
 |---|---|---|
 | `backend-deploy-fresh` | ¿está al día? | quedó código de backend en `main` sin desplegar |
 | `backend-deploy-tested` | ¿lo que corre pasó los tests? | se desplegó un commit **sin suite verde** |
 | `backend-deploy-gated` | ¿el deploy **esperó** al gate? | el bypass cuya suite después salió **verde** |
+| `backend-watchpatterns-real` | ¿el modelo de `watchPatterns` es **cierto**? | el predicado del que dependen los otros miente sobre Railway, con todo en verde |
 
 **Por qué hicieron falta tres, y por qué el segundo no alcanzaba.** `backend-deploy-tested` se
 escribió creyendo que tapaba el fail-open, y tapa la mitad. Pregunta si el commit desplegado tuvo

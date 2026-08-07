@@ -4,27 +4,40 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { WATCH_PATTERNS, EXCLUSIONES, disparaBuildRailway } from '../qa-e2e/backend-deploy-fresh.mjs';
+import { WATCH_PATTERNS, disparaBuildRailway } from '../qa-e2e/backend-deploy-fresh.mjs';
+import { compilarPatrones, crearPredicado, evaluarReglas, verificarForma } from '../qa-e2e/lib/railway-watch.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
- * `qa-e2e/backend-deploy-fresh.mjs` decide si un archivo redespliega Railway con cuatro
- * `startsWith` escritos a mano. La verdad vive en `railway.json` (`build.watchPatterns`).
- * Son dos copias de la misma lista negra, y la copia puede desincronizarse SIN ROMPERSE:
- * alguien agrega una exclusión a `railway.json`, no toca el harness, y el harness sigue
- * corriendo verde mientras da veredictos equivocados. Es el modo de falla peor —silencioso
- * y en el guard, o sea que además te lo cree la próxima auditoría.
+ * `qa-e2e/backend-deploy-fresh.mjs` decide si un archivo redespliega Railway. La verdad
+ * vive en `railway.json` (`build.watchPatterns`), y desde el 07-ago-2026 el predicado se
+ * DERIVA de ahí en vez de ser una segunda copia escrita a mano.
  *
- * Este test es lo que hace ruido cuando eso pasa. No intenta probar equivalencia semántica
- * de globs en general: reimplementa los patrones DECLARADOS de forma independiente y
- * contrasta las dos implementaciones sobre el árbol real del repo. Que la deriva se vea en
- * las dos direcciones depende de eso: una exclusión agregada solo al harness no cambia
- * ningún patrón declarado, así que la única manera de atraparla es que un archivo de verdad
- * la ejercite.
+ * **Ese cambio movió lo que este archivo tiene que probar.** Antes había dos listas y el
+ * trabajo era compararlas; el problema es que el test comparaba PROYECCIONES de una contra
+ * la otra —el conjunto de negados, el veredicto sobre los archivos que existen— y por cada
+ * proyección hay mutaciones que no la cruzan. Medidas el 07-ago, las tres pasaban 5/5 en
+ * verde mientras el harness sub-reportaba y `backend-deploy-fresh` daba PASS sobre un
+ * backend genuinamente stale:
  *
- * La lista negra es negra A PROPÓSITO: una carpeta de backend nueva se despliega por
- * default. Ver la sección de gates en CLAUDE.md y [[project_railway_deploy_gate]].
+ *   a) `if (f.startsWith('infra/')) return false;` en el cuerpo del predicado
+ *   b) una tercera clave en el objeto de exclusiones (se comparaban dos claves fijas)
+ *   c) `[..., '!infra/**', 'infra/**']`: se comparaba el conjunto, sin el orden
+ *
+ * Hoy (b) y (c) no se pueden escribir —no hay objeto de exclusiones, y una lista que se
+ * re-incluye no compila— así que lo que queda por probar es otra cosa:
+ *
+ *   1. que el compilador implemente los patrones declarados, contra una reimplementación
+ *      INDEPENDIENTE, sobre el árbol real y sobre probes DERIVADOS de cada patrón;
+ *   2. que se niegue a adivinar donde no hay medición (formas nuevas, precedencia);
+ *   3. que el predicado no tenga conocimiento propio de rutas — lo que mata (a).
+ *
+ * Lo que ningún test de este archivo puede ver es si el modelo coincide con **Railway**:
+ * eso se mide, y lo mide `qa-e2e/backend-watchpatterns-real.mjs`.
+ *
+ * La lista es negra A PROPÓSITO: una carpeta de backend nueva se despliega por default.
+ * Ver la sección de gates en CLAUDE.md y [[project_railway_deploy_gate]].
  */
 
 const railway = JSON.parse(fs.readFileSync(path.join(projectRoot, 'railway.json'), 'utf8'));
@@ -33,56 +46,113 @@ const patronesDeclarados = railway.build?.watchPatterns;
 const RE_DIR = /^([\w.@-]+)\/\*\*$/; //   `dir/**`
 const RE_EXT_RAIZ = /^\/\*\.([\w]+)$/; // `/*.ext`, anclado a la raíz
 
+/** Escapa lo que en una ruta es literal pero en una regex no. */
+const lit = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 /**
- * Segunda implementación, independiente de la del harness. Solo soporta las formas de glob
- * que `railway.json` usa hoy, y **tira** ante cualquier otra en vez de asumir un default:
- * un patrón nuevo que este test no entiende tiene que romper el build, no pasar de largo.
- * Un `return false` acá sería exactamente el fallo silencioso que el test viene a evitar.
+ * Segunda implementación, y **por otro mecanismo a propósito**: traduce cada glob a una
+ * expresión regular anclada, donde `qa-e2e/lib/railway-watch.mjs` usa `startsWith` /
+ * `endsWith` / `includes`. La primera versión de este test era una copia literal de aquella
+ * —mismos regex carácter por carácter, mismos closures—, o sea que solo detectaba que
+ * alguien hubiera editado una de las dos; una confusión entre `startsWith` e `includes`
+ * viajaba idéntica a las dos copias. Con regex ancladas, un `includes` de un lado se ve.
  *
- * Cada regla lleva su `forma` y su `clave` además del predicado, porque los dos tests las
- * necesitan: el del corpus usa `test()`, el de conjuntos usa `forma`+`clave`.
+ * Lo que **sigue sin poder ver**, y conviene no confundirlo: un error de CONCEPTO compartido.
+ * Si creo que `!/*.md` ancla a la raíz y no es así, las dos implementaciones anclan y las dos
+ * se equivocan igual. Eso solo lo zanja medir contra Railway.
+ *
+ * Solo soporta las formas que `railway.json` usa hoy y **tira** ante cualquier otra en vez de
+ * asumir un default: un `return false` acá sería el fallo silencioso de siempre.
  */
 function compilar(patrones) {
   return patrones.map((p) => {
     const negado = p.startsWith('!');
     const cuerpo = negado ? p.slice(1) : p;
 
-    if (cuerpo === '**') return { patron: p, negado, forma: 'todo', test: () => true };
+    // Ojo con los anclajes: `$` matchea ANTES de un `\n` final y `.` no cruza saltos de
+    // línea, así que las formas ingenuas (`^dir/.+$`, `^[^/]+\.ext$`) NO son equivalentes a
+    // `startsWith`/`endsWith` sobre seis entradas — `webapp/` pelado, un archivo llamado
+    // exactamente `.md`, y cualquier nombre con `\n`. Los midió una revisión adversarial y
+    // los seis estaban verdes **por casualidad**: ningún probe los tocaba. Un test de
+    // equivalencia que difiere de lo que dice comparar es peor que no tenerlo, así que acá
+    // no hay `.`, no hay `$` suelto y las clases de caracteres permiten el caso vacío.
+    if (cuerpo === '**') return { patron: p, negado, forma: 'todo', re: /^[\s\S]*$/ };
 
-    // `dir/**` — todo lo que cuelga de un directorio.
     let m = cuerpo.match(RE_DIR);
-    if (m) {
-      const prefijo = `${m[1]}/`;
-      return { patron: p, negado, forma: 'dir', clave: prefijo, test: (f) => f.startsWith(prefijo) };
-    }
+    //                                     `dir/**` → todo lo que cuelga del directorio
+    if (m) return { patron: p, negado, forma: 'dir', clave: `${m[1]}/`, re: new RegExp(`^${lit(m[1])}/`) };
 
-    // `/*.ext` — la barra inicial ANCLA A LA RAÍZ. Sin ella el patrón sería recursivo y
-    // `handlers/notas.md` dejaría de desplegar; es la parte sutil de la lista.
+    // `/*.ext` — la barra inicial ANCLA A LA RAÍZ, así que el nombre no puede tener ninguna
+    // barra. Sin el ancla el patrón sería recursivo y `handlers/notas.md` dejaría de
+    // desplegar; es la parte sutil de la lista, y la que ninguna medición sostiene todavía.
     m = cuerpo.match(RE_EXT_RAIZ);
     if (m) {
-      const ext = `.${m[1]}`;
-      return { patron: p, negado, forma: 'extRaiz', clave: ext, test: (f) => !f.includes('/') && f.endsWith(ext) };
+      return { patron: p, negado, forma: 'extRaiz', clave: `.${m[1]}`, re: new RegExp(`^[^/]*\\.${lit(m[1])}(?![\\s\\S])`) };
     }
 
     throw new Error(
       `forma de patrón no soportada por este test: "${p}". Alguien agregó un glob de una ` +
-        `forma nueva a railway.json. Enseñale la forma a compilar() Y revisá que ` +
-        `disparaBuildRailway() en qa-e2e/backend-deploy-fresh.mjs la implemente igual.`,
+        `forma nueva a railway.json. Enseñale la forma a compilar() Y a compilarPatrones() ` +
+        `en qa-e2e/lib/railway-watch.mjs — y medí antes qué hace Railway con ella.`,
     );
   });
 }
 
-/** Las exclusiones declaradas, como conjuntos comparables con `EXCLUSIONES` del harness. */
-function exclusionesDeclaradas(reglas) {
-  const de = (forma) => reglas.filter((r) => r.negado && r.forma === forma).map((r) => r.clave).sort();
-  return { dirs: de('dir'), extsRaiz: de('extRaiz') };
+/**
+ * Semántica de lista de globs: gana el ÚLTIMO patrón que matchea.
+ *
+ * La guarda de entrada NO es semántica de globs —`**` matchea la cadena vacía— sino el
+ * contrato del predicado: una entrada falsy no es un archivo, y `gh api compare` puede
+ * devolver `null` en `previous_filename`. Va acá también porque este evaluador se compara
+ * contra el predicado entero, no contra su compilador.
+ */
+function evaluarDeclarado(reglas, archivo) {
+  if (!archivo) return false;
+  let incluido = false;
+  for (const r of reglas) if (r.re.test(archivo)) incluido = !r.negado;
+  return incluido;
 }
 
-/** Semántica de lista de globs: gana el ÚLTIMO patrón que matchea. */
-function evaluarDeclarado(reglas, archivo) {
-  let incluido = false;
-  for (const r of reglas) if (r.test(archivo)) incluido = !r.negado;
-  return incluido;
+/**
+ * Probes DERIVADOS de cada patrón declarado, no una lista escrita a mano.
+ *
+ * Es lo que reemplaza a la comparación de conjuntos, y es más fuerte por la misma razón
+ * por la que el corpus real es mejor que una lista inventada: cubre lo que la config
+ * declara HOY, no lo que se me ocurrió cuando escribí el test. Una exclusión nueva en
+ * `railway.json` trae sus propios probes sola, incluso si no existe todavía ni un archivo
+ * versionado bajo esa ruta — que era justo el agujero original.
+ *
+ * Cada forma incluye sus near-misses: el prefijo compartido (`webapp-otro/`), la ruta
+ * anidada (`otro/webapp/`), el ancla de raíz. Son los que separan `startsWith` de
+ * `includes` y un patrón anclado de uno recursivo.
+ */
+function probesDe(regla) {
+  if (regla.forma === 'todo') {
+    return ['PROBE.txt', 'a/PROBE.txt', 'a/b/c/PROBE.js', '.oculto/PROBE.yml'];
+  }
+  if (regla.forma === 'dir') {
+    const dir = regla.clave; //          'webapp/'
+    const base = dir.slice(0, -1); //    'webapp'
+    return [
+      `${dir}PROBE.txt`,
+      `${dir}sub/PROBE.js`,
+      `${dir}.oculto/PROBE.json`, // sub-directorio con punto: es el caso real de webapp/.claude/
+      `${base}-otro/PROBE.txt`, //  near-miss: comparte prefijo, es otro directorio
+      `otro/${dir}PROBE.txt`, //    near-miss: el mismo nombre, pero anidado
+      base, //                      el directorio como archivo suelto, sin barra
+    ];
+  }
+  if (regla.forma === 'extRaiz') {
+    const ext = regla.clave; // '.md'
+    return [
+      `PROBE${ext}`, //           raíz: cae en la exclusión
+      `sub/PROBE${ext}`, //       anidado: NO cae (el ancla de raíz)
+      `sub/dir/PROBE${ext}`,
+      `PROBE${ext}.txt`, //       near-miss: la extensión no está al final
+      `PROBE${ext}x`,
+    ];
+  }
+  throw new Error(`probesDe() no sabe generar casos para la forma "${regla.forma}"`);
 }
 
 /**
@@ -95,10 +165,7 @@ function archivosVersionados() {
   return raw.split('\n').map((s) => s.trim()).filter(Boolean);
 }
 
-/**
- * Casos que el árbol de hoy no cubre pero la lista sí decide. El primero es el que más
- * importa: es la propiedad por la que la lista es negra y no blanca.
- */
+/** Casos que el árbol de hoy no cubre pero la lista sí decide. */
 const SINTETICOS = [
   'servicio-nuevo/index.js', // carpeta de backend NUEVA: tiene que desplegar por default
   'webapp/src/app/nuevo/page.tsx',
@@ -111,42 +178,19 @@ const SINTETICOS = [
 ];
 
 describe('watchPatterns de railway.json vs. el predicado del harness', () => {
-  it('el harness declara exactamente los patrones que tiene railway.json', () => {
+  it('el harness decide con los patrones de railway.json, no con una copia', () => {
     expect(
       patronesDeclarados,
-      'railway.json no tiene build.watchPatterns: si se quitó, el harness quedó decidiendo ' +
-        'con una lista negra que ya no existe y todo commit redespliega',
+      'railway.json no tiene build.watchPatterns: si se quitó, Railway pasa a observar TODO ' +
+        'y el harness ya no modela nada',
     ).toBeDefined();
 
     expect(
-      patronesDeclarados,
-      'railway.json y WATCH_PATTERNS (qa-e2e/backend-deploy-fresh.mjs) divergieron. ' +
-        'Actualizá LAS DOS mitades: la constante declarada Y el cuerpo de disparaBuildRailway().',
-    ).toEqual(WATCH_PATTERNS);
-  });
-
-  /**
-   * El test que NO depende del corpus, y por eso es el que cierra el agujero. Los otros
-   * contrastan las dos implementaciones sobre archivos que existen; una exclusión sobre un
-   * directorio todavía vacío no la ejercita ninguno. Comprobado por mutación el 07-ago-2026:
-   * agregar `'!infra/**'` a railway.json sin tocar el predicado —o `'infra/'` al predicado
-   * sin tocar railway.json— pasaba las cuatro pruebas en verde, y la segunda dirección es la
-   * peligrosa: el harness sub-reporta y `backend-deploy-fresh` da PASS sobre un backend
-   * genuinamente stale.
-   */
-  it('el conjunto de exclusiones del predicado es el mismo que declara railway.json', () => {
-    const declaradas = exclusionesDeclaradas(compilar(patronesDeclarados));
-    const implementadas = {
-      dirs: [...EXCLUSIONES.dirs].sort(),
-      extsRaiz: [...EXCLUSIONES.extsRaiz].sort(),
-    };
-
-    expect(
-      implementadas,
-      'las exclusiones del predicado y las de railway.json no son el mismo conjunto. ' +
-        'Esto se ve aunque NO exista todavía un archivo versionado bajo la ruta nueva, que ' +
-        'es justo lo que los otros tests de este archivo no pueden ver.',
-    ).toEqual(declaradas);
+      WATCH_PATTERNS,
+      'el harness dejó de leer railway.json y volvió a tener su propia lista. Es exactamente ' +
+        'la duplicación que se sacó el 07-ago: se desincroniza SIN romperse, y el harness ' +
+        'sigue verde dando veredictos equivocados.',
+    ).toEqual(patronesDeclarados);
   });
 
   it('el predicado coincide con los patrones declarados sobre todo el árbol versionado', () => {
@@ -162,8 +206,58 @@ describe('watchPatterns de railway.json vs. el predicado del harness', () => {
 
     expect(
       divergen.slice(0, 20),
-      'disparaBuildRailway() no implementa lo que declaran los watchPatterns. ' +
+      'el predicado no implementa lo que declaran los watchPatterns. ' +
         '`declarado` es lo que dice railway.json, `harness` lo que hace el predicado.',
+    ).toEqual([]);
+  });
+
+  /**
+   * El que reemplaza a la vieja comparación de conjuntos, y cierra el agujero original de
+   * forma más robusta: los probes salen de los patrones, así que una exclusión sobre un
+   * directorio que todavía no tiene un solo archivo versionado igual queda ejercitada.
+   */
+  it('también coinciden sobre probes derivados de cada patrón declarado', () => {
+    const reglas = compilar(patronesDeclarados);
+    const probes = [...new Set(reglas.flatMap(probesDe))];
+
+    expect(probes.length, 'no se derivó ni un probe: revisá probesDe()').toBeGreaterThan(10);
+
+    const divergen = probes
+      .map((f) => ({ f, declarado: evaluarDeclarado(reglas, f), harness: disparaBuildRailway(f) }))
+      .filter((r) => r.declarado !== r.harness);
+
+    expect(divergen, 'divergencia sobre los probes derivados de los patrones').toEqual([]);
+  });
+
+  /**
+   * Entradas adversariales, para que la equivalencia entre las dos implementaciones deje de
+   * depender de que a alguien se le ocurra el caso. Las seis primeras son exactamente las que
+   * una revisión adversarial encontró divergiendo mientras el test estaba verde: las dos
+   * implementaciones no coincidían y **ningún probe las tocaba**.
+   *
+   * Solo una es producible por git (`.md`, que es un nombre de archivo legal), y ahí la
+   * divergencia caía del lado peligroso: el harness lo excluía. Las otras no llegan por
+   * `gh api compare`, pero un test que dice "estas dos cosas son equivalentes" y no lo son
+   * envenena todo lo que se apoye en él después.
+   */
+  it('coinciden también sobre entradas adversariales, no solo sobre las verosímiles', () => {
+    const reglas = compilar(patronesDeclarados);
+    const raros = [
+      'webapp/', 'docs/', 'qa-e2e/', //  el directorio pelado, con barra y nada detrás
+      '.md', //                          archivo llamado exactamente como la extensión
+      'a\nb.js', 'README.md\n', //       salto de línea: `$` matchea antes de un \n final
+      '', 'x', '/', '//', './x.js', 'webapp', 'webapp.js', 'webappx/y.js',
+      'docs', 'docs.md', 'a/.md', '.md.md', 'MD', 'x.MD',
+    ];
+
+    const divergen = raros
+      .map((f) => ({ f: JSON.stringify(f), declarado: evaluarDeclarado(reglas, f), harness: disparaBuildRailway(f) }))
+      .filter((r) => r.declarado !== r.harness);
+
+    expect(
+      divergen,
+      'las dos implementaciones difieren sobre entradas raras. No importa si son verosímiles: ' +
+        'el resto de este archivo se apoya en que sean equivalentes.',
     ).toEqual([]);
   });
 
@@ -178,9 +272,9 @@ describe('watchPatterns de railway.json vs. el predicado del harness', () => {
 
   /**
    * No es redundante con los de arriba: fija la INTENCIÓN. Si alguien invierte la lista a
-   * blanca (`["handlers/**", "lib/**", ...]`), los dos tests anteriores pueden quedar verdes
-   * —las dos implementaciones seguirían de acuerdo entre sí— mientras una carpeta nueva deja
-   * de desplegarse en silencio, que es el fallo que la lista negra existe para prevenir.
+   * blanca (`["handlers/**", "lib/**", ...]`), los tests de paridad pueden quedar verdes
+   * —las dos implementaciones seguirían de acuerdo entre sí— mientras una carpeta nueva
+   * deja de desplegarse en silencio, que es el fallo que la lista negra existe para evitar.
    */
   it('la lista es NEGRA: una carpeta de backend nueva se despliega sin tocar config', () => {
     const reglas = compilar(patronesDeclarados);
@@ -188,5 +282,129 @@ describe('watchPatterns de railway.json vs. el predicado del harness', () => {
       expect(evaluarDeclarado(reglas, nueva), `railway.json dejó de observar ${nueva}`).toBe(true);
       expect(disparaBuildRailway(nueva), `el harness dejó de observar ${nueva}`).toBe(true);
     }
+  });
+});
+
+/**
+ * Con una sola implementación, la pregunta "¿las dos copias coinciden?" se acabó y la que
+ * queda es "¿esta implementación se niega a adivinar donde no medimos?". Estos tests fijan
+ * los tres lugares donde tiene que tirar en vez de contestar.
+ */
+describe('el compilador se niega a adivinar', () => {
+  it('una forma de glob nueva rompe el build en vez de evaluarse con un default', () => {
+    expect(() => compilarPatrones(['**', '!webapp/*.{ts,tsx}'])).toThrow(/forma de patrón no soportada/);
+    expect(() => compilar(['**', '!webapp/*.{ts,tsx}'])).toThrow(/forma de patrón no soportada/);
+  });
+
+  /**
+   * La mutación (c). Con `['**', ..., '!infra/**', 'infra/**']` la precedencia pasa a ser
+   * observable —"gana el último que matchea" dice que `infra/` SE observa, "algún include y
+   * ningún exclude" dice que no— y no hay una sola observación de Railway que las separe.
+   * El test viejo comparaba el conjunto de negados y tiraba el orden, así que la mutación
+   * pasaba en verde con el harness sub-reportando.
+   */
+  it('una lista que se re-incluye después de excluir NO compila: la precedencia no está medida', () => {
+    expect(() => compilarPatrones(['**', '!webapp/**', '!infra/**', 'infra/**'])).toThrow(/PRECEDENCIA/);
+    expect(() => verificarForma(['**', '!docs/**', 'docs/importante/**'])).toThrow(/PRECEDENCIA/);
+  });
+
+  it('una lista blanca no compila, y una vacía tampoco', () => {
+    expect(() => compilarPatrones(['handlers/**', 'lib/**'])).toThrow(/negra a propósito/);
+    expect(() => compilarPatrones([])).toThrow(/OBSERVAR TODO/);
+  });
+});
+
+describe('el predicado no tiene conocimiento propio de rutas', () => {
+  /**
+   * La mutación (a): `if (f.startsWith('infra/')) return false;` escrito junto al
+   * predicado, que es la forma que el código tenía ANTES de derivarlo — o sea lo que
+   * escribiría cualquiera que no conozca la forma nueva. Ningún test de comportamiento la
+   * atrapa: `infra/` no está declarado en ningún lado, así que no hay corpus ni probe
+   * derivado que la ejercite, y las cinco pruebas pasaban en verde.
+   *
+   * Lo que sí se puede fijar es la PROPIEDAD: todo lo que el predicado sabe entró por los
+   * patrones. Una función que no menciona ninguna cadena ni ninguna barra no puede conocer
+   * una ruta. Corre sobre lo que se EXPORTA, así que también atrapa envolverlo desde afuera.
+   *
+   * Si necesitás explicar algo del cuerpo, el comentario va encima de la función.
+   *
+   * **Cubre la CADENA, no una función, y hubo que ampliarla DOS veces.** La primera versión
+   * miraba solo el predicado exportado; una revisión adversarial la evadió bajando la misma
+   * mutación a `evaluarReglas` (10/10 en verde). La segunda vuelta la evadió otra vez, en el
+   * closure `disparaBuild` que devuelve `crearPredicado()` —el eslabón del medio, y el lugar
+   * más natural donde alguien la escribiría— con 886/886 en verde.
+   *
+   * La lección se repite: cada vez que se parte una función en dos, el guard que la miraba
+   * cubre la mitad. Si agregás un eslabón a la cadena, va en esta lista.
+   *
+   * Lo que este test NO cubre: los closures que devuelve `compilarPatrones()`, porque uno de
+   * ellos (`extRaiz`) lleva legítimamente una barra y una comilla. Esos los cubre el test de
+   * abajo, que barre los directorios REALES del repo — con el límite, que conviene tener
+   * presente, de que solo ve directorios que YA existen: el hueco original era sobre `infra/`,
+   * que no existía.
+   */
+  it('ningún eslabón de la cadena del predicado menciona una ruta', () => {
+    const eslabones = [
+      ['disparaBuildRailway', disparaBuildRailway], //   el export de backend-deploy-fresh
+      ['crearPredicado(...)', crearPredicado(['**'])], // el closure que devuelve la fábrica
+      ['evaluarReglas', evaluarReglas], //               el evaluador de reglas
+    ];
+    for (const [nombre, fn] of eslabones) {
+      const fuente = fn.toString();
+
+      expect(
+        fuente,
+        `${nombre} tiene una cadena literal adentro. Si es una ruta, se acaba de reintroducir ` +
+          'la segunda fuente de verdad que se sacó el 07-ago: railway.json diría una cosa y el ' +
+          'harness otra, en verde. La exclusión va en railway.json.',
+      ).not.toMatch(/['"`]/);
+
+      expect(
+        fuente,
+        `${nombre} tiene una barra adentro (una ruta a mano, o un literal de expresión regular). ` +
+          'Mismo problema.',
+      ).not.toMatch(/\//);
+    }
+  });
+
+  /**
+   * El complemento, y el que cubre los closures de `compilarPatrones()`: con una lista que no
+   * excluye nada real, **ningún directorio de primer nivel del repo** puede quedar excluido.
+   *
+   * El vocabulario sale de `git ls-files`, no de una lista escrita a mano, por la misma razón
+   * que el corpus: una exclusión a mano se escribe sobre un directorio que EXISTE —es el
+   * motivo por el que a alguien se le ocurre excluirlo— y así queda cubierta venga de donde
+   * venga en la cadena.
+   */
+  it('ningún directorio real del repo está excluido a mano en la cadena', () => {
+    const dirs = [...new Set(archivosVersionados().filter((f) => f.includes('/')).map((f) => f.split('/')[0]))];
+    expect(dirs.length, 'no se derivó ningún directorio: el corpus quedó vacío').toBeGreaterThan(5);
+
+    const dispara = crearPredicado(['**', '!no-existe-este-directorio/**']);
+    const excluidos = dirs.filter((d) => !dispara(`${d}/PROBE.js`));
+
+    expect(
+      excluidos,
+      'estos directorios del repo quedan excluidos por una lista que no los menciona, así que ' +
+        'la exclusión está escrita a mano en algún punto de la cadena (crearPredicado, ' +
+        'evaluarReglas, o los closures de compilarPatrones). Va en railway.json.',
+    ).toEqual([]);
+  });
+
+  /**
+   * La otra mitad de la misma propiedad: el compilador tampoco puede tener rutas propias.
+   * Con una lista sintética que no menciona ninguno de los directorios reales, todo lo que
+   * no esté excluido POR ESA LISTA tiene que disparar build.
+   */
+  it('un predicado hecho con patrones sintéticos no arrastra los directorios reales', () => {
+    const dispara = crearPredicado(['**', '!excluido-a/**', '!/*.txt']);
+
+    for (const f of ['webapp/x.tsx', 'qa-e2e/x.mjs', 'docs/x.md', 'infra/x.js', 'README.md']) {
+      expect(dispara(f), `${f} no está excluido por la lista sintética y debería disparar`).toBe(true);
+    }
+    for (const f of ['excluido-a/x.js', 'excluido-a/sub/y.js', 'LEEME.txt']) {
+      expect(dispara(f), `${f} SÍ está excluido por la lista sintética`).toBe(false);
+    }
+    expect(dispara('sub/LEEME.txt'), 'el ancla de raíz de `/*.txt`').toBe(true);
   });
 });

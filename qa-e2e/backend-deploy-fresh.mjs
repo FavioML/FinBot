@@ -29,43 +29,57 @@ import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { realpathSync } from 'node:fs';
 
+import { leerPatrones, crearPredicado } from './lib/railway-watch.mjs';
+
 const API = process.env.NETO_API_URL || 'https://api.neto.pe';
 const REPO = process.env.NETO_REPO || 'FavioML/FinBot';
 // Un push < IN_FLIGHT_MIN atrás puede estar todavía construyendo en Railway.
 const IN_FLIGHT_MIN = Number(process.env.NETO_INFLIGHT_MIN ?? 10);
 
-// La lista negra de `railway.json`, copiada acá a mano. Un archivo dispara build de
-// Railway si NO cae en ninguna exclusión.
+// La lista negra de `railway.json`, LEÍDA de `railway.json`. Un archivo dispara build de
+// Railway si no cae en ninguna exclusión.
 //
-// Está duplicada A PROPÓSITO y no derivada en runtime: implementar el dialecto de globs
-// de Railway (incluida la barra inicial de `!/*.md`, que ancla a la raíz) es más superficie
-// de error silencioso que las comparaciones de abajo. El precio de la copia es que puede
-// desincronizarse —alguien agrega una exclusión a railway.json, no toca esto, y el harness
-// empieza a dar veredictos equivocados SIN romperse—, y ese precio lo paga
-// `tests/railway-watchpatterns-paridad.test.js`, que compara las dos y falla si divergen.
-// Por eso se exportan: el test necesita las dos mitades, la declarada y la implementada.
-export const WATCH_PATTERNS = ['**', '!webapp/**', '!qa-e2e/**', '!docs/**', '!/*.md'];
+// Hasta el 07-ago-2026 estaba copiada acá a mano, con un test de paridad pagando el precio
+// de la copia. El argumento para copiarla era que implementar el dialecto de globs a mano
+// era más superficie de error silencioso que comparar las dos listas. Medido: era al revés.
+// Tres mutaciones distintas pasaban las cinco pruebas en verde mientras el harness
+// sub-reportaba y este archivo daba PASS sobre un backend genuinamente stale. El detalle
+// de las tres, y por qué comparar proyecciones de una lista contra la otra no alcanza,
+// está en `qa-e2e/lib/railway-watch.mjs`.
+//
+// La derivación es PEREZOSA, y eso no es estética. Hecha al importar, un `railway.json` roto
+// o con una forma de glob no soportada tiraba en el import, o sea ANTES de que corriera
+// cualquier `main()`: exit 1 con un stack trace y sin JSON. Los dos harness que importan de
+// acá tienen `on_fail` distintos y los dos habrían mentido — el de `backend-deploy-fresh` dice
+// STALE, el de `backend-deploy-tested` dice "api.neto.pe corre un commit que no pasó la suite".
+// Alarma máxima con el diagnóstico equivocado, por un problema de config. La convención del
+// repo es exit 2 = no se pudo determinar, y para poder devolver eso hay que llegar a `main()`.
+//
+// Cada uno lo maneja distinto, a propósito: acá `main()` corta temprano con exit 2, porque sin
+// la lista no hay veredicto posible. `backend-deploy-tested` NO necesita la lista para su
+// pregunta —solo la usa para el triage de `severidad()`, que ya tiene su try/catch— así que
+// sigue contestando y pierde nada más el detalle de qué archivos llegaron sin testear.
+let _patrones = null;
+let _predicado = null;
+let _errorDeConfig = null;
+try {
+  _patrones = leerPatrones();
+  _predicado = crearPredicado(_patrones);
+} catch (e) {
+  _errorDeConfig = e;
+}
 
-// Las exclusiones, como DATOS y no escritas en el cuerpo de la función. No es estética:
-// el test compara este objeto contra los patrones negados de railway.json COMO CONJUNTOS,
-// y eso es lo único que ve una divergencia sobre una ruta que hoy no tiene ningún archivo
-// versionado. Con el cuerpo escrito a mano no la veía: su otro test contrasta las dos
-// implementaciones sobre el árbol real, y un directorio que todavía no existe no está en
-// el árbol. Verificado por mutación el 07-ago-2026: agregar `'infra/'` de un solo lado
-// pasaba las cuatro pruebas en verde.
-//
-// Los dos tests siguen siendo necesarios y no se solapan: éste fija QUÉ se excluye, el del
-// corpus fija CÓMO (que `.md` ancle a la raíz no se ve comparando conjuntos).
-export const EXCLUSIONES = {
-  dirs: ['webapp/', 'qa-e2e/', 'docs/'], // de los patrones `!dir/**`
-  extsRaiz: ['.md'], //                     de los patrones `!/*.ext` (solo la raíz)
-};
+/** Los patrones declarados, o `null` si `railway.json` no se pudo interpretar. */
+export const WATCH_PATTERNS = _patrones;
+
+/** El motivo, si la config no se pudo interpretar. `null` cuando está sana. */
+export function errorDeConfig() {
+  return _errorDeConfig ? String(_errorDeConfig.message).split('\n')[0] : null;
+}
 
 export function disparaBuildRailway(f) {
-  if (!f) return false;
-  if (EXCLUSIONES.dirs.some((d) => f.startsWith(d))) return false;
-  if (!f.includes('/') && EXCLUSIONES.extsRaiz.some((e) => f.endsWith(e))) return false;
-  return true;
+  if (_errorDeConfig) throw _errorDeConfig;
+  return _predicado(f);
 }
 
 const short = (s) => (s ? s.slice(0, 7) : s);
@@ -76,6 +90,17 @@ function done(code, verdict, extra = {}) {
 }
 
 async function main() {
+  // 0) ¿La lista de `railway.json` se pudo interpretar? Sin ella no hay veredicto posible, y
+  // eso es exit 2 (infra), no exit 1 (STALE): nadie tiene que ir a mirar los logs de Railway.
+  const malaConfig = errorDeConfig();
+  if (malaConfig) {
+    return done(2, 'no se pudo interpretar build.watchPatterns de railway.json', {
+      detalle: malaConfig,
+      hint: 'Sin la lista, este harness no puede decidir si un commit pendiente redespliega. ' +
+        'Arreglá railway.json; `npm test` ya debería estar rojo por el test de paridad.',
+    });
+  }
+
   // 1) SHA desplegado, desde el endpoint que publica el backend.
   let deployed;
   try {
