@@ -203,7 +203,8 @@ prod sigue en el commit viejo con su suite verde y da PASS; si falló abierto, p
 commit nuevo con la suite corriendo y sale exit 1 en minutos en vez de a la mañana siguiente.
 
 **Encontró un positivo real apenas se escribió.** `api.neto.pe` seguía en `096593a` —el commit del
-incidente— con la suite en `failure` 30 horas después, porque los tres commits siguientes fueron
+incidente— con la suite en `failure` **14 horas** después (desplegado 06-ago 17:27Z, reemplazado
+07-ago 07:24Z), porque los tres commits siguientes fueron
 de docs y Railway los saltó por `watchPatterns`. O sea que el hueco no se cierra solo: **sin un
 push que toque algo observado, prod se queda en el commit sin gatear indefinidamente.** El triage
 dijo que el único archivo observado sin testear era `.github/workflows/ci.yml` (config de CI, no
