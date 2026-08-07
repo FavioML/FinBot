@@ -130,12 +130,22 @@ WhatsApp a gente real; el margen de error no es una pantalla fea.
 harness da exit 0** porque el default de 10 minutos trata el commit como deploy en vuelo, y por
 eso la corrida del 05-ago —hecha después del revert— no probaba nada.
 
-> **El `SKIPPED` del commit roto se puede atribuir sin la API.** Los dos motivos se distinguen
-> por construcción cuando el harness ya demostró que hay un archivo observado cambiado respecto
-> de lo desplegado: si hay cambios observados, `"No changes to watched files"` está descartado.
-> Para leer `meta.skippedReason` textual hace falta un **API token de cuenta**: el del CLI en
-> `~/.railway/config.json` vence (`Not Authorized`) y el `RAILWAY_API_TOKEN` vive solo como
-> secret de GitHub. El MCP confirma el estado `SKIPPED` pero no expone `meta`.
+**Los motivos, leídos de la API el 07-ago** (hace falta un API token de **cuenta**: el del CLI en
+`~/.railway/config.json` vence y da `Not Authorized`; el MCP muestra el estado pero no `meta`):
+
+| commit | qué era | status | `meta.skippedReason` |
+|---|---|---|---|
+| `a213794` | aserción rota | `SKIPPED` | **`CI check suite failed`** |
+| `352356f` | el revert | `SKIPPED` | **`No changes to watched files`** |
+| `89206ac` | toca `tests/`, suite verde | `SUCCESS` | — |
+| `096593a` | el deploy sin gate del 06-ago | `REMOVED` | **ninguno** |
+
+La última fila es la prueba directa del fail-open: **no tiene motivo de skip porque no fue
+skipeado**, se construyó y desplegó. `REMOVED` es Railway marcándolo reemplazado cuando `89206ac`
+lo sustituyó. Y el resto de ese día (`aaed32e`, `cf6029b`) dice `No changes to watched files`: con
+Actions caído, lo único que frenó a esos commits fue `watchPatterns`, no el gate. `096593a` salió
+justamente porque tocaba `.github/workflows/ci.yml`, que sí está observado. Cualquier commit de
+runtime esa tarde habría salido igual.
 
 > **`SKIPPED` tiene dos motivos distintos y no se distinguen desde la UI.** Railway los nombra
 > en `meta.skippedReason` del deployment (por API): `"CI check suite failed"` es el gate
