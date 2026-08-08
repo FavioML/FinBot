@@ -34,6 +34,9 @@
 // Los tres IDs NO son secretos y viven en `scripts/railway-api.mjs`, junto con el
 // cliente GraphQL, porque `qa-e2e/backend-deploy-gated.mjs` los usa igual.
 
+import { pathToFileURL } from 'node:url';
+import { realpathSync } from 'node:fs';
+
 import { consultarRailway, PROJECT_ID, SERVICE_ID, ENVIRONMENT_ID } from './railway-api.mjs';
 
 const EXPECTED_REPO = process.env.NETO_REPO || 'FavioML/FinBot';
@@ -131,4 +134,27 @@ async function main() {
   return true;
 }
 
-await main();
+/**
+ * Solo corre si se lo invoca directo, igual que los cuatro harness de `qa-e2e/`.
+ *
+ * No era una regresión mientras este archivo no exportara nada, pero la dirección del trabajo
+ * es al revés: la única forma de fijar por test la lógica de acá es extraer una función pura
+ * y exportarla, y en ese momento `await main()` al tope convierte un `import` en una llamada
+ * REAL a la API de Railway como efecto secundario de leer una función. Se pone antes de
+ * necesitarlo porque después no se nota.
+ *
+ * `import.meta.url` es el REALPATH y `process.argv[1]` es el path tal como se tipeó: detrás de
+ * un junction no coinciden, y la comparación cruda dejaría el guard en exit 0 sin output, que
+ * el canary lee como PASS. Este workspace usa junctions para los worktrees.
+ */
+export function esEntrypoint() {
+  const arg = process.argv[1];
+  if (!arg) return false;
+  let real = null;
+  try { real = realpathSync(arg); } catch { /* el path puede no existir */ }
+  return [arg, real].some((p) => p && import.meta.url === pathToFileURL(p).href);
+}
+
+if (esEntrypoint()) {
+  await main();
+}

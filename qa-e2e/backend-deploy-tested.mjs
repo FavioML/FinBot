@@ -253,7 +253,10 @@ export function severidad(deployed, { ghFn = gh, leerJobs = jobsDelRun } = {}) {
     let intentos = 0;
     let ilegibles = 0;
     for (const { sha: verde, url } of verdes) {
-      if (verde === deployed || intentos >= MAX_ANCESTROS) continue;
+      // `break`, no `continue`: agotados los intentos no queda nada por hacer, y seguir
+      // iterando los 20 shas restantes sin mirarlos no cambia el resultado.
+      if (intentos >= MAX_ANCESTROS) break;
+      if (verde === deployed) continue;
       intentos++;
 
       // `status=success` es la conclusion del RUN, que es el oráculo agregado que este archivo

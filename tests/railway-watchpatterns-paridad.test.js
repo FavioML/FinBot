@@ -161,8 +161,14 @@ function probesDe(regla) {
  * solo probaría los casos que se me ocurrieron; el árbol real prueba los que existen.
  */
 function archivosVersionados() {
-  const raw = execFileSync('git', ['ls-files'], { cwd: projectRoot, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
-  return raw.split('\n').map((s) => s.trim()).filter(Boolean);
+  // `-z` porque `git ls-files` a secas ENTRECOMILLA las rutas no-ASCII y les mete escapes
+  // octales: `docs/año.md` sale como `"docs/a\303\261o.md"`, o sea empezando con una comilla
+  // en vez de con `docs/`. Las dos implementaciones coincidirían sobre esa cadena —ninguna la
+  // reconoce como el directorio excluido— y la regla nunca quedaría ejercitada: verde por
+  // vacuidad justo sobre la ruta rara. Hoy el árbol no tiene ninguna, así que era latente.
+  // Con `-z` no hay quoting: los nombres vienen crudos, separados por NUL.
+  const raw = execFileSync('git', ['ls-files', '-z'], { cwd: projectRoot, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+  return raw.split('\0').map((s) => s.trim()).filter(Boolean);
 }
 
 /** Casos que el árbol de hoy no cubre pero la lista sí decide. */
@@ -199,6 +205,16 @@ describe('watchPatterns de railway.json vs. el predicado del harness', () => {
 
     // Sin esto el test podría pasar por vacuidad si `git ls-files` devuelve nada.
     expect(corpus.length, 'git ls-files no devolvió archivos: el corpus quedó vacío').toBeGreaterThan(100);
+
+    // Tripwire del quoting. Una entrada entrecomillada significa que alguien le sacó el `-z`
+    // Y que existe una ruta no-ASCII: las dos implementaciones coincidirían sobre esa cadena
+    // sin que ninguna reconozca el directorio, o sea acuerdo por vacuidad. Medido el 08-ago
+    // con `docs/año-prueba.md`: sin `-z` el predicado dice que redespliega, con `-z` dice que
+    // no, y la correcta es la segunda.
+    expect(
+      corpus.filter((f) => f.startsWith('"')),
+      'hay rutas entrecomilladas en el corpus: falta el `-z` en git ls-files',
+    ).toEqual([]);
 
     const divergen = corpus
       .map((f) => ({ f, declarado: evaluarDeclarado(reglas, f), harness: disparaBuildRailway(f) }))
