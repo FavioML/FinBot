@@ -142,6 +142,19 @@ function createWebhookHandler(procesarMensajeLibre) {
       registrarError('WEBHOOK', 'Mensaje entrante sin from', { detalle: JSON.stringify(forma) });
       return;
     }
+    // Sonda temporal (08-ago-2026). Meta dice que el BSUID viaja en TODOS los webhooks de
+    // mensajes desde el 31-mar, tengan `from` o no. Si acá se confirma, hoy lo estamos
+    // tirando: es lo único que permitiría reconocer a un usuario ACTUAL el día que active
+    // username y deje de mandar su número. Se mide con tráfico real ANTES de construir el
+    // guardado encima, porque una columna alimentada por un campo que no llega es peor que
+    // ninguna. Sale con el número, que ya se loguea en el `tag: 'MSG'` de más abajo.
+    log.info({
+      tag: 'BSUID-SONDA',
+      trae: !!message.from_user_id,
+      bsuid: message.from_user_id || null,
+      clavesContacto: Object.keys(((value && value.contacts) || [])[0] || {}),
+      tipo: message.type || null,
+    }, 'Sonda BSUID en mensaje CON remitente');
     if (isDuplicateWamid(message.id)) {
       log.info({ tag: 'WEBHOOK', wamid: message.id, from }, 'Wamid duplicado — skip');
       return;
