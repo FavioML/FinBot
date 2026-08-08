@@ -22,9 +22,17 @@
 // nada sobre si el código pasó los tests, y un guard que grita por lo que no es se termina
 // ignorando. La pregunta es "¿pasó la suite?", y el oráculo de eso es el run de ci.yml.
 //
-// Exit 0 = el commit desplegado tuvo su CI verde. Exit 1 = no la tuvo (nunca corrió, falló,
-// se canceló, o sigue corriendo) o el guard quedó ciego. Exit 2 = no se pudo determinar
-// (endpoint caído, gh/red) — infra, sin veredicto.
+// Y NO ALCANZA CON QUE EL RUN ESTÉ VERDE. La conclusion de un run es un agregado, y un job
+// `skipped` la deja en `success` — `nlp-agent` lo demuestra en todos los runs desde el 14-jul.
+// El oráculo es el JOB `test`, mirado en las dos ramas. Hasta el 08-ago la rama verde
+// devolvía PASS sin consultar un solo job, así que un `if:` nuevo sobre ese job (un filtro por
+// paths, un toggle de standby) habría dejado pasar un deploy con la suite del backend sin
+// correr, en el harness escrito para atrapar justamente eso.
+//
+// Exit 0 = el commit desplegado tuvo su CI verde Y el job de tests corrió y pasó. Exit 1 = no
+// (nunca corrió la suite, falló, se canceló, sigue corriendo, el job de tests quedó skipped)
+// o el guard quedó ciego (workflow renombrado, job renombrado). Exit 2 = no se pudo determinar
+// (endpoint caído, gh/red, lista de jobs ilegible) — infra, sin veredicto.
 //
 // Usage: node qa-e2e/backend-deploy-tested.mjs   (desde app/)
 // Requiere: `gh` autenticado con acceso a FavioML/FinBot.
@@ -79,71 +87,196 @@ function gh(ruta, jq) {
 }
 
 /**
- * Qué cambió entre el último commit con CI verde y el desplegado, y cuánto de eso es
- * runtime del backend. Es la diferencia entre "anotalo" y "arreglalo ahora": el 06-ago el
- * deploy sin gate no tuvo consecuencia porque entre el último commit testeado y ese no
- * cambió un solo archivo que Railway observe. Solo corre cuando ya hay veredicto malo.
- */
-/**
- * Con el run en rojo, ¿lo rojo son los TESTS o es otro job del mismo workflow?
+ * ¿El job que responde "¿el backend pasó los tests?" salió verde?
  *
  * Puro para poder probarlo contra jobs reales (`tests/backend-deploy-tested-errores.test.js`).
- * Devuelve `culpaDeLosTests: null` cuando no se pudo leer la lista de jobs: eso es "no sé", y
- * quien llama tiene que tratarlo como el caso grave, nunca como "entonces estaba bien".
+ *
+ * **Corre en las DOS ramas, la roja y la verde**, y esa es la corrección más importante de
+ * este archivo. Hasta el 08-ago solo se llamaba con el run rojo: con el run verde el harness
+ * devolvía PASS sin mirar un solo job. La conclusion de un run es un AGREGADO y un job
+ * `skipped` lo deja verde — `nlp-agent` está skipped en todos los runs desde el 14-jul y
+ * ninguno dejó de ser `success`. O sea que el día que `test` lleve un `if:` que evalúe false
+ * (por ejemplo "no correr la suite en cambios de solo-docs", que es una optimización que
+ * cualquiera escribiría), el run sale verde, este harness da PASS, y **la suite del backend
+ * nunca corrió**. Es exactamente el fail-open que este archivo existe para atrapar, un nivel
+ * más arriba. Reproducido el 08-ago: con `NETO_CI_JOB_TESTS=job-que-no-existe` seguía dando
+ * PASS, prueba de que la rama verde no consultaba nada.
+ *
+ * Tres reglas, y las tres se pagaron:
+ *
+ * 1. **`filter`, no `find`.** Con una matriz que produzca varios jobs con el mismo nombre,
+ *    `find` se queda con el primero: verde el primero y rojo el segundo devolvía
+ *    `culpaDeLosTests: false` con `"test: failure"` listado en `jobsRojos` **en el mismo
+ *    objeto**. TODAS las patas tienen que estar verdes.
+ * 2. **`skipped` NO es `success` para ESTE job.** Sí lo es para `jobsRojos` (ahí el skip es
+ *    deliberado y no debe gritar), y esa asimetría es a propósito: un job que no corrió no
+ *    dice nada, y "no dice nada" no puede contar como "el backend está sano".
+ * 3. **El nombre se compara EXACTO.** `test-e2e` no es `test`. Con `startsWith` los 10 tests
+ *    que había seguían en verde, así que la exactitud no estaba fijada por nada.
+ *
+ * `pasaronLosTests: null` es "no sé", nunca "entonces estaba bien", y `motivo` separa los dos
+ * casos porque quien llama los trata distinto: la lista ilegible es infra (exit 2), el job
+ * ausente es el guard quedándose ciego (exit 1), igual que el 404 del workflow.
  */
-export function clasificarRojo(jobs, jobTests = JOB_TESTS) {
-  if (!Array.isArray(jobs)) return { culpaDeLosTests: null, jobDeTests: null, jobsRojos: [] };
+export function clasificarJobs(jobs, jobTests = JOB_TESTS) {
+  if (!Array.isArray(jobs)) {
+    return { pasaronLosTests: null, motivo: 'sin-lista', jobsDeTests: [], jobsRojos: [] };
+  }
 
-  const test = jobs.find((j) => j.name === jobTests);
   const jobsRojos = jobs
     .filter((j) => j.conclusion && j.conclusion !== 'success' && j.conclusion !== 'skipped')
     .map((j) => `${j.name}: ${j.conclusion}`);
 
+  const deTests = jobs.filter((j) => j.name === jobTests);
+  // `conclusion ?? status` a secas imprimía `test: completed` para un job COMPLETADO SIN
+  // conclusion, que cae en 'fallo' (bien, falla cerrado) pero se lee como si hubiera un
+  // resultado. No hay suite que arreglar ahí: es un estado indeterminado de GitHub.
+  const etiquetas = deTests.map(
+    (j) => `${j.name}: ${j.conclusion ?? `sin conclusion (status ${j.status})`}`,
+  );
+
   // Sin el job de tests en la lista no se puede afirmar que el backend esté sano. Puede que
   // lo renombraran, y un guard que asume lo mejor ante un cambio que no entiende es el
   // mismo fallo que `validCheckSuites`.
-  if (!test) return { culpaDeLosTests: null, jobDeTests: null, jobsRojos };
+  if (deTests.length === 0) {
+    return { pasaronLosTests: null, motivo: 'job-ausente', jobsDeTests: [], jobsRojos };
+  }
 
-  const estado = test.conclusion ?? test.status;
-  return {
-    culpaDeLosTests: estado !== 'success',
-    jobDeTests: `${jobTests}: ${estado}`,
-    jobsRojos,
-  };
+  const noCorrieron = deTests.filter((j) => j.status !== 'completed' || j.conclusion === 'skipped');
+  const fallaron = deTests.filter((j) => j.status === 'completed' && j.conclusion !== 'skipped' && j.conclusion !== 'success');
+
+  if (fallaron.length) return { pasaronLosTests: false, motivo: 'fallo', jobsDeTests: etiquetas, jobsRojos };
+  if (noCorrieron.length) return { pasaronLosTests: false, motivo: 'no-corrio', jobsDeTests: etiquetas, jobsRojos };
+  return { pasaronLosTests: true, motivo: 'ok', jobsDeTests: etiquetas, jobsRojos };
 }
 
 /**
- * Los jobs de un run. Devuelve `null` si no se pueden leer, y eso NO es lo mismo que "ningún
- * job rojo": quien lo llama tiene que tratar el null como "no sé", nunca como "está bien".
- * Solo se llama con el run ya en rojo, así que el costo extra no está en el camino feliz.
+ * La respuesta cruda de `/jobs` a `{ jobs, error }`, separado para poder probarlo.
+ *
+ * **Una lista truncada es peor que una ilegible**, y falla en las dos direcciones: si la pata
+ * roja de una matriz queda fuera de la página, sale `ok` y el harness da PASS con la suite
+ * roja; si el job de tests entero queda fuera, sale un GUARD CIEGO falso. Por eso truncada se
+ * trata como ilegible, que es el lado seguro. `jq` emite `null` cuando falta el campo y
+ * `Number(null)` es 0, así que un run legítimamente sin jobs NO se marca truncado: cae en
+ * `job-ausente`, que también es exit 1.
+ */
+export function interpretarRespuestaDeJobs(r) {
+  const jobs = Array.isArray(r?.jobs) ? r.jobs : null;
+  if (!jobs) return { jobs: null, error: 'la respuesta de /jobs no trajo una lista' };
+  if (Number(r.total) !== jobs.length) {
+    return { jobs: null, error: `la lista de jobs vino truncada: ${jobs.length} de ${r.total}` };
+  }
+  return { jobs, error: null };
+}
+
+/**
+ * Los jobs de un run. Devuelve `{ jobs: null, error }` si no se pueden leer, y eso NO es lo
+ * mismo que "ningún job rojo": quien lo llama tiene que tratar el null como "no sé", nunca
+ * como "está bien".
+ *
+ * Se llama SIEMPRE, también con el run verde. Es un `gh api` de más en el camino feliz, y lo
+ * vale: sin él la rama verde contestaba PASS sobre un run cuya conclusion es un agregado —ver
+ * `clasificarJobs()`—. Este harness corre una vez por día en el canary y una vez por push, no
+ * en un bucle.
+ *
+ * **Se compara `total_count` contra lo que llegó.** La página son 100 jobs y no se pagina; una
+ * lista truncada es peor que ilegible, porque falla en las DOS direcciones: si la pata roja de
+ * una matriz queda fuera de la página, sale `ok` y el harness da PASS con la suite roja; si el
+ * job `test` entero queda fuera, sale un GUARD CIEGO falso. Truncada se trata como ilegible.
+ * Es justo el escenario que motivó pasar de `find` a `filter`, así que dejarlo sin cubrir sería
+ * arreglar la mitad.
+ *
+ * El motivo del fallo se propaga: sin él, el exit 2 de la rama verde llega al canary de las
+ * 10am sin una línea con la que diagnosticar.
  */
 function jobsDelRun(run) {
   const id = String(run.url || '').match(/\/runs\/(\d+)/)?.[1];
-  if (!id) return null;
+  if (!id) return { jobs: null, error: `no se pudo extraer el id del run de "${run.url}"` };
   try {
-    return JSON.parse(gh(`repos/${REPO}/actions/runs/${id}/jobs?per_page=50`, '[.jobs[] | {name, status, conclusion}]'));
-  } catch {
-    return null;
+    return interpretarRespuestaDeJobs(JSON.parse(
+      gh(`repos/${REPO}/actions/runs/${id}/jobs?per_page=100`, '{total: .total_count, jobs: [.jobs[] | {name, status, conclusion}]}'),
+    ));
+  } catch (e) {
+    return { jobs: null, error: detalleError(e) };
   }
 }
 
-function severidad(deployed) {
+/**
+ * El mapeo de (color del run × motivo) a exit code, puro y probado.
+ *
+ * Existe porque el arreglo más importante de este archivo —consultar los jobs también con el
+ * run verde— **no tenía un solo control automático**: una revisión adversarial revirtió esa
+ * línea de `main()` a la versión anterior y los 17 tests del archivo y los 894 de la suite
+ * siguieron en verde. Los tests cubrían `clasificarJobs()`, que es la parte fácil; la decisión
+ * vivía en una cascada de `if` dentro de `main()`, sin cobertura. La lección de siempre: el
+ * test que escribí junto al fix cubría todo menos el cambio de comportamiento.
+ *
+ * El `default` es exit 2 **a propósito**. Antes la cascada terminaba en `return done(0,'PASS')`
+ * por caída libre, así que un `motivo` nuevo que alguien agregara después —y que por
+ * construcción nadie habría contemplado acá— salía PASS. Asumir lo mejor ante un dato que no
+ * se entiende es el fallo que este archivo cita tres veces para no cometerlo.
+ */
+export function decidir({ conclusion, motivo, pasaronLosTests }) {
+  const runVerde = conclusion === 'success';
+
+  if (motivo === 'sin-lista') {
+    // Con el run rojo, el run rojo YA es la anomalía: no poder decir de quién fue la culpa no
+    // lo vuelve benigno. Con el run verde no hay nada anómalo observado y lo único que falta
+    // es la comprobación, que es la definición de exit 2 en esta familia de harness.
+    return runVerde ? { code: 2, clase: 'JOBS_ILEGIBLES' } : { code: 1, clase: 'NO_PASO_SIN_JOBS' };
+  }
+  if (motivo === 'job-ausente') return { code: 1, clase: 'GUARD_CIEGO_JOB' };
+  if (motivo === 'no-corrio') return { code: 1, clase: 'SUITE_NO_CORRIO' };
+  if (motivo === 'fallo') return { code: 1, clase: 'NO_PASO' };
+  if (motivo === 'ok' && pasaronLosTests === true) {
+    return runVerde ? { code: 0, clase: 'PASS' } : { code: 1, clase: 'ROJO_NO_POR_TESTS' };
+  }
+  return { code: 2, clase: 'MOTIVO_DESCONOCIDO' };
+}
+
+/**
+ * Qué cambió entre el último commit **cuya suite de backend de verdad corrió y pasó** y el
+ * desplegado, y cuánto de eso es runtime del backend. Es la diferencia entre "anotalo" y
+ * "arreglalo ahora": el 06-ago el deploy sin gate no tuvo consecuencia porque entre el último
+ * commit testeado y ese no cambió un solo archivo que Railway observe. Solo corre cuando ya
+ * hay veredicto malo, y por eso puede permitirse una consulta de jobs por candidato.
+ */
+export function severidad(deployed, { ghFn = gh, leerJobs = jobsDelRun } = {}) {
   try {
     const verdes = JSON.parse(
-      gh(
+      ghFn(
         `repos/${REPO}/actions/workflows/${WORKFLOW}/runs?status=success&per_page=${MAX_ANCESTROS * 4}`,
-        '[.workflow_runs[] | .head_sha]',
+        '[.workflow_runs[] | {sha: .head_sha, url: .html_url}]',
       ),
     );
 
     let intentos = 0;
-    for (const verde of verdes) {
+    let ilegibles = 0;
+    for (const { sha: verde, url } of verdes) {
       if (verde === deployed || intentos >= MAX_ANCESTROS) continue;
       intentos++;
+
+      // `status=success` es la conclusion del RUN, que es el oráculo agregado que este archivo
+      // entero declara no confiable: un job `skipped` la deja verde. Sin bajar al job, el
+      // triage se calcula contra un "último verde" que puede no haber corrido nunca la suite,
+      // y el mensaje de abajo llegaría a decir "el runtime que corre es el mismo que sí se
+      // testeó" cuando ninguno de los commits del tramo se testeó. Es el caso que se produce
+      // solo si el job `test` se filtra por paths, o sea exactamente el escenario que la rama
+      // `no-corrio` viene a detectar: el detector y su triage no pueden usar oráculos
+      // distintos.
+      const { jobs } = leerJobs({ url });
+      const veredictoDelCandidato = clasificarJobs(jobs).pasaronLosTests;
+      // `null` es "no pude leer los jobs", que NO es lo mismo que "este candidato no sirve".
+      // Sin contarlos, un blip de red durante el triage descartaba los 5 candidatos y salía
+      // la misma frase que en el caso legítimo, o sea una afirmación sobre la historia de CI
+      // fabricada por la red. Y esa frase es la que el on_fail del canary usa para decidir
+      // entre anotarlo y arreglarlo ahora.
+      if (veredictoDelCandidato === null) { ilegibles++; continue; }
+      if (veredictoDelCandidato !== true) continue;
       let cmp;
       try {
         cmp = JSON.parse(
-          gh(`repos/${REPO}/compare/${verde}...${deployed}`, '{status, files: [.files[]?.filename]}'),
+          ghFn(`repos/${REPO}/compare/${verde}...${deployed}`, '{status, files: [.files[]?.filename]}'),
         );
       } catch {
         continue; // sha que ya no existe (rama borrada, force-push): probar el siguiente
@@ -159,9 +292,122 @@ function severidad(deployed) {
           : 'HAY archivos observados por Railway que llegaron a prod sin suite verde: revisarlos uno por uno',
       };
     }
-    return { lectura: 'no se encontró un commit verde reciente que sea ancestro del desplegado' };
+    if (ilegibles === intentos && intentos > 0) {
+      return {
+        candidatosRevisados: intentos,
+        lectura: `no se pudo verificar NINGUNO de los ${intentos} candidatos: no se leyeron sus `
+          + `jobs. Esto no dice que no haya un ancestro sano, dice que no se pudo mirar`,
+      };
+    }
+    return {
+      candidatosRevisados: intentos,
+      candidatosSinLeer: ilegibles,
+      lectura: `no se encontró, entre los ${intentos} candidatos revisados, un commit ancestro `
+        + `del desplegado cuyo job \`${JOB_TESTS}\` haya corrido y pasado`,
+    };
   } catch (e) {
     return { error: String(e).split('\n')[0] };
+  }
+}
+
+/**
+ * De los datos crudos al veredicto completo: exit code, título y cuerpo del JSON.
+ *
+ * **Es puro y por eso existe.** La versión anterior ensamblaba el veredicto con una cascada
+ * de `if` dentro de `main()`, que hace red y no se puede testear, así que lo único que
+ * cubría el arreglo más importante del archivo eran dos tests que leían el CÓDIGO FUENTE de
+ * `main()` buscando la cadena `'PASS'`. Una revisión adversarial los evadió con comillas
+ * dobles —`done(0, "PASS", …)`— y reintrodujo el fail-open entero con 31/31 en verde. Un
+ * guard que depende del estilo de comillas del próximo autor no es un guard.
+ *
+ * `severidad` entra inyectada porque hace red; el default es la real.
+ *
+ * El `switch` es EXHAUSTIVO y su `default` es exit 2. Antes `main()` caía libre a
+ * `done(0,'PASS')`, así que una `clase` nueva —agregada en `decidir()` por alguien que no
+ * mirara acá— salía PASS. Es el mismo fallo que `decidir()` ya había cerrado un nivel más
+ * abajo, y estaba repetido acá arriba.
+ */
+export function veredicto({ deployed, ultimo, jobs, errorJobs, corridas, jobTests = JOB_TESTS, severidadFn = severidad }) {
+  const { pasaronLosTests, motivo, jobsDeTests, jobsRojos } = clasificarJobs(jobs, jobTests);
+  const { code, clase } = decidir({ conclusion: ultimo.conclusion, motivo, pasaronLosTests });
+  const base = { deployed: short(deployed), conclusion: ultimo.conclusion, run: ultimo.url };
+
+  switch (clase) {
+    case 'NO_PASO_SIN_JOBS':
+      return { code, verdict: `EL COMMIT DESPLEGADO NO PASÓ LA SUITE (${ultimo.conclusion})`, extra: {
+        ...base,
+        jobsDeTests: 'no se pudo leer la lista de jobs: se trata como el caso grave',
+        errorAlLeerJobs: errorJobs,
+        ...severidadFn(deployed),
+        hint: 'api.neto.pe corre código cuya suite no salió verde. No se pudo bajar al job para ' +
+          'saber si la culpa fue de los tests o de otro job del workflow.',
+      } };
+
+    case 'JOBS_ILEGIBLES':
+      return { code, verdict: 'no se pudo leer la lista de jobs del run', extra: {
+        ...base,
+        errorAlLeerJobs: errorJobs,
+        hint: 'El run está verde, pero eso no alcanza: la conclusion agrega otros jobs y un ' +
+          `\`skipped\` la deja verde. Sin los jobs no se puede confirmar que \`${jobTests}\` haya ` +
+          'corrido. ¿gh autenticado? ¿red? ¿el run quedó fuera de retención?',
+      } };
+
+    case 'GUARD_CIEGO_JOB':
+      return { code, verdict: `GUARD CIEGO: el run no tiene ningún job llamado \`${jobTests}\``, extra: {
+        ...base,
+        jobs: (jobs || []).map((j) => j.name),
+        jobsRojos,
+        hint: `¿Se renombró el job \`${jobTests}\` en .github/workflows/${WORKFLOW}? Sin él no se ` +
+          'puede afirmar que el backend haya pasado los tests, sea cual sea el color del run. ' +
+          'Actualizá NETO_CI_JOB_TESTS.',
+      } };
+
+    case 'SUITE_NO_CORRIO':
+      return { code, verdict: `LA SUITE DEL BACKEND NO CORRIÓ (el run figura ${ultimo.conclusion})`, extra: {
+        ...base,
+        jobsDeTests,
+        jobsRojos,
+        ...severidadFn(deployed),
+        hint: `El job \`${jobTests}\` quedó skipped o sin completar, así que la conclusion del run ` +
+          'no dice nada sobre este código. Suele ser un `if:` nuevo en el job (un filtro por ' +
+          'paths, un toggle de standby como el de `nlp-agent`) o un `needs:` que no se cumplió.',
+      } };
+
+    // El job de los tests verde con el run rojo: lo que corre en prod SÍ pasó los tests. Se
+    // reporta igual (exit 1) porque un commit desplegado con el run rojo sigue siendo anómalo,
+    // pero con el nombre correcto y sin mandar a arreglar lo que no está roto.
+    case 'ROJO_NO_POR_TESTS':
+      return { code, verdict: `EL RUN QUEDÓ ROJO, PERO NO POR LOS TESTS (${ultimo.conclusion})`, extra: {
+        ...base,
+        jobsDeTests,
+        jobsRojos,
+        hint: `El backend que corre SÍ pasó \`${jobTests}\`. Lo rojo es otro job del mismo workflow ` +
+          '(típicamente `deploy-webapp` o `railway-gate`), que no dice nada sobre este código. ' +
+          'Arreglar ESE job; no hace falta redesplegar el backend.',
+      } };
+
+    case 'NO_PASO':
+      return { code, verdict: `EL COMMIT DESPLEGADO NO PASÓ LA SUITE (${ultimo.conclusion})`, extra: {
+        ...base,
+        jobsDeTests,
+        jobsRojos,
+        ...severidadFn(deployed),
+        hint: 'api.neto.pe corre código cuya suite no salió verde. Arreglar la suite y ' +
+          'redesplegar sobre un commit verde.',
+      } };
+
+    case 'PASS':
+      return { code, verdict: 'PASS', extra: { ...base, jobsDeTests, corridas } };
+
+    // `MOTIVO_DESCONOCIDO` y cualquier clase futura. No puede pasar hoy; existe para que el
+    // día que alguien agregue una, el default sea "no sé" y no un PASS por caída libre.
+    default:
+      return { code: 2, verdict: `veredicto no contemplado (clase ${clase}, motivo ${motivo})`, extra: {
+        ...base,
+        pasaronLosTests,
+        hint: 'clasificarJobs()/decidir() devolvieron algo que veredicto() no sabe redactar. ' +
+          'Agregá el caso acá Y su fila en tests/backend-deploy-tested-errores.test.js.',
+      } };
   }
 }
 
@@ -240,49 +486,21 @@ async function main() {
     });
   }
 
-  // 5) El run rojo NO alcanza para decir "el código no pasó los tests": `ci.yml` también
-  //    corre `deploy-webapp` (un `vercel deploy`) y `railway-gate` (que consulta la API de
-  //    Railway). Un deploy de Vercel caído o un RAILWAY_API_TOKEN vencido ponen el run en
-  //    rojo sin decir absolutamente nada sobre el backend, y este harness mandaba a
-  //    "arreglar la suite" cuando la suite del backend estaba verde. Es el mismo argumento
-  //    por el que se eligió `ci.yml` sobre los check suites —no gritar por lo que no es—,
-  //    aplicado un nivel más adentro. El oráculo preciso es el job.
-  if (ultimo.conclusion !== 'success') {
-    const { culpaDeLosTests, jobDeTests, jobsRojos } = clasificarRojo(jobsDelRun(ultimo));
-
-    // El job de los tests verde con el run rojo: lo que corre en prod SÍ pasó los tests.
-    // Se reporta igual (exit 1) porque un commit desplegado con el run rojo sigue siendo
-    // anómalo, pero con el nombre correcto y sin mandar a arreglar lo que no está roto.
-    if (culpaDeLosTests === false) {
-      return done(1, `EL RUN QUEDÓ ROJO, PERO NO POR LOS TESTS (${ultimo.conclusion})`, {
-        deployed: short(deployed),
-        jobDeTests,
-        jobsRojos,
-        run: ultimo.url,
-        hint: `El backend que corre SÍ pasó \`${JOB_TESTS}\`. Lo rojo es otro job del mismo ` +
-          'workflow (típicamente `deploy-webapp` o `railway-gate`), que no dice nada sobre ' +
-          'este código. Arreglar ESE job; no hace falta redesplegar el backend.',
-      });
-    }
-
-    return done(1, `EL COMMIT DESPLEGADO NO PASÓ LA SUITE (${ultimo.conclusion})`, {
-      deployed: short(deployed),
-      conclusion: ultimo.conclusion,
-      jobDeTests: jobDeTests ?? 'no se pudo leer: se trata como el caso grave',
-      jobsRojos,
-      run: ultimo.url,
-      ...severidad(deployed),
-      hint: 'api.neto.pe corre código cuya suite no salió verde. Arreglar la suite y ' +
-        'redesplegar sobre un commit verde.',
-    });
-  }
-
-  return done(0, 'PASS', {
-    deployed: short(deployed),
-    conclusion: ultimo.conclusion,
-    run: ultimo.url,
-    corridas: runs.length,
-  });
+  // 5) El oráculo NO es la conclusion del run, ni con el run rojo ni con el run verde.
+  //
+  //    Rojo: `ci.yml` también corre `deploy-webapp` (un `vercel deploy`) y `railway-gate`
+  //    (que consulta la API de Railway). Un deploy de Vercel caído o un RAILWAY_API_TOKEN
+  //    vencido lo ponen en rojo sin decir nada sobre el backend, y este harness mandaba a
+  //    "arreglar la suite" con la suite del backend verde.
+  //
+  //    Verde: la conclusion es un AGREGADO y un job `skipped` no la ensucia. Un `test` que
+  //    no corrió deja el run en `success`, y hasta el 08-ago eso salía PASS sin mirar nada.
+  //
+  //    Es el mismo argumento por el que se eligió `ci.yml` sobre los check suites —no gritar
+  //    por lo que no es, y no callar por lo que no se miró— aplicado un nivel más adentro.
+  const { jobs, error: errorJobs } = jobsDelRun(ultimo);
+  const { code, verdict, extra } = veredicto({ deployed, ultimo, jobs, errorJobs, corridas: runs.length });
+  return done(code, verdict, extra);
 }
 
 // Igual que el harness hermano: solo corre si se lo invoca directo. Sin esto, importar

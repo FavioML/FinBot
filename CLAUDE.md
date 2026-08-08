@@ -289,15 +289,46 @@ de "problemas de red" y el gate se quedaría sin testigo, que es la misma lecci�
 `validCheckSuites`. En veredicto malo imprime qué archivos observados por Railway llegaron sin
 testear: es la diferencia entre anotarlo y arreglarlo ahora.
 
-**Y con el run rojo baja un nivel más, hasta el job.** El mismo argumento que eligió `ci.yml`
+**Baja un nivel más, hasta el job, y en las DOS ramas.** El mismo argumento que eligió `ci.yml`
 sobre los check suites vale adentro de `ci.yml`: el run también corre `webapp`, `deploy-webapp`
 (un `vercel deploy`) y `railway-gate`. Un token de Railway vencido o un deploy de Vercel caído
 lo ponen rojo **sin decir nada sobre el backend**, y el harness mandaba a "arreglar la suite"
-con la suite del backend verde. Ahora mira la conclusion del job **`test`** y separa los dos
-casos, con un quinto veredicto: *"EL RUN QUEDÓ ROJO, PERO NO POR LOS TESTS"*. Sigue siendo exit 1
-—un commit desplegado con el run rojo es anómalo igual— pero apunta al job que hay que arreglar.
-Si la lista de jobs no se puede leer, o si el job `test` no aparece (lo renombraron), **no se
-asume que esté sano**: cae en el caso grave.
+con la suite del backend verde. Por eso el veredicto *"EL RUN QUEDÓ ROJO, PERO NO POR LOS TESTS"*:
+sigue siendo exit 1 —un commit desplegado con el run rojo es anómalo igual— pero apunta al job.
+
+**El mismo argumento vale para el run VERDE, y ahí faltaba entero hasta el 08-ago.** La
+conclusion de un run es un AGREGADO, y un job `skipped` la deja en `success`: `nlp-agent` lo
+demuestra en cada run desde el 14-jul. El harness devolvía PASS sin consultar un solo job, así
+que el día que `test` lleve un `if:` que evalúe false —un filtro por paths, un toggle de standby
+como el del propio `nlp-agent`— el run sale verde, el harness dice PASS y **la suite del backend
+no corrió**. Es el fail-open que este archivo existe para atrapar, un nivel más arriba.
+Reproducido: con `NETO_CI_JOB_TESTS=job-que-no-existe` daba PASS.
+
+Tres reglas al leer los jobs, y las tres se pagaron:
+
+| regla | qué pasaba sin ella |
+|---|---|
+| `filter`, no `find` | con una matriz de varias patas `test`, verde la primera y roja la segunda daba "no fue culpa de los tests" **con `test: failure` en `jobsRojos` del mismo objeto** |
+| `skipped` **no** es `success` para ESTE job (sí lo es para `jobsRojos`) | un job que no corrió contaba como backend sano |
+| el nombre se compara EXACTO | mutar `===` a `startsWith` dejaba los 10 tests en verde; `test-e2e` pasaba por `test` |
+
+Si el job `test` no aparece (lo renombraron), es **guard ciego**, mismo cajón que el 404 del
+workflow. Si la lista de jobs no se puede leer, depende del color: con el run rojo cae en el
+caso grave (el run rojo ya es la anomalía), con el run verde es exit 2, porque lo único que
+falta es la comprobación. Una lista **truncada** cuenta como ilegible: con la pata roja de
+una matriz fuera de la página saldría PASS con la suite roja.
+
+**Y el triage cambió de oráculo con el veredicto.** `severidad()` —lo que decide entre
+"anotalo" y "arreglalo ahora"— definía "último commit con CI verde" con `runs?status=success`,
+o sea el mismo agregado que el resto del archivo declara no confiable: con `test` filtrado por
+paths llegaba a imprimir *"el runtime que corre es el mismo que sí se testeó"* sobre commits
+que nunca se testearon. Ahora baja al job de cada candidato, y distingue "no hay ancestro sano"
+de "no pude verificar ninguno", que un blip de red convertía en la primera.
+
+El ensamblado del veredicto vive en `veredicto()`, puro y con un `switch` exhaustivo cuyo
+default es exit 2. Antes era una cascada de `if` en `main()` que **caía libre a PASS**, así que
+un caso nuevo salía exit 0. Los dos guards que lo cubrían leían el código fuente buscando la
+cadena `'PASS'`, y una revisión adversarial los evadió con comillas dobles.
 
 **Corren en dos lados a propósito.** El canary de las 10am y el recordatorio post-push
 (`~/.claude/hooks/post-git-push-reminders.mjs`). Post-push no agrega ruido: si el gate funcionó,
@@ -305,7 +336,6 @@ prod sigue en el commit viejo con su suite verde y da PASS; si falló abierto, p
 commit nuevo con la suite corriendo y sale exit 1 en minutos en vez de a la mañana siguiente.
 
 **`qa-e2e/backend-deploy-gated.mjs`** (07-ago-2026) es el que responde la tercera pregunta.
-Compara el fin del deployment de Railway contra el run de `ci.yml` del mismo sha: con el gate
 Compara el **INICIO del build** contra el fin del run de `ci.yml`. Es exactamente el delator que
 esta sección ya nombraba sin automatizar: *"push → inicio de build pasó de ~7 segundos a
 ~2m50s"*. Con el gate sano Railway deja el deployment en `WAITING` y **no construye** hasta que
