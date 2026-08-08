@@ -42,7 +42,33 @@ async function obtenerHistorial(usuarioId) {
   } catch(e) { return []; }
 }
 
-async function obtenerOCrearUsuario(numeroWhatsapp) {
+// Aprende el BSUID de un usuario que HOY todavía manda su número. Ver migración 065: es lo
+// único que lo conectará con su cuenta el día que active un username de WhatsApp y `from`
+// deje de venir.
+//
+// Dos reglas, y las dos importan:
+// - **Nunca borra.** Los call-sites que no vienen del webhook no tienen BSUID a mano, y un
+//   `null` de ellos no debe limpiar lo ya aprendido.
+// - **Nunca rompe el flujo.** Es enriquecimiento, no parte del alta. Si el UPDATE falla (por
+//   ejemplo si el índice único choca porque ese BSUID ya está en otra fila, que sería un
+//   usuario duplicado) se registra y se sigue: el mensaje del usuario vale más que la columna.
+async function persistirBsuid(usuario, bsuid) {
+  if (!bsuid || !usuario || !usuario.id || usuario.bsuid === bsuid) return usuario;
+  try {
+    const { error } = await supabase.from('usuarios').update({ bsuid }).eq('id', usuario.id);
+    if (error) {
+      log.error({ tag: 'BSUID', err: error.message, usuarioId: usuario.id }, 'No se pudo guardar el BSUID');
+      return usuario;
+    }
+    usuario.bsuid = bsuid;
+    log.info({ tag: 'BSUID', usuarioId: usuario.id }, 'BSUID aprendido');
+  } catch (e) {
+    log.error({ tag: 'BSUID', err: e.message, usuarioId: usuario.id }, 'No se pudo guardar el BSUID');
+  }
+  return usuario;
+}
+
+async function obtenerOCrearUsuario(numeroWhatsapp, bsuid = null) {
   // Sin número no hay nada que buscar ni que crear, y el throw va ANTES de todo a propósito.
   // Dejar pasar un valor vacío no se queda en el `.replace` de abajo: llega al INSERT del
   // final, y como `whatsapp` es NULLABLE (identidad dual web-first, migr 046) el insert NO
@@ -55,16 +81,19 @@ async function obtenerOCrearUsuario(numeroWhatsapp) {
   const numeroNorm = numeroWhatsapp.replace(/^whatsapp:/i, '').replace(/^\+/, '');
   try {
     const { data } = await supabase.from('usuarios').select('*').eq('whatsapp', numeroNorm).single();
-    if (data) return data;
+    if (data) return await persistirBsuid(data, bsuid);
   } catch (e) {}
   try {
     const { data } = await supabase.from('usuarios').select('*').eq('whatsapp', numeroWhatsapp).single();
     if (data) {
       await supabase.from('usuarios').update({ whatsapp: numeroNorm }).eq('whatsapp', numeroWhatsapp);
       data.whatsapp = numeroNorm;
-      return data;
+      return await persistirBsuid(data, bsuid);
     }
   } catch (e) {}
+  // El BSUID va en un UPDATE aparte, no en este INSERT, a propósito: `usuarios_bsuid_key` es
+  // único, así que un BSUID ya presente en otra fila haría fallar el INSERT y con él el ALTA
+  // entera. Perder la columna es barato; perder al usuario que recién escribe, no.
   const { data: nuevo, error } = await supabase.from('usuarios').insert({ whatsapp: numeroNorm }).select().single();
   if (error) throw new Error('Error creando usuario: ' + error.message);
   // Activación: primer contacto / creación de usuario por WhatsApp.
@@ -72,7 +101,7 @@ async function obtenerOCrearUsuario(numeroWhatsapp) {
     channel: 'whatsapp',
     $set: { whatsapp: numeroNorm, plan: nuevo.plan || 'free', signup_channel: 'whatsapp' },
   });
-  return nuevo;
+  return await persistirBsuid(nuevo, bsuid);
 }
 
 function getUserPlanConfig(usuario) {
@@ -93,6 +122,7 @@ module.exports = {
   guardarMensaje,
   obtenerHistorial,
   obtenerOCrearUsuario,
+  persistirBsuid,
   getUserPlanConfig,
   getHistoryDateLimit,
 };

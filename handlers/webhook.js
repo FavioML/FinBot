@@ -142,19 +142,13 @@ function createWebhookHandler(procesarMensajeLibre) {
       registrarError('WEBHOOK', 'Mensaje entrante sin from', { detalle: JSON.stringify(forma) });
       return;
     }
-    // Sonda temporal (08-ago-2026). Meta dice que el BSUID viaja en TODOS los webhooks de
-    // mensajes desde el 31-mar, tengan `from` o no. Si acá se confirma, hoy lo estamos
-    // tirando: es lo único que permitiría reconocer a un usuario ACTUAL el día que active
-    // username y deje de mandar su número. Se mide con tráfico real ANTES de construir el
-    // guardado encima, porque una columna alimentada por un campo que no llega es peor que
-    // ninguna. Sale con el número, que ya se loguea en el `tag: 'MSG'` de más abajo.
-    log.info({
-      tag: 'BSUID-SONDA',
-      trae: !!message.from_user_id,
-      bsuid: message.from_user_id || null,
-      clavesContacto: Object.keys(((value && value.contacts) || [])[0] || {}),
-      tipo: message.type || null,
-    }, 'Sonda BSUID en mensaje CON remitente');
+    // El BSUID del remitente, cuando Meta lo manda. Medido con tráfico real el 08-ago-2026:
+    // hoy llega en TODOS los mensajes, junto al número (`contacts[0]` trae `wa_id` Y
+    // `user_id`). Esa coincidencia es la ventana entera: mientras el usuario siga mandando
+    // número podemos aprender su BSUID, y el día que active un username de WhatsApp —cuando
+    // `from` deje de venir y caiga en el descarte de arriba— será lo único que lo conecte con
+    // su cuenta. Se pasa a `obtenerOCrearUsuario`, que lo persiste sin romper nada si falla.
+    const bsuid = message.from_user_id || null;
     if (isDuplicateWamid(message.id)) {
       log.info({ tag: 'WEBHOOK', wamid: message.id, from }, 'Wamid duplicado — skip');
       return;
@@ -162,7 +156,7 @@ function createWebhookHandler(procesarMensajeLibre) {
 
     // --- Manejo de imágenes ---
     if (message.type === 'image') {
-      const usuario = await obtenerOCrearUsuario(from);
+      const usuario = await obtenerOCrearUsuario(from, bsuid);
 
       const mediaId = message.image && message.image.id;
       const phoneId = process.env.META_PHONE_NUMBER_ID;
@@ -264,7 +258,7 @@ function createWebhookHandler(procesarMensajeLibre) {
 
     // --- Manejo de documentos (Excel para carga de gastos históricos) ---
     if (message.type === 'document') {
-      const usuario = await obtenerOCrearUsuario(from);
+      const usuario = await obtenerOCrearUsuario(from, bsuid);
 
       const doc = message.document;
       const fileName = (doc && doc.filename) || '';
@@ -456,7 +450,7 @@ function createWebhookHandler(procesarMensajeLibre) {
     log.info({ tag: 'MSG', from, msg: msg.substring(0, 100) }, 'Mensaje recibido');
 
     let respuesta = '';
-    const usuario = await obtenerOCrearUsuario(from);
+    const usuario = await obtenerOCrearUsuario(from, bsuid);
     const cmd = msg.toLowerCase().trim();
 
     // Verificación de cuenta web (OTP inverso). El usuario se logueó con Google en

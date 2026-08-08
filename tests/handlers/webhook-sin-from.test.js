@@ -137,6 +137,16 @@ describe('mensaje entrante sin `from` (regresión 01-ago-2026)', () => {
     obtenerOCrearUsuario.mockResolvedValue({ id: 'u1', nombre: 'Ana', onboarding_paso: 0, onboarding_completado: true });
     const { req, res } = buildReqRes({ ...sinFrom(), from: '51999888777' });
     await webhookHandler(req, res);
-    expect(obtenerOCrearUsuario).toHaveBeenCalledWith('51999888777');
+    expect(obtenerOCrearUsuario).toHaveBeenCalledWith('51999888777', null);
+  });
+
+  // La ventana que abre la migración 065: mientras Meta mande las DOS identidades juntas,
+  // cada mensaje con número enseña el BSUID de ese usuario. Si esto deja de pasar, el día
+  // que active un username se vuelve un desconocido y su historial queda huérfano.
+  it('aprende el BSUID del remitente cuando Meta lo manda junto al número', async () => {
+    obtenerOCrearUsuario.mockResolvedValue({ id: 'u1', nombre: 'Ana', onboarding_paso: 0, onboarding_completado: true });
+    const { req, res } = buildReqRes({ ...sinFrom(), from: '51999888777', from_user_id: 'PE.2052090595730104' });
+    await webhookHandler(req, res);
+    expect(obtenerOCrearUsuario).toHaveBeenCalledWith('51999888777', 'PE.2052090595730104');
   });
 });
