@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   es404, clasificarJobs, decidir, veredicto, interpretarRespuestaDeJobs, severidad,
+  diagnosticar404, veredictoSinRuns,
 } from '../qa-e2e/backend-deploy-tested.mjs';
 
 const HARNESS = path.resolve(
@@ -464,14 +465,112 @@ describe('interpretarRespuestaDeJobs: una lista truncada no es una lista', () =>
  * mismo que sí se testeó" sobre commits que nunca se testearon, y el `on_fail` del canary
  * traduce esa frase a "alcanza con anotarlo".
  */
+/**
+ * `es404` dice QUE dio 404; no dice por qué, y el mensaje necesita el por qué.
+ *
+ * Medido el 08-ago-2026 contra la API real: **cuatro causas dan un stderr byte-idéntico**
+ * (`gh: Not Found (HTTP 404)`) — workflow inexistente, repo inexistente, repo privado sin acceso,
+ * y owner inexistente. Con `NETO_REPO=github/github` el harness decía "GUARD CIEGO: no existe el
+ * workflow ci.yml" y mandaba a revisar un archivo intacto.
+ *
+ * Los cuatro siguen siendo exit 1 —el gate quedó sin testigo en todos— pero el hint tiene que
+ * apuntar al lugar correcto, y para eso hacen falta hasta dos sondeos.
+ */
+describe('diagnosticar404: cuatro causas, el mismo stderr', () => {
+  const e404 = () => { const e = new Error('Command failed'); e.stderr = 'gh: Not Found (HTTP 404)'; throw e; };
+  /** `alcanzables` es el conjunto de rutas que responden 200; el resto tira 404. */
+  const ghFalso = (alcanzables) => (ruta) => (alcanzables.includes(ruta) ? '1' : e404());
+
+  it('repo alcanzable -> el 404 era del workflow', () => {
+    const d = diagnosticar404({ repo: 'FavioML/FinBot', workflow: 'ci.yml', ghFn: ghFalso(['repos/FavioML/FinBot']) });
+    expect(d.clase).toBe('WORKFLOW_AUSENTE');
+    expect(d.hint).toMatch(/\.github\/workflows\/ci\.yml/);
+  });
+
+  it('owner inexistente -> no manda a tocar el workflow', () => {
+    const d = diagnosticar404({ repo: 'nadie-xyz/repo', workflow: 'ci.yml', ghFn: ghFalso([]) });
+    expect(d.clase).toBe('OWNER_INEXISTENTE');
+    expect(d.verdict).toMatch(/nadie-xyz/);
+    expect(d.hint).toMatch(/NETO_REPO/);
+    expect(d.hint, 'el workflow puede estar perfecto').not.toMatch(/¿Se renombró/);
+  });
+
+  /**
+   * Y el caso que NO se puede partir más, y es de GitHub: "no existe" y "es privado y no tenés
+   * acceso" devuelven los DOS un 404, a propósito, para no filtrar la existencia de repos
+   * privados. Verificado con `github/github` (privado y real) y `FavioML/no-existe-jamas-xyz`
+   * (inexistente): indistinguibles. El mensaje nombra las dos en vez de elegir una.
+   */
+  it('owner existe pero el repo no se ve -> nombra las DOS posibilidades', () => {
+    const d = diagnosticar404({ repo: 'github/github', workflow: 'ci.yml', ghFn: ghFalso(['users/github']) });
+    expect(d.clase).toBe('REPO_INACCESIBLE');
+    expect(d.hint).toMatch(/no existe/);
+    expect(d.hint).toMatch(/privado/);
+    expect(d.hint).toMatch(/gh auth status/);
+    expect(d.hint, 'no manda a tocar el workflow').toMatch(/No toques el workflow/);
+  });
+
+  /**
+   * Si los sondeos fallan por algo que NO es un 404, no se puede desambiguar — y elegir "la causa
+   * más probable" ahí es exactamente el error que este bloque viene a corregir.
+   */
+  it('sondeos caídos por red -> indeterminado, sin inventar la causa', () => {
+    const ghRoto = () => { const e = new Error('Command failed'); e.stderr = 'gh: connection reset'; throw e; };
+    const d = diagnosticar404({ repo: 'FavioML/FinBot', workflow: 'ci.yml', ghFn: ghRoto });
+    expect(d.clase).toBe('INDETERMINADO');
+    expect(d.hint).toMatch(/connection reset/);
+    expect(d.verdict).not.toMatch(/no existe el workflow/);
+  });
+});
+
+/**
+ * El caso de CERO runs. Estaba dentro de `main()` —que hace red— y por eso no tenía un solo
+ * control: la prueba por mutación mostró que revertir el título a "NUNCA TUVO SUITE DE CI" dejaba
+ * los 128 tests en verde. La misma corrección en `evaluarGate` de `backend-deploy-gated` sí tenía
+ * test, así que el barrido se había hecho en un solo archivo otra vez.
+ */
+describe('veredictoSinRuns: "no hay run" no es "nunca hubo run"', () => {
+  const sinRed = () => ({ lectura: 'severidad inyectada' });
+  const r = veredictoSinRuns('abcdef1234567890', { severidadFn: sinRed });
+
+  it('sigue siendo exit 1: el gate se quedó sin testigo igual', () => {
+    expect(r.code).toBe(1);
+  });
+
+  it('el título NO afirma que nunca hubo suite', () => {
+    expect(r.verdict).not.toMatch(/NUNCA/);
+    expect(r.verdict).toMatch(/NO TIENE NINGÚN RUN DE CI/);
+  });
+
+  it('el hint nombra las TRES causas y dice que ninguna se descarta desde acá', () => {
+    expect(r.extra.hint).toMatch(/sin gate/);
+    // El MECANISMO del commit intermedio, no solo la palabra: sin "un run por push" y "la PUNTA"
+    // el lector no puede reconocer el caso en su propio historial.
+    expect(r.extra.hint).toMatch(/INTERMEDIO/);
+    expect(r.extra.hint).toMatch(/un run por push/);
+    expect(r.extra.hint).toMatch(/PUNTA/);
+    expect(r.extra.hint).toMatch(/retención/);
+    expect(r.extra.hint).toMatch(/ninguna se descarta/);
+  });
+
+  it('sigue trayendo el triage de severidad', () => {
+    expect(r.extra.lectura).toBe('severidad inyectada');
+    expect(r.extra.deployed).toBe('abcdef1');
+  });
+});
+
 describe('severidad: el triage baja al job, igual que el veredicto', () => {
   const VERDES = [
     { sha: 'aaa1111', url: 'https://x/runs/1' },
     { sha: 'bbb2222', url: 'https://x/runs/2' },
   ];
+  // `nFiles` no es decorativo: `severidad` compara el rango por `compararRango`, que lo usa para
+  // saber si la API topó `files` en 300. Un doble sin ese campo dejaba el módulo devolviendo la
+  // lista VACÍA marcada como completa —el `handlers/webhook.js` desaparecía— y la suite en verde.
+  // Ver el test "sin un conteo de archivos usable" en tests/github-compare.test.js.
   const ghFalso = (ruta) => {
     if (ruta.includes('/runs?status=success')) return JSON.stringify(VERDES);
-    return JSON.stringify({ status: 'ahead', files: ['handlers/webhook.js'] });
+    return JSON.stringify({ status: 'ahead', files: ['handlers/webhook.js'], nFiles: 1 });
   };
   const conJob = (conclusion) => ({ jobs: [{ name: 'test', status: 'completed', conclusion }] });
 
@@ -500,5 +599,50 @@ describe('severidad: el triage baja al job, igual que el veredicto', () => {
     const r = severidad('deployed', { ghFn: ghFalso, leerJobs: () => ({ jobs: null, error: 'red' }) });
     expect(r.lectura).toMatch(/no se pudo verificar NINGUNO/);
     expect(r.lectura).not.toMatch(/no se encontró/);
+  });
+
+  /**
+   * La frase "el runtime que corre es el mismo que sí se testeó" es la que el `on_fail` del
+   * canary traduce a "alcanza con anotarlo", y se emitía con `observados.length === 0`.
+   *
+   * El problema es la DIRECCIÓN: la API de compare trunca `files` en 300 (medido: 193 de 302
+   * observados sobre un rango real de este repo), y un truncado solo puede BAJAR ese conteo.
+   * O sea que la única cosa que el truncado puede hacer con este triage es empujarlo hacia la
+   * rama tranquilizadora. Con la lista incompleta, "cero observados" no es una lectura: es una
+   * lectura que no se puede hacer.
+   */
+  const ghConCompare = (payload) => (ruta) => {
+    if (ruta.includes('/runs?status=success')) return JSON.stringify(VERDES);
+    return JSON.stringify(payload);
+  };
+  const verde = { leerJobs: () => conJob('success') };
+
+  it('con la lista COMPLETA y cero observados, sí emite la lectura tranquilizadora', () => {
+    const r = severidad('deployed', {
+      ghFn: ghConCompare({ status: 'ahead', files: ['docs/x.md'], nFiles: 1 }), ...verde,
+    });
+    expect(r.listaCompleta).toBe(true);
+    expect(r.lectura).toMatch(/el runtime que corre es el mismo que sí se testeó/);
+  });
+
+  it('con la lista INCOMPLETA y cero observados, NO la emite', () => {
+    // `nFiles: 300` fuerza la bajada al diff crudo; el doble ignora el media type y devuelve
+    // JSON, así que la lista queda marcada incompleta. Es el caso real de un truncado que no
+    // se pudo resolver.
+    const r = severidad('deployed', {
+      ghFn: ghConCompare({ status: 'ahead', files: ['docs/x.md'], nFiles: 300 }), ...verde,
+    });
+    expect(r.listaCompleta).toBe(false);
+    expect(r.lectura).not.toMatch(/el runtime que corre es el mismo que sí se testeó/);
+    expect(r.lectura).toMatch(/NO SE PUEDE DECIR/);
+    expect(r.avisoLista).toBeTruthy();
+  });
+
+  it('con la lista incompleta pero CON observados, la alarma se mantiene sin salvedades', () => {
+    const r = severidad('deployed', {
+      ghFn: ghConCompare({ status: 'ahead', files: ['handlers/webhook.js'], nFiles: 300 }), ...verde,
+    });
+    expect(r.lectura).toMatch(/HAY archivos observados/);
+    expect(r.archivosDeBackendSinTestear).toContain('handlers/webhook.js');
   });
 });

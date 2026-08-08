@@ -44,6 +44,7 @@ import { pathToFileURL } from 'node:url';
 import { realpathSync } from 'node:fs';
 
 import { disparaBuildRailway } from './backend-deploy-fresh.mjs';
+import { compararRango } from './lib/github-compare.mjs';
 
 const API = process.env.NETO_API_URL || 'https://api.neto.pe';
 const REPO = process.env.NETO_REPO || 'FavioML/FinBot';
@@ -74,16 +75,95 @@ const detalleError = (e) => [e?.stderr, e?.message].filter(Boolean).join(' ').re
 // nunca—, así que la corrección de un lado había abierto el otro. stderr no lleva la URL.
 export const es404 = (e) => /HTTP 404|Not Found/i.test(String(e?.stderr ?? ''));
 
+/**
+ * ¿Por QUÉ dio 404? `es404` sabe que dio 404, y con eso no alcanza para escribir el mensaje.
+ *
+ * Medido el 08-ago-2026: **cuatro causas distintas producen un stderr byte-idéntico**
+ * (`gh: Not Found (HTTP 404)`) — workflow inexistente, repo inexistente, repo privado sin
+ * acceso, y owner inexistente. Con `NETO_REPO=github/github` el harness imprimía
+ * *"GUARD CIEGO: no existe el workflow ci.yml"* y mandaba a revisar `.github/workflows/ci.yml`,
+ * un archivo que está perfecto. El exit 1 se defiende —el guard quedó ciego en los cuatro
+ * casos— pero el mensaje y el hint mandaban a arreglar lo que no estaba roto.
+ *
+ * Se desambigua con hasta dos sondeos, y solo en el camino del 404, que es raro:
+ *
+ * | `repos/{repo}` | `users/{owner}` | clase |
+ * |---|---|---|
+ * | 200 | — | `WORKFLOW_AUSENTE` — el repo se ve, así que lo que falta es el workflow |
+ * | 404 | 404 | `OWNER_INEXISTENTE` — típicamente `NETO_REPO` mal escrito |
+ * | 404 | 200 | `REPO_INACCESIBLE` |
+ *
+ * **`REPO_INACCESIBLE` no se puede partir más, y eso es de GitHub, no una limitación de acá:**
+ * "no existe" y "existe pero es privado y no tenés acceso" devuelven los DOS un 404 a propósito,
+ * para no filtrar la existencia de repos privados. Verificado con `github/github` (privado, real)
+ * y `FavioML/no-existe-jamas-xyz` (inexistente): indistinguibles. El mensaje nombra las dos
+ * posibilidades en vez de elegir una, que es lo que hacía la versión anterior.
+ *
+ * Los cuatro siguen siendo **exit 1**: en todos el gate se quedó sin testigo. Lo que cambia es a
+ * dónde manda el hint.
+ */
+export function diagnosticar404({ repo, workflow = WORKFLOW, ghFn = gh }) {
+  const owner = String(repo).split('/')[0];
+  const alcanzable = (ruta) => {
+    try {
+      ghFn(ruta, '.id');
+      return true;
+    } catch (e) {
+      if (es404(e)) return false;
+      throw e; // un fallo que NO es 404 no dice nada sobre existencia
+    }
+  };
+
+  try {
+    if (alcanzable(`repos/${repo}`)) {
+      return {
+        clase: 'WORKFLOW_AUSENTE',
+        verdict: `GUARD CIEGO: no existe el workflow ${workflow} en ${repo}`,
+        hint: `El repo se ve, así que el 404 es del workflow. ¿Se renombró `
+          + `.github/workflows/${workflow}? Actualizá NETO_CI_WORKFLOW y este harness.`,
+      };
+    }
+    if (!alcanzable(`users/${owner}`)) {
+      return {
+        clase: 'OWNER_INEXISTENTE',
+        verdict: `GUARD CIEGO: el owner \`${owner}\` no existe en GitHub`,
+        hint: `No es el workflow: no existe ni la cuenta. Casi siempre es NETO_REPO mal `
+          + `escrito (vale "${repo}"). El workflow puede estar perfecto.`,
+      };
+    }
+    return {
+      clase: 'REPO_INACCESIBLE',
+      verdict: `GUARD CIEGO: no se puede acceder al repo ${repo}`,
+      hint: `El owner \`${owner}\` existe pero el repo da 404, y GitHub devuelve 404 tanto si no `
+        + `existe como si es privado y no tenés acceso: no se distinguen a propósito. Revisá `
+        + `NETO_REPO y \`gh auth status\` (¿el token perdió el scope repo?). No toques el workflow.`,
+    };
+  } catch (e) {
+    // Los sondeos fallaron por algo que no es un 404 (red, rate limit). No se puede desambiguar,
+    // y afirmar la causa más probable acá es justo el error que este bloque viene a corregir.
+    return {
+      clase: 'INDETERMINADO',
+      verdict: `GUARD CIEGO: 404 al leer los runs de ${workflow} en ${repo}, causa sin determinar`,
+      hint: `Cuatro causas dan el mismo 404 (workflow, repo, acceso, owner) y los sondeos para `
+        + `distinguirlas también fallaron: ${detalleError(e)}. Sigue siendo exit 1 porque el `
+        + `guard quedó ciego, pero NO se sabe qué arreglar todavía.`,
+    };
+  }
+}
+
 function done(code, verdict, extra = {}) {
   console.log(JSON.stringify({ verdict, ...extra }, null, 2));
   process.exitCode = code;
   return code;
 }
 
-function gh(ruta, jq) {
-  const args = ['api', ruta];
+// `extra` existe para que `compararRango` pueda pedir el media type del diff crudo
+// (`-H 'Accept: application/vnd.github.diff'`) por el MISMO `ghFn` inyectado. Sin
+// reenviarlo, un doble inyectado en un test devolvería JSON donde se espera un diff.
+function gh(ruta, jq, extra = []) {
+  const args = ['api', ruta, ...extra];
   if (jq) args.push('--jq', jq);
-  return execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+  return execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 });
 }
 
 /**
@@ -278,21 +358,33 @@ export function severidad(deployed, { ghFn = gh, leerJobs = jobsDelRun } = {}) {
       if (veredictoDelCandidato !== true) continue;
       let cmp;
       try {
-        cmp = JSON.parse(
-          ghFn(`repos/${REPO}/compare/${verde}...${deployed}`, '{status, files: [.files[]?.filename]}'),
-        );
+        // Por `compararRango`, no por un `gh api` propio. Este compare tenía el mismo agujero
+        // que el del harness hermano —`files` topado en 300 sin aviso— y acá pega MÁS fuerte:
+        // el truncado solo puede BAJAR `observados.length`, y `observados.length === 0` es
+        // justo la puerta de la frase tranquilizadora de abajo. O sea que una lista cortada
+        // solo puede empujar el triage hacia "no hubo consecuencia".
+        cmp = compararRango({ repo: REPO, base: verde, head: deployed, ghFn });
       } catch {
         continue; // sha que ya no existe (rama borrada, force-push): probar el siguiente
       }
       if (cmp.status !== 'ahead' && cmp.status !== 'identical') continue; // no es ancestro
       const observados = (cmp.files || []).filter(disparaBuildRailway);
+      // Con la lista incompleta, "cero observados" no es una lectura tranquilizadora sino una
+      // que no se puede hacer. Los observados ENCONTRADOS siguen valiendo (una lista corta
+      // esconde, no inventa), así que la rama de alarma no necesita la salvedad.
+      const lectura = observados.length > 0
+        ? 'HAY archivos observados por Railway que llegaron a prod sin suite verde: revisarlos uno por uno'
+        : cmp.completa
+          ? 'CERO archivos que Railway observe cambiaron desde el último commit con CI verde: se desplegó sin gate, pero el runtime que corre es el mismo que sí se testeó'
+          : 'NO SE PUEDE DECIR: la lista de archivos del rango vino incompleta, así que "cero '
+            + 'observados" puede ser el truncado y no la realidad. Revisar el diff a mano';
       return {
         ultimoVerdeAnterior: short(verde),
         archivosDesdeEseVerde: (cmp.files || []).length,
         archivosDeBackendSinTestear: observados,
-        lectura: observados.length === 0
-          ? 'CERO archivos que Railway observe cambiaron desde el último commit con CI verde: se desplegó sin gate, pero el runtime que corre es el mismo que sí se testeó'
-          : 'HAY archivos observados por Railway que llegaron a prod sin suite verde: revisarlos uno por uno',
+        listaCompleta: cmp.completa,
+        ...(cmp.completa ? {} : { avisoLista: cmp.motivoIncompleta }),
+        lectura,
       };
     }
     if (ilegibles === intentos && intentos > 0) {
@@ -311,6 +403,46 @@ export function severidad(deployed, { ghFn = gh, leerJobs = jobsDelRun } = {}) {
   } catch (e) {
     return { error: String(e).split('\n')[0] };
   }
+}
+
+/**
+ * El veredicto cuando el sha desplegado **no tiene ningún run de CI**.
+ *
+ * Sigue siendo exit 1, y lo que se corrigió el 08-ago es el TEXTO: decía "NUNCA TUVO SUITE DE CI",
+ * que es una afirmación sobre la historia sostenida por una observación del presente ("hoy no hay
+ * run"). Tres causas dejan el mismo rastro y ninguna se descarta desde acá:
+ *
+ *  a) el deploy salió sin gate ("Wait for CI" solo espera los check suites que YA existían cuando
+ *     Railway evaluó; con GitHub degradado no hay ninguno). Es el caso del 06-ago.
+ *  b) el sha es un commit **INTERMEDIO de un push en lote**: GitHub crea UN run por evento de
+ *     push, con `head_sha` en la PUNTA. Medido acá: `112734f` (mismo segundo que `89206ac`, que sí
+ *     tiene run) y `373f82b` no tienen run ni check suite.
+ *  c) Actions borró el run por retención. El mecanismo existe; en este repo no hay una sola
+ *     observación de que haya pasado, y el intento de descartarlo con un "horizonte" se revirtió
+ *     (ver la nota en `backend-deploy-gated.mjs`).
+ *
+ * **Está extraído y exportado porque si no, no se puede probar.** La misma corrección se hizo en
+ * `evaluarGate` de `backend-deploy-gated`, ahí sí con test, y acá quedó dentro de `main()` —que
+ * hace red— sin un solo control: la prueba por mutación mostró que revertir el título a "NUNCA
+ * TUVO SUITE DE CI" dejaba los 128 tests en verde. Es la cuarta vez en esta sesión que la
+ * cobertura rodea el cambio sin tocarlo.
+ */
+export function veredictoSinRuns(deployed, { severidadFn = severidad } = {}) {
+  return {
+    code: 1,
+    verdict: 'EL COMMIT DESPLEGADO NO TIENE NINGÚN RUN DE CI',
+    extra: {
+      deployed: short(deployed),
+      ...severidadFn(deployed),
+      hint: 'Tres causas dejan este mismo rastro y ninguna se descarta desde acá: (a) Railway '
+        + 'desplegó sin gate —"Wait for CI" solo espera los check suites que ya existían cuando '
+        + 'evaluó, y con GitHub degradado no hay ninguno—; (b) el sha es un commit INTERMEDIO de '
+        + 'un push en lote, y GitHub crea un run por push con head_sha en la PUNTA (medido acá: '
+        + '112734f y 373f82b no tienen run ni check suite); (c) Actions borró el run por '
+        + 'retención. Para las tres, lo que corre en prod no tiene suite verde propia: verificar '
+        + 'el diff y redesplegar sobre un commit con run verde.',
+    },
+  };
 }
 
 /**
@@ -447,10 +579,14 @@ async function main() {
     // cajón de "problemas de red" y el gate se quedaría sin testigo sin que nadie se entere,
     // que es la misma lección de `validCheckSuites` en verify-railway-gate.mjs.
     if (es404(e)) {
-      return done(1, `GUARD CIEGO: no existe el workflow ${WORKFLOW} en ${REPO}`, {
+      // Cuatro causas dan el mismo stderr, así que el mensaje se decide con dos sondeos más y
+      // no con la suposición más probable. Ver `diagnosticar404`.
+      const d = diagnosticar404({ repo: REPO, workflow: WORKFLOW });
+      return done(1, d.verdict, {
         deployed: short(deployed),
+        clase: d.clase,
         error: err,
-        hint: `¿Se renombró .github/workflows/${WORKFLOW}? Actualizá NETO_CI_WORKFLOW y este harness.`,
+        hint: d.hint,
       });
     }
     return done(2, 'no se pudieron leer los runs de CI (gh)', {
@@ -460,15 +596,10 @@ async function main() {
     });
   }
 
-  // 3) Cero runs = el modo fail-open, tal cual pasó el 06-ago.
+  // 3) Cero runs para el sha desplegado.
   if (runs.length === 0) {
-    return done(1, 'EL COMMIT DESPLEGADO NUNCA TUVO SUITE DE CI', {
-      deployed: short(deployed),
-      ...severidad(deployed),
-      hint: 'Railway desplegó sin gate: "Wait for CI" solo espera los check suites que ya ' +
-        'existían cuando evaluó. Pasa con GitHub degradado. Verificar el diff y redesplegar ' +
-        'sobre un commit con suite verde.',
-    });
+    const { code, verdict, extra } = veredictoSinRuns(deployed);
+    return done(code, verdict, extra);
   }
 
   // El más nuevo manda: un re-run sobre el mismo sha crea un run posterior, y lo que vale

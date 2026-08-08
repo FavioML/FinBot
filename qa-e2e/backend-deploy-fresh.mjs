@@ -25,11 +25,11 @@
 // Nota Windows: se usa process.exitCode (no process.exit) para no disparar la
 // assertion de libuv al salir con el socket keep-alive de fetch aún cerrándose.
 
-import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { realpathSync } from 'node:fs';
 
 import { leerPatrones, crearPredicado } from './lib/railway-watch.mjs';
+import { compararRango } from './lib/github-compare.mjs';
 
 const API = process.env.NETO_API_URL || 'https://api.neto.pe';
 const REPO = process.env.NETO_REPO || 'FavioML/FinBot';
@@ -119,15 +119,16 @@ async function main() {
   }
 
   // 2) ¿Qué cambió en main desde el commit desplegado?
+  //
+  // Vía `compararRango`, que existe por una sola razón: la API de compare **trunca `files` en
+  // 300** sin avisar (medido: 300 de 667 archivos reales en `HEAD~400...main`, y 193 de 302
+  // observados por Railway). Hasta el 08-ago acá se calculaba un campo `truncado` que NADIE
+  // leía, o sea que el harness sabía que su lista podía estar cortada y contestaba igual.
+  // Ahora la lista viene completa (del diff crudo, que no tiene tope) o viene marcada
+  // `completa: false`, y el paso 5 se niega a dar PASS con una lista marcada.
   let cmp;
   try {
-    const raw = execFileSync(
-      'gh',
-      ['api', `repos/${REPO}/compare/${deployed}...main`,
-        '--jq', '{status, ahead_by, truncado: ((.files|length) >= 300), files: [.files[]? | .filename, .previous_filename] | map(select(.)), newest: (.commits[-1]?.commit.committer.date)}'],
-      { encoding: 'utf8' },
-    );
-    cmp = JSON.parse(raw);
+    cmp = compararRango({ repo: REPO, base: deployed, head: 'main' });
   } catch (e) {
     return done(2, 'no se pudo comparar el SHA desplegado con main (gh)', {
       deployed: short(deployed),
@@ -136,44 +137,100 @@ async function main() {
     });
   }
 
+  // 3-6) El veredicto, en una función pura para que se pueda probar.
+  const { code, verdict, extra } = decidirFrescura({ deployed, cmp });
+  return done(code, verdict, extra);
+}
+
+/**
+ * De `(sha desplegado, comparación del rango)` al veredicto. Pura, y por eso existe.
+ *
+ * **Es la misma lección que ya se pagó en `backend-deploy-tested`**: la decisión vivía en una
+ * cascada de `if` dentro de un `main()` que hace red, así que lo único que podía cubrirla era
+ * un test que leyera el CÓDIGO FUENTE buscando una cadena — y una revisión adversarial evadió
+ * dos de esos guards cambiando comillas simples por dobles. Acá la regla nueva (una lista
+ * incompleta no puede producir PASS) es exactamente del tipo que un guard de texto no sabe
+ * vigilar: es una relación entre dos campos, no una cadena.
+ *
+ * `dispara` y `ahora` entran inyectados para poder ejercitar la ventana de deploy en vuelo sin
+ * depender del reloj ni de `railway.json`.
+ */
+export function decidirFrescura({
+  deployed,
+  cmp,
+  dispara = disparaBuildRailway,
+  ahora = Date.now(),
+  inFlightMin = IN_FLIGHT_MIN,
+}) {
   // 3) deployed debería ser ancestro de main (Railway construye desde main).
   if (cmp.status === 'behind' || cmp.status === 'diverged') {
-    return done(2, `el SHA desplegado no es ancestro de main (status: ${cmp.status})`, {
+    return { code: 2, verdict: `el SHA desplegado no es ancestro de main (status: ${cmp.status})`, extra: {
       deployed: short(deployed),
       hint: '¿main fue reescrito (force-push/revert) o el deploy quedó fuera de main?',
-    });
+    } };
   }
 
-  // 4) deployed == HEAD, nada pendiente.
+  // 4) deployed == HEAD, nada pendiente. No mira `files`, así que el truncado no lo afecta:
+  // "idéntico" no depende de ninguna lista.
   if (cmp.status === 'identical' || cmp.ahead_by === 0) {
-    return done(0, 'PASS', { deployed: short(deployed), pending: 'ninguno (== HEAD)' });
+    return { code: 0, verdict: 'PASS', extra: { deployed: short(deployed), pending: 'ninguno (== HEAD)' } };
   }
 
   // 5) Hay commits después del desplegado. ¿Alguno dispara build de Railway?
-  const pendingBackend = (cmp.files || []).filter(disparaBuildRailway);
+  //
+  // La ASIMETRÍA es el punto, y sale de que una lista incompleta solo puede ESCONDER
+  // archivos, nunca inventarlos:
+  //
+  //   - lista incompleta + encontré observados -> STALE es sólido (el que encontré cambió
+  //     de verdad; que falten otros no lo desmiente)
+  //   - lista incompleta + NO encontré ninguno -> no sé nada. Los que faltan pueden ser
+  //     justamente los observados, y eso es exit 2, no PASS.
+  //
+  // Es la misma regla que `interpretarRespuestaDeJobs` en el harness hermano: una lista
+  // truncada se trata como ilegible, porque el lado seguro es no afirmar.
+  const pendingBackend = (cmp.files || []).filter(dispara);
   if (pendingBackend.length === 0) {
-    return done(0, 'PASS', {
+    if (!cmp.completa) {
+      return { code: 2, verdict: 'no se pudo obtener la lista completa de archivos del rango', extra: {
+        deployed: short(deployed),
+        ahead_by: cmp.ahead_by,
+        fuente: cmp.fuente,
+        detalle: cmp.motivoIncompleta,
+        archivosVistos: (cmp.files || []).length,
+        hint: 'La API de compare trunca `files` en 300 y el diff crudo (que no tiene tope) no ' +
+          'se pudo usar. Con la lista cortada, "ningún archivo observado" no significa nada: ' +
+          'los que faltan pueden ser justo los de backend. Sin veredicto a propósito.',
+      } };
+    }
+    return { code: 0, verdict: 'PASS', extra: {
       deployed: short(deployed),
       pending: `${cmp.ahead_by} commit(s) tras el desplegado, ninguno toca archivos que Railway observe`,
-    });
+      archivosDelRango: (cmp.files || []).length,
+      fuente: cmp.fuente,
+    } };
   }
 
   // 6) Hay cambio de backend sin desplegar. ¿Deploy en vuelo o stale?
-  const ageMin = cmp.newest ? Math.round((Date.now() - new Date(cmp.newest).getTime()) / 60000) : null;
-  if (ageMin !== null && ageMin < IN_FLIGHT_MIN) {
-    return done(0, 'PASS', {
-      reason: `deploy en vuelo (commit más nuevo tiene ${ageMin} min, < ${IN_FLIGHT_MIN})`,
+  const ageMin = cmp.newest ? Math.round((ahora - new Date(cmp.newest).getTime()) / 60000) : null;
+  if (ageMin !== null && ageMin < inFlightMin) {
+    return { code: 0, verdict: 'PASS', extra: {
+      reason: `deploy en vuelo (commit más nuevo tiene ${ageMin} min, < ${inFlightMin})`,
       deployed: short(deployed),
       pendingBackend: pendingBackend.slice(0, 5),
-    });
+    } };
   }
 
-  return done(1, 'STALE: hay cambios de backend en main sin desplegar', {
+  return { code: 1, verdict: 'STALE: hay cambios de backend en main sin desplegar', extra: {
     deployed: short(deployed),
     pendingBackend: pendingBackend.slice(0, 5),
+    // El total, no solo los 5 que se imprimen. Con la lista topada este número salía
+    // sub-reportado y nada lo decía: 193 en vez de 302 sobre un rango real.
+    pendingBackendTotal: pendingBackend.length,
+    listaCompleta: cmp.completa,
+    ...(cmp.completa ? {} : { avisoLista: cmp.motivoIncompleta }),
     newestCommitAgeMin: ageMin,
     hint: 'Revisar el último deployment en Railway (¿build falló?). ¿watchPatterns excluyó algo que no debía?',
-  });
+  } };
 }
 
 // Solo corre si se lo invoca directo. Sin esto, `import`arlo desde el test de paridad

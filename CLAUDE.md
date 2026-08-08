@@ -271,6 +271,75 @@ sobre ESTE deploy, la cuarta sobre el modelo del que las tres dependen:
 | `backend-deploy-gated` | ¿el deploy **esperó** al gate? | el bypass cuya suite después salió **verde** |
 | `backend-watchpatterns-real` | ¿el modelo de `watchPatterns` es **cierto**? | el predicado del que dependen los otros miente sobre Railway, con todo en verde |
 
+### La API de compare TRUNCA en 300 archivos, y los tres primeros dependen de esa lista
+
+Medido el 08-ago-2026 contra la API en vivo, no leído en la doc de GitHub:
+`repos/{repo}/compare/{base}...{head}` devuelve **como máximo 300 entradas en `files`**, sin
+bandera y sin campo de total. El corte está caracterizado: la lista es **byte-idéntica** a
+`git diff --name-only base...head | LC_ALL=C sort | head -300`.
+
+| `1bdbd6a` (`HEAD~400`) `...main` | |
+|---|---|
+| archivos reales (`git`) | 667 |
+| observados por `railway.json` | 302 |
+| lo que devolvía la API | 300 → **193** observados |
+| **observados invisibles** | **109** |
+
+Las dos salidas que **no** existen, las dos medidas antes de descartarlas:
+
+- **No hay campo de total.** Los únicos numéricos del payload son `ahead_by`, `behind_by` y
+  `total_commits`.
+- **Paginar no sirve y falla del lado peligroso.** `per_page`/`page` paginan los **commits**:
+  `files` viene poblado solo en la página 1 y siempre topado en 300; `page=2` devuelve
+  `files: 0`. Un harness que paginara ingenuamente concluiría "no hay más archivos".
+
+La que **sí** existe: el media type `application/vnd.github.diff` del mismo endpoint **no está
+topado**, y conserva la semántica de RANGO. Eso es `qa-e2e/lib/github-compare.mjs`, y de ahí
+toman la lista `backend-deploy-fresh` y `severidad()`.
+
+Medido: entrega **667 y 744 bloques `diff --git`** en los dos rangos de arriba, contra 667 y 744
+archivos que reporta `git`. La igualdad es sobre los BLOQUES; la lista de rutas que sale del
+parser es un **superconjunto** (668 y 749) porque un rename aporta sus dos puntas, igual que el
+`previous_filename` del JSON. Es deliberado: mover un archivo de una ruta observada a una
+excluida es un cambio en la ruta observada. Lo que se verificó es que **no falta ninguna**
+(`solo-en-git` vacío en los dos rangos), no que los largos coincidan.
+
+> **No lo "arregles" uniendo diffs por commit ni por tramos: es INCORRECTO, no solo caro.**
+> Railway evalúa el diff desde el último commit DESPLEGADO, así que un revert como `352356f`
+> —que toca `tests/` en su propio diff pero deja el árbol idéntico— saldría como cambio
+> observado: **STALE falso**. Un archivo tocado en un tramo y revertido en otro aparece en los
+> dos. La única forma correcta es un diff de rango.
+
+**La regla al consumir esa lista:** una lista incompleta solo puede ESCONDER archivos, nunca
+inventarlos. Así que "encontré observados" sigue siendo de fiar aunque falten otros, y "no
+encontré ninguno" **no dice nada**. Por eso `decidirFrescura()` da exit 2 —no PASS— con la lista
+marcada incompleta y cero observados, y `severidad()` deja de emitir *"el runtime que corre es el
+mismo que sí se testeó"*, que es la frase que el `on_fail` del canary traduce a "alcanza con
+anotarlo". El truncado solo puede BAJAR ese conteo, o sea que solo podía empujar hacia la calma.
+
+**Y lo que este truncado NO hace, porque la nota original decía que sí:** no produce hoy un PASS
+falso en `backend-deploy-fresh`. Rompe la LISTA, no la conclusión. Para que `pendingBackend`
+saliera vacío harían falta ≥300 archivos **excluidos** ordenando antes del primer observado.
+
+Y eso **no es alcanzable por aritmética**, no por suerte. `railway.json` excluye cuatro cosas, y
+de ellas `webapp/**` (323 archivos, las tres cuartas partes del total) **ordena ÚLTIMO**: hoy no
+hay ni un archivo en el árbol que ordene después de `webapp/`, así que ningún archivo de `webapp/`
+puede preceder a un observado. Los excluidos que sí podrían: `docs/` (35) + `qa-e2e/` (89) +
+`*.md` de raíz (1) = **125 en todo el repo**. 125 < 300, para cualquier rango.
+
+Medido aparte, la posición real del primer observado sobre 120 bases consecutivas: **102 veces 0,
+una vez 1, y 16 veces 2** (el peor caso es `2fc4dca`, con `CLAUDE.md` y `docs/DEFECTOS.md`
+delante). El 0 tan frecuente lo explica `.claude/**`, que **está OBSERVADO** —no aparece en las
+exclusiones— y ordena primero en bytes (`.` = 0x2E).
+
+> Una versión anterior de esta nota decía "0 en todas, el primer observado cae en el índice 0
+> siempre", medido sobre 40 bases tomadas cada 20 commits. Es falso: ese muestreo produce rangos
+> largos que **siempre** tocan `.claude/`, o sea que no podía devolver otra cosa. Y cambiaba una
+> demostración (la cota de 125) por una muestra sesgada. Lo que cierra el caso es la aritmética.
+
+La cota hay que **re-derivarla** si cambia `railway.json` o si aparece un directorio que ordene
+después de `webapp/`: no es un invariante, es una propiedad del árbol de hoy, y nada la vigila.
+
 **Por qué hicieron falta tres, y por qué el segundo no alcanzaba.** `backend-deploy-tested` se
 escribió creyendo que tapaba el fail-open, y tapa la mitad. Pregunta si el commit desplegado tuvo
 suite verde, así que solo ve el bypass **que además salió rojo**. Si el gate se salta un commit y
@@ -288,6 +357,17 @@ y **guard ciego** si alguien renombra `ci.yml` — un 404 saliendo como exit 2 l
 de "problemas de red" y el gate se quedaría sin testigo, que es la misma lección de
 `validCheckSuites`. En veredicto malo imprime qué archivos observados por Railway llegaron sin
 testear: es la diferencia entre anotarlo y arreglarlo ahora.
+
+> **Un 404 dice que dio 404, no por qué, y hasta el 08-ago el mensaje elegía una de cuatro
+> causas.** Medido: workflow inexistente, repo inexistente, repo privado sin acceso y owner
+> inexistente dan un stderr **byte-idéntico** (`gh: Not Found (HTTP 404)`). Con
+> `NETO_REPO=github/github` el harness decía "GUARD CIEGO: no existe el workflow ci.yml" y
+> mandaba a revisar un archivo intacto. Ahora `diagnosticar404()` sondea `repos/{repo}` y
+> `users/{owner}`: repo alcanzable → falta el workflow; owner 404 → `NETO_REPO` mal escrito;
+> owner ok y repo 404 → **no se puede partir más**, porque GitHub devuelve 404 tanto para "no
+> existe" como para "privado sin acceso", a propósito, para no filtrar la existencia de repos
+> privados. El mensaje nombra las dos en vez de elegir. Los cuatro siguen siendo exit 1: el
+> gate quedó sin testigo en todos, lo que cambia es a dónde apunta el hint.
 
 **Baja un nivel más, hasta el job, y en las DOS ramas.** El mismo argumento que eligió `ci.yml`
 sobre los check suites vale adentro de `ci.yml`: el run también corre `webapp`, `deploy-webapp`
@@ -368,6 +448,43 @@ Cuatro cosas que conviene saber antes de tocarlo:
 - **Un margen de más de una hora es INDETERMINADO, no PASS.** Un redeploy o rollback desde el
   dashboard no consulta "Wait for CI" y es la vía humana más probable de saltearlo; sin cota
   salía PASS con margen de días.
+- **"No hay run" no prueba "nunca hubo run", y hasta el 08-ago el detalle afirmaba lo segundo**
+  ("se desplegó y NUNCA existió un run de CI"). Tres causas dejan el mismo rastro, cero runs y
+  cero check suites, y solo una es un fail-open:
+
+  | causa | estado |
+  |---|---|
+  | el sha es un **commit INTERMEDIO de un push en lote**: GitHub crea UN run por evento de push, con `head_sha` en la PUNTA | **medido y vivo acá**: `112734f` (mismo segundo que `89206ac`, que sí tiene run) y `373f82b` no tienen run ni check suite |
+  | la retención de Actions borró el run y el deployment de Railway le sobrevivió | el mecanismo existe; **en este repo no hay una sola observación de que haya pasado** (ver abajo) |
+  | el deploy salió sin gate de verdad | el caso del 06-ago |
+
+  **Ninguna se separa automáticamente, así que el veredicto sigue siendo exit 1 y lo único que
+  cambió es el texto.** Para la pregunta de este harness las tres dan lo mismo igual: si el sha
+  desplegado no tiene run, Railway no tuvo ningún check suite que esperar.
+
+  > **Se intentó descartar la retención con un dato y hubo que revertirlo. No lo reconstruyas.**
+  > La idea era preguntar cuál es el run más viejo que todavía existe y ablandar a exit 2 los
+  > builds anteriores. Medido: el run más viejo de `ci.yml` es del `2026-03-21T23:03:16Z` y el
+  > commit que **crea** `ci.yml` (`48155ca`) es de las `22:50:09Z` del mismo día. Trece minutos.
+  > No expiró ningún run: ese número era la fecha de nacimiento del workflow.
+  >
+  > "No hay runs anteriores a X" es igual de compatible con "la retención los borró" que con "el
+  > workflow no existía", y las dos piden lo CONTRARIO: un build anterior al primer run de CI es
+  > el fail-open más puro que hay, porque no había CI. Con un workflow nuevo o renombrado —lo que
+  > el hint del harness hermano te manda a hacer— el horizonte cae a hace días, y con eso el
+  > incidente del 06-ago salía exit 2 con un detalle afirmando una causa falsa. Para que la
+  > retención sirva de explicación hace falta evidencia **independiente** de que se borraron runs.
+
+  Ojo con una causa que la cola daba por buena y **no aplica**: "el sha llegó a main por PR".
+  `ci.yml` corre con **los dos** triggers (`on: push: branches:[main]` **y**
+  `pull_request: branches:[main]`; el segundo lleva 29 runs de 693), y lo que la descarta es el
+  primero: mergear un PR genera un evento `push` sobre main, así que la punta tiene su run igual.
+  Solo sería un problema si se quitara el trigger de `push`.
+
+  > La primera versión de esta nota citaba solo la mitad del `on:` y apoyaba la conclusión en
+  > "de los 100 runs más recientes, 100 son `event: push`". Ese número es real y no prueba nada:
+  > es la distribución de los RUNS, y la afirmación es sobre las PUNTAS de main. Para eso hay que
+  > muestrear puntas, no runs — y la ventana de 100 es una franja donde no cayó ningún PR.
 
 El corazón es una función pura (`evaluarGate`) probada contra **los timestamps reales de las dos
 poblaciones** (`tests/railway-gate-timing.test.js`), no contra números inventados. Si alguien

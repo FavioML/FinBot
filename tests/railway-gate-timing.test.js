@@ -106,6 +106,88 @@ describe('evaluarGate: ¿el build esperó a su suite?', () => {
     expect(v.clase).toBe('INDETERMINADO');
   });
 
+  /**
+   * **"No hay run" no prueba "nunca hubo run".** Hasta el 08-ago la rama sin run devolvía exit 1
+   * con el detalle "se desplegó y NUNCA existió un run de CI para ese commit", que es una
+   * afirmación sobre la historia sostenida por una sola observación del presente.
+   *
+   * Tres causas dejan el MISMO rastro (cero runs, cero check suites) y solo una es un fail-open:
+   *
+   *  1. el sha es un commit INTERMEDIO de un push en lote. GitHub crea UN run por evento de push,
+   *     con `head_sha` en la PUNTA. Medido en este repo: `112734f` (mismo segundo que `89206ac`,
+   *     que sí tiene run) y `373f82b` no tienen run ni check suite.
+   *  2. la retención de Actions borró el run y el deployment de Railway le sobrevivió. El
+   *     mecanismo existe; **en este repo no hay una sola observación de que haya pasado**.
+   *  3. el deploy salió de verdad sin gate.
+   *
+   * **Ninguna se puede descartar desde acá**, y ese es el punto de estos tests. Se intentó
+   * descartar la 2 con un "horizonte de retención" (el run más viejo que todavía existe) y hubo
+   * que revertirlo entero: ese número es la fecha de NACIMIENTO del workflow, no una retención
+   * — el run más viejo de `ci.yml` es 13 minutos posterior al commit que lo crea (`48155ca`). Ver
+   * la nota larga en `qa-e2e/backend-deploy-gated.mjs`, donde vivía la función.
+   *
+   * Para la pregunta de este harness las tres son lo mismo igual: si el sha desplegado no tiene
+   * run, Railway no tuvo ningún check suite que esperar. Siguen en exit 1 y lo que se corrigió es
+   * el texto.
+   */
+  describe('sin run: se corrige el TEXTO, y no se ablanda el veredicto', () => {
+    const SIN_RUN = {
+      runCreadoAt: null,
+      runTerminadoAt: null,
+      runCompletado: false,
+    };
+
+    /**
+     * **El guard que impide reconstruir lo revertido.** Ninguna fecha de build, ni la más antigua,
+     * puede producir `ok: null` en la rama sin run. Cubre las dos fechas que importan —el
+     * incidente real del 06-ago (`096593a`, build 17:27:36Z) y un build anterior a cualquier run
+     * de CI, que es el que el horizonte ablandaba— y varias más, de una sola vez.
+     *
+     * Está escrito como barrido y no como tres `it` separados a propósito: los tres que había eran
+     * subconjuntos literales de este, con las mismas dos aserciones sobre fechas ya incluidas acá.
+     * Tres nombres para un test no son tres tests.
+     */
+    it('NINGUNA entrada sin run puede producir ok null, ni la más antigua', () => {
+      const fechas = [
+        '2020-01-01T00:00:00.000Z',   // muy anterior a cualquier run: lo que el horizonte ablandaba
+        '2026-02-01T10:00:00.000Z',   // anterior al primer run de ci.yml (2026-03-21)
+        '2026-08-06T17:27:36.000Z',   // el incidente real: 096593a
+        '2026-08-07T07:24:10.000Z',
+        '2026-08-08T12:00:00.000Z',
+        new Date().toISOString(),
+      ];
+      for (const buildEmpezoAt of fechas) {
+        const v = evaluarGate({ ...SIN_RUN, buildEmpezoAt });
+        expect(v.ok, `buildEmpezoAt=${buildEmpezoAt}`).toBe(false);
+        expect(v.clase).toBe('FAIL_OPEN_SIN_RUN');
+      }
+    });
+
+    /**
+     * Lo que SÍ cambió: el detalle decía "se desplegó y **NUNCA existió** un run de CI para ese
+     * commit", una afirmación sobre la historia sostenida por una observación del presente.
+     *
+     * Las aserciones son sobre PROSA, y eso las hace frágiles (mueren si alguien reescribe el
+     * mensaje aunque el comportamiento siga bien). Se dejan igual porque acá el mensaje **es** el
+     * arreglo: el veredicto no cambió, solo el texto. Lo que NO se fija es que el mensaje nombre
+     * la retención: esa causa no tiene una sola observación en este repo, y exigir que el texto la
+     * mencione sería usar un test para perpetuar lo no medido.
+     */
+    it('el detalle reporta lo observado en vez de afirmar la causa', () => {
+      const v = evaluarGate({ ...SIN_RUN, buildEmpezoAt: '2026-08-07T07:24:10.000Z' });
+      expect(v.detalle, 'no se afirma lo que no se observó').not.toMatch(/NUNCA existió/);
+      expect(v.detalle).toMatch(/no existe HOY/);
+      expect(v.detalle).toMatch(/INTERMEDIO/);
+      expect(v.detalle).toMatch(/ninguna se descarta/);
+    });
+
+    /** Y no queda un `horizonteRetencion` exportado al que alguien pueda volver a cablear. */
+    it('el módulo no exporta ningún horizonte de retención', async () => {
+      const mod = await import('../qa-e2e/backend-deploy-gated.mjs');
+      expect(Object.keys(mod).filter((k) => /horizonte|retencion|retención/i.test(k))).toEqual([]);
+    });
+  });
+
   /** Nunca `ok: true` por falta de datos. Es la regla de `validCheckSuites` otra vez. */
   it('con datos ilegibles devuelve indeterminado, nunca PASS', () => {
     expect(evaluarGate({ ...CON_GATE.b6e44e8, buildEmpezoAt: null }).ok).toBe(null);

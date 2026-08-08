@@ -86,6 +86,34 @@ function done(code, verdict, extra = {}) {
   return code;
 }
 
+// NO existe un `horizonteRetencion()`, y borrarlo fue el resultado de la revisión: el intento y
+// el porqué quedan acá para que nadie lo reconstruya.
+//
+// La idea era descartar la causa benigna de "no hay run" (Actions borró el run y el deployment de
+// Railway le sobrevivió) preguntando cuál es el run más viejo que TODAVÍA existe, y ablandar a
+// exit 2 los builds anteriores a esa fecha. Se implementó, se midió, y el número no significaba
+// lo que decía:
+//
+//   run más viejo de ci.yml : 2026-03-21T23:03:16Z
+//   commit que CREA ci.yml  : 2026-03-21T22:50:09Z  (`48155ca`)
+//
+// Trece minutos. **No expiró ni un run**: el "horizonte de retención" era la fecha en que nació
+// el workflow. La observación "no hay runs anteriores a X" es exactamente igual de compatible con
+// "la retención los borró" que con "el workflow no existía todavía", y las dos piden lo
+// CONTRARIO: un build anterior al primer run de CI es el fail-open más puro que hay, porque no
+// había CI. Ablandarlo a "no se pudo determinar" es apagar la alarma justo donde más importa.
+//
+// Y el disparador era realista, no teórico: un workflow nuevo o renombrado —lo que el hint del
+// harness hermano te manda a hacer— devuelve un horizonte de hace días. Con eso, el fail-open del
+// 06-ago (`096593a`, el incidente que estos cuatro harness existen para atrapar) salía exit 2 con
+// un detalle afirmando una causa falsa.
+//
+// Para que la retención sirva como explicación hace falta evidencia INDEPENDIENTE de que se
+// borraron runs (la retención configurada del repo/org, o un run que existía y ya no está). Sin
+// eso, no se ablanda nada. Si alguna vez se consigue ese dato, ojo también con que
+// `total_count` viene clampeado en 40000 y la paginación corta en la página 400: sobre un repo
+// grande la "última página" no trae el run más viejo, y el error cae del lado de ablandar.
+
 /**
  * El corazón, puro a propósito: sin red, sin `gh`, sin Railway. Así se puede probar contra
  * los timestamps REALES del incidente del 06-ago en vez de contra un mock de mi propia
@@ -102,12 +130,33 @@ export function evaluarGate(
     return { ok: null, clase: 'INDETERMINADO', detalle: 'no se pudo determinar cuándo empezó el build' };
   }
 
-  // Sin run no hay nada que Railway pudiera haber esperado. Es el fail-open en su forma pura.
+  // Sin run, la pregunta es si eso PRUEBA un fail-open, y hasta el 08-ago acá se afirmaba que
+  // sí: el detalle decía "NUNCA existió un run de CI para ese commit". Eso es una afirmación
+  // sobre la HISTORIA, y lo único observado es "hoy no hay un run para este sha". La diferencia
+  // no es retórica: hay causas que producen lo segundo sin lo primero.
+  //
+  // | causa | ¿medida en este repo? |
+  // |---|---|
+  // | **commit intermedio de un push en lote** | **SÍ, dos casos.** GitHub crea UN run por evento de push, con `head_sha` en la PUNTA: `112734f` (mismo segundo que `89206ac`, que sí tiene run) y `373f82b` no tienen run ni check suite |
+  // | retención de Actions sobre un deployment de larga vida | **el mecanismo existe, pero acá no hay una sola observación de que haya pasado.** Ver la nota donde vivía `horizonteRetencion()`: el run más viejo de `ci.yml` es 13 minutos posterior al commit que lo creó, o sea que no expiró ninguno |
+  // | sha que llegó a main por PR | **NO aplica hoy**: `ci.yml` corre `on: push: branches:[main]`, así que toda punta de main tiene su run. Solo sería un problema si se quitara ese trigger |
+  //
+  // **Ninguna se puede separar automáticamente**, porque las tres dejan el mismo rastro. Así que
+  // el veredicto sigue siendo exit 1 y lo que cambia es SOLO el texto: se reporta lo observado y
+  // se nombra la causa benigna que comparte el rastro, en vez de afirmar la que no se midió.
+  //
+  // Y para la PREGUNTA de este harness las tres son lo mismo igual: si el sha desplegado no tiene
+  // run, Railway no tuvo ningún check suite que esperar. Un commit intermedio desplegado es
+  // benigno para "¿se rompió algo?", no para "¿esperó?".
   if (!runCreadoAt) {
     return {
       ok: false,
       clase: 'FAIL_OPEN_SIN_RUN',
-      detalle: 'se desplegó y NUNCA existió un run de CI para ese commit',
+      detalle: 'no existe HOY ningún run de CI para el sha desplegado. Puede ser que se '
+        + 'desplegara sin gate, o que el sha sea un commit INTERMEDIO de un push en lote '
+        + '(GitHub crea un run por push, con head_sha en la punta), o que Actions haya borrado '
+        + 'el run por retención — las tres dejan el mismo rastro y ninguna se descarta desde '
+        + 'acá. Para este harness las tres significan que no hubo suite que esperar',
     };
   }
 
