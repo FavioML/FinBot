@@ -794,6 +794,41 @@ esta usando el producto, y no se paga por perseguirlo. El canal fiable para todo
 del dashboard. `WA_TRIAL_TEMPLATE_ENABLED` se queda en `false`; el cableado esta probado y
 reactivarlo es una env var. **No es un bloqueo de Meta** — ver `docs/whatsapp-templates.md`.
 
+## El número de teléfono dejó de ser la identidad (BSUID, ago-2026)
+
+Meta arrancó el rollout de **WhatsApp Usernames**. El usuario que activa uno oculta su número:
+`from` y `wa_id` dejan de venir en el webhook, y llega `from_user_id` — el **BSUID**, opaco y
+distinto por cada negocio (`PE.1049206861029395`). Empezó el 01-ago con 4 mensajes, y el 08-ago
+ya eran 6 de una sola persona en 13 minutos, escribiendo sin recibir nada.
+
+**No se le puede responder, y no es config nuestra.** Medido contra la API el 08-ago: `recipient`
++ `recipient_type` (el payload exacto de la doc) da `#100` en v19.0, v23.0, v24.0 **y v25.0**, y
+`to` con un BSUID lo rechaza por formato de teléfono. El dato que lo vuelve concluyente: un
+parámetro inventado junto a un `to` válido devuelve **200 e ignorado**, o sea que Meta descarta lo
+que no conoce — el `#100` no es "BSUID inválido" sino "no existe ese campo". El envío por BSUID no
+está habilitado en nuestra WABA. El webhook (suscrito a `messages` v25.0) está sano.
+
+**Lo que sí se pudo hacer, y la ventana se cierra sola.** Hoy el BSUID llega **junto** al número
+(`contacts[0]` trae `wa_id` Y `user_id`). Mientras dure esa superposición se le aprende el BSUID a
+cada usuario que escribe (migración **065**, `persistirBsuid` en `helpers/db-helpers.js`), y cuando
+active un username será lo único que lo reconecte con su cuenta. **A quien no vuelva a escribir
+antes de activarlo, lo perdemos.**
+
+| Pieza | Dónde |
+|---|---|
+| Aprender el BSUID | `persistirBsuid()` — nunca borra (los call-sites fuera del webhook pasan `null`) y nunca rompe el flujo |
+| Reconocer sin número | `buscarUsuarioPorBsuid()` + el bloque `if (!from)` de `handlers/webhook.js` |
+| Registrar sin poder responder | `services/registro-silencioso.js` |
+| E2E | `qa-e2e/qa-bsuid-username.mjs` (con control negativo) |
+
+**No metas lógica de dinero en `registro-silencioso.js`.** Delega en `parsearRegistroManual` y
+`guardarTransaccion` a propósito: es el único camino donde una divergencia de montos **no tendría
+quien la delate**, porque al usuario no le llega ninguna respuesta que comparar.
+
+Un mensaje que no es texto (imagen de Yape, audio) sigue cayendo al descarte: procesarlo exige
+responder. Y un usuario **nuevo** que llegue ya con username es inalcanzable — sin número no hay
+a quién responder ni historial al que asociarlo. Esa mitad depende de Meta.
+
 ## Todo aviso proactivo sale por los DOS canales
 
 El WhatsApp libre no se entrega fuera de la ventana de 24h de Meta (131047) y las plantillas
