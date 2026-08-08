@@ -68,6 +68,20 @@ async function persistirBsuid(usuario, bsuid) {
   return usuario;
 }
 
+// Reconoce a un usuario cuando Meta ya no manda su número (activó un username de WhatsApp) y
+// lo único que llega es el BSUID. Solo encuentra a quien escribió alguna vez DESPUÉS de la
+// migración 065: antes de eso no había dónde guardarlo. No crea nada — si no está, no está.
+async function buscarUsuarioPorBsuid(bsuid) {
+  if (!bsuid) return null;
+  try {
+    const { data } = await supabase.from('usuarios').select('*').eq('bsuid', bsuid).maybeSingle();
+    return data || null;
+  } catch (e) {
+    log.error({ tag: 'BSUID', err: e.message }, 'Error buscando usuario por BSUID');
+    return null;
+  }
+}
+
 async function obtenerOCrearUsuario(numeroWhatsapp, bsuid = null) {
   // Sin número no hay nada que buscar ni que crear, y el throw va ANTES de todo a propósito.
   // Dejar pasar un valor vacío no se queda en el `.replace` de abajo: llega al INSERT del
@@ -123,6 +137,7 @@ module.exports = {
   obtenerHistorial,
   obtenerOCrearUsuario,
   persistirBsuid,
+  buscarUsuarioPorBsuid,
   getUserPlanConfig,
   getHistoryDateLimit,
 };

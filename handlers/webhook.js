@@ -15,8 +15,9 @@ const { registrarError } = require('../lib/error-monitor');
 const { registrarReferido, obtenerEstadisticasReferidos, mensajeMisReferidos } = require('../services/referrals');
 const { obtenerCategoriasUsuario } = require('../services/categories');
 const { escanearGmailYRegistrar } = require('../services/gmail-scanner');
+const { registrarGastoSilencioso } = require('../services/registro-silencioso');
 const { generarResumenSemanal } = require('../services/summaries');
-const { guardarMensaje, obtenerOCrearUsuario, getUserPlanConfig } = require('../helpers/db-helpers');
+const { guardarMensaje, obtenerOCrearUsuario, getUserPlanConfig, buscarUsuarioPorBsuid } = require('../helpers/db-helpers');
 const { checkProWall } = require('../helpers/pro-wall');
 const { parseCSV, parseExcel } = require('../services/import-parser');
 const { esperaComprobante, esPagoNeto, procesarComprobantePro } = require('../lib/pro-payment');
@@ -108,6 +109,12 @@ function createWebhookHandler(procesarMensajeLibre) {
     if (!messages || messages.length === 0) return;
     const message = messages[0];
     from = message.from;
+    // El BSUID del remitente, cuando Meta lo manda. Medido con tráfico real el 08-ago-2026:
+    // hoy llega en TODOS los mensajes, junto al número (`contacts[0]` trae `wa_id` Y
+    // `user_id`). Esa coincidencia es la ventana entera: mientras el usuario siga mandando
+    // número se le aprende el BSUID (migración 065), y cuando active un username —y `from`
+    // deje de venir— es lo único que lo reconecta con su cuenta.
+    const bsuid = message.from_user_id || null;
     // Meta mandó un mensaje SIN remitente. Pasó 4 veces el 01-ago-2026 (05:32 UTC) y
     // reventaba adentro de obtenerOCrearUsuario con un TypeError opaco ("Cannot read
     // properties of undefined (reading 'replace')"), del que no se podía sacar nada: la fila
@@ -138,17 +145,25 @@ function createWebhookHandler(procesarMensajeLibre) {
         contactoWaId: (contacto && contacto.wa_id) || null,
         contactoUserId: (contacto && contacto.user_id) || null,
       };
+      // ¿Lo conocemos igual? Si le aprendimos el BSUID mientras todavía mandaba su número,
+      // este mensaje SÍ tiene dueño aunque Meta ya no diga quién es. Responderle sigue siendo
+      // imposible (no hay número y el envío por BSUID no está habilitado en nuestra WABA),
+      // pero anotarle el gasto no depende de eso — y perder el gasto de alguien IDENTIFICADO
+      // es peor que no confirmárselo. Lo ve en el dashboard, que es el canal que sí le llega.
+      const conocido = await buscarUsuarioPorBsuid(bsuid);
+      if (conocido && message.type === 'text') {
+        const r = await registrarGastoSilencioso(message.text && message.text.body, conocido);
+        log.warn({ tag: 'WEBHOOK', usuarioId: conocido.id, registrado: r.registrado, motivo: r.motivo },
+          'Mensaje sin `from` de un usuario CONOCIDO por BSUID — registrado sin respuesta');
+        return;
+      }
+      // Desconocido de verdad: o nunca escribió desde la migración 065, o es alguien nuevo que
+      // llegó ya con username. Ese segundo caso no tiene arreglo de nuestro lado: sin número no
+      // hay a quién responder ni historial al que asociarlo.
       log.error({ tag: 'WEBHOOK', ...forma }, 'Mensaje entrante sin `from` — se descarta');
       registrarError('WEBHOOK', 'Mensaje entrante sin from', { detalle: JSON.stringify(forma) });
       return;
     }
-    // El BSUID del remitente, cuando Meta lo manda. Medido con tráfico real el 08-ago-2026:
-    // hoy llega en TODOS los mensajes, junto al número (`contacts[0]` trae `wa_id` Y
-    // `user_id`). Esa coincidencia es la ventana entera: mientras el usuario siga mandando
-    // número podemos aprender su BSUID, y el día que active un username de WhatsApp —cuando
-    // `from` deje de venir y caiga en el descarte de arriba— será lo único que lo conecte con
-    // su cuenta. Se pasa a `obtenerOCrearUsuario`, que lo persiste sin romper nada si falla.
-    const bsuid = message.from_user_id || null;
     if (isDuplicateWamid(message.id)) {
       log.info({ tag: 'WEBHOOK', wamid: message.id, from }, 'Wamid duplicado — skip');
       return;

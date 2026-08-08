@@ -32,6 +32,10 @@ require('../../helpers/db-helpers').guardarMensaje = vi.fn().mockResolvedValue(u
 
 const registrarError = vi.fn();
 require('../../lib/error-monitor').registrarError = registrarError;
+const buscarUsuarioPorBsuid = vi.fn().mockResolvedValue(null);
+require('../../helpers/db-helpers').buscarUsuarioPorBsuid = buscarUsuarioPorBsuid;
+const registrarGastoSilencioso = vi.fn().mockResolvedValue({ registrado: true, motivo: 'ok' });
+require('../../services/registro-silencioso').registrarGastoSilencioso = registrarGastoSilencioso;
 const notificarErrorAdmin = vi.fn();
 require('../../lib/admin-notify').notificarErrorAdmin = notificarErrorAdmin;
 
@@ -66,6 +70,61 @@ describe('mensaje entrante sin `from` (regresión 01-ago-2026)', () => {
     notificarErrorAdmin.mockClear();
     enviarWhatsapp.mockClear();
     procesarMensajeLibre.mockClear();
+    buscarUsuarioPorBsuid.mockReset().mockResolvedValue(null);
+    registrarGastoSilencioso.mockReset().mockResolvedValue({ registrado: true, motivo: 'ok' });
+  });
+
+  // El círculo que cierra la migración 065: el usuario activó un username, Meta ya no manda
+  // su número, pero le aprendimos el BSUID antes. Su gasto se registra igual — es lo que el
+  // modelo promete gratis para siempre — aunque no haya forma de confirmárselo.
+  describe('cuando el BSUID SÍ corresponde a un usuario conocido', () => {
+    const conocido = { id: 'u-conocido', bsuid: 'PE.999' };
+    const mensajeConBsuid = () => ({
+      ...sinFrom({ from_user_id: 'PE.999' }),
+      text: { body: 'gasté 30 soles en el almuerzo' },
+    });
+
+    it('registra el gasto en vez de descartarlo', async () => {
+      buscarUsuarioPorBsuid.mockResolvedValue(conocido);
+      const { req, res } = buildReqRes(mensajeConBsuid());
+      await webhookHandler(req, res);
+      expect(buscarUsuarioPorBsuid).toHaveBeenCalledWith('PE.999');
+      expect(registrarGastoSilencioso).toHaveBeenCalledWith('gasté 30 soles en el almuerzo', conocido);
+    });
+
+    it('NO intenta responderle (no hay número, y enviar por BSUID no está habilitado)', async () => {
+      buscarUsuarioPorBsuid.mockResolvedValue(conocido);
+      const { req, res } = buildReqRes(mensajeConBsuid());
+      await webhookHandler(req, res);
+      expect(enviarWhatsapp).not.toHaveBeenCalled();
+      expect(procesarMensajeLibre).not.toHaveBeenCalled();
+      expect(obtenerOCrearUsuario).not.toHaveBeenCalled();
+    });
+
+    it('deja de ensuciar `errores`: ya no es un mensaje indiagnosticable', async () => {
+      buscarUsuarioPorBsuid.mockResolvedValue(conocido);
+      const { req, res } = buildReqRes(mensajeConBsuid());
+      await webhookHandler(req, res);
+      expect(registrarError).not.toHaveBeenCalled();
+    });
+
+    // Un tipo que no sea texto (imagen, audio) no tiene camino silencioso: procesarlos exige
+    // responder. Cae al descarte de siempre en vez de romper.
+    it('un mensaje que no es texto sigue cayendo al descarte', async () => {
+      buscarUsuarioPorBsuid.mockResolvedValue(conocido);
+      const { req, res } = buildReqRes(sinFrom({ from_user_id: 'PE.999', type: 'image' }));
+      await webhookHandler(req, res);
+      expect(registrarGastoSilencioso).not.toHaveBeenCalled();
+      expect(registrarError).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('un BSUID que no conocemos se sigue descartando y registrando', async () => {
+    buscarUsuarioPorBsuid.mockResolvedValue(null);
+    const { req, res } = buildReqRes(sinFrom({ from_user_id: 'PE.nunca-visto' }));
+    await webhookHandler(req, res);
+    expect(registrarGastoSilencioso).not.toHaveBeenCalled();
+    expect(registrarError).toHaveBeenCalledTimes(1);
   });
 
   it('NO llega a obtenerOCrearUsuario (que crearía un usuario fantasma sin número)', async () => {
