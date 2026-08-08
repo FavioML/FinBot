@@ -96,6 +96,35 @@ describe('mensaje entrante sin `from` (regresión 01-ago-2026)', () => {
     expect(opts.detalle).not.toContain('hola');
   });
 
+  // 08-ago-2026: ya se sabe QUÉ los produce. Meta arrancó el rollout de WhatsApp Usernames,
+  // y el usuario que oculta su número llega sin `from` y con `from_user_id` (BSUID). Se
+  // registra el BSUID y la forma de `contacts` porque es lo único que podría permitir
+  // contestarle el día que la API acepte enviar por BSUID. El nombre del perfil NO se loguea.
+  it('registra el BSUID y la forma de `contacts`, sin el nombre del perfil', async () => {
+    const message = sinFrom({ from_user_id: 'PE.1049206861029395' });
+    const body = {
+      entry: [{ changes: [{ value: {
+        messaging_product: 'whatsapp',
+        contacts: [{ user_id: 'PE.1049206861029395', profile: { name: 'Ana Torres' } }],
+        messages: [message],
+      } }] }],
+    };
+    const rawBody = Buffer.from(JSON.stringify(body));
+    const signature = 'sha256=' + crypto.createHmac('sha256', 'test-secret').update(rawBody).digest('hex');
+    const res = { sendStatus: vi.fn() };
+    await webhookHandler({ headers: { 'x-hub-signature-256': signature }, rawBody, body }, res);
+
+    const [, , opts] = registrarError.mock.calls[0];
+    const detalle = JSON.parse(opts.detalle);
+    expect(detalle.fromUserId).toBe('PE.1049206861029395');
+    expect(detalle.contactoUserId).toBe('PE.1049206861029395');
+    expect(detalle.contactoWaId).toBeNull();          // el username-only no trae número
+    expect(detalle.clavesContacto).toEqual(['user_id', 'profile']);
+    expect(detalle.clavesPerfil).toEqual(['name']);   // la clave sí, el valor no
+    expect(opts.detalle).not.toContain('Ana Torres');
+    expect(obtenerOCrearUsuario).not.toHaveBeenCalled();
+  });
+
   it('no lo reporta como un crash del webhook (es un descarte, no una excepción)', async () => {
     const { req, res } = buildReqRes(sinFrom());
     await webhookHandler(req, res);

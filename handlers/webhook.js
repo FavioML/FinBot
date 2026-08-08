@@ -116,11 +116,27 @@ function createWebhookHandler(procesarMensajeLibre) {
     // se registra la FORMA del payload, que es exactamente el dato que faltaba para
     // diagnosticarlo la próxima vez. No se loguea el contenido, solo las claves.
     if (!from) {
+      // Ya sabemos QUÉ es: Meta arrancó el rollout de WhatsApp Usernames + BSUID. El usuario
+      // que activa username oculta su número, así que `from` y `wa_id` dejan de venir y en su
+      // lugar llega `from_user_id` — el Business Scoped User ID, formato `PE.1049206861029395`,
+      // opaco y distinto por cada negocio. Confirmado el 08-ago-2026 con 6 mensajes del MISMO
+      // BSUID en 13 minutos: una persona escribiendo y sin recibir nada.
+      //
+      // Se sigue descartando porque hoy no hay a dónde responder (`enviarWhatsapp` manda
+      // `to: <número>`), pero se registra lo único que podría permitirlo: el BSUID y la forma
+      // de `contacts`, que es donde Meta pone la identidad y todavía no sabemos qué trae. Del
+      // contacto van las CLAVES y los identificadores, nunca el nombre del perfil.
+      const contacto = ((value && value.contacts) || [])[0] || null;
       const forma = {
         tipo: message.type || null,
         wamid: message.id || null,
         clavesMensaje: Object.keys(message || {}),
         clavesValue: Object.keys(value || {}),
+        fromUserId: message.from_user_id || null,
+        clavesContacto: Object.keys(contacto || {}),
+        clavesPerfil: Object.keys((contacto && contacto.profile) || {}),
+        contactoWaId: (contacto && contacto.wa_id) || null,
+        contactoUserId: (contacto && contacto.user_id) || null,
       };
       log.error({ tag: 'WEBHOOK', ...forma }, 'Mensaje entrante sin `from` — se descarta');
       registrarError('WEBHOOK', 'Mensaje entrante sin from', { detalle: JSON.stringify(forma) });
