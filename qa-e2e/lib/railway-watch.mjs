@@ -129,6 +129,13 @@ export function compilarPatrones(patrones) {
 
     // `/*.ext` — la barra inicial ANCLA A LA RAÍZ. Sin ella el patrón sería recursivo y
     // `handlers/notas.md` dejaría de desplegar; es la parte sutil de la lista.
+    //
+    // **Medido, no leído de la sintaxis** (08-ago-2026): fue durante meses el único supuesto
+    // que ninguna observación sostenía —los `.md` de raíz salteados son igual de compatibles
+    // con un patrón recursivo— hasta que el deploy de control `00dd65d` tocó SOLO
+    // `.claude/commands/deploy.md` (un `.md` ANIDADO, y `.claude/` está observado) y Railway
+    // **construyó**. Sacarle el `!f.includes('/')` de acá pone en rojo a
+    // `backend-watchpatterns-real` sobre esa fila; antes de ese commit pasaba en verde.
     m = cuerpo.match(RE_EXT_RAIZ);
     if (m) {
       const ext = `.${m[1]}`;

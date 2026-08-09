@@ -28,11 +28,22 @@
 // defecto (60), y **86 de 86** con `NETO_WP_VENTANA=100`. Los dos números salen de correrlo;
 // no hay una corrida que dé uno y otra que dé el otro.
 //
+// No los uses como valor esperado: la ventana son los ÚLTIMOS N deployments, así que cada
+// push cambia cuál entra y cuál sale, y el conteo de juzgables se mueve solo. Lo que tiene
+// que dar siempre es `desacuerdos: 0`; el resto es cuánto se pudo mirar, no una nota.
+//
 // HASTA DÓNDE LLEGA, Y ES MENOS DE LO QUE SUENA. Este harness solo prueba el modelo en las
 // distinciones que la historia EJERCITA. Comprobado por mutación el 07-ago, y las dos pasaron
-// en verde sobre 48 deployments: volver `!/*.md` recursivo (sacarle el ancla de raíz), y
-// cambiar `startsWith` por `includes` en `dir/**`. Ninguna de las dos cambia el veredicto de
+// en verde sobre toda la ventana: volver `!/*.md` recursivo (sacarle el ancla de raíz), y
+// cambiar `startsWith` por `includes` en `dir/**`. Ninguna de las dos cambiaba el veredicto de
 // un solo commit del historial, porque no hubo commits que dependieran de esa diferencia.
+//
+// **La primera se cerró el 08-ago con un deploy de control, y ya no pasa en verde.** Hacía
+// falta un commit cuyo veredicto dependiera SOLO de un `.md` ANIDADO; `.claude/` está
+// observado, así que `00dd65d` tocó `.claude/commands/deploy.md` y nada más. Railway
+// **construyó** — o sea que el ancla existe. Desde esa fila, la mutación recursiva sale
+// exit 1 acá. La segunda (`includes`) **sigue pasando en verde**: remedido el mismo día, y
+// este commit no la toca. Ver la sección de `railway.json` en CLAUDE.md.
 //
 // Por eso el PASS reporta `ejercitado`: qué patrón decidió cuántas filas, y si el ancla de
 // raíz llegó a ser decisiva alguna vez. Un PASS con `anclaDeRaizEjercitada: 0` significa
@@ -177,15 +188,22 @@ function patronesDecisivos(patrones, archivos, veredicto) {
 /**
  * ¿El ANCLA DE RAÍZ de un patrón `!/*.ext` llegó a ser decisiva en esta fila?
  *
- * Es la única suposición del modelo que ninguna observación de Railway sostiene. `!/*.md`
- * excluye los `.md` de la raíz —eso sí está medido (`aaed32e`, `cf6029b`, `cde2525`)— pero
- * esas observaciones son igual de compatibles con que el patrón sea RECURSIVO y excluya
- * también `handlers/notas.md`. Para separarlas hace falta un commit cuyo veredicto dependa
- * solo de un `.md` anidado, y en 100 deployments no hubo ninguno.
+ * Fue durante meses la única suposición del modelo que ninguna observación de Railway
+ * sostenía. `!/*.md` excluye los `.md` de la raíz —eso sí estaba medido (`aaed32e`,
+ * `cf6029b`, `cde2525`)— pero esas observaciones son igual de compatibles con que el patrón
+ * sea RECURSIVO y excluya también `handlers/notas.md`. Para separarlas hace falta un commit
+ * cuyo veredicto dependa solo de un `.md` ANIDADO, y en toda la historia no hubo ninguno.
  *
- * El error, si lo hay, cae del lado seguro: si Railway fuera recursivo y el modelo anclado,
- * el harness predice "redespliega" donde Railway saltea, o sea una falsa alarma de STALE.
- * Nunca un falso PASS sobre un backend viejo, que es el modo de falla que importa.
+ * **Se midió el 08-ago-2026 con un deploy de control** (`00dd65d`, que tocó únicamente
+ * `.claude/commands/deploy.md` — `.claude/` está observado): Railway **construyó**, o sea
+ * que el ancla existe y el modelo era correcto. Esta función es lo que convierte esa fila
+ * en cobertura: devuelve `true` sobre ella, y con la mutación recursiva el harness sale
+ * exit 1. Antes de ese commit, esa mutación pasaba en verde sobre toda la ventana.
+ *
+ * SIGUE HACIENDO FALTA, y no es ceremonia: la ventana son los últimos N deployments, así
+ * que `00dd65d` se va a caer de ella con el tiempo y la cobertura vuelve a 0. Eso no
+ * desmide el ancla —lo medido, medido está— pero sí significa que ESTA corrida dejó de
+ * poder distinguirla. El `aviso` de abajo dice exactamente eso, y no otra cosa.
  *
  * DECISIVA, no presente. La primera versión de esto contaba las filas que TENÍAN un `.md`
  * anidado y reportaba 18 sobre 48, que es exactamente la conclusión equivocada: en las 18
@@ -352,11 +370,19 @@ async function main() {
     resumen.ejercitado.avisoConfig = 'railway.json no se pudo leer: falta la cobertura por patrón declarado';
   }
   if (!anclaEjercitada) {
+    // OJO con lo que este aviso puede y no puede decir. Hasta el 08-ago-2026 decía que el
+    // ancla era indistinguible de un patrón recursivo, y eso HOY ES FALSO: se midió con el
+    // deploy de control `00dd65d` (tocó solo `.claude/commands/deploy.md`, un `.md` anidado,
+    // y Railway construyó). Lo que este aviso reporta es una propiedad de ESTA VENTANA, no
+    // del estado del conocimiento — y son cosas distintas justamente porque la ventana se
+    // corre sola y `00dd65d` se va a caer de ella. Un aviso que confunde "no lo vi acá" con
+    // "no se sabe" manda a remedir algo ya medido.
     resumen.ejercitado.aviso =
-      'ningún commit de la ventana dependió del ANCLA DE RAÍZ de `!/*.ext`, así que este PASS ' +
-      'no la verifica: las observaciones que tenemos son igual de compatibles con que el ' +
-      'patrón sea recursivo. El error, si lo hay, cae del lado de una falsa alarma de STALE, ' +
-      'nunca de un falso PASS.';
+      'ningún commit de ESTA ventana dependió del ANCLA DE RAÍZ de `!/*.ext`, así que esta ' +
+      'corrida no la distingue de un patrón recursivo. No significa que esté sin medir: se ' +
+      'midió el 08-ago-2026 con el deploy de control `00dd65d`. Para volver a ejercitarla ' +
+      'acá hace falta subir NETO_WP_VENTANA hasta alcanzarlo, u otro commit que dependa solo ' +
+      'de un `.md` anidado.';
   }
 
   if (desacuerdos.length) {

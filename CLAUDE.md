@@ -81,21 +81,44 @@ ningun test de paridad puede detectar, porque comparan una copia contra la otra)
 | `**` matchea **dotfiles** | con minimatch/micromatch en default (`dot:false`) NO matchearia `.github/**` | `096593a` toco **solo** `.github/workflows/ci.yml` y Railway **construyo** |
 | `!dir/**` excluye tambien los **sub-directorios con punto** | mismo `dot:false`: `webapp/**` no matchearia `webapp/.claude/...`, y esa ruta pasaria a estar observada | 4 observaciones independientes: `42d17d1`, `3b1d617`, `257f2f5`, `cde2525` tocaron `webapp/.claude/deploy-config.json` y salieron `No changes to watched files` |
 | `!docs/**` excluye | — | experimento controlado del 22-jul (`61efbf9` → SKIPPED) |
-| `!/*.md` **ancla a la raiz** | sin ancla seria recursivo y `handlers/notas.md` dejaria de desplegar | **NADA. Sigue sin medir** — ver abajo |
+| `!/*.md` **ancla a la raiz** | sin ancla seria recursivo y `handlers/notas.md` dejaria de desplegar | experimento controlado del **08-ago**: `00dd65d` toco SOLO `.claude/commands/deploy.md` —un `.md` **anidado**— y Railway **construyo** |
 
-**El ancla de `!/*.md` era un supuesto disfrazado de medicion, y esta fila lo decia mal
-hasta el 07-ago.** Citaba `aaed32e` y `cf6029b` ("tocaron solo `CLAUDE.md` de raiz →
-`No changes`"). Las dos observaciones son reales y no separan nada: son igual de
-compatibles con que el patron sea **recursivo**, que tambien excluiria un `.md` de raiz.
-Para distinguirlos hace falta un commit cuyo veredicto dependa de un `.md` **anidado**, y
-en 100 deployments no hubo ninguno (medido con `qa-e2e/backend-watchpatterns-real.mjs`,
-que reporta `anclaDeRaizEjercitada` justamente por esto). Una observacion que no contradice
-la hipotesis no es lo mismo que una que la prueba.
+**El ancla de `!/*.md` fue un supuesto disfrazado de medicion hasta el 08-ago, y esta fila lo
+decia mal.** Citaba `aaed32e` y `cf6029b` ("tocaron solo `CLAUDE.md` de raiz → `No changes`").
+Las dos observaciones son reales y **no separan nada**: son igual de compatibles con que el
+patron sea **recursivo**, que tambien excluiria un `.md` de raiz. Una observacion que no
+contradice la hipotesis no es lo mismo que una que la prueba, y en la historia entera del
+servicio no hubo un solo commit que las distinguiera — por eso el harness reporta
+`anclaDeRaizEjercitada`, que durante meses valio **0**.
 
-Se puede vivir con el supuesto porque el error cae del lado seguro: si Railway fuera
-recursivo y el modelo anclado, el harness prediria "redespliega" donde Railway saltea, o sea
-una **falsa alarma de STALE**. Nunca un falso PASS sobre un backend viejo, que es el modo de
-falla que importa. Ningun archivo de runtime es `.md`, asi que produccion no depende de esto.
+**Se midio con un deploy de control el 08-ago-2026.** Hacia falta un commit cuyo veredicto
+dependiera SOLO de un `.md` **anidado**, y el probe ya existia en el repo: `.claude/` **esta
+observado** (no aparece en las exclusiones) y `.claude/commands/deploy.md` es un `.md` que
+cuelga de ahi. Las dos hipotesis predicen cosas opuestas sobre el, que es justo lo que las
+observaciones viejas no hacian:
+
+| | prediccion sobre un `.md` anidado |
+|---|---|
+| patron **anclado** (el modelo) | Railway **construye** |
+| patron **recursivo** | `No changes to watched files` |
+
+`00dd65d` toco ese archivo y **nada mas** (la base del diff era `a71ebed`, el commit vigente,
+verificado antes de pushear para que no se colara backend pendiente). Railway **construyo**:
+`skippedReason` ninguno, `imageDigest` presente, `configFile: /railway.json` y
+`watchPatterns` igual a la lista declarada — o sea que resolvio la config y aplico estos
+patrones, no es un caso de config ausente. Confirmado ademas por fuera de la API: `/version`
+paso a `00dd65d` y el `uptime` de `/health` se reinicio.
+
+**El ancla existe. El modelo era correcto**, y ahora el harness lo demuestra en vez de
+suponerlo: la mutacion "sacarle el ancla a `!/*.md`" —que el 07-ago pasaba **en verde** sobre
+toda la ventana— hoy **mata** a `backend-watchpatterns-real` con un `DESACUERDO` sobre esa
+fila (`modelo: no redespliega` / `railway: construyo`, decisivo `!/*.md`). Ejecutada, no
+deducida.
+
+**Lo que este experimento NO compro, medido el mismo dia y no asumido:** cambiar `startsWith`
+por `includes` en `dir/**` **sigue pasando en verde**. Esa distincion sigue sin ejercitarse, y
+`.claude/commands/deploy.md` no la toca. Si algun dia importa, necesita su propio deploy de
+control — un archivo cuya ruta CONTENGA `webapp/`, `qa-e2e/` o `docs/` sin empezar con eso.
 
 Lo que sigue **sin** prueba es la PRECEDENCIA (¿gana el ultimo patron que matchea, o es
 "algun include y ningun exclude"?). Hoy es inobservable: hay un solo include y las
@@ -151,7 +174,7 @@ con **Railway**?", que es otra pregunta y se responde midiendo:
 | `tests/railway-watchpatterns-paridad.test.js` | el compilador implementa los patrones declarados, contra una reimplementacion que traduce los globs a **expresiones regulares** (otro mecanismo a proposito: una copia literal solo detecta que editaste una de las dos), sobre el arbol real + probes **derivados de cada patron** (una exclusion nueva trae sus propios casos sola, aunque no exista todavia un archivo bajo esa ruta) | que el modelo sea cierto: dos copias de acuerdo pueden estar las dos equivocadas |
 | el mismo test, tres casos mas | que el harness **se niegue a adivinar**: forma de glob nueva, lista blanca, y re-inclusion (precedencia no medida) **no compilan** | — |
 | el mismo test, tres casos mas | que **ningun eslabon** de la cadena del predicado conozca una ruta (ni una comilla ni una barra en `disparaBuildRailway`, el closure de `crearPredicado` y `evaluarReglas`), que ningun directorio real del repo quede excluido a mano, y que las dos implementaciones coincidan sobre entradas adversariales | los closures de `compilarPatrones()`, que llevan barra legitima; y un directorio que **todavia no existe** — el hueco original era sobre `infra/` |
-| `qa-e2e/backend-watchpatterns-real.mjs` | el modelo contra lo que Railway **hizo**, deployment por deployment, juzgando cada uno con SUS patrones. El 07-ago: **48/48** con la ventana por defecto, **86/86** con `NETO_WP_VENTANA=100` | las distinciones que la historia no ejercita: quitarle el ancla de raiz a `!/*.md`, o cambiar `startsWith` por `includes`, pasan en verde. Por eso reporta `ejercitado` |
+| `qa-e2e/backend-watchpatterns-real.mjs` | el modelo contra lo que Railway **hizo**, deployment por deployment, juzgando cada uno con SUS patrones. Correlo con `NETO_WP_VENTANA=100`; el conteo de juzgables **no va escrito aca** porque se mueve solo — la ventana son los ultimos N deployments, asi que cada push cambia cual entra y cual sale | las distinciones que la historia no ejercita — hoy, `startsWith`→`includes` en `dir/**` (remedido el 08-ago). El ancla de raiz **ya no**: desde `00dd65d` su mutacion sale exit 1. Por eso reporta `ejercitado` |
 
 Si tocas `railway.json`, no hay segunda mitad que actualizar — pero **corre el harness real**:
 es lo unico que puede decirte si Railway entiende tu patron nuevo como vos.
