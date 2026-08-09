@@ -610,7 +610,7 @@ curl -s -X POST https://backboard.railway.com/graphql/v2 \
 ### ⚠️ El backend asume INSTANCIA ÚNICA (Railway replicas=1)
 Varias piezas dependen de que corra un solo proceso. Escalar a 2+ réplicas o hacer un rolling deploy con solape **rompe** estas garantías; antes de escalar hay que resolver cada una:
 - **Crons (`cron/index.js`, setInterval):** cada réplica dispararía los mismos envíos (resúmenes, recordatorios, escaneo Gmail). Requiere mover el scheduling a un worker líder (lock en DB o proceso único dedicado).
-- **Estado en memoria:** `authErrorNotifiedAt` (gmail-scanner), `otpIntentos` (webhook, rate-limit OTP inverso), `wamidCache` (dedup de webhooks Meta), `_tcCache` (tipo de cambio). Con N réplicas cada una tiene su copia → throttles/dedup se multiplican por N. Requiere store compartido (Redis/DB).
+- **Estado en memoria:** `authErrorNotifiedAt` (gmail-scanner), `otpIntentos` (webhook, rate-limit OTP inverso), `wamidCache` (dedup de webhooks Meta), `_tcCache` (tipo de cambio), `avisados` (registro-silencioso, throttle del aviso al admin). Con N réplicas cada una tiene su copia → throttles/dedup se multiplican por N. Requiere store compartido (Redis/DB).
 - **Ledgers JSONB con read-modify-write no atómico:** `deudas.recordatorios_enviados`, notificaciones. Dos réplicas leyendo-modificando-escribiendo el mismo array pierden updates (last-write-wins). Requiere updates atómicos condicionales (o mover el append a SQL).
 - Ya resueltos con claim atómico a nivel DB (sí soportan concurrencia): `historico_importado` (barrido Gmail), `pagos.estado` (aprobación Pro), `gmail_msg_id` (índice único, doble barrido). Estos NO dependen de instancia única.
 
@@ -896,8 +896,8 @@ ESCRIBIERA, y a quien active un username antes de volver a escribir lo perdemos.
 | Camino ENTRANTE (el usuario escribe) | `handlers/webhook.js`, pasa `message.from_user_id` a `obtenerOCrearUsuario` |
 | Camino SALIENTE (le enviamos algo) | `aprenderBsuidDeStatus()` en `lib/whatsapp.js`. El `Set` de módulo lo deja en **una query por número y por instancia**: cada envío produce `sent`+`delivered`+`read` y los crons lo multiplican por casi cien |
 | Reconocer sin número | `buscarUsuarioPorBsuid()` + el bloque `if (!from)` de `handlers/webhook.js` |
-| Registrar sin poder responder | `services/registro-silencioso.js` |
-| E2E | `qa-e2e/qa-bsuid-username.mjs` — los dos caminos + control negativo |
+| Registrar sin poder responder | `services/registro-silencioso.js` — texto, **imagen (Vision) y audio (Whisper)** |
+| E2E | `qa-e2e/qa-bsuid-username.mjs` (los dos caminos + control negativo) · `qa-e2e/qa-bsuid-media.mjs` (la foto, con Vision real) |
 
 **El require de `db-helpers` en `whatsapp.js` es PEREZOSO a propósito.** `whatsapp.js` es
 infraestructura de envío y `db-helpers` está una capa arriba; importarlo al tope invierte las
@@ -912,9 +912,42 @@ dónde verlo** — ni respuesta por WhatsApp ni dashboard. Cuatro de ellos son P
 `guardarTransaccion` a propósito: es el único camino donde una divergencia de montos **no tendría
 quien la delate**, porque al usuario no le llega ninguna respuesta que comparar.
 
-Un mensaje que no es texto (imagen de Yape, audio) sigue cayendo al descarte: procesarlo exige
-responder. Y un usuario **nuevo** que llegue ya con username es inalcanzable — sin número no hay
+**Imagen y audio también entran (09-ago-2026), y el argumento por el que no entraban era falso.**
+Decía "procesarlos exige responder": correr Vision o Whisper y guardar el gasto no necesita
+respuesta — lo que pasaba es que ese código vivía inline entre los `enviarWhatsapp` del webhook.
+Se extrajo a `services/media-intake.js`, que es hoy la ÚNICA copia del prompt de Vision (es
+quien decide el monto: duplicarlo es la divergencia de plata que este camino no puede delatar).
+Pesaba: de las 1112 transacciones de los últimos 60 días, ~218 entraron por captura, de 12
+usuarios distintos sobre 34 que registraron algo.
+
+Tres cosas que NO hay que "simplificar" ahí:
+- **El comprobante Pro se registra igual, sin confirmarle.** Llama a `registrarSolicitudPro`
+  salteando el `enviarWhatsapp` final. Y exige sus **tres** resultados (`pagoId`,
+  `comprobantePath`, `usuarioMarcado`): esa función no lanza cuando falla por dentro —los tres
+  pasos tienen try/catch propio— así que mirar solo el `pagoId` dejaba pasar como éxito un pago
+  a medias. Es la única forma de enterarse, porque acá no hay usuario que reclame.
+- **El throttle del aviso al admin lleva monto y comercio en la clave, no solo el usuario.** La
+  rama throttleada es "no parece el pago a Neto", que es justo donde cae un comprobante real
+  que Vision leyó mal. Con la clave por usuario a secas, una captura cualquiera quemaba el
+  aviso y el pago siguiente se perdía en silencio.
+- **Los fallos van a `errores` con `usuarioId`**, no solo al log: sin respuesta al usuario, esa
+  fila es todo el rastro que queda, y la primera query es por usuario.
+
+Y lo que **no** tiene arreglo: si Vision o Whisper fallan acá, el gasto **se pierde**. El
+usuario no recibe el "no pude procesarlo" que lo haría reenviar, y Meta tampoco retransmite
+—este webhook responde 200 antes de procesar, así que para Meta la entrega ya fue exitosa—.
+Se intentó devolver el wamid a la cola para aprovechar una retransmisión y era un mecanismo
+colgado de un evento que este código impide.
+
+Un usuario **nuevo** que llegue ya con username sigue siendo inalcanzable — sin número no hay
 a quién responder ni historial al que asociarlo. Esa mitad depende de Meta.
+
+> **Premisa NO medida, y ahora cuesta un pago.** Todo esto asume que a estos usuarios no se les
+> puede escribir. Lo que está medido es que **direccionar por BSUID** falla (v19–v25). Pero la
+> fila trae su `whatsapp` —se aprendió antes, cuando todavía lo mandaba— y **nadie probó
+> `enviarWhatsapp(usuario.whatsapp, ...)` para alguien con username activo**. Si funciona,
+> sobra la mitad de esta maquinaria. Se mide con un mensaje libre al número guardado de un
+> BSUID que haya escrito hace menos de 24h, mirando el callback de status.
 
 ## Todo aviso proactivo sale por los DOS canales
 

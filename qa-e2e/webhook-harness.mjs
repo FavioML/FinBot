@@ -58,6 +58,7 @@ process.env.META_APP_SECRET = process.env.META_APP_SECRET || 'qa-harness-secret'
  *   post: (body:object, opts?:{ip?:string, badSig?:string|null})=>Promise<number>,
  *   postText: (texto:string, from:string, opts?:object)=>Promise<number>,
  *   postImage: (fixture:Buffer|string, from:string, opts?:{mime?:string, ip?:string})=>Promise<number>,
+ *   postImageSinFrom: (fixture:Buffer|string, bsuid:string, opts?:{mime?:string, ip?:string})=>Promise<number>,
  *   waitForReply: (sinceIndex:number, timeoutMs?:number)=>Promise<string>,
  *   close: ()=>Promise<void>,
  * }>}
@@ -148,6 +149,23 @@ export async function startWebhookHarness() {
     return post(imageEnvelope(nextWamid(), from, mime), { ip: opts.ip });
   }
 
+  // Igual que postImage pero SIN `from`: el payload que manda Meta cuando el usuario activó
+  // un username de WhatsApp y su número deja de venir. La identidad es el `from_user_id`
+  // (BSUID). Es el único camino donde NETO procesa un mensaje sin poder responderlo, así que
+  // `sent` tiene que quedar vacío — eso es parte de lo que se está verificando, no un detalle.
+  function postImageSinFrom(fixture, bsuid, opts = {}) {
+    const buffer = Buffer.isBuffer(fixture) ? fixture : fs.readFileSync(fixture);
+    const mime = opts.mime || 'image/png';
+    armedMedia = { buffer, mime };
+    const body = {
+      entry: [{ changes: [{ value: {
+        messages: [{ id: nextWamid(), from_user_id: bsuid, type: 'image', image: { id: nextWamid(), mime_type: mime } }],
+        contacts: [{ user_id: bsuid }],
+      } }] }],
+    };
+    return post(body, { ip: opts.ip });
+  }
+
   // El webhook responde 200 y procesa async: la respuesta al usuario aparece en
   // `sent` cuando el pipeline llama a enviarWhatsapp. Poll hasta que llegue.
   async function waitForReply(sinceIndex, timeoutMs = 60000) {
@@ -165,6 +183,6 @@ export async function startWebhookHarness() {
 
   return {
     base, sent, secret, supabase, openai, app,
-    sign, textEnvelope, imageEnvelope, post, postText, postImage, waitForReply, close,
+    sign, textEnvelope, imageEnvelope, post, postText, postImage, postImageSinFrom, waitForReply, close,
   };
 }

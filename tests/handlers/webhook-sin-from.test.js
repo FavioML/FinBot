@@ -108,14 +108,17 @@ describe('mensaje entrante sin `from` (regresión 01-ago-2026)', () => {
       expect(registrarError).not.toHaveBeenCalled();
     });
 
-    // Un tipo que no sea texto (imagen, audio) no tiene camino silencioso: procesarlos exige
-    // responder. Cae al descarte de siempre en vez de romper.
-    it('un mensaje que no es texto sigue cayendo al descarte', async () => {
+    // Imagen y audio SÍ tienen camino silencioso desde el 09-ago-2026 (ver
+    // webhook-bsuid-media.test.js). Lo que sigue sin tenerlo es todo lo demás — un documento,
+    // una ubicación, un sticker— y eso no cae al descarte con `registrarError`: el mensaje
+    // tiene dueño conocido, así que no es el caso indiagnosticable que esa tabla vigila.
+    it('un tipo sin camino silencioso no ensucia `errores` ni intenta responder', async () => {
       buscarUsuarioPorBsuid.mockResolvedValue(conocido);
-      const { req, res } = buildReqRes(sinFrom({ from_user_id: 'PE.999', type: 'image' }));
+      const { req, res } = buildReqRes(sinFrom({ from_user_id: 'PE.999', type: 'document' }));
       await webhookHandler(req, res);
       expect(registrarGastoSilencioso).not.toHaveBeenCalled();
-      expect(registrarError).toHaveBeenCalledTimes(1);
+      expect(registrarError).not.toHaveBeenCalled();
+      expect(enviarWhatsapp).not.toHaveBeenCalled();
     });
   });
 

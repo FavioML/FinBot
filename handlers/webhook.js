@@ -15,7 +15,8 @@ const { registrarError } = require('../lib/error-monitor');
 const { registrarReferido, obtenerEstadisticasReferidos, mensajeMisReferidos } = require('../services/referrals');
 const { obtenerCategoriasUsuario } = require('../services/categories');
 const { escanearGmailYRegistrar } = require('../services/gmail-scanner');
-const { registrarGastoSilencioso } = require('../services/registro-silencioso');
+const { registrarGastoSilencioso, registrarAudioSilencioso, registrarImagenSilenciosa } = require('../services/registro-silencioso');
+const { descargarMedia, transcribirAudio, extraerPagoDeImagen } = require('../services/media-intake');
 const { generarResumenSemanal } = require('../services/summaries');
 const { guardarMensaje, obtenerOCrearUsuario, getUserPlanConfig, buscarUsuarioPorBsuid } = require('../helpers/db-helpers');
 const { checkProWall } = require('../helpers/pro-wall');
@@ -115,6 +116,14 @@ function createWebhookHandler(procesarMensajeLibre) {
     // número se le aprende el BSUID (migración 065), y cuando active un username —y `from`
     // deje de venir— es lo único que lo reconecta con su cuenta.
     const bsuid = message.from_user_id || null;
+    // El dedup va ANTES del descarte por falta de `from`, no después. Meta retransmite el
+    // webhook cada 30s si tardamos, y desde que el camino sin `from` corre Vision y Whisper,
+    // cada retransmisión de una foto costaba otra llamada a GPT-4o. (El dedup de
+    // `guardarTransaccion` evita la transacción repetida, pero no el gasto de la llamada.)
+    if (isDuplicateWamid(message.id)) {
+      log.info({ tag: 'WEBHOOK', wamid: message.id, from: from || null, bsuid }, 'Wamid duplicado — skip');
+      return;
+    }
     // Meta mandó un mensaje SIN remitente. Pasó 4 veces el 01-ago-2026 (05:32 UTC) y
     // reventaba adentro de obtenerOCrearUsuario con un TypeError opaco ("Cannot read
     // properties of undefined (reading 'replace')"), del que no se podía sacar nada: la fila
@@ -150,11 +159,34 @@ function createWebhookHandler(procesarMensajeLibre) {
       // imposible (no hay número y el envío por BSUID no está habilitado en nuestra WABA),
       // pero anotarle el gasto no depende de eso — y perder el gasto de alguien IDENTIFICADO
       // es peor que no confirmárselo. Lo ve en el dashboard, que es el canal que sí le llega.
+      //
+      // Vale para texto, foto y nota de voz. Durante un tiempo solo cubrió texto, con el
+      // argumento de que "procesar una imagen exige responder": es falso — correr Vision y
+      // guardar el gasto no necesita respuesta, lo que pasaba es que ese código vivía inline
+      // entre los `enviarWhatsapp` del webhook. Importa por volumen: 12 de los 34 usuarios que
+      // registraron algo en los últimos 60 días lo hacen por captura.
       const conocido = await buscarUsuarioPorBsuid(bsuid);
-      if (conocido && message.type === 'text') {
-        const r = await registrarGastoSilencioso(message.text && message.text.body, conocido);
-        log.warn({ tag: 'WEBHOOK', usuarioId: conocido.id, registrado: r.registrado, motivo: r.motivo },
-          'Mensaje sin `from` de un usuario CONOCIDO por BSUID — registrado sin respuesta');
+      if (conocido) {
+        let r = null;
+        if (message.type === 'text') r = await registrarGastoSilencioso(message.text && message.text.body, conocido);
+        else if (message.type === 'audio') r = await registrarAudioSilencioso(message, conocido);
+        else if (message.type === 'image') r = await registrarImagenSilenciosa(message, conocido);
+
+        if (r) {
+          // Si acá falla la infraestructura (Meta, Vision, Whisper), el gasto SE PIERDE y no
+          // hay reintento: el usuario no recibe el "no pude procesarlo" que en el camino
+          // normal lo hace reenviar, y Meta tampoco va a retransmitir —este webhook responde
+          // 200 antes de procesar (línea 99), así que para Meta la entrega ya fue exitosa—.
+          // Lo único que queda es la fila en `errores` que escribe el service. Se intentó
+          // devolver el wamid a la cola para aprovechar una retransmisión, y era un mecanismo
+          // apoyado en un evento que este código impide que ocurra.
+          log.warn({ tag: 'WEBHOOK', usuarioId: conocido.id, tipo: message.type, registrado: r.registrado, motivo: r.motivo },
+            'Mensaje sin `from` de un usuario CONOCIDO por BSUID — procesado sin respuesta');
+          return;
+        }
+        // Un documento, una ubicación, un sticker. Nada que anotar, y nada que contestar.
+        log.warn({ tag: 'WEBHOOK', usuarioId: conocido.id, tipo: message.type },
+          'Mensaje sin `from` de un usuario conocido, de un tipo que no se puede procesar a ciegas');
         return;
       }
       // Desconocido de verdad: o nunca escribió desde la migración 065, o es alguien nuevo que
@@ -164,62 +196,22 @@ function createWebhookHandler(procesarMensajeLibre) {
       registrarError('WEBHOOK', 'Mensaje entrante sin from', { detalle: JSON.stringify(forma) });
       return;
     }
-    if (isDuplicateWamid(message.id)) {
-      log.info({ tag: 'WEBHOOK', wamid: message.id, from }, 'Wamid duplicado — skip');
-      return;
-    }
-
     // --- Manejo de imágenes ---
     if (message.type === 'image') {
       const usuario = await obtenerOCrearUsuario(from, bsuid);
 
       const mediaId = message.image && message.image.id;
-      const phoneId = process.env.META_PHONE_NUMBER_ID;
-      const metaToken = process.env.META_ACCESS_TOKEN;
-      log.info({ tag: 'IMAGEN', mediaId, phoneId, tokenOk: !!metaToken }, 'Procesando imagen');
+      log.info({ tag: 'IMAGEN', mediaId }, 'Procesando imagen');
       if (!mediaId) { await enviarWhatsapp(from, 'No pude recibir la imagen. Intenta de nuevo.'); return; }
       try {
-        // 1. Obtener URL de la imagen desde Meta API
-        const metaUrl = 'https://graph.facebook.com/v19.0/' + mediaId + '?phone_number_id=' + phoneId;
-        const metaRes = await fetch(metaUrl, {
-          headers: { Authorization: 'Bearer ' + metaToken }
+        // Bajar la captura y pasarla por Vision. Las dos cosas viven en
+        // `services/media-intake.js` porque el camino silencioso (el usuario que llega solo
+        // con BSUID y al que no se le puede responder) corre exactamente el mismo pipeline.
+        const { buffer: imgBuffer, mimeType } = await descargarMedia(mediaId, {
+          tag: 'IMAGEN', mimeFallback: message.image.mime_type || 'image/jpeg',
         });
-        const metaJson = await metaRes.json();
-        log.debug({ tag: 'IMAGEN', metaJson: JSON.stringify(metaJson).slice(0, 200) }, 'Meta response');
-        if (!metaJson.url) throw new Error('Meta no devolvió URL: ' + JSON.stringify(metaJson).slice(0, 100));
-
-        // 2. Descargar imagen como base64
-        const imgRes = await fetch(metaJson.url, {
-          headers: { Authorization: 'Bearer ' + metaToken }
-        });
-        if (!imgRes.ok) throw new Error('Error descargando imagen: ' + imgRes.status);
-        const imgBuffer = await imgRes.arrayBuffer();
-        const base64 = Buffer.from(imgBuffer).toString('base64');
-        const mimeType = metaJson.mime_type || message.image.mime_type || 'image/jpeg';
-        log.info({ tag: 'IMAGEN', mimeType, size: imgBuffer.byteLength }, 'Imagen descargada');
-
-        // 3. Parsear con GPT-4o vision
         const hoy = hoyPeru();
-        const visionRes = await openai.chat.completions.create({
-          model: 'gpt-4o',
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'text', text: 'Esta imagen es una captura de pantalla de una transacción financiera (Yape, Plin, banco peruano). Puede ser un GASTO (pago enviado) o un INGRESO (dinero recibido). Extrae los datos y devuelve SOLO JSON válido, sin texto extra:\n{"tipo":"gasto"|"ingreso","monto":numero,"moneda":"PEN","comercio":"nombre del destinatario (si gasto) o remitente (si ingreso)","categoria":"Alimentación|Transporte|Vivienda|Salud|Entretenimiento|Compras|Educación|Finanzas|Trabajo_Negocio|Otros","subcategoria":"descripcion breve o null","metodo_pago":"Yape|Plin|BCP|BBVA|Interbank|Scotiabank|Falabella|Ripley|BanBif|Efectivo|null","tarjeta_last4":"los 4 ultimos digitos de la tarjeta/cuenta si aparecen (ej. \\"terminada en 1234\\", \\"****1234\\") o null","fecha":"YYYY-MM-DD","descripcion_original":"texto clave de la imagen","motivo":"nota/motivo del pago si aparece o null"}\n\nTARJETA:\n- tarjeta_last4 = SOLO los 4 ultimos digitos de la tarjeta o cuenta si son visibles en la imagen (ej: "Tarjeta terminada en 1234" o "****1234" → "1234"). Nunca inventes numeros. Si no se ven, usa null. Yape/Plin normalmente no muestran tarjeta → null.\n\nREGLAS PARA DETECTAR TIPO:\n- GASTO: "¡Yapeaste!", "Pago exitoso", "Enviado a", "Realizaste un yapeo/plin", monto enviado\n- INGRESO: "¡Te yapearon!", "Recibiste", "Yapeo recibido", "Plin recibido", "Enviado por" (alguien te envió dinero)\n- Para ingresos: categoria="Finanzas", subcategoria=null, comercio=nombre de quien envía\n\nMÉTODO DE PAGO (metodo_pago):\n- Si la pantalla es de Yape (verde, logo Yape, "¡Yapeaste!" o "¡Te yapearon!") → metodo_pago="Yape"\n- Si la pantalla es de Plin (morado/azul, logo Plin, "¡Pago exitoso!") → metodo_pago="Plin"\n- Si es notificación de BCP, BBVA, Interbank, Scotiabank u otro banco → metodo_pago=nombre del banco\n- Si no se puede determinar → metodo_pago=null\n\nMOTIVO Y CATEGORIZACIÓN:\n- El campo "motivo" es la nota/mensaje que el usuario escribe al enviar el pago (ej: "pollo a la brasa", "almuerzo", "cumpleaños")\n- Si hay motivo, USALO para determinar la categoría y subcategoría (ej: motivo "pollo a la brasa" → Alimentación > Restaurantes)\n- Si el nombre del destinatario/comercio sugiere una categoría, úsalo también (ej: "Polleria Rokys" → Alimentación > Restaurantes, "Farmacia" → Salud)\n- El motivo tiene PRIORIDAD sobre el nombre del comercio para categorizar\n- subcategoria debe ser una descripción breve en español, o null si no aplica. NUNCA escribas la palabra "null" como texto.\n\nFORMATOS DE APPS:\n- Yape: pantalla verde con "¡Yapeaste!" (gasto) o "¡Te yapearon!" (ingreso), monto grande, nombre del destinatario/remitente, campo "Motivo" o "Nota" debajo\n- Plin: pantalla con "¡Pago exitoso!" y monto en verde, datos de "Enviado a" (gasto) o "Recibido de" (ingreso), código de operación, campo "Mensaje"\n- Bancos (BCP, BBVA, Interbank, etc.): notificación de consumo/depósito\n\nSi la imagen NO muestra ningún pago o transacción, devuelve: {"tipo":"no_pago"}\nFecha de hoy si no se ve en la imagen: ' + hoy },
-              { type: 'image_url', image_url: { url: 'data:' + mimeType + ';base64,' + base64, detail: 'high' } }
-            ]
-          }],
-          temperature: 0, max_tokens: 400
-        });
-        const rawV = visionRes.choices[0].message.content.trim();
-        log.debug({ tag: 'IMAGEN', response: rawV.slice(0, 200) }, 'GPT vision response');
-
-        // Parsear JSON de la respuesta
-        let parsed;
-        try {
-          const start = rawV.indexOf('{'); const end = rawV.lastIndexOf('}');
-          parsed = JSON.parse(start >= 0 ? rawV.slice(start, end + 1) : rawV);
-        } catch(pe) { throw new Error('GPT no devolvió JSON válido: ' + rawV.slice(0, 100)); }
+        const parsed = await extraerPagoDeImagen(imgBuffer, mimeType, hoy);
 
         // Si el usuario está esperando enviar su comprobante Pro, tratar la captura como pago Pro
         // (cubre onboarding paso 2 y usuarios ya registrados que pidieron Pro por /premium o cron).
@@ -411,37 +403,13 @@ function createWebhookHandler(procesarMensajeLibre) {
     // el gasto igual que si se hubiera escrito, sin duplicar la lógica de NLP.
     if (message.type === 'audio') {
       const mediaId = message.audio && message.audio.id;
-      const phoneId = process.env.META_PHONE_NUMBER_ID;
-      const metaToken = process.env.META_ACCESS_TOKEN;
-      log.info({ tag: 'AUDIO', mediaId, phoneId, tokenOk: !!metaToken }, 'Procesando nota de voz');
+      log.info({ tag: 'AUDIO', mediaId }, 'Procesando nota de voz');
       if (!mediaId) { await enviarWhatsapp(from, 'No pude recibir tu nota de voz. Intenta de nuevo. 🎤'); return; }
       try {
-        // 1. Obtener URL del audio desde Meta API (mismo patrón que imágenes)
-        const metaUrl = 'https://graph.facebook.com/v19.0/' + mediaId + '?phone_number_id=' + phoneId;
-        const metaRes = await fetch(metaUrl, { headers: { Authorization: 'Bearer ' + metaToken } });
-        const metaJson = await metaRes.json();
-        if (!metaJson.url) throw new Error('Meta no devolvió URL del audio: ' + JSON.stringify(metaJson).slice(0, 100));
-
-        // 2. Descargar el audio (WhatsApp envía las notas de voz como audio/ogg opus)
-        const audioRes = await fetch(metaJson.url, { headers: { Authorization: 'Bearer ' + metaToken } });
-        if (!audioRes.ok) throw new Error('Error descargando audio: ' + audioRes.status);
-        const audioBuffer = Buffer.from(await audioRes.arrayBuffer());
-        const mimeType = metaJson.mime_type || (message.audio && message.audio.mime_type) || 'audio/ogg';
-        // La extensión debe coincidir con el contenedor o Whisper rechaza el archivo.
-        const ext = mimeType.includes('mpeg') ? 'mp3' : mimeType.includes('mp4') || mimeType.includes('m4a') ? 'm4a'
-          : mimeType.includes('wav') ? 'wav' : mimeType.includes('amr') ? 'amr' : 'ogg';
-        log.info({ tag: 'AUDIO', mimeType, ext, size: audioBuffer.byteLength }, 'Audio descargado');
-
-        // 3. Transcribir con Whisper. gpt-4o-mini-transcribe: ~mitad del costo de
-        // whisper-1 y mejor calidad en español. language:'es' ancla el idioma.
-        const { toFile } = require('openai');
-        const file = await toFile(audioBuffer, 'audio.' + ext, { type: mimeType });
-        const transcripcion = await openai.audio.transcriptions.create({
-          file,
-          model: 'gpt-4o-mini-transcribe',
-          language: 'es',
+        const { buffer: audioBuffer, mimeType } = await descargarMedia(mediaId, {
+          tag: 'AUDIO', mimeFallback: (message.audio && message.audio.mime_type) || 'audio/ogg',
         });
-        const texto = (transcripcion.text || '').trim();
+        const texto = await transcribirAudio(audioBuffer, mimeType);
         log.info({ tag: 'AUDIO', texto: texto.slice(0, 100) }, 'Nota de voz transcrita');
 
         if (!texto) {
