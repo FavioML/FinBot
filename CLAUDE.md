@@ -322,10 +322,21 @@ falso en `backend-deploy-fresh`. Rompe la LISTA, no la conclusión. Para que `pe
 saliera vacío harían falta ≥300 archivos **excluidos** ordenando antes del primer observado.
 
 Y eso **no es alcanzable por aritmética**, no por suerte. `railway.json` excluye cuatro cosas, y
-de ellas `webapp/**` (323 archivos, las tres cuartas partes del total) **ordena ÚLTIMO**: hoy no
-hay ni un archivo en el árbol que ordene después de `webapp/`, así que ningún archivo de `webapp/`
-puede preceder a un observado. Los excluidos que sí podrían: `docs/` (35) + `qa-e2e/` (89) +
-`*.md` de raíz (1) = **125 en todo el repo**. 125 < 300, para cualquier rango.
+de ellas `webapp/**` (las tres cuartas partes de los archivos excluidos) **ordena ÚLTIMO**: hoy no
+hay ni un archivo del árbol que ordene después de `webapp/`, así que ninguno de sus archivos puede
+preceder a un observado. Los excluidos que sí podrían son `docs/` + `qa-e2e/` + `*.md` de raíz, y
+son **dos órdenes de magnitud menos que 300**, así que la cota cierra con muchísimo aire:
+
+```bash
+# recontarlo, en vez de creerle a un número escrito acá
+git ls-files ':(glob)*.md' docs/ qa-e2e/ | wc -l    # ~126, contra el tope de 300
+git ls-files | awk '$0 > "webapp/\xef\xbf\xbf"' | wc -l   # 0 = nada ordena después de webapp/
+```
+
+**El número exacto no va escrito a propósito.** La primera vez que se escribió decía 137, después
+124, después 125, y ya son 126: crece con cada archivo que se agrega a `docs/` o `qa-e2e/`, o sea
+que nace vencido en el mismo commit. Lo que hay que saber es la FORMA del argumento y el comando
+para recomprobarlo.
 
 Medido aparte, la posición real del primer observado sobre 120 bases consecutivas: **102 veces 0,
 una vez 1, y 16 veces 2** (el peor caso es `2fc4dca`, con `CLAUDE.md` y `docs/DEFECTOS.md`

@@ -21,7 +21,8 @@ import { decidirFrescura } from '../qa-e2e/backend-deploy-fresh.mjs';
  * Y una nota de honestidad, porque la nota que originó este trabajo lo tenía mal: el truncado NO
  * produce hoy un PASS falso en `fresh`. Para eso harían falta ≥300 archivos EXCLUIDOS ordenando
  * antes del primer observado, y eso no es alcanzable por aritmética: `webapp/**` (323 archivos)
- * ordena ÚLTIMO, y los excluidos que podrían precederlo son 125 en todo el repo. Rompe la LISTA,
+ * ordena ÚLTIMO, y los excluidos que podrían precederlo son dos órdenes de magnitud menos que
+ * 300 (el comando para recontarlos está en el módulo). Rompe la LISTA,
  * no la conclusión. Se arregla porque esa cota depende de la forma del árbol y nada la vigila, y
  * porque en `severidad()` el truncado solo puede empujar hacia la rama tranquilizadora.
  */

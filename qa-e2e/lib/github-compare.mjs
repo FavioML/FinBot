@@ -48,22 +48,26 @@
 // EXCLUIDOS ordenando antes del primer observado.
 //
 // Y no es alcanzable por ARITMÉTICA, no por suerte. De las cuatro exclusiones de `railway.json`,
-// `webapp/**` (323 archivos, tres cuartos del total) **ordena ÚLTIMO** —hoy no hay ni un archivo
+// `webapp/**` (tres cuartos de los archivos excluidos) **ordena ÚLTIMO** —hoy no hay ni un archivo
 // del árbol que ordene después de `webapp/`—, así que ninguno de sus archivos puede preceder a un
-// observado. Los excluidos que sí podrían son `docs/` (35) + `qa-e2e/` (89) + `*.md` de raíz (1)
-// = **125 en todo el repo**, y 125 < 300 para cualquier rango.
+// observado. Los excluidos que sí podrían son `docs/` + `qa-e2e/` + `*.md` de raíz, dos órdenes de
+// magnitud por debajo de 300, así que la cota cierra con muchísimo aire. Para recomprobarlo:
+//
+//   git ls-files ':(glob)*.md' docs/ qa-e2e/ | wc -l          # contra el tope de 300
+//   git ls-files | awk '$0 > "webapp/\xef\xbf\xbf"' | wc -l   # 0 = nada ordena después
 //
 // Medido aparte, la posición real del primer observado sobre 120 bases consecutivas: 102 veces 0,
 // una vez 1, 16 veces 2. El 0 tan frecuente lo explica `.claude/**`, que **está OBSERVADO** (no
 // aparece en las exclusiones) y ordena primero en bytes.
 //
-// (Historia de este párrafo, porque son tres versiones y las tres estuvieron mal: un "techo" de
-// 137 metiendo los 13 de `.claude/` del lado equivocado —lo desmintió el propio harness listando
-// `.claude/commands/deploy.md` en `pendingBackend`—; después 124; y después "0 en todas, siempre",
-// medido cada 20 commits, un muestreo que produce rangos largos que SIEMPRE tocan `.claude/` y por
-// lo tanto no podía devolver otra cosa. Esa última cambió una demostración por una muestra sesgada
-// y la enunció con la palabra "siempre". La cota de 125 hay que RE-DERIVARLA si cambia
-// `railway.json` o si aparece un directorio que ordene después de `webapp/`.)
+// (Historia de este párrafo, porque son CUATRO versiones y las cuatro estuvieron mal, cada una por
+// un motivo distinto: un "techo" de 137 metiendo los 13 de `.claude/` del lado equivocado —lo
+// desmintió el propio harness listando `.claude/commands/deploy.md` en `pendingBackend`—; después
+// 124; después "0 en todas, siempre", medido cada 20 commits, un muestreo que produce rangos
+// largos que SIEMPRE tocan `.claude/` y por lo tanto no podía devolver otra cosa, o sea una
+// demostración cambiada por una muestra sesgada y enunciada con la palabra "siempre"; y después
+// 125, que ya son 126, porque el conteo crece con cada archivo de `docs/` o `qa-e2e/`. De ahí que
+// ahora no haya número: hay forma del argumento y comando para recomprobarlo.)
 //
 // Se arregla igual por dos motivos concretos: (1) esa protección es INCIDENTAL, depende de
 // la forma del repo y nada la vigila, así que una exclusión nueva que ordene temprano la
