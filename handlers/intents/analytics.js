@@ -23,7 +23,7 @@ module.exports = {
           return '🧾 *Tu último movimiento:*\n\n' + signo + ': ' + monto + '\n🏪 ' + (ultima.comercio || 'Sin comercio') +
             '\n📁 ' + (ultima.categoria || 'Sin categoría') + (ultima.subcategoria && ultima.subcategoria !== 'sin_categoria' ? ' > ' + ultima.subcategoria : '') +
             '\n📅 ' + (ultima.fecha ? formatFecha(ultima.fecha) : '') +
-            '\n\n_Si querés corregirlo escribe qué cambiar; para borrarlo, "elimina el de ' + monto + '"._';
+            '\n\n_Si quieres corregirlo escribe qué cambiar; para borrarlo, "elimina el de ' + monto + '"._';
         } catch(e) {
           log.error({ tag: 'ULTIMA_TX', err: e.message }, 'Error ver última transacción');
           return 'No pude traer tu último movimiento. Intenta de nuevo.';

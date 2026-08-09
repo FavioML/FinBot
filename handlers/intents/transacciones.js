@@ -148,7 +148,7 @@ module.exports = {
             const _verboFuturo = /\bvoy\s+a\s+(gastar|pagar|comprar|invertir|salir|comer|cenar|almorzar)\b|\bgastar[eé]\b|\bpagar[eé]\b|\bcomprar[eé]\b|\bpienso\s+(gastar|comprar|pagar)\b/i.test(_msgFutLower);
             if (_marcadorFuturo && _verboFuturo) {
               log.info({ tag: 'FUTURE_DATE_REJECT', msg: msg.substring(0, 80) }, 'Mensaje describe gasto futuro — no registrar');
-              return 'No registro gastos futuros. Cuando ya hayas hecho el gasto, dime el monto y lo anoto. Si querés, decí "recuérdame mañana" y te aviso.';
+              return 'No registro gastos futuros. Cuando ya hayas hecho el gasto, dime el monto y lo anoto. Si quieres, dime "recuérdame mañana" y te aviso.';
             }
           }
 
