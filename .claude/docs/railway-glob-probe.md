@@ -48,8 +48,33 @@ NETO_WP_VENTANA=100 node qa-e2e/backend-watchpatterns-real.mjs
 horario pico. Medí la actividad antes (`count(*)` de `transacciones` en los últimos 30 min),
 no la supongas.
 
-## Resultado
+## Resultado (09-ago-2026): **Railway SALTEÓ. El modelo estaba mal.**
 
-Pendiente: este archivo se commitea ANTES de conocerlo, a propósito — la predicción queda
-registrada en el historial de git antes de la medición, no después. Lo llena el commit
-siguiente.
+`6de1392` tocó solo este archivo → `SKIPPED`, `"No changes to watched files"`, con
+`configFile: /railway.json` y los `watchPatterns` declarados en el `meta` (o sea un veredicto
+real, no un artefacto de config ausente). Prod ni se movió: siguió en `fd6eb45` con el uptime
+corriendo.
+
+O sea que **`dir/**` NO está anclado a la raíz**: `!docs/**` matcheó `docs/` en el medio. La
+comparación es limpia porque las dos rutas difieren en **un solo segmento**:
+
+| commit | ruta | Railway |
+|---|---|---|
+| `00dd65d` | `.claude/`**`commands`**`/deploy.md` | **construyó** |
+| `6de1392` | `.claude/`**`docs`**`/railway-glob-probe.md` | **salteó** |
+
+Lo atrapó `backend-watchpatterns-real` solo, con exit 1 y `DESACUERDO` sobre esa fila.
+
+**Lo que se arregló, en los dos mecanismos** (a propósito son distintos: `startsWith` de un
+lado, regex del otro): `qa-e2e/lib/railway-watch.mjs` pasó a `f.startsWith(dir) ||
+f.includes('/' + dir)`, y `tests/railway-watchpatterns-paridad.test.js` de `^dir/` a
+`(?:^|/)dir/`.
+
+**Y la lección que deja, que vale más que el arreglo:** las dos copias estaban de acuerdo y
+las dos mal. Con la mutación puesta en AMBAS, **12 de 13 tests de paridad siguen en verde** —
+solo muere el que afirma VEREDICTOS. Un test de paridad no puede ver un error de concepto
+compartido; para eso hay que medir contra Railway.
+
+**Sigue sin medir:** el segmento parcial (`midocs/x.js`, que contiene `docs/` sin tener un
+segmento `docs`). Se modela como observado porque es el lado seguro. Separarlo pide otra sonda,
+con una ruta de esa forma.

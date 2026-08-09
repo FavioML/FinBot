@@ -38,12 +38,22 @@
 // cambiar `startsWith` por `includes` en `dir/**`. Ninguna de las dos cambiaba el veredicto de
 // un solo commit del historial, porque no hubo commits que dependieran de esa diferencia.
 //
-// **La primera se cerró el 08-ago con un deploy de control, y ya no pasa en verde.** Hacía
-// falta un commit cuyo veredicto dependiera SOLO de un `.md` ANIDADO; `.claude/` está
-// observado, así que `00dd65d` tocó `.claude/commands/deploy.md` y nada más. Railway
-// **construyó** — o sea que el ancla existe. Desde esa fila, la mutación recursiva sale
-// exit 1 acá. La segunda (`includes`) **sigue pasando en verde**: remedido el mismo día, y
-// este commit no la toca. Ver la sección de `railway.json` en CLAUDE.md.
+// **Las dos se cerraron con deploys de control, y ninguna pasa ya en verde:**
+//
+//   08-ago  `00dd65d`  tocó solo `.claude/commands/deploy.md` (un `.md` ANIDADO, y `.claude/`
+//                      está observado) → Railway **construyó**: el ancla de raíz existe.
+//   09-ago  `6de1392`  tocó solo `.claude/docs/railway-glob-probe.md` → **`SKIPPED`**: o sea
+//                      que `dir/**` NO ancla a la raíz. **El modelo estaba MAL**, y lo
+//                      encontró ESTE harness con exit 1, no la suite.
+//
+// La segunda es la razón de ser del archivo, demostrada: `startsWith` estaba escrito en
+// `railway-watch.mjs` Y como `^dir/` en la reimplementación por regex del test de paridad —
+// las dos copias de acuerdo y las dos equivocadas. Con la mutación puesta en AMBAS, 12 de 13
+// tests de paridad siguen en verde. Un test de paridad no ve un error de concepto compartido.
+//
+// Sigue sin ejercitarse el **segmento parcial** (`midocs/` contiene `docs/` sin ser el
+// segmento `docs`); se modela del lado seguro. Ver la sección de `railway.json` en CLAUDE.md
+// y `.claude/docs/railway-glob-probe.md`, que es la sonda.
 //
 // Por eso el PASS reporta `ejercitado`: qué patrón decidió cuántas filas, y si el ancla de
 // raíz llegó a ser decisiva alguna vez. Un PASS con `anclaDeRaizEjercitada: 0` significa

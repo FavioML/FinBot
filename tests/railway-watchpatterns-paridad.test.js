@@ -79,12 +79,16 @@ function compilar(patrones) {
     if (cuerpo === '**') return { patron: p, negado, forma: 'todo', re: /^[\s\S]*$/ };
 
     let m = cuerpo.match(RE_DIR);
-    //                                     `dir/**` → todo lo que cuelga del directorio
-    if (m) return { patron: p, negado, forma: 'dir', clave: `${m[1]}/`, re: new RegExp(`^${lit(m[1])}/`) };
+    // `dir/**` → todo lo que cuelga de un directorio con ese nombre, a CUALQUIER PROFUNDIDAD.
+    // Acá decía `^dir/` —anclado— igual que el `startsWith` del otro lado: las dos copias de
+    // acuerdo y las dos mal, hasta que el deploy de control `6de1392` lo midió (09-ago-2026).
+    // El `(?:^|/)` es el arreglo, y es por SEGMENTO a propósito: ver la nota larga en
+    // `qa-e2e/lib/railway-watch.mjs`, que explica por qué `midocs/` NO cae.
+    if (m) return { patron: p, negado, forma: 'dir', clave: `${m[1]}/`, re: new RegExp(`(?:^|/)${lit(m[1])}/`) };
 
     // `/*.ext` — la barra inicial ANCLA A LA RAÍZ, así que el nombre no puede tener ninguna
-    // barra. Sin el ancla el patrón sería recursivo y `handlers/notas.md` dejaría de
-    // desplegar; es la parte sutil de la lista, y la que ninguna medición sostiene todavía.
+    // barra. Medido el 08-ago con el deploy de control `00dd65d`, que tocó solo
+    // `.claude/commands/deploy.md` —un `.md` anidado— y Railway construyó.
     m = cuerpo.match(RE_EXT_RAIZ);
     if (m) {
       return { patron: p, negado, forma: 'extRaiz', clave: `.${m[1]}`, re: new RegExp(`^[^/]*\\.${lit(m[1])}(?![\\s\\S])`) };
@@ -123,8 +127,14 @@ function evaluarDeclarado(reglas, archivo) {
  * versionado bajo esa ruta — que era justo el agujero original.
  *
  * Cada forma incluye sus near-misses: el prefijo compartido (`webapp-otro/`), la ruta
- * anidada (`otro/webapp/`), el ancla de raíz. Son los que separan `startsWith` de
- * `includes` y un patrón anclado de uno recursivo.
+ * anidada (`otro/webapp/`), el segmento parcial (`otrowebapp/`), el ancla de raíz. Son los
+ * que separan prefijo de subcadena de segmento, y un patrón anclado de uno recursivo.
+ *
+ * **Ojo con lo que estos probes NO pueden hacer, y se pagó el 09-ago-2026.** `otro/webapp/`
+ * ya existía acá y el test pasaba en verde con las DOS implementaciones tratándolo como
+ * observado — porque este test solo compara una copia contra la otra, y estaban de acuerdo
+ * en la respuesta equivocada. Lo que separa la verdad es medir contra Railway
+ * (`qa-e2e/backend-watchpatterns-real.mjs`), que es quien lo atrapó.
  */
 function probesDe(regla) {
   if (regla.forma === 'todo') {
@@ -138,7 +148,10 @@ function probesDe(regla) {
       `${dir}sub/PROBE.js`,
       `${dir}.oculto/PROBE.json`, // sub-directorio con punto: es el caso real de webapp/.claude/
       `${base}-otro/PROBE.txt`, //  near-miss: comparte prefijo, es otro directorio
-      `otro/${dir}PROBE.txt`, //    near-miss: el mismo nombre, pero anidado
+      `otro/${dir}PROBE.txt`, //    ANIDADO: cae. No está anclado a la raíz (medido, 6de1392)
+      `a/b/${dir}PROBE.txt`, //     el mismo caso, más profundo
+      `otro${base}/PROBE.txt`, //   near-miss que separa SUBCADENA de SEGMENTO: contiene
+      //                            `webapp/` pero su segmento es `otrowebapp`. NO cae.
       base, //                      el directorio como archivo suelto, sin barra
     ];
   }
@@ -422,5 +435,34 @@ describe('el predicado no tiene conocimiento propio de rutas', () => {
       expect(dispara(f), `${f} SÍ está excluido por la lista sintética`).toBe(false);
     }
     expect(dispara('sub/LEEME.txt'), 'el ancla de raíz de `/*.txt`').toBe(true);
+  });
+
+  /**
+   * La semántica de `dir/**`, con VEREDICTOS y no solo paridad entre las dos copias.
+   *
+   * Hace falta separado justamente porque la paridad no alcanzó: hasta el 09-ago-2026 las dos
+   * implementaciones decían `^dir/` y estaban de acuerdo en la respuesta equivocada. Lo que
+   * fija cada fila de acá es una MEDICIÓN contra Railway o una elección declarada, no una
+   * lectura de la sintaxis:
+   *
+   *   - anidado cae      → `6de1392` tocó `.claude/docs/railway-glob-probe.md` → "No changes",
+   *                        contra `00dd65d` (`.claude/commands/deploy.md`) que SÍ construyó.
+   *                        Las dos rutas difieren en un solo segmento.
+   *   - parcial NO cae   → no está medido. Se elige el lado seguro: sobre-reportar produce una
+   *                        falsa alarma de STALE, sub-reportar da PASS sobre un backend viejo.
+   */
+  it('`dir/**` excluye el directorio a cualquier profundidad, pero por SEGMENTO', () => {
+    const dispara = crearPredicado(['**', '!excluido-a/**']);
+
+    for (const f of ['excluido-a/x.js', 'otro/excluido-a/x.js', 'a/b/excluido-a/sub/x.js']) {
+      expect(dispara(f), `${f}: \`dir/**\` no está anclado a la raíz (medido con 6de1392)`).toBe(false);
+    }
+    for (const f of ['otroexcluido-a/x.js', 'a/otroexcluido-a/x.js', 'excluido-a-otro/x.js']) {
+      expect(
+        dispara(f),
+        `${f}: contiene la cadena pero su SEGMENTO es otro. Sin medir; modelamos observado ` +
+          `porque el error cae del lado de una falsa alarma, no de un PASS sobre backend stale`,
+      ).toBe(true);
+    }
   });
 });

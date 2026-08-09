@@ -118,13 +118,37 @@ export function compilarPatrones(patrones) {
 
     if (cuerpo === '**') return { patron: p, negado, forma: 'todo', test: () => true };
 
-    // `dir/**` — todo lo que cuelga de un directorio. Incluye los sub-directorios que
-    // empiezan con punto: medido el 07-ago sobre `webapp/.claude/deploy-config.json`,
-    // que Railway saltea (`257f2f5`, `cde2525` → "No changes to watched files").
+    // `dir/**` — todo lo que cuelga de un directorio con ese nombre, **a CUALQUIER
+    // PROFUNDIDAD**. Incluye los sub-directorios que empiezan con punto: medido el 07-ago
+    // sobre `webapp/.claude/deploy-config.json`, que Railway saltea (`257f2f5`, `cde2525`).
+    //
+    // **No está anclado a la raíz, y descubrirlo costó un deploy de control** (09-ago-2026).
+    // Acá decía `startsWith` y la reimplementación por regex del test de paridad decía
+    // `^dir/`: las dos copias de acuerdo y las dos equivocadas, que es exactamente el
+    // escenario que `backend-watchpatterns-real` existe para atrapar — y lo atrapó, con
+    // `DESACUERDO` y exit 1. La medición son dos commits que difieren en UN solo segmento:
+    //
+    //   00dd65d  .claude/commands/deploy.md          → Railway CONSTRUYÓ
+    //   6de1392  .claude/docs/railway-glob-probe.md  → "No changes to watched files"
+    //
+    // O sea que `!docs/**` matcheó `docs/` en el medio de la ruta. El argumento completo y
+    // cómo repetirlo están en `.claude/docs/railway-glob-probe.md`, que es la sonda misma.
+    //
+    // Se implementa por SEGMENTO (`^dir/` o `/dir/`), no por subcadena. La diferencia es
+    // `midocs/x.js`, que CONTIENE `docs/` sin tener un segmento `docs`, y ese caso **no está
+    // medido**. Se elige segmento porque es el lado seguro: si Railway lo excluyera igual, el
+    // modelo sobre-reporta y a lo sumo salta una falsa alarma de STALE. Al revés —modelar como
+    // excluido algo que Railway observa— es el sub-reporte que da PASS sobre un backend stale.
     let m = cuerpo.match(RE_DIR);
     if (m) {
       const prefijo = `${m[1]}/`;
-      return { patron: p, negado, forma: 'dir', clave: prefijo, test: (f) => f.startsWith(prefijo) };
+      return {
+        patron: p,
+        negado,
+        forma: 'dir',
+        clave: prefijo,
+        test: (f) => f.startsWith(prefijo) || f.includes(`/${prefijo}`),
+      };
     }
 
     // `/*.ext` — la barra inicial ANCLA A LA RAÍZ. Sin ella el patrón sería recursivo y

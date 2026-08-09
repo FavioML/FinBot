@@ -80,6 +80,8 @@ ningun test de paridad puede detectar, porque comparan una copia contra la otra)
 |---|---|---|
 | `**` matchea **dotfiles** | con minimatch/micromatch en default (`dot:false`) NO matchearia `.github/**` | `096593a` toco **solo** `.github/workflows/ci.yml` y Railway **construyo** |
 | `!dir/**` excluye tambien los **sub-directorios con punto** | mismo `dot:false`: `webapp/**` no matchearia `webapp/.claude/...`, y esa ruta pasaria a estar observada | 4 observaciones independientes: `42d17d1`, `3b1d617`, `257f2f5`, `cde2525` tocaron `webapp/.claude/deploy-config.json` y salieron `No changes to watched files` |
+| `!dir/**` **NO ancla a la raiz**: excluye ese directorio a cualquier profundidad | se creia lo contrario y estaba **mal** — ver abajo | experimento controlado del **09-ago**: `6de1392` toco SOLO `.claude/docs/railway-glob-probe.md` y Railway **salteo**, contra `00dd65d` (`.claude/commands/deploy.md`) que construyo. Difieren en UN segmento |
+| ese match es por **SEGMENTO**, no por subcadena (`midocs/` no cae) | si Railway usara subcadena, el modelo sobre-reporta | **NADA.** Sin medir, y elegido del lado seguro a proposito — ver abajo |
 | `!docs/**` excluye | — | experimento controlado del 22-jul (`61efbf9` → SKIPPED) |
 | `!/*.md` **ancla a la raiz** | sin ancla seria recursivo y `handlers/notas.md` dejaria de desplegar | experimento controlado del **08-ago**: `00dd65d` toco SOLO `.claude/commands/deploy.md` —un `.md` **anidado**— y Railway **construyo** |
 
@@ -109,16 +111,49 @@ verificado antes de pushear para que no se colara backend pendiente). Railway **
 patrones, no es un caso de config ausente. Confirmado ademas por fuera de la API: `/version`
 paso a `00dd65d` y el `uptime` de `/health` se reinicio.
 
-**El ancla existe. El modelo era correcto**, y ahora el harness lo demuestra en vez de
-suponerlo: la mutacion "sacarle el ancla a `!/*.md`" —que el 07-ago pasaba **en verde** sobre
-toda la ventana— hoy **mata** a `backend-watchpatterns-real` con un `DESACUERDO` sobre esa
-fila (`modelo: no redespliega` / `railway: construyo`, decisivo `!/*.md`). Ejecutada, no
-deducida.
+**El ancla existe**, y ahora el harness lo demuestra en vez de suponerlo: la mutacion
+"sacarle el ancla a `!/*.md`" —que el 07-ago pasaba **en verde** sobre toda la ventana— hoy
+**mata** a `backend-watchpatterns-real` con un `DESACUERDO` sobre esa fila (`modelo: no
+redespliega` / `railway: construyo`, decisivo `!/*.md`). Ejecutada, no deducida.
 
-**Lo que este experimento NO compro, medido el mismo dia y no asumido:** cambiar `startsWith`
-por `includes` en `dir/**` **sigue pasando en verde**. Esa distincion sigue sin ejercitarse, y
-`.claude/commands/deploy.md` no la toca. Si algun dia importa, necesita su propio deploy de
-control — un archivo cuya ruta CONTENGA `webapp/`, `qa-e2e/` o `docs/` sin empezar con eso.
+> **Aca decia "el modelo era correcto" y era una sobre-afirmacion, desmentida al dia
+> siguiente.** Lo medido fue UNA regla de las dos que el modelo tiene; la otra (`dir/**`)
+> seguia siendo una lectura de la sintaxis, y resulto estar **mal**. Una medicion sostiene
+> exactamente lo que ejercita: si el harness te dice que el resto sigue sin ejercitarse,
+> "el modelo es correcto" no es una conclusion disponible todavia.
+
+### `dir/**` NO ancla a la raiz, y las DOS copias estaban mal (09-ago-2026)
+
+El experimento del ancla dejo escrito que faltaba medir `startsWith` vs `includes` en
+`dir/**`, y que necesitaba su propia sonda: un archivo cuya ruta CONTENGA `webapp/`,
+`qa-e2e/` o `docs/` sin empezar con eso. **No existia ninguno** en el arbol
+(`git ls-files | grep -E '.+/(docs|webapp|qa-e2e)/'` sale vacio), asi que hubo que crearlo:
+**`.claude/docs/railway-glob-probe.md`**, que documenta el experimento y ES el instrumento.
+
+La inferencia cierra porque los otros dos segmentos ya estaban medidos: `.claude/` esta
+observado y un `.md` anidado tambien (el experimento del dia anterior). Asi que un skip no
+dejaba otra explicacion disponible.
+
+`6de1392` toco solo esa ruta → **`SKIPPED`, `"No changes to watched files"`**, con
+`configFile: /railway.json`. **El modelo estaba mal.** `!docs/**` matchea `docs/` en el medio
+de la ruta.
+
+**Lo atrapo `backend-watchpatterns-real` solo**, con exit 1, antes de que yo tocara nada.
+Es el escenario exacto para el que se escribio: *dos copias de acuerdo pueden estar las dos
+equivocadas*. Ahora hay evidencia de que ese riesgo no era teorico.
+
+Arreglado en los DOS mecanismos, que son distintos a proposito: `railway-watch.mjs` pasa a
+`f.startsWith(dir) || f.includes('/' + dir)`, y la reimplementacion por regex del test de
+`^dir/` a `(?:^|/)dir/`.
+
+**Y el dato que mas ensena:** con la mutacion puesta en AMBAS copias, **12 de 13 tests de
+paridad siguen en verde**. Solo muere el test nuevo, que afirma VEREDICTOS en vez de comparar
+las copias entre si. Un test de paridad no puede ver un error de concepto compartido.
+
+**Lo que sigue sin medir:** el **segmento parcial** (`midocs/x.js` contiene `docs/` pero su
+segmento es `midocs`). Se modela como **observado**, y la eleccion es deliberada: sobre-reportar
+produce una falsa alarma de STALE, mientras que sub-reportar da PASS sobre un backend viejo.
+Separarlo pide otra sonda con una ruta de esa forma.
 
 Lo que sigue **sin** prueba es la PRECEDENCIA (¿gana el ultimo patron que matchea, o es
 "algun include y ningun exclude"?). Hoy es inobservable: hay un solo include y las
@@ -174,7 +209,7 @@ con **Railway**?", que es otra pregunta y se responde midiendo:
 | `tests/railway-watchpatterns-paridad.test.js` | el compilador implementa los patrones declarados, contra una reimplementacion que traduce los globs a **expresiones regulares** (otro mecanismo a proposito: una copia literal solo detecta que editaste una de las dos), sobre el arbol real + probes **derivados de cada patron** (una exclusion nueva trae sus propios casos sola, aunque no exista todavia un archivo bajo esa ruta) | que el modelo sea cierto: dos copias de acuerdo pueden estar las dos equivocadas |
 | el mismo test, tres casos mas | que el harness **se niegue a adivinar**: forma de glob nueva, lista blanca, y re-inclusion (precedencia no medida) **no compilan** | — |
 | el mismo test, tres casos mas | que **ningun eslabon** de la cadena del predicado conozca una ruta (ni una comilla ni una barra en `disparaBuildRailway`, el closure de `crearPredicado` y `evaluarReglas`), que ningun directorio real del repo quede excluido a mano, y que las dos implementaciones coincidan sobre entradas adversariales | los closures de `compilarPatrones()`, que llevan barra legitima; y un directorio que **todavia no existe** — el hueco original era sobre `infra/` |
-| `qa-e2e/backend-watchpatterns-real.mjs` | el modelo contra lo que Railway **hizo**, deployment por deployment, juzgando cada uno con SUS patrones. Correlo con `NETO_WP_VENTANA=100`; el conteo de juzgables **no va escrito aca** porque se mueve solo — la ventana son los ultimos N deployments, asi que cada push cambia cual entra y cual sale | las distinciones que la historia no ejercita — hoy, `startsWith`→`includes` en `dir/**` (remedido el 08-ago). El ancla de raiz **ya no**: desde `00dd65d` su mutacion sale exit 1. Por eso reporta `ejercitado` |
+| `qa-e2e/backend-watchpatterns-real.mjs` | el modelo contra lo que Railway **hizo**, deployment por deployment, juzgando cada uno con SUS patrones. Correlo con `NETO_WP_VENTANA=100`; el conteo de juzgables **no va escrito aca** porque se mueve solo — la ventana son los ultimos N deployments, asi que cada push cambia cual entra y cual sale | las distinciones que la historia no ejercita — hoy, el **segmento parcial** (`midocs/`). Las otras dos ya no: desde `00dd65d` (ancla de raiz) y `6de1392` (`dir/**` anidado) sus mutaciones salen exit 1. **Este harness ya encontro un error real del modelo** — el `dir/**` anclado, que los tests de paridad no podian ver porque las dos copias coincidian |
 
 Si tocas `railway.json`, no hay segunda mitad que actualizar — pero **corre el harness real**:
 es lo unico que puede decirte si Railway entiende tu patron nuevo como vos.
