@@ -50,19 +50,56 @@ const check = (name, cond, detail) => {
 
 let userId = null;
 
+// ── La línea entre "no se pudo medir" (exit 2) y "el secreto ya no coincide" (exit 1) ──
+//
+// Hasta el 09-ago-2026 este harness solo tenía exit 1, así que una caída de red salía
+// igual que el fallo que existe para detectar y el canary no podía distinguirlos.
+//
+// Lo que NO se movió a exit 2, y es el punto: un 3xx a `/login?activacion=expirado` sigue
+// siendo exit 1. Ese es EL hallazgo (el secreto dejó de ser idéntico entre Railway y
+// Vercel). Meterlo en la bolsa de infra convertiría el harness en decorativo, que es
+// justo el modo de fallo que el resto de este repo viene pagando. Solo es inconcluso lo
+// que impide llegar a preguntar: sin credencial local, sin webapp en pie, sin poder
+// sembrar en Supabase, o un fetch que ni siquiera completa.
+class Inconcluso extends Error {}
+const inconcluso = (motivo) => { throw new Inconcluso(motivo); };
+
 // fetch sin seguir redirects: lo que se quiere ver es el 3xx y su Location.
-const abrir = (url) => fetch(url, { redirect: 'manual' });
+// Un fallo de RED nunca es un veredicto: no llegamos a ver qué respondería la webapp.
+const abrir = async (url) => {
+  try {
+    return await fetch(url, { redirect: 'manual' });
+  } catch (e) {
+    inconcluso('no se pudo alcanzar ' + new URL(url).origin + ': ' + e.message);
+  }
+};
 
 async function run() {
-  if (!check('ACTIVATION_TOKEN_SECRET está configurada en este entorno',
-    !!process.env.ACTIVATION_TOKEN_SECRET, 'sin ella el backend no emite links')) return;
+  if (!process.env.ACTIVATION_TOKEN_SECRET) {
+    // Es el .env de la máquina que corre esto, no dice NADA de producción.
+    inconcluso('falta ACTIVATION_TOKEN_SECRET en este entorno: sin ella el backend no emite links');
+  }
+  check('ACTIVATION_TOKEN_SECRET está configurada en este entorno', true, 'presente');
+
+  // ── Pre-vuelo: ¿la webapp está en pie? ────────────────────────────────────
+  // Sin esto, la webapp caída y el secreto desincronizado se ven igual desde acá: los dos
+  // dejan de devolver 200 en /activar. Con una ruta conocida-buena de por medio, un fallo
+  // de /activar con /login sano SÍ es un veredicto sobre /activar.
+  const vivo = await abrir(`${WEBAPP}/login`);
+  if (vivo.status >= 500) {
+    inconcluso('la webapp responde ' + vivo.status + ' en /login: está caída, no hay veredicto posible sobre /activar');
+  }
+  check('pre-vuelo: la webapp está en pie (/login no da 5xx)', true, 'status=' + vivo.status);
 
   // ── Sembrar el usuario throwaway con un gasto ─────────────────────────────
   const { data: creado, error: insErr } = await supabase.from('usuarios').insert({
     whatsapp: WA, is_test_user: true, nombre: NOMBRE,
     onboarding_paso: 0, onboarding_completado: true, plan: 'free',
   }).select('id').single();
-  if (!check('se sembró el usuario throwaway', !insErr && !!creado, insErr ? insErr.message : 'id=' + creado?.id)) return;
+  // Sin la fila, un token con firma BUENA redirige igual que uno forjado y el chequeo de
+  // paridad del secreto se vuelve vacuo: no es un fallo, es no haber podido preguntar.
+  if (insErr || !creado) inconcluso('no se pudo sembrar el usuario throwaway: ' + (insErr?.message || 'sin fila devuelta'));
+  check('se sembró el usuario throwaway', true, 'id=' + creado.id);
   userId = creado.id;
 
   const { error: txErr } = await supabase.from('transacciones').insert({
@@ -159,10 +196,38 @@ async function cleanup() {
 }
 
 let fatal = null;
-try { await run(); } catch (e) { fatal = e; console.log('FAIL excepción — ' + e.message); }
+let infra = null;
+try { await run(); } catch (e) {
+  if (e instanceof Inconcluso) { infra = e; console.log('INCONCLUSO — ' + e.message); }
+  else { fatal = e; console.log('FAIL excepción — ' + e.message); }
+}
+// La limpieza corre igual: si el aborto fue después de sembrar, el throwaway está en
+// PRODUCCIÓN y sacarlo importa más que el veredicto.
 try { await cleanup(); } catch (e) { console.log('FAIL limpieza — ' + e.message); fatal = fatal || e; }
 
 const fallidos = results.filter((r) => !r.pass);
 console.log('\n=== ' + (results.length - fallidos.length) + '/' + results.length + ' checks OK ===');
 if (fatal) console.log(fatal.stack);
-process.exit(fallidos.length === 0 && !fatal ? 0 : 1);
+
+// Un check rojo GANA sobre el inconcluso, siempre y a propósito. Si algo ya se midió y
+// falló, eso es un veredicto, y no se degrada a "no pude opinar" porque después se cayera
+// la red. La incertidumbre solo puede empujar hacia el lado ruidoso, nunca hacia el
+// tranquilizador — es la misma regla con la que `decidirFrescura()` da exit 2 en vez de
+// PASS cuando la lista de archivos viene truncada.
+//
+// `process.exitCode`, NO `process.exit()`, y no es estilo: en Windows, salir con sockets
+// keep-alive de fetch todavía abiertos devuelve **127**. Antes no se notaba porque el
+// único camino de salida corría después de completar todos los fetch; los abortos por
+// inconcluso salen a mitad de camino y ahí sí aparece. Un exit 2 que llega como 127 es
+// peor que no tenerlo: el canary lo lee como fallo desconocido. Misma nota que
+// `qa-score-parity.mjs` y `qa-gating-score.mjs`.
+if (fallidos.length || fatal) {
+  console.log('==> REGRESIÓN (exit 1)');
+  process.exitCode = 1;
+} else if (infra) {
+  console.log('==> INCONCLUSO (exit 2) — ' + infra.message);
+  process.exitCode = 2;
+} else {
+  console.log('==> OK');
+  process.exitCode = 0;
+}

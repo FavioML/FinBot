@@ -102,7 +102,21 @@ function check(name, cond, detail) {
   console.log((cond ? 'PASS ' : 'FAIL ') + name + (detail ? '  — ' + detail : ''));
 }
 
+// ── La línea entre "no se pudo medir" (exit 2) y "el cron dejó de disparar" (exit 1) ──
+//
+// Hasta el 09-ago-2026 este harness solo tenía exit 1, así que Supabase caída salía igual
+// que una regresión del cron.
+//
+// Lo que NO se movió a exit 2, y es el punto: los TRIGGER en rojo siguen siendo exit 1.
+// Ese es EL hallazgo — el cron salteando a todo el mundo porque la query perdió
+// `usuarios.plan`, que es exactamente lo que este harness encontró el día que se cableó al
+// canary. Inconcluso es solo lo que impide llegar a preguntar: no poder leer al usuario QA,
+// que el usuario QA haya dejado de ser fixture válido, o no poder sembrar la deuda.
+class Inconcluso extends Error {}
+const inconcluso = (motivo) => { throw new Inconcluso(motivo); };
+
 let ORIG_RECORD = false;
+let limpiezaFallo = null;
 
 async function setUserRecordatorios(val) {
   const { error } = await supabase.from('usuarios').update({ recordatorios_activos: val }).eq('id', QA_ID);
@@ -133,18 +147,28 @@ async function runCron() {
 }
 
 async function main() {
-  const { data: orig } = await supabase.from('usuarios')
+  const { data: orig, error: eLeer } = await supabase.from('usuarios')
     .select('recordatorios_activos, is_test_user, whatsapp, nombre').eq('id', QA_ID).single();
-  ORIG_RECORD = orig?.recordatorios_activos ?? false;
-  check('QA user es test user con whatsapp esperado',
-    orig?.is_test_user === true && orig?.whatsapp === QA_WHATSAPP, 'nombre=' + orig?.nombre);
+  // supabase-js NO lanza: sin leer `error` una caída se lee como "no había nada", y de ahí
+  // el harness seguiría con `orig` undefined y fallaría por la razón equivocada.
+  if (eLeer || !orig) inconcluso('no se pudo leer al usuario QA (' + QA_ID + '): ' + (eLeer?.message || 'sin fila'));
+  ORIG_RECORD = orig.recordatorios_activos ?? false;
+
+  // Precondición de FIXTURE, no aserción sobre el producto: si al usuario QA le cambiaron
+  // `is_test_user` o el whatsapp, este harness no puede opinar sobre el cron. Peor: sin
+  // `is_test_user` el spy delegaría al envío real y esto le escribiría a Meta.
+  if (orig.is_test_user !== true || orig.whatsapp !== QA_WHATSAPP) {
+    inconcluso('el usuario QA dejó de ser un fixture válido (is_test_user=' + orig.is_test_user +
+      ', whatsapp=' + orig.whatsapp + ', esperado ' + QA_WHATSAPP + ')');
+  }
+  check('QA user es test user con whatsapp esperado', true, 'nombre=' + orig.nombre);
 
   const { data: seeded, error: eSeed } = await supabase.from('deudas').insert({
     usuario_id: QA_ID, tipo: 'debo', contraparte: 'QA-CRON Tarjeta',
     monto_original: 800, monto_pendiente: 800, moneda: 'PEN',
     fecha_vencimiento: VENC, estado: 'activa', recordatorios_enviados: [],
   }).select('id').single();
-  if (eSeed) throw eSeed;
+  if (eSeed || !seeded) inconcluso('no se pudo sembrar la deuda throwaway: ' + (eSeed?.message || 'sin fila'));
   THROWAWAY_ID = seeded.id;
   console.log('fixture: deuda throwaway ' + THROWAWAY_ID + '  vence ' + VENC + '  (hoy Lima ' + todayLima + ')');
 
@@ -222,15 +246,47 @@ async function cleanup() {
     }
     await supabase.from('usuarios').update({ recordatorios_activos: ORIG_RECORD }).eq('id', QA_ID);
     console.log('cleanup ok (recordatorios_activos restaurado a ' + ORIG_RECORD + ')');
-  } catch (e) { console.log('CLEANUP WARN: ' + e.message); }
+  } catch (e) { limpiezaFallo = e; console.log('CLEANUP WARN: ' + e.message); }
 }
 
 (async () => {
   let fatal = null;
-  try { await main(); } catch (e) { fatal = e; console.log('FAIL excepción — ' + e.message); }
+  let infra = null;
+  try { await main(); } catch (e) {
+    if (e instanceof Inconcluso) { infra = e; console.log('INCONCLUSO — ' + e.message); }
+    else { fatal = e; console.log('FAIL excepción — ' + e.message); }
+  }
+  // Corre siempre: si el aborto fue después de sembrar, la deuda throwaway quedó en
+  // PRODUCCIÓN y sacarla importa más que el veredicto.
   await cleanup();
+
   const fallidos = results.filter(r => !r.pass);
   console.log('\n=== ' + (results.length - fallidos.length) + '/' + results.length + ' checks OK ===');
   if (fatal) console.log(fatal.stack);
-  process.exit(fallidos.length === 0 && !fatal ? 0 : 1);
+
+  // Un check rojo GANA sobre el inconcluso, a propósito: lo ya medido es un veredicto y no
+  // se degrada a "no pude opinar". La incertidumbre solo empuja hacia el lado ruidoso.
+  //
+  // Y la limpieza fallida es exit 1, no un warning suelto. Antes solo imprimía
+  // `CLEANUP WARN` y el proceso salía 0, así que el `on_fail` del canary mandaba a buscar
+  // filas huérfanas en producción por una señal que nunca cambiaba el veredicto: nadie se
+  // iba a enterar. Quedan filas reales (la deuda throwaway, notificaciones, deliveries) y
+  // eso pide acción humana aunque el cron esté sano.
+  //
+  // `process.exitCode`, NO `process.exit()`: en Windows salir con sockets keep-alive de
+  // fetch abiertos devuelve 127, y un exit 2 que llega como 127 el canary lo lee como
+  // fallo desconocido. Misma nota que `qa-score-parity.mjs`.
+  if (fallidos.length || fatal) {
+    console.log('==> REGRESIÓN (exit 1)');
+    process.exitCode = 1;
+  } else if (limpiezaFallo) {
+    console.log('==> LIMPIEZA FALLIDA (exit 1): quedaron filas en producción — ' + limpiezaFallo.message);
+    process.exitCode = 1;
+  } else if (infra) {
+    console.log('==> INCONCLUSO (exit 2) — ' + infra.message);
+    process.exitCode = 2;
+  } else {
+    console.log('==> OK');
+    process.exitCode = 0;
+  }
 })();
