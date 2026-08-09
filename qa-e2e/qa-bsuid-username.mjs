@@ -66,12 +66,32 @@ function db(vars) {
 }
 
 async function enviarWebhook(secret, message) {
-  const body = { object: 'whatsapp_business_account', entry: [{ id: 'qa', changes: [{ field: 'messages', value: {
+  return postFirmado(secret, {
     messaging_product: 'whatsapp',
     metadata: { display_phone_number: '51933014505', phone_number_id: 'qa' },
     contacts: [{ user_id: message.from_user_id, profile: { name: 'QA BSUID' } }],
     messages: [message],
-  } }] }] };
+  });
+}
+
+// Callback de ESTADO, el otro camino por el que llega el BSUID. Meta lo manda cuando NOSOTROS
+// enviamos algo, con las dos identidades juntas, así que mapea sin que el usuario escriba.
+async function enviarStatus(secret, { numero, bsuid, estado = 'sent' }) {
+  return postFirmado(secret, {
+    messaging_product: 'whatsapp',
+    metadata: { display_phone_number: '51933014505', phone_number_id: 'qa' },
+    statuses: [{
+      id: 'wamid.qa-status-' + Math.random().toString(36).slice(2),
+      status: estado,
+      timestamp: String(Math.floor(Date.now() / 1000)),
+      recipient_id: numero,
+      recipient_user_id: bsuid,
+    }],
+  });
+}
+
+async function postFirmado(secret, value) {
+  const body = { object: 'whatsapp_business_account', entry: [{ id: 'qa', changes: [{ field: 'messages', value }] }] };
   const raw = Buffer.from(JSON.stringify(body));
   const firma = 'sha256=' + crypto.createHmac('sha256', secret).update(raw).digest('hex');
   const r = await fetch(WEBHOOK, {
@@ -135,6 +155,24 @@ try {
   // Si apareció, hay que limpiarla: no tiene dueño legítimo y el `finally` solo borra las del
   // usuario efímero.
   if (nuevaHuerfana) await sb.del('transacciones', `id=eq.${nuevaHuerfana.id}`);
+
+  // --- C: el mapeo PASIVO, que es lo que cubre a quien no escribe ---
+  // Se prueba sobre un usuario SIN bsuid, para que el PASS solo pueda venir de que el callback
+  // lo enseñó. Es el camino que aprende de lo que NOSOTROS enviamos, no de lo que recibimos.
+  console.log('\nC. callback de estado (mapeo pasivo, sin que el usuario escriba)');
+  const numeroPasivo = '519' + Math.floor(10000000 + Math.random() * 89999999);
+  const bsuidPasivo = 'PE.qapasivo' + sufijo;
+  const pasivo = await sb.insert('usuarios', { whatsapp: numeroPasivo, nombre: 'QA BSUID pasivo', onboarding_completado: true, onboarding_paso: 0 });
+  try {
+    check(!pasivo.bsuid, 'el usuario arranca SIN bsuid', 'bsuid=' + pasivo.bsuid);
+    const st3 = await enviarStatus(vars.META_APP_SECRET, { numero: numeroPasivo, bsuid: bsuidPasivo, estado: 'sent' });
+    check(st3 === 200, 'el webhook acepta el callback de estado', 'HTTP ' + st3);
+    await new Promise(r => setTimeout(r, 8000));   // sin OpenAI de por medio: es solo un UPDATE
+    const [tras] = await sb.select('usuarios', `id=eq.${pasivo.id}&select=bsuid`);
+    check(tras && tras.bsuid === bsuidPasivo, 'aprendió el BSUID desde el callback', 'bsuid=' + (tras && tras.bsuid));
+  } finally {
+    await sb.del('usuarios', `id=eq.${pasivo.id}`);
+  }
 } finally {
   if (usuario) {
     console.log('\nLimpiando usuario efímero...');
