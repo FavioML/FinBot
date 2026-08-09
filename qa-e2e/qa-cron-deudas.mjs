@@ -78,12 +78,18 @@ const debtsPath = require.resolve(path.join(appRoot, 'services/debts.js'));
 const debtsReal = require(debtsPath);
 require.cache[debtsPath].exports = {
   ...debtsReal,
+  // Llama a la query REAL y recorta el resultado al throwaway, en vez de reescribirla.
+  // Antes era una copia a mano del `select`, y divergió: la real sumó `usuarios.plan`
+  // (el cron saltea a quien está en el muro, `checks.js:703`) y la copia no. Con la fila
+  // parcial, `estaEnMuro()` lee `plan === undefined` y devuelve true, así que el cron
+  // saltaba SIEMPRE y las 9 aserciones de TRIGGER fallaban sin que nada estuviera roto en
+  // producción. Es la trampa de "una fila parcial no puede decidir" del CLAUDE.md, servida
+  // por el harness que venía a vigilarla. Recortar después preserva el aislamiento (el
+  // cron sigue viendo una sola deuda); leer de más es gratis y la barrera deja pasar lecturas.
   obtenerDeudasProximasVencer: async () => {
     if (!THROWAWAY_ID) return [];
-    const { data } = await supabase.from('deudas')
-      .select('*, usuarios!inner(whatsapp, nombre, recordatorios_activos)')
-      .eq('id', THROWAWAY_ID).eq('estado', 'activa');
-    return data || [];
+    const todas = await debtsReal.obtenerDeudasProximasVencer();
+    return todas.filter((d) => d.id === THROWAWAY_ID);
   },
 };
 
@@ -150,7 +156,14 @@ async function main() {
   sent.length = 0;
   await runCron();
 
-  const expectedMsg = '⏰ QA, mañana vence tu deuda con *QA-CRON Tarjeta* (S/ 800.00). ¡Que no se te pase!';
+  // El saludo se DERIVA del nombre del QA user, no se fija: el cron lo arma con
+  // `nombre.split(' ')[0]` y acá estaba escrito 'QA,' de cuando el usuario se llamaba así.
+  // Renombrarlo (hoy es Camila Rojas) rompía la aserción sin que el copy hubiera cambiado.
+  // Sigue siendo exacta —el saludo completo, la coma y el resto del texto— pero afirma la
+  // REGLA (primer nombre + ', ') en vez de un valor de fixture que envejece.
+  const primerNombre = orig?.nombre ? orig.nombre.split(' ')[0] : null;
+  const saludo = primerNombre ? primerNombre + ', ' : '';
+  const expectedMsg = '⏰ ' + saludo + 'mañana vence tu deuda con *QA-CRON Tarjeta* (S/ 800.00). ¡Que no se te pase!';
   check('TRIGGER: se capturó exactamente 1 envío', sent.length === 1, 'capturados=' + sent.length);
   check('TRIGGER: copy exacta del touch v1 (mañana, debo)', sent[0]?.msg === expectedMsg, JSON.stringify(sent[0]?.msg));
   check('TRIGGER: opts.tipo=deuda + usuarioId correcto + template null',
