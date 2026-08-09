@@ -848,12 +848,30 @@ cada usuario que escribe (migración **065**, `persistirBsuid` en `helpers/db-he
 active un username será lo único que lo reconecte con su cuenta. **A quien no vuelva a escribir
 antes de activarlo, lo perdemos.**
 
+**El BSUID llega por DOS caminos, y el segundo es el que cubre a quien no escribe.** Medido
+contra un callback real: los status de entrega traen `recipient_id` (número) y
+`recipient_user_id` (BSUID) juntos, y ya en **`sent`**, que ocurre al enviar — sin que la
+persona reciba ni lea. O sea que cada recordatorio de las 8pm y cada resumen semanal mapea
+gratis a quien lo recibe. Aprender solo del mensaje entrante dependía de que el usuario
+ESCRIBIERA, y a quien active un username antes de volver a escribir lo perdemos.
+
 | Pieza | Dónde |
 |---|---|
 | Aprender el BSUID | `persistirBsuid()` — nunca borra (los call-sites fuera del webhook pasan `null`) y nunca rompe el flujo |
+| Camino ENTRANTE (el usuario escribe) | `handlers/webhook.js`, pasa `message.from_user_id` a `obtenerOCrearUsuario` |
+| Camino SALIENTE (le enviamos algo) | `aprenderBsuidDeStatus()` en `lib/whatsapp.js`. El `Set` de módulo lo deja en **una query por número y por instancia**: cada envío produce `sent`+`delivered`+`read` y los crons lo multiplican por casi cien |
 | Reconocer sin número | `buscarUsuarioPorBsuid()` + el bloque `if (!from)` de `handlers/webhook.js` |
 | Registrar sin poder responder | `services/registro-silencioso.js` |
-| E2E | `qa-e2e/qa-bsuid-username.mjs` (con control negativo) |
+| E2E | `qa-e2e/qa-bsuid-username.mjs` — los dos caminos + control negativo |
+
+**El require de `db-helpers` en `whatsapp.js` es PEREZOSO a propósito.** `whatsapp.js` es
+infraestructura de envío y `db-helpers` está una capa arriba; importarlo al tope invierte las
+capas e invita a un ciclo el día que `db-helpers` necesite mandar un mensaje.
+
+**Quién queda fuera, con números al 08-ago:** los **62 del muro** casi no reciben nada (el muro
+corta las lecturas proactivas), así que el camino saliente no los alcanza. Y **43 usuarios son
+WhatsApp-only**: aunque estén mapeados, si activan username su gasto se registra y **no tienen
+dónde verlo** — ni respuesta por WhatsApp ni dashboard. Cuatro de ellos son Pro pagados.
 
 **No metas lógica de dinero en `registro-silencioso.js`.** Delega en `parsearRegistroManual` y
 `guardarTransaccion` a propósito: es el único camino donde una divergencia de montos **no tendría
