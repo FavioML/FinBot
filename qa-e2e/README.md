@@ -145,13 +145,38 @@ Y lo descalifica: quemar cuota de OpenAI o un cupo de Google, escribir sobre
 usuarios reales, o correr un cron **bulk** cuyo radio de daño dependa de qué haya en
 producción esa mañana. Ese último es el motivo de que `qa-trial-gate.mjs` siga acá
 abajo pese a cubrir el muro, que es de lo que se cobra: corre `checkTrialExpiry`, que
-barre a todos los usuarios con el trial por vencer, y su seguridad un día con gente
-real en ventana descansa en que la barrera `qa-guard` aborte la escritura **dentro
-del `try/catch` por usuario** del cron — donde un throw es una línea de log. Eso no
-está medido, y no se puede medir un día con la ventana vacía. El pre-vuelo del propio
-harness mide el radio pero solo lo **imprime** (`check(..., true, ...)`), no lo gatea.
-Si alguien lo quiere diario, el cambio que lo habilita es convertir ese pre-vuelo en
-exit 2 cuando `realesEnVentana > 0`; hasta entonces, a mano.
+barre a todos los usuarios con el trial por vencer.
+
+**Su pre-vuelo ya no es un reporte, es un gate (09-ago-2026).** Antes medía a cuánta
+gente real alcanzaba el cron y solo lo imprimía (`check(..., true, ...)`, o sea que
+pasaba siempre): la corrida seguía igual y le pasaba el cron por encima a quien
+estuviera en la ventana. Un número medido y no accionado no es un control. Hoy, con
+un solo usuario real ahí, el harness **no corre el cron** y sale exit 2 nombrando los
+vencimientos. La seguridad pasó a ser estructural en vez de descansar en que la
+barrera `qa-guard` abortara la escritura dentro del `try/catch` por usuario del cron,
+que nunca se midió. El spy y la barrera siguen puestos como defensa en profundidad.
+
+La ventana del pre-vuelo (`trial_vence <= hoy + AVISO_DIAS_ANTES`) es **superconjunto**
+de las tres queries que el cron ejecuta de verdad (`= hoy+3`, `= hoy`, `< hoy`), así
+que sobre-reporta y nunca sub-reporta. Sobre-reportar cuesta un exit 2 de más;
+sub-reportar dejaría que el cron toque a alguien que el gate no contó.
+
+**Y sin embargo sigue sin ir al canary, que es lo contrario de lo que decía acá.**
+Esta sección afirmaba que arreglar el pre-vuelo era "el cambio que lo habilita". Se
+midió al hacerlo y es falso: proyectando los vencimientos de los trials **activos de
+hoy**, la ventana estaría ocupada **14 de los próximos 30 días**, y eso es cota
+inferior porque no cuenta los trials que empiecen mañana. Un harness que sale exit 2
+la mitad de las mañanas no es un canary, es ruido — y el propio SKILL.md del canary
+dice que un exit 2 repetido hay que reportarlo como "lleva días sin poder opinar".
+El gate lo volvió **seguro**, no diario. Para recontarlo cuando cambie la base:
+
+```bash
+node -e "require('dotenv/config');const{supabase}=require('./lib/db');const t=require('./lib/trial');const{hoyPeru,sumarDias}=require('./lib/dates');supabase.from('usuarios').select('is_test_user,trial_vence').eq('trial_estado','activo').then(({data})=>{const v=(data||[]).filter(u=>u.is_test_user!==true&&u.trial_vence).map(u=>u.trial_vence.slice(0,10));let o=0;for(let d=0;d<30;d++){const dia=sumarDias(hoyPeru(),d);if(v.filter(x=>x<=sumarDias(dia,t.AVISO_DIAS_ANTES)&&x>=dia).length)o++}console.log('ventana ocupada '+o+'/30 dias')})"
+```
+
+Lo que sí lo habilitaría es otra cosa: que `checkTrialExpiry` acepte un scope opcional
+de usuario, como `obtenerDeudasProximasVencer` permite acotar en `qa-cron-deudas`. Eso
+es tocar producción para hacer testeable el cron, y es una decisión aparte.
 
 | Harness | Qué afirma | Cuándo correrlo |
 |---|---|---|
@@ -180,6 +205,7 @@ los deja fuera del diario. `qa-muro-whatsapp.mjs` sí está en el canary porque 
 | `qa-onboarding-paso2-pro.mjs` | Quien elige Pro durante el alta queda en `onboarding_paso=2`, y las cuatro vías que lo devuelven a 0 (no solo `/pago`) | Al tocar el alta con Pro o `esperaComprobante()` |
 | `qa-instrumentacion-funnel.mjs` | La instrumentación del funnel (migración 050): que los turnos del alta se registren, que era el punto ciego del barrido de churn | Al tocar el logging del funnel o las métricas de alta |
 | `qa-bsuid-username.mjs` | Reconocimiento por BSUID: un usuario con username de WhatsApp llega sin `from`, por los DOS caminos (mensaje entrante y callback de status) + control negativo | Al tocar `persistirBsuid`, el webhook o `lib/whatsapp.js` |
+| `qa-bsuid-media.mjs` | El mismo camino sin `from` pero con una FOTO: Vision real, el gasto queda registrado y **no sale un solo mensaje** (el silencio se asevera). Con control negativo —a un BSUID desconocido ni se le corre Vision— y la retransmisión de Meta. Cubre imagen, no audio | Al tocar `services/registro-silencioso.js`, `services/media-intake.js` o el bloque `if (!from)` |
 | `qa-handler-directo.mjs` | Despacha intents contra el intent-registry SALTEANDO el NLP, que es lo único que permite verificar la respuesta de un intent concreto sin que el clasificador elija por vos | Al tocar un handler de intent puntual |
 | `qa-respuestas-finales.mjs` | El pipeline completo (NLP incluido) y el tiempo de cada intent: la respuesta exacta que recibiría el usuario | Al tocar redacción con IA o el registry |
 | `probe-system-prompt.mjs` | Que el system prompt maestro llegue REALMENTE al modelo. Cierra el ENOENT silencioso que dejó a producción respondiendo con un fallback de una línea | Al mover o renombrar los archivos de prompt |

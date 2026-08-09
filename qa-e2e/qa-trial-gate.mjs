@@ -75,6 +75,21 @@ const check = (name, cond, detail) => {
   return !!cond;
 };
 
+// ── "No se pudo medir" (exit 2) vs "el trial/muro se rompió" (exit 1) ────────────────
+//
+// Existe por UNA razón concreta: este harness corre `checkTrialExpiry`, un cron BULK contra
+// la Supabase de producción. Con gente real en la ventana del cron, lo único que impedía que
+// les llegara un WhatsApp era el spy de arriba, y lo único que impedía que se les bajara el
+// plan era que la barrera `qa-guard` abortara la escritura DENTRO del `try/catch` por usuario
+// del cron — donde un throw es una línea de log que nadie ve. Nunca se midió que eso funcione,
+// y no se puede medir un día con la ventana vacía.
+//
+// Así que en vez de confiar en esas dos redes, no se corre. El spy y la barrera siguen puestos
+// (defensa en profundidad: protegen si alguien alguna vez saltea este gate), pero ya no son lo
+// que sostiene la seguridad — la sostiene no ejecutar el cron.
+class Inconcluso extends Error {}
+const inconcluso = (motivo) => { throw new Inconcluso(motivo); };
+
 let userId = null;
 const leer = async (cols = '*') => {
   const { data } = await supabase.from('usuarios').select(cols).eq('id', userId).maybeSingle();
@@ -158,15 +173,37 @@ async function run() {
     plan: 'premium', trial_estado: 'activo', trial_vence: sumarDias(hoyPeru(), -1),
     premium_vence: null, premium_desde: null,
   }).eq('id', userId);
-  // Pre-vuelo obligatorio antes de correr un cron BULK contra la Supabase de producción:
-  // medir a cuánta gente real alcanza. Con 0 en ventana el cron solo puede tocar al
-  // throwaway; con >0, el spy de arriba es lo único que impide que les llegue un WhatsApp,
-  // así que el número tiene que quedar impreso en la corrida y no adivinarse después.
-  const { data: enVentana } = await supabase.from('usuarios').select('id, is_test_user')
+  // ── Pre-vuelo: GATE, no reporte ───────────────────────────────────────────
+  //
+  // Hasta el 09-ago-2026 esto medía el radio del cron bulk y solo lo IMPRIMÍA
+  // (`check(..., true, ...)`, o sea que pasaba siempre). Un número impreso no protege a
+  // nadie: la corrida seguía igual y le pasaba el cron por encima a quien estuviera en la
+  // ventana. Ahora, si hay UNA sola persona real ahí, el harness no corre el cron y sale
+  // inconcluso. Es la diferencia entre documentar el riesgo y no correrlo.
+  //
+  // La ventana de acá (`trial_vence <= hoy+AVISO_DIAS_ANTES`) es SUPERCONJUNTO de las tres
+  // queries que checkTrialExpiry ejecuta de verdad: aviso d11 (`= hoy+3`), aviso d14
+  // (`= hoy`) y downgrade (`< hoy`). Sobre-reporta y nunca sub-reporta, que es la única
+  // dirección aceptable: sobre-reportar cuesta un exit 2 de más, sub-reportar significa que
+  // el cron toca a alguien que este gate no contó. Si algún día se agrega una rama con una
+  // ventana MÁS ANCHA que hoy+AVISO_DIAS_ANTES, esta cota deja de valer y hay que ampliarla
+  // acá. `AVISO_DIAS_ANTES` se importa de lib/trial.js, así que mover esa constante ya está
+  // cubierto; lo que no está cubierto es una rama nueva.
+  const { data: enVentana, error: eVentana } = await supabase.from('usuarios')
+    .select('id, is_test_user, trial_vence')
     .eq('trial_estado', 'activo').lte('trial_vence', sumarDias(hoyPeru(), trial.AVISO_DIAS_ANTES));
+  // Sin poder MEDIR el radio no se corre tampoco: un error de lectura leído como "no había
+  // nadie" es exactamente el fallo que este gate viene a evitar.
+  if (eVentana) inconcluso('no se pudo medir el radio del cron bulk: ' + eVentana.message);
   const realesEnVentana = (enVentana || []).filter((u) => u.is_test_user !== true && u.id !== userId);
-  check('pre-vuelo: se midió el radio del cron bulk ANTES de correrlo', true,
-    realesEnVentana.length + ' usuarios reales en la ventana del cron');
+  if (realesEnVentana.length > 0) {
+    inconcluso('hay ' + realesEnVentana.length + ' usuario(s) REAL(es) en la ventana de checkTrialExpiry ' +
+      '(vencen ' + [...new Set(realesEnVentana.map((u) => u.trial_vence))].sort().join(', ') + '). ' +
+      'No se corre el cron: a esa gente le tocaría el aviso de fin de trial o el downgrade al muro. ' +
+      'Volvé a correrlo un día con la ventana vacía.');
+  }
+  check('pre-vuelo: la ventana del cron bulk está vacía de usuarios reales', true,
+    '0 reales (' + (enVentana || []).length + ' filas en ventana, todas de prueba)');
   await checkTrialExpiry();
   const uMuro = await leer();
   check('checkTrialExpiry baja el plan a free', uMuro.plan === 'free', 'plan=' + uMuro.plan);
@@ -250,10 +287,31 @@ async function cleanup() {
 }
 
 let fatal = null;
-try { await run(); } catch (e) { fatal = e; console.log('FAIL excepción — ' + e.message); }
+let infra = null;
+try { await run(); } catch (e) {
+  if (e instanceof Inconcluso) { infra = e; console.log('INCONCLUSO — ' + e.message); }
+  else { fatal = e; console.log('FAIL excepción — ' + e.message); }
+}
+// Corre siempre: el gate del pre-vuelo aborta DESPUÉS de haber sembrado el throwaway, así
+// que hay una fila en PRODUCCIÓN que sacar aunque no se haya medido nada.
 try { await cleanup(); } catch (e) { console.log('FAIL limpieza — ' + e.message); fatal = fatal || e; }
 
 const fallidos = results.filter((r) => !r.pass);
 console.log('\n=== ' + (results.length - fallidos.length) + '/' + results.length + ' checks OK ===');
 if (fatal) console.log(fatal.stack);
-process.exit(fallidos.length === 0 && !fatal ? 0 : 1);
+
+// Un check rojo GANA sobre el inconcluso: lo ya medido es un veredicto y no se degrada a
+// "no pude opinar". La incertidumbre solo empuja hacia el lado ruidoso.
+//
+// `process.exitCode`, NO `process.exit()`: en Windows salir con sockets keep-alive de fetch
+// abiertos devuelve 127, y un exit 2 que llega como 127 se lee como fallo desconocido.
+if (fallidos.length || fatal) {
+  console.log('==> REGRESIÓN (exit 1)');
+  process.exitCode = 1;
+} else if (infra) {
+  console.log('==> INCONCLUSO (exit 2) — ' + infra.message);
+  process.exitCode = 2;
+} else {
+  console.log('==> OK');
+  process.exitCode = 0;
+}
