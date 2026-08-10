@@ -7,7 +7,13 @@ import { chromium } from 'playwright';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { cerrar } from './lib/veredicto.mjs';
+import 'dotenv/config';
+import { createRequire } from 'module';
+import { instalarGuard } from './lib/qa-guard.mjs';
 
+const require = createRequire(import.meta.url);
+const supabase = instalarGuard(require, '../lib/db');
 const APP = 'https://app.neto.pe';
 const env = {};
 for (const l of readFileSync(join(homedir(), '.config', 'neto', 'qa.env'), 'utf8').split(/\r?\n/)) { const m = l.match(/^([A-Z0-9_]+)=(.*)$/); if (m) env[m[1]] = m[2]; }
@@ -30,6 +36,35 @@ async function ctxFor(P) {
 const J = (o) => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(o) });
 const JP = (o) => ({ method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(o) });
 const R = { A_free: {}, B_balances: {} };
+
+// ── Precondición: el usuario "QA Free" tiene que estar DE VERDAD en el muro ──
+//
+// El fixture se auto-destruye y por eso hay que comprobarlo en cada corrida, no suponerlo.
+// El trial arranca solo con el PRIMER GASTO, así que cualquier harness que le registre uno a
+// este usuario (money-edge, por-revisar, los sweeps) le da 14 días de `plan='premium'` y deja
+// de ser Free. Y como durante el trial `plan` vale `premium`, entregarle todo Pro pasa a ser
+// el comportamiento CORRECTO.
+//
+// Medido el 09-ago-2026, la primera vez que este archivo tuvo exit code: el usuario estaba en
+// `trial_estado='activo'` hasta el 18-ago y las cinco aserciones de la Parte A salían rojas.
+// Ninguna era una regresión. Sin esta comprobación, este harness reporta "las features Pro
+// están abiertas para el Free" —lo más alarmante que puede decir— cada vez que alguien le
+// registra un gasto de prueba.
+let preconFree = null;
+{
+  const { data: uFree } = await supabase.from('usuarios')
+    .select('plan, trial_estado, trial_vence').eq('id', env.NETO_QA_FREE_USUARIO_ID).maybeSingle();
+  R.preconFree = uFree || null;
+  if (!uFree) {
+    preconFree = 'no se pudo leer al usuario QA Free (' + env.NETO_QA_FREE_USUARIO_ID + ')';
+  } else if (uFree.plan === 'premium') {
+    preconFree = `el usuario "QA Free" NO está en el muro: plan=${uFree.plan}, trial_estado=${uFree.trial_estado}` +
+      (uFree.trial_vence ? `, vence ${uFree.trial_vence}` : '') + '. Durante el trial `plan` vale ' +
+      '`premium`, así que darle las features Pro es CORRECTO y la Parte A no puede afirmar nada. ' +
+      'Alguien (probablemente otro harness) le registró un gasto y le arrancó el trial. Para volver ' +
+      "a usarlo: UPDATE usuarios SET plan='free', trial_estado='vencido' WHERE id='" + env.NETO_QA_FREE_USUARIO_ID + "'";
+  }
+}
 
 // ---------- Part A: Free gating ----------
 {
@@ -86,5 +121,65 @@ const R = { A_free: {}, B_balances: {} };
   await pro.ctx.close(); await free.ctx.close();
 }
 
-console.log(JSON.stringify(R, null, 2));
+// ── Veredicto ───────────────────────────────────────────────────────────────
+// Los nombres de campo YA son el contrato: `create2_expect403`, `detIsPro_expectFalse`,
+// `proBalance_expect80`. Se leen como declaración en vez de reescribir las expectativas
+// abajo, y eso tiene una propiedad que una lista a mano no tiene: un campo `_expect*`
+// NUEVO queda asertado solo. La lista paralela se habría desincronizado al primer agregado,
+// que es el mismo modo de fallo que el stub copiado de qa-cron-deudas.
+//
+// (No es "medir el nombre en vez del comportamiento": acá el sufijo no es una heurística
+// sobre qué hace el archivo, es la expectativa que el autor escribió explícitamente.)
+const fallas = [];
+let medidos = 0;
+
+const esperado = (clave) => {
+  let m;
+  if ((m = clave.match(/_expectNeg(\d+(?:\.\d+)?)$/))) return { hay: true, val: -Number(m[1]) };
+  if ((m = clave.match(/_expect(\d+(?:\.\d+)?)$/)))    return { hay: true, val: Number(m[1]) };
+  if (/_expectTrue$/.test(clave))                       return { hay: true, val: true };
+  if (/_expectFalse$/.test(clave))                      return { hay: true, val: false };
+  return { hay: false };
+};
+
+for (const [seccion, campos] of Object.entries(R)) {
+  for (const [clave, real] of Object.entries(campos)) {
+    const e = esperado(clave);
+    if (!e.hay) continue;
+    medidos++;
+    if (real !== e.val) fallas.push(`${seccion}.${clave}: esperaba ${JSON.stringify(e.val)}, vino ${JSON.stringify(real)}`);
+  }
+}
+
+// Los que no llevan el sufijo en el nombre pero sí son afirmaciones.
+if (R.A_free.create1 !== undefined) {
+  medidos++;
+  if (!(R.A_free.create1 < 300)) fallas.push(`A_free.create1: un Free tiene que poder crear SU PRIMER espacio, vino ${R.A_free.create1}`);
+}
+if (R.B_balances.freeJoin !== undefined) {
+  medidos++;
+  if (!(R.B_balances.freeJoin < 300)) fallas.push(`B_balances.freeJoin: el Free no pudo unirse al espacio del Pro, vino ${R.B_balances.freeJoin}`);
+}
+if (R.B_balances.ruleApplied !== undefined) {
+  medidos++;
+  // Sin esto, un motor que ignore split_rules y divida 50/50 daría balance 100 en vez de 80,
+  // que es exactamente la divergencia que este archivo existe para vigilar.
+  if (R.B_balances.ruleApplied !== true) fallas.push('B_balances.ruleApplied: la regla 70/30 por categoría NO movió los balances (¿se está dividiendo 50/50?)');
+}
+
+// Con la precondición rota, las rojas de la Parte A son ruido: se descartan y el veredicto
+// pasa a inconcluso. Las de la Parte B (que NO dependen de que el Free sea free, porque
+// miden el motor de reparto de un espacio del Pro) se conservan.
+let inconcluso = null;
+if (preconFree) {
+  const antes = fallas.length;
+  for (let i = fallas.length - 1; i >= 0; i--) if (fallas[i].startsWith('A_free.')) fallas.splice(i, 1);
+  R.descartadasPorPrecondicion = antes - fallas.length;
+  inconcluso = preconFree;
+} else if (R.B_balances.err) {
+  // Antivacuidad con otra forma: la parte B se cayó entera y dejaría la A verde por sí sola.
+  inconcluso = 'la parte B (balances con regla por categoría) se cayó y no llegó a medir: ' + R.B_balances.err;
+}
+
+cerrar({ nombre: 'ESPACIOS-GATING', fallas, medidos, inconcluso, R });
 await br.close();

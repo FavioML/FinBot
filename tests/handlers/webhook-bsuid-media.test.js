@@ -101,6 +101,14 @@ function visionResponde(obj) {
   visionCreate.mockResolvedValueOnce({ choices: [{ message: { content: JSON.stringify(obj) } }] });
 }
 
+// Al admin le puede llegar más de un aviso por el mismo mensaje (el de "primera vez sin
+// número" y el del comprobante son eventos distintos), así que contar llamadas totales hace
+// que un test se rompa por un aviso que no es el suyo. Estos helpers preguntan por el aviso
+// concreto.
+const avisos = () => notificarAdmin.mock.calls.map((c) => c[0]);
+const avisosQueMatchean = (re) => avisos().filter((m) => re.test(m));
+const PRIMERA_VEZ = /Primera vez sin número/i;
+
 const YAPE_GASTO = {
   tipo: 'gasto', monto: 23.45, moneda: 'PEN', comercio: 'Pollería El Rancho',
   categoria: 'Alimentación', subcategoria: 'Restaurantes', metodo_pago: 'Yape', fecha: '2026-08-09',
@@ -266,11 +274,13 @@ describe('mensaje sin `from` con media, de un usuario reconocido por BSUID', () 
 
       await postSinFrom(imagen());
 
-      expect(notificarAdmin).toHaveBeenCalledOnce();
-      const aviso = notificarAdmin.mock.calls[0][0];
-      expect(aviso).toMatch(/a medias/i);
-      expect(aviso).toContain(usuarioId);
-      expect(aviso).toMatch(/no quedó la fila en `pagos`/);
+      const alarmas = avisosQueMatchean(/a medias/i);
+      expect(alarmas).toHaveLength(1);
+      expect(alarmas[0]).toContain(usuarioId);
+      expect(alarmas[0]).toMatch(/no quedó la fila en `pagos`/);
+      // "en vez de un OK" es la mitad del nombre del test: contar SOLO el propio dejaba pasar
+      // un "Apróbalo normal" espurio al lado de la alarma. El otro aviso es el de primera vez.
+      expect(avisos()).toHaveLength(2);
       // Y no se le suma el gasto de suscripción a una solicitud que no existe.
       expect(guardarTransaccion).not.toHaveBeenCalled();
     });
@@ -284,8 +294,8 @@ describe('mensaje sin `from` con media, de un usuario reconocido por BSUID', () 
 
       await postSinFrom(imagen());
 
-      expect(notificarAdmin).toHaveBeenCalledOnce();
-      expect(notificarAdmin.mock.calls[0][0]).toMatch(/pago_pendiente/);
+      expect(avisosQueMatchean(/pago_pendiente/)).toHaveLength(1);
+      expect(avisos()).toHaveLength(2);
     });
 
     it('si el comprobante no subió a Storage, también avisa', async () => {
@@ -295,7 +305,7 @@ describe('mensaje sin `from` con media, de un usuario reconocido por BSUID', () 
 
       await postSinFrom(imagen());
 
-      expect(notificarAdmin.mock.calls[0][0]).toMatch(/Storage/);
+      expect(avisosQueMatchean(/Storage/)).toHaveLength(1);
     });
 
     // El throw de `registrarSolicitudPro` viene casi siempre de la notificación al admin, o sea
@@ -307,11 +317,11 @@ describe('mensaje sin `from` con media, de un usuario reconocido por BSUID', () 
 
       await postSinFrom(imagen());
 
-      expect(notificarAdmin).toHaveBeenCalledOnce();
-      const aviso = notificarAdmin.mock.calls[0][0];
-      expect(aviso).toMatch(/a medias/i);
-      expect(aviso).toMatch(/REVISA la tabla `pagos`/);
-      expect(aviso).not.toMatch(/reconstruirlo a mano/);
+      const alarmas = avisosQueMatchean(/a medias/i);
+      expect(alarmas).toHaveLength(1);
+      expect(alarmas[0]).toMatch(/REVISA la tabla `pagos`/);
+      expect(alarmas[0]).not.toMatch(/reconstruirlo a mano/);
+      expect(avisos()).toHaveLength(2);
     });
 
     it('una captura que no es el pago a Neto se guarda como gasto y se avisa al admin', async () => {
@@ -322,9 +332,8 @@ describe('mensaje sin `from` con media, de un usuario reconocido por BSUID', () 
 
       expect(registrarSolicitudPro).not.toHaveBeenCalled();
       expect(guardarTransaccion).toHaveBeenCalledOnce();
-      expect(notificarAdmin).toHaveBeenCalledOnce();
       // El aviso se manda DESPUÉS de guardar y dice lo que de verdad pasó.
-      expect(notificarAdmin.mock.calls[0][0]).toMatch(/Se registró como gasto/);
+      expect(avisosQueMatchean(/Se registró como gasto/)).toHaveLength(1);
     });
 
     it('si además no se pudo registrar, el aviso no miente', async () => {
@@ -334,7 +343,7 @@ describe('mensaje sin `from` con media, de un usuario reconocido por BSUID', () 
       await postSinFrom(imagen());
 
       expect(guardarTransaccion).not.toHaveBeenCalled();
-      expect(notificarAdmin.mock.calls[0][0]).toMatch(/No se registró nada/);
+      expect(avisosQueMatchean(/No se registró nada/)).toHaveLength(1);
     });
 
     // `esperaComprobante` no vence cuando el usuario quedó en onboarding_paso 2, y a este
@@ -348,7 +357,7 @@ describe('mensaje sin `from` con media, de un usuario reconocido por BSUID', () 
       visionResponde(YAPE_GASTO);
       await postSinFrom(imagen());
 
-      expect(notificarAdmin).toHaveBeenCalledOnce();
+      expect(avisosQueMatchean(/no parece el pago a Neto/)).toHaveLength(1);
     });
 
     // Lo que el throttle NO puede comerse: esta rama es justo donde cae un comprobante Pro real
@@ -363,8 +372,46 @@ describe('mensaje sin `from` con media, de un usuario reconocido por BSUID', () 
       visionResponde({ ...YAPE_GASTO, monto: 10, comercio: 'F. Mendoza L.' });
       await postSinFrom(imagen());
 
-      expect(notificarAdmin).toHaveBeenCalledTimes(2);
-      expect(notificarAdmin.mock.calls[1][0]).toMatch(/F\. Mendoza L\./);
+      expect(avisosQueMatchean(/no parece el pago a Neto/)).toHaveLength(2);
+      expect(avisosQueMatchean(/F\. Mendoza L\./)).toHaveLength(1);
+    });
+  });
+
+  // Que un usuario CONOCIDO llegue sin número no había pasado nunca hasta el 10-ago-2026, y lo
+  // único que lo registraba era un log de Railway que nadie mira. Es el evento que abre la
+  // única ventana para medir si al número guardado todavía le llega algo.
+  describe('aviso de la primera vez', () => {
+    it('avisa al admin la primera vez que un conocido llega sin número', async () => {
+      mockFetchOk('image/jpeg');
+      visionResponde(YAPE_GASTO);
+      buscarUsuarioPorBsuid.mockResolvedValue({ ...CONOCIDO, id: 'u-primera-vez' });
+
+      await postSinFrom(imagen());
+
+      const primeros = avisosQueMatchean(PRIMERA_VEZ);
+      expect(primeros).toHaveLength(1);
+      const aviso = primeros[0];
+      expect(aviso).toContain('u-primera-vez');
+      expect(aviso).toContain('probe-envio-username');   // el aviso trae el comando de la medición
+    });
+
+    it('no lo repite en cada mensaje del mismo usuario', async () => {
+      buscarUsuarioPorBsuid.mockResolvedValue({ ...CONOCIDO, id: 'u-repetido' });
+      parsearRegistroManual.mockResolvedValue({ ok: true, tipo: 'gasto', monto: 10 });
+
+      await postSinFrom({ type: 'text', text: { body: 'gasté 10 en pan' } });
+      await postSinFrom({ type: 'text', text: { body: 'gasté 20 en taxi' } });
+
+      expect(notificarAdmin).toHaveBeenCalledOnce();
+    });
+
+    it('también avisa cuando el tipo no se puede procesar (un documento)', async () => {
+      buscarUsuarioPorBsuid.mockResolvedValue({ ...CONOCIDO, id: 'u-documento' });
+
+      await postSinFrom({ type: 'document', document: { id: 'doc-1' } });
+
+      expect(notificarAdmin).toHaveBeenCalledOnce();
+      expect(notificarAdmin.mock.calls[0][0]).toMatch(/Primera vez sin número/i);
     });
   });
 

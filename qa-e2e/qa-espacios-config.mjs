@@ -13,6 +13,12 @@ import { chromium } from 'playwright';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { cerrar } from './lib/veredicto.mjs';
+import 'dotenv/config';
+import { createRequire } from 'module';
+import { instalarGuard } from './lib/qa-guard.mjs';
+const require = createRequire(import.meta.url);
+const supabase = instalarGuard(require, '../lib/db');
 
 const APP = 'https://app.neto.pe';
 function loadEnv(path) {
@@ -209,5 +215,54 @@ try {
 
 delete R.pro.__ctx; delete R.pro.__api; delete R.pro.__deleteId;
 
-console.log(JSON.stringify(R, null, 2));
+// ── Precondición: el "QA Free" tiene que estar DE VERDAD en el muro ──────────
+// Mismo caso que qa-espacios-gating-verify, y por eso la comprobación es la misma: el trial
+// arranca con el primer gasto, así que cualquier harness que le registre uno a este usuario
+// lo deja en `plan='premium'` por 14 días. Y con `premium`, que las features Pro le abran es
+// el comportamiento CORRECTO — los `*Allowed` de abajo saldrían "BUG" siendo todos falsos
+// positivos. Medido el 09-ago-2026: estaba en trial activo hasta el 18-ago.
+let preconFree = null;
+try {
+  const { data: uFree } = await supabase.from('usuarios')
+    .select('plan, trial_estado, trial_vence').eq('id', env.NETO_QA_FREE_USUARIO_ID).maybeSingle();
+  R.preconFree = uFree || null;
+  if (!uFree) preconFree = 'no se pudo leer al usuario QA Free';
+  else if (uFree.plan === 'premium') {
+    preconFree = `el usuario "QA Free" NO está en el muro (plan=${uFree.plan}, trial_estado=${uFree.trial_estado}). ` +
+      'Durante el trial `plan` vale `premium`, así que abrirle las features Pro es CORRECTO y la sección ' +
+      "`free` no puede afirmar nada. Restaurá: UPDATE usuarios SET plan='free', trial_estado='vencido' " +
+      `WHERE id='${env.NETO_QA_FREE_USUARIO_ID}'`;
+  }
+} catch (e) { preconFree = 'no se pudo comprobar el plan del QA Free: ' + e.message; }
+
+// ── Veredicto ───────────────────────────────────────────────────────────────
+// Los tres `*Allowed` YA llevan escrito `// BUG if true` al lado. Se afirman como tales.
+const fallas = [];
+let medidos = 0;
+const afirmar = (ok, msg) => { medidos++; if (!ok) fallas.push(msg); };
+
+if (!preconFree) {
+  if (R.free.secondSpaceAllowed !== undefined) {
+    afirmar(R.free.secondSpaceAllowed === false,
+      `un Free creó un SEGUNDO espacio (status ${R.free.create2Status}); el límite es 1`);
+  }
+  if (R.free.splitRuleAllowed !== undefined) {
+    afirmar(R.free.splitRuleAllowed === false,
+      `un Free pudo escribir reglas de división (status ${R.free.splitRuleStatus}); es feature Pro`);
+  }
+  if (R.free.budgetAllowed !== undefined) {
+    afirmar(R.free.budgetAllowed === false,
+      `un Free pudo escribir presupuestos de espacio (status ${R.free.budgetStatus}); es feature Pro`);
+  }
+  if (R.free.detailIsPro !== undefined) {
+    afirmar(R.free.detailIsPro === false, 'el detalle del espacio de un Free reporta isPro=true');
+  }
+  // La UI no puede ser la única defensa, pero tampoco debe ofrecer lo que el servidor rechaza.
+  if (R.free.uiAddRuleBtn !== undefined) {
+    afirmar(R.free.uiAddRuleBtn === false, 'la UI le ofrece "Agregar regla" a un Free');
+  }
+}
+
+const inconcluso = preconFree || (R.free.err ? 'la sección free se cayó: ' + R.free.err : null);
+cerrar({ nombre: 'ESPACIOS-CONFIG', fallas, medidos, inconcluso, R });
 await browser.close();

@@ -5,6 +5,7 @@ import { chromium } from 'playwright';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { cerrar } from './lib/veredicto.mjs';
 const APP='https://app.neto.pe';
 function le(p){const e={};for(const l of readFileSync(p,'utf8').split(/\r?\n/)){const m=l.match(/^([A-Z0-9_]+)=(.*)$/);if(m)e[m[1]]=m[2];}return e;}
 const env=le(join(homedir(),'.config','neto','qa.env'));
@@ -27,9 +28,24 @@ const rows=()=>pg.locator('table tbody tr').count();
 
 // Escape hatch present?
 const hatch = pg.getByText(/en otros meses/i).first();
+R.rowsPeriod = await rows();
 R.escapeHatchVisible = await hatch.isVisible().catch(()=>false);
 R.escapeHatchText = R.escapeHatchVisible ? (await hatch.innerText()).trim() : null;
-if (R.escapeHatchVisible) {
+
+const fallas = [];
+let medidos = 0;
+let inconcluso = null;
+
+if (!R.escapeHatchVisible) {
+  // Acá está el problema de fondo de este harness y por eso NO es exit 1: sin el escape
+  // hatch visible no se puede distinguir "la feature se rompió" de "las filas semilla del
+  // mes anterior no existen", y este archivo depende de que las siembre `qa-por-revisar.mjs`.
+  // Antes reportaba `escapeHatchVisible: false` y salía 0, que es la peor de las tres
+  // respuestas posibles: parecía un pase.
+  inconcluso = 'no está el escape hatch "+N en otros meses". Puede ser que la feature se ' +
+    'rompió O que no existen las filas semilla del mes anterior: corré `node qa-e2e/qa-por-revisar.mjs` ' +
+    'primero y volvé. Este harness no puede separar las dos causas por sí solo';
+} else {
   await hatch.click().catch(()=>{});
   await pg.waitForTimeout(1200);
   R.rowsGlobal = await rows();
@@ -37,6 +53,17 @@ if (R.escapeHatchVisible) {
   R.pastRowVisible = await pg.getByText('QA REVISAR PASADO').first().isVisible().catch(()=>false);
   // Banner should now indicate global scope
   R.globalBannerText = await pg.getByText(/por revisar/i).first().innerText().catch(()=>'');
+
+  medidos = 2;
+  if (!R.pastRowVisible) {
+    fallas.push('el escape hatch se abrió pero la fila del mes anterior ("QA REVISAR PASADO") ' +
+      'NO aparece: expandir a global no está trayendo el backlog de meses previos, que es lo único que hace');
+  }
+  if (!(R.rowsGlobal > R.rowsPeriod)) {
+    fallas.push(`expandir no agregó filas (periodo=${R.rowsPeriod}, global=${R.rowsGlobal}). ` +
+      'El hatch anuncia "+N en otros meses", así que global tiene que ser estrictamente mayor');
+  }
 }
-console.log(JSON.stringify(R,null,2));
+
+cerrar({ nombre: 'PORREVISAR-ESCAPE', fallas, medidos, inconcluso, R });
 await br.close();

@@ -36,6 +36,14 @@ const buscarUsuarioPorBsuid = vi.fn().mockResolvedValue(null);
 require('../../helpers/db-helpers').buscarUsuarioPorBsuid = buscarUsuarioPorBsuid;
 const registrarGastoSilencioso = vi.fn().mockResolvedValue({ registrado: true, motivo: 'ok' });
 require('../../services/registro-silencioso').registrarGastoSilencioso = registrarGastoSilencioso;
+// Hay que mockearlo aunque este archivo no lo verifique. Sin esto corre el real, que llama a
+// `notificarAdmin` → Telegram sin token → **fallback a `enviarWhatsapp(ADMIN_NUMBER)`**, que es
+// justo el mock que vigilan los tests de "NO intenta responderle". Quedaban en verde solo
+// porque el test anterior ya había quemado la clave del throttle para ese mismo usuario: un
+// reordenamiento, un `.only` o un `-t` los ponía rojos por un aviso al admin, no por una
+// respuesta al usuario.
+const avisarPrimeraVezSilencioso = vi.fn().mockResolvedValue(undefined);
+require('../../services/registro-silencioso').avisarPrimeraVezSilencioso = avisarPrimeraVezSilencioso;
 const notificarErrorAdmin = vi.fn();
 require('../../lib/admin-notify').notificarErrorAdmin = notificarErrorAdmin;
 

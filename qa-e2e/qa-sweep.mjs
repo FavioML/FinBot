@@ -8,6 +8,7 @@ import { chromium } from 'playwright';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { cerrar } from './lib/veredicto.mjs';
 
 const APP = process.env.NETO_APP_URL || 'https://app.neto.pe';
 const PLAN = (process.argv[2] || 'pro').toLowerCase();
@@ -190,6 +191,47 @@ R.txFailed = [...failed];
 R.allApiSample = apiCalls.slice(-25);
 
 log(`\n==== SWEEP ${PLAN.toUpperCase()} ====`);
+
+// ── Veredicto ───────────────────────────────────────────────────────────────
+// Las dos mitades se juzgan por separado porque fallan por motivos distintos, y sobre todo
+// porque la de transacciones tiene una precondición de DATOS: sin filas en la tabla, sus
+// flags valen `false` por vacío y no por regresión. Antes eso salía 0 igual y el JSON
+// mostraba `tableRows: 0, searchFound: false` como si fuera un pase.
+const fallas = [];
+let medidos = 0;
+let inconcluso = null;
+
+const afirmar = (ok, msg) => { medidos++; if (!ok) fallas.push(msg); };
+
+// Mitad dashboard: no depende de datos sembrados.
+afirmar(R.overlayPresent === 0, `quedaron ${R.overlayPresent} overlays de onboarding tapando la vista`);
+afirmar(R.anualTabFound === true, 'no se encontró la pestaña Anual');
+afirmar(R.afterAnualHasYearSelect === true, 'la pestaña Anual no muestra el selector de año');
+afirmar(R.donutFound === true, 'no se encontró el donut de categorías');
+afirmar(R.categoryDialogOpened === true, 'el diálogo de categoría no abre al clickear el donut');
+afirmar(R.dialogHasTx === true, 'el diálogo de categoría abre VACÍO (sin transacciones dentro)');
+afirmar(R.recurringCard === true, 'no se encontró la tarjeta de Pagos Recurrentes');
+afirmar(R.recurringVerTodos === true, 'la tarjeta de recurrentes no ofrece "Ver todos"');
+afirmar(R.dashConsoleErrors.length === 0, `${R.dashConsoleErrors.length} errores de consola en /dashboard: ${R.dashConsoleErrors.slice(0,3).join(' | ')}`);
+afirmar(R.dashFailed.length === 0, `${R.dashFailed.length} respuestas 4xx/5xx en /dashboard: ${R.dashFailed.slice(0,3).join(' | ')}`);
+
+// Mitad transacciones: los errores de red y consola se afirman SIEMPRE (no dependen de que
+// haya filas), los flags de interacción solo si la tabla trajo algo.
+afirmar(R.txConsoleErrors.length === 0, `${R.txConsoleErrors.length} errores de consola en /transacciones: ${R.txConsoleErrors.slice(0,3).join(' | ')}`);
+afirmar(R.txFailed.length === 0, `${R.txFailed.length} respuestas 4xx/5xx en /transacciones: ${R.txFailed.slice(0,3).join(' | ')}`);
+
+if (R.tableRows > 0) {
+  afirmar(R.searchFound === true, 'no se encontró el buscador de transacciones');
+  afirmar(R.bulkBarShown === true, 'seleccionar filas no muestra la barra de acciones en lote');
+  afirmar(R.bulkPanelShown === true, 'el panel de edición en lote no abre');
+} else {
+  // No es falla: sin filas esos tres flags son `false` por construcción.
+  inconcluso = `la tabla de /dashboard/transacciones vino con 0 filas para el plan ${PLAN}, así que ` +
+    'las afirmaciones de búsqueda y edición en lote no se pudieron evaluar (sus flags salen `false` ' +
+    'por vacío, no por regresión). Verificá que el usuario QA de ese plan tenga transacciones';
+}
+
 log(JSON.stringify(R, null, 2));
+cerrar({ nombre: `SWEEP ${PLAN.toUpperCase()}`, fallas, medidos, inconcluso });
 
 await browser.close();

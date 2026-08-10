@@ -13,6 +13,7 @@ import { chromium } from 'playwright';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { cerrar } from './lib/veredicto.mjs';
 
 const APP = process.env.NETO_APP_URL || 'https://app.neto.pe';
 const PLAN = (process.argv[2] || 'pro').toLowerCase();
@@ -215,5 +216,38 @@ R.api.statusDesyncRepro = repro;
 
 log(`\n==== PLANNING SWEEP ${PLAN.toUpperCase()} ====`);
 log(JSON.stringify(R, null, 2));
+
+// ── Veredicto ───────────────────────────────────────────────────────────────
+// Cada ruta trae sus propios `console` y `failed`, así que se afirman por ruta: saber CUÁL
+// de las tres se rompió vale más que un contador global.
+//
+// Los 4xx se filtran por plan: con el usuario en el muro, un 402/403 es el gate funcionando.
+const fallas = [];
+let medidos = 0;
+const afirmar = (ok, msg) => { medidos++; if (!ok) fallas.push(msg); };
+const esperadoPorGating = (l) => PLAN === 'free' && /\b(402|403)\b/.test(l);
+
+for (const [ruta, d] of Object.entries(R.ui || {})) {
+  const cons = d.console || [], fail = (d.failed || []).filter((f) => !esperadoPorGating(f));
+  afirmar(cons.length === 0, `/dashboard/${ruta}: ${cons.length} errores de consola — ${cons.slice(0,2).join(' | ')}`);
+  afirmar(fail.length === 0, `/dashboard/${ruta}: ${fail.length} respuestas 4xx/5xx no explicadas por el gating — ${fail.slice(0,2).join(' | ')}`);
+}
+
+// El invariante de metas: `status` tiene que moverse junto con `completada`. Una meta cumplida
+// que sigue contándose como activa es el bug de be62837, y este repro existe para eso; hasta
+// hoy calculaba `shownAsActive`/`shownAsCompleted` y no los afirmaba.
+const rep = R.api?.statusDesyncRepro;
+if (rep && rep.afterContribute100 && rep.afterContribute100.completada !== undefined) {
+  afirmar(rep.afterContribute100.shownAsActive === false,
+    'una meta COMPLETADA sigue apareciendo entre las activas: `status` se desincronizó de `completada` (ver be62837)');
+  afirmar(rep.afterContribute100.shownAsCompleted === true,
+    'una meta completada NO aparece entre las completadas');
+}
+
+const inconcluso = Object.keys(R.ui || {}).length === 0
+  ? 'no se visitó ninguna de las tres rutas de planeación'
+  : (rep && rep.err ? 'el repro del invariante de metas se cayó y no llegó a medir: ' + rep.err : null);
+
+cerrar({ nombre: `PLANNING-SWEEP ${PLAN.toUpperCase()}`, fallas, medidos, inconcluso });
 
 await browser.close();

@@ -6,6 +6,7 @@ import { chromium } from 'playwright';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { cerrar } from './lib/veredicto.mjs';
 const APP='https://app.neto.pe';
 function le(p){const e={};for(const l of readFileSync(p,'utf8').split(/\r?\n/)){const m=l.match(/^([A-Z0-9_]+)=(.*)$/);if(m)e[m[1]]=m[2];}return e;}
 const env=le(join(homedir(),'.config','neto','qa.env'));
@@ -77,5 +78,38 @@ R.reset = resetStep;
 
 R.consoleErrors = errs.slice(0,8);
 R.failed = failed.slice(0,10);
-console.log(JSON.stringify(R,null,2));
+
+// ── Veredicto ───────────────────────────────────────────────────────────────
+// Este harness MUTA producción (renombra una suscripción del usuario QA y la restaura),
+// así que hay dos clases de rojo bien distintas: que el round-trip no funcione, y que
+// funcione a medias y DEJE el nombre de prueba puesto. La segunda es la que importa
+// operativamente y antes no se veía: el JSON salía y el proceso devolvía 0 igual.
+const fallas = [];
+let medidos = 0;
+let inconcluso = null;
+
+if (!renameStep.saved && !renameStep.persistsAfterReload) {
+  // Sin la tarjeta de Netflix no hay nada que renombrar. Es precondición de datos, no una
+  // regresión: la detección de suscripciones depende de que el usuario QA tenga ese gasto
+  // recurrente. Distinguirlo importa porque el harness deja de poder opinar, no falla.
+  inconcluso = 'no se pudo abrir el editor de Netflix (' + (renameStep.error || 'sin detalle') +
+    '). Suele ser que el usuario QA no tiene una suscripción detectada con ese nombre, no que ' +
+    'el override esté roto. Sembrá gastos recurrentes de Netflix y volvé';
+} else {
+  medidos = 4;
+  if (!renameStep.saved) fallas.push('no se pudo guardar el renombre: ' + (renameStep.error || 'sin detalle'));
+  if (!renameStep.persistsAfterReload) {
+    fallas.push('el renombre NO sobrevive al reload: `recurrentes_overrides` no está persistiendo, ' +
+      'o la vista no lo está leyendo');
+  }
+  if (!resetStep.clicked) {
+    fallas.push('no se pudo pulsar "Restablecer": ' + (resetStep.error || 'el botón no estaba visible'));
+  }
+  if (!resetStep.backToNetflix) {
+    fallas.push('RESTABLECER NO REVIRTIÓ, y esto deja basura en PRODUCCIÓN: la suscripción del ' +
+      'usuario QA quedó como "Netflix QA Test". Entrá a /dashboard/suscripciones y restablecela a mano');
+  }
+}
+
+cerrar({ nombre: 'SUSC-OVERRIDE', fallas, medidos, inconcluso, R });
 await br.close();

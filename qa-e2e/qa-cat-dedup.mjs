@@ -5,6 +5,7 @@ import { chromium } from 'playwright';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { cerrar } from './lib/veredicto.mjs';
 const APP='https://app.neto.pe';
 function le(p){const e={};for(const l of readFileSync(p,'utf8').split(/\r?\n/)){const m=l.match(/^([A-Z0-9_]+)=(.*)$/);if(m)e[m[1]]=m[2];}return e;}
 const env=le(join(homedir(),'.config','neto','qa.env'));
@@ -32,7 +33,21 @@ const labels = await pg.evaluate(() => {
   return out;
 });
 const R = { labels };
-if (labels) {
+const fallas = [];
+let medidos = 0;
+let inconcluso = null;
+
+// El umbral es DOS, no una. Con una sola etiqueta "no hay duplicados por mayúsculas" es
+// cierto por construcción: la afirmación no puede fallar, así que un verde no dice nada.
+// Medido el 09-ago: el usuario QA tenía exactamente 1 categoría ("Otros"), o sea que este
+// harness habría reportado OK sin poder detectar el bug que existe para vigilar. Antes ni
+// siquiera eso: salía 0 aunque la leyenda viniera vacía.
+if (!labels || labels.length < 2) {
+  inconcluso = labels === null
+    ? 'no se encontró la tarjeta "Gastos por Categoria" (¿cambió el h3, o no cargó?)'
+    : `la leyenda trae ${labels.length} categoría(s); hacen falta 2+ para que el chequeo de ` +
+      'colisión por mayúsculas pueda fallar. Sembrá gastos en otra categoría para el usuario QA';
+} else {
   // Strip emoji, keep category word(s), lowercase → find case-collisions.
   const norm = labels.map(l => l.replace(/[^\p{L}\s]/gu,'').trim().toLowerCase()).filter(Boolean);
   const seen = new Map();
@@ -41,6 +56,9 @@ if (labels) {
   R.normalized = norm;
   R.caseDuplicates = dups;
   R.noDuplicates = dups.length === 0;
+  medidos = 1;
+  if (dups.length) fallas.push(`el donut parte la misma categoría por mayúsculas: ${[...new Set(dups)].join(', ')}`);
 }
-console.log(JSON.stringify(R,null,2));
+
+cerrar({ nombre: 'CAT-DEDUP', fallas, medidos, inconcluso, R });
 await br.close();

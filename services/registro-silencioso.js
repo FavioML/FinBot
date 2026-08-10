@@ -74,9 +74,54 @@ async function registrarGastoSilencioso(texto, usuario) {
 const avisados = new Set();
 async function avisarUnaVez(clave, mensaje) {
   if (avisados.has(clave)) return false;
+  // La clave se RESERVA antes del await, no después. Entre el `has` y el `add` hay un POST a
+  // Telegram sin timeout, y el patrón real de este camino es una persona mandando varios
+  // mensajes seguidos (6 en 13 minutos, el 08-ago): con el `add` al final, los dos pasaban el
+  // `has` y salían dos avisos idénticos. La versión anterior lo ponía después argumentando que
+  // así no se quema la clave si el envío falla — y eso no compra nada, porque `notificarAdmin`
+  // se traga sus propios errores y nunca rechaza.
+  avisados.add(clave);
   await notificarAdmin(mensaje);
-  avisados.add(clave);   // después del envío, no antes: si notificarAdmin explota, no se quema
   return true;
+}
+
+/**
+ * Avisa la PRIMERA vez que un usuario conocido cae al camino silencioso.
+ *
+ * Hasta el 10-ago-2026 esto no había pasado nunca: los 7 mensajes reales sin `from` vinieron
+ * todos de BSUIDs que no están en `usuarios`. O sea que el día que ocurra es un evento nuevo
+ * —alguien a quien conocemos dejó de mandar su número— y hasta ahora lo único que lo registraba
+ * era un `log.warn` en Railway que nadie mira. Enterarse importa por dos cosas: es la primera
+ * oportunidad real de medir si al número guardado todavía se le puede escribir
+ * (`qa-e2e/probe-envio-username.mjs`), y es alguien que a partir de ese momento **no recibe
+ * ninguna respuesta** del bot.
+ *
+ * Una vez por usuario y por instancia. El try/catch es defensa en profundidad, no una rama
+ * que se pueda ejercitar: `notificarAdmin` traga sus propios errores y nunca rechaza. No le
+ * escribas un test con `mockRejectedValue` — probaría una rama que producción no toma.
+ */
+async function avisarPrimeraVezSilencioso(usuario, tipo, resultado) {
+  if (!usuario || !usuario.id) return;
+  // `r` es null cuando el tipo no se puede procesar a ciegas (un documento, un sticker), y sin
+  // esto el aviso decía literalmente "no registrado (null)".
+  const desenlace = !resultado ? 'no se puede procesar a ciegas'
+    : (resultado.registrado ? 'registrado' : 'no registrado: ' + resultado.motivo);
+  // El comando solo se ofrece si hay número que medir. Un usuario web-first tiene `whatsapp`
+  // NULL, y ahí la pregunta ni siquiera aplica.
+  const comoMedir = usuario.whatsapp
+    ? 'Es el momento de medir si al número guardado todavía le llega:\n' +
+      '`node qa-e2e/probe-envio-username.mjs ' + usuario.whatsapp + ' --confirmar`'
+    : 'No tiene número guardado, así que no hay nada que medir por WhatsApp.';
+  try {
+    await avisarUnaVez(usuario.id + '|primera-vez-silencioso',
+      '🔕 *Primera vez sin número* — el usuario `' + usuario.id + '`' +
+      (usuario.whatsapp ? ' (' + usuario.whatsapp + ')' : '') +
+      ' escribió y Meta ya NO manda su número. Lo reconocimos por su BSUID.\n\n' +
+      'Mensaje de tipo *' + tipo + '* → ' + desenlace + '.\n\n' +
+      'A partir de ahora **no recibe ninguna respuesta del bot**. ' + comoMedir);
+  } catch (e) {
+    log.error({ tag: 'BSUID_SILENCIOSO', err: e.message, usuarioId: usuario.id }, 'No se pudo avisar la primera vez');
+  }
 }
 
 // El pago de alguien a quien no se le puede responder es lo último que puede perderse en
@@ -256,4 +301,5 @@ module.exports = {
   registrarPagoParseado,
   registrarAudioSilencioso,
   registrarImagenSilenciosa,
+  avisarPrimeraVezSilencioso,
 };

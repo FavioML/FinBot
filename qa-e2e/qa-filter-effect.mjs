@@ -4,6 +4,7 @@ import { chromium } from 'playwright';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { cerrar } from './lib/veredicto.mjs';
 
 const APP = process.env.NETO_APP_URL || 'https://app.neto.pe';
 const PLAN = (process.argv[2] || 'pro').toLowerCase();
@@ -98,4 +99,36 @@ if (await montoHeader.isVisible().catch(()=>false)) {
 
 console.log(`\n==== FILTER-EFFECT ${PLAN.toUpperCase()} ====`);
 console.log(JSON.stringify(R,null,2));
+
+// ── Veredicto ───────────────────────────────────────────────────────────────
+// Este archivo existe para verificar el EFECTO sobre los datos, no que la API devuelva 200,
+// y ya calculaba los tres booleanos que lo dicen. Solo que salía 0 pase lo que pase.
+//
+// Cada afirmación se evalúa SOLO si su filtro trajo filas: con cero filas, "todas las filas
+// coinciden" y "está ordenado" son verdad por vacío, o sea que el verde no diría nada. Es el
+// mismo pase vacuo que se encontró hoy en qa-cat-dedup con una sola categoría.
+const fallas = [];
+let medidos = 0;
+const afirmar = (ok, msg) => { medidos++; if (!ok) fallas.push(msg); };
+
+if (R.rowsAfterMethodFilter > 0) {
+  afirmar(R.allRowsMatchMethod === true,
+    `el filtro por método "${R.chosenMethod}" NO filtró: quedaron filas de otros métodos (${(R.sampleMethods||[]).join(', ')})`);
+}
+if (R.ingresoRows > 0) {
+  afirmar(R.allIngresosPositive === true,
+    `la pestaña Ingresos muestra montos que no son ingresos (${(R.sampleIngresos||[]).join(', ')})`);
+}
+if (R.montoSortedAsc !== undefined) {
+  afirmar(R.montoSortedAsc === true, 'ordenar por Monto ascendente NO ordena');
+  afirmar(R.montoSortedDesc === true, 'ordenar por Monto descendente NO ordena');
+}
+
+const inconcluso = medidos === 0
+  ? `ningún filtro trajo filas para el plan ${PLAN} (methodTriggerFound=${R.methodTriggerFound}, ` +
+    `rowsAfterMethodFilter=${R.rowsAfterMethodFilter}, ingresoRows=${R.ingresoRows}). ` +
+    'Sin filas, "todo coincide" y "todo está ordenado" son ciertos por vacío: sembrá transacciones y volvé'
+  : null;
+
+cerrar({ nombre: `FILTER-EFFECT ${PLAN.toUpperCase()}`, fallas, medidos, inconcluso });
 await browser.close();

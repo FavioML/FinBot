@@ -15,7 +15,7 @@ const { registrarError } = require('../lib/error-monitor');
 const { registrarReferido, obtenerEstadisticasReferidos, mensajeMisReferidos } = require('../services/referrals');
 const { obtenerCategoriasUsuario } = require('../services/categories');
 const { escanearGmailYRegistrar } = require('../services/gmail-scanner');
-const { registrarGastoSilencioso, registrarAudioSilencioso, registrarImagenSilenciosa } = require('../services/registro-silencioso');
+const { registrarGastoSilencioso, registrarAudioSilencioso, registrarImagenSilenciosa, avisarPrimeraVezSilencioso } = require('../services/registro-silencioso');
 const { descargarMedia, transcribirAudio, extraerPagoDeImagen } = require('../services/media-intake');
 const { generarResumenSemanal } = require('../services/summaries');
 const { guardarMensaje, obtenerOCrearUsuario, getUserPlanConfig, buscarUsuarioPorBsuid } = require('../helpers/db-helpers');
@@ -171,6 +171,13 @@ function createWebhookHandler(procesarMensajeLibre) {
         if (message.type === 'text') r = await registrarGastoSilencioso(message.text && message.text.body, conocido);
         else if (message.type === 'audio') r = await registrarAudioSilencioso(message, conocido);
         else if (message.type === 'image') r = await registrarImagenSilenciosa(message, conocido);
+
+        // Que alguien CONOCIDO llegue sin número no había pasado nunca hasta el 10-ago-2026 (los
+        // 7 casos reales eran BSUIDs desconocidos). Cuando pase, hay que enterarse: es la única
+        // oportunidad de medir si al número guardado todavía le llega algo, y esa persona deja
+        // de recibir respuestas desde ese momento. Va DESPUÉS de procesar para que el aviso no
+        // se interponga entre el usuario y su gasto.
+        await avisarPrimeraVezSilencioso(conocido, message.type, r);
 
         if (r) {
           // Si acá falla la infraestructura (Meta, Vision, Whisper), el gasto SE PIERDE y no

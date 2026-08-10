@@ -9,6 +9,7 @@ import { chromium } from 'playwright';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { cerrar } from './lib/veredicto.mjs';
 
 const APP = 'https://app.neto.pe';
 const PLAN = (process.argv[2] || 'pro').toLowerCase();
@@ -168,4 +169,38 @@ R.apiJson = {
 };
 
 console.log(JSON.stringify(R,null,2));
+
+// ── Veredicto ───────────────────────────────────────────────────────────────
+// Lo que este barrido puede afirmar de verdad es que las cuatro rutas de análisis RENDERIZAN
+// sin romperse. El gating por plan tiene su propio harness en el canary (`gating-score`,
+// `gating-export`), así que acá no se duplica.
+//
+// El 4xx/5xx se filtra por plan a propósito: con el usuario en el muro, un 402 (o el 403 de
+// una ruta Pro) es el gate FUNCIONANDO. Contarlo como falla pondría este barrido en rojo
+// permanente justo en el plan donde más importa que ande, y un harness que grita por lo que
+// no es se termina ignorando.
+const fallas = [];
+let medidos = 0;
+const afirmar = (ok, msg) => { medidos++; if (!ok) fallas.push(msg); };
+
+const esperadoPorGating = (linea) => PLAN === 'free' && /\b(402|403)\b/.test(linea);
+const rotas = (R.failed4xx5xx || []).filter((f) => !esperadoPorGating(f));
+
+for (const [ruta, datos] of Object.entries(R.routes || {})) {
+  // `len` es el largo del texto renderizado. Cero = la página no pintó nada, que es lo único
+  // que este barrido puede afirmar sobre cada ruta sin meterse con el gating.
+  if (typeof datos.len === 'number') {
+    afirmar(datos.len > 0, `/dashboard/${ruta} renderizó una página VACÍA (len=0)`);
+  }
+}
+afirmar(R.consoleErrorCount === 0,
+  `${R.consoleErrorCount} errores de consola en las rutas de análisis: ${(R.consoleErrors || []).slice(0,3).join(' | ')}`);
+afirmar(rotas.length === 0,
+  `${rotas.length} respuestas 4xx/5xx no explicadas por el gating: ${rotas.slice(0,3).join(' | ')}`);
+
+const inconcluso = Object.keys(R.routes || {}).length === 0
+  ? 'no se visitó ninguna ruta: el barrido no llegó a empezar'
+  : null;
+
+cerrar({ nombre: `ANALYSIS-SWEEP ${PLAN.toUpperCase()}`, fallas, medidos, inconcluso });
 await br.close();
