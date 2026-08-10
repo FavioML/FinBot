@@ -66,13 +66,43 @@ async function salvarGastoSinIA(msg, usuario) {
   }
 }
 
+/**
+ * ¿NETO puede decir que lee correos bancarios? El token puede estar en `usuarios` (legacy) o
+ * solo en `gmail_cuentas` (multi-cuenta), hay que mirar ambos.
+ *
+ * El token legacy corta primero y sin ir a la DB. Igual el round-trip a `gmail_cuentas` es el
+ * caso COMÚN (3 de 102 usuarios tienen Gmail), y por eso esta función viaja en el Promise.all
+ * del arranque en vez de estar sola en el camino crítico: un round-trip para un booleano que
+ * casi siempre sale false.
+ */
+async function resolverCorreoConectado(usuario) {
+  if (usuario.gmail_access_token) return true;
+  try {
+    return (await obtenerCuentasGmail(usuario.id)).length > 0;
+  } catch (e) {
+    log.warn({ tag: 'NETO_PROMPT', err: e.message }, 'No se pudo verificar Gmail; asumo sin correo');
+    return false;
+  }
+}
+
 async function procesarMensajeLibre(msg, usuario, from) {
   try {
+    // Las tres lecturas del arranque son independientes entre sí y antes costaban tres
+    // round-trips EN SERIE sobre el camino de cada mensaje entrante.
+    //
+    // El INSERT del turno actual (`guardarMensaje`, más abajo) NO entra acá y no es un olvido:
+    // tiene que ocurrir DESPUÉS de que `obtenerHistorial` resolvió, o el mensaje del usuario
+    // aparecería dos veces en el contexto del LLM (una en el historial, otra como último turno).
+    const [sesionSoporte, correoConectado, historialConv] = await Promise.all([
+      obtenerSesionAbierta(usuario.id),
+      resolverCorreoConectado(usuario),
+      obtenerHistorial(usuario.id),
+    ]);
+
     // === Modo soporte: si hay una sesión abierta, TODO mensaje va al admin (no al bot) ===
     // La sesión se abre por "quiero hablar con soporte" (NLP) o /soporte, y sigue abierta
     // hasta que se cierre (/salir del usuario, /cerrar del admin, botón del panel, o
     // autocierre por 48h de inactividad). Ver lib/support-tickets.
-    const sesionSoporte = await obtenerSesionAbierta(usuario.id);
     if (sesionSoporte) {
       const esPrimerMensaje = sesionSoporte.estado === 'esperando_mensaje';
       await supabase.from('tickets_soporte').update({
@@ -102,13 +132,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
     const planUsuario = usuario.plan || 'free';
     const mE = ['','Enero','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
     // Cargar NETO system prompt con datos del usuario (docs/NETO_system_prompt.txt, cacheado).
-    // El correo conectado decide si NETO puede decir que lee correos bancarios: el token puede
-    // estar en `usuarios` (legacy) o solo en `gmail_cuentas` (multi-cuenta), hay que mirar ambos.
-    let correoConectado = !!usuario.gmail_access_token;
-    if (!correoConectado) {
-      try { correoConectado = (await obtenerCuentasGmail(usuario.id)).length > 0; }
-      catch(e) { log.warn({ tag: 'NETO_PROMPT', err: e.message }, 'No se pudo verificar Gmail; asumo sin correo'); }
-    }
+    // `correoConectado` se resolvió arriba, en el Promise.all del arranque.
     const netoPrompt = construirNetoPrompt({
       nombre: usuario.nombre,
       plan: planUsuario,
@@ -117,10 +141,9 @@ async function procesarMensajeLibre(msg, usuario, from) {
       ultimaSync: usuario.updated_at ? new Date(usuario.updated_at).toLocaleDateString('es-PE') : 'hoy',
     });
 
-    // Cargar historial de conversacion del usuario
-    const historialConv = await obtenerHistorial(usuario.id);
-
-    // Guardar mensaje del usuario en historial
+    // Guardar mensaje del usuario en historial. Va DESPUÉS de que `obtenerHistorial` resolvió
+    // (arriba, en el Promise.all): al revés, el turno actual entraría dos veces en el contexto
+    // que se le manda al LLM.
     await guardarMensaje(usuario.id, 'usuario', msg);
 
     // Medición (T2): si el usuario responde dentro de 7d de un mensaje proactivo, marcar

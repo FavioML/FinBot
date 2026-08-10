@@ -127,6 +127,135 @@ describe('registrar_manual', () => {
   });
 });
 
+// ─── registrar_manual: las dos llamadas al LLM van en paralelo (P′2) ─────────
+//
+// Registrar un gasto disparaba TRES llamadas a gpt-4o-mini en serie: la clasificación del
+// message-processor, después `parsearRegistroManual` y después `detectarCategoriaIA`. Las
+// dos últimas reciben solo `msg` y no dependen entre sí.
+//
+// Lo que se fija no es un tiempo (eso no se puede afirmar con mocks) sino la FORMA: que la
+// segunda esté disparada mientras la primera sigue en vuelo. Volver a la versión en serie
+// mata el primer test, porque con el parser colgado el clasificador nunca llega a llamarse.
+
+describe('registrar_manual — paralelismo de las dos llamadas al LLM', () => {
+  it('dispara detectarCategoriaIA mientras el parser sigue sin resolver', async () => {
+    let resolverParser;
+    const parsearRegistroManual = vi.fn(() => new Promise((res) => {
+      resolverParser = () => res({ ok: true, monto: 50, moneda: 'PEN', categoria: 'Alimentacion', subcategoria: 'cafeteria', tipo: 'gasto', fecha: '2026-04-05' });
+    }));
+    const detectarCategoriaIA = vi.fn().mockResolvedValue({ categoria: 'Alimentacion', subcategoria: 'cafeteria' });
+
+    const sb = makeSupabaseMock({ transacciones: [] });
+    const ctx = buildCtx(sb, { parsearRegistroManual, detectarCategoriaIA });
+    const promesa = handler.handle({ intencion: 'registrar_manual', msg: 'gaste 50 en cafe', datos: {}, usuario: USUARIO, from: '+51999', ctx });
+
+    // Dejar correr los microtasks pendientes SIN resolver el parser.
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(parsearRegistroManual).toHaveBeenCalledOnce();
+    // ⚠️ Esto es lo que muere si alguien vuelve a poner el clasificador después del parser.
+    expect(detectarCategoriaIA).toHaveBeenCalledOnce();
+    expect(detectarCategoriaIA).toHaveBeenCalledWith('gaste 50 en cafe', 'user-001', expect.anything());
+
+    resolverParser();
+    const res = await promesa;
+    expect(res).toContain('S/50.00');
+    // Y el resultado del clasificador se sigue usando, no se descarta por llegar antes.
+    expect(res).toContain('Alimentacion');
+  });
+
+  it('un fallo del clasificador sigue rompiendo el registro (no se traga en silencio)', async () => {
+    // El `.catch` mudo que evita el unhandledRejection NO debe consumir el rechazo: awaitear
+    // la promesa más abajo tiene que lanzar igual que cuando la llamada era secuencial.
+    const detectarCategoriaIA = vi.fn().mockRejectedValue(new Error('supabase caido'));
+    const sb = makeSupabaseMock({ transacciones: [] });
+    const ctx = buildCtx(sb, { detectarCategoriaIA });
+    const res = await handler.handle({ intencion: 'registrar_manual', msg: 'gaste 50 en cafe', datos: {}, usuario: USUARIO, from: '+51999', ctx });
+    expect(res).toContain('No pude procesar eso');
+    expect(ctx.guardarTransaccion).not.toHaveBeenCalled();
+  });
+
+  it('sale por el camino del parser sin monto sin dejar un rechazo sin dueño', async () => {
+    // La ruta que hace falta el `.catch`: el parser no encuentra monto, el handler retorna, y
+    // la promesa del clasificador —ya en vuelo— se rechaza sin que nadie la espere. Sin la
+    // guarda eso es un `unhandledRejection`, que en Node mata el proceso del backend.
+    const capturados = [];
+    const onUnhandled = (err) => capturados.push(err);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const sb = makeSupabaseMock({ transacciones: [] });
+      const ctx = buildCtx(sb, {
+        parsearRegistroManual: vi.fn().mockResolvedValue({ ok: false, monto: 0 }),
+        // ⚠️ Función PELADA, no `vi.fn()`: el spy de vitest le engancha handlers a la promesa
+        // que devuelve (es como alimenta `mock.settledResults`), así que con un mock el
+        // rechazo NUNCA queda huérfano y este test pasaría verde sin la guarda. Medido:
+        // con `vi.fn().mockRejectedValue(...)` la mutación "quitar el .catch" no lo mata.
+        detectarCategoriaIA: () => Promise.reject(new Error('supabase caido')),
+      });
+      const res = await handler.handle({ intencion: 'registrar_manual', msg: 'gaste algo raro', datos: {}, usuario: USUARIO, from: '+51999', ctx });
+      expect(res).toContain('No pude extraer el monto');
+
+      // Dos vueltas de macrotask: es cuando Node decide que un rechazo quedó sin dueño.
+      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0));
+      expect(capturados).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+  });
+
+  it('cancela la llamada al clasificador cuando el parser no encuentra monto', async () => {
+    // Disparar en paralelo hace que las rutas que salen temprano paguen una llamada a
+    // gpt-4o-mini que nadie va a leer. Con `maxRetries: 3` y `timeout: 60000` (lib/ai.js) eso
+    // puede ser hasta cuatro requests durante minutos, quemando presupuesto de rate-limit
+    // justo en el escenario del 429 que ya se comió 163 registros.
+    let señal;
+    const detectarCategoriaIA = vi.fn((_msg, _uid, opts) => { señal = opts && opts.signal; return Promise.resolve({}); });
+    const sb = makeSupabaseMock({ transacciones: [] });
+    const ctx = buildCtx(sb, {
+      parsearRegistroManual: vi.fn().mockResolvedValue({ ok: false, monto: 0 }),
+      detectarCategoriaIA,
+    });
+    await handler.handle({ intencion: 'registrar_manual', msg: 'gaste algo raro', datos: {}, usuario: USUARIO, from: '+51999', ctx });
+
+    expect(señal).toBeInstanceOf(AbortSignal);
+    expect(señal.aborted).toBe(true);
+  });
+
+  it('cancela también cuando el parser LANZA, no solo cuando no encuentra monto', async () => {
+    // Este caso no lo cubría el test de arriba y la mutación lo demostró: quitar el `abort()`
+    // del catch dejaba los 5 tests en verde. Es la salida más cara — si el parser reventó por
+    // un 429, el clasificador está reintentando contra la misma organización saturada.
+    let señal;
+    const detectarCategoriaIA = vi.fn((_msg, _uid, opts) => { señal = opts && opts.signal; return Promise.resolve({}); });
+    const sb = makeSupabaseMock({ transacciones: [] });
+    const ctx = buildCtx(sb, {
+      parsearRegistroManual: vi.fn().mockRejectedValue(new Error('429 rate limit')),
+      detectarCategoriaIA,
+    });
+    const res = await handler.handle({ intencion: 'registrar_manual', msg: 'gaste 50 en taxi', datos: {}, usuario: USUARIO, from: '+51999', ctx });
+
+    expect(res).toContain('No pude procesar eso');
+    expect(señal.aborted).toBe(true);
+  });
+
+  it('NO cancela en el camino feliz: el resultado del clasificador sí se usa', async () => {
+    let señal;
+    const detectarCategoriaIA = vi.fn((_msg, _uid, opts) => {
+      señal = opts && opts.signal;
+      return Promise.resolve({ categoria: 'Transporte', subcategoria: 'taxi' });
+    });
+    const sb = makeSupabaseMock({ transacciones: [] });
+    const ctx = buildCtx(sb, { detectarCategoriaIA });
+    const res = await handler.handle({ intencion: 'registrar_manual', msg: 'gaste 50 en taxi', datos: {}, usuario: USUARIO, from: '+51999', ctx });
+
+    expect(señal.aborted).toBe(false);
+    expect(ctx.guardarTransaccion).toHaveBeenCalledOnce();
+    expect(ctx.guardarTransaccion.mock.calls[0][1]).toMatchObject({ categoria: 'Transporte', subcategoria: 'taxi' });
+    expect(res).toContain('S/50.00');
+  });
+});
+
 // ─── eliminar_transaccion ───────────────────────────────────────────────────
 
 describe('eliminar_transaccion', () => {

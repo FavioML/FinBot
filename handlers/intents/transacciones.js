@@ -154,8 +154,35 @@ module.exports = {
           }
 
           const fechaHoy = fechaHoyPeru();
-          const parsed = await parsearRegistroManual(msg, fechaHoy);
+          // Las dos llamadas a gpt-4o-mini de este camino reciben SOLO `msg` y no dependen
+          // entre sí: en serie eran dos round-trips al modelo, uno detrás del otro, sobre el
+          // camino del gasto. Se disparan juntas y se cosecha `detCat` más abajo, donde el
+          // código ya la esperaba.
+          //
+          // El `.catch` mudo NO consume el rechazo (awaitear la promesa después sigue
+          // lanzando): solo evita un unhandledRejection en las rutas que salen antes de ese
+          // await — el redirect a query cuando el parser no encuentra monto.
+          //
+          // NO se reemplaza `parsearRegistroManual` por el `datos` del tool call: ese prompt
+          // lleva las reglas peruanas (lucas/cocos/mangos) y las de fecha que el maestro no tiene.
+          // Se cancela en las salidas donde `detCat` ya no se va a leer: sin eso, el cliente
+          // de OpenAI (maxRetries 3, timeout 60s) sigue reintentando durante minutos una
+          // respuesta que nadie espera, y encima quemando presupuesto de rate-limit — el 429
+          // es la causa documentada de `salvarGastoSinIA`.
+          const abortoDetCat = new AbortController();
+          const pDetCat = detectarCategoriaIA(msg, usuario.id, { signal: abortoDetCat.signal });
+          pDetCat.catch(() => {});
+          let parsed;
+          try {
+            parsed = await parsearRegistroManual(msg, fechaHoy);
+          } catch (eParser) {
+            abortoDetCat.abort();
+            throw eParser;
+          }
           if (!parsed.ok || !parsed.monto || parsed.monto <= 0) {
+            // Las dos salidas de acá abajo (redirect a query, o el mensaje de "no pude extraer")
+            // no leen `detCat`: cancelar antes de tomarlas.
+            abortoDetCat.abort();
             const redirect = detectarQuerySinMonto(msg);
             if (redirect) {
               try {
@@ -197,7 +224,8 @@ module.exports = {
             parsed.fecha = fechaHoy;
           }
           // Re-clasificar con categorías y subcategorías custom del usuario
-          const detCat = await detectarCategoriaIA(msg, usuario.id);
+          // (disparada arriba, en paralelo con el parser).
+          const detCat = await pDetCat;
           if (detCat.categoria) {
             parsed.categoria = detCat.categoria;
             if (detCat.subcategoria) parsed.subcategoria = detCat.subcategoria;
