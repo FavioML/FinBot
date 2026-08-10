@@ -270,29 +270,51 @@ querer revisitar con datos nuevos, no porque haya algo que vigilar. Queman OpenA
 | `qa-lado-a-lado.mjs` | Imprime, para cada camino que pasa por `redactarConNETO`, la respuesta de la IA y el texto fijo exacto del `\|\| '...'`, lado a lado |
 | `qa-ia-vs-fijo.mjs` | Mide si revivir la redacción con IA hizo a NETO más verboso, más lento o menos exacto |
 
-#### Imprimen JSON y salen 0 pase lo que pase — se leen a ojo
+#### Los nueve que no tenían exit code — arreglados el 09-ago-2026
 
-**Estos no son automatizables tal como están, y es lo que hay que saber de ellos.**
-Calculan el veredicto (`noDuplicates`, `pastRowVisible`, `caseDuplicates`) pero lo
-vuelcan a stdout sin `process.exit(1)`, así que cablearlos a cualquier automatismo
-daría verde siempre — que es la forma exacta en que un check muerto le miente a la
-próxima auditoría, igual que la sección `supabase.checks` que se borró en la ola 4.
-Si alguno de estos merece vigilarse solo, primero hay que darle exit code; mientras
-tanto, se corren a mano y se lee la salida.
+Hasta ese día estos calculaban su veredicto (`noDuplicates`, `pastRowVisible`,
+`secondSpaceAllowed`) y lo volcaban a stdout **saliendo 0 pase lo que pase**, así que
+cablearlos a cualquier automatismo habría dado verde siempre. Hoy los nueve cierran con
+`lib/veredicto.mjs`, que es el único lugar donde vive el convenio: **1** = afirmación
+roja, **2** = no se pudo opinar, **0** = verde con al menos una afirmación evaluada.
 
-| Harness | Qué imprime |
+Cada archivo declara sus propias afirmaciones (difieren de verdad entre un barrido de UI
+y un round-trip de API, y esconderlas tras una abstracción común las volvería
+irrevisables). Lo compartido es solo la precedencia, la antivacuidad y el `exitCode`.
+
+**La antivacuidad es la mitad del valor, y no es teórica.** Cero afirmaciones evaluadas
+sale **2**, no 0: sin ella, romper un barrido lo dejaba *más* verde. Dos casos medidos el
+mismo día que se escribió: `qa-cat-dedup` corría con **una sola categoría** en el donut,
+donde "no hay duplicados por mayúsculas" es cierto por construcción y no puede fallar; y
+`qa-filter-effect` da 2 si ningún filtro trajo filas, porque "todo coincide" sobre cero
+filas es verdad por vacío. Un verde ahí no dice nada, y decirlo es peor que callarse.
+
+**Dos de estos dependen de un fixture que se auto-destruye.** `qa-espacios-config` y
+`qa-espacios-gating-verify` afirman que a un Free le CIERRAN las features Pro, y el
+usuario "QA Free" arranca su trial de 14 días con el primer gasto que cualquier otro
+harness le registre. Durante el trial `plan` vale `premium`, así que abrirle todo pasa a
+ser correcto y las aserciones se vuelven falsos positivos: la primera corrida con exit
+code reportó **cinco** rojas, ninguna real. Los dos comprueban el plan contra la DB antes
+de afirmar nada y salen 2 con el `UPDATE` exacto para restaurar el fixture.
+
+| Harness | Qué afirma ahora | Cuándo correrlo |
+|---|---|---|
+| `qa-sweep.mjs` | Las dos mitades por separado: el dashboard (pestaña Anual, donut, diálogo de categoría, recurrentes) y transacciones. Cero errores de consola y cero 4xx/5xx en cada una. Los flags de búsqueda y edición en lote solo se afirman si la tabla trajo filas | Al tocar overview o transacciones |
+| `qa-analysis-sweep.mjs` | Que las cuatro rutas de análisis rendericen (`len > 0`), sin errores de consola ni 4xx/5xx. Los 402/403 del plan `free` NO cuentan: ahí el gate está funcionando | Al tocar score, reportes, suscripciones o alertas |
+| `qa-planning-sweep.mjs` | Consola y 4xx/5xx **por ruta** (saber cuál se rompió vale más que un contador global), más el invariante de metas: una meta completada no puede seguir contándose como activa (be62837) | Al tocar presupuestos, planes o deudas |
+| `qa-espacios-config.mjs` | Los tres `*Allowed` que ya llevaban `// BUG if true` escrito al lado, más que la UI no ofrezca "Agregar regla" a un Free. Con precondición de fixture | Al tocar el gating de Espacios |
+| `qa-espacios-gating-verify.mjs` | Las expectativas que los NOMBRES de campo ya declaraban (`create2_expect403`, `detIsPro_expectFalse`, `proBalance_expect80`). Un campo `_expect*` nuevo queda asertado solo, sin lista paralela que desincronizar. Con precondición de fixture | Al tocar "host paga" o el motor de reparto |
+| `qa-filter-effect.mjs` | Que el filtro por método filtre de verdad, que Ingresos solo muestre ingresos, y que ordenar por monto ordene. Cada uno solo si su filtro trajo filas | Al tocar filtros u ordenamiento de transacciones |
+| `qa-cat-dedup.mjs` | Que el donut no parta la misma categoría por mayúsculas. Exige 2+ categorías para poder afirmarlo | Al tocar la agrupación del donut |
+| `qa-porrevisar-escape.mjs` | Que expandir el escape hatch traiga el backlog de meses previos y agregue filas. Si el hatch no está, sale 2: **no puede separar "se rompió" de "faltan las filas semilla"**, y esas las siembra `qa-por-revisar.mjs` | Al tocar "Por revisar" |
+| `qa-susc-override.mjs` | El round-trip completo del override (renombrar, persistir tras reload, restablecer, volver al nombre original). Su cuarta afirmación es operativa: si restablecer no revierte, **queda basura en producción** y lo dice | Al tocar suscripciones u overrides |
+
+**Y dos que NO recibieron exit code, a propósito, porque no son harness:**
+
+| Archivo | Qué es |
 |---|---|
-| `qa-sweep.mjs` | Barrido adversarial de `/dashboard` + `/dashboard/transacciones` por plan: errores de consola y 4xx/5xx |
-| `qa-analysis-sweep.mjs` | Lo mismo sobre score, reportes, suscripciones y alertas |
-| `qa-planning-sweep.mjs` | Lo mismo sobre presupuestos, planes y deudas |
-| `qa-espacios-config.mjs` | Gating de Espacios Free-vs-Pro + display de plan en Configuración + las páginas de join |
-| `qa-espacios-gating-verify.mjs` | El modelo "host paga", que el split custom mueva balances, y el endpoint `default-split` |
-| `qa-filter-effect.mjs` | Que los filtros de transacciones tengan EFECTO sobre los datos, no solo que devuelvan 200 |
-| `qa-cat-dedup.mjs` | Que el donut de categorías no parta la misma categoría por mayúsculas |
-| `qa-porrevisar-escape.mjs` | El escape hatch "+N en otros meses". **Depende de las filas que siembra `qa-por-revisar.mjs`**: corré ese primero o no prueba nada |
-| `qa-susc-override.mjs` | Round-trip de detección de suscripciones y su override (renombrar, recargar, verificar, resetear) |
-| `diag-load.mjs` | **No es un harness y su nombre lo dice**: diagnostica qué requests hacen lento el dashboard autenticado. Se conserva como herramienta |
-| `webhook-harness.mjs` | **Tampoco es un harness: es la librería** que los demás importan (bootea el Express real, stubea `enviarWhatsapp`, firma como Meta). No se corre solo |
+| `diag-load.mjs` | **Diagnóstico, y su nombre lo dice**: mide qué requests hacen lento el dashboard autenticado. No afirma nada porque no está para afirmar. Darle un exit code sería mentir sobre qué es |
+| `webhook-harness.mjs` | **La librería** que los E2E de WhatsApp importan (bootea el Express real, stubea `enviarWhatsapp`, firma como Meta). No se corre solo |
 
 **`shot-*.mjs` / `*-shot.mjs` son one-offs, y no se commitean.** Capturan una
 pantalla para un sprint concreto (un rediseño, un banner nuevo, una tarjeta
