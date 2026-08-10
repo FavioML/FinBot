@@ -183,8 +183,18 @@ const fallas = [];
 let medidos = 0;
 const afirmar = (ok, msg) => { medidos++; if (!ok) fallas.push(msg); };
 
-const esperadoPorGating = (linea) => PLAN === 'free' && /\b(402|403)\b/.test(linea);
+// El muro produce 402 y el navegador lo registra en DOS lados: la respuesta y una línea de
+// consola "Failed to load resource ... 402". Filtrar solo la primera dejaba este barrido en
+// rojo permanente en `free` — medido el 09-ago: 4 errores de consola que eran el gate
+// funcionando. El patrón es angosto: excusa el log automático de un recurso que no cargó,
+// nunca un error de JS.
+// Angosto en DOS formas porque las dos listas tienen formato distinto: la de consola trae
+// "Failed to load resource: ... status of 402" y la de respuestas "402 /api/x". Un `\b402\b`
+// suelto habría excusado cualquier error de JS que mencionara ese número.
+const esperadoPorGating = (l) => PLAN === 'free' &&
+  (/Failed to load resource.*\b(402|403)\b/.test(l) || /^\s*(402|403)\s/.test(l));
 const rotas = (R.failed4xx5xx || []).filter((f) => !esperadoPorGating(f));
+const consolaReal = (R.consoleErrors || []).filter((l) => !esperadoPorGating(l));
 
 for (const [ruta, datos] of Object.entries(R.routes || {})) {
   // `len` es el largo del texto renderizado. Cero = la página no pintó nada, que es lo único
@@ -193,8 +203,8 @@ for (const [ruta, datos] of Object.entries(R.routes || {})) {
     afirmar(datos.len > 0, `/dashboard/${ruta} renderizó una página VACÍA (len=0)`);
   }
 }
-afirmar(R.consoleErrorCount === 0,
-  `${R.consoleErrorCount} errores de consola en las rutas de análisis: ${(R.consoleErrors || []).slice(0,3).join(' | ')}`);
+afirmar(consolaReal.length === 0,
+  `${consolaReal.length} errores de consola no explicados por el gating: ${consolaReal.slice(0,3).join(' | ')}`);
 afirmar(rotas.length === 0,
   `${rotas.length} respuestas 4xx/5xx no explicadas por el gating: ${rotas.slice(0,3).join(' | ')}`);
 

@@ -299,7 +299,7 @@ de afirmar nada y salen 2 con el `UPDATE` exacto para restaurar el fixture.
 
 | Harness | Qué afirma ahora | Cuándo correrlo |
 |---|---|---|
-| `qa-sweep.mjs` | Las dos mitades por separado: el dashboard (pestaña Anual, donut, diálogo de categoría, recurrentes) y transacciones. Cero errores de consola y cero 4xx/5xx en cada una. Los flags de búsqueda y edición en lote solo se afirman si la tabla trajo filas | Al tocar overview o transacciones |
+| `qa-sweep.mjs` | Las dos mitades por separado: el dashboard (pestaña Anual, donut, diálogo de categoría, recurrentes) y transacciones. Cero errores de consola y cero 4xx/5xx en cada una. Los widgets de Pro solo se afirman fuera de `free` —en el muro no están porque el muro anda, y que el paywall se vea bien es `qa-gate.mjs free`, no se duplica— y los flags de búsqueda y edición en lote solo si la tabla trajo filas | Al tocar overview o transacciones |
 | `qa-analysis-sweep.mjs` | Que las cuatro rutas de análisis rendericen (`len > 0`), sin errores de consola ni 4xx/5xx. Los 402/403 del plan `free` NO cuentan: ahí el gate está funcionando | Al tocar score, reportes, suscripciones o alertas |
 | `qa-planning-sweep.mjs` | Consola y 4xx/5xx **por ruta** (saber cuál se rompió vale más que un contador global), más el invariante de metas: una meta completada no puede seguir contándose como activa (be62837) | Al tocar presupuestos, planes o deudas |
 | `qa-espacios-config.mjs` | Los tres `*Allowed` que ya llevaban `// BUG if true` escrito al lado, más que la UI no ofrezca "Agregar regla" a un Free. Con precondición de fixture | Al tocar el gating de Espacios |
@@ -308,6 +308,13 @@ de afirmar nada y salen 2 con el `UPDATE` exacto para restaurar el fixture.
 | `qa-cat-dedup.mjs` | Que el donut no parta la misma categoría por mayúsculas. Exige 2+ categorías para poder afirmarlo | Al tocar la agrupación del donut |
 | `qa-porrevisar-escape.mjs` | Que expandir el escape hatch traiga el backlog de meses previos y agregue filas. Si el hatch no está, sale 2: **no puede separar "se rompió" de "faltan las filas semilla"**, y esas las siembra `qa-por-revisar.mjs` | Al tocar "Por revisar" |
 | `qa-susc-override.mjs` | El round-trip completo del override (renombrar, persistir tras reload, restablecer, volver al nombre original). Su cuarta afirmación es operativa: si restablecer no revierte, **queda basura en producción** y lo dice | Al tocar suscripciones u overrides |
+
+**Los que toman el plan por argumento hay que correrlos con LOS DOS.** `qa-sweep`,
+`qa-analysis-sweep`, `qa-planning-sweep` y `qa-filter-effect` aceptan `pro|free`, y las
+dos mitades afirman cosas distintas: en `free` el muro devuelve 402 y el navegador lo
+registra tanto en la respuesta como en una línea de consola, así que el filtro que excusa
+esas dos formas solo se ejercita ahí. Se pagó el mismo día: los bloques de veredicto se
+verificaron corriendo solo `pro` y en `free` daban 11 de 12 rojas, todas falsas.
 
 **Y dos que NO recibieron exit code, a propósito, porque no son harness:**
 

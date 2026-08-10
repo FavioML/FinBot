@@ -203,33 +203,54 @@ let inconcluso = null;
 
 const afirmar = (ok, msg) => { medidos++; if (!ok) fallas.push(msg); };
 
-// Mitad dashboard: no depende de datos sembrados.
+// El muro produce 402, y el navegador los registra en DOS lados: en la respuesta (que se
+// filtra abajo) y como línea de consola "Failed to load resource ... 402". Filtrar solo el
+// primero dejaba este barrido en rojo permanente en `free` — medido el 09-ago: 4 errores de
+// consola que eran el gate funcionando. El patrón es angosto a propósito: excusa el log
+// automático del navegador por un recurso que no cargó, NUNCA un error de JS de verdad.
+// Angosto a propósito, y en DOS formas porque las dos listas tienen formato distinto: la de
+// consola trae "Failed to load resource: ... status of 402" y la de respuestas trae
+// "402 GET /api/x". Un `/\b402\b/` suelto sobre la consola habría excusado cualquier error de
+// JS que mencionara ese número — más permisivo de lo necesario, y del lado que oculta.
+const ruidoDeGating = (l) => PLAN === 'free' &&
+  (/Failed to load resource.*\b(402|403)\b/.test(l) || /^\s*(402|403)\s/.test(l));
+const sinRuido = (arr) => (arr || []).filter((l) => !ruidoDeGating(l));
+
+// Los widgets de Pro solo existen para quien tiene Pro. Con el usuario en el muro NO están,
+// y eso es el muro funcionando, no una regresión: afirmarlos sin mirar el plan daba 11 de 12
+// rojas en `free`. Que el paywall se vea BIEN es otro harness (`qa-gate.mjs free`), y no se
+// duplica acá a propósito: dos harness afirmando lo mismo derivan y después no se sabe cuál
+// tiene razón.
 afirmar(R.overlayPresent === 0, `quedaron ${R.overlayPresent} overlays de onboarding tapando la vista`);
-afirmar(R.anualTabFound === true, 'no se encontró la pestaña Anual');
-afirmar(R.afterAnualHasYearSelect === true, 'la pestaña Anual no muestra el selector de año');
-afirmar(R.donutFound === true, 'no se encontró el donut de categorías');
-afirmar(R.categoryDialogOpened === true, 'el diálogo de categoría no abre al clickear el donut');
-afirmar(R.dialogHasTx === true, 'el diálogo de categoría abre VACÍO (sin transacciones dentro)');
-afirmar(R.recurringCard === true, 'no se encontró la tarjeta de Pagos Recurrentes');
-afirmar(R.recurringVerTodos === true, 'la tarjeta de recurrentes no ofrece "Ver todos"');
-afirmar(R.dashConsoleErrors.length === 0, `${R.dashConsoleErrors.length} errores de consola en /dashboard: ${R.dashConsoleErrors.slice(0,3).join(' | ')}`);
-afirmar(R.dashFailed.length === 0, `${R.dashFailed.length} respuestas 4xx/5xx en /dashboard: ${R.dashFailed.slice(0,3).join(' | ')}`);
+if (PLAN !== 'free') {
+  afirmar(R.anualTabFound === true, 'no se encontró la pestaña Anual');
+  afirmar(R.afterAnualHasYearSelect === true, 'la pestaña Anual no muestra el selector de año');
+  afirmar(R.donutFound === true, 'no se encontró el donut de categorías');
+  afirmar(R.categoryDialogOpened === true, 'el diálogo de categoría no abre al clickear el donut');
+  afirmar(R.dialogHasTx === true, 'el diálogo de categoría abre VACÍO (sin transacciones dentro)');
+  afirmar(R.recurringCard === true, 'no se encontró la tarjeta de Pagos Recurrentes');
+  afirmar(R.recurringVerTodos === true, 'la tarjeta de recurrentes no ofrece "Ver todos"');
+}
+afirmar(sinRuido(R.dashConsoleErrors).length === 0, `errores de consola en /dashboard no explicados por el gating: ${sinRuido(R.dashConsoleErrors).slice(0,3).join(' | ')}`);
+afirmar(sinRuido(R.dashFailed).length === 0, `respuestas 4xx/5xx en /dashboard no explicadas por el gating: ${sinRuido(R.dashFailed).slice(0,3).join(' | ')}`);
 
 // Mitad transacciones: los errores de red y consola se afirman SIEMPRE (no dependen de que
 // haya filas), los flags de interacción solo si la tabla trajo algo.
-afirmar(R.txConsoleErrors.length === 0, `${R.txConsoleErrors.length} errores de consola en /transacciones: ${R.txConsoleErrors.slice(0,3).join(' | ')}`);
-afirmar(R.txFailed.length === 0, `${R.txFailed.length} respuestas 4xx/5xx en /transacciones: ${R.txFailed.slice(0,3).join(' | ')}`);
+afirmar(sinRuido(R.txConsoleErrors).length === 0, `errores de consola en /transacciones no explicados por el gating: ${sinRuido(R.txConsoleErrors).slice(0,3).join(' | ')}`);
+afirmar(sinRuido(R.txFailed).length === 0, `respuestas 4xx/5xx en /transacciones no explicadas por el gating: ${sinRuido(R.txFailed).slice(0,3).join(' | ')}`);
 
 if (R.tableRows > 0) {
   afirmar(R.searchFound === true, 'no se encontró el buscador de transacciones');
   afirmar(R.bulkBarShown === true, 'seleccionar filas no muestra la barra de acciones en lote');
   afirmar(R.bulkPanelShown === true, 'el panel de edición en lote no abre');
-} else {
+} else if (PLAN !== 'free') {
   // No es falla: sin filas esos tres flags son `false` por construcción.
-  inconcluso = `la tabla de /dashboard/transacciones vino con 0 filas para el plan ${PLAN}, así que ` +
-    'las afirmaciones de búsqueda y edición en lote no se pudieron evaluar (sus flags salen `false` ' +
-    'por vacío, no por regresión). Verificá que el usuario QA de ese plan tenga transacciones';
+  inconcluso = 'la tabla de /dashboard/transacciones vino con 0 filas, así que las afirmaciones ' +
+    'de búsqueda y edición en lote no se pudieron evaluar (sus flags salen `false` por vacío, no ' +
+    'por regresión). Verificá que el usuario QA tenga transacciones';
 }
+// En `free` la tabla vacía es el MURO funcionando, no un dato faltante, así que no degrada el
+// veredicto: las afirmaciones que sí valen para el muro (overlays, consola, 4xx) ya corrieron.
 
 log(JSON.stringify(R, null, 2));
 cerrar({ nombre: `SWEEP ${PLAN.toUpperCase()}`, fallas, medidos, inconcluso });

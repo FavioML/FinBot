@@ -225,11 +225,18 @@ log(JSON.stringify(R, null, 2));
 const fallas = [];
 let medidos = 0;
 const afirmar = (ok, msg) => { medidos++; if (!ok) fallas.push(msg); };
-const esperadoPorGating = (l) => PLAN === 'free' && /\b(402|403)\b/.test(l);
+// Angosto en DOS formas: la lista de consola trae "Failed to load resource: ... 402" y la de
+// respuestas "402 GET /api/x". Un `\b402\b` suelto excusaría un error de JS que lo mencione.
+const esperadoPorGating = (l) => PLAN === 'free' &&
+  (/Failed to load resource.*\b(402|403)\b/.test(l) || /^\s*(402|403)\s/.test(l));
 
+// El 402 del muro aparece TAMBIÉN como línea de consola ("Failed to load resource ... 402"),
+// no solo como respuesta. Filtrar una lista y no la otra dejaba las tres rutas en rojo en
+// `free` — medido el 09-ago.
 for (const [ruta, d] of Object.entries(R.ui || {})) {
-  const cons = d.console || [], fail = (d.failed || []).filter((f) => !esperadoPorGating(f));
-  afirmar(cons.length === 0, `/dashboard/${ruta}: ${cons.length} errores de consola — ${cons.slice(0,2).join(' | ')}`);
+  const cons = (d.console || []).filter((l) => !esperadoPorGating(l));
+  const fail = (d.failed || []).filter((f) => !esperadoPorGating(f));
+  afirmar(cons.length === 0, `/dashboard/${ruta}: ${cons.length} errores de consola no explicados por el gating — ${cons.slice(0,2).join(' | ')}`);
   afirmar(fail.length === 0, `/dashboard/${ruta}: ${fail.length} respuestas 4xx/5xx no explicadas por el gating — ${fail.slice(0,2).join(' | ')}`);
 }
 
