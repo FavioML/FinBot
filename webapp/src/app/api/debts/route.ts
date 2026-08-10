@@ -354,6 +354,25 @@ export async function DELETE(request: Request) {
   const id = searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
+  // Verificar que la deuda pertenece al usuario ANTES de tocar nada — igual que el PUT.
+  //
+  // Las dos escrituras de abajo corren con service-role y filtran por `deuda_id` /
+  // `deuda_vinculada_id`, no por dueño: sin este chequeo borraban los abonos de CUALQUIER
+  // deuda y el DELETE final (que sí filtra por usuario_id) matcheaba 0 filas sin error, así
+  // que la ruta respondía `{success:true}` sobre datos ajenos.
+  //
+  // Y el id no había que adivinarlo: al aceptar una deuda compartida, `debts/join` escribe
+  // `deuda_vinculada_id` con el uuid de la deuda del ACREEDOR en la fila espejo del deudor, y
+  // el GET de esta misma ruta hace `select('*')`, o sea que el producto se lo entregaba.
+  const { data: propia } = await getServiceClient()
+    .from('deudas')
+    .select('id')
+    .eq('id', id)
+    .eq('usuario_id', netoUser.id)
+    .maybeSingle();
+
+  if (!propia) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+
   // Delete abonos first (FK constraint)
   await getServiceClient().from('deuda_abonos').delete().eq('deuda_id', id);
 
