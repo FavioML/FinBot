@@ -865,10 +865,18 @@ reactivarlo es una env var. **No es un bloqueo de Meta** — ver `docs/whatsapp-
 
 ## El número de teléfono dejó de ser la identidad (BSUID, ago-2026)
 
-Meta arrancó el rollout de **WhatsApp Usernames**. El usuario que activa uno oculta su número:
-`from` y `wa_id` dejan de venir en el webhook, y llega `from_user_id` — el **BSUID**, opaco y
-distinto por cada negocio (`PE.1049206861029395`). Empezó el 01-ago con 4 mensajes, y el 08-ago
-ya eran 6 de una sola persona en 13 minutos, escribiendo sin recibir nada.
+Meta arrancó el rollout de **WhatsApp Usernames**. A algunos usuarios les dejan de venir `from`
+y `wa_id` en el webhook, y en su lugar llega `from_user_id` — el **BSUID**, opaco y distinto por
+cada negocio (`PE.1049206861029395`). Empezó el 01-ago con 4 mensajes, y el 08-ago ya eran 6 de
+una sola persona en 13 minutos, escribiendo sin recibir nada.
+
+> **Tener un username activo NO es lo que oculta el número — medido el 10-ago-2026 y acá decía
+> lo contrario.** Favio tiene username (`@_faviomendoza`) y le escribió al bot: el mensaje llegó
+> **con `from`**, quedó fila en `conversaciones` y el bot le respondió normal. Cero mensajes sin
+> `from` en esa ventana. O sea que el username es condición necesaria pero **no suficiente**:
+> hace falta algo más (un ajuste de privacidad del número, o una fase distinta del rollout) que
+> todavía **no está identificado**. Mientras no se sepa cuál es, no se puede reproducir el caso
+> a voluntad — y por eso la premisa de abajo sigue sin medirse.
 
 **No se le puede responder, y no es config nuestra.** Medido contra la API el 08-ago: `recipient`
 + `recipient_type` (el payload exacto de la doc) da `#100` en v19.0, v23.0, v24.0 **y v25.0**, y
