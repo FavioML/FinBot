@@ -4,8 +4,29 @@
 // devuelve TODA la data del usuario (transacciones, presupuestos, metas, perfil)
 // como un JSON descargable. El gate vive en el server, no en el DOM:
 //   - Pro:  status 200 y payload con la forma esperada.
-//   - Free: status 403 y { upgrade: true } — NUNCA 200 (un 200 para Free filtra
-//           el dump completo de datos de un usuario, la fuga más cara del producto).
+//   - Muro: status 402 y { error: 'trial_terminado' } — NUNCA 200 (un 200 filtra el
+//           dump completo de datos de un usuario, la fuga más cara del producto).
+//
+// EL 402 NO ES UN AJUSTE COSMÉTICO, es que cambió quién niega. Este harness se
+// escribió el 22-jul, cuando la ruta tenía su propio chequeo de Pro (403 +
+// `{upgrade:true}`). El commit del trial de 14 días (`e9449d0`, 01-ago) le puso
+// `requireLectura()` en la primera línea, que responde 402 antes de llegar a ese
+// chequeo. O sea que el 403 de `export/route.ts:25` es HOY CÓDIGO MUERTO: para
+// pasarlo hay que tener `plan === 'premium'`, que es exactamente lo que
+// `requireLectura` ya exigió. Se deja la ruta como está (borrar la rama es un
+// cambio de producción y no es lo que se está arreglando acá), pero el harness
+// deja de exigir una respuesta que el servidor ya no puede dar.
+//
+// Lo importante: durante 7 días el canary reportó esto como fallo y el motivo fue
+// cambiando solo. Primero era la cuenta QA Free envenenada con Pro legítimo (el
+// harness de IDOR le siembra un gasto por la API real y el primer gasto arranca el
+// trial), así que Free recibía 200. Des-envenenada la cuenta, el 200 pasó a 402 y
+// el harness siguió rojo por la aserción vieja. Un guard que grita por el motivo
+// equivocado entrena a ignorar al que grita por el correcto.
+//
+// La aserción que de verdad protege es "NUNCA 200", y por eso va explícita y
+// separada del status esperado: si mañana el muro cambia de código otra vez, este
+// archivo tiene que ponerse rojo por la fuga, no por el número.
 //
 // Por qué merece un slot diario: es un gate de datos (más sensible que el leak de
 // `factors` que cubre gating-score), no depende de data sembrada (Free recibe 403
@@ -60,7 +81,7 @@ const ACCOUNTS = {
     anon: pick('NETO_QA_FREE_ANON') || pick('NETO_QA_ANON'),
     email: pick('NETO_QA_FREE_EMAIL'),
     password: pick('NETO_QA_FREE_PASSWORD') || pick('NETO_QA_PASSWORD'),
-    expectStatus: 403,
+    expectStatus: 402,
   },
 };
 
@@ -125,7 +146,9 @@ async function main() {
     facts[plan] = {
       status,
       expectStatus: acct.expectStatus,
-      upgradeFlag: !!(body && body.upgrade),
+      motivo: body && typeof body.error === 'string' ? body.error : undefined,
+      // `dump` es lo único que importa de verdad: que el payload NO traiga la data.
+      dump: plan === 'free' ? proShapeOk(body) : undefined,
       shapeOk: plan === 'pro' ? proShapeOk(body) : undefined,
     };
   }
@@ -133,8 +156,12 @@ async function main() {
   const checks = {
     'pro: /api/export 200': facts.pro.status === 200,
     'pro: payload con forma esperada': facts.pro.shapeOk === true,
-    'free: /api/export 403 (sin fuga del dump)': facts.free.status === 403,
-    'free: respuesta marca upgrade': facts.free.upgradeFlag === true,
+    // Va primero y aparte del status: es el invariante de seguridad. Si el muro cambia
+    // de código otra vez, este check tiene que seguir siendo el que decide.
+    'muro: NUNCA el dump completo': facts.free.dump !== true,
+    'muro: /api/export niega, no 200': facts.free.status !== 200,
+    'muro: /api/export 402 (el muro de lectura)': facts.free.status === 402,
+    'muro: el motivo es el muro, no otro error': facts.free.motivo === 'trial_terminado',
   };
   results.facts = facts;
   results.checks = Object.fromEntries(Object.entries(checks).map(([k, v]) => [k, v ? 'PASS' : 'FAIL']));

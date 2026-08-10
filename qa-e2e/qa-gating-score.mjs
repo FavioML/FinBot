@@ -9,9 +9,24 @@
 // Verificar solo /api/score dejaba un hueco: un leak podía vivir en el seed que
 // realmente hidrata la app mientras /api/score quedaba limpio.
 //   - Pro:  status 200 y `factors` presente.
-//   - Free: status 200 y `factors` AUSENTE (si aparece = leak de una feature Pro
-//           a Free, una regresión de negocio que qa-login no ve). Además, ninguna
-//           entrada del history del seed puede traer campos `factor_*`.
+//   - Muro: status 402 — la ruta entera se niega, no "el número sí y los factores no".
+//
+// LA PREMISA ORIGINAL DE ESTE ARCHIVO YA NO EXISTE, y conviene decirlo fuerte porque
+// cambia lo que el harness puede afirmar. Se escribió cuando había un plan Free
+// permanente que veía el score sin el desglose, así que el gate interesante era
+// "Free recibe 200 con `factors` ausente". Con el trial de 14 días (`e9449d0`,
+// 01-ago) `free` dejó de ser un plan y pasó a ser el MURO: `requireLectura` niega
+// /api/score y /api/dashboard con 402 antes de calcular nada.
+//
+// Consecuencia incómoda: los cuatro checks de leak (`free NO ve factors`, etc.)
+// ahora pasan POR VACUIDAD — no hay payload donde pueda filtrarse nada. Se dejan,
+// porque un 402 que empezara a traer cuerpo sería exactamente la regresión que
+// buscan, pero se marcan como vacuos en el output para que nadie lea cuatro PASS y
+// crea que se ejercitó un límite. El check que sí ejercita algo hoy es la negación.
+//
+// El leak Pro→Free que este archivo vigilaba solo puede volver si vuelve un plan
+// gratuito con lectura parcial. Si eso pasa, esta cabecera hay que reescribirla,
+// no ajustarle el número al status.
 //
 // Por qué merece un slot diario: es un check de gating (seguridad de producto),
 // no depende de data sembrada (el score se calcula igual con o sin muchas
@@ -141,17 +156,28 @@ async function main() {
   // Aserciones de gating. El seed Pro solo trae `score.factors` si ya hay una fila
   // persistida; el fetch previo a /api/score (que calcula+persiste si falta) lo
   // garantiza, así que aquí sí se puede exigir en Pro.
+  // Con el muro negando la ruta entera, los checks de leak no tienen payload que
+  // inspeccionar. Se marcan para que cuatro PASS no se lean como cuatro límites
+  // ejercitados — es la misma trampa que un guard verde por vacuidad.
+  const muroNiega = facts.free.status === 402 && facts.free.dashStatus === 402;
+  const vacuo = (etiqueta) => (muroNiega ? `${etiqueta} [vacuo: el muro no devuelve cuerpo]` : etiqueta);
+
   const checks = {
     'pro: /api/score 200': facts.pro.status === 200,
-    'free: /api/score 200': facts.free.status === 200,
     'pro VE factors del score': facts.pro.hasFactors === true,
-    'free NO ve factors (sin leak Pro→Free)': facts.free.hasFactors === false,
     'pro: /api/dashboard 200': facts.pro.dashStatus === 200,
-    'free: /api/dashboard 200': facts.free.dashStatus === 200,
     'pro VE factors en el seed': facts.pro.dashHasFactors === true,
-    'free NO ve factors en el seed': facts.free.dashHasFactors === false,
-    'free: seed history sin factor_* (sin leak)': facts.free.dashHistoryLeak === false,
+    // Lo que hoy sí se ejercita: el muro corta la lectura agregada en los DOS
+    // endpoints. Verificar solo /api/score dejaba fuera el seed que hidrata la app.
+    'muro: /api/score niega, no 200': facts.free.status !== 200,
+    'muro: /api/score 402': facts.free.status === 402,
+    'muro: /api/dashboard niega, no 200': facts.free.dashStatus !== 200,
+    'muro: /api/dashboard 402': facts.free.dashStatus === 402,
+    [vacuo('muro: sin factors en /api/score')]: facts.free.hasFactors === false,
+    [vacuo('muro: sin factors en el seed')]: facts.free.dashHasFactors === false,
+    [vacuo('muro: seed history sin factor_*')]: facts.free.dashHistoryLeak === false,
   };
+  results.muroNiegaLaRutaEntera = muroNiega;
   results.facts = facts;
   results.checks = Object.fromEntries(Object.entries(checks).map(([k, v]) => [k, v ? 'PASS' : 'FAIL']));
   const allPass = Object.values(checks).every(Boolean);
