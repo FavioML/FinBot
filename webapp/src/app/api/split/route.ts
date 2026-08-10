@@ -1,12 +1,26 @@
 import { getServiceClient } from '@/lib/supabase/service';
-import { requireNetoUser } from '@/lib/supabase/auth';
+import { requireNetoUser, requireLectura } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { parseMontoDinero } from '@/lib/money';
 import { hoyPeru } from '@/lib/dates';
 
+// Un gasto compartido con cientos de participantes no es un caso de uso, es una forma de
+// insertar filas en lote por una ruta que no está pensada para eso.
+const MAX_PARTICIPANTES = 50;
+
 // GET /api/split — list shared expenses
+//
+// Esta es la ÚNICA operación del archivo que exige derecho de lectura. El resto queda con
+// `requireNetoUser` porque crear, editar y liquidar un gasto compartido son ESCRITURAS, y la
+// regla es que escribir nunca se corta.
+//
+// La exención "colaborativo (host paga)" que cubría al archivo entero no aplicaba acá: ese
+// modelo existe para que el tier del DUEÑO del espacio mande sobre el del que pide, y este
+// filtro es `creador_id = userId`, o sea que el que pide ES el dueño. Sin `requireLectura`,
+// alguien en el muro recuperaba su ledger agregado completo pegándole a la API.
 export async function GET() {
-  const auth = await requireNetoUser();
+  const auth = await requireLectura();
   if (!auth.ok) return auth.response;
   const userId = auth.user.id;
 
@@ -39,11 +53,50 @@ export async function POST(request: Request) {
   const { descripcion, monto_total, moneda = 'PEN', categoria, fecha_limite, notas, participantes } = body;
 
   const montoTotalNum = parseFloat(monto_total);
-  if (!descripcion || !monto_total || !participantes || participantes.length === 0) {
+  if (!descripcion || !monto_total || !Array.isArray(participantes) || participantes.length === 0) {
     return NextResponse.json({ error: 'descripcion, monto_total, and participantes required' }, { status: 400 });
   }
   if (isNaN(montoTotalNum) || !isFinite(montoTotalNum) || montoTotalNum <= 0 || montoTotalNum > 999999.99) {
     return NextResponse.json({ error: 'Monto total inválido' }, { status: 400 });
+  }
+
+  // El total se validaba y las partes no, así que un `monto_debe` NaN/Infinity/negativo
+  // entraba crudo. No se quedaba acá: `split/join` copia esa cifra a una fila de `deudas` de
+  // OTRA persona, y un NaN deja esa deuda envenenada de forma permanente — además de anular la
+  // guarda de sobrepago del PUT (`montoAbono > pendiente + 0.01` con NaN es siempre false).
+  // Mismo helper que usa el resto de la webapp, para que crear y editar validen idéntico.
+  if (participantes.length > MAX_PARTICIPANTES) {
+    return NextResponse.json(
+      { error: `Máximo ${MAX_PARTICIPANTES} participantes por gasto` },
+      { status: 400 },
+    );
+  }
+
+  const montosParticipantes: number[] = [];
+  for (const p of participantes) {
+    const monto = parseMontoDinero(p?.monto_debe, { allowZero: true });
+    if (monto === null) {
+      return NextResponse.json(
+        { error: `Monto inválido para "${p?.nombre || 'participante'}"` },
+        { status: 400 },
+      );
+    }
+    montosParticipantes.push(monto);
+  }
+
+  // Cota SUPERIOR, no igualdad: los participantes son los OTROS, no todos. La UI crea
+  // `num - 1` filas de `total / num` (split-dialogs.tsx), porque el que registra el gasto ya
+  // lo pagó y absorbe su propia parte. O sea que la suma de partes es legítimamente MENOR que
+  // el total, y exigir que reconcilie habría rechazado todos los splits que el producto crea.
+  //
+  // Lo que sí es imposible es deber más de lo que costó. La tolerancia es de un centavo por
+  // participante, por el redondeo a 2 decimales de una división en N partes.
+  const sumaPartes = montosParticipantes.reduce((s, m) => s + m, 0);
+  if (sumaPartes > montoTotalNum + 0.01 * participantes.length) {
+    return NextResponse.json(
+      { error: 'Las partes suman más que el monto total' },
+      { status: 400 },
+    );
   }
 
   // Create shared expense
@@ -66,13 +119,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: gastoError.message }, { status: 400 });
 
   // Insert participants
-  const participantRows = participantes.map((p: { nombre: string; monto_debe: number; usuario_id?: string }) => ({
-    gasto_id: gasto.id,
-    nombre: p.nombre,
-    usuario_id: p.usuario_id || null,
-    monto_debe: parseFloat(String(p.monto_debe)),
-    pagado: false,
-  }));
+  const participantRows = participantes.map(
+    (p: { nombre: string; monto_debe: number; usuario_id?: string }, i: number) => ({
+      gasto_id: gasto.id,
+      nombre: p.nombre,
+      usuario_id: p.usuario_id || null,
+      monto_debe: montosParticipantes[i],
+      pagado: false,
+    }),
+  );
 
   const { error: partError } = await getServiceClient()
     .from('gasto_participantes')

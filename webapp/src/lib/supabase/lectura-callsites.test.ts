@@ -33,6 +33,13 @@ const USA_REQUIRE_NETO = /\brequireNetoUser\s*\(/;
  *   (`requireSpaceMember` / `requireSpaceOwner`), donde el tier que manda es el del dueño
  *   del espacio, no el del que pide. Meterles `requireLectura` rompería justo el caso que
  *   ese modelo existe para soportar: un Pro que invita a alguien que no paga.
+ *
+ *   OJO con el alcance: la exención es de ARCHIVO y este motivo no cubre a todos sus métodos.
+ *   `api/split/route.ts` aparece acá porque sus ESCRITURAS (POST/PATCH/PUT/DELETE) son
+ *   colaborativas, pero su GET filtra por `creador_id = userId` — el que pide ES el dueño, así
+ *   que "host paga" nunca aplicó y el ledger agregado se leía gratis desde el muro (M13,
+ *   auditoría 10-ago-2026). Por eso ese GET lleva `requireLectura` y hay un caso abajo que lo
+ *   fija: una exención de archivo no puede volverse un permiso para todo lo que viva dentro.
  * · ADMIN / INFRA — su propio gate.
  */
 const SIN_MURO = new Set([
@@ -121,6 +128,21 @@ describe('muro de lectura en las rutas de API', () => {
    * dejaba la importación masiva gratis desde la webapp sin que nada se pusiera rojo.
    * Lo señaló el revisor del diff de la ola 4.
    */
+  /**
+   * El GET de split lee y las demás operaciones escriben, así que el archivo entero no puede
+   * estar de un solo lado. Mientras la exención siga siendo por archivo, este caso es lo único
+   * que impide que alguien "simplifique" el GET de vuelta a `requireNetoUser` y que el guard
+   * lo dé por cubierto: el archivo seguiría en SIN_MURO y los dos tests de arriba, en verde.
+   */
+  it('la exención de split/ no cubre su GET, que sí exige lectura', () => {
+    const ruta = rutas.find((r) => r.rel === 'api/split/route.ts');
+    expect(ruta, 'la ruta de split desapareció: revisar esta exención').toBeDefined();
+    const get = ruta!.contenido.match(/export async function GET\s*\([^)]*\)\s*\{[\s\S]*?\n\}/);
+    expect(get, 'no se encontró el handler GET de split').not.toBeNull();
+    expect(get![0]).toMatch(/\brequireLectura\s*\(/);
+    expect(get![0]).not.toMatch(/\brequireNetoUser\s*\(/);
+  });
+
   it('la exención de import/ trae su propio gate de Pro, no queda desnuda', () => {
     const ruta = rutas.find((r) => r.rel === 'api/transactions/import/route.ts');
     expect(ruta, 'la ruta de import desapareció: revisar esta exención').toBeDefined();
