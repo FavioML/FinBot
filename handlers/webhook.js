@@ -74,6 +74,24 @@ function createWebhookHandler(procesarMensajeLibre) {
     log.warn({ tag: 'WEBHOOK' }, 'Request sin X-Hub-Signature-256');
     return res.sendStatus(403);
   }
+  // `rawBody` solo lo puebla el `verify` de express.json(), que NO corre si el Content-Type
+  // no es JSON. Sin esta guarda, un POST con `Content-Type: text/plain` y CUALQUIER valor en
+  // el header de firma hacía que `createHmac().update(undefined)` lanzara un TypeError — y
+  // como esta línea vive fuera del try, terminaba en el error handler de Express, que escribe
+  // una fila con stack en la tabla `errores`. Esa escritura no tiene throttle (el cooldown de
+  // 5 min es de `notificarErrorAdmin`, no del INSERT), así que era un camino sin autenticar
+  // para llenar Supabase, que acá es capa única: tumbarla apaga WhatsApp, webapp y crons.
+  //
+  // Va antes del HMAC y no dentro del try a propósito: un request sin rawBody no puede tener
+  // firma válida, así que la respuesta correcta es la misma que para una firma inválida.
+  // El `length === 0` no es decorativo, pero tampoco tapa un agujero: un rawBody vacío ya
+  // caía en 403 por la comparación de firma (nadie puede forjar el HMAC del buffer vacío sin
+  // el secreto). Se cubre acá para que el 403 salga por la razón correcta y no dependa de que
+  // el HMAC de la nada resulte no matchear.
+  if (!req.rawBody || req.rawBody.length === 0) {
+    log.warn({ tag: 'WEBHOOK' }, 'Request sin rawBody (Content-Type no JSON)');
+    return res.sendStatus(403);
+  }
   const expected = 'sha256=' + crypto.createHmac('sha256', META_APP_SECRET).update(req.rawBody).digest('hex');
   const sigBuf = Buffer.from(signature);
   const expBuf = Buffer.from(expected);
