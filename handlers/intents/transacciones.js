@@ -1,5 +1,6 @@
 const log = require('../../lib/logger');
 const { colaConfirmacionGasto } = require('../../lib/trial');
+const { validarMonto } = require('../../lib/validators');
 
 // El LLM a veces clasifica queries como register_transaction tras un burst de gastos
 // previos en el contexto (bal-001/004/005). Cuando el parser falla por falta de monto,
@@ -510,8 +511,13 @@ module.exports = {
 
       case 'editar_monto': {
         try {
-          const montoNuevo = datos.monto_nuevo ? parseFloat(datos.monto_nuevo) : null;
-          if (!montoNuevo || montoNuevo <= 0) return 'Dime el monto correcto. Ej: _"el monto es 50"_, _"corrige a S/120"_.';
+          // `validarMonto` y no `parseFloat` + `> 0`: es el gemelo por WhatsApp del bug ya
+          // arreglado en la webapp (B18). El chequeo suelto deja pasar Infinity, montos de 15
+          // dígitos y decimales infinitos, y acá la escritura es directa —no hay UI que los
+          // frene—. El copy amable se conserva: el usuario que escribe "corrige a 50" y el que
+          // escribe algo absurdo reciben el mismo empujón, que es lo que corresponde por chat.
+          const montoNuevo = validarMonto(datos.monto_nuevo);
+          if (!montoNuevo) return 'Dime el monto correcto. Ej: _"el monto es 50"_, _"corrige a S/120"_.';
           let txEditM = null;
           if (datos.comercio) {
             const { data: found } = await supabase.from('transacciones').select('*')
@@ -615,8 +621,15 @@ module.exports = {
           }
           if (!txDiv) txDiv = await obtenerUltimaTransaccion(usuario.id);
           if (!txDiv) return 'No encuentro un gasto reciente para dividir.';
-          const montoOriginal = parseFloat(txDiv.monto);
-          const montoNuevoDiv = parseFloat((montoOriginal / partes).toFixed(2));
+          // Los DOS pasan por `validarMonto` (B18), y por motivos distintos:
+          //  · el original, porque es un valor que salió de la DB y esta rama lo vuelve a
+          //    escribir: si ya estaba envenenado, dividirlo lo propaga sin mirarlo.
+          //  · el resultado, porque la división puede caer bajo el centavo (S/0.10 entre 20
+          //    redondea a 0.00) y eso escribiría un gasto de cero, que no es un gasto.
+          const montoOriginal = validarMonto(txDiv.monto);
+          if (!montoOriginal) return 'Ese gasto tiene un monto que no puedo dividir. Corrígelo primero: _"el monto es 50"_.';
+          const montoNuevoDiv = validarMonto((montoOriginal / partes).toFixed(2));
+          if (!montoNuevoDiv) return 'Dividirlo entre ' + partes + ' deja menos de un centavo. Prueba con menos partes.';
           const updates = { monto: montoNuevoDiv };
           if (txDiv.moneda === 'USD') {
             const tc = await obtenerTipoCambio();

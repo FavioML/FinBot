@@ -9,6 +9,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 // Los precios salen de una sola fuente (lib/constants), nunca escritos a mano.
 import { PRO_PRICE_MONTHLY_PEN, PRO_PRICE_YEARLY_PEN } from '@/lib/constants';
+import { toCsv, downloadCsv } from '@/lib/csv-export';
 import {
   useAdminStats,
   useAdminUsers,
@@ -645,27 +646,24 @@ export default function AdminOperacionPage() {
     setUserPage(0);
   }, [search, userPlanFilter, userOnboardingFilter, userGmailFilter, userWebappFilter, userCanalFilter]);
 
+  // Este export tenía su propio CSV a mano y le hacía `.replace()` a cada celda, así que un
+  // usuario web-first (whatsapp NULL, y hay dos en prod) reventaba con TypeError y la descarga
+  // no salía: no fallaba la columna, fallaba el archivo entero (F5). `toCsv` escapa null-safe
+  // en un solo sitio, que es donde tiene que vivir esa regla.
   const handleExportCSV = () => {
     const headers = ['nombre', 'email', 'whatsapp', 'plan', 'estado_pago', 'tiene_gmail', 'tiene_webapp', 'transacciones', 'created_at'];
     const rows = filteredUsers.map((u) => [
-      u.nombre || '',
-      u.email || '',
+      u.nombre,
+      u.email,
       u.whatsapp,
       u.plan,
-      u.estado_pago || '',
+      u.estado_pago,
       u.tiene_gmail ? 'si' : 'no',
       u.tiene_webapp ? 'si' : 'no',
-      String(u.transacciones),
+      u.transacciones,
       u.created_at,
     ]);
-    const csv = [headers.join(','), ...rows.map((r) => r.map((v) => `"${v.replace(/"/g, '""')}"`).join(','))].join('\n');
-    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `neto-usuarios-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCsv(`neto-usuarios-${new Date().toISOString().split('T')[0]}.csv`, toCsv(headers, rows));
   };
 
   const handleTicketReply = async (ticketId: string) => {

@@ -164,14 +164,19 @@ async function checkRecordatorioDiario() {
 
           // A los 28-30 días de registro: casi siempre ya activó su cuenta web. Es el mensaje
           // comercial de mayor valor del producto y salía por el canal menos fiable.
-          await notificarUsuario({
+          const avisadoUpsell = await notificarUsuario({
             canales: CANALES.AMBOS,
             usuarioId: usuario.id, whatsapp: usuario.whatsapp,
             tipo: 'pro_upsell_d28', mensaje: upsellMsg,
             titulo: 'Llevas 1 mes usando Neto',
             link: '/dashboard/pro',
           });
-          await solicitarComprobante(usuario.id);
+          // Misma guarda que los avisos de vencimiento (ver `llegoElAviso`): sin aviso
+          // entregado no se abre la ventana de 48h que convierte toda foto en "captura de
+          // pago". Este call-site se había quedado sin ella (B14), y es el peor de los cuatro
+          // para no tenerla: el destinatario acaba de terminar su prueba, o sea que lleva días
+          // sin escribir, que es exactamente cuando Meta rechaza el texto libre (131047).
+          if (llegoElAviso(avisadoUpsell)) await solicitarComprobante(usuario.id);
           totalUpsell++;
           continue;
         }
@@ -390,7 +395,7 @@ async function checkPremiumExpiry() {
         // cupo ocupado para siempre. Se suelta acá mismo, sin gracia.
         const { revocadas } = await revocarAccesoGmail(usuario.id, { motivo: 'premium_vencido' });
         const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
-        await notificarUsuario({
+        const avisadoExpirado = await notificarUsuario({
           canales: CANALES.AMBOS,
           usuarioId: usuario.id, whatsapp: usuario.whatsapp,
           tipo: 'premium_expired',
@@ -404,7 +409,10 @@ async function checkPremiumExpiry() {
           cuerpo: 'Tu plan NETO Pro venció. Sigo anotando tus gastos; el dashboard y el historial quedan cerrados hasta que renueves.',
           link: '/dashboard/configuracion',
         });
-        await solicitarComprobante(usuario.id);
+        // Misma guarda que los avisos de 3d y de hoy (ver `llegoElAviso`): abrir la ventana de
+        // comprobante a quien no se enteró del aviso le rompe el registro por foto durante 48h
+        // sin decirle por qué. Este call-site se había quedado sin ella (B14).
+        if (llegoElAviso(avisadoExpirado)) await solicitarComprobante(usuario.id);
         log.info({ tag: 'EXPIRY', userId: usuario.id }, 'Premium expirado, downgradeado a free');
       } catch(e) { log.error({ tag: 'EXPIRY', userId: usuario.id, err: e.message }, 'Error downgradeando usuario'); }
     }

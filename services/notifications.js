@@ -48,20 +48,48 @@ async function enviarAlertaTransaccion(usuario, tx, resultado) {
   if (tipo === 'gasto') {
     try {
       const hace28 = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      // Se compara en SOLES, no en la moneda de cada fila. Este promedio usaba `monto` crudo
+      // (único sitio del backend fuera de la convención) y después imprimía el resultado con
+      // "S/" al lado: con un par de suscripciones en dólares en la categoría, el promedio salía
+      // ~3.7x más bajo de lo real y cualquier gasto normal disparaba la alerta de "gasto
+      // inusual". Al revés también: un consumo de US$40 se comparaba como si fueran 40 soles y
+      // no disparaba nunca (B17).
+      //
+      // Se trae `moneda` además de las dos columnas de monto, y no es de adorno: `monto_pen` es
+      // NULLABLE a propósito (la rama USD fuera de rango deja un null honesto en vez de un
+      // número inventado), así que sin la moneda no hay forma de saber si un null se puede
+      // tratar como soles. Caer a `monto` a ciegas reintroduce el mismo bug más chico: mete
+      // dólares crudos en un promedio de soles.
       const { data: historial } = await supabase.from('transacciones')
-        .select('monto')
+        .select('monto, monto_pen, moneda')
         .eq('usuario_id', usuario.id)
         .eq('tipo', 'gasto')
         .ilike('categoria', '%' + categoria + '%')
         .gte('fecha', hace28)
         .neq('id', tx.id);
-      if (historial && historial.length >= 3) {
-        const promedio = historial.reduce((s, t) => s + parseFloat(t.monto), 0) / historial.length;
-        const factor = monto / promedio;
-        if (factor >= 2.5 && monto > 30) {
+
+      // Una fila vale para el promedio solo si se puede expresar en soles: porque tiene
+      // `monto_pen`, o porque ya está en soles. La fila USD sin conversión se descarta, y el
+      // umbral de 3 de abajo es lo que impide decidir sobre una muestra que quedó muy chica.
+      const enSoles = (t) => {
+        if (t.monto_pen != null) return parseFloat(t.monto_pen);
+        return (t.moneda || 'PEN') === 'PEN' ? parseFloat(t.monto) : null;
+      };
+      // El gasto nuevo entra en la MISMA unidad que el promedio, o la razón compara peras con
+      // manzanas incluso con el historial ya convertido. Si es USD y no tiene conversión no hay
+      // comparación honesta posible, así que se calla en vez de mentir: sin esto un consumo de
+      // US$40 se compara como 40 soles y el gasto más grande del mes es justo el que nunca
+      // dispara la alerta.
+      const montoComparable = tx.monto_pen != null ? parseFloat(tx.monto_pen)
+        : (monedaTx === 'PEN' ? monto : null);
+      const comparables = (historial || []).map(enSoles).filter((n) => n != null && isFinite(n) && n > 0);
+      if (montoComparable != null && comparables.length >= 3) {
+        const promedio = comparables.reduce((s, n) => s + n, 0) / comparables.length;
+        const factor = montoComparable / promedio;
+        if (factor >= 2.5 && montoComparable > 30) {
           msg += '\n\n\u26A0\uFE0F *Gasto inusual:* Este gasto es ' + factor.toFixed(1) + 'x tu promedio en ' + categoria + ' (S/ ' + promedio.toFixed(2) + ')';
           await crearNotificacion(usuario.id, 'alerta', 'Gasto inusual detectado',
-            comercio + ': S/' + monto.toFixed(2) + ' es ' + factor.toFixed(1) + 'x tu promedio en ' + categoria,
+            comercio + ': ' + montoStr.replace(/\*/g, '') + ' es ' + factor.toFixed(1) + 'x tu promedio en ' + categoria,
             { link: '/dashboard/transacciones' });
         }
       }

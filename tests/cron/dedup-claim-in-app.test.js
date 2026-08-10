@@ -198,10 +198,16 @@ describe('los cuatro crons con dedup por fecha piden el claim', () => {
     expect(suyo[0]).not.toMatch(/claimInApp:\s*true/);
   });
 
-  // El claim aborta el envío. Todo lo que el call-site haga DESPUÉS asumiendo que el aviso
-  // salió tiene que mirar el resultado. `solicitarComprobante` es el caso que duele: abre 48h
-  // donde toda foto se lee como captura de pago, así que correrlo sin haber avisado le rompe
-  // el registro por foto al usuario sin decirle por qué (la trampa de B12).
+  // `solicitarComprobante` abre 48h donde TODA foto se lee como captura de pago: una que no
+  // parece el pago a Neto se rechaza sin registrar el gasto. Correrlo detrás de un aviso que
+  // no llegó le rompe el registro por foto al usuario sin decirle por qué (la trampa de B12).
+  //
+  // Se barren los CUATRO call-sites, no solo los que siguen a un aviso con claim. Hasta el
+  // 10-ago este test miraba únicamente los tres bloques con `claimInApp: true` y fijaba el
+  // conteo en 2 — y los otros dos call-sites (el upsell d28 y el downgrade por vencimiento)
+  // llevaban meses sin guarda, invisibles para el guard que existía justo para eso (B14). El
+  // conteo fijado era lo que cerraba la puerta: decía "revisé todo lo que había que revisar"
+  // sobre una población que el filtro había recortado antes.
   //
   // Se recorre desde el BLOQUE hacia adelante, no desde `solicitarComprobante` hacia atrás.
   // La primera versión hacía lo segundo, con una ventana de 1600 chars, y tenía un FALSO
@@ -209,13 +215,20 @@ describe('los cuatro crons con dedup por fecha piden el claim', () => {
   // `notificarUsuario({` fuera de la ventana, así que esa llamada quedaba sin revisar y la
   // mutación (quitarle la guarda) pasaba VERDE. Mismo modo de falla que el primer guard de
   // Q5 y el de `maxGmailAccounts`: el barrido se saltaba justo el sitio que debía mirar.
-  it('solicitarComprobante nunca corre tras un claim fallido', () => {
-    const conClaim = [...CHECKS.matchAll(/notificarUsuario\(\{[\s\S]*?\n\s*\}\);/g)]
-      .filter(m => /claimInApp:\s*true/.test(m[0]));
-    expect(conClaim.length, 'antivacuidad: no hay bloques con claim que revisar').toBe(3);
+  //
+  // El regex captura el nombre de la variable del resultado para que la guarda tenga que
+  // mirar EL aviso de ese call-site. Sin eso, `llegoElAviso(avisado3d)` puesto por copy-paste
+  // debajo de otro aviso pasaría verde mientras consulta la entrega equivocada.
+  const BLOQUES_CON_VAR = /(?:const\s+(\w+)\s*=\s*)?await\s+notificarUsuario\(\{[\s\S]*?\n\s*\}\);/g;
+
+  it('solicitarComprobante nunca corre sin que el aviso haya llegado', () => {
+    const avisos = [...CHECKS.matchAll(BLOQUES_CON_VAR)];
+    expect(avisos.length, 'antivacuidad: el barrido no encontró llamadas a notificarUsuario')
+      .toBeGreaterThan(6);
 
     let revisadas = 0;
-    for (const m of conClaim) {
+    for (const m of avisos) {
+      const variable = m[1];
       // Lo que viene inmediatamente después del bloque, hasta cerrar el try del bucle.
       // La ventana la CIERRA el `} catch`, no el número: 800 dejaba 92 chars de margen y
       // un comentario más lo habría partido (lo midió la segunda revisión). 4000 es holgura
@@ -223,20 +236,35 @@ describe('los cuatro crons con dedup por fecha piden el claim', () => {
       const despues = CHECKS.slice(m.index + m[0].length, m.index + m[0].length + 4000);
       const corte = despues.indexOf('} catch');
       const cuerpo = corte >= 0 ? despues.slice(0, corte) : despues;
-      const usos = [...cuerpo.matchAll(/solicitarComprobante\(/g)];
-      for (const u of usos) {
+      for (const u of cuerpo.matchAll(/solicitarComprobante\(/g)) {
         revisadas++;
         const linea = cuerpo.slice(cuerpo.lastIndexOf('\n', u.index) + 1, cuerpo.indexOf('\n', u.index));
         // La guarda tiene que preguntar por ENTREGA, no por una causa puntual de fallo:
         // `skipped !== 'claim_in_app_fallo'` cubría el modo raro y dejaba pasar el frecuente
         // (Meta 131047 devuelve ok:false SIN skipped).
-        expect(linea, 'solicitarComprobante sin guarda tras un claim: ' + linea.trim())
+        expect(linea, 'solicitarComprobante sin guarda de entrega: ' + linea.trim())
           .toMatch(/llegoElAviso\(/);
+        expect(
+          variable,
+          'el aviso previo a este solicitarComprobante no guarda su resultado en una variable, ' +
+          'así que la guarda no puede estar mirando ESTE envío: ' + linea.trim(),
+        ).toBeTruthy();
+        expect(linea, 'la guarda mira otro aviso, no el de este call-site: ' + linea.trim())
+          .toContain('llegoElAviso(' + variable + ')');
       }
     }
-    // Antivacuidad de la segunda mitad: si el recorte dejara de encontrar los usos, el
-    // for de arriba no correría y el test pasaría sin haber mirado nada.
-    expect(revisadas, 'el barrido no encontró ningún solicitarComprobante tras un claim').toBe(2);
+    expect(revisadas, 'el barrido no encontró ningún solicitarComprobante tras un aviso').toBe(4);
+  });
+
+  // La otra dirección, y es la que impide que el conteo de arriba vuelva a mentir: TODO
+  // `solicitarComprobante` del archivo tiene que caer dentro del barrido. Si aparece uno fuera
+  // del cuerpo de un aviso, el walk no lo ve y el 4 de arriba pasa a describir una muestra en
+  // vez de la población — que es exactamente cómo B14 sobrevivió a un guard verde.
+  it('no hay call-sites de solicitarComprobante fuera del barrido', () => {
+    // Con el paréntesis: el `require` del tope y las menciones en comentarios nombran la
+    // función sin llamarla, y contarlas ataría este número a la prosa del archivo.
+    const totalEnArchivo = [...CHECKS.matchAll(/solicitarComprobante\(/g)].length;
+    expect(totalEnArchivo, 'aparecieron call-sites nuevos: revisá que el walk los alcance').toBe(4);
   });
 });
 

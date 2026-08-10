@@ -4,9 +4,10 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { TrendingUp, Bug, Repeat, AlertTriangle, CheckCircle2, ShieldCheck } from 'lucide-react';
-import { useSpendingAlerts } from '@/lib/hooks/use-spending-alerts';
+import { useSpendingAlerts, decidirVistaAlertas } from '@/lib/hooks/use-spending-alerts';
 import type { SpendingAlert } from '@/lib/hooks/use-spending-alerts';
 import { canAccess } from '@/lib/plan';
+import { useUser } from '@/lib/hooks/use-user';
 import { ProGate } from '@/components/shared/pro-gate';
 import { FadeIn } from '@/components/shared/motion-wrapper';
 import { AlertasSkeleton } from '@/components/dashboard/skeletons';
@@ -115,16 +116,43 @@ function AlertCard({ alert, canLimits, onSetLimit }: { alert: SpendingAlert; can
 
 export default function AlertasPage() {
   const router = useRouter();
-  const { data, isLoading } = useSpendingAlerts(20);
+  const { data: user } = useUser();
+  const { data, isLoading, isError, refetch } = useSpendingAlerts(20);
+  const vista = decidirVistaAlertas({ isLoading, isError, data });
 
-  if (isLoading) {
+  if (vista === 'cargando') {
     return (
       <AlertasSkeleton />
     );
   }
 
+  // Un fetch caído NO es "no tienes fugas". Sin esta rama la página decía "Todo bien por ahora"
+  // con un escudo verde encima cada vez que /api/alerts fallaba (F3), que es la peor mentira
+  // posible acá: el usuario cierra la pestaña tranquilo justo cuando el detector no miró nada.
+  if (vista === 'error') {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center p-6">
+        <div className="glass-card w-full max-w-md space-y-4 p-8 text-center">
+          <h2 className="text-xl font-bold text-[#F0EFE8]">No pudimos revisar tus gastos</h2>
+          <p className="text-sm text-[#8A877D]">
+            Esto no significa que no haya fugas: significa que no pudimos mirar. Revisa tu conexión e inténtalo de nuevo.
+          </p>
+          <button
+            onClick={() => refetch()}
+            className="inline-flex items-center gap-2 rounded-lg bg-[#1D9E75] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1D9E75]/90"
+          >
+            Reintentar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const alerts = data?.alerts ?? [];
-  const userPlan = data?.isPro ? 'premium' : 'free';
+  // El plan sale de `useUser`, la fuente de verdad del resto del dashboard, y no del `isPro` de
+  // esta respuesta: con el fetch de alertas caído ese campo llegaba `undefined` y degradaba a un
+  // Pro a Free, escondiéndole proyecciones y límites que sí paga (segunda mitad de F3).
+  const userPlan = user?.plan;
 
   const canProjections = canAccess(userPlan, 'fugas_projections');
   const canLimits = canAccess(userPlan, 'fugas_limits');

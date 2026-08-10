@@ -314,6 +314,89 @@ describe('editar_monto', () => {
     const res = await run();
     expect(res).toContain('Dime el monto correcto');
   });
+
+  /**
+   * B18 (auditoría 10-ago-2026): esta rama usaba `parseFloat` + `> 0`, sin techo ni
+   * `isFinite`. Es el gemelo por WhatsApp del bug ya arreglado en la webapp, y acá la
+   * escritura es DIRECTA: no hay formulario que frene nada antes.
+   *
+   * Los casos son los mismos que `validarMonto` cubre, escritos como los mandaría alguien
+   * por chat. Con el chequeo suelto los cuatro primeros pasaban y terminaban en la DB.
+   */
+  it.each([
+    ['Infinity', Infinity],
+    ['string Infinity', 'Infinity'],
+    ['sobre el techo de 999999.99', 1000000],
+    ['15 dígitos', 999999999999999],
+    ['negativo', -50],
+    ['cero', 0],
+    ['texto', 'mucho'],
+    ['NaN', NaN],
+  ])('rechaza %s', async (_nombre, monto_nuevo) => {
+    const { run } = call('editar_monto', { monto_nuevo });
+    const res = await run();
+    expect(res).toContain('Dime el monto correcto');
+  });
+
+  it('redondea a dos decimales en vez de escribir la cola infinita', async () => {
+    const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+    const ctx = buildCtx(sb);
+    const res = await handler.handle({
+      intencion: 'editar_monto', msg: 'el monto es 33.333333',
+      datos: { monto_nuevo: 33.333333 }, usuario: USUARIO, from: '+51999', ctx,
+    });
+    expect(res).toContain('33.33');
+    expect(sb._chains['transacciones'].update).toHaveBeenCalledWith(
+      expect.objectContaining({ monto: 33.33 }),
+    );
+  });
+});
+
+// ─── dividir_gasto ──────────────────────────────────────────────────────────
+
+describe('dividir_gasto', () => {
+  it('divide el gasto y escribe la parte del usuario', async () => {
+    const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+    const ctx = buildCtx(sb);
+    const res = await handler.handle({
+      intencion: 'dividir_gasto', msg: 'divide entre 2',
+      datos: { partes: 2 }, usuario: USUARIO, from: '+51999', ctx,
+    });
+    expect(res).toContain('22.75'); // 45.50 / 2
+    expect(sb._chains['transacciones'].update).toHaveBeenCalledWith(
+      expect.objectContaining({ monto: 22.75 }),
+    );
+  });
+
+  // B18: el monto viene de la DB y esta rama lo vuelve a ESCRIBIR. Si ya estaba envenenado,
+  // `parseFloat` lo dividía y lo propagaba sin mirarlo.
+  it('no propaga un monto envenenado que ya estaba guardado', async () => {
+    const podrido = { ...TX_BASE, monto: 'Infinity' };
+    const sb = makeSupabaseMock({ transacciones: [podrido] });
+    const ctx = buildCtx(sb, { obtenerUltimaTransaccion: vi.fn().mockResolvedValue(podrido) });
+    const res = await handler.handle({
+      intencion: 'dividir_gasto', msg: 'divide entre 2',
+      datos: { partes: 2 }, usuario: USUARIO, from: '+51999', ctx,
+    });
+    expect(res).toContain('no puedo dividir');
+    // Ni siquiera abre la tabla: corta antes de tocar la DB.
+    expect(sb.from).not.toHaveBeenCalledWith('transacciones');
+  });
+
+  // El resultado también se valida: dividir bajo el centavo escribía un gasto de 0.00, que
+  // no es un gasto — y encima rompe el promedio de cualquier cosa que lo mire después.
+  it('no escribe un gasto de cero cuando la división cae bajo el centavo', async () => {
+    // 0.04 / 20 = 0.002 → toFixed(2) = "0.00". (0.10/20 redondea a 0.01 y sí es válido.)
+    const centavos = { ...TX_BASE, monto: 0.04, monto_pen: 0.04 };
+    const sb = makeSupabaseMock({ transacciones: [centavos] });
+    const ctx = buildCtx(sb, { obtenerUltimaTransaccion: vi.fn().mockResolvedValue(centavos) });
+    const res = await handler.handle({
+      intencion: 'dividir_gasto', msg: 'divide entre 20',
+      datos: { partes: 20 }, usuario: USUARIO, from: '+51999', ctx,
+    });
+    expect(res).toContain('menos de un centavo');
+    expect(sb.from).not.toHaveBeenCalledWith('transacciones');
+  });
 });
 
 // ─── corregir_categoria ─────────────────────────────────────────────────────

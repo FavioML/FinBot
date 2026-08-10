@@ -37,7 +37,12 @@ export interface AdminStats {
 
 export interface AdminUser {
   id: string;
-  whatsapp: string;
+  // NULLABLE, y el tipo lo decía mal hasta el 10-ago (hallazgo F9). La columna dejó de ser
+  // obligatoria con la identidad dual (migración 046: un usuario web-first no tiene número), y
+  // los otros tres consumidores del panel ya la tipaban `string | null`. Con el `string` de acá
+  // el compilador dejaba pasar `u.whatsapp.replace(...)`, que es F5: el export CSV reventaba
+  // con TypeError apenas un usuario sin número entraba en el filtro.
+  whatsapp: string | null;
   nombre: string | null;
   email: string | null;
   plan: string;

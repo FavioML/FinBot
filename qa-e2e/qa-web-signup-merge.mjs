@@ -7,10 +7,17 @@
 //
 // Escenarios:
 //   1) Merge feliz: survivor = fila web (auth_id, sin número), loser = fila WhatsApp
-//      (número + data + premium). Tras el merge: loser borrado, survivor con el número,
-//      TODOS los hijos repunteados (union), plan premium conservado (no-downgrade).
+//      (número + data + premium + BSUID). Tras el merge: loser borrado, survivor con el
+//      número Y el BSUID, TODOS los hijos repunteados (union), plan premium conservado.
 //   2) Conflicto auth_id: loser ya ligado a OTRA cuenta Google → 'conflict', 2 filas intactas.
 //   3) Conflicto espacio compartido: ambos en el mismo space → 'conflict', 2 filas intactas.
+//   5) Esquema vivo vs árbol: las columnas que PostgREST publica para `usuarios` son las que
+//      el repo cree que existen, y cada una está fusionada o declarada como no-fusionada.
+//
+// El escenario 5 es la mitad que el guard hermético no puede dar. `tests/merge-and-link-
+// columnas.test.js` compara el árbol consigo mismo, así que una columna creada directamente en
+// prod —sin archivo de migración— le es invisible, y ese caso tiene precedente acá (la 059
+// documenta un hotfix remoto sin espejo local, drift D4). Acá la lista sale de la DB real.
 //
 // Requiere la migración 046 aplicada (la función merge_and_link debe existir).
 // Se limpia solo (try/finally, filas is_test_user con marcador QA-MERGE).
@@ -23,6 +30,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { clienteGuardado } from './lib/qa-guard.mjs';
+import { NO_SE_FUSIONAN, columnasSegunElArbol, mergeVigente } from './lib/usuarios-columnas.mjs';
 
 const TAG = 'QA-MERGE';
 
@@ -63,13 +71,14 @@ function ok(cond, label) {
 const RUN = randomUUID().slice(0, 8);
 const numero = () => '519' + String(Math.floor(10000000 + Math.random() * 89999999));
 
-async function crearUsuario({ whatsapp = null, authId = null, plan = 'free', premiumVence = null }) {
+async function crearUsuario({ whatsapp = null, authId = null, plan = 'free', premiumVence = null, bsuid = null }) {
   const { data, error } = await db.from('usuarios').insert({
     whatsapp,
     supabase_auth_id: authId,
     nombre: `QA-MERGE ${RUN}`,
     plan,
     premium_vence: premiumVence,
+    bsuid,
     onboarding_completado: true,
     is_test_user: true,
   }).select('id').single();
@@ -103,8 +112,11 @@ async function escenarioFeliz() {
   let survivor, loser;
   try {
     const authWeb = randomUUID();
+    // El BSUID va en la fila de WhatsApp porque ahí es donde Meta lo deja (migración 065), y
+    // esa fila es el LOSER: sin la línea de la 066 el merge lo borra con ella (B13).
+    const bsuidWA = `PE.QA${RUN}${Math.floor(Math.random() * 1e6)}`;
     survivor = await crearUsuario({ authId: authWeb, plan: 'free' });
-    loser = await crearUsuario({ whatsapp: numero(), plan: 'premium', premiumVence: '2027-01-01' });
+    loser = await crearUsuario({ whatsapp: numero(), plan: 'premium', premiumVence: '2027-01-01', bsuid: bsuidWA });
     await seedHijos(survivor, 'web');   // el web ya registró algo por la app
     await seedHijos(loser, 'wa');       // el WhatsApp tenía su historial
 
@@ -119,11 +131,14 @@ async function escenarioFeliz() {
     ok(!(await existeUsuario(loser)), 'loser borrado');
     ok(await existeUsuario(survivor), 'survivor vive');
 
-    const { data: surv } = await db.from('usuarios').select('whatsapp, plan, premium_vence, supabase_auth_id').eq('id', survivor).single();
+    const { data: surv } = await db.from('usuarios').select('whatsapp, plan, premium_vence, supabase_auth_id, bsuid').eq('id', survivor).single();
     ok(!!surv.whatsapp, `survivor quedó con número (${surv.whatsapp})`);
     ok(surv.plan === 'premium', 'survivor NO degradado (premium)');
     ok(String(surv.premium_vence).startsWith('2027-01-01'), 'premium_vence conservado');
     ok(surv.supabase_auth_id === authWeb, 'survivor conserva su auth_id');
+    // B13: si esto falla, al usuario que active un username dejamos de reconocerlo y no hay
+    // camino de vuelta — el BSUID solo lo vuelve a mandar Meta si la persona escribe antes.
+    ok(surv.bsuid === bsuidWA, `survivor heredó el BSUID del WhatsApp (${surv.bsuid || 'NULL'})`);
 
     const txSurvDespues = await contarTx(survivor);
     ok(txSurvDespues === 4, `union de transacciones (4, got ${txSurvDespues})`);
@@ -211,6 +226,64 @@ async function escenarioColisiones() {
   }
 }
 
+// El esquema que PostgREST publica. `GET /rest/v1/` devuelve el OpenAPI con las columnas de
+// cada tabla, o sea la DB REAL — no lo que el repo cree. Es la única fuente acá que puede
+// delatar una columna creada a mano en la consola de Supabase.
+async function columnasVivas() {
+  const res = await fetch(`${SUPA}/rest/v1/`, {
+    headers: { apikey: SERVICE, Authorization: `Bearer ${SERVICE}` },
+  });
+  if (!res.ok) throw new Error(`OpenAPI de PostgREST: HTTP ${res.status}`);
+  const spec = await res.json();
+  const props = spec?.definitions?.usuarios?.properties;
+  if (!props || !Object.keys(props).length) throw new Error('el OpenAPI no trae las columnas de `usuarios`');
+  return new Set(Object.keys(props).map((c) => c.toLowerCase()));
+}
+
+async function escenarioEsquema() {
+  console.log(`\n[${TAG}] 5) Esquema vivo de usuarios vs lo que el repo declara`);
+  const { archivo, cols: nombradas, bloques } = mergeVigente();
+  ok(bloques === 2, `parseada la migración vigente del merge (${archivo}, ${bloques} UPDATE)`);
+
+  let vivas;
+  try {
+    vivas = await columnasVivas();
+  } catch (e) {
+    // Sin la lista viva no hay veredicto. Marcarlo como fallo y no como "ok, no pude" es
+    // deliberado: un check que se vuelve no-op cuando su fuente no responde es verde por
+    // vacuidad, que es justo la clase de guard que esta auditoría vino a arreglar.
+    ok(false, `no se pudo leer el esquema vivo: ${e.message}`);
+    return;
+  }
+  ok(vivas.size > 20, `PostgREST publicó ${vivas.size} columnas de usuarios`);
+
+  const arbol = columnasSegunElArbol();
+  // Dirección peligrosa: existe en prod y el árbol no la conoce → el guard hermético no la
+  // puede clasificar, así que nadie decidió nunca qué hace el merge con ella.
+  const soloEnProd = [...vivas].filter((c) => !arbol.has(c)).sort();
+  ok(soloEnProd.length === 0,
+    soloEnProd.length
+      ? `columnas en prod que NO declara ningún archivo: ${soloEnProd.join(', ')} — hace falta ` +
+        'la migración que las cree (regla append-only de .claude/rules/database.md); mientras ' +
+        'tanto el guard de tests/merge-and-link-columnas.test.js no las ve'
+      : 'ninguna columna de prod queda fuera de migrations/');
+
+  // La otra dirección es benigna pero vale nombrarla: el árbol declara algo que prod no tiene
+  // (una migración sin aplicar, o una columna borrada a mano).
+  const soloEnArbol = [...arbol].filter((c) => !vivas.has(c)).sort();
+  ok(soloEnArbol.length === 0,
+    soloEnArbol.length
+      ? `el árbol declara columnas que prod no tiene: ${soloEnArbol.join(', ')} (¿migración sin aplicar?)`
+      : 'toda columna declarada existe en prod');
+
+  // Y el veredicto de siempre, pero contra la lista VIVA en vez de la derivada.
+  const sinClasificar = [...vivas].filter((c) => !nombradas.has(c) && !(c in NO_SE_FUSIONAN)).sort();
+  ok(sinClasificar.length === 0,
+    sinClasificar.length
+      ? `columnas vivas que el merge ni fusiona ni declara excluidas: ${sinClasificar.join(', ')}`
+      : 'toda columna viva está fusionada o declarada como no-fusionada');
+}
+
 (async () => {
   console.log(`[${TAG}] Merge de identidad web-first — run ${RUN}`);
   try {
@@ -218,6 +291,7 @@ async function escenarioColisiones() {
     await escenarioConflictoAuth();
     await escenarioConflictoEspacio();
     await escenarioColisiones();
+    await escenarioEsquema();
   } catch (e) {
     console.error(`[${TAG}] Error fatal:`, e.message);
     fail++;
