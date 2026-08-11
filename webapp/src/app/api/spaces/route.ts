@@ -2,6 +2,7 @@ import { getServiceClient } from '@/lib/supabase/service';
 import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 import { generarCodigoInvitacion, ALFABETO_ESPACIO } from '@/lib/codigos-seguros';
+import { hasReachedLimit } from '@/lib/plan';
 
 export async function GET() {
   const auth = await requireNetoUser('id, plan');
@@ -28,15 +29,17 @@ export async function POST(request: Request) {
   const { name, type = 'custom' } = body;
   if (!name) return NextResponse.json({ error: 'name required' }, { status: 400 });
 
-  // Plan Free puede crear (ser owner de) 1 espacio. Ser invitado a otros no cuenta.
-  if (usuario.plan !== 'premium') {
+  // El tope sale de `FREE_LIMITS`, espejo de `PLAN_CONFIG` del backend, no de un número
+  // escrito acá: el `>= 1` a mano era M14 — la webapp concedía un espacio que WhatsApp
+  // nunca dio. Ser invitado a otros no cuenta; esto mira solo lo que uno CREA.
+  {
     const { count } = await getServiceClient()
       .from('shared_spaces')
       .select('id', { count: 'exact', head: true })
       .eq('created_by', usuario.id);
-    if ((count || 0) >= 1) {
+    if (hasReachedLimit(usuario.plan as string | undefined, 'spaces', count || 0)) {
       return NextResponse.json(
-        { error: 'El plan Free permite 1 espacio. Pasa a Pro para crear más.' },
+        { error: 'Crear espacios compartidos es parte de Neto Pro.' },
         { status: 403 }
       );
     }

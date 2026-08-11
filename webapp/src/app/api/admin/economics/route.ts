@@ -271,8 +271,11 @@ export async function GET() {
     ).padStart(2, '0')}`;
     userGrowth12w.push({
       week: weekLabel,
-      free: newInWeek.filter((u) => u.plan !== 'premium').length,
-      pro: newInWeek.filter((u) => u.plan === 'premium').length,
+      // `free` es el complemento de `pro`: quien está EN TRIAL no es ninguno de los dos
+      // para una métrica de conversión, así que no se cuenta de los dos lados.
+      free: newInWeek.filter((u) => !esProPagado(u)).length,
+      // Ver M16: el trial vale 'premium' y esta métrica mide conversión, no acceso.
+      pro: newInWeek.filter(esProPagado).length,
       total: newInWeek.length,
     });
   }

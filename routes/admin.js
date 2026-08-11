@@ -8,6 +8,7 @@ const { guardarMensaje } = require('../helpers/db-helpers');
 const { activarPro, reclamarPagoPendiente } = require('../lib/pro-payment');
 const { resumenReferidoParaAdmin, registrarReferido } = require('../services/referrals');
 const { responderTicket } = require('../lib/support-tickets');
+const { esProPagado } = require('../lib/trial');
 
 const router = express.Router();
 
@@ -178,11 +179,13 @@ router.get('/stats', async (req, res) => {
     const hace7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const hace30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-    const { data: allUsers } = await supabase.from('usuarios').select('id, plan, onboarding_completado, gmail_access_token, created_at');
+    // `trial_estado` la exige `esProPagado`: sin ella la respuesta sería false para todos.
+    const { data: allUsers } = await supabase.from('usuarios').select('id, plan, trial_estado, onboarding_completado, gmail_access_token, created_at');
     const totalUsuarios = (allUsers || []).length;
     const conGmail = (allUsers || []).filter(u => !!u.gmail_access_token).length;
     const modoManual = (allUsers || []).filter(u => u.onboarding_completado && !u.gmail_access_token).length;
-    const premium = (allUsers || []).filter(u => u.plan === 'premium').length;
+    // M16: durante el trial `plan` vale 'premium', así que esto contaba pruebas como pagos.
+    const premium = (allUsers || []).filter(esProPagado).length;
     const nuevos7d = (allUsers || []).filter(u => u.created_at >= hace7).length;
 
     const { count: txsHoy } = await supabase.from('transacciones').select('id', { count: 'exact', head: true }).eq('fecha', hoy);

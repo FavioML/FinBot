@@ -213,11 +213,19 @@ describe('ningun secreto del backend sale de Math.random', () => {
    *
    * Con el espacio exigido, `'https://x'` se conserva (el `//` viene despues de `:`) y
    * `foo(); // comentario` se sigue cortando.
+   *
+   * TERCERA vuelta, 2026-08-11: el split era `'\n'` y con eso este stripper era un **no-op
+   * en toda linea CRLF**. En JS el `.` de una regex no matchea `\r` (es terminador de
+   * linea), asi que `//.*$` no encontraba nada cuando la linea terminaba en `\r\n`, o sea
+   * en casi todo el arbol de un checkout de Windows. El guard no quedaba apagado: quedaba
+   * RUIDOSO, marcando la prosa que lo explica — y el arreglo natural ante ese ruido es
+   * exceptuar el archivo, que si lo apaga de verdad. Salio de que un cambio ajeno movio
+   * una vecindad y el guard delato un comentario.
    */
   function soloCodigo(src) {
     return src
       .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
-      .split('\n')
+      .split(/\r?\n/)
       .map((l) => l.replace(/(^|\s)\/\/.*$/, '$1'))
       .join('\n');
   }
@@ -318,6 +326,17 @@ describe('ningun secreto del backend sale de Math.random', () => {
    * `pin\b` sin boundary inicial matcheaba dentro de `spin`. No era una decision de
    * politica sobre falsos positivos, era un error de regex.
    */
+  // Contraprueba del stripper: hasta el 2026-08-11 no cortaba nada en lineas CRLF.
+  it('soloCodigo saca los comentarios tambien con CRLF', () => {
+    const CR = String.fromCharCode(13);
+    expect(soloCodigo('  // usa Math.random() para el codigo' + CR + '\nconst x = 1;')).not.toContain('Math.random');
+    expect(soloCodigo('  // usa Math.random() aca\nconst x = 1;')).not.toContain('Math.random');
+    // El codigo de verdad sobrevive: un stripper que se lo come deja el guard vacuo.
+    expect(soloCodigo('const t = Math.random();' + CR + '\n')).toContain('Math.random');
+    // Y la URL no se come la linea (el `(^|\s)` delante del `//`), tambien con CRLF.
+    expect(soloCodigo("const u = 'https://x.pe'; const t = Math.random();" + CR + '\n')).toContain('Math.random');
+  });
+
   it('las palabras se matchean como palabras, no como subcadenas', () => {
     expect(detecta('const spin = Math.random() * 360;')).toBe(false);
     expect(detecta('const pin = String(Math.floor(Math.random() * 1000000));')).toBe(true);

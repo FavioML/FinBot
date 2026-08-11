@@ -1,7 +1,7 @@
 const { supabase } = require('../lib/db');
 const { activarPro, rechazarSolicitudPro, reclamarPagoPendiente } = require('../lib/pro-payment');
 const { responderTicket, listarTicketsPendientes, cerrarSesion } = require('../lib/support-tickets');
-const { esProPagado } = require('../lib/trial');
+const { esProPagado, enTrial } = require('../lib/trial');
 const log = require('../lib/logger');
 
 /**
@@ -62,17 +62,24 @@ async function procesarComandoAdmin(cmd, rawText = cmd) {
 
   // /usuarios | /admin | /panel — panel resumen
   if (cmd === '/usuarios' || cmd === '/admin' || cmd === '/panel') {
-    const { data: todos } = await supabase.from('usuarios').select('whatsapp, nombre, plan, pago_pendiente, estado_pago, created_at').order('created_at', { ascending: false }).limit(20);
+    // `trial_estado` va en el select porque `esProPagado` la NECESITA para decidir: una
+    // fila parcial no puede responder "¿paga?" y devolvería false para todos.
+    const { data: todos } = await supabase.from('usuarios').select('whatsapp, nombre, plan, trial_estado, pago_pendiente, estado_pago, created_at').order('created_at', { ascending: false }).limit(20);
     if (!todos || todos.length === 0) return 'No hay usuarios registrados.';
-    const premium = todos.filter(u => u.plan === 'premium').length;
+    // `plan === 'premium'` es TRUE durante el trial, así que este panel contaba a quien
+    // está probando como Pro pagado y el número de conversión salía inflado (M16).
+    const pagados = todos.filter(esProPagado).length;
+    const enPrueba = todos.filter(enTrial).length;
     const pendientes = todos.filter(u => u.pago_pendiente).length;
     let msg = '*Panel NETO*\n---------------\n';
     msg += 'Total: ' + todos.length + ' usuarios\n';
-    msg += 'Premium: ' + premium + ' | Free: ' + (todos.length - premium) + '\n';
+    msg += 'Pro pagado: ' + pagados + ' | En prueba: ' + enPrueba + ' | En el muro: ' + (todos.length - pagados - enPrueba) + '\n';
     if (pendientes > 0) msg += '⚠️ Pagos pendientes: ' + pendientes + '\n';
     msg += '\n*Ultimos usuarios:*\n';
     todos.slice(0, 10).forEach(u => {
-      const plan = u.plan === 'premium' ? '⭐' : '🟢';
+      // Tres estados, no dos: el ⭐ sobre alguien en prueba hacía leer el panel como si
+      // ya hubiera pagado.
+      const plan = esProPagado(u) ? '⭐' : (enTrial(u) ? '🎁' : '🔒');
       const pend = u.pago_pendiente ? ' 💸' : '';
       const estado = u.estado_pago === 'pagado' ? '' : (u.estado_pago === 'pendiente' ? ' ⏳' : '');
       msg += plan + ' ' + (u.nombre || u.whatsapp) + pend + estado + '\n';

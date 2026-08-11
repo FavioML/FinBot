@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { Gift } from 'lucide-react';
 import { useUser } from '@/lib/hooks/use-user';
+import { esProPagado } from '@/lib/plan';
 import { IS_DEMO } from '@/lib/demo/is-demo';
 import { PRO_PRICE_MONTHLY_PEN } from '@/lib/constants';
 
@@ -19,7 +20,11 @@ import { PRO_PRICE_MONTHLY_PEN } from '@/lib/constants';
 export function ReferralDiscountBanner() {
   const { data: user } = useUser();
 
-  if (IS_DEMO || !user || user.plan === 'premium') return null;
+  // `plan === 'premium'` es TRUE durante los 14 días del trial, así que preguntando eso
+  // el banner se apagaba justo en la ventana en que el descuento sirve para algo, y
+  // aparecía el día 15 — cuando el usuario ya decidió. El servidor
+  // (`/api/pro/status`) siempre usó `esProPagado`; esto lo alinea (hallazgo M15).
+  if (IS_DEMO || !user || esProPagado(user.plan, user.trial_estado)) return null;
 
   const pct = user.referido_dscto_pct || 0;
   const vence = user.referido_dscto_vence ? String(user.referido_dscto_vence).slice(0, 10) : null;

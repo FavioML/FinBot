@@ -77,6 +77,12 @@ const PRO_ONLY_FEATURES: PlanFeature[] = [
 export const FREE_LIMITS = {
   budgets: 0,
   goals: 0,
+  // Espejo de `PLAN_CONFIG.free.maxSpaces`. No estaba, y por eso `POST /api/spaces`
+  // llevaba un `>= 1` escrito a mano con el copy "El plan Free permite 1 espacio":
+  // la webapp concedía un espacio que WhatsApp nunca dio (hallazgo M14). Crear un
+  // espacio es lectura agregada —el balance compartido ES el producto— así que cae
+  // del lado que se cobra, igual que presupuestos y metas.
+  spaces: 0,
   ocr_per_month: Infinity,
   gmail_accounts: 0,
   advice_per_week: 0,

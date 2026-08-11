@@ -123,12 +123,23 @@ describe('ningún secreto sale de Math.random', () => {
    * Sin comentarios: el comentario que EXPLICA por qué no se usa `Math.random` mencionaba
    * `Math.random` y hacía saltar el guard sobre sí mismo. Documentar la decisión no puede
    * romper el build.
+   *
+   * ⚠️ El split es `/\r?\n/` y NO `'\n'`, y no es cosmética: con líneas CRLF cada una
+   * termina en `\r`, y en JS el `.` de una regex **no matchea `\r`** (es terminador de
+   * línea). O sea que `//.*$` no encontraba nada y el stripper era un **no-op en todo
+   * archivo con CRLF** — que en un checkout de Windows son casi todos. Ese modo de falla
+   * no es silencioso, es RUIDOSO: el guard marca la prosa que lo explica, y el arreglo
+   * natural ante ese ruido es exceptuar el archivo, que sí lo apaga de verdad.
+   *
+   * El `(^|\s)` delante del `//` es la otra mitad, ya pagada en el guard hermano del
+   * backend: toda URL literal lleva `//`, así que sin él un `'https://…'` se comía el
+   * resto de la línea.
    */
   function soloCodigo(src: string): string {
     return src
       .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))  // conserva offsets
-      .split('\n')
-      .map((l) => l.replace(/\/\/.*$/, ''))
+      .split(/\r?\n/)
+      .map((l) => l.replace(/(^|\s)\/\/.*$/, '$1'))
       .join('\n');
   }
 
@@ -152,6 +163,20 @@ describe('ningún secreto sale de Math.random', () => {
   it('el barrido encuentra archivos con Math.random (antivacuidad)', () => {
     // Si esto llega a 0, el guard dejó de mirar nada y pasaría verde para siempre.
     expect(conMathRandom).toBeGreaterThan(0);
+  });
+
+  // Contraprueba del stripper. Hasta el 2026-08-11 era un no-op sobre líneas CRLF y nadie
+  // lo sabía: el guard llevaba meses marcando prosa en vez de código.
+  it('soloCodigo saca los comentarios también con CRLF', () => {
+    const CR = String.fromCharCode(13);
+    expect(soloCodigo('  // usa Math.random() para el codigo' + CR + '\nconst x = 1;')).not.toContain('Math.random');
+    // Y con LF, que es el caso que sí funcionaba: la corrección no puede romperlo.
+    expect(soloCodigo('  // usa Math.random() aca\nconst x = 1;')).not.toContain('Math.random');
+    // Lo que NO es comentario tiene que seguir estando: un stripper que se come el código
+    // deja el guard verde por vacuidad, que es la dirección peligrosa.
+    expect(soloCodigo('const t = Math.random();' + CR + '\n')).toContain('Math.random');
+    // Y una URL no puede comerse la línea (el `(^|\s)` delante del `//`).
+    expect(soloCodigo("const u = 'https://x.pe'; const t = Math.random();" + CR + '\n')).toContain('Math.random');
   });
 
   it('ninguno lo usa cerca de algo que funcione como credencial', () => {

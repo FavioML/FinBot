@@ -12,6 +12,7 @@ import {
 } from '@/lib/admin-revenue';
 import { startOfDayLima, startOfMonthLima } from '@/lib/date-lima';
 import { requireAdminUser, type ActivityRow, type UserTxStatsRow } from '@/lib/admin';
+import { esProPagado } from '@/lib/plan';
 
 export const dynamic = 'force-dynamic';
 
@@ -145,7 +146,10 @@ export async function GET() {
     userGrowth.push({
       week: weekLabel,
       free: newUsers.filter((u) => u.plan !== 'premium').length,
-      pro: newUsers.filter((u) => u.plan === 'premium').length,
+      // `esProPagado`, no `plan === 'premium'`: durante el trial esa columna vale
+      // 'premium', así que esta métrica —que es de CONVERSIÓN— contaba a quien está
+      // probando como si hubiera pagado (hallazgo M16).
+      pro: newUsers.filter((u) => esProPagado(u.plan, u.trial_estado)).length,
       total: newUsers.length,
     });
   }

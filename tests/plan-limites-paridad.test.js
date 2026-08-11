@@ -45,6 +45,15 @@ describe('los límites del muro dicen lo mismo en las dos fuentes', () => {
     expect(limiteWebapp('goals')).toBe(PLAN_CONFIG.free.maxMetas);
   });
 
+  // M14: esta clave NO estaba en el espejo, y por eso `POST /api/spaces` llevaba un
+  // `>= 1` escrito a mano — la webapp concedía un espacio que WhatsApp nunca dio. Una
+  // divergencia que el test de paridad no podía ver porque la fila no existía: es la
+  // clase `guard-limitado-al-corpus-existente` del log de defectos, en la dirección de
+  // "la clave que falta", no la del archivo que falta.
+  it('espacios: webapp == backend', () => {
+    expect(limiteWebapp('spaces')).toBe(PLAN_CONFIG.free.maxSpaces);
+  });
+
   it('cuentas de Gmail: webapp == backend', () => {
     expect(limiteWebapp('gmail_accounts')).toBe(PLAN_CONFIG.free.maxGmailAccounts);
   });
@@ -64,5 +73,17 @@ describe('los límites del muro dicen lo mismo en las dos fuentes', () => {
   it('y el muro efectivamente no regala presupuestos ni metas', () => {
     expect(PLAN_CONFIG.free.maxPresupuestos).toBe(0);
     expect(PLAN_CONFIG.free.maxMetas).toBe(0);
+  });
+
+  // La otra mitad de M14: que las dos listas coincidan no sirve si la ruta no las mira.
+  // El `>= 1` vivía dentro del handler, así que el guard de arriba lo habría dejado pasar
+  // aunque `spaces: 0` estuviera bien puesto en las dos fuentes.
+  it('la ruta de espacios consulta el límite, no lo escribe a mano', () => {
+    const ruta = fs.readFileSync(
+      path.join(projectRoot, 'webapp/src/app/api/spaces/route.ts'), 'utf8');
+    expect(ruta).toContain("hasReachedLimit(");
+    expect(ruta).not.toMatch(/count \|\| 0\) >= \d/);
+    // Y el copy viejo prometía el espacio que el backend niega.
+    expect(ruta).not.toContain('El plan Free permite 1 espacio');
   });
 });
