@@ -5,9 +5,41 @@
 // hueco. Corre con DOS usuarios QA REALES (A = Pro, el atacante; B = Free, la
 // victima) mas un ORACULO service-role que dice la verdad de fondo.
 //
+// ── Q12: por que el seed va por el ORACULO y no por la sesion de B ──────────────────
+//
+// Este harness estuvo ESTRUCTURALMENTE MUERTO entre el 10 y el 11 de agosto: corria 4 de
+// 27 checks y abortaba. No era un bug de aserción — era el fixture QA Free con dos
+// requisitos contradictorios. Los harness de gating (`qa-gating-export`, `qa-gating-score`)
+// necesitan a B EN el muro; este lo sembraba con `POST /api/budgets|goals|goals/aportes`,
+// que son Pro-gated. Des-envenenar el fixture arreglaba a los primeros y mataba a este, y
+// al revés. El "26/27 SAFE" que el canary reportó el 10-ago solo fue posible con el fixture
+// envenenado (en trial = premium), o sea que el guard de la clase a la que pertenecía la
+// vulnerabilidad crítica `DELETE /api/debts` no estaba cubriendo nada.
+//
+// La salida no es elegir un lado: es que este harness deje de depender del plan de la
+// víctima, porque el plan de la víctima nunca fue parte de lo que mide. Todo el seed va por
+// service-role, espejando las columnas de los POST reales.
+//
+// ── Que el verde no es por vacuidad: tres mutaciones independientes ─────────────────
+// (2026-08-11, contra prod, con B en el muro). Un harness de puros negativos es verde por
+// defecto, así que hay que verlo fallar:
+//
+//   atacante = la propia víctima (`login(B)` en vez de `login(A)`)  → exit 1, 12 rojos
+//   el oráculo devuelve la fila HACKEADA                            → exit 1,  7 rojos
+//   el oráculo devuelve `undefined` (la fila de B desapareció)      → exit 1, 12 rojos
+//
+// La unión cubre 18 de los 27 checks. Los 9 restantes —aportes GET/POST, override
+// POST/DELETE, settle, members DELETE, el anti-fuga del export y los dos de sanity— leen
+// con `sb()` en vez de `row()`, así que ninguna de las tres los cruza. Escrito para que
+// nadie lea "27/27" como "27 aserciones probadas": son 18 probadas y 9 sin ejercitar.
+//
+// Ojo con la primera mutación: con B en el muro, las rutas Pro-gated le responden 402
+// también a B, así que esa corrida no puede validar los checks de budgets/goals/aportes.
+// Por eso hacen falta las tres y no alcanza con la más obvia.
+//
 // Para cada grupo de endpoints (transactions, budgets, goals, export, score,
 // spaces, recurring/override, notifications):
-//   1) se siembra data de B (via su propia sesion API, o via el oraculo),
+//   1) se siembra data de B (SIEMPRE via el oraculo service-role — ver Q12 arriba),
 //   2) A intenta leer/editar/borrar esos IDs (por body, query o path),
 //   3) se asertan DOS cosas:
 //        a) la respuesta NO es un 200 con data de B (ni una escritura efectiva), y
@@ -24,6 +56,7 @@
 // Se limpia solo (try/finally + marcadores QA-IDOR deterministas).
 
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -168,35 +201,85 @@ try {
   record('sanity: A autentica (export propio)', { status: exp.status, effectSafe: aAuthOk });
   // export es inmune a IDOR (no toma id): confirmamos que no filtra a B por accidente.
   record('export: A no ve data de B', { status: exp.status, effectSafe: aNoLeakB, leak: !aNoLeakB });
-  // B (Free) autenticado pero bloqueado por plan = su cookie SI vale (si no, seria 401).
+  // B autenticado pero bloqueado por PLAN (no por credenciales). La distincion es la que
+  // importa: 401 seria "su cookie no vale" y volveria vacuo todo el resto del archivo.
+  //
+  // El codigo exacto NO se fija a un numero: era 403 (el plan Free viejo) y hoy es 402
+  // (`trial_terminado`, el muro). Fijarlo a un literal es lo que tuvo a Q11 siete dias en
+  // rojo por un cambio que no era una regresion. Lo que se afirma es la propiedad.
   const expB = await api(cookieB, 'GET', '/api/export');
-  record('sanity: B autentica (export 403 por plan Free, no 401)', { status: expB.status, effectSafe: expB.status === 403 });
+  record('sanity: B autentica y lo frena el PLAN, no la sesion', {
+    status: expB.status,
+    effectSafe: expB.status !== 401 && expB.status >= 400 && expB.status < 500,
+    note: 'esperado 402 (muro) o 403 (plan); 401 = la cookie de B no vale',
+  });
 
   // ============ SEED de la victima B ============
-  // tx / budget / goal / aporte / override via la propia sesion API de B (camino real);
-  // notif y space via oraculo (no hay POST, y B-Free tiene tope de 1 espacio).
-  const txSeed = await api(cookieB, 'POST', '/api/transactions', {
-    monto: 13.5, tipo: 'gasto', moneda: 'PEN', comercio: TAG, categoria: 'Otros', fecha: today, metodo_pago: 'Efectivo',
+  //
+  // TODO el seed va por el ORACULO service-role, y eso es el hallazgo Q12, no una
+  // comodidad. La version anterior sembraba budget/goal/aporte con la propia sesion de B,
+  // y esas tres rutas son Pro-gated: cuando B esta en el MURO —que es exactamente donde
+  // los harness de gating (`qa-gating-export`, `qa-gating-score`) lo necesitan— el seed
+  // fallaba y este harness abortaba a los 4 de ~27 checks. El fixture QA Free no puede
+  // satisfacer las dos cosas a la vez, asi que se corta la dependencia: sembrar POR EL
+  // PLAN DE LA VICTIMA no era parte de lo que este harness mide.
+  //
+  // Lo que se pierde y como se compensa: las filas ya no las escribe la ruta real, asi que
+  // hay que espejar sus columnas a mano (estan copiadas de los POST correspondientes en
+  // `webapp/src/app/api/*`). A cambio, el harness deja de oscilar con el plan del fixture,
+  // que es lo unico que le impedia correr.
+  //
+  // Lo que NO se pierde: que la sesion de B vale sigue afirmado arriba, con su propio
+  // check. Y las 27 aserciones de abajo nunca dependieron de COMO nacio la fila: leen el
+  // valor con el oraculo y lo comparan contra si mismo despues del ataque.
+  const txSeed = await sb('transacciones', {
+    method: 'POST',
+    body: JSON.stringify({
+      usuario_id: B.uid, tipo: 'gasto', monto: 13.5, monto_pen: 13.5, moneda: 'PEN',
+      tipo_cambio: null, comercio: TAG, categoria: 'Otros', subcategoria: 'sin_categoria',
+      // `dedup_hash` es varchar(32): un MD5, no una cadena legible. Se calcula con la
+      // misma receta que `generarDedupHash` de webapp/src/app/api/transactions/route.ts.
+      fecha: today, metodo_pago: 'Efectivo',
+      dedup_hash: createHash('md5').update(`${B.uid}|${today}|13.5|${TAG}|gasto`).digest('hex'),
+    }),
   });
-  seeded.txId = txSeed.json?.id;
+  seeded.txId = txSeed?.[0]?.id;
 
-  const budgetSeed = await api(cookieB, 'POST', '/api/budgets', {
-    categoria: TAG, monto_limite: 100, alerta_porcentaje: 80,
+  const mesHoy = parseInt(today.slice(5, 7), 10);
+  const anioHoy = parseInt(today.slice(0, 4), 10);
+  const budgetSeed = await sb('presupuestos', {
+    method: 'POST',
+    body: JSON.stringify({
+      usuario_id: B.uid, categoria: TAG, subcategoria: null,
+      monto_limite: 100, alerta_porcentaje: 80, mes: mesHoy, anio: anioHoy,
+    }),
   });
-  seeded.budgetId = budgetSeed.json?.id;
+  seeded.budgetId = budgetSeed?.[0]?.id;
 
-  const goalSeed = await api(cookieB, 'POST', '/api/goals', {
-    nombre: TAG, monto_objetivo: 500, monto_actual: 0,
+  const goalSeed = await sb('metas_ahorro', {
+    method: 'POST',
+    body: JSON.stringify({
+      usuario_id: B.uid, nombre: TAG, monto_objetivo: 500, monto_actual: 50,
+      icono: '🎯', fecha_limite: null,
+    }),
   });
-  seeded.goalId = goalSeed.json?.id;
+  seeded.goalId = goalSeed?.[0]?.id;
 
-  const aporteSeed = await api(cookieB, 'POST', '/api/goals/aportes', {
-    meta_id: seeded.goalId, monto: 50, tipo: 'aporte', nota: TAG,
+  // `monto_actual: 50` arriba es el que deja el POST de aportes al recalcular: se siembra
+  // el estado FINAL, no el intermedio, para que la meta no quede en un estado que la ruta
+  // real nunca produce.
+  const aporteSeed = await sb('meta_aportes', {
+    method: 'POST',
+    body: JSON.stringify({ meta_id: seeded.goalId, monto: 50, tipo: 'aporte', fecha: today, nota: TAG }),
   });
-  seeded.aporteId = aporteSeed.json?.aporte?.id;
+  seeded.aporteId = aporteSeed?.[0]?.id;
 
-  await api(cookieB, 'POST', '/api/recurring/override', {
-    dominio: 'suscripcion', clave_variante: OVR_KEY, oculto: true, label_canonico: TAG,
+  await sb('recurrentes_overrides', {
+    method: 'POST',
+    body: JSON.stringify({
+      usuario_id: B.uid, dominio: 'suscripcion', clave_variante: OVR_KEY,
+      oculto: true, label_canonico: TAG, updated_at: new Date().toISOString(),
+    }),
   });
 
   const notifSeed = await sb('notificaciones', {
