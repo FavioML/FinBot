@@ -129,12 +129,17 @@ module.exports = {
             const redirectPre = detectarQuerySinMonto(msg);
             if (redirectPre) {
               try {
-                const { getHandler } = require('../intent-registry');
-                const handlerRedirPre = getHandler(redirectPre.intencion);
-                if (handlerRedirPre) {
-                  log.info({ tag: 'QUERY_REDIRECT', from: 'registrar_manual', to: redirectPre.intencion, msg: msg.substring(0, 80) }, 'Query disfrazada como register (pre-parser)');
-                  return await handlerRedirPre({ intencion: redirectPre.intencion, msg, datos: redirectPre.datos, usuario, from, ctx });
-                }
+                // Vía `dispatchIntent`, no `getHandler`: los siete destinos de
+                // `detectarQuerySinMonto` son intents de LECTURA y este redirect sale de
+                // uno LIBRE, así que llamar al handler directo entregaba la lectura gratis
+                // a quien está en el muro (M21). El gate vive adentro del dispatch.
+                const { dispatchIntent } = require('../intent-registry');
+                log.info({ tag: 'QUERY_REDIRECT', from: 'registrar_manual', to: redirectPre.intencion, msg: msg.substring(0, 80) }, 'Query disfrazada como register (pre-parser)');
+                const dPre = await dispatchIntent({ intencion: redirectPre.intencion, msg, datos: redirectPre.datos, usuario, from, ctx });
+                // Este redirect resolvió el mensaje ENTERO como query, así que la
+                // continuación multi-intent no tiene que volver a resolver la parte 2:
+                // sería el mismo handler dos veces. Ver message-processor.
+                if (dPre.manejado) { ctx.redirigidoAQuery = true; return dPre.respuesta; }
               } catch(eRedirPre) { log.warn({ tag: 'QUERY_REDIRECT', err: eRedirPre.message }, 'Fallback redirect pre-parser falló'); }
             }
           }
@@ -185,12 +190,12 @@ module.exports = {
             const redirect = detectarQuerySinMonto(msg);
             if (redirect) {
               try {
-                const { getHandler } = require('../intent-registry');
-                const handlerRedir = getHandler(redirect.intencion);
-                if (handlerRedir) {
-                  log.info({ tag: 'QUERY_REDIRECT', from: 'registrar_manual', to: redirect.intencion, msg: msg.substring(0, 80) }, 'Query disfrazada como register (post-parser-fail)');
-                  return await handlerRedir({ intencion: redirect.intencion, msg, datos: redirect.datos, usuario, from, ctx });
-                }
+                // Mismo motivo que el redirect pre-parser: el destino es LECTURA y el
+                // origen LIBRE, así que el gate tiene que correr en el dispatch (M21).
+                const { dispatchIntent } = require('../intent-registry');
+                log.info({ tag: 'QUERY_REDIRECT', from: 'registrar_manual', to: redirect.intencion, msg: msg.substring(0, 80) }, 'Query disfrazada como register (post-parser-fail)');
+                const dRedir = await dispatchIntent({ intencion: redirect.intencion, msg, datos: redirect.datos, usuario, from, ctx });
+                if (dRedir.manejado) { ctx.redirigidoAQuery = true; return dRedir.respuesta; }
               } catch(eRedir) { log.warn({ tag: 'QUERY_REDIRECT', err: eRedir.message }, 'Fallback redirect falló'); }
             }
             return 'No pude extraer el monto. Dime algo como: "gasté S/50 en farmacia" o "mi sueldo fue S/4500".';

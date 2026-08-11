@@ -51,12 +51,14 @@ module.exports = {
             const { detectarQuerySinMonto } = require('./transacciones');
             const redirectBal = detectarQuerySinMonto(msg);
             if (redirectBal && redirectBal.intencion === 'ver_presupuesto') {
-              const { getHandler } = require('../intent-registry');
-              const handlerVp = getHandler('ver_presupuesto');
-              if (handlerVp) {
-                log.info({ tag: 'QUERY_REDIRECT', from: 'ver_balance', to: 'ver_presupuesto', msg: (msg||'').substring(0, 80) }, 'Query de presupuesto disfrazada como balance');
-                return await handlerVp({ intencion: 'ver_presupuesto', msg, datos: redirectBal.datos, usuario, from, ctx });
-              }
+              // Vía `dispatchIntent` como los otros tres redirects (M21). Acá el muro ya
+              // cortó antes —`ver_balance` también es lectura— así que hoy no cambia nada;
+              // pasa por el dispatch para que la regla sea una sola y no dependa de que el
+              // origen siga clasificado como lectura mañana.
+              const { dispatchIntent } = require('../intent-registry');
+              log.info({ tag: 'QUERY_REDIRECT', from: 'ver_balance', to: 'ver_presupuesto', msg: (msg||'').substring(0, 80) }, 'Query de presupuesto disfrazada como balance');
+              const dBal = await dispatchIntent({ intencion: 'ver_presupuesto', msg, datos: redirectBal.datos, usuario, from, ctx });
+              if (dBal.manejado) return dBal.respuesta;
             }
           } catch(eRedirBal) { log.warn({ tag: 'QUERY_REDIRECT', err: eRedirBal.message }, 'Fallback redirect ver_balance falló'); }
 

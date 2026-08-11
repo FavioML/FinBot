@@ -24,13 +24,11 @@ const { obtenerCategoriasUsuario, detectarCategoriaIA, crearCategoriaLibreUsuari
 const { redactarConNETO } = require('../services/neto-gpt');
 const { escanearGmailYRegistrar } = require('../services/gmail-scanner');
 const { guardarMensaje, obtenerHistorial, getUserPlanConfig, getHistoryDateLimit } = require('../helpers/db-helpers');
-const { getHandler } = require('./intent-registry');
+const { dispatchIntent } = require('./intent-registry');
 const { NETO_TOOLS, mapToolToIntent } = require('./neto-tools');
 const { construirNetoPrompt } = require('../lib/neto-prompt');
 const { obtenerSesionAbierta } = require('../lib/support-tickets');
-const { colaConfirmacionGasto, estaEnMuro, mensajeMuro } = require('../lib/trial');
-const { requiereLectura } = require('./intents-acceso');
-const analytics = require('../lib/analytics');
+const { colaConfirmacionGasto } = require('../lib/trial');
 
 /**
  * Salvage sin IA: cuando OpenAI está caído (429) el pipeline normal no puede clasificar,
@@ -435,35 +433,43 @@ async function procesarMensajeLibre(msg, usuario, from) {
       guardarMensaje, obtenerHistorial, getUserPlanConfig, getHistoryDateLimit,
     };
 
-    // === Muro de lectura ==================================================
-    // Chokepoint único: acá pasan TODOS los intents del NLP, así que una lectura nueva
-    // no puede filtrarse gratis por olvidar un check en su handler. Va después del
-    // dispatch de escritura (los gastos ya se registraron arriba) y antes de ejecutar
-    // nada, para no gastar queries en una respuesta que no se va a entregar.
-    if (requiereLectura(intencion) && estaEnMuro(usuario)) {
-      const { count: conteoMuro } = await supabase.from('transacciones')
-        .select('id', { count: 'exact', head: true }).eq('usuario_id', usuario.id);
-      const respMuro = mensajeMuro(usuario, conteoMuro);
-      await guardarMensaje(usuario.id, 'neto', respMuro.substring(0, 500));
-      analytics.capture(usuario.id, 'wa_muro_lectura', { intencion });
-      return respMuro;
-    }
-
-    const handler = getHandler(intencion);
-    if (handler) {
-      const r1 = await handler({ intencion, msg, datos, usuario, from, ctx });
+    // === Dispatch (con el muro de lectura adentro) ========================
+    // El gate del muro NO vive acá: vive en `dispatchIntent`, que es el único camino por
+    // el que un intent se convierte en una llamada al handler. Estaba inline en este
+    // punto y por eso se evaluaba UNA vez, con la intención del LLM maestro, mientras la
+    // continuación de abajo y los redirects de `registrar_manual` despachaban OTRA
+    // intención sin pasar por él (hallazgo M21). Ver handlers/muro-gate.js.
+    const d1 = await dispatchIntent({ intencion, msg, datos, usuario, from, ctx });
+    if (d1.manejado) {
+      const r1 = d1.respuesta;
       // Multi-intent heterogéneo: si el msg tiene conjunción y la parte2 representa
       // un intent distinto (query/edit/register), dispatchearlo vía el registry.
       // Cubre mlt-003/004/005. Ver services/multi-intent-splitter.js
-      try {
+      //
+      // Dos motivos para NO despachar la continuación:
+      //
+      //  · `d1.muro` — la primera parte murió en el muro; encadenarle otro handler solo
+      //    repetiría el mismo mensaje. Hoy es inalcanzable (las tres intenciones que
+      //    producen continuación están fijadas como LIBRES por `intents-acceso.test.js`)
+      //    pero está cubierto igual, con el splitter mockeado, porque el día que deje de
+      //    serlo el síntoma es una lectura de más, no un error.
+      //  · `ctx.redirigidoAQuery` — el handler de la primera parte YA resolvió el mensaje
+      //    entero como query (los redirects de `registrar_manual`). La parte 2 está adentro
+      //    de esa query, así que la continuación la resolvería de nuevo: mismo handler dos
+      //    veces, dos filas en `conversaciones` y —en el muro— dos mensajes del muro pegados.
+      //    Se descubrió en la revisión adversarial de este mismo fix.
+      if (!d1.muro && !ctx.redirigidoAQuery) try {
         const { detectarContinuacion } = require('../services/multi-intent-splitter');
         const cont = detectarContinuacion(msg, intencion);
         if (cont) {
-          const handlerCont = getHandler(cont.intencion);
-          if (handlerCont) {
-            log.info({ tag: 'MULTI_INTENT_CONT', from: intencion, to: cont.intencion, parte2: cont.parte2.substring(0, 80) }, 'Compound continuation');
-            const r2 = await handlerCont({ intencion: cont.intencion, msg: cont.parte2, datos: cont.datos, usuario, from, ctx });
-            if (r2 && typeof r2 === 'string') return (r1 || '') + '\n\n' + r2;
+          log.info({ tag: 'MULTI_INTENT_CONT', from: intencion, to: cont.intencion, parte2: cont.parte2.substring(0, 80) }, 'Compound continuation');
+          const d2 = await dispatchIntent({ intencion: cont.intencion, msg: cont.parte2, datos: cont.datos, usuario, from, ctx });
+          // NO se compara `d2.respuesta` con `r1` para "no repetir": una continuación
+          // register+register con las dos mitades idénticas produce la misma confirmación
+          // a propósito, y esconderla deja al usuario con DOS gastos guardados y UN ✅
+          // — o sea reenviando el mensaje y triplicando.
+          if (d2.manejado && d2.respuesta && typeof d2.respuesta === 'string') {
+            return (r1 || '') + '\n\n' + d2.respuesta;
           }
         }
       } catch(eCont) { log.warn({ tag: 'MULTI_INTENT_CONT', err: eCont.message }, 'Continuation failed'); }

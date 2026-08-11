@@ -5,7 +5,10 @@
 // los ejercitaba por el pipeline:
 //   · handlers/webhook.js  — la cascada de comandos `/`, que corre ANTES del NLP y nunca
 //     pasa por el dispatch de intents.
-//   · handlers/message-processor.js — el chokepoint antes de getHandler, para los intents.
+//   · handlers/intent-registry.js → `dispatchIntent` — para los intents. Vivía inline en
+//     message-processor.js y por eso se evaluaba UNA vez, con la intención del LLM maestro,
+//     mientras la continuación multi-intent y los redirects de `registrar_manual`
+//     despachaban otra intención por su cuenta (M21). Lo ejercita el bloque «M21» de abajo.
 //
 // qa-trial-gate.mjs PARECE cubrirlo y no lo hace: llama las funciones sueltas
 // (`trial.estaEnMuro(u)`, `requiereLectura('ver_reporte')`, `comandoRequiereLectura('/mes')`)
@@ -203,6 +206,29 @@ const contarTx = async (id) => {
   const { count } = await h.supabase.from('transacciones')
     .select('id', { count: 'exact', head: true }).eq('usuario_id', id);
   return count;
+};
+
+/**
+ * El total de gastos del mes, EXACTAMENTE como lo suma el handler de `ver_total_gastado`.
+ *
+ * Se recalcula contra la DB en cada uso en vez de acumularse en una variable: un centinela
+ * que se lleva la cuenta a mano se desincroniza en cuanto alguien agrega un check que
+ * registre un gasto en el medio.
+ *
+ * Y reproduce dos detalles del original en vez de "mejorarlos", porque una divergencia acá
+ * no da un rojo honesto: le pone al negativo (`!resp.includes(...)`) una cadena que no
+ * puede aparecer nunca, o sea que pasa por VACUIDAD. Los dos, medidos contra
+ * `services/transactions.js` → `obtenerGastosMes`:
+ *   · NO hay cota superior de fecha (un gasto fechado a futuro dentro del mes cuenta).
+ *   · La suma es `monto_pen || monto`, no `monto_pen ?? monto`: un `monto_pen` de 0 cae
+ *     al monto crudo.
+ */
+const totalGastosMes = async (id) => {
+  const hoyStr = require('../lib/dates').hoyPeru();
+  const { data } = await h.supabase.from('transacciones').select('monto_pen,monto')
+    .eq('usuario_id', id).eq('tipo', 'gasto')
+    .gte('fecha', hoyStr.slice(0, 8) + '01');
+  return (data || []).reduce((s, t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
 };
 
 async function run() {
@@ -403,6 +429,77 @@ async function run() {
   check('muro: el gasto NO le reabre un trial',
     uPostGasto.plan === 'free' && uPostGasto.trial_estado === 'vencido',
     'plan=' + uPostGasto.plan + ' estado=' + uPostGasto.trial_estado);
+
+  // ── M21: el compuesto escritura + lectura ───────────────────────────────────────────
+  // El chokepoint se evaluaba UNA vez, con la intención del LLM maestro, y la continuación
+  // multi-intent despachaba OTRO handler después. "gasté N en taxi y cuánto llevo este mes"
+  // entregaba la lectura gratis. Es el caso que este harness NO ejercitaba (ledger 10-ago).
+  //
+  // De los cuatro call-sites de `dispatchIntent`, acá se puede forzar UNO solo: la
+  // continuación es determinística (regex sobre el mensaje), mientras que los dos redirects
+  // de `registrar_manual` dependen de que el LLM MISCLASIFIQUE una query como register, que
+  // no se puede pedir a voluntad. Esos dos los cubre `tests/handlers/muro-dispatch.test.js`,
+  // con una mutación por sitio. Escrito acá para que nadie lea este bloque como cobertura
+  // de los cuatro.
+  if (process.env.QA_MURO_NLP !== '0') {
+    await h.supabase.from('conversaciones').delete().eq('usuario_id', userA);
+    const montoM21 = 61.4 + Number(String(RUN).slice(-2)) / 100;
+    const fraseM21 = 'gasté ' + montoM21.toFixed(2) + ' en taxi y cuánto llevo este mes';
+
+    // La continuación resuelve a `ver_total_gastado`, que imprime "Llevas *S/ X* este mes
+    // (N movimientos)" — no la categoría ni el comercio. O sea que los centinelas del resto
+    // del archivo NO sirven acá: el oráculo es esa frase con el total exacto, calculado
+    // contra la DB. Es distinta del "Van *S/ X*" que la confirmación del gasto deja gratis
+    // a propósito, así que no se confunden.
+    const marcaLectura = async () => 'Llevas *S/ ' + (await totalGastosMes(userA)).toFixed(2) + '*';
+
+    const txAntesM21 = await contarTx(userA);
+    const clAntesM21 = clasificaciones.length;
+    const respM21 = await decir(fraseM21, WA_A);
+    const txDespuesM21 = await contarTx(userA);
+    const intentsM21 = clasificaciones.slice(clAntesM21);
+    const lecturaM21 = await marcaLectura();
+
+    // Sin esto el negativo de abajo es verde por vacuidad: si el LLM clasificó la frase
+    // entera como una query, la continuación ni existió y no hay nada que afirmar.
+    infra('M21: el LLM clasificó el compuesto como ESCRITURA (si no, el caso no se ejercitó)',
+      intentsM21.some((i) => i === 'registrar_manual'),
+      'clasificó ' + (intentsM21.join('/') || 'nada'));
+
+    check('M21: el compuesto REGISTRA el gasto (escribir no se corta)',
+      txDespuesM21 === txAntesM21 + 1,
+      'tx ' + txAntesM21 + '→' + txDespuesM21 + ' · ' + recorte(respM21, 60));
+
+    check('M21: y la segunda parte NO entrega la lectura (la continuación pasa por el gate)',
+      esMuro(respM21) && !respM21.includes(lecturaM21),
+      'buscaba ausente: «' + lecturaM21 + '» · ' + recorte(respM21, 80));
+
+    check('M21: el mensaje del muro sale UNA vez, no pegado a sí mismo',
+      (String(respM21).split(MURO_MARCA).length - 1) === 1,
+      recorte(respM21, 80));
+
+    // Control positivo sobre el MISMO compuesto y el MISMO centinela: sin esto, "no entregó
+    // la lectura" también sería cierto si el pipeline se hubiera roto y devolviera
+    // cualquier otra cosa, o si la frase que busco estuviera mal escrita.
+    await h.supabase.from('conversaciones').delete().eq('usuario_id', userA);
+    await h.supabase.from('usuarios').update({
+      plan: 'premium', trial_estado: 'activo', trial_vence: sumarDias(hoy, 7),
+    }).eq('id', userA);
+    const montoCtrl = 62.4 + Number(String(RUN).slice(-2)) / 100;
+    const respCtrl = await decir('gasté ' + montoCtrl.toFixed(2) + ' en taxi y cuánto llevo este mes', WA_A);
+    const lecturaCtrl = await marcaLectura();
+    check('M21 control: con Pro, esa MISMA continuación sí entrega la lectura',
+      !esMuro(respCtrl) && respCtrl.includes(lecturaCtrl),
+      'buscaba presente: «' + lecturaCtrl + '» · ' + recorte(respCtrl, 80));
+
+    // Devolver a A al muro: los checks de más abajo asumen ese estado.
+    await h.supabase.from('usuarios').update({
+      plan: 'free', trial_estado: 'vencido', trial_vence: sumarDias(hoy, -1),
+    }).eq('id', userA);
+    const uVuelta = await leer(userA);
+    infra('M21: el usuario A volvió al muro después del control',
+      trial.estaEnMuro(uVuelta) === true, 'plan=' + uVuelta.plan + ' estado=' + uVuelta.trial_estado);
+  }
 
   // ══ TRIAL: el primer gasto de un usuario virgen ═════════════════════════════════════
   const respTrial = await decir('gasté 33.70 en menú', WA_B);
