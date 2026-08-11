@@ -23,6 +23,7 @@ import {
 import { SuscripcionesSkeleton } from '@/components/dashboard/skeletons';
 import { EmptyState } from '@/components/shared/empty-state';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
+import { ErrorState } from '@/components/shared/error-state';
 import { useUser } from '@/lib/hooks/use-user';
 import { useSubscriptions } from '@/lib/hooks/use-subscriptions';
 import { useRecurringOverrides } from '@/lib/hooks/use-recurring-overrides';
@@ -348,20 +349,7 @@ export default function SuscripcionesPage() {
 
   // Error de carga distinto de "sin suscripciones": no mostrar el empty (parecería que perdió su data).
   if (subsError) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center p-6">
-        <div className="glass-card w-full max-w-md space-y-4 p-8 text-center">
-          <h2 className="text-xl font-bold text-[#F0EFE8]">No pudimos cargar tus suscripciones</h2>
-          <p className="text-sm text-[#8A877D]">Revisa tu conexión e inténtalo de nuevo. Tu información está a salvo.</p>
-          <button
-            onClick={() => refetchSubs()}
-            className="inline-flex items-center gap-2 rounded-lg bg-[#1D9E75] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1D9E75]/90"
-          >
-            Reintentar
-          </button>
-        </div>
-      </div>
-    );
+    return <ErrorState titulo="No pudimos cargar tus suscripciones" onReintentar={() => refetchSubs()} />;
   }
 
   return (

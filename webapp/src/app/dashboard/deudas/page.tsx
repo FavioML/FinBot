@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { DeudasSkeleton } from '@/components/dashboard/skeletons';
 import { EmptyState } from '@/components/shared/empty-state';
 import { FadeIn } from '@/components/shared/motion-wrapper';
+import { ErrorState } from '@/components/shared/error-state';
 import { HeaderActions } from '@/components/dashboard/topbar';
 import { useUser } from '@/lib/hooks/use-user';
 import { useDebts, useDebtMutations, groupDebtsByContraparte, type Deuda } from '@/lib/hooks/use-debts';
@@ -254,20 +255,7 @@ export default function DeudasPage() {
   // Error de carga (fetch de deudas falló y no hay cache): error explícito en vez de un
   // "sin deudas pendientes" que parezca que el usuario perdió su data. Con cache, normal.
   if (debtsError && allDebts.length === 0) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center p-6">
-        <div className="glass-card w-full max-w-md space-y-4 p-8 text-center">
-          <h2 className="text-xl font-bold text-[#F0EFE8]">No pudimos cargar tus deudas</h2>
-          <p className="text-sm text-[#8A877D]">Revisa tu conexión e inténtalo de nuevo. Tu información está a salvo.</p>
-          <button
-            onClick={() => refetchDebts()}
-            className="inline-flex items-center gap-2 rounded-lg bg-[#1D9E75] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1D9E75]/90"
-          >
-            Reintentar
-          </button>
-        </div>
-      </div>
-    );
+    return <ErrorState titulo="No pudimos cargar tus deudas" onReintentar={() => refetchDebts()} />;
   }
 
   const gridCls = 'grid grid-cols-1 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)] gap-4';

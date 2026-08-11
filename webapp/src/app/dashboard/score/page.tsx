@@ -13,6 +13,7 @@ import { useUser } from '@/lib/hooks/use-user';
 import { canAccess } from '@/lib/plan';
 import { ProGate } from '@/components/shared/pro-gate';
 import { EmptyState } from '@/components/shared/empty-state';
+import { ErrorState } from '@/components/shared/error-state';
 import { FadeIn } from '@/components/shared/motion-wrapper';
 import { ScoreSkeleton } from '@/components/dashboard/skeletons';
 import { HeaderActions } from '@/components/dashboard/topbar';
@@ -107,7 +108,7 @@ function TipsSection({ factors }: { factors?: NetoScoreFactors }) {
 
 export default function ScorePage() {
   const { data: user } = useUser();
-  const { data, isLoading } = useNetoScoreHistory(6);
+  const { data, isLoading, isError, refetch } = useNetoScoreHistory(6);
 
   const canBreakdown = canAccess(user?.plan, 'score_breakdown');
   const canTips = canAccess(user?.plan, 'score_tips');
@@ -117,6 +118,15 @@ export default function ScorePage() {
     return (
       <ScoreSkeleton />
     );
+  }
+
+  // --- Error de carga (F4) ---
+  // Va ANTES del empty: los dos se disparan con `!data?.score`, y decirle "aun no tienes
+  // un score" a quien lleva meses con uno es exactamente la confusion que F4 nombra.
+  // Sin `length === 0`: esta pagina se construye entera desde esta query, no hay lista
+  // parcial que valga la pena mostrar.
+  if (isError) {
+    return <ErrorState titulo="No pudimos cargar tu Neto Score" onReintentar={() => refetch()} />;
   }
 
   if (!data?.score) {

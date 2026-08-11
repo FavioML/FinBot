@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { ErrorState } from '@/components/shared/error-state';
 import { ArrowLeft, Plus, CreditCard, Copy, Check, Users, UserPlus, Pencil, Trash2, PieChart, Target, Settings, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -171,19 +172,9 @@ export default function SpaceDetailPage() {
   // el espacio dejó de existir. Se ofrece reintentar en vez de mandar a volver.
   if (isError) {
     return (
-      <div className="flex min-h-[60vh] items-center justify-center p-6">
-        <div className="glass-card w-full max-w-md space-y-4 p-8 text-center">
-          <h2 className="text-xl font-bold text-[#F0EFE8]">No pudimos cargar el espacio</h2>
-          <p className="text-sm text-[#8A877D]">Revisa tu conexión e inténtalo de nuevo. Tu información está a salvo.</p>
-          <button
-            onClick={() => refetch()}
-            className="inline-flex items-center gap-2 rounded-lg bg-[#1D9E75] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1D9E75]/90"
-          >
-            Reintentar
-          </button>
-          <Link href="/dashboard/espacios" className="text-[#1D9E75] text-sm mt-2 inline-block">← Volver</Link>
-        </div>
-      </div>
+      <ErrorState titulo="No pudimos cargar el espacio" onReintentar={() => refetch()}>
+        <Link href="/dashboard/espacios" className="text-[#1D9E75] text-sm inline-block">← Volver</Link>
+      </ErrorState>
     );
   }
 

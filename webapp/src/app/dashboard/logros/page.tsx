@@ -8,6 +8,7 @@ import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motio
 import { useUser } from '@/lib/hooks/use-user';
 import { useGoals, useAchievements, type MetaAhorro } from '@/lib/hooks/use-goals';
 import { HeaderActions } from '@/components/dashboard/topbar';
+import { ErrorState } from '@/components/shared/error-state';
 import type { Logro } from '@/lib/hooks/use-goals';
 
 
@@ -77,8 +78,8 @@ function calcularRacha(goals: MetaAhorro[]): number {
 
 export default function LogrosPage() {
   const { data: user, isLoading: userLoading } = useUser();
-  const { data: goals = [], isLoading: goalsLoading } = useGoals(user?.id);
-  const { data: achievements = [], isLoading: achievementsLoading } = useAchievements(user?.id);
+  const { data: goals = [], isLoading: goalsLoading, isError: goalsError, refetch: refetchGoals } = useGoals(user?.id);
+  const { data: achievements = [], isLoading: achievementsLoading, isError: achError, refetch: refetchAch } = useAchievements(user?.id);
 
   const isLoading = userLoading || goalsLoading || achievementsLoading;
 
@@ -109,6 +110,18 @@ export default function LogrosPage() {
   if (isLoading) {
     return (
       <LogrosSkeleton />
+    );
+  }
+
+  // --- Error de carga (F4) ---
+  // Va antes del empty por la misma razon que el resto: "aun no desbloqueaste ningun
+  // logro" sobre un fetch caido borra la racha que el usuario venia construyendo.
+  if ((goalsError || achError) && achievements.length === 0 && goals.length === 0) {
+    return (
+      <ErrorState
+        titulo="No pudimos cargar tus logros"
+        onReintentar={() => { if (goalsError) refetchGoals(); if (achError) refetchAch(); }}
+      />
     );
   }
 

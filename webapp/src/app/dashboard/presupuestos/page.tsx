@@ -9,6 +9,7 @@ import { Plus, Target, Wallet, TrendingDown } from 'lucide-react';
 import { PresupuestosSkeleton } from '@/components/dashboard/skeletons';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/shared/empty-state';
+import { ErrorState } from '@/components/shared/error-state';
 import { CurrencyDisplay } from '@/components/shared/currency-display';
 import { hasReachedLimit } from '@/lib/plan';
 import { BudgetCard } from '@/components/dashboard/budget-card';
@@ -64,7 +65,7 @@ export default function PresupuestosPage() {
     ? monthParam.split('-').map(Number)
     : [now.getFullYear(), now.getMonth() + 1];
 
-  const { data: budgets = [], isLoading: budgetsLoading } = useBudgets(
+  const { data: budgets = [], isLoading: budgetsLoading, isError: budgetsError, refetch: refetchBudgets } = useBudgets(
     user?.id,
     currentMonth,
     currentYear,
@@ -219,6 +220,13 @@ export default function PresupuestosPage() {
         icon={Target}
       />
     );
+  }
+
+  // --- Error de carga (F4) ---
+  // Sin esto, un fetch caido pinta el mismo "aun no tienes presupuestos" que ve alguien
+  // que nunca creo uno. `size === 0` deja pasar la lista cacheada si react-query la tiene.
+  if (budgetsError && groupedBudgets.size === 0) {
+    return <ErrorState titulo="No pudimos cargar tus presupuestos" onReintentar={() => refetchBudgets()} />;
   }
 
   const isPremium = user?.plan === 'premium';

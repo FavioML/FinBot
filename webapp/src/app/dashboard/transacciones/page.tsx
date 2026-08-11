@@ -47,6 +47,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { EmptyState } from '@/components/shared/empty-state';
+import { ErrorState } from '@/components/shared/error-state';
 import { CurrencyDisplay } from '@/components/shared/currency-display';
 import { TransactionFilters } from '@/components/dashboard/transaction-filters';
 import { TransactionForm, DeleteConfirmDialog } from '@/components/dashboard/transaction-form';
@@ -113,19 +114,21 @@ export default function TransaccionesPage() {
     return Array.from(yearSet).sort((a, b) => b - a);
   }, [allTransactions]);
 
-  const { data: monthlyTransactions = [], isLoading: txMonthlyLoading } = useTransactions({
+  const { data: monthlyTransactions = [], isLoading: txMonthlyLoading, isError: txMonthlyError, refetch: refetchMonthly } = useTransactions({
     usuarioId: user?.id,
     mes: selectedMonth,
     anio: selectedYear,
   });
 
-  const { data: annualTransactions = [], isLoading: txAnnualLoading } = useTransactions({
+  const { data: annualTransactions = [], isLoading: txAnnualLoading, isError: txAnnualError, refetch: refetchAnnual } = useTransactions({
     usuarioId: user?.id,
     anio: selectedYear,
   });
 
   const transactions = viewMode === 'anual' ? annualTransactions : monthlyTransactions;
   const txLoading = viewMode === 'anual' ? txAnnualLoading : txMonthlyLoading;
+  const txError = viewMode === 'anual' ? txAnnualError : txMonthlyError;
+  const refetchTx = viewMode === 'anual' ? refetchAnnual : refetchMonthly;
 
   // Fetch budgets to include user-created categories/subcategories
   const { data: budgets = [] } = useBudgets(user?.id, selectedMonth, selectedYear);
@@ -484,6 +487,14 @@ export default function TransaccionesPage() {
         icon={FileText}
       />
     );
+  }
+
+  // --- Error de carga (F4) ---
+  // Con `data = []` y sin mirar `isError`, un fetch caído renderiza el mismo "no hay
+  // movimientos" que ve un usuario nuevo. `length === 0` en la condición: si react-query
+  // todavía tiene la lista anterior en cache, se muestra esa en vez de tapar la pantalla.
+  if (txError && transactions.length === 0) {
+    return <ErrorState titulo="No pudimos cargar tus movimientos" onReintentar={() => refetchTx()} />;
   }
 
   return (

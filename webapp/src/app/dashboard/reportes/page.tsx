@@ -20,6 +20,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { ReportesSkeleton } from '@/components/dashboard/skeletons';
 import { EmptyState } from '@/components/shared/empty-state';
+import { ErrorState } from '@/components/shared/error-state';
 import { NumberTicker } from '@/components/ui/number-ticker';
 import { TransactionForm } from '@/components/dashboard/transaction-form';
 import { MonthSelector } from '@/components/dashboard/month-selector';
@@ -96,7 +97,7 @@ export default function ReportesPage() {
 
   const { data: user, isLoading: userLoading } = useUser();
   const { data: netoScoreData } = useNetoScore();
-  const { data: transactions = [], isLoading: txLoading } = useTransactions({
+  const { data: transactions = [], isLoading: txLoading, isError: txError, refetch: refetchTx } = useTransactions({
     usuarioId: user?.id,
     mes: selectedOption.mes,
     anio: selectedOption.anio,
@@ -307,6 +308,14 @@ export default function ReportesPage() {
         description="Descarga reportes detallados con gráficos, score financiero y análisis de tus finanzas."
       />
     );
+  }
+
+  // --- Error de carga (F4) ---
+  // Va ANTES del empty de "sin datos para este mes": los dos se disparan con la lista
+  // vacia y el empty invita a registrar gastos, que es el consejo equivocado para alguien
+  // cuyo fetch se cayo.
+  if (txError && transactions.length === 0) {
+    return <ErrorState titulo="No pudimos cargar tu reporte" onReintentar={() => refetchTx()} />;
   }
 
 if (!isLoading && transactions.length === 0) {

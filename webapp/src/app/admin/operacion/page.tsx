@@ -18,6 +18,19 @@ import {
   type AdminUser,
 } from '@/lib/hooks/use-admin-operacion';
 
+/**
+ * Cómo se nombra a un usuario en una pantalla de admin (F16).
+ *
+ * `nombre || whatsapp` era la forma vieja y falla en el caso que la identidad dual hizo
+ * posible: el usuario web-first sin nombre tiene las DOS columnas en null, y un template
+ * literal acepta null sin chistar — así que el diálogo decía "Eliminar a null?". El
+ * compilador no lo ve porque `${null}` es válido, así que el guard es este helper y no un
+ * tipo. Los mapas `whatsapp -> nombre` NO lo usan: ahí la clave ya garantiza el número.
+ */
+function etiquetaUsuario(u?: { nombre?: string | null; whatsapp?: string | null } | null): string {
+  return u?.nombre || u?.whatsapp || 'este usuario (sin nombre)';
+}
+
 interface Pago {
   id: string;
   monto: number | null;
@@ -162,9 +175,9 @@ function UserActions({
             <div className="p-3">
               <p className="mb-3 text-xs text-[#F0EFE8]/70">
                 {confirming === 'delete'
-                  ? `Eliminar a ${user.nombre || user.whatsapp}? Se borran TODOS sus datos. Irreversible.`
+                  ? `Eliminar a ${etiquetaUsuario(user)}? Se borran TODOS sus datos. Irreversible.`
                   : confirming === 'deactivate'
-                    ? `Desactivar a ${user.nombre || user.whatsapp}? Se pasa a Free y se desconecta Gmail.`
+                    ? `Desactivar a ${etiquetaUsuario(user)}? Se pasa a Free y se desconecta Gmail.`
                     : `Confirmar accion?`}
               </p>
               <div className="flex gap-2">
@@ -337,7 +350,7 @@ function PaymentsModal({
       >
         <div className="mb-4 flex items-start justify-between">
           <div>
-            <h3 className="text-base font-semibold text-[#F0EFE8]">Pagos de {user.nombre || user.whatsapp}</h3>
+            <h3 className="text-base font-semibold text-[#F0EFE8]">Pagos de {etiquetaUsuario(user)}</h3>
             <p className="text-xs text-[#F0EFE8]/40">
               {user.plan === 'premium'
                 ? `Pro · vence ${formatDate(user.premium_vence)}`
@@ -572,7 +585,7 @@ export default function AdminOperacionPage() {
           // Pagador protegido: pedir confirmación y reintentar forzado.
           if (res.status === 409 && json.requiresForce) {
             const u = users.find((x) => x.id === userId);
-            if (!window.confirm(`${u?.nombre || u?.whatsapp || 'Este usuario'} tiene un pago aprobado. ¿Borrarlo igual? Se pierde su historial de pagos.`)) {
+            if (!window.confirm(`${etiquetaUsuario(u)} tiene un pago aprobado. ¿Borrarlo igual? Se pierde su historial de pagos.`)) {
               return;
             }
             res = await doDelete(true);

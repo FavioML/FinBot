@@ -13,6 +13,7 @@ import { FadeIn } from '@/components/shared/motion-wrapper';
 import { AlertasSkeleton } from '@/components/dashboard/skeletons';
 import { formatCurrency } from '@/lib/utils';
 import { HeaderActions } from '@/components/dashboard/topbar';
+import { ErrorState } from '@/components/shared/error-state';
 
 const TYPE_CONFIG = {
   spike: {
@@ -131,20 +132,13 @@ export default function AlertasPage() {
   // posible acá: el usuario cierra la pestaña tranquilo justo cuando el detector no miró nada.
   if (vista === 'error') {
     return (
-      <div className="flex min-h-[60vh] items-center justify-center p-6">
-        <div className="glass-card w-full max-w-md space-y-4 p-8 text-center">
-          <h2 className="text-xl font-bold text-[#F0EFE8]">No pudimos revisar tus gastos</h2>
-          <p className="text-sm text-[#8A877D]">
-            Esto no significa que no haya fugas: significa que no pudimos mirar. Revisa tu conexión e inténtalo de nuevo.
-          </p>
-          <button
-            onClick={() => refetch()}
-            className="inline-flex items-center gap-2 rounded-lg bg-[#1D9E75] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1D9E75]/90"
-          >
-            Reintentar
-          </button>
-        </div>
-      </div>
+      // La descripción NO es la genérica a propósito: acá el riesgo no es que el usuario
+      // crea que perdió data, es que crea que no tiene fugas.
+      <ErrorState
+        titulo="No pudimos revisar tus gastos"
+        descripcion="Esto no significa que no haya fugas: significa que no pudimos mirar. Revisa tu conexión e inténtalo de nuevo."
+        onReintentar={() => refetch()}
+      />
     );
   }
 

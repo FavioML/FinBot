@@ -13,6 +13,7 @@ import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motio
 import { useSpaces, useJoinSpace, useCreateSpace } from '@/lib/hooks/use-shared-spaces';
 import { canAccess } from '@/lib/plan';
 import { ProGate, ProBadge } from '@/components/shared/pro-gate';
+import { ErrorState } from '@/components/shared/error-state';
 import { HeaderActions } from '@/components/dashboard/topbar';
 
 const TYPE_ICON: Record<string, string> = {
@@ -164,19 +165,7 @@ export default function EspaciosPage() {
         // Error explícito, distinto del vacío: si el fetch falla, un "aún no tienes
         // espacios" haría creer al usuario que perdió sus balances compartidos.
         <FadeIn delay={0.05}>
-          <div className="glass-card p-8 flex flex-col items-center text-center gap-3">
-            <Users className="w-10 h-10 text-[#8A877D]/50" />
-            <h2 className="text-base font-semibold text-[#F0EFE8]">No pudimos cargar tus espacios</h2>
-            <p className="text-sm text-[#8A877D] max-w-xs">
-              Revisa tu conexión e inténtalo de nuevo. Tu información está a salvo.
-            </p>
-            <button
-              onClick={() => refetch()}
-              className="inline-flex items-center gap-2 rounded-lg bg-[#1D9E75] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1D9E75]/90"
-            >
-              Reintentar
-            </button>
-          </div>
+          <ErrorState titulo="No pudimos cargar tus espacios" onReintentar={() => refetch()} variante="card" icono={Users} />
         </FadeIn>
       ) : spaces.length === 0 ? (
         <FadeIn delay={0.05}>

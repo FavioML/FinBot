@@ -270,6 +270,31 @@ motor que cobra), nunca de una fórmula aparte, y la paridad TS↔CJS la cubre
   Los previews de PR siguen funcionando por la integracion de Git.
 - Env vars en Vercel: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, OPENAI_API_KEY
 
+### `npm audit` deja 2 moderate a propósito — no las "arregles"
+
+`npm audit --omit=dev` reporta `uuid` y `exceljs`, y el único fix que ofrece npm es
+**bajar exceljs a 3.4.0**, que es un downgrade de dos majors sobre la librería que genera
+los Excel de export. No se hace, y no es pereza: la vulnerabilidad es *"missing buffer
+bounds check en v3/v5/v6 **cuando se pasa `buf`**"*, y exceljs importa **solo `v4`**
+(`node_modules/exceljs/lib/xlsx/xform/sheet/cf-ext/cf-rule-ext-xform.js`, única
+aparición) sin argumento `buf`. El código vulnerable no es alcanzable desde acá.
+
+Recomprobarlo cuando cambie exceljs, con el comando y no con la memoria:
+
+```bash
+grep -rn "from 'uuid'\|require('uuid')" node_modules/exceljs/lib
+```
+
+Si aparece un `v3`, `v5` o `v6`, entonces sí hay que actuar. El resto de lo que reportaba
+la auditoría del 10-ago (S′4: sharp, postcss bajo next, nanoid, dompurify — esta última
+corre en el browser de todos, vía jspdf y posthog-js) se cerró con `npm audit fix`: eran
+in-range y quedaron en el lock.
+
+> **Ojo con `npm audit fix --omit=dev`**: además de arreglar, deja el `node_modules` sin
+> devDependencies, así que `npx tsc` se cae a un paquete `tsc` cualquiera del registro que
+> imprime "This is not the tsc command you are looking for" **y sale con código 0**. Un
+> typecheck en verde que no compiló nada. Correr `npm install` después, siempre.
+
 ## Gotchas
 - Next.js 16 tiene breaking changes vs versiones anteriores — leer `node_modules/next/dist/docs/` antes de escribir codigo
 - Tailwind v4 usa `@import` en CSS, NO plugin en postcss.config

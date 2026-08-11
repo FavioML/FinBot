@@ -58,6 +58,7 @@ import { FadeIn } from '@/components/shared/motion-wrapper';
 import { formatCurrency, formatFecha } from '@/lib/utils';
 import { montoPen } from '@/lib/tx-monto';
 import { TxMonto } from '@/components/shared/tx-monto';
+import { ErrorState } from '@/components/shared/error-state';
 import { getCategoriaEmoji, MESES, SOCIAL_LINKS } from '@/lib/constants';
 import { capitalizeDisplay, normalizeMetodoPago, getMetodoIcon } from '@/lib/format';
 import { detectSubscriptions, TIPO_LABELS } from '@/lib/subscriptions-catalog';
@@ -370,20 +371,7 @@ export default function DashboardPage() {
   // Error de carga (fetch de transacciones falló y no hay cache): error explícito en vez de un
   // dashboard vacío que parezca "perdiste tu data". Si hay cache, renderizamos normal.
   if (txError && allTransactions.length === 0) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center p-6">
-        <div className="glass-card w-full max-w-md space-y-4 p-8 text-center">
-          <h2 className="text-xl font-bold text-[#F0EFE8]">No pudimos cargar tu dashboard</h2>
-          <p className="text-sm text-[#8A877D]">Revisa tu conexión e inténtalo de nuevo. Tu información está a salvo.</p>
-          <button
-            onClick={() => refetchTx()}
-            className="inline-flex items-center gap-2 rounded-lg bg-[#1D9E75] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1D9E75]/90"
-          >
-            Reintentar
-          </button>
-        </div>
-      </div>
-    );
+    return <ErrorState titulo="No pudimos cargar tu dashboard" onReintentar={() => refetchTx()} />;
   }
 
   const hasTransactions = transactions.length > 0;

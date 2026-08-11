@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { EmptyState } from '@/components/shared/empty-state';
+import { ErrorState } from '@/components/shared/error-state';
 import { ProBadge } from '@/components/shared/upgrade-prompt';
 import { ProGate } from '@/components/shared/pro-gate';
 import { hasReachedLimit, canAccess } from '@/lib/plan';
@@ -134,7 +135,7 @@ function calcularRitmo(goal: MetaAhorro) {
 
 export default function MetasPage() {
   const { data: user, isLoading: userLoading } = useUser();
-  const { data: goals = [], isLoading: goalsLoading } = useGoals(user?.id);
+  const { data: goals = [], isLoading: goalsLoading, isError: goalsError, refetch: refetchGoals } = useGoals(user?.id);
   const { data: allTransactions = [] } = useTransactions({ usuarioId: user?.id });
   const { data: achievements = [] } = useAchievements(user?.id);
   const { create, update, remove, contribute, generateInvite, disableCollab } = useGoalMutations();
@@ -310,6 +311,13 @@ export default function MetasPage() {
 
   if (!user) {
     return <EmptyState title="Inicia sesion" description="Conecta tu cuenta para ver tus metas de ahorro." />;
+  }
+
+  // --- Error de carga (F4) ---
+  // El empty de esta pagina dice "aun no tienes planes de ahorro". A quien SI tiene tres
+  // y no se pudieron leer, eso le dice que los perdio.
+  if (goalsError && goals.length === 0) {
+    return <ErrorState titulo="No pudimos cargar tus planes" onReintentar={() => refetchGoals()} />;
   }
 
   const isPremium = user?.plan === 'premium';
