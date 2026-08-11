@@ -71,7 +71,8 @@ const crearCompletion = vi.fn().mockResolvedValue({
 require('../../lib/ai').openai = { chat: { completions: { create: crearCompletion } } };
 
 const { obtenerCategoriasUsuario, detectarCategoriaIA, asegurarCategoriaUsuario, crearSubcategoriaLibreUsuario } = require('../../services/categories');
-const { CATEGORIAS_SUGERIDAS } = require('../../lib/constants');
+const { CATEGORIAS_SUGERIDAS, CATEGORIA_MAP } = require('../../lib/constants');
+const { normalizarCategoria } = require('../../lib/validators');
 
 const raiz = (id, nombre) => ({ id, nombre, padre_id: null, activa: true, usuario_id: 'u1' });
 const sub = (id, nombre, padreId) => ({ id, nombre, padre_id: padreId, activa: true, usuario_id: 'u1' });
@@ -197,13 +198,29 @@ describe('asegurarCategoriaUsuario', () => {
     expect(llamadas.inserts).toEqual([]);
   });
 
-  it('un colapso CON PÉRDIDA no se trata como canónico: "Viajes" no se convierte en "Otros"', async () => {
-    // `CATEGORIA_MAP` mezcla alias ortográficos con colapsos semánticos. Quien pide "Viajes"
-    // tenía su categoría Viajes; darle "Otros" es una regresión de producto.
+  it('la raíz se llama como la categoría donde CAE la transacción, no como la pidió el usuario', async () => {
+    // `guardarTransaccion` → `normalizarCategoria` resuelve TODO `CATEGORIA_MAP`, así que crear
+    // la raíz con el nombre crudo deja una categoría que ninguna transacción puede poblar.
+    // Medido: la versión que respetaba el nombre crudo producía 14 raíces muertas.
     filas.rows = [raiz('r-ali', 'Alimentación')];
-    expect(await asegurarCategoriaUsuario('u1', 'Viajes')).toBe('libre');
-    expect(llamadas.inserts.some(i => i.nombre === 'Viajes')).toBe(true);
-    expect(llamadas.inserts.some(i => i.nombre === 'Otros')).toBe(false);
+    expect(await asegurarCategoriaUsuario('u1', 'Viajes')).toBe('creada');
+    expect(llamadas.inserts.some(i => i.nombre === 'Otros')).toBe(true);
+    expect(llamadas.inserts.some(i => i.nombre === 'Viajes')).toBe(false);
+  });
+
+  it('ninguna clave de CATEGORIA_MAP produce una raíz que las transacciones no pueblen', async () => {
+    // Guard de CLASE, no de instancia: recorre el mapa entero y compara las dos puntas. Una
+    // entrada nueva mal puesta rompe el build en vez de dejar otra raíz muerta.
+    const muertas = [];
+    for (const clave of Object.keys(CATEGORIA_MAP)) {
+      llamadas.inserts.length = 0;
+      filas.rows = [raiz('r-x', '__ninguna__')];
+      await asegurarCategoriaUsuario('u1', clave);
+      const raizCreada = (llamadas.inserts.find(i => !i.padre_id) || {}).nombre;
+      const dondeCaeLaTx = normalizarCategoria(clave);
+      if (raizCreada && raizCreada !== dondeCaeLaTx) muertas.push(`${clave}: raíz=${raizCreada} tx=${dondeCaeLaTx}`);
+    }
+    expect(muertas).toEqual([]);
   });
 
   it('un alias ORTOGRÁFICO sí se normaliza: "Alimentacion" no crea una segunda raíz', async () => {

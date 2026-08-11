@@ -214,6 +214,14 @@ async function procesarMensajeLibre(msg, usuario, from) {
             tipo: 'gasto', fecha: fechaTx,
             descripcion_original: msg.substring(0, 200),
           };
+          // El árbol del usuario crece también por acá (B26). Sin esto, el MISMO gasto dicho
+          // como lista ("gasté 20 en taxi y 30 en cine") clasifica bien pero no deja la
+          // categoría en `/categorias` ni en el selector de presupuestos, mientras dicho suelto
+          // sí — el árbol quedaba distinto según cómo se escribió el mensaje.
+          asegurarCategoriaUsuario(usuario.id, datosTx.categoria)
+            .then(() => (datosTx.subcategoria && datosTx.subcategoria !== 'sin_categoria'
+              ? crearSubcategoriaLibreUsuario(usuario.id, datosTx.categoria, datosTx.subcategoria) : null))
+            .catch(() => {});
           const txIE = await guardarTransaccion(usuario.id, datosTx);
           if (txIE && txIE.conteoTx) conteoTxIE = txIE.conteoTx;
           if (txIE && txIE.trialIniciado) txTrialIE = txIE;
@@ -261,6 +269,11 @@ async function procesarMensajeLibre(msg, usuario, from) {
             tipo: 'gasto', fecha: fechaGasto,
             descripcion_original: msg.substring(0, 200),
           };
+          // Igual que en el fanout de ingreso+gastos: el árbol crece también por acá (B26).
+          asegurarCategoriaUsuario(usuario.id, datosTx.categoria)
+            .then(() => (datosTx.subcategoria && datosTx.subcategoria !== 'sin_categoria'
+              ? crearSubcategoriaLibreUsuario(usuario.id, datosTx.categoria, datosTx.subcategoria) : null))
+            .catch(() => {});
           const txMG = await guardarTransaccion(usuario.id, datosTx);
           if (txMG && txMG.conteoTx) conteoTxMG = txMG.conteoTx;
           if (txMG && txMG.trialIniciado) txTrialMG = txMG;

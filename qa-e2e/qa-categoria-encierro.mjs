@@ -97,6 +97,20 @@ async function run(h) {
     new Set(arbol1).size === arbol1.length && arbol1.filter(n => n === 'Alimentación').length === 1,
     arbol1.length + ' raíces');
 
+  // ── El MISMO gasto dicho como LISTA tiene que dejar el árbol igual ──────────────────
+  // El fanout de multi-gasto es otro camino de registro y vive en `message-processor.js`, no
+  // en el intent: quedó sin `asegurarCategoriaUsuario` en la primera pasada de B26, así que
+  // dicho suelto el árbol crecía y dicho en lista no. Lo encontró el doble check, no la suite.
+  const before3 = h.sent.length;
+  const m2 = (20 + Math.floor(Math.random() * 90) / 100).toFixed(2);
+  const m3 = (30 + Math.floor(Math.random() * 90) / 100).toFixed(2);
+  await h.postText(`gasté ${m2} en cine y ${m3} en farmacia`, WA_ENCERRADO);
+  await h.waitForReply(before3);
+
+  const arbol2 = await arbolDe(h, userEnc);
+  check('el multi-gasto también hace crecer el árbol (Entretenimiento y Salud)',
+    arbol2.includes('Entretenimiento') && arbol2.includes('Salud'), arbol2.join(', '));
+
   // ── Control negativo: el usuario SIN árbol no debe estrenar uno ─────────────────────
   userVac = await sembrarUsuario(h, WA_SIN_ARBOL, TAG + ' sin arbol ' + RUN);
   const vac0 = await arbolDe(h, userVac);

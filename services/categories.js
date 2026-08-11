@@ -124,24 +124,24 @@ async function crearCategoriaLibreUsuario(usuarioId, nombre) {
   } catch(e) { /* silencioso */ }
 }
 
-const sinTildes = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-
 /**
  * Con qué nombre va a quedar esta categoría en la DB, y si cuenta como canónica.
  *
- * La sutileza está en que `CATEGORIA_MAP` mezcla DOS cosas distintas:
+ * **La regla es una sola: la raíz se llama como la categoría donde va a caer la transacción.**
+ * `guardarTransaccion` aplica `normalizarCategoria`, que resuelve TODO `CATEGORIA_MAP` — así que
+ * si acá se creara la raíz con el nombre crudo, quedaría una categoría que ninguna transacción
+ * puede poblar nunca: visible en `/categorias` y en el selector de presupuestos, y siempre en
+ * cero. Peor: `_normCat` de `services/budget.js` no aplica el mapa, así que un presupuesto sobre
+ * esa raíz tampoco dispararía alerta.
  *
- * - **Alias ortográficos**: `Alimentacion`→`Alimentación`, `educacion`→`Educación`. Es la misma
- *   categoría escrita sin tilde o en minúscula, y hay que normalizarla — si no, el usuario
- *   termina con dos raíces que son la misma.
- * - **Colapsos con PÉRDIDA**: `Viajes`→`Otros`, `Hogar`→`Vivienda`, `Auto`→`Transporte`,
- *   `Comida`→`Alimentación`, `Streaming`→`Suscripciones`, `Transferencia`→`Otros`. Son conceptos
- *   distintos que se aplastan sobre una canónica para poder guardarlos en `transacciones`.
- *
- * Tratar el segundo grupo como canónico es una regresión de producto: quien dice "pásalo a
- * Viajes" tenía su categoría **Viajes** —`crearCategoriaLibreUsuario` se la creaba tal cual— y
- * pasaría a recibir una raíz `Otros` que nunca pidió. Así que solo se normaliza cuando el mapeo
- * es ortográfico, comparando sin tildes ni mayúsculas; el resto sigue el camino de siempre.
+ * > Una versión anterior distinguía "alias ortográficos" (`Alimentacion`→`Alimentación`) de
+ * > "colapsos con pérdida" (`Viajes`→`Otros`, `Comida`→`Alimentación`) y dejaba a los segundos
+ * > como categoría libre, con el argumento de que quien pide "Viajes" merece su categoría
+ * > Viajes. **Medido: eso creaba 14 raíces muertas.** El argumento estaba mal planteado — la
+ * > transacción ya se guardaba en `Otros` de todos modos, así que mostrarle "Viajes" en el árbol
+ * > era la mentira, no lo contrario. Si algún día se quiere respetar el nombre del usuario, lo
+ * > que hay que cambiar es dónde se guarda la transacción (hallazgo B28), no dónde se crea la
+ * > raíz; y hasta entonces las dos puntas tienen que coincidir.
  *
  * Devuelve `{ canonica, efectivo }`: `canonica` es null para las libres, y `efectivo` es el
  * nombre con el que se escribe y con el que hay que volver a BUSCARLA. Que sean el mismo dato
@@ -152,10 +152,8 @@ const sinTildes = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLo
 function resolverNombreCategoria(nombre) {
   if (CATEGORIAS_VALIDAS.has(nombre)) return { canonica: nombre, efectivo: nombre };
   const mapeada = CATEGORIA_MAP[nombre];
-  if (mapeada && sinTildes(mapeada) === sinTildes(nombre)) {
-    return { canonica: mapeada, efectivo: mapeada }; // alias ortográfico
-  }
-  return { canonica: null, efectivo: nombre }; // libre, o colapso con pérdida
+  if (mapeada) return { canonica: mapeada, efectivo: mapeada };
+  return { canonica: null, efectivo: nombre }; // libre de verdad: no la resuelve el mapa
 }
 
 /**

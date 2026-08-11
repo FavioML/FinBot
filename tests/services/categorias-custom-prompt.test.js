@@ -30,6 +30,11 @@ describe('buildCategoriasCustomPrompt', () => {
     expect(out).toContain('- Viajes → vuelos | hoteles');
     expect(out).toContain('- Deudas (sin subcategorías)');
     expect(out).toContain('Solo cae a categoría canónica si NINGUNA custom encaja con el contexto');
+    // ⚠️ Esta es la línea que se volvió opcional, y es la que faltaba: sin esta aserción,
+    // quitársela al prompt de correos dejaba la suite ENTERA en verde (1140/1140, medido).
+    // La única aserción que existía era la NEGATIVA del lado de gastos, y una negativa no
+    // prueba que del otro lado siga estando.
+    expect(out).toContain('- subcategoria debe ser una de las listadas para esa categoría custom; si no hay match exacto, usar "sin_categoria"');
   });
 
   it('con sustantivo "gasto" no queda ni una mención al correo', () => {
