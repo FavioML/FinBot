@@ -57,20 +57,27 @@ app.use(express.json({
 // Sin eso, un cliente IPv6 rota de dirección dentro de su propio bloque y evade el límite.
 const claveIp = (req) => ipKeyGenerator(req.ip || '0.0.0.0');
 
+// Este limiter corre ANTES del HMAC, así que solo puede mirar datos que un atacante no
+// controla: la IP. La versión anterior leía `messages[0].from` del body sin verificar y lo
+// usaba de clave, o sea que cualquiera que supiera un número podía mandar 300 requests
+// basura con ese `from` y dejar al dueño en 429 sin haber probado un solo byte de identidad
+// (hallazgo S′5). No hay forma de arreglar eso keyeando mejor: cualquier campo del body es
+// del atacante hasta que la firma se verifica. El límite POR REMITENTE existe igual, pero
+// vive después del HMAC — `limiteRemitenteSuperado()` en handlers/webhook.js.
+//
+// El tope se sube porque ahora TODO Meta comparte el bucket, y el pico conocido es el cron
+// de las 8pm: ~100 usuarios notificados × 3 callbacks de status cada uno (sent, delivered,
+// read) ≈ 300 requests en ráfaga, más los mensajes entrantes de ese rato. 1200 deja ×4 de
+// margen sobre ese pico y sigue cortando un flood. Lo que rechaza acá es barato: un request
+// sin firma válida muere en el HMAC sin tocar la DB ni OpenAI.
 const webhookLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 300,
+  max: 1200,
   standardHeaders: true,
   legacyHeaders: false,
   validate: { xForwardedForHeader: false, default: true },
   message: { error: 'Demasiadas solicitudes, intenta en un momento' },
-  keyGenerator: (req) => {
-    try {
-      const from = req.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.from;
-      if (from) return from;
-    } catch {}
-    return claveIp(req);
-  },
+  keyGenerator: claveIp,
 });
 const adminLimiter = rateLimit({
   windowMs: 60 * 1000,

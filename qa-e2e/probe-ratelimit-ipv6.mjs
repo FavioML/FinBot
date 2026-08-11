@@ -4,7 +4,8 @@
 // y verifica dos cosas:
 //
 //   A) Rate limiting: las IPv6 de un mismo /56 comparten clave (el bypass ERR_ERL_KEY_GEN_IPV6
-//      quedó cerrado), y un usuario real de WhatsApp NO queda throttleado por el flood de IPs.
+//      quedó cerrado), y un flood ANÓNIMO que lleva el número de la víctima en el body NO le
+//      agota el cupo a ese número (S′5: el keyGenerator ya no lee datos sin verificar).
 //   B) Flujo completo: un mensaje firmado del usuario QA (ded7e219, is_test_user=true) cruza
 //      limiter → webhook → procesarMensajeLibre REAL → Supabase REAL, con historial adverso
 //      sembrado (producción usa historialConv.slice(-4)) y sin que ningún intercept lo secuestre.
@@ -89,31 +90,53 @@ async function postWebhook(body, ip) {
   return r.status;
 }
 
+// POST al webhook SIN firmar, con la forma de un mensaje del número de la víctima.
+// Es literalmente el ataque de S′5: nadie prueba identidad, el HMAC lo rechaza con 403,
+// pero el limiter ya contó — y la pregunta es CONTRA QUIÉN.
+async function postSinFirmar(body, ip) {
+  const r = await fetch(base + '/webhook', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': ip, 'X-Hub-Signature-256': 'sha256=' + '0'.repeat(64) },
+    body: JSON.stringify(body),
+  });
+  return r.status;
+}
+
 async function run() {
   // ── A) Rate limiting por IP: mismo /56 = misma clave ──────────────────────────
-  // Payload sin `messages` → el handler corta temprano (sin NLP ni DB), pero el limiter
-  // ya contó. 300 desde una IPv6 agotan la ventana del bloque /56 completo.
+  // El flood lleva el `from` de la VÍCTIMA en el body y va sin firmar. Con el keyGenerator
+  // viejo —que leía `messages[0].from` antes del HMAC— esto agotaba el bucket del número
+  // ajeno. Hoy la clave es la IP del atacante, así que solo se agota a sí mismo.
   const IP_A = '2001:db8:acdc:1200::a';           // dentro del /56 2001:db8:acdc:12xx
   const IP_B = '2001:db8:acdc:12ff::ffff';        // MISMA /56, dirección distinta
   const IP_OTRA = '2001:db8:9999:0000::1';        // /56 distinta
+  const IP_META = '2001:db8:5555:0000::1';        // por donde llega el tráfico legítimo
 
+  const TOPE = 1200;   // debe coincidir con `max` del webhookLimiter en index.js
   let ultimoStatus = 0;
-  for (let i = 0; i < 300; i++) ultimoStatus = await postWebhook({ entry: [] }, IP_A);
-  check('300 requests desde una IPv6 entran (ventana no agotada antes de tiempo)',
-    ultimoStatus !== 429, 'status #300 = ' + ultimoStatus);
+  // En tandas concurrentes: 1200 requests secuenciales tardan minutos y el limiter cuenta
+  // igual. La última tanda se manda en serie para leer el status del request número TOPE.
+  for (let i = 0; i < TOPE - 1; i += 100) {
+    await Promise.all(Array.from({ length: Math.min(100, TOPE - 1 - i) },
+      () => postSinFirmar(cuerpoMensaje('flood', QA_WHATSAPP), IP_A)));
+  }
+  ultimoStatus = await postSinFirmar(cuerpoMensaje('flood', QA_WHATSAPP), IP_A);
+  check(TOPE + ' requests desde una IPv6 entran (ventana no agotada antes de tiempo)',
+    ultimoStatus !== 429, 'status #' + TOPE + ' = ' + ultimoStatus);
 
-  const statusVecina = await postWebhook({ entry: [] }, IP_B);
+  const statusVecina = await postSinFirmar({ entry: [] }, IP_B);
   check('IPv6 vecina del mismo /56 comparte clave y recibe 429 (bypass cerrado)',
     statusVecina === 429, 'status = ' + statusVecina);
 
-  const statusOtraSubred = await postWebhook({ entry: [] }, IP_OTRA);
+  const statusOtraSubred = await postSinFirmar({ entry: [] }, IP_OTRA);
   check('IPv6 de otra /56 NO queda throttleada (no colapsamos todo a una clave)',
     statusOtraSubred !== 429, 'status = ' + statusOtraSubred);
 
-  // ── B) Flujo completo con el usuario QA, desde la IP ya agotada ───────────────
-  // La clave del webhook es el número de WhatsApp, no la IP: un usuario real NO puede
-  // quedar bloqueado por el flood anterior. Esto es lo que romperia a producción si el
-  // keyGenerator estuviera mal.
+  // ── B) S′5: el flood NO le gastó el cupo a la víctima ─────────────────────────
+  // El mensaje real llega por la IP de Meta, que es lo que pasa en producción: el atacante
+  // no puede mandar desde ahí (no tiene el secreto de firma ni la infraestructura de Meta).
+  // Con el keyGenerator viejo este check daba 429 aunque la IP fuera otra, porque la clave
+  // era el número. Es la regresión de S′5, y es lo único de este archivo que la mide.
   const { data: userAntes } = await supabase.from('usuarios')
     .select('id, whatsapp, is_test_user, plan').eq('id', QA_ID).single();
   check('usuario QA existe y es de prueba',
@@ -130,9 +153,9 @@ async function run() {
     'turnos = ' + (hist?.length || 0));
 
   const antes = sent.length;
-  const status = await postWebhook(cuerpoMensaje('¿cuánto gasté este mes?', QA_WHATSAPP), IP_A);
-  check('mensaje real del usuario QA NO es throttleado por el flood de IP', status !== 429,
-    'status = ' + status);
+  const status = await postWebhook(cuerpoMensaje('¿cuánto gasté este mes?', QA_WHATSAPP), IP_META);
+  check('el flood con el `from` de la víctima NO le agotó el cupo (S′5)', status !== 429,
+    'status = ' + status + ' — con el keyGenerator viejo esto era 429');
 
   // El handler responde async tras el sendStatus; damos margen al NLP real.
   const t0 = Date.now();

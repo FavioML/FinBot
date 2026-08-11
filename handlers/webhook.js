@@ -62,6 +62,40 @@ function otpRateLimited(from) {
   return e.count > OTP_MAX_INTENTOS;
 }
 
+// Límite POR REMITENTE, y vive acá y no en el limiter de `index.js` por una razón que no es
+// de estilo: el de index.js corre ANTES del HMAC, así que la identidad que ve es la que el
+// atacante escribió. Acá la firma ya se verificó, o sea que `from` (o el BSUID) lo puso Meta.
+// Es la mitad de S′5 que el keyGenerator no podía dar: el otro limiter protege contra un
+// flood anónimo, este contra un remitente autenticado que quema presupuesto de OpenAI.
+//
+// 60 por minuto es un orden de magnitud sobre el uso real (el usuario más activo manda ~10
+// mensajes en una ráfaga de multi-gasto). Un remitente por encima de eso no está usando el
+// producto.
+//
+// In-memory, como `wamidCache` y `otpIntentos`: asume single-instance, que es el supuesto
+// documentado del backend. Con N réplicas el límite efectivo sería 60×N — degrada holgando,
+// no cerrando, que es la dirección correcta para algo que puede descartar un gasto real.
+//
+// Los callbacks de STATUS no pasan por acá a propósito: no los origina un usuario sino
+// nuestros propios envíos, así que un cron grande los dispararía en ráfaga y throttlearlos
+// perdería el aprendizaje de BSUID justo en el pico.
+const REMITENTE_MAX = 60;
+const REMITENTE_VENTANA_MS = 60 * 1000;
+const REMITENTE_CACHE_MAX = 5000;   // cota de memoria: el Map no puede crecer sin techo
+const remitenteHits = new Map();    // clave → { count, ts }
+function limiteRemitenteSuperado(clave) {
+  if (!clave) return false;         // sin identidad verificable no hay a quién contarle
+  const now = Date.now();
+  const e = remitenteHits.get(clave);
+  if (!e || now - e.ts > REMITENTE_VENTANA_MS) {
+    if (remitenteHits.size >= REMITENTE_CACHE_MAX) remitenteHits.delete(remitenteHits.keys().next().value);
+    remitenteHits.set(clave, { count: 1, ts: now });
+    return false;
+  }
+  e.count += 1;
+  return e.count > REMITENTE_MAX;
+}
+
 function createWebhookHandler(procesarMensajeLibre) {
   return async function webhookHandler(req, res) {
   const META_APP_SECRET = process.env.META_APP_SECRET;
@@ -140,6 +174,15 @@ function createWebhookHandler(procesarMensajeLibre) {
     // `guardarTransaccion` evita la transacción repetida, pero no el gasto de la llamada.)
     if (isDuplicateWamid(message.id)) {
       log.info({ tag: 'WEBHOOK', wamid: message.id, from: from || null, bsuid }, 'Wamid duplicado — skip');
+      return;
+    }
+    // Throttle por remitente VERIFICADO (S′5). Va después del dedup para que una
+    // retransmisión de Meta —que es culpa nuestra, por tardar— no le gaste cupo al usuario.
+    // Se descarta el mensaje pero la respuesta HTTP ya salió 200: devolverle 429 a Meta
+    // dispararía retransmisiones, o sea más carga por la misma ráfaga.
+    if (limiteRemitenteSuperado(from || bsuid)) {
+      log.warn({ tag: 'WEBHOOK_THROTTLE', from: from || null, bsuid, max: REMITENTE_MAX },
+        'Remitente por encima del límite del minuto — mensaje descartado');
       return;
     }
     // Meta mandó un mensaje SIN remitente. Pasó 4 veces el 01-ago-2026 (05:32 UTC) y
