@@ -132,7 +132,14 @@ async function guardarTransaccion(usuarioId, datos) {
       return null;
     }
   }
-  let catFinal = normalizarCategoria(datos.categoria);
+  // B28: una categoría CUSTOM del usuario se persiste tal cual en vez de morir en 'Otros'.
+  // `normalizarCategoria` sigue mandando en todo lo que el mapa canónico resuelve — incluidos
+  // los colapsos con pérdida, que B26 midió y decidió. Ver `resolverCategoriaPersistida`.
+  //
+  // Pura y síncrona: no consulta el árbol del usuario. Ver el docstring, que explica por qué
+  // la versión que sí lo consultaba estaba mal (carrera con el fire-and-forget que crea la
+  // raíz). El require es perezoso solo por orden de carga, no por un ciclo.
+  let catFinal = require('./categories').resolverCategoriaPersistida(datos.categoria);
   let subFinal = datos.subcategoria || 'sin_categoria';
   if (datos.comercio) {
     const regla = await buscarReglaComercio(usuarioId, datos.comercio);

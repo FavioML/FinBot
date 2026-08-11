@@ -3,6 +3,7 @@ const { openai } = require('../lib/ai');
 const log = require('../lib/logger');
 const { CATEGORIAS_SUGERIDAS, CATEGORIAS_VALIDAS, CATEGORIA_MAP } = require('../lib/constants');
 const { getEmojiCategoria } = require('../lib/formatters');
+const { normalizarCategoria } = require('../lib/validators');
 const { buildCategoriasCustomPrompt } = require('./parsers');
 
 // UNA query, no 1+N. Antes traía las raíces y después una query por cada raíz dentro de un
@@ -40,9 +41,27 @@ async function obtenerCategoriasUsuario(usuarioId) {
 async function crearCategoriasDesdeIndices(usuarioId, indices) {
   const seleccionadas = indices.map(i => CATEGORIAS_SUGERIDAS[i-1]).filter(Boolean);
   for (const cat of seleccionadas) {
-    const { data: catCreada } = await supabase.from('categorias_usuario').insert({ usuario_id: usuarioId, nombre: cat.nombre, emoji: cat.emoji }).select().single();
-    if (!catCreada) continue;
-    for (const sub of cat.subs) { await supabase.from('categorias_usuario').insert({ usuario_id: usuarioId, nombre: sub, padre_id: catCreada.id }); }
+    const { data: catCreada, error } = await supabase.from('categorias_usuario')
+      .insert({ usuario_id: usuarioId, nombre: cat.nombre, emoji: cat.emoji }).select().single();
+    // El insert puede fallar con 23505 desde la migración 067, que puso índice único sobre
+    // las raíces. Antes se ignoraba `error` y `catCreada` venía null: el `continue` salteaba
+    // las subcategorías EN SILENCIO, así que el usuario elegía "Alimentación" en el
+    // onboarding y se quedaba con la raíz que ya tenía y sin una sola subcategoría —
+    // indistinguible de haberla elegido vacía.
+    let padreId = catCreada && catCreada.id;
+    if (!padreId) {
+      if (error && error.code === '23505') {
+        // La raíz ya existía (otra corrida, o el usuario la eligió dos veces). No es un
+        // fallo: se cuelgan las subcategorías de la que está.
+        const raiz = await buscarCategoriaRaiz(usuarioId, cat.nombre);
+        padreId = raiz && raiz.id;
+      } else if (error) {
+        log.warn({ tag: 'CATEGORIAS', usuarioId, categoria: cat.nombre, err: error.message },
+          'No se pudo crear la categoria del onboarding');
+      }
+    }
+    if (!padreId) continue;
+    for (const sub of cat.subs) { await supabase.from('categorias_usuario').insert({ usuario_id: usuarioId, nombre: sub, padre_id: padreId }); }
   }
 }
 
@@ -111,7 +130,7 @@ async function sugerirEmojiConIA(nombreCategoria) {
 // ese ciclo: si ya existe al menos una con ese nombre, nunca se inserta otra.
 async function buscarCategoriaRaiz(usuarioId, nombre) {
   const { data } = await supabase.from('categorias_usuario')
-    .select('id').eq('usuario_id', usuarioId).eq('nombre', nombre).is('padre_id', null)
+    .select('id, nombre, activa').eq('usuario_id', usuarioId).eq('nombre', nombre).is('padre_id', null)
     .order('created_at', { ascending: true }).limit(1);
   return (data && data[0]) || null;
 }
@@ -199,7 +218,25 @@ async function asegurarCategoriaUsuario(usuarioId, nombre) {
       return 'libre';
     }
     if (cats.some(c => c.nombre === efectivo)) return 'ya-existe';
-    if (await buscarCategoriaRaiz(usuarioId, efectivo)) return 'ya-existe';
+    const raizExistente = await buscarCategoriaRaiz(usuarioId, efectivo);
+    if (raizExistente) {
+      // La raíz existe pero está INACTIVA: el usuario la borró. `obtenerCategoriasUsuario`
+      // filtra por `activa`, así que no aparece en `cats` y sin esta rama esto devolvía
+      // 'ya-existe' — indistinguible de la raíz sana, sin log ni rastro (B26(b)).
+      //
+      // No se reactiva, y es una decisión, no un olvido (Favio, 2026-08-11): el usuario la
+      // borró a propósito, y desde B26 el prompt del clasificador lleva las canónicas
+      // SIEMPRE, así que su gasto igual cae en la categoría correcta. Lo único que se
+      // pierde es que no reaparece en /categorias ni en el selector de presupuestos.
+      // Devolver un veredicto propio es lo que permite MEDIR a cuántos les pasa antes de
+      // cambiar el comportamiento.
+      if (raizExistente.activa === false) {
+        log.info({ tag: 'CATEGORIAS_INACTIVA', usuarioId, categoria: efectivo },
+          'La raiz existe pero el usuario la borro: no se reactiva');
+        return 'inactiva';
+      }
+      return 'ya-existe';
+    }
     const sugerida = CATEGORIAS_SUGERIDAS.find(c => c.nombre === efectivo);
     const { error } = await supabase.from('categorias_usuario').insert({
       usuario_id: usuarioId, nombre: efectivo,
@@ -214,6 +251,46 @@ async function asegurarCategoriaUsuario(usuarioId, nombre) {
     log.warn({ tag: 'CATEGORIAS', usuarioId, nombre, err: e.message }, 'No se pudo asegurar la categoria en el arbol');
     return 'error';
   }
+}
+
+/**
+ * Con qué nombre se PERSISTE una categoría en `transacciones` (hallazgo B28).
+ *
+ * El problema que cierra: `guardarTransaccion` aplicaba `normalizarCategoria` a secas, que
+ * manda a `'Otros'` todo lo que no resuelve el mapa canónico. La webapp NO normaliza. Así
+ * que el usuario se creaba "Comida casera", la veía en `/categorias`, la usaba desde la app
+ * — y sus gastos por WhatsApp caían en Otros. Los dos canales divergían sobre la MISMA
+ * columna, que es la que alimenta reportes, presupuestos y score.
+ *
+ * La regla: **lo que el mapa canónico resuelve se normaliza; lo que no, se persiste tal
+ * cual.** Eso incluye los colapsos con pérdida (`Viajes`→`Otros`, `Hogar`→`Vivienda`), que
+ * siguen aplicándose — esa decisión se tomó en B26 midiendo y no se reabre acá.
+ *
+ * ⚠️ **Esta función NO consulta el árbol del usuario, y la primera versión sí lo hacía.**
+ * La idea era "solo respeto el nombre crudo si el usuario ya tiene esa raíz", y una revisión
+ * adversarial la tiró abajo por dos motivos, los dos medidos:
+ *
+ *  1. **Carrera.** Quien crea la raíz es `asegurarCategoriaUsuario`, y sus tres call-sites la
+ *     lanzan FIRE-AND-FORGET justo antes de `guardarTransaccion` (para no devolverle al
+ *     camino del gasto los round-trips que le sacó la Ola 3). Así que el PRIMER gasto de una
+ *     categoría custom no encontraba la raíz y persistía `'Otros'`, y el segundo persistía el
+ *     nombre. El mismo concepto partido en dos buckets, y un presupuesto sobre esa categoría
+ *     sub-contando para siempre.
+ *  2. **El árbol no es un oráculo independiente.** Se alimenta del MISMO string que se está
+ *     validando: `asegurarCategoriaUsuario` crea como categoría libre cualquier nombre no
+ *     canónico. O sea que el guard no filtraba alucinaciones del clasificador — solo
+ *     retrasaba una vuelta el momento en que las aceptaba.
+ *
+ * Sin consulta no hay carrera, el resultado es determinístico y coincide con lo que la
+ * webapp ya hacía. Lo que de verdad acota qué nombres pueden aparecer es el prompt del
+ * clasificador (canónicas ∪ árbol del usuario), no una re-lectura después.
+ */
+function resolverCategoriaPersistida(cruda) {
+  if (!cruda) return normalizarCategoria(cruda);
+  const { canonica } = resolverNombreCategoria(cruda);
+  // `canonica` no nula = el mapa la resolvió (alias ortográfico o colapso con pérdida).
+  if (canonica) return normalizarCategoria(cruda);
+  return cruda;
 }
 
 async function crearSubcategoriaLibreUsuario(usuarioId, categoriaNombre, subcategoriaNombre) {
@@ -253,4 +330,5 @@ module.exports = {
   sugerirEmojiConIA,
   crearCategoriaLibreUsuario,
   crearSubcategoriaLibreUsuario,
+  resolverCategoriaPersistida,
 };

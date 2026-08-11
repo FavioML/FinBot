@@ -144,6 +144,33 @@ const SIN_CAMBIOS = 'No changes to watched files';
 const construyo = (d) => Boolean(d.imageDigest);
 
 /**
+ * ¿La base pudo seguir en vuelo cuando Railway evaluó a este deployment? (hallazgo Q10)
+ *
+ * El harness reconstruía la base como "el último que produjo imagen", y con el gate puesto
+ * eso es falso: un deployment se queda en `WAITING` esperando el check suite y puede
+ * construir DESPUÉS de que se creó el siguiente. El 11-ago `6efbaaa` se creó 16:37:35 y
+ * empezó a construir 16:42:30, mientras `304b901` se creó 16:39:13 — el harness lo tomó de
+ * base, el rango salió sin rutas observadas y reportó un DESACUERDO que no existía.
+ *
+ * La señal es la SEPARACIÓN entre creaciones, y el umbral sale de dos números ya medidos en
+ * este repo (`CLAUDE.md`, sección del gate): con "Wait for CI" encendido, push → inicio de
+ * build pasó de ~7s a **~2m50s**, y el build tarda **140-185s**. O sea que un deployment no
+ * está desplegado hasta ~5m35s después de crearse. Con menos de eso entre dos creaciones,
+ * la base es dudosa y no se juzga.
+ *
+ * Lo que este umbral CUESTA, y se elige a sabiendas: dos pushes seguidos dejan de juzgarse,
+ * así que un desacuerdo real en esa ventana no se ve. La dirección contraria —inventar
+ * desacuerdos— es peor: este harness ya encontró un error real del modelo el 09-ago, y su
+ * exit 1 solo sirve si nadie lo descarta a ojo.
+ */
+const MARGEN_BASE_MS = 6 * 60 * 1000;
+function paseloEnVuelo(base, d) {
+  if (!base || !base.creadoEn || !d.creadoEn) return false;
+  const separacion = new Date(d.creadoEn).getTime() - new Date(base.creadoEn).getTime();
+  return Number.isFinite(separacion) && separacion >= 0 && separacion < MARGEN_BASE_MS;
+}
+
+/**
  * Estados transitorios: Railway todavía no terminó de decidir. No se juzgan.
  *
  * El enum completo de la API (introspección, 07-ago) es `BUILDING CRASHED DEPLOYING FAILED
@@ -234,6 +261,9 @@ function ejercitaElAncla(reglas, archivos, veredicto) {
 export function compararConRailway(deployments, obtenerArchivos) {
   const filas = [];
   let ultimoDesplegado = null;
+  // La fila del último que construyó, no solo su sha: hace falta su `updatedAt` para saber
+  // si ya había terminado cuando se creó el que estamos juzgando (Q10).
+  let ultimoDesplegadoFila = null;
 
   for (const d of deployments) {
     const llegoAConstruir = construyo(d);
@@ -245,8 +275,30 @@ export function compararConRailway(deployments, obtenerArchivos) {
     // gate, superado antes de arrancar— no es un veredicto y juzgarlo inventa desacuerdos.
     // La primera versión derivaba `realidad` únicamente de `skippedReason`, así que un
     // deployment sin motivo de skip y sin build contaba como "construyó".
+    // Q10: la base NO es "el último que produjo imagen", es "el último que YA HABÍA
+    // TERMINADO de construir cuando Railway evaluó a éste". Con el gate puesto, un
+    // deployment puede quedarse minutos en WAITING y construir DESPUÉS de que se creó el
+    // siguiente — pasó el 11-ago con `6efbaaa` (creado 16:37:35, empezó a construir
+    // 16:42:30) y `304b901` (creado 16:39:13). El harness tomó a `6efbaaa` de base, el
+    // rango salió vacío de rutas observadas y reportó un DESACUERDO que no existía: la base
+    // real era un commit anterior, y ese rango sí traía `handlers/webhook.js`.
+    //
+    // No se adivina cuál era la base verdadera: el caso no se juzga. Es una SUBCUENTA de
+    // cobertura, igual que `sin-imagen` — un desacuerdo inventado es mucho peor que un
+    // juzgable de menos, porque este harness existe para que su exit 1 se tome en serio.
+    //
+    // ⚠️ La primera versión usaba `updatedAt` de la base como "cuándo terminó de construir"
+    // y eso NO sirve: a un deployment que pasa a REMOVED Railway le pisa `updatedAt` con la
+    // hora del REEMPLAZO, que por construcción es posterior a la creación del siguiente. Se
+    // midió antes de shipearla: clasificaba **99 de 100** como `base-en-vuelo` y dejaba el
+    // harness ciego con 0 juzgables. Ver `paseloEnVuelo`.
+    const baseEnVuelo = paseloEnVuelo(ultimoDesplegadoFila, d);
     if (!ultimoDesplegado) {
       fila.clase = 'sin-base'; // el más viejo de la ventana no tiene contra qué diffear
+    } else if (baseEnVuelo) {
+      fila.clase = 'base-en-vuelo';
+      fila.base = short(ultimoDesplegado);
+      fila.detalle = 'la base pudo seguir construyendo cuando se creó este deployment';
     } else if (d.skippedReason && !saltadoPorPatrones) {
       // El gate lo frenó ANTES de que Railway resolviera la config: no dice nada del modelo.
       fila.clase = 'frenado-antes-de-watchpatterns';
@@ -275,7 +327,7 @@ export function compararConRailway(deployments, obtenerArchivos) {
           fila.clase = 'patrones-no-compilables';
           fila.detalle = String(e.message).split('\n')[0];
           filas.push(fila);
-          if (llegoAConstruir) ultimoDesplegado = d.sha;
+          if (llegoAConstruir) { ultimoDesplegado = d.sha; ultimoDesplegadoFila = d; }
           continue;
         }
         const observados = archivos.filter(dispara);
@@ -294,7 +346,7 @@ export function compararConRailway(deployments, obtenerArchivos) {
     }
 
     filas.push(fila);
-    if (llegoAConstruir) ultimoDesplegado = d.sha;
+    if (llegoAConstruir) { ultimoDesplegado = d.sha; ultimoDesplegadoFila = d; }
   }
 
   return filas;
@@ -312,7 +364,7 @@ async function main() {
 
   const query = `query($input: DeploymentListInput!, $first: Int!) {
     deployments(first: $first, input: $input) {
-      edges { node { status meta } }
+      edges { node { status meta createdAt updatedAt } }
     }
   }`;
   const r = await consultarRailway({
@@ -330,6 +382,11 @@ async function main() {
       status: n.status,
       skippedReason: n.meta?.skippedReason || null,
       imageDigest: n.meta?.imageDigest || null,
+      creadoEn: n.createdAt || null,
+      // Cota SUPERIOR del fin del build, no el fin: cuando un deployment pasa a REMOVED,
+      // Railway le pisa `updatedAt` con la hora del reemplazo. Alcanza para lo que se usa
+      // acá —detectar que la base pudo estar todavía en vuelo— y no para más.
+      tocadoEn: n.updatedAt || null,
       patrones: n.meta?.serviceManifest?.build?.watchPatterns,
     }))
     .filter((d) => d.sha)

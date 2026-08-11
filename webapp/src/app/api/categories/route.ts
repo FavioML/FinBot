@@ -376,7 +376,19 @@ export async function POST(request: Request) {
       .eq('usuario_id', userId)
       .select()
       .single();
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    if (error) {
+      // 23505 también acá: el índice único parcial de la migración 067 cubre las raíces, y
+      // reactivar una choca contra otra que ya esté activa con ese nombre. Prod tiene un par
+      // que difiere solo en mayúsculas ("transporte"/"Transporte"), así que este camino es
+      // alcanzable — y devolvía 400 con el mensaje crudo de Postgres, que el usuario lee
+      // como un error del sistema en vez de "esa ya existe".
+      if (error.code === '23505')
+        return NextResponse.json(
+          { error: 'Ya existe una categoría con ese nombre', code: 'DUPLICATE' },
+          { status: 409 }
+        );
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     return NextResponse.json(row, { status: 200 });
   }
 

@@ -83,7 +83,7 @@ for (const [rel, exports] of [
   require.cache[p] = { id: p, filename: p, loaded: true, exports };
 }
 
-const { checkPremiumExpiry } = require('../../cron/checks');
+const { checkPremiumExpiry, checkTrialExpiry } = require('../../cron/checks');
 const { iniciarTrialSiCorresponde, enTrial } = require('../../lib/trial');
 
 vi.useFakeTimers({ toFake: ['Date'] });
@@ -224,5 +224,50 @@ describe('enTrial exige las dos columnas', () => {
 
   it('sin usuario no revienta', () => {
     expect(enTrial(null)).toBe(false);
+  });
+});
+
+describe('D6 — el downgrade POR TRIAL tampoco deja a nadie marcado como pagado', () => {
+  // El cron hermano (checkPremiumExpiry) ya limpiaba `estado_pago` desde D3, pero
+  // checkTrialExpiry no, y por ahí se cuela un caso REAL: el usuario de cortesía de la
+  // migración 054 quedó `plan='premium'`, `premium_vence=NULL` y `trial_estado='activo'`.
+  // Con `premium_vence` en NULL, checkPremiumExpiry no lo ve —sus tres queries filtran por
+  // esa columna— así que quien lo va a bajar el 31-ago es ESTE cron, y lo dejaba con
+  // `estado_pago='pagado'` para siempre. Es D3 con otra causa y con fecha puesta.
+  it('el UPDATE del downgrade por trial saca estado_pago de "pagado"', async () => {
+    vi.setSystemTime(new Date('2026-09-01T15:00:00Z'));
+    usuariosData = [{ id: 'u1', whatsapp: '51999', nombre: 'Cortesia 054',
+      trial_estado: 'activo', trial_vence: '2026-08-31', premium_vence: null, estado_pago: 'pagado' }];
+    await checkTrialExpiry();
+
+    const downgrade = updatePayloads.find((p) => p && p.plan === 'free');
+    expect(downgrade, 'no se hizo el UPDATE de downgrade').toBeTruthy();
+    // La invariante es "no queda pagado", no un literal.
+    expect(downgrade).toHaveProperty('estado_pago');
+    expect(downgrade.estado_pago).not.toBe('pagado');
+    // Y lo que este cron sí hacía tiene que seguir haciéndolo.
+    expect(downgrade.trial_estado).toBe('vencido');
+  });
+
+  it('a quien NO venía pagando no le inventa un estado de pago', async () => {
+    vi.setSystemTime(new Date('2026-09-01T15:00:00Z'));
+    for (const estado of [null, 'pendiente']) {
+      updatePayloads.length = 0;
+      usuariosData = [{ id: 'u1', whatsapp: '51999', nombre: 'Trial normal',
+        trial_estado: 'activo', trial_vence: '2026-08-31', premium_vence: null, estado_pago: estado }];
+      await checkTrialExpiry();
+      const downgrade = updatePayloads.find((p) => p && p.plan === 'free');
+      expect(downgrade, 'no se hizo el UPDATE de downgrade').toBeTruthy();
+      expect('estado_pago' in downgrade, `pisó estado_pago=${estado}`).toBe(false);
+    }
+  });
+
+  it('el select del cron trae estado_pago (una fila parcial no puede decidir)', async () => {
+    vi.setSystemTime(new Date('2026-09-01T15:00:00Z'));
+    usuariosData = [{ id: 'u1', whatsapp: '51999', nombre: 'X',
+      trial_estado: 'activo', trial_vence: '2026-08-31', estado_pago: 'pagado' }];
+    await checkTrialExpiry();
+    const selects = queries.flatMap((q) => q.methods.filter(([m]) => m === 'select')).map(([, a]) => String(a));
+    expect(selects.some((s) => s.includes('estado_pago')), 'ningún select pide estado_pago').toBe(true);
   });
 });

@@ -3,7 +3,7 @@ const { checkProWall } = require('../../helpers/pro-wall');
 const { getUserPlanConfig } = require('../../helpers/db-helpers');
 const { supabase } = require('../../lib/db');
 const { hoyPeru } = require('../../lib/dates');
-const { CATEGORIAS_VALIDAS, CATEGORIA_MAP } = require('../../lib/constants');
+const { validarMonto } = require('../../lib/validators');
 
 const intents = ['ver_fugas', 'poner_limite_gasto'];
 
@@ -63,10 +63,19 @@ async function handle({ intencion, datos, usuario, from, ctx }) {
         return '❓ Necesito la categoría y el monto. Ejemplo:\n_"Ponme límite en Entretenimiento de 500"_';
       }
 
-      // Normalize category
-      const catNorm = CATEGORIA_MAP[categoria] || (CATEGORIAS_VALIDAS.has(categoria) ? categoria : null);
+      // La misma resolución que usa la persistencia (B28): canónica/alias por el mapa, y
+      // cualquier otro nombre tal cual. Antes rechazaba toda no-canónica, así que quien se
+      // creó "Comida casera" la veía en /categorias y no podía ponerle un límite.
+      //
+      // El centinela es `null`, no `'Otros'`: con `'Otros'` un usuario que escribe
+      // literalmente "OTROS" —que el mapa difuso resuelve a `Otros`— quedaba rechazado,
+      // mientras "otros" en minúscula funcionaba. Lo encontró la revisión adversarial.
+      const { resolverCategoriaPersistida } = require('../../services/categories');
+      const catNorm = typeof categoria === 'string' && categoria.trim()
+        ? resolverCategoriaPersistida(categoria.trim())
+        : null;
       if (!catNorm) {
-        return '❓ No reconozco la categoría "' + categoria + '".\n\nCategorías válidas: Alimentación, Transporte, Vivienda, Salud, Entretenimiento, Suscripciones, Compras, Educación, Finanzas, Trabajo_Negocio, Otros.';
+        return '❓ No reconozco la categoría "' + categoria + '".\n\nUsa una de las tuyas (escribe */categorias*) o una de estas: Alimentación, Transporte, Vivienda, Salud, Entretenimiento, Suscripciones, Compras, Educación, Finanzas, Trabajo_Negocio, Otros.';
       }
 
       // Create/update budget for this category
@@ -74,10 +83,18 @@ async function handle({ intencion, datos, usuario, from, ctx }) {
       const mes = hoy.getMonth() + 1;
       const anio = hoy.getFullYear();
 
+      // `validarMonto`, y no un truthiness: este upsert escribe plata y era el único que
+      // se salteaba el validador que `services/budget.js` existe para imponer (NaN,
+      // Infinity, negativos, > 999999.99). Lo señaló la revisión adversarial del diff de B28.
+      const limiteValidado = validarMonto(montoLimite);
+      if (limiteValidado === null) {
+        return '⚠️ Ese monto no me cuadra. Dame un número entre S/0.01 y S/999,999.99.\n\nEj: _"ponme límite en Alimentación de 500"_';
+      }
+
       const { error } = await supabase.from('presupuestos').upsert({
         usuario_id: usuarioId,
         categoria: catNorm,
-        monto_limite: montoLimite,
+        monto_limite: limiteValidado,
         mes,
         anio,
         alerta_porcentaje: 80,
@@ -87,7 +104,7 @@ async function handle({ intencion, datos, usuario, from, ctx }) {
         return '❌ No pude configurar el límite. Intenta de nuevo.';
       }
 
-      return `✅ Listo, presupuesto de *S/${montoLimite}* para *${catNorm}* este mes.\n\nTe avisaré cuando llegues al 80% y si te pasas. 📊`;
+      return `✅ Listo, presupuesto de *S/${limiteValidado}* para *${catNorm}* este mes.\n\nTe avisaré cuando llegues al 80% y si te pasas. 📊`;
     }
 
     default:

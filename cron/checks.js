@@ -644,16 +644,30 @@ async function checkTrialExpiry() {
     // ramifica por ellas. Sin `trial_estado` la fila llegaba con `undefined`, el mensaje caía
     // en la rama de "nunca tuviste prueba" y le prometía 14 días gratis a quien acababa de
     // terminar los suyos — el único mensaje que el trial existe para mandar, y salía al revés.
+    // `estado_pago` va en el select por el mismo motivo que en checkPremiumExpiry: hay que
+    // saber si venía en 'pagado' para no dejarlo ahí después del downgrade (hallazgo D6).
     const { data: vencidos } = await supabase.from('usuarios')
-      .select('id, whatsapp, nombre, trial_estado, trial_vence, premium_desde, premium_vence')
+      .select('id, whatsapp, nombre, trial_estado, trial_vence, premium_desde, premium_vence, estado_pago')
       .eq('trial_estado', 'activo').lt('trial_vence', hoy);
     if (!vencidos || vencidos.length === 0) return;
     for (const usuario of vencidos) {
       try {
+        // `estado_pago` viaja con el plan, igual que en checkPremiumExpiry. Este cron no lo
+        // tocaba, y por ahí se cuela el caso D6: el usuario de cortesía de la migración 054
+        // quedó `plan='premium'`, `premium_vence=NULL` y `trial_estado='activo'`, así que a
+        // quien lo va a bajar es ESTE cron y no el otro — y con `estado_pago='pagado'`
+        // colgando para siempre. Es D3 con otra causa y con fecha puesta.
+        //
+        // Mismas dos reglas que el cron hermano: solo se toca si venía en 'pagado' (un
+        // 'pendiente' es un comprobante esperando aprobación y pisarlo borra el ⏳), y se
+        // escribe 'vencido' y no null, que es el valor que el CHECK de la columna tiene
+        // justamente para esto y conserva que sí llegó a pagar alguna vez.
+        const cambios = { plan: 'free', trial_estado: 'vencido' };
+        if (usuario.estado_pago === 'pagado') cambios.estado_pago = 'vencido';
         // Un UPDATE condicionado a trial_estado='activo' es el claim: si dos corridas se
         // solapan, solo una baja el plan y solo una avisa.
         const { data: bajado, error: errBaja } = await supabase.from('usuarios')
-          .update({ plan: 'free', trial_estado: 'vencido' })
+          .update(cambios)
           .eq('id', usuario.id).eq('trial_estado', 'activo')
           .select('id').maybeSingle();
         if (errBaja) { log.error({ tag: 'TRIAL_EXPIRY', userId: usuario.id, err: errBaja.message }, 'No se pudo bajar el plan al vencer el trial'); continue; }

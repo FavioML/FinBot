@@ -20,9 +20,46 @@ const RE_INCOME_PREFIX = /^\s*(ingres[eéo]|ingreso|gan[eé]|gano|cobr[eé]|cobr
 const RE_PAR_HETERO = /(\d+(?:[.,]\d{1,2})?)\s+(?:soles?\s+)?(?:en|de|por|el|la|los|las|al)\s+([a-záéíóúñü]{2,}(?:\s+[a-záéíóúñü]{2,})?)/gi;
 const VERBO_GASTO_HETERO = /(?:^|\s)(gast[eé]|gaste|pagu[eé]|compr[eé])(?:\s|$|,)/i;
 
+// Una LÍNEA que es un gasto entero por sí sola: verbo + monto (con `S/` opcional, pegado o
+// no) + sustantivo, SIN preposición obligatoria. Es la forma que un usuario real usó y que
+// no atendía ningún detector (hallazgo B27): mandó
+//
+//   Gasté S/.10.2 alimentos
+//   Gasté S/. 1.50 transporte
+//
+// y recibió "No pude procesar eso" DOS veces antes de rendirse y mandarlos de a uno. Se le
+// escapaba a los dos: el separador era un salto de línea (y el detector solo mira `,` y
+// ` y `) y no había `en/de/por` entre el monto y el sustantivo.
+//
+// Por qué esta forma se puede relajar sin abrir falsos positivos: el ancla es que CADA línea
+// empiece con verbo de gasto. "gasté 50 taxi" suelto sigue yendo al parser normal — lo que
+// habilita el fanout es el patrón repetido, que es justo lo que distingue una lista.
+const RE_LINEA_GASTO = /^(?:gast[eé]|gaste|pagu[eé]|compr[eé])\s+(?:s\/\.?\s*)?(\d+(?:[.,]\d{1,2})?)\s+(?:soles?\s+)?(?:en\s+|de\s+|por\s+)?([a-záéíóúñü][a-záéíóúñü\s]{1,40})$/i;
+
+function detectarMultiGastoPorLineas(msg) {
+  const lineas = String(msg).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (lineas.length < 2) return null;
+  const items = [];
+  for (const linea of lineas) {
+    const m = linea.match(RE_LINEA_GASTO);
+    // TODAS las líneas tienen que ser un gasto. Con una sola que no lo sea se cae al flujo
+    // normal: media lista registrada y media perdida es peor que no detectar nada, porque
+    // el usuario ve una confirmación y cree que entró todo.
+    if (!m) return null;
+    const monto = parseFloat(m[1].replace(',', '.'));
+    if (!Number.isFinite(monto) || monto <= 0 || monto >= 1000000) return null;
+    items.push({ monto, comercio: m[2].trim() });
+  }
+  return items.length >= 2 ? items : null;
+}
+
 function detectarMultiGasto(msg) {
   if (!msg || typeof msg !== 'string') return null;
   const m = msg.toLowerCase().trim();
+  // La lista por líneas va PRIMERO: es más específica (exige verbo en CADA línea) y el
+  // detector de abajo no la ve.
+  const porLineas = detectarMultiGastoPorLineas(m);
+  if (porLineas) return porLineas;
   if (!VERBO_GASTO.test(m)) return null;
   if (!/,|\s+y\s+/.test(m)) return null;
   const items = [];

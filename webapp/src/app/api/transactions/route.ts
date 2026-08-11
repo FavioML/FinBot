@@ -119,12 +119,27 @@ async function syncCategoriasUsuario(userId: string, categoria: string, subcateg
   // Si la categoría no existe, crearla
   let padreId = padre?.id;
   if (!padreId) {
-    const { data: nuevoPadre } = await getServiceClient()
+    const { data: nuevoPadre, error } = await getServiceClient()
       .from('categorias_usuario')
       .insert({ usuario_id: userId, nombre: categoria, activa: true })
       .select('id')
       .single();
     padreId = nuevoPadre?.id;
+    // Desde la migración 067 hay índice único sobre las raíces, así que este insert puede
+    // perder una carrera con 23505 — dos transacciones seguidas de la misma categoría, o el
+    // backend creándola por su lado. Sin releer, `padreId` quedaba undefined y la
+    // subcategoría se descartaba EN SILENCIO: la transacción se guardaba con una
+    // subcategoría que no existía en el árbol del usuario.
+    if (!padreId && error?.code === '23505') {
+      const { data: yaEsta } = await getServiceClient()
+        .from('categorias_usuario')
+        .select('id')
+        .eq('usuario_id', userId)
+        .eq('nombre', categoria)
+        .is('padre_id', null)
+        .maybeSingle();
+      padreId = yaEsta?.id;
+    }
   }
 
   // Si hay subcategoría custom, crearla si no existe
