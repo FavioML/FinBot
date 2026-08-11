@@ -188,9 +188,30 @@ REGLAS GENERALES:
  * Construye el bloque de prompt con categorías custom del usuario.
  * categoriasCustom: array de { nombre, subcategorias: [{ nombre }] } obtenido
  * con services/categories.js → obtenerCategoriasUsuario(usuarioId)
+ *
+ * Lo usan los DOS clasificadores de categoría del backend: éste (correos bancarios) y
+ * `detectarCategoriaIA` (gastos por WhatsApp). Vive acá por ser el primero que lo tuvo; lo que
+ * importa es que sea UNA sola copia — dos prompts que deciden la misma columna divergen solos.
+ *
+ * `opts.sustantivo` y `opts.matiz` existen SOLO para que el texto nombre bien lo que se está
+ * clasificando. Los defaults reproducen el prompt de correos byte a byte, así que llamarla sin
+ * opciones no cambia nada de lo que ya funcionaba (fijado por test).
+ *
+ * El placeholder es el SUSTANTIVO pelado, no la frase con artículo: los artículos van en la
+ * plantilla ("del ${sustantivo}", "el ${sustantivo}") porque si no la contracción sale mal
+ * ("de el correo").
  */
-function buildCategoriasCustomPrompt(categoriasCustom) {
+function buildCategoriasCustomPrompt(categoriasCustom, opts = {}) {
   if (!categoriasCustom || categoriasCustom.length === 0) return '';
+  const sustantivo = opts.sustantivo || 'correo';
+  const matiz = opts.matiz === undefined ? ' (especialmente para transferencias con mensaje)' : opts.matiz;
+  // La regla que CIERRA las subcategorías es correcta para correos —ese prompt las declara
+  // cerradas— y sería una contradicción en el clasificador de gastos, cuyo system prompt dice lo
+  // contrario tres líneas antes ("usa ese nombre exacto aunque no esté en la lista"). Como este
+  // bloque se concatena AL FINAL, la restrictiva ganaría, y los usuarios con árbol propio
+  // dejarían de poder estrenar subcategorías nombrándolas — justo la población de B26.
+  const reglaSub = opts.subsCerradas === false ? '' :
+    '\n- subcategoria debe ser una de las listadas para esa categoría custom; si no hay match exacto, usar "sin_categoria"';
   const lineas = categoriasCustom.map(c => {
     const subs = (c.subcategorias || []).map(s => s.nombre).filter(Boolean);
     return '- ' + c.nombre + (subs.length ? ' → ' + subs.join(' | ') : ' (sin subcategorías)');
@@ -198,15 +219,14 @@ function buildCategoriasCustomPrompt(categoriasCustom) {
   return `
 
 CATEGORÍAS CUSTOM DEL USUARIO (PRIORIDAD SOBRE CANÓNICAS):
-El usuario ha creado estas categorías propias. Si alguna encaja mejor con el contexto del correo (especialmente para transferencias con mensaje), úsala EN LUGAR de la canónica. Devuelve el "nombre" exacto tal como aparece aquí, respetando mayúsculas y acentos.
+El usuario ha creado estas categorías propias. Si alguna encaja mejor con el contexto del ${sustantivo}${matiz}, úsala EN LUGAR de la canónica. Devuelve el "nombre" exacto tal como aparece aquí, respetando mayúsculas y acentos.
 
 ${lineas}
 
 REGLA DE PRIORIDAD:
-- Si el correo describe un viaje y el usuario tiene categoría "Viajes" custom → usa "Viajes" (no "Otros > viaje")
-- Si el correo describe deudas y el usuario tiene categoría "Deudas" custom → usa "Deudas" (no la canónica más cercana)
-- Solo cae a categoría canónica si NINGUNA custom encaja con el contexto
-- subcategoria debe ser una de las listadas para esa categoría custom; si no hay match exacto, usar "sin_categoria"`;
+- Si el ${sustantivo} describe un viaje y el usuario tiene categoría "Viajes" custom → usa "Viajes" (no "Otros > viaje")
+- Si el ${sustantivo} describe deudas y el usuario tiene categoría "Deudas" custom → usa "Deudas" (no la canónica más cercana)
+- Solo cae a categoría canónica si NINGUNA custom encaja con el contexto${reglaSub}`;
 }
 
 async function parsearCorreoBancario(texto, contexto, categoriasCustom) {
@@ -391,6 +411,7 @@ async function interpretarComandoPresupuesto(texto) {
 }
 
 module.exports = {
+  buildCategoriasCustomPrompt,
   parsearCorreoBancario,
   parsearRegistroManual,
   parsearCorreccionesMultiples,

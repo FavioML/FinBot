@@ -1,8 +1,9 @@
 const { supabase } = require('../lib/db');
 const { openai } = require('../lib/ai');
 const log = require('../lib/logger');
-const { CATEGORIAS_SUGERIDAS } = require('../lib/constants');
+const { CATEGORIAS_SUGERIDAS, CATEGORIAS_VALIDAS, CATEGORIA_MAP } = require('../lib/constants');
 const { getEmojiCategoria } = require('../lib/formatters');
+const { buildCategoriasCustomPrompt } = require('./parsers');
 
 // UNA query, no 1+N. Antes traía las raíces y después una query por cada raíz dentro de un
 // `for`: con 4.8 raíces de promedio (máx 21 en prod) eso son 5-22 round-trips en serie, y esta
@@ -51,16 +52,39 @@ async function crearCategoriasDesdeIndices(usuarioId, indices) {
  *   (`maxRetries: 3`, `timeout: 60000`) puede seguir reintentando durante minutos una respuesta
  *   que nadie va a leer, y el 429 de OpenAI ya mordió acá antes (ver `salvarGastoSinIA`).
  */
+// El árbol canónico SIEMPRE viaja al modelo; las categorías propias del usuario se AGREGAN con
+// prioridad, no lo reemplazan.
+//
+// Antes era excluyente: con árbol propio se mandaba solo ése, y con árbol vacío solo el canónico.
+// Eso encerraba a quien eligió pocas categorías en el onboarding — un taxi de alguien que solo
+// tiene "Alimentación" y "Finanzas" caía en Finanzas, porque Transporte no estaba en su lista. Y
+// el encierro se sellaba solo: el parser proponía "Transporte", esto lo pisaba con "Finanzas", y
+// como Finanzas ya existía el árbol nunca crecía (hallazgo B26; 23 de 45 usuarios con árbol
+// propio tenían 1-2 raíces).
+//
+// La resolución por UNIÓN con prioridad no es nueva acá: es exactamente lo que hace
+// `parsearCorreoBancario` con el MISMO insumo, y por eso se reusa su bloque en vez de escribir
+// otro — dos prompts que deciden la misma columna divergen solos.
+//
+// Nota sobre lo que las custom logran de verdad en este camino: `guardarTransaccion` aplica
+// `normalizarCategoria`, que manda a 'Otros' todo lo no canónico. O sea que restringir la lista
+// nunca preservó la personalización en la fila; lo único que hacía era recortar las canónicas
+// elegibles.
+function construirContextoCategorias(cats) {
+  const canonico = CATEGORIAS_SUGERIDAS
+    .map(c => c.nombre + (c.subs.length > 0 ? ' (subs: ' + c.subs.join(',') + ')' : ''))
+    .join('; ');
+  // `subsCerradas: false` porque el system prompt de acá arriba dice justo lo contrario: que una
+  // subcategoría nombrada explícitamente por el usuario se use aunque no esté en la lista.
+  const bloqueCustom = buildCategoriasCustomPrompt(cats, { sustantivo: 'gasto', matiz: '', subsCerradas: false });
+  return { canonico, bloqueCustom };
+}
+
 async function detectarCategoriaIA(texto, usuarioId, opts = {}) {
   const cats = await obtenerCategoriasUsuario(usuarioId);
-  let contexto;
-  if (cats && cats.length > 0) {
-    contexto = cats.map(c => c.nombre + (c.subcategorias.length > 0 ? ' (subs: '+c.subcategorias.map(s=>s.nombre).join(',')+')' : '')).join('; ');
-  } else {
-    contexto = CATEGORIAS_SUGERIDAS.map(c => c.nombre + (c.subs.length > 0 ? ' (subs: '+c.subs.join(',')+')' : '')).join('; ');
-  }
+  const { canonico, bloqueCustom } = construirContextoCategorias(cats);
   try {
-    const res = await openai.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'system', content: 'Eres un clasificador de gastos. Elige la categoria mas apropiada de la lista proporcionada. Si el usuario menciona explicitamente una subcategoria, usa ese nombre exacto aunque no este en la lista. Responde SOLO con JSON: {"categoria":"nombre exacto","subcategoria":"nombre exacto o null"}' }, { role: 'user', content: 'Categorias disponibles: '+contexto+'\n\nGasto a clasificar: '+texto }], temperature: 0 }, opts.signal ? { signal: opts.signal } : undefined);
+    const res = await openai.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'system', content: 'Eres un clasificador de gastos. Elige la categoria mas apropiada de la lista proporcionada. Si el usuario menciona explicitamente una subcategoria, usa ese nombre exacto aunque no este en la lista. Responde SOLO con JSON: {"categoria":"nombre exacto","subcategoria":"nombre exacto o null"}' + bloqueCustom }, { role: 'user', content: 'Categorias disponibles: '+canonico+'\n\nGasto a clasificar: '+texto }], temperature: 0 }, opts.signal ? { signal: opts.signal } : undefined);
     const raw = res.choices[0].message.content.trim();
     const result = JSON.parse(raw.startsWith('{') ? raw : raw.slice(raw.indexOf('{'), raw.lastIndexOf('}')+1));
     if (result.subcategoria && /^null$/i.test(String(result.subcategoria).trim())) result.subcategoria = null;
@@ -100,13 +124,119 @@ async function crearCategoriaLibreUsuario(usuarioId, nombre) {
   } catch(e) { /* silencioso */ }
 }
 
+const sinTildes = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+/**
+ * Con qué nombre va a quedar esta categoría en la DB, y si cuenta como canónica.
+ *
+ * La sutileza está en que `CATEGORIA_MAP` mezcla DOS cosas distintas:
+ *
+ * - **Alias ortográficos**: `Alimentacion`→`Alimentación`, `educacion`→`Educación`. Es la misma
+ *   categoría escrita sin tilde o en minúscula, y hay que normalizarla — si no, el usuario
+ *   termina con dos raíces que son la misma.
+ * - **Colapsos con PÉRDIDA**: `Viajes`→`Otros`, `Hogar`→`Vivienda`, `Auto`→`Transporte`,
+ *   `Comida`→`Alimentación`, `Streaming`→`Suscripciones`, `Transferencia`→`Otros`. Son conceptos
+ *   distintos que se aplastan sobre una canónica para poder guardarlos en `transacciones`.
+ *
+ * Tratar el segundo grupo como canónico es una regresión de producto: quien dice "pásalo a
+ * Viajes" tenía su categoría **Viajes** —`crearCategoriaLibreUsuario` se la creaba tal cual— y
+ * pasaría a recibir una raíz `Otros` que nunca pidió. Así que solo se normaliza cuando el mapeo
+ * es ortográfico, comparando sin tildes ni mayúsculas; el resto sigue el camino de siempre.
+ *
+ * Devuelve `{ canonica, efectivo }`: `canonica` es null para las libres, y `efectivo` es el
+ * nombre con el que se escribe y con el que hay que volver a BUSCARLA. Que sean el mismo dato
+ * importa: `crearSubcategoriaLibreUsuario` crea el padre y después lo busca, y si busca por el
+ * nombre crudo mientras se escribió el normalizado, no lo encuentra y descarta la subcategoría
+ * en silencio.
+ */
+function resolverNombreCategoria(nombre) {
+  if (CATEGORIAS_VALIDAS.has(nombre)) return { canonica: nombre, efectivo: nombre };
+  const mapeada = CATEGORIA_MAP[nombre];
+  if (mapeada && sinTildes(mapeada) === sinTildes(nombre)) {
+    return { canonica: mapeada, efectivo: mapeada }; // alias ortográfico
+  }
+  return { canonica: null, efectivo: nombre }; // libre, o colapso con pérdida
+}
+
+/**
+ * Punto ÚNICO para "que esta categoría exista en el árbol del usuario". Unifica el guard de
+ * canonicidad que estaba copiado en los tres call-sites de `handlers/intents/transacciones.js`.
+ *
+ * Tres ramas, y la tercera es la que evita una regresión:
+ *
+ * - **No canónica** → lo de siempre: se crea como categoría libre.
+ * - **Canónica y el usuario YA tiene árbol propio** → se crea si le falta. Es lo que repara el
+ *   encierro de B26: sin esto el gasto se clasifica bien pero `Transporte` no aparece en
+ *   `/categorias` ni en el selector de presupuestos, que leen `categorias_usuario`.
+ * - **Canónica y el usuario NO tiene árbol** (`obtenerCategoriasUsuario` → `null`) → NO se toca.
+ *   `handlers/webhook.js:626` y `:773` ramifican por ese `null` para ofrecer el menú de
+ *   onboarding (`formatearCategoriasMsg` hace lo mismo en `lib/formatters.js:41`), así que
+ *   crearle UNA fila le cambiaría `/categorias` de menú a una lista de un ítem. Y no hace falta:
+ *   quien no tiene árbol no está encerrado, ya recibe las 11 canónicas en el prompt.
+ *
+ * No duplica: las canónicas se crean con el nombre exacto de `CATEGORIAS_SUGERIDAS` y
+ * `buscarCategoriaRaiz` compara exacto, así que la segunda vez la encuentra. Y desde la
+ * migración 067 el índice parcial `(usuario_id, nombre) where padre_id is null` lo garantiza
+ * también entre mensajes y entre procesos, que es lo que encadenar promesas no puede dar.
+ *
+ * **Devuelve qué decidió** (`'libre' | 'sin-arbol' | 'ya-existe' | 'creada' | 'nada' | 'error'`)
+ * y no es decoración: el catch de abajo es silencioso a propósito —el gasto vale más que la fila
+ * de categoría— pero eso hace que un fallo de programación sea indistinguible de una decisión
+ * correcta. Medido: la mutación "quitar la rama de `sin-arbol`" dejaba el test en VERDE, porque
+ * sin ella `cats.some()` sobre `null` lanza y el catch se lo traga hasta el mismo no-insert.
+ * Con el veredicto explícito, la mutación se ve.
+ */
+async function asegurarCategoriaUsuario(usuarioId, nombre) {
+  if (!usuarioId || !nombre) return 'nada';
+  const { canonica, efectivo } = resolverNombreCategoria(nombre);
+  try {
+    const cats = await obtenerCategoriasUsuario(usuarioId);
+    // Sin árbol propio no se le inventa uno, sea la categoría canónica o libre: la regla vale
+    // para las DOS ramas o no vale para ninguna. Con la comprobación solo del lado canónico, un
+    // primer gasto en "Comida_Casera" le estrenaba igual un árbol de UNA raíz — que es
+    // exactamente el usuario encerrado que este trabajo viene a evitar.
+    if (!cats) return 'sin-arbol';
+    if (!canonica) {
+      await crearCategoriaLibreUsuario(usuarioId, efectivo);
+      return 'libre';
+    }
+    if (cats.some(c => c.nombre === efectivo)) return 'ya-existe';
+    if (await buscarCategoriaRaiz(usuarioId, efectivo)) return 'ya-existe';
+    const sugerida = CATEGORIAS_SUGERIDAS.find(c => c.nombre === efectivo);
+    const { error } = await supabase.from('categorias_usuario').insert({
+      usuario_id: usuarioId, nombre: efectivo,
+      emoji: (sugerida && sugerida.emoji) || getEmojiCategoria(efectivo) || '📁',
+      activa: true,
+    });
+    // 23505 = el índice único de la migración 067 ganó la carrera. No es un fallo: otro camino
+    // acaba de crear la misma raíz, que es justo lo que queríamos que pasara.
+    if (error) return error.code === '23505' ? 'ya-existe' : 'error';
+    return 'creada';
+  } catch(e) {
+    log.warn({ tag: 'CATEGORIAS', usuarioId, nombre, err: e.message }, 'No se pudo asegurar la categoria en el arbol');
+    return 'error';
+  }
+}
+
 async function crearSubcategoriaLibreUsuario(usuarioId, categoriaNombre, subcategoriaNombre) {
   if (!categoriaNombre || !subcategoriaNombre) return;
   try {
     let padre = await buscarCategoriaRaiz(usuarioId, categoriaNombre);
     if (!padre) {
-      await crearCategoriaLibreUsuario(usuarioId, categoriaNombre);
-      padre = await buscarCategoriaRaiz(usuarioId, categoriaNombre);
+      // Crear el padre pasa por `asegurarCategoriaUsuario`, no por `crearCategoriaLibreUsuario`
+      // directo, para que la política de creación de raíces sea UNA sola.
+      //
+      // Esta era la segunda vía —y la más silenciosa— por la que un usuario sin árbol propio
+      // estrenaba uno de UNA sola raíz: registraba "gasté 10 en taxi", el LLM devolvía la
+      // subcategoría "Taxi", y esto le creaba "Transporte" por su cuenta. O sea que este camino
+      // FABRICABA el usuario encerrado del que trata B26. Medido con `qa-categoria-encierro`
+      // contra el código viejo: falla igual, es preexistente.
+      const veredicto = await asegurarCategoriaUsuario(usuarioId, categoriaNombre);
+      if (veredicto === 'sin-arbol') return; // sin árbol no hay dónde colgarla, y no se le inventa uno
+      // Se busca por el nombre EFECTIVO, que puede no ser el que llegó: con un alias ortográfico
+      // ("Alimentacion") arriba se escribió la forma canónica ("Alimentación"), y buscar el crudo
+      // no la encuentra — la subcategoría se perdería sin un solo log.
+      padre = await buscarCategoriaRaiz(usuarioId, resolverNombreCategoria(categoriaNombre).efectivo);
       if (!padre) return;
     }
     const { data: existeSub } = await supabase.from('categorias_usuario')
@@ -119,6 +249,8 @@ async function crearSubcategoriaLibreUsuario(usuarioId, categoriaNombre, subcate
 module.exports = {
   obtenerCategoriasUsuario,
   crearCategoriasDesdeIndices,
+  construirContextoCategorias,
+  asegurarCategoriaUsuario,
   detectarCategoriaIA,
   sugerirEmojiConIA,
   crearCategoriaLibreUsuario,

@@ -79,6 +79,11 @@ function buildCtx(sb, extras = {}) {
     obtenerTipoCambio: vi.fn().mockResolvedValue({ venta: 3.75 }),
     verificarAlertaPresupuesto: vi.fn().mockResolvedValue(null),
     crearCategoriaLibreUsuario: vi.fn(),
+    // Reemplazó al guard de canonicidad que estaba copiado en los tres call-sites (B26):
+    // decide sola si la categoría es libre, canónica faltante, o nada. Devuelve promesa porque
+    // el call-site encadena la subcategoría con `.then()` — un `vi.fn()` pelado da undefined y
+    // el handler revienta.
+    asegurarCategoriaUsuario: vi.fn().mockResolvedValue('creada'),
     crearSubcategoriaLibreUsuario: vi.fn(),
     detectarCategoriaIA: vi.fn().mockResolvedValue({ categoria: 'Alimentacion', subcategoria: 'cafeteria' }),
     parsearRegistroManual: vi.fn().mockResolvedValue({ ok: true, monto: 50, moneda: 'PEN', categoria: 'Alimentacion', subcategoria: 'cafeteria', tipo: 'gasto', fecha: '2026-04-05' }),

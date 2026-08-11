@@ -108,11 +108,10 @@ module.exports = {
   async handle({ intencion, msg, datos, usuario, from, ctx }) {
     const {
       supabase, mesActual, anioActual,
-      CATEGORIAS_VALIDAS, CATEGORIA_MAP,
       obtenerUltimaTransaccion, recategorizarTransaccion, guardarReglaComercio,
       retroaplicarRegla, corregirTransaccionEspecifica, guardarTransaccion,
       obtenerTipoCambio, verificarAlertaPresupuesto,
-      crearCategoriaLibreUsuario, crearSubcategoriaLibreUsuario, detectarCategoriaIA,
+      asegurarCategoriaUsuario, crearSubcategoriaLibreUsuario, detectarCategoriaIA,
       parsearRegistroManual, parsearCorreccionesMultiples,
       fechaHoyPeru, fechaAyerPeru, formatFecha
     } = ctx;
@@ -240,12 +239,21 @@ module.exports = {
               parsed.categoria = _catKw;
             }
           }
-          // Auto-crear categoría/subcategoría custom si es nueva
-          if (parsed.categoria && !CATEGORIAS_VALIDAS.has(parsed.categoria) && !CATEGORIA_MAP[parsed.categoria]) {
-            crearCategoriaLibreUsuario(usuario.id, parsed.categoria);
-          }
-          if (parsed.subcategoria && parsed.subcategoria !== 'sin_categoria') {
-            crearSubcategoriaLibreUsuario(usuario.id, parsed.categoria, parsed.subcategoria);
+          // Que la categoría exista en el árbol del usuario: libre si es nueva, canónica si le
+          // falta y ya tiene árbol propio. El guard de canonicidad vive adentro (B26).
+          //
+          // Las dos van ENCADENADAS, no en paralelo, y no es estilo: `crearSubcategoriaLibreUsuario`
+          // crea la raíz por su cuenta cuando no encuentra al padre, así que lanzadas a la vez las
+          // dos insertan la misma categoría y queda DUPLICADA. Lo encontró `qa-categoria-encierro`
+          // contra prod (salieron dos "Transporte"), no la suite.
+          //
+          // Sigue siendo fire-and-forget —sin `await` acá— para no devolverle al camino del gasto
+          // los round-trips que le sacó la Ola 3: lo que se ordena es una respecto de la otra.
+          if (parsed.categoria) {
+            const _sub = parsed.subcategoria && parsed.subcategoria !== 'sin_categoria' ? parsed.subcategoria : null;
+            asegurarCategoriaUsuario(usuario.id, parsed.categoria)
+              .then(() => (_sub ? crearSubcategoriaLibreUsuario(usuario.id, parsed.categoria, _sub) : null))
+              .catch(() => {});
           }
           const tx = await guardarTransaccion(usuario.id, parsed);
           const esIngreso = parsed.tipo === 'ingreso';
@@ -301,13 +309,14 @@ module.exports = {
                 return '\u00bfDe qu\u00e9 gasto hablamos? D\u00edme el comercio y lo muevo.';
               }
             }
-            // Crear categoría en categorias_usuario si es libre (no canónica)
-            if (!CATEGORIAS_VALIDAS.has(catLibre) && !CATEGORIA_MAP[catLibre]) {
-              crearCategoriaLibreUsuario(usuario.id, catLibre);
-            }
-            // Crear subcategoría si el usuario la especificó
-            if (subLibre && subLibre !== 'Sin_categoria') {
-              crearSubcategoriaLibreUsuario(usuario.id, catLibre, subLibre);
+            // Que la categoría exista en el árbol del usuario (libre o canónica faltante).
+            // ENCADENADAS, por el mismo motivo que en `registrar_manual`: en paralelo las dos
+            // insertan la misma raíz y queda duplicada.
+            {
+              const _sub = subLibre && subLibre !== 'Sin_categoria' ? subLibre : null;
+              asegurarCategoriaUsuario(usuario.id, catLibre)
+                .then(() => (_sub ? crearSubcategoriaLibreUsuario(usuario.id, catLibre, _sub) : null))
+                .catch(() => {});
             }
             // Guardar regla y retroaplicar usando el comercio REAL de la DB (no el del usuario, que puede tener typos)
             const comercioReal = txActualizada?.comercio || comercioRaw;
@@ -349,13 +358,15 @@ module.exports = {
             const catLibre = corr.categoria_nueva.charAt(0).toUpperCase() + corr.categoria_nueva.slice(1);
             const _subCorrTmp = corr.subcategoria_nueva ? corr.subcategoria_nueva.charAt(0).toUpperCase() + corr.subcategoria_nueva.slice(1) : null;
             const res = await corregirTransaccionEspecifica(usuario.id, corr.comercio, corr.monto, corr.fecha, catLibre, _subCorrTmp);
-            if (!CATEGORIAS_VALIDAS.has(catLibre) && !CATEGORIA_MAP[catLibre]) {
-              crearCategoriaLibreUsuario(usuario.id, catLibre);
-            }
             const subCorr = corr.subcategoria_nueva ? corr.subcategoria_nueva.charAt(0).toUpperCase() + corr.subcategoria_nueva.slice(1) : null;
-            if (subCorr && subCorr !== 'Sin_categoria') {
-              crearSubcategoriaLibreUsuario(usuario.id, catLibre, subCorr);
-            }
+            // ENCADENADAS y AWAITEADAS: acá además el `for` recorre varias correcciones, y dos
+            // que apunten a la misma categoría en un mismo mensaje se cruzarían entre iteraciones.
+            // Este bucle ya es secuencial (hay un `await` arriba), así que esperar no cambia la
+            // latencia percibida — la respuesta sale recién cuando termina el for.
+            await asegurarCategoriaUsuario(usuario.id, catLibre)
+              .then(() => (subCorr && subCorr !== 'Sin_categoria'
+                ? crearSubcategoriaLibreUsuario(usuario.id, catLibre, subCorr) : null))
+              .catch(() => {});
             if (res.ok) {
               guardarReglaComercio(usuario.id, corr.comercio, catLibre, subCorr || null);
               retroaplicarRegla(usuario.id, corr.comercio, catLibre, subCorr || null);

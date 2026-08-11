@@ -20,7 +20,7 @@ const { obtenerCuentasGmail } = require('../gmail');
 const { generarRecomendaciones, construirDatosUsuario, generarMiniRecomendacion } = require('../services/recommendations');
 const { registrarDeuda, obtenerDeudas, abonarDeuda, marcarDeudaPagada, formatearResumenDeudas, consolidarDeudasPorContraparte, saldarTodasDeudas } = require('../services/debts');
 const { obtenerMetas: obtenerMetasService, abonarMeta: abonarMetaService, calcularRitmoAhorro, registrarLogro, obtenerLogros, verificarRachaAportes } = require('../services/metas');
-const { obtenerCategoriasUsuario, detectarCategoriaIA, crearCategoriaLibreUsuario, crearSubcategoriaLibreUsuario } = require('../services/categories');
+const { obtenerCategoriasUsuario, detectarCategoriaIA, crearCategoriaLibreUsuario, crearSubcategoriaLibreUsuario, asegurarCategoriaUsuario } = require('../services/categories');
 const { redactarConNETO } = require('../services/neto-gpt');
 const { escanearGmailYRegistrar } = require('../services/gmail-scanner');
 const { guardarMensaje, obtenerHistorial, getUserPlanConfig, getHistoryDateLimit } = require('../helpers/db-helpers');
@@ -417,7 +417,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       formatearResumenDeudas, consolidarDeudasPorContraparte, saldarTodasDeudas,
       obtenerMetasService, abonarMetaService, calcularRitmoAhorro,
       registrarLogro, obtenerLogros, verificarRachaAportes,
-      obtenerCategoriasUsuario, detectarCategoriaIA, crearCategoriaLibreUsuario, crearSubcategoriaLibreUsuario,
+      obtenerCategoriasUsuario, detectarCategoriaIA, crearCategoriaLibreUsuario, crearSubcategoriaLibreUsuario, asegurarCategoriaUsuario,
       redactarConNETO, escanearGmailYRegistrar,
       guardarMensaje, obtenerHistorial, getUserPlanConfig, getHistoryDateLimit,
     };

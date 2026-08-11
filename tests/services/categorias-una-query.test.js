@@ -16,16 +16,50 @@ const require = createRequire(import.meta.url);
 
 // categories.js destructura `supabase` al cargar, así que hay que reemplazarlo ANTES de requerir.
 const filas = { rows: [] };
-const llamadas = { from: 0, filtros: [] };
+const llamadas = { from: 0, filtros: [], inserts: [] };
+// Lo que devuelve el próximo insert en `error`. Supabase NO lanza: reporta acá.
+const errorInsert = { value: null };
 
-const chain = {};
-for (const m of ['select', 'eq', 'is', 'order', 'limit', 'neq', 'not', 'gte', 'lte']) {
-  chain[m] = vi.fn((...args) => { llamadas.filtros.push([m, ...args]); return chain; });
+// Una cadena NUEVA por `from()`, que aplica sus PROPIOS filtros sobre `filas.rows`. Hace falta
+// que sea por-cadena y no compartida: `asegurarCategoriaUsuario` consulta dos veces con filtros
+// distintos (el árbol entero, y después una raíz por nombre), y con una cadena única que
+// devuelve todo siempre, la búsqueda por nombre encontraría cualquier fila y el insert nunca
+// ocurriría — el test pasaría verde sin poder fallar.
+function nuevaCadena() {
+  const propios = [];
+  const c = {};
+  for (const m of ['select', 'eq', 'is', 'order', 'limit', 'neq', 'not', 'gte', 'lte', 'ilike']) {
+    c[m] = vi.fn((...args) => { llamadas.filtros.push([m, ...args]); propios.push([m, ...args]); return c; });
+  }
+  let esInsert = false;
+  c.insert = vi.fn((payload) => {
+    const filasNuevas = Array.isArray(payload) ? payload : [payload];
+    llamadas.inserts.push(...filasNuevas);
+    esInsert = true;
+    // Las filas insertadas quedan VISIBLES para las lecturas siguientes, como en la DB real.
+    // Sin esto, `crearSubcategoriaLibreUsuario` —que crea el padre y después lo busca— no lo
+    // encontraría nunca, y el test no podría distinguir ese bug de un mock incompleto.
+    if (!errorInsert.value) {
+      for (const f of filasNuevas) {
+        filas.rows.push({ id: 'gen-' + (filas.rows.length + 1), padre_id: null, activa: true, ...f });
+      }
+    }
+    return c;
+  });
+  c.then = (onF, onR) => {
+    if (esInsert) return Promise.resolve({ data: null, error: errorInsert.value }).then(onF, onR);
+    let data = filas.rows;
+    for (const [m, col, val] of propios) {
+      if (m === 'eq') data = data.filter(r => r[col] === val);
+      else if (m === 'is' && val === null) data = data.filter(r => !r[col]);
+    }
+    return Promise.resolve({ data, error: null }).then(onF, onR);
+  };
+  return c;
 }
-chain.then = (onF, onR) => Promise.resolve({ data: filas.rows, error: null }).then(onF, onR);
 
 require('../../lib/db').supabase = {
-  from: vi.fn(() => { llamadas.from++; return chain; }),
+  from: vi.fn(() => { llamadas.from++; return nuevaCadena(); }),
 };
 
 const warn = vi.fn();
@@ -36,17 +70,190 @@ const crearCompletion = vi.fn().mockResolvedValue({
 });
 require('../../lib/ai').openai = { chat: { completions: { create: crearCompletion } } };
 
-const { obtenerCategoriasUsuario, detectarCategoriaIA } = require('../../services/categories');
+const { obtenerCategoriasUsuario, detectarCategoriaIA, asegurarCategoriaUsuario, crearSubcategoriaLibreUsuario } = require('../../services/categories');
+const { CATEGORIAS_SUGERIDAS } = require('../../lib/constants');
 
 const raiz = (id, nombre) => ({ id, nombre, padre_id: null, activa: true, usuario_id: 'u1' });
 const sub = (id, nombre, padreId) => ({ id, nombre, padre_id: padreId, activa: true, usuario_id: 'u1' });
 
+// El prompt COMPLETO que se le mandó al modelo en la última llamada (system + user).
+const promptEnviado = () => crearCompletion.mock.calls[0][0].messages.map(m => m.content).join('\n');
+
 beforeEach(() => {
   llamadas.from = 0;
   llamadas.filtros.length = 0;
+  llamadas.inserts.length = 0;
+  errorInsert.value = null;
   filas.rows = [];
   warn.mockClear();
   crearCompletion.mockClear();
+});
+
+/**
+ * B26: el árbol propio del usuario SUSTITUÍA al canónico en el prompt, así que quien eligió
+ * pocas categorías en el onboarding quedaba encerrado — un taxi caía en "Finanzas" porque
+ * "Transporte" no estaba en su lista.
+ *
+ * Estos tests afirman sobre el prompt que EFECTIVAMENTE viaja al SDK, no sobre una variable
+ * intermedia. Hasta acá no había ni uno: `categorias-una-query.test.js` cubría el AbortSignal y
+ * la forma de retorno, y por eso el bug pasó por delante de la suite sin despeinarla.
+ */
+describe('detectarCategoriaIA — qué lista viaja en el prompt', () => {
+  const CANONICAS = CATEGORIAS_SUGERIDAS.map(c => c.nombre);
+
+  it('con árbol propio de 2 raíces, las 11 canónicas viajan IGUAL', async () => {
+    filas.rows = [raiz('r-ali', 'Alimentación'), raiz('r-fin', 'Finanzas')];
+    await detectarCategoriaIA('gasté 10.5 en taxi', 'u1');
+
+    const prompt = promptEnviado();
+    // ⚠️ Esto muere si alguien vuelve a la bifurcación excluyente: el usuario encerrado.
+    for (const nombre of CANONICAS) {
+      expect(prompt, 'falta la canónica ' + nombre).toContain(nombre);
+    }
+    expect(prompt).toContain('Transporte');
+  });
+
+  it('las categorías propias siguen viajando, y con la regla de prioridad', async () => {
+    filas.rows = [raiz('r-via', 'Viajes'), sub('s-1', 'vuelos', 'r-via')];
+    await detectarCategoriaIA('gasté 300 en el vuelo a Cusco', 'u1');
+
+    const prompt = promptEnviado();
+    expect(prompt).toContain('CATEGORÍAS CUSTOM DEL USUARIO (PRIORIDAD SOBRE CANÓNICAS)');
+    expect(prompt).toContain('- Viajes → vuelos');
+    expect(prompt).toContain('Solo cae a categoría canónica si NINGUNA custom encaja');
+    // El bloque se redacta para un GASTO, no para un correo: es el mismo helper con otro sujeto.
+    expect(prompt).toContain('el contexto del gasto');
+    expect(prompt).not.toContain('el contexto del correo');
+    // ⚠️ Y NO trae la regla que CIERRA las subcategorías. El system prompt de este clasificador
+    // dice lo contrario tres líneas antes ("usa ese nombre exacto aunque no esté en la lista");
+    // como el bloque se concatena al final, la restrictiva ganaría y los usuarios con árbol
+    // propio dejarían de poder estrenar subcategorías nombrándolas.
+    expect(prompt).toContain('usa ese nombre exacto aunque no este en la lista');
+    expect(prompt).not.toContain('si no hay match exacto, usar "sin_categoria"');
+  });
+
+  it('sin árbol propio no se inventa un bloque de custom vacío', async () => {
+    filas.rows = [];
+    await detectarCategoriaIA('gasté 10 en pan', 'u1');
+
+    const prompt = promptEnviado();
+    expect(prompt).not.toContain('CATEGORÍAS CUSTOM DEL USUARIO');
+    for (const nombre of CANONICAS) expect(prompt).toContain(nombre);
+  });
+});
+
+/**
+ * La otra mitad de B26: que el árbol CREZCA. Sin esto el gasto se clasifica bien pero
+ * "Transporte" no aparece en `/categorias` ni en el selector de presupuestos, que leen
+ * `categorias_usuario`.
+ */
+describe('asegurarCategoriaUsuario', () => {
+  it('agrega la canónica que le falta al usuario con árbol propio', async () => {
+    filas.rows = [raiz('r-ali', 'Alimentación'), raiz('r-fin', 'Finanzas')];
+    expect(await asegurarCategoriaUsuario('u1', 'Transporte')).toBe('creada');
+
+    expect(llamadas.inserts).toHaveLength(1);
+    expect(llamadas.inserts[0]).toMatchObject({ usuario_id: 'u1', nombre: 'Transporte', activa: true });
+    // El emoji sale del árbol canónico, no de un fallback genérico.
+    const esperado = CATEGORIAS_SUGERIDAS.find(c => c.nombre === 'Transporte').emoji;
+    expect(llamadas.inserts[0].emoji).toBe(esperado);
+  });
+
+  it('NO toca al usuario sin árbol propio, para no romper el menú de /categorias', async () => {
+    // `webhook.js:626` y `:773` ramifican por el `null` de `obtenerCategoriasUsuario` para
+    // ofrecer el menú de onboarding. Crearle UNA fila lo convierte en una lista de un ítem.
+    //
+    // ⚠️ Se afirma el VEREDICTO, no solo el no-insert: sin la rama, `cats.some()` sobre `null`
+    // lanza y el catch silencioso produce el mismo no-insert. Medido — con la aserción solo
+    // sobre `inserts`, la mutación pasaba verde.
+    filas.rows = [];
+    expect(await asegurarCategoriaUsuario('u1', 'Transporte')).toBe('sin-arbol');
+    expect(llamadas.inserts).toEqual([]);
+  });
+
+  it('no duplica una canónica que el usuario ya tiene', async () => {
+    filas.rows = [raiz('r-tra', 'Transporte'), raiz('r-fin', 'Finanzas')];
+    expect(await asegurarCategoriaUsuario('u1', 'Transporte')).toBe('ya-existe');
+    expect(llamadas.inserts).toEqual([]);
+  });
+
+  it('resuelve el alias a la canónica antes de decidir (no crea "Alimentacion" sin tilde)', async () => {
+    filas.rows = [raiz('r-ali', 'Alimentación')];
+    expect(await asegurarCategoriaUsuario('u1', 'Alimentacion')).toBe('ya-existe');
+    expect(llamadas.inserts).toEqual([]);
+  });
+
+  it('sigue creando las categorías libres cuando el usuario tiene árbol', async () => {
+    filas.rows = [raiz('r-ali', 'Alimentación')];
+    expect(await asegurarCategoriaUsuario('u1', 'Comida_Casera')).toBe('libre');
+    expect(llamadas.inserts.some(i => i.nombre === 'Comida_Casera')).toBe(true);
+  });
+
+  it('la regla "sin árbol no se le inventa uno" vale también para las LIBRES', async () => {
+    // Con la comprobación solo del lado canónico, un primer gasto en "Comida_Casera" le
+    // estrenaba un árbol de UNA raíz: el usuario encerrado que este trabajo viene a evitar.
+    filas.rows = [];
+    expect(await asegurarCategoriaUsuario('u1', 'Comida_Casera')).toBe('sin-arbol');
+    expect(llamadas.inserts).toEqual([]);
+  });
+
+  it('un colapso CON PÉRDIDA no se trata como canónico: "Viajes" no se convierte en "Otros"', async () => {
+    // `CATEGORIA_MAP` mezcla alias ortográficos con colapsos semánticos. Quien pide "Viajes"
+    // tenía su categoría Viajes; darle "Otros" es una regresión de producto.
+    filas.rows = [raiz('r-ali', 'Alimentación')];
+    expect(await asegurarCategoriaUsuario('u1', 'Viajes')).toBe('libre');
+    expect(llamadas.inserts.some(i => i.nombre === 'Viajes')).toBe(true);
+    expect(llamadas.inserts.some(i => i.nombre === 'Otros')).toBe(false);
+  });
+
+  it('un alias ORTOGRÁFICO sí se normaliza: "Alimentacion" no crea una segunda raíz', async () => {
+    filas.rows = [raiz('r-tra', 'Transporte')];
+    expect(await asegurarCategoriaUsuario('u1', 'Alimentacion')).toBe('creada');
+    expect(llamadas.inserts).toHaveLength(1);
+    expect(llamadas.inserts[0].nombre).toBe('Alimentación');
+  });
+
+  it('un 23505 del índice único de la 067 es "ya-existe", no un error', async () => {
+    // Otro camino ganó la carrera y creó la misma raíz: es exactamente lo que se quería.
+    filas.rows = [raiz('r-ali', 'Alimentación')];
+    errorInsert.value = { code: '23505', message: 'duplicate key value' };
+    expect(await asegurarCategoriaUsuario('u1', 'Transporte')).toBe('ya-existe');
+  });
+
+  it('un error de insert que NO es 23505 sí se reporta', async () => {
+    filas.rows = [raiz('r-ali', 'Alimentación')];
+    errorInsert.value = { code: '42501', message: 'permission denied' };
+    expect(await asegurarCategoriaUsuario('u1', 'Transporte')).toBe('error');
+  });
+
+  it('no explota con argumentos vacíos', async () => {
+    expect(await asegurarCategoriaUsuario(null, 'Transporte')).toBe('nada');
+    expect(await asegurarCategoriaUsuario('u1', '')).toBe('nada');
+    expect(llamadas.inserts).toEqual([]);
+  });
+});
+
+describe('crearSubcategoriaLibreUsuario — el padre que se crea es el que después se busca', () => {
+  it('con un alias ortográfico, la subcategoría NO se pierde', async () => {
+    // El padre se crea normalizado ("Alimentación") y se buscaba con el nombre crudo
+    // ("Alimentacion"): `buscarCategoriaRaiz` compara exacto, no lo encontraba, y la
+    // subcategoría se descartaba sin un solo log.
+    filas.rows = [raiz('r-tra', 'Transporte')];
+    await crearSubcategoriaLibreUsuario('u1', 'Alimentacion', 'cafeteria');
+
+    const padre = llamadas.inserts.find(i => i.nombre === 'Alimentación' && !i.padre_id);
+    expect(padre, 'no se creó la raíz normalizada').toBeTruthy();
+    // ⚠️ Lo que muere si el padre se busca con otro nombre del que se escribió.
+    expect(llamadas.inserts.some(i => i.nombre === 'cafeteria' && i.padre_id)).toBe(true);
+  });
+
+  it('al usuario sin árbol no se le crea ni el padre ni la subcategoría', async () => {
+    // Esta era la vía silenciosa que FABRICABA usuarios encerrados: un primer gasto con
+    // subcategoría le estrenaba un árbol de una sola raíz.
+    filas.rows = [];
+    await crearSubcategoriaLibreUsuario('u1', 'Transporte', 'taxi');
+    expect(llamadas.inserts).toEqual([]);
+  });
 });
 
 describe('detectarCategoriaIA — el AbortSignal llega al SDK', () => {
