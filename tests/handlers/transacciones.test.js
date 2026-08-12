@@ -72,7 +72,11 @@ function buildCtx(sb, extras = {}) {
     CATEGORIA_MAP: {},
     obtenerUltimaTransaccion: vi.fn().mockResolvedValue(TX_BASE),
     recategorizarTransaccion: vi.fn().mockResolvedValue({ ok: true, tx: TX_BASE }),
-    guardarReglaComercio: vi.fn().mockResolvedValue(null),
+    // Desde B30 devuelve un resultado DISCRIMINADO: `{ok:true, destino}` o
+    // `{ok:false, motivo}`. El default es el caso normal; cada motivo tiene su propio test,
+    // porque el handler ya no puede ni anunciar "Regla creada" sobre una regla descartada ni
+    // darle el mismo consejo a un rechazo por política que a un fallo de escritura.
+    guardarReglaComercio: vi.fn().mockResolvedValue({ ok: true, destino: { categoria: 'Transporte', subcategoria: null } }),
     retroaplicarRegla: vi.fn().mockResolvedValue(0),
     corregirTransaccionEspecifica: vi.fn().mockResolvedValue({ ok: true, comercio: 'Starbucks', monto: 45.50, moneda: 'PEN' }),
     guardarTransaccion: vi.fn().mockResolvedValue({ id: 'tx-002', ...TX_BASE }),
@@ -557,6 +561,88 @@ describe('corregir_categoria', () => {
     expect(ctx.obtenerUltimaTransaccion).toHaveBeenCalled();
     expect(res).toContain('Transporte');
   });
+
+  // B30 — la resolución vive ACÁ ARRIBA y no en cada consumidor, porque de este único nombre
+  // salen cinco escrituras/lecturas que tienen que coincidir: la fila recategorizada, el árbol,
+  // la regla, la retroaplicación de las filas VIEJAS y el texto que lee el usuario.
+  //
+  // Si se resolviera sólo dentro de `guardarReglaComercio`, la regla guardaría 'Alimentación'
+  // mientras `retroaplicarRegla` escribe 'Alimentacion' en el histórico: el pasado y el futuro
+  // del mismo comercio partidos en dos categorías, que es el bug medido dado vuelta.
+  it('resuelve el alias ortográfico y TODOS los consumidores reciben el mismo nombre (B30)', async () => {
+    const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+    const ctx = buildCtx(sb);
+    const res = await handler.handle({
+      intencion: 'corregir_categoria', msg: 'mueve Berny a alimentacion',
+      datos: { categoria_nueva: 'alimentacion', comercio: 'Berny' }, usuario: USUARIO, from: '+51999', ctx,
+    });
+    expect(ctx.recategorizarTransaccion).toHaveBeenCalledWith('user-001', 'Berny', 'Alimentación', null);
+    expect(ctx.guardarReglaComercio).toHaveBeenCalledWith('user-001', 'Starbucks', 'Alimentación', null);
+    expect(ctx.retroaplicarRegla).toHaveBeenCalledWith('user-001', 'Starbucks', 'Alimentación', null);
+    expect(ctx.asegurarCategoriaUsuario).toHaveBeenCalledWith('user-001', 'Alimentación');
+    expect(res).toContain('Alimentación');
+    expect(res).not.toContain('alimentacion');
+  });
+
+  // La otra mitad del hallazgo: 77 reglas de 13 usuarios llevan categorías libres legítimas.
+  // Si esto se pone rojo, el fix está mandando esas categorías a 'Otros' — que es el bug que
+  // B28 cerró, reintroducido por la puerta que B30 viene a tapar.
+  it('deja intacta la categoría libre que el mapa canónico no resuelve', async () => {
+    const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+    const ctx = buildCtx(sb);
+    const res = await handler.handle({
+      intencion: 'corregir_categoria', msg: 'mueve eso a Gastos Hormiga',
+      datos: { categoria_nueva: 'Gastos Hormiga', comercio: 'Starbucks' }, usuario: USUARIO, from: '+51999', ctx,
+    });
+    expect(ctx.recategorizarTransaccion).toHaveBeenCalledWith('user-001', 'Starbucks', 'Gastos Hormiga', null);
+    expect(ctx.guardarReglaComercio).toHaveBeenCalledWith('user-001', 'Starbucks', 'Gastos Hormiga', null);
+    expect(res).toContain('Gastos Hormiga');
+  });
+
+  // `normalizarDestinoRegla` recorta la categoría de la REGLA y nada recortaba la que va a
+  // `transacciones`, así que "Ahorro " dejaba la fila CON el espacio y la regla SIN él: dos
+  // categorías distintas para todo lo que agrupe por nombre. Hay cuatro nombres con espacio
+  // final en las reglas de prod ('PAGOS PENDIENTES ', 'Ahorro ', 'Sueldo ', 'PAREJA ').
+  it('recorta los espacios ANTES de repartir, para que la fila y la regla no diverjan', async () => {
+    const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+    const ctx = buildCtx(sb);
+    await handler.handle({
+      intencion: 'corregir_categoria', msg: 'mueve eso a Ahorro',
+      datos: { categoria_nueva: 'Ahorro ', comercio: 'Starbucks' }, usuario: USUARIO, from: '+51999', ctx,
+    });
+    expect(ctx.recategorizarTransaccion).toHaveBeenCalledWith('user-001', 'Starbucks', 'Ahorro', null);
+    expect(ctx.guardarReglaComercio).toHaveBeenCalledWith('user-001', 'Starbucks', 'Ahorro', null);
+    expect(ctx.retroaplicarRegla).toHaveBeenCalledWith('user-001', 'Starbucks', 'Ahorro', null);
+  });
+});
+
+// ─── corregir_multiple ───────────────────────────────────────────────────────
+// El tercer call-site de regla, y no tenía cobertura. Recorre un `for`, así que acá la
+// resolución tiene que pasar por CADA corrección, no por la primera.
+
+describe('corregir_multiple — resuelve la categoría de cada corrección (B30)', () => {
+  it('cada corrección del lote llega resuelta a la fila, a la regla y a la retroaplicación', async () => {
+    const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+    const ctx = buildCtx(sb, {
+      parsearCorreccionesMultiples: vi.fn().mockResolvedValue([
+        { comercio: 'Berny', categoria_nueva: 'alimentacion' },
+        { comercio: 'Uber', categoria_nueva: 'auto' },
+        { comercio: 'Cliente X', categoria_nueva: 'Freelance' },
+      ]),
+    });
+    const res = await handler.handle({
+      intencion: 'corregir_multiple', msg: 'Berny es alimentacion, Uber es auto, Cliente X es Freelance',
+      datos: {}, usuario: USUARIO, from: '+51999', ctx,
+    });
+    const catsCorregidas = ctx.corregirTransaccionEspecifica.mock.calls.map((c) => c[4]);
+    // 'auto' es un colapso con pérdida decidido en B26 (→ Transporte) y 'Freelance' una
+    // categoría libre legítima de las 77 medidas: una se resuelve, la otra no se toca.
+    expect(catsCorregidas).toEqual(['Alimentación', 'Transporte', 'Freelance']);
+    expect(ctx.retroaplicarRegla.mock.calls.map((c) => c[2])).toEqual(['Alimentación', 'Transporte', 'Freelance']);
+    expect(ctx.guardarReglaComercio.mock.calls.map((c) => c[2])).toEqual(['Alimentación', 'Transporte', 'Freelance']);
+    expect(res).toContain('Alimentación');
+    expect(res).toContain('Transporte');
+  });
 });
 
 // ─── duplicar_gasto ─────────────────────────────────────────────────────────
@@ -632,5 +718,90 @@ describe('editar_categoria_comercio — defensa contra gasto mal clasificado', (
     expect(res).not.toMatch(/Regla creada/i);
     expect(res).toMatch(/registrar un gasto/i);
     expect(ctx.guardarReglaComercio).not.toHaveBeenCalled();
+  });
+});
+
+// ─── editar_categoria_comercio — el destino EFECTIVO manda (B30) ──────────────
+// Este era el único de los tres caminos de regla que no tocaba el árbol del usuario y que
+// anunciaba "Regla creada" sin mirar si `guardarReglaComercio` la había guardado.
+
+describe('editar_categoria_comercio — destino efectivo y árbol (B30)', () => {
+  it('imprime, retroaplica y crea en el árbol el nombre con el que quedó la regla, no el que pidió el usuario', async () => {
+    const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+    const ctx = buildCtx(sb, {
+      guardarReglaComercio: vi.fn().mockResolvedValue({ ok: true, destino: { categoria: 'Alimentación', subcategoria: 'Delivery' } }),
+      retroaplicarRegla: vi.fn().mockResolvedValue(3),
+    });
+    const res = await handler.handle({
+      intencion: 'editar_categoria_comercio', msg: 'todo lo de Rappi va en alimentacion',
+      // OJO: `datos.subcategoria` es hoy INALCANZABLE por este intent — la tool
+      // `manage_transaction.set_category_rule` sólo remapea `nueva_categoria → categoria`
+      // (`handlers/neto-tools.js:961`) y no expone subcategoría. O sea que en producción la
+      // rama del `> sub` no corre. Se ejercita igual porque `subRegla` ya estaba en el handler
+      // desde antes y la rama tiene que ser correcta el día que la tool la exponga; lo que NO
+      // hay que hacer es leer este test como evidencia de que el camino existe.
+      datos: { comercio: 'Rappi', categoria: 'alimentacion', subcategoria: 'Delivery' },
+      usuario: USUARIO, from: '+51999', ctx,
+    });
+    expect(res).toMatch(/Regla creada/i);
+    expect(res).toContain('Alimentación > Delivery');
+    expect(ctx.retroaplicarRegla).toHaveBeenCalledWith('user-001', 'Rappi', 'Alimentación', 'Delivery');
+    expect(ctx.asegurarCategoriaUsuario).toHaveBeenCalledWith('user-001', 'Alimentación');
+    expect(res).toContain('3 transacciones');
+  });
+
+  // Este camino era el ÚNICO que pasaba `datos.categoria` crudo, sin capitalizar ni recortar,
+  // mientras los otros tres sí. Resultado: la misma categoría libre nacía con dos grafías según
+  // por dónde la pidieras, que es el split que este trabajo existe para cerrar.
+  it('normaliza la grafía igual que los otros caminos: capitaliza y recorta', async () => {
+    const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+    const ctx = buildCtx(sb);
+    await handler.handle({
+      intencion: 'editar_categoria_comercio', msg: 'todo lo de Wong va en gastos hormiga',
+      datos: { comercio: 'Wong', categoria: '  gastos hormiga ' }, usuario: USUARIO, from: '+51999', ctx,
+    });
+    expect(ctx.guardarReglaComercio).toHaveBeenCalledWith('user-001', 'Wong', 'Gastos hormiga', null);
+  });
+
+  // Antes decía "✅ Regla creada" igual. Pasa con "todo lo de X va en Otros" sin subcategoría
+  // y, desde B30, con cualquier categoría que colapse a 'Otros' (`Viajes`, `Transferencia`).
+  it('cuando la regla se descarta por política NO anuncia que la creó, y no retroaplica nada', async () => {
+    const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+    const ctx = buildCtx(sb, { guardarReglaComercio: vi.fn().mockResolvedValue({ ok: false, motivo: 'no-clasifica' }) });
+    const res = await handler.handle({
+      intencion: 'editar_categoria_comercio', msg: 'todo lo de Latam va en Viajes',
+      datos: { comercio: 'Latam', categoria: 'Viajes' }, usuario: USUARIO, from: '+51999', ctx,
+    });
+    expect(res).not.toMatch(/Regla creada/i);
+    expect(res).toMatch(/no clasificar[íi]a nada/i);
+    expect(ctx.retroaplicarRegla).not.toHaveBeenCalled();
+    expect(ctx.asegurarCategoriaUsuario).not.toHaveBeenCalled();
+  });
+
+  // El consejo es el OPUESTO al de arriba: acá hay que reintentar lo mismo, no cambiar la
+  // categoría. Con un solo mensaje para los dos motivos, un rechazo de la DB mandaba al usuario
+  // a probar categorías distintas contra un problema que no era suyo.
+  it('cuando la escritura FALLA le pide reintentar, no que cambie de categoría', async () => {
+    const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+    const ctx = buildCtx(sb, { guardarReglaComercio: vi.fn().mockResolvedValue({ ok: false, motivo: 'error' }) });
+    const res = await handler.handle({
+      intencion: 'editar_categoria_comercio', msg: 'todo lo de Rappi va en Delivery',
+      datos: { comercio: 'Rappi', categoria: 'Delivery' }, usuario: USUARIO, from: '+51999', ctx,
+    });
+    expect(res).not.toMatch(/Regla creada/i);
+    expect(res).not.toMatch(/no clasificar[íi]a nada/i);
+    expect(res).toMatch(/intentarlo/i);
+    expect(ctx.retroaplicarRegla).not.toHaveBeenCalled();
+  });
+
+  it('un comercio de puros espacios culpa al comercio, no a la categoría', async () => {
+    const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+    const ctx = buildCtx(sb, { guardarReglaComercio: vi.fn().mockResolvedValue({ ok: false, motivo: 'sin-comercio' }) });
+    const res = await handler.handle({
+      intencion: 'editar_categoria_comercio', msg: 'todo lo de va en Delivery',
+      datos: { comercio: '   ', categoria: 'Delivery' }, usuario: USUARIO, from: '+51999', ctx,
+    });
+    expect(res).toMatch(/de qu[ée] comercio/i);
+    expect(res).not.toMatch(/no clasificar[íi]a nada/i);
   });
 });

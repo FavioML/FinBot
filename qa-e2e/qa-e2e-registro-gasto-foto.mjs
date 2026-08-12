@@ -37,7 +37,6 @@ const require = createRequire(import.meta.url);
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(here, '..');
 const { CATEGORIAS_VALIDAS } = require(path.join(appRoot, 'lib/constants.js'));
-const { hoyPeru } = require(path.join(appRoot, 'lib/dates.js'));
 const { esperaComprobante } = require(path.join(appRoot, 'lib/pro-payment.js'));
 
 // Usuario QA de prueba, Pro (is_test_user=true → cero envíos Meta reales). Ver
@@ -50,6 +49,10 @@ const FIXTURE = path.join(here, 'fixtures', 'yape-gasto.png');
 const MONTO = 23.45;
 const MONTO_STR = MONTO.toFixed(2); // "23.45"
 const COMERCIO = 'Pollería El Rancho';
+// La captura lleva la fecha IMPRESA ("24 jul. 2026 - 1:12 p. m.", ver yape-gasto.html) y el
+// camino de la foto la respeta: la fecha del recibo es cuándo se movió la plata, no cuándo
+// llegó la foto. Ver la nota de B29 más abajo.
+const FECHA_RECIBO = '2026-07-24';
 
 const results = [];
 const check = (name, cond, detail) => {
@@ -128,9 +131,25 @@ async function run(h) {
   const row = despuesRows[0];
   if (!row) return;
 
-  check('la fila quedó como gasto con fecha de hoy (Perú)',
-    row.tipo === 'gasto' && row.fecha === hoyPeru(),
-    'tipo=' + row.tipo + ' fecha=' + row.fecha + ' hoy=' + hoyPeru());
+  // B29 — esta aserción decía `row.fecha === hoyPeru()` y sólo pudo pasar el 24-jul-2026:
+  // el fixture tiene la fecha impresa, así que exigir "hoy" la condenaba a ponerse roja al
+  // día siguiente de escribirla. Y como este harness NO está en el canary (cuesta una
+  // llamada Vision real por corrida), estuvo roja semanas sin que nadie se enterara.
+  //
+  // Se cambió la aserción y no el código, con los números delante (12-ago-2026, 290 filas
+  // que entraron por foto en 180 días, 18 usuarios): 215 quedaron en el día en que se
+  // enviaron, 31 un día antes, 30 entre 2 y 6 días, 14 a 7 o más — y sólo 3 filas, de 2
+  // usuarios, cayeron en OTRO MES. Forzar "hoy" pisaría 75 fechas reales para mover 3, y
+  // rompería justo el desfase más común: el Yape de las 11pm fotografiado a las 00:10,
+  // donde la fecha del recibo es la correcta y "hoy" la equivocada.
+  //
+  // El guard de `registrar_manual` no es el precedente que parece: existe porque el modelo
+  // ALUCINA una fecha pasada sin nada en el mensaje que la respalde. Una captura no alucina,
+  // LEE — la fecha está impresa en la imagen. Por eso acá se afirma la fecha del recibo, que
+  // además es una aserción más fuerte: prueba que Vision la extrae en vez de caer al default.
+  check('la fila quedó como gasto con la fecha IMPRESA en el recibo (no la de hoy)',
+    row.tipo === 'gasto' && row.fecha === FECHA_RECIBO,
+    'tipo=' + row.tipo + ' fecha=' + row.fecha + ' recibo=' + FECHA_RECIBO);
   check('la categoría persistida es una categoría válida del backend',
     !!row.categoria && CATEGORIAS_VALIDAS.has(row.categoria),
     'categoria=' + row.categoria + ' > ' + row.subcategoria);

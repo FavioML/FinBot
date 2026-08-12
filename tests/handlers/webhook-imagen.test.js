@@ -144,6 +144,30 @@ describe('Imágenes de pago (Yape/Plin/banco) → Vision → transacción', () =
     expect(guardarTransaccion.mock.calls[0][1].fecha).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
+  // B29 — DECISIÓN, no descuido: la fecha impresa en el recibo gana sobre el día en que
+  // llegó la foto, y este test existe para que nadie le agregue acá el guard de
+  // `registrar_manual` ("sin mención explícita, la fecha es hoy") creyendo que falta.
+  //
+  // No falta: son casos distintos. Ese guard existe porque el modelo ALUCINA una fecha
+  // pasada sin nada en el mensaje que la respalde; una captura no alucina, LEE una fecha
+  // impresa. Medido el 12-ago-2026 sobre 290 filas que entraron por foto en 180 días: 75
+  // traen una fecha anterior al día de envío, y sólo 3 caen en otro mes. El desfase más
+  // común (31 filas) es de UN día — el Yape de las 11pm fotografiado pasada la medianoche,
+  // donde forzar "hoy" sería introducir el error, no corregirlo.
+  //
+  // El E2E hermano (`qa-e2e/qa-e2e-registro-gasto-foto.mjs`) afirma lo mismo contra Vision
+  // real, pero cuesta una llamada a GPT-4o y no está en el canary: esta es la copia que
+  // corre en cada push.
+  it('respeta la fecha que Vision leyó del recibo (NO la fuerza a hoy) — B29', async () => {
+    mockFetchOk();
+    visionResponde({ ...YAPE_GASTO, fecha: '2026-07-24' });
+
+    const { req, res } = buildImagenReqRes('51999000111', 'media-img');
+    await webhookHandler(req, res);
+
+    expect(guardarTransaccion.mock.calls[0][1].fecha).toBe('2026-07-24');
+  });
+
   it('imagen sin transacción (no_pago) → no registra nada y lo dice', async () => {
     mockFetchOk();
     visionResponde({ tipo: 'no_pago' });

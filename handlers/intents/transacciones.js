@@ -297,8 +297,22 @@ module.exports = {
           const subRaw = (_subRawTmp && /^null$/i.test(String(_subRawTmp).trim())) ? null : _subRawTmp;
           const comercioRaw = datos.comercio || null;
           if (catRaw) {
-            const catLibre = catRaw.charAt(0).toUpperCase() + catRaw.slice(1);
-            const subLibre = subRaw ? subRaw.charAt(0).toUpperCase() + subRaw.slice(1) : null;
+            // B30: se resuelve UNA vez, acá arriba, y de acá sale todo lo demás — la fila que
+            // se recategoriza, el árbol, la regla, la retroaplicación y el texto que lee el
+            // usuario. `guardarReglaComercio` resuelve por su cuenta (es el chokepoint de la
+            // tabla), pero si acá se dejara el nombre crudo, la regla guardaría el nombre
+            // efectivo mientras `retroaplicarRegla` escribe el crudo en las filas viejas:
+            // el pasado y el futuro del MISMO comercio partidos en dos categorías.
+            // `resolverCategoriaPersistida` es pura y síncrona (no consulta el árbol).
+            //
+            // El `.trim()` no es de adorno: `normalizarDestinoRegla` recorta la categoría de la
+            // REGLA y nada recortaba la que va a `transacciones`, así que con "Ahorro " la fila
+            // quedaba con el espacio y la regla sin él. Son dos categorías distintas para todo
+            // lo que agrupe por nombre, y hay cuatro nombres con espacio final en prod.
+            const { resolverCategoriaPersistida } = require('../../services/categories');
+            const _catRawT = catRaw.trim();
+            const catLibre = resolverCategoriaPersistida(_catRawT.charAt(0).toUpperCase() + _catRawT.slice(1));
+            const subLibre = subRaw ? subRaw.trim().charAt(0).toUpperCase() + subRaw.trim().slice(1) : null;
             let txActualizada = null;
             if (comercioRaw) {
               const res = await recategorizarTransaccion(usuario.id, comercioRaw, catLibre, subLibre);
@@ -360,7 +374,11 @@ module.exports = {
           const resultados = [];
           for (const corr of correcciones) {
             if (!corr.comercio || !corr.categoria_nueva) continue;
-            const catLibre = corr.categoria_nueva.charAt(0).toUpperCase() + corr.categoria_nueva.slice(1);
+            // B30, mismo motivo que en `corregir_categoria`: una sola resolución alimenta la
+            // fila corregida, el árbol, la regla, la retroaplicación y el resumen que se imprime.
+            const { resolverCategoriaPersistida } = require('../../services/categories');
+            const _catCorrT = corr.categoria_nueva.trim(); // ver el `.trim()` de `corregir_categoria`
+            const catLibre = resolverCategoriaPersistida(_catCorrT.charAt(0).toUpperCase() + _catCorrT.slice(1));
             const _subCorrTmp = corr.subcategoria_nueva ? corr.subcategoria_nueva.charAt(0).toUpperCase() + corr.subcategoria_nueva.slice(1) : null;
             const res = await corregirTransaccionEspecifica(usuario.id, corr.comercio, corr.monto, corr.fecha, catLibre, _subCorrTmp);
             const subCorr = corr.subcategoria_nueva ? corr.subcategoria_nueva.charAt(0).toUpperCase() + corr.subcategoria_nueva.slice(1) : null;
@@ -738,15 +756,59 @@ module.exports = {
           const catRegla = datos.categoria;
           const subRegla = datos.subcategoria || null;
           if (!comercioRegla || !catRegla) return 'Dime el comercio y la categoría. Ej: _"todo lo de Rappi siempre va en Delivery"_';
+          // Recortar y capitalizar como los OTROS dos caminos de regla, y no es cosmético:
+          // este era el único que pasaba `datos.categoria` crudo, así que la misma categoría
+          // libre nacía con dos grafías según cómo la pidieras — "gastos hormiga" por acá y
+          // "Gastos hormiga" por `corregir_categoria`. Un split de categoría producido por el
+          // fix que existe para cerrar splits de categoría.
+          //
+          // El `.trim()` va acá arriba porque `normalizarDestinoRegla` recorta la categoría de
+          // la REGLA y nada recortaba la que se escribe en `transacciones`: con "Ahorro " (hay
+          // cuatro nombres así en prod) la fila quedaba con el espacio y la regla sin él.
+          const catReglaLibre = catRegla.trim().charAt(0).toUpperCase() + catRegla.trim().slice(1);
+          const subReglaLibre = subRegla ? subRegla.trim().charAt(0).toUpperCase() + subRegla.trim().slice(1) : null;
           // Defensa: si el "comercio" llega como una frase (con monto o demasiadas
           // palabras) el clasificador confundió un gasto puntual con una regla. No
           // creamos la regla basura y guiamos al usuario. Ej. "gasto de diez soles en taxi".
           if (/\d/.test(comercioRegla) || comercioRegla.trim().split(/\s+/).length > 4) {
             return 'Para registrar un gasto dime algo como _"gasté 10 en taxi"_.\n\nSi lo que quieres es una regla fija de categoría, dímelo sin monto: _"todo lo de taxi va en Transporte"_.';
           }
-          await guardarReglaComercio(usuario.id, comercioRegla, catRegla, subRegla);
-          const retro = await retroaplicarRegla(usuario.id, comercioRegla, catRegla, subRegla);
-          return '✅ *Regla creada:*\n\n' + comercioRegla + ' → *' + catRegla + '* (siempre)\n\n' + (retro > 0 ? '🔄 Actualicé ' + retro + ' transacciones anteriores con esta regla.' : 'Se aplicará a las próximas transacciones.') + '\n\n_Puedes cambiarlo cuando quieras._';
+          // B30. Este era el ÚNICO de los tres caminos de regla que no tocaba el árbol del
+          // usuario: guardaba la regla y retroaplicaba, así que "todo lo de Rappi va en
+          // Delivery" dejaba filas en una categoría que `/categorias` no lista y que el
+          // selector de presupuestos no ofrece. Va encadenada y fire-and-forget, igual que
+          // en `corregir_categoria` (en paralelo las dos insertan la misma raíz).
+          //
+          // El destino EFECTIVO manda sobre lo que pidió el usuario, y sale de
+          // `guardarReglaComercio` en vez de recalcularse acá: si esta función descartó la
+          // regla, anunciar "Regla creada" era una mentira lisa (pasaba con "todo lo de X va
+          // en Otros" sin subcategoría, y con cualquier categoría que colapse a 'Otros').
+          //
+          // El motivo del rechazo elige el mensaje, y no es un detalle: "no clasifica nada" le
+          // pide al usuario que cambie lo que pidió, mientras que un fallo de escritura le pide
+          // que reintente LO MISMO. Con un solo mensaje para los dos, un rechazo de la DB lo
+          // mandaba a probar categorías distintas contra un problema que no era suyo.
+          const resRegla = await guardarReglaComercio(usuario.id, comercioRegla, catReglaLibre, subReglaLibre);
+          if (!resRegla.ok) {
+            if (resRegla.motivo === 'error') {
+              return 'No pude guardar la regla ahora mismo. Vuelve a intentarlo en un momento.';
+            }
+            // `comercioRegla` con solo espacios pasa los dos guards de arriba y muere en el
+            // patrón vacío. Culpar a la categoría ahí sería mandarlo a corregir lo que no falla.
+            if (resRegla.motivo === 'sin-comercio') {
+              return 'Dime de qué comercio se trata. Ej: _"todo lo de Rappi siempre va en Delivery"_';
+            }
+            return 'Neto guarda eso dentro de *Otros*, y una regla a Otros no clasificaría nada: dejaría todos los gastos de *' + comercioRegla + '* sin categoría.\n\nDime una categoría más concreta, por ejemplo _"todo lo de ' + comercioRegla + ' va en Alimentación"_.';
+          }
+          const destinoRegla = resRegla.destino;
+          {
+            const _subR = destinoRegla.subcategoria;
+            asegurarCategoriaUsuario(usuario.id, destinoRegla.categoria)
+              .then(() => (_subR ? crearSubcategoriaLibreUsuario(usuario.id, destinoRegla.categoria, _subR) : null))
+              .catch(() => {});
+          }
+          const retro = await retroaplicarRegla(usuario.id, comercioRegla, destinoRegla.categoria, destinoRegla.subcategoria);
+          return '✅ *Regla creada:*\n\n' + comercioRegla + ' → *' + destinoRegla.categoria + (destinoRegla.subcategoria ? ' > ' + destinoRegla.subcategoria : '') + '* (siempre)\n\n' + (retro > 0 ? '🔄 Actualicé ' + retro + ' transacciones anteriores con esta regla.' : 'Se aplicará a las próximas transacciones.') + '\n\n_Puedes cambiarlo cuando quieras._';
         } catch(e) {
           log.error({ tag: 'REGLA_CAT', err: e.message }, 'Error editar categoría comercio');
           return 'No pude crear la regla. Intenta de nuevo.';

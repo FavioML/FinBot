@@ -753,9 +753,15 @@ function createWebhookHandler(procesarMensajeLibre) {
       const partes = msg.trim().split(' ');
       if (partes.length >= 3) {
         const comercioInput = partes[1], categoriaInput = partes.slice(2).join(' ');
-        // Acepta categoría conocida o libre (capitalizada)
+        // Acepta categoría conocida o libre (capitalizada). B30: la cuarta puerta que escribe
+        // `transacciones.categoria` a mano. `catKnown` compara EXACTO salvo mayúsculas, así que
+        // `/cambiar netflix alimentacion` no matcheaba —la tilde— y escribía 'Alimentacion':
+        // la misma categoría partida en dos grafías. `resolverCategoriaPersistida` cubre el
+        // camino difuso y deja intacto el nombre libre que no resuelve el mapa.
+        const { resolverCategoriaPersistida } = require('../services/categories');
         const catKnown = CATEGORIAS_SUGERIDAS.map(c=>c.nombre).find(c => c.toLowerCase() === categoriaInput.toLowerCase());
-        const catFinal = catKnown || (categoriaInput.charAt(0).toUpperCase() + categoriaInput.slice(1));
+        const catInputT = categoriaInput.trim(); // mismo motivo que el `.trim()` de corregir_categoria
+        const catFinal = resolverCategoriaPersistida(catKnown || (catInputT.charAt(0).toUpperCase() + catInputT.slice(1)));
         const resultado = await recategorizarTransaccion(usuario.id, comercioInput, catFinal);
         respuesta = resultado.msg;
       } else { respuesta = 'Formato: /cambiar [comercio] [categoria]\nEj: /cambiar Netflix Streaming'; }

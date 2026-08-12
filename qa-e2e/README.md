@@ -257,6 +257,7 @@ que no se hace todas las mañanas sin mirar.
 | `qa-monto-nulo.mjs` | Una transacción con `monto_pen = NULL` no tira el dashboard al error boundary y se pinta honesta, no como "S/ 0.00" | Al tocar el render de montos o la conversión multimoneda |
 | `qa-por-revisar.mjs` | El badge y filtro "Por revisar" + el toggle `alertas_transaccion` | Al tocar la vista de transacciones o esas preferencias |
 | `qa-regla-lote.mjs` | La edición masiva (`PATCH /api/transactions`) hace que Neto APRENDA la regla comercio → categoría, igual que la individual | Al tocar edición en lote o el aprendizaje por comercio |
+| `qa-regla-categoria-resuelta.mjs` | La regla por comercio guarda la categoría CANÓNICA y no la grafía que escribió el usuario (B30), y la retroaplicación escribe el mismo nombre que la regla. Cubre las dos puertas de WhatsApp: `/cambiar` (sin LLM) y "todo lo de X va en Y". ~1 llamada a gpt-4o-mini | Al tocar reglas de comercio, `resolverCategoriaPersistida` o `CATEGORIA_MAP` |
 | `qa-tour-gate.mjs` | El gate del tour de onboarding es SERVER-side (1 vez por cuenta, no por navegador) | Al tocar el tour o `usuarios.tour_visto` |
 | `qa-gate.mjs` | Verificación visual del gating por plan con sesión real: `pro` ve todo abierto, `free` (el muro) ve el paywall | Al tocar el paywall o el `ProGate` |
 | `qa-referido-web.mjs` | El alta web con `?ref=CODE`: el middleware guarda la cookie `neto_ref` y `/auth/callback` la canjea | Al tocar referidos por la puerta web |

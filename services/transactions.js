@@ -322,24 +322,76 @@ function normalizarDestinoRegla(categoria, subcategoria) {
   return { categoria: cat, subcategoria: subUtil };
 }
 
+/**
+ * Guarda (o descarta) la regla comercio → categoría.
+ *
+ * Antes no devolvía NADA, así que el llamador anunciaba "✅ Regla creada" igual cuando esta
+ * función la había descartado. Ahora devuelve un resultado DISCRIMINADO, y la diferencia entre
+ * los motivos no es cosmética: "la descarté porque no clasifica nada" pide que el usuario
+ * cambie lo que pidió, y "no la pude escribir" pide que reintente lo MISMO. Un `null` pelado
+ * para las dos le hacía cambiar de categoría una y otra vez contra un fallo de escritura.
+ *
+ * @returns {Promise<{ok:true, destino:{categoria:string, subcategoria:string|null}}
+ *                 | {ok:false, motivo:'sin-comercio'|'no-clasifica'|'error'}>}
+ */
 async function guardarReglaComercio(usuarioId, comercio, categoria, subcategoria) {
-  if (!comercio) return;
+  if (!comercio) return { ok: false, motivo: 'sin-comercio' };
   const patron = comercio.toLowerCase().trim();
-  if (!patron) return;
+  if (!patron) return { ok: false, motivo: 'sin-comercio' };
 
-  const destino = normalizarDestinoRegla(categoria, subcategoria);
+  // Hallazgo B30. La categoría de una regla PISA la que dedujo el clasificador (ver
+  // `guardarTransaccion`, una línea después de `resolverCategoriaPersistida`), así que
+  // entrando cruda la regla es una TERCERA puerta que escribe `transacciones.categoria`
+  // sin pasar por el invariante que estableció B28.
+  //
+  // Medido, no preventivo (12-ago-2026): un usuario real tenía sus gastos de comida
+  // partidos exactamente en dos —5 filas en `Alimentacion` y 5 en `Alimentación`— y la
+  // línea del corte era esta: las 5 mal escritas eran las de comercios CON regla.
+  //
+  // Va por `resolverCategoriaPersistida` y NO por `normalizarCategoria`, y esa diferencia
+  // es la mitad del hallazgo: normalizar a secas manda a 'Otros' las 77 reglas de 13
+  // usuarios con categorías libres legítimas (`Freelance`, `Gastos Hormiga`, `Separación`),
+  // o sea reintroduce B28 por la puerta que esto viene a tapar.
+  //
+  // Y va ANTES de `normalizarDestinoRegla`, no después: resolviendo después, un `Viajes`
+  // —colapso con pérdida → 'Otros'— pasaría el filtro como 'Viajes' y se guardaría como
+  // 'Otros', que es justo la regla-que-no-clasifica-nada que el filtro rechaza.
+  //
+  // El ternario preserva el caso `categoria` vacía: `resolverCategoriaPersistida(null)`
+  // devuelve 'Otros', y eso convertiría una llamada sin categoría en una regla
+  // 'Otros > sub' donde hoy no se guarda nada.
+  const { resolverCategoriaPersistida } = require('./categories');
+  const catResuelta = categoria ? resolverCategoriaPersistida(categoria) : categoria;
+
+  const destino = normalizarDestinoRegla(catResuelta, subcategoria);
   if (!destino) {
-    log.info({ tag: 'REGLA', comercio: patron, categoria, subcategoria }, 'Regla descartada: no clasifica nada');
-    return;
+    log.info({ tag: 'REGLA', comercio: patron, categoria, catResuelta, subcategoria }, 'Regla descartada: no clasifica nada');
+    return { ok: false, motivo: 'no-clasifica' };
   }
 
   try {
-    await supabase.from('reglas_comercio').upsert({
+    // Se LEE el `error`, y no alcanza con el try/catch. postgrest NO lanza cuando el upsert
+    // es rechazado (RLS, constraint, payload inválido): devuelve el fallo en `error` y el
+    // `await` resuelve normal. Sin esta línea la función devolvía "guardada" ante el modo de
+    // fallo más probable, y el llamador creaba la raíz en el árbol, retroaplicaba sobre el
+    // histórico y anunciaba "✅ Regla creada" sin una sola fila en `reglas_comercio` — o sea
+    // que los gastos futuros de ese comercio seguían sin clasificar y el usuario creía que no.
+    // Es la misma lección que `guardarSnapshotEliminacion` (handlers/intents/transacciones.js)
+    // ya tiene escrita, y este fix la había vuelto a pisar.
+    const { error } = await supabase.from('reglas_comercio').upsert({
       usuario_id: usuarioId, comercio_pattern: patron,
       categoria: destino.categoria, subcategoria: destino.subcategoria,
       updated_at: new Date().toISOString()
     }, { onConflict: 'usuario_id,comercio_pattern' });
-  } catch(e) { log.error({ tag: 'REGLA', err: e.message }, 'Error guardando regla comercio'); }
+    if (error) {
+      log.error({ tag: 'REGLA', comercio: patron, err: error.message }, 'El upsert de la regla fue rechazado');
+      return { ok: false, motivo: 'error' };
+    }
+  } catch(e) {
+    log.error({ tag: 'REGLA', err: e.message }, 'Error guardando regla comercio');
+    return { ok: false, motivo: 'error' };
+  }
+  return { ok: true, destino };
 }
 
 async function buscarReglaComercio(usuarioId, comercio) {
