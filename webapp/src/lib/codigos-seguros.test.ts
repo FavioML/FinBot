@@ -111,13 +111,15 @@ describe('ningún secreto sale de Math.random', () => {
   /**
    * Excepciones, con su razón. Una excepción sin razón es un guard apagado.
    *
-   * `ref_code` es PÚBLICO por diseño: viaja en el link que el usuario reparte
-   * (neto.pe/r/CODE). Predecirlo no da nada — usar el código de otro te convierte en SU
-   * referido, o sea que el premio es de él. Queda registrado aparte que
-   * `Math.random().toString(36).substring(2,8)` puede devolver menos de 6 chars, pero eso
-   * es correctitud, no seguridad, y su espejo vive en el backend (`lib/formatters.js`).
+   * **Vacío desde el 2026-08-11.** La única que había era `app/api/user/referrals/route.ts`,
+   * porque el `ref_code` es PÚBLICO por diseño (viaja en el link que el usuario reparte, y
+   * usar el de otro te convierte en SU referido). El argumento era correcto para la
+   * seguridad y tapaba un problema de CORRECTITUD que estaba anotado al lado y nadie
+   * arreglaba: `Math.random().toString(36).substring(2, 8)` devuelve menos de 6 chars cuando
+   * el float cae corto. Se migró a `generarCodigoInvitacion(ALFABETO_REF, 6)` en los dos
+   * canales y la excepción se fue con su motivo.
    */
-  const EXENTOS = new Set(['app/api/user/referrals/route.ts']);
+  const EXENTOS = new Set<string>([]);
 
   /**
    * Sin comentarios: el comentario que EXPLICA por qué no se usa `Math.random` mencionaba

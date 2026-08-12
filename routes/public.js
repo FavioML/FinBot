@@ -1,11 +1,9 @@
 const express = require('express');
-const crypto = require('crypto');
 const { supabase } = require('../lib/db');
 const log = require('../lib/logger');
 const { enviarWhatsapp } = require('../lib/whatsapp');
 const { oauth2Client, obtenerPerfilGoogle, guardarTokens, verificarState, emailGmailVinculado } = require('../gmail');
 const { esProPagado } = require('../lib/trial');
-const { parsearCorreoBancario } = require('../services/parsers');
 const { escanearGmailYRegistrar, escanearHistoricoInicial } = require('../services/gmail-scanner');
 const analytics = require('../lib/analytics');
 
@@ -183,15 +181,11 @@ router.get('/auth/callback', async (req, res) => {
   } catch (err) { log.error({ tag: 'CALLBACK', err: err.message }, 'Error en OAuth callback'); res.status(500).send(REINTENTAR('Ocurrió un error al conectar Gmail.')); }
 });
 
-// POST /test-parser — admin tool to test email parser
-router.post('/test-parser', async (req, res) => {
-  const { correo, clave } = req.body;
-  const ADMIN_KEY = process.env.ADMIN_KEY;
-  if (!ADMIN_KEY || !clave || clave.length !== ADMIN_KEY.length || !crypto.timingSafeEqual(Buffer.from(clave), Buffer.from(ADMIN_KEY))) return res.status(401).json({ error: 'No autorizado' });
-  if (!correo) return res.status(400).json({ error: 'Falta correo' });
-  try { const r = await parsearCorreoBancario(correo); res.json({ ok: true, resultado: r }); }
-  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
-});
+// `/test-parser` se MUDÓ a `routes/admin.js` (hallazgo S′9). Vivía acá y tenía las dos
+// cosas que este archivo no puede dar: leía la ADMIN_KEY del **body** —que es justo lo que
+// `verificarAdmin` prohíbe por escrito, porque el body queda en logs igual que el query
+// string— y colgaba de `publicLimiter` (60/min por IP) en vez de `adminLimiter` (10/min).
+// Un endpoint que acepta la llave del admin no pertenece al router público.
 
 // GET / — root
 router.get('/', (req, res) => res.send('NETO v5'));

@@ -45,7 +45,7 @@
 
 | Method | Path | Auth | Descripción |
 |--------|------|------|-------------|
-| POST | `/test-parser` | Ninguna | Testear parser de email (solo desarrollo) |
+| POST | `/admin/test-parser` | `x-admin-key` o `Authorization: Bearer` | Testear parser de email. Se mudó de `/test-parser` el 11-ago-2026 (S′9): leía la llave del body y colgaba del limiter público |
 
 ## Rate Limiting
 

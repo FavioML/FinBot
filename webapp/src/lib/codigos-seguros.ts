@@ -51,6 +51,14 @@ export function generarCodigoOtp(): string {
 export const ALFABETO_ESPACIO = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
 /**
+ * Alfabeto del `ref_code`. Espejo de `ALFABETO_REF` en `lib/codigos-seguros.js` del backend
+ * (los dos canales emiten el mismo código). Solo MAYÚSCULAS, y no es estética: la
+ * mini-landing (`neto.pe/r/CODE`) hace `toUpperCase()` antes de buscar, así que un código con
+ * minúsculas no se podría canjear por su propio link.
+ */
+export const ALFABETO_REF = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
+/**
  * Código de invitación (metas y espacios compartidos). El alfabeto lo elige el llamador
  * porque cada superficie ya tenía el suyo —ambos evitan caracteres confundibles a mano— y
  * cambiarlo invalidaría los códigos que la gente ya tiene pegados en un chat.

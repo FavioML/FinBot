@@ -1,12 +1,15 @@
 import { requireNetoUser } from '@/lib/supabase/auth';
+import { generarCodigoInvitacion, ALFABETO_REF } from '@/lib/codigos-seguros';
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
-// Mismo formato que lib/formatters.js:generarRefCode del backend (6 chars alfanuméricos).
+// Mismo formato Y misma fuente que `generarRefCode` del backend (`lib/formatters.js`): 6
+// chars del alfabeto en mayúsculas, desde `crypto.getRandomValues`. `Math.random()
+// .toString(36).substring(2, 8)` devolvía menos de 6 chars cuando el float caía corto.
 function generarRefCode(): string {
-  return Math.random().toString(36).substring(2, 8).toUpperCase();
+  return generarCodigoInvitacion(ALFABETO_REF, 6);
 }
 
 // GET /api/user/referrals — link REAL de referido (ref_code) + progreso dos-lados:

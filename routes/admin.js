@@ -9,6 +9,7 @@ const { activarPro, reclamarPagoPendiente } = require('../lib/pro-payment');
 const { resumenReferidoParaAdmin, registrarReferido } = require('../services/referrals');
 const { responderTicket } = require('../lib/support-tickets');
 const { esProPagado } = require('../lib/trial');
+const { parsearCorreoBancario } = require('../services/parsers');
 
 const router = express.Router();
 
@@ -400,6 +401,21 @@ router.post('/referido-web', async (req, res) => {
     log.error({ tag: 'REFERIDO_WEB', err: e.message }, 'Error vinculando referido web');
     res.status(500).json({ ok: false, msg: 'Error vinculando el referido' });
   }
+});
+
+// POST /admin/test-parser — herramienta de admin para probar el parser de correos.
+//
+// Vivía en `routes/public.js` y leía la ADMIN_KEY del **body** (hallazgo S′9). Dos problemas,
+// y el segundo es el que importa: el body queda en logs igual que el query string —que es
+// justo lo que `verificarAdmin` prohíbe por escrito— y colgaba de `publicLimiter` (60/min por
+// IP) en vez de `adminLimiter` (10/min). Acá hereda las dos cosas: llave por header y el
+// limiter de admin, sin una línea de auth propia.
+router.post('/test-parser', async (req, res) => {
+  if (!verificarAdmin(req, res)) return;
+  const { correo } = req.body || {};
+  if (!correo) return res.status(400).json({ ok: false, error: 'Falta correo' });
+  try { res.json({ ok: true, resultado: await parsearCorreoBancario(correo) }); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
 module.exports = router;

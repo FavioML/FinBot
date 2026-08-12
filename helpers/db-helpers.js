@@ -57,6 +57,23 @@ async function persistirBsuid(usuario, bsuid) {
   try {
     const { error } = await supabase.from('usuarios').update({ bsuid }).eq('id', usuario.id);
     if (error) {
+      // 23505 no es "no se pudo guardar": es que ESE BSUID ya está en OTRA fila, o sea que
+      // la misma persona tiene dos usuarios y Meta nos lo acaba de decir. Colapsarlo en el
+      // log genérico de abajo era perder la única señal automática de identidad partida que
+      // existe — y la identidad partida es exactamente lo que el BSUID vino a evitar
+      // (hallazgo B21). Va con tag propio y a `errores`, que es donde se busca por usuario.
+      if (error.code === '23505') {
+        const { data: duenio } = await supabase.from('usuarios')
+          .select('id, whatsapp, created_at').eq('bsuid', bsuid).maybeSingle();
+        log.error({ tag: 'BSUID_COLISION', usuarioId: usuario.id, otroUsuarioId: duenio && duenio.id, bsuid },
+          'El BSUID ya pertenece a otro usuario: identidad partida');
+        try {
+          require('../lib/error-monitor').registrarError('BSUID_COLISION',
+            'BSUID ya asignado a otro usuario',
+            { usuarioId: usuario.id, otroUsuarioId: duenio && duenio.id, bsuid });
+        } catch (e2) { /* el registro del diagnóstico nunca puede romper el mensaje */ }
+        return usuario;
+      }
       log.error({ tag: 'BSUID', err: error.message, usuarioId: usuario.id }, 'No se pudo guardar el BSUID');
       return usuario;
     }

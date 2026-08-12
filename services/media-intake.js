@@ -41,12 +41,15 @@ async function descargarMedia(mediaId, { tag = 'MEDIA', mimeFallback = null } = 
   log.info({ tag, mediaId, phoneId, tokenOk: !!metaToken }, 'Descargando media');
 
   const metaUrl = 'https://graph.facebook.com/' + GRAPH_VERSION + '/' + mediaId + '?phone_number_id=' + phoneId;
-  const metaRes = await fetch(metaUrl, { headers: { Authorization: 'Bearer ' + metaToken } });
+  // Timeout explícito: el default de fetch no tiene ninguno, y acá el usuario ya mandó su
+  // foto y está esperando. 15s para la metadata (hallazgo B22).
+  const metaRes = await fetch(metaUrl, { headers: { Authorization: 'Bearer ' + metaToken }, signal: AbortSignal.timeout(15000) });
   const metaJson = await metaRes.json();
   log.debug({ tag, metaJson: JSON.stringify(metaJson).slice(0, 200) }, 'Meta response');
   if (!metaJson.url) throw new Error('Meta no devolvió URL: ' + JSON.stringify(metaJson).slice(0, 100));
 
-  const binRes = await fetch(metaJson.url, { headers: { Authorization: 'Bearer ' + metaToken } });
+  // 30s para el binario: es una imagen, pesa más que un JSON.
+  const binRes = await fetch(metaJson.url, { headers: { Authorization: 'Bearer ' + metaToken }, signal: AbortSignal.timeout(30000) });
   if (!binRes.ok) throw new Error('Error descargando media: ' + binRes.status);
   const buffer = Buffer.from(await binRes.arrayBuffer());
   const mimeType = metaJson.mime_type || mimeFallback || 'application/octet-stream';

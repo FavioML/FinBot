@@ -75,6 +75,37 @@ describe('generarCodigoInvitacion', () => {
 });
 
 /**
+ * `ref_code` (S′11). No es un secreto —es publico por diseno— pero si es un IDENTIFICADOR
+ * con un espacio chico, y `Math.random().toString(36).substring(2, 8)` devuelve MENOS de 6
+ * chars cuando el float cae corto. Dos usuarios con el mismo codigo le dan el premio al
+ * equivocado, asi que el largo no es cosmetico.
+ */
+describe('generarRefCode', () => {
+  const { generarRefCode } = require('../lib/formatters');
+  const { ALFABETO_REF } = require('../lib/codigos-seguros');
+
+  it('SIEMPRE tiene 6 chars (el bug viejo devolvia menos)', () => {
+    for (let i = 0; i < 3000; i++) expect(generarRefCode()).toHaveLength(6);
+  });
+
+  it('solo mayusculas y digitos: la landing hace toUpperCase() antes de buscar', () => {
+    // `neto.pe/r/CODE` y `POST /admin/referido` normalizan a mayusculas, asi que un codigo
+    // con minusculas seria imposible de canjear por su propio link.
+    for (let i = 0; i < 500; i++) {
+      const c = generarRefCode();
+      expect(c).toBe(c.toUpperCase());
+      expect([...c].every((ch) => ALFABETO_REF.includes(ch))).toBe(true);
+    }
+  });
+
+  it('no depende de Math.random: con el PRNG congelado sigue variando', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.42);
+    const vistos = new Set(Array.from({ length: 200 }, () => generarRefCode()));
+    expect(vistos.size).toBeGreaterThan(150);
+  });
+});
+
+/**
  * Los alfabetos son un contrato ENTRE CANALES, no un detalle de este archivo.
  *
  * Espacios: la webapp genera en mayusculas y ademas **normaliza al buscar**
@@ -185,14 +216,18 @@ describe('ningun secreto del backend sale de Math.random', () => {
   /**
    * Excepciones, con su razon. Una excepcion sin razon es un guard apagado.
    *
-   * `lib/formatters.js` genera `ref_code`, que es PUBLICO por diseno: viaja en el link que
-   * el usuario reparte (neto.pe/r/CODE). Predecirlo no da nada — usar el codigo de otro te
-   * convierte en SU referido, o sea que el premio es de el. Su espejo en la webapp
-   * (`app/api/user/referrals/route.ts`) esta exento por lo mismo. Queda registrado aparte
-   * que `.toString(36).substring(2,8)` puede devolver menos de 6 chars: eso es
-   * correctitud, no seguridad, y se revisa antes de ~50k usuarios.
+   * **Vacio desde el 2026-08-11.** La unica que habia era `lib/formatters.js`, que genera el
+   * `ref_code`, y el argumento era correcto: ese codigo es PUBLICO por diseno (viaja en el
+   * link que el usuario reparte, y usar el de otro te convierte en SU referido). Pero la
+   * excepcion tapaba, al lado, un problema de CORRECTITUD que quedo anotado y sin arreglar
+   * durante meses: `Math.random().toString(36).substring(2, 8)` devuelve MENOS de 6 chars
+   * cuando el float cae corto. Se migro a `generarCodigoInvitacion(ALFABETO_REF, 6)` en los
+   * dos canales y la excepcion se fue con su motivo.
+   *
+   * La leccion: una excepcion que sobrevive a su motivo es un hueco. Y una que tapa un
+   * problema distinto del que exceptua es peor, porque el problema deja de verse.
    */
-  const EXENTOS = new Set(['lib/formatters.js']);
+  const EXENTOS = new Set([]);
 
   /**
    * Quita comentarios: el que EXPLICA por que no se usa Math.random menciona Math.random,
