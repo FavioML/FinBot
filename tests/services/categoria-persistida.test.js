@@ -41,6 +41,18 @@ describe('B28 — la categoría custom sobrevive al camino de WhatsApp', () => {
     for (const c of CATEGORIAS_VALIDAS) expect(resolverCategoriaPersistida(c)).toBe(c);
   });
 
+  it('una canónica mal escrita se normaliza igual (el camino DIFUSO)', () => {
+    // El agujero que este archivo no vio y encontró un test de B34: `resolverNombreCategoria`
+    // compara EXACTO, mientras `normalizarCategoria` además capitaliza, baja a minúsculas y
+    // saca tildes. Sin ese camino, `"ALIMENTACION"` —que el clasificador devuelve a veces— se
+    // persistía en mayúsculas: la misma categoría partida en dos grafías, o sea el síntoma
+    // que B28 vino a cerrar, reintroducido por el propio B28.
+    expect(resolverCategoriaPersistida('ALIMENTACION')).toBe('Alimentación');
+    expect(resolverCategoriaPersistida('TRANSPORTE')).toBe('Transporte');
+    expect(resolverCategoriaPersistida('alimentacion')).toBe('Alimentación');
+    expect(resolverCategoriaPersistida('Alimentacion')).toBe('Alimentación');
+  });
+
   it('TODA clave de CATEGORIA_MAP sigue resolviéndose por el mapa', () => {
     // Guard de clase, no de instancia: cubre los alias ortográficos y los colapsos con
     // pérdida de una sola vez, así que una entrada nueva mal puesta rompe el build.

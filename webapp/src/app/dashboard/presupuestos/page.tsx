@@ -229,6 +229,16 @@ export default function PresupuestosPage() {
     return <ErrorState titulo="No pudimos cargar tus presupuestos" onReintentar={() => refetchBudgets()} />;
   }
 
+  // `useMemo` y no un `?? []` inline: este valor viaja como prop a `BudgetForm`, que lo
+  // tiene en las dependencias de un `useEffect`. Un array nuevo en cada render hacía que ese
+  // efecto corriera en cada render, y el efecto RESETEA el formulario — o sea que mientras
+  // el diálogo estaba abierto le borraba lo que el usuario estaba escribiendo, además del
+  // loop de render (hallazgo F6).
+  const subBudgetsDelEditado = useMemo(
+    () => (editBudget ? (groupedBudgets.get(editBudget.categoria)?.subs ?? []) : undefined),
+    [editBudget, groupedBudgets],
+  );
+
   const isPremium = user?.plan === 'premium';
   const budgetsLimitReached = hasReachedLimit(user?.plan, 'budgets', groupedBudgets.size);
   const hasBudgets = groupedBudgets.size > 0;
@@ -390,11 +400,7 @@ export default function PresupuestosPage() {
         onSuccess={refreshBudgets}
         userCategorias={userCategorias}
         existingBudgets={budgets}
-        groupSubBudgets={
-          editBudget
-            ? (groupedBudgets.get(editBudget.categoria)?.subs ?? [])
-            : undefined
-        }
+        groupSubBudgets={subBudgetsDelEditado}
         mes={currentMonth}
         anio={currentYear}
       />

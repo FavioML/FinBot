@@ -301,11 +301,61 @@ async function asegurarCategoriaUsuario(usuarioId, nombre) {
  * clasificador (canónicas ∪ árbol del usuario), no una re-lectura después.
  */
 function resolverCategoriaPersistida(cruda) {
-  if (!cruda) return normalizarCategoria(cruda);
+  const normalizada = normalizarCategoria(cruda);
+  // Si la normalización llegó a una canónica, esa manda — venga escrita como venga.
+  //
+  // ⚠️ Esta línea NO es redundante y la primera versión de este fix la tenía y la perdió al
+  // reescribirlo: `resolverNombreCategoria` compara EXACTO (`CATEGORIAS_VALIDAS.has` y
+  // `CATEGORIA_MAP[nombre]`), mientras `normalizarCategoria` tiene además el camino difuso
+  // (capitalizar, minúsculas, sin tildes). Sin ella, `"ALIMENTACION"` y `"TRANSPORTE"` —que
+  // el clasificador devuelve a veces— caían por el `return cruda` de abajo y se persistían
+  // en mayúsculas: la MISMA categoría partida en dos grafías, que es justo el síntoma que
+  // B28 vino a cerrar. Lo encontró un test de B34, no la mutación de B28.
+  if (normalizada !== 'Otros') return normalizada;
+  if (!cruda) return normalizada;
   const { canonica } = resolverNombreCategoria(cruda);
-  // `canonica` no nula = el mapa la resolvió (alias ortográfico o colapso con pérdida).
-  if (canonica) return normalizarCategoria(cruda);
+  // `canonica` no nula acá = el mapa la resolvió a un COLAPSO CON PÉRDIDA (`Viajes`→`Otros`).
+  // Esa decisión se tomó en B26 midiendo y no se reabre.
+  if (canonica) return normalizada;
   return cruda;
+}
+
+/**
+ * Resuelve un nombre que el usuario escribió a `{ categoria, subcategoria }` mirando SU árbol
+ * (hallazgo B34).
+ *
+ * El caso: `/categorias` imprime las raíces **y sus subcategorías en línea**, así que el
+ * usuario ve "Delivery" ahí y escribe *"ponme límite en Delivery"* — y el intent solo
+ * matcheaba raíces, así que le respondía *"no reconozco la categoría 'Delivery'"* mientras se
+ * la estaba mostrando. La tabla `presupuestos` ya tiene la columna `subcategoria` (está en el
+ * `onConflict` del upsert); lo único que faltaba era resolverla.
+ *
+ * Devuelve `null` cuando el nombre no es ni raíz ni subcategoría del usuario. La comparación
+ * es case-insensitive y sin tildes: acá el usuario está TIPEANDO, no eligiendo de un menú.
+ */
+async function resolverCategoriaOSub(usuarioId, nombre) {
+  const buscado = normalizarParaComparar(nombre);
+  if (!buscado) return null;
+  const cats = await obtenerCategoriasUsuario(usuarioId);
+  if (!cats) return null;
+  for (const raiz of cats) {
+    if (normalizarParaComparar(raiz.nombre) === buscado) {
+      return { categoria: raiz.nombre, subcategoria: null };
+    }
+  }
+  for (const raiz of cats) {
+    for (const sub of raiz.subcategorias || []) {
+      if (normalizarParaComparar(sub.nombre) === buscado) {
+        return { categoria: raiz.nombre, subcategoria: sub.nombre };
+      }
+    }
+  }
+  return null;
+}
+
+/** Sin tildes, sin mayúsculas, sin espacios de sobra: para comparar lo que alguien TIPEÓ. */
+function normalizarParaComparar(s) {
+  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 }
 
 async function crearSubcategoriaLibreUsuario(usuarioId, categoriaNombre, subcategoriaNombre) {
@@ -346,4 +396,5 @@ module.exports = {
   crearCategoriaLibreUsuario,
   crearSubcategoriaLibreUsuario,
   resolverCategoriaPersistida,
+  resolverCategoriaOSub,
 };

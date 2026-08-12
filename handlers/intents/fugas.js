@@ -70,10 +70,18 @@ async function handle({ intencion, datos, usuario, from, ctx }) {
       // El centinela es `null`, no `'Otros'`: con `'Otros'` un usuario que escribe
       // literalmente "OTROS" —que el mapa difuso resuelve a `Otros`— quedaba rechazado,
       // mientras "otros" en minúscula funcionaba. Lo encontró la revisión adversarial.
-      const { resolverCategoriaPersistida } = require('../../services/categories');
+      const { resolverCategoriaPersistida, resolverCategoriaOSub } = require('../../services/categories');
       const catNorm = typeof categoria === 'string' && categoria.trim()
         ? resolverCategoriaPersistida(categoria.trim())
         : null;
+      // Si el nombre resolvió a una raíz, puede ser también una SUBCATEGORÍA del usuario, y
+      // hay que ponerle el límite ahí (B34): `/categorias` imprime las subcategorías en
+      // línea, así que "ponme límite en Delivery" era un rechazo sobre algo que el propio
+      // bot acababa de listar. `presupuestos` ya tiene la columna.
+      // Una sola lectura del árbol, no dos: la resolución se guarda entera porque el upsert
+      // necesita las DOS puntas (la subcategoría y su raíz).
+      const propia = catNorm ? await resolverCategoriaOSub(usuarioId, categoria.trim()) : null;
+      const subNorm = (propia && propia.subcategoria) || null;
       if (!catNorm) {
         return '❓ No reconozco la categoría "' + categoria + '".\n\nUsa una de las tuyas (escribe */categorias*) o una de estas: Alimentación, Transporte, Vivienda, Salud, Entretenimiento, Suscripciones, Compras, Educación, Finanzas, Trabajo_Negocio, Otros.';
       }
@@ -93,7 +101,8 @@ async function handle({ intencion, datos, usuario, from, ctx }) {
 
       const { error } = await supabase.from('presupuestos').upsert({
         usuario_id: usuarioId,
-        categoria: catNorm,
+        categoria: subNorm ? propia.categoria : catNorm,
+        subcategoria: subNorm,
         monto_limite: limiteValidado,
         mes,
         anio,
@@ -104,7 +113,7 @@ async function handle({ intencion, datos, usuario, from, ctx }) {
         return '❌ No pude configurar el límite. Intenta de nuevo.';
       }
 
-      return `✅ Listo, presupuesto de *S/${limiteValidado}* para *${catNorm}* este mes.\n\nTe avisaré cuando llegues al 80% y si te pasas. 📊`;
+      return `✅ Listo, presupuesto de *S/${limiteValidado}* para *${subNorm || catNorm}* este mes.\n\nTe avisaré cuando llegues al 80% y si te pasas. 📊`;
     }
 
     default:

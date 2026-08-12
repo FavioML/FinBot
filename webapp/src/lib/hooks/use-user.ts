@@ -26,6 +26,38 @@ import { useBootstrapGate } from '@/lib/hooks/use-dashboard-bootstrap';
  * Con el throw, React Query reintenta, no contamina la cache persistida, y el
  * `null` vuelve a significar una sola cosa: no hay fila.
  */
+/**
+ * Columnas de `usuarios` que NO pueden llegar al browser (hallazgo D9).
+ *
+ * `select('*')` se queda a propósito: enumerar columnas acá significa que agregar una a la
+ * tabla la deja fuera del hook EN SILENCIO, y el consumidor la lee como `undefined`. Con
+ * `*` + lista negra pasa lo contrario, que es la dirección segura: una columna nueva llega,
+ * y si es sensible hay que agregarla acá.
+ *
+ * Por qué importa más de lo que parece: esta respuesta va a la cache de React Query, y esa
+ * cache está PERSISTIDA (`PersistQueryClientProvider` en `dashboard-shell.tsx`), o sea que
+ * termina en el localStorage del navegador. Los tokens de Gmail están cifrados, pero un
+ * secreto cifrado en localStorage sigue siendo un secreto en localStorage.
+ *
+ * Medido antes de quitarlas: cero lecturas de estas columnas en `src/` fuera de `api/`.
+ */
+const COLUMNAS_SENSIBLES = [
+  'gmail_access_token',
+  'gmail_refresh_token',
+  'gmail_token_expiry',
+  // El BSUID es el identificador opaco que Meta le da a esta persona PARA ESTE NEGOCIO.
+  // La webapp no lo usa para nada y es la clave con la que se la reconoce cuando ya no
+  // manda su número.
+  'bsuid',
+] as const;
+
+function quitarSensibles(fila: Usuario | null): Usuario | null {
+  if (!fila) return fila;
+  const copia = { ...fila } as unknown as Record<string, unknown>;
+  for (const c of COLUMNAS_SENSIBLES) delete copia[c];
+  return copia as unknown as Usuario;
+}
+
 export async function fetchNetoUser(): Promise<Usuario | null> {
   if (IS_DEMO) return DEMO_USER;
 
@@ -48,7 +80,7 @@ export async function fetchNetoUser(): Promise<Usuario | null> {
   if (error) {
     throw new Error(`No se pudo leer el usuario: ${error.message}`);
   }
-  return data;
+  return quitarSensibles(data);
 }
 
 export function useUser() {
