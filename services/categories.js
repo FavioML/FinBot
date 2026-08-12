@@ -362,6 +362,15 @@ async function crearSubcategoriaLibreUsuario(usuarioId, categoriaNombre, subcate
   if (!categoriaNombre || !subcategoriaNombre) return;
   try {
     let padre = await buscarCategoriaRaiz(usuarioId, categoriaNombre);
+    // Una raíz INACTIVA no sirve de padre y hay que tratarla como si no estuviera (B33):
+    // `buscarCategoriaRaiz` no filtra por `activa` —a propósito, porque
+    // `asegurarCategoriaUsuario` necesita esa columna para distinguir "existe borrada" de "no
+    // existe"— así que sin este `null` el flujo la encontraba, salteaba el bloque de abajo
+    // entero, y colgaba una subcategoría ACTIVA de un padre borrado. Esa fila no aparece ni
+    // en `/categorias` ni en `obtenerCategoriasUsuario`, o sea que el usuario no la ve ni la
+    // puede borrar. Al caer a `null` entra al bloque, `asegurarCategoriaUsuario` devuelve
+    // `'inactiva'` y se corta ahí.
+    if (padre && padre.activa === false) padre = null;
     if (!padre) {
       // Crear el padre pasa por `asegurarCategoriaUsuario`, no por `crearCategoriaLibreUsuario`
       // directo, para que la política de creación de raíces sea UNA sola.
@@ -373,6 +382,14 @@ async function crearSubcategoriaLibreUsuario(usuarioId, categoriaNombre, subcate
       // contra el código viejo: falla igual, es preexistente.
       const veredicto = await asegurarCategoriaUsuario(usuarioId, categoriaNombre);
       if (veredicto === 'sin-arbol') return; // sin árbol no hay dónde colgarla, y no se le inventa uno
+      // `'inactiva'` = la raíz existe pero el usuario la BORRÓ (B33). Sin esta rama se
+      // insertaba una subcategoría ACTIVA colgando de un padre inactivo: una fila que no
+      // aparece ni en `/categorias` ni en `obtenerCategoriasUsuario` —las dos filtran por
+      // `activa` de la raíz— o sea data huérfana que nadie va a ver ni a poder borrar.
+      //
+      // No se reactiva la raíz, que es la decisión de B26(b) (Favio, 11-ago): el usuario la
+      // borró a propósito. Lo que cambia es que ahora no se le cuelga nada encima.
+      if (veredicto === 'inactiva') return;
       // Se busca por el nombre EFECTIVO, que puede no ser el que llegó: con un alias ortográfico
       // ("Alimentacion") arriba se escribió la forma canónica ("Alimentación"), y buscar el crudo
       // no la encuentra — la subcategoría se perdería sin un solo log.
