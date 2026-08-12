@@ -2,12 +2,16 @@ import { getServiceClient } from '@/lib/supabase/service';
 import { requireLectura } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { exactCI } from '@/lib/category-cascade';
 
-/** Escapa los comodines de LIKE (%, _, \) para que `ilike` sea un match exacto
- * case-insensitive y no un patrón (ej. "Trabajo_Negocio" tiene un guion bajo). */
-function likeEscape(s: string): string {
-  return s.replace(/[\\%_]/g, (c) => '\\' + c);
-}
+/*
+ * Este endpoint alimenta el NÚMERO que el usuario ve antes de confirmar el borrado
+ * ("esto afecta a N transacciones"), así que tiene que contar exactamente lo mismo que
+ * después va a tocar el cascade. Por eso importa `exactCI` en vez de tener su propia
+ * copia: hasta el 12-ago-2026 acá vivía un `likeEscape` duplicado, y el día que uno de
+ * los dos se arreglara —como pasó con el agujero del `*`— el preview y el borrado
+ * habrían empezado a hablar de conjuntos distintos, en silencio.
+ */
 
 /* GET — cuántas transacciones referencian una categoría (y opcionalmente una sub) */
 export async function GET(request: Request) {
@@ -29,8 +33,8 @@ export async function GET(request: Request) {
     .from('transacciones')
     .select('*', { count: 'exact', head: true })
     .eq('usuario_id', userId)
-    .ilike('categoria', likeEscape(nombre));
-  if (sub) q = q.ilike('subcategoria', likeEscape(sub));
+    .filter('categoria', 'imatch', exactCI(nombre));
+  if (sub) q = q.filter('subcategoria', 'imatch', exactCI(sub));
 
   const { count, error } = await q;
   if (error)

@@ -3,6 +3,13 @@ import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getCategoriaEmoji } from '@/lib/constants';
+import {
+  cascadeRootDelete,
+  cascadeSubDelete,
+  relabelRootName,
+  relabelSubName,
+  exactCI,
+} from '@/lib/category-cascade';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 /* ------------------------------------------------------------------ */
@@ -37,7 +44,7 @@ async function tombstoneSystemSub(
     .select('id, activa')
     .eq('usuario_id', userId)
     .eq('padre_id', padreId)
-    .ilike('nombre', clean)
+    .filter('nombre', 'imatch', exactCI(clean))
     .limit(1);
   if (rows && rows.length > 0) {
     if (rows[0].activa) {
@@ -52,155 +59,6 @@ async function tombstoneSystemSub(
   await svc
     .from('categorias_usuario')
     .insert({ usuario_id: userId, padre_id: padreId, nombre: clean, activa: false });
-}
-
-/** Escapa comodines de LIKE (%, _, \) para que `ilike` sea match exacto CI. */
-function likeEscape(s: string): string {
-  return s.replace(/[\\%_]/g, (c) => '\\' + c);
-}
-
-/**
- * Al borrar una SUBcategoría, sus transacciones sueltan la sub y quedan con la
- * categoría padre (subcategoria=null). Match case-insensitive porque la NLP y las
- * listas hardcodeadas guardan el casing de forma inconsistente.
- */
-async function detachSubTransactions(
-  svc: SupabaseClient,
-  userId: string,
-  parentNombre: string,
-  subNombre: string
-) {
-  await svc
-    .from('transacciones')
-    .update({ subcategoria: null })
-    .eq('usuario_id', userId)
-    .ilike('categoria', likeEscape(parentNombre))
-    .ilike('subcategoria', likeEscape(subNombre));
-}
-
-/**
- * Al borrar una categoría RAÍZ, sus transacciones pasan a "Por revisar":
- * categoria=null + subcategoria='sin_categoria' (el centinela que activa
- * needsReview), para que el usuario las re-clasifique manualmente.
- */
-async function detachRootTransactions(svc: SupabaseClient, userId: string, rootNombre: string) {
-  await svc
-    .from('transacciones')
-    .update({ categoria: null, subcategoria: 'sin_categoria' })
-    .eq('usuario_id', userId)
-    .ilike('categoria', likeEscape(rootNombre));
-}
-
-/**
- * Al borrar una categoría RAÍZ, se ELIMINAN sus reglas comercio→categoría. El
- * POST de /api/transactions auto-crea una regla al ingerir un gasto; si la regla
- * quedara apuntando a la categoría borrada, la próxima transacción de ese comercio
- * la re-clasificaría con el nombre viejo y syncCategoriasUsuario recrearía la
- * categoría → el borrado no pegaría. Una regla a una categoría inexistente es peor
- * que ninguna (condena al comercio a caer mal clasificado); mejor borrarla y dejar
- * que la próxima transacción clasifique fresh por NLP.
- */
-async function deleteRootReglas(svc: SupabaseClient, userId: string, rootNombre: string) {
-  await svc
-    .from('reglas_comercio')
-    .delete()
-    .eq('usuario_id', userId)
-    .ilike('categoria', likeEscape(rootNombre));
-}
-
-/**
- * Al borrar una SUBcategoría, las reglas que la usaban sueltan la sub y quedan
- * apuntando solo a la categoría padre (subcategoria=null): el comercio sigue
- * mapeando a la categoría, sin la sub borrada. Espejo del detach de transacciones.
- */
-async function detachSubReglas(
-  svc: SupabaseClient,
-  userId: string,
-  parentNombre: string,
-  subNombre: string
-) {
-  await svc
-    .from('reglas_comercio')
-    .update({ subcategoria: null })
-    .eq('usuario_id', userId)
-    .ilike('categoria', likeEscape(parentNombre))
-    .ilike('subcategoria', likeEscape(subNombre));
-}
-
-/**
- * Al borrar una categoría RAÍZ, se ELIMINAN sus presupuestos (incluidos los de
- * sus subcategorías). Un presupuesto sobre una categoría borrada nunca vuelve a
- * matchear gasto y, peor, el carry-forward del GET de /api/budgets lo copia hacia
- * cada mes nuevo: un zombie que se auto-propaga. Se borra en vez de dejarlo
- * huérfano.
- */
-async function deleteRootPresupuestos(svc: SupabaseClient, userId: string, rootNombre: string) {
-  await svc
-    .from('presupuestos')
-    .delete()
-    .eq('usuario_id', userId)
-    .ilike('categoria', likeEscape(rootNombre));
-}
-
-/**
- * Al borrar una SUBcategoría, se ELIMINAN los presupuestos scopeados a ella
- * (categoría padre + esa sub). A diferencia de las transacciones/reglas, aquí se
- * borra en vez de nullear la sub: un presupuesto de "Comida > Restaurantes" que
- * pasara a "Comida" ensancharía su scope en silencio (y chocaría con el unique
- * constraint si ya hay un presupuesto de la categoría). Los presupuestos a nivel
- * categoría (subcategoria=null) NO se tocan.
- */
-async function deleteSubPresupuestos(
-  svc: SupabaseClient,
-  userId: string,
-  parentNombre: string,
-  subNombre: string
-) {
-  await svc
-    .from('presupuestos')
-    .delete()
-    .eq('usuario_id', userId)
-    .ilike('categoria', likeEscape(parentNombre))
-    .ilike('subcategoria', likeEscape(subNombre));
-}
-
-// Tablas del usuario que referencian la taxonomía por NOMBRE (no por FK). Un
-// rename debe reetiquetarlas todas o quedan inconsistentes: un presupuesto sobre
-// la categoría vieja deja de matchear, y una regla comercio→categoría vieja la
-// recrea en el próximo auto-categorizado. gastos_compartidos queda fuera a
-// propósito (es del feature de gastos compartidos, con data que ven terceros).
-const NAME_REF_TABLES = ['transacciones', 'presupuestos', 'reglas_comercio'] as const;
-
-/** Renombra una categoría RAÍZ en todas las tablas que la referencian por nombre. */
-async function relabelRootName(svc: SupabaseClient, userId: string, oldName: string, newName: string) {
-  if (oldName === newName) return;
-  for (const tbl of NAME_REF_TABLES) {
-    // Best-effort: un choque de constraint en una tabla no debe abortar el rename.
-    await svc
-      .from(tbl)
-      .update({ categoria: newName })
-      .eq('usuario_id', userId)
-      .ilike('categoria', likeEscape(oldName));
-  }
-}
-
-/** Renombra una SUBcategoría (bajo su padre) en todas esas tablas. */
-async function relabelSubName(
-  svc: SupabaseClient,
-  userId: string,
-  parentNombre: string,
-  oldSub: string,
-  newSub: string
-) {
-  if (oldSub === newSub) return;
-  for (const tbl of NAME_REF_TABLES) {
-    await svc
-      .from(tbl)
-      .update({ subcategoria: newSub })
-      .eq('usuario_id', userId)
-      .ilike('categoria', likeEscape(parentNombre))
-      .ilike('subcategoria', likeEscape(oldSub));
-  }
 }
 
 /* GET — list user categories with subcategories */
@@ -354,7 +212,7 @@ export async function POST(request: Request) {
     .from('categorias_usuario')
     .select('id, activa')
     .eq('usuario_id', userId)
-    .ilike('nombre', nombre);
+    .filter('nombre', 'imatch', exactCI(nombre));
   existingQ = padreId ? existingQ.eq('padre_id', padreId) : existingQ.is('padre_id', null);
   const { data: existing } = await existingQ.order('created_at', { ascending: true }).limit(5);
 
@@ -442,9 +300,7 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: padreErr.message }, { status: 500 });
     if (!padre || padre.usuario_id !== userId)
       return NextResponse.json({ error: 'Categoría no encontrada' }, { status: 404 });
-    await detachSubTransactions(svc, userId, padre.nombre, nombre);
-    await detachSubReglas(svc, userId, padre.nombre, nombre);
-    await deleteSubPresupuestos(svc, userId, padre.nombre, nombre);
+    await cascadeSubDelete(svc, userId, padre.nombre, nombre);
     await tombstoneSystemSub(svc, userId, padreId, nombre);
     return NextResponse.json({ ok: true });
   }
@@ -466,24 +322,31 @@ export async function DELETE(request: Request) {
   if (!cat || cat.usuario_id !== userId)
     return NextResponse.json({ error: 'Categoria no encontrada' }, { status: 404 });
 
-  // Desvincular transacciones antes del soft-delete (decide por padre_id real, no
-  // por el query param). Sub → tx quedan con la categoría padre. Raíz → tx a "Por
-  // revisar" + sus subs se desactivan.
+  // Cascadear a los consumidores ANTES del soft-delete (decide por padre_id real, no
+  // por el query param): las funciones filtran por el NOMBRE, que sigue vivo hasta el
+  // update de abajo. Sub → las filas quedan con la categoría padre. Raíz → tx a "Por
+  // revisar" + sus subs se desactivan. El alcance exacto, en `@/lib/category-refs`.
   if (cat.padre_id) {
-    const { data: parent } = await svc
+    // 500 y NO seguir de largo. Esta lectura DECIDE si el cascade corre: sin el nombre
+    // del padre no hay con qué filtrar, y postgrest no lanza — un hipo de Supabase
+    // devolvía `parent === undefined`, el `if` no entraba, el cascade no corría, y la
+    // ruta igual borraba la categoría y respondía 200. O sea: el síntoma exacto que este
+    // módulo vino a cerrar (filas apuntando a un nombre que ya no existe) y sin un solo
+    // log, porque el `avisar()` del cascade nunca llega a invocarse.
+    const { data: parent, error: parentErr } = await svc
       .from('categorias_usuario')
       .select('nombre')
       .eq('id', cat.padre_id)
       .maybeSingle();
+    if (parentErr) {
+      console.error('[categories:padre] lectura fallida', { id: cat.padre_id, err: parentErr.message });
+      return NextResponse.json({ error: parentErr.message }, { status: 500 });
+    }
     if (parent?.nombre) {
-      await detachSubTransactions(svc, userId, parent.nombre, cat.nombre);
-      await detachSubReglas(svc, userId, parent.nombre, cat.nombre);
-      await deleteSubPresupuestos(svc, userId, parent.nombre, cat.nombre);
+      await cascadeSubDelete(svc, userId, parent.nombre, cat.nombre);
     }
   } else {
-    await detachRootTransactions(svc, userId, cat.nombre);
-    await deleteRootReglas(svc, userId, cat.nombre);
-    await deleteRootPresupuestos(svc, userId, cat.nombre);
+    await cascadeRootDelete(svc, userId, cat.nombre);
     await svc
       .from('categorias_usuario')
       .update({ activa: false })
@@ -545,7 +408,7 @@ export async function PUT(request: Request) {
       .select('id, activa')
       .eq('usuario_id', userId)
       .eq('padre_id', padreId)
-      .ilike('nombre', nombre)
+      .filter('nombre', 'imatch', exactCI(nombre))
       .order('created_at', { ascending: true })
       .limit(5);
 
@@ -620,11 +483,19 @@ export async function PUT(request: Request) {
   // Reetiquetar las tablas que referencian por nombre (transacciones, presupuestos,
   // reglas). Sub → subcategoria bajo su padre; raíz → categoria.
   if (cat.padre_id) {
-    const { data: parent } = await svc
+    // Mismo caso que en el DELETE: sin el nombre del padre el cascade no puede correr.
+    // Acá el rename de `categorias_usuario` YA se aplicó, así que devolver 500 deja la
+    // categoría renombrada y sus consumidores no — pero es el único estado que el
+    // usuario puede ver y reintentar. Tragarse el error deja el mismo desfase, mudo.
+    const { data: parent, error: parentErr } = await svc
       .from('categorias_usuario')
       .select('nombre')
       .eq('id', cat.padre_id)
       .maybeSingle();
+    if (parentErr) {
+      console.error('[categories:padre] lectura fallida', { id: cat.padre_id, err: parentErr.message });
+      return NextResponse.json({ error: parentErr.message }, { status: 500 });
+    }
     if (parent?.nombre) await relabelSubName(svc, userId, parent.nombre, cat.nombre, nombre);
   } else {
     await relabelRootName(svc, userId, cat.nombre, nombre);

@@ -287,8 +287,8 @@ function DeleteConfirmPanel({
             Hay <span className="font-semibold text-foreground">{count}</span>{' '}
             {count === 1 ? 'transacción' : 'transacciones'} en esta {isRoot ? 'categoría' : 'subcategoría'}. Al eliminar,{' '}
             {isRoot
-              ? 'pasarán a «Por revisar» para que las reclasifiques.'
-              : 'quedarán con su categoría principal.'}
+              ? 'pasarán a «Por revisar» para que las reclasifiques, y se borrarán sus presupuestos, reglas y alertas.'
+              : 'quedarán con su categoría principal, y se borrarán los presupuestos de esta subcategoría.'}
           </p>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
             <NextLink href={href} className="inline-flex items-center gap-0.5 text-xs font-medium text-primary hover:underline">
@@ -305,8 +305,12 @@ function DeleteConfirmPanel({
         </div>
       ) : (
         <div className="flex items-center gap-2">
+          {/* Sin transacciones NO significa sin consecuencias: el borrado se lleva
+              presupuestos, reglas y alertas igual, y /api/categories/usage solo cuenta
+              transacciones. Antes acá decía solo "¿Eliminar esta categoría?". */}
           <p className="flex-1 text-xs text-secondary-foreground">
-            ¿Eliminar esta {isRoot ? 'categoría' : 'subcategoría'}?
+            ¿Eliminar esta {isRoot ? 'categoría' : 'subcategoría'}? Se borran también sus presupuestos
+            {isRoot ? ', reglas y alertas' : ''}.
           </p>
           <Button size="sm" className="h-6 bg-destructive px-2 text-xs text-white hover:bg-destructive/80" onClick={onConfirm}>
             Eliminar
@@ -1316,7 +1320,11 @@ export default function ConfiguracionPage() {
                 id="categorias"
                 icon={Tag}
                 title="Gestionar categorías"
-                description="Crea, renombra o elimina categorías y subcategorías. Renombrar actualiza también tus transacciones, presupuestos y reglas; al eliminar, te aviso si hay transacciones y podrás revisarlas antes."
+                // El alcance real del cascade lo declara webapp/src/lib/category-refs.ts.
+                // Acá se enumeraban las tres tablas de entonces y quedó desactualizado al
+                // sumarse dos: en vez de repetir la lista (que vuelve a envejecer), el copy
+                // dice QUÉ pasa, no sobre cuántas tablas.
+                description="Crea, renombra o elimina categorías y subcategorías. Renombrar arrastra el nombre nuevo a todo lo que la usaba (gastos, presupuestos, reglas y alertas); al eliminar, te aviso si hay transacciones y podrás revisarlas antes."
               >
                 {/* Crear categoría raíz — siempre visible arriba de la lista */}
                 {creatingRoot ? (
