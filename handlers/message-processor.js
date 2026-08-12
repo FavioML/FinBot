@@ -172,7 +172,12 @@ async function procesarMensajeLibre(msg, usuario, from) {
         + '👉 ' + WEBAPP_URL + '/dashboard/transacciones\n\n'
         + 'Desde ahí puedes filtrar, seleccionar varios gastos y editarlos de una vez.\n'
         + '_¿Quieres que te ayude con algo más puntual por acá?_';
-      await guardarMensaje(usuario.id, 'neto', sugerencia.substring(0, 500));
+      // NO se guarda la respuesta acá: el único escritor de la fila 'neto' es
+      // `handlers/webhook.js`, que guarda lo que esta función devuelve. Los cuatro
+      // `guardarMensaje` que había en este archivo producían la fila DOS veces (P′9: el
+      // 7.2% de las filas 'neto' eran duplicados a menos de 5s). No era solo ruido en la
+      // tabla — `obtenerHistorial` lee las últimas 6 y se las manda al clasificador, así
+      // que cada turno duplicado le comía la mitad del contexto.
       return sugerencia;
     }
 
@@ -240,7 +245,6 @@ async function procesarMensajeLibre(msg, usuario, from) {
         let respFull = respuestasIE.join('\n');
         const nudgeIE = await colaConfirmacionGasto(usuario, txTrialIE, conteoTxIE);
         if (nudgeIE) respFull += nudgeIE;
-        await guardarMensaje(usuario.id, 'neto', respFull.substring(0, 500));
         return respFull;
       }
       // Si todos fallaron, dejar continuar al pipeline normal de OpenAI
@@ -292,7 +296,6 @@ async function procesarMensajeLibre(msg, usuario, from) {
         let respFull = respuestas.join('\n');
         const nudgeMG = await colaConfirmacionGasto(usuario, txTrialMG, conteoTxMG);
         if (nudgeMG) respFull += nudgeMG;
-        await guardarMensaje(usuario.id, 'neto', respFull.substring(0, 500));
         return respFull;
       }
       // Si todos los items fallaron, dejar continuar al pipeline normal de OpenAI
@@ -380,7 +383,6 @@ async function procesarMensajeLibre(msg, usuario, from) {
     } else if (choice.message.content) {
       // GPT respondio con texto en vez de tool call — tratar como conversacional
       const respDirecta = choice.message.content;
-      await guardarMensaje(usuario.id, 'neto', respDirecta.substring(0, 500));
       return respDirecta;
     } else {
       intencion = 'desconocido';

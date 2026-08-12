@@ -40,7 +40,10 @@ async function respuestaMuroSiCorresponde({ intencion, usuario, ctx }) {
   const { count } = await ctx.supabase.from('transacciones')
     .select('id', { count: 'exact', head: true }).eq('usuario_id', usuario.id);
   const respMuro = mensajeMuro(usuario, count);
-  await ctx.guardarMensaje(usuario.id, 'neto', respMuro.substring(0, 500));
+  // Sin `guardarMensaje`: el único escritor de la fila 'neto' es `handlers/webhook.js`,
+  // que guarda lo que devuelve `procesarMensajeLibre`. Escribir también acá duplicaba la
+  // fila (P′9) y, en el camino de la continuación multi-intent, guardaba un FRAGMENTO de la
+  // respuesta que el usuario recibió entera.
   analytics.capture(usuario.id, 'wa_muro_lectura', { intencion });
   return respMuro;
 }

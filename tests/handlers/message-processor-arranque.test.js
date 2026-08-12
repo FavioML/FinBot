@@ -134,6 +134,22 @@ describe('arranque de procesarMensajeLibre', () => {
     expect(obtenerCuentasGmail).not.toHaveBeenCalled();
   });
 
+  // P′9: la respuesta de Neto se escribía DOS veces en `conversaciones` — una acá y otra en
+  // `handlers/webhook.js`, que guarda lo que esta función devuelve. El 7.2% de las filas
+  // 'neto' eran duplicados a menos de 5s. No era solo ruido en la tabla: `obtenerHistorial`
+  // lee las últimas 6 y se las manda al clasificador, así que cada turno duplicado le comía
+  // la mitad del contexto.
+  it('NO escribe la respuesta de Neto: el único escritor es el webhook', async () => {
+    const res = await procesarMensajeLibre('gaste 20 en pan', USUARIO, '51999');
+    expect(res).toBe('Respuesta directa de NETO');
+
+    const roles = guardarMensaje.mock.calls.map((c) => c[1]);
+    // El turno del USUARIO sí se escribe acá, y tiene que seguir haciéndolo: va después de
+    // `obtenerHistorial` para no entrar dos veces al contexto del LLM.
+    expect(roles).toContain('usuario');
+    expect(roles).not.toContain('neto');
+  });
+
   it('un fallo leyendo gmail_cuentas no tumba el mensaje', async () => {
     obtenerCuentasGmail.mockImplementationOnce(async () => { throw new Error('gmail_cuentas caido'); });
     const res = await procesarMensajeLibre('gaste 20 en pan', USUARIO, '51999');
