@@ -1,6 +1,7 @@
 import { getServiceClient } from '@/lib/supabase/service';
 import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
+import { canAccess } from '@/lib/plan';
 
 // Las preferencias viven en la MISMA fila `usuarios` que el id y el plan, asi que
 // se traen todas de una. El GET hacia 2 round-trips a la misma fila: uno para
@@ -34,8 +35,12 @@ export async function PUT(request: Request) {
     update.recordatorios_activos = Boolean(body.recordatorios_activos);
   // Modo Manos Libres es una función Pro: solo premium puede activarlo.
   // Un usuario free siempre puede apagarlo (defensivo), nunca prenderlo.
+  //
+  // Por `canAccess` y no por `plan === 'premium'` a mano (M20): el gate inline no figuraba
+  // en `PRO_ONLY_FEATURES`, así que la lista que dice ser la fuente única de qué es Pro no
+  // contaba esta feature — y la próxima superficie que la muestre no habría heredado nada.
   if ('manos_libres' in body) {
-    if (usuario.plan === 'premium') update.manos_libres = Boolean(body.manos_libres);
+    if (canAccess(usuario.plan as string | undefined, 'manos_libres')) update.manos_libres = Boolean(body.manos_libres);
     else if (!body.manos_libres) update.manos_libres = false;
   }
   if ('alertas_transaccion' in body)

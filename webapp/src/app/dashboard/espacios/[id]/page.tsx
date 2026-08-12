@@ -947,7 +947,10 @@ export default function SpaceDetailPage() {
 
       {/* Settings Dialog (owner only) */}
       <Dialog open={showSettingsDialog} onOpenChange={setShowSettingsDialog}>
-        <DialogContent className="glass-card border-[rgba(255,255,255,0.08)] max-w-sm">
+        {/* `glass-card-elevated` como los otros 12 diálogos del archivo: el token de
+            superficie de un modal es el elevado (#1C1C19), no el de tarjeta (#131311).
+            Este quedó con el de tarjeta y se veía plano sobre el fondo (F13). */}
+        <DialogContent className="glass-card-elevated border-[rgba(255,255,255,0.08)] max-w-sm">
           <DialogHeader>
             <DialogTitle>Configuración del espacio</DialogTitle>
           </DialogHeader>

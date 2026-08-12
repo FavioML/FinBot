@@ -20,7 +20,14 @@ export type PlanFeature =
   | 'daily_summary'
   | 'daily_reminder'
   | 'advice_daily'
-  | 'gmail_reading'
+  // `gmail_reading` NO está acá, y sacarla es el fix de M19. Estaba en el enum y en
+  // `PRO_ONLY_FEATURES`, así que `canAccess` respondía **true durante el trial** — y
+  // conectar Gmail es la única capability que exige Pro PAGADO, porque cada conexión
+  // quema uno de los 100 cupos de Google y ese cupo NO se recupera. Tenía cero
+  // call-sites, así que no hubo daño; el primero que alguien escribiera lo habría
+  // producido. Fuera del enum, `canAccess('gmail_reading')` ya no compila, que es un
+  // guard más fuerte que cualquier test. El gate real es `esProPagado` en
+  // `routes/pro.js` y en el canje de `routes/public.js`.
   // v2 — Score
   | 'score_tips'
   | 'score_history'
@@ -36,7 +43,11 @@ export type PlanFeature =
   // v2 — Espacios
   | 'espacios_custom_split'
   | 'espacios_shared_budget'
-  | 'espacios_full_history';
+  | 'espacios_full_history'
+  // Manos Libres: se gateaba inline con `plan === 'premium'` en
+  // `api/notifications/route.ts` y no figuraba en esta lista, así que la "fuente única"
+  // no la contaba (M20). Un gate inline es un gate que la próxima superficie no hereda.
+  | 'manos_libres';
 
 /** Features only available on Pro plan */
 const PRO_ONLY_FEATURES: PlanFeature[] = [
@@ -49,7 +60,6 @@ const PRO_ONLY_FEATURES: PlanFeature[] = [
   'daily_summary',
   'daily_reminder',
   'advice_daily',
-  'gmail_reading',
   // v2
   'score_tips',
   'score_history',
@@ -63,6 +73,7 @@ const PRO_ONLY_FEATURES: PlanFeature[] = [
   'espacios_custom_split',
   'espacios_shared_budget',
   'espacios_full_history',
+  'manos_libres',
 ];
 
 /**

@@ -347,8 +347,11 @@ export default function SuscripcionesPage() {
     );
   }
 
-  // Error de carga distinto de "sin suscripciones": no mostrar el empty (parecería que perdió su data).
-  if (subsError) {
+  // Error de carga distinto de "sin suscripciones": no mostrar el empty (parecería que
+  // perdió su data). El `&& !rawData` es F15: sin él, un REFETCH fallido tapaba la lista
+  // que el usuario estaba mirando y que react-query todavía tiene en cache — o sea que un
+  // parpadeo de red borraba de pantalla datos válidos.
+  if (subsError && !rawData) {
     return <ErrorState titulo="No pudimos cargar tus suscripciones" onReintentar={() => refetchSubs()} />;
   }
 

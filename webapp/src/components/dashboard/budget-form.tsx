@@ -34,10 +34,24 @@ export interface CategoriaOption {
 interface SubBudgetRow {
   /** id of the existing sub-budget row, undefined for newly added rows */
   id?: string;
+  /**
+   * Clave estable de React, distinta del `id` de la DB: una fila recién agregada no tiene
+   * `id` todavía y aun así hay que poder identificarla entre renders.
+   *
+   * Con `key={idx}` (lo que había, hallazgo F10) borrar la fila del medio hacía que React
+   * reusara el DOM de la borrada para la siguiente: el `<Select>` no controlado por completo
+   * se quedaba con el valor anterior, así que el usuario borraba "Taxi" y veía cómo el monto
+   * de "Taxi" aparecía pegado a "Delivery". Es un bug de plata: el límite terminaba en la
+   * subcategoría equivocada.
+   */
+  key: string;
   subcategoria: string;
   customSub: string;
   monto: string;
 }
+
+let contadorFilas = 0;
+const nuevaClaveFila = () => 'sub-' + (contadorFilas++);
 
 interface BudgetFormProps {
   open: boolean;
@@ -144,6 +158,9 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
         if (groupSubBudgets && groupSubBudgets.length > 0) {
           setSubRows(groupSubBudgets.map(sb => ({
             id: sb.id,
+            // Las filas que vienen de la DB usan su propio id como clave: es estable entre
+            // renders y sobrevive a que se borre una fila vecina.
+            key: 'db-' + sb.id,
             subcategoria: sb.subcategoria || '',
             customSub: '',
             monto: sb.monto_limite.toString(),
@@ -164,7 +181,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
   }, [budget, open, groupSubBudgets]);
 
   function addSubRow() {
-    setSubRows(prev => [...prev, { subcategoria: '', customSub: '', monto: '' }]);
+    setSubRows(prev => [...prev, { key: nuevaClaveFila(), subcategoria: '', customSub: '', monto: '' }]);
   }
 
   function updateSubRow(index: number, field: keyof SubBudgetRow, value: string) {
@@ -499,7 +516,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
               {subRows.map((row, idx) => {
                 const usedSubs = getUsedSubs();
                 return (
-                  <div key={idx} className="flex items-end gap-2">
+                  <div key={row.key} className="flex items-end gap-2">
                     <div className="flex-1">
                       {idx === 0 && <label className="text-[10px] text-[#8A877D] mb-1 block">Subcategoría</label>}
                       <Select

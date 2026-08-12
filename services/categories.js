@@ -139,8 +139,23 @@ async function crearCategoriaLibreUsuario(usuarioId, nombre) {
   try {
     if (await buscarCategoriaRaiz(usuarioId, nombre)) return;
     const emoji = getEmojiCategoria(nombre) || await sugerirEmojiConIA(nombre);
-    await supabase.from('categorias_usuario').insert({ usuario_id: usuarioId, nombre, emoji, activa: true });
-  } catch(e) { /* silencioso */ }
+    const { error } = await supabase.from('categorias_usuario')
+      .insert({ usuario_id: usuarioId, nombre, emoji, activa: true });
+    // Cuarto borde del 23505 tras la migración 067. Esto es check-then-act: entre el
+    // `buscarCategoriaRaiz` de arriba y este insert hay un await a OpenAI
+    // (`sugerirEmojiConIA`), o sea cientos de ms en los que otro mensaje del mismo usuario
+    // puede crear la misma raíz. El índice único es justo lo que cierra esa carrera, y el
+    // `catch` mudo hacía indistinguible ese caso —que es CORRECTO— de un fallo real.
+    if (error && error.code !== '23505') {
+      log.warn({ tag: 'CATEGORIAS', usuarioId, nombre, err: error.message },
+        'No se pudo crear la categoria libre');
+    }
+  } catch(e) {
+    // El catch sigue existiendo (la lectura o la llamada al modelo pueden lanzar) pero ya
+    // no es mudo: un fallo acá deja al usuario sin su categoría en `/categorias`.
+    log.warn({ tag: 'CATEGORIAS', usuarioId, nombre, err: e.message },
+      'Excepcion creando la categoria libre');
+  }
 }
 
 /**
