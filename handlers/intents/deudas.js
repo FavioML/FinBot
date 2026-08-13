@@ -1,5 +1,10 @@
 const log = require('../../lib/logger');
 const { sumarMeses } = require('../../lib/dates');
+// Fuente única de validación de montos. Acá se usaba `parseFloat` + `> 0` + `isNaN`,
+// que es el gemelo exacto de B18 (cerrado para transacciones, no para deudas):
+// `isNaN(Infinity)` es false y no había techo, así que un "debo 1e999 a Juan" entraba
+// y PostgREST lo serializaba a `null`. Lo delató `tests/plata-validada.test.js`.
+const { validarMonto } = require('../../lib/validators');
 
 module.exports = {
   intents: ['registrar_deuda', 'ver_deudas', 'abonar_deuda', 'marcar_deuda_pagada', 'consolidar_deudas', 'saldar_todo_contraparte', 'dividir_gasto_grupal'],
@@ -16,7 +21,7 @@ module.exports = {
         try {
           const tipo = datos.tipo || (/\bme debe\b|le prest[eé]/i.test(msg) ? 'me_deben' : 'debo');
           let contraparte = datos.contraparte;
-          let montoClasif = parseFloat(datos.monto);
+          let montoClasif = validarMonto(datos.monto);
           let monedaClasif = datos.moneda || 'PEN';
           const descripcion = datos.descripcion || null;
 
@@ -42,15 +47,36 @@ module.exports = {
 
           // Detectar multi-moneda: "100 soles y 10 dólares"
           const montos = [];
-          const reMontos = /(\d+(?:[.,]\d+)?)\s*(?:soles?|pen|s\/)/gi;
-          const reMontosUsd = /(\d+(?:[.,]\d+)?)\s*(?:d[oó]lares?|usd|\$)|(?:\$)\s*(\d+(?:[.,]\d+)?)/gi;
+          let hayMontoInvalido = false;
+          // El `(?![a-záéíóúñ])` NO es cosmético: sin él, `pen` matchea dentro de
+          // "pendientes", así que "le debo 100 soles, me quedan 0 pendientes" leía un
+          // segundo monto de 0 PEN. Con el rechazo explícito de abajo eso perdía el
+          // mensaje ENTERO (la deuda válida de S/100 incluida); antes registraba dos
+          // deudas. Mismo caso con "debo 50 soles por 2 pensiones".
+          const reMontos = /(\d+(?:[.,]\d+)?)\s*(?:soles?|pen|s\/)(?![a-záéíóúñ])/gi;
+          const reMontosUsd = /(\d+(?:[.,]\d+)?)\s*(?:d[oó]lares?|usd|\$)(?![a-záéíóúñ])|(?:\$)\s*(\d+(?:[.,]\d+)?)/gi;
           let mPen;
           while ((mPen = reMontos.exec(msg)) !== null) {
-            montos.push({ monto: parseFloat(mPen[1].replace(',', '.')), moneda: 'PEN' });
+            // Un monto inválido en la lista NO se descarta en silencio: se marca. Con
+            // el `if (v !== null) push` a secas, "te debo 100 soles y 1500000 soles"
+            // registraba solo la primera y respondía "Anotado" sin mencionar la otra —
+            // pérdida parcial silenciosa, peor que las dos alternativas.
+            const vPen = validarMonto(mPen[1].replace(',', '.'));
+            if (vPen === null) hayMontoInvalido = true;
+            else montos.push({ monto: vPen, moneda: 'PEN' });
           }
           let mUsd;
           while ((mUsd = reMontosUsd.exec(msg)) !== null) {
-            montos.push({ monto: parseFloat((mUsd[1] || mUsd[2]).replace(',', '.')), moneda: 'USD' });
+            const vUsd = validarMonto((mUsd[1] || mUsd[2]).replace(',', '.'));
+            if (vUsd === null) hayMontoInvalido = true;
+            else montos.push({ monto: vUsd, moneda: 'USD' });
+          }
+
+          // Si alguno de los montos del mensaje no era válido, no se registra "lo que
+          // se pudo": el usuario nombró N deudas y anotar N-1 diciendo "Listo" es
+          // pérdida silenciosa. Se le pide que lo repita bien.
+          if (hayMontoInvalido) {
+            return 'Uno de esos montos no me cuadra. Repítemelo así:\n_"debo S/200 a Juan"_\n_"le debo 100 soles y 50 dólares a Ana"_';
           }
 
           // Helper para mostrar fecha de vencimiento en la respuesta
@@ -73,12 +99,14 @@ module.exports = {
 
           // Caso normal: un solo monto
           // Si no teníamos monto del clasificador pero sí detectamos uno con regex
-          if ((!montoClasif || isNaN(montoClasif)) && montos.length === 1) {
+          if (montoClasif === null && montos.length === 1) {
             montoClasif = montos[0].monto;
             monedaClasif = montos[0].moneda;
           }
 
-          if (!contraparte || !montoClasif || montoClasif <= 0 || isNaN(montoClasif)) {
+          // `validarMonto` ya devolvió null para NaN, Infinity, <= 0 y > 999999.99: acá
+          // solo queda preguntar si hubo monto, no repetir los checks a mano.
+          if (!contraparte || montoClasif === null) {
             return 'Mmm, no pillé bien los datos. Dime algo como:\n_"debo S/200 a Juan"_\n_"Pedro me debe S/150 por la cena"_';
           }
           if (contraparte.length > 100) contraparte = contraparte.substring(0, 100);
@@ -123,7 +151,7 @@ module.exports = {
       case 'abonar_deuda': {
         try {
           let contraparte = datos.contraparte;
-          let montoAbono = parseFloat(datos.monto);
+          let montoAbono = validarMonto(datos.monto);
 
           // Fallback: extraer contraparte de frases como "Annie me dio 50", "mi tía Jenny me pagó"
           if (!contraparte) {
@@ -139,7 +167,7 @@ module.exports = {
           }
 
           // Soporte fracciones: "la mitad", "un tercio", "X%"
-          if ((!montoAbono || isNaN(montoAbono)) && contraparte) {
+          if (montoAbono === null && contraparte) {
             const { data: deudasCalc } = await supabase.from('deudas')
               .select('monto_pendiente')
               .eq('usuario_id', usuario.id).eq('estado', 'activa')
@@ -154,17 +182,20 @@ module.exports = {
                 const pctMatch = msg.match(/(\d+)\s*%/);
                 if (pctMatch) montoAbono = pendiente * (parseInt(pctMatch[1]) / 100);
               }
-              if (montoAbono) montoAbono = Math.round(montoAbono * 100) / 100;
+              // La fracción sale de una división: si `monto_pendiente` viniera
+              // corrupto, esto propaga NaN. `validarMonto` redondea a 2 decimales
+              // igual que el `Math.round(x*100)/100` que había acá.
+              montoAbono = validarMonto(montoAbono);
             }
           }
 
           // Fallback: extraer monto del mensaje si el clasificador no lo capturó
-          if ((!montoAbono || isNaN(montoAbono))) {
+          if (montoAbono === null) {
             const mMontoFb = msg.match(/(\d+(?:[.,]\d+)?)/);
-            if (mMontoFb) montoAbono = parseFloat(mMontoFb[1].replace(',', '.'));
+            if (mMontoFb) montoAbono = validarMonto(mMontoFb[1].replace(',', '.'));
           }
 
-          if (!contraparte || !montoAbono || montoAbono <= 0 || isNaN(montoAbono)) {
+          if (!contraparte || montoAbono === null) {
             return '¿A quién y cuánto? Dime algo como:\n_"le pagué 100 a Juan"_\n_"Annie me dio la mitad"_\n_"mi tía Jenny me pagó 500"_';
           }
           const resultado = await abonarDeuda(usuario.id, contraparte, montoAbono);
@@ -255,10 +286,14 @@ module.exports = {
           const mSplit = msg.match(/(\d+[\d,.]*)\b.+?\bentre\s+(\d+)/i) ||
                          msg.match(/(\d+[\d,.]*)\b.+?\bcon\s+(\d+)\s+(?:amigos?|personas?)/i);
           if (!mSplit) return '¿Cuánto pagaste y entre cuántos? Ej: _"pagué 300 la cena entre 4"_';
-          const montoTotal = parseFloat(mSplit[1].replace(',', '.'));
+          const montoTotal = validarMonto(mSplit[1].replace(',', '.'));
           const numPersonas = parseInt(mSplit[2]);
-          if (isNaN(montoTotal) || montoTotal <= 0 || numPersonas < 2) return 'Necesito un monto válido y al menos 2 personas.';
-          const perPerson = Math.round((montoTotal / numPersonas) * 100) / 100;
+          if (montoTotal === null || numPersonas < 2) return 'Necesito un monto válido y al menos 2 personas.';
+          // La parte de cada uno también se escribe (`gasto_participantes.monto_debe`),
+          // así que también se valida: con un total muy chico entre muchas personas el
+          // redondeo da 0, y un participante que debe S/0 no es una deuda.
+          const perPerson = validarMonto(Math.round((montoTotal / numPersonas) * 100) / 100);
+          if (perPerson === null) return 'Ese monto entre ' + numPersonas + ' personas no da una parte que pueda anotar. Prueba con un total mayor.';
           // Extract description - skip bare currency words
           const mDesc = msg.match(/(?:pagu[eé]|divid[eiír]|split)\s+\d+[\d,.]*\s+(?:soles?\s+|d[oó]lares?\s+|USD\s+)?(?:(?:con|de|la|el|por|en\s+una?)\s+)?(.+?)(?:\s+(?:entre|con)\s+\d+)/i);
           let descripcion = mDesc ? mDesc[1].trim() : '';

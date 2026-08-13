@@ -2,6 +2,7 @@ const { supabase } = require('../lib/db');
 const { openai } = require('../lib/ai');
 const log = require('../lib/logger');
 const { hoyPeru } = require('../lib/dates');
+const { validarMonto } = require('../lib/validators');
 const { construirDatosUsuario } = require('./recommendations');
 
 // ═══════════════════════════════════════════════════════════════
@@ -207,12 +208,20 @@ function mensajePorAlerta(a) {
  * Persist alerts to spending_alerts table.
  */
 async function guardarAlertas(usuarioId, alertas, mensaje) {
+  // `amount` y `comparison_amount` salen de sumas sobre `transacciones` (ya validadas),
+  // así que esto no es una puerta de entrada — pero son columnas de plata y una suma
+  // sobre una fila rara se imprime tal cual en la alerta que le llega al usuario
+  // ("gastaste S/NaN en Alimentación"). `comparison_amount` sí puede ser 0 legítimo:
+  // es el mes anterior de una categoría que no existía.
+  //
+  // Lo marcó `tests/plata-validada.test.js`: es la hermana de `services/fugas.js`, que
+  // se cerró el 11-ago por la misma razón.
   const rows = alertas.slice(0, 5).map(a => ({
     user_id: usuarioId,
     type: a.type,
     category: a.category,
-    amount: a.amount,
-    comparison_amount: a.comparison_amount,
+    amount: validarMonto(a.amount),
+    comparison_amount: validarMonto(a.comparison_amount, { permitirCero: true }),
     message: mensajePorAlerta(a),
   }));
 

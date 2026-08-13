@@ -5,6 +5,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { parseCSV, parseExcel, type ImportRow } from '@/lib/import-parser';
 import crypto from 'crypto';
 import { SUB_SENTINEL_REVISAR } from '@/lib/subcategoria';
+import { parseMontoDinero } from '@/lib/money';
 
 // exceljs necesita el runtime Node (streams), no edge.
 export const runtime = 'nodejs';
@@ -12,12 +13,9 @@ export const runtime = 'nodejs';
 const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5MB
 const MAX_ROWS = 500;
 
-/** Valida monto: número positivo <= 999999.99 (espejo del backend). */
-function validarMonto(valor: unknown): number | null {
-  const n = parseFloat(String(valor));
-  if (isNaN(n) || !isFinite(n) || n <= 0 || n > 999999.99) return null;
-  return Math.round(n * 100) / 100;
-}
+// Era una copia local idéntica a `parseMontoDinero`. Ver la nota de
+// `api/transactions/route.ts`: una copia correcta hoy es una deriva mañana, y el guard
+// `tests/plata-validada.test.js` la marcaba como "definido fuera de su módulo dueño".
 
 /** Dedup hash con el mismo formato que services/transactions.js y POST /api/transactions. */
 function generarDedupHash(userId: string, fecha: string, monto: number, comercio: string | null, tipo: string): string {
@@ -96,7 +94,7 @@ export async function POST(request: Request) {
   const toInsert: Record<string, unknown>[] = [];
   let descartadas = 0;
   for (const r of rows) {
-    const monto = validarMonto(r.monto);
+    const monto = parseMontoDinero(r.monto);
     if (monto === null || !r.fecha) {
       descartadas++;
       continue;

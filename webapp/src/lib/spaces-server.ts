@@ -177,11 +177,101 @@ export const MAX_MONTO = 999999.99;
  * `isNaN(Number(x))` no alcanza: `1e999` sobrevive a JSON.parse como Infinity y
  * `isNaN(Infinity)` es false, asi que pasaba el guard. Es el mismo hueco que S2
  * dejo abierto en los aportes de metas.
+ *
+ * El filtro de TIPO no es ceremonia y lo encontraron los tests de `parseSpaceBudgets`,
+ * no la lectura: `Number(true)` y `Number([1])` valen **1**, asi que `amount: true` en
+ * `POST /expenses` registraba un gasto de S/1 que mueve el balance real del grupo, y
+ * `amount: []` valia 0 (rechazado de casualidad, por el `<= 0`). Aca solo se aceptan
+ * numeros y strings numericos, que es lo unico que manda un cliente honesto: el
+ * formulario tipea un string y el JSON del harness manda un number.
  */
 export function parseSpaceAmount(raw: unknown): number | null {
+  if (typeof raw !== 'number' && typeof raw !== 'string') return null;
   const n = Number(raw);
   if (!Number.isFinite(n) || n <= 0 || n > MAX_MONTO) return null;
   return n;
+}
+
+export interface SpaceBudget {
+  id: string;
+  category: string;
+  limit: number;
+}
+
+/** Tope de presupuestos por espacio. Hay ~10 categorías; esto es holgura, no política. */
+export const MAX_BUDGETS_POR_ESPACIO = 50;
+const MAX_LARGO_CATEGORIA = 60;
+
+/**
+ * Valida y normaliza los presupuestos conjuntos de un espacio (S′6).
+ *
+ * `PUT /api/spaces/[id]/budgets` solo comprobaba `Array.isArray` y escribía el JSONB
+ * crudo, así que era la única escritura de plata de Espacios que no pasaba por
+ * `parseSpaceAmount`. Un `limit` en `1e999` sobrevive a `JSON.parse` como Infinity y
+ * `JSON.stringify` lo manda como `null`; el detalle del espacio hace
+ * `budget.limit > 0 ? Math.round(spent / budget.limit * 100) : 0` y
+ * `budget.limit * frac` para lo que le toca a cada miembro, o sea que un límite
+ * corrupto se convierte en el número que la pantalla le muestra a cada persona.
+ *
+ * RECHAZA en vez de sanear en silencio, al revés que `sanitizeSplitRules`, y la
+ * diferencia no es de estilo: una regla de reparto la escribe el cliente a partir de
+ * pesos que el usuario no ve uno por uno, mientras que un presupuesto ES el número
+ * que la persona acaba de tipear. Dejarlo caer sin decir nada le muestra "guardado"
+ * sobre un límite que no quedó. Además es lo que hacen las otras rutas de dinero
+ * (`/api/budgets`, `/api/goals`, `/api/debts`) y lo que `qa-money-edge` verifica.
+ *
+ * Devuelve SOLO `{id, category, limit}`: lo que entra al JSONB es una forma cerrada,
+ * no el objeto del cliente con las llaves que se le hayan colado.
+ */
+export function parseSpaceBudgets(
+  raw: unknown
+): { ok: true; budgets: SpaceBudget[] } | { ok: false; error: string } {
+  if (!Array.isArray(raw)) return { ok: false, error: 'budgets must be an array' };
+  if (raw.length > MAX_BUDGETS_POR_ESPACIO) {
+    return { ok: false, error: `Máximo ${MAX_BUDGETS_POR_ESPACIO} presupuestos por espacio` };
+  }
+
+  const budgets: SpaceBudget[] = [];
+  const categoriasVistas = new Set<string>();
+  const idsVistos = new Set<string>();
+
+  for (const item of raw) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return { ok: false, error: 'Cada presupuesto debe ser un objeto' };
+    }
+    const b = item as Record<string, unknown>;
+
+    // `normalize('NFC')` antes de nada: "Café" precompuesto y "Café" descompuesto son
+    // dos strings distintos que se ven idénticos, así que sin normalizar la dedup no
+    // los cruza y el espacio muestra dos barras iguales para la misma categoría.
+    // Y los invisibles (zero-width, BOM) NO son whitespace: sobreviven a `trim()`, o
+    // sea que "​" pasaba como nombre de categoría "no vacío".
+    const category = typeof b.category === 'string'
+      ? b.category.normalize('NFC').replace(/[​-‍﻿]/g, '').trim()
+      : '';
+    if (!category) return { ok: false, error: 'Cada presupuesto necesita una categoría' };
+    if (category.length > MAX_LARGO_CATEGORIA) {
+      return { ok: false, error: 'Nombre de categoría demasiado largo' };
+    }
+    // Dos filas para la misma categoría se pintan las dos y el gasto se cuenta contra
+    // ambas: el usuario ve dos barras distintas para la misma plata.
+    const clave = category.toLocaleLowerCase('es');
+    if (categoriasVistas.has(clave)) return { ok: false, error: `Presupuesto duplicado para ${category}` };
+    categoriasVistas.add(clave);
+
+    const limit = parseSpaceAmount(b.limit);
+    if (limit === null) return { ok: false, error: `Límite inválido para ${category}` };
+
+    // El `id` tiene que ser único: la UI borra con `filter(b => b.id !== budget.id)`,
+    // así que dos presupuestos con el mismo id se borran de a dos.
+    const id = typeof b.id === 'string' && b.id.trim() ? b.id.trim().slice(0, 64) : category;
+    if (idsVistos.has(id)) return { ok: false, error: `Identificador de presupuesto duplicado: ${id}` };
+    idsVistos.add(id);
+
+    budgets.push({ id, category, limit });
+  }
+
+  return { ok: true, budgets };
 }
 
 export interface SpaceSplitContext {

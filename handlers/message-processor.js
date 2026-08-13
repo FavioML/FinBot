@@ -8,7 +8,7 @@ const fechaAyerPeru = () => ayerPeru();
 const { CATEGORIAS_VALIDAS, CATEGORIA_MAP, WEBAPP_URL } = require('../lib/constants');
 const { validarMonto, normalizarCategoria } = require('../lib/validators');
 const { ADMIN_NUMBER } = require('../lib/config');
-const { esVerUltimoMovimiento } = require('../lib/nlp-guards');
+const { esVerUltimoMovimiento, extraerGastoSinIA } = require('../lib/nlp-guards');
 const { getEmojiCategoria, formatearResumen, formatearCategoriasMsg, barraProgreso, generarRefCode, formatFecha } = require('../lib/formatters');
 const { enviarWhatsapp } = require('../lib/whatsapp');
 const { obtenerTipoCambio, guardarTransaccion, obtenerGastosMes, obtenerGastosSemana, obtenerUltimaTransaccion, recategorizarTransaccion, corregirTransaccionEspecifica, guardarReglaComercio, retroaplicarRegla } = require('../services/transactions');
@@ -34,30 +34,33 @@ const { colaConfirmacionGasto } = require('../lib/trial');
 /**
  * Salvage sin IA: cuando OpenAI está caído (429) el pipeline normal no puede clasificar,
  * pero no queremos perder el registro del usuario (caso Ricardo: "4.10 pastillas" nunca se
- * guardó). Extrae un gasto/ingreso simple por regex y lo guarda en categoría genérica.
- * Best-effort: si no hay monto claro, devuelve null y el flujo cae al mensaje de reintento.
+ * guardó). Guarda en categoría genérica lo que `extraerGastoSinIA` haya podido reconstruir.
+ * Best-effort: si el mensaje no es un registro reconocible, devuelve null y el flujo cae al
+ * mensaje de reintento.
+ *
+ * Esta función ya NO decide qué es un gasto: eso vive en `lib/nlp-guards.js`, que es puro y
+ * se prueba solo. Acá queda persistir y redactar.
+ *
+ * El monto no se valida acá a propósito: `guardarTransaccion` llama a `validarMonto` y lanza
+ * si no pasa, así que duplicar el techo en este archivo crea dos topes que pueden divergir.
+ * `extraerGastoSinIA` ya descarta lo que no es un número usable.
  */
 async function salvarGastoSinIA(msg, usuario) {
   try {
-    const texto = (msg || '').trim();
-    const m = texto.match(/(\d+(?:[.,]\d{1,2})?)/); // primer número con hasta 2 decimales
-    if (!m) return null;
-    const monto = parseFloat(m[1].replace(',', '.'));
-    if (!isFinite(monto) || monto <= 0 || monto > 999999) return null;
-    const esIngreso = /\b(cobr[eé]|me\s+pagaron|me\s+pag[oó]|sueldo|salario|dep[oó]sito|recib[ií]|abono)\b/i.test(texto);
-    let comercio = texto
-      .replace(m[0], ' ')
-      .replace(/\b(gast[eé]|pagu[eé]|compr[eé]|me\s+prest[eé]|en|de|por|soles?|s\/\.?|pen)\b/gi, ' ')
-      .replace(/\s+/g, ' ').trim();
-    if (comercio.length > 40) comercio = comercio.slice(0, 40);
+    const extraido = extraerGastoSinIA(msg);
+    if (!extraido) return null;
+    const { monto, moneda, tipo, comercio } = extraido;
     const fecha = fechaHoyPeru();
     const datos = {
-      monto, moneda: 'PEN', comercio: comercio || 'Sin comercio',
-      categoria: esIngreso ? 'Finanzas' : 'Otros', subcategoria: 'sin_categoria',
-      tipo: esIngreso ? 'ingreso' : 'gasto', fecha, descripcion_original: texto.substring(0, 200),
+      monto, moneda, comercio: comercio || 'Sin comercio',
+      categoria: tipo === 'ingreso' ? 'Finanzas' : 'Otros', subcategoria: 'sin_categoria',
+      tipo, fecha, descripcion_original: (msg || '').trim().substring(0, 200),
     };
     await guardarTransaccion(usuario.id, datos);
-    return '✅ S/' + monto.toFixed(2) + ' en ' + datos.categoria + (comercio ? ' · ' + comercio : '') + ' · ' + formatFecha(fecha) +
+    // El símbolo sigue a la moneda detectada. Antes decía "S/" siempre, así que un gasto
+    // en dólares se confirmaba con el símbolo equivocado además de guardarse mal.
+    const simbolo = moneda === 'USD' ? '$' : 'S/';
+    return '✅ ' + simbolo + monto.toFixed(2) + ' en ' + datos.categoria + (comercio ? ' · ' + comercio : '') + ' · ' + formatFecha(fecha) +
       '\n\n_Lo registré al toque porque estábamos con mucho tráfico. Si la categoría no es "' + datos.categoria + '", dime y la corrijo._';
   } catch (e) {
     log.warn({ tag: 'SALVAGE_TX', err: e.message }, 'No se pudo salvar gasto sin IA');

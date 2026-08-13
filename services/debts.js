@@ -1,6 +1,28 @@
 const { supabase } = require('../lib/db');
 const { hoyPeru } = require('../lib/dates');
 const log = require('../lib/logger');
+const { validarMonto } = require('../lib/validators');
+
+/**
+ * El monto se valida ACÁ, en el chokepoint de deudas, y no solo en los handlers.
+ *
+ * Es el mismo criterio que `guardarTransaccion`: un archivo que escribe plata valida
+ * su propia entrada, así el call-site nuevo que se olvide no abre un hueco. Lo delató
+ * `tests/plata-validada.test.js` el día que se escribió — este módulo insertaba
+ * `monto_original` y `monto_pendiente` sin mirar el número, y el guard de arriba
+ * (`handlers/intents/deudas.js`) era `parseFloat` + `> 0` + `isNaN`, o sea sin
+ * `isFinite` y sin techo: exactamente el gemelo de B18, que se cerró para
+ * transacciones y no para deudas.
+ *
+ * `isNaN(Infinity)` es false, así que `1e999` pasaba los tres checks, y PostgREST
+ * serializa Infinity como `null`: `monto_pendiente = null` es la deuda envenenada de
+ * forma permanente que qa-money-edge ya documentó como P0 por el lado de la webapp.
+ */
+function montoDeDeuda(valor) {
+  const v = validarMonto(valor);
+  if (v === null) throw new Error('Monto de deuda inválido: ' + valor);
+  return v;
+}
 
 /**
  * Registra una deuda nueva.
@@ -12,12 +34,13 @@ const log = require('../lib/logger');
  * @param {string|null} descripcion
  */
 async function registrarDeuda(usuarioId, tipo, contraparte, monto, moneda = 'PEN', descripcion = null, fechaVencimiento = null) {
+  const montoValidado = montoDeDeuda(monto);
   const { data, error } = await supabase.from('deudas').insert({
     usuario_id: usuarioId,
     tipo,
     contraparte: contraparte.trim(),
-    monto_original: monto,
-    monto_pendiente: monto,
+    monto_original: montoValidado,
+    monto_pendiente: montoValidado,
     moneda,
     descripcion: descripcion ? descripcion.trim() : null,
     fecha_vencimiento: fechaVencimiento || null,
@@ -49,6 +72,11 @@ async function obtenerDeudas(usuarioId, soloActivas = true) {
  * @returns {{ deuda, abono, completada }}
  */
 async function abonarDeuda(usuarioId, contraparte, montoAbono) {
+  // Antes de tocar la DB: un abono Infinity pasaba el `montoAbono > pendiente` de más
+  // abajo (Infinity > 100 corta bien) pero un NaN NO —toda comparación con NaN es
+  // false—, así que el sobrepago no lo frenaba y `pendiente - NaN` dejaba la deuda en
+  // NaN para siempre. Acá lanza, que es lo que el handler ya sabe convertir en mensaje.
+  const montoValidado = montoDeDeuda(montoAbono);
   // Buscar la deuda activa más reciente que coincida con la contraparte
   const { data: deudas } = await supabase.from('deudas')
     .select('*')
@@ -63,17 +91,21 @@ async function abonarDeuda(usuarioId, contraparte, montoAbono) {
   const pendiente = parseFloat(deuda.monto_pendiente);
 
   // Prevent overpayment
-  if (montoAbono > pendiente) {
-    return { error: 'overpayment', monto_pendiente: pendiente };
+  if (montoValidado > pendiente) {
+    // `moneda` va en el return porque el handler la lee (`resultado.moneda`) para
+    // elegir el símbolo. Nunca estuvo, así que un sobrepago sobre una deuda en dólares
+    // decía "El abono de S/ 100 excede lo pendiente (S/ 20)". El test que lo cubría
+    // mockeaba un campo que la función no producía.
+    return { error: 'overpayment', monto_pendiente: pendiente, moneda: deuda.moneda };
   }
 
-  const nuevoPendiente = Math.max(0, pendiente - montoAbono);
+  const nuevoPendiente = Math.max(0, pendiente - montoValidado);
   const completada = nuevoPendiente === 0;
 
   // Insertar abono
   const { data: abono, error: eAbono } = await supabase.from('deuda_abonos').insert({
     deuda_id: deuda.id,
-    monto: montoAbono,
+    monto: montoValidado,
     fecha: hoyPeru(),
   }).select().single();
   if (eAbono) throw eAbono;

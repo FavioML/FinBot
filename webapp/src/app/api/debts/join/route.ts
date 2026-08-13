@@ -1,6 +1,7 @@
 import { getServiceClient } from '@/lib/supabase/service';
 import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
+import { parseMontoDinero } from '@/lib/money';
 
 // POST /api/debts/join — accept a shared debt (creates mirror "debo" debt)
 export async function POST(request: Request) {
@@ -46,6 +47,21 @@ export async function POST(request: Request) {
     .eq('id', deudaOriginal.usuario_id)
     .single();
 
+  // El monto se copia de una fila que YA existe, así que no es entrada del usuario —
+  // pero copiarla sin mirar es lo que convierte una deuda envenenada en dos. El P0 de
+  // `qa-money-edge` demostró que `monto_pendiente` podía quedar en null/NaN de forma
+  // permanente; si eso vuelve a pasar, el espejo no lo propaga: falla cerrado y el
+  // deudor ve un error en vez de una deuda fantasma. Medido antes de aplicarlo: 0 de
+  // 62 filas de `deudas` en prod están fuera de rango, así que hoy no rechaza a nadie.
+  const montoOriginal = parseMontoDinero(deudaOriginal.monto_original);
+  const montoPendiente = parseMontoDinero(deudaOriginal.monto_pendiente, { allowZero: true });
+  if (montoOriginal === null || montoPendiente === null) {
+    return NextResponse.json(
+      { error: 'Esta deuda tiene un monto inválido. Pídele a quien te la compartió que la revise.' },
+      { status: 409 }
+    );
+  }
+
   // Create mirror "debo" debt — copia los campos de recurrencia para que el
   // deudor también vea el compromiso como recurrente. Los abonos y avances
   // de periodo se sincronizan en /api/debts (PUT action=abonar) via vinculación.
@@ -55,8 +71,8 @@ export async function POST(request: Request) {
       usuario_id: userId,
       tipo: 'debo',
       contraparte: acreedor?.nombre || deudaOriginal.contraparte,
-      monto_original: deudaOriginal.monto_original,
-      monto_pendiente: deudaOriginal.monto_pendiente,
+      monto_original: montoOriginal,
+      monto_pendiente: montoPendiente,
       moneda: deudaOriginal.moneda,
       descripcion: deudaOriginal.descripcion,
       fecha_vencimiento: deudaOriginal.fecha_vencimiento,

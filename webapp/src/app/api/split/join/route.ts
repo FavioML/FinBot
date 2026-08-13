@@ -1,6 +1,7 @@
 import { getServiceClient } from '@/lib/supabase/service';
 import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
+import { parseMontoDinero } from '@/lib/money';
 
 // POST /api/split/join — confirm participation in a shared expense
 export async function POST(request: Request) {
@@ -49,7 +50,25 @@ export async function POST(request: Request) {
     .eq('id', gasto.creador_id)
     .single();
 
-  const montoPendiente = parseFloat(String(participante.monto_debe)) - parseFloat(String(participante.monto_pagado || 0));
+  // Mismo criterio que `/api/debts/join`: el monto viene de una fila que ya existe, no
+  // del request, pero copiarlo sin mirar convierte una fila corrupta en una deuda
+  // corrupta. `monto_pagado` es una RESTA, así que basta con que uno de los dos venga
+  // mal para que el pendiente salga NaN y la deuda quede envenenada de nacimiento.
+  // `allowZero` NO es un detalle: `POST /api/split` crea participantes con
+  // `parseMontoDinero(p?.monto_debe, { allowZero: true })`, o sea que una parte de S/0
+  // es un dato que la propia API escribe a propósito (alguien invitado que no paga
+  // nada). Sin esto, esa persona abría su link y recibía 409 PARA SIEMPRE, y la línea
+  // de abajo —`estado: montoPendiente <= 0 ? 'pagada'`— ya contemplaba ese caso: la
+  // ruta se contradecía consigo misma.
+  const montoDebe = parseMontoDinero(participante.monto_debe, { allowZero: true });
+  const montoPagado = parseMontoDinero(participante.monto_pagado ?? 0, { allowZero: true });
+  if (montoDebe === null || montoPagado === null) {
+    return NextResponse.json(
+      { error: 'Este gasto compartido tiene un monto inválido. Pídele a quien lo creó que lo revise.' },
+      { status: 409 }
+    );
+  }
+  const montoPendiente = Math.max(0, Math.round((montoDebe - montoPagado) * 100) / 100);
 
   // Create a "debo" debt for the participant
   const { data: nuevaDeuda, error: debtError } = await getServiceClient()
@@ -58,7 +77,7 @@ export async function POST(request: Request) {
       usuario_id: userId,
       tipo: 'debo',
       contraparte: creador?.nombre || 'Alguien',
-      monto_original: participante.monto_debe,
+      monto_original: montoDebe,
       monto_pendiente: montoPendiente,
       moneda: gasto.moneda,
       descripcion: gasto.descripcion,

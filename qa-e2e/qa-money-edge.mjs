@@ -9,6 +9,12 @@
 //   P1  budgets PUT               — monto_limite crudo: 0/neg → pct = /0.
 //   P1  services/budget.js        — único write de dinero del backend sin validarMonto.
 //
+// 2026-08-13 — se extiende con S′6 (auditoría CTO del 10-ago), la ÚLTIMA escritura de
+// plata que quedaba fuera del validador: `PUT /api/spaces/[id]/budgets` solo miraba
+// `Array.isArray` y escribía el JSONB crudo. Espacios es donde menos red hay (tablas
+// service-role-only, RLS deny-all), y ese límite alimenta la barra de progreso y el
+// "le toca X" de CADA miembro del espacio, no solo del que lo escribió.
+//
 // Este harness siembra data del QA Pro por su propia sesión API, dispara cada
 // input inválido (1000000, Infinity vía "1e999", NaN, -5, 0, sobrepago) y asserta
 // DOS cosas, igual que qa-idor: (a) la respuesta es 400 (rechazo), y (b) el ORÁCULO
@@ -122,6 +128,15 @@ async function cleanup() {
   for (const m of metas || []) await sb(`meta_aportes?meta_id=eq.${m.id}`, { method: 'DELETE' }).catch(() => {});
   await sb(`metas_ahorro?usuario_id=eq.${U.uid}&nombre=eq.${TAG}`, { method: 'DELETE' }).catch(() => {});
   await sb(`presupuestos?usuario_id=eq.${U.uid}&categoria=eq.${TAG}`, { method: 'DELETE' }).catch(() => {});
+  // Espacios: los miembros primero (FK). Por nombre, que lleva el marcador; borrar por
+  // `created_by` se llevaría por delante los espacios REALES del usuario QA.
+  const esp = await sb(`shared_spaces?name=eq.${TAG}&select=id`).catch(() => []);
+  for (const e of esp || []) {
+    await sb(`space_expenses?space_id=eq.${e.id}`, { method: 'DELETE' }).catch(() => {});
+    await sb(`space_settlements?space_id=eq.${e.id}`, { method: 'DELETE' }).catch(() => {});
+    await sb(`space_members?space_id=eq.${e.id}`, { method: 'DELETE' }).catch(() => {});
+  }
+  await sb(`shared_spaces?name=eq.${TAG}`, { method: 'DELETE' }).catch(() => {});
 }
 
 try {
@@ -206,6 +221,96 @@ try {
     }
     const bOk = await api(cookie, 'PUT', '/api/budgets', { id: presId, categoria: TAG, monto_limite: 800 });
     ok('budgets PUT límite válido (800) → 200', bOk.status === 200, `status ${bOk.status}`);
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // S′6 — spaces/[id]/budgets PUT: el JSONB de presupuestos conjuntos
+  //
+  // El oráculo acá NO es la fila de un `presupuestos`: es `shared_spaces.budgets`, un
+  // JSONB. Por eso se re-lee entero y se compara contra el límite sembrado. Un límite
+  // Infinity no queda "raro" en la columna, queda `null` (JSON.stringify(Infinity)), y
+  // la UI divide contra eso en la pantalla de todos los miembros.
+  // ─────────────────────────────────────────────────────────────
+  const nuevoEsp = await api(cookie, 'POST', '/api/spaces', { name: TAG, type: 'custom' });
+  ok('spaces POST: el QA Pro crea un espacio', nuevoEsp.status === 201 && !!nuevoEsp.json?.id, `status ${nuevoEsp.status}`);
+  const espId = nuevoEsp.json?.id;
+
+  if (espId) {
+    const leerBudgets = async () =>
+      (await sb(`shared_spaces?id=eq.${espId}&select=budgets`))?.[0]?.budgets;
+
+    // Semilla válida: es la línea base contra la que se mide "no se corrompió".
+    //
+    // Se RE-SIEMBRA antes de cada caso, por el service role y no por la ruta. Sin eso,
+    // el primer caso que pase (o sea, con el código viejo: el primero de todos) deja el
+    // JSONB corrupto y los "intacto (300)" siguientes miden esa corrupción en vez de la
+    // suya — 20 fallos en cascada de los que solo uno es real. La corrida de control
+    // contra prod lo mostró tal cual.
+    const semilla = [{ id: 'sbud-qa', category: 'Transporte', limit: 300 }];
+    const resembrar = () => sb(`shared_spaces?id=eq.${espId}`, {
+      method: 'PATCH', body: JSON.stringify({ budgets: semilla }),
+    });
+
+    const seed = await api(cookie, 'PUT', `/api/spaces/${espId}/budgets`, { budgets: semilla });
+    ok('spaces budgets PUT válido (S/300) → 200', seed.status === 200, `status ${seed.status}`);
+    ok('spaces budgets PUT válido → persistió 300', Number((await leerBudgets())?.[0]?.limit) === 300);
+
+    const malos = [
+      ['Infinity', '1e999'],
+      ['NaN', 'abc'],
+      ['0', 0],
+      ['negativo', -50],
+      ['>tope', 1000000],
+      ['null', null],
+      // `Number(true) === 1`: sin filtro de tipo esto entraba como un límite de S/1.
+      ['booleano', true],
+      ['array', [1]],
+    ];
+    for (const [label, limit] of malos) {
+      await resembrar();
+      const r = await api(cookie, 'PUT', `/api/spaces/${espId}/budgets`, {
+        budgets: [{ id: 'sbud-qa', category: 'Transporte', limit }],
+      });
+      const tras = await leerBudgets();
+      ok(`spaces budgets límite ${label} → 400`, r.status === 400, `status ${r.status}`);
+      ok(`spaces budgets límite ${label} → JSONB intacto (300)`,
+        Array.isArray(tras) && tras.length === 1 && esFinito(tras[0]?.limit) && Number(tras[0].limit) === 300,
+        `budgets ${JSON.stringify(tras)}`);
+    }
+
+    // La forma del objeto, no solo el número.
+    for (const [label, budgets] of [
+      ['no-array', { a: 1 }],
+      ['item no-objeto', ['texto']],
+      ['sin categoría', [{ id: 'x', limit: 100 }]],
+      ['categoría duplicada', [{ id: 'a', category: 'Comida', limit: 10 }, { id: 'b', category: 'Comida', limit: 20 }]],
+      ['lista sin cota', Array.from({ length: 51 }, (_, i) => ({ id: `b${i}`, category: `C${i}`, limit: 10 }))],
+    ]) {
+      await resembrar();
+      const r = await api(cookie, 'PUT', `/api/spaces/${espId}/budgets`, { budgets });
+      const tras = await leerBudgets();
+      ok(`spaces budgets ${label} → 400`, r.status === 400, `status ${r.status}`);
+      ok(`spaces budgets ${label} → JSONB intacto (300)`,
+        Array.isArray(tras) && tras.length === 1 && Number(tras[0]?.limit) === 300,
+        `budgets ${JSON.stringify(tras)}`);
+    }
+
+    // Lo válido sigue entrando, y solo con las tres llaves de la forma cerrada: si el
+    // guard dejara pasar el objeto del cliente, `esPro` viajaría al JSONB.
+    await resembrar();
+    const okPut = await api(cookie, 'PUT', `/api/spaces/${espId}/budgets`, {
+      budgets: [{ id: 'sbud-qa', category: 'Transporte', limit: 500, esPro: true }],
+    });
+    const trasOk = await leerBudgets();
+    ok('spaces budgets PUT válido (500) → 200', okPut.status === 200, `status ${okPut.status}`);
+    ok('spaces budgets PUT válido → persistió 500', Number(trasOk?.[0]?.limit) === 500, `budgets ${JSON.stringify(trasOk)}`);
+    ok('spaces budgets → el JSONB solo lleva {id, category, limit}',
+      trasOk?.[0] && Object.keys(trasOk[0]).sort().join(',') === 'category,id,limit',
+      `llaves ${Object.keys(trasOk?.[0] || {}).join(',')}`);
+
+    // Y la lista vacía (borrar el último presupuesto) no puede caer en el rechazo.
+    const vacio = await api(cookie, 'PUT', `/api/spaces/${espId}/budgets`, { budgets: [] });
+    ok('spaces budgets PUT [] (borrar el último) → 200', vacio.status === 200, `status ${vacio.status}`);
   }
 
 } catch (e) {

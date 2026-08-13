@@ -2,6 +2,7 @@ import { getServiceClient } from '@/lib/supabase/service';
 import { requireLectura } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 import { hoyPeru } from '@/lib/dates';
+import { parseMontoDinero } from '@/lib/money';
 
 // GET /api/goals/aportes?meta_id=xxx — list contributions for a goal
 export async function GET(request: Request) {
@@ -47,11 +48,15 @@ export async function POST(request: Request) {
   if (!meta_id)
     return NextResponse.json({ error: 'meta_id and monto required' }, { status: 400 });
 
-  // Misma validacion que POST /api/goals: sin el tope y el check de finitud, un
-  // monto tipo 1e309 llega como Infinity y deja monto_actual en Infinity/NaN, que
-  // despues se propaga al factor de metas del score persistido (y de ahi al bot).
-  const montoNum = parseFloat(monto);
-  if (!Number.isFinite(montoNum) || montoNum <= 0 || montoNum > 999999.99)
+  // Sin el tope y el check de finitud, un monto tipo 1e309 llega como Infinity y deja
+  // monto_actual en Infinity/NaN, que despues se propaga al factor de metas del score
+  // persistido (y de ahi al bot).
+  //
+  // La comprobacion era CORRECTA pero estaba copiada a mano, y esa copia es justo la
+  // deriva que `money.ts` existe para terminar: el dia que el tope cambie, esta linea
+  // se queda vieja en silencio. Lo delato `tests/plata-validada.test.js`.
+  const montoNum = parseMontoDinero(monto);
+  if (montoNum === null)
     return NextResponse.json({ error: 'Monto invalido' }, { status: 400 });
 
   if (!['aporte', 'retiro'].includes(tipo))

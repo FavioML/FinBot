@@ -6,13 +6,13 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { iniciarTrialBackend } from '@/lib/trial-backend';
 import crypto from 'crypto';
 import { SUB_SENTINEL_REVISAR, esSubSinClasificar, subcategoriaUtil } from '@/lib/subcategoria';
+import { parseMontoDinero } from '@/lib/money';
 
-/** Validate monto: must be positive number <= 999999.99 */
-function validarMonto(valor: unknown): number | null {
-  const n = parseFloat(String(valor));
-  if (isNaN(n) || !isFinite(n) || n <= 0 || n > 999999.99) return null;
-  return Math.round(n * 100) / 100;
-}
+// `validarMonto` vivía acá como copia local, byte por byte igual a `parseMontoDinero`.
+// Era correcta, y ese es justo el problema: es la deriva copiada-a-mano que `money.ts`
+// existe para terminar — el día que el techo cambie, esta copia se queda vieja en
+// silencio. Lo delató `tests/plata-validada.test.js`, que exige que el validador venga
+// de su módulo dueño y no de una definición local con el mismo nombre.
 
 /** Generate dedup hash matching backend format */
 function generarDedupHash(userId: string, fecha: string, monto: number, comercio: string | null, tipo: string): string {
@@ -176,7 +176,7 @@ export async function POST(request: Request) {
   const body = await request.json();
 
   // Validate monto
-  const monto = validarMonto(body.monto);
+  const monto = parseMontoDinero(body.monto);
   if (monto === null)
     return NextResponse.json({ error: 'Monto inválido' }, { status: 400 });
 
@@ -239,7 +239,7 @@ export async function PUT(request: Request) {
   }
 
   const body = await request.json();
-  const monto = validarMonto(body.monto);
+  const monto = parseMontoDinero(body.monto);
   if (monto === null)
     return NextResponse.json({ error: 'Monto inválido' }, { status: 400 });
 

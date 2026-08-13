@@ -1,5 +1,6 @@
 const { supabase } = require('../lib/db');
 const { hoyPeru } = require('../lib/dates');
+const { validarMonto } = require('../lib/validators');
 
 /**
  * Obtiene las metas de ahorro del usuario.
@@ -41,22 +42,27 @@ async function abonarMeta(usuarioId, nombreMeta, monto, tipo = 'aporte', nota = 
     if (found) meta = found;
   }
 
-  // Validate positive amount
-  if (!monto || monto <= 0 || isNaN(monto)) {
+  // `isNaN(Infinity)` es false, así que el guard viejo (`!monto || monto <= 0 ||
+  // isNaN(monto)`) dejaba pasar Infinity y no tenía techo: `monto_actual` quedaba en
+  // Infinity —o sea `null` al serializar— y de ahí se propaga al factor de metas del
+  // score persistido. Es el mismo hueco que S2 en la webapp, por el lado de WhatsApp.
+  // Lo delató `tests/plata-validada.test.js`.
+  const montoValidado = validarMonto(monto);
+  if (montoValidado === null) {
     return { error: 'invalid_amount' };
   }
 
   const actualAntes = parseFloat(meta.monto_actual || 0);
   const objetivo = parseFloat(meta.monto_objetivo);
   const nuevoActual = tipo === 'retiro'
-    ? Math.max(0, actualAntes - monto)
-    : actualAntes + monto;
+    ? Math.max(0, actualAntes - montoValidado)
+    : actualAntes + montoValidado;
   const completada = nuevoActual >= objetivo && tipo === 'aporte';
 
   // Insertar aporte
   const { data: aporte, error: eAporte } = await supabase.from('meta_aportes').insert({
     meta_id: meta.id,
-    monto,
+    monto: montoValidado,
     tipo,
     fecha: hoyPeru(),
     nota,

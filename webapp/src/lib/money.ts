@@ -16,8 +16,15 @@ export function parseMontoDinero(
   valor: unknown,
   { allowZero = false }: { allowZero?: boolean } = {}
 ): number | null {
-  const n = typeof valor === 'number' ? valor : parseFloat(String(valor));
-  if (isNaN(n) || !isFinite(n) || n > MAX_MONTO) return null;
+  const crudo = typeof valor === 'number' ? valor : parseFloat(String(valor));
+  if (isNaN(crudo) || !isFinite(crudo) || crudo > MAX_MONTO) return null;
+  // Se redondea ANTES de mirar el signo. Al revés, `0.001` pasaba el `> 0` y salía
+  // redondeado a **0**: la función devolvía el valor que su contrato rechaza, y
+  // `POST /api/transactions {"monto": 0.001}` insertaba una transacción de S/0.
+  // Espejo exacto de `validarMonto` en lib/validators.js — si se toca uno, el otro.
+  const redondeado = Math.round(crudo * 100) / 100;
+  // `-0.001` redondea a `-0`: se normaliza para tener una sola representación del cero.
+  const n = redondeado === 0 ? 0 : redondeado;
   if (allowZero ? n < 0 : n <= 0) return null;
-  return Math.round(n * 100) / 100;
+  return n;
 }

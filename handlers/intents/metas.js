@@ -1,5 +1,8 @@
 const log = require('../../lib/logger');
 const { generarCodigoInvitacion, ALFABETO_META } = require('../../lib/codigos-seguros');
+// `parseFloat` + `> 0` no ve Infinity ni tiene techo, y `monto_objetivo` es el
+// denominador de la barra de progreso y de la cuota mensual.
+const { validarMonto } = require('../../lib/validators');
 
 module.exports = {
   intents: ['ver_metas', 'crear_meta', 'editar_meta', 'eliminar_meta', 'abonar_meta', 'compartir_meta', 'viabilidad_plan', 'abandonar_plan', 'sugerir_recortes'],
@@ -50,8 +53,8 @@ module.exports = {
           const { calcularCuotaMensual, analizarViabilidad } = require('../../services/metas');
 
           const nombreMeta = datos.nombre || 'Mi meta';
-          const montoMeta = datos.monto ? parseFloat(datos.monto) : null;
-          if (!montoMeta || montoMeta <= 0) return 'Dime cuánto quieres ahorrar. Ej: _"quiero ahorrar S/5000 para julio"_.';
+          const montoMeta = validarMonto(datos.monto);
+          if (montoMeta === null) return 'Dime cuánto quieres ahorrar. Ej: _"quiero ahorrar S/5000 para julio"_.';
           const fechaLimMeta = datos.fecha_limite || null;
 
           // Enforce maxMetas for free users (only on new creation)
@@ -104,7 +107,15 @@ module.exports = {
             if (found) metaTarget = found;
           }
           const updates = {};
-          if (datos.monto_nuevo) updates.monto_objetivo = parseFloat(datos.monto_nuevo);
+          // Era `parseFloat` crudo: "sube mi meta a muchísimo" escribía NaN en
+          // `monto_objetivo` (→ null en la columna) y la barra de progreso quedaba
+          // dividiendo por eso. Es el gemelo por WhatsApp del `goals PUT` que la
+          // webapp ya cerró y que qa-money-edge vigila.
+          if (datos.monto_nuevo) {
+            const nuevoObjetivo = validarMonto(datos.monto_nuevo);
+            if (nuevoObjetivo === null) return 'Ese monto no me cuadra. Dime algo como _"sube mi meta a 3000"_.';
+            updates.monto_objetivo = nuevoObjetivo;
+          }
           if (datos.fecha_nueva) updates.fecha_limite = datos.fecha_nueva;
           if (Object.keys(updates).length === 0) return 'Dime qué quieres cambiar. Ej: _"sube mi meta a 3000"_ o _"cambia la fecha al 30 de junio"_.';
           await supabase.from('metas_ahorro').update(updates).eq('id', metaTarget.id);
@@ -136,13 +147,20 @@ module.exports = {
 
       case 'abonar_meta': {
         try {
-          const montoAbono = parseFloat(datos.monto);
-          if (!montoAbono || montoAbono <= 0) return 'Dime cuánto quieres abonar. Ej: _"aboné 500 a mi meta"_.';
+          // `parseFloat` + `> 0` dejaba entrar Infinity y todo lo que supere el techo.
+          const montoAbono = validarMonto(datos.monto);
+          if (montoAbono === null) return 'Dime cuánto quieres abonar. Ej: _"aboné 500 a mi meta"_.';
           // Detectar retiro
           const esRetiro = /\b(saqu[eé]|retir[eé]|quit[eé]|us[eé]|tom[eé])\b/i.test(msg);
           const nombreMeta = datos.nombre_meta || datos.nombre || null;
           const resultado = await abonarMetaService(usuario.id, nombreMeta, montoAbono, esRetiro ? 'retiro' : 'aporte', datos.nota || null);
           if (!resultado) return 'No tienes metas de ahorro activas. Crea una con _"quiero ahorrar S/2000 para julio"_.';
+          // `{error:'invalid_amount'}` es un objeto TRUTHY: el `if (!resultado)` de
+          // arriba no lo atrapa, así que sin esta línea el flujo seguía y reventaba en
+          // `parseFloat(meta.monto_actual)` con `meta === undefined` — TypeError, catch
+          // genérico y un "no pude registrar el abono" que no dice cuál es el problema.
+          // La rama existía antes; validar en el servicio la volvió alcanzable.
+          if (resultado.error === 'invalid_amount') return 'Ese monto no me cuadra. Dime algo como _"aboné 500 a mi meta"_.';
           const { meta, completada, porcentaje, milestone } = resultado;
           const nuevoActual = parseFloat(meta.monto_actual || 0);
           const objetivo = parseFloat(meta.monto_objetivo);
