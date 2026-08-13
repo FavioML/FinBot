@@ -71,6 +71,11 @@ let preconFree = null;
   const { ctx, api } = await ctxFor('NETO_QA_FREE_');
   const freeUid = env.NETO_QA_FREE_USUARIO_ID;
   const created = [];
+  // Desde M14 (`e29ca88`) crear un espacio es Pro en los DOS canales, así que acá se
+  // espera 403 y `id1` queda undefined: las afirmaciones Pro-only de más abajo (que
+  // necesitaban un espacio del Free para comprobar que 403ean) ya no son alcanzables
+  // por esta vía y las cubre el `budgetStatus_expect200` de la Parte B, sobre un
+  // espacio del Pro. Se deja el POST porque el 403 ES la afirmación.
   const s1 = await api('/api/spaces', J({ name: 'QA_GATE_FREE_1', type: 'custom' }));
   R.A_free.create1 = s1.status; const id1 = s1.body?.id; if (id1) created.push(id1);
   const s2 = await api('/api/spaces', J({ name: 'QA_GATE_FREE_2', type: 'custom' }));
@@ -152,9 +157,20 @@ for (const [seccion, campos] of Object.entries(R)) {
 }
 
 // Los que no llevan el sufijo en el nombre pero sí son afirmaciones.
+//
+// **Esta aserción decía lo contrario hasta el 13-ago y estaba VIEJA, no rota.** Afirmaba
+// *"un Free tiene que poder crear SU PRIMER espacio"*, que era cierto cuando se escribió
+// y dejó de serlo con **M14** (`e29ca88`, 11-ago): la webapp concedía 1 espacio con un
+// `>= 1` a mano mientras `PLAN_CONFIG.free.maxSpaces` valía **0** y WhatsApp daba 0. Al
+// alinear los dos canales, el 403 pasó a ser el comportamiento CORRECTO y este harness
+// empezó a reportar la decisión como regresión.
+//
+// Es la misma clase que B29 (`asercion-atada-a-una-decision-que-cambio`): el rojo no
+// venía del código sino de una expectativa que ya no era la del producto. Se descubrió
+// corriéndolo tras un cambio que no tocaba ni esta ruta ni `hasReachedLimit`.
 if (R.A_free.create1 !== undefined) {
   medidos++;
-  if (!(R.A_free.create1 < 300)) fallas.push(`A_free.create1: un Free tiene que poder crear SU PRIMER espacio, vino ${R.A_free.create1}`);
+  if (R.A_free.create1 !== 403) fallas.push(`A_free.create1: crear espacios es Pro (maxSpaces=0), se esperaba 403 y vino ${R.A_free.create1}`);
 }
 if (R.B_balances.freeJoin !== undefined) {
   medidos++;
