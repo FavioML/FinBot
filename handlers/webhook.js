@@ -14,6 +14,7 @@ const { notificarErrorAdmin } = require('../lib/admin-notify');
 const { registrarError } = require('../lib/error-monitor');
 const { registrarReferido, obtenerEstadisticasReferidos, mensajeMisReferidos } = require('../services/referrals');
 const { obtenerCategoriasUsuario } = require('../services/categories');
+const { subcategoriaUtil } = require('../lib/subcategoria');
 const { escanearGmailYRegistrar } = require('../services/gmail-scanner');
 const { registrarGastoSilencioso, registrarAudioSilencioso, registrarImagenSilenciosa, avisarPrimeraVezSilencioso } = require('../services/registro-silencioso');
 const { descargarMedia, transcribirAudio, extraerPagoDeImagen } = require('../services/media-intake');
@@ -320,7 +321,7 @@ function createWebhookHandler(procesarMensajeLibre) {
         // escrito (handlers/intents/transacciones.js). Acá se escapaba el ISO crudo, así que
         // el MISMO evento se veía distinto según lo hubieras escrito o fotografiado, y
         // "2026-08-03" en un chat se lee como un log, no como algo que le habla a alguien.
-        let respImg = '📸 *' + tipoLabel + '*\n\n' + emoji + ' *' + (parsed.comercio || (esIngreso ? 'Ingreso' : 'Pago')) + '* — ' + montoStr + '\n' + catImg + (subImg && subImg !== 'sin_categoria' ? ' > ' + subImg : '') + ' · ' + formatFecha(parsed.fecha);
+        let respImg = '📸 *' + tipoLabel + '*\n\n' + emoji + ' *' + (parsed.comercio || (esIngreso ? 'Ingreso' : 'Pago')) + '* — ' + montoStr + '\n' + catImg + (subcategoriaUtil(subImg) ? ' > ' + subcategoriaUtil(subImg) : '') + ' · ' + formatFecha(parsed.fecha);
         const nudgeImg = await colaConfirmacionGasto(usuario, txImg, txImg && txImg.conteoTx);
         if (nudgeImg) respImg += nudgeImg;
         await enviarWhatsapp(from, respImg);

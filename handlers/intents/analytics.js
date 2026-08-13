@@ -1,5 +1,6 @@
 const log = require('../../lib/logger');
 const { ahoraPeru } = require('../../lib/dates');
+const { subcategoriaUtil } = require('../../lib/subcategoria');
 
 module.exports = {
   intents: ['ver_gasto_mayor', 'ver_gasto_menor', 'ver_promedio_diario', 'ver_historial_cambios', 'ver_ultima_transaccion', 'ver_ingresos', 'ver_suscripciones'],
@@ -21,7 +22,7 @@ module.exports = {
           const signo = ultima.tipo === 'ingreso' ? '📥 Ingreso' : '📤 Gasto';
           const monto = ultima.moneda === 'USD' ? '$' + parseFloat(ultima.monto).toFixed(2) : 'S/ ' + parseFloat(ultima.monto).toFixed(2);
           return '🧾 *Tu último movimiento:*\n\n' + signo + ': ' + monto + '\n🏪 ' + (ultima.comercio || 'Sin comercio') +
-            '\n📁 ' + (ultima.categoria || 'Sin categoría') + (ultima.subcategoria && ultima.subcategoria !== 'sin_categoria' ? ' > ' + ultima.subcategoria : '') +
+            '\n📁 ' + (ultima.categoria || 'Sin categoría') + (subcategoriaUtil(ultima.subcategoria) ? ' > ' + subcategoriaUtil(ultima.subcategoria) : '') +
             '\n📅 ' + (ultima.fecha ? formatFecha(ultima.fecha) : '') +
             '\n\n_Si quieres corregirlo escribe qué cambiar; para borrarlo, "elimina el de ' + monto + '"._';
         } catch(e) {

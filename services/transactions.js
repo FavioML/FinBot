@@ -5,6 +5,7 @@ const { hoyPeru } = require('../lib/dates');
 const { esPagoNeto } = require('../lib/config');
 const { extraerLast4, normalizarLast4 } = require('./parsers');
 const log = require('../lib/logger');
+const { subcategoriaUtil } = require('../lib/subcategoria');
 const analytics = require('../lib/analytics');
 
 // Dedup window for manual entries (gmail entries dedup separately).
@@ -145,8 +146,10 @@ async function guardarTransaccion(usuarioId, datos) {
     const regla = await buscarReglaComercio(usuarioId, datos.comercio);
     if (regla) { catFinal = regla.categoria; if (regla.subcategoria) subFinal = regla.subcategoria; }
   }
-  // Normalizar capitalización de subcategoría para consistencia
-  if (subFinal && subFinal !== 'sin_categoria') {
+  // Normalizar capitalización de subcategoría para consistencia. El centinela se deja tal
+  // cual: capitalizarlo acá no cambia nada (el trigger lo hace igual, ver migración 070) y
+  // enmascararía que la forma canónica del CÓDIGO es la minúscula.
+  if (subcategoriaUtil(subFinal)) {
     subFinal = subFinal.charAt(0).toUpperCase() + subFinal.slice(1);
   }
   // Pago de la suscripción a Neto (Yape S/10 o S/99 a Favio Mendoza) → categoría Suscripciones
@@ -316,7 +319,7 @@ async function corregirTransaccionEspecifica(usuarioId, comercio, monto, fecha, 
 function normalizarDestinoRegla(categoria, subcategoria) {
   const cat = (categoria || '').trim();
   const sub = (subcategoria || '').trim();
-  const subUtil = ['', 'sin_categoria', 'null'].includes(sub.toLowerCase()) ? null : sub;
+  const subUtil = subcategoriaUtil(sub);
   if (!cat) return null;
   if (cat.toLowerCase() === 'otros' && !subUtil) return null;
   return { categoria: cat, subcategoria: subUtil };

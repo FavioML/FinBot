@@ -61,6 +61,7 @@ import { toast } from 'sonner';
 import { formatCurrency, formatFecha } from '@/lib/utils';
 import { getCategoriaEmoji, MESES, SOCIAL_LINKS, CATEGORIA_POR_REVISAR, needsReview } from '@/lib/constants';
 import { normalizeMetodoPago, getMetodoIcon, formatLast4 } from '@/lib/format';
+import { subcategoriaUtil } from '@/lib/subcategoria';
 import type { Transaccion } from '@/lib/types';
 import { montoPen } from '@/lib/tx-monto';
 import { TxMonto } from '@/components/shared/tx-monto';
@@ -143,9 +144,8 @@ export default function TransaccionesPage() {
     const catMap = new Map<string, Set<string>>();
     for (const t of catPairs) {
       if (!catMap.has(t.categoria)) catMap.set(t.categoria, new Set());
-      if (t.subcategoria && t.subcategoria !== 'null' && t.subcategoria !== 'sin_categoria') {
-        catMap.get(t.categoria)!.add(t.subcategoria);
-      }
+      const sub = subcategoriaUtil(t.subcategoria);
+      if (sub) catMap.get(t.categoria)!.add(sub);
     }
     for (const b of budgets) {
       if (!catMap.has(b.categoria)) catMap.set(b.categoria, new Set());

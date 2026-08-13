@@ -33,6 +33,7 @@ import { formatCurrency, getScoreColor, getScoreLabel } from '@/lib/utils';
 import { useNetoScore } from '@/lib/hooks/use-neto-score';
 import { getCategoriaEmoji, MESES, SOCIAL_LINKS } from '@/lib/constants';
 import { capitalizeDisplay, normalizeMetodoPago, getMetodoIcon } from '@/lib/format';
+import { subcategoriaUtil } from '@/lib/subcategoria';
 import { useSubscriptions } from '@/lib/hooks/use-subscriptions';
 import type { Transaccion } from '@/lib/types';
 import { montoPen } from '@/lib/tx-monto';
@@ -174,9 +175,8 @@ export default function ReportesPage() {
     const catMap = new Map<string, Set<string>>();
     for (const t of transactions) {
       if (!catMap.has(t.categoria)) catMap.set(t.categoria, new Set());
-      if (t.subcategoria && t.subcategoria !== 'null' && t.subcategoria !== 'sin_categoria') {
-        catMap.get(t.categoria)!.add(t.subcategoria);
-      }
+      const sub = subcategoriaUtil(t.subcategoria);
+      if (sub) catMap.get(t.categoria)!.add(sub);
     }
     return Array.from(catMap.entries()).map(([nombre, subs]) => ({
       nombre,
@@ -587,9 +587,7 @@ if (!isLoading && transactions.length === 0) {
               {(() => {
                 const subMap = new Map<string, { total: number; count: number }>();
                 for (const tx of detailCatTransactions) {
-                  const sub = (tx.subcategoria && tx.subcategoria !== 'sin_categoria' && tx.subcategoria !== 'null')
-                    ? tx.subcategoria
-                    : '(General)';
+                  const sub = subcategoriaUtil(tx.subcategoria) ?? '(General)';
                   const prev = subMap.get(sub) || { total: 0, count: 0 };
                   prev.total += montoPen(tx);
                   prev.count += 1;
@@ -619,7 +617,7 @@ if (!isLoading && transactions.length === 0) {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-[#F0EFE8] whitespace-normal break-words">{tx.comercio || 'Sin comercio'}</p>
                       <p className="text-xs text-[#8A877D]">
-                        {tx.fecha} {tx.subcategoria && tx.subcategoria !== 'sin_categoria' ? `· ${capitalizeDisplay(tx.subcategoria)}` : ''}
+                        {tx.fecha} {subcategoriaUtil(tx.subcategoria) ? `· ${capitalizeDisplay(subcategoriaUtil(tx.subcategoria))}` : ''}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 ml-3">
@@ -656,9 +654,7 @@ if (!isLoading && transactions.length === 0) {
               const entry = catMap.get(cat)!;
               entry.total += montoPen(tx);
               entry.count += 1;
-              const sub = (tx.subcategoria && tx.subcategoria !== 'sin_categoria' && tx.subcategoria !== 'null')
-                ? tx.subcategoria
-                : '(General)';
+              const sub = subcategoriaUtil(tx.subcategoria) ?? '(General)';
               entry.subs.set(sub, (entry.subs.get(sub) || 0) + montoPen(tx));
             }
             const catBreakdown = Array.from(catMap.entries())
@@ -712,7 +708,7 @@ if (!isLoading && transactions.length === 0) {
                       <p className="text-sm text-[#F0EFE8] whitespace-normal break-words">{tx.comercio || 'Sin comercio'}</p>
                       <p className="text-xs text-[#8A877D]">
                         {tx.fecha} · {getCategoriaEmoji(tx.categoria)} {capitalizeDisplay(tx.categoria)}
-                        {tx.subcategoria && tx.subcategoria !== 'sin_categoria' ? ` · ${capitalizeDisplay(tx.subcategoria)}` : ''}
+                        {subcategoriaUtil(tx.subcategoria) ? ` · ${capitalizeDisplay(subcategoriaUtil(tx.subcategoria))}` : ''}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 ml-3">
@@ -756,7 +752,7 @@ if (!isLoading && transactions.length === 0) {
                       </p>
                       <p className="text-xs text-[#8A877D]">
                         {tx.fecha}
-                        {tx.subcategoria && tx.subcategoria !== 'sin_categoria' ? ` · ${capitalizeDisplay(tx.subcategoria)}` : ''}
+                        {subcategoriaUtil(tx.subcategoria) ? ` · ${capitalizeDisplay(subcategoriaUtil(tx.subcategoria))}` : ''}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 ml-3">

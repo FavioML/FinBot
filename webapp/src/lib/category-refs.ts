@@ -47,7 +47,7 @@ export interface CascadeRef {
   /**
    * Qué le pasa a la fila cuando la categoría RAÍZ se borra.
    * `detach` = soltar el nombre (cat → null; y si hay `sub`, al centinela
-   * `sin_categoria`, que es lo que enciende "Por revisar").
+   * SUB_SENTINEL_REVISAR, que es lo que enciende "Por revisar").
    * `delete` = borrar la fila.
    */
   onRootDelete: 'detach' | 'delete';
@@ -209,5 +209,12 @@ export const EXEMPT_REFS: readonly ExemptRef[] = [
   { ref: 'borrados_auditoria.contexto', reason: 'quién y desde dónde se hizo el borrado duro. Misma evidencia forense que `fila`: se conserva tal como quedó.' },
 ];
 
-/** El centinela de subcategoría que enciende "Por revisar" en la webapp. */
-export const SUB_SENTINEL_REVISAR = 'sin_categoria';
+/**
+ * El centinela de subcategoría que enciende "Por revisar" en la webapp.
+ *
+ * Vive en `./subcategoria` y se re-exporta acá por compatibilidad: ese módulo es también el
+ * dueño de las funciones que lo COMPARAN, y las dos cosas tienen que estar juntas — la DB
+ * capitaliza esta columna con un trigger (`app/migrations/070`), así que comparar contra el
+ * literal es un falso negativo. Ver el encabezado de `subcategoria.ts`.
+ */
+export { SUB_SENTINEL_REVISAR } from './subcategoria';

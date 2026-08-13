@@ -3,6 +3,7 @@ import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getCategoriaEmoji } from '@/lib/constants';
+import { subcategoriaUtil } from '@/lib/subcategoria';
 import {
   cascadeRootDelete,
   cascadeSubDelete,
@@ -112,10 +113,10 @@ export async function GET() {
   // Build map: categoria → Set of subcategorías used in transactions
   const txSubMap = new Map<string, Set<string>>();
   for (const tx of txRows || []) {
-    const s = (tx.subcategoria || '').toLowerCase();
-    if (!tx.subcategoria || s === 'null' || s === 'sin_categoria') continue;
+    const s = subcategoriaUtil(tx.subcategoria);
+    if (!s) continue;
     if (!txSubMap.has(tx.categoria)) txSubMap.set(tx.categoria, new Set());
-    txSubMap.get(tx.categoria)!.add(tx.subcategoria);
+    txSubMap.get(tx.categoria)!.add(s);
   }
 
   // Materialize tx-derived subs into categorias_usuario so they become fully editable

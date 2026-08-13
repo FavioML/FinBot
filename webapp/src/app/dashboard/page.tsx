@@ -61,6 +61,7 @@ import { TxMonto } from '@/components/shared/tx-monto';
 import { ErrorState } from '@/components/shared/error-state';
 import { getCategoriaEmoji, MESES, SOCIAL_LINKS } from '@/lib/constants';
 import { capitalizeDisplay, normalizeMetodoPago, getMetodoIcon } from '@/lib/format';
+import { subcategoriaUtil } from '@/lib/subcategoria';
 import { detectSubscriptions, TIPO_LABELS } from '@/lib/subscriptions-catalog';
 import type { Transaccion, KPIData, CategoriaGasto, TendenciaMensual } from '@/lib/types';
 
@@ -335,9 +336,8 @@ export default function DashboardPage() {
     const catMap = new Map<string, Set<string>>();
     for (const t of transactions) {
       if (!catMap.has(t.categoria)) catMap.set(t.categoria, new Set());
-      if (t.subcategoria && t.subcategoria !== 'null' && t.subcategoria !== 'sin_categoria') {
-        catMap.get(t.categoria)!.add(t.subcategoria);
-      }
+      const sub = subcategoriaUtil(t.subcategoria);
+      if (sub) catMap.get(t.categoria)!.add(sub);
     }
     return Array.from(catMap.entries()).map(([nombre, subs]) => ({
       nombre,
@@ -897,9 +897,7 @@ export default function DashboardPage() {
             // Group by subcategory
             const subMap = new Map<string, Transaccion[]>();
             for (const tx of catTxs) {
-              const sub = (tx.subcategoria && tx.subcategoria !== 'sin_categoria' && tx.subcategoria !== 'null')
-                ? tx.subcategoria
-                : '(General)';
+              const sub = subcategoriaUtil(tx.subcategoria) ?? '(General)';
               if (!subMap.has(sub)) subMap.set(sub, []);
               subMap.get(sub)!.push(tx);
             }
@@ -963,8 +961,8 @@ export default function DashboardPage() {
                           <p className="text-sm text-[#F0EFE8] truncate">{tx.comercio || tx.subcategoria || 'Sin comercio'}</p>
                           <p className="text-xs text-[#8A877D]">
                             {formatFecha(tx.fecha)}
-                            {!detailSubcategoria && tx.subcategoria && tx.subcategoria !== 'sin_categoria' && (
-                              <span> · {capitalizeDisplay(tx.subcategoria)}</span>
+                            {!detailSubcategoria && subcategoriaUtil(tx.subcategoria) && (
+                              <span> · {capitalizeDisplay(subcategoriaUtil(tx.subcategoria))}</span>
                             )}
                           </p>
                         </div>
@@ -1023,9 +1021,7 @@ export default function DashboardPage() {
               if (!entry) { entry = { label: tx.categoria, total: 0, count: 0, subs: new Map() }; catMap.set(key, entry); }
               entry.total += montoPen(tx);
               entry.count += 1;
-              const sub = (tx.subcategoria && tx.subcategoria !== 'sin_categoria' && tx.subcategoria !== 'null')
-                ? tx.subcategoria
-                : '(General)';
+              const sub = subcategoriaUtil(tx.subcategoria) ?? '(General)';
               entry.subs.set(sub, (entry.subs.get(sub) || 0) + montoPen(tx));
             }
             const catBreakdown = Array.from(catMap.values())
@@ -1122,7 +1118,7 @@ export default function DashboardPage() {
                       </p>
                       <p className="text-xs text-[#8A877D]">
                         {tx.fecha}
-                        {tx.subcategoria && tx.subcategoria !== 'sin_categoria' ? ` · ${capitalizeDisplay(tx.subcategoria)}` : ''}
+                        {subcategoriaUtil(tx.subcategoria) ? ` · ${capitalizeDisplay(subcategoriaUtil(tx.subcategoria))}` : ''}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 ml-3">

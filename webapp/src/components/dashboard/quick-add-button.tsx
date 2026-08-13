@@ -7,6 +7,7 @@ import { TransactionForm } from '@/components/dashboard/transaction-form';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
 import { getCategoriaEmoji } from '@/lib/constants';
+import { subcategoriaUtil } from '@/lib/subcategoria';
 import { useQueryClient } from '@tanstack/react-query';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { haptic } from '@/lib/haptics';
@@ -38,9 +39,8 @@ export function QuickAddButton() {
     const catMap = new Map<string, Set<string>>();
     for (const t of transactions) {
       if (!catMap.has(t.categoria)) catMap.set(t.categoria, new Set());
-      if (t.subcategoria && t.subcategoria !== 'null' && t.subcategoria !== 'sin_categoria') {
-        catMap.get(t.categoria)!.add(t.subcategoria);
-      }
+      const sub = subcategoriaUtil(t.subcategoria);
+      if (sub) catMap.get(t.categoria)!.add(sub);
     }
     return Array.from(catMap.entries()).map(([nombre, subs]) => ({
       nombre,

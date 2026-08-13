@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { parseCSV, parseExcel, type ImportRow } from '@/lib/import-parser';
 import crypto from 'crypto';
+import { SUB_SENTINEL_REVISAR } from '@/lib/subcategoria';
 
 // exceljs necesita el runtime Node (streams), no edge.
 export const runtime = 'nodejs';
@@ -117,7 +118,7 @@ export async function POST(request: Request) {
       tipo_cambio: null,
       comercio,
       categoria: r.categoria || 'Otros',
-      subcategoria: r.subcategoria || 'sin_categoria',
+      subcategoria: r.subcategoria || SUB_SENTINEL_REVISAR,
       fecha: r.fecha,
       metodo_pago: r.metodo_pago || null,
       banco: r.banco || null,

@@ -1,5 +1,8 @@
 /** Capitalize first letter of each word, handle underscores. Safe with accented chars. */
-export function capitalizeDisplay(text: string): string {
+// Acepta null/undefined y devuelve '' a proposito: los call-sites que la usan para
+// pintar una subcategoria la combinan con `subcategoriaUtil()`, que devuelve
+// `string | null`. Sin esto cada uno necesitaria un `!` que TS no puede probar.
+export function capitalizeDisplay(text: string | null | undefined): string {
   if (!text) return '';
   return text
     .replace(/_/g, ' ')

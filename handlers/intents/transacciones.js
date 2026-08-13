@@ -1,6 +1,7 @@
 const log = require('../../lib/logger');
 const { colaConfirmacionGasto } = require('../../lib/trial');
 const { validarMonto } = require('../../lib/validators');
+const { subcategoriaUtil, esSubSinClasificar } = require('../../lib/subcategoria');
 
 // El LLM a veces clasifica queries como register_transaction tras un burst de gastos
 // previos en el contexto (bal-001/004/005). Cuando el parser falla por falta de monto,
@@ -236,7 +237,7 @@ module.exports = {
           }
           // Override por keywords fuertes para mensajes largos (prosa) cuando el LLM
           // clasificó como sin_categoria. Conservador: msg.length > 150 + keyword inequívoco.
-          if (msg && msg.length > 150 && (!parsed.categoria || parsed.categoria === 'sin_categoria')) {
+          if (msg && msg.length > 150 && (!parsed.categoria || esSubSinClasificar(parsed.categoria))) {
             const { categorizarPorKeywords } = require('../../services/categorizer-keywords');
             const _catKw = categorizarPorKeywords(msg);
             if (_catKw) {
@@ -255,7 +256,7 @@ module.exports = {
           // Sigue siendo fire-and-forget —sin `await` acá— para no devolverle al camino del gasto
           // los round-trips que le sacó la Ola 3: lo que se ordena es una respecto de la otra.
           if (parsed.categoria) {
-            const _sub = parsed.subcategoria && parsed.subcategoria !== 'sin_categoria' ? parsed.subcategoria : null;
+            const _sub = subcategoriaUtil(parsed.subcategoria);
             asegurarCategoriaUsuario(usuario.id, parsed.categoria)
               .then(() => (_sub ? crearSubcategoriaLibreUsuario(usuario.id, parsed.categoria, _sub) : null))
               .catch(() => {});
@@ -266,8 +267,12 @@ module.exports = {
           // Mostrar la categoría/subcategoría YA persistidas (normalizadas por guardarTransaccion),
           // no la salida cruda del parser, para que el mensaje coincida con la fila guardada.
           const catConf = (tx && tx.categoria) || parsed.categoria || 'Otros';
-          const subConf = (tx && tx.subcategoria) || parsed.subcategoria || 'sin_categoria';
-          let respReg = '✅ ' + montoStr + ' en ' + (esIngreso ? 'Ingresos' : catConf + ' > ' + subConf) + ' · ' + formatFecha(parsed.fecha);
+          // `tx.subcategoria` viene de la DB, o sea DESPUÉS del trigger que capitaliza: el
+          // centinela vuelve como 'Sin_categoria' y una comparación literal no lo ve. Sin
+          // `subcategoriaUtil` esta línea decía: ✅ S/20 en Otros > Sin_categoria.
+          const subConf = subcategoriaUtil((tx && tx.subcategoria) || parsed.subcategoria);
+          const destinoConf = subConf ? catConf + ' > ' + subConf : catConf;
+          let respReg = '✅ ' + montoStr + ' en ' + (esIngreso ? 'Ingresos' : destinoConf) + ' · ' + formatFecha(parsed.fecha);
           if (!esIngreso && parsed.categoria) {
             const alerta = await verificarAlertaPresupuesto(usuario, parsed.categoria, parsed.subcategoria || null);
             if (alerta) respReg += '\n\n' + alerta;
@@ -332,7 +337,7 @@ module.exports = {
             // ENCADENADAS, por el mismo motivo que en `registrar_manual`: en paralelo las dos
             // insertan la misma raíz y queda duplicada.
             {
-              const _sub = subLibre && subLibre !== 'Sin_categoria' ? subLibre : null;
+              const _sub = subcategoriaUtil(subLibre);
               asegurarCategoriaUsuario(usuario.id, catLibre)
                 .then(() => (_sub ? crearSubcategoriaLibreUsuario(usuario.id, catLibre, _sub) : null))
                 .catch(() => {});
@@ -387,7 +392,7 @@ module.exports = {
             // Este bucle ya es secuencial (hay un `await` arriba), así que esperar no cambia la
             // latencia percibida — la respuesta sale recién cuando termina el for.
             await asegurarCategoriaUsuario(usuario.id, catLibre)
-              .then(() => (subCorr && subCorr !== 'Sin_categoria'
+              .then(() => (subcategoriaUtil(subCorr)
                 ? crearSubcategoriaLibreUsuario(usuario.id, catLibre, subCorr) : null))
               .catch(() => {});
             if (res.ok) {

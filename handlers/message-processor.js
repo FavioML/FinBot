@@ -1,6 +1,7 @@
 const { supabase } = require('../lib/db');
 const { openai } = require('../lib/ai');
 const log = require('../lib/logger');
+const { subcategoriaUtil } = require('../lib/subcategoria');
 const { hoyPeru, ayerPeru, ultimoDiaMes } = require('../lib/dates');
 const fechaHoyPeru = () => hoyPeru();
 const fechaAyerPeru = () => ayerPeru();
@@ -222,7 +223,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
           // categoría en `/categorias` ni en el selector de presupuestos, mientras dicho suelto
           // sí — el árbol quedaba distinto según cómo se escribió el mensaje.
           asegurarCategoriaUsuario(usuario.id, datosTx.categoria)
-            .then(() => (datosTx.subcategoria && datosTx.subcategoria !== 'sin_categoria'
+            .then(() => (subcategoriaUtil(datosTx.subcategoria)
               ? crearSubcategoriaLibreUsuario(usuario.id, datosTx.categoria, datosTx.subcategoria) : null))
             .catch(() => {});
           const txIE = await guardarTransaccion(usuario.id, datosTx);
@@ -230,8 +231,8 @@ async function procesarMensajeLibre(msg, usuario, from) {
           if (txIE && txIE.trialIniciado) txTrialIE = txIE;
           // Categoría/subcategoría normalizadas por guardarTransaccion, no la salida cruda del parser.
           const catIE = (txIE && txIE.categoria) || datosTx.categoria;
-          const subIE = (txIE && txIE.subcategoria) || datosTx.subcategoria;
-          let lineResp = '✅ S/' + g.monto.toFixed(2) + ' en ' + catIE + ' > ' + subIE + ' · ' + formatFecha(fechaTx);
+          const subIE = subcategoriaUtil((txIE && txIE.subcategoria) || datosTx.subcategoria);
+          let lineResp = '✅ S/' + g.monto.toFixed(2) + ' en ' + catIE + (subIE ? ' > ' + subIE : '') + ' · ' + formatFecha(fechaTx);
           try {
             const alerta = await verificarAlertaPresupuesto(usuario, datosTx.categoria, datosTx.subcategoria);
             if (alerta) lineResp += '\n' + alerta;
@@ -273,7 +274,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
           };
           // Igual que en el fanout de ingreso+gastos: el árbol crece también por acá (B26).
           asegurarCategoriaUsuario(usuario.id, datosTx.categoria)
-            .then(() => (datosTx.subcategoria && datosTx.subcategoria !== 'sin_categoria'
+            .then(() => (subcategoriaUtil(datosTx.subcategoria)
               ? crearSubcategoriaLibreUsuario(usuario.id, datosTx.categoria, datosTx.subcategoria) : null))
             .catch(() => {});
           const txMG = await guardarTransaccion(usuario.id, datosTx);
@@ -281,8 +282,8 @@ async function procesarMensajeLibre(msg, usuario, from) {
           if (txMG && txMG.trialIniciado) txTrialMG = txMG;
           // Categoría/subcategoría normalizadas por guardarTransaccion, no la salida cruda del parser.
           const catMG = (txMG && txMG.categoria) || datosTx.categoria;
-          const subMG = (txMG && txMG.subcategoria) || datosTx.subcategoria;
-          let lineResp = '✅ S/' + g.monto.toFixed(2) + ' en ' + catMG + ' > ' + subMG + ' · ' + formatFecha(fechaGasto);
+          const subMG = subcategoriaUtil((txMG && txMG.subcategoria) || datosTx.subcategoria);
+          let lineResp = '✅ S/' + g.monto.toFixed(2) + ' en ' + catMG + (subMG ? ' > ' + subMG : '') + ' · ' + formatFecha(fechaGasto);
           try {
             const alerta = await verificarAlertaPresupuesto(usuario, datosTx.categoria, datosTx.subcategoria);
             if (alerta) lineResp += '\n' + alerta;

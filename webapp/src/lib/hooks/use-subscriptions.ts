@@ -14,6 +14,7 @@ import {
 } from '@/lib/subscriptions-catalog';
 import { IS_DEMO } from '@/lib/demo/is-demo';
 import { DEMO_TRANSACTIONS } from '@/lib/demo/mock-data';
+import { esSubSinClasificar } from '@/lib/subcategoria'
 
 // Normaliza la subcategoria de la DB a una key válida de TIPO_LABELS (para el
 // ramo por-patrón sin match de catálogo). Ej: "Software" -> "software".
@@ -24,7 +25,7 @@ function normalizeSubcategoriaKey(raw: string | null | undefined): string {
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .trim()
-  if (!norm || norm === 'sin_categoria' || norm === 'null') return 'otros'
+  if (!norm || esSubSinClasificar(norm)) return 'otros'
   return TIPO_LABELS[norm] ? norm : 'otros'
 }
 

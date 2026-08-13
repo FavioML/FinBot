@@ -20,6 +20,7 @@ import { useBudgets } from '@/lib/hooks/use-budgets';
 import { useTransactions } from '@/lib/hooks/use-transactions';
 import { formatCurrency, formatFecha } from '@/lib/utils';
 import { capitalizeDisplay } from '@/lib/format';
+import { subcategoriaUtil } from '@/lib/subcategoria';
 import { budgetStatus } from '@/lib/budget-status';
 import { MESES, getCategoriaEmoji } from '@/lib/constants';
 import { MonthSelector } from '@/components/dashboard/month-selector';
@@ -107,9 +108,8 @@ export default function PresupuestosPage() {
     // From ALL transactions (so subcategories from any month appear in dropdowns)
     for (const t of allTransactions) {
       if (!catMap.has(t.categoria)) catMap.set(t.categoria, new Set());
-      if (t.subcategoria && t.subcategoria !== 'null' && t.subcategoria !== 'sin_categoria') {
-        catMap.get(t.categoria)!.add(t.subcategoria);
-      }
+      const sub = subcategoriaUtil(t.subcategoria);
+      if (sub) catMap.get(t.categoria)!.add(sub);
     }
     // From budgets (includes subcategories created as budgets but with no transactions yet)
     for (const b of budgets) {
@@ -260,7 +260,7 @@ export default function PresupuestosPage() {
     if (!detailCategoria) return new Map<string, Transaccion[]>();
     const map = new Map<string, Transaccion[]>();
     for (const tx of detailTxs) {
-      const sub = (tx.subcategoria && tx.subcategoria !== 'sin_categoria') ? tx.subcategoria : '(General)';
+      const sub = subcategoriaUtil(tx.subcategoria) ?? '(General)';
       if (!map.has(sub)) map.set(sub, []);
       map.get(sub)!.push(tx);
     }

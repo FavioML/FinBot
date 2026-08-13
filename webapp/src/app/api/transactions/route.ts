@@ -5,6 +5,7 @@ import { getExchangeRate } from '@/lib/exchange-rate';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { iniciarTrialBackend } from '@/lib/trial-backend';
 import crypto from 'crypto';
+import { SUB_SENTINEL_REVISAR, esSubSinClasificar, subcategoriaUtil } from '@/lib/subcategoria';
 
 /** Validate monto: must be positive number <= 999999.99 */
 function validarMonto(valor: unknown): number | null {
@@ -28,7 +29,7 @@ function normalizarDestinoRegla(
 ): { categoria: string; subcategoria: string | null } | null {
   const cat = (categoria ?? '').trim();
   const sub = (subcategoria ?? '').trim();
-  const subUtil = ['', 'sin_categoria', 'null'].includes(sub.toLowerCase()) ? null : sub;
+  const subUtil = subcategoriaUtil(sub);
   if (!cat) return null;
   if (cat.toLowerCase() === 'otros' && !subUtil) return null;
   return { categoria: cat, subcategoria: subUtil };
@@ -143,7 +144,7 @@ async function syncCategoriasUsuario(userId: string, categoria: string, subcateg
   }
 
   // Si hay subcategoría custom, crearla si no existe
-  if (subcategoria && subcategoria !== 'sin_categoria' && padreId) {
+  if (subcategoria && !esSubSinClasificar(subcategoria) && padreId) {
     const { data: existeSub } = await getServiceClient()
       .from('categorias_usuario')
       .select('id')
@@ -183,7 +184,7 @@ export async function POST(request: Request) {
   const tc = body.moneda === 'USD' ? await getExchangeRate() : 1;
   const montoPen = body.moneda === 'USD' ? Math.round(monto * tc * 100) / 100 : monto;
 
-  const subcategoria = body.subcategoria || 'sin_categoria';
+  const subcategoria = body.subcategoria || SUB_SENTINEL_REVISAR;
   const tipo = body.tipo || 'gasto';
   const dedupHash = generarDedupHash(userId, body.fecha, monto, body.comercio || null, tipo);
 
@@ -245,7 +246,7 @@ export async function PUT(request: Request) {
   const tc = body.moneda === 'USD' ? await getExchangeRate() : 1;
   const montoPen = body.moneda === 'USD' ? Math.round(monto * tc * 100) / 100 : monto;
 
-  const subcategoria = body.subcategoria || 'sin_categoria';
+  const subcategoria = body.subcategoria || SUB_SENTINEL_REVISAR;
 
   const { data, error } = await getServiceClient()
     .from('transacciones')
@@ -306,9 +307,9 @@ export async function PATCH(request: Request) {
   const cleanUpdates: Record<string, string | null> = {};
   for (const key of allowed) {
     if (key in updates && updates[key] !== undefined) {
-      // subcategoria debe ser 'sin_categoria' (nunca null) para consistencia con el bot
+      // subcategoria debe ser el centinela (nunca null) para consistencia con el bot
       if (key === 'subcategoria') {
-        cleanUpdates[key] = updates[key] || 'sin_categoria';
+        cleanUpdates[key] = updates[key] || SUB_SENTINEL_REVISAR;
       } else {
         cleanUpdates[key] = updates[key] || null;
       }

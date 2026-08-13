@@ -204,10 +204,12 @@ try {
           // Case-insensitive a propósito, y NO por prolijidad: prod normaliza
           // `transacciones.subcategoria` a "Primera-mayúscula resto-minúscula" — medido
           // el 12-ago-2026 con un insert de control (escribís 'QA MixedSub', leés
-          // 'Qa mixedsub'), y no hay migración que lo declare. `categoria` no se toca.
+          // 'Qa mixedsub'). Es el trigger `trg_normalize_subcategoria`, que desde el
+          // 12-ago-2026 SÍ tiene espejo local: `migrations/070`. `categoria` no se toca.
           // Afirmar igualdad exacta acá dejaría este harness rojo para siempre por algo
-          // que no es el cascade. El centinela sufre lo mismo y es un bug aparte
-          // (499 de 2233 filas guardan 'Sin_categoria'); está reportado por separado.
+          // que no es el cascade. El centinela sufría lo mismo y era un bug aparte (499
+          // de 2234 filas guardan 'Sin_categoria', cero en minúscula): cerrado el mismo
+          // día con `lib/subcategoria` y sus dos guards, uno por árbol.
           d2[tabla].every((f) => (f.sub || '').toLowerCase() === SUB_NUEVA.toLowerCase()),
           `${tabla}: el rename de sub llegó (${SUB_VIEJA} → ${SUB_NUEVA})`,
           `quedó ${JSON.stringify(d2[tabla].map((f) => f.sub))}`

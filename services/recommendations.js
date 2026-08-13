@@ -4,6 +4,7 @@ const log = require('../lib/logger');
 const fs = require('fs');
 const path = require('path');
 const { detectarSuscripciones } = require('./subscriptions');
+const { subcategoriaUtil } = require('../lib/subcategoria');
 
 /**
  * Prompt de recomendaciones. Misma doctrina que `lib/neto-prompt.js`: se lee UNA vez al
@@ -156,7 +157,7 @@ async function construirDatosUsuario(usuarioId) {
     const m = parseFloat(t.monto_pen || t.monto);
     porCat[c].monto += m;
     porCat[c].txs += 1;
-    const sub = t.subcategoria || 'sin_categoria';
+    const sub = subcategoriaUtil(t.subcategoria) || '(General)';
     porCat[c].subs[sub] = (porCat[c].subs[sub] || 0) + m;
   });
 

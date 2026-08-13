@@ -4,6 +4,7 @@ const { hoyPeru } = require('../lib/dates');
 const { enviarWhatsapp } = require('../lib/whatsapp');
 const { verificarAlertaPresupuesto } = require('./budget');
 const { crearNotificacion } = require('../lib/notifications-db');
+const { subcategoriaUtil } = require('../lib/subcategoria');
 
 async function enviarAlertaTransaccion(usuario, tx, resultado) {
   if (!tx || !resultado || !resultado.monto) return;
@@ -37,7 +38,7 @@ async function enviarAlertaTransaccion(usuario, tx, resultado) {
   let msg = emoji + ' *' + tipoStr + '*\n';
   msg += '\uD83C\uDFEA ' + comercio + '\n';
   msg += '\uD83D\uDCB0 ' + montoStr + '\n';
-  msg += '\uD83C\uDFF7\uFE0F ' + categoria + (subcategoria && subcategoria !== 'sin_categoria' ? ' > ' + subcategoria : '') + '\n';
+  msg += '\uD83C\uDFF7\uFE0F ' + categoria + (subcategoriaUtil(subcategoria) ? ' > ' + subcategoriaUtil(subcategoria) : '') + '\n';
   msg += '\uD83D\uDCC5 ' + (resultado.fecha || hoyPeru());
 
   if (tipo === 'gasto') {

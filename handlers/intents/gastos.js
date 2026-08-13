@@ -1,6 +1,7 @@
 const log = require('../../lib/logger');
 // La línea de precios sale de PRO_PRECIOS: nunca se escribe a mano (ver lib/config).
 const { lineaPrecioPro } = require('../../lib/config');
+const { subcategoriaUtil } = require('../../lib/subcategoria');
 
 module.exports = {
   intents: ['listar_gastos_mes', 'listar_gastos_semana', 'listar_gastos_dia', 'listar_gastos_categoria', 'ver_total_gastado', 'ver_gastos_rango_fecha', 'ver_gastos_fin_de_semana', 'gastos_hormiga'],
@@ -135,9 +136,11 @@ module.exports = {
         let msgCat = emojiCat + ' *Gastos en ' + cat + '* (' + mE[mes] + ' ' + anio + ')\n\nTotal: *S/ ' + total.toFixed(2) + '*\n' + txs.length + ' transacciones\n\n';
         // Agrupar por subcategoria
         const porSub = {};
-        txs.forEach(t => { const s = t.subcategoria || 'sin_categoria'; if (!porSub[s]) porSub[s] = []; porSub[s].push(t); });
+        // La clave es la sub MOSTRABLE o '(General)': agrupar por el centinela crudo pintaba
+        // un encabezado *Sin_categoria* (la DB lo capitaliza, ver lib/subcategoria).
+        txs.forEach(t => { const s = subcategoriaUtil(t.subcategoria) || '(General)'; if (!porSub[s]) porSub[s] = []; porSub[s].push(t); });
         const subs = Object.keys(porSub);
-        if (subs.length > 1 && subs.some(s => s !== 'sin_categoria')) {
+        if (subs.length > 1 && subs.some(s => s !== '(General)')) {
           // Mostrar agrupado por subcategoria
           Object.entries(porSub).forEach(([sub, txsSub]) => {
             const totalSub = txsSub.reduce((s,t) => s + parseFloat(t.monto_pen || t.monto), 0);

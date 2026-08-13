@@ -1,3 +1,5 @@
+import { esSubSinClasificar, SUB_SENTINEL_REVISAR } from './subcategoria';
+
 export const CATEGORIAS = [
   { nombre: 'Alimentación', emoji: '🍽️', subs: ['delivery','restaurante','supermercado','mercado','cafeteria','snacks'] },
   { nombre: 'Transporte', emoji: '🚌', subs: ['uber_cabify','taxi','bus_micro','metro_bus','gasolina','peaje','estacionamiento'] },
@@ -9,7 +11,7 @@ export const CATEGORIAS = [
   { nombre: 'Educación', emoji: '📚', subs: ['universidad','instituto','curso_online','utiles','idiomas','colegios'] },
   { nombre: 'Finanzas', emoji: '💳', subs: ['prestamo','tarjeta_credito','seguro','ahorro','inversion','comision_banco'] },
   { nombre: 'Trabajo_Negocio', emoji: '💼', subs: ['herramientas','publicidad','oficina','logistica','contador'] },
-  { nombre: 'Otros', emoji: '📋', subs: ['regalo','donacion','multa','viaje','sin_categoria'] }
+  { nombre: 'Otros', emoji: '📋', subs: ['regalo','donacion','multa','viaje', SUB_SENTINEL_REVISAR] }
 ] as const;
 
 export const CATEGORIA_EMOJI: Record<string, string> = Object.fromEntries(
@@ -69,8 +71,8 @@ export const CATEGORIA_POR_REVISAR = '__por_revisar__';
 
 // Una transaccion esta "por revisar" cuando no quedo ninguna clasificacion util:
 //
-//   1. La NLP fallo la subcategoria. Escribe ese fallo de dos formas
-//      ('Sin_categoria' y el string literal 'null'), con casing variable.
+//   1. La NLP fallo la subcategoria. Escribe ese fallo de dos formas, con
+//      casing variable — las dos las conoce `esSubSinClasificar`.
 //   2. Cayo en la categoria paraguas "Otros" y ademas no tiene subcategoria.
 //
 // "Otros" NO alcanza por si sola: "Otros / Regalo" es una clasificacion
@@ -80,11 +82,14 @@ export const CATEGORIA_POR_REVISAR = '__por_revisar__';
 // Una subcategoria NULL/vacia bajo una categoria REAL tampoco cuenta: significa
 // "nunca se asigno subcategoria", que es un estado normal (Uber -> Transporte sin
 // sub esta bien clasificada).
+//
+// El "casing variable" del punto 1 no es una precaucion: la DB CAPITALIZA esta
+// columna con un trigger (ver `./subcategoria`), asi que en prod el centinela
+// SOLO existe capitalizado. Por eso la comparacion vive alli y no aca.
 export function needsReview(t: { categoria?: string | null; subcategoria?: string | null }): boolean {
   const cat = (t.categoria ?? '').trim().toLowerCase();
-  const sub = (t.subcategoria ?? '').trim().toLowerCase();
-  const subFallida = sub === 'sin_categoria' || sub === 'null';
-  return subFallida || (cat === 'otros' && sub === '');
+  const sub = (t.subcategoria ?? '').trim();
+  return esSubSinClasificar(sub) || (cat === 'otros' && sub === '');
 }
 
 export const MESES = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
