@@ -29,10 +29,14 @@
 
 import crypto from 'crypto';
 import path from 'path';
+import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 import { startWebhookHarness } from './webhook-harness.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+// El número del admin sale de `lib/config.js`, no de una copia acá: el default vive ahí y una
+// segunda copia se desincroniza en silencio (el check de terceros pasaría a incluir al admin).
+const { ADMIN_NUMBER } = createRequire(import.meta.url)(path.join(here, '..', 'lib', 'config.js'));
 
 // Ground-truth del fixture (el mismo de qa-e2e-registro-gasto-foto.mjs).
 const FIXTURE = path.join(here, 'fixtures', 'yape-gasto.png');
@@ -108,9 +112,22 @@ async function run(h, vision) {
     // decorativa: la fila aparece apenas guarda `guardarTransaccion`, y un `enviarWhatsapp`
     // metido DESPUÉS de esa línea no se vería si se asevera en el mismo instante.
     await new Promise((r) => setTimeout(r, 3000));
-    check('NO se le respondió nada (no hay a dónde)', h.sent.length === enviadosAntes,
-      h.sent.length - enviadosAntes + ' mensajes salientes: ' +
-        h.sent.slice(enviadosAntes).map((s) => s.msg.slice(0, 40)).join(' | '));
+    // La aseveración es sobre el DESTINATARIO, no sobre el total. `avisarPrimeraVezSilencioso`
+    // (el detector que avisa cuando alguien conocido cae acá por primera vez) llama a
+    // `notificarAdmin`, que sin token de Telegram cae en `enviarWhatsapp(ADMIN_NUMBER)` — o sea
+    // que aparece en `h.sent` sin ser una respuesta al usuario. Contando el total, este harness
+    // quedó ROJO desde el 09-ago sin que nadie lo mirara, y un `enviarWhatsapp` de verdad
+    // metido en el camino silencioso habría sido indistinguible de ese ruido. El mismo hoyo se
+    // había tapado en `tests/handlers/webhook-sin-from.test.js` y no se propagó hasta acá.
+    const nuevos = h.sent.slice(enviadosAntes);
+    const alUsuario = nuevos.filter((s) => String(s.to) === WHATSAPP_QA);
+    check('NO se le respondió nada al usuario (no hay a dónde)', alUsuario.length === 0,
+      alUsuario.length + ' mensajes: ' + alUsuario.map((s) => s.msg.slice(0, 40)).join(' | '));
+    // Y lo que no fue al usuario tiene que haber ido al admin. Sin esto, filtrar por
+    // destinatario compraría el verde tapando cualquier envío a un tercero.
+    const aTerceros = nuevos.filter((s) => String(s.to) !== WHATSAPP_QA && String(s.to) !== String(ADMIN_NUMBER));
+    check('no salió nada hacia un tercero', aTerceros.length === 0,
+      aTerceros.map((s) => s.to + ': ' + s.msg.slice(0, 30)).join(' | '));
 
     // ── C. Retransmisión del mismo wamid ─────────────────────────────────────────
     // Se hace ANTES del control negativo para reusar el envelope de A todavía fresco en la
