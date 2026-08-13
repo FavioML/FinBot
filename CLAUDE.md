@@ -903,6 +903,26 @@ ESCRIBIERA, y a quien active un username antes de volver a escribir lo perdemos.
 | Aprender el BSUID | `persistirBsuid()` — nunca borra (los call-sites fuera del webhook pasan `null`) y nunca rompe el flujo |
 | Camino ENTRANTE (el usuario escribe) | `handlers/webhook.js`, pasa `message.from_user_id` a `obtenerOCrearUsuario` |
 | Camino SALIENTE (le enviamos algo) | `aprenderBsuidDeStatus()` en `lib/whatsapp.js`. El `Set` de módulo lo deja en **una query por número y por instancia**: cada envío produce `sent`+`delivered`+`read` y los crons lo multiplican por casi cien |
+
+**Al `Set` de números vistos solo entran los desenlaces DEFINITIVOS (hallazgo B19, 13-ago).**
+Ese `Set` no se limpia nunca en la vida de la instancia, así que meter ahí un fallo transitorio
+congela el mapeo de ese número **hasta el próximo deploy**. Definitivo es: se guardó, ya lo
+tenía, ese número no es de nadie, o el BSUID vive en otra fila (23505, permanente). Dos cosas
+que el arreglo obvio (mover el `add` después del `await`) NO resolvía y hay que respetar:
+
+- **`persistirBsuid` se traga el error del UPDATE**, así que "no lanzó" nunca significó "se
+  guardó". Por eso existe `persistirBsuidConEstado`, que es la misma función devolviendo además
+  `guardado | sin_cambio | colision | fallo`. `persistirBsuid` quedó como envoltorio para los
+  call-sites del alta, que no pueden hacer nada con el estado.
+- **El error del SELECT hay que leerlo.** `supabase-js` no lanza: sin mirar `{ error }`, un
+  timeout se leía igual que "ese número no es de ningún usuario" y se cacheaba como tal.
+  `usuarios.whatsapp` es único, así que ahí no hay caso de varias filas y el error es siempre
+  de infraestructura.
+
+Y la carrera que abre mover el `add` al final: los tres callbacks de un envío llegan en POSTs
+**separados**, o sea concurrentes de verdad. Un `Map` de consultas en vuelo comparte la promesa,
+que es lo que mantiene la propiedad de una query por número (el test que pasa los tres statuses
+en un solo array los procesa en fila y NO ve esta carrera).
 | Reconocer sin número | `buscarUsuarioPorBsuid()` + el bloque `if (!from)` de `handlers/webhook.js` |
 | Registrar sin poder responder | `services/registro-silencioso.js` — texto, **imagen (Vision) y audio (Whisper)** |
 | E2E | `qa-e2e/qa-bsuid-username.mjs` (los dos caminos + control negativo) · `qa-e2e/qa-bsuid-media.mjs` (la foto, con Vision real) |

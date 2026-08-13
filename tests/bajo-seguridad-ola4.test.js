@@ -88,7 +88,7 @@ describe('B21 — una colisión de BSUID no se colapsa en el log genérico', () 
   const errPath = require.resolve(path.join(projectRoot, 'lib/error-monitor.js'));
   require.cache[errPath] = { id: errPath, filename: errPath, loaded: true, exports: { registrarError } };
 
-  const { persistirBsuid } = require(path.join(projectRoot, 'helpers/db-helpers.js'));
+  const { persistirBsuid, persistirBsuidConEstado } = require(path.join(projectRoot, 'helpers/db-helpers.js'));
 
   beforeEach(() => { updateError = null; duenio = null; registrarError.mockClear(); log.error.mockClear(); });
 
@@ -124,6 +124,16 @@ describe('B21 — una colisión de BSUID no se colapsa en el log genérico', () 
     expect(tags).toContain('BSUID');
     expect(tags).not.toContain('BSUID_COLISION');
     expect(registrarError).not.toHaveBeenCalled();
+  });
+
+  // Y para quien deja de reintentar (el Set de `lib/whatsapp.js`), el 23505 es PERMANENTE: se
+  // reporta como estado propio para que no se confunda con un fallo de red que sí vale reintentar.
+  it('el 23505 se distingue del fallo transitorio en el estado, no solo en el log', async () => {
+    updateError = { code: '23505', message: 'duplicate key' };
+    duenio = { id: 'otro-usuario' };
+    expect((await persistirBsuidConEstado({ id: 'u1', bsuid: null }, 'PE.123')).estado).toBe('colision');
+    updateError = { code: '08006', message: 'connection failure' };
+    expect((await persistirBsuidConEstado({ id: 'u1', bsuid: null }, 'PE.123')).estado).toBe('fallo');
   });
 
   it('el camino feliz no toca ninguno de los dos', async () => {

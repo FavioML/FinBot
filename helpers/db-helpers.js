@@ -52,8 +52,18 @@ async function obtenerHistorial(usuarioId) {
 // - **Nunca rompe el flujo.** Es enriquecimiento, no parte del alta. Si el UPDATE falla (por
 //   ejemplo si el índice único choca porque ese BSUID ya está en otra fila, que sería un
 //   usuario duplicado) se registra y se sigue: el mensaje del usuario vale más que la columna.
-async function persistirBsuid(usuario, bsuid) {
-  if (!bsuid || !usuario || !usuario.id || usuario.bsuid === bsuid) return usuario;
+//
+// Ojo con el corolario, que costó un hallazgo (B19): como esta función se traga el fallo, un
+// `await persistirBsuid(...)` que resuelve **no prueba que el UPDATE haya pegado**. Quien
+// necesite esa distinción —hoy solo el camino saliente, que deja de consultar para siempre—
+// tiene que usar `persistirBsuidConEstado`, no inferirla de que no hubo excepción.
+//
+//   guardado   → el UPDATE confirmó
+//   sin_cambio → no había nada que escribir (sin BSUID, sin usuario, o ya lo tenía)
+//   colision   → 23505: ese BSUID vive en OTRA fila. Permanente; reintentar no lo arregla
+//   fallo      → transitorio (red, timeout, error de Postgres). Se puede reintentar
+async function persistirBsuidConEstado(usuario, bsuid) {
+  if (!bsuid || !usuario || !usuario.id || usuario.bsuid === bsuid) return { usuario, estado: 'sin_cambio' };
   try {
     const { error } = await supabase.from('usuarios').update({ bsuid }).eq('id', usuario.id);
     if (error) {
@@ -72,17 +82,25 @@ async function persistirBsuid(usuario, bsuid) {
             'BSUID ya asignado a otro usuario',
             { usuarioId: usuario.id, otroUsuarioId: duenio && duenio.id, bsuid });
         } catch (e2) { /* el registro del diagnóstico nunca puede romper el mensaje */ }
-        return usuario;
+        return { usuario, estado: 'colision' };
       }
       log.error({ tag: 'BSUID', err: error.message, usuarioId: usuario.id }, 'No se pudo guardar el BSUID');
-      return usuario;
+      return { usuario, estado: 'fallo' };
     }
     usuario.bsuid = bsuid;
     log.info({ tag: 'BSUID', usuarioId: usuario.id }, 'BSUID aprendido');
   } catch (e) {
     log.error({ tag: 'BSUID', err: e.message, usuarioId: usuario.id }, 'No se pudo guardar el BSUID');
+    return { usuario, estado: 'fallo' };
   }
-  return usuario;
+  return { usuario, estado: 'guardado' };
+}
+
+// La forma que usa el camino caliente: devuelve el usuario y nada más. Los call-sites del alta
+// lo encadenan directo en su `return`, y ninguno de ellos puede hacer nada con el estado.
+async function persistirBsuid(usuario, bsuid) {
+  const { usuario: u } = await persistirBsuidConEstado(usuario, bsuid);
+  return u;
 }
 
 // Reconoce a un usuario cuando Meta ya no manda su número (activó un username de WhatsApp) y
@@ -154,6 +172,7 @@ module.exports = {
   obtenerHistorial,
   obtenerOCrearUsuario,
   persistirBsuid,
+  persistirBsuidConEstado,
   buscarUsuarioPorBsuid,
   getUserPlanConfig,
   getHistoryDateLimit,

@@ -22,7 +22,7 @@ const chain = {
 };
 require('../../lib/db').supabase.from = vi.fn(() => chain);
 
-const { persistirBsuid } = require('../../helpers/db-helpers');
+const { persistirBsuid, persistirBsuidConEstado } = require('../../helpers/db-helpers');
 
 describe('persistirBsuid', () => {
   beforeEach(() => {
@@ -76,5 +76,47 @@ describe('persistirBsuid', () => {
     await persistirBsuid({}, 'PE.123');
     await persistirBsuid(null, 'PE.123');
     expect(chain.update).not.toHaveBeenCalled();
+  });
+});
+
+// El estado existe porque "esta función no lanzó" nunca significó "el UPDATE pegó" — se traga
+// el error a propósito. Quien deja de reintentar para siempre (el Set de `lib/whatsapp.js`,
+// hallazgo B19) necesita distinguir el fallo transitorio del desenlace definitivo.
+describe('persistirBsuidConEstado', () => {
+  beforeEach(() => {
+    updates.length = 0;
+    respuestaUpdate = { error: null };
+    lanzar = null;
+    chain.update.mockClear();
+  });
+
+  it('guardado cuando el UPDATE confirma', async () => {
+    const r = await persistirBsuidConEstado({ id: 'u1', bsuid: null }, 'PE.123');
+    expect(r.estado).toBe('guardado');
+  });
+
+  it('sin_cambio cuando no había nada que escribir', async () => {
+    expect((await persistirBsuidConEstado({ id: 'u1', bsuid: 'PE.123' }, 'PE.123')).estado).toBe('sin_cambio');
+    expect((await persistirBsuidConEstado({ id: 'u1', bsuid: 'PE.123' }, null)).estado).toBe('sin_cambio');
+    expect((await persistirBsuidConEstado(null, 'PE.123')).estado).toBe('sin_cambio');
+  });
+
+  // El caso que B19 no podía ver: el UPDATE falla, la función devuelve el usuario como si nada,
+  // y quien la llamó lo cachea como resuelto.
+  it('fallo cuando el UPDATE devuelve error', async () => {
+    respuestaUpdate = { error: { code: '08006', message: 'connection failure' } };
+    const r = await persistirBsuidConEstado({ id: 'u1', bsuid: null }, 'PE.123');
+    expect(r.estado).toBe('fallo');
+    expect(r.usuario.bsuid).toBeNull();
+  });
+
+  it('fallo cuando el cliente LANZA', async () => {
+    lanzar = new Error('socket hang up');
+    expect((await persistirBsuidConEstado({ id: 'u1', bsuid: null }, 'PE.123')).estado).toBe('fallo');
+  });
+
+  it('devuelve siempre el mismo objeto usuario que recibió', async () => {
+    const usuario = { id: 'u1', bsuid: null };
+    expect((await persistirBsuidConEstado(usuario, 'PE.123')).usuario).toBe(usuario);
   });
 });
