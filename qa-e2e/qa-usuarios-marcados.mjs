@@ -26,7 +26,7 @@
 // nuevo rompe este guard hasta que alguien lo escriba abajo, y esa fricción es el punto.
 //
 // Read-only. Va detrás de la barrera de qa-guard igual que los demás probes: las lecturas pasan
-// libres, y el día que alguien le agregue un "y de paso limpiá las filas" ya está puesta.
+// libres, y el día que alguien le agregue un "y de paso limpia las filas" ya está puesta.
 //
 // Correr:  node qa-e2e/qa-usuarios-marcados.mjs   (desde app/)
 //   exit 0 = solo fixtures declarados

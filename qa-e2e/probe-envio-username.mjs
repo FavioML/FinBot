@@ -17,9 +17,9 @@
 // Por eso hace falta provocarlo: un número NUESTRO con username activo, que le escriba al bot
 // (así queda su BSUID aprendido y se abre la ventana de 24h de Meta) y después correr esto.
 //
-//   1. Activá un username en el WhatsApp del número de prueba.
-//   2. Desde ese número, escribile cualquier cosa al bot (+51 933 014 505).
-//      Verificá en los logs que llegó SIN `from` — si trae número, el username no está activo
+//   1. Activa un username en el WhatsApp del número de prueba.
+//   2. Desde ese número, escríbele cualquier cosa al bot (+51 933 014 505).
+//      Verifica en los logs que llegó SIN `from` — si trae número, el username no está activo
 //      y la prueba no mide nada.
 //   3. node qa-e2e/probe-envio-username.mjs <numero> --confirmar
 //
@@ -61,7 +61,7 @@ async function main() {
 
   if (!numeroArg) {
     console.log('Uso: node qa-e2e/probe-envio-username.mjs <numero> --confirmar');
-    console.log('Antes: activá un username en ese WhatsApp y escribile al bot desde ahí.');
+    console.log('Antes: activa un username en ese WhatsApp y escríbele al bot desde ahí.');
     return 2;
   }
 
@@ -82,12 +82,12 @@ async function main() {
   console.log('bsuid:    ' + (usuario.bsuid || '— NO mapeado'));
   if (!usuario.bsuid) {
     console.log('\nSin BSUID aprendido no hay evidencia de que este número tenga username activo,');
-    console.log('así que un `delivered` acá no probaría nada. Escribile al bot primero.');
+    console.log('así que un `delivered` acá no probaría nada. Escríbele al bot primero.');
     return 2;
   }
 
   if (!confirmado) {
-    console.log('\nEsto MANDA UN WHATSAPP REAL a ese número. Volvé a correrlo con --confirmar.');
+    console.log('\nEsto MANDA UN WHATSAPP REAL a ese número. Vuelve a correrlo con --confirmar.');
     return 2;
   }
 
@@ -112,8 +112,8 @@ async function main() {
   // nada sobre el username, y confundirlo con "no se le puede escribir" cerraría la pregunta con
   // la respuesta equivocada.
   if (r && r.ok === false && r.code === 131047) {
-    console.log('\nVEREDICTO: VENTANA DE 24h CERRADA (131047). NO MIDE LO QUE QUERÉS.');
-    console.log('Pedile al número de prueba que le escriba al bot y volvé a correr esto en el momento.');
+    console.log('\nVEREDICTO: VENTANA DE 24h CERRADA (131047). NO MIDE LO QUE QUIERES.');
+    console.log('Pídele al número de prueba que le escriba al bot y vuelve a correr esto en el momento.');
     return 2;
   }
 
@@ -150,7 +150,7 @@ async function main() {
     console.log('La premisa se sostiene, y ahora con un número de error en vez de una suposición.');
   } else {
     console.log('\nVEREDICTO: SIN CALLBACK en ' + (ESPERA_MS / 1000) + 's. NO CONCLUYE NADA.');
-    console.log('El 200 de /messages no prueba entrega. Revisá la fila más tarde:');
+    console.log('El 200 de /messages no prueba entrega. Revisa la fila más tarde:');
     console.log("  select * from notification_deliveries where tipo = '" + TIPO + "' order by created_at desc;");
   }
   return 0;
