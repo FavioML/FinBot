@@ -59,8 +59,15 @@ function db(vars) {
       if (!r.ok) throw new Error(`select ${tabla}: ${r.status}`);
       return r.json();
     },
+    // Lanza igual que `insert`/`select`. Tragarse el status acá es peor que en las otras dos:
+    // un DELETE que falla deja una fila con un número peruano PLAUSIBLE (`519` + 8 dígitos al
+    // azar) viva en la `usuarios` de producción. Si esa persona alguna vez le escribe a Neto,
+    // `obtenerOCrearUsuario` ADOPTA la fila y el usuario real hereda `is_test_user`: el bot le
+    // queda mudo para siempre (`lib/whatsapp.js` saltea Meta) y `merge_and_link` lo propaga
+    // con un OR. El daño no lo paga el harness, lo paga un tercero.
     async del(tabla, query) {
-      await fetch(base + tabla + '?' + query, { method: 'DELETE', headers: h });
+      const r = await fetch(base + tabla + '?' + query, { method: 'DELETE', headers: h });
+      if (!r.ok) throw new Error(`delete ${tabla}: ${r.status} ${(await r.text()).slice(0, 200)}`);
     },
   };
 }
@@ -106,6 +113,27 @@ const fallos = [];
 function check(ok, etiqueta, detalle = '') {
   console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${etiqueta}${detalle ? '  (' + detalle + ')' : ''}`);
   if (!ok) fallos.push(etiqueta);
+}
+
+// Borrar y COMPROBAR que se borró, con el resultado atado al exit code. Antes el chequeo era un
+// `console.log('OJO: quedó la fila')` y el harness salía 0 igual, así que una fila filtrada en
+// producción no se enteraba nadie; y el usuario `pasivo` no tenía ni eso.
+//
+// Corre siempre desde un `finally`, así que se traga sus propios errores a propósito: si el
+// borrado revienta mientras ya venía subiendo una excepción del cuerpo, lanzar acá la
+// REEMPLAZA y se pierde el fallo que de verdad importa. Queda registrado como FAIL, que es lo
+// que hace ruido igual.
+async function borrarUsuarioVerificado(sb, id, etiqueta) {
+  try {
+    await sb.del('transacciones', `usuario_id=eq.${id}`);
+    await sb.del('usuarios', `id=eq.${id}`);
+    const quedan = await sb.select('usuarios', `id=eq.${id}&select=id`);
+    check(quedan.length === 0, `se borró el usuario efímero (${etiqueta})`,
+      quedan.length ? 'QUEDÓ la fila ' + id + ' — bórrala a mano YA' : '');
+  } catch (e) {
+    check(false, `se borró el usuario efímero (${etiqueta})`,
+      'el borrado falló: ' + e.message + ' — revisa la fila ' + id);
+  }
 }
 
 const vars = await credenciales();
@@ -178,15 +206,26 @@ try {
     const [tras] = await sb.select('usuarios', `id=eq.${pasivo.id}&select=bsuid`);
     check(tras && tras.bsuid === bsuidPasivo, 'aprendió el BSUID desde el callback', 'bsuid=' + (tras && tras.bsuid));
   } finally {
-    await sb.del('usuarios', `id=eq.${pasivo.id}`);
+    await borrarUsuarioVerificado(sb, pasivo.id, 'pasivo');
   }
 } finally {
-  if (usuario) {
-    console.log('\nLimpiando usuario efímero...');
-    await sb.del('transacciones', `usuario_id=eq.${usuario.id}`);
-    await sb.del('usuarios', `id=eq.${usuario.id}`);
-    const quedan = await sb.select('usuarios', `id=eq.${usuario.id}&select=id`);
-    console.log(quedan.length === 0 ? '  limpio' : '  OJO: quedó la fila ' + usuario.id);
+  console.log('\nLimpiando usuarios efímeros...');
+  if (usuario) await borrarUsuarioVerificado(sb, usuario.id, 'conocido');
+
+  // El caso B deja una fila en `errores` con el MISMO mensaje que produce un usuario real
+  // username-only ('Mensaje entrante sin from'), y esa tabla es de donde sale el conteo de
+  // eventos reales sobre el que está construido todo el diseño BSUID. Medido el 13-ago-2026:
+  // ese día las 6 filas eran de harness y ninguna era real, pero se leían igual. Se limpia acá
+  // en vez de enseñarle a producción a reconocer QA, que sería mucho peor.
+  //
+  // El filtro va por el `sufijo` de ESTA corrida (12 hex al azar), no por el prefijo `PE.qa`:
+  // así no puede tocar la fila de otra corrida en paralelo ni la de un usuario real.
+  try {
+    const sucias = await sb.select('errores', `select=id&detalle=like.*${sufijo}*`);
+    if (sucias.length) await sb.del('errores', `detalle=like.*${sufijo}*`);
+    console.log(`  errores del harness borrados: ${sucias.length}`);
+  } catch (e) {
+    check(false, 'se limpiaron las filas de `errores` del harness', e.message);
   }
 }
 

@@ -50,7 +50,7 @@ process.env.META_APP_SECRET = process.env.META_APP_SECRET || 'qa-harness-secret'
 /**
  * Bootea el harness. Devuelve handles para postear webhooks y leer respuestas.
  * @returns {Promise<{
- *   base: string, sent: Array<{to:string,msg:string}>, secret: string,
+ *   base: string, sent: Array<{to:string,msg:string}>, telegrams: string[], secret: string,
  *   supabase: any, openai: any, app: any,
  *   sign: (rawBody:string)=>string,
  *   textEnvelope: (texto:string, from:string)=>object,
@@ -71,6 +71,23 @@ export async function startWebhookHarness() {
   require.cache[waPath].exports = {
     ...waReal,
     enviarWhatsapp: async (to, msg) => { sent.push({ to, msg }); return { ok: true }; },
+  };
+
+  // ── Stub de salida: capturar enviarTelegram, por el mismo motivo ──────────────
+  // Sin esto, todo lo que pase por `notificarAdmin` sale como un Telegram DE VERDAD al celular
+  // de Favio, aunque el harness corra local: `notificarAdmin` intenta Telegram primero y solo
+  // cae a `enviarWhatsapp` (que sí estaba stubeado) cuando no hay token — y el `.env` local lo
+  // tiene. O sea que hasta el 13-ago-2026 un harness "local" le mandaba alertas reales.
+  //
+  // Y capturarlo habilita lo que este stub existe para permitir: **asertar sobre el aviso**.
+  // `avisarPrimeraVezSilencioso` tiene modo de falla silencioso (si se rompe no hay error, no
+  // hay log y no hay usuario que reclame), así que necesita cobertura viva, no solo unitaria.
+  const telegrams = [];
+  const tgPath = require.resolve(R('lib/telegram.js'));
+  const tgReal = require(tgPath);
+  require.cache[tgPath].exports = {
+    ...tgReal,
+    enviarTelegram: async (msg) => { telegrams.push(msg); return true; },
   };
 
   const { app } = require(R('index.js'));
@@ -182,7 +199,7 @@ export async function startWebhookHarness() {
   }
 
   return {
-    base, sent, secret, supabase, openai, app,
+    base, sent, telegrams, secret, supabase, openai, app,
     sign, textEnvelope, imageEnvelope, post, postText, postImage, postImageSinFrom, waitForReply, close,
   };
 }

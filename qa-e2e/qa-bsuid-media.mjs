@@ -112,13 +112,16 @@ async function run(h, vision) {
     // decorativa: la fila aparece apenas guarda `guardarTransaccion`, y un `enviarWhatsapp`
     // metido DESPUÉS de esa línea no se vería si se asevera en el mismo instante.
     await new Promise((r) => setTimeout(r, 3000));
-    // La aseveración es sobre el DESTINATARIO, no sobre el total. `avisarPrimeraVezSilencioso`
-    // (el detector que avisa cuando alguien conocido cae acá por primera vez) llama a
-    // `notificarAdmin`, que sin token de Telegram cae en `enviarWhatsapp(ADMIN_NUMBER)` — o sea
-    // que aparece en `h.sent` sin ser una respuesta al usuario. Contando el total, este harness
-    // quedó ROJO desde el 09-ago sin que nadie lo mirara, y un `enviarWhatsapp` de verdad
-    // metido en el camino silencioso habría sido indistinguible de ese ruido. El mismo hoyo se
-    // había tapado en `tests/handlers/webhook-sin-from.test.js` y no se propagó hasta acá.
+    // La aseveración es sobre el DESTINATARIO, no sobre el total. Hasta `afca4ee` el aviso de
+    // "primera vez sin número" llamaba a `notificarAdmin` también para el usuario sembrado, y
+    // eso aparecía en `h.sent` sin ser una respuesta al usuario: contando el total, este harness
+    // quedó ROJO desde el 09-ago sin que nadie lo mirara, y un `enviarWhatsapp` de verdad metido
+    // en el camino silencioso habría sido indistinguible de ese ruido. El mismo hoyo se había
+    // tapado en `tests/handlers/webhook-sin-from.test.js` y no se propagó hasta acá.
+    //
+    // Hoy ese aviso ya no sale para un usuario de harness, así que `nuevos` suele venir vacío.
+    // El filtro por destinatario se mantiene igual: si vuelve a aparecer ruido de admin, este
+    // check sigue midiendo lo que dice medir en vez de romperse por algo que no es suyo.
     const nuevos = h.sent.slice(enviadosAntes);
     const alUsuario = nuevos.filter((s) => String(s.to) === WHATSAPP_QA);
     check('NO se le respondió nada al usuario (no hay a dónde)', alUsuario.length === 0,
@@ -128,6 +131,18 @@ async function run(h, vision) {
     const aTerceros = nuevos.filter((s) => String(s.to) !== WHATSAPP_QA && String(s.to) !== String(ADMIN_NUMBER));
     check('no salió nada hacia un tercero', aTerceros.length === 0,
       aTerceros.map((s) => s.to + ': ' + s.msg.slice(0, 30)).join(' | '));
+
+    // El silencio del ADMIN, contra el pipeline real. Este es el único sitio donde la supresión
+    // de `afca4ee` se ejercita end-to-end: los tests unitarios mockean `notificarAdmin`, así que
+    // no ven el tramo `avisarPrimeraVezSilencioso → notificarAdmin → enviarTelegram`.
+    //
+    // `h.telegrams` existe además por una razón de seguridad: `notificarAdmin` intenta Telegram
+    // PRIMERO y solo cae a `enviarWhatsapp` (que ya estaba capturado) si no hay token — y el
+    // `.env` local lo tiene. O sea que hasta hoy este harness "local" le mandaba Telegrams
+    // REALES a Favio en cada corrida.
+    const avisos = h.telegrams.filter((m) => /Primera vez sin número/i.test(m));
+    check('no salió el aviso al admin por un usuario de harness', avisos.length === 0,
+      avisos.length + ' avisos: ' + avisos.map((m) => m.slice(0, 60)).join(' | '));
 
     // ── C. Retransmisión del mismo wamid ─────────────────────────────────────────
     // Se hace ANTES del control negativo para reusar el envelope de A todavía fresco en la

@@ -25,6 +25,14 @@
     "_supabase_nota": "Aca vivia una seccion `supabase.checks` que declaraba ['RLS active on all tables', 'tables count = 11']. Era LETRA MUERTA por partida doble: la tarea canary-daily-deploys solo ejecuta `canary.checks` (http) y `canary.harnesses`, nunca esta seccion; y el conteo estaba en 11 cuando las tablas reales son 37. Peor que no cubrir nada: le decia a la proxima auditoria que RLS estaba cubierto por el canary. Se borro en vez de arreglar el numero — un check que nadie corre no se arregla poniendole el numero de hoy. Lo que SI cubre esto de verdad: el harness `idor-cross-user` (multi-tenant contra prod, con oraculo service-role), los advisors de Supabase, y la skill /supabase-check a mano. Si algun dia se quiere RLS en el canary, va como harness ejecutable en la lista de abajo, no como string. (Q2, auditoria CTO ola 4.)",
     "harnesses": [
       {
+        "name": "usuarios-marcados",
+        "cmd": "node qa-e2e/qa-usuarios-marcados.mjs",
+        "cwd": "C:/Vortik.dev/products/neto/app",
+        "cost": "1 query read-only (segundos, gratis)",
+        "on_fail": "exit 1 = hay una fila en `usuarios` con is_test_user que no es un fixture declarado. Casi siempre es un usuario efimero que un harness de qa-e2e no borro, y su `whatsapp` es un celular peruano PLAUSIBLE ('519' + 8 digitos al azar). Mientras exista, si la persona dueña de ese numero le escribe a Neto, `obtenerOCrearUsuario` ADOPTA la fila y esa persona hereda la marca: `enviarWhatsapp` deja de llamar a Meta y el bot le queda MUDO para siempre (merge_and_link lo propaga con OR). Desde afca4ee el aviso al admin tambien saltea is_test_user, asi que nada mas lo delata. El JSON lista los intrusos con id/whatsapp/created_at: confirmar que no es una persona real y borrar la fila, o declararla en FIXTURES si es un fixture nuevo legitimo. exit 2 = no se pudo determinar (credenciales/red), NO es un PASS. Ver memory project_whatsapp_bsuid_usernames.",
+        "_por_que_lista_blanca": "Al reves que los watchPatterns de railway.json, que son lista negra porque alla el peligro es dejar de desplegar en silencio. Aca el peligro es justo una fila marcada que nadie declaro, asi que el default es gritar: un fixture nuevo rompe el guard hasta que lo declaren, y esa friccion es el punto."
+      },
+      {
         "name": "deploy-fresh",
         "cmd": "node qa-e2e/probe-deploy-fresh.mjs",
         "cwd": "C:/Vortik.dev/products/neto/app",

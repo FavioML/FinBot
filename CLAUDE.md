@@ -870,6 +870,40 @@ y `wa_id` en el webhook, y en su lugar llega `from_user_id` — el **BSUID**, op
 cada negocio (`PE.1049206861029395`). Empezó el 01-ago con 4 mensajes, y el 08-ago ya eran 6 de
 una sola persona en 13 minutos, escribiendo sin recibir nada.
 
+> **Los conteos de esta sección salen de la tabla `errores`, y esa tabla está CONTAMINADA por
+> los propios harness — descubierto el 13-ago-2026.** El caso B de `qa-bsuid-username.mjs` y de
+> `qa-bsuid-media.mjs` manda un BSUID desconocido al webhook, y eso escribe una fila con el
+> mismo `tag` y el mismo `mensaje` que produce un usuario real username-only. Indistinguibles al
+> contarlas. Separadas por el prefijo del BSUID (`PE.qa*` y `PE.nadie*` son de harness):
+>
+> | día | reales | de harness |
+> |---|---|---|
+> | 05-ago | 1 | 0 |
+> | 08-ago | **6** | 1 |
+> | 09-ago | **1** | 6 |
+> | 13-ago | **0** | 7 |
+>
+> O sea que el 13-ago no hubo **ni un solo** evento real y las 7 filas se leían como si lo
+> fueran, y el 09-ago fue 1 y no 7. Los 4 del 01-ago no están en esta tabla: son anteriores al
+> logging y llegaron como `TypeError` opaco.
+>
+> **Solo `qa-bsuid-username` limpia sus filas; `qa-bsuid-media` sigue dejando las suyas
+> (`PE.nadie*`), y es a propósito.** Ese harness escribe por el cliente detrás de `qa-guard`, que
+> **rechaza** un DELETE sobre `errores` filtrado por `like`: no fija el sujeto, y un WHERE abierto
+> ahí alcanza a toda la tabla. La regla vale más que la limpieza — el de username puede hacerlo
+> porque usa su propio cliente REST, fuera de la barrera por diseño. O sea que **la query de abajo
+> no es opcional**: es la única forma correcta de contar, no un atajo.
+>
+> Las filas viejas se dejaron, en vez de borrar datos de producción para que un número cierre.
+> **El conteo del día no se escribe acá** —envejece en cada corrida— se recomputa:
+>
+> ```sql
+> select date(created_at) d,
+>   count(*) filter (where detalle not like '%PE.qa%' and detalle not like '%PE.nadie%') reales,
+>   count(*) filter (where detalle like '%PE.qa%' or detalle like '%PE.nadie%') harness
+> from errores where tag='WEBHOOK' and mensaje ilike '%sin from%' group by 1 order by 1;
+> ```
+
 > **Tener un username activo NO es lo que oculta el número — medido el 10-ago-2026 y acá decía
 > lo contrario.** Favio tiene username (`@_faviomendoza`) y le escribió al bot: el mensaje llegó
 > **con `from`**, quedó fila en `conversaciones` y el bot le respondió normal. Cero mensajes sin
