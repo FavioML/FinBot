@@ -134,6 +134,43 @@ describe('registrar_manual', () => {
     await handler.handle({ intencion: 'registrar_manual', msg: 'gaste 30 en tupper', datos: {}, usuario: USUARIO, from: '+51999', ctx });
     expect(ctx.crearSubcategoriaLibreUsuario).toHaveBeenCalledWith('user-001', 'Comida_Casera', 'tupper');
   });
+
+  /**
+   * El centinela NO se le muestra al usuario, y el fixture es el que importa: la fila que
+   * devuelve `guardarTransaccion` viene de un `.select()`, o sea DESPUÉS del trigger
+   * `trg_normalize_subcategoria` (migración 070), que capitaliza. El código escribe
+   * 'sin_categoria' y prod devuelve **'Sin_categoria'** — 499 filas al 12-ago-2026, cero en
+   * minúscula. Con la comparación literal que había antes, la confirmación de todo gasto sin
+   * clasificar decía `✅ S/50.00 en Otros > Sin_categoria`.
+   *
+   * Por eso el mock devuelve la grafía de la DB y no la del código: un fixture en minúscula
+   * probaría una rama que producción no alcanza nunca.
+   */
+  it('un gasto sin clasificar NO muestra el centinela en la confirmación', async () => {
+    const sb = makeSupabaseMock({ transacciones: [] });
+    const ctx = buildCtx(sb, {
+      parsearRegistroManual: vi.fn().mockResolvedValue({ ok: true, monto: 50, moneda: 'PEN', categoria: 'Otros', subcategoria: 'sin_categoria', tipo: 'gasto', fecha: '2026-04-05' }),
+      detectarCategoriaIA: vi.fn().mockResolvedValue({}),
+      guardarTransaccion: vi.fn().mockResolvedValue({ id: 'tx-003', categoria: 'Otros', subcategoria: 'Sin_categoria' }),
+    });
+    const res = await handler.handle({ intencion: 'registrar_manual', msg: 'gaste 50 en no se que', datos: {}, usuario: USUARIO, from: '+51999', ctx });
+
+    expect(res.toLowerCase()).not.toContain('sin_categoria');
+    expect(res).toContain('en Otros ·');   // la categoría sola, sin el ` > sub`
+    expect(res).not.toContain('Otros >');
+    // Y la sub tampoco nace como categoría libre en el árbol del usuario.
+    expect(ctx.crearSubcategoriaLibreUsuario).not.toHaveBeenCalled();
+  });
+
+  it('una subcategoría REAL sí se muestra (el fix no se comió el caso normal)', async () => {
+    const sb = makeSupabaseMock({ transacciones: [] });
+    const ctx = buildCtx(sb, {
+      guardarTransaccion: vi.fn().mockResolvedValue({ id: 'tx-004', categoria: 'Alimentacion', subcategoria: 'Cafeteria' }),
+    });
+    const res = await handler.handle({ intencion: 'registrar_manual', msg: 'gaste 50 en cafe', datos: {}, usuario: USUARIO, from: '+51999', ctx });
+
+    expect(res).toContain('Alimentacion > Cafeteria');
+  });
 });
 
 // ─── registrar_manual: las dos llamadas al LLM van en paralelo (P′2) ─────────
