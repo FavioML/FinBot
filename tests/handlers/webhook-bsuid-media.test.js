@@ -405,6 +405,34 @@ describe('mensaje sin `from` con media, de un usuario reconocido por BSUID', () 
       expect(notificarAdmin).toHaveBeenCalledOnce();
     });
 
+    // El 13-ago-2026 esta alerta llegó por una corrida de `qa-bsuid-username.mjs`, que le pega
+    // al webhook de producción con un usuario sembrado, y se leyó como un usuario real. Lo caro
+    // no es el ruido: el aviso trae `probe-envio-username <numero> --confirmar` ya armado, y el
+    // número del harness es `519` + 8 dígitos al azar — el celular de cualquiera. Correr ese
+    // comando mientras la fila sembrada existe le manda un WhatsApp de verdad a un desconocido.
+    it('NO avisa por un usuario de harness (is_test_user)', async () => {
+      buscarUsuarioPorBsuid.mockResolvedValue({ ...CONOCIDO, id: 'u-de-harness', is_test_user: true });
+      parsearRegistroManual.mockResolvedValue({ ok: true, tipo: 'gasto', monto: 10 });
+
+      await postSinFrom({ type: 'text', text: { body: 'gasté 10 en pan' } });
+
+      expect(avisosQueMatchean(PRIMERA_VEZ)).toHaveLength(0);
+      // Y el gasto SÍ se registra: la marca silencia el aviso al admin, no el camino. Sin esto
+      // el test pasaría igual si `is_test_user` cortara el procesamiento entero.
+      expect(guardarTransaccion).toHaveBeenCalledOnce();
+    });
+
+    // El control que le da sentido al de arriba: la misma llamada sin la marca sí avisa, así que
+    // el cero no puede venir de que este camino dejó de avisar en general.
+    it('el mismo mensaje sin la marca sí avisa', async () => {
+      buscarUsuarioPorBsuid.mockResolvedValue({ ...CONOCIDO, id: 'u-sin-marca' });
+      parsearRegistroManual.mockResolvedValue({ ok: true, tipo: 'gasto', monto: 10 });
+
+      await postSinFrom({ type: 'text', text: { body: 'gasté 10 en pan' } });
+
+      expect(avisosQueMatchean(PRIMERA_VEZ)).toHaveLength(1);
+    });
+
     it('también avisa cuando el tipo no se puede procesar (un documento)', async () => {
       buscarUsuarioPorBsuid.mockResolvedValue({ ...CONOCIDO, id: 'u-documento' });
 

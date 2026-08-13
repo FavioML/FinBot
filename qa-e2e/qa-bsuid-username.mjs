@@ -118,7 +118,13 @@ let usuario = null;
 
 try {
   console.log('Sembrando usuario efímero con BSUID', BSUID_CONOCIDO);
-  usuario = await sb.insert('usuarios', { whatsapp: WHATSAPP_QA, nombre: 'QA BSUID', bsuid: BSUID_CONOCIDO, onboarding_completado: true, onboarding_paso: 0 });
+  // `is_test_user` no es decorativo acá: este harness le pega al webhook de PRODUCCIÓN, y el
+  // número es `519` + 8 dígitos al azar, o sea un celular peruano que puede ser de cualquiera.
+  // La marca hace dos cosas, las dos necesarias: `enviarWhatsapp` no llama a Meta para esa fila
+  // (lib/whatsapp.js), y `avisarPrimeraVezSilencioso` no dispara el Telegram al admin — que
+  // llega con el comando del probe ya armado con este número inventado. El 13-ago-2026 esa
+  // alerta salió por una corrida de este harness y se leyó como un usuario real.
+  usuario = await sb.insert('usuarios', { whatsapp: WHATSAPP_QA, nombre: 'QA BSUID', bsuid: BSUID_CONOCIDO, is_test_user: true, onboarding_completado: true, onboarding_paso: 0 });
 
   // --- A: el usuario que SÍ reconocemos ---
   console.log('\nA. mensaje SIN `from`, con BSUID conocido');
@@ -162,7 +168,8 @@ try {
   console.log('\nC. callback de estado (mapeo pasivo, sin que el usuario escriba)');
   const numeroPasivo = '519' + Math.floor(10000000 + Math.random() * 89999999);
   const bsuidPasivo = 'PE.qapasivo' + sufijo;
-  const pasivo = await sb.insert('usuarios', { whatsapp: numeroPasivo, nombre: 'QA BSUID pasivo', onboarding_completado: true, onboarding_paso: 0 });
+  // Mismo motivo que arriba: es otro número al azar viviendo un rato en la `usuarios` de prod.
+  const pasivo = await sb.insert('usuarios', { whatsapp: numeroPasivo, nombre: 'QA BSUID pasivo', is_test_user: true, onboarding_completado: true, onboarding_paso: 0 });
   try {
     check(!pasivo.bsuid, 'el usuario arranca SIN bsuid', 'bsuid=' + pasivo.bsuid);
     const st3 = await enviarStatus(vars.META_APP_SECRET, { numero: numeroPasivo, bsuid: bsuidPasivo, estado: 'sent' });

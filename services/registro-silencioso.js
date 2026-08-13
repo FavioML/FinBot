@@ -102,6 +102,19 @@ async function avisarUnaVez(clave, mensaje) {
  */
 async function avisarPrimeraVezSilencioso(usuario, tipo, resultado) {
   if (!usuario || !usuario.id) return;
+  // Los harness E2E (`qa-bsuid-username`, `qa-bsuid-media`) siembran un usuario con BSUID y le
+  // pegan al webhook REAL sin `from`, o sea que producen este evento en cada corrida. Sin este
+  // corte el aviso se dispara con cada `usuario.id` nuevo —la clave del throttle es el id— y el
+  // detector se vuelve ruido justo donde tiene que ser raro: es lo único que abre sola la
+  // ventana para medir la premisa de [[bsuid]]. Pasó el 13-ago-2026 y me lo comí como si fuera
+  // un usuario real.
+  //
+  // Y lo caro no es el ruido: el aviso trae el comando del probe ya armado con el número, y el
+  // número que siembra el harness es `519` + 8 dígitos al azar, o sea el celular peruano de
+  // cualquiera. Correrlo mientras la fila sembrada todavía existe le manda un WhatsApp de
+  // verdad a un desconocido. `is_test_user` es la misma marca que ya usa `enviarWhatsapp` para
+  // no llamar a Meta, y un usuario real nunca la lleva.
+  if (usuario.is_test_user === true) return;
   // `r` es null cuando el tipo no se puede procesar a ciegas (un documento, un sticker), y sin
   // esto el aviso decía literalmente "no registrado (null)".
   const desenlace = !resultado ? 'no se puede procesar a ciegas'
