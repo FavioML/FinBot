@@ -74,6 +74,20 @@ const toAdd = cookies.map((c) => ({
 const browser = await chromium.launch();
 const context = await browser.newContext();
 await context.addCookies(toAdd);
+// El tour de onboarding monta un overlay `fixed inset-0 z-50` que intercepta TODO click,
+// y con Playwright aparece siempre: el contexto nace con localStorage vacío y el usuario QA
+// tiene `tour_visto = false` en la base (el harness nunca completa el tour). Que aparezca es
+// el comportamiento CORRECTO de la app; el que estaba mal era el harness.
+//
+// El workaround viejo —borrar `.fixed.inset-0.z-50` una vez después de cargar— era una
+// carrera perdida: el tour monta con `setTimeout(1500)` (`onboarding-tour.tsx`), así que el
+// borrado corría antes y el overlay aparecía después, encima de los clicks siguientes.
+// Sembrar la marca ANTES de navegar corta el gate en la primera línea del efecto y el timer
+// ni se programa. Determinista, sin carrera.
+//
+// Costó 13 días de canary rojo en `login-e2e` y `config-verify`, o sea 13 días en que el
+// camino de logout y la pantalla de Configuración no los verificó nadie.
+await context.addInitScript(() => localStorage.setItem('neto_tour_v2', 'true'));
 const page = await context.newPage();
 
 const consoleErrors = [];
@@ -152,18 +166,46 @@ const timing = await page.evaluate(() => {
 results.timing = timing;
 
 // --- Check 4: logout fully purges neto-rq from localStorage ---
-await page.evaluate(() => {
-  // Remove any onboarding-tour overlay so the user menu is clickable.
-  document.querySelectorAll('.fixed.inset-0.z-50').forEach((e) => e.remove());
-});
-// Open the user menu (avatar shows the user initials) and sign out.
+//
+// **Este check llevaba 13 días rojo por el harness, no por la app** (14-ago). Y el motivo
+// no era el que decían los reportes del canary: culpaban al overlay del tour de onboarding
+// —que existe, y es el que sí rompe `qa-config-verify`— pero acá el click nunca llegaba a
+// buscar a quién tapar. El locator era `getByRole('button', { name: /^QA$/ })`, o sea las
+// INICIALES del usuario QA hardcodeadas, y el avatar hoy dice **"CA"**: `user-menu.tsx`
+// las deriva de `nombre.slice(0,2)`, así que renombrar la cuenta de prueba dejó ciego al
+// único harness que ejercita el logout. Un síntoma real con una causa supuesta al lado.
+//
+// El locator ahora es ESTRUCTURAL (`data-slot`, que pone el propio componente de shadcn):
+// no depende de cómo se llame la cuenta de prueba ni de si el usuario tiene foto de Google
+// —con `avatarUrl` puesto el fallback de iniciales ni se renderiza, así que el nombre
+// accesible del botón cambia solo—.
 let logoutClicked = false;
 try {
-  await page.getByRole('button', { name: /^QA$/ }).first().click({ timeout: 4000 });
-  await page.getByRole('button', { name: /Cerrar sesi/i }).click({ timeout: 4000 });
+  // El tour monta con `setTimeout(1500)`, así que un borrado de una sola pasada es una
+  // carrera perdida. La marca sembrada con `addInitScript` (arriba) corta el gate antes de
+  // que el timer se programe; esto queda como cinturón para cualquier overlay que aparezca
+  // después (la tarjeta de NPS, por ejemplo).
+  await page.evaluate(() => {
+    document.querySelectorAll('.fixed.inset-0.z-50').forEach((e) => e.remove());
+  });
+  results.pasoLogout = 'avatar';
+  // `:visible` no es adorno: el shell renderiza DOS avatares (topbar de escritorio y de
+  // móvil) y esconde uno por breakpoint. `.first()` a secas resolvía al escondido y moría
+  // con "element is not visible" — el mismo timeout de 4s que el bug anterior, con otra
+  // causa. Dos causas distintas detrás del mismo síntoma, que es por qué acá se lee el
+  // Call log entero en vez de la primera línea.
+  await page.locator('[data-slot="dropdown-menu-trigger"]:visible').first().click({ timeout: 4000 });
+  results.pasoLogout = 'cerrar-sesion';
+  await page.getByRole('menuitem', { name: /Cerrar sesi/i })
+    .or(page.getByRole('button', { name: /Cerrar sesi/i }))
+    .first()
+    .click({ timeout: 4000 });
   logoutClicked = true;
 } catch (e) {
-  results.logoutClickError = String(e).split('\n')[0];
+  // El mensaje completo, no la primera línea: el "Call log" de Playwright es el que nombra
+  // QUÉ nodo intercepta el click, y sin él el diagnóstico es una conjetura — que es
+  // exactamente cómo se sostuvo 13 días una causa equivocada.
+  results.logoutClickError = (e?.message ?? String(e)).split('\n').slice(0, 18).join(' | ');
 }
 results.logoutClicked = logoutClicked;
 await page.waitForTimeout(2500);

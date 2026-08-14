@@ -76,6 +76,48 @@ Usa `force-dynamic` SOLO si una ruta realmente renderiza data de usuario en el
 server (lee `cookies()`/Supabase server en el render). Hoy ninguna lo hace: el
 layout es un passthrough estatico.
 
+**`/` tambien es estatica, y su rebote vive en `middleware.ts`** (hallazgo P′6,
+14-ago). Era una funcion `ƒ` que se invocaba en cada visita para hacer un
+`redirect`, con `X-Vercel-Cache: MISS` siempre, sobre la primera pantalla que ve
+cualquiera. El middleware ya corria ahi para atrapar el `?ref`, asi que resolver
+el rebote ahi sale gratis. `app/page.tsx` quedo como un `redirect('/login')` sin
+`searchParams` — eso es lo que la deja prerenderizarse.
+
+Dos cosas del bloque de `/` en el middleware que no se tocan:
+- **La rama de `code`/`token_hash`** reenvia a `/auth/callback`. Es por donde
+  vuelve el magic link de Supabase cuando la Site URL apunta a la raiz. `page.tsx`
+  ya NO la conserva, asi que borrarla del middleware deja el login por email sin
+  retorno. La cubre `src/lib/middleware-raiz.test.ts`.
+- **El bloque va ANTES del corto de `NEXT_PUBLIC_DEMO_MODE`.** Ese corto existe
+  para saltear chequeos de AUTH y este rebote no es uno; con el corto por delante,
+  en demo mode `/` caia al `page.tsx` reducido y el `code` se perdia en silencio.
+
+### El root layout es una superficie de bundle, no un lugar para providers
+
+Todo lo que se monte en `app/layout.tsx` entra al bundle de TODA ruta, incluida
+`/login` — la primera pantalla del que llega desde WhatsApp, a menudo por el
+navegador embebido y con datos moviles. Medido el 14-ago (P′8): `TooltipProvider`
+de @base-ui costaba **51.5 KB gzip** ahi para cero tooltips fuera del dashboard.
+Vive ahora en `DashboardShell`, junto a sus dos unicos consumidores.
+
+Dos trampas que costaron descubrir:
+
+- **`app/not-found.tsx` y `app/error.tsx` van en el arbol de cliente de toda
+  ruta.** El `motion` del 404 le cobraba **38.8 KB gzip** al login; sacar `motion`
+  de `login/page.tsx` bajaba 0.1 KB porque el que lo arrastraba era el 404. Si
+  animas algo en esos dos archivos, hacelo con CSS (`tw-animate-css` ya esta).
+- **El `<Toaster>` de sonner SE QUEDA en el root layout** (9.2 KB), y esta
+  prohibido volver a bajarlo: sonner no re-emite, asi que un `toast()` seguido de
+  una navegacion muere con el arbol que contiene al Toaster. El porque completo
+  vive en `components/shared/app-toaster.tsx`.
+
+**Como se mide un cambio de bundle acá:** Next 16.3 con Turbopack **ya no imprime
+la tabla de First Load JS**. Los `<script src>` del HTML prerenderizado en
+`.next/server/app/*.html` son lo que baja el navegador en la primera carga; el
+grafo perezoso esta en claro dentro de cada chunk (`Promise.all(["static/chunks/…"])`).
+Y si el delta te da ~0, sospecha del build antes que de la conclusion: pasó una vez
+por leer un `.next` viejo.
+
 ### Autenticacion (2 capas)
 1. **Supabase Auth** → Google OAuth → cookie session
 2. **Mapeo interno**: `auth.user.id` → `usuarios.id` via `requireNetoUser()`

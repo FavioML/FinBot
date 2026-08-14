@@ -80,6 +80,20 @@ const toAdd = cookieParts.map((c) => ({
 const browser = await chromium.launch();
 const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
 await context.addCookies(toAdd);
+// El tour de onboarding monta un overlay `fixed inset-0 z-50` que intercepta TODO click,
+// y con Playwright aparece siempre: el contexto nace con localStorage vacío y el usuario QA
+// tiene `tour_visto = false` en la base (el harness nunca completa el tour). Que aparezca es
+// el comportamiento CORRECTO de la app; el que estaba mal era el harness.
+//
+// El workaround viejo —borrar `.fixed.inset-0.z-50` una vez después de cargar— era una
+// carrera perdida: el tour monta con `setTimeout(1500)` (`onboarding-tour.tsx`), así que el
+// borrado corría antes y el overlay aparecía después, encima de los clicks siguientes.
+// Sembrar la marca ANTES de navegar corta el gate en la primera línea del efecto y el timer
+// ni se programa. Determinista, sin carrera.
+//
+// Costó 13 días de canary rojo en `login-e2e` y `config-verify`, o sea 13 días en que el
+// camino de logout y la pantalla de Configuración no los verificó nadie.
+await context.addInitScript(() => localStorage.setItem('neto_tour_v2', 'true'));
 const page = await context.newPage();
 
 const consoleErrors = [];
