@@ -2,7 +2,7 @@ const { parsearRegistroManual } = require('./parsers');
 const { guardarTransaccion } = require('./transactions');
 const { descargarMedia, transcribirAudio, extraerPagoDeImagen } = require('./media-intake');
 const { esperaComprobante, esPagoNeto, registrarSolicitudPro } = require('../lib/pro-payment');
-const { resolverTipoPlan } = require('../lib/config');
+const { resolverTipoPlan, PRO_PRECIOS } = require('../lib/config');
 const { notificarAdmin } = require('../lib/admin-notify');
 const { registrarError } = require('../lib/error-monitor');
 const { hoyPeru } = require('../lib/dates');
@@ -236,77 +236,115 @@ async function registrarImagenSilenciosa(message, usuario) {
     return { registrado: false, motivo: 'media_error' };
   }
 
-  if (esperaComprobante(usuario)) {
-    if (esPagoNeto(parsed)) {
-      const montoDet = parseFloat(parsed.monto);
-      let pagoId = null, comprobantePath = null, usuarioMarcado = false;
-      try {
-        ({ pagoId, comprobantePath, usuarioMarcado } = await registrarSolicitudPro({
-          usuario,
-          monto: montoDet,
-          montoDetectado: montoDet,
-          tipoPlan: resolverTipoPlan(montoDet, usuario.tipo_plan),
-          metodoPago: parsed.metodo_pago || 'Yape',
-          comprobanteBuffer: buffer,
-          mimeType,
-          origen: 'whatsapp',
-        }) || {});
-      } catch (e) {
-        log.error({ tag: 'BSUID_SILENCIOSO', err: e.message, usuarioId: usuario.id }, 'Falló registrar la solicitud Pro');
-        await avisarAdminPagoPerdido(usuario, montoDet, e.message);
-        return { registrado: false, motivo: 'comprobante_error' };
-      }
-
-      // `registrarSolicitudPro` NO lanza cuando algo sale mal por dentro: Storage, el INSERT en
-      // `pagos` y el UPDATE de `usuarios` tienen try/catch propios que solo loguean. O sea que
-      // el `catch` de arriba casi nunca corre y una solicitud a medias vuelve como si nada.
-      // Los TRES importan, no solo el `pagoId`:
-      //   · sin `pagoId` no hay solicitud: el pago no existe en ningún lado.
-      //   · sin `comprobantePath` la fila queda sin la imagen (llegó por Telegram, no a la DB).
-      //   · sin `usuarioMarcado` el badge "pendiente" del panel no se prende —se calcula con
-      //     `usuarios.pago_pendiente`— y encima `esperando_comprobante` sigue en true, así que
-      //     una segunda captura abriría una SEGUNDA solicitud.
-      // Un canal que puede responder se entera por el usuario cuando algo de esto falla. Este no.
-      const faltantes = [
-        !pagoId && 'no quedó la fila en `pagos`',
-        !comprobantePath && 'el comprobante no subió a Storage',
-        !usuarioMarcado && 'no se marcó `pago_pendiente` en `usuarios`',
-      ].filter(Boolean);
-      if (faltantes.length) {
-        log.error({ tag: 'BSUID_SILENCIOSO', usuarioId: usuario.id, pagoId, comprobantePath, usuarioMarcado },
-          'Solicitud Pro incompleta');
-        await avisarAdminPagoPerdido(usuario, montoDet, faltantes.join(' · '));
-        // Sin `pagoId` no hay nada; con `pagoId` la solicitud existe y es aprobable, solo que
-        // coja. Se distingue para que el aviso no mande a reconstruir algo que ya está.
-        if (!pagoId) return { registrado: false, motivo: 'comprobante_sin_pago' };
-        return { registrado: true, motivo: 'comprobante_pro_incompleto' };
-      }
-
-      await notificarAdmin('🔕 El comprobante de arriba llegó de un usuario con *username de WhatsApp*: ' +
-        'se registró la solicitud pero NO se le pudo confirmar nada por chat, y tampoco se va a ' +
-        'enterar cuando lo apruebes. Apróbalo normal.');
-      // El gasto de la suscripción se registra igual que en el camino normal: es plata que salió.
-      await registrarPagoParseado(parsed, usuario);
-      return { registrado: true, motivo: 'comprobante_pro' };
+  // Espejo del camino interactivo (`handlers/webhook.js`, rama de imagen): lo que decide si
+  // esto es un comprobante es el CONTENIDO, no `esperando_comprobante`. Ver el comentario largo
+  // de allá; en resumen, el flag como interruptor de modo perdía el gasto en una posición y el
+  // pago en la otra. Acá pesa todavía más: no hay respuesta que delate ninguna de las dos.
+  const esperaba = esperaComprobante(usuario);
+  if (esPagoNeto(parsed)) {
+    // Reenviar la captura abría una SEGUNDA solicitud una vez que el flag salió de la decisión
+    // (antes lo cortaba `registrarSolicitudPro` apagándolo). `pago_pendiente` es "hay una
+    // solicitud sin resolver": la limpian tanto aprobar como rechazar. Cubre el reenvío y NO
+    // dos capturas en vuelo — misma carrera que tenía el flag, ver `handlers/webhook.js`.
+    if (usuario.pago_pendiente) {
+      // El gasto se anota IGUAL. La primera versión de esta guarda retornaba acá sin guardar, y
+      // acá eso es lo más caro del repo: si la solicitud pendiente salió de un falso positivo,
+      // ESTA captura es el pago real, y este usuario no tiene forma de reclamar ni de enterarse.
+      const rPend = await registrarPagoParseado(parsed, usuario);
+      log.info({ tag: 'BSUID_SILENCIOSO', usuarioId: usuario.id, registrado: rPend.registrado },
+        'Captura de pago con solicitud ya pendiente: no se abre otra');
+      await avisarUnaVez(usuario.id + '|segunda-captura-pago|' + parsed.monto + '|' + (parsed.comercio || ''),
+        '⏳ Un usuario con *username de WhatsApp* (`' + usuario.id + '`) mandó OTRA captura que parece un pago ' +
+        'a Neto y ya tiene una solicitud sin resolver.\n\nVision leyó: *' + (parsed.comercio || '(sin comercio)') + '* — ' + parsed.monto + '\n\n' +
+        'Si la pendiente era un falso positivo, ESTA puede ser el pago de verdad. ' +
+        (rPend.registrado ? 'El gasto quedó anotado igual.' : 'El gasto NO se pudo anotar (' + rPend.motivo + ').'));
+      return { registrado: rPend.registrado, motivo: 'comprobante_ya_pendiente' };
+    }
+    const montoDet = parseFloat(parsed.monto);
+    let pagoId = null, comprobantePath = null, usuarioMarcado = false;
+    try {
+      ({ pagoId, comprobantePath, usuarioMarcado } = await registrarSolicitudPro({
+        usuario,
+        monto: montoDet,
+        montoDetectado: montoDet,
+        tipoPlan: resolverTipoPlan(montoDet, usuario.tipo_plan),
+        metodoPago: parsed.metodo_pago || 'Yape',
+        comprobanteBuffer: buffer,
+        mimeType,
+        origen: 'whatsapp',
+      }) || {});
+    } catch (e) {
+      log.error({ tag: 'BSUID_SILENCIOSO', err: e.message, usuarioId: usuario.id }, 'Falló registrar la solicitud Pro');
+      await avisarAdminPagoPerdido(usuario, montoDet, e.message);
+      return { registrado: false, motivo: 'comprobante_error' };
     }
 
-    // Se avisa DESPUÉS de intentar guardar y con el resultado en la mano: el aviso decía
-    // "se registró como gasto" antes de registrarlo, y hay tres formas de que no se registre
-    // (no_pago, monto ilegible, guardarTransaccion que rechaza).
-    const r = await registrarPagoParseado(parsed, usuario);
-    const monto = parsed && parsed.monto != null ? parsed.monto : '?';
-    const comercio = (parsed && parsed.comercio) || '(sin comercio)';
-    await avisarUnaVez(usuario.id + '|no-es-pago|' + monto + '|' + comercio,
-      '⚠️ Un usuario con *username de WhatsApp* (`' + usuario.id + '`) mandó una captura mientras ' +
-      'esperaba enviar su comprobante Pro, y no parece el pago a Neto.\n\n' +
-      'Vision leyó: *' + comercio + '* — ' + monto + '\n' +
-      (r.registrado ? 'Se registró como gasto.' : 'No se registró nada (' + r.motivo + ').') + '\n\n' +
-      'Si eso ERA su pago (un nombre mal leído, un monto mal leído), hay que activarlo a mano: ' +
-      'no se le puede pedir que reenvíe la captura.');
-    return r;
+    // `registrarSolicitudPro` NO lanza cuando algo sale mal por dentro: Storage, el INSERT en
+    // `pagos` y el UPDATE de `usuarios` tienen try/catch propios que solo loguean. O sea que
+    // el `catch` de arriba casi nunca corre y una solicitud a medias vuelve como si nada.
+    // Los TRES importan, no solo el `pagoId`:
+    //   · sin `pagoId` no hay solicitud: el pago no existe en ningún lado.
+    //   · sin `comprobantePath` la fila queda sin la imagen (llegó por Telegram, no a la DB).
+    //   · sin `usuarioMarcado` el badge "pendiente" del panel no se prende —se calcula con
+    //     `usuarios.pago_pendiente`— y encima `esperando_comprobante` sigue en true, así que
+    //     una segunda captura abriría una SEGUNDA solicitud.
+    // Un canal que puede responder se entera por el usuario cuando algo de esto falla. Este no.
+    const faltantes = [
+      !pagoId && 'no quedó la fila en `pagos`',
+      !comprobantePath && 'el comprobante no subió a Storage',
+      !usuarioMarcado && 'no se marcó `pago_pendiente` en `usuarios`',
+    ].filter(Boolean);
+    if (faltantes.length) {
+      log.error({ tag: 'BSUID_SILENCIOSO', usuarioId: usuario.id, pagoId, comprobantePath, usuarioMarcado },
+        'Solicitud Pro incompleta');
+      await avisarAdminPagoPerdido(usuario, montoDet, faltantes.join(' · '));
+      // Sin `pagoId` no hay nada; con `pagoId` la solicitud existe y es aprobable, solo que
+      // coja. Se distingue para que el aviso no mande a reconstruir algo que ya está.
+      if (!pagoId) return { registrado: false, motivo: 'comprobante_sin_pago' };
+      return { registrado: true, motivo: 'comprobante_pro_incompleto' };
+    }
+
+    await notificarAdmin('🔕 El comprobante de arriba llegó de un usuario con *username de WhatsApp*: ' +
+      'se registró la solicitud pero NO se le pudo confirmar nada por chat, y tampoco se va a ' +
+      'enterar cuando lo apruebes. Apróbalo normal.');
+    // El gasto de la suscripción se registra igual que en el camino normal: es plata que salió.
+    await registrarPagoParseado(parsed, usuario);
+    return { registrado: true, motivo: 'comprobante_pro' };
   }
 
-  return registrarPagoParseado(parsed, usuario);
+  // Se avisa DESPUÉS de intentar guardar y con el resultado en la mano: el aviso decía
+  // "se registró como gasto" antes de registrarlo, y hay tres formas de que no se registre
+  // (no_pago, monto ilegible, guardarTransaccion que rechaza).
+  const r = await registrarPagoParseado(parsed, usuario);
+  // El aviso dice "esto puede ser un comprobante que Vision leyó mal". Hay DOS señales de eso y
+  // hace falta cualquiera de las dos:
+  //
+  //   · el flag puesto — el usuario venía a mandar su comprobante;
+  //   · el MONTO es el de un plan aunque el comercio no matchee — el caso "F. Mendoza L." con
+  //     S/10, que es literalmente el ejemplo que justifica el throttle de arriba.
+  //
+  // La segunda no estaba, y sin ella quedaba abierta justo la mitad que este cambio vino a
+  // cerrar: el username-only que RENUEVA sigue con `plan='premium'`, nadie le pone el flag, y
+  // su comprobante mal leído se anotaba como gasto sin que nadie se enterara nunca. Lo encontró
+  // la segunda revisión adversarial del diff.
+  //
+  // Lo que NO se hace es avisar por toda captura: eso convertiría cada foto de estos usuarios
+  // en un Telegram, que es lo que el throttle existe para evitar.
+  const montoNum = parseFloat(parsed && parsed.monto);
+  const pareceMontoDePlan = !isNaN(montoNum) && (
+    Math.abs(montoNum - PRO_PRECIOS.mensual) < 0.5 || Math.abs(montoNum - PRO_PRECIOS.anual) < 1.5
+  );
+  if (!esperaba && !pareceMontoDePlan) return r;
+  const monto = parsed && parsed.monto != null ? parsed.monto : '?';
+  const comercio = (parsed && parsed.comercio) || '(sin comercio)';
+  await avisarUnaVez(usuario.id + '|no-es-pago|' + monto + '|' + comercio,
+    '⚠️ Un usuario con *username de WhatsApp* (`' + usuario.id + '`) mandó una captura mientras ' +
+    'esperaba enviar su comprobante Pro, y no parece el pago a Neto.\n\n' +
+    'Vision leyó: *' + comercio + '* — ' + monto + '\n' +
+    (r.registrado ? 'Se registró como gasto.' : 'No se registró nada (' + r.motivo + ').') + '\n\n' +
+    'Si eso ERA su pago (un nombre mal leído, un monto mal leído), hay que activarlo a mano: ' +
+    'no se le puede pedir que reenvíe la captura.');
+  return r;
 }
 
 module.exports = {

@@ -375,6 +375,71 @@ describe('mensaje sin `from` con media, de un usuario reconocido por BSUID', () 
       expect(avisosQueMatchean(/no parece el pago a Neto/)).toHaveLength(2);
       expect(avisosQueMatchean(/F\. Mendoza L\./)).toHaveLength(1);
     });
+
+    // El flag salió de la decisión el 14-ago-2026: lo que dice si una captura es un comprobante
+    // es el CONTENIDO. Acá pesa más que en el camino interactivo, porque no hay respuesta que
+    // delate ninguna de las dos pérdidas — ni el gasto que no se anotó ni el pago que no existe.
+    it('sin el flag puesto, la captura del pago a Neto SIGUE siendo un comprobante', async () => {
+      buscarUsuarioPorBsuid.mockResolvedValue({
+        ...CONOCIDO, id: usuarioId, esperando_comprobante: false, plan: 'premium',
+      });
+      mockFetchOk('image/jpeg');
+      visionResponde({ tipo: 'gasto', monto: 10, moneda: 'PEN', comercio: 'Favio Mendoza', categoria: 'Finanzas' });
+
+      await postSinFrom(imagen());
+
+      expect(registrarSolicitudPro).toHaveBeenCalledOnce();
+      expect(guardarTransaccion).toHaveBeenCalledOnce();
+    });
+
+    it('sin el flag puesto, un gasto normal no dispara el aviso al admin', async () => {
+      // El aviso dice "creía estar mandando su comprobante y Vision leyó otra cosa". Sin flag no
+      // hay tal sospecha, y mandarlo igual convertiría cada foto de estos usuarios en un Telegram.
+      buscarUsuarioPorBsuid.mockResolvedValue({ ...CONOCIDO, id: usuarioId, esperando_comprobante: false });
+      mockFetchOk('image/jpeg');
+      visionResponde(YAPE_GASTO);
+
+      await postSinFrom(imagen());
+
+      expect(registrarSolicitudPro).not.toHaveBeenCalled();
+      expect(guardarTransaccion).toHaveBeenCalledOnce();
+      expect(avisosQueMatchean(/no parece el pago a Neto/)).toHaveLength(0);
+    });
+
+    it('con una solicitud ya pendiente, la captura no abre otra pero el gasto se anota y el admin se entera', async () => {
+      // Acá el return seco era lo más caro del repo: si la solicitud pendiente salió de un falso
+      // positivo de `esPagoNeto`, ESTA captura es el pago real — y este usuario no tiene forma
+      // de reclamar ni de enterarse de nada. Lo encontró la segunda revisión adversarial.
+      buscarUsuarioPorBsuid.mockResolvedValue({
+        ...CONOCIDO, id: usuarioId, esperando_comprobante: false, pago_pendiente: true,
+      });
+      mockFetchOk('image/jpeg');
+      visionResponde({ tipo: 'gasto', monto: 10, moneda: 'PEN', comercio: 'Favio Mendoza', categoria: 'Finanzas' });
+
+      await postSinFrom(imagen());
+
+      expect(registrarSolicitudPro).not.toHaveBeenCalled();
+      expect(guardarTransaccion).toHaveBeenCalledOnce();
+      expect(avisosQueMatchean(/ya tiene una solicitud sin resolver/)).toHaveLength(1);
+    });
+
+    // El aviso al admin dice "esto puede ser un comprobante que Vision leyó mal". Sin esta
+    // segunda señal quedaba abierta justo la mitad que este cambio vino a cerrar: el
+    // username-only que RENUEVA sigue con `plan='premium'`, nadie le pone el flag, y su
+    // comprobante mal leído se anotaba como gasto sin que nadie se enterara nunca.
+    it('sin el flag, un MONTO de plan con el comercio mal leído sí avisa al admin', async () => {
+      buscarUsuarioPorBsuid.mockResolvedValue({
+        ...CONOCIDO, id: usuarioId, esperando_comprobante: false, plan: 'premium',
+      });
+      mockFetchOk('image/jpeg');
+      visionResponde({ ...YAPE_GASTO, monto: 10, comercio: 'F. Mendoza L.' });
+
+      await postSinFrom(imagen());
+
+      expect(registrarSolicitudPro).not.toHaveBeenCalled();
+      expect(guardarTransaccion).toHaveBeenCalledOnce();
+      expect(avisosQueMatchean(/no parece el pago a Neto/)).toHaveLength(1);
+    });
   });
 
   // Que un usuario CONOCIDO llegue sin número no había pasado nunca hasta el 10-ago-2026, y lo

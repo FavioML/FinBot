@@ -115,25 +115,46 @@ describe('claimInApp: la fila in-app es el claim, no un efecto colateral', () =>
   });
 
   /**
-   * `llegoElAviso` es el permiso para hacer lo que solo tiene sentido si la persona se
-   * enteró (hoy: abrir la ventana de comprobante de 48h). Se prueba acá porque la primera
-   * versión preguntaba por una CAUSA de fallo y no por entrega, y así dejaba pasar el modo
-   * frecuente: Meta bloquea el texto libre fuera de la ventana de 24h con `{ok:false,
-   * code:131047}` y SIN `skipped`.
+   * `llegoElAviso` es el permiso para hacer lo que solo tiene sentido si la persona se puede
+   * enterar (hoy: abrir la ventana de comprobante de 48h).
+   *
+   * Tercera versión del predicado, y las dos anteriores fallaron en la misma dirección:
+   * contaron como entrega algo que no lo era.
+   *
+   *   1. `skipped !== 'claim_in_app_fallo'` — preguntaba por una CAUSA de fallo, la rara.
+   *   2. `wa.ok || inApp` — preguntaba por dos cosas que suenan a entrega y no lo son.
+   *      `wa.ok` es "Meta aceptó el POST": el 131047 llega DESPUÉS, por callback de status,
+   *      así que ese término dio `true` para los 260 envíos proactivos desde el 01-ago, de los
+   *      cuales solo 40 se entregaron. Y `inApp` es "la fila se escribió", que para los 44
+   *      usuarios WhatsApp-only es una fila sin pantalla (B23).
+   *
+   * Hoy: la fila in-app escrita **y** una cuenta web donde verla. La cuenta web es lo único
+   * comprobable en el instante de decidir.
    */
-  it('llegoElAviso distingue entrega de "lo intenté"', () => {
-    expect(llegoElAviso({ wa: { ok: true }, inApp: true })).toBe(true);
-    expect(llegoElAviso({ wa: { ok: true }, inApp: false })).toBe(true);       // solo WhatsApp
-    expect(llegoElAviso({ wa: { ok: false, code: 131047 }, inApp: true })).toBe(true); // solo in-app
+  const WEB = { supabase_auth_id: 'auth-123' };
+  const SOLO_WA = { supabase_auth_id: null };
 
-    // Los que NO llegaron. El 131047 es el que la primera versión dejaba pasar.
-    expect(llegoElAviso({ wa: { ok: false, code: 131047 }, inApp: false })).toBe(false);
-    expect(llegoElAviso({ wa: { ok: false, skipped: 'no_whatsapp' }, inApp: false })).toBe(false);
-    expect(llegoElAviso({ wa: { ok: false, skipped: 'claim_in_app_fallo' }, inApp: false })).toBe(false);
-    expect(llegoElAviso({ wa: { ok: true, skipped: 'test_user' }, inApp: false })).toBe(false);
-    expect(llegoElAviso({ wa: { ok: false, error: 'boom' }, inApp: false })).toBe(false);
-    expect(llegoElAviso(null)).toBe(false);
-    expect(llegoElAviso({})).toBe(false);
+  it('llegoElAviso exige una campana que exista de verdad', () => {
+    expect(llegoElAviso({ wa: { ok: true }, inApp: true }, WEB)).toBe(true);
+
+    // Los que NO tienen dónde esperar. Las dos primeras son las que la versión anterior
+    // dejaba pasar, y son la población entera del hallazgo.
+    expect(llegoElAviso({ wa: { ok: true }, inApp: true }, SOLO_WA)).toBe(false);
+    expect(llegoElAviso({ wa: { ok: true, msgId: 'wamid.1' }, inApp: false }, SOLO_WA)).toBe(false);
+    // Con cuenta web pero sin fila: el claim no se pudo escribir, no hay nada que ver.
+    expect(llegoElAviso({ wa: { ok: true }, inApp: false }, WEB)).toBe(false);
+    expect(llegoElAviso({ wa: { ok: false, code: 131047 }, inApp: false }, WEB)).toBe(false);
+    expect(llegoElAviso({ wa: { ok: true, skipped: 'test_user' }, inApp: false }, WEB)).toBe(false);
+
+    // Formas degeneradas: sin `res` o sin fila del usuario no se puede afirmar nada, y el
+    // default tiene que ser NO abrir la ventana.
+    expect(llegoElAviso(null, WEB)).toBe(false);
+    expect(llegoElAviso({}, WEB)).toBe(false);
+    expect(llegoElAviso({ wa: { ok: true }, inApp: true }, null)).toBe(false);
+    expect(llegoElAviso({ wa: { ok: true }, inApp: true }, undefined)).toBe(false);
+    // `undefined` es lo que produce un `select` que se olvidó la columna: no puede pasar
+    // por "tiene cuenta web".
+    expect(llegoElAviso({ wa: { ok: true }, inApp: true }, {})).toBe(false);
   });
 
   it('sin canal in-app declarado no hay claim: se degrada y avisa por log', async () => {
@@ -239,9 +260,11 @@ describe('los cuatro crons con dedup por fecha piden el claim', () => {
       for (const u of cuerpo.matchAll(/solicitarComprobante\(/g)) {
         revisadas++;
         const linea = cuerpo.slice(cuerpo.lastIndexOf('\n', u.index) + 1, cuerpo.indexOf('\n', u.index));
-        // La guarda tiene que preguntar por ENTREGA, no por una causa puntual de fallo:
-        // `skipped !== 'claim_in_app_fallo'` cubría el modo raro y dejaba pasar el frecuente
-        // (Meta 131047 devuelve ok:false SIN skipped).
+        // La guarda tiene que preguntar por una superficie donde el aviso ESPERE al usuario.
+        // Dos versiones anteriores preguntaron otra cosa: `skipped !== 'claim_in_app_fallo'`
+        // (el modo de falla raro) y después `wa.ok || inApp` (B23), que cuenta "Meta aceptó el
+        // POST" y "la fila se escribió" como si fueran entrega. Hoy `llegoElAviso` necesita
+        // DOS argumentos, y este barrido fija los dos.
         expect(linea, 'solicitarComprobante sin guarda de entrega: ' + linea.trim())
           .toMatch(/llegoElAviso\(/);
         expect(
@@ -249,8 +272,15 @@ describe('los cuatro crons con dedup por fecha piden el claim', () => {
           'el aviso previo a este solicitarComprobante no guarda su resultado en una variable, ' +
           'así que la guarda no puede estar mirando ESTE envío: ' + linea.trim(),
         ).toBeTruthy();
-        expect(linea, 'la guarda mira otro aviso, no el de este call-site: ' + linea.trim())
-          .toContain('llegoElAviso(' + variable + ')');
+        // El segundo argumento importa tanto como el primero: `llegoElAviso(avisado3d)` a secas
+        // devuelve false SIEMPRE (sin usuario no hay cuenta web que mirar), así que la ventana
+        // no se abriría nunca y el bug se vería como "esto funciona". Y pasarle OTRO usuario
+        // consultaría la campana de alguien que no es el destinatario. En los cuatro bucles la
+        // fila del destinatario se llama `usuario`; si eso cambia, este guard es el que avisa.
+        expect(
+          linea,
+          'la guarda mira otro aviso o no mira al destinatario: ' + linea.trim(),
+        ).toContain('llegoElAviso(' + variable + ', usuario)');
       }
     }
     expect(revisadas, 'el barrido no encontró ningún solicitarComprobante tras un aviso').toBe(4);

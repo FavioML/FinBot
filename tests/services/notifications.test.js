@@ -94,7 +94,15 @@ describe('gasto inusual: la comparación es en soles', () => {
   const usuario = { id: 'u1', whatsapp: '51999', alertas_transaccion: true };
   const alerta = () => waMock.enviarWhatsapp.mock.calls[0]?.[1] || '';
 
-  beforeEach(() => { waMock.enviarWhatsapp.mockClear(); notifDbMock.crearNotificacion.mockClear(); historial = []; columnasPedidas = null; });
+  // `verificarAlertaPresupuesto` entra al clear porque hay una aserción de "no se llamó" más
+  // abajo: sin esto arrastra las llamadas de los casos anteriores y el test falla por sucio,
+  // no por el código.
+  beforeEach(() => {
+    waMock.enviarWhatsapp.mockClear();
+    notifDbMock.crearNotificacion.mockClear();
+    budgetMock.verificarAlertaPresupuesto.mockClear();
+    historial = []; columnasPedidas = null;
+  });
 
   it('pide monto_pen además de monto', () => {
     // Si la query no trae la columna, el resto del fix no puede funcionar: sería `undefined`
@@ -210,6 +218,49 @@ describe('gasto inusual: la comparación es en soles', () => {
       { monto: 500, comercio: 'Wong', categoria: 'Compras', tipo: 'gasto', fecha: '2026-08-10' },
     );
     expect(alerta()).not.toContain('Gasto inusual');
+  });
+
+  // B24 (auditoría 10-ago-2026). Acá arriba había un `if (!usuario.whatsapp) return` que se
+  // llevaba puesta la notificación in-app: al usuario web-first no le llegaba la alerta por
+  // NINGÚN canal, ni siquiera por el único que sí lo alcanza. Estas dos aserciones son las que
+  // mueren si alguien restaura ese return — la primera por lo que deja de escribirse, la
+  // segunda para que el arreglo no se pase de largo y le mande un WhatsApp a un `null`.
+  it('el usuario web-first (sin WhatsApp) SÍ recibe la campana de gasto inusual', async () => {
+    historial = [
+      { monto: 20, monto_pen: 20, moneda: 'PEN' },
+      { monto: 20, monto_pen: 20, moneda: 'PEN' },
+      { monto: 20, monto_pen: 20, moneda: 'PEN' },
+    ];
+    await enviarAlertaTransaccion(
+      { id: 'uweb', whatsapp: null, alertas_transaccion: true },
+      { id: 'tx9', monto_pen: 150 },
+      { monto: 150, comercio: 'Wong', categoria: 'Compras', tipo: 'gasto', fecha: '2026-08-14' },
+    );
+    expect(notifDbMock.crearNotificacion).toHaveBeenCalledTimes(1);
+    expect(notifDbMock.crearNotificacion.mock.calls[0][2]).toBe('Gasto inusual detectado');
+    expect(waMock.enviarWhatsapp).not.toHaveBeenCalled();
+    // La alerta de presupuesto solo existe como texto pegado al mensaje de WhatsApp: no tiene
+    // canal in-app. Sin número, consultarla son dos queries cuyo resultado no se lee. Esta
+    // aserción es la única que muere si se le quita el `&& usuario.whatsapp` a esa rama —
+    // el resto del test pasa igual, que es cómo la línea llegó a estar sin cobertura.
+    expect(budgetMock.verificarAlertaPresupuesto).not.toHaveBeenCalled();
+  });
+
+  it('el opt-out sigue apagando la campana, no solo el WhatsApp', async () => {
+    // Sin esto, quitar el return temprano deja al que apagó las alertas recibiéndolas por
+    // in-app: el opt-out es sobre la ALERTA, no sobre el canal.
+    historial = [
+      { monto: 20, monto_pen: 20, moneda: 'PEN' },
+      { monto: 20, monto_pen: 20, moneda: 'PEN' },
+      { monto: 20, monto_pen: 20, moneda: 'PEN' },
+    ];
+    await enviarAlertaTransaccion(
+      { id: 'uweb', whatsapp: null, alertas_transaccion: false },
+      { id: 'tx10', monto_pen: 150 },
+      { monto: 150, comercio: 'Wong', categoria: 'Compras', tipo: 'gasto', fecha: '2026-08-14' },
+    );
+    expect(notifDbMock.crearNotificacion).not.toHaveBeenCalled();
+    expect(waMock.enviarWhatsapp).not.toHaveBeenCalled();
   });
 
   it('una fila con monto_pen nulo cuenta igual, con su monto crudo', async () => {

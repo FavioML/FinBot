@@ -35,6 +35,10 @@ require('../../lib/trial').colaConfirmacionGasto = colaConfirmacionGasto;
 const registrarError = vi.fn();
 require('../../lib/error-monitor').registrarError = registrarError;
 
+// El aviso al admin cuando llega una SEGUNDA captura de pago con una solicitud sin resolver.
+const notificarAdmin = vi.fn().mockResolvedValue(undefined);
+require('../../lib/admin-notify').notificarAdmin = notificarAdmin;
+
 // OJO: acá NO se reemplaza el objeto `openai` entero (como sí hace webhook-audio.test.js),
 // porque eso destruiría `chat.completions.create`, que es justo lo que usa Vision.
 // `tests/setup.js` ya parchea ese método sobre la instancia compartida.
@@ -95,6 +99,7 @@ describe('Imágenes de pago (Yape/Plin/banco) → Vision → transacción', () =
     enviarWhatsapp.mockClear();
     guardarTransaccion.mockReset().mockResolvedValue({ categoria: 'Alimentación', subcategoria: 'Restaurantes', conteoTx: 5 });
     procesarComprobantePro.mockClear();
+    notificarAdmin.mockClear();
     colaConfirmacionGasto.mockClear().mockResolvedValue(null);
     visionCreate.mockReset().mockResolvedValue({ choices: [{ message: { content: '{}' } }] });
     obtenerOCrearUsuario.mockReset().mockResolvedValue({
@@ -218,7 +223,11 @@ describe('Imágenes de pago (Yape/Plin/banco) → Vision → transacción', () =
       expect(guardarTransaccion).toHaveBeenCalledOnce();
     });
 
-    it('una captura que NO es el pago a Neto no activa el flujo Pro ni registra el gasto', async () => {
+    // Hasta el 14-ago-2026 este caso afirmaba `guardarTransaccion` **no llamado**, y ese era
+    // el defecto: con la ventana abierta, una captura de un gasto cualquiera se rechazaba y el
+    // gasto se PERDÍA. Como la ventana la abre un cron (`llegoElAviso`, B23), el que la pagaba
+    // era alguien que ni sabía que había una ventana abierta. El test blindaba la pérdida.
+    it('una captura que NO es el pago a Neto no activa el flujo Pro, pero el gasto se anota igual', async () => {
       mockFetchOk();
       visionResponde(YAPE_GASTO);
 
@@ -226,8 +235,116 @@ describe('Imágenes de pago (Yape/Plin/banco) → Vision → transacción', () =
       await webhookHandler(req, res);
 
       expect(procesarComprobantePro).not.toHaveBeenCalled();
+      expect(guardarTransaccion).toHaveBeenCalledOnce();
+      const resp = enviarWhatsapp.mock.calls[0][1];
+      expect(resp).toMatch(/Gasto registrado/i);
+      // Y se le explica por qué esto no fue "comprobante recibido", que es lo que esperaba.
+      expect(resp).toMatch(/reenv[íi]amela/i);
+    });
+
+    it('reenviar la captura con una solicitud ya pendiente no abre una segunda, pero anota el gasto', async () => {
+      // El flag era lo que cortaba esto: `registrarSolicitudPro` lo apaga al registrar. Al
+      // sacarlo de la decisión, la guarda pasa a ser `pago_pendiente`.
+      //
+      // La primera versión de esta guarda retornaba sin guardar, y la segunda revisión
+      // adversarial mostró que eso abría una TERCERA posición donde se pierde algo: si la
+      // solicitud pendiente vino de un falso positivo de `esPagoNeto`, esta captura es el pago
+      // REAL. Estas dos aserciones son las que mueren si alguien vuelve a poner el return seco.
+      obtenerOCrearUsuario.mockResolvedValue({
+        id: 'user-1', nombre: 'Juan', onboarding_paso: 0, onboarding_completado: true,
+        esperando_comprobante: false, pago_pendiente: true,
+      });
+      mockFetchOk();
+      visionResponde({ tipo: 'gasto', monto: 10, moneda: 'PEN', comercio: 'Favio Mendoza', categoria: 'Finanzas', fecha: '2026-08-09' });
+
+      const { req, res } = buildImagenReqRes('51999000111', 'media-img');
+      await webhookHandler(req, res);
+
+      expect(procesarComprobantePro).not.toHaveBeenCalled();
+      expect(guardarTransaccion).toHaveBeenCalledOnce();
+      expect(notificarAdmin).toHaveBeenCalled();
+      expect(enviarWhatsapp.mock.calls[0][1]).toMatch(/verificaci[óo]n/i);
+    });
+
+    it('el monto ilegible de quien espera comprobante no cuenta como error de infraestructura', async () => {
+      // `esPagoNeto` es false por el isNaN y `tipo` es 'gasto', así que sin esta rama caía al
+      // `throw` genérico: "No pude procesar la imagen" y una fila con stack en `errores`. Vision
+      // no leyendo un monto es esperable, no una falla del backend.
+      mockFetchOk();
+      visionResponde({ tipo: 'gasto', monto: null, moneda: 'PEN', comercio: 'Favio Mendoza', categoria: 'Finanzas' });
+
+      const { req, res } = buildImagenReqRes('51999000111', 'media-img');
+      await webhookHandler(req, res);
+
+      expect(procesarComprobantePro).not.toHaveBeenCalled();
       expect(guardarTransaccion).not.toHaveBeenCalled();
-      expect(enviarWhatsapp.mock.calls[0][1]).toMatch(/no parece el pago/i);
+      const resp = enviarWhatsapp.mock.calls[0][1];
+      expect(resp).toMatch(/no pude leer el monto/i);
+      expect(resp).not.toMatch(/no pude procesar la imagen/i);
+    });
+  });
+
+  /**
+   * La otra mitad del mismo cambio, y la que NO existía: con la ventana CERRADA, una captura
+   * que SÍ es el pago a Neto se anotaba como un gasto más a "Favio Mendoza" y el pago se perdía
+   * en silencio — sin fila en `pagos` y sin aviso al admin.
+   *
+   * Le pasa al usuario WhatsApp-only que quiere RENOVAR: sigue con `plan === 'premium'`, así
+   * que `pideComprobante` (handlers/intents/premium.js) es false y no tiene ninguna forma de
+   * abrir la ventana. Lo encontró la revisión adversarial del fix de B23, que sin esto se la
+   * habría cerrado del todo.
+   */
+  describe('cuando NO está esperando comprobante', () => {
+    beforeEach(() => {
+      obtenerOCrearUsuario.mockResolvedValue({
+        id: 'user-1', nombre: 'Juan', onboarding_paso: 0, onboarding_completado: true,
+        esperando_comprobante: false, plan: 'premium',
+      });
+    });
+
+    it('la captura del pago a Neto se procesa como comprobante igual', async () => {
+      mockFetchOk();
+      visionResponde({ tipo: 'gasto', monto: 10, moneda: 'PEN', comercio: 'Favio Mendoza', categoria: 'Finanzas', fecha: '2026-08-09' });
+
+      const { req, res } = buildImagenReqRes('51999000111', 'media-img');
+      await webhookHandler(req, res);
+
+      expect(procesarComprobantePro).toHaveBeenCalledOnce();
+      expect(guardarTransaccion).toHaveBeenCalledOnce();
+    });
+
+    // `/favio/` sin borde de palabra matchea "Faviola", "Faviana" y cualquier nombre que lo
+    // contenga. Mientras `esPagoNeto` solo corría dentro de la ventana de 48h el falso positivo
+    // era raro; ahora corre para toda imagen, así que un yape de S/10 a una Faviola se leía
+    // como pago Pro: solicitud abierta, `estado_pago` pisado, y —por la guarda de
+    // `pago_pendiente`— el comprobante REAL siguiente bloqueado. Lo encontró la segunda revisión.
+    it('un yape de S/10 a alguien que solo CONTIENE "favio" no es un pago a Neto', async () => {
+      mockFetchOk();
+      visionResponde({ tipo: 'gasto', monto: 10, moneda: 'PEN', comercio: 'Faviola Quispe', categoria: 'Finanzas', fecha: '2026-08-09' });
+
+      const { req, res } = buildImagenReqRes('51999000111', 'media-img');
+      await webhookHandler(req, res);
+
+      expect(procesarComprobantePro).not.toHaveBeenCalled();
+      expect(guardarTransaccion).toHaveBeenCalledOnce();
+      expect(enviarWhatsapp.mock.calls[0][1]).toMatch(/Gasto registrado/i);
+    });
+
+    it('una captura de un gasto normal sigue siendo un gasto', async () => {
+      // El control: sin esto, lo de arriba pasaría igual con un `esPagoNeto` que devuelva
+      // siempre true, que es la mutación que convierte cada foto en una solicitud de pago.
+      mockFetchOk();
+      visionResponde(YAPE_GASTO);
+
+      const { req, res } = buildImagenReqRes('51999000111', 'media-img');
+      await webhookHandler(req, res);
+
+      expect(procesarComprobantePro).not.toHaveBeenCalled();
+      expect(guardarTransaccion).toHaveBeenCalledOnce();
+      const resp = enviarWhatsapp.mock.calls[0][1];
+      expect(resp).toMatch(/Gasto registrado/i);
+      // Y sin la coletilla del comprobante: este usuario no estaba esperando mandar nada.
+      expect(resp).not.toMatch(/reenv[íi]amela/i);
     });
   });
 });

@@ -10,7 +10,7 @@ const { ADMIN_NUMBER, PRO_PRECIOS, lineaPrecioPro } = require('../lib/config');
 const { guardarTransaccion, obtenerGastosMes, recategorizarTransaccion } = require('../services/transactions');
 const { guardarPresupuesto, formatearEstadoPresupuesto } = require('../services/budget');
 const { parsearCorreoBancario } = require('../services/parsers');
-const { notificarErrorAdmin } = require('../lib/admin-notify');
+const { notificarErrorAdmin, notificarAdmin } = require('../lib/admin-notify');
 const { registrarError } = require('../lib/error-monitor');
 const { registrarReferido, obtenerEstadisticasReferidos, mensajeMisReferidos } = require('../services/referrals');
 const { obtenerCategoriasUsuario } = require('../services/categories');
@@ -282,15 +282,56 @@ function createWebhookHandler(procesarMensajeLibre) {
         const hoy = hoyPeru();
         const parsed = await extraerPagoDeImagen(imgBuffer, mimeType, hoy);
 
-        // Si el usuario está esperando enviar su comprobante Pro, tratar la captura como pago Pro
-        // (cubre onboarding paso 2 y usuarios ya registrados que pidieron Pro por /premium o cron).
-        if (esperaComprobante(usuario)) {
-          if (parsed.tipo === 'no_pago' || !parsed.monto || isNaN(parseFloat(parsed.monto))) {
-            await enviarWhatsapp(from, 'No reconocí un pago en esa imagen. Envíame la captura del Yape (S/' + PRO_PRECIOS.mensual + ' mensual o S/' + PRO_PRECIOS.anual + ' anual a *Favio Mendoza*) para activar tu Pro. 📸');
-            return;
-          }
-          if (!esPagoNeto(parsed)) {
-            await enviarWhatsapp(from, 'Esa captura no parece el pago a Neto (S/' + PRO_PRECIOS.mensual + ' mensual o S/' + PRO_PRECIOS.anual + ' anual a *Favio Mendoza*). Si ya pagaste, reenvíame la captura correcta. 📸');
+        // ─── Qué es esta captura lo decide el CONTENIDO, no el flag ──────────────────────
+        //
+        // Hasta el 14-ago-2026 lo decidía `esperando_comprobante`, y como interruptor de modo
+        // perdía algo en CADA posición:
+        //
+        //   · flag PUESTO + captura que no es el pago a Neto → se rechazaba y **el gasto se
+        //     perdía**. Es la trampa de B12/B23: el flag lo pone un cron, así que la ventana
+        //     de 48h se le abría a gente que ni se enteró del aviso.
+        //   · flag SIN PONER + captura que SÍ es el pago a Neto → se anotaba como un gasto más
+        //     a "Favio Mendoza" y **el pago se perdía**, en silencio y sin fila en `pagos`.
+        //     Le pasa al WhatsApp-only que quiere RENOVAR: `plan` sigue en `premium`, así que
+        //     `pideComprobante` (intents/premium.js) es false y no tiene forma de abrir la
+        //     ventana. Lo encontró la revisión adversarial del fix de B23.
+        //
+        // Con el contenido decidiendo, ninguna de las dos pierde nada, y de paso `llegoElAviso`
+        // deja de ser una decisión cara.
+        //
+        // **El falso positivo de `esPagoNeto` NO es gratis, y acá decía que sí.** Cuesta una
+        // solicitud pendiente que el admin tiene que rechazar, `estado_pago` pisado a
+        // 'pendiente', un Telegram con la foto de un pago privado a un tercero, y —por la
+        // guarda de abajo— el comprobante siguiente entrando por la rama degradada. Por eso el
+        // predicado se apretó al ampliarle el alcance (`\bfavio\b`: sin el borde de palabra
+        // matcheaba "Faviola"). Lo que sí es cierto es que el gasto se registra en todas las
+        // ramas, así que ningún falso positivo pierde plata.
+        const esperaba = esperaComprobante(usuario);
+        if (esPagoNeto(parsed)) {
+          // Sin esto, reenviar la captura abría una SEGUNDA solicitud. Antes lo evitaba el flag
+          // —`registrarSolicitudPro` lo apaga al registrar— y al sacar el flag de la decisión
+          // hay que reponer la guarda explícita. `pago_pendiente` significa exactamente "hay una
+          // solicitud sin resolver": tanto aprobar como rechazar la limpian.
+          //
+          // **Cubre el reenvío, NO dos capturas en vuelo.** La fila se leyó antes de bajar el
+          // media y de llamar a Vision, y `pago_pendiente` se escribe después: dos fotos
+          // seguidas leen las dos `false` y abren dos solicitudes. Es la misma carrera que
+          // tenía el flag, o sea que no es regresión — pero tampoco está resuelta, y el claim
+          // atómico que la cerraría (el patrón de `reclamarPagoPendiente`) es otro cambio.
+          // Anotado en `docs/DEFECTOS.md`.
+          if (usuario.pago_pendiente) {
+            // El gasto se anota IGUAL. La primera versión de esta guarda retornaba acá y con
+            // eso abría una TERCERA posición donde se pierde algo — justo lo que este cambio
+            // dice cerrar. Y es la peor de las tres: si la solicitud pendiente vino de un falso
+            // positivo, esta captura es el pago REAL, y descartarla le confirma al usuario que
+            // todo está en orden mientras su plata desaparece. `guardarTransaccion` dedupea por
+            // hash, así que reenviar la MISMA foto no duplica la fila.
+            try { await guardarTransaccion(usuario.id, { ...parsed, fecha: parsed.fecha || hoy }); }
+            catch (eDup) { log.error({ tag: 'PRO_PAGO', err: eDup.message }, 'Error registrando tx de captura con solicitud pendiente'); }
+            await notificarAdmin('⏳ El usuario `' + usuario.id + '` mandó OTRA captura que parece un pago a Neto ' +
+              'y ya tiene una solicitud sin resolver.\n\nVision leyó: *' + (parsed.comercio || '(sin comercio)') + '* — ' + parsed.monto + '\n\n' +
+              'Si la solicitud pendiente era un falso positivo, ESTA puede ser el pago de verdad. El gasto quedó anotado igual.');
+            await enviarWhatsapp(from, '⏳ Ya tenemos un comprobante tuyo en verificación, así que este lo anoté como gasto. Te confirmamos en breve.');
             return;
           }
           parsed.fecha = parsed.fecha || hoy;
@@ -302,10 +343,24 @@ function createWebhookHandler(procesarMensajeLibre) {
         }
 
         if (parsed.tipo === 'no_pago') {
-          await enviarWhatsapp(from, 'No reconocí ninguna transacción en esa imagen. Envíame la captura de Yape, Plin o tu banco (la pantalla que muestra el monto y destinatario).');
+          // Acá no hay gasto que perder —no era una transacción—, así que lo único que cambia
+          // según el flag es a qué se le apunta al usuario.
+          await enviarWhatsapp(from, esperaba
+            ? 'No reconocí un pago en esa imagen. Envíame la captura del Yape (S/' + PRO_PRECIOS.mensual + ' mensual o S/' + PRO_PRECIOS.anual + ' anual a *Favio Mendoza*) para activar tu Pro. 📸'
+            : 'No reconocí ninguna transacción en esa imagen. Envíame la captura de Yape, Plin o tu banco (la pantalla que muestra el monto y destinatario).');
           return;
         }
         if (!parsed.monto || isNaN(parseFloat(parsed.monto))) {
+          // Al que esperaba mandar su comprobante hay que contestarle eso, no el error genérico.
+          // Antes esta rama era inalcanzable para él (el bloque del flag la atajaba arriba); al
+          // dejar que el contenido decida, su Yape con el monto ilegible caía al `throw`, o sea
+          // al catch de abajo: "No pude procesar la imagen" y una fila con stack en `errores`,
+          // que es la tabla de diagnóstico del backend. Vision no leyendo un monto es esperable,
+          // no es una falla de infraestructura.
+          if (esperaba) {
+            await enviarWhatsapp(from, 'No pude leer el monto de esa captura. Envíame la del Yape (S/' + PRO_PRECIOS.mensual + ' mensual o S/' + PRO_PRECIOS.anual + ' anual a *Favio Mendoza*) para activar tu Pro. 📸');
+            return;
+          }
           throw new Error('No se detectó monto en la imagen');
         }
         parsed.fecha = parsed.fecha || hoy;
@@ -322,6 +377,14 @@ function createWebhookHandler(procesarMensajeLibre) {
         // el MISMO evento se veía distinto según lo hubieras escrito o fotografiado, y
         // "2026-08-03" en un chat se lee como un log, no como algo que le habla a alguien.
         let respImg = '📸 *' + tipoLabel + '*\n\n' + emoji + ' *' + (parsed.comercio || (esIngreso ? 'Ingreso' : 'Pago')) + '* — ' + montoStr + '\n' + catImg + (subcategoriaUtil(subImg) ? ' > ' + subcategoriaUtil(subImg) : '') + ' · ' + formatFecha(parsed.fecha);
+        // El gasto YA quedó anotado (eso es lo que antes se perdía). Lo único que agrega el
+        // flag es la aclaración: si el usuario creía estar mandando su comprobante, tiene que
+        // saber por qué esto le contestó "Gasto registrado".
+        if (esperaba) {
+          respImg += '\n\n_Lo anoté como gasto. Si esa era tu captura del pago a Neto (S/' +
+            PRO_PRECIOS.mensual + ' mensual o S/' + PRO_PRECIOS.anual + ' anual a *Favio Mendoza*), ' +
+            'revisa el monto y el destinatario y reenvíamela._';
+        }
         const nudgeImg = await colaConfirmacionGasto(usuario, txImg, txImg && txImg.conteoTx);
         if (nudgeImg) respImg += nudgeImg;
         await enviarWhatsapp(from, respImg);

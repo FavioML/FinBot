@@ -109,7 +109,11 @@ async function checkRecordatorioDiario() {
   if (horaLima.getHours() !== 20 || horaLima.getMinutes() > 14) return;
   try {
     const { data: usuarios } = await supabase.from('usuarios')
-      .select('id, whatsapp, nombre, plan, recordatorios_activos, created_at')
+      // `supabase_auth_id` alimenta `llegoElAviso` más abajo: sin él la guarda decidiría con
+      // `undefined` y nunca abriría la ventana. Es la regla "una fila parcial no puede
+      // decidir" de `app/CLAUDE.md` — si tu select alimenta una decisión, trae TODAS las
+      // columnas que esa decisión mira.
+      .select('id, whatsapp, nombre, plan, recordatorios_activos, created_at, supabase_auth_id')
       .eq('onboarding_completado', true);
     if (!usuarios || usuarios.length === 0) return;
 
@@ -162,8 +166,13 @@ async function checkRecordatorioDiario() {
             throw insertErr;
           }
 
-          // A los 28-30 días de registro: casi siempre ya activó su cuenta web. Es el mensaje
-          // comercial de mayor valor del producto y salía por el canal menos fiable.
+          // Es el mensaje comercial de mayor valor del producto y salía por el canal menos
+          // fiable, así que va por los dos.
+          //
+          // Acá decía "a los 28-30 días casi siempre ya activó su cuenta web", y **es falso**:
+          // de los 13 `pro_upsell_d28` enviados, **7 fueron a usuarios sin cuenta web**. Esa
+          // suposición es justo la que hacía inofensivo el bug de `llegoElAviso` (B23) a los
+          // ojos de quien lo leía.
           const avisadoUpsell = await notificarUsuario({
             canales: CANALES.AMBOS,
             usuarioId: usuario.id, whatsapp: usuario.whatsapp,
@@ -171,12 +180,12 @@ async function checkRecordatorioDiario() {
             titulo: 'Llevas 1 mes usando Neto',
             link: '/dashboard/pro',
           });
-          // Misma guarda que los avisos de vencimiento (ver `llegoElAviso`): sin aviso
-          // entregado no se abre la ventana de 48h que convierte toda foto en "captura de
-          // pago". Este call-site se había quedado sin ella (B14), y es el peor de los cuatro
-          // para no tenerla: el destinatario acaba de terminar su prueba, o sea que lleva días
-          // sin escribir, que es exactamente cuando Meta rechaza el texto libre (131047).
-          if (llegoElAviso(avisadoUpsell)) await solicitarComprobante(usuario.id);
+          // Misma guarda que los avisos de vencimiento (ver `llegoElAviso`): sin un lugar donde
+          // el aviso lo espere, no se abre la ventana de 48h que convierte toda foto en
+          // "captura de pago". Este call-site se había quedado sin ella (B14), y es el peor de
+          // los cuatro para no tenerla: el destinatario acaba de terminar su prueba, o sea que
+          // lleva días sin escribir, y de esos 13 envíos ni uno figura entregado.
+          if (llegoElAviso(avisadoUpsell, usuario)) await solicitarComprobante(usuario.id);
           totalUpsell++;
           continue;
         }
@@ -224,7 +233,14 @@ async function checkRecordatorioDiario() {
           tipoInApp: 'recordatorio', link: '/dashboard',
         });
         totalInactivity++;
-      } catch(e) { /* silencioso por usuario */ }
+        // Saltar al siguiente usuario sigue siendo correcto, pero sin log un fallo
+        // SISTEMÁTICO acá se ve igual que "nadie estaba inactivo": el contador de abajo
+        // solo cuenta éxitos, así que un error de scope o una query caída dejaban la
+        // corrida entera de las 8pm en cero sin una línea en `log.error` ni en `errores`.
+        // Lo encontró la prueba por mutación de la Ola 2 (B25), no una corrida verde — y
+        // la ironía útil: si el error hubiera estado acá, el barrido que MIDIÓ B23 no
+        // habría tenido con qué medirlo.
+      } catch(e) { log.error({ tag: 'INACTIVITY', userId: usuario.id, err: e.message }, 'Error procesando usuario en el recordatorio de las 8pm'); }
     }
 
     if (totalInactivity > 0 || totalUpsell > 0) {
@@ -249,19 +265,45 @@ async function checkRecordatorioDiario() {
 const SIN_TRIAL_ACTIVO = 'trial_estado.is.null,trial_estado.neq.activo';
 
 /**
- * ¿El aviso llegó al usuario por ALGÚN canal? Es el permiso para hacer cosas que solo tienen
- * sentido si la persona se enteró — hoy, abrir la ventana de comprobante.
+ * ¿Hay una superficie donde este aviso esté esperando al usuario? Es el permiso para hacer
+ * cosas que solo tienen sentido si la persona se puede enterar — hoy, abrir la ventana de
+ * comprobante, que durante 48h convierte toda foto en "captura de pago".
  *
- * Se pregunta por ENTREGA y no por una causa puntual de fallo a propósito: los modos de no
- * llegar son varios (Meta bloquea fuera de la ventana de 24h con 131047, el usuario no tiene
- * número, el claim del in-app no se pudo escribir) y enumerarlos garantiza olvidarse de uno.
- * Un `skipped` cualquiera —incluido `test_user`— no es entrega por WhatsApp; la in-app sí
- * cuenta, porque es el canal que sí llega al que tiene cuenta web.
+ * **La pregunta se responde con lo que se sabe AHORA, y de WhatsApp ahora no se sabe nada.**
+ * Ese es el hallazgo B23, y es más grande de lo que parecía: la versión anterior contaba dos
+ * cosas como entrega y las dos eran falsas.
+ *
+ * | término viejo | por qué no era entrega | medido el 14-ago-2026 |
+ * |---|---|---|
+ * | `res.inApp === true` | significa "la fila se escribió", no "hay campana donde verla" | 92 filas in-app de **21 usuarios sin cuenta web**; 44 de 106 son WhatsApp-only |
+ * | `wa.ok === true && !wa.skipped` | significa "Meta aceptó el POST" | de 260 envíos proactivos desde el 01-ago, **40 entregados (15%)** y 219 fallidos |
+ *
+ * El segundo era el dominante y nadie lo vio, porque el comentario de este archivo afirmaba
+ * que Meta rechaza el texto libre devolviendo `{ok:false, code:131047}`. **En producción no
+ * pasa eso**: Meta devuelve 200 con wamid y el 131047 llega DESPUÉS, como callback de status.
+ * Filas con `estado='blocked_24h'` (el rechazo síncrono) en toda la historia: **0**. Filas con
+ * `fail_code=131047` (el asíncrono) desde el 01-ago: **214**. O sea que ese término daba
+ * `true` para los 260, y arreglar solo el término in-app no habría cambiado nada para los 44
+ * WhatsApp-only, que es exactamente la población del hallazgo.
+ *
+ * Sobre los 4 tipos que gatean esto (`pro_upsell_d28`, `premium_expiry_3d`/`_hoy`,
+ * `premium_expired`): 25 envíos en toda la historia, **0 entregados confirmados**, 10 fallidos.
+ *
+ * Así que queda un solo término, y es el único comprobable en el instante de decidir: **la
+ * fila in-app se escribió Y el usuario tiene cuenta web donde verla**. La campana es durable
+ * (se queda ahí hasta que la lea), así que "alcanzable" acá sí equivale a "le va a llegar".
+ *
+ * Lo que WhatsApp pierde con esto: para los 44 WhatsApp-only la ventana ya no la abre un cron.
+ * La puerta pasa a ser `/premium`, y esa **siempre** funciona — si el usuario escribe, está
+ * dentro de la ventana de 24h de Meta por construcción, así que la respuesta se entrega.
+ * Decisión de Favio, 14-ago-2026.
+ *
+ * @param {{wa?:object, inApp?:boolean}} res  lo que devolvió `notificarUsuario` de ESE aviso
+ * @param {{supabase_auth_id?:string}} usuario  la fila del destinatario de ESE aviso
  */
-function llegoElAviso(res) {
-  if (!res) return false;
-  const wa = res.wa || {};
-  return (wa.ok === true && !wa.skipped) || res.inApp === true;
+function llegoElAviso(res, usuario) {
+  if (!res || !usuario) return false;
+  return res.inApp === true && !!usuario.supabase_auth_id;
 }
 
 async function checkPremiumExpiry() {
@@ -277,7 +319,10 @@ async function checkPremiumExpiry() {
     if (horaLima.getHours() >= 8) {
       const en3dias = new Date(new Date(hoy + 'T12:00:00').getTime() + 3 * 86400000).toISOString().split('T')[0];
       const inicioHoy = new Date(hoy + 'T00:00:00-05:00').toISOString();
-      const { data: porVencer } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence')
+      // `supabase_auth_id`: ver `llegoElAviso`. Sin esa columna la guarda de más abajo decide
+      // con `undefined` y la ventana de comprobante no se abre nunca, ni para quien sí tiene
+      // campana.
+      const { data: porVencer } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence, supabase_auth_id')
         .eq('plan', 'premium').eq('premium_vence', en3dias)
         .or(SIN_TRIAL_ACTIVO);
       if (porVencer && porVencer.length > 0) {
@@ -305,28 +350,27 @@ async function checkPremiumExpiry() {
               cuerpo: 'Tu plan NETO Pro vence el ' + usuario.premium_vence + '. Renueva para no perder acceso.',
               link: '/dashboard/configuracion',
             });
-            // Solo se abre la espera de comprobante si el aviso LLEGÓ por algún canal.
+            // Solo se abre la espera de comprobante si el aviso tiene DÓNDE esperarlo.
             //
             // `solicitarComprobante` pone `esperando_comprobante` por 48h, y en esa ventana
             // toda foto se lee como captura de pago: una que no parece el pago a Neto se
             // rechaza SIN registrar el gasto. Abrirla para alguien que nunca supo del aviso
             // le rompe el registro por foto sin decirle por qué — la trampa de B12.
             //
-            // La condición mira ENTREGA, no una causa puntual de fallo. La primera versión
-            // cortaba solo con `skipped !== 'claim_in_app_fallo'`, o sea el modo de falla
-            // raro, y dejaba pasar el FRECUENTE: Meta rechaza el texto libre fuera de la
-            // ventana de 24h (131047) devolviendo `{ok:false, code:131047}` **sin `skipped`**.
-            // Para estos avisos ese es el caso típico —el destinatario lleva días sin
-            // escribir—, y 43 de 93 usuarios son WhatsApp-only, así que para ellos tampoco
-            // hay campana donde enterarse. Lo encontró la SEGUNDA revisión del diff.
-            if (llegoElAviso(avisado3d)) await solicitarComprobante(usuario.id);
+            // Este comentario tuvo dos versiones equivocadas antes. La primera cortaba solo
+            // con `skipped !== 'claim_in_app_fallo'`, el modo de falla raro. La segunda —la que
+            // estaba acá— decía que el modo FRECUENTE es Meta devolviendo `{ok:false,
+            // code:131047}` sin `skipped`, y **eso no ocurre**: Meta acepta el POST y el 131047
+            // llega después como callback de status. Cero filas `blocked_24h` en toda la
+            // historia contra 214 con `fail_code=131047` desde el 01-ago. Ver `llegoElAviso`.
+            if (llegoElAviso(avisado3d, usuario)) await solicitarComprobante(usuario.id);
           } catch(e) { log.error({ tag: 'EXPIRY_WARN', userId: usuario.id, err: e.message }, 'Error warning premium 3d'); }
         }
       }
 
       // Aviso "vence HOY" — el día exacto del vencimiento (antes no existía: había 3d antes y
       // el downgrade al día siguiente, pero nada el día clave). Free-form + in-app, dedup por día.
-      const { data: venceHoy } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence')
+      const { data: venceHoy } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence, supabase_auth_id')
         .eq('plan', 'premium').eq('premium_vence', hoy)
         .or(SIN_TRIAL_ACTIVO);
       if (venceHoy && venceHoy.length > 0) {
@@ -350,14 +394,14 @@ async function checkPremiumExpiry() {
             });
             // Ver el aviso de 3 días: sin aviso entregado no se abre la ventana de 48h que
             // convierte toda foto en "captura de pago".
-            if (llegoElAviso(avisadoHoy)) await solicitarComprobante(usuario.id);
+            if (llegoElAviso(avisadoHoy, usuario)) await solicitarComprobante(usuario.id);
           } catch(e) { log.error({ tag: 'EXPIRY_HOY', userId: usuario.id, err: e.message }, 'Error aviso vence hoy'); }
         }
       }
     }
 
     // Expirados — downgrade a free
-    const { data: expirados } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence, estado_pago')
+    const { data: expirados } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence, estado_pago, supabase_auth_id')
       .eq('plan', 'premium').not('premium_vence', 'is', null).lt('premium_vence', hoy)
       .or(SIN_TRIAL_ACTIVO);
     if (!expirados || expirados.length === 0) return;
@@ -412,7 +456,7 @@ async function checkPremiumExpiry() {
         // Misma guarda que los avisos de 3d y de hoy (ver `llegoElAviso`): abrir la ventana de
         // comprobante a quien no se enteró del aviso le rompe el registro por foto durante 48h
         // sin decirle por qué. Este call-site se había quedado sin ella (B14).
-        if (llegoElAviso(avisadoExpirado)) await solicitarComprobante(usuario.id);
+        if (llegoElAviso(avisadoExpirado, usuario)) await solicitarComprobante(usuario.id);
         log.info({ tag: 'EXPIRY', userId: usuario.id }, 'Premium expirado, downgradeado a free');
       } catch(e) { log.error({ tag: 'EXPIRY', userId: usuario.id, err: e.message }, 'Error downgradeando usuario'); }
     }
@@ -446,7 +490,7 @@ async function checkAlertasProactivas() {
             link: '/dashboard/presupuestos',
           });
         }
-      } catch (e) { /* silencioso por usuario */ }
+      } catch (e) { log.error({ tag: 'ALERTA_PROACTIVA', userId: usuario.id, err: e.message }, 'Alerta de presupuesto omitida para el usuario'); }
     }
   } catch (e) { log.error({ tag: 'ALERTA_PROACTIVA', err: e.message }, 'Error alertas proactivas'); }
 }
@@ -490,7 +534,7 @@ async function checkRecordatorioOnboarding() {
             await supabase.from('usuarios').update({ onboarding_paso: 100 }).eq('id', u.id);
           }
         }
-      } catch(e) { /* silencioso por usuario */ }
+      } catch(e) { log.error({ tag: 'ONBOARDING_REMINDER', userId: u.id, err: e.message }, 'Error empujando el nudge de onboarding'); }
     }
   } catch(e) { log.error({ tag: 'ONBOARDING_REMINDER', err: e.message }, 'Error recordatorio onboarding'); }
 }
@@ -549,7 +593,7 @@ async function checkActivacionDia2() {
           await supabase.from('usuarios').update({ activacion_nudge_at: new Date().toISOString() }).eq('id', u.id);
           analytics.capture(u.id, 'wa_activation_link_sent', { conteo_tx: conteoTx, canal: 'cron' });
         }
-      } catch (e) { /* silencioso por usuario */ }
+      } catch (e) { log.error({ tag: 'ACTIVACION_DIA2', userId: u.id, err: e.message }, 'Error empujando el link de activación'); }
     }
   } catch (e) { log.error({ tag: 'ACTIVACION_DIA2', err: e.message }, 'Error empujón activación día 2'); }
 }
@@ -778,7 +822,7 @@ async function checkRecordatorioDeudas() {
         // ya no aplica). Preserva el catch-up: se manda el más avanzado alcanzado que faltaba.
         const keysAlcanzados = [...new Set([...enviados, ...reached.map(t => t.key)])];
         await supabase.from('deudas').update({ recordatorios_enviados: keysAlcanzados }).eq('id', deuda.id);
-      } catch (e) { /* silent per debt */ }
+      } catch (e) { log.error({ tag: 'DEUDA_REMINDER', deudaId: deuda.id, userId: deuda.usuario_id, err: e.message }, 'Recordatorio de deuda omitido'); }
     }
   } catch (e) { log.error({ tag: 'DEUDA_REMINDER', err: e.message }, 'Error recordatorio deudas'); }
 }

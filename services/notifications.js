@@ -8,9 +8,20 @@ const { subcategoriaUtil } = require('../lib/subcategoria');
 
 async function enviarAlertaTransaccion(usuario, tx, resultado) {
   if (!tx || !resultado || !resultado.monto) return;
-  // Web-first: sin número no hay a quién alertar por WhatsApp (ej. gasto detectado por
-  // el scanner de Gmail de un usuario que conectó correo desde la web sin vincular chat).
-  if (!usuario || !usuario.whatsapp) return;
+  if (!usuario) return;
+  // Acá había un `if (!usuario.whatsapp) return`. El comentario que lo justificaba —"sin
+  // número no hay a quién alertar por WhatsApp"— es cierto y NO responde por el otro canal:
+  // más abajo, la rama de gasto inusual escribe una notificación in-app, y ese corte se la
+  // llevaba puesta. O sea que al usuario web-first no le llegaba la alerta por NINGÚN lado,
+  // ni siquiera por el único que sí lo alcanza (B24).
+  //
+  // Hoy la única puerta a esta función es `services/gmail-scanner.js`, y conectar Gmail exige
+  // Pro PAGADO y pasa por la webapp: no hay ni un usuario web-only con Gmail conectado, así
+  // que esto no repara un daño consumado — cierra el agujero antes del primero.
+  //
+  // **NO se reemplaza por `notificarUsuario`**, aunque el hallazgo lo sugería: eso escribiría
+  // una fila in-app por CADA transacción detectada por el scanner, y hoy solo la escribe la
+  // rama de gasto inusual. Sería convertir un arreglo de alcance en una campana de spam.
   // Opt-out (/alertas o Configuracion en la webapp). Se compara contra false a
   // proposito: si la columna aun no existe o el usuario es legacy (undefined),
   // la alerta se envia. Apagar es una accion explicita del usuario.
@@ -41,7 +52,9 @@ async function enviarAlertaTransaccion(usuario, tx, resultado) {
   msg += '\uD83C\uDFF7\uFE0F ' + categoria + (subcategoriaUtil(subcategoria) ? ' > ' + subcategoriaUtil(subcategoria) : '') + '\n';
   msg += '\uD83D\uDCC5 ' + (resultado.fecha || hoyPeru());
 
-  if (tipo === 'gasto') {
+  // La alerta de presupuesto solo existe como TEXTO pegado al mensaje de WhatsApp: no tiene
+  // canal in-app propio. Sin número no hay dónde ponerla, así que se ahorran las dos queries.
+  if (tipo === 'gasto' && usuario.whatsapp) {
     const alertaPres = await verificarAlertaPresupuesto(usuario, categoria, subcategoria);
     if (alertaPres) msg += '\n\n' + alertaPres;
   }
@@ -111,7 +124,9 @@ async function enviarAlertaTransaccion(usuario, tx, resultado) {
     } catch(e) { /* silent */ }
   }
 
-  await enviarWhatsapp(usuario.whatsapp, msg);
+  // Explícito y no apoyado en que `enviarWhatsapp` haga no-op con `null`: acá arriba ya no
+  // hay un `return` temprano, así que este es el ÚNICO sitio que decide el canal de WhatsApp.
+  if (usuario.whatsapp) await enviarWhatsapp(usuario.whatsapp, msg);
 }
 
 module.exports = { enviarAlertaTransaccion };
