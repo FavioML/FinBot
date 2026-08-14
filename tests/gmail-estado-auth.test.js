@@ -87,9 +87,20 @@ class OAuth2Fake {
   }
 }
 const googlePath = require.resolve('googleapis', { paths: [projectRoot] });
+// `options` está porque `gmail.js` fija el timeout de transporte al cargarse
+// (`google.options({ timeout })`, ver `tests/gmail-timeout.test.js`). Un doble incompleto acá
+// no falla con una aserción: revienta el archivo entero al importar.
+const opcionesFijadas = [];
 require.cache[googlePath] = {
   id: googlePath, filename: googlePath, loaded: true,
-  exports: { google: { auth: { OAuth2: OAuth2Fake }, gmail: () => ({}), oauth2: () => ({}) } },
+  exports: {
+    google: {
+      auth: { OAuth2: OAuth2Fake },
+      gmail: () => ({}),
+      oauth2: () => ({}),
+      options: (o) => opcionesFijadas.push(o),
+    },
+  },
 };
 
 for (const [rel, exports] of [['lib/logger.js', logMock]]) {

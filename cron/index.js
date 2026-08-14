@@ -1,6 +1,9 @@
 const log = require('../lib/logger');
-const { limpiarContadores } = require('../lib/error-monitor');
+const { limpiarContadores, registrarError } = require('../lib/error-monitor');
+const { notificarErrorAdmin } = require('../lib/admin-notify');
 const { escaneoAutomatico } = require('../services/gmail-scanner');
+const { TAREAS, TAREAS_SIEMPRE } = require('./schedule');
+const { programar } = require('./programar');
 const {
   checkResumenMensual,
   checkResumenSemanal,
@@ -43,72 +46,72 @@ async function keepWarmWebapp() {
   }
 }
 
-function startCronJobs() {
-  const INTERVALO_HORAS = parseFloat(process.env.SCAN_INTERVAL_HOURS || '0.25');
-  const INTERVALO_MS = INTERVALO_HORAS * 60 * 60 * 1000;
+/**
+ * El único sitio donde un nombre de `schedule.js` se vuelve una función. Que la tabla sea data
+ * y esto sea el mapa es lo que le permite al guard leer la tabla sin instanciar Supabase.
+ */
+const FUNCIONES = {
+  escaneoAutomatico,
+  checkResumenMensual,
+  checkResumenSemanal,
+  checkResumenDiarioManosLibres,
+  checkRecordatorioDiario,
+  checkPremiumExpiry,
+  checkTrialExpiry,
+  checkAlertasProactivas,
+  checkRecordatorioOnboarding,
+  checkActivacionDia2,
+  checkRecordatorioDeudas,
+  checkRecordatorioSuscripciones,
+  checkCalcularNetoScore,
+  checkNotificacionScore,
+  checkDetectorFugas,
+  checkCheckInPlanes,
+  checkRecordatorioEspacios,
+  checkRecordatoriosCostos,
+  checkSurveyTriggers,
+  checkSurveyConversions,
+  limpiarOTPVencidos,
+  checkGmailHuerfanos,
+  keepWarmWebapp,
+  limpiarContadores,
+};
 
+/**
+ * Un nombre de la tabla que no resuelve. La tarea simplemente no existe, y sin este aviso nadie
+ * se entera hasta que alguien note que no llegó un resumen.
+ */
+function avisarTareaRota(nombre) {
+  const msg = `La tarea programada "${nombre}" no resuelve a una función: no quedó programada`;
+  log.error({ tag: 'CRON', tarea: nombre }, msg);
+  registrarError('CRON', msg, { tarea: nombre });
+  notificarErrorAdmin('CRON', msg);
+}
+
+/**
+ * Una tarea que lleva varios ticks sin poder arrancar porque la anterior nunca terminó. Es el
+ * precio del guard de no-solape y por eso no puede quedarse en un `log.warn`: ver `sin-solape.js`.
+ */
+function avisarTareaAtascada(nombre, seguidos) {
+  const msg = `La tarea programada "${nombre}" lleva ${seguidos} ticks salteados: la corrida anterior nunca terminó`;
+  log.error({ tag: 'CRON', tarea: nombre, saltadosSeguidos: seguidos }, msg);
+  registrarError('CRON', msg, { tarea: nombre, saltadosSeguidos: seguidos });
+  notificarErrorAdmin('CRON', msg);
+}
+
+const AVISOS = { alFaltarFuncion: avisarTareaRota, alAtascarse: avisarTareaAtascada };
+
+function startCronJobs() {
   if (process.env.NODE_ENV === 'production') {
-    escaneoAutomatico();
-    setInterval(escaneoAutomatico, INTERVALO_MS);
-    log.info({ tag: 'AUTO', intervaloHoras: INTERVALO_HORAS }, 'Escaneo automático activo');
-    setInterval(checkResumenSemanal, 15 * 60 * 1000);
-    log.info({ tag: 'SEMANAL' }, 'Resumen semanal activo (lunes 8am Lima)');
-    setInterval(checkResumenMensual, 15 * 60 * 1000);
-    log.info({ tag: 'MENSUAL' }, 'Resumen mensual activo (1ro de cada mes 9am Lima)');
-    setInterval(checkRecordatorioDiario, 15 * 60 * 1000);
-    log.info({ tag: 'INACTIVITY' }, 'Recordatorios de inactividad activos (8pm Lima, cada 3+ dias sin tx)');
-    setInterval(checkResumenDiarioManosLibres, 15 * 60 * 1000);
-    log.info({ tag: 'RESUMEN_DIARIO' }, 'Resumen diario Manos Libres activo (Pro opt-in, 9pm Lima)');
-    setInterval(checkAlertasProactivas, 15 * 60 * 1000);
-    log.info({ tag: 'ALERTAS' }, 'Alertas proactivas activas (miércoles 10am Lima)');
-    setInterval(checkPremiumExpiry, 60 * 60 * 1000);
-    log.info({ tag: 'EXPIRY' }, 'Check expiración premium activo (cada 1h)');
-    setInterval(checkTrialExpiry, 60 * 60 * 1000);
-    log.info({ tag: 'TRIAL_EXPIRY' }, 'Check fin de trial activo (avisos día 11 y 14, downgrade al muro; cada 1h)');
-    setInterval(checkRecordatorioOnboarding, 15 * 60 * 1000);
-    log.info({ tag: 'ONBOARDING' }, 'Recordatorio onboarding activo (3h después de registro, 9am-9pm Lima)');
-    setInterval(checkActivacionDia2, 15 * 60 * 1000);
-    log.info({ tag: 'ACTIVACION' }, 'Empujón activación día 2 activo (24-48h tras registro, dentro de ventana 24h Meta)');
-    setInterval(checkRecordatorioDeudas, 15 * 60 * 1000);
-    log.info({ tag: 'DEUDAS' }, 'Recordatorios de deudas activos (diario 9am Lima)');
-    setInterval(checkRecordatorioSuscripciones, 15 * 60 * 1000);
-    log.info({ tag: 'SUB_REMIND' }, 'Recordatorios de cobro de suscripciones activos (Pro, 3d antes, 10am Lima)');
-    setInterval(checkCalcularNetoScore, 15 * 60 * 1000);
-    log.info({ tag: 'SCORE' }, 'Cálculo diario Neto Score activo (6am Lima)');
-    setInterval(checkNotificacionScore, 15 * 60 * 1000);
-    log.info({ tag: 'SCORE' }, 'Notificación semanal Score activa (domingos 10am Lima)');
-    setInterval(checkDetectorFugas, 15 * 60 * 1000);
-    log.info({ tag: 'FUGAS' }, 'Detector de fugas activo (Pro: miércoles+15, Free: 1ro mes, 11am Lima)');
-    setInterval(checkCheckInPlanes, 15 * 60 * 1000);
-    log.info({ tag: 'PLANES' }, 'Check-in planes de ahorro activo (Pro: 1ro y 15, 11am Lima)');
-    setInterval(checkRecordatorioEspacios, 15 * 60 * 1000);
-    log.info({ tag: 'ESPACIOS' }, 'Recordatorio espacios compartidos activo (viernes 6pm Lima)');
-    setInterval(checkRecordatoriosCostos, 15 * 60 * 1000);
-    log.info({ tag: 'COSTOS_REMIND' }, 'Recordatorios de costos al admin activos (9am Lima diario)');
-    setInterval(checkSurveyTriggers, 15 * 60 * 1000);
-    log.info({ tag: 'SURVEY_TRIG' }, 'Survey triggers activos (recordatorios + invite webapp + feedback 30tx, 10am Lima diario)');
-    setInterval(checkSurveyConversions, 15 * 60 * 1000);
-    log.info({ tag: 'SURVEY_CONV' }, 'Conversión de recordatorios activa (7am Lima diario)');
-    limpiarOTPVencidos();
-    setInterval(limpiarOTPVencidos, 60 * 60 * 1000);
-    log.info({ tag: 'OTP_CLEANUP' }, 'Limpieza de OTPs vencidos activa (cada 60min)');
-    // Arranca al boot además del intervalo: es el barrido que recoge lo que se coló por fuera
-    // de los crons de baja, y un deploy es justo cuando conviene reconciliar.
-    checkGmailHuerfanos();
-    setInterval(checkGmailHuerfanos, 24 * 60 * 60 * 1000);
-    log.info({ tag: 'GMAIL_HUERFANOS' }, 'Barrido de cupos Gmail de no-pagados activo (al boot y cada 24h)');
-    // El backup ya no vive aca. Corre a diario en GitHub Actions
-    // (.github/workflows/backup-db.yml) contra Cloudflare R2, cifrado y
-    // completo. El que estaba aca subia 7 de 36 tablas en texto plano a un
-    // Gist. Ver docs/runbook-restore.md.
-    keepWarmWebapp();
-    setInterval(keepWarmWebapp, 4 * 60 * 1000);
-    log.info({ tag: 'KEEPWARM' }, 'Keep-warm webapp /api/dashboard activo (cada 4min)');
+    programar(TAREAS, FUNCIONES, AVISOS);
   } else {
     log.warn({ tag: 'SERVER' }, 'Tareas programadas desactivadas (NODE_ENV !== production)');
   }
-  setInterval(limpiarContadores, 60 * 60 * 1000);
-  log.info({ tag: 'MONITOR' }, 'Monitor de errores activo');
+  // El backup ya no vive acá. Corre a diario en GitHub Actions
+  // (.github/workflows/backup-db.yml) contra Cloudflare R2, cifrado y
+  // completo. El que estaba acá subía 7 de 36 tablas en texto plano a un
+  // Gist. Ver docs/runbook-restore.md.
+  programar(TAREAS_SIEMPRE, FUNCIONES, AVISOS);
 }
 
-module.exports = { startCronJobs };
+module.exports = { startCronJobs, FUNCIONES };

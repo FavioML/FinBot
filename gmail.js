@@ -11,6 +11,21 @@ function getSupabase() {
   return _supabase;
 }
 
+// Timeout de transporte para TODA llamada a las APIs de Google. gaxios —el cliente HTTP de
+// googleapis— **no trae timeout por default**, así que una conexión que Google acepta y nunca
+// responde deja el `await` colgado indefinidamente. Medido contra un servidor que acepta y no
+// contesta: sin esta línea seguía esperando a los 8 segundos; con ella aborta a los 30.
+//
+// Importa por el barrido de Gmail: `escaneoAutomatico` corre al boot y cada 15 minutos, y desde
+// que existe el guard de no-solape (`cron/sin-solape.js`) una corrida colgada **impide todas las
+// siguientes** hasta el próximo deploy. Con el timeout, esa corrida muere sola, el error sube a
+// `unhandledRejection` (que lo registra y avisa al admin) y el tick siguiente reintenta.
+// `checkGmailHuerfanos` cuelga del mismo transporte vía `oauth2Client.revokeToken`.
+//
+// Es una opción global de transporte, no de la lógica de OAuth ni de los cupos: no cambia qué
+// se pide ni con qué credencial.
+google.options({ timeout: 30000 });
+
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,

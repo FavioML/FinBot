@@ -485,7 +485,28 @@ function createWebhookHandler(procesarMensajeLibre) {
           }
         }
 
-        // 5. Insertar transacciones
+        // 5. Insertar transacciones — SERIAL, y se queda así. Medido el 2026-08-14 (hallazgo
+        // P′5 de la auditoría del 10-ago, que proponía batchearlo o "ceder el turno").
+        //
+        // Uso real de esta rama en toda la historia: CERO. Las únicas 251 filas con prefijo
+        // `Excel:` de la tabla son de Favio, del 2026-03-21, y NO salieron de este loop —
+        // están agrupadas en 6 timestamps de ~50 filas (un `now()` por transacción), o sea
+        // inserts en lote de un script local. Un loop serial deja 251 timestamps distintos.
+        // La ruta hermana de la webapp (`Import webapp:`) tiene 0 filas. Recontarlo:
+        //   select count(*), count(distinct created_at) from transacciones
+        //   where descripcion_original like 'Excel:%';
+        //
+        // Y el costo que el hallazgo describía —"el bot se pone lento para todos"— no existe:
+        // el webhook ya respondió 200 arriba (línea ~144) antes de procesar, y cada `await`
+        // de este loop libera el event loop, así que los mensajes de otros usuarios se
+        // atienden entremedio. Serial además garantiza UNA sola request de Supabase en vuelo:
+        // es lo más gentil que puede ser con el pool de PostgREST, no lo menos.
+        //
+        // Lo que sí cuesta es tiempo de pared para QUIEN importa. Si algún día eso duele, el
+        // insert en lote NO es un cambio mecánico: cada fila calcula su `dedup_hash`, resuelve
+        // su regla por comercio y dispara el arranque del trial dentro de `guardarTransaccion`
+        // (ver el chokepoint del primer gasto). Un lote tiene que decidir qué hace con el
+        // conflicto de UNA fila y qué pasa con esos tres efectos. Ver `qa-excel-muro`.
         let insertados = 0, errores = 0;
         for (const row of rows) {
           try {
