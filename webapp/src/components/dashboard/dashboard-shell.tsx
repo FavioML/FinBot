@@ -15,6 +15,7 @@ import { TrialStatusBanner } from '@/components/dashboard/trial-status-banner';
 import { GmailDesconectadoBanner } from '@/components/dashboard/gmail-desconectado-banner';
 import { Paywall } from '@/components/dashboard/paywall';
 import { WhatsAppButton } from '@/components/shared/whatsapp-button';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { OverviewSkeleton } from '@/components/dashboard/skeletons';
 import { useUser, decidirRedirectAuth } from '@/lib/hooks/use-user';
 import {
@@ -206,18 +207,20 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     [buster],
   );
 
+  // `TooltipProvider` se monta acá y ya no en el root layout: sus dos únicos consumidores
+  // (`whatsapp-button`, `quick-add-button`) viven dentro de este shell, y arriba le costaba
+  // 51.5 KB gzip a `/login`, que no tiene un solo tooltip (hallazgo P′8).
+  // El `<Toaster>` NO se movió: ver el porqué en `components/shared/app-toaster.tsx`.
+  const chrome = <TooltipProvider><ShellChrome>{children}</ShellChrome></TooltipProvider>;
+
   // Demo mode never persists financial data to localStorage.
   if (IS_DEMO) {
-    return (
-      <QueryClientProvider client={queryClient}>
-        <ShellChrome>{children}</ShellChrome>
-      </QueryClientProvider>
-    );
+    return <QueryClientProvider client={queryClient}>{chrome}</QueryClientProvider>;
   }
 
   return (
     <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
-      <ShellChrome>{children}</ShellChrome>
+      {chrome}
     </PersistQueryClientProvider>
   );
 }

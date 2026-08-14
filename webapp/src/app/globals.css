@@ -395,6 +395,11 @@ main {
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    /* El delay tambien va a cero, y no es cosmetico: una entrada escalonada con
+     * `fill-mode: both` deja el elemento en su estado INICIAL (invisible) mientras
+     * dura el delay. Sin esta linea, colapsar la duracion a 0.01ms deja la pantalla
+     * en blanco durante el escalonado en vez de mostrarla de una. */
+    animation-delay: 0s !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;

@@ -27,6 +27,11 @@ export default async function AdminLayout({
           </div>
           <AdminHeaderNav />
         </header>
+        {/* Sin `TooltipProvider` a propósito, aunque cuatro páginas de acá importen algo
+            llamado `Tooltip`: ese viene de **recharts** (trae el suyo) y no de
+            `@/components/ui/tooltip`. Montar el provider de @base-ui acá le sumaría el
+            bundle al panel para cero tooltips. El `<Toaster>` que usa `/admin/surveys`
+            vive en el root layout. */}
         <AdminQueryProvider>{children}</AdminQueryProvider>
       </div>
     </div>

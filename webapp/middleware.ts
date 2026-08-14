@@ -1,12 +1,9 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
-export async function middleware(request: NextRequest) {
-  // Demo mode: skip auth checks entirely
-  if (process.env.NEXT_PUBLIC_DEMO_MODE === 'true') {
-    return NextResponse.next({ request });
-  }
+const DEMO = () => process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
 
+export async function middleware(request: NextRequest) {
   // Captura del código de referido (?ref=CODE de la mini-landing neto.pe/r/CODE, que
   // apunta a app.neto.pe/?ref=CODE). La query se pierde en el roundtrip a Google y de
   // vuelta, así que lo persistimos apenas se ve, en una cookie que /auth/callback consume
@@ -51,10 +48,46 @@ export async function middleware(request: NextRequest) {
     return res;
   };
 
-  // La raíz solo rebota a /login (page.tsx); no necesita el gate de auth. Pasa por el
-  // middleware solo para atrapar el ?ref, así evitamos el getUser() en la home.
+  // La raíz solo rebota, y rebota ACÁ. El middleware ya corría en `/` para atrapar el
+  // ?ref, así que resolver el redirect también acá sale gratis y evita invocar la función
+  // serverless de `app/page.tsx` — que era `ƒ` y devolvía `X-Vercel-Cache: MISS` siempre
+  // sobre la primera pantalla que ve cualquiera (hallazgo P′6). Nada de auth: el gate de
+  // sesión sigue viviendo abajo, para las rutas que sí lo necesitan.
+  //
+  // Las dos ramas son las mismas que tenía `page.tsx`, y la de `code`/`token_hash` no es
+  // decorativa: es por donde entra el magic link de Supabase cuando el proyecto tiene la
+  // Site URL apuntando a la raíz. Perderla dejaría el login por email sin retorno.
+  //
+  // **Este bloque va ANTES del corto de demo mode, y ese orden importa.** El corto existe
+  // para saltear los chequeos de AUTH, y acá no hay ninguno: son dos redirects que miran
+  // la query. Con el corto arriba, en demo mode `/` caía a `app/page.tsx` — que ya no
+  // conserva la rama de `code` — y un magic link aterrizaba en `/login` con el código
+  // descartado en silencio.
   if (request.nextUrl.pathname === '/') {
-    return withRef(NextResponse.next({ request }));
+    const q = request.nextUrl.searchParams;
+    const code = q.get('code');
+    const tokenHash = q.get('token_hash');
+    const url = request.nextUrl.clone();
+    if (code || tokenHash) {
+      const qs = new URLSearchParams();
+      if (code) qs.set('code', code);
+      if (tokenHash) qs.set('token_hash', tokenHash);
+      const type = q.get('type');
+      if (type) qs.set('type', type);
+      const next = q.get('next');
+      if (next) qs.set('next', next);
+      url.pathname = '/auth/callback';
+      url.search = qs.toString();
+    } else {
+      url.pathname = '/login';
+      url.search = '';
+    }
+    return withRef(NextResponse.redirect(url));
+  }
+
+  // Demo mode: skip auth checks entirely
+  if (DEMO()) {
+    return NextResponse.next({ request });
   }
 
   let supabaseResponse = NextResponse.next({ request });

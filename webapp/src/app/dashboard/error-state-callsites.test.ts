@@ -21,9 +21,22 @@ import path from 'node:path';
  * ni que la condición sea la correcta (`isError && data.length === 0`, para no tapar una
  * lista cacheada). Eso lo tiene que mirar quien revisa el diff. Lo que sí decide sin
  * ambigüedad —y es el modo de falla real que se vio seis veces— es la AUSENCIA total.
+ *
+ * ── Por qué también mira /admin (F8, 2026-08-14) ────────────────────────────────────
+ * El mismo patrón estaba vivo en `/admin/operacion`: cuatro queries colapsadas a `?? []`
+ * y `?? 0`, así que una caída de la API imprimía `S/—` de MRR y *"No hay errores NLP
+ * registrados aun"*. El guard cubría `dashboard/` nada más, o sea que el panel de admin
+ * era exactamente el sitio donde la clase podía repetirse sin que nada chillara.
+ *
+ * `/admin` acepta DOS formas de nombrar el fallo, y no es laxitud: `costs` y `economics`
+ * ya lo manejaban con el `error` que devuelve React Query en vez de `isError`, y un guard
+ * que se queja del código que ya está bien se termina desactivando. Lo que se exige es que
+ * la señal venga de un HOOK (`{ ..., error } = useAlgo()`), no de un `useState` local —
+ * que en estas páginas abunda para los errores de formulario y no dice nada del fetch.
  */
 
 const DASHBOARD = path.resolve(__dirname);
+const ADMIN = path.resolve(__dirname, '../admin');
 
 // Páginas que fetchean pero no necesitan estado de error propio, cada una con su motivo.
 // Agregar una entrada acá es una decisión, no un trámite: si tu página muestra una lista
@@ -90,10 +103,66 @@ describe('F4 — toda página del dashboard que fetchea maneja el fallo', () => 
     const BOTON_A_MANO = /<button[^>]*>[\s\S]{0,120}?Reintentar/;
     expect(BOTON_A_MANO.test('<button onClick={x} className="y">\n  Reintentar\n</button>')).toBe(true);
 
-    const copias = paginas(DASHBOARD)
-      .map((p) => p.split(path.sep).join('/'))
-      .filter((rel) => rel !== 'pro/page.tsx')
-      .filter((rel) => BOTON_A_MANO.test(readFileSync(path.join(DASHBOARD, rel), 'utf8')));
+    // La exención de `pro/page.tsx` es del DASHBOARD, y por eso se escribe con su área
+    // pegada: aplicada al mapa combinado, un futuro `admin/pro/page.tsx` la heredaría en
+    // silencio sin que nadie hubiera decidido nada.
+    const copias = [
+      ...paginas(DASHBOARD).map((p) => ({ dir: DASHBOARD, area: 'dashboard', rel: p })),
+      ...paginas(ADMIN).map((p) => ({ dir: ADMIN, area: 'admin', rel: p })),
+    ]
+      .map((e) => ({ ...e, rel: e.rel.split(path.sep).join('/') }))
+      .filter((e) => !(e.area === 'dashboard' && e.rel === 'pro/page.tsx'))
+      .filter((e) => BOTON_A_MANO.test(readFileSync(path.join(e.dir, e.rel), 'utf8')))
+      .map((e) => `${e.area}/${e.rel}`);
     expect(copias).toEqual([]);
+  });
+});
+
+/**
+ * F8 — la misma clase, en el panel de admin.
+ *
+ * Señal aceptada: `isError`, o `error` sacado de la desestructuración de un hook. NO vale
+ * un `useState` de error (esas páginas lo usan para los formularios y no habla del fetch).
+ */
+const SENAL_DE_FALLO = (src: string) =>
+  /\bisError\b/.test(src) || /\{[^{}]*\berror\b[^{}]*\}\s*=\s*use[A-Z]\w*\(/.test(src);
+
+describe('F8 — toda página de /admin que fetchea maneja el fallo', () => {
+  const todas = paginas(ADMIN).map((p) => p.split(path.sep).join('/'));
+
+  it('el barrido encuentra las páginas (si esto falla, el resto es verde por vacuidad)', () => {
+    expect(todas.length).toBeGreaterThanOrEqual(6);
+    expect(todas).toContain('operacion/page.tsx');
+    expect(todas).toContain('economics/page.tsx');
+  });
+
+  it('ninguna página de admin fetchea sin nombrar el fallo', () => {
+    const sinManejo = todas.filter((rel) => {
+      const src = readFileSync(path.join(ADMIN, rel), 'utf8');
+      return /from '@\/lib\/hooks\//.test(src) && !SENAL_DE_FALLO(src);
+    });
+    expect(sinManejo).toEqual([]);
+  });
+
+  it('el detector distingue el `error` de un hook del de un useState (guard no vacuo)', () => {
+    const malo = "import { useAdminStats } from '@/lib/hooks/use-admin-operacion';\nconst { data } = useAdminStats();";
+    expect(SENAL_DE_FALLO(malo)).toBe(false);
+
+    // El modo de falla que se vio en costs/economics: `error` del hook, sin `isError`.
+    expect(SENAL_DE_FALLO('const { data, isLoading, error } = useAdminCosts();')).toBe(true);
+
+    // Y el falso positivo que haría inútil al guard: un error de formulario en estado local
+    // NO cuenta como manejo del fetch.
+    expect(SENAL_DE_FALLO("const [error, setError] = useState<string | null>(null);")).toBe(false);
+  });
+
+  it('operacion nombra el fallo de sus CUATRO queries, no de una', () => {
+    // El hallazgo era exactamente que las cuatro colapsaban a `?? []` / `?? 0`. Un solo
+    // `isError` en el archivo alcanzaría para el barrido de arriba y dejaría tres mudas.
+    const src = readFileSync(path.join(ADMIN, 'operacion/page.tsx'), 'utf8');
+    for (const q of ['usersQuery', 'statsQuery', 'nlpQuery', 'ticketsQuery']) {
+      expect(src, `${q} no consulta isError`).toMatch(new RegExp(`${q}\\.isError\\b`));
+    }
+    expect((src.match(/<ErrorState/g) ?? []).length).toBeGreaterThanOrEqual(4);
   });
 });

@@ -17,6 +17,7 @@ import {
   useAdminTickets,
   type AdminUser,
 } from '@/lib/hooks/use-admin-operacion';
+import { ErrorState } from '@/components/shared/error-state';
 
 /**
  * Cómo se nombra a un usuario en una pantalla de admin (F16).
@@ -551,6 +552,24 @@ export default function AdminOperacionPage() {
   const tickets = ticketsQuery.data?.tickets ?? [];
   const ticketsTotal = ticketsQuery.data?.total ?? 0;
 
+  /**
+   * F8 — los `?? []` y `?? 0` de arriba se quedan, pero ya no deciden solos qué se ve.
+   *
+   * Con el default puesto y sin mirar `isError`, una caída de la API pintaba `S/—` de MRR
+   * y *"No hay errores NLP registrados aun"*: exactamente lo que se ve cuando todo está
+   * bien y no hay nada que mostrar. En un panel que se abre para saber si el negocio está
+   * vivo, "cero" y "no pude preguntar" son respuestas opuestas.
+   *
+   * La condición es `isError && <sin data cacheada>`, no `isError` a secas: React Query
+   * conserva la respuesta anterior mientras reintenta, y tapar una tabla que el admin está
+   * mirando por un refetch fallido es peor que el fallo (eso fue F15). Con data en mano el
+   * panel sigue mostrándola y el reintento corre por debajo.
+   */
+  const usersFallo = usersQuery.isError && users.length === 0;
+  const statsFallo = statsQuery.isError && !stats;
+  const nlpFallo = nlpQuery.isError && nlpErrors.length === 0;
+  const ticketsFallo = ticketsQuery.isError && tickets.length === 0;
+
   const handleUserAction = useCallback(
     async (userId: string, action: string, data?: Record<string, unknown>) => {
       if (action === 'view_payments') {
@@ -712,7 +731,18 @@ export default function AdminOperacionPage() {
     }
   };
 
-  const totalPro = users.filter((u) => u.plan === 'premium').length;
+  /**
+   * Los agregados derivados de `users` viven en el bloque de KPIs, que está gateado por
+   * `statsFallo` — o sea por la OTRA query. Si `/api/admin/users` se cae y `/stats`
+   * responde, el bloque se pinta entero con estos números en cero: "Total Usuarios: 0",
+   * "0 txs total", "Canales Webapp: 0". Y el `ErrorState` de usuarios sólo aparece si el
+   * admin está parado en el tab de usuarios, así que desde NLP o Tickets el fallo es
+   * invisible mientras la pantalla afirma que no hay nadie.
+   *
+   * `null` (y no 0) es lo que dice "no lo sé", y `numeroKpi` lo pinta como raya.
+   */
+  const numeroKpi = (n: number) => (usersFallo ? '—' : n.toLocaleString('es-PE'));
+  const totalPro = usersFallo ? null : users.filter((u) => u.plan === 'premium').length;
   const totalWebapp = users.filter((u) => u.tiene_webapp).length;
   const totalTx = users.reduce((s, u) => s + u.transacciones, 0);
 
@@ -727,6 +757,15 @@ export default function AdminOperacionPage() {
 
       {statsQuery.isLoading ? (
         <OperacionKpiSkeleton />
+      ) : statsFallo ? (
+        <div className="mb-6">
+          <ErrorState
+            titulo="No pudimos cargar los KPIs"
+            variante="card"
+            descripcion="El MRR, el MAU y el embudo no se pudieron leer. No es que estén en cero."
+            onReintentar={() => statsQuery.refetch()}
+          />
+        </div>
       ) : (
         <>
       {/* KPI Cards — Row 1: Core metrics */}
@@ -742,7 +781,7 @@ export default function AdminOperacionPage() {
             S/{stats?.kpis.mrr ?? '—'}
           </div>
           <div className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-[#8A877D]">
-            <span>{stats?.kpis.proReal ?? totalPro} Pro</span>
+            <span>{stats?.kpis.proReal ?? totalPro ?? '—'} Pro</span>
             <span className="text-[#5A584F]">·</span>
             <span>{stats?.kpis.proYearly ?? 0} anual</span>
             <span>{stats?.kpis.proMonthly ?? 0} mensual</span>
@@ -754,7 +793,7 @@ export default function AdminOperacionPage() {
             S/{stats?.kpis.cajaMes ?? '—'}
           </div>
           <div className="mt-0.5 text-xs text-[#8A877D]">
-            Conversion {stats?.kpis.conversionRate ?? 0}% · {stats?.kpis.proReal ?? totalPro} de {(users.length)}
+            Conversion {stats?.kpis.conversionRate ?? 0}% · {stats?.kpis.proReal ?? totalPro ?? '—'} de {numeroKpi(users.length)}
           </div>
         </div>
         <div className="glass-card rounded-xl p-4">
@@ -771,7 +810,7 @@ export default function AdminOperacionPage() {
         <div className="glass-card rounded-xl p-4">
           <div className="text-xs text-[#8A877D]">Txs / Usuario Activo</div>
           <div className="mt-1 text-2xl font-semibold">{stats?.kpis.txPerActiveUser ?? '—'}</div>
-          <div className="mt-0.5 text-xs text-[#8A877D]">{totalTx.toLocaleString()} txs total</div>
+          <div className="mt-0.5 text-xs text-[#8A877D]">{numeroKpi(totalTx)} txs total</div>
         </div>
       </div>
 
@@ -791,15 +830,15 @@ export default function AdminOperacionPage() {
         </div>
         <div className="glass-card rounded-xl p-3">
           <div className="text-xs text-[#8A877D]">Canales Webapp</div>
-          <div className="mt-1 text-lg font-semibold">{totalWebapp}</div>
+          <div className="mt-1 text-lg font-semibold">{numeroKpi(totalWebapp)}</div>
           <div className="flex gap-2 text-xs text-[#8A877D]">
-            <span>Google: {users.filter(u => u.canal === 'google').length}</span>
-            <span>ML: {users.filter(u => u.canal === 'magic_link').length}</span>
+            <span>Google: {numeroKpi(users.filter(u => u.canal === 'google').length)}</span>
+            <span>ML: {numeroKpi(users.filter(u => u.canal === 'magic_link').length)}</span>
           </div>
         </div>
         <div className="glass-card rounded-xl p-3">
           <div className="text-xs text-[#8A877D]">Total Usuarios</div>
-          <div className="mt-1 text-lg font-semibold">{users.length}</div>
+          <div className="mt-1 text-lg font-semibold">{numeroKpi(users.length)}</div>
           <div className="text-xs text-[#8A877D]">Onboarding: {stats?.funnel.onboardingComplete ?? '—'}</div>
         </div>
       </div>
@@ -912,7 +951,7 @@ export default function AdminOperacionPage() {
               : 'text-[#F0EFE8]/50 hover:text-[#F0EFE8]'
           }`}
         >
-          Usuarios ({users.length})
+          Usuarios ({usersFallo ? '—' : users.length})
         </button>
         <button
           onClick={() => setTab('nlp')}
@@ -922,7 +961,9 @@ export default function AdminOperacionPage() {
               : 'text-[#F0EFE8]/50 hover:text-[#F0EFE8]'
           }`}
         >
-          NLP Errors ({nlpTotal})
+          {/* El contador del tab también miente en el fallo: "NLP Errors (0)" se lee como
+              "no hay ninguno". Con la lectura caída no hay número que dar. */}
+          NLP Errors ({nlpFallo ? '—' : nlpTotal})
         </button>
         <button
           onClick={() => setTab('tickets')}
@@ -932,12 +973,25 @@ export default function AdminOperacionPage() {
               : 'text-[#F0EFE8]/50 hover:text-[#F0EFE8]'
           }`}
         >
-          Tickets ({tickets.filter((t) => t.estado === 'pendiente' || t.estado === 'esperando_mensaje').length})
+          Tickets (
+          {ticketsFallo
+            ? '—'
+            : tickets.filter((t) => t.estado === 'pendiente' || t.estado === 'esperando_mensaje').length}
+          )
         </button>
       </div>
 
       {/* Users Tab */}
-      {tab === 'users' && (
+      {tab === 'users' && usersFallo && (
+        <ErrorState
+          titulo="No pudimos cargar los usuarios"
+          variante="card"
+          descripcion="La lista no se pudo leer. No significa que no haya usuarios."
+          onReintentar={() => usersQuery.refetch()}
+        />
+      )}
+
+      {tab === 'users' && !usersFallo && (
         <>
           <div className="mb-4 space-y-3">
             <div className="flex flex-wrap items-center gap-3">
@@ -1221,9 +1275,16 @@ export default function AdminOperacionPage() {
               )}
             </div>
 
+            {/* Este contador quedaba FUERA del ternario de abajo, así que con la lectura
+                caída imprimía "0 de 0 errores NLP reales" justo encima del ErrorState que
+                dice que falló: la página se contradecía en dos líneas seguidas. */}
             <div className="flex flex-wrap items-center gap-2 text-xs text-[#F0EFE8]/40">
-              <span>{filtered.length} de {nlpErrors.length} errores NLP reales</span>
-              {nlpRateLimit > 0 && (
+              {nlpFallo ? (
+                <span>No se pudo leer el conteo de errores NLP</span>
+              ) : (
+                <span>{filtered.length} de {nlpErrors.length} errores NLP reales</span>
+              )}
+              {!nlpFallo && nlpRateLimit > 0 && (
                 <span className="rounded-full bg-white/5 px-2 py-0.5 text-[#F0EFE8]/50" title="Errores 429 de OpenAI (saturación de tokens). Es infra, no NLP. Se muestran aparte.">
                   + {nlpRateLimit} rate-limit (infra, oculto)
                 </span>
@@ -1286,6 +1347,13 @@ export default function AdminOperacionPage() {
 
             {nlpQuery.isLoading ? (
               <ListSkeleton rows={6} />
+            ) : nlpFallo ? (
+              <ErrorState
+                titulo="No pudimos cargar los errores NLP"
+                variante="card"
+                descripcion="La lectura falló. Es distinto de que no haya errores registrados."
+                onReintentar={() => nlpQuery.refetch()}
+              />
             ) : filtered.length === 0 ? (
               <div className="glass-card rounded-xl p-8 text-center text-[#8A877D]">
                 {nlpErrors.length === 0
@@ -1392,11 +1460,25 @@ export default function AdminOperacionPage() {
             </div>
 
             <div className="text-xs text-[#F0EFE8]/40">
-              {ticketsTotal} tickets total{ticketsPendientes > 0 && ` (${ticketsPendientes} pendientes)`}
+              {ticketsFallo ? (
+                'No se pudo leer el conteo de tickets'
+              ) : (
+                <>
+                  {ticketsTotal} tickets total
+                  {ticketsPendientes > 0 && ` (${ticketsPendientes} pendientes)`}
+                </>
+              )}
             </div>
 
             {ticketsQuery.isLoading ? (
               <ListSkeleton rows={6} />
+            ) : ticketsFallo ? (
+              <ErrorState
+                titulo="No pudimos cargar los tickets"
+                variante="card"
+                descripcion="La lectura falló. Puede haber gente esperando respuesta."
+                onReintentar={() => ticketsQuery.refetch()}
+              />
             ) : tickets.length === 0 ? (
               <div className="glass-card rounded-xl p-8 text-center text-[#8A877D]">
                 No hay tickets de soporte.
