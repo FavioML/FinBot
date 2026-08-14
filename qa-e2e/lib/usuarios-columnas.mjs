@@ -13,6 +13,29 @@
 // columna creada directamente en prod no deja archivo, así que el guard hermético no la ve.
 // La 059 documenta un caso de exactamente eso (el "hotfix remoto" sin espejo local, drift D4).
 //
+// LO QUE ESTE PAR **NO** MIRA, y conviene saberlo antes de confiarle algo más: las dos preguntas
+// son sobre las COLUMNAS. El CUERPO de `merge_and_link` se lee siempre del ARCHIVO — o sea que si
+// alguien reemplaza la función desde la consola de Supabase, los dos guards siguen verdes sobre
+// una función que ya no es la que corre. Medido el 2026-08-14 (D12): hoy coinciden. El md5 del
+// cuerpo vivo, normalizando comentarios y espacios, da `25008b336740cdd0f72af0906c93ab66`, igual
+// al del archivo 066. Para recomprobarlo en 30 segundos, sin infra nueva:
+//
+//   -- lado vivo (MCP de Supabase / SQL editor)
+//   select md5(trim(regexp_replace(regexp_replace(prosrc,'--[^\n]*','','g'),'\s+',' ','g')))
+//     from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+//    where n.nspname='public' and p.proname='merge_and_link';
+//
+//   # lado árbol (desde app/) — usa migracionDelMerge() para no apuntar a un archivo viejo
+//   node -e "const f=require('node:fs'),c=require('node:crypto');
+//     const t=f.readFileSync('migrations/066_merge_preserva_bsuid.sql','utf8');
+//     const i=t.indexOf('AS \$function\$'), j=t.lastIndexOf('\$function\$');
+//     console.log(c.createHash('md5').update(t.slice(i+13,j).replace(/--[^\n]*/g,'').replace(/\s+/g,' ').trim()).digest('hex'))"
+//
+// No se automatizó a propósito: leer `pg_proc` desde un harness pide una credencial que hoy no
+// existe en `.env` (`SUPABASE_KEY` va por PostgREST, que no expone catálogos) o un objeto nuevo
+// en `public` para exponerlo. Superficie nueva en prod por un hallazgo INFO no se paga sola; la
+// alternativa barata es este comando, y queda escrito para que la próxima sesión no lo re-derive.
+//
 // El motivo de fondo del par: `merge_and_link` fusiona `usuarios` columna por columna y después
 // BORRA la fila del loser. Lo que la función no nombra, no se conserva: se destruye. Pasó con
 // `trial_*` (B11, migración 059) y con `bsuid` (B13, migración 066).
@@ -22,9 +45,22 @@ import { join } from 'node:path';
 
 const MIGRACIONES = join(import.meta.dirname, '..', '..', 'migrations');
 
-// Las 29 columnas anteriores a migrations/: la tabla se creó en la consola de Supabase y no hay
-// archivo que la declare. Congelada de verdad — solo cambia si alguien BORRA una columna vieja,
-// y entonces el guard se pone rojo y hay que venir a decirlo acá. Para recontarlas:
+// Las 29 columnas que NINGÚN archivo de migrations/ declara. Congelada de verdad — solo cambia si
+// alguien BORRA una columna vieja, y entonces el guard se pone rojo y hay que venir a decirlo acá.
+//
+// Acá decía "las 29 columnas anteriores a migrations/", y para TRES de ellas es falso (medido el
+// 2026-08-14 contra `supabase_migrations.schema_migrations`, D12). Estas nacieron DESPUÉS de la
+// 001 y no tienen archivo porque se aplicaron por la consola, quedando solo en el ledger remoto:
+//
+//   · is_test_user                              → `add_is_test_user_to_usuarios`      (20260506194606)
+//   · esperando_comprobante, comprobante_solicitado_at
+//                                               → `pro_payment_flow_pagos_and_flags`  (20260603163552)
+//
+// Importa por una razón concreta: quien "limpie" esta lista comparando fechas con migrations/ va
+// a concluir que sobran y las va a sacar. No sobran — son exactamente el drift que esta lista
+// existe para absorber, y sacarlas las deja sin clasificar en el merge (B11/B13 por tercera vez).
+//
+// Para recontarlas:
 //   select column_name from information_schema.columns
 //   where table_schema='public' and table_name='usuarios' order by ordinal_position;
 export const BASE = [

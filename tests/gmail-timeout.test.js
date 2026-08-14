@@ -18,6 +18,16 @@ const require = createRequire(import.meta.url);
  */
 describe('timeout de transporte de googleapis', () => {
   it('cargar gmail.js le fija un timeout a TODA llamada a Google', () => {
+    // El require cache de CJS es POR WORKER, y vitest reusa el worker para varios archivos. Otros
+    // CINCO tests cargan `../../gmail` para stubearlo (message-processor-arranque, muro-dispatch,
+    // onboarding-gmail-gate, webhook-onboarding), y `google` es un singleton de módulo: si alguno
+    // corrió antes en este worker, el timeout YA está puesto y la precondición de abajo falla por
+    // una razón que no tiene nada que ver con lo que este guard vigila. Se descubrió el 14-ago
+    // porque un cambio de COMENTARIOS en otro archivo movió el orden de los archivos (vitest los
+    // reparte por tamaño). Vaciar las dos entradas hace la precondición cierta por construcción.
+    delete require.cache[require.resolve('../gmail.js')];
+    delete require.cache[require.resolve('googleapis')];
+
     const { google } = require('googleapis');
     expect(google._options?.timeout, 'antes de cargar gmail.js no hay timeout').toBeUndefined();
 
