@@ -93,7 +93,7 @@ describe('generarCodigoOtp', () => {
  */
 describe('generarCodigoEnlace', () => {
   /**
-   * 12 chars de un alfabeto de 55 = **69.5 bits**, contra los 32 de la versión vieja.
+   * 12 chars de un alfabeto de 55 = **69.4 bits** (12·log2(55) = 69.376), contra los 32 de la vieja.
    *
    * Las DOS mitades del rango importan y por motivos opuestos: el piso son los bits, el
    * techo lo pone `character varying(12)` de `deudas.invite_code` y
@@ -104,7 +104,7 @@ describe('generarCodigoEnlace', () => {
    * `qa-e2e/qa-invite-codes.mjs`, que re-lee la fila después del POST — pero sí puede
    * impedir que el largo se mueva sin que nadie lo note.
    */
-  it('mide 12 chars: 69.5 bits de piso y varchar(12) de techo', () => {
+  it('mide 12 chars: 69.4 bits de piso y varchar(12) de techo', () => {
     for (let i = 0; i < 200; i++) {
       expect(generarCodigoEnlace()).toMatch(/^[A-Za-z2-9]{12}$/);
     }

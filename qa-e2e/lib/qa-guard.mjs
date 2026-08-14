@@ -37,6 +37,11 @@
 //     auditoría de la migración 055.
 //   · No cubre Storage ni el Admin API de Auth.
 //   · De los RPC solo valida los declarados en RPC_DESTRUCTIVOS.
+//   · **No ve las CASCADAS.** Valida la fila que se toca, no las que Postgres borra
+//     detrás por una FK `ON DELETE CASCADE`. Un DELETE fijado por `creador_id` sobre
+//     `gastos_compartidos` se lleva sus `gasto_participantes`, y esas hijas pueden tener
+//     un `usuario_id` que la barrera nunca miró. Hoy es inocuo (las hijas son de usuarios
+//     QA), pero el día que una cascada alcance filas ajenas la barrera no lo va a impedir.
 
 import { createClient } from '@supabase/supabase-js';
 import { readFileSync } from 'node:fs';

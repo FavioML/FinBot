@@ -72,7 +72,7 @@ export function generarCodigoInvitacion(alfabeto: string, largo: number): string
 /**
  * Alfabeto y largo del código que viaja SOLO dentro de un link.
  *
- * 55 chars × 12 = **69.5 bits**. El alfabeto mixto (byte-idéntico al `ALFABETO_INVITE` de
+ * 55 chars × 12 = **69.4 bits** (12·log2(55) = 69.376). El alfabeto mixto (byte-idéntico al `ALFABETO_INVITE` de
  * metas) se puede usar acá porque estos códigos **no se escriben a mano**: la UI de deudas
  * y de gastos compartidos ofrece "Copiar link de cobro", nunca un campo donde tipear el
  * código. Ni este lado ni el otro normalizan al buscar (`.eq('invite_code', code)`), así

@@ -70,6 +70,36 @@ export async function POST(request: Request) {
   }
   const montoPendiente = Math.max(0, Math.round((montoDebe - montoPagado) * 100) / 100);
 
+  // ── RECLAMAR primero, y de forma CONDICIONAL ────────────────────────────────
+  //
+  // `gasto_participantes.usuario_id` es el único token de idempotencia de esta ruta: el
+  // 409 de arriba lo lee, y este UPDATE es lo único que lo escribe. Estaba DESPUÉS del
+  // insert de la deuda y sin leer su `error`, o sea que un fallo del UPDATE devolvía
+  // **200 con la deuda ya creada** y dejaba al participante sin reclamar: el mismo link
+  // acuñaba otra deuda "debo" en cada canje, sin cota. Acá no hay red estructural — el
+  // índice único de `gasto_participantes` es sobre `invite_code`, no sobre `usuario_id`,
+  // así que no existe el equivalente de la migración 071 de este lado.
+  //
+  // El `.is('usuario_id', null)` cierra además la carrera: dos personas abriendo el mismo
+  // link pasan las dos por el chequeo de arriba, y sólo una consigue la fila.
+  //
+  // El orden importa por la DIRECCIÓN en que falla cada uno. Reclamar primero puede dejar
+  // "reclamado sin deuda", que es recuperable y no duplica plata; insertar primero deja
+  // "N deudas por un gasto", que sí. Si el insert falla después del claim, se suelta.
+  const { data: reclamadas, error: errorReclamo } = await getServiceClient()
+    .from('gasto_participantes')
+    .update({ usuario_id: userId })
+    .eq('id', participante.id)
+    .is('usuario_id', null)
+    .select('id');
+
+  if (errorReclamo) {
+    console.error('[split-join-reclamo]', errorReclamo.message);
+    return NextResponse.json({ error: 'No pudimos confirmar tu parte. Intenta de nuevo.' }, { status: 500 });
+  }
+  if (!reclamadas || reclamadas.length === 0)
+    return NextResponse.json({ error: 'Ya confirmaste esta participacion' }, { status: 409 });
+
   // Create a "debo" debt for the participant
   const { data: nuevaDeuda, error: debtError } = await getServiceClient()
     .from('deudas')
@@ -86,14 +116,16 @@ export async function POST(request: Request) {
     .select()
     .single();
 
-  if (debtError)
+  if (debtError) {
+    // Soltar el reclamo: si no, el participante queda marcado como confirmado sin deuda y
+    // no puede reintentar nunca. Best-effort y acotado a la fila que ESTA corrida reclamó.
+    await getServiceClient()
+      .from('gasto_participantes')
+      .update({ usuario_id: null })
+      .eq('id', participante.id)
+      .eq('usuario_id', userId);
     return NextResponse.json({ error: debtError.message }, { status: 400 });
-
-  // Link the participant to this user
-  await getServiceClient()
-    .from('gasto_participantes')
-    .update({ usuario_id: userId })
-    .eq('id', participante.id);
+  }
 
   // Notify the expense creator
   try {

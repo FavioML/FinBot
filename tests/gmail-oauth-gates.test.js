@@ -293,69 +293,125 @@ describe('el callback OAuth no devuelve HTML con datos del usuario (S8)', () => 
    * lleva datos de un usuario. La lista es corta a proposito: si crece, la pregunta es por
    * que una respuesta HTML necesita otra variable.
    */
-  const CRUDOS_PERMITIDOS = new Set(['PANEL_PRO_URL', 'titulo', 'LANDING_URL']);
+  // `REINTENTAR` es el helper del propio modulo, y no se lo cree por su nombre: su CUERPO
+  // se extrae aparte y pasa por el mismo detector, asi que si algun dia interpola algo
+  // ajeno se marca ahi. Permitirlo aca sin barrerlo seria la clase
+  // `guard-que-bendice-lo-que-vino-a-vigilar`.
+  const CRUDOS_PERMITIDOS = new Set(['PANEL_PRO_URL', 'titulo', 'LANDING_URL', 'REINTENTAR']);
 
   /**
-   * TODA construccion de HTML del archivo, no solo el argumento de `res.send`.
+   * El barrido va por ARGUMENTO de `res.send/write/end`, con parentesis balanceados.
    *
-   * La primera version miraba unicamente `res.send(...)` y `+ identificador`, y la
-   * revision adversarial listo cuatro formas que pasaban verde — entre ellas la mas
-   * probable de todas, que es como se reescribiria hoy la rama borrada:
+   * Hubo dos versiones antes de ésta y las dos eran ciegas:
    *
-   *   res.send(`<h1>Gmail conectado, ${usuario.nombre}!</h1>`)      // template literal
-   *   res.send('<h1>' + (usuario.nombre) + '</h1>')                 // parentesis
-   *   const html = '<h1>' + usuario.nombre; res.send(html)          // armado antes
+   *   1. Buscar `+ identificador` dentro de `res.send(...)` con una regex plana. No veía
+   *      template literals, ni parentesis, ni la variable armada antes.
+   *   2. Buscar POR LÍNEA cualquier línea con una etiqueta HTML. Parecía más ancha y
+   *      seguía siendo ciega, porque **la unidad no es la línea**. Medido con probes que
+   *      agregan HTML nuevo SIN tocar el `res.redirect` (para que no muera por la otra
+   *      aserción): las tres pasaban VERDE.
    *
-   * Por eso el barrido es al reves: en vez de buscar donde se ENVIA, busca donde hay una
-   * ETIQUETA HTML. Cualquier linea del archivo que abra un tag es material de respuesta,
-   * la mande quien la mande y por `send`, `write`, `end` o una variable intermedia.
+   *      res.send(`<html><body>          const p = ['<h1>Hola</h1>'];
+   *      ${req.query.hola}               p.push(req.query.hola);
+   *      </body></html>`);               res.send(p.join(''));
+   *
+   * La forma correcta es preguntar por lo que SALE: se extrae el argumento completo de
+   * cada `send/write/end`, se le quitan los `escaparHtml(...)` (que son justamente lo
+   * correcto) y los literales estáticos, y **todo identificador que quede** tiene que
+   * estar declarado. Eso cubre el armado a distancia sin necesidad de dataflow: si la
+   * respuesta sale de `p.join('')`, el identificador que queda es `p`, y `p` no está
+   * declarado.
+   *
+   * La primera mutación que probé (reemplazar el redirect por HTML) moría igual, pero por
+   * la aserción del redirect, no por el detector. Un mutante que muere por otra razón no
+   * mide lo que uno cree.
    */
-  const lineasConHtml = (src) => src
-    .split(/\r?\n/)
-    .map((l) => l.replace(/(^|\s)\/\/.*$/, '$1'))          // sin comentarios de linea
-    .filter((l) => /<\/?[a-z][a-z0-9]*[\s>]/i.test(l));
+  const sinComentarios = (src) => src
+    .split(/\r?\n/).map((l) => l.replace(/(^|\s)\/\/.*$/, '$1')).join('\n')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ');
 
-  /** Identificadores interpolados en un fragmento: `+ x`, `+ (x)` y `${x}`. */
-  function interpolaciones(linea) {
+  /**
+   * El texto entre los parentesis de `.send(` … `)`, con balanceo.
+   *
+   * El patron NO ancla en `res.`: la mayoria de las respuestas de este archivo son
+   * `res.status(400).send(...)`, o sea que el receptor es el resultado de `status()`.
+   * Anclado en `res.` el barrido encontraba **1 de 5** —solo el `res.send('NETO v5')` de
+   * la raiz— y la antivacuidad lo delato. `.append(` y compania no matchean: el caracter
+   * anterior a `end` tiene que ser el punto.
+   */
+  function argumentosDeRespuesta(src) {
     const out = [];
-    for (const m of linea.matchAll(/\+\s*\(?\s*([A-Za-z_$][\w$.]*)/g)) out.push(m[1]);
-    for (const m of linea.matchAll(/\$\{\s*([A-Za-z_$][\w$.]*)/g)) out.push(m[1]);
+    // El helper REINTENTAR arma HTML sin pasar por un `.send()` propio.
+    for (const m of src.matchAll(/const REINTENTAR\s*=\s*\([^)]*\)\s*=>\s*([\s\S]*?);\n/g)) out.push(m[1]);
+    for (const m of src.matchAll(/\.\s*(?:send|write|end)\s*\(/g)) {
+      let i = m.index + m[0].length;
+      const desde = i;
+      let prof = 1;
+      while (i < src.length && prof > 0) {
+        if (src[i] === '(') prof++;
+        else if (src[i] === ')') prof--;
+        i++;
+      }
+      out.push(src.slice(desde, i - 1));
+    }
     return out;
   }
 
-  const HTML = lineasConHtml(CALLBACK);
+  /**
+   * Identificadores que sobreviven a quitar lo seguro. Se conservan las expresiones
+   * `${...}` de un template literal (el resto del template es estático) y se descarta el
+   * contenido de los literales de comilla.
+   */
+  function identificadoresCrudos(arg) {
+    const soloExpresiones = arg
+      .replace(/escaparHtml\s*\([^)]*\)/g, ' ')       // lo correcto, se quita
+      .replace(/`(?:[^`\\]|\\.)*`/g, (t) => [...t.matchAll(/\$\{([^}]*)\}/g)].map((x) => x[1]).join(' '))
+      .replace(/'(?:[^'\\]|\\.)*'/g, ' ')
+      .replace(/"(?:[^"\\]|\\.)*"/g, ' ');
+    return [...new Set(
+      [...soloExpresiones.matchAll(/[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*/g)].map((x) => x[0]),
+    )].filter((id) => !CRUDOS_PERMITIDOS.has(id.split('.')[0]));
+  }
 
-  it('el barrido encuentra las respuestas HTML del archivo (antivacuidad)', () => {
-    expect(HTML.length).toBeGreaterThanOrEqual(3);
-    expect(HTML.some((h) => h.includes('escaparHtml'))).toBe(true);
+  const ARGUMENTOS = argumentosDeRespuesta(sinComentarios(CALLBACK));
+
+  it('el barrido encuentra las respuestas del archivo (antivacuidad)', () => {
+    expect(ARGUMENTOS.length).toBeGreaterThanOrEqual(3);
+    expect(ARGUMENTOS.some((a) => a.includes('escaparHtml'))).toBe(true);
+    // Y que el extractor traiga el argumento ENTERO, no hasta el primer parentesis: el de
+    // `escaparHtml` cierra en el medio, asi que un extractor sin balanceo cortaria ahi.
+    expect(ARGUMENTOS.some((a) => a.includes('escaparHtml') && a.includes('</p>'))).toBe(true);
   });
 
   it('nada se interpola crudo: o es constante del modulo o pasa por escaparHtml', () => {
-    const crudos = HTML.flatMap(interpolaciones)
-      .filter((id) => id !== 'escaparHtml' && !CRUDOS_PERMITIDOS.has(id));
-    expect([...new Set(crudos)], 'interpolado crudo en una respuesta HTML del callback').toEqual([]);
+    const crudos = ARGUMENTOS.flatMap(identificadoresCrudos);
+    expect([...new Set(crudos)], 'interpolado crudo en una respuesta del callback').toEqual([]);
   });
 
   /**
    * Contraprueba: el detector corre contra fixtures, no solo contra el archivo real —
-   * que hoy esta limpio, asi que su ceguera seria invisible por construccion. Las cuatro
-   * primeras son las que la revision adversarial probo que pasaban verde.
+   * que hoy esta limpio, asi que su ceguera seria invisible por construccion.
    */
   it('reconoce las formas en que se reescribiria la rama borrada', () => {
-    const forma = (src) => lineasConHtml(src).flatMap(interpolaciones)
-      .filter((id) => id !== 'escaparHtml' && !CRUDOS_PERMITIDOS.has(id));
+    const forma = (src) => argumentosDeRespuesta(sinComentarios(src)).flatMap(identificadoresCrudos);
 
+    // Las de una linea.
     expect(forma("res.send('<h1>Gmail conectado' + nombre + '</h1>');")).toContain('nombre');
     expect(forma('res.send(`<h1>Gmail conectado, ${usuario.nombre}!</h1>`);')).toContain('usuario.nombre');
     expect(forma("res.send('<h1>' + (usuario.nombre) + '</h1>');")).toContain('usuario.nombre');
-    expect(forma("const html = '<h1>' + usuario.nombre + '</h1>'; res.send(html);")).toContain('usuario.nombre');
     expect(forma("res.write('<p>' + emailConectado + '</p>');")).toContain('emailConectado');
+    // Las TRES que pasaban verde con el barrido por linea, medidas con probes reales.
+    expect(forma('res.send(`<html><body>\n${usuario.nombre}\n</body></html>`);')).toContain('usuario.nombre');
+    expect(forma("res.send('<h1>Hola</h1>' +\n  usuario.nombre +\n  '<p>chau</p>');")).toContain('usuario.nombre');
+    expect(forma("const p = ['<h1>Hola</h1>']; p.push(usuario.nombre); res.send(p.join(''));")).toContain('p.join');
 
     // Y lo que es correcto no se marca.
     expect(forma("res.send('<b>' + escaparHtml(emailPrevio) + '</b>');")).toEqual([]);
-    expect(forma("'<a href=\"' + PANEL_PRO_URL + '\">app.neto.pe</a>'")).toEqual([]);
-    // Una linea sin HTML no entra al barrido aunque concatene datos del usuario.
+    expect(forma("res.send('<a href=\"' + PANEL_PRO_URL + '\">app.neto.pe</a>');")).toEqual([]);
+    // Una expresion que no sale por una respuesta no entra al barrido.
     expect(forma("const primerNombre = usuario.nombre.split(' ')[0];")).toEqual([]);
+    // Y un comentario que muestra la forma prohibida no puede romper el build.
+    expect(forma("// antes decia res.send('<h1>' + usuario.nombre + '</h1>')")).toEqual([]);
   });
 
   it('la rama de exito redirige y no manda HTML', () => {

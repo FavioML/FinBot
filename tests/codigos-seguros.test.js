@@ -26,6 +26,23 @@ function soloCodigo(src) {
     .join('\n');
 }
 
+/**
+ * El runtime del BACKEND, compartido por los dos guards estaticos de este archivo.
+ *
+ * Una sola lista a proposito: cuando el chokepoint de `invite_code` tenia la suya, quedo
+ * sin `lib/`, `scripts/` ni la raiz —los tres huecos que ya se habian pagado en el guard
+ * de Math.random— y un probe en `lib/` pasaba VERDE. Dos listas que deberian ser la misma
+ * divergen; una sola no puede.
+ */
+const RUNTIME_BACKEND = ['handlers', 'lib', 'services', 'routes', 'cron', 'helpers', 'scripts'];
+
+/** Los `.js`/`.mjs`/`.cjs` de la RAIZ, donde vive `gmail.js` (el mas denso en credenciales). */
+function archivosDeRaiz() {
+  return fs.readdirSync(projectRoot, { withFileTypes: true })
+    .filter((e) => e.isFile() && /\.(js|mjs|cjs)$/.test(e.name))
+    .map((e) => e.name);
+}
+
 const {
   generarCodigoInvitacion,
   ALFABETO_ESPACIO,
@@ -154,7 +171,7 @@ describe('los alfabetos coinciden con los de la webapp', () => {
  * del BACKEND, que es lo que aquel no podia ver.
  */
 describe('ningun secreto del backend sale de Math.random', () => {
-  const RUNTIME = ['handlers', 'lib', 'services', 'routes', 'cron', 'helpers', 'scripts'];
+  const RUNTIME = RUNTIME_BACKEND;  // ver el bloque compartido al tope del archivo
 
   function archivosJs(dir) {
     const out = [];
@@ -450,13 +467,24 @@ describe('todo invite_code sale de codigos-seguros (chokepoint, los dos arboles)
   // Solo lo que ESCRIBE en la DB. Los hooks, los tipos y `lib/demo/mock-data.ts` mencionan
   // `invite_code` a monton y ninguno lo persiste; incluirlos seria cambiar cobertura real
   // por ruido, y el ruido termina en exenciones.
-  // `webapp/src/lib` y `webapp/src/components` entran aunque hoy no persistan nada: un
-  // server action o un helper es donde va a nacer el proximo escritor, y dejarlos fuera
-  // era un hueco silencioso. Lo unico que se excluye del arbol de la webapp es la UI que
-  // no escribe (`app/dashboard`, `app/join`), y `lib/demo/mock-data.ts` pasa sola porque
-  // sus `invite_code` son literales.
+  // El barrido del BACKEND es el mismo que el del guard de Math.random de arriba —
+  // `RUNTIME` + los archivos de la raiz— y eso no es prolijidad: la primera version listaba
+  // seis directorios y dejaba fuera `lib/`, `scripts/` y la raiz. Medido con probes (un
+  // archivo que escribe `invite_code` con `crypto.randomBytes(4)` a mano):
+  //
+  //   services/  → guard ROJO ✓      lib/      → VERDE ✗
+  //   webapp/src/lib/ → ROJO ✓       scripts/  → VERDE ✗       raiz → VERDE ✗
+  //
+  // `lib/` es justo donde vive `lib/codigos-seguros.js`, o sea el sitio mas natural para
+  // un helper de invitaciones nuevo. Es la misma clase que este archivo ya pago dos veces:
+  // el alcance del barrido mas chico que la superficie del bug.
+  //
+  // Del lado de la webapp entran tambien `lib` y `components` aunque hoy no persistan nada:
+  // un server action o un hook es donde va a nacer el proximo escritor. La UI que no
+  // escribe (`app/dashboard`, `app/join`) queda fuera, y `lib/demo/mock-data.ts` pasa sola
+  // porque sus `invite_code` son literales.
   const DIRS = [
-    'handlers', 'services', 'routes', 'cron', 'helpers',
+    ...RUNTIME_BACKEND,
     'webapp/src/app/api', 'webapp/src/lib', 'webapp/src/components',
   ];
 
@@ -496,6 +524,14 @@ describe('todo invite_code sale de codigos-seguros (chokepoint, los dos arboles)
   const ABREVIADA = /[{,]\s*invite_code\s*(?=[,}\n])/g;
 
   /**
+   * La ASIGNACION A PROPIEDAD: `fila.invite_code = gen()` seguido de `insert(fila)`.
+   * Medida con un probe en `lib/`: pasaba VERDE. No es una evasion rebuscada, es JS
+   * corriente — `ESCRITURA` exige dos puntos y `ABREVIADA` exige llave o coma delante,
+   * asi que ninguna de las dos la ve. Cubre tambien la forma con corchete.
+   */
+  const ASIGNACION = /(?:\.\s*invite_code|\[\s*['"`]invite_code['"`]\s*\])\s*=\s*[^=]/g;
+
+  /**
    * Vacia el CONTENIDO de los literales de string, conservando comillas y saltos de linea.
    *
    * Hace falta por la forma abreviada: `.select('id, invite_code, tipo')` termina en
@@ -522,6 +558,13 @@ describe('todo invite_code sale de codigos-seguros (chokepoint, los dos arboles)
       out.push(valor);
     }
     for (const m of limpio.matchAll(ABREVIADA)) out.push(m[0].trim());
+    // La ASIGNACION se busca SIN vaciar literales, sobre el fuente ya sin comentarios: la
+    // forma con corchete lleva el nombre DENTRO de un string (`fila['invite_code'] = …`),
+    // asi que `sinLiterales` —que existe para que un `.select('id, invite_code')` no cuente
+    // como escritura— la borraba. Acá no hace falta y ciega: el patron exige un `=` detras,
+    // y ni un `select` ni una URL de PostgREST (`?invite_code=eq.X`, sin punto ni corchete
+    // delante) lo tienen.
+    for (const m of soloCodigo(src).matchAll(ASIGNACION)) out.push(m[0].trim());
     return out;
   }
 
@@ -547,7 +590,10 @@ describe('todo invite_code sale de codigos-seguros (chokepoint, los dos arboles)
 
   const escritores = [];
   const sospechosos = [];
-  for (const rel of DIRS.flatMap(archivosDe).map((p) => p.replace(/\\/g, '/'))) {
+  // La RAIZ va aparte porque `archivosDe` es recursivo y barrerla asi arrastraria
+  // `node_modules/`. Es el mismo reparto que hace el guard de Math.random.
+  const barridos = [...DIRS.flatMap(archivosDe), ...archivosDeRaiz()].map((p) => p.replace(/\\/g, '/'));
+  for (const rel of barridos) {
     const src = soloCodigo(fs.readFileSync(path.join(projectRoot, rel), 'utf8'));
     if (escrituras(src).length === 0) continue;
     escritores.push(rel);
@@ -602,6 +648,20 @@ describe('todo invite_code sale de codigos-seguros (chokepoint, los dos arboles)
     expect(escrituras(".select('id, invite_code')\n.eq('invite_code', code)")).toHaveLength(0);
     // Y `sinLiterales` no puede comerse el codigo que viene despues de un string.
     expect(escrituras("const l = 'x'; db.update({ invite_code: c })")).toHaveLength(1);
+  });
+
+  /**
+   * La ASIGNACION A PROPIEDAD. Medida con un probe real en `lib/`: el guard pasaba VERDE.
+   * `fila.invite_code = ...` es JS corriente, no una evasion deliberada.
+   */
+  it('ve la asignacion a propiedad, y no confunde una comparacion', () => {
+    expect(escrituras('fila.invite_code = crypto.randomBytes(4).toString("hex");')).toHaveLength(1);
+    expect(escrituras("fila['invite_code'] = gen();")).toHaveLength(1);
+    // Comparar NO es escribir: `==` y `===` no pueden contar como generacion.
+    expect(escrituras('if (row.invite_code === code) return row;')).toHaveLength(0);
+    expect(escrituras('if (row.invite_code == code) return row;')).toHaveLength(0);
+    // Y leerla tampoco.
+    expect(escrituras('const c = deuda.invite_code;')).toHaveLength(0);
   });
 
   /**

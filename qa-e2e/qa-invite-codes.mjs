@@ -51,11 +51,11 @@ import { clienteGuardado, resumenGuard } from './lib/qa-guard.mjs';
 const APP = process.env.NETO_APP_URL || 'https://app.neto.pe';
 const TAG = 'QA-INVITE';
 
-// Piso de entropía exigido. 64 bits deja el barrido completo fuera de alcance por varios
-// órdenes de magnitud incluso sin rate limit, que es la situación real: el preview es
-// público y el único limitador disponible en la webapp (`lib/rate-limit.ts`) es un Map en
-// memoria, o sea POR LAMBDA — no acota a un atacante distribuido. Ver el ledger.
-const BITS_MINIMOS = 64;
+// El piso de 64 bits que este harness defiende NO se comprueba estimando entropía de una
+// muestra (ver el bloque de `evaluarCodigos`): se comprueba exigiendo la FORMA que el
+// contrato produce. Importa porque acá no hay rate limit que ayude: el preview es público
+// y el único limitador de la webapp (`lib/rate-limit.ts`) es un Map en memoria, o sea POR
+// LAMBDA — no acota a un atacante distribuido. Ver el ledger.
 
 function loadEnv(path) {
   const env = {};
@@ -135,77 +135,86 @@ function observar(nombre, detalle) {
 }
 
 /**
- * Bits de entropía del código EMITIDO, con el modelo del ATACANTE: no cuenta los
- * caracteres distintos que salieron, infiere la CLASE a la que pertenecen.
+ * Qué se le exige al código que emite PRODUCCIÓN.
  *
- * La primera versión contaba el alfabeto observado y lo presentaba como "cota inferior
- * honesta… puede sub-reportar y hacer fallar de más, nunca aprobar un código corto".
- * Sub-reportar no es gratis, y se vio en la primera corrida contra el código nuevo:
- * 3 códigos × 12 chars son 36 tiradas sobre un alfabeto de 55, así que se observan ~28 y
- * el estimador decía **57.7 bits** de unos reales 69.4 → **rojo falso**. Un harness que
- * falla por la razón equivocada es peor que uno que no existe: la reacción natural es
- * bajarle el piso, y ahí se pierde de verdad.
+ * ── Dos intentos fallidos antes de éste, y los dos enseñan lo mismo ────────────
  *
- * Saturar el alfabeto pedía ~30 códigos por corrida, o sea 60 filas sembradas y borradas
- * en producción para medir algo que ya afirma el test unitario (`codigos-seguros.test.ts`
- * cubre los 55 chars sobre 2000 muestras). Acá la pregunta es otra: **qué emite PROD**.
- * Y para eso la clase alcanza — es además lo que ve quien ataca, que no conoce el
- * alfabeto interno, ve códigos y deduce el charset.
+ * Este check quiso, dos veces, MEDIR la entropía a partir de 3 muestras:
  *
- * Sobre-reporta un poco (62 supuestos contra 55 reales, +2 bits) porque el alfabeto
- * excluye los ambiguos. Contra el código viejo sigue dando el veredicto correcto: puro
- * `[0-9a-f]` cae en la rama hex → 16 → 8 × 4 = **32 bits**, rojo.
+ *   1. Contar el alfabeto observado. Con 36 tiradas sobre 55 símbolos se ven ~27, así que
+ *      declaraba **57.7 bits** de unos reales 69.4 → rojo falso en la primera corrida
+ *      contra el código nuevo.
+ *   2. Inferir la clase (mayús + minús + dígitos = 62) y acotarla por el alfabeto que
+ *      implican los distintos vistos, invirtiendo el problema del coleccionista de cupones.
+ *      Medido sobre 200 corridas sintéticas: aprobaba un generador de 11 chars (63.6 bits
+ *      reales, justo debajo del piso) **78 veces**, y hacía flakear el caso REAL **10 de
+ *      200**. O sea que cambió un error por otro y encima agregó ruido.
+ *
+ * La lección: **3 muestras no alcanzan para estimar un alfabeto**, y forzarlo produce una
+ * regla que falla por la razón equivocada. El contrato de entropía no se mide acá — lo fija
+ * `webapp/src/lib/codigos-seguros.test.ts`, que cubre los 55 símbolos sobre 2000 muestras.
+ * Lo que este harness sí puede responder, y el test unitario no, es **qué emite prod**.
+ *
+ * ── Las cuatro reglas, y por qué ninguna flakea ────────────────────────────────
+ *
+ * | regla | qué mata | margen |
+ * |---|---|---|
+ * | largo ≥ 12 | el código viejo (8) y cualquier acortamiento, incluido el de 11 que el estimador anterior aprobaba | determinista |
+ * | todo char ∈ alfabeto declarado | un cambio de alfabeto que meta símbolos ajenos | determinista |
+ * | ≥ 18 símbolos distintos | un colapso a un alfabeto chico (`aA1`, hex, 8 símbolos) | medido sobre 20.000 corridas sintéticas: el caso real nunca bajó de **19**, y un adversario de ≤16 símbolos no puede pasar de 16 |
+ * | las 3 clases presentes | un alfabeto de solo mayúsculas+dígitos (los 31 de espacios = 59.4 bits), que la regla de distintos NO ve porque llega a 28 | con 5 muestras, P(falte una clase) ≈ 1e-4; con 3 el dígito faltaba 1 de cada 285 |
+ *
+ * Los bits que se imprimen salen del alfabeto DECLARADO: son el contrato, no una medición,
+ * y así están rotulados.
+ *
+ * **Lo que estas reglas NO pueden separar, y conviene decirlo en vez de fingir que sí:**
+ * un alfabeto mixto de ~39 símbolos (63.4 bits, justo debajo del piso) deja ver ~31
+ * distintos sobre 60 tiradas contra los ~37 del real, y las dos distribuciones se pisan.
+ * Subir el piso de distintos hasta separarlas hace flakear el caso real. O sea que la
+ * frontera fina la fija el test unitario, no esto; acá se atrapan los cambios GRUESOS,
+ * que son los que pasan de verdad: volver a hex, acortar el largo, o cambiar al alfabeto
+ * de espacios. Las siete mutaciones de la autoprueba salen 0/50.000 y el caso real
+ * 50.000/50.000.
  */
-function claseDe(chars) {
-  const todos = [...new Set(chars)];
-  if (todos.every((c) => /[0-9]/.test(c))) return { nombre: 'digitos', n: 10 };
-  if (todos.every((c) => /[0-9a-f]/.test(c))) return { nombre: 'hex', n: 16 };
-  return {
-    nombre: 'alfanumerico',
-    n: (todos.some((c) => /[A-Z]/.test(c)) ? 26 : 0)
-     + (todos.some((c) => /[a-z]/.test(c)) ? 26 : 0)
-     + (todos.some((c) => /[0-9]/.test(c)) ? 10 : 0),
-  };
-}
+const ALFABETO_DECLARADO = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+const LARGO_MINIMO = 12;
+const DISTINTOS_MINIMO = 18;
+// 5 y no 3: con 3 muestras (36 tiradas) la regla de las tres clases falla sola 1 de cada
+// 285 corridas porque no sale ningun digito (8 de 55). Con 5 baja a ~1e-4.
+const MUESTRAS = 5;
 
-/**
- * La clase SOLA sobre-reporta, y en la dirección insegura. Lo encontró la segunda revisión
- * adversarial con un contraejemplo construible: un generador sobre el alfabeto `aA1bB2cC`
- * (8 símbolos) tiene mayúscula, minúscula y dígito, así que `claseDe` declara 62 y 12 chars
- * se leen como 71.5 bits cuando son 36. El estimador anterior sobre-reportaba hacia el lado
- * SEGURO; éste lo hacía hacia el peligroso, que es peor que cualquiera de los dos.
- *
- * La corrección no es un piso arbitrario sobre los distintos vistos: es INVERTIR el problema
- * del coleccionista de cupones. Con N tiradas de un alfabeto de n símbolos se esperan
- * `n · (1 − (1 − 1/n)^N)` distintos, que es monótona en n; así que del número de distintos
- * observados sale una estimación del alfabeto real, y se toma el MENOR entre ésa y la clase.
- * Un alfabeto de 8 deja ver 8 → estima 8 → 36 bits → rojo. Uno de 31 deja ver ~21 → estima
- * ~31 → 59.4 bits → rojo, aunque su clase diga 62.
- */
-function alfabetoImplicado(distintos, tiradas) {
-  const esperado = (n) => n * (1 - Math.pow(1 - 1 / n, tiradas));
-  let n = 2;
-  while (n < 200 && esperado(n) < distintos) n++;
-  return n;
-}
-
-function bitsDe(codigos) {
-  const largos = new Set(codigos.map((c) => c.length));
-  const largo = Math.min(...largos);
+function evaluarCodigos(codigos) {
   const juntos = codigos.join('');
-  const clase = claseDe(juntos);
-  const distintos = new Set(juntos).size;
-  const implicado = alfabetoImplicado(distintos, juntos.length);
-  const alfabeto = Math.min(clase.n, implicado);
+  const chars = [...new Set(juntos)];
+  const problemas = [];
+
+  const largo = Math.min(...codigos.map((c) => c.length));
+  if (largo < LARGO_MINIMO) problemas.push(`largo ${largo} < ${LARGO_MINIMO}`);
+
+  const ajenos = chars.filter((c) => !ALFABETO_DECLARADO.includes(c));
+  if (ajenos.length) problemas.push(`chars fuera del alfabeto declarado: ${ajenos.join('')}`);
+
+  if (chars.length < DISTINTOS_MINIMO) {
+    problemas.push(`solo ${chars.length} simbolos distintos (piso ${DISTINTOS_MINIMO}): el alfabeto se achico`);
+  }
+
+  // Mayúscula Y minúscula, y NO el dígito. Medido sobre 20.000 corridas: exigir las tres
+  // hace flakear el caso real 1 vez, porque solo 8 de los 55 símbolos son dígitos y
+  // P(ninguno en 60 tiradas) ≈ 8e-5. Con las dos que quedan, P ≈ 1e-15 y no se pierde
+  // nada: los dos casos que la regla existe para matar son alfabetos que se quedan de un
+  // solo lado — los 31 de espacios (mayús + dígitos, 59.4 bits) y un lowercase-only
+  // (23 chars, 54.3 bits). Un alfabeto mixto SIN dígitos son 47 chars = 66.6 bits, que
+  // está por encima del piso y no hay motivo para rechazarlo.
+  const faltan = [
+    [/[A-Z]/, 'mayuscula'], [/[a-z]/, 'minuscula'],
+  ].filter(([re]) => !chars.some((c) => re.test(c))).map(([, n]) => n);
+  if (faltan.length) problemas.push(`no aparece ninguna ${faltan.join(' ni ')}: el alfabeto no es el declarado`);
+
   return {
     largo,
-    largosDistintos: [...largos],
-    clase: clase.nombre,
-    claseN: clase.n,
-    distintosVistos: distintos,
-    implicado,
-    alfabeto,
-    bits: +(largo * Math.log2(alfabeto)).toFixed(1),
+    distintosVistos: chars.length,
+    bitsContrato: +(largo * Math.log2(ALFABETO_DECLARADO.length)).toFixed(1),
+    problemas,
   };
 }
 
@@ -237,28 +246,34 @@ function autoprueba() {
     }
     return out;
   };
+  const REAL = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
   const casos = [
-    // [alfabeto, largo, ¿debería pasar el piso?]
-    ['0123456789abcdef', 8, false],                                          // el código VIEJO: 32 bits
-    ['aA1bB2cC', 12, false],                                                 // el contraejemplo del revisor
-    ['ABCDEFGHJKMNPQRSTUVWXYZ23456789', 12, false],                          // 31 chars: 59.4 bits, clase diría 62
-    ['ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789', 12, true],   // el real: 69.4 bits
+    // [alfabeto, largo, ¿debería PASAR?, qué mutación representa]
+    ['0123456789abcdef', 8, false, 'el código VIEJO: 8 hex, 32 bits'],
+    [REAL, 11, false, 'acortar el largo a 11 (63.6 bits, justo debajo del piso)'],
+    ['aA1bB2cC', 12, false, 'alfabeto de 8 con las tres clases (36 bits)'],
+    ['aA1', 12, false, 'alfabeto de 3 (19 bits)'],
+    ['ABCDEFGHJKMNPQRSTUVWXYZ23456789', 12, false, 'el alfabeto de ESPACIOS: 31 chars sin minúsculas (59.4 bits)'],
+    ['NetoDe0123456789', 12, false, 'alfabeto de 16 (48 bits)'],
+    ['abcdefghjkmnpqrstuvwxyz', 12, false, 'lowercase-only: 23 chars, 54.3 bits — pasa el piso de distintos, lo mata la regla de clases'],
+    [REAL, 12, true, 'el real: 69.4 bits'],
   ];
-  for (const [alfabeto, largo, deberiaPasar] of casos) {
-    const muestras = muestrear(alfabeto, 3, largo);
-    const e = bitsDe(muestras);
+  for (const [alfabeto, largo, deberiaPasar, queEs] of casos) {
+    const muestras = muestrear(alfabeto, MUESTRAS, largo);
+    const e = evaluarCodigos(muestras);
     // El fixture tiene que EJERCITAR el alfabeto que dice: si el muestreador degenera, el
     // caso pasa por el motivo equivocado y el día que alguien lo toque no se entera.
-    const cobertura = e.distintosVistos / Math.min(alfabeto.length, largo * 3);
+    const cobertura = e.distintosVistos / Math.min(alfabeto.length, largo * MUESTRAS);
     if (cobertura < 0.5) {
       throw new Error(
         `autoprueba: el fixture de ${alfabeto.length} símbolos solo sacó ${e.distintosVistos} ` +
         'distintos — el muestreador degeneró y el caso no ejercita lo que dice');
     }
-    if ((e.bits >= BITS_MINIMOS) !== deberiaPasar) {
+    if ((e.problemas.length === 0) !== deberiaPasar) {
       throw new Error(
-        `autoprueba del estimador: alfabeto de ${alfabeto.length} × ${largo} dio ${e.bits} bits ` +
-        `(clase ${e.claseN}, implicado ${e.implicado}) y se esperaba ${deberiaPasar ? '≥' : '<'} ${BITS_MINIMOS}`);
+        `autoprueba de las reglas: ${queEs} → ` +
+        (e.problemas.length ? `rechazado por [${e.problemas.join('; ')}]` : 'aceptado') +
+        `, y se esperaba lo contrario`);
     }
   }
 }
@@ -336,16 +351,17 @@ try {
   // ── 1. Entropía: DEUDAS ──────────────────────────────────────────────────────
   const codigosDeuda = [];
   const deudasParaCodigo = [];
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < MUESTRAS; i++) {
     const id = await sembrarDeuda();
     deudasParaCodigo.push(id);
     const r = await api(cookieAcreedor, 'POST', '/api/debts/invite', { deuda_id: id });
     if (r.status !== 200 || !r.json?.invite_code) throw new Error(`invite deuda -> ${r.status} ${r.text}`);
     codigosDeuda.push(r.json.invite_code);
   }
-  const eD = bitsDe(codigosDeuda);
-  check('entropia_deuda', eD.bits >= BITS_MINIMOS,
-    `largo=${eD.largo} clase=${eD.clase}(${eD.claseN}) vistos=${eD.distintosVistos} alfabeto=${eD.alfabeto} bits≈${eD.bits} (piso ${BITS_MINIMOS}) ej=${codigosDeuda[0]}`);
+  const eD = evaluarCodigos(codigosDeuda);
+  check('forma_codigo_deuda', eD.problemas.length === 0,
+    `largo=${eD.largo} distintos=${eD.distintosVistos} contrato≈${eD.bitsContrato} bits ej=${codigosDeuda[0]}` +
+    (eD.problemas.length ? ` — ${eD.problemas.join('; ')}` : ''));
   check('deuda_codigos_distintos', new Set(codigosDeuda).size === codigosDeuda.length,
     `${new Set(codigosDeuda).size}/${codigosDeuda.length} distintos`);
 
@@ -428,16 +444,17 @@ try {
   // ── 6. Entropía y preview: SPLITS ────────────────────────────────────────────
   const codigosSplit = [];
   let primerParticipante = null;
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < MUESTRAS; i++) {
     const { gastoId, participanteId } = await sembrarGasto();
     if (!primerParticipante) primerParticipante = { gastoId, participanteId };
     const r = await api(cookieAcreedor, 'POST', '/api/split/invite', { gasto_id: gastoId, participante_id: participanteId });
     if (r.status !== 200 || !r.json?.invite_code) throw new Error(`invite split -> ${r.status} ${r.text}`);
     codigosSplit.push(r.json.invite_code);
   }
-  const eS = bitsDe(codigosSplit);
-  check('entropia_split', eS.bits >= BITS_MINIMOS,
-    `largo=${eS.largo} clase=${eS.clase}(${eS.claseN}) vistos=${eS.distintosVistos} alfabeto=${eS.alfabeto} bits≈${eS.bits} (piso ${BITS_MINIMOS}) ej=${codigosSplit[0]}`);
+  const eS = evaluarCodigos(codigosSplit);
+  check('forma_codigo_split', eS.problemas.length === 0,
+    `largo=${eS.largo} distintos=${eS.distintosVistos} contrato≈${eS.bitsContrato} bits ej=${codigosSplit[0]}` +
+    (eS.problemas.length ? ` — ${eS.problemas.join('; ')}` : ''));
   check('split_codigos_distintos', new Set(codigosSplit).size === codigosSplit.length,
     `${new Set(codigosSplit).size}/${codigosSplit.length} distintos`);
 
@@ -456,6 +473,18 @@ try {
 
   const joinS = await api(cookieConfirma, 'POST', '/api/split/join', { code: codigosSplit[0] });
   check('split_join_legitimo', joinS.status === 200 && joinS.json?.id != null, `status=${joinS.status} ${joinS.text}`);
+
+  // El EFECTO, no el 200. `gasto_participantes.usuario_id` es el único token de
+  // idempotencia de esa ruta, y el UPDATE que lo escribe iba DESPUÉS del insert de la
+  // deuda y sin leer su `error`: un fallo devolvía 200 con la deuda ya creada y el
+  // participante sin reclamar, así que el mismo link acuñaba otra deuda en cada canje.
+  //
+  // `split_segundo_confirmante` NO ve eso —en el camino feliz el UPDATE anda y el 409
+  // sale igual—, que es justo por qué hace falta este check: pregunta por la fila.
+  const { data: parteReclamada } = await svc.from('gasto_participantes')
+    .select('usuario_id').eq('id', primerParticipante.participanteId).single();
+  check('split_reclamo_persiste', parteReclamada?.usuario_id === CONFIRMA.uid,
+    `usuario_id en la fila = ${parteReclamada?.usuario_id ?? 'null'} (esperado ${CONFIRMA.uid})`);
 
   // El segundo confirmante de un split YA estaba cerrado: `gasto_participantes.usuario_id`
   // es la marca, y es por participante. Se verifica igual para que no sea una creencia.

@@ -44,10 +44,14 @@ export async function POST(request: Request) {
   // `deuda_vinculada_id`) y la UI escondía el botón: los dos endpoints de la misma
   // feature se contradecían, y el que mandaba era el que no gateaba nada.
   //
-  // `.limit(1)` y no `.maybeSingle()`: con el filtro global puede haber más de una fila
-  // espejo (las que dejó el bug antes de este arreglo), y `maybeSingle()` devuelve error
-  // con 2+ filas → `existing` null → seguiría entrando gente, justo en las deudas ya
-  // afectadas.
+  // `.limit(1)` y no `.maybeSingle()`, porque acá solo importa SI hay, no cuántas.
+  //
+  // (El motivo que decía antes era falso: "puede haber más de una fila espejo, las que dejó
+  // el bug". No puede — la migración 071 se aplicó ANTES que este código y entró limpia
+  // justo porque no había ninguna duplicada. Lo marcó la segunda revisión adversarial. El
+  // `.limit(1)` sigue siendo lo correcto, pero por su propio motivo: `maybeSingle()` da
+  // error con 2+ filas, y ese error se leería como "no pude verificar" → 500, que en un
+  // estado que el índice ya impide sería ruido.)
   //
   // Y el `error` se LEE. Esta query era decorativa mientras el gate real era por usuario;
   // ahora es lo único que sostiene el invariante, así que un timeout de Supabase no puede
@@ -64,6 +68,19 @@ export async function POST(request: Request) {
     console.error('[debt-join-existentes]', errorExistentes.message);
     return NextResponse.json({ error: 'No pudimos verificar la invitación. Intenta de nuevo.' }, { status: 500 });
   }
+  // CONSECUENCIA CONOCIDA, y es un trade-off elegido, no un descuido. Con el gate global,
+  // apenas existe UN espejo el código queda en 409 para todos — así que si la persona
+  // equivocada confirma primero (el link se comparte en un grupo), el deudor real queda
+  // afuera y el acreedor **no tiene salida por producto**: no puede borrar el espejo ajeno
+  // (`DELETE /api/debts` exige `usuario_id = suyo`), no puede reemitir el código
+  // (`/invite` es `if (!inviteCode)`) y no existe ninguna ruta que ponga
+  // `invite_code: null` en deudas ni en splits — la única del repo es la de metas.
+  // Hoy la única salida es borrar la deuda y crearla de nuevo.
+  //
+  // Se acepta igual porque lo que había antes era peor, no mejor: el equivocado no solo
+  // entraba, además se llevaba una fila espejo desde la que podía marcar la deuda como
+  // pagada. Lo que falta es un revoke/desvincular para el acreedor, y eso es una decisión
+  // de producto con superficie nueva, no parte de este arreglo. Está anotado en el ledger.
   if (existentes && existentes.length > 0)
     return NextResponse.json({ error: 'Esta deuda ya fue confirmada' }, { status: 409 });
 
@@ -114,7 +131,7 @@ export async function POST(request: Request) {
     .select()
     .single();
 
-  // 23505 = el índice único parcial de la migración 070 (`deuda_vinculada_id` where not
+  // 23505 = el índice único parcial de la migración 071 (`deuda_vinculada_id` where not
   // null). Es la mitad estructural del chequeo de arriba: dos personas abriendo el mismo
   // link a la vez pasan las dos por el SELECT y llegan las dos hasta acá, así que el
   // invariante "un espejo por deuda" no lo puede sostener un `if`. Se traduce al mismo
