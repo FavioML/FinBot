@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { generarCodigoOtp, generarCodigoInvitacion } from './codigos-seguros';
+import { generarCodigoOtp, generarCodigoInvitacion, generarCodigoEnlace } from './codigos-seguros';
 
 /**
  * S4 — el código del OTP inverso salía de `Math.random()`.
@@ -80,6 +80,64 @@ describe('generarCodigoOtp', () => {
     for (const b of baldes) {
       expect(Math.abs(b - esperado) / esperado).toBeLessThan(0.06);
     }
+  });
+});
+
+/**
+ * S′10 — el código de invitación de deudas y gastos compartidos.
+ *
+ * Lo que falló acá NO fue la fuente: era `crypto.randomBytes(4)`, criptográfica. Fue el
+ * LARGO — 32 bits, menos que espacios (39.6) y metas (46.3). El guard de `Math.random` de
+ * abajo pasaba verde sobre esto porque pregunta de dónde salen los bits, no cuántos son.
+ * Por eso este bloque afirma el largo, y no solo la impredecibilidad.
+ */
+describe('generarCodigoEnlace', () => {
+  /**
+   * 12 chars de un alfabeto de 55 = **69.5 bits**, contra los 32 de la versión vieja.
+   *
+   * Las DOS mitades del rango importan y por motivos opuestos: el piso son los bits, el
+   * techo lo pone `character varying(12)` de `deudas.invite_code` y
+   * `gasto_participantes.invite_code`. Postgres no trunca, tira `22001`. Un intento
+   * anterior de este mismo fix emitía 32 chars y el UPDATE fallaba en silencio (las rutas
+   * no leían el `error`), así que la ruta devolvía 200 con un código que la fila nunca
+   * guardaba. Este test no puede ver la columna — quien lo hace es
+   * `qa-e2e/qa-invite-codes.mjs`, que re-lee la fila después del POST — pero sí puede
+   * impedir que el largo se mueva sin que nadie lo note.
+   */
+  it('mide 12 chars: 69.5 bits de piso y varchar(12) de techo', () => {
+    for (let i = 0; i < 200; i++) {
+      expect(generarCodigoEnlace()).toMatch(/^[A-Za-z2-9]{12}$/);
+    }
+  });
+
+  it('cubre el alfabeto entero (un off-by-one decapitaría el último char)', () => {
+    const vistos = new Set<string>();
+    for (let i = 0; i < 2000; i++) for (const c of generarCodigoEnlace()) vistos.add(c);
+    expect(vistos.size).toBe(55);
+  });
+
+  /**
+   * Sin caracteres ambiguos a mano (I, O, 0, 1, l) aunque estos códigos no se tipeen: es
+   * el mismo alfabeto que el de metas, y compartirlo evita que alguien "unifique" los dos
+   * más adelante y le cambie el alfabeto al que sí tiene links vivos.
+   */
+  it('no trae los caracteres ambiguos', () => {
+    const todos = Array.from({ length: 200 }, generarCodigoEnlace).join('');
+    expect(todos).not.toMatch(/[IO01l]/);
+  });
+
+  it('no depende de Math.random y no repite', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const vistos = new Set(Array.from({ length: 500 }, generarCodigoEnlace));
+    expect(vistos.size).toBe(500);
+  });
+
+  it('usa la fuente criptográfica, y la usa de verdad', () => {
+    const real = crypto.getRandomValues.bind(crypto);
+    const spy = vi.fn((a: Uint32Array) => real(a));
+    vi.stubGlobal('crypto', { ...crypto, getRandomValues: spy });
+    generarCodigoEnlace();
+    expect(spy).toHaveBeenCalled();
   });
 });
 

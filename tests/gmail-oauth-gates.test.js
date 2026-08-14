@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import path from 'path';
 
 /**
@@ -266,5 +266,169 @@ describe('esProPagado sigue siendo la pregunta que creemos', () => {
 
   it('sigue exportado (los gates lo importan de acá)', () => {
     expect(TRIAL).toMatch(/module\.exports\s*=\s*\{[\s\S]*\besProPagado\b/);
+  });
+});
+
+/**
+ * S′8 — el callback ya no responde HTML armado con datos del usuario.
+ *
+ * Habia una rama que hacia `res.send('<html>…<h1>Gmail conectado' + nombre + '!</h1>…')`.
+ * Self-XSS por severidad (hay que ponerse uno mismo el markup en el nombre), pero `nombre`
+ * viene del perfil de Google o del onboarding por WhatsApp: no es un campo que el producto
+ * controle. Se borro en vez de escaparse, porque era **codigo muerto medido**: el unico
+ * emisor de produccion (`routes/pro.js`) siempre manda `origen: 'web'`, y los enlaces
+ * viejos de las puertas de WhatsApp vencieron el 10-ago-2026 (web-only entro el 03-ago,
+ * `STATE_TTL_MS` = 7 dias).
+ *
+ * El guard de arriba —cero emisores en `handlers/`— es lo que impide que la rama pueda
+ * revivir. Este fija la otra mitad: que la respuesta del callback no vuelva a interpolar
+ * datos ajenos sin escapar.
+ */
+describe('el callback OAuth no devuelve HTML con datos del usuario (S8)', () => {
+  const CALLBACK = readFileSync(path.join(RAIZ, 'routes', 'public.js'), 'utf-8');
+
+  /**
+   * Identificadores que SI pueden ir crudos dentro de una respuesta HTML de este archivo.
+   * Los dos son constantes del modulo o parametros que solo reciben literales; ninguno
+   * lleva datos de un usuario. La lista es corta a proposito: si crece, la pregunta es por
+   * que una respuesta HTML necesita otra variable.
+   */
+  const CRUDOS_PERMITIDOS = new Set(['PANEL_PRO_URL', 'titulo', 'LANDING_URL']);
+
+  /**
+   * TODA construccion de HTML del archivo, no solo el argumento de `res.send`.
+   *
+   * La primera version miraba unicamente `res.send(...)` y `+ identificador`, y la
+   * revision adversarial listo cuatro formas que pasaban verde — entre ellas la mas
+   * probable de todas, que es como se reescribiria hoy la rama borrada:
+   *
+   *   res.send(`<h1>Gmail conectado, ${usuario.nombre}!</h1>`)      // template literal
+   *   res.send('<h1>' + (usuario.nombre) + '</h1>')                 // parentesis
+   *   const html = '<h1>' + usuario.nombre; res.send(html)          // armado antes
+   *
+   * Por eso el barrido es al reves: en vez de buscar donde se ENVIA, busca donde hay una
+   * ETIQUETA HTML. Cualquier linea del archivo que abra un tag es material de respuesta,
+   * la mande quien la mande y por `send`, `write`, `end` o una variable intermedia.
+   */
+  const lineasConHtml = (src) => src
+    .split(/\r?\n/)
+    .map((l) => l.replace(/(^|\s)\/\/.*$/, '$1'))          // sin comentarios de linea
+    .filter((l) => /<\/?[a-z][a-z0-9]*[\s>]/i.test(l));
+
+  /** Identificadores interpolados en un fragmento: `+ x`, `+ (x)` y `${x}`. */
+  function interpolaciones(linea) {
+    const out = [];
+    for (const m of linea.matchAll(/\+\s*\(?\s*([A-Za-z_$][\w$.]*)/g)) out.push(m[1]);
+    for (const m of linea.matchAll(/\$\{\s*([A-Za-z_$][\w$.]*)/g)) out.push(m[1]);
+    return out;
+  }
+
+  const HTML = lineasConHtml(CALLBACK);
+
+  it('el barrido encuentra las respuestas HTML del archivo (antivacuidad)', () => {
+    expect(HTML.length).toBeGreaterThanOrEqual(3);
+    expect(HTML.some((h) => h.includes('escaparHtml'))).toBe(true);
+  });
+
+  it('nada se interpola crudo: o es constante del modulo o pasa por escaparHtml', () => {
+    const crudos = HTML.flatMap(interpolaciones)
+      .filter((id) => id !== 'escaparHtml' && !CRUDOS_PERMITIDOS.has(id));
+    expect([...new Set(crudos)], 'interpolado crudo en una respuesta HTML del callback').toEqual([]);
+  });
+
+  /**
+   * Contraprueba: el detector corre contra fixtures, no solo contra el archivo real —
+   * que hoy esta limpio, asi que su ceguera seria invisible por construccion. Las cuatro
+   * primeras son las que la revision adversarial probo que pasaban verde.
+   */
+  it('reconoce las formas en que se reescribiria la rama borrada', () => {
+    const forma = (src) => lineasConHtml(src).flatMap(interpolaciones)
+      .filter((id) => id !== 'escaparHtml' && !CRUDOS_PERMITIDOS.has(id));
+
+    expect(forma("res.send('<h1>Gmail conectado' + nombre + '</h1>');")).toContain('nombre');
+    expect(forma('res.send(`<h1>Gmail conectado, ${usuario.nombre}!</h1>`);')).toContain('usuario.nombre');
+    expect(forma("res.send('<h1>' + (usuario.nombre) + '</h1>');")).toContain('usuario.nombre');
+    expect(forma("const html = '<h1>' + usuario.nombre + '</h1>'; res.send(html);")).toContain('usuario.nombre');
+    expect(forma("res.write('<p>' + emailConectado + '</p>');")).toContain('emailConectado');
+
+    // Y lo que es correcto no se marca.
+    expect(forma("res.send('<b>' + escaparHtml(emailPrevio) + '</b>');")).toEqual([]);
+    expect(forma("'<a href=\"' + PANEL_PRO_URL + '\">app.neto.pe</a>'")).toEqual([]);
+    // Una linea sin HTML no entra al barrido aunque concatene datos del usuario.
+    expect(forma("const primerNombre = usuario.nombre.split(' ')[0];")).toEqual([]);
+  });
+
+  it('la rama de exito redirige y no manda HTML', () => {
+    expect(CALLBACK).toMatch(/res\.redirect\('https:\/\/app\.neto\.pe\/dashboard\?gmail=conectado'\)/);
+    // El HTML que quedaba en esa rama nombraba a WhatsApp; un usuario web-only no tiene
+    // WhatsApp al que volver. Si reaparece, es que alguien resucito la bifurcacion.
+    expect(CALLBACK).not.toMatch(/Vuelve a WhatsApp/);
+    expect(CALLBACK).not.toMatch(/origenConexion/);
+  });
+});
+
+/**
+ * Migracion 071 — **una sola fila espejo por deuda**, y quien puede crearla.
+ *
+ * El indice unico parcial sobre `deudas.deuda_vinculada_id` es lo que sostiene el
+ * invariante contra dos joins concurrentes; el `if` de la ruta no puede. Pero un indice
+ * unico rechaza escrituras, asi que este guard existe para responder mecanicamente la
+ * pregunta que hay que hacerse antes de agregar uno: **¿quien MAS escribe esa columna?**
+ *
+ * La segunda revision adversarial la planteo y la contesto MAL: afirmo que
+ * `renovarDeudaRecurrente()` en `services/debts.js:412-441` copiaba `deuda_vinculada_id`
+ * al renovar una deuda recurrente, y que por eso la renovacion moriria con un 23505
+ * silencioso. Esa funcion **no existe** —`services/debts.js` tiene 281 lineas— y la
+ * renovacion es un UPDATE sobre la misma fila (`periodos_pagados + 1`), no un INSERT. El
+ * unico INSERT a `deudas` del backend es `registrarDeuda`, que no toca la columna.
+ *
+ * O sea que la respuesta era correcta y la comprobacion era un grep mio. Esto la vuelve
+ * un control: si alguien agrega un segundo escritor, se entera acá y no con un 23505 en
+ * produccion. Es la clase `invariante-con-una-puerta-sin-barrer` de `docs/DEFECTOS.md`.
+ */
+describe('deuda_vinculada_id tiene un solo escritor (migracion 071)', () => {
+  const DIRS = ['handlers', 'services', 'routes', 'cron', 'helpers', 'webapp/src/app/api'];
+
+  function archivos(dir) {
+    const out = [];
+    const abs = path.join(RAIZ, dir);
+    if (!existsSync(abs)) return out;
+    for (const e of readdirSync(abs, { withFileTypes: true })) {
+      const rel = path.join(dir, e.name);
+      if (e.isDirectory()) out.push(...archivos(rel));
+      else if (/\.(js|mjs|cjs|ts)$/.test(e.name) && !/\.test\.(js|ts)$/.test(e.name)) out.push(rel);
+    }
+    return out;
+  }
+
+  // `deuda_vinculada_id: <algo>` en un objeto. `null` no cuenta: es el DESVINCULADO que
+  // hace el DELETE del original, y el indice parcial ni lo ve.
+  const ESCRIBE = /deuda_vinculada_id\s*:\s*([^,\n}]+)/g;
+  const esTipoTs = (v) => /^(string|number|boolean|any|unknown)\b/.test(v);
+
+  const escritores = [];
+  for (const rel of DIRS.flatMap(archivos).map((p) => p.replace(/\\/g, '/'))) {
+    const src = readFileSync(path.join(RAIZ, rel), 'utf-8')
+      .split(/\r?\n/).map((l) => l.replace(/(^|\s)\/\/.*$/, '$1')).join('\n');
+    for (const m of src.matchAll(ESCRIBE)) {
+      const valor = m[1].trim().replace(/;$/, '');
+      if (valor === 'null' || valor === 'undefined' || esTipoTs(valor)) continue;
+      escritores.push(rel);
+      break;
+    }
+  }
+
+  it('solo /api/debts/join escribe un valor NO NULO', () => {
+    expect([...new Set(escritores)]).toEqual(['webapp/src/app/api/debts/join/route.ts']);
+  });
+
+  it('el detector reconoce la forma que la revision creyo ver (contraprueba)', () => {
+    const inventado = 'await supabase.from("deudas").insert({ deuda_vinculada_id: deuda.deuda_vinculada_id });';
+    const hits = [...inventado.matchAll(ESCRIBE)]
+      .map((m) => m[1].trim()).filter((v) => v !== 'null' && !esTipoTs(v));
+    expect(hits).toHaveLength(1);
+    // Y el desvinculado del DELETE no cuenta como escritor.
+    const desvincula = ".update({ deuda_vinculada_id: null }).eq('deuda_vinculada_id', id)";
+    expect([...desvincula.matchAll(ESCRIBE)].map((m) => m[1].trim()).filter((v) => v !== 'null')).toEqual([]);
   });
 });

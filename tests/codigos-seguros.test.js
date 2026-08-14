@@ -12,6 +12,20 @@ const require = createRequire(import.meta.url);
 // equivocada es justo lo que hace que un guard no se crea.
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+/**
+ * Stripper de comentarios compartido por los dos guards estaticos de este archivo.
+ * El bloque de doc que explica sus dos arreglos caros —el `(^|\s)` delante del `//` (toda
+ * URL literal lleva `//`) y el split `/\r?\n/` (era un no-op en CRLF)— esta mas abajo, en
+ * el guard de Math.random. No lo toques sin correr sus contrapruebas.
+ */
+function soloCodigo(src) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+    .split(/\r?\n/)
+    .map((l) => l.replace(/(^|\s)\/\/.*$/, '$1'))
+    .join('\n');
+}
+
 const {
   generarCodigoInvitacion,
   ALFABETO_ESPACIO,
@@ -257,13 +271,9 @@ describe('ningun secreto del backend sale de Math.random', () => {
    * exceptuar el archivo, que si lo apaga de verdad. Salio de que un cambio ajeno movio
    * una vecindad y el guard delato un comentario.
    */
-  function soloCodigo(src) {
-    return src
-      .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
-      .split(/\r?\n/)
-      .map((l) => l.replace(/(^|\s)\/\/.*$/, '$1'))
-      .join('\n');
-  }
+  // La definicion vive al TOPE del archivo. Este guard y el del chokepoint de
+  // `invite_code` la comparten: una segunda copia del stripper es un segundo sitio donde
+  // el no-op de CRLF puede revivir, justo en la mitad que nadie mira.
 
   const archivos = [...RUNTIME.flatMap(archivosJs), ...archivosRaiz()].map((p) => p.replace(/\\/g, '/'));
   const sospechosos = [];
@@ -414,5 +424,213 @@ describe('ningun secreto del backend sale de Math.random', () => {
     expect(detecta(src)).toBe(true);
     // Y el comentario solo sigue sin alcanzar para disparar el guard.
     expect(detecta('// no usamos Math.random para el codigo, ver lib/codigos-seguros')).toBe(false);
+  });
+});
+
+/**
+ * S′10 — el guard que faltaba: **ningun `invite_code` se escribe fuera de
+ * `codigos-seguros`**, en NINGUNO de los dos arboles.
+ *
+ * Por que hacia falta uno nuevo, y es la leccion entera del hallazgo: el guard de arriba
+ * pregunta *de donde salen los bits* (`Math.random` si o no). `POST /api/debts/invite` y
+ * `POST /api/split/invite` emitian `crypto.randomBytes(4)` — fuente criptografica, o sea
+ * que ese guard pasaba verde sobre ellas todos los dias — con **32 bits**, menos que
+ * espacios (39.6) y metas (46.3). La pregunta que importaba era *cuantos bits son*, y
+ * ningun guard la hacia.
+ *
+ * Esto no la hace directamente tampoco: la responde de costado, obligando a que la
+ * generacion pase por un modulo unico donde el largo se decide UNA vez y esta escrito con
+ * su motivo. Un `invite_code` nuevo escrito a mano en una ruta rompe el build.
+ *
+ * Barre los DOS arboles a proposito. Es la misma leccion que ya pago este archivo cuando
+ * el guard de la webapp no podia ver el backend: un invariante que vale para los dos
+ * canales necesita un barrido que alcance a los dos.
+ */
+describe('todo invite_code sale de codigos-seguros (chokepoint, los dos arboles)', () => {
+  // Solo lo que ESCRIBE en la DB. Los hooks, los tipos y `lib/demo/mock-data.ts` mencionan
+  // `invite_code` a monton y ninguno lo persiste; incluirlos seria cambiar cobertura real
+  // por ruido, y el ruido termina en exenciones.
+  // `webapp/src/lib` y `webapp/src/components` entran aunque hoy no persistan nada: un
+  // server action o un helper es donde va a nacer el proximo escritor, y dejarlos fuera
+  // era un hueco silencioso. Lo unico que se excluye del arbol de la webapp es la UI que
+  // no escribe (`app/dashboard`, `app/join`), y `lib/demo/mock-data.ts` pasa sola porque
+  // sus `invite_code` son literales.
+  const DIRS = [
+    'handlers', 'services', 'routes', 'cron', 'helpers',
+    'webapp/src/app/api', 'webapp/src/lib', 'webapp/src/components',
+  ];
+
+  function archivosDe(dir) {
+    const out = [];
+    const abs = path.join(projectRoot, dir);
+    if (!fs.existsSync(abs)) return out;
+    for (const e of fs.readdirSync(abs, { withFileTypes: true })) {
+      const rel = path.join(dir, e.name);
+      if (e.isDirectory()) out.push(...archivosDe(rel));
+      else if (/\.(js|mjs|cjs|ts)$/.test(e.name) && !/\.test\.(js|ts)$/.test(e.name)) out.push(rel);
+    }
+    return out;
+  }
+
+  /**
+   * Una ESCRITURA de `invite_code`, no una mencion.
+   *
+   * Se descartan tres formas que no generan nada:
+   *   · `invite_code: null`   — es un BORRADO (revocar la invitacion). `goals/participants`
+   *                             lo hace al desarmar una meta colaborativa.
+   *   · `invite_code: string` — una declaracion de tipo TS.
+   *   · `invite_code: 'ABC'`  — un literal (fixtures/demo). Si aparece en una ruta real es
+   *                             otro problema, pero no ES el de este guard.
+   * Lo que queda es `invite_code: <expresion>`, que es exactamente "acá se genera o se
+   * copia un codigo".
+   */
+  const TIPOS_TS = new Set(['string', 'number', 'boolean', 'any', 'unknown', 'null', 'undefined']);
+  const ESCRITURA = /invite_code\s*:\s*([^,\n}]+)/g;
+
+  /**
+   * La forma ABREVIADA, que es la que casi deja este guard ciego el dia que se escribio.
+   * `api/spaces/route.ts` hace `const invite_code = generarCodigoInvitacion(...)` y despues
+   * `.insert({ name, type, invite_code, created_by })`: sin dos puntos. Un generador nuevo
+   * escrito asi era invisible, o sea justo la evasion mas natural.
+   */
+  const ABREVIADA = /[{,]\s*invite_code\s*(?=[,}\n])/g;
+
+  /**
+   * Vacia el CONTENIDO de los literales de string, conservando comillas y saltos de linea.
+   *
+   * Hace falta por la forma abreviada: `.select('id, invite_code, tipo')` termina en
+   * `invite_code,` y se leeria como una escritura, cuando es justo lo contrario — una
+   * LECTURA. Marcar los lectores llenaria la lista de falsos positivos, y un guard ruidoso
+   * se apaga con exenciones. De paso deja intacta la regla del literal (`invite_code: ''`
+   * sigue empezando con comilla).
+   */
+  function sinLiterales(src) {
+    return src.replace(/(['"`])(?:\\.|(?!\1)[^\\])*\1/g, (m, q) => q + m.slice(1, -1).replace(/[^\n]/g, '') + q);
+  }
+
+  function escrituras(src) {
+    const limpio = sinLiterales(soloCodigo(src));
+    const out = [];
+    for (const m of limpio.matchAll(ESCRITURA)) {
+      const valor = m[1].trim().replace(/;$/, '');
+      if (valor === 'null' || valor === 'undefined') continue;
+      if (/^['"`]/.test(valor)) continue;                       // literal
+      // `string | null` y tambien `string; link: string` — los miembros de un tipo inline
+      // se separan con `;`, y sin partir por ahi los hooks de la webapp entraban como
+      // escritores (`Promise<{ invite_code: string; link: string }>`).
+      if (TIPOS_TS.has(valor.split(/[|;]/)[0].trim())) continue;
+      out.push(valor);
+    }
+    for (const m of limpio.matchAll(ABREVIADA)) out.push(m[0].trim());
+    return out;
+  }
+
+  /**
+   * El import del chokepoint, **buscado sobre el codigo y no sobre el fuente crudo**.
+   *
+   * Sobre el crudo, un comentario alcanzaba para pasar verde:
+   *
+   *   // pendiente: mover esto a lib/codigos-seguros
+   *   inviteCode = crypto.randomBytes(4).toString('hex');
+   *
+   * Este archivo se tomo el trabajo de escribir `soloCodigo` con dos arreglos caros y
+   * despues no lo usaba en la asercion que decide el veredicto. Lo encontro la revision
+   * adversarial.
+   *
+   * LIMITE CONOCIDO, para que nadie lo lea mas ancho de lo que es: la comprobacion es POR
+   * ARCHIVO. Un archivo que YA importa el chokepoint puede agregar al lado un
+   * `invite_code` generado a mano y esto sigue verde. Cerrar eso pide un parser, no una
+   * regex; lo que este guard garantiza es que no aparezca un escritor NUEVO por su cuenta,
+   * que es como nacio S′10. Tampoco ve una clave computada (`{ [col]: gen() }`).
+   */
+  const USA_CHOKEPOINT = /codigos-seguros/;
+
+  const escritores = [];
+  const sospechosos = [];
+  for (const rel of DIRS.flatMap(archivosDe).map((p) => p.replace(/\\/g, '/'))) {
+    const src = soloCodigo(fs.readFileSync(path.join(projectRoot, rel), 'utf8'));
+    if (escrituras(src).length === 0) continue;
+    escritores.push(rel);
+    if (!USA_CHOKEPOINT.test(src)) sospechosos.push(rel);
+  }
+
+  it('el barrido llega a los escritores reales (antivacuidad)', () => {
+    // Si esta lista se vacia, el guard dejo de mirar: o se movieron los archivos, o
+    // `escrituras()` dejo de reconocer la forma. Se nombran los seis para que un rename
+    // rompa el build en vez de apagar el barrido en silencio.
+    expect(escritores).toEqual(expect.arrayContaining([
+      'services/shared-spaces.js',
+      'handlers/intents/metas.js',
+      'webapp/src/app/api/goals/invite/route.ts',
+      'webapp/src/app/api/spaces/route.ts',
+      'webapp/src/app/api/debts/invite/route.ts',
+      'webapp/src/app/api/split/invite/route.ts',
+    ]));
+  });
+
+  it('ninguno genera el codigo por su cuenta', () => {
+    expect(sospechosos, 'invite_code escrito sin pasar por codigos-seguros').toEqual([]);
+  });
+
+  /**
+   * Contraprueba del detector. La primera fila es la forma EXACTA que tenian las dos
+   * rutas del hallazgo: si el detector no la reconoce, el guard nace ciego sobre el bug
+   * que viene a fijar.
+   */
+  it('reconoce la forma real del hallazgo y no marca las que no generan nada', () => {
+    expect(escrituras(".update({ invite_code: inviteCode })")).toHaveLength(1);
+    expect(escrituras("invite_code: crypto.randomBytes(4).toString('hex'),")).toHaveLength(1);
+    expect(escrituras('invite_code: generarCodigoEnlace(),')).toHaveLength(1);
+    // Y las tres que NO son generacion.
+    expect(escrituras(".update({ colaborativa: false, invite_code: null })")).toHaveLength(0);
+    expect(escrituras('  invite_code: string | null;')).toHaveLength(0);
+    expect(escrituras('as Promise<{ invite_code: string; link: string }>')).toHaveLength(0);
+    // Pero una escritura real seguida de otra propiedad NO se escapa por el mismo hueco.
+    expect(escrituras('db.insert({ invite_code: gen(); otra: 1 })')).toHaveLength(1);
+    expect(escrituras("  invite_code: 'SPACE-ROOM-001',")).toHaveLength(0);
+  });
+
+  /**
+   * La forma ABREVIADA y su falso positivo gemelo. Sin `sinLiterales`, el `.select` de
+   * abajo cuenta como escritura y el guard empieza a marcar lectores; con `sinLiterales`
+   * pero sin `ABREVIADA`, `api/spaces/route.ts` desaparece del barrido — que es como se
+   * detecto, con la antivacuidad en rojo.
+   */
+  it('ve la forma abreviada y no confunde un select con una escritura', () => {
+    expect(escrituras(".insert({ name, type, invite_code, created_by: usuario.id })")).toHaveLength(1);
+    expect(escrituras(".select('id, invite_code, tipo, estado')")).toHaveLength(0);
+    expect(escrituras(".select('id, invite_code')\n.eq('invite_code', code)")).toHaveLength(0);
+    // Y `sinLiterales` no puede comerse el codigo que viene despues de un string.
+    expect(escrituras("const l = 'x'; db.update({ invite_code: c })")).toHaveLength(1);
+  });
+
+  /**
+   * El detector tiene que sobrevivir al stripper, que fue donde este archivo ya se quemo
+   * una vez: una linea con URL y un `invite_code:` a la derecha.
+   */
+  /**
+   * El fixture malicioso: un archivo que MENCIONA el chokepoint solo en un comentario.
+   * Con `USA_CHOKEPOINT` corriendo sobre el fuente crudo esto pasaba verde, y es la forma
+   * mas natural de que pase de verdad (un TODO al lado del generador improvisado).
+   */
+  it('un comentario que nombra el chokepoint no cuenta como usarlo', () => {
+    const malicioso = [
+      '// pendiente: mover esto a lib/codigos-seguros',
+      "inviteCode = crypto.randomBytes(4).toString('hex');",
+      "await db.update({ invite_code: inviteCode });",
+    ].join('\n');
+    const limpio = soloCodigo(malicioso);
+    expect(escrituras(limpio).length).toBeGreaterThan(0);
+    expect(USA_CHOKEPOINT.test(limpio)).toBe(false);
+    // Y el import de verdad si cuenta.
+    expect(USA_CHOKEPOINT.test(soloCodigo("import { generarCodigoEnlace } from '@/lib/codigos-seguros';"))).toBe(true);
+  });
+
+  it('una URL en la misma linea no esconde la escritura', () => {
+    const src = "const link = 'https://app.neto.pe/join/deuda/' + c; await db.update({ invite_code: c });";
+    expect(escrituras(src)).toHaveLength(1);
+    // Pero un comentario si la esconde, y tiene que hacerlo: la prosa que explica el
+    // guard menciona `invite_code:` y no puede romper el build sobre si misma.
+    expect(escrituras('// escribe invite_code: algo')).toHaveLength(0);
   });
 });

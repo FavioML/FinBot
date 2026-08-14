@@ -65,7 +65,9 @@ router.get('/auth/callback', async (req, res) => {
   }
   const whatsappNum = stateObj.num;
   const modoConexion = stateObj.modo || 'inicial';
-  const origenConexion = stateObj.origen || null;
+  // `stateObj.origen` ya no se lee: el callback termina SIEMPRE en el dashboard (ver S′8
+  // más abajo). Se sigue emitiendo en el state porque es lo que distinguía las dos ramas
+  // y borrarlo del emisor invalidaría los enlaces en vuelo sin ganar nada.
   try {
     const { tokens } = await oauth2Client.getToken(code);
     oauth2Client.setCredentials(tokens);
@@ -131,15 +133,28 @@ router.get('/auth/callback', async (req, res) => {
       usuario.nombre = usuario.nombre || perfil.nombre;
     }
 
-    const nombre = usuario.nombre ? ', ' + usuario.nombre : '';
-    const emailMsg = emailConectado ? ' (' + emailConectado + ')' : '';
-    // Origen 'web' (conexión iniciada desde la webapp): redirigir de vuelta al dashboard.
-    // El escaneo asíncrono de abajo corre igual.
-    if (origenConexion === 'web') {
-      res.redirect('https://app.neto.pe/dashboard?gmail=conectado');
-    } else {
-      res.send('<html><body style="font-family:Arial;text-align:center;padding:50px;background:#0d1b2a;color:white"><h1 style="color:#4CAF50">Gmail conectado' + nombre + '!</h1><p style="font-size:18px">' + emailMsg + '</p><p>Vuelve a WhatsApp, el bot te escribira en un momento.</p></body></html>');
-    }
+    // Siempre al dashboard. El escaneo asíncrono de abajo corre igual.
+    //
+    // ── S′8: acá había una rama que armaba HTML concatenando `usuario.nombre` ──────
+    // Era self-XSS (hay que ponerse uno mismo un nombre con markup), pero `nombre` no es
+    // un campo que el producto controle: viene del perfil de Google o del onboarding por
+    // WhatsApp. Se podía escapar. Lo correcto era **borrarla**, y eso se decidió midiendo,
+    // no por gusto:
+    //
+    //   · `routes/pro.js` es el ÚNICO emisor de producción (guard:
+    //     `tests/gmail-oauth-gates.test.js`, cero `generarUrlAutorizacion` en `handlers/`)
+    //     y siempre pasa `origen: 'web'`.
+    //   · Los enlaces viejos de las cinco puertas de WhatsApp murieron solos:
+    //     web-only entró el 03-ago-2026 (`538bd64`) y `STATE_TTL_MS` son 7 días, así que
+    //     el último state sin `origen` venció el 10-ago. `verificarState` los rechaza
+    //     antes de llegar hasta acá.
+    //   · Y no había nadie mirando igual: la última fila de `gmail_cuentas` es del
+    //     12-jul-2026 (5 filas en toda la historia).
+    //
+    // O sea que la rama era código muerto que solo podía revivir si alguien vuelve a
+    // emitir OAuth desde WhatsApp — y eso ya lo rompe el guard de las puertas.
+    // Un usuario web-only no tiene WhatsApp al que "volver", que era lo que decía el HTML.
+    res.redirect('https://app.neto.pe/dashboard?gmail=conectado');
     const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : 'por ahi';
 
     setTimeout(async () => {

@@ -246,6 +246,7 @@ que no se hace todas las mañanas sin mirar.
 | `qa-espacios-split-parity.mjs` | Paridad webapp ↔ backend con 3 miembros en porcentajes DESIGUALES y una regla Pro por categoría. Con 50/50 los dos motores coincidían de casualidad | Al tocar `lib/spaces-split.ts` o su espejo CJS |
 | `qa-espacios-join-split.mjs` | Qué le pasa al reparto de los que ya estaban cuando entra un tercero, por los dos caminos de join | Al tocar `joinSplitWeight` o `/api/spaces/join` |
 | `qa-espacios-reglas-aviso.mjs` | Los avisos de reparto tras extraer `avisarAMiembros`, incluido el de reglas por categoría que antes movía plata futura en silencio | Al tocar los avisos de espacios |
+| `qa-invite-codes.mjs` | **S′10**: cuántos bits tiene de verdad el `invite_code` que emiten `/api/debts/invite` y `/api/split/invite` (contra el código del 13-ago da 8 chars hex = 32 bits), que el preview es público sin sesión, y que una deuda no admite un SEGUNDO confirmante — con el chequeo filtrado por `usuario_id` entraban N, y cada uno se llevaba una fila espejo desde la que `marcar_pagada` propaga a la deuda del acreedor. Eso último lo **mide** (`obs_marcar_pagada`), no lo asevera. Es el único harness que ejercita gastos compartidos, que tienen 0 filas en prod. El acreedor es el usuario Free a propósito: al revés, `PUT /api/debts` choca con el muro y la propagación no se ve | Al tocar `codigos-seguros`, `/api/debts/{invite,join}` o `/api/split/{invite,join}` |
 
 #### Webapp y datos
 

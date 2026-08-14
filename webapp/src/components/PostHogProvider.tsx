@@ -11,6 +11,12 @@ const POSTHOG_PUBLIC_KEY = 'phc_oWcB57kywdubiAVa2ewYF32YBDFzgPxMoKWPQaPuE8Jb'
 export function PostHogProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let cleanup: (() => void) | undefined
+    // `cleanup` se asigna DENTRO del `.then()` del import dinámico, así que un desmontaje
+    // anterior a que resuelva ese import corre el return de abajo con `cleanup` todavía
+    // undefined: la suscripción a `onAuthStateChange` nace después, huérfana, y nadie la
+    // desuscribe. `cancelado` cierra las dos puntas — no suscribe si ya se desmontó, y si
+    // llegó a suscribir igual (carrera), desuscribe en el acto.
+    let cancelado = false
 
     // Defer posthog-js (~170 KB) fuera del First Load crítico: se carga vía
     // dynamic import DESPUÉS de la hidratación, así nunca bloquea el render
@@ -78,9 +84,10 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
       })
 
       cleanup = () => listener.subscription.unsubscribe()
+      if (cancelado) cleanup()
     })
 
-    return () => { cleanup?.() }
+    return () => { cancelado = true; cleanup?.() }
   }, [])
 
   return <>{children}</>

@@ -29,16 +29,43 @@ export async function POST(request: Request) {
   if (deudaOriginal.usuario_id === userId)
     return NextResponse.json({ error: 'No puedes confirmar tu propia deuda' }, { status: 400 });
 
-  // Check if already confirmed by this user
-  const { data: existing } = await getServiceClient()
+  // ¿Ya la confirmó ALGUIEN? La pregunta es por deuda, no por usuario.
+  //
+  // Esto filtraba además por `usuario_id`, o sea que solo impedía que la MISMA persona
+  // confirmara dos veces. Con una deuda "me deben" —que por definición debe UNA
+  // contraparte— eso dejaba entrar a un segundo confirmante, y no es cosmético: cada
+  // confirmación deja una fila espejo con `deuda_vinculada_id`, y `PUT /api/debts`
+  // propaga desde el espejo a la deuda del acreedor. Reproducido contra prod el
+  // 14-ago-2026 con `qa-e2e/qa-invite-codes.mjs` (check `deuda_segundo_confirmante`):
+  // el segundo entraba con 200, marcaba pagada su espejo y la deuda del acreedor
+  // quedaba en `estado=pagada, monto_pendiente=0`.
+  //
+  // El GET de preview ya contaba global (`ya_confirmada` con `count` sobre
+  // `deuda_vinculada_id`) y la UI escondía el botón: los dos endpoints de la misma
+  // feature se contradecían, y el que mandaba era el que no gateaba nada.
+  //
+  // `.limit(1)` y no `.maybeSingle()`: con el filtro global puede haber más de una fila
+  // espejo (las que dejó el bug antes de este arreglo), y `maybeSingle()` devuelve error
+  // con 2+ filas → `existing` null → seguiría entrando gente, justo en las deudas ya
+  // afectadas.
+  //
+  // Y el `error` se LEE. Esta query era decorativa mientras el gate real era por usuario;
+  // ahora es lo único que sostiene el invariante, así que un timeout de Supabase no puede
+  // significar "no hay ninguna": `supabase-js` no lanza, devuelve `{ data: null, error }`,
+  // y `null` se leía como vía libre. Un gate que falla ABIERTO es el bug que este bloque
+  // viene a cerrar, con otra ropa.
+  const { data: existentes, error: errorExistentes } = await getServiceClient()
     .from('deudas')
     .select('id')
-    .eq('usuario_id', userId)
     .eq('deuda_vinculada_id', deudaOriginal.id)
-    .maybeSingle();
+    .limit(1);
 
-  if (existing)
-    return NextResponse.json({ error: 'Ya confirmaste esta deuda' }, { status: 409 });
+  if (errorExistentes) {
+    console.error('[debt-join-existentes]', errorExistentes.message);
+    return NextResponse.json({ error: 'No pudimos verificar la invitación. Intenta de nuevo.' }, { status: 500 });
+  }
+  if (existentes && existentes.length > 0)
+    return NextResponse.json({ error: 'Esta deuda ya fue confirmada' }, { status: 409 });
 
   // Get creditor name to use as contraparte
   const { data: acreedor } = await getServiceClient()
@@ -87,6 +114,13 @@ export async function POST(request: Request) {
     .select()
     .single();
 
+  // 23505 = el índice único parcial de la migración 070 (`deuda_vinculada_id` where not
+  // null). Es la mitad estructural del chequeo de arriba: dos personas abriendo el mismo
+  // link a la vez pasan las dos por el SELECT y llegan las dos hasta acá, así que el
+  // invariante "un espejo por deuda" no lo puede sostener un `if`. Se traduce al mismo
+  // 409, que es lo que el segundo tenía que ver.
+  if (error && error.code === '23505')
+    return NextResponse.json({ error: 'Esta deuda ya fue confirmada' }, { status: 409 });
   if (error)
     return NextResponse.json({ error: error.message }, { status: 400 });
 

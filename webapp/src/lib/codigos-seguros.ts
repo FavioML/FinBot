@@ -68,3 +68,59 @@ export function generarCodigoInvitacion(alfabeto: string, largo: number): string
   for (let i = 0; i < largo; i++) out += alfabeto[aleatorioUniforme(alfabeto.length)];
   return out;
 }
+
+/**
+ * Alfabeto y largo del código que viaja SOLO dentro de un link.
+ *
+ * 55 chars × 12 = **69.5 bits**. El alfabeto mixto (byte-idéntico al `ALFABETO_INVITE` de
+ * metas) se puede usar acá porque estos códigos **no se escriben a mano**: la UI de deudas
+ * y de gastos compartidos ofrece "Copiar link de cobro", nunca un campo donde tipear el
+ * código. Ni este lado ni el otro normalizan al buscar (`.eq('invite_code', code)`), así
+ * que las minúsculas no son un problema — es la misma razón por la que el de metas se
+ * quedó mixto.
+ *
+ * **El 12 lo fija la DB, no el gusto.** `deudas.invite_code` y
+ * `gasto_participantes.invite_code` son `character varying(12)`, y Postgres NO trunca:
+ * tira `22001 value too long`. La primera versión de esto emitía 32 chars hex y ninguna
+ * de las dos rutas leía el `error` del UPDATE, así que el endpoint devolvía 200 con un
+ * código que la fila nunca guardaba y el link quedaba roto para siempre. Lo encontró la
+ * revisión adversarial, no la suite ni el harness — el harness corría contra prod, que
+ * todavía servía el código viejo de 8 chars, o sea que la única corrida que existía era
+ * la de control. Recomprobarlo con la DB y no con la memoria:
+ *
+ *   select table_name, character_maximum_length from information_schema.columns
+ *    where column_name = 'invite_code';
+ *
+ * Si algún día hacen falta más bits, ensanchar la columna PRIMERO (migración desplegada
+ * antes que Vercel) y recién después subir el largo.
+ */
+const ALFABETO_ENLACE = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+const LARGO_ENLACE = 12;
+
+/**
+ * Código de invitación de DEUDAS y GASTOS COMPARTIDOS (S′10 de la auditoría del 10-ago).
+ *
+ * Antes cada ruta hacía su propio `crypto.randomBytes(4).toString('hex')`: 8 chars hex =
+ * **32 bits**, menos que las dos superficies hermanas (espacios 39.6, metas 46.3). La
+ * fuente ya era criptográfica —el ataque de PREDICCIÓN que motivó este módulo no aplicaba—
+ * así que el guard de `Math.random` pasaba verde sobre esto sin verlo nunca. **Esa es la
+ * lección**: un guard que pregunta "¿de dónde salen los bits?" no puede responder "¿cuántos
+ * son?", y hacen falta las dos preguntas. Por eso la generación vive acá y hay un guard
+ * (`tests/codigos-seguros.test.js`, barre los DOS árboles) que falla si alguien vuelve a
+ * escribir un `invite_code` sin pasar por este módulo.
+ *
+ * Por qué 32 bits importaban acá y no es un nit: medido en prod con
+ * `qa-e2e/qa-invite-codes.mjs`, confirmar una invitación de deuda deja una fila espejo
+ * `deuda_vinculada_id`, y marcarla pagada propaga `monto_pendiente: 0, estado: 'pagada'`
+ * a la deuda del ACREEDOR. Detrás del código no hay un preview: hay escritura sobre la
+ * plata de otro. El preview además es público (sin sesión), así que el código es la única
+ * credencial de esa puerta.
+ *
+ * **No invalida ni un link vivo**: solo cambia lo que se emite de acá en más, y el lookup
+ * compara exacto. La otra cara, que también hay que decir: los códigos débiles que ya
+ * existen siguen débiles. Al 14-ago-2026 son 2, los dos sobre deudas en `estado='pagada'`
+ * (una ya confirmada), o sea que detrás de ellos no queda una invitación abierta.
+ */
+export function generarCodigoEnlace(): string {
+  return generarCodigoInvitacion(ALFABETO_ENLACE, LARGO_ENLACE);
+}

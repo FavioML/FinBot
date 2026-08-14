@@ -1,7 +1,7 @@
 import { getServiceClient } from '@/lib/supabase/service';
 import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
-import crypto from 'crypto';
+import { generarCodigoEnlace } from '@/lib/codigos-seguros';
 
 // POST /api/split/invite — generate invite link for a participant
 export async function POST(request: Request) {
@@ -40,11 +40,17 @@ export async function POST(request: Request) {
   // Return existing code if already generated (idempotent)
   let inviteCode = participante.invite_code;
   if (!inviteCode) {
-    inviteCode = crypto.randomBytes(4).toString('hex');
-    await getServiceClient()
+    inviteCode = generarCodigoEnlace();
+    // Mismo motivo que en `/api/debts/invite`: sin leer el `error`, un UPDATE fallido
+    // devolvía 200 con un link que no resuelve nunca.
+    const { error } = await getServiceClient()
       .from('gasto_participantes')
       .update({ invite_code: inviteCode })
       .eq('id', participante_id);
+    if (error) {
+      console.error('[split-invite]', error.message);
+      return NextResponse.json({ error: 'No se pudo generar el link' }, { status: 500 });
+    }
   }
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.neto.pe';

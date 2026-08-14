@@ -1,7 +1,7 @@
 import { getServiceClient } from '@/lib/supabase/service';
 import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
-import crypto from 'crypto';
+import { generarCodigoEnlace } from '@/lib/codigos-seguros';
 
 // POST /api/debts/invite — generate invite link for a "me_deben" debt
 export async function POST(request: Request) {
@@ -32,11 +32,21 @@ export async function POST(request: Request) {
   // Return existing code if already generated (idempotent)
   let inviteCode = deuda.invite_code;
   if (!inviteCode) {
-    inviteCode = crypto.randomBytes(4).toString('hex'); // 8 hex chars
-    await getServiceClient()
+    inviteCode = generarCodigoEnlace();
+    // El `error` del UPDATE NO se puede descartar, y es la mitad que faltaba del hallazgo:
+    // si la escritura falla (largo, colisión del índice único, Supabase caído) la fila
+    // queda sin código y esta ruta devolvía **200 con un link que no resuelve nunca** —
+    // el deudor lo abre y ve "Invitación inválida o expirada", para siempre, sin que
+    // nadie se entere. Y la rama idempotente de arriba no lo repara: cada intento acuña
+    // otro código que tampoco se guarda.
+    const { error } = await getServiceClient()
       .from('deudas')
       .update({ invite_code: inviteCode })
       .eq('id', deuda_id);
+    if (error) {
+      console.error('[debts-invite]', error.message);
+      return NextResponse.json({ error: 'No se pudo generar el link' }, { status: 500 });
+    }
   }
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.neto.pe';

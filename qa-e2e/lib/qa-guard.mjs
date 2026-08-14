@@ -57,10 +57,19 @@ const QA_LEGACY = 'ded7e219-e5fd-4ff4-b5a3-3cd5cdffd172';
 // en trial (auditoría 2026-08-04): la barrera tenía un punto ciego que se leía como "no se
 // puede testear esto". Agregarlas no la relaja: convierte un bloqueo total en una validación
 // de dueño, que es lo que hace con el resto de las tablas.
-const COLS_DUENO = ['usuario_id', 'user_id', 'referrer_id', 'referido_id'];
+// `creador_id` entra por el mismo motivo, y se descubrió igual: `gastos_compartidos` no
+// tiene `usuario_id`, así que la barrera no podía FIJAR ninguna escritura sobre esa tabla
+// y la bloqueaba entera. Fail-closed es correcto, pero el efecto colateral era que los
+// gastos compartidos (split) no se podían ejercitar desde ningún harness — y son la mitad
+// de S′10. Agregarla no relaja nada: convierte un bloqueo total en validación de dueño.
+const COLS_DUENO = ['usuario_id', 'user_id', 'referrer_id', 'referido_id', 'creador_id'];
 
 // Columnas que identifican una FILA concreta. Sirven para fijar la operación si
 // la fila fue creada o leída por esta corrida.
+// `gasto_id` NO está acá, y se sacó después de medirlo: el harness de invite codes lo pedía
+// para limpiar `gasto_participantes`, pero esa FK es `ON DELETE CASCADE`, así que borrar el
+// `gastos_compartidos` padre ya se lleva las hijas. Ampliar la barrera para una limpieza que
+// no hacía falta es superficie regalada.
 const COLS_FILA = ['id', 'space_id', 'tx_id', 'deuda_id', 'meta_id'];
 
 // RPC que mueven o borran datos de usuarios. El valor es la lista de argumentos
