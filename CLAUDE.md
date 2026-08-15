@@ -1004,12 +1004,37 @@ colgado de un evento que este código impide.
 Un usuario **nuevo** que llegue ya con username sigue siendo inalcanzable — sin número no hay
 a quién responder ni historial al que asociarlo. Esa mitad depende de Meta.
 
-> **Premisa NO medida, y ahora cuesta un pago.** Todo esto asume que a estos usuarios no se les
-> puede escribir. Lo que está medido es que **direccionar por BSUID** falla (v19–v25). Pero la
-> fila trae su `whatsapp` —se aprendió antes, cuando todavía lo mandaba— y **nadie probó
-> `enviarWhatsapp(usuario.whatsapp, ...)` para alguien con username activo**. Si funciona,
-> sobra la mitad de esta maquinaria. Se mide con un mensaje libre al número guardado de un
-> BSUID que haya escrito hace menos de 24h, mirando el callback de status.
+> **La premisa se mide SOLA desde el 15-ago-2026 (D10), y todavía no hay veredicto.** Todo esto
+> asume que a estos usuarios no se les puede escribir. Lo medido es que **direccionar por BSUID**
+> falla (v19–v25); la fila trae su `whatsapp` —aprendido antes, cuando todavía llegaba— y esa vía
+> nunca se probó. Si funciona, sobra la mitad de esta maquinaria.
+>
+> No se pudo medir pasivamente y el motivo es estructural: **estar mapeado y estar oculto no se
+> observan a la vez**, porque el BSUID se aprende porque llega JUNTO al número. La intersección
+> solo la puebla alguien que estuvo mapeado y DESPUÉS se ocultó, y esa transición no ocurrió
+> nunca (re-medido el 15-ago: cero mensajes reales sin `from` desde el 09-ago, 40/106 mapeados,
+> y en 14 días los 193 fallos sobre mapeados son **todos** `131047`, que no discrimina identidad).
+>
+> Por eso el experimento se dispara solo: cuando uno de estos usuarios registra un gasto se
+> **intenta** la confirmación normal a su número (`intentarConfirmar`). Sin mensaje sintético — si
+> la premisa es falsa, la persona recibe lo que le corresponde y hoy no recibe. Y la ventana de
+> 24h está abierta por construcción (acaba de escribirnos), así que un fallo no es de cadencia.
+>
+> **El veredicto llega por Telegram y sale por DOS caminos excluyentes**, los dos necesarios: el
+> callback de status, y el rechazo SÍNCRONO de Meta — que no deja `wamid`, o sea que no hay
+> callback, y es el desenlace ESPERADO si la premisa se sostiene. Un `code` nulo NO es veredicto:
+> es que el POST no llegó a Meta (timeout, DNS), y anunciarlo cancelaba la medición real.
+>
+> | Pieza | Dónde |
+> |---|---|
+> | El intento + el veredicto síncrono | `intentarConfirmar` en `services/registro-silencioso.js` |
+> | El veredicto por callback | `avisarVeredictoD10` / `anunciarVeredictoD10` en `lib/whatsapp.js` |
+> | La etiqueta de la fila | `TIPO_CONFIRMACION_SIN_NUMERO = 'confirmacion_sin_numero'` |
+> | Leer el estado a mano | `select * from notification_deliveries where tipo='confirmacion_sin_numero'` |
+>
+> El probe manual (`qa-e2e/probe-envio-username.mjs`) sigue existiendo para forzarlo, pero **no lo
+> corras si ya hubo intento**: sería un segundo mensaje a la misma persona. El aviso de primera
+> vez te dice cuál de los dos casos es.
 
 ## Todo aviso proactivo sale por los DOS canales
 
