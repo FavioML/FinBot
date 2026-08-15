@@ -21,6 +21,15 @@ const VOSEO = [
   'decime', 'contame', 'mirá', 'andá', 'fijate', 'fijáte', 'dejame que te diga vos',
   'agregá', 'escribí vos', 'elegí vos', 'poné', 'sacá', 'guardá', 'revisá', 'probá',
 ];
+// El 15-ago-2026 se me escapó un `confirmá` en un aviso al admin y este guard no lo vio. Lo
+// agregué a la lista y hubo que sacarlo: el match es por SUBCADENA, así que `confirmá` prende
+// dentro de `confirmárselo` y `confirmándole` —español impecable— y salieron 3 falsos positivos
+// en archivos que nadie tocó. Es la trampa que el comentario de arriba ya advertía.
+//
+// Se podría arreglar exigiendo borde de palabra, pero eso cambia el matching de las 23 formas
+// existentes y las hace MÁS ciegas en el otro sentido: `poné` dejaría de atrapar `ponéle`. La
+// decisión es no tocarlo: el guard prefiere perderse voseo antes que tener falsos positivos,
+// porque un guard con falsos positivos termina apagado. La forma se pescó igual, revisando.
 
 // Runtime que produce texto para el usuario, más el prompt de recomendaciones (que no es
 // runtime pero alimenta al modelo, y un ejemplo con voseo ahí vale por mil mensajes).

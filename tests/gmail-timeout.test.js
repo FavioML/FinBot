@@ -21,15 +21,22 @@ describe('timeout de transporte de googleapis', () => {
     // El require cache de CJS es POR WORKER, y vitest reusa el worker para varios archivos. Otros
     // CINCO tests cargan `../../gmail` para stubearlo (message-processor-arranque, muro-dispatch,
     // onboarding-gmail-gate, webhook-onboarding), y `google` es un singleton de módulo: si alguno
-    // corrió antes en este worker, el timeout YA está puesto y la precondición de abajo falla por
-    // una razón que no tiene nada que ver con lo que este guard vigila. Se descubrió el 14-ago
-    // porque un cambio de COMENTARIOS en otro archivo movió el orden de los archivos (vitest los
-    // reparte por tamaño). Vaciar las dos entradas hace la precondición cierta por construcción.
-    delete require.cache[require.resolve('../gmail.js')];
-    delete require.cache[require.resolve('googleapis')];
-
+    // corrió antes en este worker, el timeout YA está puesto y la precondición fallaba por una
+    // razón que no tiene nada que ver con lo que este guard vigila. Descubierto el 14-ago porque
+    // un cambio de COMENTARIOS en otro archivo movió el reparto (vitest lo hace por TAMAÑO).
+    //
+    // El primer intento fue borrar la entrada de `googleapis` del cache, y **no alcanza**: el
+    // paquete resuelve a su entry point, pero `google` se construye en un submódulo interno que
+    // queda cacheado igual, así que volver a requerirlo devuelve el MISMO objeto con el timeout
+    // ya puesto. Sobrevivió una corrida y volvió a fallar al siguiente cambio de tamaño.
+    //
+    // Lo robusto es no suponer el estado previo sino FIJARLO, y forzar que el cuerpo de gmail.js
+    // vuelva a ejecutarse (un módulo solo corre una vez por cache).
     const { google } = require('googleapis');
-    expect(google._options?.timeout, 'antes de cargar gmail.js no hay timeout').toBeUndefined();
+    google._options = {};
+    delete require.cache[require.resolve('../gmail.js')];
+
+    expect(google._options?.timeout, 'la precondición se fija acá, no se hereda').toBeUndefined();
 
     require('../gmail.js');
 

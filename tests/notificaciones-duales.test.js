@@ -88,6 +88,13 @@ const WHATSAPP_CRUDO = new Map([
   ['lib/pro-payment.js', { usos: 1, familia: 'RESPUESTA', motivo: '"comprobante recibido" contesta la captura que el usuario acaba de mandar' }],
   ['lib/support-tickets.js', { usos: 2, familia: 'SOPORTE', motivo: 'el hilo de soporte vive en WhatsApp; la webapp no tiene bandeja donde aterrizarlo' }],
   ['services/notifications.js', { usos: 1, familia: 'VOLUMEN', motivo: 'tarjeta "Nuevo gasto": el dato ya está en /dashboard/transacciones y es una por transacción' }],
+  // Entró el 15-ago-2026 y es RESPUESTA, no empuje: contesta el mensaje que la persona acaba de
+  // mandar. No puede ir por `notificarUsuario` aunque parezca lo prolijo — la mitad in-app la
+  // volvería inútil como medición. Todo el sentido de esta llamada es que Meta acepte o rechace
+  // un mensaje dirigido al NÚMERO guardado de alguien cuyo número Meta dejó de mandarnos (D10),
+  // y `notificarUsuario` mezclaría ese resultado con el de la campana. Además la ventana de 24h
+  // está abierta por construcción, así que un fallo acá es de identidad y no de cadencia.
+  ['services/registro-silencioso.js', { usos: 1, familia: 'RESPUESTA', motivo: 'la confirmación al usuario username-only: contesta su mensaje y mide D10' }],
 ]);
 
 /**

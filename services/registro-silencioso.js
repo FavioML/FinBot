@@ -4,9 +4,108 @@ const { descargarMedia, transcribirAudio, extraerPagoDeImagen } = require('./med
 const { esperaComprobante, esPagoNeto, registrarSolicitudPro } = require('../lib/pro-payment');
 const { resolverTipoPlan, PRO_PRECIOS } = require('../lib/config');
 const { notificarAdmin } = require('../lib/admin-notify');
+const { enviarWhatsapp, TIPO_CONFIRMACION_SIN_NUMERO, anunciarVeredictoD10 } = require('../lib/whatsapp');
 const { registrarError } = require('../lib/error-monitor');
 const { hoyPeru } = require('../lib/dates');
 const log = require('../lib/logger');
+
+/**
+ * El texto de la confirmación. Se arma con lo que devolvió `guardarTransaccion`, NO con lo que
+ * dijo el parser: la categoría persistida puede diferir de la parseada (una regla por comercio,
+ * la resolución canónica de B28/B30), y confirmarle una categoría que no es la que va a ver en
+ * el dashboard es contarle otra cosa.
+ *
+ * Moneda: la convención del producto es mostrar la fila en la moneda que se pagó y el
+ * equivalente en soles solo si no es PEN. `monto_pen` puede ser NULL a propósito (conversión
+ * fuera de rango), y ahí se omite en vez de inventar un número.
+ */
+function textoConfirmacion(tx) {
+  const moneda = tx.moneda || 'PEN';
+  // `toFixed(2)` como en todo el resto del producto (`webhook.js`, `summaries.js`, `deudas.js`).
+  // Sin esto un gasto de 25.50 sale "S/ 25.5", y este es el ÚNICO mensaje que este camino le
+  // puede llegar a entregar a una persona. `parseFloat` porque PostgREST puede devolver una
+  // columna `numeric` como string.
+  const fmt = (v) => parseFloat(v).toFixed(2);
+  let linea = (moneda === 'USD' ? '$ ' : 'S/ ') + fmt(tx.monto);
+  if (moneda !== 'PEN' && tx.monto_pen != null) linea += ' (S/ ' + fmt(tx.monto_pen) + ')';
+  return '✅ Anoté tu ' + ((tx.tipo || 'gasto') === 'gasto' ? 'gasto' : 'ingreso') + ': ' + linea +
+    (tx.comercio ? ' en ' + tx.comercio : '') +
+    (tx.categoria ? '\nCategoría: ' + tx.categoria : '');
+}
+
+/**
+ * INTENTA confirmarle el gasto al número que le guardamos, y de paso mide D10.
+ *
+ * Este camino existe porque no podemos responderle: Meta dejó de mandar su número y el envío por
+ * BSUID no está habilitado. Pero **la fila tiene su `whatsapp`**, aprendido cuando todavía
+ * llegaba, y esa vía nunca se probó. Si funciona, sobra la mitad de esta maquinaria.
+ *
+ * Por qué acá y no en un probe manual: la medición pasiva no puede cerrar porque estar mapeado y
+ * estar oculto no se observan a la vez (el BSUID llega JUNTO al número), y el probe manual exige
+ * que alguien esté mirando dentro de las 24h del primer caso real. Acá se contesta sola la
+ * primera vez que ocurra, sin mensaje sintético: si la premisa es falsa, la persona recibe
+ * exactamente lo que le corresponde y hoy no recibe.
+ *
+ * **Nunca cambia el desenlace del registro.** El gasto ya está guardado cuando esto corre; que
+ * el envío falle es el resultado ESPERADO, no un error del flujo.
+ *
+ * El veredicto NO se decide acá: un 200 de Meta solo dice que encoló, y ya hubo dos veces en
+ * este trabajo en que un 200 sobre un destinatario inexistente casi produjo una conclusión
+ * falsa. Lo decide el callback de status, en `avisarVeredictoD10` (`lib/whatsapp.js`).
+ */
+async function intentarConfirmar(usuario, tx) {
+  if (!usuario || !usuario.id || !usuario.whatsapp) return false;
+  // `guardarTransaccion` NO siempre devuelve la fila que acaba de escribir. En un hit de dedup
+  // (mismo usuario/fecha/monto/comercio dentro de 10s) devuelve el `dup`, que sale de un
+  // `select('id, tarjeta_last4')`: sin monto, sin comercio, sin categoría. Un `!tx` no lo atrapa
+  // —es un objeto válido— y el mensaje salía literalmente "Anoté tu gasto: S/ undefined". Además
+  // no hay nada que confirmar: ese gasto ya estaba. El dedup de Gmail devuelve `null` y cae acá
+  // por el mismo lado.
+  if (!tx || tx.monto == null) return false;
+  let r;
+  try {
+    r = await enviarWhatsapp(usuario.whatsapp, textoConfirmacion(tx),
+      { tipo: TIPO_CONFIRMACION_SIN_NUMERO, usuarioId: usuario.id });
+  } catch (e) {
+    log.error({ tag: 'BSUID_SILENCIOSO', err: e.message, usuarioId: usuario.id }, 'Falló el intento de confirmación');
+    return false;
+  }
+  // `supabase-js` y `enviarWhatsapp` no lanzan: sin mirar el resultado, un rechazo se lee igual
+  // que un envío bueno. Y `skipped` es el peor caso — un `ok:true` que NUNCA salió a Meta (el
+  // usuario está marcado `is_test_user`, que es lo que hacen los harness): reportarlo como
+  // encolado sería medir nada y creer que se midió.
+  if (!r || r.skipped) {
+    log.info({ tag: 'BSUID_SILENCIOSO', usuarioId: usuario.id, skipped: r && r.skipped },
+      'Confirmación no enviada: no mide D10');
+    return false;
+  }
+  log.info({ tag: 'BSUID_SILENCIOSO', usuarioId: usuario.id, ok: r.ok, code: r.code, msgId: r.msgId },
+    'Confirmación intentada al número guardado (D10)');
+  // Rechazo SÍNCRONO de Meta: `registrarEntrega` escribe la fila sin `wamid`, así que no va a
+  // haber callback y el veredicto no llegaría nunca. Y este es el desenlace ESPERADO si la
+  // premisa se sostiene — o sea que delegar todo al callback dejaba el experimento mudo
+  // justamente en el caso más probable.
+  //
+  // **Solo cuenta si Meta CONTESTÓ.** `enviarWhatsapp` devuelve el mismo `{ok:false}` cuando el
+  // POST ni siquiera llegó —el timeout de 15s que B22 puso justo porque Graph cuelga, un DNS
+  // caído, una respuesta no-JSON— y ahí `code` viene en `null`. Anunciar eso decía "la premisa
+  // se sostiene" sin haber medido nada, y encima quemaba el throttle: la medición real quedaba
+  // cancelada de por vida. Es la MISMA clase de B19, cien líneas más arriba en este archivo, un
+  // desenlace transitorio envenenando un Set de módulo hasta el próximo deploy.
+  if (r.ok === false) {
+    if (r.code == null) {
+      log.warn({ tag: 'BSUID_SILENCIOSO', usuarioId: usuario.id, err: r.error },
+        'El envío no llegó a Meta: transitorio, no es veredicto de D10');
+      return true;
+    }
+    try {
+      await anunciarVeredictoD10({ usuarioId: usuario.id, llego: false, code: r.code, error: r.error, origen: 'envio' });
+    } catch (e) {
+      log.error({ tag: 'BSUID_SILENCIOSO', err: e.message, usuarioId: usuario.id }, 'No se pudo avisar el veredicto de D10');
+    }
+  }
+  return true;
+}
 
 /**
  * Registra un gasto de alguien a quien NO podemos responder.
@@ -19,6 +118,12 @@ const log = require('../lib/logger');
  * Decisión de Favio (2026-08-08): registrar igual. Anotar el gasto es lo que el modelo promete
  * gratis para siempre, y perder el gasto de alguien IDENTIFICADO es peor que no confirmárselo.
  * Lo verá en el dashboard, que es el canal que sí le llega.
+ *
+ * **Desde el 15-ago-2026 la confirmación se INTENTA igual** (`intentarConfirmar`, decisión de
+ * Favio): el "no podemos responderle" del párrafo de arriba es una premisa que nunca se midió, y
+ * este es el único punto del sistema donde se puede medir sin molestar a nadie. Si resulta falsa,
+ * la persona recibe la confirmación que le corresponde; si es cierta, el envío falla y todo queda
+ * exactamente como estaba. El nombre del archivo se queda hasta que haya un veredicto.
  *
  * Deliberadamente delgado: `parsearRegistroManual` es el mismo extractor del flujo normal y
  * `guardarTransaccion` es el que ya centraliza validación de monto, conversión USD→PEN y dedup.
@@ -46,15 +151,20 @@ async function registrarGastoSilencioso(texto, usuario) {
   // nada que guardar y tampoco forma de responderle: se descarta, pero queda el log.
   if (!datos || !datos.ok) return { registrado: false, motivo: 'no_es_gasto' };
 
+  let tx;
   try {
-    await guardarTransaccion(usuario.id, { ...datos, descripcion_original: limpio.substring(0, 200) });
+    tx = await guardarTransaccion(usuario.id, { ...datos, descripcion_original: limpio.substring(0, 200) });
   } catch (e) {
     log.error({ tag: 'BSUID_SILENCIOSO', err: e.message, usuarioId: usuario.id }, 'No se pudo guardar la transacción');
     return { registrado: false, motivo: 'guardado_error' };
   }
 
   log.info({ tag: 'BSUID_SILENCIOSO', usuarioId: usuario.id, tipo: datos.tipo }, 'Gasto registrado sin poder responder');
-  return { registrado: true, motivo: 'ok' };
+  // Va DESPUÉS de que el gasto está guardado y no condiciona nada: el registro es la promesa,
+  // la confirmación es el experimento. `intento` viaja de vuelta porque el aviso de primera vez
+  // lo necesita: sin él afirmaba que se había intentado en caminos donde no se intentó nada.
+  const intento = await intentarConfirmar(usuario, tx);
+  return { registrado: true, motivo: 'ok', intento };
 }
 
 // Throttle del aviso al admin. Hace falta porque `esperaComprobante` no vence cuando el
@@ -119,19 +229,28 @@ async function avisarPrimeraVezSilencioso(usuario, tipo, resultado) {
   // esto el aviso decía literalmente "no registrado (null)".
   const desenlace = !resultado ? 'no se puede procesar a ciegas'
     : (resultado.registrado ? 'registrado' : 'no registrado: ' + resultado.motivo);
-  // El comando solo se ofrece si hay número que medir. Un usuario web-first tiene `whatsapp`
-  // NULL, y ahí la pregunta ni siquiera aplica.
-  const comoMedir = usuario.whatsapp
-    ? 'Es el momento de medir si al número guardado todavía le llega:\n' +
-      '`node qa-e2e/probe-envio-username.mjs ' + usuario.whatsapp + ' --confirmar`'
-    : 'No tiene número guardado, así que no hay nada que medir por WhatsApp.';
+  // Acá se ofrecía el comando del probe manual, y después una versión que afirmaba de plano que
+  // la confirmación ya se había intentado. Las dos estaban mal, y la segunda peor: el intento
+  // solo ocurre si se registró una transacción, y el primer mensaje de alguien que acaba de
+  // perder su número es lo MENOS probable que sea un gasto ("hola", una pregunta, un sticker).
+  // Como este aviso es one-shot por usuario, prometer un veredicto que no viene lo dejaba
+  // esperando para siempre un Telegram que no existe, con instrucción de no medir a mano.
+  const comoMedir = !usuario.whatsapp
+    ? 'No tiene número guardado, así que no hay nada que medir por WhatsApp.'
+    : (resultado && resultado.intento)
+      ? 'Ya se le intentó la confirmación al número guardado (D10): el veredicto llega en otro ' +
+        'Telegram. No corras `probe-envio-username`, sería un segundo mensaje a la misma persona.'
+      : 'Este mensaje NO produjo ningún intento de confirmación, así que D10 sigue sin medirse ' +
+        '(no se registró una transacción nueva: puede haber sido un saludo, una consulta, un ' +
+        'formato que no se procesa a ciegas, o un gasto repetido que cayó en el dedup). Se va a ' +
+        'medir solo en cuanto esta persona registre un gasto. Si quieres forzarlo ahora:\n' +
+        '`node qa-e2e/probe-envio-username.mjs ' + usuario.whatsapp + ' --confirmar`';
   try {
     await avisarUnaVez(usuario.id + '|primera-vez-silencioso',
       '🔕 *Primera vez sin número* — el usuario `' + usuario.id + '`' +
       (usuario.whatsapp ? ' (' + usuario.whatsapp + ')' : '') +
       ' escribió y Meta ya NO manda su número. Lo reconocimos por su BSUID.\n\n' +
-      'Mensaje de tipo *' + tipo + '* → ' + desenlace + '.\n\n' +
-      'A partir de ahora **no recibe ninguna respuesta del bot**. ' + comoMedir);
+      'Mensaje de tipo *' + tipo + '* → ' + desenlace + '.\n\n' + comoMedir);
   } catch (e) {
     log.error({ tag: 'BSUID_SILENCIOSO', err: e.message, usuarioId: usuario.id }, 'No se pudo avisar la primera vez');
   }
@@ -147,8 +266,9 @@ function avisarAdminPagoPerdido(usuario, monto, detalle) {
   return notificarAdmin('🚨 *Comprobante Pro a medias* — usuario `' + usuario.id + '`' +
     (usuario.whatsapp ? ' (número guardado: ' + usuario.whatsapp + ')' : '') +
     ', monto detectado ' + (isNaN(monto) ? '?' : 'S/ ' + monto) + '.\n\n' +
-    'Escribe con username de WhatsApp, así que Meta ya no manda su número y el bot no le puede ' +
-    'contestar por el chat.\n\n' +
+    'Escribe con username de WhatsApp, así que Meta ya no manda su número. Al chat solo se le ' +
+    'INTENTA escribir al número guardado (D10) y todavía no se sabe si eso llega: no cuentes ' +
+    'con avisarle por ahí.\n\n' +
     'Qué falló: ' + detalle + '\n\n' +
     'REVISA la tabla `pagos` ANTES de crear nada: puede haber quedado una fila igual.');
 }
@@ -165,15 +285,17 @@ async function registrarPagoParseado(parsed, usuario) {
   if (!parsed || parsed.tipo === 'no_pago') return { registrado: false, motivo: 'no_es_pago' };
   if (!parsed.monto || isNaN(parseFloat(parsed.monto))) return { registrado: false, motivo: 'sin_monto' };
 
+  let tx;
   try {
-    await guardarTransaccion(usuario.id, { ...parsed, fecha: parsed.fecha || hoyPeru() });
+    tx = await guardarTransaccion(usuario.id, { ...parsed, fecha: parsed.fecha || hoyPeru() });
   } catch (e) {
     log.error({ tag: 'BSUID_SILENCIOSO', err: e.message, usuarioId: usuario.id }, 'No se pudo guardar la transacción');
     return { registrado: false, motivo: 'guardado_error' };
   }
 
   log.info({ tag: 'BSUID_SILENCIOSO', usuarioId: usuario.id, tipo: parsed.tipo }, 'Pago de imagen registrado sin poder responder');
-  return { registrado: true, motivo: 'ok' };
+  const intento = await intentarConfirmar(usuario, tx);
+  return { registrado: true, motivo: 'ok', intento };
 }
 
 /**
@@ -258,7 +380,7 @@ async function registrarImagenSilenciosa(message, usuario) {
         'a Neto y ya tiene una solicitud sin resolver.\n\nVision leyó: *' + (parsed.comercio || '(sin comercio)') + '* — ' + parsed.monto + '\n\n' +
         'Si la pendiente era un falso positivo, ESTA puede ser el pago de verdad. ' +
         (rPend.registrado ? 'El gasto quedó anotado igual.' : 'El gasto NO se pudo anotar (' + rPend.motivo + ').'));
-      return { registrado: rPend.registrado, motivo: 'comprobante_ya_pendiente' };
+      return { registrado: rPend.registrado, motivo: 'comprobante_ya_pendiente', intento: rPend.intento };
     }
     const montoDet = parseFloat(parsed.monto);
     let pagoId = null, comprobantePath = null, usuarioMarcado = false;
@@ -304,12 +426,22 @@ async function registrarImagenSilenciosa(message, usuario) {
       return { registrado: true, motivo: 'comprobante_pro_incompleto' };
     }
 
+    // Este aviso va PEGADO al de `registrarSolicitudPro`, que es el que manda la tarjeta con la
+    // foto y los botones: dice "el comprobante de arriba" y esa referencia es posicional. Se
+    // intentó moverlo después de `registrarPagoParseado` para poder contar si la confirmación
+    // salió, y eso mete en el medio un round-trip a la DB más un POST a Meta de hasta 15s que
+    // puede emitir su propio Telegram (el veredicto de D10) — o sea que "el de arriba" pasaba a
+    // señalar otra cosa. El texto no afirma un desenlace, así que no necesita ese dato.
     await notificarAdmin('🔕 El comprobante de arriba llegó de un usuario con *username de WhatsApp*: ' +
-      'se registró la solicitud pero NO se le pudo confirmar nada por chat, y tampoco se va a ' +
-      'enterar cuando lo apruebes. Apróbalo normal.');
+      'se registró la solicitud pero NO se le confirmó el comprobante por chat, y tampoco se va a ' +
+      'enterar cuando lo apruebes. Apróbalo normal.\n\n' +
+      // Antes decía "no se le pudo confirmar NADA", y desde el 15-ago es falso: se le intenta la
+      // confirmación del GASTO al número guardado. Sin esta línea el aviso manda a compensar a
+      // mano algo que quizá ya llegó.
+      '_Del gasto sí se le intenta una confirmación al número guardado (D10); si esa llega, te avisa otro Telegram._');
     // El gasto de la suscripción se registra igual que en el camino normal: es plata que salió.
-    await registrarPagoParseado(parsed, usuario);
-    return { registrado: true, motivo: 'comprobante_pro' };
+    const rPro = await registrarPagoParseado(parsed, usuario);
+    return { registrado: true, motivo: 'comprobante_pro', intento: rPro.intento };
   }
 
   // Se avisa DESPUÉS de intentar guardar y con el resultado en la mano: el aviso decía
@@ -343,7 +475,11 @@ async function registrarImagenSilenciosa(message, usuario) {
     'Vision leyó: *' + comercio + '* — ' + monto + '\n' +
     (r.registrado ? 'Se registró como gasto.' : 'No se registró nada (' + r.motivo + ').') + '\n\n' +
     'Si eso ERA su pago (un nombre mal leído, un monto mal leído), hay que activarlo a mano: ' +
-    'no se le puede pedir que reenvíe la captura.');
+    // Decía "no se le puede pedir que reenvíe la captura", en absoluto. Desde el 15-ago al
+    // número guardado sí se le INTENTA escribir, así que la afirmación depende de un veredicto
+    // (D10) que todavía no está. Es el tercer aviso de esta clase; los otros dos se corrigieron
+    // en la misma pasada y este se había quedado.
+    'por el chat solo se le puede INTENTAR (D10), todavía no sabemos si le llega.');
   return r;
 }
 
@@ -353,4 +489,5 @@ module.exports = {
   registrarAudioSilencioso,
   registrarImagenSilenciosa,
   avisarPrimeraVezSilencioso,
+  textoConfirmacion,
 };

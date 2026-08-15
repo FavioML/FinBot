@@ -19,7 +19,10 @@ process.env.META_APP_SECRET = 'test-secret';
 process.env.META_ACCESS_TOKEN = 'test-meta-token';
 process.env.META_PHONE_NUMBER_ID = 'test-phone-id';
 
-const enviarWhatsapp = vi.fn().mockResolvedValue(undefined);
+// Devuelve lo que devuelve el real (`{ok, msgId}`), no `undefined`. Con `undefined` el intento
+// de confirmación se lee como "no se pudo medir" y el aviso de primera vez cambia de rama, o sea
+// que el mock decidía el resultado del test por una diferencia que producción no tiene.
+const enviarWhatsapp = vi.fn().mockResolvedValue({ ok: true, msgId: 'wamid.conf' });
 require('../../lib/whatsapp').enviarWhatsapp = enviarWhatsapp;
 
 const buscarUsuarioPorBsuid = vi.fn();
@@ -114,11 +117,38 @@ const YAPE_GASTO = {
   categoria: 'Alimentación', subcategoria: 'Restaurantes', metodo_pago: 'Yape', fecha: '2026-08-09',
 };
 
+/**
+ * Hasta el 15-ago-2026 estos tests afirmaban `expect(enviarWhatsapp).not.toHaveBeenCalled()`: el
+ * camino era silencioso de verdad. Se cambió a propósito (D10, decisión de Favio) — la
+ * confirmación se INTENTA al número guardado, porque "a esta gente no se le puede escribir" es
+ * una premisa que nunca se midió y este es el único punto donde se mide sin molestar a nadie.
+ *
+ * La aserción no se debilitó, se volvió más específica, y eso importa: lo que el `not` protegía
+ * era que no se colara un turno de conversación en un camino que no puede sostenerlo. Exigir UNA
+ * llamada, al número guardado y con el `tipo` del experimento sigue prohibiendo exactamente eso.
+ * Cambiarla por un `toHaveBeenCalled()` pelado sí habría sido perder cobertura.
+ */
+function esperarConfirmacionD10(enviar, { numero = '51999000111' } = {}) {
+  expect(enviar).toHaveBeenCalledOnce();
+  const [dest, texto, opts] = enviar.mock.calls[0];
+  expect(dest).toBe(numero);
+  expect(opts).toMatchObject({ tipo: 'confirmacion_sin_numero' });
+  // Sin `usuarioId` la fila de `notification_deliveries` queda huérfana y el callback no puede
+  // decir de quién era: la medición se pierde justo cuando ocurre el caso que se espera hace
+  // meses.
+  expect(opts.usuarioId).toBeTruthy();
+  expect(texto).toBeTruthy();
+  return { dest, texto, opts };
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 describe('mensaje sin `from` con media, de un usuario reconocido por BSUID', () => {
   beforeEach(() => {
-    enviarWhatsapp.mockClear();
-    guardarTransaccion.mockClear().mockResolvedValue({ categoria: 'Alimentación' });
+    enviarWhatsapp.mockClear().mockResolvedValue({ ok: true, msgId: 'wamid.conf' });
+    // La fila que devuelve `guardarTransaccion`, no un stub con la categoría suelta: la
+    // confirmación se arma con ESTA fila, y un fixture irreal la dejaba sin monto (que es
+    // justo el caso del dedup, cubierto aparte en tests/services/registro-silencioso.test.js).
+    guardarTransaccion.mockClear().mockResolvedValue({ id: 'tx1', tipo: 'gasto', monto: 23.45, moneda: 'PEN', comercio: 'Pollería El Rancho', categoria: 'Alimentación' });
     registrarSolicitudPro.mockClear().mockResolvedValue({ pagoId: 'pago-1', comprobantePath: 'u/1.jpg', usuarioMarcado: true });
     notificarAdmin.mockClear();
     registrarError.mockClear();
@@ -130,7 +160,7 @@ describe('mensaje sin `from` con media, de un usuario reconocido por BSUID', () 
   });
 
   describe('imagen (foto de Yape/Plin)', () => {
-    it('registra el gasto que ve Vision, sin responderle', async () => {
+    it('registra el gasto que ve Vision y le INTENTA la confirmación al número guardado', async () => {
       mockFetchOk('image/jpeg');
       visionResponde(YAPE_GASTO);
 
@@ -140,6 +170,34 @@ describe('mensaje sin `from` con media, de un usuario reconocido por BSUID', () 
       const [usuarioId, datos] = guardarTransaccion.mock.calls[0];
       expect(usuarioId).toBe('u-conocido');
       expect(datos.monto).toBe(23.45);
+      esperarConfirmacionD10(enviarWhatsapp);
+    });
+
+    it('la confirmación usa la categoría PERSISTIDA, no la que dijo Vision', async () => {
+      mockFetchOk('image/jpeg');
+      // Vision dice 'Alimentación'; una regla por comercio la resolvió a otra cosa al guardar.
+      // Confirmarle la de Vision le contaría una categoría que no es la que ve en el dashboard.
+      guardarTransaccion.mockResolvedValue({ tipo: 'gasto', monto: 23.45, moneda: 'PEN', comercio: 'Pollería El Rancho', categoria: 'Delivery' });
+      visionResponde(YAPE_GASTO);
+
+      await postSinFrom(imagen());
+
+      const { texto } = esperarConfirmacionD10(enviarWhatsapp);
+      expect(texto).toContain('Delivery');
+      expect(texto).not.toContain('Alimentación');
+    });
+
+    it('a un usuario sin número guardado no se le intenta nada', async () => {
+      // Web-first: `whatsapp` NULL. No hay a dónde mandar y no hay nada que medir; sin esta
+      // guarda el envío entra igual y `enviarWhatsapp` escribe una fila `skipped_no_whatsapp`
+      // que ensucia justo la consulta con la que se lee el veredicto.
+      buscarUsuarioPorBsuid.mockResolvedValue({ ...CONOCIDO, whatsapp: null });
+      mockFetchOk('image/jpeg');
+      visionResponde(YAPE_GASTO);
+
+      await postSinFrom(imagen());
+
+      expect(guardarTransaccion).toHaveBeenCalledOnce();
       expect(enviarWhatsapp).not.toHaveBeenCalled();
     });
 
@@ -184,7 +242,7 @@ describe('mensaje sin `from` con media, de un usuario reconocido por BSUID', () 
       expect(transcriptionsCreate).toHaveBeenCalledOnce();
       expect(parsearRegistroManual).toHaveBeenCalledWith('gasté 30 soles en el almuerzo', expect.any(String));
       expect(guardarTransaccion).toHaveBeenCalledOnce();
-      expect(enviarWhatsapp).not.toHaveBeenCalled();
+      esperarConfirmacionD10(enviarWhatsapp);
     });
 
     it('un audio ilegible se intenta transcribir y ahí muere', async () => {
@@ -258,8 +316,11 @@ describe('mensaje sin `from` con media, de un usuario reconocido por BSUID', () 
       expect(Buffer.isBuffer(arg.comprobanteBuffer)).toBe(true);   // el comprobante llega a Storage
       // El gasto de la suscripción se registra igual que en el camino normal.
       expect(guardarTransaccion).toHaveBeenCalledOnce();
-      // Y nunca se intenta el "comprobante recibido": no hay a dónde mandarlo.
-      expect(enviarWhatsapp).not.toHaveBeenCalled();
+      // El "comprobante recibido" sigue SIN mandarse: lo único que sale es la confirmación del
+      // gasto, que es la que mide D10. Confirmarle además el pago sería prometerle un estado que
+      // depende de que Favio lo apruebe, y por este canal no nos vamos a poder desdecir.
+      const { texto } = esperarConfirmacionD10(enviarWhatsapp);
+      expect(texto).not.toMatch(/comprobante/i);
       expect(notificarAdmin).toHaveBeenCalled();
     });
 
@@ -457,7 +518,29 @@ describe('mensaje sin `from` con media, de un usuario reconocido por BSUID', () 
       expect(primeros).toHaveLength(1);
       const aviso = primeros[0];
       expect(aviso).toContain('u-primera-vez');
-      expect(aviso).toContain('probe-envio-username');   // el aviso trae el comando de la medición
+      // Acá SÍ hubo intento (se registró un gasto), así que el aviso promete el veredicto y
+      // desaconseja el probe manual, que sería un segundo mensaje a la misma persona. El
+      // discriminante es el COMANDO ejecutable (`--confirmar`), no el nombre del archivo: la
+      // rama del intento también lo nombra, justamente para decir que no se corra.
+      expect(aviso).toMatch(/Ya se le intentó la confirmación/);
+      expect(aviso).not.toContain('--confirmar');
+    });
+
+    it('si el mensaje NO produjo ningún intento, el aviso no promete un veredicto', async () => {
+      // Es el caso más probable en el primer mensaje de alguien que acaba de perder su número:
+      // "hola", una pregunta, un sticker. Nada de eso registra una transacción, así que no hay
+      // envío, no hay fila y no va a llegar ningún veredicto. Y como este aviso es one-shot por
+      // usuario, prometerlo dejaba a Favio esperando para siempre un Telegram que no existe,
+      // con instrucción explícita de no medir a mano. Lo encontró la revisión adversarial.
+      buscarUsuarioPorBsuid.mockResolvedValue({ ...CONOCIDO, id: 'u-sin-intento' });
+      parsearRegistroManual.mockResolvedValue({ ok: false });
+
+      await postSinFrom({ type: 'text', text: { body: 'hola, una pregunta' } });
+
+      const aviso = avisosQueMatchean(PRIMERA_VEZ)[0];
+      expect(aviso).toContain('NO produjo ningún intento');
+      expect(aviso).toContain('--confirmar');   // acá sí se ofrece el comando manual, ejecutable
+      expect(enviarWhatsapp).not.toHaveBeenCalled();
     });
 
     it('no lo repite en cada mensaje del mismo usuario', async () => {
