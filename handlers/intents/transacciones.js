@@ -74,6 +74,50 @@ function detectarQuerySinMonto(msg) {
   return null;
 }
 
+// `deshacer_ultimo` es el ÚNICO borrado sin sujeto: no nombra qué eliminar, así que
+// ejecuta sobre lo que haya. Eso lo vuelve el destino barato de cualquier frase que el
+// clasificador no sepa dónde poner. Caso real (17-ago-2026): un usuario escribió
+// "Quiero reiniciar" y recibió "Deshecho: Eliminé Sueldo — S/ 480.00". Nunca pidió borrar.
+//
+// La guarda NO vive en el prompt del tool a propósito. Ahí ya hay una lista blanca
+// ('restablecer', 'restaurar', 'devolver' = restore, no undo) y es de la clase que sólo
+// cubre lo que alguien ya vio fallar: "reiniciar" es primo hermano de "restablecer" y cayó
+// del lado destructivo. Acá la condición es determinística y se puede matar por mutación,
+// cosa que una instrucción en lenguaje natural a gpt-4o-mini no permite.
+//
+// Es un filtro de CONFIRMACIÓN, no de intención: si el mensaje no nombra la acción, se
+// muestra qué se borraría y se pide la orden explícita. No hay estado entre mensajes
+// (esa es la deuda que dejaron los pasos 30/31 del onboarding) — la segunda vuelta trae
+// la palabra y pasa sola.
+// `revier` va aparte de `revert`: el presente de "revertir" es "revierte", que NO comparte
+// prefijo con el infinitivo. Lo encontró el test, no la lectura del patrón.
+const PIDE_BORRAR = /deshac|deshaz|undo|revert|revier|borr|elimin|quit|anul|cancel|me equivoqu|no era|est[aá] mal/i;
+
+// Y el reverso, que la primera versión no tenía y era el agujero más grave: PIDE_BORRAR
+// acepta `elimin`, `borr` y `cancel`, así que **"quiero eliminar mi cuenta" la pasaba** y
+// terminaba borrando el último gasto con un "Listo. Eliminé Sueldo S/480". El destino
+// correcto de esa frase es `desconectar_cuenta` (handlers/intents/moderacion.js), y es la
+// MISMA clase de misroute que produjo "Quiero reiniciar": la guarda verificaba que el
+// mensaje nombrara *un* borrado, no que nombrara una TRANSACCIÓN. O sea que las frases más
+// peligrosas eran justo las únicas que no filtraba. Lo encontró la segunda revisión
+// adversarial, sobre el arreglo de la primera.
+const HABLA_DE_LA_CUENTA = /\b(cuenta|mis datos|todos los datos|mi historial|todo el historial)\b/i;
+
+/**
+ * ¿El mensaje pide borrar UNA TRANSACCIÓN? Exige la señal y descarta el borrado de cuenta.
+ *
+ * Gotcha que costó una vuelta: la primera versión de `HABLA_DE_LA_CUENTA` se escribió con
+ * un script y los `\b` terminaron como el carácter BACKSPACE (0x08) en vez de la clase de
+ * borde de palabra. La regex compilaba, no fallaba, y **no matcheaba nada** — o sea que la
+ * guarda existía y era un no-op. Lo delató el test, no la lectura: `sed` muestra `\b` y
+ * `JSON.stringify` también (porque `\b` ES el escape de backspace en JSON). Si alguna vez
+ * un patrón acá "no matchea sin razón", mirá `re.source`, no el archivo.
+ */
+function pideBorrarUnGasto(msg) {
+  const t = msg || '';
+  return PIDE_BORRAR.test(t) && !HABLA_DE_LA_CUENTA.test(t);
+}
+
 // Guarda la copia que hace posible el "restaura" y confirma que quedó escrita.
 // postgrest NO lanza cuando el insert falla: devuelve el fallo en `error`. El patrón
 // anterior (`.then(() => {}).catch(...)`) solo veía errores de red, así que un insert
@@ -467,7 +511,21 @@ module.exports = {
           // Si no hubo filtro alguno, caer al último registro
           let txElim = null;
           if (!comercioElim && montoElimReq == null && !fechaElimReq) {
+            // MISMA puerta que `deshacer_ultimo`: sin comercio, monto ni fecha esto es un
+            // borrado SIN SUJETO sobre lo último que haya. `delete` y `undo` salen del
+            // mismo tool (`manage_transaction`) y quién de los dos sale lo elige el LLM,
+            // así que guardar solo `undo` dejaba la puerta gemela abierta al mismo caso:
+            // "Quiero reiniciar" clasificado como delete sin argumentos borraba igual.
+            // Lo levantó la revisión adversarial; mi comentario de PIDE_BORRAR afirmaba
+            // que undo era el único borrado sin sujeto y era falso.
             txElim = await obtenerUltimaTransaccion(usuario.id);
+            if (txElim && !pideBorrarUnGasto(msg)) {
+              const mElim = txElim.moneda === 'USD' ? '$' + parseFloat(txElim.monto).toFixed(2) : 'S/ ' + parseFloat(txElim.monto).toFixed(2);
+              log.info({ tag: 'ELIMINAR_AMBIGUO', msg: (msg || '').substring(0, 80) }, 'delete sin sujeto ni señal de borrado: se pide confirmación');
+              return 'No estoy seguro de qué quieres hacer.\n\nTu último registro es *'
+                + (txElim.comercio || 'sin comercio') + '* — ' + mElim + ' del ' + (txElim.fecha || '') + '.\n\n'
+                + 'Si quieres eliminarlo, escribe *"borra el último"*.';
+            }
           } else if (candidatos.length === 1) {
             txElim = candidatos[0];
           } else if (candidatos.length === 0) {
@@ -744,6 +802,13 @@ module.exports = {
           const txDeshacer = await obtenerUltimaTransaccion(usuario.id);
           if (!txDeshacer) return 'No hay transacciones recientes para deshacer.';
           const montoDeshacer = txDeshacer.moneda === 'USD' ? '$' + parseFloat(txDeshacer.monto).toFixed(2) : 'S/ ' + parseFloat(txDeshacer.monto).toFixed(2);
+          // El clasificador puede mandar acá una frase que no pidió borrar nada. Ver PIDE_BORRAR.
+          if (!pideBorrarUnGasto(msg)) {
+            log.info({ tag: 'DESHACER_AMBIGUO', msg: (msg || '').substring(0, 80) }, 'undo sin señal de borrado: se pide confirmación');
+            return 'No estoy seguro de qué quieres hacer.\n\nTu último registro es *'
+              + (txDeshacer.comercio || 'sin comercio') + '* — ' + montoDeshacer + ' del ' + (txDeshacer.fecha || '') + '.\n\n'
+              + 'Si quieres eliminarlo, escribe *"borra el último"*.';
+          }
           // Snapshot bloqueante y verificado ANTES del delete: el mensaje solo ofrece
           // restaurar si la copia quedó guardada.
           const snapshotDeshacerOk = await guardarSnapshotEliminacion(supabase, usuario.id, txDeshacer, 'DESHACER_AUDIT');

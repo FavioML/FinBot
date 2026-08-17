@@ -34,11 +34,13 @@
 // NO es alta: devuelve null y webhook maneja el saludo normal.
 
 const { supabase } = require('../lib/db');
+const log = require('../lib/logger');
+const { notificarAdmin } = require('../lib/admin-notify');
 const { PRO_PRECIOS } = require('../lib/config');
 const { CATEGORIAS_SUGERIDAS } = require('../lib/constants');
 const { parsearIndicesRespuesta } = require('../lib/formatters');
 const { obtenerCuentasGmail, revocarAccesoGmail } = require('../gmail');
-const { linkPanelPro } = require('../lib/trial');
+const { linkPanelPro, esProPagado } = require('../lib/trial');
 const { crearCategoriasDesdeIndices } = require('../services/categories');
 const { interpretarComandoPresupuesto } = require('../services/parsers');
 const { guardarPresupuesto } = require('../services/budget');
@@ -82,7 +84,33 @@ function esSkipNombre(cmd) {
 // Cierra el alta. El marcador real es onboarding_completado; onboarding_paso
 // vuelve a 0. `via` alimenta el embudo de PostHog.
 async function completarAlta(usuario, via) {
-  await supabase.from('usuarios').update({ onboarding_paso: 0, onboarding_completado: true }).eq('id', usuario.id);
+  // Acá había un `cuenta_borrada_at: null`, con el argumento de que volver "PASA
+  // obligatoriamente por esta función". Era falso y la revisión adversarial lo desarmó:
+  // `onboarding_completado = true` se escribe en al menos otros cinco lugares que no
+  // limpiaban nada (`lib/pro-payment.js` al aprobar un pago, los pasos 1 y 10, el callback
+  // de Gmail, y el alta web). El peor: wipe → `/premium` → Yape → aprobado → un cliente
+  // que PAGA quedaba marcado como baja para siempre, invisible en el MRR.
+  //
+  // Y `merge_and_link` hereda las dos columnas en el MISMO update, así que tras un merge
+  // el usuario quedaba marcado Y con el alta cerrada: ni siquiera podía volver a pasar
+  // por acá. La marca era una trampa sin salida.
+  //
+  // Por eso `cuenta_borrada_at` es un HECHO y no ESTADO: cuándo pidió la baja, y no se
+  // limpia nunca. "¿Está de baja HOY?" se responde DERIVÁNDOLO (la baja contra un pago
+  // posterior), no manteniendo una marca sincronizada en N lugares. Un hecho no se
+  // desincroniza.
+  //
+  // PENDIENTE, y por eso hoy la columna sólo se ESCRIBE: el consumidor de métricas quedó
+  // fuera a propósito. Dos rondas de revisión adversarial encontraron que excluir la baja
+  // del MRR sin tocar churn ni el histórico produce un número que miente distinto, y que
+  // el testigo obvio de un retorno (`fecha_pago`, `premium_desde`) se escribe sin que entre
+  // plata — un comp del admin o el premio de referidos resucitaría a un churneado. El
+  // testigo correcto es una fila de `pagos` aprobada posterior a la baja. Decisión de Favio
+  // (17-ago-2026): shippear el aviso, que es lo que cierra el agujero de no enterarse, y
+  // hacer la exclusión del MRR en una pasada propia.
+  await supabase.from('usuarios')
+    .update({ onboarding_paso: 0, onboarding_completado: true })
+    .eq('id', usuario.id);
   stepOk(usuario, 100, 0, via);
   analytics.capture(usuario.id, 'wa_onboarding_completed', { via });
 }
@@ -96,6 +124,120 @@ function mensajePrimerGasto(nombre) {
     '📝 _"gasté 20 en taxi"_\n' +
     '📸 O mándame la foto de un Yape o Plin\n\n' +
     '_Lo que sea, del monto que sea._';
+}
+
+// ─── Borrado total de datos (el "wipe") ──────────────────────────────────────
+//
+// Estaba escrito TRES veces (multi-cuenta, una cuenta, sin cuentas) y las tres copias
+// compartían el mismo agujero: borraban los datos y no dejaban rastro de que alguien se
+// había ido. Medido el 17-ago-2026: DOS de los cinco Pro pagados pasaron por acá — uno
+// con plan anual vigente hasta 2027 — y siguieron contando como ingreso recurrente. Nadie
+// se enteró: el flujo no avisa, no escribe en `errores` y no abre ticket.
+//
+// Es la única baja DECLARADA del producto. Todo lo demás (inactividad, vencimiento) es
+// una inferencia nuestra; esto lo pidió la persona.
+//
+// Lo que NO hace, y es deliberado: no toca `plan` ni `premium_vence`. Quien pagó tiene
+// derecho a su Pro si vuelve. La marca es para las MÉTRICAS; el entitlement no se mueve.
+async function ejecutarBorradoTotal(usuario, { tieneGmail }) {
+  // El conteo va ANTES de borrar, que es la única ventana donde existe. Es lo que
+  // convierte el aviso en accionable: "se fue" vale poco, "se fue con 131 movimientos y
+  // plan anual vigente hasta 2027" dice si hay que llamarlo.
+  let filas = null;
+  try {
+    const { count } = await supabase.from('transacciones')
+      .select('id', { count: 'exact', head: true }).eq('usuario_id', usuario.id);
+    filas = typeof count === 'number' ? count : null;
+  } catch (e) { /* el conteo es para el aviso: nunca puede impedir que el usuario borre */ }
+
+  // Los tres deletes LEEN su error. supabase-js no lanza: sin mirarlo, un statement
+  // timeout sobre un historial grande dejaba los datos intactos, escribia igual la marca
+  // de baja, le decia a la persona "todos tus datos han sido eliminados" y al admin
+  // "movimientos borrados: 131". Tres afirmaciones falsas y ni una linea de log.
+  const fallos = [];
+  for (const tabla of ['transacciones', 'categorias_usuario', 'presupuestos']) {
+    const { error } = await supabase.from(tabla).delete().eq('usuario_id', usuario.id);
+    if (error) {
+      fallos.push(tabla);
+      log.error({ tag: 'WIPE', usuarioId: usuario.id, tabla, err: error.message }, 'El borrado de datos FALLO');
+    }
+  }
+
+  // El corte va ANTES de escribir nada. En la primera versión el `if (fallos.length)`
+  // estaba al final, después del UPDATE: o sea que un borrado fallido igual marcaba la
+  // baja y sacaba el aviso, y solo cambiaba el texto que leía la persona. Lo encontró el
+  // test que se escribió para esta rama, no la lectura del código.
+  //
+  // No se avisa al admin acá a propósito: esto no es una baja, es un fallo de
+  // infraestructura, y ya quedó en `errores`/log con la tabla que falló.
+  if (fallos.length) {
+    return '⚠️ No pude eliminar todos tus datos ahora mismo. Escríbeme de nuevo en un rato y lo reintento.';
+  }
+
+  const campos = { email: null, onboarding_paso: 0, onboarding_completado: false, cuenta_borrada_at: new Date().toISOString() };
+  if (tieneGmail) {
+    // Revocar ANTES del delete: borrar la fila tira el refresh token, y sin token el
+    // grant queda vivo en Google para siempre, sin forma de alcanzarlo.
+    await revocarAccesoGmail(usuario.id, { motivo: 'usuario_borro_cuenta' });
+    await supabase.from('gmail_cuentas').delete().eq('usuario_id', usuario.id);
+    campos.gmail_access_token = null;
+    campos.gmail_refresh_token = null;
+    campos.gmail_token_expiry = null;
+  }
+  // Se lee el `error`: supabase-js NO lanza, así que sin mirarlo un UPDATE rechazado
+  // dejaría la marca sin poner y el aviso saldría igual, diciendo algo que no pasó.
+  const { error: errMarca } = await supabase.from('usuarios').update(campos).eq('id', usuario.id);
+  if (errMarca) {
+    log.error({ tag: 'WIPE', usuarioId: usuario.id, err: errMarca.message }, 'No se pudo marcar la baja: los datos SI se borraron');
+  }
+
+  await avisarBajaAlAdmin(usuario, { filas, marcada: !errMarca });
+
+  // Los dos textos son los de antes, palabra por palabra, y la condición es la misma que
+  // los elegía (había Gmail o no). El conteo NO entra acá: hacerlo depender de `filas`
+  // cambiaría el mensaje de un usuario sin Gmail y con gastos, que hoy lee "Datos
+  // eliminados". Nadie pidió eso y un refactor no es el lugar para decidirlo.
+  return tieneGmail
+    ? '🗑️ *Cuenta limpia*\n\nTodos tus datos han sido eliminados. Si quieres volver, escribe _"hola"_ y empezamos de cero.'
+    : '🗑️ *Datos eliminados*\n\nSi quieres volver, escribe _"hola"_.';
+}
+
+// El aviso es best-effort por construcción: el usuario ya borró sus datos y no hay nada
+// que reintentar. Un fallo acá no puede propagarse a la respuesta que espera la persona.
+async function avisarBajaAlAdmin(usuario, { filas, marcada }) {
+  try {
+    const pagado = esProPagado(usuario);
+    const partes = [
+      '🗑️ *BAJA DECLARADA* — un usuario borró todos sus datos',
+      '',
+      'Usuario: ' + (usuario.nombre || 'sin nombre') + ' (' + String(usuario.id).slice(0, 8) + ')',
+      'Movimientos que tenia: ' + (filas === null ? 'no se pudo contar' : filas),
+    ];
+    if (pagado) {
+      // Lo que hace que este aviso valga la pena leerlo: distingue a alguien que probó y
+      // se fue de un CLIENTE que pagó y se fue.
+      partes.push('');
+      partes.push('⚠️ *ES PRO PAGADO* — plan ' + (usuario.tipo_plan || 'mensual') +
+        ', vigente hasta ' + (usuario.premium_vence || 'sin fecha'));
+      partes.push('El plan NO se tocó: si vuelve, conserva lo que pagó.');
+    }
+    if (!marcada) {
+      partes.push('');
+      partes.push('❗ No se pudo escribir `cuenta_borrada_at`: sigue contando en el MRR.');
+    }
+    // `notificarAdmin` NUNCA lanza: tiene su propio try/catch y devuelve false cuando
+    // fallan los dos canales (Telegram caído + WhatsApp fuera de la ventana de 24h de
+    // Meta). Sin leer el booleano, el catch de abajo era inalcanzable y la única baja
+    // declarada del producto podía evaporarse sin dejar rastro en ningún lado. Este
+    // evento no tiene reintento ni cola, así que el log ES el último respaldo.
+    const ok = await notificarAdmin(partes.join('\n'));
+    if (!ok) {
+      log.error({ tag: 'WIPE', usuarioId: usuario.id, pagado, filas },
+        'BAJA DECLARADA sin avisar: fallaron Telegram y WhatsApp');
+    }
+  } catch (e) {
+    log.error({ tag: 'WIPE', usuarioId: usuario.id, err: e.message }, 'No se pudo avisar la baja al admin');
+  }
 }
 
 // Cola de los mensajes de desconexión. Decían "vuelve a conectar escribiendo _conectar
@@ -142,15 +284,7 @@ async function manejarOnboarding({ usuario, msg, cmd }) {
         await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
         return '✅ *Todas las cuentas Gmail desconectadas*\n\nTu historial de gastos se mantiene intacto.' + colaReconexion(usuario);
       } else if (respDesc === numCuentas + 2) {
-        await supabase.from('transacciones').delete().eq('usuario_id', usuario.id);
-        await supabase.from('categorias_usuario').delete().eq('usuario_id', usuario.id);
-        await supabase.from('presupuestos').delete().eq('usuario_id', usuario.id);
-        // Revocar ANTES del delete: borrar la fila tira el refresh token, y sin token el
-        // grant queda vivo en Google para siempre, sin forma de alcanzarlo.
-        await revocarAccesoGmail(usuario.id, { motivo: 'usuario_borro_cuenta' });
-        await supabase.from('gmail_cuentas').delete().eq('usuario_id', usuario.id);
-        await supabase.from('usuarios').update({ gmail_access_token: null, gmail_refresh_token: null, gmail_token_expiry: null, email: null, onboarding_paso: 0, onboarding_completado: false }).eq('id', usuario.id);
-        return '🗑️ *Cuenta limpia*\n\nTodos tus datos han sido eliminados. Si quieres volver, escribe _"hola"_ y empezamos de cero.';
+        return await ejecutarBorradoTotal(usuario, { tieneGmail: true });
       }
     } else if (numCuentas === 1) {
       if (respDesc === 1) {
@@ -158,24 +292,12 @@ async function manejarOnboarding({ usuario, msg, cmd }) {
         await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
         return '✅ *Gmail desconectado*\n\nTu historial de gastos se mantiene intacto.' + colaReconexion(usuario);
       } else if (respDesc === 2) {
-        await supabase.from('transacciones').delete().eq('usuario_id', usuario.id);
-        await supabase.from('categorias_usuario').delete().eq('usuario_id', usuario.id);
-        await supabase.from('presupuestos').delete().eq('usuario_id', usuario.id);
-        // Revocar ANTES del delete: borrar la fila tira el refresh token, y sin token el
-        // grant queda vivo en Google para siempre, sin forma de alcanzarlo.
-        await revocarAccesoGmail(usuario.id, { motivo: 'usuario_borro_cuenta' });
-        await supabase.from('gmail_cuentas').delete().eq('usuario_id', usuario.id);
-        await supabase.from('usuarios').update({ gmail_access_token: null, gmail_refresh_token: null, gmail_token_expiry: null, email: null, onboarding_paso: 0, onboarding_completado: false }).eq('id', usuario.id);
-        return '🗑️ *Cuenta limpia*\n\nTodos tus datos han sido eliminados. Si quieres volver, escribe _"hola"_ y empezamos de cero.';
+        return await ejecutarBorradoTotal(usuario, { tieneGmail: true });
       }
     } else {
       // Sin cuentas Gmail, solo opción de eliminar datos
       if (respDesc === 1) {
-        await supabase.from('transacciones').delete().eq('usuario_id', usuario.id);
-        await supabase.from('categorias_usuario').delete().eq('usuario_id', usuario.id);
-        await supabase.from('presupuestos').delete().eq('usuario_id', usuario.id);
-        await supabase.from('usuarios').update({ email: null, onboarding_paso: 0, onboarding_completado: false }).eq('id', usuario.id);
-        return '🗑️ *Datos eliminados*\n\nSi quieres volver, escribe _"hola"_.';
+        return await ejecutarBorradoTotal(usuario, { tieneGmail: false });
       }
     }
     // Respuesta no válida → cancelar

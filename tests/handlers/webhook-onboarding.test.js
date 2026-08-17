@@ -16,6 +16,15 @@ process.env.META_APP_SECRET = 'test-secret';
 const enviarWhatsapp = vi.fn().mockResolvedValue(undefined);
 require('../../lib/whatsapp').enviarWhatsapp = enviarWhatsapp;
 
+// `notificarAdmin` intenta Telegram PRIMERO y solo cae a WhatsApp si falla. Sin este stub
+// los tests del wipe asertaban sobre el fallback —un camino que en Railway no se usa— y,
+// peor, con TELEGRAM_BOT_TOKEN exportado en el shell mandaban mensajes REALES al celular
+// de Favio en cada corrida. Ya pasó con `webhook-harness` (ver project_avisos_entrega_b23).
+// Devuelve false a propósito: así el aviso sale por WhatsApp, que es lo que estos tests
+// pueden observar, y el camino de Telegram queda stubeado en vez de vivo.
+const enviarTelegram = vi.fn().mockResolvedValue(false);
+require('../../lib/telegram').enviarTelegram = enviarTelegram;
+
 const obtenerOCrearUsuario = vi.fn();
 require('../../helpers/db-helpers').obtenerOCrearUsuario = obtenerOCrearUsuario;
 // guardarMensaje se usa en el envio comun; que sea no-op para no tocar supabase.
@@ -64,7 +73,7 @@ function makeChain(data = [], opts = {}) {
     const u = { eq: vi.fn(() => u), then: (onF, onR) => Promise.resolve(updateResult).then(onF, onR) };
     return u;
   });
-  c.then = (onF, onR) => Promise.resolve({ data, error: null }).then(onF, onR);
+  c.then = (onF, onR) => Promise.resolve({ data, error: opts.error || null }).then(onF, onR);
   return c;
 }
 
@@ -97,12 +106,29 @@ function buildReqRes(from, texto) {
   return { req, res };
 }
 
-// Ejercita el webhook con un usuario en cierto estado y devuelve el texto enviado.
+// Ejercita el webhook con un usuario en cierto estado y devuelve el texto enviado
+// AL USUARIO.
+//
+// El filtro por destinatario no es cosmético. Sin token de Telegram, `notificarAdmin`
+// cae a `enviarWhatsapp(ADMIN_NUMBER, ...)`, así que el aviso de baja del wipe entra al
+// mismo mock — y como sale ANTES de que webhook envíe la respuesta, `calls[0]` pasó a
+// ser el mensaje del admin. Dos tests del wipe empezaron a leer el aviso interno creyendo
+// que era lo que le llegó a la persona. Es el mismo hoyo que tuvo `qa-bsuid-media`
+// contando el total de salientes: un guard que no mira A QUIÉN le escribió no puede
+// distinguir un mensaje al usuario de uno al admin.
+const ADMIN_NUMBER = require('../../lib/config').ADMIN_NUMBER;
+
 async function enviarTexto(usuario, texto, from = '51999000111') {
   obtenerOCrearUsuario.mockResolvedValue(usuario);
   const { req, res } = buildReqRes(from, texto);
   await webhookHandler(req, res);
-  return enviarWhatsapp.mock.calls[0] ? enviarWhatsapp.mock.calls[0][1] : null;
+  const alUsuario = enviarWhatsapp.mock.calls.filter((c) => c[0] !== ADMIN_NUMBER);
+  return alUsuario[0] ? alUsuario[0][1] : null;
+}
+
+/** Lo que se le mandó al admin en esta corrida (null si no se le mandó nada). */
+function mensajesAlAdmin() {
+  return enviarWhatsapp.mock.calls.filter((c) => c[0] === ADMIN_NUMBER).map((c) => c[1]);
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -428,6 +454,91 @@ describe('Onboarding paso -1 — desconexion / wipe', () => {
       expect.objectContaining({ onboarding_paso: 0, onboarding_completado: false, email: null })
     );
     expect(enviado).toMatch(/eliminad|limpia/i);
+  });
+
+  // ── La baja declarada ──────────────────────────────────────────────────────
+  // Dos de los cinco Pro pagados pasaron por acá (medido 17-ago-2026) y siguieron
+  // contando como ingreso recurrente, uno con plan anual vigente hasta 2027, sin que
+  // nadie se enterara. Estos casos afirman las dos mitades: que quede la marca y que
+  // salga el aviso. Mutación que los mata: quitar `cuenta_borrada_at` del update, o
+  // quitar el `await avisarBajaAlAdmin(...)`.
+
+  it('el wipe MARCA la baja en cuenta_borrada_at', async () => {
+    obtenerCuentasGmail.mockResolvedValue([{ id: 'g1', email: 'a@x.com' }]);
+    await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '2');
+    const update = usuariosChain.update.mock.calls.find((c) => 'cuenta_borrada_at' in (c[0] || {}));
+    expect(update).toBeDefined();
+    expect(typeof update[0].cuenta_borrada_at).toBe('string');
+  });
+
+  // El plan es lo único que NO se toca: la persona pagó y si vuelve conserva su Pro.
+  // Esto es una marca para las métricas, no una baja de entitlement.
+  it('el wipe NO baja el plan ni toca premium_vence', async () => {
+    obtenerCuentasGmail.mockResolvedValue([]);
+    await enviarTexto({ id: 'u1', onboarding_paso: -1, plan: 'premium', trial_estado: 'convertido' }, '1');
+    for (const [campos] of usuariosChain.update.mock.calls) {
+      expect(campos).not.toHaveProperty('plan');
+      expect(campos).not.toHaveProperty('premium_vence');
+      expect(campos).not.toHaveProperty('estado_pago');
+    }
+  });
+
+  it('el wipe avisa al admin, y ese aviso NO va al usuario', async () => {
+    obtenerCuentasGmail.mockResolvedValue([]);
+    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1, nombre: 'Diego' }, '1');
+    const avisos = mensajesAlAdmin();
+    expect(avisos.length).toBe(1);
+    expect(avisos[0]).toMatch(/BAJA DECLARADA/);
+    // Lo que hace accionable el aviso: quién y cuánto perdió.
+    expect(avisos[0]).toContain('Diego');
+    // Y la persona recibe SU mensaje, no el interno.
+    expect(enviado).toMatch(/eliminad/i);
+    expect(enviado).not.toMatch(/BAJA DECLARADA/);
+  });
+
+  it('el aviso distingue a un Pro PAGADO de alguien que solo probó', async () => {
+    obtenerCuentasGmail.mockResolvedValue([]);
+    await enviarTexto({
+      id: 'u1', onboarding_paso: -1, nombre: 'Diego',
+      plan: 'premium', trial_estado: 'convertido', tipo_plan: 'anual', premium_vence: '2027-07-01',
+    }, '1');
+    const aviso = mensajesAlAdmin()[0];
+    expect(aviso).toMatch(/ES PRO PAGADO/);
+    expect(aviso).toContain('anual');
+    expect(aviso).toContain('2027-07-01');
+  });
+
+  it('un trial en curso NO se anuncia como pagado', async () => {
+    obtenerCuentasGmail.mockResolvedValue([]);
+    await enviarTexto({ id: 'u1', onboarding_paso: -1, plan: 'premium', trial_estado: 'activo' }, '1');
+    expect(mensajesAlAdmin()[0]).not.toMatch(/ES PRO PAGADO/);
+  });
+
+  // El diseño de "limpiar la marca al volver" se DESCARTÓ: `onboarding_completado = true`
+  // se escribe en otros cinco lugares que no limpiaban nada, y `merge_and_link` hereda las
+  // dos columnas juntas, así que tras un merge la marca quedaba puesta con el alta ya
+  // cerrada — sin salida. Ahora la columna es un HECHO que no se toca nunca, y "¿está de
+  // baja hoy?" lo deriva `esBajaDeclarada` en la webapp comparando contra el pago.
+  // supabase-js NO lanza: devuelve { error }. Sin leerlo, un statement timeout dejaba los
+  // datos intactos y el flujo seguía afirmando tres cosas falsas (al usuario, al admin y en
+  // la marca). Mutación que mata esto: sacar el `if (error)` del bucle de deletes.
+  it('si el borrado FALLA no se marca la baja ni se le miente al usuario', async () => {
+    otherChains = {};
+    // Se siembra el chain de transacciones con error ANTES de que el handler lo pida.
+    otherChains['transacciones'] = makeChain([], { error: { message: 'statement timeout' } });
+    obtenerCuentasGmail.mockResolvedValue([]);
+    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1');
+    expect(enviado).toMatch(/no pude eliminar/i);
+    expect(enviado).not.toMatch(/eliminados|limpia/i);
+    const marcó = usuariosChain.update.mock.calls.some((c) => 'cuenta_borrada_at' in (c[0] || {}));
+    expect(marcó, 'marcó la baja aunque el borrado falló').toBe(false);
+  });
+
+  it('volver a darse de alta NO toca la marca (es un hecho, no un estado)', async () => {
+    await enviarTexto({ id: 'u1', onboarding_paso: 100 }, 'Diego');
+    for (const [campos] of usuariosChain.update.mock.calls) {
+      expect(campos).not.toHaveProperty('cuenta_borrada_at');
+    }
   });
 
   it('una cuenta, "1" → desconecta Gmail sin borrar datos', async () => {

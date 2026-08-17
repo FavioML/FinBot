@@ -423,6 +423,141 @@ describe('deshacer_ultimo', () => {
   });
 });
 
+// ─── deshacer_ultimo: la guarda de frase ambigua ────────────────────────────
+//
+// `undo` es el unico borrado sin sujeto, asi que es donde cae cualquier frase que el
+// clasificador no supo ubicar. Estos casos afirman que NO se borra sin que el mensaje
+// nombre la accion. La mutacion que los mata es quitar el `if (!PIDE_BORRAR...)` del
+// handler: los dos primeros pasan a borrar y fallan por el `delete` no llamado.
+
+describe('deshacer_ultimo — no borra si el mensaje no pidio borrar', () => {
+  // El chain de una tabla se crea LAZY, la primera vez que alguien llama from(tabla). En la
+  // ruta de la guarda no se toca `transacciones` en absoluto, asi que el chain no existe y
+  // `expect(undefined).not.toHaveBeenCalled()` revienta con "not a spy" en vez de pasar.
+  // Contar llamadas cubre los dos estados: sin chain es 0, con chain y sin delete tambien.
+  const deletesDe = (sb, tabla) => sb._chains[tabla]?.delete?.mock.calls.length ?? 0;
+
+  // Caso REAL de produccion (usuario 2cad9c8c, 17-ago-2026): escribio "Quiero reiniciar"
+  // y recibio "Deshecho: Elimine Sueldo — S/ 480.00". Nunca pidio borrar nada.
+  it('"Quiero reiniciar" no borra: pide la orden explicita', async () => {
+    const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+    const ctx = buildCtx(sb);
+    const res = await handler.handle({
+      intencion: 'deshacer_ultimo', msg: 'Quiero reiniciar',
+      datos: {}, usuario: USUARIO, from: '+51999', ctx,
+    });
+    expect(deletesDe(sb, 'transacciones')).toBe(0);
+    expect(sb.from).not.toHaveBeenCalledWith('transacciones_eliminadas');
+    expect(res).toContain('borra el último');
+    expect(res).not.toContain('Deshecho');
+  });
+
+  // Muestra QUE se borraria, para que la segunda vuelta sea una decision informada.
+  it('nombra el registro en riesgo al pedir confirmacion', async () => {
+    const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+    const ctx = buildCtx(sb);
+    const res = await handler.handle({
+      intencion: 'deshacer_ultimo', msg: 'empecemos de cero',
+      datos: {}, usuario: USUARIO, from: '+51999', ctx,
+    });
+    expect(deletesDe(sb, 'transacciones')).toBe(0);
+    expect(res).toContain('Starbucks');
+    expect(res).toContain('45.50');
+  });
+
+  // El contrapeso: la guarda no puede romper al que SI pide borrar. Si alguna de estas
+  // deja de pasar, la regex se apreto de mas y el intent quedo inalcanzable.
+  const ORDENES_REALES = [
+    'borra el último',
+    'elimina eso',
+    'deshacer',
+    'deshaz eso',
+    'undo',
+    'quita ese gasto',
+    'anula el último',
+    'cancela ese registro',
+    'me equivoqué',
+    'no era ese',
+    'está mal, bórralo',
+    'revierte eso',
+  ];
+  it.each(ORDENES_REALES)('"%s" SI borra', async (msg) => {
+    const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+    const ctx = buildCtx(sb);
+    const res = await handler.handle({
+      intencion: 'deshacer_ultimo', msg,
+      datos: {}, usuario: USUARIO, from: '+51999', ctx,
+    });
+    expect(res).toContain('Deshecho');
+    expect(sb._chains['transacciones'].delete).toHaveBeenCalled();
+  });
+
+  // LA PUERTA GEMELA. `delete` y `undo` salen del MISMO tool (`manage_transaction`) y quién
+  // de los dos sale lo elige gpt-4o-mini. Guardar solo `undo` dejaba a `eliminar_transaccion`
+  // sin comercio/monto/fecha haciendo exactamente lo mismo: borrar lo último que haya. El
+  // comentario de PIDE_BORRAR afirmaba que undo era el único borrado sin sujeto y era falso;
+  // lo levantó la revisión adversarial, no la suite.
+  it('eliminar_transaccion SIN sujeto tampoco borra con una frase ambigua', async () => {
+    const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+    const ctx = buildCtx(sb);
+    const res = await handler.handle({
+      intencion: 'eliminar_transaccion', msg: 'Quiero reiniciar',
+      datos: {}, usuario: USUARIO, from: '+51999', ctx,
+    });
+    expect(deletesDe(sb, 'transacciones')).toBe(0);
+    expect(res).toContain('borra el último');
+  });
+
+  // Y con sujeto explícito sigue borrando sin fricción: nombrar QUÉ borrar ES la orden.
+  it('eliminar_transaccion CON comercio borra aunque la frase no diga "borra"', async () => {
+    const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+    const ctx = buildCtx(sb, {
+      corregirTransaccionEspecifica: vi.fn().mockResolvedValue({ ok: true, comercio: 'Starbucks', monto: 45.5, moneda: 'PEN' }),
+    });
+    const res = await handler.handle({
+      intencion: 'eliminar_transaccion', msg: 'el de Starbucks no va',
+      datos: { comercio: 'Starbucks' }, usuario: USUARIO, from: '+51999', ctx,
+    });
+    expect(res).not.toContain('No estoy seguro');
+  });
+
+  // El agujero más grave del PRIMER arreglo: PIDE_BORRAR acepta `elimin`/`borr`/`cancel`,
+  // así que las frases de borrar la CUENTA pasaban la guarda y terminaban borrando el
+  // último gasto. Son justo las más caras de confundir.
+  const FRASES_DE_CUENTA = [
+    'quiero eliminar mi cuenta',
+    'borra todos mis datos',
+    'cancela mi cuenta',
+    'quiero borrar mi historial',
+  ];
+  it.each(FRASES_DE_CUENTA)('"%s" NO borra un gasto', async (msg) => {
+    for (const intencion of ['deshacer_ultimo', 'eliminar_transaccion']) {
+      const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+      const ctx = buildCtx(sb);
+      const res = await handler.handle({
+        intencion, msg, datos: {}, usuario: USUARIO, from: '+51999', ctx,
+      });
+      expect(deletesDe(sb, 'transacciones'), intencion + ' borró con: ' + msg).toBe(0);
+      expect(res).not.toContain('Deshecho');
+    }
+  });
+
+  // Un `msg` ausente no puede convertirse en un borrado silencioso: sin texto no hay
+  // forma de saber que pidio, y el default tiene que ser no tocar nada.
+  it('msg vacio o ausente no borra', async () => {
+    for (const msg of ['', null, undefined]) {
+      const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+      const ctx = buildCtx(sb);
+      const res = await handler.handle({
+        intencion: 'deshacer_ultimo', msg,
+        datos: {}, usuario: USUARIO, from: '+51999', ctx,
+      });
+      expect(deletesDe(sb, 'transacciones')).toBe(0);
+      expect(res).not.toContain('Deshecho');
+    }
+  });
+});
+
 // ─── restaurar_eliminado ────────────────────────────────────────────────────
 
 describe('restaurar_eliminado', () => {

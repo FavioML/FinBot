@@ -236,7 +236,29 @@ describe('desconectar revoca en Google, no solo marca la fila', () => {
     const paso = ONBOARDING.slice(ONBOARDING.indexOf('onboarding_paso === -1'));
     const flips = (paso.match(/from\('gmail_cuentas'\)\s*\.update\(\{\s*activa:\s*false/g) || []).length;
     expect(flips, 'quedó un `activa: false` suelto: revoca en Google en vez de marcar la fila').toBe(0);
-    expect((paso.match(/revocarAccesoGmail\s*\(/g) || []).length).toBeGreaterThanOrEqual(4);
+  });
+
+  /**
+   * Antes esto era `>= 4 llamadas a revocarAccesoGmail después del paso -1`, y ese número
+   * estaba acoplado a que el wipe estuviera COPIADO dos veces. Al unificar las tres copias
+   * en `ejecutarBorradoTotal` el conteo bajó a 3 y el guard se puso rojo sin que ninguna
+   * salida hubiera dejado de revocar — un falso positivo que invitaba a bajar el número
+   * hasta que dejara de molestar, que es como un guard se convierte en decoración.
+   *
+   * Lo que de verdad se quiere afirmar es que CADA salida de desconexión le habla a Google,
+   * y eso son los cuatro motivos. Es más estricto que un conteo (un motivo que desaparece
+   * se nombra) y no se rompe porque el código cambie de lugar. Se busca en el archivo
+   * entero, no desde el paso -1: la función del wipe vive arriba a propósito.
+   */
+  const MOTIVOS_QUE_REVOCAN = [
+    'usuario_desconecto_una',    // multi-cuenta, una sola
+    'usuario_desconecto_todas',  // multi-cuenta, todas
+    'usuario_desconecto',        // cuenta única
+    'usuario_borro_cuenta',      // wipe total
+  ];
+  it.each(MOTIVOS_QUE_REVOCAN)('la salida "%s" revoca en Google', (motivo) => {
+    const re = new RegExp("revocarAccesoGmail\\([^)]*motivo:\\s*'" + motivo + "'");
+    expect(re.test(ONBOARDING), 'no hay revocación con motivo ' + motivo).toBe(true);
   });
 
   it('el wipe revoca ANTES de borrar la fila (después ya no hay token)', () => {
