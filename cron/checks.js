@@ -495,47 +495,96 @@ async function checkAlertasProactivas() {
   } catch (e) { log.error({ tag: 'ALERTA_PROACTIVA', err: e.message }, 'Error alertas proactivas'); }
 }
 
+/**
+ * El empujón a quien se dio de alta y todavía no anotó NADA.
+ *
+ * **El criterio es "no tiene ni una transacción", no `onboarding_completado`**, y
+ * ese cambio se pagó con 12 días de silencio. Hasta el 17-ago-2026 esta función
+ * seleccionaba con `onboarding_completado.eq.false`, que describía bien al usuario
+ * del alta VIEJA (nombre → email → plan, varios mensajes en los que la columna
+ * seguía en false). Desde el alta reordenada del 31-jul (`3c992bb`, migración 051)
+ * `completarAlta()` la pone en **true** apenas la persona da su nombre o dice
+ * "saltar", así que el que completa el alta y no anota nada quedaba FUERA del
+ * filtro — que es exactamente a quien este mensaje apunta.
+ *
+ * Medido antes de tocar nada: último envío de tipo `onboarding` el **5-ago**, con
+ * 22 altas posteriores; de los 8 usuarios de agosto que nunca registraron una
+ * transacción, **ninguno** recibió esto y cuatro no recibieron absolutamente nada.
+ * El cron corría, no fallaba y no logueaba error: simplemente su población se
+ * había vaciado porque cambió el significado de una columna en otro archivo.
+ *
+ * **La ventana de 3-6h no es estética: es lo único que hace esto entregable.** El
+ * WhatsApp libre sólo sale dentro de las 24h desde el último mensaje del usuario,
+ * y acá esa ventana está abierta por construcción (se acaba de dar de alta). El
+ * contraste está medido en `notification_deliveries`: `activacion_ok` entrega 8 de
+ * 8 porque va pegado a un mensaje de la persona, mientras los `survey_wake_up_*`,
+ * que persiguen inactivos de semanas, entregan **0 de 28**. No muevas esto a "al
+ * día siguiente" sin asumir que dejará de llegar.
+ *
+ * **El ledger es `notification_deliveries`**, no una columna de `usuarios`. Antes
+ * se marcaba pisando `onboarding_paso` a 100, y con el criterio nuevo eso sería un
+ * bug de verdad: `manejarOnboarding` trata el siguiente mensaje de un usuario en
+ * paso 100 como su NOMBRE, así que el primer gasto de alguien con el alta ya
+ * cerrada se convertiría en su nombre en vez de registrarse.
+ */
 async function checkRecordatorioOnboarding() {
   const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
   if (horaLima.getHours() < 9 || horaLima.getHours() >= 21) return;
   try {
     const hace6h = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
     const hace3h = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
-    const { data: usuarios } = await supabase.from('usuarios').select('id, whatsapp, nombre, onboarding_paso, onboarding_completado')
-      .or('onboarding_completado.is.null,onboarding_completado.eq.false')
+    const { data: candidatos, error: errCand } = await supabase.from('usuarios')
+      .select('id, whatsapp, nombre, onboarding_paso')
       .gte('created_at', hace6h)
       .lte('created_at', hace3h)
-      .in('onboarding_paso', [0, 100, 101]);
-    if (!usuarios || usuarios.length === 0) return;
+      .neq('is_test_user', true);
+    // supabase-js no lanza: sin leer el error, una caída se lee igual que "no hay
+    // nadie a quien empujar" y este cron se apaga en silencio por segunda vez.
+    if (errCand) {
+      log.error({ tag: 'ONBOARDING_REMINDER', err: errCand.message }, 'No se pudo leer a los candidatos del nudge');
+      return;
+    }
+    if (!candidatos || candidatos.length === 0) return;
+
+    const ids = candidatos.map((u) => u.id);
+    const [{ data: conTx, error: errTx }, { data: yaAvisados, error: errAvisos }] = await Promise.all([
+      supabase.from('transacciones').select('usuario_id').in('usuario_id', ids),
+      supabase.from('notification_deliveries').select('usuario_id').eq('tipo', 'onboarding').in('usuario_id', ids),
+    ]);
+    if (errTx || errAvisos) {
+      // Mismo criterio: sin poder descartar, NO se manda. Un error leído como
+      // "este no tiene transacciones" le escribe a quien ya está usando Neto.
+      log.error({ tag: 'ONBOARDING_REMINDER', errTx: errTx?.message, errAvisos: errAvisos?.message }, 'No se pudo descartar candidatos; no se envía nada');
+      return;
+    }
+    const activados = new Set((conTx || []).map((t) => t.usuario_id));
+    const avisados = new Set((yaAvisados || []).map((d) => d.usuario_id));
+    const usuarios = candidatos.filter((u) => !activados.has(u.id) && !avisados.has(u.id));
+    if (usuarios.length === 0) return;
     for (const u of usuarios) {
       try {
         const primerNombre = u.nombre ? u.nombre.split(' ')[0] : null;
-        let nudge = '';
-        if (u.onboarding_paso === 0 || u.onboarding_paso === 100) {
-          // Ya no se pide "completar el registro": el registro es esto. Se pide
-          // el primer gasto, que es lo único que hace que Neto sirva de algo.
-          nudge = '👋 ' + (primerNombre ? primerNombre + ', a' : 'A') + 'nótame un gasto y te muestro cómo funciono.\n\n' +
-            '📝 _"gasté 20 en taxi"_\n' +
-            '📸 O mándame la foto de un Yape\n\n' +
-            '_Si prefieres, dime *saltar* y lo dejamos para después._';
-        } else if (u.onboarding_paso === 101) {
-          // El paso del email ya no existe (migración 051). Si igual queda alguien
-          // acá, se le pide un gasto, nunca el correo.
-          nudge = '👋 ' + (primerNombre || 'Hola') + ', tu cuenta ya está lista.\n\n' +
-            'Anótame tu primer gasto: _"gasté 20 en taxi"_ 📝';
-        }
-        if (nudge) {
-          await notificarUsuario({
-            canales: CANALES.SOLO_WHATSAPP,
-            motivo: 'le habla a quien registró cero gastos y todavía no tiene cuenta web: no hay campana donde mostrar nada, y el mensaje ES el empujón para que empiece',
-            usuarioId: u.id, whatsapp: u.whatsapp, tipo: 'onboarding', mensaje: nudge,
-          });
-          if (u.onboarding_paso === 0) {
-            await supabase.from('usuarios').update({ onboarding_paso: 100 }).eq('id', u.id);
-          }
-        }
+        // Un solo mensaje, y no ramifica por `onboarding_paso`: con el criterio
+        // nuevo el paso ya no dice nada sobre esta persona (el alta se cierra en
+        // el primer o segundo turno). Lo que la define es que no anotó nada, y a
+        // eso se le responde siempre lo mismo — pedir el primer gasto, con la
+        // salida de "saltar" a la vista.
+        const nudge = '👋 ' + (primerNombre ? primerNombre + ', a' : 'A') + 'nótame un gasto y te muestro cómo funciono.\n\n' +
+          '📝 _"gasté 20 en taxi"_\n' +
+          '📸 O mándame la foto de un Yape\n\n' +
+          '_Si prefieres, dime *saltar* y lo dejamos para después._';
+        await notificarUsuario({
+          canales: CANALES.SOLO_WHATSAPP,
+          motivo: 'le habla a quien registró cero gastos y todavía no tiene cuenta web: no hay campana donde mostrar nada, y el mensaje ES el empujón para que empiece',
+          usuarioId: u.id, whatsapp: u.whatsapp, tipo: 'onboarding', mensaje: nudge,
+        });
+        // NO se toca `onboarding_paso`. La marca de "ya se le mandó" es la fila que
+        // `notificarUsuario` deja en `notification_deliveries`, que además es el
+        // registro real del envío. Pisar el paso a 100 acá mandaría el próximo
+        // mensaje de la persona al parser de NOMBRES.
       } catch(e) { log.error({ tag: 'ONBOARDING_REMINDER', userId: u.id, err: e.message }, 'Error empujando el nudge de onboarding'); }
     }
+    log.info({ tag: 'ONBOARDING_REMINDER', enviados: usuarios.length, candidatos: candidatos.length }, 'Nudges de primer gasto enviados');
   } catch(e) { log.error({ tag: 'ONBOARDING_REMINDER', err: e.message }, 'Error recordatorio onboarding'); }
 }
 
