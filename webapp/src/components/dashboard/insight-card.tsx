@@ -1,58 +1,25 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
 import { Sparkles, RefreshCw } from 'lucide-react';
 import { motion } from 'motion/react';
+import { useAdvice, type AdviceContext } from '@/lib/hooks/use-advice';
 
 interface InsightCardProps {
   insight?: string;
   /** Financial context for AI advice */
-  aiContext?: {
-    totalGastos: number;
-    totalIngresos: number;
-    topCategorias: string;
-    scoreFinanciero: number;
-    subscriptionTotal?: number;
-  };
+  aiContext?: AdviceContext;
   /** Si el plan permite consejos IA (/api/advice es Pro-only). Free evita la
       llamada que siempre da 403 y usa el insight rule-based local. */
   enableAI?: boolean;
 }
 
 export function InsightCard({ insight, aiContext, enableAI = true }: InsightCardProps) {
-  const [aiAdvice, setAiAdvice] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [isAI, setIsAI] = useState(false);
-
-  const fetchAiAdvice = useCallback(async () => {
-    if (!enableAI || !aiContext || aiContext.totalGastos === 0) return;
-    setLoading(true);
-    try {
-      const res = await fetch('/api/advice', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(aiContext),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.advice) {
-          setAiAdvice(data.advice);
-          setIsAI(true);
-        }
-      }
-    } catch {
-      // Silently fall back to rule-based insight
-    } finally {
-      setLoading(false);
-    }
-  }, [aiContext]);
-
-  // Auto-fetch AI advice on mount (once) — solo si el plan lo permite
-  useEffect(() => {
-    if (enableAI && aiContext && aiContext.totalGastos > 0 && !aiAdvice && !loading) {
-      fetchAiAdvice();
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // El consejo vive en React Query, no en estado del componente: hay TRES
+  // InsightCard en el árbol del dashboard (grid desktop, móvil y vista anual) y
+  // cambiar de vista desmonta uno para montar otro. Con estado local, cada
+  // montaje pagaba otra llamada a GPT-4o-mini. Ver `use-advice.ts`.
+  const { data: aiAdvice, isFetching: loading, refetch } = useAdvice(aiContext, enableAI);
+  const isAI = !!aiAdvice;
 
   const text = aiAdvice || insight || 'Conecta tus datos para recibir consejos personalizados de IA';
 
@@ -101,7 +68,7 @@ export function InsightCard({ insight, aiContext, enableAI = true }: InsightCard
           </p>
           {isAI && !loading && aiContext && (
             <button
-              onClick={fetchAiAdvice}
+              onClick={() => refetch()}
               className="mt-2 text-[10px] text-[#8A877D] hover:text-[#1D9E75] transition-colors flex items-center gap-1"
             >
               <RefreshCw className="h-2.5 w-2.5" />
