@@ -2,6 +2,33 @@ const log = require('../../lib/logger');
 const { colaConfirmacionGasto } = require('../../lib/trial');
 const { validarMonto } = require('../../lib/validators');
 const { subcategoriaUtil, esSubSinClasificar } = require('../../lib/subcategoria');
+const { extraerGastoSinIA, quitarTokensDeMoneda, contarMontosCandidatos } = require('../../lib/nlp-guards');
+
+// Un mensaje que es SOLO un número (con o sin moneda) no se rescata.
+//
+// `extraerGastoSinIA` sí lo acepta, por su rama "número suelto + una o dos palabras", que
+// existe para "4.10 pastillas". Ahí la palabra es la evidencia de que hubo una compra. Sin
+// NINGUNA palabra no queda evidencia de nada, y los dos casos reales que se midieron eran
+// SALDOS: "592.91" y —una vez reformulado— "En mi cuenta de ahorros de BCP tengo 1045.21".
+// Uno de esos usuarios había pagado S/10 esa mañana, terminó anotando su saldo como ingreso
+// porque era la única forma de que entrara, y su resumen del día quedó diciendo
+// "Ingresos: S/ 3815.70" sobre plata que no era ingreso.
+//
+// O sea que acá el rebote es lo CORRECTO y registrarlo en silencio sería peor que hoy:
+// modelar saldos es otra decisión de producto, no este arreglo.
+//
+// La lista de monedas NO se escribe acá: se le pide a `nlp-guards`, que es donde vive la que
+// usa el extractor. La primera versión sí tenía lista propia y aceptaba la moneda solo como
+// PREFIJO, así que "592.91 usd" se escapaba y entraba como gasto en dólares — o sea el saldo
+// multiplicado por el tipo de cambio en `monto_pen`, que es lo que alimenta reportes y score.
+// Y "20 lucas" registraba mientras "250 soles" rebotaba, siendo lo mismo.
+//
+// La guarda vive en este call-site y NO adentro de `extraerGastoSinIA` a propósito: tocarlo
+// allá cambiaría también el camino del 429, que es otro contexto (ahí no hubo clasificador y
+// el mensaje se pierde entero si nadie lo rescata).
+function esSoloUnNumero(msg) {
+  return /^\s*\d+(?:[.,]\d+)?\s*[.!]?\s*$/.test(quitarTokensDeMoneda(msg));
+}
 
 // El LLM a veces clasifica queries como register_transaction tras un burst de gastos
 // previos en el contexto (bal-001/004/005). Cuando el parser falla por falta de monto,
@@ -229,9 +256,21 @@ module.exports = {
             throw eParser;
           }
           if (!parsed.ok || !parsed.monto || parsed.monto <= 0) {
-            // Las dos salidas de acá abajo (redirect a query, o el mensaje de "no pude extraer")
-            // no leen `detCat`: cancelar antes de tomarlas.
-            abortoDetCat.abort();
+            // OJO con `abortoDetCat`: hasta acá se cancelaba al ENTRAR a esta rama, porque
+            // las dos salidas que había (redirect a query, rebote) no leen `detCat`. Ahora
+            // hay una tercera que SÍ sigue al camino normal, así que la cancelación bajó a
+            // estar pegada a cada `return`.
+            //
+            // Lo que se pierde cancelando arriba es la CATEGORÍA, no el gasto:
+            // `detectarCategoriaIA` (services/categories.js) envuelve la llamada al modelo en
+            // un try cuyo catch devuelve `{categoria:null}`, y el `AbortError` cae ahí
+            // adentro, así que `pDetCat` NO rechaza por el abort. El rescate seguiría, pero
+            // toda fila rescatada quedaría en 'Otros' aunque el clasificador supiera la
+            // categoría.
+            //
+            // (Una versión anterior de este comentario decía que el gasto se perdía por el
+            // catch genérico. Era falso, y el test que lo "probaba" mockeaba un rechazo que
+            // la función real no produce. Lo encontró la revisión adversarial del arreglo.)
             const redirect = detectarQuerySinMonto(msg);
             if (redirect) {
               try {
@@ -240,10 +279,98 @@ module.exports = {
                 const { dispatchIntent } = require('../intent-registry');
                 log.info({ tag: 'QUERY_REDIRECT', from: 'registrar_manual', to: redirect.intencion, msg: msg.substring(0, 80) }, 'Query disfrazada como register (post-parser-fail)');
                 const dRedir = await dispatchIntent({ intencion: redirect.intencion, msg, datos: redirect.datos, usuario, from, ctx });
-                if (dRedir.manejado) { ctx.redirigidoAQuery = true; return dRedir.respuesta; }
+                if (dRedir.manejado) { abortoDetCat.abort(); ctx.redirigidoAQuery = true; return dRedir.respuesta; }
               } catch(eRedir) { log.warn({ tag: 'QUERY_REDIRECT', err: eRedir.message }, 'Fallback redirect falló'); }
             }
-            return 'No pude extraer el monto. Dime algo como: "gasté S/50 en farmacia" o "mi sueldo fue S/4500".';
+
+            // Rescate determinístico. `parsearRegistroManual` le pregunta a gpt-4o-mini, y
+            // medido el 2026-08-18 el modelo devuelve `{ok:false}` sobre mensajes donde el
+            // monto está escrito en dígitos: "Gasté X en Movilidad" falla con 0.5 y con 20,
+            // mientras "gasté X en taxi" entra con los dos. No es el monto, ni las mayúsculas,
+            // ni la tilde, ni que el sustantivo sea categoría o comercio — se probaron las
+            // cuatro. Es que a `temperature: 0` el modelo sigue siendo inestable en una banda
+            // angosta de mensajes, y qué cae adentro no se deriva de ninguna regla: en una
+            // batería de 24 sustantivos, 21 entraron 3/3, "Movilidad" 0/3 y "Snack" 2/3, y
+            // "movilidad" dio 4/4 y 1/3 en dos corridas de la misma cadena.
+            //
+            // Por eso el arreglo NO es enseñarle al prompt (no hay familia que enseñar, y un
+            // cambio de prompt no se puede matar por mutación) ni alargar un regex hasta que
+            // pasen los casos conocidos. Es preguntarle a un extractor DETERMINÍSTICO si en
+            // el texto hay un monto que el modelo descartó.
+            //
+            // `extraerGastoSinIA` no es código nuevo: es el mismo rescate que ya corre en el
+            // camino del 429, ya probado y ya en producción. Acá corre en una posición MÁS
+            // segura que allá — allá no hay clasificador y tiene que bastarse solo; acá el
+            // clasificador ya dijo `registrar_manual` y el redirect a query ya no lo quiso.
+            //
+            // Riesgo medido sobre `tests/nlp/pool.js` (510 casos reales): el extractor
+            // responde en 20 mensajes cuyo intent NO es registro, y eso es la COTA. En esta
+            // posición el rescate exige además que el clasificador haya mandado el mensaje
+            // acá: los 20 se van a `eliminar_transaccion` / `editar_monto` / `abonar_deuda`,
+            // o sea 0 llegan. Lo mide `qa-e2e/probe-parser-montos-rescate.mjs`.
+            //
+            // Se llena `parsed` y se sigue por el camino normal a propósito, en vez de
+            // guardar acá: así el rescate hereda la categorización, el árbol de categorías,
+            // los guards de fecha, `guardarTransaccion` (dueño de la validación, del USD→PEN
+            // y del dedup), la alerta de presupuesto y la cola del trial. Un `guardarTransaccion`
+            // propio en esta rama sería la lógica de plata paralela que este repo no quiere.
+            // Con DOS O MÁS montos candidatos tampoco se rescata, y ésta es la guarda que
+            // más daño evita. `detectarMultiGasto` exige verbo + preposición, así que
+            // "15 taxi 40 cena" no le dispara y cae acá; el extractor entra por la rama del
+            // número suelto, se queda con el PRIMER monto y mete el resto adentro del nombre
+            // del comercio: se guardaba S/15 con comercio "taxi 40 cena" y la persona veía un
+            // ✅ creyendo que entraron los dos. Es la misma falla que el docblock de
+            // `primerMonto` declara inaceptable, entrando por otra puerta.
+            //
+            // Con más de un número no se puede saber cuál es el monto, y adivinar sobre plata
+            // ajena no es una opción: rebota, y el copy nuevo dice justamente "va uno por
+            // mensaje". Medido sobre `tests/nlp/pool.js`: cuesta CERO rescates legítimos
+            // (68 antes, 68 después) y elimina 4 falsos positivos más.
+            //
+            // Y NO se rescata si `detectarQuerySinMonto` reconoció una consulta, aunque el
+            // dispatch de arriba haya fallado. El `catch` de ese try es para un fallo
+            // TRANSITORIO (el handler de lectura reventó), no para reinterpretar el mensaje:
+            // si se cae ahí, lo que corresponde es no responder nada útil, no registrarle un
+            // gasto a quien preguntó algo. Sin esta condición, un timeout convertía
+            // "gasté 20 en movilidad, cuánto llevo hoy" en una transacción — apareció como un
+            // test que tardó 28s y falló, o sea el escenario de red exacto.
+            const rescate = (redirect || esSoloUnNumero(msg) || contarMontosCandidatos(msg) > 1)
+              ? null : extraerGastoSinIA(msg);
+            if (!rescate) {
+              abortoDetCat.abort();
+              // El texto viejo decía 'Dime algo como: "gasté S/50 en farmacia"' — o sea le
+              // pedía a la persona exactamente lo que acababa de escribir. Con el rescate
+              // puesto, lo que queda rebotando son otras dos cosas, y el copy nombra esas:
+              // el monto dictado en palabras ("ciento diez punto setenta") y varios gastos
+              // en un solo mensaje.
+              return 'No pude leer el monto de ahí. Mándamelo con el número en dígitos y qué fue, así: "110.70 carne". Si son varios gastos, va uno por mensaje.';
+            }
+            log.info({ tag: 'RESCATE_MONTO', monto: rescate.monto, tipo: rescate.tipo, msg: (msg || '').substring(0, 80) }, 'El parser no devolvió monto; rescate determinístico lo reconstruyó');
+            parsed = {
+              ok: true,
+              monto: rescate.monto,
+              moneda: rescate.moneda,
+              tipo: rescate.tipo,
+              comercio: rescate.comercio || 'Sin comercio',
+              // Categoría de arranque: `detectarCategoriaIA` la pisa unas líneas más abajo
+              // si tiene algo mejor. Los mismos defaults que usa `salvarGastoSinIA`.
+              categoria: rescate.tipo === 'ingreso' ? 'Finanzas' : 'Otros',
+              subcategoria: 'sin_categoria',
+              // Hoy, y NO la fecha del modelo: acá no hay salida del modelo. Los guards de
+              // fecha de abajo corrigen sobre esto si el mensaje dice "ayer" o un weekday.
+              fecha: fechaHoy,
+              // `parsearRegistroManual` NO devuelve este campo (no está en su schema), así
+              // que hasta ahora toda fila de `registrar_manual` lo tenía en null y las
+              // rescatadas son las primeras que lo llevan. Arrastra dos efectos, los dos
+              // conocidos y aceptados: `guardarTransaccion` le corre `extraerLast4` (puede
+              // poblar `tarjeta_last4` y afinar el dedup), y `eliminar_transaccion` upsertea
+              // en `gmail_excluidos` toda fila con este campo. Se conserva igual porque es el
+              // mismo contrato que ya tiene `salvarGastoSinIA` —el otro rescate, el del 429—
+              // y que el import de Excel; hacerlo distinto acá partiría en dos el registro de
+              // "qué escribió realmente la persona", que es lo único que permite diagnosticar
+              // esta clase de bug.
+              descripcion_original: (msg || '').trim().substring(0, 200),
+            };
           }
           // Guard weekday: el clasificador a veces devuelve fecha cuyo día de la semana no
           // coincide con "el <weekday> pasado". Validador puro post-OpenAI, cero prompt.

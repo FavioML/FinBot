@@ -121,8 +121,21 @@ describe('registrar_manual', () => {
     const sb = makeSupabaseMock();
     const ctx = buildCtx(sb, { parsearRegistroManual: vi.fn().mockResolvedValue({ ok: false, monto: 0 }) });
     const res = await handler.handle({ intencion: 'registrar_manual', msg: 'gaste algo', datos: {}, usuario: USUARIO, from: '+51999', ctx });
-    expect(res).toContain('No pude extraer el monto');
+    expect(res).toContain('No pude leer el monto');
     expect(ctx.guardarTransaccion).not.toHaveBeenCalled();
+  });
+
+  // El copy del rebote le pedia a la persona EXACTAMENTE lo que acababa de escribir: decia
+  // 'Dime algo como: "gaste S/50 en farmacia"' a quien habia escrito "Gaste 1.5 en Movilidad".
+  // Lo que queda rebotando despues del rescate es otra cosa (monto dictado en palabras, o
+  // varios gastos juntos) y el texto tiene que nombrar eso.
+  it('el rebote ya no pide el formato que la persona ya usó', async () => {
+    const sb = makeSupabaseMock();
+    const ctx = buildCtx(sb, { parsearRegistroManual: vi.fn().mockResolvedValue({ ok: false, monto: 0 }) });
+    const res = await handler.handle({ intencion: 'registrar_manual', msg: 'gaste algo', datos: {}, usuario: USUARIO, from: '+51999', ctx });
+    expect(res).not.toMatch(/gast[eé] S\/50 en farmacia/i);
+    expect(res).toMatch(/d[ií]gitos/i);
+    expect(res).toMatch(/uno por mensaje/i);
   });
 
   it('llama crearSubcategoriaLibreUsuario para subcategorias custom', async () => {
@@ -170,6 +183,207 @@ describe('registrar_manual', () => {
     const res = await handler.handle({ intencion: 'registrar_manual', msg: 'gaste 50 en cafe', datos: {}, usuario: USUARIO, from: '+51999', ctx });
 
     expect(res).toContain('Alimentacion > Cafeteria');
+  });
+});
+
+// ─── registrar_manual: rescate cuando el modelo descarta un monto que SÍ está ───
+//
+// Medido el 2026-08-18 sobre 20 rebotes reales de 14 usuarios: en 16 de ellos el mensaje
+// llegó bien a `registrar_manual` y el que devolvió `{ok:false}` fue gpt-4o-mini, sobre
+// mensajes con el monto en dígitos. No hay regla que prediga cuáles: "Gasté X en Movilidad"
+// falla con 0.5 y con 20, "gasté X en taxi" entra con los dos, y la misma cadena dio 4/4 y
+// 1/3 en dos corridas. Por eso el arreglo es un extractor determinístico, no un prompt nuevo
+// ni un regex más largo.
+describe('registrar_manual — rescate determinístico del monto', () => {
+  it('rescata el gasto cuando el modelo devuelve ok:false pero el monto está en el texto', async () => {
+    const sb = makeSupabaseMock({ transacciones: [] });
+    const ctx = buildCtx(sb, {
+      parsearRegistroManual: vi.fn().mockResolvedValue({ ok: false }),
+      detectarCategoriaIA: vi.fn().mockResolvedValue({}),
+      guardarTransaccion: vi.fn().mockResolvedValue({ id: 'tx-r1', categoria: 'Otros', subcategoria: 'Sin_categoria' }),
+    });
+    const res = await handler.handle({ intencion: 'registrar_manual', msg: 'Gasté 1.5 en Movilidad', datos: {}, usuario: USUARIO, from: '+51999', ctx });
+
+    expect(ctx.guardarTransaccion).toHaveBeenCalledOnce();
+    expect(ctx.guardarTransaccion.mock.calls[0][1]).toMatchObject({ monto: 1.5, moneda: 'PEN', tipo: 'gasto' });
+    expect(res).toContain('S/1.50');
+  });
+
+  /**
+   * El `abort()` estaba al ENTRAR a la rama de "sin monto", porque las dos salidas que había
+   * no leían `detCat`. El rescate agrega una tercera que sí sigue al camino normal, y dejarlo
+   * arriba hace que toda fila rescatada quede en 'Otros' aunque el clasificador supiera la
+   * categoría.
+   *
+   * El mock TIENE que honrar la señal, o la cancelación no se observa y el test pasa verde
+   * con el bug puesto. Y tiene que honrarla COMO LA FUNCIÓN REAL: `detectarCategoriaIA`
+   * atrapa el `AbortError` en su propio try y devuelve `{categoria:null}`, NO rechaza. Una
+   * versión anterior de este mock rechazaba, así que fijaba una decisión sobre una premisa
+   * que producción no puede producir — y hacía creer que el bug perdía el gasto entero.
+   */
+  it('el rescate NO cancela al clasificador de categorías, y usa su resultado', async () => {
+    let señal;
+    const detectarCategoriaIA = vi.fn((_msg, _uid, opts) => new Promise((resolve) => {
+      señal = opts && opts.signal;
+      if (señal) señal.addEventListener('abort', () => resolve({ categoria: null, subcategoria: null }));
+      setImmediate(() => resolve({ categoria: 'Transporte', subcategoria: 'taxi' }));
+    }));
+    const sb = makeSupabaseMock({ transacciones: [] });
+    const ctx = buildCtx(sb, {
+      parsearRegistroManual: vi.fn().mockResolvedValue({ ok: false }),
+      detectarCategoriaIA,
+      guardarTransaccion: vi.fn().mockResolvedValue({ id: 'tx-r2', categoria: 'Transporte', subcategoria: 'Taxi' }),
+    });
+    const res = await handler.handle({ intencion: 'registrar_manual', msg: 'Gasté 1.5 en Movilidad', datos: {}, usuario: USUARIO, from: '+51999', ctx });
+
+    expect(señal.aborted).toBe(false);
+    // Ésta es la aserción que mata la mutación: con el abort arriba, detCat resuelve
+    // `{categoria:null}` y la fila se guarda con el default del rescate.
+    expect(ctx.guardarTransaccion.mock.calls[0][1]).toMatchObject({ categoria: 'Transporte', subcategoria: 'taxi' });
+    expect(res).toContain('S/1.50');
+  });
+
+  /**
+   * Un mensaje que es SOLO un número no se rescata, y rebotar ahí es lo correcto.
+   * Los dos casos reales medidos eran SALDOS, no gastos. Uno de ellos es el usuario que
+   * había pagado S/10 esa mañana, terminó anotando su saldo como ingreso porque era la
+   * única forma de que entrara, y su resumen del día quedó diciendo "Ingresos: S/ 3815.70".
+   * Registrarlo en silencio como gasto sería peor que el rebote de hoy.
+   */
+  it('un mensaje que es SOLO un número no se rescata', async () => {
+    for (const msg of ['592.91', 'S/ 1045.21', '  100  ', '250 soles']) {
+      const sb = makeSupabaseMock({ transacciones: [] });
+      const ctx = buildCtx(sb, {
+        parsearRegistroManual: vi.fn().mockResolvedValue({ ok: false }),
+        detectarCategoriaIA: vi.fn().mockResolvedValue({}),
+      });
+      const res = await handler.handle({ intencion: 'registrar_manual', msg, datos: {}, usuario: USUARIO, from: '+51999', ctx });
+      expect(ctx.guardarTransaccion, 'no debería guardar: ' + JSON.stringify(msg)).not.toHaveBeenCalled();
+      expect(res).toContain('No pude leer el monto');
+    }
+  });
+
+  /**
+   * La moneda al FINAL no puede evadir la guarda de "solo un número".
+   *
+   * La primera versión escribía su propia lista de monedas y solo las aceptaba como prefijo,
+   * así que "592.91 usd" se le escapaba y entraba como gasto en DÓLARES: `guardarTransaccion`
+   * lo multiplica por el tipo de cambio, o sea un saldo de 592.91 aterrizando como ~S/2200 en
+   * `monto_pen`, que es lo que alimenta reportes y score. Y "20 lucas" registraba mientras
+   * "250 soles" rebotaba, siendo el mismo mensaje (el prompt del parser declara lucas = soles
+   * 1:1). Lo encontró la revisión adversarial del arreglo, no la suite.
+   */
+  it('la moneda al final no evade la guarda de solo-un-número', async () => {
+    for (const msg of ['592.91 usd', '592.91 PEN', '1045.21 S/', '20 lucas', '592.91 cocos', '250 soles']) {
+      const sb = makeSupabaseMock({ transacciones: [] });
+      const ctx = buildCtx(sb, {
+        parsearRegistroManual: vi.fn().mockResolvedValue({ ok: false }),
+        detectarCategoriaIA: vi.fn().mockResolvedValue({}),
+      });
+      const res = await handler.handle({ intencion: 'registrar_manual', msg, datos: {}, usuario: USUARIO, from: '+51999', ctx });
+      expect(ctx.guardarTransaccion, 'no debería guardar: ' + JSON.stringify(msg)).not.toHaveBeenCalled();
+      expect(res).toContain('No pude leer el monto');
+    }
+  });
+
+  /**
+   * Con DOS montos no se adivina cuál es: se rebota.
+   *
+   * `detectarMultiGasto` exige verbo + preposición, así que "15 taxi 40 cena" no le dispara y
+   * llega acá. El extractor entra por su rama de número suelto, se queda con el PRIMERO y
+   * mete el resto DENTRO del nombre del comercio: se guardaba S/15 con comercio "taxi 40
+   * cena" y la persona veía un ✅ creyendo que entraron los dos gastos.
+   *
+   * El caso de UN solo monto va en el mismo test: sin él, "no guardó nada" se satisface
+   * también rompiendo el rescate entero.
+   */
+  it('con dos montos en el mensaje rebota, con uno solo rescata', async () => {
+    const nuevoCtx = () => {
+      const sb = makeSupabaseMock({ transacciones: [] });
+      return buildCtx(sb, {
+        parsearRegistroManual: vi.fn().mockResolvedValue({ ok: false }),
+        detectarCategoriaIA: vi.fn().mockResolvedValue({}),
+        guardarTransaccion: vi.fn().mockResolvedValue({ id: 'tx-m', categoria: 'Otros', subcategoria: 'Sin_categoria' }),
+      });
+    };
+    for (const msg of ['15 taxi 40 cena', '20 pan, 30 leche', '20 Movilidad 30 Snack']) {
+      const ctx = nuevoCtx();
+      const res = await handler.handle({ intencion: 'registrar_manual', msg, datos: {}, usuario: USUARIO, from: '+51999', ctx });
+      expect(ctx.guardarTransaccion, 'no debería guardar: ' + JSON.stringify(msg)).not.toHaveBeenCalled();
+      expect(res).toContain('No pude leer el monto');
+    }
+    // Control: el mensaje de un solo monto —el caso que este arreglo existe para cubrir—
+    // sigue entrando. Si esto se cae, la guarda de arriba se comió el rescate.
+    const ctxOk = nuevoCtx();
+    await handler.handle({ intencion: 'registrar_manual', msg: '4.10 pastillas', datos: {}, usuario: USUARIO, from: '+51999', ctx: ctxOk });
+    expect(ctxOk.guardarTransaccion).toHaveBeenCalledOnce();
+    expect(ctxOk.guardarTransaccion.mock.calls[0][1]).toMatchObject({ monto: 4.10 });
+  });
+
+  // El rescate no inventa: si en el texto no hay número, sigue rebotando. Sin esto, el test
+  // de arriba se satisface con un extractor que devuelve cualquier cosa.
+  it('no inventa monto cuando el texto no trae ninguno', async () => {
+    const sb = makeSupabaseMock({ transacciones: [] });
+    const ctx = buildCtx(sb, {
+      parsearRegistroManual: vi.fn().mockResolvedValue({ ok: false }),
+      detectarCategoriaIA: vi.fn().mockResolvedValue({}),
+    });
+    const res = await handler.handle({ intencion: 'registrar_manual', msg: 'gasté algo en el mercado', datos: {}, usuario: USUARIO, from: '+51999', ctx });
+    expect(ctx.guardarTransaccion).not.toHaveBeenCalled();
+    expect(res).toContain('No pude leer el monto');
+  });
+
+  /**
+   * El rescate corre DESPUÉS del redirect a query, no antes.
+   *
+   * El mensaje no es cualquiera y elegirlo mal deja el test vacuo: hay DOS redirects, y el
+   * `pre` corre antes de llamar al parser, así que "cuanto gaste hoy 50" nunca llega a la
+   * rama donde vive el rescate y el test pasaría con cualquier orden. Éste matchea
+   * `tienePatronGasto` (así se saltea el pre-check), matchea `detectarQuerySinMonto`, y
+   * `extraerGastoSinIA` SÍ le lee un monto — o sea que si el rescate estuviera antes, esta
+   * consulta se registraría como gasto de S/50.
+   */
+  it('el rescate no le gana al redirect de query (post-parser)', async () => {
+    const MSG = 'gaste 50 en taxi, cuanto gaste hoy';
+    // Precondición del propio test: si alguna de las tres deja de valer, el caso dejó de
+    // ejercitar el orden y hay que elegir otro mensaje en vez de creerle al verde.
+    expect(handler.detectarQuerySinMonto(MSG)).toBeTruthy();
+    expect(require('../../lib/nlp-guards').extraerGastoSinIA(MSG)).toBeTruthy();
+
+    const sb = makeSupabaseMock({ transacciones: [] });
+    const ctx = buildCtx(sb, {
+      parsearRegistroManual: vi.fn().mockResolvedValue({ ok: false }),
+      detectarCategoriaIA: vi.fn().mockResolvedValue({}),
+    });
+    await handler.handle({ intencion: 'registrar_manual', msg: MSG, datos: {}, usuario: USUARIO, from: '+51999', ctx });
+    // Llegó al parser (o sea, se salteó el pre-check) y aun así no registró nada.
+    expect(ctx.parsearRegistroManual).toHaveBeenCalled();
+    expect(ctx.guardarTransaccion).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Y tampoco lo rescata cuando el dispatch de la consulta FALLA.
+   *
+   * No es hipotético: este test, en su primera versión, dependía de que el dispatch real
+   * funcionara, y una corrida se fue a 28 segundos y salió roja porque la llamada de red
+   * murió — el rescate se disparó sobre una consulta y registró el gasto. Lo mismo le pasa a
+   * un usuario en producción cada vez que ese handler tenga un mal rato.
+   *
+   * El fallo se INYECTA en vez de esperar que la red se caiga sola: un test que necesita mala
+   * suerte para ejercitar su rama no la ejercita nunca. Se rompe el `supabase` que el handler
+   * de lectura va a usar.
+   */
+  it('tampoco rescata si el dispatch de la consulta revienta', async () => {
+    const MSG = 'gaste 50 en taxi, cuanto gaste hoy';
+    const sb = makeSupabaseMock({ transacciones: [] });
+    sb.from = vi.fn(() => { throw new Error('supabase caido'); });
+    const ctx = buildCtx(sb, {
+      parsearRegistroManual: vi.fn().mockResolvedValue({ ok: false }),
+      detectarCategoriaIA: vi.fn().mockResolvedValue({}),
+    });
+    const res = await handler.handle({ intencion: 'registrar_manual', msg: MSG, datos: {}, usuario: USUARIO, from: '+51999', ctx });
+    expect(ctx.guardarTransaccion).not.toHaveBeenCalled();
+    expect(res).toContain('No pude leer el monto');
   });
 });
 
@@ -239,7 +453,7 @@ describe('registrar_manual — paralelismo de las dos llamadas al LLM', () => {
         detectarCategoriaIA: () => Promise.reject(new Error('supabase caido')),
       });
       const res = await handler.handle({ intencion: 'registrar_manual', msg: 'gaste algo raro', datos: {}, usuario: USUARIO, from: '+51999', ctx });
-      expect(res).toContain('No pude extraer el monto');
+      expect(res).toContain('No pude leer el monto');
 
       // Dos vueltas de macrotask: es cuando Node decide que un rechazo quedó sin dueño.
       await new Promise((r) => setTimeout(r, 0));
