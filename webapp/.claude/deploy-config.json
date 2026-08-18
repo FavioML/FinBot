@@ -5,7 +5,9 @@
     "endpoint": "/",
     "method": "GET",
     "expected_status": 200,
-    "must_contain": ["Neto"],
+    "must_contain": [
+      "Neto"
+    ],
     "timeout_ms": 10000
   },
   "deploy_strategy": {
@@ -18,9 +20,27 @@
   "canary": {
     "enabled": true,
     "checks": [
-      { "name": "homepage", "type": "http", "url": "https://app.neto.pe/", "expect_status": [200, 307] },
-      { "name": "login", "type": "http", "url": "https://app.neto.pe/login", "expect_status": 200 },
-      { "name": "api_health", "type": "http", "url": "https://api.neto.pe/health", "expect_status": 200 }
+      {
+        "name": "homepage",
+        "type": "http",
+        "url": "https://app.neto.pe/",
+        "expect_status": [
+          200,
+          307
+        ]
+      },
+      {
+        "name": "login",
+        "type": "http",
+        "url": "https://app.neto.pe/login",
+        "expect_status": 200
+      },
+      {
+        "name": "api_health",
+        "type": "http",
+        "url": "https://api.neto.pe/health",
+        "expect_status": 200
+      }
     ],
     "_supabase_nota": "Aca vivia una seccion `supabase.checks` que declaraba ['RLS active on all tables', 'tables count = 11']. Era LETRA MUERTA por partida doble: la tarea canary-daily-deploys solo ejecuta `canary.checks` (http) y `canary.harnesses`, nunca esta seccion; y el conteo estaba en 11 cuando las tablas reales son 37. Peor que no cubrir nada: le decia a la proxima auditoria que RLS estaba cubierto por el canary. Se borro en vez de arreglar el numero — un check que nadie corre no se arregla poniendole el numero de hoy. Lo que SI cubre esto de verdad: el harness `idor-cross-user` (multi-tenant contra prod, con oraculo service-role), los advisors de Supabase, y la skill /supabase-check a mano. Si algun dia se quiere RLS en el canary, va como harness ejecutable en la lista de abajo, no como string. (Q2, auditoria CTO ola 4.)",
     "harnesses": [
@@ -185,15 +205,32 @@
         "cwd": "C:/Vortik.dev/products/neto/app",
         "cost": "1 GET al OpenAPI de PostgREST. Read-only, segundos, gratis: no abre sesion, no escribe una sola fila, no toca OpenAI ni Meta.",
         "on_fail": "exit 1 = mira CUAL de los tres grupos esta rojo. (a) \"SIN CLASIFICAR\" en el grupo 1 o 2 = aparecio en la DB una columna que puede guardar el NOMBRE de una categoria y el cascade de /api/categories no la conoce. Como la taxonomia se referencia por nombre y no por FK no hay `on update cascade`: renombrar una categoria raiz desde /dashboard/configuracion o /categorias dejaria esas filas apuntando al nombre viejo, sin error y sin log — simplemente dejan de agrupar con el resto (clase consumidor-no-actualizado, defecto del 12-ago-2026). Arreglo: clasificarla en CASCADE_REFS (si sigue el arbol personal del usuario) o en EXEMPT_REFS con el motivo escrito (si es vocabulario compartido de un espacio, un enum interno, o una foto historica que no se debe reescribir), en webapp/src/lib/category-refs.ts. El grupo 2 barre TODA columna jsonb/array aunque no se llame \"categoria\": ese es el punto ciego que dejo pasar shared_spaces.split_rules[].category, que es la que mueve plata (resolveSplitPlan matchea por === exacto). (b) \"declaradas pero inexistentes en la DB\" en el grupo 3 = la declaracion nombra una columna que ya no existe; es una decision caducada que hace creer que algo esta cubierto. (c) los dos checks de anti-vacuidad (\"el barrido encontro N columnas\") rojos = el esquema publicado se encogio de golpe; sospecha de PostgREST o de un drop, no del cascade. exit 2 = NO hay veredicto, y nunca es PASS: o no se pudo leer el esquema vivo (Supabase/red, o falta el service role en qa.env / webapp/.env.local) o category-refs.ts cambio de forma y el parser quedo ciego — el mensaje dice cual de las dos listas no pudo delimitar. El guard hermetico hermano es webapp/src/lib/category-cascade.test.ts, que contesta la otra mitad (\"el codigo hace lo que la declaracion dice\") y corre en cada push; hacen falta los dos."
+      },
+      {
+        "name": "borrado-estructura",
+        "cmd": "node qa-e2e/qa-borrado-estructura.mjs",
+        "cwd": "C:/Vortik.dev/products/neto/app",
+        "cost": "1 RPC read-only (segundos, gratis). NO siembra nada.",
+        "on_fail": "exit 1 = la estructura del borrado de cuenta cambio. Cuatro causas y las cuatro importan: (a) FK NUEVA a `usuarios` sin clasificar -> el borrado la va a dejar VIVA y el `residual` no la delata, porque solo mira lo que NO esta en su allowlist; clasificala en INVENTARIO del harness Y en la allowlist de la migracion vigente. (b) cambio un ON DELETE -> un CASCADE que pasa a SET NULL deja filas huerfanas colgando de la lapida. (c) el md5 del cuerpo de `borrar_cuenta_total` o `purgar_auditoria_usuario` no coincide -> si VOS aplicaste la migracion, actualiza el hash en el harness en el mismo commit; si no, alguien la redefinio fuera del repo (este proyecto tiene 8 migraciones aplicadas desde la consola). OJO especial si `purgar_auditoria_usuario` paso a ser ejecutable por service_role: la unica puerta al rastro de borrados debe ser una baja de cuenta completa, que avisa al admin. (d) `borrados_auditoria` o `purgas_auditoria` dejaron de ser append-only para service_role, o se cayo el trigger `trg_audit_borrado`: eso deshace el invariante que nacio del incidente del 01-ago-2026. exit 2 = no se pudo leer el inventario (falta la migracion 074, credenciales o red). NO es un PASS.",
+        "_por_que_no_esta_el_harness_completo": "`qa-e2e/qa-borrado-cuenta.mjs` prueba que el borrado BORRE, pero para eso SIEMBRA: dos usuarios reales, una identidad de auth y un objeto de Storage en produccion, y deja ~16 filas por corrida en `borrados_auditoria` (medido 18-ago: 98 filas en un dia de trabajo sobre una tabla de 727). Esa tabla es la caja negra del incidente del 01-ago y la migracion 073 la hizo, a proposito, imposible de limpiar desde el backend, asi que a cadencia diaria el residuo de QA la termina dominando. Ademas el codigo del borrado no cambia sin un commit, y el criterio del canary es lo que se rompe SIN commit. Ese harness se corre a mano; su disparador esta en qa-e2e/README.md."
       }
     ],
     "post_deploy_window_min": 10,
     "alert_on_failure": true
   },
   "integrations": {
-    "posthog": { "site_property": "neto-app" },
-    "better_stack": { "monitors": ["app.neto.pe", "api.neto.pe"] },
-    "supabase": { "project_id": "zvorjqlubmfrjtkbhqcx" }
+    "posthog": {
+      "site_property": "neto-app"
+    },
+    "better_stack": {
+      "monitors": [
+        "app.neto.pe",
+        "api.neto.pe"
+      ]
+    },
+    "supabase": {
+      "project_id": "zvorjqlubmfrjtkbhqcx"
+    }
   },
   "notes": [
     "Webapp Vercel (auto-deploy) + Backend Railway separado (api.neto.pe).",

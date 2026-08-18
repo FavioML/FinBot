@@ -1097,7 +1097,8 @@ WhatsApp paso -1 ─────────────────────
 | Lo que Postgres no puede hacer (Google, Storage, Auth) | `services/account-deletion.js` |
 | El texto de WhatsApp | `handlers/onboarding.js` → `mensajeCuentaEliminada` |
 | El texto legal | `landing/src/app/privacidad/page.tsx` §8 |
-| E2E — **lo unico que prueba esto** | `qa-e2e/qa-borrado-cuenta.mjs` |
+| E2E — **lo unico que prueba que BORRE** | `qa-e2e/qa-borrado-cuenta.mjs`. **Fuera del canary a proposito**: siembra 2 usuarios reales + auth + Storage en produccion y deja ~16 filas por corrida en `borrados_auditoria`, que es append-only e imposible de limpiar desde el backend. Se corre A MANO al tocar el borrado |
+| Canary diario — la ESTRUCTURA | `qa-e2e/qa-borrado-estructura.mjs` + el RPC de solo lectura de la migracion 074. No siembra nada. Vigila lo que cambia **sin un commit**: una FK nueva a `usuarios` sin clasificar, un `ON DELETE` que cambia, los permisos de las dos funciones, el **md5 del cuerpo vivo** de `borrar_cuenta_total` (o sea, alguien redefiniendola desde el dashboard), y que las dos tablas de auditoria sigan siendo append-only |
 
 **Cuatro cosas que conviene no re-descubrir:**
 
