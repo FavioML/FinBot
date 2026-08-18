@@ -79,7 +79,15 @@ const COLS_FILA = ['id', 'space_id', 'tx_id', 'deuda_id', 'meta_id'];
 
 // RPC que mueven o borran datos de usuarios. El valor es la lista de argumentos
 // que tienen que apuntar a usuarios permitidos.
-const RPC_DESTRUCTIVOS = { merge_and_link: ['p_survivor', 'p_loser'] };
+// `borrar_cuenta_total` (migración 073) es el RPC más destructivo que existe: borra 24 tablas
+// y anonimiza la fila de `usuarios` en una sola transacción. Sin declararlo acá la barrera lo
+// dejaba pasar entero — solo valida los RPC que conoce — y un `p_usuario_id` equivocado en un
+// harness borraba la cuenta de alguien que paga, que es exactamente el caso del 01-ago-2026
+// que este archivo existe para cerrar.
+const RPC_DESTRUCTIVOS = {
+  merge_and_link: ['p_survivor', 'p_loser'],
+  borrar_cuenta_total: ['p_usuario_id'],
+};
 
 const usuariosPermitidos = new Set();
 const filasPermitidas = new Set();

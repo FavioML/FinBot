@@ -17,7 +17,10 @@ let usuariosData;
 function makeChain(table) {
   const q = { table, methods: [] };
   const chain = {};
-  for (const m of ['select', 'eq', 'neq', 'gte', 'lte', 'lt', 'gt', 'ilike', 'limit', 'order', 'not', 'in']) {
+  // `is` entra con el filtro de lapida (`.is('cuenta_borrada_at', null)`, migracion 073): un
+  // doble al que le falta un metodo que el codigo USA no devuelve un fallo claro, devuelve
+  // `undefined.eq is not a function` tres lineas mas abajo.
+  for (const m of ['select', 'eq', 'neq', 'gte', 'lte', 'lt', 'gt', 'ilike', 'limit', 'order', 'not', 'in', 'is']) {
     chain[m] = (...args) => { q.methods.push([m, ...args]); return chain; };
   }
   chain.then = (resolve) => {

@@ -719,8 +719,20 @@ function createWebhookHandler(procesarMensajeLibre) {
       // onboarding no queda ni una línea de lo que escribió (era el agujero que
       // impedía diagnosticar la fuga del paso 100/101). Best-effort como el de abajo:
       // el historial nunca debe romper el bot.
-      try { await guardarMensaje(usuario.id, 'usuario', msg); } catch (e) {}
-      try { await guardarMensaje(usuario.id, 'neto', respOnb); } catch (e) {}
+      // …MENOS cuando el mensaje que se acaba de procesar fue el borrado de la cuenta.
+      // `ejecutarBorradoTotal` vacía `conversaciones` dentro de su transacción, y estas dos
+      // líneas corren DESPUÉS: reinsertaban el último mensaje de la persona y, encima, el
+      // texto que le dice "borré todo lo que nos escribimos". O sea que el propio aviso de
+      // borrado quedaba guardado como la única conversación de una cuenta borrada, en el
+      // 100% de las bajas por WhatsApp.
+      //
+      // La marca la deja el servicio en la fila EN MEMORIA (`usuario.cuenta_borrada_at`), no
+      // se relee: agregar un SELECT acá costaría una query por cada mensaje del alta para
+      // cubrir un caso que ocurre una vez en la vida de una cuenta.
+      if (!usuario.cuenta_borrada_at) {
+        try { await guardarMensaje(usuario.id, 'usuario', msg); } catch (e) {}
+        try { await guardarMensaje(usuario.id, 'neto', respOnb); } catch (e) {}
+      }
       return;
     }
 

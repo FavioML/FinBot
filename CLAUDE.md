@@ -773,6 +773,26 @@ mandarlo a Google con otra cuenta ya cuesta el cupo, diga lo que diga el callbac
 `emailGmailVinculado()` mira el **historial** (`gmail_cuentas` sin filtrar por `activa`): una
 cuenta revocada ya gasto su cupo, asi que para "¿esto seria una cuenta nueva?" manda el pasado.
 
+**Desde la migracion 073 la comparacion es por HASH, no por el correo en claro**, y no es
+cosmetico: es lo que hace que el borrado de cuenta pueda existir sin regalar cupos. La columna
+`gmail_cuentas.email_hash` (HMAC con `GMAIL_EMAIL_HASH_PEPPER`, que vive en el entorno y NO en
+la DB) separa dos preguntas que antes compartian una sola columna:
+
+| Pregunta | Columna | En el borrado |
+|---|---|---|
+| ¿que correo pre-lleno en Google? (`login_hint`) | `email` | **se borra** — es comodidad y es dato personal |
+| ¿este correo ya gasto cupo? (el gate del canje) | `email_hash` | **sobrevive** — es el invariante |
+
+`emailGmailVinculado()` devuelve `{email, emailHash}` y la comparacion vive en **un solo lugar**,
+`esElMismoGmail()`. Devuelve TRES valores y los tres importan: `true` pasa, `false` rechaza, y
+**`null` = "no se"** (hay fila previa pero sin ninguna de las dos caras) tambien **rechaza**.
+`routes/public.js` lo trata como `!== true` a proposito: ahi el fallo seguro es no dejar pasar.
+
+Y el fail-closed del otro lado: si falta el pepper, el borrado **NO borra el correo** en vez de
+borrarlo sin dejar hash. Se prefiere retener un dato de mas antes que perder un cupo que Google
+no devuelve nunca. Vive en `asegurarHashDeGmail()` (`services/account-deletion.js`), que ademas
+hace el backfill justo antes de vaciar el correo — el unico momento en que su ausencia hace daño.
+
 ### "Conectada" y "sana" son DOS preguntas (migracion 058)
 
 `activa = true` no significa que Neto este leyendo. Cuando Google revoca el refresh token la
@@ -1035,6 +1055,69 @@ a quién responder ni historial al que asociarlo. Esa mitad depende de Meta.
 > El probe manual (`qa-e2e/probe-envio-username.mjs`) sigue existiendo para forzarlo, pero **no lo
 > corras si ya hubo intento**: sería un segundo mensaje a la misma persona. El aviso de primera
 > vez te dice cuál de los dos casos es.
+
+## Borrar la cuenta borra de verdad (migracion 073, 18-ago-2026)
+
+El producto le decia a quien pedia la baja *"Todos tus datos han sido eliminados"* y
+`/privacidad` §8 prometia borrar todo en 30 dias. `ejecutarBorradoTotal` borraba **4** de las
+**30** tablas que cuelgan de `usuarios`.
+
+**Tres cosas que se midieron antes de elegir el diseño, porque las tres desarman la salida
+obvia** ("28 de 30 FK son CASCADE, basta con borrar la fila de `usuarios`"):
+
+| | Lo medido |
+|---|---|
+| El wipe no borraba: **MOVIA** | `trg_audit_borrado` (migr. 055) es AFTER DELETE y copia la fila ENTERA a `borrados_auditoria`, donde service_role solo tiene SELECT. Los 2 dados de baja tenian ahi **173 filas completas** de sus transacciones |
+| `DELETE FROM usuarios` **aborta** | Verificado con un DELETE real revertido: `23503` sobre `deudas_deuda_vinculada_id_fkey`. **NO ACTION se chequea al final del statement**, o sea que solo rompe cuando la fila que referencia SOBREVIVE — justo cuando hay otra persona del otro lado |
+| `usuarios` ancla dato de **TERCEROS** | `shared_spaces.created_by` es CASCADE: borrar la fila destruye los espacios que esa persona creo y se lleva los gastos de los demas miembros |
+
+**Por eso la fila de `usuarios` NO se borra: queda como LAPIDA**, vaciada de `whatsapp`,
+`nombre`, `email`, `bsuid`, `ref_code`, `supabase_auth_id` y los tokens de Gmail. `plan` y
+`premium_vence` **no se tocan** (decision lockeada: quien pago conserva su Pro).
+
+**Lo que se pierde con eso, y esta dicho en el mensaje de despedida:** se borra el numero, asi
+que quien vuelve **NO se reconoce solo** — entra como usuario nuevo y recuperar el Pro pasa por
+soporte. El aviso al admin lo dice con la fecha de vencimiento.
+
+**Una sola implementacion, dos puertas.** Es la leccion de las TRES copias del wipe que se
+unificaron el 17-ago, y ahora hay dos canales para repetirla:
+
+```
+webapp DELETE /api/cuenta ──(x-internal-key)──► POST /internal/cuenta/borrar
+WhatsApp paso -1 ─────────────────────────────► (misma funcion, en proceso)
+                                                        ▼
+                                       services/account-deletion.js
+                             1. revocar en Google  2. rpc borrar_cuenta_total (UNA transaccion)
+                             3. Storage  4. auth.users  5. avisar al admin
+```
+
+| Que | Donde |
+|---|---|
+| Las 24 que se borran, las que se anonimizan, `pagos` que se conserva | `migrations/073_borrado_cuenta.sql` (+ `073b`, `073c`, `073d`: la **vigente es la de numero mas alto**, y el guard de `tests/services/account-deletion.test.js` la resuelve solo) |
+| Lo que Postgres no puede hacer (Google, Storage, Auth) | `services/account-deletion.js` |
+| El texto de WhatsApp | `handlers/onboarding.js` → `mensajeCuentaEliminada` |
+| El texto legal | `landing/src/app/privacidad/page.tsx` §8 |
+| E2E — **lo unico que prueba esto** | `qa-e2e/qa-borrado-cuenta.mjs` |
+
+**Cuatro cosas que conviene no re-descubrir:**
+
+- **Un cascade NO se puede probar en el mock.** El doble de `makeChain` no ejecuta FKs ni
+  triggers, y `qa-guard` **no ve las cascadas** (su propio docblock lo dice). Un verde en la
+  suite no dice NADA sobre que se lleva puesto un DELETE. Por eso el harness siembra DOS
+  usuarios QA: el caso interesante es la persona que compartia cosas con otra.
+- **El `residual` que devuelve el RPC se recomputa de `pg_constraint`**, no de una lista. El dia
+  que alguien agregue la tabla 31 y no la clasifique, sale delatada sola — verificado creando
+  una tabla de prueba dentro de una transaccion revertida. La allowlist de seis entradas ES el
+  inventario hecho ejecutable: cada una es una DECISION.
+- **`borrados_auditoria` no se debilito.** Sigue sin `DELETE` para service_role y con su trigger
+  intacto. La unica puerta es `purgar_auditoria_usuario`, que **ni siquiera se expone**: solo la
+  llama `borrar_cuenta_total`. No se puede purgar el rastro sin borrar la cuenta entera, y eso
+  avisa al admin y queda registrado en `purgas_auditoria`. El invariante forense pasa de "estan
+  las filas" a "o estan las filas, o esta escrito por que no estan".
+- **`IS DISTINCT FROM` solo sirve si la columna es NOT NULL.** La guarda de "no destruir dato de terceros" funciona en espacios porque `space_members.user_id` y `space_expenses.paid_by` son NOT NULL. Copiarla a metas y gastos compartidos —donde `usuario_id` es NULLABLE y **ningun codigo de produccion la escribe**— invirtio la condicion: con NULL el operador da TRUE, la meta se leia como compartida y NO se borraba. Medido: 12 de 13 metas se borraban con la 073c y 13 de 13 con la 073d. Ahi va `coalesce(hija.usuario_id, padre.usuario_id)`.
+- **El residual del paso -1 murio sin tocar el orden de despacho.** El `onboarding_paso = 0` entra
+  en la MISMA transaccion, asi que "borrado exitoso + atascado en el menu" dejo de ser alcanzable;
+  y como el borrado es todo-o-nada, *"tu cuenta sigue igual"* volvio a ser verdad cuando falla.
 
 ## Todo aviso proactivo sale por los DOS canales
 

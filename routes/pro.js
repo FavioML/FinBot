@@ -60,7 +60,11 @@ router.get('/gmail-auth-url', async (req, res) => {
   const modo = MODOS_CONEXION.includes(req.query.modo) ? req.query.modo : 'inicial';
   // Si ya vinculó un correo, Google lo preselecciona. Es la única defensa REAL del cupo: se
   // gasta al aprobar en la pantalla de Google, antes de que nuestro callback pueda opinar.
-  const emailActual = await emailGmailVinculado(usuarioId);
+  // Solo el correo en claro sirve de `login_hint`: el hash no se le puede mostrar a Google.
+  // Tras un borrado de cuenta la fila conserva el hash pero no el correo, así que acá queda
+  // `null` — se pierde la preselección, que es comodidad, y NO el gate del canje, que mira el
+  // hash. Es la dirección correcta de pérdida.
+  const emailActual = (await emailGmailVinculado(usuarioId))?.email || null;
   try {
     const url = generarUrlAutorizacion(usuario.whatsapp, modo, 'web', usuarioId, emailActual);
     res.json({ ok: true, url });

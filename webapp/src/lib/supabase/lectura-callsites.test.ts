@@ -67,6 +67,11 @@ const SIN_MURO = new Set([
   'api/user/tour-visto/route.ts',
   'api/notifications/route.ts',
   'api/whatsapp/unlink/route.ts',
+  // Irse NO se cobra, y esta exención es la decisión, no un descuido. Quien está en el muro es
+  // justamente el perfil más probable de querer darse de baja, y cobrarle la salida sería
+  // retener a alguien con sus propios datos de rehén. Además la ruta no devuelve NADA
+  // acumulado: solo dispara el borrado en el backend.
+  'api/cuenta/route.ts',
   // Bandeja de entrada
   'api/notifications/inbox/route.ts',
   // Colaborativo (host paga)

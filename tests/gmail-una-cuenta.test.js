@@ -207,7 +207,16 @@ describe('un usuario no puede vincular un segundo correo', () => {
   // Quedarnos con el grant de una cuenta que rechazamos sería lo peor de los dos mundos:
   // el cupo gastado Y permiso de lectura vivo sobre un buzón que no vamos a usar.
   it('el canje rechazado revoca el grant recién otorgado', () => {
-    const bloque = CALLBACK.slice(CALLBACK.indexOf('emailPrevio !== emailConectado'), CALLBACK.indexOf('guardarTokens(usuario.id'));
+    // El ancla es la comparación del gate, que desde la migración 073 va por HASH
+    // (`esElMismoGmail`) y no por el correo en claro: la lápida de una cuenta borrada
+    // conserva `email_hash` justamente para que este gate siga existiendo.
+    //
+    // Con la guarda de antivacuidad que el test de abajo ya documenta: sin ella, el día que
+    // el ancla se renombre `indexOf` da -1, el slice sale vacío y el `toMatch` falla por el
+    // motivo equivocado — o, con otro operador, pasaría en verde sin mirar nada.
+    const iGate = CALLBACK.indexOf('esElMismoGmail(previo, emailConectado)');
+    expect(iGate, 'el gate del canje cambió de forma: este test dejó de mirar nada').toBeGreaterThan(-1);
+    const bloque = CALLBACK.slice(iGate, CALLBACK.indexOf('guardarTokens(usuario.id'));
     expect(bloque).toMatch(/revokeToken\s*\(/);
   });
 

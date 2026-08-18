@@ -135,4 +135,51 @@ router.post('/trial-evento', async (req, res) => {
   res.json({ ok: true });
 });
 
+/**
+ * POST /internal/cuenta/borrar
+ * Body: { usuario_id }
+ *
+ * La segunda puerta del borrado de cuenta. Hasta la migración 073 la única salida era el
+ * intent `desconectar_cuenta` por WhatsApp, al que además solo se llega por NLP (no hay
+ * comando): 7 usuarios sin `whatsapp` no tenían NINGUNA puerta para irse.
+ *
+ * La webapp no reimplementa el borrado, lo delega acá. Es deliberado y es la lección de las
+ * TRES copias del wipe que se unificaron el 17-ago: el flujo toca Google, Storage, el Admin
+ * API de Auth y una transacción de Postgres, y escribirlo dos veces en dos lenguajes es
+ * garantizar que un arreglo llegue a una sola mitad. Lo único que cada canal decide es su
+ * texto.
+ *
+ * El usuario ya viene autenticado por la webapp (`requireNetoUser`), que nos vouchea su
+ * `usuario_id` con `INTERNAL_API_KEY`. Acá NO se acepta ningún id que no venga por ese
+ * canal: no hay superficie de IDOR porque no hay sesión de usuario que suplantar.
+ */
+router.post('/cuenta/borrar', async (req, res) => {
+  if (!verificarInterno(req, res)) return;
+  const usuarioId = req.body && req.body.usuario_id;
+  if (!usuarioId) return res.status(400).json({ ok: false, msg: 'Falta usuario_id' });
+
+  // Se relee la fila fresca en vez de confiar en lo que mande la webapp: el servicio necesita
+  // `supabase_auth_id` para borrar la identidad y el plan para el aviso al admin, y esos son
+  // datos que no queremos que viajen por el cuerpo de un POST.
+  const { data: usuario, error } = await supabase.from('usuarios')
+    .select('id, nombre, whatsapp, plan, tipo_plan, trial_estado, premium_vence, supabase_auth_id, gmail_refresh_token')
+    .eq('id', usuarioId).maybeSingle();
+  // `maybeSingle` a propósito: separa "no existe" (404) de "no se pudo leer" (500). Colapsarlos
+  // haría que un timeout le dijera a alguien que su cuenta no existe.
+  if (error) {
+    log.error({ tag: 'WIPE', usuarioId, err: error.message }, 'No se pudo leer el usuario a borrar');
+    return res.status(500).json({ ok: false, msg: 'Error temporal, intenta de nuevo' });
+  }
+  if (!usuario) return res.status(404).json({ ok: false, msg: 'Usuario no encontrado' });
+
+  const { borrarCuenta } = require('../services/account-deletion');
+  const r = await borrarCuenta(usuario, { origen: 'webapp' });
+  // Un borrado fallido es 500 y no 200-con-flag: la webapp tiene que poder distinguirlo sin
+  // leer el cuerpo, y sobre todo NO puede cerrar la sesión ni decir "listo" cuando no pasó nada.
+  if (!r.ok) return res.status(500).json({ ok: false, msg: 'No se pudo eliminar la cuenta' });
+  // `sucio` NO se le devuelve a la webapp: son detalles operativos (qué quedó vivo en Google,
+  // en Storage o en Auth) que ya fueron al admin y que a la persona no le sirven de nada.
+  res.json({ ok: true });
+});
+
 module.exports = router;

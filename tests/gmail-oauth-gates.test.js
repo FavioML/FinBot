@@ -231,6 +231,7 @@ describe('las otras dos caras: elegir bancos y leer', () => {
  */
 describe('desconectar revoca en Google, no solo marca la fila', () => {
   const ONBOARDING = readFileSync(path.join(RAIZ, 'handlers', 'onboarding.js'), 'utf-8');
+  const BORRADO = readFileSync(path.join(RAIZ, 'services', 'account-deletion.js'), 'utf-8');
 
   it('el flujo de desconexión del usuario (paso -1) revoca', () => {
     const paso = ONBOARDING.slice(ONBOARDING.indexOf('onboarding_paso === -1'));
@@ -256,18 +257,28 @@ describe('desconectar revoca en Google, no solo marca la fila', () => {
     'usuario_desconecto',        // cuenta única
     'usuario_borro_cuenta',      // wipe total
   ];
+  // Las cuatro salidas ya no viven en un solo archivo: desde la migración 073 el wipe se
+  // mudó entero a `services/account-deletion.js`, porque la webapp es una segunda puerta al
+  // mismo borrado y escribirlo dos veces sería repetir el error que se unificó el 17-ago.
+  // Se barren los dos archivos juntos, que es justo lo que el comentario de arriba promete:
+  // este guard afirma que CADA salida le habla a Google, no dónde está escrita.
+  const RUTAS_DE_DESCONEXION = ONBOARDING + '\n' + BORRADO;
+
   it.each(MOTIVOS_QUE_REVOCAN)('la salida "%s" revoca en Google', (motivo) => {
     const re = new RegExp("revocarAccesoGmail\\([^)]*motivo:\\s*'" + motivo + "'");
-    expect(re.test(ONBOARDING), 'no hay revocación con motivo ' + motivo).toBe(true);
+    expect(re.test(RUTAS_DE_DESCONEXION), 'no hay revocación con motivo ' + motivo).toBe(true);
   });
 
-  it('el wipe revoca ANTES de borrar la fila (después ya no hay token)', () => {
-    const wipe = ONBOARDING.indexOf("from('gmail_cuentas').delete()");
-    expect(wipe, 'ya no hay wipe: actualiza este test').toBeGreaterThan(-1);
-    const revocaAntes = ONBOARDING.lastIndexOf('revocarAccesoGmail(', wipe);
-    expect(revocaAntes, 'el delete no viene precedido de una revocación').toBeGreaterThan(-1);
-    // Pegados: si entre medio se coló otra cosa, es que el orden se rompió.
-    expect(wipe - revocaAntes).toBeLessThan(300);
+  // El invariante es el mismo de siempre —revocar mientras todavía hay token— pero cambió
+  // de forma con la 073: el borrado ya no hace un `delete` sobre `gmail_cuentas`, lo hace el
+  // RPC `borrar_cuenta_total` dentro de su transacción, y ahí es donde se pierden los tokens.
+  // Si la revocación quedara después, el grant sobrevive en Google para siempre y sin forma
+  // de alcanzarlo: seguiríamos con permiso de lectura sobre la bandeja de alguien que se fue.
+  it('el borrado revoca ANTES del RPC (después ya no hay token que usar)', () => {
+    const rpc = BORRADO.indexOf("rpc('borrar_cuenta_total'");
+    expect(rpc, 'el borrado ya no llama al RPC: actualiza este test').toBeGreaterThan(-1);
+    const revocaAntes = BORRADO.lastIndexOf('revocarAccesoGmail(', rpc);
+    expect(revocaAntes, 'el RPC no viene precedido de una revocación').toBeGreaterThan(-1);
   });
 });
 

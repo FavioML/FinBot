@@ -54,6 +54,13 @@ require('../../services/budget').guardarPresupuesto = guardarPresupuesto;
 const interpretarComandoPresupuesto = vi.fn();
 require('../../services/parsers').interpretarComandoPresupuesto = interpretarComandoPresupuesto;
 
+// El borrado de cuenta vive entero en `services/account-deletion.js` desde la migracion 073.
+// Se mockea porque aca lo que se prueba es el DESPACHO y el TEXTO; el flujo (RPC, Storage,
+// auth.users) tiene su propio archivo, y "las 30 tablas quedaron vacias" no es mockeable:
+// este doble no ejecuta FKs ni triggers. Eso lo mide qa-e2e/qa-borrado-cuenta.mjs.
+const borrarCuenta = vi.fn();
+require('../../services/account-deletion').borrarCuenta = borrarCuenta;
+
 const capture = vi.fn();
 require('../../lib/analytics').capture = capture;
 
@@ -172,6 +179,10 @@ beforeEach(() => {
   obtenerCuentasGmail.mockReset().mockResolvedValue([]);
   // Sin este reset las llamadas se acumulan y un test pasa por lo que hizo el anterior.
   revocarAccesoGmail.mockReset().mockResolvedValue({ revocadas: 1, emails: ['a@x.com'] });
+  // El default es el camino FELIZ. Los casos que prueban el fallo lo sobreescriben: sin
+  // reset, un test que fuerza `ok: false` se lo dejaba puesto al siguiente y ese siguiente
+  // pasaba por el motivo equivocado.
+  borrarCuenta.mockReset().mockResolvedValue({ ok: true, tieneGmail: false, resumen: { transacciones: 0 }, sucio: [] });
   obtenerGastosMes.mockReset().mockResolvedValue([]);
   crearCategoriasDesdeIndices.mockReset().mockResolvedValue(undefined);
   obtenerCategoriasUsuario.mockReset().mockResolvedValue([]);
@@ -473,308 +484,127 @@ describe('Onboarding paso -1 — desconexion / wipe', () => {
     expect(enviado).toMatch(/desconectad/i);
   });
 
-  it('multi-cuenta, "N+2" → WIPE: borra transacciones, categorias, presupuestos y gmail_cuentas', async () => {
+  // ─── El wipe, después de la migración 073 ──────────────────────────────────
+  //
+  // Acá vivían 22 casos que ejercitaban una taxonomía de fallo PARCIAL: falló
+  // `presupuestos` pero no `transacciones`, había 7 y ahora hay 0, el conteo previo no se
+  // pudo leer, se marcó la baja con los datos a medias. Esa taxonomía ya no existe: el
+  // borrado corre en UNA transacción, así que o pasó todo o no pasó nada. Los casos no se
+  // "perdieron" — dejaron de ser expresables porque el estado que describían es inalcanzable.
+  //
+  // Lo que SÍ hay que seguir cubriendo se partió en tres, y conviene saber dónde está cada
+  // cosa antes de agregar un test acá:
+  //
+  //   · el TEXTO y el despacho          → estos casos
+  //   · el flujo (RPC, Storage, auth)   → tests/services/account-deletion.test.js
+  //   · que las 30 tablas queden vacías → qa-e2e/qa-borrado-cuenta.mjs, contra la DB real
+  //
+  // Ese último no se puede mockear y no es una preferencia: el doble de `makeChain` no
+  // ejecuta FKs ni triggers, así que un verde acá no dice NADA sobre qué se lleva puesto un
+  // DELETE. Un test que afirmara "se borraron las 30 tablas" con este mock estaría midiendo
+  // su propia configuración.
+
+  it('multi-cuenta, "N+2" → delega el borrado en el servicio', async () => {
     obtenerCuentasGmail.mockResolvedValue([
       { id: 'g1', email: 'a@x.com' }, { id: 'g2', email: 'b@x.com' },
     ]);
-    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '4');
-    expect(otherChains['transacciones'].delete).toHaveBeenCalled();
-    expect(otherChains['categorias_usuario'].delete).toHaveBeenCalled();
-    expect(otherChains['presupuestos'].delete).toHaveBeenCalled();
-    expect(otherChains['gmail_cuentas'].delete).toHaveBeenCalled();
-    // Revocar antes del delete: borrar la fila tira el refresh token y el grant queda vivo.
-    expect(revocarAccesoGmail).toHaveBeenCalled();
-    expect(usuariosChain.update).toHaveBeenCalledWith(
-      expect.objectContaining({ onboarding_paso: 0, onboarding_completado: false, email: null })
+    await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '4');
+    expect(borrarCuenta).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'u1' }),
+      expect.objectContaining({ origen: 'whatsapp' })
     );
-    expect(enviado).toMatch(/eliminad|limpia/i);
   });
 
-  // ── La baja declarada ──────────────────────────────────────────────────────
-  // Dos de los cinco Pro pagados pasaron por acá (medido 17-ago-2026) y siguieron
-  // contando como ingreso recurrente, uno con plan anual vigente hasta 2027, sin que
-  // nadie se enterara. Estos casos afirman las dos mitades: que quede la marca y que
-  // salga el aviso. Mutación que los mata: quitar `cuenta_borrada_at` del update, o
-  // quitar el `await avisarBajaAlAdmin(...)`.
-
-  it('el wipe MARCA la baja en cuenta_borrada_at', async () => {
+  it('una cuenta, "2" → delega el borrado en el servicio', async () => {
     obtenerCuentasGmail.mockResolvedValue([{ id: 'g1', email: 'a@x.com' }]);
     await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '2');
-    const update = usuariosChain.update.mock.calls.find((c) => 'cuenta_borrada_at' in (c[0] || {}));
-    expect(update).toBeDefined();
-    expect(typeof update[0].cuenta_borrada_at).toBe('string');
+    expect(borrarCuenta).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'u1' }),
+      expect.objectContaining({ origen: 'whatsapp' })
+    );
   });
 
-  // El plan es lo único que NO se toca: la persona pagó y si vuelve conserva su Pro.
-  // Esto es una marca para las métricas, no una baja de entitlement.
-  it('el wipe NO baja el plan ni toca premium_vence', async () => {
+  it('sin cuentas, "1" → delega el borrado en el servicio', async () => {
     obtenerCuentasGmail.mockResolvedValue([]);
-    await enviarTexto({ id: 'u1', onboarding_paso: -1, plan: 'premium', trial_estado: 'convertido' }, '1');
+    await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1');
+    expect(borrarCuenta).toHaveBeenCalled();
+  });
+
+  // El guard que impide que vuelvan las tres copias. Si alguien re-agrega un delete en
+  // `onboarding.js` —o vuelve a "arreglar" algo del borrado acá en vez de en el servicio—
+  // este caso lo ve: con el servicio mockeado, NINGUNA tabla debería tocarse desde el
+  // handler. Es el mismo error que se unificó el 17-ago, y ahora hay dos canales para
+  // repetirlo.
+  it('onboarding NO borra por su cuenta: el flujo entero vive en el servicio', async () => {
+    obtenerCuentasGmail.mockResolvedValue([{ id: 'g1', email: 'a@x.com' }]);
+    await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '2');
+    expect(otherChains['transacciones']).toBeUndefined();
+    expect(otherChains['gmail_cuentas']).toBeUndefined();
+    expect(otherChains['presupuestos']).toBeUndefined();
+    // Tampoco la marca de baja: `cuenta_borrada_at` se escribe DENTRO de la transacción.
     for (const [campos] of usuariosChain.update.mock.calls) {
-      expect(campos).not.toHaveProperty('plan');
-      expect(campos).not.toHaveProperty('premium_vence');
-      expect(campos).not.toHaveProperty('estado_pago');
+      expect(campos).not.toHaveProperty('cuenta_borrada_at');
     }
   });
 
-  it('el wipe avisa al admin, y ese aviso NO va al usuario', async () => {
-    obtenerCuentasGmail.mockResolvedValue([]);
-    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1, nombre: 'Diego' }, '1');
-    const avisos = mensajesAlAdmin();
-    expect(avisos.length).toBe(1);
-    expect(avisos[0]).toMatch(/BAJA DECLARADA/);
-    // Lo que hace accionable el aviso: quién y cuánto perdió.
-    expect(avisos[0]).toContain('Diego');
-    // Y la persona recibe SU mensaje, no el interno.
-    expect(enviado).toMatch(/eliminad/i);
-    expect(enviado).not.toMatch(/BAJA DECLARADA/);
-  });
-
-  it('el aviso distingue a un Pro PAGADO de alguien que solo probó', async () => {
-    obtenerCuentasGmail.mockResolvedValue([]);
-    await enviarTexto({
-      id: 'u1', onboarding_paso: -1, nombre: 'Diego',
-      plan: 'premium', trial_estado: 'convertido', tipo_plan: 'anual', premium_vence: '2027-07-01',
-    }, '1');
-    const aviso = mensajesAlAdmin()[0];
-    expect(aviso).toMatch(/ES PRO PAGADO/);
-    expect(aviso).toContain('anual');
-    expect(aviso).toContain('2027-07-01');
-  });
-
-  it('un trial en curso NO se anuncia como pagado', async () => {
-    obtenerCuentasGmail.mockResolvedValue([]);
-    await enviarTexto({ id: 'u1', onboarding_paso: -1, plan: 'premium', trial_estado: 'activo' }, '1');
-    expect(mensajesAlAdmin()[0]).not.toMatch(/ES PRO PAGADO/);
-  });
-
-  // El diseño de "limpiar la marca al volver" se DESCARTÓ: `onboarding_completado = true`
-  // se escribe en otros cinco lugares que no limpiaban nada, y `merge_and_link` hereda las
-  // dos columnas juntas, así que tras un merge la marca quedaba puesta con el alta ya
-  // cerrada — sin salida. Ahora la columna es un HECHO que no se toca nunca, y "¿está de
-  // baja hoy?" lo deriva `esBajaDeclarada` en la webapp comparando contra el pago.
-  // supabase-js NO lanza: devuelve { error }. Sin leerlo, un statement timeout dejaba los
-  // datos intactos y el flujo seguía afirmando tres cosas falsas (al usuario, al admin y en
-  // la marca). Mutación que mata esto: sacar el `if (error)` del bucle de deletes.
-  it('si el borrado FALLA no se marca la baja ni se le miente al usuario', async () => {
-    otherChains = {};
-    // Se siembra el chain de transacciones con error ANTES de que el handler lo pida.
-    otherChains['transacciones'] = makeChain([], { error: { message: 'statement timeout' } });
-    // El conteo posterior las ve vivas: es el caso en que el DELETE de verdad no ocurrió.
-    otherChains['transacciones'].__count = 3;
+  // El caso que da nombre a todo este trabajo. El mensaje decía "Todos tus datos han sido
+  // eliminados" y era falso incluso con el borrado arreglado, porque hay cosas que se
+  // conservan por obligación contable y porque los backups cifrados no se pueden reescribir.
+  it('el mensaje NOMBRA lo que se conserva y no promete el absoluto', async () => {
     obtenerCuentasGmail.mockResolvedValue([]);
     const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1');
-    expect(enviado).toMatch(/no pude terminar de eliminar/i);
-    expect(enviado).not.toMatch(/eliminados|limpia/i);
-    const marcó = usuariosChain.update.mock.calls.some((c) => 'cuenta_borrada_at' in (c[0] || {}));
-    expect(marcó, 'marcó la baja aunque el borrado falló').toBe(false);
+    expect(enviado).toMatch(/pagos/i);
+    expect(enviado).toMatch(/respaldo/i);
+    expect(enviado, 'volvió a prometer que se borró TODO').not.toMatch(/todos tus datos/i);
   });
 
-  // ── El wipe a medias ───────────────────────────────────────────────────────
-  // Lo levantó la segunda revisión adversarial del 17-ago y se pusheó igual. El bucle
-  // ACUMULABA los fallos con `transacciones` PRIMERA, así que un fallo en la segunda tabla
-  // dejaba el peor estado posible: movimientos borrados (irreversible), categorías y
-  // presupuestos vivos, la baja sin marcar, y a la persona leyendo "No pude eliminar todos
-  // tus datos" — lo contrario de lo que pasó.
-  //
-  // El arreglo es de ORDEN, no de mensajes, y estos casos afirman el invariante que sale de
-  // ahí: **si el wipe falla, las transacciones siguen ahí**. Mutación que los mata: volver a
-  // poner `transacciones` primera en el array, o quitar el `break`.
-
-  // `transacciones` no se puede asertar con `toBeUndefined()` como el resto: el conteo previo
-  // al borrado (`select ... head: true`, lo que hace accionable el aviso al admin) ya crea el
-  // chain. Contar los `delete` cubre los dos estados —sin chain es 0, con chain y sin delete
-  // también— y es lo que de verdad importa: que nadie haya BORRADO.
-  const deletesDe = (tabla) => otherChains[tabla]?.delete?.mock.calls.length ?? 0;
-
-  it('un fallo en presupuestos NO llega a tocar transacciones', async () => {
-    otherChains['presupuestos'] = makeChain([], { error: { message: 'statement timeout' } });
-    // Pre-creado solo para fijar el conteo: el aserto de abajo exige que NADIE le haga delete.
-    otherChains['transacciones'] = makeChain([]);
-    otherChains['transacciones'].__count = 5;
-    obtenerCuentasGmail.mockResolvedValue([]);
-    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1');
-    expect(deletesDe('transacciones'), 'borró los movimientos después de un fallo').toBe(0);
-    expect(deletesDe('categorias_usuario'), 'no cortó en el primer fallo').toBe(0);
-    expect(enviado).toMatch(/no pude terminar de eliminar/i);
-  });
-
-  it('un fallo en categorias_usuario tampoco llega a transacciones', async () => {
-    otherChains['categorias_usuario'] = makeChain([], { error: { message: 'statement timeout' } });
-    obtenerCuentasGmail.mockResolvedValue([]);
-    await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1');
-    expect(deletesDe('presupuestos'), 'no empezó por presupuestos').toBe(1);
-    expect(deletesDe('transacciones'), 'borró los movimientos con el wipe ya fallado').toBe(0);
-  });
-
-  // La segunda mentira sobre el mismo evento, y la más cara: con `onboarding_paso` en -1, el
-  // siguiente mensaje que no fuera el número exacto del menú caía en "Cancelado. Tu cuenta
-  // sigue igual. 👍" — así que la persona se quedaba creyendo que no había pasado nada, y el
-  // "escríbeme de nuevo y lo reintento" era imposible de obedecer.
-  it('un borrado fallido saca al usuario del paso -1 (si no, el siguiente mensaje le miente)', async () => {
-    otherChains['presupuestos'] = makeChain([], { error: { message: 'statement timeout' } });
-    obtenerCuentasGmail.mockResolvedValue([]);
-    await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1');
-    const salio = usuariosChain.update.mock.calls.some((c) => (c[0] || {}).onboarding_paso === 0);
-    expect(salio, 'quedó en el paso -1 tras un borrado fallido').toBe(true);
-    // Y sigue sin marcar la baja: sacarlo del menú no es dar el wipe por hecho.
-    expect(usuariosChain.update.mock.calls.some((c) => 'cuenta_borrada_at' in (c[0] || {}))).toBe(false);
-  });
-
-  // La PRIMERA versión de este test sembraba el fallo en `presupuestos` y afirmaba dos regex
-  // sobre el string. Pasaba en verde sobre un código donde el texto es mentira —con el orden
-  // viejo, al fallar `presupuestos` las transacciones ya están borradas y el mensaje decía
-  // igual "tus movimientos siguen ahí"— o sea que llevaba el nombre del invariante y no lo
-  // probaba: lo blindaba. Lo levantó la revisión adversarial del arreglo, y es la tercera
-  // aparición de esa clase en `docs/DEFECTOS.md`.
-  //
-  // Ahora el fallo se siembra donde el texto PUEDE mentir: en `transacciones`, la última. El
-  // caso del conteo es el que manda, porque `{error}` no significa que el servidor no lo haya
-  // hecho.
-  it('con transacciones vivas, el mensaje las cuenta y ofrece reintentar', async () => {
-    otherChains['transacciones'] = makeChain([], { error: { message: 'statement timeout' } });
-    otherChains['transacciones'].__count = 7;
-    obtenerCuentasGmail.mockResolvedValue([]);
-    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1');
-    expect(enviado).toMatch(/movimientos siguen/i);
-    // El reintento tiene que nombrar algo que funcione SIEMPRE: `/soporte` es un comando, así
-    // que escapa la máquina de estados y al clasificador. La versión anterior mandaba a
-    // escribir "eliminar mi cuenta", que es la frase que el harness de esta misma sesión
-    // documenta como misclasificada — cae en la guarda de borrado, no en el menú de baja.
-    expect(enviado).toMatch(/\/soporte/);
-    expect(enviado).not.toMatch(/eliminar mi cuenta/i);
-  });
-
-  // El caso que el orden NO puede prevenir, y por eso el mensaje mide en vez de deducir:
-  // `{error}` significa "el cliente no pudo confirmar", no "el servidor no lo hizo". Un 504
-  // del edge o un socket cortado devuelven error con el DELETE ya commiteado.
-  // El caso que el ORDEN no puede prevenir: `{error}` significa "el cliente no pudo confirmar",
-  // no "el servidor no lo hizo". Se reconoce porque los dos conteos DIFIEREN — 7 antes, 0
-  // después — y por eso el mock sirve un conteo por llamada.
-  it('si había 7 y ahora hay 0, el mensaje admite que los movimientos se perdieron', async () => {
-    otherChains['transacciones'] = makeChain([], { error: { message: 'fetch failed' } });
-    otherChains['transacciones'].__count = 7;
-    otherChains['transacciones'].__countDespues = 0;
-    obtenerCuentasGmail.mockResolvedValue([]);
-    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1');
-    expect(enviado).toMatch(/s[ií] se eliminaron/i);
-    expect(enviado, 'afirmó que los movimientos siguen ahí con la tabla vacía')
-      .not.toMatch(/movimientos siguen/i);
-    expect(enviado).toMatch(/\/soporte/);
-  });
-
-  // La OTRA causa de `quedan === 0`, que la primera versión de este arreglo confundía con la
-  // de arriba: el usuario no tenía nada que borrar. Acá `transacciones` no se toca ni una vez,
-  // así que decirle "tus movimientos sí se eliminaron" y mandarlo a soporte era falso Y le
-  // negaba el reintento, que en ese estado converge solo.
-  it('cero transacciones DESDE EL PRINCIPIO no es una pérdida', async () => {
-    otherChains['presupuestos'] = makeChain([], { error: { message: 'statement timeout' } });
-    otherChains['transacciones'] = makeChain([]);
-    otherChains['transacciones'].__count = 0;
-    obtenerCuentasGmail.mockResolvedValue([]);
-    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1');
-    expect(deletesDe('transacciones'), 'tocó transacciones').toBe(0);
-    expect(enviado, 'anunció una pérdida que no ocurrió').not.toMatch(/s[ií] se eliminaron/i);
-    expect(enviado).toMatch(/vuelve a pedirme la baja/i);
-  });
-
-  // Si falló `transacciones`, las DOS anteriores sí se borraron. Callarlo dejaba a la persona
-  // con sus categorías y presupuestos destruidos creyendo que no había pasado nada.
-  it('cuando falla transacciones, el mensaje admite que el resto SÍ se borró', async () => {
-    otherChains['transacciones'] = makeChain([], { error: { message: 'statement timeout' } });
-    otherChains['transacciones'].__count = 4;
-    obtenerCuentasGmail.mockResolvedValue([]);
-    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1');
-    expect(deletesDe('presupuestos')).toBe(1);
-    expect(deletesDe('categorias_usuario')).toBe(1);
-    expect(enviado).toMatch(/categor[ií]as y presupuestos s[ií] se borraron/i);
-    expect(enviado).toMatch(/movimientos siguen/i);
-  });
-
-  // El wipe fallido tiene que SONAR. `registrarError` solo notifica cuando la misma clave llega
-  // a 5 en una hora, contra un contador en memoria que un redeploy borra: un fallo aislado
-  // —justo el que pudo destruir presupuestos y categorías en silencio— dejaba una fila en una
-  // tabla que nadie mira y cero avisos, mientras el wipe EXITOSO sí empuja notificación.
-  it('un wipe fallido avisa al admin DIRECTO, no solo a la tabla `errores`', async () => {
-    otherChains['transacciones'] = makeChain([], { error: { message: 'statement timeout' } });
-    otherChains['transacciones'].__count = 9;
-    otherChains['transacciones'].__countDespues = 0;
-    obtenerCuentasGmail.mockResolvedValue([]);
-    await enviarTexto({ id: 'u1', onboarding_paso: -1, nombre: 'Diego' }, '1');
-    const aviso = mensajesAlAdmin()[0];
-    expect(aviso, 'el wipe fallido no avisó al admin').toBeDefined();
-    expect(aviso).toMatch(/WIPE FALLIDO/);
-    expect(aviso).toContain('Diego');
-    expect(aviso).toMatch(/SE PERDIERON/);
-  });
-
-  // Tercer estado: no saber. No es sinónimo de "está todo bien", así que no se afirma nada.
-  it('si el conteo tampoco se puede leer, no afirma nada sobre los datos', async () => {
-    otherChains['transacciones'] = makeChain([], { error: { message: 'fetch failed' } });
-    otherChains['transacciones'].__count = null;
-    obtenerCuentasGmail.mockResolvedValue([]);
-    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1');
-    expect(enviado).not.toMatch(/movimientos siguen/i);
-    expect(enviado).not.toMatch(/s[ií] se eliminaron/i);
-    expect(enviado).toMatch(/no pude confirmar/i);
-    expect(enviado).toMatch(/\/soporte/);
-  });
-
-  // Sin este caso, sacar la llamada a `registrarError` no mataba un solo test: era una línea
-  // agregada que nadie vigilaba. `log.error` NO escribe en `errores` —es pino a stdout, y el
-  // único escritor de esa tabla es `registrarError`— así que este es el rastro consultable de
-  // un wipe que se cayó a mitad, en una rama que además pudo haber borrado `presupuestos` y
-  // `categorias_usuario` en silencio.
-  it('un wipe fallido deja fila en `errores`, con qué tabla y cuántas transacciones quedan', async () => {
-    otherChains['transacciones'] = makeChain([], { error: { message: 'statement timeout' } });
-    otherChains['transacciones'].__count = 3;
-    obtenerCuentasGmail.mockResolvedValue([]);
-    await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1');
-    expect(registrarError).toHaveBeenCalledTimes(1);
-    const [tag, mensaje, opts] = registrarError.mock.calls[0];
-    expect(tag).toBe('WIPE');
-    expect(mensaje).toMatch(/transacciones/);      // qué tabla se cayó
-    expect(opts.usuarioId).toBe('u1');             // la primera query de esa tabla es por usuario
-    expect(String(opts.detalle)).toMatch(/ahora: 3/);
-  });
-
-  it('un wipe EXITOSO no escribe en `errores`', async () => {
-    obtenerCuentasGmail.mockResolvedValue([]);
-    await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1');
-    expect(registrarError).not.toHaveBeenCalled();
-  });
-
-  // Las dos escrituras de Gmail eran las que quedaban sin leer su resultado (el arreglo de
-  // "leer el {error}" cubría 3 de 5). Acá no se corta —los datos ya no están— pero el fallo
-  // tiene que llegar al admin: si el grant sobrevive seguimos leyendo la bandeja de alguien
-  // que se fue, y eso se arregla a mano o no se arregla.
-  it('si falla el delete de gmail_cuentas, la baja se marca igual y el admin se entera', async () => {
-    otherChains['gmail_cuentas'] = makeChain([], { error: { message: 'statement timeout' } });
+  // Los dos lados van en casos SEPARADOS a propósito: `enviarTexto` devuelve el PRIMER
+  // mensaje que salió, así que dos borrados en un mismo caso comparan el segundo contra el
+  // texto del primero — y el test pasaba o fallaba por eso, no por lo que dice afirmar.
+  it('menciona el Gmail cuando había una cuenta conectada', async () => {
     obtenerCuentasGmail.mockResolvedValue([{ id: 'g1', email: 'a@x.com' }]);
-    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '2');
-    expect(enviado).toMatch(/eliminad|limpia/i);      // para el usuario el wipe SÍ ocurrió
-    expect(usuariosChain.update.mock.calls.some((c) => 'cuenta_borrada_at' in (c[0] || {}))).toBe(true);
-    expect(mensajesAlAdmin()[0]).toMatch(/Gmail qued[oó] a medias/i);
+    borrarCuenta.mockResolvedValue({ ok: true, tieneGmail: true, resumen: {}, sucio: [] });
+    expect(await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '2')).toMatch(/gmail/i);
   });
 
-  // `revocarAccesoGmail` puede LANZAR: `obtenerCuentasGmail` no está guardado por dentro. Sin
-  // el try, la excepción se llevaba puestos la marca de baja Y el aviso, con los datos ya
-  // borrados — o sea el peor caso del peor caso, y sin una sola línea que lo dijera.
-  it('si revocarAccesoGmail LANZA, la baja se marca igual y el admin se entera', async () => {
-    revocarAccesoGmail.mockRejectedValue(new Error('google 500'));
-    obtenerCuentasGmail.mockResolvedValue([{ id: 'g1', email: 'a@x.com' }]);
-    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '2');
-    expect(enviado).toMatch(/eliminad|limpia/i);
-    expect(usuariosChain.update.mock.calls.some((c) => 'cuenta_borrada_at' in (c[0] || {}))).toBe(true);
-    const aviso = mensajesAlAdmin()[0];
-    expect(aviso).toMatch(/BAJA DECLARADA/);
-    expect(aviso).toMatch(/google 500/);
-    // La mitad que de verdad exige los DOS try. Con un solo try la excepción de la revocación
-    // se lleva puesto también el delete —que no depende de que la revocación salga bien— y la
-    // fila sobrevive con `activa=true`: el admin lee "falló la revocación", va a revocar a mano
-    // en Google, y deja viva justo la fila que alimenta `emailGmailVinculado` y el `login_hint`.
-    // Sin esta línea, fusionar los try no mataba ni un test.
-    expect(deletesDe('gmail_cuentas'), 'la excepción de la revocación se llevó el delete').toBe(1);
+  it('no menciona el Gmail cuando no había ninguna conectada', async () => {
+    obtenerCuentasGmail.mockResolvedValue([]);
+    borrarCuenta.mockResolvedValue({ ok: true, tieneGmail: false, resumen: {}, sucio: [] });
+    expect(await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1')).not.toMatch(/gmail/i);
+  });
+
+  // Se le borra el número, así que si vuelve NO se lo reconoce solo. El Pro sigue pagado en
+  // su fila, pero recuperarlo pasa a ser un trámite — y decírselo ANTES de que se vaya es lo
+  // que convierte esa pérdida en un trámite en vez de una sorpresa.
+  it('a un Pro PAGADO le dice hasta cuándo tiene Pro y cómo reclamarlo', async () => {
+    obtenerCuentasGmail.mockResolvedValue([]);
+    const enviado = await enviarTexto(
+      { id: 'u1', onboarding_paso: -1, plan: 'premium', trial_estado: 'convertido', premium_vence: '2027-03-15' },
+      '1'
+    );
+    expect(enviado).toMatch(/15\/03\/2027/);
+    expect(enviado).toMatch(/hola@neto\.pe/);
+  });
+
+  it('un trial en curso NO recibe el párrafo de Pro pagado', async () => {
+    obtenerCuentasGmail.mockResolvedValue([]);
+    const enviado = await enviarTexto(
+      { id: 'u1', onboarding_paso: -1, plan: 'premium', trial_estado: 'activo', premium_vence: '2026-09-01' },
+      '1'
+    );
+    expect(enviado).not.toMatch(/hola@neto\.pe/);
+  });
+
+  // Con el borrado en una transacción esto es verdad por construcción, no por medición: si
+  // el RPC falló, no se tocó una sola fila. El wipe viejo necesitaba tres conteos y un
+  // desambiguador para no mentir acá.
+  it('si el borrado falla, le dice que su cuenta sigue igual', async () => {
+    obtenerCuentasGmail.mockResolvedValue([]);
+    borrarCuenta.mockResolvedValue({ ok: false, motivo: 'statement timeout', tieneGmail: false, resumen: null, sucio: [] });
+    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1');
+    expect(enviado).toMatch(/sigue igual/i);
+    expect(enviado).not.toMatch(/eliminad/i);
+    expect(enviado).toMatch(/soporte/i);
   });
 
   it('volver a darse de alta NO toca la marca (es un hecho, no un estado)', async () => {
@@ -788,30 +618,8 @@ describe('Onboarding paso -1 — desconexion / wipe', () => {
     obtenerCuentasGmail.mockResolvedValue([{ id: 'g1', email: 'a@x.com' }]);
     const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1');
     expect(revocarAccesoGmail).toHaveBeenCalledWith('u1', expect.anything());
-    expect(otherChains['transacciones']).toBeUndefined();
+    expect(borrarCuenta).not.toHaveBeenCalled();
     expect(enviado).toMatch(/desconectado/i);
-  });
-
-  it('una cuenta, "2" → WIPE completo', async () => {
-    obtenerCuentasGmail.mockResolvedValue([{ id: 'g1', email: 'a@x.com' }]);
-    await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '2');
-    expect(otherChains['transacciones'].delete).toHaveBeenCalled();
-    expect(otherChains['gmail_cuentas'].delete).toHaveBeenCalled();
-    expect(usuariosChain.update).toHaveBeenCalledWith(
-      expect.objectContaining({ onboarding_paso: 0, onboarding_completado: false })
-    );
-  });
-
-  it('sin cuentas, "1" → borra datos (sin tocar gmail_cuentas)', async () => {
-    obtenerCuentasGmail.mockResolvedValue([]);
-    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1');
-    expect(otherChains['transacciones'].delete).toHaveBeenCalled();
-    expect(otherChains['categorias_usuario'].delete).toHaveBeenCalled();
-    expect(otherChains['presupuestos'].delete).toHaveBeenCalled();
-    expect(usuariosChain.update).toHaveBeenCalledWith(
-      expect.objectContaining({ onboarding_paso: 0, onboarding_completado: false, email: null })
-    );
-    expect(enviado).toMatch(/eliminad/i);
   });
 
   it('respuesta invalida → cancela sin borrar nada y vuelve a paso 0', async () => {

@@ -2,7 +2,7 @@ const express = require('express');
 const { supabase } = require('../lib/db');
 const log = require('../lib/logger');
 const { enviarWhatsapp } = require('../lib/whatsapp');
-const { oauth2Client, obtenerPerfilGoogle, guardarTokens, verificarState, emailGmailVinculado } = require('../gmail');
+const { oauth2Client, obtenerPerfilGoogle, guardarTokens, verificarState, emailGmailVinculado, esElMismoGmail } = require('../gmail');
 const { esProPagado } = require('../lib/trial');
 const { escanearGmailYRegistrar, escanearHistoricoInicial } = require('../services/gmail-scanner');
 const analytics = require('../lib/analytics');
@@ -110,17 +110,44 @@ router.get('/auth/callback', async (req, res) => {
     // garantiza es que nadie termine con dos cuentas leyendo, y suelta el permiso en el acto
     // en vez de quedarnos con acceso a un buzón que no vamos a usar. La defensa que sí evita
     // el gasto es el `login_hint` de la emisión.
-    const emailPrevio = await emailGmailVinculado(usuario.id);
-    if (emailPrevio && emailConectado && emailPrevio !== emailConectado) {
-      log.warn({ tag: 'OAUTH', usuarioId: usuario.id, emailPrevio, emailConectado },
+    // Desde la migración 073 la comparación es por HASH, no por el correo en claro. El motivo
+    // es el borrado de cuenta: la lápida conserva la fila de `gmail_cuentas` con `email` en
+    // null y `email_hash` puesto, justamente para que este gate siga funcionando sin que
+    // retengamos la dirección. Comparar el correo acá vería null, concluiría "nunca vinculó
+    // nada" y dejaría quemar otro cupo permanente a quien se dio de baja y volvió.
+    //
+    // `esElMismoGmail` devuelve tres valores y los tres se usan: true (mismo correo, pasa),
+    // false (otro correo) y **null = no sé** — que solo ocurre con una fila previa sin hash
+    // NI correo, o sea alguien que ya gastó un cupo y no podemos identificar. Se trata como
+    // rechazo (`!== true`) a propósito: acá el fallo seguro es no dejar pasar. Que NO haya
+    // fila previa es otra cosa y se filtra antes, con `previo &&`: esa es la primera conexión.
+    const previo = await emailGmailVinculado(usuario.id);
+    if (previo && emailConectado && esElMismoGmail(previo, emailConectado) !== true) {
+      log.warn({ tag: 'OAUTH', usuarioId: usuario.id, teniaCorreo: !!previo.email, teniaHash: !!previo.emailHash, emailConectado },
         'Canje rechazado: el usuario ya tiene un Gmail vinculado y autorizó con otro (cupo gastado, se revoca)');
       try { await oauth2Client.revokeToken(tokens.refresh_token || tokens.access_token); }
       catch (e) { log.warn({ tag: 'OAUTH', err: e.message }, 'No se pudo revocar el grant sobrante'); }
+      // Solo se nombra la cuenta previa si todavía la tenemos. Después de una baja no la
+      // tenemos —y ese es el punto— así que ahí el texto manda a soporte, que es el único
+      // camino que puede resolverlo.
+      //
+      // Son DOS `send` y no un ternario adentro de uno: el guard S8
+      // (`tests/gmail-oauth-gates.test.js`) marca como interpolación cruda cualquier
+      // identificador que sobreviva a quitar los literales y los `escaparHtml`, y la
+      // CONDICIÓN de un ternario sobrevive. Es un falso positivo, pero la respuesta correcta
+      // a un guard estricto es escribir el código de forma que no necesite excepción, no
+      // ablandar el guard — sobre todo uno que vigila HTML con datos ajenos.
+      if (previo.email) {
+        return res.status(409).send(
+          '<h2>Neto lee de una sola cuenta.</h2>' +
+          '<p>Tu cuenta vinculada es <b>' + escaparHtml(previo.email) + '</b>, y autorizaste con otra. ' +
+          'Vuelve a <a href="' + PANEL_PRO_URL + '">app.neto.pe</a> y entra con esa misma cuenta.</p>' +
+          '<p>Si necesitas cambiarla, escríbenos y lo hacemos nosotros.</p>');
+      }
       return res.status(409).send(
         '<h2>Neto lee de una sola cuenta.</h2>' +
-        '<p>Tu cuenta vinculada es <b>' + escaparHtml(emailPrevio) + '</b>, y autorizaste con otra. ' +
-        'Vuelve a <a href="' + PANEL_PRO_URL + '">app.neto.pe</a> y entra con esa misma cuenta.</p>' +
-        '<p>Si necesitas cambiarla, escríbenos y lo hacemos nosotros.</p>');
+        '<p>Ya habías vinculado una cuenta de Google antes, y esta no es la misma.</p>' +
+        '<p>Escríbenos y lo resolvemos contigo.</p>');
     }
 
     // El modo NO se pasa: la exclusividad la impone guardarTokens sin mirarlo, para que no

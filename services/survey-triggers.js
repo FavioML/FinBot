@@ -456,7 +456,12 @@ async function checkSurveyTriggers() {
     // necesita ver a los que NO completaron. Los demas triggers implicitamente
     // requieren completion porque dependen de tx_count > 0.
     const { data: usuarios } = await supabase.from('usuarios')
-      .select('id, whatsapp, nombre, created_at, recordatorios_activos, onboarding_completado, onboarding_paso, supabase_auth_id');
+      .select('id, whatsapp, nombre, created_at, recordatorios_activos, onboarding_completado, onboarding_paso, supabase_auth_id')
+      // Una cuenta borrada (migracion 073) sobrevive como lapida y esta query no tiene NINGUN
+      // otro filtro. Lo unico que la salvaba era el `if (!u.whatsapp) continue` de abajo, que
+      // es un efecto lateral de otra decision y no una regla: el dia que la lapida conserve el
+      // numero por cualquier motivo, el survey se le manda a alguien que pidio irse.
+      .is('cuenta_borrada_at', null);
 
     if (!usuarios || usuarios.length === 0) return;
 

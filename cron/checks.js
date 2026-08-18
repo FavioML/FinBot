@@ -40,7 +40,7 @@ async function checkResumenMensual() {
     // Sin filtro por gmail_access_token: el resumen se arma con transacciones, presupuestos,
     // metas y deudas — no depende de Gmail. Exigirlo dejaba fuera a la mayoria de usuarios Pro
     // en silencio. Si no hay movimientos, generarResumenMensual ya devuelve null.
-    const { data: usuarios, error: errUsuarios } = await supabase.from('usuarios').select('*').eq('plan', 'premium');
+    const { data: usuarios, error: errUsuarios } = await supabase.from('usuarios').select('*').eq('plan', 'premium').is('cuenta_borrada_at', null);
     if (errUsuarios) log.error({ tag: 'MENSUAL', err: errUsuarios.message }, 'Query usuarios fallo: el resumen mensual no se envio a nadie');
     if (!usuarios || usuarios.length === 0) return;
     for (const usuario of usuarios) {
@@ -66,7 +66,7 @@ async function checkResumenSemanal() {
   if (horaLima.getUTCDay() !== 1 || horaLima.getUTCHours() !== 8 || horaLima.getUTCMinutes() > 14) return;
   try {
     // Mismo criterio que el resumen mensual: sin filtro por gmail_access_token.
-    const { data: usuarios, error: errUsuarios } = await supabase.from('usuarios').select('*').eq('plan', 'premium');
+    const { data: usuarios, error: errUsuarios } = await supabase.from('usuarios').select('*').eq('plan', 'premium').is('cuenta_borrada_at', null);
     if (errUsuarios) log.error({ tag: 'SEMANAL', err: errUsuarios.message }, 'Query usuarios fallo: el resumen semanal no se envio a nadie');
     if (!usuarios || usuarios.length === 0) return;
     for (const usuario of usuarios) {
@@ -324,6 +324,7 @@ async function checkPremiumExpiry() {
       // campana.
       const { data: porVencer } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence, supabase_auth_id')
         .eq('plan', 'premium').eq('premium_vence', en3dias)
+        .is('cuenta_borrada_at', null)
         .or(SIN_TRIAL_ACTIVO);
       if (porVencer && porVencer.length > 0) {
         for (const usuario of porVencer) {
@@ -372,6 +373,7 @@ async function checkPremiumExpiry() {
       // el downgrade al día siguiente, pero nada el día clave). Free-form + in-app, dedup por día.
       const { data: venceHoy } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence, supabase_auth_id')
         .eq('plan', 'premium').eq('premium_vence', hoy)
+        .is('cuenta_borrada_at', null)
         .or(SIN_TRIAL_ACTIVO);
       if (venceHoy && venceHoy.length > 0) {
         for (const usuario of venceHoy) {
@@ -403,6 +405,7 @@ async function checkPremiumExpiry() {
     // Expirados — downgrade a free
     const { data: expirados } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence, estado_pago, supabase_auth_id')
       .eq('plan', 'premium').not('premium_vence', 'is', null).lt('premium_vence', hoy)
+      .is('cuenta_borrada_at', null)
       .or(SIN_TRIAL_ACTIVO);
     if (!expirados || expirados.length === 0) return;
     for (const usuario of expirados) {
@@ -537,7 +540,11 @@ async function checkRecordatorioOnboarding() {
       .select('id, whatsapp, nombre, onboarding_paso')
       .gte('created_at', hace6h)
       .lte('created_at', hace3h)
-      .neq('is_test_user', true);
+      .neq('is_test_user', true)
+      // Alguien que se dio de alta y borro su cuenta dentro de las 6h cae en esta ventana. La
+      // lapida tiene `whatsapp` en null, asi que el envio seria un no-op — pero apoyarse en eso
+      // es apoyarse en un efecto lateral de otra decision.
+      .is('cuenta_borrada_at', null);
     // supabase-js no lanza: sin leer el error, una caída se lee igual que "no hay
     // nadie a quien empujar" y este cron se apaga en silencio por segunda vez.
     if (errCand) {
@@ -681,7 +688,8 @@ async function checkTrialExpiry() {
       for (const aviso of avisos) {
         const { data: porVencer } = await supabase.from('usuarios')
           .select('id, whatsapp, nombre, trial_vence, supabase_auth_id')
-          .eq('trial_estado', 'activo').eq('trial_vence', aviso.fecha);
+          .eq('trial_estado', 'activo').eq('trial_vence', aviso.fecha)
+          .is('cuenta_borrada_at', null);
         if (!porVencer || porVencer.length === 0) continue;
         for (const usuario of porVencer) {
           try {
@@ -741,7 +749,8 @@ async function checkTrialExpiry() {
     // saber si venía en 'pagado' para no dejarlo ahí después del downgrade (hallazgo D6).
     const { data: vencidos } = await supabase.from('usuarios')
       .select('id, whatsapp, nombre, trial_estado, trial_vence, premium_desde, premium_vence, estado_pago')
-      .eq('trial_estado', 'activo').lt('trial_vence', hoy);
+      .eq('trial_estado', 'activo').lt('trial_vence', hoy)
+      .is('cuenta_borrada_at', null);
     if (!vencidos || vencidos.length === 0) return;
     for (const usuario of vencidos) {
       try {

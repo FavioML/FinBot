@@ -180,7 +180,12 @@ async function escaneoAutomatico() {
 
     let todosLosUsuarios = usuariosLegacy || [];
     if (idsSoloNuevos.length > 0) {
-      const { data: usuariosNuevos } = await supabase.from('usuarios').select('*').in('id', idsSoloNuevos);
+      // La lapida (migracion 073) conserva su fila de `gmail_cuentas` —es donde vive el
+      // `email_hash` que protege el cupo— asi que puede entrar por `idsSoloNuevos`. Hoy la
+      // salva que esa fila queda `activa = false`, pero eso es un efecto lateral de otra
+      // decision: el filtro explicito no depende de que esa decision no cambie.
+      const { data: usuariosNuevos } = await supabase.from('usuarios').select('*')
+        .in('id', idsSoloNuevos).is('cuenta_borrada_at', null);
       todosLosUsuarios = [...todosLosUsuarios, ...(usuariosNuevos || [])];
     }
 

@@ -187,19 +187,92 @@ function generarUrlAutorizacion(whatsappNum, modo, origen, usuarioId, emailActua
 }
 
 /**
+ * Huella irreversible de un correo de Google. Es lo ÚNICO del vínculo con Gmail que sobrevive
+ * a un borrado de cuenta, y existe para que sobrevivir no cueste retener la dirección.
+ *
+ * El pepper vive en el entorno, NO en la base: un dump de Postgres —o un backup de R2, que se
+ * guarda 365 días— no alcanza para revertirlo. Un correo tiene poca entropía frente a una
+ * lista de candidatos, así que sin pepper esto sería decorativo.
+ *
+ * Devuelve `null` si falta el pepper, y NO lanza: quien decide qué hacer con esa ausencia es
+ * el llamador, y en el borrado la decisión es conservar el correo (ver `borrarCuenta`).
+ *
+ * @returns {string|null}
+ */
+function hashEmailGmail(email) {
+  const pepper = process.env.GMAIL_EMAIL_HASH_PEPPER;
+  if (!pepper || !email) return null;
+  return crypto.createHmac('sha256', pepper).update(String(email).trim().toLowerCase()).digest('hex');
+}
+
+/**
  * El correo de Gmail que este usuario ya vinculó ALGUNA VEZ, activo o no.
  *
  * Mira el historial y no solo lo activo a propósito: una fila inactiva significa que ese
  * usuario de Google YA otorgó permiso y su cupo ya se gastó (revocar no lo devuelve). Para
  * decidir "¿esto sería una cuenta nueva?" el pasado es lo que cuenta, no el presente.
  *
- * @returns {Promise<string|null>}
+ * Devuelve las DOS caras porque son dos preguntas distintas que hasta la migración 073
+ * compartían una sola columna, y el borrado de cuenta las separó:
+ *
+ *   · `email`     — para el `login_hint`. Es comodidad y es dato personal: el borrado lo vacía.
+ *   · `emailHash` — para "¿este correo ya gastó cupo?". Es el invariante: SOBREVIVE al borrado.
+ *
+ * Después de una baja la fila más vieja tiene `email` en null y `emailHash` puesto. Por eso
+ * el gate del canje (`routes/public.js`) TIENE que mirar el hash: si mirara el correo vería
+ * null, concluiría "nunca vinculó nada" y dejaría quemar otro de los 100 cupos de por vida.
+ *
+ * @returns {Promise<{email: string|null, emailHash: string|null}|null>}
  */
 async function emailGmailVinculado(usuarioId) {
   const { data } = await getSupabase().from('gmail_cuentas')
-    .select('email').eq('usuario_id', usuarioId)
+    .select('email, email_hash').eq('usuario_id', usuarioId)
     .order('created_at', { ascending: true }).limit(1);
-  return (data && data[0] && data[0].email) || null;
+  const fila = data && data[0];
+  if (!fila) return null;
+  return { email: fila.email || null, emailHash: fila.email_hash || null };
+}
+
+/**
+ * ¿El correo que acaba de autorizar es el MISMO que este usuario ya tenía vinculado?
+ *
+ * Único lugar donde se decide esa comparación, para que no se reimplemente distinto en cada
+ * call-site. Prefiere el hash y cae al correo en claro solo mientras la fila no esté
+ * backfilleada — que es exactamente lo que el código hacía antes de la 073, o sea que el
+ * estado intermedio no cambia ningún comportamiento.
+ *
+ * Con `previo` sin ninguna de las dos (fila borrada sin hash porque faltaba el pepper) no se
+ * puede afirmar nada, y devuelve `null` = "no sé". El llamador NO debe leer eso como "es el
+ * mismo": dejaría pasar un segundo correo.
+ *
+ * @returns {boolean|null}
+ */
+function esElMismoGmail(previo, emailEntrante) {
+  if (!previo || !emailEntrante) return null;
+  // El hash MANDA cuando se puede calcular. Si NO se puede —falta el pepper— y el correo en
+  // claro todavía está, se compara por correo: es exactamente lo que hacía el código antes de
+  // la 073, así que no se pierde nada.
+  //
+  // OJO CON LA ROTACIÓN, que este fallback NO cubre y una versión anterior de este comentario
+  // decía que sí: con un pepper NUEVO, `hashEmailGmail` devuelve un valor perfectamente
+  // válido que simplemente no coincide con el guardado, así que se resuelve `false` y el
+  // fallback ni se toca. Quien reconecta su propio correo recibe el 409 y le revocamos el
+  // grant recién emitido. Rotar el pepper exige backfillear `email_hash` en la misma pasada
+  // (ver `.env.example`).
+  //
+  // Sin este fallback el pepper se convertía en dependencia dura del canje: con la fila ya
+  // backfilleada (hash Y correo presentes), un deploy sin la env var hacía que quien reconecta
+  // SU MISMO correo recibiera el 409 "escríbenos y lo resolvemos" y le revocáramos el grant
+  // recién emitido, con la respuesta correcta ahí al lado sin mirarse. Lo levantó la revisión
+  // adversarial del diff.
+  if (previo.emailHash) {
+    const entrante = hashEmailGmail(emailEntrante);
+    if (entrante) return previo.emailHash === entrante;
+  }
+  if (previo.email) return previo.email === emailEntrante;
+  // Ninguna de las dos caras: hubo una cuenta (por eso existe la fila) y no se puede
+  // identificar. `null` = "no sé", y el gate lo trata como rechazo.
+  return null;
 }
 
 // Verifica la firma HMAC del state y lo decodifica. Devuelve el objeto {num, modo, origen}
@@ -270,6 +343,11 @@ async function guardarTokens(usuarioId, tokens, email) {
   const cuenta = {
     usuario_id: usuarioId,
     email,
+    // La huella que sobrevive al borrado de cuenta. Se escribe SIEMPRE, no solo cuando hace
+    // falta, porque el momento en que hace falta —el wipe— es demasiado tarde para calcularla
+    // si para entonces falta el pepper. `null` cuando no hay pepper: el gate cae al correo en
+    // claro, que es el comportamiento anterior a la 073.
+    email_hash: hashEmailGmail(email),
     access_token: encrypt(tokens.access_token),
     token_expiry: tokens.expiry_date || null,
     activa: true,
@@ -679,4 +757,4 @@ async function leerCorreosBancarios(usuarioId, opts = {}) {
   return { error: authExpired ? 'AUTH_EXPIRED' : null, mensajes: mensajesUnificados };
 }
 
-module.exports = { generarUrlAutorizacion, verificarState, guardarTokens, cargarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail, revocarAccesoGmail, BANCOS_CATALOGO, remitentesParaSeleccion, describirSeleccion, construirQueriesBancarias, emailGmailVinculado };
+module.exports = { generarUrlAutorizacion, verificarState, guardarTokens, cargarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail, revocarAccesoGmail, BANCOS_CATALOGO, remitentesParaSeleccion, describirSeleccion, construirQueriesBancarias, emailGmailVinculado, hashEmailGmail, esElMismoGmail };

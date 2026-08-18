@@ -43,7 +43,7 @@ import { ConfiguracionSkeleton } from '@/components/dashboard/skeletons';
 import { useUser } from '@/lib/hooks/use-user';
 import { createClient } from '@/lib/supabase/client';
 import { signOutAndClear } from '@/lib/query-client';
-import { SOCIAL_LINKS, getCategoriaEmoji, CATEGORIAS, PRO_PRICE_MONTHLY_PEN } from '@/lib/constants';
+import { getCategoriaEmoji, CATEGORIAS, PRO_PRICE_MONTHLY_PEN } from '@/lib/constants';
 import { capitalizeDisplay } from '@/lib/format';
 import { enTrial } from '@/lib/plan';
 import { cn } from '@/lib/utils';
@@ -333,6 +333,8 @@ export default function ConfiguracionPage() {
 
   const [copied, setCopied] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   // Cambiar/desvincular número de WhatsApp (self-serve)
   const [changingNumber, setChangingNumber] = useState(false);
@@ -809,6 +811,52 @@ export default function ConfiguracionPage() {
   async function handleSignOut() {
     setSigningOut(true);
     await signOutAndClear();
+    router.push('/login');
+  }
+
+  // La ruta NO borra: delega en el backend, que es el unico lado que puede revocar el grant
+  // de Google, vaciar Storage, borrar la identidad de Auth y correr la transaccion de
+  // Postgres. Ver src/app/api/cuenta/route.ts.
+  async function handleDeleteAccount() {
+    setDeleting(true);
+
+    // El try del BORRADO, solo del borrado. Antes esto y la limpieza de sesion compartian un
+    // try: `signOutAndClear` habla con Supabase Auth usando una identidad que el backend
+    // acaba de destruir, asi que si eso lanza caia al mismo catch y mostraba "No pudimos
+    // eliminar tu cuenta. Intenta de nuevo." con la cuenta ya borrada de forma irreversible
+    // — y la persona quedaba en el dashboard con la cache persistida. Mentir en la direccion
+    // contraria es peor: invita a reintentar algo que ya paso.
+    try {
+      const res = await fetch('/api/cuenta', { method: 'DELETE' });
+      // 404/401 = la cuenta YA NO EXISTE, y eso es ÉXITO, no error.
+      //
+      // Es el escenario del 502: el backend pudo commitear la transacción y morirse al
+      // responder. La persona aprieta de nuevo — se lo pide el mensaje — y ahora
+      // `requireNetoUser` no la encuentra, porque el borrado dejó `supabase_auth_id` en NULL y
+      // ese es justo el mapeo sesión→`usuarios`. Sin este caso quedaba en un callejón: cuenta
+      // borrada de verdad, "No pudimos eliminar tu cuenta. Intenta de nuevo." para siempre,
+      // sesión abierta y caché persistida intacta. Lo levantó la segunda revisión adversarial.
+      if (!res.ok && res.status !== 404 && res.status !== 401) {
+        const body = await res.json().catch(() => ({}));
+        toast.error(body?.error || 'No pudimos eliminar tu cuenta. Intenta de nuevo.');
+        setDeleting(false);
+        return;
+      }
+    } catch {
+      toast.error('No pudimos eliminar tu cuenta. Intenta de nuevo.');
+      setDeleting(false);
+      return;
+    }
+
+    // De acá para abajo la cuenta YA NO EXISTE. Nada puede volver a mostrar un error: lo
+    // único que queda es sacar a la persona de una sesión que ya no apunta a nada.
+    // `signOutAndClear` y no solo `signOut`, porque la webapp tiene cache PERSISTIDA de React
+    // Query: sin limpiarla el dashboard se repinta con los datos de la cuenta borrada.
+    try {
+      await signOutAndClear();
+    } catch {
+      // Da igual por qué falló: el push de abajo saca a la persona igual.
+    }
     router.push('/login');
   }
 
@@ -1693,24 +1741,56 @@ export default function ConfiguracionPage() {
                   </Button>
 
                   {showDeleteConfirm && (
-                    <div className="space-y-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
-                      <p className="text-sm text-secondary-foreground">Para eliminar tu cuenta, contacta soporte por WhatsApp.</p>
+                    <div className="space-y-4 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+                      <p className="text-sm text-secondary-foreground">
+                        Esto borra <strong>para siempre</strong> tus movimientos, presupuestos, categorías,
+                        metas, deudas, alertas y todo lo que nos escribimos por WhatsApp. No se puede deshacer.
+                      </p>
+
+                      {/* Lo que se conserva se dice ACA, antes de confirmar, y no despues.
+                          El mensaje de WhatsApp decia "Todos tus datos han sido eliminados" y era
+                          falso: hay cosas que se conservan por obligacion contable y los respaldos
+                          cifrados no se pueden reescribir. Un texto que promete el absoluto obliga
+                          a que el codigo sea absoluto, y no puede serlo. Mismo texto que
+                          /privacidad §8 y que el mensaje de WhatsApp: si algun dia se conserva algo
+                          mas, se nombra en los tres. */}
+                      <div className="space-y-1.5 text-xs text-muted-foreground">
+                        <p className="font-medium text-secondary-foreground">Esto es lo único que queda:</p>
+                        <p>• El registro de tus pagos — monto y fecha — porque es contabilidad. Sin tu nombre, sin tu número y sin el comprobante que enviaste.</p>
+                        <p>• Las copias de respaldo cifradas, que no se pueden reescribir. Se borran solas: hasta 30 días las diarias y hasta un año las mensuales.</p>
+                      </div>
+
+                      {/* Escribir la palabra, y no un segundo boton. Es la unica accion
+                          verdaderamente irreversible de la app y esta a dos clicks del resto
+                          de la configuracion. */}
+                      <div className="space-y-2">
+                        <label htmlFor="confirmar-borrado" className="text-xs text-muted-foreground">
+                          Escribe <strong className="text-destructive">ELIMINAR</strong> para confirmar
+                        </label>
+                        <Input
+                          id="confirmar-borrado"
+                          value={deleteConfirmText}
+                          onChange={(e) => setDeleteConfirmText(e.target.value)}
+                          placeholder="ELIMINAR"
+                          autoComplete="off"
+                          disabled={deleting}
+                        />
+                      </div>
+
                       <div className="flex gap-2">
-                        <a
-                          href={`${SOCIAL_LINKS.whatsapp}?text=${encodeURIComponent('Quiero eliminar mi cuenta')}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex-1"
+                        <Button
+                          variant="outline"
+                          className="flex-1 border-destructive/40 bg-transparent text-destructive hover:bg-destructive/10 disabled:opacity-40"
+                          disabled={deleteConfirmText.trim().toUpperCase() !== 'ELIMINAR' || deleting}
+                          onClick={handleDeleteAccount}
                         >
-                          <Button variant="outline" className="w-full gap-2 border-destructive/40 text-destructive hover:bg-destructive/10">
-                            <MessageCircle className="h-4 w-4" />
-                            Contactar soporte
-                          </Button>
-                        </a>
+                          {deleting ? 'Eliminando...' : 'Eliminar mi cuenta'}
+                        </Button>
                         <Button
                           variant="outline"
                           className="border-border bg-transparent text-muted-foreground hover:bg-white/[0.05]"
-                          onClick={() => setShowDeleteConfirm(false)}
+                          disabled={deleting}
+                          onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText(''); }}
                         >
                           Cancelar
                         </Button>
