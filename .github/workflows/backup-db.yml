@@ -62,7 +62,11 @@ jobs:
             sleep 15
           done
           [ "${ok:-}" = 1 ] || { echo "apt no pudo instalar en 3 intentos"; exit 1; }
-          pg_dump --version
+          # El pg_dump del PATH es el wrapper de Debian y apunta al 16 de Ubuntu:
+          # imprimia "16.14" y se leia como verificacion, mientras el backup usa
+          # $PG_BIN/pg_dump (el 17). Verificar el binario que de verdad se usa, o
+          # el dia que postgresql-client-17 no se instale el paso pasa verde igual.
+          /usr/lib/postgresql/17/bin/pg_dump --version
           age --version
 
       - name: Correr backup
