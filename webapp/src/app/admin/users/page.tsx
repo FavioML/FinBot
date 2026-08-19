@@ -209,6 +209,14 @@ function UserFichaSheet({ user, onClose }: { user: AdminUser | null; onClose: ()
                 >
                   {user.plan === 'premium' ? 'Pro' : 'Free'}
                 </span>
+                {/* El plan no se toca cuando alguien pide borrar su cuenta (quien pagó conserva
+                    su Pro si vuelve), así que sin esta chip la ficha decía "Pro · vence 2027"
+                    sobre alguien que se fue. Es la misma marca que lo saca del MRR. */}
+                {user.cuenta_borrada_at && (
+                  <span className="inline-flex items-center rounded-full bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-400">
+                    Pidió borrar su cuenta
+                  </span>
+                )}
                 {seg && (
                   <span
                     className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
@@ -236,6 +244,9 @@ function UserFichaSheet({ user, onClose }: { user: AdminUser | null; onClose: ()
                     <DetailRow label="Se hizo Pro" value={fmtDate(user.premium_desde)} />
                     <DetailRow label="Pro vence" value={fmtDate(user.premium_vence)} />
                   </>
+                )}
+                {user.cuenta_borrada_at && (
+                  <DetailRow label="Pidió la baja" value={fmtDate(user.cuenta_borrada_at)} />
                 )}
               </SheetSection>
 

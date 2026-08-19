@@ -8,11 +8,12 @@ import {
   mrrAtMonthEnd,
   newProInMonth,
   churnedInMonth,
+  esProActivo,
   EXCLUDED_REVENUE_WHATSAPP,
 } from '@/lib/admin-revenue';
-import { startOfDayLima, startOfMonthLima } from '@/lib/date-lima';
+import { cargarPagosConPlata } from '@/lib/admin-revenue-db';
+import { startOfDayLima, startOfMonthLima, monthWindowLima } from '@/lib/date-lima';
 import { requireAdminUser, type ActivityRow, type UserTxStatsRow } from '@/lib/admin';
-import { esProPagado } from '@/lib/plan';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,19 +41,15 @@ export async function GET() {
   // llegaba truncada SIN error: el embudo veía 21 de 44 usuarios activados (25% reportado
   // vs 52% real) y DAU/WAU/MAU estaban a una semana de congelarse igual. La regla que sale
   // de ahí: no traigas filas para contarlas, cuéntalas en SQL.
-  const [
-    { data: usuarios },
-    { data: pagosMes },
-    { data: activityRows },
-    { data: txStats },
-    { data: nlpRaw },
-  ] = await Promise.all([
+  const [usuariosRes, pagosMesRes, activityRes, txStatsRes, nlpRes] = await Promise.all([
     db
       .from('usuarios')
       .select(
         // is_test_user va en el select porque isRevenueUser decide por ella: sin traerla, la
         // fila llega con la marca en undefined y una cuenta de prueba entra al MRR como cliente.
-        'id, whatsapp, is_test_user, plan, tipo_plan, trial_estado, trial_vence, onboarding_completado, created_at, premium_desde, premium_vence, supabase_auth_id',
+        // Idem `cuenta_borrada_at`: si no se pide, llega undefined —falsy— y computeRevenue
+        // no puede descontar una baja que sí ocurrió.
+        'id, whatsapp, is_test_user, cuenta_borrada_at, plan, tipo_plan, trial_estado, trial_vence, onboarding_completado, created_at, premium_desde, premium_vence, supabase_auth_id',
       ),
     db
       .from('pagos')
@@ -72,12 +69,59 @@ export async function GET() {
       .order('created_at', { ascending: true }),
   ]);
 
+  // Ninguna puede fallar en silencio: `supabase-js` devuelve `{data: null, error}` y no
+  // lanza, así que descartar el error pintaba **"MRR S/0.00"** y **"Caja del mes S/0"** en
+  // verde con HTTP 200 — y con la respuesta en 200, el `ErrorState` de /admin/operacion no
+  // se dispara. Misma política que `cargarPagosConPlata`, ahora también donde decide.
+  const lecturas: Array<[string, { message: string } | null]> = [
+    ['usuarios', usuariosRes.error],
+    ['pagos', pagosMesRes.error],
+    ['admin_activity_counts', activityRes.error],
+    ['admin_user_tx_stats', txStatsRes.error],
+    ['nlp_errors', nlpRes.error],
+  ];
+  const fallo = lecturas.find(([, e]) => e);
+  if (fallo) {
+    return NextResponse.json(
+      { error: `No se pudo leer ${fallo[0]}: ${fallo[1]!.message}` },
+      { status: 500 },
+    );
+  }
+
+  const usuarios = usuariosRes.data;
+  const pagosMes = pagosMesRes.data;
+  const activityRows = activityRes.data;
+  const txStats = txStatsRes.data;
+  const nlpRaw = nlpRes.data;
+
   const allUsers = usuarios || [];
   const totalUsers = allUsers.length;
+  // PostgREST corta en 1000 filas SIN error, y de esta lectura sale además el dominio del
+  // índice de pagos: truncada, el MRR baja en silencio.
+  if (allUsers.length >= 1000) {
+    return NextResponse.json(
+      { error: 'La lectura de `usuarios` llegó al techo de 1000 filas de PostgREST: el MRR saldría incompleto. Hay que paginar.' },
+      { status: 500 },
+    );
+  }
 
   // --- Revenue KPIs (solo usuarios reales: excluye fundador + QA) ---
   // MRR normalizado (anual = S/99÷12), ARR, y desglose anual/mensual. Ver admin-revenue.ts.
-  const rev = computeRevenue(allUsers);
+  // Los pagos de quienes pidieron la baja: es el único testigo de que alguno volvió. Acá
+  // alcanza con esos ids —a diferencia de /economics, esta ruta no reporta
+  // `pro_sin_pago_registrado`— y con la lista vacía ni siquiera va a la red.
+  // El cargador LANZA cuando no puede leer (falla cerrado, a proposito). Se traduce aca a
+  // la misma forma `{error}` con la que responde el resto de la ruta: un throw suelto sale
+  // como text/plain y las pantallas muestran 'Failed to load' sin el motivo.
+  let pagosConPlata;
+  try {
+    pagosConPlata = await cargarPagosConPlata(
+    allUsers.filter((u) => u.cuenta_borrada_at).map((u) => u.id),
+  );
+  } catch (e) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+  }
+  const rev = computeRevenue(allUsers, pagosConPlata, now);
   const mrr = rev.mrr;
   const arr = rev.arr;
   const realUsers = allUsers.filter(isRevenueUser);
@@ -92,7 +136,7 @@ export async function GET() {
 
   // Churn 30d (fuente única: computeChurn, excluye internos, base = churned + pro reales).
   // Idéntico a economics para que no diverjan las dos rutas.
-  const churnRate = computeChurn(allUsers, now).rate;
+  const churnRate = computeChurn(allUsers, now, pagosConPlata).rate;
 
   // DAU/WAU/MAU: usuarios DISTINTOS, contados con count(distinct) en SQL.
   // Dos bugs vividos que este bloque cierra:
@@ -145,11 +189,18 @@ export async function GET() {
 
     userGrowth.push({
       week: weekLabel,
-      free: newUsers.filter((u) => u.plan !== 'premium').length,
-      // `esProPagado`, no `plan === 'premium'`: durante el trial esa columna vale
-      // 'premium', así que esta métrica —que es de CONVERSIÓN— contaba a quien está
-      // probando como si hubiera pagado (hallazgo M16).
-      pro: newUsers.filter((u) => esProPagado(u.plan, u.trial_estado)).length,
+      // Complemento EXACTO de `pro` (free + pro === total), igual que en /economics. Con
+      // `plan !== 'premium'` un trial y una baja no caían en ninguna de las dos ramas, así
+      // que el área apilada del chart perdía altura y las dos rutas del mismo panel daban
+      // números distintos para la misma semana — con el comentario de arriba diciendo
+      // "para que ambos charts coincidan".
+      free: newUsers.filter((u) => !esProActivo(u, pagosConPlata, now)).length,
+      // `esProActivo`, no `plan === 'premium'`: durante el trial esa columna vale 'premium',
+      // así que esta métrica —que es de CONVERSIÓN— contaba a quien está probando como si
+      // hubiera pagado (hallazgo M16). Y descuenta la baja declarada por el mismo motivo por
+      // el que la descuenta el MRR: las dos salen del mismo JSON y hablaban de la misma
+      // persona con números distintos.
+      pro: newUsers.filter((u) => esProActivo(u, pagosConPlata, now)).length,
       total: newUsers.length,
     });
   }
@@ -197,18 +248,21 @@ export async function GET() {
   // --- Revenue (last 6 months) ---
   const revenue: { month: string; mrr: number; newPro: number; churned: number }[] = [];
   for (let i = 5; i >= 0; i--) {
-    const mDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const mEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0, 23, 59, 59);
-    const monthLabel = mDate.toLocaleDateString('es-PE', { month: 'short', year: '2-digit' });
+    // Ventana de mes LIMA (ver monthWindowLima): el constructor anterior era hora local del
+    // servidor, o sea 18:59:59 de Lima en Vercel.
+    const { start: mDate, end: mesCompleto, label: monthLabel } = monthWindowLima(now, i);
+    // El mes en curso se corta en `now`: las tres columnas de la fila tienen que preguntar
+    // por el mismo instante (ver /economics).
+    const mEnd = mesCompleto > now ? now : mesCompleto;
 
     revenue.push({
       month: monthLabel,
       // Mes en curso (i=0): MRR vivo (headline) para que el último punto == KPI MRR.
       // Meses pasados: reconstruido desde premium_desde/premium_vence (no created_at ni
       // la heurística vence−30d). Solo negocio real (excluye internos). Idéntico a economics.
-      mrr: i === 0 ? mrr : mrrAtMonthEnd(allUsers, mEnd),
-      newPro: newProInMonth(allUsers, mDate, mEnd),
-      churned: churnedInMonth(allUsers, mDate, mEnd),
+      mrr: i === 0 ? mrr : mrrAtMonthEnd(allUsers, mEnd, pagosConPlata),
+      newPro: newProInMonth(allUsers, mDate, mEnd, pagosConPlata),
+      churned: churnedInMonth(allUsers, mDate, mEnd, pagosConPlata),
     });
   }
 
@@ -219,6 +273,8 @@ export async function GET() {
       arr,
       cajaMes,
       proReal: rev.proCount,
+      // Cuántos Pro pagados NO están en el MRR porque pidieron borrar su cuenta.
+      bajasDeclaradas: rev.bajasDeclaradas,
       proMonthly: rev.proMonthly,
       proYearly: rev.proYearly,
       churnRate,

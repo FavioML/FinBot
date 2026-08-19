@@ -73,6 +73,12 @@ export interface AdminEconomics {
    * Mientras siga en 0 no vale una columna nueva en `usuarios` para distinguirlos.
    */
   pro_sin_pago_registrado: number;
+  /**
+   * Pro pagados descontados del MRR porque pidieron borrar su cuenta. Se muestra pegado al
+   * KPI de MRR: un número que baja sin explicación en la misma pantalla se lee como un bug
+   * del panel, y esta es la explicación.
+   */
+  bajas_declaradas: number;
   conversion_rate: number;
   new_users_this_month: number;
   churn_rate_30d: number;

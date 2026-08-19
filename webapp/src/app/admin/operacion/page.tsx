@@ -80,17 +80,28 @@ function formatDateTime(dateStr: string | null | undefined) {
   });
 }
 
-function PlanBadge({ plan }: { plan: string }) {
+// `bajaAt` no es cosmetica: el plan NO se toca cuando alguien pide borrar su cuenta (quien
+// pago conserva su Pro si vuelve), asi que sin esto operacion mostraba "Pro" a secas sobre los
+// dos usuarios que se fueron, uno con `premium_vence` en 2027. Es la misma marca que los saca
+// del MRR en admin-revenue.ts.
+function PlanBadge({ plan, bajaAt }: { plan: string; bajaAt?: string | null }) {
   const isPro = plan === 'premium';
   return (
-    <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-        isPro
-          ? 'bg-[#1D9E75]/20 text-[#1D9E75]'
-          : 'bg-white/5 text-[#F0EFE8]/60'
-      }`}
-    >
-      {isPro ? 'Pro' : 'Free'}
+    <span className="inline-flex flex-wrap items-center gap-1">
+      <span
+        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+          isPro
+            ? 'bg-[#1D9E75]/20 text-[#1D9E75]'
+            : 'bg-white/5 text-[#F0EFE8]/60'
+        }`}
+      >
+        {isPro ? 'Pro' : 'Free'}
+      </span>
+      {bajaAt && (
+        <span className="inline-flex items-center rounded-full bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-400">
+          Baja
+        </span>
+      )}
     </span>
   );
 }
@@ -356,6 +367,9 @@ function PaymentsModal({
               {user.plan === 'premium'
                 ? `Pro · vence ${formatDate(user.premium_vence)}`
                 : 'Free'}
+              {user.cuenta_borrada_at
+                ? ` · pidió la baja el ${formatDate(user.cuenta_borrada_at)}`
+                : ''}
             </p>
           </div>
           <button onClick={onClose} className="rounded-md p-1 text-[#F0EFE8]/40 hover:bg-white/5 hover:text-[#F0EFE8]">
@@ -785,6 +799,14 @@ export default function AdminOperacionPage() {
             <span className="text-[#5A584F]">·</span>
             <span>{stats?.kpis.proYearly ?? 0} anual</span>
             <span>{stats?.kpis.proMonthly ?? 0} mensual</span>
+            {/* Sin esto, el MRR de esta pantalla baja S/18 sin ninguna explicación al lado y
+                se lee como un bug del panel. La misma nota vive pegada al KPI de MRR en
+                /admin/economics; acá faltaba, que es donde se mira todos los días. */}
+            {(stats?.kpis.bajasDeclaradas ?? 0) > 0 && (
+              <span className="text-red-400">
+                {stats!.kpis.bajasDeclaradas} de baja sin contar
+              </span>
+            )}
           </div>
         </div>
         <div className="glass-card rounded-xl p-4">
@@ -1112,7 +1134,7 @@ export default function AdminOperacionPage() {
                     </td>
                     <td className="px-4 py-3 font-mono text-xs">{u.whatsapp}</td>
                     <td className="px-4 py-3">
-                      <PlanBadge plan={u.plan} />
+                      <PlanBadge plan={u.plan} bajaAt={u.cuenta_borrada_at} />
                       {u.plan === 'premium' && (
                         <div className="mt-1 text-[10px] uppercase tracking-wide text-[#F0EFE8]/40">
                           {u.tipo_plan === 'anual' ? 'Anual' : 'Mensual'}
@@ -1162,7 +1184,7 @@ export default function AdminOperacionPage() {
                     <div className="text-xs text-[#F0EFE8]/40">{u.email || '—'}</div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <PlanBadge plan={u.plan} />
+                    <PlanBadge plan={u.plan} bajaAt={u.cuenta_borrada_at} />
                     <UserActions user={u} onAction={handleUserAction} />
                   </div>
                 </div>

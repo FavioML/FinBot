@@ -206,6 +206,9 @@ export async function GET(request: Request) {
   const usuariosById = new Map<string, RawUsuario>();
   if (userIds.length > 0) {
     const { data: usuarios } = await db
+      // admin-revenue:no-alimenta-metricas — esta lectura es para PONERLE NOMBRE a quien
+      // respondió una encuesta, no para contar plata. No pasa por `computeRevenue` ni por
+      // `isRevenueUser`, así que traer `is_test_user`/`cuenta_borrada_at` sería carga muerta.
       .from('usuarios')
       .select('id, nombre, whatsapp, plan, fecha_pago')
       .in('id', userIds);

@@ -13,6 +13,10 @@ export interface AdminStats {
     arr: number;
     cajaMes: number;
     proReal: number;
+    // Pro pagados que NO están en el MRR porque pidieron borrar su cuenta. Va tipado
+    // además de emitido: sin la declaración el campo existía en el JSON y era invisible
+    // para tsc, o sea que la tarjeta seguía mostrando el MRR caído sin explicación.
+    bajasDeclaradas: number;
     proMonthly: number;
     proYearly: number;
     churnRate: number;
@@ -68,6 +72,10 @@ export interface AdminUser {
   // activación (registrar gastos); este mide si el usuario sigue ahí.
   last_activity_at?: string | null;
   is_internal?: boolean;
+  // Pidió borrar su cuenta (baja declarada). El plan NO se toca —quien pagó conserva su Pro
+  // si vuelve— así que sin esto la lista muestra a esa persona como cliente activo, con su
+  // `premium_vence` intacto. Es la misma columna que descuenta el MRR en admin-revenue.ts.
+  cuenta_borrada_at?: string | null;
 }
 
 export interface NlpError {

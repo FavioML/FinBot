@@ -33,7 +33,7 @@ export async function GET() {
     db
       .from('usuarios')
       .select(
-        'id, whatsapp, is_test_user, nombre, email, plan, trial_estado, trial_vence, onboarding_completado, gmail_access_token, created_at, premium_vence, premium_desde, supabase_auth_id, estado_pago, tipo_plan, fecha_pago, pago_pendiente',
+        'id, whatsapp, is_test_user, cuenta_borrada_at, nombre, email, plan, trial_estado, trial_vence, onboarding_completado, gmail_access_token, created_at, premium_vence, premium_desde, supabase_auth_id, estado_pago, tipo_plan, fecha_pago, pago_pendiente',
       )
       .order('created_at', { ascending: false }),
     db.rpc('admin_user_tx_stats'),
@@ -101,6 +101,11 @@ export async function GET() {
       // segmentos. Misma definicion que isRevenueUser, para que la lista y el MRR no marquen
       // distinto al mismo usuario.
       is_internal: !isRevenueUser(u),
+      // Se traía en el select y no salía en la respuesta, así que la pantalla de operación
+      // mostraba a quien pidió borrar su cuenta como cliente activo con `premium_vence` en
+      // 2027. El plan NO se toca (quien pagó conserva su Pro si vuelve): lo que se arregla es
+      // que la lista lo diga.
+      cuenta_borrada_at: u.cuenta_borrada_at ?? null,
     };
   });
 
@@ -141,6 +146,8 @@ export async function PUT(request: Request) {
     case 'extend_premium': {
       const days = parseInt(data.days) || 30;
       // Get current premium_vence
+      // admin-revenue:no-alimenta-metricas — lee UNA fila para sumarle días al vencimiento.
+      // No es una métrica de ingreso: es la acción de extender Pro sobre un usuario puntual.
       const { data: user } = await getServiceClient().from('usuarios').select('premium_vence').eq('id', id).single();
       const base = user?.premium_vence ? new Date(user.premium_vence) : new Date();
       const newVence = new Date(base.getTime() + days * 86400000).toISOString().split('T')[0];

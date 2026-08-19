@@ -15,6 +15,8 @@ export type ResultadoBind =
   | { estado: 'adoptada'; usuarioId: string }
   | { estado: 'fusionada'; usuarioId: string }
   | { estado: 'ya_activada' }
+  // La fila es una lápida: pidió borrar su cuenta. Ver el corte más abajo.
+  | { estado: 'cuenta_borrada' }
   | { estado: 'conflicto'; usuarioId: string }
   | { estado: 'sin_fila' }
   | { estado: 'error' };
@@ -35,7 +37,7 @@ export async function bindActivacion(
 ): Promise<ResultadoBind> {
   const { data: filaWA, error: eWA } = await svc
     .from('usuarios')
-    .select('id, supabase_auth_id, nombre, email')
+    .select('id, supabase_auth_id, nombre, email, cuenta_borrada_at')
     .eq('id', uid)
     .maybeSingle();
 
@@ -44,6 +46,30 @@ export async function bindActivacion(
     return { estado: 'error' };
   }
   if (!filaWA) return { estado: 'sin_fila' };
+
+  // Una LÁPIDA no se adopta ni se fusiona, y este corte va antes que cualquier otro.
+  //
+  // El token viaja firmado con `usuarios.id`, que es la ÚNICA columna que el wipe no puede
+  // limpiar (migración 073d), así que un link de activación viejo sigue encontrando la fila
+  // después del borrado. Peor: lo que hacía al token de un solo uso era justamente que
+  // `supabase_auth_id` quedara puesto, y el wipe lo pone en NULL — o sea que borrar la
+  // cuenta REARMA el link por lo que le quede de sus 7 días.
+  //
+  // Sin este corte, la lápida adopta la sesión Google y queda como cuenta viva CON la marca
+  // de baja. Las consecuencias van más allá de la métrica, y por eso el corte vive acá y no
+  // en el panel:
+  //   · queda fuera del MRR para siempre (`esBajaDeclarada` en admin-revenue.ts) siendo un
+  //     usuario que entra y usa el producto — el error exactamente inverso al que esa marca
+  //     vino a arreglar;
+  //   · `checkPremiumExpiry` filtra `.is('cuenta_borrada_at', null)`, así que su plan
+  //     tampoco vence nunca;
+  //   · y si algún día pide la baja DE VERDAD, `borrar_cuenta_total` corta en `ya_borrada`
+  //     antes de tocar nada y no le borra los datos. Eso ya no es un número torcido, es un
+  //     derecho de supresión que no se ejecuta.
+  //
+  // Quien vuelve entra como usuario nuevo. Es la decisión ya tomada y escrita en el mensaje
+  // de despedida ("recuperar el Pro pasa por soporte"), no una regla nueva.
+  if (filaWA.cuenta_borrada_at) return { estado: 'cuenta_borrada' };
 
   // Ya la activó (con esta cuenta o con otra). El token queda inerte: eso es lo
   // que lo hace de un solo uso sin necesidad de una tabla de tokens. Si fue con
@@ -141,6 +167,7 @@ export async function notificarBackendActivacion(
     }
     const motivo =
       resultado.estado === 'ya_activada' ? 'ya_activada'
+      : resultado.estado === 'cuenta_borrada' ? 'cuenta_borrada'
       : resultado.estado === 'conflicto' ? 'merge_conflict'
       : resultado.estado === 'sin_fila' ? 'token_invalido'
       : 'error';

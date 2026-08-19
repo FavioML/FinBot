@@ -146,13 +146,22 @@ export default function AdminEconomicsPage() {
           <KpiCard
             label="MRR"
             value={formatPen(data.mrr)}
-            /* El "sin pago registrado" va pegado al MRR y no en una tarjeta aparte: es cuánto
-               de ESTE número no es plata (comps). Solo aparece cuando existe. */
-            subtitle={
+            /* Los dos matices van pegados al MRR y no en tarjetas aparte, porque los dos son
+               sobre ESTE número: cuánto no es plata (comps) y cuánto dejó de contarse porque
+               el cliente pidió borrar su cuenta. Sin lo segundo, un MRR que baja S/18 de un
+               mes al otro no tiene explicación en la pantalla y se lee como un bug del panel.
+               Cada uno aparece solo cuando existe. */
+            subtitle={[
+              `${data.pro_users} Pro activos`,
               data.pro_sin_pago_registrado > 0
-                ? `${data.pro_users} Pro activos · ${data.pro_sin_pago_registrado} sin pago registrado`
-                : `${data.pro_users} Pro activos`
-            }
+                ? `${data.pro_sin_pago_registrado} sin pago registrado`
+                : null,
+              data.bajas_declaradas > 0
+                ? `${data.bajas_declaradas} ${data.bajas_declaradas === 1 ? 'dado de baja' : 'dados de baja'} sin contar`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
             accent="green"
           />
           <KpiCard
