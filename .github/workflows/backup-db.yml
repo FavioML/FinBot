@@ -48,8 +48,20 @@ jobs:
           echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
             https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
             | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq postgresql-client-17 age
+          # Sin timeout explicito apt espera minutos por mirror y se come el paso
+          # entero sin imprimir una linea. Y sin quitarle el -qq no se sabe cual de
+          # los dos comandos fue: los dos cuelgues del 19-ago no dejaron rastro.
+          APT='-o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o Acquire::Retries=2'
+          for i in 1 2 3; do
+            echo "== intento $i"
+            if sudo apt-get $APT update && \
+               sudo apt-get $APT install -y postgresql-client-17 age; then
+              ok=1; break
+            fi
+            echo "== intento $i fallo; reintento en 15s"
+            sleep 15
+          done
+          [ "${ok:-}" = 1 ] || { echo "apt no pudo instalar en 3 intentos"; exit 1; }
           pg_dump --version
           age --version
 
