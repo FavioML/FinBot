@@ -60,7 +60,8 @@ jobs:
                      -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0'
           for i in 1 2 3; do
             if [ "$i" = 1 ]; then SRC="$SOLO_PGDG"; else SRC=""; fi
-            echo "== intento $i (update: ${SRC:+solo pgdg}${SRC:-completo})"
+            if [ -n "$SRC" ]; then Q="solo pgdg"; else Q="completo"; fi
+            echo "== intento $i (update: $Q)"
             if sudo apt-get $APT $SRC update && \
                sudo apt-get $APT install -y postgresql-client-17 age; then
               ok=1; break
