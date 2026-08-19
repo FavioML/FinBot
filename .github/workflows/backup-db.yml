@@ -52,9 +52,16 @@ jobs:
           # entero sin imprimir una linea. Y sin quitarle el -qq no se sabe cual de
           # los dos comandos fue: los dos cuelgues del 19-ago no dejaron rastro.
           APT='-o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o Acquire::Retries=2'
+          # El intento 1 actualiza SOLO el indice de PGDG. El 19-ago el mirror de
+          # Ubuntu en Azure devolvia Ign: en todo y apt caia al publico, que tarda
+          # mas que el paso entero: un update completo es la parte fragil y no hace
+          # falta, porque el runner ya trae las listas de Ubuntu para las dependencias.
+          SOLO_PGDG='-o Dir::Etc::sourcelist=/etc/apt/sources.list.d/pgdg.list
+                     -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0'
           for i in 1 2 3; do
-            echo "== intento $i"
-            if sudo apt-get $APT update && \
+            if [ "$i" = 1 ]; then SRC="$SOLO_PGDG"; else SRC=""; fi
+            echo "== intento $i (update: ${SRC:+solo pgdg}${SRC:-completo})"
+            if sudo apt-get $APT $SRC update && \
                sudo apt-get $APT install -y postgresql-client-17 age; then
               ok=1; break
             fi
