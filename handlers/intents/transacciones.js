@@ -1,5 +1,8 @@
 const log = require('../../lib/logger');
-const { colaConfirmacionGasto } = require('../../lib/trial');
+// `estaEnMuro` se importa de `lib/trial`, que es la fuente única, y NO se reimplementa
+// inline como `plan !== 'premium'`: durante el trial esa columna vale 'premium' y la
+// pregunta "¿está en el muro?" tiene su predicado justamente para que no se copie mal.
+const { colaConfirmacionGasto, estaEnMuro } = require('../../lib/trial');
 const { validarMonto } = require('../../lib/validators');
 const { subcategoriaUtil, esSubSinClasificar } = require('../../lib/subcategoria');
 const { extraerGastoSinIA, quitarTokensDeMoneda, contarMontosCandidatos } = require('../../lib/nlp-guards');
@@ -221,6 +224,18 @@ module.exports = {
             if (mixto) {
               log.info({ tag: 'MSG_MIXTO', escritura: mixto.parte1.substring(0, 60), lectura: mixto.intencionLectura },
                 'Mensaje mixto: se registra la escritura; la lectura la resuelve la continuación');
+              // El log de arriba va a stdout de Railway y NO se puede consultar, así que sin
+              // esto no habría forma de saber nunca si a alguien le pasa de verdad. Se midió
+              // el 2026-08-18 que esta forma de mensaje tiene CERO ocurrencias en la historia
+              // del producto (0 en 355 mensajes reales); el evento existe para poder rehacer
+              // esa medición dentro de un mes sin volver a leer `conversaciones`, que se
+              // auto-purga. `enMuro` es la dimensión que importa: es el subconjunto donde
+              // perder el gasto significaba además recibir un pedido de plata en su lugar.
+              // `analytics.capture` no lanza y es no-op sin POSTHOG_KEY.
+              require('../../lib/analytics').capture(usuario.id, 'wa_mensaje_mixto', {
+                lectura: mixto.intencionLectura,
+                enMuro: estaEnMuro(usuario),
+              });
               msg = mixto.parte1;
             }
           }

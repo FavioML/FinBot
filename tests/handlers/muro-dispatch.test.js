@@ -304,6 +304,51 @@ describe('el trial que arranca en la parte 1 vale para la parte 2', () => {
     expect(eventosMuro()).toHaveLength(0);
   });
 
+  /**
+   * El evento del mensaje mixto, que es el ÚNICO instrumento consultable que tiene ese camino.
+   *
+   * Se midió el 2026-08-18 que esta forma de mensaje tiene cero ocurrencias en la historia del
+   * producto, y el arreglo se shippeó igual. Sin este evento, dentro de un mes la pregunta
+   * "¿le pasó a alguien?" no tendría con qué responderse: el log de `MSG_MIXTO` va a stdout de
+   * Railway y `conversaciones` se auto-purga.
+   *
+   * Se asierta `enMuro`, no solo que el evento salió: esa propiedad es la que separa "alguien
+   * escribió un compuesto" de "alguien perdió su gasto Y recibió un pedido de plata", que era
+   * el caso que abrió toda esta sesión. Un evento sin esa dimensión no responde la pregunta
+   * que lo justifica.
+   */
+  it('el mensaje mixto emite su evento, y dice si la persona estaba en el muro', async () => {
+    guardar.mockResolvedValueOnce({
+      id: 'tx-1', categoria: 'Transporte', subcategoria: 'sin_categoria', conteoTx: 9,
+    });
+    await procesarMensajeLibre('gasté 20 en taxi, cuánto llevo este mes', { ...NUEVO }, '51999');
+    const mixtos = eventos.filter((e) => e.ev === 'wa_mensaje_mixto');
+    expect(mixtos).toHaveLength(1);
+    expect(mixtos[0].props.lectura).toBe('ver_total_gastado');
+    expect(mixtos[0].props.enMuro).toBe(true);
+  });
+
+  it('control: con Pro, el mismo evento sale con enMuro=false', async () => {
+    // Sin este control, `enMuro: true` podría estar hardcodeado y el test no lo vería.
+    guardar.mockResolvedValueOnce({
+      id: 'tx-1', categoria: 'Transporte', subcategoria: 'sin_categoria', conteoTx: 9,
+    });
+    await procesarMensajeLibre('gasté 20 en taxi, cuánto llevo este mes', EN_TRIAL, '51999');
+    const mixtos = eventos.filter((e) => e.ev === 'wa_mensaje_mixto');
+    expect(mixtos).toHaveLength(1);
+    expect(mixtos[0].props.enMuro).toBe(false);
+  });
+
+  it('un mensaje que NO es mixto no emite el evento', async () => {
+    // Anti-vacuidad por el otro lado: si el evento saliera en todo registro, el conteo del mes
+    // que viene mediría "cuánta gente anota gastos", no esta forma de mensaje.
+    guardar.mockResolvedValueOnce({
+      id: 'tx-1', categoria: 'Transporte', subcategoria: 'sin_categoria', conteoTx: 9,
+    });
+    await procesarMensajeLibre('gasté 20 en taxi', { ...NUEVO }, '51999');
+    expect(eventos.filter((e) => e.ev === 'wa_mensaje_mixto')).toHaveLength(0);
+  });
+
   it('control: si ese mismo gasto NO estrena trial, la consulta sigue muriendo en el muro', async () => {
     // Mismo mensaje, mismo usuario amurallado, y lo único que cambia es `trialIniciado`.
     // Sin este control, el test de arriba sería verde con un pipeline que dejó de gatear.

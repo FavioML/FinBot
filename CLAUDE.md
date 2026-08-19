@@ -668,7 +668,7 @@ Y `free` dejo de ser un plan: **es el muro**.
 |---|---|
 | Fuente unica del trial y del muro | `lib/trial.js` |
 | Que intent/comando es lectura | `handlers/intents-acceso.js` (+ su test: un intent sin clasificar rompe el build) |
-| Gate WhatsApp | chokepoint en `handlers/message-processor.js` antes de `getHandler` + cascada de `/` en `webhook.js` |
+| Gate WhatsApp | `respuestaMuroSiCorresponde()` DENTRO de `dispatchIntent` (`handlers/intent-registry.js` → `handlers/muro-gate.js`) + cascada de `/` en `webhook.js`. **NO vive en `message-processor.js`**: ahí estaba y por eso se evaluaba UNA vez, con la intención del LLM maestro, mientras otros TRES sitios despachaban sin pasar por él (M21). Un dispatch nuevo tiene que ir por el registry — lo exige `tests/handlers/muro-dispatch-unico.test.js` |
 | Gate webapp | `requireLectura()` en `webapp/src/lib/supabase/auth.ts` → 402 (+ `lectura-callsites.test.ts`) |
 | Gate crons (lo que se EMPUJA) | gate de plan en cada cron que empuja (+ `tests/cron/lecturas-proactivas.test.js`) |
 | Por que canales sale un aviso proactivo | `notificarUsuario()` en `lib/notify-user.js` (+ `tests/notificaciones-duales.test.js`) |
