@@ -123,15 +123,29 @@ require.cache[pTools].exports = {
 
 // Los dos gates emiten literalmente el mismo `mensajeMuro()`, así que el texto no dice
 // CUÁL respondió. El evento sí: { comando } = cascada, { intencion } = chokepoint.
+//
+// El espía NO reenvía al cliente real, a propósito. Este harness siembra usuarios throwaway
+// y corre en el canary TODOS los días, así que reenviar le mete a PostHog varios eventos
+// diarios de gente que no existe — indistinguibles de los de un usuario real, que es la misma
+// contaminación que ya sufrió la tabla `errores` con los BSUID de harness.
+//
+// Pesa más de lo que parece: `wa_muro_lectura` y `wa_mensaje_mixto` son la única forma de
+// medir si el muro y el mensaje mixto le pasan a alguien de verdad, y las dos mediciones son
+// de conteos CHICOS (1 y 0 eventos en toda la historia al 2026-08-18). Media docena de
+// eventos sintéticos por día no los ensucia: los borra.
+//
+// Hasta ahora no rompía nada por CASUALIDAD, no por diseño: `POSTHOG_KEY` no está en el .env
+// local, así que `capture` es no-op acá y el canary nunca llegó a emitir. Eso también es lo
+// que hace válida la medición del 18-ago. Pero es una garantía que se cae sola el día que
+// alguien agregue esa variable para depurar analytics, y se caería EN SILENCIO.
+//
+// Ninguna aserción se pierde: `eventos` se llena antes, que es de donde lee el harness.
 const pAnalytics = require.resolve('../lib/analytics.js');
 const analyticsReal = require(pAnalytics);
 const eventos = []; // { ev, props }
 require.cache[pAnalytics].exports = {
   ...analyticsReal,
-  capture: (id, ev, props) => {
-    eventos.push({ ev, props: props || {} });
-    return analyticsReal.capture(id, ev, props);
-  },
+  capture: (id, ev, props) => { eventos.push({ ev, props: props || {} }); },
 };
 
 // ── Identificadores y centinelas de esta corrida ──────────────────────────────────────
