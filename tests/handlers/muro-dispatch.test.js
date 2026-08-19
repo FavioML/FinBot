@@ -190,8 +190,15 @@ describe('M21 — el muro se evalúa en CADA dispatch, no solo en el primero', (
   // ── Call-site 4: el redirect post-parser-fail ────────────────────────────
   it('el redirect post-parser de registrar_manual no entrega la lectura en el muro', async () => {
     // Acá el pre-check NO dispara (hay patrón de gasto) y el parser es el que falla.
+    //
+    // ⚠️ El mensaje va SIN coma, y hace falta que sea así para que este test siga midiendo lo
+    // que su nombre dice. Con coma ("gasté 20 en algo, cuánto llevo este mes"),
+    // `partirEscrituraLectura` lo reconoce como mensaje COMPUESTO: `registrar_manual` se queda
+    // con la mitad de escritura, el redirect post-parser ya no se evalúa nunca, y la lectura
+    // sale por la CONTINUACIÓN — o sea el call-site 2, que ya tiene su propio test.
+    // Medido: con la coma, neutralizar el redirect post-parser dejaba los 16 tests en VERDE.
     parsers.parsearRegistroManual.mockResolvedValueOnce({ ok: false });
-    const r = await procesarMensajeLibre('gasté 20 en algo, cuánto llevo este mes', EN_MURO, '51999');
+    const r = await procesarMensajeLibre('gasté 20 en algo cuánto llevo este mes', EN_MURO, '51999');
     expect(parsers.parsearRegistroManual).toHaveBeenCalled();
     expect(esMuro(r)).toBe(true);
     expect(filtro(r)).toBe(true);
@@ -199,7 +206,7 @@ describe('M21 — el muro se evalúa en CADA dispatch, no solo en el primero', (
 
   it('control: en trial, el redirect post-parser SÍ entrega la lectura', async () => {
     parsers.parsearRegistroManual.mockResolvedValueOnce({ ok: false });
-    const r = await procesarMensajeLibre('gasté 20 en algo, cuánto llevo este mes', EN_TRIAL, '51999');
+    const r = await procesarMensajeLibre('gasté 20 en algo cuánto llevo este mes', EN_TRIAL, '51999');  // sin coma: ver el test de arriba
     expect(parsers.parsearRegistroManual).toHaveBeenCalled();
     expect(r).toContain(CENTINELA);
   });
@@ -262,6 +269,51 @@ describe('M21 — el redirect y la continuación no resuelven dos veces lo mismo
     const r = await procesarMensajeLibre('mis gastos del mes y cuánto llevo', EN_MURO, '51999');
     expect(String(r).split(MARCA).length - 1).toBe(1);
     expect(vecesLectura).toBe(0);
+    expect(eventosMuro()).toHaveLength(1);
+  });
+});
+
+/**
+ * La fila `usuario` se lee UNA vez, al entrar al pipeline, o sea antes de que la primera
+ * parte escriba nada. Si esa escritura arranca el trial, la fila en memoria sigue diciendo
+ * `plan='free'` y `estaEnMuro` la da por amurallada — así que la parte 2 recibe el muro que
+ * esa persona acaba de dejar atrás, en el mismo mensaje.
+ *
+ * Es el caso del usuario NUEVO, que es el que más importa: su primer gasto es el que
+ * arranca los 14 días, y el mixto es una forma natural de escribirle a un bot por primera
+ * vez ("gasté 20 en taxi, cuánto llevo hoy"). Sin la sincronización recibía
+ * "🎁 Acabas de estrenar Neto Pro" y pegado abajo "🔒 necesitas Neto Pro".
+ *
+ * El control en el mismo `describe` es lo que impide que esto pase por vacuidad: si el
+ * pipeline dejara de despachar la continuación, el primer test también daría "no salió el
+ * muro" y estaría verde por la razón equivocada.
+ */
+describe('el trial que arranca en la parte 1 vale para la parte 2', () => {
+  const NUEVO = { id: 'u-nuevo', nombre: 'Favio', plan: 'free', trial_estado: null, trial_vence: null };
+  const guardar = require('../../services/transactions').guardarTransaccion;
+
+  it('el gasto que estrena el trial hace que la consulta SÍ se entregue', async () => {
+    guardar.mockResolvedValueOnce({
+      id: 'tx-1', categoria: 'Transporte', subcategoria: 'sin_categoria', conteoTx: 1,
+      trialIniciado: true, trialVence: '2026-09-01',
+    });
+    const r = await procesarMensajeLibre('gasté 20 en taxi, cuánto llevo este mes', { ...NUEVO }, '51999');
+    expect(r).toContain('✅');            // la escritura ocurrió
+    expect(r).toContain(CENTINELA);        // y la lectura también: ya no está en el muro
+    expect(esMuro(r)).toBe(false);         // sin el muro contradiciendo al 🎁 de arriba
+    expect(eventosMuro()).toHaveLength(0);
+  });
+
+  it('control: si ese mismo gasto NO estrena trial, la consulta sigue muriendo en el muro', async () => {
+    // Mismo mensaje, mismo usuario amurallado, y lo único que cambia es `trialIniciado`.
+    // Sin este control, el test de arriba sería verde con un pipeline que dejó de gatear.
+    guardar.mockResolvedValueOnce({
+      id: 'tx-1', categoria: 'Transporte', subcategoria: 'sin_categoria', conteoTx: 9,
+    });
+    const r = await procesarMensajeLibre('gasté 20 en taxi, cuánto llevo este mes', { ...NUEVO }, '51999');
+    expect(r).toContain('✅');            // escribir sigue siendo gratis
+    expect(filtro(r)).toBe(true);          // pero el desglose NO viajó
+    expect(esMuro(r)).toBe(true);
     expect(eventosMuro()).toHaveLength(1);
   });
 });

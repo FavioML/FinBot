@@ -469,7 +469,43 @@ async function procesarMensajeLibre(msg, usuario, from) {
         const cont = detectarContinuacion(msg, intencion);
         if (cont) {
           log.info({ tag: 'MULTI_INTENT_CONT', from: intencion, to: cont.intencion, parte2: cont.parte2.substring(0, 80) }, 'Compound continuation');
+          // `usuario` se leyó al entrar al pipeline, o sea ANTES de que la parte 1 escribiera
+          // nada. Si esa escritura arrancó el trial, la fila en memoria sigue diciendo
+          // plan='free' y `estaEnMuro` la da por amurallada, así que la parte 2 recibiría el
+          // muro que esta misma persona acaba de dejar atrás. Se sincronizan las DOS columnas
+          // porque `enTrial()` exige las dos y mirar una sola es cómo se construyen las
+          // pantallas que se contradicen (ver lib/trial.js).
+          if (ctx.trialRecienIniciado) {
+            // Las CUATRO columnas que escribe `iniciarTrialSiCorresponde` y que algún
+            // predicado lee, no solo las dos que deciden el muro. Dejar `trial_vence` sin
+            // poner arma justo la fila parcial que este repo prohíbe: `enTrial()` daría true
+            // con `trial_vence` en null, y `diasRestantesTrial()` devuelve null sobre eso.
+            // Hoy ningún destino de la continuación lo lee, pero "hoy no es alcanzable" es
+            // como se construyen las filas que mienten mañana.
+            usuario.plan = 'premium';
+            usuario.trial_estado = 'activo';
+            usuario.trial_vence = ctx.trialRecienIniciado.vence;
+            usuario.premium_vence = null;   // invariante de la migración 052
+          }
           const d2 = await dispatchIntent({ intencion: cont.intencion, msg: cont.parte2, datos: cont.datos, usuario, from, ctx });
+          // Cuando la parte 2 muere en el muro, la respuesta queda con la confirmación del
+          // gasto (que para alguien amurallado ya trae `nudgeMuro`: total del mes + link) y
+          // encima el `mensajeMuro` con precio y el mismo link. Es redundante y se evaluó
+          // suprimir el segundo cartel. NO se hizo, y conviene dejar escrito por qué:
+          //
+          //  · suprimirlo solo es correcto SI la confirmación trae el nudge, o sea que la
+          //    corrección de este archivo pasaría a depender de una rama de `lib/trial.js`
+          //    que nadie fuerza desde acá. El día que ese nudge cambie, esto se traga el
+          //    "no" del muro en silencio, que es el modo de falla que este repo ya conoce.
+          //  · el argumento fuerte para suprimir era que a la rama dominante del muro
+          //    (`trial_estado` null) el texto le promete "14 días gratis, se activan cuando
+          //    registres tu próximo gasto" justo a quien acaba de registrar uno. Con la
+          //    sincronización de arriba ese caso ya no llega hasta acá: su gasto arrancó el
+          //    trial y `d2.muro` es false. Los que sí llegan son 'vencido' y 'convertido',
+          //    a quienes el mensaje les dice algo verdadero y útil.
+          //
+          // O sea que lo que quedaba era una redundancia cosmética en un camino que en
+          // producción no ocurrió nunca, contra acoplar el gate de ingresos a otro archivo.
           // NO se compara `d2.respuesta` con `r1` para "no repetir": una continuación
           // register+register con las dos mitades idénticas produce la misma confirmación
           // a propósito, y esconderla deja al usuario con DOS gastos guardados y UN ✅

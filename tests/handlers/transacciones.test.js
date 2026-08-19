@@ -342,9 +342,17 @@ describe('registrar_manual — rescate determinístico del monto', () => {
    * `tienePatronGasto` (así se saltea el pre-check), matchea `detectarQuerySinMonto`, y
    * `extraerGastoSinIA` SÍ le lee un monto — o sea que si el rescate estuviera antes, esta
    * consulta se registraría como gasto de S/50.
+   *
+   * ⚠️ El mensaje va SIN coma, y eso no es cosmético: con coma ("gaste 50 en taxi, cuanto
+   * gaste hoy") `partirEscrituraLectura` lo reconoce como mensaje COMPUESTO y entonces sí se
+   * registra la mitad de escritura, a propósito — es el arreglo del mensaje mixto. Este test
+   * cuida un caso distinto: el mensaje donde el sistema NO logró separar dos mitades y por lo
+   * tanto no tiene evidencia positiva de que haya un gasto adentro. Ahí la conducta
+   * conservadora sigue siendo no registrar. Si alguien le devuelve la coma, este test pasa a
+   * medir el splitter y deja de medir el orden, en silencio.
    */
   it('el rescate no le gana al redirect de query (post-parser)', async () => {
-    const MSG = 'gaste 50 en taxi, cuanto gaste hoy';
+    const MSG = 'gaste 50 en taxi cuanto gaste hoy';
     // Precondición del propio test: si alguna de las tres deja de valer, el caso dejó de
     // ejercitar el orden y hay que elegir otro mensaje en vez de creerle al verde.
     expect(handler.detectarQuerySinMonto(MSG)).toBeTruthy();
@@ -374,7 +382,7 @@ describe('registrar_manual — rescate determinístico del monto', () => {
    * de lectura va a usar.
    */
   it('tampoco rescata si el dispatch de la consulta revienta', async () => {
-    const MSG = 'gaste 50 en taxi, cuanto gaste hoy';
+    const MSG = 'gaste 50 en taxi cuanto gaste hoy';   // sin coma: ver la nota del test de arriba
     const sb = makeSupabaseMock({ transacciones: [] });
     sb.from = vi.fn(() => { throw new Error('supabase caido'); });
     const ctx = buildCtx(sb, {
@@ -384,6 +392,95 @@ describe('registrar_manual — rescate determinístico del monto', () => {
     const res = await handler.handle({ intencion: 'registrar_manual', msg: MSG, datos: {}, usuario: USUARIO, from: '+51999', ctx });
     expect(ctx.guardarTransaccion).not.toHaveBeenCalled();
     expect(res).toContain('No pude leer el monto');
+  });
+});
+
+// ─── registrar_manual: el mensaje que trae un gasto Y una consulta ───────────
+//
+// "Gasté 20 en Movilidad, cuánto llevo hoy" perdía el gasto entero: `tienePatronGasto`
+// saltea el pre-check, el parser devuelve ok:false, y el redirect lee el mensaje COMPLETO
+// como consulta y lo despacha. Quien estaba en el muro recibía el paywall en lugar de su
+// gasto, o sea que se le cortaba una ESCRITURA.
+//
+// El arreglo NO es mover el rescate antes del redirect, y hay dos motivos independientes
+// para descartarlo: abre el agujero que cuidan los dos tests de arriba, y ADEMÁS no
+// funcionaría — el primer `it` de acá lo fija midiéndolo, porque es justo la clase de
+// premisa que se propaga si no queda escrita con su medición al lado.
+describe('registrar_manual — mensaje mixto (escritura + lectura)', () => {
+  const { extraerGastoSinIA } = require('../../lib/nlp-guards');
+  const MIXTO = 'Gasté 20 en Movilidad, cuánto llevo hoy';
+
+  const ctxMixto = (extra = {}) => buildCtx(makeSupabaseMock({ transacciones: [] }), {
+    parsearRegistroManual: vi.fn().mockResolvedValue({ ok: false }),
+    detectarCategoriaIA: vi.fn().mockResolvedValue({}),
+    ...extra,
+  });
+
+  it('el rescate NO alcanza: sobre el mensaje entero el extractor devuelve null', () => {
+    // Sobre la mitad sola sí lee el gasto. O sea que el problema no es dónde corre el
+    // rescate: es que nadie parte el mensaje. Si esto algún día pasa a ser truthy, la
+    // justificación del splitter cambió y hay que releerla, no borrar el test.
+    expect(extraerGastoSinIA(MIXTO)).toBeNull();
+    expect(extraerGastoSinIA('Gasté 20 en Movilidad')).toBeTruthy();
+  });
+
+  it('registra la mitad de escritura, con el monto y el comercio de esa mitad', async () => {
+    const ctx = ctxMixto();
+    await handler.handle({ intencion: 'registrar_manual', msg: MIXTO, datos: {}, usuario: USUARIO, from: '+51999', ctx });
+    expect(ctx.guardarTransaccion).toHaveBeenCalledOnce();
+    expect(ctx.guardarTransaccion.mock.calls[0][1]).toMatchObject({ monto: 20, tipo: 'gasto' });
+  });
+
+  it('la fila guardada NO arrastra la pregunta', async () => {
+    // `descripcion_original` alimenta `extraerLast4` y el dedup, y es lo único que después
+    // permite diagnosticar qué escribió la persona. Con el mensaje entero adentro, la
+    // transacción queda describiéndose a sí misma como una consulta.
+    const ctx = ctxMixto();
+    await handler.handle({ intencion: 'registrar_manual', msg: MIXTO, datos: {}, usuario: USUARIO, from: '+51999', ctx });
+    const guardado = ctx.guardarTransaccion.mock.calls[0][1];
+    expect(guardado.descripcion_original || '').not.toMatch(/cuánto/i);
+    expect(guardado.comercio).toBe('Movilidad');
+  });
+
+  /**
+   * LA invariante del arreglo, y la razón por la que puede correr antes del redirect.
+   *
+   * El defecto que este repo ya pagó era que **el fallo de red del dispatch** era lo que
+   * terminaba produciendo el gasto. Acá la decisión de escribir se toma con evidencia
+   * positiva y ANTES de intentar ningún dispatch, así que tiene que dar lo MISMO con el
+   * dispatch sano y con el dispatch muerto. Si algún día estos dos números difieren, la
+   * escritura volvió a depender de un fallo y el arreglo se rompió.
+   */
+  it('registra igual, ande o no ande el dispatch de la consulta', async () => {
+    const sano = ctxMixto();
+    await handler.handle({ intencion: 'registrar_manual', msg: MIXTO, datos: {}, usuario: USUARIO, from: '+51999', ctx: sano });
+
+    const sbRoto = makeSupabaseMock({ transacciones: [] });
+    sbRoto.from = vi.fn(() => { throw new Error('supabase caido'); });
+    const roto = buildCtx(sbRoto, {
+      parsearRegistroManual: vi.fn().mockResolvedValue({ ok: false }),
+      detectarCategoriaIA: vi.fn().mockResolvedValue({}),
+    });
+    await handler.handle({ intencion: 'registrar_manual', msg: MIXTO, datos: {}, usuario: USUARIO, from: '+51999', ctx: roto });
+
+    expect(sano.guardarTransaccion).toHaveBeenCalledOnce();
+    expect(roto.guardarTransaccion).toHaveBeenCalledOnce();
+    expect(roto.guardarTransaccion.mock.calls[0][1].monto)
+      .toBe(sano.guardarTransaccion.mock.calls[0][1].monto);
+  });
+
+  it('la pregunta no le contamina la fecha al gasto', async () => {
+    // El guard de TZ solo respeta `parsed.fecha` si el mensaje trae una fecha explícita, y
+    // "cuánto llevo *hoy*" se la regalaba: con el mensaje entero, una fecha alucinada por el
+    // modelo sobrevivía. Con el mensaje partido, el marcador ya no está y el guard corrige.
+    const ctx = ctxMixto({
+      parsearRegistroManual: vi.fn().mockResolvedValue({
+        ok: true, monto: 20, moneda: 'PEN', tipo: 'gasto',
+        categoria: 'Transporte', subcategoria: null, fecha: '2026-01-02',
+      }),
+    });
+    await handler.handle({ intencion: 'registrar_manual', msg: MIXTO, datos: {}, usuario: USUARIO, from: '+51999', ctx });
+    expect(ctx.guardarTransaccion.mock.calls[0][1].fecha).toBe(ctx.fechaHoyPeru());
   });
 });
 

@@ -192,6 +192,39 @@ module.exports = {
 
       case 'registrar_manual': {
         try {
+          // Mensaje COMPUESTO (un gasto y una consulta juntos): acá se registra únicamente la
+          // mitad de escritura, y la de lectura la resuelve la continuación multi-intent de
+          // message-processor, que la manda por `dispatchIntent` y por lo tanto por el muro.
+          // La regla del producto sale entera: se escribe gratis, se cobra leer.
+          //
+          // Sin esto, "Gasté 20 en Movilidad, cuánto llevo hoy" se perdía por completo:
+          // `tienePatronGasto` saltea el pre-check, el parser devuelve ok:false (la banda
+          // inestable de gpt-4o-mini, ver el rescate más abajo), y entonces el redirect de ahí
+          // abajo lee el mensaje ENTERO como consulta y lo despacha. El gasto no se guarda en
+          // ningún lado, y quien está en el muro recibe el paywall en su lugar.
+          //
+          // Va ANTES del parser y no dentro de la rama de fallo, aunque el bug se manifieste
+          // ahí, por dos motivos que valen igual cuando el parser acierta:
+          //  · los guards de fecha de más abajo miran `msg`, y "cuánto llevo *hoy*" les mete un
+          //    marcador temporal que pertenece a la pregunta, no al gasto: con el mensaje
+          //    entero, `_tieneFechaExplicita` da true y el TZ_GUARD deja pasar una fecha
+          //    alucinada que sin la pregunta habría corregido.
+          //  · `detectarCategoriaIA` y `descripcion_original` quedan sobre el texto del gasto
+          //    solo, que es lo que de verdad describe la transacción.
+          //
+          // Se reasigna `msg` a propósito: de acá hasta el `return` de este case, el mensaje ES
+          // la mitad de escritura. `message-processor` conserva el original en su propio scope,
+          // que es el que necesita para resolver la mitad de lectura.
+          {
+            const { partirEscrituraLectura } = require('../../services/multi-intent-splitter');
+            const mixto = partirEscrituraLectura(msg);
+            if (mixto) {
+              log.info({ tag: 'MSG_MIXTO', escritura: mixto.parte1.substring(0, 60), lectura: mixto.intencionLectura },
+                'Mensaje mixto: se registra la escritura; la lectura la resuelve la continuación');
+              msg = mixto.parte1;
+            }
+          }
+
           // Pre-check: ¿el LLM clasificó como register pero el msg es claramente una query?
           // Bajo burst de gastos previos, gpt-4o-mini hereda contexto e inventa monto incluso
           // cuando el usuario pregunta "cuánto gasté hoy". Solo redirigimos si NO hay un patrón
@@ -433,6 +466,16 @@ module.exports = {
               .catch(() => {});
           }
           const tx = await guardarTransaccion(usuario.id, parsed);
+          // La fila `usuario` que viaja por el pipeline es de ANTES de este gasto, así que si
+          // el gasto acaba de arrancar el trial, sigue diciendo plan='free' y para
+          // `estaEnMuro` esta persona está amurallada cuando en realidad acaba de recibir 14
+          // días de Pro. Eso no importaba mientras nadie más mirara esa fila después, pero la
+          // continuación multi-intent SÍ la mira: sin esta señal, un mensaje mixto de alguien
+          // nuevo respondía "🎁 Acabas de estrenar Neto Pro" e inmediatamente debajo
+          // "🔒 necesitas Neto Pro", contradiciéndose en su primera interacción.
+          // Se avisa por `ctx` en vez de mutar `usuario` acá para que la sincronización ocurra
+          // en un solo lugar (message-processor), pegada a quien la necesita.
+          if (tx && tx.trialIniciado) ctx.trialRecienIniciado = { vence: tx.trialVence || null };
           const esIngreso = parsed.tipo === 'ingreso';
           const montoStr = parsed.moneda === 'USD' ? '$' + parseFloat(parsed.monto).toFixed(2) : 'S/' + parseFloat(parsed.monto).toFixed(2);
           // Mostrar la categoría/subcategoría YA persistidas (normalizadas por guardarTransaccion),
