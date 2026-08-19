@@ -222,7 +222,7 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
   // exactamente el sesgo que el panel acaba de dejar de tener.
   const INTERNAL_WHATSAPP = new Set(['51970398192', '51999999997']);
   const esInterno = (u) => !!u.is_test_user || INTERNAL_WHATSAPP.has(u.whatsapp);
-  const usuariosPlan = await sbPaginado('usuarios', 'id,whatsapp,is_test_user,plan,trial_estado');
+  const usuariosPlan = await sbPaginado('usuarios', 'id,whatsapp,is_test_user,plan,trial_estado,cuenta_borrada_at');
   const idsReales = new Set(usuariosPlan.filter((u) => !esInterno(u)).map((u) => u.id));
 
   const txs = await sbPaginado('transacciones', 'usuario_id');
@@ -286,19 +286,51 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
   // con monto > 0. Si el panel y la base divergen, el número es decorativo y no sirve para
   // decidir si vale la pena modelar el comp como estado propio.
   // Las mismas cuentas que EXCLUDED_REVENUE_WHATSAPP en admin-revenue.ts (fundador + QA Pro).
-  const pagosOk = await sbPaginado('pagos', 'usuario_id,estado,monto');
+  const pagosOk = await sbPaginado('pagos', 'usuario_id,estado,monto,aprobado_at,created_at');
   const conPagoReal = new Set(
     pagosOk.filter((p) => p.estado === 'aprobado' && Number(p.monto) > 0).map((p) => p.usuario_id),
   );
   const proPagadosReales = usuariosPlan.filter(
     (u) => u.plan === 'premium' && u.trial_estado !== 'activo' && !esInterno(u),
   );
+
+  // BAJA DECLARADA: pidió borrar su cuenta y no volvió a pagar después. Se reimplementa acá
+  // en vez de importar `admin-revenue.ts` a propósito — el valor del oráculo es ser una
+  // segunda implementación, no un espejo. El testigo es una fila de `pagos` aprobada con
+  // monto > 0 POSTERIOR a la baja, y no `fecha_pago`/`premium_desde`, que se escriben en los
+  // comps y en el premio de referidos sin que entre un sol.
+  const cobrosPorUsuario = new Map();
+  for (const p of pagosOk) {
+    if (p.estado !== 'aprobado' || !(Number(p.monto) > 0) || !p.usuario_id) continue;
+    const t = new Date(p.aprobado_at || p.created_at).getTime();
+    if (Number.isNaN(t)) continue;
+    (cobrosPorUsuario.get(p.usuario_id) || cobrosPorUsuario.set(p.usuario_id, []).get(p.usuario_id)).push(t);
+  }
+  const ahora = Date.now();
+  const esBajaDeclarada = (u) => {
+    if (!u.cuenta_borrada_at) return false;
+    const baja = new Date(u.cuenta_borrada_at).getTime();
+    if (Number.isNaN(baja) || baja > ahora) return false;
+    return !(cobrosPorUsuario.get(u.id) || []).some((t) => t > baja && t <= ahora);
+  };
+  const bajasOraculo = proPagadosReales.filter(esBajaDeclarada);
+  const proActivosReales = proPagadosReales.filter((u) => !esBajaDeclarada(u));
+
   ok(
-    'economics: el MRR no cuenta cuentas de prueba',
-    eco.pro_users === proPagadosReales.length,
-    `panel dice ${eco.pro_users} Pro, la base dice ${proPagadosReales.length}`,
+    'economics: el MRR no cuenta cuentas de prueba ni bajas declaradas',
+    eco.pro_users === proActivosReales.length,
+    `panel dice ${eco.pro_users} Pro, la base dice ${proActivosReales.length}` +
+      (bajasOraculo.length ? ` (${bajasOraculo.length} de ${proPagadosReales.length} pagados pidieron borrar su cuenta)` : ''),
   );
-  const sinPagoOraculo = proPagadosReales.filter((u) => !conPagoReal.has(u.id)).length;
+  // Y que la caída del MRR tenga explicación EN LA MISMA respuesta: un número que baja sin
+  // motivo visible se lee como un bug del panel.
+  ok(
+    'economics: bajas_declaradas == verdad de la base',
+    eco.bajas_declaradas === bajasOraculo.length,
+    `panel dice ${eco.bajas_declaradas}, la base dice ${bajasOraculo.length}`,
+  );
+  // Sobre los Pro ACTIVOS: quien pidió la baja ya salió del MRR, así que no cuenta acá.
+  const sinPagoOraculo = proActivosReales.filter((u) => !conPagoReal.has(u.id)).length;
   ok(
     'economics: "Pro sin pago registrado" == verdad de la base',
     eco.pro_sin_pago_registrado === sinPagoOraculo,
