@@ -215,6 +215,14 @@
         "_por_que_no_esta_el_harness_completo": "`qa-e2e/qa-borrado-cuenta.mjs` prueba que el borrado BORRE, pero para eso SIEMBRA: dos usuarios reales, una identidad de auth y un objeto de Storage en produccion, y deja ~16 filas por corrida en `borrados_auditoria` (medido 18-ago: 98 filas en un dia de trabajo sobre una tabla de 727). Esa tabla es la caja negra del incidente del 01-ago y la migracion 073 la hizo, a proposito, imposible de limpiar desde el backend, asi que a cadencia diaria el residuo de QA la termina dominando. Ademas el codigo del borrado no cambia sin un commit, y el criterio del canary es lo que se rompe SIN commit. Ese harness se corre a mano; su disparador esta en qa-e2e/README.md."
       }
     ],
+    "core_web_vitals": {
+      "track": true,
+      "source": "CrUX",
+      "alert_on_lcp_above_ms": 2500,
+      "alert_on_inp_above_ms": 200,
+      "alert_on_cls_above": 0.1,
+      "nota": "Frontera 'good' de CrUX, los mismos numeros que los sitios estaticos, y a proposito: app.neto.pe es un producto de cara al usuario servido por Vercel edge, asi que un p75 de LCP sobre 2500ms es algo que se arregla, no un limite de la infra. INP 200 es el umbral que de verdad importa aca — es una app con sesion, donde el usuario interactua muchas veces despues de la primera carga, no una pagina que se lee y se cierra. OJO, medido el 20-ago-2026: este deploy NO llega siquiera a la pregunta de si CrUX tiene datos. PageSpeed devuelve HTTP 400 NO_FCP ('the page did not paint any content') de forma reproducible para https://app.neto.pe/ en mobile y desktop, y tambien para /login en mobile; /login en DESKTOP si mide (lab LCP 523ms). O sea que la pagina no pinta nada bajo la emulacion movil de Lighthouse, que es la misma clase de bug que la landing ya tuvo (guard de hidratacion dejando el hero en opacity:0 en movil). check-cwv.mjs sale exit 2 con motivo 'PSI 400' y seguira asi hasta que eso se arregle: no es config incompleta ni falta de trafico. Vale la pena mirarlo por si mismo — si Lighthouse movil no ve nada, un movil lento real puede estar viendo pantalla en blanco en el login."
+    },
     "post_deploy_window_min": 10,
     "alert_on_failure": true
   },
