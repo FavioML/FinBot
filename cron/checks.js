@@ -348,7 +348,7 @@ async function checkPremiumExpiry() {
               // DESPUÉS del WhatsApp, así que un insert fallido dejaba el dedup ciego y este
               // cron horario re-mandaba el mismo aviso en cada corrida desde las 8am (B6).
               claimInApp: true,
-              cuerpo: 'Tu plan NETO Pro vence el ' + usuario.premium_vence + '. Renueva para no perder acceso.',
+                cuerpo: 'Tu plan NETO Pro vence el ' + usuario.premium_vence + '. Renueva para no perder acceso.',
               link: '/dashboard/configuracion',
             });
             // Solo se abre la espera de comprobante si el aviso tiene DÓNDE esperarlo.
@@ -537,7 +537,8 @@ async function checkRecordatorioOnboarding() {
     const hace6h = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
     const hace3h = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
     const { data: candidatos, error: errCand } = await supabase.from('usuarios')
-      .select('id, whatsapp, nombre, onboarding_paso')
+      // `supabase_auth_id` decide el canal del nudge (ver la bifurcación abajo), no es adorno.
+      .select('id, whatsapp, nombre, onboarding_paso, supabase_auth_id')
       .gte('created_at', hace6h)
       .lte('created_at', hace3h)
       .neq('is_test_user', true)
@@ -565,6 +566,15 @@ async function checkRecordatorioOnboarding() {
       return;
     }
     const activados = new Set((conTx || []).map((t) => t.usuario_id));
+    // El dedup NO filtra los `estado` que empiezan con `skipped`, y es deliberado. Suena al
+    // arreglo obvio —una fila `skipped_no_whatsapp` parecía "no se le avisó, reintentar"— pero
+    // con el canal ya bifurcado esa fila significa lo contrario: al web-first se le escribió en
+    // la campana y el `skipped` es solo la mitad de WhatsApp del envío. Filtrarlo lo re-avisaría
+    // cada hora mientras dure la ventana de 3-6h. `skipped_test` tampoco se filtra: el silencio
+    // a un usuario de prueba es un silencio pedido.
+    // Lo que protege el caso "la campana tampoco se escribió" es `claimInApp` en la rama AMBOS,
+    // que corta ANTES de dejar la fila. La consulta de vigilancia de la señal diaria sí tiene
+    // que excluir `skipped%`, porque ahí la pregunta es otra: "¿alguien se quedó sin nada?".
     const avisados = new Set((yaAvisados || []).map((d) => d.usuario_id));
     const usuarios = candidatos.filter((u) => !activados.has(u.id) && !avisados.has(u.id));
     if (usuarios.length === 0) return;
@@ -580,11 +590,43 @@ async function checkRecordatorioOnboarding() {
           '📝 _"gasté 20 en taxi"_\n' +
           '📸 O mándame la foto de un Yape\n\n' +
           '_Si prefieres, dime *saltar* y lo dejamos para después._';
-        await notificarUsuario({
-          canales: CANALES.SOLO_WHATSAPP,
-          motivo: 'le habla a quien registró cero gastos y todavía no tiene cuenta web: no hay campana donde mostrar nada, y el mensaje ES el empujón para que empiece',
-          usuarioId: u.id, whatsapp: u.whatsapp, tipo: 'onboarding', mensaje: nudge,
-        });
+        // El canal se BIFURCA por lo que el usuario tiene, y no es cosmético: hasta el
+        // 20-ago-2026 este nudge salía siempre SOLO_WHATSAPP con el motivo "todavía no tiene
+        // cuenta web: no hay campana donde mostrar nada". Esa premisa era cierta para la
+        // población que el cron capturaba ANTES del fix de selección (`000fc52`) y dejó de
+        // serlo con la que captura ahora: los 3 candidatos del 17 y 18-ago tenían cuenta web
+        // y `whatsapp IS NULL`, así que los 3 salieron `skipped_no_whatsapp` y no se enteró
+        // nadie. Hoy 9 de 106 usuarios reales son web-first — no es un caso de borde.
+        //
+        // Son dos llamadas y no un ternario a propósito: `tests/notificaciones-duales.test.js`
+        // exige el par `canales:`/`motivo:` como literales pegados, y aflojar esa regex para
+        // que entienda una expresión es cómo un guard deja de ver.
+        const base = { usuarioId: u.id, whatsapp: u.whatsapp, tipo: 'onboarding', mensaje: nudge };
+        if (u.supabase_auth_id) {
+          // `claimInApp` porque el dedup de este cron (arriba, `avisados`) lee
+          // `notification_deliveries`, y esa fila la escribe `enviarWhatsapp`. Para el
+          // web-first con `whatsapp` null la fila sale `skipped_no_whatsapp` — que con este
+          // canal YA NO significa "no se le avisó", significa "se le avisó por la campana".
+          // Si la campana no se pudo escribir, el claim corta antes de dejar esa fila y el
+          // usuario vuelve a entrar en la próxima corrida horaria (la ventana es de 3-6h, así
+          // que fallar cerrado lo pospone, no lo pierde).
+          await notificarUsuario({
+            canales: CANALES.AMBOS,
+            ...base,
+            titulo: 'Anota tu primer gasto',
+            // Cuerpo propio: el de WhatsApp dice "mándame la foto" y "dime saltar", que en la
+            // campana no son acciones posibles.
+            cuerpo: 'Registra un gasto y Neto empieza a mostrarte a dónde se te va la plata.',
+            tipoInApp: 'recordatorio', link: '/dashboard/transacciones',
+            claimInApp: true,
+          });
+        } else {
+          await notificarUsuario({
+            canales: CANALES.SOLO_WHATSAPP,
+            motivo: 'la rama exige supabase_auth_id nulo: sin cuenta web no hay campana donde mostrar nada, y el mensaje ES el empujón para que empiece',
+            ...base,
+          });
+        }
         // NO se toca `onboarding_paso`. La marca de "ya se le mandó" es la fila que
         // `notificarUsuario` deja en `notification_deliveries`, que además es el
         // registro real del envío. Pisar el paso a 100 acá mandaría el próximo

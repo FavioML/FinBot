@@ -378,6 +378,12 @@ async function maybeFeedback30(usuario) {
  */
 async function maybeWakeUpOnboarding(usuario) {
   if (usuario.onboarding_completado === true) return false;
+  // El aviso sale SOLO_WHATSAPP y su `motivo` afirma que el destinatario no tiene cuenta web.
+  // Hasta ahora eso se cumplia por correlacion —los 9 destinatarios historicos tienen
+  // supabase_auth_id nulo, medido el 20-ago-2026—, no por construccion: nada en el trigger lo
+  // exigia. Es la misma inferencia que se rompio en checkRecordatorioOnboarding cuando cambio
+  // la poblacion. Se vuelve explicita, que ademas es lo que el guard de canal unico verifica.
+  if (usuario.supabase_auth_id) return false;
 
   const dias = (Date.now() - new Date(usuario.created_at).getTime()) / 86400000;
   if (dias < 7) return false;

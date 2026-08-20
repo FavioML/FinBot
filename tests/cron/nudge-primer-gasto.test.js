@@ -222,11 +222,70 @@ describe('nudge de primer gasto', () => {
     expect(notificar).not.toHaveBeenCalled();
   });
 
-  it('sale por WhatsApp y con motivo, que es lo que exige el chokepoint de canal único', async () => {
+  it('sin cuenta web sale por WhatsApp y con motivo, que es lo que exige el chokepoint de canal único', async () => {
     await checkRecordatorioOnboarding();
     const arg = notificar.mock.calls[0][0];
     expect(arg.canales).toBe(notifyReal.CANALES.SOLO_WHATSAPP);
     expect(typeof arg.motivo).toBe('string');
     expect(arg.motivo.length).toBeGreaterThan(20);
+  });
+
+  // ── El canal, bifurcado ───────────────────────────────────────────────────────
+  //
+  // El bug que cierra esta sección no se ve en ningún log: entre el 17 y el 18-ago el cron
+  // eligió a 3 usuarios web-first, los 3 salieron `skipped_no_whatsapp` y nadie recibió nada.
+  // El cron corría, no fallaba, y hasta dejaba fila en `notification_deliveries`.
+  describe('web-first: tiene cuenta web y no tiene WhatsApp', () => {
+    /** Alta por la webapp: `supabase_auth_id` presente, `whatsapp` en null. 9 de 106 reales. */
+    const WEB_FIRST = {
+      id: 'u-web-first',
+      whatsapp: null,
+      nombre: 'Ana Torres',
+      onboarding_paso: 0,
+      onboarding_completado: true,
+      is_test_user: false,
+      supabase_auth_id: 'auth-abc',
+    };
+
+    beforeEach(() => { usuariosData = [WEB_FIRST]; });
+
+    it('sale por AMBOS, no por SOLO_WHATSAPP: tiene campana donde mostrarlo', async () => {
+      await checkRecordatorioOnboarding();
+      expect(notificar).toHaveBeenCalledTimes(1);
+      const arg = notificar.mock.calls[0][0];
+      expect(arg.canales).toBe(notifyReal.CANALES.AMBOS);
+      // Con AMBOS el `motivo` es ruido y el guard estático lo prohíbe.
+      expect(arg.motivo).toBeUndefined();
+    });
+
+    it('la campana recibe título y cuerpo propios: el copy de WhatsApp no es accionable ahí', async () => {
+      await checkRecordatorioOnboarding();
+      const arg = notificar.mock.calls[0][0];
+      expect(arg.titulo).toBeTruthy();
+      expect(arg.link).toMatch(/^\/dashboard/);
+      // El mensaje de WhatsApp pide una foto y ofrece "saltar"; ninguna de las dos existe
+      // en la campana. Si el cuerpo in-app vuelve a derivarse del de WhatsApp, esto muere.
+      expect(arg.cuerpo).toBeTruthy();
+      expect(arg.cuerpo).not.toMatch(/foto|saltar/i);
+    });
+
+    it('reclama la fila in-app ANTES de enviar, porque el dedup depende de esa fila', async () => {
+      await checkRecordatorioOnboarding();
+      expect(notificar.mock.calls[0][0].claimInApp).toBe(true);
+    });
+
+    it('un skipped_no_whatsapp previo SÍ lo descarta: con el canal bifurcado, esa fila significa que la campana salió', async () => {
+      // Es la contraprueba del arreglo que parecía obvio y habría re-avisado cada hora
+      // durante toda la ventana de 3-6h.
+      deliveriesData = [{ usuario_id: 'u-web-first', tipo: 'onboarding', estado: 'skipped_no_whatsapp' }];
+      await checkRecordatorioOnboarding();
+      expect(notificar).not.toHaveBeenCalled();
+    });
+  });
+
+  it('con WhatsApp Y cuenta web sale por AMBOS: el canal lo decide lo que el usuario tiene', async () => {
+    usuariosData = [{ ...RECIEN_LLEGADO, supabase_auth_id: 'auth-xyz' }];
+    await checkRecordatorioOnboarding();
+    expect(notificar.mock.calls[0][0].canales).toBe(notifyReal.CANALES.AMBOS);
   });
 });

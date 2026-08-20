@@ -1150,9 +1150,28 @@ Devuelve `{ wa, inApp }`. El canal in-app se escribe **aunque WhatsApp falle o e
 tenga numero**: cada canal tiene su try/catch, no uno global.
 
 Un canal unico (`CANALES.SOLO_WHATSAPP` / `SOLO_IN_APP`) exige `motivo` pegado al `canales`.
-Hoy hay cinco excepciones y todas comparten la misma forma: la query que selecciona al
-destinatario exige que NO tenga cuenta web, asi que no hay campana donde mostrar nada.
-`grep -rn "CANALES.SOLO_" .` es la auditoria completa.
+Todas las excepciones comparten la misma forma: **el destinatario no tiene cuenta web**, asi
+que no hay campana donde mostrar nada. `grep -rn "CANALES.SOLO_" .` es la auditoria completa.
+
+**Esa forma se verifica sola desde el 20-ago-2026** (`tests/canal-unico-sin-cuenta-web.test.js`):
+toda funcion que mande por `SOLO_WHATSAPP` tiene que MIRAR `supabase_auth_id`, o estar declarada
+en `EXENTOS` con el porque. Existe porque la premisa envejecio en silencio y nadie se entero:
+`checkRecordatorioOnboarding` cambio su criterio de seleccion (`onboarding_completado = false`
+→ "no anoto nada") y el canal se quedo igual. La poblacion nueva incluye altas **web-first**, asi
+que el 17 y 18-ago tres usuarios con cuenta web y `whatsapp IS NULL` salieron
+`skipped_no_whatsapp` y no recibieron nada. Ni un test se puso rojo: el `motivo` seguia ahi y la
+sintaxis seguia bien; lo unico falso era la afirmacion.
+
+Por eso ese cron ya **no** manda por un canal fijo: bifurca por lo que el usuario tiene (`AMBOS`
+con cuenta web, `SOLO_WHATSAPP` sin ella), con `claimInApp` porque su dedup lee
+`notification_deliveries`. Y **ojo con el arreglo que parece obvio**: filtrar los `estado`
+`skipped%` de ese dedup lo re-avisaria cada hora, porque con el canal bifurcado un
+`skipped_no_whatsapp` significa "salio por la campana", no "no salio".
+
+**El guard se mide contra el CODIGO, no contra su documentacion**: borra comentarios, el valor
+de `motivo:` y el argumento de `.select(...)` antes de buscar. Las tres son evasiones reales que
+lo dejaban verde con la guarda borrada — la del `.select()` porque una proyeccion no es un
+filtro. Estan fijadas como fixtures maliciosos adentro del archivo.
 
 **Guard: `tests/notificaciones-duales.test.js`.** Ningun archivo fuera de los declarados puede
 llamar `enviarWhatsapp` crudo, y los conteos de los declarados estan fijados (agregar una

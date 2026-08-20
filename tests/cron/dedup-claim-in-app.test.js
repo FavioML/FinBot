@@ -205,7 +205,9 @@ describe('los cuatro crons con dedup por fecha piden el claim', () => {
   it('el guard distingue: hay llamadas con y sin claim en el mismo archivo', () => {
     const bs = bloques();
     expect(bs.length).toBeGreaterThan(6);
-    expect(bs.filter(b => /claimInApp:\s*true/.test(b)).length).toBe(3);
+    // 4 desde el 20-ago-2026: los tres avisos de vencimiento + el nudge de primer gasto, que
+    // reclama porque su dedup lee `notification_deliveries` y esa fila la escribe el envío.
+    expect(bs.filter(b => /claimInApp:\s*true/.test(b)).length).toBe(4);
     expect(bs.filter(b => !/claimInApp/.test(b)).length).toBeGreaterThan(0);
   });
 
@@ -329,7 +331,8 @@ describe('claimInApp nunca se combina con un canal único', () => {
   }
 
   it('el barrido encuentra las llamadas con claim (antivacuidad)', () => {
-    expect(conClaim.length).toBe(3);
+    // 3 vencimientos + el nudge de primer gasto (20-ago-2026). Las cuatro en cron/checks.js.
+    expect(conClaim.length).toBe(4);
   });
 
   it('ninguna declara SOLO_WHATSAPP', () => {
