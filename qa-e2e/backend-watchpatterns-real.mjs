@@ -74,6 +74,10 @@
 //     la cobertura; el comentario de la clasificación explica por qué se acepta.
 //   - `todavia-sin-veredicto` — está en vuelo (`WAITING`, `BUILDING`…). Normal si se corre
 //     justo después de un push.
+//   - `redeploy-sin-diff` — `base === sha`: el mismo commit desplegado dos veces. El diff es
+//     vacío por construcción y Railway no evalúa `watchPatterns` en un redeploy manual, así
+//     que ningún predicado puede acertarle. Sale de juzgables en LAS DOS direcciones, también
+//     cuando el modelo "acierta": ahí acierta sin mirar nada.
 //   - `sin-patrones-declarados`, `sin-historia-local`, `sin-base`, `patrones-no-compilables`.
 //
 // Todas se cuentan en `noJuzgadas` y el total cierra contra `deployments`: si una corrida
@@ -299,6 +303,21 @@ export function compararConRailway(deployments, obtenerArchivos) {
       fila.clase = 'base-en-vuelo';
       fila.base = short(ultimoDesplegado);
       fila.detalle = 'la base pudo seguir construyendo cuando se creó este deployment';
+    } else if (ultimoDesplegado === d.sha) {
+      // REDESPLIEGUE DEL MISMO COMMIT. `base === sha` ⇒ el diff es vacío POR CONSTRUCCIÓN, así
+      // que no hay archivo que pueda disparar un patrón y el predicado solo sabe decir "no
+      // redespliega". Railway, en cambio, construye: un redeploy manual (o un cambio de
+      // variable/settings) no consulta `watchPatterns`, los evalúa solo contra un push.
+      // No existe predicado capaz de acertarle, así que juzgarlo inventa un desacuerdo — es el
+      // caso de `4363bcc` (redeploy manual del 18-ago 08:21Z) que tuvo el harness en rojo
+      // cuatro corridas seguidas.
+      //
+      // Se clasifica por la CONDICIÓN ESTRUCTURAL, no por el desenlace: cuando Railway saltea
+      // este caso el modelo "acierta" sin haber mirado nada, y contar eso como `de-acuerdo`
+      // infla la cobertura con un acuerdo vacuo. Las dos direcciones salen de juzgables.
+      fila.clase = 'redeploy-sin-diff';
+      fila.base = short(ultimoDesplegado);
+      fila.detalle = 'redespliegue del mismo commit: no hay diff que pueda disparar un patrón';
     } else if (d.skippedReason && !saltadoPorPatrones) {
       // El gate lo frenó ANTES de que Railway resolviera la config: no dice nada del modelo.
       fila.clase = 'frenado-antes-de-watchpatterns';

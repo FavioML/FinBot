@@ -207,6 +207,17 @@ export const EXEMPT_REFS: readonly ExemptRef[] = [
   { ref: 'notificaciones.datos', reason: 'deeplink y metadatos de la campana in-app. Sin nombres de categoría.' },
   { ref: 'borrados_auditoria.fila', reason: 'caja negra de borrados duros (migración 055). Es evidencia forense: reescribirla la invalida.' },
   { ref: 'borrados_auditoria.contexto', reason: 'quién y desde dónde se hizo el borrado duro. Misma evidencia forense que `fila`: se conserva tal como quedó.' },
+  {
+    ref: 'purgas_auditoria.contexto',
+    reason:
+      'forense de la conexión que purgó el rastro de un usuario. No es "hoy no tiene nombres de ' +
+      'categoría": las llaves son un conjunto CERRADO armado en SQL. Los dos únicos escritores — ' +
+      '`purgar_rastro_usuario` en las migraciones 073 y 073c — hacen el mismo ' +
+      '`jsonb_strip_nulls(jsonb_build_object(...))` con exactamente `app_name`, `client_addr` y ' +
+      '`req_path`, todos leídos de la sesión de Postgres. Ningún dato del usuario entra al objeto, ' +
+      'así que no hay nada que reetiquetar. Si alguna vez se le agrega una llave, este razonamiento ' +
+      'deja de valer y hay que reclasificarla.',
+  },
 ];
 
 /**
