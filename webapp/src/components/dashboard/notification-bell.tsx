@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/lib/hooks/use-user';
 import { useNotifications, useNotificationMutations, type Notificacion } from '@/lib/hooks/use-notifications';
+import { track, EVENTS } from '@/lib/analytics';
 
 /**
  * Icono y color por familia de notificación. Es puramente cosmético: un `tipo` que no esté
@@ -75,11 +76,36 @@ export function NotificationBell() {
     markRead.mutate({ ids: [id] });
   }
 
+  /**
+   * Abrir la campana no emitía ningún evento, y esa era la mitad que faltaba del embudo.
+   * `notificaciones.leida` se escribe al hacer CLIC, así que un aviso sin clic podía ser
+   * "nunca abrió la campana" o "la abrió y no le importó" — dos problemas con arreglos
+   * OPUESTOS (canal vs. ruido) que el dato no separaba.
+   *
+   * Se manda UN evento por apertura con el inventario del panel, no uno por fila: hoy son ~23
+   * avisos por usuario activo al mes, así que una impresión por notificación convertiría el
+   * embudo en el mismo ruido que viene a medir.
+   *
+   * **Nada de PII acá.** Van `tipo` y conteos; nunca `titulo`, `mensaje` ni `datos`, que llevan
+   * nombres, montos y categorías. Es la regla del docblock de `track()`.
+   */
+  function handleToggle() {
+    const abriendo = !open;
+    setOpen(abriendo);
+    if (!abriendo) return;
+    track(EVENTS.NOTIFICATIONS_OPENED, {
+      total: notifications.length,
+      no_leidas: unreadCount,
+      // Cuáles había, para saber qué tipo se ignora sistemáticamente.
+      tipos: [...new Set(notifications.map((n: Notificacion) => n.tipo))],
+    });
+  }
+
   return (
     <div className="relative" ref={panelRef}>
       {/* Bell button */}
       <button
-        onClick={() => setOpen(!open)}
+        onClick={handleToggle}
         className="relative rounded-lg p-2 text-[#8A877D] hover:text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.04)] transition-all"
         aria-label="Notificaciones"
       >
@@ -148,6 +174,12 @@ export function NotificationBell() {
                     <button
                       key={notif.id}
                       onClick={() => {
+                        // El otro extremo del embudo. `tipo` y si estaba sin leer, nada mas:
+                        // `titulo` y `mensaje` llevan nombres, montos y categorias.
+                        track(EVENTS.NOTIFICATION_CLICKED, {
+                          tipo: notif.tipo,
+                          estaba_no_leida: !notif.leida,
+                        });
                         if (!notif.leida) handleMarkOneRead(notif.id);
                         const link = (notif.datos as Record<string, unknown>)?.link;
                         if (typeof link === 'string') {
