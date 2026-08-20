@@ -531,12 +531,28 @@ async function checkAlertasProactivas() {
  * las 02:59 Lima**, o sea que el agujero era la mitad del padrón, no un borde.
  *
  * El 18 sale de la aritmética, no de un número redondo: el gate está cerrado 12h
- * (21:00→09:00) y el piso son 3h, así que la espera máxima es de 15h — la del que
- * se dio de alta a las 18:00 y recibe a las 09:00. Los otros 3h son margen para una
- * caída del cron. **Sigue dentro de las 24h de Meta con 6h de sobra**, y el reloj de
- * Meta arranca en el último mensaje de la persona: para un usuario sin cuenta web
- * (la rama `SOLO_WHATSAPP`) el alta ES un mensaje suyo, así que su último mensaje
- * es posterior o igual a `created_at`. La cota se demuestra, no se supone.
+ * (21:00→09:00) y el piso son 3h. La espera máxima es de **15h14m**, y el peor caso
+ * no es el alta de las 18:00 sino la de las **17:46**: madura 20:46, le quedan 14
+ * minutos de gate y el tick es cada 15, así que puede no caer ahí y esperar hasta
+ * las 09:00. Los ~2h45 restantes son margen para una caída del cron.
+ *
+ * **Dentro de las 24h de Meta — pero eso vale para la rama `SOLO_WHATSAPP`, no para
+ * las dos.** El reloj de Meta arranca en el último mensaje de la persona. Para un
+ * usuario sin cuenta web el alta ES un mensaje suyo (las únicas dos vías que crean
+ * una fila de `usuarios` son `obtenerOCrearUsuario`, que sólo se llama desde el
+ * webhook, y el alta web, que siempre pone `supabase_auth_id`), así que su último
+ * mensaje es posterior o igual a `created_at` y a 18h quedan 6h de sobra. Ahí la
+ * cota se demuestra. **En la rama `AMBOS` no**: `merge_and_link` conserva la fila
+ * WEB como superviviente, así que un alta web que fusiona un número viejo queda con
+ * `created_at` de hoy y último mensaje entrante de hace meses. A esa gente la mitad
+ * de WhatsApp puede irse en 131047 igual — pero le llega la campana, que es
+ * justamente por lo que esa rama es `AMBOS`.
+ *
+ * **Dependencia no declarada que conviene saber:** `usuarios.created_at` es
+ * `timestamp WITHOUT time zone` y esto compara contra `toISOString()`. PostgREST
+ * castea el `...Z` descartando el offset, así que la aritmética de arriba sólo es
+ * correcta porque el GUC `TimeZone` de la base es **UTC** (verificado 20-ago-2026).
+ * Si alguien lo pone en `America/Lima`, la ventana entera se corre 5h en silencio.
  *
  * Ensanchar el techo **no cambia nada** para quien madura con el gate abierto: el
  * cron corre cada 15 minutos y lo agarra a las 3h igual. Sólo rescata a quien maduró
@@ -577,7 +593,7 @@ async function checkRecordatorioOnboarding() {
       .gte('created_at', techo)
       .lte('created_at', piso)
       .neq('is_test_user', true)
-      // Alguien que se dio de alta y borro su cuenta dentro de las 6h cae en esta ventana. La
+      // Alguien que se dio de alta y borro su cuenta dentro de las 18h cae en esta ventana. La
       // lapida tiene `whatsapp` en null, asi que el envio seria un no-op — pero apoyarse en eso
       // es apoyarse en un efecto lateral de otra decision.
       .is('cuenta_borrada_at', null);
@@ -605,11 +621,12 @@ async function checkRecordatorioOnboarding() {
     // arreglo obvio —una fila `skipped_no_whatsapp` parecía "no se le avisó, reintentar"— pero
     // con el canal ya bifurcado esa fila significa lo contrario: al web-first se le escribió en
     // la campana y el `skipped` es solo la mitad de WhatsApp del envío. Filtrarlo lo re-avisaría
-    // en CADA corrida mientras dure la ventana de 3-6h, y este cron corre **cada 15 minutos**
-    // (`cron/schedule.js`), no cada hora: son hasta ~12 avisos, no 3. Y esa magnitud está
-    // MEDIDA, no calculada: el 17-jul y el 20-jul un usuario cada día recibió 12 `onboarding`
-    // idénticos, espaciados 15 minutos exactos. (La causa de aquello fue otra —entonces el
-    // dedup no existía— pero la cadencia y el conteo son los mismos.)
+    // en CADA corrida mientras dure la ventana, y este cron corre **cada 15 minutos**
+    // (`cron/schedule.js`), no cada hora. Con la ventana de 15h son hasta **~60** avisos.
+    // Que la cadencia hace exactamente eso está MEDIDO, no calculado: el 17-jul y el 20-jul un
+    // usuario cada día recibió 12 `onboarding` idénticos, espaciados 15 minutos exactos, cuando
+    // la ventana era de 3h. (La causa de aquello fue otra —entonces el dedup no existía— pero
+    // la cadencia y la aritmética son las mismas, y ahora la ventana es 5x más ancha.)
     // `skipped_test` tampoco se filtra: el silencio a un usuario de prueba es un silencio pedido.
     // Lo que protege el caso "la campana tampoco se escribió" es `claimInApp` en la rama AMBOS,
     // que corta ANTES de dejar la fila. La consulta de vigilancia de la señal diaria sí tiene
@@ -649,8 +666,8 @@ async function checkRecordatorioOnboarding() {
           // web-first con `whatsapp` null la fila sale `skipped_no_whatsapp` — que con este
           // canal YA NO significa "no se le avisó", significa "se le avisó por la campana".
           // Si la campana no se pudo escribir, el claim corta antes de dejar esa fila y el
-          // usuario vuelve a entrar en la corrida siguiente (cada 15 min, ventana de 3-6h: así
-          // que fallar cerrado lo pospone, no lo pierde).
+          // usuario vuelve a entrar en la corrida siguiente (cada 15 min, y la ventana dura
+          // 15h: así que fallar cerrado lo pospone, no lo pierde).
           //
           // Lo que el claim NO cubre, y conviene tener presente: la campana se escribe y la fila
           // de `notification_deliveries` no. Ahí el dedup queda ciego y a los 15 min entra de

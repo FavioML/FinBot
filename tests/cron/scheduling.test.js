@@ -102,13 +102,36 @@ function tieneVentanaMovil(nombre) {
   return /\.gte\(\s*'created_at'/.test(cuerpo) && /\.lte\(\s*'created_at'/.test(cuerpo);
 }
 
-/** El ancho que de verdad manda: el más chico entre el gate y la ventana móvil declarada. */
+/**
+ * El ancho que de verdad manda cuando una ventana MÓVIL tiene que intersectar un gate diario.
+ *
+ * **Acá había un `Math.min(gate, movil)` y era incorrecto en la dirección peligrosa.** Con el
+ * nudge de onboarding (gate 9-21h, ventana móvil de 3h) daba `min(720, 180) = 180`, y `cadaMs`
+ * de 15 min pasaba cómodo — mientras **el 50.9% del padrón real no recibía el aviso jamás**.
+ * O sea que el único guard escrito para este cron era estructuralmente incapaz de ver su fallo.
+ *
+ * El modelo correcto sale de preguntar qué le pasa a UN usuario. Madura en `M` y expira en
+ * `M + movil`. Lo que puede aprovechar es `[M, M+movil] ∩ (horas abiertas)`, y `M` cae en
+ * cualquier momento del día:
+ *
+ *   · **Si `movil < cerrado`, hay `M` para los que esa intersección es VACÍA.** Ninguna
+ *     cadencia lo arregla: el usuario madura y expira con el gate cerrado. Es un error de
+ *     diseño de la ventana, no de la frecuencia, y por eso se reporta aparte.
+ *   · **Si no, el tramo abierto más corto que le toca a un `M` cualquiera es
+ *     `min(abierto, movil − cerrado)`**, y ése es el que el período tiene que caber.
+ *
+ * Verificado contra un barrido de los 1440 minutos de alta: con `movil = 15h` y este gate, un
+ * período de 3h deja 0 minutos sin cobertura y uno de 4h deja 298. La fórmula devuelve
+ * exactamente 3h.
+ */
 function ventanaEfectivaMin(tarea) {
   const gate = ventanaDe(tarea.nombre);
   const movilMin = tarea.ventanaMaxMs ? tarea.ventanaMaxMs / MIN : null;
   if (!gate) return movilMin === null ? null : { clase: 'horas', ventanaMin: movilMin, desdeHora: 0, hastaHora: 24 };
   if (movilMin === null) return gate;
-  return { ...gate, ventanaMin: Math.min(gate.ventanaMin, movilMin) };
+  const cerradoMin = 24 * 60 - gate.ventanaMin;
+  if (movilMin < cerradoMin) return { ...gate, ventanaMin: 0, imposible: { movilMin, cerradoMin } };
+  return { ...gate, ventanaMin: Math.min(gate.ventanaMin, movilMin - cerradoMin) };
 }
 
 const TODAS = [...TAREAS, ...TAREAS_SIEMPRE];
@@ -152,6 +175,29 @@ describe('cadencia de los crons', () => {
     const conVentana = TODAS.map((t) => ventanaDe(t.nombre)).filter(Boolean);
     expect(conVentana.filter((v) => v.clase === 'minutos').length).toBeGreaterThanOrEqual(10);
     expect(conVentana.filter((v) => v.clase === 'horas').length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('ninguna ventana móvil puede quedar ATRAPADA dentro del gate cerrado', () => {
+    // El fallo que el `Math.min` no podía ver, y que le costó al nudge de onboarding el 50.9%
+    // del padrón: si la ventana móvil es más angosta que las horas que el gate está cerrado,
+    // hay usuarios que maduran y expiran de madrugada. Ninguna cadencia lo arregla.
+    const atrapadas = TODAS
+      .map((t) => ({ nombre: t.nombre, ef: ventanaEfectivaMin(t) }))
+      .filter((x) => x.ef && x.ef.imposible)
+      .map((x) => `${x.nombre}: ventana móvil de ${x.ef.imposible.movilMin}min contra ${x.ef.imposible.cerradoMin}min de gate cerrado`);
+    expect(atrapadas, 'ventanas móviles que no alcanzan a cruzar el gate cerrado').toEqual([]);
+  });
+
+  it('la fórmula de la ventana efectiva distingue los tres casos (control)', () => {
+    // Sin esto, `ventanaEfectivaMin` podría devolver cualquier cosa y las aserciones de arriba
+    // pasarían solas. Los tres números salen del barrido de los 1440 minutos de alta.
+    const gate12h = { nombre: 'checkRecordatorioOnboarding' };
+    // Hoy: móvil 15h contra 12h cerradas → 3h de tramo abierto garantizado.
+    expect(ventanaEfectivaMin({ ...gate12h, ventanaMaxMs: 15 * 60 * MIN }).ventanaMin).toBe(180);
+    // La config VIEJA (móvil 3h) tiene que salir marcada como imposible, no como "3h".
+    expect(ventanaEfectivaMin({ ...gate12h, ventanaMaxMs: 3 * 60 * MIN }).imposible).toBeTruthy();
+    // Una móvil enorme queda topada por el gate abierto, no crece indefinidamente.
+    expect(ventanaEfectivaMin({ ...gate12h, ventanaMaxMs: 48 * 60 * MIN }).ventanaMin).toBe(720);
   });
 
   it('todo check con ventana móvil la tiene DECLARADA en schedule.js', () => {

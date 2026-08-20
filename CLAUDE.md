@@ -1188,8 +1188,21 @@ problema. `maybeWakeUpOnboarding` se "arregló" primero con un `return false` so
 cuenta web, y eso cumple el guard perfectamente — silenciando justo a quien SÍ tiene campana.
 Cuando este archivo se ponga rojo, la respuesta por defecto es **AMBOS**, no cortar.
 
+**Un gate horario y una ventana móvil son UNA decisión, no dos** (20-ago-2026). El nudge de
+onboarding tenía gate 9-21h y elegibilidad `[alta+3h, alta+6h]`: quien se daba de alta a las
+18:00 maduraba con el gate ya cerrado y a las 9am ya había vencido. **54 de 106 usuarios reales
+(50.9%) no lo recibían nunca.** El techo pasó a 18h; la espera máxima es 15h14m (el peor caso es
+el alta de las **17:46**, que madura con 14 minutos de gate y un tick de 15).
+
+Lo que hay que saber antes de tocar cualquier ventana móvil: **el ancho que manda no es
+`min(gate_abierto, ventana)`**, es `min(gate_abierto, ventana − gate_cerrado)`, y si
+`ventana < gate_cerrado` hay usuarios que maduran y expiran de madrugada — ninguna cadencia lo
+arregla. `tests/cron/scheduling.test.js` lo modela así desde el 20-ago; antes hacía el `min`
+ingenuo y **era incapaz de ver este fallo**, que es el fallo para el que existía.
+
 **Ojo con la cadencia al razonar sobre un dedup roto:** `checkRecordatorioOnboarding` corre
-**cada 15 minutos** (`cron/schedule.js`), no cada hora. Sobre su ventana de 3h son ~12 intentos,
+**cada 15 minutos** (`cron/schedule.js`), no cada hora, y sobre una ventana de 15h son hasta
+~60 avisos si el ledger se pierde. Sobre su ventana de 3h son ~12 intentos,
 no 3, y esa magnitud está medida: el 17-jul y el 20-jul, un usuario cada día, recibieron 12
 `onboarding` idénticos espaciados 15 minutos exactos. **Ese rastro sostiene la cadencia, no una
 causa**: las 12 filas están en la tabla, y lo que fallaba entonces era que el cron todavía no

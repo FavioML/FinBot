@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
 import { createRequire } from 'module';
 import path from 'path';
 
@@ -28,6 +28,8 @@ let deliveriesData = [];
 let errores = {};
 /** Toda escritura sobre `usuarios`, para probar que el cron NO pisa `onboarding_paso`. */
 let updatesUsuarios = [];
+/** Fixtures con un `created_at` que el mock no puede comparar. Ver `exigirISO`. */
+const fixturesInvalidos = [];
 const notificar = vi.fn();
 
 /**
@@ -61,12 +63,40 @@ function makeChain(table) {
   for (const m of ['lt', 'gt', 'limit', 'order', 'not', 'is', 'ilike']) {
     chain[m] = () => chain;
   }
-  // Comparación de ISO 8601 como string: es lexicográficamente equivalente al orden
-  // cronológico mientras todo lleve el mismo formato y la misma zona (acá, `toISOString()`
-  // de los dos lados). Si el fixture trae una fecha sin `Z`, esto miente — por eso los
-  // fixtures se construyen con `haceHoras()` y no a mano.
-  chain.gte = (col, val) => { filtros.push((f) => String(f[col]) >= val); return chain; };
-  chain.lte = (col, val) => { filtros.push((f) => String(f[col]) <= val); return chain; };
+  /**
+   * Comparación de ISO 8601 como string: es lexicográficamente equivalente al orden cronológico
+   * **sólo si los dos lados tienen el mismo formato**. Por eso valida en vez de comparar a
+   * ciegas, y las dos formas que rechaza son errores reales, no hipotéticos:
+   *
+   *   · **Ausente.** `String(undefined)` es `"undefined"`, y `"u" > "2"`: pasaría el `gte` y
+   *     fallaría el `lte`, o sea que la fila desaparecería **en silencio**. Los seis casos
+   *     negativos de `describe('ventana de elegibilidad')` afirman `not.toHaveBeenCalled()`,
+   *     así que TODOS pasarían con el fixture roto, por el motivo equivocado.
+   *   · **Con espacio en vez de `T`.** Es el formato que devuelve de verdad la columna
+   *     (`timestamp without time zone`: `2026-05-21 17:13:42.561396`), o sea justo lo que sale
+   *     de copiar una fila real de producción a un fixture. Y `' '` (0x20) < `'T'` (0x54), así
+   *     que compararía por debajo del techo y la fila se descartaría entera.
+   *
+   * **Y NO puede tirar desde acá**, aunque sea lo primero que uno escribe. El predicado corre
+   * dentro del `await` del cron, que está envuelto en su propio `try/catch`: un `throw` se lo
+   * traga `log.error` y el test ve "no se notificó a nadie", o sea PASA. Lo comprobé — con el
+   * fixture sin `created_at`, la versión que tiraba dejaba los 23 tests en verde.
+   *
+   * Por eso anota y el veredicto lo da un `afterEach`, que corre FUERA de ese catch.
+   */
+  const exigirISO = (col, val, metodo) => {
+    if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(val)) return true;
+    fixturesInvalidos.push(`.${metodo}('${col}') recibió ${JSON.stringify(val)}, que no es ISO con T y Z. Usá haceHoras().`);
+    return false;
+  };
+  chain.gte = (col, val) => {
+    filtros.push((f) => exigirISO(col, f[col], 'gte') && f[col] >= val);
+    return chain;
+  };
+  chain.lte = (col, val) => {
+    filtros.push((f) => exigirISO(col, f[col], 'lte') && f[col] <= val);
+    return chain;
+  };
   chain.eq = (col, val) => { filtros.push((f) => f[col] === val); return chain; };
   chain.neq = (col, val) => { filtros.push((f) => f[col] !== val); return chain; };
   chain.in = (col, arr) => { filtros.push((f) => arr.includes(f[col])); return chain; };
@@ -170,6 +200,14 @@ beforeEach(() => {
   deliveriesData = [];
   errores = {};
   updatesUsuarios = [];
+  fixturesInvalidos.length = 0;
+});
+
+// FUERA del `try/catch` del cron, que es el punto: un fixture con `created_at` ausente o con
+// espacio en vez de `T` se descartaría en silencio y los seis casos negativos de la ventana
+// pasarían por el motivo equivocado.
+afterEach(() => {
+  expect(fixturesInvalidos, 'fixture con created_at que el mock no puede comparar').toEqual([]);
 });
 
 describe('nudge de primer gasto', () => {
@@ -296,8 +334,8 @@ describe('nudge de primer gasto', () => {
     });
 
     it('un skipped_no_whatsapp previo SÍ lo descarta: con el canal bifurcado, esa fila significa que la campana salió', async () => {
-      // Es la contraprueba del arreglo que parecía obvio y habría re-avisado cada hora
-      // durante toda la ventana de 3-6h.
+      // Es la contraprueba del arreglo que parecía obvio y habría re-avisado en CADA corrida
+      // durante toda la ventana — cada 15 min sobre 15h, o sea ~60 veces.
       deliveriesData = [{ usuario_id: 'u-web-first', tipo: 'onboarding', estado: 'skipped_no_whatsapp' }];
       await checkRecordatorioOnboarding();
       expect(notificar).not.toHaveBeenCalled();
@@ -321,6 +359,25 @@ describe('nudge de primer gasto', () => {
       await checkRecordatorioOnboarding();
       expect(notificar).toHaveBeenCalledTimes(1);
       expect(notificar.mock.calls[0][0].usuarioId).toBe('u-sin-gastos');
+    });
+
+    it('el PEOR caso real es el alta de las 17:46, no la de las 18:00', async () => {
+      // 17:46 madura 20:46 y le quedan 14 minutos de gate, menos que un tick de 15 min: puede
+      // no caer ahí y esperar hasta las 09:00, o sea 15h14m. Es el número que fija el techo, y
+      // derivarlo del gate como si fuera continuo (dando "15h") ignora la granularidad del tick.
+      vi.setSystemTime(new Date(APERTURA));
+      usuariosData = [{ ...RECIEN_LLEGADO, created_at: '2026-08-17T22:46:00.000Z' }]; // 17:46 Lima
+      await checkRecordatorioOnboarding();
+      expect(notificar).toHaveBeenCalledTimes(1);
+    });
+
+    it('el techo deja MARGEN sobre el peor caso, no lo roza', async () => {
+      // Sin este caso, un techo de 15 o 16 pasa todo el archivo: el test del rescate cae justo
+      // en el borde y `.gte` es inclusivo, así que probaría la igualdad y cero margen. Los ~2h45
+      // de aire son lo que hace que una caída del cron no se coma a nadie.
+      usuariosData = [{ ...RECIEN_LLEGADO, created_at: haceHoras(17.5) }];
+      await checkRecordatorioOnboarding();
+      expect(notificar).toHaveBeenCalledTimes(1);
     });
 
     it('el piso sigue en pie: a los 30 minutos del alta NO se le escribe', async () => {
