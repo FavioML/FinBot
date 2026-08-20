@@ -33,8 +33,23 @@ import { join } from 'node:path';
  */
 
 const RAIZ = process.cwd();
-const DIRS = ['cron', 'services', 'routes', 'lib', 'handlers', 'helpers'];
-const SUELTOS = ['index.js', 'gmail.js'];
+/**
+ * El barrido es LISTA NEGRA, igual que los `watchPatterns` de `railway.json` y por la misma
+ * razón: con lista blanca, un directorio de runtime NUEVO queda invisible **en silencio**.
+ *
+ * No es hipotético. La versión anterior enumeraba seis directorios; un ataque adversarial creó
+ * `jobs/reactivacion.js` con un `SOLO_WHATSAPP` pelado, sin ningún filtro, y el archivo quedó
+ * **verde**: como ni se escaneaba, el conteo de sitios tampoco se movía. Con lista negra el
+ * default es mirar, y cada exclusión hay que justificarla.
+ */
+const EXCLUIDOS = new Set([
+  'node_modules', '.git', '.next', '.claude',
+  'webapp',                                    // TypeScript, con su propia suite
+  'tests',                                     // este archivo y sus vecinos
+  'qa-e2e',                                    // harness: corre a mano o en CI, nunca en el server
+  'migrations', 'docs', 'assets', 'content',   // no ejecutan JS de runtime
+  'scripts', 'tasks',                          // one-shot operativos, no le escriben a usuarios
+]);
 
 /**
  * Call-sites que declaran `SOLO_WHATSAPP` sin mirar `supabase_auth_id`. Vacía a propósito.
@@ -48,20 +63,19 @@ const SITIOS_ESPERADOS = 4;
 
 function archivosJs(dir) {
   const out = [];
-  const abs = join(RAIZ, dir);
   let entradas;
-  try { entradas = readdirSync(abs, { withFileTypes: true }); } catch { return out; }
+  try { entradas = readdirSync(join(RAIZ, dir || '.'), { withFileTypes: true }); } catch { return out; }
   for (const e of entradas) {
-    const rel = join(dir, e.name);
+    if (EXCLUIDOS.has(e.name)) continue;
+    const rel = dir ? join(dir, e.name) : e.name;
     if (e.isDirectory()) out.push(...archivosJs(rel));
     else if (e.name.endsWith('.js')) out.push(rel);
   }
   return out;
 }
 
-const FUENTES = [...DIRS.flatMap(archivosJs), ...SUELTOS.filter((f) => {
-  try { return statSync(join(RAIZ, f)).isFile(); } catch { return false; }
-})].map((rel) => ({ rel: rel.replace(/\\/g, '/'), src: readFileSync(join(RAIZ, rel), 'utf8') }));
+const FUENTES = archivosJs('')
+  .map((rel) => ({ rel: rel.replace(/\\/g, '/'), src: readFileSync(join(RAIZ, rel), 'utf8') }));
 
 /**
  * Parte un archivo en funciones de nivel superior. No es un parser: alcanza porque en este repo
@@ -70,11 +84,17 @@ const FUENTES = [...DIRS.flatMap(archivosJs), ...SUELTOS.filter((f) => {
  * es lo que lo delata en vez de dejarlo pasar.
  */
 function funciones(src) {
-  // Las DOS formas de declarar en la columna 0. La arrow salió de un ataque: un call-site nuevo
-  // escrito como `const nudge = async (u) => {...}` entre dos `function` se pegaba al cuerpo de
-  // la ANTERIOR, así que heredaba su `supabase_auth_id` y ni movía el conteo de sitios.
+  // TODAS las formas de declarar algo invocable en la columna 0. Las dos últimas salieron de
+  // ataques sucesivos, y las dos tenían el mismo efecto: un call-site nuevo se pegaba al cuerpo
+  // de la función ANTERIOR, heredaba su `supabase_auth_id` y ni siquiera movía el conteo de
+  // sitios. Primero fue `const nudge = async (u) => {...}`; cerrado eso, la vuelta siguiente usó
+  // `exports.nudge = async (u) => {...}`, que es la misma clase con otro sintagma.
+  //
+  // Lo que queda fuera a propósito: métodos de clase y funciones anidadas. Acá el runtime son
+  // módulos CommonJS con funciones de nivel superior, y una anidada vive DENTRO del cuerpo de su
+  // padre, o sea que su call-site ya se le atribuye a alguien que el guard sí mira.
   const marcas = [...src.matchAll(
-    /^(?:(?:async\s+)?function\s+([A-Za-z0-9_$]+)\s*\(|(?:const|let|var)\s+([A-Za-z0-9_$]+)\s*=\s*(?:async\s*)?(?:\(|[A-Za-z0-9_$]+\s*=>))/gm,
+    /^(?:(?:async\s+)?function\s+([A-Za-z0-9_$]+)\s*\(|(?:const|let|var|(?:module\.)?exports\.|this\.)\s*([A-Za-z0-9_$]+)\s*=\s*(?:async\s*)?(?:function\b|\(|[A-Za-z0-9_$]+\s*=>))/gm,
   )];
   return marcas.map((m, i) => ({
     nombre: m[1] || m[2],
@@ -137,10 +157,28 @@ function sinMotivos(src) {
  * Eso lo prueba el test de comportamiento (`tests/cron/nudge-primer-gasto.test.js`).
  */
 const FILTRO_POSTGREST = /\.(?:is|eq|neq|not|or|filter|match|gt|gte|lt|lte)\(\s*['"`][^'"`]*\bsupabase_auth_id\b/;
-const ACCESO_PROPIEDAD = /\.supabase_auth_id\b/;
+/**
+ * El acceso tiene que estar DECIDIENDO algo, no solo leyéndose.
+ *
+ * La versión anterior aceptaba cualquier `.supabase_auth_id`, y un ataque la pasó con
+ * `log.info({ web: u.supabase_auth_id }, ...)` seguido de un `SOLO_WHATSAPP` incondicional: la
+ * función "mira" la columna y no cambia nada. Lo único que se ponía rojo era el conteo de
+ * sitios, que es justo lo que sube quien agrega un call-site nuevo — o sea que la evasión venía
+ * con su propio arreglo aparente.
+ *
+ * Se exige un token de decisión en la MISMA línea. Cubre las formas que este repo usa
+ * (`if (u.supabase_auth_id)`, `if (!u.supabase_auth_id) return`, el ternario, `&&`/`||`) y deja
+ * fuera la lectura decorativa. Un `if` multilínea con el acceso en otro renglón quedaría fuera:
+ * es del lado seguro (rojo de más, nunca verde de más) y se resuelve escribiéndolo en una línea.
+ */
+const ACCESO_EN_DECISION = new RegExp(
+  String.raw`^.*(?:\bif\s*\(|\breturn\b|\bcontinue\b|\?|&&|\|\|).*\.supabase_auth_id\b`
+  + String.raw`|^.*\.supabase_auth_id\b.*(?:\?|&&|\|\|)`,
+  'm',
+);
 
 function filtraPorCuentaWeb(cuerpo) {
-  return FILTRO_POSTGREST.test(cuerpo) || ACCESO_PROPIEDAD.test(cuerpo);
+  return FILTRO_POSTGREST.test(cuerpo) || ACCESO_EN_DECISION.test(cuerpo);
 }
 
 const SITIOS = [];
@@ -192,6 +230,10 @@ describe('un canal SOLO_WHATSAPP mira si el destinatario tiene cuenta web', () =
     ['en la prosa de un log', `async function f(u) {\n  log.info({ tag: 'X' }, 'destinatario sin supabase_auth_id');\n  await notificarUsuario({ canales: CANALES.SOLO_WHATSAPP, motivo: 'x' });\n}\n`],
     ['como clave suelta de un objeto', `async function f(u) {\n  await notificarUsuario({ canales: CANALES.SOLO_WHATSAPP, motivo: 'x', datos: { supabase_auth_id: null } });\n}\n`],
     ['dentro de otro identificador', `async function f(u) {\n  const supabase_auth_id_pendiente = true;\n  if (supabase_auth_id_pendiente) return;\n  await notificarUsuario({ canales: CANALES.SOLO_WHATSAPP, motivo: 'x' });\n}\n`],
+    // La novena, y la más fina de todas: la función SÍ lee la columna, pero la lectura no
+    // decide nada. Pasaba la aserción por-sitio y solo movía el conteo, que es exactamente lo
+    // que sube quien agrega un call-site legítimo.
+    ['leyéndola sin decidir nada', `async function f(u) {\n  log.info({ web: u.supabase_auth_id }, 'nudge');\n  await notificarUsuario({ canales: CANALES.SOLO_WHATSAPP, motivo: 'x' });\n}\n`],
   ];
 
   it.each(EVASIONES)('un call-site que solo nombra supabase_auth_id %s NO cuenta', (_como, fuente) => {
@@ -210,6 +252,21 @@ describe('un canal SOLO_WHATSAPP mira si el destinatario tiene cuenta web', () =
   ])('un call-site que SÍ lo filtra (%s) cuenta', (_forma, fuente) => {
     const fn = funciones(sinMotivos(sinComentarios(fuente)))[0];
     expect(filtraPorCuentaWeb(fn.cuerpo)).toBe(true);
+  });
+
+  it.each([
+    ['const', 'const nuevo = async (u) => {'],
+    ['exports.', 'exports.nuevo = async (u) => {'],
+    ['module.exports.', 'module.exports.nuevo = async (u) => {'],
+    ['exports. con function', 'exports.nuevo = async function (u) {'],
+  ])('el troceo ve un call-site declarado con %s como su propia función', (_forma, decl) => {
+    // La evasión estructural, en sus cuatro sintagmas. Un call-site escrito así entre dos
+    // `function` se pegaba al cuerpo de la ANTERIOR, heredaba su filtro, y ni movía el conteo.
+    const fuente = `async function anterior(u) {\n  if (u.supabase_auth_id) return false;\n}\n\n${decl}\n  await notificarUsuario({ canales: CANALES.SOLO_WHATSAPP, motivo: 'x' });\n};\n`;
+    const conCallSite = funciones(sinMotivos(sinComentarios(fuente)))
+      .filter((f) => /CANALES\.SOLO_WHATSAPP/.test(f.cuerpo));
+    expect(conCallSite.map((f) => f.nombre)).toEqual(['nuevo']);
+    expect(filtraPorCuentaWeb(conCallSite[0].cuerpo)).toBe(false);
   });
 
   it('el troceo ve una arrow function de módulo como su propia función', () => {

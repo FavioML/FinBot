@@ -421,6 +421,13 @@ async function maybeWakeUpOnboarding(usuario) {
       canales: CANALES.AMBOS,
       ...comun,
       titulo: 'Te falta terminar de configurar Neto',
+      // Cuerpo propio, por lo mismo que en `checkRecordatorioOnboarding`: sin el, el chokepoint
+      // deriva el cuerpo in-app del mensaje de WhatsApp, y los tres copys de este trigger piden
+      // que la persona ESCRIBA su nombre o su correo por chat y ofrecen "/silenciar". Ninguna de
+      // las tres es una accion que exista en la campana. (La primera version de este arreglo se
+      // olvido este `cuerpo`: el mismo defecto que corregia el archivo de al lado, en el mismo
+      // commit.)
+      cuerpo: 'Tu alta quedó a medias. Termínala por WhatsApp y Neto empieza a anotar tus gastos.',
       tipoInApp: 'recordatorio', link: '/dashboard',
     });
   } else {

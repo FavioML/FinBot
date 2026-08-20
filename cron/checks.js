@@ -540,8 +540,11 @@ async function checkRecordatorioOnboarding() {
       // `supabase_auth_id` decide el canal del nudge (ver la bifurcación abajo), no es adorno.
       // `recordatorios_activos` faltaba: mientras el nudge salía solo por WhatsApp a gente sin
       // cuenta web, nadie de esa población podía apagar el toggle. Con la rama in-app apunta
-      // justo a quien SÍ tiene `/dashboard/configuracion` para apagarlo. Hoy nadie lo tiene en
-      // false, así que esto no cambia a quién le llega — cierra el agujero antes de que importe.
+      // justo a quien SÍ tiene `/dashboard/configuracion` para apagarlo.
+      // Medido: hay 3 filas en `false`, y las 3 ya estaban fuera por otra condición (2 lápidas
+      // de cuentas borradas —la migración 073 lo pone en false— y 1 `is_test_user`). Usuarios
+      // reales vivos con el toggle apagado: CERO. O sea que esto no cambia a quién le llega hoy;
+      // cierra el agujero antes de que importe.
       .select('id, whatsapp, nombre, onboarding_paso, supabase_auth_id, recordatorios_activos')
       .gte('created_at', hace6h)
       .lte('created_at', hace3h)
@@ -575,8 +578,10 @@ async function checkRecordatorioOnboarding() {
     // con el canal ya bifurcado esa fila significa lo contrario: al web-first se le escribió en
     // la campana y el `skipped` es solo la mitad de WhatsApp del envío. Filtrarlo lo re-avisaría
     // en CADA corrida mientras dure la ventana de 3-6h, y este cron corre **cada 15 minutos**
-    // (`cron/schedule.js`), no cada hora: son hasta ~12 avisos, no 3. No es hipotético — el
-    // 20-jul dos usuarios recibieron 12 `onboarding` idénticos cada uno.
+    // (`cron/schedule.js`), no cada hora: son hasta ~12 avisos, no 3. Y esa magnitud está
+    // MEDIDA, no calculada: el 17-jul y el 20-jul un usuario cada día recibió 12 `onboarding`
+    // idénticos, espaciados 15 minutos exactos. (La causa de aquello fue otra —entonces el
+    // dedup no existía— pero la cadencia y el conteo son los mismos.)
     // `skipped_test` tampoco se filtra: el silencio a un usuario de prueba es un silencio pedido.
     // Lo que protege el caso "la campana tampoco se escribió" es `claimInApp` en la rama AMBOS,
     // que corta ANTES de dejar la fila. La consulta de vigilancia de la señal diaria sí tiene
@@ -619,10 +624,11 @@ async function checkRecordatorioOnboarding() {
           // usuario vuelve a entrar en la corrida siguiente (cada 15 min, ventana de 3-6h: así
           // que fallar cerrado lo pospone, no lo pierde).
           //
-          // Lo que el claim NO cubre, y conviene tener presente: la campana se escribe y el
-          // proceso muere ANTES de que `enviarWhatsapp` deje la fila de `notification_deliveries`.
-          // Ahí el dedup queda ciego y a los 15 min entra de nuevo. Desde el 20-ago ese fallo al
-          // menos se ve en el log (`registrarEntrega` lee el error del insert).
+          // Lo que el claim NO cubre, y conviene tener presente: la campana se escribe y la fila
+          // de `notification_deliveries` no. Ahí el dedup queda ciego y a los 15 min entra de
+          // nuevo. Son DOS escenarios y solo uno tiene remedio: si el insert es RECHAZADO,
+          // `registrarEntrega` lo loguea desde el 20-ago; si el proceso MUERE en el medio, no
+          // corre nada y no hay log posible.
           await notificarUsuario({
             canales: CANALES.AMBOS,
             ...base,

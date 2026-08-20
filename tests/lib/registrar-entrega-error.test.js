@@ -27,13 +27,21 @@ let resultadoInsert = { error: null };
 let lanzarEnInsert = null;
 const inserts = [];
 
-require('../../lib/db').supabase.from = vi.fn((tabla) => ({
-  insert: vi.fn(async (fila) => {
-    inserts.push({ tabla, fila });
-    if (lanzarEnInsert) throw lanzarEnInsert;
-    return resultadoInsert;
-  }),
-}));
+let resultadoUpdate = { data: [], error: null };
+
+require('../../lib/db').supabase.from = vi.fn((tabla) => {
+  const chain = {
+    insert: vi.fn(async (fila) => {
+      inserts.push({ tabla, fila });
+      if (lanzarEnInsert) throw lanzarEnInsert;
+      return resultadoInsert;
+    }),
+    update: vi.fn(() => chain),
+    eq: vi.fn(() => chain),
+    select: vi.fn(async () => resultadoUpdate),
+  };
+  return chain;
+});
 
 const logMock = require('../../lib/logger');
 const errSpy = vi.spyOn(logMock, 'error').mockImplementation(() => {});
@@ -41,7 +49,7 @@ const errSpy = vi.spyOn(logMock, 'error').mockImplementation(() => {});
 // Se ejercita por `enviarWhatsapp(null, ...)` y no llamando a `registrarEntrega` directo (que
 // además no está exportada): esa es la ruta REAL del usuario web-first, la que deja la fila
 // `skipped_no_whatsapp` de la que depende el dedup del nudge.
-const { enviarWhatsapp } = require('../../lib/whatsapp');
+const { enviarWhatsapp, procesarStatuses } = require('../../lib/whatsapp');
 const registrarEntrega = ({ usuarioId, tipo }) => enviarWhatsapp(null, 'msg', { usuarioId, tipo });
 
 beforeEach(() => {
@@ -87,5 +95,36 @@ describe('registrarEntrega grita cuando la fila del ledger no queda', () => {
     await registrarEntrega({ usuarioId: 'u-1', estado: 'sent' });
     expect(inserts).toHaveLength(0);
     expect(errSpy).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * El mismo defecto vivía 240 líneas más abajo en el mismo archivo, y ahí era PEOR: con `error`,
+ * `data` viene `null` y caía en la rama que le da una interpretación BENIGNA — "status sin fila
+ * de notificación (mensaje conversacional)" — a nivel `debug`. Un UPDATE rechazado se leía como
+ * "este status no era de un aviso", sin dejar rastro sobre `info`.
+ *
+ * Lo que se pierde en silencio: `delivered_at`/`failed_at` no se escriben nunca (y son la
+ * fuente de verdad de entrega, no lo que devuelve el POST a Meta), y `avisarVeredictoD10` no se
+ * llama — el único camino por el que sale el veredicto del experimento de BSUID.
+ */
+describe('procesarStatuses distingue "no era un aviso" de "no pude escribirlo"', () => {
+  const STATUS = [{ id: 'wamid.X', status: 'delivered', timestamp: '1787000000' }];
+
+  it('cero filas de verdad es debug, no error: es un turno conversacional', async () => {
+    resultadoUpdate = { data: [], error: null };
+    await procesarStatuses(STATUS);
+    expect(errSpy).not.toHaveBeenCalled();
+  });
+
+  it('un { error } NO puede leerse como conversacional', async () => {
+    resultadoUpdate = { data: null, error: { message: 'timeout' } };
+    await procesarStatuses(STATUS);
+    expect(errSpy).toHaveBeenCalledTimes(1);
+    const [ctx, msg] = errSpy.mock.calls[0];
+    expect(ctx.wamid).toBe('wamid.X');
+    expect(ctx.err).toMatch(/timeout/);
+    // El mensaje tiene que NEGAR explícitamente la lectura benigna: es la que costó el bug.
+    expect(msg).toMatch(/no es un status conversacional/i);
   });
 });

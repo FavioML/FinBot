@@ -1169,11 +1169,19 @@ con cuenta web, `SOLO_WHATSAPP` sin ella), con `claimInApp` porque su dedup lee
 `skipped_no_whatsapp` significa "salio por la campana", no "no salio".
 
 **El guard se mide contra el CODIGO, no contra su documentacion**, y la pregunta no es "¿aparece
-la cadena?" sino "¿aparece FILTRANDO?". Vale una de dos formas: filtro de PostgREST
-(`.is/.eq/.neq/.not/.or/...`) o acceso a propiedad (`u.supabase_auth_id`). Un `.select()` **no**
-entra — es una proyeccion, no un filtro. Las 8 evasiones que lo dejaron verde con la guarda
-borrada estan fijadas como fixtures adentro del archivo; la que enseño mas fue mover la lista de
-columnas a una constante, que ningun borrador de literales puede ver.
+la cadena?" sino "¿aparece DECIDIENDO?". Vale una de dos formas: filtro de PostgREST
+(`.is/.eq/.neq/.not/.or/...`) o un acceso `u.supabase_auth_id` **en una decision** (`if`,
+ternario, `&&`, `return`). Un `.select()` no entra —es proyeccion, no filtro— y un
+`log.info({ web: u.supabase_auth_id })` tampoco: lee la columna sin cambiar nada.
+
+Las **9 evasiones** que lo dejaron verde estan fijadas como fixtures adentro del archivo. Las
+tres que mas enseñaron, todas de revisiones adversariales sucesivas:
+
+- mover la lista de columnas a `.select(COLS)`, que ningun borrador de literales puede ver;
+- declarar el call-site como `exports.x = async (u) => {}`, que se pegaba al cuerpo de la
+  funcion ANTERIOR y heredaba su filtro sin mover el conteo de sitios;
+- crear un directorio de runtime nuevo (`jobs/`), invisible para una lista blanca de carpetas.
+  Por eso el barrido es **lista negra**, igual que los `watchPatterns` de `railway.json`.
 
 **Y lo que el guard NO puede decir, porque ya pasó:** satisfacer el invariante no es arreglar el
 problema. `maybeWakeUpOnboarding` se "arregló" primero con un `return false` sobre quien tiene
@@ -1182,9 +1190,16 @@ Cuando este archivo se ponga rojo, la respuesta por defecto es **AMBOS**, no cor
 
 **Ojo con la cadencia al razonar sobre un dedup roto:** `checkRecordatorioOnboarding` corre
 **cada 15 minutos** (`cron/schedule.js`), no cada hora. Sobre su ventana de 3h son ~12 intentos,
-no 3, y ya ocurrió: el 20-jul dos usuarios recibieron 12 `onboarding` idénticos cada uno. Por eso
-`registrarEntrega` (`lib/whatsapp.js`) lee el `{ error }` de su insert — es la escritura del
-ledger que los dedup leen, y su `try/catch` estaba muerto porque supabase-js no lanza.
+no 3, y esa magnitud está medida: el 17-jul y el 20-jul, un usuario cada día, recibieron 12
+`onboarding` idénticos espaciados 15 minutos exactos. **Ese rastro sostiene la cadencia, no una
+causa**: las 12 filas están en la tabla, y lo que fallaba entonces era que el cron todavía no
+dedupeaba contra `notification_deliveries` (llegó el 17-ago con `000fc52`).
+
+Por eso `lib/whatsapp.js` lee ahora el `{ error }` en sus **dos** escrituras de esa tabla:
+`registrarEntrega` (el insert, cuyo `try/catch` estaba muerto porque supabase-js no lanza) y
+`procesarStatuses` (el update, donde era peor: con error `data` venía null y caía en la rama que
+lo llamaba *"mensaje conversacional"* a nivel `debug`, así que un rechazo se leía como "esto no
+era un aviso" y se perdían `delivered_at`/`failed_at` y el veredicto D10).
 
 **Guard: `tests/notificaciones-duales.test.js`.** Ningun archivo fuera de los declarados puede
 llamar `enviarWhatsapp` crudo, y los conteos de los declarados estan fijados (agregar una
