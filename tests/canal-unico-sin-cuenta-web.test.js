@@ -70,9 +70,14 @@ const FUENTES = [...DIRS.flatMap(archivosJs), ...SUELTOS.filter((f) => {
  * es lo que lo delata en vez de dejarlo pasar.
  */
 function funciones(src) {
-  const marcas = [...src.matchAll(/^(?:async\s+)?function\s+([A-Za-z0-9_$]+)\s*\(/gm)];
+  // Las DOS formas de declarar en la columna 0. La arrow salió de un ataque: un call-site nuevo
+  // escrito como `const nudge = async (u) => {...}` entre dos `function` se pegaba al cuerpo de
+  // la ANTERIOR, así que heredaba su `supabase_auth_id` y ni movía el conteo de sitios.
+  const marcas = [...src.matchAll(
+    /^(?:(?:async\s+)?function\s+([A-Za-z0-9_$]+)\s*\(|(?:const|let|var)\s+([A-Za-z0-9_$]+)\s*=\s*(?:async\s*)?(?:\(|[A-Za-z0-9_$]+\s*=>))/gm,
+  )];
   return marcas.map((m, i) => ({
-    nombre: m[1],
+    nombre: m[1] || m[2],
     cuerpo: src.slice(m.index, i + 1 < marcas.length ? marcas[i + 1].index : src.length),
   }));
 }
@@ -110,24 +115,38 @@ function sinMotivos(src) {
 }
 
 /**
- * Borra el argumento de `.select(...)`, y es la tercera evasión que salió por mutación.
+ * **La pregunta no es "¿aparece la cadena?" sino "¿aparece FILTRANDO?"**, y ese cambio es lo que
+ * cierra la clase entera en vez de tapar evasiones de a una.
  *
- * Con el `.is('supabase_auth_id', null)` borrado, `checkActivacionDia2` seguía verde porque su
- * `.select('id, whatsapp, nombre, supabase_auth_id, activacion_nudge_at')` sigue nombrando la
- * columna. **Un select es una PROYECCIÓN, no un filtro**: traer la columna no dice nada sobre a
- * quién se eligió. La distinción es la misma que el guard del MRR terminó necesitando.
+ * La version anterior buscaba la cadena en el texto y despues iba borrando los lugares donde no
+ * valia: comentarios, el valor de `motivo:`, el argumento de `.select(...)`. Cada parche cerraba
+ * UNA evasion y la revision adversarial encontraba la siguiente — la cuarta fue mover la lista de
+ * columnas a una constante (`.select(COLS_NUDGE)`), que ningun scrubber de literales puede ver, y
+ * es un refactor mundano que nadie asocia con un guard. Tambien pasaban: la prosa en un
+ * `log.info`, la clave suelta en `datos: { supabase_auth_id }` y una variable
+ * `supabase_auth_id_pendiente`.
  *
- * Lo que SÍ cuenta después de esto: `.is('supabase_auth_id', null)`, `.eq(...)`, `.not(...)` —
- * donde la columna es el sujeto de un filtro — y el acceso `u.supabase_auth_id` de una rama.
+ * Con lista blanca esas seis mueren juntas, porque ninguna es una de estas dos formas:
+ *
+ *   · **filtro de PostgREST** — la columna es el sujeto de un `.is/.eq/.neq/.not/.or/...`.
+ *     Un `.select()` NO entra: es una PROYECCION. Traer la columna no dice nada sobre a quien
+ *     se eligio, y esa distincion es la misma que el guard del MRR termino necesitando.
+ *   · **acceso a propiedad** — `u.supabase_auth_id`, o sea una rama de JS mirandola.
+ *
+ * Sigue siendo una DECLARACION y no una demostracion: no sabe si el filtro esta bien puesto.
+ * Eso lo prueba el test de comportamiento (`tests/cron/nudge-primer-gasto.test.js`).
  */
-function sinSelects(src) {
-  return src.replace(/\.select\(\s*(?:'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`)/g, ".select('SELECT'");
+const FILTRO_POSTGREST = /\.(?:is|eq|neq|not|or|filter|match|gt|gte|lt|lte)\(\s*['"`][^'"`]*\bsupabase_auth_id\b/;
+const ACCESO_PROPIEDAD = /\.supabase_auth_id\b/;
+
+function filtraPorCuentaWeb(cuerpo) {
+  return FILTRO_POSTGREST.test(cuerpo) || ACCESO_PROPIEDAD.test(cuerpo);
 }
 
 const SITIOS = [];
 for (const { rel, src } of FUENTES) {
   if (rel === 'lib/notify-user.js') continue; // la definición: nombra las constantes, no las usa
-  const limpio = sinSelects(sinMotivos(sinComentarios(src)));
+  const limpio = sinMotivos(sinComentarios(src));
   for (const fn of funciones(limpio)) {
     if (!/CANALES\.SOLO_WHATSAPP/.test(fn.cuerpo)) continue;
     SITIOS.push({ rel, nombre: fn.nombre, cuerpo: fn.cuerpo, largoArchivo: limpio.length });
@@ -154,36 +173,60 @@ describe('un canal SOLO_WHATSAPP mira si el destinatario tiene cuenta web', () =
   });
 
   /**
-   * El guard atacado con las dos formas que YA lo evadieron. No son hipótesis: las dos salieron
-   * de mutar los call-sites reales y ver el archivo en verde con la guarda borrada.
+   * El guard atacado con las SEIS formas que lo evadieron. Ninguna es hipótesis: las tres
+   * primeras salieron de mutar call-sites reales y ver el archivo verde con la guarda borrada;
+   * las otras tres, de una revisión adversarial dedicada a romperlo.
    *
-   * Un guard verde por evasión es indistinguible de un guard verde por corrección, así que
-   * estas dos entradas son lo único que separa las dos cosas.
+   * Un guard verde por evasión es indistinguible de un guard verde por corrección, así que estas
+   * entradas son lo único que separa las dos cosas. La cuarta es la que enseñó más: mover la
+   * lista de columnas a una constante (`.select(COLS_NUDGE)`) es un refactor mundano que nadie
+   * asocia con un guard, y ningún scrubber de literales puede verlo. Fue lo que hizo cambiar el
+   * enfoque de "borrar donde no vale" a "exigir una forma que filtre".
    */
   const EVASIONES = [
     ['en un comentario', `async function f(u) {\n  // Si tiene supabase_auth_id, no reinvitar.\n  await notificarUsuario({ canales: CANALES.SOLO_WHATSAPP, motivo: 'x' });\n}\n`],
     ['en el propio motivo', `async function f(u) {\n  await notificarUsuario({ canales: CANALES.SOLO_WHATSAPP, motivo: 'el trigger exige supabase_auth_id NULL' });\n}\n`],
     ['en un comentario de bloque', `async function f(u) {\n  /* exige supabase_auth_id nulo */\n  await notificarUsuario({ canales: CANALES.SOLO_WHATSAPP, motivo: 'x' });\n}\n`],
+    ['en un .select() (proyección, no filtro)', `async function f(u) {\n  const { data } = await supabase.from('usuarios').select('id, whatsapp, supabase_auth_id');\n  await notificarUsuario({ canales: CANALES.SOLO_WHATSAPP, motivo: 'x' });\n}\n`],
+    ['en un .select() indirectado por una constante', `async function f(u) {\n  const { data } = await supabase.from('usuarios').select(COLS_NUDGE);\n  await notificarUsuario({ canales: CANALES.SOLO_WHATSAPP, motivo: 'x' });\n}\n`],
+    ['en la prosa de un log', `async function f(u) {\n  log.info({ tag: 'X' }, 'destinatario sin supabase_auth_id');\n  await notificarUsuario({ canales: CANALES.SOLO_WHATSAPP, motivo: 'x' });\n}\n`],
+    ['como clave suelta de un objeto', `async function f(u) {\n  await notificarUsuario({ canales: CANALES.SOLO_WHATSAPP, motivo: 'x', datos: { supabase_auth_id: null } });\n}\n`],
+    ['dentro de otro identificador', `async function f(u) {\n  const supabase_auth_id_pendiente = true;\n  if (supabase_auth_id_pendiente) return;\n  await notificarUsuario({ canales: CANALES.SOLO_WHATSAPP, motivo: 'x' });\n}\n`],
   ];
 
   it.each(EVASIONES)('un call-site que solo nombra supabase_auth_id %s NO cuenta', (_como, fuente) => {
-    const limpio = sinSelects(sinMotivos(sinComentarios(fuente)));
+    const limpio = sinMotivos(sinComentarios(fuente));
     const fn = funciones(limpio)[0];
     expect(fn, 'el troceo no encontró la función del fixture').toBeTruthy();
     expect(/CANALES\.SOLO_WHATSAPP/.test(fn.cuerpo), 'el fixture perdió su call-site').toBe(true);
-    expect(/supabase_auth_id/.test(fn.cuerpo)).toBe(false);
+    expect(filtraPorCuentaWeb(fn.cuerpo)).toBe(false);
   });
 
-  it('y un call-site que SÍ lo filtra en código cuenta (control positivo)', () => {
-    const fuente = `async function f(u) {\n  if (u.supabase_auth_id) return false;\n  await notificarUsuario({ canales: CANALES.SOLO_WHATSAPP, motivo: 'x' });\n}\n`;
-    const fn = funciones(sinSelects(sinMotivos(sinComentarios(fuente))))[0];
-    expect(/supabase_auth_id/.test(fn.cuerpo)).toBe(true);
+  // Los dos controles POSITIVOS. Sin ellos, un `filtraPorCuentaWeb` que devolviera siempre false
+  // pasaría los ocho negativos de arriba y el archivo entero sería verde por vacuidad.
+  it.each([
+    ['acceso a propiedad', `async function f(u) {\n  if (u.supabase_auth_id) return false;\n  await notificarUsuario({ canales: CANALES.SOLO_WHATSAPP, motivo: 'x' });\n}\n`],
+    ['filtro de PostgREST', `async function f(u) {\n  const { data } = await supabase.from('usuarios').select('id').is('supabase_auth_id', null);\n  await notificarUsuario({ canales: CANALES.SOLO_WHATSAPP, motivo: 'x' });\n}\n`],
+  ])('un call-site que SÍ lo filtra (%s) cuenta', (_forma, fuente) => {
+    const fn = funciones(sinMotivos(sinComentarios(fuente)))[0];
+    expect(filtraPorCuentaWeb(fn.cuerpo)).toBe(true);
+  });
+
+  it('el troceo ve una arrow function de módulo como su propia función', () => {
+    // La evasión estructural: un call-site nuevo escrito como `const x = async (u) => {...}`
+    // entre dos `function` se pegaba al cuerpo de la ANTERIOR, heredaba su filtro, y ni siquiera
+    // movía el conteo de sitios.
+    const fuente = `async function anterior(u) {\n  if (u.supabase_auth_id) return false;\n}\n\nconst nuevo = async (u) => {\n  await notificarUsuario({ canales: CANALES.SOLO_WHATSAPP, motivo: 'x' });\n};\n`;
+    const conCallSite = funciones(sinMotivos(sinComentarios(fuente)))
+      .filter((f) => /CANALES\.SOLO_WHATSAPP/.test(f.cuerpo));
+    expect(conCallSite.map((f) => f.nombre)).toEqual(['nuevo']);
+    expect(filtraPorCuentaWeb(conCallSite[0].cuerpo)).toBe(false);
   });
 
   it.each(SITIOS.map((s) => [`${s.rel}:${s.nombre}`, s]))('%s', (_id, sitio) => {
     if (EXENTOS.has(`${sitio.rel}:${sitio.nombre}`)) return;
     expect(
-      /supabase_auth_id/.test(sitio.cuerpo),
+      filtraPorCuentaWeb(sitio.cuerpo),
       `${sitio.rel} → ${sitio.nombre}() manda por SOLO_WHATSAPP sin mirar supabase_auth_id. ` +
       'Su `motivo` afirma que el destinatario no tiene cuenta web; nada lo verifica. ' +
       'O agregá el filtro, o pasá a AMBOS, o declaralo en EXENTOS con el porqué.',

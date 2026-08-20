@@ -1168,10 +1168,23 @@ con cuenta web, `SOLO_WHATSAPP` sin ella), con `claimInApp` porque su dedup lee
 `skipped%` de ese dedup lo re-avisaria cada hora, porque con el canal bifurcado un
 `skipped_no_whatsapp` significa "salio por la campana", no "no salio".
 
-**El guard se mide contra el CODIGO, no contra su documentacion**: borra comentarios, el valor
-de `motivo:` y el argumento de `.select(...)` antes de buscar. Las tres son evasiones reales que
-lo dejaban verde con la guarda borrada — la del `.select()` porque una proyeccion no es un
-filtro. Estan fijadas como fixtures maliciosos adentro del archivo.
+**El guard se mide contra el CODIGO, no contra su documentacion**, y la pregunta no es "¿aparece
+la cadena?" sino "¿aparece FILTRANDO?". Vale una de dos formas: filtro de PostgREST
+(`.is/.eq/.neq/.not/.or/...`) o acceso a propiedad (`u.supabase_auth_id`). Un `.select()` **no**
+entra — es una proyeccion, no un filtro. Las 8 evasiones que lo dejaron verde con la guarda
+borrada estan fijadas como fixtures adentro del archivo; la que enseño mas fue mover la lista de
+columnas a una constante, que ningun borrador de literales puede ver.
+
+**Y lo que el guard NO puede decir, porque ya pasó:** satisfacer el invariante no es arreglar el
+problema. `maybeWakeUpOnboarding` se "arregló" primero con un `return false` sobre quien tiene
+cuenta web, y eso cumple el guard perfectamente — silenciando justo a quien SÍ tiene campana.
+Cuando este archivo se ponga rojo, la respuesta por defecto es **AMBOS**, no cortar.
+
+**Ojo con la cadencia al razonar sobre un dedup roto:** `checkRecordatorioOnboarding` corre
+**cada 15 minutos** (`cron/schedule.js`), no cada hora. Sobre su ventana de 3h son ~12 intentos,
+no 3, y ya ocurrió: el 20-jul dos usuarios recibieron 12 `onboarding` idénticos cada uno. Por eso
+`registrarEntrega` (`lib/whatsapp.js`) lee el `{ error }` de su insert — es la escritura del
+ledger que los dedup leen, y su `try/catch` estaba muerto porque supabase-js no lanza.
 
 **Guard: `tests/notificaciones-duales.test.js`.** Ningun archivo fuera de los declarados puede
 llamar `enviarWhatsapp` crudo, y los conteos de los declarados estan fijados (agregar una

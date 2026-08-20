@@ -378,12 +378,6 @@ async function maybeFeedback30(usuario) {
  */
 async function maybeWakeUpOnboarding(usuario) {
   if (usuario.onboarding_completado === true) return false;
-  // El aviso sale SOLO_WHATSAPP y su `motivo` afirma que el destinatario no tiene cuenta web.
-  // Hasta ahora eso se cumplia por correlacion —los 9 destinatarios historicos tienen
-  // supabase_auth_id nulo, medido el 20-ago-2026—, no por construccion: nada en el trigger lo
-  // exigia. Es la misma inferencia que se rompio en checkRecordatorioOnboarding cuando cambio
-  // la poblacion. Se vuelve explicita, que ademas es lo que el guard de canal unico verifica.
-  if (usuario.supabase_auth_id) return false;
 
   const dias = (Date.now() - new Date(usuario.created_at).getTime()) / 86400000;
   if (dias < 7) return false;
@@ -406,12 +400,36 @@ async function maybeWakeUpOnboarding(usuario) {
   });
   if (!eventoId) return false;
 
-  await notificarUsuario({
-    canales: CANALES.SOLO_WHATSAPP,
-    motivo: 'el trigger exige onboarding_completado !== true: el destinatario no terminó el alta y no tiene cuenta web donde mostrarle nada',
+  // El canal se bifurca por lo que el usuario TIENE, igual que checkRecordatorioOnboarding.
+  //
+  // Antes salia SOLO_WHATSAPP con un motivo que afirmaba "no tiene cuenta web donde mostrarle
+  // nada", y eso nunca estuvo garantizado: el trigger filtra por `onboarding_completado`, no
+  // por `supabase_auth_id`. Medido el 20-ago-2026 sobre `survey_events` —el ledger real de este
+  // trigger, mas viejo que `notification_deliveries`— de los **25 destinatarios historicos, 3
+  // tienen cuenta web**. (Una medicion anterior decia "9, ninguno": salio de la tabla nueva, o
+  // sea de un subconjunto, y se leyo como si fuera la poblacion.)
+  //
+  // Y el arreglo obvio —cortar con `if (usuario.supabase_auth_id) return false`— era al reves:
+  // el runner ya descarta a quien no tiene WhatsApp, asi que eso solo silenciaba a quien tiene
+  // las DOS cosas, o sea justo a quien si tiene campana donde verlo.
+  const comun = {
     usuarioId: usuario.id, whatsapp: usuario.whatsapp,
     tipo: 'survey_wake_up_onboarding', mensaje,
-  });
+  };
+  if (usuario.supabase_auth_id) {
+    await notificarUsuario({
+      canales: CANALES.AMBOS,
+      ...comun,
+      titulo: 'Te falta terminar de configurar Neto',
+      tipoInApp: 'recordatorio', link: '/dashboard',
+    });
+  } else {
+    await notificarUsuario({
+      canales: CANALES.SOLO_WHATSAPP,
+      motivo: 'la rama exige supabase_auth_id nulo: sin cuenta web no hay campana donde mostrar nada',
+      ...comun,
+    });
+  }
   return true;
 }
 

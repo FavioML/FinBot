@@ -348,7 +348,7 @@ async function checkPremiumExpiry() {
               // DESPUÉS del WhatsApp, así que un insert fallido dejaba el dedup ciego y este
               // cron horario re-mandaba el mismo aviso en cada corrida desde las 8am (B6).
               claimInApp: true,
-                cuerpo: 'Tu plan NETO Pro vence el ' + usuario.premium_vence + '. Renueva para no perder acceso.',
+              cuerpo: 'Tu plan NETO Pro vence el ' + usuario.premium_vence + '. Renueva para no perder acceso.',
               link: '/dashboard/configuracion',
             });
             // Solo se abre la espera de comprobante si el aviso tiene DÓNDE esperarlo.
@@ -538,7 +538,11 @@ async function checkRecordatorioOnboarding() {
     const hace3h = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
     const { data: candidatos, error: errCand } = await supabase.from('usuarios')
       // `supabase_auth_id` decide el canal del nudge (ver la bifurcación abajo), no es adorno.
-      .select('id, whatsapp, nombre, onboarding_paso, supabase_auth_id')
+      // `recordatorios_activos` faltaba: mientras el nudge salía solo por WhatsApp a gente sin
+      // cuenta web, nadie de esa población podía apagar el toggle. Con la rama in-app apunta
+      // justo a quien SÍ tiene `/dashboard/configuracion` para apagarlo. Hoy nadie lo tiene en
+      // false, así que esto no cambia a quién le llega — cierra el agujero antes de que importe.
+      .select('id, whatsapp, nombre, onboarding_paso, supabase_auth_id, recordatorios_activos')
       .gte('created_at', hace6h)
       .lte('created_at', hace3h)
       .neq('is_test_user', true)
@@ -570,13 +574,17 @@ async function checkRecordatorioOnboarding() {
     // arreglo obvio —una fila `skipped_no_whatsapp` parecía "no se le avisó, reintentar"— pero
     // con el canal ya bifurcado esa fila significa lo contrario: al web-first se le escribió en
     // la campana y el `skipped` es solo la mitad de WhatsApp del envío. Filtrarlo lo re-avisaría
-    // cada hora mientras dure la ventana de 3-6h. `skipped_test` tampoco se filtra: el silencio
-    // a un usuario de prueba es un silencio pedido.
+    // en CADA corrida mientras dure la ventana de 3-6h, y este cron corre **cada 15 minutos**
+    // (`cron/schedule.js`), no cada hora: son hasta ~12 avisos, no 3. No es hipotético — el
+    // 20-jul dos usuarios recibieron 12 `onboarding` idénticos cada uno.
+    // `skipped_test` tampoco se filtra: el silencio a un usuario de prueba es un silencio pedido.
     // Lo que protege el caso "la campana tampoco se escribió" es `claimInApp` en la rama AMBOS,
     // que corta ANTES de dejar la fila. La consulta de vigilancia de la señal diaria sí tiene
     // que excluir `skipped%`, porque ahí la pregunta es otra: "¿alguien se quedó sin nada?".
     const avisados = new Set((yaAvisados || []).map((d) => d.usuario_id));
-    const usuarios = candidatos.filter((u) => !activados.has(u.id) && !avisados.has(u.id));
+    const usuarios = candidatos.filter((u) => !activados.has(u.id) && !avisados.has(u.id)
+      // `=== false` y no falsy: la columna es nullable y su default es 'sí quiere'.
+      && u.recordatorios_activos !== false);
     if (usuarios.length === 0) return;
     for (const u of usuarios) {
       try {
@@ -608,8 +616,13 @@ async function checkRecordatorioOnboarding() {
           // web-first con `whatsapp` null la fila sale `skipped_no_whatsapp` — que con este
           // canal YA NO significa "no se le avisó", significa "se le avisó por la campana".
           // Si la campana no se pudo escribir, el claim corta antes de dejar esa fila y el
-          // usuario vuelve a entrar en la próxima corrida horaria (la ventana es de 3-6h, así
+          // usuario vuelve a entrar en la corrida siguiente (cada 15 min, ventana de 3-6h: así
           // que fallar cerrado lo pospone, no lo pierde).
+          //
+          // Lo que el claim NO cubre, y conviene tener presente: la campana se escribe y el
+          // proceso muere ANTES de que `enviarWhatsapp` deje la fila de `notification_deliveries`.
+          // Ahí el dedup queda ciego y a los 15 min entra de nuevo. Desde el 20-ago ese fallo al
+          // menos se ve en el log (`registrarEntrega` lee el error del insert).
           await notificarUsuario({
             canales: CANALES.AMBOS,
             ...base,
