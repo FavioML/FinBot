@@ -64,8 +64,8 @@ const INTERVALO_ESCANEO_MS = (Number.isFinite(_horasEscaneo) && _horasEscaneo > 
  * ### `ventanaMaxMs`: la ventana que no se puede leer del gate
  *
  * `checkRecordatorioOnboarding` gatea de 9 a 21h, así que el guard leía una ventana de 12 horas.
- * Su elegibilidad real es otra: `created_at` entre `hace6h` y `hace3h`, o sea una **ventana
- * móvil de 3 horas** que se cierra sola. Con período de 6 h el guard pasaba en verde y un
+ * Su elegibilidad real es otra: `created_at` entre un techo y un piso (`checks.js`), o sea una
+ * **ventana móvil** que se cierra sola. Con período de 6 h el guard pasaba en verde y un
  * usuario registrado a las 07:00 (elegible de 10:00 a 13:00) con ticks a las 09:30 y 15:30 no
  * recibía el empujón **nunca**.
  *
@@ -82,8 +82,12 @@ const TAREAS = [
   { nombre: 'checkAlertasProactivas', cadaMs: 15 * MIN, tag: 'ALERTAS', mensaje: 'Alertas proactivas (miércoles 10am Lima)' },
   { nombre: 'checkPremiumExpiry', cadaMs: HORA, tag: 'EXPIRY', mensaje: 'Check expiración premium' },
   { nombre: 'checkTrialExpiry', cadaMs: HORA, tag: 'TRIAL_EXPIRY', mensaje: 'Check fin de trial (avisos día 11 y 14, downgrade al muro)' },
-  // `ventanaMaxMs`: elegibles los registrados entre hace 6h y hace 3h (`checks.js`), o sea 3h.
-  { nombre: 'checkRecordatorioOnboarding', cadaMs: 15 * MIN, ventanaMaxMs: 3 * HORA, tag: 'ONBOARDING', mensaje: 'Recordatorio onboarding (3h después del registro, 9am-9pm Lima)' },
+  // `ventanaMaxMs`: elegibles los registrados entre hace 18h y hace 3h (`checks.js`), o sea 15h.
+  // Era 3h (techo de 6h) hasta el 20-ago-2026. El techo subió a 18h porque el gate de 9-21h y
+  // una ventana de 3h se contradecían: quien se daba de alta a las 18:00 maduraba con el gate
+  // ya cerrado y a las 9am ya había vencido — el 50.9% del padrón real no lo recibía nunca.
+  // Este número NO se deriva solo: hay que restar las dos constantes de `checks.js` a mano.
+  { nombre: 'checkRecordatorioOnboarding', cadaMs: 15 * MIN, ventanaMaxMs: 15 * HORA, tag: 'ONBOARDING', mensaje: 'Recordatorio onboarding (3-18h tras el registro, 9am-9pm Lima)' },
   // Elegibles los registrados entre hace 48h y hace 24h.
   { nombre: 'checkActivacionDia2', cadaMs: 15 * MIN, ventanaMaxMs: 24 * HORA, tag: 'ACTIVACION', mensaje: 'Empujón activación día 2 (24-48h tras registro, dentro de la ventana 24h de Meta)' },
   { nombre: 'checkRecordatorioDeudas', cadaMs: 15 * MIN, tag: 'DEUDAS', mensaje: 'Recordatorios de deudas (diario 9am Lima)' },

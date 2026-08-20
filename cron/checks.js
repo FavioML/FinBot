@@ -516,13 +516,35 @@ async function checkAlertasProactivas() {
  * El cron corría, no fallaba y no logueaba error: simplemente su población se
  * había vaciado porque cambió el significado de una columna en otro archivo.
  *
- * **La ventana de 3-6h no es estética: es lo único que hace esto entregable.** El
- * WhatsApp libre sólo sale dentro de las 24h desde el último mensaje del usuario,
- * y acá esa ventana está abierta por construcción (se acaba de dar de alta). El
- * contraste está medido en `notification_deliveries`: `activacion_ok` entrega 8 de
- * 8 porque va pegado a un mensaje de la persona, mientras los `survey_wake_up_*`,
- * que persiguen inactivos de semanas, entregan **0 de 28**. No muevas esto a "al
- * día siguiente" sin asumir que dejará de llegar.
+ * **El piso de 3h no es estético: es lo que hace esto entregable.** El WhatsApp
+ * libre sólo sale dentro de las 24h desde el último mensaje del usuario, y acá esa
+ * ventana está abierta por construcción (se acaba de dar de alta). El contraste
+ * está medido en `notification_deliveries`: `activacion_ok` entrega 8 de 8 porque
+ * va pegado a un mensaje de la persona, mientras los `survey_wake_up_*`, que
+ * persiguen inactivos de semanas, entregan **0 de 28**.
+ *
+ * **El techo pasó de 6h a 18h el 20-ago-2026, y eso NO contradice lo de arriba.**
+ * Con 6h, el gate de 9-21h dejaba a la mitad del producto sin recibir esto jamás:
+ * quien se da de alta a las 18:00 madura a las 21:00, justo cuando el gate cierra,
+ * y a las 9am del día siguiente ya pasó de las 6h. La ventana no volvía a abrirse.
+ * **Medido: 54 de 106 usuarios reales (50.9%) se dieron de alta entre las 18:00 y
+ * las 02:59 Lima**, o sea que el agujero era la mitad del padrón, no un borde.
+ *
+ * El 18 sale de la aritmética, no de un número redondo: el gate está cerrado 12h
+ * (21:00→09:00) y el piso son 3h, así que la espera máxima es de 15h — la del que
+ * se dio de alta a las 18:00 y recibe a las 09:00. Los otros 3h son margen para una
+ * caída del cron. **Sigue dentro de las 24h de Meta con 6h de sobra**, y el reloj de
+ * Meta arranca en el último mensaje de la persona: para un usuario sin cuenta web
+ * (la rama `SOLO_WHATSAPP`) el alta ES un mensaje suyo, así que su último mensaje
+ * es posterior o igual a `created_at`. La cota se demuestra, no se supone.
+ *
+ * Ensanchar el techo **no cambia nada** para quien madura con el gate abierto: el
+ * cron corre cada 15 minutos y lo agarra a las 3h igual. Sólo rescata a quien maduró
+ * de madrugada. Y no produce un blast de una sola vez — medido antes de shipear:
+ * con la ventana de 18h enganchaban **0 usuarios** en ese momento.
+ *
+ * Lo que sigue vigente: no lo muevas a 24h+ sin asumir que dejará de entregarse por
+ * WhatsApp. Ahí ya no hay ventana de Meta que valga y el canal pasa a ser la campana.
  *
  * **El ledger es `notification_deliveries`**, no una columna de `usuarios`. Antes
  * se marcaba pisando `onboarding_paso` a 100, y con el criterio nuevo eso sería un
@@ -534,8 +556,14 @@ async function checkRecordatorioOnboarding() {
   const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
   if (horaLima.getHours() < 9 || horaLima.getHours() >= 21) return;
   try {
-    const hace6h = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
-    const hace3h = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+    // Techo y piso: ver el docblock. El techo cubre la espera máxima que puede imponer el gate
+    // (12h cerrado + 3h de piso = 15h) más margen; el piso es lo que evita escribirle a alguien
+    // que se dio de alta hace diez minutos. El dedup por `notification_deliveries` es lo que
+    // hace que una ventana ancha no signifique varios avisos: sigue siendo uno por persona.
+    const HORAS_TECHO = 18;
+    const HORAS_PISO = 3;
+    const techo = new Date(Date.now() - HORAS_TECHO * 60 * 60 * 1000).toISOString();
+    const piso = new Date(Date.now() - HORAS_PISO * 60 * 60 * 1000).toISOString();
     const { data: candidatos, error: errCand } = await supabase.from('usuarios')
       // `supabase_auth_id` decide el canal del nudge (ver la bifurcación abajo), no es adorno.
       // `recordatorios_activos` faltaba: mientras el nudge salía solo por WhatsApp a gente sin
@@ -546,8 +574,8 @@ async function checkRecordatorioOnboarding() {
       // reales vivos con el toggle apagado: CERO. O sea que esto no cambia a quién le llega hoy;
       // cierra el agujero antes de que importe.
       .select('id, whatsapp, nombre, onboarding_paso, supabase_auth_id, recordatorios_activos')
-      .gte('created_at', hace6h)
-      .lte('created_at', hace3h)
+      .gte('created_at', techo)
+      .lte('created_at', piso)
       .neq('is_test_user', true)
       // Alguien que se dio de alta y borro su cuenta dentro de las 6h cae en esta ventana. La
       // lapida tiene `whatsapp` en null, asi que el envio seria un no-op — pero apoyarse en eso

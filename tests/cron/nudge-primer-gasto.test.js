@@ -36,10 +36,14 @@ const notificar = vi.fn();
  * los 9 casos pasaban **en verde con el bug reintroducido**. Un mock que ignora los
  * filtros no puede ver un bug que ES un filtro.
  *
- * Sólo se implementa lo que hace falta para distinguir el bug: los rangos de fecha
- * (`gte`/`lte` sobre created_at) siguen siendo no-op porque el fixture ya
- * representa "se dio de alta dentro de la ventana", y simularlos no separaría
- * ninguna hipótesis.
+ * **`gte`/`lte` sobre `created_at` también filtran de verdad, desde el 20-ago-2026.**
+ * Acá decía que seguían siendo no-op "porque el fixture ya representa 'se dio de alta
+ * dentro de la ventana', y simularlos no separaría ninguna hipótesis". Esa frase era
+ * cierta cuando se escribió y dejó de serlo en el momento en que la VENTANA pasó a ser
+ * la hipótesis: con los rangos en no-op, un test del techo de 18h pasa idéntico contra
+ * el techo de 6h. Es la misma trampa que el párrafo de arriba describe, un filtro más
+ * abajo — y la razón por la que la excepción estaba escrita es justamente lo que la
+ * volvió invisible.
  */
 function aplicaOr(fila, expr) {
   // PostgREST: 'col.is.null,col.eq.false' = OR de condiciones simples.
@@ -54,9 +58,15 @@ function aplicaOr(fila, expr) {
 function makeChain(table) {
   const filtros = [];
   const chain = {};
-  for (const m of ['gte', 'lte', 'lt', 'gt', 'limit', 'order', 'not', 'is', 'ilike']) {
+  for (const m of ['lt', 'gt', 'limit', 'order', 'not', 'is', 'ilike']) {
     chain[m] = () => chain;
   }
+  // Comparación de ISO 8601 como string: es lexicográficamente equivalente al orden
+  // cronológico mientras todo lleve el mismo formato y la misma zona (acá, `toISOString()`
+  // de los dos lados). Si el fixture trae una fecha sin `Z`, esto miente — por eso los
+  // fixtures se construyen con `haceHoras()` y no a mano.
+  chain.gte = (col, val) => { filtros.push((f) => String(f[col]) >= val); return chain; };
+  chain.lte = (col, val) => { filtros.push((f) => String(f[col]) <= val); return chain; };
   chain.eq = (col, val) => { filtros.push((f) => f[col] === val); return chain; };
   chain.neq = (col, val) => { filtros.push((f) => f[col] !== val); return chain; };
   chain.in = (col, arr) => { filtros.push((f) => arr.includes(f[col])); return chain; };
@@ -124,6 +134,13 @@ afterAll(() => { vi.useRealTimers(); });
 const MEDIA_MANANA = '2026-08-17T15:00:00Z';
 
 /**
+ * `created_at` relativo al reloj FALSO. Tiene que llamarse después de `vi.setSystemTime`, o sea
+ * dentro de un `beforeEach`/`it` y nunca a nivel de módulo: allá `Date.now()` es la hora real y
+ * el fixture caería fuera de la ventana por motivos que no tienen que ver con el test.
+ */
+const haceHoras = (h) => new Date(Date.now() - h * 60 * 60 * 1000).toISOString();
+
+/**
  * El usuario del alta NUEVA: dio su nombre, el alta se cerró, no anotó nada.
  *
  * `onboarding_completado: true` es el corazón del fixture, no un detalle de relleno:
@@ -140,15 +157,19 @@ const RECIEN_LLEGADO = {
 };
 
 beforeEach(() => {
+  // El reloj va PRIMERO: `haceHoras` lo lee para construir el fixture, así que invertir estas
+  // dos líneas ancla el `created_at` a la hora que dejó el test anterior (o a la hora real en la
+  // primera corrida) y el fixture entra o sale de la ventana por un motivo ajeno al caso.
+  vi.setSystemTime(new Date(MEDIA_MANANA));
   notificar.mockClear();
   notificar.mockResolvedValue({ wa: { ok: true, msgId: 'wamid.1' }, inApp: false });
   logMock.error.mockClear();
-  usuariosData = [RECIEN_LLEGADO];
+  // 4h: dentro de la ventana por los dos lados, tanto con el techo viejo (6h) como con el nuevo.
+  usuariosData = [{ ...RECIEN_LLEGADO, created_at: haceHoras(4) }];
   transaccionesData = [];
   deliveriesData = [];
   errores = {};
   updatesUsuarios = [];
-  vi.setSystemTime(new Date(MEDIA_MANANA));
 });
 
 describe('nudge de primer gasto', () => {
@@ -247,7 +268,7 @@ describe('nudge de primer gasto', () => {
       supabase_auth_id: 'auth-abc',
     };
 
-    beforeEach(() => { usuariosData = [WEB_FIRST]; });
+    beforeEach(() => { usuariosData = [{ ...WEB_FIRST, created_at: haceHoras(4) }]; });
 
     it('sale por AMBOS, no por SOLO_WHATSAPP: tiene campana donde mostrarlo', async () => {
       await checkRecordatorioOnboarding();
@@ -283,8 +304,63 @@ describe('nudge de primer gasto', () => {
     });
   });
 
+  // ── La ventana, y el medio padrón que el gate horario dejaba afuera ──────────
+  //
+  // El gate (9-21h Lima) y el techo de 6h se contradecían: quien se daba de alta a las 18:00
+  // maduraba a las 21:00, justo al cerrar, y a las 9am del día siguiente ya tenía 15h. Su
+  // ventana no volvía a abrirse NUNCA. Medido: 54 de 106 usuarios reales (50.9%) se dan de alta
+  // entre las 18:00 y las 02:59 Lima, o sea que el agujero era la mitad del padrón.
+  describe('ventana de elegibilidad', () => {
+    /** 9am Lima = 14:00Z. El primer minuto del gate, que es cuando se rescata al de anoche. */
+    const APERTURA = '2026-08-18T14:00:00Z';
+
+    it('RESCATE: el que se dio de alta a las 18:00 lo recibe a las 9am (con el techo de 6h no lo recibía jamás)', async () => {
+      vi.setSystemTime(new Date(APERTURA));
+      // 17-ago 18:00 Lima = 17-ago 23:00Z. Son 15h: fuera del techo viejo, dentro del nuevo.
+      usuariosData = [{ ...RECIEN_LLEGADO, created_at: '2026-08-17T23:00:00.000Z' }];
+      await checkRecordatorioOnboarding();
+      expect(notificar).toHaveBeenCalledTimes(1);
+      expect(notificar.mock.calls[0][0].usuarioId).toBe('u-sin-gastos');
+    });
+
+    it('el piso sigue en pie: a los 30 minutos del alta NO se le escribe', async () => {
+      usuariosData = [{ ...RECIEN_LLEGADO, created_at: haceHoras(0.5) }];
+      await checkRecordatorioOnboarding();
+      expect(notificar).not.toHaveBeenCalled();
+    });
+
+    it('justo debajo del piso (2h59) tampoco', async () => {
+      usuariosData = [{ ...RECIEN_LLEGADO, created_at: haceHoras(2.99) }];
+      await checkRecordatorioOnboarding();
+      expect(notificar).not.toHaveBeenCalled();
+    });
+
+    it('el techo sigue existiendo: a las 30h ya es trabajo de otro cron', async () => {
+      // Sin techo, un cambio de criterio se convierte en un blast a todo el padrón viejo.
+      usuariosData = [{ ...RECIEN_LLEGADO, created_at: haceHoras(30) }];
+      await checkRecordatorioOnboarding();
+      expect(notificar).not.toHaveBeenCalled();
+    });
+
+    it('19h también queda afuera: el techo es 18, no "cualquier cosa de ayer"', async () => {
+      usuariosData = [{ ...RECIEN_LLEGADO, created_at: haceHoras(19) }];
+      await checkRecordatorioOnboarding();
+      expect(notificar).not.toHaveBeenCalled();
+    });
+
+    it('el rescate NO se repite: la fila del primer aviso lo saca de la lista', async () => {
+      // Con una ventana de 15h y el cron cada 15 min, el dedup es lo único que separa "un
+      // aviso" de "sesenta". Sin él, ensanchar el techo sería un bug peor que el que arregla.
+      vi.setSystemTime(new Date(APERTURA));
+      usuariosData = [{ ...RECIEN_LLEGADO, created_at: '2026-08-17T23:00:00.000Z' }];
+      deliveriesData = [{ usuario_id: 'u-sin-gastos', tipo: 'onboarding', estado: 'sent' }];
+      await checkRecordatorioOnboarding();
+      expect(notificar).not.toHaveBeenCalled();
+    });
+  });
+
   it('con WhatsApp Y cuenta web sale por AMBOS: el canal lo decide lo que el usuario tiene', async () => {
-    usuariosData = [{ ...RECIEN_LLEGADO, supabase_auth_id: 'auth-xyz' }];
+    usuariosData = [{ ...RECIEN_LLEGADO, created_at: haceHoras(4), supabase_auth_id: 'auth-xyz' }];
     await checkRecordatorioOnboarding();
     expect(notificar.mock.calls[0][0].canales).toBe(notifyReal.CANALES.AMBOS);
   });
