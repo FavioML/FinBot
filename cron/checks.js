@@ -108,13 +108,24 @@ async function checkRecordatorioDiario() {
   const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
   if (horaLima.getHours() !== 20 || horaLima.getMinutes() > 14) return;
   try {
-    const { data: usuarios } = await supabase.from('usuarios')
+    const { data: usuarios, error: errUsuarios } = await supabase.from('usuarios')
       // `supabase_auth_id` alimenta `llegoElAviso` más abajo: sin él la guarda decidiría con
       // `undefined` y nunca abriría la ventana. Es la regla "una fila parcial no puede
       // decidir" de `app/CLAUDE.md` — si tu select alimenta una decisión, trae TODAS las
       // columnas que esa decisión mira.
       .select('id, whatsapp, nombre, plan, recordatorios_activos, created_at, supabase_auth_id')
       .eq('onboarding_completado', true);
+    // Sin leer el error, una caída de Supabase acá se lee como "no hay nadie a quien
+    // recordarle nada" y la corrida de las 8pm se apaga entera sin dejar nada.
+    //
+    // **Y lo que deja este log es una línea en stdout de Railway, NO una fila en `errores`.**
+    // La distinción importa porque el runbook manda a consultar esa tabla: el único que
+    // escribe ahí es `registrarError` (`lib/error-monitor.js`), y este archivo no lo importa.
+    // Enrutar los errores de los crons a la tabla es un trabajo aparte, no este.
+    if (errUsuarios) {
+      log.error({ tag: 'INACTIVITY', err: errUsuarios.message }, 'No se pudo leer la población: no se envió ningún recordatorio');
+      return;
+    }
     if (!usuarios || usuarios.length === 0) return;
 
     let totalInactivity = 0;
@@ -130,9 +141,14 @@ async function checkRecordatorioDiario() {
 
         // Anti-fatiga: skip si recibio cualquier survey_event WhatsApp en ultimos 3 dias
         const cutoff3d = new Date(Date.now() - 3 * 86400000).toISOString();
-        const { data: recentEvents } = await supabase.from('survey_events')
+        const { data: recentEvents, error: errFatiga } = await supabase.from('survey_events')
           .select('id').eq('user_id', usuario.id).eq('channel', 'whatsapp')
           .gte('sent_at', cutoff3d).limit(1);
+        // Esta es de las que fallan ABIERTO: sin leer el error, `recentEvents` viene null,
+        // `recibioMensajeReciente` queda en false y el cron manda **igual**. O sea que una
+        // caída de Supabase no silencia el aviso, lo DISPARA — justo contra la población que
+        // el anti-fatiga protege. Se salta este usuario y se reintenta a la noche siguiente.
+        if (errFatiga) throw errFatiga;
         const recibioMensajeReciente = recentEvents && recentEvents.length > 0;
 
         // ===== Pro upsell (one-shot, dias 28-30 desde registro) =====
@@ -194,9 +210,13 @@ async function checkRecordatorioDiario() {
 
         // ===== Inactivity reminder (Pro: cada 3 dias de inactividad) =====
         // Buscar la ultima transaccion del usuario
-        const { data: ultimaTx } = await supabase.from('transacciones')
+        const { data: ultimaTx, error: errUltimaTx } = await supabase.from('transacciones')
           .select('fecha').eq('usuario_id', usuario.id)
           .order('fecha', { ascending: false }).limit(1);
+        // Falla cerrado por accidente: sin leer el error, `ultimaTx` null cae en el
+        // `continue` de abajo como si el usuario nunca hubiera anotado nada. La decisión
+        // resultante es la correcta; lo que faltaba era el rastro de que se tomó por un fallo.
+        if (errUltimaTx) throw errUltimaTx;
 
         const ultimaFecha = ultimaTx && ultimaTx.length > 0 ? ultimaTx[0].fecha : null;
         if (!ultimaFecha) continue; // nunca uso, ya cubre wake_up_inactive/onboarding
@@ -322,17 +342,31 @@ async function checkPremiumExpiry() {
       // `supabase_auth_id`: ver `llegoElAviso`. Sin esa columna la guarda de más abajo decide
       // con `undefined` y la ventana de comprobante no se abre nunca, ni para quien sí tiene
       // campana.
-      const { data: porVencer } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence, supabase_auth_id')
+      const { data: porVencer, error: errPorVencer } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence, supabase_auth_id')
         .eq('plan', 'premium').eq('premium_vence', en3dias)
         .is('cuenta_borrada_at', null)
         .or(SIN_TRIAL_ACTIVO);
+      // Sin esto, una caída se lee como "hoy no vence nadie en 3 días" — que es el caso
+      // normal la mayoría de los días, o sea el silencio más fácil de confundir con salud.
+      if (errPorVencer) log.error({ tag: 'EXPIRY_WARN', err: errPorVencer.message }, 'No se pudo leer a quién le vence en 3 días: nadie fue avisado');
       if (porVencer && porVencer.length > 0) {
         for (const usuario of porVencer) {
           try {
             // Dedup: ¿ya avisamos hoy a este usuario?
-            const { data: yaAviso } = await supabase.from('notificaciones')
+            // El dedup falla ABIERTO, y por eso es de los pocos que cambian de comportamiento
+            // acá: sin leer el error, `yaAviso` null significa "todavía no le avisamos" y el
+            // cron re-manda. Es B6 con otra causa — este cron corre cada hora con gate >=8am,
+            // así que una Supabase intermitente se convierte en hasta 16 avisos idénticos en
+            // un día. Ante la duda se asume que YA se avisó: perder un aviso de vencimiento
+            // duele menos que 16, y el catch-up del día siguiente lo recupera si el usuario
+            // sigue a 3 días. Fuera de eso queda `/premium`, que siempre funciona.
+            const { data: yaAviso, error: errDedup } = await supabase.from('notificaciones')
               .select('id').eq('usuario_id', usuario.id).eq('tipo', 'recordatorio')
               .eq('titulo', 'Plan Pro vence en 3 días').gte('fecha', inicioHoy).limit(1);
+            if (errDedup) {
+              log.error({ tag: 'EXPIRY_WARN', userId: usuario.id, err: errDedup.message }, 'No se pudo comprobar el dedup: no se reenvía el aviso de 3 días');
+              continue;
+            }
             if (yaAviso && yaAviso.length > 0) continue;
 
             const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
@@ -371,16 +405,22 @@ async function checkPremiumExpiry() {
 
       // Aviso "vence HOY" — el día exacto del vencimiento (antes no existía: había 3d antes y
       // el downgrade al día siguiente, pero nada el día clave). Free-form + in-app, dedup por día.
-      const { data: venceHoy } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence, supabase_auth_id')
+      const { data: venceHoy, error: errVenceHoy } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence, supabase_auth_id')
         .eq('plan', 'premium').eq('premium_vence', hoy)
         .is('cuenta_borrada_at', null)
         .or(SIN_TRIAL_ACTIVO);
+      if (errVenceHoy) log.error({ tag: 'EXPIRY_HOY', err: errVenceHoy.message }, 'No se pudo leer a quién le vence hoy: nadie fue avisado');
       if (venceHoy && venceHoy.length > 0) {
         for (const usuario of venceHoy) {
           try {
-            const { data: yaAvisoHoy } = await supabase.from('notificaciones')
+            // Ver el dedup del aviso de 3 días: falla abierto y este cron es horario.
+            const { data: yaAvisoHoy, error: errDedupHoy } = await supabase.from('notificaciones')
               .select('id').eq('usuario_id', usuario.id).eq('tipo', 'recordatorio')
               .eq('titulo', 'Plan Pro vence hoy').gte('fecha', inicioHoy).limit(1);
+            if (errDedupHoy) {
+              log.error({ tag: 'EXPIRY_HOY', userId: usuario.id, err: errDedupHoy.message }, 'No se pudo comprobar el dedup: no se reenvía el aviso de vence hoy');
+              continue;
+            }
             if (yaAvisoHoy && yaAvisoHoy.length > 0) continue;
 
             const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
@@ -403,10 +443,16 @@ async function checkPremiumExpiry() {
     }
 
     // Expirados — downgrade a free
-    const { data: expirados } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence, estado_pago, supabase_auth_id')
+    const { data: expirados, error: errExpirados } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence, estado_pago, supabase_auth_id')
       .eq('plan', 'premium').not('premium_vence', 'is', null).lt('premium_vence', hoy)
       .is('cuenta_borrada_at', null)
       .or(SIN_TRIAL_ACTIVO);
+    // No hacer nada acá es lo correcto (el downgrade se reintenta a la hora siguiente), pero
+    // sin log una caída sostenida deja a ex-pagadores con Pro abierto sin que nada lo diga.
+    if (errExpirados) {
+      log.error({ tag: 'EXPIRY', err: errExpirados.message }, 'No se pudo leer a los expirados: no se downgradeó a nadie');
+      return;
+    }
     if (!expirados || expirados.length === 0) return;
     for (const usuario of expirados) {
       try {
@@ -470,9 +516,13 @@ async function checkAlertasProactivas() {
   const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
   if (horaLima.getDay() !== 3 || horaLima.getHours() !== 10 || horaLima.getMinutes() > 14) return;
   try {
-    const { data: usuarios } = await supabase.from('usuarios')
+    const { data: usuarios, error: errUsuarios } = await supabase.from('usuarios')
       .select('id, whatsapp, nombre, plan, recordatorios_activos')
       .eq('onboarding_completado', true);
+    if (errUsuarios) {
+      log.error({ tag: 'ALERTA_PROACTIVA', err: errUsuarios.message }, 'No se pudo leer la población: no salió ninguna alerta de presupuesto');
+      return;
+    }
     if (!usuarios || usuarios.length === 0) return;
     for (const usuario of usuarios) {
       try {
@@ -716,13 +766,25 @@ async function checkActivacionDia2() {
   try {
     const hace48h = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
     const hace24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const { data: usuarios } = await supabase.from('usuarios')
+    const { data: usuarios, error: errUsuarios } = await supabase.from('usuarios')
       .select('id, whatsapp, nombre, supabase_auth_id, activacion_nudge_at')
       .is('supabase_auth_id', null)      // sin cuenta web = el objetivo
       .is('activacion_nudge_at', null)   // ledger: un solo envío por usuario
       .not('whatsapp', 'is', null)
       .gte('created_at', hace48h)
       .lte('created_at', hace24h);
+    // El cron corre cada 15 minutos sobre una ventana de 24h, así que un error transitorio
+    // acá se reintenta solo: lo que se pierde con el `return` es una corrida, no el usuario.
+    //
+    // **El que no se reintenta es el UPDATE del ledger, más abajo** (`activacion_nudge_at`),
+    // y ese sigue sin verificar: si falla en silencio, todas las condiciones de selección
+    // valen igual en el tick siguiente y el mismo link puede salir decenas de veces en un día.
+    // Está anotado en el backlog de confiabilidad; no se arregla acá porque es una escritura,
+    // no una lectura, y pide su propio test.
+    if (errUsuarios) {
+      log.error({ tag: 'ACTIVACION_DIA2', err: errUsuarios.message }, 'No se pudo leer la población: nadie recibió el link de activación');
+      return;
+    }
     if (!usuarios || usuarios.length === 0) return;
 
     const limiteVentana = new Date(Date.now() - 23 * 60 * 60 * 1000).toISOString();
@@ -730,16 +792,23 @@ async function checkActivacionDia2() {
       try {
         // Solo a quien YA registró algo: sin un gasto propio el link no tiene qué
         // mostrar, y a ese usuario lo trabaja checkRecordatorioOnboarding.
-        const { count: conteoTx } = await supabase.from('transacciones')
+        const { count: conteoTx, error: errConteo } = await supabase.from('transacciones')
           .select('id', { count: 'exact', head: true })
           .eq('usuario_id', u.id);
+        // Falla cerrado por accidente: un error deja `count` en null y el `continue` de abajo
+        // lo trata como "todavía no anotó nada". El destino es correcto —no mandar un link a
+        // un dashboard vacío—, pero sin esto no queda registro de por qué no se mandó.
+        if (errConteo) throw errConteo;
         if (!conteoTx) continue;
 
         // ¿Sigue abierta la ventana de 24h? El último turno del usuario en
         // `conversaciones` es la única marca de "cuándo escribió por última vez".
-        const { data: ultimoTurno } = await supabase.from('conversaciones')
+        const { data: ultimoTurno, error: errTurno } = await supabase.from('conversaciones')
           .select('created_at').eq('usuario_id', u.id).eq('rol', 'usuario')
           .order('created_at', { ascending: false }).limit(1).maybeSingle();
+        // Igual que el conteo de arriba: el error se leía como "no escribió nunca" y el
+        // usuario se descartaba por fuera-de-ventana sin que nada lo dijera.
+        if (errTurno) throw errTurno;
         if (!ultimoTurno || ultimoTurno.created_at < limiteVentana) continue;
 
         const mensaje = mensajeActivacionDia2(u, conteoTx);
@@ -792,16 +861,26 @@ async function checkTrialExpiry() {
         { fecha: hoy, titulo: 'Tu prueba Pro termina hoy', tipo: 'trial_d14', cuando: 'hoy', via: 'd14' },
       ];
       for (const aviso of avisos) {
-        const { data: porVencer } = await supabase.from('usuarios')
+        const { data: porVencer, error: errPorVencer } = await supabase.from('usuarios')
           .select('id, whatsapp, nombre, trial_vence, supabase_auth_id')
           .eq('trial_estado', 'activo').eq('trial_vence', aviso.fecha)
           .is('cuenta_borrada_at', null);
+        if (errPorVencer) {
+          log.error({ tag: 'TRIAL_EXPIRY', via: aviso.via, err: errPorVencer.message }, 'No se pudo leer a quién se le vence la prueba: nadie fue avisado');
+          continue;
+        }
         if (!porVencer || porVencer.length === 0) continue;
         for (const usuario of porVencer) {
           try {
-            const { data: yaAviso } = await supabase.from('notificaciones')
+            // Mismo dedup que checkPremiumExpiry y misma trampa: falla abierto, y este cron
+            // también es horario con gate >=8am. Ante la duda se asume avisado.
+            const { data: yaAviso, error: errDedup } = await supabase.from('notificaciones')
               .select('id').eq('usuario_id', usuario.id).eq('tipo', 'recordatorio')
               .eq('titulo', aviso.titulo).gte('fecha', inicioHoy).limit(1);
+            if (errDedup) {
+              log.error({ tag: 'TRIAL_EXPIRY', userId: usuario.id, via: aviso.via, err: errDedup.message }, 'No se pudo comprobar el dedup: no se reenvía el aviso de fin de prueba');
+              continue;
+            }
             if (yaAviso && yaAviso.length > 0) continue;
 
             const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
@@ -853,10 +932,16 @@ async function checkTrialExpiry() {
     // terminar los suyos — el único mensaje que el trial existe para mandar, y salía al revés.
     // `estado_pago` va en el select por el mismo motivo que en checkPremiumExpiry: hay que
     // saber si venía en 'pagado' para no dejarlo ahí después del downgrade (hallazgo D6).
-    const { data: vencidos } = await supabase.from('usuarios')
+    const { data: vencidos, error: errVencidos } = await supabase.from('usuarios')
       .select('id, whatsapp, nombre, trial_estado, trial_vence, premium_desde, premium_vence, estado_pago')
       .eq('trial_estado', 'activo').lt('trial_vence', hoy)
       .is('cuenta_borrada_at', null);
+    // El silencio acá es el que más se parece a la salud: "hoy no venció ninguna prueba" es
+    // el caso normal. Un fallo sostenido deja pruebas vencidas con Pro abierto y sin muro.
+    if (errVencidos) {
+      log.error({ tag: 'TRIAL_EXPIRY', err: errVencidos.message }, 'No se pudo leer las pruebas vencidas: nadie bajó al muro');
+      return;
+    }
     if (!vencidos || vencidos.length === 0) return;
     for (const usuario of vencidos) {
       try {
@@ -889,8 +974,14 @@ async function checkTrialExpiry() {
         // barato (un select que devuelve vacío) y no depende de que el barrido pase primero.
         const { revocadas } = await revocarAccesoGmail(usuario.id, { motivo: 'trial_vencido' });
 
-        const { count: conteoTx } = await supabase.from('transacciones')
+        // ACCESORIA a propósito, y de las dos únicas del archivo que NO cortan al fallar.
+        // `mensajeMuro` usa este número sólo para elegir entre "*7 gastos*" y "tus gastos":
+        // un null degrada el copy y nada más. Y acá el downgrade YA se aplicó tres líneas
+        // arriba, así que un `continue` dejaría a alguien recién bajado al muro sin ninguna
+        // explicación de por qué perdió el dashboard. Se loguea y se manda igual.
+        const { count: conteoTx, error: errConteo } = await supabase.from('transacciones')
           .select('id', { count: 'exact', head: true }).eq('usuario_id', usuario.id);
+        if (errConteo) log.warn({ tag: 'TRIAL_EXPIRY', userId: usuario.id, err: errConteo.message }, 'Sin conteo de gastos: el mensaje del muro sale con el copy genérico');
         const msg = mensajeMuro(usuario, conteoTx) + avisoGmailDesconectado(revocadas);
         await notificarUsuario({
           canales: CANALES.AMBOS,
@@ -1004,8 +1095,12 @@ async function checkDetectorFugas() {
   if (hora !== 11 || horaLima.getMinutes() > 14) return;
 
   try {
-    const { data: usuarios } = await supabase.from('usuarios').select('id, whatsapp, nombre, plan, recordatorios_activos')
+    const { data: usuarios, error: errUsuarios } = await supabase.from('usuarios').select('id, whatsapp, nombre, plan, recordatorios_activos')
       .eq('onboarding_completado', true);
+    if (errUsuarios) {
+      log.error({ tag: 'FUGAS', err: errUsuarios.message }, 'No se pudo leer la población: el detector de fugas no corrió para nadie');
+      return;
+    }
     if (!usuarios || usuarios.length === 0) return;
 
     for (const usuario of usuarios) {
@@ -1056,8 +1151,15 @@ async function checkCalcularNetoScore() {
   const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
   if (horaLima.getHours() !== 6 || horaLima.getMinutes() > 14) return;
   try {
-    const { data: usuarios } = await supabase.from('usuarios').select('id')
+    const { data: usuarios, error: errUsuarios } = await supabase.from('usuarios').select('id')
       .eq('onboarding_completado', true);
+    // No empuja nada, pero es el productor del score: si esto se apaga mudo, el domingo
+    // `checkNotificacionScore` no encuentra tendencia y ese silencio se lee como "nadie
+    // tenía score que contar" — dos crons callados por una sola caída.
+    if (errUsuarios) {
+      log.error({ tag: 'SCORE', err: errUsuarios.message }, 'No se pudo leer la población: no se calculó ningún score');
+      return;
+    }
     if (!usuarios || usuarios.length === 0) return;
     let ok = 0;
     for (const u of usuarios) {
@@ -1075,8 +1177,12 @@ async function checkNotificacionScore() {
   // Domingos 10am Lima
   if (horaLima.getDay() !== 0 || horaLima.getHours() !== 10 || horaLima.getMinutes() > 14) return;
   try {
-    const { data: usuarios } = await supabase.from('usuarios').select('id, whatsapp, nombre, plan, recordatorios_activos')
+    const { data: usuarios, error: errUsuarios } = await supabase.from('usuarios').select('id, whatsapp, nombre, plan, recordatorios_activos')
       .eq('plan', 'premium').eq('onboarding_completado', true);
+    if (errUsuarios) {
+      log.error({ tag: 'SCORE_NOTIF', err: errUsuarios.message }, 'No se pudo leer la población: nadie recibió su score semanal');
+      return;
+    }
     if (!usuarios || usuarios.length === 0) return;
     for (const usuario of usuarios) {
       try {
@@ -1112,17 +1218,28 @@ async function checkCheckInPlanes() {
   if ((dia !== 1 && dia !== 15) || horaLima.getHours() !== 11 || horaLima.getMinutes() > 14) return;
   try {
     const { calcularRitmoAhorro } = require('../services/metas');
-    const { data: usuarios } = await supabase.from('usuarios').select('id, whatsapp, nombre, plan, recordatorios_activos')
+    const { data: usuarios, error: errUsuarios } = await supabase.from('usuarios').select('id, whatsapp, nombre, plan, recordatorios_activos')
       .eq('plan', 'premium').eq('onboarding_completado', true);
+    if (errUsuarios) {
+      log.error({ tag: 'CHECKIN_PLANES', err: errUsuarios.message }, 'No se pudo leer la población: no salió ningún check-in de planes');
+      return;
+    }
     if (!usuarios || usuarios.length === 0) return;
 
     for (const usuario of usuarios) {
       try {
         if (usuario.recordatorios_activos === false) continue;
-        const { data: metas } = await supabase.from('metas_ahorro').select('*')
+        const { data: metas, error: errMetas } = await supabase.from('metas_ahorro').select('*')
           .eq('usuario_id', usuario.id).eq('completada', false)
           .not('status', 'eq', 'abandoned')
           .order('created_at', { ascending: false });
+        // Falla cerrado por accidente: null se lee como "no tiene planes activos". El
+        // `catch` de este loop es silencioso a propósito (una alerta menos es mejor que una
+        // inventada), así que el error se registra acá o no se registra en ningún lado.
+        if (errMetas) {
+          log.error({ tag: 'CHECKIN_PLANES', userId: usuario.id, err: errMetas.message }, 'No se pudieron leer las metas: se salta el check-in de este usuario');
+          continue;
+        }
         if (!metas || metas.length === 0) continue;
 
         const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : '';
@@ -1162,7 +1279,11 @@ async function checkRecordatorioEspacios() {
   try {
     const { obtenerBalanceEspacio, ownerEsPro } = require('../services/shared-spaces');
     // Get all active spaces
-    const { data: spaces } = await supabase.from('shared_spaces').select('id, name');
+    const { data: spaces, error: errSpaces } = await supabase.from('shared_spaces').select('id, name');
+    if (errSpaces) {
+      log.error({ tag: 'ESPACIOS_REMIND', err: errSpaces.message }, 'No se pudo leer los espacios: no salió ningún recordatorio de balance');
+      return;
+    }
     if (!spaces || spaces.length === 0) return;
 
     for (const space of spaces) {
@@ -1180,9 +1301,16 @@ async function checkRecordatorioEspacios() {
         if (significantDebts.length === 0) continue;
 
         // Get all members to notify
-        const { data: members } = await supabase.from('space_members')
+        const { data: members, error: errMembers } = await supabase.from('space_members')
           .select('user_id, usuarios(whatsapp, nombre, recordatorios_activos)')
           .eq('space_id', space.id);
+        // El `(members || [])` de abajo convierte el error en un loop vacío, o sea en un
+        // espacio entero al que no se le avisa. El `catch` de este bloque es silencioso, así
+        // que sin esta línea no queda nada.
+        if (errMembers) {
+          log.error({ tag: 'ESPACIOS_REMIND', spaceId: space.id, err: errMembers.message }, 'No se pudo leer los miembros: se salta este espacio');
+          continue;
+        }
 
         for (const m of (members || [])) {
           if (!m.usuarios?.whatsapp || m.usuarios?.recordatorios_activos === false) continue;
@@ -1192,9 +1320,16 @@ async function checkRecordatorioEspacios() {
           // Anti-fatiga: no repetir el mismo espacio a este miembro más de 1 vez cada 10 días
           // (el cron es semanal; sin esto se re-mandaba el mismo balance estancado cada viernes).
           const cutoff10d = new Date(Date.now() - 10 * 86400000).toISOString();
-          const { data: yaRecordado } = await supabase.from('notificaciones')
+          // Falla abierto igual que los dedups de vencimiento, con menos volumen porque el
+          // cron es semanal: el costo de no leerlo es re-mandar el mismo balance estancado el
+          // viernes siguiente, que es exactamente lo que esta ventana de 10 días vino a evitar.
+          const { data: yaRecordado, error: errDedup } = await supabase.from('notificaciones')
             .select('id').eq('usuario_id', m.user_id).eq('tipo', 'recordatorio')
             .eq('titulo', 'Recordatorio de ' + space.name).gte('fecha', cutoff10d).limit(1);
+          if (errDedup) {
+            log.error({ tag: 'ESPACIOS_REMIND', spaceId: space.id, userId: m.user_id, err: errDedup.message }, 'No se pudo comprobar la anti-fatiga: no se reenvía el balance');
+            continue;
+          }
           if (yaRecordado && yaRecordado.length > 0) continue;
 
           const primerNombre = m.usuarios.nombre?.split(' ')[0] || '';
@@ -1236,11 +1371,17 @@ async function checkRecordatoriosCostos() {
   if (horaLima.getHours() !== 9 || horaLima.getMinutes() > 14) return;
   try {
     const hoy = hoyPeru();
-    const { data: costos } = await supabase.from('admin_costs')
+    const { data: costos, error: errCostos } = await supabase.from('admin_costs')
       .select('id, label, amount_pen, currency, amount_original, frequency, next_due_date, active, auto_debit, last_reminder_sent_at, paid_history')
       .eq('active', true)
       .lte('next_due_date', hoy);
-
+    // El destinatario es Favio, no un usuario, y por eso mismo el silencio es peor: "hoy no
+    // vence ningún costo" es un mensaje que nunca llega, así que no hay nada que notar hasta
+    // que un servicio se corta por falta de pago.
+    if (errCostos) {
+      log.error({ tag: 'COSTOS_REMIND', err: errCostos.message }, 'No se pudo leer los costos: no salió el recordatorio de hoy');
+      return;
+    }
     if (!costos || costos.length === 0) return;
 
     const { toNotify, toAutoProcess } = planCostReminders(costos, hoy);
@@ -1323,28 +1464,42 @@ async function checkSurveyConversions() {
   try {
     const desde = new Date(Date.now() - 14 * 86400000).toISOString();
     const hasta = new Date(Date.now() - 24 * 3600 * 1000).toISOString(); // ventana 24h ya cerrada
-    const { data: eventos } = await supabase.from('survey_events')
+    const { data: eventos, error: errEventos } = await supabase.from('survey_events')
       .select('id, user_id, sent_at')
       .in('event_type', REMINDER_CONV_TYPES)
       .eq('conversion_within_24h', false)
       .not('sent_at', 'is', null)
       .gte('sent_at', desde).lte('sent_at', hasta);
+    // No empuja nada, pero un fallo mudo acá reintroduce exactamente el síntoma que esta
+    // función vino a curar: el panel admin vuelve a graficar 0% de conversión estructural,
+    // que se lee como "los recordatorios no funcionan" y no como "nadie los evaluó".
+    if (errEventos) {
+      log.error({ tag: 'SURVEY_CONV', err: errEventos.message }, 'No se pudo leer los eventos: no se evaluó ninguna conversión');
+      return;
+    }
     if (!eventos || eventos.length === 0) return;
 
     let marcados = 0;
+    let fallidos = 0;
     for (const ev of eventos) {
       try {
         const fin = new Date(new Date(ev.sent_at).getTime() + 24 * 3600 * 1000).toISOString();
-        const { count } = await supabase.from('transacciones')
+        // La segunda ACCESORIA del archivo. Corre por evento (hasta cientos por corrida) con
+        // un `catch` silencioso deliberado, así que un log por fallo sería ruido que nadie
+        // lee. Se cuenta y se reporta UNA línea agregada al final: alcanza para distinguir
+        // "nadie convirtió" de "no se pudo preguntar", que es la confusión que importa.
+        const { count, error: errCount } = await supabase.from('transacciones')
           .select('id', { count: 'exact', head: true })
           .eq('usuario_id', ev.user_id)
           .gte('created_at', ev.sent_at).lt('created_at', fin);
+        if (errCount) { fallidos++; continue; }
         if (count && count > 0) {
           await supabase.from('survey_events').update({ conversion_within_24h: true }).eq('id', ev.id);
           marcados++;
         }
       } catch (e) { /* silent per event */ }
     }
+    if (fallidos > 0) log.error({ tag: 'SURVEY_CONV', fallidos, evaluados: eventos.length }, 'Eventos que no se pudieron evaluar: la conversión que reporta el panel está subcontada');
     if (marcados > 0) log.info({ tag: 'SURVEY_CONV', marcados, evaluados: eventos.length }, 'Conversiones de recordatorio marcadas');
   } catch (e) {
     log.error({ tag: 'SURVEY_CONV', err: e.message }, 'Error calculando conversiones');
@@ -1376,9 +1531,13 @@ async function checkRecordatorioSuscripciones() {
     const { detectarSuscripciones } = require('../services/subscriptions');
     const hoy = hoyPeru();
     const hoyDate = new Date(hoy + 'T12:00:00');
-    const { data: usuarios } = await supabase.from('usuarios')
+    const { data: usuarios, error: errUsuarios } = await supabase.from('usuarios')
       .select('id, whatsapp, nombre, plan, recordatorios_activos')
       .eq('onboarding_completado', true);
+    if (errUsuarios) {
+      log.error({ tag: 'SUB_REMIND', err: errUsuarios.message }, 'No se pudo leer la población: no salió ningún aviso de cobro');
+      return;
+    }
     if (!usuarios || usuarios.length === 0) return;
 
     let enviados = 0;
@@ -1412,9 +1571,29 @@ async function checkRecordatorioSuscripciones() {
           // Dedup por ciclo: ¿ya avisamos de esta suscripción en los últimos 25 días?
           const titulo = 'Cobro próximo: ' + sub.nombre;
           const cutoff25d = new Date(Date.now() - 25 * 86400000).toISOString();
-          const { data: yaAviso } = await supabase.from('notificaciones')
+          // El quinto dedup que falla abierto, y el único donde el intercambio se discute.
+          //
+          // Acá decía que fallar cerrado sale gratis "porque con Supabase caída el envío
+          // tampoco iba a funcionar", **y eso es falso**: el error está acotado a UNA request
+          // de PostgREST sobre `notificaciones` (timeout, 5xx, RLS), mientras `notificarUsuario`
+          // sale a Meta por otro camino. El envío podría haber funcionado perfectamente.
+          //
+          // El intercambio real, sin adornos. Este cron tiene UN tick por día (gate
+          // 10:00-10:14, intervalo de 15 min), y el aviso sólo sale si faltan EXACTAMENTE 3
+          // días, así que:
+          //   · cortar cuesta el aviso de ESE ciclo, sin reintento hasta el mes que viene;
+          //   · no cortar cuesta un duplicado sólo si `detectarSuscripciones` mueve
+          //     `ultimo_pago` y vuelve a dar 3 días dentro de la ventana de 25 días.
+          // O sea que el costo de cortar es más probable que el de no cortar. Va cerrado igual
+          // por una razón que no es aritmética: el duplicado habla de PLATA que se le va a
+          // cobrar al usuario, y un aviso de cobro repetido se lee como un cobro repetido.
+          const { data: yaAviso, error: errDedup } = await supabase.from('notificaciones')
             .select('id').eq('usuario_id', usuario.id).eq('tipo', 'recordatorio')
             .eq('titulo', titulo).gte('fecha', cutoff25d).limit(1);
+          if (errDedup) {
+            log.error({ tag: 'SUB_REMIND', userId: usuario.id, sub: sub.nombre, err: errDedup.message }, 'No se pudo comprobar el dedup: no se avisa este cobro');
+            continue;
+          }
           if (yaAviso && yaAviso.length > 0) continue;
 
           const sym = sub.moneda === 'USD' ? '$' : 'S/';
@@ -1462,9 +1641,15 @@ async function checkResumenDiarioManosLibres() {
   const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
   if (horaLima.getHours() !== 21 || horaLima.getMinutes() > 14) return;
   try {
-    const { data: usuarios } = await supabase.from('usuarios')
+    const { data: usuarios, error: errUsuarios } = await supabase.from('usuarios')
       .select('id, whatsapp, nombre, plan, recordatorios_activos, manos_libres')
       .eq('onboarding_completado', true).eq('manos_libres', true);
+    // Manos Libres es opt-in explícito: el usuario lo prendió y espera su resumen todas las
+    // noches. Es el único cron donde el silencio contradice algo que la persona pidió.
+    if (errUsuarios) {
+      log.error({ tag: 'RESUMEN_DIARIO', err: errUsuarios.message }, 'No se pudo leer la población: nadie recibió su resumen diario');
+      return;
+    }
     if (!usuarios || usuarios.length === 0) return;
 
     let enviados = 0;
@@ -1514,9 +1699,16 @@ async function checkGmailHuerfanos() {
   try {
     // La verdad de "quién tiene cupo tomado" está en gmail_cuentas, así que se arranca de ahí
     // y no de usuarios: barre también al que ya no aparecería en una query por plan.
-    const { data: cuentas } = await supabase.from('gmail_cuentas')
+    const { data: cuentas, error: errCuentas } = await supabase.from('gmail_cuentas')
       .select('usuario_id, usuarios!inner(id, plan, trial_estado)')
       .eq('activa', true);
+    // Este barrido está para no encontrar nada en régimen, así que su silencio normal y su
+    // silencio por caída son idénticos. Lo que queda vivo si falla es un permiso de lectura
+    // sobre la bandeja de alguien que dejó de pagar: se registra aunque no notifique.
+    if (errCuentas) {
+      log.error({ tag: 'GMAIL_HUERFANOS', err: errCuentas.message }, 'No se pudo leer las cuentas activas: no se revocó ningún acceso colgado');
+      return;
+    }
     if (!cuentas || cuentas.length === 0) return;
 
     const huerfanos = [...new Map(
