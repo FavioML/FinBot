@@ -629,6 +629,16 @@ module.exports = {
               retroaplicarRegla(usuario.id, corr.comercio, catLibre, subCorr || null);
               const montoStr = res.moneda === 'USD' ? '$' + parseFloat(res.monto).toFixed(2) : 'S/ ' + parseFloat(res.monto).toFixed(2);
               resultados.push('✅ *' + res.comercio + '* (' + montoStr + ') → ' + catLibre);
+            } else if (res.motivo === 'error') {
+              // `corregirTransaccionEspecifica` distingue "no hay gasto de ese comercio" de
+              // "algo falló", y esta rama existe para que esa distinción llegue a la persona.
+              // Sin ella, un fallo se anunciaba como un gasto inexistente y el usuario corregía
+              // el nombre del comercio una y otra vez contra una caída.
+              //
+              // El texto NO dice "no pude buscarlo": el motivo cubre las dos mitades de la
+              // función —la lectura que no encontró y el update que fue rechazado— y nombrar
+              // sólo una sería mentir en la otra.
+              resultados.push('⚠️ No pude corregir el gasto de *' + corr.comercio + '* ahora mismo');
             } else {
               resultados.push('❌ No encontré gasto de *' + corr.comercio + '*');
             }

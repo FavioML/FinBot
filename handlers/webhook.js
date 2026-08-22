@@ -742,9 +742,33 @@ function createWebhookHandler(procesarMensajeLibre) {
     // entregando gratis exactamente lo que el muro cobra.
     // El saludo NO está en la lista: da el total del mes y el conteo, que es justo el
     // número que se decidió dejar del lado gratis.
+    // **La cascada entera va envuelta, y no es defensa generica: es el unico lugar donde un
+    // throw de estos comandos se puede convertir en una respuesta.** El catch de mas abajo
+    // loguea, avisa al admin y deja fila en `errores`, pero NO le contesta nada al usuario:
+    // desde el lado de la persona, `/mes` con la base caida era silencio.
+    //
+    // Y desde este commit hay mas caminos que pueden lanzar: `obtenerGastosMes` y
+    // `obtenerCategoriasUsuario` dejaron de devolver "no tienes nada" cuando lo que pasa es
+    // que no se pudo preguntar. Cambiar una mentira por silencio no es el trato; el trato es
+    // cambiarla por esta linea.
+    //
+    // No envía nada por su cuenta: en todo el tramo que envuelve no hay un solo `enviarWhatsapp`
+    // ni un `return` — las ramas sólo ASIGNAN `respuesta`, que se manda una vez al salir.
+    //
+    // **Lo que sí puede pasar, y por eso no dice "no puede duplicar":** dos comandos de ADMIN
+    // envían de forma transitiva (`/responder` → `lib/support-tickets`, `/activar` →
+    // `lib/pro-payment`), así que un throw posterior a ese envío le contesta al admin "tuve un
+    // problema" e invita a repetir. Es sólo para el admin y `activarPro` está protegido por el
+    // claim atómico de `pagos.estado`. Lo precisó la revisión adversarial.
+    try {
     if (comandoRequiereLectura(cmd) && estaEnMuro(usuario)) {
-      const { count: conteoMuroCmd } = await supabase.from('transacciones')
+      // Vive fuera del perímetro del guard —que se deriva de `cron/checks.js` a través de
+      // `services/`— así que nadie la iba a marcar nunca, y es la vecina inmediata del tramo
+      // que este commit envuelve. Accesoria: el cartel del muro sale igual, lo que se degrada
+      // es el número que lleva adentro. Sólo log.
+      const { count: conteoMuroCmd, error: errConteoMuro } = await supabase.from('transacciones')
         .select('id', { count: 'exact', head: true }).eq('usuario_id', usuario.id);
+      if (errConteoMuro) log.warn({ tag: 'MURO', usuarioId: usuario.id, err: errConteoMuro.message }, 'No se pudo contar las transacciones: el muro sale sin conteo');
       respuesta = mensajeMuro(usuario, conteoMuroCmd);
       analytics.capture(usuario.id, 'wa_muro_lectura', { comando: cmd.split(/\s+/)[0] });
     } else if (cmd === 'hola' || cmd === 'hi' || cmd === 'inicio') {
@@ -763,9 +787,11 @@ function createWebhookHandler(procesarMensajeLibre) {
       } else {
         var gastosMesHola = await obtenerGastosMes(usuario.id);
         var totalMesHola = gastosMesHola.reduce(function(s,t){return s+parseFloat(t.monto_pen||t.monto);},0);
-        var catsHola = await obtenerCategoriasUsuario(usuario.id);
-        var tipCats = (!usuario.onboarding_completado && !catsHola) ? '\n\n\uD83D\uDCA1 Escribe */categorias* para personalizar tus categorias.' : '';
-        var saludo = primerNombre ? 'Hola, ' + primerNombre + '!' : 'Hola!';
+        // Aca vivian `catsHola`, `tipCats` y `saludo`: codigo muerto medido, no sospechado.
+        // Ninguna de las tres variables se leia en la `respuesta` de abajo ni en ningun otro
+        // lado del archivo, o sea que `obtenerCategoriasUsuario` era una query por cada "hola"
+        // de un usuario con Gmail conectado cuyo unico consumidor era una cadena que se tiraba.
+        // Aparecio clasificando los call-sites de esa lectura para este commit.
         respuesta = '\uD83D\uDC4B Hola' + (primerNombre ? ', ' + primerNombre : '') + '. Soy NETO.\n\n' +
           (gastosMesHola.length > 0 ? 'Este mes llevas *S/ ' + totalMesHola.toFixed(2) + '* en ' + gastosMesHola.length + ' movimientos.' : 'Sin movimientos este mes aun.') +
           '\n\n📊 Revisa tu dashboard en *https://app.neto.pe*\n\n\u00bfQue revisamos?';
@@ -927,6 +953,18 @@ function createWebhookHandler(procesarMensajeLibre) {
       respuesta = '*Comandos NETO:*\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- ver/configurar presupuesto\n*/categorias* -- categorias\n*/escanear* -- leer correos ahora\n*/cambiar [comercio] [cat]* -- corregir categoria\n*/reporte* -- PDF del mes\n*/reporte ' + mesActual + '* -- PDF mes especifico\n*/alertas* -- activar/desactivar avisos de Gmail\n*/dashboard* -- ir a tu app (https://app.neto.pe)\n*/referir* -- invitar amigos y ganar Pro\n*/premium* -- plan premium\n*hola* -- estado general\n\n_Tambien puedes escribirme en lenguaje natural!_';
     } else {
       respuesta = await procesarMensajeLibre(msg, usuario, from);
+    }
+    } catch (eCmd) {
+      log.error({ tag: 'WEBHOOK_CMD', cmd, err: eCmd.message }, 'Un comando fallo: se responde en vez de callar');
+      // **`notificarErrorAdmin` va acá porque este catch INTERCEPTA al general**, y el general
+      // es el que lo hacía. Sin esta línea, atrapar el error para poder contestarle al usuario
+      // le sacaba a Favio el push de todo fallo de comando — justo cuando este mismo commit
+      // multiplica los caminos que lanzan ahí (`obtenerGastosMes`, `obtenerCategoriasUsuario`,
+      // `formatearEstadoPresupuesto`). Quedaría sólo la fila en `errores`, que nadie mira en
+      // vivo. Lo encontró la revisión adversarial.
+      notificarErrorAdmin('WEBHOOK_CMD', cmd + ': ' + eCmd.message);
+      registrarError('WEBHOOK_CMD', eCmd.message, { stack: eCmd.stack, whatsapp: from, cmd });
+      respuesta = 'Tuve un problema consultando tus datos. Intenta de nuevo en un momento.';
     }
     if (respuesta) {
       await enviarWhatsapp(from, respuesta);

@@ -118,38 +118,35 @@ function archivosDe(servicio) {
 const ARCHIVOS = ['cron/checks.js', ...serviciosQueLlamaElCron('cron/checks.js')];
 
 /**
- * **Los archivos del perímetro que todavía NO se barrieron, con su conteo de mudas.**
+ * **Los archivos del perímetro que todavía NO se barrieron, con su conteo de mudas. Hoy: cero.**
  *
- * Entraron al perímetro el 2026-08-22, cuando la derivación se volvió transitiva. De los tres,
- * lo que alimenta a un cron ya se cerró en ese mismo commit: `obtenerGastosSemana` y
- * `obtenerPresupuestosMes`, las dos del resumen semanal. Lo que queda son lecturas del camino
- * de USUARIO —registrar un gasto, listar categorías— y barrerlas pide clasificar sitio por
- * sitio en la ruta más caliente del producto, que es un trabajo aparte y no uno que se hace de
- * arrastre. Está anotado en el backlog de confiabilidad.
+ * Tuvo tres entradas exactamente un día. Las agregó el commit que volvió transitiva la
+ * derivación (`services/transactions.js` 10, `services/budget.js` 3, `services/categories.js` 3)
+ * y las sacó el siguiente, que las barrió. Que el mapa quede vacío es el estado final que el
+ * trinquete perseguía, no una lista que se olvidó de llenarse.
  *
- * **Esto es un trinquete, no una exención.** El conteo sólo puede BAJAR: una lectura muda nueva
- * en cualquiera de estos tres archivos rompe el build igual que en el resto del perímetro. Y un
- * archivo que llegue a cero tiene que salir de la lista — hay un caso que lo exige, porque una
- * entrada obsoleta acá vuelve a esconder lo que la lista existe para mostrar.
+ * **Sigue siendo un trinquete y por eso no se borra.** Vacío significa que `ninguna descarta el
+ * { error }` cubre el perímetro ENTERO sin excepciones: una lectura muda nueva, en cualquier
+ * archivo, rompe el build. Agregar una entrada acá es la única forma de posponer un barrido, y
+ * cuesta escribir el número — que después sólo puede bajar, y al llegar a cero obliga a sacar
+ * la fila (`ningún pendiente está en cero`).
  */
-const PENDIENTES = {
-  'services/transactions.js': 10,
-  'services/budget.js': 3,
-  'services/categories.js': 3,
-};
+const PENDIENTES = {};
 
 /**
- * Y su mitad de ESCRITURAS, que hace falta por separado.
+ * Y su mitad de ESCRITURAS, que hace falta por separado. También en cero.
  *
- * La primera versión de este trinquete contaba sólo las lecturas y excluía a estos archivos de
- * la aserción de escrituras **sin contarlas**, así que una escritura fire-and-forget nueva en
- * cualquiera de los tres entraba en silencio — el agujero exacto que `PENDIENTES` existe para
- * no dejar abierto, en la otra mitad del mismo problema. Se encontró contando los sitios a mano
- * para escribir el prompt del trabajo siguiente.
+ * Las dos que tenía —los dos `insert` de subcategorías de `services/categories.js`— se cerraron
+ * con un log cada una: son accesorias (el gasto que las dispara ya está escrito) pero una
+ * subcategoría que desaparece porque el insert fue rechazado es indistinguible de una que el
+ * usuario nunca pidió.
+ *
+ * Existe separada porque la primera versión del trinquete contaba sólo las lecturas y excluía a
+ * esos archivos de la aserción de escrituras **sin contarlas**, o sea que una escritura
+ * fire-and-forget nueva entraba en silencio: el agujero exacto que `PENDIENTES` evita, en la
+ * otra mitad del mismo problema.
  */
-const PENDIENTES_ESCRITURAS = {
-  'services/categories.js': 2,
-};
+const PENDIENTES_ESCRITURAS = {};
 
 /**
  * Retrocede desde el `=` y devuelve el patrón asignado, y nada más: un destructuring

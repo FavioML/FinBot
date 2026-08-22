@@ -13,8 +13,21 @@ const { buildCategoriasCustomPrompt } = require('./parsers');
 // El orden se preserva porque `.order('nombre')` es global: filtrar una lista ya ordenada deja
 // cada grupo ordenado igual que la query por-padre que había antes.
 async function obtenerCategoriasUsuario(usuarioId) {
-  const { data: todas } = await supabase.from('categorias_usuario')
+  const { data: todas, error } = await supabase.from('categorias_usuario')
     .select('*').eq('usuario_id', usuarioId).eq('activa', true).order('nombre');
+  // **El `null` de esta funcion significa "este usuario no tiene arbol propio", y eso NO es
+  // una respuesta que se pueda dar sin haber podido preguntar.** `webhook.js` ramifica por ese
+  // null para ofrecer el MENU de onboarding, y el de `/categorias` ademas escribe
+  // `onboarding_paso: 10`. O sea que una lectura caida no daba un mensaje pobre: le ofrecia
+  // volver a elegir sus categorias a alguien que ya las tiene, y el siguiente numero que
+  // escribiera entraba a `crearCategoriasDesdeIndices` sobre un arbol lleno. Raices duplicadas
+  // por esa puerta ya pasaron antes (ver el `.single()` de `buscarCategoriaRaiz`), y borrar una
+  // raiz cascadea a `reglas_comercio` y `presupuestos`.
+  //
+  // Por eso lanza. Los call-sites donde el arbol es ACCESORIO —el tip del saludo, el prompt
+  // del clasificador— atrapan el throw ahi mismo y degradan; los que lo usan para DECIDIR no
+  // pueden.
+  if (error) throw error;
   if (!todas || todas.length === 0) return null;
   // PostgREST corta la respuesta en 1000 filas SIN señalizarlo: `data` vuelve corta y `error`
   // sigue en null (db-max-rows=1000, verificado en prod — ver migraciones 039/040). La versión
@@ -53,7 +66,18 @@ async function crearCategoriasDesdeIndices(usuarioId, indices) {
       if (error && error.code === '23505') {
         // La raíz ya existía (otra corrida, o el usuario la eligió dos veces). No es un
         // fallo: se cuelgan las subcategorías de la que está.
-        const raiz = await buscarCategoriaRaiz(usuarioId, cat.nombre);
+        //
+        // El try es por ITERACION y no envuelve el bucle: `buscarCategoriaRaiz` lanza desde
+        // este mismo commit, y este bucle corre en el onboarding, donde el llamador
+        // (`handlers/onboarding.js`) no tiene catch. Un throw que suba dejaria al usuario sin
+        // respuesta y clavado en el paso 10; cortando aca, las otras categorias que eligio se
+        // crean igual y la que fallo queda con nombre en el log.
+        let raiz = null;
+        try { raiz = await buscarCategoriaRaiz(usuarioId, cat.nombre); }
+        catch (eRaiz) {
+          log.warn({ tag: 'CATEGORIAS', usuarioId, categoria: cat.nombre, err: eRaiz.message },
+            'No se pudo buscar la raiz existente: esta categoria se queda sin subcategorias');
+        }
         padreId = raiz && raiz.id;
       } else if (error) {
         log.warn({ tag: 'CATEGORIAS', usuarioId, categoria: cat.nombre, err: error.message },
@@ -61,7 +85,14 @@ async function crearCategoriasDesdeIndices(usuarioId, indices) {
       }
     }
     if (!padreId) continue;
-    for (const sub of cat.subs) { await supabase.from('categorias_usuario').insert({ usuario_id: usuarioId, nombre: sub, padre_id: padreId }); }
+    // Escritura accesoria, pero no muda: si el insert de una subcategoria es rechazado, el
+    // usuario termina con la raiz y sin nada colgando — indistinguible de haberla elegido
+    // vacia, que es exactamente el sintoma que el comentario de arriba describe para la raiz.
+    // No corta el bucle (las otras subcategorias no tienen la culpa) pero deja el rastro.
+    for (const sub of cat.subs) {
+      const { error: errSub } = await supabase.from('categorias_usuario').insert({ usuario_id: usuarioId, nombre: sub, padre_id: padreId });
+      if (errSub) log.warn({ tag: 'CATEGORIAS', usuarioId, categoria: cat.nombre, sub, err: errSub.message }, 'No se pudo crear la subcategoria del onboarding');
+    }
   }
 }
 
@@ -100,7 +131,16 @@ function construirContextoCategorias(cats) {
 }
 
 async function detectarCategoriaIA(texto, usuarioId, opts = {}) {
-  const cats = await obtenerCategoriasUsuario(usuarioId);
+  // El arbol propio AGREGA categorias al prompt, no lo reemplaza (ver `construirContextoCategorias`),
+  // asi que sin el la clasificacion sale peor pero sale. Y este es el camino de CADA gasto:
+  // `handlers/intents/transacciones.js` la dispara como promesa suelta con su AbortSignal, o
+  // sea que un rechazo aca se lleva puesto el registro del gasto para salvar su etiqueta.
+  // Degrada a `null` y lo dice.
+  let cats = null;
+  try { cats = await obtenerCategoriasUsuario(usuarioId); }
+  catch (eCats) {
+    log.warn({ tag: 'CATEGORIAS', usuarioId, err: eCats.message }, 'No se pudo leer el arbol del usuario: se clasifica solo con las canonicas');
+  }
   const { canonico, bloqueCustom } = construirContextoCategorias(cats);
   try {
     const res = await openai.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'system', content: 'Eres un clasificador de gastos. Elige la categoria mas apropiada de la lista proporcionada. Si el usuario menciona explicitamente una subcategoria, usa ese nombre exacto aunque no este en la lista. Responde SOLO con JSON: {"categoria":"nombre exacto","subcategoria":"nombre exacto o null"}' + bloqueCustom }, { role: 'user', content: 'Categorias disponibles: '+canonico+'\n\nGasto a clasificar: '+texto }], temperature: 0 }, opts.signal ? { signal: opts.signal } : undefined);
@@ -129,9 +169,18 @@ async function sugerirEmojiConIA(nombreCategoria) {
 // otra categoría igual, así que 2 duplicados se volvían 24. `.limit(1)` corta
 // ese ciclo: si ya existe al menos una con ese nombre, nunca se inserta otra.
 async function buscarCategoriaRaiz(usuarioId, nombre) {
-  const { data } = await supabase.from('categorias_usuario')
+  const { data, error } = await supabase.from('categorias_usuario')
     .select('id, nombre, activa').eq('usuario_id', usuarioId).eq('nombre', nombre).is('padre_id', null)
     .order('created_at', { ascending: true }).limit(1);
+  // El `null` de esta funcion se lee de dos maneras opuestas segun quien pregunta, y una
+  // lectura caida las rompe las dos: para `crearCategoriaLibreUsuario` significa "no existe,
+  // creala" (y el 23505 del indice de la migracion 067 tapa el intento en silencio, porque es
+  // el codigo que esa rama trata como exito), y para `crearSubcategoriaLibreUsuario` significa
+  // "no hay donde colgarla" y la subcategoria se pierde sin una linea.
+  //
+  // No lleva excepcion de `PGRST116`: es `.limit(1)`, no `.single()`. Cero filas vuelven como
+  // `data: []` con `error: null`.
+  if (error) throw error;
   return (data && data[0]) || null;
 }
 
@@ -396,11 +445,27 @@ async function crearSubcategoriaLibreUsuario(usuarioId, categoriaNombre, subcate
       padre = await buscarCategoriaRaiz(usuarioId, resolverNombreCategoria(categoriaNombre).efectivo);
       if (!padre) return;
     }
-    const { data: existeSub } = await supabase.from('categorias_usuario')
+    const { data: existeSub, error: errExiste } = await supabase.from('categorias_usuario')
       .select('id').eq('usuario_id', usuarioId).eq('padre_id', padre.id).ilike('nombre', subcategoriaNombre).limit(1);
+    // Dedup de subcategorias, y este SI corta: al reves que el dedup de `guardarTransaccion`,
+    // lo que sigue no es el gasto de nadie sino una fila de taxonomia. Sin indice unico sobre
+    // (usuario_id, padre_id, nombre) —el de la migracion 067 cubre solo las raices— seguir de
+    // largo con `existeSub` en null inserta la subcategoria duplicada, y duplicados en este
+    // arbol es de donde salio el ciclo de 2 a 24 filas que documenta `buscarCategoriaRaiz`.
+    if (errExiste) throw errExiste;
     if (existeSub && existeSub.length) return;
-    await supabase.from('categorias_usuario').insert({ usuario_id: usuarioId, nombre: subcategoriaNombre, padre_id: padre.id, activa: true });
-  } catch(e) { /* silencioso */ }
+    const { error: errInsert } = await supabase.from('categorias_usuario').insert({ usuario_id: usuarioId, nombre: subcategoriaNombre, padre_id: padre.id, activa: true });
+    if (errInsert) throw errInsert;
+  } catch(e) {
+    // **Este catch era `/* silencioso */`, y eso convertia en decorativo cualquier arreglo de
+    // las lineas de arriba.** Un `throw` cuyo destino es un catch mudo compra el mismo silencio
+    // que el `return` que se saco — la leccion de `verificarRachaAportes`, ítem 7.
+    //
+    // Sigue sin propagar a proposito: los tres call-sites la disparan encadenada y
+    // fire-and-forget al lado del gasto, y el gasto vale mas que la fila de subcategoria.
+    log.warn({ tag: 'CATEGORIAS', usuarioId, categoria: categoriaNombre, sub: subcategoriaNombre, err: e.message },
+      'No se pudo crear la subcategoria libre');
+  }
 }
 
 module.exports = {

@@ -522,8 +522,12 @@ async function procesarMensajeLibre(msg, usuario, from) {
     if (/\d/.test(msg) && msg.length > 8) {
       try {
         let categoriasCustomFb = null;
+        // Degradar al arbol canonico esta bien —el fallback igual clasifica— pero el catch
+        // era mudo, y desde este commit `obtenerCategoriasUsuario` lanza cuando la lectura
+        // cae: sin el log, ese fallo entraba por la misma puerta que "este usuario no tiene
+        // arbol propio", que es justo la confusion que se vino a cerrar.
         try { categoriasCustomFb = await require('../services/categories').obtenerCategoriasUsuario(usuario.id); }
-        catch(e) { /* fall back to canonical */ }
+        catch(e) { log.warn({ tag: 'CATEGORIAS', usuarioId: usuario.id, err: e.message }, 'No se pudo leer el arbol: el fallback clasifica solo con las canonicas'); }
         const resultado = await parsearCorreoBancario(msg, undefined, categoriasCustomFb);
         if (resultado.monto && resultado.monto > 0) {
           const txFb = await guardarTransaccion(usuario.id, resultado);

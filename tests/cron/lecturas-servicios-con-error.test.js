@@ -116,7 +116,10 @@ function makeChain(table, op = 'select', patch = null) {
     // Un `insert(...).select().single()` devuelve la fila ESCRITA, no lo que ya habia en la
     // tabla. Sin esto, `crearEspacio` recibe null y revienta con un TypeError antes de llegar
     // al guard que se quiere medir — o sea que el test fallaria por el motivo equivocado.
-    if (op === 'insert' && patch) return { data: [{ id: 'nuevo-' + table, ...patch }], count: 1, error: null };
+    // Vale igual para el `upsert`: `guardarPresupuesto` hace `upsert(...).select().single()` y
+    // sin esta rama recibia PGRST116 —la fila no estaba en `tablas`— o sea que su control salia
+    // rojo por una carencia del mock y no por el codigo.
+    if ((op === 'insert' || op === 'upsert') && patch) return { data: [{ id: 'nuevo-' + table, ...patch }], count: 1, error: null };
     let filas = (tablas[table] || []).filter((f) => filtros.every((p) => p(f)));
     if (orden) {
       const { col, asc } = orden;
@@ -145,7 +148,20 @@ function makeChain(table, op = 'select', patch = null) {
       return { data: fila, error: null };
     })(),
   );
-  chain.maybeSingle = chain.single;
+  /**
+   * **`maybeSingle` NO es `single`, y el mock las tenia aliaseadas.** Con cero filas,
+   * `maybeSingle` devuelve `{ data: null, error: null }`; el que devuelve `PGRST116` es
+   * `single`. El alias hacia que cualquier caso escrito sobre un `maybeSingle` vacio
+   * ejercitara una rama de error que la produccion nunca produce — y `shared-spaces.js:176`
+   * tiene escrito en un comentario justamente por que eligio `maybeSingle`.
+   */
+  chain.maybeSingle = () => Promise.resolve(
+    (() => {
+      const r = resolver();
+      if (r.error) return { data: null, error: r.error };
+      return { data: (r.data || [])[0] || null, error: null };
+    })(),
+  );
   chain.then = (resolve) => resolve(resolver());
   return chain;
 }
@@ -154,8 +170,12 @@ const dbMock = {
   supabase: {
     from: vi.fn((t) => {
       const base = makeChain(t);
-      const registrar = (op) => (patch) => {
-        escrituras.push({ tabla: t, op, patch });
+      // El segundo argumento se REGISTRA. `retroaplicarRegla` hace
+      // `update(updates, { count: 'exact' })`, y sin esto el mock devolvia `count` igual —o sea
+      // que su control pasaba aunque el codigo dejara de pedirlo—. Lo noto la revision
+      // adversarial. Se guarda en la escritura para poder afirmarlo.
+      const registrar = (op) => (patch, opts) => {
+        escrituras.push({ tabla: t, op, patch, opts: opts || null });
         return makeChain(t, op, patch);
       };
       return { ...base, update: registrar('update'), insert: registrar('insert'), delete: registrar('delete'), upsert: registrar('upsert') };
@@ -165,7 +185,14 @@ const dbMock = {
 const logMock = { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn(), fatal: vi.fn(), trace: vi.fn() };
 const notificar = vi.fn();
 
-for (const [rel, exports] of [['lib/db.js', dbMock], ['lib/logger.js', logMock]]) {
+/**
+ * `services/categories` carga el cliente de OpenAI al requerirse, y `detectarCategoriaIA` lo
+ * llama. Se stubea acá y no con `vi.mock` por el mismo motivo que `lib/db`: estos servicios son
+ * CommonJS y desestructuran en el `require`, así que hay que sembrar el cache antes de cargarlos.
+ */
+const openaiMock = { openai: { chat: { completions: { create: vi.fn() } } } };
+
+for (const [rel, exports] of [['lib/db.js', dbMock], ['lib/logger.js', logMock], ['lib/ai.js', openaiMock]]) {
   const p = require.resolve(path.join(projectRoot, rel));
   require.cache[p] = { id: p, filename: p, loaded: true, exports };
 }
@@ -184,6 +211,7 @@ const metas = require('../../services/metas');
 const espacios = require('../../services/shared-spaces');
 const transactions = require('../../services/transactions');
 const budget = require('../../services/budget');
+const categories = require('../../services/categories');
 
 vi.useFakeTimers({ toFake: ['Date'] });
 afterAll(() => { vi.useRealTimers(); });
@@ -202,6 +230,10 @@ beforeEach(() => {
   notificar.mockResolvedValue({ wa: { ok: true, msgId: 'wamid.1' }, inApp: true });
   logMock.error.mockClear();
   logMock.warn.mockClear();
+  // `info` y el cliente de OpenAI tambien: un `mockResolvedValue` que sobrevive a su caso hace
+  // pasar al siguiente por una razon que ese caso no puso. Lo noto la revision adversarial.
+  logMock.info.mockClear();
+  openaiMock.openai.chat.completions.create.mockReset();
 });
 
 /** Filtró por esta columna (con este valor, si se pide). */
@@ -786,5 +818,600 @@ describe('las dos que alimentan el resumen semanal', () => {
     tablas.presupuestos = [{ id: 'p-1', usuario_id: 'u-1', mes: 8, anio: 2026, categoria: 'Comida', monto_limite: '500' }];
     fallar = (t) => (t === 'presupuestos' ? BOOM : null);
     await expect(budget.obtenerPresupuestosMes('u-1')).rejects.toMatchObject({ message: 'boom' });
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 9. El camino de USUARIO: transactions, budget y categories (ítem 8).
+// ───────────────────────────────────────────────────────────────────────────
+/**
+ * Los tres archivos que entraron al perímetro cuando la derivación se volvió transitiva.
+ *
+ * **La taxonomía es la misma, y sus dos ramas opuestas se reparten distinto que en el cron.**
+ * Allá el arreglo por defecto terminó siendo `throw`, porque lo que seguía era un AVISO y los
+ * handlers responden "no pude, intenta de nuevo". Acá lo que sigue suele ser el gasto que la
+ * persona acaba de escribir, y un corte de más lo pierde. Por eso conviven, en el mismo commit
+ * y a veces en la misma función, tres arreglos distintos:
+ *
+ *   · **falla ABIERTO a propósito** — el dedup de `guardarTransaccion`. Sigue de largo y ahora
+ *     lo dice. Una fila duplicada se borra; un gasto perdido no se recupera.
+ *   · **decisión de CONTENIDO → `throw`** — `obtenerGastosMes`, `formatearEstadoPresupuesto`,
+ *     `obtenerCategoriasUsuario`. Un `[]` mudo no produce un número que falta: produce el
+ *     número equivocado, o un menú de onboarding para alguien que ya tiene su árbol.
+ *   · **resultado DISCRIMINADO** — `recategorizarTransaccion` y `corregirTransaccionEspecifica`,
+ *     que ya modelan el fallo en su contrato `{ ok, msg }`. Ahí lanzar cambiaría la mentira por
+ *     silencio (el catch del webhook no le contesta al usuario); el motivo la cambia por la
+ *     verdad.
+ *   · **accesoria** — `buscarReglaComercio`, el conteo de activación, la escritura de las
+ *     subcategorías. Sólo log, con su contraprueba de que NO cortan.
+ */
+
+/** Los tags de los `log.warn`, que es donde va lo accesorio. */
+const tagsWarn = () => logMock.warn.mock.calls.map((c) => c[0] && c[0].tag);
+
+describe('registrar un gasto: el dedup falla ABIERTO y ahora lo dice', () => {
+  const DATOS = { tipo: 'gasto', monto: 50, comercio: 'Taxi', categoria: 'Transporte', descripcion_original: 'gaste 50 en taxi' };
+
+  beforeEach(() => {
+    vi.setSystemTime(enLima('2026-08-20T10:00:00'));
+    tablas.usuarios = [{ ...USUARIO, plan: 'premium' }];
+  });
+
+  /**
+   * El control, y hace falta por partida doble: dice que el camino al insert existe, y dice
+   * que el dedup DEDUPEA — sin esto, el caso de abajo podría estar pasando porque el dedup
+   * nunca encuentra nada.
+   */
+  it('control: un gasto repetido dentro de la ventana no se inserta dos veces', async () => {
+    tablas.transacciones = [];
+    const primera = await transactions.guardarTransaccion('u-1', DATOS);
+    expect(primera).toBeTruthy();
+    // La fila que acaba de escribir el mock no queda en `tablas`, así que se siembra a mano
+    // con el mismo `dedup_hash` que va a calcular la segunda llamada.
+    tablas.transacciones = [{ ...primera, created_at: new Date().toISOString() }];
+    escrituras = [];
+    const segunda = await transactions.guardarTransaccion('u-1', DATOS);
+    expect(segunda.id, 'el dedup no reconoció la fila que ya estaba').toBe(primera.id);
+    expect(escrituras.filter((e) => e.tabla === 'transacciones' && e.op === 'insert'),
+      'se insertó igual habiendo dedup').toEqual([]);
+  });
+
+  /**
+   * **El caso que define este ítem.** La lectura del dedup cae y el gasto se registra IGUAL:
+   * un corte acá pierde lo que la persona acaba de escribir, que es el daño que el producto no
+   * puede permitirse. Lo que cambia es que deja rastro.
+   */
+  it('si el dedup no se puede consultar, el gasto se registra igual y queda el log', async () => {
+    tablas.transacciones = [];
+    fallar = (t, v, op) => (t === 'transacciones' && op === 'select' && filtro(v, 'dedup_hash') ? BOOM : null);
+    const tx = await transactions.guardarTransaccion('u-1', DATOS);
+    expect(tx, 'la lectura del dedup se llevó puesto el gasto').toBeTruthy();
+    expect(escrituras.some((e) => e.tabla === 'transacciones' && e.op === 'insert'),
+      'el gasto no llegó a insertarse').toBe(true);
+    expect(tagsLogueados(), 'la caída del dedup no dejó una sola línea').toContain('DEDUP');
+  });
+
+  /**
+   * La otra mitad del mismo statement: el `23505` de Gmail. La fila YA está (por eso el
+   * conflicto), así que acá no hay nada que salvar — lo único que decide la lectura es si el
+   * barrido recibe la fila ganadora o el 23505 re-lanzado, y las dos son honestas. Sólo log.
+   */
+  it('el dedup de Gmail que no se puede releer re-lanza el 23505 y lo dice', async () => {
+    tablas.transacciones = [];
+    fallar = (t, v, op) => {
+      if (t !== 'transacciones') return null;
+      if (op === 'insert') return { code: '23505', message: 'duplicate key' };
+      if (op === 'select' && filtro(v, 'gmail_msg_id')) return BOOM;
+      return null;
+    };
+    await expect(transactions.guardarTransaccion('u-1', { ...DATOS, esGmail: true, gmail_msg_id: 'msg-1' }))
+      .rejects.toMatchObject({ code: '23505' });
+    expect(tagsLogueados(), 'no se pudo releer la fila ganadora y no quedó rastro').toContain('DEDUP_GMAIL');
+  });
+
+  /**
+   * Accesoria, con su contraprueba: el conteo alimenta el evento de primer gasto y el
+   * `conteoTx` de la cadencia del empujón a la webapp, pero el gasto ya está escrito. Si
+   * alguien "completa el trabajo" poniéndole el corte que sí llevan las otras, este test muere.
+   */
+  it('el conteo de activación caído no corta el registro (accesoria)', async () => {
+    tablas.transacciones = [];
+    fallar = (t, v, op) => (t === 'transacciones' && op === 'select' && v.length === 1 && filtro(v, 'usuario_id') ? BOOM : null);
+    const tx = await transactions.guardarTransaccion('u-1', DATOS);
+    expect(tx, 'un conteo de analytics se llevó puesto el gasto').toBeTruthy();
+    expect(tagsWarn(), 'el conteo cayó sin dejar rastro').toContain('ACTIVACION');
+  });
+
+  /**
+   * `buscarReglaComercio` es accesoria por su CALL-SITE: la llama `guardarTransaccion` antes
+   * del insert y sin catch propio. Un throw acá perdería el gasto para salvar su etiqueta.
+   */
+  it('una regla de comercio que no se puede leer no impide registrar el gasto', async () => {
+    tablas.transacciones = [];
+    fallar = (t) => (t === 'reglas_comercio' ? BOOM : null);
+    const tx = await transactions.guardarTransaccion('u-1', DATOS);
+    expect(tx, 'no poder leer la regla se llevó puesto el gasto').toBeTruthy();
+    expect(tagsWarn()).toContain('REGLA');
+  });
+
+  /**
+   * Y el negativo que hace falta para que el anterior signifique algo: **la mayoría de los
+   * comercios NO tiene regla**, y eso llega como `PGRST116` desde un `.single()`. Sin este
+   * caso, un `if (error) log.warn` a secas pasaría el test de arriba y llenaría el log con un
+   * warning por cada gasto de la historia.
+   */
+  it('y un comercio SIN regla no es un fallo que loguear', async () => {
+    tablas.transacciones = [];
+    tablas.reglas_comercio = [];
+    const tx = await transactions.guardarTransaccion('u-1', DATOS);
+    expect(tx).toBeTruthy();
+    expect(tagsWarn(), '"este comercio no tiene regla" se reportó como fallo de lectura').not.toContain('REGLA');
+  });
+});
+
+describe('los totales del mes no se responden con la mitad de los números', () => {
+  beforeEach(() => { vi.setSystemTime(enLima('2026-08-20T10:00:00')); });
+
+  const DEL_MES = [{ id: 'g1', usuario_id: 'u-1', tipo: 'gasto', fecha: '2026-08-11', monto: 30, monto_pen: 30, categoria: 'Comida' }];
+
+  it('control: los gastos del mes se leen', async () => {
+    tablas.transacciones = DEL_MES;
+    await expect(transactions.obtenerGastosMes('u-1')).resolves.toHaveLength(1);
+  });
+
+  /**
+   * El hermano exacto de `obtenerGastosSemana`. Con `[]`, `/mes` responde "Sin movimientos
+   * este mes aun" y el saludo anuncia S/ 0.00 sobre una persona que sí gastó.
+   */
+  it('si no se pueden leer, no se reporta un mes sin gastos', async () => {
+    tablas.transacciones = DEL_MES;
+    fallar = (t) => (t === 'transacciones' ? BOOM : null);
+    await expect(transactions.obtenerGastosMes('u-1')).rejects.toMatchObject({ message: 'boom' });
+  });
+
+  /**
+   * `obtenerUltimaTransaccion` usa `.single()`, así que "todavía no anotó nada" llega como
+   * `PGRST116`. Este par es el que separa las dos hipótesis: sin el negativo, un
+   * `if (error) throw` a secas convierte a todo usuario nuevo en una excepción.
+   */
+  it('un usuario sin transacciones devuelve null, no explota', async () => {
+    tablas.transacciones = [];
+    await expect(transactions.obtenerUltimaTransaccion('u-1')).resolves.toBeNull();
+  });
+
+  it('pero una caída no se responde como "no hay transacciones recientes"', async () => {
+    tablas.transacciones = DEL_MES;
+    fallar = (t) => (t === 'transacciones' ? BOOM : null);
+    await expect(transactions.obtenerUltimaTransaccion('u-1')).rejects.toMatchObject({ message: 'boom' });
+  });
+});
+
+describe('corregir una categoría: "no encontré" tiene que ser cierto', () => {
+  beforeEach(() => { vi.setSystemTime(enLima('2026-08-20T10:00:00')); });
+
+  const DE_STARBUCKS = [{ id: 'g1', usuario_id: 'u-1', tipo: 'gasto', comercio: 'Starbucks Lima', fecha: '2026-08-19', monto: 20, categoria: 'Otros', created_at: '2026-08-19T10:00:00Z' }];
+
+  it('control: con el gasto ahí, se recategoriza', async () => {
+    tablas.transacciones = DE_STARBUCKS;
+    const res = await transactions.recategorizarTransaccion('u-1', 'Starbucks Lima', 'Comida');
+    expect(res.ok).toBe(true);
+  });
+
+  it('control: un comercio que no existe se responde como que no existe', async () => {
+    tablas.transacciones = DE_STARBUCKS;
+    const res = await transactions.recategorizarTransaccion('u-1', 'Wong', 'Comida');
+    expect(res.ok).toBe(false);
+    expect(res.msg).toMatch(/No encontre/i);
+  });
+
+  /**
+   * La lectura cae y el mensaje lo dice. **Lanzar no serviría acá**: uno de los dos call-sites
+   * es `/cambiar`, un comando del webhook, y hasta este commit su catch no le contestaba nada
+   * al usuario.
+   */
+  it('si la búsqueda cae, no se responde que el comercio no existe', async () => {
+    tablas.transacciones = DE_STARBUCKS;
+    // **Cae SÓLO la primera lectura**, y esa precisión es lo que hace que el caso pruebe algo.
+    // Con el fixture tumbando las dos, neutralizar esta guarda dejaba pasar el flujo al
+    // reintento por palabra, que caía igual y devolvía el MISMO mensaje: la segunda guarda
+    // tapaba a la primera y la mutación sobrevivía en verde. Lo encontró el mutador.
+    // Acá la del reintento (`%Starbucks%`, sin espacio) SÍ resuelve y encuentra la fila, así
+    // que sin esta guarda la función devolvería `ok: true`.
+    fallar = (t, v, op) => {
+      if (t !== 'transacciones' || op !== 'select') return null;
+      const patron = (v.find((x) => x.col === 'comercio') || {}).val || '';
+      return patron.indexOf(' ') >= 0 ? BOOM : null;
+    };
+    const res = await transactions.recategorizarTransaccion('u-1', 'Starbucks Lima', 'Comida');
+    expect(res.ok).toBe(false);
+    expect(res.msg, 'una caída se anunció como "no encontré ninguna transacción"').toMatch(/No pude buscar/i);
+    expect(tagsLogueados()).toContain('RECATEGORIZAR');
+  });
+
+  /**
+   * Y el reintento PALABRA POR PALABRA por separado, que es un sitio distinto aunque la forma
+   * sea la misma: es el último recurso antes de "no encontré nada", así que si cae y el bucle
+   * sigue, el mensaje afirma que se buscó. Un caso por FORMA en vez de por SITIO dejaba viva
+   * esta mutación (la lección de los cuatro `reminder_dN` del ítem 7).
+   */
+  it('y el reintento por palabra tampoco puede caer en silencio', async () => {
+    tablas.transacciones = DE_STARBUCKS;
+    // La primera lectura (`%Starbucks Wong%`) no encuentra nada y devuelve []; la del
+    // reintento, con una sola palabra, es la que cae.
+    fallar = (t, v, op) => {
+      if (t !== 'transacciones' || op !== 'select') return null;
+      const patron = (v.find((x) => x.col === 'comercio') || {}).val || '';
+      return patron.indexOf(' ') === -1 ? BOOM : null;
+    };
+    const res = await transactions.recategorizarTransaccion('u-1', 'Starbucks Wong', 'Comida');
+    expect(res.ok).toBe(false);
+    expect(res.msg, 'el reintento cayó y el mensaje dijo que no había gastos').toMatch(/No pude buscar/i);
+  });
+
+  /**
+   * `corregirTransaccionEspecifica` es el patrón builder (`let query = supabase…`) y devuelve
+   * `{ ok, comercio }`, sin `msg`. El motivo discriminado es lo que le permite al bucle de
+   * correcciones múltiples imprimir la línea correcta sin abortar las demás.
+   */
+  it('la corrección específica distingue "no existe" de "no pude buscarlo"', async () => {
+    tablas.transacciones = DE_STARBUCKS;
+    const sinFallo = await transactions.corregirTransaccionEspecifica('u-1', 'Wong', null, null, 'Comida', null);
+    expect(sinFallo).toEqual({ ok: false, comercio: 'Wong' });
+
+    fallar = (t, v, op) => (t === 'transacciones' && op === 'select' ? BOOM : null);
+    const conFallo = await transactions.corregirTransaccionEspecifica('u-1', 'Starbucks Lima', null, null, 'Comida', null);
+    expect(conFallo.motivo, 'una caída se reportó igual que un comercio inexistente').toBe('error');
+    expect(tagsLogueados()).toContain('CORREGIR_TX');
+  });
+
+  /** El `update` de la retroaplicación: 0 es el número cierto, pero no puede anunciarse solo. */
+  it('una retroaplicación rechazada no se anuncia como hecha', async () => {
+    tablas.transacciones = DE_STARBUCKS;
+    fallar = (t, v, op) => (t === 'transacciones' && op === 'update' ? BOOM : null);
+    await expect(transactions.retroaplicarRegla('u-1', 'Starbucks', 'Comida', null)).resolves.toBe(0);
+    expect(tagsLogueados()).toContain('RETROAPLICAR');
+  });
+
+  it('control: una retroaplicación que sí aplica devuelve su conteo', async () => {
+    tablas.transacciones = DE_STARBUCKS;
+    await expect(transactions.retroaplicarRegla('u-1', 'Starbucks', 'Comida', null)).resolves.toBe(1);
+    // Y que el conteo lo haya PEDIDO. Sin esto el caso pasaba igual con el `{ count: 'exact' }`
+    // borrado, porque el mock devuelve `count` siempre: el número que se le anuncia al usuario
+    // venía del mock y no del código.
+    const upd = escrituras.find((e) => e.tabla === 'transacciones' && e.op === 'update');
+    expect(upd && upd.opts, 'el update dejó de pedir el conteo exacto').toMatchObject({ count: 'exact' });
+  });
+});
+
+describe('la alerta de presupuesto se calla, pero no en silencio', () => {
+  const PRESUPUESTO = [{ id: 'p-1', usuario_id: 'u-1', mes: 8, anio: 2026, categoria: 'Comida', subcategoria: null, monto_limite: '100', alerta_porcentaje: 80 }];
+  const GASTOS = [{ id: 'g1', usuario_id: 'u-1', tipo: 'gasto', fecha: '2026-08-11', monto: 95, monto_pen: 95, categoria: 'Comida' }];
+  const USUARIO_PRO = { ...USUARIO, plan: 'premium' };
+
+  beforeEach(() => {
+    vi.setSystemTime(enLima('2026-08-20T10:00:00'));
+    tablas.presupuestos = PRESUPUESTO;
+    tablas.transacciones = GASTOS;
+  });
+
+  it('control: al 95% del límite, la alerta sale', async () => {
+    const alerta = await budget.verificarAlertaPresupuesto(USUARIO_PRO, 'Comida', null);
+    expect(alerta, 'el camino a la alerta no se recorre: los casos de abajo no probarían nada').toMatch(/95/);
+  });
+
+  /**
+   * **Acá NO se lanza, y es la decisión del ítem.** Esta función corre DESPUÉS de que el gasto
+   * se escribió, pegada a su confirmación: un throw se llevaría puesta la confirmación de un
+   * gasto que sí quedó guardado. La alerta se pierde y queda dicho.
+   */
+  it('si no se puede leer el presupuesto, el gasto se confirma sin alerta y queda el log', async () => {
+    fallar = (t) => (t === 'presupuestos' ? BOOM : null);
+    await expect(budget.verificarAlertaPresupuesto(USUARIO_PRO, 'Comida', null)).resolves.toBeNull();
+    expect(tagsLogueados(), 'la alerta no salió y nadie se enteró de por qué').toContain('PRESUPUESTO');
+  });
+
+  /**
+   * La otra query del mismo `Promise.all`, y hace falta su propio caso: con los gastos en null
+   * el total da 0 y tampoco sale alerta, o sea que el síntoma es idéntico. Un caso por
+   * `Promise.all` en vez de por elemento dejaba viva la mitad.
+   */
+  it('y si no se pueden leer los gastos del mes, tampoco se inventa una alerta', async () => {
+    fallar = (t, v, op) => (t === 'transacciones' && op === 'select' ? BOOM : null);
+    await expect(budget.verificarAlertaPresupuesto(USUARIO_PRO, 'Comida', null)).resolves.toBeNull();
+    expect(tagsLogueados()).toContain('PRESUPUESTO');
+  });
+
+  /**
+   * `formatearEstadoPresupuesto` sí lanza, y la diferencia con la de arriba es lo que se
+   * IMPRIME: con `allTxs` en null cada categoría sale con "S/ 0.00 / S/ 100" y la barra vacía.
+   * No es un bloque que falta, es el número de plata que más daño hace.
+   */
+  it('control: el estado del presupuesto imprime lo gastado', async () => {
+    await expect(budget.formatearEstadoPresupuesto('u-1')).resolves.toMatch(/95\.00/);
+  });
+
+  it('y no se imprime "S/ 0.00 gastado" cuando lo que falló fue la lectura', async () => {
+    fallar = (t, v, op) => (t === 'transacciones' && op === 'select' ? BOOM : null);
+    await expect(budget.formatearEstadoPresupuesto('u-1')).rejects.toMatchObject({ message: 'boom' });
+  });
+});
+
+describe('el árbol de categorías: no tener y no poder preguntar no son lo mismo', () => {
+  const ARBOL = [
+    { id: 'c-1', usuario_id: 'u-1', nombre: 'Comida', padre_id: null, activa: true, created_at: '2026-01-01T00:00:00Z' },
+    { id: 'c-2', usuario_id: 'u-1', nombre: 'Cafeteria', padre_id: 'c-1', activa: true, created_at: '2026-01-01T00:00:00Z' },
+  ];
+
+  beforeEach(() => {
+    vi.setSystemTime(enLima('2026-08-20T10:00:00'));
+    tablas.categorias_usuario = ARBOL;
+  });
+
+  it('control: el árbol se lee con sus subcategorías', async () => {
+    const cats = await categories.obtenerCategoriasUsuario('u-1');
+    expect(cats).toHaveLength(1);
+    expect(cats[0].subcategorias).toHaveLength(1);
+  });
+
+  it('control: un usuario sin árbol propio devuelve null', async () => {
+    tablas.categorias_usuario = [];
+    await expect(categories.obtenerCategoriasUsuario('u-1')).resolves.toBeNull();
+  });
+
+  /**
+   * **El `null` de esta lectura no es cosmético: `webhook.js` ramifica por él para ofrecer el
+   * MENÚ de onboarding, y el de `/categorias` además escribe `onboarding_paso: 10`.** O sea que
+   * una lectura caída le ofrecía volver a elegir sus categorías a alguien que ya las tiene, y
+   * el número que escribiera después entraba a `crearCategoriasDesdeIndices` sobre un árbol
+   * lleno.
+   */
+  it('si el árbol no se puede leer, NO se responde que el usuario no tiene árbol', async () => {
+    fallar = (t) => (t === 'categorias_usuario' ? BOOM : null);
+    await expect(categories.obtenerCategoriasUsuario('u-1')).rejects.toMatchObject({ message: 'boom' });
+  });
+
+  /**
+   * Y su contraprueba de call-site, que es la mitad que le da sentido al throw: en el camino
+   * del gasto el árbol es ACCESORIO —agrega categorías al prompt, no lo reemplaza— y
+   * `handlers/intents/transacciones.js` dispara esta función como promesa suelta. Un rechazo
+   * acá se llevaría puesto el registro del gasto para salvar su etiqueta.
+   */
+  it('pero clasificar un gasto degrada a las canónicas en vez de romperse', async () => {
+    fallar = (t) => (t === 'categorias_usuario' ? BOOM : null);
+    openaiMock.openai.chat.completions.create.mockResolvedValue({
+      choices: [{ message: { content: '{"categoria":"Transporte","subcategoria":null}' } }],
+    });
+    await expect(categories.detectarCategoriaIA('taxi 20', 'u-1'),
+      'un fallo al leer el árbol se llevó puesta la clasificación del gasto')
+      .resolves.toMatchObject({ categoria: 'Transporte' });
+    expect(tagsWarn(), 'degradó a las canónicas sin decirlo').toContain('CATEGORIAS');
+  });
+
+  it('control: buscar una raíz que existe la encuentra', async () => {
+    await expect(categories.crearCategoriaLibreUsuario('u-1', 'Comida')).resolves.toBeUndefined();
+    expect(escrituras.filter((e) => e.tabla === 'categorias_usuario'),
+      'la raíz ya existía y se insertó igual').toEqual([]);
+  });
+
+  /**
+   * `buscarCategoriaRaiz` es el dedup de raíces, y su `null` se lee de dos maneras opuestas
+   * según quién pregunta: "no existe, creala" o "no hay dónde colgar la subcategoría". Una
+   * lectura caída rompe las dos. No lleva excepción de `PGRST116`: es `.limit(1)`.
+   */
+  it('una raíz que no se puede buscar no se responde como una raíz que no existe', async () => {
+    fallar = (t, v, op) => (t === 'categorias_usuario' && op === 'select' ? BOOM : null);
+    await expect(categories.crearCategoriaLibreUsuario('u-1', 'Comida')).resolves.toBeUndefined();
+    expect(escrituras.filter((e) => e.tabla === 'categorias_usuario' && e.op === 'insert'),
+      'con la lectura caída se insertó una raíz que podía estar duplicada').toEqual([]);
+    expect(tagsWarn(), 'el fallo entró por la misma puerta que "no existe"').toContain('CATEGORIAS');
+  });
+
+  /**
+   * El catch de `crearSubcategoriaLibreUsuario` era `/* silencioso *\/`, o sea que cualquier
+   * arreglo de sus dos queries habría sido decorativo — un `throw` cuyo destino es un catch
+   * mudo compra el mismo silencio que el `return` que se saca (`verificarRachaAportes`, ítem 7).
+   */
+  it('el dedup de subcategorías caído no inserta la subcategoría duplicada', async () => {
+    // El VALOR de `padre_id` es lo único que separa las dos lecturas: `buscarCategoriaRaiz`
+    // filtra `is('padre_id', null)` y este dedup `eq('padre_id', padre.id)`. Con `filtro(v,
+    // 'padre_id')` a secas caía la PRIMERA, la función salía por el throw de esa otra guarda,
+    // y este caso pasaba sin haber ejercitado nunca el dedup. Lo encontró el mutador.
+    fallar = (t, v, op) => (t === 'categorias_usuario' && op === 'select' && v.some((x) => x.col === 'padre_id' && x.val) ? BOOM : null);
+    await categories.crearSubcategoriaLibreUsuario('u-1', 'Comida', 'Postres');
+    expect(escrituras.filter((e) => e.op === 'insert'),
+      'no se pudo comprobar si ya existía y se insertó igual').toEqual([]);
+    expect(tagsWarn(), 'el catch silencioso se tragó el fallo').toContain('CATEGORIAS');
+  });
+
+  it('control: una subcategoría nueva sí se crea', async () => {
+    await categories.crearSubcategoriaLibreUsuario('u-1', 'Comida', 'Postres');
+    expect(escrituras.filter((e) => e.op === 'insert' && e.patch && e.patch.nombre === 'Postres')).toHaveLength(1);
+  });
+
+  /** Y la ESCRITURA de esa misma función, que es la otra mitad del trinquete. */
+  it('una subcategoría que no se pudo escribir deja rastro', async () => {
+    fallar = (t, v, op) => (t === 'categorias_usuario' && op === 'insert' ? BOOM : null);
+    await categories.crearSubcategoriaLibreUsuario('u-1', 'Comida', 'Postres');
+    expect(tagsWarn(), 'el insert fue rechazado y la subcategoría desapareció sin una línea').toContain('CATEGORIAS');
+  });
+
+  /**
+   * El onboarding: `crearCategoriasDesdeIndices` corre desde `handlers/onboarding.js`, que no
+   * tiene catch. Por eso el try es por ITERACIÓN — un throw que suba deja al usuario sin
+   * respuesta y clavado en el paso 10, y las categorías que sí se pudieron crear se pierden.
+   */
+  it('en el onboarding, una raíz que no se puede releer no tumba las demás', async () => {
+    tablas.categorias_usuario = [];
+    fallar = (t, v, op) => {
+      if (t !== 'categorias_usuario') return null;
+      if (op === 'insert') return { code: '23505', message: 'duplicate key' };
+      return BOOM;
+    };
+    await expect(categories.crearCategoriasDesdeIndices('u-1', [1, 2]),
+      'el throw subió hasta el onboarding').resolves.toBeUndefined();
+    expect(tagsWarn()).toContain('CATEGORIAS');
+  });
+
+  /** La escritura de las subcategorías del onboarding: accesoria, pero no muda. */
+  it('una subcategoría del onboarding rechazada deja rastro', async () => {
+    tablas.categorias_usuario = [];
+    // Falla SOLO el insert de las subcategorías (las que llevan `padre_id`).
+    fallar = (t, v, op, patch) => (t === 'categorias_usuario' && op === 'insert' && patch && patch.padre_id ? BOOM : null);
+    await categories.crearCategoriasDesdeIndices('u-1', [1]);
+    expect(tagsWarn(), 'las subcategorías del onboarding se perdieron en silencio').toContain('CATEGORIAS');
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 10. Las guardas PREEXISTENTES de estos tres archivos, que nada sostenía.
+// ───────────────────────────────────────────────────────────────────────────
+/**
+ * **No arreglan nada: cubren.** La prueba por mutación del ítem 7 midió 37 guardas del
+ * perímetro que ya estaban arregladas y que ninguna mutación mataba — o sea que existían,
+ * hacían lo correcto, y nada las sostenía si alguien las revertía. Con el mutador viendo
+ * además las guardas `if (error && …)` (la forma obligada de todo `.single()`, porque
+ * `PGRST116` es "cero filas" y no un fallo), la cuenta subió a 43.
+ *
+ * Acá se cierran las **ocho que viven en los tres archivos de este ítem**, para que la
+ * afirmación "estos tres archivos están barridos" sea cierta en los dos sentidos: no queda
+ * lectura muda, y no queda guarda sin quien la sostenga. Las 35 restantes viven en
+ * `neto-score`, `shared-spaces`, `debts`, `summaries`, `survey-triggers`, `spending-alerts`,
+ * `metas`, `subscriptions/detector`, `recommendations` y `cron/checks.js`, y siguen abiertas.
+ */
+describe('las guardas que ya estaban y nada sostenía', () => {
+  const UNA_TX = [{ id: 'g1', usuario_id: 'u-1', tipo: 'gasto', comercio: 'Starbucks', fecha: '2026-08-19', monto: 20, categoria: 'Otros', created_at: '2026-08-19T10:00:00Z' }];
+
+  beforeEach(() => {
+    vi.setSystemTime(enLima('2026-08-20T10:00:00'));
+    tablas.transacciones = UNA_TX;
+  });
+
+  /** El `update` de `recategorizarTransaccion`: la lectura encuentra la fila y la escritura falla. */
+  it('un update rechazado no se responde como "Listo, lo movi"', async () => {
+    fallar = (t, v, op) => (t === 'transacciones' && op === 'update' ? BOOM : null);
+    const res = await transactions.recategorizarTransaccion('u-1', 'Starbucks', 'Comida');
+    expect(res.ok).toBe(false);
+    expect(res.msg).toMatch(/Error actualizando/i);
+  });
+
+  /** El mismo update, por id. Es otra función y otra guarda, aunque la forma sea la misma. */
+  it('recategorizar por id tampoco anuncia un cambio que no se escribió', async () => {
+    fallar = (t, v, op) => (t === 'transacciones' && op === 'update' ? BOOM : null);
+    await expect(transactions.recategorizarPorId('g1', 'Comida')).resolves.toEqual({ ok: false, msg: 'Error actualizando.' });
+  });
+
+  it('control: por id, sin fallo, aplica', async () => {
+    await expect(transactions.recategorizarPorId('g1', 'Comida')).resolves.toEqual({ ok: true });
+  });
+
+  /** El update de `corregirTransaccionEspecifica`, que devuelve `{ ok:false, comercio }`. */
+  /**
+   * **`ok: false` no alcanza como aserción acá, y esa es la lección del caso.** Un comercio que
+   * no existe devuelve `ok: false` igual, así que el test pasaba con las dos hipótesis — y con
+   * eso dejó pasar un defecto real: el update rechazado devolvía `{ ok:false, comercio }`, la
+   * forma EXACTA de "no existe", y el bucle de correcciones imprimía "no encontré gasto de X"
+   * sobre un gasto que acababa de leer. Lo encontró la revisión adversarial; la aserción que
+   * lo habría atrapado es la del `motivo`.
+   */
+  it('la corrección específica no confirma un update rechazado', async () => {
+    fallar = (t, v, op) => (t === 'transacciones' && op === 'update' ? BOOM : null);
+    const res = await transactions.corregirTransaccionEspecifica('u-1', 'Starbucks', null, null, 'Comida', null);
+    expect(res.ok).toBe(false);
+    expect(res.motivo, 'un update rechazado se reportó con la misma forma que un comercio inexistente').toBe('error');
+    expect(tagsLogueados()).toContain('CORREGIR_TX');
+  });
+
+  /**
+   * La guarda `} else if (error)` del onboarding, que el mutador no veía por anclar en el `if`
+   * a principio de línea — el mismo punto ciego que su docblock declara haber cerrado para la
+   * disyunción, un `else` más allá. Es el fallo NO-23505 al crear la raíz: no es la carrera del
+   * índice único, es un rechazo de verdad, y sin el log el usuario se queda sin la categoría
+   * que eligió y sin una línea que lo diga.
+   */
+  it('una raíz del onboarding rechazada por un fallo real deja rastro', async () => {
+    tablas.categorias_usuario = [];
+    fallar = (t, v, op, patch) => (t === 'categorias_usuario' && op === 'insert' && patch && !patch.padre_id ? BOOM : null);
+    await categories.crearCategoriasDesdeIndices('u-1', [1]);
+    expect(tagsWarn(), 'la raíz fue rechazada y el onboarding siguió sin decirlo').toContain('CATEGORIAS');
+    expect(escrituras.filter((e) => e.op === 'insert' && e.patch && e.patch.padre_id),
+      'sin raíz no hay dónde colgar subcategorías, y se colgaron igual').toEqual([]);
+  });
+
+  /**
+   * El `upsert` de la regla. Su docblock cuenta por qué existe la guarda —el llamador anunciaba
+   * "✅ Regla creada" sin una sola fila en `reglas_comercio`— y aun así nada la sostenía.
+   */
+  it('una regla que no se pudo escribir no se anuncia como creada', async () => {
+    fallar = (t, v, op) => (t === 'reglas_comercio' && op === 'upsert' ? BOOM : null);
+    const res = await transactions.guardarReglaComercio('u-1', 'Starbucks', 'Alimentación', 'Cafeteria');
+    expect(res).toEqual({ ok: false, motivo: 'error' });
+    expect(tagsLogueados()).toContain('REGLA');
+  });
+
+  it('control: una regla que sí se escribe vuelve con su destino', async () => {
+    const res = await transactions.guardarReglaComercio('u-1', 'Starbucks', 'Alimentación', 'Cafeteria');
+    expect(res.ok).toBe(true);
+    expect(res.destino.categoria).toBe('Alimentación');
+  });
+
+  /** El `upsert` del presupuesto: es plata que el usuario cree haber configurado. */
+  it('un presupuesto que no se pudo guardar no se responde como configurado', async () => {
+    fallar = (t, v, op) => (t === 'presupuestos' && op === 'upsert' ? BOOM : null);
+    await expect(budget.guardarPresupuesto('u-1', 'Comida', 500)).rejects.toMatchObject({ message: 'boom' });
+  });
+
+  it('control: el presupuesto se guarda y vuelve la fila', async () => {
+    await expect(budget.guardarPresupuesto('u-1', 'Comida', 500)).resolves.toMatchObject({ monto_limite: 500 });
+  });
+
+  /**
+   * La rama `23505` del onboarding: la raíz ya existía, y las subcategorías se cuelgan de la
+   * que está. Sin esta rama, el `else if (error)` la trata como fallo, `padreId` queda en null
+   * y el usuario se lleva la raíz sin una sola subcategoría — el síntoma que el comentario del
+   * propio código describe.
+   */
+  it('en el onboarding, una raíz que ya existía igual recibe sus subcategorías', async () => {
+    tablas.categorias_usuario = [{ id: 'c-1', usuario_id: 'u-1', nombre: 'Alimentación', padre_id: null, activa: true, created_at: '2026-01-01T00:00:00Z' }];
+    fallar = (t, v, op, patch) => (t === 'categorias_usuario' && op === 'insert' && patch && !patch.padre_id
+      ? { code: '23505', message: 'duplicate key' } : null);
+    await categories.crearCategoriasDesdeIndices('u-1', [1]);
+    const subs = escrituras.filter((e) => e.op === 'insert' && e.patch && e.patch.padre_id === 'c-1');
+    expect(subs.length, 'la raíz ya existía y las subcategorías no se colgaron de ella').toBeGreaterThan(0);
+  });
+
+  /**
+   * `crearCategoriaLibreUsuario` distingue el `23505` —que acá es CORRECTO, porque entre la
+   * búsqueda y el insert hay un await a OpenAI y otro mensaje pudo crear la raíz— de un fallo
+   * real. Las dos direcciones, porque una sola deja pasar la mutación por el otro lado.
+   */
+  it('una categoría libre rechazada por un fallo real deja rastro', async () => {
+    tablas.categorias_usuario = [];
+    fallar = (t, v, op) => (t === 'categorias_usuario' && op === 'insert' ? BOOM : null);
+    await categories.crearCategoriaLibreUsuario('u-1', 'Comida casera');
+    expect(tagsWarn()).toContain('CATEGORIAS');
+  });
+
+  it('pero perder la carrera del índice único NO es un fallo que loguear', async () => {
+    tablas.categorias_usuario = [];
+    fallar = (t, v, op) => (t === 'categorias_usuario' && op === 'insert' ? { code: '23505', message: 'duplicate key' } : null);
+    await categories.crearCategoriaLibreUsuario('u-1', 'Comida casera');
+    expect(tagsWarn(), 'la carrera que el índice único cierra se reportó como fallo').toEqual([]);
+  });
+
+  /**
+   * Y el veredicto de `asegurarCategoriaUsuario`, que su propio docblock justifica: sin
+   * distinguir `'error'` de `'ya-existe'`, un fallo de programación es indistinguible de una
+   * decisión correcta.
+   */
+  it('asegurar una categoría distingue el fallo real del 23505', async () => {
+    const ARBOL = [{ id: 'c-1', usuario_id: 'u-1', nombre: 'Comida casera', padre_id: null, activa: true, created_at: '2026-01-01T00:00:00Z' }];
+    tablas.categorias_usuario = ARBOL;
+    fallar = (t, v, op) => (t === 'categorias_usuario' && op === 'insert' ? BOOM : null);
+    await expect(categories.asegurarCategoriaUsuario('u-1', 'Transporte')).resolves.toBe('error');
+
+    tablas.categorias_usuario = ARBOL;
+    fallar = (t, v, op) => (t === 'categorias_usuario' && op === 'insert' ? { code: '23505', message: 'duplicate key' } : null);
+    await expect(categories.asegurarCategoriaUsuario('u-1', 'Transporte'),
+      'la carrera que gana el índice único se reportó como error').resolves.toBe('ya-existe');
   });
 });

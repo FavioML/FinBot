@@ -116,8 +116,19 @@ async function guardarTransaccion(usuarioId, datos) {
     // ni con las filas ya guardadas). El last4 refina la decisión: un candidato solo
     // es duplicado si su tarjeta coincide o alguno de los dos lado es desconocido.
     // Dos tarjetas distintas con mismo monto/comercio/día ya no colapsan.
-    const { data: existente } = await supabase.from('transacciones').select('id, tarjeta_last4')
+    const { data: existente, error: errDedup } = await supabase.from('transacciones').select('id, tarjeta_last4')
       .eq('usuario_id', usuarioId).eq('dedup_hash', dedupHash).gte('created_at', ventanaInicio).limit(5);
+    // **Este dedup falla ABIERTO, y va en la direccion CONTRARIA a la de los dedups del cron.**
+    // Alla un `data` en null se leia como "todavia no le avisamos" y el arreglo fue cortar el
+    // envio. Aca lo que sigue no es un aviso: es el gasto que la persona acaba de escribir.
+    // Cortar convierte una caida de 200ms en un gasto perdido, y lo unico que compra es
+    // evitar una fila duplicada que ademas necesita que el webhook haya disparado dos veces
+    // DENTRO de los 10 segundos de `DEDUP_WINDOW_MS`. Se sigue de largo a proposito.
+    //
+    // Lo que cambia es que deja de ser invisible: sin este log, el modo de falla mas probable
+    // —la lectura cae y el insert pasa— produce una fila duplicada sin una sola linea que
+    // explique por que el dedup no la vio.
+    if (errDedup) log.error({ tag: 'DEDUP', hash: dedupHash, err: errDedup.message }, 'No se pudo consultar el dedup: el gasto se registra igual (puede duplicar)');
     if (existente && existente.length > 0) {
       const dup = existente.find(e => !last4 || !e.tarjeta_last4 || e.tarjeta_last4 === last4);
       if (dup) {
@@ -176,8 +187,13 @@ async function guardarTransaccion(usuarioId, datos) {
     // 23505 = violación del índice único de gmail_msg_id: un barrido concurrente (sweep 30d +
     // cron 15min solapados) ya insertó este correo. No es error: devolvemos la fila que ganó.
     if (error.code === '23505' && datos.gmail_msg_id) {
-      const { data: yaExiste } = await supabase.from('transacciones').select('*')
+      const { data: yaExiste, error: errYaExiste } = await supabase.from('transacciones').select('*')
         .eq('usuario_id', usuarioId).eq('gmail_msg_id', datos.gmail_msg_id).maybeSingle();
+      // Accesoria: el 23505 ya dice que la fila ESTA, asi que aca no se pierde nada — con o
+      // sin esta lectura el insert no se repite. Lo unico que decide es si el barrido recibe
+      // la fila que gano la carrera o se come el 23505 re-lanzado. Por eso solo log: un corte
+      // no salva a nadie y el `throw error` de tres lineas mas abajo ya cierra el camino.
+      if (errYaExiste) log.error({ tag: 'DEDUP_GMAIL', gmailMsgId: datos.gmail_msg_id, err: errYaExiste.message }, 'No se pudo recuperar la fila que gano la carrera: se re-lanza el 23505');
       if (yaExiste) {
         log.info({ tag: 'DEDUP_GMAIL', gmailMsgId: datos.gmail_msg_id }, 'Correo ya registrado por barrido concurrente');
         return yaExiste;
@@ -210,9 +226,13 @@ async function guardarTransaccion(usuarioId, datos) {
   // gastos lleva" es la señal del corte, y calcularlo dos veces sería absurdo.
   if (!datos.esGmail) {
     try {
-      const { count } = await supabase.from('transacciones')
+      const { count, error: errConteo } = await supabase.from('transacciones')
         .select('id', { count: 'exact', head: true })
         .eq('usuario_id', usuarioId);
+      // Accesoria: sin conteo no hay evento de primer gasto ni `conteoTx` para la cadencia del
+      // empujon a la webapp, pero el gasto YA esta escrito. El try de afuera dice "nunca romper
+      // el registro por analytics" y esto lo respeta: solo log.
+      if (errConteo) log.warn({ tag: 'ACTIVACION', usuarioId, err: errConteo.message }, 'No se pudo contar las transacciones: sin conteoTx ni evento de primer gasto');
       if (count === 1) {
         analytics.capture(usuarioId, 'wa_first_transaction', { tipo: data.tipo, categoria: data.categoria });
       }
@@ -227,8 +247,14 @@ async function obtenerGastosMes(usuarioId, fechaMinima) {
   const parts = hoyStr.split('-');
   const primero = parts[0] + '-' + parts[1] + '-01';
   const desde = fechaMinima && fechaMinima > primero ? fechaMinima : primero;
-  const { data } = await supabase.from('transacciones').select('*').eq('usuario_id', usuarioId)
+  const { data, error } = await supabase.from('transacciones').select('*').eq('usuario_id', usuarioId)
     .eq('tipo', 'gasto').gte('fecha', desde).order('fecha', { ascending: false });
+  // El hermano exacto de `obtenerGastosSemana`, y por el mismo motivo: un `[]` mudo no produce
+  // un total que falta, produce el total EQUIVOCADO. `/mes` responde "Sin movimientos este mes
+  // aun" y el saludo anuncia S/ 0.00 — sobre una lectura caida las dos son mentiras sobre la
+  // plata de alguien, que es peor que no contestar. Los tres comandos del webhook que la usan
+  // atrapan el throw ahi mismo y responden, porque el catch general del webhook no contesta.
+  if (error) throw error;
   return data || [];
 }
 
@@ -249,22 +275,44 @@ async function obtenerGastosSemana(usuarioId, fechaMinima) {
 }
 
 async function obtenerUltimaTransaccion(usuarioId) {
-  const { data } = await supabase.from('transacciones').select('*')
+  const { data, error } = await supabase.from('transacciones').select('*')
     .eq('usuario_id', usuarioId)
     .order('created_at', { ascending: false }).limit(1).single();
+  // `PGRST116` es "cero filas": el usuario todavia no anoto nada. Ese caso lo cubre el
+  // `return null` y los doce call-sites lo responden bien ("No hay transacciones recientes
+  // para modificar"). Lo que no puede seguir saliendo por esa misma puerta es una caida:
+  // "corrige el ultimo gasto" contestaba que no habia ninguno con el gasto ahi.
+  if (error && error.code !== 'PGRST116') throw error;
   return data || null;
 }
 
 async function recategorizarTransaccion(usuarioId, comercio, categoriaNueva, subcategoriaNueva) {
-  let { data: txs } = await supabase.from('transacciones').select('*')
+  // Las dos lecturas de esta funcion devuelven un resultado DISCRIMINADO en vez de lanzar, y
+  // no es una excepcion a la taxonomia sino su consecuencia: esta funcion YA modela el fallo.
+  // Su contrato es `{ ok, msg }` y los dos call-sites imprimen `msg` tal cual — uno de ellos
+  // es `/cambiar`, un comando del webhook, cuyo catch general no le contesta nada al usuario.
+  // Lanzar cambiaria una mentira ("No encontre ninguna transaccion de X") por silencio;
+  // devolver el motivo la cambia por la verdad.
+  const MSG_ERROR = 'No pude buscar tus gastos de *' + comercio + '* ahora mismo. Intenta de nuevo en un momento.';
+  let { data: txs, error: errTxs } = await supabase.from('transacciones').select('*')
     .eq('usuario_id', usuarioId).ilike('comercio', '%' + comercio + '%')
     .order('created_at', { ascending: false }).limit(5);
+  if (errTxs) {
+    log.error({ tag: 'RECATEGORIZAR', usuarioId, comercio, err: errTxs.message }, 'No se pudo leer las transacciones del comercio');
+    return { ok: false, msg: MSG_ERROR };
+  }
   if ((!txs || txs.length === 0) && comercio.length > 3) {
     const palabras = comercio.split(/\s+/).filter(p => p.length >= 3);
     for (const palabra of palabras) {
-      const { data: txsPalabra } = await supabase.from('transacciones').select('*')
+      const { data: txsPalabra, error: errPalabra } = await supabase.from('transacciones').select('*')
         .eq('usuario_id', usuarioId).ilike('comercio', '%' + palabra + '%')
         .order('created_at', { ascending: false }).limit(5);
+      // El reintento palabra por palabra es el ULTIMO recurso antes de "no encontre nada": si
+      // esta lectura cae, seguir el bucle y terminar en ese mensaje es afirmar que se busco.
+      if (errPalabra) {
+        log.error({ tag: 'RECATEGORIZAR', usuarioId, comercio, palabra, err: errPalabra.message }, 'No se pudo leer las transacciones por palabra');
+        return { ok: false, msg: MSG_ERROR };
+      }
       if (txsPalabra && txsPalabra.length > 0) { txs = txsPalabra; break; }
     }
   }
@@ -290,7 +338,14 @@ async function corregirTransaccionEspecifica(usuarioId, comercio, monto, fecha, 
     .ilike('comercio', '%' + comercio + '%')
     .order('fecha', { ascending: false })
     .limit(10);
-  const { data: txs } = await query;
+  const { data: txs, error: errBuscar } = await query;
+  // Mismo criterio que `recategorizarTransaccion`, con una razon extra: el call-site es un
+  // BUCLE de correcciones multiples. Un throw abortaria las que ya se aplicaron y las que
+  // faltan; el motivo discriminado deja que las demas sigan y que esta linea diga la verdad.
+  if (errBuscar) {
+    log.error({ tag: 'CORREGIR_TX', usuarioId, comercio, err: errBuscar.message }, 'No se pudo leer las transacciones a corregir');
+    return { ok: false, comercio, motivo: 'error' };
+  }
   if (!txs || txs.length === 0) return { ok: false, comercio };
   let tx = txs[0];
   if (fecha || monto) {
@@ -304,7 +359,15 @@ async function corregirTransaccionEspecifica(usuarioId, comercio, monto, fecha, 
   const updates = { categoria: categoriaNueva };
   if (subcategoriaNueva) updates.subcategoria = subcategoriaNueva;
   const { error } = await supabase.from('transacciones').update(updates).eq('id', tx.id);
-  if (error) return { ok: false, comercio };
+  // El `motivo` va tambien aca, y no solo en la lectura. Sin el, un update rechazado devolvia
+  // `{ ok: false, comercio }` —la forma EXACTA de "ese comercio no existe"— y el bucle de
+  // correcciones imprimia "no encontre gasto de X" sobre un gasto que acababa de leer. O sea
+  // la misma mentira que este commit vino a cerrar, una rama mas abajo. Lo encontro la
+  // revision adversarial. `recategorizarTransaccion` ya lo distinguia.
+  if (error) {
+    log.error({ tag: 'CORREGIR_TX', usuarioId, comercio, err: error.message }, 'El update de la correccion fue rechazado');
+    return { ok: false, comercio, motivo: 'error' };
+  }
   return { ok: true, comercio: tx.comercio || comercio, monto: tx.monto_pen || tx.monto, moneda: tx.moneda || 'PEN' };
 }
 
@@ -405,8 +468,17 @@ async function guardarReglaComercio(usuarioId, comercio, categoria, subcategoria
 async function buscarReglaComercio(usuarioId, comercio) {
   if (!comercio) return null;
   const patron = comercio.toLowerCase().trim();
-  const { data } = await supabase.from('reglas_comercio').select('categoria,subcategoria')
+  const { data, error } = await supabase.from('reglas_comercio').select('categoria,subcategoria')
     .eq('usuario_id', usuarioId).eq('comercio_pattern', patron).single();
+  // Accesoria, y la clasificacion la decide el call-site: la llama `guardarTransaccion` ANTES
+  // del insert y sin catch propio. Un throw aca perderia el gasto para salvar su categoria —
+  // el trueque exactamente al reves. Sin regla el gasto cae en la categoria que dedujo la NLP,
+  // que es recuperable y ademas la regla sigue aplicando a los siguientes.
+  //
+  // `PGRST116` es el caso NORMAL aca: la mayoria de los comercios no tiene regla.
+  if (error && error.code !== 'PGRST116') {
+    log.warn({ tag: 'REGLA', usuarioId, comercio: patron, err: error.message }, 'No se pudo leer la regla del comercio: el gasto se clasifica sin ella');
+  }
   return data || null;
 }
 
@@ -415,8 +487,16 @@ async function retroaplicarRegla(usuarioId, comercio, categoria, subcategoria) {
   try {
     const updates = { categoria };
     if (subcategoria) updates.subcategoria = subcategoria;
-    const { count } = await supabase.from('transacciones').update(updates, { count: 'exact' })
+    const { count, error } = await supabase.from('transacciones').update(updates, { count: 'exact' })
       .eq('usuario_id', usuarioId).ilike('comercio', '%' + comercio + '%');
+    // Se devuelve 0, igual que el catch de abajo, y eso NO es tragarse el fallo: el `update`
+    // no aplico, asi que cero es el numero cierto. Lo que faltaba era el log — un `log.info`
+    // con `count: null` anunciando 'Regla retroaplicada' es peor que no loguear, porque
+    // afirma que se hizo.
+    if (error) {
+      log.error({ tag: 'RETROAPLICAR', usuarioId, comercio, err: error.message }, 'El update de la retroaplicacion fue rechazado');
+      return 0;
+    }
     log.info({ tag: 'REGLA', comercio, categoria, subcategoria, count }, 'Regla retroaplicada');
     return count || 0;
   } catch(e) { log.error({ tag: 'RETROAPLICAR', err: e.message }, 'Error retroaplicando regla'); return 0; }

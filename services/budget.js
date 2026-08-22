@@ -78,12 +78,25 @@ async function verificarAlertaPresupuesto(usuario, categoria, subcategoria) {
   const catNorm = _normCat(categoria);
 
   // Buscar presupuesto y transacciones tolerando mismatch de tilde entre Alimentación / Alimentacion
-  const [{ data: presupuestosMes }, { data: gastosMes }] = await Promise.all([
+  const [{ data: presupuestosMes, error: errPres }, { data: gastosMes, error: errGastos }] = await Promise.all([
     supabase.from('presupuestos').select('*')
       .eq('usuario_id', usuarioId).eq('mes', mes).eq('anio', anio),
     supabase.from('transacciones').select('monto,monto_pen,categoria,subcategoria')
       .eq('usuario_id', usuarioId).eq('tipo', 'gasto').gte('fecha', primero),
   ]);
+  // **Aca NO se lanza, y el motivo esta en cuando corre esta funcion: DESPUES de que el gasto
+  // ya se escribio.** Sus cuatro call-sites le pegan el resultado a la confirmacion; un throw
+  // se llevaria puesta la confirmacion de un gasto que SI quedo guardado, y la persona lo
+  // volveria a mandar. La alerta se pierde, que es lo caro pero es lo barato de los dos.
+  //
+  // Y falla CERRADA sola, que es la direccion correcta: sin presupuestos no hay `presCat` y
+  // sin gastos el total da 0, asi que una lectura caida nunca INVENTA una alerta. Lo unico
+  // que faltaba era el rastro de por que no salio.
+  if (errPres || errGastos) {
+    log.error({ tag: 'PRESUPUESTO', usuarioId, errPres: errPres && errPres.message, errGastos: errGastos && errGastos.message },
+      'No se pudo leer el presupuesto o los gastos del mes: el gasto se confirma sin alerta');
+    return null;
+  }
 
   const presCat = (presupuestosMes || []).find(p => _normCat(p.categoria) === catNorm && !p.subcategoria);
   if (presCat) {
@@ -119,8 +132,14 @@ async function formatearEstadoPresupuesto(usuarioId) {
   const MESES_LARGO = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
   const mesNombre = MESES_LARGO[parseInt(primero.split('-')[1], 10) - 1];
   // Una sola query del mes; filtrado por categoría se hace en JS con normalización tilde-insensible
-  const { data: allTxs } = await supabase.from('transacciones').select('monto,monto_pen,categoria')
+  const { data: allTxs, error } = await supabase.from('transacciones').select('monto,monto_pen,categoria')
     .eq('usuario_id', usuarioId).eq('tipo', 'gasto').gte('fecha', primero);
+  // Esta si lanza, y la diferencia con `verificarAlertaPresupuesto` es lo que se imprime: con
+  // `allTxs` en null cada categoria sale con "S/ 0.00 / S/ 500 (resta S/ 500)" y la barra de
+  // progreso vacia. No es un bloque que falta, es un numero de plata FALSO — y el que mas
+  // dano hace, porque dice que no gastaste nada. `obtenerPresupuestosMes`, dos lineas arriba,
+  // ya lanza por lo mismo desde el item 7, asi que los dos call-sites ya toleran el throw.
+  if (error) throw error;
   let msg = '*Tu presupuesto de ' + mesNombre + '*\n---------------\n\n';
   for (const p of presupuestos) {
     const catNorm = _normCat(p.categoria);

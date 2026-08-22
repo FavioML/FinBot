@@ -86,14 +86,39 @@ const TESTS = [
  * reporta como cubierta por omisión, que es la misma trampa que la mutación que no se aplica.
  */
 const ERR = '(?:err[A-Za-z0-9_]*|error)';
-const GUARDA = new RegExp(`^([ \\t]*)if \\((${ERR}(?:\\s*\\|\\|\\s*${ERR})*)\\)`, 'gm');
+/**
+ * **La condicion se cierra BALANCEANDO parentesis, no con un regex.**
+ *
+ * La version anterior exigia que el `)` viniera pegado a la variable, asi que veia
+ * `if (error)` y `if (errA || errB)` pero NO `if (error && error.code !== 'PGRST116')` — que
+ * es la forma obligada de toda guarda sobre un `.single()`, porque `PGRST116` es "cero filas"
+ * y no un fallo. Habia dos en el arbol antes del item 8 (`categories.js`, `pro-payment`) y el
+ * item 8 agrego dos mas. Ninguna aparecia como superviviente: no aparecia, que es la misma
+ * trampa que el docblock de arriba describe para la disyuncion.
+ */
+const ARRANQUE = new RegExp(`^([ \\t]*)(?:\\}\\s*)?(?:else\\s+)?if \\(\\s*(${ERR})\\b`, 'gm');
 
 function guardasDe(src) {
   const out = [];
   let m;
-  GUARDA.lastIndex = 0;
-  while ((m = GUARDA.exec(src)) !== null) {
-    out.push({ inicio: m.index, largo: m[0].length, texto: m[0], variable: m[2], linea: src.slice(0, m.index).split('\n').length });
+  ARRANQUE.lastIndex = 0;
+  while ((m = ARRANQUE.exec(src)) !== null) {
+    // Desde el `(` de la condicion hasta su `)`, contando anidamiento.
+    const abre = src.indexOf('(', m.index);
+    let prof = 0;
+    let cierra = -1;
+    for (let i = abre; i < src.length; i++) {
+      if (src[i] === '(') prof++;
+      else if (src[i] === ')') { prof--; if (prof === 0) { cierra = i; break; } }
+      else if (src[i] === '\n' && prof === 0) break;
+    }
+    if (cierra < 0) continue;
+    const texto = src.slice(m.index, cierra + 1);
+    out.push({
+      inicio: m.index, largo: texto.length, texto,
+      variable: src.slice(abre + 1, cierra).trim(),
+      linea: src.slice(0, m.index).split('\n').length,
+    });
   }
   return out;
 }
@@ -146,7 +171,9 @@ for (const archivo of ARCHIVOS) {
 
   for (const g of guardas) {
     total++;
-    const mutado = original.slice(0, g.inicio) + g.texto.replace(/if \(.+\)/, 'if (false)') + original.slice(g.inicio + g.largo);
+    // `g.texto` es exactamente `if (<condicion balanceada>)`, asi que se reemplaza entero.
+    const sangria = g.texto.slice(0, g.texto.indexOf('if ('));
+    const mutado = original.slice(0, g.inicio) + sangria + 'if (false)' + original.slice(g.inicio + g.largo);
 
     // LA afirmación. Sin esto, un patrón que no matchea se reporta como "sobrevive".
     if (mutado === original) {
