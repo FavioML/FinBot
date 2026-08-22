@@ -73,8 +73,24 @@ revisitas la da el cache persistido de React Query (`lib/query-client.ts` +
 bloquee el shell.
 
 Usa `force-dynamic` SOLO si una ruta realmente renderiza data de usuario en el
-server (lee `cookies()`/Supabase server en el render). Hoy ninguna lo hace: el
-layout es un passthrough estatico.
+server (lee `cookies()`/Supabase server en el render).
+
+**Las cuatro pantallas de `/join/*` SON ese caso, desde el 22-ago-2026.** El patron
+de arriba vale para el dashboard, donde el shell estatico se sirve del CDN y la data
+llega despues con la sesion ya montada. Una invitacion es lo contrario: no hay sesion,
+el contenido depende del codigo de la URL, y quien la abre viene de un WhatsApp con
+datos moviles y sin cuenta. Ahi el shell estatico no adelanta nada — solo adelanta un
+spinner. Medido: `fp = fcp` a los ~1.6s y el LCP entre 3.8 y 4.5s, o sea **2.1-2.8s de
+"Cargando..."**; el mismo patron que en `/login` da gap 0.
+
+Y no pagaban por serlo: las cuatro **ya** eran `ƒ` (`X-Vercel-Cache: MISS` en todas las
+respuestas, porque el `export const dynamic` estaba puesto desde antes). La funcion se
+invocaba igual en cada visita y devolvia un cascaron identico para cualquier codigo.
+Resolver la invitacion en el server no agrega un viaje: usa el que ya se hacia.
+
+La regla, entonces, no es "nunca `force-dynamic`" sino **de quien es la data**: si es
+de la SESION, shell estatico + cliente; si viene de la URL y la lee alguien sin cuenta,
+resolvela en el server. Lo vigila `src/app/join/contenido-en-el-html.test.ts`.
 
 **`/` tambien es estatica, y su rebote vive en `middleware.ts`** (hallazgo P′6,
 14-ago). Era una funcion `ƒ` que se invocaba en cada visita para hacer un

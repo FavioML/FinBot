@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
 /**
@@ -28,9 +28,15 @@ import { join, relative, sep } from 'node:path';
  * QUÉ MIRA Y QUÉ NO
  *
  * - Barre las pantallas de entrada en FRÍO: todo `page.tsx` de `src/app` que no cuelgue de
- *   `dashboard/` ni de `admin/`. El alcance se DERIVA del árbol, así que una ruta pública
- *   nueva entra sola. Si la derivación se rompe, el primer test falla en vez de dejar los
- *   demás verdes por vacuidad.
+ *   `dashboard/` ni de `admin/`, **más el cierre transitivo de sus imports**. El alcance se
+ *   DERIVA del árbol, así que una ruta pública nueva entra sola. Si la derivación se rompe,
+ *   el primer test falla en vez de dejar los demás verdes por vacuidad.
+ * - El cierre de imports se agregó el 22-ago-2026, cuando las cuatro pantallas de `/join/*`
+ *   pasaron a resolverse en el servidor y su marca (logo y tarjeta) se mudó a `join/marco.tsx`.
+ *   Con el alcance viejo —un archivo, `page.tsx`— el guard habría seguido verde mirando una
+ *   página que ya no contiene su propio marcado: la clase `perímetro-de-un-salto` que
+ *   `copy-claims.test.ts` ya había pagado. Un `opacity: 0` en el marco compartido apagaría
+ *   el primer pintado de las siete pantallas a la vez.
  * - `dashboard/` y `admin/` quedan fuera a propósito, y no por ser menos importantes: ahí
  *   `initial={{ opacity: 0 }}` es legítimo y abunda, porque son paneles y filas que montan
  *   cuando el usuario los abre, no en la primera pintada. Prohibirlo ahí daría falsos
@@ -40,7 +46,8 @@ import { join, relative, sep } from 'node:path';
  *   el número que delata es la DISTANCIA entre los dos, no el FCP solo.
  */
 
-const APP = join(process.cwd(), 'src', 'app');
+const SRC = join(process.cwd(), 'src');
+const APP = join(SRC, 'app');
 const GATEADAS = ['dashboard', 'admin'];
 
 /** Todo `page.tsx` que un visitante puede abrir sin sesión previa. */
@@ -105,7 +112,38 @@ function culpables(codigo: string): string[] {
   return hallazgos;
 }
 
-const PANTALLAS = pantallasDeEntrada();
+/**
+ * Cierre transitivo de imports, para que mover el marcado a un componente no lo saque del
+ * barrido. Sigue tanto los alias `@/...` como los relativos (`../../marco`), que es como se
+ * importan los componentes que viven dentro de la propia ruta.
+ */
+function cierreDeImports(semillas: string[]): string[] {
+  const vistos = new Set<string>();
+  const cola = [...semillas];
+  const resolver = (base: string, especificador: string): string | null => {
+    const raiz = especificador.startsWith('@/')
+      ? join(SRC, especificador.slice(2))
+      : join(base, especificador);
+    for (const ext of ['.tsx', '.ts', '/index.tsx', '/index.ts']) {
+      if (existsSync(raiz + ext)) return raiz + ext;
+    }
+    return null;
+  };
+  while (cola.length) {
+    const f = cola.pop() as string;
+    if (vistos.has(f) || !existsSync(f)) continue;
+    vistos.add(f);
+    const src = readFileSync(f, 'utf8');
+    for (const m of src.matchAll(/from\s+['"](@\/[^'"]+|\.[^'"]*)['"]/g)) {
+      const destino = resolver(join(f, '..'), m[1]);
+      if (destino) cola.push(destino);
+    }
+  }
+  return [...vistos];
+}
+
+const PAGINAS = pantallasDeEntrada();
+const PANTALLAS = cierreDeImports(PAGINAS);
 const ruta = (p: string) => relative(APP, p).split(sep).join('/');
 
 describe('nada sobre la línea de flote nace transparente', () => {
@@ -115,6 +153,19 @@ describe('nada sobre la línea de flote nace transparente', () => {
    */
   it('deriva el alcance del árbol y encuentra las pantallas que ya conocemos', () => {
     const encontradas = PANTALLAS.map(ruta);
+
+    /**
+     * El cierre de imports tiene que ALCANZAR algo, o el guard vuelve en silencio al
+     * alcance viejo —un archivo por ruta— y queda verde mirando páginas que ya no
+     * contienen su marcado. Los dos ejemplos son los que motivaron el cambio:
+     * `join/marco.tsx` tiene hoy el logo y la tarjeta de las cuatro invitaciones, y
+     * `activar/activar-client.tsx` estaba fuera del barrido desde que se escribió.
+     */
+    expect(encontradas.length).toBeGreaterThan(PAGINAS.length);
+    expect(encontradas).toEqual(
+      expect.arrayContaining(['join/marco.tsx', 'activar/activar-client.tsx'])
+    );
+
     expect(encontradas).toEqual(
       expect.arrayContaining([
         'login/page.tsx',

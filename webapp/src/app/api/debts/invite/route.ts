@@ -1,6 +1,7 @@
 import { getServiceClient } from '@/lib/supabase/service';
 import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
+import { vistaInvitacionDeuda } from '@/lib/invitaciones';
 import { generarCodigoEnlace } from '@/lib/codigos-seguros';
 
 // POST /api/debts/invite — generate invite link for a "me_deben" debt
@@ -55,43 +56,19 @@ export async function POST(request: Request) {
   return NextResponse.json({ invite_code: inviteCode, link });
 }
 
-// GET /api/debts/invite?code=xxx — public preview (no auth required)
+// GET — vista publica de la invitacion (sin auth). La resolucion vive en
+// `lib/invitaciones.ts` porque el consumidor principal ya no es esta ruta sino la
+// pantalla `/join/*`, que la llama en el servidor antes de mandar el HTML. Esto queda
+// para los harness de `qa-e2e/`, que la consultan sin navegador.
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
   if (!code)
     return NextResponse.json({ error: 'Missing code' }, { status: 400 });
 
-  const { data: deuda } = await getServiceClient()
-    .from('deudas')
-    .select('id, contraparte, monto_original, monto_pendiente, moneda, descripcion, usuario_id, estado')
-    .eq('invite_code', code)
-    .single();
-
-  if (!deuda)
+  const vista = await vistaInvitacionDeuda(code);
+  if (!vista)
     return NextResponse.json({ error: 'Invitacion invalida o expirada' }, { status: 404 });
 
-  // Get creditor name
-  const { data: acreedor } = await getServiceClient()
-    .from('usuarios')
-    .select('nombre')
-    .eq('id', deuda.usuario_id)
-    .single();
-
-  // Check if already linked (someone already confirmed)
-  const { count } = await getServiceClient()
-    .from('deudas')
-    .select('id', { count: 'exact', head: true })
-    .eq('deuda_vinculada_id', deuda.id);
-
-  return NextResponse.json({
-    acreedor: acreedor?.nombre || 'Alguien',
-    contraparte: deuda.contraparte,
-    monto_original: deuda.monto_original,
-    monto_pendiente: deuda.monto_pendiente,
-    moneda: deuda.moneda,
-    descripcion: deuda.descripcion,
-    estado: deuda.estado,
-    ya_confirmada: (count || 0) > 0,
-  });
+  return NextResponse.json(vista);
 }

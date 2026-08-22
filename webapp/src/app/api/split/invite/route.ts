@@ -1,6 +1,7 @@
 import { getServiceClient } from '@/lib/supabase/service';
 import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
+import { vistaInvitacionGasto } from '@/lib/invitaciones';
 import { generarCodigoEnlace } from '@/lib/codigos-seguros';
 
 // POST /api/split/invite — generate invite link for a participant
@@ -59,47 +60,19 @@ export async function POST(request: Request) {
   return NextResponse.json({ invite_code: inviteCode, link });
 }
 
-// GET /api/split/invite?code=xxx — public preview (no auth required)
+// GET — vista publica de la invitacion (sin auth). La resolucion vive en
+// `lib/invitaciones.ts` porque el consumidor principal ya no es esta ruta sino la
+// pantalla `/join/*`, que la llama en el servidor antes de mandar el HTML. Esto queda
+// para los harness de `qa-e2e/`, que la consultan sin navegador.
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
   if (!code)
     return NextResponse.json({ error: 'Missing code' }, { status: 400 });
 
-  const { data: participante } = await getServiceClient()
-    .from('gasto_participantes')
-    .select('id, nombre, monto_debe, monto_pagado, pagado, gasto_id, usuario_id')
-    .eq('invite_code', code)
-    .single();
-
-  if (!participante)
+  const vista = await vistaInvitacionGasto(code);
+  if (!vista)
     return NextResponse.json({ error: 'Invitacion invalida o expirada' }, { status: 404 });
 
-  const { data: gasto } = await getServiceClient()
-    .from('gastos_compartidos')
-    .select('id, descripcion, monto_total, moneda, fecha_limite, creador_id')
-    .eq('id', participante.gasto_id)
-    .single();
-
-  if (!gasto)
-    return NextResponse.json({ error: 'Expense not found' }, { status: 404 });
-
-  const { data: creador } = await getServiceClient()
-    .from('usuarios')
-    .select('nombre')
-    .eq('id', gasto.creador_id)
-    .single();
-
-  return NextResponse.json({
-    creador: creador?.nombre || 'Alguien',
-    descripcion: gasto.descripcion,
-    monto_total: gasto.monto_total,
-    moneda: gasto.moneda,
-    fecha_limite: gasto.fecha_limite,
-    participante_nombre: participante.nombre,
-    monto_debe: participante.monto_debe,
-    monto_pagado: participante.monto_pagado,
-    pagado: participante.pagado,
-    ya_confirmada: !!participante.usuario_id,
-  });
+  return NextResponse.json(vista);
 }

@@ -1,2 +1,5 @@
 node_modules/
 out-parser-montos*.json
+
+# Snapshot de qa-invitaciones-equivalencia: trae nombres y montos de usuarios reales
+qa-invitaciones-equivalencia.antes.json

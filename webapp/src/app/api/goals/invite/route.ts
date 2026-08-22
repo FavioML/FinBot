@@ -1,6 +1,7 @@
 import { getServiceClient } from '@/lib/supabase/service';
 import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
+import { vistaInvitacionMeta } from '@/lib/invitaciones';
 import { generarCodigoInvitacion } from '@/lib/codigos-seguros';
 
 const ALFABETO_INVITE = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
@@ -62,47 +63,19 @@ export async function POST(request: Request) {
   return NextResponse.json({ invite_code: inviteCode, link });
 }
 
-// GET /api/goals/invite?code=xxx — public preview of a goal (no auth required)
+// GET — vista publica de la invitacion (sin auth). La resolucion vive en
+// `lib/invitaciones.ts` porque el consumidor principal ya no es esta ruta sino la
+// pantalla `/join/*`, que la llama en el servidor antes de mandar el HTML. Esto queda
+// para los harness de `qa-e2e/`, que la consultan sin navegador.
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
   if (!code)
     return NextResponse.json({ error: 'Missing code' }, { status: 400 });
 
-  const { data: meta } = await getServiceClient()
-    .from('metas_ahorro')
-    .select('id, nombre, icono, monto_objetivo, monto_actual, colaborativa, usuario_id')
-    .eq('invite_code', code)
-    .eq('colaborativa', true)
-    .single();
-
-  if (!meta)
+  const vista = await vistaInvitacionMeta(code);
+  if (!vista)
     return NextResponse.json({ error: 'Invalid or expired invite' }, { status: 404 });
 
-  // Get creator name
-  const { data: creator } = await getServiceClient()
-    .from('usuarios')
-    .select('nombre')
-    .eq('id', meta.usuario_id)
-    .single();
-
-  // Get participant count
-  const { count } = await getServiceClient()
-    .from('meta_participantes')
-    .select('id', { count: 'exact', head: true })
-    .eq('meta_id', meta.id);
-
-  const pct = meta.monto_objetivo > 0
-    ? Math.round((meta.monto_actual / meta.monto_objetivo) * 100)
-    : 0;
-
-  return NextResponse.json({
-    nombre: meta.nombre,
-    icono: meta.icono,
-    monto_objetivo: meta.monto_objetivo,
-    monto_actual: meta.monto_actual,
-    porcentaje: pct,
-    creador: creator?.nombre || 'Anonimo',
-    participantes: count || 0,
-  });
+  return NextResponse.json(vista);
 }
