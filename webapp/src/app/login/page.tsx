@@ -40,7 +40,10 @@ import {
  * El deslizamiento es `transform`, no afecta ni al pintado ni al CLS, y se queda.
  *
  * Regla, no excepción: nada que ocupe la primera pantalla puede nacer en `opacity: 0`. Lo
- * cuida `src/app/login/__tests__/entrada-no-transparente.test.ts`.
+ * cuida `src/app/entrada-no-transparente.test.ts`, que desde el 22-ago barre TODAS las
+ * pantallas de entrada y ya no sólo ésta: en `/join/*` el mismo error vivía en el `initial`
+ * de `motion` y costaba más caro, porque el blanco no duraba 600ms sino lo que tardara la
+ * hidratación. El invariante compartido está en `src/lib/entrada.ts`.
  */
 const ENTRADA = 'animate-in fill-mode-both ease-[cubic-bezier(0.25,0.46,0.45,0.94)]';
 

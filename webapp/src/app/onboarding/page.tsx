@@ -7,6 +7,7 @@ import { motion } from 'motion/react';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 import { signOutAndClear } from '@/lib/query-client';
+import { ENTRADA_TARJETA } from '@/lib/entrada';
 
 type Phase = 'input' | 'verify';
 
@@ -137,12 +138,7 @@ function Onboarding() {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-[#0E0E0C] px-4">
-      <motion.div
-        className="w-full max-w-md"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94] }}
-      >
+      <div className={`w-full max-w-md ${ENTRADA_TARJETA} animation-duration-600`}>
         {/* Logo */}
         <div className="mb-10 flex items-center gap-3">
           <Image
@@ -292,7 +288,7 @@ function Onboarding() {
             Terminos
           </a>
         </footer>
-      </motion.div>
+      </div>
     </div>
   );
 }

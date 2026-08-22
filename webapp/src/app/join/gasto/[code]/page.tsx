@@ -3,10 +3,10 @@
 import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { motion } from 'motion/react';
 import { Users, Check, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatCurrency } from '@/lib/utils';
+import { ENTRADA_TARJETA } from '@/lib/entrada';
 
 export const dynamic = 'force-dynamic';
 
@@ -78,12 +78,7 @@ export default function JoinGastoPage({ params }: { params: Promise<{ code: stri
 
   return (
     <div className="min-h-screen bg-[#0E0E0C] flex items-center justify-center p-4">
-      <motion.div
-        className="w-full max-w-sm"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
-      >
+      <div className={`w-full max-w-sm ${ENTRADA_TARJETA} animation-duration-400`}>
         {/* Logo */}
         <div className="flex items-center justify-center gap-3 mb-8">
           <Image src="/neto-icon.png" alt="NETO" width={56} height={56} priority className="h-14 w-14 rounded-xl object-contain" />
@@ -203,7 +198,7 @@ export default function JoinGastoPage({ params }: { params: Promise<{ code: stri
             </div>
           </div>
         ) : null}
-      </motion.div>
+      </div>
     </div>
   );
 }
