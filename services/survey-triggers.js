@@ -23,41 +23,68 @@ const ERROR_BLACKOUT_HOURS = 24;
 /** Devuelve true si al usuario YA se le mando algun mensaje proactivo en los ultimos N dias. */
 async function recibioMensajeRecienteProactivo(userId, dias = MIN_DAYS_BETWEEN_PROACTIVE) {
   const cutoff = new Date(Date.now() - dias * 86400000).toISOString();
-  const { data } = await supabase.from('survey_events')
+  const { data, error } = await supabase.from('survey_events')
     .select('id')
     .eq('user_id', userId)
     .eq('channel', 'whatsapp')
     .gte('sent_at', cutoff)
     .limit(1);
+  // Falla ABIERTO, y es el gate de los OCHO triggers: sin leer el error, `data` viene null,
+  // esto devuelve false —"no le avisamos nada en 7 dias"— y el runner sigue de largo hasta
+  // mandar. Una caida de Supabase no silencia el mensaje, lo DISPARA, y justo contra la
+  // poblacion que la anti-fatiga existe para proteger.
+  //
+  // Tira en vez de devolver true porque el destino es el mismo (no mandar) pero el rastro no:
+  // lo agarra el catch per-user de `checkSurveyTriggers`, que loguea con el userId y sigue
+  // con el resto de la lista. Un `return true` mudo se leeria igual que "ya le avisamos".
+  if (error) throw error;
   return Boolean(data && data.length > 0);
 }
 
 /** True si el usuario tuvo un error reciente. Evita encuestar tras una mala experiencia. */
 async function tuvoErrorReciente(userId, horas = ERROR_BLACKOUT_HOURS) {
   const cutoff = new Date(Date.now() - horas * 3600 * 1000).toISOString();
-  const { data: errs } = await supabase.from('errores')
+  const { data: errs, error: errConsulta } = await supabase.from('errores')
     .select('id').eq('usuario_id', userId).gte('created_at', cutoff).limit(1);
+  // Las dos fallan ABIERTO y con una ironia propia: la tabla que no se puede leer es la de
+  // errores, o sea que el momento mas probable de que esta lectura falle es exactamente
+  // cuando el usuario acaba de tener un mal rato. Sin leer el error devuelve false —"no tuvo
+  // ningun problema"— y encima le llega la encuesta.
+  if (errConsulta) throw errConsulta;
   if (errs && errs.length > 0) return true;
-  const { data: nlpErrs } = await supabase.from('nlp_errors')
+  const { data: nlpErrs, error: errNlp } = await supabase.from('nlp_errors')
     .select('id').eq('usuario_id', userId).gte('created_at', cutoff).limit(1);
+  if (errNlp) throw errNlp;
   return Boolean(nlpErrs && nlpErrs.length > 0);
 }
 
 /** Cuenta transacciones del usuario (no eliminadas). */
 async function contarTransacciones(userId) {
-  const { count } = await supabase.from('transacciones')
+  const { count, error } = await supabase.from('transacciones')
     .select('id', { count: 'exact', head: true })
     .eq('usuario_id', userId);
+  // `count || 0` convierte un fallo en "este usuario nunca anoto nada", que es la peor
+  // respuesta posible porque hace DOS danos opuestos a la vez:
+  //   · dispara `reminder_d3`/`d7` (`if (txCount > 0) return false`) contra alguien que
+  //     lleva meses anotando, con copy de primer gasto;
+  //   · y le elige el copy equivocado a `wake_up_inactive`, que se bifurca por `txTotal === 0`
+  //     entre "todavia no arrancaste" y "hace tiempo que no vuelves".
+  // Nada de eso se ve en un log: el cron cuenta el envio como exitoso.
+  if (error) throw error;
   return count || 0;
 }
 
 /** Cuenta transacciones del usuario en los ultimos N dias. */
 async function contarTransaccionesUltimos(userId, dias) {
   const cutoff = new Date(Date.now() - dias * 86400000).toISOString().split('T')[0];
-  const { count } = await supabase.from('transacciones')
+  const { count, error } = await supabase.from('transacciones')
     .select('id', { count: 'exact', head: true })
     .eq('usuario_id', userId)
     .gte('fecha', cutoff);
+  // Mismo `count || 0`, y los tres call-sites lo leen como permiso para mandar: `d14` corta
+  // con `>= 3`, `d30` con `> 0` y `wake_up_inactive` con `> 0`. El cero de un fallo pasa los
+  // tres.
+  if (error) throw error;
   return count || 0;
 }
 
@@ -212,8 +239,12 @@ async function maybeReminderD3(usuario) {
   if (dias < 3 || dias >= 4) return false;
 
   // No reenviar si ya recibio reminder_d3 antes
-  const { data: prev } = await supabase.from('survey_events')
+  const { data: prev, error: errPrev } = await supabase.from('survey_events')
     .select('id').eq('user_id', usuario.id).eq('event_type', 'reminder_d3').limit(1);
+  // Dedup que falla ABIERTO: sin leer el error `prev` viene null, el corte de abajo no
+  // dispara y el reminder se manda DE NUEVO. El unico freno que quedaria es la anti-fatiga de
+  // 7 dias de arriba — que en el mismo escenario tambien esta fallando abierto.
+  if (errPrev) throw errPrev;
   if (prev && prev.length > 0) return false;
 
   const primer = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
@@ -228,8 +259,9 @@ async function maybeReminderD7(usuario) {
   const dias = (Date.now() - new Date(usuario.created_at).getTime()) / 86400000;
   if (dias < 7 || dias >= 8) return false;
 
-  const { data: prev } = await supabase.from('survey_events')
+  const { data: prev, error: errPrev } = await supabase.from('survey_events')
     .select('id').eq('user_id', usuario.id).eq('event_type', 'reminder_d7').limit(1);
+  if (errPrev) throw errPrev;
   if (prev && prev.length > 0) return false;
 
   const primer = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
@@ -246,8 +278,9 @@ async function maybeReminderD14(usuario) {
   const txUltimos14 = await contarTransaccionesUltimos(usuario.id, 14);
   if (txUltimos14 >= 3) return false; // uso saludable, no encuestar
 
-  const { data: prev } = await supabase.from('survey_events')
+  const { data: prev, error: errPrev } = await supabase.from('survey_events')
     .select('id').eq('user_id', usuario.id).eq('event_type', 'reminder_d14').limit(1);
+  if (errPrev) throw errPrev;
   if (prev && prev.length > 0) return false;
 
   const primer = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
@@ -266,8 +299,9 @@ async function maybeReminderD30(usuario) {
   const txUltimos14 = await contarTransaccionesUltimos(usuario.id, 14);
   if (txUltimos14 > 0) return false;
 
-  const { data: prev } = await supabase.from('survey_events')
+  const { data: prev, error: errPrev } = await supabase.from('survey_events')
     .select('id').eq('user_id', usuario.id).eq('event_type', 'reminder_d30').limit(1);
+  if (errPrev) throw errPrev;
   if (prev && prev.length > 0) return false;
 
   const primer = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
@@ -454,18 +488,34 @@ async function maybeWakeUpOnboarding(usuario) {
 async function marcarRespuestaProactiva(usuarioId, replyText) {
   try {
     const cutoff = new Date(Date.now() - 7 * 86400000).toISOString();
-    const { data: ev } = await supabase.from('survey_events')
+    const { data: ev, error: errBusqueda } = await supabase.from('survey_events')
       .select('id, response_data')
       .eq('user_id', usuarioId).eq('channel', 'whatsapp')
       .is('responded_at', null)
       .gte('sent_at', cutoff)
       .order('sent_at', { ascending: false }).limit(1);
+    // ACCESORIA, y por eso el arreglo es el opuesto al de los ocho triggers: esto no decide a
+    // quien se le manda nada, solo mide si contestaron. Loguea y se va. Poner aca el
+    // `throw` que corresponde arriba seria peor que el bug: lo llama el webhook por cada
+    // mensaje entrante, asi que convertiria una lectura fallida en ruido en el camino
+    // caliente. El corte de abajo (`!ev`) tiene que seguir siendo el de "no habia envio
+    // reciente que marcar", no el de "no se pudo mirar".
+    if (errBusqueda) {
+      log.error({ tag: 'SURVEY_RESP', userId: usuarioId, err: errBusqueda.message }, 'No se pudo buscar el envio proactivo a marcar');
+      return;
+    }
     if (!ev || ev.length === 0) return;
     const prev = (ev[0].response_data && typeof ev[0].response_data === 'object') ? ev[0].response_data : {};
-    await supabase.from('survey_events').update({
+    // La escritura tampoco puede cortar nada: es el otro extremo de la misma medicion. Lo
+    // que si tiene que hacer es DECIR que no se aplico — un `responded_at` que no quedo es
+    // una respuesta que el reporte va a contar como silencio.
+    const { error: errMarca } = await supabase.from('survey_events').update({
       responded_at: new Date().toISOString(),
       response_data: { ...prev, user_replied: true, reply_text: String(replyText || '').substring(0, 300) },
     }).eq('id', ev[0].id);
+    if (errMarca) {
+      log.error({ tag: 'SURVEY_RESP', userId: usuarioId, eventoId: ev[0].id, err: errMarca.message }, 'La respuesta no quedo marcada: responded_at sigue en null');
+    }
   } catch (e) {
     // best-effort: nunca romper el flujo de mensaje entrante
   }
@@ -486,7 +536,7 @@ async function checkSurveyTriggers() {
     // No filtramos por onboarding_completado aqui: el trigger maybeWakeUpOnboarding
     // necesita ver a los que NO completaron. Los demas triggers implicitamente
     // requieren completion porque dependen de tx_count > 0.
-    const { data: usuarios } = await supabase.from('usuarios')
+    const { data: usuarios, error: errUsuarios } = await supabase.from('usuarios')
       .select('id, whatsapp, nombre, created_at, recordatorios_activos, onboarding_completado, onboarding_paso, supabase_auth_id')
       // Una cuenta borrada (migracion 073) sobrevive como lapida y esta query no tiene NINGUN
       // otro filtro. Lo unico que la salvaba era el `if (!u.whatsapp) continue` de abajo, que
@@ -494,6 +544,14 @@ async function checkSurveyTriggers() {
       // numero por cualquier motivo, el survey se le manda a alguien que pidio irse.
       .is('cuenta_borrada_at', null);
 
+    // La poblacion: el comportamiento correcto ya era no mandar nada, asi que el arreglo NO
+    // cambia a quien le llega un mensaje. Lo que cambia es que ahora se distingue "hoy no
+    // calificaba nadie" de "no se pudo preguntar", que hasta aca producian el mismo silencio.
+    // Es exactamente como se perdieron 12 dias de `checkRecordatorioOnboarding`.
+    if (errUsuarios) {
+      log.error({ tag: 'SURVEY_TRIG', err: errUsuarios.message }, 'No se pudo leer la poblacion: no se evaluo ningun trigger');
+      return;
+    }
     if (!usuarios || usuarios.length === 0) return;
 
     let totalSent = 0;

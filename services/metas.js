@@ -1,4 +1,5 @@
 const { supabase } = require('../lib/db');
+const log = require('../lib/logger');
 const { hoyPeru } = require('../lib/dates');
 const { validarMonto } = require('../lib/validators');
 
@@ -13,7 +14,14 @@ async function obtenerMetas(usuarioId, soloActivas = false) {
     .eq('usuario_id', usuarioId)
     .order('created_at', { ascending: false });
   if (soloActivas) q = q.eq('completada', false);
-  const { data } = await q;
+  const { data, error } = await q;
+  // `return data || []` es correcto para un usuario sin metas y una mentira para una base
+  // caida. Ojo con el alcance: el "todavia no tienes metas de ahorro" que ve el usuario NO
+  // sale de aca — lo arma `handlers/intents/metas.js` con su propia query inline, que sigue
+  // descartando el error y que el guard no ve porque `handlers/` no esta en el perimetro.
+  // El unico consumidor de esta funcion es `services/neto-score.js`, donde el `[]` daba un
+  // factor de metas neutral (50) y persistia un score calculado sobre datos que no se leyeron.
+  if (error) throw error;
   return data || [];
 }
 
@@ -28,11 +36,14 @@ async function obtenerMetas(usuarioId, soloActivas = false) {
  */
 async function abonarMeta(usuarioId, nombreMeta, monto, tipo = 'aporte', nota = null) {
   // Buscar meta activa que coincida con el nombre
-  const { data: metas } = await supabase.from('metas_ahorro')
+  const { data: metas, error: errMetas } = await supabase.from('metas_ahorro')
     .select('*')
     .eq('usuario_id', usuarioId)
     .eq('completada', false)
     .order('created_at', { ascending: false });
+  // Mismo caso que `abonarDeuda`: el `return null` se convierte en "no encontre esa
+  // meta" y el aporte se pierde sin que nadie se entere de que hubo un fallo.
+  if (errMetas) throw errMetas;
 
   if (!metas || metas.length === 0) return null;
 
@@ -83,7 +94,11 @@ async function abonarMeta(usuarioId, nombreMeta, monto, tipo = 'aporte', nota = 
   if (eMeta) {
     // If no rows matched, meta was already completed by another request
     if (eMeta.code === 'PGRST116') {
-      const { data: current } = await supabase.from('metas_ahorro').select('*').eq('id', meta.id).single();
+      const { data: current, error: errCurrent } = await supabase.from('metas_ahorro').select('*').eq('id', meta.id).single();
+      // Esta rama ya es el camino de recuperacion de una carrera entre dos aportes: si
+      // ademas falla la relectura, devolver `meta: undefined` le pasa el problema al handler
+      // disfrazado de meta vacia.
+      if (errCurrent) throw errCurrent;
       return { meta: current, aporte, completada: false, porcentaje: 100, milestone: null };
     }
     throw eMeta;
@@ -103,9 +118,10 @@ async function abonarMeta(usuarioId, nombreMeta, monto, tipo = 'aporte', nota = 
   if (metaActualizada.fecha_limite && !completada && tipo === 'aporte') {
     const nuevaCuota = calcularCuotaMensual(objetivo, nuevoActual, metaActualizada.fecha_limite);
     if (nuevaCuota !== null) {
-      await supabase.from('metas_ahorro')
+      const { error: errCuota } = await supabase.from('metas_ahorro')
         .update({ monthly_quota: nuevaCuota })
         .eq('id', meta.id);
+      if (errCuota) log.error({ tag: 'METAS', metaId: meta.id, err: errCuota.message }, 'La cuota mensual no se actualizo: se sigue mostrando la anterior');
       metaActualizada.monthly_quota = nuevaCuota;
     }
   }
@@ -177,11 +193,15 @@ async function registrarLogro(usuarioId, tipo, metaId = null, datos = {}) {
 /**
  * Obtiene los logros del usuario.
  */
+// Sin call-site de produccion hoy: se exporta y se pasa al ctx del message-processor, pero
+// ningun handler la desestructura. El guard la cubre igual —es una lectura del perimetro— y
+// leer el error aca es gratis; lo que no hay que hacer es contarla como un sintoma arreglado.
 async function obtenerLogros(usuarioId) {
-  const { data } = await supabase.from('logros')
+  const { data, error } = await supabase.from('logros')
     .select('*')
     .eq('usuario_id', usuarioId)
     .order('created_at', { ascending: false });
+  if (error) throw error;
   return data || [];
 }
 
@@ -190,11 +210,20 @@ async function obtenerLogros(usuarioId) {
  * @returns {number} cantidad de semanas consecutivas con al menos 1 aporte
  */
 async function verificarRachaAportes(usuarioId, metaId) {
-  const { data: aportes } = await supabase.from('meta_aportes')
+  const { data: aportes, error: errAportes } = await supabase.from('meta_aportes')
     .select('fecha')
     .eq('meta_id', metaId)
     .eq('tipo', 'aporte')
     .order('fecha', { ascending: false });
+  // El `return 0` corta la racha: un fallo de lectura le borra al usuario semanas de aportes
+  // consecutivos y con eso el logro que le tocaba.
+  //
+  // Loguea ANTES de tirar, y esa linea no es de mas: el unico call-site de produccion
+  // (`handlers/intents/metas.js`) envuelve esta llamada en un `catch(e) { /* silent */ }`,
+  // asi que el `throw` solo no cambiaria nada — seria el mismo silencio que el `return 0`
+  // con otra forma. La taxonomia dice "tira, que el catch de abajo ya loguea"; aca el catch
+  // de abajo NO loguea, y eso hay que mirarlo call-site por call-site.
+  if (errAportes) { log.error({ tag: 'METAS', metaId, err: errAportes.message }, 'No se pudo leer los aportes: la racha se reporta como cortada'); throw errAportes; }
 
   if (!aportes || aportes.length === 0) return 0;
 
@@ -276,8 +305,13 @@ async function analizarViabilidad(usuarioId, monthlyQuota) {
  * Dynamic adjustment: Recalculate monthly_quota based on actual progress.
  */
 async function ajustarDinamico(metaId) {
-  const { data: meta } = await supabase.from('metas_ahorro')
+  const { data: meta, error: errMeta } = await supabase.from('metas_ahorro')
     .select('*').eq('id', metaId).single();
+  // `PGRST116` es "cero filas", no un fallo: `.single()` lo devuelve como error igual. Sin
+  // exceptuarlo, "esa meta ya no existe" se vuelve una excepcion y el `!meta` de abajo queda
+  // muerto en produccion — el mock de los tests devuelve `{ data: null, error: null }` para
+  // cero filas, asi que ningun test podia ver la diferencia.
+  if (errMeta && errMeta.code !== 'PGRST116') throw errMeta;
   if (!meta || !meta.fecha_limite || meta.completada) return null;
 
   const nuevaCuota = calcularCuotaMensual(
@@ -287,9 +321,10 @@ async function ajustarDinamico(metaId) {
   );
 
   if (nuevaCuota !== null) {
-    await supabase.from('metas_ahorro')
+    const { error: errCuota } = await supabase.from('metas_ahorro')
       .update({ monthly_quota: nuevaCuota, updated_at: new Date().toISOString() })
       .eq('id', metaId);
+    if (errCuota) log.error({ tag: 'METAS', metaId, err: errCuota.message }, 'La cuota mensual no se actualizo: se sigue mostrando la anterior');
   }
 
   return { meta, nuevaCuota, cuotaAnterior: meta.monthly_quota };

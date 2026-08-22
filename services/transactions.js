@@ -238,8 +238,13 @@ async function obtenerGastosSemana(usuarioId, fechaMinima) {
   hoy.setDate(hoy.getDate() - 7);
   const desdeStr = hoy.toISOString().split('T')[0];
   const desde = fechaMinima && fechaMinima > desdeStr ? fechaMinima : desdeStr;
-  const { data } = await supabase.from('transacciones').select('*').eq('usuario_id', usuarioId)
+  const { data, error } = await supabase.from('transacciones').select('*').eq('usuario_id', usuarioId)
     .eq('tipo', 'gasto').gte('fecha', desde).order('fecha', { ascending: false });
+  // La alimenta `generarResumenSemanal`, o sea uno de los crons que EMPUJAN, y ahi el `[]`
+  // corta con `if (!gastosSemana.length) return null`: el resumen del domingo no sale y no
+  // queda una linea. Del lado del usuario es peor todavia — el intent `listar_gastos_semana`
+  // le responde "no registraste gastos esta semana", que sobre una lectura caida es falso.
+  if (error) throw error;
   return data || [];
 }
 

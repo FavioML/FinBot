@@ -232,8 +232,13 @@ async function checkRecordatorioDiario() {
           '• Mandarme foto de tu Yape/Plin\n\n' +
           '_Si prefieres pausar recordatorios escribe /silenciar_';
 
-        // Registrar en survey_events ANTES de enviar (audit trail)
-        await supabase.from('survey_events').insert({
+        // Registrar en survey_events ANTES de enviar.
+        //
+        // Esto NO es un audit trail, aunque se escribio como si lo fuera: esta fila es el
+        // dedup. La lee el corte de 3 dias de este mismo cron (`recentEvents`) y el de 7 dias
+        // de `recibioMensajeRecienteProactivo` en survey-triggers. Si el insert falla callado,
+        // el mensaje sale igual y manana sale otra vez, porque no quedo la marca de que salio.
+        const { error: errMarca } = await supabase.from('survey_events').insert({
           user_id: usuario.id,
           event_type: 'inactivity_reminder',
           channel: 'whatsapp',
@@ -241,6 +246,12 @@ async function checkRecordatorioDiario() {
           message_sent: msg,
           response_data: { dias_sin_tx: diasSinTx },
         });
+        // Se salta al usuario ANTES de mandar: sin marca, mandar es comprometerse a repetir.
+        // El orden importa y por eso el insert va antes del envio, no despues.
+        if (errMarca) {
+          log.error({ tag: 'INACTIVITY', userId: usuario.id, err: errMarca.message }, 'No se pudo marcar el dedup: no se envia el recordatorio para no repetirlo manana');
+          continue;
+        }
 
         // El destinatario es Pro y lleva >=3 días sin escribir: por construcción, la
         // población con más chances de estar fuera de la ventana de 24h de Meta. El mensaje
@@ -776,11 +787,10 @@ async function checkActivacionDia2() {
     // El cron corre cada 15 minutos sobre una ventana de 24h, así que un error transitorio
     // acá se reintenta solo: lo que se pierde con el `return` es una corrida, no el usuario.
     //
-    // **El que no se reintenta es el UPDATE del ledger, más abajo** (`activacion_nudge_at`),
-    // y ese sigue sin verificar: si falla en silencio, todas las condiciones de selección
-    // valen igual en el tick siguiente y el mismo link puede salir decenas de veces en un día.
-    // Está anotado en el backlog de confiabilidad; no se arregla acá porque es una escritura,
-    // no una lectura, y pide su propio test.
+    // **El que no se reintenta es el UPDATE del ledger, más abajo** (`activacion_nudge_at`):
+    // si falla, todas las condiciones de selección valen igual en el tick siguiente y el mismo
+    // link puede salir decenas de veces en un día. Esa escritura ya lee su error y lo loguea
+    // (ítem 7); lo que no se puede es evitar la duplicación, porque el mensaje ya salió.
     if (errUsuarios) {
       log.error({ tag: 'ACTIVACION_DIA2', err: errUsuarios.message }, 'No se pudo leer la población: nadie recibió el link de activación');
       return;
@@ -821,7 +831,15 @@ async function checkActivacionDia2() {
         // El ledger se marca aunque Meta rechace: reintentar fuera de ventana no
         // cambia el resultado y solo acumula filas blocked_24h.
         if (wa && !wa.skipped) {
-          await supabase.from('usuarios').update({ activacion_nudge_at: new Date().toISOString() }).eq('id', u.id);
+          // `activacion_nudge_at` es el UNICO freno de este cron, y este cron corre cada 15
+          // minutos con gate 9-21h: son 48 corridas al dia. Un UPDATE que falla en silencio
+          // no se traduce en "un link de mas", se traduce en un link cada 15 minutos hasta
+          // que la escritura vuelva a funcionar. Ya salio el mensaje, asi que la duplicacion
+          // no se puede evitar desde aca; lo que si se puede es que quede dicha.
+          const { error: errNudge } = await supabase.from('usuarios').update({ activacion_nudge_at: new Date().toISOString() }).eq('id', u.id);
+          if (errNudge) {
+            log.error({ tag: 'ACTIVACION_DIA2', userId: u.id, err: errNudge.message }, 'El link se envio pero el ledger no quedo marcado: se va a reenviar en la proxima corrida (cada 15 min)');
+          }
           analytics.capture(u.id, 'wa_activation_link_sent', { conteo_tx: conteoTx, canal: 'cron' });
         }
       } catch (e) { log.error({ tag: 'ACTIVACION_DIA2', userId: u.id, err: e.message }, 'Error empujando el link de activación'); }
@@ -1076,7 +1094,12 @@ async function checkRecordatorioDeudas() {
         // copy caduco cuando la deuda entra ya vencida o se saltó un umbral (un touch menos avanzado
         // ya no aplica). Preserva el catch-up: se manda el más avanzado alcanzado que faltaba.
         const keysAlcanzados = [...new Set([...enviados, ...reached.map(t => t.key)])];
-        await supabase.from('deudas').update({ recordatorios_enviados: keysAlcanzados }).eq('id', deuda.id);
+        // El ledger que lee `enviados` al principio del loop. Sin marcar, el mismo touch se
+        // vuelve a mandar manana con el mismo copy.
+        const { error: errLedger } = await supabase.from('deudas').update({ recordatorios_enviados: keysAlcanzados }).eq('id', deuda.id);
+        if (errLedger) {
+          log.error({ tag: 'DEUDA_REMINDER', deudaId: deuda.id, userId: deuda.usuario_id, err: errLedger.message }, 'El recordatorio se envio pero el ledger no quedo marcado: se va a repetir');
+        }
       } catch (e) { log.error({ tag: 'DEUDA_REMINDER', deudaId: deuda.id, userId: deuda.usuario_id, err: e.message }, 'Recordatorio de deuda omitido'); }
     }
   } catch (e) { log.error({ tag: 'DEUDA_REMINDER', err: e.message }, 'Error recordatorio deudas'); }
@@ -1434,9 +1457,12 @@ async function checkRecordatoriosCostos() {
 
     if (toNotify.length > 0) {
       const ids = toNotify.map((m) => m.id);
-      await supabase.from('admin_costs')
+      const { error: errRecordado } = await supabase.from('admin_costs')
         .update({ last_reminder_sent_at: new Date().toISOString() })
         .in('id', ids);
+      if (errRecordado) {
+        log.error({ tag: 'COSTOS_REMIND', costos: ids.length, err: errRecordado.message }, 'El recordatorio de costos se envio pero el ledger no quedo marcado: se va a repetir');
+      }
     }
 
     log.info({ tag: 'COSTOS_REMIND', manual: toNotify.length, auto: toAutoProcess.length, total: manualTotal.toFixed(2) },
@@ -1494,7 +1520,10 @@ async function checkSurveyConversions() {
           .gte('created_at', ev.sent_at).lt('created_at', fin);
         if (errCount) { fallidos++; continue; }
         if (count && count > 0) {
-          await supabase.from('survey_events').update({ conversion_within_24h: true }).eq('id', ev.id);
+          const { error: errConv } = await supabase.from('survey_events').update({ conversion_within_24h: true }).eq('id', ev.id);
+          // Entra a la MISMA cuenta que las lecturas fallidas: las dos mitades producen el
+          // mismo sintoma en el panel (una conversion que ocurrio y no figura).
+          if (errConv) { fallidos++; continue; }
           marcados++;
         }
       } catch (e) { /* silent per event */ }
@@ -1733,7 +1762,14 @@ async function checkGmailHuerfanos() {
 
 async function limpiarOTPVencidos() {
   try {
-    await supabase.from('webapp_otp').delete().lt('expires_at', new Date().toISOString());
+    // El `catch` de abajo nunca se iba a ejecutar: supabase-js no lanza. O sea que el log de
+    // esta funcion era inalcanzable y el barrido fallaba mudo.
+    //
+    // Accesoria de verdad: un OTP vencido que no se borra no autentica a nadie igual —lo
+    // rechaza el chequeo de expiracion al usarlo— asi que esto no corta ni tira. Lo unico
+    // que se pierde es la limpieza, y eso ahora se dice.
+    const { error } = await supabase.from('webapp_otp').delete().lt('expires_at', new Date().toISOString());
+    if (error) log.warn({ tag: 'OTP_CLEANUP', err: error.message }, 'No se pudieron borrar los OTP vencidos: quedan en la tabla (siguen siendo invalidos)');
   } catch (e) { log.warn({ tag: 'OTP_CLEANUP', err: e.message }, 'Error limpiando OTPs vencidos'); }
 }
 

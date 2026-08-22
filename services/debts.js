@@ -78,12 +78,17 @@ async function abonarDeuda(usuarioId, contraparte, montoAbono) {
   // NaN para siempre. Acá lanza, que es lo que el handler ya sabe convertir en mensaje.
   const montoValidado = montoDeDeuda(montoAbono);
   // Buscar la deuda activa más reciente que coincida con la contraparte
-  const { data: deudas } = await supabase.from('deudas')
+  const { data: deudas, error: errDeudas } = await supabase.from('deudas')
     .select('*')
     .eq('usuario_id', usuarioId)
     .eq('estado', 'activa')
     .ilike('contraparte', `%${contraparte.trim()}%`)
     .order('created_at', { ascending: false });
+  // Sin leer el error, `deudas` viene null y el `return null` de abajo es indistinguible de
+  // "no le debes nada a esa persona". El handler lo traduce a ese mensaje y el abono se
+  // pierde: el usuario cree que dijo algo que Neto no entendio. Tirar deja que el handler
+  // diga que fallo, que es lo unico honesto que se puede decir aca.
+  if (errDeudas) throw errDeudas;
 
   if (!deudas || deudas.length === 0) return null;
 
@@ -125,12 +130,15 @@ async function abonarDeuda(usuarioId, contraparte, montoAbono) {
  * Marca una deuda como pagada por nombre de contraparte.
  */
 async function marcarDeudaPagada(usuarioId, contraparte) {
-  const { data: deudas } = await supabase.from('deudas')
+  const { data: deudas, error: errDeudas } = await supabase.from('deudas')
     .select('*')
     .eq('usuario_id', usuarioId)
     .eq('estado', 'activa')
     .ilike('contraparte', `%${contraparte.trim()}%`)
     .order('created_at', { ascending: false });
+  // Mismo engano que en `abonarDeuda`, y aca la consecuencia es que la deuda queda
+  // sin saldar mientras al usuario se le dice que no existe.
+  if (errDeudas) throw errDeudas;
 
   if (!deudas || deudas.length === 0) return null;
 
@@ -207,12 +215,17 @@ async function obtenerDeudasProximasVencer() {
   // `plan` va en el embed porque el recordatorio manda el ledger de deudas por WhatsApp, y
   // `ver_deudas` está en INTENTS_LECTURA: se cobra. Sin esta columna el cron no tenía cómo
   // saltar a quien está en el muro.
-  const { data } = await supabase.from('deudas')
+  const { data, error } = await supabase.from('deudas')
     .select('*, usuarios!inner(whatsapp, nombre, plan, recordatorios_activos)')
     .eq('estado', 'activa')
     .not('fecha_vencimiento', 'is', null)
     .gte('fecha_vencimiento', desde.toISOString().split('T')[0])
     .lte('fecha_vencimiento', hasta.toISOString().split('T')[0]);
+  // La poblacion de `checkRecordatorioDeudas`: el `|| []` convierte una caida en "hoy no
+  // vence ninguna deuda", que es el silencio exacto que costo 12 dias en el cron gemelo. El
+  // catch de `checkRecordatorioDeudas` loguea con su tag, asi que tirar deja rastro y no
+  // manda nada — la decision correcta, ahora dicha en voz alta.
+  if (error) throw error;
 
   return data || [];
 }
@@ -221,12 +234,13 @@ async function obtenerDeudasProximasVencer() {
  * Consolida deudas activas por contraparte (totales por moneda).
  */
 async function consolidarDeudasPorContraparte(usuarioId, contraparte) {
-  const { data: deudas } = await supabase.from('deudas')
+  const { data: deudas, error: errDeudas } = await supabase.from('deudas')
     .select('*')
     .eq('usuario_id', usuarioId)
     .eq('estado', 'activa')
     .ilike('contraparte', '%' + contraparte.trim() + '%')
     .order('created_at', { ascending: false });
+  if (errDeudas) throw errDeudas;
 
   if (!deudas || deudas.length === 0) return null;
 
@@ -250,11 +264,14 @@ async function consolidarDeudasPorContraparte(usuarioId, contraparte) {
  * @returns {number} cantidad de deudas saldadas
  */
 async function saldarTodasDeudas(usuarioId, contraparte) {
-  const { data: deudas } = await supabase.from('deudas')
+  const { data: deudas, error: errDeudas } = await supabase.from('deudas')
     .select('id')
     .eq('usuario_id', usuarioId)
     .eq('estado', 'activa')
     .ilike('contraparte', '%' + contraparte.trim() + '%');
+  // El `return 0` de abajo se reporta como "no habia nada que saldar". Con la base caida eso
+  // es un saldo que el usuario da por cerrado y sigue abierto.
+  if (errDeudas) throw errDeudas;
 
   if (!deudas || deudas.length === 0) return 0;
 

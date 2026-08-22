@@ -60,6 +60,13 @@ const projectRoot = path.resolve(
 let tablas = {};
 /** Tablas en error, por nombre: `{ usuarios: { message: 'boom' } }`. */
 let errores = {};
+/**
+ * Tablas cuya ESCRITURA falla, por nombre. Separado de `errores` a proposito: los cuatro
+ * ledgers de dedup viven en tablas que el mismo cron LEE antes de escribir (`survey_events`,
+ * `usuarios`, `deudas`), asi que un unico injector por tabla tumbaria la lectura y el cron
+ * cortaria antes de llegar a la escritura que se quiere medir.
+ */
+let erroresEscritura = {};
 /** Toda escritura, para poder afirmar que un downgrade se aplicó (o no). */
 let escrituras = [];
 
@@ -80,7 +87,7 @@ const notificarAdmin = vi.fn();
  * call-sites de conteo del archivo (`checkActivacionDia2` y el mensaje del muro) leen `count`,
  * y un mock que devolviera `data` los dejaría en `undefined` por el motivo equivocado.
  */
-function makeChain(table) {
+function makeChain(table, op = 'select') {
   const filtros = [];
   let esConteo = false;
   const chain = {};
@@ -142,7 +149,8 @@ function makeChain(table) {
     return chain;
   };
   const resolver = () => {
-    if (errores[table]) return { data: null, count: null, error: errores[table] };
+    const err = (op === 'select' ? errores[table] : erroresEscritura[table]) || null;
+    if (err) return { data: null, count: null, error: err };
     let filas = (tablas[table] || []).filter((f) => filtros.every((p) => p(f)));
     if (orden) {
       const { col, asc } = orden;
@@ -154,9 +162,10 @@ function makeChain(table) {
       : { data: filas, count: filas.length, error: null };
   };
   chain.single = () => Promise.resolve(
-    errores[table]
-      ? { data: null, error: errores[table] }
-      : { data: (resolver().data || [])[0] || null, error: null },
+    (() => {
+      const r = resolver();
+      return r.error ? { data: null, error: r.error } : { data: (r.data || [])[0] || null, error: null };
+    })(),
   );
   chain.maybeSingle = chain.single;
   chain.then = (resolve) => resolve(resolver());
@@ -169,9 +178,9 @@ const dbMock = {
       const base = makeChain(t);
       return {
         ...base,
-        update: (patch) => { escrituras.push({ tabla: t, patch }); return makeChain(t); },
-        insert: () => makeChain(t),
-        delete: () => makeChain(t),
+        update: (patch) => { escrituras.push({ tabla: t, op: 'update', patch }); return makeChain(t, 'update'); },
+        insert: (patch) => { escrituras.push({ tabla: t, op: 'insert', patch }); return makeChain(t, 'insert'); },
+        delete: () => { escrituras.push({ tabla: t, op: 'delete' }); return makeChain(t, 'delete'); },
       };
     }),
   },
@@ -188,6 +197,8 @@ const logMock = { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn(), 
 const balanceEspacio = vi.fn();
 const ownerEsPro = vi.fn();
 const detectarSuscripciones = vi.fn();
+/** Igual que los tres de arriba: con [] el cron de deudas corta antes de escribir su ledger. */
+const deudasProximas = vi.fn();
 
 const serviciosMock = [
   ['lib/db.js', dbMock],
@@ -204,7 +215,7 @@ const serviciosMock = [
     generarResumenDiario: vi.fn().mockResolvedValue('resumen del día'),
   }],
   ['services/recommendations.js', { verificarAlertasProactivas: vi.fn().mockResolvedValue('alerta') }],
-  ['services/debts.js', { obtenerDeudasProximasVencer: vi.fn().mockResolvedValue([]) }],
+  ['services/debts.js', { obtenerDeudasProximasVencer: deudasProximas }],
   ['services/spending-alerts.js', {
     generarAlertasFugas: vi.fn().mockResolvedValue([{ x: 1 }]),
     generarMensajeFugas: vi.fn().mockResolvedValue('fugas'),
@@ -254,6 +265,7 @@ const tagsLogueados = () => logMock.error.mock.calls.map((c) => c[0] && c[0].tag
 beforeEach(() => {
   tablas = {};
   errores = {};
+  erroresEscritura = {};
   escrituras = [];
   notificar.mockClear();
   notificar.mockResolvedValue({ wa: { ok: true, msgId: 'wamid.1' }, inApp: true });
@@ -263,6 +275,7 @@ beforeEach(() => {
   balanceEspacio.mockResolvedValue({ debts: [] });
   ownerEsPro.mockResolvedValue(true);
   detectarSuscripciones.mockResolvedValue({ suscripciones_detectadas: [] });
+  deudasProximas.mockResolvedValue([]);
 });
 
 /** El destinatario tipo: Pro, alta cerrada, quiere recordatorios. */
@@ -673,5 +686,122 @@ describe('las accesorias no cortan', () => {
     // Una sola línea para los tres eventos, no tres.
     expect(logMock.error).toHaveBeenCalledTimes(1);
     expect(logMock.error.mock.calls[0][0]).toMatchObject({ tag: 'SURVEY_CONV', fallidos: 3, evaluados: 3 });
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────────
+// 5. Las ESCRITURAS. Cuatro de las seis no eran fire-and-forget: eran el dedup.
+// ───────────────────────────────────────────────────────────────────────────────
+/**
+ * El guard estático las tenía clasificadas como "escrituras que pierden un ledger sin decirlo",
+ * y esa descripción se quedaba corta en cuatro de las seis. Cuando el ledger que se pierde es
+ * el que DESPUÉS se lee para no repetir, una escritura muda no degrada una métrica: es un dedup
+ * roto con otro disfraz, y el síntoma es un mensaje repetido a una persona real.
+ *
+ * La duplicación no se puede evitar desde el call-site —el mensaje ya salió cuando la escritura
+ * falla— salvo en el primer caso, que escribe ANTES de enviar. En los otros tres lo único
+ * disponible es que quede dicho, y eso es lo que se afirma acá.
+ */
+describe('un ledger que no se puede escribir no se pierde en silencio', () => {
+  it('el recordatorio de inactividad no sale si no se pudo marcar su dedup', async () => {
+    vi.setSystemTime(enLima('2026-08-20T20:05:00'));
+    tablas.usuarios = [PRO];
+    tablas.transacciones = [{ id: 't-1', usuario_id: 'u-pro', fecha: '2026-08-01' }];
+    erroresEscritura.survey_events = { message: 'boom' };
+    await checks.checkRecordatorioDiario();
+    expect(notificar, 'se envió sin dejar la marca: mañana sale igual').not.toHaveBeenCalled();
+    expect(tagsLogueados()).toContain('INACTIVITY');
+  });
+
+  /** El control: con la escritura sana, ese mismo usuario SÍ recibe el recordatorio. */
+  it('control: con el dedup sano el recordatorio de inactividad sale', async () => {
+    vi.setSystemTime(enLima('2026-08-20T20:05:00'));
+    tablas.usuarios = [PRO];
+    tablas.transacciones = [{ id: 't-1', usuario_id: 'u-pro', fecha: '2026-08-01' }];
+    await checks.checkRecordatorioDiario();
+    expect(notificar).toHaveBeenCalled();
+  });
+
+  /**
+   * El peor de los cuatro: `checkActivacionDia2` corre **cada 15 minutos** con gate 9-21h, o
+   * sea 48 corridas al día, y `activacion_nudge_at` es su único freno. Acá el mensaje ya salió,
+   * así que lo que se afirma es el rastro — sin él, decenas de links idénticos el mismo día no
+   * dejan una sola línea.
+   */
+  it('el link de activación que no se pudo marcar deja dicho que se va a repetir', async () => {
+    vi.setSystemTime(enLima('2026-08-20T10:00:00'));
+    const ayer = new Date(Date.now() - 30 * 3600 * 1000).toISOString();
+    tablas.usuarios = [{
+      id: 'u-web', whatsapp: '51900000002', nombre: 'Ana',
+      supabase_auth_id: null, activacion_nudge_at: null, created_at: ayer,
+    }];
+    tablas.transacciones = [{ id: 't-9', usuario_id: 'u-web', fecha: '2026-08-19' }];
+    tablas.conversaciones = [{ usuario_id: 'u-web', rol: 'usuario', created_at: new Date(Date.now() - 3600 * 1000).toISOString() }];
+    // Sin el secreto, `mensajeActivacionDia2` devuelve null y el cron corta ANTES de escribir
+    // el ledger: el test pasaria por el motivo equivocado.
+    process.env.ACTIVATION_TOKEN_SECRET = 'secreto-de-test';
+    erroresEscritura.usuarios = { message: 'boom' };
+    await checks.checkActivacionDia2();
+    expect(tagsLogueados()).toContain('ACTIVACION_DIA2');
+  });
+
+  it('el recordatorio de deuda que no se pudo marcar también', async () => {
+    vi.setSystemTime(enLima('2026-08-20T09:05:00'));
+    deudasProximas.mockResolvedValue([{
+      id: 'd-1', usuario_id: 'u-pro', contraparte: 'Juan', moneda: 'PEN',
+      monto_pendiente: '100', tipo: 'debo', fecha_vencimiento: '2026-08-20',
+      recordatorios_enviados: [],
+      usuarios: { whatsapp: '51900000001', nombre: 'María', plan: 'premium', recordatorios_activos: true },
+    }]);
+    erroresEscritura.deudas = { message: 'boom' };
+    await checks.checkRecordatorioDeudas();
+    expect(notificar).toHaveBeenCalled();
+    expect(tagsLogueados()).toContain('DEUDA_REMINDER');
+  });
+
+  it('y el recordatorio de costos, aunque el destinatario sea el admin', async () => {
+    vi.setSystemTime(enLima('2026-08-20T09:05:00'));
+    tablas.admin_costs = [{
+      id: 'c-1', label: 'Railway', amount_pen: 50, currency: 'PEN', amount_original: 50,
+      frequency: 'monthly', next_due_date: '2026-08-20', active: true,
+      auto_debit: false, last_reminder_sent_at: null, paid_history: [],
+    }];
+    erroresEscritura.admin_costs = { message: 'boom' };
+    await checks.checkRecordatoriosCostos();
+    expect(notificarAdmin).toHaveBeenCalled();
+    expect(tagsLogueados()).toContain('COSTOS_REMIND');
+  });
+});
+
+/**
+ * Y las otras dos escrituras son accesorias de verdad: no le mandan nada a nadie. El arreglo
+ * es el OPUESTO —sólo log— y estos dos tests son la contraprueba de que nadie les agregue el
+ * corte que sí llevan las cuatro de arriba.
+ */
+describe('las escrituras accesorias tampoco cortan', () => {
+  it('una conversión que no se pudo marcar se cuenta como fallida, no rompe el barrido', async () => {
+    vi.setSystemTime(enLima('2026-08-20T07:05:00'));
+    const sentAt = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+    tablas.survey_events = [
+      { id: 'e-1', user_id: 'u-pro', sent_at: sentAt, event_type: 'reminder_d3', conversion_within_24h: false },
+      { id: 'e-2', user_id: 'u-pro', sent_at: sentAt, event_type: 'reminder_d7', conversion_within_24h: false },
+    ];
+    tablas.transacciones = [{ id: 't-1', usuario_id: 'u-pro', created_at: sentAt }];
+    erroresEscritura.survey_events = { message: 'boom' };
+    await checks.checkSurveyConversions();
+    // Los DOS eventos se intentaron: el fallo del primero no cortó el barrido.
+    expect(escrituras.filter((e) => e.tabla === 'survey_events' && e.op === 'update').length).toBe(2);
+    expect(tagsLogueados()).toContain('SURVEY_CONV');
+  });
+
+  /**
+   * El `catch` de `limpiarOTPVencidos` nunca se ejecutaba: supabase-js no lanza, así que ese
+   * log era código inalcanzable y el barrido fallaba mudo. Un OTP vencido que no se borra no
+   * autentica a nadie igual —lo rechaza el chequeo de expiración— así que acá no se corta nada.
+   */
+  it('la limpieza de OTP vencidos avisa sin romper', async () => {
+    erroresEscritura.webapp_otp = { message: 'boom' };
+    await expect(checks.limpiarOTPVencidos()).resolves.toBeUndefined();
+    expect(logMock.warn.mock.calls.map((c) => c[0] && c[0].tag)).toContain('OTP_CLEANUP');
   });
 });

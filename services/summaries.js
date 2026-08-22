@@ -194,12 +194,16 @@ async function generarResumenMensual(usuario) {
   const desde = anioAnt + '-' + String(mesAnt).padStart(2, '0') + '-01';
   const hasta = anioAnt + '-' + String(mesAnt).padStart(2, '0') + '-' + String(ultimoDiaMes(anioAnt, mesAnt)).padStart(2, '0');
 
-  const { data: txsMes } = await supabase.from('transacciones').select('*')
+  const { data: txsMes, error: errTxs } = await supabase.from('transacciones').select('*')
     .eq('usuario_id', usuario.id).eq('tipo', 'gasto').gte('fecha', desde).lte('fecha', hasta);
+  if (errTxs) { log.error({ tag: 'RESUMEN', usuarioId: usuario.id, err: errTxs.message }, 'No se pudo leer las transacciones del resumen: no se envia'); throw errTxs; }
   if (!txsMes || txsMes.length === 0) return null;
 
-  const { data: ingresos } = await supabase.from('transacciones').select('monto,monto_pen')
+  const { data: ingresos, error: errIng } = await supabase.from('transacciones').select('monto,monto_pen')
     .eq('usuario_id', usuario.id).eq('tipo', 'ingreso').gte('fecha', desde).lte('fecha', hasta);
+  // Esta es la que mas dano hace callada: `(ingresos || [])` da total 0, y el resumen anuncia
+  // un ahorro negativo igual a todo el gasto del mes.
+  if (errIng) { log.error({ tag: 'RESUMEN', usuarioId: usuario.id, err: errIng.message }, 'No se pudo leer las transacciones del resumen: no se envia'); throw errIng; }
 
   const totalGastos = txsMes.reduce((s, t) => s + parseFloat(t.monto_pen || t.monto), 0);
   const totalIngresos = (ingresos || []).reduce((s, t) => s + parseFloat(t.monto_pen || t.monto), 0);
@@ -209,8 +213,11 @@ async function generarResumenMensual(usuario) {
   const anioAntAnt = mesAnt === 1 ? anioAnt - 1 : anioAnt;
   const desdeAntAnt = anioAntAnt + '-' + String(mesAntAnt).padStart(2, '0') + '-01';
   const hastaAntAnt = anioAntAnt + '-' + String(mesAntAnt).padStart(2, '0') + '-' + String(ultimoDiaMes(anioAntAnt, mesAntAnt)).padStart(2, '0');
-  const { data: txsAntAnt } = await supabase.from('transacciones').select('monto,monto_pen')
+  const { data: txsAntAnt, error: errAntAnt } = await supabase.from('transacciones').select('monto,monto_pen')
     .eq('usuario_id', usuario.id).eq('tipo', 'gasto').gte('fecha', desdeAntAnt).lte('fecha', hastaAntAnt);
+  // El mes de comparacion: en cero, el resumen anuncia una subida de gasto contra un mes que
+  // no se pudo leer.
+  if (errAntAnt) { log.error({ tag: 'RESUMEN', usuarioId: usuario.id, err: errAntAnt.message }, 'No se pudo leer las transacciones del resumen: no se envia'); throw errAntAnt; }
   const totalAntAnt = (txsAntAnt || []).reduce((s, t) => s + parseFloat(t.monto_pen || t.monto), 0);
 
   const porCat = {};
@@ -261,8 +268,9 @@ async function generarResumenMensual(usuario) {
  */
 async function generarResumenDiario(usuario) {
   const hoyStr = hoyPeru();
-  const { data: txsHoy } = await supabase.from('transacciones').select('*')
+  const { data: txsHoy, error: errHoy } = await supabase.from('transacciones').select('*')
     .eq('usuario_id', usuario.id).eq('tipo', 'gasto').eq('fecha', hoyStr);
+  if (errHoy) { log.error({ tag: 'RESUMEN', usuarioId: usuario.id, err: errHoy.message }, 'No se pudo leer las transacciones del resumen: no se envia'); throw errHoy; }
   if (!txsHoy || txsHoy.length === 0) return null;
 
   const total = txsHoy.reduce((s, t) => s + parseFloat(t.monto_pen || t.monto), 0);
@@ -271,8 +279,9 @@ async function generarResumenDiario(usuario) {
   txsHoy.forEach(t => { const c = t.categoria || 'Otros'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto_pen || t.monto); });
   const top3 = Object.entries(porCat).sort((a, b) => b[1] - a[1]).slice(0, 3);
 
-  const { data: ingHoy } = await supabase.from('transacciones').select('monto,monto_pen')
+  const { data: ingHoy, error: errIngHoy } = await supabase.from('transacciones').select('monto,monto_pen')
     .eq('usuario_id', usuario.id).eq('tipo', 'ingreso').eq('fecha', hoyStr);
+  if (errIngHoy) { log.error({ tag: 'RESUMEN', usuarioId: usuario.id, err: errIngHoy.message }, 'No se pudo leer las transacciones del resumen: no se envia'); throw errIngHoy; }
   const totalIng = (ingHoy || []).reduce((s, t) => s + parseFloat(t.monto_pen || t.monto), 0);
 
   const mayor = txsHoy.slice().sort((a, b) => parseFloat(b.monto_pen || b.monto) - parseFloat(a.monto_pen || a.monto))[0];

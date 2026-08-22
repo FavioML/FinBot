@@ -31,8 +31,13 @@ async function guardarPresupuesto(usuarioId, categoria, monto) {
 
 async function obtenerPresupuestosMes(usuarioId) {
   const { mes, anio } = _mesAnioPeru();
-  const { data } = await supabase.from('presupuestos').select('*').eq('usuario_id', usuarioId)
+  const { data, error } = await supabase.from('presupuestos').select('*').eq('usuario_id', usuarioId)
     .eq('mes', mes).eq('anio', anio);
+  // La alimenta `generarResumenSemanal` (cron que empuja): con `[]`, `limiteTotal` queda en 0
+  // y el bloque de presupuesto DESAPARECE del mensaje sin decirlo. Y por el lado del usuario,
+  // `formatearEstadoPresupuesto` responde "No tienes presupuestos configurados", que sobre una
+  // lectura caida es falso y encima invita a volver a crearlos.
+  if (error) throw error;
   return data || [];
 }
 

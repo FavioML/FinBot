@@ -116,12 +116,22 @@ async function crearEspacio(userId, name, type = 'custom') {
   if (error) throw error;
 
   // Add creator as owner
-  await supabase.from('space_members').insert({
+  //
+  // No es fire-and-forget: si esta insercion falla en silencio queda un espacio SIN dueno, y
+  // el dueno es quien paga. Tira igual que el insert del espacio dos lineas mas arriba.
+  //
+  // **Lo que este arreglo NO hace, y conviene no creer que si:** la fila del espacio ya se
+  // escribio arriba, asi que el espacio huerfano queda igual. Lo que cambia es que el handler
+  // deja de responder "Espacio creado" con un link de invitacion a un espacio sin dueno; ahora
+  // dice que no pudo. Cerrarlo de verdad pide que las dos inserciones vayan en UNA transaccion
+  // (un RPC, como `borrar_cuenta_total`), y eso es otro trabajo.
+  const { error: errOwner } = await supabase.from('space_members').insert({
     space_id: space.id,
     user_id: userId,
     role: 'owner',
     split_percentage: DEFAULT_SPLIT_WEIGHT,
   });
+  if (errOwner) throw errOwner;
 
   return space;
 }
@@ -233,12 +243,23 @@ async function unirseEspacio(userId, inviteCode) {
  */
 async function avisarAMiembros({ spaceId, actorId, emoji, accion, tag, tipo, cuerpo }) {
   try {
-    const [{ data: space }, { data: actuales }] = await Promise.all([
+    const [{ data: space, error: errSpace }, { data: actuales, error: errMiembros }] = await Promise.all([
       supabase.from('shared_spaces').select('name').eq('id', spaceId).single(),
       supabase.from('space_members')
         .select('user_id, split_percentage, usuarios(nombre, whatsapp)')
         .eq('space_id', spaceId),
     ]);
+    // La poblacion del aviso, y lo que se avisa es que se movio plata ajena. El corte de
+    // abajo ya hacia lo correcto (no avisar), pero "el espacio tiene un solo miembro" y "no
+    // se pudo leer quienes son" salian por la misma puerta y sin una linea.
+    // `PGRST116` en la lectura del espacio es "ese espacio ya no existe", que es un caso
+    // legitimo y lo cubre el `!space` de abajo. Tratarlo como fallo llenaria el log de
+    // `log.error` por espacios borrados.
+    const errReal = (errSpace && errSpace.code !== 'PGRST116' ? errSpace : null) || errMiembros;
+    if (errReal) {
+      log.error({ tag, spaceId, err: errReal.message }, 'No se pudo leer el espacio ni sus miembros: nadie fue avisado del cambio');
+      return;
+    }
     if (!space || !actuales || actuales.length < 2) return;
 
     const actor = actuales.find((m) => m.user_id === actorId);
@@ -405,8 +426,12 @@ async function notificarReglasEditadas(spaceId, actorId, reglasAntes) {
     tag: 'ESPACIO_REGLAS_AVISO',
     tipo: 'espacio_reglas',
     cuerpo: async (actuales) => {
-      const { data: space } = await supabase
+      const { data: space, error: errReglas } = await supabase
         .from('shared_spaces').select('split_rules').eq('id', spaceId).single();
+      // Con `space` en undefined, `despues` queda en [] y el mensaje le anuncia a cada
+      // miembro que se borraron TODAS las reglas por categoria — o sea un cambio de reparto
+      // que no ocurrio. El catch de `avisarAMiembros` loguea con su tag.
+      if (errReglas) throw errReglas;
       const antes = Array.isArray(reglasAntes) ? reglasAntes : [];
       const despues = Array.isArray(space?.split_rules) ? space.split_rules : [];
 
