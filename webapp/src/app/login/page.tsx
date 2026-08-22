@@ -23,8 +23,26 @@ import {
  *
  * No es una regla general contra `motion`: el dashboard lo sigue usando y ahí paga, porque
  * anima estado que cambia. Acá sólo había una entrada al montar.
+ *
+ * **Las entradas se deslizan pero NO se funden, y eso NO es una decisión estética.** `fade-in`
+ * arrancaba la tarjeta en `opacity: 0`, y en móvil esa tarjeta ES todo lo que hay sobre la
+ * línea de flote: el navegador pintaba el fondo y nada más. Chrome no cuenta como *contentful*
+ * lo que está totalmente transparente, así que el primer pintado quedaba vacío de contenido y
+ * el `first-contentful-paint` salía tarde — o directamente no salía. Medido contra producción
+ * el 22-ago-2026, 8 corridas móviles por variante, mismos bytes (el A/B quitaba la clase
+ * interceptando el HTML):
+ *
+ *   con `fade-in`: FCP presente en 1 de 8 corridas; LCP en 1 de 8; el candidato era el `IMG`.
+ *   sin `fade-in`: FCP presente en 8 de 8, mediana 460ms, SIEMPRE igual al first-paint; LCP = `H1`.
+ *
+ * Ése era el origen del `NO_FCP` con que PageSpeed rechazaba app.neto.pe en las cuatro
+ * combinaciones (`/` y `/login`, móvil y desktop): sin evento de FCP, Lighthouse aborta.
+ * El deslizamiento es `transform`, no afecta ni al pintado ni al CLS, y se queda.
+ *
+ * Regla, no excepción: nada que ocupe la primera pantalla puede nacer en `opacity: 0`. Lo
+ * cuida `src/app/login/__tests__/entrada-no-transparente.test.ts`.
  */
-const ENTRADA = 'animate-in fade-in fill-mode-both ease-[cubic-bezier(0.25,0.46,0.45,0.94)]';
+const ENTRADA = 'animate-in fill-mode-both ease-[cubic-bezier(0.25,0.46,0.45,0.94)]';
 
 const features = [
   { icon: BarChart3, title: 'Dashboard interactivo', desc: 'Visualiza tus ingresos y gastos en tiempo real' },
