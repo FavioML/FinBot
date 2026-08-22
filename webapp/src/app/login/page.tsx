@@ -156,10 +156,10 @@ export default function LoginPage() {
 
           {/* Welcome text */}
           <h1 className="mb-2 text-3xl font-bold text-[#F0EFE8]">
-            Tus finanzas en piloto automático
+            Entiende tu plata, no solo la anotes
           </h1>
           <p className="mb-8 text-[#8A877D]">
-            Neto lee tus correos bancarios y organiza todo automáticamente. Sin anotar nada.
+            Anota tus gastos por WhatsApp o desde la app, y Neto te dice a dónde se va tu plata, en soles.
           </p>
 
           {/* Auth error banner */}
@@ -266,9 +266,9 @@ export default function LoginPage() {
           {/* Mobile-only benefits (hidden on desktop where right panel shows features) */}
           <div className="mt-4 flex flex-col gap-2 lg:hidden">
             {[
-              { emoji: '🤖', text: 'Tus gastos se registran solos' },
-              { emoji: '🏦', text: 'Conecta BCP, BBVA, Interbank y más' },
-              { emoji: '📊', text: 'Dashboard con gráficos y score financiero' },
+              { emoji: '💬', text: 'Anota por WhatsApp: texto, voz o foto de tu Yape' },
+              { emoji: '📊', text: 'Score financiero del 0 al 100 y reportes por categoría' },
+              { emoji: '🎯', text: 'Presupuestos que te avisan antes de que te pases' },
             ].map((b) => (
               <div key={b.text} className="flex items-center gap-2.5 rounded-lg bg-white/[0.02] px-3 py-2">
                 <span className="text-sm">{b.emoji}</span>
@@ -304,7 +304,7 @@ export default function LoginPage() {
             Toma el control de tus finanzas
           </h2>
           <p className="mb-10 text-[#8A877D]">
-            NETO conecta tus correos bancarios y WhatsApp para darte una visión completa de tu dinero.
+            Anota por WhatsApp o desde la app. Neto ordena todo y te devuelve el panorama completo de tu plata.
           </p>
 
           {/* Feature grid */}

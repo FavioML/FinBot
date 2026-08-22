@@ -16,8 +16,8 @@ const slides = [
   {
     icon: Mail,
     iconColor: '#4285F4',
-    title: 'Conecta tu Gmail',
-    description: 'NETO lee tus correos bancarios (BCP, BBVA, Interbank y más) para importar tus transacciones sin que hagas nada.',
+    title: 'Conecta tu Gmail (Pro)',
+    description: 'Si lo activas, Neto lee las notificaciones que tu banco ya te manda por correo y las anota por ti. Es opcional y complementa lo que anotas, no lo reemplaza.',
   },
   {
     icon: BarChart3,
