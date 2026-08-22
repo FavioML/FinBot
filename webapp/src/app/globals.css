@@ -417,3 +417,24 @@ main {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
   background-size: 200px 200px;
 }
+
+/* Barra de progreso que crece al montar, sin `motion`.
+ *
+ * El ancho final es el ancho REAL del elemento (`style={{ width: '42%' }}`), y la animacion
+ * sale de `scaleX(0)` hacia su estado natural. Dos consecuencias que son el punto:
+ *
+ * - No hay que montar en cero y actualizar en un efecto. El valor de runtime vive en el
+ *   `style`, no en el keyframe, asi que no hace falta un segundo render para dispararlo.
+ * - `transform` no toca el layout (el `width` que animaba `motion` si lo tocaba, en cada
+ *   frame), y prefers-reduced-motion la deja en su estado natural = el porcentaje correcto.
+ *   Una animacion que fuera HACIA el valor dejaria la barra en cero al colapsar la duracion.
+ *
+ * El cap redondeado se comprime mientras crece y llega intacto al final, que es scale 1.
+ */
+@keyframes barra-progreso {
+  from { transform: scaleX(0); }
+}
+.animate-barra-progreso {
+  transform-origin: left;
+  animation: barra-progreso 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}

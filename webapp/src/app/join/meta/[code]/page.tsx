@@ -3,7 +3,6 @@
 import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { motion } from 'motion/react';
 import { Users, Target, Check, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatCurrency } from '@/lib/utils';
@@ -107,18 +106,30 @@ export default function JoinMetaPage({ params }: { params: Promise<{ code: strin
               </p>
             </div>
 
-            {/* Progress */}
+            {/* Progress
+              *
+              * La barra crece con CSS (`.animate-barra-progreso` en globals.css) y no con
+              * `motion`, que era el unico uso que quedaba en esta pantalla y le costaba
+              * 118 KB sin comprimir (~38.8 KB gzip) de bundle propio: medido contra
+              * produccion el 22-ago-2026, /join/meta pesaba 1159.0 KB contra los 1041.7 KB
+              * de /join/gasto y /join/deuda, que ya no lo importan.
+              *
+              * La regla del repo (docblock de login/page.tsx) no es "nunca motion": es que
+              * paga cuando anima estado que cambia de verdad. Esto anima un valor de runtime
+              * UNA vez, al montar, y despues no vuelve a moverse — mas cerca de una entrada
+              * decorativa que de estado vivo. Y la pantalla es la peor superficie posible
+              * para pagarlo: se abre desde una invitacion de WhatsApp, en datos moviles, con
+              * gente que todavia no tiene cuenta.
+              */}
             <div>
               <div className="flex items-center justify-between text-xs mb-1.5">
                 <span className="text-[#8A877D]">Progreso</span>
                 <span className="text-[#1D9E75] font-medium">{preview.porcentaje}%</span>
               </div>
               <div className="h-2 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
-                <motion.div
-                  className="h-full rounded-full bg-[#1D9E75]"
-                  initial={{ width: 0 }}
-                  animate={{ width: `${preview.porcentaje}%` }}
-                  transition={{ duration: 0.8, ease: 'easeOut' }}
+                <div
+                  className="h-full rounded-full bg-[#1D9E75] animate-barra-progreso"
+                  style={{ width: `${preview.porcentaje}%` }}
                 />
               </div>
               <div className="flex items-center justify-between text-[10px] text-[#8A877D] mt-1">
