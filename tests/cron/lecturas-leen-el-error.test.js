@@ -139,6 +139,19 @@ const PENDIENTES = {
 };
 
 /**
+ * Y su mitad de ESCRITURAS, que hace falta por separado.
+ *
+ * La primera versión de este trinquete contaba sólo las lecturas y excluía a estos archivos de
+ * la aserción de escrituras **sin contarlas**, así que una escritura fire-and-forget nueva en
+ * cualquiera de los tres entraba en silencio — el agujero exacto que `PENDIENTES` existe para
+ * no dejar abierto, en la otra mitad del mismo problema. Se encontró contando los sitios a mano
+ * para escribir el prompt del trabajo siguiente.
+ */
+const PENDIENTES_ESCRITURAS = {
+  'services/categories.js': 2,
+};
+
+/**
  * Retrocede desde el `=` y devuelve el patrón asignado, y nada más: un destructuring
  * balanceado (`{ data, error }`, `[{ data: a, error: e }]`) o un identificador suelto
  * (`yaAviso`). Es lo que separa "el LHS" de "el texto que quedó antes del signo igual".
@@ -681,7 +694,7 @@ describe('toda lectura del perímetro lee su error', () => {
    */
   it('no queda ninguna escritura sin asignación (una nueva pide una decisión, no un default)', () => {
     const detalle = SIN_ASIGNACION
-      .filter((l) => !(l.archivo in PENDIENTES))
+      .filter((l) => !(l.archivo in PENDIENTES_ESCRITURAS))
       .map((l) => l.archivo + ':' + l.linea);
     expect(detalle, 'líneas: ' + detalle.join(', ')).toEqual([]);
   });
@@ -703,9 +716,20 @@ describe('toda lectura del perímetro lee su error', () => {
       .toBe(PENDIENTES[archivo]);
   });
 
-  /** Y un archivo que ya no tiene mudas no puede quedarse en la lista. */
+  /** La misma tenaza, para la mitad de escrituras. */
+  it.each(Object.keys(PENDIENTES_ESCRITURAS))('las escrituras pendientes de %s sólo pueden achicarse', (archivo) => {
+    const lineas = SIN_ASIGNACION.filter((l) => l.archivo === archivo).map((l) => l.linea);
+    expect(lineas.length, 'líneas: ' + lineas.join(', ')).toBeLessThanOrEqual(PENDIENTES_ESCRITURAS[archivo]);
+    expect(lineas.length, `bajaron a ${lineas.length}: actualizá PENDIENTES_ESCRITURAS (y si es 0, sacá la entrada)`)
+      .toBe(PENDIENTES_ESCRITURAS[archivo]);
+  });
+
+  /** Y un archivo que ya no tiene nada pendiente no puede quedarse en ninguna de las dos listas. */
   it('ningún pendiente está en cero', () => {
-    const enCero = Object.keys(PENDIENTES).filter((a) => PENDIENTES[a] === 0);
-    expect(enCero, 'ya se barrieron: sacalos de PENDIENTES').toEqual([]);
+    const enCero = [
+      ...Object.keys(PENDIENTES).filter((a) => PENDIENTES[a] === 0),
+      ...Object.keys(PENDIENTES_ESCRITURAS).filter((a) => PENDIENTES_ESCRITURAS[a] === 0),
+    ];
+    expect(enCero, 'ya se barrieron: sacalos de la lista que corresponda').toEqual([]);
   });
 });
