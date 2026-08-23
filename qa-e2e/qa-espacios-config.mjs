@@ -1,12 +1,17 @@
 // Adversarial E2E: Espacios gating (Free vs Pro) + Configuracion plan display + join/space + join/gasto.
-// Usage: node qa-espacios-config.mjs        (runs the full sweep; forges cookies for both plans)
+// Usage: node qa-e2e/qa-espacios-config.mjs   DESDE `app/` — necesita el `.env` del backend
+//                                             (usa `lib/db` para leer la precondición del fixture)
 //
-// Hunts:
-//  (1) Free can create >1 space via API (UI blocks at 1, does the API?)
+// Hunts (los cuatro se AFIRMAN; hasta el 22-ago-2026 los hunts 3 y 4 solo se imprimían):
+//  (1) El muro de espacios: un Free no puede crear NI UNO. `FREE_LIMITS.spaces = 0` desde el
+//      hallazgo M14 — este hunt decía "el límite es 1", que era el freemium muerto de abril.
 //  (2) Free can create custom split-rules + shared budgets in a space they own
 //      (those are Pro features: espacios_custom_split / espacios_shared_budget).
+//      NO ALCANZABLE mientras el hunt 1 valga: sin espacio propio no hay dónde probarlo. Se
+//      declara en la salida (`__featuresDeAdentro`) en vez de desaparecer. El sujeto que sí
+//      las alcanza es el Free INVITADO a un espacio ajeno, y eso es un harness aparte.
 //  (3) Configuracion "Tu plan" card shows the user's REAL plan (not hardcoded Pro).
-//  (4) join/space + join/gasto public preview pages render without 500.
+//  (4) join/space + join/gasto public preview pages render without 500 Y muestran los datos.
 // Cleans up every space it creates.
 
 import { chromium } from 'playwright';
@@ -236,33 +241,87 @@ try {
 } catch (e) { preconFree = 'no se pudo comprobar el plan del QA Free: ' + e.message; }
 
 // ── Veredicto ───────────────────────────────────────────────────────────────
-// Los tres `*Allowed` YA llevan escrito `// BUG if true` al lado. Se afirman como tales.
+//
+// POR QUÉ ESTE BLOQUE CAMBIÓ (22-ago-2026)
+//
+// Corrido ese día contra producción, este harness imprimía su JSON y cerraba con
+// **"OK (1 afirmaciones verdes)"** teniendo CINCO escritas. La antivacuidad de
+// `veredicto.mjs` no lo vio porque mide "cero evaluadas", no "menos de las declaradas".
+//
+// Las cuatro que faltaban colgaban de `if (id1)`, y `id1` ya no puede existir: el muro
+// dejó `FREE_LIMITS.spaces = 0` (hallazgo M14), así que un Free recibe 403 al crear su
+// PRIMER espacio y nunca llega a tener uno propio donde probar split-rules ni budgets.
+// No es un fallo transitorio del fixture: es permanente por diseño del producto.
+//
+// Y la quinta pasaba **por la razón equivocada**: afirmaba "un Free no creó un SEGUNDO
+// espacio, el límite es 1" — el límite es 0 desde M14, y el segundo POST daba 403 porque
+// el primero también, no porque el tope de 1 estuviera vigilado. Un negativo que rechaza
+// por otra condición no es cobertura.
+//
+// Lo que este harness puede afirmar hoy, entonces, es OTRA cosa, y está escrita abajo.
+// Lo que NO puede: las features Pro DENTRO de un espacio propio de un Free. El sujeto
+// alcanzable para eso ya no es el dueño sino el Free INVITADO a un espacio ajeno (el
+// modelo "host paga"), y eso es un harness nuevo, no un `if` más acá.
 const fallas = [];
 let medidos = 0;
 const afirmar = (ok, msg) => { medidos++; if (!ok) fallas.push(msg); };
 
-if (!preconFree) {
-  if (R.free.secondSpaceAllowed !== undefined) {
-    afirmar(R.free.secondSpaceAllowed === false,
-      `un Free creó un SEGUNDO espacio (status ${R.free.create2Status}); el límite es 1`);
-  }
-  if (R.free.splitRuleAllowed !== undefined) {
-    afirmar(R.free.splitRuleAllowed === false,
-      `un Free pudo escribir reglas de división (status ${R.free.splitRuleStatus}); es feature Pro`);
-  }
-  if (R.free.budgetAllowed !== undefined) {
-    afirmar(R.free.budgetAllowed === false,
-      `un Free pudo escribir presupuestos de espacio (status ${R.free.budgetStatus}); es feature Pro`);
-  }
-  if (R.free.detailIsPro !== undefined) {
-    afirmar(R.free.detailIsPro === false, 'el detalle del espacio de un Free reporta isPro=true');
-  }
-  // La UI no puede ser la única defensa, pero tampoco debe ofrecer lo que el servidor rechaza.
-  if (R.free.uiAddRuleBtn !== undefined) {
-    afirmar(R.free.uiAddRuleBtn === false, 'la UI le ofrece "Agregar regla" a un Free');
-  }
+// Lo que el muro promete hoy: `spaces: 0`. Si esto se pone verde con un 201, el muro se
+// abrió y hay que rever `FREE_LIMITS.spaces` y su espejo `PLAN_CONFIG.free.maxSpaces`.
+if (!preconFree && R.free.create1Status !== undefined) {
+  afirmar(R.free.create1Status === 403,
+    `un Free pudo crear su PRIMER espacio (status ${R.free.create1Status}); el muro es spaces=0 desde M14`);
+  afirmar(R.free.isPro === false, 'el listado de espacios le reporta isPro=true a un Free');
 }
 
-const inconcluso = preconFree || (R.free.err ? 'la sección free se cayó: ' + R.free.err : null);
+// Las features de adentro solo son alcanzables si el muro dejó pasar el espacio. Mientras
+// `spaces=0`, esta rama no corre — pero se DECLARA, para que su ausencia se lea en la
+// salida en vez de desaparecer como antes.
+const dentroDelEspacio = R.free.splitRuleAllowed !== undefined;
+if (!preconFree && dentroDelEspacio) {
+  afirmar(R.free.splitRuleAllowed === false,
+    `un Free pudo escribir reglas de división (status ${R.free.splitRuleStatus}); es feature Pro`);
+  afirmar(R.free.budgetAllowed === false,
+    `un Free pudo escribir presupuestos de espacio (status ${R.free.budgetStatus}); es feature Pro`);
+  afirmar(R.free.detailIsPro === false, 'el detalle del espacio de un Free reporta isPro=true');
+  afirmar(R.free.uiAddRuleBtn === false, 'la UI le ofrece "Agregar regla" a un Free');
+}
+R.free.__featuresDeAdentro = dentroDelEspacio
+  ? 'ejercitadas'
+  : 'NO alcanzables: el muro (spaces=0) corta antes de que el Free tenga un espacio propio. ' +
+    'El sujeto que sí las alcanza es el Free INVITADO a un espacio ajeno — harness aparte.';
+
+// Hunt (3) del docblock: la card "Tu plan" muestra el plan REAL. Se medía y no se afirmaba.
+if (R.free.cfgPlanActualText !== undefined) {
+  afirmar(R.free.cfgPlanActualText === 'Free',
+    `la card "Tu plan" le muestra "${R.free.cfgPlanActualText}" a un usuario Free`);
+}
+if (R.pro.cfgPlanActualText !== undefined) {
+  afirmar(R.pro.cfgPlanActualText === 'Neto Pro',
+    `la card "Tu plan" le muestra "${R.pro.cfgPlanActualText}" a un usuario Pro`);
+}
+
+// Hunt (4): las pantallas públicas de join. Se medían enteras y NINGUNA se afirmaba, ni
+// siquiera `guest5xx`, que es literalmente lo que el docblock promete ("render without 500").
+afirmar((R.join.guest5xx || []).length === 0,
+  `un invitado sin sesión recibió 5xx en las pantallas de join: ${(R.join.guest5xx || []).join(', ')}`);
+if (R.join.spaceRealShowsName !== undefined) {
+  afirmar(R.join.spaceRealShowsName === true,
+    `/join/space no le muestra el nombre del espacio al invitado sin sesión. Cuerpo: "${R.join.spaceRealBody}"`);
+  afirmar(R.join.spaceRealJoinBtn === true, '/join/space no le ofrece el botón "Unirme al espacio" al invitado');
+}
+afirmar(R.join.spaceBogusInvalid === true, '/join/space con código inexistente no muestra el aviso de invitación inválida');
+afirmar(R.join.gastoBogusInvalid === true,
+  `/join/gasto con código inexistente no muestra el aviso de invitación inválida. Cuerpo: "${R.join.gastoBogusBody}"`);
+
+// Antivacuidad propia, más exigente que la del helper: el helper solo atrapa `medidos === 0`,
+// y acá el modo de falla real fue salir OK con 1 de 5. Este piso cuenta las afirmaciones que
+// NO dependen del muro ni del fixture, así que si alguna se evapora, la corrida lo dice.
+const PISO = 6;
+const inconcluso = preconFree
+  || (R.free.err ? 'la sección free se cayó: ' + R.free.err : null)
+  || (!proInviteCode ? 'no se pudo emitir el invite del espacio Pro, así que /join/space no se ejercitó' : null)
+  || (medidos < PISO ? `solo se evaluaron ${medidos} afirmaciones y el piso es ${PISO}: el barrido perdió cobertura en silencio` : null);
+
 cerrar({ nombre: 'ESPACIOS-CONFIG', fallas, medidos, inconcluso, R });
 await browser.close();

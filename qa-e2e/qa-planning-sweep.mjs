@@ -251,9 +251,18 @@ if (rep && rep.afterContribute100 && rep.afterContribute100.completada !== undef
     'una meta completada NO aparece entre las completadas');
 }
 
+// El `if (gid)` del repro puede saltearse SIN excepción: si `POST /api/goals` responde 4xx,
+// `created.body?.id` viene undefined, `repro.err` nunca se setea, y las dos afirmaciones del
+// invariante se evaporan mientras las 6 de rutas mantienen la corrida en verde. Un `if` que
+// puede vaciar media cobertura necesita su propia rama de inconcluso, no el silencio.
+const reproLlego = !!(rep && rep.afterContribute100 && rep.afterContribute100.completada !== undefined);
 const inconcluso = Object.keys(R.ui || {}).length === 0
   ? 'no se visitó ninguna de las tres rutas de planeación'
-  : (rep && rep.err ? 'el repro del invariante de metas se cayó y no llegó a medir: ' + rep.err : null);
+  : (rep && rep.err ? 'el repro del invariante de metas se cayó y no llegó a medir: ' + rep.err
+    : (!reproLlego
+      ? 'el repro del invariante de metas no llegó a medir: no se pudo crear la meta de prueba '
+        + `(create ${JSON.stringify(rep?.steps?.[0] ?? null)}), así que el invariante de be62837 no se vigiló`
+      : null));
 
 cerrar({ nombre: `PLANNING-SWEEP ${PLAN.toUpperCase()}`, fallas, medidos, inconcluso });
 
