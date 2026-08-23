@@ -1,11 +1,11 @@
 const { parsearRegistroManual } = require('./parsers');
 const { guardarTransaccion } = require('./transactions');
 const { descargarMedia, transcribirAudio, extraerPagoDeImagen } = require('./media-intake');
-const { esperaComprobante, esPagoNeto, registrarSolicitudPro } = require('../lib/pro-payment');
+const { esperaComprobante, esPagoNeto, registrarSolicitudPro, reclamarSolicitudPro, liberarSolicitudPro } = require('../lib/pro-payment');
 const { resolverTipoPlan, PRO_PRECIOS } = require('../lib/config');
 const { notificarAdmin } = require('../lib/admin-notify');
 const { enviarWhatsapp, TIPO_CONFIRMACION_SIN_NUMERO, anunciarVeredictoD10 } = require('../lib/whatsapp');
-const { registrarError } = require('../lib/error-monitor');
+const { registrarError, msgErr } = require('../lib/error-monitor');
 const { hoyPeru } = require('../lib/dates');
 const log = require('../lib/logger');
 
@@ -366,9 +366,42 @@ async function registrarImagenSilenciosa(message, usuario) {
   if (esPagoNeto(parsed)) {
     // Reenviar la captura abría una SEGUNDA solicitud una vez que el flag salió de la decisión
     // (antes lo cortaba `registrarSolicitudPro` apagándolo). `pago_pendiente` es "hay una
-    // solicitud sin resolver": la limpian tanto aprobar como rechazar. Cubre el reenvío y NO
-    // dos capturas en vuelo — misma carrera que tenía el flag, ver `handlers/webhook.js`.
-    if (usuario.pago_pendiente) {
+    // solicitud sin resolver": la limpian tanto aprobar como rechazar.
+    //
+    // La guarda era `if (usuario.pago_pendiente)`, una lectura hecha ANTES de bajar el media y
+    // de llamar a Vision, así que cubría el reenvío y no dos capturas en vuelo. El claim
+    // atómico es el mismo que usa `handlers/webhook.js`; acá pesa más porque este canal no
+    // puede pedirle nada al usuario: lo único que queda de una carrera perdida es el aviso.
+    let reclamado;
+    try {
+      reclamado = await reclamarSolicitudPro(usuario.id);
+    } catch (eClaim) {
+      // No es "otro ganó": es que no se sabe. Tratarlo como pendiente daría por buena una
+      // solicitud que no existe, y acá no hay nadie a quien contárselo después.
+      const detalle = msgErr(eClaim);
+      log.error({ tag: 'BSUID_SILENCIOSO', err: detalle, usuarioId: usuario.id }, 'No se pudo reclamar la solicitud Pro');
+      registrarError('BSUID_SILENCIOSO', 'No se pudo reclamar la solicitud Pro: ' + detalle,
+        { stack: eClaim && eClaim.stack, usuarioId: usuario.id, whatsapp: usuario.whatsapp || null });
+      const rErr = await registrarPagoParseado(parsed, usuario);
+      // Con dedup, igual que su hermana de abajo. Un claim falla cuando PostgREST está mal, o
+      // sea de forma CORRELACIONADA: sin la clave, cada captura que entre durante la caída
+      // dispara un Telegram nuevo, y la alarma que avisa de un pago perdido se vuelve ruido
+      // justo cuando importa. La clave incluye el monto y el comercio para no tapar dos pagos
+      // distintos del mismo usuario. Lo señaló la revisión adversarial.
+      await avisarUnaVez(usuario.id + '|claim-pago-caido|' + parsed.monto + '|' + (parsed.comercio || ''),
+        '⚠️ No se pudo abrir la solicitud Pro de `' + usuario.id + '` (username de WhatsApp): ' + detalle +
+        '\n\nVision leyó: *' + (parsed.comercio || '(sin comercio)') + '* — ' + parsed.monto + '\n\n' +
+        (rErr.registrado ? 'El gasto quedó anotado.' : 'El gasto TAMPOCO se pudo anotar (' + rErr.motivo + ').') +
+        '\nNo hay solicitud que aprobar y este usuario no tiene número al que pedirle que reenvíe.' +
+        // El UPDATE del claim pudo commitear y perderse la respuesta. Si quedó puesto, no hay
+        // NINGUNA ruta que lo limpie sola: `rechazarSolicitudPro` exige una fila `pagos`
+        // pendiente y `/pago` busca por número, que este usuario no tiene. Decir qué mirar es
+        // la diferencia entre un callejón sin salida y un minuto de trabajo manual.
+        '\n\n⚠️ Revisá `usuarios.pago_pendiente` de ese id: si el UPDATE llegó a commitear, ' +
+        'quedó en true sin fila en `pagos` y hay que bajarlo a mano — si no, no puede pagar por ningún canal.');
+      return { registrado: rErr.registrado, motivo: 'comprobante_claim_error', intento: rErr.intento };
+    }
+    if (!reclamado) {
       // El gasto se anota IGUAL. La primera versión de esta guarda retornaba acá sin guardar, y
       // acá eso es lo más caro del repo: si la solicitud pendiente salió de un falso positivo,
       // ESTA captura es el pago real, y este usuario no tiene forma de reclamar ni de enterarse.
@@ -394,31 +427,43 @@ async function registrarImagenSilenciosa(message, usuario) {
         comprobanteBuffer: buffer,
         mimeType,
         origen: 'whatsapp',
+        yaReclamado: true,
       }) || {});
     } catch (e) {
-      log.error({ tag: 'BSUID_SILENCIOSO', err: e.message, usuarioId: usuario.id }, 'Falló registrar la solicitud Pro');
-      await avisarAdminPagoPerdido(usuario, montoDet, e.message);
+      log.error({ tag: 'BSUID_SILENCIOSO', err: msgErr(e), usuarioId: usuario.id }, 'Falló registrar la solicitud Pro');
+      // El claim ya está tomado y acá no sabemos si la fila quedó: `registrarSolicitudPro`
+      // lanza casi siempre DESPUÉS del INSERT (la notificación al admin). Soltarlo igual es la
+      // dirección correcta de error — un duplicado se rechaza, un usuario marcado sin
+      // solicitud y sin número no tiene NINGUNA salida: ni `/pago`, ni el panel, ni reenviar.
+      await liberarSolicitudPro(usuario.id);
+      await avisarAdminPagoPerdido(usuario, montoDet, msgErr(e) +
+        ' · revisá `pagos` antes de crear nada: la fila puede haber quedado');
       return { registrado: false, motivo: 'comprobante_error' };
     }
 
     // `registrarSolicitudPro` NO lanza cuando algo sale mal por dentro: Storage, el INSERT en
     // `pagos` y el UPDATE de `usuarios` tienen try/catch propios que solo loguean. O sea que
     // el `catch` de arriba casi nunca corre y una solicitud a medias vuelve como si nada.
-    // Los TRES importan, no solo el `pagoId`:
+    // Los dos que quedan importan, no solo el `pagoId`:
     //   · sin `pagoId` no hay solicitud: el pago no existe en ningún lado.
     //   · sin `comprobantePath` la fila queda sin la imagen (llegó por Telegram, no a la DB).
-    //   · sin `usuarioMarcado` el badge "pendiente" del panel no se prende —se calcula con
-    //     `usuarios.pago_pendiente`— y encima `esperando_comprobante` sigue en true, así que
-    //     una segunda captura abriría una SEGUNDA solicitud.
     // Un canal que puede responder se entera por el usuario cuando algo de esto falla. Este no.
+    //
+    // `usuarioMarcado` YA NO se mira, y eso es una consecuencia del claim, no un descuido: con
+    // `yaReclamado` las tres columnas de `usuarios` las escribió el UPDATE condicional que nos
+    // dejó llegar hasta acá, así que si estuvieran sin escribir no habríamos entrado. Mirarlo
+    // sólo podría producir la alarma al revés — "no se marcó `pago_pendiente`" sobre una
+    // solicitud sana— y este aviso va al admin para que reconstruya un pago a mano.
     const faltantes = [
       !pagoId && 'no quedó la fila en `pagos`',
       !comprobantePath && 'el comprobante no subió a Storage',
-      !usuarioMarcado && 'no se marcó `pago_pendiente` en `usuarios`',
     ].filter(Boolean);
     if (faltantes.length) {
       log.error({ tag: 'BSUID_SILENCIOSO', usuarioId: usuario.id, pagoId, comprobantePath, usuarioMarcado },
         'Solicitud Pro incompleta');
+      // Sin `pagoId` no hay nada que aprobar, y el claim quedaría puesto sobre la nada. Este
+      // usuario no tiene número: si no se suelta acá, no vuelve a poder pagar por ningún lado.
+      if (!pagoId) await liberarSolicitudPro(usuario.id);
       await avisarAdminPagoPerdido(usuario, montoDet, faltantes.join(' · '));
       // Sin `pagoId` no hay nada; con `pagoId` la solicitud existe y es aprobable, solo que
       // coja. Se distingue para que el aviso no mande a reconstruir algo que ya está.

@@ -29,6 +29,19 @@ require('../../services/transactions').guardarTransaccion = guardarTransaccion;
 const procesarComprobantePro = vi.fn().mockResolvedValue(undefined);
 require('../../lib/pro-payment').procesarComprobantePro = procesarComprobantePro;
 
+// El claim de la solicitud Pro. Se mockea SOLO para el caso del rechazo que no es un `Error`
+// (los demás casos de este archivo usan el real, vía `claimGana`): lo que se mide ahí es que
+// el catch del webhook no se rompa a sí mismo, y eso no se puede provocar desde la capa de la
+// DB, que siempre produce un `Error` de verdad.
+//
+// El envoltorio se instala ANTES de requerir el webhook, y eso no es prolijidad: `webhook.js`
+// DESESTRUCTURA sus imports al cargar, así que reasignar la propiedad después no cambia nada
+// y el test pasaría sin ejercitar la rama. Se descubrió midiendo.
+const proPaymentReal = require('../../lib/pro-payment');
+const reclamarReal = proPaymentReal.reclamarSolicitudPro;
+let claimOverride = null;
+proPaymentReal.reclamarSolicitudPro = (id) => (claimOverride ? claimOverride(id) : reclamarReal(id));
+
 const colaConfirmacionGasto = vi.fn().mockResolvedValue(null);
 require('../../lib/trial').colaConfirmacionGasto = colaConfirmacionGasto;
 
@@ -53,7 +66,32 @@ function makeChain(data = []) {
   c.then = (onF, onR) => Promise.resolve({ data, error: null }).then(onF, onR);
   return c;
 }
-require('../../lib/db').supabase.from = vi.fn(() => makeChain([]));
+/**
+ * Quién gana el claim de la solicitud Pro (`reclamarSolicitudPro`, un UPDATE condicional sobre
+ * `usuarios`). Este archivo NO prueba la semántica del claim —eso vive en
+ * `webhook-comprobante-carrera.test.js`, contra un almacén que filtra de verdad—, pero tampoco
+ * puede dejarlo en no-op: con el claim siempre ganando, el caso "ya tenía una solicitud" se
+ * probaría contra una rama que nunca se toma.
+ */
+let claimGana = true;
+
+require('../../lib/db').supabase.from = vi.fn((tabla) => {
+  const base = makeChain([]);
+  if (tabla !== 'usuarios') return base;
+  base.update = () => {
+    const c = makeChain([]);
+    c.or = vi.fn().mockReturnValue(c);
+    c.maybeSingle = () => Promise.resolve({ data: claimGana ? { id: 'user-1' } : null, error: null });
+    // `single` NO es alias de `maybeSingle`: con cero filas el real devuelve PGRST116. Acá el
+    // claim usa `maybeSingle`, así que hoy da igual — pero el alias es el defecto de harness
+    // que el ítem 8 del backlog ya pagó, y dejarlo escrito al lado del bueno lo invita de vuelta.
+    c.single = () => Promise.resolve(claimGana
+      ? { data: { id: 'user-1' }, error: null }
+      : { data: null, error: { code: 'PGRST116', message: 'no rows' } });
+    return c;
+  };
+  return base;
+});
 
 const createWebhookHandler = require('../../handlers/webhook');
 const procesarMensajeLibre = vi.fn().mockResolvedValue('ok');
@@ -96,6 +134,8 @@ const YAPE_GASTO = {
 // ─── Tests ───────────────────────────────────────────────────────────────────
 describe('Imágenes de pago (Yape/Plin/banco) → Vision → transacción', () => {
   beforeEach(() => {
+    claimGana = true;
+    claimOverride = null;
     enviarWhatsapp.mockClear();
     guardarTransaccion.mockReset().mockResolvedValue({ categoria: 'Alimentación', subcategoria: 'Restaurantes', conteoTx: 5 });
     procesarComprobantePro.mockClear();
@@ -250,6 +290,11 @@ describe('Imágenes de pago (Yape/Plin/banco) → Vision → transacción', () =
       // adversarial mostró que eso abría una TERCERA posición donde se pierde algo: si la
       // solicitud pendiente vino de un falso positivo de `esPagoNeto`, esta captura es el pago
       // REAL. Estas dos aserciones son las que mueren si alguien vuelve a poner el return seco.
+      //
+      // Desde el claim atómico, "ya hay una solicitud" y "perdí la carrera" son el mismo
+      // desenlace: el UPDATE condicional no matchea la fila. `pago_pendiente: true` queda como
+      // el estado que lo causa; `claimGana = false` es lo que el UPDATE responde por eso.
+      claimGana = false;
       obtenerOCrearUsuario.mockResolvedValue({
         id: 'user-1', nombre: 'Juan', onboarding_paso: 0, onboarding_completado: true,
         esperando_comprobante: false, pago_pendiente: true,
@@ -318,6 +363,30 @@ describe('Imágenes de pago (Yape/Plin/banco) → Vision → transacción', () =
     // era raro; ahora corre para toda imagen, así que un yape de S/10 a una Faviola se leía
     // como pago Pro: solicitud abierta, `estado_pago` pisado, y —por la guarda de
     // `pago_pendiente`— el comprobante REAL siguiente bloqueado. Lo encontró la segunda revisión.
+    /**
+     * El `catch` del claim tiene que sobrevivir a un rechazo que NO es un `Error`. Si lee
+     * `.message` a secas, ese catch tira `TypeError` adentro y se lleva puesto todo lo que
+     * sigue: el rescate del gasto, el aviso al admin y la respuesta al usuario, dejando sólo
+     * el "no pude procesar la imagen" del catch de afuera. Sobre una captura de PAGO es el
+     * peor desenlace del archivo, y lo encontró la SEGUNDA revisión adversarial en el código
+     * que la primera acababa de introducir.
+     */
+    it('un rechazo del claim que no es un Error tampoco pierde el gasto', async () => {
+      claimOverride = () => Promise.reject(null);
+      mockFetchOk();
+      visionResponde({ tipo: 'gasto', monto: 10, moneda: 'PEN', comercio: 'Favio Mendoza', categoria: 'Finanzas', fecha: '2026-08-09' });
+
+      const { req, res } = buildImagenReqRes('51999000111', 'media-img');
+      await webhookHandler(req, res);
+
+      expect(procesarComprobantePro).not.toHaveBeenCalled();
+      expect(guardarTransaccion).toHaveBeenCalledOnce();
+      expect(notificarAdmin).toHaveBeenCalled();
+      const resp = enviarWhatsapp.mock.calls[0][1];
+      expect(resp).toMatch(/reenv[íi]amela/i);
+      expect(resp).not.toMatch(/no pude procesar la imagen/i);
+    });
+
     it('un yape de S/10 a alguien que solo CONTIENE "favio" no es un pago a Neto', async () => {
       mockFetchOk();
       visionResponde({ tipo: 'gasto', monto: 10, moneda: 'PEN', comercio: 'Faviola Quispe', categoria: 'Finanzas', fecha: '2026-08-09' });

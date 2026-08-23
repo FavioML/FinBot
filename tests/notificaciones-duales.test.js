@@ -79,7 +79,7 @@ const WHATSAPP_CRUDO = new Map([
   // `esperando_comprobante` de la decisión) y entraron dos (la captura de pago que llega con una
   // solicitud ya pendiente, y el monto ilegible de quien esperaba comprobante). Las tres son
   // RESPUESTA a un mensaje del usuario, no empujes.
-  ['handlers/webhook.js', { usos: 26, familia: 'RESPUESTA', motivo: 'turnos de conversación: imágenes, audios, OTP, onboarding' }],
+  ['handlers/webhook.js', { usos: 27, familia: 'RESPUESTA', motivo: 'turnos de conversación: imágenes, audios, OTP, onboarding' }],
   // Baja de 5 a 4: se fue el aviso de "cuenta Gmail adicional conectada", que preguntaba por
   // WhatsApp cómo agrupar los reportes. Un usuario tiene UNA cuenta (cada una cuesta un cupo
   // de por vida), así que esa rama del callback ya no existe.

@@ -18,6 +18,14 @@ const { mensajeMuro, estaEnMuro, esProPagado, AVISO_DIAS_ANTES } = require('../l
 const { revocarAccesoGmail } = require('../gmail');
 const analytics = require('../lib/analytics');
 
+// `msgErr` vive en `lib/error-monitor.js`. Acá importa especialmente: un `e.message` a secas
+// dentro del catch de un loop tira `TypeError` si el rechazo no es un Error, la excepción se
+// escapa del `for`, la traga el catch externo por la misma vía, y **se saltan todos los usuarios
+// que faltaban** — con el cron saliendo en `count: 0`, indistinguible de "no había a quién
+// avisarle". Lo midió la revisión adversarial de este commit: con `upsertScore` rechazando
+// `null` sobre un padrón de dos, se llamaba UNA vez y el log quedaba sin `usuarioId`.
+const { msgErr } = require('../lib/error-monitor');
+
 /**
  * Cola para el aviso de vencimiento cuando además se le soltó el Gmail.
  *
@@ -56,9 +64,9 @@ async function checkResumenMensual() {
             link: '/dashboard',
           });
         }
-      } catch(e) { log.error({ tag: 'MENSUAL', whatsapp: usuario.whatsapp, err: e.message }, 'Error resumen mensual usuario'); }
+      } catch(e) { log.error({ tag: 'MENSUAL', whatsapp: usuario.whatsapp, err: msgErr(e) }, 'Error resumen mensual usuario'); }
     }
-  } catch(e) { log.error({ tag: 'MENSUAL', err: e.message }, 'Error general resumen mensual'); }
+  } catch(e) { log.error({ tag: 'MENSUAL', err: msgErr(e) }, 'Error general resumen mensual'); }
 }
 
 async function checkResumenSemanal() {
@@ -82,9 +90,9 @@ async function checkResumenSemanal() {
             link: '/dashboard',
           });
         }
-      } catch(e) { log.error({ tag: 'SEMANAL', whatsapp: usuario.whatsapp, err: e.message }, 'Error resumen semanal usuario'); }
+      } catch(e) { log.error({ tag: 'SEMANAL', whatsapp: usuario.whatsapp, err: msgErr(e) }, 'Error resumen semanal usuario'); }
     }
-  } catch(e) { log.error({ tag: 'SEMANAL', err: e.message }, 'Error general resumen semanal'); }
+  } catch(e) { log.error({ tag: 'SEMANAL', err: msgErr(e) }, 'Error general resumen semanal'); }
 }
 
 /**
@@ -271,14 +279,14 @@ async function checkRecordatorioDiario() {
         // Lo encontró la prueba por mutación de la Ola 2 (B25), no una corrida verde — y
         // la ironía útil: si el error hubiera estado acá, el barrido que MIDIÓ B23 no
         // habría tenido con qué medirlo.
-      } catch(e) { log.error({ tag: 'INACTIVITY', userId: usuario.id, err: e.message }, 'Error procesando usuario en el recordatorio de las 8pm'); }
+      } catch(e) { log.error({ tag: 'INACTIVITY', userId: usuario.id, err: msgErr(e) }, 'Error procesando usuario en el recordatorio de las 8pm'); }
     }
 
     if (totalInactivity > 0 || totalUpsell > 0) {
       log.info({ tag: 'INACTIVITY', inactivity: totalInactivity, upsell: totalUpsell, candidates: usuarios.length },
         'Recordatorios de inactividad enviados');
     }
-  } catch(e) { log.error({ tag: 'INACTIVITY', err: e.message }, 'Error recordatorio inactividad'); }
+  } catch(e) { log.error({ tag: 'INACTIVITY', err: msgErr(e) }, 'Error recordatorio inactividad'); }
 }
 
 // Este cron NUNCA puede tocar a alguien que está corriendo su prueba. La invariante que lo
@@ -410,7 +418,7 @@ async function checkPremiumExpiry() {
             // llega después como callback de status. Cero filas `blocked_24h` en toda la
             // historia contra 214 con `fail_code=131047` desde el 01-ago. Ver `llegoElAviso`.
             if (llegoElAviso(avisado3d, usuario)) await solicitarComprobante(usuario.id);
-          } catch(e) { log.error({ tag: 'EXPIRY_WARN', userId: usuario.id, err: e.message }, 'Error warning premium 3d'); }
+          } catch(e) { log.error({ tag: 'EXPIRY_WARN', userId: usuario.id, err: msgErr(e) }, 'Error warning premium 3d'); }
         }
       }
 
@@ -448,7 +456,7 @@ async function checkPremiumExpiry() {
             // Ver el aviso de 3 días: sin aviso entregado no se abre la ventana de 48h que
             // convierte toda foto en "captura de pago".
             if (llegoElAviso(avisadoHoy, usuario)) await solicitarComprobante(usuario.id);
-          } catch(e) { log.error({ tag: 'EXPIRY_HOY', userId: usuario.id, err: e.message }, 'Error aviso vence hoy'); }
+          } catch(e) { log.error({ tag: 'EXPIRY_HOY', userId: usuario.id, err: msgErr(e) }, 'Error aviso vence hoy'); }
         }
       }
     }
@@ -518,9 +526,9 @@ async function checkPremiumExpiry() {
         // sin decirle por qué. Este call-site se había quedado sin ella (B14).
         if (llegoElAviso(avisadoExpirado, usuario)) await solicitarComprobante(usuario.id);
         log.info({ tag: 'EXPIRY', userId: usuario.id }, 'Premium expirado, downgradeado a free');
-      } catch(e) { log.error({ tag: 'EXPIRY', userId: usuario.id, err: e.message }, 'Error downgradeando usuario'); }
+      } catch(e) { log.error({ tag: 'EXPIRY', userId: usuario.id, err: msgErr(e) }, 'Error downgradeando usuario'); }
     }
-  } catch(e) { log.error({ tag: 'EXPIRY', err: e.message }, 'Error general check premium expiry'); }
+  } catch(e) { log.error({ tag: 'EXPIRY', err: msgErr(e) }, 'Error general check premium expiry'); }
 }
 
 async function checkAlertasProactivas() {
@@ -554,9 +562,9 @@ async function checkAlertasProactivas() {
             link: '/dashboard/presupuestos',
           });
         }
-      } catch (e) { log.error({ tag: 'ALERTA_PROACTIVA', userId: usuario.id, err: e.message }, 'Alerta de presupuesto omitida para el usuario'); }
+      } catch (e) { log.error({ tag: 'ALERTA_PROACTIVA', userId: usuario.id, err: msgErr(e) }, 'Alerta de presupuesto omitida para el usuario'); }
     }
-  } catch (e) { log.error({ tag: 'ALERTA_PROACTIVA', err: e.message }, 'Error alertas proactivas'); }
+  } catch (e) { log.error({ tag: 'ALERTA_PROACTIVA', err: msgErr(e) }, 'Error alertas proactivas'); }
 }
 
 /**
@@ -756,10 +764,10 @@ async function checkRecordatorioOnboarding() {
         // `notificarUsuario` deja en `notification_deliveries`, que además es el
         // registro real del envío. Pisar el paso a 100 acá mandaría el próximo
         // mensaje de la persona al parser de NOMBRES.
-      } catch(e) { log.error({ tag: 'ONBOARDING_REMINDER', userId: u.id, err: e.message }, 'Error empujando el nudge de onboarding'); }
+      } catch(e) { log.error({ tag: 'ONBOARDING_REMINDER', userId: u.id, err: msgErr(e) }, 'Error empujando el nudge de onboarding'); }
     }
     log.info({ tag: 'ONBOARDING_REMINDER', enviados: usuarios.length, candidatos: candidatos.length }, 'Nudges de primer gasto enviados');
-  } catch(e) { log.error({ tag: 'ONBOARDING_REMINDER', err: e.message }, 'Error recordatorio onboarding'); }
+  } catch(e) { log.error({ tag: 'ONBOARDING_REMINDER', err: msgErr(e) }, 'Error recordatorio onboarding'); }
 }
 
 // Empujón del día 2 a activar la cuenta web. El corte del flujo nuevo es "al
@@ -842,9 +850,9 @@ async function checkActivacionDia2() {
           }
           analytics.capture(u.id, 'wa_activation_link_sent', { conteo_tx: conteoTx, canal: 'cron' });
         }
-      } catch (e) { log.error({ tag: 'ACTIVACION_DIA2', userId: u.id, err: e.message }, 'Error empujando el link de activación'); }
+      } catch (e) { log.error({ tag: 'ACTIVACION_DIA2', userId: u.id, err: msgErr(e) }, 'Error empujando el link de activación'); }
     }
-  } catch (e) { log.error({ tag: 'ACTIVACION_DIA2', err: e.message }, 'Error empujón activación día 2'); }
+  } catch (e) { log.error({ tag: 'ACTIVACION_DIA2', err: msgErr(e) }, 'Error empujón activación día 2'); }
 }
 
 // ─── Fin del trial: dos avisos y el downgrade ────────────────────────────────
@@ -937,7 +945,7 @@ async function checkTrialExpiry() {
             if (wa && wa.ok && !wa.skipped) {
               analytics.capture(usuario.id, 'wa_onboarding_step_ok', { paso: 310, via: aviso.via, canal: tpl ? 'template' : 'texto' });
             }
-          } catch (e) { log.error({ tag: 'TRIAL_EXPIRY', userId: usuario.id, err: e.message }, 'Error avisando fin de trial'); }
+          } catch (e) { log.error({ tag: 'TRIAL_EXPIRY', userId: usuario.id, err: msgErr(e) }, 'Error avisando fin de trial'); }
         }
       }
     }
@@ -1011,9 +1019,9 @@ async function checkTrialExpiry() {
         });
         analytics.capture(usuario.id, 'wa_onboarding_step_failed', { paso: 400, motivo: 'trial_vencido', conteo_tx: conteoTx || 0 });
         log.info({ tag: 'TRIAL_EXPIRY', userId: usuario.id }, 'Trial vencido, usuario al muro');
-      } catch (e) { log.error({ tag: 'TRIAL_EXPIRY', userId: usuario.id, err: e.message }, 'Error bajando al muro'); }
+      } catch (e) { log.error({ tag: 'TRIAL_EXPIRY', userId: usuario.id, err: msgErr(e) }, 'Error bajando al muro'); }
     }
-  } catch (e) { log.error({ tag: 'TRIAL_EXPIRY', err: e.message }, 'Error general check trial expiry'); }
+  } catch (e) { log.error({ tag: 'TRIAL_EXPIRY', err: msgErr(e) }, 'Error general check trial expiry'); }
 }
 
 async function checkRecordatorioDeudas() {
@@ -1100,9 +1108,9 @@ async function checkRecordatorioDeudas() {
         if (errLedger) {
           log.error({ tag: 'DEUDA_REMINDER', deudaId: deuda.id, userId: deuda.usuario_id, err: errLedger.message }, 'El recordatorio se envio pero el ledger no quedo marcado: se va a repetir');
         }
-      } catch (e) { log.error({ tag: 'DEUDA_REMINDER', deudaId: deuda.id, userId: deuda.usuario_id, err: e.message }, 'Recordatorio de deuda omitido'); }
+      } catch (e) { log.error({ tag: 'DEUDA_REMINDER', deudaId: deuda.id, userId: deuda.usuario_id, err: msgErr(e) }, 'Recordatorio de deuda omitido'); }
     }
-  } catch (e) { log.error({ tag: 'DEUDA_REMINDER', err: e.message }, 'Error recordatorio deudas'); }
+  } catch (e) { log.error({ tag: 'DEUDA_REMINDER', err: msgErr(e) }, 'Error recordatorio deudas'); }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1158,11 +1166,11 @@ async function checkDetectorFugas() {
       } catch (e) {
         // Saltar al siguiente usuario es correcto (una alerta menos es mejor que una
         // inventada), pero sin log un fallo sistemático se ve igual que "nadie tenía fugas".
-        log.error({ tag: 'FUGAS_USER', err: e.message, usuarioId: usuario.id }, 'Fugas omitidas para el usuario');
+        log.error({ tag: 'FUGAS_USER', err: msgErr(e), usuarioId: usuario.id }, 'Fugas omitidas para el usuario');
       }
     }
     log.info({ tag: 'FUGAS' }, 'Detector de fugas ejecutado');
-  } catch (e) { log.error({ tag: 'FUGAS', err: e.message }, 'Error detector de fugas'); }
+  } catch (e) { log.error({ tag: 'FUGAS', err: msgErr(e) }, 'Error detector de fugas'); }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1185,14 +1193,21 @@ async function checkCalcularNetoScore() {
     }
     if (!usuarios || usuarios.length === 0) return;
     let ok = 0;
+    let fallidos = 0;
     for (const u of usuarios) {
       try {
         await upsertScore(u.id);
         ok++;
-      } catch (e) { /* silent per user */ }
+      } catch (e) {
+        // Saltar al siguiente es lo correcto —un score que no salió no justifica dejar sin
+        // score a los demás—, pero `count: 0` a secas se lee como padrón vacío. Es la misma
+        // confusión que dejó `checkRecordatorioOnboarding` doce días sin destinatarios.
+        fallidos++;
+        log.error({ tag: 'SCORE', err: msgErr(e), usuarioId: u.id }, 'No se pudo calcular el score de este usuario');
+      }
     }
-    log.info({ tag: 'SCORE', count: ok }, 'Neto Scores calculados');
-  } catch (e) { log.error({ tag: 'SCORE', err: e.message }, 'Error calculando scores'); }
+    log.info({ tag: 'SCORE', count: ok, fallidos }, 'Neto Scores calculados');
+  } catch (e) { log.error({ tag: 'SCORE', err: msgErr(e) }, 'Error calculando scores'); }
 }
 
 async function checkNotificacionScore() {
@@ -1229,9 +1244,14 @@ async function checkNotificacionScore() {
           tipo: 'score_semanal', mensaje: msg,
           titulo: 'Tu Neto Score semanal', link: '/dashboard/score',
         });
-      } catch (e) { /* silent per user */ }
+      } catch (e) {
+        // `obtenerTendenciaScore` caído para todos y "nadie tiene score todavía" producen el
+        // mismo silencio: cero avisos y cero rastro. El destino no cambia —se salta igual—,
+        // así que el log es lo único observable.
+        log.error({ tag: 'SCORE_NOTIF', err: msgErr(e), usuarioId: usuario.id }, 'Score semanal omitido para el usuario');
+      }
     }
-  } catch (e) { log.error({ tag: 'SCORE_NOTIF', err: e.message }, 'Error notificación score semanal'); }
+  } catch (e) { log.error({ tag: 'SCORE_NOTIF', err: msgErr(e) }, 'Error notificación score semanal'); }
 }
 
 // Check-in planes de ahorro: 1ro y 15 del mes, 11am Lima, Pro only
@@ -1290,9 +1310,14 @@ async function checkCheckInPlanes() {
           titulo: 'Check-in de tus planes de ahorro', tipoInApp: 'recordatorio',
           link: '/dashboard/planes',
         });
-      } catch (e) { /* silent per user */ }
+      } catch (e) {
+        // El `if (errMetas)` de arriba ya loguea la lectura caída; esto cubre el resto del
+        // cuerpo (`calcularRitmoAhorro`, el armado del mensaje, el envío), que era lo único
+        // que seguía cayendo mudo.
+        log.error({ tag: 'CHECKIN_PLANES', err: msgErr(e), usuarioId: usuario.id }, 'Check-in de planes omitido para el usuario');
+      }
     }
-  } catch (e) { log.error({ tag: 'CHECKIN_PLANES', err: e.message }, 'Error check-in planes'); }
+  } catch (e) { log.error({ tag: 'CHECKIN_PLANES', err: msgErr(e) }, 'Error check-in planes'); }
 }
 
 // Recordatorio espacios compartidos: viernes 6pm Lima, balances >S/50 pendientes
@@ -1369,11 +1394,22 @@ async function checkRecordatorioEspacios() {
               titulo: 'Recordatorio de ' + space.name, tipoInApp: 'recordatorio',
               link: '/dashboard/espacios',
             });
-          } catch (e) { /* silent */ }
+          } catch (e) {
+            // Pierde UN miembro. Se sigue con los demás a propósito, pero acá lo que no se
+            // avisa es plata que alguien le debe a otro: sin log, nadie sabe que ese cobro
+            // no salió. La anti-fatiga de 10 días no deja fila, así que el viernes siguiente
+            // se reintenta solo — eso es recuperación, no motivo para callarlo hoy.
+            log.error({ tag: 'ESPACIOS_REMIND', err: msgErr(e), spaceId: space.id, userId: m.user_id }, 'No se pudo avisar el balance a este miembro');
+          }
         }
-      } catch (e) { /* silent per space */ }
+      } catch (e) {
+        // Pierde el ESPACIO entero, con todos sus miembros: `ownerEsPro` y
+        // `obtenerBalanceEspacio` corren antes del loop. Es la clase "población" del ítem 1
+        // aplicada a un solo espacio, y por eso lleva `spaceId` y no un `usuarioId`.
+        log.error({ tag: 'ESPACIOS_REMIND', err: msgErr(e), spaceId: space.id }, 'Espacio omitido: no se avisó a ninguno de sus miembros');
+      }
     }
-  } catch (e) { log.error({ tag: 'ESPACIOS_REMIND', err: e.message }, 'Error recordatorio espacios'); }
+  } catch (e) { log.error({ tag: 'ESPACIOS_REMIND', err: msgErr(e) }, 'Error recordatorio espacios'); }
 }
 
 /**
@@ -1468,7 +1504,7 @@ async function checkRecordatoriosCostos() {
     log.info({ tag: 'COSTOS_REMIND', manual: toNotify.length, auto: toAutoProcess.length, total: manualTotal.toFixed(2) },
       'Recordatorios/débitos de costos procesados');
   } catch (e) {
-    log.error({ tag: 'COSTOS_REMIND', err: e.message }, 'Error recordatorio costos');
+    log.error({ tag: 'COSTOS_REMIND', err: msgErr(e) }, 'Error recordatorio costos');
   }
 }
 
@@ -1526,12 +1562,20 @@ async function checkSurveyConversions() {
           if (errConv) { fallidos++; continue; }
           marcados++;
         }
-      } catch (e) { /* silent per event */ }
+      } catch (e) {
+        // La única de las ocho que NO lleva log por sitio, y es deliberado: corre por evento,
+        // hasta cientos por corrida. Lo que estaba mal es que la cuenta agregada que ya existía
+        // no contaba esto: un `sent_at` corrupto revienta el `.toISOString()` de la ventana y
+        // el evento desaparecía sin entrar ni en `fallidos` ni en `marcados`, o sea que el
+        // panel volvía a graficar la conversión subcontada — el síntoma exacto que esta
+        // función vino a curar. Un throw y una lectura fallida son el mismo evento no evaluado.
+        fallidos++;
+      }
     }
     if (fallidos > 0) log.error({ tag: 'SURVEY_CONV', fallidos, evaluados: eventos.length }, 'Eventos que no se pudieron evaluar: la conversión que reporta el panel está subcontada');
     if (marcados > 0) log.info({ tag: 'SURVEY_CONV', marcados, evaluados: eventos.length }, 'Conversiones de recordatorio marcadas');
   } catch (e) {
-    log.error({ tag: 'SURVEY_CONV', err: e.message }, 'Error calculando conversiones');
+    log.error({ tag: 'SURVEY_CONV', err: msgErr(e) }, 'Error calculando conversiones');
   }
 }
 
@@ -1652,10 +1696,16 @@ async function checkRecordatorioSuscripciones() {
           });
           enviados++;
         }
-      } catch (e) { /* silent per user */ }
+      } catch (e) {
+        // Se pierden TODAS las suscripciones de este usuario, no una: `detectarSuscripciones`
+        // corre antes del loop interno. Y el aviso está anclado a "faltan exactamente 3 días",
+        // así que no hay reintento hasta el ciclo que viene — el mismo motivo por el que este
+        // sitio no lleva `claimInApp`.
+        log.error({ tag: 'SUB_REMIND', err: msgErr(e), usuarioId: usuario.id }, 'Recordatorios de suscripción omitidos para el usuario');
+      }
     }
     if (enviados > 0) log.info({ tag: 'SUB_REMIND', enviados }, 'Recordatorios de suscripción enviados');
-  } catch (e) { log.error({ tag: 'SUB_REMIND', err: e.message }, 'Error recordatorio suscripciones'); }
+  } catch (e) { log.error({ tag: 'SUB_REMIND', err: msgErr(e) }, 'Error recordatorio suscripciones'); }
 }
 
 /**
@@ -1700,10 +1750,14 @@ async function checkResumenDiarioManosLibres() {
           link: '/dashboard',
         });
         enviados++;
-      } catch (e) { /* silent per user */ }
+      } catch (e) {
+        // Manos Libres es opt-in explícito: esta persona prendió el resumen y lo espera todas
+        // las noches. Es el único de los ocho donde el silencio contradice algo que pidió.
+        log.error({ tag: 'RESUMEN_DIARIO', err: msgErr(e), usuarioId: usuario.id }, 'Resumen diario omitido para el usuario');
+      }
     }
     if (enviados > 0) log.info({ tag: 'RESUMEN_DIARIO', enviados }, 'Resúmenes diarios (manos libres) enviados');
-  } catch (e) { log.error({ tag: 'RESUMEN_DIARIO', err: e.message }, 'Error resumen diario manos libres'); }
+  } catch (e) { log.error({ tag: 'RESUMEN_DIARIO', err: msgErr(e) }, 'Error resumen diario manos libres'); }
 }
 
 // Limpieza periódica de OTPs de verificación web vencidos (evita acumulación de filas muertas;
@@ -1751,12 +1805,12 @@ async function checkGmailHuerfanos() {
         const { revocadas } = await revocarAccesoGmail(usuarioId, { motivo: 'barrido_huerfanos' });
         revocadasTotal += revocadas;
       } catch (e) {
-        log.error({ tag: 'GMAIL_HUERFANOS', usuarioId, err: e.message }, 'No se pudo revocar; se reintenta mañana');
+        log.error({ tag: 'GMAIL_HUERFANOS', usuarioId, err: msgErr(e) }, 'No se pudo revocar; se reintenta mañana');
       }
     }
     log.info({ tag: 'GMAIL_HUERFANOS', usuarios: huerfanos.length, revocadas: revocadasTotal }, 'Accesos a Gmail de no-pagadores revocados');
   } catch (e) {
-    log.error({ tag: 'GMAIL_HUERFANOS', err: e.message }, 'Error general en el barrido de accesos Gmail');
+    log.error({ tag: 'GMAIL_HUERFANOS', err: msgErr(e) }, 'Error general en el barrido de accesos Gmail');
   }
 }
 
@@ -1770,7 +1824,7 @@ async function limpiarOTPVencidos() {
     // que se pierde es la limpieza, y eso ahora se dice.
     const { error } = await supabase.from('webapp_otp').delete().lt('expires_at', new Date().toISOString());
     if (error) log.warn({ tag: 'OTP_CLEANUP', err: error.message }, 'No se pudieron borrar los OTP vencidos: quedan en la tabla (siguen siendo invalidos)');
-  } catch (e) { log.warn({ tag: 'OTP_CLEANUP', err: e.message }, 'Error limpiando OTPs vencidos'); }
+  } catch (e) { log.warn({ tag: 'OTP_CLEANUP', err: msgErr(e) }, 'Error limpiando OTPs vencidos'); }
 }
 
 module.exports = {

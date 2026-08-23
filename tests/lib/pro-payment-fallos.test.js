@@ -22,7 +22,7 @@ let ops = [];
 function makeChain(table, op) {
   const q = { table, op, payload: null, methods: [] };
   const chain = {};
-  for (const m of ['eq', 'neq', 'gte', 'lte', 'lt', 'gt', 'ilike', 'limit', 'order', 'not', 'in']) {
+  for (const m of ['eq', 'neq', 'gte', 'lte', 'lt', 'gt', 'ilike', 'limit', 'order', 'not', 'in', 'or']) {
     chain[m] = (...a) => { q.methods.push([m, ...a]); return chain; };
   }
   chain.select = (cols, opts) => { if (!q.op) q.op = 'select'; if (opts && opts.head) q.head = true; return chain; };
@@ -103,6 +103,140 @@ describe('reclamarPagoPendiente', () => {
   it('devuelve la fila reclamada en el camino feliz', async () => {
     router = (q) => (q.op === 'update') ? { data: { id: 'pago-1', usuario_id: 'u-1' } } : { data: { id: 'pago-1' } };
     await expect(pro.reclamarPagoPendiente({ usuarioId: 'u-1' })).resolves.toEqual({ id: 'pago-1', usuario_id: 'u-1' });
+  });
+});
+
+/**
+ * El claim de la ENTRADA (`reclamarSolicitudPro`), hermano del de la aprobación. Su semántica
+ * contra PostgREST de verdad —incluido que `or=(is.false,is.null)` es una forma válida— se
+ * verificó a mano contra la DB el 2026-08-23; acá se fija el contrato que ve el resto del código.
+ */
+describe('reclamarSolicitudPro', () => {
+  it('gana cuando el UPDATE condicional matcheó la fila', async () => {
+    router = () => ({ data: { id: 'u-1' }, error: null });
+    await expect(pro.reclamarSolicitudPro('u-1')).resolves.toBe(true);
+  });
+
+  it('no gana cuando otro comprobante ya abrió la solicitud', async () => {
+    router = () => ({ data: null, error: null });
+    await expect(pro.reclamarSolicitudPro('u-1')).resolves.toBe(false);
+  });
+
+  it('lanza cuando la consulta falla, en vez de hacerlo pasar por "otro ganó"', async () => {
+    // La lección literal de `reclamarPagoPendiente`: devolver false acá le contesta al usuario
+    // "ya tenemos tu comprobante en verificación" sobre una solicitud que no existe.
+    router = () => FALLO;
+    await expect(pro.reclamarSolicitudPro('u-1')).rejects.toThrow(/reclamar la solicitud/i);
+    expect(logMock.error).toHaveBeenCalled();
+  });
+
+  it('el UPDATE es condicional, apunta a UNA fila, y cubre el NULL de `pago_pendiente`', async () => {
+    // Sin el `or`, PostgREST descarta las filas en NULL igual que SQL, y esa columna es
+    // nullable. Sin la condición entera, el claim gana siempre y no cierra ninguna carrera.
+    //
+    // Y el `eq('id')` se afirma explícitamente porque **ningún otro test puede verlo**: los
+    // almacenes falsos tienen UNA fila, y un almacén de una fila no distingue un WHERE que
+    // apunta a esa fila de uno que apunta a todas. Sin `eq`, este UPDATE marca
+    // `pago_pendiente=true` a TODO el padrón. Lo midió la segunda revisión adversarial:
+    // quitarlo pasaba los 1835 tests.
+    router = () => ({ data: { id: 'u-1' }, error: null });
+    await pro.reclamarSolicitudPro('u-1');
+    const q = ops.find((o) => o.table === 'usuarios' && o.op === 'update');
+    expect(q.payload).toMatchObject({ pago_pendiente: true, estado_pago: 'pendiente', esperando_comprobante: false });
+    expect(q.methods, 'el claim escribe sin apuntar a una fila').toContainEqual(['eq', 'id', 'u-1']);
+    const or = q.methods.find((m) => m[0] === 'or');
+    expect(or, 'el claim perdió su condición: gana siempre').toBeTruthy();
+    expect(or[1]).toContain('pago_pendiente.is.null');
+  });
+});
+
+describe('registrarSolicitudPro con la solicitud ya reclamada', () => {
+  const args = {
+    usuario: USUARIO, monto: 10, montoDetectado: 10, tipoPlan: 'mensual',
+    metodoPago: 'Yape', comprobanteBuffer: null, mimeType: 'image/jpeg', origen: 'whatsapp',
+  };
+
+  it('no repite el UPDATE de `usuarios`: lo escribió el claim', async () => {
+    router = (q) => (q.table === 'pagos' && q.op === 'insert' ? { data: { id: 'pago-1' } } : {});
+    const r = await pro.registrarSolicitudPro({ ...args, yaReclamado: true });
+    expect(escrituras('usuarios')).toHaveLength(0);
+    // Y lo reporta como marcado, porque LO ESTÁ. Devolver false acá dispara la alarma de
+    // "solicitud incompleta" del canal silencioso sobre una solicitud sana.
+    expect(r.usuarioMarcado).toBe(true);
+  });
+
+  it('control: sin reclamar, sigue marcando al usuario como antes', async () => {
+    // El canal webapp (`routes/pro.js`) no pasa por el claim y depende de este UPDATE.
+    router = (q) => (q.table === 'pagos' && q.op === 'insert' ? { data: { id: 'pago-1' } } : {});
+    const r = await pro.registrarSolicitudPro(args);
+    const w = escrituras('usuarios');
+    expect(w).toHaveLength(1);
+    expect(w[0].payload).toMatchObject({ pago_pendiente: true, esperando_comprobante: false });
+    expect(r.usuarioMarcado).toBe(true);
+  });
+});
+
+/**
+ * La contraparte del claim. `registrarSolicitudPro` NO lanza cuando el INSERT en `pagos` falla
+ * (try/catch propio), así que sin esto el usuario queda con `pago_pendiente=true` sobre una
+ * solicitud que no existe: WhatsApp le dice "en verificación", la webapp le esconde el
+ * formulario, el panel prende el badge sin nada que aprobar, y las dos rutas que limpian el
+ * flag necesitan un `pagoId`. Para el del canal silencioso, que no tiene número, ni siquiera
+ * queda el `/pago` manual. Lo encontró la revisión adversarial del diff.
+ */
+describe('el claim se suelta si la solicitud no quedó', () => {
+  const args = { usuario: USUARIO, parsed: { monto: 10, metodo_pago: 'Yape' }, imgBuffer: null, mimeType: 'image/jpeg', from: '51999888777' };
+  const liberaciones = () => ops.filter((o) => o.table === 'usuarios' && o.op === 'update'
+    && o.payload && o.payload.pago_pendiente === false);
+
+  it('con el INSERT en `pagos` caído, suelta el claim', async () => {
+    router = (q) => (q.table === 'pagos' && q.op === 'insert') ? FALLO : {};
+    await pro.procesarComprobantePro({ ...args, yaReclamado: true });
+    expect(liberaciones()).toHaveLength(1);
+    // Mismo motivo que en el claim: con un almacén de una fila, un UPDATE sin `eq` es
+    // indistinguible de uno con `eq`. Sin él, esto apaga `pago_pendiente` de TODO el padrón.
+    expect(liberaciones()[0].methods, 'suelta sin apuntar a una fila').toContainEqual(['eq', 'id', 'u-1']);
+  });
+
+  it('si hay una solicitud pendiente de verdad, NO suelta', async () => {
+    // El INSERT pudo commitear y perderse la respuesta, o la webapp —que guarda contra `pagos`
+    // y no contra `pago_pendiente`— pudo abrir la suya durante la subida a Storage. Soltar ahí
+    // apaga el badge de una solicitud real y reabre la carrera. Lo midió la segunda revisión.
+    router = (q) => {
+      if (q.table === 'pagos' && q.op === 'insert') return FALLO;
+      if (q.table === 'pagos' && q.op === 'select') return { data: { id: 'pago-9' } };
+      return {};
+    };
+    await pro.procesarComprobantePro({ ...args, yaReclamado: true });
+    expect(liberaciones()).toHaveLength(0);
+    expect(logMock.warn).toHaveBeenCalled();
+  });
+
+  it('si no se puede COMPROBAR si la hay, tampoco suelta', async () => {
+    // Una lectura caída no es "no hay ninguna". Se deja el claim puesto: es el estado previo,
+    // el admin ya tiene su aviso, y equivocarse al otro lado duplica una solicitud de plata.
+    router = (q) => {
+      if (q.table === 'pagos' && q.op === 'insert') return FALLO;
+      if (q.table === 'pagos' && q.op === 'select') return FALLO;
+      return {};
+    };
+    await pro.procesarComprobantePro({ ...args, yaReclamado: true });
+    expect(liberaciones()).toHaveLength(0);
+    expect(logMock.error).toHaveBeenCalled();
+  });
+
+  it('con la solicitud creada, NO lo suelta', async () => {
+    // El control: sin esto, lo de arriba pasaría igual con un `liberar` incondicional, que es
+    // la mutación que borra el claim de todo el mundo y reabre la carrera entera.
+    router = (q) => (q.table === 'pagos' && q.op === 'insert') ? { data: { id: 'pago-1' } } : {};
+    await pro.procesarComprobantePro({ ...args, yaReclamado: true });
+    expect(liberaciones()).toHaveLength(0);
+  });
+
+  it('sin claim tomado (canal webapp) tampoco lo suelta: no era suyo', async () => {
+    router = (q) => (q.table === 'pagos' && q.op === 'insert') ? FALLO : {};
+    await pro.procesarComprobantePro(args);
+    expect(liberaciones()).toHaveLength(0);
   });
 });
 

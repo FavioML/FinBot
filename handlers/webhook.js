@@ -11,7 +11,7 @@ const { guardarTransaccion, obtenerGastosMes, recategorizarTransaccion } = requi
 const { guardarPresupuesto, formatearEstadoPresupuesto } = require('../services/budget');
 const { parsearCorreoBancario } = require('../services/parsers');
 const { notificarErrorAdmin, notificarAdmin } = require('../lib/admin-notify');
-const { registrarError } = require('../lib/error-monitor');
+const { registrarError, msgErr } = require('../lib/error-monitor');
 const { registrarReferido, obtenerEstadisticasReferidos, mensajeMisReferidos } = require('../services/referrals');
 const { obtenerCategoriasUsuario } = require('../services/categories');
 const { subcategoriaUtil } = require('../lib/subcategoria');
@@ -22,7 +22,7 @@ const { generarResumenSemanal } = require('../services/summaries');
 const { guardarMensaje, obtenerOCrearUsuario, getUserPlanConfig, buscarUsuarioPorBsuid } = require('../helpers/db-helpers');
 const { checkProWall } = require('../helpers/pro-wall');
 const { parseCSV, parseExcel } = require('../services/import-parser');
-const { esperaComprobante, esPagoNeto, procesarComprobantePro } = require('../lib/pro-payment');
+const { esperaComprobante, esPagoNeto, procesarComprobantePro, reclamarSolicitudPro } = require('../lib/pro-payment');
 const { procesarComandoAdmin } = require('./admin-commands');
 const premiumIntents = require('./intents/premium');
 const { abrirSesion, cerrarSesion } = require('../lib/support-tickets');
@@ -313,13 +313,43 @@ function createWebhookHandler(procesarMensajeLibre) {
           // hay que reponer la guarda explícita. `pago_pendiente` significa exactamente "hay una
           // solicitud sin resolver": tanto aprobar como rechazar la limpian.
           //
-          // **Cubre el reenvío, NO dos capturas en vuelo.** La fila se leyó antes de bajar el
-          // media y de llamar a Vision, y `pago_pendiente` se escribe después: dos fotos
-          // seguidas leen las dos `false` y abren dos solicitudes. Es la misma carrera que
-          // tenía el flag, o sea que no es regresión — pero tampoco está resuelta, y el claim
-          // atómico que la cerraría (el patrón de `reclamarPagoPendiente`) es otro cambio.
-          // Anotado en `docs/DEFECTOS.md`.
-          if (usuario.pago_pendiente) {
+          // La guarda era `if (usuario.pago_pendiente)`, o sea una LECTURA de la fila que se
+          // trajo al entrar al handler, y eso cubría el reenvío (foto → respuesta → foto) pero
+          // no dos capturas EN VUELO: entre esa lectura y la escritura están la bajada del
+          // media y la llamada a Vision, así que dos fotos seguidas leían las dos `false`.
+          // Ahora la decisión la toma un UPDATE condicional —`reclamarSolicitudPro`, hermano
+          // del `reclamarPagoPendiente` que cierra la doble APROBACIÓN—: sólo una ejecución
+          // matchea la fila. Cubierto por `tests/handlers/webhook-comprobante-carrera.test.js`.
+          let reclamado;
+          try {
+            reclamado = await reclamarSolicitudPro(usuario.id);
+          } catch (eClaim) {
+            // El claim que falla por red es indistinguible de perder la carrera si sólo se mira
+            // el resultado, y tratarlo como "otro ganó" sería la peor respuesta del archivo:
+            // le confirma al usuario que su comprobante está en verificación cuando NO existe
+            // ninguna solicitud. Se le pide reenviarla, que es lo único que recupera el pago.
+            // El gasto se anota igual, por el mismo motivo que en la rama de abajo.
+            // `msgErr` y no `eClaim.message`: si el rechazo no es un `Error`, leer `.message`
+            // tira `TypeError` ACÁ ADENTRO y se lleva puesto todo lo que sigue — el rescate del
+            // gasto, el aviso al admin, la respuesta al usuario—, dejando sólo el "no pude
+            // procesar la imagen" del catch de afuera. Sobre una captura de PAGO es el peor
+            // desenlace del archivo. Lo encontró la segunda revisión adversarial, en el código
+            // que la primera acababa de introducir.
+            const detalleClaim = msgErr(eClaim);
+            log.error({ tag: 'PRO_PAGO', err: detalleClaim, usuarioId: usuario.id }, 'No se pudo reclamar la solicitud Pro');
+            registrarError('PRO_PAGO', 'No se pudo reclamar la solicitud Pro: ' + detalleClaim,
+              { stack: eClaim && eClaim.stack, whatsapp: from, usuarioId: usuario.id });
+            try { await guardarTransaccion(usuario.id, { ...parsed, fecha: parsed.fecha || hoy }); }
+            catch (eDup) { log.error({ tag: 'PRO_PAGO', err: msgErr(eDup) }, 'Error registrando tx de captura con claim fallido'); }
+            await notificarAdmin('⚠️ No se pudo abrir la solicitud Pro de `' + usuario.id + '`: ' + detalleClaim +
+              '\n\nVision leyó: *' + (parsed.comercio || '(sin comercio)') + '* — ' + parsed.monto +
+              '\n\nEl gasto quedó anotado y se le pidió reenviar la captura. Si no vuelve, el pago no figura en ningún lado.' +
+              '\n\n⚠️ El UPDATE pudo haber commiteado antes de perderse la respuesta: revisá ' +
+              '`usuarios.pago_pendiente` de ese id y, si quedó en true sin fila en `pagos`, bajalo a mano.');
+            await enviarWhatsapp(from, 'No pude registrar tu comprobante en este momento. Lo anoté como gasto para no perderlo — *reenvíamela en un ratito* para activar tu Pro. 🙏');
+            return;
+          }
+          if (!reclamado) {
             // El gasto se anota IGUAL. La primera versión de esta guarda retornaba acá y con
             // eso abría una TERCERA posición donde se pierde algo — justo lo que este cambio
             // dice cerrar. Y es la peor de las tres: si la solicitud pendiente vino de un falso
@@ -327,7 +357,7 @@ function createWebhookHandler(procesarMensajeLibre) {
             // todo está en orden mientras su plata desaparece. `guardarTransaccion` dedupea por
             // hash, así que reenviar la MISMA foto no duplica la fila.
             try { await guardarTransaccion(usuario.id, { ...parsed, fecha: parsed.fecha || hoy }); }
-            catch (eDup) { log.error({ tag: 'PRO_PAGO', err: eDup.message }, 'Error registrando tx de captura con solicitud pendiente'); }
+            catch (eDup) { log.error({ tag: 'PRO_PAGO', err: msgErr(eDup) }, 'Error registrando tx de captura con solicitud pendiente'); }
             await notificarAdmin('⏳ El usuario `' + usuario.id + '` mandó OTRA captura que parece un pago a Neto ' +
               'y ya tiene una solicitud sin resolver.\n\nVision leyó: *' + (parsed.comercio || '(sin comercio)') + '* — ' + parsed.monto + '\n\n' +
               'Si la solicitud pendiente era un falso positivo, ESTA puede ser el pago de verdad. El gasto quedó anotado igual.');
@@ -335,10 +365,10 @@ function createWebhookHandler(procesarMensajeLibre) {
             return;
           }
           parsed.fecha = parsed.fecha || hoy;
-          await procesarComprobantePro({ usuario, parsed, imgBuffer, mimeType, from });
+          await procesarComprobantePro({ usuario, parsed, imgBuffer, mimeType, from, yaReclamado: true });
           // Registrar también el gasto de suscripción del usuario (se auto-categoriza a Suscripciones > Software)
           try { await guardarTransaccion(usuario.id, parsed); }
-          catch(eTx) { log.error({ tag: 'PRO_PAGO', err: eTx.message }, 'Error registrando tx de comprobante'); }
+          catch(eTx) { log.error({ tag: 'PRO_PAGO', err: msgErr(eTx) }, 'Error registrando tx de comprobante'); }
           return;
         }
 

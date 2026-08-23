@@ -40,6 +40,20 @@ require('../../services/parsers').parsearRegistroManual = parsearRegistroManual;
 const registrarSolicitudPro = vi.fn().mockResolvedValue({ pagoId: 'pago-1', comprobantePath: 'u/1.jpg', usuarioMarcado: true });
 require('../../lib/pro-payment').registrarSolicitudPro = registrarSolicitudPro;
 
+// Quién puede abrir la solicitud ya no lo decide la columna que trae la fila del usuario, sino
+// un UPDATE condicional (`reclamarSolicitudPro`). Su semántica propia —incluido el NULL de
+// `pago_pendiente`— se prueba contra un almacén que filtra de verdad en
+// `tests/handlers/webhook-comprobante-carrera.test.js`; acá se mockea porque lo que se mide es
+// qué hace ESTE canal con cada uno de sus tres desenlaces.
+const reclamarSolicitudPro = vi.fn().mockResolvedValue(true);
+require('../../lib/pro-payment').reclamarSolicitudPro = reclamarSolicitudPro;
+
+// La contraparte: si la solicitud no quedó, el claim se suelta. Sin eso este usuario —que no
+// tiene número— queda marcado como "tiene una solicitud" sobre nada, y no hay canal por el que
+// pueda volver a pagar ni comando manual que lo alcance (`/pago` busca por whatsapp).
+const liberarSolicitudPro = vi.fn().mockResolvedValue(undefined);
+require('../../lib/pro-payment').liberarSolicitudPro = liberarSolicitudPro;
+
 const notificarAdmin = vi.fn().mockResolvedValue(undefined);
 require('../../lib/admin-notify').notificarAdmin = notificarAdmin;
 
@@ -150,6 +164,8 @@ describe('mensaje sin `from` con media, de un usuario reconocido por BSUID', () 
     // justo el caso del dedup, cubierto aparte en tests/services/registro-silencioso.test.js).
     guardarTransaccion.mockClear().mockResolvedValue({ id: 'tx1', tipo: 'gasto', monto: 23.45, moneda: 'PEN', comercio: 'Pollería El Rancho', categoria: 'Alimentación' });
     registrarSolicitudPro.mockClear().mockResolvedValue({ pagoId: 'pago-1', comprobantePath: 'u/1.jpg', usuarioMarcado: true });
+    reclamarSolicitudPro.mockClear().mockResolvedValue(true);
+    liberarSolicitudPro.mockClear().mockResolvedValue(undefined);
     notificarAdmin.mockClear();
     registrarError.mockClear();
     procesarMensajeLibre.mockClear();
@@ -314,6 +330,10 @@ describe('mensaje sin `from` con media, de un usuario reconocido por BSUID', () 
       expect(arg.usuario.id).toBe(usuarioId);
       expect(arg.montoDetectado).toBe(10);
       expect(Buffer.isBuffer(arg.comprobanteBuffer)).toBe(true);   // el comprobante llega a Storage
+      // Y le dice que el claim ya está tomado: sin esto se repite el UPDATE de las tres
+      // columnas, y su fallo devolvería `usuarioMarcado:false` sobre una solicitud sana —
+      // justo la alarma de "solicitud incompleta" que este canal manda al admin.
+      expect(arg.yaReclamado).toBe(true);
       // El gasto de la suscripción se registra igual que en el camino normal.
       expect(guardarTransaccion).toHaveBeenCalledOnce();
       // El "comprobante recibido" sigue SIN mandarse: lo único que sale es la confirmación del
@@ -344,19 +364,56 @@ describe('mensaje sin `from` con media, de un usuario reconocido por BSUID', () 
       expect(avisos()).toHaveLength(2);
       // Y no se le suma el gasto de suscripción a una solicitud que no existe.
       expect(guardarTransaccion).not.toHaveBeenCalled();
+      // El claim vuelve a quedar libre: si no, este usuario no puede pagar nunca más.
+      expect(liberarSolicitudPro).toHaveBeenCalledWith(usuarioId);
     });
 
-    // Los otros dos pasos también fallan solos y también en silencio. Sin `usuarioMarcado`, el
-    // panel no prende el badge de pendiente y una segunda captura abre otra solicitud.
-    it('si el pago quedó pero el usuario no se marcó, también avisa', async () => {
+    it('con la solicitud creada NO suelta el claim', async () => {
+      // El control de la línea de arriba: soltarlo siempre reabre la carrera que el claim
+      // vino a cerrar y apaga el badge de "pendiente" sobre una solicitud que sí existe.
       mockFetchOk('image/jpeg');
       visionResponde({ tipo: 'gasto', monto: 10, moneda: 'PEN', comercio: 'Favio Mendoza', categoria: 'Finanzas' });
-      registrarSolicitudPro.mockResolvedValue({ pagoId: 'pago-1', comprobantePath: 'x/1.jpg', usuarioMarcado: false });
 
       await postSinFrom(imagen());
 
-      expect(avisosQueMatchean(/pago_pendiente/)).toHaveLength(1);
-      expect(avisos()).toHaveLength(2);
+      expect(liberarSolicitudPro).not.toHaveBeenCalled();
+    });
+
+    // Acá había un tercer caso —"el pago quedó pero el usuario no se marcó"— que MURIÓ con el
+    // claim, y murió porque dejó de ser alcanzable: las tres columnas de `usuarios` las escribe
+    // el UPDATE condicional que nos deja entrar, así que si no estuvieran escritas no habríamos
+    // llegado hasta acá. Lo que sí es alcanzable, y no lo era antes, es que el claim no se
+    // pueda hacer: ahí no se sabe si hay solicitud o no, y este canal no puede preguntar.
+    it('si el claim no se pudo hacer, el gasto se anota y el admin recibe la alarma', async () => {
+      mockFetchOk('image/jpeg');
+      visionResponde({ tipo: 'gasto', monto: 10, moneda: 'PEN', comercio: 'Favio Mendoza', categoria: 'Finanzas' });
+      reclamarSolicitudPro.mockRejectedValue(new Error('timeout'));
+
+      await postSinFrom(imagen());
+
+      // No se abre nada a ciegas: podría haber una solicitud del otro lado de la carrera.
+      expect(registrarSolicitudPro).not.toHaveBeenCalled();
+      // Pero la captura NO se descarta: si la que ganó salió de un falso positivo, ésta es el
+      // pago real, y el gasto es lo único que queda de ella.
+      expect(guardarTransaccion).toHaveBeenCalledOnce();
+      // El aviso va por `avisarUnaVez` y no por `avisarAdminPagoPerdido`: un claim falla
+      // cuando PostgREST está mal, o sea para todos a la vez, y sin dedup cada captura que
+      // entre durante la caída manda otro Telegram.
+      const alarmas = avisosQueMatchean(/No se pudo abrir la solicitud Pro/i);
+      expect(alarmas).toHaveLength(1);
+      expect(alarmas[0]).toContain(usuarioId);
+      expect(alarmas[0]).toMatch(/el gasto quedó anotado/i);
+      expect(registrarError).toHaveBeenCalled();
+    });
+
+    it('y ese aviso no se repite mientras dura la caída', async () => {
+      reclamarSolicitudPro.mockRejectedValue(new Error('timeout'));
+      for (let i = 0; i < 3; i++) {
+        mockFetchOk('image/jpeg');
+        visionResponde({ tipo: 'gasto', monto: 10, moneda: 'PEN', comercio: 'Favio Mendoza', categoria: 'Finanzas' });
+        await postSinFrom(imagen());
+      }
+      expect(avisosQueMatchean(/No se pudo abrir la solicitud Pro/i)).toHaveLength(1);
     });
 
     it('si el comprobante no subió a Storage, también avisa', async () => {
@@ -383,6 +440,9 @@ describe('mensaje sin `from` con media, de un usuario reconocido por BSUID', () 
       expect(alarmas[0]).toMatch(/REVISA la tabla `pagos`/);
       expect(alarmas[0]).not.toMatch(/reconstruirlo a mano/);
       expect(avisos()).toHaveLength(2);
+      // El claim se suelta aunque no sepamos si la fila quedó: un duplicado se rechaza, un
+      // usuario sin número marcado sobre la nada no tiene ninguna salida.
+      expect(liberarSolicitudPro).toHaveBeenCalledWith(usuarioId);
     });
 
     it('una captura que no es el pago a Neto se guarda como gasto y se avisa al admin', async () => {
@@ -471,6 +531,9 @@ describe('mensaje sin `from` con media, de un usuario reconocido por BSUID', () 
       // Acá el return seco era lo más caro del repo: si la solicitud pendiente salió de un falso
       // positivo de `esPagoNeto`, ESTA captura es el pago real — y este usuario no tiene forma
       // de reclamar ni de enterarse de nada. Lo encontró la segunda revisión adversarial.
+      // Quien pierde el claim es exactamente quien ya tiene una solicitud sin resolver: el
+      // `UPDATE ... WHERE pago_pendiente IS NOT TRUE` no matchea su fila.
+      reclamarSolicitudPro.mockResolvedValue(false);
       buscarUsuarioPorBsuid.mockResolvedValue({
         ...CONOCIDO, id: usuarioId, esperando_comprobante: false, pago_pendiente: true,
       });
