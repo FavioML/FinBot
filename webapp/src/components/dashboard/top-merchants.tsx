@@ -34,11 +34,11 @@ export function TopMerchants({ transactions, onMerchantClick }: TopMerchantsProp
       .slice(0, 5);
   }, [transactions]);
 
-  if (merchants.length === 0) return null;
-
-  const maxTotal = merchants[0]?.total || 1;
-
-  // Get original casing from transactions
+  // Los tres `useMemo` van ANTES de cualquier `return`. El corte por lista vacía estaba en
+  // el medio, así que el primer render (sin transacciones todavía) ejecutaba UN hook y el
+  // siguiente TRES: React #310, "rendered more hooks than during the previous render", que
+  // tira el árbol al error boundary del dashboard. No es hipotético — con la caché fría, la
+  // home pasa siempre por esos dos estados.
   const merchantNames = useMemo(() => {
     const gastos = transactions.filter(
       (t) => t.tipo === 'gasto' && t.comercio && t.comercio.trim() !== ''
@@ -65,6 +65,10 @@ export function TopMerchants({ transactions, onMerchantClick }: TopMerchantsProp
       .slice(0, 5)
       .map(([key]) => key);
   }, [transactions]);
+
+  if (merchants.length === 0) return null;
+
+  const maxTotal = merchants[0]?.total || 1;
 
   return (
     <motion.div

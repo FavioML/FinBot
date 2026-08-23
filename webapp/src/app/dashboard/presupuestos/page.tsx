@@ -203,6 +203,20 @@ export default function PresupuestosPage() {
     return { totalPresupuestado, totalGastado, restante: totalPresupuestado - totalGastado };
   }, [groupedBudgets, spendingByKey]);
 
+  // `useMemo` y no un `?? []` inline: este valor viaja como prop a `BudgetForm`, que lo
+  // tiene en las dependencias de un `useEffect`. Un array nuevo en cada render hacía que ese
+  // efecto corriera en cada render, y el efecto RESETEA el formulario — o sea que mientras
+  // el diálogo estaba abierto le borraba lo que el usuario estaba escribiendo, además del
+  // loop de render (hallazgo F6).
+  //
+  // Y va ACÁ ARRIBA, antes de los tres `return` de abajo, no donde nació. Colocado después de
+  // ellos, el primer render (con `isLoading`) ejecutaba 12 hooks y el siguiente 13: React #310,
+  // y la pantalla entera caía al error boundary. Estuvo así 11 días (45bf872, 12-ago-2026).
+  const subBudgetsDelEditado = useMemo(
+    () => (editBudget ? (groupedBudgets.get(editBudget.categoria)?.subs ?? []) : undefined),
+    [editBudget, groupedBudgets],
+  );
+
   const isLoading = userLoading || budgetsLoading || txLoading;
 
   // Loading skeleton
@@ -228,16 +242,6 @@ export default function PresupuestosPage() {
   if (budgetsError && groupedBudgets.size === 0) {
     return <ErrorState titulo="No pudimos cargar tus presupuestos" onReintentar={() => refetchBudgets()} />;
   }
-
-  // `useMemo` y no un `?? []` inline: este valor viaja como prop a `BudgetForm`, que lo
-  // tiene en las dependencias de un `useEffect`. Un array nuevo en cada render hacía que ese
-  // efecto corriera en cada render, y el efecto RESETEA el formulario — o sea que mientras
-  // el diálogo estaba abierto le borraba lo que el usuario estaba escribiendo, además del
-  // loop de render (hallazgo F6).
-  const subBudgetsDelEditado = useMemo(
-    () => (editBudget ? (groupedBudgets.get(editBudget.categoria)?.subs ?? []) : undefined),
-    [editBudget, groupedBudgets],
-  );
 
   const isPremium = user?.plan === 'premium';
   const budgetsLimitReached = hasReachedLimit(user?.plan, 'budgets', groupedBudgets.size);
