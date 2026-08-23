@@ -4,7 +4,11 @@
 //   - 4xx/5xx responses
 //   - whether a ProGate ("<feature> es Pro") lock is shown on the page
 //   - final URL (catch unexpected redirects)
-// Usage: node qa-parity-allroutes.mjs pro | free   (run both, diff the ProGate columns)
+// Usage: node qa-parity-allroutes.mjs pro | free
+//
+// OJO con proGate: se OBSERVA y no se afirma, por eso el campo se llama `proGateSinAfirmar`.
+// El encabezado decia "run both, diff the ProGate columns", y eso invitaba a leer como
+// veredicto una columna que no decide nada. El motivo esta junto al selector, mas abajo.
 //
 // VEREDICTO. Hasta el 23-ago-2026 este archivo terminaba en `console.log(JSON.stringify(out))`
 // y salía 0 pasara lo que pasara. El 22-ago un React #310 que mandaba /dashboard/presupuestos
@@ -65,7 +69,14 @@ const ROUTES = [
 const esperadoPorGating = (l) => PLAN === 'free' &&
   (/Failed to load resource.*\b(402|403)\b/.test(l) || /^\s*(402|403)\s/.test(l));
 
-const out = { plan: PLAN, routes: {} };
+const out = {
+  plan: PLAN,
+  // Para el que diffea dos corridas sin abrir este archivo: `false` en las dos NO es paridad
+  // confirmada. Ninguna de las afirmaciones del veredicto mira estos campos.
+  avisoProGate: 'proGateSinAfirmar / proGateLabelsSinAfirmar son OBSERVACION, no afirmacion: '
+    + 'el veredicto no los mira. Ver el comentario junto al selector antes de concluir nada.',
+  routes: {},
+};
 for (const [name, path] of ROUTES) {
   const consoleErrors = [], failed = [];
   const onConsole = (m) => { if (m.type() === 'error') consoleErrors.push(m.text().slice(0, 200)); };
@@ -81,6 +92,16 @@ for (const [name, path] of ROUTES) {
   await page.waitForTimeout(4000);
 
   // ProGate lock present? (the ProGate component renders "<X> es Pro")
+  //
+  // OBSERVACION SIN AFIRMAR, a proposito. Al 23-ago-2026 esto da `false` en las 13 rutas del
+  // plan free, o sea que la columna que el archivo promete en su nombre —la paridad— es justo
+  // la que no decide nada. Hay DOS explicaciones y no se separan sin leer el muro:
+  //   1) el 402 de `/api/dashboard` corta a pantalla completa y los ProGate por-feature nunca
+  //      llegan a renderizar; entonces lo que habria que afirmar es el MURO, no el ProGate.
+  //   2) el copy cambio y `text=/\bes Pro\b/` quedo viejo; entonces es un guard que no ve, y
+  //      viene mintiendo desde antes de esta sesion.
+  // Inventar la afirmacion sin saber cual de las dos es fabrica un rojo falso o, peor, un
+  // verde falso. Queda como dato crudo, con el nombre del campo gritando que nadie lo mira.
   const proGateCount = await page.locator('text=/\\bes Pro\\b/').count().catch(() => 0);
   const proGateLabels = proGateCount > 0
     ? await page.locator('text=/\\bes Pro\\b/').allInnerTexts().catch(() => [])
@@ -94,8 +115,8 @@ for (const [name, path] of ROUTES) {
     // llego a otra pantalla (un rebote a /login mide el login, no la ruta).
     enRuta: finalUrl.replace(/\/$/, '') === path.replace(/\/$/, ''),
     finalUrl,
-    proGate: proGateCount > 0,
-    proGateLabels: [...new Set(proGateLabels.map(t => t.replace(/\s+/g, ' ').trim()))].slice(0, 4),
+    proGateSinAfirmar: proGateCount > 0,
+    proGateLabelsSinAfirmar: [...new Set(proGateLabels.map(t => t.replace(/\s+/g, ' ').trim()))].slice(0, 4),
     consoleErrors: [...new Set(consoleErrors)],
     failed: [...new Set(failed)].filter(f => !esperadoPorGating(f)),
     rawFailed: [...new Set(failed)],
