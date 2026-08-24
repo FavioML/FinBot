@@ -51,14 +51,187 @@ import path from 'path';
  */
 const RAIZ = process.cwd();
 
+const PALABRAS_ANTES_DE_REGEX = new Set([
+  'return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void',
+  'throw', 'case', 'do', 'else', 'yield', 'await',
+]);
+
+/**
+ * El recorrido, en una sola pasada. `sinComentarios` y `sinLiterales` son sus dos vistas.
+ *
+ * **Tiene que entender literales de REGEX, y esa no fue la primera versión.** La primera
+ * reconocía cadenas y comentarios nada más, y con eso un `/['"]/` la desincronizaba: la
+ * comilla de adentro del regex abría una cadena que no existía. Medido por una revisión
+ * adversarial: **24 archivos del repo tienen esa forma** (entre ellos
+ * `services/import-parser.js`, que vive en el directorio del que sale el perímetro), y el
+ * caso peor no es el que tira sino el que NO tira — con un número PAR de comillas espurias
+ * se emparejan entre sí, el largo se preserva, y todo lo que hay en el medio queda adentro
+ * de una cadena fabricada. Con dos `/"/g` en el mismo archivo se llegaba a **resucitar una
+ * query comentada** y a devolver el falso positivo que este mismo commit arregla.
+ *
+ * Regex o división se decide por el último carácter significativo, que es el criterio de
+ * cualquier lexer de JS: después de un valor (`)`, un identificador, un número) una barra
+ * divide; después de un operador, una coma, una apertura, un `;`, un `}` o una de las
+ * palabras de `PALABRAS_ANTES_DE_REGEX`, empieza un literal. Adentro del literal, una `/`
+ * dentro de una clase `[...]` no lo cierra.
+ *
+ * `blanquearLiterales` es lo que separa las dos vistas y NO puede ser siempre true:
+ * `serviciosQueLlamaElCron` lee la ruta de adentro de la cadena del `require`.
+ */
+function recorrer(src, { blanquearLiterales = false, etiqueta = '' } = {}) {
+  const n = src.length;
+  const donde = etiqueta ? ' (' + etiqueta + ')' : '';
+  let out = '';
+  let i = 0;
+  // Pila de contextos: `codigo` lleva su profundidad de llaves para saber qué `}` cierra
+  // una interpolación `${…}` y cuál es una llave común.
+  const pila = [{ tipo: 'codigo', llaves: 0 }];
+  const cima = () => pila[pila.length - 1];
+  const blanco = (c) => (c === '\n' ? '\n' : ' ');
+  const emitir = (desde, hasta, blanquear) => {
+    for (let k = desde; k < hasta; k++) out += blanquear ? blanco(src[k]) : src[k];
+  };
+  const ultimoSignificativo = () => {
+    for (let k = out.length - 1; k >= 0; k--) if (!/\s/.test(out[k])) return out[k];
+    return '';
+  };
+  const palabraAntes = () => {
+    let k = out.length - 1;
+    while (k >= 0 && /\s/.test(out[k])) k--;
+    const fin = k + 1;
+    while (k >= 0 && /[\w$]/.test(out[k])) k--;
+    return out.slice(k + 1, fin);
+  };
+
+  while (i < n) {
+    const ctx = cima();
+    const c = src[i];
+
+    if (ctx.tipo === 'tpl') {
+      if (src.charCodeAt(i) === 92) { emitir(i, Math.min(i + 2, n), blanquearLiterales); i += 2; continue; }
+      if (c === '`') { out += c; i++; pila.pop(); continue; }
+      if (c === '$' && src[i + 1] === '{') { out += '${'; i += 2; pila.push({ tipo: 'codigo', llaves: 0 }); continue; }
+      out += blanquearLiterales ? blanco(c) : c;
+      i++;
+      continue;
+    }
+
+    if (c === '/' && src[i + 1] === '/') { while (i < n && src[i] !== '\n') { out += ' '; i++; } continue; }
+    if (c === '/' && src[i + 1] === '*') {
+      const fin = src.indexOf('*/', i + 2);
+      const hasta = fin < 0 ? n : fin + 2;
+      emitir(i, hasta, true);
+      i = hasta;
+      continue;
+    }
+
+    if (c === "'" || c === '"') {
+      out += c;
+      i++;
+      const ini = i;
+      let cerrada = false;
+      while (i < n) {
+        if (src.charCodeAt(i) === 92) { i += 2; continue; }
+        if (src[i] === c) { cerrada = true; break; }
+        if (src[i] === '\n') break;   // una cadena de comillas no cruza líneas
+        i++;
+      }
+      emitir(ini, Math.min(i, n), blanquearLiterales);
+      if (!cerrada) throw new Error('cadena sin cerrar' + donde + ' en la línea ' + (out.split('\n').length) + ': el fuente quedó desincronizado. Extendé el scanner, no lo silencies.');
+      out += src[i];
+      i++;
+      continue;
+    }
+
+    if (c === '`') { out += c; i++; pila.push({ tipo: 'tpl' }); continue; }
+
+    if (c === '/') {
+      const prev = ultimoSignificativo();
+      const esRegex = prev === '' || '(,=:[!&|?{};+-*%~^<>'.includes(prev) || PALABRAS_ANTES_DE_REGEX.has(palabraAntes());
+      if (esRegex) {
+        out += c;
+        i++;
+        const ini = i;
+        let clase = false;
+        let cerrado = false;
+        while (i < n) {
+          if (src.charCodeAt(i) === 92) { i += 2; continue; }
+          if (src[i] === '\n') break;              // un literal de regex no cruza líneas
+          if (src[i] === '[') clase = true;
+          else if (src[i] === ']') clase = false;
+          else if (src[i] === '/' && !clase) { cerrado = true; break; }
+          i++;
+        }
+        emitir(ini, Math.min(i, n), blanquearLiterales);
+        if (!cerrado) throw new Error('literal de regex sin cerrar' + donde + ' en la línea ' + (out.split('\n').length) + ': el fuente quedó desincronizado. Extendé el scanner, no lo silencies.');
+        out += src[i];
+        i++;
+        continue;
+      }
+    }
+
+    if (c === '{') ctx.llaves++;
+    else if (c === '}') {
+      if (ctx.llaves === 0 && pila.length > 1) { out += c; i++; pila.pop(); continue; }
+      ctx.llaves--;
+    }
+    out += c;
+    i++;
+  }
+
+  // Terminar fuera del contexto de código de nivel cero significa que el recorrido perdió
+  // el hilo, y todo lo que se mida sobre eso es basura que parece un veredicto.
+  if (pila.length !== 1 || pila[0].tipo !== 'codigo') throw new Error('el recorrido terminó dentro de un template' + donde + ': el fuente quedó desincronizado');
+  if (out.length !== src.length) throw new Error('el recorrido no preservó el largo' + donde + ': los números de línea del reporte dejarían de ser los del archivo');
+  return out;
+}
+
 /**
  * Reemplaza comentarios por espacios del MISMO largo. Preserva los offsets, o sea que los
  * números de línea del reporte siguen siendo los del archivo real — y de paso un
  * `supabase.from(` que viva dentro de un comentario deja de contar como código.
+ *
+ * **Recorre el fuente en vez de aplicarle un regex, y esa es la diferencia entera.** La
+ * versión anterior aplicaba un regex de comentario de línea sobre el fuente crudo, así que
+ * cualquier `'…https://app.neto.pe'` era un comentario para el blanqueador: se comía **el
+ * resto de la línea, incluido el `;` final del statement**. Sin ese `;`, el backtrack de
+ * `lecturas()` cruza al statement de arriba y hereda su `=`.
+ *
+ * No es hipotético y no es de laboratorio: en `handlers/webhook.js:830` un `update()`
+ * fire-and-forget salía reportado como lectura muda con LHS `respuesta`, heredado de la línea
+ * que arma el saludo con el link al dashboard. Es la misma familia que el bug de la ventana
+ * de 600 caracteres —una escritura y una lectura intercambiadas— con otra causa.
+ *
+ * Medido: **1 veredicto cambia en `handlers/` + `lib/` (148 sitios) y 0 en este perímetro
+ * (165 sitios)**. O sea que acá estaba latente, no dormido por suerte: hoy no hay ninguna
+ * cadena con `//` cerrando un statement antes de una query, y mañana la puede escribir
+ * cualquiera.
  */
-function sinComentarios(src) {
-  const blanco = (m) => m.replace(/[^\n]/g, ' ');
-  return src.replace(/\/\*[\s\S]*?\*\//g, blanco).replace(/\/\/[^\n]*/g, blanco);
+function sinComentarios(src, etiqueta = '') {
+  return recorrer(src, { etiqueta });
+}
+
+/**
+ * Lo mismo, y además con el CONTENIDO de cadenas, de los tramos de texto de un template y
+ * de los literales de regex vaciado — conservando el código de las interpolaciones `${…}`,
+ * que sí se ejecuta y puede llevar una query adentro.
+ *
+ * Hace falta porque el análisis de `lecturas()` mira `;`, `=` y llaves para decidir dónde
+ * empieza un statement y qué le asigna, y **cualquiera de los tres dentro de una cadena
+ * miente**. Las tres formas se midieron:
+ *
+ *   · `const plantilla = 'const { data, error } = await supabase'` seguido de una escritura
+ *     fire-and-forget: la cadena le regalaba a la escritura un LHS que lee el error, o sea
+ *     una **exención**, que es la peor de las tres salidas;
+ *   · un `;` adentro de una cadena cortaba el statement antes de tiempo;
+ *   · una llave suelta en un texto (`enviar('formato {')`) disparaba la regla de bloque
+ *     sobre una lectura correcta.
+ *
+ * El mismo texto DENTRO de un comentario ya se blanqueaba desde siempre. Esa asimetría
+ * —comentario sí, cadena no— era el hueco, y lo encontró una revisión adversarial.
+ */
+function sinLiterales(src, etiqueta = '') {
+  return recorrer(src, { blanquearLiterales: true, etiqueta });
 }
 
 /**
@@ -83,8 +256,25 @@ function serviciosQueLlamaElCron(entrada) {
     if (vistos.has(rel)) continue;
     vistos.add(rel);
     if (rel !== entrada) out.push(rel);
+    // El `catch` cubre el archivo que NO EXISTE (un `require` a algo que se movió), y nada
+    // más. Cuando tragaba también los errores del recorrido, un fuente que el scanner no
+    // sabe leer sacaba a ese servicio del perímetro **y a todo lo que colgara de él**:
+    // medido inyectando un literal de regex con comilla en `services/summaries.js`, la
+    // derivación bajaba de 18 a 17 archivos y `services/budget.js` desaparecía. Un guard que
+    // mira menos por un error de su propio parser es la falla que este archivo persigue.
+    //
+    // **Es el único cambio de este commit sin un test que pueda matarlo**, y va dicho en vez
+    // de afirmado de más: revertirlo a `try { …sinComentarios… } catch { continue }` deja las
+    // 45 aserciones en verde, porque hoy no hay ningún archivo del árbol sobre el que el
+    // recorrido falle — y eso lo vigila el caso `no se desincroniza en ningún archivo del
+    // árbol de runtime`, que es lo que acota el riesgo. Probarlo de verdad pide escribir un
+    // fuente roto dentro de `services/` durante la corrida, y un test que deja basura en el
+    // árbol cuesta más de lo que compra.
     let src;
-    try { src = sinComentarios(readFileSync(path.join(RAIZ, rel), 'utf-8')); } catch { continue; }
+    try {
+      src = readFileSync(path.join(RAIZ, rel), 'utf-8');
+    } catch { continue; }
+    src = sinComentarios(src, rel);
     const dir = path.posix.dirname(rel.split(path.sep).join('/'));
     const re = /require\(\s*['"](\.[\w./-]+?)(?:\.js)?['"]\s*\)/g;
     let m;
@@ -205,8 +395,8 @@ function lhsDe(src, idxIgual) {
  *         sea que la sacaba de su propia jurisdicción. Un punto ciego disfrazado de exención
  *         es peor que uno que se ve.
  */
-function lecturas(srcConComentarios) {
-  const src = sinComentarios(srcConComentarios);
+function lecturas(srcConComentarios, etiqueta = '') {
+  const src = sinLiterales(srcConComentarios, etiqueta);
   const out = [];
   const re = /\bsupabase\s*\.\s*(?:from|rpc)\s*\(/g;
   let m;
@@ -221,6 +411,26 @@ function lecturas(srcConComentarios) {
     while ((mm = reIgual.exec(izq)) !== null) ult = mm;
     if (!ult) { out.push({ lhs: null, linea }); continue; }
     const eq = ult.index + ult[0].length - 1;
+    // **El `=` tiene que estar en el MISMO bloque que la query.** Si entre el `=` y el ancla
+    // se abrió una llave que no cerró, ese `=` es de otra cosa y este statement no asigna
+    // nada: es una escritura fire-and-forget. Las dos formas que lo disparan están vivas:
+    //
+    //   · `const marcarVerificado = async () => { await supabase.from('webapp_otp')…`
+    //   · `async function registrarError(tag, msg, opts = {}) { try { await supabase.from('errores')…`
+    //
+    // La segunda es el mismo parámetro por defecto que el caso de `registrarEvento` que ya
+    // tiene su fixture — y muestra que "tomar el último `=`" sólo alcanza cuando la query SÍ
+    // asigna. Cuando no asigna nada, la firma vuelve a ganar y una ESCRITURA sale reportada
+    // como lectura muda: el guard en rojo sobre código correcto, que es la dirección que
+    // enseña a ignorarlo.
+    //
+    // El balance de llaves basta y no abre nada: son 0 sitios de 165 en este perímetro y 2 de
+    // 148 en `handlers/`+`lib/`, los dos escrituras verificadas a mano. Y si algún día una
+    // lectura de verdad cayera acá, no desaparece: pasa a `SIN_ASIGNACION`, que este mismo
+    // archivo exige vacío. Cambia de aserción, no de jurisdicción.
+    let bloque = 0;
+    for (const c of izq.slice(eq + 1)) { if (c === '{') bloque++; else if (c === '}') bloque--; }
+    if (bloque > 0) { out.push({ lhs: null, linea }); continue; }
     let lhs = lhsDe(izq, eq);
     if (/^[A-Za-z_$][\w$]*$/.test(lhs)) {
       // Sin `await` entre el `=` y la query, lo que se asignó no es el RESULTADO sino el
@@ -366,7 +576,7 @@ function leeElError(lhs, indice = null) {
 
 /** `{ archivo, lhs, linea }` de todo el perímetro. */
 const TODAS = ARCHIVOS.flatMap((rel) =>
-  lecturas(readFileSync(path.join(RAIZ, rel), 'utf-8')).map((l) => ({ ...l, archivo: rel })));
+  lecturas(readFileSync(path.join(RAIZ, rel), 'utf-8'), rel).map((l) => ({ ...l, archivo: rel })));
 const CON_ASIGNACION = TODAS.filter((l) => l.lhs !== null);
 const SIN_ASIGNACION = TODAS.filter((l) => l.lhs === null);
 
@@ -378,7 +588,11 @@ describe('el perímetro es el que el cron alcanza', () => {
    * sin que nadie se entere: el modo de falla exacto que esta versión vino a cerrar.
    */
   it('deriva los servicios que el cron llama', () => {
-    expect(ARCHIVOS.length).toBeGreaterThanOrEqual(17);
+    // El piso va en el conteo REAL (18), no uno por debajo. Con 17 contra 18 reales, perder
+    // un servicio derivado entero —lo que pasa si el recorrido falla sobre un archivo y la
+    // derivación lo saltea— no cruzaba el umbral, y sólo lo atrapaban los `toContain` de
+    // abajo, que nombran cinco de los dieciocho.
+    expect(ARCHIVOS.length).toBeGreaterThanOrEqual(18);
     // Los que el backlog nombraba como el trabajo pendiente…
     expect(ARCHIVOS).toContain('services/survey-triggers.js');
     expect(ARCHIVOS).toContain('services/debts.js');
@@ -404,7 +618,7 @@ describe('el perímetro es el que el cron alcanza', () => {
   it('nadie aliasea el cliente de supabase dentro del perímetro', () => {
     const sospechosos = [];
     for (const rel of ARCHIVOS) {
-      const src = sinComentarios(readFileSync(path.join(RAIZ, rel), 'utf-8'));
+      const src = sinComentarios(readFileSync(path.join(RAIZ, rel), 'utf-8'), rel);
       // `= supabase` a secas (no `supabase.from`, no `supabase.rpc`), y `supabase['from']`.
       const alias = /=\s*supabase\s*(?:[;,)\]}]|$)/m.test(src);
       const computado = /\bsupabase\s*\[/.test(src);
@@ -485,6 +699,166 @@ describe('el parser ve lo que dice ver', () => {
     const [l] = lecturas(real);
     expect(l.lhs, 'el LHS extraído fue la firma de la función, no el destructuring').toBe('{ data, error }');
     expect(leeElError(l.lhs), 'una lectura que SÍ lee su error salió reportada como muda').toBe(true);
+    // Y este caso es además el ESPEJO de la regla del balance de llaves: acá la firma abre un
+    // bloque, pero el `=` elegido es el del destructuring, que ya está adentro. Balance 0, o
+    // sea que la regla nueva no puede volver escritura a esta lectura.
+  });
+
+  /**
+   * **El `;` que se comía el blanqueador.** Forma literal de `handlers/webhook.js:827-830`: una
+   * cadena de copy que termina en un link, y en la línea siguiente una escritura sin asignar.
+   * Con el blanqueo por regex, el `//` de `https://` borraba el resto de la línea —el `;`
+   * incluido— y la escritura heredaba el `respuesta =` de arriba.
+   */
+  it('un `https://` dentro de una cadena no se come el `;` del statement', () => {
+    const real = [
+      "        respuesta = '📊 Revisa tu dashboard en *https://app.neto.pe*';",
+      "      await supabase.from('usuarios').update({ recordatorios_activos: false }).eq('id', usuario.id);",
+    ].join('\n');
+    const [l] = lecturas(real);
+    expect(l.lhs, 'el blanqueo se comió el `;` y la escritura heredó el LHS de la línea de arriba').toBe(null);
+  });
+
+  /**
+   * **CONTROL, no aserción**, y va dicho porque no se distingue de un guard mirándolo: este
+   * caso pasa con el arreglo puesto y también con el arreglo revertido — no lo mata ninguna
+   * mutación. Existe para mostrar que el par de fixtures difiere en UNA cosa (el link), o sea
+   * que el de arriba falla por el `//` y no por otra diferencia. Sin él, el de arriba podría
+   * estar rechazando por cualquier motivo.
+   */
+  it('CONTROL: la misma forma sin el link ya daba escritura', () => {
+    const real = [
+      "        respuesta = '📊 Revisa tu dashboard';",
+      "      await supabase.from('usuarios').update({ recordatorios_activos: false }).eq('id', usuario.id);",
+    ].join('\n');
+    expect(lecturas(real)[0].lhs).toBe(null);
+  });
+
+  /**
+   * **El `=` de otro bloque, en sus dos formas vivas.** Las dos son ESCRITURAS que salían
+   * reportadas como lecturas mudas, o sea el guard en rojo sobre código correcto.
+   */
+  it('una query en el cuerpo de una arrow no hereda el LHS de la arrow', () => {
+    const real = [
+      '        const marcarVerificado = async () => {',
+      "          await supabase.from('webapp_otp').update({ verified_at: hoy }).eq('id', otp.id);",
+      '        };',
+    ].join('\n');
+    const [l] = lecturas(real);
+    expect(l.lhs, 'la escritura salió como lectura muda con LHS `marcarVerificado`').toBe(null);
+  });
+
+  it('un parámetro por defecto no es la asignación cuando la query NO asigna nada', () => {
+    const real = [
+      'async function registrarError(tag, mensaje, opts = {}) {',
+      '  try {',
+      "    await supabase.from('errores').insert({ tag });",
+    ].join('\n');
+    const [l] = lecturas(real);
+    expect(l.lhs, 'la firma de la función salió como LHS de una escritura').toBe(null);
+  });
+
+  /**
+   * **Las formas de regex que desincronizaban el recorrido.** Las encontró una revisión
+   * adversarial ejecutándolas, y la segunda es la que enseña: con un número PAR de comillas
+   * espurias el scanner **no tira** —se emparejan entre sí— y envenena en silencio todo lo
+   * que hay en el medio. Ahí la query comentada RESUCITA, que es la peor dirección posible:
+   * el guard señalando una línea que nadie ejecuta.
+   */
+  it('un literal de regex con comilla no abre una cadena', () => {
+    const real = [
+      "const limpio = valor.replace(/['\"]/g, '');",
+      "const u = 'https://app.neto.pe';",
+      "const { data } = await supabase.from('t').select('*');",
+    ].join('\n');
+    const encontradas = lecturas(real);
+    expect(encontradas.length, 'la query desapareció del barrido').toBe(1);
+    expect(leeElError(encontradas[0].lhs)).toBe(false);
+  });
+
+  it('dos regex con comilla no se emparejan entre sí y no resucitan código comentado', () => {
+    const real = [
+      'const a = s.replace(/"/g, "");',
+      "// const { data } = await supabase.from('fantasma').select('*')",
+      'const b = s.replace(/"/g, "");',
+    ].join('\n');
+    expect(lecturas(real), 'una query COMENTADA entró al barrido').toEqual([]);
+  });
+
+  it('una división no se confunde con un literal de regex', () => {
+    const real = [
+      'const pct = (a) / (b) / 2;',
+      "const { data } = await supabase.from('t').select('*');",
+    ].join('\n');
+    expect(lecturas(real).length).toBe(1);
+  });
+
+  /**
+   * **La asimetría comentario-sí / cadena-no.** El mismo texto dentro de un comentario se
+   * blanqueaba desde siempre; dentro de una cadena, no. Así una escritura fire-and-forget
+   * conseguía un LHS prestado que lee el error, o sea una EXENCIÓN — la peor de las tres
+   * salidas. Lo encontró una revisión adversarial.
+   */
+  it('un LHS que vive dentro de una cadena no exime a la escritura de al lado', () => {
+    // **Sin `;` a propósito, y la primera versión de este caso los llevaba y era VACUA**: con
+    // el `;` el statement se corta ahí igual, así que pasaba con el arreglo y sin él. La
+    // evasión necesita que no haya frontera, que es cuando el backtrack entra en la cadena.
+    const real = [
+      "const plantilla = 'const { data, error } = await supabase'",
+      "await supabase.from('t').insert({ a: 1 })",
+    ].join('\n');
+    const [l] = lecturas(real);
+    // **Lo que se exige es que no sea una EXENCIÓN, no que quede perfecta.** Sin el blanqueo
+    // el LHS que se roba de la cadena es `{ data, error }`, o sea que la escritura sale
+    // reportada como una lectura que SÍ lee su error: desaparece de las dos listas y el
+    // build queda verde. Con el blanqueo queda `plantilla`, que sigue sin ser exacto —es una
+    // escritura, no una lectura— pero cae en MUDA y rompe el build. De los tres destinos, el
+    // único inaceptable es el que no rompe nada.
+    expect(leeElError(l.lhs, l.indice), 'la cadena le prestó un LHS que lee el error: exención').toBe(false);
+  });
+
+  it('un `;` dentro de una cadena no corta el statement', () => {
+    const real = "const { data, error } = await Promise.all([registrar('paso;1'), supabase.from('t').select('*')])";
+    const [l] = lecturas(real);
+    expect(l.lhs, 'el `;` de la cadena cortó el statement y perdió el LHS').not.toBe(null);
+  });
+
+  it('una llave suelta dentro de una cadena no dispara la regla de bloque', () => {
+    const real = "const { data, error } = (avisar('formato {'), await supabase.from('t').select('*'));";
+    const [l] = lecturas(real);
+    expect(leeElError(l.lhs), 'una llave de TEXTO volvió escritura a una lectura correcta').toBe(true);
+  });
+
+  /**
+   * El tripwire, sobre TODO el árbol de runtime y no sólo sobre el perímetro. Va más ancho a
+   * propósito: los dos throws del recorrido ya corren sobre el perímetro al construir
+   * `TODAS`, así que un caso ahí revienta antes de llegar acá — este `it` sería código
+   * muerto. Lo que cubre de verdad son los archivos que el perímetro **todavía no incluye** y
+   * que un `require` nuevo puede meter mañana: es donde vivían los 24 archivos con
+   * `/['"]/` que rompían la primera versión del scanner.
+   */
+  it('el recorrido no se desincroniza en ningún archivo del árbol de runtime', () => {
+    const js = (dir, out = []) => {
+      let entradas;
+      try { entradas = readdirSync(path.join(RAIZ, dir)); } catch { return out; }
+      for (const f of entradas) {
+        const rel = dir + '/' + f;
+        if (statSync(path.join(RAIZ, rel)).isDirectory()) js(rel, out);
+        else if (f.endsWith('.js')) out.push(rel);
+      }
+      return out;
+    };
+    const archivos = ['cron', 'services', 'handlers', 'lib', 'helpers', 'routes'].flatMap((d) => js(d));
+    expect(archivos.length, 'el barrido no encontró archivos: dejó de mirar').toBeGreaterThan(60);
+    const rotos = [];
+    for (const rel of archivos) {
+      const raw = readFileSync(path.join(RAIZ, rel), 'utf-8');
+      try {
+        expect(sinComentarios(raw, rel).length).toBe(raw.length);
+        expect(sinLiterales(raw, rel).length).toBe(raw.length);
+      } catch (e) { rotos.push(rel + ': ' + e.message); }
+    }
+    expect(rotos, 'el scanner perdió el hilo en estos archivos').toEqual([]);
   });
 
   /**
