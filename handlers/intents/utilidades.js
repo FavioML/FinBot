@@ -68,9 +68,13 @@ module.exports = {
           const anioBusq = datos.anio || anioActual;
           const desdeBusq = anioBusq + '-' + String(mesBusq).padStart(2,'0') + '-01';
           const hastaBusq = anioBusq + '-' + String(mesBusq).padStart(2,'0') + '-' + String(ultimoDiaMes(anioBusq, mesBusq)).padStart(2,'0');
-          const { data: txsBusq } = await supabase.from('transacciones').select('*')
+          const { data: txsBusq, error: errBusq } = await supabase.from('transacciones').select('*')
             .eq('usuario_id', usuario.id).ilike('comercio', '%' + comercioBusq + '%')
             .gte('fecha', desdeBusq).lte('fecha', hastaBusq).order('fecha', { ascending: false });
+          // Al `catch` de abajo, que ya dice "No pude buscar ese gasto". Sin esto, una lectura
+          // caida contestaba "No encontre gastos de Netflix en abril" — una afirmacion sobre
+          // un comercio concreto, no un vacio.
+          if (errBusq) throw errBusq;
           if (!txsBusq || txsBusq.length === 0) return 'No encontré gastos de *' + comercioBusq + '* en ' + mE[mesBusq] + ' ' + anioBusq + '.';
           const totalBusq = txsBusq.reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
           let msgBusq = '🔍 *Gastos en ' + comercioBusq + '* (' + mE[mesBusq] + ' ' + anioBusq + ')\n\nTotal: *S/ ' + totalBusq.toFixed(2) + '* en ' + txsBusq.length + ' pago' + (txsBusq.length > 1 ? 's' : '') + '\n\n';
@@ -96,10 +100,20 @@ module.exports = {
           const hasta1 = anio1 + '-' + String(mes1).padStart(2,'0') + '-' + String(ultimoDiaMes(anio1, mes1)).padStart(2,'0');
           const desde2 = anio2 + '-' + String(mes2Raw).padStart(2,'0') + '-01';
           const hasta2 = anio2 + '-' + String(mes2Raw).padStart(2,'0') + '-' + String(ultimoDiaMes(anio2, mes2Raw)).padStart(2,'0');
-          const [{ data: txs1 }, { data: txs2 }] = await Promise.all([
+          const [{ data: txs1, error: err1 }, { data: txs2, error: err2 }] = await Promise.all([
             supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).eq('tipo', 'gasto').gte('fecha', desde1).lte('fecha', hasta1),
             supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).eq('tipo', 'gasto').gte('fecha', desde2).lte('fecha', hasta2)
           ]);
+          // **Las DOS mitades, y por eso este sitio no comparte arreglo con los otros.**
+          // `Promise.all` no rechaza —supabase-js no lanza— asi que si cae UNA sola query la
+          // otra llega entera y el calculo sigue corriendo: la diferencia y el porcentaje se
+          // imprimen con un mes en cero. Eso no es "no hay datos": es "abril: S/ 0.00,
+          // diferencia -S/ 1,240 (-100%)" sobre un mes que existio. Un numero plausible y
+          // falso es peor que un cero, porque nadie sospecha de el.
+          if (err1 || err2) {
+            log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, mitad: [err1 && 'mes1', err2 && 'mes2'].filter(Boolean).join('+'), err: (err1 || err2).message }, 'comparar_meses: una de las dos mitades no se pudo leer');
+            throw (err1 || err2);
+          }
           const total1 = (txs1||[]).reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
           const total2 = (txs2||[]).reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
           const diff = total1 - total2;
@@ -129,9 +143,13 @@ module.exports = {
         try {
           const comercioFreq = datos.comercio;
           if (!comercioFreq) return '¿De qué comercio quieres saber la frecuencia? Ej: _"cuántas veces fui a Rappi"_';
-          const { data: txsFreq } = await supabase.from('transacciones').select('*')
+          const { data: txsFreq, error: errFreq } = await supabase.from('transacciones').select('*')
             .eq('usuario_id', usuario.id).ilike('comercio', '%' + comercioFreq + '%')
             .order('fecha', { ascending: false });
+          // El vacio de este sitio no es neutro, ACUSA: "No encontre pagos en Rappi. ¿Seguro
+          // que se llama asi?". Sobre una lectura caida le manda a dudar del nombre a alguien
+          // que lo escribio bien.
+          if (errFreq) throw errFreq;
           if (!txsFreq || !txsFreq.length) return 'No encontré pagos en *' + comercioFreq + '*. ¿Seguro que se llama así?';
           const totalFreq = txsFreq.reduce((s, t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
           const promFreq = totalFreq / txsFreq.length;

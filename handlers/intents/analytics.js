@@ -81,10 +81,14 @@ module.exports = {
       case 'ver_historial_cambios': {
         try {
           const hoyStr = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' })).toISOString().split('T')[0];
-          const { data: txsModif } = await supabase.from('transacciones').select('*')
+          const { data: txsModif, error: errModif } = await supabase.from('transacciones').select('*')
             .eq('usuario_id', usuario.id)
             .gte('updated_at', hoyStr + 'T00:00:00')
             .order('updated_at', { ascending: false }).limit(10);
+          // Al `catch`, que dice "No pude consultar los cambios recientes". El vacio de este
+          // sitio afirma de mas: "No hiciste cambios hoy. Todo esta igual que ayer 👍" — un
+          // visto bueno sobre una pregunta que no se pudo hacer.
+          if (errModif) throw errModif;
           if (!txsModif || !txsModif.length) return 'No hiciste cambios hoy. Todo está igual que ayer. 👍';
           let respHist = '📝 *Cambios recientes (hoy):*\n\n';
           txsModif.forEach(t => {
@@ -107,12 +111,17 @@ module.exports = {
           if (periodoIng === 'semana') {
             const hace7 = ahoraPeru(); hace7.setDate(hace7.getDate() - 7);
             const desdeIng = hace7.getFullYear() + '-' + String(hace7.getMonth() + 1).padStart(2, '0') + '-' + String(hace7.getDate()).padStart(2, '0');
-            const { data } = await supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).eq('tipo', 'ingreso').gte('fecha', desdeIng).order('fecha', { ascending: false });
+            const { data, error: errIngSem } = await supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).eq('tipo', 'ingreso').gte('fecha', desdeIng).order('fecha', { ascending: false });
+            // Las dos ramas de `ver_ingresos` son EXCLUSIVAS (semana o mes), no un par: cada
+            // una necesita su propia guarda porque solo corre una. Sin ella, "No tienes
+            // ingresos registrados esta semana" sobre el sueldo que la persona anoto ayer.
+            if (errIngSem) throw errIngSem;
             txsIng = data || [];
           } else {
             const desdeIng = anioIng + '-' + String(mesIng).padStart(2,'0') + '-01';
             const hastaIng = anioIng + '-' + String(mesIng).padStart(2,'0') + '-' + String(ultimoDiaMes(anioIng, mesIng)).padStart(2,'0');
-            const { data } = await supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).eq('tipo', 'ingreso').gte('fecha', desdeIng).lte('fecha', hastaIng).order('fecha', { ascending: false });
+            const { data, error: errIngMes } = await supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).eq('tipo', 'ingreso').gte('fecha', desdeIng).lte('fecha', hastaIng).order('fecha', { ascending: false });
+            if (errIngMes) throw errIngMes;
             txsIng = data || [];
           }
           if (txsIng.length === 0) return 'No tienes ingresos registrados ' + (periodoIng === 'semana' ? 'esta semana' : 'en ' + mE[mesIng]) + '.\n\n_Registra ingresos: "mi sueldo fue S/4500"_';

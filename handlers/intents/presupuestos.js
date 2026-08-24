@@ -66,10 +66,20 @@ module.exports = {
           const anioBal = datos.anio || anioActual;
           const desdeBal = anioBal + '-' + String(mesBal).padStart(2,'0') + '-01';
           const hastaBal = anioBal + '-' + String(mesBal).padStart(2,'0') + '-' + String(ultimoDiaMes(anioBal, mesBal)).padStart(2,'0');
-          const [{ data: gastosBal }, { data: ingresosBal }] = await Promise.all([
+          const [{ data: gastosBal, error: errG }, { data: ingresosBal, error: errI }] = await Promise.all([
             supabase.from('transacciones').select('monto_pen,monto').eq('usuario_id', usuario.id).eq('tipo', 'gasto').gte('fecha', desdeBal).lte('fecha', hastaBal),
             supabase.from('transacciones').select('monto_pen,monto').eq('usuario_id', usuario.id).eq('tipo', 'ingreso').gte('fecha', desdeBal).lte('fecha', hastaBal)
           ]);
+          // **El peor de los dieciseis, y el que obliga a mirar las DOS mitades.** El balance
+          // es ingresos menos gastos: si cae la mitad de los ingresos, la otra llega entera y
+          // el resultado es `-gastos reales`. O sea un balance NEGATIVO, con los gastos de
+          // verdad, presentado con el ⚠️ y el "Llevas gastado el 100% de tus ingresos".
+          // Nada en la pantalla delata que faltó una consulta. `Promise.all` no ayuda: no
+          // rechaza, porque supabase-js no lanza.
+          if (errG || errI) {
+            log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, mitad: [errG && 'gastos', errI && 'ingresos'].filter(Boolean).join('+'), err: (errG || errI).message }, 'ver_balance: una de las dos mitades no se pudo leer');
+            throw (errG || errI);
+          }
           const totalGBal = (gastosBal||[]).reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
           const totalIBal = (ingresosBal||[]).reduce((s,t) => s + parseFloat(t.monto_pen || t.monto || 0), 0);
           const balance = totalIBal - totalGBal;
