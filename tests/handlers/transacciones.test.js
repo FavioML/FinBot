@@ -11,8 +11,12 @@ const handler = require('../../handlers/intents/transacciones');
 
 function makeChain(data = [], error = null) {
   const c = {};
+  // `maybeSingle` faltaba y su ausencia no daba un fallo legible: el chain devolvía `undefined`,
+  // el call-site lo invocaba y el TypeError caía en el catch del intent, que responde el mismo
+  // texto amable que un fallo de negocio. O sea que un método sin modelar se veía igual que un
+  // rechazo de la DB. Lo destapó el claim de `restaurar_eliminado` al empezar a usarlo.
   const METHODS = ['select','insert','update','delete','upsert',
-                   'eq','ilike','gte','lte','is','neq','not','order','limit','single'];
+                   'eq','ilike','gte','lte','is','neq','not','order','limit','single','maybeSingle'];
   for (const m of METHODS) {
     c[m] = vi.fn().mockReturnValue(c);
   }

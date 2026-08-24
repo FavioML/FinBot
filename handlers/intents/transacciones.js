@@ -162,12 +162,38 @@ async function guardarSnapshotEliminacion(supabase, usuarioId, tx, tag) {
     }).select('id').single();
     if (error || !data) {
       log.warn({ tag, err: (error && error.message) || 'insert sin fila devuelta' }, 'No se pudo guardar snapshot');
-      return false;
+      return null;
     }
-    return true;
+    // Devuelve el ID y no un booleano: es lo que le permite a `descartarSnapshot` apuntar a ESTA
+    // copia. Ver allá por qué reconstruir el WHERE no servía.
+    return data.id;
   } catch (e) {
     log.warn({ tag, err: e.message }, 'No se pudo guardar snapshot');
-    return false;
+    return null;
+  }
+}
+
+// Contraparte de `guardarSnapshotEliminacion`: si el DELETE no entró, la copia sobra y además
+// es peligrosa. `restaurar_eliminado` re-inserta toda copia pendiente sin preguntar si el
+// original sigue vivo, así que un snapshot huérfano es una duplicación de plata esperando a que
+// alguien escriba "restaura". Falla ruidosa pero NO cambia la respuesta al usuario: lo que a él
+// le importa es que su gasto sigue ahí, y eso es lo que el mensaje ya le dice.
+// **Borra por ID, y la primera versión no lo hacía.** Reconstruía el WHERE
+// (`usuario_id + tx_id + restored_at is null`) y eso está mal por dos motivos que se midieron:
+//
+//  · `transacciones_eliminadas` no tiene unique sobre `tx_id` (migración 005), así que dos
+//    borrados concurrentes del mismo gasto dejan DOS copias pendientes. Con el WHERE
+//    reconstruido, la compensación de uno se llevaba también la copia del otro — que ya había
+//    borrado la fila y ya le había prometido al usuario que podía restaurarla.
+//  · Un DELETE destructivo sostenido por tres filtros que ningún test verifica es un comentario,
+//    no una garantía: la revisión adversarial quitó los tres, de a uno, y la suite quedó verde
+//    con los tres. Por ID el radio de daño es una fila y ES la fila que este mensaje escribió.
+async function descartarSnapshot(supabase, snapshotId, tag) {
+  try {
+    const { error } = await supabase.from('transacciones_eliminadas').delete().eq('id', snapshotId);
+    if (error) log.error({ tag, snapshotId, err: error.message }, 'Snapshot huérfano: el delete falló y la copia quedó restaurable');
+  } catch (e) {
+    log.error({ tag, snapshotId, err: e.message }, 'Snapshot huérfano: el delete falló y la copia quedó restaurable');
   }
 }
 
@@ -557,7 +583,15 @@ module.exports = {
               if (txActualizada) {
                 const updFields = { categoria: catLibre };
                 if (subLibre) updFields.subcategoria = subLibre;
-                await supabase.from('transacciones').update(updFields).eq('id', txActualizada.id);
+                const { error: errMoverCat } = await supabase.from('transacciones').update(updFields).eq('id', txActualizada.id);
+                // Se corta ACÁ y no después: la regla y la retroaplicación son la consecuencia de
+                // este cambio. Guardarlas sobre una fila que no se movió parte el pasado y el
+                // futuro del mismo comercio en dos categorías —el split que B30 vino a cerrar— y
+                // encima el mensaje afirma "Apliqué el cambio a todos los pagos anteriores".
+                if (errMoverCat) {
+                  log.error({ tag: 'CORREGIR', err: errMoverCat.message, txId: txActualizada.id }, 'No se pudo mover el gasto de categoría');
+                  return 'No pude mover ese gasto ahora mismo. Vuelve a intentarlo en un momento.';
+                }
               } else {
                 return '\u00bfDe qu\u00e9 gasto hablamos? D\u00edme el comercio y lo muevo.';
               }
@@ -671,7 +705,11 @@ module.exports = {
             updates.monto_pen = nuevoMonto;
             updates.tipo_cambio = null;
           }
-          await supabase.from('transacciones').update(updates).eq('id', ultimaTxM.id);
+          const { error: errMoneda } = await supabase.from('transacciones').update(updates).eq('id', ultimaTxM.id);
+          if (errMoneda) {
+            log.error({ tag: 'CORREGIR_MONEDA', err: errMoneda.message, txId: ultimaTxM.id }, 'No se pudo corregir monto/moneda');
+            return 'No pude corregir la moneda ahora mismo. Vuelve a intentarlo en un momento.';
+          }
           const comercioM = ultimaTxM.comercio || 'el gasto';
           const montoStrM = nuevaMoneda === 'USD'
             ? '$' + nuevoMonto.toFixed(2) + ' (~S/ ' + updates.monto_pen.toFixed(2) + ')'
@@ -684,6 +722,8 @@ module.exports = {
       }
 
       case 'eliminar_transaccion': {
+        // Fuera del `try` a propósito: el catch la necesita para compensar (ver abajo).
+        let snapshotEliminarId = null;
         try {
           const comercioElim = datos.comercio || null;
           const montoElimReq = datos.monto != null ? parseFloat(datos.monto) : null;
@@ -744,17 +784,46 @@ module.exports = {
           // Snapshot para auditoría + restore. Va ANTES del delete y bloqueante: si no
           // queda escrito, borramos igual (es lo que pidió el usuario) pero sin prometer
           // una restauración que no podríamos cumplir.
-          const snapshotOk = await guardarSnapshotEliminacion(supabase, usuario.id, txElim, 'ELIMINAR_AUDIT');
+          snapshotEliminarId = await guardarSnapshotEliminacion(supabase, usuario.id, txElim, 'ELIMINAR_AUDIT');
 
           // Si es transacción de Gmail, guardar en excluidos para evitar re-importación
           if (txElim.descripcion_original && !txElim.descripcion_original.startsWith('duplicado:')) {
             const { error: errExc } = await supabase.from('gmail_excluidos').upsert({ usuario_id: usuario.id, descripcion_original: txElim.descripcion_original }, { onConflict: 'usuario_id,descripcion_original' });
             if (errExc) log.warn({ tag: 'ELIMINAR_EXCLUIDO', err: errExc.message }, 'No se pudo excluir de Gmail');
           }
-          await supabase.from('transacciones').delete().eq('id', txElim.id);
+          // `.select('id')` no es decorativo: postgrest **no** devuelve error cuando el DELETE no
+          // matchea ninguna fila, así que sin esto "la escritura no tocó nada" produce la misma
+          // confirmación falsa que este ítem vino a cerrar. Pasa de verdad con un doble envío:
+          // el segundo mensaje snapshotea, borra cero filas, confirma igual, y quedan dos copias
+          // pendientes de la misma transacción — o sea el gasto duplicado al restaurar.
+          const { data: filasBorradas, error: errBorrar } = await supabase.from('transacciones').delete().eq('id', txElim.id).select('id');
+          if (!errBorrar && (!filasBorradas || filasBorradas.length === 0)) {
+            if (snapshotEliminarId) await descartarSnapshot(supabase, snapshotEliminarId, 'ELIMINAR_AUDIT');
+            log.warn({ tag: 'ELIMINAR', txId: txElim.id }, 'El delete no afectó ninguna fila');
+            return 'Ese gasto ya no está. Puede que lo hayas eliminado hace un momento.';
+          }
+          if (errBorrar) {
+            // El snapshot ya entró y la fila sigue viva: esas dos cosas juntas son la duplicación
+            // descrita en `descartarSnapshot`. Sólo se compensa si hubo copia que descartar.
+            if (snapshotEliminarId) await descartarSnapshot(supabase, snapshotEliminarId, 'ELIMINAR_AUDIT');
+            log.error({ tag: 'ELIMINAR', err: errBorrar.message, txId: txElim.id }, 'No se pudo eliminar la transacción');
+            return 'No pude eliminarlo ahora mismo. Vuelve a intentarlo en un momento.';
+          }
           const montoElim = txElim.moneda === 'USD' ? '$' + parseFloat(txElim.monto).toFixed(2) : 'S/ ' + parseFloat(txElim.monto).toFixed(2);
-          return 'Listo. Eliminé *' + (txElim.comercio || 'ese gasto') + '* (' + montoElim + ') del ' + txElim.fecha + '.' + avisoRestauracion(snapshotOk);
+          return 'Listo. Eliminé *' + (txElim.comercio || 'ese gasto') + '* (' + montoElim + ') del ' + txElim.fecha + '.' + avisoRestauracion(snapshotEliminarId);
         } catch(e) {
+          // La compensación cuelga TAMBIÉN de acá y no sólo de la rama `error`: si el await
+          // rechaza en vez de resolver, la copia queda igual de huérfana y el `if (errBorrar)`
+          // nunca corre. Es defensa en profundidad y conviene decirlo así: postgrest-js no
+          // rechaza por contrato (convierte el fallo de fetch en `error`), y entre el snapshot y
+          // el `return` no queda ningún otro `await` que pueda tirar. El test que la cubre
+          // fabrica el rechazo a mano, porque el cliente real no lo produce.
+          //
+          // Descarta por ID, así que el radio de daño es la copia que ESTE mensaje escribió.
+          // Acá decía que filtraba por `tx_id` + `restored_at is null` y "no puede tocar nada
+          // más": era falso — sin unique sobre `tx_id`, ese WHERE alcanzaba también la copia de
+          // un borrado concurrente del mismo gasto.
+          if (snapshotEliminarId) await descartarSnapshot(supabase, snapshotEliminarId, 'ELIMINAR_AUDIT');
           log.error({ tag: 'ELIMINAR', err: e.message }, 'Error eliminando transacción');
           return 'No pude eliminarlo. ¿De cuál gasto se trata?';
         }
@@ -806,19 +875,66 @@ module.exports = {
             fecha: snap.fecha,
             descripcion_original: snap.descripcion_original,
           };
+          // **El ORDEN de estas dos escrituras es la decisión, no un detalle de estilo.**
+          //
+          // Antes: insert, y después marcar la copia como restaurada sin mirar su error. Si la
+          // marca no entraba, la copia seguía PENDIENTE con la transacción ya re-insertada, así
+          // que el siguiente "restaura" la insertaba otra vez: plata duplicada, en silencio, y el
+          // mensaje decía "Restauré" las dos veces. Dos "restaura" seguidos duplicaban igual,
+          // porque nada arbitraba entre ellos.
+          //
+          // Ahora se RECLAMA primero: el `.is('restored_at', null)` sobre el UPDATE es el mismo
+          // claim atómico de `reclamarPagoPendiente` (WHERE condicional en Postgres), así que una
+          // sola ejecución se lleva la copia. Y si el insert falla después, la copia vuelve a
+          // pendiente para que el reintento funcione.
+          //
+          // **Lo que este orden NO cierra, y decirlo importa porque la primera versión de este
+          // comentario afirmaba que sí.** Si el INSERT commitea en Postgres pero el cliente ve
+          // error igual (timeout después del commit, corte de conexión), la devolución a
+          // pendiente deja la copia reclamable con la transacción viva, y el "restaura"
+          // siguiente duplica. Ese caso existía idéntico en el orden viejo —no lo introduce el
+          // reorden— y no se puede cerrar acá: `payloadRestore` no lleva `dedup_hash` (ese
+          // cálculo vive en `guardarTransaccion`, que este camino saltea) y no hay unique que
+          // aplique. Queda anotado en el backlog, no tapado con un comentario que diga otra cosa.
+          //
+          // Lo que el reorden SÍ cambia es el caso frecuente —el error que el cliente ve porque
+          // la escritura de verdad no entró— y la carrera de dos "restaura", que antes no tenía
+          // árbitro y ahora lo tiene.
+          const { data: copiaReclamada, error: errReclamoCopia } = await supabase.from('transacciones_eliminadas')
+            .update({ restored_at: new Date().toISOString() })
+            .eq('id', objetivo.id).is('restored_at', null)
+            .select('id').maybeSingle();
+          if (errReclamoCopia) {
+            log.error({ tag: 'RESTAURAR', err: errReclamoCopia.message, snapshotId: objetivo.id }, 'No se pudo reclamar la copia');
+            return 'No pude restaurar el gasto ahora mismo. Vuelve a intentarlo en un momento.';
+          }
+          if (!copiaReclamada) {
+            // Otro mensaje se la llevó entre medio. Re-insertar acá es exactamente la duplicación.
+            //
+            // El texto NO afirma que esté restaurado: el ganador de la carrera todavía puede
+            // fallar su insert y devolver la copia a pendiente, y entonces "ya lo restauré"
+            // sería la mentira inversa a la que este ítem vino a cerrar.
+            return 'Ese gasto ya lo estoy restaurando. Dame un momento y revisa tu historial.';
+          }
           const { error: insErr } = await supabase.from('transacciones').insert(payloadRestore);
           if (insErr) {
-            log.error({ tag: 'RESTAURAR', err: insErr.message }, 'Error al re-insertar tx');
+            log.error({ tag: 'RESTAURAR', err: insErr.message, snapshotId: objetivo.id }, 'Error al re-insertar tx');
+            const { error: errDevolver } = await supabase.from('transacciones_eliminadas')
+              .update({ restored_at: null }).eq('id', objetivo.id);
+            if (errDevolver) log.error({ tag: 'RESTAURAR', err: errDevolver.message, snapshotId: objetivo.id }, 'La copia quedó marcada sin transacción: ya no se puede restaurar');
             return 'No pude restaurar el gasto. Intenta registrarlo manualmente.';
           }
-          await supabase.from('transacciones_eliminadas').update({ restored_at: new Date().toISOString() }).eq('id', objetivo.id);
 
           // Si estaba en gmail_excluidos, quitarlo para que vuelva a poder importarse
           if (snap.descripcion_original && !String(snap.descripcion_original).startsWith('duplicado:')) {
-            await supabase.from('gmail_excluidos').delete()
+            // ACCESORIA a propósito, y la única de las once que no cambia la respuesta: si esta
+            // fila no se borra, el correo sigue excluido y la transacción —ya restaurada— sólo
+            // deja de re-importarse. El fallo no le quita nada al usuario. Lo que se gana es el
+            // log: el `.catch()` que había sólo veía errores de red, y postgrest no lanza.
+            const { error: errExcRest } = await supabase.from('gmail_excluidos').delete()
               .eq('usuario_id', usuario.id)
-              .eq('descripcion_original', snap.descripcion_original)
-              .then(() => {}).catch(() => {});
+              .eq('descripcion_original', snap.descripcion_original);
+            if (errExcRest) log.warn({ tag: 'RESTAURAR', err: errExcRest.message }, 'No se pudo quitar de gmail_excluidos');
           }
 
           const montoStr = snap.moneda === 'USD' ? '$' + parseFloat(snap.monto).toFixed(2) : 'S/ ' + parseFloat(snap.monto).toFixed(2);
@@ -868,7 +984,11 @@ module.exports = {
           } else {
             updates.monto_pen = montoNuevo;
           }
-          await supabase.from('transacciones').update(updates).eq('id', txEditM.id);
+          const { error: errEditMonto } = await supabase.from('transacciones').update(updates).eq('id', txEditM.id);
+          if (errEditMonto) {
+            log.error({ tag: 'EDITAR_MONTO', err: errEditMonto.message, txId: txEditM.id }, 'No se pudo editar el monto');
+            return 'No pude corregir el monto ahora mismo. Vuelve a intentarlo en un momento.';
+          }
           const montoViejo = monedaEdit === 'USD' ? '$' + parseFloat(txEditM.monto).toFixed(2) : 'S/ ' + parseFloat(txEditM.monto).toFixed(2);
           const montoNuevoStr = monedaEdit === 'USD' ? '$' + montoNuevo.toFixed(2) : 'S/ ' + montoNuevo.toFixed(2);
           return '✅ Monto corregido.\n*' + (txEditM.comercio || 'Gasto') + '*: ' + montoViejo + ' → ' + montoNuevoStr;
@@ -898,7 +1018,11 @@ module.exports = {
           }
           if (!txEditF) txEditF = await obtenerUltimaTransaccion(usuario.id);
           if (!txEditF) return 'No encuentro un gasto reciente para corregir.';
-          await supabase.from('transacciones').update({ fecha: fechaNueva }).eq('id', txEditF.id);
+          const { error: errEditFecha } = await supabase.from('transacciones').update({ fecha: fechaNueva }).eq('id', txEditF.id);
+          if (errEditFecha) {
+            log.error({ tag: 'EDITAR_FECHA', err: errEditFecha.message, txId: txEditF.id }, 'No se pudo editar la fecha');
+            return 'No pude corregir la fecha ahora mismo. Vuelve a intentarlo en un momento.';
+          }
           return '✅ Fecha corregida.\n*' + (txEditF.comercio || 'Gasto') + '*: ' + formatFecha(txEditF.fecha) + ' → ' + formatFecha(fechaNueva);
         } catch(e) {
           log.error({ tag: 'EDITAR_FECHA', err: e.message }, 'Error editando fecha');
@@ -920,7 +1044,11 @@ module.exports = {
           if (!txEditC) txEditC = await obtenerUltimaTransaccion(usuario.id);
           if (!txEditC) return 'No encuentro un gasto reciente para corregir.';
           const comercioViejo = txEditC.comercio || 'Sin nombre';
-          await supabase.from('transacciones').update({ comercio: comercioNuevo }).eq('id', txEditC.id);
+          const { error: errEditCom } = await supabase.from('transacciones').update({ comercio: comercioNuevo }).eq('id', txEditC.id);
+          if (errEditCom) {
+            log.error({ tag: 'EDITAR_COMERCIO', err: errEditCom.message, txId: txEditC.id }, 'No se pudo editar el comercio');
+            return 'No pude corregir el comercio ahora mismo. Vuelve a intentarlo en un momento.';
+          }
           return '✅ Comercio corregido.\n' + comercioViejo + ' → *' + comercioNuevo + '*';
         } catch(e) {
           log.error({ tag: 'EDITAR_COMERCIO', err: e.message }, 'Error editando comercio');
@@ -957,7 +1085,11 @@ module.exports = {
           } else {
             updates.monto_pen = montoNuevoDiv;
           }
-          await supabase.from('transacciones').update(updates).eq('id', txDiv.id);
+          const { error: errDividir } = await supabase.from('transacciones').update(updates).eq('id', txDiv.id);
+          if (errDividir) {
+            log.error({ tag: 'DIVIDIR', err: errDividir.message, txId: txDiv.id }, 'No se pudo dividir el gasto');
+            return 'No pude dividir el gasto ahora mismo. Vuelve a intentarlo en un momento.';
+          }
           const monedaDiv = txDiv.moneda === 'USD' ? '$' : 'S/ ';
           return '✅ Gasto dividido entre ' + partes + '.\n*' + (txDiv.comercio || 'Gasto') + '*: ' + monedaDiv + montoOriginal.toFixed(2) + ' → ' + monedaDiv + montoNuevoDiv.toFixed(2) + ' (tu parte)';
         } catch(e) {
@@ -993,6 +1125,8 @@ module.exports = {
       }
 
       case 'deshacer_ultimo': {
+        // Ver `eliminar_transaccion`.
+        let snapshotDeshacerId = null;
         try {
           const txDeshacer = await obtenerUltimaTransaccion(usuario.id);
           if (!txDeshacer) return 'No hay transacciones recientes para deshacer.';
@@ -1006,10 +1140,24 @@ module.exports = {
           }
           // Snapshot bloqueante y verificado ANTES del delete: el mensaje solo ofrece
           // restaurar si la copia quedó guardada.
-          const snapshotDeshacerOk = await guardarSnapshotEliminacion(supabase, usuario.id, txDeshacer, 'DESHACER_AUDIT');
-          await supabase.from('transacciones').delete().eq('id', txDeshacer.id);
-          return '↩️ *Deshecho:*\n\nEliminé *' + (txDeshacer.comercio || 'último registro') + '* — ' + montoDeshacer + ' del ' + (txDeshacer.fecha || '') + '.' + avisoRestauracion(snapshotDeshacerOk);
+          snapshotDeshacerId = await guardarSnapshotEliminacion(supabase, usuario.id, txDeshacer, 'DESHACER_AUDIT');
+          const { data: filasDeshechas, error: errDeshacer } = await supabase.from('transacciones').delete().eq('id', txDeshacer.id).select('id');
+          if (!errDeshacer && (!filasDeshechas || filasDeshechas.length === 0)) {
+            // Ver el mismo caso en `eliminar_transaccion`.
+            if (snapshotDeshacerId) await descartarSnapshot(supabase, snapshotDeshacerId, 'DESHACER_AUDIT');
+            log.warn({ tag: 'DESHACER', txId: txDeshacer.id }, 'El delete no afectó ninguna fila');
+            return 'Ese registro ya no está. Puede que lo hayas eliminado hace un momento.';
+          }
+          if (errDeshacer) {
+            // Mismo par ordenado que en `eliminar_transaccion`: copia escrita + fila viva.
+            if (snapshotDeshacerId) await descartarSnapshot(supabase, snapshotDeshacerId, 'DESHACER_AUDIT');
+            log.error({ tag: 'DESHACER', err: errDeshacer.message, txId: txDeshacer.id }, 'No se pudo deshacer');
+            return 'No pude deshacerlo ahora mismo. Vuelve a intentarlo en un momento.';
+          }
+          return '↩️ *Deshecho:*\n\nEliminé *' + (txDeshacer.comercio || 'último registro') + '* — ' + montoDeshacer + ' del ' + (txDeshacer.fecha || '') + '.' + avisoRestauracion(snapshotDeshacerId);
         } catch(e) {
+          // Mismo motivo que en `eliminar_transaccion`.
+          if (snapshotDeshacerId) await descartarSnapshot(supabase, snapshotDeshacerId, 'DESHACER_AUDIT');
           log.error({ tag: 'DESHACER', err: e.message }, 'Error deshacer último');
           return 'No pude deshacer la última acción. Intenta de nuevo.';
         }
@@ -1092,7 +1240,11 @@ module.exports = {
           if (!txMarcar) txMarcar = await obtenerUltimaTransaccion(usuario.id);
           if (!txMarcar) return 'No hay transacciones recientes para modificar.';
           const tipoNuevo = datos.tipo_nuevo || 'ingreso';
-          await supabase.from('transacciones').update({ tipo: tipoNuevo }).eq('id', txMarcar.id);
+          const { error: errMarcar } = await supabase.from('transacciones').update({ tipo: tipoNuevo }).eq('id', txMarcar.id);
+          if (errMarcar) {
+            log.error({ tag: 'MARCAR_INGRESO', err: errMarcar.message, txId: txMarcar.id }, 'No se pudo cambiar el tipo');
+            return 'No pude cambiar el tipo ahora mismo. Vuelve a intentarlo en un momento.';
+          }
           const montoMarcar = txMarcar.moneda === 'USD' ? '$' + parseFloat(txMarcar.monto).toFixed(2) : 'S/ ' + parseFloat(txMarcar.monto).toFixed(2);
           return '✅ *' + (txMarcar.comercio || 'Transacción') + '* (' + montoMarcar + ') ahora está marcado como *' + tipoNuevo + '*.\n\n_Tu balance se ha actualizado._';
         } catch(e) {

@@ -122,6 +122,59 @@ async function procesarComandoAdmin(cmd, rawText = cmd) {
 }
 
 /**
+ * Resuelve la solicitud Pro y su usuario ANTES de tocar el estado del pago.
+ *
+ * **El orden es el arreglo.** El claim de `reclamarPagoPendiente` es atómico y NO repetible:
+ * una vez que la fila pasa a `aprobado`, el reintento del botón contesta "Ya procesado" y no
+ * vuelve a activar nada. Así que todo lo que pueda fallar tiene que fallar ANTES del claim.
+ *
+ * Acá vivía el agujero: la lectura del usuario iba DESPUÉS del claim y descartaba su `error`,
+ * así que una lectura caída se leía como "Usuario no encontrado" — con el pago ya marcado
+ * aprobado, `activarPro` sin correr, y la persona pagando y quedándose en Free. Leer el error
+ * ahí habría cambiado la mentira por un error honesto, pero el pago quedaba trabado igual: lo
+ * que lo destraba es mover el claim, no mirar el error de donde estaba.
+ *
+ * Es el mismo diagnóstico que `pro-payment.js` cerró para la lectura de `pagos`: se blindó una
+ * y el agujero se mudó a la de al lado. La lección que queda escrita es esa, no el parche.
+ *
+ * `maybeSingle` y no `single`: con cero filas `single` devuelve PGRST116 en `error`, y un
+ * `if (error)` a secas convertiría "ese pago no existe" en un fallo de infraestructura.
+ *
+ * @returns {Promise<{pago:object,usuario:object}|{answer:string}>}
+ */
+async function resolverSolicitudPro(pagoId) {
+  const { data: pago, error: errPago } = await supabase.from('pagos')
+    .select('id, estado, usuario_id').eq('id', pagoId).maybeSingle();
+  if (errPago) {
+    log.error({ tag: 'ADMIN_CB', err: errPago.message, pagoId }, 'No se pudo leer la solicitud');
+    return { answer: 'No pude leer la solicitud. Reintenta el botón.' };
+  }
+  if (!pago) return { answer: 'Solicitud no encontrada' };
+  if (pago.estado !== 'pendiente') return { answer: 'Ya procesado (' + pago.estado + ')' };
+  const { data: usuario, error: errUsuario } = await supabase.from('usuarios')
+    .select('*').eq('id', pago.usuario_id).maybeSingle();
+  if (errUsuario) {
+    log.error({ tag: 'ADMIN_CB', err: errUsuario.message, pagoId, usuarioId: pago.usuario_id }, 'No se pudo leer el usuario de la solicitud');
+    return { answer: 'No pude leer el usuario. Reintenta el botón.' };
+  }
+  if (!usuario) return { answer: 'Usuario no encontrado' };
+  return { pago, usuario };
+}
+
+/**
+ * Relee el estado tras perder el claim. Un fallo de lectura acá NO puede volver a decir
+ * "Solicitud no encontrada": la fila estaba viva y pendiente dos líneas antes.
+ */
+async function estadoTrasPerderClaim(pagoId) {
+  const { data: ex, error } = await supabase.from('pagos').select('estado').eq('id', pagoId).maybeSingle();
+  if (error) {
+    log.error({ tag: 'ADMIN_CB', err: error.message, pagoId }, 'No se pudo releer el estado tras perder el claim');
+    return 'Ya procesado (no pude leer el estado final)';
+  }
+  return ex ? 'Ya procesado (' + ex.estado + ')' : 'Solicitud no encontrada';
+}
+
+/**
  * Procesa un tap de botón inline de Telegram (callback_query) sobre una solicitud Pro.
  * Formatos de `data`: `pro:approve:mensual:<pagoId>` | `pro:approve:anual:<pagoId>` | `pro:reject:<pagoId>`.
  *
@@ -140,29 +193,79 @@ async function procesarCallbackAdmin(data) {
     if (accion === 'approve') {
       const tipoPlan = parts[2] === 'anual' ? 'anual' : 'mensual';
       const pagoId = parts[3];
+      // Todo lo que puede fallar, falla antes del claim. Ver `resolverSolicitudPro`.
+      const resuelto = await resolverSolicitudPro(pagoId);
+      if (resuelto.answer) return { answer: resuelto.answer };
+      const usuario = resuelto.usuario;
       // Claim atómico: solo un tap gana la fila. Un segundo tap / reintento del callback
       // recibe null y no re-activa (antes se apilaba un mes extra + fila duplicada).
-      const claimed = await reclamarPagoPendiente({ pagoId, aprobadoPor: 'admin:telegram' });
-      if (!claimed) {
-        const { data: ex } = await supabase.from('pagos').select('estado').eq('id', pagoId).maybeSingle();
-        return { answer: ex ? 'Ya procesado (' + ex.estado + ')' : 'Solicitud no encontrada' };
+      // `reclamarPagoPendiente` LANZA a propósito cuando no puede distinguir "otro tap ganó" de
+      // un fallo de infraestructura (`lib/pro-payment.js`), y ese throw caía en el catch genérico:
+      // el admin leía "Error procesando" sin ninguna de las dos indicaciones. Acá no se reclamó
+      // nada, así que el botón sirve.
+      let claimed;
+      try {
+        claimed = await reclamarPagoPendiente({ pagoId, aprobadoPor: 'admin:telegram' });
+      } catch (e) {
+        log.error({ tag: 'ADMIN_CB', err: e.message, pagoId }, 'Falló el claim del pago');
+        return { answer: 'No pude reclamar la solicitud. Reintenta el botón.' };
       }
-      const { data: usuario } = await supabase.from('usuarios').select('*').eq('id', claimed.usuario_id).single();
-      if (!usuario) return { answer: 'Usuario no encontrado' };
-      const { venceStr } = await activarPro({ usuario, tipoPlan, aprobadoPor: 'admin:telegram', pagoId: claimed.id, esConversionPagada: true });
+      if (!claimed) return { answer: await estadoTrasPerderClaim(pagoId) };
+      let venceStr;
+      try {
+        ({ venceStr } = await activarPro({ usuario, tipoPlan, aprobadoPor: 'admin:telegram', pagoId: claimed.id, esConversionPagada: true }));
+      } catch (e) {
+        log.error({ tag: 'ADMIN_CB', err: e.message, pagoId, usuarioId: usuario.id }, 'Pago aprobado pero Pro no se activó');
+        // **No se puede prescribir la recuperación a ciegas, y la primera versión de esto lo
+        // hacía mal en las dos mitades.** Decía "la fila quedó en aprobado, corre /activar", y
+        // las dos afirmaciones son falsas para el fallo dominante:
+        //
+        //  · `activarPro` DEVUELVE el pago a `pendiente` cuando falla su escritura crítica
+        //    (`lib/pro-payment.js`), y si ni el rollback entra avisa al admin por su cuenta. O sea
+        //    que casi siempre alcanza con volver a tocar Aprobar.
+        //  · `/activar` es el camino de CORTESÍA: registra el pago en **S/0** (`cajaDelMes` suma
+        //    esa columna), no le paga el mes al referrer y le manda al usuario el copy de
+        //    "sin costo" habiendo pagado. Mandar ahí a alguien que transfirió S/10 sub-registra
+        //    ingreso — la misma clase de B10, indicada por el mensaje de error.
+        //
+        // Así que se LEE en qué estado quedó y se dice eso.
+        const { data: tras, error: errTras } = await supabase.from('pagos').select('estado').eq('id', pagoId).maybeSingle();
+        // **TRES ramas, no dos.** La primera versión mandaba el fallo de LECTURA al mensaje que
+        // afirma "NO volvió a pendiente" — o sea aseguraba un estado que no pudo leer, que es
+        // exactamente la falacia que `estadoTrasPerderClaim` evita cincuenta líneas más arriba,
+        // en este mismo commit. Y muerde justo cuando más importa: el mismo hipo de red tumba la
+        // escritura de `activarPro` (que sí revierte) y la relectura, y el admin termina metiendo
+        // SQL a mano sobre `pagos` — la causa acotada del incidente del 2026-08-01.
+        if (errTras) {
+          return { answer: '⚠️ No se activó Pro y no pude leer cómo quedó la solicitud. Revisa la fila — NO uses /activar (registra S/0).' };
+        }
+        if (tras && tras.estado === 'pendiente') {
+          return { answer: '⚠️ No se activó Pro. La solicitud volvió a pendiente: toca Aprobar otra vez.' };
+        }
+        return { answer: '⚠️ No se activó Pro y la solicitud NO volvió a pendiente. Revisar a mano — NO uses /activar (registra S/0).' };
+      }
       return { answer: 'Aprobado ✅', edit: '✅ Aprobado (' + tipoPlan + ') — ' + (usuario.nombre || usuario.whatsapp) + '\nVence: ' + venceStr };
     }
     if (accion === 'reject') {
       const pagoId = parts[2];
+      // Mismo orden que en approve, y por el mismo motivo: el rechazo también es un claim que no
+      // se repite, y con la lectura del usuario después, un fallo dejaba la solicitud en
+      // `rechazado` sin que `rechazarSolicitudPro` corriera — o sea sin que nadie le avisara nada
+      // a quien pagó, y con el reintento contestando "Ya procesado".
+      const resuelto = await resolverSolicitudPro(pagoId);
+      if (resuelto.answer) return { answer: resuelto.answer };
+      const usuario = resuelto.usuario;
       // Claim atómico también en rechazo: evita doble mensaje "no pudimos validar" por doble-tap.
-      const { data: claimed } = await supabase.from('pagos')
+      // Lee su `error`: sin eso, un rechazo de la DB es indistinguible de "otro tap ganó la fila"
+      // y el admin veía "Ya procesado" sobre un pago que seguía pendiente. Es el mismo par de
+      // síntomas que `reclamarPagoPendiente` documenta para la aprobación.
+      const { data: claimed, error: errClaimRechazo } = await supabase.from('pagos')
         .update({ estado: 'rechazado' }).eq('id', pagoId).eq('estado', 'pendiente').select('usuario_id').maybeSingle();
-      if (!claimed) {
-        const { data: ex } = await supabase.from('pagos').select('estado').eq('id', pagoId).maybeSingle();
-        return { answer: ex ? 'Ya procesado (' + ex.estado + ')' : 'Solicitud no encontrada' };
+      if (errClaimRechazo) {
+        log.error({ tag: 'ADMIN_CB', err: errClaimRechazo.message, pagoId }, 'Falló el claim del rechazo');
+        return { answer: 'No pude rechazarlo. Reintenta el botón.' };
       }
-      const { data: usuario } = await supabase.from('usuarios').select('*').eq('id', claimed.usuario_id).single();
-      if (!usuario) return { answer: 'Usuario no encontrado' };
+      if (!claimed) return { answer: await estadoTrasPerderClaim(pagoId) };
       await rechazarSolicitudPro({ pagoId, usuario, motivo: 'No pudimos validar el comprobante.' });
       return { answer: 'Rechazado', edit: '❌ Rechazado — ' + (usuario.nombre || usuario.whatsapp) };
     }
