@@ -182,9 +182,16 @@ module.exports = {
           }
 
           // Find counterpart member
-          const { data: members } = await supabase.from('space_members')
+          // Con esta lectura caída, `members || []` deja el `.find` sin nada que encontrar y la
+          // respuesta era 'No encontré a "Juan" en el espacio Depa' — una afirmación sobre quién
+          // está adentro, hecha sin haber podido mirar. Y el pago no se registra.
+          const { data: members, error: errMembers } = await supabase.from('space_members')
             .select('user_id, usuarios(nombre)')
             .eq('space_id', space.id);
+          if (errMembers) {
+            log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, spaceId: space.id, err: errMembers.message }, 'liquidar_espacio: no se pudo leer space_members');
+            throw errMembers;
+          }
           const target = (members || []).find(m =>
             m.user_id !== usuario.id &&
             m.usuarios?.nombre?.toLowerCase().includes(contraparte.toLowerCase())
@@ -214,7 +221,14 @@ module.exports = {
           }
 
           // Check member limit
-          const { data: members } = await supabase.from('space_members').select('id').eq('space_id', space.id);
+          // El único de los catorce que falla ABIERTO: `members?.length || 0` le pasa 0 al límite,
+          // así que un premium con los 6 miembros llenos igual se llevaba el link. (A un free lo
+          // frena igual: `maxSpaceMembers` es 0 y `0 >= 0` bloquea con cualquier conteo.)
+          const { data: members, error: errMembersInv } = await supabase.from('space_members').select('id').eq('space_id', space.id);
+          if (errMembersInv) {
+            log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, spaceId: space.id, err: errMembersInv.message }, 'invitar_espacio: no se pudo contar los miembros, el limite no se puede evaluar');
+            throw errMembersInv;
+          }
           const memberLimit = checkProLimit(usuario, 'maxSpaceMembers', members?.length || 0);
           if (memberLimit.blocked) {
             return '🔒 Tu espacio tiene ' + (members?.length || 0) + ' miembros (máximo ' + memberLimit.limit + ').\n\n_Con *Neto Pro* puedes tener hasta 6 miembros._';

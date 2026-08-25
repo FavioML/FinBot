@@ -7,6 +7,20 @@ const { sumarMeses } = require('../../lib/dates');
 const { validarMonto } = require('../../lib/validators');
 const { verificarEscritura, entro } = require('../../helpers/escritura-verificada');
 
+/**
+ * Las cuatro formas de pedir una PARTE de lo que se debe ("la mitad", "un tercio", "40%").
+ *
+ * Están acá arriba y no en línea porque `abonar_deuda` las necesita en DOS lugares: para
+ * elegir la fracción, y para decidir si la lectura del pendiente era imprescindible. Escritas
+ * dos veces divergen solas, y la divergencia acá se paga en plata: la guarda dejaría pasar
+ * una fracción que la rama sí sabe resolver.
+ */
+const RE_MITAD = /\b(la mitad|medio)\b/i;
+const RE_TERCIO = /\b(un tercio|la tercera parte)\b/i;
+const RE_CUARTO = /\b(un cuarto|la cuarta parte)\b/i;
+const RE_PORCENTAJE = /(\d+)\s*%/;
+const pideFraccion = (m) => RE_MITAD.test(m) || RE_TERCIO.test(m) || RE_CUARTO.test(m) || RE_PORCENTAJE.test(m);
+
 module.exports = {
   intents: ['registrar_deuda', 'ver_deudas', 'abonar_deuda', 'marcar_deuda_pagada', 'consolidar_deudas', 'saldar_todo_contraparte', 'dividir_gasto_grupal'],
   async handle({ intencion, msg, datos, usuario, from, ctx }) {
@@ -113,7 +127,7 @@ module.exports = {
           if (contraparte.length > 100) contraparte = contraparte.substring(0, 100);
           // Corrección automática: si existe deuda reciente con mismo monto/contraparte pero tipo opuesto, eliminarla
           const tipoOpuesto = tipo === 'debo' ? 'me_deben' : 'debo';
-          const { data: duplicadaOpuesta } = await supabase
+          const { data: duplicadaOpuesta, error: errDupOpuesta } = await supabase
             .from('deudas')
             .select('id')
             .eq('usuario_id', usuario.id)
@@ -138,15 +152,24 @@ module.exports = {
           //     "Juan te debe S/200"), y la persona las va a encontrar en "mis deudas" sin
           //     ninguna pista de por qué están las dos.
           //
-          // **Alcance honesto del aviso, y una revisión adversarial lo acotó:** cubre el DELETE
-          // que falla, NO el otro camino que produce el mismo desenlace. La lectura de arriba
-          // (`duplicadaOpuesta`) descarta su `{ error }`, así que con esa consulta caída queda
-          // `undefined`, el DELETE ni se intenta y las dos anotaciones opuestas sobreviven
-          // igual — sin aviso. Esa lectura es una de las 14 que 9B-bis dejó abiertas a
-          // propósito (punto 2 del ítem); mientras siga muda, este aviso ve la mitad de su
-          // propia clase.
+          // **El aviso cubre los DOS caminos al mismo desenlace, y ese es el arreglo de 9B-quater.**
+          // Antes cubría sólo el DELETE que falla: con la LECTURA caída, `duplicadaOpuesta` quedaba
+          // `undefined`, el DELETE ni se intentaba, y las dos anotaciones opuestas sobrevivían
+          // igual — sin aviso. O sea que el aviso veía la mitad de su propia clase.
+          //
+          // **El texto de los dos NO es el mismo, y no es cosmética.** Cuando el DELETE falla,
+          // sabemos que la opuesta está: se afirma. Cuando falla la LECTURA no sabemos si existe
+          // —lo más probable es que no—, así que afirmarlo sería el mismo pecado en el otro
+          // sentido: decirle algo que no medimos. Se dice lo que pasó, que es que no se pudo mirar.
+          //
+          // **Alcance: la rama de UN monto.** El camino multi-moneda ("100 soles y 50 dólares")
+          // retorna más arriba y no pasa por acá, así que nunca tuvo corrección de la opuesta ni
+          // aviso — es anterior a 9B-quater y está anotado en docs/DEFECTOS.md, no arreglado acá.
           let avisoOpuesta = '';
-          if (duplicadaOpuesta && duplicadaOpuesta.length > 0) {
+          if (errDupOpuesta) {
+            log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, err: errDupOpuesta.message }, 'registrar_deuda: no se pudo revisar la anotacion opuesta reciente');
+            avisoOpuesta = '\n\n⚠️ No pude revisar si te quedó la anotación opuesta de hace un rato. Si la ves repetida, bórrala desde _"mis deudas"_.';
+          } else if (duplicadaOpuesta && duplicadaOpuesta.length > 0) {
             const vDup = await verificarEscritura(
               supabase.from('deudas').delete().eq('id', duplicadaOpuesta[0].id).select('id'),
               { sitio: 'registrar_deuda_corrige_opuesta', userId: usuario.id, campos: ['id'], ceroFilas: 'esperado' });
@@ -195,19 +218,23 @@ module.exports = {
           }
 
           // Soporte fracciones: "la mitad", "un tercio", "X%"
+          let pendienteNoLeido = false;
           if (montoAbono === null && contraparte) {
-            const { data: deudasCalc } = await supabase.from('deudas')
+            const { data: deudasCalc, error: errDeudasCalc } = await supabase.from('deudas')
               .select('monto_pendiente')
               .eq('usuario_id', usuario.id).eq('estado', 'activa')
               .ilike('contraparte', '%' + contraparte.trim() + '%')
               .order('created_at', { ascending: false }).limit(1);
-            if (deudasCalc && deudasCalc.length > 0) {
+            if (errDeudasCalc) {
+              log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, err: errDeudasCalc.message }, 'abonar_deuda: no se pudo leer el pendiente para resolver la fraccion');
+              pendienteNoLeido = true;
+            } else if (deudasCalc && deudasCalc.length > 0) {
               const pendiente = parseFloat(deudasCalc[0].monto_pendiente);
-              if (/\b(la mitad|medio)\b/i.test(msg)) montoAbono = pendiente * 0.5;
-              else if (/\b(un tercio|la tercera parte)\b/i.test(msg)) montoAbono = pendiente / 3;
-              else if (/\b(un cuarto|la cuarta parte)\b/i.test(msg)) montoAbono = pendiente * 0.25;
+              if (RE_MITAD.test(msg)) montoAbono = pendiente * 0.5;
+              else if (RE_TERCIO.test(msg)) montoAbono = pendiente / 3;
+              else if (RE_CUARTO.test(msg)) montoAbono = pendiente * 0.25;
               else {
-                const pctMatch = msg.match(/(\d+)\s*%/);
+                const pctMatch = msg.match(RE_PORCENTAJE);
                 if (pctMatch) montoAbono = pendiente * (parseInt(pctMatch[1]) / 100);
               }
               // La fracción sale de una división: si `monto_pendiente` viniera
@@ -217,12 +244,34 @@ module.exports = {
             }
           }
 
+          // **La única de las catorce donde la respuesta equivocada REGISTRA un monto, y por eso
+          // corta acá — ANTES del fallback numérico de abajo.** "Annie me dio 50%" sin el
+          // pendiente caía en ese fallback, que agarra el primer número del mensaje: abonaba
+          // S/ 50 en vez del 50% del saldo. Y "le pagué la mitad" sin números terminaba en el
+          // "¿A quién y cuánto?", que le echa la culpa a cómo escribió cuando el problema fue
+          // nuestro.
+          //
+          // **La condición mira el DESENLACE, no la causa, y esa fue la corrección de la revisión
+          // adversarial.** La primera versión cortaba por `pendienteNoLeido`, o sea sólo cuando
+          // la lectura se caía. Las otras dos causas producen el mismo daño y quedaban afuera:
+          // que no haya deuda activa con esa persona, y que la fila tenga `monto_pendiente` en
+          // null o 0 (la columna es nullable a propósito, migración 068) — ahí la fracción sale
+          // NaN, `validarMonto` la anula, y "le pagué la mitad de los 300 a Juan" abonaba 300.
+          //
+          // Corta SÓLO si el mensaje pedía una parte Y hay a quién. Sin fracción, esa consulta no
+          // decidía nada —el monto sale del clasificador o del texto— y frenar por una lectura
+          // que no se iba a usar es apagar de más: queda el log y sigue de largo.
+          if (contraparte && pideFraccion(msg) && montoAbono === null) {
+            return pendienteNoLeido
+              ? 'No pude consultar cuánto le debes para sacar esa parte. Inténtalo de nuevo en unos segundos.'
+              : 'No pude sacar esa parte: no encontré una deuda activa con saldo pendiente con *' + contraparte + '*.\n\n_Revisa con "mis deudas"._';
+          }
+
           // Fallback: extraer monto del mensaje si el clasificador no lo capturó
           if (montoAbono === null) {
             const mMontoFb = msg.match(/(\d+(?:[.,]\d+)?)/);
             if (mMontoFb) montoAbono = validarMonto(mMontoFb[1].replace(',', '.'));
           }
-
           if (!contraparte || montoAbono === null) {
             return '¿A quién y cuánto? Dime algo como:\n_"le pagué 100 a Juan"_\n_"Annie me dio la mitad"_\n_"mi tía Jenny me pagó 500"_';
           }

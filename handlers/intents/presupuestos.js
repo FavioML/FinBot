@@ -120,9 +120,15 @@ module.exports = {
         try {
           const catElimP = datos.categoria;
           if (!catElimP) return '¿De qué categoría quieres eliminar el presupuesto? Ej: _"quita el límite de comida"_';
-          const { data: presElim } = await supabase.from('presupuestos').select('*')
+          const { data: presElim, error: errPresElim } = await supabase.from('presupuestos').select('*')
             .eq('usuario_id', usuario.id).ilike('categoria', '%' + catElimP + '%')
             .eq('mes', mesActual).eq('anio', anioActual);
+          // "No tienes presupuesto de Alimentación este mes" sobre una lectura caída es el ejemplo
+          // que da nombre a la clase: la persona se queda creyendo que no configuró nada.
+          if (errPresElim) {
+            log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, categoria: catElimP, err: errPresElim.message }, 'eliminar_presupuesto: no se pudo leer presupuestos');
+            throw errPresElim;
+          }
           if (!presElim || !presElim.length) return 'No tienes presupuesto de *' + catElimP + '* este mes.';
           // Gemelo exacto de `eliminar_meta`, y con el mismo motivo para separar los dos malos:
           // el éxito recita el monto que era (`S/ 500`) desde la fila que se leyó arriba. Sobre

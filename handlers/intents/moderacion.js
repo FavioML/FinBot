@@ -29,14 +29,25 @@ module.exports = {
           }
           // Marcar el ultimo survey_event WhatsApp como opted_out_after para tracking de fatiga (UPDATE-05)
           try {
-            const { data: lastEvent } = await supabase.from('survey_events')
+            // ACCESORIA de punta a punta: acá el desenlace NO cambia para la persona (el silencio
+            // ya está escrito arriba), así que el copy se queda como está y lo único que se compra
+            // es que la serie de fatiga deje de perder opt-outs sin que nadie se entere.
+            //
+            // `maybeSingle` y no `single`: con `single`, cero filas —el caso normal de quien nunca
+            // recibió una encuesta— vuelve como `error` PGRST116, así que una guarda de `error`
+            // gritaría LECTURA_CAIDA sobre el camino sano. Un warn que suena todos los días se deja
+            // de leer, y ahí el log valdría lo mismo que no tenerlo.
+            const { data: lastEvent, error: errLastEvent } = await supabase.from('survey_events')
               .select('id')
               .eq('user_id', usuario.id)
               .eq('channel', 'whatsapp')
               .not('sent_at', 'is', null)
               .order('sent_at', { ascending: false })
               .limit(1)
-              .single();
+              .maybeSingle();
+            if (errLastEvent) {
+              log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, err: errLastEvent.message }, 'silenciar: no se pudo leer el ultimo survey_event, el opt-out no queda marcado');
+            }
             if (lastEvent?.id) {
               // ACCESORIA: es telemetría de fatiga, no le cambia nada a la persona, y para
               // cuando corre el silencio ya está escrito. No toca el copy — lo único que se

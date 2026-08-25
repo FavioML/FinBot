@@ -41,9 +41,11 @@ const { detectarQuerySinMonto } = require('../../handlers/intents/transacciones'
  * mock de `escrituras-de-plata.test.js`). Si algún día rechazara, los cinco sitios que hoy
  * devuelven lanzarían igual.
  *
- * **Y el perímetro son estos 16 sitios, NO el directorio.** `handlers/intents/` tiene más
- * lecturas de la misma forma sin dueño —`presupuestos.js:102`, `metas.js`, `espacios.js`,
- * `deudas.js`, `moderacion.js`—; están anotadas en el backlog, no cerradas acá.
+ * **El perímetro son 30 sitios: los 16 de 9B más los 14 de 9B-quater** (deudas 2, espacios 2,
+ * metas 8, moderación 1, presupuestos 1), cerrados abajo en su propia sección. Los 8 que
+ * quedan mudos en `transacciones.js` son OTRA clase declarada por 9B —fallan cerrado y son
+ * las que ENCUENTRAN la fila a editar—, no un olvido. El conteo se re-mide con
+ * `node scripts/inventario-escrituras-intents.mjs`, que hoy da `lecturas mudas=8`.
  *
  * El mock de `escrituras-de-plata.test.js` falla por `(tabla, verbo)` porque allá leer y
  * escribir compartían tabla. Acá eso NO alcanza: los dieciséis son `transacciones:select`,
@@ -78,15 +80,35 @@ function makeSupabase({ filas = () => [], fallos = [] } = {}) {
     from(tabla) {
       const filtros = [];
       const b = {};
+      let verbo = 'select';
+      let payload = null;
+      let head = false;
+      let conCount = false;
       // Los filtros se REGISTRAN sobre el `select`, no se tiran. Es lo que hace discriminable
       // una mitad de un `Promise.all` de la otra: las dos son `transacciones:select` y sólo
       // difieren en el WHERE (`tipo=gasto` vs `tipo=ingreso`, `fecha>=desde1` vs `desde2`).
+      // `args` completo, no sólo los dos primeros: `.not('sent_at', 'is', null)` lleva TRES, y
+      // con `{op,col,val}` el tercero se perdía. Ningún fixture de hoy lo mira; el que lo
+      // mire mañana discriminaría mal sin enterarse.
       for (const op of ['eq', 'ilike', 'gte', 'lte', 'neq', 'is', 'not', 'or', 'in']) {
-        b[op] = (col, val) => { filtros.push({ op, col, val }); return b; };
+        b[op] = (...args) => { filtros.push({ op, col: args[0], val: args[1], args }); return b; };
       }
-      for (const op of ['select', 'order', 'limit']) b[op] = () => b;
+      // `order` y `limit` NO se registran, y eso acota lo que este mock puede discriminar: las
+      // tres lecturas de `metas_ahorro` de viabilidad/abandonar/recortes arman una query
+      // idéntica, así que se separan por la `intencion` con que corre el caso, no por el WHERE.
+      for (const op of ['order', 'limit']) b[op] = () => b;
+      // `head: true` se registra en vez de ignorarse. Es lo que hace medible el arreglo de
+      // `crear_meta`: con `head` postgrest devuelve `data: null` POR CONTRATO y el número en
+      // `count`, así que un mock que igual devolviera filas dejaría pasar el `.length` viejo —
+      // el bug se vería arreglado sin estarlo.
+      b.select = (_cols, opts) => { if (opts && opts.head) head = true; if (opts && opts.count) conCount = true; return b; };
+      // Las escrituras existen acá porque tres de los catorce sitios siguen de largo hacia un
+      // `verificarEscritura`, y sin ellas el caso "la lectura anduvo" ni siquiera llega al final.
+      for (const op of ['insert', 'update', 'delete', 'upsert']) {
+        b[op] = (p) => { verbo = op; payload = p || null; return b; };
+      }
       const resolver = () => {
-        const llamada = { tabla, filtros };
+        const llamada = { tabla, filtros, verbo, payload };
         llamadas.push(llamada);
         for (const f of fallos) {
           const msg = f(llamada);
@@ -95,11 +117,25 @@ function makeSupabase({ filas = () => [], fallos = [] } = {}) {
           // fixture sigue siendo el contrato.
           if (msg) return { data: null, error: { message: msg, code: '57014', details: null } };
         }
-        return { data: filas(llamada), error: null };
+        const data = filas(llamada);
+        // Sin `{ count: 'exact' }` postgrest devuelve `count: null`. Devolverlo siempre hacía
+        // que sacarle esa opción a la query saliera verde: el mock tapaba la mutación.
+        return { data: head ? null : data, count: conCount && Array.isArray(data) ? data.length : null, error: null };
       };
       b.then = (ok, ko) => Promise.resolve().then(resolver).then(ok, ko);
-      b.single = async () => { const r = resolver(); return r.error ? r : { data: (r.data || [])[0] || null, error: null }; };
-      b.maybeSingle = b.single;
+      // **`single` y `maybeSingle` NO son sinónimos, y acá la diferencia decide un log.** Con
+      // `single`, cero filas vuelve como error `PGRST116` — o sea que una guarda de `error`
+      // puesta sobre un `.single()` grita "lectura caída" sobre el camino sano. El opt-out de
+      // `moderacion.js` pasó a `maybeSingle` por eso, y esta asimetría es lo único que lo
+      // sostiene: revertirlo pone rojo el caso de cero filas.
+      b.single = async () => {
+        const r = resolver();
+        if (r.error) return r;
+        const fila = (r.data || [])[0] || null;
+        if (!fila) return { data: null, error: { message: 'JSON object requested, multiple (or no) rows returned', code: 'PGRST116', details: null } };
+        return { data: fila, error: null };
+      };
+      b.maybeSingle = async () => { const r = resolver(); return r.error ? r : { data: (r.data || [])[0] || null, error: null }; };
       return b;
     },
   };
@@ -745,5 +781,610 @@ describe('cada caída deja su rastro con el tag que se busca en producción', ()
       const l = warn.mock.calls.filter((c) => c[0] && c[0].tag === 'LECTURA_CAIDA')[0][0];
       expect(l.mitad).toBe('ingresos');
     } finally { warn.mockRestore(); }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 9B-quater — las 14 lecturas mudas que 9B dejó abiertas a propósito
+//
+// Misma clase que las 16 de arriba y mismo mock, con dos diferencias que cambian cómo se
+// escriben los casos:
+//
+//   · **Los 13 `case` de estos 14 sitios tienen `catch` propio** (verificado uno por uno, no
+//     por archivo). Un `throw` desde la lectura no llega al catch general de
+//     `procesarMensajeLibre` —o sea que NO escribe en `nlp_errors` ni avisa al admin, que es
+//     el motivo por el que los cinco sitios de `gastos.js` devuelven en vez de lanzar—: lo
+//     atrapa el catch de al lado y sale por su mensaje honesto. Por eso acá el arreglo es
+//     `log.warn(LECTURA_CAIDA) + throw`.
+//     **NO es una receta para el directorio**, y la revisión adversarial lo midió: `case`
+//     vecinos SIN try/catch —`ver_presupuesto`, `configurar_presupuesto`, `ver_categorias`,
+//     `desconectar_cuenta`, `cargar_excel`— mandarían el throw justo al catch que este patrón
+//     existe para evitar. Antes de copiarlo, mirá si el `case` tiene el suyo.
+//   · **No todas ramifican igual, y el arreglo lo refleja.** Once mienten y cortan; una mueve
+//     PLATA (`abonar_deuda`) y corta sólo cuando la lectura hacía falta; una avisa sin cortar
+//     (`registrar_deuda`); y una es telemetría pura y NO toca el copy (`silenciar`). Un
+//     `return` uniforme en las catorce habría apagado de más — el error del ítem 1.
+//
+// **El camino feliz afirma CERO logs en todos los casos.** Sin eso, un `log.warn`
+// incondicional puesto arriba de la guarda pasa los tres casos de cada sitio y la cobertura
+// del rastro es aparente. `correrEspiando` devuelve los `LECTURA_CAIDA` para que cada test
+// tenga que decir cuántos espera, en vez de mirarlos sólo cuando conviene.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const deudas = require('../../handlers/intents/deudas');
+const espacios = require('../../handlers/intents/espacios');
+const metas = require('../../handlers/intents/metas');
+const moderacion = require('../../handlers/intents/moderacion');
+
+/** Corre `fn` y devuelve su respuesta junto a los `LECTURA_CAIDA` que dejó. */
+async function correrEspiando(fn) {
+  const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+  const error = vi.spyOn(logger, 'error').mockImplementation(() => {});
+  try {
+    const r = await fn();
+    return { r, logs: warn.mock.calls.filter((c) => c[0] && c[0].tag === 'LECTURA_CAIDA').map((c) => c[0]) };
+  } finally { warn.mockRestore(); error.mockRestore(); }
+}
+
+/**
+ * `espacios.js` y tres `case` de `metas.js` resuelven sus servicios con un `require` DENTRO
+ * del handler, así que el módulo cargado se puede prestar por la duración de una llamada.
+ * No es pisar el require-cache: es sustituir exports en el objeto que ya está en memoria, y
+ * se restauran en el `finally` aunque el caso lance.
+ */
+async function conModulo(ruta, stubs, fn) {
+  const mod = require(ruta);
+  const previos = {};
+  for (const k of Object.keys(stubs)) { previos[k] = mod[k]; mod[k] = stubs[k]; }
+  try { return await fn(); } finally { for (const k of Object.keys(stubs)) mod[k] = previos[k]; }
+}
+
+const FREE = { id: 'u-1', plan: 'free', nombre: 'Favio' };
+const PREMIUM = { id: 'u-1', plan: 'premium', nombre: 'Favio' };
+const esSelect = (c) => c.verbo === 'select';
+
+const ctxMetas = (sb, extras = {}) => ({
+  supabase: sb,
+  barraProgreso: () => '▓▓▓░░░░░░░',
+  formatFecha: (f) => f || '',
+  calcularRitmoAhorro: () => ({ montoMensual: null, enRitmo: true }),
+  abonarMetaService: vi.fn(),
+  registrarLogro: vi.fn(),
+  verificarRachaAportes: vi.fn().mockResolvedValue(0),
+  ...extras,
+});
+
+const META = (over = {}) => ({
+  id: 'meta-1', usuario_id: 'u-1', nombre: 'Viaje', icono: '✈️',
+  monto_objetivo: 3000, monto_actual: 600, fecha_limite: null,
+  status: 'active', completada: false, monthly_quota: null,
+  invite_code: 'ABCD1234', colaborativa: true, ...over,
+});
+
+const correrMetas = (sb, intencion, datos = {}, { usuario = PREMIUM, msg = '', extras = {} } = {}) =>
+  metas.handle({ intencion, msg, datos, usuario, from: '+51999', ctx: ctxMetas(sb, extras) });
+
+// ─── metas.js — 8 sitios ─────────────────────────────────────────────────────
+
+describe('metas.js — las ocho lecturas de metas_ahorro', () => {
+  describe('ver_metas (sitio 20)', () => {
+    it('con datos, lista los planes', async () => {
+      const sb = makeSupabase({ filas: () => [META()] });
+      const { r, logs } = await correrEspiando(() => correrMetas(sb, 'ver_metas'));
+      expect(r).toMatch(/\*Viaje\*/);
+      expect(logs).toHaveLength(0);
+    });
+
+    it('sin filas dice que no tiene planes — y eso es cierto', async () => {
+      const sb = makeSupabase({ filas: () => [] });
+      const { r, logs } = await correrEspiando(() => correrMetas(sb, 'ver_metas'));
+      expect(r).toMatch(/No tienes planes de ahorro/);
+      expect(logs).toHaveLength(0);
+    });
+
+    it('con la lectura caída NO dice que no tiene planes', async () => {
+      const sb = makeSupabase({ fallos: [CAE_TODO] });
+      const { r, logs } = await correrEspiando(() => correrMetas(sb, 'ver_metas'));
+      expect(r).toBe('No pude consultar tus metas. Intenta de nuevo.');
+      expect(r).not.toMatch(/No tienes planes de ahorro/);
+      expect(logs).toHaveLength(1);
+      expect(logs[0]).toMatchObject({ intencion: 'ver_metas', usuarioId: 'u-1' });
+    });
+  });
+
+  describe('crear_meta, el conteo del muro (sitio 62) — el que INFORMA y no decide', () => {
+    const datos = { nombre: 'Moto', monto: 5000 };
+    // El fixture separa la LECTURA del insert: con `CAE_TODO` el insert también falla y devuelve
+    // el mismo texto que devolvería la guarda, o sea que el caso queda verde por el motivo
+    // equivocado y no puede distinguir "cortó" de "escribió y falló". Lo encontró la revisión
+    // adversarial, y es el defecto `negativo-que-rechaza-por-otra-condicion`.
+    const SOLO_EL_CONTEO = (c) => (esSelect(c) && c.tabla === 'metas_ahorro' ? 'statement timeout' : null);
+    const INSERT_OK = (c) => (esSelect(c) ? [] : [{ id: 'meta-9' }]);
+
+    it('sin planes previos, un premium lo crea', async () => {
+      const sb = makeSupabase({ filas: INSERT_OK });
+      const { r, logs } = await correrEspiando(() => correrMetas(sb, 'crear_meta', datos));
+      expect(r).toMatch(/Plan de ahorro creado/);
+      expect(logs).toHaveLength(0);
+    });
+
+    it('con el conteo caído, un premium CREA IGUAL: ese número no decidía nada', async () => {
+      // La regresión que introdujo la primera versión de 9B-quater. `maxMetas` es Infinity en
+      // Pro, así que el veredicto del muro no depende del conteo — cortar acá le costaba el plan
+      // a quien paga por una consulta accesoria.
+      const sb = makeSupabase({ filas: INSERT_OK, fallos: [SOLO_EL_CONTEO] });
+      const { r, logs } = await correrEspiando(() => correrMetas(sb, 'crear_meta', datos));
+      expect(r).toMatch(/Plan de ahorro creado/);
+      expect(sb.cuenta((c) => c.verbo === 'insert')).toBe(1);
+      expect(logs).toHaveLength(1);      // pero el rastro queda
+    });
+
+    it('en el muro, el motivo es el plan y NO un conteo que no explica nada', async () => {
+      // `maxMetas` vale 0 en el muro, o sea que bloquea con cualquier número. "Ya tienes 0 plan
+      // de ahorro activo" —lo que salía siempre— no era el motivo de nada.
+      const sb = makeSupabase({ filas: () => [] });
+      const { r, logs } = await correrEspiando(() => correrMetas(sb, 'crear_meta', datos, { usuario: FREE }));
+      expect(r).toMatch(/Los planes de ahorro son de \*Neto Pro\*/);
+      expect(r).not.toMatch(/Ya tienes 0/);
+      expect(logs).toHaveLength(0);
+    });
+
+    // Con una CUOTA finita el conteo pasa a decidir, y ahí el sitio cambia de clase. No es un
+    // hipotético de adorno: es la línea que separa "informa" de "ramifica", y se ejercita
+    // poniéndole la cuota al plan en vez de razonarla en un comentario.
+    describe('con una cuota finita (maxMetas = 3), el conteo SÍ decide', () => {
+      const conCuota = (fn) => {
+        const { PLAN_CONFIG } = require('../../lib/constants');
+        const previo = PLAN_CONFIG.free.maxMetas;
+        PLAN_CONFIG.free.maxMetas = 3;
+        return Promise.resolve().then(fn).finally(() => { PLAN_CONFIG.free.maxMetas = previo; });
+      };
+
+      it('recita el conteo REAL: el head:true lo dejaba en 0 SIEMPRE', async () => {
+        const sb = makeSupabase({ filas: () => [META(), META({ id: 'm-2' }), META({ id: 'm-3' })] });
+        const { r, logs } = await correrEspiando(() => conCuota(() => correrMetas(sb, 'crear_meta', datos, { usuario: FREE })));
+        expect(r).toMatch(/Ya tienes 3 planes de ahorro activos \(máximo 3\)/);
+        expect(r).not.toMatch(/Ya tienes 0/);
+        expect(logs).toHaveLength(0);
+      });
+
+      it('bajo la cuota, crea', async () => {
+        const sb = makeSupabase({ filas: (c) => (esSelect(c) ? [META()] : [{ id: 'meta-9' }]) });
+        const { r } = await correrEspiando(() => conCuota(() => correrMetas(sb, 'crear_meta', datos, { usuario: FREE })));
+        expect(r).toMatch(/Plan de ahorro creado/);
+      });
+
+      it('con el conteo caído NO crea a ciegas: un 0 por defecto abriría el muro', async () => {
+        const sb = makeSupabase({ filas: INSERT_OK, fallos: [SOLO_EL_CONTEO] });
+        const { r, logs } = await correrEspiando(() => conCuota(() => correrMetas(sb, 'crear_meta', datos, { usuario: FREE })));
+        expect(r).toBe('No pude crear el plan. Intenta de nuevo.');
+        expect(sb.cuenta((c) => c.verbo === 'insert')).toBe(0);
+        expect(logs).toHaveLength(1);
+      });
+    });
+  });
+
+  describe('editar_meta (sitio 111)', () => {
+    const datos = { monto_nuevo: '3000' };
+
+    it('con datos, edita', async () => {
+      const sb = makeSupabase({ filas: (c) => (esSelect(c) ? [META()] : [{ id: 'meta-1' }]) });
+      const { r, logs } = await correrEspiando(() => correrMetas(sb, 'editar_meta', datos));
+      expect(r).toMatch(/actualizada/);
+      expect(logs).toHaveLength(0);
+    });
+
+    it('sin filas dice que no tiene metas', async () => {
+      const sb = makeSupabase({ filas: () => [] });
+      const { r, logs } = await correrEspiando(() => correrMetas(sb, 'editar_meta', datos));
+      expect(r).toMatch(/No tienes metas de ahorro/);
+      expect(logs).toHaveLength(0);
+    });
+
+    it('con la lectura caída NO dice que no tiene metas', async () => {
+      const sb = makeSupabase({ fallos: [CAE_TODO] });
+      const { r, logs } = await correrEspiando(() => correrMetas(sb, 'editar_meta', datos));
+      expect(r).toBe('No pude editar la meta. Intenta de nuevo.');
+      expect(r).not.toMatch(/No tienes metas de ahorro/);
+      expect(logs).toHaveLength(1);
+      expect(sb.cuenta((c) => c.verbo === 'update')).toBe(0);
+    });
+  });
+
+  describe('eliminar_meta (sitio 156)', () => {
+    it('con datos, elimina', async () => {
+      const sb = makeSupabase({ filas: (c) => (esSelect(c) ? [META()] : [{ id: 'meta-1' }]) });
+      const { r, logs } = await correrEspiando(() => correrMetas(sb, 'eliminar_meta'));
+      expect(r).toMatch(/Eliminé la meta/);
+      expect(logs).toHaveLength(0);
+    });
+
+    it('sin filas dice que no tiene metas para eliminar', async () => {
+      const sb = makeSupabase({ filas: () => [] });
+      const { r, logs } = await correrEspiando(() => correrMetas(sb, 'eliminar_meta'));
+      expect(r).toBe('No tienes metas de ahorro para eliminar.');
+      expect(logs).toHaveLength(0);
+    });
+
+    it('con la lectura caída NO borra nada ni dice que no hay nada', async () => {
+      const sb = makeSupabase({ fallos: [CAE_TODO] });
+      const { r, logs } = await correrEspiando(() => correrMetas(sb, 'eliminar_meta'));
+      expect(r).toBe('No pude eliminar la meta. Intenta de nuevo.');
+      expect(r).not.toMatch(/No tienes metas de ahorro/);
+      expect(logs).toHaveLength(1);
+      expect(sb.cuenta((c) => c.verbo === 'delete')).toBe(0);
+    });
+  });
+
+  describe('compartir_meta (sitio 250)', () => {
+    it('con datos, devuelve el link', async () => {
+      const sb = makeSupabase({ filas: () => [META()] });
+      const { r, logs } = await correrEspiando(() => correrMetas(sb, 'compartir_meta', {}, { msg: 'comparte mi meta' }));
+      expect(r).toMatch(/app\.neto\.pe\/join\/meta\/ABCD1234/);
+      expect(logs).toHaveLength(0);
+    });
+
+    it('sin filas dice que no tiene metas activas', async () => {
+      const sb = makeSupabase({ filas: () => [] });
+      const { r, logs } = await correrEspiando(() => correrMetas(sb, 'compartir_meta', {}, { msg: 'comparte mi meta' }));
+      expect(r).toMatch(/No tienes metas activas/);
+      expect(logs).toHaveLength(0);
+    });
+
+    it('con la lectura caída NO dice que no tiene metas activas', async () => {
+      const sb = makeSupabase({ fallos: [CAE_TODO] });
+      const { r, logs } = await correrEspiando(() => correrMetas(sb, 'compartir_meta', {}, { msg: 'comparte mi meta' }));
+      expect(r).toBe('No pude generar el link. Intenta de nuevo.');
+      expect(r).not.toMatch(/No tienes metas activas/);
+      expect(logs).toHaveLength(1);
+    });
+  });
+
+  // Los tres de abajo comparten la lectura carácter por carácter y NO comparten arreglo: cada
+  // uno tiene su `case`, su catch y su copy. Un solo test sobre uno los daría por cubiertos.
+  describe('viabilidad_plan (sitio 299)', () => {
+    it('con datos, contesta sobre el plan', async () => {
+      const sb = makeSupabase({ filas: () => [META()] });
+      const { r, logs } = await correrEspiando(() => correrMetas(sb, 'viabilidad_plan'));
+      expect(r).toMatch(/no tiene fecha límite/);
+      expect(logs).toHaveLength(0);
+    });
+
+    it('sin filas dice que no tiene planes activos', async () => {
+      const sb = makeSupabase({ filas: () => [] });
+      const { r, logs } = await correrEspiando(() => correrMetas(sb, 'viabilidad_plan'));
+      expect(r).toBe('No tienes planes de ahorro activos.');
+      expect(logs).toHaveLength(0);
+    });
+
+    it('con la lectura caída NO dice que no tiene planes activos', async () => {
+      const sb = makeSupabase({ fallos: [CAE_TODO] });
+      const { r, logs } = await correrEspiando(() => correrMetas(sb, 'viabilidad_plan'));
+      expect(r).toBe('No pude analizar la viabilidad. Intenta de nuevo.');
+      expect(r).not.toMatch(/No tienes planes de ahorro activos/);
+      expect(logs).toHaveLength(1);
+    });
+  });
+
+  describe('abandonar_plan (sitio 327)', () => {
+    const conAbandonar = (fn) => conModulo('../../services/metas', { abandonarPlan: vi.fn().mockResolvedValue(true) }, fn);
+
+    it('con datos, abandona el plan', async () => {
+      const sb = makeSupabase({ filas: () => [META()] });
+      const { r, logs } = await correrEspiando(() => conAbandonar(() => correrMetas(sb, 'abandonar_plan')));
+      expect(r).toMatch(/marcado como abandonado/);
+      expect(logs).toHaveLength(0);
+    });
+
+    it('sin filas dice que no tiene planes activos', async () => {
+      const sb = makeSupabase({ filas: () => [] });
+      const { r, logs } = await correrEspiando(() => conAbandonar(() => correrMetas(sb, 'abandonar_plan')));
+      expect(r).toBe('No tienes planes de ahorro activos.');
+      expect(logs).toHaveLength(0);
+    });
+
+    it('con la lectura caída NO dice que no tiene planes activos', async () => {
+      const sb = makeSupabase({ fallos: [CAE_TODO] });
+      const { r, logs } = await correrEspiando(() => conAbandonar(() => correrMetas(sb, 'abandonar_plan')));
+      expect(r).toBe('No pude procesar tu solicitud. Intenta de nuevo.');
+      expect(r).not.toMatch(/No tienes planes de ahorro activos/);
+      expect(logs).toHaveLength(1);
+    });
+  });
+
+  describe('sugerir_recortes (sitio 357)', () => {
+    it('con datos, contesta sobre el plan', async () => {
+      const sb = makeSupabase({ filas: () => [META()] });
+      const { r, logs } = await correrEspiando(() => correrMetas(sb, 'sugerir_recortes'));
+      expect(r).toMatch(/no tiene cuota mensual definida/);
+      expect(logs).toHaveLength(0);
+    });
+
+    it('sin filas dice que no tiene planes activos', async () => {
+      const sb = makeSupabase({ filas: () => [] });
+      const { r, logs } = await correrEspiando(() => correrMetas(sb, 'sugerir_recortes'));
+      expect(r).toBe('No tienes planes de ahorro activos.');
+      expect(logs).toHaveLength(0);
+    });
+
+    it('con la lectura caída NO dice que no tiene planes activos', async () => {
+      const sb = makeSupabase({ fallos: [CAE_TODO] });
+      const { r, logs } = await correrEspiando(() => correrMetas(sb, 'sugerir_recortes'));
+      expect(r).toBe('No pude generar sugerencias. Intenta de nuevo.');
+      expect(r).not.toMatch(/No tienes planes de ahorro activos/);
+      expect(logs).toHaveLength(1);
+    });
+  });
+});
+
+// ─── espacios.js — 2 sitios ──────────────────────────────────────────────────
+
+describe('espacios.js — las dos lecturas de space_members', () => {
+  const ESPACIO = { id: 'sp-1', name: 'Depa', invite_code: 'DEPA1234' };
+  const MIEMBROS = [
+    { id: 'sm-1', user_id: 'u-1', usuarios: { nombre: 'Favio' } },
+    { id: 'sm-2', user_id: 'u-2', usuarios: { nombre: 'Juan Pérez' } },
+  ];
+
+  const correrEspacios = (sb, intencion, datos, { usuario = PREMIUM, msg = '', stubs = {} } = {}) =>
+    conModulo('../../services/shared-spaces', {
+      obtenerEspaciosUsuario: vi.fn().mockResolvedValue([ESPACIO]),
+      liquidarCuentas: vi.fn().mockResolvedValue(true),
+      ...stubs,
+    }, () => espacios.handle({ intencion, msg, datos, usuario, from: '+51999', ctx: { supabase: sb } }));
+
+  describe('liquidar_espacio (sitio 185)', () => {
+    const datos = { monto: 150, contraparte: 'Juan' };
+
+    it('con miembros, registra el pago', async () => {
+      const sb = makeSupabase({ filas: () => MIEMBROS });
+      const { r, logs } = await correrEspiando(() => correrEspacios(sb, 'liquidar_espacio', datos));
+      expect(r).toMatch(/Pago registrado/);
+      expect(logs).toHaveLength(0);
+    });
+
+    it('si la contraparte no está en el espacio, lo dice — y es cierto', async () => {
+      const sb = makeSupabase({ filas: () => [MIEMBROS[0]] });
+      const { r, logs } = await correrEspiando(() => correrEspacios(sb, 'liquidar_espacio', datos));
+      expect(r).toMatch(/No encontré a "Juan" en el espacio/);
+      expect(logs).toHaveLength(0);
+    });
+
+    it('con la lectura caída NO afirma que la persona no está en el espacio', async () => {
+      const sb = makeSupabase({ fallos: [CAE_TODO] });
+      const { r, logs } = await correrEspiando(() => correrEspacios(sb, 'liquidar_espacio', datos));
+      expect(r).toBe('No pude registrar el pago. Intenta de nuevo.');
+      expect(r).not.toMatch(/No encontré a/);
+      expect(logs).toHaveLength(1);
+      expect(logs[0]).toMatchObject({ intencion: 'liquidar_espacio', spaceId: 'sp-1' });
+    });
+  });
+
+  describe('invitar_espacio (sitio 217) — el único que fallaba ABIERTO', () => {
+    it('bajo el límite, entrega el link', async () => {
+      const sb = makeSupabase({ filas: () => MIEMBROS });
+      const { r, logs } = await correrEspiando(() => correrEspacios(sb, 'invitar_espacio', {}));
+      expect(r).toMatch(/join\/space\/DEPA1234/);
+      expect(logs).toHaveLength(0);
+    });
+
+    it('con el espacio lleno, bloquea', async () => {
+      const llenos = Array.from({ length: 6 }, (_, i) => ({ id: 'sm-' + i, user_id: 'u-' + i }));
+      const sb = makeSupabase({ filas: () => llenos });
+      const { r, logs } = await correrEspiando(() => correrEspacios(sb, 'invitar_espacio', {}));
+      expect(r).toMatch(/máximo 6/);
+      expect(r).not.toMatch(/join\/space\//);
+      expect(logs).toHaveLength(0);
+    });
+
+    it('con el conteo caído NO entrega el link: 0 miembros pasaba cualquier límite', async () => {
+      const sb = makeSupabase({ fallos: [CAE_TODO] });
+      const { r, logs } = await correrEspiando(() => correrEspacios(sb, 'invitar_espacio', {}));
+      expect(r).toBe('No pude generar la invitación. Intenta de nuevo.');
+      expect(r).not.toMatch(/join\/space\//);
+      expect(logs).toHaveLength(1);
+    });
+  });
+});
+
+// ─── deudas.js — 2 sitios ────────────────────────────────────────────────────
+
+describe('deudas.js — las dos lecturas mudas', () => {
+  const ctxDeudas = (sb, extras = {}) => ({
+    supabase: sb,
+    hoyPeru: () => '2026-04-15',
+    registrarDeuda: vi.fn().mockResolvedValue({ id: 'd-1' }),
+    formatearResumenDeudas: vi.fn().mockResolvedValue('resumen'),
+    abonarDeuda: vi.fn().mockResolvedValue({ deuda: { contraparte: 'Juan', moneda: 'PEN', monto_original: 200, monto_pendiente: 100 }, completada: false }),
+    marcarDeudaPagada: vi.fn(), consolidarDeudasPorContraparte: vi.fn(), saldarTodasDeudas: vi.fn(),
+    ...extras,
+  });
+  const correrDeudas = (sb, intencion, datos, { msg = '', extras = {} } = {}) => {
+    const ctx = ctxDeudas(sb, extras);
+    return { ctx, p: deudas.handle({ intencion, msg, datos, usuario: PREMIUM, from: '+51999', ctx }) };
+  };
+
+  describe('registrar_deuda, la corrección de la opuesta (sitio 116) — AVISA, no corta', () => {
+    const datos = { tipo: 'debo', contraparte: 'Juan', monto: 200 };
+    const AVISO_NO_PUDE = /No pude revisar si te quedó la anotación opuesta/;
+
+    it('sin opuesta reciente, anota la deuda y no avisa nada', async () => {
+      const sb = makeSupabase({ filas: () => [] });
+      const { r, logs } = await correrEspiando(() => correrDeudas(sb, 'registrar_deuda', datos).p);
+      expect(r).toMatch(/Le debes \*S\/ 200\.00\* a \*Juan\*/);
+      expect(r).not.toMatch(AVISO_NO_PUDE);
+      expect(r).not.toMatch(/te quedó también la anotación opuesta/);
+      expect(logs).toHaveLength(0);
+    });
+
+    it('con opuesta reciente y el DELETE ok, tampoco avisa', async () => {
+      const sb = makeSupabase({ filas: () => [{ id: 'dup-1' }] });
+      const { r, logs } = await correrEspiando(() => correrDeudas(sb, 'registrar_deuda', datos).p);
+      expect(r).not.toMatch(/⚠️/);
+      expect(sb.cuenta((c) => c.verbo === 'delete')).toBe(1);
+      expect(logs).toHaveLength(0);
+    });
+
+    it('con la lectura caída, la deuda entra IGUAL pero el aviso sale', async () => {
+      // El desenlace malo es el mismo que el del DELETE fallido —quedan las dos anotaciones
+      // opuestas vivas—, y antes de 9B-quater este camino no producía ningún aviso.
+      const sb = makeSupabase({ fallos: [CAE_TODO] });
+      const { ctx, p } = correrDeudas(sb, 'registrar_deuda', datos);
+      const { r, logs } = await correrEspiando(() => p);
+      expect(r).toMatch(/Le debes \*S\/ 200\.00\* a \*Juan\*/);   // lo que vino a hacer, hecho
+      expect(ctx.registrarDeuda).toHaveBeenCalled();
+      expect(r).toMatch(AVISO_NO_PUDE);
+      expect(logs).toHaveLength(1);
+    });
+
+    it('el texto del aviso NO afirma que la opuesta existe: no se pudo mirar', async () => {
+      const sb = makeSupabase({ fallos: [CAE_TODO] });
+      const { r } = await correrEspiando(() => correrDeudas(sb, 'registrar_deuda', datos).p);
+      expect(r).not.toMatch(/te quedó también la anotación opuesta/);
+    });
+  });
+
+  describe('abonar_deuda, el pendiente para la fracción (sitio 199) — la de PLATA', () => {
+    it('con el pendiente leído, "la mitad" abona la mitad', async () => {
+      const sb = makeSupabase({ filas: () => [{ monto_pendiente: '200' }] });
+      const { ctx, p } = correrDeudas(sb, 'abonar_deuda', { contraparte: 'Juan' }, { msg: 'le pagué la mitad a Juan' });
+      const { logs } = await correrEspiando(() => p);
+      expect(ctx.abonarDeuda).toHaveBeenCalledWith('u-1', 'Juan', 100);
+      expect(logs).toHaveLength(0);
+    });
+
+    it('sin deuda activa con esa persona, lo dice — y no cae al fallback numérico', async () => {
+      const sb = makeSupabase({ filas: () => [] });
+      const { ctx, p } = correrDeudas(sb, 'abonar_deuda', { contraparte: 'Juan' }, { msg: 'le pagué la mitad de los 300 a Juan' });
+      const { r, logs } = await correrEspiando(() => p);
+      expect(r).toMatch(/no encontré una deuda activa con saldo pendiente con \*Juan\*/);
+      expect(ctx.abonarDeuda).not.toHaveBeenCalled();   // el 300 del texto NO se abona
+      expect(logs).toHaveLength(0);                     // no hubo caída: no había deuda, y punto
+    });
+
+    it('con la fila leída pero el pendiente en NULL, tampoco abona el número del texto', async () => {
+      // `monto_pendiente` es nullable a propósito (migración 068). La fracción sale NaN,
+      // `validarMonto` la anula, y hasta la revisión adversarial esto caía al fallback: "le pagué
+      // la mitad de los 300 a Juan" abonaba 300. Misma plata mal registrada, otra causa.
+      const sb = makeSupabase({ filas: () => [{ monto_pendiente: null }] });
+      const { ctx, p } = correrDeudas(sb, 'abonar_deuda', { contraparte: 'Juan' }, { msg: 'le pagué la mitad de los 300 a Juan' });
+      const { r } = await correrEspiando(() => p);
+      expect(ctx.abonarDeuda).not.toHaveBeenCalled();
+      expect(r).not.toMatch(/Abono anotado/);
+    });
+
+    it('el mensaje separa "no se pudo preguntar" de "no había deuda"', async () => {
+      // Los dos desenlaces cortan igual, pero no dicen lo mismo: uno invita a reintentar y el
+      // otro a revisar el nombre. Si se unifican, el corte deja de distinguir lo que este ítem
+      // entero existe para distinguir.
+      const caida = makeSupabase({ fallos: [CAE_TODO] });
+      const vacia = makeSupabase({ filas: () => [] });
+      const a = await correrEspiando(() => correrDeudas(caida, 'abonar_deuda', { contraparte: 'Juan' }, { msg: 'le pagué la mitad a Juan' }).p);
+      const b = await correrEspiando(() => correrDeudas(vacia, 'abonar_deuda', { contraparte: 'Juan' }, { msg: 'le pagué la mitad a Juan' }).p);
+      expect(a.r).not.toBe(b.r);
+      expect(a.r).toMatch(/No pude consultar cuánto le debes/);
+      expect(b.r).toMatch(/no encontré una deuda activa/);
+    });
+
+    it('con la lectura caída y un PORCENTAJE, no abona el número suelto del mensaje', async () => {
+      // El daño concreto: "Annie me dio 50%" caía al fallback numérico, que agarra el primer
+      // número del texto. Abonaba S/ 50 en vez del 50% del saldo — plata mal registrada, sin
+      // que nada en la respuesta lo delatara.
+      const sb = makeSupabase({ fallos: [CAE_TODO] });
+      const { ctx, p } = correrDeudas(sb, 'abonar_deuda', { contraparte: 'Annie' }, { msg: 'Annie me dio 50%' });
+      const { r, logs } = await correrEspiando(() => p);
+      expect(ctx.abonarDeuda).not.toHaveBeenCalled();
+      expect(r).toMatch(/No pude consultar cuánto le debes/);
+      expect(logs).toHaveLength(1);
+    });
+
+    it('con la lectura caída y "la mitad", no le echa la culpa a cómo escribió', async () => {
+      const sb = makeSupabase({ fallos: [CAE_TODO] });
+      const { r, logs } = await correrEspiando(() =>
+        correrDeudas(sb, 'abonar_deuda', { contraparte: 'Juan' }, { msg: 'le pagué la mitad a Juan' }).p);
+      expect(r).toMatch(/No pude consultar cuánto le debes/);
+      expect(r).not.toMatch(/¿A quién y cuánto\?/);
+      expect(logs).toHaveLength(1);
+    });
+
+    it('con la lectura caída pero SIN fracción, sigue de largo: esa consulta no decidía nada', async () => {
+      // Apagar acá sería apagar de más. El monto sale del texto y la respuesta es correcta;
+      // lo único que queda es el rastro.
+      const sb = makeSupabase({ fallos: [CAE_TODO] });
+      const { ctx, p } = correrDeudas(sb, 'abonar_deuda', { contraparte: 'Juan' }, { msg: 'le pagué 80 a Juan' });
+      const { r, logs } = await correrEspiando(() => p);
+      expect(ctx.abonarDeuda).toHaveBeenCalledWith('u-1', 'Juan', 80);
+      expect(r).toMatch(/Abono anotado/);
+      expect(logs).toHaveLength(1);
+    });
+  });
+});
+
+// ─── moderacion.js — 1 sitio, y es el ACCESORIO ──────────────────────────────
+
+describe('moderacion.js — el opt-out de survey_events (sitio 32)', () => {
+  const correrMod = (sb) => moderacion.handle({
+    intencion: 'silenciar', msg: 'silencia', datos: {}, usuario: PREMIUM, from: '+51999',
+    ctx: { supabase: sb, obtenerCuentasGmail: vi.fn().mockResolvedValue([]) },
+  });
+  const CONFIRMA = /Recordatorios desactivados/;
+
+  it('con un evento previo, lo marca — y confirma el silencio', async () => {
+    const sb = makeSupabase({ filas: (c) => (c.tabla === 'usuarios' ? [{ id: 'u-1' }] : [{ id: 'ev-1' }]) });
+    const { r, logs } = await correrEspiando(() => correrMod(sb));
+    expect(r).toMatch(CONFIRMA);
+    expect(sb.intento((c) => c.tabla === 'survey_events' && c.verbo === 'update')).toBe(true);
+    expect(logs).toHaveLength(0);
+  });
+
+  it('sin evento previo NO grita: cero filas es el caso normal de quien nunca recibió encuesta', async () => {
+    // El discriminador de `single` vs `maybeSingle`. Con `single`, cero filas vuelve como
+    // PGRST116 —un `error`— y la guarda dispararía LECTURA_CAIDA todos los días sobre el
+    // camino sano. Un warn que suena siempre es un warn que nadie lee.
+    const sb = makeSupabase({ filas: (c) => (c.tabla === 'usuarios' ? [{ id: 'u-1' }] : []) });
+    const { r, logs } = await correrEspiando(() => correrMod(sb));
+    expect(r).toMatch(CONFIRMA);
+    expect(sb.intento((c) => c.tabla === 'survey_events' && c.verbo === 'update')).toBe(false);
+    expect(logs).toHaveLength(0);
+  });
+
+  it('con la lectura caída deja rastro y NO toca el copy: el silencio ya está escrito', async () => {
+    const sb = makeSupabase({ filas: () => [{ id: 'u-1' }], fallos: [(c) => (c.tabla === 'survey_events' ? 'statement timeout' : null)] });
+    const { r, logs } = await correrEspiando(() => correrMod(sb));
+    expect(r).toMatch(CONFIRMA);
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatchObject({ intencion: 'silenciar', usuarioId: 'u-1' });
+  });
+});
+
+// ─── presupuestos.js — 1 sitio ───────────────────────────────────────────────
+
+describe('presupuestos.js — eliminar_presupuesto (sitio 123)', () => {
+  const datos = { categoria: 'Alimentación' };
+  const PRES = { id: 'p-1', categoria: 'Alimentación', monto_limite: 500 };
+  const NO_TIENES = /No tienes presupuesto de \*Alimentación\* este mes/;
+
+  it('con presupuesto, lo elimina', async () => {
+    const sb = makeSupabase({ filas: (c) => (esSelect(c) ? [PRES] : [{ id: 'p-1' }]) });
+    const { r, logs } = await correrEspiando(() => correr(presupuestos, sb, 'eliminar_presupuesto', datos));
+    expect(r).toMatch(/Eliminé el presupuesto/);
+    expect(logs).toHaveLength(0);
+  });
+
+  it('sin presupuesto lo dice — y eso es cierto', async () => {
+    const sb = makeSupabase({ filas: () => [] });
+    const { r, logs } = await correrEspiando(() => correr(presupuestos, sb, 'eliminar_presupuesto', datos));
+    expect(r).toMatch(NO_TIENES);
+    expect(logs).toHaveLength(0);
+  });
+
+  it('con la lectura caída NO dice que no tiene presupuesto de esa categoría', async () => {
+    const sb = makeSupabase({ fallos: [CAE_TODO] });
+    const { r, logs } = await correrEspiando(() => correr(presupuestos, sb, 'eliminar_presupuesto', datos));
+    expect(r).toBe('No pude eliminar el presupuesto. Intenta de nuevo.');
+    expect(r).not.toMatch(NO_TIENES);
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatchObject({ intencion: 'eliminar_presupuesto', categoria: 'Alimentación' });
+    expect(sb.cuenta((c) => c.verbo === 'delete')).toBe(0);
   });
 });

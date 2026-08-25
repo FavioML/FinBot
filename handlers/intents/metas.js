@@ -17,7 +17,11 @@ module.exports = {
 
       case 'ver_metas': {
         try {
-          const { data: metas } = await supabase.from('metas_ahorro').select('*').eq('usuario_id', usuario.id).order('created_at', { ascending: false });
+          const { data: metas, error: errMetasVer } = await supabase.from('metas_ahorro').select('*').eq('usuario_id', usuario.id).order('created_at', { ascending: false });
+          if (errMetasVer) {
+            log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, err: errMetasVer.message }, 'ver_metas: no se pudo leer metas_ahorro');
+            throw errMetasVer;
+          }
           if (!metas || metas.length === 0) return '🎯 No tienes planes de ahorro.\n\n_Crea uno: "quiero ahorrar S/5000 para julio"_';
           let msgMetas = '🎯 *Tus planes de ahorro*\n\n';
           metas.forEach(m => {
@@ -59,13 +63,39 @@ module.exports = {
           const fechaLimMeta = datos.fecha_limite || null;
 
           // Enforce maxMetas for free users (only on new creation)
-          const { data: metasActivas } = await supabase.from('metas_ahorro')
+          // `head: true` devuelve `data: null` POR CONTRATO y el conteo en `count`, así que el
+          // `metasActivas.length` que había acá daba 0 SIEMPRE. No abría el muro —`maxMetas` es 0
+          // en free (bloquea con cualquier conteo) e `Infinity` en premium (no bloquea nunca)—
+          // pero el mensaje del muro RECITA el número, así que a un free con tres planes le decía
+          // "Ya tienes 0 plan de ahorro activo". Anotado en docs/DEFECTOS.md.
+          const { count: countActivasDb, error: errMetasActivas } = await supabase.from('metas_ahorro')
             .select('id', { count: 'exact', head: true })
             .eq('usuario_id', usuario.id).eq('completada', false);
-          const countActivas = metasActivas ? metasActivas.length : 0;
+          // **Esta lectura INFORMA, no ramifica, así que NO corta** — y la primera versión de
+          // 9B-quater la hacía cortar. Lo encontró la revisión adversarial: con `maxMetas` en 0
+          // (el muro bloquea con cualquier conteo) o `Infinity` (Pro no se bloquea nunca), el
+          // veredicto es el MISMO se haya podido contar o no. Un `throw` acá le costaba el plan
+          // a un Pro por una consulta que no cambiaba nada, y encima era una regresión: antes
+          // del arreglo ese fallo dejaba crear el plan.
+          if (errMetasActivas) {
+            log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, err: errMetasActivas.message }, 'crear_meta: no se pudo contar los planes activos');
+          }
+          const countActivas = countActivasDb || 0;
           const limitCheck = checkProLimit(usuario, 'maxMetas', countActivas);
+          // La única forma en que este conteo SÍ decidiría es una cuota finita mayor que cero, y
+          // ahí un 0 por defecto abre el muro. No es hipotético de adorno: es la línea que
+          // separa "no ramifica" de "ramifica", y se ejercita poniéndole una cuota al plan.
+          if (errMetasActivas && Number.isFinite(limitCheck.limit) && limitCheck.limit > 0) {
+            return 'No pude crear el plan. Intenta de nuevo.';
+          }
           if (limitCheck.blocked) {
-            return '🎯 Ya tienes ' + countActivas + ' plan de ahorro activo.\n\n_Con *Neto Pro* puedes crear planes ilimitados._\nEscribe "ver premium" para más info.';
+            // El número sólo es el MOTIVO si hay cuota. Con `maxMetas: 0` el motivo es el plan, y
+            // "Ya tienes 0 plan de ahorro activo" no explicaba nada — era lo que salía siempre,
+            // porque `head: true` deja `data` en null y el `.length` de antes daba 0 SIEMPRE.
+            if (!Number.isFinite(limitCheck.limit) || limitCheck.limit === 0) {
+              return '🎯 Los planes de ahorro son de *Neto Pro*.\n\n_Escribe "ver premium" para más info._';
+            }
+            return '🎯 Ya tienes ' + countActivas + (countActivas === 1 ? ' plan de ahorro activo' : ' planes de ahorro activos') + ' (máximo ' + limitCheck.limit + ').\n\n_Con *Neto Pro* puedes crear planes ilimitados._\nEscribe "ver premium" para más info.';
           }
 
           // Calculate monthly quota if deadline exists
@@ -108,8 +138,12 @@ module.exports = {
 
       case 'editar_meta': {
         try {
-          const { data: metasEdit } = await supabase.from('metas_ahorro').select('*')
+          const { data: metasEdit, error: errMetasEdit } = await supabase.from('metas_ahorro').select('*')
             .eq('usuario_id', usuario.id).order('created_at', { ascending: false });
+          if (errMetasEdit) {
+            log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, err: errMetasEdit.message }, 'editar_meta: no se pudo leer metas_ahorro');
+            throw errMetasEdit;
+          }
           if (!metasEdit || !metasEdit.length) return 'No tienes metas de ahorro. Crea una con _"quiero ahorrar S/2000 para julio"_.';
           let metaTarget = metasEdit[0];
           if (datos.nombre && metasEdit.length > 1) {
@@ -153,8 +187,12 @@ module.exports = {
 
       case 'eliminar_meta': {
         try {
-          const { data: metasDel } = await supabase.from('metas_ahorro').select('*')
+          const { data: metasDel, error: errMetasDel } = await supabase.from('metas_ahorro').select('*')
             .eq('usuario_id', usuario.id).order('created_at', { ascending: false });
+          if (errMetasDel) {
+            log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, err: errMetasDel.message }, 'eliminar_meta: no se pudo leer metas_ahorro');
+            throw errMetasDel;
+          }
           if (!metasDel || !metasDel.length) return 'No tienes metas de ahorro para eliminar.';
           let metaDel = metasDel[0];
           if (datos.nombre && metasDel.length > 1) {
@@ -247,12 +285,16 @@ module.exports = {
       case 'compartir_meta': {
         try {
           // Find an active goal to share
-          const { data: metasComp } = await supabase
+          const { data: metasComp, error: errMetasComp } = await supabase
             .from('metas_ahorro')
             .select('id, nombre, icono, monto_objetivo, monto_actual, invite_code, colaborativa')
             .eq('usuario_id', usuario.id)
             .eq('completada', false)
             .order('created_at', { ascending: false });
+          if (errMetasComp) {
+            log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, err: errMetasComp.message }, 'compartir_meta: no se pudo leer metas_ahorro');
+            throw errMetasComp;
+          }
           if (!metasComp || metasComp.length === 0) return 'No tienes metas activas. Crea una primero: _"quiero ahorrar 3000 para un viaje"_';
           // Use first active goal or try to match by name
           let targetMeta = metasComp[0];
@@ -296,8 +338,12 @@ module.exports = {
           if (wall.blocked) return '🔒 El análisis de viabilidad está disponible con *Neto Pro*.\n\n_Escribe "ver premium" para más info._';
 
           const { analizarViabilidad, calcularCuotaMensual } = require('../../services/metas');
-          const { data: metas } = await supabase.from('metas_ahorro').select('*')
+          const { data: metas, error: errMetasViab } = await supabase.from('metas_ahorro').select('*')
             .eq('usuario_id', usuario.id).eq('completada', false).order('created_at', { ascending: false });
+          if (errMetasViab) {
+            log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, err: errMetasViab.message }, 'viabilidad_plan: no se pudo leer metas_ahorro');
+            throw errMetasViab;
+          }
           if (!metas || metas.length === 0) return 'No tienes planes de ahorro activos.';
 
           let meta = metas[0];
@@ -324,8 +370,12 @@ module.exports = {
       case 'abandonar_plan': {
         try {
           const { abandonarPlan } = require('../../services/metas');
-          const { data: metas } = await supabase.from('metas_ahorro').select('*')
+          const { data: metas, error: errMetasAband } = await supabase.from('metas_ahorro').select('*')
             .eq('usuario_id', usuario.id).eq('completada', false).order('created_at', { ascending: false });
+          if (errMetasAband) {
+            log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, err: errMetasAband.message }, 'abandonar_plan: no se pudo leer metas_ahorro');
+            throw errMetasAband;
+          }
           if (!metas || metas.length === 0) return 'No tienes planes de ahorro activos.';
 
           let meta = metas[0];
@@ -354,8 +404,12 @@ module.exports = {
           if (wall.blocked) return '🔒 Las sugerencias de recorte están disponibles con *Neto Pro*.\n\n_Escribe "ver premium" para más info._';
 
           const { sugerirRecortes, calcularCuotaMensual } = require('../../services/metas');
-          const { data: metas } = await supabase.from('metas_ahorro').select('*')
+          const { data: metas, error: errMetasRec } = await supabase.from('metas_ahorro').select('*')
             .eq('usuario_id', usuario.id).eq('completada', false).order('created_at', { ascending: false });
+          if (errMetasRec) {
+            log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, err: errMetasRec.message }, 'sugerir_recortes: no se pudo leer metas_ahorro');
+            throw errMetasRec;
+          }
           if (!metas || metas.length === 0) return 'No tienes planes de ahorro activos.';
 
           let meta = metas[0];
