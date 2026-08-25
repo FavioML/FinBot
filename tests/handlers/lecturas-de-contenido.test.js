@@ -41,11 +41,25 @@ const { detectarQuerySinMonto } = require('../../handlers/intents/transacciones'
  * mock de `escrituras-de-plata.test.js`). Si algún día rechazara, los cinco sitios que hoy
  * devuelven lanzarían igual.
  *
- * **El perímetro son 30 sitios: los 16 de 9B más los 14 de 9B-quater** (deudas 2, espacios 2,
- * metas 8, moderación 1, presupuestos 1), cerrados abajo en su propia sección. Los 8 que
- * quedan mudos en `transacciones.js` son OTRA clase declarada por 9B —fallan cerrado y son
- * las que ENCUENTRAN la fila a editar—, no un olvido. El conteo se re-mide con
- * `node scripts/inventario-escrituras-intents.mjs`, que hoy da `lecturas mudas=8`.
+ * **El perímetro son 36 sitios: los 16 de 9B, los 14 de 9B-quater** (deudas 2, espacios 2,
+ * metas 8, moderación 1, presupuestos 1) **y los 6 de 9F**, cerrados abajo cada uno en su
+ * sección.
+ *
+ * **Acá decía que las 8 de `transacciones.js` "fallan cerrado" y era FALSO para 6 de ellas.**
+ * Es la misma afirmación que el backlog repitió tres veces sin medirla. Las seis que ENCUENTRAN
+ * la fila a editar fallaban ABIERTO: con la búsqueda caída caían a la última transacción del
+ * usuario y le escribían encima. Cerradas por 9F (sección de abajo).
+ *
+ * Las **2** que quedan mudas —`eliminar_transaccion` (757) y `restaurar_eliminado` (861)—
+ * fallan cerrado **para la ESCRITURA**, verificado leyéndolas: con filtro caen en
+ * `candidatos.length === 0` y devuelven "no encontré", y la rama sin filtro no consulta el
+ * resultado de la query. Pero **siguen MINTIENDO sobre la causa**, o sea que por el criterio
+ * con que 9B se definió a sí mismo ("no había datos" vs "no se pudo preguntar") todavía están
+ * adentro. El de 861 tiene consecuencia de plata diferida: se le dice "no tengo nada para
+ * restaurar", la persona vuelve a anotar el gasto a mano, y la copia sigue PENDIENTE — un
+ * "restaura" posterior la re-inserta y queda duplicado. Quedan afuera de 9F por criterio de
+ * escritura, no porque no haya nada que arreglar. El conteo se re-mide con
+ * `node scripts/inventario-escrituras-intents.mjs`, que hoy da `lecturas mudas=2`.
  *
  * El mock de `escrituras-de-plata.test.js` falla por `(tabla, verbo)` porque allá leer y
  * escribir compartían tabla. Acá eso NO alcanza: los dieciséis son `transacciones:select`,
@@ -1386,5 +1400,263 @@ describe('presupuestos.js — eliminar_presupuesto (sitio 123)', () => {
     expect(logs).toHaveLength(1);
     expect(logs[0]).toMatchObject({ intencion: 'eliminar_presupuesto', categoria: 'Alimentación' });
     expect(sb.cuenta((c) => c.verbo === 'delete')).toBe(0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 9F — las 6 lecturas de `transacciones.js` que ENCUENTRAN la fila a editar
+//
+// **9B las declaró "fallan cerrado" tres veces y era FALSO para estas seis.** La forma es
+// `if (!txEdit) txEdit = await obtenerUltimaTransaccion(usuario.id)` después de un lookup cuyo
+// `{ error }` se descartaba: con la búsqueda caída el flujo no cortaba, caía a la ÚLTIMA
+// transacción del usuario y le escribía encima. Con 38.4 transacciones por usuario esa casi
+// nunca es la que la persona nombró — "el de Starbucks es 50" le ponía S/ 50 al taxi de hoy.
+// (Las otras dos que siguen mudas —`eliminar_transaccion` y `restaurar_eliminado`— SÍ fallan
+// cerrado: con filtro devuelven "no encontré nada" sin escribir, y sin filtro el camino no
+// depende del resultado de la query. Se dejan mudas a propósito.)
+//
+// **El arreglo NO es cortar el fallback, y esa es la decisión del ítem.** Caer a la última es
+// correcto cuando la búsqueda ANDUVO y no encontró nada: por chat "el último" es una heurística
+// que la gente usa. Lo que se separa son los dos ceros. Por eso cada sitio se ejercita CUATRO
+// veces y no tres: encuentra / no encuentra (fallback vivo) / no se pudo buscar (corta) / sin
+// comercio (el fallback puro, que ninguna guarda puede tocar).
+//
+// **El discriminador que decide es a QUÉ FILA se le escribe**, no el copy: un arreglo que
+// cortara de más saldría verde en "no escribió nada" y rompería la heurística en silencio. Por
+// eso los casos afirman `update … eq('id', 'tx-buscada')` vs `eq('id', 'tx-ultima')`, y el caso
+// caído afirma además que `obtenerUltimaTransaccion` NI SIQUIERA se consultó.
+//
+// El fallo se inyecta SÓLO sobre el select con `ilike` —no con `CAE_TODO`— para que el verde
+// no pueda venir de que se cayó cualquier otra cosa: es la búsqueda la que no se pudo hacer.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const transacciones = require('../../handlers/intents/transacciones');
+
+const BUSCADA = TX({ id: 'tx-buscada', comercio: 'Starbucks', monto: 12, fecha: '2026-04-10' });
+const ULTIMA = TX({ id: 'tx-ultima', comercio: 'Taxi', monto: 8, fecha: '2026-04-15' });
+
+const CAE_LA_BUSQUEDA = (c) =>
+  (c.verbo === 'select' && c.filtros.some((f) => f.op === 'ilike') ? 'statement timeout' : null);
+const CAE_LA_BUSQUEDA_POR_FECHA = (c) =>
+  (c.verbo === 'select' && c.filtros.some((f) => f.op === 'eq' && f.col === 'fecha') ? 'statement timeout' : null);
+
+const esBusqueda = (c) => c.verbo === 'select';
+/** `filas` para los casos: qué devuelve el select y qué devuelve el update. */
+const filasCon = (delSelect) => (c) => (esBusqueda(c) ? delSelect : [{ id: 'fila-tocada' }]);
+
+function ctxTx(sb, extras = {}) {
+  return {
+    supabase: sb,
+    mesActual: 4, anioActual: 2026,
+    obtenerUltimaTransaccion: vi.fn().mockResolvedValue(ULTIMA),
+    obtenerTipoCambio: vi.fn().mockResolvedValue({ venta: 3.75 }),
+    fechaHoyPeru: () => '2026-04-15',
+    fechaAyerPeru: () => '2026-04-14',
+    formatFecha: (f) => f || '',
+    ...extras,
+  };
+}
+
+const correrTx = (sb, ctx, intencion, datos = {}, { usuario = USUARIO, msg = '' } = {}) =>
+  transacciones.handle({ intencion, msg, datos, usuario, from: '+51999', ctx });
+
+const SITIOS_9F = [
+  { nombre: 'editar_monto (sitio 995)', intencion: 'editar_monto',
+    datos: { comercio: 'Starbucks', monto_nuevo: '50' },
+    ok: /Monto corregido/, caido: 'No pude corregir el monto. Intenta de nuevo.',
+    sitio: 'editar_monto:comercio',
+    vacio: 'No encuentro un gasto reciente para corregir.' },
+  { nombre: 'editar_fecha (sitio 1054)', intencion: 'editar_fecha',
+    datos: { comercio: 'Starbucks', fecha_nueva: 'ayer' },
+    ok: /Fecha corregida/, caido: 'No pude corregir la fecha. Intenta de nuevo.',
+    sitio: 'editar_fecha:comercio',
+    vacio: 'No encuentro un gasto reciente para corregir.' },
+  { nombre: 'editar_comercio (sitio 1083)', intencion: 'editar_comercio',
+    datos: { comercio: 'Starbucks', comercio_nuevo: 'Plaza Vea' },
+    ok: /Comercio corregido/, caido: 'No pude corregir el comercio. Intenta de nuevo.',
+    sitio: 'editar_comercio:comercio',
+    vacio: 'No encuentro un gasto reciente para corregir.' },
+  { nombre: 'dividir_gasto (sitio 1113)', intencion: 'dividir_gasto',
+    datos: { comercio: 'Starbucks', partes: '2' },
+    ok: /Gasto dividido/, caido: 'No pude dividir el gasto. Intenta de nuevo.',
+    sitio: 'dividir_gasto:comercio',
+    vacio: 'No encuentro un gasto reciente para dividir.' },
+  { nombre: 'marcar_como_ingreso (sitio 1287)', intencion: 'marcar_como_ingreso',
+    datos: { comercio: 'Starbucks' },
+    ok: /marcado como \*ingreso\*/, caido: 'No pude cambiar el tipo. Intenta de nuevo.',
+    sitio: 'marcar_como_ingreso:comercio',
+    vacio: 'No hay transacciones recientes para modificar.' },
+];
+
+describe('transacciones.js — las 6 lecturas que eligen la fila a editar (9F)', () => {
+  for (const s of SITIOS_9F) {
+    describe(s.nombre, () => {
+      it('encuentra el comercio y edita ESA fila, sin consultar el fallback', async () => {
+        const sb = makeSupabase({ filas: filasCon([BUSCADA]) });
+        const ctx = ctxTx(sb);
+        const { r, logs } = await correrEspiando(() => correrTx(sb, ctx, s.intencion, s.datos));
+        expect(r).toMatch(s.ok);
+        // El WHERE del select, no sólo el del update: sin `usuario_id` la búsqueda alcanza
+        // filas de OTRA persona, que es este mismo daño un escalón peor. Medido: quitarle ese
+        // filtro dejaba la suite entera verde, acá y en HEAD.
+        expect(sb.intento((c) => esBusqueda(c) && tiene(c, 'usuario_id', 'u-1'))).toBe(true);
+        expect(sb.intento((c) => c.verbo === 'update' && tiene(c, 'id', 'tx-buscada'))).toBe(true);
+        expect(ctx.obtenerUltimaTransaccion).not.toHaveBeenCalled();
+        expect(logs).toHaveLength(0);
+      });
+
+      // El tercer desenlace, y lo trajo la revisión adversarial: la búsqueda anduvo, no
+      // encontró nada, y el fallback TAMPOCO tiene nada — el usuario recién dado de alta.
+      // No es cosmético: hasta esta vuelta esa rama la cubría UN caso de
+      // `escrituras-de-plata.test.js` que llegaba ahí por accidente (con el select CAÍDO y el
+      // fallback en `null`), y al arreglar ese caso la rama se quedó sin nada. Medido:
+      // mutar los cinco `return` a 'ZZZ' sobrevivía a los 2398 tests.
+      it('ni búsqueda ni fallback tienen nada: lo dice, sin logs de caída', async () => {
+        const sb = makeSupabase({ filas: filasCon([]) });
+        const ctx = ctxTx(sb, { obtenerUltimaTransaccion: vi.fn().mockResolvedValue(null) });
+        const { r, logs } = await correrEspiando(() => correrTx(sb, ctx, s.intencion, s.datos));
+        expect(r).toBe(s.vacio);
+        expect(ctx.obtenerUltimaTransaccion).toHaveBeenCalled();
+        expect(sb.cuenta((c) => c.verbo === 'update')).toBe(0);
+        expect(logs).toHaveLength(0);
+      });
+
+      // LA aserción del ítem: el arreglo no puede apagar esta heurística. Si un día este caso
+      // se pone rojo, el corte se comió el camino bueno.
+      it('la búsqueda ANDUVO y no encontró nada: cae a la última, que es lo correcto', async () => {
+        const sb = makeSupabase({ filas: filasCon([]) });
+        const ctx = ctxTx(sb);
+        const { r, logs } = await correrEspiando(() => correrTx(sb, ctx, s.intencion, s.datos));
+        expect(r).toMatch(s.ok);
+        expect(ctx.obtenerUltimaTransaccion).toHaveBeenCalled();
+        expect(sb.intento((c) => c.verbo === 'update' && tiene(c, 'id', 'tx-ultima'))).toBe(true);
+        expect(logs).toHaveLength(0);
+      });
+
+      it('no se PUDO buscar: no cae a la última ni le escribe encima a nada', async () => {
+        const sb = makeSupabase({ fallos: [CAE_LA_BUSQUEDA], filas: filasCon([BUSCADA]) });
+        const ctx = ctxTx(sb);
+        const { r, logs } = await correrEspiando(() => correrTx(sb, ctx, s.intencion, s.datos));
+        expect(r).toBe(s.caido);
+        expect(ctx.obtenerUltimaTransaccion).not.toHaveBeenCalled();
+        expect(sb.cuenta((c) => c.verbo === 'update')).toBe(0);
+        expect(logs).toHaveLength(1);
+        expect(logs[0]).toMatchObject({ tag: 'LECTURA_CAIDA', intencion: s.intencion, usuarioId: 'u-1', sitio: s.sitio });
+      });
+    });
+  }
+
+  // El fallback puro: sin comercio no hay búsqueda que pueda caerse, así que ninguna guarda
+  // nueva tiene derecho a tocar este camino. Sin este caso, un corte puesto un nivel más
+  // arriba —antes del `if (datos.comercio)`— saldría verde en los tres de cada sitio.
+  it('sin comercio ni fecha, va derecho a la última: ninguna guarda se mete', async () => {
+    const sb = makeSupabase({ filas: filasCon([]) });
+    const ctx = ctxTx(sb);
+    const { r, logs } = await correrEspiando(() => correrTx(sb, ctx, 'editar_monto', { monto_nuevo: '50' }));
+    expect(r).toMatch(/Monto corregido/);
+    expect(ctx.obtenerUltimaTransaccion).toHaveBeenCalled();
+    expect(sb.intento((c) => c.verbo === 'update' && tiene(c, 'id', 'tx-ultima'))).toBe(true);
+    expect(sb.cuenta(esBusqueda)).toBe(0);
+    expect(logs).toHaveLength(0);
+  });
+
+  // La SEGUNDA lectura de `editar_monto`: el continuation que dice "el de ayer" sin comercio.
+  // Comparte `case` y catch con la de arriba pero es una query distinta —`eq('fecha')` en vez
+  // de `ilike`— y su propia guarda, así que necesita sus propios casos.
+  describe('editar_monto por fecha_token (sitio 1007)', () => {
+    const datos = { fecha_token: 'ayer', monto_nuevo: '50' };
+
+    it('encuentra el de ayer y edita ESA fila', async () => {
+      const sb = makeSupabase({ filas: filasCon([BUSCADA]) });
+      const ctx = ctxTx(sb);
+      const { r, logs } = await correrEspiando(() => correrTx(sb, ctx, 'editar_monto', datos));
+      expect(r).toMatch(/Monto corregido/);
+      expect(sb.intento((c) => esBusqueda(c) && tiene(c, 'fecha', '2026-04-14'))).toBe(true);
+      // **El SEXTO `usuario_id`, y la segunda revisión adversarial lo encontró justamente acá.**
+      // La aserción de los otros cinco sitios se escribió dentro del loop de `SITIOS_9F`, que
+      // cubre los que buscan por `ilike`. Este vive en su propio `describe`, así que quedó
+      // afuera: quitarle el filtro al select sobrevivía a los 2405 tests. Y acá el daño es el
+      // MISMO que el ítem viene a cerrar pero cross-user — "el de ayer es 50" sin comercio trae
+      // la última fila con esa fecha de CUALQUIERA, y el update de abajo filtra sólo por `id`.
+      expect(sb.intento((c) => esBusqueda(c) && tiene(c, 'usuario_id', 'u-1'))).toBe(true);
+      expect(sb.intento((c) => c.verbo === 'update' && tiene(c, 'id', 'tx-buscada'))).toBe(true);
+      expect(ctx.obtenerUltimaTransaccion).not.toHaveBeenCalled();
+      expect(logs).toHaveLength(0);
+    });
+
+    it('no había nada ayer: cae a la última, que sigue siendo correcto', async () => {
+      const sb = makeSupabase({ filas: filasCon([]) });
+      const ctx = ctxTx(sb);
+      const { r, logs } = await correrEspiando(() => correrTx(sb, ctx, 'editar_monto', datos));
+      expect(r).toMatch(/Monto corregido/);
+      expect(ctx.obtenerUltimaTransaccion).toHaveBeenCalled();
+      expect(sb.intento((c) => c.verbo === 'update' && tiene(c, 'id', 'tx-ultima'))).toBe(true);
+      expect(logs).toHaveLength(0);
+    });
+
+    it('no se PUDO buscar por fecha: corta sin tocar nada', async () => {
+      const sb = makeSupabase({ fallos: [CAE_LA_BUSQUEDA_POR_FECHA], filas: filasCon([BUSCADA]) });
+      const ctx = ctxTx(sb);
+      const { r, logs } = await correrEspiando(() => correrTx(sb, ctx, 'editar_monto', datos));
+      expect(r).toBe('No pude corregir el monto. Intenta de nuevo.');
+      expect(ctx.obtenerUltimaTransaccion).not.toHaveBeenCalled();
+      expect(sb.cuenta((c) => c.verbo === 'update')).toBe(0);
+      expect(logs).toHaveLength(1);
+      expect(logs[0]).toMatchObject({ tag: 'LECTURA_CAIDA', intencion: 'editar_monto', sitio: 'editar_monto:fecha_token' });
+    });
+  });
+
+  // Las DOS guardas de `editar_monto` juntas, que es lo único que las prueba en interacción
+  // (los tres casos de arriba corren sin `comercio`). Trae un cambio de comportamiento que hay
+  // que declarar: **antes**, con el lookup por comercio caído, `found` quedaba `undefined`,
+  // `txEditM` seguía `null` y el bloque de `fecha_token` corría igual, así que "el de
+  // Starbucks de ayer" todavía se resolvía por fecha. **Ahora corta ahí.** Es deliberado: la
+  // persona nombró un comercio, y resolver sólo por fecha elige una fila que no nombró — el
+  // mismo daño que este ítem viene a cerrar, con otro disfraz. Mejor decirle que no se pudo.
+  describe('editar_monto con comercio Y fecha_token (las dos guardas)', () => {
+    const datos = { comercio: 'Starbucks', fecha_token: 'ayer', monto_nuevo: '50' };
+
+    it('la búsqueda por comercio ANDUVO y no encontró: sigue al lookup por fecha', async () => {
+      const sb = makeSupabase({ filas: (c) => (esBusqueda(c) && c.filtros.some((f) => f.op === 'ilike') ? [] : (esBusqueda(c) ? [BUSCADA] : [{ id: 'fila-tocada' }])) });
+      const ctx = ctxTx(sb);
+      const { r, logs } = await correrEspiando(() => correrTx(sb, ctx, 'editar_monto', datos));
+      expect(r).toMatch(/Monto corregido/);
+      expect(sb.intento((c) => esBusqueda(c) && tiene(c, 'fecha', '2026-04-14'))).toBe(true);
+      expect(sb.intento((c) => c.verbo === 'update' && tiene(c, 'id', 'tx-buscada'))).toBe(true);
+      expect(logs).toHaveLength(0);
+    });
+
+    it('la búsqueda por comercio NO SE PUDO hacer: corta ahí, sin intentar por fecha', async () => {
+      const sb = makeSupabase({ fallos: [CAE_LA_BUSQUEDA], filas: filasCon([BUSCADA]) });
+      const ctx = ctxTx(sb);
+      const { r, logs } = await correrEspiando(() => correrTx(sb, ctx, 'editar_monto', datos));
+      expect(r).toBe('No pude corregir el monto. Intenta de nuevo.');
+      expect(sb.cuenta((c) => esBusqueda(c) && tiene(c, 'fecha', '2026-04-14'))).toBe(0);
+      expect(ctx.obtenerUltimaTransaccion).not.toHaveBeenCalled();
+      expect(sb.cuenta((c) => c.verbo === 'update')).toBe(0);
+      expect(logs).toHaveLength(1);
+      expect(logs[0]).toMatchObject({ sitio: 'editar_monto:comercio' });
+    });
+  });
+
+  // `marcar_como_ingreso` aparte: no cambia un monto, cambia el SIGNO de la fila. Un gasto de
+  // S/ 8 marcado como ingreso mueve el balance del mes en S/ 16, y sobre la fila equivocada
+  // eso no se nota — el usuario ve un balance mal y no sabe de dónde salió.
+  //
+  // **Este caso DOCUMENTA, no discrimina, y conviene decirlo** (lo midió la segunda revisión
+  // adversarial): sus tres aserciones están implicadas por el `cuenta(update) === 0` del caso
+  // "no se PUDO buscar" del mismo sitio — si no hubo ningún update, no hay payload con `tipo`
+  // ni ningún `eq('id','tx-ultima')`. O sea que no puede ponerse rojo solo. Se queda porque
+  // nombra el radio de daño, que es lo que hace que alguien lo piense dos veces antes de
+  // ablandar la guarda; no porque agregue cobertura. Es la misma convención que el docblock de
+  // arriba declara para los `not.toMatch` que van al lado de un `toBe`.
+  it('marcar_como_ingreso con la búsqueda caída no le cambia el signo a la fila de al lado', async () => {
+    const sb = makeSupabase({ fallos: [CAE_LA_BUSQUEDA], filas: filasCon([BUSCADA]) });
+    const ctx = ctxTx(sb);
+    const { r } = await correrEspiando(() =>
+      correrTx(sb, ctx, 'marcar_como_ingreso', { comercio: 'Starbucks', tipo_nuevo: 'ingreso' }));
+    expect(r).toBe('No pude cambiar el tipo. Intenta de nuevo.');
+    expect(sb.cuenta((c) => c.payload && c.payload.tipo !== undefined)).toBe(0);
+    expect(sb.intento((c) => tiene(c, 'id', 'tx-ultima'))).toBe(false);
   });
 });

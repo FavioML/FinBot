@@ -166,6 +166,10 @@ const TX = {
   comercio: 'Starbucks', categoria: 'Alimentacion', subcategoria: 'cafeteria', tipo: 'gasto',
   fecha: '2026-04-01', created_at: new Date().toISOString(), descripcion_original: null,
 };
+// La fila DE AL LADO: lo que `obtenerUltimaTransaccion` devolvería si el flujo cayera al
+// fallback con la búsqueda caída (ítem 9F). Que sea distinta de `TX` es lo que hace legible
+// el daño: no es "escribió algo", es "le escribió encima al taxi de hoy".
+const TX_DE_AL_LADO = { ...TX, id: 'tx-002', comercio: 'Taxi', monto: 8 };
 const USUARIO = { id: 'user-001', plan: 'free' };
 
 function buildCtx(sb, extras = {}) {
@@ -226,26 +230,31 @@ const PLANOS = [
     nombre: 'editar_monto', intencion: 'editar_monto',
     datos: { monto_nuevo: 80 }, datosConLectura: { monto_nuevo: 80, comercio: 'Starbucks' }, escritura: ['transacciones', 'update'],
     exito: /Monto corregido/i, fallo: /No pude corregir el monto ahora mismo/i, tag: 'EDITAR_MONTO',
+    lecturaCaida: /No pude corregir el monto\. Intenta de nuevo/i,
   },
   {
     nombre: 'editar_fecha', intencion: 'editar_fecha',
     datos: { fecha_nueva: 'ayer' }, datosConLectura: { fecha_nueva: 'ayer', comercio: 'Starbucks' }, escritura: ['transacciones', 'update'],
     exito: /Fecha corregida/i, fallo: /No pude corregir la fecha ahora mismo/i, tag: 'EDITAR_FECHA',
+    lecturaCaida: /No pude corregir la fecha\. Intenta de nuevo/i,
   },
   {
     nombre: 'editar_comercio', intencion: 'editar_comercio',
     datos: { comercio_nuevo: 'Plaza Vea' }, datosConLectura: { comercio_nuevo: 'Plaza Vea', comercio: 'Starbucks' }, escritura: ['transacciones', 'update'],
     exito: /Comercio corregido/i, fallo: /No pude corregir el comercio ahora mismo/i, tag: 'EDITAR_COMERCIO',
+    lecturaCaida: /No pude corregir el comercio\. Intenta de nuevo/i,
   },
   {
     nombre: 'dividir_gasto', intencion: 'dividir_gasto',
     datos: { partes: 2 }, datosConLectura: { partes: 2, comercio: 'Starbucks' }, escritura: ['transacciones', 'update'],
     exito: /Gasto dividido/i, fallo: /No pude dividir el gasto ahora mismo/i, tag: 'DIVIDIR',
+    lecturaCaida: /No pude dividir el gasto\. Intenta de nuevo/i,
   },
   {
     nombre: 'marcar_como_ingreso', intencion: 'marcar_como_ingreso',
     datos: { tipo_nuevo: 'ingreso' }, datosConLectura: { tipo_nuevo: 'ingreso', comercio: 'Starbucks' }, escritura: ['transacciones', 'update'],
     exito: /ahora est[áa] marcado como/i, fallo: /No pude cambiar el tipo ahora mismo/i, tag: 'MARCAR_INGRESO',
+    lecturaCaida: /No pude cambiar el tipo\. Intenta de nuevo/i,
   },
 ];
 
@@ -271,36 +280,56 @@ describe('9A · confirmación incondicional — los sitios planos', () => {
       expect(res).not.toMatch(TEXTO_NO_ENCUENTRO);
     });
 
-    it(c.nombre + ': la LECTURA falla → mensaje de fila no encontrada, no el de escritura', async () => {
-      // La clase 9B (lecturas mudas) sigue como está a propósito: falla cerrado. Este caso
-      // existe para probar que la guarda nueva NO se dispara acá — si algún día alguien la
-      // sube de nivel y traga los dos casos, este test cae.
+    it(c.nombre + ': la LECTURA falla → corta sin escribir y NO cae al fallback', async () => {
+      // **Este caso afirmaba lo contrario hasta el 25-ago, y pasaba porque su fixture hacía
+      // inalcanzable el camino peligroso.** Decía: *"la clase 9B sigue como está a propósito:
+      // falla cerrado. Este caso existe para probar que la guarda nueva NO se dispara acá"*.
+      // La premisa era falsa (ítem 9F): con la búsqueda caída el handler caía a
+      // `obtenerUltimaTransaccion` y le escribía encima a esa fila. Lo que tapaba el bug era
+      // el mock, que devolvía `null`: sin fila que editar, la respuesta salía "no encuentro"
+      // y el `update` nunca se intentaba. O sea que el verde venía de una condición que no
+      // era la que el caso decía probar.
       //
-      // **Este caso se arregló DOS veces y la primera fue cosmética.** Empezó con
+      // Ahora el mock devuelve una fila REAL y distinta (`TX_DE_AL_LADO`) y se afirma que el
+      // fallback ni siquiera se CONSULTA — un corte puesto después de llamarlo pasaría el
+      // resto igual.
+      //
+      // **Qué mata al mutante, dicho sin inflar**: las tres aserciones nuevas
+      // (`lecturaCaida`, `not.toHaveBeenCalled`, `update === false`); con `null` en el mock
+      // también moriría. Lo que `TX_DE_AL_LADO` aporta es que el mutante falle por la
+      // ESCRITURA a la fila de al lado y no sólo por un copy distinto, que es el daño real.
+      // Y tiene un costo que hay que saber: saca a este caso de la rama "no encuentro un gasto
+      // reciente", que **pasó a cubrirse en `lecturas-de-contenido.test.js`** (9F, el caso
+      // "ni búsqueda ni fallback tienen nada"). Sin ese traslado, arreglar acá habría dejado
+      // esa rama sin nada — y de hecho la dejó durante una vuelta.
+      //
+      // Los dos `lecturaEsCtx` no cambiaron: su búsqueda ES `obtenerUltimaTransaccion`, así
+      // que ahí no hay dos ceros que separar y siguen dando su mensaje viejo.
+      //
+      // **Este caso se arregló DOS veces antes, y las dos fueron cosméticas.** Empezó con
       // `fallos: { transacciones: … }`, una clave muerta (`fallos` se consulta por
       // `tabla:verbo`). Se le puso el verbo… y seguía sin inyectar nada, porque sin
-      // `datos.comercio` el handler no emite NINGÚN select: salta directo a
-      // `obtenerUltimaTransaccion`. O sea que lo que hacía pasar el caso era una lectura VACÍA,
-      // no una que falla, con la clave arreglada al lado para disimularlo. Lo midió la segunda
-      // revisión adversarial exigiendo `intento(tabla,'select') === true`: fallaban los siete.
-      //
-      // Ahora los cinco que SÍ tienen select reciben el `comercio` que lo dispara y lo AFIRMAN;
-      // los dos cuya búsqueda es una función del ctx lo declaran (`lecturaEsCtx`) en vez de
-      // fingir un select que no existe.
+      // `datos.comercio` el handler no emite NINGÚN select. Lo midió la segunda revisión
+      // adversarial exigiendo `intento(tabla,'select') === true`.
+      const esCtx = !!c.lecturaEsCtx;
       const sb = makeSupabase({ filas: {}, fallos: { 'transacciones:select': 'db caída' } });
       const { res, ctx } = await correr(
         sb,
-        { obtenerUltimaTransaccion: vi.fn().mockResolvedValue(null) },
+        { obtenerUltimaTransaccion: vi.fn().mockResolvedValue(esCtx ? null : TX_DE_AL_LADO) },
         c.intencion,
         c.datosConLectura || c.datos,
       );
-      if (c.lecturaEsCtx) {
+      if (esCtx) {
         expect(ctx.obtenerUltimaTransaccion).toHaveBeenCalled();
         expect(sb.intento(tabla, 'select')).toBe(false);
+        expect(res).toMatch(TEXTO_NO_ENCUENTRO);
       } else {
         expect(sb.intento(tabla, 'select'), 'el caso no ejercita ninguna lectura').toBe(true);
+        expect(ctx.obtenerUltimaTransaccion).not.toHaveBeenCalled();
+        expect(res).toMatch(c.lecturaCaida);
+        // Y NO el de la otra clase: "no encuentro" afirmaría que la búsqueda anduvo.
+        expect(res).not.toMatch(TEXTO_NO_ENCUENTRO);
       }
-      expect(res).toMatch(TEXTO_NO_ENCUENTRO);
       expect(res).not.toMatch(TEXTO_ESCRITURA);
       expect(sb.intento(tabla, 'update')).toBe(false);
     });

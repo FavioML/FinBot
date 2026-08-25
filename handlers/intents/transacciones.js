@@ -990,11 +990,26 @@ module.exports = {
           // escribe algo absurdo reciben el mismo empujón, que es lo que corresponde por chat.
           const montoNuevo = validarMonto(datos.monto_nuevo);
           if (!montoNuevo) return 'Dime el monto correcto. Ej: _"el monto es 50"_, _"corrige a S/120"_.';
+          // ─── Los dos ceros de esta búsqueda NO son el mismo cero (ítem 9F) ───────
+          // `found` vacío con `error: null` es "ese comercio no existe": ahí caer a la última
+          // transacción es una heurística razonable por chat y SE CONSERVA. `errBusca…` es
+          // "no se pudo buscar", y ahí el mismo fallback le escribe encima a una fila que la
+          // persona no nombró — con 38.4 transacciones por usuario, casi nunca es la suya.
+          // "El de Starbucks es 50" le ponía S/ 50 al taxi de hoy.
+          //
+          // El corte es `log.warn(LECTURA_CAIDA) + throw`, no `return`: los cinco `case` de
+          // este ítem tienen `catch` propio (verificado uno por uno) y de ahí sale el mensaje
+          // honesto. Un `throw` desde un `case` SIN catch propio terminaría en el catch general
+          // de `procesarMensajeLibre`, que lo anota como fallo de NLP y avisa al admin.
           let txEditM = null;
           if (datos.comercio) {
-            const { data: found } = await supabase.from('transacciones').select('*')
+            const { data: found, error: errBuscaMonto } = await supabase.from('transacciones').select('*')
               .eq('usuario_id', usuario.id).ilike('comercio', '%' + datos.comercio + '%')
               .order('created_at', { ascending: false }).limit(1);
+            if (errBuscaMonto) {
+              log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, sitio: 'editar_monto:comercio', err: errBuscaMonto.message }, 'No se pudo buscar la transacción: no se cae al fallback');
+              throw errBuscaMonto;
+            }
             txEditM = found && found.length > 0 ? found[0] : null;
           }
           // Lookup por fecha si el continuation pasó "el de ayer/hoy" sin comercio
@@ -1004,9 +1019,13 @@ module.exports = {
                          : (tok === 'ayer' || tok === 'antier' || tok === 'anteayer') ? fechaAyerPeru()
                          : null;
             if (fechaQ) {
-              const { data: foundF } = await supabase.from('transacciones').select('*')
+              const { data: foundF, error: errBuscaToken } = await supabase.from('transacciones').select('*')
                 .eq('usuario_id', usuario.id).eq('fecha', fechaQ)
                 .order('created_at', { ascending: false }).limit(1);
+              if (errBuscaToken) {
+                log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, sitio: 'editar_monto:fecha_token', err: errBuscaToken.message }, 'No se pudo buscar la transacción: no se cae al fallback');
+                throw errBuscaToken;
+              }
               txEditM = foundF && foundF.length > 0 ? foundF[0] : null;
             }
           }
@@ -1051,9 +1070,13 @@ module.exports = {
           }
           let txEditF = null;
           if (datos.comercio) {
-            const { data: found } = await supabase.from('transacciones').select('*')
+            const { data: found, error: errBuscaFecha } = await supabase.from('transacciones').select('*')
               .eq('usuario_id', usuario.id).ilike('comercio', '%' + datos.comercio + '%')
               .order('created_at', { ascending: false }).limit(1);
+            if (errBuscaFecha) {
+              log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, sitio: 'editar_fecha:comercio', err: errBuscaFecha.message }, 'No se pudo buscar la transacción: no se cae al fallback');
+              throw errBuscaFecha;
+            }
             txEditF = found && found.length > 0 ? found[0] : null;
           }
           if (!txEditF) txEditF = await obtenerUltimaTransaccion(usuario.id);
@@ -1080,9 +1103,13 @@ module.exports = {
           if (!comercioNuevo) return 'Dime el nombre correcto. Ej: _"el comercio es Plaza Vea"_.';
           let txEditC = null;
           if (datos.comercio) {
-            const { data: found } = await supabase.from('transacciones').select('*')
+            const { data: found, error: errBuscaComercio } = await supabase.from('transacciones').select('*')
               .eq('usuario_id', usuario.id).ilike('comercio', '%' + datos.comercio + '%')
               .order('created_at', { ascending: false }).limit(1);
+            if (errBuscaComercio) {
+              log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, sitio: 'editar_comercio:comercio', err: errBuscaComercio.message }, 'No se pudo buscar la transacción: no se cae al fallback');
+              throw errBuscaComercio;
+            }
             txEditC = found && found.length > 0 ? found[0] : null;
           }
           if (!txEditC) txEditC = await obtenerUltimaTransaccion(usuario.id);
@@ -1110,9 +1137,13 @@ module.exports = {
           if (!partes || partes < 2 || partes > 20) return 'Dime entre cuántos dividir. Ej: _"divide entre 3"_, _"mitad es mío"_.';
           let txDiv = null;
           if (datos.comercio) {
-            const { data: found } = await supabase.from('transacciones').select('*')
+            const { data: found, error: errBuscaDividir } = await supabase.from('transacciones').select('*')
               .eq('usuario_id', usuario.id).ilike('comercio', '%' + datos.comercio + '%')
               .order('created_at', { ascending: false }).limit(1);
+            if (errBuscaDividir) {
+              log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, sitio: 'dividir_gasto:comercio', err: errBuscaDividir.message }, 'No se pudo buscar la transacción: no se cae al fallback');
+              throw errBuscaDividir;
+            }
             txDiv = found && found.length > 0 ? found[0] : null;
           }
           if (!txDiv) txDiv = await obtenerUltimaTransaccion(usuario.id);
@@ -1284,9 +1315,13 @@ module.exports = {
         try {
           let txMarcar = null;
           if (datos.comercio) {
-            const { data: found } = await supabase.from('transacciones').select('*')
+            const { data: found, error: errBuscaIngreso } = await supabase.from('transacciones').select('*')
               .eq('usuario_id', usuario.id).ilike('comercio', '%' + datos.comercio + '%')
               .order('created_at', { ascending: false }).limit(1);
+            if (errBuscaIngreso) {
+              log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, sitio: 'marcar_como_ingreso:comercio', err: errBuscaIngreso.message }, 'No se pudo buscar la transacción: no se cae al fallback');
+              throw errBuscaIngreso;
+            }
             txMarcar = found && found.length > 0 ? found[0] : null;
           }
           if (!txMarcar) txMarcar = await obtenerUltimaTransaccion(usuario.id);

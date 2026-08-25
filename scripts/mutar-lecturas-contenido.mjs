@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * Mutación sobre las 30 guardas de `{ error }` de `handlers/intents/`: las 16 del ítem 9B más
- * las 14 de 9B-quater (deudas 2, espacios 2, metas 8, moderación 1, presupuestos 1).
+ * Mutación sobre las 36 guardas de `{ error }` de `handlers/intents/`: las 16 del ítem 9B, las
+ * 14 de 9B-quater (deudas 2, espacios 2, metas 8, moderación 1, presupuestos 1) y las 6 de 9F
+ * (todas en `transacciones.js`, las que ELIGEN la fila a editar).
  *
  * Neutraliza UNA por vez y corre los tests. Una guarda que sobrevive es una guarda sin test:
  * el código quedó arreglado y nada lo sostiene.
@@ -23,6 +24,10 @@
  *    una sola mutación: `if (false)` mata las dos afirmaciones de cada test a la vez, así que
  *    ninguna de las dos queda probada por separado. Es el modo de falla que
  *    `feedback_guards_que_no_ven` describe, aplicado a la mutación en vez de al guard.
+ *  · **el fallback apagado de más** (9F). Es el único ítem con DOS lados que romper: además
+ *    de no cortar cuando debía, un arreglo puede cortar de más y apagar la caída a la última
+ *    transacción, que es correcta cuando la búsqueda anduvo y no encontró nada. Sin esta
+ *    familia, apagar la heurística sale verde.
  *  · **la decisión propia de un sitio**, que la forma común no cubre: el copy del aviso que no
  *    puede afirmar lo que no midió, las DOS condiciones del corte de `abonar_deuda`,
  *    `maybeSingle` vs `single`, y el conteo que `head: true` deja en `count` y no en `data`.
@@ -46,6 +51,8 @@ const D = 'handlers/intents/deudas.js';
 const E = 'handlers/intents/espacios.js';
 const M = 'handlers/intents/metas.js';
 const MO = 'handlers/intents/moderacion.js';
+// ── 9F ──
+const T = 'handlers/intents/transacciones.js';
 
 const TEST = 'tests/handlers/lecturas-de-contenido.test.js';
 const completa = process.argv.includes('--completa');
@@ -185,6 +192,66 @@ const MUTACIONES = [
   { id: 'moderacion:32 vuelve a single()', archivo: MO, de: '.maybeSingle();', a: '.single();' },
   // El conteo del muro: `head: true` no devuelve filas, sólo `count`.
   { id: 'metas:62 el conteo vuelve a 0 fijo', archivo: M, de: 'const countActivas = countActivasDb || 0;', a: 'const countActivas = 0;' },
+
+  // ══ 9F: las 6 lecturas de transacciones.js que ELIGEN la fila a editar ══
+  //
+  // Tres familias, y las tres hacen falta porque este ítem tiene DOS lados que romper:
+  //
+  //  · `if (err…)` → `if (false)` — el bug original exacto: con la búsqueda caída el flujo
+  //    seguía de largo, caía a `obtenerUltimaTransaccion` y le escribía encima a la fila que
+  //    la persona no nombró. Muere por el caso "no se PUDO buscar".
+  //  · **el log queda y el corte se va** — sin esta familia "avisa" y "corta" son una sola
+  //    mutación, y ninguna de las dos afirmaciones queda probada por separado.
+  //  · **el fallback apagado de más** — el otro lado. Caer a la última CUANDO la búsqueda
+  //    anduvo y no encontró nada es la heurística que el ítem decidió conservar; un arreglo
+  //    que la apague sale verde en todo lo demás. Muere por el caso "la búsqueda ANDUVO".
+  { id: '9F editar_monto:comercio sin guarda (cae al fallback)', archivo: T, de: 'if (errBuscaMonto) {', a: 'if (false) {' },
+  { id: '9F editar_monto:fecha_token sin guarda (cae al fallback)', archivo: T, de: 'if (errBuscaToken) {', a: 'if (false) {' },
+  { id: '9F editar_fecha:comercio sin guarda (cae al fallback)', archivo: T, de: 'if (errBuscaFecha) {', a: 'if (false) {' },
+  { id: '9F editar_comercio:comercio sin guarda (cae al fallback)', archivo: T, de: 'if (errBuscaComercio) {', a: 'if (false) {' },
+  { id: '9F dividir_gasto:comercio sin guarda (cae al fallback)', archivo: T, de: 'if (errBuscaDividir) {', a: 'if (false) {' },
+  { id: '9F marcar_como_ingreso:comercio sin guarda (cae al fallback)', archivo: T, de: 'if (errBuscaIngreso) {', a: 'if (false) {' },
+  { id: '9F editar_monto:comercio loguea pero no corta', archivo: T, de: 'throw errBuscaMonto;', a: '/* mutante: no corta */;' },
+  { id: '9F editar_monto:fecha_token loguea pero no corta', archivo: T, de: 'throw errBuscaToken;', a: '/* mutante: no corta */;' },
+  { id: '9F editar_fecha:comercio loguea pero no corta', archivo: T, de: 'throw errBuscaFecha;', a: '/* mutante: no corta */;' },
+  { id: '9F editar_comercio:comercio loguea pero no corta', archivo: T, de: 'throw errBuscaComercio;', a: '/* mutante: no corta */;' },
+  { id: '9F dividir_gasto:comercio loguea pero no corta', archivo: T, de: 'throw errBuscaDividir;', a: '/* mutante: no corta */;' },
+  { id: '9F marcar_como_ingreso:comercio loguea pero no corta', archivo: T, de: 'throw errBuscaIngreso;', a: '/* mutante: no corta */;' },
+  { id: '9F editar_monto:comercio tag renombrado', archivo: T, nth: 1, de: "tag: 'LECTURA_CAIDA'", a: "tag: 'OTRA_COSA'" },
+  { id: '9F editar_monto:fecha_token tag renombrado', archivo: T, nth: 2, de: "tag: 'LECTURA_CAIDA'", a: "tag: 'OTRA_COSA'" },
+  { id: '9F editar_fecha:comercio tag renombrado', archivo: T, nth: 3, de: "tag: 'LECTURA_CAIDA'", a: "tag: 'OTRA_COSA'" },
+  { id: '9F editar_comercio:comercio tag renombrado', archivo: T, nth: 4, de: "tag: 'LECTURA_CAIDA'", a: "tag: 'OTRA_COSA'" },
+  { id: '9F dividir_gasto:comercio tag renombrado', archivo: T, nth: 5, de: "tag: 'LECTURA_CAIDA'", a: "tag: 'OTRA_COSA'" },
+  { id: '9F marcar_como_ingreso:comercio tag renombrado', archivo: T, nth: 6, de: "tag: 'LECTURA_CAIDA'", a: "tag: 'OTRA_COSA'" },
+  // El TERCER desenlace, que este ítem casi pierde: la búsqueda anduvo, no encontró, y el
+  // fallback tampoco tiene nada. Lo cubría por accidente un caso de `escrituras-de-plata`
+  // que llegaba ahí con el select CAÍDO y el fallback en null; al arreglar ese caso la rama
+  // se quedó SIN NADA y los cinco `return` sobrevivían a los 2398 tests. Medido las dos
+  // direcciones: mueren con el diff de hoy, morían en HEAD, y no morían en el medio.
+  { id: '9F editar_monto sin nada que corregir', archivo: T, nth: 1, de: "return 'No encuentro un gasto reciente para corregir.';", a: "return 'ZZZ';" },
+  { id: '9F editar_fecha sin nada que corregir', archivo: T, nth: 2, de: "return 'No encuentro un gasto reciente para corregir.';", a: "return 'ZZZ';" },
+  { id: '9F editar_comercio sin nada que corregir', archivo: T, nth: 3, de: "return 'No encuentro un gasto reciente para corregir.';", a: "return 'ZZZ';" },
+  { id: '9F dividir_gasto sin nada que dividir', archivo: T, de: "return 'No encuentro un gasto reciente para dividir.';", a: "return 'ZZZ';" },
+  { id: '9F marcar_como_ingreso sin nada que marcar', archivo: T, de: "return 'No hay transacciones recientes para modificar.';", a: "return 'ZZZ';" },
+
+  // El WHERE del SELECT, no el del update. Sin `usuario_id` la búsqueda alcanza filas de otra
+  // persona: el mismo daño de este ítem un escalón peor. Sobrevivía a la suite entera, acá y
+  // en HEAD — el archivo declara que su discriminador es el WHERE enviado y sólo lo aplicaba
+  // al update.
+  { id: '9F select sin usuario_id #1', archivo: T, nth: 1, de: ".eq('usuario_id', usuario.id).ilike('comercio', '%' + datos.comercio + '%')", a: ".ilike('comercio', '%' + datos.comercio + '%')" },
+  { id: '9F select sin usuario_id #2', archivo: T, nth: 2, de: ".eq('usuario_id', usuario.id).ilike('comercio', '%' + datos.comercio + '%')", a: ".ilike('comercio', '%' + datos.comercio + '%')" },
+  { id: '9F select sin usuario_id #3', archivo: T, nth: 3, de: ".eq('usuario_id', usuario.id).ilike('comercio', '%' + datos.comercio + '%')", a: ".ilike('comercio', '%' + datos.comercio + '%')" },
+  { id: '9F select sin usuario_id #4', archivo: T, nth: 4, de: ".eq('usuario_id', usuario.id).ilike('comercio', '%' + datos.comercio + '%')", a: ".ilike('comercio', '%' + datos.comercio + '%')" },
+  { id: '9F select sin usuario_id #5', archivo: T, nth: 5, de: ".eq('usuario_id', usuario.id).ilike('comercio', '%' + datos.comercio + '%')", a: ".ilike('comercio', '%' + datos.comercio + '%')" },
+  // El SEXTO, que busca por fecha y no por comercio: otro literal, otro `describe`, y por eso
+  // la vuelta anterior lo dejó afuera. Sobrevivía a los 2405 tests.
+  { id: '9F select sin usuario_id #6 (fecha_token)', archivo: T, de: ".eq('usuario_id', usuario.id).eq('fecha', fechaQ)", a: ".eq('fecha', fechaQ)" },
+  // El fallback apagado de más: rompe la heurística sin romper ninguna guarda.
+  { id: '9F editar_monto:comercio apaga el fallback de mas', archivo: T, de: 'if (!txEditM) txEditM = await obtenerUltimaTransaccion(usuario.id);', a: '/* mutante: sin fallback */;' },
+  { id: '9F editar_fecha:comercio apaga el fallback de mas', archivo: T, de: 'if (!txEditF) txEditF = await obtenerUltimaTransaccion(usuario.id);', a: '/* mutante: sin fallback */;' },
+  { id: '9F editar_comercio:comercio apaga el fallback de mas', archivo: T, de: 'if (!txEditC) txEditC = await obtenerUltimaTransaccion(usuario.id);', a: '/* mutante: sin fallback */;' },
+  { id: '9F dividir_gasto:comercio apaga el fallback de mas', archivo: T, de: 'if (!txDiv) txDiv = await obtenerUltimaTransaccion(usuario.id);', a: '/* mutante: sin fallback */;' },
+  { id: '9F marcar_como_ingreso:comercio apaga el fallback de mas', archivo: T, de: 'if (!txMarcar) txMarcar = await obtenerUltimaTransaccion(usuario.id);', a: '/* mutante: sin fallback */;' },
 ];
 
 function reemplazar(src, de, a, nth) {
@@ -216,7 +283,7 @@ if (!corridaVerde(TEST)) {
 console.log('verde\n');
 
 const originales = new Map();
-for (const f of [G, U, A, P, D, E, M, MO]) originales.set(f, readFileSync(f, 'utf-8'));
+for (const f of [G, U, A, P, D, E, M, MO, T]) originales.set(f, readFileSync(f, 'utf-8'));
 const restaurar = () => { for (const [f, s] of originales) writeFileSync(f, s); };
 process.on('exit', restaurar);
 process.on('SIGINT', () => { restaurar(); process.exit(130); });
