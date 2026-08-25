@@ -968,6 +968,14 @@ const PROPERTY_REMAP = {
   "manage_goals.deposit": { monto_abono: "monto", meta_id: "nombre_meta" },
   "manage_goals.edit": { monto_objetivo: "monto_nuevo", fecha_limite: "fecha_nueva" },
   "manage_gmail.report_preference": { preferencia: "modo" },
+  // El schema de `query_expenses` nombra `query` al texto de busqueda (action=search) y reserva
+  // `comercio` para action=frequency. El handler de `buscar_gasto` lee `datos.comercio`, asi que
+  // sin esta linea el modelo llenaba `query`, el handler leia `comercio` y SIEMPRE veia undefined:
+  // la busqueda por comercio en WhatsApp nunca funciono. No fallaba ruidosamente, contestaba
+  // "Dime el comercio o servicio", que parece una peticion de aclaracion y no un bug — y el
+  // usuario que reformula recibe lo mismo otra vez. Encontrado el 25-ago-2026 en la conversacion
+  // de un cliente que pregunto cinco veces seguidas por el mismo comercio.
+  "query_expenses.search": { query: "comercio" },
 };
 
 function mapToolToIntent(toolName, args) {
