@@ -266,7 +266,22 @@ async function procesarCallbackAdmin(data) {
         return { answer: 'No pude rechazarlo. Reintenta el botón.' };
       }
       if (!claimed) return { answer: await estadoTrasPerderClaim(pagoId) };
-      await rechazarSolicitudPro({ pagoId, usuario, motivo: 'No pudimos validar el comprobante.' });
+      const resRechazo = await rechazarSolicitudPro({ pagoId, usuario, motivo: 'No pudimos validar el comprobante.' });
+      // El rechazo puede completarse dejando al usuario TRABADO: si no se pudo limpiar
+      // `pago_pendiente`, no va a poder reenviar comprobante por ningún canal y el claim no se
+      // vuelve a ganar nunca (ver `rechazarSolicitudPro`). Contestar 'Rechazado' a secas sería
+      // afirmar que quedó cerrado algo que dejó a alguien sin poder pagar. El `edit` también lo
+      // dice: es lo que queda escrito en el chat cuando el popup ya no está.
+      //
+      // La comparación es explícita contra `false` y no `!resRechazo.claimLimpio` a propósito:
+      // los tests que mockean esta función devuelven `undefined`, y un `!undefined` los haría
+      // gritar sobre rechazos sanos.
+      if (resRechazo && resRechazo.claimLimpio === false) {
+        return {
+          answer: '⚠️ Rechazado, pero quedó trabado: pon `pago_pendiente` en false a mano o no podrá volver a pagar.',
+          edit: '❌ Rechazado — ' + (usuario.nombre || usuario.whatsapp) + '\n⚠️ pago_pendiente quedó trabado: límpialo a mano.',
+        };
+      }
       return { answer: 'Rechazado', edit: '❌ Rechazado — ' + (usuario.nombre || usuario.whatsapp) };
     }
     return { answer: 'Acción no reconocida' };

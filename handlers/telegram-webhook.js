@@ -57,7 +57,15 @@ async function telegramWebhookHandler(req, res) {
       }
       const result = await procesarCallbackAdmin(cb.data);
       // answerCallbackQuery siempre (apaga el spinner del botón), aunque no sea un callback Pro.
-      await responderCallback(cb.id, (result && result.answer) || 'Listo');
+      const respuesta = (result && result.answer) || 'Listo';
+      const avisado = await responderCallback(cb.id, respuesta);
+      // El popup del botón es el ÚNICO canal por el que viaja el diagnóstico de `procesarCallbackAdmin`
+      // ("no se activó Pro y la solicitud NO volvió a pendiente"). Si Telegram lo rechaza —un
+      // callback vencido alcanza— ese texto se pierde y el admin se queda creyendo que aprobó.
+      // El `edit` del caption no lo cubre: no siempre viene, y cuando viene dice otra cosa.
+      if (!avisado) {
+        await enviarTelegramA(cbChatId, respuesta);
+      }
       if (result && result.edit) {
         await editarCaptionTelegram(cbChatId, cb.message.message_id, result.edit);
       }

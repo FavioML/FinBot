@@ -5,8 +5,12 @@ const require = createRequire(import.meta.url);
 const handler = require('../../handlers/intents/transacciones');
 
 /**
- * CONFIRMACIÓN INCONDICIONAL — las 11 escrituras de plata de `handlers/intents/transacciones.js`
- * (ítem 9A del backlog de confiabilidad).
+ * CONFIRMACIÓN INCONDICIONAL — las escrituras de plata de `handlers/intents/transacciones.js`
+ * (ítems 9A y 9A-bis del backlog de confiabilidad).
+ *
+ * 9A cerró las 11 sobre la causa "la escritura FALLÓ". 9A-bis cierra la segunda causa, que
+ * produce la misma confirmación falsa por otro camino: "la escritura no tocó NINGUNA fila".
+ * Las secciones están separadas y etiquetadas para que un rojo diga cuál de las dos se rompió.
  *
  * La clase: un `update()`/`delete()` sobre plata seguido, sin ninguna condición, de un
  * `'✅ Fecha corregida'`, `'✅ Eliminé S/ 50'`, `'↩️ Deshecho'`. supabase-js no lanza —el fallo
@@ -45,12 +49,24 @@ const MUTANTES = ['insert', 'update', 'delete', 'upsert'];
 function makeSupabase({ filas = {}, fallos = {}, vacios = [], lanza = [] } = {}) {
   const llamadas = [];
   const nth = {};
+  const nthVacio = {};
   const fallo = (clave) => {
     const f = fallos[clave];
     if (f === undefined) return null;
     if (!Array.isArray(f)) return f;
     const i = (nth[clave] = (nth[clave] || 0) + 1) - 1;
     return f[i] || null;
+  };
+  /**
+   * `vacios` acepta `'tabla:verbo'` (siempre devuelve cero filas) y `'tabla:verbo#N'` (sólo la
+   * N-ésima llamada, 1-based). El sufijo `#N` es la contraparte del array de `fallos` y hace
+   * falta por lo mismo: en `restaurar_eliminado` el claim de la copia y su devolución a
+   * pendiente son los DOS un `transacciones_eliminadas:update`, así que sin poder separarlos la
+   * guarda de la devolución es inalcanzable desde un test.
+   */
+  const vacio = (clave) => {
+    const n = (nthVacio[clave] = (nthVacio[clave] || 0) + 1);
+    return vacios.includes(clave) || vacios.includes(clave + '#' + n);
   };
   const sb = {
     _llamadas: llamadas,
@@ -78,8 +94,16 @@ function makeSupabase({ filas = {}, fallos = {}, vacios = [], lanza = [] } = {})
       // también en la lectura significaría reimplementar PostgREST acá; lo que importa es que
       // esté escrito y no que alguien lea del mock una garantía que no da.
       const filtros = [];
-      const passthrough = ['select', 'ilike', 'gte', 'lte', 'neq', 'not', 'order', 'limit'];
+      const passthrough = ['ilike', 'gte', 'lte', 'neq', 'not', 'order', 'limit'];
       for (const m of passthrough) b[m] = () => b;
+      // **`.select()` sobre una escritura es su cláusula RETURNING, y sin modelarla el mock
+      // MIENTE en la dirección peligrosa.** Antes devolvía la fila igual, así que quitarle el
+      // `.select('id')` a un update no cambiaba nada acá — y en producción lo cambia todo:
+      // postgrest devuelve `data: null` siempre, o sea que la guarda de "0 filas" dispararía en
+      // TODAS las escrituras y ninguna confirmación volvería a salir. La suite entera habría
+      // seguido verde sobre un backend que le dice "ese gasto ya no está" a todo el mundo.
+      let retorno = false;
+      b.select = () => { if (verbo !== 'select') retorno = true; return b; };
       b.eq = (col, val) => { filtros.push([col, val]); return b; };
       b.is = (col, val) => { filtros.push([col, val]); return b; };
       const filaObjetivo = () => (filas[tabla] || []).find((f) => filtros.every(([c, v]) => f[c] === v)) || null;
@@ -101,12 +125,19 @@ function makeSupabase({ filas = {}, fallos = {}, vacios = [], lanza = [] } = {})
         if (lanza.includes(tabla + ':' + verbo)) throw new Error('conexión cortada');
         const err = fallo(tabla + ':' + verbo);
         if (err) return { data: null, error: { message: err } };
-        if (vacios.includes(tabla + ':' + verbo)) return { data: null, error: null };
+        if (vacio(tabla + ':' + verbo)) return { data: null, error: null };
+        // Una escritura que no pidió RETURNING no trae filas, pase lo que pase con el WHERE.
+        if (verbo !== 'select' && !retorno) return { data: null, error: null };
         if (verbo !== 'select' && (filas[tabla] || []).length) {
           // Escritura condicional: si ninguna fila satisface el WHERE, Postgres no devuelve nada.
           const objetivo = filaObjetivo();
           return { data: objetivo ? [objetivo] : null, error: null };
         }
+        // **Límite declarado, y es el opuesto del que se acaba de cerrar:** con la tabla SIN
+        // sembrar, una escritura con RETURNING devuelve `[{id:'row-1'}]`, o sea "una fila
+        // afectada" sobre una tabla vacía. Es lo que mantiene verdes los casos viejos, que no
+        // siembran nada y sólo miran el mensaje. Un caso NUEVO que quiera probar 0 filas tiene
+        // que sembrar la tabla (con la fila que sea) o el mock le va a decir que sí se afectó.
         const data = verbo === 'select' ? (filas[tabla] || []) : (filas[tabla + ':returning'] || [{ id: 'row-1' }]);
         return { data, error: null };
       };
@@ -181,40 +212,40 @@ const PLANOS = [
   {
     nombre: 'corregir_categoria (sin comercio)', intencion: 'corregir_categoria',
     datos: { categoria_nueva: 'Transporte' }, escritura: ['transacciones', 'update'],
-    exito: /Listo! Mov/i, fallo: /No pude mover ese gasto ahora mismo/i,
+    exito: /Listo! Mov/i, fallo: /No pude mover ese gasto ahora mismo/i, tag: 'CORREGIR',
     // Su búsqueda NO es un select de supabase: sale de `obtenerUltimaTransaccion` (ctx).
     lecturaEsCtx: true,
   },
   {
     nombre: 'corregir_monto_moneda', intencion: 'corregir_monto_moneda',
     datos: { moneda: 'USD', monto: 20 }, escritura: ['transacciones', 'update'],
-    exito: /Corregido/i, fallo: /No pude corregir la moneda ahora mismo/i,
+    exito: /Corregido/i, fallo: /No pude corregir la moneda ahora mismo/i, tag: 'CORREGIR_MONEDA',
     lecturaEsCtx: true,
   },
   {
     nombre: 'editar_monto', intencion: 'editar_monto',
     datos: { monto_nuevo: 80 }, datosConLectura: { monto_nuevo: 80, comercio: 'Starbucks' }, escritura: ['transacciones', 'update'],
-    exito: /Monto corregido/i, fallo: /No pude corregir el monto ahora mismo/i,
+    exito: /Monto corregido/i, fallo: /No pude corregir el monto ahora mismo/i, tag: 'EDITAR_MONTO',
   },
   {
     nombre: 'editar_fecha', intencion: 'editar_fecha',
     datos: { fecha_nueva: 'ayer' }, datosConLectura: { fecha_nueva: 'ayer', comercio: 'Starbucks' }, escritura: ['transacciones', 'update'],
-    exito: /Fecha corregida/i, fallo: /No pude corregir la fecha ahora mismo/i,
+    exito: /Fecha corregida/i, fallo: /No pude corregir la fecha ahora mismo/i, tag: 'EDITAR_FECHA',
   },
   {
     nombre: 'editar_comercio', intencion: 'editar_comercio',
     datos: { comercio_nuevo: 'Plaza Vea' }, datosConLectura: { comercio_nuevo: 'Plaza Vea', comercio: 'Starbucks' }, escritura: ['transacciones', 'update'],
-    exito: /Comercio corregido/i, fallo: /No pude corregir el comercio ahora mismo/i,
+    exito: /Comercio corregido/i, fallo: /No pude corregir el comercio ahora mismo/i, tag: 'EDITAR_COMERCIO',
   },
   {
     nombre: 'dividir_gasto', intencion: 'dividir_gasto',
     datos: { partes: 2 }, datosConLectura: { partes: 2, comercio: 'Starbucks' }, escritura: ['transacciones', 'update'],
-    exito: /Gasto dividido/i, fallo: /No pude dividir el gasto ahora mismo/i,
+    exito: /Gasto dividido/i, fallo: /No pude dividir el gasto ahora mismo/i, tag: 'DIVIDIR',
   },
   {
     nombre: 'marcar_como_ingreso', intencion: 'marcar_como_ingreso',
     datos: { tipo_nuevo: 'ingreso' }, datosConLectura: { tipo_nuevo: 'ingreso', comercio: 'Starbucks' }, escritura: ['transacciones', 'update'],
-    exito: /ahora est[áa] marcado como/i, fallo: /No pude cambiar el tipo ahora mismo/i,
+    exito: /ahora est[áa] marcado como/i, fallo: /No pude cambiar el tipo ahora mismo/i, tag: 'MARCAR_INGRESO',
   },
 ];
 
@@ -552,6 +583,221 @@ describe('9A · las guardas accesorias dejan rastro y no cortan', () => {
       const { res } = await correr(sb, {}, 'restaurar_eliminado', {}, 'restaura');
       expect(res).toMatch(/Intenta registrarlo manualmente/i);
       expect(spy.errores.some((a) => /ya no se puede restaurar/i.test(a[1]))).toBe(true);
+    } finally { spy.restaurar(); }
+  });
+});
+
+/**
+ * ══ 9A-bis · "0 filas" — la MISMA confirmación falsa, la otra causa ═══════════════════════
+ *
+ * postgrest no devuelve `error` cuando un UPDATE no matchea ninguna fila. Así que "la escritura
+ * fue rechazada" y "la escritura no tocó nada" llegan al call-site con la MISMA forma
+ * (`error: null`) y hasta 9A-bis producían la misma respuesta: `'✅ Monto corregido'` sobre un
+ * gasto que no se movió. 9A cerró la primera causa —y sólo la nombraba a ella—, así que los
+ * ocho UPDATE quedaron abiertos con la suite en verde.
+ *
+ * **Cómo se construye el caso, y por qué NO con `vacios`.** `vacios: ['transacciones:update']`
+ * ya existía en este mock y habría sido más corto, pero es un stub declarado: le dice al mock
+ * "acá devolvé nada" sin que nada de la escritura lo cause. Los casos de abajo apuntan a un
+ * **id que no existe** —la fila que el handler leyó ya no está en `filas`— y dejan que el WHERE
+ * del propio update produzca las cero filas, que es el mecanismo de producción: entre la
+ * lectura (`obtenerUltimaTransaccion`) y la escritura, un borrado se llevó la fila. Un caso
+ * construido así también muere si alguien le quita el `.eq('id', …)` al update; el stub no.
+ *
+ * Cada caso afirma CUATRO cosas: que el update se intentó, con qué WHERE, que sale el mensaje
+ * de su clase, y que NO sale ninguno de los otros tres (el éxito, el de escritura-fallida de
+ * 9A, y el de lectura-vacía de 9B). Sin la última mitad, unificar dos copies dejaría el archivo
+ * entero sin discriminar y nadie se enteraría.
+ */
+const TEXTO_CERO_FILAS = /ya no está/i;
+
+// La fila que el handler cree tener (id `tx-001`, la que devuelve `obtenerUltimaTransaccion`)
+// ya no está en la tabla: lo único que queda es OTRA. El `.eq('id', 'tx-001')` no matchea.
+const OTRA_FILA = { ...TX, id: 'tx-999' };
+
+/**
+ * El espía de logs, compartido. **El mensaje al usuario NO distingue una causa de la otra en
+ * producción** —las dos clases tienen su copy, pero nadie las cuenta—, así que el `log.warn`
+ * con su `tag` es lo único que permite saber si esto pasa y con qué frecuencia. Sin afirmarlo,
+ * borrarlo o renombrarle el tag sale verde: es el mismo hueco que el ítem 9B pagó con sus
+ * `LECTURA_CAIDA`, en el commit de al lado.
+ */
+function espiarLog() {
+  const log = require('../../lib/logger');
+  const errores = [];
+  const warns = [];
+  const origE = log.error.bind(log);
+  const origW = log.warn.bind(log);
+  log.error = (...a) => { errores.push(a); };
+  log.warn = (...a) => { warns.push(a); };
+  return { errores, warns, restaurar: () => { log.error = origE; log.warn = origW; } };
+}
+
+describe('9A-bis · un UPDATE que no afecta ninguna fila no se confirma', () => {
+  for (const c of PLANOS) {
+    it(c.nombre + ': 0 filas → lo dice, y no confirma', async () => {
+      const sb = makeSupabase({ filas: { transacciones: [OTRA_FILA] } });
+      const spy = espiarLog();
+      let res;
+      try { ({ res } = await correr(sb, {}, c.intencion, c.datos)); } finally { spy.restaurar(); }
+      // 0) queda rastro, con SU tag y el id de la fila: es lo único observable en producción
+      const anotado = spy.warns.find((a) => /no afectó ninguna fila/i.test(String(a[1])));
+      expect(anotado, 'no quedó rastro de que la escritura no tocó nada').toBeTruthy();
+      expect(anotado[0].tag).toBe(c.tag);
+      expect(anotado[0].txId).toBe(TX.id);
+      // 1) se intentó de verdad — si no, el verde vendría de un return anterior
+      expect(sb.intento('transacciones', 'update')).toBe(true);
+      // 2) apuntando a la fila que el handler leyó (y que ya no está)
+      expect(sb.filtros('transacciones', 'update')).toEqual([['id', TX.id]]);
+      // 3) el mensaje de ESTA clase
+      expect(res).toMatch(TEXTO_CERO_FILAS);
+      // 4) y ninguno de los otros tres
+      expect(res).not.toMatch(c.exito);
+      expect(res).not.toMatch(TEXTO_ESCRITURA);
+      expect(res).not.toMatch(TEXTO_NO_ENCUENTRO);
+    });
+
+    it(c.nombre + ': la fila SÍ está → confirma (control del caso de arriba)', async () => {
+      // Sin este control, el caso anterior podría estar verde porque el handler contesta "ya no
+      // está" siempre. Mismo mock, misma llamada: lo único que cambia es que el id existe.
+      const sb = makeSupabase({ filas: { transacciones: [TX] } });
+      const { res } = await correr(sb, {}, c.intencion, c.datos);
+      expect(res).toMatch(c.exito);
+      expect(res).not.toMatch(TEXTO_CERO_FILAS);
+    });
+  }
+});
+
+/**
+ * `corregir_multiple` — el call-site del motivo nuevo.
+ *
+ * **Lo encontró la mutación, no la revisión ni la suite.** Escribí `motivo: 'desaparecido'` en
+ * `services/transactions.js` y su rama acá, y no cubrí ninguno de los dos extremos juntos:
+ * neutralizar el `else if` dejaba los 2036 tests en verde, o sea que el usuario volvía a leer
+ * *"❌ No encontré gasto de Starbucks"* sobre un gasto que la función acababa de leer — la
+ * mentira que el `motivo` vino a cerrar, con la causa nueva.
+ *
+ * Los tres desenlaces se afirman juntos a propósito: lo que hace útil al tercer valor es que
+ * los otros dos digan otra cosa.
+ */
+describe('9A-bis · corregir_multiple distingue los TRES desenlaces', () => {
+  const conCorreccion = (resultado) => ({
+    parsearCorreccionesMultiples: vi.fn().mockResolvedValue([{ comercio: 'Starbucks', categoria_nueva: 'Transporte' }]),
+    corregirTransaccionEspecifica: vi.fn().mockResolvedValue(resultado),
+  });
+
+  it('desaparecido → "ya no está", y NO el de fallo ni el de inexistente', async () => {
+    const sb = makeSupabase({ filas: { transacciones: [TX] } });
+    const { res } = await correr(sb, conCorreccion({ ok: false, comercio: 'Starbucks', motivo: 'desaparecido' }), 'corregir_multiple', {}, 'starbucks a transporte y wong a comida');
+    expect(res).toMatch(TEXTO_CERO_FILAS);
+    expect(res).not.toMatch(/No pude corregir el gasto/i);
+    expect(res).not.toMatch(/No encontré gasto/i);
+  });
+
+  it('error → "no pude corregirlo ahora mismo" (control)', async () => {
+    const sb = makeSupabase({ filas: { transacciones: [TX] } });
+    const { res } = await correr(sb, conCorreccion({ ok: false, comercio: 'Starbucks', motivo: 'error' }), 'corregir_multiple', {}, 'starbucks a transporte');
+    expect(res).toMatch(/No pude corregir el gasto/i);
+    expect(res).not.toMatch(TEXTO_CERO_FILAS);
+  });
+
+  it('sin motivo → "no encontré gasto" (control)', async () => {
+    const sb = makeSupabase({ filas: { transacciones: [TX] } });
+    const { res } = await correr(sb, conCorreccion({ ok: false, comercio: 'Starbucks' }), 'corregir_multiple', {}, 'starbucks a transporte');
+    expect(res).toMatch(/No encontré gasto/i);
+    expect(res).not.toMatch(TEXTO_CERO_FILAS);
+  });
+});
+
+describe('9A-bis · corregir_categoria: 0 filas corta ANTES de la regla', () => {
+  it('no guarda la regla ni retroaplica sobre un cambio que no ocurrió', async () => {
+    // El gemelo del caso 9A de más arriba, con la otra causa. Acá el corte ES el arreglo y el
+    // texto es lo secundario: escribir la regla sobre una fila que no se movió deja el pasado y
+    // el futuro del mismo comercio en dos categorías — el split que B30 cerró.
+    const sb = makeSupabase({ filas: { transacciones: [OTRA_FILA] } });
+    const { res, ctx } = await correr(sb, {}, 'corregir_categoria', { categoria_nueva: 'Transporte' });
+    expect(res).toMatch(TEXTO_CERO_FILAS);
+    expect(ctx.guardarReglaComercio).not.toHaveBeenCalled();
+    expect(ctx.retroaplicarRegla).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * El octavo UPDATE: la devolución de la copia a pendiente en `restaurar_eliminado`.
+ *
+ * **Misma clase y a propósito NO el mismo arreglo.** Es una compensación: su WHERE es sólo por
+ * `id`, y el claim de arriba ya garantiza que nadie más se llevó esta copia, así que cero filas
+ * significa que la copia no existe. Sin copia no hay nada que devolver ni duplicación posible
+ * después: el desenlace es benigno y la respuesta al usuario no cambia. Lo único que distingue
+ * los dos casos es el LOG, así que probarlo por el mensaje sería un negativo que pasa por otra
+ * condición. Se prueba por el diagnóstico que queda escrito.
+ *
+ * Acá SÍ se usa el stub (`vacios` con `#2`) y no el id-que-no-existe: el mecanismo real es un
+ * borrado concurrente ENTRE las dos escrituras, y eso no se puede expresar con una tabla
+ * estática. Declararlo es la diferencia entre un stub y un stub disimulado.
+ */
+describe('9A-bis · la compensación de restaurar_eliminado: cambia el diagnóstico, no la respuesta', () => {
+  const log = require('../../lib/logger');
+  const COPIA = { id: 'snap-1', usuario_id: 'user-001', tx_id: 'tx-001', restored_at: null, snapshot: { ...TX } };
+
+  function espiar() {
+    const errores = [];
+    const warns = [];
+    const origE = log.error.bind(log);
+    const origW = log.warn.bind(log);
+    log.error = (...a) => { errores.push(a); };
+    log.warn = (...a) => { warns.push(a); };
+    return { errores, warns, restaurar: () => { log.error = origE; log.warn = origW; } };
+  }
+
+  it('la copia YA NO EXISTE: se anota eso, y no que "quedó marcada"', async () => {
+    const spy = espiar();
+    try {
+      // El claim (1er update) entra; el insert falla; y la devolución (2do update) no encuentra
+      // la copia porque un borrado concurrente se la llevó en el medio.
+      const sb = makeSupabase({
+        filas: { transacciones_eliminadas: [COPIA] },
+        fallos: { 'transacciones:insert': 'db caída' },
+        vacios: ['transacciones_eliminadas:update#2'],
+      });
+      const { res } = await correr(sb, {}, 'restaurar_eliminado', {}, 'restaura');
+      // la respuesta es la MISMA que cuando la devolución entra: no hay nada nuevo que contarle
+      expect(res).toMatch(/Intenta registrarlo manualmente/i);
+      // se intentó devolverla, apuntando a esta copia
+      expect(sb.cuenta('transacciones_eliminadas', 'update')).toBe(2);
+      expect(sb.filtros('transacciones_eliminadas', 'update', 1)).toEqual([['id', 'snap-1']]);
+      // y el diagnóstico es otro: es el que decide a dónde mira quien lea el log
+      expect(spy.warns.some((a) => /no hubo nada que devolver/i.test(a[1])), 'no se anotó que la copia ya no está').toBe(true);
+      expect(spy.errores.some((a) => /ya no se puede restaurar/i.test(a[1])), 'afirma un estado que no comprobó').toBe(false);
+    } finally { spy.restaurar(); }
+  });
+
+  it('la devolución FALLA de verdad: sigue anotando que la copia quedó quemada (control)', async () => {
+    // El control de la clase hermana. Sin él, "no salió el error" podría venir de que la guarda
+    // vieja se rompió, no de que la nueva discrimina.
+    const spy = espiar();
+    try {
+      const sb = makeSupabase({
+        filas: { transacciones_eliminadas: [COPIA] },
+        fallos: { 'transacciones_eliminadas:update': [null, 'db caída'], 'transacciones:insert': 'db caída' },
+      });
+      const { res } = await correr(sb, {}, 'restaurar_eliminado', {}, 'restaura');
+      expect(res).toMatch(/Intenta registrarlo manualmente/i);
+      expect(spy.errores.some((a) => /ya no se puede restaurar/i.test(a[1]))).toBe(true);
+      expect(spy.warns.some((a) => /no hubo nada que devolver/i.test(a[1]))).toBe(false);
+    } finally { spy.restaurar(); }
+  });
+
+  it('la devolución ENTRA: ni un diagnóstico ni el otro (control del control)', async () => {
+    const spy = espiar();
+    try {
+      const sb = makeSupabase({
+        filas: { transacciones_eliminadas: [COPIA] },
+        fallos: { 'transacciones:insert': 'db caída' },
+      });
+      await correr(sb, {}, 'restaurar_eliminado', {}, 'restaura');
+      expect(spy.errores.some((a) => /ya no se puede restaurar/i.test(a[1]))).toBe(false);
+      expect(spy.warns.some((a) => /no hubo nada que devolver/i.test(a[1]))).toBe(false);
     } finally { spy.restaurar(); }
   });
 });

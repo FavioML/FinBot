@@ -72,3 +72,6 @@ _basura/
 # vercel (el CLI corre desde la raiz: rootDirectory=webapp es relativo al cwd,
 # asi que un `vercel pull` ahi deja un .env.production.local con secrets de prod)
 .vercel
+
+# El rescate del mutador: existe solo mientras una mutacion esta aplicada (ver scripts/mutar-escrituras-plata.mjs)
+.mutacion-en-curso.json

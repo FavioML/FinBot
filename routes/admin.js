@@ -95,7 +95,17 @@ router.post('/aprobar-pago', async (req, res) => {
     if (usuario_id) query = query.eq('id', usuario_id);
     else if (whatsapp) query = query.eq('whatsapp', String(whatsapp).replace(/\+/g, '').replace(/^0/, ''));
     else return res.status(400).json({ ok: false, msg: 'Falta usuario_id o whatsapp' });
-    const { data: usuario } = await query.single();
+    // **`maybeSingle` y no `single`, y eso es la mitad del arreglo.** Leer el `error` sobre un
+    // `.single()` convertiría el 404 legítimo en un 500: postgrest devuelve `PGRST116` en
+    // `error` cuando la lectura no encuentra fila. Con `maybeSingle` las dos causas quedan
+    // separadas —`error` es la caída, `!usuario` es que no está— y el admin deja de leer
+    // "Usuario no encontrado" sobre una lectura que nunca respondió. Es el hermano de lo que
+    // ya se arregló en `admin-commands.js`, en el OTRO canal admin.
+    const { data: usuario, error: errUsuario } = await query.maybeSingle();
+    if (errUsuario) {
+      log.error({ tag: 'APROBAR_PAGO', err: errUsuario.message }, 'No se pudo leer el usuario a aprobar');
+      return res.status(500).json({ ok: false, msg: 'No pude leer el usuario. Reintenta.' });
+    }
     if (!usuario) return res.status(404).json({ ok: false, msg: 'Usuario no encontrado' });
 
     // Claim atómico del pago pendiente: cierra el doble-click en el panel. Si no hay

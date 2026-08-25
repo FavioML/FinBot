@@ -25,12 +25,27 @@ function makeChain(table, op) {
   for (const m of ['eq', 'neq', 'gte', 'lte', 'lt', 'gt', 'ilike', 'limit', 'order', 'not', 'in', 'or']) {
     chain[m] = (...a) => { q.methods.push([m, ...a]); return chain; };
   }
-  chain.select = (cols, opts) => { if (!q.op) q.op = 'select'; if (opts && opts.head) q.head = true; return chain; };
-  chain.single = () => { q.single = true; return chain; };
-  chain.maybeSingle = () => { q.single = true; return chain; };
+  // `.select()` DESPUES de un insert/update no es una lectura: es la clausula RETURNING de esa
+  // escritura. Se registra en `q.returning` para que un router pueda devolver filas solo cuando
+  // se pidieron — sin eso, quitarle el `.select('id')` a una escritura no cambia nada en el mock
+  // y la mutacion sobrevive.
+  chain.select = (cols, opts) => { if (!q.op) q.op = 'select'; else q.returning = cols || '*'; if (opts && opts.head) q.head = true; return chain; };
+  // **`single` y `maybeSingle` NO son la misma cosa, y tratarlas igual dejaba invisible media
+  // decision.** Sobre cero filas `maybeSingle` devuelve `{data:null,error:null}` y `single`
+  // devuelve `PGRST116` **en `error`** — o sea que con `.single()` un "no existe" legitimo entra
+  // por la rama de "la lectura se cayo". Con las dos colapsadas, volver `maybeSingle` a
+  // `single` en `routes/admin.js` dejaba la suite verde y el 404 disfrazado de 500.
+  // Es el mismo modo de falla que el RETURNING sin modelar, un archivo mas alla.
+  chain.single = () => { q.single = 'single'; return chain; };
+  chain.maybeSingle = () => { q.single = 'maybe'; return chain; };
   chain.then = (resolve, reject) => {
     ops.push(q);
-    return Promise.resolve({ data: null, error: null, ...(router(q) || {}) }).then(resolve, reject);
+    const r = { data: null, error: null, ...(router(q) || {}) };
+    const vacio = r.data === null || r.data === undefined || (Array.isArray(r.data) && r.data.length === 0);
+    if (q.single === 'single' && !r.error && vacio) {
+      r.error = { code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned' };
+    }
+    return Promise.resolve(r).then(resolve, reject);
   };
   return { chain, q };
 }
@@ -515,5 +530,328 @@ describe('la activacion de Pro tiene un solo dueno', () => {
       expect(f.src, rel + ' dejo de delegar en activarPro').toMatch(/activarPro\(/);
       expect(f.src, rel + ' no declara esConversionPagada en el comp').toMatch(/esConversionPagada:\s*false/);
     }
+  });
+});
+
+/**
+ * ══ 9A-bis · pagos y plan ═════════════════════════════════════════════════════════════════
+ *
+ * Los tres sitios de `lib/pro-payment.js` que loguean y siguen ante el error de una escritura,
+ * más la lectura muda del OTRO canal admin (`routes/admin.js`). Son la misma clase que 9A —el
+ * error de supabase-js descartado— una llamada más abajo, pero el síntoma no es un mensaje: es
+ * un estado que nadie puede deshacer y una caja que subcuenta sola.
+ */
+
+/**
+ * **Un almacén de filas de verdad, y no un `router` que devuelve una fila fija.**
+ *
+ * El caso que importa acá no se prueba con un mensaje: se prueba RE-LEYENDO la fila y volviendo
+ * a correr el claim sobre el mismo estado. Con un stub de una sola fila, un WHERE que falta —o
+ * un flag que quedó en true— se ve exactamente igual que el camino sano.
+ *
+ * **Límites declarados**, para que nadie lea de acá una garantía que no da:
+ *  · Sólo se modelan `eq`, `is` y la forma de `or` que usa este archivo
+ *    (`col.is.false,col.is.null`). Cualquier otro operador se ignora, o sea que NO filtra.
+ *  · Una escritura que falla no toca las filas, que es lo que hace Postgres y lo que este test
+ *    necesita para poder afirmar "quedó como estaba".
+ *  · Los datos vuelven sólo si la escritura pidió RETURNING (`.select()`): sin eso, quitarle el
+ *    `.select('id')` al código no cambiaría nada y la mutación sobreviviría.
+ */
+function almacen(tablas, fallos = {}) {
+  const db = {};
+  /**
+   * **El WHERE, expuesto — la pieza que le faltaba a este mock y su hermano ya tenía.**
+   *
+   * `escrituras()` dice "hubo un update sobre `usuarios`", nunca "con este WHERE". Medido por
+   * la revisión adversarial: quitarle el `.eq('id', usuario.id)` al UPDATE del rechazo deja un
+   * `UPDATE usuarios SET pago_pendiente=false, estado_pago=null` **sin WHERE** —un rechazo pisa
+   * a TODOS los usuarios— y los 2024 tests seguían verdes. Lo mismo con `.eq('id', pagoId)`
+   * sobre `pagos`, que marcaría la tabla entera como rechazada.
+   *
+   * `escrituras-de-plata.test.js` creció su `filtros()` exactamente por esto ("quitarle
+   * CUALQUIERA de sus filtros a un DELETE destructivo dejaba la suite verde"). Acá los UPDATE
+   * son igual de destructivos y el accesor no existía: la lección estaba escrita en el archivo
+   * de al lado y no se había transferido.
+   */
+  const filtrosDe = (tabla, op, n = 0) => {
+    const q = ops.filter((o) => o.table === tabla && o.op === op)[n];
+    return q ? q.methods.filter(([m]) => m === 'eq' || m === 'is').map(([, ...a]) => a) : null;
+  };
+  // `sanar()` levanta el fallo inyectado dejando las filas como quedaron. Es lo que hace la
+  // realidad —el hipo de red pasa, el flag sigue trabado— y es lo que permite correr el claim
+  // DESPUÉS sobre una DB sana: sin esto el claim fallaría por el fallo inyectado y el test
+  // estaría midiendo la inyección en vez del estado. Un negativo verde por otra condición.
+  const sanar = () => { for (const k of Object.keys(fallos)) delete fallos[k]; };
+  for (const [t, filas] of Object.entries(tablas)) db[t] = filas.map((f) => ({ ...f }));
+
+  const orCumple = (expr) => (fila) => String(expr).split(',').some((term) => {
+    const [col, op, val] = term.split('.');
+    if (op !== 'is') return false;
+    if (val === 'null') return fila[col] === null || fila[col] === undefined;
+    if (val === 'false') return fila[col] === false;
+    if (val === 'true') return fila[col] === true;
+    return false;
+  });
+
+  const cumple = (metodos) => (fila) => metodos.every(([m, ...a]) => {
+    if (m === 'eq' || m === 'is') return fila[a[0]] === a[1];
+    if (m === 'or') return orCumple(a[0])(fila);
+    return true; // order/limit/… no filtran
+  });
+
+  const router = (q) => {
+    if (fallos[q.table + ':' + q.op]) return { data: null, error: { message: fallos[q.table + ':' + q.op] } };
+    const filas = db[q.table] || (db[q.table] = []);
+    const match = filas.filter(cumple(q.methods));
+    let data;
+    if (q.op === 'insert') {
+      const nuevas = (Array.isArray(q.payload) ? q.payload : [q.payload]).map((f) => ({ ...f }));
+      filas.push(...nuevas);
+      data = q.returning ? nuevas : null;
+    } else if (q.op === 'update') {
+      match.forEach((f) => Object.assign(f, q.payload));
+      data = q.returning ? match : null;
+    } else {
+      data = match;
+    }
+    if (q.single) return { data: (data && data[0]) || null, error: null };
+    return { data, error: null };
+  };
+  return { db, router, sanar, filtros: filtrosDe };
+}
+
+describe('9A-bis · rechazarSolicitudPro: el claim que se pierde para siempre', () => {
+  const TRABABLE = () => ({ id: 'u-1', whatsapp: '51999888777', nombre: 'Favio', pago_pendiente: true, estado_pago: 'pendiente', esperando_comprobante: false });
+
+  it('si no se puede limpiar pago_pendiente: la fila queda trabada Y el claim ya no se gana', async () => {
+    const a = almacen({ usuarios: [TRABABLE()], pagos: [{ id: 'p-1', estado: 'pendiente', usuario_id: 'u-1' }] },
+      { 'usuarios:update': 'db caída' });
+    router = a.router;
+
+    const r = await pro.rechazarSolicitudPro({ pagoId: 'p-1', usuario: { id: 'u-1', whatsapp: '51999888777' }, motivo: 'Ilegible' });
+
+    // 1) se INTENTÓ limpiar — si no, el rojo de abajo vendría de un camino que ni corrió
+    expect(escrituras('usuarios').some((o) => o.payload && o.payload.pago_pendiente === false), 'nunca intentó limpiar el flag').toBe(true);
+    // 2) el estado, releído de la fila: no un mensaje
+    expect(a.db.usuarios[0].pago_pendiente).toBe(true);
+    // 3) y esto es lo que lo vuelve sin salida: con la DB YA SANA, el claim de la próxima
+    //    captura sigue sin ganarse —pide `pago_pendiente is false|null`— y no se va a ganar
+    //    nunca. El usuario reenvía y WhatsApp le contesta "ya tenemos tu comprobante en
+    //    verificación" hasta el fin de los tiempos. Sanar primero es lo que separa "el claim se
+    //    perdió" de "el claim no se pudo ni intentar".
+    a.sanar();
+    await expect(pro.reclamarSolicitudPro('u-1')).resolves.toBe(false);
+    // 4) la única salida es manual, así que alguien tiene que enterarse
+    expect(notifyMock.notificarAdmin).toHaveBeenCalled();
+
+    expect(String(notifyMock.notificarAdmin.mock.calls[0][0])).toMatch(/pago_pendiente/i);
+    // el log también: es el único rastro que queda si el aviso no llega, y borrarlo sobrevivía
+    expect(logMock.error.mock.calls.some((c) => /sin poder volver a pagar/i.test(String(c[1])))).toBe(true);
+    // 5) y el canal admin recibe el estado, no un "listo"
+    expect(r).toEqual({ claimLimpio: false });
+  });
+
+  it('si no se puede marcar el pago rechazado, eso queda escrito', async () => {
+    // La guarda de la PRIMERA escritura de la función (la de `pagos`), que no tenía aserción:
+    // neutralizarla sobrevivía. Si esa fila sigue `pendiente` se puede aprobar después de
+    // haberle dicho al usuario que su pago no era válido — lo dice su propio comentario.
+    const a = almacen({ usuarios: [TRABABLE()], pagos: [{ id: 'p-1', estado: 'pendiente' }] }, { 'pagos:update': 'db caída' });
+    router = a.router;
+    await pro.rechazarSolicitudPro({ pagoId: 'p-1', usuario: { id: 'u-1', whatsapp: '51999888777' }, motivo: 'Ilegible' });
+    expect(logMock.error.mock.calls.some((c) => /marcar el pago como rechazado/i.test(String(c[1])))).toBe(true);
+    // y NO corta: limpiar el claim es más importante que la fila de `pagos`
+    expect(a.db.usuarios[0].pago_pendiente).toBe(false);
+  });
+
+  it('si el aviso al admin TAMPOCO sale, eso queda escrito', async () => {
+    // Al usuario ya se le dijo "ya avisamos al equipo, no hace falta que hagas nada", y lo que
+    // produce este camino —una caída— es lo mismo que puede tumbar el aviso: el canal de
+    // respaldo del admin usa el mismo token de Telegram. Esta línea es lo único que impide que
+    // esa frase sea falsa sin dejar rastro. Descartar el booleano de `notificarAdmin` sobrevivía.
+    const a = almacen({ usuarios: [TRABABLE()], pagos: [{ id: 'p-1', estado: 'pendiente' }] }, { 'usuarios:update': 'db caída' });
+    router = a.router;
+    notifyMock.notificarAdmin.mockResolvedValueOnce(false);
+    await pro.rechazarSolicitudPro({ pagoId: 'p-1', usuario: { id: 'u-1', whatsapp: '51999888777' }, motivo: 'Ilegible' });
+    expect(logMock.error.mock.calls.some((c) => /NO salió por ningún canal/i.test(String(c[1])))).toBe(true);
+  });
+
+  it('el mensaje al usuario NO lo manda por un camino cerrado', async () => {
+    const a = almacen({ usuarios: [TRABABLE()], pagos: [{ id: 'p-1', estado: 'pendiente' }] }, { 'usuarios:update': 'db caída' });
+    router = a.router;
+    await pro.rechazarSolicitudPro({ pagoId: 'p-1', usuario: { id: 'u-1', whatsapp: '51999888777' }, motivo: 'Ilegible' });
+    const texto = waMock.enviarWhatsapp.mock.calls.map((c) => JSON.stringify(c)).join(' ');
+    // "reenvíanos la captura correcta" describe algo que con el claim trabado no existe:
+    // es la confirmación falsa de 9A con otra ropa.
+    expect(texto).not.toMatch(/reenvíanos la captura/i);
+    expect(texto).toMatch(/no vas a poder reenviar/i);
+  });
+
+  it('control: con la escritura sana, la fila queda libre y el claim se vuelve a ganar', async () => {
+    const a = almacen({ usuarios: [TRABABLE()], pagos: [{ id: 'p-1', estado: 'pendiente' }] });
+    router = a.router;
+    const r = await pro.rechazarSolicitudPro({ pagoId: 'p-1', usuario: { id: 'u-1', whatsapp: '51999888777' }, motivo: 'Ilegible' });
+    // **Los dos WHERE, afirmados.** Sin esto, el UPDATE de `usuarios` sin `.eq('id', …)` pisa a
+    // todos los usuarios y el de `pagos` marca la tabla entera como rechazada, con la suite en
+    // verde: `escrituras()` ve que hubo un update, nunca sobre qué.
+    expect(a.filtros('usuarios', 'update'), 'el UPDATE de usuarios perdió su WHERE').toEqual([['id', 'u-1']]);
+    expect(a.filtros('pagos', 'update'), 'el UPDATE de pagos perdió su WHERE').toEqual([['id', 'p-1']]);
+    expect(a.db.usuarios[0].pago_pendiente).toBe(false);
+    await expect(pro.reclamarSolicitudPro('u-1')).resolves.toBe(true);
+    expect(notifyMock.notificarAdmin).not.toHaveBeenCalled();
+    expect(r).toEqual({ claimLimpio: true });
+    // **Y NO sale el diagnostico de 0 filas.** Sin esta linea, quitarle el `.select('id')` al
+    // codigo dejaba la suite entera en verde: `filasLimpias` seria `null` en TODO rechazo sano,
+    // esa rama dispararia siempre, y como ahi lo unico que pasa es un `log.warn` nada mas
+    // cambiaba. Medido por la revision adversarial: 785 tests verdes con la mutacion puesta.
+    // Es la misma forma que salva a la compensacion de `restaurar_eliminado`, cuyo control
+    // afirma que NINGUNO de los dos diagnosticos salio.
+    expect(logMock.warn.mock.calls.some((c) => /no afectó ninguna fila/i.test(String(c[1]))), 'la guarda de 0 filas disparó sobre una escritura que SÍ entró').toBe(false);
+    const texto = waMock.enviarWhatsapp.mock.calls.map((c) => JSON.stringify(c)).join(' ');
+    expect(texto).toMatch(/reenvíanos la captura/i);
+  });
+
+  it('si la escritura RECHAZA en vez de devolver error, tambien cuenta como trabado', async () => {
+    // La rama del `catch`, que no tenia caso. postgrest-js no produce este rechazo (convierte
+    // el fallo de fetch en `error`), asi que solo se puede ejercitar fabricandolo — igual que
+    // el `lanza` del harness de transacciones. Sin esto, `claimLimpio = false` y el aviso al
+    // admin del catch eran codigo sin medir.
+    const a = almacen({ usuarios: [TRABABLE()], pagos: [{ id: 'p-1', estado: 'pendiente' }] });
+    router = (q) => {
+      if (q.table === 'usuarios' && q.op === 'update') throw new Error('conexión cortada');
+      return a.router(q);
+    };
+    const r = await pro.rechazarSolicitudPro({ pagoId: 'p-1', usuario: { id: 'u-1', whatsapp: '51999888777' }, motivo: 'Ilegible' });
+    expect(r).toEqual({ claimLimpio: false });
+    expect(notifyMock.notificarAdmin).toHaveBeenCalled();
+    // y el usuario NO recibe la instruccion de reenviar por un camino cerrado
+    const texto = waMock.enviarWhatsapp.mock.calls.map((c) => JSON.stringify(c)).join(' ');
+    expect(texto).not.toMatch(/reenvíanos la captura/i);
+  });
+
+  it('0 filas NO es el estado trabado: se anota, no se despierta a nadie', async () => {
+    // El WHERE es sólo por `id`, así que cero filas significa que el usuario ya no está. Sin
+    // fila no hay flag que trabe nada: avisar mandaría a buscar un `pago_pendiente` inexistente.
+    // La distinción sólo existe gracias al `.select('id')`; sin él los dos casos llegan con
+    // `error: null` y son literalmente el mismo camino.
+    const a = almacen({ usuarios: [], pagos: [{ id: 'p-1', estado: 'pendiente' }] });
+    router = a.router;
+    const r = await pro.rechazarSolicitudPro({ pagoId: 'p-1', usuario: { id: 'u-1', whatsapp: '51999888777' }, motivo: 'Ilegible' });
+    expect(escrituras('usuarios').length, 'ni siquiera intentó el update').toBe(1);
+    expect(notifyMock.notificarAdmin).not.toHaveBeenCalled();
+    expect(r).toEqual({ claimLimpio: true });
+    expect(logMock.warn.mock.calls.some((c) => /no afectó ninguna fila/i.test(String(c[1])))).toBe(true);
+  });
+});
+
+describe('9A-bis · registrarPagoAprobado: la fila incompleta que subcuenta el MRR', () => {
+  const PERIODO = { tipoPlan: 'mensual', premiumDesde: '2026-08-24', premiumVence: '2026-09-24' };
+
+  it('fila ya reclamada: si el update falla, el admin se entera (Pro quedó activo igual)', async () => {
+    // No puede cortar —`activarPro` ya escribió el plan y el usuario ya leyó "¡Pago
+    // confirmado!"—, así que el único desenlace útil es que alguien complete la fila. Sin el
+    // aviso, `cajaDelMes` suma menos de lo cobrado y nadie vuelve a mirar esa fila.
+    router = (q) => (q.table === 'pagos' && q.op === 'update') ? FALLO : { data: null, error: null };
+    await pro.registrarPagoAprobado('u-1', { ...PERIODO, monto: 10, pagoId: 'p-1' });
+    expect(notifyMock.notificarAdmin).toHaveBeenCalled();
+    expect(String(notifyMock.notificarAdmin.mock.calls[0][0])).toMatch(/p-1/);
+    expect(logMock.error).toHaveBeenCalled();
+  });
+
+  it('camino legacy: si el pendiente no se marca aprobado, se avisa que sigue PENDIENTE', async () => {
+    // Distinto del anterior y por eso otro texto: esta fila no fue reclamada atómicamente, así
+    // que sigue aprobable desde el panel y un segundo Aprobar regala otro mes.
+    router = (q) => {
+      if (q.table === 'pagos' && q.op === 'select') return { data: { id: 'p-9' }, error: null };
+      if (q.table === 'pagos' && q.op === 'update') return FALLO;
+      return { data: null, error: null };
+    };
+    await pro.registrarPagoAprobado('u-1', PERIODO);
+    expect(notifyMock.notificarAdmin).toHaveBeenCalled();
+    expect(String(notifyMock.notificarAdmin.mock.calls[0][0])).toMatch(/pendiente/i);
+  });
+
+  it('sin pendiente: si el insert falla, no queda constancia del cobro y se avisa', async () => {
+    router = (q) => {
+      if (q.table === 'pagos' && q.op === 'select') return { data: null, error: null };
+      if (q.table === 'pagos' && q.op === 'insert') return FALLO;
+      return { data: null, error: null };
+    };
+    await pro.registrarPagoAprobado('u-1', PERIODO);
+    expect(notifyMock.notificarAdmin).toHaveBeenCalled();
+    expect(String(notifyMock.notificarAdmin.mock.calls[0][0])).toMatch(/insert/i);
+  });
+
+  it('si el aviso al admin RECHAZA, no rompe la aprobación (best-effort de verdad)', async () => {
+    // El try/catch de `avisarAdminPagos` no tenía caso: `notificarAdmin` no rechaza en los
+    // mocks, así que quitárselo sobrevivía. Y en producción propagar acá es peor que el bug —
+    // esta función corre DESPUÉS de que Pro se activó, así que tirar deja al admin leyendo
+    // "no se activó" sobre un usuario que sí tiene Pro.
+    router = (q) => (q.table === 'pagos' && q.op === 'update') ? FALLO : { data: null, error: null };
+    notifyMock.notificarAdmin.mockRejectedValueOnce(new Error('telegram caído'));
+    await expect(pro.registrarPagoAprobado('u-1', { tipoPlan: 'mensual', premiumDesde: '2026-08-24', premiumVence: '2026-09-24', monto: 10, pagoId: 'p-1' })).resolves.toBeUndefined();
+    expect(notifyMock.notificarAdmin).toHaveBeenCalled();
+  });
+
+  it('control: con las escrituras sanas no se despierta a nadie', async () => {
+    router = (q) => (q.table === 'pagos' && q.op === 'select') ? { data: { id: 'p-9' }, error: null } : { data: null, error: null };
+    await pro.registrarPagoAprobado('u-1', PERIODO);
+    expect(notifyMock.notificarAdmin).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * `routes/admin.js` — el OTRO canal admin. Acá el claim viene DESPUÉS de la lectura, así que un
+ * fallo no traba el pago: lo que estaba roto es el diagnóstico. El admin leía "Usuario no
+ * encontrado" sobre una lectura que nunca respondió y se iba a buscar una fila que sí existe.
+ *
+ * El caso de al lado es el que obliga a `maybeSingle`: con `.single()`, postgrest devuelve
+ * `PGRST116` en `error` cuando no hay fila, o sea que leer el error a secas convertiría el 404
+ * legítimo en un 500. Los dos casos juntos son la prueba; uno solo pasa por la razón equivocada.
+ */
+describe('9A-bis · POST /admin/aprobar-pago distingue la lectura caída del usuario ausente', () => {
+  process.env.ADMIN_KEY = 'clave-de-prueba-1234';
+  const adminRouter = require('../../routes/admin');
+  const capa = adminRouter.stack.find((l) => l.route && l.route.path === '/aprobar-pago');
+  const handler = capa && capa.route.stack[capa.route.stack.length - 1].handle;
+
+  const correrRuta = async (body) => {
+    const salida = {};
+    const req = {
+      body,
+      get: (h) => (h.toLowerCase() === 'x-admin-key' ? process.env.ADMIN_KEY : ''),
+    };
+    const res = {
+      status(c) { salida.status = c; return res; },
+      json(j) { salida.body = j; return res; },
+    };
+    await handler(req, res);
+    return salida;
+  };
+
+  it('el barrido encontró la ruta (si no, todo lo de abajo pasa sin ejercitar nada)', () => {
+    expect(handler, 'la ruta /aprobar-pago cambió de nombre o de forma').toBeTypeOf('function');
+  });
+
+  it('la lectura CAE → 500, y no "Usuario no encontrado"', async () => {
+    router = (q) => (q.table === 'usuarios' && q.op === 'select') ? FALLO : { data: null, error: null };
+    const r = await correrRuta({ usuario_id: 'u-1', tipo_plan: 'mensual' });
+    expect(r.status).toBe(500);
+    expect(String(r.body.msg)).not.toMatch(/no encontrado/i);
+    expect(logMock.error).toHaveBeenCalled();
+  });
+
+  it('la lectura ANDA y no hay fila → 404 "Usuario no encontrado" (control)', async () => {
+    router = () => ({ data: null, error: null });
+    const r = await correrRuta({ usuario_id: 'u-404', tipo_plan: 'mensual' });
+    expect(r.status).toBe(404);
+    expect(String(r.body.msg)).toMatch(/no encontrado/i);
+  });
+
+  it('ninguno de los dos casos llega a reclamar el pago', async () => {
+    // Si el claim corriera igual, el pago quedaría aprobado sobre un usuario que no se pudo
+    // leer — que es el orden que 9A invirtió en el canal de Telegram.
+    router = (q) => (q.table === 'usuarios' && q.op === 'select') ? FALLO : { data: null, error: null };
+    await correrRuta({ usuario_id: 'u-1', tipo_plan: 'mensual' });
+    expect(escrituras('pagos').length).toBe(0);
   });
 });

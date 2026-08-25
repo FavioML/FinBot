@@ -92,7 +92,10 @@ const fakeDb = {
 
 const pro = {
   activarPro: vi.fn(async () => ({ venceStr: '30/09/2026' })),
-  rechazarSolicitudPro: vi.fn(async () => {}),
+  // Devuelve la forma REAL. Estaba en `undefined` y eso no es neutro: el call-site que decide
+  // si el rechazo dejó al usuario trabado lee `claimLimpio`, así que un mock que no lo trae
+  // ejercita para siempre la rama sana y la otra queda sin poder ni escribirse.
+  rechazarSolicitudPro: vi.fn(async () => ({ claimLimpio: true })),
   reclamarPagoPendiente: vi.fn(async () => {
     const fila = state.filas.pagos;
     state.llamadas.push({ tabla: 'pagos', verbo: 'claim' });
@@ -277,7 +280,21 @@ describe('reject · el mismo orden, por el mismo motivo', () => {
   it('camino feliz: rechaza y avisa', async () => {
     const r = await procesarCallbackAdmin('pro:reject:pago-1');
     expect(r.answer).toMatch(/Rechazado/);
+    expect(r.answer).not.toMatch(/trabado/i);
     expect(pro.rechazarSolicitudPro).toHaveBeenCalledOnce();
+  });
+
+  it('si el rechazo dejó al usuario TRABADO, no contesta "Rechazado" a secas (9A-bis)', async () => {
+    // El rechazo puede completarse y aun así dejar `pago_pendiente` en true, y entonces el
+    // usuario no puede reenviar comprobante por ningún canal — nunca más. Contestar 'Rechazado'
+    // ahí es afirmar que quedó cerrado algo que dejó a alguien sin poder pagar, o sea la misma
+    // confirmación falsa de 9A un nivel más arriba.
+    pro.rechazarSolicitudPro.mockResolvedValueOnce({ claimLimpio: false });
+    const r = await procesarCallbackAdmin('pro:reject:pago-1');
+    expect(r.answer).toMatch(/trabado/i);
+    expect(r.answer).toMatch(/pago_pendiente/);
+    // el `edit` también: es lo que queda escrito en el chat cuando el popup ya no está
+    expect(r.edit).toMatch(/trabado/i);
   });
 
   it('si falla la lectura de usuarios: NO marca la solicitud rechazada', async () => {

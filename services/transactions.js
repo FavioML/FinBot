@@ -321,8 +321,21 @@ async function recategorizarTransaccion(usuarioId, comercio, categoriaNueva, sub
   const categoriaAnterior = tx.categoria || 'Sin categoria';
   const updates = { categoria: categoriaNueva };
   if (subcategoriaNueva) updates.subcategoria = subcategoriaNueva;
-  const { error } = await supabase.from('transacciones').update(updates).eq('id', tx.id);
+  // **`corregir_categoria` tiene DOS ramas y esta es la otra.** Cuando el usuario nombra el
+  // comercio ("cambia starbucks a transporte"), el UPDATE no vive en el handler sino aca, y
+  // aca faltaba lo mismo que 9A-bis cierra alla: postgrest no devuelve `error` cuando el
+  // UPDATE no matchea ninguna fila, asi que un borrado concurrente entre `txs[0]` y esta linea
+  // devolvia `{ ok: true }`. El handler entonces guarda la regla, la retroaplica y contesta
+  // *"Listo! Movi Starbucks (S/45.50)... Aplique el cambio a todos los pagos anteriores"* — la
+  // confirmacion falsa MAS la regla escrita sobre un cambio que no ocurrio, que es justo lo que
+  // la rama de al lado corta a proposito. Tres entradas de produccion: el intent por NLP, el
+  // comando `/cambiar` (webhook.js) y `corregir_multiple`.
+  const { data: filasMovidas, error } = await supabase.from('transacciones').update(updates).eq('id', tx.id).select('id');
   if (error) return { ok: false, msg: 'Error actualizando: ' + error.message };
+  if (!filasMovidas || filasMovidas.length === 0) {
+    log.warn({ tag: 'RECATEGORIZAR', usuarioId, comercio, txId: tx.id }, 'El update de categoria no afecto ninguna fila');
+    return { ok: false, msg: 'Ese gasto ya no esta. Puede que lo hayas eliminado hace un momento.' };
+  }
   return { ok: true, tx, msg: 'Listo! Movi *' + (tx.comercio || comercio) + '* (S/ ' + tx.monto + ') de *' + categoriaAnterior + '* a *' + categoriaNueva + (subcategoriaNueva ? ' > ' + subcategoriaNueva : '') + '*.' };
 }
 
@@ -358,7 +371,7 @@ async function corregirTransaccionEspecifica(usuarioId, comercio, monto, fecha, 
   }
   const updates = { categoria: categoriaNueva };
   if (subcategoriaNueva) updates.subcategoria = subcategoriaNueva;
-  const { error } = await supabase.from('transacciones').update(updates).eq('id', tx.id);
+  const { data: filasCorregidas, error } = await supabase.from('transacciones').update(updates).eq('id', tx.id).select('id');
   // El `motivo` va tambien aca, y no solo en la lectura. Sin el, un update rechazado devolvia
   // `{ ok: false, comercio }` —la forma EXACTA de "ese comercio no existe"— y el bucle de
   // correcciones imprimia "no encontre gasto de X" sobre un gasto que acababa de leer. O sea
@@ -367,6 +380,16 @@ async function corregirTransaccionEspecifica(usuarioId, comercio, monto, fecha, 
   if (error) {
     log.error({ tag: 'CORREGIR_TX', usuarioId, comercio, err: error.message }, 'El update de la correccion fue rechazado');
     return { ok: false, comercio, motivo: 'error' };
+  }
+  // Un motivo PROPIO, no `'error'`: son dos desenlaces distintos y el call-site le dice cosas
+  // distintas a la persona. "No pude corregirlo ahora mismo" invita a reintentar, y sobre una
+  // fila que ya no existe eso es mandarla a repetir algo que no va a funcionar nunca. Sin este
+  // tercer valor, la unica alternativa era caer en el `else` generico, que dice "no encontre
+  // gasto de X" sobre un gasto que ESTA funcion acaba de leer — la mentira que el `motivo`
+  // vino a cerrar, con otra causa.
+  if (!filasCorregidas || filasCorregidas.length === 0) {
+    log.warn({ tag: 'CORREGIR_TX', usuarioId, comercio, txId: tx.id }, 'El update de la correccion no afecto ninguna fila');
+    return { ok: false, comercio, motivo: 'desaparecido' };
   }
   return { ok: true, comercio: tx.comercio || comercio, monto: tx.monto_pen || tx.monto, moneda: tx.moneda || 'PEN' };
 }

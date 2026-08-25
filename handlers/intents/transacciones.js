@@ -583,7 +583,13 @@ module.exports = {
               if (txActualizada) {
                 const updFields = { categoria: catLibre };
                 if (subLibre) updFields.subcategoria = subLibre;
-                const { error: errMoverCat } = await supabase.from('transacciones').update(updFields).eq('id', txActualizada.id);
+                // **`.select('id')` no es simetria con el DELETE: es la otra causa.** postgrest no
+                // devuelve `error` cuando el UPDATE no matchea ninguna fila, asi que "la escritura
+                // fallo" y "la escritura no toco nada" llegan aca con la MISMA forma
+                // (`error: null`) y producian la misma confirmacion falsa. 9A solo cerro la
+                // primera. Pasa de verdad: `obtenerUltimaTransaccion` leyo la fila y el borrado
+                // llego entre esa lectura y este update.
+                const { data: filasMovidas, error: errMoverCat } = await supabase.from('transacciones').update(updFields).eq('id', txActualizada.id).select('id');
                 // Se corta ACÁ y no después: la regla y la retroaplicación son la consecuencia de
                 // este cambio. Guardarlas sobre una fila que no se movió parte el pasado y el
                 // futuro del mismo comercio en dos categorías —el split que B30 vino a cerrar— y
@@ -591,6 +597,14 @@ module.exports = {
                 if (errMoverCat) {
                   log.error({ tag: 'CORREGIR', err: errMoverCat.message, txId: txActualizada.id }, 'No se pudo mover el gasto de categoría');
                   return 'No pude mover ese gasto ahora mismo. Vuelve a intentarlo en un momento.';
+                }
+                // Corta en el MISMO punto que la rama de error —la regla y la retroaplicacion son
+                // la consecuencia de un cambio que no ocurrio— pero el texto es OTRO: pedirle
+                // "vuelve a intentarlo" sobre una fila que ya no existe lo manda a repetir algo
+                // que no va a funcionar nunca.
+                if (!filasMovidas || filasMovidas.length === 0) {
+                  log.warn({ tag: 'CORREGIR', txId: txActualizada.id }, 'El update de categoría no afectó ninguna fila');
+                  return 'Ese gasto ya no está. Puede que lo hayas eliminado hace un momento.';
                 }
               } else {
                 return '\u00bfDe qu\u00e9 gasto hablamos? D\u00edme el comercio y lo muevo.';
@@ -673,6 +687,11 @@ module.exports = {
               // función —la lectura que no encontró y el update que fue rechazado— y nombrar
               // sólo una sería mentir en la otra.
               resultados.push('⚠️ No pude corregir el gasto de *' + corr.comercio + '* ahora mismo');
+            } else if (res.motivo === 'desaparecido') {
+              // 9A-bis: el update entró y no tocó ninguna fila, o sea que el gasto se borró
+              // entre la lectura y la escritura. NO es "no lo encontré" (se encontró) ni "no
+              // pude ahora mismo" (reintentar no lo va a traer de vuelta).
+              resultados.push('🚫 Ese gasto de *' + corr.comercio + '* ya no está');
             } else {
               resultados.push('❌ No encontré gasto de *' + corr.comercio + '*');
             }
@@ -705,10 +724,14 @@ module.exports = {
             updates.monto_pen = nuevoMonto;
             updates.tipo_cambio = null;
           }
-          const { error: errMoneda } = await supabase.from('transacciones').update(updates).eq('id', ultimaTxM.id);
+          const { data: filasMoneda, error: errMoneda } = await supabase.from('transacciones').update(updates).eq('id', ultimaTxM.id).select('id');
           if (errMoneda) {
             log.error({ tag: 'CORREGIR_MONEDA', err: errMoneda.message, txId: ultimaTxM.id }, 'No se pudo corregir monto/moneda');
             return 'No pude corregir la moneda ahora mismo. Vuelve a intentarlo en un momento.';
+          }
+          if (!filasMoneda || filasMoneda.length === 0) {
+            log.warn({ tag: 'CORREGIR_MONEDA', txId: ultimaTxM.id }, 'El update de moneda no afectó ninguna fila');
+            return 'Ese gasto ya no está. Puede que lo hayas eliminado hace un momento.';
           }
           const comercioM = ultimaTxM.comercio || 'el gasto';
           const montoStrM = nuevaMoneda === 'USD'
@@ -919,9 +942,22 @@ module.exports = {
           const { error: insErr } = await supabase.from('transacciones').insert(payloadRestore);
           if (insErr) {
             log.error({ tag: 'RESTAURAR', err: insErr.message, snapshotId: objetivo.id }, 'Error al re-insertar tx');
-            const { error: errDevolver } = await supabase.from('transacciones_eliminadas')
-              .update({ restored_at: null }).eq('id', objetivo.id);
+            // **Misma clase que los siete de arriba y NO el mismo arreglo.** Acá "0 filas" no es
+            // un desenlace que el usuario deba conocer: el WHERE es sólo por `id` (nadie más pudo
+            // perder este claim — lo ganamos con el `.is('restored_at', null)` de arriba), así que
+            // cero filas significa que la copia ya no existe. Y si no existe, no hay nada que
+            // devolver a pendiente ni duplicación posible después: el desenlace es benigno.
+            //
+            // Por eso la respuesta al usuario NO cambia —sigue siendo "no pude restaurarlo", que
+            // es verdad en los dos casos— y lo único que se gana es el LOG. Sin `.select('id')`
+            // los dos casos escribían la misma línea, y esa línea ("la copia quedó marcada sin
+            // transacción: ya no se puede restaurar") es falsa cuando la copia no está: no quedó
+            // marcada, no está. Un log que afirma un estado que no comprobó manda a buscar una
+            // fila que no existe.
+            const { data: copiaDevuelta, error: errDevolver } = await supabase.from('transacciones_eliminadas')
+              .update({ restored_at: null }).eq('id', objetivo.id).select('id');
             if (errDevolver) log.error({ tag: 'RESTAURAR', err: errDevolver.message, snapshotId: objetivo.id }, 'La copia quedó marcada sin transacción: ya no se puede restaurar');
+            else if (!copiaDevuelta || copiaDevuelta.length === 0) log.warn({ tag: 'RESTAURAR', snapshotId: objetivo.id }, 'La copia ya no existe: no hubo nada que devolver a pendiente');
             return 'No pude restaurar el gasto. Intenta registrarlo manualmente.';
           }
 
@@ -984,10 +1020,14 @@ module.exports = {
           } else {
             updates.monto_pen = montoNuevo;
           }
-          const { error: errEditMonto } = await supabase.from('transacciones').update(updates).eq('id', txEditM.id);
+          const { data: filasMonto, error: errEditMonto } = await supabase.from('transacciones').update(updates).eq('id', txEditM.id).select('id');
           if (errEditMonto) {
             log.error({ tag: 'EDITAR_MONTO', err: errEditMonto.message, txId: txEditM.id }, 'No se pudo editar el monto');
             return 'No pude corregir el monto ahora mismo. Vuelve a intentarlo en un momento.';
+          }
+          if (!filasMonto || filasMonto.length === 0) {
+            log.warn({ tag: 'EDITAR_MONTO', txId: txEditM.id }, 'El update del monto no afectó ninguna fila');
+            return 'Ese gasto ya no está. Puede que lo hayas eliminado hace un momento.';
           }
           const montoViejo = monedaEdit === 'USD' ? '$' + parseFloat(txEditM.monto).toFixed(2) : 'S/ ' + parseFloat(txEditM.monto).toFixed(2);
           const montoNuevoStr = monedaEdit === 'USD' ? '$' + montoNuevo.toFixed(2) : 'S/ ' + montoNuevo.toFixed(2);
@@ -1018,10 +1058,14 @@ module.exports = {
           }
           if (!txEditF) txEditF = await obtenerUltimaTransaccion(usuario.id);
           if (!txEditF) return 'No encuentro un gasto reciente para corregir.';
-          const { error: errEditFecha } = await supabase.from('transacciones').update({ fecha: fechaNueva }).eq('id', txEditF.id);
+          const { data: filasFecha, error: errEditFecha } = await supabase.from('transacciones').update({ fecha: fechaNueva }).eq('id', txEditF.id).select('id');
           if (errEditFecha) {
             log.error({ tag: 'EDITAR_FECHA', err: errEditFecha.message, txId: txEditF.id }, 'No se pudo editar la fecha');
             return 'No pude corregir la fecha ahora mismo. Vuelve a intentarlo en un momento.';
+          }
+          if (!filasFecha || filasFecha.length === 0) {
+            log.warn({ tag: 'EDITAR_FECHA', txId: txEditF.id }, 'El update de la fecha no afectó ninguna fila');
+            return 'Ese gasto ya no está. Puede que lo hayas eliminado hace un momento.';
           }
           return '✅ Fecha corregida.\n*' + (txEditF.comercio || 'Gasto') + '*: ' + formatFecha(txEditF.fecha) + ' → ' + formatFecha(fechaNueva);
         } catch(e) {
@@ -1044,10 +1088,14 @@ module.exports = {
           if (!txEditC) txEditC = await obtenerUltimaTransaccion(usuario.id);
           if (!txEditC) return 'No encuentro un gasto reciente para corregir.';
           const comercioViejo = txEditC.comercio || 'Sin nombre';
-          const { error: errEditCom } = await supabase.from('transacciones').update({ comercio: comercioNuevo }).eq('id', txEditC.id);
+          const { data: filasCom, error: errEditCom } = await supabase.from('transacciones').update({ comercio: comercioNuevo }).eq('id', txEditC.id).select('id');
           if (errEditCom) {
             log.error({ tag: 'EDITAR_COMERCIO', err: errEditCom.message, txId: txEditC.id }, 'No se pudo editar el comercio');
             return 'No pude corregir el comercio ahora mismo. Vuelve a intentarlo en un momento.';
+          }
+          if (!filasCom || filasCom.length === 0) {
+            log.warn({ tag: 'EDITAR_COMERCIO', txId: txEditC.id }, 'El update del comercio no afectó ninguna fila');
+            return 'Ese gasto ya no está. Puede que lo hayas eliminado hace un momento.';
           }
           return '✅ Comercio corregido.\n' + comercioViejo + ' → *' + comercioNuevo + '*';
         } catch(e) {
@@ -1085,10 +1133,14 @@ module.exports = {
           } else {
             updates.monto_pen = montoNuevoDiv;
           }
-          const { error: errDividir } = await supabase.from('transacciones').update(updates).eq('id', txDiv.id);
+          const { data: filasDiv, error: errDividir } = await supabase.from('transacciones').update(updates).eq('id', txDiv.id).select('id');
           if (errDividir) {
             log.error({ tag: 'DIVIDIR', err: errDividir.message, txId: txDiv.id }, 'No se pudo dividir el gasto');
             return 'No pude dividir el gasto ahora mismo. Vuelve a intentarlo en un momento.';
+          }
+          if (!filasDiv || filasDiv.length === 0) {
+            log.warn({ tag: 'DIVIDIR', txId: txDiv.id }, 'El update de la división no afectó ninguna fila');
+            return 'Ese gasto ya no está. Puede que lo hayas eliminado hace un momento.';
           }
           const monedaDiv = txDiv.moneda === 'USD' ? '$' : 'S/ ';
           return '✅ Gasto dividido entre ' + partes + '.\n*' + (txDiv.comercio || 'Gasto') + '*: ' + monedaDiv + montoOriginal.toFixed(2) + ' → ' + monedaDiv + montoNuevoDiv.toFixed(2) + ' (tu parte)';
@@ -1240,10 +1292,14 @@ module.exports = {
           if (!txMarcar) txMarcar = await obtenerUltimaTransaccion(usuario.id);
           if (!txMarcar) return 'No hay transacciones recientes para modificar.';
           const tipoNuevo = datos.tipo_nuevo || 'ingreso';
-          const { error: errMarcar } = await supabase.from('transacciones').update({ tipo: tipoNuevo }).eq('id', txMarcar.id);
+          const { data: filasMarcar, error: errMarcar } = await supabase.from('transacciones').update({ tipo: tipoNuevo }).eq('id', txMarcar.id).select('id');
           if (errMarcar) {
             log.error({ tag: 'MARCAR_INGRESO', err: errMarcar.message, txId: txMarcar.id }, 'No se pudo cambiar el tipo');
             return 'No pude cambiar el tipo ahora mismo. Vuelve a intentarlo en un momento.';
+          }
+          if (!filasMarcar || filasMarcar.length === 0) {
+            log.warn({ tag: 'MARCAR_INGRESO', txId: txMarcar.id }, 'El update del tipo no afectó ninguna fila');
+            return 'Esa transacción ya no está. Puede que la hayas eliminado hace un momento.';
           }
           const montoMarcar = txMarcar.moneda === 'USD' ? '$' + parseFloat(txMarcar.monto).toFixed(2) : 'S/ ' + parseFloat(txMarcar.monto).toFixed(2);
           return '✅ *' + (txMarcar.comercio || 'Transacción') + '* (' + montoMarcar + ') ahora está marcado como *' + tipoNuevo + '*.\n\n_Tu balance se ha actualizado._';

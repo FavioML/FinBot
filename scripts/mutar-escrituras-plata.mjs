@@ -20,11 +20,23 @@
  *   node scripts/mutar-escrituras-plata.mjs
  *   node scripts/mutar-escrituras-plata.mjs --completa   # supervivientes contra la suite entera
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 
-const ARCHIVOS = ['handlers/intents/transacciones.js', 'handlers/admin-commands.js'];
-const TESTS = 'tests/handlers/';
+// 9A-bis suma cuatro archivos: la clase "el error descartado" es la misma, pero las dos causas
+// (falló / no tocó nada) y los dos canales admin viven en sitios distintos.
+const ARCHIVOS = [
+  'handlers/intents/transacciones.js', 'handlers/admin-commands.js',
+  'lib/pro-payment.js', 'routes/admin.js', 'lib/telegram.js', 'handlers/telegram-webhook.js',
+  // Entró en la segunda vuelta: `corregir_categoria` BIFURCA, y cuando el usuario nombra el
+  // comercio el UPDATE no está en el handler sino en `recategorizarTransaccion`. Un perímetro
+  // definido por la forma del código (los UPDATE de un archivo) no ve una rama que sale por una
+  // función, aunque el usuario reciba el mismo mensaje.
+  'services/transactions.js',
+];
+// `tests/lib/` entró con esos archivos. Un mutador que no corre los tests del archivo que muta
+// reporta SOBREVIVE sobre todo lo nuevo, que se lee igual que "sin cobertura".
+const TESTS = 'tests/handlers/ tests/lib/ tests/services/';
 const COMPLETA = process.argv.includes('--completa');
 
 // ─── Mutaciones automáticas: toda guarda cuya condición mira un error ────────
@@ -53,7 +65,12 @@ function automaticas(rel) {
   lineas.forEach((l, i) => {
     const m = l.match(RE_GUARDA);
     if (!m) return;
-    if (!/err/i.test(m[1].split(' ')[0])) return;
+    // El filtro mira el PRIMER identificador de la condición. `err` cubre las guardas de 9A;
+    // `filas`/`copia` cubren las de 9A-bis, que deciden por el RETURNING de la escritura
+    // (`if (!filasMonto || filasMonto.length === 0)`) y no nombran ningún error. Sin esta
+    // segunda mitad, las ocho guardas nuevas eran invisibles para el mutador — el mismo
+    // perímetro corto que ya hizo salir "5/6 mueren" con 14 sitios sin ver.
+    if (!/^!?(err|filas|copia)/i.test(m[1].split(' ')[0])) return;
     out.push({
       id: `${rel}:${i + 1} ${m[1]}`,
       archivo: rel,
@@ -115,6 +132,59 @@ const EXTRAS = [
   { archivo: 'handlers/intents/transacciones.js', de: 'if (error || !data) {', a: 'if (error) {', ocurrencia: 0, id: 'transacciones.js · snapshot sin la mitad `!data`' },
   { archivo: 'handlers/admin-commands.js', de: 'if (errTras) {', a: 'if (false && errTras) {', ocurrencia: 0 },
   { archivo: 'handlers/admin-commands.js', de: 'if (!claimed) return { answer: await estadoTrasPerderClaim(pagoId) };', a: 'if (false && !claimed) return { answer: await estadoTrasPerderClaim(pagoId) };', ocurrencia: 1, id: 'admin-commands.js · !claimed del RECHAZO' },
+
+  // ── 9A-bis ────────────────────────────────────────────────────────────────
+  //
+  // **Quitar el `.select('id')` es la mutación que más importa de este ítem**, y no es una
+  // variante de la guarda: es lo único que hace que "0 filas" sea DISTINGUIBLE. Sin él
+  // postgrest devuelve `data: null` en toda escritura, así que la guarda dispara SIEMPRE y el
+  // backend le contesta "ese gasto ya no está" a todo el mundo. Un mock que no modele el
+  // RETURNING deja las siete en verde — pasaba hasta que se modeló.
+  { archivo: 'handlers/intents/transacciones.js', de: ".eq('id', txActualizada.id).select('id')", a: ".eq('id', txActualizada.id)", ocurrencia: 0 },
+  { archivo: 'handlers/intents/transacciones.js', de: ".eq('id', ultimaTxM.id).select('id')", a: ".eq('id', ultimaTxM.id)", ocurrencia: 0 },
+  { archivo: 'handlers/intents/transacciones.js', de: ".eq('id', txEditM.id).select('id')", a: ".eq('id', txEditM.id)", ocurrencia: 0 },
+  { archivo: 'handlers/intents/transacciones.js', de: ".eq('id', txEditF.id).select('id')", a: ".eq('id', txEditF.id)", ocurrencia: 0 },
+  { archivo: 'handlers/intents/transacciones.js', de: ".eq('id', txEditC.id).select('id')", a: ".eq('id', txEditC.id)", ocurrencia: 0 },
+  { archivo: 'handlers/intents/transacciones.js', de: ".eq('id', txDiv.id).select('id')", a: ".eq('id', txDiv.id)", ocurrencia: 0 },
+  { archivo: 'handlers/intents/transacciones.js', de: ".eq('id', txMarcar.id).select('id')", a: ".eq('id', txMarcar.id)", ocurrencia: 0 },
+  // el WHERE de los siete: sin el `.eq('id', …)` el update pisa TODAS las transacciones
+  { archivo: 'handlers/intents/transacciones.js', de: ".update({ tipo: tipoNuevo }).eq('id', txMarcar.id)", a: ".update({ tipo: tipoNuevo })", ocurrencia: 0 },
+  { archivo: 'handlers/intents/transacciones.js', de: ".update({ fecha: fechaNueva }).eq('id', txEditF.id)", a: ".update({ fecha: fechaNueva })", ocurrencia: 0 },
+
+  // La compensación de `restaurar_eliminado`: misma clase, arreglo distinto (sólo el log).
+  { archivo: 'handlers/intents/transacciones.js', de: ".update({ restored_at: null }).eq('id', objetivo.id).select('id')", a: ".update({ restored_at: null }).eq('id', objetivo.id)", ocurrencia: 0 },
+  { archivo: 'handlers/intents/transacciones.js', de: 'else if (!copiaDevuelta || copiaDevuelta.length === 0)', a: 'else if (false && (!copiaDevuelta || copiaDevuelta.length === 0))', ocurrencia: 0 },
+
+  // El claim trabado del rechazo Pro. Las tres mitades del arreglo, por separado: el RETURNING,
+  // el aviso al admin (única salida del estado sin salida) y el copy que no manda a un camino
+  // cerrado. Mutar sólo la guarda entera taparía que dos de las tres no están cubiertas.
+  { archivo: 'lib/pro-payment.js', de: "      .eq('id', usuario.id)\n      .select('id');", a: "      .eq('id', usuario.id);", ocurrencia: 0, id: 'pro-payment.js · el rechazo sin RETURNING: 0 filas indistinguible de error' },
+  { archivo: 'lib/pro-payment.js', de: "      claimLimpio = false;\n      log.error({ tag: 'PRO_PAGO', err: errUsr.message", a: "      log.error({ tag: 'PRO_PAGO', err: errUsr.message", ocurrencia: 0, id: 'pro-payment.js · el rechazo NO reporta el claim trabado' },
+  { archivo: 'lib/pro-payment.js', de: '  const mensaje = claimLimpio\n    ?', a: '  const mensaje = !claimLimpio\n    ?', ocurrencia: 0, id: 'pro-payment.js · el copy del rechazo, invertido' },
+
+  // Los tres avisos de `registrarPagoAprobado`. Van uno por uno: la mutación de la guarda
+  // entera muere con cualquiera de los tres tests y tapa que los otros dos no se ejercitan.
+  { archivo: 'lib/pro-payment.js', de: "        await avisarAdminPagos('⚠️ Pro activado, pero el pago `' + pagoId", a: "        await Promise.resolve('⚠️ Pro activado, pero el pago `' + pagoId", ocurrencia: 0, id: 'pro-payment.js · sin aviso: fila reclamada sin plan/monto/periodo' },
+  { archivo: 'lib/pro-payment.js', de: "        await avisarAdminPagos('⚠️ Pro activado, pero el pago `' + pendiente.id", a: "        await Promise.resolve('⚠️ Pro activado, pero el pago `' + pendiente.id", ocurrencia: 0, id: 'pro-payment.js · sin aviso: el pendiente sigue pendiente' },
+  { archivo: 'lib/pro-payment.js', de: "      await avisarAdminPagos('⚠️ Pro activado para ' + usuarioId + ' pero NO quedó fila", a: "      await Promise.resolve('⚠️ Pro activado para ' + usuarioId + ' pero NO quedó fila", ocurrencia: 0, id: 'pro-payment.js · sin aviso: el insert del pago no entró' },
+
+  // El otro canal admin: el `maybeSingle` es parte del arreglo, no estilo. Con `.single()` un
+  // 404 legítimo pasa a 500 (postgrest devuelve PGRST116 en `error` sobre cero filas).
+  { archivo: 'routes/admin.js', de: 'await query.maybeSingle();', a: 'await query.single();', ocurrencia: 0, id: 'routes/admin.js · vuelve a .single(): el 404 se disfraza de 500' },
+
+  // Telegram: el `ok:false` con HTTP 200, y el canal de respaldo que lo aprovecha.
+  { archivo: 'lib/telegram.js', de: '    if (data && data.ok) return true;', a: '    if (!(data && data.ok)) return true;', ocurrencia: 0, id: 'lib/telegram.js · un rechazo de Telegram cuenta como entregado' },
+  { archivo: 'handlers/telegram-webhook.js', de: '      if (!avisado) {', a: '      if (false && !avisado) {', ocurrencia: 0, id: 'telegram-webhook.js · el diagnóstico no sale por el otro canal' },
+  { archivo: 'handlers/admin-commands.js', de: '      if (resRechazo && resRechazo.claimLimpio === false) {', a: '      if (false && resRechazo && resRechazo.claimLimpio === false) {', ocurrencia: 0, id: 'admin-commands.js · "Rechazado" a secas sobre un usuario trabado' },
+
+  // ── 9A-bis, segunda vuelta: la rama de `corregir_categoria` que sale por services/ ──
+  { archivo: 'services/transactions.js', de: ".update(updates).eq('id', tx.id).select('id')", a: ".update(updates).eq('id', tx.id)", ocurrencia: 0, id: 'services/transactions.js · recategorizar sin RETURNING' },
+  { archivo: 'services/transactions.js', de: ".update(updates).eq('id', tx.id).select('id')", a: ".update(updates).eq('id', tx.id)", ocurrencia: 1, id: 'services/transactions.js · corregir sin RETURNING' },
+  { archivo: 'services/transactions.js', de: '  if (!filasMovidas || filasMovidas.length === 0) {', a: '  if (false && (!filasMovidas || filasMovidas.length === 0)) {', ocurrencia: 0, id: 'services/transactions.js · recategorizar confirma sobre 0 filas' },
+  { archivo: 'services/transactions.js', de: '  if (!filasCorregidas || filasCorregidas.length === 0) {', a: '  if (false && (!filasCorregidas || filasCorregidas.length === 0)) {', ocurrencia: 0, id: 'services/transactions.js · corregir confirma sobre 0 filas' },
+  // colapsar los dos desenlaces en uno: el call-site deja de poder distinguirlos
+  { archivo: 'services/transactions.js', de: "    return { ok: false, comercio, motivo: 'desaparecido' };", a: "    return { ok: false, comercio, motivo: 'error' };", ocurrencia: 0, id: 'services/transactions.js · "desaparecido" se disfraza de "error"' },
+  { archivo: 'handlers/intents/transacciones.js', de: "            } else if (res.motivo === 'desaparecido') {", a: "            } else if (false && res.motivo === 'desaparecido') {", ocurrencia: 0, id: 'transacciones.js · la rama de "ya no está" en corregir_multiple' },
 // El `e.id ||` no es cosmético: sin él el id explícito de una entrada se pisaba con el derivado
 // del texto, así que DOS mutaciones distintas sobre la misma cadena salían con el mismo nombre y
 // la declaración de equivalencia (que se busca por id) no encontraba a la suya.
@@ -182,8 +252,36 @@ function correr(cmd) {
   try { execSync(cmd, { stdio: 'pipe' }); return true; } catch { return false; }
 }
 
+/**
+ * **Recuperacion ante un corte, y no es teorica: paso DOS VECES el mismo dia.**
+ *
+ * Entre el `writeFileSync` de la mutacion y el `restaurar()` de esa iteracion hay una corrida
+ * entera de vitest. Si el proceso muere ahi —lo mataste, se reinicio la maquina— el archivo
+ * queda MUTADO en el working tree. El `SIGINT` no alcanza: no cubre un kill duro ni un corte de
+ * energia, que son justo los casos que pasaron.
+ *
+ * Lo peligroso no es el rojo. Es que la mutacion tiene forma de codigo propio (`if (false && …)`
+ * sobre una guarda de plata) y cualquier proceso que copie ese archivo como backup —otro
+ * verificador, un `git stash`, vos mismo— la vuelve permanente.
+ *
+ * El rescate se escribe ANTES de mutar y se borra al restaurar. Si existe al arrancar, se
+ * restaura desde ahi y se avisa: la proxima corrida no puede empezar sobre un arbol sucio.
+ */
+const RESCATE = '.mutacion-en-curso.json';
+
+if (existsSync(RESCATE)) {
+  const previo = JSON.parse(readFileSync(RESCATE, 'utf-8'));
+  for (const [f, s] of Object.entries(previo.archivos || {})) writeFileSync(f, s);
+  unlinkSync(RESCATE);
+  console.log(`recuperado: una corrida anterior murio mutando "${previo.id}". Restaurados ${Object.keys(previo.archivos || {}).length} archivo(s).
+`);
+}
+
 const originales = new Map(ARCHIVOS.map((f) => [f, readFileSync(f, 'utf-8')]));
-const restaurar = () => { for (const [f, s] of originales) writeFileSync(f, s); };
+const restaurar = () => {
+  for (const [f, s] of originales) writeFileSync(f, s);
+  if (existsSync(RESCATE)) unlinkSync(RESCATE);
+};
 process.on('SIGINT', () => { restaurar(); process.exit(130); });
 
 const cmdTests = `npx vitest run ${TESTS} --reporter=dot`;
@@ -261,6 +359,9 @@ for (const m of mutaciones) {
   // intacto, y eso se leyó como cobertura faltante. Una mutación no aplicada y una que el test
   // no atrapa producen el MISMO verde.
   if (mutado === src) { console.error(`FATAL: la mutación "${m.id}" no cambió el archivo`); restaurar(); process.exit(1); }
+  // El rescate va ANTES del write: si el proceso muere entre las dos líneas, el archivo todavía
+  // está intacto y el rescate sobra (restaurarlo es un no-op). Al revés, se pierde.
+  writeFileSync(RESCATE, JSON.stringify({ id: m.id, archivos: { [m.archivo]: src } }));
   writeFileSync(m.archivo, mutado);
 
   const verde = correr(cmdTests);
@@ -269,8 +370,15 @@ for (const m of mutaciones) {
   // línea existía da "sí" (el `insert` de `restaurar` estaba antes también) y etiquetaría como
   // deuda vieja un superviviente que es de acá.
   const equivalente = EQUIVALENTES[m.id];
+  // **Se compara el texto COMPLETO, no su primera línea.** Con `split('\n')[0]` una mutación
+  // de varias líneas se declaraba preexistente si su PRIMER renglón existía en HEAD, y eso
+  // pasa todo el tiempo con renglones como `.eq('id', usuario.id)` — que está tres veces en
+  // `pro-payment.js`. Consecuencia medida: el superviviente de "el rechazo sin RETURNING",
+  // que es de este commit, salía etiquetado `[preexistente]` y por lo tanto NO contaba para el
+  // exit code. Un mutador que clasifica su propia deuda como deuda vieja es peor que no tener
+  // la etiqueta: se lee como cobertura.
   const preexistente = !m.reemplazaBloque && !m.esEstructural
-    && (headDe.get(m.archivo) || '').includes((m.de || '').split('\n')[0].trim());
+    && !!(m.de || '') && (headDe.get(m.archivo) || '').includes(m.de);
   const nota = !verde ? '' : equivalente ? `  [equivalente: ${equivalente}]` : preexistente ? '  [preexistente]' : '';
   console.log(`${String(n).padStart(3)}/${mutaciones.length} ${verde ? 'SOBREVIVE' : 'muere    '} ${m.id}${nota}`);
   if (verde && !equivalente) supervivientes.push({ ...m, preexistente });
@@ -294,6 +402,7 @@ if (COMPLETA && supervivientes.length) {
     const src = originales.get(s.archivo);
     const mut = aplicar(s, src);
     if (mut === src) { console.error(`FATAL: la mutación "${s.id}" no cambió el archivo`); restaurar(); process.exit(1); }
+    writeFileSync(RESCATE, JSON.stringify({ id: s.id, archivos: { [s.archivo]: src } }));
     writeFileSync(s.archivo, mut);
     const verde = correr('npx vitest run --reporter=dot');
     restaurar();
