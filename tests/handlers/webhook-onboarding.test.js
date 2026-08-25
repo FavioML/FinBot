@@ -88,9 +88,18 @@ function makeChain(data = [], opts = {}) {
   for (const m of ['select', 'insert', 'delete', 'upsert']) {
     c[m] = vi.fn(() => { c.__op = m; if (m === 'delete') c.__deleteHecho = true; return c; });
   }
-  const updateResult = opts.updateResult || { data: [], error: null };
+  // **El `data` por defecto trae una fila, y eso NO es decoración.** Desde el ítem 9D las 17
+  // escrituras del alta piden `.select('id')` (la cláusula RETURNING) y tratan "cero filas"
+  // como un desenlace propio: la fila del usuario ya no está. Con el `data: []` de antes, TODA
+  // escritura de este archivo se leía como 0 filas y los trece casos del camino feliz recibían
+  // el mensaje de error. `.select()` se encadena acá por la misma razón.
+  const updateResult = opts.updateResult || { data: [{ id: 'row-1' }], error: null };
   c.update = vi.fn(() => {
-    const u = { eq: vi.fn(() => u), then: (onF, onR) => Promise.resolve(updateResult).then(onF, onR) };
+    const u = {
+      eq: vi.fn(() => u),
+      select: vi.fn(() => u),
+      then: (onF, onR) => Promise.resolve(updateResult).then(onF, onR),
+    };
     return u;
   });
   c.then = (onF, onR) => {

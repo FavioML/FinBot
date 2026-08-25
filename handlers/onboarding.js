@@ -44,6 +44,7 @@ const { borrarCuenta } = require('../services/account-deletion');
 const { crearCategoriasDesdeIndices } = require('../services/categories');
 const { interpretarComandoPresupuesto } = require('../services/parsers');
 const { guardarPresupuesto } = require('../services/budget');
+const { msgErr } = require('../lib/error-monitor');
 const analytics = require('../lib/analytics');
 
 // Telemetría del alta. Hasta ahora solo se capturaba el inicio (wa_user_registered)
@@ -61,6 +62,109 @@ function stepOk(usuario, paso, siguiente, via) {
 function stepFailed(usuario, paso, motivo) {
   analytics.capture(usuario.id, 'wa_onboarding_step_failed', { paso, motivo });
 }
+
+// ─── Toda escritura del alta pasa por acá ────────────────────────────────────
+//
+// Las 17 escrituras de este archivo descartaban el `{ error }` de supabase-js y ninguna
+// miraba si habían afectado alguna fila. En una máquina de estados eso no produce un mensaje
+// feo: produce a alguien parado en un paso con la confirmación ya enviada. Y por WhatsApp
+// nadie vuelve a preguntar.
+//
+// **El helper sólo REPORTA; no decide.** Qué hacer con un fallo es distinto en cada sitio y se
+// resuelve en el call-site: en unos se le dice a la persona, en otros alcanza con no afirmar
+// que avanzó, y en `nombre_intentos` sólo se anota. Centralizar la decisión sería el error que
+// el ítem 1 dejó escrito — un `if (error) return` puesto donde no va apaga de más.
+//
+// **`.select('id')` es lo que separa las dos causas.** postgrest NO devuelve `error` cuando el
+// UPDATE no matchea ninguna fila, así que sin el RETURNING "la DB lo rechazó" y "la fila del
+// usuario ya no está" llegan con la MISMA forma (`error: null`). Es exactamente la mitad de su
+// propia clase que 9A dejó afuera. Acá el 0 filas no es teórico: `merge_and_link` mueve la
+// identidad de un usuario y el borrado de cuenta se lleva la fila, las dos cosas entre el
+// mensaje que se está procesando y este update.
+//
+// **El `catch` no es defensa de adorno.** `manejarOnboarding` se llama desde `webhook.js:744`,
+// dentro del try grande cuyo catch (`:1004`) loguea, notifica al admin y **no le responde nada
+// a la persona**. Un rechazo del cliente acá deja al usuario en silencio absoluto; convertirlo
+// en un veredicto es lo que hace que salga un mensaje.
+//
+// **Límite declarado del catch**: atrapa cualquier excepción, incluido un `TypeError` de
+// programación en la cadena, y lo reporta como *"la DB rechazó el update"*. Es el mismo
+// sobre-catch que el ítem 9B dejó anotado. Se prefiere así —la alternativa es el silencio— pero
+// el diagnóstico puede apuntar a la DB cuando el error es nuestro; separarlos pide mirar el
+// tipo del error, y hoy nada lo hace.
+const ESCRITURA_TAG = 'ALTA_ESCRITURA';
+
+async function escribirUsuario(usuario, patch, paso) {
+  let filas = null;
+  let error = null;
+  try {
+    ({ data: filas, error } = await supabase.from('usuarios')
+      .update(patch).eq('id', usuario.id).select('id'));
+  } catch (e) {
+    error = { message: msgErr(e) };
+  }
+  const campos = Object.keys(patch);
+  if (error) {
+    log.error({ tag: ESCRITURA_TAG, paso, userId: usuario.id, campos, err: error.message },
+      'El alta no pudo escribir en usuarios: la DB rechazó el update');
+    return 'error';
+  }
+  if (!filas || filas.length === 0) {
+    log.warn({ tag: ESCRITURA_TAG, paso, userId: usuario.id, campos },
+      'El alta escribió sobre CERO filas: la fila del usuario ya no está');
+    return 'sin_fila';
+  }
+  return 'ok';
+}
+
+// Los dos desenlaces malos casi nunca cambian la DECISIÓN del call-site (cambian el
+// diagnóstico, que ya quedó en el log), así que lo que se lee arriba es este predicado.
+const entro = (veredicto) => veredicto === 'ok';
+
+// El menú del paso -1 no se cierra solo. Si el reset del paso no entra, la persona sigue
+// adentro y su próximo mensaje se lee como una OPCIÓN — y las opciones se renumeran según
+// cuántas cuentas quedan, así que después de una desconexión exitosa la última de la lista
+// (un `1` si no quedó ninguna, un `2` si quedó una) es BORRAR LA CUENTA. Un número escrito
+// por inercia después de un "✅ Gmail desconectado" dispara el wipe.
+//
+// **Acá decía "mándame /ayuda" y estaba mal.** Un `/comando` escapa la máquina de estados
+// (todas las guardas llevan `!cmd.startsWith('/')`), pero sólo para ESE mensaje: `/ayuda` no
+// toca `onboarding_paso`, así que el mensaje siguiente vuelve a caer en el menú y la trampa
+// queda igual. Lo que de verdad lo cierra es cualquier texto que NO sea una opción válida:
+// cae en la rama de "Cancelado" del final, que reintenta el reset.
+// Y el aviso dice "que EMPIECE con un número", no "que sea un número", porque el menú lee la
+// respuesta con `parseInt`: un "2 cafés" vale 2 igual. Con una cuenta Gmail viva, 2 es el
+// borrado total.
+const AVISO_MENU_ABIERTO = '\n\n⚠️ *Ojo:* se me trabó cerrando el menú, así que sigo esperando ' +
+  'una opción. *No me escribas nada que empiece con un número* —una de las opciones borra tu ' +
+  'cuenta—; cualquier otra cosa lo cierra.';
+
+// **El monto NO se entrega si la elección no quedó escrita**, y ese es el arreglo de los dos
+// sitios de `tipo_plan`.
+//
+// **Ojo con el motivo, porque el que escribí primero era FALSO y lo desarmó medirlo.** Decía
+// que la aprobación lee esta columna para calcular hasta cuándo vale el Pro. No es así:
+// `resolverTipoPlan` (`lib/config.js:105`) le da prioridad al MONTO detectado en el
+// comprobante y la columna es sólo el respaldo. Lo que queda en pie es más chico y sigue
+// siendo plata:
+//
+// · Cuando Vision no puede leer el monto, decide el respaldo — y si la columna nunca se
+//   escribió, `resolverTipoPlan` cae a `'mensual'` en silencio. Quien eligió anual y yapeó
+//   S/100 con un comprobante ilegible se lleva UN MES.
+// · Y lo que este ítem cierra directo: el mensaje bueno ES el que dice cuánto yapear.
+//   Confirmar *"✅ Plan anual"* sin haberlo escrito es la confirmación falsa de siempre, sobre
+//   la decisión que hace que la persona transfiera una cifra y no otra.
+//
+// Los dos sitios comparten mensaje porque cuál falló ya no le sirve a la persona: lo que
+// necesita saber es que todavía no elija monto. La distinción queda en el log, con su `paso`.
+const MENSAJE_TIPO_PLAN_TRABADO = 'Se me trabó guardando tu elección. 😅\n\n' +
+  'No yapees todavía: escríbeme *1* (mensual) o *2* (anual) otra vez en un ratito y te paso el monto.';
+
+// Los dos triggers que abren el alta comparten mensaje porque comparten el modo de falla: sin
+// el paso 100 escrito, preguntar el nombre es abrir un bucle. Se saluda igual —es el primer
+// contacto de la persona con Neto y quedarse mudo es peor— pero no se le pide nada.
+const MENSAJE_ARRANQUE_TRABADO = '👋 ¡Hola! Soy *NETO*, tu asistente financiero.\n\n' +
+  'Se me trabó justo al arrancar. 😅 Escríbeme *hola* en un ratito y empezamos.';
 
 // ─── Alta reordenada: el valor antes que la identidad ────────────────────────
 // El alta pedía nombre → email → plan y recién ahí dejaba registrar un gasto.
@@ -108,9 +212,25 @@ async function completarAlta(usuario, via) {
   // testigo correcto es una fila de `pagos` aprobada posterior a la baja. Decisión de Favio
   // (17-ago-2026): shippear el aviso, que es lo que cierra el agujero de no enterarse, y
   // hacer la exclusión del MRR en una pasada propia.
-  await supabase.from('usuarios')
-    .update({ onboarding_paso: 0, onboarding_completado: true })
-    .eq('id', usuario.id);
+  const veredicto = await escribirUsuario(
+    usuario, { onboarding_paso: 0, onboarding_completado: true }, 'completar_alta');
+  if (!entro(veredicto)) {
+    // **Lo que se arregla acá es la TELEMETRÍA, y el mensaje al usuario se queda como está.**
+    // Las dos mitades son decisiones, no descuido:
+    //
+    // · `wa_onboarding_completed` alimenta el embudo del alta. Emitirlo sobre un cierre que no
+    //   entró produce el número que menos se puede auditar —nadie va a cruzar 82 eventos
+    //   contra 82 filas— y es la métrica con la que se decide dónde se cae la gente.
+    //
+    // · El copy de los seis call-sites (`mensajePrimerGasto`) NO se toca porque sigue siendo
+    //   verdad y sigue siendo la salida: el paso 100 deja pasar cualquier mensaje que
+    //   `pareceTransaccion` hacia el pipeline normal, así que quien haga lo que el mensaje
+    //   pide —anotar un gasto— lo ve registrado y reintenta el cierre de paso. Cambiarlo por
+    //   "se me trabó, vuelve en un rato" ahuyentaría a alguien cuyo próximo mensaje sí iba a
+    //   funcionar, en el punto del embudo donde ya se caían 21 de 82.
+    stepFailed(usuario, 100, veredicto === 'sin_fila' ? 'cierre_sin_fila' : 'cierre_no_entro');
+    return;
+  }
   stepOk(usuario, 100, 0, via);
   analytics.capture(usuario.id, 'wa_onboarding_completed', { via });
 }
@@ -228,20 +348,25 @@ async function manejarOnboarding({ usuario, msg, cmd }) {
         // Revoca en Google, no solo marca la fila: el flip local le corta la lectura al
         // usuario pero nos deja el permiso vivo sobre una bandeja que pidió cerrar.
         await revocarAccesoGmail(usuario.id, { motivo: 'usuario_desconecto_una', cuentaId: cuentaTarget.id });
-        await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
-        return '✅ *' + cuentaTarget.email + ' desconectado*\n\nTus otras cuentas siguen activas. Tu historial se mantiene intacto.';
+        // La desconexión YA ocurrió, así que el ✅ es verdad y se queda. Lo que puede no haber
+        // entrado es el cierre del menú, y eso no es cosmético: ver `AVISO_MENU_ABIERTO`.
+        const vDescUna = await escribirUsuario(usuario, { onboarding_paso: 0 }, 'desconectar_una');
+        return '✅ *' + cuentaTarget.email + ' desconectado*\n\nTus otras cuentas siguen activas. Tu historial se mantiene intacto.'
+          + (entro(vDescUna) ? '' : AVISO_MENU_ABIERTO);
       } else if (respDesc === numCuentas + 1) {
         await revocarAccesoGmail(usuario.id, { motivo: 'usuario_desconecto_todas' });
-        await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
-        return '✅ *Todas las cuentas Gmail desconectadas*\n\nTu historial de gastos se mantiene intacto.' + colaReconexion(usuario);
+        const vDescTodas = await escribirUsuario(usuario, { onboarding_paso: 0 }, 'desconectar_todas');
+        return '✅ *Todas las cuentas Gmail desconectadas*\n\nTu historial de gastos se mantiene intacto.'
+          + colaReconexion(usuario) + (entro(vDescTodas) ? '' : AVISO_MENU_ABIERTO);
       } else if (respDesc === numCuentas + 2) {
         return await ejecutarBorradoTotal(usuario);
       }
     } else if (numCuentas === 1) {
       if (respDesc === 1) {
         await revocarAccesoGmail(usuario.id, { motivo: 'usuario_desconecto' });
-        await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
-        return '✅ *Gmail desconectado*\n\nTu historial de gastos se mantiene intacto.' + colaReconexion(usuario);
+        const vDesc = await escribirUsuario(usuario, { onboarding_paso: 0 }, 'desconectar');
+        return '✅ *Gmail desconectado*\n\nTu historial de gastos se mantiene intacto.'
+          + colaReconexion(usuario) + (entro(vDesc) ? '' : AVISO_MENU_ABIERTO);
       } else if (respDesc === 2) {
         return await ejecutarBorradoTotal(usuario);
       }
@@ -251,9 +376,11 @@ async function manejarOnboarding({ usuario, msg, cmd }) {
         return await ejecutarBorradoTotal(usuario);
       }
     }
-    // Respuesta no válida → cancelar
-    await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
-    return 'Cancelado. Tu cuenta sigue igual. 👍';
+    // Respuesta no válida → cancelar. El "tu cuenta sigue igual" es verdad pase lo que pase
+    // (no se tocó nada); lo que puede quedar abierto es el menú, y con cero cuentas Gmail la
+    // única opción que le queda es el borrado total.
+    const vCancel = await escribirUsuario(usuario, { onboarding_paso: 0 }, 'cancelar_menu');
+    return 'Cancelado. Tu cuenta sigue igual. 👍' + (entro(vCancel) ? '' : AVISO_MENU_ABIERTO);
   }
 
   // ─── Paso 100: Recoger nombre del usuario ──────────────────────────────────
@@ -287,13 +414,27 @@ async function manejarOnboarding({ usuario, msg, cmd }) {
         await completarAlta(usuario, 'saltado');
         return mensajePrimerGasto(null);
       }
-      await supabase.from('usuarios').update({ nombre_intentos: (usuario.nombre_intentos || 0) + 1 }).eq('id', usuario.id);
+      // **El único sitio de los 17 donde el fallo SÓLO se anota**, y es una decisión: el
+      // mensaje de abajo ya lleva la salida escrita (*saltar*, que cierra el alta por otro
+      // camino), así que un contador perdido no encierra a nadie — a lo sumo repregunta una
+      // vez de más. Subirlo a mensaje de usuario cambiaría un tropiezo invisible por un error
+      // en la cara, en el paso donde ya se caían 10 de 82.
+      //
+      // El rastro queda en `escribirUsuario` (tag `ALTA_ESCRITURA`, paso `nombre_intentos`) y
+      // es lo único observable: por eso el test del caso sano afirma que ese log NO sale.
+      await escribirUsuario(usuario, { nombre_intentos: (usuario.nombre_intentos || 0) + 1 }, 'nombre_intentos');
       return 'No pillé tu nombre. 🤔\n\nEscríbelo solito (ej: _"María"_) o dime *saltar* y empezamos de una.';
     }
     const nombreLimpio = nombreInput.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-    await supabase.from('usuarios').update({ nombre: nombreLimpio }).eq('id', usuario.id);
+    const vNombre = await escribirUsuario(usuario, { nombre: nombreLimpio }, 'nombre');
+    // El alta se cierra IGUAL si el nombre no entró: es la misma decisión que ya tomó
+    // `nombre_intentos` dos ramas más arriba —vale más un usuario adentro que uno trabado con
+    // su nombre— y son dos escrituras distintas, así que una no arrastra a la otra.
     await completarAlta(usuario, 'nombre');
-    return mensajePrimerGasto(nombreLimpio);
+    // Lo que sí cambia es el saludo: '¡Listo, *María*! 🤝' sobre un nombre que no se guardó es
+    // la confirmación falsa de este ítem en su forma más chica, y encima delata el fallo sola
+    // (Neto la trata por su nombre una vez y nunca más).
+    return mensajePrimerGasto(entro(vNombre) ? nombreLimpio : null);
   }
 
   // ─── Paso 101 (retirado): pedía el email ───────────────────────────────────
@@ -312,11 +453,22 @@ async function manejarOnboarding({ usuario, msg, cmd }) {
   if (usuario.onboarding_paso === 1 && !cmd.startsWith('/')) {
     const resp1 = cmd.trim().toLowerCase();
     if (resp1 === 'free' || resp1 === 'gratis' || resp1 === 'manual') {
-      await supabase.from('usuarios').update({
+      const vFree = await escribirUsuario(usuario, {
         plan: 'free',
         onboarding_paso: 0,
         onboarding_completado: true
-      }).eq('id', usuario.id);
+      }, 'plan_free');
+      if (!entro(vFree)) {
+        // **La dirección del daño esconde este bug: le REGALA Pro a quien eligió Free**, así
+        // que no hay usuario que reclame y no iba a aparecer por soporte nunca.
+        //
+        // Lo que sí encierra es el paso. El update es atómico: si no entra, el `plan` queda
+        // como estaba Y la persona sigue en el paso 1, donde todo lo que escriba —incluido el
+        // *hola* que el resto del producto ofrece como salida— se contesta con "escribe *free*
+        // o *pro*". Por eso acá sí se le dice, y se le dice la palabra que funciona.
+        stepFailed(usuario, 1, 'plan_free_no_entro');
+        return 'Se me trabó activando tu plan. 😅\n\nEscríbeme *free* otra vez en un ratito y lo dejo listo.';
+      }
       analytics.capture(usuario.id, 'wa_onboarding_completed', { via: 'free' });
       return '🆓 *¡Bienvenido a Neto Free!*\n\n' +
         'Registra gastos así:\n\n' +
@@ -326,7 +478,16 @@ async function manejarOnboarding({ usuario, msg, cmd }) {
         '¿Por dónde empezamos?';
     }
     if (resp1 === 'pro' || resp1 === 'si' || resp1 === 'sí' || resp1 === 'yes' || resp1 === 'dale' || resp1 === 'va' || resp1 === 'quiero') {
-      await supabase.from('usuarios').update({ onboarding_paso: 2 }).eq('id', usuario.id);
+      const vPaso2 = await escribirUsuario(usuario, { onboarding_paso: 2 }, 'elige_pro');
+      if (!entro(vPaso2)) {
+        // **Acá el arreglo es no entregar los datos de Yape**, y eso es lo que separa este
+        // sitio de los otros dieciséis. `esperaComprobante()` (`lib/pro-payment.js`) reconoce
+        // la captura de pago leyendo `onboarding_paso === 2`: sin ese 2 escrito, quien yapea y
+        // manda el comprobante recibe su pago registrado como un GASTO de S/10 y su Pro no se
+        // activa. Dar el número sabiendo que el estado no entró es cobrar a ciegas.
+        stepFailed(usuario, 1, 'paso_pro_no_entro');
+        return 'Se me trabó ahora mismo. 😅\n\nEscríbeme *pro* otra vez en un ratito y te paso los datos de pago.\n\n_Mejor no yapees todavía: así no me pierdo tu comprobante._';
+      }
       stepOk(usuario, 1, 2);
       return '🎉 *¡Genial!*\n\n' +
         'Elige tu plan:\n\n' +
@@ -337,7 +498,15 @@ async function manejarOnboarding({ usuario, msg, cmd }) {
         'Después envíame la captura del Yape aquí. 📸';
     }
     if (resp1 === 'no' || resp1 === 'no gracias') {
-      await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
+      const vRechazo = await escribirUsuario(usuario, { onboarding_paso: 0 }, 'rechaza_plan');
+      if (!entro(vRechazo)) {
+        // El copy bueno manda a escribir *hola*, y desde el paso 1 eso NO funciona: la guarda
+        // de este paso se come el saludo antes de que llegue a los triggers de entrada y
+        // contesta "escribe free o pro". Si el paso no se cerró, se devuelve la salida que sí
+        // existe desde adentro.
+        stepFailed(usuario, 1, 'rechaza_plan_no_entro');
+        return '👍 Sin problema.\n\nSe me trabó cerrando esto, así que si te vuelvo a preguntar por el plan, escribe *free* y seguimos gratis.';
+      }
       stepFailed(usuario, 1, 'rechaza_plan');
       return '👍 Sin problema. Si cambias de opinión, escribe *hola* cuando quieras.';
     }
@@ -350,10 +519,12 @@ async function manejarOnboarding({ usuario, msg, cmd }) {
   //  vía esperaComprobante(), que lee onboarding_paso === 2.)
   if (usuario.onboarding_paso === 2 && !cmd.startsWith('/')) {
     if (cmd === '1' || cmd.trim().toLowerCase() === 'mensual') {
-      await supabase.from('usuarios').update({ tipo_plan: 'mensual' }).eq('id', usuario.id);
+      const vMensual = await escribirUsuario(usuario, { tipo_plan: 'mensual' }, 'tipo_plan_mensual');
+      if (!entro(vMensual)) return MENSAJE_TIPO_PLAN_TRABADO;
       return '✅ Plan *mensual* (S/' + PRO_PRECIOS.mensual + '/mes).\n\n📲 Yapea S/' + PRO_PRECIOS.mensual + ' al *970398192* (Favio Mendoza) y envíame la captura aquí. 📸';
     } else if (cmd === '2' || cmd.trim().toLowerCase() === 'anual') {
-      await supabase.from('usuarios').update({ tipo_plan: 'anual' }).eq('id', usuario.id);
+      const vAnual = await escribirUsuario(usuario, { tipo_plan: 'anual' }, 'tipo_plan_anual');
+      if (!entro(vAnual)) return MENSAJE_TIPO_PLAN_TRABADO;
       return '✅ Plan *anual* (S/' + PRO_PRECIOS.anual + '/año — 2 meses gratis).\n\n📲 Yapea S/' + PRO_PRECIOS.anual + ' al *970398192* (Favio Mendoza) y envíame la captura aquí. 📸';
     }
     return 'Elige tu plan:\n\n1️⃣ *Mensual* — S/' + PRO_PRECIOS.mensual + '\n2️⃣ *Anual* — S/' + PRO_PRECIOS.anual + '\n\nO envíame la captura de tu Yape si ya pagaste. 📸';
@@ -368,7 +539,16 @@ async function manejarOnboarding({ usuario, msg, cmd }) {
       await crearCategoriasDesdeIndices(usuario.id, idxResp);
       const nombresAct = idxResp.map(function(i){ return CATEGORIAS_SUGERIDAS[i-1].emoji+' '+CATEGORIAS_SUGERIDAS[i-1].nombre; }).join(', ');
       const rspCat = '🎉 *Categorias activadas:*\n' + nombresAct + '\n\nCada una tiene subcategorias sugeridas.\n\n*¿Quieres configurar un presupuesto mensual?* 💰\n\nEj: _"limite de 500 soles en Comida"_\n\nO escribe *listo* para empezar con NETO.';
-      await supabase.from('usuarios').update({ onboarding_paso: 20, onboarding_completado: true }).eq('id', usuario.id);
+      const vCats = await escribirUsuario(usuario, { onboarding_paso: 20, onboarding_completado: true }, 'categorias');
+      if (!entro(vCats)) {
+        // Las categorías SÍ se crearon (`crearCategoriasDesdeIndices` ya corrió), así que esa
+        // mitad del mensaje es verdad y se queda. Lo que se cae es la INVITACIÓN al
+        // presupuesto: sin el paso 20 escrito, un _"limite de 500 soles en Comida"_ no lo
+        // atiende la rama de presupuesto sino la de más abajo, que con el alta sin cerrar ve
+        // un número, lo toma por transacción y le registra un gasto de S/500.
+        return '🎉 *Categorias activadas:*\n' + nombresAct + '\n\nCada una tiene subcategorias sugeridas.\n\n'
+          + 'Se me trabó guardando el resto, así que para poner un límite escríbeme */presupuesto* en un ratito.';
+      }
       analytics.capture(usuario.id, 'wa_onboarding_completed', { via: 'categorias' });
       return rspCat;
     }
@@ -379,7 +559,14 @@ async function manejarOnboarding({ usuario, msg, cmd }) {
   if (usuario.onboarding_paso === 20 && !cmd.startsWith('/')) {
     const cmdLower20 = cmd.trim().toLowerCase();
     if (cmdLower20 === 'listo' || cmdLower20 === 'no' || cmdLower20 === 'omitir' || cmdLower20 === 'saltar') {
-      await supabase.from('usuarios').update({ onboarding_paso: 0 }).eq('id', usuario.id);
+      const vListo = await escribirUsuario(usuario, { onboarding_paso: 0 }, 'presupuesto_listo');
+      if (!entro(vListo)) {
+        // Quedarse en el paso 20 no encierra a nadie —cualquier mensaje que no parezca
+        // presupuesto cae a la cascada normal, con el alta ya cerrada en el paso 10— pero le
+        // cuesta una llamada a OpenAI por mensaje y deja que un texto ambiguo se guarde como
+        // límite. Alcanza con no afirmar que terminamos y pedir la palabra otra vez.
+        return 'Se me trabó cerrando esto. 😅\n\nEscríbeme *listo* otra vez en un ratito.';
+      }
       const primerNombre20 = usuario.nombre ? usuario.nombre.split(' ')[0] : '';
       return (primerNombre20 ? 'Listo, ' + primerNombre20 + '.' : 'Listo.') + ' Ya estoy trabajando por ti.\n\nEscribeme como quieras:\n_"cuanto gaste esta semana"_\n_"como va mi delivery"_\n_"dame mi reporte"_\n\n¿Por donde empezamos?';
     }
@@ -398,7 +585,12 @@ async function manejarOnboarding({ usuario, msg, cmd }) {
     const tieneGmail = !!usuario.gmail_access_token;
     if (!tieneGmail && !usuario.onboarding_completado) {
       if (!usuario.nombre) {
-        await supabase.from('usuarios').update({ onboarding_paso: 100 }).eq('id', usuario.id);
+        const vPideNombre = await escribirUsuario(usuario, { onboarding_paso: 100 }, 'pide_nombre_hola');
+        // **Preguntar el nombre sin haber dejado escrito que lo estamos esperando es pedir algo
+        // que no vamos a poder leer.** La respuesta cae fuera del paso 100, vuelve a entrar por
+        // este mismo trigger (`esUsuarioNuevo` de más abajo) y se le repregunta lo mismo en cada
+        // mensaje: el bucle que este paso dejó de tener a propósito cuando se rediseñó el alta.
+        if (!entro(vPideNombre)) return MENSAJE_ARRANQUE_TRABADO;
         return '👋 ¡Hola! Soy *NETO*, tu asistente financiero por WhatsApp.\n\n' +
           '¿Cómo te llamas?\n\n_O dime *saltar* si prefieres ir directo._';
       }
@@ -414,7 +606,13 @@ async function manejarOnboarding({ usuario, msg, cmd }) {
   }
 
   if (cmd === '/manual') {
-    await supabase.from('usuarios').update({ plan: 'free' }).eq('id', usuario.id);
+    // **Mismo `plan: 'free'` que el paso 1 y a propósito NO el mismo arreglo.** Allá el plan y
+    // el cierre del alta viajan en un update atómico, así que un fallo encierra a la persona en
+    // el menú; acá el cierre es una escritura aparte (`completarAlta`) que puede entrar igual.
+    // O sea que lo peor que pasa es que alguien que pidió Free se quede con el plan anterior —
+    // el daño apunta a regalarle Pro— y adentro del producto. Frenar el alta por eso costaría
+    // más de lo que arregla. El fallo queda en el log de `escribirUsuario`.
+    await escribirUsuario(usuario, { plan: 'free' }, 'manual_plan_free');
     await completarAlta(usuario, 'manual');
     return mensajePrimerGasto(usuario.nombre);
   }
@@ -427,7 +625,10 @@ async function manejarOnboarding({ usuario, msg, cmd }) {
       await completarAlta(usuario, 'primer_gasto');
       return null;
     }
-    await supabase.from('usuarios').update({ onboarding_paso: 100 }).eq('id', usuario.id);
+    // Gemelo del trigger de "hola", con el mismo motivo escrito allá arriba: sin el paso 100
+    // guardado, cada mensaje que mande vuelve a caer acá y se le repregunta el nombre.
+    const vPideNombreNuevo = await escribirUsuario(usuario, { onboarding_paso: 100 }, 'pide_nombre_nuevo');
+    if (!entro(vPideNombreNuevo)) return MENSAJE_ARRANQUE_TRABADO;
     return '👋 ¡Hola! Soy *NETO*, tu asistente financiero.\n\n' +
       '¿Cómo te llamas?\n\n_O dime *saltar* y empezamos de una._';
   }

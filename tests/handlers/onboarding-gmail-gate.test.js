@@ -24,9 +24,14 @@ const supabaseMock = {
   from: vi.fn(() => {
     const c = {};
     for (const m of ['select', 'eq', 'single', 'maybeSingle']) c[m] = vi.fn(() => c);
+    // El `.select()` es la cláusula RETURNING que piden las escrituras del alta desde el ítem
+    // 9D, y el `data` tiene que traer una fila: con `null` el handler lee "cero filas
+    // afectadas" —la fila del usuario ya no existe— y contesta el mensaje de fallo en vez de
+    // seguir el camino que este archivo mide.
     c.update = vi.fn((payload) => {
       updates.push(payload);
-      return { eq: vi.fn(() => Promise.resolve({ data: null, error: null })) };
+      const u = { eq: vi.fn(() => u), select: vi.fn(() => u), then: (ok, ko) => Promise.resolve({ data: [{ id: 'row-1' }], error: null }).then(ok, ko) };
+      return u;
     });
     c.delete = vi.fn(() => ({ eq: vi.fn(() => Promise.resolve({ data: null, error: null })) }));
     return c;
