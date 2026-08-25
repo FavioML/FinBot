@@ -1,5 +1,6 @@
 const log = require('../../lib/logger');
 const { checkProWall } = require('../../helpers/pro-wall');
+const { verificarEscritura, entro } = require('../../helpers/escritura-verificada');
 const { mensajeCargaMasivaPro } = require('../../lib/trial');
 const analytics = require('../../lib/analytics');
 
@@ -13,8 +14,19 @@ module.exports = {
     switch (intencion) {
 
       case 'silenciar': {
+        // El `try/catch` de este case es CÓDIGO MUERTO para supabase-js, que no lanza: devuelve
+        // `{ data: null, error }`. Se conserva porque sigue cubriendo un rechazo del fetch de
+        // abajo, pero el desenlace que decide lo trae `verificarEscritura`.
         try {
-          await supabase.from('usuarios').update({ recordatorios_activos: false }).eq('id', usuario.id);
+          const vSilencio = await verificarEscritura(
+            supabase.from('usuarios').update({ recordatorios_activos: false }).eq('id', usuario.id).select('id'),
+            { sitio: 'silenciar', userId: usuario.id, campos: ['recordatorios_activos'] });
+          // Es lo único que hace este intent, y el fallo lo nota la persona sola: mañana a las
+          // 8pm le llega el resumen que acaba de pedir que no le llegue. Confirmarlo sin haberlo
+          // escrito no es un mensaje feo, es entrenarla a no creerle al "listo".
+          if (!entro(vSilencio)) {
+            return 'No pude desactivar los recordatorios. Intenta de nuevo.';
+          }
           // Marcar el ultimo survey_event WhatsApp como opted_out_after para tracking de fatiga (UPDATE-05)
           try {
             const { data: lastEvent } = await supabase.from('survey_events')
@@ -26,7 +38,14 @@ module.exports = {
               .limit(1)
               .single();
             if (lastEvent?.id) {
-              await supabase.from('survey_events').update({ opted_out_after: true }).eq('id', lastEvent.id);
+              // ACCESORIA: es telemetría de fatiga, no le cambia nada a la persona, y para
+              // cuando corre el silencio ya está escrito. No toca el copy — lo único que se
+              // compra es que la serie deje de perder opt-outs en silencio, que es el número
+              // con el que se decide cuánto empujar. El `sin_fila` es alcanzable: la lectura de
+              // arriba encontró la fila y el update es un instante después.
+              await verificarEscritura(
+                supabase.from('survey_events').update({ opted_out_after: true }).eq('id', lastEvent.id).select('id'),
+                { sitio: 'silenciar_opt_out', userId: usuario.id, campos: ['opted_out_after'] });
             }
           } catch { /* silent — tracking secundario */ }
           return '🔇 *Recordatorios desactivados.*\n\nNo te enviaré más resúmenes diarios ni recordatorios.\n\n_Cuando quieras reactivarlos, escribe "activa los recordatorios"._';
@@ -38,7 +57,14 @@ module.exports = {
 
       case 'reactivar_recordatorios': {
         try {
-          await supabase.from('usuarios').update({ recordatorios_activos: true }).eq('id', usuario.id);
+          // Espejo exacto de `silenciar`, y el fallo se nota igual de solo: la persona vuelve a
+          // esperar el resumen de las 8pm que no le va a llegar.
+          const vReactivar = await verificarEscritura(
+            supabase.from('usuarios').update({ recordatorios_activos: true }).eq('id', usuario.id).select('id'),
+            { sitio: 'reactivar_recordatorios', userId: usuario.id, campos: ['recordatorios_activos'] });
+          if (!entro(vReactivar)) {
+            return 'No pude activar los recordatorios. Intenta de nuevo.';
+          }
           return '🔔 *Recordatorios activados.*\n\nVolverás a recibir tu resumen diario a las 8pm y alertas de presupuesto.\n\n_Si quieres silenciarlos, escribe "silencia"._';
         } catch(e) {
           log.error({ tag: 'REACTIVAR', err: e.message }, 'Error reactivar recordatorios');
@@ -64,7 +90,21 @@ module.exports = {
 
       case 'desconectar_cuenta': {
         const cuentasDesc = await obtenerCuentasGmail(usuario.id);
-        await supabase.from('usuarios').update({ onboarding_paso: -1 }).eq('id', usuario.id);
+        // **El gemelo del menú que cerró 9D, desde el otro lado.** Allá el riesgo era un menú
+        // que no se CIERRA; acá es uno que no se ABRE. `onboarding_paso = -1` es lo único que
+        // hace que el próximo mensaje se lea como una opción (`handlers/onboarding.js`, paso
+        // -1): sin ese estado escrito, imprimir el menú es ofrecerle a la persona un trámite
+        // que no existe. Su "1" cae al NLP, nadie borra nada — y un pedido de baja de datos no
+        // hace nada y no se lo dice nadie. Por eso el menú NO se imprime si el paso no entró:
+        // enumerar las opciones es la mitad de la mentira.
+        const vMenu = await verificarEscritura(
+          supabase.from('usuarios').update({ onboarding_paso: -1 }).eq('id', usuario.id).select('id'),
+          { sitio: 'desconectar_cuenta', userId: usuario.id, campos: ['onboarding_paso'] });
+        if (!entro(vMenu)) {
+          return '⚠️ Se me trabó abriendo el menú de desconexión.\n\nNo te muestro las opciones ' +
+            'porque si me respondieras un número no lo leería como una opción. Escríbeme ' +
+            '*desconectar cuenta* de nuevo en un momento.';
+        }
         let menuDesc = '⚠️ *Desconectar cuenta*\n\n';
         if (cuentasDesc.length > 1) {
           menuDesc += 'Cuentas conectadas:\n' + cuentasDesc.map((c, i) => (i + 1) + '. 📧 ' + c.email).join('\n') + '\n\n';

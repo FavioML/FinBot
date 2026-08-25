@@ -5,6 +5,7 @@ const { solicitarComprobante } = require('../../lib/pro-payment');
 const { obtenerEstadisticasReferidos, mensajeMisReferidos } = require('../../services/referrals');
 const { enTrial, diasRestantesTrial } = require('../../lib/trial');
 const { PRO_PRECIOS } = require('../../lib/config');
+const { verificarEscritura, entro } = require('../../helpers/escritura-verificada');
 
 /**
  * El copy de "¿qué plan tengo?" con sus TRES ramas (trial / pagado / muro). **PURO**: no
@@ -75,7 +76,23 @@ module.exports = {
         let refCode = usuario.ref_code;
         if (!refCode) {
           refCode = generarRefCode();
-          await supabase.from('usuarios').update({ ref_code: refCode }).eq('id', usuario.id);
+          // **El código ES la credencial**, igual que el `invite_code` de una meta colaborativa
+          // (`metas.js`, cerrado en S′8 con la misma lectura). Si el update no entra, el código
+          // no queda en la base y abajo se arma el mensaje igual: la persona reparte un código
+          // que `routes/public.js` no va a resolver nunca, y cada referido que traiga no le
+          // paga el mes gratis a nadie. Es plata, y el fallo es permanentemente silencioso.
+          //
+          // Se DEVUELVE en vez de lanzar: `ver_referidos` no tiene catch propio, así que un
+          // throw termina en el general de `procesarMensajeLibre`, que deja una fila en
+          // `nlp_errors` con `error_tipo:"error"` —culpando a la NLP de un fallo de la DB— y
+          // contesta "Tuve un problema". Es el mismo motivo que 9B dejó escrito.
+          const vRef = await verificarEscritura(
+            supabase.from('usuarios').update({ ref_code: refCode }).eq('id', usuario.id).select('id'),
+            { sitio: 'ver_referidos', userId: usuario.id, campos: ['ref_code'] });
+          if (!entro(vRef)) {
+            return '⚠️ Se me trabó creando tu código de referido, así que todavía no te lo puedo dar: ' +
+              'si lo repartiera, no funcionaría. Pídemelo de nuevo en un momento.';
+          }
         }
         const statsRefNlp = await obtenerEstadisticasReferidos(usuario.id);
         return mensajeMisReferidos(refCode, statsRefNlp);

@@ -3,6 +3,7 @@ const { generarCodigoInvitacion, ALFABETO_META } = require('../../lib/codigos-se
 // `parseFloat` + `> 0` no ve Infinity ni tiene techo, y `monto_objetivo` es el
 // denominador de la barra de progreso y de la cuota mensual.
 const { validarMonto } = require('../../lib/validators');
+const { verificarEscritura, entro } = require('../../helpers/escritura-verificada');
 
 module.exports = {
   intents: ['ver_metas', 'crear_meta', 'editar_meta', 'eliminar_meta', 'abonar_meta', 'compartir_meta', 'viabilidad_plan', 'abandonar_plan', 'sugerir_recortes'],
@@ -70,11 +71,20 @@ module.exports = {
           // Calculate monthly quota if deadline exists
           const monthlyQuota = fechaLimMeta ? calcularCuotaMensual(montoMeta, 0, fechaLimMeta) : null;
 
-          await supabase.from('metas_ahorro').insert({
-            usuario_id: usuario.id, nombre: nombreMeta, monto_objetivo: montoMeta,
-            monto_actual: 0, fecha_limite: fechaLimMeta, status: 'active',
-            monthly_quota: monthlyQuota,
-          });
+          // Sin fila no hay plan, y todo lo que sigue —la cuota, el análisis de viabilidad, el
+          // link al dashboard— describe algo que no existe. Se corta ANTES de armar nada: el
+          // análisis de viabilidad es una consulta más sobre las transacciones del mes, y
+          // gastarla para adornar un plan que no entró es puro costo.
+          const vCrear = await verificarEscritura(
+            supabase.from('metas_ahorro').insert({
+              usuario_id: usuario.id, nombre: nombreMeta, monto_objetivo: montoMeta,
+              monto_actual: 0, fecha_limite: fechaLimMeta, status: 'active',
+              monthly_quota: monthlyQuota,
+            }).select('id'),
+            { sitio: 'crear_meta', userId: usuario.id, campos: ['nombre', 'monto_objetivo'] });
+          if (!entro(vCrear)) {
+            return 'No pude crear el plan. Intenta de nuevo.';
+          }
 
           let resp = '✅ Plan de ahorro creado!\n\n🎯 *' + nombreMeta + '*\nObjetivo: S/ ' + montoMeta.toFixed(2);
           if (fechaLimMeta) resp += '\nFecha: ' + formatFecha(fechaLimMeta);
@@ -118,7 +128,21 @@ module.exports = {
           }
           if (datos.fecha_nueva) updates.fecha_limite = datos.fecha_nueva;
           if (Object.keys(updates).length === 0) return 'Dime qué quieres cambiar. Ej: _"sube mi meta a 3000"_ o _"cambia la fecha al 30 de junio"_.';
-          await supabase.from('metas_ahorro').update(updates).eq('id', metaTarget.id);
+          // Los DOS desenlaces malos se separan acá, y no es cosmético: el mensaje que sigue
+          // RECITA los valores nuevos (`updates.monto_objetivo`, `updates.fecha_limite`), o sea
+          // que sobre un update que no entró le lee a la persona un estado inventado desde el
+          // objeto en memoria. "Se cayó" invita a reintentar y funciona; "esa meta ya no está"
+          // (0 filas: alguien la borró entre la lectura de arriba y este update) no, y mandar a
+          // reintentar ahí es mandar a chocar contra la misma pared.
+          const vEdit = await verificarEscritura(
+            supabase.from('metas_ahorro').update(updates).eq('id', metaTarget.id).select('id'),
+            { sitio: 'editar_meta', userId: usuario.id, campos: Object.keys(updates) });
+          if (vEdit === 'sin_fila') {
+            return 'La meta *' + metaTarget.nombre + '* ya no está, así que no hay nada que cambiarle.\n\n_Mira las que tienes con "mis metas"._';
+          }
+          if (!entro(vEdit)) {
+            return 'No pude editar la meta. Intenta de nuevo.';
+          }
           const montoObj = updates.monto_objetivo || metaTarget.monto_objetivo;
           return '✅ Meta *' + metaTarget.nombre + '* actualizada.\n\n🎯 Objetivo: S/ ' + parseFloat(montoObj).toFixed(0) + '\n📅 Fecha límite: ' + (updates.fecha_limite || metaTarget.fecha_limite || 'Sin fecha') + '\n💰 Ahorrado: S/ ' + parseFloat(metaTarget.monto_actual || 0).toFixed(0);
         } catch(e) {
@@ -137,7 +161,21 @@ module.exports = {
             const found = metasDel.find(m => m.nombre.toLowerCase().includes(datos.nombre.toLowerCase()));
             if (found) metaDel = found;
           }
-          await supabase.from('metas_ahorro').delete().eq('id', metaDel.id);
+          // Mismo criterio que los dos DELETE que cerró 9A: `intento(tabla, verbo)` dice que
+          // hubo un delete, nunca sobre QUÉ, así que el `.select('id')` es lo que convierte
+          // "afectó 0 filas" en un desenlace propio. Acá cero filas es benigno —la meta ya no
+          // está, que es lo que la persona pidió— pero el mensaje de éxito recita el ahorrado y
+          // el objetivo desde la fila en memoria, y afirmar esas cifras sobre algo que otro
+          // borró es inventar un recibo.
+          const vDel = await verificarEscritura(
+            supabase.from('metas_ahorro').delete().eq('id', metaDel.id).select('id'),
+            { sitio: 'eliminar_meta', userId: usuario.id, campos: ['id'] });
+          if (vDel === 'sin_fila') {
+            return 'La meta *' + metaDel.nombre + '* ya no está.\n\n_Mira las que te quedan con "mis metas"._';
+          }
+          if (!entro(vDel)) {
+            return 'No pude eliminar la meta. Intenta de nuevo.';
+          }
           return '✅ Eliminé la meta *' + metaDel.nombre + '* (S/ ' + parseFloat(metaDel.monto_actual || 0).toFixed(0) + ' de S/ ' + parseFloat(metaDel.monto_objetivo).toFixed(0) + ').\n\n_Puedes crear otra cuando quieras._';
         } catch(e) {
           log.error({ tag: 'DEL_META', err: e.message }, 'Error eliminar meta');

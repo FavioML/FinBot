@@ -1,6 +1,7 @@
 const log = require('../../lib/logger');
 // La línea de precios sale de PRO_PRECIOS: nunca se escribe a mano (ver lib/config).
 const { lineaPrecioPro } = require('../../lib/config');
+const { verificarEscritura, entro } = require('../../helpers/escritura-verificada');
 
 module.exports = {
   intents: ['ver_tipo_cambio', 'convertir_moneda', 'calcular_cuotas', 'buscar_gasto', 'comparar_meses', 'ver_frecuencia_comercio', 'cambiar_nombre', 'consulta_financiera', 'recordatorio_pago'],
@@ -165,7 +166,19 @@ module.exports = {
           const nombreNuevo = datos.nombre_nuevo;
           if (!nombreNuevo || nombreNuevo.length < 2) return 'Dime tu nombre. Ej: _"mi nombre es Juan"_.';
           const nombreLimpio = nombreNuevo.trim().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-          await supabase.from('usuarios').update({ nombre: nombreLimpio }).eq('id', usuario.id);
+          // **Gemelo del sitio del alta que cerró 9D, y la decisión es la OPUESTA a propósito.**
+          // Allá el mismo update perdido no corta nada: el alta se cierra igual y sólo se saluda
+          // sin nombre (`mensajePrimerGasto(null)`), porque había un objetivo más valioso del
+          // otro lado —meter a la persona adentro— y son dos escrituras distintas. Acá el
+          // nombre ES el intent entero: no queda nada que salvar degradando, así que el único
+          // desenlace honesto es decir que no se guardó. Confirmarlo deja a alguien creyendo
+          // que se corrigió cómo lo llamamos, y Neto usa el nombre en el saludo cada mañana.
+          const vNombre = await verificarEscritura(
+            supabase.from('usuarios').update({ nombre: nombreLimpio }).eq('id', usuario.id).select('id'),
+            { sitio: 'cambiar_nombre', userId: usuario.id, campos: ['nombre'] });
+          if (!entro(vNombre)) {
+            return 'No pude actualizar tu nombre. Intenta de nuevo.';
+          }
           return '✅ Listo, ahora te llamo *' + nombreLimpio + '*. ¡Mucho gusto! 👋';
         } catch(e) {
           log.error({ tag: 'NOMBRE', err: e.message }, 'Error cambiando nombre');

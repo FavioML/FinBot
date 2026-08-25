@@ -5,6 +5,7 @@ const { escanearGmailYRegistrar } = require('../../services/gmail-scanner');
 const { obtenerCuentasGmail } = require('../../gmail');
 const { getUserPlanConfig } = require('../../helpers/db-helpers');
 const { esProPagado, mensajeGmailProPagado, mensajeConectarEnLaApp, mensajeGmailDesconectado } = require('../../lib/trial');
+const { verificarEscritura, entro } = require('../../helpers/escritura-verificada');
 
 module.exports = {
   intents: ['escanear_gmail', 'agregar_gmail', 'cambiar_gmail', 'preferencia_reporte_gmail'],
@@ -53,7 +54,16 @@ module.exports = {
         // El NLP puede devolver variantes ("separado por cuenta", "separados"). Normalizamos a
         // los dos valores canónicos que el resto del código compara exacto (ej. gastos.js).
         const modoNuevo = /separad/i.test(datos.modo || '') ? 'separado' : 'unificado';
-        await supabase.from('usuarios').update({ reporte_gmail_modo: modoNuevo }).eq('id', usuario.id);
+        // El intent entero es esta preferencia. Confirmarla sin haberla escrito produce el peor
+        // desenlace posible acá: la persona deja de mirar sus reportes esperando el formato que
+        // pidió, y el que llega es el de siempre. No hay nada más en el mensaje que sostener,
+        // así que el fallo se dice y no se maquilla.
+        const vModo = await verificarEscritura(
+          supabase.from('usuarios').update({ reporte_gmail_modo: modoNuevo }).eq('id', usuario.id).select('id'),
+          { sitio: 'preferencia_reporte_gmail', userId: usuario.id, campos: ['reporte_gmail_modo'] });
+        if (!entro(vModo)) {
+          return '⚠️ No pude guardar tu preferencia de reportes: siguen como estaban. Vuelve a pedírmelo en un momento.';
+        }
         const cuentasConf = await obtenerCuentasGmail(usuario.id);
         if (modoNuevo === 'separado' && cuentasConf.length < 2) {
           return '📧 Tienes una sola cuenta Gmail conectada, así que tus reportes ya salen en uno solo. El modo separado aplica cuando hay más de una cuenta.';

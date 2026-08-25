@@ -126,4 +126,46 @@ describe('guardarPresupuesto — guard de monto (era el único write de dinero s
       db.supabase.from = original;
     }
   });
+
+  /**
+   * **El contrato del RETORNO, y existe porque hay un call-site que depende de él sin red.**
+   *
+   * `handlers/intents/presupuestos.js` (`configurar_presupuesto`, ítem 9B-bis) apunta el UPDATE
+   * de `alerta_porcentaje` al `id` que devuelve esta función, en vez de reconstruir el WHERE.
+   * Es lo correcto —el WHERE viejo, `(usuario_id, categoria)`, no filtraba por `mes`, `anio` ni
+   * `subcategoria`, y 212 de 349 filas tienen subcategoría— pero convierte la PROYECCIÓN de
+   * este `.select()` en una dependencia dura y silenciosa.
+   *
+   * Lo midió una revisión adversarial: cambiar el `.select()` por `.select('monto_limite')`
+   * deja la suite ENTERA en verde y en producción manda a **todos** los usuarios al copy
+   * *"El aviso quedó como estaba"*, que además los invita a repetir el comando, que va a
+   * fallar igual, en bucle. El único test que miraba el retorno afirmaba
+   * `toMatchObject({ monto_limite: 500 })` y no mencionaba `id`.
+   *
+   * Por eso el doble de acá **proyecta como PostgREST**: `.select('x')` devuelve `{x}`, no la
+   * fila entera. Un doble que devuelve todo hace invisible justamente la mutación que importa.
+   */
+  it('devuelve la fila CON `id`: `configurar_presupuesto` apunta su update ahí', async () => {
+    const original = db.supabase.from;
+    const FILA = { id: 'p1', usuario_id: 'u1', categoria: 'Comida', monto_limite: 500, alerta_porcentaje: 90, mes: 8, anio: 2026 };
+    db.supabase.from = () => ({
+      upsert: () => ({
+        select: (cols) => ({
+          single: () => {
+            if (!cols || cols === '*') return Promise.resolve({ data: { ...FILA }, error: null });
+            const out = {};
+            for (const c of String(cols).split(',').map((x) => x.trim())) out[c] = FILA[c];
+            return Promise.resolve({ data: out, error: null });
+          },
+        }),
+      }),
+    });
+    try {
+      const fila = await budget.guardarPresupuesto('u1', 'Comida', 500);
+      expect(fila, 'sin `id` el call-site no tiene a qué apuntar el update de la alerta').toBeTruthy();
+      expect(fila.id).toBe('p1');
+    } finally {
+      db.supabase.from = original;
+    }
+  });
 });

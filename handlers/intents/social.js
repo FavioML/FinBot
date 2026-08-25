@@ -1,5 +1,6 @@
 const log = require('../../lib/logger');
 const { PRO_PRECIOS } = require('../../lib/config');
+const { verificarEscritura, entro } = require('../../helpers/escritura-verificada');
 
 module.exports = {
   intents: ['saludo', 'ayuda', 'agradecimiento', 'queja', 'chiste_finanzas', 'como_empezar', 'feedback'],
@@ -38,12 +39,25 @@ module.exports = {
         return '¡Bienvenido a Neto! 🎉\n\n*3 pasos para empezar:*\n\n1️⃣ Registra un gasto → _"gasté 50 en taxi"_\n2️⃣ Envía una foto Yape/Plin 📸\n3️⃣ Ve tu resumen → _"mis gastos del mes"_\n\n📊 Dashboard: https://app.neto.pe\n⭐ *Pro (S/' + PRO_PRECIOS.mensual + '/mes):* Neto lee tus correos bancarios automáticamente\n\n_¿Empezamos? Dime tu primer gasto._';
 
       case 'feedback': {
-        // Guardar feedback para revisión admin
-        supabase.from('nlp_errors').insert({
-          usuario_id: usuario.id, whatsapp: from,
-          mensaje: msg.substring(0, 500), intencion: 'feedback',
-          error_tipo: 'feedback', error_detalle: 'Sugerencia del usuario'
-        }).then(() => {}).catch(() => {});
+        // Guardar feedback para revisión admin.
+        //
+        // **La única del barrido que ni siquiera esperaba el resultado**: era un
+        // `.then(() => {}).catch(() => {})`, o sea un descarte explícito de los dos desenlaces.
+        // Y no es accesoria — guardar la sugerencia ES el intent. Si no entra, nadie evalúa
+        // nada y la persona ya leyó *"La recibimos"*, que es la forma más barata de gastar la
+        // buena voluntad de alguien que se tomó el trabajo de escribir. Ahora se espera: es
+        // un insert, y la corrección vale más que los milisegundos que agrega a la respuesta.
+        const vFeedback = await verificarEscritura(
+          supabase.from('nlp_errors').insert({
+            usuario_id: usuario.id, whatsapp: from,
+            mensaje: msg.substring(0, 500), intencion: 'feedback',
+            error_tipo: 'feedback', error_detalle: 'Sugerencia del usuario'
+          }).select('id'),
+          { sitio: 'feedback', userId: usuario.id, campos: ['mensaje'] });
+        if (!entro(vFeedback)) {
+          return '😕 Se me trabó guardando tu sugerencia, así que no me quedó anotada. ' +
+            'Mándamela al *970398192* y la leemos igual — gracias por tomarte el trabajo.';
+        }
         return '💡 *¡Gracias por tu sugerencia!*\n\nLa recibimos y la vamos a evaluar. Tu feedback nos ayuda a mejorar Neto.\n\n_Si quieres contarnos más, escríbenos al 970398192._';
       }
     }

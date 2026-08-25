@@ -5,6 +5,7 @@ const { sumarMeses } = require('../../lib/dates');
 // `isNaN(Infinity)` es false y no había techo, así que un "debo 1e999 a Juan" entraba
 // y PostgREST lo serializaba a `null`. Lo delató `tests/plata-validada.test.js`.
 const { validarMonto } = require('../../lib/validators');
+const { verificarEscritura, entro } = require('../../helpers/escritura-verificada');
 
 module.exports = {
   intents: ['registrar_deuda', 'ver_deudas', 'abonar_deuda', 'marcar_deuda_pagada', 'consolidar_deudas', 'saldar_todo_contraparte', 'dividir_gasto_grupal'],
@@ -123,15 +124,42 @@ module.exports = {
             .gte('created_at', new Date(Date.now() - 5 * 60 * 1000).toISOString()) // últimos 5 min
             .order('created_at', { ascending: false })
             .limit(1);
+          // La corrección automática es lo ÚNICO accesorio de este case, y por eso no corta:
+          // abortar acá perdería la deuda que la persona acaba de dictar, que es lo que vino a
+          // hacer. Dos decisiones, y las dos son de este sitio y no de la clase:
+          //
+          //   · **cero filas es el objetivo cumplido**, no una anomalía. Este DELETE apunta a
+          //     una fila que se leyó un instante antes y no lleva ninguna condición que otro
+          //     pueda invalidar: si ya no está, el estado deseado —que no exista— se cumplió.
+          //     Un `warn` ahí sería una falsa alarma, y un log que grita sin motivo se deja de
+          //     leer. Por eso `ceroFilas: 'esperado'`.
+          //   · **el error SÍ se le dice**, aunque la deuda entre igual. El desenlace no es
+          //     invisible: quedan las dos anotaciones opuestas vivas ("le debes S/200 a Juan" y
+          //     "Juan te debe S/200"), y la persona las va a encontrar en "mis deudas" sin
+          //     ninguna pista de por qué están las dos.
+          //
+          // **Alcance honesto del aviso, y una revisión adversarial lo acotó:** cubre el DELETE
+          // que falla, NO el otro camino que produce el mismo desenlace. La lectura de arriba
+          // (`duplicadaOpuesta`) descarta su `{ error }`, así que con esa consulta caída queda
+          // `undefined`, el DELETE ni se intenta y las dos anotaciones opuestas sobreviven
+          // igual — sin aviso. Esa lectura es una de las 14 que 9B-bis dejó abiertas a
+          // propósito (punto 2 del ítem); mientras siga muda, este aviso ve la mitad de su
+          // propia clase.
+          let avisoOpuesta = '';
           if (duplicadaOpuesta && duplicadaOpuesta.length > 0) {
-            await supabase.from('deudas').delete().eq('id', duplicadaOpuesta[0].id);
+            const vDup = await verificarEscritura(
+              supabase.from('deudas').delete().eq('id', duplicadaOpuesta[0].id).select('id'),
+              { sitio: 'registrar_deuda_corrige_opuesta', userId: usuario.id, campos: ['id'], ceroFilas: 'esperado' });
+            if (!entro(vDup)) {
+              avisoOpuesta = '\n\n⚠️ Ojo: te quedó también la anotación opuesta de hace un rato. Revísala con _"mis deudas"_.';
+            }
           }
           await registrarDeuda(usuario.id, tipo, contraparte, montoClasif, monedaClasif, descripcion, fechaVenc);
           const sym = monedaClasif === 'USD' ? '$' : 'S/';
           if (tipo === 'debo') {
-            return 'Anotado. Le debes *' + sym + ' ' + montoClasif.toFixed(2) + '* a *' + contraparte + '*.' + (descripcion ? ' (' + descripcion + ')' : '') + fmtVenc + '\n\n_Escribe "mis deudas" para ver el resumen._';
+            return 'Anotado. Le debes *' + sym + ' ' + montoClasif.toFixed(2) + '* a *' + contraparte + '*.' + (descripcion ? ' (' + descripcion + ')' : '') + fmtVenc + avisoOpuesta + '\n\n_Escribe "mis deudas" para ver el resumen._';
           } else {
-            return 'Anotado. *' + contraparte + '* te debe *' + sym + ' ' + montoClasif.toFixed(2) + '*.' + (descripcion ? ' (' + descripcion + ')' : '') + fmtVenc + '\n\n_Escribe "mis deudas" para ver el resumen._';
+            return 'Anotado. *' + contraparte + '* te debe *' + sym + ' ' + montoClasif.toFixed(2) + '*.' + (descripcion ? ' (' + descripcion + ')' : '') + fmtVenc + avisoOpuesta + '\n\n_Escribe "mis deudas" para ver el resumen._';
           }
         } catch(e) {
           log.error({ tag: 'DEUDA_REGISTRAR', err: e.message }, 'Error al registrar deuda');
@@ -319,7 +347,43 @@ module.exports = {
           for (let i = 0; i < numPersonas - 1; i++) {
             participantes.push({ gasto_id: gastoComp.id, nombre: nombresExtraidos[i] || ('Persona ' + (i + 1)), monto_debe: perPerson, pagado: false });
           }
-          await supabase.from('gasto_participantes').insert(participantes);
+          // **El peor de los quince, y el único que es plata de TERCEROS.** El padre
+          // (`gastos_compartidos`) ya entró; los participantes son el reparto. Si este insert
+          // no entra y se confirma igual, la persona lee *"Cada uno: S/ 75"* sobre un reparto
+          // que no existe. Es la misma clase que los splits de Espacios y por eso no se
+          // resuelve sólo con leer el error.
+          //
+          // **Dónde duele el huérfano, medido** (acá decía "indistinguible de uno saldado" a
+          // secas y apuntaba al lugar equivocado; lo corrigió una revisión adversarial): en las
+          // tarjetas de la webapp se ve "0/0 pagados" con el total entero, feo pero no
+          // liquidado. Donde SÍ colapsa es en la API — el `PUT` de `webapp/src/app/api/split/`
+          // decide con `(allParts || []).every(p => p.pagado)`, y `[].every()` es `true`, así
+          // que un padre sin participantes se marca `estado: 'liquidado'`.
+          //
+          // **Se COMPENSA**, igual que `descartarSnapshot` en 9A. Sin borrar el padre, el
+          // reintento —que es exactamente lo que la persona va a hacer después de leer "no
+          // pude"— crea un SEGUNDO gasto compartido, y ahí el arreglo del mensaje habría
+          // fabricado un duplicado. El caso en que la limpieza tampoco entra tiene su propio
+          // copy: es el único donde queda algo a medias y hay que decir dónde mirarlo.
+          //
+          // (El `try/catch` de este case es código muerto para supabase-js, que no lanza: por
+          // eso `gcErr` de arriba tiene su `throw` explícito y esto no puede apoyarse en él.)
+          const vPart = await verificarEscritura(
+            supabase.from('gasto_participantes').insert(participantes).select('id'),
+            { sitio: 'dividir_gasto_grupal', userId: usuario.id, campos: ['gasto_id', 'monto_debe'] });
+          if (!entro(vPart)) {
+            // El `.eq('creador_id', …)` es redundante HOY —`gastoComp.id` es un uuid que nació
+            // tres líneas arriba en esta misma request— y va igual: este cliente es service
+            // role, así que sin él lo único que separa este DELETE de borrar el gasto
+            // compartido de cualquiera es la procedencia de una variable. Con el filtro es un
+            // invariante; sin él, una propiedad del flujo que el próximo refactor puede perder.
+            const vLimpieza = await verificarEscritura(
+              supabase.from('gastos_compartidos').delete().eq('id', gastoComp.id).eq('creador_id', usuario.id).select('id'),
+              { sitio: 'dividir_gasto_grupal_limpieza', userId: usuario.id, campos: ['id'] });
+            return entro(vLimpieza)
+              ? 'No pude anotar el reparto, así que no dejé el gasto compartido a medias. Vuelve a dictármelo: _"pagué 300 la cena entre 4"_.'
+              : '⚠️ No pude anotar el reparto y el gasto compartido me quedó a medias, sin las partes de cada uno.\n\nRevísalo en app.neto.pe > Deudas > Compartidos antes de volver a dictármelo, para no anotarlo dos veces.';
+          }
           const nombresStr = participantes.map(p => p.nombre).join(', ');
           return '✅ *Gasto compartido creado*\n\n📝 ' + descripcion + '\n💰 Total: S/ ' + montoTotal.toFixed(2) + '\n👥 ' + numPersonas + ' personas (' + nombresStr + ')\n💳 Cada uno: *S/ ' + perPerson.toFixed(2) + '*\n\n_Ve a app.neto.pe > Deudas > Compartidos para editar y marcar pagos._';
         } catch(e) {
