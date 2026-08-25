@@ -29,6 +29,7 @@ const { abrirSesion, cerrarSesion } = require('../lib/support-tickets');
 const { manejarOnboarding } = require('./onboarding');
 const { colaConfirmacionGasto, estaEnMuro, mensajeMuro, mensajeCargaMasivaPro, esProPagado, mensajeGmailProPagado, mensajeConectarEnLaApp, mensajeGmailDesconectado } = require('../lib/trial');
 const { comandoRequiereLectura } = require('./intents-acceso');
+const { verificarEscritura, entro } = require('../helpers/escritura-verificada');
 const analytics = require('../lib/analytics');
 
 // Idempotencia por wamid: Meta retransmite el webhook cada 30s si OpenAI demora >timeout.
@@ -61,6 +62,31 @@ function otpRateLimited(from) {
   if (!e || now - e.ts > OTP_VENTANA_MS) { otpIntentos.set(from, { count: 1, ts: now }); return false; }
   e.count += 1;
   return e.count > OTP_MAX_INTENTOS;
+}
+/**
+ * Devuelve la ficha que `otpRateLimited` acaba de cobrar. **Sólo se llama cuando el intento
+ * fracasó por NUESTRO lado** (una lectura que no se pudo hacer), nunca por un código malo.
+ *
+ * Hace falta porque el contador se incrementa ANTES de leer nada: sin esto, cinco hipos de
+ * Supabase seguidos dejan a la persona con *"Demasiados intentos de verificación, espera unos
+ * minutos"* durante 15 minutos, castigada por un fallo del servidor mientras el mensaje que
+ * acaba de recibir la invita a reintentar en un minuto. Lo encontró la revisión adversarial.
+ *
+ * No debilita la defensa contra la fuerza bruta: adivinar un código no pasa por acá. Las cinco
+ * ramas que la devuelven son de dos clases y ninguna la puede provocar el remitente: dos exigen
+ * que falle una lectura nuestra, y las otras TRES son posteriores a haber encontrado el código
+ * —o sea que quien llega ya presentó uno válido y vigente— y fallan por el link, por el
+ * `merge_and_link` o por una excepción.
+ *
+ * **La regla es el par, no la rama:** si un camino le dice a la persona que reintente y el
+ * motivo es NUESTRO, tiene que devolver la ficha. La primera versión de este arreglo cubría
+ * sólo las dos lecturas y dejaba las otras tres invitando a reintentar con la ficha cobrada
+ * — o sea el mismo bug, en las ramas nuevas del propio commit. Lo encontró la revisión
+ * adversarial del arreglo.
+ */
+function otpDevolverIntento(from) {
+  const e = otpIntentos.get(from);
+  if (e && e.count > 0) e.count -= 1;
 }
 
 // Límite POR REMITENTE, y vive acá y no en el limiter de `index.js` por una razón que no es
@@ -633,9 +659,31 @@ function createWebhookHandler(procesarMensajeLibre) {
       }
       const code = 'NETO-' + otpMatch[1];
       try {
-        const { data: otp } = await supabase.from('webapp_otp')
+        // **`!otp` tiene DOS causas y una sola respuesta era mentira.** Sin leer el error, una
+        // lectura caída se vuelve indistinguible de "ese código no existe", y lo que se le dice
+        // a la persona es que su código es inválido — cuando puede ser perfectamente válido. No
+        // es un mensaje feo y ya: la manda a app.neto.pe a generar OTRO código, o sea a repetir
+        // el trámite entero, y cada intento le come una de las 5 fichas del rate limit de 15
+        // minutos (el throttle es lo único que defiende el código de la fuerza bruta, así que
+        // gastarlo en fallos nuestros baja la defensa además de mentir).
+        const { data: otp, error: errOtp } = await supabase.from('webapp_otp')
           .select('id, supabase_auth_id, email, nombre, expires_at, verified_at')
           .eq('code', code).is('verified_at', null).maybeSingle();
+        // **`PGRST116` acá NO es transitorio y por eso se separa.** `webapp_otp.code` no tiene
+        // índice único (`migrations/020`: el único unique es por `supabase_auth_id`), así que
+        // dos cuentas Google distintas pueden llegar a tener el mismo código de 6 dígitos
+        // pendiente. `maybeSingle()` sobre dos filas devuelve `PGRST116`, y ahí *"volvé a
+        // enviármelo, sigue siendo válido"* es un callejón sin salida: por más que reintente,
+        // van a seguir siendo dos. Además vincular una de las dos a ciegas sería atar el
+        // WhatsApp a la cuenta Google equivocada. Cae al mensaje de abajo, que manda a generar
+        // uno nuevo — y regenerar sí lo resuelve, porque reemplaza la fila de esa cuenta.
+        // Lo encontró la revisión adversarial.
+        if (errOtp && errOtp.code !== 'PGRST116') {
+          log.error({ tag: 'WEBAPP_OTP', from, err: errOtp.message }, 'No se pudo leer el código: no se declara inválido');
+          otpDevolverIntento(from);
+          await enviarWhatsapp(from, '⚠️ No pude verificar tu código en este momento. Vuelve a enviármelo en un minuto — sigue siendo válido.');
+          return;
+        }
 
         if (!otp || new Date(otp.expires_at).getTime() <= Date.now()) {
           await enviarWhatsapp(from, '⚠️ Ese código de verificación no es válido o ya expiró.\n\nVuelve a app.neto.pe y genera uno nuevo.');
@@ -647,28 +695,74 @@ function createWebhookHandler(procesarMensajeLibre) {
         // hay que FUSIONAR ambas en una, no vincular a ciegas (eso reventaría por el unique
         // de supabase_auth_id). El survivor es la fila web, que conserva el auth_id de la
         // sesión viva; la fila del número se pliega dentro y se borra.
-        const { data: webRow } = await supabase.from('usuarios')
+        // **Ésta es la peor de las tres lecturas, porque `!webRow` no informa: RAMIFICA.** Con
+        // el error descartado, una lectura caída se lee como "la cuenta web no llegó a crear su
+        // fila" y manda al camino de link DIRECTO, que escribe `supabase_auth_id` sobre la fila
+        // del número. Pero la fila web SÍ existe, así que ese update choca contra el unique de
+        // `supabase_auth_id` y vuelve con 23505 — que el bloque de abajo atribuye al índice del
+        // EMAIL y contesta *"ese correo ya está vinculado a otra cuenta de WhatsApp"*. O sea:
+        // un hipo de la base termina en una escritura por el camino equivocado y en un
+        // diagnóstico que apunta a un conflicto que no existe. Falla cerrado, sí, pero por
+        // casualidad y con la explicación cambiada.
+        const { data: webRow, error: errWebRow } = await supabase.from('usuarios')
           .select('id, nombre')
           .eq('supabase_auth_id', otp.supabase_auth_id)
           .maybeSingle();
+        if (errWebRow) {
+          log.error({ tag: 'WEBAPP_OTP', from, err: errWebRow.message }, 'No se pudo leer la cuenta web: no se elige rama a ciegas');
+          otpDevolverIntento(from);
+          await enviarWhatsapp(from, '⚠️ No pude verificar tu código en este momento. Vuelve a enviármelo en un minuto — sigue siendo válido.');
+          return;
+        }
 
-        const marcarVerificado = async () => {
-          await supabase.from('webapp_otp').update({
+        // **ACCESORIA, y va dicho porque el enunciado del ítem la describía al revés.** No es
+        // "el vínculo se declara hecho sin quedar escrito": el vínculo lo escribe el update (o
+        // el `merge_and_link`) de más abajo, y la señal que la webapp poletea es
+        // `usuarios.whatsapp` de la fila del auth —no `verified_at`, que es sólo su fallback
+        // (`webapp/src/app/api/onboarding/route.ts`)—. O sea que con esta escritura caída la
+        // persona igual queda vinculada y la pantalla web igual avanza: el copy de los tres
+        // call-sites es verdad sin importar cómo salga, y por eso NO se toca.
+        //
+        // Lo que sí se pierde son dos cosas que la persona no puede ver ni arreglar:
+        //   · **el código no se quema.** `.is('verified_at', null)` lo vuelve a encontrar hasta
+        //     que expire, o sea que una credencial que ya se usó sigue viva su ventana entera.
+        //   · **`whatsapp_verified` es una de las dos columnas por las que el borrado de cuenta
+        //     barre esta tabla** (`migrations/073`, `... OR whatsapp_verified = v_whatsapp`).
+        //     Sin ella, la fila con el número sobrevive a un pedido de baja de datos.
+        // Ninguna de las dos la resuelve la persona reintentando, así que la decisión es la del
+        // opt-out de `survey_events`: sólo log, con `sitio` propio para que se pueda contar.
+        // **`userId` es un parámetro y no `usuario.id` fijo por la rama del MERGE**, donde
+        // `merge_and_link` acaba de BORRAR la fila del loser — que es `usuario.id`. El único
+        // sitio cuya justificación entera es "sólo log, para que se pueda contar" emitía ahí el
+        // id de una fila que ya no existe, o sea un diagnóstico que no se puede cruzar con
+        // nada. El survivor es `webRow.id`. Lo encontró la revisión adversarial.
+        const marcarVerificado = async (userId = usuario.id) => verificarEscritura(
+          supabase.from('webapp_otp').update({
             verified_at: new Date().toISOString(),
             whatsapp_verified: from.replace(/^\+/, ''),
-          }).eq('id', otp.id);
-        };
+          }).eq('id', otp.id).select('id'),
+          { sitio: 'webhook_otp_verificado', userId, campos: ['verified_at', 'whatsapp_verified'] });
         const primerNombre = (n) => (n || '').split(' ')[0];
 
         if (!webRow) {
           // La cuenta web no llegó a crear su fila (fallo de creación → fallback): vincula
           // el auth directamente sobre la fila del número. Ese número pasa a ser su cuenta.
-          const { error: linkErr } = await supabase.from('usuarios').update({
+          // **El `.select('id')` no es cosmético: sin RETURNING, cero filas llega con la MISMA
+          // forma que el éxito** (`{data:null, error:null}`), y abajo se confirma el vínculo y
+          // se QUEMA el código. Ese desenlace es alcanzable con el mismo mecanismo que los
+          // otros cinco sitios de este commit: la fila del número desaparece entre
+          // `obtenerOCrearUsuario` y el update (un merge concurrente, una baja de cuenta).
+          //
+          // No usa `verificarEscritura` a propósito, y es la única excepción del commit: el
+          // helper colapsa el `{error}` en un veredicto de tres valores y acá hace falta el
+          // CÓDIGO del error, porque `23505` decide un copy propio. La verificación es la
+          // misma, escrita a mano. Lo encontró la revisión adversarial.
+          const { data: linkFilas, error: linkErr } = await supabase.from('usuarios').update({
             supabase_auth_id: otp.supabase_auth_id,
             email: otp.email || usuario.email,
             nombre: usuario.nombre || otp.nombre,
             onboarding_completado: true,
-          }).eq('id', usuario.id);
+          }).eq('id', usuario.id).select('id');
           if (linkErr) {
             // 23505: el correo de la cuenta web ya pertenece a otro WhatsApp
             // (índice usuarios_email_lower_unique). No marcamos verificado.
@@ -677,6 +771,16 @@ function createWebhookHandler(procesarMensajeLibre) {
               return;
             }
             throw linkErr;
+          }
+          if (!linkFilas || linkFilas.length === 0) {
+            // El código NO se quema: si se quemara, reenviarlo daría "no es válido, genera uno
+            // nuevo" y el nuevo caería en el mismo agujero. Dejándolo vivo, el reintento
+            // funciona solo en cuanto la fila vuelva a estar.
+            log.warn({ tag: 'WEBAPP_OTP', from, usuarioId: usuario.id },
+              'El link directo no tocó NINGUNA fila: no se confirma el vínculo ni se quema el código');
+            otpDevolverIntento(from);
+            await enviarWhatsapp(from, '⚠️ No pude terminar de vincular tu cuenta. Vuelve a enviarme el código en un minuto — sigue siendo válido.');
+            return;
           }
           await marcarVerificado();
           const pn = primerNombre(otp.nombre || usuario.nombre);
@@ -701,6 +805,7 @@ function createWebhookHandler(procesarMensajeLibre) {
         });
         if (mergeErr) {
           log.error({ tag: 'WEBAPP_OTP', err: mergeErr.message }, 'Error en merge_and_link');
+          otpDevolverIntento(from);
           await enviarWhatsapp(from, '⚠️ Tuvimos un problema al vincular tu cuenta. Intenta de nuevo en un momento o escríbenos a soporte.');
           return;
         }
@@ -711,16 +816,26 @@ function createWebhookHandler(procesarMensajeLibre) {
         }
         if (mergeResult !== 'linked') {
           log.error({ tag: 'WEBAPP_OTP', result: mergeResult }, 'merge_and_link resultado inesperado');
+          otpDevolverIntento(from);
           await enviarWhatsapp(from, '⚠️ Tuvimos un problema al vincular tu cuenta. Intenta de nuevo en un momento o escríbenos a soporte.');
           return;
         }
-        await marcarVerificado();
+        await marcarVerificado(webRow.id);
         const pn = primerNombre(webRow.nombre || usuario.nombre || otp.nombre);
         await enviarWhatsapp(from, '✅ ' + (pn ? pn + ', t' : 'T') + 'u cuenta web quedó verificada y vinculada a este WhatsApp.\n\nTus datos quedaron unificados. Ya puedes volver a app.neto.pe. 🎉');
         log.info({ tag: 'WEBAPP_OTP', survivor: webRow.id, loser: usuario.id }, 'Cuenta web verificada (merge)');
         return;
       } catch (e) {
         log.error({ tag: 'WEBAPP_OTP', err: e.message }, 'Error verificando cuenta web');
+        // La ficha también se devuelve acá: llegar a este catch es siempre culpa nuestra (un
+        // `throw` del link, una excepción de programación), nunca de un código malo.
+        //
+        // Lo que NO se toca es el "cae al flujo normal": con la verificación reventada, el
+        // `NETO-123456` sigue de largo y termina contestado por el NLP, que responde cualquier
+        // cosa a un código. Es preexistente y es OTRO problema — arreglarlo acá sería meter un
+        // hallazgo nuevo en la tercera vuelta de un arreglo, que es exactamente cómo se produjo
+        // el incidente del 04-ago.
+        otpDevolverIntento(from);
         // cae al flujo normal
       }
     }
@@ -729,7 +844,22 @@ function createWebhookHandler(procesarMensajeLibre) {
     const refMatch = msg.match(/^hola\s+neto\s+ref:([A-Z0-9]{4,12})/i);
     if (refMatch) {
       const refCode = refMatch[1].toUpperCase();
-      const { data: referrer } = await supabase.from('usuarios').select('id').eq('ref_code', refCode).neq('id', usuario.id).single();
+      // **`.single()` colapsa dos desenlaces en el mismo `data: null`**, y acá eso es plata:
+      // "ese código no existe" (`PGRST116`, que es lo normal si alguien tipea cualquier cosa) y
+      // "no se pudo preguntar". En el segundo caso el referido pierde su 50% off y el referrer
+      // el mes gratis que le iba a pagar esa conversión, en silencio absoluto y para siempre —
+      // nadie vuelve a mandar `hola neto ref:XXXX`, es el primer mensaje de una vida.
+      //
+      // No se le dice nada a la persona a propósito: está entrando por un link de invitación y
+      // el mensaje siguiente es el del alta, así que meterle un error acá es ruido sobre alguien
+      // que todavía no sabe qué es Neto. Lo que cambia es que deje de ser INDIAGNOSTICABLE: va
+      // al log y a la tabla `errores`, que es donde se cruza por timestamp cuando alguien
+      // reclama que su referido no contó.
+      const { data: referrer, error: errReferrer } = await supabase.from('usuarios').select('id').eq('ref_code', refCode).neq('id', usuario.id).single();
+      if (errReferrer && errReferrer.code !== 'PGRST116') {
+        log.error({ tag: 'REFERIDO', from, refCode, err: errReferrer.message }, 'No se pudo resolver el código de referido: el descuento no se sembró');
+        registrarError('REFERIDO', errReferrer.message, { whatsapp: from, refCode });
+      }
       if (referrer) {
         // Solo vincular + sembrar el 50% off del referido. El premio al referrer NO se
         // dispara aquí (unirse ≠ convertir): salta recién cuando el referido PAGA Pro,
@@ -827,18 +957,41 @@ function createWebhookHandler(procesarMensajeLibre) {
           '\n\n📊 Revisa tu dashboard en *https://app.neto.pe*\n\n\u00bfQue revisamos?';
       }
     } else if (cmd === '/silenciar') {
-      await supabase.from('usuarios').update({ recordatorios_activos: false }).eq('id', usuario.id);
-      respuesta = '🔇 Recordatorios desactivados. Escribe */recordar* para reactivarlos.';
+      // **Los gemelos EXACTOS de `moderacion.js:22/63`**, que 9B-bis arregló dejando vivo el
+      // original — y éste es además el que el docblock del guard de lecturas cita como ejemplo
+      // canónico de la clase. Misma decisión y mismo copy que allá: el fallo lo nota la persona
+      // sola, mañana a las 8pm, recibiendo el resumen que acaba de pedir que no le llegue.
+      // Confirmarlo sin haberlo escrito no es un mensaje feo: es entrenarla a no creerle al
+      // "listo". Los dos comandos escriben la MISMA columna, así que los separa el `sitio`.
+      const vSilenciar = await verificarEscritura(
+        supabase.from('usuarios').update({ recordatorios_activos: false }).eq('id', usuario.id).select('id'),
+        { sitio: 'webhook_silenciar', userId: usuario.id, campos: ['recordatorios_activos'] });
+      respuesta = entro(vSilenciar)
+        ? '🔇 Recordatorios desactivados. Escribe */recordar* para reactivarlos.'
+        : 'No pude desactivar los recordatorios. Intenta de nuevo.';
     } else if (cmd === '/recordar') {
-      await supabase.from('usuarios').update({ recordatorios_activos: true }).eq('id', usuario.id);
-      respuesta = '🔔 Recordatorios activados. Te avisaré a las 8pm si no registras gastos.';
+      const vRecordar = await verificarEscritura(
+        supabase.from('usuarios').update({ recordatorios_activos: true }).eq('id', usuario.id).select('id'),
+        { sitio: 'webhook_recordar', userId: usuario.id, campos: ['recordatorios_activos'] });
+      respuesta = entro(vRecordar)
+        ? '🔔 Recordatorios activados. Te avisaré a las 8pm si no registras gastos.'
+        : 'No pude activar los recordatorios. Intenta de nuevo.';
     } else if (cmd === '/manoslibres') {
       if (!getUserPlanConfig(usuario).resumenDiario) {
         respuesta = '⭐ *El Modo Manos Libres es una función Pro.*\n\nCada noche a las 9pm te mando un resumen de lo que gastaste en el día, sin que hagas nada.\n\n' + lineaPrecioPro() + '\n📲 Yapea al *970398192* y envíame la captura.';
       } else {
         const nuevoEstado = !usuario.manos_libres;
-        await supabase.from('usuarios').update({ manos_libres: nuevoEstado }).eq('id', usuario.id);
-        respuesta = nuevoEstado
+        // Confirmación incondicional de un TOGGLE, que es el caso donde más engaña: el mensaje
+        // afirma el estado nuevo, y quien lo lea va a asumir que el próximo `/manoslibres` lo
+        // vuelve a invertir. Si el update no entró, el estado real sigue siendo el viejo y el
+        // segundo toggle hace lo contrario de lo que la persona espera — sobre un resumen
+        // nocturno que es justamente lo que no se está mirando.
+        const vManos = await verificarEscritura(
+          supabase.from('usuarios').update({ manos_libres: nuevoEstado }).eq('id', usuario.id).select('id'),
+          { sitio: 'webhook_manoslibres', userId: usuario.id, campos: ['manos_libres'] });
+        respuesta = !entro(vManos)
+          ? 'No pude cambiar el Modo Manos Libres. Intenta de nuevo en un momento.'
+          : nuevoEstado
           ? '🌙 *Modo Manos Libres activado.*\n\nCada noche a las 9pm te mando un resumen de lo que gastaste en el día. Escribe */manoslibres* de nuevo para desactivarlo.'
           : '✅ Modo Manos Libres desactivado. Ya no te mandaré el resumen diario.';
       }
@@ -943,11 +1096,33 @@ function createWebhookHandler(procesarMensajeLibre) {
       let refCode = usuario.ref_code;
       if (!refCode) {
         refCode = generarRefCode();
-        await supabase.from('usuarios').update({ ref_code: refCode }).eq('id', usuario.id);
-        usuario.ref_code = refCode;
+        // **Esta es la rama que de verdad corre**, y por eso el arreglo va aca y no solo en
+        // `premium.js`. Matchea TEXTO LIBRE por regex (`mis referidos`, `link de referido`,
+        // `quiero invitar`...), y `procesarMensajeLibre` --lo unico que llega al intent
+        // `ver_referidos`-- es el `else` del final de esta misma cascada: nunca lo ve. O sea que
+        // 9B-bis arreglo la cola y las frases comunes se quedaron aca, mudas.
+        //
+        // Misma decision que alla, porque es la misma verdad: **el codigo ES la credencial**.
+        // Si el update no entra y el mensaje se arma igual, la persona reparte un codigo que
+        // `routes/public.js` no va a resolver nunca, y cada referido que traiga no le paga el
+        // mes gratis a nadie. Es plata, y el fallo es permanentemente silencioso.
+        const vRefCode = await verificarEscritura(
+          supabase.from('usuarios').update({ ref_code: refCode }).eq('id', usuario.id).select('id'),
+          { sitio: 'webhook_ref_code', userId: usuario.id, campos: ['ref_code'] });
+        if (!entro(vRefCode)) {
+          // La fila EN MEMORIA no se toca: dejar `usuario.ref_code` seteado sobre una escritura
+          // que no entro propaga el codigo inventado a todo lo que lea el objeto mas abajo.
+          respuesta = '⚠️ Se me trabó creando tu código de referido, así que todavía no te lo puedo dar: ' +
+            'si lo repartiera, no funcionaría. Pídemelo de nuevo en un momento.';
+          refCode = null;
+        } else {
+          usuario.ref_code = refCode;
+        }
       }
-      const statsRef = await obtenerEstadisticasReferidos(usuario.id);
-      respuesta = mensajeMisReferidos(refCode, statsRef);
+      if (refCode) {
+        const statsRef = await obtenerEstadisticasReferidos(usuario.id);
+        respuesta = mensajeMisReferidos(refCode, statsRef);
+      }
     } else if (cmd === '/dashboard' || cmd === '/app') {
       respuesta = '📊 *Tu dashboard está en:*\n\n🔗 https://app.neto.pe\n\nAhí puedes ver gráficos, metas, reportes PDF, suscripciones y más.\n\n_Inicia sesión con tu cuenta de Google._';
     } else if (cmd === '/soporte' || cmd === '/humano') {
@@ -974,9 +1149,25 @@ function createWebhookHandler(procesarMensajeLibre) {
     } else if (cmd === '/categorias' || cmd === '/categorias agregar') {
       var catsCmd = await obtenerCategoriasUsuario(usuario.id);
       if (cmd === '/categorias agregar' || !catsCmd) {
-        var menuCatsStr = CATEGORIAS_SUGERIDAS.map(function(c,i){ return (i+1)+'. '+c.emoji+' '+c.nombre; }).join('\n');
-        respuesta = '*Personaliza tus categorias*\n\nResponde con los numeros:\n\n' + menuCatsStr + '\n\n_Ej: 1 3 5 o "todas"_';
-        await supabase.from('usuarios').update({ onboarding_paso: 10 }).eq('id', usuario.id);
+        // **El caso de `desconectar_cuenta` con el orden INVERTIDO**: alla el menu se imprimia
+        // antes de saber si el paso habia entrado; aca el mensaje ya estaba compuesto una linea
+        // ANTES del update. `onboarding_paso = 10` es lo unico que hace que el proximo mensaje
+        // se lea como la respuesta a este menu (`handlers/onboarding.js`, paso 10): sin ese
+        // estado escrito, el "1 3 5" cae al NLP, nadie personaliza nada y nadie se lo dice.
+        //
+        // Y no es solo un tramite que se pierde: por esta puerta ya salieron raices duplicadas
+        // (`project_categorias_dedup_singlebug`), o sea que el estado a medias de aca ya
+        // alimento un bug de datos. El write va PRIMERO y el menu se imprime solo si entro:
+        // enumerar las opciones es la mitad de la mentira.
+        const vMenuCats = await verificarEscritura(
+          supabase.from('usuarios').update({ onboarding_paso: 10 }).eq('id', usuario.id).select('id'),
+          { sitio: 'webhook_categorias_menu', userId: usuario.id, campos: ['onboarding_paso'] });
+        if (!entro(vMenuCats)) {
+          respuesta = 'No pude abrir la personalización de categorías ahora. Intenta de nuevo en un momento.';
+        } else {
+          var menuCatsStr = CATEGORIAS_SUGERIDAS.map(function(c,i){ return (i+1)+'. '+c.emoji+' '+c.nombre; }).join('\n');
+          respuesta = '*Personaliza tus categorias*\n\nResponde con los numeros:\n\n' + menuCatsStr + '\n\n_Ej: 1 3 5 o "todas"_';
+        }
       } else { respuesta = formatearCategoriasMsg(catsCmd); }
     } else if (cmd === '/ayuda') {
       const mesActual = new Date().getMonth() + 1;

@@ -79,7 +79,12 @@ const WHATSAPP_CRUDO = new Map([
   // `esperando_comprobante` de la decisión) y entraron dos (la captura de pago que llega con una
   // solicitud ya pendiente, y el monto ilegible de quien esperaba comprobante). Las tres son
   // RESPUESTA a un mensaje del usuario, no empujes.
-  ['handlers/webhook.js', { usos: 27, familia: 'RESPUESTA', motivo: 'turnos de conversación: imágenes, audios, OTP, onboarding' }],
+  // 27 -> 30 el 25-ago-2026 (item 9B-ter), las tres en el bloque del OTP inverso y las tres
+  // RESPUESTA a un mensaje que la persona acaba de mandar: las dos lecturas que antes elegian
+  // rama a ciegas ahora contestan "no pude verificar tu codigo, sigue siendo valido" en vez de
+  // declararlo invalido o intentar el link directo, y el link directo con cero filas dice "no
+  // pude terminar de vincular" en vez de confirmar un vinculo que no ocurrio. Ninguna es empuje.
+  ['handlers/webhook.js', { usos: 30, familia: 'RESPUESTA', motivo: 'turnos de conversación: imágenes, audios, OTP, onboarding' }],
   // Baja de 5 a 4: se fue el aviso de "cuenta Gmail adicional conectada", que preguntaba por
   // WhatsApp cómo agrupar los reportes. Un usuario tiene UNA cuenta (cada una cuesta un cupo
   // de por vida), así que esa rama del callback ya no existe.

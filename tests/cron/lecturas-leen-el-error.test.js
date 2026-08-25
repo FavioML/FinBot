@@ -197,10 +197,16 @@ function recorrer(src, { blanquearLiterales = false, etiqueta = '' } = {}) {
  * resto de la línea, incluido el `;` final del statement**. Sin ese `;`, el backtrack de
  * `lecturas()` cruza al statement de arriba y hereda su `=`.
  *
- * No es hipotético y no es de laboratorio: en `handlers/webhook.js:830` un `update()`
- * fire-and-forget salía reportado como lectura muda con LHS `respuesta`, heredado de la línea
- * que arma el saludo con el link al dashboard. Es la misma familia que el bug de la ventana
- * de 600 caracteres —una escritura y una lectura intercambiadas— con otra causa.
+ * No es hipotético y no es de laboratorio: el caso venía de `handlers/webhook.js`, donde un
+ * `update()` fire-and-forget de `recordatorios_activos` salía reportado como lectura muda con
+ * LHS `respuesta`, heredado de la línea que arma el saludo con el link al dashboard. Es la
+ * misma familia que el bug de la ventana de 600 caracteres —una escritura y una lectura
+ * intercambiadas— con otra causa.
+ *
+ * **Ese sitio ya no existe con esa forma: lo cerró el ítem 9B-ter el 25-ago-2026**, así que la
+ * cita por número de línea que había acá quedó apuntando a otra cosa. El FIXTURE de abajo se
+ * queda igual y no es contradicción: prueba el PARSER, y para eso la forma vale exista o no en
+ * el árbol. Lo que se corrigió es la prosa, que afirmaba un presente.
  *
  * Medido: **1 veredicto cambia en `handlers/` + `lib/` (148 sitios) y 0 en este perímetro
  * (165 sitios)**. O sea que acá estaba latente, no dormido por suerte: hoy no hay ninguna

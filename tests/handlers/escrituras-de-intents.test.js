@@ -58,10 +58,11 @@ const RAIZ = path.resolve(path.dirname(new URL(import.meta.url).pathname).replac
  * ─────────────────────────────────────────────────────────────────────────────────────────
  * EL ALCANCE, DICHO EN VEZ DE INSINUADO
  *
- * Este archivo cubre `handlers/intents/`. **La clase NO está cerrada en `handlers/`**: una
- * revisión adversarial midió **6 escrituras mudas idénticas en `handlers/webhook.js`** (656,
- * 830, 833, 840, 946, 979) con el inventario de este mismo commit, y dos cosas las vuelven
- * peores que las de acá y no un resto:
+ * Este archivo cubre `handlers/intents/`. **Las 6 de `handlers/webhook.js` las cerró 9B-ter el
+ * 25-ago-2026** (`tests/handlers/escrituras-del-webhook.test.js`); lo que sigue queda escrito
+ * porque explica POR QUÉ no entraron acá, que es la parte reusable. Una revisión adversarial
+ * las midió (656, 830, 833, 840, 946, 979) con el inventario de este mismo commit, y dos cosas
+ * las volvían peores que las de acá y no un resto:
  *
  *   · **`webhook.js:946` es el `ver_referidos` que de verdad corre.** Su rama matchea TEXTO
  *     LIBRE por regex (`mis referidos`, `link de referido`, `quiero invitar`…) y
@@ -73,9 +74,10 @@ const RAIZ = path.resolve(path.dirname(new URL(import.meta.url).pathname).replac
  *     (`moderacion.js`) y deja el original que lo nombra.
  *
  * No entraron acá a propósito: meter hallazgos nuevos en la segunda vuelta de un arreglo es
- * cómo se produjo el incidente del 04-ago (la lección está escrita en 9A-bis). Van al backlog
- * con su medición, y `node scripts/inventario-escrituras-intents.mjs handlers/webhook.js` las
- * vuelve a contar sin creerle a este comentario.
+ * cómo se produjo el incidente del 04-ago (la lección está escrita en 9A-bis). Fueron al backlog
+ * con su medición y salieron en la sesión siguiente, y
+ * `node scripts/inventario-escrituras-intents.mjs handlers/webhook.js` lo vuelve a contar sin
+ * creerle a este comentario: hoy da `verificadas=6, escrituras mudas=0`.
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────
  * LA DIFERENCIA CON 9D, y hace el archivo más simple
