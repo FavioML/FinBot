@@ -77,7 +77,11 @@ export function Paywall() {
     : `Se activan cuando registres tu ${conteo > 0 ? 'próximo' : 'primer'} gasto: anótalo por WhatsApp y entras a ver todo.`;
 
   return (
-    <div className="mx-auto max-w-lg py-6">
+    // `data-testid` NO es decorativo: es lo que `qa-parity-allroutes.mjs` cuenta para
+    // afirmar que el muro SE PINTÓ, además del `data-muro` que dice qué decidió el shell.
+    // Dos señales a propósito — una declaración que nadie contrasta con el render puede
+    // mentir. Si se renombra, el barrido sale rojo nombrando la ruta; eso es lo correcto.
+    <div data-testid="paywall" className="mx-auto max-w-lg py-6">
       <div className="glass-card rounded-2xl p-6">
         <span className="mb-5 flex h-11 w-11 items-center justify-center rounded-full bg-[#1D9E75]/15 text-[#1D9E75]">
           <Lock className="h-5 w-5" />

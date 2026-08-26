@@ -103,6 +103,22 @@ function CacheIdentityGuard() {
   return null;
 }
 
+/** Rutas del dashboard que NO se tapan, y por qué cada una. */
+const RUTAS_SIN_MURO = new Set(['/dashboard/pro', '/dashboard/configuracion']);
+
+/**
+ * Qué decidió el muro en esta ruta. Se emite al DOM (`data-muro`) porque hasta el
+ * 26-ago-2026 la desaparición del muro era la regresión que ningún instrumento veía:
+ * `qa-parity-allroutes.mjs` solo afirmaba AUSENCIA de errores, así que un dashboard sin
+ * muro —menos 402, menos Paywall— salía MÁS verde. Fallaba hacia la calma justo en lo
+ * que estaba parado para vigilar.
+ *
+ * `pendiente` y `sin-usuario` existen para que el barrido distinga "no medí" de "medí y
+ * está sano": mientras la lectura del usuario no resuelve (o se cayó) el muro no decidió
+ * nada, y leer eso como "no hay muro" fabrica un verde falso.
+ */
+type EstadoMuro = 'demo' | 'exenta' | 'pendiente' | 'sin-usuario' | 'muro' | 'contenido';
+
 /**
  * Muro o contenido. Terminó la prueba de 14 días sin pagar → se reemplaza el CONTENIDO,
  * nunca el chrome: el sidebar y la navegación siguen ahí para que se lea como "esto está
@@ -121,6 +137,10 @@ function CacheIdentityGuard() {
  * Mientras el usuario no cargó se muestra el mismo fallback que el gate del shell, para
  * que el usuario en el muro no vea parpadear el dashboard vacío antes del paywall.
  *
+ * El `estado` se calcula UNA vez y decide las dos cosas —qué se pinta y qué dice el
+ * marcador— a propósito: un marcador que se declara aparte del render puede mentir, y un
+ * guard que mide la declaración en vez del render no vigila nada.
+ *
  * Esto es la capa de UI. La que de verdad protege es `requireLectura` en las rutas de API:
  * sin ella bastaría con pegarle a /api/dashboard con la sesión.
  */
@@ -134,13 +154,31 @@ function ContenidoOMuro({
   const pathname = usePathname();
   const { data: usuario, isPending } = useUser();
 
-  if (IS_DEMO) return <>{children}</>;
-  if (pathname === '/dashboard/pro' || pathname === '/dashboard/configuracion') {
-    return <>{children}</>;
-  }
-  if (isPending) return <>{fallback}</>;
-  if (usuario && estaEnMuro(usuario.plan)) return <Paywall />;
-  return <>{children}</>;
+  const estado: EstadoMuro = IS_DEMO
+    ? 'demo'
+    : RUTAS_SIN_MURO.has(pathname)
+      ? 'exenta'
+      : isPending
+        ? 'pendiente'
+        : // La lectura del usuario se cayó (`useUser` en error deja `data` en undefined y
+          // `AuthRedirect` decide 'esperar', no expulsar). No se tapa: mostrarle el muro a
+          // quien paga por un hipo de Supabase es peor que dejarlo ver un dashboard que la
+          // API igual le responde con datos. Pero se NOMBRA, para que el barrido no lo
+          // cuente como "no hay muro".
+          !usuario
+          ? 'sin-usuario'
+          : estaEnMuro(usuario.plan)
+            ? 'muro'
+            : 'contenido';
+
+  if (estado === 'pendiente') return <>{fallback}</>;
+
+  return (
+    <>
+      <span hidden data-muro={estado} />
+      {estado === 'muro' ? <Paywall /> : children}
+    </>
+  );
 }
 
 function ShellChrome({ children }: { children: React.ReactNode }) {

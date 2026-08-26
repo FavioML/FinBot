@@ -14,6 +14,10 @@ interface ProGateProps {
 export function ProGate({ featureName, description }: ProGateProps) {
   return (
     <motion.div
+      // Lo cuenta `qa-parity-allroutes.mjs` para afirmar que a un Pro PAGADO no le cierran
+      // ninguna feature. Antes lo buscaba por el copy (`text=/es Pro/`), que deja de ver
+      // el día que alguien reescribe el título.
+      data-testid="pro-gate"
       className="flex items-center justify-center min-h-[400px] glass-card glass-card-glow rounded-2xl p-8"
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
