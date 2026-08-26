@@ -617,11 +617,19 @@ async function checkAlertasProactivas() {
  * de WhatsApp puede irse en 131047 igual — pero le llega la campana, que es
  * justamente por lo que esa rama es `AMBOS`.
  *
- * **Dependencia no declarada que conviene saber:** `usuarios.created_at` es
- * `timestamp WITHOUT time zone` y esto compara contra `toISOString()`. PostgREST
- * castea el `...Z` descartando el offset, así que la aritmética de arriba sólo es
- * correcta porque el GUC `TimeZone` de la base es **UTC** (verificado 20-ago-2026).
- * Si alguien lo pone en `America/Lima`, la ventana entera se corre 5h en silencio.
+ * **Dependencia que ahora tiene guard, y hasta el 26-ago-2026 sólo tenía este párrafo:**
+ * `usuarios.created_at` es `timestamp WITHOUT time zone` y esto compara contra
+ * `toISOString()`. PostgREST castea el `...Z` descartando el offset, así que la
+ * aritmética de arriba sólo es correcta mientras el GUC `TimeZone` de la base sea UTC.
+ * Con `America/Lima` la ventana entera se corre 5h en silencio.
+ *
+ * Un test no puede vigilarlo —la suite mockea Supabase, así que el GUC real no participa
+ * y `tests/cron/nudge-primer-gasto.test.js` pasa idéntico con la base en cualquier zona—
+ * y el GUC se cambia desde el dashboard, sin un commit. O sea que es del canary:
+ * `qa-e2e/qa-reloj-ventanas.mjs` (migración 075). Mide el HECHO, no el nombre de la zona:
+ * lo que la columna guardaría contra lo que esta ventana compara, más el offset en enero
+ * y en julio, porque una zona con horario de verano da 0 medio año y se corre sola el otro
+ * medio. Verificado en rojo contra `America/Lima` y contra `Atlantic/Azores`.
  *
  * Ensanchar el techo **no cambia nada** para quien madura con el gate abierto: el
  * cron corre cada 15 minutos y lo agarra a las 3h igual. Sólo rescata a quien maduró
@@ -675,17 +683,44 @@ async function checkRecordatorioOnboarding() {
     if (!candidatos || candidatos.length === 0) return;
 
     const ids = candidatos.map((u) => u.id);
-    const [{ data: conTx, error: errTx }, { data: yaAvisados, error: errAvisos }] = await Promise.all([
-      supabase.from('transacciones').select('usuario_id').in('usuario_id', ids),
-      supabase.from('notification_deliveries').select('usuario_id').eq('tipo', 'onboarding').in('usuario_id', ids),
-    ]);
-    if (errTx || errAvisos) {
+    // Las dos preguntas son de EXISTENCIA ("¿este ya anotó algo?", "¿a este ya se le avisó?"),
+    // y se responden por candidato con `limit(1)` en vez de traerse TODAS sus filas con un
+    // `.in(...)` colectivo. No es estilo: PostgREST corta en **1000 filas** sin avisar, y un
+    // recorte cae del lado peligroso — el usuario cuyas filas quedaron afuera se lee como
+    // "no anotó nada" y recibe el empujón de alta estando ya activo, que es justo lo que el
+    // comentario del error de acá abajo declara inaceptable.
+    //
+    // Era latente y no teórico. La ventana es de 3 a 18 horas desde el alta, así que los
+    // candidatos son 1-3 por corrida y hoy no llegan ni cerca del tope. Lo que sí lo alcanza
+    // es UNA carga masiva de Excel dentro de esas primeras 18h: esas filas son de un solo
+    // usuario pero llenan el cupo COMPARTIDO del `.in()`, y quien se queda sin lugar es el
+    // OTRO candidato de la misma corrida. Con `limit(1)` por usuario, cuántas filas tenga
+    // cada uno deja de importar.
+    //
+    // El costo es 2 consultas por candidato en vez de 2 en total, y está acotado por la
+    // ventana: no crece con el tamaño de la base.
+    const existe = async (tabla, filtrar) => {
+      const { data, error } = await filtrar(supabase.from(tabla).select('usuario_id')).limit(1);
+      // supabase-js NO lanza: sin leer el error, una caída se leería como "no hay fila", que
+      // es la respuesta que manda el mensaje. Se convierte en excepción para que el catch de
+      // abajo corte la corrida entera en vez de descartar a este candidato en silencio.
+      if (error) throw new Error(tabla + ': ' + error.message);
+      return (data || []).length > 0;
+    };
+    let activados, avisados;
+    try {
+      const [tx, avisos] = await Promise.all([
+        Promise.all(ids.map((id) => existe('transacciones', (q) => q.eq('usuario_id', id)))),
+        Promise.all(ids.map((id) => existe('notification_deliveries', (q) => q.eq('tipo', 'onboarding').eq('usuario_id', id)))),
+      ]);
+      activados = new Set(ids.filter((_, k) => tx[k]));
+      avisados = new Set(ids.filter((_, k) => avisos[k]));
+    } catch (eDescartar) {
       // Mismo criterio: sin poder descartar, NO se manda. Un error leído como
       // "este no tiene transacciones" le escribe a quien ya está usando Neto.
-      log.error({ tag: 'ONBOARDING_REMINDER', errTx: errTx?.message, errAvisos: errAvisos?.message }, 'No se pudo descartar candidatos; no se envía nada');
+      log.error({ tag: 'ONBOARDING_REMINDER', err: msgErr(eDescartar) }, 'No se pudo descartar candidatos; no se envía nada');
       return;
     }
-    const activados = new Set((conTx || []).map((t) => t.usuario_id));
     // El dedup NO filtra los `estado` que empiezan con `skipped`, y es deliberado. Suena al
     // arreglo obvio —una fila `skipped_no_whatsapp` parecía "no se le avisó, reintentar"— pero
     // con el canal ya bifurcado esa fila significa lo contrario: al web-first se le escribió en
@@ -700,7 +735,6 @@ async function checkRecordatorioOnboarding() {
     // Lo que protege el caso "la campana tampoco se escribió" es `claimInApp` en la rama AMBOS,
     // que corta ANTES de dejar la fila. La consulta de vigilancia de la señal diaria sí tiene
     // que excluir `skipped%`, porque ahí la pregunta es otra: "¿alguien se quedó sin nada?".
-    const avisados = new Set((yaAvisados || []).map((d) => d.usuario_id));
     const usuarios = candidatos.filter((u) => !activados.has(u.id) && !avisados.has(u.id)
       // `=== false` y no falsy: la columna es nullable y su default es 'sí quiere'.
       && u.recordatorios_activos !== false);

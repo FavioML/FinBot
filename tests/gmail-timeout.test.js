@@ -3,6 +3,21 @@ import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 
+// PRE-CARGA DELIBERADA, y no un import decorativo: el grafo de `googleapis` es lo unico caro
+// que hay aca. Medido el 26-ago con el reporter JSON de vitest sobre la suite COMPLETA: este
+// test tardaba 32231 ms en la primera corrida del dia y 3177 ms en la segunda (10.1x), contra
+// un `testTimeout` de 10 s — o sea que salia rojo por el estado del cache de archivos del SO,
+// no por lo que afirma. El resto de la suite se movio 1.1x entre esas dos corridas, asi que
+// no era contencion de CPU: era ESTE require, cobrado adentro del cuerpo del test.
+//
+// Cargarlo aca lo pasa a la fase de import de vitest, que no tiene `testTimeout`. El cuerpo
+// queda midiendo lo suyo: re-ejecutar `gmail.js` (147 ms medidos en frio, sin sus deps).
+// No debilita la precondicion — el test la FIJA con `google._options = {}`, nunca la hereda.
+const { google } = require('googleapis');
+// Y sus deps tambien: el `require('../gmail.js')` del cuerpo es la re-ejecucion del modulo,
+// no la carga de su arbol. Sin esto la primera carga del arbol volvia a caer adentro del test.
+require('../gmail.js');
+
 /**
  * `googleapis` va por gaxios, que **no trae timeout por default**: una conexión que Google
  * acepta y nunca responde deja el `await` colgado para siempre. Medido contra un servidor que
@@ -32,7 +47,6 @@ describe('timeout de transporte de googleapis', () => {
     //
     // Lo robusto es no suponer el estado previo sino FIJARLO, y forzar que el cuerpo de gmail.js
     // vuelva a ejecutarse (un módulo solo corre una vez por cache).
-    const { google } = require('googleapis');
     google._options = {};
     delete require.cache[require.resolve('../gmail.js')];
 

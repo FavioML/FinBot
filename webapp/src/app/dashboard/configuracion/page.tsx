@@ -1293,11 +1293,11 @@ export default function ConfiguracionPage() {
                 id="notificaciones"
                 icon={Bell}
                 title="Notificaciones"
-                description="Controla qué notificaciones recibes por WhatsApp."
+                description="Controla qué avisos te enviamos."
               >
                 <ToggleRow
                   title="Recordatorios"
-                  description="Recordatorio diario a las 8pm + avisos de deudas próximas a vencer"
+                  description="Interruptor general: el recordatorio diario de las 8pm, los avisos de deudas por vencer y todos los demás avisos automáticos. Apagarlo silencia también el Modo Manos Libres"
                   checked={recordatoriosActivos}
                   loading={recordatoriosLoading}
                   onToggle={(v) =>
@@ -1310,7 +1310,7 @@ export default function ConfiguracionPage() {
 
                 <ToggleRow
                   title="Avisos de movimientos detectados"
-                  description="Te aviso por WhatsApp cuando detecte un gasto en tu correo"
+                  description="Te aviso cuando detecte un gasto en tu correo. Va por WhatsApp, y si el gasto es inusual también a la campana"
                   checked={alertasTransaccion}
                   loading={alertasTransaccionLoading}
                   onToggle={(v) =>
@@ -1323,7 +1323,7 @@ export default function ConfiguracionPage() {
 
                 <ToggleRow
                   title="Modo Manos Libres"
-                  description="Resumen de lo que gastaste en el día, cada noche a las 9pm por WhatsApp"
+                  description="Resumen de lo que gastaste en el día, cada noche a las 9pm. Necesita WhatsApp vinculado; te llega ahí y en la campana"
                   checked={manosLibres && isPremium}
                   disabled={!isPremium}
                   loading={manosLibresLoading}

@@ -26,6 +26,8 @@ let usuariosData = [];
 let transaccionesData = [];
 let deliveriesData = [];
 let errores = {};
+/** Tope implícito de PostgREST. `Infinity` = sin recorte, que es lo que asume el resto del archivo. */
+let CAP_POSTGREST = Infinity;
 /** Toda escritura sobre `usuarios`, para probar que el cron NO pisa `onboarding_paso`. */
 let updatesUsuarios = [];
 /** Fixtures con un `created_at` que el mock no puede comparar. Ver `exigirISO`. */
@@ -59,8 +61,9 @@ function aplicaOr(fila, expr) {
 
 function makeChain(table) {
   const filtros = [];
+  let limite = null;
   const chain = {};
-  for (const m of ['lt', 'gt', 'limit', 'order', 'not', 'is', 'ilike']) {
+  for (const m of ['lt', 'gt', 'order', 'not', 'is', 'ilike']) {
     chain[m] = () => chain;
   }
   /**
@@ -101,6 +104,17 @@ function makeChain(table) {
   chain.neq = (col, val) => { filtros.push((f) => f[col] !== val); return chain; };
   chain.in = (col, arr) => { filtros.push((f) => arr.includes(f[col])); return chain; };
   chain.or = (expr) => { filtros.push((f) => aplicaOr(f, expr)); return chain; };
+  /**
+   * `limit` era no-op, y es la misma trampa que el docblock de `aplicaOr` describe un filtro
+   * más arriba: un mock que ignora el recorte no puede ver un bug que ES el recorte.
+   *
+   * PostgREST devuelve **como máximo `CAP_POSTGREST` filas** aunque nadie pida un límite, y no
+   * marca que cortó. Ese tope implícito es lo que hace peligroso preguntar "¿quiénes de estos
+   * tienen transacciones?" con un `.in()` colectivo: las filas de UN usuario pueden llenarlo y
+   * dejar a otro afuera, y afuera se lee como "no anotó nada", que es la respuesta que dispara
+   * el mensaje. Acá el tope es chico para que quepa en un fixture; en producción es 1000.
+   */
+  chain.limit = (n) => { limite = n; return chain; };
   chain.select = () => chain;
   chain.single = () => Promise.resolve({ data: null, error: null });
   chain.maybeSingle = () => Promise.resolve({ data: null, error: null });
@@ -114,7 +128,14 @@ function makeChain(table) {
       : table === 'notification_deliveries' ? errores.deliveries
       : null;
     if (error) return resolve({ data: null, error });
-    return resolve({ data: fuente.filter((f) => filtros.every((p) => p(f))), error: null });
+    const filtrado = fuente.filter((f) => filtros.every((p) => p(f)));
+    // `Math.min` y no `limite ?? CAP`: un `.limit(n)` con n MAYOR al tope no lo levanta.
+    // Medido contra el PostgREST de este proyecto: `transacciones?select=usuario_id&limit=1500`
+    // devuelve **1000 filas** con `content-range: 0-999/2454`. Con la versión anterior, una
+    // consulta así se modelaba como NO recortada — o sea el punto ciego exacto que este mock
+    // vino a cerrar, reintroducido un nivel más abajo.
+    const tope = Math.min(limite == null ? Infinity : limite, CAP_POSTGREST);
+    return resolve({ data: filtrado.slice(0, tope), error: null });
   };
   return chain;
 }
@@ -199,6 +220,7 @@ beforeEach(() => {
   transaccionesData = [];
   deliveriesData = [];
   errores = {};
+  CAP_POSTGREST = Infinity;
   updatesUsuarios = [];
   fixturesInvalidos.length = 0;
 });
@@ -420,5 +442,73 @@ describe('nudge de primer gasto', () => {
     usuariosData = [{ ...RECIEN_LLEGADO, created_at: haceHoras(4), supabase_auth_id: 'auth-xyz' }];
     await checkRecordatorioOnboarding();
     expect(notificar.mock.calls[0][0].canales).toBe(notifyReal.CANALES.AMBOS);
+  });
+});
+
+/**
+ * El descarte de candidatos NO puede depender de cuántas filas tenga OTRO candidato.
+ *
+ * El cron pregunta dos cosas de EXISTENCIA por candidato ("¿ya anotó algo?", "¿ya se le
+ * avisó?"). Mientras las preguntó con un `.in(...)` colectivo, las dos compartían el tope
+ * implícito de PostgREST, que corta en 1000 filas **sin avisar**. Un solo usuario con una
+ * carga masiva de Excel dentro de sus primeras 18h llena ese cupo, y el candidato que queda
+ * afuera del recorte se lee como "no anotó nada": recibe el empujón de alta estando activo.
+ *
+ * Los dos casos son el MISMO bug sobre las dos tablas, y hacen falta los dos: arreglar solo
+ * `transacciones` deja el de `notification_deliveries`, que re-avisa a quien ya recibió.
+ *
+ * El fixture es chico y el tope también (`CAP_POSTGREST = 2`); en producción son 1000 filas.
+ * Lo que el caso reproduce es la FORMA —cupo compartido entre candidatos—, no la escala.
+ */
+describe('el descarte de candidatos no comparte cupo entre usuarios', () => {
+  const OTRO = { ...RECIEN_LLEGADO, id: 'u-con-excel', whatsapp: '51900000002', nombre: 'Ana Rojas' };
+
+  beforeEach(() => {
+    usuariosData = [
+      { ...OTRO, created_at: haceHoras(4) },
+      { ...RECIEN_LLEGADO, created_at: haceHoras(4) },
+    ];
+    // El tope se llena con las filas del PRIMER candidato, que es el orden en que las
+    // devolvería la tabla. El segundo queda afuera del recorte.
+    CAP_POSTGREST = 2;
+  });
+
+  it('a quien YA anotó no se le empuja aunque otro candidato llene el cupo', async () => {
+    transaccionesData = [
+      { usuario_id: 'u-con-excel' },
+      { usuario_id: 'u-con-excel' },
+      { usuario_id: 'u-sin-gastos' },   // la que el recorte se comía
+    ];
+    await checkRecordatorioOnboarding();
+    expect(notificar).not.toHaveBeenCalled();
+  });
+
+  it('a quien YA se le avisó no se le re-avisa aunque otro candidato llene el cupo', async () => {
+    // NADIE anotó nada: así lo único que puede frenar el mensaje es el dedup, que es lo que
+    // este caso mide. Sembrarles transacciones —el primer intento— lo dejaba verde contra el
+    // código viejo, porque los frenaba la condición del caso de ARRIBA y la consulta de
+    // `notification_deliveries` no llegaba a decidir nada.
+    transaccionesData = [];
+    deliveriesData = [
+      { usuario_id: 'u-con-excel', tipo: 'onboarding' },
+      { usuario_id: 'u-con-excel', tipo: 'onboarding' },
+      { usuario_id: 'u-sin-gastos', tipo: 'onboarding' },
+    ];
+    await checkRecordatorioOnboarding();
+    expect(notificar).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Control: sin el recorte, el mismo fixture del primer caso deja al candidato SIN
+   * transacciones recibiendo su mensaje. Sin esto, los dos casos de arriba podrían estar en
+   * verde porque el cron no le manda a nadie nunca, que es la forma de falso negativo que
+   * este archivo ya se comió una vez.
+   */
+  it('control: con el cupo holgado, el que no anotó nada SÍ recibe el nudge', async () => {
+    CAP_POSTGREST = Infinity;
+    transaccionesData = [{ usuario_id: 'u-con-excel' }, { usuario_id: 'u-con-excel' }];
+    await checkRecordatorioOnboarding();
+    expect(notificar).toHaveBeenCalledTimes(1);
+    expect(notificar.mock.calls[0][0].usuarioId).toBe('u-sin-gastos');
   });
 });

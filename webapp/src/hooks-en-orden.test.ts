@@ -40,31 +40,57 @@ function violaciones(resultados: ESLint.LintResult[]) {
   );
 }
 
+const FIXTURE_ROTO = `
+  'use client';
+  import { useMemo, useState } from 'react';
+  export function Roto({ items }: { items: number[] }) {
+    const [n] = useState(0);
+    if (items.length === 0) return null;
+    const total = useMemo(() => items.length + n, [items, n]);
+    return <div>{total}</div>;
+  }
+`;
+
+/**
+ * LA CONTRAPRUEBA CORRE ACÁ, EN LA FASE DE IMPORT, Y NO ADENTRO DEL `it`.
+ *
+ * Sigue yendo PRIMERO —que es lo que la separa de un guard vacío— y ahora además va antes
+ * que los dos casos, no sólo antes del segundo.
+ *
+ * El motivo del traslado es de medición. `new ESLint()` es perezoso: cuesta 1 ms. Lo que
+ * cuesta es el PRIMER `lintText`, que resuelve la config y carga el parser de
+ * eslint-config-next — medido el 26-ago-2026: **2606 ms el primero y 12 ms el segundo**.
+ * Ese costo se paga una vez por worker y caía adentro del primer `it`, que corría con el
+ * `testTimeout` por DEFECTO de vitest: **5 s**. O sea 2.6 s de un presupuesto de 5 gastados
+ * en cargar un módulo, sobre una suite de 39 archivos en paralelo.
+ *
+ * No es teórico: en la corrida del 26-ago ese caso salió **rojo a los 50876 ms** con la
+ * suite completa, y en aislado pasó en 2895 ms. Su hermano de abajo ya declaraba 120 s
+ * porque su autor sabía lo que tardaba; éste no, y ésa era toda la diferencia.
+ *
+ * Y NO se arregla subiéndole el número: la fase de import no tiene `testTimeout`, así que
+ * mover el costo acá lo saca del presupuesto en vez de agrandarlo. El cuerpo del test queda
+ * midiendo lo que afirma. La misma instancia se reusa abajo, así que el barrido completo
+ * tampoco vuelve a pagar la carga.
+ *
+ * Ojo: si esto explota, vitest lo reporta como error del ARCHIVO y no como test rojo. Sigue
+ * siendo rojo, que es lo que importa — un guard que no puede fallar es el problema, no éste.
+ */
+const eslint = new ESLint({ cwd: RAIZ });
+const VIOLACIONES_DEL_FIXTURE = violaciones(
+  await eslint.lintText(FIXTURE_ROTO, { filePath: path.join(RAIZ, 'src', '__fixture-roto.tsx') }),
+);
+
 describe('hooks en orden (react-hooks/rules-of-hooks)', () => {
-  it('detecta un hook después de un return temprano', async () => {
-    // La contraprueba va PRIMERO y es lo que separa este guard de uno vacío: que el árbol
-    // esté limpio hoy no dice nada sobre si el linter estaría mirando. Si un cambio de
-    // config apaga la regla, este caso muere y el de abajo pasaría en verde sin ver nada.
-    const eslint = new ESLint({ cwd: RAIZ });
-    const codigo = `
-      'use client';
-      import { useMemo, useState } from 'react';
-      export function Roto({ items }: { items: number[] }) {
-        const [n] = useState(0);
-        if (items.length === 0) return null;
-        const total = useMemo(() => items.length + n, [items, n]);
-        return <div>{total}</div>;
-      }
-    `;
-    const encontradas = violaciones(
-      await eslint.lintText(codigo, { filePath: path.join(RAIZ, 'src', '__fixture-roto.tsx') }),
-    );
-    expect(encontradas.length).toBeGreaterThan(0);
+  it('detecta un hook después de un return temprano', () => {
+    // Que el árbol esté limpio hoy no dice nada sobre si el linter estaría mirando. Si un
+    // cambio de config apaga la regla, este caso muere y el de abajo pasaría en verde sin
+    // ver nada. El lint ya corrió arriba; acá sólo se afirma sobre su resultado.
+    expect(VIOLACIONES_DEL_FIXTURE.length).toBeGreaterThan(0);
   });
 
   // El barrido completo tarda ~15s: es ESLint recorriendo todo `src/`, no un cuelgue.
   it('no hay ninguna en src/', { timeout: 120_000 }, async () => {
-    const eslint = new ESLint({ cwd: RAIZ });
     const resultados = await eslint.lintFiles(['src']);
 
     // Antivacuidad: si el barrido deja de encontrar archivos (un glob que cambia, un

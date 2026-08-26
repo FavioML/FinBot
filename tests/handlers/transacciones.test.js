@@ -4,6 +4,20 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const handler = require('../../handlers/intents/transacciones');
 
+// PRE-CARGA DELIBERADA. `handler.handle` resuelve el redirect de query con un
+// `require('../intent-registry')` PEREZOSO (esta ahi para cortar un ciclo, y en produccion el
+// arbol ya vino cargado desde el boot). En la suite, ese require cae adentro del primer test
+// que dispara el redirect: `el rescate no le gana al redirect de query`. Medido el 26-ago
+// dentro de vitest, el registry solo cuesta 1943 ms con el cache del SO caliente.
+//
+// Lo que eso provoca, medido con el reporter JSON sobre la suite COMPLETA: ese test tardaba
+// 30455 ms en la primera corrida del dia y 2965 ms en la segunda (10.3x), contra un
+// `testTimeout` de 10 s. El resto de la suite se movio 1.1x entre las dos, o sea que no era
+// contencion de CPU generica: era este require. Cargarlo aca lo pasa a la fase de import de
+// vitest, que no tiene `testTimeout`, y el cuerpo del test vuelve a medir solo el orden que
+// afirma. El tercer test mas lento de la suite queda en 1.6 s en frio, 6x bajo el umbral.
+require('../../handlers/intent-registry');
+
 // ─── Supabase mock ──────────────────────────────────────────────────────────
 // Cada llamada a from(tabla) devuelve un chain que es thenable (await-able)
 // y donde todos los metodos de filtrado retornan this para permitir chaining.
