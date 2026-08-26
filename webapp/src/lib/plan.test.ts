@@ -84,10 +84,12 @@ describe('enTrial y esProPagado nunca son verdaderos a la vez', () => {
 /**
  * `estaEnMuro` de frente, y no dentro de una implicación.
  *
- * Es el predicado más caro de la webapp: su único consumidor es
- * `dashboard-shell.tsx:141` (`if (usuario && estaEnMuro(usuario.plan)) return <Paywall />`),
- * o sea que si miente, el dashboard entero —historial, reportes, todo lo que se cobra—
- * queda abierto para el que no paga. Hasta hoy no tenía un solo test directo: `tsc` no lo
+ * Es el predicado más caro de la webapp: su único consumidor es el `estado` de
+ * `ContenidoOMuro` (`dashboard-shell.tsx`), que es lo que elige entre <Paywall /> y la
+ * página. Si miente, el dashboard entero —historial, reportes, todo lo que se cobra—
+ * queda abierto para el que no paga. (Acá se citaba el número de línea y el `if` literal;
+ * los dos quedaron viejos con el refactor del 26-ago, que es lo que pasa siempre con una
+ * cita de línea.) Hasta hoy no tenía un solo test directo: `tsc` no lo
  * ve (la firma no cambia) y la única aserción que lo mencionaba pasaba por vacuidad.
  */
 describe('estaEnMuro: el paywall del dashboard cuelga de esto', () => {
