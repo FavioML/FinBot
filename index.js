@@ -152,6 +152,12 @@ app.use('/pro', proLimiter, proRoutes);
 // INTERNAL_API_KEY; ver routes/internal.js. También antes del catch-all público.
 app.use('/internal', proLimiter, internalRoutes);
 
+// Callback de entrega de Resend. Va ANTES del catch-all público y con el limiter de webhooks
+// (1200/min) y no con `publicLimiter` (60/min): es tráfico de proveedor, no de navegador, y un
+// 429 acá pierde el `delivered_at` que hace medible el canal de correo. Mismo trato que los
+// callbacks de status de Meta, por el mismo motivo.
+app.post('/webhooks/resend', webhookLimiter, publicRoutes.resendWebhookHandler);
+
 app.use('/', publicLimiter, publicRoutes);
 app.use('/admin', adminLimiter, adminRoutes);
 

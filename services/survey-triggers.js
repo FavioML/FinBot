@@ -20,13 +20,31 @@ const { hoyPeru } = require('../lib/dates');
 const MIN_DAYS_BETWEEN_PROACTIVE = 7;
 const ERROR_BLACKOUT_HOURS = 24;
 
+/**
+ * Los canales que cuentan como EMPUJE. Espejo de `CANALES_EMPUJE` en `cron/checks.js`, que es
+ * quien escribe las filas que esta funcion lee.
+ *
+ * `webapp` queda afuera a proposito: es `nps_inapp`, una encuesta que se muestra cuando la
+ * persona ya esta adentro de la app. No es un empuje y no deberia gastar esta ventana.
+ *
+ * `in_app` entro el 27-ago-2026, cuando `checkRecordatorioDiario` dejo de cortar a quien no
+ * tiene numero y sus avisos empezaron a salir por la campana sola. Sin este valor, esas filas
+ * no matchean y el usuario web-first queda fuera de la anti-fatiga: recibe su recordatorio de
+ * inactividad y ademas los ocho triggers, todos en la misma semana.
+ *
+ * **Inocuo sobre los datos existentes**: al 27-ago no habia ninguna fila `in_app` (396
+ * `whatsapp` + 6 `webapp`), asi que este `.in()` selecciona lo mismo que el `.eq('whatsapp')`
+ * que reemplaza. Solo difiere sobre filas nuevas.
+ */
+const CANALES_EMPUJE = ['whatsapp', 'in_app'];
+
 /** Devuelve true si al usuario YA se le mando algun mensaje proactivo en los ultimos N dias. */
 async function recibioMensajeRecienteProactivo(userId, dias = MIN_DAYS_BETWEEN_PROACTIVE) {
   const cutoff = new Date(Date.now() - dias * 86400000).toISOString();
   const { data, error } = await supabase.from('survey_events')
     .select('id')
     .eq('user_id', userId)
-    .eq('channel', 'whatsapp')
+    .in('channel', CANALES_EMPUJE)
     .gte('sent_at', cutoff)
     .limit(1);
   // Falla ABIERTO, y es el gate de los OCHO triggers: sin leer el error, `data` viene null,

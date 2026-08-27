@@ -216,7 +216,10 @@ async function obtenerDeudasProximasVencer() {
   // `ver_deudas` está en INTENTS_LECTURA: se cobra. Sin esta columna el cron no tenía cómo
   // saltar a quien está en el muro.
   const { data, error } = await supabase.from('deudas')
-    .select('*, usuarios!inner(whatsapp, nombre, plan, recordatorios_activos)')
+    // `email` entró el 27-ago-2026 con el canal de correo. El chokepoint NO lee la dirección
+    // (metería I/O donde se decidió no tenerlo), así que viaja desde acá o el aviso sale sin
+    // correo — y sin correo este aviso llega al 17% de las veces, que es lo medido.
+    .select('*, usuarios!inner(whatsapp, email, nombre, plan, recordatorios_activos)')
     .eq('estado', 'activa')
     .not('fecha_vencimiento', 'is', null)
     .gte('fecha_vencimiento', desde.toISOString().split('T')[0])

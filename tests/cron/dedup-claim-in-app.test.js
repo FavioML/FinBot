@@ -72,7 +72,7 @@ describe('claimInApp: la fila in-app es el claim, no un efecto colateral', () =>
     const res = await notificarUsuario({ canales: CANALES.AMBOS, ...BASE, claimInApp: true });
 
     expect(orden).toEqual(['in_app', 'whatsapp']);
-    expect(res).toEqual({ wa: { ok: true, msgId: 'wamid.1' }, inApp: true });
+    expect(res).toEqual({ wa: { ok: true, msgId: 'wamid.1' }, inApp: true, email: { ok: false, skipped: 'canal_no_declarado' } });
   });
 
   it('sin el flag el orden sigue siendo el de siempre (WhatsApp primero)', async () => {
@@ -88,7 +88,10 @@ describe('claimInApp: la fila in-app es el claim, no un efecto colateral', () =>
     const res = await notificarUsuario({ canales: CANALES.AMBOS, ...BASE, claimInApp: true });
 
     expect(waMock.enviarWhatsapp).not.toHaveBeenCalled();
-    expect(res).toEqual({ wa: { ok: false, skipped: 'claim_in_app_fallo' }, inApp: false });
+    // Con el claim fallido no sale NINGUN canal, correo incluido: si el aviso se mandara
+    // igual por correo, el dedup del llamador quedaria ciego y el cron lo repetiria en
+    // cada corrida — el bug B6 con un canal que ademas entrega.
+    expect(res).toEqual({ wa: { ok: false, skipped: 'claim_in_app_fallo' }, inApp: false, email: { ok: false, skipped: 'canal_no_declarado' } });
     expect(logMock.warn).toHaveBeenCalled();
   });
 

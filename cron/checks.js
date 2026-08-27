@@ -112,6 +112,26 @@ async function checkResumenSemanal() {
  * Adicional: el upsell a Pro de dia 28-30 (que estaba dentro del mismo cron)
  * tambien se migra a survey_events como pro_upsell_d28 one-shot.
  */
+/**
+ * Los canales de `survey_events` que cuentan como EMPUJE para la anti-fatiga.
+ *
+ * Hasta el 27-ago-2026 los dos lectores preguntaban `.eq('channel', 'whatsapp')`, y eso era
+ * correcto solo porque el cron cortaba antes a quien no tenía número: no existía un empuje que
+ * no fuera de WhatsApp. Al sacar ese corte (item 14) el aviso empezó a salir por la campana
+ * sola, y escribir `channel: 'whatsapp'` sobre esa fila habría sido mentir en la columna de la
+ * que dependen los dos dedup.
+ *
+ * `webapp` queda AFUERA a propósito y no por olvido: es lo que usa `nps_inapp`, una encuesta
+ * que se muestra dentro de la app cuando la persona ya está ahí. Eso no es un empuje y no
+ * debería gastar la ventana de fatiga de los ocho triggers.
+ *
+ * **El cambio es demostrablemente inocuo para los datos que ya existen**: al 27-ago hay 396
+ * filas y ninguna con `in_app` (396 `whatsapp` + 6 `webapp`), así que este `.in()` selecciona
+ * exactamente lo mismo que el `.eq()` anterior. Solo empieza a diferir sobre filas nuevas —
+ * que son justo las del usuario web-first.
+ */
+const CANALES_EMPUJE = ['whatsapp', 'in_app'];
+
 async function checkRecordatorioDiario() {
   const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
   if (horaLima.getHours() !== 20 || horaLima.getMinutes() > 14) return;
@@ -141,16 +161,32 @@ async function checkRecordatorioDiario() {
     for (const usuario of usuarios) {
       try {
         if (usuario.recordatorios_activos === false) continue;
-        if (!usuario.whatsapp) continue;
+        // Acá había un `if (!usuario.whatsapp) continue;`. Se fue el 27-ago-2026 (item 14) y
+        // el motivo es que **no protegía nada**: el envío de abajo declara `CANALES.AMBOS`, y
+        // `notificarUsuario` maneja `whatsapp: null` sin ayuda (deja `skipped_no_whatsapp` en
+        // el ledger y escribe la campana igual). Lo único que hacía el corte era apagar la
+        // mitad in-app para quien no tiene número — 14 usuarios reales al 27-ago, **los 14 con
+        // cuenta web donde ver la campana y los 14 con los recordatorios prendidos**.
+        //
+        // Lo que el corte SÍ hacía sin decirlo, y por eso se verificó antes de sacarlo: tapaba
+        // de rebote a las cuentas borradas, cuyo `whatsapp` queda en NULL por el wipe. Sigue
+        // tapado, y ahora por dos gates que lo dicen a propósito — la migración 073 pone
+        // `recordatorios_activos = false` **y** `onboarding_completado = false` en la lápida, y
+        // este cron filtra por los dos. Verificado sobre las 3 lápidas vivas: 0 pasan.
 
         const planConfig = getUserPlanConfig(usuario);
         const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
         const diasDesdeRegistro = Math.floor((Date.now() - new Date(usuario.created_at).getTime()) / 86400000);
 
-        // Anti-fatiga: skip si recibio cualquier survey_event WhatsApp en ultimos 3 dias
+        // Anti-fatiga: skip si recibio cualquier EMPUJE en los ultimos 3 dias.
+        //
+        // Tiene que aceptar los mismos canales que escribe el insert de mas abajo, o el dedup
+        // deja de encontrar su propia marca. Ese desajuste manda el aviso TODOS LOS DIAS al
+        // usuario sin numero: la fila se escribe con `in_app`, este `select` busca solo
+        // `whatsapp`, no la encuentra, y vuelve a mandar mañana.
         const cutoff3d = new Date(Date.now() - 3 * 86400000).toISOString();
         const { data: recentEvents, error: errFatiga } = await supabase.from('survey_events')
-          .select('id').eq('user_id', usuario.id).eq('channel', 'whatsapp')
+          .select('id').eq('user_id', usuario.id).in('channel', CANALES_EMPUJE)
           .gte('sent_at', cutoff3d).limit(1);
         // Esta es de las que fallan ABIERTO: sin leer el error, `recentEvents` viene null,
         // `recibioMensajeReciente` queda en false y el cron manda **igual**. O sea que una
@@ -181,7 +217,10 @@ async function checkRecordatorioDiario() {
           const { data: insertResult, error: insertErr } = await supabase.from('survey_events').insert({
             user_id: usuario.id,
             event_type: 'pro_upsell_d28',
-            channel: 'whatsapp',
+            // El canal REAL, no la etiqueta de siempre. Esta columna es lo que leen los dos
+            // dedup, así que decir `whatsapp` sobre un aviso que salió solo por la campana
+            // rompe a los dos a la vez. Ver CANALES_EMPUJE.
+            channel: usuario.whatsapp ? 'whatsapp' : 'in_app',
             sent_at: new Date().toISOString(),
             message_sent: upsellMsg,
           }).select('id').single();
@@ -249,7 +288,7 @@ async function checkRecordatorioDiario() {
         const { error: errMarca } = await supabase.from('survey_events').insert({
           user_id: usuario.id,
           event_type: 'inactivity_reminder',
-          channel: 'whatsapp',
+          channel: usuario.whatsapp ? 'whatsapp' : 'in_app',   // ver CANALES_EMPUJE
           sent_at: new Date().toISOString(),
           message_sent: msg,
           response_data: { dias_sin_tx: diasSinTx },
@@ -1124,6 +1163,15 @@ async function checkRecordatorioDeudas() {
             { type: 'text', text: cd === 3 ? 'en 3 días' : cd === 1 ? 'mañana' : cd === 0 ? 'hoy' : 'hace 3 días' },
           ] }],
         } : null;
+        // El asunto NO puede ser el `titulo` de la campana ("Deuda vence hoy"): en una bandeja,
+        // al lado de otros treinta, eso no dice de quién ni de cuánto. Lleva contraparte y
+        // monto porque son lo que hace que alguien lo abra. Sin emoji a propósito — el asunto
+        // es lo único que miran los filtros de spam antes de decidir.
+        const cuando = cd === 3 ? 'vence en 3 días' : cd === 1 ? 'vence mañana'
+          : cd === 0 ? 'vence hoy' : 'venció hace 3 días';
+        const asuntoDeuda = deuda.tipo === 'me_deben'
+          ? 'Lo que te debe ' + deuda.contraparte + ' ' + cuando + ' (' + montoStr + ')'
+          : 'Tu deuda con ' + deuda.contraparte + ' ' + cuando + ' (' + montoStr + ')';
         await notificarUsuario({
           canales: CANALES.AMBOS,
           usuarioId: deuda.usuario_id, whatsapp: deuda.usuarios.whatsapp,
@@ -1131,6 +1179,11 @@ async function checkRecordatorioDeudas() {
           titulo: cd === 0 ? 'Deuda vence hoy' : cd > 0 ? 'Deuda vence en ' + cd + ' días' : 'Deuda vencida hace ' + Math.abs(cd) + ' días',
           tipoInApp: 'deuda_vence',
           link: '/dashboard/deudas', datos: { deuda_id: deuda.id },
+          // Primer emisor del canal de correo (27-ago-2026), y el elegido por medición: los 12
+          // usuarios que recibieron un aviso de plata en 30 días tienen email los 12 y número
+          // 11, y **ninguno** es solo-WhatsApp. Este aviso es fechado — pierde valor mañana —
+          // y por WhatsApp llegó 6 de 35 veces.
+          email: { to: deuda.usuarios.email || null, asunto: asuntoDeuda },
         });
         // Ledger: marca el touch enviado Y todos los touches ya alcanzados. Evita el back-fill de
         // copy caduco cuando la deuda entra ya vencida o se saltó un umbral (un touch menos avanzado
@@ -1395,7 +1448,16 @@ async function checkRecordatorioEspacios() {
         }
 
         for (const m of (members || [])) {
-          if (!m.usuarios?.whatsapp || m.usuarios?.recordatorios_activos === false) continue;
+          // El `!m.usuarios?.whatsapp` de esta línea se fue el 27-ago (item 14): el envío
+          // declara AMBOS y el corte solo apagaba la campana del miembro sin número. Lo que
+          // NO se puede sacar es el `!m.usuarios`: el embed puede venir nulo (miembro cuya
+          // fila de `usuarios` no resolvió) y sin esa mitad el `?.` de la línea siguiente
+          // daría `undefined !== false`, o sea que pasaría a notificar a un fantasma.
+          //
+          // Y este bucle no necesita el gate de lápida de sus hermanos por una razón distinta,
+          // no por olvido: la migración 073 **borra** las filas de `space_members` de quien se
+          // da de baja, así que una lápida nunca llega hasta acá.
+          if (!m.usuarios || m.usuarios.recordatorios_activos === false) continue;
           const myDebts = significantDebts.filter(d => d.from === m.user_id);
           if (myDebts.length === 0) continue;
 
@@ -1651,7 +1713,10 @@ async function checkRecordatorioSuscripciones() {
     for (const usuario of usuarios) {
       try {
         if (usuario.recordatorios_activos === false) continue;
-        if (!usuario.whatsapp) continue;
+        // Sin `!usuario.whatsapp` desde el 27-ago (item 14): el aviso de cobro declara AMBOS,
+        // así que el corte solo le apagaba la campana al Pro que entró por la web. Es de los
+        // cuatro el que peor se lleva con el silencio junto al de Manos Libres — avisa de una
+        // suscripción que está por cobrarse, o sea que caducaba con el mes.
         if (!getUserPlanConfig(usuario).recordatorios) continue; // Pro
 
         const { suscripciones_detectadas } = await detectarSuscripciones(usuario.id);
@@ -1769,7 +1834,11 @@ async function checkResumenDiarioManosLibres() {
     for (const usuario of usuarios) {
       try {
         if (usuario.recordatorios_activos === false) continue;
-        if (!usuario.whatsapp) continue;
+        // Sin `!usuario.whatsapp` desde el 27-ago (item 14), y de los cuatro cortes éste era
+        // el más difícil de defender: el comentario de arriba ya decía que Manos Libres es
+        // opt-in explícito y *"el único cron donde el silencio contradice algo que la persona
+        // pidió"*. Al Pro web-first le contradecía eso todas las noches, sin dejar más rastro
+        // que un `continue`.
         if (!getUserPlanConfig(usuario).resumenDiario) continue; // Pro
 
         const resumen = await generarResumenDiario(usuario);

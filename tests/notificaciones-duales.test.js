@@ -36,6 +36,72 @@ const DIRS = ['cron', 'services', 'routes', 'lib', 'handlers', 'helpers'];
 const SUELTOS = ['index.js', 'gmail.js'];
 
 const ENVIO_CRUDO = /\benviarWhatsapp\s*\(/g;
+/**
+ * El canal de correo (27-ago-2026) entra por la MISMA puerta y con la misma regla. No es
+ * simetría por prolijidad: `enviarEmail` es quien escribe la fila `canal='email'` de
+ * `notification_deliveries`, o sea la única instrumentación que separa "Resend aceptó" de
+ * "llegó". Un envío suelto por fuera del chokepoint reproduce el hallazgo B23 con otro
+ * proveedor — 100% de entrega reportada sobre un canal que nadie está midiendo.
+ */
+const ENVIO_EMAIL_CRUDO = /\benviarEmail\s*\(/g;
+/**
+ * Un canal de correo declarado SIN asunto no manda nada. `notificarUsuario` lo loguea como
+ * error del programador y sigue; el castigo de verdad vive acá, igual que con `motivo`.
+ *
+ * **Se extrae el objeto con LLAVES BALANCEADAS, no con un `[^{}]`.** La primera versión usaba
+ * `/email\s*:\s*\{(?:(?!asunto)[^{}])*\}/`, y una revisión adversarial la evadió sin esfuerzo:
+ * `email: { to: x, headers: { a: 1 } }` no matchea nada —el `[^{}]` se corta en la llave
+ * anidada— así que un canal sin asunto pasaba en VERDE. Es la clase
+ * `la-unidad-del-barrido-no-es-la-linea` con otra cara: la unidad no es "texto sin llaves",
+ * es el objeto.
+ *
+ * Y un `email:` que NO abre llave (`email: opts`, `email: armarEmail(u)`) se marca también:
+ * desde acá no se puede saber si ese valor trae asunto, y un guard que no puede decidir tiene
+ * que fallar cerrado. Escribir el literal es barato; la alternativa es no vigilar nada.
+ */
+function canalesDeCorreoSinAsunto(arg) {
+  const out = [];
+  for (const m of arg.matchAll(/\bemail\s*:\s*/g)) {
+    let i = m.index + m[0].length;
+    if (arg[i] !== '{') { out.push('email: <no es un literal>'); continue; }
+    let prof = 0;
+    const desde = i;
+    while (i < arg.length) {
+      if (arg[i] === '{') prof++;
+      else if (arg[i] === '}') { prof--; if (prof === 0) { i++; break; } }
+      i++;
+    }
+    const objeto = arg.slice(desde, i);
+    if (!/\basunto\s*:/.test(objeto)) out.push(objeto);
+  }
+  return out;
+}
+
+/**
+ * Los argumentos de cada `notificarUsuario(...)`, con paréntesis balanceados.
+ *
+ * `EMAIL_SIN_ASUNTO` se aplica SOLO acá adentro, y la primera corrida explicó por qué: sobre
+ * el archivo entero marcaba `handlers/neto-tools.js`, donde `email: { type: 'string', ... }`
+ * es una propiedad del JSON Schema de un tool de OpenAI y no tiene nada que ver con avisos.
+ * Un guard que grita por lo que no es se termina ignorando, así que la unidad de análisis es
+ * la LLAMADA, no el archivo. Mismo molde que `argumentosDeRespuesta` en
+ * `tests/gmail-oauth-gates.test.js`, y por el mismo motivo.
+ */
+function llamadasAlChokepoint(src) {
+  const out = [];
+  for (const m of src.matchAll(/\bnotificarUsuario\s*\(/g)) {
+    let i = m.index + m[0].length;
+    const desde = i;
+    let prof = 1;
+    while (i < src.length && prof > 0) {
+      if (src[i] === '(') prof++;
+      else if (src[i] === ')') prof--;
+      i++;
+    }
+    out.push(src.slice(desde, i - 1));
+  }
+  return out;
+}
 const IN_APP_CRUDO = /\bcrearNotificacion\s*\(/g;
 const CHOKEPOINT = /\bnotificarUsuario\s*\(/g;
 
@@ -109,6 +175,19 @@ const WHATSAPP_CRUDO = new Map([
  * `enviarWhatsapp` — que es exactamente cómo se escribió el patrón que este chokepoint viene
  * a reemplazar, y por qué 19 avisos se quedaron sin la mitad in-app.
  */
+/**
+ * Los ÚNICOS que pueden mandar correo. Dos, y por construcción no debería haber un tercero:
+ * la definición y el chokepoint. Un emisor nuevo va por `notificarUsuario({ email: {...} })`.
+ *
+ * A diferencia del mapa de WhatsApp, acá NO hay familia `RESPUESTA`: el correo no tiene
+ * turno de conversación. Todo correo que Neto manda es un empuje, así que la excepción que
+ * justifica los 30 usos de `webhook.js` no tiene análogo de este lado.
+ */
+const EMAIL_CRUDO = new Map([
+  ['lib/email.js', { usos: 1, motivo: 'la definición de enviarEmail' }],
+  ['lib/notify-user.js', { usos: 1, motivo: 'el chokepoint: el único autorizado a llamarlo' }],
+]);
+
 const IN_APP_CRUDA = new Map([
   ['lib/notifications-db.js', { usos: 1, motivo: 'la definición de crearNotificacion' }],
   ['lib/notify-user.js', { usos: 1, motivo: 'el chokepoint' }],
@@ -270,6 +349,74 @@ describe('chokepoint de notificaciones proactivas', () => {
     expect(f, rel + ' ya no existe: actualiza este test').toBeDefined();
     expect(cuenta(f.src, ENVIO_CRUDO), rel + ' volvió a llamar enviarWhatsapp crudo').toBe(0);
     expect(cuenta(f.src, CHOKEPOINT)).toBeGreaterThanOrEqual(minimo);
+  });
+
+  // ── El canal de correo, con la misma regla ────────────────────────────────────
+  it('el barrido ve el canal de correo (antivacuidad)', () => {
+    // Si `lib/email.js` desaparece del barrido, las dos aserciones de abajo pasan sin mirar
+    // nada — y la de "nadie manda correo crudo" se cumpliría trivialmente.
+    const rels = FUENTES.map((f) => f.rel);
+    expect(rels).toContain('lib/email.js');
+    const total = FUENTES.reduce((s, f) => s + cuenta(f.src, ENVIO_EMAIL_CRUDO), 0);
+    expect(total, 'nadie llama enviarEmail: el barrido está roto o el canal murió').toBe(2);
+  });
+
+  it('el detector de correo reconoce un envío crudo y un canal sin asunto (contraprueba)', () => {
+    expect(cuenta("await enviarEmail(u.email, { asunto: 'x' });", ENVIO_EMAIL_CRUDO)).toBe(1);
+    expect(cuenta("const { enviarEmail } = require('./email');", ENVIO_EMAIL_CRUDO)).toBe(0);
+    // El asunto: sin él no hay correo. La forma buena NO se marca.
+    expect(canalesDeCorreoSinAsunto("email: { to: u.email, asunto: 'Tu deuda vence hoy' },")).toEqual([]);
+    expect(canalesDeCorreoSinAsunto('email: { to: u.email },')).toHaveLength(1);
+    // Y el `asunto` de la llamada SIGUIENTE no puede tapar al que falta en ésta.
+    expect(canalesDeCorreoSinAsunto("email: { to: a } }, email: { to: b, asunto: 'y' }")).toHaveLength(1);
+    // ── Las evasiones que encontró la revisión adversarial ────────────────────────────
+    // Una llave ANIDADA: con el `[^{}]` de la primera versión esto pasaba en verde.
+    expect(canalesDeCorreoSinAsunto('email: { to: x, headers: { a: 1 } },')).toHaveLength(1);
+    // Y no se marca de más: el mismo objeto anidado CON asunto está bien.
+    expect(canalesDeCorreoSinAsunto("email: { to: x, headers: { a: 1 }, asunto: 'z' },")).toEqual([]);
+    // Un `email:` que no abre llave no se puede verificar desde acá: falla cerrado.
+    expect(canalesDeCorreoSinAsunto('email: opts,')).toHaveLength(1);
+    expect(canalesDeCorreoSinAsunto('email: armarEmail(u),')).toHaveLength(1);
+    // El extractor acota el barrido a la llamada: un `email:` de un JSON Schema no es un canal.
+    const schema = "const T = { properties: { email: { type: 'string' } } };";
+    expect(llamadasAlChokepoint(schema)).toEqual([]);
+    expect(canalesDeCorreoSinAsunto(schema), 'sin acotar, el schema de un tool sale marcado').toHaveLength(1);
+    // Y con parentesis balanceados: el `)` de `x.split(' ')` no puede cortar el argumento.
+    const conParen = "notificarUsuario({ titulo: n.split(' ')[0], email: { to: a } });";
+    expect(canalesDeCorreoSinAsunto(llamadasAlChokepoint(conParen)[0])).toHaveLength(1);
+  });
+
+  it('nadie manda correo por fuera del chokepoint', () => {
+    const infractores = FUENTES
+      .map((f) => ({ rel: f.rel, usos: cuenta(f.src, ENVIO_EMAIL_CRUDO) }))
+      .filter((f) => f.usos > 0)
+      .filter((f) => {
+        const declarado = EMAIL_CRUDO.get(f.rel);
+        return !declarado || declarado.usos !== f.usos;
+      })
+      .map((f) => f.rel + ': ' + f.usos + ' llamadas a enviarEmail');
+    expect(
+      infractores,
+      'un envío de correo fuera de notificarUsuario no deja fila en notification_deliveries ' +
+      'con el resto del aviso, y el canal vuelve a reportar solo lo que el proveedor aceptó',
+    ).toEqual([]);
+  });
+
+  it('todo canal de correo declarado trae su asunto', () => {
+    const sinAsunto = FUENTES
+      .flatMap((f) => llamadasAlChokepoint(f.src).map((arg) => ({ rel: f.rel, arg })))
+      .flatMap(({ rel, arg }) => canalesDeCorreoSinAsunto(arg).map((o) => rel + ': ' + o));
+    expect(sinAsunto).toEqual([]);
+  });
+
+  it('el extractor de llamadas trae el argumento ENTERO (antivacuidad)', () => {
+    const llamadas = FUENTES.flatMap((f) => llamadasAlChokepoint(f.src));
+    // Si el balanceo se rompiera, cortaría en el primer `)` interno y los argumentos serían
+    // fragmentos: `EMAIL_SIN_ASUNTO` no encontraría nada y el test de arriba pasaría vacío.
+    expect(llamadas.length).toBeGreaterThanOrEqual(30);
+    expect(llamadas.some((a) => a.includes('email:') && a.includes('asunto:'))).toBe(true);
+    // Y un argumento con paréntesis adentro (un ternario, una llamada) llega completo.
+    expect(llamadas.some((a) => a.includes('(') && a.includes('link:'))).toBe(true);
   });
 
   // El caso que sostiene la regla del módulo de espacios: cualquier miembro puede cambiar el

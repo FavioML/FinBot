@@ -326,11 +326,59 @@ describe('el callback OAuth no devuelve HTML con datos del usuario (S8)', () => 
    * lleva datos de un usuario. La lista es corta a proposito: si crece, la pregunta es por
    * que una respuesta HTML necesita otra variable.
    */
-  // `REINTENTAR` es el helper del propio modulo, y no se lo cree por su nombre: su CUERPO
-  // se extrae aparte y pasa por el mismo detector, asi que si algun dia interpola algo
-  // ajeno se marca ahi. Permitirlo aca sin barrerlo seria la clase
+  // Los helpers de HTML del propio modulo (`REINTENTAR`, `PAGINA_BAJA`) NO se creen por su
+  // nombre: su CUERPO se extrae aparte y pasa por el mismo detector, asi que si alguno
+  // interpola algo ajeno se marca ahi. Permitirlos sin barrerlos seria la clase
   // `guard-que-bendice-lo-que-vino-a-vigilar`.
-  const CRUDOS_PERMITIDOS = new Set(['PANEL_PRO_URL', 'titulo', 'LANDING_URL', 'REINTENTAR']);
+  //
+  // Y por eso la lista dejo de escribirse a mano (27-ago-2026, al entrar `PAGINA_BAJA`). El
+  // riesgo de la version anterior no era teorico: el camino de menor esfuerzo para hacer
+  // pasar un helper nuevo era agregar su nombre aca — y eso lo BENDICE sin barrerle el
+  // cuerpo, que es exactamente lo que el parrafo de arriba prohibe. Ahora los helpers se
+  // DESCUBREN, y descubrirlos es lo mismo que barrerlos: el que entra a la lista entra
+  // porque su cuerpo ya esta en ARGUMENTOS, no porque alguien lo escribio.
+  const CRUDOS_BASE = ['PANEL_PRO_URL', 'LANDING_URL'];
+
+  /**
+   * Helpers de HTML a nivel de modulo, en sus DOS formas de declaracion:
+   *
+   *   · `const NOMBRE = (params) => <cuerpo>;`      (REINTENTAR, PAGINA_BAJA)
+   *   · `function nombre(params) { <cuerpo> }`      (paginaConfirmarBaja)
+   *
+   * La segunda entro el 27-ago-2026 y no por prolijidad: `paginaConfirmarBaja` se escribio con
+   * `function` —el estilo normal para algo con logica adentro— y el guard, que solo conocia la
+   * forma `const`, **no lo descubrio**. Con eso su nombre no entraba a `CRUDOS_PERMITIDOS`, asi
+   * que el archivo se puso rojo y el hueco se vio. Pero pudo haber pasado al reves: si alguien
+   * hubiera agregado el nombre a mano a la lista, el cuerpo habria quedado sin barrer y el HTML
+   * nuevo sin mirar. **Un guard que depende del ESTILO de declaracion no es un guard**, es la
+   * misma leccion que ya obligo a `funciones()` en `canal-unico-sin-cuenta-web.test.js` a
+   * aprender `const`, `exports.` y `module.exports.`.
+   *
+   * Devuelve nombre, parametros y cuerpo.
+   */
+  function helpersDeHtml(src) {
+    const out = [];
+    // Forma 1: const NOMBRE = (params) => cuerpo;
+    for (const m of src.matchAll(/const ([A-Z][A-Z0-9_]*)\s*=\s*\(([^)]*)\)\s*=>\s*([\s\S]*?);\n/g)) {
+      out.push({ nombre: m[1], params: m[2], cuerpo: m[3] });
+    }
+    // Forma 2: function nombre(params) { ... }, con llaves balanceadas.
+    for (const m of src.matchAll(/^function\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*\{/gm)) {
+      let i = m.index + m[0].length;
+      const desde = i;
+      let prof = 1;
+      while (i < src.length && prof > 0) {
+        if (src[i] === '{') prof++;
+        else if (src[i] === '}') prof--;
+        i++;
+      }
+      out.push({ nombre: m[1], params: m[2], cuerpo: src.slice(desde, i - 1) });
+    }
+    return out
+      .map((h) => ({ ...h, params: h.params.split(',').map((p) => p.trim()).filter(Boolean) }))
+      .filter((h) => /<[a-z!]/i.test(h.cuerpo));   // solo los que arman HTML
+  }
+
 
   /**
    * El barrido va por ARGUMENTO de `res.send/write/end`, con parentesis balanceados.
@@ -374,8 +422,10 @@ describe('el callback OAuth no devuelve HTML con datos del usuario (S8)', () => 
    */
   function argumentosDeRespuesta(src) {
     const out = [];
-    // El helper REINTENTAR arma HTML sin pasar por un `.send()` propio.
-    for (const m of src.matchAll(/const REINTENTAR\s*=\s*\([^)]*\)\s*=>\s*([\s\S]*?);\n/g)) out.push(m[1]);
+    // Los helpers de HTML arman su salida sin pasar por un `.send()` propio, asi que sus
+    // cuerpos entran al barrido por separado. Se DESCUBREN (ver `helpersDeHtml`): uno nuevo
+    // se barre solo, sin que nadie tenga que acordarse de agregarlo.
+    for (const h of helpersDeHtml(src)) out.push(h.cuerpo);
     for (const m of src.matchAll(/\.\s*(?:send|write|end)\s*\(/g)) {
       let i = m.index + m[0].length;
       const desde = i;
@@ -395,6 +445,22 @@ describe('el callback OAuth no devuelve HTML con datos del usuario (S8)', () => 
    * `${...}` de un template literal (el resto del template es estático) y se descarta el
    * contenido de los literales de comilla.
    */
+  /**
+   * Palabras del lenguaje, que no son valores interpolados.
+   *
+   * Hizo falta al empezar a barrer helpers declarados con `function`: sus cuerpos llevan
+   * `return`, y el extractor lo leia como un identificador crudo. Los cuerpos de las arrow
+   * `const NOMBRE = (x) => '...'` son una sola expresion y no tenian ninguna.
+   *
+   * La lista es corta y solo de palabras RESERVADAS: ninguna puede ser dato de un usuario, asi
+   * que quitarlas no puede esconder nada. Un nombre de variable cualquiera NO va aca — eso
+   * seria justamente el agujero, y es lo que `CRUDOS_PERMITIDOS` maneja con su propia regla.
+   */
+  const PALABRAS_CLAVE = new Set([
+    'return', 'const', 'let', 'var', 'if', 'else', 'new', 'typeof', 'await', 'null',
+    'undefined', 'true', 'false',
+  ]);
+
   function identificadoresCrudos(arg) {
     const soloExpresiones = arg
       .replace(/escaparHtml\s*\([^)]*\)/g, ' ')       // lo correcto, se quita
@@ -403,8 +469,20 @@ describe('el callback OAuth no devuelve HTML con datos del usuario (S8)', () => 
       .replace(/"(?:[^"\\]|\\.)*"/g, ' ');
     return [...new Set(
       [...soloExpresiones.matchAll(/[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*/g)].map((x) => x[0]),
-    )].filter((id) => !CRUDOS_PERMITIDOS.has(id.split('.')[0]));
+    )].filter((id) => !CRUDOS_PERMITIDOS.has(id.split('.')[0]))
+      .filter((id) => !PALABRAS_CLAVE.has(id));
   }
+
+  const HELPERS = helpersDeHtml(sinComentarios(CALLBACK));
+
+  // Los parametros entran permitidos porque las DOS puntas estan vigiladas: el cuerpo del
+  // helper esta en ARGUMENTOS, y sus call-sites tambien — `res.send(H(req.query.t))` deja
+  // `req.query.t` como identificador crudo del argumento y se marca ahi.
+  const CRUDOS_PERMITIDOS = new Set([
+    ...CRUDOS_BASE,
+    ...HELPERS.map((h) => h.nombre),
+    ...HELPERS.flatMap((h) => h.params),
+  ]);
 
   const ARGUMENTOS = argumentosDeRespuesta(sinComentarios(CALLBACK));
 
@@ -445,6 +523,51 @@ describe('el callback OAuth no devuelve HTML con datos del usuario (S8)', () => 
     expect(forma("const primerNombre = usuario.nombre.split(' ')[0];")).toEqual([]);
     // Y un comentario que muestra la forma prohibida no puede romper el build.
     expect(forma("// antes decia res.send('<h1>' + usuario.nombre + '</h1>')")).toEqual([]);
+
+    // ── El cuerpo de un helper de HTML se barre, no se bendice ────────────────────────────
+    //
+    // Es la aserción que mata la mutación "sacar el descubrimiento de helpers de
+    // `argumentosDeRespuesta`". Sin ella, un helper nuevo entraría a `CRUDOS_PERMITIDOS`
+    // por su nombre y su cuerpo no lo miraría NADIE — que es la trampa que el docblock de
+    // `CRUDOS_BASE` nombra y que la versión anterior dejaba a un `git add` de distancia.
+    expect(forma("const H = (titulo) => '<h1>' + usuario.nombre + '</h1>';\n"))
+      .toContain('usuario.nombre');
+    expect(forma("const H = (titulo) => `<h1>${req.query.x}</h1>`;\n")).toContain('req.query.x');
+
+    // Y el helper que solo usa sus PROPIOS parámetros y literales está bien. Se afirma
+    // contra el conjunto real (los params salen de `routes/public.js`), que es lo que hace
+    // que agregar un parámetro nuevo sin barrer el cuerpo no compre nada.
+    expect(forma("const H = (titulo, cuerpo) => '<h1>' + titulo + '</h1><p>' + cuerpo + '</p>';\n"))
+      .toEqual([]);
+
+    // Y las DOS formas de declaracion se barren igual. Un helper escrito con `function` es el
+    // estilo natural apenas tiene una linea de logica dentro, y hasta el 27-ago-2026 su cuerpo
+    // no lo miraba NADIE: el descubrimiento solo conocia `const NOMBRE = (x) => ...`.
+    expect(forma("function armar(t) { return '<h1>' + usuario.nombre + '</h1>'; }"))
+      .toContain('usuario.nombre');
+    // El negativo usa `titulo` y no un nombre inventado a proposito: `CRUDOS_PERMITIDOS` se
+    // deriva de los helpers del archivo REAL, no del fixture, asi que un parametro que solo
+    // existe acá sale marcado — y eso es correcto, no un bug del detector.
+    expect(forma("function armar(titulo) { return '<h1>' + titulo + '</h1>'; }")).toEqual([]);
+
+  });
+
+  /**
+   * Antivacuidad del descubrimiento. Sin esto, `helpersDeHtml` devolviendo `[]` —una regex
+   * que dejó de matchear porque alguien cambió el estilo de declaración— haría que TODO lo de
+   * arriba pase por vacuidad, y encima sacaría los nombres de `CRUDOS_PERMITIDOS`, con lo que
+   * el fallo se vería como un rojo confuso en vez de como un verde falso. Se afirman los dos
+   * helpers por nombre: son los que existen hoy y los que el resto del archivo asume.
+   */
+  it('descubre los helpers de HTML del módulo (si no, lo de arriba pasa por vacuidad)', () => {
+    const nombres = HELPERS.map((h) => h.nombre);
+    expect(nombres).toContain('REINTENTAR');
+    expect(nombres).toContain('PAGINA_BAJA');
+    // Declarado con `function`, no con `const`. Es el caso que el guard no veia hasta el
+    // 27-ago: si esta linea se cae, el estilo de declaracion volvio a decidir que se barre.
+    expect(nombres).toContain('paginaConfirmarBaja');
+    // Y trae el cuerpo, no solo el nombre: un cuerpo vacío barrería nada.
+    for (const h of HELPERS) expect(h.cuerpo.length, h.nombre + ' sin cuerpo').toBeGreaterThan(20);
   });
 
   it('la rama de exito redirige y no manda HTML', () => {

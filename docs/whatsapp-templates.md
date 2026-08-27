@@ -1,6 +1,49 @@
 # WhatsApp Templates (HSM) — Neto
 
-**Estado:** PENDIENTE de crear/aprobar en Meta. `lib/whatsapp.js` ya soporta enviarlos.
+## ⛔ ESTADO: **DESCARTADO** (27-ago-2026). No es un pendiente, es una decisión cerrada.
+
+Se cierra a propósito y con el motivo escrito. Mientras decía **PENDIENTE**, cualquiera que
+leyera este archivo en tres meses iba a reabrirlo creyendo que fue un olvido — y no lo fue.
+
+**Los dos motivos, los dos medidos:**
+
+1. **La plantilla sirve exactamente para el caso que se cobra.** Meta no cobra la utility
+   entregada DENTRO de una ventana de servicio abierta, pero dentro de la ventana no hace
+   falta plantilla: el texto libre ya se entrega. Fuera de la ventana es donde la plantilla
+   aporta, y ahí se paga. El experimento de trial (abajo) lo confirmó con datos: 1 entregado
+   de 29, y los destinatarios eran gente que no estaba usando el producto.
+2. **El correo cubre MÁS que WhatsApp sobre la población que importa, y es gratis.** Medido
+   el 27-ago sobre los 12 usuarios que recibieron un aviso de plata (`deuda` +
+   `alerta_presupuesto`) en 30 días: **12 de 12 tienen email, 11 de 12 tienen número, 0 son
+   solo-WhatsApp.** En el padrón vivo (126): 104 con email, 112 con número, 14 solo email, 22
+   solo WhatsApp. Y las altas nuevas van hacia web-first, o sea que la brecha se ensancha.
+
+**Lo que se hizo en su lugar:** el canal de correo transaccional (`lib/email.js` + Resend),
+declarado por aviso con el parámetro `email` de `notificarUsuario`. Primer emisor: `deuda`.
+
+**El costo evitado, dicho sin adornos:** la ventana de 24h no es un detalle de cadencia. Sobre
+30 días, en toda la tabla `notification_deliveries`: **556 `sent`, 67 entregados, 459 fallidos
+por callback — y 452 de esos 459 con código 131047**, que es la ventana. O sea que el canal de
+WhatsApp proactivo entrega alrededor del 12%, y la plantilla era la única forma de arreglarlo
+pagando por mensaje.
+
+**Lo que NO cambia y conviene no re-descubrir:**
+
+- El cableado sigue vivo y probado (`WA_TEMPLATES_ENABLED` para deudas,
+  `WA_TRIAL_TEMPLATE_ENABLED` para el trial, los dos en `false` y **ninguno puesto en
+  Railway**). Reactivar es una variable de entorno. Se conserva por eso: descartar no es
+  borrar, y el día que el cálculo cambie no hay que reescribir nada.
+- **El motivo NO es que Meta lo impida.** Las precondiciones de abajo siguen vigentes: los
+  templates son viables sin Business Verification. Es una decisión de plata, no un bloqueo.
+- `trial_por_vencer` quedó creada en Meta en PENDING y **clasificada MARKETING**, no UTILITY.
+  Existir no cuesta; solo se cobra el envío. Borrarla exige un permiso que el
+  `META_ACCESS_TOKEN` del backend no tiene (da `#100`): se hace a mano en WhatsApp Manager.
+
+---
+
+## Historia (por qué el estado quedó así)
+
+**Estado previo:** PENDIENTE de crear/aprobar en Meta. `lib/whatsapp.js` ya soporta enviarlos.
 **Motivo (audit 2026-07-03):** todos los recordatorios salían free-form (`type:'text'`) y
 Meta los bloquea (error 131047) si el usuario no escribió en 24h. Los templates aprobados son
 la ÚNICA forma de iniciar conversación fuera de esa ventana → es lo que hace que el

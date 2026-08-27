@@ -230,6 +230,203 @@ router.get('/auth/callback', async (req, res) => {
 // Un endpoint que acepta la llave del admin no pertenece al router público.
 
 // GET / — root
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// CANAL DE EMAIL — la salida y el veredicto de entrega
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+const PAGINA_BAJA = (titulo, cuerpo) =>
+  '<!doctype html><html lang="es"><head><meta charset="utf-8">'
+  + '<meta name="viewport" content="width=device-width,initial-scale=1"><title>Neto</title></head>'
+  + '<body style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;'
+  + 'background:#f4f4f0;margin:0;padding:48px 16px;color:#1a1a18">'
+  + '<div style="max-width:460px;margin:0 auto;background:#fff;border-radius:12px;padding:32px">'
+  + '<div style="color:#1D9E75;font-weight:700;margin-bottom:14px">Neto</div>'
+  + '<h1 style="font-size:20px;margin:0 0 10px">' + titulo + '</h1>'
+  + '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0">' + cuerpo + '</p>'
+  + '</div></body></html>';
+
+/**
+ * Baja de recordatorios desde un correo. Sin sesión: la identidad viaja firmada en el token
+ * (`lib/email.js`, molde de `lib/activacion.js`).
+ *
+ * **Apaga TODOS los canales, no solo el correo**, y el pie del email lo dice con esas palabras.
+ * Es deliberado: `usuarios.recordatorios_activos` ya existe, ya lo respetan los crons y ya lo
+ * expone la webapp. Un flag separado solo-email sería el mismo estado en dos lugares, que es
+ * como se produce la divergencia — y dejaría a alguien que pidió no ser molestado recibiendo
+ * WhatsApps. Lo que no se puede hacer es prometer una cosa y hacer otra; por eso el copy.
+ *
+ * ─── El GET NO muta, y no es purismo de HTTP ─────────────────────────────────────────────
+ *
+ * La primera versión daba de baja en el GET, y eso se dispara SOLO, sin que nadie clickee:
+ * los escáneres de links corporativos (Outlook ATP Safe Links, Proofpoint, Mimecast) hacen un
+ * GET a cada URL de un correo para verificarla, y los clientes que no honran
+ * `List-Unsubscribe-Post` también hacen GET sobre la URL del header. Cualquiera de esos apaga
+ * los recordatorios de una persona que nunca pidió nada — **y como esto apaga también
+ * WhatsApp, la deja en silencio total**. El rastro que queda es indistinguible de una baja
+ * real, así que ni siquiera se puede deshacer con confianza.
+ *
+ * Por eso: **GET muestra una confirmación, POST ejecuta.** Es lo que pide RFC 8058 para el
+ * one-click, y de paso lo que hace que el botón nativo de Gmail y Outlook siga funcionando:
+ * ese manda POST, que sigue siendo un solo paso para el usuario.
+ */
+function paginaConfirmarBaja(token) {
+  return PAGINA_BAJA('¿Dejar de recibir recordatorios?',
+    'Se apagan los recordatorios de Neto en todos los canales, también en WhatsApp. '
+    + 'Puedes volver a prenderlos cuando quieras desde Configuración en app.neto.pe.'
+    + '<form method="POST" action="/baja-recordatorios" style="margin-top:20px">'
+    + '<input type="hidden" name="t" value="' + escaparHtml(token) + '">'
+    + '<button type="submit" style="background:#1D9E75;color:#fff;border:0;padding:12px 22px;'
+    + 'border-radius:8px;font-weight:600;font-size:15px;cursor:pointer">Sí, dejar de recibirlos'
+    + '</button></form>');
+}
+
+async function bajaRecordatorios(req, res) {
+  const { verificarTokenBaja } = require('../lib/email');
+  const token = req.query.t || (req.body && req.body.t);
+  const payload = verificarTokenBaja(token);
+  if (!payload) {
+    // No se distingue "token mal firmado" de "secreto ausente" en la respuesta: las dos son
+    // 400 y el mismo texto. Decir cuál es le confirma a quien prueba firmas si el problema
+    // era la firma o la configuración.
+    log.warn({ tag: 'EMAIL_BAJA' }, 'Token de baja inválido');
+    return res.status(400).send(PAGINA_BAJA('No pudimos procesar el enlace',
+      'El enlace no es válido. Puedes apagar los recordatorios desde Configuración en app.neto.pe.'));
+  }
+  // El GET solo pregunta. Ver el docblock: un escáner de links haciendo GET no puede dejar a
+  // nadie sin recordatorios.
+  if (req.method === 'GET') return res.send(paginaConfirmarBaja(token));
+
+  const { error } = await supabase.from('usuarios')
+    .update({ recordatorios_activos: false }).eq('id', payload.uid);
+  if (error) {
+    // supabase-js NO lanza: sin leer el `{ error }` acá, un UPDATE rechazado (RLS, 5xx de
+    // PostgREST) devolvería la misma página de "listo" que un éxito, y la persona seguiría
+    // recibiendo correos después de haberse dado de baja. Ese es el peor fallo posible de
+    // esta ruta, mucho peor que mostrar un error.
+    log.error({ tag: 'EMAIL_BAJA', usuarioId: payload.uid, err: error.message },
+      'No se pudo apagar los recordatorios: la baja NO quedó');
+    return res.status(500).send(PAGINA_BAJA('No pudimos completar la baja',
+      'Intenta de nuevo en unos minutos, o escríbenos a hola@neto.pe.'));
+  }
+  log.info({ tag: 'EMAIL_BAJA', usuarioId: payload.uid }, 'Recordatorios apagados desde correo');
+  return res.send(PAGINA_BAJA('Listo, no te escribimos más',
+    'Apagamos los recordatorios de Neto en todos los canales, también en WhatsApp. '
+    + 'Puedes volver a prenderlos cuando quieras desde Configuración en app.neto.pe.'));
+}
+router.get('/baja-recordatorios', bajaRecordatorios);
+router.post('/baja-recordatorios', bajaRecordatorios);
+
+/**
+ * Webhook de Resend: el ÚNICO que escribe `delivered_at` / `failed_at` del canal email.
+ *
+ * Existe por el hallazgo B23. Sin él, `estado='sent'` sería toda la instrumentación del canal
+ * nuevo y volveríamos a reportar 100% de entrega sin saber nada — exactamente lo que pasó con
+ * WhatsApp, donde 556 `sent` resultaron ser 67 entregados. Es el hermano de `procesarStatuses`
+ * (`lib/whatsapp.js`) y cruza por la misma columna (`wamid`, que guarda el id del proveedor).
+ *
+ * Firma verificada a mano con Svix (`svix-id.svix-timestamp.body`, HMAC-SHA256, secreto
+ * base64 tras el prefijo `whsec_`). Sin el paquete `svix`: es una comparación de HMAC de
+ * quince líneas y el repo ya la hace igual para el HMAC de Meta en `handlers/webhook.js`.
+ */
+async function resendWebhookHandler(req, res) {
+  const crypto = require('crypto');
+  const secreto = process.env.RESEND_WEBHOOK_SECRET;
+  if (!secreto) {
+    // Fail CLOSED. Un webhook sin verificar es una ruta anónima que escribe en la tabla que
+    // decide qué se considera entregado: cualquiera podría marcar entregado lo que no llegó,
+    // y el ledger dejaría de servir para lo único que sirve.
+    log.error({ tag: 'EMAIL_HOOK' }, 'RESEND_WEBHOOK_SECRET ausente: se rechaza el callback');
+    return res.sendStatus(503);
+  }
+  // `rawBody` lo puebla el `verify` de express.json() en index.js, y NO corre si el
+  // Content-Type no es JSON. Sin bytes crudos no hay firma que comprobar — mismo chequeo
+  // explícito que hace el webhook de Meta, y por el mismo motivo.
+  if (!req.rawBody || req.rawBody.length === 0) {
+    log.warn({ tag: 'EMAIL_HOOK' }, 'Callback sin rawBody');
+    return res.sendStatus(400);
+  }
+  const id = req.get('svix-id');
+  const ts = req.get('svix-timestamp');
+  const firmas = req.get('svix-signature');
+  if (!id || !ts || !firmas) return res.sendStatus(400);
+
+  // Ventana de 5 minutos: sin esto, un callback capturado se puede reproducir para siempre.
+  const edad = Math.abs(Date.now() / 1000 - Number(ts));
+  if (!Number.isFinite(edad) || edad > 300) {
+    log.warn({ tag: 'EMAIL_HOOK', edad }, 'Callback fuera de la ventana de tiempo');
+    return res.sendStatus(400);
+  }
+
+  const clave = Buffer.from(secreto.replace(/^whsec_/, ''), 'base64');
+  const esperada = crypto.createHmac('sha256', clave)
+    .update(id + '.' + ts + '.' + req.rawBody.toString('utf8')).digest('base64');
+  // Svix manda una LISTA separada por espacios (`v1,firma v1,otra`) durante una rotación de
+  // secreto. Comparar contra el header entero rechazaría los callbacks legítimos justo
+  // mientras se rota, que es cuando menos se quiere perder el veredicto de entrega.
+  const valida = String(firmas).split(' ').some((f) => {
+    const parte = f.split(',')[1] || '';
+    const a = Buffer.from(parte);
+    const b = Buffer.from(esperada);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  });
+  if (!valida) {
+    log.warn({ tag: 'EMAIL_HOOK' }, 'Firma inválida');
+    return res.sendStatus(401);
+  }
+
+  // Se responde 200 antes de tocar la base: Resend reintenta ante un no-2xx, y un reintento
+  // no arregla un fallo de escritura nuestro — solo multiplica el trabajo. El log es el
+  // rastro, igual que en el webhook de Meta.
+  res.sendStatus(200);
+
+  try {
+    const evento = req.body || {};
+    const msgId = evento.data && evento.data.email_id;
+    if (!msgId) return;
+    const ahora = new Date().toISOString();
+    let patch = null;
+    // `email.sent` se ignora: ya lo registró el POST. Lo que importa acá es el desenlace.
+    // `delivered` es el único que confirma entrega; `bounced` y `complained` son fallos, y
+    // `complained` (marcó spam) es además la señal más cara que existe para la reputación
+    // del dominio, así que queda escrita y no solo logueada.
+    if (evento.type === 'email.delivered') patch = { delivered_at: ahora };
+    else if (evento.type === 'email.bounced') patch = { failed_at: ahora, error: 'bounced' };
+    else if (evento.type === 'email.complained') patch = { failed_at: ahora, error: 'complained' };
+    if (!patch) return;
+
+    const { data, error } = await supabase.from('notification_deliveries')
+      .update(patch).eq('wamid', msgId).eq('canal', 'email').select('id, tipo, usuario_id');
+    // El `{ error }` se lee por la lección de `procesarStatuses`: con error, `data` viene null
+    // y sin distinguir los dos casos un UPDATE rechazado se leería como "este callback no era
+    // de un aviso nuestro" — o sea que `delivered_at` no se escribiría nunca y el canal
+    // volvería a reportar solo lo que el proveedor aceptó.
+    if (error) {
+      log.error({ tag: 'EMAIL_HOOK', msgId, tipo: evento.type, err: error.message },
+        'No se pudo actualizar la entrega del correo');
+    } else if (!data || data.length === 0) {
+      log.debug({ tag: 'EMAIL_HOOK', msgId, tipo: evento.type }, 'Callback sin fila de notificación');
+    } else {
+      log.info({ tag: 'EMAIL_HOOK', msgId, tipo: evento.type, usuarioId: data[0].usuario_id },
+        'Entrega de correo actualizada');
+    }
+  } catch (e) {
+    log.error({ tag: 'EMAIL_HOOK', err: e.message }, 'Error procesando callback de Resend');
+  }
+}
+
 router.get('/', (req, res) => res.send('NETO v5'));
 
 module.exports = router;
+/**
+ * El webhook NO cuelga de este router, y por eso se exporta aparte.
+ *
+ * `routes/public.js` se monta detrás de `publicLimiter` (60/min por IP, compartido con
+ * `/auth/callback` y `/api/referidor`), que es el límite correcto para superficie de navegador
+ * y el equivocado para callbacks de un proveedor: Svix entrega desde un pool chico de IPs y
+ * manda al menos dos eventos por correo. Un 429 acá no se reintenta con éxito garantizado y lo
+ * que se pierde es `delivered_at` — o sea justo la medición por la que existe este canal.
+ *
+ * `index.js` lo monta con `webhookLimiter` (1200/min), que ya existe con ese número por el
+ * mismo motivo del lado de Meta: sus callbacks de status llegan en ráfaga.
+ */
+module.exports.resendWebhookHandler = resendWebhookHandler;

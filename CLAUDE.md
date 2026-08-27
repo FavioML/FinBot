@@ -1120,13 +1120,20 @@ WhatsApp paso -1 ─────────────────────
   en la MISMA transaccion, asi que "borrado exitoso + atascado en el menu" dejo de ser alcanzable;
   y como el borrado es todo-o-nada, *"tu cuenta sigue igual"* volvio a ser verdad cuando falla.
 
-## Todo aviso proactivo sale por los DOS canales
+## Todo aviso proactivo sale por los DOS canales (y los que importan, por TRES)
 
 El WhatsApp libre no se entrega fuera de la ventana de 24h de Meta (131047) y las plantillas
-estan descartadas. O sea que **un aviso que solo existe en WhatsApp, para el usuario inactivo
+estan **descartadas con motivo escrito** (`docs/whatsapp-templates.md`, cerrado el 27-ago-2026:
+no es un pendiente). O sea que **un aviso que solo existe en WhatsApp, para el usuario inactivo
 no existe** — y el inactivo suele ser justo el destinatario (trial por vencer, recordatorio de
 inactividad, un gasto que le cargaron en un espacio). La in-app es el unico canal que llega a
 todos.
+
+**Cuanto es "no se entrega", medido el 27-ago sobre 30 dias de `notification_deliveries`:**
+556 `sent`, **67 entregados**, 459 fallidos por callback — y **452 de esos 459 son 131047**.
+El rechazo SINCRONO (`blocked_24h`, el unico que se ve al enviar) salio **cero** veces. Esa
+asimetria decide un diseño: no se puede escribir "si WhatsApp fallo, manda por otro lado",
+porque cuando `notificarUsuario` retorna el fracaso todavia no ocurrio.
 
 `notificarUsuario()` (`lib/notify-user.js`) es el unico camino. Es dueño de una sola cosa: **por
 que canales sale esto**. No dedupea (eso vive en el call-site y hoy tiene cuatro mecanismos
@@ -1146,8 +1153,62 @@ await notificarUsuario({
 });
 ```
 
-Devuelve `{ wa, inApp }`. El canal in-app se escribe **aunque WhatsApp falle o el usuario no
-tenga numero**: cada canal tiene su try/catch, no uno global.
+Devuelve `{ wa, inApp, email }`. El canal in-app se escribe **aunque WhatsApp falle o el
+usuario no tenga numero**: cada canal tiene su try/catch, no uno global.
+
+### El tercer canal: EMAIL (27-ago-2026)
+
+Se declara con el parametro `email`, **no** con un cuarto valor de `CANALES`. El enum modela
+UNA dimension ("WhatsApp y/o campana"); el correo es otra, no aplica a casi ningun aviso, y
+necesita un asunto que el enum no tiene donde llevar.
+
+```js
+await notificarUsuario({
+  canales: CANALES.AMBOS,
+  usuarioId: u.id, whatsapp: u.whatsapp || null,
+  tipo: 'deuda', mensaje: msg, titulo: 'Deuda vence hoy',
+  link: '/dashboard/deudas',
+  email: { to: u.email || null, asunto: 'Tu deuda con Juan vence hoy (S/ 120.00)' },
+});
+```
+
+| | |
+|---|---|
+| Transporte | `lib/email.js` (Resend por `fetch`, sin SDK). Best-effort, nunca lanza |
+| Entrega REAL | webhook `POST /webhooks/resend` en `routes/public.js`. `sent` es "Resend acepto"; `delivered_at`/`failed_at` los escribe el callback. Es el hallazgo B23 aplicado antes de repetirlo |
+| Salida | `GET`/`POST /baja-recordatorios?t=<token firmado>`. Apaga `recordatorios_activos`, o sea TODOS los canales, y el pie del correo lo dice con esas palabras |
+| Guards | `tests/notificaciones-duales.test.js` (nadie llama `enviarEmail` fuera del chokepoint; todo canal declarado trae asunto) · `tests/lib/email.test.js` · `tests/routes/email-webhook.test.js` |
+
+**Cuatro cosas que no son negociables y cuestan caro re-descubrir:**
+
+- **El correo sale EN PARALELO, no como fallback de `wa.ok`.** Ver la medicion de arriba: un
+  fallback condicionado al resultado sincrono habria mandado cero correos.
+- **`to` lo pasa el LLAMADOR**, igual que `whatsapp`. Leerlo dentro del chokepoint mete I/O en
+  la unica funcion que hoy no lo necesita — es el cambio que se intento con `cuenta_borrada_at`
+  y se revirtio. Si tu cron declara `email`, agrega la columna a su `select`.
+- **Sin `EMAIL_OPTOUT_SECRET` no sale el correo** (fail closed). Un recordatorio del que no se
+  puede salir es peor que un recordatorio que no salio.
+- **Toda salida deja fila**, incluidos los no-op (`skipped_no_email`, `skipped_sin_proveedor`,
+  `skipped_sin_baja`). Sin eso, "el canal esta apagado" y "nadie llamo al canal" se ven igual.
+
+**Env vars (Railway):** `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`, `EMAIL_OPTOUT_SECRET`, y
+opcionalmente `RESEND_FROM` (default `Neto <hola@neto.pe>`) y `API_PUBLIC_URL`. **Sin
+`RESEND_API_KEY` el canal es un no-op que deja rastro**, asi que desplegar antes de tener la
+key no rompe nada. Los pasos de alta estan en `docs/canal-email.md`.
+
+### Declarar AMBOS no sirve si cortas antes por falta de numero
+
+Cuatro crons de `cron/checks.js` declaraban `CANALES.AMBOS` con un `if (!usuario.whatsapp)
+continue;` una linea mas arriba. El corte **no protege nada**: `notificarUsuario` ya maneja
+`whatsapp: null` — llama igual a `enviarWhatsapp`, que hace no-op y deja `skipped_no_whatsapp`,
+y escribe la campana. Lo unico que agregaba era apagarle la mitad in-app a quien entro por la
+web: **14 usuarios reales, los 14 con cuenta web y los 14 con recordatorios prendidos**, uno de
+ellos en Manos Libres, que es opt-in explicito.
+
+Lo vigila el segundo bloque de `tests/canal-unico-sin-cuenta-web.test.js`. Y ojo con lo que el
+corte tapaba de rebote: las cuentas borradas tienen `whatsapp` NULL. Siguen fuera, pero por dos
+gates que lo dicen a proposito — la migracion 073 pone `recordatorios_activos = false` **y**
+`onboarding_completado = false` en la lapida.
 
 Un canal unico (`CANALES.SOLO_WHATSAPP` / `SOLO_IN_APP`) exige `motivo` pegado al `canales`.
 Todas las excepciones comparten la misma forma: **el destinatario no tiene cuenta web**, asi

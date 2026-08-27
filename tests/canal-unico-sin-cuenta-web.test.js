@@ -191,6 +191,50 @@ for (const { rel, src } of FUENTES) {
   }
 }
 
+// ═════════════════════════════════════════════════════════════════════════════════════════
+// El AGUJERO DE AL LADO: declarar AMBOS y cortar antes por falta de número
+// ═════════════════════════════════════════════════════════════════════════════════════════
+//
+// Todo lo de arriba mira los `CANALES.SOLO_*`, y por eso durante meses **no vio** el modo de
+// falla más común de los dos. Cuatro crons de `cron/checks.js` declaraban `CANALES.AMBOS` como
+// corresponde y una línea más arriba tenían un `if (!usuario.whatsapp) continue;`. El guard
+// pasaba verde con toda razón: el canal declarado era el correcto. Lo que estaba mal era que
+// el destinatario nunca llegaba a la declaración.
+//
+// **El corte no protege nada**, y ese es el punto entero: `notificarUsuario` con AMBOS ya
+// maneja `whatsapp: null` — llama igual a `enviarWhatsapp`, que hace no-op y deja
+// `skipped_no_whatsapp` en el ledger, y escribe la campana. Lo único que el corte agrega es
+// apagar la mitad in-app para quien no tiene número. Al 27-ago-2026 eso eran **14 usuarios
+// reales, los 14 con cuenta web y los 14 con los recordatorios prendidos**, y uno de los
+// cuatro crons era Manos Libres, que es opt-in explícito: el silencio contradecía algo que la
+// persona había pedido.
+//
+// Es la misma lección que el guard de arriba con otra cara: *un canal declarado no dice nada
+// sobre a quién se le declaró*. Y el corte es invisible en producción — el cron corre, no
+// falla, y `continue` no deja rastro en ninguna tabla.
+const CORTE_POR_WHATSAPP = new RegExp(
+  String.raw`\bif\s*\([^)]*!\s*[\w$]+(?:\s*\??\.\s*[\w$]+)*\s*\??\.\s*whatsapp\b[^)]*\)\s*\{?\s*(?:continue|return)\b`,
+);
+
+/**
+ * Funciones que declaran AMBOS y AUN ASI cortan por falta de número, a propósito.
+ *
+ * Vacía. Una entrada acá significa "este aviso no tiene sentido en la campana", y eso es una
+ * decisión de producto que alguien firma, no un `continue` que quedó de antes. El default
+ * correcto es sacar el corte: `notificarUsuario` ya sabe qué hacer sin número.
+ */
+const CORTES_EXENTOS = new Map([]);
+
+const CON_AMBOS = [];
+for (const { rel, src } of FUENTES) {
+  if (rel === 'lib/notify-user.js') continue;   // la definición
+  const limpio = sinMotivos(sinComentarios(src));
+  for (const fn of funciones(limpio)) {
+    if (!/canales\s*:\s*CANALES\.AMBOS/.test(fn.cuerpo)) continue;
+    CON_AMBOS.push({ rel, nombre: fn.nombre, cuerpo: fn.cuerpo });
+  }
+}
+
 describe('un canal SOLO_WHATSAPP mira si el destinatario tiene cuenta web', () => {
   it('el barrido encuentra los call-sites (antivacuidad)', () => {
     // Sin esto, romper el regex o el troceo dejaría el archivo verde sin haber mirado nada.
@@ -287,6 +331,142 @@ describe('un canal SOLO_WHATSAPP mira si el destinatario tiene cuenta web', () =
       `${sitio.rel} → ${sitio.nombre}() manda por SOLO_WHATSAPP sin mirar supabase_auth_id. ` +
       'Su `motivo` afirma que el destinatario no tiene cuenta web; nada lo verifica. ' +
       'O agregá el filtro, o pasá a AMBOS, o declaralo en EXENTOS con el porqué.',
+    ).toBe(true);
+  });
+});
+
+describe('declarar AMBOS y cortar por falta de número es lo mismo que no declararlo', () => {
+  it('el barrido encuentra los call-sites de AMBOS (antivacuidad)', () => {
+    // Sin esto, un regex roto dejaría la lista vacía y las aserciones de abajo pasarían sin
+    // haber mirado nada. El piso es holgado a propósito: lo que se afirma es "el barrido ve
+    // el backend", no un conteo que envejece con cada aviso nuevo.
+    expect(CON_AMBOS.length).toBeGreaterThanOrEqual(15);
+    // Y que vea el archivo donde vivían los cuatro cortes.
+    expect(CON_AMBOS.map((s) => s.rel)).toContain('cron/checks.js');
+  });
+
+  /**
+   * Contraprueba del detector. Sin esto, un `CORTE_POR_WHATSAPP` que no matcheara nunca
+   * dejaría el archivo verde para siempre — que es exactamente el estado en el que este
+   * agujero vivió hasta el 27-ago-2026, con la diferencia de que entonces ni existía la regla.
+   *
+   * Las cuatro formas son las que estaban EN EL REPO, no inventadas: tres `if (!u.whatsapp)
+   * continue;` y el `||` compuesto del bucle de espacios.
+   */
+  const CORTES = [
+    ['el corte pelado', 'if (!usuario.whatsapp) continue;'],
+    ['con return', 'if (!usuario.whatsapp) return;'],
+    ['con llave', 'if (!usuario.whatsapp) {\n  continue;\n}'],
+    ['encadenado con ||', 'if (!m.usuarios?.whatsapp || m.usuarios?.recordatorios_activos === false) continue;'],
+    ['con optional chaining simple', 'if (!u?.whatsapp) continue;'],
+    ['anidado más profundo', 'if (!deuda.usuarios.whatsapp) continue;'],
+  ];
+  it.each(CORTES)('el detector reconoce %s', (_como, linea) => {
+    expect(CORTE_POR_WHATSAPP.test(linea)).toBe(true);
+  });
+
+  /**
+   * Y los negativos, que son los que impiden que el detector sea un `return true` disfrazado.
+   *
+   * El tercero es el que más importa: **pasar `whatsapp` al chokepoint no es cortar**. Si el
+   * detector lo marcara, el arreglo correcto (sacar el corte y seguir pasando el número) se
+   * vería rojo y la única salida sería dejar de pasar el número — o sea que el guard estaría
+   * empujando hacia el bug contrario.
+   */
+  it.each([
+    ['una condición sobre otra columna', 'if (!usuario.email) continue;'],
+    ['el corte de recordatorios', 'if (usuario.recordatorios_activos === false) continue;'],
+    ['pasar el número al chokepoint', 'usuarioId: u.id, whatsapp: u.whatsapp,'],
+    ['leer el número sin cortar', 'const dest = usuario.whatsapp || null;'],
+    ['un if sobre whatsapp que NO corta', 'if (!usuario.whatsapp) log.info({ web: true });'],
+  ])('el detector NO marca %s', (_como, linea) => {
+    expect(CORTE_POR_WHATSAPP.test(linea)).toBe(false);
+  });
+
+  it.each(CON_AMBOS.map((s) => [`${s.rel}:${s.nombre}`, s]))('%s', (id, sitio) => {
+    if (CORTES_EXENTOS.has(id)) return;
+    expect(
+      CORTE_POR_WHATSAPP.test(sitio.cuerpo),
+      `${sitio.rel} → ${sitio.nombre}() declara CANALES.AMBOS pero corta antes por falta de ` +
+      'número. Eso NO protege nada: notificarUsuario ya maneja whatsapp:null (deja ' +
+      '`skipped_no_whatsapp` en el ledger y escribe la campana igual). Lo único que hace el ' +
+      'corte es apagarle la mitad in-app a quien entró por la web. Sacá el corte, o declaralo ' +
+      'en CORTES_EXENTOS con el porqué.',
+    ).toBe(false);
+  });
+});
+
+/**
+ * El correo PROMETE respetar la baja, y esto es lo único que lo obliga.
+ *
+ * Cada email lleva al pie, textual: *"se apagan en todos los canales, también en WhatsApp"*, y
+ * la página de baja repite la frase. Eso hoy es cierto por una sola razón: el único emisor
+ * (`checkRecordatorioDeudas`) casualmente mira `recordatorios_activos` antes de notificar.
+ * **Ni `notificarUsuario` ni `enviarEmail` lo chequean** — no pueden, sin meter I/O en el
+ * chokepoint, que es una decisión ya tomada y revertida una vez.
+ *
+ * O sea que el próximo emisor que declare `email:` y se olvide del flag le manda un correo a
+ * alguien que pidió explícitamente no recibirlos, y no hay nada que se ponga rojo. Un opt-out
+ * que se cumple por casualidad no es un opt-out; y a diferencia de WhatsApp, acá la persona
+ * tiene un botón de "spam" a un click que le cuesta reputación al dominio entero.
+ *
+ * Igual que el guard de arriba, esto es una DECLARACIÓN, no una demostración: verifica que la
+ * función MIRE el flag, no que lo mire bien.
+ */
+const DECLARA_EMAIL = /\bemail\s*:\s*\{/;
+const FILTRA_RECORDATORIOS = /\.(?:is|eq|neq|not|or|filter|match)\(\s*['"`][^'"`]*\brecordatorios_activos\b/;
+const RECORDATORIOS_EN_DECISION = new RegExp(
+  String.raw`^.*(?:\bif\s*\(|\breturn\b|\bcontinue\b|\?|&&|\|\|).*\.recordatorios_activos\b`
+  + String.raw`|^.*\.recordatorios_activos\b.*(?:===|!==|\?|&&|\|\|)`,
+  'm',
+);
+const miraLaBaja = (cuerpo) => FILTRA_RECORDATORIOS.test(cuerpo) || RECORDATORIOS_EN_DECISION.test(cuerpo);
+
+/** Emisores de correo que NO miran la baja, a propósito. Vacía, y debería quedarse vacía. */
+const EMAIL_SIN_OPTOUT = new Map([]);
+
+const CON_EMAIL = [];
+for (const { rel, src } of FUENTES) {
+  if (rel === 'lib/notify-user.js' || rel === 'lib/email.js') continue;   // definición y transporte
+  const limpio = sinMotivos(sinComentarios(src));
+  for (const fn of funciones(limpio)) {
+    if (!DECLARA_EMAIL.test(fn.cuerpo)) continue;
+    CON_EMAIL.push({ rel, nombre: fn.nombre, cuerpo: fn.cuerpo });
+  }
+}
+
+describe('todo emisor de correo respeta la baja que el propio correo promete', () => {
+  it('el barrido encuentra al menos un emisor (antivacuidad)', () => {
+    // Sin esto el archivo pasa por vacuidad el día que el regex deje de matchear — y encima
+    // se vería sano, porque "cero emisores de correo" no llama la atención.
+    expect(CON_EMAIL.length).toBeGreaterThanOrEqual(1);
+    expect(CON_EMAIL.map((s) => `${s.rel}:${s.nombre}`)).toContain('cron/checks.js:checkRecordatorioDeudas');
+  });
+
+  it.each([
+    ['acceso en decisión', "async function f(u) {\n  if (u.recordatorios_activos === false) continue;\n  await notificarUsuario({ email: { to: u.email, asunto: 'x' } });\n}\n"],
+    ['filtro de PostgREST', "async function f(u) {\n  const { data } = await supabase.from('usuarios').select('id').eq('recordatorios_activos', true);\n  await notificarUsuario({ email: { to: u.email, asunto: 'x' } });\n}\n"],
+  ])('un emisor que SÍ mira la baja (%s) cuenta', (_forma, fuente) => {
+    expect(miraLaBaja(funciones(sinMotivos(sinComentarios(fuente)))[0].cuerpo)).toBe(true);
+  });
+
+  it.each([
+    ['sin mirarla', "async function f(u) {\n  await notificarUsuario({ email: { to: u.email, asunto: 'x' } });\n}\n"],
+    ['solo en un comentario', "async function f(u) {\n  // el cron ya filtra recordatorios_activos\n  await notificarUsuario({ email: { to: u.email, asunto: 'x' } });\n}\n"],
+    ['solo en el .select() (proyección, no filtro)', "async function f(u) {\n  const { data } = await supabase.from('usuarios').select('id, recordatorios_activos');\n  await notificarUsuario({ email: { to: u.email, asunto: 'x' } });\n}\n"],
+    ['leyéndola sin decidir', "async function f(u) {\n  log.info({ act: u.recordatorios_activos }, 'x');\n  await notificarUsuario({ email: { to: u.email, asunto: 'x' } });\n}\n"],
+  ])('un emisor que NO la mira (%s) no cuenta', (_forma, fuente) => {
+    expect(miraLaBaja(funciones(sinMotivos(sinComentarios(fuente)))[0].cuerpo)).toBe(false);
+  });
+
+  it.each(CON_EMAIL.map((s) => [`${s.rel}:${s.nombre}`, s]))('%s', (id, sitio) => {
+    if (EMAIL_SIN_OPTOUT.has(id)) return;
+    expect(
+      miraLaBaja(sitio.cuerpo),
+      `${sitio.rel} → ${sitio.nombre}() manda correo sin mirar recordatorios_activos. El pie de ` +
+      'cada email promete por escrito que la baja apaga TODOS los canales, y el chokepoint no ' +
+      'puede hacerlo cumplir (leer el flag ahí sería meter I/O en notificarUsuario, decisión ya ' +
+      'revertida una vez). O filtrás por el flag, o lo declarás en EMAIL_SIN_OPTOUT con el porqué.',
     ).toBe(true);
   });
 });

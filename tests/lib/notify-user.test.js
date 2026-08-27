@@ -27,10 +27,12 @@ const projectRoot = path.resolve(
 const logMock = { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn(), fatal: vi.fn(), trace: vi.fn() };
 const waMock = { enviarWhatsapp: vi.fn().mockResolvedValue({ ok: true, msgId: 'wamid.1' }) };
 const notifMock = { crearNotificacion: vi.fn().mockResolvedValue(true) };
+const emailMock = { enviarEmail: vi.fn().mockResolvedValue({ ok: true, msgId: 'resend-1' }) };
 
 for (const [rel, exports] of [
   ['lib/logger.js', logMock],
   ['lib/whatsapp.js', waMock],
+  ['lib/email.js', emailMock],
   ['lib/notifications-db.js', notifMock],
 ]) {
   const p = require.resolve(path.join(projectRoot, rel));
@@ -52,6 +54,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   waMock.enviarWhatsapp.mockResolvedValue({ ok: true, msgId: 'wamid.1' });
   notifMock.crearNotificacion.mockResolvedValue(true);
+  emailMock.enviarEmail.mockResolvedValue({ ok: true, msgId: 'resend-1' });
 });
 
 describe('notificarUsuario: los dos canales', () => {
@@ -63,7 +66,9 @@ describe('notificarUsuario: los dos canales', () => {
       '51999888777', 'Hola *mundo*', { tipo: 'prueba', usuarioId: 'u1', template: null },
     );
     expect(notifMock.crearNotificacion).toHaveBeenCalledTimes(1);
-    expect(res).toEqual({ wa: { ok: true, msgId: 'wamid.1' }, inApp: true });
+    // `email` es el tercer canal (27-ago). Sin declararlo, sale `canal_no_declarado`, que es
+    // la MISMA forma que devuelve `enviarEmail`: el llamador no ramifica por canal.
+    expect(res).toEqual({ wa: { ok: true, msgId: 'wamid.1' }, inApp: true, email: { ok: false, skipped: 'canal_no_declarado' } });
   });
 
   it('SOLO_IN_APP no toca WhatsApp, y su `wa` da false en el gate de los llamadores', async () => {
@@ -207,5 +212,129 @@ describe('notificarUsuario: la declaración de canales', () => {
     await notificarUsuario({ canales: CANALES.AMBOS, ...BASE });
 
     expect(logMock.warn).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * El TERCER canal (27-ago-2026). Lo que se fija acá es la misma clase de contrato que arriba:
+ * aislamiento entre canales y una declaración explícita.
+ *
+ * El detalle de diseño que estas aserciones protegen, y que es contraintuitivo: el correo
+ * sale EN PARALELO al WhatsApp, no como fallback de su resultado. La forma tentadora —"si
+ * WhatsApp falló, mandá correo"— no funciona, y no se deduce leyendo el código: el veredicto
+ * de WhatsApp no existe todavía cuando esta función retorna. Medido sobre 30 días, Meta
+ * aceptó 556 POSTs y devolvió `sent` en los 556; el fracaso llegó después por callback en 459
+ * (452 con código 131047). El rechazo síncrono, que es el único visible acá, salió CERO veces.
+ * Un fallback condicionado a `wa.ok` habría mandado cero correos.
+ */
+describe('notificarUsuario: el canal de correo', () => {
+  const CON_EMAIL = { ...BASE, email: { to: 'a@b.com', asunto: 'Tu deuda vence hoy' } };
+
+  it('sin declarar `email` no se manda ningún correo', async () => {
+    const res = await notificarUsuario({ canales: CANALES.AMBOS, ...BASE });
+    expect(emailMock.enviarEmail).not.toHaveBeenCalled();
+    expect(res.email).toEqual({ ok: false, skipped: 'canal_no_declarado' });
+  });
+
+  it('declarado, sale y reusa el texto de la campana', async () => {
+    // El correo NO tiene copy propio: si lo tuviera, sería un cuarto lugar donde el mismo
+    // aviso puede envejecer distinto.
+    const res = await notificarUsuario({ canales: CANALES.AMBOS, ...CON_EMAIL });
+    expect(emailMock.enviarEmail).toHaveBeenCalledWith('a@b.com', expect.objectContaining({
+      asunto: 'Tu deuda vence hoy',
+      titulo: 'Hola mundo',
+      cuerpo: 'Hola mundo',      // sanitizado: el markdown de WhatsApp no va al correo
+      link: '/dashboard',
+      usuarioId: 'u1',
+      tipo: 'prueba',
+    }));
+    expect(res.email).toEqual({ ok: true, msgId: 'resend-1' });
+  });
+
+  it('el correo sale AUNQUE WhatsApp falle, y viceversa', async () => {
+    waMock.enviarWhatsapp.mockRejectedValueOnce(new Error('Meta caído'));
+    const res = await notificarUsuario({ canales: CANALES.AMBOS, ...CON_EMAIL });
+    expect(res.wa.ok).toBe(false);
+    expect(res.email.ok).toBe(true);
+    expect(res.inApp).toBe(true);
+  });
+
+  it('un correo que falla no se lleva los otros dos canales', async () => {
+    emailMock.enviarEmail.mockRejectedValueOnce(new Error('Resend caído'));
+    const res = await notificarUsuario({ canales: CANALES.AMBOS, ...CON_EMAIL });
+    expect(res.wa.ok).toBe(true);
+    expect(res.inApp).toBe(true);
+    expect(res.email).toEqual({ ok: false, error: 'Resend caído' });
+    expect(logMock.error).toHaveBeenCalled();
+  });
+
+  it('NO es fallback: el correo sale aunque WhatsApp haya salido bien', async () => {
+    // La aserción que mata la "mejora" de mandar correo solo cuando WhatsApp falla. Con esa
+    // condición el canal no se usaría casi nunca, porque el fallo de WhatsApp es asíncrono.
+    await notificarUsuario({ canales: CANALES.AMBOS, ...CON_EMAIL });
+    expect(waMock.enviarWhatsapp).toHaveBeenCalled();
+    expect(emailMock.enviarEmail).toHaveBeenCalled();
+  });
+
+  it('`to` nulo sigue llamando al canal: la fila skipped_no_email es el rastro', async () => {
+    emailMock.enviarEmail.mockResolvedValueOnce({ ok: false, skipped: 'no_email' });
+    const res = await notificarUsuario({
+      canales: CANALES.AMBOS, ...BASE, email: { to: null, asunto: 'x' },
+    });
+    // Sin la llamada no hay fila, y "el usuario no tiene correo" sería indistinguible de
+    // "este aviso no declara el canal". Mismo criterio que `skipped_no_whatsapp`.
+    expect(emailMock.enviarEmail).toHaveBeenCalledWith(null, expect.anything());
+    expect(res.email).toEqual({ ok: false, skipped: 'no_email' });
+  });
+
+  it('sin asunto no se manda nada, y se grita', async () => {
+    const res = await notificarUsuario({
+      canales: CANALES.AMBOS, ...BASE, email: { to: 'a@b.com' },
+    });
+    expect(emailMock.enviarEmail).not.toHaveBeenCalled();
+    expect(logMock.error).toHaveBeenCalled();
+    expect(res.email).toEqual({ ok: false, skipped: 'canal_no_declarado' });
+  });
+
+  it('SOLO_IN_APP con correo declarado: el correo sale igual', async () => {
+    // Decisión, no accidente: el enum modela "WhatsApp y/o campana", y el correo es una
+    // dimensión aparte. Un aviso que evita WhatsApp a propósito (porque no entrega) es
+    // justamente el que más gana con el correo.
+    const res = await notificarUsuario({
+      canales: CANALES.SOLO_IN_APP, motivo: 'prueba', ...CON_EMAIL,
+    });
+    expect(waMock.enviarWhatsapp).not.toHaveBeenCalled();
+    expect(emailMock.enviarEmail).toHaveBeenCalled();
+    expect(res.email.ok).toBe(true);
+  });
+
+  it('con claimInApp fallido no sale NINGÚN canal, correo incluido', async () => {
+    // Si el correo saliera sin el claim, el dedup del llamador quedaría ciego y el cron lo
+    // repetiría en cada corrida — el bug B6 con un canal que además entrega.
+    notifMock.crearNotificacion.mockResolvedValueOnce(false);
+    const res = await notificarUsuario({ canales: CANALES.AMBOS, ...CON_EMAIL, claimInApp: true });
+    expect(waMock.enviarWhatsapp).not.toHaveBeenCalled();
+    expect(emailMock.enviarEmail).not.toHaveBeenCalled();
+    expect(res.email).toEqual({ ok: false, skipped: 'canal_no_declarado' });
+  });
+
+  it('el aviso llegó por correo NO se reporta como "sin entrega en ningún canal"', async () => {
+    // El log de ops que dice "esto no llegó a nadie". Sin el término de correo, un aviso que
+    // sí llegó por correo se reportaría como perdido — y ese log es lo que se mira para
+    // decidir si el canal sirve.
+    waMock.enviarWhatsapp.mockResolvedValueOnce({ ok: false, code: 131047 });
+    notifMock.crearNotificacion.mockResolvedValueOnce(false);
+    await notificarUsuario({ canales: CANALES.AMBOS, ...CON_EMAIL });
+    expect(logMock.warn).not.toHaveBeenCalled();
+  });
+
+  it('y si NO llegó por ninguno, sí se reporta', async () => {
+    // El control positivo del caso anterior: sin él, un `logMock.warn` que nunca se llama
+    // pasaría las dos aserciones.
+    waMock.enviarWhatsapp.mockResolvedValueOnce({ ok: false, code: 131047 });
+    notifMock.crearNotificacion.mockResolvedValueOnce(false);
+    emailMock.enviarEmail.mockResolvedValueOnce({ ok: false, skipped: 'no_email' });
+    await notificarUsuario({ canales: CANALES.AMBOS, ...CON_EMAIL });
+    expect(logMock.warn).toHaveBeenCalled();
   });
 });
