@@ -19,6 +19,14 @@ import {
   SEGMENT_LABEL,
   SEGMENT_ORDER,
   type UserSegment,
+  estadoComercial,
+  countByEstado,
+  diasHastaFinTrial,
+  isTrialExpiringSoon,
+  ESTADO_LABEL,
+  ESTADO_HINT,
+  ESTADO_ORDER,
+  type EstadoComercial,
 } from '@/lib/admin-user-segments';
 
 // ===================================================================
@@ -60,6 +68,55 @@ const SEGMENT_TONE: Record<UserSegment, string> = {
   en_riesgo: '#EF9F27',
   dormido: '#D85A30',
 };
+
+// El verde de la marca queda reservado para quien PAGA. La prueba va en ámbar: tiene Pro, pero
+// es plata que todavía no entró y tiene fecha de vencimiento. Los tres muros comparten familia
+// fría porque la acción sobre ellos es distinta entre sí pero ninguna es "cobrar hoy".
+const ESTADO_TONE: Record<EstadoComercial, string> = {
+  pro_pagado: '#1D9E75',
+  pago_pendiente: '#68dbae',
+  trial: '#EF9F27',
+  muro_vencido: '#D85A30',
+  muro_ex_pagador: '#a8705a',
+  sin_estrenar: '#8A877D',
+};
+
+/**
+ * Fecha de hoy en Lima, congelada al montar. Lazy init y no una lectura en render: React 19
+ * marca `new Date()` en render como impuro, y además un valor estable evita que los `useMemo`
+ * que dependen de él se recalculen en cada pasada.
+ */
+function useHoyLima(): string {
+  const [hoy] = useState(() =>
+    new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' }),
+  );
+  return hoy;
+}
+
+/**
+ * Badge del estado comercial. Reemplaza al `plan === 'premium' ? 'Pro' : 'Free'` que estaba
+ * duplicado en la ficha y en la tabla — y que era falso en las dos direcciones bajo el modelo
+ * de trial. Una sola definición para que las dos superficies no puedan volver a divergir.
+ */
+function EstadoBadge({ user, hoyLima }: { user: AdminUser; hoyLima: string }) {
+  const estado = estadoComercial(user);
+  // `hoyLima` llega por prop y no se lee el reloj acá: React 19 marca `new Date()` en render
+  // como impuro, y es la misma razón por la que esta página snapshotea `now` con useState.
+  const dias = diasHastaFinTrial(user, hoyLima);
+  const tone = ESTADO_TONE[estado];
+  return (
+    <span
+      className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
+      style={{ backgroundColor: `${tone}22`, color: tone }}
+      title={ESTADO_HINT[estado]}
+    >
+      {ESTADO_LABEL[estado]}
+      {estado === 'trial' && dias !== null && (
+        <span className="ml-1 opacity-80">· {dias === 0 ? 'vence hoy' : `${dias}d`}</span>
+      )}
+    </span>
+  );
+}
 
 const SEGMENT_HINT: Record<UserSegment, string> = {
   power: '≥1 tx en 14d y ≥30 tx totales',
@@ -185,6 +242,7 @@ function UserFichaSheet({ user, onClose }: { user: AdminUser | null; onClose: ()
   const f = data?.features;
   const nps = data?.nps?.response_data;
   const seg = user ? classifyUser(user) : null;
+  const hoyLima = useHoyLima();
 
   return (
     <Sheet open={!!user} onOpenChange={(o) => !o && onClose()}>
@@ -200,15 +258,7 @@ function UserFichaSheet({ user, onClose }: { user: AdminUser | null; onClose: ()
                 {user.email || user.whatsapp}
               </SheetDescription>
               <div className="mt-1 flex flex-wrap items-center gap-2">
-                <span
-                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                    user.plan === 'premium'
-                      ? 'bg-[rgba(29,158,117,0.14)] text-[#1D9E75]'
-                      : 'bg-white/5 text-[#8A877D]'
-                  }`}
-                >
-                  {user.plan === 'premium' ? 'Pro' : 'Free'}
-                </span>
+                <EstadoBadge user={user} hoyLima={hoyLima} />
                 {/* El plan no se toca cuando alguien pide borrar su cuenta (quien pagó conserva
                     su Pro si vuelve), así que sin esta chip la ficha decía "Pro · vence 2027"
                     sobre alguien que se fue. Es la misma marca que lo saca del MRR. */}
@@ -239,11 +289,19 @@ function UserFichaSheet({ user, onClose }: { user: AdminUser | null; onClose: ()
                 {/* Actividad = tx O mensaje. Con last_tx_at, quien usa Neto por WhatsApp sin
                     registrar gastos figuraba como "sin actividad" aunque escribiera ese día. */}
                 <DetailRow label="Última actividad" value={daysAgoLabel(user.last_activity_at)} />
-                {user.plan === 'premium' && (
-                  <>
-                    <DetailRow label="Se hizo Pro" value={fmtDate(user.premium_desde)} />
-                    <DetailRow label="Pro vence" value={fmtDate(user.premium_vence)} />
-                  </>
+                {/* Ramifica por estado y no por `plan`: durante la prueba `plan` es 'premium'
+                    pero `premium_desde`/`premium_vence` son NULL a propósito, así que la ficha
+                    mostraba "Se hizo Pro: —" y "Pro vence: —" sobre alguien que está probando.
+                    Dos guiones donde correspondía una fecha de fin de prueba. */}
+                {estadoComercial(user) === 'trial' ? (
+                  <DetailRow label="Prueba termina" value={fmtDate(user.trial_vence)} />
+                ) : (
+                  user.plan === 'premium' && (
+                    <>
+                      <DetailRow label="Se hizo Pro" value={fmtDate(user.premium_desde)} />
+                      <DetailRow label="Pro vence" value={fmtDate(user.premium_vence)} />
+                    </>
+                  )
                 )}
                 {user.cuenta_borrada_at && (
                   <DetailRow label="Pidió la baja" value={fmtDate(user.cuenta_borrada_at)} />
@@ -334,6 +392,15 @@ export default function AdminUsersPage() {
   // Snapshot al montar (lazy init): estable para las deps de los useMemo y para el render, sin
   // llamar Date.now() en cada render (React 19 lo marca como impuro).
   const [now] = useState(() => Date.now());
+  // Mismo snapshot, en el formato de fecha Lima que usan los predicados del trial.
+  const hoyLima = useHoyLima();
+
+  // Los conteos comerciales excluyen a quien pidió la baja. No es cosmético: el plan NO se toca
+  // al dar de baja (quien pagó conserva su Pro si vuelve), así que sin este filtro la tarjeta
+  // "Pro pagado" contaba 2 cuentas borradas que el MRR de esta misma pantalla ya descuenta, y
+  // dos números de la misma pantalla decían cosas distintas sobre las mismas personas.
+  // Siguen apareciendo en la LISTA, con su chip — lo que no hacen es contar como negocio.
+  const usersComerciales = useMemo(() => users.filter((u) => !u.cuenta_borrada_at), [users]);
 
   const proExpiring = useMemo(
     () =>
@@ -354,13 +421,31 @@ export default function AdminUsersPage() {
     [users],
   );
 
+  // Las pruebas que se acaban. NO las ve `proExpiring`, que filtra por `premium_vence` — NULL
+  // durante el trial por diseño. Es la lista comercialmente más urgente que tiene el panel:
+  // cada fila es alguien que hoy tiene Pro y en N días deja de tenerlo sin haber pagado.
+  const trialExpiring = useMemo(
+    () =>
+      usersComerciales
+        .filter((u) => isTrialExpiringSoon(u, 5, hoyLima))
+        .sort(
+          (a, b) =>
+            (diasHastaFinTrial(a, hoyLima) ?? 99) - (diasHastaFinTrial(b, hoyLima) ?? 99),
+        ),
+    [usersComerciales, hoyLima],
+  );
+
+  const countsEstado = useMemo(() => countByEstado(usersComerciales), [usersComerciales]);
+
   const nuevasConversiones = useMemo(
     () =>
-      users
-        .filter((u) => u.plan === 'premium' && u.premium_desde)
+      usersComerciales
+        // `plan === 'premium' && premium_desde` contaba como conversión a cualquiera con Pro,
+        // y durante la prueba eso es todo el mundo. Se pide el estado PAGADO explícitamente.
+        .filter((u) => estadoComercial(u) === 'pro_pagado' && u.premium_desde)
         .sort((a, b) => +new Date(b.premium_desde!) - +new Date(a.premium_desde!))
         .slice(0, 8),
-    [users],
+    [usersComerciales],
   );
 
   const enfriandose = useMemo(
@@ -375,12 +460,17 @@ export default function AdminUsersPage() {
   const porCanal = useMemo(() => {
     const canales: AdminUser['canal'][] = ['whatsapp', 'google', 'magic_link'];
     return canales.map((canal) => {
-      const list = users.filter((u) => u.canal === canal);
-      const pro = list.filter((u) => u.plan === 'premium').length;
+      const list = usersComerciales.filter((u) => u.canal === canal);
+      // "Cómo convierte cada canal a Pro" tiene que contar PAGOS. Con `plan === 'premium'`
+      // sumaba a todos los que están probando: al 27-ago-2026 eso era 31 "Pro" cuando los
+      // pagadores eran 3, o sea una tasa de conversión inflada 10x en la pantalla que se usa
+      // justo para decidir en qué canal invertir.
+      const pro = list.filter((u) => estadoComercial(u) === 'pro_pagado').length;
+      const enPrueba = list.filter((u) => estadoComercial(u) === 'trial').length;
       const conv = list.length > 0 ? Math.round((pro / list.length) * 1000) / 10 : 0;
-      return { canal, total: list.length, pro, conv };
+      return { canal, total: list.length, pro, enPrueba, conv };
     });
-  }, [users]);
+  }, [usersComerciales]);
 
   const listedUsers = useMemo(() => {
     const list =
@@ -417,6 +507,41 @@ export default function AdminUsersPage() {
           (excluye cuentas internas). La gestión operativa (activar Pro, tickets) vive en Operación.
         </p>
       </div>
+
+      {/* Estado comercial. Va ARRIBA de los segmentos de actividad a propósito: "cuántos pagan"
+          es la primera pregunta del panel, y hasta hoy no se podía contestar desde acá. */}
+      <section className="space-y-3">
+        <div className="flex items-baseline justify-between">
+          <h3 className="text-base font-semibold text-[#F0EFE8]">Estado comercial</h3>
+          <span className="text-xs text-[#8A877D]">
+            Durante la prueba el plan es Pro, así que “Pro” no significa “paga”
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
+          {ESTADO_ORDER.map((e) => (
+            <div
+              key={e}
+              className="glass-card px-3 py-3"
+              title={ESTADO_HINT[e]}
+            >
+              <div
+                className="font-mono text-xl tabular-nums"
+                style={{ color: ESTADO_TONE[e] }}
+              >
+                {countsEstado[e]}
+              </div>
+              <div className="mt-0.5 text-xs font-medium text-[#C8C6BC]">{ESTADO_LABEL[e]}</div>
+            </div>
+          ))}
+        </div>
+        {trialExpiring.length > 0 && (
+          <div className="rounded-xl border border-[rgba(239,159,39,0.35)] bg-[rgba(239,159,39,0.08)] px-4 py-3 text-sm text-[#EF9F27]">
+            {trialExpiring.length}{' '}
+            {trialExpiring.length === 1 ? 'prueba termina' : 'pruebas terminan'} en ≤5 días. Al
+            vencer caen al muro: siguen anotando gastos, pero dejan de poder leerlos.
+          </div>
+        )}
+      </section>
 
       {/* Segmentos */}
       <section className="space-y-3">
@@ -484,15 +609,7 @@ export default function AdminUsersPage() {
                       <div className="text-xs text-[#8A877D]">{u.email || u.whatsapp}</div>
                     </td>
                     <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                          u.plan === 'premium'
-                            ? 'bg-[rgba(29,158,117,0.14)] text-[#1D9E75]'
-                            : 'bg-white/5 text-[#8A877D]'
-                        }`}
-                      >
-                        {u.plan === 'premium' ? 'Pro' : 'Free'}
-                      </span>
+                      <EstadoBadge user={u} hoyLima={hoyLima} />
                     </td>
                     <td className="px-4 py-3 text-[#C8C6BC]">{CANAL_LABEL[u.canal]}</td>
                     <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-[#C8C6BC]">
@@ -518,7 +635,7 @@ export default function AdminUsersPage() {
       {/* Feed de actividad reciente */}
       <section className="space-y-3">
         <h3 className="text-base font-semibold text-[#F0EFE8]">Actividad reciente</h3>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <MiniList title="Nuevos registros" empty={nuevosRegistros.length === 0}>
             {nuevosRegistros.map((u) => (
               <FeedRow key={u.id} name={userLabel(u)} right={fmtDate(u.created_at)} />
@@ -535,6 +652,18 @@ export default function AdminUsersPage() {
             {enfriandose.map((u) => (
               <FeedRow key={u.id} name={userLabel(u)} right={daysAgoLabel(u.last_tx_at)} />
             ))}
+          </MiniList>
+          <MiniList title="Pruebas por vencer" empty={trialExpiring.length === 0}>
+            {trialExpiring.map((u) => {
+              const d = diasHastaFinTrial(u, hoyLima);
+              return (
+                <FeedRow
+                  key={u.id}
+                  name={userLabel(u)}
+                  right={d === 0 ? 'vence hoy' : `en ${d}d`}
+                />
+              );
+            })}
           </MiniList>
           <MiniList title="Pro por vencer" empty={proExpiring.length === 0}>
             {proExpiring.map((u) => {
@@ -566,7 +695,7 @@ export default function AdminUsersPage() {
                 <div className="mb-1 flex items-center justify-between text-xs">
                   <span className="text-[#C8C6BC]">{CANAL_LABEL[c.canal]}</span>
                   <span className="tabular-nums text-[#8A877D]">
-                    {c.total} usuarios · {c.pro} Pro{' '}
+                    {c.total} usuarios · {c.pro} pagan · {c.enPrueba} probando{' '}
                     <span className="text-[#5A584F]">({c.conv}% conversión)</span>
                   </span>
                 </div>
@@ -574,7 +703,7 @@ export default function AdminUsersPage() {
                   <div
                     className="h-full rounded-full transition-all"
                     style={{
-                      width: `${users.length > 0 ? (c.total / users.length) * 100 : 0}%`,
+                      width: `${usersComerciales.length > 0 ? (c.total / usersComerciales.length) * 100 : 0}%`,
                       backgroundColor: '#1D9E75',
                     }}
                   />

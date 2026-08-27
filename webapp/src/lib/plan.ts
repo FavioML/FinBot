@@ -172,10 +172,16 @@ export function diasRestantesTrial(
   plan: string | undefined,
   trialEstado: string | null | undefined,
   trialVence: string | null | undefined,
+  // `hoyLima` se inyecta SOLO para poder testear contra un reloj fijo. El default sigue
+  // siendo el reloj real, así que ningún call-site cambia de comportamiento. Sin esto, todo
+  // test de vencimiento depende del día en que se corre y el panel admin heredaba esa
+  // dependencia: la alternativa era reimplementar el cálculo ahí, o sea dos verdades.
+  hoyLimaOverride?: string,
 ): number | null {
   if (!enTrial(plan, trialEstado) || !trialVence) return null;
   const vence = String(trialVence).slice(0, 10);
-  const hoyLima = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+  const hoyLima =
+    hoyLimaOverride ?? new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
   if (vence < hoyLima) return 0;
   const ms =
     new Date(vence + 'T12:00:00-05:00').getTime() - new Date(hoyLima + 'T12:00:00-05:00').getTime();

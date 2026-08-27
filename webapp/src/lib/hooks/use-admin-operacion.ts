@@ -50,6 +50,11 @@ export interface AdminUser {
   nombre: string | null;
   email: string | null;
   plan: string;
+  // Estado comercial. `plan` solo dice si tiene Pro AHORA: durante la prueba vale 'premium'.
+  // Quién PAGA y en qué muro está cada quien lo deciden estas dos, vía `estadoComercial()`.
+  // null = nunca tuvo prueba (o sea, nunca registró un gasto).
+  trial_estado?: string | null;
+  trial_vence?: string | null;
   estado_pago: string | null;
   tipo_plan: string | null;
   fecha_pago: string | null;

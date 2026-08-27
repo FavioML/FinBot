@@ -49,7 +49,45 @@ crearlos a mano en business.facebook.com → WhatsApp Manager → Plantillas (id
 | `plan_pro_por_vencer` | UTILITY | checkPremiumExpiry aviso 3d | `Hola {{1}} 👋 Tu plan NETO Pro vence {{2}}. Renuévalo desde Neto para no perder tu historial y las funciones Pro.` | 1=nombre, 2="en 3 días (2026-07-06)" |
 | `trial_por_vencer` | UTILITY | checkTrialExpiry (día 11 y día 14) | `Hola {{1}} 👋 Tu prueba de Neto Pro termina {{2}}. Entra a Neto para ver tu resumen y decidir si continúas.` | 1=nombre, 2="en 3 días (12/08)" / "hoy" |
 
-### DECISIÓN (Favio, 2026-08-01): el aviso de fin de trial NO se manda por plantilla
+### REVERTIDA (Favio, 2026-08-27): la plantilla del trial SÍ se manda
+
+La decisión del 01-ago (abajo, conservada) apagó `trial_por_vencer` sobre una premisa
+explícita: *"si alguien no escribió ni registró un gasto en 11 días, no está usando el
+producto"*. **Los datos la refutan**, y el propio `cron/checks.js` había fijado la fecha para
+mirarlos (*"a las dos semanas se decide con datos si la plantilla vale el gasto"*). Primer
+envío el 14-ago, medido el 27:
+
+| aviso | enviados | **entregados** | fallidos `131047` |
+|---|---|---|---|
+| `trial_d11` | 11 | **1** | 10 |
+| `trial_d14` | 9 | **0** | 9 |
+| `trial_vencido` | 9 | **0** | 9 |
+
+**1 de 29.** Y el canal declarado fiable tampoco llegó: de 38 avisos in-app de fin de prueba,
+**0 leídos** — con el instrumento sano (108 notificaciones leídas por 6 usuarios ese mes).
+
+Lo que rompe la premisa es QUIÉN queda del otro lado: de los 16 usuarios cuya prueba vencía el
+31-ago, **11 tenían 5 o más transacciones y promediaban 37**. No son inactivos a los que no
+valga la pena perseguir; son los mejores usuarios que hay, a punto de caer al muro sin
+enterarse. La ventana de 24h es más estrecha que "usar el producto": se puede registrar dos
+gastos por día y estar fuera de ella a la hora en que corre el cron.
+
+Resultado comercial del período: **0 conversiones de 10 pruebas vencidas**, y cero pagos desde
+el 3-ago.
+
+**Y una segunda cosa, medida al crearla: Meta la clasificó MARKETING, no UTILITY.** El
+comentario del script apostaba a que *"sin precio, sin Yape y sin CTA de compra en el body"* la
+mantenía UTILITY. No alcanza — `plan_pro_por_vencer` ya había terminado en MARKETING con el
+mismo cuidado. La categoría la decide Meta y sale más cara. Si importa el costo, hay que pedir
+la recategorización desde WhatsApp Manager, no reescribir el body y suponer.
+
+**`WA_TRIAL_TEMPLATE_ENABLED` no se enciende hasta que el estado sea `APPROVED`.**
+`enviarWhatsapp` no tiene fallback: con `template` presente manda `type:'template'` y punto, así
+que encenderlo antes de la aprobación cambia 1 entrega de 29 por 0 de 29.
+
+---
+
+### DECISIÓN ORIGINAL (Favio, 2026-08-01), conservada porque explica de dónde salió el estado
 
 `trial_por_vencer` queda **creada en el script pero sin enviar a aprobación**, y
 `WA_TRIAL_TEMPLATE_ENABLED` se queda en `false` indefinidamente.

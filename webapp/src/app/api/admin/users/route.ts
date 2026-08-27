@@ -79,6 +79,13 @@ export async function GET() {
       nombre: u.nombre,
       email: u.email,
       plan: u.plan || 'free',
+      // Las DOS columnas del estado comercial. Se leían de la base desde siempre (están en el
+      // select de arriba) y morían acá sin salir en la respuesta, así que el panel no tenía
+      // con qué distinguir a quien está PROBANDO de quien PAGA — durante el trial `plan` vale
+      // 'premium' a propósito (migración 052). Sin ellas, `admin-user-segments` clasifica todo
+      // trial como Pro pagado y todo muro como "sin estrenar".
+      trial_estado: u.trial_estado ?? null,
+      trial_vence: u.trial_vence ?? null,
       estado_pago: u.estado_pago,
       tipo_plan: u.tipo_plan,
       fecha_pago: u.fecha_pago,
