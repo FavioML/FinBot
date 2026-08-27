@@ -49,13 +49,11 @@ crearlos a mano en business.facebook.com → WhatsApp Manager → Plantillas (id
 | `plan_pro_por_vencer` | UTILITY | checkPremiumExpiry aviso 3d | `Hola {{1}} 👋 Tu plan NETO Pro vence {{2}}. Renuévalo desde Neto para no perder tu historial y las funciones Pro.` | 1=nombre, 2="en 3 días (2026-07-06)" |
 | `trial_por_vencer` | UTILITY | checkTrialExpiry (día 11 y día 14) | `Hola {{1}} 👋 Tu prueba de Neto Pro termina {{2}}. Entra a Neto para ver tu resumen y decidir si continúas.` | 1=nombre, 2="en 3 días (12/08)" / "hoy" |
 
-### REVERTIDA (Favio, 2026-08-27): la plantilla del trial SÍ se manda
+### RATIFICADA (Favio, 2026-08-27): sigue sin usarse plantilla, y ahora está MEDIDO
 
-La decisión del 01-ago (abajo, conservada) apagó `trial_por_vencer` sobre una premisa
-explícita: *"si alguien no escribió ni registró un gasto en 11 días, no está usando el
-producto"*. **Los datos la refutan**, y el propio `cron/checks.js` había fijado la fecha para
-mirarlos (*"a las dos semanas se decide con datos si la plantilla vale el gasto"*). Primer
-envío el 14-ago, medido el 27:
+El 27-ago se midió el resultado que el propio `cron/checks.js` había fijado como fecha de
+decisión (*"a las dos semanas se decide con datos si la plantilla vale el gasto"*). Primer
+envío el 14-ago:
 
 | aviso | enviados | **entregados** | fallidos `131047` |
 |---|---|---|---|
@@ -63,27 +61,38 @@ envío el 14-ago, medido el 27:
 | `trial_d14` | 9 | **0** | 9 |
 | `trial_vencido` | 9 | **0** | 9 |
 
-**1 de 29.** Y el canal declarado fiable tampoco llegó: de 38 avisos in-app de fin de prueba,
-**0 leídos** — con el instrumento sano (108 notificaciones leídas por 6 usuarios ese mes).
+**1 de 29 entregados**, y 0 de 38 avisos in-app leídos (instrumento sano: 108 lecturas de 6
+usuarios ese mes). Resultado comercial: 0 conversiones de 10 pruebas vencidas.
 
-Lo que rompe la premisa es QUIÉN queda del otro lado: de los 16 usuarios cuya prueba vencía el
-31-ago, **11 tenían 5 o más transacciones y promediaban 37**. No son inactivos a los que no
-valga la pena perseguir; son los mejores usuarios que hay, a punto de caer al muro sin
-enterarse. La ventana de 24h es más estrecha que "usar el producto": se puede registrar dos
-gastos por día y estar fuera de ella a la hora en que corre el cron.
+**Ese 1-de-29 parece un argumento PARA la plantilla, y no lo es. Lo dice quién está del otro
+lado.** Los 16 usuarios cuya prueba vencía el 31-ago promedian 37 transacciones, y con ese
+número se llegó a escribir acá que la premisa del 01-ago estaba refutada. **Es un promedio
+HISTÓRICO.** En los últimos 14 días, **1 de esos 16 registró algo, y fueron 2 transacciones**.
+Los 16 comparten `trial_inicio = 2026-08-01`: son el backfill de cortesía de 30 días de la
+migración 052, o sea usuarios con historial que llevan meses sin usar el producto y a los que
+se les regaló Pro sin que se enteraran.
 
-Resultado comercial del período: **0 conversiones de 10 pruebas vencidas**, y cero pagos desde
-el 3-ago.
+O sea: la plantilla habría pagado por alcanzar a gente que no está usando Neto, que es
+exactamente lo que la decisión del 01-ago dice. **La premisa se sostiene, y ahora con datos.**
 
-**Y una segunda cosa, medida al crearla: Meta la clasificó MARKETING, no UTILITY.** El
-comentario del script apostaba a que *"sin precio, sin Yape y sin CTA de compra en el body"* la
-mantenía UTILITY. No alcanza — `plan_pro_por_vencer` ya había terminado en MARKETING con el
-mismo cuidado. La categoría la decide Meta y sale más cara. Si importa el costo, hay que pedir
-la recategorización desde WhatsApp Manager, no reescribir el body y suponer.
+Lo que el 1-de-29 sí prueba es otra cosa, y es la que hay que arreglar: el canal libre no
+alcanza a NADIE fuera de la ventana, así que quien sí está activo tampoco se entera si el aviso
+sale a una hora fija por un cron. Medido sobre los que están en prueba hoy: **5 de 28
+escribieron por WhatsApp en la última semana** (`conversaciones`, que poda a 40 turnos y por lo
+tanto subcuenta: es un piso). Ésos son alcanzables **gratis**, y no por un cron.
 
-**`WA_TRIAL_TEMPLATE_ENABLED` no se enciende hasta que el estado sea `APPROVED`.**
-`enviarWhatsapp` no tiene fallback: con `template` presente manda `type:'template'` y punto, así
-que encenderlo antes de la aprobación cambia 1 entrega de 29 por 0 de 29.
+**El camino gratis, entonces, es pegar el aviso a una RESPUESTA en vez de iniciar una
+conversación.** Cuando alguien en prueba escribe, Neto ya le contesta y ese mensaje está dentro
+de la ventana por construcción: agregarle una línea de "tu prueba termina en N días" cuesta cero
+y se entrega siempre. No alcanza a los dormidos — y esa es la característica, no el defecto.
+
+**Estado de las plantillas al 27-ago:** `trial_por_vencer` quedó creada en Meta (id
+1088165707062775) en PENDING, y **clasificada MARKETING**, no UTILITY: el comentario del script
+apuesta a que un body sin precio la mantiene UTILITY y eso es falso, le pasó lo mismo a
+`plan_pro_por_vencer`. Existir no cuesta nada; sólo se cobra el envío. Borrarla exige un permiso
+que el `META_ACCESS_TOKEN` del backend no tiene (da `#100`): se hace a mano en WhatsApp Manager.
+**Ni `WA_TRIAL_TEMPLATE_ENABLED` ni `WA_TEMPLATES_ENABLED` están puestas en Railway**, así que
+Neto no envía ni una plantilla y no hay ningún cobro corriendo.
 
 ---
 
