@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
@@ -96,6 +96,42 @@ describe('survey_events: escritores y lectores hablan del mismo conjunto de cana
     for (const cuerpo of inserts) {
       expect(cuerpo, 'un insert volvió a fijar el canal').not.toMatch(/channel:\s*['"]whatsapp['"]/);
       expect(cuerpo).toMatch(/channel:\s*usuario\.whatsapp\s*\?\s*'whatsapp'\s*:\s*'in_app'/);
+    }
+  });
+
+  /**
+   * **`survey_events.channel` es un ENUM, no un `text` libre**, y esto se pagó en producción.
+   *
+   * `notification_deliveries.canal` sí es `text` con default, así que escribir `'email'` ahí
+   * no necesita nada. Por analogía escribí `'in_app'` en `survey_events.channel` — y el tipo
+   * es `survey_channel`, que solo tenía `whatsapp` y `webapp`. **La suite entera pasó en
+   * verde**: los guards de este archivo son estáticos (leen el fuente) y los dobles de
+   * Supabase no validan enums, así que nada podía verlo. Apareció recién al consultar
+   * producción DESPUÉS del deploy, con un `22P02: invalid input value for enum`.
+   *
+   * El guard no puede consultar la base desde `npm test`. Lo que sí puede es exigir que todo
+   * valor nuevo venga con su migración: es exactamente el paso que faltó, y es barato de
+   * comprobar. Los dos originales están exentos porque nacieron con el tipo.
+   */
+  it('todo canal que el código escribe existe en el enum, o trae su migración', () => {
+    const ORIGINALES = new Set(['whatsapp', 'webapp']);
+    const migraciones = readdirSync(join(RAIZ, 'migrations'))
+      .filter((f) => f.endsWith('.sql'))
+      .map((f) => readFileSync(join(RAIZ, 'migrations', f), 'utf8'))
+      .join('\n');
+
+    const literal = CHECKS.match(/const CANALES_EMPUJE = \[([^\]]*)\]/)[1];
+    const escritos = [...literal.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+    expect(escritos.length, 'el barrido no encontró los canales: dejó de mirar').toBeGreaterThan(1);
+
+    for (const canal of escritos) {
+      if (ORIGINALES.has(canal)) continue;
+      expect(
+        new RegExp(`ALTER TYPE survey_channel ADD VALUE[^;]*'${canal}'`).test(migraciones),
+        `'${canal}' no existe en el enum survey_channel y ninguna migración lo agrega. ` +
+        'Un INSERT con ese valor falla con 22P02 en producción, y ningún test local lo ve: ' +
+        'los guards leen el fuente y los dobles de Supabase no validan enums.',
+      ).toBe(true);
     }
   });
 
