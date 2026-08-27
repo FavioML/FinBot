@@ -194,14 +194,37 @@ async function main() {
     sent[0]?.opts?.tipo === 'deuda' && sent[0]?.opts?.usuarioId === QA_ID && !sent[0]?.opts?.template,
     'tipo=' + sent[0]?.opts?.tipo + ' usuarioId=' + (sent[0]?.opts?.usuarioId === QA_ID));
 
+  // DOS filas desde el 27-ago-2026, no una: `deuda` es el primer emisor del canal de correo,
+  // así que cada aviso deja su intento de WhatsApp Y su intento de email. Este harness es lo
+  // único que lo comprueba por el pipeline REAL (cron → notificarUsuario → los dos
+  // transportes → la tabla); los tests de `lib/email.test.js` mockean el transporte.
+  //
+  // El conteo se afirma en 2 a propósito, en vez de relajarlo a `>= del0 + 1`: si mañana el
+  // canal de correo se cae del call-site, un `>=` lo dejaría pasar en silencio y esa es
+  // exactamente la regresión que nadie vería —el WhatsApp de `deuda` entrega 6 de 35 veces—.
   const del1 = await countDeliveries();
-  check('TRIGGER: +1 fila en notification_deliveries', del1 === del0 + 1, del0 + '→' + del1);
-  const { data: lastDel } = await supabase.from('notification_deliveries')
+  check('TRIGGER: +2 filas en notification_deliveries (whatsapp + email)',
+    del1 === del0 + 2, del0 + '→' + del1);
+
+  const { data: dels } = await supabase.from('notification_deliveries')
     .select('estado, canal, tipo').eq('usuario_id', QA_ID).eq('tipo', 'deuda')
-    .order('id', { ascending: false }).limit(1);
-  check('TRIGGER: entrega estado=skipped_test (test user, sin Meta), canal=whatsapp',
-    lastDel?.[0]?.estado === 'skipped_test' && lastDel?.[0]?.canal === 'whatsapp',
-    'estado=' + lastDel?.[0]?.estado);
+    .order('id', { ascending: false }).limit(2);
+  const canales = (dels || []).map((d) => d.canal).sort();
+  check('TRIGGER: los dos canales, uno de cada uno',
+    JSON.stringify(canales) === JSON.stringify(['email', 'whatsapp']), JSON.stringify(canales));
+
+  const wa = (dels || []).find((d) => d.canal === 'whatsapp');
+  check('TRIGGER: whatsapp estado=skipped_test (test user, sin Meta)',
+    wa?.estado === 'skipped_test', 'estado=' + wa?.estado);
+
+  // El estado del correo depende del entorno y por eso se afirma el CONJUNTO, no un valor:
+  // sin `RESEND_API_KEY` (CI y local) sale `skipped_sin_proveedor`; con la key puesta, el
+  // `is_test_user` del QA lo corta antes con `skipped_test`. Lo que NO puede pasar en ninguno
+  // de los dos es `sent`: eso sería un correo de verdad a la cuenta de pruebas.
+  const mail = (dels || []).find((d) => d.canal === 'email');
+  check('TRIGGER: email no salió de verdad (skipped_*, nunca sent)',
+    ['skipped_sin_proveedor', 'skipped_test', 'skipped_no_email', 'skipped_sin_baja'].includes(mail?.estado),
+    'estado=' + mail?.estado);
 
   const notifs1 = await getNotifs();
   const notifMatch = notifs1.find(n => n.datos?.deuda_id === THROWAWAY_ID);
