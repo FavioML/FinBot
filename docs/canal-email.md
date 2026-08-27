@@ -117,6 +117,13 @@ group by 1, 2 order by 1, 2;
 órdenes de magnitud — pero **el tope diario prohíbe cualquier backfill masivo**. Si alguna vez
 se quiere avisar a todo el padrón de una vez, hay que escalonarlo o pagar el plan.
 
+Hay además un límite de **2 requests por segundo**. Hoy no muerde: los crons recorren
+destinatarios en serie y cada vuelta hace varias consultas antes de llegar al envío. Pero
+conviene saber que **un 429 se trata como fallo permanente**: `enviarEmail` lo registra como
+`estado='error'` y no reintenta, y estos avisos están anclados a un día exacto, así que lo que
+se pierde es el ciclo entero. Si algún día se manda en paralelo o en lote, eso es lo primero
+que hay que resolver — no el tope mensual.
+
 ---
 
 ## Cómo se agrega un emisor nuevo
