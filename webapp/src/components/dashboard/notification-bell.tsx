@@ -86,18 +86,35 @@ export function NotificationBell() {
    * avisos por usuario activo al mes, así que una impresión por notificación convertiría el
    * embudo en el mismo ruido que viene a medir.
    *
+   * **`total` y `tipos` NO se derivan de `notifications`.** Esa lista viene capada en 20 por la
+   * API (el panel no pagina), así que hasta el 2026-08-27 el campo que mide el RUIDO saturaba
+   * justo en el único usuario del muestreo con volumen real — hay aperturas en PostHog con
+   * `total: 20, no_leidas: 22`, y 20 es un número lo bastante plausible como para que nadie lo
+   * mirara dos veces. Los exactos los calcula el servidor (`lib/notificaciones-resumen.ts`);
+   * `listados` es aparte y sí es el largo de la lista, para poder ver el corte desde el dato.
+   *
+   * **`total: null` tiene DOS orígenes y se distinguen por `listados`.** Si el resumen falló
+   * pero la lista llegó, `listados > 0`. Si se abrió la campana antes de que cargara nada
+   * —`data` todavía es `undefined`— salen `listados: 0` y `no_leidas: 0`. Al usuario sin
+   * avisos no se lo confunde con ninguno de los dos: ese trae `total: 0`, no `null`.
+   *
    * **Nada de PII acá.** Van `tipo` y conteos; nunca `titulo`, `mensaje` ni `datos`, que llevan
-   * nombres, montos y categorías. Es la regla del docblock de `track()`.
+   * nombres, montos y categorías. Es la regla del docblock de `track()`. Y nunca un `...spread`:
+   * lo que viaja tiene que estar escrito acá para poder mirarlo.
    */
   function handleToggle() {
     const abriendo = !open;
     setOpen(abriendo);
     if (!abriendo) return;
     track(EVENTS.NOTIFICATIONS_OPENED, {
-      total: notifications.length,
+      // Exactos, del servidor. `null` = no se pudo medir; nunca 0 por un fallo silencioso.
+      total: data?.total ?? null,
       no_leidas: unreadCount,
       // Cuáles había, para saber qué tipo se ignora sistemáticamente.
-      tipos: [...new Set(notifications.map((n: Notificacion) => n.tipo))],
+      tipos: data?.tipos ?? null,
+      // Cuántos se llegaron a renderizar. Si vuelve a ser igual a `total` en un usuario con
+      // volumen, el cap volvió.
+      listados: notifications.length,
     });
   }
 

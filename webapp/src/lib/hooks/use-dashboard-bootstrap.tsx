@@ -35,7 +35,7 @@ interface DashboardPayload {
   goals: unknown[];
   debts: unknown[];
   achievements: unknown[];
-  notifications: { notifications: unknown[]; unreadCount: number };
+  notifications: { notifications: unknown[]; unreadCount: number; total: number | null; tipos: string[] | null };
   score: unknown | null;
   scoreHistory: { history: unknown[] };
   alerts: { alerts: unknown[]; isPro: boolean };

@@ -1,5 +1,6 @@
 import { requireLectura } from '@/lib/supabase/auth';
 import { getServiceClient } from '@/lib/supabase/service';
+import { resumenNotificaciones } from '@/lib/notificaciones-resumen';
 import { isAdminAuthId } from '@/lib/admin';
 import { NextResponse } from 'next/server';
 
@@ -111,6 +112,7 @@ export async function GET(request: Request) {
     achievementsRes,
     notifsRes,
     unreadRes,
+    notifsResumen,
     scoreRowRes,
     historyRes,
     alertsRes,
@@ -123,6 +125,9 @@ export async function GET(request: Request) {
     svc.from('logros').select('*').eq('usuario_id', userId).order('created_at', { ascending: false }),
     svc.from('notificaciones').select('*').eq('usuario_id', userId).order('fecha', { ascending: false }).limit(20),
     svc.from('notificaciones').select('id', { count: 'exact', head: true }).eq('usuario_id', userId).eq('leida', false),
+    // Total exacto e inventario de tipos: el listado de arriba va capado en 20 y la telemetria
+    // de la campana derivaba esos dos campos de ahi. Ver `lib/notificaciones-resumen.ts`.
+    resumenNotificaciones(svc, userId),
     svc.from('neto_scores').select(SCORE_COLS).eq('user_id', userId).order('period', { ascending: false }).limit(1),
     svc.from('neto_scores').select(SCORE_COLS).eq('user_id', userId).gte('period', historySinceISO).order('period', { ascending: true }),
     svc.from('spending_alerts').select('*').eq('user_id', userId).gte('created_at', inicioMesLimaISO()).order('created_at', { ascending: false }).limit(100),
@@ -185,7 +190,7 @@ export async function GET(request: Request) {
     goals: [...ownGoals, ...participatedGoals],
     debts: debtsRes.data || [],
     achievements: achievementsRes.data || [],
-    notifications: { notifications: notifsRes.data || [], unreadCount: unreadRes.count || 0 },
+    notifications: { notifications: notifsRes.data || [], unreadCount: unreadRes.count || 0, ...notifsResumen },
     score,
     scoreHistory: { history },
     alerts: { alerts, isPro },

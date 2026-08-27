@@ -19,9 +19,28 @@ import { join } from 'node:path';
  * S/420 en Comida"). Mandar eso a PostHog es exportar el detalle financiero de un usuario a un
  * tercero. Agregar `titulo:` al payload es una línea, se ve razonable en un diff, y no rompería
  * nada más.
+ *
+ * **3. Que `total` y `tipos` NO vuelvan a salir de la lista capada.** El panel lista con
+ * `.limit(20)` y hasta el 2026-08-27 estos dos campos se derivaban de ahí, mientras
+ * `unreadCount` contaba exacto: hay aperturas reales en PostHog con `total: 20, no_leidas: 22`.
+ * El sesgo satura arriba, o sea justo en el usuario con volumen, que es el único sobre el que
+ * la pregunta "¿es ruido?" tiene sentido. Medido en producción: 8 de 77 usuarios pasan el cap
+ * y **6 de esos 8 pierden además al menos un TIPO**. El caso positivo de más abajo no alcanzaba
+ * para verlo: `total: notifications.length` también satisface `\btotal\b`.
  */
 
 const SRC = readFileSync(join(process.cwd(), 'src/components/dashboard/notification-bell.tsx'), 'utf8');
+
+/** Los pares `clave: valor` de un payload, sin comentarios, para poder mirar el VALOR. */
+function campos(payload: string): Record<string, string> {
+  const salida: Record<string, string> = {};
+  for (const linea of payload.split('\n')) {
+    const limpia = linea.replace(/\/\/.*$/, '').trim();
+    const m = limpia.match(/^(\w+):\s*(.+?),?$/);
+    if (m) salida[m[1]] = m[2];
+  }
+  return salida;
+}
 
 /** Los argumentos de cada `track(...)`, para mirar el PAYLOAD y no el archivo entero. */
 const LLAMADAS = [...SRC.matchAll(/track\(\s*EVENTS\.([A-Z_]+)\s*,([\s\S]*?)\n\s*\}\);/g)]
@@ -59,5 +78,38 @@ describe('telemetría de la campana', () => {
     const clic = LLAMADAS.find((l) => l.evento === 'NOTIFICATION_CLICKED')!.payload;
     expect(clic).toMatch(/\btipo\b/);
     expect(clic).toMatch(/\bestaba_no_leida\b/);
+  });
+
+  it.each(['NOTIFICATIONS_OPENED', 'NOTIFICATION_CLICKED'])('%s no esparce un objeto entero', (evento) => {
+    // La evasion que ABRE este arreglo: desde que `tipos` viene del servidor, un `...data` es
+    // un cambio corto y de aspecto inocente. `campos()` no lo captura como clave, asi que los
+    // cinco negativos de PII y el conteo de claves seguirian en verde mientras el evento manda
+    // `notifications` completo — con `titulo` y `mensaje` adentro.
+    const { payload } = LLAMADAS.find((l) => l.evento === evento)!;
+    expect(payload, `${evento} esparce un objeto: lo que lleve adentro viaja sin ser mirado`)
+      .not.toMatch(/\.\.\./);
+  });
+
+  it('el parser de campos ve algo (antivacuidad del bloque de abajo)', () => {
+    // Si la regex de `campos()` dejara de matchear, los tres casos siguientes pasarían sobre
+    // un objeto vacío: `undefined` no contiene `notifications`.
+    const abrir = campos(LLAMADAS.find((l) => l.evento === 'NOTIFICATIONS_OPENED')!.payload);
+    expect(Object.keys(abrir).sort()).toEqual(['listados', 'no_leidas', 'tipos', 'total']);
+  });
+
+  it.each(['total', 'tipos'])('`%s` no se deriva de la lista capada', (campo) => {
+    const abrir = campos(LLAMADAS.find((l) => l.evento === 'NOTIFICATIONS_OPENED')!.payload);
+    // `notifications` es lo que devuelve la API con `.limit(20)`. Derivar de ahí el campo que
+    // mide el ruido lo hace saturar en 20 justo en el usuario con volumen. Esto también mata
+    // el "arreglo defensivo" `data?.total ?? notifications.length`, que reintroduce el sesgo
+    // exactamente en el caso donde importa: cuando el resumen no está.
+    expect(abrir[campo], `${campo} sale de la lista capada`).not.toMatch(/\bnotifications\b/);
+  });
+
+  it('`listados` SÍ es el largo de la lista, que es lo que lo hace útil', () => {
+    // El contra-campo: con los dos juntos el corte se ve desde el dato. Si alguien vuelve a
+    // capar `total`, `total === listados` en un usuario con volumen lo delata.
+    const abrir = campos(LLAMADAS.find((l) => l.evento === 'NOTIFICATIONS_OPENED')!.payload);
+    expect(abrir.listados).toMatch(/notifications\.length/);
   });
 });

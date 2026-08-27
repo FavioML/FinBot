@@ -1,5 +1,6 @@
 import { getServiceClient } from '@/lib/supabase/service';
 import { requireNetoUser } from '@/lib/supabase/auth';
+import { resumenNotificaciones } from '@/lib/notificaciones-resumen';
 import { NextResponse } from 'next/server';
 
 // GET /api/notifications/inbox — list last 20 notifications
@@ -8,24 +9,24 @@ export async function GET() {
   if (!auth.ok) return auth.response;
   const userId = auth.user.id;
 
-  const { data, error } = await getServiceClient()
-    .from('notificaciones')
-    .select('*')
-    .eq('usuario_id', userId)
-    .order('fecha', { ascending: false })
-    .limit(20);
+  const svc = getServiceClient();
+  // Las tres en paralelo: antes eran dos `await` encadenados, y la funcion corre en iad1
+  // contra una base en sa-east-1 (~350ms por ida y vuelta). Agregar el resumen sin
+  // paralelizar habria sumado un tercer viaje al camino critico de la campana.
+  const [listaRes, unreadRes, resumenRes] = await Promise.all([
+    svc.from('notificaciones').select('*').eq('usuario_id', userId).order('fecha', { ascending: false }).limit(20),
+    svc.from('notificaciones').select('id', { count: 'exact', head: true }).eq('usuario_id', userId).eq('leida', false),
+    resumenNotificaciones(svc, userId),
+  ]);
 
-  if (error)
-    return NextResponse.json({ error: error.message }, { status: 400 });
+  if (listaRes.error)
+    return NextResponse.json({ error: listaRes.error.message }, { status: 400 });
 
-  // Also get unread count
-  const { count } = await getServiceClient()
-    .from('notificaciones')
-    .select('id', { count: 'exact', head: true })
-    .eq('usuario_id', userId)
-    .eq('leida', false);
-
-  return NextResponse.json({ notifications: data || [], unreadCount: count || 0 });
+  return NextResponse.json({
+    notifications: listaRes.data || [],
+    unreadCount: unreadRes.count || 0,
+    ...resumenRes,
+  });
 }
 
 // PUT /api/notifications/inbox — mark notification(s) as read

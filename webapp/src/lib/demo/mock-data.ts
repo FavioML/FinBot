@@ -352,9 +352,7 @@ export const DEMO_ALERTS: AlertsData = {
 
 // ─── Notificaciones ───────────────────────────────────────────────────────────
 
-export const DEMO_NOTIFICATIONS: { notifications: Notificacion[]; unreadCount: number } = {
-  unreadCount: 2,
-  notifications: [
+const DEMO_NOTIF_FILAS: Notificacion[] = [
     {
       id: 'notif-01',
       usuario_id: DEMO_USER_ID,
@@ -399,7 +397,20 @@ export const DEMO_NOTIFICATIONS: { notifications: Notificacion[]; unreadCount: n
       fecha: dateStr(7),
       created_at: dateStr(7),
     },
-  ],
+];
+
+export const DEMO_NOTIFICATIONS: {
+  notifications: Notificacion[];
+  unreadCount: number;
+  total: number;
+  tipos: string[];
+} = {
+  unreadCount: 2,
+  notifications: DEMO_NOTIF_FILAS,
+  // En demo el listado no va capado, asi que el total exacto ES su largo. Se declaran igual
+  // para que la campana en demo recorra el mismo camino que en produccion, donde NO lo son.
+  total: DEMO_NOTIF_FILAS.length,
+  tipos: [...new Set(DEMO_NOTIF_FILAS.map((n) => n.tipo))],
 };
 
 // ─── Gastos compartidos (Split) ───────────────────────────────────────────────

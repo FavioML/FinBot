@@ -17,8 +17,16 @@ export interface Notificacion {
 }
 
 interface InboxResponse {
+  /** Los 20 mas nuevos. El panel no pagina, asi que la lista va capada a proposito. */
   notifications: Notificacion[];
   unreadCount: number;
+  /**
+   * Totales EXACTOS, que no salen del listado capado. Ver `lib/notificaciones-resumen.ts`:
+   * derivarlos de `notifications` es el defecto que satura la telemetria en 20.
+   * `null` = no se pudo medir (distinto de 0, que es un usuario sin avisos).
+   */
+  total?: number | null;
+  tipos?: string[] | null;
 }
 
 export function useNotifications(userId?: string) {
