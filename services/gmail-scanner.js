@@ -203,15 +203,46 @@ async function escaneoAutomatico() {
           // Gmail desconectado — notificar al usuario (máx 1 vez/24h)
           await notificarAuthExpirada(usuario);
         } else if (resultado && typeof resultado === 'string' && resultado.includes('movimiento')) {
-          await notificarUsuario({
-            canales: CANALES.SOLO_IN_APP,
-            motivo: 'un WhatsApp de resumen del escaneo era ruido: cada transacción detectada ya manda su propia tarjeta "Nuevo gasto" (enviarAlertaTransaccion, gateada por usuario.alertas_transaccion)',
-            usuarioId: usuario.id,
-            tipo: 'gmail_escaneo',
-            titulo: 'Escaneo de correo completado',
-            cuerpo: 'Se detectaron nuevos movimientos en tu correo bancario',
-            link: '/dashboard/transacciones',
-          });
+          // Como máximo UNO por día por usuario, con el dedup por tipo+titulo+fecha que ya
+          // usan los cuatro avisos de `cron/checks.js`.
+          //
+          // Este cron corre cada 15 minutos (`INTERVALO_ESCANEO_MS`, default 0.25h) y esta
+          // rama escribía una fila por corrida que encontrara movimientos. Medido el
+          // 27-ago-2026 sobre 30 días: **209 filas a 2 usuarios**, o sea el 26.7% de TODO el
+          // volumen in-app del producto, 4.4 por día en el más activo. Las 4.4 dicen lo mismo
+          // y enlazan al mismo sitio.
+          //
+          // **No se borra el aviso, se colapsa la cadencia**, y la diferencia importa: el
+          // `motivo` de acá abajo dice que cada transacción ya manda su tarjeta, pero esa
+          // tarjeta es de WHATSAPP — `enviarAlertaTransaccion` no escribe fila in-app salvo en
+          // la rama de gasto inusual, y su propio docblock explica que convertirla en
+          // `notificarUsuario` sería "una campana de spam". O sea que sin este resumen la
+          // campana se queda SIN NADA que cuente que el correo trajo movimientos, y encima
+          // para quien está fuera de la ventana de 24h de Meta (448 de 454 fallos de envío)
+          // el WhatsApp tampoco llega.
+          //
+          // Falla CERRADO: si el dedup no se puede leer se asume que ya se avisó. Es al revés
+          // que los crons horarios de `checks.js`, y por el volumen: acá "ante la duda mandar"
+          // son hasta 96 filas idénticas en un día. El costo de saltarse un resumen es que la
+          // persona ve sus movimientos al entrar, que es lo que iba a hacer igual.
+          const inicioHoy = new Date(hoyPeru() + 'T00:00:00-05:00').toISOString();
+          const { data: yaAviso, error: errDedup } = await supabase.from('notificaciones')
+            .select('id').eq('usuario_id', usuario.id).eq('tipo', 'sistema')
+            .eq('titulo', 'Escaneo de correo completado').gte('fecha', inicioHoy).limit(1);
+          if (errDedup) {
+            log.warn({ tag: 'AUTO', usuarioId: usuario.id, err: errDedup.message },
+              'dedup del resumen de escaneo ilegible: se asume avisado');
+          } else if (!yaAviso || yaAviso.length === 0) {
+            await notificarUsuario({
+              canales: CANALES.SOLO_IN_APP,
+              motivo: 'un WhatsApp de resumen del escaneo era ruido: cada transacción detectada ya manda su propia tarjeta "Nuevo gasto" (enviarAlertaTransaccion, gateada por usuario.alertas_transaccion)',
+              usuarioId: usuario.id,
+              tipo: 'gmail_escaneo',
+              titulo: 'Escaneo de correo completado',
+              cuerpo: 'Se detectaron nuevos movimientos en tu correo bancario',
+              link: '/dashboard/transacciones',
+            });
+          }
         }
       } catch (e) { log.error({ tag: 'AUTO', whatsapp: usuario.whatsapp, err: e.message }, 'Error escaneo usuario'); }
     }
