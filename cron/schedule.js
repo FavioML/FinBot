@@ -93,6 +93,7 @@ const TAREAS = [
   { nombre: 'checkRecordatorioDeudas', cadaMs: 15 * MIN, tag: 'DEUDAS', mensaje: 'Recordatorios de deudas (diario 9am Lima)' },
   { nombre: 'checkRecordatorioSuscripciones', cadaMs: 15 * MIN, tag: 'SUB_REMIND', mensaje: 'Recordatorios de cobro de suscripciones (Pro, 3d antes, 10am Lima)' },
   { nombre: 'checkCalcularNetoScore', cadaMs: 15 * MIN, tag: 'SCORE', mensaje: 'Cálculo diario Neto Score (6am Lima)' },
+  { nombre: 'checkRetencionNotificaciones', cadaMs: 15 * MIN, tag: 'RETENCION', mensaje: 'Retención de la campana (4am Lima, 90 días + tope 100 por usuario)' },
   { nombre: 'checkNotificacionScore', cadaMs: 15 * MIN, tag: 'SCORE', mensaje: 'Notificación semanal del Score (domingos 10am Lima)' },
   { nombre: 'checkDetectorFugas', cadaMs: 15 * MIN, tag: 'FUGAS', mensaje: 'Detector de fugas (Pro: miércoles+15, Free: 1ro de mes, 11am Lima)' },
   { nombre: 'checkCheckInPlanes', cadaMs: 15 * MIN, tag: 'PLANES', mensaje: 'Check-in de planes de ahorro (Pro: 1ro y 15, 11am Lima)' },

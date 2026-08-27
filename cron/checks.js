@@ -1861,6 +1861,44 @@ async function limpiarOTPVencidos() {
   } catch (e) { log.warn({ tag: 'OTP_CLEANUP', err: msgErr(e) }, 'Error limpiando OTPs vencidos'); }
 }
 
+// Retencion de la campana. La tabla `notificaciones` no se podaba NUNCA: al medirla el
+// 2026-08-27 la fila viva mas vieja era del 3 de abril (146 dias), un usuario acumulaba 786
+// filas y otro 364. El problema no es el espacio (1848 filas en total): es que `total` no tiene
+// techo, o sea que "¿la campana es ruidosa?" se vuelve incontestable, y un aviso de abril que
+// dice "tu deuda vence en 7 dias" es ruido por definicion.
+//
+// Las dos clausulas y por que hacen falta las dos estan en `migrations/077`. Los numeros van
+// aca como constantes y no dentro de la funcion de Postgres a proposito: cambiarlos es una
+// decision de producto y tiene que verse en un diff de este repo, no en una migracion aplicada.
+const RETENCION_DIAS = 90;
+const RETENCION_TOPE_POR_USUARIO = 100;
+
+async function checkRetencionNotificaciones() {
+  const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
+  // 4am: la unica franja donde no compite con ningun otro cron de esta tabla.
+  if (horaLima.getHours() !== 4 || horaLima.getMinutes() > 14) return;
+  try {
+    const { data, error } = await supabase.rpc('notificaciones_podar', {
+      p_dias: RETENCION_DIAS,
+      p_tope: RETENCION_TOPE_POR_USUARIO,
+    }).maybeSingle();
+    // supabase-js no lanza: sin leer esto, una poda que dejo de correr se ve identica a una
+    // que no tenia nada que borrar — que es el estado normal a partir del segundo dia.
+    if (error) {
+      log.error({ tag: 'RETENCION', err: error.message }, 'La poda de notificaciones no corrio');
+      return;
+    }
+    const porEdad = Number(data?.por_edad ?? 0);
+    const porTope = Number(data?.por_tope ?? 0);
+    // Se loguea SIEMPRE, incluido el cero: el cero es la unica evidencia de que corrio y no
+    // encontro nada, y sin el la ausencia de linea significaria las dos cosas a la vez.
+    log.info({ tag: 'RETENCION', porEdad, porTope, dias: RETENCION_DIAS, tope: RETENCION_TOPE_POR_USUARIO },
+      'Poda de notificaciones');
+  } catch (e) {
+    log.error({ tag: 'RETENCION', err: e.message }, 'La poda de notificaciones lanzo');
+  }
+}
+
 module.exports = {
   // Exportado para su test: es el predicado que decide si se abre la ventana de comprobante,
   // y equivocarse ahí le rompe el registro por foto a quien nunca recibió el aviso.
@@ -1886,4 +1924,5 @@ module.exports = {
   checkRecordatoriosCostos,
   checkSurveyTriggers,
   checkSurveyConversions,
+  checkRetencionNotificaciones,
 };
