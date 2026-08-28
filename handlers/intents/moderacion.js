@@ -95,7 +95,7 @@ module.exports = {
             : '👤 *Soporte humano*\n\nCuéntame tu problema o consulta en un mensaje y se lo paso al equipo. Te responderemos por este mismo chat.\n\n_Escribe */salir* cuando termines para volver al asistente ⬇️_';
         } catch(e) {
           log.error({ tag: 'SOPORTE', err: e.message }, 'Error creando ticket');
-          return '👤 *Soporte humano:*\n\nEscríbenos a:\n📧 hola@neto.pe\n📱 WhatsApp: 970398192';
+          return '👤 *Soporte humano:*\n\nSe me trabó abriendo la conversación. Reintenta con */soporte* en un momento, o escríbenos a:\n📧 hola@neto.pe';
         }
       }
 

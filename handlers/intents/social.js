@@ -22,10 +22,30 @@ module.exports = {
       case 'agradecimiento':
         return '¡De nada! Aquí andamos cuidando tu bolsillo. 💪';
 
-      // Antes decia "Dejame revisar" y la IA prometia verificar el registro: nadie revisa nada.
-      // Se responde con el canal real de soporte y sin prometer una accion que no ocurre.
-      case 'queja':
-        return 'Gracias por avisar. Escríbenos al 970398192 con el detalle y lo resolvemos.';
+      // La queja se GUARDA. Antes solo devolvia un texto con un numero al que escribir y no
+      // dejaba ninguna fila: 0 quejas registradas en la vida del producto (medido 28-ago-2026),
+      // o sea que la persona que peor la esta pasando era la unica que no aparecia en ningun
+      // panel. Entra por la misma puerta que el feedback — nlp_errors es de hecho la bandeja
+      // que el admin ya mira — y desde ahi se le puede responder.
+      //
+      // NO abre sesion de soporte sola: eso desviaria TODO mensaje siguiente al admin en vez
+      // del bot (message-processor:104), asi que a quien solo queria quejarse se le romperia el
+      // registro de gastos hasta el autocierre de 48h. Se OFRECE /soporte y decide la persona.
+      case 'queja': {
+        const vQueja = await verificarEscritura(
+          supabase.from('nlp_errors').insert({
+            usuario_id: usuario.id, whatsapp: from,
+            mensaje: msg.substring(0, 500), intencion: 'queja',
+            error_tipo: 'queja', error_detalle: 'Queja del usuario'
+          }).select('id'),
+          { sitio: 'queja', userId: usuario.id, campos: ['mensaje'] });
+        if (!entro(vQueja)) {
+          return 'Gracias por avisar, pero se me trabó anotándolo y no me quedó registrado. ' +
+            'Escribe */soporte* y te atiende una persona del equipo por acá mismo.';
+        }
+        return 'Gracias por avisar. Lo anoté y lo va a revisar el equipo.\n\n' +
+          '_Si quieres que te respondamos, escribe */soporte* y seguimos por acá._';
+      }
 
       case 'chiste_finanzas': {
         const ctxChiste = 'El usuario quiere un chiste o dato curioso sobre finanzas. Cuenta un chiste corto y gracioso relacionado con dinero, ahorro o finanzas personales. Usa humor peruano si puedes. Máximo 3 líneas.';
@@ -56,9 +76,9 @@ module.exports = {
           { sitio: 'feedback', userId: usuario.id, campos: ['mensaje'] });
         if (!entro(vFeedback)) {
           return '😕 Se me trabó guardando tu sugerencia, así que no me quedó anotada. ' +
-            'Mándamela al *970398192* y la leemos igual — gracias por tomarte el trabajo.';
+            'Escribe */soporte* y me la cuentas de nuevo — gracias por tomarte el trabajo.';
         }
-        return '💡 *¡Gracias por tu sugerencia!*\n\nLa recibimos y la vamos a evaluar. Tu feedback nos ayuda a mejorar Neto.\n\n_Si quieres contarnos más, escríbenos al 970398192._';
+        return '💡 *¡Gracias por tu sugerencia!*\n\nLa recibimos y la vamos a evaluar. Tu feedback nos ayuda a mejorar Neto.\n\n_Si quieres contarnos más, escribe */soporte* y hablas con el equipo por acá._';
       }
     }
   }

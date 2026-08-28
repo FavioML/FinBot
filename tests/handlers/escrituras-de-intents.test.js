@@ -306,7 +306,7 @@ function ctxBase(sb) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// LOS 15 SITIOS
+// LOS 16 SITIOS
 // ═════════════════════════════════════════════════════════════════════════════
 
 /**
@@ -407,6 +407,20 @@ const SITIOS = [
     efectoOk: 1, efectoMalo: 0,
     // Un insert no tiene WHERE. `sinFilaPorWhere:false` lo declara: su caso de cero filas se
     // fabrica con el stub `vacios`, que es lo único disponible, y va dicho en vez de fingido.
+    sinFilaPorWhere: false,
+  },
+  {
+    // Gemelo del de arriba, y por eso va pegado: la queja usa la MISMA tabla y el mismo verbo.
+    // Nace guardada (28-ago-2026); antes devolvia un texto con un numero y no dejaba rastro,
+    // asi que este sitio no existia y su caida no la veia nadie.
+    sitio: 'queja',
+    handler: 'social', intencion: 'queja', tabla: 'nlp_errors', verbo: 'insert',
+    siembra: () => ({ usuarios: [u(), OTRO()], nlp_errors: [] }),
+    entrada: () => ({ usuario: u(), msg: 'me cobraron dos veces el Pro' }),
+    exito: /Lo anoté y lo va a revisar el equipo/i,
+    malo: /se me trabó anotándolo/i,
+    efecto: (sb) => sb.todas('nlp_errors').length,
+    efectoOk: 1, efectoMalo: 0,
     sinFilaPorWhere: false,
   },
   {
@@ -1099,7 +1113,7 @@ describe('9B-bis · verificarEscritura reporta los tres desenlaces y no decide n
   it('SIN .select() todo sale sin_fila: es lo que hace que borrarlo rompa los tests', async () => {
     // La mutación más importante del ítem. postgrest devuelve `data: null` en toda escritura sin
     // RETURNING, así que el helper no puede distinguir nada — y el control "cero logs" del
-    // camino feliz se pone rojo en los 15 sitios a la vez.
+    // camino feliz se pone rojo en los 16 sitios a la vez.
     const sb = sembrar();
     const { v } = await correrH(sb.from('t').update({ v: 2 }).eq('id', 'a'), base);
     expect(v).toBe('sin_fila');
@@ -1159,5 +1173,85 @@ describe('9B-bis · verificarEscritura reporta los tres desenlaces y no decide n
     const { v, spy } = await correrH(sb.from('t').delete().eq('id', 'zzz').select('id'), base);
     expect(v).toBe('sin_fila');
     expect(spy.warnsDe('s').length).toBe(1);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// El celular personal NO vuelve a la superficie de soporte
+// ═════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Por qué existe: un usuario llegó al celular PERSONAL de Favio el 28-ago-2026 y la hipótesis
+ * era que lo había sacado de vortik.dev. No: se lo dio Neto. El intent `feedback` terminaba
+ * con *"escríbenos al 970398192"* y el de `queja` con lo mismo.
+ *
+ * El guard NO puede ser "el número no aparece en el repo": en las líneas de Yape aparece a
+ * propósito y tiene que seguir (es la cuenta que cobra). Lo que se prohíbe es el número en la
+ * superficie de CONTACTO, y por eso se mide sobre la RESPUESTA que recibe la persona, no sobre
+ * el archivo — un helper que lo interpole seguiría cayendo acá.
+ *
+ * Los cuatro desenlaces, no sólo el feliz: el copy del número vivía en el camino de FALLO del
+ * feedback, que es justo el que nadie mira.
+ */
+describe('la superficie de soporte no reparte el número personal del admin', () => {
+  const { ADMIN_NUMBER } = require('../../lib/config');
+  // Con 51 y sin 51: el copy lo tecleaba local ("al 970398192") y la config lo guarda con país.
+  const LOCAL = ADMIN_NUMBER.replace(/^51/, '');
+  const contieneNumero = (t) => {
+    const s = String(t || '').replace(/[^0-9]/g, '');
+    return s.includes(ADMIN_NUMBER) || s.includes(LOCAL);
+  };
+
+  // Control del propio guard. Sin esto, un detector roto pone en verde todo el bloque y el
+  // archivo pasaría a afirmar "no está el número" sin poder verlo en ningún lado.
+  it('el detector ve el número donde SÍ está, y no lo inventa donde no', () => {
+    expect(contieneNumero('Yapea al *' + LOCAL + '* y envíame la captura')).toBe(true);
+    expect(contieneNumero('📲 Yapea al *+51 ' + LOCAL + '*')).toBe(true);
+    expect(contieneNumero('Escríbenos a 📧 hola@neto.pe')).toBe(false);
+    expect(contieneNumero('Escribe */soporte* y seguimos por acá')).toBe(false);
+  });
+
+  for (const nombre of ['queja', 'feedback']) {
+    const sitio = porSitio(nombre);
+    const clave = sitio.tabla + ':' + sitio.verbo;
+
+    it(nombre + ': ninguno de los cuatro desenlaces imprime el número', async () => {
+      const casos = [
+        ['camino feliz', {}],
+        ['la DB rechaza', { fallos: { [clave]: 'db caída' } }],
+        ['cero filas', { vacios: [clave] }],
+        ['la promesa rechaza', { lanza: [clave] }],
+      ];
+      for (const [etiqueta, opts] of casos) {
+        const { invocar } = preparar(sitio, opts);
+        const { res } = await correr(invocar);
+        expect(contieneNumero(res), etiqueta + ': la respuesta trae el celular personal').toBe(false);
+        // Y que la respuesta EXISTA: un handler que devuelve undefined pasaría lo de arriba.
+        expect(String(res).length).toBeGreaterThan(10);
+      }
+    });
+  }
+
+  it('hablar_con_humano: el CATCH tampoco lo imprime', async () => {
+    // El camino feliz de este intent abre sesión de soporte y nunca imprimió el número; el que
+    // lo imprimía era su `catch`. Se fuerza inyectando un `abrirSesion` que tira, porque
+    // moderacion.js hace el require ADENTRO del case y por eso la caché se consulta al invocar.
+    const ruta = require.resolve('../../lib/support-tickets');
+    const previo = require.cache[ruta];
+    require.cache[ruta] = {
+      id: ruta, filename: ruta, loaded: true,
+      exports: { abrirSesion: () => { throw new Error('boom'); } },
+    };
+    try {
+      const sb = montar({ filas: { usuarios: [u()] } });
+      const { res } = await correr(() => H.moderacion.handle({
+        intencion: 'hablar_con_humano', msg: 'quiero hablar con alguien', datos: {},
+        usuario: u(), from: '+51999', ctx: ctxBase(sb),
+      }));
+      expect(contieneNumero(res)).toBe(false);
+      expect(res).toMatch(/soporte/i);
+    } finally {
+      if (previo) require.cache[ruta] = previo; else delete require.cache[ruta];
+    }
   });
 });
