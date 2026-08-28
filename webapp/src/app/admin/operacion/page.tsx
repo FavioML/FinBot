@@ -623,7 +623,7 @@ function ListSkeleton({ rows = 6 }: { rows?: number }) {
 
 export default function AdminOperacionPage() {
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState<'users' | 'nlp' | 'tickets'>('users');
+  const [tab, setTab] = useState<'users' | 'feedback' | 'nlp' | 'tickets'>('users');
   const [search, setSearch] = useState('');
   const [toast, setToast] = useState<string | null>(null);
   const [paymentsUser, setPaymentsUser] = useState<AdminUser | null>(null);
@@ -643,7 +643,6 @@ export default function AdminOperacionPage() {
   const [nlpReplyTo, setNlpReplyTo] = useState<string | null>(null);
   const [nlpReplyText, setNlpReplyText] = useState('');
   const [nlpReplyBusy, setNlpReplyBusy] = useState(false);
-  const [nlpAbrirConv, setNlpAbrirConv] = useState(false);
 
   const [userPlanFilter, setUserPlanFilter] = useState<string>('todos');
   const [userOnboardingFilter, setUserOnboardingFilter] = useState<string>('todos');
@@ -669,6 +668,11 @@ export default function AdminOperacionPage() {
   const users = useMemo(() => usersQuery.data?.usuarios ?? [], [usersQuery.data?.usuarios]);
   const stats = statsQuery.data ?? null;
   const nlpErrors = nlpQuery.data?.errors ?? [];
+  // Feedback y queja son PERSONAS esperando respuesta; el resto es diagnóstico. Estaban
+  // mezclados en un solo tab llamado "NLP Errors", así que una sugerencia de un usuario se
+  // leía como un error del parser y no se le contestaba a nadie. Misma lectura, dos vistas.
+  const nlpDeGente = nlpErrors.filter((e) => ESPERAN_RESPUESTA.has(e.error_tipo));
+  const nlpDeMaquina = nlpErrors.filter((e) => !ESPERAN_RESPUESTA.has(e.error_tipo));
   const nlpTotal = nlpQuery.data?.total ?? 0;
   const nlpRateLimit = nlpQuery.data?.rateLimitTotal ?? 0;
   const tickets = ticketsQuery.data?.tickets ?? [];
@@ -860,7 +864,6 @@ export default function AdminOperacionPage() {
         mensaje: nlpReplyText.trim(),
         usuario_id: err.usuario_id,
         nombre,
-        abrir_conversacion: nlpAbrirConv,
       }),
     });
     const json = await res.json().catch(() => ({}));
@@ -868,8 +871,8 @@ export default function AdminOperacionPage() {
       setToast(json.msg || 'Mensaje enviado');
       setNlpReplyTo(null);
       setNlpReplyText('');
-      setNlpAbrirConv(false);
-      if (json.conversacionAbierta) queryClient.invalidateQueries({ queryKey: ['admin', 'tickets'] });
+      // La respuesta crea el ticket SIEMPRE, así que el listado de tickets siempre cambia.
+      queryClient.invalidateQueries({ queryKey: ['admin', 'tickets'] });
     } else {
       setToast(json.error || 'No se pudo enviar');
     }
@@ -1121,6 +1124,16 @@ export default function AdminOperacionPage() {
           Usuarios ({usersFallo ? '—' : users.length})
         </button>
         <button
+          onClick={() => setTab('feedback')}
+          className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+            tab === 'feedback'
+              ? 'bg-[#1D9E75]/20 text-[#1D9E75]'
+              : 'text-[#F0EFE8]/50 hover:text-[#F0EFE8]'
+          }`}
+        >
+          Feedback ({nlpFallo ? '—' : nlpDeGente.length})
+        </button>
+        <button
           onClick={() => setTab('nlp')}
           className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
             tab === 'nlp'
@@ -1130,7 +1143,7 @@ export default function AdminOperacionPage() {
         >
           {/* El contador del tab también miente en el fallo: "NLP Errors (0)" se lee como
               "no hay ninguno". Con la lectura caída no hay número que dar. */}
-          NLP Errors ({nlpFallo ? '—' : nlpTotal})
+          Errores NLP ({nlpFallo ? '—' : nlpDeMaquina.length})
         </button>
         <button
           onClick={() => setTab('tickets')}
@@ -1379,16 +1392,21 @@ export default function AdminOperacionPage() {
       )}
 
       {/* NLP Errors Tab */}
-      {tab === 'nlp' && (() => {
-        const tiposUnicos = [...new Set(nlpErrors.map((e) => e.error_tipo))];
-        const usersUnicos = [...new Set(nlpErrors.filter((e) => e.whatsapp).map((e) => e.whatsapp!))];
+      {(tab === 'nlp' || tab === 'feedback') && (() => {
+        // El MISMO bloque para los dos tabs, cambiando la lista de origen. Duplicarlo era
+        // duplicar los filtros, el estado vacío y el manejo de la lectura caída — y que uno
+        // de los dos se quedara atrás en el siguiente cambio.
+        const esFeedback = tab === 'feedback';
+        const origen = esFeedback ? nlpDeGente : nlpDeMaquina;
+        const tiposUnicos = [...new Set(origen.map((e) => e.error_tipo))];
+        const usersUnicos = [...new Set(origen.filter((e) => e.whatsapp).map((e) => e.whatsapp!))];
 
         const whatsappToName: Record<string, string> = {};
         for (const u of users) {
           if (u.whatsapp) whatsappToName[u.whatsapp] = u.nombre || u.whatsapp;
         }
 
-        const filtered = nlpErrors.filter((err) => {
+        const filtered = origen.filter((err) => {
           if (nlpTipoFilter !== 'all' && err.error_tipo !== nlpTipoFilter) return false;
           if (nlpUserFilter !== 'all' && err.whatsapp !== nlpUserFilter) return false;
           if (nlpSearch) {
@@ -1447,18 +1465,21 @@ export default function AdminOperacionPage() {
                 dice que falló: la página se contradecía en dos líneas seguidas. */}
             <div className="flex flex-wrap items-center gap-2 text-xs text-[#F0EFE8]/40">
               {nlpFallo ? (
-                <span>No se pudo leer el conteo de errores NLP</span>
+                <span>No se pudo leer el conteo de {esFeedback ? 'los mensajes' : 'errores NLP'}</span>
               ) : (
-                <span>{filtered.length} de {nlpErrors.length} errores NLP reales</span>
+                <span>{filtered.length} de {origen.length} {esFeedback ? 'mensajes de usuarios' : 'errores NLP reales'}</span>
               )}
-              {!nlpFallo && nlpRateLimit > 0 && (
+              {/* El rate-limit es infra del parser: no tiene nada que hacer en Feedback. */}
+              {!nlpFallo && !esFeedback && nlpRateLimit > 0 && (
                 <span className="rounded-full bg-white/5 px-2 py-0.5 text-[#F0EFE8]/50" title="Errores 429 de OpenAI (saturación de tokens). Es infra, no NLP. Se muestran aparte.">
                   + {nlpRateLimit} rate-limit (infra, oculto)
                 </span>
               )}
             </div>
 
-            {nlpErrors.length > 0 && nlpTipoFilter === 'all' && nlpUserFilter === 'all' && !nlpSearch && (
+            {/* Agregados de DIAGNÓSTICO. "Top 5 mensajes que fallan" sobre sugerencias de
+                usuarios no significa nada: no fallan, son lo que la gente escribió. */}
+            {!esFeedback && origen.length > 0 && nlpTipoFilter === 'all' && nlpUserFilter === 'all' && !nlpSearch && (
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="glass-card rounded-xl p-4">
                   <h4 className="mb-2 text-xs font-medium text-[#F0EFE8]/50">Top 5 mensajes que fallan</h4>
@@ -1523,11 +1544,15 @@ export default function AdminOperacionPage() {
               />
             ) : filtered.length === 0 ? (
               <div className="glass-card rounded-xl p-8 text-center text-[#8A877D]">
-                {nlpErrors.length === 0
-                  ? 'No hay errores NLP registrados aun.'
-                  : 'Ningun error coincide con los filtros.'}
+                {origen.length === 0
+                  ? (esFeedback ? 'Todavía nadie dejó feedback ni una queja.' : 'No hay errores NLP registrados aun.')
+                  : (esFeedback ? 'Ningún mensaje coincide con los filtros.' : 'Ningun error coincide con los filtros.')}
                 <br />
-                <span className="text-xs">Los mensajes no procesados apareceran aqui cuando ocurran.</span>
+                <span className="text-xs">
+                  {esFeedback
+                    ? 'Aparecen acá cuando alguien escribe una sugerencia o un reclamo por WhatsApp.'
+                    : 'Los mensajes no procesados apareceran aqui cuando ocurran.'}
+                </span>
               </div>
             ) : (
               filtered.map((err) => (
@@ -1571,18 +1596,12 @@ export default function AdminOperacionPage() {
                                 className="form-input w-full px-3 py-2 text-xs"
                                 autoFocus
                               />
-                              <label className="flex items-start gap-2 text-xs text-[#F0EFE8]/50">
-                                <input
-                                  type="checkbox"
-                                  checked={nlpAbrirConv}
-                                  onChange={(e) => setNlpAbrirConv(e.target.checked)}
-                                  className="mt-0.5"
-                                />
-                                <span>
-                                  Abrir conversacion: lo que responda te llega a vos.
-                                  <span className="text-[#F0EFE8]/30"> Mientras este abierta deja de usar el bot, asi que cerrala al terminar.</span>
-                                </span>
-                              </label>
+                              {/* El checkbox murió: el ticket se crea siempre (es el registro),
+                                  y la escucha se cierra sola por inactividad. */}
+                              <p className="text-xs text-[#F0EFE8]/40">
+                                Le llega por WhatsApp como Neto y queda guardado en el hilo. Lo que conteste en las
+                                próximas 2 horas te vuelve acá; después su asistente sigue normal.
+                              </p>
                               <div className="flex gap-2">
                                 <button
                                   onClick={() => handleNlpReply(err, whatsappToName[err.whatsapp!] || null)}
@@ -1601,7 +1620,7 @@ export default function AdminOperacionPage() {
                             </div>
                           ) : (
                             <button
-                              onClick={() => { setNlpReplyTo(err.id); setNlpReplyText(''); setNlpAbrirConv(false); }}
+                              onClick={() => { setNlpReplyTo(err.id); setNlpReplyText(''); }}
                               className="rounded-lg bg-white/5 px-3 py-1.5 text-xs text-[#F0EFE8]/70 hover:bg-white/10 transition-colors"
                             >
                               Responder como Neto

@@ -27,11 +27,15 @@ const projectRoot = path.resolve(
 const logMock = { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn(), fatal: vi.fn(), trace: vi.fn() };
 const waMock = { enviarWhatsapp: vi.fn(), META_ERR_FUERA_VENTANA: 131047 };
 
-const db = { errores: {}, inserts: [], updates: [] };
+const db = { errores: {}, inserts: [], updates: [], cola: [] };
 
 function cadena(tabla) {
   const c = {};
-  const resultado = () => ({ data: null, error: db.errores[tabla] || null });
+  // `cola` gana cuando está poblada: es lo que deja sembrar una sesión con una antigüedad
+  // concreta. Sin ella el doble sólo sabe devolver vacío, y la ventana no se puede medir.
+  const resultado = () => (db.cola.length
+    ? db.cola.shift()
+    : { data: null, error: db.errores[tabla] || null });
   for (const m of ['select', 'eq', 'in', 'order', 'limit']) c[m] = () => c;
   c.insert = (fila) => { db.inserts.push({ tabla, fila }); return c; };
   c.update = (patch) => { db.updates.push({ tabla, patch }); return c; };
@@ -49,13 +53,55 @@ for (const [rel, exports] of [
   require.cache[p] = { id: p, filename: p, loaded: true, exports };
 }
 
-const { registrarMensajeTicket, obtenerHiloTicket } = require('../../lib/support-tickets');
+const { registrarMensajeTicket, obtenerHiloTicket, obtenerSesionAbierta } = require('../../lib/support-tickets');
 
 beforeEach(() => {
   db.errores = {};
   db.inserts = [];
   db.updates = [];
+  db.cola = [];
   logMock.error.mockReset();
+  waMock.enviarWhatsapp.mockReset();
+  waMock.enviarWhatsapp.mockResolvedValue({ ok: true });
+});
+
+/** Una sesión abierta cuyo último movimiento fue hace `horas`. */
+function sesionDeHace(horas) {
+  const ts = new Date(Date.now() - horas * 3600 * 1000).toISOString();
+  return { data: [{ id: 't1', usuario_id: 'u1', whatsapp: '51999', estado: 'respondido', updated_at: ts, created_at: ts }], error: null };
+}
+
+describe('la ventana de escucha: corta, deslizante, y avisa al cerrarse', () => {
+  // El diseño viejo era un INTERRUPTOR de 48h: mientras la sesión estuviera abierta, TODO
+  // mensaje de esa persona iba al admin y su asistente quedaba muerto. Un olvido del admin le
+  // apagaba el bot dos días a alguien que sólo quería anotar un gasto.
+  //
+  // Los dos tests de abajo ACOTAN la ventana por comportamiento en vez de afirmar la
+  // constante: uno muere si alguien la agranda a horas de más, el otro si la achica tanto que
+  // corta conversaciones vivas. Fijar el número habría pasado en verde con los dos extremos.
+
+  it('a las 3 horas de silencio ya no enruta, y se lo dice a la persona', async () => {
+    db.cola = [sesionDeHace(3), { data: [{ id: 't1', whatsapp: '51999' }], error: null }, { data: null, error: null }];
+
+    const s = await obtenerSesionAbierta('u1');
+
+    expect(s, 'una sesión de hace 3h sigue secuestrando el bot').toBe(null);
+    expect(db.updates.some((u) => u.patch.estado === 'cerrado')).toBe(true);
+    // El aviso no es cortesía: sin él, el mensaje que disparó el vencimiento se lo lleva el
+    // bot y la persona recibe a Neto hablándole de gastos sobre una pregunta de soporte.
+    expect(waMock.enviarWhatsapp).toHaveBeenCalledOnce();
+    expect(String(waMock.enviarWhatsapp.mock.calls[0][1])).toMatch(/sin actividad|asistente/i);
+  });
+
+  it('a los 10 minutos sigue viva: una conversación en curso no se corta', async () => {
+    db.cola = [sesionDeHace(0.17)];
+
+    const s = await obtenerSesionAbierta('u1');
+
+    expect(s && s.id).toBe('t1');
+    expect(waMock.enviarWhatsapp).not.toHaveBeenCalled();
+    expect(db.updates.some((u) => u.patch.estado === 'cerrado')).toBe(false);
+  });
 });
 
 describe('registrarMensajeTicket · las dos representaciones, un solo escritor', () => {

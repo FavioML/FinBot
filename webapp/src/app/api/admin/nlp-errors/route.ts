@@ -65,7 +65,7 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { whatsapp, mensaje, usuario_id, nombre, abrir_conversacion } = body || {};
+  const { whatsapp, mensaje, usuario_id, nombre } = body || {};
   if (!whatsapp || !mensaje) {
     return NextResponse.json({ error: 'Faltan whatsapp o mensaje' }, { status: 400 });
   }
@@ -77,7 +77,7 @@ export async function POST(request: Request) {
     const res = await fetch(`${BACKEND_URL}/admin/contactar-usuario`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-admin-key': ADMIN_KEY },
-      body: JSON.stringify({ whatsapp, mensaje, usuario_id, nombre, abrir_conversacion }),
+      body: JSON.stringify({ whatsapp, mensaje, usuario_id, nombre }),
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok || !json.ok) {

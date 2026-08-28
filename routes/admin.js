@@ -330,15 +330,16 @@ router.post('/responder-ticket', async (req, res) => {
  * `tickets_soporte`, asi que el boton Responder del panel no tenia a que apuntar y
  * contestarle a quien dejo una sugerencia obligaba a escribirle desde un celular.
  *
- * `abrir_conversacion` (default false) decide si ademas se abre la sesion de soporte para
- * que la respuesta de la persona vuelva al admin en vez de irse al bot. Va apagado por
- * defecto a proposito: ver el comentario de contactarUsuario en lib/support-tickets.
+ * Ya NO recibe `abrir_conversacion`. El ticket se crea siempre: es el REGISTRO de que la
+ * conversacion existio, y sin el la respuesta del admin no se guardaba en ningun lado.
+ * Que ademas el proximo mensaje de la persona vuelva al panel es consecuencia de que la
+ * ventana de escucha este fresca (SESSION_IDLE_MS), no una decision aparte.
  *
- * Body: { whatsapp, mensaje, usuario_id?, nombre?, abrir_conversacion? }.
+ * Body: { whatsapp, mensaje, usuario_id?, nombre? }.
  */
 router.post('/contactar-usuario', async (req, res) => {
   if (!verificarAdmin(req, res)) return;
-  const { whatsapp, mensaje, usuario_id, nombre, abrir_conversacion } = req.body || {};
+  const { whatsapp, mensaje, usuario_id, nombre } = req.body || {};
   if (!mensaje || !whatsapp) {
     return res.status(400).json({ ok: false, msg: 'Falta whatsapp o mensaje' });
   }
@@ -347,7 +348,6 @@ router.post('/contactar-usuario', async (req, res) => {
     whatsapp,
     nombre: nombre || null,
     mensaje,
-    abrirConversacion: abrir_conversacion === true,
   });
   if (!r.ok) return res.status(502).json({ ok: false, msg: r.msg });
   res.json({ ok: true, msg: r.msg, conversacionAbierta: r.conversacionAbierta === true });

@@ -14,8 +14,8 @@ import path from 'path';
  * (`handlers/message-processor.js`, el bloque de modo soporte). Si se abriera antes de saber
  * el desenlace del envío, un fallo de la ventana de 24h de Meta —que es el caso COMÚN, no el
  * raro: 452 de 459 fallos de 30 días son 131047— dejaría a alguien en modo soporte **sin
- * haber recibido nada**, con su registro de gastos roto hasta el autocierre de 48h, por una
- * conversación que nunca existió. Y del lado de acá se vería idéntico al caso sano.
+ * haber recibido nada**, con su asistente desviado al panel por una conversación que nunca
+ * existió. Y del lado de acá se vería idéntico al caso sano.
  *
  * El orden correcto no se puede verificar mirando el mensaje de retorno (los dos dicen
  * "enviado"): se verifica sobre las ESCRITURAS, que es lo que el copy no puede fingir.
@@ -29,6 +29,11 @@ const projectRoot = path.resolve(
 
 const logMock = { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn(), fatal: vi.fn(), trace: vi.fn() };
 const waMock = { enviarWhatsapp: vi.fn(), META_ERR_FUERA_VENTANA: 131047 };
+
+// El chokepoint de avisos, mockeado a propósito: la campana escribe por el mismo cliente de
+// Supabase, así que sin esto consume entradas de la cola y desalinea toda la secuencia. Y de
+// paso queda ASERTABLE, que es lo que importa.
+const notifMock = { notificarUsuario: vi.fn().mockResolvedValue({ inApp: { ok: true } }), CANALES: { AMBOS: 'ambos', SOLO_WHATSAPP: 'solo_whatsapp', SOLO_IN_APP: 'solo_in_app' } };
 
 /**
  * Doble de supabase: una cola de respuestas y un registro de lo que se escribió.
@@ -53,6 +58,7 @@ for (const [rel, exports] of [
   ['lib/logger.js', logMock],
   ['lib/whatsapp.js', waMock],
   ['lib/db.js', dbMock],
+  ['lib/notify-user.js', notifMock],
 ]) {
   const p = require.resolve(path.join(projectRoot, rel));
   require.cache[p] = { id: p, filename: p, loaded: true, exports };
@@ -62,7 +68,7 @@ const { contactarUsuario } = require('../../lib/support-tickets');
 
 const BASE = { usuarioId: 'u1', whatsapp: '51999888777', nombre: 'Ana', mensaje: 'Gracias, lo anotamos.' };
 
-/** Las lecturas/escrituras del camino que SÍ abre conversación, en orden. */
+/** Las lecturas/escrituras del camino completo, en orden. */
 function colaCaminoCompleto() {
   db.cola = [
     { data: [], error: null },                // responderTicket: no hay ticket pendiente de ese número
@@ -78,6 +84,7 @@ beforeEach(() => {
   db.inserts = [];
   db.updates = [];
   waMock.enviarWhatsapp.mockReset();
+  notifMock.notificarUsuario.mockClear();
 });
 
 describe('contactarUsuario · la conversación no se abre sobre un mensaje que no llegó', () => {
@@ -85,7 +92,7 @@ describe('contactarUsuario · la conversación no se abre sobre un mensaje que n
     waMock.enviarWhatsapp.mockResolvedValue({ ok: false, code: 131047 });
     db.cola = [];
 
-    const r = await contactarUsuario({ ...BASE, abrirConversacion: true });
+    const r = await contactarUsuario(BASE);
 
     expect(r.ok).toBe(false);
     expect(r.msg).toMatch(/24h|ventana/i);
@@ -93,6 +100,8 @@ describe('contactarUsuario · la conversación no se abre sobre un mensaje que n
     // sin haber recibido el mensaje.
     expect(db.inserts).toEqual([]);
     expect(db.updates).toEqual([]);
+    // Ni campana: avisar "te respondimos" sobre un mensaje que no salió es peor que callarse.
+    expect(notifMock.notificarUsuario).not.toHaveBeenCalled();
   });
 
   it('Meta rechaza por otro motivo: tampoco abre sesión', async () => {
@@ -101,18 +110,18 @@ describe('contactarUsuario · la conversación no se abre sobre un mensaje que n
     // acá es que las dos ramas de fallo compartan la consecuencia.
     waMock.enviarWhatsapp.mockResolvedValue({ ok: false, code: 470 });
 
-    const r = await contactarUsuario({ ...BASE, abrirConversacion: true });
+    const r = await contactarUsuario(BASE);
 
     expect(r.ok).toBe(false);
     expect(db.inserts).toEqual([]);
     expect(db.updates).toEqual([]);
   });
 
-  it('entregado + abrirConversacion: abre la sesión y deja anotado lo que se mandó', async () => {
+  it('entregado: registra la conversación y deja anotado lo que se mandó', async () => {
     waMock.enviarWhatsapp.mockResolvedValue({ ok: true, msgId: 'wamid.1' });
     colaCaminoCompleto();
 
-    const r = await contactarUsuario({ ...BASE, abrirConversacion: true });
+    const r = await contactarUsuario(BASE);
 
     expect(r.ok).toBe(true);
     expect(r.conversacionAbierta).toBe(true);
@@ -125,28 +134,43 @@ describe('contactarUsuario · la conversación no se abre sobre un mensaje que n
     // antes sólo existía la columna de último mensaje, que el turno siguiente pisaba.
     const hilo = db.inserts.find((i) => i.tabla === 'tickets_mensajes');
     expect(hilo, 'el mensaje del admin no quedó en el hilo').toBeTruthy();
-    expect(hilo.fila).toMatchObject({ ticket_id: 't-nuevo', rol: 'admin', mensaje: BASE.mensaje });
+    expect(hilo.fila).toMatchObject({ ticket_id: 't-nuevo', rol: 'admin', mensaje: BASE.mensaje, wamid: 'wamid.1' });
 
     // Y la columna, que es el caché que lee el listado. Las dos las escribe el MISMO helper:
     // si divergen es porque alguien agregó un segundo escritor.
     expect(db.updates.some((u) => u.patch.mensaje_admin === BASE.mensaje)).toBe(true);
 
-    // La sesión recién abierta NO se marca respondida: nadie preguntó nada por este canal.
-    expect(db.updates.some((u) => u.patch.estado === 'respondido')).toBe(false);
+    // `respondido` y no `esperando_mensaje`: el que habló fue el admin. Es un estado ACTIVO, o
+    // sea que la ventana de escucha queda abierta y lo que la persona conteste vuelve al panel.
+    expect(db.updates.some((u) => u.patch.estado === 'respondido')).toBe(true);
+
+    // Y la campana. Es el único canal que no depende de la ventana de 24h de Meta, así que es
+    // lo que hace que el aviso llegue también al usuario web-first.
+    expect(notifMock.notificarUsuario).toHaveBeenCalledOnce();
+    const aviso = notifMock.notificarUsuario.mock.calls[0][0];
+    expect(aviso.canales).toBe('solo_in_app');
+    expect(aviso.usuarioId).toBe('u1');
+    // Canal único exige motivo declarado: es la regla del chokepoint, no un adorno.
+    expect(String(aviso.motivo || {})).not.toBe('');
   });
 
-  it('el default NO abre conversación', async () => {
-    // Contestar "gracias, ya lo anotamos" no debería secuestrarle el bot a nadie. Sin este
-    // control, el default podría invertirse y los tres tests de arriba seguirían en verde.
+  it('NO hay camino que envíe sin registrar: el ticket es el registro, no una opción', async () => {
+    // Este test estaba invertido hasta el 28-ago-2026 y afirmaba que el default NO abría
+    // conversación. La garantía que buscaba —no secuestrarle el bot a nadie— la da ahora la
+    // ventana corta y deslizante (SESSION_IDLE_MS), no el hecho de no registrar nada.
+    //
+    // Lo que costaba el diseño viejo, medido en producción con la primera respuesta real: el
+    // mensaje llegó (`delivered_at` puesto) y de su texto no quedó rastro en ninguna tabla.
+    // Sin ticket no hay dónde colgarlo, y si la persona contestaba se lo comía el bot.
     waMock.enviarWhatsapp.mockResolvedValue({ ok: true, msgId: 'wamid.1' });
-    db.cola = [{ data: [], error: null }];
+    colaCaminoCompleto();
 
     const r = await contactarUsuario(BASE);
 
     expect(r.ok).toBe(true);
-    expect(r.conversacionAbierta).toBe(false);
-    expect(db.inserts).toEqual([]);
-    expect(waMock.enviarWhatsapp).toHaveBeenCalledOnce();
+    expect(r.conversacionAbierta).toBe(true);
+    expect(db.inserts.some((i) => i.tabla === 'tickets_soporte')).toBe(true);
+    expect(db.inserts.some((i) => i.tabla === 'tickets_mensajes')).toBe(true);
   });
 
   it('sin usuarioId manda igual, pero no promete una conversación que no abrió', async () => {
@@ -156,11 +180,11 @@ describe('contactarUsuario · la conversación no se abre sobre un mensaje que n
     waMock.enviarWhatsapp.mockResolvedValue({ ok: true, msgId: 'wamid.1' });
     db.cola = [{ data: [], error: null }];
 
-    const r = await contactarUsuario({ ...BASE, usuarioId: null, abrirConversacion: true });
+    const r = await contactarUsuario({ ...BASE, usuarioId: null });
 
     expect(r.ok).toBe(true);
     expect(r.conversacionAbierta).toBe(false);
-    expect(r.msg).toMatch(/no pude abrir/i);
+    expect(r.msg).toMatch(/no quedó registrada/i);
     expect(db.inserts).toEqual([]);
   });
 
