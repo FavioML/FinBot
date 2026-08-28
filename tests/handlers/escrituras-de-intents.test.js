@@ -1194,21 +1194,58 @@ describe('9B-bis · verificarEscritura reporta los tres desenlaces y no decide n
  * feedback, que es justo el que nadie mira.
  */
 describe('la superficie de soporte no reparte el número personal del admin', () => {
+  // **El número va ESCRITO acá, no derivado de `ADMIN_NUMBER`.** Es la primera versión de este
+  // bloque y la mató su propio control: en CI `ADMIN_WHATSAPP` vale la cadena `test`
+  // (`.github/workflows/ci.yml`), así que la aguja quedaba en `"test"` y ninguna respuesta la
+  // contiene nunca. El guard entero pasaba a VERDE mirando nada — con el celular de vuelta en
+  // el copy — y sólo el control lo delató. Lo que se prohíbe es un número concreto que ya se
+  // repartió, no "lo que diga el entorno".
+  const PERSONAL = '51970398192';
+  const LOCAL = '970398192';
+
+  // Y además el configurado, si el entorno trae un teléfono de verdad: el día que el número
+  // cambie, el nuevo también tiene que estar prohibido en la superficie de contacto.
   const { ADMIN_NUMBER } = require('../../lib/config');
-  // Con 51 y sin 51: el copy lo tecleaba local ("al 970398192") y la config lo guarda con país.
-  const LOCAL = ADMIN_NUMBER.replace(/^51/, '');
+  const configurado = String(ADMIN_NUMBER || '').replace(/[^0-9]/g, '');
+  const AGUJAS = [PERSONAL, LOCAL].concat(configurado.length >= 9 ? [configurado] : []);
+
+  // **Normaliza por TOKEN, no sobre el mensaje entero.** Borrar todos los no-dígitos de la
+  // respuesta completa fabrica el número juntando cifras que no tienen nada que ver: el caso
+  // de abajo, *"Llevas S/ 970.39 este mes en 8192 movimientos"*, colapsa a `970398192` exacto
+  // y ponía el build rojo por un mensaje de plata inocente. Un guard que grita por lo que no es
+  // se termina ignorando, y este vigila algo que ya se escapó una vez.
+  //
+  // Un token es una tirada de dígitos con los separadores que lleva un teléfono tecleado a mano
+  // (espacios, guiones, puntos, paréntesis, +). Cualquier letra lo corta, que es justo lo que
+  // separa "970.39 este mes" de "970 398 192".
+  //
+  // Evasión conocida y aceptada: partir el número con markdown (`9703*98192*`) lo esconde. No
+  // se cubre porque la reintroducción realista es alguien volviendo a teclear el número, no
+  // ofuscándolo; y bajar el umbral para atraparlo devuelve los falsos positivos de arriba.
   const contieneNumero = (t) => {
-    const s = String(t || '').replace(/[^0-9]/g, '');
-    return s.includes(ADMIN_NUMBER) || s.includes(LOCAL);
+    const tokens = String(t || '').match(/\+?\d[\d\s\-().+]{6,}\d/g) || [];
+    return tokens.some((tok) => { const d = tok.replace(/[^0-9]/g, ''); return AGUJAS.some((n) => d.includes(n)); });
   };
 
   // Control del propio guard. Sin esto, un detector roto pone en verde todo el bloque y el
-  // archivo pasaría a afirmar "no está el número" sin poder verlo en ningún lado.
+  // archivo pasaría a afirmar "no está el número" sin poder verlo en ningún lado. Ya pasó.
   it('el detector ve el número donde SÍ está, y no lo inventa donde no', () => {
     expect(contieneNumero('Yapea al *' + LOCAL + '* y envíame la captura')).toBe(true);
     expect(contieneNumero('📲 Yapea al *+51 ' + LOCAL + '*')).toBe(true);
+    // Espaciado y con guiones: es como se teclea un teléfono cuando alguien lo re-agrega.
+    expect(contieneNumero('escríbenos al 970 398 192')).toBe(true);
+    expect(contieneNumero('WhatsApp: +51-970-398-192')).toBe(true);
     expect(contieneNumero('Escríbenos a 📧 hola@neto.pe')).toBe(false);
     expect(contieneNumero('Escribe */soporte* y seguimos por acá')).toBe(false);
+    // Un monto no es un teléfono: el normalizador junta dígitos y podría fabricar un match.
+    expect(contieneNumero('Llevas S/ 970.39 este mes en 8192 movimientos')).toBe(false);
+  });
+
+  it('las agujas no están vacías (si no, el guard afirma sobre nada)', () => {
+    // `includes("")` es TRUE siempre: una aguja vacía invertiría todo el bloque. Y una aguja
+    // demasiado corta haría match contra cualquier cifra de un mensaje de plata.
+    expect(AGUJAS.length).toBeGreaterThanOrEqual(2);
+    for (const n of AGUJAS) expect(n.length).toBeGreaterThanOrEqual(9);
   });
 
   for (const nombre of ['queja', 'feedback']) {
