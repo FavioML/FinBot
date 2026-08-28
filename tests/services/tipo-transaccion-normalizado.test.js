@@ -1,8 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
 const require = createRequire(import.meta.url);
 const { normalizarTipo } = require('../../services/transactions');
+const RAIZ = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 /**
  * 28-ago-2026, visto en producción: `new row for relation "transacciones" violates check
@@ -71,5 +75,50 @@ describe('normalizarTipo — el CHECK de la base no se puede violar desde acá',
     for (const v of entradas) {
       expect(['gasto', 'ingreso']).toContain(normalizarTipo(v));
     }
+  });
+});
+
+/**
+ * El hash de dedup y el INSERT tienen que hablar del mismo tipo.
+ *
+ * `dedupRaw` se armaba con `datos.tipo || 'gasto'` —el valor CRUDO— mientras el insert
+ * guardaba el normalizado. Mientras un `"Gasto"` con mayúscula reventaba el insert eso era
+ * inalcanzable; la normalización lo volvió alcanzable, así que **lo introdujo este mismo
+ * arreglo**: dos grafías del mismo tipo daban hashes distintos y el dedup dejaba de verlas
+ * como duplicadas. Lo encontró una revisión del diff, no la suite.
+ *
+ * Hoy la divergencia es estructuralmente imposible: hay UNA variable (`tipoTx`) y la usan los
+ * dos. Este guard es el tripwire de que siga siendo así, porque sin él revertir esa línea no
+ * pone rojo absolutamente nada.
+ *
+ * Lo que NO cubre, dicho para que nadie lo lea como más de lo que es: mira el FUENTE, así que
+ * no ejercita el insert, y una reintroducción escrita de otra forma (`datos['tipo']`,
+ * desestructurar `const { tipo } = datos`) lo esquiva. Cubre la regresión realista, que es
+ * alguien editando esa línea de vuelta a como estaba.
+ */
+describe('el tipo crudo entra a normalizarTipo y a ningún otro lado', () => {
+  const fuente = readFileSync(join(RAIZ, 'services', 'transactions.js'), 'utf8');
+  // Solo el código: los comentarios de este archivo nombran `datos.tipo` al explicar el bug.
+  const codigo = fuente
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').map((l) => l.replace(/\/\/.*$/, '')).join('\n');
+
+  it('la única aparición de datos.tipo es como argumento de normalizarTipo', () => {
+    const apariciones = codigo.match(/datos\s*(?:\.\s*tipo\b|\[\s*['"]tipo['"]\s*\])/g) || [];
+    expect(apariciones.length).toBe(1);
+    expect(codigo).toMatch(/normalizarTipo\(\s*datos\.tipo\s*,/);
+  });
+
+  it('el hash de dedup NO se arma con el valor crudo', () => {
+    const lineaHash = codigo.split('\n').find((l) => l.includes('const dedupRaw'));
+    expect(lineaHash).toBeTruthy();
+    expect(lineaHash).not.toMatch(/datos\s*\.\s*tipo/);
+    expect(lineaHash).toMatch(/tipoTx/);
+  });
+
+  it('el insert usa la MISMA variable que el hash, no otra llamada', () => {
+    const lineaInsert = codigo.split('\n').find((l) => l.includes('usuario_id: usuarioId, tipo:'));
+    expect(lineaInsert).toBeTruthy();
+    expect(lineaInsert).toMatch(/tipo:\s*tipoTx\b/);
   });
 });

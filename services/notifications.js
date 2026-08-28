@@ -33,7 +33,10 @@ async function enviarAlertaTransaccion(usuario, tx, resultado) {
   // Importa más que el case: una regla de comercio puede haber remapeado la categoría.
   const categoria = tx.categoria || resultado.categoria || 'Otros';
   const subcategoria = tx.subcategoria || resultado.subcategoria || null;
-  const tipo = resultado.tipo || 'gasto';
+  // Misma razón que las dos líneas de arriba, y por el mismo orden: manda lo PERSISTIDO.
+  // `guardarTransaccion` normaliza el tipo (el modelo devuelve "Gasto", "egreso", etc.), así
+  // que leer el crudo podía anunciar "Nuevo gasto" sobre una fila guardada como ingreso.
+  const tipo = tx.tipo || resultado.tipo || 'gasto';
   const emoji = tipo === 'ingreso' ? '\uD83D\uDCB5' : '\uD83D\uDCB8';
   const tipoStr = tipo === 'ingreso' ? 'Ingreso recibido' : 'Nuevo gasto';
 

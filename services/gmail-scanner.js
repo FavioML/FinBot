@@ -110,7 +110,10 @@ async function escanearGmailYRegistrar(usuario, opts = {}) {
       const txGuardada = await guardarTransaccion(usuario.id, { ...resultado, fecha: msg.fecha || resultado.fecha, descripcion_original: claveDedup, gmail_msg_id: claveDedup, esGmail: true, dedupAvisoGmail: !historico, recibidoEnMs: msg.recibidoEnMs });
       if (!txGuardada) { ignoradas++; return; } // segundo aviso del mismo cargo
       registradas++;
-      resumen += '- ' + (resultado.tipo === 'ingreso' ? 'Ingreso' : 'Gasto') + ': ' + (resultado.comercio || resultado.banco || 'Sin nombre') + ' S/ ' + resultado.monto + '\n';
+      // `txGuardada.tipo`, no `resultado.tipo`: guardarTransaccion normaliza, así que el crudo
+      // puede decir "Ingreso" sobre una fila guardada como ingreso y este ternario —que compara
+      // exacto contra minúscula— la anunciaría como Gasto.
+      resumen += '- ' + (txGuardada.tipo === 'ingreso' ? 'Ingreso' : 'Gasto') + ': ' + (resultado.comercio || resultado.banco || 'Sin nombre') + ' S/ ' + resultado.monto + '\n';
       // En el barrido histórico se registran en silencio: nada de una tarjeta por correo.
       if (enviarAlertas) {
         setTimeout(async function() {

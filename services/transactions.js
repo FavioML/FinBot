@@ -140,7 +140,16 @@ async function guardarTransaccion(usuarioId, datos) {
   // Últimos 4 de la tarjeta origen: lo que ya trae el parser, o extracción del
   // texto original como red de seguridad (cubre registro manual "tarjeta ...1234").
   const last4 = normalizarLast4(datos.tarjeta_last4) || extraerLast4(datos.descripcion_original);
-  const dedupRaw = usuarioId + '|' + fechaTx + '|' + montoValidado + '|' + (datos.comercio || '') + '|' + (datos.tipo || 'gasto');
+  // El tipo se normaliza UNA vez y se usa para las dos cosas: el hash y el insert. Con el
+  // hash sobre el valor CRUDO, "Gasto" y "gasto" daban hashes distintos para la misma
+  // transacción y el dedup dejaba de verlas como duplicadas. Antes era inalcanzable —la
+  // variante rara reventaba el insert— así que lo volvió alcanzable la normalización misma.
+  //
+  // No rompe paridad con el hash de la webapp ni con las filas ya guardadas: para todo valor
+  // que ANTES llegaba a insertarse (vacío, 'gasto', 'ingreso') `normalizarTipo` devuelve
+  // exactamente lo mismo que el `|| 'gasto'`. Solo difiere donde no hay filas que preservar.
+  const tipoTx = normalizarTipo(datos.tipo, usuarioId);
+  const dedupRaw = usuarioId + '|' + fechaTx + '|' + montoValidado + '|' + (datos.comercio || '') + '|' + tipoTx;
   const dedupHash = crypto.createHash('md5').update(dedupRaw).digest('hex');
   if (!datos.esGmail) {
     const ventanaInicio = new Date(Date.now() - DEDUP_WINDOW_MS).toISOString();
@@ -202,7 +211,7 @@ async function guardarTransaccion(usuarioId, datos) {
     subFinal = 'Software';
   }
   const { data, error } = await supabase.from('transacciones').insert({
-    usuario_id: usuarioId, tipo: normalizarTipo(datos.tipo, usuarioId), monto: montoValidado, moneda: _moneda,
+    usuario_id: usuarioId, tipo: tipoTx, monto: montoValidado, moneda: _moneda,
     monto_pen: _montoPen, tipo_cambio: _tcUsado, metodo_pago: datos.metodo_pago || null,
     comercio: datos.comercio, categoria: catFinal,
     subcategoria: subFinal, banco: datos.banco,
