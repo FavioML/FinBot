@@ -83,6 +83,38 @@ async function obtenerTipoCambio() {
   }
 }
 
+/**
+ * `tipo` va contra una CHECK de dos valores (`transacciones_tipo_check`: 'gasto'|'ingreso') y
+ * lo que llega acá es lo que devolvió el MODELO, sin pasar por ninguna validación previa: ni
+ * `parsearCorreoBancario` ni `parsearRegistroManual` revisan su propia salida.
+ *
+ * El `datos.tipo || 'gasto'` que había cubría sólo el caso vacío. Un "Gasto" con mayúscula o
+ * un "transferencia" inventado pasaban crudos y Postgres rechazaba la fila ENTERA, así que el
+ * movimiento se perdía completo — no es que quedara mal tipado, es que no quedaba. Visto en
+ * producción el 28-ago-2026 (`transacciones_tipo_check`, escaneo de Gmail, un usuario).
+ *
+ * Los sinónimos son los que el modelo produce cuando se sale del molde, y sólo se aceptan los
+ * que tienen DIRECCIÓN inequívoca. `transferencia` no está y no debe estar: puede ser entrada
+ * o salida, y adivinarla invierte el signo de la plata.
+ *
+ * El desconocido cae a 'gasto', que ya era el default de la línea anterior, y se loguea: una
+ * fila con la dirección equivocada se corrige desde la app, una fila que nunca existió no.
+ * El `log.warn` es lo que hace visible una deriva sistemática del modelo, que en silencio se
+ * leería como que no pasa nada.
+ */
+const TIPOS_VALIDOS = ['gasto', 'ingreso'];
+const SINONIMOS_TIPO = {
+  egreso: 'gasto', salida: 'gasto', compra: 'gasto', pago: 'gasto', cargo: 'gasto', debito: 'gasto', débito: 'gasto',
+  abono: 'ingreso', entrada: 'ingreso', deposito: 'ingreso', depósito: 'ingreso', credito: 'ingreso', crédito: 'ingreso'
+};
+function normalizarTipo(valor, usuarioId) {
+  const t = String(valor == null ? '' : valor).trim().toLowerCase();
+  if (TIPOS_VALIDOS.includes(t)) return t;
+  if (SINONIMOS_TIPO[t]) return SINONIMOS_TIPO[t];
+  if (t) log.warn({ tag: 'TIPO_INVALIDO', tipo: t, usuarioId }, 'tipo fuera del CHECK, se guarda como gasto');
+  return 'gasto';
+}
+
 async function guardarTransaccion(usuarioId, datos) {
   const montoValidado = validarMonto(datos.monto);
   if (montoValidado === null) throw new Error('Monto inválido: ' + datos.monto);
@@ -170,7 +202,7 @@ async function guardarTransaccion(usuarioId, datos) {
     subFinal = 'Software';
   }
   const { data, error } = await supabase.from('transacciones').insert({
-    usuario_id: usuarioId, tipo: datos.tipo || 'gasto', monto: montoValidado, moneda: _moneda,
+    usuario_id: usuarioId, tipo: normalizarTipo(datos.tipo, usuarioId), monto: montoValidado, moneda: _moneda,
     monto_pen: _montoPen, tipo_cambio: _tcUsado, metodo_pago: datos.metodo_pago || null,
     comercio: datos.comercio, categoria: catFinal,
     subcategoria: subFinal, banco: datos.banco,
@@ -531,4 +563,7 @@ module.exports = {
   recategorizarTransaccion, recategorizarPorId, corregirTransaccionEspecifica,
   guardarReglaComercio, buscarReglaComercio, retroaplicarRegla,
   DEDUP_WINDOW_MS,
+  // Se exporta para poder probar la DECISIÓN sin montar el insert entero, igual que
+  // `resolverCategoriaPersistida`. Es pura y no toca la DB.
+  normalizarTipo,
 };

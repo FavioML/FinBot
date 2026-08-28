@@ -16,7 +16,7 @@ const { guardarPresupuesto, obtenerPresupuestosMes, verificarAlertaPresupuesto, 
 const { parsearCorreoBancario, parsearRegistroManual, parsearCorreccionesMultiples } = require('../services/parsers');
 const { detectarMultiGasto, detectarIngresoMasGastos } = require('../services/multi-gasto-detector');
 const { notificarAdmin, notificarErrorAdmin } = require('../lib/admin-notify');
-const { registrarError } = require('../lib/error-monitor');
+const { registrarError, esOpenAISinCreditos } = require('../lib/error-monitor');
 const { obtenerCuentasGmail } = require('../gmail');
 const { generarRecomendaciones, construirDatosUsuario, generarMiniRecomendacion } = require('../services/recommendations');
 const { registrarDeuda, obtenerDeudas, abonarDeuda, marcarDeudaPagada, formatearResumenDeudas, consolidarDeudasPorContraparte, saldarTodasDeudas } = require('../services/debts');
@@ -564,8 +564,21 @@ async function procesarMensajeLibre(msg, usuario, from) {
         mensaje: msg.substring(0, 500), intencion: null,
         error_tipo: 'rate_limit', error_detalle: errMsg
       }).then(() => {}).catch(() => {});
-      log.warn({ tag: 'NLP_RATE_LIMIT', salvado: !!salvado, whatsapp: from }, 'OpenAI 429 en NLP');
+      const sinCreditos = esOpenAISinCreditos(errMsg);
+      log.warn({ tag: 'NLP_RATE_LIMIT', salvado: !!salvado, sinCreditos, whatsapp: from }, 'OpenAI 429 en NLP');
       if (salvado) return salvado;
+      // El texto depende de la CAUSA, no del código: los dos casos son 429 (ver
+      // `esOpenAISinCreditos`). Con la cuenta sin saldo, "reenvía en unos segundos" es una
+      // promesa imposible: `salvarGastoSinIA` es pura y determinista, así que el mismo texto
+      // reenviado cae en la misma rama, y OpenAI no vuelve hasta que alguien pague. Mandar a
+      // alguien a reintentar para siempre es peor que decirle que la falla es nuestra.
+      //
+      // La webapp SÍ es una salida real acá y no otra promesa vacía: se verificó que
+      // `webapp/src/app/api/transactions/route.ts` no llama a OpenAI, así que anotar a mano
+      // funciona con la IA caída.
+      if (sinCreditos) {
+        return 'Ahora mismo no puedo leer tu mensaje. Es un problema nuestro, no tuyo, y reintentar no lo va a resolver. Ya quedó registrado de nuestro lado.\n\nSi quieres anotarlo ya, puedes hacerlo desde https://app.neto.pe';
+      }
       return 'Estamos con mucho tráfico ahora mismo. Reenvía tu mensaje en unos segundos y lo registro. 🙏';
     }
 
