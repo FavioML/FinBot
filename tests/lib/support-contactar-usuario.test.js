@@ -36,14 +36,21 @@ const waMock = { enviarWhatsapp: vi.fn(), META_ERR_FUERA_VENTANA: 131047 };
 const notifMock = { notificarUsuario: vi.fn().mockResolvedValue({ inApp: { ok: true } }), CANALES: { AMBOS: 'ambos', SOLO_WHATSAPP: 'solo_whatsapp', SOLO_IN_APP: 'solo_in_app' } };
 
 /**
- * Doble de supabase: una cola de respuestas y un registro de lo que se escribió.
- * `inserts` y `updates` son las dos únicas aserciones que importan.
+ * Doble de supabase: respuestas POR TABLA y un registro de lo que se escribió.
+ *
+ * Era una cola global y se rompió al entrar `estadoVentana`, que lee `usuarios` y
+ * `conversaciones` en un `Promise.all`: con una cola única el resultado depende de en qué
+ * orden resuelven dos promesas concurrentes, o sea que el fixture pasa a ser una carrera. Por
+ * tabla no hay orden que adivinar y además se lee qué está simulando cada entrada.
  */
-const db = { cola: [], inserts: [], updates: [] };
+const db = { porTabla: {}, inserts: [], updates: [] };
 
 function cadena(tabla) {
   const c = {};
-  const siguiente = () => (db.cola.length ? db.cola.shift() : { data: null, error: null });
+  const siguiente = () => {
+    const q = db.porTabla[tabla];
+    return q && q.length ? q.shift() : { data: null, error: null };
+  };
   for (const m of ['select', 'eq', 'in', 'order', 'limit', 'neq', 'is']) c[m] = () => c;
   c.insert = (fila) => { db.inserts.push({ tabla, fila }); return c; };
   c.update = (patch) => { db.updates.push({ tabla, patch }); return c; };
@@ -68,19 +75,26 @@ const { contactarUsuario } = require('../../lib/support-tickets');
 
 const BASE = { usuarioId: 'u1', whatsapp: '51999888777', nombre: 'Ana', mensaje: 'Gracias, lo anotamos.' };
 
-/** Las lecturas/escrituras del camino completo, en orden. */
-function colaCaminoCompleto() {
-  db.cola = [
-    { data: [], error: null },                // responderTicket: no hay ticket pendiente de ese número
-    { data: [], error: null },                // obtenerSesionAbierta: no hay sesión viva
-    { data: { id: 't-nuevo' }, error: null }, // el insert de abrirSesion
-    { data: null, error: null },              // el insert del mensaje en el HILO (migración 079)
-    { data: null, error: null },              // el update de la columna de último mensaje
-  ];
+/** El camino completo de una respuesta que se entrega. Por tabla, en orden de uso. */
+function colaCaminoCompleto({ ultimoMensajeHaceHoras = 1 } = {}) {
+  db.porTabla = {
+    tickets_soporte: [
+      { data: [], error: null },                // responderTicket: no hay ticket pendiente del número
+      { data: [], error: null },                // obtenerSesionAbierta: no hay sesión viva
+      { data: { id: 't-nuevo' }, error: null }, // el insert de abrirSesion
+      { data: null, error: null },              // el update de la columna de último mensaje
+    ],
+    usuarios: [{ data: { email: 'ana@ejemplo.pe' }, error: null }],
+    conversaciones: [{
+      data: [{ created_at: new Date(Date.now() - ultimoMensajeHaceHoras * 3600 * 1000).toISOString() }],
+      error: null,
+    }],
+    tickets_mensajes: [{ data: null, error: null }],  // el insert del turno en el HILO
+  };
 }
 
 beforeEach(() => {
-  db.cola = [];
+  db.porTabla = {};
   db.inserts = [];
   db.updates = [];
   waMock.enviarWhatsapp.mockReset();
@@ -90,7 +104,7 @@ beforeEach(() => {
 describe('contactarUsuario · la conversación no se abre sobre un mensaje que no llegó', () => {
   it('fuera de la ventana de 24h: NO abre sesión, y dice por qué', async () => {
     waMock.enviarWhatsapp.mockResolvedValue({ ok: false, code: 131047 });
-    db.cola = [];
+    db.porTabla = {};
 
     const r = await contactarUsuario(BASE);
 
@@ -152,6 +166,52 @@ describe('contactarUsuario · la conversación no se abre sobre un mensaje que n
     expect(aviso.usuarioId).toBe('u1');
     // Canal único exige motivo declarado: es la regla del chokepoint, no un adorno.
     expect(String(aviso.motivo || {})).not.toBe('');
+    // Ventana ABIERTA (escribió hace 1h): nada de correo. Mandarlo en paralelo sería
+    // duplicarle el mensaje a todo el mundo por un caso que casi nunca ocurre.
+    expect(aviso.email.to).toBe(null);
+  });
+
+  it('si la ventana de Meta parece cerrada, el correo SÍ sale', async () => {
+    // El 131047 llega por CALLBACK, no en la respuesta del POST (452 de 459 fallos de 30
+    // días), así que un fallback colgado del resultado del envío no se dispararía nunca. Se
+    // predice al enviar: cuando la predicción se equivoca el precio es un correo de más.
+    waMock.enviarWhatsapp.mockResolvedValue({ ok: true, msgId: 'wamid.1' });
+    colaCaminoCompleto({ ultimoMensajeHaceHoras: 30 });
+
+    await contactarUsuario(BASE);
+
+    const aviso = notifMock.notificarUsuario.mock.calls[0][0];
+    expect(aviso.email).toMatchObject({ to: 'ana@ejemplo.pe' });
+    expect(String(aviso.email.asunto || '').length).toBeGreaterThan(0);
+  });
+
+  it('quien se dio de baja NO recibe el correo, aunque la ventana este cerrada', async () => {
+    // El pie de cada email promete por escrito que darse de baja apaga TODOS los canales.
+    // Mandarle igual una respuesta de soporte nos convierte en mentirosos sobre lo unico que le
+    // prometimos por escrito. No queda sin respuesta: el WhatsApp se intenta igual y la campana
+    // sale siempre — lo que se pierde es el canal de repuesto, que es lo que pidio.
+    waMock.enviarWhatsapp.mockResolvedValue({ ok: true, msgId: 'wamid.1' });
+    colaCaminoCompleto({ ultimoMensajeHaceHoras: 30 });
+    db.porTabla.usuarios = [{ data: { email: 'ana@ejemplo.pe', recordatorios_activos: false }, error: null }];
+
+    await contactarUsuario(BASE);
+
+    const aviso = notifMock.notificarUsuario.mock.calls[0][0];
+    expect(aviso.email.to).toBe(null);
+    // La campana SI sale: no es un recordatorio, es la respuesta a algo que preguntó.
+    expect(aviso.canales).toBe('solo_in_app');
+  });
+
+  it('sin correo en la fila no se inventa un destinatario', async () => {
+    // El control del anterior: la rama del correo depende de DOS cosas, y sin esto un
+    // `to: undefined` pasaría como "salió el correo".
+    waMock.enviarWhatsapp.mockResolvedValue({ ok: true, msgId: 'wamid.1' });
+    colaCaminoCompleto({ ultimoMensajeHaceHoras: 30 });
+    db.porTabla.usuarios = [{ data: { email: null }, error: null }];
+
+    await contactarUsuario(BASE);
+
+    expect(notifMock.notificarUsuario.mock.calls[0][0].email.to).toBe(null);
   });
 
   it('NO hay camino que envíe sin registrar: el ticket es el registro, no una opción', async () => {
@@ -178,7 +238,7 @@ describe('contactarUsuario · la conversación no se abre sobre un mensaje que n
     // `abrirSesion` necesita el id, así que el retorno tiene que decir que quedó sin abrir en
     // vez de dejar al admin esperando una respuesta que se va a ir al bot.
     waMock.enviarWhatsapp.mockResolvedValue({ ok: true, msgId: 'wamid.1' });
-    db.cola = [{ data: [], error: null }];
+    db.porTabla = { tickets_soporte: [{ data: [], error: null }] };
 
     const r = await contactarUsuario({ ...BASE, usuarioId: null });
 
@@ -194,7 +254,7 @@ describe('contactarUsuario · la conversación no se abre sobre un mensaje que n
     // usuarioId la fila existe pero no se puede cruzar con nadie — que es la mitad de para que
     // sirve. Aca no hay ticket del que sacarlo, asi que tiene que viajar desde el llamador.
     waMock.enviarWhatsapp.mockResolvedValue({ ok: true, msgId: 'wamid.1' });
-    db.cola = [{ data: [], error: null }];
+    colaCaminoCompleto();
 
     await contactarUsuario(BASE);
 
