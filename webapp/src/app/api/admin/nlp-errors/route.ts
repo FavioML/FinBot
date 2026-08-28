@@ -2,6 +2,9 @@ import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 import { requireAdminUser } from '@/lib/admin';
 
+const BACKEND_URL = process.env.NETO_BACKEND_URL || process.env.RAILWAY_URL || 'https://api.neto.pe';
+const ADMIN_KEY = process.env.ADMIN_KEY;
+
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
@@ -40,4 +43,48 @@ export async function GET(request: Request) {
     rateLimitTotal: rateLimitTotal || 0,
     errors: data || [],
   });
+}
+
+/**
+ * POST — le responde como NETO a quien dejó un feedback o una queja.
+ *
+ * Estas dos cosas viven en `nlp_errors`, no en `tickets_soporte`, así que el flujo de respuesta
+ * del tab Tickets no les servía: no hay ticket que responder. El resultado era que la única
+ * forma de contestarle a alguien que se tomó el trabajo de escribir una sugerencia era hacerlo
+ * desde un celular.
+ *
+ * La webapp no puede mandar WhatsApp (no tiene token de Meta), igual que en /api/admin/tickets:
+ * el envío lo hace el backend. Ver routes/admin.js → /admin/contactar-usuario.
+ *
+ * El `msg` del backend se DEVUELVE tal cual, el del fallo incluido: ahí vive la razón que
+ * importa (la ventana de 24h de Meta), y el panel la tiraba para poner "Error al responder".
+ */
+export async function POST(request: Request) {
+  if (!(await requireAdminUser())) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  const body = await request.json();
+  const { whatsapp, mensaje, usuario_id, nombre, abrir_conversacion } = body || {};
+  if (!whatsapp || !mensaje) {
+    return NextResponse.json({ error: 'Faltan whatsapp o mensaje' }, { status: 400 });
+  }
+  if (!ADMIN_KEY) {
+    return NextResponse.json({ error: 'ADMIN_KEY no configurada en el entorno de la webapp' }, { status: 500 });
+  }
+
+  try {
+    const res = await fetch(`${BACKEND_URL}/admin/contactar-usuario`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-admin-key': ADMIN_KEY },
+      body: JSON.stringify({ whatsapp, mensaje, usuario_id, nombre, abrir_conversacion }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.ok) {
+      return NextResponse.json({ error: json.msg || 'No se pudo enviar el mensaje' }, { status: 502 });
+    }
+    return NextResponse.json({ ok: true, msg: json.msg, conversacionAbierta: json.conversacionAbierta === true });
+  } catch (e) {
+    return NextResponse.json({ error: 'Error contactando el backend: ' + (e as Error).message }, { status: 502 });
+  }
 }

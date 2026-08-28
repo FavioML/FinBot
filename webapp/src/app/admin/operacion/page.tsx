@@ -16,6 +16,7 @@ import {
   useAdminNlpErrors,
   useAdminTickets,
   type AdminUser,
+  type NlpError,
 } from '@/lib/hooks/use-admin-operacion';
 import { ErrorState } from '@/components/shared/error-state';
 
@@ -31,6 +32,18 @@ import { ErrorState } from '@/components/shared/error-state';
 function etiquetaUsuario(u?: { nombre?: string | null; whatsapp?: string | null } | null): string {
   return u?.nombre || u?.whatsapp || 'este usuario (sin nombre)';
 }
+
+/**
+ * Los `error_tipo` de `nlp_errors` que son una PERSONA esperando respuesta, y no diagnostico.
+ *
+ * La tabla mezcla las dos cosas: `rate_limit` es un 429 de OpenAI, `desconocido` es un mensaje
+ * que la NLP no entendio, y ninguno de los dos hizo una pregunta. `feedback` y `queja` si — y
+ * hasta hoy la unica forma de contestarles era escribirles desde un celular.
+ *
+ * Si agregas un tipo que espera respuesta, va aca. Un `includes` suelto en el JSX haria que la
+ * decision viva en el unico lugar donde nadie la busca.
+ */
+const ESPERAN_RESPUESTA = new Set(['feedback', 'queja']);
 
 interface Pago {
   id: string;
@@ -537,6 +550,13 @@ export default function AdminOperacionPage() {
   const [replyText, setReplyText] = useState('');
   const [replyBusy, setReplyBusy] = useState(false);
 
+  // Responder un feedback/queja del tab NLP. Estado propio y no el de tickets: son dos tablas
+  // distintas, y compartir `replyingTo` haria que abrir uno cerrara el otro.
+  const [nlpReplyTo, setNlpReplyTo] = useState<string | null>(null);
+  const [nlpReplyText, setNlpReplyText] = useState('');
+  const [nlpReplyBusy, setNlpReplyBusy] = useState(false);
+  const [nlpAbrirConv, setNlpAbrirConv] = useState(false);
+
   const [userPlanFilter, setUserPlanFilter] = useState<string>('todos');
   const [userOnboardingFilter, setUserOnboardingFilter] = useState<string>('todos');
   const [userGmailFilter, setUserGmailFilter] = useState<string>('todos');
@@ -720,15 +740,52 @@ export default function AdminOperacionPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: ticketId, action: 'respond', respuesta: replyText.trim() }),
     });
+    const json = await res.json().catch(() => ({}));
     if (res.ok) {
-      setToast('Respuesta enviada');
+      setToast(json.msg || 'Respuesta enviada');
       setReplyingTo(null);
       setReplyText('');
       queryClient.invalidateQueries({ queryKey: ['admin', 'tickets'] });
     } else {
-      setToast('Error al responder');
+      // El motivo del backend, no un "Error al responder" generico. La causa mas comun es la
+      // ventana de 24h de Meta, y esa distincion decide que hacer: esperar a que escriba, no
+      // reintentar. El panel la tiraba.
+      setToast(json.error || 'Error al responder');
     }
     setReplyBusy(false);
+  };
+
+  /**
+   * Responde un feedback o una queja. Aca no hay ticket que responder: esas dos cosas viven en
+   * `nlp_errors`, asi que el envio va por /api/admin/nlp-errors y el backend decide si ademas
+   * abre la conversacion (ver contactarUsuario en lib/support-tickets).
+   */
+  // El nombre lo pasa el llamador: `whatsappToName` se arma dentro del IIFE de cada tab.
+  const handleNlpReply = async (err: NlpError, nombre: string | null) => {
+    if (!nlpReplyText.trim() || !err.whatsapp) return;
+    setNlpReplyBusy(true);
+    const res = await fetch('/api/admin/nlp-errors', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        whatsapp: err.whatsapp,
+        mensaje: nlpReplyText.trim(),
+        usuario_id: err.usuario_id,
+        nombre,
+        abrir_conversacion: nlpAbrirConv,
+      }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (res.ok) {
+      setToast(json.msg || 'Mensaje enviado');
+      setNlpReplyTo(null);
+      setNlpReplyText('');
+      setNlpAbrirConv(false);
+      if (json.conversacionAbierta) queryClient.invalidateQueries({ queryKey: ['admin', 'tickets'] });
+    } else {
+      setToast(json.error || 'No se pudo enviar');
+    }
+    setNlpReplyBusy(false);
   };
 
   const handleTicketEstado = async (ticketId: string, estado: string) => {
@@ -1409,6 +1466,60 @@ export default function AdminOperacionPage() {
                       </div>
                       {err.error_detalle && (
                         <div className="mt-1 text-xs text-[#F0EFE8]/30">{err.error_detalle}</div>
+                      )}
+
+                      {/* Solo lo que ESPERA respuesta. Un rate-limit o un "desconocido" son
+                          diagnostico, no alguien escribiendo: un boton de responder ahi invita a
+                          contestarle a quien no pregunto nada. */}
+                      {ESPERAN_RESPUESTA.has(err.error_tipo) && err.whatsapp && (
+                        <div className="mt-3 border-t border-white/5 pt-3">
+                          {nlpReplyTo === err.id ? (
+                            <div className="space-y-2">
+                              <textarea
+                                value={nlpReplyText}
+                                onChange={(e) => setNlpReplyText(e.target.value)}
+                                placeholder="Tu respuesta. Le llega por WhatsApp como Neto."
+                                rows={3}
+                                className="form-input w-full px-3 py-2 text-xs"
+                                autoFocus
+                              />
+                              <label className="flex items-start gap-2 text-xs text-[#F0EFE8]/50">
+                                <input
+                                  type="checkbox"
+                                  checked={nlpAbrirConv}
+                                  onChange={(e) => setNlpAbrirConv(e.target.checked)}
+                                  className="mt-0.5"
+                                />
+                                <span>
+                                  Abrir conversacion: lo que responda te llega a vos.
+                                  <span className="text-[#F0EFE8]/30"> Mientras este abierta deja de usar el bot, asi que cerrala al terminar.</span>
+                                </span>
+                              </label>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => handleNlpReply(err, whatsappToName[err.whatsapp!] || null)}
+                                  disabled={nlpReplyBusy || !nlpReplyText.trim()}
+                                  className="rounded-lg bg-[#1D9E75] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#1D9E75]/80 disabled:opacity-50 transition-colors"
+                                >
+                                  {nlpReplyBusy ? '...' : 'Enviar'}
+                                </button>
+                                <button
+                                  onClick={() => setNlpReplyTo(null)}
+                                  className="rounded-lg bg-white/5 px-3 py-1.5 text-xs text-[#F0EFE8]/60 hover:bg-white/10 transition-colors"
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => { setNlpReplyTo(err.id); setNlpReplyText(''); setNlpAbrirConv(false); }}
+                              className="rounded-lg bg-white/5 px-3 py-1.5 text-xs text-[#F0EFE8]/70 hover:bg-white/10 transition-colors"
+                            >
+                              Responder como Neto
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
                     <div className="ml-3 whitespace-nowrap text-xs text-[#F0EFE8]/30">{formatDateTime(err.created_at)}</div>

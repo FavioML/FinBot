@@ -7,7 +7,7 @@ const { enviarWhatsapp } = require('../lib/whatsapp');
 const { guardarMensaje } = require('../helpers/db-helpers');
 const { activarPro, reclamarPagoPendiente } = require('../lib/pro-payment');
 const { resumenReferidoParaAdmin, registrarReferido } = require('../services/referrals');
-const { responderTicket } = require('../lib/support-tickets');
+const { responderTicket, contactarUsuario } = require('../lib/support-tickets');
 const { esProPagado } = require('../lib/trial');
 const { parsearCorreoBancario } = require('../services/parsers');
 
@@ -321,6 +321,36 @@ router.post('/responder-ticket', async (req, res) => {
   const r = await responderTicket({ numDestino: whatsapp || null, mensaje, ticketId: ticket_id || null });
   if (!r.ok) return res.status(502).json({ ok: false, msg: r.msg });
   res.json({ ok: true, msg: r.msg });
+});
+
+/**
+ * POST /admin/contactar-usuario — le escribe como NETO a alguien que NO abrió un ticket.
+ *
+ * El caso que lo pide: el feedback y la queja viven en `nlp_errors`, no en
+ * `tickets_soporte`, asi que el boton Responder del panel no tenia a que apuntar y
+ * contestarle a quien dejo una sugerencia obligaba a escribirle desde un celular.
+ *
+ * `abrir_conversacion` (default false) decide si ademas se abre la sesion de soporte para
+ * que la respuesta de la persona vuelva al admin en vez de irse al bot. Va apagado por
+ * defecto a proposito: ver el comentario de contactarUsuario en lib/support-tickets.
+ *
+ * Body: { whatsapp, mensaje, usuario_id?, nombre?, abrir_conversacion? }.
+ */
+router.post('/contactar-usuario', async (req, res) => {
+  if (!verificarAdmin(req, res)) return;
+  const { whatsapp, mensaje, usuario_id, nombre, abrir_conversacion } = req.body || {};
+  if (!mensaje || !whatsapp) {
+    return res.status(400).json({ ok: false, msg: 'Falta whatsapp o mensaje' });
+  }
+  const r = await contactarUsuario({
+    usuarioId: usuario_id || null,
+    whatsapp,
+    nombre: nombre || null,
+    mensaje,
+    abrirConversacion: abrir_conversacion === true,
+  });
+  if (!r.ok) return res.status(502).json({ ok: false, msg: r.msg });
+  res.json({ ok: true, msg: r.msg, conversacionAbierta: r.conversacionAbierta === true });
 });
 
 router.post('/espacio-nuevo-miembro', async (req, res) => {
