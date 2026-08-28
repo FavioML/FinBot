@@ -99,6 +99,12 @@ export interface TicketMensaje {
   rol: 'usuario' | 'admin';
   mensaje: string;
   created_at: string;
+  wamid: string | null;
+  /**
+   * El desenlace REAL del turno del admin, del callback de status de Meta. `null` significa
+   * "no se sabe" (turno del usuario, o envío sin wamid), NO "no llegó".
+   */
+  entrega: { delivered_at: string | null; failed_at: string | null; code: number | null } | null;
 }
 
 /**

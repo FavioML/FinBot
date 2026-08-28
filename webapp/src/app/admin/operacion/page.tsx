@@ -17,6 +17,7 @@ import {
   useAdminTickets,
   useAdminTicketThread,
   type AdminUser,
+  type TicketMensaje,
   type NlpError,
 } from '@/lib/hooks/use-admin-operacion';
 import { ErrorState } from '@/components/shared/error-state';
@@ -56,6 +57,30 @@ const ESPERAN_RESPUESTA = new Set(['feedback', 'queja']);
  *
  * Se monta sólo cuando el admin abre la respuesta, para no disparar una query por ticket.
  */
+/**
+ * El desenlace de un turno del admin, en tres estados que NO se colapsan.
+ *
+ * `null` es "no se sabe", y es distinto de "no llego": pasa cuando el envio no dejo wamid
+ * (Meta lo rechazo de entrada) o cuando el turno es anterior a la migracion 079b. Pintar eso
+ * como no entregado seria inventar un fallo; pintarlo como entregado seria el bug B23 otra vez.
+ */
+function EstadoEntrega({ entrega }: { entrega: TicketMensaje['entrega'] }) {
+  if (!entrega) return <span className="text-[#F0EFE8]/25">sin dato de entrega</span>;
+  if (entrega.delivered_at) return <span className="text-[#1D9E75]">entregado</span>;
+  if (entrega.failed_at) {
+    // 131047 es la ventana de 24h de Meta, y es el 98% de los fallos. Nombrarla evita que el
+    // admin reintente: lo que hay que hacer es esperar a que la persona escriba.
+    const ventana = entrega.code === 131047;
+    return (
+      <span className="text-amber-400/90">
+        {ventana ? 'no entregado · fuera de la ventana de 24h' : 'no entregado'}
+        {!ventana && entrega.code ? ` (code ${entrega.code})` : ''}
+      </span>
+    );
+  }
+  return <span className="text-[#F0EFE8]/40">enviado, sin confirmacion aun</span>;
+}
+
 function HiloTicket({ ticketId }: { ticketId: string }) {
   const { data, isLoading, isError, refetch } = useAdminTicketThread(ticketId);
 
@@ -98,7 +123,10 @@ function HiloTicket({ ticketId }: { ticketId: string }) {
           }`}
         >
           <div className="whitespace-pre-wrap break-words">{m.mensaje}</div>
-          <div className="mt-1 text-[10px] text-[#F0EFE8]/30">{m.rol === 'admin' ? 'Neto' : 'Usuario'} · {formatDateTime(m.created_at)}</div>
+          <div className="mt-1 text-[10px] text-[#F0EFE8]/30">
+            {m.rol === 'admin' ? 'Neto' : 'Usuario'} · {formatDateTime(m.created_at)}
+            {m.rol === 'admin' && <> · <EstadoEntrega entrega={m.entrega} /></>}
+          </div>
         </div>
       ))}
     </div>

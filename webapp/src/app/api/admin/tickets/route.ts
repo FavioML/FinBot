@@ -21,13 +21,38 @@ export async function GET(request: Request) {
   if (thread) {
     const { data, error } = await getServiceClient()
       .from('tickets_mensajes')
-      .select('id, rol, mensaje, created_at')
+      .select('id, rol, mensaje, created_at, wamid')
       .eq('ticket_id', thread)
       .order('created_at', { ascending: true });
     // Se distingue "falló la lectura" de "no hay mensajes": pintar un hilo vacío sobre una
     // caída le diría al admin que nadie escribió nada.
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ ok: true, mensajes: data || [] });
+
+    // El DESENLACE de cada turno del admin (migración 079b). "Enviado" sólo significa que
+    // Meta aceptó el POST: sobre 30 días, de 556 aceptados se entregaron 67. El que decide
+    // es el callback de status, que escribe `delivered_at`/`failed_at` sobre la fila del
+    // ledger, y el `wamid` es lo que une los dos lados.
+    const wamids = (data || []).map((m) => m.wamid).filter(Boolean) as string[];
+    const entregas: Record<string, { delivered_at: string | null; failed_at: string | null; code: number | null }> = {};
+    if (wamids.length > 0) {
+      const { data: dels, error: errDel } = await getServiceClient()
+        .from('notification_deliveries')
+        .select('wamid, delivered_at, failed_at, code')
+        .in('wamid', wamids);
+      // Un fallo acá NO tumba el hilo: los mensajes son lo que el admin vino a leer, y el
+      // estado de entrega es el adorno. Se devuelve el hilo sin estados, que la UI pinta
+      // como "sin dato" — nunca como "no entregado", que sería afirmar algo que no se sabe.
+      if (!errDel) {
+        for (const d of dels || []) {
+          if (d.wamid) entregas[d.wamid] = { delivered_at: d.delivered_at, failed_at: d.failed_at, code: d.code };
+        }
+      }
+    }
+
+    return NextResponse.json({
+      ok: true,
+      mensajes: (data || []).map((m) => ({ ...m, entrega: m.wamid ? entregas[m.wamid] || null : null })),
+    });
   }
 
   const limit = parseInt(searchParams.get('limit') || '50');

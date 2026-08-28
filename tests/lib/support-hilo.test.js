@@ -63,8 +63,9 @@ describe('registrarMensajeTicket · las dos representaciones, un solo escritor',
     await registrarMensajeTicket({ ticketId: 't1', rol: 'usuario', mensaje: 'no me registró el gasto' });
 
     expect(db.inserts).toEqual([
-      { tabla: 'tickets_mensajes', fila: { ticket_id: 't1', rol: 'usuario', mensaje: 'no me registró el gasto' } },
+      { tabla: 'tickets_mensajes', fila: { ticket_id: 't1', rol: 'usuario', mensaje: 'no me registró el gasto', wamid: null } },
     ]);
+    // El turno del usuario no lleva wamid: no es un mensaje NUESTRO, no hay entrega que cruzar.
     expect(db.updates).toHaveLength(1);
     expect(db.updates[0].patch.mensaje_usuario).toBe('no me registró el gasto');
     // La columna del OTRO lado no se toca: pisarla borraría la última respuesta del admin.
@@ -75,6 +76,7 @@ describe('registrarMensajeTicket · las dos representaciones, un solo escritor',
     await registrarMensajeTicket({ ticketId: 't1', rol: 'admin', mensaje: 'ya lo revisamos' });
 
     expect(db.inserts[0].fila.rol).toBe('admin');
+    expect(db.inserts[0].fila.wamid).toBe(null);
     expect(db.updates[0].patch.mensaje_admin).toBe('ya lo revisamos');
     expect(db.updates[0].patch.mensaje_usuario).toBeUndefined();
   });
@@ -103,6 +105,13 @@ describe('registrarMensajeTicket · las dos representaciones, un solo escritor',
     expect(anotado[0][0].err).toMatch(/RLS/);
     // Y la columna se intenta igual: son dos escrituras independientes.
     expect(db.updates).toHaveLength(1);
+  });
+
+  it('el wamid del admin se persiste: es lo que cruza el turno con su entrega', async () => {
+    // Sin esta fila el panel no puede decir ENTREGADO ni NO ENTREGADO, solo "enviada" — que
+    // es la frase que significaba nada mas que "Meta acepto el POST".
+    await registrarMensajeTicket({ ticketId: 't1', rol: 'admin', mensaje: 'ya esta', wamid: 'wamid.ABC' });
+    expect(db.inserts[0].fila.wamid).toBe('wamid.ABC');
   });
 
   it('sin ticketId o sin mensaje no escribe nada', async () => {
