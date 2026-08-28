@@ -164,6 +164,20 @@ describe('contactarUsuario · la conversación no se abre sobre un mensaje que n
     expect(db.inserts).toEqual([]);
   });
 
+  it('el envío se etiqueta y ARRASTRA el usuario: sin eso la fila del ledger no es atribuible', async () => {
+    // `registrarEntrega` arranca con `if (!tipo) return`, asi que sin el tipo no hay fila y el
+    // callback de status de Meta no matchea nada: el desenlace real no se sabe nunca. Y sin el
+    // usuarioId la fila existe pero no se puede cruzar con nadie — que es la mitad de para que
+    // sirve. Aca no hay ticket del que sacarlo, asi que tiene que viajar desde el llamador.
+    waMock.enviarWhatsapp.mockResolvedValue({ ok: true, msgId: 'wamid.1' });
+    db.cola = [{ data: [], error: null }];
+
+    await contactarUsuario(BASE);
+
+    const opts = waMock.enviarWhatsapp.mock.calls[0][2];
+    expect(opts).toMatchObject({ tipo: 'soporte_respuesta', usuarioId: 'u1' });
+  });
+
   it('sin número no intenta nada', async () => {
     const r = await contactarUsuario({ ...BASE, whatsapp: '' });
     expect(r.ok).toBe(false);
