@@ -296,7 +296,10 @@ function UserFichaSheet({ user, onClose }: { user: AdminUser | null; onClose: ()
                 {estadoComercial(user) === 'trial' ? (
                   <DetailRow label="Prueba termina" value={fmtDate(user.trial_vence)} />
                 ) : (
-                  user.plan === 'premium' && (
+                  // Acá `plan === 'premium'` era CORRECTO, pero sólo porque esta rama es el
+                  // else de "está en prueba". Depender de la rama de arriba obliga a leer las
+                  // dos para saber si miente; el predicado directo lo dice solo.
+                  estadoComercial(user) === 'pro_pagado' && (
                     <>
                       <DetailRow label="Se hizo Pro" value={fmtDate(user.premium_desde)} />
                       <DetailRow label="Pro vence" value={fmtDate(user.premium_vence)} />

@@ -21,6 +21,9 @@ import {
   type NlpError,
 } from '@/lib/hooks/use-admin-operacion';
 import { ErrorState } from '@/components/shared/error-state';
+// El motor de estado comercial, el MISMO que usa /admin/users. No se reimplementa acá: es
+// la fuente única de qué significa cada combinación de `plan` + `trial_estado`.
+import { estadoComercial, ESTADO_LABEL, ESTADO_HINT, type EstadoComercial } from '@/lib/admin-user-segments';
 
 /**
  * Cómo se nombra a un usuario en una pantalla de admin (F16).
@@ -185,18 +188,30 @@ function formatDateTime(dateStr: string | null | undefined) {
 // pago conserva su Pro si vuelve), asi que sin esto operacion mostraba "Pro" a secas sobre los
 // dos usuarios que se fueron, uno con `premium_vence` en 2027. Es la misma marca que los saca
 // del MRR en admin-revenue.ts.
-function PlanBadge({ plan, bajaAt }: { plan: string; bajaAt?: string | null }) {
-  const isPro = plan === 'premium';
+// **Seis estados, no dos.** Decía `plan === 'premium' ? 'Pro' : 'Free'`, y bajo el modelo
+// de trial eso miente en las dos direcciones: durante la prueba `plan` vale 'premium' a
+// propósito (migración 052), así que los ~30 en prueba se veían idénticos a los 2 que pagan;
+// y "Free" colapsaba tres poblaciones con acciones OPUESTAS (activar / cobrar / recuperar).
+//
+// Es el mismo arreglo que /admin/users recibió el 27-ago (commit 1f02357) y que esta
+// pantalla no recibió, porque el panel tiene DOS tablas de usuarios y sólo se tocó una.
+const ESTADO_COLOR: Record<EstadoComercial, string> = {
+  pro_pagado: 'bg-[#1D9E75]/20 text-[#1D9E75]',
+  pago_pendiente: 'bg-amber-500/15 text-amber-400',
+  trial: 'bg-sky-500/15 text-sky-400',
+  muro_vencido: 'bg-white/5 text-[#F0EFE8]/60',
+  muro_ex_pagador: 'bg-white/5 text-[#F0EFE8]/60',
+  sin_estrenar: 'bg-white/5 text-[#F0EFE8]/40',
+};
+
+function PlanBadge({ estado, bajaAt }: { estado: EstadoComercial; bajaAt?: string | null }) {
   return (
     <span className="inline-flex flex-wrap items-center gap-1">
       <span
-        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-          isPro
-            ? 'bg-[#1D9E75]/20 text-[#1D9E75]'
-            : 'bg-white/5 text-[#F0EFE8]/60'
-        }`}
+        title={ESTADO_HINT[estado]}
+        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${ESTADO_COLOR[estado]}`}
       >
-        {isPro ? 'Pro' : 'Free'}
+        {ESTADO_LABEL[estado]}
       </span>
       {bajaAt && (
         <span className="inline-flex items-center rounded-full bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-400">
@@ -266,6 +281,10 @@ function UserActions({
     setConfirming(null);
   };
 
+  // **Acá `plan` es lo correcto y no se toca.** Este menú decide qué ACCIÓN ofrecer, y las
+  // acciones operan sobre la capability (`set_plan` prende o apaga `plan`), no sobre quién
+  // paga. A alguien en prueba no se le ofrece "Activar Pro" porque ya lo tiene. Lo que
+  // mentía era la ETIQUETA, que es lo que se arregló arriba.
   const isPro = user.plan === 'premium';
 
   return (
@@ -465,9 +484,10 @@ function PaymentsModal({
           <div>
             <h3 className="text-base font-semibold text-[#F0EFE8]">Pagos de {etiquetaUsuario(user)}</h3>
             <p className="text-xs text-[#F0EFE8]/40">
-              {user.plan === 'premium'
-                ? `Pro · vence ${formatDate(user.premium_vence)}`
-                : 'Free'}
+              {ESTADO_LABEL[estadoComercial(user)]}
+              {estadoComercial(user) === 'pro_pagado' && user.premium_vence
+                ? ` · vence ${formatDate(user.premium_vence)}`
+                : ''}
               {user.cuenta_borrada_at
                 ? ` · pidió la baja el ${formatDate(user.cuenta_borrada_at)}`
                 : ''}
@@ -780,8 +800,14 @@ export default function AdminOperacionPage() {
         u.plan.includes(s);
       if (!matches) return false;
     }
-    if (userPlanFilter === 'free' && u.plan !== 'free') return false;
-    if (userPlanFilter === 'pro' && u.plan !== 'premium') return false;
+    // El filtro tenía el mismo bug que la etiqueta y no lo vi hasta que lo delató el guard:
+    // "Pro" traía a los ~30 que prueban (durante el trial `plan` vale 'premium') y "Free"
+    // no traía a ninguno de ellos, así que las dos opciones mentían a la vez sobre la misma
+    // población. Ahora cada opción significa lo que dice.
+    const estadoU = estadoComercial(u);
+    if (userPlanFilter === 'pro' && estadoU !== 'pro_pagado') return false;
+    if (userPlanFilter === 'trial' && estadoU !== 'trial') return false;
+    if (userPlanFilter === 'muro' && !estadoU.startsWith('muro') && estadoU !== 'sin_estrenar') return false;
     if (userOnboardingFilter === 'completado' && !u.onboarding_completado) return false;
     if (userOnboardingFilter === 'pendiente' && u.onboarding_completado) return false;
     if (userGmailFilter === 'conectado' && !u.tiene_gmail) return false;
@@ -904,7 +930,12 @@ export default function AdminOperacionPage() {
    * `null` (y no 0) es lo que dice "no lo sé", y `numeroKpi` lo pinta como raya.
    */
   const numeroKpi = (n: number) => (usersFallo ? '—' : n.toLocaleString('es-PE'));
-  const totalPro = usersFallo ? null : users.filter((u) => u.plan === 'premium').length;
+  // Contaba `plan === 'premium'` crudo: ~30 "Pro" donde hay 2 pagadores, o sea la cifra
+  // inflada 15x en la tarjeta de MRR. Y excluye bajas declaradas, igual que /admin/users —
+  // sin eso contaba cuentas borradas que el MRR de la misma pantalla ya descuenta.
+  const totalPro = usersFallo
+    ? null
+    : users.filter((u) => !u.cuenta_borrada_at && estadoComercial(u) === 'pro_pagado').length;
   const totalWebapp = users.filter((u) => u.tiene_webapp).length;
   const totalTx = users.reduce((s, u) => s + u.transacciones, 0);
 
@@ -1195,9 +1226,10 @@ export default function AdminOperacionPage() {
                 onChange={(e) => setUserPlanFilter(e.target.value)}
                 className="form-input px-3 py-2 text-sm"
               >
-                <option value="todos" className="bg-[#1A1A18]">Plan: Todos</option>
-                <option value="free" className="bg-[#1A1A18]">Free</option>
-                <option value="pro" className="bg-[#1A1A18]">Pro</option>
+                <option value="todos" className="bg-[#1A1A18]">Estado: Todos</option>
+                <option value="pro" className="bg-[#1A1A18]">Pro pagado</option>
+                <option value="trial" className="bg-[#1A1A18]">En prueba</option>
+                <option value="muro" className="bg-[#1A1A18]">En el muro</option>
               </select>
               <select
                 value={userOnboardingFilter}
@@ -1292,15 +1324,16 @@ export default function AdminOperacionPage() {
                     </td>
                     <td className="px-4 py-3 font-mono text-xs">{u.whatsapp}</td>
                     <td className="px-4 py-3">
-                      <PlanBadge plan={u.plan} bajaAt={u.cuenta_borrada_at} />
-                      {u.plan === 'premium' && (
+                      <PlanBadge estado={estadoComercial(u)} bajaAt={u.cuenta_borrada_at} />
+                      {/* El tipo de plan es del que PAGA: "Anual" sobre una prueba no significa nada. */}
+                      {estadoComercial(u) === 'pro_pagado' && (
                         <div className="mt-1 text-[10px] uppercase tracking-wide text-[#F0EFE8]/40">
                           {u.tipo_plan === 'anual' ? 'Anual' : 'Mensual'}
                         </div>
                       )}
                     </td>
                     <td className="px-4 py-3 text-xs text-[#F0EFE8]/50">
-                      {u.plan === 'premium' ? (
+                      {estadoComercial(u) === 'pro_pagado' ? (
                         <div>
                           <div>{u.fecha_pago ? `Pagó ${formatDate(u.fecha_pago)}` : (u.estado_pago || '—')}</div>
                           {u.premium_vence && (() => {
@@ -1342,7 +1375,7 @@ export default function AdminOperacionPage() {
                     <div className="text-xs text-[#F0EFE8]/40">{u.email || '—'}</div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <PlanBadge plan={u.plan} bajaAt={u.cuenta_borrada_at} />
+                    <PlanBadge estado={estadoComercial(u)} bajaAt={u.cuenta_borrada_at} />
                     <UserActions user={u} onAction={handleUserAction} />
                   </div>
                 </div>
@@ -1352,7 +1385,7 @@ export default function AdminOperacionPage() {
                   <div className="flex items-center gap-1.5"><StatusDot active={u.tiene_gmail} /><span className="text-[#F0EFE8]/40">Gmail</span></div>
                   <div className="flex items-center gap-1.5"><StatusDot active={u.tiene_webapp} /><span className="text-[#F0EFE8]/40">Webapp</span></div>
                   <div className="flex items-center gap-1.5"><CanalBadge canal={u.canal} /></div>
-                  {u.plan === 'premium' && u.premium_vence && (() => {
+                  {estadoComercial(u) === 'pro_pagado' && u.premium_vence && (() => {
                     const daysLeft = Math.ceil((new Date(u.premium_vence).getTime() - Date.now()) / 86400000);
                     return (
                       <div className={`col-span-2 ${daysLeft <= 7 ? 'text-[#E85D3A] font-medium' : ''}`}>
