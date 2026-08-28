@@ -15,6 +15,7 @@ import {
   useAdminUsers,
   useAdminNlpErrors,
   useAdminTickets,
+  useAdminTicketThread,
   type AdminUser,
   type NlpError,
 } from '@/lib/hooks/use-admin-operacion';
@@ -44,6 +45,65 @@ function etiquetaUsuario(u?: { nombre?: string | null; whatsapp?: string | null 
  * decision viva en el unico lugar donde nadie la busca.
  */
 const ESPERAN_RESPUESTA = new Set(['feedback', 'queja']);
+
+/**
+ * El hilo de una conversación de soporte (migración 079).
+ *
+ * Hasta el 28-ago-2026 esta pantalla mostraba UNA línea por lado: `tickets_soporte` guarda un
+ * `mensaje_usuario` y un `mensaje_admin`, y cada turno PISABA al anterior. De una conversación
+ * de cinco mensajes sobrevivía el último de cada lado, así que retomarla era imposible: no
+ * había forma de saber qué se había contestado ya.
+ *
+ * Se monta sólo cuando el admin abre la respuesta, para no disparar una query por ticket.
+ */
+function HiloTicket({ ticketId }: { ticketId: string }) {
+  const { data, isLoading, isError, refetch } = useAdminTicketThread(ticketId);
+
+  if (isLoading) return <div className="py-2 text-xs text-[#F0EFE8]/30">Cargando conversación…</div>;
+
+  // "Falló la lectura" NO se pinta como "no hay mensajes": eso le diría al admin que la
+  // persona nunca escribió, que es la conclusión opuesta a la verdadera.
+  // ErrorState compartido, no un botón propio: `error-state-callsites.test.ts` marca las copias
+  // a mano, y con razón — este bloque ya se pegó a mano en media docena de pantallas.
+  if (isError) {
+    return (
+      <div className="py-2">
+        <ErrorState
+          titulo="la conversación"
+          variante="card"
+          descripcion="La lectura falló. Es distinto de que no haya mensajes en el hilo."
+          onReintentar={() => refetch()}
+        />
+      </div>
+    );
+  }
+
+  if (!data || data.length === 0) {
+    return (
+      <div className="py-2 text-xs text-[#F0EFE8]/30">
+        Sin mensajes en el hilo. Las conversaciones anteriores al 28-ago-2026 no se guardaron turno a turno.
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-h-64 space-y-2 overflow-y-auto py-2">
+      {data.map((m) => (
+        <div
+          key={m.id}
+          className={`max-w-[85%] rounded-lg px-3 py-2 text-xs ${
+            m.rol === 'admin'
+              ? 'ml-auto bg-[#1D9E75]/15 text-[#F0EFE8]'
+              : 'mr-auto bg-white/[0.04] text-[#F0EFE8]/80'
+          }`}
+        >
+          <div className="whitespace-pre-wrap break-words">{m.mensaje}</div>
+          <div className="mt-1 text-[10px] text-[#F0EFE8]/30">{m.rol === 'admin' ? 'Neto' : 'Usuario'} · {formatDateTime(m.created_at)}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 interface Pago {
   id: string;
@@ -1665,6 +1725,11 @@ export default function AdminOperacionPage() {
                               )}
                             </div>
                             {replyingTo === t.id && (
+                              <div className="mt-2 border-t border-white/5 pt-2">
+                                <HiloTicket ticketId={t.id} />
+                              </div>
+                            )}
+                            {replyingTo === t.id && (
                               <div className="mt-2 flex gap-2">
                                 <input
                                   type="text"
@@ -1725,6 +1790,11 @@ export default function AdminOperacionPage() {
                           )}
                         </div>
                       </div>
+                      {replyingTo === t.id && (
+                        <div className="mt-2 border-t border-white/5 pt-2">
+                          <HiloTicket ticketId={t.id} />
+                        </div>
+                      )}
                       {replyingTo === t.id && (
                         <div className="mt-2 flex gap-2">
                           <input

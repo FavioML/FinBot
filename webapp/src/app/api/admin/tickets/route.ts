@@ -13,6 +13,23 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
+
+  // `?thread=<ticketId>` devuelve el HILO de ese ticket (migración 079) en vez del listado.
+  // Va acá y no en el backend porque la webapp ya lee `tickets_soporte` con service-role: un
+  // endpoint nuevo en Railway sólo agregaría un salto y una segunda forma de leer lo mismo.
+  const thread = searchParams.get('thread');
+  if (thread) {
+    const { data, error } = await getServiceClient()
+      .from('tickets_mensajes')
+      .select('id, rol, mensaje, created_at')
+      .eq('ticket_id', thread)
+      .order('created_at', { ascending: true });
+    // Se distingue "falló la lectura" de "no hay mensajes": pintar un hilo vacío sobre una
+    // caída le diría al admin que nadie escribió nada.
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true, mensajes: data || [] });
+  }
+
   const limit = parseInt(searchParams.get('limit') || '50');
   const offset = parseInt(searchParams.get('offset') || '0');
   const estado = searchParams.get('estado') || null;

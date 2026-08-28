@@ -62,13 +62,14 @@ const { contactarUsuario } = require('../../lib/support-tickets');
 
 const BASE = { usuarioId: 'u1', whatsapp: '51999888777', nombre: 'Ana', mensaje: 'Gracias, lo anotamos.' };
 
-/** Las 5 lecturas/escrituras del camino que SÍ abre conversación, en orden. */
+/** Las lecturas/escrituras del camino que SÍ abre conversación, en orden. */
 function colaCaminoCompleto() {
   db.cola = [
-    { data: [], error: null },              // responderTicket: no hay ticket pendiente de ese número
-    { data: [], error: null },              // obtenerSesionAbierta: no hay sesión viva
+    { data: [], error: null },                // responderTicket: no hay ticket pendiente de ese número
+    { data: [], error: null },                // obtenerSesionAbierta: no hay sesión viva
     { data: { id: 't-nuevo' }, error: null }, // el insert de abrirSesion
-    { data: null, error: null },            // el update del mensaje_admin
+    { data: null, error: null },              // el insert del mensaje en el HILO (migración 079)
+    { data: null, error: null },              // el update de la columna de último mensaje
   ];
 }
 
@@ -115,11 +116,23 @@ describe('contactarUsuario · la conversación no se abre sobre un mensaje que n
 
     expect(r.ok).toBe(true);
     expect(r.conversacionAbierta).toBe(true);
-    expect(db.inserts).toHaveLength(1);
-    expect(db.inserts[0].tabla).toBe('tickets_soporte');
-    expect(db.inserts[0].fila).toMatchObject({ usuario_id: 'u1', estado: 'esperando_mensaje' });
-    // El mensaje del admin queda en la fila: si no, el panel muestra una conversación vacía.
+
+    const ticket = db.inserts.find((i) => i.tabla === 'tickets_soporte');
+    expect(ticket, 'no se abrió la sesión').toBeTruthy();
+    expect(ticket.fila).toMatchObject({ usuario_id: 'u1', estado: 'esperando_mensaje' });
+
+    // El HILO (migración 079). Es lo que hace que el panel pueda mostrar la conversación:
+    // antes sólo existía la columna de último mensaje, que el turno siguiente pisaba.
+    const hilo = db.inserts.find((i) => i.tabla === 'tickets_mensajes');
+    expect(hilo, 'el mensaje del admin no quedó en el hilo').toBeTruthy();
+    expect(hilo.fila).toMatchObject({ ticket_id: 't-nuevo', rol: 'admin', mensaje: BASE.mensaje });
+
+    // Y la columna, que es el caché que lee el listado. Las dos las escribe el MISMO helper:
+    // si divergen es porque alguien agregó un segundo escritor.
     expect(db.updates.some((u) => u.patch.mensaje_admin === BASE.mensaje)).toBe(true);
+
+    // La sesión recién abierta NO se marca respondida: nadie preguntó nada por este canal.
+    expect(db.updates.some((u) => u.patch.estado === 'respondido')).toBe(false);
   });
 
   it('el default NO abre conversación', async () => {

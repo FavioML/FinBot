@@ -28,7 +28,7 @@ const { guardarMensaje, obtenerHistorial, getUserPlanConfig, getHistoryDateLimit
 const { dispatchIntent } = require('./intent-registry');
 const { NETO_TOOLS, mapToolToIntent } = require('./neto-tools');
 const { construirNetoPrompt } = require('../lib/neto-prompt');
-const { obtenerSesionAbierta } = require('../lib/support-tickets');
+const { obtenerSesionAbierta, registrarMensajeTicket } = require('../lib/support-tickets');
 const { colaConfirmacionGasto } = require('../lib/trial');
 
 /**
@@ -107,11 +107,13 @@ async function procesarMensajeLibre(msg, usuario, from) {
     // autocierre por 48h de inactividad). Ver lib/support-tickets.
     if (sesionSoporte) {
       const esPrimerMensaje = sesionSoporte.estado === 'esperando_mensaje';
-      await supabase.from('tickets_soporte').update({
-        mensaje_usuario: msg.substring(0, 1000),
-        estado: 'pendiente',
-        updated_at: new Date().toISOString(),
-      }).eq('id', sesionSoporte.id);
+      // El hilo + la columna de último mensaje, por un solo escritor (migración 079). Antes
+      // era un UPDATE suelto que PISABA el mensaje anterior: de una conversación de cinco
+      // turnos sobrevivía uno, así que el panel no podía mostrar lo que se dijo.
+      await registrarMensajeTicket({
+        ticketId: sesionSoporte.id, rol: 'usuario', mensaje: msg,
+        patchExtra: { estado: 'pendiente' },
+      });
 
       const encabezado = esPrimerMensaje ? '🎫 *Nuevo ticket de soporte*' : '💬 *Mensaje en conversación de soporte*';
       const textoAdmin = encabezado + '\n\n'

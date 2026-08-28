@@ -94,6 +94,28 @@ export interface NlpError {
   created_at: string;
 }
 
+export interface TicketMensaje {
+  id: string;
+  rol: 'usuario' | 'admin';
+  mensaje: string;
+  created_at: string;
+}
+
+/**
+ * El hilo de UN ticket (migración 079). `enabled` lo mantiene apagado hasta que el admin
+ * abre la conversación: son N queries potenciales y sólo se mira una a la vez.
+ */
+export function useAdminTicketThread(ticketId: string | null) {
+  return useQuery<TicketMensaje[]>({
+    queryKey: ['admin', 'tickets', 'thread', ticketId],
+    enabled: !!ticketId,
+    queryFn: async () => {
+      const json = await getJson(`/api/admin/tickets?thread=${ticketId}`);
+      return (json.mensajes || []) as TicketMensaje[];
+    },
+  });
+}
+
 export interface Ticket {
   id: string;
   usuario_id: string | null;
