@@ -29,12 +29,18 @@ let usuarioDePrueba = false;
 let errorAlLeerUsuario = null;
 let errorEnLectura = null;   // el `{ error }` que supabase-js devuelve SIN lanzar
 let lecturas = 0;
+// El conteo del tope diario. Es una consulta `head:true`, o sea que se AWAITEA la cadena
+// misma en vez de un `.single()`: por eso el doble tiene `then`, y no un método más.
+let conteoTope = { count: 0, error: null };
+let filtrosDelConteo = [];
 
 require('../../lib/db').supabase.from = vi.fn((tabla) => {
   const chain = {
     insert: vi.fn(async (fila) => { filas.push({ tabla, fila }); return resultadoInsert; }),
     select: vi.fn(() => chain),
-    eq: vi.fn(() => chain),
+    eq: vi.fn((col, val) => { filtrosDelConteo.push([col, val]); return chain; }),
+    gte: vi.fn((col, val) => { filtrosDelConteo.push([col, val]); return chain; }),
+    then: (resolve, reject) => Promise.resolve(conteoTope).then(resolve, reject),
     maybeSingle: vi.fn(async () => {
       lecturas++;
       if (errorAlLeerUsuario) throw errorAlLeerUsuario;
@@ -71,6 +77,8 @@ beforeEach(() => {
   errorAlLeerUsuario = null;
   errorEnLectura = null;
   lecturas = 0;
+  conteoTope = { count: 0, error: null };
+  filtrosDelConteo = [];
   process.env.RESEND_API_KEY = 're_test';
   process.env.EMAIL_OPTOUT_SECRET = 'secreto-de-prueba';
   process.env.RESEND_FROM = 'Neto <hola@neto.pe>';
@@ -331,5 +339,84 @@ describe('token de baja: firmado, sin caducidad, y de un solo usuario', () => {
     const payload = JSON.parse(Buffer.from(t.split('.')[0], 'base64url').toString('utf8'));
     expect(payload).toEqual({ uid: 'u-abc' });
     expect(payload.ts).toBeUndefined();
+  });
+});
+
+/**
+ * Tope diario por PERSONA (29-ago-2026).
+ *
+ * El envío es por evento, no por persona: el cron de deudas recorre deuda por deuda, así que
+ * alguien con varias venciendo el mismo día recibe varios correos separados esa mañana. Medido
+ * al ponerlo: 11 usuarios con deudas abiertas y un techo de 7 en uno solo. Y ya hay DOS
+ * emisores de correo, no uno.
+ *
+ * Las dos propiedades que no se pueden ablandar sin romper el motivo por el que existe:
+ *
+ *  1. **Falla ABIERTO.** Es lo contrario del fail-closed del link de baja, y a propósito: acá
+ *     equivocarse hacia el envío cuesta un correo de más, y equivocarse hacia el silencio
+ *     apaga el canal entero por un hipo de PostgREST. Es el mismo razonamiento por el que esta
+ *     consulta NO vive en `notificarUsuario`.
+ *  2. **Deja fila.** `skipped_tope_diario` es lo que distingue "lo frenó el tope" de "nadie lo
+ *     intentó", que es la lección de B23 y la razón de ser de todo este canal.
+ */
+describe('enviarEmail: tope diario por persona', () => {
+  it('por debajo del tope manda normal', async () => {
+    conteoTope = { count: 4, error: null };
+    const res = await enviarEmail('a@b.com', { ...BASE, usuarioId: nuevoId() });
+    expect(res.ok).toBe(true);
+    expect(fetchSpy).toHaveBeenCalled();
+  });
+
+  it('en el tope NO manda, deja skipped_tope_diario y no llama a Resend', async () => {
+    conteoTope = { count: 5, error: null };
+    const res = await enviarEmail('a@b.com', { ...BASE, usuarioId: nuevoId() });
+    expect(res).toEqual({ ok: false, skipped: 'tope_diario' });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(delivery().at(-1).estado).toBe('skipped_tope_diario');
+  });
+
+  it('por encima del tope tampoco', async () => {
+    conteoTope = { count: 99, error: null };
+    const res = await enviarEmail('a@b.com', { ...BASE, usuarioId: nuevoId() });
+    expect(res.skipped).toBe('tope_diario');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('si la CONSULTA falla, manda igual: falla abierto', async () => {
+    // El modo de falla real de supabase-js: resuelve con `{ error }` y no lanza. Sin leer ese
+    // error, `count` viene null y `null >= 5` da false — el mismo resultado, pero por
+    // accidente y sin que nadie se entere de que la lectura se cayó.
+    conteoTope = { count: null, error: { message: 'PostgREST 503' } };
+    const res = await enviarEmail('a@b.com', { ...BASE, usuarioId: nuevoId() });
+    expect(res.ok).toBe(true);
+    expect(fetchSpy).toHaveBeenCalled();
+  });
+
+  it('cuenta SOLO los sent, del día de Lima y del canal email', async () => {
+    conteoTope = { count: 0, error: null };
+    const id = nuevoId();
+    await enviarEmail('a@b.com', { ...BASE, usuarioId: id });
+    const f = Object.fromEntries(filtrosDelConteo);
+    // Un `skipped_*` no llegó a ninguna bandeja: contarlo gastaría cupo sin haber molestado a
+    // nadie. Y sin el filtro de canal, los avisos de WhatsApp del mismo día frenarían el correo.
+    expect(f.estado).toBe('sent');
+    expect(f.canal).toBe('email');
+    expect(f.usuario_id).toBe(id);
+    // El corte del día va en hora de Lima: con UTC, a las 19:00 de Lima ya es el día siguiente
+    // y el tope se reiniciaría a media tarde.
+    //
+    // La medianoche de Lima son las 05:00Z, y Perú no tiene horario de verano, así que el valor
+    // es exacto y no hay que tolerar dos formas. La primera versión de esta línea aceptaba
+    // `T00:00:00.000Z` **o** `T05:00:00.000Z` — o sea las dos ramas que quería separar — y
+    // pasaba en verde con el corte mutado a UTC. Un guard que acepta el bug no es un guard.
+    expect(f.created_at).toMatch(/T05:00:00\.000Z$/);
+  });
+
+  it('el usuario de prueba no consume cupo: se salta ANTES de contar', async () => {
+    usuarioDePrueba = true;
+    conteoTope = { count: 99, error: null };
+    const res = await enviarEmail('a@b.com', { ...BASE, usuarioId: nuevoId() });
+    expect(res).toEqual({ ok: true, skipped: 'test_user' });
+    expect(delivery().at(-1).estado).toBe('skipped_test');
   });
 });
