@@ -60,6 +60,13 @@
         "on_fail": "exit 1 = STALE: hay commits en main que tocan webapp/ y no estan desplegados (build de Vercel fallido en silencio o atrasado); el JSON lista los archivos webapp pendientes; revisar el ultimo deployment en Vercel. exit 2 = no se pudo determinar (endpoint /api/version caido, gh/red, o el SHA desplegado no es ancestro de main): infra, no necesariamente stale."
       },
       {
+        "name": "region-funcion",
+        "cmd": "node qa-e2e/probe-region.mjs",
+        "cwd": "C:/Vortik.dev/products/neto/app",
+        "cost": "1 fetch a /api/version, sin base ni login (segundos, gratis)",
+        "on_fail": "exit 1 = las funciones de app.neto.pe volvieron a correr fuera de gru1. No rompe nada visible: el sintoma es que el dashboard vuelve a tardar ~1100 ms en /api/dashboard en vez de ~275 ms desde Lima, para todos, sin un solo test rojo. Se rompe SIN commit (override de region en el proyecto de Vercel, o un cambio de plan que deje de permitir elegirla), que es por lo que esta en el canary y no en la suite. Arreglo: revisar el override en Vercel y el campo `regions` de webapp/vercel.json. exit 2 = no se pudo saber (sin red, o x-vercel-id con menos de tres campos, que es lo que devuelve un deployment inexistente): infra, no regresion."
+      },
+      {
         "name": "gating-score",
         "cmd": "node qa-e2e/qa-gating-score.mjs",
         "cwd": "C:/Vortik.dev/products/neto/app",
