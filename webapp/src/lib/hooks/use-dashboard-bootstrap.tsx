@@ -4,6 +4,7 @@ import { createContext, useContext } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { queryClient } from '@/lib/query-client';
 import { IS_DEMO } from '@/lib/demo/is-demo';
+import { publicarIdNeto } from '@/lib/analytics/identidad-neto';
 
 /**
  * Arranque consolidado del dashboard. Un único fetch a /api/dashboard siembra
@@ -72,6 +73,9 @@ interface DashboardPayload {
 /** Siembra cada key EXACTO que consumen los hooks. Ver los queryKeys en src/lib/hooks/*. */
 function seed(d: DashboardPayload) {
   const uid = d.user.id;
+  // Analytics necesita este mismo id y lo pedía por su cuenta a PostgREST, compitiendo
+  // con este arranque. Ver `lib/analytics/identidad-neto`.
+  publicarIdNeto(String(uid));
   queryClient.setQueryData(['user'], d.user);
   // useTransactions({ usuarioId }) en el overview → sin mes/anio ni otros filtros.
   queryClient.setQueryData(['transactions', { usuarioId: uid }], d.transactions);

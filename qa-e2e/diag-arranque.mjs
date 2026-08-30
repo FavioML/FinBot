@@ -59,8 +59,8 @@ function clasificar(url) {
 }
 
 const browser = await chromium.launch();
-const datos = new Map(); // url -> { tiempos: [], conteos: Map, primeraDespues: [] }
-for (const t of TARGETS) datos.set(t, { tiempos: [], conteos: new Map(), tarde: [] });
+const datos = new Map(); // url -> { tiempos: [], conteos: Map, arranques: Map, tarde: [] }
+for (const t of TARGETS) datos.set(t, { tiempos: [], conteos: new Map(), arranques: new Map(), tarde: [] });
 
 async function unaCarga(app) {
   const context = await browser.newContext();
@@ -109,6 +109,19 @@ for (let r = 0; r < RONDAS; r++) {
     const d = datos.get(app);
     d.tiempos.push(tt);
     for (const [k, v] of conteo) d.conteos.set(k, (d.conteos.get(k) || 0) + v);
+    // Cuando arranca la PRIMERA peticion de cada clase, en ms desde el goto. Es lo que
+    // distingue "esta peticion ya no existe" de "existe pero dejo de competir con el
+    // arranque" — y sin esto un diferido y un borrado se leen igual en el conteo.
+    for (const [nombre] of CLASES) {
+      const dela = eventos.filter((e) => e.cl === nombre);
+      if (!dela.length) continue;
+      const previo = d.arranques.get(nombre) || { primera: [], antes: [] };
+      previo.primera.push(dela[0].desde);
+      // Cuantas de esta clase arrancaron ANTES de que hubiera dato en pantalla. Ese es
+      // el numero que decide: son las que compiten con lo que el usuario espera.
+      if (tt != null) previo.antes.push(dela.filter((e) => e.desde < tt).length);
+      d.arranques.set(nombre, previo);
+    }
     // Cuantas peticiones arrancaron DESPUES de que hubo dato en pantalla.
     if (tt != null) d.tarde.push(eventos.filter((e) => e.desde > tt).length);
     const resumen = [...conteo].map(([k, v]) => `${v}x${k.replace(/^\/api\//, '')}`).join(' ');
@@ -125,7 +138,13 @@ for (const app of TARGETS) {
   console.log(`   time-to-data: [${d.tiempos.join(', ')}]  mediana ${med(ok) ?? 'n/a'}  dispersion ${ok.length ? Math.max(...ok) - Math.min(...ok) : 'n/a'}`);
   for (const [nombre] of CLASES) {
     const n = d.conteos.get(nombre) || 0;
-    if (n) console.log(`   ${(n / RONDAS).toFixed(1).padStart(5)} por carga  ${nombre}`);
+    if (!n) continue;
+    const a = d.arranques.get(nombre) || { primera: [], antes: [] };
+    console.log(
+      `   ${(n / RONDAS).toFixed(1).padStart(5)} por carga  ${nombre.padEnd(20)}` +
+        ` primera a los ${String(med(a.primera) ?? '?').padStart(5)} ms` +
+        `  |  compiten con el arranque: ${String(med(a.antes) ?? '?').padStart(4)} de ${(n / RONDAS).toFixed(1)}  [${a.antes.join(',')}]`,
+    );
   }
   if (d.tarde.length) console.log(`   peticiones que arrancan DESPUES del primer dato: [${d.tarde.join(', ')}]`);
 }

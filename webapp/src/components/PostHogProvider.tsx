@@ -5,6 +5,7 @@ import { createBrowserClient } from '@supabase/ssr'
 import { track, EVENTS } from '@/lib/analytics'
 import { getPerfilSesionSync } from '@/lib/supabase/session'
 import { cuandoSeDesocupe } from '@/lib/desocupado'
+import { alSaberIdNeto, olvidarIdNeto } from '@/lib/analytics/identidad-neto'
 
 // Project API key de PostHog (pública por diseño: va en el bundle cliente,
 // igual que en la landing). El env var de Vercel la puede sobreescribir.
@@ -19,6 +20,11 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
     // desuscribe. `cancelado` cierra las dos puntas — no suscribe si ya se desmontó, y si
     // llegó a suscribir igual (carrera), desuscribe en el acto.
     let cancelado = false
+    // Se asignan dentro del `.then()`, igual que `cleanup`, y por el mismo motivo se
+    // limpian en el return: si no, la suscripción al id y el temporizador sobreviven al
+    // desmontaje.
+    let desuscribirId: (() => void) | undefined
+    let timerIdentify: number | undefined
 
     // Defer posthog-js (~170 KB) fuera del First Load crítico: se carga vía
     // dynamic import DESPUÉS de la hidratación, así nunca bloquea el render
@@ -56,6 +62,12 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
       // salía dos veces y con ella su consulta a `usuarios`.
       let yaIdentificado = false
 
+      function identificarCon(idNeto: string, authUserId: string, email?: string, name?: string) {
+        if (yaIdentificado) return
+        yaIdentificado = true
+        posthog.identify(idNeto, { email, name, supabase_auth_id: authUserId })
+      }
+
       async function identifyNetoUser(authUserId: string, email?: string, name?: string) {
         if (yaIdentificado) return
         yaIdentificado = true
@@ -82,32 +94,74 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      // El identify arranca CUANDO EL NAVEGADOR SE DESOCUPA, no al montar.
+      // Quién está autenticado AHORA. Sale de la COOKIE y no de `getUser()`: ese
+      // `getUser()` era una de las cuatro idas y vueltas a /auth/v1/user por carga.
+      // Verificar el JWT no aporta acá; lo peor que hace alguien editando su propia
+      // cookie es ensuciar su propio reporte de analytics. Ver `getPerfilSesionSync`.
       //
-      // Medido el 30-ago-2026 contra producción: esta consulta a `usuarios` llegó a
-      // 3564 ms compitiendo con el arranque del dashboard, y era la petición más lenta
-      // de la carga. Analytics no tiene ninguna urgencia — el `identify` sirve igual un
-      // segundo después — pero sí tenía la prioridad de red de todo lo demás.
-      //
-      // El `authUserId` sale de la cookie y no de `getUser()`: ese `getUser()` era una
-      // de las cuatro idas y vueltas a /auth/v1/user por carga. Verificar el JWT no
-      // aporta acá; lo peor que hace alguien editando su propia cookie es ensuciar su
-      // propio reporte de analytics. Ver `getPerfilSesionSync`.
-      const perfil = getPerfilSesionSync()
+      // Es mutable porque un SIGNED_IN posterior la pisa: sin eso, un cierre de sesión
+      // seguido de otro ingreso en la misma pestaña identificaría a la persona nueva con
+      // el `supabase_auth_id` de la anterior.
+      let authActual = getPerfilSesionSync()
+      // `perfil` congela si HABÍA sesión al montar. Lo lee el SIGNED_IN de abajo para
+      // distinguir una restauración de un ingreso desde anónimo.
+      const perfil = authActual
+
+      // En el dashboard el `usuarios.id` lo publica el bootstrap, que ya lo trajo en
+      // /api/dashboard: ahí este identify no cuesta NINGUNA petición. Fuera del
+      // dashboard (login, onboarding, /join) nadie publica y se cae a la consulta, ya
+      // sin prisa. Ver `lib/analytics/identidad-neto` para por qué esto es un canal y
+      // no un parámetro, y por qué diferir la consulta no alcanzaba.
+
       if (perfil) {
-        cuandoSeDesocupe(() => {
-          if (cancelado) return
-          identifyNetoUser(perfil.authId, perfil.email ?? undefined, perfil.nombre ?? undefined)
+        const porConsulta = () => {
+          if (cancelado || !authActual) return
+          identifyNetoUser(authActual.authId, authActual.email ?? undefined, authActual.nombre ?? undefined)
+        }
+
+        desuscribirId = alSaberIdNeto((idNeto) => {
+          if (cancelado || !authActual) return
+          identificarCon(idNeto, authActual.authId, authActual.email ?? undefined, authActual.nombre ?? undefined)
         })
+
+        // El fallback tiene que existir igual: fuera del dashboard nadie publica nunca,
+        // y adentro el bootstrap puede fallar (402 del muro, red caída). Sin esto, esas
+        // sesiones quedarían sin identificar.
+        //
+        // Pero en el dashboard NO puede ser `requestIdleCallback`: el navegador se
+        // desocupa justamente mientras espera la red, así que el hueco llega a los
+        // ~1000 ms y la consulta vuelve a caer dentro del arranque, que es lo que este
+        // rodeo viene a evitar. Ahí va un temporizador largo, que solo llega a correr
+        // si el bootstrap no publicó nunca.
+        if (window.location.pathname.startsWith('/dashboard')) {
+          timerIdentify = window.setTimeout(porConsulta, 15000)
+        } else {
+          cuandoSeDesocupe(porConsulta)
+        }
       }
 
       const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
         if (event === 'SIGNED_IN' && session?.user) {
-          identifyNetoUser(session.user.id, session.user.email, session.user.user_metadata?.full_name)
+          authActual = {
+            authId: session.user.id,
+            email: session.user.email ?? null,
+            nombre: (session.user.user_metadata?.full_name as string | undefined) ?? null,
+            avatarUrl: null,
+          }
+          // Con `perfil` la cookie YA tenía sesión al montar, así que este SIGNED_IN es
+          // una restauración: el identify lo resuelve la suscripción al id publicado (o
+          // su temporizador). Consultar acá volvería a meter la consulta a `usuarios`
+          // dentro del arranque, que es lo que todo este rodeo evita. Sin `perfil` es un
+          // ingreso desde anónimo — ahí no hay bootstrap con el que competir.
+          if (!perfil) {
+            identifyNetoUser(session.user.id, session.user.email, session.user.user_metadata?.full_name)
+          }
           track(EVENTS.WEBAPP_LOGGED_IN)
         }
         if (event === 'SIGNED_OUT') {
           yaIdentificado = false
+          authActual = null
+          olvidarIdNeto()
           posthog.reset()
         }
       })
@@ -116,7 +170,12 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
       if (cancelado) cleanup()
     })
 
-    return () => { cancelado = true; cleanup?.() }
+    return () => {
+      cancelado = true
+      cleanup?.()
+      desuscribirId?.()
+      if (timerIdentify !== undefined) window.clearTimeout(timerIdentify)
+    }
   }, [])
 
   return <>{children}</>
