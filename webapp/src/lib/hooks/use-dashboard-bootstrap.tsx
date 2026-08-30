@@ -29,6 +29,32 @@ export function useBootstrapGate(): boolean {
   return useContext(BootstrapGateContext);
 }
 
+/**
+ * Qué pasarle a `prefetch` de los `<Link>` de la navegación del shell.
+ *
+ * Medido el 30-ago-2026 con `qa-e2e/diag-arranque.mjs` contra producción: el dashboard
+ * dispara **24 peticiones RSC de prefetch por carga** (el menú lateral son 13 rutas, la
+ * barra inferior 5, más banners), y arrancan al hidratar — o sea, en el mismo momento
+ * que `/api/dashboard`, que es lo único que el usuario está esperando. La nota del ítem
+ * 16 del backlog decía 5; eran 24.
+ *
+ * No se apagan, se CORREN DE LUGAR. El prefetch es lo que hace instantánea la
+ * navegación entre pantallas y vale la pena; lo que no vale es pagarlo mientras la
+ * primera pantalla todavía no tiene un dato. Con el gate cerrado va `false`, y cuando
+ * el bootstrap resuelve vuelve al default de Next.
+ *
+ * `undefined` y no `true`: `true` fuerza el prefetch completo de la ruta, que es MÁS
+ * de lo que hacía antes. Lo que se quiere es devolverle a Next su comportamiento por
+ * defecto, no estrenar uno nuevo.
+ *
+ * Que esto de verdad mueva las peticiones —y no las mate— se comprueba con el mismo
+ * harness: el conteo de `prefetch RSC` por carga tiene que seguir siendo ~24, y la
+ * línea "peticiones que arrancan DESPUES del primer dato" tiene que subir.
+ */
+export function usePrefetchNav(): boolean | undefined {
+  return useBootstrapGate() ? undefined : false;
+}
+
 interface DashboardPayload {
   user: { id: string } & Record<string, unknown>;
   transactions: unknown[];

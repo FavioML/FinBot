@@ -14,13 +14,22 @@
  */
 import { Skeleton } from '@/components/ui/skeleton';
 
-export function OverviewSkeleton() {
+/**
+ * `subtitulo` es el renglón bajo el título. Por defecto es una barra más del esqueleto;
+ * el shell le pasa `AvisoCargaLenta`, que ocupa ese mismo renglón —misma altura, arriba
+ * de todo— y lo convierte en texto cuando la espera se estira. Ese slot existe porque el
+ * aviso puesto DEBAJO del esqueleto nacía fuera del pliegue en móvil.
+ *
+ * Sigue sin hooks de cliente acá: el nodo llega ya construido desde arriba, así que
+ * `loading.tsx` (Server Component) lo renderiza igual sin pasar nada.
+ */
+export function OverviewSkeleton({ subtitulo }: { subtitulo?: React.ReactNode }) {
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between">
         <div>
           <Skeleton className="h-8 w-48 mb-2" />
-          <Skeleton className="h-4 w-64" />
+          {subtitulo ?? <Skeleton className="h-4 w-64" />}
         </div>
         <Skeleton className="h-10 w-10 rounded-full" />
       </div>

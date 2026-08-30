@@ -17,6 +17,8 @@ import { Paywall } from '@/components/dashboard/paywall';
 import { WhatsAppButton } from '@/components/shared/whatsapp-button';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { OverviewSkeleton } from '@/components/dashboard/skeletons';
+import { Skeleton } from '@/components/ui/skeleton';
+import { AvisoCargaLenta } from '@/components/dashboard/aviso-carga-lenta';
 import { useUser, decidirRedirectAuth } from '@/lib/hooks/use-user';
 import {
   useDashboardBootstrap,
@@ -195,7 +197,16 @@ function ShellChrome({ children }: { children: React.ReactNode }) {
   const isRestoring = useIsRestoring();
   const { settled, blocking } = useDashboardBootstrap();
   const gateContent = isRestoring || blocking;
-  const fallback = pathname === '/dashboard' ? <OverviewSkeleton /> : null;
+  // En el overview el aviso ocupa el renglón del subtítulo del esqueleto: misma altura,
+  // arriba de todo, y por eso se ve. En las sub-rutas el esqueleto es null y el área
+  // estaba en blanco, así que el aviso va solo y sin placeholder — un renglón vacío que
+  // se llena cuando toca. Ver `AvisoCargaLenta` para por qué no va debajo.
+  const fallback =
+    pathname === '/dashboard' ? (
+      <OverviewSkeleton subtitulo={<AvisoCargaLenta placeholder={<Skeleton className="h-4 w-64" />} />} />
+    ) : (
+      <AvisoCargaLenta />
+    );
 
   return (
     <BootstrapGateProvider value={settled}>

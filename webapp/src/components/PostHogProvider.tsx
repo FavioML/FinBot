@@ -3,6 +3,8 @@
 import { useEffect } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { track, EVENTS } from '@/lib/analytics'
+import { getPerfilSesionSync } from '@/lib/supabase/session'
+import { cuandoSeDesocupe } from '@/lib/desocupado'
 
 // Project API key de PostHog (pública por diseño: va en el bundle cliente,
 // igual que en la landing). El env var de Vercel la puede sobreescribir.
@@ -48,7 +50,15 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
       // Identifica con el id de la tabla `usuarios` (mismo distinct_id que el
       // backend de WhatsApp) para que el funnel stitchee landing -> WhatsApp ->
       // webapp por una sola identidad, no por el supabase auth id.
+      //
+      // Una sola vez por carga. `onAuthStateChange` también emite SIGNED_IN al
+      // restaurar una sesión existente, así que sin este flag la MISMA identificación
+      // salía dos veces y con ella su consulta a `usuarios`.
+      let yaIdentificado = false
+
       async function identifyNetoUser(authUserId: string, email?: string, name?: string) {
+        if (yaIdentificado) return
+        yaIdentificado = true
         try {
           // maybeSingle (not single): corre en cada carga sin gate y puede
           // ganarle a la propagación del token de auth; RLS devuelve 0 filas y
@@ -61,17 +71,35 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
             .maybeSingle()
           if (data?.id) {
             posthog.identify(String(data.id), { email, name, supabase_auth_id: authUserId })
+          } else {
+            // No hay fila: que un SIGNED_IN posterior pueda reintentar. Es el caso del
+            // alta web-first, donde la fila de `usuarios` nace después de la sesión.
+            yaIdentificado = false
           }
         } catch {
+          yaIdentificado = false
           /* noop — analytics jamás debe romper el login */
         }
       }
 
-      supabase.auth.getUser().then(({ data }) => {
-        if (data.user) {
-          identifyNetoUser(data.user.id, data.user.email, data.user.user_metadata?.full_name)
-        }
-      })
+      // El identify arranca CUANDO EL NAVEGADOR SE DESOCUPA, no al montar.
+      //
+      // Medido el 30-ago-2026 contra producción: esta consulta a `usuarios` llegó a
+      // 3564 ms compitiendo con el arranque del dashboard, y era la petición más lenta
+      // de la carga. Analytics no tiene ninguna urgencia — el `identify` sirve igual un
+      // segundo después — pero sí tenía la prioridad de red de todo lo demás.
+      //
+      // El `authUserId` sale de la cookie y no de `getUser()`: ese `getUser()` era una
+      // de las cuatro idas y vueltas a /auth/v1/user por carga. Verificar el JWT no
+      // aporta acá; lo peor que hace alguien editando su propia cookie es ensuciar su
+      // propio reporte de analytics. Ver `getPerfilSesionSync`.
+      const perfil = getPerfilSesionSync()
+      if (perfil) {
+        cuandoSeDesocupe(() => {
+          if (cancelado) return
+          identifyNetoUser(perfil.authId, perfil.email ?? undefined, perfil.nombre ?? undefined)
+        })
+      }
 
       const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
         if (event === 'SIGNED_IN' && session?.user) {
@@ -79,6 +107,7 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
           track(EVENTS.WEBAPP_LOGGED_IN)
         }
         if (event === 'SIGNED_OUT') {
+          yaIdentificado = false
           posthog.reset()
         }
       })

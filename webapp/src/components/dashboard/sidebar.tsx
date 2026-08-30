@@ -24,6 +24,7 @@ import {
 import { cn } from '@/lib/utils';
 import { SOCIAL_LINKS } from '@/lib/constants';
 import { useIsAdmin } from '@/lib/hooks/use-is-admin';
+import { usePrefetchNav } from '@/lib/hooks/use-dashboard-bootstrap';
 
 const mainNav = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -51,6 +52,9 @@ interface SidebarProps {
 
 export function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname();
+  // Ver `usePrefetchNav`: las 13 rutas del menu son la mayor parte de las 24 peticiones
+  // RSC que salian a competir con el arranque. Se corren de lugar, no se apagan.
+  const prefetch = usePrefetchNav();
   const { data: isAdmin } = useIsAdmin();
 
   const secondaryNavItems = [
@@ -98,6 +102,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               <Link
                 key={item.href}
                 href={item.href}
+                prefetch={prefetch}
                 onClick={onClose}
                 className={cn(
                   'relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200',
@@ -131,6 +136,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               <Link
                 key={item.href}
                 href={item.href}
+                prefetch={prefetch}
                 onClick={onClose}
                 className={cn(
                   'relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200',

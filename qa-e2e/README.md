@@ -333,11 +333,12 @@ registra tanto en la respuesta como en una línea de consola, así que el filtro
 esas dos formas solo se ejercita ahí. Se pagó el mismo día: los bloques de veredicto se
 verificaron corriendo solo `pro` y en `free` daban 11 de 12 rojas, todas falsas.
 
-**Y dos que NO recibieron exit code, a propósito, porque no son harness:**
+**Y tres que NO recibieron exit code, a propósito, porque no son harness:**
 
 | Archivo | Qué es |
 |---|---|
 | `diag-load.mjs` | **Diagnóstico, y su nombre lo dice**: mide qué requests hacen lento el dashboard autenticado. No afirma nada porque no está para afirmar. Darle un exit code sería mentir sobre qué es |
+| `diag-arranque.mjs` | El hermano de `diag-load`: ese reporta las 20 peticiones más LENTAS de una carga, este CUENTA cuántas de cada clase, sobre varias cargas y con A/B interleaved entre dos URLs. Es la pregunta "¿cuántas llamadas dispara el arranque?", que es distinta de "¿cuál tardó más". La primera corrida, el 30-ago-2026, encontró **24 prefetch RSC por carga** donde la nota del backlog decía 5. Tampoco afirma: los números que produce hay que leerlos con la dispersión al lado. **Ojo con los previews**: el entorno Preview de Vercel corre con `NEXT_PUBLIC_DEMO_MODE=true`, así que un preview sirve datos falsos y ni siquiera llama a `/api/dashboard` — comparar prod contra un preview con este harness mide dos productos distintos |
 | `webhook-harness.mjs` | **La librería** que los E2E de WhatsApp importan (bootea el Express real, stubea `enviarWhatsapp`, firma como Meta). No se corre solo |
 
 **`shot-*.mjs` / `*-shot.mjs` son one-offs, y no se commitean.** Capturan una
