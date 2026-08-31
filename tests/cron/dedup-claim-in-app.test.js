@@ -191,6 +191,11 @@ describe('los cuatro crons con dedup por fecha piden el claim', () => {
     ['vencimiento de Pro a 3 días', "tipo: 'premium_expiry_3d'"],
     ['vencimiento de Pro hoy', "tipo: 'premium_expiry_hoy'"],
     ['fin de trial (d11 y d14)', 'tipo: aviso.tipo'],
+    // 31-ago-2026. Su dedup lee `notificaciones` por (tipo, titulo, fecha), igual que los tres
+    // de arriba, y el que escribe esa fila es el claim. Sin el flag, el marcador se escribiría
+    // DESPUÉS del correo: un insert fallido dejaría al dedup ciego y un redeploy dentro de la
+    // ventana de 15 minutos mandaría el resumen dos veces.
+    ['resumen semanal de deudas', "tipo: 'resumen_deudas_semanal'"],
   ];
 
   it.each(AVISOS)('%s pasa claimInApp en su llamada a notificarUsuario', (_nombre, ancla) => {
@@ -208,9 +213,10 @@ describe('los cuatro crons con dedup por fecha piden el claim', () => {
   it('el guard distingue: hay llamadas con y sin claim en el mismo archivo', () => {
     const bs = bloques();
     expect(bs.length).toBeGreaterThan(6);
-    // 4 desde el 20-ago-2026: los tres avisos de vencimiento + el nudge de primer gasto, que
-    // reclama porque su dedup lee `notification_deliveries` y esa fila la escribe el envío.
-    expect(bs.filter(b => /claimInApp:\s*true/.test(b)).length).toBe(4);
+    // 5 desde el 31-ago-2026: los tres avisos de vencimiento, el nudge de primer gasto (que
+    // reclama porque su dedup lee `notification_deliveries` y esa fila la escribe el envío) y
+    // el resumen semanal de deudas.
+    expect(bs.filter(b => /claimInApp:\s*true/.test(b)).length).toBe(5);
     expect(bs.filter(b => !/claimInApp/.test(b)).length).toBeGreaterThan(0);
   });
 
@@ -334,13 +340,50 @@ describe('claimInApp nunca se combina con un canal único', () => {
   }
 
   it('el barrido encuentra las llamadas con claim (antivacuidad)', () => {
-    // 3 vencimientos + el nudge de primer gasto (20-ago-2026). Las cuatro en cron/checks.js.
-    expect(conClaim.length).toBe(4);
+    // 3 vencimientos + el nudge de primer gasto (20-ago-2026) + el resumen semanal de deudas
+    // (31-ago-2026). Las cinco en cron/checks.js.
+    expect(conClaim.length).toBe(5);
   });
 
+  /**
+   * El regex decía `CANALES\.SOLO_` y el test se llama "ninguna declara SOLO_WHATSAPP": no eran
+   * lo mismo, y la diferencia salió a la luz cuando entró el primer claim con `SOLO_IN_APP`.
+   *
+   * **`SOLO_IN_APP` con claim es la combinación que el flag PIDE**, no una a prohibir: lo que
+   * `claimInApp` exige es que el canal in-app esté declarado (`notify-user.js` lo degrada y
+   * loguea si no lo está), y `SOLO_IN_APP` lo declara. La única combinación rota es
+   * `SOLO_WHATSAPP`, donde no hay fila que reclamar.
+   *
+   * Falló del lado seguro (rojo de más, nunca verde de más), así que no dejó pasar nada. Pero
+   * el arreglo correcto no es aflojar el regex a secas: se acota a lo que el nombre del test
+   * afirma, y se agregan las dos contrapruebas para que "acotar" no pueda volverse "no mirar".
+   */
+  /**
+   * El detector excluye `SOLO_IN_APP` por NOMBRE en vez de nombrar a `SOLO_WHATSAPP`, y la
+   * diferencia importa el día que aparezca un cuarto valor. La primera corrección fue
+   * `/CANALES\.SOLO_WHATSAPP/`, que es correcta hoy y **deja de cerrar sola**: un
+   * `CANALES.SOLO_EMAIL` futuro tampoco tendría fila que reclamar y pasaría en verde.
+   *
+   * Con el look-ahead negativo la regla queda dicha como es: *el claim exige que el canal
+   * in-app esté declarado*, así que lo único permitido es el que lo declara. Todo canal único
+   * nuevo entra prohibido y quien lo agregue tiene que venir acá a decidir — que es la misma
+   * postura de fallar cerrado que toma el resto de los guards del repo.
+   */
+  const CLAIM_CON_CANAL_UNICO_ROTO = /CANALES\.SOLO_(?!IN_APP\b)/;
+
   it('ninguna declara SOLO_WHATSAPP', () => {
-    const malas = conClaim.filter(c => /CANALES\.SOLO_/.test(c.bloque)).map(c => c.rel);
+    const malas = conClaim.filter(c => CLAIM_CON_CANAL_UNICO_ROTO.test(c.bloque)).map(c => c.rel);
     expect(malas).toEqual([]);
+    // Contraprueba: el detector marca la combinación rota y NO la legítima.
+    const bloque = (canal) => `notificarUsuario({ canales: CANALES.${canal}, claimInApp: true });`;
+    expect(CLAIM_CON_CANAL_UNICO_ROTO.test(bloque('SOLO_WHATSAPP'))).toBe(true);
+    expect(CLAIM_CON_CANAL_UNICO_ROTO.test(bloque('SOLO_IN_APP'))).toBe(false);
+    // Y un canal único que todavía no existe queda prohibido, que es lo que la versión
+    // anterior de este regex perdía.
+    expect(CLAIM_CON_CANAL_UNICO_ROTO.test(bloque('SOLO_EMAIL'))).toBe(true);
+    // Y que el claim con canal in-app único exista de verdad en el repo: sin esto, el día que
+    // ese call-site se vaya, la distinción de arriba queda sin nadie a quien proteger.
+    expect(conClaim.some(c => /CANALES\.SOLO_IN_APP/.test(c.bloque))).toBe(true);
   });
 });
 

@@ -1,5 +1,5 @@
 const { supabase } = require('../lib/db');
-const { hoyPeru } = require('../lib/dates');
+const { hoyPeru, sumarDias } = require('../lib/dates');
 const log = require('../lib/logger');
 const { validarMonto } = require('../lib/validators');
 
@@ -216,10 +216,11 @@ async function obtenerDeudasProximasVencer() {
   // `ver_deudas` está en INTENTS_LECTURA: se cobra. Sin esta columna el cron no tenía cómo
   // saltar a quien está en el muro.
   const { data, error } = await supabase.from('deudas')
-    // `email` entró el 27-ago-2026 con el canal de correo. El chokepoint NO lee la dirección
-    // (metería I/O donde se decidió no tenerlo), así que viaja desde acá o el aviso sale sin
-    // correo — y sin correo este aviso llega al 17% de las veces, que es lo medido.
-    .select('*, usuarios!inner(whatsapp, email, nombre, plan, recordatorios_activos)')
+    // `email` estuvo acá del 27 al 31-ago-2026 y se fue con el canal: este cron manda WhatsApp
+    // y campana, no correo. Traer una columna que nadie lee no rompe nada, pero deja a la vista
+    // un canal que no existe — y ningún guard la ataba ya a nada. La dirección del correo de
+    // deudas vive ahora en `obtenerDeudasParaResumenSemanal`, acá abajo.
+    .select('*, usuarios!inner(whatsapp, nombre, plan, recordatorios_activos)')
     .eq('estado', 'activa')
     .not('fecha_vencimiento', 'is', null)
     .gte('fecha_vencimiento', desde.toISOString().split('T')[0])
@@ -229,6 +230,61 @@ async function obtenerDeudasProximasVencer() {
   // catch de `checkRecordatorioDeudas` loguea con su tag, asi que tirar deja rastro y no
   // manda nada — la decision correcta, ahora dicha en voz alta.
   if (error) throw error;
+
+  return data || [];
+}
+
+/**
+ * Tope explicito de la query de abajo. Vale menos que el `max-rows` de PostgREST a proposito:
+ * un tope propio se puede DETECTAR (`length >= TOPE`), mientras que el del servidor recorta sin
+ * decir nada y una lista capada se ve identica a una completa.
+ */
+const TOPE_RESUMEN_SEMANAL = 500;
+
+/**
+ * La poblacion del RESUMEN SEMANAL de deudas (lunes 9am), hermana de la de arriba.
+ *
+ * La ventana es OTRA, y no es un detalle de forma. `obtenerDeudasProximasVencer` mira +/-3 dias
+ * porque su unidad es el TOQUE fechado: cuatro por deuda y se acaba. Esta mira **todo lo que ya
+ * vencio y sigue activo**, sin piso, mas los proximos 7 dias. Sin el tramo vencido, la deuda que
+ * vencio el jueves pasado no la vuelve a nombrar nadie nunca: el ledger `recordatorios_enviados`
+ * se agota en el toque de 3-dias-despues y ahi termina para siempre.
+ *
+ * `email` viaja desde aca por lo mismo que en su hermana: `notificarUsuario` NO lee la base, asi
+ * que el `to` lo pasa el llamador. Sacar la columna de este select apaga el correo del resumen
+ * en silencio, y lo unico que lo dice es `tests/cron/email-necesita-su-columna.test.js`.
+ *
+ * SIN filtro de `cuenta_borrada_at`, y es una decision, no un olvido: el RPC de borrado
+ * (migracion 073c) hace `DELETE FROM public.deudas WHERE usuario_id = ...`, o sea que una lapida
+ * no tiene ninguna deuda que traer. Queda escrito para que nadie agregue un filtro incapaz de
+ * seleccionar nada — y para que, si ese DELETE alguna vez se va, se sepa que esto se rompe.
+ */
+async function obtenerDeudasParaResumenSemanal() {
+  const hoy = hoyPeru();
+  const { data, error } = await supabase.from('deudas')
+    .select('*, usuarios!inner(whatsapp, email, nombre, plan, recordatorios_activos)')
+    .eq('estado', 'activa')
+    .not('fecha_vencimiento', 'is', null)
+    .lte('fecha_vencimiento', sumarDias(hoy, 7))
+    .order('fecha_vencimiento', { ascending: true })
+    .limit(TOPE_RESUMEN_SEMANAL);
+  // Mismo criterio que su hermana: tirar deja rastro con el tag del cron y no manda nada. Un
+  // `|| []` aca convertiria una caida de PostgREST en "esta semana no vence nada", que es el
+  // silencio exacto que costo 12 dias en el cron de onboarding.
+  if (error) throw error;
+
+  // El tope se declara Y se vigila. Sin `.limit()` explicito PostgREST aplica su `max-rows`
+  // igual (medido en 1000 en este proyecto) y **recorta en silencio**: la lista vuelve completa
+  // a los ojos del llamador. Aca eso seria peor que en cualquier otro lado, porque el orden es
+  // por vencimiento ASCENDENTE y la ventana no tiene piso: lo primero que entra es lo mas
+  // vencido, asi que lo que se cae por el tope es justo lo que vence esta semana — la mitad que
+  // el titulo del correo promete. Al 31-ago-2026 la poblacion son 18 filas, o sea que esto no
+  // aprieta; el warn existe para que el dia que apriete se sepa, en vez de deducirlo de un
+  // resumen incompleto.
+  if ((data || []).length >= TOPE_RESUMEN_SEMANAL) {
+    log.warn({ tag: 'DEUDAS_SEMANAL', tope: TOPE_RESUMEN_SEMANAL },
+      'La poblacion del resumen semanal toco el tope: hay deudas que no entraron, y las que faltan son las que vencen antes');
+  }
 
   return data || [];
 }
@@ -296,6 +352,7 @@ module.exports = {
   marcarDeudaPagada,
   formatearResumenDeudas,
   obtenerDeudasProximasVencer,
+  obtenerDeudasParaResumenSemanal,
   consolidarDeudasPorContraparte,
   saldarTodasDeudas,
 };

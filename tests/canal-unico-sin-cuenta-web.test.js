@@ -440,7 +440,10 @@ describe('todo emisor de correo respeta la baja que el propio correo promete', (
     // Sin esto el archivo pasa por vacuidad el día que el regex deje de matchear — y encima
     // se vería sano, porque "cero emisores de correo" no llama la atención.
     expect(CON_EMAIL.length).toBeGreaterThanOrEqual(1);
-    expect(CON_EMAIL.map((s) => `${s.rel}:${s.nombre}`)).toContain('cron/checks.js:checkRecordatorioDeudas');
+    // 31-ago-2026: el correo de deudas se mudó de `checkRecordatorioDeudas` (uno por deuda) a
+    // `checkResumenDeudasSemanal` (uno por persona, los lunes). El emisor cambió; la obligación
+    // de mirar la baja no, y por eso el ancla se muda con él en vez de borrarse.
+    expect(CON_EMAIL.map((s) => `${s.rel}:${s.nombre}`)).toContain('cron/checks.js:checkResumenDeudasSemanal');
   });
 
   it.each([

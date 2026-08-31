@@ -58,7 +58,12 @@ const EXCLUIDOS = new Set([
  * verifica es un `expect(true)` con prosa.
  */
 const SELECT_EN_HELPER = new Map([
-  ['cron/checks.js:checkRecordatorioDeudas', 'obtenerDeudasProximasVencer'],
+  // 31-ago-2026: era `checkRecordatorioDeudas` con `obtenerDeudasProximasVencer`. El correo
+  // por deuda se fue de ahí (mandaba uno por cada deuda que vencía el mismo día) y renació
+  // agrupado por persona en el resumen semanal, con su propio helper y su propia ventana.
+  // Aquel cron ya no declara correo, así que el barrido dejó de encontrarlo: dejar la entrada
+  // vieja habría sido una exención fantasma, verde por no tener a quién mirar.
+  ['cron/checks.js:checkResumenDeudasSemanal', 'obtenerDeudasParaResumenSemanal'],
   ['lib/support-tickets.js:responderTicket', 'estadoVentana'],
 ]);
 
@@ -264,7 +269,11 @@ describe('todo emisor de correo trae la columna que su `to` necesita', () => {
     // matchear — y encima se vería sano, porque "cero emisores" no llama la atención.
     const ids = CON_CORREO.map((s) => `${s.rel}:${s.nombre}`);
     expect(ids).toContain('cron/checks.js:checkTrialExpiry');
-    expect(ids).toContain('cron/checks.js:checkRecordatorioDeudas');
+    expect(ids).toContain('cron/checks.js:checkResumenDeudasSemanal');
+    // Y el que DEJÓ de mandar correo no puede volver a aparecer sin que alguien lo decida: si
+    // reaparece acá es porque se le devolvió el `email:` deuda por deuda, que es exactamente
+    // la ráfaga que se sacó (4 correos en 11 segundos a un usuario con 6 deudas).
+    expect(ids).not.toContain('cron/checks.js:checkRecordatorioDeudas');
     expect(ids).toContain('lib/support-tickets.js:responderTicket');
   });
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Bell, Check, X, AlertTriangle, Trophy, Target, Zap, ShieldAlert, Star, Users, TrendingDown } from 'lucide-react';
+import { Bell, Check, X, AlertTriangle, Trophy, Target, Zap, ShieldAlert, Star, Users, TrendingDown, Receipt } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/lib/hooks/use-user';
@@ -20,6 +20,10 @@ import { track, EVENTS } from '@/lib/analytics';
  */
 const TIPO_CONFIG: Record<string, { icon: typeof Bell; color: string; bg: string }> = {
   deuda_vence: { icon: AlertTriangle, color: '#D85A30', bg: 'rgba(216,90,48,0.12)' },
+  // El resumen semanal (backend `checkResumenDeudasSemanal`). Comparte la familia de deudas
+  // pero NO el triángulo de alerta: un repaso de lo pendiente no es una alerta, y con el mismo
+  // icono las dos filas del lunes se ven como el mismo aviso repetido.
+  deuda_resumen: { icon: Receipt, color: '#D85A30', bg: 'rgba(216,90,48,0.12)' },
   milestone: { icon: Trophy, color: '#EF9F27', bg: 'rgba(239,159,39,0.12)' },
   meta_completada: { icon: Target, color: '#1D9E75', bg: 'rgba(29,158,117,0.12)' },
   recordatorio: { icon: Bell, color: '#C8C6BC', bg: 'rgba(255,255,255,0.06)' },

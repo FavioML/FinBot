@@ -1,10 +1,10 @@
 const { supabase } = require('../lib/db');
 const log = require('../lib/logger');
-const { hoyPeru, sumarMeses, sumarDias } = require('../lib/dates');
+const { hoyPeru, ahoraPeru, sumarMeses, sumarDias } = require('../lib/dates');
 const { getUserPlanConfig } = require('../helpers/db-helpers');
 const { generarResumenSemanal, generarResumenMensual, generarResumenDiario } = require('../services/summaries');
 const { verificarAlertasProactivas } = require('../services/recommendations');
-const { obtenerDeudasProximasVencer } = require('../services/debts');
+const { obtenerDeudasProximasVencer, obtenerDeudasParaResumenSemanal } = require('../services/debts');
 const { notificarUsuario, CANALES } = require('../lib/notify-user');
 const { ADMIN_NUMBER, lineaPrecioPro } = require('../lib/config');
 const { WEBAPP_URL } = require('../lib/constants');
@@ -1304,15 +1304,6 @@ async function checkRecordatorioDeudas() {
             { type: 'text', text: cd === 3 ? 'en 3 días' : cd === 1 ? 'mañana' : cd === 0 ? 'hoy' : 'hace 3 días' },
           ] }],
         } : null;
-        // El asunto NO puede ser el `titulo` de la campana ("Deuda vence hoy"): en una bandeja,
-        // al lado de otros treinta, eso no dice de quién ni de cuánto. Lleva contraparte y
-        // monto porque son lo que hace que alguien lo abra. Sin emoji a propósito — el asunto
-        // es lo único que miran los filtros de spam antes de decidir.
-        const cuando = cd === 3 ? 'vence en 3 días' : cd === 1 ? 'vence mañana'
-          : cd === 0 ? 'vence hoy' : 'venció hace 3 días';
-        const asuntoDeuda = deuda.tipo === 'me_deben'
-          ? 'Lo que te debe ' + deuda.contraparte + ' ' + cuando + ' (' + montoStr + ')'
-          : 'Tu deuda con ' + deuda.contraparte + ' ' + cuando + ' (' + montoStr + ')';
         await notificarUsuario({
           canales: CANALES.AMBOS,
           usuarioId: deuda.usuario_id, whatsapp: deuda.usuarios.whatsapp,
@@ -1320,11 +1311,26 @@ async function checkRecordatorioDeudas() {
           titulo: cd === 0 ? 'Deuda vence hoy' : cd > 0 ? 'Deuda vence en ' + cd + ' días' : 'Deuda vencida hace ' + Math.abs(cd) + ' días',
           tipoInApp: 'deuda_vence',
           link: '/dashboard/deudas', datos: { deuda_id: deuda.id },
-          // Primer emisor del canal de correo (27-ago-2026), y el elegido por medición: los 12
-          // usuarios que recibieron un aviso de plata en 30 días tienen email los 12 y número
-          // 11, y **ninguno** es solo-WhatsApp. Este aviso es fechado — pierde valor mañana —
-          // y por WhatsApp llegó 6 de 35 veces.
-          email: { to: deuda.usuarios.email || null, asunto: asuntoDeuda },
+          // ─── Este aviso YA NO manda correo, y el motivo no es que el correo no sirviera ───
+          //
+          // Fue el primer emisor del canal (27-ago-2026) y por medición era el candidato
+          // correcto: de los 12 usuarios que recibieron un aviso de plata en 30 días, los 12
+          // tenían correo y ninguno era solo-WhatsApp, mientras que por WhatsApp este aviso
+          // llegaba 6 de 35 veces.
+          //
+          // Lo que lo sacó fue la FORMA del envío, no el canal: el bucle es por DEUDA, así que
+          // quien tiene varias venciendo el mismo día recibe un correo por cada una. El
+          // 31-ago-2026 a las 9:05 un usuario con 6 deudas activas recibió **4 correos en 11
+          // segundos**. No era repetición del mismo aviso —el ledger de abajo lo impide, son 4
+          // toques como máximo en toda la vida de una deuda—: era la ráfaga de un mismo día.
+          // El `TOPE_DIARIO_POR_USUARIO` de `lib/email.js` ya decía que el tope no es el
+          // arreglo y que el arreglo es agrupar POR PERSONA.
+          //
+          // El correo se mudó entero a `checkResumenDeudasSemanal` (lunes 9am), que agrupa. Acá
+          // quedan WhatsApp y la campana, que son los que pueden decir "vence mañana" el día
+          // que corresponde. **El precio está aceptado y es real** (decisión de Favio,
+          // 31-ago-2026): para el usuario inactivo —justo a quien el correo vino a alcanzar—
+          // el aviso fechado vuelve a depender de un canal que entrega al ~12%.
         });
         // Ledger: marca el touch enviado Y todos los touches ya alcanzados. Evita el back-fill de
         // copy caduco cuando la deuda entra ya vencida o se saltó un umbral (un touch menos avanzado
@@ -1339,6 +1345,228 @@ async function checkRecordatorioDeudas() {
       } catch (e) { log.error({ tag: 'DEUDA_REMINDER', deudaId: deuda.id, userId: deuda.usuario_id, err: msgErr(e) }, 'Recordatorio de deuda omitido'); }
     }
   } catch (e) { log.error({ tag: 'DEUDA_REMINDER', err: msgErr(e) }, 'Error recordatorio deudas'); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RESUMEN SEMANAL DE DEUDAS — el correo, agrupado por PERSONA
+// ═══════════════════════════════════════════════════════════════
+//
+// Decisión de producto de Favio, 31-ago-2026, y la parte que se re-litiga sola si no queda
+// escrita: **el semanal pierde la urgencia fechada y eso se aceptó a sabiendas**. El lunes no
+// se puede decir "vence mañana" de algo que vence el jueves. La alternativa que se le planteó
+// —agrupar por persona y por DÍA, que conserva la fecha y elimina igual la ráfaga— se
+// descartó; no volver a proponerla como si fuera un hallazgo.
+//
+// El alcance también es una decisión, no una consecuencia: el correo por deuda se fue de
+// `checkRecordatorioDeudas` y NO se tocaron WhatsApp ni la campana, que siguen mandando el
+// toque fechado. Por eso este cron no declara WhatsApp: mandar por ese canal el mismo
+// contenido que ya sale deuda por deuda sería la misma ráfaga, un nivel más arriba.
+//
+// Qué entra: lo que vence en los próximos 7 días **y todo lo vencido sin saldar**. El tramo
+// vencido no es un extra — sin él, la deuda que venció el jueves pasado no vuelve a
+// nombrarla nadie, porque el ledger `recordatorios_enviados` se agota en cuatro toques.
+
+/**
+ * El `tipo` de la campana y el `titulo`: FIJOS, porque juntos son la clave del dedup de abajo.
+ *
+ * **El `tipo` es PROPIO y no el `'deuda_vence'` del vecino, que era lo primero que se escribió.**
+ * Compartirlo dejaba la clave colgando del TÍTULO solo: `checkRecordatorioDeudas` escribe filas
+ * con ese mismo tipo y títulos armados inline (`'Deuda vence hoy'`, `'Deuda vence en N días'`),
+ * así que el día que alguien editara uno de esos textos hasta coincidir con éste, el resumen se
+ * apagaría en silencio para ese usuario y ningún test lo vería. Un `tipo` nuevo no cuesta nada
+ * —`notificaciones.tipo` es varchar libre— y le da a la clave un componente que el vecino no
+ * puede pisar sin querer. El icono de la campana se agregó en `notification-bell.tsx`: sin esa
+ * entrada cae al genérico `sistema`, que funciona pero se ve peor.
+ */
+const TIPO_IN_APP_RESUMEN_DEUDAS = 'deuda_resumen';
+const TITULO_RESUMEN_DEUDAS = 'Tus deudas pendientes';
+
+const simboloMoneda = (moneda) => (moneda === 'USD' ? '$' : 'S/');
+
+/**
+ * Total por moneda, SIN convertir. Convertir pediría un tipo de cambio que este repo
+ * deliberadamente no tiene (ver `monto_pen` nullable by design): un total mezclado en una sola
+ * cifra es un número inventado, y acá se lo lee como plata que se debe.
+ */
+function totalPorMoneda(deudas) {
+  const totales = {};
+  for (const d of deudas) {
+    const m = d.moneda === 'USD' ? 'USD' : 'PEN';
+    totales[m] = (totales[m] || 0) + parseFloat(d.monto_pendiente);
+  }
+  // `!== undefined` y no `filter(totales[m])`: un total de exactamente 0 es falsy, y con el
+  // filtro por verdad la moneda desaparecía entera — el asunto quedaba en `'Debes '` pelado.
+  // Es alcanzable: el CHECK de la tabla permite `monto_pendiente = 0`.
+  //
+  // El separador es ` + ` y NO ` y `, que es el que usa `asuntoResumenDeudas` un nivel arriba.
+  // Con los dos en ` y ` el asunto de alguien con dos monedas de los dos lados salía
+  // *"Debes S/ 100.00 y $ 40.00 y te deben S/ 300.00 y $ 20.00"*, donde no se puede saber
+  // dónde termina lo que debe. Cada nivel de la lista necesita su propio separador.
+  return ['PEN', 'USD'].filter((m) => totales[m] !== undefined)
+    .map((m) => simboloMoneda(m) + ' ' + totales[m].toFixed(2)).join(' + ');
+}
+
+/** Una línea del resumen. El tiempo verbal sale de la fecha, no del touch: acá no hay touch. */
+function lineaDeuda(deuda, hoy) {
+  const venc = String(deuda.fecha_vencimiento).slice(0, 10);
+  const cuando = venc < hoy ? 'venció el ' + formatFecha(venc)
+    : venc === hoy ? 'vence hoy'
+      : 'vence el ' + formatFecha(venc);
+  return '• *' + deuda.contraparte + '* — ' + simboloMoneda(deuda.moneda) + ' '
+    + parseFloat(deuda.monto_pendiente).toFixed(2) + ' · ' + cuando;
+}
+
+function mensajeResumenDeudas(nombre, debo, meDeben, hoy) {
+  const primerNombre = nombre ? nombre.split(' ')[0] : null;
+  const bloques = ['📋 ' + (primerNombre ? primerNombre + ', e' : 'E')
+    + 'sto es lo que tienes pendiente: lo que vence esta semana y lo que ya venció.'];
+  for (const [titulo, lista] of [['Debes', debo], ['Te deben', meDeben]]) {
+    if (!lista.length) continue;
+    bloques.push('*' + titulo + ':*\n' + lista.map((d) => lineaDeuda(d, hoy)).join('\n')
+      + '\n_Total: ' + totalPorMoneda(lista) + '_');
+  }
+  return bloques.join('\n\n');
+}
+
+/**
+ * El asunto. Misma regla que los otros dos emisores: NO puede ser el `titulo` de la campana
+ * ("Tus deudas pendientes"), que al lado de otros treinta en una bandeja no dice de cuánto.
+ * Lleva la PLATA adelante porque es lo que hace que alguien lo abra, y el móvil corta cerca de
+ * los 35 caracteres. Sin emoji a propósito — el asunto es lo único que miran los filtros de
+ * spam antes de decidir.
+ *
+ * Sin marco temporal ("esta semana") a propósito: el resumen incluye lo ya vencido, así que
+ * cualquier ventana que se nombre acá sería falsa para parte de lo que hay adentro.
+ */
+function asuntoResumenDeudas(debo, meDeben) {
+  const partes = [];
+  if (debo.length) partes.push('Debes ' + totalPorMoneda(debo));
+  if (meDeben.length) partes.push((debo.length ? 'te deben ' : 'Te deben ') + totalPorMoneda(meDeben));
+  return partes.join(' y ');
+}
+
+async function checkResumenDeudasSemanal() {
+  // `ahoraPeru()` y no su cuerpo inlineado, que es lo que hacen los crons de al lado: son la
+  // misma expresión, pero copiada deja este gate fuera del alcance de cualquier arreglo futuro
+  // en `lib/dates.js`. Perú no tiene DST, así que el reloj de pared de Lima se lee directo.
+  const horaLima = ahoraPeru();
+  if (horaLima.getDay() !== 1 || horaLima.getHours() !== 9 || horaLima.getMinutes() > 14) return;
+  try {
+    const hoy = hoyPeru();
+    const inicioHoy = new Date(hoy + 'T00:00:00-05:00').toISOString();
+    const deudas = await obtenerDeudasParaResumenSemanal();
+
+    // Agrupar ANTES de notificar es todo el cambio: el bucle de `checkRecordatorioDeudas` es
+    // por deuda, y por eso el 31-ago un usuario con 6 deudas recibió 4 correos en 11 segundos.
+    let enviados = 0;
+    const porUsuario = new Map();
+    for (const deuda of deudas) {
+      // La baja apaga TODOS los canales, y el pie de cada correo lo promete textual. Va acá y
+      // no en la query porque `notificarUsuario` no puede chequearlo (no lee la base), así que
+      // el corte vive donde se elige al destinatario.
+      if (deuda.usuarios.recordatorios_activos === false) continue;
+      // El resumen ES el ledger de deudas, y eso es `ver_deudas`: una lectura que el muro cobra.
+      if (estaEnMuro(deuda.usuarios)) continue;
+      // Piso contra un monto que no se puede sumar: rompería el total de las sanas y pondría
+      // "S/ NaN" en una bandeja, que no se puede desdecir. Se salta ESA deuda y no al usuario —
+      // las otras suyas siguen valiendo.
+      //
+      // **Hoy es INALCANZABLE, y decirlo importa porque el comentario anterior afirmaba lo
+      // contrario.** Decía que era la deuda envenenada de `qa-money-edge` (`monto_pendiente`
+      // null por un `1e999` que PostgREST serializa como null); medido contra el esquema vivo,
+      // `deudas.monto_pendiente` es **NOT NULL** con CHECK `>= 0` y `<= 999999.99`, así que ese
+      // insert se rechaza y la fila nunca existe. La causa estaba inventada al lado de una
+      // defensa razonable. Se queda como piso por si alguna vez se afloja la columna, no porque
+      // haya un caso vivo: cuatro líneas contra un correo que no se puede retirar.
+      if (!Number.isFinite(parseFloat(deuda.monto_pendiente))) {
+        log.warn({ tag: 'DEUDAS_SEMANAL', deudaId: deuda.id, userId: deuda.usuario_id, monto: deuda.monto_pendiente },
+          'Deuda con monto no numérico: queda fuera del resumen semanal');
+        continue;
+      }
+      if (!porUsuario.has(deuda.usuario_id)) porUsuario.set(deuda.usuario_id, { usuario: deuda.usuarios, debo: [], meDeben: [] });
+      const grupo = porUsuario.get(deuda.usuario_id);
+      (deuda.tipo === 'me_deben' ? grupo.meDeben : grupo.debo).push(deuda);
+    }
+
+    for (const [usuarioId, grupo] of porUsuario) {
+      try {
+        // Dedup por la fila de la campana, que `claimInApp` escribe ANTES de mandar el correo.
+        // El gate horario ya deja un solo tick por lunes; esto cubre el caso que el gate no
+        // cubre: un redeploy dentro de la ventana de 15 minutos vuelve a arrancar el intervalo.
+        const { data: yaSalio, error: errDedup } = await supabase.from('notificaciones')
+          .select('id').eq('usuario_id', usuarioId).eq('tipo', TIPO_IN_APP_RESUMEN_DEUDAS)
+          .eq('titulo', TITULO_RESUMEN_DEUDAS).gte('fecha', inicioHoy).limit(1);
+        // Falla ABIERTO, al revés que el dedup gemelo de `checkTrialExpiry`, y la diferencia
+        // no es de estilo: aquel es horario, así que saltarse una corrida cuesta una hora.
+        // Éste corre una vez por semana — fallar cerrado no posterga el resumen, lo pierde
+        // siete días.
+        //
+        // **Lo que se arriesga a cambio es UNA lectura caída, no dos.** Acá decía que hacían
+        // falta "dos ticks Y la lectura caída en los dos", y es falso: en el primer tick no hay
+        // fila previa, así que la lectura sale bien y el correo se manda con razón. Sólo tiene
+        // que fallar la del SEGUNDO. Sigue necesitando un segundo tick dentro de la ventana de
+        // 15 minutos —o sea un redeploy justo ahí— pero el riesgo es de otro orden que el que
+        // este comentario declaraba.
+        if (errDedup) {
+          log.warn({ tag: 'DEUDAS_SEMANAL', userId: usuarioId, err: errDedup.message },
+            'No se pudo comprobar el dedup del resumen: se manda igual (fail open)');
+        }
+        if (yaSalio && yaSalio.length > 0) continue;
+
+        const res = await notificarUsuario({
+          canales: CANALES.SOLO_IN_APP,
+          motivo: 'el toque fechado de cada deuda ya sale por WhatsApp desde checkRecordatorioDeudas; repetirlo agrupado sería la misma ráfaga que este resumen vino a sacar',
+          usuarioId,
+          tipo: 'resumen_deudas_semanal',
+          mensaje: mensajeResumenDeudas(grupo.usuario.nombre, grupo.debo, grupo.meDeben, hoy),
+          titulo: TITULO_RESUMEN_DEUDAS,
+          tipoInApp: TIPO_IN_APP_RESUMEN_DEUDAS,
+          link: '/dashboard/deudas',
+          // La fila in-app es el CLAIM que lee el dedup de arriba. Sin esto el marcador se
+          // escribiría después del correo, y un insert fallido dejaría al dedup ciego.
+          //
+          // **Y acá el claim va, mientras que el recordatorio de cobro de suscripción NO lo
+          // lleva, con el argumento contrario escrito en su propio guard.** No es una
+          // inconsistencia: el claim falla CERRADO, o sea que un insert fallido pierde el
+          // aviso, y lo que decide es cuánto cuesta perderlo.
+          //   · Suscripciones sale sólo si faltan exactamente 3 días para el cobro, así que
+          //     perderlo no lo posterga — el ciclo siguiente es 25 días después, y el aviso
+          //     que llega tarde ya no sirve para nada.
+          //   · Éste es un resumen de lo que sigue pendiente: no caduca, la deuda va a estar
+          //     igual el lunes que viene, y perder una corrida cuesta una semana de un aviso
+          //     recurrente. Del otro lado, fallar abierto arriesga **dos correos** — que es
+          //     exactamente el daño que este cron vino a sacar.
+          claimInApp: true,
+          // El único correo de deudas que queda. `to` viaja desde el select del helper
+          // (`obtenerDeudasParaResumenSemanal`) porque el chokepoint no lee la base.
+          email: { to: grupo.usuario.email || null, asunto: asuntoResumenDeudas(grupo.debo, grupo.meDeben) },
+        });
+        // **El resultado se MIRA, y no es opcional cuando se pide el claim.** `notificarUsuario`
+        // es best-effort y nunca lanza: si el insert de la campana falla, devuelve
+        // `inApp: false`, **no manda el correo**, y este `try` no se entera de nada. Su docblock
+        // lo pide textual ("quien haga algo DESPUÉS de llamar con este flag tiene que mirar el
+        // resultado") y sin esta línea el modo de falla más caro del cron —perder el resumen de
+        // la semana entera— sólo dejaba un `warn` con tag `NOTIF` diciendo "se reintenta en la
+        // próxima corrida", que acá es dentro de siete días.
+        if (!res || res.inApp !== true) {
+          log.error({ tag: 'DEUDAS_SEMANAL', userId: usuarioId, wa: res && res.wa && res.wa.skipped },
+            'El claim de la campana no se pudo escribir: este usuario se queda sin resumen hasta el lunes que viene');
+          continue;
+        }
+        enviados++;
+      } catch (e) {
+        // Saltar al siguiente usuario, con rastro: sin el log, un fallo sistemático se ve
+        // igual que "esta semana nadie tenía deudas".
+        log.error({ tag: 'DEUDAS_SEMANAL', userId: usuarioId, err: msgErr(e) }, 'Resumen semanal de deudas omitido');
+      }
+    }
+    // **Se loguea SIEMPRE, incluido el caso de cero deudas**, y cuenta lo que de verdad salió.
+    // Antes había un `if (!deudas.length) return;` arriba y el contador era `porUsuario.size`:
+    // con eso, "corrió y no había nada" era byte-idéntico a "no corrió" en los logs, y una
+    // semana en la que todos los avisos fallaron se leía igual que una semana normal.
+    log.info({ tag: 'DEUDAS_SEMANAL', deudas: deudas.length, elegibles: porUsuario.size, enviados },
+      'Resumen semanal de deudas ejecutado');
+  } catch (e) { log.error({ tag: 'DEUDAS_SEMANAL', err: msgErr(e) }, 'Error resumen semanal de deudas'); }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2125,6 +2353,7 @@ module.exports = {
   checkRecordatorioOnboarding,
   checkActivacionDia2,
   checkRecordatorioDeudas,
+  checkResumenDeudasSemanal,
   checkRecordatorioSuscripciones,
   checkCalcularNetoScore,
   checkNotificacionScore,

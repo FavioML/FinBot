@@ -1166,11 +1166,24 @@ necesita un asunto que el enum no tiene donde llevar.
 await notificarUsuario({
   canales: CANALES.AMBOS,
   usuarioId: u.id, whatsapp: u.whatsapp || null,
-  tipo: 'deuda', mensaje: msg, titulo: 'Deuda vence hoy',
-  link: '/dashboard/deudas',
-  email: { to: u.email || null, asunto: 'Tu deuda con Juan vence hoy (S/ 120.00)' },
+  tipo: 'trial_d11', mensaje: msg, titulo: 'Tu prueba Pro termina en 3 dias',
+  link: '/dashboard/pro',
+  email: { to: u.email || null, asunto: 'Tu prueba Pro termina el 03-sep-26 y se cierra tu dashboard' },
 });
 ```
+
+**El correo se declara por PERSONA, no por evento, y esa regla se pago (31-ago-2026).** El
+ejemplo de arriba era el cron de deudas, que declaraba `email` dentro de un bucle **por deuda**:
+alguien con seis deudas activas recibio **cuatro correos en once segundos**. No era repeticion
+del mismo aviso —el ledger `deudas.recordatorios_enviados` funciona, son cuatro toques como
+maximo en toda la vida de una deuda— era la rafaga de un mismo dia, y ningun arreglo sobre el
+ledger la tocaba. El comentario de `TOPE_DIARIO_POR_USUARIO` en `lib/email.js` ya lo decia: el
+tope de 5 acota el daño, el arreglo es agrupar.
+
+Antes de poner un `email:` adentro de un bucle, pregunta **cuantas filas puede tener ese bucle
+para una sola persona**. Si la respuesta no es "una", el correo va agrupado, en su propio cron
+(`checkResumenDeudasSemanal` es el molde: agrupa por `usuario_id`, manda uno solo, y dedupea con
+`claimInApp`). WhatsApp y la campana toleran el por-evento; una bandeja no.
 
 | | |
 |---|---|

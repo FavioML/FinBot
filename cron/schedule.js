@@ -91,6 +91,10 @@ const TAREAS = [
   // Elegibles los registrados entre hace 48h y hace 24h.
   { nombre: 'checkActivacionDia2', cadaMs: 15 * MIN, ventanaMaxMs: 24 * HORA, tag: 'ACTIVACION', mensaje: 'Empujón activación día 2 (24-48h tras registro, dentro de la ventana 24h de Meta)' },
   { nombre: 'checkRecordatorioDeudas', cadaMs: 15 * MIN, tag: 'DEUDAS', mensaje: 'Recordatorios de deudas (diario 9am Lima)' },
+  // Mismo reloj que el de arriba, y el solape es a proposito: los lunes a las 9 salen los dos.
+  // No se pisan porque no comparten canal — aquel manda WhatsApp y campana deuda por deuda,
+  // este manda UN correo agrupado por persona (31-ago-2026).
+  { nombre: 'checkResumenDeudasSemanal', cadaMs: 15 * MIN, tag: 'DEUDAS_SEMANAL', mensaje: 'Resumen semanal de deudas por correo (lunes 9am Lima)' },
   { nombre: 'checkRecordatorioSuscripciones', cadaMs: 15 * MIN, tag: 'SUB_REMIND', mensaje: 'Recordatorios de cobro de suscripciones (Pro, 3d antes, 10am Lima)' },
   { nombre: 'checkCalcularNetoScore', cadaMs: 15 * MIN, tag: 'SCORE', mensaje: 'Cálculo diario Neto Score (6am Lima)' },
   { nombre: 'checkRetencionNotificaciones', cadaMs: 15 * MIN, tag: 'RETENCION', mensaje: 'Retención de la campana (4am Lima, 90 días + tope 100 por usuario)' },

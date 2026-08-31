@@ -92,16 +92,25 @@ curl -sI https://api.neto.pe/webhooks/resend -X POST   # 400 sin firma (no 404, 
 curl -sI "https://api.neto.pe/baja-recordatorios?t=x"   # 400 con token inválido
 ```
 
-Y después del primer envío real (el cron de deudas corre 9am Lima):
+Y después del primer envío real. **Ojo con qué `tipo` se consulta**: hasta el 31-ago-2026 el
+emisor de deudas era `checkRecordatorioDeudas` (`tipo = 'deuda'`, diario 9am) y hoy ese cron ya
+**no manda correo** — filtrar por ese tipo devuelve cero filas de `canal='email'` y se lee como
+"el canal está roto". El correo de deudas ahora es `checkResumenDeudasSemanal`
+(`tipo = 'resumen_deudas_semanal'`), y corre **lunes 9am**, así que en un martes recién
+desplegado lo más rápido de verificar son los avisos de fin de prueba (`trial_d11`/`trial_d14`,
+cada hora desde las 8am) o el respaldo de soporte.
 
 ```sql
-select canal, estado, count(*),
+select tipo, canal, estado, count(*),
        count(*) filter (where delivered_at is not null) as entregados,
        count(*) filter (where failed_at is not null)    as fallidos
 from notification_deliveries
-where tipo = 'deuda' and created_at > now() - interval '2 days'
-group by 1, 2 order by 1, 2;
+where canal = 'email' and created_at > now() - interval '9 days'
+group by 1, 2, 3 order by 1, 2, 3;
 ```
+
+La ventana es de 9 días y no de 2 a propósito: con el emisor de deudas semanal, dos días pueden
+no contener ni un lunes.
 
 **Qué esperar y cómo leerlo:**
 
