@@ -31,11 +31,22 @@
 // **No manda ningún correo.** Es read-only sobre `notification_deliveries`. Un canary que envía
 // para probarse a sí mismo gasta cuota, ensucia la métrica de entrega y necesita un destinatario.
 //
-// Y **cero filas NO es un PASS del canal**: significa que en la ventana no hubo nada que mandar,
-// que es lo normal —el cron de deudas manda hasta 4 avisos por deuda en toda su vida, no diarios—.
+// Y **cero filas NO es un PASS del canal**: significa que en la ventana no hubo nada que mandar.
 // Sale exit 0 porque no hay nada roto, pero el veredicto lo dice con esas palabras en vez de
 // "OK", que se leería como "el canal funciona". Es la misma trampa que dejó pasar el incidente:
 // un negativo que se explica por otra condición.
+//
+// **Y desde el 31-ago-2026 ese silencio es la REGLA, no la excepción.** Acá decía que cero filas
+// es normal *"porque el cron de deudas manda hasta 4 avisos por deuda en toda su vida"* — ese
+// cron ya no manda correo: el suyo pasó a un resumen SEMANAL (`checkResumenDeudasSemanal`), y era
+// el único emisor con cadencia diaria. Medido sobre 30 días, el canal entero tiene 10 filas en 2
+// días. O sea que este harness va a decir "SIN TRAFICO" casi siempre y su ventana de detección
+// pasó de ~1 día a ~7.
+//
+// Por eso existe `qa-canal-email-key.mjs`, que le pregunta a Resend directamente si la
+// credencial de PRODUCCIÓN sirve, sin depender de que alguien haya mandado algo. Éste sigue
+// haciendo falta: es el único que ve lo que pasa DESPUÉS del envío (rebotes, quejas, el webhook
+// que dejó de llegar), y eso no se puede preguntar por API.
 //
 // Correr:  node qa-e2e/qa-canal-email-sano.mjs   (desde app/)
 //   exit 0 = no hay nada roto (con o sin tráfico)
@@ -162,8 +173,10 @@ async function main() {
     console.log(JSON.stringify({
       veredicto: 'SIN TRAFICO',
       queSignifica: 'Ningun emisor intento mandar correo en la ventana. NO dice nada sobre si el '
-        + 'canal funciona: el cron de deudas manda hasta 4 avisos por deuda en toda su vida, no '
-        + 'todos los dias. Esto es exit 0 porque no hay nada roto, no porque este verificado.',
+        + 'canal funciona, y desde el 31-ago-2026 este es el caso NORMAL: el correo de deudas '
+        + 'paso a ser semanal y era el unico emisor diario, asi que la mayoria de los dias no hay '
+        + 'nada que medir aca. Quien contesta "la credencial sirve?" sin depender del trafico es '
+        + 'qa-canal-email-key.mjs. Esto es exit 0 porque no hay nada roto, no porque este verificado.',
       resumen,
     }, null, 2));
     return 0;
