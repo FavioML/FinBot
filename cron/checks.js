@@ -13,8 +13,8 @@ const { notificarAdmin } = require('../lib/admin-notify');
 const { checkSurveyTriggers } = require('../services/survey-triggers');
 const { solicitarComprobante } = require('../lib/pro-payment');
 const { planCostReminders } = require('../lib/cost-reminders');
-const { mensajeActivacionDia2, construirLinkActivacion } = require('../lib/activacion');
-const { mensajeMuro, estaEnMuro, esProPagado, AVISO_DIAS_ANTES } = require('../lib/trial');
+const { mensajeActivacionDia2 } = require('../lib/activacion');
+const { mensajeMuro, estaEnMuro, esProPagado, linkPanelPro, AVISO_DIAS_ANTES } = require('../lib/trial');
 const { revocarAccesoGmail } = require('../gmail');
 const analytics = require('../lib/analytics');
 
@@ -939,14 +939,29 @@ async function checkActivacionDia2() {
 // tres queries de ese cron filtran por premium_vence (= en3dias, = hoy, IS NOT NULL). Los
 // usuarios en prueba le son invisibles.
 //
-// Sobre la entrega: el aviso sale free-form mientras `trial_por_vencer` no esté aprobada
-// por Meta (flag WA_TRIAL_TEMPLATE_ENABLED, ver docs/whatsapp-templates.md). A diferencia
-// del win-back — que tuvo 0 entregas confirmadas porque perseguía inactivos de 70-143 días
-// —, esta población es la de MEJOR caso para la ventana de 24h: por construcción registró
-// un gasto hace <=14 días. Aun así no se asume: cada envío se etiqueta (`trial_d11`/
-// `trial_d14`) y `notification_deliveries` guarda el wamid, así que delivered_at dice la
-// verdad y a las dos semanas se decide con datos si la plantilla vale el gasto.
-// El canal garantizado, mientras tanto, es la notificación in-app.
+// ─── Sobre la entrega: acá decía que ésta era la MEJOR población, y se midió que NO ──────
+//
+// El texto anterior afirmaba que ésta era "la de MEJOR caso para la ventana de 24h, porque
+// por construcción registró un gasto hace <=14 días". Es falso, y el error de razonamiento
+// vale más que el número: **registrar un gasto no implica haberlo registrado POR WhatsApp**.
+// Se anota también desde la webapp, y la ventana de 24h de Meta sólo la abre un mensaje
+// ENTRANTE.
+//
+// Medido sobre 30 días al 31-ago-2026, por WhatsApp:
+//
+//   trial_d11 ("termina en 3 días")  34 intentos →  1 entregado, 30 rechazados con 131047
+//   trial_d14 ("termina hoy")        31 intentos →  0 entregados, 28 rechazados con 131047
+//   trial_vencido ("terminó")        15 intentos →  0 entregados, 12 rechazados con 131047
+//
+// O sea 1 de 80. Y de las 26 pruebas vivas ese día, sólo 2 tenían la ventana abierta.
+// Las plantillas de Meta NO son la salida (descartadas con su motivo en
+// docs/whatsapp-templates.md: se pagaría por alcanzar a quien no usa el producto), y
+// WA_TRIAL_TEMPLATE_ENABLED se queda en false.
+//
+// La salida es el CORREO, que desde el 31-ago-2026 declaran los tres avisos. WhatsApp e
+// in-app salen igual: el correo se suma, no reemplaza. `notification_deliveries` sigue
+// siendo la única fuente de verdad de qué llegó — por canal, y por callback, nunca por el
+// resultado del POST.
 async function checkTrialExpiry() {
   try {
     const hoy = hoyPeru();
@@ -960,8 +975,13 @@ async function checkTrialExpiry() {
         { fecha: hoy, titulo: 'Tu prueba Pro termina hoy', tipo: 'trial_d14', cuando: 'hoy', via: 'd14' },
       ];
       for (const aviso of avisos) {
+        // `email` y `recordatorios_activos` entran acá porque el canal de correo los necesita
+        // en el LLAMADOR: `notificarUsuario` no lee la base (decisión tomada y revertida una
+        // vez, ver el bloque de `cuenta_borrada_at` en lib/notify-user.js). Sin la columna en
+        // el select, `usuario.email` es undefined y el correo sale como `skipped_no_email`
+        // para todo el mundo — un canal apagado con cara de canal encendido.
         const { data: porVencer, error: errPorVencer } = await supabase.from('usuarios')
-          .select('id, whatsapp, nombre, trial_vence, supabase_auth_id')
+          .select('id, whatsapp, nombre, trial_vence, supabase_auth_id, email, recordatorios_activos')
           .eq('trial_estado', 'activo').eq('trial_vence', aviso.fecha)
           .is('cuenta_borrada_at', null);
         if (errPorVencer) {
@@ -971,6 +991,14 @@ async function checkTrialExpiry() {
         if (!porVencer || porVencer.length === 0) continue;
         for (const usuario of porVencer) {
           try {
+            // La baja apaga TODOS los canales, y no es una interpretación: el pie de cada
+            // correo dice textual "Dejar de recibirlos (todos los canales, también WhatsApp)".
+            // Desde que este aviso declara `email`, respetarla dejó de ser opcional — un
+            // opt-out con excepciones que la persona no puede ver no es un opt-out. Mismo
+            // corte que checkRecordatorioDeudas. Cuesta cero hoy: 1 de 131 del padrón se dio
+            // de baja, y no está en prueba. Y el que se dio de baja igual ve el muro cuando
+            // entra a la app: el aviso empuja, no es el único camino.
+            if (usuario.recordatorios_activos === false) continue;
             // Mismo dedup que checkPremiumExpiry y misma trampa: falla abierto, y este cron
             // también es horario con gate >=8am. Ante la duda se asume avisado.
             const { data: yaAviso, error: errDedup } = await supabase.from('notificaciones')
@@ -986,12 +1014,33 @@ async function checkTrialExpiry() {
             // Al que nunca activó su cuenta web se le empuja a activarla, no a pagar: está
             // por terminar 14 días de Pro sin haber visto una sola vez lo que se le está
             // por acabar. Pedirle plata por algo que no vio no puede funcionar.
+            // El destino se calcula UNA vez y viaja también como `link`, en vez de quedar sólo
+            // dentro del texto. Antes el aviso mandaba siempre `link: '/dashboard/pro'`, lo
+            // cual da igual mientras el destinatario tenga cuenta web — pero desde que hay
+            // correo, el botón "Ver en Neto" deposita al que NUNCA activó en `/login`, o sea
+            // en la pantalla donde un "Continuar con Google" le crea una cuenta huérfana en
+            // lugar de vincularlo a su número. El cuerpo ya bifurcaba; el destino no.
+            //
+            // Es `linkPanelPro` y no una copia suya: esta bifurcación estaba escrita inline
+            // acá desde antes, y sacarla del helper la deja fuera del alcance de
+            // `tests/lib/trial-link-panel-pro.test.js` — o sea que cambiar el helper dejaría
+            // este cron divergiendo en silencio, con el guard en verde. El `|| /dashboard` es
+            // el mismo fallback que ya tenía el cuerpo para cuando no se puede firmar el link.
+            //
+            // **El precio, que es real y se elige a sabiendas.** `link` es UN parámetro y va a
+            // los tres canales, así que para el que no activó, la fila de la campana queda con
+            // la URL de activación. Esa fila hoy es inalcanzable —sin cuenta web no hay
+            // campana—; si más adelante activa y clickea ese aviso viejo, su token ya está
+            // gastado y `/activar` lo manda a `/dashboard` en vez de `/dashboard/pro`. Se
+            // acepta porque el otro lado es peor: el botón del correo llevaría a `/login` a
+            // alguien que nunca vio la app, justo en el aviso que pide plata.
+            const linkAviso = linkPanelPro(usuario) || WEBAPP_URL + '/dashboard';
             const cuerpo = usuario.supabase_auth_id
               ? 'Después de eso sigo anotando todos tus gastos, pero el dashboard, el historial y los reportes quedan cerrados.\n\n' +
                 'Para seguir con todo abierto:\n' + lineaPrecioPro() + '\n' +
-                '👉 ' + WEBAPP_URL + '/dashboard/pro'
+                '👉 ' + linkAviso
               : 'Y todavía no has entrado ni una vez a ver tus gastos en gráficos.\n\n' +
-                'Míralos ahora, mientras sigue abierto:\n👉 ' + (construirLinkActivacion(usuario.id) || WEBAPP_URL + '/dashboard');
+                'Míralos ahora, mientras sigue abierto:\n👉 ' + linkAviso;
             // formatFecha y no el ISO crudo: el muro ya dice "29-jul-26" y ver "2026-08-04"
             // en el aviso previo delata dos manos escribiendo el mismo flujo.
             const venceLegible = formatFecha(String(usuario.trial_vence).slice(0, 10));
@@ -1006,15 +1055,40 @@ async function checkTrialExpiry() {
               ] }],
             } : null;
 
+            // El asunto NO puede ser el `titulo` de la campana ("Tu prueba Pro termina en 3
+            // días"): en una bandeja, al lado de otros treinta, eso no dice qué se pierde ni
+            // cuándo. Lleva la FECHA y la consecuencia concreta, que es lo que hace que
+            // alguien lo abra, y va delante porque el móvil corta cerca de los 35 caracteres.
+            // Sin emoji a propósito — el asunto es lo único que miran los filtros de spam
+            // antes de decidir. Misma regla que el asunto de `deuda`.
+            //
+            // Uno solo por aviso, sin ramificar por `supabase_auth_id` como sí hace el cuerpo:
+            // "se cierra tu dashboard" es cierto lo hayas abierto o no, y al 31-ago la
+            // intersección de "nunca activó la web" con "tiene correo" en la cohorte viva es
+            // CERO, así que la segunda variante no tendría a quién hablarle.
+            const asuntoTrial = aviso.via === 'd11'
+              ? 'Tu prueba Pro termina el ' + venceLegible + ' y se cierra tu dashboard'
+              : 'Último día de tu prueba Pro: mañana se cierra tu dashboard';
+
             const { wa } = await notificarUsuario({
               canales: CANALES.AMBOS,
               usuarioId: usuario.id, whatsapp: usuario.whatsapp,
               tipo: aviso.tipo, mensaje: msg, template: tpl,
-              titulo: aviso.titulo, tipoInApp: 'recordatorio', link: '/dashboard/pro',
+              titulo: aviso.titulo, tipoInApp: 'recordatorio', link: linkAviso,
               claimInApp: true, // el dedup de arriba lee la fila in-app; sin claim, re-envío horario (B6)
+              // El único aviso del producto que pide plata, y por WhatsApp llegó 1 de 65 en 30
+              // días (ver el bloque de arriba). El correo va EN PARALELO, no como fallback de
+              // `wa.ok`: el rechazo de Meta llega por callback y todavía no existe cuando esta
+              // llamada retorna — un fallback condicionado habría mandado cero correos.
+              email: { to: usuario.email || null, asunto: asuntoTrial },
             });
             // Solo se cuenta como "aviso" lo que Meta aceptó: un blocked_24h no avisó a nadie
             // y contarlo taparía justo el problema que se está midiendo.
+            //
+            // Este evento sigue siendo de WHATSAPP y no cuenta el correo, a propósito: mover
+            // el gate ahora rompería la comparación con los 30 días de historia que
+            // justificaron el cambio. El correo se mide donde corresponde, que es
+            // `notification_deliveries` con canal='email' y tipo='trial_d11'/'trial_d14'.
             if (wa && wa.ok && !wa.skipped) {
               analytics.capture(usuario.id, 'wa_onboarding_step_ok', { paso: 310, via: aviso.via, canal: tpl ? 'template' : 'texto' });
             }
@@ -1031,8 +1105,10 @@ async function checkTrialExpiry() {
     // terminar los suyos — el único mensaje que el trial existe para mandar, y salía al revés.
     // `estado_pago` va en el select por el mismo motivo que en checkPremiumExpiry: hay que
     // saber si venía en 'pagado' para no dejarlo ahí después del downgrade (hallazgo D6).
+    // `email` y `recordatorios_activos`, por el mismo motivo que en el select de arriba: el
+    // canal de correo se declara en el llamador y el chokepoint no lee la base.
     const { data: vencidos, error: errVencidos } = await supabase.from('usuarios')
-      .select('id, whatsapp, nombre, trial_estado, trial_vence, premium_desde, premium_vence, estado_pago')
+      .select('id, whatsapp, nombre, trial_estado, trial_vence, premium_desde, premium_vence, estado_pago, email, recordatorios_activos')
       .eq('trial_estado', 'activo').lt('trial_vence', hoy)
       .is('cuenta_borrada_at', null);
     // El silencio acá es el que más se parece a la salud: "hoy no venció ninguna prueba" es
@@ -1081,15 +1157,80 @@ async function checkTrialExpiry() {
         const { count: conteoTx, error: errConteo } = await supabase.from('transacciones')
           .select('id', { count: 'exact', head: true }).eq('usuario_id', usuario.id);
         if (errConteo) log.warn({ tag: 'TRIAL_EXPIRY', userId: usuario.id, err: errConteo.message }, 'Sin conteo de gastos: el mensaje del muro sale con el copy genérico');
-        const msg = mensajeMuro(usuario, conteoTx) + avisoGmailDesconectado(revocadas);
-        await notificarUsuario({
-          canales: CANALES.AMBOS,
-          usuarioId: usuario.id, whatsapp: usuario.whatsapp,
-          tipo: 'trial_vencido', mensaje: msg,
-          titulo: 'Tu prueba Pro terminó',
-          cuerpo: 'Sigo anotando todos tus gastos y no se borró nada. Para volver a verlos, activa Pro.',
-          link: '/dashboard/pro',
-        });
+
+        // Mismo corte que en los avisos de arriba y que checkRecordatorioDeudas. Va DESPUÉS
+        // del downgrade a propósito: la baja apaga los AVISOS, no el vencimiento de la prueba.
+        // Quien pidió no recibir mensajes igual pierde Pro, y lo ve en el muro cuando entra.
+        //
+        // Y va ANTES del conteo de gastos recientes, no después. Con el orden invertido, a un
+        // usuario dado de baja se le pagaba una query que no iba a decidir nada y, peor, el log
+        // del gate afirmaba 'no sale por correo porque no registró gastos' cuando en realidad no
+        // salía nada por ningún canal — sobrecontando dos supresiones distintas en el mismo
+        // instrumento con que se va a medir el gate.
+        //
+        // Lo que se pierde con el corte, dicho en voz alta: el mensaje incluye
+        // `avisoGmailDesconectado(revocadas)`, así que al silenciado se le revoca Gmail sin
+        // avisarle por ningún canal, y antes de este cambio sí se enteraba. Se acepta porque la
+        // alternativa es peor: el pie de cada correo promete por escrito que la baja apaga
+        // TODOS los canales, y una excepción que la persona no puede ver convierte la promesa
+        // en mentira. Hoy cuesta cero — 1 de 131 del padrón se dio de baja y no está en prueba.
+        if (usuario.recordatorios_activos === false) {
+          log.info({ tag: 'TRIAL_EXPIRY', userId: usuario.id }, 'Bajado al muro sin avisar: pidió no recibir recordatorios');
+        } else {
+          // ─── El correo de ESTE aviso lleva un gate que los otros dos no llevan ───────────
+          //
+          // El criterio es la HONESTIDAD DE LA AFIRMACIÓN, no la reputación del dominio, y la
+          // diferencia importa porque decide dónde va el corte. d11 y d14 le hablan a alguien
+          // que todavía tiene la prueba y anuncian algo FUTURO: "esto termina, pagá antes". Eso
+          // es cierto lo esté usando o no, y por eso salen sin gate. Éste afirma algo en pasado
+          // —"se cerró tu dashboard"— y para quien no anota nada hace dos semanas esa pérdida no
+          // ocurrió: no es un aviso transaccional, es outbound frío con forma de recibo.
+          //
+          // > Acá decía que el motivo era no quemar la reputación del dominio con un envío
+          // > masivo a inactivos. Una revisión adversarial lo desarmó y tenía razón: si ese
+          // > fuera el criterio, el corte tendría que estar en los TRES avisos, porque la misma
+          // > población recibe d11 y d14 sin gate tres días antes. El argumento de reputación
+          // > justificaba un gate que no hace ese trabajo, así que se fue.
+          //
+          // El bloque que lo vuelve concreto igual existe: al 31-ago-2026, 16 de las 26 pruebas
+          // vivas comparten `trial_inicio = 2026-08-01` (el backfill de la migración 052 — una
+          // fecha copiada, no un comportamiento) y vencen todas el mismo día, **16 de 16 con
+          // correo y 1 de 16 con un gasto en 14 días**. A esos 16 el d11 y el d14 ya les salieron
+          // sin correo, porque este canal no existía todavía para este cron; lo único que llega
+          // acá es el `trial_vencido`, y son exactamente 15 recibos de una pérdida que nadie tuvo.
+          //
+          // Falla CERRADO —sin lectura no hay correo— y es la excepción al fail-open del resto
+          // del canal, por la asimetría del daño: afirmarle una pérdida a quien no la tuvo no se
+          // puede desdecir, y callarse cuesta un correo. WhatsApp y la campana salen igual en
+          // los dos casos, así que nadie se queda sin enterarse del muro por esto.
+          const desde14d = new Date(sumarDias(hoy, -14) + 'T00:00:00-05:00').toISOString();
+          const { count: txRecientes, error: errRecientes } = await supabase.from('transacciones')
+            .select('id', { count: 'exact', head: true })
+            .eq('usuario_id', usuario.id).gte('created_at', desde14d);
+          if (errRecientes) log.warn({ tag: 'TRIAL_EXPIRY', userId: usuario.id, err: errRecientes.message }, 'Sin conteo de gastos recientes: el aviso de fin de prueba no sale por correo (in-app y WhatsApp salen igual)');
+          const usoReciente = !errRecientes && (txRecientes || 0) > 0;
+          // El gate deja RASTRO. Sin esto es el único camino del canal que suprime un envío sin
+          // dejar nada: no hay fila en `notification_deliveries` (a propósito — ver el spread de
+          // abajo), no hay evento, y un gate que por diseño espera callar 15 de 16 es justo el
+          // que hay que poder contar. Se cuenta acá y no en el ledger porque el estado que
+          // correspondería (`skipped_sin_uso_reciente`) lo escribe `enviarEmail`, y a
+          // `enviarEmail` no se llega: la decisión es del llamador, que es donde vive.
+          if (!usoReciente) log.info({ tag: 'TRIAL_EXPIRY', userId: usuario.id, txRecientes: txRecientes || 0 }, 'Fin de prueba sin correo: no registró gastos en 14 días (in-app y WhatsApp salen igual)');
+
+          const msg = mensajeMuro(usuario, conteoTx) + avisoGmailDesconectado(revocadas);
+          await notificarUsuario({
+            canales: CANALES.AMBOS,
+            usuarioId: usuario.id, whatsapp: usuario.whatsapp,
+            tipo: 'trial_vencido', mensaje: msg,
+            titulo: 'Tu prueba Pro terminó',
+            cuerpo: 'Sigo anotando todos tus gastos y no se borró nada. Para volver a verlos, activa Pro.',
+            link: '/dashboard/pro',
+            // El `email` se OMITE cuando no hubo uso reciente, en vez de pasar `to: null`.
+            // Un `to` nulo dejaría una fila `skipped_no_email` indistinguible de "no tiene
+            // correo", y son dos cosas distintas: acá el canal no se declaró.
+            ...(usoReciente ? { email: { to: usuario.email || null, asunto: 'Tu prueba Pro terminó y tu dashboard quedó cerrado' } } : {}),
+          });
+        }
         analytics.capture(usuario.id, 'wa_onboarding_step_failed', { paso: 400, motivo: 'trial_vencido', conteo_tx: conteoTx || 0 });
         log.info({ tag: 'TRIAL_EXPIRY', userId: usuario.id }, 'Trial vencido, usuario al muro');
       } catch (e) { log.error({ tag: 'TRIAL_EXPIRY', userId: usuario.id, err: msgErr(e) }, 'Error bajando al muro'); }

@@ -148,6 +148,47 @@ describe('notificarUsuario: el texto in-app', () => {
     expect(sanitizarParaWeb('Hola *Favio*, _revisa_ esto')).toBe('Hola Favio, revisa esto');
   });
 
+  /**
+   * El sanitizador NO puede tocar una URL, y esto se prueba con tokens REALES en vez de con
+   * una cadena que "parece" un token: el alfabeto base64url mete `_` de forma dispersa, así
+   * que un solo ejemplo elegido a mano puede no tener ninguno y pasar en verde por suerte.
+   *
+   * Con el `.replace(/[*_]/g,'')` pelado, 460 de estos 1000 links quedan alterados y los 460
+   * fallan la verificación. Es el aviso de fin de prueba llegando con su único camino a la
+   * app roto, al usuario que todavía no tiene cuenta web — que es justo a quien va dirigido.
+   */
+  it('no toca las URL: un link firmado sobrevive y sigue verificando', () => {
+    const { construirLinkActivacion, verificarTokenActivacion } = require('../../lib/activacion');
+    const previo = process.env.ACTIVATION_TOKEN_SECRET;
+    process.env.ACTIVATION_TOKEN_SECRET = 'secreto-de-prueba-para-el-sanitizador';
+    try {
+      let conGuionBajo = 0;
+      for (let i = 0; i < 1000; i++) {
+        const id = '00000000-0000-4000-8000-' + String(i).padStart(12, '0');
+        const link = construirLinkActivacion(id);
+        expect(link, 'sin link firmado el test no prueba nada').toBeTruthy();
+        const token = link.split('t=')[1];
+        if (token.includes('_')) conGuionBajo++;
+        const salido = sanitizarParaWeb('Míralos ahora:\n👉 ' + link).split('t=')[1];
+        expect(salido).toBe(token);
+        expect((verificarTokenActivacion(salido) || {}).uid).toBe(id);
+      }
+      // Antivacuidad: si ningún token trae el carácter que el sanitizador borra, el bucle de
+      // arriba pasa sin ejercitar nada. Medido, 463 de 1000. Sólo se cuenta `_`: `*` no está
+      // en el alfabeto base64url, así que buscarlo era una condición muerta que inflaba la
+      // sensación de cobertura sin agregar un caso.
+      expect(conGuionBajo, 'ningún token tenía `_`: este test no está probando el caso').toBeGreaterThan(100);
+    } finally {
+      if (previo === undefined) delete process.env.ACTIVATION_TOKEN_SECRET;
+      else process.env.ACTIVATION_TOKEN_SECRET = previo;
+    }
+  });
+
+  it('sigue borrando el markdown que rodea a una URL', () => {
+    expect(sanitizarParaWeb('*Mira* https://app.neto.pe/activar?t=a_b*c _ya_'))
+      .toBe('Mira https://app.neto.pe/activar?t=a_b*c ya');
+  });
+
   it('por default el cuerpo es el mensaje sanitizado, y `datos.link` lleva el deeplink', async () => {
     await notificarUsuario({ canales: CANALES.AMBOS, ...BASE, datos: { space_id: 's1' } });
 
