@@ -194,37 +194,45 @@ async function main() {
     sent[0]?.opts?.tipo === 'deuda' && sent[0]?.opts?.usuarioId === QA_ID && !sent[0]?.opts?.template,
     'tipo=' + sent[0]?.opts?.tipo + ' usuarioId=' + (sent[0]?.opts?.usuarioId === QA_ID));
 
-  // DOS filas desde el 27-ago-2026, no una: `deuda` es el primer emisor del canal de correo,
-  // así que cada aviso deja su intento de WhatsApp Y su intento de email. Este harness es lo
-  // único que lo comprueba por el pipeline REAL (cron → notificarUsuario → los dos
-  // transportes → la tabla); los tests de `lib/email.test.js` mockean el transporte.
+  // UNA fila, y volvió a ser una el 31-ago-2026 después de haber sido dos.
   //
-  // El conteo se afirma en 2 a propósito, en vez de relajarlo a `>= del0 + 1`: si mañana el
-  // canal de correo se cae del call-site, un `>=` lo dejaría pasar en silencio y esa es
-  // exactamente la regresión que nadie vería —el WhatsApp de `deuda` entrega 6 de 35 veces—.
+  // Del 27 al 31-ago este aviso fue el primer emisor del canal de correo y dejaba DOS filas.
+  // El correo se fue de acá —mandaba uno por CADA deuda que vencía el mismo día, y un usuario
+  // con 6 deudas recibió 4 correos en 11 segundos— y renació agrupado por persona en
+  // `checkResumenDeudasSemanal`, con su propio harness (`qa-cron-deudas-semanal.mjs`).
+  //
+  // **Esta es la segunda vez que este bloque queda desactualizado por un cambio de canal en el
+  // emisor, y la primera está en `docs/DEFECTOS.md` (27-ago, `consumidor-no-actualizado`).**
+  // Aquella vez el harness afirmaba 1 y eran 2; ésta afirmaba 2 y es 1. El archivo está en el
+  // canary de las 10am, así que las dos veces el precio era el mismo: rojo al día siguiente sin
+  // que el código tuviera nada malo, que es el ruido que hace que un canary se deje de leer.
+  //
+  // El conteo se afirma EXACTO y no con `>=`, por el mismo motivo que la vez pasada pero con el
+  // signo dado vuelta: un `>=` dejaría volver el correo por-deuda sin que nada se ponga rojo, y
+  // esa ráfaga es justamente la decisión que este número fija.
   const del1 = await countDeliveries();
-  check('TRIGGER: +2 filas en notification_deliveries (whatsapp + email)',
-    del1 === del0 + 2, del0 + '→' + del1);
+  check('TRIGGER: +1 fila en notification_deliveries (solo whatsapp)',
+    del1 === del0 + 1, del0 + '→' + del1);
 
   const { data: dels } = await supabase.from('notification_deliveries')
     .select('estado, canal, tipo').eq('usuario_id', QA_ID).eq('tipo', 'deuda')
     .order('id', { ascending: false }).limit(2);
   const canales = (dels || []).map((d) => d.canal).sort();
-  check('TRIGGER: los dos canales, uno de cada uno',
-    JSON.stringify(canales) === JSON.stringify(['email', 'whatsapp']), JSON.stringify(canales));
+  check('TRIGGER: un solo canal, y es whatsapp',
+    JSON.stringify(canales) === JSON.stringify(['whatsapp']), JSON.stringify(canales));
 
   const wa = (dels || []).find((d) => d.canal === 'whatsapp');
   check('TRIGGER: whatsapp estado=skipped_test (test user, sin Meta)',
     wa?.estado === 'skipped_test', 'estado=' + wa?.estado);
 
-  // El estado del correo depende del entorno y por eso se afirma el CONJUNTO, no un valor:
-  // sin `RESEND_API_KEY` (CI y local) sale `skipped_sin_proveedor`; con la key puesta, el
-  // `is_test_user` del QA lo corta antes con `skipped_test`. Lo que NO puede pasar en ninguno
-  // de los dos es `sent`: eso sería un correo de verdad a la cuenta de pruebas.
-  const mail = (dels || []).find((d) => d.canal === 'email');
-  check('TRIGGER: email no salió de verdad (skipped_*, nunca sent)',
-    ['skipped_sin_proveedor', 'skipped_test', 'skipped_no_email', 'skipped_sin_baja'].includes(mail?.estado),
-    'estado=' + mail?.estado);
+  // La aserción que FIJA la decisión de producto, y que no se deduce del conteo de arriba: el
+  // aviso por-deuda no puede volver a tocar una bandeja. Se pregunta por el canal directamente
+  // —no por "la última fila"— para que no dependa del orden ni de cuántas filas haya.
+  const { count: mailsDeuda } = await supabase.from('notification_deliveries')
+    .select('id', { count: 'exact', head: true })
+    .eq('usuario_id', QA_ID).eq('tipo', 'deuda').eq('canal', 'email');
+  check('TRIGGER: CERO correos por-deuda (el correo vive en el resumen semanal)',
+    (mailsDeuda || 0) === 0, 'filas email=' + (mailsDeuda || 0));
 
   const notifs1 = await getNotifs();
   const notifMatch = notifs1.find(n => n.datos?.deuda_id === THROWAWAY_ID);
