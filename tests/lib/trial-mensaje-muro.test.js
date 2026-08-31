@@ -49,6 +49,28 @@ describe('mensajeMuro — la rama la decide trial_estado', () => {
     expect(mensajeMuro({ ...BASE, trial_estado: null }, 7)).toContain('tu próximo gasto');
   });
 
+  /**
+   * El TERCER valor de `conteoTx`, que hasta el 31-ago no existía y por eso el defecto era
+   * posible: `undefined` es "no se pudo contar", `null`/`0` es "de verdad no anotó nada".
+   * Con `count` de PostgREST volviendo `null` al fallar, quien lea un `{ error }` y pase ese
+   * `null` tal cual le afirma a alguien con decenas de gastos que le falta el primero.
+   * Alcanzable: 19 usuarios reales free con `trial_estado` NULL y transacciones (máx. 63).
+   */
+  it('sin poder contar (undefined) no afirma NI primero NI próximo', () => {
+    const msg = mensajeMuro({ ...BASE, trial_estado: null }, undefined);
+    expect(msg).toContain('registres un gasto');
+    expect(msg).not.toContain('primer gasto');
+    expect(msg).not.toContain('próximo gasto');
+    // Y el resto del cartel sale igual: degradar no es callarse.
+    expect(msg).toContain(TRIAL_DIAS + ' días gratis');
+  });
+
+  it('`undefined` y `null` NO dicen lo mismo (si convergen, el contrato se perdió)', () => {
+    const sinDatos = mensajeMuro({ ...BASE, trial_estado: null }, null);
+    const sinPoder = mensajeMuro({ ...BASE, trial_estado: null }, undefined);
+    expect(sinPoder).not.toBe(sinDatos);
+  });
+
   it('terminó su prueba (vencido): la nombra con fecha y NO le ofrece otra', () => {
     const msg = mensajeMuro({ ...BASE, trial_estado: 'vencido', trial_vence: '2026-08-31' }, 40);
     expect(msg).toContain('prueba de *Neto Pro* terminó el');

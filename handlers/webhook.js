@@ -929,7 +929,7 @@ function createWebhookHandler(procesarMensajeLibre) {
       const { count: conteoMuroCmd, error: errConteoMuro } = await supabase.from('transacciones')
         .select('id', { count: 'exact', head: true }).eq('usuario_id', usuario.id);
       if (errConteoMuro) log.warn({ tag: 'MURO', usuarioId: usuario.id, err: errConteoMuro.message }, 'No se pudo contar las transacciones: el muro sale sin conteo');
-      respuesta = mensajeMuro(usuario, conteoMuroCmd);
+      respuesta = mensajeMuro(usuario, errConteoMuro ? undefined : conteoMuroCmd);
       analytics.capture(usuario.id, 'wa_muro_lectura', { comando: cmd.split(/\s+/)[0] });
     } else if (cmd === 'hola' || cmd === 'hi' || cmd === 'inicio') {
       var primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;

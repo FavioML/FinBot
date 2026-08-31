@@ -27,19 +27,33 @@
 const { requiereLectura } = require('./intents-acceso');
 const { estaEnMuro, mensajeMuro } = require('../lib/trial');
 const analytics = require('../lib/analytics');
+const log = require('../lib/logger');
 
 /**
  * ¿Este intent, para este usuario, muere en el muro?
  *
  * @returns {Promise<string|null>} el mensaje del muro, o `null` si puede seguir.
- *   `null` es "pasá", nunca "no pude decidir": si la consulta del conteo falla, el error
- *   sube — un gate que se abre ante un error de red entrega gratis lo que cobra.
+ *   `null` es "pasá", nunca "no pude decidir", y eso NO depende del conteo: quien decide es
+ *   `estaEnMuro(usuario)`, dos líneas arriba, sobre una fila que el llamador ya tiene en
+ *   memoria. El conteo no gatea nada.
+ *
+ *   Este docblock decía que "si la consulta del conteo falla, el error sube". Era falso:
+ *   supabase-js no lanza, así que `count` quedaba `null` y `mensajeMuro` le decía
+ *   *"se activan cuando registres tu **primer** gasto"* a alguien con cuarenta. El gemelo de
+ *   esta query —`handlers/webhook.js`, cascada de comandos `/`— ya lee su `{ error }`
+ *   desde el 26-ago; este call-site se quedó atrás porque vive fuera del perímetro del guard
+ *   de 9B (`handlers/intents/`). Anotado en `docs/DEFECTOS.md`.
+ *
+ *   Lo que se degrada al fallar es el NÚMERO que va dentro del cartel, no la decisión: por eso
+ *   es `warn` y sigue, y no un throw que le contestaría "tuve un problema" a quien sí está
+ *   en el muro.
  */
 async function respuestaMuroSiCorresponde({ intencion, usuario, ctx }) {
   if (!requiereLectura(intencion) || !estaEnMuro(usuario)) return null;
-  const { count } = await ctx.supabase.from('transacciones')
+  const { count, error: errConteo } = await ctx.supabase.from('transacciones')
     .select('id', { count: 'exact', head: true }).eq('usuario_id', usuario.id);
-  const respMuro = mensajeMuro(usuario, count);
+  if (errConteo) log.warn({ tag: 'MURO', usuarioId: usuario.id, err: errConteo.message }, 'No se pudo contar las transacciones: el muro sale sin conteo');
+  const respMuro = mensajeMuro(usuario, errConteo ? undefined : count);
   // Sin `guardarMensaje`: el único escritor de la fila 'neto' es `handlers/webhook.js`,
   // que guarda lo que devuelve `procesarMensajeLibre`. Escribir también acá duplicaba la
   // fila (P′9) y, en el camino de la continuación multi-intent, guardaba un FRAGMENTO de la
