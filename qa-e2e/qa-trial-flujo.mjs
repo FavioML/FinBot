@@ -185,6 +185,17 @@ async function bloqueNlp() {
   }
 
   // Y lo que NO se toca: registrar un gasto.
+  //
+  // Ojo con la ventana que ve el clasificador acá: este harness llama `procesarMensajeLibre`
+  // directo, y la fila 'neto' la escribe `handlers/webhook.js`, así que las seis lecturas de
+  // arriba quedan en `conversaciones` SIN respuesta. Producción nunca llega a seis seguidas
+  // (máximo medido: 2, cuando el usuario manda un segundo mensaje antes de que NETO conteste),
+  // pero eso convierte a este bloque en el detector más duro que hay del arreglo de
+  // `lib/historial-turnos.js`: sin él, "gaste 30 en taxi" detrás de esa racha se clasifica
+  // como LECTURA 4 de 4 veces y los tres checks de abajo salen rojos (pasó 3 corridas
+  // seguidas el 31-ago-2026). No "arreglar" el harness escribiendo la fila 'neto': la
+  // asimetría es lo que le da el filo, y con el arreglo puesto pasa 29/29 tres corridas
+  // seguidas.
   const antes = await supabase.from('transacciones').select('id', { count: 'exact', head: true }).eq('usuario_id', userId);
   const rGasto = await procesarMensajeLibre('gaste 30 en taxi', u, WA);
   const despues = await supabase.from('transacciones').select('id', { count: 'exact', head: true }).eq('usuario_id', userId);

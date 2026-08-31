@@ -30,6 +30,7 @@ const { NETO_TOOLS, mapToolToIntent } = require('./neto-tools');
 const { construirNetoPrompt } = require('../lib/neto-prompt');
 const { obtenerSesionAbierta, registrarMensajeTicket } = require('../lib/support-tickets');
 const { colaConfirmacionGasto } = require('../lib/trial');
+const { soloTurnosRespondidos } = require('../lib/historial-turnos');
 
 /**
  * Salvage sin IA: cuando OpenAI está caído (429) el pipeline normal no puede clasificar,
@@ -95,11 +96,18 @@ async function procesarMensajeLibre(msg, usuario, from) {
     // El INSERT del turno actual (`guardarMensaje`, más abajo) NO entra acá y no es un olvido:
     // tiene que ocurrir DESPUÉS de que `obtenerHistorial` resolvió, o el mensaje del usuario
     // aparecería dos veces en el contexto del LLM (una en el historial, otra como último turno).
-    const [sesionSoporte, correoConectado, historialConv] = await Promise.all([
+    const [sesionSoporte, correoConectado, historialCrudo] = await Promise.all([
       obtenerSesionAbierta(usuario.id),
       resolverCorreoConectado(usuario),
       obtenerHistorial(usuario.id),
     ]);
+
+    // Los turnos del usuario que NUNCA se respondieron salen de la ventana: con ellos adentro
+    // el clasificador contesta la pregunta anterior en vez del mensaje nuevo, y "gaste 30 en
+    // taxi" detrás de una consulta colgada sale como LECTURA — o sea el paywall en vez de la
+    // confirmación para el usuario del muro. La medición, el costo del recorte y el arreglo
+    // por prompt que se descartó están en lib/historial-turnos.js.
+    const historialConv = soloTurnosRespondidos(historialCrudo);
 
     // === Modo soporte: si hay una sesión abierta, TODO mensaje va al admin (no al bot) ===
     // La sesión se abre por "quiero hablar con soporte" (NLP) o /soporte, y sigue abierta
