@@ -144,6 +144,19 @@ async function bloqueAvisos() {
   const eTpl = await entregas('trial_d11');
   check('con WA_TRIAL_TEMPLATE_ENABLED=true el envío usa canal template',
     eTpl.some((e) => e.canal === 'whatsapp_template'), JSON.stringify(eTpl));
+  // El aviso declara TRES canales desde el 31-ago-2026, y el correo es el único que llega
+  // al inactivo: por WhatsApp estos avisos entregaron 1 de 80 en 30 días.
+  //
+  // Lo que se afirma es que el estado NO sea `skipped_no_email`, y el porqué está en el
+  // ORDEN de los cortes de `enviarEmail`: primero `!to` → `skipped_no_email`, después la
+  // key ausente → `skipped_sin_proveedor`, después `is_test_user` → `skipped_test`.
+  // Cualquier estado posterior al primero PRUEBA que el `to` viajó, o sea que el select del
+  // cron trajo la columna — que es el bug del 31-ago que este harness no podía ver. Afirmar
+  // `skipped_test` a secas lo ataría a que la máquina donde corre tenga `RESEND_API_KEY`,
+  // que local no tiene: sería rojo por el entorno y no por el código.
+  const eMail = eTpl.filter((e) => e.canal === 'email');
+  check('el aviso declara el canal de correo y el `to` llega desde el select del cron',
+    eMail.length > 0 && eMail.every((e) => e.estado !== 'skipped_no_email'), JSON.stringify(eTpl));
   delete process.env.WA_TRIAL_TEMPLATE_ENABLED;
 
   await supabase.from('notificaciones').delete().eq('usuario_id', userId);
@@ -267,6 +280,12 @@ async function run() {
   const { data: creado, error } = await supabase.from('usuarios').insert({
     whatsapp: WA, nombre: 'Flujo Prueba', plan: 'free',
     onboarding_completado: true, is_test_user: true,
+    // Con `email` NULL el canal de correo deja `skipped_no_email`, que es indistinguible
+    // de "el cron no trajo la columna en su select" — o sea que el harness no podía ver el
+    // bug del 31-ago-2026 (los tres avisos de trial declaraban correo con selects que no
+    // traían `email`). Con una dirección puesta, `enviarEmail` llega hasta el corte por
+    // `is_test_user` y deja `skipped_test`: eso SÍ prueba que el `to` viajó.
+    email: 'qa-flujo-trial@neto.pe',
   }).select('id').single();
   if (!check('se sembró el usuario throwaway', !error && creado, error ? error.message : 'wa=' + WA)) return;
   userId = creado.id;
