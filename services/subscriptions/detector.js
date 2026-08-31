@@ -1,6 +1,6 @@
 const { supabase } = require('../../lib/db');
 const log = require('../../lib/logger');
-const { obtenerTipoCambio } = require('../transactions');
+const { obtenerTipoCambio, TC_FALLBACK } = require('../transactions');
 const { CATALOGO_SUSCRIPCIONES } = require('./catalog');
 
 // ═══════════════════════════════════════════════════════════════
@@ -88,7 +88,9 @@ function esCategoriaSuscripcion(pago) {
  */
 async function detectarSuscripciones(usuarioId) {
   const tcData = await obtenerTipoCambio();
-  const TC = tcData.venta || 3.85;
+  // El `3.85` que había acá era una SEGUNDA copia del fallback, a mano y sin nombre: el día
+  // que se ajuste el de `transactions.js` éste se queda viejo y nadie lo va a buscar.
+  const TC = tcData.venta || TC_FALLBACK.venta;
   const hoy = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
 
   // Traer transacciones de los últimos 3 meses para detectar recurrencia

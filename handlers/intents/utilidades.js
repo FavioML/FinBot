@@ -17,7 +17,13 @@ module.exports = {
       case 'ver_tipo_cambio': {
         try {
           const tc = await obtenerTipoCambio();
-          return '💵 *Tipo de cambio USD/PEN*\n\n🟢 Compra: S/ ' + tc.compra.toFixed(4) + '\n🔴 Venta: S/ ' + tc.venta.toFixed(4) + '\n\n_Fuente: dolar.pe_';
+          // Firmar *"Fuente: dolar.pe"* debajo de una constante hardcodeada es la mentira más
+          // barata de todo el ítem 13: a alguien que PREGUNTA el tipo de cambio se le contesta
+          // un número inventado con la fuente de al lado dando fe. Una caché vencida sí se
+          // muestra — es real, sólo que de ayer — y se dice que es referencial.
+          if (tc.fuente === 'fallback') return '💵 No pude obtener el tipo de cambio actual. Intenta en unos minutos.';
+          const pieTC = tc.fuente === 'cache_vencida' ? '_Última cotización disponible (dolar.pe)_' : '_Fuente: dolar.pe_';
+          return '💵 *Tipo de cambio USD/PEN*\n\n🟢 Compra: S/ ' + tc.compra.toFixed(4) + '\n🔴 Venta: S/ ' + tc.venta.toFixed(4) + '\n\n' + pieTC;
         } catch(e) {
           return '💵 No pude obtener el tipo de cambio actual. Intenta en unos minutos.';
         }
@@ -28,6 +34,8 @@ module.exports = {
           const montoConv = parseFloat(datos.monto);
           if (!montoConv || montoConv <= 0) return 'Dime cuánto quieres convertir. Ej: _"cuánto es 100 dólares en soles"_.';
           const tc = await obtenerTipoCambio();
+          // Mismo criterio que `ver_tipo_cambio`: no se convierte con un tipo inventado.
+          if (tc.fuente === 'fallback') return '💱 No pude obtener el tipo de cambio actual. Intenta en unos minutos.';
           const origenConv = (datos.moneda_origen || 'USD').toUpperCase();
           let resultado, textoConv;
           if (origenConv === 'USD') {
@@ -37,7 +45,7 @@ module.exports = {
             resultado = montoConv / tc.compra;
             textoConv = 'S/ ' + montoConv.toFixed(2) + ' = *$' + resultado.toFixed(2) + '*';
           }
-          return '💱 *Conversión:*\n\n' + textoConv + '\n\n📊 TC Compra: S/ ' + tc.compra.toFixed(4) + '\n📊 TC Venta: S/ ' + tc.venta.toFixed(4) + '\n\n_Fuente: dolar.pe_';
+          return '💱 *Conversión:*\n\n' + textoConv + '\n\n📊 TC Compra: S/ ' + tc.compra.toFixed(4) + '\n📊 TC Venta: S/ ' + tc.venta.toFixed(4) + '\n\n' + (tc.fuente === 'cache_vencida' ? '_Última cotización disponible (dolar.pe)_' : '_Fuente: dolar.pe_');
         } catch(e) {
           log.error({ tag: 'CONVERTIR', err: e.message }, 'Error convertir moneda');
           return 'No pude obtener el tipo de cambio. Intenta de nuevo.';

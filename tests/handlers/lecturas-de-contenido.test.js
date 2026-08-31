@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
+// La regla de conversion USD->PEN se toma del MODULO REAL, no se re-implementa aca: un
+// duplicado en el test convierte el guard en una copia que puede divergir del codigo.
+const realTx = require('../../services/transactions');
 const gastos = require('../../handlers/intents/gastos');
 const utilidades = require('../../handlers/intents/utilidades');
 const analytics = require('../../handlers/intents/analytics');
@@ -1450,6 +1453,11 @@ function ctxTx(sb, extras = {}) {
     mesActual: 4, anioActual: 2026,
     obtenerUltimaTransaccion: vi.fn().mockResolvedValue(ULTIMA),
     obtenerTipoCambio: vi.fn().mockResolvedValue({ venta: 3.75 }),
+    // Los helpers de conversion van REALES, no mockeados: son la regla que el item 13
+    // unifico (validar como el alta, y escribir monto_pen y tipo_cambio juntos). Un
+    // `vi.fn()` aca dejaria los tres sitios de edicion sin ejercitar justo lo que cambio.
+    convertirUsdAPen: realTx.convertirUsdAPen,
+    tipoCambioDeLaFila: realTx.tipoCambioDeLaFila,
     fechaHoyPeru: () => '2026-04-15',
     fechaAyerPeru: () => '2026-04-14',
     formatFecha: (f) => f || '',

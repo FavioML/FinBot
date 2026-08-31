@@ -41,14 +41,34 @@ function _gmailDedupCheck(dedupHash, recibidoEnMs) {
   return false;
 }
 
+/**
+ * Tipo de cambio USD→PEN. **El valor que devuelve puede ser inventado**, y por eso viene con
+ * `fuente`: hasta el 31-ago-2026 los tres orígenes (la API, una caché vencida y una constante
+ * hardcodeada) salían indistinguibles, así que nada río abajo podía decidir distinto — ni el
+ * que escribe `monto_pen` en la base, ni el que le muestra el número al usuario firmado
+ * *"Fuente: dolar.pe"*.
+ *
+ * `fuente` vale `'dolar.pe'` (recién leído o caché fresca de 24h), `'cache_vencida'` (real
+ * pero viejo: la API no contestó y se prefiere un número verdadero de ayer a uno inventado)
+ * o `'fallback'` (**inventado**: `TC_FALLBACK`).
+ *
+ * MEDIDO el 31-ago-2026 antes de tocar esto, porque el ítem 13 del backlog pedía justamente
+ * saber si el fallback se ejerce: de las **127 transacciones en USD de usuarios reales, 8
+ * tienen `tipo_cambio = 3.85` y las 8 son de marzo-2026**, todas anteriores a `5b13628`
+ * (*"fix: tipo de cambio siempre muestra valores reales de dolar.pe"*, 31-mar). De abril a
+ * agosto: **0 de 119**, con los tipos siempre entre 3.339 y 3.513. O sea que el fallback no
+ * mide "dolar.pe se cae seguido" — mide un estado del código que ya no existe. Se marca igual
+ * porque el día que se ejerza no hay forma de enterarse, que es el defecto de verdad.
+ */
+const TC_FALLBACK = { compra: 3.82, venta: 3.85 };
+
 // Cache de tipo de cambio
 let _tcCache = null;
 let _tcCacheTime = 0;
 
 async function obtenerTipoCambio() {
-  const FALLBACK = { compra: 3.82, venta: 3.85 };
   const now = Date.now();
-  if (_tcCache && (now - _tcCacheTime) < 86400000) return _tcCache;
+  if (_tcCache && (now - _tcCacheTime) < 86400000) return { ..._tcCache, fuente: 'dolar.pe' };
 
   async function fetchTCForDate(fecha) {
     const resp = await fetch('https://dolar.pe/api/public/series?pair=USD-PEN&from=' + fecha + '&to=' + fecha, {
@@ -65,6 +85,10 @@ async function obtenerTipoCambio() {
     return null;
   }
 
+  // Una caché vencida es un número REAL de hace poco; el fallback es una constante de 2026
+  // que hoy está ~14% arriba del mercado. Entre los dos gana la caché, y las dos se nombran.
+  const degradado = () => (_tcCache ? { ..._tcCache, fuente: 'cache_vencida' } : { ...TC_FALLBACK, fuente: 'fallback' });
+
   try {
     let venta = await fetchTCForDate(hoyPeru());
     if (!venta) {
@@ -74,13 +98,65 @@ async function obtenerTipoCambio() {
     if (venta) {
       _tcCache = { compra: parseFloat((venta * 0.998).toFixed(4)), venta: parseFloat(venta.toFixed(4)) };
       _tcCacheTime = now;
-      return _tcCache;
+      return { ..._tcCache, fuente: 'dolar.pe' };
     }
-    return _tcCache || FALLBACK;
+    log.warn({ tag: 'TC', fuente: _tcCache ? 'cache_vencida' : 'fallback' }, 'dolar.pe no devolvió un tipo válido');
+    return degradado();
   } catch(e) {
-    log.error({ tag: 'TC', err: e.message }, 'Error tipo cambio');
-    return _tcCache || FALLBACK;
+    log.error({ tag: 'TC', err: e.message, fuente: _tcCache ? 'cache_vencida' : 'fallback' }, 'Error tipo cambio');
+    return degradado();
   }
+}
+
+/** ¿El tipo de cambio que devolvió `obtenerTipoCambio` es el inventado? */
+function tcEsInventado(tc) {
+  return !!tc && tc.fuente === 'fallback';
+}
+
+/**
+ * La ÚNICA regla de conversión USD→PEN del backend. Antes vivía sólo en el alta y las tres
+ * rutas de EDICIÓN hacían `parseFloat((monto * tc.venta).toFixed(2))` a mano, o sea que
+ * **editar un gasto en USD podía escribir un `monto_pen` que insertarlo habría rechazado**
+ * (ítem 13 del backlog). `monto_pen` alimenta reportes, score y balance.
+ *
+ * Devuelve las DOS columnas juntas a propósito: `monto_pen` y `tipo_cambio` son una sola
+ * afirmación («esto vale tanto a este tipo») y separarlas es como la fila deja de reconciliar.
+ * `editar_monto` y `dividir_gasto` reescribían `monto_pen` sin tocar `tipo_cambio`, así que
+ * `monto * tipo_cambio` dejaba de dar `monto_pen` sin que nada lo dijera.
+ *
+ * Fuera de rango → las dos en `null`, que es un dato honesto: un `monto_pen` fabricado con el
+ * número USD crudo se pinta como soles y se suma a los totales.
+ */
+function convertirUsdAPen(montoUsd, tc, ctx = {}) {
+  if (!tc || typeof tc.venta !== 'number') {
+    log.warn({ tag: 'TC', ...ctx, monto: montoUsd }, 'Sin tipo de cambio utilizable: monto_pen y tipo_cambio quedan null');
+    return { monto_pen: null, tipo_cambio: null };
+  }
+  const pen = validarMonto(montoUsd * tc.venta);
+  if (pen === null) {
+    log.warn({ tag: 'TC', ...ctx, monto: montoUsd, tc: tc.venta }, 'Conversión USD→PEN fuera de rango: monto_pen y tipo_cambio quedan null');
+    return { monto_pen: null, tipo_cambio: null };
+  }
+  return { monto_pen: pen, tipo_cambio: tc.venta };
+}
+
+/**
+ * El tipo con el que se REESCRIBE una fila que ya es USD. Es el de la fila, no el de hoy: la
+ * transacción ocurrió en su fecha y corregir *"eran 30 y no 20"* no cambia el tipo de ese día.
+ * Además deja la fila consistente sin pedirle nada a dolar.pe.
+ *
+ * Sólo se sale a la red si la fila no trae tipo (una USD sin `tipo_cambio`), que es el único
+ * caso donde no hay nada que preservar.
+ *
+ * `obtenerTC` es parámetro y no una referencia capturada para que el llamador decida QUIÉN
+ * cotiza: los handlers reciben su `obtenerTipoCambio` por `ctx`, y si esto lo ignorara, el
+ * doble del test quedaría by-passeado y el caso "la fila no trae tipo" saldría a la red de
+ * verdad dentro de la suite.
+ */
+async function tipoCambioDeLaFila(fila, obtenerTC = obtenerTipoCambio) {
+  const propio = parseFloat(fila && fila.tipo_cambio);
+  if (isFinite(propio) && propio > 0) return { venta: propio, fuente: 'fila' };
+  return obtenerTC();
 }
 
 /**
@@ -123,12 +199,17 @@ async function guardarTransaccion(usuarioId, datos) {
   if (_moneda === 'USD') {
     try {
       const _tc = await obtenerTipoCambio();
-      const _pen = validarMonto(montoValidado * _tc.venta);
-      // Si la conversión sale fuera de rango (monto USD gigante), NO fabricamos monto_pen con el
-      // número USD crudo: dejamos monto_pen/tipo_cambio null (dato honesto) en vez de un PEN falso.
-      if (_pen !== null) { _tcUsado = _tc.venta; _montoPen = _pen; }
-      else { _montoPen = null; log.warn({ tag: 'TC', monto: montoValidado }, 'Conversión USD→PEN fuera de rango; monto_pen queda null'); }
-    } catch(e) {}
+      const _conv = convertirUsdAPen(montoValidado, _tc, { usuarioId, sitio: 'alta' });
+      _montoPen = _conv.monto_pen; _tcUsado = _conv.tipo_cambio;
+    } catch(e) {
+      // El `catch` estaba VACÍO y `_montoPen` venía inicializado con el monto en USD, así que
+      // cualquier excepción acá guardaba $100 como S/100: una fila que se ve normal y subcuenta
+      // ~3.4x en reportes, score y balance. Hoy es inalcanzable en producción
+      // (`obtenerTipoCambio` tiene su propio catch y nunca lanza), pero el valor por defecto
+      // elegía el lado que miente y eso no se sostiene con un comentario.
+      _montoPen = null; _tcUsado = null;
+      log.error({ tag: 'TC', err: e.message, usuarioId }, 'Conversión USD→PEN lanzó: monto_pen queda null');
+    }
   }
   // Limpiar comercios genéricos del parser (ej: "Gasto pendiente de BCP S/5 del 2026-04-02" → "BCP")
   if (datos.comercio && /^(gasto|pago|cargo|operaci[oó]n|consumo)\b/i.test(datos.comercio)) {
@@ -567,7 +648,7 @@ async function retroaplicarRegla(usuarioId, comercio, categoria, subcategoria) {
 }
 
 module.exports = {
-  obtenerTipoCambio, guardarTransaccion,
+  obtenerTipoCambio, TC_FALLBACK, tcEsInventado, convertirUsdAPen, tipoCambioDeLaFila, guardarTransaccion,
   obtenerGastosMes, obtenerGastosSemana, obtenerUltimaTransaccion,
   recategorizarTransaccion, recategorizarPorId, corregirTransaccionEspecifica,
   guardarReglaComercio, buscarReglaComercio, retroaplicarRegla,

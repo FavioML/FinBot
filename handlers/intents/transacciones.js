@@ -211,7 +211,7 @@ module.exports = {
       supabase, mesActual, anioActual,
       obtenerUltimaTransaccion, recategorizarTransaccion, guardarReglaComercio,
       retroaplicarRegla, corregirTransaccionEspecifica, guardarTransaccion,
-      obtenerTipoCambio, verificarAlertaPresupuesto,
+      obtenerTipoCambio, convertirUsdAPen, tipoCambioDeLaFila, verificarAlertaPresupuesto,
       asegurarCategoriaUsuario, crearSubcategoriaLibreUsuario, detectarCategoriaIA,
       parsearRegistroManual, parsearCorreccionesMultiples,
       fechaHoyPeru, fechaAyerPeru, formatFecha
@@ -713,13 +713,20 @@ module.exports = {
           if (!ultimaTxM) return 'No encuentro el gasto al que te refieres. \u00bfDe cu\u00e1l se trata?';
           const updates = {};
           const nuevaMoneda = datos.moneda || 'USD'; // si mencionaron "dolares" sin especificar, asumimos USD
-          const nuevoMonto = datos.monto ? parseFloat(datos.monto) : parseFloat(ultimaTxM.monto);
+          // `validarMonto` y no `parseFloat`, igual que su hermano `editar_monto`: lo que llega
+          // en `datos.monto` lo produjo el modelo, y un `parseFloat('mucho')` da NaN. `monto` es
+          // NOT NULL, así que el NaN llegaba serializado como null y Postgres rechazaba la fila
+          // entera — falla cerrado, sí, pero con "no pude corregir la moneda ahora mismo", que
+          // manda a reintentar algo que no va a funcionar nunca. Ahora se le dice qué escribir.
+          const nuevoMonto = datos.monto != null ? validarMonto(datos.monto) : validarMonto(ultimaTxM.monto);
+          if (nuevoMonto === null) return 'Dime el monto. Ej: _"son 25 dólares"_, _"es S/120"_.';
           updates.moneda = nuevaMoneda;
           updates.monto = nuevoMonto;
           if (nuevaMoneda === 'USD') {
+            // El ÚNICO de los tres que sale a la red, y con motivo: la fila era PEN, no hay
+            // ningún tipo previo que preservar. Los otros dos reusan el de la fila.
             const tc = await obtenerTipoCambio();
-            updates.monto_pen = parseFloat((nuevoMonto * tc.venta).toFixed(2));
-            updates.tipo_cambio = tc.venta;
+            Object.assign(updates, convertirUsdAPen(nuevoMonto, tc, { usuarioId: usuario.id, sitio: 'corregir_monto_moneda', txId: ultimaTxM.id }));
           } else {
             updates.monto_pen = nuevoMonto;
             updates.tipo_cambio = null;
@@ -734,9 +741,12 @@ module.exports = {
             return 'Ese gasto ya no está. Puede que lo hayas eliminado hace un momento.';
           }
           const comercioM = ultimaTxM.comercio || 'el gasto';
-          const montoStrM = nuevaMoneda === 'USD'
-            ? '$' + nuevoMonto.toFixed(2) + ' (~S/ ' + updates.monto_pen.toFixed(2) + ')'
-            : 'S/ ' + nuevoMonto.toFixed(2);
+          // `monto_pen` puede venir null (conversión fuera de rango): el `.toFixed(2)` de antes
+          // habría lanzado ahí mismo y el catch habría contestado "no pude corregir la moneda"
+          // sobre un update que SÍ se aplicó. Sin equivalente en soles se omite el paréntesis.
+          const montoStrM = nuevaMoneda !== 'USD'
+            ? 'S/ ' + nuevoMonto.toFixed(2)
+            : '$' + nuevoMonto.toFixed(2) + (updates.monto_pen != null ? ' (~S/ ' + updates.monto_pen.toFixed(2) + ')' : '');
           return 'Corregido. *' + comercioM + '*: ' + montoStrM + ' en ' + (ultimaTxM.categoria || 'Otros') + '.';
         } catch(e) {
           log.error({ tag: 'CORREGIR_MONEDA', err: e.message }, 'Error corrigiendo monto/moneda');
@@ -1034,8 +1044,11 @@ module.exports = {
           const monedaEdit = txEditM.moneda || 'PEN';
           const updates = { monto: montoNuevo };
           if (monedaEdit === 'USD') {
-            const tc = await obtenerTipoCambio();
-            updates.monto_pen = parseFloat((montoNuevo * tc.venta).toFixed(2));
+            // El tipo es el DE LA FILA, no el de hoy: corregir *"eran 30 y no 20"* no cambia
+            // el tipo del día en que se gastó. Antes se pedía el de hoy y se escribía sólo
+            // `monto_pen`, así que la fila quedaba con `monto * tipo_cambio ≠ monto_pen`.
+            const tcEdit = await tipoCambioDeLaFila(txEditM, obtenerTipoCambio);
+            Object.assign(updates, convertirUsdAPen(montoNuevo, tcEdit, { usuarioId: usuario.id, sitio: 'editar_monto', txId: txEditM.id }));
           } else {
             updates.monto_pen = montoNuevo;
           }
@@ -1159,8 +1172,11 @@ module.exports = {
           if (!montoNuevoDiv) return 'Dividirlo entre ' + partes + ' deja menos de un centavo. Prueba con menos partes.';
           const updates = { monto: montoNuevoDiv };
           if (txDiv.moneda === 'USD') {
-            const tc = await obtenerTipoCambio();
-            updates.monto_pen = parseFloat((montoNuevoDiv * tc.venta).toFixed(2));
+            // Mismo criterio que `editar_monto`: dividir la cuenta entre 3 no re-cotiza el
+            // gasto a hoy. Con el tipo de la fila, `monto_pen` queda dividido por las mismas
+            // partes que `monto`, que es lo único que puede querer decir "mi parte".
+            const tcDiv = await tipoCambioDeLaFila(txDiv, obtenerTipoCambio);
+            Object.assign(updates, convertirUsdAPen(montoNuevoDiv, tcDiv, { usuarioId: usuario.id, sitio: 'dividir_gasto', txId: txDiv.id }));
           } else {
             updates.monto_pen = montoNuevoDiv;
           }

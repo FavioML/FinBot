@@ -2,6 +2,9 @@ import { describe, it, expect, vi } from 'vitest';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
+// La regla de conversion USD->PEN se toma del MODULO REAL, no se re-implementa aca: un
+// duplicado en el test convierte el guard en una copia que puede divergir del codigo.
+const realTx = require('../../services/transactions');
 const handler = require('../../handlers/intents/transacciones');
 
 /**
@@ -182,6 +185,11 @@ function buildCtx(sb, extras = {}) {
     corregirTransaccionEspecifica: vi.fn().mockResolvedValue({ ok: true }),
     guardarTransaccion: vi.fn().mockResolvedValue({ id: 'tx-002', ...TX }),
     obtenerTipoCambio: vi.fn().mockResolvedValue({ venta: 3.75 }),
+    // Los helpers de conversion van REALES, no mockeados: son la regla que el item 13
+    // unifico (validar como el alta, y escribir monto_pen y tipo_cambio juntos). Un
+    // `vi.fn()` aca dejaria los tres sitios de edicion sin ejercitar justo lo que cambio.
+    convertirUsdAPen: realTx.convertirUsdAPen,
+    tipoCambioDeLaFila: realTx.tipoCambioDeLaFila,
     verificarAlertaPresupuesto: vi.fn().mockResolvedValue(null),
     asegurarCategoriaUsuario: vi.fn().mockResolvedValue('creada'),
     crearSubcategoriaLibreUsuario: vi.fn(),

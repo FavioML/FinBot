@@ -29,7 +29,10 @@ function makeChain() {
 }
 
 const dbMock = { supabase: { from: vi.fn(() => makeChain()) } };
-const txMock = { obtenerTipoCambio: vi.fn().mockResolvedValue({ compra: 3.82, venta: 3.85 }) };
+// `TC_FALLBACK` va porque `detector.js` lo importa desde el 31-ago (dejo de tener su
+// propia copia de 3.85 a mano). Sin esto el doble queda incompleto y solo se nota el dia
+// que `tcData.venta` venga falsy, que es justo el caso que el fallback existe para cubrir.
+const txMock = { obtenerTipoCambio: vi.fn().mockResolvedValue({ compra: 3.82, venta: 3.85 }), TC_FALLBACK: { compra: 3.82, venta: 3.85 } };
 
 const dbPath = require.resolve(path.join(projectRoot, 'lib/db.js'));
 const txPath = require.resolve(path.join(projectRoot, 'services/transactions.js'));
