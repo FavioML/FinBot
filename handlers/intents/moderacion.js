@@ -90,6 +90,12 @@ module.exports = {
           // lib/support-tickets + message-processor.procesarMensajeLibre.
           const { abrirSesion } = require('../../lib/support-tickets');
           const r = await abrirSesion({ usuarioId: usuario.id, whatsapp: from, nombre: usuario.nombre || null });
+          // El `catch` de abajo NO cubre esto: supabase-js no lanza, así que un insert
+          // rechazado llega hasta acá con `ticket: null` y el modo soporte se anunciaba
+          // igual. Mismo texto que el catch, porque para la persona es el mismo desenlace.
+          if (!(r.yaAbierta || (r.ticket && r.ticket.id))) {
+            return '👤 *Soporte humano:*\n\nSe me trabó abriendo la conversación. Reintenta con */soporte* en un momento, o escríbenos a:\n📧 hola@neto.pe';
+          }
           return r.yaAbierta
             ? '👤 Ya estás en modo soporte. Escríbeme tu consulta y se la paso al equipo.\n\n_Escribe */salir* cuando quieras terminar._'
             : '👤 *Soporte humano*\n\nCuéntame tu problema o consulta en un mensaje y se lo paso al equipo. Te responderemos por este mismo chat.\n\n_Escribe */salir* cuando termines para volver al asistente ⬇️_';

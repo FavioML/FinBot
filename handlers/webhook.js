@@ -1128,13 +1128,25 @@ function createWebhookHandler(procesarMensajeLibre) {
     } else if (cmd === '/soporte' || cmd === '/humano') {
       // Usuario abre modo soporte: a partir de aquí sus mensajes van al equipo, no al bot.
       const r = await abrirSesion({ usuarioId: usuario.id, whatsapp: from, nombre: usuario.nombre });
-      respuesta = r.yaAbierta
+      // **Sin ticket NO hay modo soporte, y anunciarlo igual es la mitad de la mentira.** El
+      // insert de `abrirSesion` puede ser rechazado sin que nadie lance (supabase-js devuelve
+      // `{ data: null, error }`), y entonces lo que la persona escriba después no encuentra
+      // sesión y se lo lleva el bot: cree estar contándole su problema a alguien del equipo y
+      // Neto le contesta sobre sus gastos.
+      respuesta = !(r.yaAbierta || (r.ticket && r.ticket.id))
+        ? '👤 Se me trabó abriendo la conversación con el equipo. Reintenta con */soporte* en un momento, o escríbenos a:\n📧 hola@neto.pe'
+        : r.yaAbierta
         ? '👤 Ya estás en modo soporte. Escríbeme tu consulta y se la paso al equipo.\n\n_Escribe */salir* cuando quieras terminar._'
         : '👤 *Modo soporte activado*\n\nEscribe tu consulta o problema en un mensaje y se lo hago llegar al equipo de Neto. Te responderemos por este mismo chat.\n\n_Escribe */salir* cuando termines para volver al asistente._';
     } else if (cmd === '/salir') {
       // Usuario sale del modo soporte y vuelve al asistente.
       const r = await cerrarSesion({ usuarioId: usuario.id });
-      respuesta = r.closed > 0
+      // `closed === 0` ya no significa una sola cosa: puede ser "no estabas" o "no pude".
+      // Decirle "no estabas en modo soporte" a alguien que SÍ está —y que va a seguir
+      // hablándole al admin sin saberlo— es la mentira simétrica.
+      respuesta = r.ok === false
+        ? '😕 No pude cerrar el modo soporte ahora. Reintenta con */salir* en un momento.'
+        : r.closed > 0
         ? '✅ Saliste del modo soporte. Vuelvo a ser tu asistente financiero 💚\n\n_Escríbeme un gasto o "hola" cuando quieras._'
         : 'No estabas en modo soporte. Sigo aquí para ayudarte con tus finanzas 💚';
     } else if (cmd.startsWith('/activar ') || cmd.startsWith('/pago ') || cmd === '/usuarios' || cmd === '/admin' || cmd === '/panel' || cmd.startsWith('/responder ') || cmd.startsWith('/tickets') || cmd.startsWith('/cerrar ')) {

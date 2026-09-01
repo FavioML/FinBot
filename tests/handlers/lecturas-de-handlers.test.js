@@ -21,12 +21,17 @@ import path from 'node:path';
  * ─────────────────────────────────────────────────────────────────────────────────────────
  * LO QUE NO CUBRE, Y ES UNA DECISIÓN ESCRITA, NO UN OLVIDO
  *
- * **`lib/` sigue afuera, y también tiene costura.** Medido el 31-ago con el inventario:
- * `lib/support-tickets.js` 8 lecturas mudas + 1 escritura, `lib/whatsapp.js` 1,
- * `lib/error-monitor.js` 1. Es más grande que lo que este ítem vino a cerrar y toca el canal
- * de soporte, así que pide su propia tanda: quedó como ítem 20 del backlog con la medición
- * hecha. Meterlo acá de arrastre sería exactamente lo que el ítem 19 vino a criticar — cerrar
- * un hallazgo mirando sólo el árbol donde uno lo encontró.
+ * **`lib/` quedó afuera de ESTE archivo a propósito, y ya tiene el suyo.** Medido el 31-ago
+ * con el inventario: `lib/support-tickets.js` 8 lecturas mudas + 1 escritura,
+ * `lib/whatsapp.js` 1, `lib/error-monitor.js` 1. Era más grande que lo que este ítem vino a
+ * cerrar y toca el canal de soporte, así que pidió su propia tanda — meterlo acá de arrastre
+ * habría sido exactamente lo que el ítem 19 vino a criticar: cerrar un hallazgo mirando sólo el
+ * árbol donde uno lo encontró.
+ *
+ * Esa tanda se hizo el mismo 31-ago (ítem 20) y vive en `tests/lib/lecturas-de-lib.test.js`,
+ * con perímetro `lib/` ENTERO y los once sitios arreglados. Los dos archivos comparten el
+ * parser y el diseño, y NO se fusionan: son perímetros distintos con exenciones distintas, y
+ * un guard que barre dos árboles con una sola lista de exenciones deja de poder decir cuál.
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────
  * TRES DECISIONES DE DISEÑO, Y LAS TRES SE PAGARON EN OTRO GUARD

@@ -1291,4 +1291,48 @@ describe('la superficie de soporte no reparte el número personal del admin', ()
       if (previo) require.cache[ruta] = previo; else delete require.cache[ruta];
     }
   });
+
+  /**
+   * Y el hueco que ese `catch` NO tapa (ítem 20 del backlog de confiabilidad).
+   *
+   * `abrirSesion` puede fallar sin tirar: supabase-js devuelve `{ data: null, error }` y no
+   * lanza, así que un insert rechazado esquivaba el `catch` de arriba y llegaba al `return`
+   * con `ticket: null` — anunciando el modo soporte sobre una sesión que no existe. Lo que la
+   * persona escriba después no encuentra sesión y se lo lleva el bot: cree estar contándole su
+   * problema a alguien del equipo y Neto le contesta sobre sus gastos.
+   *
+   * El gemelo por comando (`/soporte` y `/salir`, en el webhook) está en
+   * `tests/handlers/anuncio-de-soporte.test.js`; las queries, en `tests/lib/lecturas-de-soporte.test.js`.
+   */
+  const conAbrirSesion = async (impl) => {
+    const ruta = require.resolve('../../lib/support-tickets');
+    const previo = require.cache[ruta];
+    require.cache[ruta] = { id: ruta, filename: ruta, loaded: true, exports: { abrirSesion: impl } };
+    try {
+      const sb = montar({ filas: { usuarios: [u()] } });
+      const { res } = await correr(() => H.moderacion.handle({
+        intencion: 'hablar_con_humano', msg: 'quiero hablar con alguien', datos: {},
+        usuario: u(), from: '+51999', ctx: ctxBase(sb),
+      }));
+      return String(res);
+    } finally {
+      if (previo) require.cache[ruta] = previo; else delete require.cache[ruta];
+    }
+  };
+
+  it('hablar_con_humano: CONTROL — con el ticket abierto SÍ anuncia el modo soporte', async () => {
+    const res = await conAbrirSesion(async () => ({ yaAbierta: false, ticket: { id: 't-nuevo' } }));
+    // Se mira la frase que SÓLO tiene el camino bueno. `/Soporte humano/` no sirve acá: el
+    // texto de error empieza igual (`👤 *Soporte humano:*`), así que las dos ramas lo cumplen
+    // y el control no separaba nada por sí solo.
+    expect(res).toMatch(/Cuéntame tu problema/i);
+    expect(res).not.toMatch(/trabó/i);
+  });
+
+  it('hablar_con_humano: el insert RECHAZADO (sin throw) no anuncia una sesión que no existe', async () => {
+    const res = await conAbrirSesion(async () => ({ yaAbierta: false, ticket: null }));
+    expect(res, 'anuncia el modo soporte sobre un ticket que no nació').not.toMatch(/Cuéntame tu problema/i);
+    expect(res).toMatch(/trabó/i);
+    expect(contieneNumero(res)).toBe(false);
+  });
 });
