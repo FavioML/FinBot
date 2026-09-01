@@ -5,7 +5,7 @@ import { join } from 'node:path';
 /**
  * El acoplamiento que una revisión adversarial encontró el 27-ago-2026, y que ningún test veía.
  *
- * `checkRecordatorioDiario` escribe una fila en `survey_events` por cada aviso que manda, y esa
+ * `checkUpsellPro` escribe una fila en `survey_events` por cada aviso que manda, y esa
  * fila NO es un audit trail: es el DEDUP. La leen dos sitios, con dos ventanas distintas:
  *
  *   · el anti-fatiga de 3 días del propio cron (`recentEvents`);
@@ -20,8 +20,9 @@ import { join } from 'node:path';
  *      columna miente, y los ocho triggers se apagan siete días para alguien a quien nunca se
  *      le mandó un WhatsApp.
  *   2. Escribir el canal real y NO ampliar los lectores. Peor: el dedup no encuentra su propia
- *      marca, así que el recordatorio de inactividad sale **todos los días** al usuario sin
- *      número. Un cron de las 8pm y una fila que nunca matchea.
+ *      marca, así que el aviso vuelve a salir en cada corrida al usuario sin número. Un cron de
+ *      las 8pm y una fila que nunca matchea. (El caso que lo destapó fue el recordatorio de
+ *      inactividad, apagado el 01-sep-2026; el acoplamiento no era suyo y sigue vivo.)
  *
  * Este archivo fija que escritores y lectores hablen del mismo conjunto. Es estático a
  * propósito: el fallo no es de lógica, son dos literales que dejan de coincidir en archivos
@@ -52,7 +53,7 @@ function cuerpoDe(src, nombre) {
 }
 
 const LECTORES = [
-  ['cron/checks.js', CHECKS, 'checkRecordatorioDiario'],
+  ['cron/checks.js', CHECKS, 'checkUpsellPro'],
   ['services/survey-triggers.js', TRIGGERS, 'recibioMensajeRecienteProactivo'],
 ];
 
@@ -89,10 +90,13 @@ describe('survey_events: escritores y lectores hablan del mismo conjunto de cana
     expect(cuerpo).toMatch(/\.eq\(\s*['"]channel['"]\s*,\s*['"]whatsapp['"]\s*\)/);
   });
 
-  it('los dos inserts del cron escriben el canal REAL, no la etiqueta fija', () => {
+  it('el insert del cron escribe el canal REAL, no la etiqueta fija', () => {
     const inserts = [...CHECKS.matchAll(/from\('survey_events'\)\.insert\(\{([\s\S]{0,400}?)\}\)/g)]
       .map((m) => m[1]);
-    expect(inserts.length, 'el barrido no encontró los inserts: este archivo dejó de mirar').toBe(2);
+    // Era 2 hasta el 01-sep-2026: el otro lo escribía el recordatorio de inactividad, que se
+    // apagó (ver el docblock de `checkUpsellPro`). El conteo es fijo a propósito — con un
+    // `>= 1` este barrido se quedaría verde el día que alguien borre el que queda.
+    expect(inserts.length, 'el barrido no encontró el insert: este archivo dejó de mirar').toBe(1);
     for (const cuerpo of inserts) {
       expect(cuerpo, 'un insert volvió a fijar el canal').not.toMatch(/channel:\s*['"]whatsapp['"]/);
       expect(cuerpo).toMatch(/channel:\s*usuario\.whatsapp\s*\?\s*'whatsapp'\s*:\s*'in_app'/);

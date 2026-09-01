@@ -96,7 +96,8 @@ function makeChain(table, op = 'select') {
    * `order` + `limit(1)` implementan "la mas reciente" de verdad. Con los dos en no-op el
    * mock devolvia la PRIMERA fila del fixture, asi que una mutacion que borre el `.order` o
    * invierta `ascending` salia verde — y las dos lecturas que dependen de eso
-   * (`ultimaTx` en la inactividad, `ultimoTurno` en la activacion) deciden por FECHA.
+   * (`ultimoTurno` en la activacion del dia 2) decide por FECHA. Eran dos hasta el
+   * 01-sep-2026: la otra era `ultimaTx` del recordatorio de inactividad, que se apago.
    */
   let orden = null;
   let tope = null;
@@ -418,48 +419,87 @@ describe('un dedup que no se puede leer no reenvía el aviso', () => {
   /**
    * El sexto de la clase, y el único que no es un dedup: la anti-fatiga de las 8pm. Falla
    * abierto igual, pero **al revés de lo que uno espera**: sin leer el error, `recentEvents`
-   * queda en null, `recibioMensajeReciente` en false, y el cron manda igual. O sea que una
-   * caída de Supabase no silencia el recordatorio de inactividad — lo DISPARA, contra la
-   * población que la anti-fatiga existe para proteger.
+   * queda en null, el corte no se aplica y el aviso sale igual. O sea que una caída de
+   * Supabase no silencia el upsell — lo DISPARA, contra la población que la anti-fatiga
+   * existe para proteger.
+   *
+   * > Hasta el 01-sep-2026 este caso medía el recordatorio de inactividad, que compartía la
+   * > anti-fatiga con el upsell. Apagado aquél (ver `checkUpsellPro`), la lectura quedó con
+   * > un solo consumidor y el caso lo sigue: la guarda que se mide es la misma línea.
    */
-  it('inactividad a las 8pm: la anti-fatiga caída no autoriza el envío', async () => {
+  it('upsell d28 a las 8pm: la anti-fatiga caída no autoriza el envío', async () => {
     vi.setSystemTime(enLima('2026-08-20T20:00:00'));
-    tablas.usuarios = [{ ...PRO, created_at: '2026-07-01T00:00:00Z' }];
-    tablas.transacciones = [{ usuario_id: 'u-pro', fecha: '2026-08-10' }];  // 10 días sin anotar
+    // Free (o sea `planConfig.recordatorios === false`) y 29 días desde el alta: la única
+    // rama que queda en este cron.
+    tablas.usuarios = [{
+      ...PRO, plan: 'free',
+      created_at: new Date(Date.now() - 29 * 86400000).toISOString(),
+    }];
     tablas.survey_events = [];
 
-    // Control: con survey_events sana, este usuario SÍ recibe el recordatorio.
-    await checks.checkRecordatorioDiario();
+    // Control: con survey_events sana, este usuario SÍ recibe el upsell.
+    await checks.checkUpsellPro();
     expect(notificar, 'el fixture no alcanza al cron: el resto del caso no probaría nada').toHaveBeenCalledTimes(1);
 
     notificar.mockClear();
     errores.survey_events = { message: 'connection reset' };
-    await checks.checkRecordatorioDiario();
+    await checks.checkUpsellPro();
     expect(notificar, 'la anti-fatiga caída dejó salir el mensaje').not.toHaveBeenCalled();
-    expect(tagsLogueados()).toContain('INACTIVITY');
+    expect(tagsLogueados()).toContain('UPSELL_PRO');
   });
 
   /**
    * No es sobre errores, y va acá igual: es lo que le da sentido al `.order(...).limit(1)`
-   * que el mock ahora implementa de verdad.
+   * que el mock implementa de verdad.
    *
    * Una revisión adversarial señaló que `order` y `limit` estaban en no-op, así que el mock
    * devolvía la PRIMERA fila del fixture y una mutación que borrara el `.order` —o invirtiera
-   * `ascending`— salía verde. Con una sola transacción por usuario eso no se nota nunca; hace
-   * falta un fixture donde la respuesta correcta y la incorrecta DIFIERAN. Acá difieren: la
-   * más reciente es de ayer (no corresponde recordatorio) y hay una de hace meses.
+   * `ascending`— salía verde. Con un solo turno por usuario eso no se nota nunca; hace falta
+   * un fixture donde la respuesta correcta y la incorrecta DIFIERAN.
+   *
+   * > Este caso medía `ultimaTx` del recordatorio de inactividad hasta el 01-sep-2026. Con el
+   * > cron apagado quedaba UNA lectura ordenada en el archivo (`ultimoTurno` de la activación
+   * > del día 2), y borrar el caso habría dejado el `order`/`limit` del mock sin nadie que lo
+   * > ejercite: la mutación volvería a salir verde. Se movió, no se borró.
+   *
+   * Acá difieren: el turno más reciente está DENTRO de la ventana de 24h de Meta (hace una
+   * hora) y hay uno viejo de hace tres días. Leer el viejo descarta al usuario por
+   * fuera-de-ventana y el empujón de activación no sale.
    */
-  it('el recordatorio mira la última transacción, no una cualquiera', async () => {
-    vi.setSystemTime(enLima('2026-08-20T20:00:00'));
-    tablas.usuarios = [{ ...PRO, created_at: '2026-07-01T00:00:00Z' }];
-    tablas.transacciones = [
-      { usuario_id: 'u-pro', fecha: '2026-05-02' },   // vieja: leerla daría 110 días sin anotar
-      { usuario_id: 'u-pro', fecha: '2026-08-19' },   // la real: ayer
+  it('la activación del día 2 mira el ÚLTIMO turno, no uno cualquiera', async () => {
+    vi.setSystemTime(enLima('2026-08-20T10:00:00'));
+    tablas.usuarios = [{
+      ...PRO, id: 'u-web', whatsapp: '51900000002', supabase_auth_id: null,
+      activacion_nudge_at: null, manos_libres: false,
+      created_at: new Date(Date.now() - 36 * 3600 * 1000).toISOString(),
+    }];
+    tablas.transacciones = [{ usuario_id: 'u-web', fecha: '2026-08-19' }];
+    tablas.conversaciones = [
+      // Viejo: leerlo daría "escribió hace 3 días", o sea fuera de la ventana de 24h.
+      { usuario_id: 'u-web', rol: 'usuario', created_at: new Date(Date.now() - 72 * 3600 * 1000).toISOString() },
+      // El real: hace una hora, dentro de la ventana.
+      { usuario_id: 'u-web', rol: 'usuario', created_at: new Date(Date.now() - 3600 * 1000).toISOString() },
     ];
-    tablas.survey_events = [];
 
-    await checks.checkRecordatorioDiario();
-    expect(notificar, 'le recordó a alguien que anotó ayer: se leyó la transacción vieja').not.toHaveBeenCalled();
+    // Sin el secreto, `mensajeActivacionDia2` devuelve null y el cron corta antes de mandar:
+    // el caso pasaría por el motivo equivocado. Se restaura para no filtrarlo a los de abajo.
+    const secretoPrevio = process.env.ACTIVATION_TOKEN_SECRET;
+    process.env.ACTIVATION_TOKEN_SECRET = 'secreto-de-test';
+    try {
+      await checks.checkActivacionDia2();
+      expect(notificar, 'se leyó el turno viejo: el usuario quedó fuera de ventana sin estarlo').toHaveBeenCalledTimes(1);
+
+      // La otra mitad: sin el turno reciente, este usuario SÍ está fuera de ventana y no
+      // recibe nada. Sin esto, un cron que mandara siempre pasaría el caso de arriba.
+      notificar.mockClear();
+      tablas.conversaciones = [tablas.conversaciones[0]];
+      tablas.usuarios[0].activacion_nudge_at = null;
+      await checks.checkActivacionDia2();
+      expect(notificar, 'CONTROL: mandó a alguien que escribió hace tres días').not.toHaveBeenCalled();
+    } finally {
+      if (secretoPrevio === undefined) delete process.env.ACTIVATION_TOKEN_SECRET;
+      else process.env.ACTIVATION_TOKEN_SECRET = secretoPrevio;
+    }
   });
 });
 
@@ -482,7 +522,7 @@ describe('una población que no se puede leer deja rastro', () => {
   const CASOS = [
     ['checkResumenMensual',            '2026-09-01T09:00:00', 'usuarios',      'MENSUAL'],
     ['checkResumenSemanal',            '2026-08-17T08:00:00', 'usuarios',      'SEMANAL'],
-    ['checkRecordatorioDiario',        '2026-08-20T20:00:00', 'usuarios',      'INACTIVITY'],
+    ['checkUpsellPro',                 '2026-08-20T20:00:00', 'usuarios',      'UPSELL_PRO'],
     ['checkAlertasProactivas',         '2026-08-19T10:00:00', 'usuarios',      'ALERTA_PROACTIVA'],
     ['checkRecordatorioOnboarding',    '2026-08-20T10:00:00', 'usuarios',      'ONBOARDING_REMINDER'],
     ['checkActivacionDia2',            '2026-08-20T10:00:00', 'usuarios',      'ACTIVACION_DIA2'],
@@ -556,7 +596,7 @@ describe('una población que no se puede leer deja rastro', () => {
     }
     // checkPremiumExpiry / checkTrialExpiry / checkGmailHuerfanos quedan fuera a propósito:
     // sus downgrades y barridos corren a toda hora, y arriba se los mide justamente a las 3am.
-    for (const n of ['checkResumenMensual', 'checkResumenSemanal', 'checkRecordatorioDiario',
+    for (const n of ['checkResumenMensual', 'checkResumenSemanal', 'checkUpsellPro',
       'checkAlertasProactivas', 'checkRecordatorioOnboarding', 'checkActivacionDia2',
       'checkDetectorFugas', 'checkCalcularNetoScore', 'checkNotificacionScore', 'checkCheckInPlanes',
       'checkRecordatorioEspacios', 'checkRecordatoriosCostos', 'checkSurveyConversions',
@@ -572,18 +612,20 @@ describe('una población que no se puede leer deja rastro', () => {
 // ───────────────────────────────────────────────────────────────────────────────
 describe('una decisión por usuario que falla deja el userId en el log', () => {
   /**
-   * Estas cuatro ya fallaban cerrado **por accidente**: el `data` en null caía en el mismo
+   * Estas tres ya fallaban cerrado **por accidente**: el `data` en null caía en el mismo
    * `continue` que "este usuario no califica". El destino era el correcto, así que la mutación
    * no cambia a quién se notifica — y por eso la primera versión de este archivo las dejaba
-   * vivas a las tres que existían entonces. Lo único observable es el log, que es exactamente
+   * vivas a las que existían entonces. Lo único observable es el log, que es exactamente
    * lo que faltaba: sin él, un fallo sistemático se ve idéntico a "nadie calificaba hoy".
    *
-   * Tres usan `throw` en vez de `log` + `continue`, porque el `catch` del loop ya loguea con
-   * el `userId`. Por eso el assert mira el `userId`: es lo que distingue un fallo por usuario
-   * de un fallo de población.
+   * Eran cuatro hasta el 01-sep-2026: la que falta era `ultimaTx` del recordatorio de
+   * inactividad, y se fue con el cron, no con el guard.
+   *
+   * Las tres usan `throw` en vez de `log` + `continue`, porque el `catch` del loop ya loguea
+   * con el `userId`. Por eso el assert mira el `userId`: es lo que distingue un fallo por
+   * usuario de un fallo de población.
    */
   const CASOS = [
-    ['la última transacción (inactividad 8pm)', 'checkRecordatorioDiario', '2026-08-20T20:00:00', 'transacciones', 'INACTIVITY', 'u-pro'],
     ['el conteo de gastos (activación día 2)', 'checkActivacionDia2', '2026-08-20T10:00:00', 'transacciones', 'ACTIVACION_DIA2', 'u-web'],
     ['el último turno del chat (activación día 2)', 'checkActivacionDia2', '2026-08-20T10:00:00', 'conversaciones', 'ACTIVACION_DIA2', 'u-web'],
     ['las metas activas (check-in de planes)', 'checkCheckInPlanes', '2026-08-15T11:00:00', 'metas_ahorro', 'CHECKIN_PLANES', 'u-pro'],
@@ -703,22 +745,29 @@ describe('las accesorias no cortan', () => {
  * disponible es que quede dicho, y eso es lo que se afirma acá.
  */
 describe('un ledger que no se puede escribir no se pierde en silencio', () => {
-  it('el recordatorio de inactividad no sale si no se pudo marcar su dedup', async () => {
+  /**
+   * El claim one-shot del upsell. Es el único de los cuatro que escribe ANTES de enviar, así
+   * que acá la duplicación SÍ se evita: sin marca no se manda, y se reintenta mañana.
+   *
+   * > Hasta el 01-sep-2026 este par medía el dedup del recordatorio de inactividad, que tenía
+   * > la misma propiedad. Apagado aquél, el que queda en el cron es éste.
+   */
+  it('el upsell a Pro no sale si no se pudo escribir su claim one-shot', async () => {
     vi.setSystemTime(enLima('2026-08-20T20:05:00'));
-    tablas.usuarios = [PRO];
-    tablas.transacciones = [{ id: 't-1', usuario_id: 'u-pro', fecha: '2026-08-01' }];
+    tablas.usuarios = [{ ...PRO, plan: 'free', created_at: new Date(Date.now() - 29 * 86400000).toISOString() }];
+    tablas.survey_events = [];
     erroresEscritura.survey_events = { message: 'boom' };
-    await checks.checkRecordatorioDiario();
+    await checks.checkUpsellPro();
     expect(notificar, 'se envió sin dejar la marca: mañana sale igual').not.toHaveBeenCalled();
-    expect(tagsLogueados()).toContain('INACTIVITY');
+    expect(tagsLogueados()).toContain('UPSELL_PRO');
   });
 
-  /** El control: con la escritura sana, ese mismo usuario SÍ recibe el recordatorio. */
-  it('control: con el dedup sano el recordatorio de inactividad sale', async () => {
+  /** El control: con la escritura sana, ese mismo usuario SÍ recibe el upsell. */
+  it('control: con el claim sano el upsell a Pro sale', async () => {
     vi.setSystemTime(enLima('2026-08-20T20:05:00'));
-    tablas.usuarios = [PRO];
-    tablas.transacciones = [{ id: 't-1', usuario_id: 'u-pro', fecha: '2026-08-01' }];
-    await checks.checkRecordatorioDiario();
+    tablas.usuarios = [{ ...PRO, plan: 'free', created_at: new Date(Date.now() - 29 * 86400000).toISOString() }];
+    tablas.survey_events = [];
+    await checks.checkUpsellPro();
     expect(notificar).toHaveBeenCalled();
   });
 

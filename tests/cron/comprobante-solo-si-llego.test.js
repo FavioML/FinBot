@@ -11,7 +11,7 @@ import path from 'path';
  *   1. Un error de SCOPE. Estos son crons por reloj (8pm y cada hora); `cron/checks.js` es JS,
  *      así que `tsc` no lo mira, y una variable mal nombrada explota recién cuando el cron
  *      dispara, tumbando la corrida ENTERA de recordatorios para todos. `checkPremiumExpiry` sí
- *      lo ejercitaba otro test; **el upsell d28 de `checkRecordatorioDiario` no lo ejercitaba
+ *      lo ejercitaba otro test; **el upsell d28 de `checkUpsellPro` no lo ejercitaba
  *      ninguno**, que es justo uno de los dos call-sites que B14 agregó.
  *   2. Que la guarda decida lo correcto. Un barrido de texto no distingue
  *      `if (llegoElAviso(x))` de `if (!llegoElAviso(x))`.
@@ -32,7 +32,7 @@ import path from 'path';
  *
  * OJO CON CÓMO SE COMPRUEBA EL SCOPE, porque la primera versión de este archivo lo hizo mal.
  * Tenía un tercer caso que buscaba un `ReferenceError` en `log.error` y pasaba SIEMPRE, porque
- * el `catch` por usuario de `checkRecordatorioDiario` era `catch(e) {}` a secas y no logueaba
+ * el `catch` por usuario de `checkUpsellPro` era `catch(e) {}` a secas y no logueaba
  * nada. La aserción era vacua y encima describía mal el mecanismo. Lo delató la mutación
  * (renombrar la variable mataba el primer caso y no el que decía cubrirlo), y el caso se borró.
  *
@@ -107,12 +107,12 @@ require.cache[notifyPath] = {
   exports: { ...notifyReal, notificarUsuario: notificar },
 };
 
-const { checkRecordatorioDiario, checkPremiumExpiry } = require('../../cron/checks');
+const { checkUpsellPro, checkPremiumExpiry } = require('../../cron/checks');
 
 vi.useFakeTimers({ toFake: ['Date'] });
 afterAll(() => { vi.useRealTimers(); });
 
-// 8pm Lima = 01:00Z del día siguiente. Es el único horario en que corre el recordatorio diario.
+// 8pm Lima = 01:00Z del día siguiente. Es el único horario en que corre el upsell a Pro.
 const OCHO_PM_LIMA = '2026-08-16T01:05:00Z';
 // 10am Lima: pasado el gate horario de checkPremiumExpiry.
 const MEDIA_MANANA = '2026-08-15T15:00:00Z';
@@ -160,13 +160,13 @@ describe('los selects que alimentan la guarda traen la columna que la guarda mir
   }];
 
   it('las cuatro queries de usuarios piden supabase_auth_id', async () => {
-    // 8pm Lima pasa los dos gates horarios: `=== 20` el recordatorio diario, `>= 8` el de
+    // 8pm Lima pasa los dos gates horarios: `=== 20` el upsell a Pro, `>= 8` el de
     // vencimientos. Con una sola corrida se ejercitan las cuatro.
     vi.setSystemTime(new Date(OCHO_PM_LIMA));
     usuariosData = FILA_QUE_RECORRE_LOS_CUATRO_BUCLES;
     notificar.mockResolvedValue(AMBOS_CANALES);
 
-    await checkRecordatorioDiario();
+    await checkUpsellPro();
     await checkPremiumExpiry();
 
     // Antivacuidad: si los bucles no corrieron, este guard no vio nada de lo que dice cubrir.
@@ -197,7 +197,7 @@ describe('upsell d28: la ventana de comprobante solo se abre si hay dónde ver e
     usuariosData = usuarioUpsell(CON_WEB);
     notificar.mockResolvedValue(AMBOS_CANALES);
 
-    await checkRecordatorioDiario();
+    await checkUpsellPro();
 
     // Anti-vacuidad: si el cron no llegó a mandar el aviso, la aserción de abajo no dice nada.
     expect(notificar, 'el cron no llegó a la rama del upsell').toHaveBeenCalled();
@@ -212,7 +212,7 @@ describe('upsell d28: la ventana de comprobante solo se abre si hay dónde ver e
     usuariosData = usuarioUpsell(null);
     notificar.mockResolvedValue(AMBOS_CANALES);
 
-    await checkRecordatorioDiario();
+    await checkUpsellPro();
 
     expect(notificar, 'el cron no llegó a la rama del upsell').toHaveBeenCalled();
     expect(solicitar).not.toHaveBeenCalled();
@@ -223,7 +223,7 @@ describe('upsell d28: la ventana de comprobante solo se abre si hay dónde ver e
     usuariosData = usuarioUpsell(CON_WEB);
     notificar.mockResolvedValue(SIN_IN_APP);
 
-    await checkRecordatorioDiario();
+    await checkUpsellPro();
 
     expect(notificar, 'el cron no llegó a la rama del upsell').toHaveBeenCalled();
     expect(solicitar).not.toHaveBeenCalled();

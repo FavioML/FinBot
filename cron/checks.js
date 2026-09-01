@@ -96,21 +96,45 @@ async function checkResumenSemanal() {
 }
 
 /**
- * Recordatorio de inactividad — UPDATE-08
+ * Upsell a Pro del día 28-30 desde el registro — 8pm Lima.
  *
- * Antes era un recordatorio DIARIO ("¿registraste tus gastos hoy?") que se
- * mandaba todos los dias a usuarios Pro sin tx hoy. Sustituido por:
+ * **Acá vivía también el recordatorio de inactividad, y se APAGÓ el 01-sep-2026.** La función
+ * se llamaba `checkRecordatorioDiario` y su tag era `INACTIVITY`; los dos se renombraron
+ * porque el aviso que los nombraba ya no existe, y un nombre que sobrevive a lo que nombraba
+ * manda a buscar código que no está.
  *
- *   - Cadencia: 1 mensaje cada 3 dias de inactividad (no diario)
- *   - Aplica a TODOS los usuarios con onboarding completo + recordatorios_activos
- *     (antes solo Pro). Free ya no recibia este cron, ahora si — pero solo si
- *     llevan 3+ dias sin tx, no diariamente
- *   - Anti-fatiga via survey_events: skip si recibio CUALQUIER mensaje proactivo
- *     en los ultimos 3 dias (incluye otros triggers de UPDATE-05/06/07)
- *   - Visible en /admin/surveys con event_type = 'inactivity_reminder'
+ * ─── Por qué se apagó, con los números re-medidos el 01-sep-2026 ─────────────────────────
  *
- * Adicional: el upsell a Pro de dia 28-30 (que estaba dentro del mismo cron)
- * tambien se migra a survey_events como pro_upsell_d28 one-shot.
+ * No fue por cadencia ni por copy: fallaba por DISEÑO, en los dos canales a la vez.
+ *
+ *   · **WhatsApp.** 190 intentos en 30 días para **4 entregados y 3 leídos** (182 fallidos,
+ *     casi todos 131047: fuera de la ventana de 24h de Meta). El destinatario está definido
+ *     como el que lleva >=3 días sin escribir, o sea la población con más chances de estar
+ *     fuera de esa ventana. El mensaje que perseguía inactivos era el que menos se entregaba.
+ *   · **La campana.** 94 filas en 14 días a 34 usuarios (21.9% del volumen in-app), **2
+ *     leídas de 94**; en los últimos 7 días, 46 filas y **0 leídas**. Es un recordatorio de
+ *     "no estás usando la app" depositado dentro de la app que la persona no está usando.
+ *     Ninguna ventana ni ningún canal lo salva: el destinatario ES el que no viene.
+ *   · **Conversión.** `conversion_within_24h` en `survey_events` sobre 30 días de
+ *     `inactivity_reminder`: **0 de 190**.
+ *
+ * Y se APILABA: el conteo de días iba en el `titulo`, así que cada disparo abría una fila
+ * nueva en vez de actualizar la anterior (11 sin leer para un mismo usuario).
+ *
+ * > La sección 15 del backlog decía que el volumen "se desinfló" a ~12 filas en 7 días
+ * > (medido el 30-ago). Re-medido el 01-sep son 46 en 7 días: aquello era un valle, no una
+ * > tendencia. La decisión no dependía del volumen, pero el número queda corregido.
+ *
+ * Decisión de Favio, 01-sep-2026. El reemplazo NO es el mismo aviso en otro canal: es
+ * `checkRecordatorioInactividadSemanal`, que va por correo, a UNA cohorte, y agrupado por
+ * persona. Ver su docblock — sobre todo la parte de quién NO es destinatario.
+ *
+ * ─── Lo que SÍ quedó acá ────────────────────────────────────────────────────────────────
+ *
+ *   - Upsell a Pro one-shot en los días 28-30 desde el registro, para quien no tiene
+ *     recordatorios por plan (o sea: ya salió del trial y está en el muro).
+ *   - Anti-fatiga vía survey_events: skip si recibió CUALQUIER empuje en los últimos 3 días.
+ *   - Visible en /admin/surveys con event_type = 'pro_upsell_d28'.
  */
 /**
  * Los canales de `survey_events` que cuentan como EMPUJE para la anti-fatiga.
@@ -132,7 +156,7 @@ async function checkResumenSemanal() {
  */
 const CANALES_EMPUJE = ['whatsapp', 'in_app'];
 
-async function checkRecordatorioDiario() {
+async function checkUpsellPro() {
   const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
   if (horaLima.getHours() !== 20 || horaLima.getMinutes() > 14) return;
   try {
@@ -151,12 +175,11 @@ async function checkRecordatorioDiario() {
     // escribe ahí es `registrarError` (`lib/error-monitor.js`), y este archivo no lo importa.
     // Enrutar los errores de los crons a la tabla es un trabajo aparte, no este.
     if (errUsuarios) {
-      log.error({ tag: 'INACTIVITY', err: errUsuarios.message }, 'No se pudo leer la población: no se envió ningún recordatorio');
+      log.error({ tag: 'UPSELL_PRO', err: errUsuarios.message }, 'No se pudo leer la población: no se envió ningún upsell');
       return;
     }
     if (!usuarios || usuarios.length === 0) return;
 
-    let totalInactivity = 0;
     let totalUpsell = 0;
     for (const usuario of usuarios) {
       try {
@@ -178,26 +201,30 @@ async function checkRecordatorioDiario() {
         const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
         const diasDesdeRegistro = Math.floor((Date.now() - new Date(usuario.created_at).getTime()) / 86400000);
 
-        // Anti-fatiga: skip si recibio cualquier EMPUJE en los ultimos 3 dias.
-        //
-        // Tiene que aceptar los mismos canales que escribe el insert de mas abajo, o el dedup
-        // deja de encontrar su propia marca. Ese desajuste manda el aviso TODOS LOS DIAS al
-        // usuario sin numero: la fila se escribe con `in_app`, este `select` busca solo
-        // `whatsapp`, no la encuentra, y vuelve a mandar mañana.
-        const cutoff3d = new Date(Date.now() - 3 * 86400000).toISOString();
-        const { data: recentEvents, error: errFatiga } = await supabase.from('survey_events')
-          .select('id').eq('user_id', usuario.id).in('channel', CANALES_EMPUJE)
-          .gte('sent_at', cutoff3d).limit(1);
-        // Esta es de las que fallan ABIERTO: sin leer el error, `recentEvents` viene null,
-        // `recibioMensajeReciente` queda en false y el cron manda **igual**. O sea que una
-        // caída de Supabase no silencia el aviso, lo DISPARA — justo contra la población que
-        // el anti-fatiga protege. Se salta este usuario y se reintenta a la noche siguiente.
-        if (errFatiga) throw errFatiga;
-        const recibioMensajeReciente = recentEvents && recentEvents.length > 0;
-
         // ===== Pro upsell (one-shot, dias 28-30 desde registro) =====
         if (!planConfig.recordatorios && diasDesdeRegistro >= 28 && diasDesdeRegistro <= 30) {
-          if (recibioMensajeReciente) continue;
+          // Anti-fatiga: skip si recibio cualquier EMPUJE en los ultimos 3 dias.
+          //
+          // Tiene que aceptar los mismos canales que escribe el insert de mas abajo, o el dedup
+          // deja de encontrar su propia marca. Ese desajuste manda el aviso TODOS LOS DIAS al
+          // usuario sin numero: la fila se escribe con `in_app`, este `select` busca solo
+          // `whatsapp`, no la encuentra, y vuelve a mandar mañana.
+          //
+          // **Vive DENTRO de la ventana de días desde el 01-sep-2026**, y antes estaba fuera
+          // porque el recordatorio de inactividad —el otro consumidor— la necesitaba para
+          // todos. Apagado aquél, dejarla afuera era una query por usuario y por noche (~100)
+          // cuyo único lector cortaba tres líneas más abajo. La semántica no cambia: el único
+          // camino que la mira sigue siendo éste.
+          const cutoff3d = new Date(Date.now() - 3 * 86400000).toISOString();
+          const { data: recentEvents, error: errFatiga } = await supabase.from('survey_events')
+            .select('id').eq('user_id', usuario.id).in('channel', CANALES_EMPUJE)
+            .gte('sent_at', cutoff3d).limit(1);
+          // Esta es de las que fallan ABIERTO: sin leer el error, `recentEvents` viene null y el
+          // aviso sale **igual**. O sea que una caída de Supabase no silencia el upsell, lo
+          // DISPARA — justo contra la población que el anti-fatiga protege. Se salta este
+          // usuario y se reintenta a la noche siguiente.
+          if (errFatiga) throw errFatiga;
+          if (recentEvents && recentEvents.length > 0) continue;
 
           // El copy vendía el Free viejo ("historial completo, no solo este mes"), que
           // describía un plan gratuito permanente que ya no existe: hoy `free` ES el muro
@@ -250,82 +277,15 @@ async function checkRecordatorioDiario() {
           // lleva días sin escribir, y de esos 13 envíos ni uno figura entregado.
           if (llegoElAviso(avisadoUpsell, usuario)) await solicitarComprobante(usuario.id);
           totalUpsell++;
-          continue;
         }
-
-        if (!planConfig.recordatorios) continue;
-
-        // ===== Inactivity reminder (Pro: cada 3 dias de inactividad) =====
-        // Buscar la ultima transaccion del usuario
-        const { data: ultimaTx, error: errUltimaTx } = await supabase.from('transacciones')
-          .select('fecha').eq('usuario_id', usuario.id)
-          .order('fecha', { ascending: false }).limit(1);
-        // Falla cerrado por accidente: sin leer el error, `ultimaTx` null cae en el
-        // `continue` de abajo como si el usuario nunca hubiera anotado nada. La decisión
-        // resultante es la correcta; lo que faltaba era el rastro de que se tomó por un fallo.
-        if (errUltimaTx) throw errUltimaTx;
-
-        const ultimaFecha = ultimaTx && ultimaTx.length > 0 ? ultimaTx[0].fecha : null;
-        if (!ultimaFecha) continue; // nunca uso, ya cubre wake_up_inactive/onboarding
-
-        const diasSinTx = Math.floor((Date.now() - new Date(ultimaFecha + 'T12:00:00').getTime()) / 86400000);
-        if (diasSinTx < 3) continue; // sigue activo
-
-        if (recibioMensajeReciente) continue; // anti-fatiga
-
-        const msg = (primerNombre ? primerNombre + ', hace' : 'Hace') + ' ' + diasSinTx + ' días que no registras nada en Neto.\n\n' +
-          '¿Algo te complica o solo se te pasó? Recuerda que puedes:\n' +
-          '• Escribirme un gasto: _"almuerzo 25 soles"_\n' +
-          '• Mandarme foto de tu Yape/Plin\n\n' +
-          '_Si prefieres pausar recordatorios escribe /silenciar_';
-
-        // Registrar en survey_events ANTES de enviar.
-        //
-        // Esto NO es un audit trail, aunque se escribio como si lo fuera: esta fila es el
-        // dedup. La lee el corte de 3 dias de este mismo cron (`recentEvents`) y el de 7 dias
-        // de `recibioMensajeRecienteProactivo` en survey-triggers. Si el insert falla callado,
-        // el mensaje sale igual y manana sale otra vez, porque no quedo la marca de que salio.
-        const { error: errMarca } = await supabase.from('survey_events').insert({
-          user_id: usuario.id,
-          event_type: 'inactivity_reminder',
-          channel: usuario.whatsapp ? 'whatsapp' : 'in_app',   // ver CANALES_EMPUJE
-          sent_at: new Date().toISOString(),
-          message_sent: msg,
-          response_data: { dias_sin_tx: diasSinTx },
-        });
-        // Se salta al usuario ANTES de mandar: sin marca, mandar es comprometerse a repetir.
-        // El orden importa y por eso el insert va antes del envio, no despues.
-        if (errMarca) {
-          log.error({ tag: 'INACTIVITY', userId: usuario.id, err: errMarca.message }, 'No se pudo marcar el dedup: no se envia el recordatorio para no repetirlo manana');
-          continue;
-        }
-
-        // El destinatario es Pro y lleva >=3 días sin escribir: por construcción, la
-        // población con más chances de estar fuera de la ventana de 24h de Meta. El mensaje
-        // que persigue a un inactivo era justo el que menos se entregaba.
-        await notificarUsuario({
-          canales: CANALES.AMBOS,
-          usuarioId: usuario.id, whatsapp: usuario.whatsapp,
-          tipo: 'inactivity', mensaje: msg,
-          titulo: 'Hace ' + diasSinTx + ' días que no registras nada',
-          tipoInApp: 'recordatorio', link: '/dashboard',
-        });
-        totalInactivity++;
-        // Saltar al siguiente usuario sigue siendo correcto, pero sin log un fallo
-        // SISTEMÁTICO acá se ve igual que "nadie estaba inactivo": el contador de abajo
-        // solo cuenta éxitos, así que un error de scope o una query caída dejaban la
-        // corrida entera de las 8pm en cero sin una línea en `log.error` ni en `errores`.
-        // Lo encontró la prueba por mutación de la Ola 2 (B25), no una corrida verde — y
-        // la ironía útil: si el error hubiera estado acá, el barrido que MIDIÓ B23 no
-        // habría tenido con qué medirlo.
-      } catch(e) { log.error({ tag: 'INACTIVITY', userId: usuario.id, err: msgErr(e) }, 'Error procesando usuario en el recordatorio de las 8pm'); }
+      } catch(e) { log.error({ tag: 'UPSELL_PRO', userId: usuario.id, err: msgErr(e) }, 'Error procesando usuario en el upsell de las 8pm'); }
     }
 
-    if (totalInactivity > 0 || totalUpsell > 0) {
-      log.info({ tag: 'INACTIVITY', inactivity: totalInactivity, upsell: totalUpsell, candidates: usuarios.length },
-        'Recordatorios de inactividad enviados');
+    if (totalUpsell > 0) {
+      log.info({ tag: 'UPSELL_PRO', upsell: totalUpsell, candidates: usuarios.length },
+        'Upsells a Pro enviados');
     }
-  } catch(e) { log.error({ tag: 'INACTIVITY', err: msgErr(e) }, 'Error recordatorio inactividad'); }
+  } catch(e) { log.error({ tag: 'UPSELL_PRO', err: msgErr(e) }, 'Error en el upsell a Pro'); }
 }
 
 // Este cron NUNCA puede tocar a alguien que está corriendo su prueba. La invariante que lo
@@ -1983,6 +1943,17 @@ async function checkRecordatoriosCostos() {
  * conversion_within_7d (webapp_invite) NO se calcula: requiere un timestamp de login en webapp
  * que hoy no se registra (solo existe supabase_auth_id sin fecha). Queda pendiente.
  */
+/**
+ * `inactivity_reminder` SIGUE ACÁ aunque el cron que lo producía se apagó el 01-sep-2026, y
+ * sacarlo se lleva algo puesto: esta lista no describe lo que se manda hoy, sino lo que hay
+ * que EVALUAR de los últimos 14 días. En producción hay 190 filas de ese tipo en 30 días, y
+ * quitarlo de acá dejaría a las que todavía caen en la ventana sin evaluar — o sea que el
+ * panel de /admin/surveys reportaría su conversión subcontada, que es exactamente el síntoma
+ * que `checkSurveyConversions` vino a curar.
+ *
+ * Se cae solo: catorce días después del apagado no queda ninguna fila de ese tipo dentro de
+ * la ventana y la entrada pasa a ser inerte. Dejarla no cuesta nada; sacarla antes, sí.
+ */
 const REMINDER_CONV_TYPES = ['reminder_d3', 'reminder_d7', 'reminder_d14', 'reminder_d30', 'inactivity_reminder', 'wake_up_inactive', 'pro_upsell_d28'];
 
 async function checkSurveyConversions() {
@@ -2346,7 +2317,7 @@ module.exports = {
   checkResumenDiarioManosLibres,
   limpiarOTPVencidos,
   checkGmailHuerfanos,
-  checkRecordatorioDiario,
+  checkUpsellPro,
   checkPremiumExpiry,
   checkTrialExpiry,
   checkAlertasProactivas,

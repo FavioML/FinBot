@@ -77,7 +77,7 @@ const TAREAS = [
   { nombre: 'escaneoAutomatico', cadaMs: INTERVALO_ESCANEO_MS, alBoot: true, tag: 'AUTO', mensaje: 'Escaneo automático de Gmail' },
   { nombre: 'checkResumenSemanal', cadaMs: 15 * MIN, tag: 'SEMANAL', mensaje: 'Resumen semanal (lunes 8am Lima)' },
   { nombre: 'checkResumenMensual', cadaMs: 15 * MIN, tag: 'MENSUAL', mensaje: 'Resumen mensual (1ro de cada mes, 9am Lima)' },
-  { nombre: 'checkRecordatorioDiario', cadaMs: 15 * MIN, tag: 'INACTIVITY', mensaje: 'Recordatorios de inactividad (8pm Lima, cada 3+ días sin tx)' },
+  { nombre: 'checkUpsellPro', cadaMs: 15 * MIN, tag: 'UPSELL_PRO', mensaje: 'Upsell a Pro del día 28-30 desde el registro (8pm Lima)' },
   { nombre: 'checkResumenDiarioManosLibres', cadaMs: 15 * MIN, tag: 'RESUMEN_DIARIO', mensaje: 'Resumen diario Manos Libres (Pro opt-in, 9pm Lima)' },
   { nombre: 'checkAlertasProactivas', cadaMs: 15 * MIN, tag: 'ALERTAS', mensaje: 'Alertas proactivas (miércoles 10am Lima)' },
   { nombre: 'checkPremiumExpiry', cadaMs: HORA, tag: 'EXPIRY', mensaje: 'Check expiración premium' },

@@ -163,7 +163,7 @@ describe('cadencia de los crons', () => {
   it('el detector de ventana sabe leer las formas que existen (control positivo y negativo)', () => {
     // Sin esto, un cambio de formato en checks.js dejaría a `ventanaDe` devolviendo null para
     // todo y las aserciones de abajo pasarían por vacuidad.
-    expect(ventanaDe('checkRecordatorioDiario')).toMatchObject({ clase: 'minutos', ventanaMin: 15 });
+    expect(ventanaDe('checkUpsellPro')).toMatchObject({ clase: 'minutos', ventanaMin: 15 });
     expect(ventanaDe('checkResumenSemanal'), 'usa getUTCMinutes').toMatchObject({ clase: 'minutos' });
     expect(ventanaDe('checkPremiumExpiry'), 'getHours() >= 8 → 8am-23:59').toMatchObject({ clase: 'horas', ventanaMin: 960 });
     expect(ventanaDe('checkRecordatorioOnboarding'), '9-21h').toMatchObject({ clase: 'horas', ventanaMin: 720 });

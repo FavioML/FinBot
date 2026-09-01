@@ -343,7 +343,10 @@ describe('chokepoint de notificaciones proactivas', () => {
     ['services/survey-triggers.js', 5, 'los 4 recordatorios + wake_up_inactive + feedback_30tx'],
     ['services/gmail-scanner.js', 2, 'Gmail desconectado: el usuario deja de registrar gastos sin saberlo'],
     ['routes/internal.js', 1, 'activación web completada'],
-    ['cron/checks.js', 19, 'los 15 duales + trial + pro_upsell_d28 + inactivity'],
+    // El piso se quedó en 19 cuando el recordatorio de inactividad se apagó (01-sep-2026):
+    // este barrido afirma que nadie manda WhatsApp crudo, no cuántos avisos hay, y bajar el
+    // piso a la cuenta exacta lo volvería un test de inventario que hay que tocar en cada PR.
+    ['cron/checks.js', 19, 'los 15 duales + trial + pro_upsell_d28'],
   ])('%s manda por el chokepoint (>=%i llamadas): %s', (rel, minimo) => {
     const f = FUENTES.find((x) => x.rel === rel);
     expect(f, rel + ' ya no existe: actualiza este test').toBeDefined();
