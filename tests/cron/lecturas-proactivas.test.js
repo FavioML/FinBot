@@ -42,6 +42,16 @@ const SIN_GATE_DE_PLAN = new Set([
   'checkCalcularNetoScore',        // calcula, no envía
   'checkSurveyTriggers',           // vive en services/survey-triggers.js, tiene su propio gate
   'checkGmailHuerfanos',           // revoca cupos de Gmail; no envía nada (ya se avisó al vencer)
+  // 01-sep-2026. Le pide a alguien que VUELVA a anotar, y anotar es gratis: el muro cobra
+  // LEER, no escribir (`docs/CHANNEL-CAPABILITY-MATRIX.md`). Su cuerpo no lleva un solo dato
+  // acumulado — ni monto, ni categoría, ni total — así que no hay nada que el plan tenga que
+  // gatear; el único número que dice es cuántos días lleva sin anotar, que es un hecho sobre
+  // la persona y no una lectura de sus finanzas.
+  //
+  // Y gatearlo por plan lo dejaría sin destinatarios de verdad: de los 17 de la cohorte al
+  // 01-sep, **14 están en `free`**, o sea que el gate borraría al 82% de la población que el
+  // cron existe para recuperar. Es la misma clase de exención que `checkRecordatorioOnboarding`.
+  'checkRecordatorioInactividadSemanal',
   'limpiarOTPVencidos',
 ]);
 

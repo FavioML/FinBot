@@ -228,13 +228,20 @@ describe('el nudge de inactividad está apagado y no vuelve solo', () => {
 
   it('ningún cron le manda el aviso de inactividad al que dejó de anotar hace 10 días', async () => {
     tablas.usuarios = [INACTIVO];
-    tablas.transacciones = [{ id: 't-1', usuario_id: 'u-inactivo', fecha: '2026-08-11', created_at: '2026-08-11T12:00:00Z' }];
+    tablas.transacciones = [{ id: 't-1', usuario_id: 'u-inactivo', fecha: '2026-08-11', created_at: '2026-08-11T17:00:00' }];
     tablas.survey_events = [];
     tablas.notificaciones = [];
+    tablas.notification_deliveries = [];
 
     // El día entero: el aviso salía a las 8pm, pero mover el gate horario es la forma más
     // barata de "arreglarlo" sin que un caso puntual se entere.
-    for (let h = 0; h < 24; h++) await barrer('2026-08-21T' + dosDigitos(h) + ':05:00');
+    //
+    // **Y la fecha es un JUEVES a propósito.** La primera versión barría el 21-ago, que es
+    // viernes, y con eso el reemplazo (`checkRecordatorioInactividadSemanal`, que sólo dispara
+    // los jueves) **nunca se invocaba**: el guard afirmaba "ningún cron manda esto" sobre un
+    // barrido donde el único cron que podía volver a mandarlo estaba fuera de su ventana. Lo
+    // encontró una revisión adversarial del diff que lo agregó.
+    for (let h = 0; h < 24; h++) await barrer('2026-08-20T' + dosDigitos(h) + ':05:00');
 
     const tipos = notificar.mock.calls.map((c) => c[0] && c[0].tipo);
     expect(tipos, 'volvió el aviso de inactividad por el chokepoint').not.toContain('inactivity');
@@ -251,6 +258,15 @@ describe('el nudge de inactividad está apagado y no vuelve solo', () => {
     // algún camino que el chokepoint no ve.
     const eventos = inserts.filter((i) => i.tabla === 'survey_events').map((i) => i.patch && i.patch.event_type);
     expect(eventos, 'se escribió la marca de un aviso que ya no existe').not.toContain('inactivity_reminder');
+
+    // **Lo que SÍ tiene que salir**, y es la mitad que convierte esto en "se reemplazó" en vez
+    // de "se borró": el mismo destinatario recibe el correo semanal. Sin esta aserción, apagar
+    // también el reemplazo dejaría este archivo en verde.
+    expect(tipos, 'no salió el reemplazo por correo: esto ya no es un apagado, es un borrado')
+      .toContain('inactividad_semanal');
+    const suyo = notificar.mock.calls.map((c) => c[0]).find((x) => x && x.tipo === 'inactividad_semanal');
+    expect(suyo.email, 'el reemplazo dejó de declarar el canal de correo').toBeTruthy();
+    expect(suyo.canales, 'el reemplazo volvió a mandar por WhatsApp').toBe('solo_in_app');
   });
 
   it('CONTROL: el barrido SÍ alcanza a mandar avisos (si no, el caso de arriba no prueba nada)', async () => {
@@ -261,11 +277,12 @@ describe('el nudge de inactividad está apagado y no vuelve solo', () => {
       ...INACTIVO, plan: 'free', premium_vence: null, estado_pago: null,
       created_at: enLima('2026-07-23T20:05:00').toISOString(),
     }];
-    tablas.transacciones = [{ id: 't-1', usuario_id: 'u-inactivo', fecha: '2026-08-11', created_at: '2026-08-11T12:00:00Z' }];
+    tablas.transacciones = [{ id: 't-1', usuario_id: 'u-inactivo', fecha: '2026-08-11', created_at: '2026-08-11T17:00:00' }];
     tablas.survey_events = [];
     tablas.notificaciones = [];
+    tablas.notification_deliveries = [];
 
-    for (let h = 0; h < 24; h++) await barrer('2026-08-21T' + dosDigitos(h) + ':05:00');
+    for (let h = 0; h < 24; h++) await barrer('2026-08-20T' + dosDigitos(h) + ':05:00');
 
     const tipos = notificar.mock.calls.map((c) => c[0] && c[0].tipo);
     expect(tipos, 'el barrido no mandó NADA: el instrumento está roto, no limpio').toContain('pro_upsell_d28');

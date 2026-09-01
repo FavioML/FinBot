@@ -434,7 +434,7 @@ describe('chokepoint de notificaciones proactivas', () => {
   // El conteo total de canales únicos por archivo. Se fija para que uno nuevo tenga que
   // pasar por acá; POR QUÉ es cada uno lo dice el desglose de abajo.
   it.each([
-    ['cron/checks.js', 3, 'checkActivacionDia2, checkRecordatorioOnboarding y checkResumenDeudasSemanal'],
+    ['cron/checks.js', 4, 'checkActivacionDia2, checkRecordatorioOnboarding, checkResumenDeudasSemanal y checkRecordatorioInactividadSemanal'],
     ['services/survey-triggers.js', 2, 'webapp_invite_10tx y wake_up_onboarding'],
   ])('%s tiene exactamente %i exenciones de canal (%s)', (rel, esperadas) => {
     const f = FUENTES.find((x) => x.rel === rel);
@@ -442,26 +442,32 @@ describe('chokepoint de notificaciones proactivas', () => {
   });
 
   /**
-   * El conteo de arriba subió a 3 el 31-ago-2026 y el número solo NO habría dicho lo que pasó,
-   * porque el tercero es de una CLASE distinta a los dos que había.
+   * El conteo de arriba subió a 3 el 31-ago-2026 y a 4 el 01-sep-2026, y el número solo no
+   * habría dicho lo que pasó, porque las clases no son intercambiables.
    *
    * · `SOLO_WHATSAPP` (2) — destinatarios que por construcción no tienen dónde recibir una
    *   in-app: la query que los selecciona exige que NO tengan cuenta web. Ésa es la afirmación
    *   que `canal-unico-sin-cuenta-web.test.js` verifica una por una.
-   * · `SOLO_IN_APP` (1) — `checkResumenDeudasSemanal`. Acá el canal que falta es el de
-   *   WhatsApp, y falta a propósito: el toque fechado de cada deuda ya sale por ahí desde
-   *   `checkRecordatorioDeudas`, así que mandar además el resumen agrupado sería repetir el
-   *   mismo contenido en el mismo canal — la ráfaga que el resumen vino a sacar, un nivel
-   *   más arriba.
+   * · `SOLO_IN_APP` (2) — los dos correos agrupados por persona, y en los dos el canal que
+   *   falta es el de WhatsApp:
+   *     · `checkResumenDeudasSemanal`: el toque fechado de cada deuda ya sale por ahí desde
+   *       `checkRecordatorioDeudas`, así que mandar además el resumen agrupado sería repetir
+   *       el mismo contenido en el mismo canal — la ráfaga que el resumen vino a sacar, un
+   *       nivel más arriba.
+   *     · `checkRecordatorioInactividadSemanal`: el motivo está MEDIDO, no supuesto. Este
+   *       mismo aviso salía por WhatsApp hasta el 01-sep-2026 y entregaba **4 de 190 intentos
+   *       en 30 días**, porque su destinatario está definido como el que lleva días sin
+   *       escribir, o sea fuera de la ventana de 24h de Meta. El canal que sí llega es el
+   *       correo, que se declara aparte.
    *
-   * Separarlos importa porque las dos clases tienen guards distintos: si mañana el resumen
-   * pasara a `SOLO_WHATSAPP` sin tocar nada más, el conteo total seguiría en 3 y el hermano
-   * `canal-unico-sin-cuenta-web` lo marcaría por no filtrar `supabase_auth_id`. Fijar el
-   * desglose hace que se vea acá también, que es donde se lee el reparto de canales.
+   * Separarlos importa porque las dos clases tienen guards distintos: si mañana uno de los
+   * resúmenes pasara a `SOLO_WHATSAPP` sin tocar nada más, el conteo total seguiría en 4 y el
+   * hermano `canal-unico-sin-cuenta-web` lo marcaría por no filtrar `supabase_auth_id`. Fijar
+   * el desglose hace que se vea acá también, que es donde se lee el reparto de canales.
    */
   it('el reparto por clase de canal único en cron/checks.js', () => {
     const f = FUENTES.find((x) => x.rel === 'cron/checks.js');
     expect(cuenta(f.src, /CANALES\.SOLO_WHATSAPP/g)).toBe(2);
-    expect(cuenta(f.src, /CANALES\.SOLO_IN_APP/g)).toBe(1);
+    expect(cuenta(f.src, /CANALES\.SOLO_IN_APP/g)).toBe(2);
   });
 });

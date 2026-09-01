@@ -196,6 +196,12 @@ describe('los cuatro crons con dedup por fecha piden el claim', () => {
     // DESPUÉS del correo: un insert fallido dejaría al dedup ciego y un redeploy dentro de la
     // ventana de 15 minutos mandaría el resumen dos veces.
     ['resumen semanal de deudas', "tipo: 'resumen_deudas_semanal'"],
+    // 01-sep-2026. Mismo molde que el de arriba y por el mismo motivo: dedup contra
+    // `notificaciones` por (tipo, titulo, fecha), y la fila que ese dedup lee es la que
+    // escribe el claim. Con una diferencia que lo hace MAS caro sin el flag: acá el envío
+    // que sigue al claim es un correo, o sea el unico canal del producto que de verdad
+    // entrega, así que un duplicado se ve en la bandeja de una persona.
+    ['recordatorio semanal de inactividad', "tipo: 'inactividad_semanal'"],
   ];
 
   it.each(AVISOS)('%s pasa claimInApp en su llamada a notificarUsuario', (_nombre, ancla) => {
@@ -213,10 +219,10 @@ describe('los cuatro crons con dedup por fecha piden el claim', () => {
   it('el guard distingue: hay llamadas con y sin claim en el mismo archivo', () => {
     const bs = bloques();
     expect(bs.length).toBeGreaterThan(6);
-    // 5 desde el 31-ago-2026: los tres avisos de vencimiento, el nudge de primer gasto (que
-    // reclama porque su dedup lee `notification_deliveries` y esa fila la escribe el envío) y
-    // el resumen semanal de deudas.
-    expect(bs.filter(b => /claimInApp:\s*true/.test(b)).length).toBe(5);
+    // 6 desde el 01-sep-2026: los tres avisos de vencimiento, el nudge de primer gasto (que
+    // reclama porque su dedup lee `notification_deliveries` y esa fila la escribe el envío),
+    // el resumen semanal de deudas y el recordatorio semanal de inactividad.
+    expect(bs.filter(b => /claimInApp:\s*true/.test(b)).length).toBe(6);
     expect(bs.filter(b => !/claimInApp/.test(b)).length).toBeGreaterThan(0);
   });
 
@@ -341,8 +347,9 @@ describe('claimInApp nunca se combina con un canal único', () => {
 
   it('el barrido encuentra las llamadas con claim (antivacuidad)', () => {
     // 3 vencimientos + el nudge de primer gasto (20-ago-2026) + el resumen semanal de deudas
-    // (31-ago-2026). Las cinco en cron/checks.js.
-    expect(conClaim.length).toBe(5);
+    // (31-ago-2026) + el recordatorio semanal de inactividad (01-sep-2026). Las seis en
+    // cron/checks.js.
+    expect(conClaim.length).toBe(6);
   });
 
   /**

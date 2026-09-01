@@ -95,6 +95,12 @@ const TAREAS = [
   // No se pisan porque no comparten canal — aquel manda WhatsApp y campana deuda por deuda,
   // este manda UN correo agrupado por persona (31-ago-2026).
   { nombre: 'checkResumenDeudasSemanal', cadaMs: 15 * MIN, tag: 'DEUDAS_SEMANAL', mensaje: 'Resumen semanal de deudas por correo (lunes 9am Lima)' },
+  // Jueves, no lunes. **El dia NO lo elige la ventana de fatiga** —son 5 dias, asi que el
+  // correo de deudas del lunes bloquea el jueves igual que bloquearia el lunes—: lo que compra
+  // separarlo es no mandar dos correos en la misma HORA si alguna vez esa ventana se afloja.
+  // La defensa de verdad contra la rafaga es la ventana; esta es la barata. Ver el docblock
+  // de checkRecordatorioInactividadSemanal en cron/checks.js.
+  { nombre: 'checkRecordatorioInactividadSemanal', cadaMs: 15 * MIN, tag: 'INACT_EMAIL', mensaje: 'Recordatorio de inactividad por correo (jueves 10am Lima, cohorte 7-30 dias con historial)' },
   { nombre: 'checkRecordatorioSuscripciones', cadaMs: 15 * MIN, tag: 'SUB_REMIND', mensaje: 'Recordatorios de cobro de suscripciones (Pro, 3d antes, 10am Lima)' },
   { nombre: 'checkCalcularNetoScore', cadaMs: 15 * MIN, tag: 'SCORE', mensaje: 'Cálculo diario Neto Score (6am Lima)' },
   { nombre: 'checkRetencionNotificaciones', cadaMs: 15 * MIN, tag: 'RETENCION', mensaje: 'Retención de la campana (4am Lima, 90 días + tope 100 por usuario)' },

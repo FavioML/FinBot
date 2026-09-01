@@ -1530,6 +1530,379 @@ async function checkResumenDeudasSemanal() {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// INACTIVIDAD POR CORREO — el reemplazo del nudge apagado (01-sep-2026)
+// ═══════════════════════════════════════════════════════════════
+
+const TIPO_IN_APP_INACTIVIDAD = 'recordatorio';
+const TITULO_INACTIVIDAD = 'Retomemos donde lo dejaste';
+
+/** Días sin anotar que definen la cohorte. Los dos extremos importan: ver el docblock. */
+const INACT_DIAS_PISO = 7;
+const INACT_DIAS_TECHO = 30;
+/**
+ * Ventana de fatiga del canal de correo, en días. **Tiene que ser MENOR que la cadencia
+ * semanal, y por eso son 5 y no 7.** Con 7 el cron se suprimía a sí mismo: la fila `sent` de
+ * la semana pasada se escribe unos segundos DESPUÉS del inicio de aquel tick, así que al
+ * jueves siguiente la diferencia es "7 días menos un ratito" y cae dentro de la ventana. La
+ * cohorte habría recibido semana por medio, de forma no determinista (dependiendo del drift
+ * del `setInterval` y de en qué posición del bucle cayera cada persona), y el techo de cuatro
+ * avisos por racha que declara el docblock sería falso. Lo encontró una revisión adversarial.
+ *
+ * Con 5 sigue cortando lo que vino a cortar: el resumen de deudas sale los lunes 9am y este
+ * cron los jueves 10am, o sea 3 días de distancia, bien dentro de la ventana.
+ */
+const INACT_FATIGA_EMAIL_DIAS = 5;
+
+/**
+ * La fecha de calendario **de Lima** de un `timestamp without time zone` de Postgres.
+ *
+ * PostgREST devuelve esa columna SIN marca de zona (`"2026-08-11T12:00:00"`) y la columna
+ * guarda UTC (`default now()` sobre una base en UTC). `new Date` de una cadena así la
+ * interpreta como hora **LOCAL**, no UTC: en Railway coincide por accidente porque el proceso
+ * corre en UTC, y en cualquier máquina en Lima se corre cinco horas — o sea que el número de
+ * días que ve un test local no es el que vería producción. Se ancla explícito.
+ *
+ * Devuelve `null` si el valor no se puede interpretar, en vez de un `Invalid Date` que después
+ * se propaga como `NaN` hasta el cuerpo del correo.
+ *
+ * **Un límite conocido, dicho para que no se re-descubra:** la detección de zona exige un
+ * offset de cuatro dígitos (`-05:00` o `-0500`), así que un `-05` de dos dígitos NO se
+ * reconoce, se le pega la `Z` atrás y sale `null` — o sea que ese usuario se saltaría con
+ * warn en vez de recibir su aviso. Hoy es **inalcanzable**: PostgREST no emite offset para
+ * un `timestamp without time zone`, que es el tipo de la única columna que pasa por acá.
+ * Se deja la regex simple en vez de cubrir una forma que nadie produce; si algún día esa
+ * columna cambia de tipo, esto es lo primero a mirar.
+ */
+function fechaLimaDeTimestamp(ts) {
+  if (!ts) return null;
+  const s = String(ts);
+  const conZona = /[Zz]$|[+-]\d{2}:?\d{2}$/.test(s) ? s : s + 'Z';
+  const d = new Date(conZona);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+}
+
+/**
+ * El cuerpo, que es el mismo texto para la campana y para el correo (`notificarUsuario` lo
+ * deriva de acá: tres canales que dicen lo mismo no pueden divergir si el texto sale de un
+ * solo lugar).
+ *
+ * **La bifurcación por `whatsapp` no es cosmética: es el único CTA que este destinatario
+ * puede ejecutar.** De los 17 de la cohorte al 01-sep-2026, **14 están en `free`**, o sea
+ * detrás del muro. Escribir por WhatsApp sigue siendo gratis para siempre —el muro cobra
+ * LEER, no escribir— así que a quien tiene número se le pide justo eso, y la promesa de los
+ * cinco segundos es cierta para los 14 igual que para los 3 que pagan.
+ *
+ * **A quien NO tiene número (3 de 17, 2 de ellos en `free`) no se le promete tiempo**, y eso
+ * es deliberado: su único camino es la app, y para un usuario en el muro `/dashboard` muestra
+ * el Paywall en vez del contenido (`webapp/.../dashboard-shell.tsx`, `RUTAS_SIN_MURO`). O sea
+ * que "anotar toma cinco segundos" sería falso para dos de esas tres personas. Se nombra la
+ * app y se nombra la reactivación, que cubre los dos casos sin que este cron tenga que leer el
+ * plan — traerlo solo para elegir copy metería `estaEnMuro(` en el cuerpo, y con eso el guard
+ * de `tests/cron/lecturas-proactivas.test.js` daría por satisfecho un gate de plan que este
+ * cron NO tiene (ver su exención declarada).
+ */
+function cuerpoInactividad(nombre, dias, tieneWhatsapp) {
+  // `trim` antes del `split`. **El caso que de verdad ocurre es `nombre` NULL** —1 usuario en
+  // la cohorte al 01-sep— y ése ya lo resolvía el `== null`. Lo que agrega el `trim` es un
+  // piso contra un nombre de solo espacios, que produciría "Hola ." en una bandeja: medido,
+  // **cero filas así en producción**, así que es una defensa sin caso vivo y no un arreglo.
+  // Va dicho porque la primera versión de este comentario decía "le pasaba a una persona
+  // real", que es la clase `numero-sin-medicion` de `docs/DEFECTOS.md`.
+  const primer = String(nombre == null ? '' : nombre).trim().split(/\s+/)[0];
+  const saludo = primer ? 'Hola ' + primer + '.' : 'Hola.';
+  const comoAnotar = tieneWhatsapp
+    ? 'Anotar un gasto toma cinco segundos: escríbeme por WhatsApp algo como "almuerzo 25 soles" y queda registrado.'
+    : 'Puedes anotarlo desde app.neto.pe, y si tu prueba ya terminó ahí mismo está la opción de reactivar.';
+  return saludo + ' Tu última anotación en Neto fue hace ' + dias + ' días.\n\n'
+    + comoAnotar + '\n\n'
+    + 'No hace falta ponerse al día con lo que quedó atrás. Con volver a anotar lo de hoy alcanza.';
+}
+
+/**
+ * Recordatorio de inactividad POR CORREO — jueves 10am Lima, agrupado por persona.
+ *
+ * Reemplaza al nudge que se apagó el 01-sep-2026 (ver el docblock de `checkUpsellPro` para
+ * los números que lo mataron). **No es el mismo aviso en otro canal**, y esa distinción es
+ * todo el ítem: lo que estaba mal no era sólo el canal, era el DESTINATARIO.
+ *
+ * ─── La cohorte, medida el 01-sep-2026 contra producción ────────────────────────────────
+ *
+ * De 102 usuarios con correo, alta cerrada y recordatorios prendidos, "los inactivos" no son
+ * una población sino cinco, y la más grande nunca empezó:
+ *
+ * | cohorte              | usuarios | txs promedio | qué es                                  |
+ * |----------------------|----------|--------------|-----------------------------------------|
+ * | activo (<7d)         | 14       | 127          | no es destinatario                      |
+ * | **7-30 días**        | **17**   | **15**       | **el único donde "dejaste de anotar" es cierto Y accionable** |
+ * | 30-90 días           | 24       | 17           | reactivación: otra decisión y otro copy |
+ * | +90 días             | 12       | 10           | reactivación fría                       |
+ * | **nunca registró**   | **35**   | **0**        | **NO es inactividad: es alta incompleta** |
+ *
+ * Los 35 son el grupo más grande y el aviso les mentiría por construcción: no dejaron de
+ * registrar algo que nunca registraron. Ya tienen su cron (`checkRecordatorioOnboarding`), y
+ * el filtro que los deja afuera es "no tiene ninguna transacción", no una suposición.
+ *
+ * Los 36 de 30-90 y +90 días quedan afuera **a propósito y hasta que Favio lo decida aparte**:
+ * a los tres meses el mensaje honesto ya no es "retomemos" sino otra cosa, y meterlos ahora
+ * sería mandarle correo a 53 personas que dejaron de usar el producto con un dominio que
+ * empezó a enviar el 31-ago-2026. Se empieza por 17 y se mide la entrega.
+ *
+ * ─── Se mide `created_at`, NO `fecha`, y la diferencia le pega a 11 de 102 ───────────────
+ *
+ * `transacciones.fecha` es la fecha que el usuario DECLARÓ para el gasto; `created_at` es
+ * cuándo lo anotó. Este aviso afirma "tu última anotación fue hace N días", que es una
+ * afirmación sobre la ACTIVIDAD, así que la columna correcta es la segunda. Medido el
+ * 01-sep-2026: **11 de los 102 tienen las dos distintas**, y las dos direcciones hacen daño:
+ *
+ *   · un gasto retro-fechado (una carga de Excel, un correo bancario viejo que escaneó Gmail)
+ *     baja `max(fecha)` sin que la persona haya dejado de usar Neto: se le diría "hace 18
+ *     días" a alguien que anotó hace 15;
+ *   · y un gasto con `fecha` FUTURA —"el 15 pago el alquiler", y hay 1 usuario así hoy— da
+ *     días negativos, que caen bajo el piso: esa persona quedaba excluida en silencio hasta
+ *     que la fecha pasara.
+ *
+ * Lo encontró una revisión adversarial del diff. Hoy la cohorte da 17 con las dos columnas,
+ * o sea que el conteo no delata el error: hay que mirar POR PERSONA.
+ *
+ * ─── Por qué el correo y no otra vez WhatsApp o la campana ──────────────────────────────
+ *
+ * Es el único canal que llega a quien no abre la app y está fuera de la ventana de 24h de
+ * Meta, que es la definición misma de este destinatario. Y a diferencia de WhatsApp, acá SÍ
+ * se puede medir si llegó: `POST /webhooks/resend` escribe `delivered_at` / `failed_at` en
+ * `notification_deliveries`, así que dentro de un mes se puede responder "¿sirvió?" con datos
+ * en vez de con una intuición.
+ *
+ * ─── Las tres reglas que este repo ya pagó, y cómo se cumplen acá ───────────────────────
+ *
+ *   1. **Un correo por PERSONA, no por evento.** El 31-ago un cron declaró `email:` dentro de
+ *      un bucle por deuda y alguien recibió cuatro correos en once segundos. Acá el bucle ya
+ *      es por persona (una fila de `usuarios` = un correo) y encima hay una ventana de fatiga
+ *      de correo que mira `notification_deliveries`.
+ *   2. **La reputación del dominio recién empieza.** Cadencia semanal, y la cohorte se cierra
+ *      sola: a los 31 días la persona sale, así que nadie puede recibir más de cuatro de
+ *      estos por racha de inactividad. No es un número elegido, es la consecuencia de que el
+ *      techo sea 30 — y de que la ventana de fatiga sea MENOR que la cadencia, sin lo cual el
+ *      cron se saltea semanas solo (ver `INACT_FATIGA_EMAIL_DIAS`).
+ *   3. **Todo aviso proactivo sale por el chokepoint de `lib/notify-user.js`**, con `email`
+ *      como parámetro aparte y el `to` puesto por el llamador — por eso `email` va en el
+ *      `select` de acá. Sin `EMAIL_OPTOUT_SECRET` no sale el correo (fail closed, a propósito).
+ *
+ * ─── Lo que este cron NO consulta, dicho para que no se lea como olvido ─────────────────
+ *
+ * **No mira la anti-fatiga de `survey_events`** (la ventana de 3/7 días que comparten el
+ * upsell y los ocho triggers de `services/survey-triggers.js`), ni escribe una fila ahí. Es
+ * deliberado: esa ventana modela el empuje por WhatsApp y campana, y este aviso vive en el
+ * canal de correo, que tiene su propia ventana acá abajo. Consecuencia asumida: alguien puede
+ * recibir en la misma semana este correo y un `reminder_dN` por WhatsApp. Son mensajes
+ * distintos por canales distintos, y al 01-sep los `reminder_dN` suman 17 filas en 30 días, o
+ * sea que el choque es raro. Si algún día deja de serlo, el arreglo es unificar la ventana,
+ * no duplicar el ledger.
+ *
+ * **Y no lleva `link`.** El botón "Ver en Neto" apunta a `/dashboard`, que para 14 de los 17
+ * es el Paywall: un botón que contradice la frase de arriba ("anotar toma cinco segundos")
+ * vale menos que ningún botón. El destino que sí sirve va en el cuerpo, y depende del canal
+ * que la persona tenga.
+ */
+async function checkRecordatorioInactividadSemanal() {
+  // `ahoraPeru()` y no su cuerpo inlineado: son la misma expresión, pero copiada deja este
+  // gate fuera del alcance de cualquier arreglo futuro en `lib/dates.js`.
+  const horaLima = ahoraPeru();
+  // Jueves 10am. **El día NO lo elige la ventana de fatiga** —son 5 días, así que un correo de
+  // deudas del lunes bloquea el jueves igual que bloquearía el lunes—: lo que compra separar
+  // el día es no mandar dos correos en la misma HORA si alguna vez la ventana se afloja o se
+  // saca. La defensa de verdad contra la ráfaga es la ventana; ésta es la barata.
+  if (horaLima.getDay() !== 4 || horaLima.getHours() !== 10 || horaLima.getMinutes() > 14) return;
+  try {
+    const hoy = hoyPeru();
+    const inicioHoy = new Date(hoy + 'T00:00:00-05:00').toISOString();
+    const cutoffFatiga = new Date(Date.now() - INACT_FATIGA_EMAIL_DIAS * 86400000).toISOString();
+
+    const { data: usuarios, error: errUsuarios } = await supabase.from('usuarios')
+      // `email` viaja porque el chokepoint NO lee la base: el `to` lo pone el llamador.
+      // `whatsapp` decide el CTA del cuerpo (ver `cuerpoInactividad`), no es adorno.
+      .select('id, nombre, email, whatsapp, recordatorios_activos')
+      .eq('onboarding_completado', true)
+      .neq('is_test_user', true)
+      // La lápida de la migración 073 conserva `plan` y `premium_vence`, así que sigue
+      // saliendo en cualquier query que no la excluya. De los cuatro filtros de acá, **DOS**
+      // son de los que `tests/cron/lapida-no-recibe.test.js` reconoce como excluyentes —
+      // `cuenta_borrada_at` y `onboarding_completado`— y son redundantes entre sí a propósito:
+      // ese guard acepta cualquiera de los dos, así que borrar uno no lo pone rojo y tampoco
+      // cambia a quién alcanza este cron. Los otros dos NO excluyen lápidas: `is_test_user`
+      // saca a las cuentas de prueba, y `email` no sirve para esto — el wipe lo pone en null,
+      // sí, pero apoyarse en eso es apoyarse en un efecto lateral de otra decisión.
+      .is('cuenta_borrada_at', null)
+      .not('email', 'is', null);
+    // Sin leer el error, una caída se lee exactamente igual que "esta semana no había nadie
+    // inactivo" y el cron se apaga en silencio hasta que alguien lo note. Corre una vez por
+    // semana: un silencio acá cuesta siete días, no una hora.
+    if (errUsuarios) {
+      log.error({ tag: 'INACT_EMAIL', err: errUsuarios.message }, 'No se pudo leer la población: no salió ningún recordatorio de inactividad');
+      return;
+    }
+    if (!usuarios || usuarios.length === 0) return;
+
+    let enviados = 0;
+    let correos = 0;
+    let elegibles = 0;
+    for (const usuario of usuarios) {
+      try {
+        // La baja apaga TODOS los canales, y el pie de cada correo lo promete textual. Va acá
+        // y no en la query porque `notificarUsuario` no puede chequearlo (no lee la base), así
+        // que el corte vive donde se elige al destinatario.
+        if (usuario.recordatorios_activos === false) continue;
+
+        // ¿Cuándo ANOTÓ por última vez? `created_at`, no `fecha` — ver el docblock. Y
+        // `.order(...).limit(1)` en vez de un conteo: lo que decide es la fecha de la última,
+        // y una cuenta no distingue "anotó ayer" de "anotó en mayo".
+        const { data: ultimaTx, error: errUltimaTx } = await supabase.from('transacciones')
+          .select('created_at').eq('usuario_id', usuario.id)
+          .order('created_at', { ascending: false }).limit(1);
+        // Falla CERRADO con rastro: sin leer el error, `ultimaTx` en null cae en el `continue`
+        // de abajo como si la persona nunca hubiera anotado nada, y ése es justo el grupo que
+        // este cron excluye a propósito. El destino sería el correcto por accidente; lo que
+        // faltaría es saber que se tomó por un fallo. El `catch` del bucle loguea con userId.
+        if (errUltimaTx) throw errUltimaTx;
+
+        // Nunca registró nada: NO es inactividad, es alta incompleta. Son 35 personas al
+        // 01-sep y ya las trabaja `checkRecordatorioOnboarding`. Si alguna vez sale un correo
+        // de éstos para uno de ellos, el filtro está mal, no el copy.
+        if (!ultimaTx || ultimaTx.length === 0) continue;
+
+        // `created_at` es NULLABLE (con `default now()`, o sea que en la práctica siempre
+        // viene, pero la columna lo permite) y `.order()` de PostgREST pone los NULL PRIMERO
+        // en descendente. Sin este corte, una sola fila con `created_at` en null haría que
+        // esa persona se leyera como "nunca anotó" **para siempre**. Lo mismo con un valor
+        // que no se pueda interpretar: antes que un correo que diga "hace NaN días", ninguno.
+        const ultimaFecha = fechaLimaDeTimestamp(ultimaTx[0].created_at);
+        if (!ultimaFecha) {
+          log.warn({ tag: 'INACT_EMAIL', userId: usuario.id, createdAt: ultimaTx[0].created_at },
+            'La última transacción no tiene fecha de anotación interpretable: se salta a este usuario');
+          continue;
+        }
+
+        // **Diferencia de DÍAS DE CALENDARIO de Lima, no de milisegundos.** Los dos extremos
+        // se anclan a medianoche UTC, así que la resta da días enteros exactos y el resultado
+        // no depende de la hora a la que corra el cron. Con una resta de milisegundos, alguien
+        // cuya última anotación fue hace exactamente 7 días calendario da **6** a las 10am y
+        // **7** a las 2pm: el piso de la cohorte se movería con el reloj. Además así el corte
+        // es idéntico al `current_date - ...` con que se midió la cohorte contra producción.
+        const dias = Math.round((Date.parse(hoy + 'T00:00:00Z') - Date.parse(ultimaFecha + 'T00:00:00Z')) / 86400000);
+        // **NaN pasa los DOS cortes de abajo**: `NaN < 7` y `NaN > 30` son los dos false, así
+        // que sin esta línea un valor no numérico llega intacto al cuerpo del correo y a una
+        // bandeja real le aparece "hace NaN días". Esta guarda existía en la primera versión
+        // de este cron, se cayó al cambiar de columna, y el comentario de un test siguió
+        // afirmando que estaba: lo encontró la segunda revisión adversarial del arreglo.
+        //
+        // **Es un piso SIN caso vivo, y eso está medido, no supuesto.** Las dos fechas salen
+        // de la misma `toLocaleDateString('en-CA')`, así que o las dos son `YYYY-MM-DD` o
+        // ninguna; y si ninguna lo es —un Node sin full-ICU, donde ese formato cae a
+        // `8/10/2026`— la corrida muere antes de llegar acá, en el `.toISOString()` que arma
+        // `inicioHoy`. Se queda igual, por el mismo argumento que el piso de monto de
+        // `checkResumenDeudasSemanal`: tres líneas contra un correo que no se puede retirar.
+        if (!Number.isFinite(dias)) {
+          log.error({ tag: 'INACT_EMAIL', userId: usuario.id, hoy, ultimaFecha },
+            'No se pudo calcular los días sin anotar: se salta a este usuario (formato de fecha inesperado)');
+          continue;
+        }
+        if (dias < INACT_DIAS_PISO) continue;      // sigue activo
+        if (dias > INACT_DIAS_TECHO) continue;     // reactivación, otra decisión (no entra sin que Favio lo decida)
+        elegibles++;
+
+        // Dedup del día, por la fila de la campana que `claimInApp` escribe ANTES del correo.
+        //
+        // **Lo que cubre NO es un redeploy**: con una sola instancia, el primer tick del
+        // proceso nuevo cae 15 minutos después del boot, y el boot es posterior al tick del
+        // proceso viejo, así que dos ticks dentro de la misma ventana no son alcanzables por
+        // esa vía. Lo que sí lo es —y es el único camino a dos correos— es un **solape de
+        // deploy** con dos instancias vivas a la vez: las dos leen este dedup antes de que
+        // ninguna escriba su claim. `app/CLAUDE.md` ya declara que el backend asume instancia
+        // única; esto acota el daño, no lo elimina (`notificaciones` no tiene índice único
+        // sobre esta clave, así que el claim no es atómico).
+        const { data: yaSalio, error: errDedup } = await supabase.from('notificaciones')
+          .select('id').eq('usuario_id', usuario.id).eq('tipo', TIPO_IN_APP_INACTIVIDAD)
+          .eq('titulo', TITULO_INACTIVIDAD).gte('fecha', inicioHoy).limit(1);
+        // Falla ABIERTO, igual que el dedup gemelo de `checkResumenDeudasSemanal` y por el
+        // mismo motivo: éste corre una vez por semana, así que fallar cerrado no posterga el
+        // aviso, lo pierde siete días. Lo que se arriesga a cambio es un segundo correo, y
+        // sólo si además hay dos instancias vivas.
+        if (errDedup) {
+          log.warn({ tag: 'INACT_EMAIL', userId: usuario.id, err: errDedup.message },
+            'No se pudo comprobar el dedup del día: se manda igual (fail open)');
+        }
+        if (yaSalio && yaSalio.length > 0) continue;
+
+        // ─── La ventana de fatiga del CANAL DE CORREO ─────────────────────────────────────
+        //
+        // Este aviso no es urgente y el dominio empezó a enviar el 31-ago-2026. Si a esta
+        // persona ya le salió un correo en los últimos días —el resumen de deudas del lunes,
+        // un aviso de fin de prueba— el segundo compra poco y cuesta reputación. Se mira el
+        // ledger de entregas, que es el único lugar donde consta lo que YA salió por correo.
+        const { count: correosRecientes, error: errFatiga } = await supabase.from('notification_deliveries')
+          .select('id', { count: 'exact', head: true })
+          .eq('usuario_id', usuario.id).eq('canal', 'email').eq('estado', 'sent')
+          .gte('created_at', cutoffFatiga);
+        // Falla CERRADO, y es la excepción al fail-open del dedup de arriba. La asimetría es
+        // del daño: acá lo que se previene es un correo de más sobre un dominio joven, y lo
+        // que cuesta callarse es un aviso NO urgente que vuelve el jueves que viene. Al revés
+        // que el dedup, donde lo que se pierde es el aviso entero de la semana.
+        if (errFatiga) {
+          log.warn({ tag: 'INACT_EMAIL', userId: usuario.id, err: errFatiga.message },
+            'No se pudo leer la fatiga de correo: no se manda (se reintenta el jueves que viene)');
+          continue;
+        }
+        if ((correosRecientes || 0) > 0) continue;
+
+        const cuerpo = cuerpoInactividad(usuario.nombre, dias, !!usuario.whatsapp);
+        const res = await notificarUsuario({
+          canales: CANALES.SOLO_IN_APP,
+          motivo: 'el canal que este destinatario SÍ recibe es el correo, y por WhatsApp este mismo aviso entregó 4 de 190 en 30 días: por eso se apagó',
+          usuarioId: usuario.id,
+          tipo: 'inactividad_semanal',
+          mensaje: cuerpo,
+          titulo: TITULO_INACTIVIDAD,
+          tipoInApp: TIPO_IN_APP_INACTIVIDAD,
+          // Sin `link` a propósito: ver el docblock. El botón iría a `/dashboard`, que para 14
+          // de los 17 muestra el Paywall.
+          claimInApp: true,
+          email: { to: usuario.email || null, asunto: 'Retomemos: anotar un gasto toma cinco segundos' },
+        });
+        // **El resultado se MIRA, y no es opcional cuando se pide el claim.**
+        // `notificarUsuario` es best-effort y nunca lanza: si el insert de la campana falla,
+        // devuelve `inApp: false`, **no manda el correo**, y este `try` no se entera de nada.
+        if (!res || res.inApp !== true) {
+          log.error({ tag: 'INACT_EMAIL', userId: usuario.id },
+            'El claim de la campana no se pudo escribir: este usuario se queda sin el aviso hasta el jueves que viene');
+          continue;
+        }
+        enviados++;
+        // **`enviados` cuenta CLAIMS, no correos, y para este cron ésa es la métrica que no
+        // sirve.** Falta de `RESEND_API_KEY`, falta de `EMAIL_OPTOUT_SECRET` (el fail-closed de
+        // `lib/email.js`), el tope diario o un 5xx de Resend dejan `inApp: true` igual, así que
+        // un log que sólo dijera `enviados: 17` describiría diecisiete correos que no salieron.
+        // El único canal por el que este cron existe es el correo: se cuenta aparte.
+        if (res.email && res.email.ok === true && !res.email.skipped) correos++;
+      } catch (e) {
+        // Saltar al siguiente usuario, con rastro: sin el log, un fallo sistemático se ve
+        // igual que "esta semana no había nadie en la cohorte".
+        log.error({ tag: 'INACT_EMAIL', userId: usuario.id, err: msgErr(e) }, 'Recordatorio de inactividad omitido');
+      }
+    }
+
+    // Las cuatro cifras, siempre: sin `elegibles` no se distingue "la cohorte estaba vacía" de
+    // "todos se cayeron", y sin `correos` no se distingue "salió" de "se escribió la campana y
+    // el canal de correo estaba apagado".
+    log.info({ tag: 'INACT_EMAIL', poblacion: usuarios.length, elegibles, enviados, correos },
+      'Recordatorio semanal de inactividad ejecutado');
+    if (enviados > 0 && correos === 0) {
+      log.error({ tag: 'INACT_EMAIL', enviados },
+        'La campana salió y no salió un solo correo: revisar RESEND_API_KEY, EMAIL_OPTOUT_SECRET, el tope diario y la respuesta de Resend');
+    }
+  } catch (e) { log.error({ tag: 'INACT_EMAIL', err: msgErr(e) }, 'Error recordatorio semanal de inactividad'); }
+}
+
+// ═══════════════════════════════════════════════════════════════
 // DETECTOR DE FUGAS — Proactive spending leak alerts
 // ═══════════════════════════════════════════════════════════════
 const { generarAlertasFugas, generarMensajeFugas, guardarAlertas } = require('../services/spending-alerts');
@@ -2325,6 +2698,12 @@ module.exports = {
   checkActivacionDia2,
   checkRecordatorioDeudas,
   checkResumenDeudasSemanal,
+  checkRecordatorioInactividadSemanal,
+  // Exportado para su test: la conversión de un `timestamp without time zone` de Postgres a
+  // la fecha de calendario de Lima es la única pieza de este cron cuyo bug es INVISIBLE en
+  // producción (Railway corre en UTC, donde la interpretación mala coincide con la buena) y
+  // sólo se ve desde una máquina en otra zona. Su test fija la zona a mano.
+  fechaLimaDeTimestamp,
   checkRecordatorioSuscripciones,
   checkCalcularNetoScore,
   checkNotificacionScore,
