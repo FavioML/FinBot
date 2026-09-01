@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createRequire } from 'module';
 import path from 'path';
+import { readFileSync } from 'node:fs';
 
 const require = createRequire(import.meta.url);
 const projectRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname).replace(/^\/([A-Za-z]):/, '$1:'), '../..');
@@ -78,7 +79,17 @@ const {
 } = require('../../services/referrals');
 
 const FALLO = { data: null, error: { message: 'read failure', code: '500' } };
-const SIN_FILA = { data: null, error: { code: 'PGRST116', message: 'no rows' } };
+// Lo que PostgREST devuelve cuando NO HAY FILA, y desde el 01-sep-2026 es `{ data: null,
+// error: null }` y no un PGRST116: este archivo dejó de usar `.single()`. La diferencia es la
+// razón entera del cambio — con `.single()` la ausencia llega disfrazada de error, así que un
+// `if (error)` a secas la convierte en "no pude leer", y el arreglo obliga a comparar códigos
+// en cada call-site. Con `maybeSingle` las dos preguntas se separan solas.
+//
+// **Cambiar esta constante puso dos casos existentes en rojo, y eso es correcto**: describían
+// el protocolo viejo, no una regresión.
+const SIN_FILA = { data: null, error: null };
+/** El PGRST116, para el caso que verifica que ya nadie lo produzca ni lo espere. */
+const SIN_FILA_SINGLE = { data: null, error: { code: 'PGRST116', message: 'no rows' } };
 const HOY = new Date().toISOString().slice(0, 10);
 const escrituras = (tabla) => ops.filter(o => (o.op === 'insert' || o.op === 'update') && (!tabla || o.table === tabla));
 
@@ -136,6 +147,95 @@ describe('registrarReferido', () => {
     expect(logMock.error).toHaveBeenCalled();
     expect(escrituras('usuarios')).toHaveLength(0); // no llegó a sembrar el descuento
   });
+
+  /**
+   * Las dos causas cortan igual —el referido no queda vinculado— así que lo único observable
+   * es el LOG, y por eso es lo que se afirma. Hasta el 01-sep-2026 este archivo resolvía con
+   * un TERCER idioma (`.single()` + `error.code !== 'PGRST116'`) y las dos ramas compartían
+   * una sola línea: `if (errRef || !referrer)` decía "no se pudo leer el ref_code" también
+   * cuando la lectura había ido perfecta y el referrer sencillamente no existe.
+   *
+   * La diferencia no es cosmética: un referrer ausente es un `ref:` inventado o una cuenta
+   * borrada, y no hay nada que arreglar; una lectura caída es infraestructura, y ese referido
+   * SÍ debería haberse vinculado. Confundirlas manda a mirar el lugar equivocado.
+   */
+  it('distingue "el referrer no existe" de "no pude leer al referrer"', async () => {
+    const registrar = (respuestaUsuarios) => {
+      router = (q) => {
+        if (q.table === 'referidos' && q.op === 'select') return { data: null, error: null };
+        if (q.table === 'usuarios' && q.op === 'select') return respuestaUsuarios;
+        return {};
+      };
+      return registrarReferido('r1', 'u1');
+    };
+
+    // No existe: `maybeSingle` devuelve `{ data: null, error: null }`, que es un hecho, no un
+    // fallo. No va como `error` porque no hay nada que reintentar ni que arreglar.
+    await registrar({ data: null, error: null });
+    expect(escrituras(), 'se vinculó a un referrer inexistente').toHaveLength(0);
+    expect(logMock.error, 'una ausencia legítima se reportó como fallo de lectura').not.toHaveBeenCalled();
+    expect(JSON.stringify(logMock.warn.mock.calls)).toMatch(/no existe/);
+
+    logMock.error.mockClear();
+    logMock.warn.mockClear();
+    ops = [];
+
+    // No se pudo leer: sí es un fallo, y el mensaje tiene que decir qué se perdió.
+    await registrar(FALLO);
+    expect(escrituras()).toHaveLength(0);
+    expect(logMock.error, 'una lectura caída se fue muda o como advertencia').toHaveBeenCalled();
+    expect(JSON.stringify(logMock.error.mock.calls)).toMatch(/no queda vinculado/);
+  });
+});
+
+describe('el idioma de las lecturas: maybeSingle, no single', () => {
+  /**
+   * El guard del ítem 21(c). No es de estilo: los dos idiomas son correctos por separado y el
+   * problema es tener los dos, porque el lector tiene que averiguar cuál está viendo antes de
+   * poder juzgarlo — y el modo de falla del viejo es silencioso.
+   *
+   * Se mide sobre el fuente SIN comentarios, porque el docblock de `referrals.js` cita
+   * `.single()` y `SIN_FILAS` para explicar por qué se fueron: sin quitarlos, el guard se
+   * pondría rojo por su propia documentación (`guard-que-se-mide-contra-su-documentacion`,
+   * que en este repo ya lleva cinco).
+   */
+  const sinComentarios = (src) => src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+  const FUENTE = sinComentarios(readFileSync(path.join(projectRoot, 'services/referrals.js'), 'utf8'));
+
+  it('no queda ningun .single() ni ninguna comparacion contra PGRST116', () => {
+    // Antivacuidad: si el borrador de comentarios se comiera el archivo entero, las dos
+    // aserciones de abajo pasarían sin mirar nada.
+    expect(FUENTE).toMatch(/async function registrarReferido/);
+    expect((FUENTE.match(/\.maybeSingle\(\)/g) || []).length).toBeGreaterThanOrEqual(4);
+
+    expect(FUENTE, 'volvio un .single(): la ausencia queda disfrazada de error').not.toMatch(/\.single\(\)/);
+    expect(FUENTE, 'volvio la comparacion contra PGRST116').not.toMatch(/PGRST116/);
+  });
+
+  it('el detector reconoce las dos formas (contraprueba)', () => {
+    expect(sinComentarios('await q.single();')).toMatch(/\.single\(\)/);
+    // Y uno que vive SOLO en un comentario no se marca: es la evasión al revés, la que ponía
+    // el guard rojo por documentar el cambio.
+    expect(sinComentarios('// esto usaba .single() antes')).not.toMatch(/\.single\(\)/);
+    expect(sinComentarios('/** el .single() viejo */')).not.toMatch(/\.single\(\)/);
+    // Y no se come el código de al lado: un comentario de línea no arrastra la línea siguiente.
+    expect(sinComentarios('// nota\nawait q.single();')).toMatch(/\.single\(\)/);
+  });
+
+  it('PGRST116 ya no aparece porque nadie lo produce (no porque nadie lo mire)', async () => {
+    // El control que separa las dos explicaciones: si una lectura devolviera el código viejo,
+    // el módulo lo trata como el fallo que es, no como "no existe". Con el idioma anterior
+    // este mismo fixture entraba por la puerta de "todavía no está vinculado" y seguía.
+    router = (q) => {
+      if (q.table === 'referidos' && q.op === 'select') return SIN_FILA_SINGLE;
+      return { data: { ref_code: 'ABCD1234' } };
+    };
+    await registrarReferido('r1', 'u1');
+    expect(escrituras(), 'un PGRST116 se leyo como "no existe" y se inserto igual').toHaveLength(0);
+    expect(logMock.error).toHaveBeenCalled();
+  });
 });
 
 describe('sembrarDescuentoReferido', () => {
@@ -157,6 +257,43 @@ describe('sembrarDescuentoReferido', () => {
     router = (q) => (q.table === 'usuarios' && q.op === 'select') ? { data: { plan: 'free', referido_dscto_vence: '2099-12-31' } } : {};
     await sembrarDescuentoReferido('u1');
     expect(escrituras('usuarios')).toHaveLength(0);
+  });
+
+  /**
+   * **La única de las cuatro lecturas del archivo que se iba MUDA.** Con `if (error || !u)
+   * return;` una caída de Supabase se leía exactamente igual que "este usuario no califica
+   * para el descuento", y el síntoma no es un error visible: es un referido que estrena Pro a
+   * S/10 en vez de a S/5, sin una línea que explique por qué.
+   *
+   * El `return` sigue siendo el correcto —sembrar sobre una fila que no se pudo leer pisaría
+   * un descuento vigente— así que lo único que cambia es el rastro, y por eso es lo que se
+   * afirma. El CONTROL de abajo separa "no calificaba" de "no se pudo preguntar", que es la
+   * confusión entera.
+   */
+  it('una lectura caída deja rastro (no se confunde con "no califica")', async () => {
+    router = (q) => (q.table === 'usuarios' && q.op === 'select') ? FALLO : {};
+    await sembrarDescuentoReferido('u1');
+    expect(escrituras('usuarios'), 'sembró un descuento sobre una fila que no pudo leer').toHaveLength(0);
+    expect(logMock.error, 'la caída se fue muda: el referido pierde su 50% sin dejar rastro').toHaveBeenCalled();
+    expect(JSON.stringify(logMock.error.mock.calls)).toMatch(/50% off/);
+  });
+
+  it('CONTROL: un referido que NO califica no ensucia el log', async () => {
+    // Sin esta mitad, un módulo que logueara siempre pasaría el caso de arriba, y el log se
+    // llenaría de líneas por el camino normal — que es como se deja de leer un log.
+    router = (q) => (q.table === 'usuarios' && q.op === 'select') ? { data: { plan: 'premium' } } : {};
+    await sembrarDescuentoReferido('u1');
+    expect(escrituras('usuarios')).toHaveLength(0);
+    expect(logMock.error).not.toHaveBeenCalled();
+  });
+
+  it('CONTROL: un referido que no existe tampoco (ausencia no es fallo)', async () => {
+    // `maybeSingle` devuelve `{ data: null, error: null }`. Es la distinción que el `.single()`
+    // de antes escondía detrás de un PGRST116.
+    router = (q) => (q.table === 'usuarios' && q.op === 'select') ? { data: null, error: null } : {};
+    await sembrarDescuentoReferido('u1');
+    expect(escrituras('usuarios')).toHaveLength(0);
+    expect(logMock.error).not.toHaveBeenCalled();
   });
 });
 

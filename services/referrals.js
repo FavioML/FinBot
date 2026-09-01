@@ -4,10 +4,19 @@ const { hoyPeru, sumarDias, sumarMeses } = require('../lib/dates');
 const { notificarUsuario, CANALES } = require('../lib/notify-user');
 const { enTrial } = require('../lib/trial');
 
-// PostgREST devuelve PGRST116 cuando .single() no encuentra fila. Ese es el caso
-// legítimo "todavía no existe"; cualquier otro código es una lectura que falló y NO
-// puede interpretarse como ausencia.
-const SIN_FILAS = 'PGRST116';
+// **Acá vivía `SIN_FILAS = 'PGRST116'`, y se fue con el último `.single()` (01-sep-2026).**
+//
+// Este archivo resolvía con un TERCER idioma lo mismo que el resto del repo: `.single()` más
+// `error.code !== SIN_FILAS`, contra el `maybeSingle` + `if (error)` separado del `if (!data)`
+// que quedó como molde en los ítems 19/20/21 del backlog de confiabilidad. Los dos son
+// correctos; tener los dos es el problema, porque el lector tiene que decidir cuál está viendo
+// antes de poder juzgarlo, y el modo de falla del idioma viejo es silencioso: un `if (error)`
+// a secas sobre un `.single()` convierte "no existe" en "no pude leer".
+//
+// `maybeSingle` devuelve `{ data: null, error: null }` cuando no hay fila, así que las dos
+// preguntas se separan solas y cada una puede tener su mensaje. Es lo que permite que el log
+// distinga un referrer que NO EXISTE de uno que no se pudo leer — dos causas con dos arreglos
+// distintos que antes compartían una sola línea.
 // unique_violation. En referidos significa que el par (referrer, referido) ya estaba
 // registrado: lo esperable si dos mensajes con el mismo ref: llegan casi juntos.
 const YA_EXISTE = '23505';
@@ -25,15 +34,25 @@ const DSCTO_REFERIDO_DIAS = 7;
  */
 async function registrarReferido(referrerId, referidoId) {
   try {
-    const { data: existe, error: errExiste } = await supabase.from('referidos').select('id').eq('referrer_id', referrerId).eq('referido_id', referidoId).single();
-    if (errExiste && errExiste.code !== SIN_FILAS) {
-      log.error({ tag: 'REFERIDO', err: errExiste.message, referrerId }, 'No se pudo verificar si el referido ya existía');
+    const { data: existe, error: errExiste } = await supabase.from('referidos').select('id').eq('referrer_id', referrerId).eq('referido_id', referidoId).maybeSingle();
+    // Falla CERRADO: sin saber si el vínculo ya existe, insertar es arriesgar un duplicado y
+    // no insertar sólo posterga el alta al próximo "hola neto ref:CODE".
+    if (errExiste) {
+      log.error({ tag: 'REFERIDO', err: errExiste.message, referrerId, referidoId }, 'No se pudo verificar si el referido ya existía');
       return;
     }
     if (existe) { await sembrarDescuentoReferido(referidoId); return; }
-    const { data: referrer, error: errRef } = await supabase.from('usuarios').select('ref_code').eq('id', referrerId).single();
-    if (errRef || !referrer) {
-      log.error({ tag: 'REFERIDO', err: errRef && errRef.message, referrerId }, 'No se pudo leer el ref_code del referrer');
+    const { data: referrer, error: errRef } = await supabase.from('usuarios').select('ref_code').eq('id', referrerId).maybeSingle();
+    // Las dos ramas cortan igual, y aun así van separadas: el arreglo NO es el mismo. Un
+    // referrer ausente es un `ref:` inventado o una cuenta borrada —no hay nada que hacer— y
+    // una lectura caída es infraestructura, o sea que ese referido SÍ debería haberse
+    // registrado. Con el `errRef || !referrer` de antes las dos decían "no se pudo leer".
+    if (errRef) {
+      log.error({ tag: 'REFERIDO', err: errRef.message, referrerId }, 'No se pudo leer el ref_code del referrer: el referido no queda vinculado');
+      return;
+    }
+    if (!referrer) {
+      log.warn({ tag: 'REFERIDO', referrerId }, 'El referrer no existe: código de referido inválido o cuenta borrada');
       return;
     }
     const { error: errIns } = await supabase.from('referidos').insert({ ref_code: referrer.ref_code, referrer_id: referrerId, referido_id: referidoId });
@@ -60,8 +79,17 @@ async function registrarReferido(referrerId, referidoId) {
 async function sembrarDescuentoReferido(referidoId) {
   try {
     const { data: u, error } = await supabase.from('usuarios')
-      .select('plan, trial_estado, trial_vence, referido_dscto_vence').eq('id', referidoId).single();
-    if (error || !u) return;
+      .select('plan, trial_estado, trial_vence, referido_dscto_vence').eq('id', referidoId).maybeSingle();
+    // **Era la única de las cuatro que se iba MUDA**, y es la que más se nota: sin log, una
+    // caída acá se lee igual que "este usuario no califica para el descuento", y el síntoma es
+    // un referido que estrena Pro a S/10 en vez de a S/5 sin que quede una línea de por qué.
+    // El `return` sigue siendo el correcto (sembrar sobre una fila que no se pudo leer sería
+    // pisar un descuento vigente); lo que faltaba era el rastro.
+    if (error) {
+      log.error({ tag: 'REFERIDO', err: error.message, referidoId }, 'No se pudo leer al referido: se queda sin el 50% off de su primer mes');
+      return;
+    }
+    if (!u) return;
     // OJO: durante el trial `plan` vale 'premium' (así el trial entrega Pro sin tocar los
     // ~40 gates que miran esa columna). Cortar por plan a secas dejaría a TODO referido
     // nuevo sin descuento, en silencio. Lo que descalifica es ser Pro PAGADO.
@@ -161,7 +189,10 @@ async function procesarConversionProReferido(referidoId) {
     for (let intento = 0; intento < 6; intento++) {
       const { data: referrer, error: errUsr } = await supabase.from('usuarios')
         .select('whatsapp, nombre, plan, trial_estado, trial_vence, premium_desde, premium_vence, referidos_meses_otorgados')
-        .eq('id', referrerId).single();
+        .eq('id', referrerId).maybeSingle();
+      // Acá las dos causas SÍ comparten arreglo —devolver el claim y salir— así que no se
+      // parten en dos ramas. Lo que cambia es el mensaje, que ya las nombraba por separado
+      // ("fila ausente"), y que `maybeSingle` deja de disfrazar la ausencia de error.
       if (errUsr || !referrer) {
         // Todavía NO se tocó `usuarios`: devolver el claim es seguro y deja el
         // reintento abierto (la aprobación se puede volver a disparar).

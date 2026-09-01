@@ -45,11 +45,15 @@ import path from 'path';
  * adversarial. Hoy el router público SÍ está montado y lo cubierto es la **resolución del
  * usuario** (el 500 vs el 404, y que un error del `uid` no caiga al fallback por número).
  *
- * **Sigue sin cubrirse el COMPORTAMIENTO de los dos UPDATE fail-open de más adentro** —el
- * perfil de Google y `onboarding_completado`—, que quedan bajo el guard de forma nada más:
- * llegar hasta ahí pide atravesar el gate de Pro pagado, `obtenerPerfilGoogle`,
- * `emailGmailVinculado` y `guardarTokens`, o sea montar medio flujo de OAuth para afirmar
- * dos `log.error`. Va dicho en vez de disfrazado.
+ * **Los dos UPDATE fail-open de más adentro YA están cubiertos** (01-sep-2026, ítem 21b), y
+ * hasta entonces este bloque decía lo contrario: que llegar ahí pedía "montar medio flujo de
+ * OAuth para afirmar dos `log.error`". Esa estimación era de cuando `/auth/callback` no se
+ * montaba acá. Con el router público montado y `gmail.js` en un doble, el camino feliz ya lo
+ * recorren tres casos de este archivo y lo único que faltaba era sembrar el error en el
+ * `usuarios:update` — con una COLA, para que cada caso diga cuál de las dos escrituras midió.
+ *
+ * Y hacía falta, porque el guard de forma no ve la DIRECCIÓN del fallo: la mutación peligrosa
+ * en un fail-open no es borrarle el `if (error)` sino "completarlo" con un corte.
  */
 
 const require = createRequire(import.meta.url);
@@ -435,6 +439,89 @@ describe('routes/public.js: el callback de OAuth y la mini-landing', () => {
     // encontró tu cuenta" y tenía que rehacer el OAuth entero.
     expect(gmailMock.oauth2Client.getToken, 'el canje ya ocurrió: por eso el texto importa').toHaveBeenCalled();
     expect(await res.text()).toMatch(/No pudimos leer tu cuenta/);
+  });
+
+  /**
+   * ─── LOS DOS UPDATE FAIL-OPEN, ahora con COMPORTAMIENTO y no sólo con el guard de forma ───
+   *
+   * El docblock de arriba declaraba, hasta el 01-sep-2026, que estos dos quedaban "bajo el
+   * guard de forma nada más" porque llegar hasta ellos pedía "montar medio flujo de OAuth".
+   * Esa estimación era de cuando `/auth/callback` no se montaba: hoy el router público está
+   * acá, `gmail.js` entero está en un doble que ya resuelve `obtenerPerfilGoogle`,
+   * `emailGmailVinculado` y `guardarTokens`, y `lib/trial.js` responde `esProPagado: true`. O
+   * sea que el camino feliz ya lo recorren tres casos de este mismo archivo, y lo único que
+   * faltaba era sembrar el error en el `usuarios:update`.
+   *
+   * **Y hacía falta, porque el guard de forma no puede ver la DIRECCIÓN del fallo.** Estos dos
+   * son de los que siguen adelante a propósito, así que la mutación peligrosa no es borrar el
+   * `if (error)` —eso lo atrapa el guard estático— sino "completar el trabajo" convirtiéndolos
+   * en un corte. Un `return res.status(500)` ahí transforma una conexión de Gmail EXITOSA,
+   * con los tokens ya guardados, en un error a la vista del usuario; y en el segundo,
+   * silenciar el "¡Listo!" no arregla el flag y encima borra una confirmación cierta.
+   *
+   * La siembra es una COLA sobre `usuarios:update`: la primera es la del perfil, la segunda la
+   * del cierre de onboarding. Sin cola, sembrar el error alcanzaría a las dos y ninguno de los
+   * dos casos diría cuál de las dos ramas midió.
+   */
+  describe('/auth/callback: los dos UPDATE que fallan ABIERTO siguen fallando abierto', () => {
+    /** El destinatario: Pro pagado, resuelto por número, con Gmail nuevo y modo inicial. */
+    const listo = (extra) => {
+      gmailMock.verificarState.mockReturnValue({ num: '51999888777', modo: 'inicial' });
+      db.resp = {
+        'usuarios:select': { data: { id: 'u9', whatsapp: '51999888777', nombre: null, plan: 'premium', trial_estado: 'convertido', historico_importado: true }, error: null },
+        ...extra,
+      };
+    };
+    // `redirect: 'manual'` y no el default: el camino feliz termina en un 302 a app.neto.pe, y
+    // seguirlo haría que esta suite salga a internet de verdad.
+    const canjear = () => fetch(base + '/auth/callback?code=abc&state=s', { redirect: 'manual' });
+
+    it('el UPDATE del perfil de Google caído NO convierte la conexión en un error', async () => {
+      listo({ 'usuarios:update': [CAIDA] });
+      const res = await canjear();
+
+      // Lo que importa: los tokens YA se guardaron y el OAuth fue un éxito. Lo único que se
+      // pierde es el nombre y el email de perfil, que no gatean nada.
+      expect(gmailMock.guardarTokens, 'el fixture no llegó al UPDATE: el caso no prueba nada').toHaveBeenCalled();
+      expect(res.status, 'un UPDATE accesorio caído rompió una conexión buena').toBe(302);
+      expect(res.headers.get('location')).toMatch(/gmail=conectado/);
+      // Y deja rastro: sin el log, el usuario queda sin nombre y nadie sabe por qué.
+      const mio = logMock.error.mock.calls.filter((c) => c[0] && c[0].tag === 'OAUTH');
+      expect(mio.length, 'el UPDATE caído se fue mudo').toBeGreaterThan(0);
+      expect(JSON.stringify(mio)).toMatch(/perfil de Google/);
+    });
+
+    it('CONTROL: con el UPDATE sano, mismo 302 y ningún error', async () => {
+      // Sin esta mitad, una ruta que devolviera 302 y logueara SIEMPRE pasaría el caso de
+      // arriba, y el `toBe(302)` no distinguiría nada.
+      listo({ 'usuarios:update': [{ data: null, error: null }] });
+      const res = await canjear();
+
+      expect(res.status).toBe(302);
+      expect(logMock.error.mock.calls.filter((c) => c[0] && c[0].tag === 'OAUTH')).toEqual([]);
+    });
+
+    it('el UPDATE de onboarding_completado caído deja dicho que el alta se va a repetir', async () => {
+      // Corre DENTRO del `setTimeout(2000)` que arranca después del redirect, así que el caso
+      // espera por el efecto en vez de por la respuesta. La cola pone el error en la SEGUNDA
+      // escritura: la primera (el perfil) va sana, para que lo que se mida sea ésta.
+      listo({ 'usuarios:update': [{ data: null, error: null }, CAIDA] });
+      const res = await canjear();
+      expect(res.status).toBe(302);
+
+      const suyo = () => logMock.error.mock.calls.filter(
+        (c) => c[0] && c[0].tag === 'CALLBACK' && /no se pudo cerrar el onboarding/.test(String(c[1])),
+      );
+      // Sondeo en vez de un sleep fijo: el `setTimeout` son 2s y un sleep justo encima lo hace
+      // flakear en una máquina cargada, que es la clase `flake-de-umbral` de DEFECTOS.
+      const limite = Date.now() + 8000;
+      while (suyo().length === 0 && Date.now() < limite) await new Promise((r) => setTimeout(r, 100));
+
+      expect(suyo().length, 'el flag no se pudo cerrar y no quedó una línea: se ve como onboarding repetido sin causa').toBeGreaterThan(0);
+      // Y el efecto que NO se apaga: el usuario conectó Gmail de verdad, así que el "listo"
+      // sigue siendo cierto. Callarlo no arregla el flag y borra una confirmación real.
+      expect(enviarWhatsappMock, 'se silenció una confirmación cierta por un flag que no pegó').toHaveBeenCalled();
+    });
   });
 });
 
