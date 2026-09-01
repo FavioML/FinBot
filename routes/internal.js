@@ -41,8 +41,15 @@ router.post('/activacion-completada', async (req, res) => {
     const resultado = (req.body && req.body.resultado) || 'adoptada';
     if (!usuarioId) return res.status(400).json({ ok: false, msg: 'Falta usuario_id' });
 
-    const { data: usuario } = await supabase.from('usuarios')
+    // La webapp acaba de vincular esta cuenta, o sea que el usuario existe por construccion:
+    // un 404 aca solo puede ser una lectura caida, y se llevaba puestos el WhatsApp de
+    // confirmacion y el evento del embudo (paso 200) sin dejar rastro.
+    const { data: usuario, error: errUsuario } = await supabase.from('usuarios')
       .select('id, whatsapp, nombre').eq('id', usuarioId).maybeSingle();
+    if (errUsuario) {
+      log.error({ tag: 'ACTIVACION', err: errUsuario.message, usuarioId }, 'No se pudo leer al usuario recien activado');
+      return res.status(500).json({ ok: false, msg: 'No pude leer el usuario. Reintenta.' });
+    }
     if (!usuario) return res.status(404).json({ ok: false, msg: 'Usuario no encontrado' });
 
     // Paso 200 = activación de la cuenta web. Vive en los MISMOS eventos que el

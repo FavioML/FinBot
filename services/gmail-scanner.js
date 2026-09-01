@@ -75,7 +75,9 @@ async function notificarAuthExpirada(usuario) {
 //                   barrido histórico, donde 30 días = decenas de correos y sería spam)
 //   historico     → cambia el mensaje de resumen final
 async function escanearGmailYRegistrar(usuario, opts = {}) {
-  const { scanOpts = {}, enviarAlertas = true, historico = false } = opts;
+  // `estado` lo pasa quien necesita saber si algo se saltó por error. Hoy sólo el barrido
+  // histórico, y por un motivo que no vale para el incremental: ver `escanearHistoricoInicial`.
+  const { scanOpts = {}, enviarAlertas = true, historico = false, estado = null } = opts;
   const { error, mensajes } = await leerCorreosBancarios(usuario.id, scanOpts);
   if (error === 'no_auth') return null;
   if (error === 'AUTH_EXPIRED') return { authError: true };
@@ -96,9 +98,40 @@ async function escanearGmailYRegistrar(usuario, opts = {}) {
       // correo ya registrado (cubre también filas viejas sin gmail_msg_id). NO es la
       // garantía contra la race de doble barrido — esa la da el índice único parcial
       // (usuario_id, gmail_msg_id) que atrapa dos inserts concurrentes del mismo correo.
-      const { data: existente } = await supabase.from('transacciones').select('id').eq('usuario_id', usuario.id).eq('descripcion_original', claveDedup).single();
+      // **Los dos fallan CERRADO, y cada uno por su motivo.** Con el `{ error }` descartado,
+      // una caída dejaba las dos variables en null y el correo seguía de largo:
+      //
+      //   · `transacciones`: el índice único (usuario_id, gmail_msg_id) tapa el caso moderno,
+      //     pero este pre-check existe justamente para cubrir **las filas viejas sin
+      //     `gmail_msg_id`**, que ese índice no protege. Ahí una lectura caída se convertía en
+      //     un gasto DUPLICADO en el dashboard de la persona.
+      //   · `gmail_excluidos`: no tiene ninguna red detrás. Un correo que el usuario mandó a
+      //     ignorar volvía a registrarse solo.
+      //
+      // Tirar acá lo toma el `catch` de este mismo `mapPool` —que sí es alcanzable, por
+      // `parsearCorreoBancario` y `guardarTransaccion`— así que el correo se saltea con su
+      // fila en `errores` y el escaneo de los 15 minutos siguientes lo reintenta. No suma a
+      // `ignoradas`: ese contador alimenta el texto "ya estaban registrados", que sería falso.
+      // Y de paso no se gasta la llamada a OpenAI sobre un correo que no se va a poder decidir.
+      //
+      // **`.limit(1)` NO es decorativo, y sin él el arreglo era peor que el bug.** El índice
+      // único de `transacciones` es PARCIAL (`WHERE gmail_msg_id IS NOT NULL`), así que sobre
+      // `descripcion_original` puede haber DOS filas: una legacy sin `gmail_msg_id` y una
+      // moderna con él. `maybeSingle()` sintetiza un PGRST116 cuando vuelven >1 filas
+      // (postgrest-js lo fabrica del lado del cliente, no es un error del servidor), y sin el
+      // `limit` eso caía en el `throw` de abajo: ese correo fallaría en CADA corrida del cron,
+      // cada 15 minutos, para siempre, dejando una fila en `errores` cada vez. Medido el
+      // 31-ago-2026: hay 83 grupos `(usuario_id, descripcion_original)` duplicados y 577 filas
+      // legacy con forma de msg-id — la trampa está armada aunque hoy no se haya disparado.
+      // Misma forma que ya usa `routes/pro.js` para `pagos`. Lo encontró la revisión adversarial.
+      const { data: existente, error: errExistente } = await supabase.from('transacciones').select('id').eq('usuario_id', usuario.id).eq('descripcion_original', claveDedup).limit(1).maybeSingle();
+      if (errExistente) throw new Error('No se pudo verificar si el correo ya estaba registrado: ' + errExistente.message);
       if (existente) { ignoradas++; return; }
-      const { data: excluido } = await supabase.from('gmail_excluidos').select('id').eq('usuario_id', usuario.id).eq('descripcion_original', claveDedup).single();
+      // Éste no necesita `limit`: `idx_gmail_excluidos_unique` es único y COMPLETO sobre
+      // (usuario_id, descripcion_original), verificado contra producción. Va sin él a propósito,
+      // para que la diferencia con el de arriba quede a la vista.
+      const { data: excluido, error: errExcluido } = await supabase.from('gmail_excluidos').select('id').eq('usuario_id', usuario.id).eq('descripcion_original', claveDedup).maybeSingle();
+      if (errExcluido) throw new Error('No se pudo verificar si el correo estaba excluido: ' + errExcluido.message);
       if (excluido) { ignoradas++; return; }
       const resultado = await parsearCorreoBancario(textoParseo, msg.asunto, categoriasCustom);
       if (!resultado.monto) return;
@@ -122,7 +155,11 @@ async function escanearGmailYRegistrar(usuario, opts = {}) {
       }
       // El premio de referidos ya NO se dispara por uso (correos): el modelo dos-lados
       // premia al referrer recién cuando el referido PAGA Pro (ver lib/pro-payment:activarPro).
-    } catch (e) { log.error({ tag: 'CORREO', err: e.message }, 'Error procesando correo'); registrarError('CORREO', e.message, { stack: e.stack, usuarioId: usuario.id }); }
+    } catch (e) {
+      if (estado) estado.fallidos++;
+      log.error({ tag: 'CORREO', err: e.message }, 'Error procesando correo');
+      registrarError('CORREO', e.message, { stack: e.stack, usuarioId: usuario.id });
+    }
   });
   if (registradas === 0) {
     if (historico) return null;
@@ -148,21 +185,51 @@ async function escanearHistoricoInicial(usuario) {
   // gana la fila corremos el barrido. Un segundo callback OAuth concurrente (Google reintenta /
   // doble click) recibe null y no duplica los 30 d\u00EDas. Reservamos ANTES del scan; si la auth
   // falla, liberamos para que el usuario pueda reconectar y a\u00FAn merecer el barrido.
-  const { data: claim } = await supabase.from('usuarios')
+  const { data: claim, error: errClaim } = await supabase.from('usuarios')
     .update({ historico_importado: true })
     .eq('id', usuario.id).eq('historico_importado', false)
     .select('id').maybeSingle();
+  // Sigue sin correr el barrido —no sabemos si ganamos la fila, y correrlo a ciegas duplica
+  // 30 días de movimientos— pero el log deja de mentir: decía "ya reclamado" sobre una
+  // escritura que nunca respondió. `historico_importado` queda en false, así que la próxima
+  // conexión lo reintenta.
+  if (errClaim) { log.error({ tag: 'HIST', err: errClaim.message, usuarioId: usuario.id }, 'No se pudo reclamar el barrido hist\u00F3rico: no se corre'); return null; }
   if (!claim) { log.info({ tag: 'HIST', usuarioId: usuario.id }, 'Barrido hist\u00F3rico ya reclamado, skip'); return null; }
   usuario.historico_importado = true;
   log.info({ tag: 'HIST', usuarioId: usuario.id }, 'Barrido hist\u00F3rico 30d iniciado');
+  const estado = { fallidos: 0 };
   const resultado = await escanearGmailYRegistrar(usuario, {
     scanOpts: HISTORICO_SCAN_OPTS,
     enviarAlertas: false,
     historico: true,
+    estado,
   });
   if (resultado && resultado.authError) {
-    await supabase.from('usuarios').update({ historico_importado: false }).eq('id', usuario.id);
+    // Si esta liberación no pega, `historico_importado` se queda en true para siempre y esa
+    // persona **nunca** va a recibir su import de 30 días, ni reconectando: el `if` del tope
+    // de la función la saca antes de llegar acá. No hay nada que reintentar en el momento,
+    // pero sin el log el síntoma es invisible.
+    const { error: errLiberar } = await supabase.from('usuarios').update({ historico_importado: false }).eq('id', usuario.id);
+    if (errLiberar) log.error({ tag: 'HIST', err: errLiberar.message, usuarioId: usuario.id }, 'No se pudo liberar el claim: este usuario queda sin barrido hist\u00F3rico permanentemente');
     usuario.historico_importado = false;
+    return resultado;
+  }
+  // **El claim se LIBERA si algo se saltó, y esto es lo que hace seguro el fail-closed de los
+  // pre-checks.** Los dos `throw` de arriba saltean el correo y lo reintenta el cron de los 15
+  // minutos... pero ese cron mira una ventana de 2 días (`windowDays = 2` en `gmail.js`), no de
+  // 30. O sea que en el barrido histórico un correo salteado no vuelve NUNCA: el claim ya está
+  // en `true` y sólo se libera en la rama `authError`, así que ni reconectando. El fail-closed
+  // es correcto para el incremental y, sin esta liberación, en el histórico costaba datos.
+  //
+  // Re-correr el barrido entero es seguro: los que sí entraron quedaron con su `gmail_msg_id`,
+  // y el pre-check por `descripcion_original` los reconoce y los saltea. Lo encontró la
+  // revisión adversarial; el comentario que justificaba el `throw` decía "lo reintenta el
+  // escaneo de los 15 minutos" y eso sólo era cierto para el otro camino.
+  if (estado.fallidos > 0) {
+    const { error: errReintento } = await supabase.from('usuarios').update({ historico_importado: false }).eq('id', usuario.id);
+    usuario.historico_importado = false;
+    log.warn({ tag: 'HIST', usuarioId: usuario.id, fallidos: estado.fallidos, errReintento: errReintento && errReintento.message },
+      'Barrido hist\u00F3rico con correos salteados: se libera el claim para reintentarlo entero');
     return resultado;
   }
   log.info({ tag: 'HIST', usuarioId: usuario.id }, 'Barrido hist\u00F3rico 30d completado');
@@ -173,10 +240,21 @@ async function escaneoAutomatico() {
   log.info({ tag: 'AUTO' }, 'Escaneo automático iniciado');
   try {
     // Bug fix: incluir usuarios con token legacy Y usuarios con cuentas en gmail_cuentas
-    const [{ data: usuariosLegacy }, { data: cuentasGmail }] = await Promise.all([
+    const [{ data: usuariosLegacy, error: errLegacy }, { data: cuentasGmail, error: errCuentas }] = await Promise.all([
       supabase.from('usuarios').select('*').not('gmail_access_token', 'is', null),
       supabase.from('gmail_cuentas').select('usuario_id').eq('activa', true),
     ]);
+    // **Estas dos definen JUNTAS a quién se le escanea, así que se abortan juntas.** Con el
+    // error descartado, cualquiera de las dos caída dejaba su mitad en `[]` y el escaneo
+    // corría sobre un subconjunto: los usuarios de la mitad caída simplemente dejaban de
+    // recibir sus movimientos, sin una sola línea que lo dijera. Y si caían las dos,
+    // `todosLosUsuarios` quedaba vacío y el cron salía por el `return` de más abajo como si
+    // hubiera trabajado. Abortar es barato: esto corre cada 15 minutos.
+    if (errLegacy || errCuentas) {
+      log.error({ tag: 'AUTO', errLegacy: errLegacy && errLegacy.message, errCuentas: errCuentas && errCuentas.message },
+        'No se pudo armar la lista de usuarios a escanear: se aborta la corrida (reintenta en el pr\u00F3ximo ciclo)');
+      return;
+    }
 
     const idsLegacy = new Set((usuariosLegacy || []).map(u => u.id));
     const idsSoloNuevos = [...new Set((cuentasGmail || []).map(c => c.usuario_id))].filter(id => !idsLegacy.has(id));
@@ -187,8 +265,12 @@ async function escaneoAutomatico() {
       // `email_hash` que protege el cupo— asi que puede entrar por `idsSoloNuevos`. Hoy la
       // salva que esa fila queda `activa = false`, pero eso es un efecto lateral de otra
       // decision: el filtro explicito no depende de que esa decision no cambie.
-      const { data: usuariosNuevos } = await supabase.from('usuarios').select('*')
+      const { data: usuariosNuevos, error: errNuevos } = await supabase.from('usuarios').select('*')
         .in('id', idsSoloNuevos).is('cuenta_borrada_at', null);
+      // Esta NO aborta, al revés que las dos de arriba, y la diferencia es que acá los legacy
+      // ya están resueltos: tirar la corrida entera les quitaría un escaneo que sí se podía
+      // hacer. Los de `gmail_cuentas` entran en el ciclo siguiente.
+      if (errNuevos) log.error({ tag: 'AUTO', err: errNuevos.message, cuantos: idsSoloNuevos.length }, 'No se pudieron leer los usuarios de gmail_cuentas: esta corrida escanea solo los legacy');
       todosLosUsuarios = [...todosLosUsuarios, ...(usuariosNuevos || [])];
     }
 

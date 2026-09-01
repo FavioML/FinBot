@@ -77,13 +77,20 @@ async function enviarAlertaTransaccion(usuario, tx, resultado) {
       // número inventado), así que sin la moneda no hay forma de saber si un null se puede
       // tratar como soles. Caer a `monto` a ciegas reintroduce el mismo bug más chico: mete
       // dólares crudos en un promedio de soles.
-      const { data: historial } = await supabase.from('transacciones')
+      // Falla ABIERTO hacia el SILENCIO, que acá es el lado seguro: sin historial no hay
+      // promedio, y el umbral de 3 comparables de más abajo ya impide decidir sobre una
+      // muestra chica. Lo que cambia es que una alerta que no salió por una caída deja de ser
+      // indistinguible de una que no correspondía. (El `catch` de esta función es
+      // inalcanzable para las queries: supabase-js no lanza.)
+      const { data: historial, error: errHistorial } = await supabase.from('transacciones')
         .select('monto, monto_pen, moneda')
         .eq('usuario_id', usuario.id)
         .eq('tipo', 'gasto')
         .ilike('categoria', '%' + categoria + '%')
         .gte('fecha', hace28)
         .neq('id', tx.id);
+
+      if (errHistorial) log.error({ tag: 'INUSUAL', err: errHistorial.message, usuarioId: usuario.id }, 'No se pudo leer el historial de la categoría: no se evalúa gasto inusual');
 
       // Una fila vale para el promedio solo si se puede expresar en soles: porque tiene
       // `monto_pen`, o porque ya está en soles. La fila USD sin conversión se descarta, y el
@@ -115,8 +122,12 @@ async function enviarAlertaTransaccion(usuario, tx, resultado) {
 
   if (tipo === 'ingreso') {
     try {
-      const { data: metasSugg } = await supabase.from('metas_ahorro').select('nombre, monto_objetivo, monto_actual')
+      const { data: metasSugg, error: errMetas } = await supabase.from('metas_ahorro').select('nombre, monto_objetivo, monto_actual')
         .eq('usuario_id', usuario.id).eq('completada', false).limit(1);
+      // Falla ABIERTO: la sugerencia de meta es un agregado al mensaje del ingreso, y el
+      // ingreso ya está registrado. El `catch { /* silent */ }` que estaba acá abajo tampoco
+      // se alcanzaba nunca para esta query.
+      if (errMetas) log.warn({ tag: 'META_SUGG', err: errMetas.message, usuarioId: usuario.id }, 'No se pudo leer la meta abierta: el aviso sale sin sugerencia');
       if (metasSugg && metasSugg.length > 0) {
         const metaSugg = metasSugg[0];
         const faltaSugg = parseFloat(metaSugg.monto_objetivo) - parseFloat(metaSugg.monto_actual || 0);

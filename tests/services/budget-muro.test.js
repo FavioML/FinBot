@@ -106,6 +106,28 @@ describe('verificarAlertaPresupuesto: quién ve el agregado', () => {
  * la función recibiría un string, y sin este guard el fail-closed convertiría el bug de
  * "agregado gratis" en el bug silencioso de "el Pro pagado dejó de ver su alerta".
  */
+/**
+ * El cuerpo de una función, del ancla a la siguiente declaración de nivel superior.
+ *
+ * **Reemplaza una ventana de proximidad de 600 caracteres, y el motivo es que esa ventana medía
+ * lo que no quería.** El 31-ago-2026, agregarle a `obtenerOCrearUsuario` el comentario que
+ * explica por qué sus dos lecturas fallan ABIERTAS (las sostiene el índice único
+ * `usuarios_whatsapp_key`) empujó el `select('*')` al carácter 2079 y este guard se puso rojo
+ * con el invariante intacto.
+ *
+ * Un rojo así no es gratis: manda a "arreglar" código que está bien, y la salida barata —subir
+ * el número— convierte al guard en algo que hay que reajustar cada vez que alguien documenta
+ * algo. El límite de la función no se mueve con la prosa.
+ */
+function cuerpoDesde(src, ancla, rel) {
+  if (!ancla) return src;
+  const i = src.indexOf(ancla);
+  expect(i, rel + ' ya no tiene ' + ancla + ': el guard quedó apuntando a una función que no existe').toBeGreaterThanOrEqual(0);
+  const resto = src.slice(i + ancla.length);
+  const fin = resto.search(/\n(?:async )?function |\nmodule\.exports/);
+  return resto.slice(0, fin < 0 ? undefined : fin);
+}
+
 describe('ningún call-site pasa el id en vez de la fila', () => {
   const RUNTIME = ['handlers', 'services', 'lib', 'routes', 'cron'];
 
@@ -163,13 +185,25 @@ describe('ningún call-site pasa el id en vez de la fila', () => {
    */
   it('las filas que alimentan el gate traen la columna `plan`', () => {
     const fuentes = [
-      // [archivo, qué produce la fila que llega a verificarAlertaPresupuesto]
-      ['helpers/db-helpers.js', /obtenerOCrearUsuario[\s\S]{0,600}?from\('usuarios'\)\s*\.select\('\*'\)/],
-      ['services/gmail-scanner.js', /from\('usuarios'\)\s*\.select\('\*'\)/],
+      // [archivo, dónde empieza lo que produce la fila, qué tiene que aparecer ahí adentro]
+      ['helpers/db-helpers.js', 'async function obtenerOCrearUsuario', /from\('usuarios'\)\s*\.select\('\*'\)/],
+      ['services/gmail-scanner.js', null, /from\('usuarios'\)\s*\.select\('\*'\)/],
     ];
-    for (const [rel, rx] of fuentes) {
+    for (const [rel, ancla, rx] of fuentes) {
       const src = fs.readFileSync(path.join(projectRoot, rel), 'utf8');
-      expect(rx.test(src), `${rel} dejó de traer la fila completa: el gate del muro decidiría con plan=undefined`).toBe(true);
+      expect(rx.test(cuerpoDesde(src, ancla, rel)),
+        `${rel} dejó de traer la fila completa: el gate del muro decidiría con plan=undefined`).toBe(true);
     }
+  });
+
+  it('CONTROL: el recorte del cuerpo TERMINA en la función, no se lleva media más', () => {
+    // Sin esto, `cuerpoDesde` podría devolver el archivo entero y el caso de arriba pasaría con
+    // un `select('*')` de CUALQUIER otra función — entre ellas `buscarUsuarioPorBsuid`, que
+    // tiene uno y vive en el mismo archivo (antes del ancla, así que hoy ni siquiera entra).
+    const src = fs.readFileSync(path.join(projectRoot, 'helpers/db-helpers.js'), 'utf8');
+    const cuerpo = cuerpoDesde(src, 'async function obtenerOCrearUsuario', 'helpers/db-helpers.js');
+    expect(cuerpo.length, 'el recorte se llevó el archivo entero').toBeLessThan(src.length);
+    expect(cuerpo).toContain('usuarios_whatsapp_key');           // sí es el cuerpo de esta función
+    expect(cuerpo).not.toContain('function getUserPlanConfig');  // y termina antes de la siguiente
   });
 });

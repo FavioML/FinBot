@@ -42,7 +42,15 @@ router.get('/api/referidor/:code', async (req, res) => {
   const code = (req.params.code || '').toUpperCase();
   res.set('Cache-Control', 'public, max-age=300');
   if (!/^[A-Z0-9]{4,12}$/.test(code)) return res.status(404).json({ ok: false });
-  const { data: referrer } = await supabase.from('usuarios').select('nombre').eq('ref_code', code).maybeSingle();
+  // El 404 de esta ruta viaja con `Cache-Control: public, max-age=300`, asi que una caida de
+  // 5 segundos se cacheaba 5 MINUTOS como "ese codigo no existe". El 503 va con `no-store`:
+  // un parpadeo no puede quedar guardado como un veredicto.
+  const { data: referrer, error: errReferrer } = await supabase.from('usuarios').select('nombre').eq('ref_code', code).maybeSingle();
+  if (errReferrer) {
+    log.error({ tag: 'REFERIDOR', err: errReferrer.message, code }, 'No se pudo resolver el ref_code de la mini-landing');
+    res.set('Cache-Control', 'no-store');
+    return res.status(503).json({ ok: false });
+  }
   if (!referrer) return res.status(404).json({ ok: false });
   const primerNombre = referrer.nombre ? String(referrer.nombre).split(' ')[0] : null;
   res.json({ ok: true, nombre: primerNombre });
@@ -77,8 +85,35 @@ router.get('/auth/callback', async (req, res) => {
     // siguen resolviéndose por num, sin cambios.
     const uid = stateObj.uid;
     let usuario = null;
-    if (uid) { const { data } = await supabase.from('usuarios').select('*').eq('id', uid).single(); usuario = data; }
-    if (!usuario && whatsappNum) { const { data } = await supabase.from('usuarios').select('*').eq('whatsapp', whatsappNum).single(); usuario = data; }
+    // **`maybeSingle` y no `single`, y aca no es cosmetico: el fallback DEPENDE de que "no
+    // hay fila" no sea un error.** Con `.single()` la rama del uid devuelve PGRST116 cuando
+    // el usuario no esta, asi que un `if (error)` a secas sobre la forma vieja habria matado
+    // la resolucion por numero, que es el camino de todos los flujos de WhatsApp.
+    //
+    // Y el 404 que habia era el peor lugar posible para una lectura muda: llega DESPUES del
+    // `getToken`, o sea con el code de autorizacion ya canjeado (es de un solo uso) y con el
+    // consentimiento de Google ya gastado. Al usuario se le decia "no se encontro tu cuenta"
+    // y tenia que rehacer el OAuth entero.
+    let errUsuario = null;
+    if (uid) { const { data, error } = await supabase.from('usuarios').select('*').eq('id', uid).maybeSingle(); usuario = data; errUsuario = error || null; }
+    // **Si la lectura del `uid` FALLA, no se cae al fallback por número, y eso lo encontró la
+    // revisión adversarial.** El fallback existe para el caso "no hay fila con ese uid", no para
+    // "no pude leerla": la fila del `uid` y la del `whatsapp` **pueden ser personas distintas**
+    // (identidad partida — ver `persistirBsuidConEstado`, hallazgo B21, y `merge_and_link` de la
+    // migración 046). Con el error descartado, un parpadeo de la base mandaba el refresh token de
+    // Gmail —y con él los correos bancarios— a la fila equivocada, en la ruta cuyo propio
+    // comentario de arriba dice "NUNCA adivinamos el usuario". Reintentar cuesta rehacer el OAuth
+    // y **no gasta cupo nuevo**: Google cuenta usuarios que alguna vez otorgaron permiso, y éste
+    // ya está contado.
+    if (uid && errUsuario) {
+      log.error({ tag: 'OAUTH', err: errUsuario.message, uid }, 'No se pudo leer la fila del uid: NO se cae al fallback por número');
+      return res.status(500).send(REINTENTAR('No pudimos leer tu cuenta en este momento.'));
+    }
+    if (!usuario && whatsappNum) { const { data, error } = await supabase.from('usuarios').select('*').eq('whatsapp', whatsappNum).maybeSingle(); usuario = data; errUsuario = error || errUsuario; }
+    if (!usuario && errUsuario) {
+      log.error({ tag: 'OAUTH', err: errUsuario.message, uid: uid || null }, 'No se pudo leer al usuario del callback: no es que no exista');
+      return res.status(500).send(REINTENTAR('No pudimos leer tu cuenta en este momento.'));
+    }
     if (!usuario) return res.status(404).send(REINTENTAR('No se encontró tu cuenta.'));
 
     // ── El gate que de verdad protege el cupo ──────────────────────────────────
@@ -156,7 +191,11 @@ router.get('/auth/callback', async (req, res) => {
     if (perfil.nombre || emailConectado) {
       const updateUser = { nombre: usuario.nombre || perfil.nombre };
       if (!usuario.email && emailConectado) updateUser.email = emailConectado;
-      await supabase.from('usuarios').update(updateUser).eq('id', usuario.id);
+      // Falla ABIERTO: los tokens ya se guardaron y el OAuth fue un exito. Lo que se pierde si
+      // este UPDATE no pega es el nombre y el email de perfil, que no gatean nada — cortar la
+      // pagina aca convertiria una conexion exitosa en un error a la vista del usuario.
+      const { error: errPerfil } = await supabase.from('usuarios').update(updateUser).eq('id', usuario.id);
+      if (errPerfil) log.error({ tag: 'OAUTH', err: errPerfil.message, usuarioId: usuario.id }, 'No se pudo guardar nombre/email del perfil de Google');
       usuario.nombre = usuario.nombre || perfil.nombre;
     }
 
@@ -205,7 +244,14 @@ router.get('/auth/callback', async (req, res) => {
           await enviarWhatsapp(usuario.whatsapp, resultado);
         }
         if (modoConexion === 'inicial') {
-          await supabase.from('usuarios').update({ onboarding_paso: 0, onboarding_completado: true }).eq('id', usuario.id);
+          // Falla ABIERTO **a proposito, y la decision es del item 20**: arreglar una lectura
+          // muda no puede apagar un efecto que si ocurria. Si este UPDATE no pega, el usuario
+          // igual conecto Gmail y su barrido corrio, asi que el mensaje de abajo sigue siendo
+          // verdadero; lo que queda mal es el flag, y eso se ve como onboarding repetido en el
+          // proximo mensaje. Callarse el "listo" no arregla el flag y ademas borra una
+          // confirmacion cierta. El log es lo que vuelve diagnosticable ese sintoma.
+          const { error: errPaso } = await supabase.from('usuarios').update({ onboarding_paso: 0, onboarding_completado: true }).eq('id', usuario.id);
+          if (errPaso) log.error({ tag: 'CALLBACK', err: errPaso.message, usuarioId: usuario.id }, 'Gmail conectado pero no se pudo cerrar el onboarding: el usuario va a seguir viendo el alta');
           analytics.capture(usuario.id, 'wa_onboarding_completed', { via: 'gmail' });
           await new Promise(r => setTimeout(r, 1500));
           await enviarWhatsapp(usuario.whatsapp,

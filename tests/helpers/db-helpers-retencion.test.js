@@ -81,6 +81,11 @@ describe('guardarMensaje — retencion de conversaciones', () => {
   it('nunca propaga un error de supabase (el historial no debe romper el bot)', async () => {
     convChain = { insert: vi.fn(() => { throw new Error('boom'); }) };
 
-    await expect(guardarMensaje(USER, 'usuario', 'hola')).resolves.toBeUndefined();
+    // Afirma que NO LANZA, que es el invariante. Antes decía `resolves.toBeUndefined()` y eso
+    // medía otra cosa: `guardarMensaje` no devolvía valor en ninguna rama, así que la aserción
+    // la cumplía cualquier implementación —incluida una que no hiciera nada—. Desde el
+    // 31-ago-2026 devuelve un booleano (`/admin/notify` informa `saved_in_history` con él), y
+    // el `false` de acá es la mitad que dice que el turno NO quedó escrito.
+    await expect(guardarMensaje(USER, 'usuario', 'hola')).resolves.toBe(false);
   });
 });

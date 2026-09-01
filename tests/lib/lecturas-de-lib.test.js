@@ -34,7 +34,13 @@ import path from 'node:path';
  *
  * Y no son de relleno: `routes/admin.js:58` es literalmente el arquetipo que los comentarios de
  * este trabajo citan dos veces —`.single()` sin leer el error, y un `if (!data)` que contesta
- * **404 "Usuario no encontrado"**— en la ruta que activa Pro después de un pago. Quedó como
+ * **404 "Usuario no encontrado"**—, en la ruta `/admin/activar`. **CORRECCIÓN (31-ago): acá
+ * decía "en la ruta que activa Pro después de un pago" y es falso.** `/activar` es el comp a
+ * mano, con "sin pago de por medio" escrito en su propio comentario; la ruta del pago es
+ * `/aprobar-pago`, que ya leía su error desde antes. El SITIO estaba bien medido y la frase
+ * pegada al lado no, que es la clase `feedback_numeros_sin_medicion` en su forma más barata.
+ * La mentira que el sitio produce es la misma —al admin se le dice que ese usuario no existe—
+ * y el arreglo no cambia; lo que cambiaba era a quién le pasa. Quedó como
  * ítem 21 del backlog con la medición hecha; no entra acá de arrastre por el mismo motivo por
  * el que `lib/` no entró en el guard del ítem 19.
  *

@@ -45,7 +45,11 @@ router.get('/gmail-auth-url', async (req, res) => {
   if (!usuarioId) return res.status(400).json({ ok: false, msg: 'Falta usuario_id' });
   // Trae `plan` y `trial_estado` porque las dos alimentan la decisión de abajo: una fila
   // parcial acá decidiría con `trial_estado: undefined` y abriría el gate.
-  const { data: usuario } = await supabase.from('usuarios').select('whatsapp, plan, trial_estado').eq('id', usuarioId).single();
+  const { data: usuario, error: errUsuario } = await supabase.from('usuarios').select('whatsapp, plan, trial_estado').eq('id', usuarioId).maybeSingle();
+  if (errUsuario) {
+    log.error({ tag: 'GMAIL_AUTH_URL', err: errUsuario.message, usuarioId }, 'No se pudo leer al usuario que pide conectar Gmail');
+    return res.status(500).json({ ok: false, msg: 'No pude leer tu cuenta. Reintenta.' });
+  }
   if (!usuario) return res.status(404).json({ ok: false, msg: 'Usuario no encontrado' });
   // Conectar Gmail consume un cupo de Google (100 hasta la certificación CASA), así que se
   // reserva para quien PAGA. Durante el trial `plan` ya vale 'premium' — por eso el predicado
@@ -89,13 +93,27 @@ router.post('/solicitud', express.raw({ type: 'application/octet-stream', limit:
     const imgBuffer = req.body;
     if (!imgBuffer || !imgBuffer.length) return res.status(400).json({ ok: false, msg: 'Falta la imagen del comprobante' });
 
-    const { data: usuario } = await supabase.from('usuarios').select('*').eq('id', usuarioId).single();
+    // Del otro lado de este 404 hay alguien que YA pago y esta subiendo su comprobante. Decirle
+    // "Usuario no encontrado" porque la base no contesto lo manda a pensar que su cuenta no
+    // existe en vez de a reintentar.
+    const { data: usuario, error: errUsuario } = await supabase.from('usuarios').select('*').eq('id', usuarioId).maybeSingle();
+    if (errUsuario) {
+      log.error({ tag: 'SOLICITUD_PRO', err: errUsuario.message, usuarioId }, 'No se pudo leer al usuario que sube comprobante');
+      return res.status(500).json({ ok: false, msg: 'No pude leer tu cuenta. Reintenta en un momento.' });
+    }
     if (!usuario) return res.status(404).json({ ok: false, msg: 'Usuario no encontrado' });
 
     // Nota: un usuario premium SÍ puede enviar solicitud (renovación); solo bloqueamos
     // tener dos solicitudes pendientes a la vez (anti-abuso).
-    const { data: pendiente } = await supabase.from('pagos')
+    // Falla CERRADO: esta lectura ES el anti-abuso. Con el error descartado, una caida daba
+    // `pendiente = null` y el gate se abria — una segunda fila en `pagos` y un segundo
+    // comprobante en Storage para el mismo usuario, que el admin ve como dos solicitudes.
+    const { data: pendiente, error: errPendiente } = await supabase.from('pagos')
       .select('id').eq('usuario_id', usuarioId).eq('estado', 'pendiente').limit(1).maybeSingle();
+    if (errPendiente) {
+      log.error({ tag: 'SOLICITUD_PRO', err: errPendiente.message, usuarioId }, 'No se pudo verificar si ya hay una solicitud pendiente');
+      return res.status(500).json({ ok: false, msg: 'No pude verificar tu solicitud. Reintenta en un momento.' });
+    }
     if (pendiente) return res.status(409).json({ ok: false, msg: 'Ya tienes una solicitud en revisión' });
 
     // Precio efectivo: aplica el 50% off de referido si está vigente (mensual → S/5). La fila

@@ -313,10 +313,13 @@ async function avisarPremioPendiente(referidoId, referrerId, motivo, claimDevuel
  */
 async function avisarReferrerPremio(referrer, venceStr, referrerId) {
   let totalPro = null;
-  try {
-    const { count } = await supabase.from('referidos').select('*', { count: 'exact', head: true }).eq('referrer_id', referrerId).eq('convertido_pro', true);
-    totalPro = count;
-  } catch(e) { /* el conteo es solo para el copy */ }
+  // El `try/catch` que envolvía esto era INALCANZABLE (supabase-js no lanza), o sea que "el
+  // conteo es solo para el copy" era una política que nunca se ejecutó. Ahora sí es la
+  // política, y explícita: `totalPro` se queda en null y la línea "ya llevas N amigos"
+  // desaparece del mensaje, que sigue siendo verdadero sin ella. El mes ya está otorgado.
+  const { count, error: errConteo } = await supabase.from('referidos').select('*', { count: 'exact', head: true }).eq('referrer_id', referrerId).eq('convertido_pro', true);
+  if (errConteo) log.warn({ tag: 'REFERIDO', err: errConteo.message, referrerId }, 'No se pudo contar los referidos Pro: el aviso sale sin esa línea');
+  else totalPro = count;
   const pn = referrer.nombre ? referrer.nombre.split(' ')[0] : null;
   const linea = (totalPro && totalPro > 0)
     ? 'Ya llevas *' + totalPro + '* ' + (totalPro === 1 ? 'amigo' : 'amigos') + ' que se hicieron Pro por tu recomendación.\n\n'
@@ -385,15 +388,23 @@ function mensajeMisReferidos(refCode, stats) {
  * @returns {Promise<{descuentoPct:number, referrerId:string|null, referrerNombre:string|null, yaPremiado:boolean}>}
  */
 async function resumenReferidoParaAdmin(referidoId) {
-  const out = { descuentoPct: 0, referrerId: null, referrerNombre: null, yaPremiado: false };
+  // `parcial` es la mitad que faltaba, y no es cosmética: este resumen es lo que el admin lee
+  // ANTES de aprobar un comprobante. Con las lecturas mudas, una caída devolvía los valores
+  // por defecto —0% de descuento, sin referrer— que son EXACTAMENTE los de un usuario sin
+  // referido. O sea que "no pude leer" se le presentaba al admin como "se esperan S/10", y
+  // ese admin podía rechazar un pago legítimo de S/5 o aprobar sin saber que alguien gana un
+  // mes gratis. El consumidor (`lib/pro-payment.js`) imprime la advertencia.
+  const out = { descuentoPct: 0, referrerId: null, referrerNombre: null, yaPremiado: false, parcial: false };
   try {
-    const { data: u } = await supabase.from('usuarios').select('referido_dscto_pct, referido_dscto_vence').eq('id', referidoId).single();
+    const { data: u, error: errU } = await supabase.from('usuarios').select('referido_dscto_pct, referido_dscto_vence').eq('id', referidoId).maybeSingle();
+    if (errU) { out.parcial = true; log.warn({ tag: 'REFERIDO', err: errU.message, referidoId }, 'No se pudo leer el descuento de referido'); }
     if (u && u.referido_dscto_pct) {
       const hoy = hoyPeru();
       const vence = u.referido_dscto_vence ? String(u.referido_dscto_vence).slice(0, 10) : null;
       if (vence && vence >= hoy) out.descuentoPct = u.referido_dscto_pct;
     }
-    const { data: ref } = await supabase.from('referidos').select('referrer_id, convertido_pro, premio_otorgado_at').eq('referido_id', referidoId).maybeSingle();
+    const { data: ref, error: errRef } = await supabase.from('referidos').select('referrer_id, convertido_pro, premio_otorgado_at').eq('referido_id', referidoId).maybeSingle();
+    if (errRef) { out.parcial = true; log.warn({ tag: 'REFERIDO', err: errRef.message, referidoId }, 'No se pudo leer la fila de referidos'); }
     if (ref && ref.referrer_id) {
       out.referrerId = ref.referrer_id;
       // `convertido_pro` significa "el referido pagó", NO "al referrer se le pagó
@@ -401,10 +412,20 @@ async function resumenReferidoParaAdmin(referidoId) {
       // (premio debido y no otorgado). Mirar solo el primero le decía al admin "ya
       // premiado" justo en el único caso donde el mes NO se acreditó.
       out.yaPremiado = !!ref.premio_otorgado_at;
-      const { data: r } = await supabase.from('usuarios').select('nombre').eq('id', ref.referrer_id).single();
+      const { data: r, error: errR } = await supabase.from('usuarios').select('nombre').eq('id', ref.referrer_id).maybeSingle();
+      // Ésta NO marca `parcial`: el `referrerId` ya está resuelto y el consumidor lo imprime
+      // cuando falta el nombre, así que el admin no pierde ninguna decisión, sólo legibilidad.
+      if (errR) log.warn({ tag: 'REFERIDO', err: errR.message, referrerId: ref.referrer_id }, 'No se pudo leer el nombre del referrer');
       out.referrerNombre = (r && r.nombre) || null;
     }
-  } catch(e) { log.warn({ tag: 'REFERIDO', err: e.message, referidoId }, 'No se pudo armar el resumen de referido para el admin'); }
+  } catch(e) {
+    // `parcial` también acá: si algo de este bloque lanza sin ser una query (`hoyPeru()`, el
+    // `String(...).slice`), la función devolvía el default completo con `parcial: false` — o
+    // sea "se presentó como completo", que es justo lo que la bandera existe para evitar, por
+    // la única puerta que no cubría. Lo encontró la revisión adversarial.
+    out.parcial = true;
+    log.warn({ tag: 'REFERIDO', err: e.message, referidoId }, 'No se pudo armar el resumen de referido para el admin');
+  }
   return out;
 }
 

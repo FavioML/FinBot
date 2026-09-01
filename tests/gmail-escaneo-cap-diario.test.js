@@ -47,22 +47,40 @@ function tabla(nombre) {
     order() { return q; },
     eq(col, val) { q._f[col] = val; return q; },
     gte(col, val) { q._f['gte:' + col] = val; return q; },
-    single: async () => ({ data: null, error: null }),
-    maybeSingle: async () => ({ data: null, error: null }),
+    // **`limit()` devuelve el BUILDER, no una promesa**, y modelarlo como terminador rompía
+    // cualquier `.limit(n).maybeSingle()`. Se cambió el 31-ago-2026, cuando el pre-check de
+    // dedupe de `gmail-scanner` pasó a `.limit(1).maybeSingle()` (el índice único de
+    // `transacciones` es PARCIAL, así que puede haber dos filas y `maybeSingle` sintetiza un
+    // PGRST116 sin el `limit`). Con el doble viejo, `.maybeSingle()` se llamaba sobre una
+    // Promise, tiraba TypeError, lo tragaba el `catch` del `mapPool` y **el correo entero se
+    // salteaba en silencio**: tres casos de este archivo rojos por el doble, no por el código.
     limit() {
       if (nombre === 'notificaciones') {
         filtrosDedup = { ...q._f };
-        return Promise.resolve({ data: errorDedup ? null : avisosDeHoy, error: errorDedup });
+        terminal = { data: errorDedup ? null : avisosDeHoy, error: errorDedup };
+      } else {
+        terminal = { data: [], error: null };
       }
-      return Promise.resolve({ data: [], error: null });
+      return q;
     },
+    single: async () => unaFila(),
+    maybeSingle: async () => unaFila(),
     then(res) {
+      if (terminal) return Promise.resolve(terminal).then(res);
       const filas =
         nombre === 'usuarios'
           ? [{ id: 'u1', plan: 'premium', estado_pago: 'pagado', premium_vence: '2099-01-01', whatsapp: '51999', gmail_access_token: 'tok' }]
           : [];
       return Promise.resolve({ data: filas, error: null }).then(res);
     },
+  };
+  /** Lo que resuelven `then`/`maybeSingle` después de un `.limit()`. Null = no hubo. */
+  let terminal = null;
+  /** Un terminador de fila única colapsa la lista; sin `limit()` previo, no hay nada que dar. */
+  const unaFila = () => {
+    if (!terminal) return { data: null, error: null };
+    const { data, error } = terminal;
+    return Array.isArray(data) ? { data: data.length ? data[0] : null, error } : { data, error };
   };
   return q;
 }

@@ -55,7 +55,16 @@ router.post('/activar', async (req, res) => {
   const { whatsapp } = req.body;
   if (!whatsapp) return res.status(400).json({ ok: false, msg: 'Falta whatsapp' });
   const numero = whatsapp.replace(/\+/g, '').replace(/^0/, '');
-  const { data: usuarioActivar } = await supabase.from('usuarios').select('*').eq('whatsapp', numero).single();
+  // `maybeSingle` + `if (error)` separado del `if (!data)`, molde de `resolverSolicitudPro`.
+  // Con `.single()` y cero filas el error es PGRST116, asi que un `if (error)` a secas
+  // convertiria "no existe" en "no pude leer", que es la mentira simetrica de la que habia:
+  // la lectura muda contestaba **404 "Usuario no encontrado"** al admin que acaba de pedir un
+  // comp, mandandolo a buscar un alta que si existe.
+  const { data: usuarioActivar, error: errActivar } = await supabase.from('usuarios').select('*').eq('whatsapp', numero).maybeSingle();
+  if (errActivar) {
+    log.error({ tag: 'ADMIN_ACTIVAR', err: errActivar.message, numero }, 'No se pudo leer el usuario a activar');
+    return res.status(500).json({ ok: false, msg: 'No pude leer el usuario. Reintenta.' });
+  }
   if (!usuarioActivar) return res.status(404).json({ ok: false, msg: 'Usuario no encontrado' });
   try {
     // El aviso al usuario (WhatsApp + in-app, por el chokepoint `notificarUsuario`) sale
@@ -80,7 +89,13 @@ router.post('/activar', async (req, res) => {
 // GET /admin/pendientes — ver pagos pendientes
 router.get('/pendientes', async (req, res) => {
   if (!verificarAdmin(req, res)) return;
-  const { data } = await supabase.from('usuarios').select('whatsapp, nombre, plan, pago_pendiente, pago_referencia, created_at').eq('pago_pendiente', true);
+  // Sin leer el error, una caida devolvia `pendientes: []` con `ok: true`: el panel decia
+  // "no hay nadie esperando" justo cuando alguien pago y mando su comprobante.
+  const { data, error } = await supabase.from('usuarios').select('whatsapp, nombre, plan, pago_pendiente, pago_referencia, created_at').eq('pago_pendiente', true);
+  if (error) {
+    log.error({ tag: 'ADMIN_PENDIENTES', err: error.message }, 'No se pudieron leer los pagos pendientes');
+    return res.status(500).json({ ok: false, msg: 'No pude leer los pagos pendientes. Reintenta.' });
+  }
   res.json({ ok: true, pendientes: data || [] });
 });
 
@@ -135,7 +150,14 @@ router.get('/pagos', async (req, res) => {
     let query = supabase.from('pagos').select('*').order('created_at', { ascending: false });
     if (usuarioId) query = query.eq('usuario_id', usuarioId);
     else query = query.limit(100);
-    const { data: pagos } = await query;
+    // Una lista vacia por caida se lee igual que "este usuario nunca pago", y esto es la
+    // constancia de suscripcion. El 500 obliga a reintentar en vez de dar por buena una
+    // historia de pagos vacia.
+    const { data: pagos, error: errPagos } = await query;
+    if (errPagos) {
+      log.error({ tag: 'ADMIN_PAGOS', err: errPagos.message, usuarioId }, 'No se pudo leer el historial de pagos');
+      return res.status(500).json({ ok: false, msg: 'No pude leer los pagos. Reintenta.' });
+    }
     // Firmar URLs de comprobantes (bucket privado, 1h)
     for (const p of pagos || []) {
       if (p.comprobante_url) {
@@ -160,9 +182,15 @@ router.get('/pagos', async (req, res) => {
 router.get('/usuarios', async (req, res) => {
   if (!verificarAdmin(req, res)) return;
   try {
-    const { data } = await supabase.from('usuarios')
+    // Con la lectura caida esto devolvia `usuarios: []` y `total: 0` con `ok: true`: el panel
+    // afirmaba que no hay ni un registrado habiendo mas de cien.
+    const { data, error } = await supabase.from('usuarios')
       .select('id, whatsapp, nombre, email, plan, onboarding_completado, gmail_access_token, created_at, premium_vence, supabase_auth_id')
       .order('created_at', { ascending: false });
+    if (error) {
+      log.error({ tag: 'ADMIN_USUARIOS', err: error.message }, 'No se pudo leer la lista de usuarios');
+      return res.status(500).json({ ok: false, msg: 'No pude leer los usuarios. Reintenta.' });
+    }
     const usuarios = (data || []).map(u => ({
       id: u.id,
       whatsapp: u.whatsapp,
@@ -190,8 +218,18 @@ router.get('/stats', async (req, res) => {
     const hace7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const hace30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
+    // **Las seis lecturas de este tablero fallan JUNTAS o no fallan.** Una metrica que sale
+    // en cero porque la base no contesto es indistinguible de un cero real, y este endpoint
+    // es de donde salen los numeros que se miran para decidir. Un tablero a medias con
+    // `ok: true` es peor que ninguno: el 500 dice "no se". Ver `feedback_datos_y_metricas`.
+    const fallo = (etiqueta, error) => {
+      log.error({ tag: 'ADMIN_STATS', err: error.message, consulta: etiqueta }, 'No se pudo leer una metrica del tablero');
+      return res.status(500).json({ ok: false, msg: 'No pude leer las metricas (' + etiqueta + '). Reintenta.' });
+    };
+
     // `trial_estado` la exige `esProPagado`: sin ella la respuesta sería false para todos.
-    const { data: allUsers } = await supabase.from('usuarios').select('id, plan, trial_estado, onboarding_completado, gmail_access_token, created_at');
+    const { data: allUsers, error: errUsers } = await supabase.from('usuarios').select('id, plan, trial_estado, onboarding_completado, gmail_access_token, created_at');
+    if (errUsers) return fallo('usuarios', errUsers);
     const totalUsuarios = (allUsers || []).length;
     const conGmail = (allUsers || []).filter(u => !!u.gmail_access_token).length;
     const modoManual = (allUsers || []).filter(u => u.onboarding_completado && !u.gmail_access_token).length;
@@ -199,17 +237,22 @@ router.get('/stats', async (req, res) => {
     const premium = (allUsers || []).filter(esProPagado).length;
     const nuevos7d = (allUsers || []).filter(u => u.created_at >= hace7).length;
 
-    const { count: txsHoy } = await supabase.from('transacciones').select('id', { count: 'exact', head: true }).eq('fecha', hoy);
-    const { count: txs7d } = await supabase.from('transacciones').select('id', { count: 'exact', head: true }).gte('fecha', hace7);
-    const { count: txs30d } = await supabase.from('transacciones').select('id', { count: 'exact', head: true }).gte('fecha', hace30);
+    const { count: txsHoy, error: errHoy } = await supabase.from('transacciones').select('id', { count: 'exact', head: true }).eq('fecha', hoy);
+    if (errHoy) return fallo('transacciones-hoy', errHoy);
+    const { count: txs7d, error: err7d } = await supabase.from('transacciones').select('id', { count: 'exact', head: true }).gte('fecha', hace7);
+    if (err7d) return fallo('transacciones-7d', err7d);
+    const { count: txs30d, error: err30d } = await supabase.from('transacciones').select('id', { count: 'exact', head: true }).gte('fecha', hace30);
+    if (err30d) return fallo('transacciones-30d', err30d);
 
-    const { data: txsCat } = await supabase.from('transacciones').select('categoria, monto_pen').eq('tipo', 'gasto').gte('fecha', hace30);
+    const { data: txsCat, error: errCat } = await supabase.from('transacciones').select('categoria, monto_pen').eq('tipo', 'gasto').gte('fecha', hace30);
+    if (errCat) return fallo('top-categorias', errCat);
     const porCat = {};
     (txsCat || []).forEach(t => { const c = t.categoria || 'Otros'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto_pen || 0); });
     const topCategorias = Object.entries(porCat).sort((a, b) => b[1] - a[1]).slice(0, 5)
       .map(([cat, total]) => ({ categoria: cat, total: parseFloat(total.toFixed(2)) }));
 
-    const { data: txsBanco } = await supabase.from('transacciones').select('banco').gte('fecha', hace30).not('banco', 'is', null);
+    const { data: txsBanco, error: errBanco } = await supabase.from('transacciones').select('banco').gte('fecha', hace30).not('banco', 'is', null);
+    if (errBanco) return fallo('top-bancos', errBanco);
     const porBanco = {};
     (txsBanco || []).forEach(t => { porBanco[t.banco] = (porBanco[t.banco] || 0) + 1; });
     const topBancos = Object.entries(porBanco).sort((a, b) => b[1] - a[1]).slice(0, 5)
@@ -245,7 +288,11 @@ router.post('/notify', async (req, res) => {
     let nombre = null;
     let userId = usuario_id || null;
     if (userId && !numero) {
-      const { data: u } = await supabase.from('usuarios').select('whatsapp, nombre').eq('id', userId).single();
+      const { data: u, error: errU } = await supabase.from('usuarios').select('whatsapp, nombre').eq('id', userId).maybeSingle();
+      if (errU) {
+        log.error({ tag: 'ADMIN_NOTIFY', err: errU.message, userId }, 'No se pudo leer el usuario a notificar');
+        return res.status(500).json({ ok: false, msg: 'No pude leer el usuario. Reintenta.' });
+      }
       if (!u) return res.status(404).json({ ok: false, msg: 'Usuario no encontrado' });
       numero = u.whatsapp;
       nombre = u.nombre;
@@ -256,13 +303,22 @@ router.post('/notify', async (req, res) => {
       return res.status(400).json({ ok: false, msg: 'Numero whatsapp invalido' });
     }
     if (!userId) {
-      const { data: u } = await supabase.from('usuarios').select('id, nombre').eq('whatsapp', numero).single();
+      // **Esta falla ABIERTO, y es la unica de este archivo que lo hace.** El numero ya esta
+      // validado y el mensaje se manda igual: lo unico que se pierde sin este id es la fila en
+      // `conversaciones`, y la respuesta ya lo dice con `saved_in_history`. Cortar el envio
+      // por una lectura que solo sirve para archivar seria apagar un efecto correcto —
+      // exactamente lo que el item 20 pago con el aviso del autocierre.
+      const { data: u, error: errU } = await supabase.from('usuarios').select('id, nombre').eq('whatsapp', numero).maybeSingle();
+      if (errU) log.error({ tag: 'ADMIN_NOTIFY', err: errU.message, numero }, 'No se pudo resolver el usuario por numero: el mensaje sale igual, sin fila en conversaciones');
       if (u) { userId = u.id; nombre = u.nombre; }
     }
     await enviarWhatsapp(numero, mensaje);
     let saved = false;
     if (userId) {
-      try { await guardarMensaje(userId, 'neto', mensaje); saved = true; }
+      // `saved` sale del RETORNO, no de que no haya excepción: `guardarMensaje` no lanza nunca
+      // (su catch se traga todo), así que el `try` de acá informaba `true` sobre un INSERT
+      // rechazado. El try se queda igual por si algún día lanza de verdad.
+      try { saved = await guardarMensaje(userId, 'neto', mensaje) === true; }
       catch(e) { log.error({ tag: 'ADMIN_NOTIFY', err: e.message }, 'No se pudo guardar mensaje en conversaciones'); }
     }
     log.info({ tag: 'ADMIN_NOTIFY', numero, len: mensaje.length, saved }, 'Mensaje admin enviado');
@@ -281,7 +337,14 @@ router.get('/errores', async (req, res) => {
     const soloNoResueltos = req.query.resueltos !== 'true';
     let query = supabase.from('errores').select('*').order('created_at', { ascending: false }).limit(limite);
     if (soloNoResueltos) query = query.eq('resuelto', false);
-    const { data } = await query;
+    // "No hay errores" es justo lo que esta ruta contestaba cuando la tabla de errores no
+    // respondia. Es la tabla de donde salen los stacks de produccion: un cero falso ahi manda
+    // a buscar el problema a otro lado.
+    const { data, error } = await query;
+    if (error) {
+      log.error({ tag: 'ADMIN_ERRORES', err: error.message }, 'No se pudo leer la tabla de errores');
+      return res.status(500).json({ ok: false, msg: 'No pude leer los errores. Reintenta.' });
+    }
     res.json({ ok: true, errores: data || [], total: (data || []).length });
   } catch(e) {
     res.status(500).json({ ok: false, msg: 'Error consultando errores' });
@@ -432,8 +495,15 @@ router.post('/referido-web', async (req, res) => {
   if (!/^[A-Z0-9]{4,12}$/.test(code)) return res.status(400).json({ ok: false, msg: 'ref_code inválido' });
   try {
     // Resolver referrer excluyendo al propio referido (anti auto-referirse), igual que el webhook.
-    const { data: referrer } = await supabase.from('usuarios')
+    const { data: referrer, error: errReferrer } = await supabase.from('usuarios')
       .select('id').eq('ref_code', code).neq('id', referido_id).maybeSingle();
+    // Sin leer el error, una caida devolvia `ok: true, linked: false` — o sea "ese codigo no
+    // existe" — y el vinculo se perdia para siempre: nadie reintenta un no-op exitoso, y de
+    // ese vinculo cuelgan el mes gratis del referrer y el 50% off del referido.
+    if (errReferrer) {
+      log.error({ tag: 'REFERIDO_WEB', err: errReferrer.message, code }, 'No se pudo resolver el ref_code');
+      return res.status(500).json({ ok: false, msg: 'No pude validar el codigo. Reintenta.' });
+    }
     if (!referrer) return res.json({ ok: true, linked: false }); // code inexistente o self: no-op silencioso
     await registrarReferido(referrer.id, referido_id);
     res.json({ ok: true, linked: true });
