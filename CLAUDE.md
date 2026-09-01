@@ -1392,8 +1392,24 @@ demuestra (los defectos de `docs/DEFECTOS.md` del 03 y 04 de agosto los encontro
 barrido posterior, nunca mi propia verificacion, que estaba verde).
 
 Aplica a: `lib/trial.js` y sus consumidores, `services/referrals.js`, `lib/pro-payment.js`,
-los gates (`intents-acceso.js`, chokepoint, `requireLectura`), los crons que empujan, `gmail.js`
-y toda migracion. NO aplica a copy, docs ni cambios de UI sin logica de plan.
+los gates (`intents-acceso.js`, chokepoint, `requireLectura`), los crons que empujan, `gmail.js`,
+toda migracion, y **todo GUARD nuevo que yo escriba**. NO aplica a copy, docs ni cambios de UI
+sin logica de plan.
+
+**Los guards entraron el 01-sep-2026 y no son una categoria mas: son la unica que la suite no
+puede cubrir por definicion.** Un guard roto es el instrumento midiendo mal, asi que su propio
+verde no dice nada. Los dos hallazgos mas caros del item 23 fueron eso:
+
+- el guard nuevo era evadible ENTERO con un `class`, porque el troceo solo ancla en la columna 0.
+  Medido: con un `services/` nuevo que trae el corte Y un `SOLO_WHATSAPP` sin filtro, la suite
+  queda en **163 de 163 archivos y 2972 de 2972 casos** — o sea que el conteo **ni se movio**.
+  Agregar un archivo de runtime con el defecto adentro no produce ni un test nuevo ni un rojo;
+  con el arreglo puesto, el mismo archivo da 1 failed;
+- el doble de Supabase de mi harness devolvia la fila borrada mire lo que mire, con lo cual
+  apuntar el DELETE al id equivocado —el bug exacto que el arreglo existe para evitar— salia
+  **1 passed**.
+
+Ninguna de las dos la puede encontrar un test: son defectos DE los tests.
 
 **El ARREGLO al hallazgo tambien se revisa.** El ciclo no es auditar → arreglar → verificar
 → push: es auditar → arreglar → verificar → **revisar el arreglo** → push. El 2026-08-04 se
@@ -1410,6 +1426,12 @@ El prompt del revisor, corto y adversarial: *"Aca esta el diff. Encontra las rut
 ejercitaron: la rama de error de cada await (¿el cliente lanza o devuelve el error?), el usuario
 en el muro, el que no tiene WhatsApp, el proceso que muere sin cleanup. Si se movio o unifico
 codigo, decime que EFECTOS LATERALES viajaron con el. No valides lo que ya esta probado."*
+
+**Y si el diff trae un guard, al guard se lo ATACA, no se lo lee**: *"escribi codigo realista que
+reintroduzca el defecto y deje el guard VERDE, aplicalo al arbol, corre la suite y decime cual
+paso."* Es la frase que separa un hallazgo de una opinion. Las dos evasiones del item 23 llegaron
+con su medicion al lado porque el revisor ejecuto; leyendo el mismo diff no se ven, y el guard
+verde por evasion es indistinguible del guard verde por correccion.
 
 Todo defecto que aparezca —lo encuentre quien lo encuentre— se registra en `docs/DEFECTOS.md`
 el mismo dia. La lista de verificacion completa vive en la memoria
