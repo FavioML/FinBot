@@ -26,7 +26,17 @@ async function procesarComandoAdmin(cmd, rawText = cmd) {
   // /activar <numero_whatsapp> — activa Pro 1 mes (sin link OAuth)
   if (cmd.startsWith('/activar ')) {
     const numeroActivar = cmd.replace('/activar ', '').trim().replace(/\+/g, '');
-    const { data: usuarioActivar } = await supabase.from('usuarios').select('*').eq('whatsapp', numeroActivar).single();
+    // `maybeSingle` + leer el `{ error }`, mismo molde que `resolverSolicitudPro` ocho líneas
+    // más abajo. Con `single` y cero filas el error es `PGRST116`, así que un `if (error)` a
+    // secas convertiría "ese número no existe" en un fallo de infraestructura; y sin leerlo,
+    // una lectura caída salía por la misma puerta que "no existe" y mandaba a buscar un alta
+    // que SÍ está. Ítem 19 del backlog.
+    const { data: usuarioActivar, error: errActivar } = await supabase.from('usuarios')
+      .select('*').eq('whatsapp', numeroActivar).maybeSingle();
+    if (errActivar) {
+      log.error({ tag: 'ADMIN_CMD', err: errActivar.message, cmd: '/activar' }, 'No se pudo leer el usuario');
+      return '⚠️ No pude leer al usuario. Reintenta en un momento.';
+    }
     if (!usuarioActivar) {
       return '❌ No encontre un usuario con el numero: ' + numeroActivar;
     }
@@ -52,7 +62,12 @@ async function procesarComandoAdmin(cmd, rawText = cmd) {
     const partes = cmd.replace('/pago ', '').trim().split(/\s+/);
     const numeroPago = (partes[0] || '').replace(/\+/g, '');
     const tipoPlan = partes[1] || 'mensual';
-    const { data: usuarioPago } = await supabase.from('usuarios').select('*').eq('whatsapp', numeroPago).single();
+    const { data: usuarioPago, error: errPago } = await supabase.from('usuarios')
+      .select('*').eq('whatsapp', numeroPago).maybeSingle();
+    if (errPago) {
+      log.error({ tag: 'ADMIN_CMD', err: errPago.message, cmd: '/pago' }, 'No se pudo leer el usuario');
+      return '⚠️ No pude leer al usuario. Reintenta en un momento.';
+    }
     if (!usuarioPago) {
       return '❌ No encontré un usuario con el número: ' + numeroPago;
     }
@@ -64,7 +79,14 @@ async function procesarComandoAdmin(cmd, rawText = cmd) {
   if (cmd === '/usuarios' || cmd === '/admin' || cmd === '/panel') {
     // `trial_estado` va en el select porque `esProPagado` la NECESITA para decidir: una
     // fila parcial no puede responder "¿paga?" y devolvería false para todos.
-    const { data: todos } = await supabase.from('usuarios').select('whatsapp, nombre, plan, trial_estado, pago_pendiente, estado_pago, created_at').order('created_at', { ascending: false }).limit(20);
+    const { data: todos, error: errPanel } = await supabase.from('usuarios').select('whatsapp, nombre, plan, trial_estado, pago_pendiente, estado_pago, created_at').order('created_at', { ascending: false }).limit(20);
+    if (errPanel) {
+      log.error({ tag: 'ADMIN_CMD', err: errPanel.message, cmd: '/panel' }, 'No se pudo leer el panel');
+      return '⚠️ No pude leer el panel. Reintenta en un momento.';
+    }
+    // De los tres, éste es el que se delata solo — "No hay usuarios registrados" con más de
+    // cien en la base es absurdo a la vista. Los otros dos no: "no encontré ese número" es
+    // exactamente lo que uno esperaría leer si se equivocó al tipearlo.
     if (!todos || todos.length === 0) return 'No hay usuarios registrados.';
     // `plan === 'premium'` es TRUE durante el trial, así que este panel contaba a quien
     // está probando como Pro pagado y el número de conversión salía inflado (M16).
