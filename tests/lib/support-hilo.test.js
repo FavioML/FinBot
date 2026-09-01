@@ -53,7 +53,7 @@ for (const [rel, exports] of [
   require.cache[p] = { id: p, filename: p, loaded: true, exports };
 }
 
-const { registrarMensajeTicket, obtenerHiloTicket, obtenerSesionAbierta } = require('../../lib/support-tickets');
+const { registrarMensajeTicket, obtenerHiloTicket, obtenerSesionAbierta, abrirSesion } = require('../../lib/support-tickets');
 
 beforeEach(() => {
   db.errores = {};
@@ -71,7 +71,7 @@ function sesionDeHace(horas) {
   return { data: [{ id: 't1', usuario_id: 'u1', whatsapp: '51999', estado: 'respondido', updated_at: ts, created_at: ts }], error: null };
 }
 
-describe('la ventana de escucha: corta, deslizante, y avisa al cerrarse', () => {
+describe('la ventana de escucha: corta, deslizante, y avisa al cerrarse salvo a quien lo pidió', () => {
   // El diseño viejo era un INTERRUPTOR de 48h: mientras la sesión estuviera abierta, TODO
   // mensaje de esa persona iba al admin y su asistente quedaba muerto. Un olvido del admin le
   // apagaba el bot dos días a alguien que sólo quería anotar un gasto.
@@ -91,6 +91,54 @@ describe('la ventana de escucha: corta, deslizante, y avisa al cerrarse', () => 
     // bot y la persona recibe a Neto hablándole de gastos sobre una pregunta de soporte.
     expect(waMock.enviarWhatsapp).toHaveBeenCalledOnce();
     expect(String(waMock.enviarWhatsapp.mock.calls[0][1])).toMatch(/sin actividad|asistente/i);
+  });
+
+  // ── Los DOS caminos del mismo autocierre ──────────────────────────────────────────────
+  //
+  // El aviso de arriba lo manda el autocierre, pero **no es del autocierre: es del RUTEO**. Por
+  // eso los dos tests que siguen no se pueden colapsar en uno: en el de arriba la persona no
+  // pidió nada y su mensaje se lo lleva el bot (callar ahí es peor que el silencio), y en el de
+  // abajo la persona escribió `/soporte` y va a tener soporte (avisar ahí es desmentirse).
+  //
+  // Un test que sólo cubriera el de abajo pasaría en verde con el aviso silenciado dentro de
+  // `obtenerSesionAbierta`, que es el arreglo equivocado y se ve idéntico desde acá.
+
+  it('/soporte sobre una sesión vencida: la cierra, abre la nueva, y NO manda el aviso de ruteo', async () => {
+    // El defecto que cierra el ítem 22: `abrirSesion` empieza llamando a `obtenerSesionAbierta`,
+    // así que la persona recibía "💚 … Volví a ser tu asistente" y, pisándolo, "👤 Modo soporte
+    // activado". Los dos ciertos por separado; juntos, el bot desmintiéndose en dos mensajes.
+    db.cola = [
+      sesionDeHace(3),                                                  // la vencida, al entrar
+      { data: [{ id: 't1', whatsapp: '51999' }], error: null },         // la que lee cerrarSesion
+      { data: null, error: null },                                      // el UPDATE del cierre
+      { data: { id: 't-nuevo' }, error: null },                         // el insert de la nueva
+    ];
+
+    const r = await abrirSesion({ usuarioId: 'u1', whatsapp: '51999' });
+
+    // Que no llegue el aviso NO puede venir de que no se haya cerrado nada: si la vencida
+    // siguiera abierta, `cerrarSesion` cortaría antes de decidir el aviso y este test daría
+    // verde sin ejercitar la línea que arregla el ítem. Y además `abrirSesion` devolvería
+    // `yaAbierta: true` sobre una sesión muerta, o sea "ya estás en modo soporte".
+    expect(db.updates.some((u) => u.patch.estado === 'cerrado'), 'la vencida quedó abierta').toBe(true);
+    expect(r).toEqual({ yaAbierta: false, ticket: { id: 't-nuevo' } });
+
+    expect(waMock.enviarWhatsapp, 'el segundo mensaje que se contradice con "Modo soporte activado"')
+      .not.toHaveBeenCalled();
+  });
+
+  it('CONTROL: /soporte sobre una sesión VIVA no cierra nada y tampoco avisa', async () => {
+    // Separa "no avisó porque se silenció el autocierre" de "no avisó porque no hubo autocierre".
+    // Sin esto, el test de arriba pasaría igual con un `abrirSesion` que cierre siempre o que no
+    // cierre nunca.
+    db.cola = [sesionDeHace(0.17)];
+
+    const r = await abrirSesion({ usuarioId: 'u1', whatsapp: '51999' });
+
+    expect(r.yaAbierta).toBe(true);
+    expect(r.ticket.id).toBe('t1');
+    expect(db.updates.some((u) => u.patch.estado === 'cerrado')).toBe(false);
+    expect(waMock.enviarWhatsapp).not.toHaveBeenCalled();
   });
 
   it('a los 10 minutos sigue viva: una conversación en curso no se corta', async () => {
