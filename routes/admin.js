@@ -169,7 +169,19 @@ router.get('/pagos', async (req, res) => {
     // quién lo refirió, para que el admin apruebe sabiendo que se espera S/5 y quién gana el mes.
     let referido = null;
     if (usuarioId) {
-      try { referido = await resumenReferidoParaAdmin(usuarioId); } catch (e) { log.warn({ tag: 'ADMIN_PAGOS', err: e.message }, 'No se pudo leer el contexto de referido'); }
+      try {
+        referido = await resumenReferidoParaAdmin(usuarioId);
+      } catch (e) {
+        log.warn({ tag: 'ADMIN_PAGOS', err: e.message, usuarioId }, 'No se pudo leer el contexto de referido');
+        // **Se responde con `parcial: true`, no con `null`.** Un `null` acá viaja hasta el
+        // panel y se lee igual que "este usuario no tiene referido", que es el colapso que
+        // la bandera existe para romper — un nivel más arriba de donde se rompió. Hoy es
+        // inalcanzable porque `resumenReferidoParaAdmin` se traga todo en su propio
+        // try/catch y nunca lanza, pero eso es una propiedad de esa función y no un
+        // contrato: el día que alguien le agregue un `throw`, la pantalla donde se aprueba
+        // un pago vuelve a callar. Cuesta una línea.
+        referido = { descuentoPct: 0, referrerId: null, referrerNombre: null, yaPremiado: false, parcial: true };
+      }
     }
     res.json({ ok: true, pagos: pagos || [], referido });
   } catch (e) {

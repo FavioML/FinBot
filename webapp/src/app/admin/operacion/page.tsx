@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 // Los precios salen de una sola fuente (lib/constants), nunca escritos a mano.
 import { PRO_PRICE_MONTHLY_PEN, PRO_PRICE_YEARLY_PEN } from '@/lib/constants';
 import { toCsv, downloadCsv } from '@/lib/csv-export';
+import { avisosReferido, type ResumenReferido } from '@/lib/admin-referido';
 import {
   useAdminStats,
   useAdminUsers,
@@ -433,14 +434,26 @@ function PaymentsModal({
   setToast: (m: string) => void;
 }) {
   const [pagos, setPagos] = useState<Pago[]>([]);
-  const [referido, setReferido] = useState<{ descuentoPct: number; referrerNombre: string | null; yaPremiado: boolean } | null>(null);
+  // El tipo sale de `@/lib/admin-referido` y no se escribe inline: le faltaba `parcial`, que
+  // es justo el campo que el backend manda y esta pantalla ignoraba.
+  const [referido, setReferido] = useState<ResumenReferido | null>(null);
   const [loading, setLoading] = useState(true);
+  // **"No se pudo leer" no es "no hay".** Con el GET caído `pagos` queda en `[]` y la
+  // pantalla decía "Sin pagos registrados todavía." sobre un historial que no se pudo
+  // consultar — el mismo colapso que este modal acaba de arreglar para el contexto de
+  // referido, dos líneas más abajo, y el que `routes/admin.js` convirtió en 500 a propósito
+  // ("una lista vacía por caída se lee igual que este usuario nunca pagó"). El toast es
+  // transitorio y el botón de aprobar se pinta igual, porque `hasPending` sale de la fila
+  // del usuario y no del fetch: el admin podía aprobar sin historial y sin aviso de
+  // referido, creyendo que los había visto.
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [planSel, setPlanSel] = useState<string>(user.tipo_plan || 'mensual');
 
   useEffect(() => {
     (async () => {
       setLoading(true);
+      setErrorCarga(null);
       const res = await fetch(`/api/admin/payments?user_id=${user.id}`);
       if (res.ok) {
         const json = await res.json();
@@ -448,13 +461,16 @@ function PaymentsModal({
         setReferido(json.referido || null);
       } else {
         const json = await res.json().catch(() => ({}));
-        setToast(json.error || 'Error cargando pagos');
+        const msg = json.error || 'Error cargando pagos';
+        setErrorCarga(msg);
+        setToast(msg);
       }
       setLoading(false);
     })();
   }, [user.id, setToast]);
 
   const hasPending = user.pago_pendiente || pagos.some((p) => p.estado === 'pendiente');
+  const avisos = avisosReferido(referido);
 
   const approve = async () => {
     setBusy(true);
@@ -498,20 +514,23 @@ function PaymentsModal({
           </button>
         </div>
 
-        {referido && (referido.descuentoPct > 0 || referido.referrerNombre) && (
+        {/*
+          La condición de render vivía acá y era `descuentoPct > 0 || referrerNombre`, que es
+          exactamente FALSA cuando la lectura del contexto de referido falló: el default de
+          `resumenReferidoParaAdmin` (0% y sin referrer) es idéntico al de un usuario sin
+          referido. O sea que la pantalla donde se aprueba el pago no mostraba nada justo
+          cuando había algo que decir. Ahora decide `avisosReferido`, que es una función pura
+          con su test — los tests de la webapp corren sin jsdom, así que una decisión adentro
+          del JSX sólo se puede vigilar con un guard de forma, y un guard de forma no ve qué
+          se muestra cuando algo falla.
+        */}
+        {avisos.length > 0 && (
           <div className="mb-4 space-y-1 rounded-xl border border-[#1D9E75]/20 bg-[#1D9E75]/[0.06] p-3 text-xs text-[#F0EFE8]/80">
-            {referido.descuentoPct > 0 && (
-              <div>
-                &#127903; Referido con {referido.descuentoPct}% off — se espera{' '}
-                <span className="font-semibold text-[#1D9E75]">S/ {(PRO_PRICE_MONTHLY_PEN * (100 - referido.descuentoPct) / 100).toFixed(2)}</span> (no S/ {PRO_PRICE_MONTHLY_PEN.toFixed(2)})
+            {avisos.map((a, i) => (
+              <div key={i} className={a.tono === 'advertencia' ? 'font-medium text-amber-300' : undefined}>
+                {a.tono === 'advertencia' ? '\u26A0\uFE0F ' : '\u2022 '}{a.texto}
               </div>
-            )}
-            {referido.referrerNombre && (
-              <div>
-                &#128101; Referido de <span className="font-medium">{referido.referrerNombre}</span> —{' '}
-                {referido.yaPremiado ? 'ya recibió su mes' : 'gana 1 mes gratis al aprobar'}
-              </div>
-            )}
+            ))}
           </div>
         )}
 
@@ -541,6 +560,10 @@ function PaymentsModal({
 
         {loading ? (
           <div className="py-8 text-center text-sm text-[#F0EFE8]/40">Cargando...</div>
+        ) : errorCarga ? (
+          <div className="py-8 text-center text-sm font-medium text-amber-300">
+            {'\u26A0\uFE0F '}No se pudo leer el historial de pagos. No es que no haya: reintenta antes de aprobar.
+          </div>
         ) : pagos.length === 0 ? (
           <div className="py-8 text-center text-sm text-[#F0EFE8]/40">Sin pagos registrados todavía.</div>
         ) : (
