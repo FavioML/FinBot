@@ -90,6 +90,48 @@ describe('survey_events: escritores y lectores hablan del mismo conjunto de cana
     expect(cuerpo).toMatch(/\.eq\(\s*['"]channel['"]\s*,\s*['"]whatsapp['"]\s*\)/);
   });
 
+  /**
+   * **`LECTORES` es una lista escrita a mano, y el título de este archivo la sobrepasa.**
+   * Encontrado el 01-sep-2026 por una revisión adversarial: hay un CUARTO lector de
+   * `survey_events.channel` —el `/silenciar` de `handlers/intents/moderacion.js`— que filtra
+   * `whatsapp` a secas y no estaba declarado ni como regla ni como excepción. Su comportamiento
+   * es defendible (sólo alguien con WhatsApp puede escribir `/silenciar`, así que el evento que
+   * marca es de WhatsApp por construcción), pero ése es exactamente el argumento que sí se
+   * escribió para `marcarRespuestaProactiva` — y el que faltaba acá.
+   *
+   * Este caso no juzga el filtro: cuenta. Afirma que no aparezca un lector NUEVO sin que
+   * alguien decida a cuál de los dos grupos pertenece, que es lo que "escritores y lectores
+   * hablan del mismo conjunto" prometía y sólo comprobaba sobre los que alguien recordó.
+   */
+  it('no hay lectores de survey_events.channel sin declarar', () => {
+    // Se cuenta por ARCHIVO y no por función a propósito: atribuir la lectura a su función
+    // pide un troceo, y el primer intento se lo adjudicó a un `const analytics = require(...)`
+    // —o sea que el guard habría acusado a un import—. El conteo fijado alcanza para lo único
+    // que este caso tiene que hacer: que un lector NUEVO no pase sin que alguien lo clasifique.
+    const DECLARADOS = new Map([
+      ['cron/checks.js', { n: 1, quien: 'checkUpsellPro: DEDUP, filtra por CANALES_EMPUJE' }],
+      ['services/survey-triggers.js', { n: 2, quien: 'recibioMensajeRecienteProactivo (DEDUP, CANALES_EMPUJE) y marcarRespuestaProactiva (whatsapp a propósito: la campana no tiene camino de respuesta)' }],
+      ['handlers/intents/moderacion.js', { n: 1, quien: '/silenciar: whatsapp a propósito, sólo quien tiene número puede escribir el comando' }],
+    ]);
+    let total = 0;
+    for (const [rel, esperado] of DECLARADOS) {
+      const src = leer(rel);
+      const lecturas = [...src.matchAll(/['"]channel['"]/g)].filter((m) => {
+        const ventana = src.slice(Math.max(0, m.index - 600), m.index);
+        if (!/from\(\s*['"]survey_events['"]\s*\)/.test(ventana)) return false;
+        return !/\.insert\(/.test(ventana.slice(-400));   // escritura, la cubre el caso de arriba
+      });
+      total += lecturas.length;
+      expect(
+        lecturas.length,
+        `${rel} tiene ${lecturas.length} lecturas de survey_events.channel y están declaradas ` +
+        `${esperado.n} (${esperado.quien}). Si agregaste una, decidí si es un DEDUP (va con ` +
+        'CANALES_EMPUJE) o si filtra `whatsapp` a propósito, y actualizá esta lista con el motivo.',
+      ).toBe(esperado.n);
+    }
+    expect(total, 'el barrido no encontró lectores: dejó de mirar').toBeGreaterThanOrEqual(4);
+  });
+
   it('el insert del cron escribe el canal REAL, no la etiqueta fija', () => {
     const inserts = [...CHECKS.matchAll(/from\('survey_events'\)\.insert\(\{([\s\S]{0,400}?)\}\)/g)]
       .map((m) => m[1]);
@@ -100,6 +142,53 @@ describe('survey_events: escritores y lectores hablan del mismo conjunto de cana
     for (const cuerpo of inserts) {
       expect(cuerpo, 'un insert volvió a fijar el canal').not.toMatch(/channel:\s*['"]whatsapp['"]/);
       expect(cuerpo).toMatch(/channel:\s*usuario\.whatsapp\s*\?\s*'whatsapp'\s*:\s*'in_app'/);
+    }
+  });
+
+  /**
+   * **La otra mitad, que este archivo no miraba hasta el 01-sep-2026 (ítem 23).**
+   *
+   * El acoplamiento que documenta el docblock de arriba tiene DOS escritores, no uno: el
+   * `insert` de `checkUpsellPro` y el de `registrarEvento`, que sirve a los OCHO triggers de
+   * `services/survey-triggers.js`. El de arriba se arregló el 27-ago; el de acá siguió fijando
+   * `'whatsapp'` cuatro días más, y no se veía porque este archivo solo barría `CHECKS`.
+   *
+   * Mientras el cron cortaba a quien no tenía número la etiqueta era cierta por accidente. Al
+   * sacar ese corte pasó a ser la falla nº1 del docblock, literal: la columna miente, y los
+   * ocho triggers se apagan siete días para alguien a quien nunca se le mandó un WhatsApp.
+   *
+   * Los cinco call-sites NO son iguales, y por eso el barrido los cuenta en vez de exigirles a
+   * todos la misma forma: `maybeWebappInvite` manda por `SOLO_WHATSAPP`, así que ahí `'in_app'`
+   * sería la mentira opuesta. Es la única exención, y va nombrada.
+   */
+  it('los cinco registrarEvento de los triggers escriben el canal REAL', () => {
+    const CANAL_FIJO_OK = new Set(['webapp_invite_10tx']);
+    // Se trocea por el CALL-SITE (`registrarEvento({ … })`) y no por líneas contiguas: entre
+    // `eventType` y `channel` hay comentarios, y `enviarYRegistrar` escribe `eventType` con la
+    // forma abreviada. Un barrido que dependa del renglón de al lado se cae con el primer
+    // comentario que alguien agregue, y se cae hacia el verde.
+    const llamadas = [...TRIGGERS.matchAll(/registrarEvento\(\{([\s\S]{0,600}?)\n {2}\}\)/g)]
+      .map((m) => m[1])
+      // La DEFINICIÓN (`function registrarEvento({ userId, eventType, channel, … })`) matchea
+      // igual y no es un call-site. Se distingue por la forma abreviada: los cinco llamadores
+      // escriben `userId: …`, la firma escribe `userId,`.
+      .filter((cuerpo) => /userId:/.test(cuerpo));
+    // Antivacuidad: si el barrido deja de matchear, esto se ve igual que "todos correctos".
+    expect(llamadas.length, 'el barrido no encontró los call-sites: este caso dejó de mirar').toBe(5);
+
+    for (const cuerpo of llamadas) {
+      const ev = cuerpo.match(/eventType:\s*'([a-z_0-9]+)'/);
+      const evento = ev ? ev[1] : 'enviarYRegistrar(reminder_dN)';
+      const ca = cuerpo.match(/\n\s*channel:\s*(.+?),\s*\n/);
+      expect(ca, `${evento} no declara channel: el troceo dejó de ver el call-site`).toBeTruthy();
+      const canal = ca[1].trim();
+      if (CANAL_FIJO_OK.has(evento)) {
+        expect(canal, `${evento} dejó de ser el único con canal fijo: revisá si sigue siendo SOLO_WHATSAPP`)
+          .toBe("'whatsapp'");
+        continue;
+      }
+      expect(canal, `${evento} fija el canal en vez de escribir el real`)
+        .toBe("usuario.whatsapp ? 'whatsapp' : 'in_app'");
     }
   });
 

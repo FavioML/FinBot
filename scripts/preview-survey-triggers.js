@@ -11,6 +11,21 @@
  * Util para:
  *   - Verificar quien recibiria mensaje hoy antes de activar el cron en prod
  *   - Debug post-deploy si un usuario esperado no recibio mensaje
+ *
+ * ⚠️ REIMPLEMENTA la logica del cron en vez de llamarlo, asi que puede divergir y HOY diverge.
+ * Auditado el 01-sep-2026 (item 23); las cuatro son PREEXISTENTES y quedan sin cerrar a
+ * proposito —cerrarlas es reescribir el script para que llame a los `maybe*` de verdad, que es
+ * otro trabajo— pero se nombran para que nadie lea este output como el veredicto del cron:
+ *
+ *   · evalua `wake_up_onboarding` PRIMERO; en el cron es el 7º de 8, asi que sobre un usuario
+ *     que califica para dos, este script reporta el que el cron no manda;
+ *   · corta todo con `!onboarding_completado`, cosa que el cron solo hace dentro de
+ *     `maybeReminderD14`;
+ *   · no filtra `cuenta_borrada_at`, que el cron si; hasta el 01-sep la lapida caia de rebote
+ *     en el corte por falta de numero, y ese corte ya no esta;
+ *   · descarta el `{ error }` de sus dos lecturas de `survey_events`: con la lectura caida los
+ *     `Set` quedan vacios y reporta un trigger que el unique index rechazaria. El cron lee el
+ *     error y lanza. O sea que falla hacia "si lo mandaria".
  */
 
 require('dotenv').config();
@@ -22,11 +37,15 @@ const {
   copyWakeUpOnboardingNombre, copyWakeUpOnboardingEmail, copyWakeUpOnboardingGenerico,
   recibioMensajeRecienteProactivo, tuvoErrorReciente,
   contarTransacciones, contarTransaccionesUltimos,
+  IN_APP_RECORDATORIO,
 } = require('../services/survey-triggers');
 
 async function evaluar(usuario) {
   if (usuario.recordatorios_activos === false) return { trigger: null, reason: 'opted out (recordatorios_activos=false)' };
-  if (!usuario.whatsapp) return { trigger: null, reason: 'sin whatsapp' };
+  // Aca habia un `if (!usuario.whatsapp) return { reason: 'sin whatsapp' }` que espejaba el
+  // corte del cron. Los dos se fueron el 01-sep-2026 (item 23): sin numero el aviso sale igual
+  // por la campana. Lo que queda es la exencion por trigger, mas abajo, en los dos que piden
+  // una respuesta escrita.
 
   if (await recibioMensajeRecienteProactivo(usuario.id)) {
     return { trigger: null, reason: 'mensaje proactivo en ultimos 7d' };
@@ -45,7 +64,7 @@ async function evaluar(usuario) {
   const sentOneshot = new Set((prevOneshot || []).map(e => e.event_type));
 
   // wake_up_onboarding: usuarios que NO completaron onboarding (>=7d desde registro)
-  if (!usuario.onboarding_completado && dias >= 7 && !sentOneshot.has('wake_up_onboarding')) {
+  if (usuario.whatsapp && !usuario.onboarding_completado && dias >= 7 && !sentOneshot.has('wake_up_onboarding')) {
     let variant = 'generico';
     if (usuario.onboarding_paso === 101) variant = 'email';
     else if (usuario.onboarding_paso === 100 || usuario.onboarding_paso === 0) variant = 'nombre';
@@ -57,7 +76,10 @@ async function evaluar(usuario) {
     return { trigger: null, reason: 'onboarding incompleto (<7 dias o ya recibio wake-up)' };
   }
 
-  if (txTotal >= 30 && !sentOneshot.has('feedback_open_30tx')) {
+  // Los dos `usuario.whatsapp` de abajo espejan las exenciones declaradas en
+  // `maybeFeedback30` y `maybeReminderD14`: el mensaje es una pregunta abierta y la campana no
+  // tiene donde contestarla.
+  if (usuario.whatsapp && txTotal >= 30 && !sentOneshot.has('feedback_open_30tx')) {
     return { trigger: 'feedback_open_30tx', txTotal };
   }
   if (txTotal >= 10 && !usuario.supabase_auth_id && !sentOneshot.has('webapp_invite_10tx')) {
@@ -74,7 +96,7 @@ async function evaluar(usuario) {
     const tx14 = await contarTransaccionesUltimos(usuario.id, 14);
     if (tx14 === 0) return { trigger: 'reminder_d30', txTotal, dias: dias.toFixed(1) };
   }
-  if (dias >= 14 && dias < 15 && !sentReminders.has('reminder_d14')) {
+  if (usuario.whatsapp && dias >= 14 && dias < 15 && !sentReminders.has('reminder_d14')) {
     const tx14 = await contarTransaccionesUltimos(usuario.id, 14);
     if (tx14 < 3) return { trigger: 'reminder_d14', txTotal, tx14, dias: dias.toFixed(1) };
   }
@@ -132,14 +154,25 @@ async function main() {
   for (const u of usuarios) {
     const result = await evaluar(u);
     const primer = u.nombre ? u.nombre.split(' ')[0] : null;
-    const labelUsuario = `${u.nombre || '(sin nombre)'} (${u.whatsapp})`;
+    const labelUsuario = `${u.nombre || '(sin nombre)'} (${u.whatsapp || 'sin numero, web-first'})`;
 
     if (result.trigger) {
       sumario[result.trigger]++;
       console.log(`✓ ${labelUsuario}`);
       console.log(`  Trigger: ${result.trigger}${result.variant ? ' (' + result.variant + ')' : ''}`);
       if (result.txTotal !== undefined) console.log(`  Tx total: ${result.txTotal}, Dias: ${result.dias || '-'}`);
-      console.log(`  Mensaje:\n  ${getCopy(result.trigger, primer, result.variant).replace(/\n/g, '\n  ')}\n`);
+      console.log(`  Mensaje WhatsApp:\n  ${getCopy(result.trigger, primer, result.variant).replace(/\n/g, '\n  ')}`);
+      // Sin numero, el WhatsApp de arriba es exactamente lo que la persona NO va a recibir: lo
+      // unico que le llega es la campana. Imprimir solo el copy de WhatsApp dejaba el preview
+      // ciego justo para la poblacion que el item 23 agrego al bucle.
+      const inApp = IN_APP_RECORDATORIO[result.trigger];
+      if (inApp) console.log(`  Campana: ${inApp.titulo}\n           ${inApp.cuerpo}\n           -> ${inApp.link}`);
+      // Los tres que no estan en el mapa NO son todos iguales, y decir "arma su in-app inline"
+      // para los tres era falso: `webapp_invite_10tx` sale por SOLO_WHATSAPP y no escribe
+      // ninguna campana, y `wake_up_onboarding` depende de si tiene cuenta web.
+      else if (result.trigger === 'webapp_invite_10tx') console.log('  Campana: NINGUNA (SOLO_WHATSAPP: el mensaje ES la invitacion a crear la cuenta web)');
+      else console.log('  Campana: la arma el call-site (wake_up_*): con cuenta web va AMBOS, sin ella SOLO_WHATSAPP');
+      console.log('');
     } else {
       sumario.skipped++;
       if (whatsappFilter) {

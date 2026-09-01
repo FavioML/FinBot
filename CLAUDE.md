@@ -1218,10 +1218,80 @@ y escribe la campana. Lo unico que agregaba era apagarle la mitad in-app a quien
 web: **14 usuarios reales, los 14 con cuenta web y los 14 con recordatorios prendidos**, uno de
 ellos en Manos Libres, que es opt-in explicito.
 
-Lo vigila el segundo bloque de `tests/canal-unico-sin-cuenta-web.test.js`. Y ojo con lo que el
-corte tapaba de rebote: las cuentas borradas tienen `whatsapp` NULL. Siguen fuera, pero por dos
-gates que lo dicen a proposito — la migracion 073 pone `recordatorios_activos = false` **y**
-`onboarding_completado = false` en la lapida.
+Y ojo con lo que el corte tapaba de rebote: las cuentas borradas tienen `whatsapp` NULL. Siguen
+fuera, pero por dos gates que lo dicen a proposito — la migracion 073 pone
+`recordatorios_activos = false` **y** `onboarding_completado = false` en la lapida.
+
+**Eran CINCO, no cuatro, y el quinto sobrevivio porque el guard le preguntaba a la poblacion
+equivocada** (01-sep-2026, item 23). El segundo bloque de `tests/canal-unico-sin-cuenta-web.test.js`
+iteraba las funciones que DECLARAN `canales: CANALES.AMBOS` y buscaba el corte adentro. En
+`services/survey-triggers.js` el `if (!u.whatsapp) continue;` vivia en `checkSurveyTriggers` —el
+bucle— y las declaraciones en las cuatro funciones que ese bucle llama, asi que el cuerpo del bucle
+nunca entraba a la lista y su corte no se examino jamas. La antivacuidad tampoco avisaba: seguia
+siendo cierta con el agujero abierto.
+
+**Medido antes de elegir la forma del arreglo, y es lo que decidio no construir un grafo de
+llamadas:** sobre los 95 `.js` de runtime hay **26 funciones que declaran AMBOS y solo 2 con un
+corte**, y ninguna de las 2 declara AMBOS — o sea que la interseccion que el guard examinaba estaba
+vacia desde el dia uno. Hoy la regla es la simple: **ningun archivo de runtime puede cortar por
+falta de numero sin declararlo en `CORTES_EXENTOS`**, mire a donde mire ese corte. Esa lista es
+ademas el inventario de los caminos que de verdad terminan solo en WhatsApp.
+
+**Y hay una red debajo de la red, porque el troceo por funcion es evadible entero.** `funciones()`
+solo ancla en la columna 0, asi que un archivo cuyos invocables sean metodos de una `class` o de
+un objeto literal produce CERO funciones y queda invisible para los DOS bloques a la vez —
+verificado el 01-sep con un `services/` nuevo: la suite entera en verde, 163 de 163. Por eso se
+compara el ARCHIVO contra la suma de sus funciones: lo que el troceo no le atribuye a nadie es
+rojo. No hace falta que entienda la forma nueva, solo que note que se le escapo.
+
+**El detector de cortes tiene tres limites DECLARADOS y verificados** (no supuestos): el numero
+destructurado, el `.filter()` sobre la poblacion y el filtro en la query. No se cubren porque
+cubrirlos pide soltar el punto y ahi caen las validaciones de body de `routes/admin.js`. Los tres,
+sobre `survey-triggers.js`, mueren por el test de COMPORTAMIENTO — que es el respaldo real.
+
+**Sacar el corte no alcanza si el copy solo tiene sentido en WhatsApp.** El chokepoint DERIVA el
+cuerpo in-app del texto de WhatsApp cuando no se le pasa `cuerpo`, y los ocho copys de
+`survey-triggers.js` dicen *"escribeme"*, *"mandame un screenshot"* y ofrecen `/silenciar`. Al
+usuario sin numero eso le pide algo que no puede hacer. Los cuatro `reminder_dN` y
+`wake_up_inactive` llevan `cuerpo` propio (la accion existe en la app: el `QuickAddButton` vive en
+el chrome del dashboard, fuera de lo que el muro reemplaza). **Tres triggers quedaron exentos con
+motivo**, y la exencion va en la funcion y **antes** de `registrarEvento`, para no quemar un
+one-shot que no se puede entregar:
+
+| trigger | por que no le aplica sin numero |
+|---|---|
+| `reminder_d14` | el mensaje ES una pregunta abierta y la campana no tiene donde contestarla |
+| `feedback_open_30tx` | lo mismo, y ademas es one-shot: registrarlo sin poder entregarlo lo quema |
+| `wake_up_onboarding` | el alta que pide terminar es la de WhatsApp (la maquina de estados vive en `handlers/onboarding.js`), asi que sin numero no hay forma de completarla |
+
+**Ojo con el argumento que NO sostiene la tercera:** "toda cuenta web nace con el onboarding
+cerrado" es una propiedad del NACIMIENTO, no un invariante.
+`webapp/src/app/api/whatsapp/unlink/route.ts` pone `whatsapp: null` desde Configuracion,
+self-serve, sin tocar `supabase_auth_id` ni `onboarding_completado`. Una medicion no cierra un
+camino que el propio usuario puede abrir.
+
+**Un aviso que no salio por NINGUN canal no deja marca.** Los one-shot reclaman su unique index
+antes de enviar y los `reminder_dN` registran despues, asi que la misma clase se resuelve al
+reves en cada lado: `liberarClaimSinEntrega` devuelve el claim, y `enviarYRegistrar` no registra.
+Sin eso, para el usuario web-first —cuyo unico canal es la campana, y `crearNotificacion` devuelve
+`false` en vez de lanzar— un hipo de la base quemaba el aviso para siempre y ademas gastaba la
+anti-fatiga de 7 dias con algo que nadie recibio. El predicado de "salio algo" es **uno solo**
+(`salioPorAlgunCanal`) y cuenta los TRES canales mas el `skipped: 'test_user'`: la primera version
+copio media mitad y un correo entregado se leia como fallo.
+
+**El claim se libera SOLO desde las ramas que declararon in-app.** Desde un `SOLO_WHATSAPP`, un
+numero permanentemente inalcanzable liberaria su claim todos los dias y el one-shot se convertiria
+en un WhatsApp diario, porque ese canal si postea a Meta.
+
+Comportamiento en `tests/services/survey-triggers-web-first.test.js`.
+
+**Y el ledger tiene que decir el canal REAL.** `registrarEvento` fijaba `channel: 'whatsapp'` en
+los cinco call-sites. Mientras el cron cortaba a quien no tenia numero eso era cierto por
+accidente; sin el corte, la columna que lee la anti-fatiga de 7 dias (`CANALES_EMPUJE`) miente y
+apaga los ocho triggers una semana para alguien a quien nunca se le mando un WhatsApp. Hoy es
+`usuario.whatsapp ? 'whatsapp' : 'in_app'`, la misma forma que `checkUpsellPro`, y la comparten los
+dos guards. La unica excepcion es `maybeWebappInvite`, que manda por `SOLO_WHATSAPP` y ahi `in_app`
+seria la mentira opuesta.
 
 Un canal unico (`CANALES.SOLO_WHATSAPP` / `SOLO_IN_APP`) exige `motivo` pegado al `canales`.
 Todas las excepciones comparten la misma forma: **el destinatario no tiene cuenta web**, asi

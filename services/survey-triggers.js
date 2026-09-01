@@ -124,36 +124,184 @@ async function registrarEvento({ userId, eventType, channel, messageSent, respon
 }
 
 /**
- * Titulo y deeplink de la mitad in-app de cada recordatorio. El texto del cuerpo lo deriva
- * el chokepoint del mensaje de WhatsApp; esto es lo unico que no se puede derivar.
+ * ¿El aviso salio por ALGUN canal? Espejo del veredicto de `lib/notify-user.js`, que loguea
+ * "Aviso proactivo sin entrega en ningun canal" con exactamente esta cuenta.
+ *
+ * Vive en UNA sola funcion porque la primera version lo copio a medias —solo la mitad de
+ * WhatsApp— y las dos que faltaban muerden en direcciones opuestas: sin `email` un correo
+ * entregado se lee como "no salio nada", y sin `test_user` un silencio pedido se lee como un
+ * canal caido. Los dos consumidores (`enviarYRegistrar` y `liberarClaimSinEntrega`) hacen cosas
+ * distintas con la respuesta, pero la pregunta es la misma y no puede tener dos respuestas.
+ *
+ * Defensivo con la forma: si el chokepoint devolviera algo raro, "no salio nada" es el lado
+ * seguro para los dos (no registrar / liberar el claim), o sea reintentar.
+ */
+function salioPorAlgunCanal(resultado) {
+  const wa = (resultado && resultado.wa) || {};
+  const mail = (resultado && resultado.email) || {};
+  if (wa.skipped === 'test_user') return true;   // silencio pedido, no fallo
+  if (wa.ok === true && !wa.skipped) return true;
+  if (mail.ok === true && !mail.skipped) return true;
+  return resultado ? resultado.inApp === true : false;
+}
+
+/**
+ * Devuelve el claim de un one-shot cuando el aviso no salio por NINGUN canal.
+ *
+ * **Por que hace falta desde el 01-sep-2026 (item 23), y no antes.** Los one-shot reclaman su
+ * unique index ANTES de enviar, que es correcto: sin eso, dos corridas mandan el mismo mensaje.
+ * El precio es que un fallo del envio quema la unica vez que se manda. Hasta el 01-sep eso era
+ * tolerable porque el destinatario siempre tenia WhatsApp —el corte del bucle garantizaba el
+ * numero— asi que el fallo era el 131047 de Meta, permanente, y reintentar no compraba nada.
+ *
+ * Para el usuario sin numero la campana es el UNICO canal, y `crearNotificacion` **devuelve
+ * `false` en vez de lanzar** (supabase-js no lanza): un hipo de la base deja la fila de
+ * `survey_events` puesta, la campana vacia, y el trigger devuelto como exitoso. Nadie se entera
+ * y no hay reintento posible nunca mas.
+ *
+ * **Solo se llama desde las ramas que declararon el canal in-app**, y eso acota el riesgo del
+ * arreglo: si se llamara desde un `SOLO_WHATSAPP`, un numero permanentemente inalcanzable
+ * liberaria su claim todos los dias y el one-shot se convertiria en un cron diario **de mensajes
+ * que si salen**, porque `enviarWhatsapp` sigue POSTeando a Meta aunque el 131047 llegue despues.
+ *
+ * Con in-app declarado el reintento es barato y acotado por construccion: se reintenta
+ * exactamente mientras no salga NADA, y una corrida que tampoco entrega no le manda nada a nadie.
+ * (Una version anterior de este parrafo decia que "cero canales significa que se cayeron los dos
+ * a la vez, o sea infra". Es falso justo para la poblacion del arreglo: para el usuario sin
+ * numero WhatsApp es un no-op de diseño —`skipped_no_whatsapp`— asi que cero canales significa
+ * que fallo UNO. Lo que sostiene el arreglo no es que el fallo sea raro, es que el reintento no
+ * cuesta un mensaje.)
+ *
+ * **El predicado de "no salio nada" es el mismo de `lib/notify-user.js`, los TRES canales.** La
+ * primera version copio solo la mitad de WhatsApp: con `email` declarado —que es lo que el
+ * CLAUDE.md empuja para los avisos que importan— un correo entregado se leia como "no salio
+ * nada" y liberaba el claim, o sea un correo identico por dia. Y `skipped: 'test_user'` no es un
+ * fallo: es un silencio pedido, y tratarlo como canal caido reintenta contra una cuenta de prueba.
+ *
+ * El DELETE va por `id` y con `.select('id')`: postgrest no devuelve error cuando no matchea
+ * ninguna fila, asi que sin eso "no se pudo liberar" y "se libero" se ven igual.
+ */
+async function liberarClaimSinEntrega(eventoId, eventType, usuarioId, resultado) {
+  if (salioPorAlgunCanal(resultado)) return false;
+
+  const { data, error } = await supabase.from('survey_events')
+    .delete().eq('id', eventoId).select('id');
+  if (error) {
+    log.error({ tag: 'SURVEY_TRIG', usuarioId, eventType, eventoId, err: error.message },
+      'El aviso no salio por ningun canal y el claim NO se pudo liberar: este one-shot ya no se manda nunca');
+    return false;
+  }
+  if (!data || data.length === 0) {
+    log.error({ tag: 'SURVEY_TRIG', usuarioId, eventType, eventoId },
+      'El aviso no salio por ningun canal y el claim ya no estaba: este one-shot ya no se manda nunca');
+    return false;
+  }
+  log.warn({ tag: 'SURVEY_TRIG', usuarioId, eventType },
+    'El aviso no salio por ningun canal: claim liberado, se reintenta en la proxima corrida');
+  return true;
+}
+
+/**
+ * Titulo, CUERPO y deeplink de la mitad in-app de cada recordatorio.
  *
  * Van los dos canales porque estos mensajes persiguen justo a quien dejo de escribir: por
  * definicion, la poblacion con mas chances de estar fuera de la ventana de 24h de Meta.
+ *
+ * **El `cuerpo` entro el 01-sep-2026 (item 23) y no es cosmetica.** Sin el, el chokepoint
+ * deriva el texto in-app del de WhatsApp, y los cuatro copys de WhatsApp piden acciones que
+ * solo existen en WhatsApp: *"escribeme cosas como…"*, *"sacale screenshot y mandamelo"*,
+ * *"escribe /silenciar"*. Al usuario web-first —que ahora si recibe la campana, porque el
+ * corte por falta de numero se fue— eso le pide algo que no puede hacer.
+ *
+ * El texto es UNO SOLO para las dos poblaciones, no dos copys bifurcados por si tiene numero:
+ * la campana se lee DENTRO de la app, asi que apuntar a la app es correcto tambien para quien
+ * si tiene WhatsApp. Bifurcar seria un segundo copy por trigger que envejece por separado.
+ *
+ * **"Anota un gasto" es accionable incluso para quien esta en el muro**, y hace falta decirlo
+ * porque el destinatario de `reminder_d3`/`d7` esta ahi por construccion (los dos exigen
+ * `txCount === 0`, y el trial arranca con el PRIMER gasto: sin gasto no hay trial). El
+ * `QuickAddButton` vive en el chrome del dashboard, fuera del bloque que el muro reemplaza por
+ * el Paywall (`webapp/src/components/dashboard/dashboard-shell.tsx`), asi que esta en todas las
+ * rutas por igual. Es la regla del producto: escribir nunca se corta, lo que se cobra es leer.
+ *
+ * Y por eso el `link` sigue siendo `/dashboard` y no `/dashboard/transacciones`: para el muro
+ * las dos rutas muestran el mismo Paywall con el mismo boton flotante encima, asi que apuntar
+ * a la pantalla de transacciones no compra nada. (Se intento el 01-sep con el argumento de que
+ * "ahi esta el quick-add"; medido, el quick-add esta en las dos.)
+ *
+ * Ninguno menciona `/silenciar`: ese comando solo existe en el chat. En la app la baja vive en
+ * Configuracion, y prometer un comando inexistente es la misma clase de mentira que este
+ * cuerpo vino a arreglar.
  */
 const IN_APP_RECORDATORIO = {
-  reminder_d3: { titulo: 'Registrar un gasto toma 2 segundos', link: '/dashboard' },
-  reminder_d7: { titulo: 'Una semana con Neto', link: '/dashboard' },
-  reminder_d14: { titulo: '¿Algo te complica con Neto?', link: '/dashboard' },
-  reminder_d30: { titulo: 'Hace dos semanas que no registras nada', link: '/dashboard' },
+  reminder_d3: {
+    titulo: 'Registrar un gasto toma 2 segundos',
+    cuerpo: 'Todavía no anotaste nada. Empieza por un gasto de hoy y Neto arma tus reportes solo.',
+    link: '/dashboard',
+  },
+  reminder_d7: {
+    titulo: 'Una semana con Neto',
+    cuerpo: 'Llevas una semana sin anotar nada. Con un gasto ya empiezas a ver a dónde se te va la plata.',
+    link: '/dashboard',
+  },
+  reminder_d14: {
+    titulo: '¿Algo te complica con Neto?',
+    cuerpo: 'Estás usando Neto poco esta semana. Si solo tuviste una semana ocupada, sigue cuando quieras.',
+    link: '/dashboard',
+  },
+  reminder_d30: {
+    titulo: 'Hace dos semanas que no registras nada',
+    cuerpo: 'Si quieres retomarlo, anota cualquier gasto de hoy y arrancamos donde lo dejaste.',
+    link: '/dashboard',
+  },
 };
 
-/** Envia mensaje y registra el evento. Si falla, no registra (asi reintenta proxima vez). */
+/**
+ * Envia el mensaje y registra el evento. **Si no salio por ningun canal, NO registra**, asi que
+ * se reintenta en la proxima corrida.
+ *
+ * Ese "si falla no registra" estaba escrito aca desde siempre y era FALSO: `notificarUsuario` es
+ * best-effort y nunca lanza, y esta funcion descartaba su retorno, asi que `registrarEvento`
+ * corria entregara lo que entregara. La fila que quedaba hacia dos daños, los dos permanentes:
+ * el dedup por tipo de cada `maybeReminderD*` corta con CUALQUIER fila previa —o sea que ese
+ * recordatorio no se manda nunca mas— y ademas gasta la anti-fatiga de 7 dias, con lo cual un
+ * aviso que no salio apaga al siguiente que si habria salido.
+ *
+ * Hasta el 01-sep-2026 era casi inalcanzable porque el destinatario siempre tenia numero y el
+ * POST a Meta se aceptaba (el 131047 llega por callback, DESPUES). Para el usuario web-first la
+ * campana es el unico canal y `crearNotificacion` devuelve `false` en vez de lanzar.
+ *
+ * Es la misma clase que `liberarClaimSinEntrega`, resuelta al reves porque aca el orden lo
+ * permite: el one-shot tiene que reclamar ANTES de enviar y compensar despues; esto registra
+ * DESPUES, asi que alcanza con no registrar.
+ */
 async function enviarYRegistrar(usuario, eventType, mensaje) {
   const inApp = IN_APP_RECORDATORIO[eventType];
-  await notificarUsuario({
+  const resultado = await notificarUsuario({
     canales: CANALES.AMBOS,
     usuarioId: usuario.id,
     whatsapp: usuario.whatsapp || null,
     tipo: 'survey_' + eventType,
     mensaje,
     titulo: inApp ? inApp.titulo : 'Un recordatorio de Neto',
+    cuerpo: inApp ? inApp.cuerpo : null,
     tipoInApp: 'recordatorio',
     link: inApp ? inApp.link : '/dashboard',
   });
+  if (!salioPorAlgunCanal(resultado)) {
+    log.warn({ tag: 'SURVEY_TRIG', usuarioId: usuario.id, eventType },
+      'El recordatorio no salio por ningun canal: no se registra, se reintenta en la proxima corrida');
+    return null;
+  }
   return registrarEvento({
     userId: usuario.id,
     eventType,
-    channel: 'whatsapp',
+    // El canal REAL, no la etiqueta de siempre. Esta columna es lo que lee la anti-fatiga de
+    // 7 dias (`recibioMensajeRecienteProactivo`, via CANALES_EMPUJE), asi que decir `whatsapp`
+    // sobre un aviso que salio solo por la campana apaga los OCHO triggers una semana para
+    // alguien a quien nunca se le mando un WhatsApp. Misma forma que el insert de
+    // `checkUpsellPro` en `cron/checks.js`, a proposito: la comparten los dos guards.
+    channel: usuario.whatsapp ? 'whatsapp' : 'in_app',
     messageSent: mensaje,
   });
 }
@@ -291,6 +439,19 @@ async function maybeReminderD14(usuario) {
   const dias = (Date.now() - new Date(usuario.created_at).getTime()) / 86400000;
   if (dias < 14 || dias >= 15) return false;
 
+  // EXENCION DECLARADA (item 23, 01-sep-2026), no el corte que se saco del bucle.
+  //
+  // Este trigger no es un empuje a usar el producto: es una PREGUNTA abierta —"¿hay algo que
+  // te complica? Cuentame en una sola linea"— y su unico valor es la respuesta. La campana no
+  // tiene caja de respuesta, y el hilo de soporte de Neto vive en WhatsApp por decision
+  // escrita, asi que a quien no tiene numero se le estaria preguntando por un canal donde no
+  // puede contestar. Se corta ANTES de `registrarEvento`, o sea que no se quema nada: el dia
+  // que agregue un numero lo recibe normalmente.
+  //
+  // Es lo contrario del corte que este item elimino: aquel apagaba los ocho triggers sin
+  // mirar cual, incluidos los cuatro cuya accion SI existe en la app.
+  if (!usuario.whatsapp) return false;
+
   if (!usuario.onboarding_completado) return false;
 
   const txUltimos14 = await contarTransaccionesUltimos(usuario.id, 14);
@@ -339,6 +500,18 @@ async function maybeWebappInvite(usuario) {
   const eventoId = await registrarEvento({
     userId: usuario.id,
     eventType: 'webapp_invite_10tx',
+    // Fijo, y es el unico de los cinco que lo es: el envio de abajo es SOLO_WHATSAPP, o sea
+    // que aca nunca se escribe una campana. Escribir `in_app` seria decir que salio por un
+    // canal que este trigger no usa.
+    //
+    // Residual conocido y NO cerrado, dicho para que no se re-descubra: un usuario sin
+    // NINGUNA de las dos identidades (ni numero ni `supabase_auth_id`) pasaria el gate, se
+    // quemaria el one-shot y el mensaje no saldria por ningun lado. Hoy no existe —medido el
+    // 01-sep-2026: 0 de 130— y no hay camino self-serve que lo produzca: `/unlink` borra el
+    // numero pero deja `supabase_auth_id`, y el unico que borra esa columna es el borrado de
+    // cuenta, que ademas pone `cuenta_borrada_at` y por eso ni entra a la poblacion. No se le
+    // puso corte porque seria un corte sin poblacion; si algun dia aparece, va con los otros
+    // tres.
     channel: 'whatsapp',
     messageSent: copyWebappInvite(primer),
   });
@@ -376,22 +549,38 @@ async function maybeWakeUpInactive(usuario) {
   const eventoId = await registrarEvento({
     userId: usuario.id,
     eventType: 'wake_up_inactive',
-    channel: 'whatsapp',
+    channel: usuario.whatsapp ? 'whatsapp' : 'in_app',
     messageSent: mensaje,
   });
   if (!eventoId) return false;
 
-  await notificarUsuario({
+  const resultado = await notificarUsuario({
     canales: CANALES.AMBOS,
     usuarioId: usuario.id, whatsapp: usuario.whatsapp || null,
     tipo: 'survey_wake_up_inactive', mensaje,
     titulo: 'Hace tiempo que no registras nada',
+    // Cuerpo propio por lo mismo que los cuatro `reminder_dN`: los dos copys de WhatsApp piden
+    // *"escribeme un gasto cualquiera"* y ofrecen `/silenciar`, y ninguna de las dos cosas
+    // existe en la campana. La accion si existe, asi que el aviso se queda y cambia el verbo.
+    cuerpo: txTotal === 0
+      ? 'Te registraste en Neto pero quizás no llegaste a probarlo. Anota un gasto y ves lo rápido que es.'
+      : 'Hace tiempo que no registras nada. Si quieres retomarlo, anota cualquier gasto de hoy.',
     tipoInApp: 'recordatorio', link: '/dashboard',
   });
+  // El one-shot ya esta reclamado arriba: si no salio por ningun canal, devolverlo es la unica
+  // forma de que este usuario lo reciba alguna vez. Ver `liberarClaimSinEntrega`.
+  if (await liberarClaimSinEntrega(eventoId, 'wake_up_inactive', usuario.id, resultado)) return false;
   return true;
 }
 
 async function maybeFeedback30(usuario) {
+  // EXENCION DECLARADA (item 23, 01-sep-2026), hermana de la de `maybeReminderD14` y por el
+  // mismo motivo: el mensaje ES una pregunta abierta ("si pudieras cambiar UNA sola cosa del
+  // producto, ¿que seria?") y la campana no tiene donde contestarla. Va antes del claim
+  // one-shot a proposito: el unique index de `feedback_open_30tx` es irreversible, asi que
+  // registrarlo aca le quemaria para siempre la unica vez que se manda.
+  if (!usuario.whatsapp) return false;
+
   const txCount = await contarTransacciones(usuario.id);
   if (txCount < 30) return false;
 
@@ -399,7 +588,7 @@ async function maybeFeedback30(usuario) {
   const eventoId = await registrarEvento({
     userId: usuario.id,
     eventType: 'feedback_open_30tx',
-    channel: 'whatsapp',
+    channel: usuario.whatsapp ? 'whatsapp' : 'in_app',
     messageSent: copyFeedback30(primer),
   });
   if (!eventoId) return false;
@@ -431,6 +620,21 @@ async function maybeFeedback30(usuario) {
 async function maybeWakeUpOnboarding(usuario) {
   if (usuario.onboarding_completado === true) return false;
 
+  // EXENCION DECLARADA (item 23, 01-sep-2026). El alta que este mensaje pide terminar es la de
+  // WhatsApp —la maquina de estados vive en `handlers/onboarding.js` y se avanza escribiendole
+  // al bot— asi que sin numero no hay forma de completarla y las tres variantes del copy
+  // ("escribeme tu nombre", "escribeme tu correo") piden algo imposible.
+  //
+  // La primera version de este arreglo NO tenia este corte: afirmaba que el destinatario "tiene
+  // numero por construccion", porque toda cuenta web nace con `onboarding_completado` en true
+  // (`webapp/src/lib/create-web-user.ts`). Eso es una propiedad del NACIMIENTO, no un
+  // invariante: `webapp/src/app/api/whatsapp/unlink/route.ts` pone `whatsapp: null` desde
+  // Configuracion, self-serve, sin tocar `supabase_auth_id` ni `onboarding_completado`. Una
+  // medicion ("0 de los 17 hoy") no cierra un camino que el propio usuario puede abrir.
+  //
+  // Va antes de `registrarEvento` para no quemar el one-shot, igual que las otras dos.
+  if (!usuario.whatsapp) return false;
+
   const dias = (Date.now() - new Date(usuario.created_at).getTime()) / 86400000;
   if (dias < 7) return false;
 
@@ -447,7 +651,17 @@ async function maybeWakeUpOnboarding(usuario) {
   const eventoId = await registrarEvento({
     userId: usuario.id,
     eventType: 'wake_up_onboarding',
-    channel: 'whatsapp',
+    // Con el corte de arriba esta rama del ternario es la unica alcanzable, y se deja escrita
+    // igual: es la misma forma que los otros tres call-sites, la que los dos guards comparten,
+    // y la que queda correcta sola el dia que se levante la exencion.
+    //
+    // La version anterior justificaba el ternario diciendo que "sin numero solo puede haber
+    // llegado por la campana". Era falso y en la direccion peligrosa: la rama `else` de abajo
+    // manda `SOLO_WHATSAPP`, que NO escribe campana, asi que un destinatario sin numero y sin
+    // cuenta web dejaba una fila diciendo `in_app` sobre un aviso que no salio por ningun lado
+    // — y esa fila apaga los otros siete triggers una semana, porque `in_app` esta en
+    // `CANALES_EMPUJE`.
+    channel: usuario.whatsapp ? 'whatsapp' : 'in_app',
     messageSent: mensaje,
   });
   if (!eventoId) return false;
@@ -469,7 +683,7 @@ async function maybeWakeUpOnboarding(usuario) {
     tipo: 'survey_wake_up_onboarding', mensaje,
   };
   if (usuario.supabase_auth_id) {
-    await notificarUsuario({
+    const resultado = await notificarUsuario({
       canales: CANALES.AMBOS,
       ...comun,
       titulo: 'Te falta terminar de configurar Neto',
@@ -479,9 +693,17 @@ async function maybeWakeUpOnboarding(usuario) {
       // las tres es una accion que exista en la campana. (La primera version de este arreglo se
       // olvido este `cuerpo`: el mismo defecto que corregia el archivo de al lado, en el mismo
       // commit.)
+      //
+      // Dice "por WhatsApp" y eso es cierto por el CORTE del principio de la funcion, no por
+      // una propiedad del alta: sin ese corte, alguien que uso `/unlink` leeria en la campana
+      // que termine por un canal que ya no tiene.
       cuerpo: 'Tu alta quedó a medias. Termínala por WhatsApp y Neto empieza a anotar tus gastos.',
       tipoInApp: 'recordatorio', link: '/dashboard',
     });
+    // Mismo motivo que en `maybeWakeUpInactive`: el claim ya esta puesto y este es el unico
+    // envio. Solo en esta rama — la de abajo es SOLO_WHATSAPP y liberar ahi convertiria un
+    // numero inalcanzable en un reintento diario.
+    if (await liberarClaimSinEntrega(eventoId, 'wake_up_onboarding', usuario.id, resultado)) return false;
   } else {
     await notificarUsuario({
       canales: CANALES.SOLO_WHATSAPP,
@@ -556,10 +778,12 @@ async function checkSurveyTriggers() {
     // requieren completion porque dependen de tx_count > 0.
     const { data: usuarios, error: errUsuarios } = await supabase.from('usuarios')
       .select('id, whatsapp, nombre, created_at, recordatorios_activos, onboarding_completado, onboarding_paso, supabase_auth_id')
-      // Una cuenta borrada (migracion 073) sobrevive como lapida y esta query no tiene NINGUN
-      // otro filtro. Lo unico que la salvaba era el `if (!u.whatsapp) continue` de abajo, que
-      // es un efecto lateral de otra decision y no una regla: el dia que la lapida conserve el
-      // numero por cualquier motivo, el survey se le manda a alguien que pidio irse.
+      // Una cuenta borrada (migracion 073) sobrevive como lapida, y ESTE filtro es lo unico
+      // que la deja afuera. Antes la salvaba de rebote el `if (!u.whatsapp) continue` de abajo
+      // —la lapida no conserva el numero—, que era un efecto lateral de otra decision y no una
+      // regla. Ese corte se fue el 01-sep-2026 (item 23), asi que hoy no hay red debajo: si
+      // este `.is()` desaparece, el survey se le manda a alguien que pidio irse.
+      // Guard de comportamiento: `tests/cron/lapida-no-recibe.test.js`.
       .is('cuenta_borrada_at', null);
 
     // La poblacion: el comportamiento correcto ya era no mandar nada, asi que el arreglo NO
@@ -576,8 +800,20 @@ async function checkSurveyTriggers() {
     for (const u of usuarios) {
       try {
         if (u.recordatorios_activos === false) continue;
-        if (!u.whatsapp) continue;
-
+        // Aca habia un `if (!u.whatsapp) continue;`. Se fue el 01-sep-2026 (item 23) y es el
+        // QUINTO sitio de la misma clase que el item 14 cerro en `cron/checks.js` el 27-ago.
+        //
+        // El corte no protegia nada: `notificarUsuario` con AMBOS ya maneja `whatsapp: null`
+        // —llama igual a `enviarWhatsapp`, que hace no-op y deja `skipped_no_whatsapp` en el
+        // ledger, y escribe la campana—. Lo unico que agregaba era apagarle la mitad in-app al
+        // usuario web-first. Medido el 01-sep contra produccion: 17 usuarios sin numero, los 17
+        // con cuenta web y los 17 con los recordatorios prendidos, con CERO eventos de los ocho
+        // triggers de este archivo en toda la historia.
+        //
+        // Los dos triggers a los que NO les aplica la campana se declaran en su propia funcion
+        // (`maybeReminderD14` y `maybeFeedback30`, los dos porque el mensaje es una pregunta
+        // abierta y aca no hay donde contestarla). Eso es una exencion firmada por trigger, y
+        // es distinto de un corte que apaga los ocho sin mirar cual.
         if (await recibioMensajeRecienteProactivo(u.id)) continue;
         if (await tuvoErrorReciente(u.id)) continue;
 
@@ -617,6 +853,10 @@ async function checkSurveyTriggers() {
 module.exports = {
   checkSurveyTriggers,
   marcarRespuestaProactiva,
+  // La mitad in-app de los cuatro `reminder_dN`, para el dry-run: sin esto el preview imprime
+  // el copy de WhatsApp —o sea justo lo que el usuario sin numero NO recibe— y oculta lo unico
+  // que si le llega.
+  IN_APP_RECORDATORIO,
   // exported for dry-run script
   copyReminderD3,
   copyReminderD7,

@@ -212,18 +212,94 @@ for (const { rel, src } of FUENTES) {
 // Es la misma lección que el guard de arriba con otra cara: *un canal declarado no dice nada
 // sobre a quién se le declaró*. Y el corte es invisible en producción — el cron corre, no
 // falla, y `continue` no deja rastro en ninguna tabla.
+//
+// ─── La SÉPTIMA evasión, y la primera que no salió de una mutación sino de producción ────
+//
+// Hasta el 01-sep-2026 la aserción de abajo corría sobre `CON_AMBOS`: las funciones cuyo
+// cuerpo contiene `canales: CANALES.AMBOS`. Ésa era **la población equivocada**, y el quinto
+// sitio de la clase lo demostró: en `services/survey-triggers.js` el `if (!u.whatsapp)
+// continue;` vivía en `checkSurveyTriggers` (el bucle) y los `CANALES.AMBOS` en las cuatro
+// funciones que ese bucle llama. El cuerpo del bucle no contiene la cadena `CANALES.AMBOS`,
+// así que **nunca entraba a `CON_AMBOS`** y su corte no se examinaba jamás. El corte se movió
+// un nivel arriba, al llamador, y con eso salió del alcance del guard sin poner nada rojo.
+//
+// Y la antivacuidad no avisaba: `CON_AMBOS.length >= 15` y "la lista contiene cron/checks.js"
+// seguían siendo ciertas con el agujero abierto. Es la forma exacta de
+// `feedback_guards_que_no_ven`: el instrumento sano contestando otra pregunta.
+//
+// **Lo que se hizo, y por qué NO es un grafo de llamadas.** Medido el 01-sep-2026 sobre los 95
+// `.js` de runtime del backend: **26 funciones declaran AMBOS y sólo DOS contienen un corte por
+// falta de número**, y ninguna de las dos declara AMBOS. O sea que la intersección que la
+// versión anterior examinaba estaba vacía. Con una población de dos, seguir la cadena
+// llamador→llamado (y encima cruzando archivos) es maquinaria que puede fallar sola, y su
+// próxima evasión es obvia: subir el corte un nivel más, o mudarlo de archivo.
+//
+// La regla que queda es la simple: **ningún archivo de runtime puede cortar por falta de
+// número sin declararlo**, mire a donde mire ese corte. Falla del lado seguro —un rojo que
+// pide una firma, nunca un verde silencioso— y su lista de exenciones queda siendo el
+// inventario de los caminos que de verdad son sólo-WhatsApp, que es justo la conversación que
+// no se tuvo en ninguno de los cinco sitios de esta clase.
+//
+// **Los límites CONOCIDOS, medidos con un ataque el 01-sep-2026 y escritos para que nadie los
+// re-descubra creyendo que el guard cubre más de lo que cubre.** Detecta la forma negativa
+// (`if (!x.whatsapp)`) con `continue`/`return`/`break`, con o sin llaves, con statements en el
+// medio, y con la comparación explícita contra `null`/`undefined`. **NO** detecta:
+//
+//   · la forma POSITIVA (`if (u.whatsapp) { await avisar(u); }`), que es el mismo silencio al
+//     revés. No se cubre a propósito: `if (u.whatsapp)` es también la forma legítima de todo el
+//     código que sí depende del número, y marcarla haría del guard puro ruido;
+//   · el número destructurado (`const { whatsapp } = u; if (!whatsapp) continue;`). Cubrirlo
+//     pide soltar el punto, y ahí caen los `if (!whatsapp) return res.status(400)` de
+//     `routes/admin.js`, que son validación de un body y no un corte de canal;
+//   · el filtro sobre la población (`usuarios.filter((x) => x.whatsapp)`) y el filtro en la
+//     query (`.not('whatsapp', 'is', null)`), que son otra forma sintáctica entera.
+//
+// Para `services/survey-triggers.js` —el archivo donde vivió el quinto corte— las cuatro están
+// cubiertas por COMPORTAMIENTO, en `tests/services/survey-triggers-web-first.test.js`, que
+// afirma que el usuario sin número recibe. Ése es el respaldo real; esto es la red de forma.
+// El cuerpo opcional entre la condición y el corte admite hasta tres pares de llaves
+// balanceadas (`log.debug({ tag: 'X' }, 'sin numero'); continue;`) y no más: con un comodín
+// suelto, un `if (!u.whatsapp)` seguido de cualquier `return` lejano daría falso positivo, que
+// es el error que empuja al siguiente a aflojar el regex y abrir el hueco de verdad.
+const CUERPO_ANTES_DEL_CORTE = String.raw`(?:\s*\{[^{}]*(?:\{[^{}]*\}[^{}]*){0,3})?\s*(?:continue|return|break)\b`;
 const CORTE_POR_WHATSAPP = new RegExp(
-  String.raw`\bif\s*\([^)]*!\s*[\w$]+(?:\s*\??\.\s*[\w$]+)*\s*\??\.\s*whatsapp\b[^)]*\)\s*\{?\s*(?:continue|return)\b`,
+  // negación: `if (!u.whatsapp)`, con cualquier profundidad de propiedad y optional chaining
+  String.raw`\bif\s*\([^)]*!\s*[\w$]+(?:\s*\??\.\s*[\w$]+)*\s*\??\.\s*whatsapp\b[^)]*\)` + CUERPO_ANTES_DEL_CORTE
+  // comparación explícita: `if (u.whatsapp === null)`. Solo `==`/`===`: `!==` es la forma
+  // POSITIVA (cortar a quien SÍ tiene número), que es otra cosa y no la marca este guard.
+  + String.raw`|\bif\s*\([^)]*[\w$]+(?:\s*\??\.\s*[\w$]+)*\s*\??\.\s*whatsapp\s*===?\s*(?:null|undefined)[^)]*\)` + CUERPO_ANTES_DEL_CORTE,
 );
 
 /**
- * Funciones que declaran AMBOS y AUN ASI cortan por falta de número, a propósito.
+ * Los cortes por falta de número que están bien, con su motivo. Una entrada acá es una
+ * decisión que alguien firma, no un `continue` que quedó de antes: el default correcto es
+ * sacar el corte, porque `notificarUsuario` ya sabe qué hacer sin número.
  *
- * Vacía. Una entrada acá significa "este aviso no tiene sentido en la campana", y eso es una
- * decisión de producto que alguien firma, no un `continue` que quedó de antes. El default
- * correcto es sacar el corte: `notificarUsuario` ya sabe qué hacer sin número.
+ * Sirve además de inventario: son los únicos caminos del backend que de verdad terminan sólo
+ * en WhatsApp.
  */
-const CORTES_EXENTOS = new Map([]);
+const CORTES_EXENTOS = new Map([
+  ['services/registro-silencioso.js:intentarConfirmar',
+    'no pasa por `notificarUsuario`: le habla a `enviarWhatsapp` directo, para medir si el ' +
+    'número guardado sigue sirviendo cuando Meta dejó de mandar el del remitente (D10). Sin ' +
+    'número no hay nada que intentar ni nada in-app que escribir.'],
+  ['services/survey-triggers.js:maybeReminderD14',
+    'el mensaje ES una pregunta abierta ("¿hay algo que te complica? cuéntame en una sola ' +
+    'línea") y su único valor es la respuesta. La campana no tiene caja de respuesta y el ' +
+    'hilo de soporte vive en WhatsApp por decisión escrita. Corta ANTES de registrar, así ' +
+    'que no quema nada: el día que agregue un número lo recibe.'],
+  ['services/survey-triggers.js:maybeFeedback30',
+    'misma razón que `maybeReminderD14` ("si pudieras cambiar UNA sola cosa, ¿qué sería?"), y ' +
+    'además es one-shot con unique index: registrarlo sin poder entregarlo le quemaría para ' +
+    'siempre la única vez que se manda.'],
+  ['services/survey-triggers.js:maybeWakeUpOnboarding',
+    'el alta que este mensaje pide terminar es la de WhatsApp: la máquina de estados vive en ' +
+    '`handlers/onboarding.js` y se avanza escribiéndole al bot, así que sin número no hay ' +
+    'forma de completarla y las tres variantes del copy piden algo imposible. Ojo: NO se ' +
+    'sostiene en que "toda cuenta web nace con el onboarding cerrado" — eso es una propiedad ' +
+    'del nacimiento, y `/api/whatsapp/unlink` borra el número desde Configuración sin tocar ' +
+    'esa columna.'],
+]);
 
 const CON_AMBOS = [];
 for (const { rel, src } of FUENTES) {
@@ -232,6 +308,57 @@ for (const { rel, src } of FUENTES) {
   for (const fn of funciones(limpio)) {
     if (!/canales\s*:\s*CANALES\.AMBOS/.test(fn.cuerpo)) continue;
     CON_AMBOS.push({ rel, nombre: fn.nombre, cuerpo: fn.cuerpo });
+  }
+}
+
+/**
+ * TODO corte por falta de número del runtime, mire a donde mire. Ésta es la población que la
+ * versión anterior no tenía: aquélla preguntaba por las funciones que DECLARAN el canal, y el
+ * corte no vive necesariamente ahí.
+ */
+const CORTES_HALLADOS = [];
+/**
+ * Sitios que el ARCHIVO tiene y el troceo por función NO ve. Es la red debajo de la red, y sin
+ * ella el guard entero es evadible con un refactor mundano.
+ *
+ * `funciones()` solo ancla en la columna 0 con `function` o `const|let|var|exports.|this.` =.
+ * Un archivo cuyos invocables sean **métodos de una clase** o de un **objeto literal**
+ * (`const jobs = { async correr() {…} }`) produce CERO funciones, así que ni `SITIOS`, ni
+ * `CON_AMBOS`, ni `CORTES_HALLADOS` se mueven: el archivo entero queda invisible para los dos
+ * bloques de este test a la vez. Verificado el 01-sep-2026 metiendo un `services/` nuevo con
+ * una clase, un `if (!u.whatsapp) continue` y un `SOLO_WHATSAPP` sin filtro: **la suite entera
+ * quedó en verde, 163 de 163**.
+ *
+ * Es la misma lección que la lista negra de directorios, un nivel más adentro: el default tiene
+ * que ser MIRAR. Por eso lo que se compara es el archivo contra la suma de sus funciones — no
+ * hace falta que el troceo entienda la forma nueva, solo que se dé cuenta de que se le escapó.
+ *
+ * El docblock de `funciones()` decía que los métodos quedaban fuera "a propósito" porque una
+ * anidada se le atribuye a su padre. Vale para las anidadas; un método de clase no tiene padre
+ * en columna 0, así que no se le atribuye a nadie.
+ */
+const NO_ATRIBUIDOS = [];
+for (const { rel, src } of FUENTES) {
+  if (rel === 'lib/notify-user.js') continue;   // la definición
+  const limpio = sinMotivos(sinComentarios(src));
+  const fns = funciones(limpio);
+  for (const fn of fns) {
+    if (!CORTE_POR_WHATSAPP.test(fn.cuerpo)) continue;
+    CORTES_HALLADOS.push({
+      rel, nombre: fn.nombre, cuerpo: fn.cuerpo,
+      declaraAmbos: /canales\s*:\s*CANALES\.AMBOS/.test(fn.cuerpo),
+    });
+  }
+  // Lo que el archivo tiene y ninguna función recogió. `cuenta` sobre el texto completo contra
+  // la suma de los cuerpos: si el troceo se perdió una región, la diferencia lo delata.
+  const cuenta = (texto, re) => (texto.match(new RegExp(re.source, 'g')) || []).length;
+  const enElArchivo = { corte: cuenta(limpio, CORTE_POR_WHATSAPP), solo: cuenta(limpio, /CANALES\.SOLO_WHATSAPP/) };
+  const enFunciones = fns.reduce((acc, fn) => ({
+    corte: acc.corte + cuenta(fn.cuerpo, CORTE_POR_WHATSAPP),
+    solo: acc.solo + cuenta(fn.cuerpo, /CANALES\.SOLO_WHATSAPP/),
+  }), { corte: 0, solo: 0 });
+  if (enElArchivo.corte > enFunciones.corte || enElArchivo.solo > enFunciones.solo) {
+    NO_ATRIBUIDOS.push({ rel, ...enElArchivo, vistos: enFunciones });
   }
 }
 
@@ -360,6 +487,13 @@ describe('declarar AMBOS y cortar por falta de número es lo mismo que no declar
     ['encadenado con ||', 'if (!m.usuarios?.whatsapp || m.usuarios?.recordatorios_activos === false) continue;'],
     ['con optional chaining simple', 'if (!u?.whatsapp) continue;'],
     ['anidado más profundo', 'if (!deuda.usuarios.whatsapp) continue;'],
+    // Las cuatro de abajo salieron del ataque del 01-sep-2026 al guard nuevo: las cuatro
+    // reintroducen el ítem 23 y las cuatro lo dejaban VERDE. Ninguna es rebuscada — la primera
+    // es lo que escribe cualquiera que quiera dejar rastro en el log del corte que agrega.
+    ['con un statement antes del corte', "if (!u.whatsapp) {\n  log.debug({ tag: 'X', userId: u.id }, 'sin numero');\n  continue;\n}"],
+    ['con break en vez de continue', 'if (!u.whatsapp) break;'],
+    ['comparando contra null', 'if (u.whatsapp === null) continue;'],
+    ['comparando con == laxo (null y undefined a la vez)', 'if (u.whatsapp == null) continue;'],
   ];
   it.each(CORTES)('el detector reconoce %s', (_como, linea) => {
     expect(CORTE_POR_WHATSAPP.test(linea)).toBe(true);
@@ -379,20 +513,95 @@ describe('declarar AMBOS y cortar por falta de número es lo mismo que no declar
     ['pasar el número al chokepoint', 'usuarioId: u.id, whatsapp: u.whatsapp,'],
     ['leer el número sin cortar', 'const dest = usuario.whatsapp || null;'],
     ['un if sobre whatsapp que NO corta', 'if (!usuario.whatsapp) log.info({ web: true });'],
+    // La forma POSITIVA, que es el límite declarado del detector: cortar a quien SÍ tiene
+    // número es otra decisión (el camino solo-WhatsApp) y marcarla haría del guard ruido.
+    ['cortar al que SÍ tiene número', 'if (usuario.whatsapp !== null) continue;'],
+    // Y el falso positivo que la ampliación del 01-sep pudo abrir: un `if (!x.whatsapp)` que
+    // hace su trabajo y sigue, con un `return` de OTRA rama más abajo. Sin el tope de llaves
+    // balanceadas del cuerpo, el comodín se los comía a los dos.
+    ['un bloque que maneja el caso y sigue, con un return lejano de otra rama',
+      "if (!u.whatsapp) {\n  faltantes.push(u.id);\n  log.info({ tag: 'X' }, 'sin numero');\n  metricas.sinNumero += 1;\n  avisos.push({ id: u.id, canal: 'in_app' });\n  pendientes.set(u.id, { intentos: 0, ultimo: null });\n}\nif (otraCosa) return;"],
   ])('el detector NO marca %s', (_como, linea) => {
     expect(CORTE_POR_WHATSAPP.test(linea)).toBe(false);
   });
 
-  it.each(CON_AMBOS.map((s) => [`${s.rel}:${s.nombre}`, s]))('%s', (id, sitio) => {
-    if (CORTES_EXENTOS.has(id)) return;
+  /**
+   * La contraprueba de la SÉPTIMA evasión, y es la que separa esta versión de la anterior.
+   *
+   * El fixture es la forma exacta que vivió en producción: el corte en el LLAMADOR, la
+   * declaración en el LLAMADO. Se afirman las dos mitades — que la población vieja no lo veía,
+   * y que la nueva sí — porque sólo la segunda sin la primera dejaría creer que el guard viejo
+   * ya alcanzaba.
+   */
+  it('un corte en el LLAMADOR, con el AMBOS en el llamado, sí se ve', () => {
+    const fuente = 'async function envia(u) {\n'
+      + "  await notificarUsuario({ canales: CANALES.AMBOS, usuarioId: u.id, whatsapp: u.whatsapp || null });\n"
+      + '}\n\n'
+      + 'async function bucle(usuarios) {\n'
+      + '  for (const u of usuarios) {\n'
+      + '    if (!u.whatsapp) continue;\n'
+      + '    await envia(u);\n'
+      + '  }\n'
+      + '}\n';
+    const fns = funciones(sinMotivos(sinComentarios(fuente)));
+    const conAmbos = fns.filter((f) => /canales\s*:\s*CANALES\.AMBOS/.test(f.cuerpo));
+    const conCorte = fns.filter((f) => CORTE_POR_WHATSAPP.test(f.cuerpo));
+
+    // La mitad que documenta el agujero: la población vieja son las que declaran AMBOS, y
+    // ninguna de ellas tiene el corte. Preguntarles a ellas devuelve verde.
+    expect(conAmbos.map((f) => f.nombre)).toEqual(['envia']);
+    expect(conAmbos.every((f) => !CORTE_POR_WHATSAPP.test(f.cuerpo))).toBe(true);
+
+    // La mitad que lo cierra: barriendo TODAS las funciones, el corte aparece igual.
+    expect(conCorte.map((f) => f.nombre)).toEqual(['bucle']);
+  });
+
+  it('ningún archivo esconde un corte o un canal único fuera del troceo por función', () => {
+    // La evasión E-A: `class Reactivador { async correr() { if (!u.whatsapp) continue; … } }`
+    // en un archivo nuevo dejaba la suite ENTERA en verde, porque el troceo no emite ninguna
+    // función y los tres barridos de este archivo se quedan vacíos sin que nada lo note.
     expect(
-      CORTE_POR_WHATSAPP.test(sitio.cuerpo),
-      `${sitio.rel} → ${sitio.nombre}() declara CANALES.AMBOS pero corta antes por falta de ` +
-      'número. Eso NO protege nada: notificarUsuario ya maneja whatsapp:null (deja ' +
+      NO_ATRIBUIDOS,
+      'un archivo tiene un corte por falta de número (o un CANALES.SOLO_WHATSAPP) que el ' +
+      'troceo por función no le atribuye a nadie: casi seguro son métodos de una clase o de un ' +
+      'objeto literal, que `funciones()` no ve. Declaralo en columna 0, o enseñale la forma ' +
+      'nueva al troceo. Lo que NO vale es dejarlo: ahí adentro el guard no mira nada.',
+    ).toEqual([]);
+  });
+
+  it('el barrido de cortes no está vacío (antivacuidad)', () => {
+    // Sin esto, un `CORTE_POR_WHATSAPP` que dejara de matchear —o un troceo roto— vaciaría la
+    // lista y las aserciones de abajo pasarían sin haber mirado nada. Peor: se vería sano,
+    // porque "cero cortes" es exactamente el estado que este archivo persigue.
+    //
+    // El ancla es un sitio EXENTO a propósito: sobrevive al arreglo, así que no hay que
+    // acordarse de mudarla cuando se cierre el próximo corte. El piso es 1 y no el conteo de
+    // hoy: un número acá se ataría a las exenciones vigentes, y el día que una se levante
+    // —que es el desenlace BUENO— este archivo se pondría rojo por el motivo equivocado.
+    expect(CORTES_HALLADOS.length).toBeGreaterThanOrEqual(1);
+    expect(CORTES_HALLADOS.map((s) => `${s.rel}:${s.nombre}`))
+      .toContain('services/registro-silencioso.js:intentarConfirmar');
+  });
+
+  it('toda exención declarada corresponde a un corte que existe', () => {
+    // El trinquete al revés: una exención que ya no apunta a nada es un permiso abierto
+    // esperando a que alguien reintroduzca el corte y lo encuentre pre-firmado.
+    const hallados = new Set(CORTES_HALLADOS.map((s) => `${s.rel}:${s.nombre}`));
+    for (const id of CORTES_EXENTOS.keys()) {
+      expect(hallados.has(id), `la exención de ${id} sobrevivió a su corte: bórrala`).toBe(true);
+    }
+  });
+
+  it.each(CORTES_HALLADOS.map((s) => [`${s.rel}:${s.nombre}`, s]))('%s', (id, sitio) => {
+    expect(
+      CORTES_EXENTOS.has(id),
+      `${sitio.rel} → ${sitio.nombre}() corta por falta de número` +
+      (sitio.declaraAmbos ? ' y encima declara CANALES.AMBOS' : ' antes de llamar a quien avisa') +
+      '. Eso NO protege nada: notificarUsuario ya maneja whatsapp:null (deja ' +
       '`skipped_no_whatsapp` en el ledger y escribe la campana igual). Lo único que hace el ' +
       'corte es apagarle la mitad in-app a quien entró por la web. Sacá el corte, o declaralo ' +
       'en CORTES_EXENTOS con el porqué.',
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 
