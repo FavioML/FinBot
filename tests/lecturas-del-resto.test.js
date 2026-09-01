@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 
 /**
@@ -45,7 +46,8 @@ import path from 'node:path';
  *     dónde mirar.
  *
  * **Lo que sí cambia, y es el punto entero de este archivo: el perímetro ya no se escribe.**
- * Barre el árbol propio ENTERO desde la raíz y descuenta lo que otro guard cubre, con motivo.
+ * Barre el árbol propio ENTERO —el que ve `git`, no el del disco: ver `listadoDeGit()`— y
+ * descuenta lo que otro guard cubre, con motivo.
  * Un directorio nuevo —`canales/`, `jobs/`, `workers/`— nace ADENTRO. Los cuatro guards
  * anteriores tenían perímetros positivos (`handlers`, `lib`, el transitivo del cron) y por eso
  * el complemento existía y nadie lo miraba: tres veces seguidas, el hueco lo encontró la
@@ -120,10 +122,6 @@ const EXCLUIDOS = {
       + 'comportamiento (`lecturas-de-soporte`, `lecturas-de-infra`, `anuncio-de-soporte`). '
       + 'Los 39 sitios están limpios y el guard es el trinquete que los mantiene así.',
   },
-  'node_modules': {
-    motivo: 'Dependencias de terceros. No es código propio y no se arregla acá; barrerlo '
-      + 'además haría que este guard tarde minutos en vez de milisegundos.',
-  },
   'webapp': {
     motivo: 'Proyecto npm APARTE (Next.js) con su propio package.json, su propio vitest y su '
       + 'propio CI que gatea el deploy de Vercel. Sus guards viven ahí dentro '
@@ -152,20 +150,10 @@ const EXCLUIDOS = {
       + 'no cambiaría ningún veredicto. Está declarado igual para que el día que alguien meta '
       + 'un runner .mjs acá dentro, la decisión de excluirlo tenga que re-tomarse a mano.',
   },
-  'tasks': {
-    motivo: 'Definiciones declarativas de tareas programadas. Medido el 31-ago-2026: cero '
-      + 'archivos .js/.mjs/.cjs. Mismo argumento que migrations/: se declara para que dejar de '
-      + 'ser cierto cueste una decisión y no pase inadvertido.',
-  },
   'docs': {
     motivo: 'Markdown: DEFECTOS.md, runbooks y notas. No hay código que ejecute una query, y '
       + 'lo que se afirma sobre estos archivos lo vigila el drift-check del workspace, no un '
       + 'guard de lecturas.',
-  },
-  'assets': {
-    motivo: 'Imágenes y estáticos que sirve el backend. No hay código propio acá: es la misma '
-      + 'razón por la que no se barre content/, y las dos se declaran en vez de dejarse afuera '
-      + 'por descuido del filtro de extensiones.',
   },
   'content': {
     motivo: 'Assets de contenido (reels, carruseles, captions) que no forman parte del runtime '
@@ -181,25 +169,51 @@ const EXCLUIDOS = {
 const EXTENSIONES = ['.js', '.mjs', '.cjs'];
 
 /**
- * `excluidos` entra por PARÁMETRO —con el default real— para que la regla se pueda ejercitar
- * con un mapa sintético, igual que en `lecturas-de-lib.test.js`.
+ * **La lista de archivos sale de GIT, no del working tree, y eso lo enseñó el CI.**
+ *
+ * La primera versión recorría el disco con `readdirSync`. Localmente barría `tasks/` y
+ * `assets/` —que están gitignored o sin un solo archivo trackeado— y en el checkout limpio del
+ * CI esos directorios **no existen**: el guard se puso rojo por su propia exclusión, no por el
+ * código. O sea que el perímetro dependía de en qué máquina corriera, que es el modo de fallo
+ * #14 de `feedback_guards_que_no_ven` (el ENTORNO donde mido no es el que quiero medir) — y en
+ * un guard cuya premisa entera es "nada queda afuera", un perímetro que cambia de máquina es
+ * peor que un hueco declarado.
+ *
+ * `--cached --others --exclude-standard` = lo trackeado **más** lo nuevo sin agregar, **menos**
+ * lo ignorado. En el CI las dos primeras categorías coinciden con el commit; local, además
+ * cubre el archivo que alguien acaba de crear y todavía no hizo `git add`. Lo único invisible
+ * es lo gitignored, que por definición no llega a producción por este repo — y por eso
+ * `node_modules`, `tasks` y `assets` ya no necesitan una entrada en `EXCLUIDOS`.
  */
-function archivosJs(dirRel, excluidos = EXCLUIDOS) {
+function listadoDeGit() {
+  return execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard'],
+    { cwd: RAIZ, encoding: 'utf-8', maxBuffer: 32 * 1024 * 1024 })
+    .split('\n').map((l) => l.trim()).filter(Boolean);
+}
+
+/**
+ * `excluidos` y `listado` entran por PARÁMETRO —con los defaults reales— para que las reglas se
+ * puedan ejercitar con entradas sintéticas, igual que en `lecturas-de-lib.test.js`.
+ */
+function archivosJs(dirRel, excluidos = EXCLUIDOS, listado = null) {
+  const todos = listado || listadoDeGit();
+  const prefijo = dirRel ? dirRel + '/' : '';
   const out = [];
-  const base = dirRel ? path.join(RAIZ, dirRel) : RAIZ;
-  for (const entrada of readdirSync(base)) {
-    if (entrada.startsWith('.')) continue;   // .git, .claude, .github: no hay runtime ahí
-    const rel = dirRel ? dirRel + '/' + entrada : entrada;
-    const esDir = statSync(path.join(RAIZ, rel)).isDirectory();
-    // La exclusión se consulta SÓLO para directorios: probada antes del `isDirectory()`, una
-    // entrada de EXCLUIDOS podría sacar del barrido un ARCHIVO suelto, que es la evasión
-    // barata (el piso de la antivacuidad tiene aire de sobra y una baja de uno no lo cruza).
-    if (esDir) {
-      if (excluidos[rel]) continue;
-      out.push(...archivosJs(rel, excluidos));
-      continue;
+  for (const rel of todos) {
+    if (!rel.startsWith(prefijo)) continue;
+    if (rel.startsWith('.')) continue;   // .github, .claude: no hay runtime ahí
+    if (!EXTENSIONES.some((e) => rel.endsWith(e))) continue;
+    // La exclusión se consulta SÓLO sobre segmentos de DIRECTORIO: comparada contra la ruta
+    // entera, una entrada de EXCLUIDOS podría sacar del barrido un ARCHIVO suelto, que es la
+    // evasión barata (el piso de la antivacuidad tiene aire de sobra y una baja de uno no lo
+    // cruza). Se prueba cada prefijo de directorio para que excluir `services` también saque a
+    // `services/subscriptions/`.
+    const segmentos = rel.split('/');
+    let excluido = false;
+    for (let i = 1; i < segmentos.length; i++) {
+      if (excluidos[segmentos.slice(0, i).join('/')]) { excluido = true; break; }
     }
-    if (EXTENSIONES.some((e) => entrada.endsWith(e))) out.push(rel);
+    if (!excluido) out.push(rel);
   }
   return out;
 }
@@ -268,9 +282,13 @@ describe('el perímetro se deriva del árbol, no se escribe', () => {
     // fuera de todo test y sólo aparecía cuando alguien iba a buscarlo — tres veces seguidas,
     // una sesión después. Acá el default es estar adentro: un directorio nuevo se barre solo, y
     // sacarlo cuesta escribir por qué.
-    const dirs = readdirSync(RAIZ)
-      .filter((e) => !e.startsWith('.'))
-      .filter((e) => statSync(path.join(RAIZ, e)).isDirectory());
+    // Los directorios salen del MISMO listado de git que el barrido, no de `readdirSync`. Con
+    // el disco, este caso reportaba `assets`, `node_modules` y `tasks` —gitignored o sin un
+    // archivo trackeado— que en el checkout limpio del CI ni existen: el guard se ponía rojo
+    // por la máquina y no por el código. Es la misma lección que el listado de arriba.
+    const dirs = [...new Set(listadoDeGit()
+      .filter((f) => !f.startsWith('.') && f.includes('/'))
+      .map((f) => f.split('/')[0]))];
     const sinDeclarar = dirs.filter((d) => !EXCLUIDOS[d] && !ARCHIVOS.some((f) => f.startsWith(d + '/')));
     expect(sinDeclarar, 'directorios que no se barren y no están excluidos con motivo').toEqual([]);
   });
