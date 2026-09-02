@@ -707,8 +707,16 @@ Dos reglas, y las dos se pagaron:
 **El cupo NO se recupera.** Verificado en la consola de Google (03-ago-2026, proyecto
 **En produccion**, no en modo prueba): el limite de usuarios de OAuth se cuenta sobre
 *todo el ciclo de vida del proyecto* y "no se puede restablecer ni cambiar". Cuenta a
-quien **alguna vez** otorgo permiso, no a quien lo tiene ahora. Marcador al cerrar
-este trabajo: **5 de 100**.
+quien **alguna vez** otorgo permiso, no a quien lo tiene ahora.
+
+**El marcador NO se escribe aca.** Decia "5 de 100" y el 01-sep-2026 eran 6: un numero
+que solo sube y que ninguna sesion tiene motivo para venir a corregir es de los que la
+siguiente lee como verdad. Desde ese dia se mide solo, en `/admin/producto` → "Cupo
+OAuth de Google", que sale de `admin_feature_adoption` (migracion 080) contando la union
+de `usuarios.gmail_access_token` y CUALQUIER fila de `gmail_cuentas` — activa o no,
+porque el consentimiento ya se gasto. Esa fila es la unica de esa RPC que **no** excluye
+cuentas internas: a Google no le importa de quien es la cuenta, y excluirlas haria creer
+que quedan mas cupos de los que quedan.
 
 ### Conectar es WEB-ONLY: una sola puerta, y esa puerta es la webapp
 
