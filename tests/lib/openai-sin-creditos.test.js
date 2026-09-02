@@ -102,11 +102,17 @@ describe('la alerta de Telegram dice QUÉ está caído, no quién lo reportó', 
     expect(alerta).not.toContain('platform.openai.com');
   });
 
-  it('un error que no es de OpenAI no cambia de forma', async () => {
-    const alerta = await dispararAlerta('WEBHOOK', 'Mensaje entrante sin from');
+  // **Este caso decía `'Mensaje entrante sin from'` y dejó de servir el 02-sep-2026**, cuando ese
+  // mensaje ganó copy propio (`esSinNumeroVisible`). Se le cambió el error y NO se borró, porque
+  // su papel no es hablar del webhook: es ser el CONTROL de que la alerta genérica siga siendo
+  // alcanzable. Sin un caso que caiga al `else`, un predicado que devolviera `true` de más se
+  // llevaría puesta la rama genérica sin que nada se pusiera rojo.
+  it('un error que no tiene copy propio sigue saliendo con la forma genérica', async () => {
+    const alerta = await dispararAlerta('WEBHOOK', 'Timeout llamando a la API de Meta');
 
     expect(alerta).toMatch(/ALERTA CRITICA/);
     expect(alerta).toContain('WEBHOOK');
     expect(alerta).not.toMatch(/SIN CRÉDITOS/i);
+    expect(alerta).not.toMatch(/SIN NÚMERO VISIBLE/i);
   });
 });

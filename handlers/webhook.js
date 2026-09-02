@@ -18,6 +18,7 @@ const { subcategoriaUtil } = require('../lib/subcategoria');
 const { escanearGmailYRegistrar } = require('../services/gmail-scanner');
 const { tieneGmailConectado } = require('../gmail');
 const { registrarGastoSilencioso, registrarAudioSilencioso, registrarImagenSilenciosa, avisarPrimeraVezSilencioso } = require('../services/registro-silencioso');
+const { verificarCuentaWebPorBsuid } = require('../services/otp-sin-numero');
 const { descargarMedia, transcribirAudio, extraerPagoDeImagen } = require('../services/media-intake');
 const { generarResumenSemanal } = require('../services/summaries');
 const { guardarMensaje, obtenerOCrearUsuario, getUserPlanConfig, buscarUsuarioPorBsuid } = require('../helpers/db-helpers');
@@ -56,6 +57,14 @@ function isDuplicateWamid(wamid) {
 // (asume single-instance, ver supuesto documentado del backend).
 const OTP_MAX_INTENTOS = 5;
 const OTP_VENTANA_MS = 15 * 60 * 1000;
+
+// Throttle del aviso de vinculación por BSUID. Los desenlaces accionables dejan el código vivo a
+// propósito, así que la persona reenvía y sin esto cada reenvío es otro Telegram idéntico. Mismo
+// papel que `ALERT_COOLDOWN_MS` en `lib/error-monitor.js`. In-memory, como el resto de los
+// throttles del backend (ver el supuesto de instancia única en el CLAUDE.md).
+const AVISO_VINCULACION_COOLDOWN_MS = 10 * 60 * 1000;
+const avisosVinculacion = new Map();
+const ES_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const otpIntentos = new Map(); // from → { count, ts }
 function otpRateLimited(from) {
   const now = Date.now();
@@ -64,6 +73,82 @@ function otpRateLimited(from) {
   e.count += 1;
   return e.count > OTP_MAX_INTENTOS;
 }
+/**
+ * Aviso al admin de una vinculación por BSUID. Es el desenlace de alguien a quien NO se le puede
+ * contestar, así que este Telegram es el único acuse que existe de que el trámite salió.
+ *
+ * **No avisa de todo, y la selección es la que evita que el aviso se vuelva ruido:** los éxitos
+ * repetidos (`ya_vinculada`, que es lo que devuelve el reenvío del mismo código) y los códigos
+ * mal tipeados (`invalido`) no dicen nada nuevo. Lo que sí se avisa es la primera vinculación
+ * —porque desde ese momento hay un usuario vivo y mudo, y conviene saber quién es— y el
+ * `conflicto`, que es el único desenlace que necesita una mano humana.
+ */
+async function avisarVinculacionPorBsuid(bsuid, r) {
+  const EXITO = ['vinculada', 'fusionada', 'adoptada'];
+  const ACCIONABLES = ['conflicto', 'vinculada_sin_destrabar'];
+  if (!EXITO.includes(r.estado) && !ACCIONABLES.includes(r.estado)) return;
+  // **Throttle por (bsuid, estado), y no es precaución teórica.** Los dos desenlaces accionables
+  // dejan el código VIVO a propósito, o sea que el diseño cuenta con que la persona reenvíe — y
+  // Julio reenvió 9 veces en 9 minutos. Sin esto, una base con hipo produce 9 Telegrams idénticos
+  // en un minuto, cada uno con su comando de arreglo. `error-monitor` tiene `ALERT_COOLDOWN_MS`
+  // exactamente para esto. Lo encontró la revisión adversarial, ejecutando el caso.
+  const clave = bsuid + ':' + r.estado;
+  const ahora = Date.now();
+  const ultimo = avisosVinculacion.get(clave);
+  if (ultimo && ahora - ultimo < AVISO_VINCULACION_COOLDOWN_MS) {
+    log.info({ tag: 'OTP_BSUID', bsuid, estado: r.estado }, 'Aviso de vinculación throttleado');
+    return;
+  }
+  avisosVinculacion.set(clave, ahora);
+  const quien = [r.nombre, r.email].filter(Boolean).join(' · ') || 'sin datos';
+  // El vínculo se escribió pero la señal que destraba la webapp no. La persona sigue mirando el
+  // spinner y NO tiene canal por el que enterarse, así que este aviso es el único camino hacia
+  // el arreglo: marcar la fila a mano.
+  if (r.estado === 'vinculada_sin_destrabar') {
+    try {
+      await notificarAdmin(
+        '⚠️ VINCULACIÓN A MEDIAS POR BSUID\n\n' +
+        'Se escribió el vínculo pero NO se pudo marcar el código como verificado, así que la ' +
+        'persona sigue viendo "Esperando tu confirmación..." y no hay forma de avisarle.\n\n' +
+        '👤 ' + quien + '\n🆔 ' + bsuid + '\n\n' +
+        // **El comando lleva el `usuarioId`, no el BSUID concatenado.** La versión anterior armaba
+        // un `where bsuid = '<valor del webhook>'` pegando texto que llega de Meta: una sentencia
+        // lista para copiar en una consola con service-role, construida por concatenación desde un
+        // campo externo. No era explotable (pasa por el HMAC), pero el id es un UUID que ya viene
+        // resuelto en `r.usuarioId` y además ahorra el subquery.
+        // En SQL las comillas DOBLES delimitan identificadores, no cadenas, así que el literal va
+        // entre simples — y sólo se emite si el id tiene forma de UUID. Si no la tiene, el aviso
+        // sale sin comando: mejor que entregar uno que no se puede pegar.
+        (ES_UUID.test(String(r.usuarioId || ''))
+          ? '👉 Arreglo: update webapp_otp set verified_at = now() where supabase_auth_id = '
+            + "(select supabase_auth_id from usuarios where id = '" + r.usuarioId + "');"
+          : '👉 Buscá su fila por el BSUID de arriba y marcá `verified_at` a mano.')
+      );
+    } catch (e) {
+      log.error({ tag: 'OTP_BSUID', bsuid, err: e && e.message }, 'No se pudo avisar la vinculación a medias');
+    }
+    return;
+  }
+  // Texto plano, igual que el resto: `lib/telegram.js` manda sin `parse_mode` y ADEMÁS le saca
+  // los asteriscos, así que ni Markdown ni HTML sirven acá — el HTML saldría con las etiquetas
+  // a la vista. Es la decisión que evita que un envío falle por formato desbalanceado.
+  const msg = r.estado === 'conflicto'
+    ? '⚠️ VINCULACIÓN POR BSUID EN CONFLICTO\n\n' +
+      'Alguien sin número visible mandó un código válido y no se pudo vincular solo.\n\n' +
+      '👤 ' + quien + '\n🆔 ' + bsuid + '\n\n' +
+      'Necesita revisión manual: hay dos filas que no se pueden fusionar automáticamente.'
+    : '🔗 CUENTA VINCULADA POR BSUID\n\n' +
+      'Un usuario con el número oculto (WhatsApp Usernames) completó la verificación de su ' +
+      'cuenta web. Su onboarding se destrabó.\n\n' +
+      '👤 ' + quien + '\n🆔 ' + bsuid + '\n\n' +
+      '⚠️ No se le puede responder por WhatsApp. Sus gastos se van a registrar en silencio y ' +
+      'los ve sólo en app.neto.pe. No espera un "listo, anotado".';
+  try { await notificarAdmin(msg); } catch (e) {
+    // El aviso no puede tumbar la vinculación, que es lo que le importa a la persona.
+    log.error({ tag: 'OTP_BSUID', bsuid, err: e && e.message }, 'No se pudo avisar la vinculación');
+  }
+}
+
 /**
  * Devuelve la ficha que `otpRateLimited` acaba de cobrar. **Sólo se llama cuando el intento
  * fracasó por NUESTRO lado** (una lectura que no se pudo hacer), nunca por un código malo.
@@ -254,6 +339,52 @@ function createWebhookHandler(procesarMensajeLibre) {
       // guardar el gasto no necesita respuesta, lo que pasaba es que ese código vivía inline
       // entre los `enviarWhatsapp` del webhook. Importa por volumen: 12 de los 34 usuarios que
       // registraron algo en los últimos 60 días lo hacen por captura.
+      // El OTP inverso es el ÚNICO trámite que se puede cerrar sin número, y por eso se atiende
+      // ANTES de preguntar si el BSUID nos suena. El orden importa en las dos direcciones:
+      //   · si el BSUID es DESCONOCIDO, este es el único camino que existe — abajo se descarta;
+      //   · si es CONOCIDO, sin esto su código caería en `registrarGastoSilencioso`, que lo
+      //     trataría como el texto de un gasto. Vincular su cuenta web es lo que pidió.
+      //
+      // Hasta el 02-sep-2026 esto no existía y el efecto no era "no se pudo verificar": era una
+      // pantalla de onboarding colgada para siempre, porque `/api/onboarding` poletea señales que
+      // sólo escribe el handler del OTP, 360 líneas más abajo de este `return`.
+      const cuerpoOtp = (message.type === 'text' && message.text && message.text.body) || '';
+      // **`bsuid` es obligatorio para entrar acá, y no es defensivo por gusto.** Meta puede mandar
+      // un mensaje sin `from` Y sin `from_user_id` — así llegaron los 4 del 01-ago-2026. Sin esta
+      // condición, uno de esos que trajera un código caía igual en este bloque, salía `error` y
+      // hacía `return` **sin escribir la fila en `errores`**: se perdía el único rastro
+      // diagnóstico que este bloque existe para producir, justo en el caso donde no hay ninguna
+      // otra pista. Además `otpRateLimited(null)` es un bucket compartido por todos los remitentes
+      // sin BSUID. Lo encontró la revisión adversarial.
+      const otpSinNumero = bsuid ? cuerpoOtp.match(/NETO-(\d{6})/i) : null;
+      if (otpSinNumero) {
+        // El throttle va por BSUID: es el identificador estable que Meta pone acá, el mismo papel
+        // que cumple `from` en el flujo con número. Sin esto el camino nuevo quedaría sin la única
+        // defensa que tiene el código contra la fuerza bruta.
+        if (otpRateLimited(bsuid)) {
+          log.warn({ tag: 'OTP_BSUID', bsuid }, 'OTP rate limit alcanzado (posible fuerza bruta)');
+          return;
+        }
+        const r = await verificarCuentaWebPorBsuid(bsuid, 'NETO-' + otpSinNumero[1]);
+        // Se devuelve la ficha cuando el intento fracasó por NUESTRO lado, nunca por un código
+        // malo. Misma regla que el OTP con número: **la regla es el par, no la rama** — si un
+        // camino invita a reintentar y el motivo es nuestro, tiene que devolver la ficha.
+        //
+        // `vinculada_sin_destrabar` está en la lista porque el destrabe previsto ES reenviar (el
+        // código quedó vivo justamente para eso, y cae en `ya_vinculada` que reintenta el burn).
+        // Sin reembolso ese camino se come 5 fichas y deja a la persona bloqueada 15 minutos con
+        // la pantalla girando, castigada por un fallo nuestro. Lo encontró la revisión adversarial.
+        if (r.estado === 'lectura_fallida' || r.estado === 'error' || r.estado === 'vinculada_sin_destrabar') {
+          otpDevolverIntento(bsuid);
+        }
+        await avisarVinculacionPorBsuid(bsuid, r);
+        log.info({ tag: 'OTP_BSUID', bsuid, estado: r.estado, usuarioId: r.usuarioId || null },
+          'OTP sin número resuelto');
+        // Un código inválido o expirado NO se registra como "mensaje sin from": no es el caso que
+        // esa fila vigila, y ensuciarlo dispararía la alerta de volumen por gente tipeando mal.
+        return;
+      }
+
       const conocido = await buscarUsuarioPorBsuid(bsuid);
       if (conocido) {
         let r = null;
@@ -288,8 +419,37 @@ function createWebhookHandler(procesarMensajeLibre) {
       // Desconocido de verdad: o nunca escribió desde la migración 065, o es alguien nuevo que
       // llegó ya con username. Ese segundo caso no tiene arreglo de nuestro lado: sin número no
       // hay a quién responder ni historial al que asociarlo.
-      log.error({ tag: 'WEBHOOK', ...forma }, 'Mensaje entrante sin `from` — se descarta');
-      registrarError('WEBHOOK', 'Mensaje entrante sin from', { detalle: JSON.stringify(forma) });
+      // **El texto va en la fila, y es un cambio deliberado de criterio.** Hasta el 02-sep-2026
+      // acá se guardaba sólo la FORMA del payload ("no se loguea el contenido, solo las claves"),
+      // y esa decisión tuvo un costo medible: cuando un usuario real quedó trabado mandando
+      // códigos de verificación, sus 9 filas eran indistinguibles de las de cualquier otro, y sólo
+      // se supo qué había mandado porque fue a reclamar por Instagram. Los otros 6 BSUID de esos
+      // días siguen sin poder revisarse: no hay forma de saber si estaban en el mismo problema.
+      //
+      // Se acota a 200 caracteres y sólo al tipo `text`.
+      //
+      // **HUECO ABIERTO, y el argumento que lo justificaba se cae con este mismo commit.**
+      // `borrar_cuenta_total` barre `errores` por `usuario_id` y por `whatsapp`
+      // (`migrations/073d:159`), y estas filas no llevan ninguno de los dos, así que **este texto
+      // sobrevive a un pedido de baja**.
+      //
+      // La primera versión de esta nota decía que eso era aceptable "porque son de gente que
+      // todavía no identificamos". Es falso: la fila lleva `fromUserId` en el `detalle`, y una
+      // vinculación exitosa escribe ESE MISMO VALOR en `usuarios.bsuid`, o sea que
+      // `errores.detalle->>'fromUserId' = usuarios.bsuid` es un join trivial. **La feature
+      // fabrica retroactivamente la atribución que el argumento negaba.** Lo demostró la
+      // revisión adversarial.
+      //
+      // Lo que hay puesto como mitigación es el tope de 200 chars y el corte por tipo `text`. Lo
+      // que falta es una condición más en ese DELETE (por el bsuid de la fila, que ya se puede
+      // leer del mismo SELECT INTO), y eso es una migración sobre la función más sensible del
+      // sistema —con su canary de md5— así que se decide aparte, no de rebote en un fix de
+      // webhook. Hasta entonces esto es un hueco conocido, no uno aceptado.
+      const forma2 = { ...forma, texto: cuerpoOtp ? cuerpoOtp.slice(0, 200) : null };
+      log.error({ tag: 'WEBHOOK', ...forma2 }, 'Mensaje entrante sin `from` — se descarta');
+      // `actor` no entra a la fila: lo usa el detector de patrones para contar PERSONAS distintas
+      // en vez de mensajes, que es la diferencia entre "uno insistiendo" y "esto se generalizó".
+      registrarError('WEBHOOK', 'Mensaje entrante sin from', { detalle: JSON.stringify(forma2), actor: bsuid });
       return;
     }
     // --- Manejo de imágenes ---

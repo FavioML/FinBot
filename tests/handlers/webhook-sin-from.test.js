@@ -162,8 +162,26 @@ describe('mensaje entrante sin `from` (regresión 01-ago-2026)', () => {
     const detalle = JSON.parse(opts.detalle);
     expect(detalle.tipo).toBe('system');
     expect(detalle.clavesMensaje).toContain('id');
-    // No se registra el contenido del mensaje, solo las claves.
+    // **Un mensaje que no es de texto no aporta contenido, y por eso este caso usa `system`.**
+    // Desde el 02-sep-2026 el texto de los mensajes `text` SÍ se guarda (ver el caso de abajo):
+    // no guardarlo dejó 9 filas indiagnosticables de un usuario real que estaba trabado. Lo que
+    // sigue sin registrarse es el nombre del perfil, y de los tipos que no son texto no se
+    // extrae nada.
+    expect(detalle.texto).toBeNull();
     expect(opts.detalle).not.toContain('hola');
+  });
+
+  // 02-sep-2026: el complemento del caso de arriba. Sin el texto, las filas de un usuario que
+  // mandaba códigos de verificación eran idénticas a las de cualquier otro, y sólo se supo qué
+  // pasaba porque la persona fue a reclamar por Instagram.
+  it('un mensaje de TEXTO sí deja su contenido, acotado a 200 caracteres', async () => {
+    const largo = 'x'.repeat(250);
+    const { req, res } = buildReqRes(sinFrom({ from_user_id: 'PE.texto', text: { body: largo } }));
+    await webhookHandler(req, res);
+    const detalle = JSON.parse(registrarError.mock.calls[0][2].detalle);
+    expect(detalle.texto).toHaveLength(200);
+    // Y el BSUID viaja como `actor` para que la alerta pueda contar PERSONAS y no mensajes.
+    expect(registrarError.mock.calls[0][2].actor).toBe('PE.texto');
   });
 
   // 08-ago-2026: ya se sabe QUÉ los produce. Meta arrancó el rollout de WhatsApp Usernames,
