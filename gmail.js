@@ -364,10 +364,61 @@ async function guardarTokens(usuarioId, tokens, email) {
   if (errUpsert) throw new Error('guardarTokens: no se pudo guardar la cuenta: ' + errUpsert.message);
 }
 
+/**
+ * Las cuentas de Gmail ACTIVAS de un usuario.
+ *
+ * **LANZA cuando no puede leer, y ese cambio es del 2026-09-02.** Descartaba el `{ error }` y
+ * devolvía `[]`, o sea que un timeout de Supabase era indistinguible de "esta persona no
+ * conectó Gmail". Eso no era un detalle: `leerCorreosBancarios` cae al token legacy cuando esta
+ * función devuelve vacío, así que un hipo de red terminaba en `no_auth`, y desde que `no_auth`
+ * significa `{sinCuenta:true}` el usuario recibía **"conéctalo en la app"** teniendo su cuenta
+ * conectada. Es el mismo defecto que ese cambio venía a arreglar, reintroducido por la rama de
+ * error. Lo encontró una revisión adversarial sondeando con `fetch` roto.
+ *
+ * El segundo daño era más silencioso: con el error tragado acá, el `try/catch` de
+ * `tieneGmailConectado` **nunca se ejecutaba** y su `log.warn` no se emitió jamás.
+ *
+ * Los consumidores que prefieren degradar antes que romper (los que eligen COPY) envuelven la
+ * llamada; los que deciden algo real dejan que propague. Devolver `[]` no le deja esa elección
+ * a nadie.
+ */
 async function obtenerCuentasGmail(usuarioId) {
-  const { data } = await getSupabase().from('gmail_cuentas').select('*')
+  const { data, error } = await getSupabase().from('gmail_cuentas').select('*')
     .eq('usuario_id', usuarioId).eq('activa', true).order('created_at', { ascending: true });
+  if (error) {
+    log.error({ tag: 'GMAIL', usuarioId, err: error.message }, 'No se pudieron leer las cuentas de Gmail');
+    throw new Error('No se pudieron leer las cuentas de Gmail: ' + error.message);
+  }
   return data || [];
+}
+
+/**
+ * ¿Esta persona tiene Gmail conectado? La UNION de las dos fuentes, para el backend.
+ *
+ * Vive acá y no en `lib/gmail-conectado.js` porque hace I/O y ese módulo es puro a propósito
+ * (su test de paridad contra el TS depende de eso). La regla es la misma: token legacy en
+ * `usuarios` ∪ una fila `activa` en `gmail_cuentas`.
+ *
+ * **El corte por el token legacy va primero y no es una optimización cosmética.** El caso común
+ * es no tener Gmail —3 de 102 usuarios al 2026-09-01— así que la query se paga solo cuando la
+ * columna vieja no alcanza, que es justo cuando hace falta.
+ *
+ * Falla hacia "no tiene": si la lectura se cae, la alternativa es afirmar que sí lo tiene y
+ * esconderle el enlace para conectarlo, que es peor. Todos los call-sites usan esto para elegir
+ * COPY, así que degradar cuesta un mensaje subóptimo y no una capability.
+ *
+ * Nació inline en `handlers/message-processor.js` como `resolverCorreoConectado`. Se movió acá
+ * el 2026-09-02 al aparecer el tercer y cuarto consumidor: los tres sitios que faltaban leían
+ * la columna legacy sola y le daban a quien tiene Gmail el copy del que no lo tiene.
+ */
+async function tieneGmailConectado(usuario) {
+  if (usuario.gmail_access_token) return true;
+  try {
+    return (await obtenerCuentasGmail(usuario.id)).length > 0;
+  } catch (e) {
+    log.warn({ tag: 'GMAIL', usuarioId: usuario.id, err: e.message }, 'No se pudo verificar Gmail; asumo sin correo');
+    return false;
+  }
 }
 
 /**
@@ -714,7 +765,19 @@ async function remitentesParaUsuario(usuarioId) {
 }
 
 async function leerCorreosBancarios(usuarioId, opts = {}) {
-  const cuentas = await obtenerCuentasGmail(usuarioId);
+  // **`no_auth` significa "no tiene cuenta", así que solo se puede afirmar si la lectura
+  // FUNCIONÓ.** `obtenerCuentasGmail` descartaba su `{ error }` y devolvía `[]`, con lo cual un
+  // timeout de Supabase caía al fallback legacy y terminaba en `no_auth` — y desde que ese
+  // valor se traduce a "conéctalo en la app", a alguien con Gmail conectado se le pedía
+  // conectarlo por un hipo de red. Hoy esa función lanza; acá se traduce a un error PROPIO
+  // para que el llamador no confunda "no pude preguntar" con "no tiene".
+  let cuentas;
+  try {
+    cuentas = await obtenerCuentasGmail(usuarioId);
+  } catch (e) {
+    log.error({ tag: 'GMAIL', usuarioId, err: e.message }, 'No se pudo resolver si tiene cuentas: no se afirma nada');
+    return { error: 'lectura_fallida', mensajes: [] };
+  }
   const remitentes = await remitentesParaUsuario(usuarioId);
 
   if (cuentas.length === 0) {
@@ -757,4 +820,4 @@ async function leerCorreosBancarios(usuarioId, opts = {}) {
   return { error: authExpired ? 'AUTH_EXPIRED' : null, mensajes: mensajesUnificados };
 }
 
-module.exports = { generarUrlAutorizacion, verificarState, guardarTokens, cargarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail, revocarAccesoGmail, BANCOS_CATALOGO, remitentesParaSeleccion, describirSeleccion, construirQueriesBancarias, emailGmailVinculado, hashEmailGmail, esElMismoGmail };
+module.exports = { tieneGmailConectado, generarUrlAutorizacion, verificarState, guardarTokens, cargarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail, revocarAccesoGmail, BANCOS_CATALOGO, remitentesParaSeleccion, describirSeleccion, construirQueriesBancarias, emailGmailVinculado, hashEmailGmail, esElMismoGmail };

@@ -42,6 +42,12 @@ require('../../lib/db').supabase = supabaseMock;
 const generarUrlAutorizacion = vi.fn(() => 'https://oauth.example/start');
 require('../../gmail').generarUrlAutorizacion = generarUrlAutorizacion;
 require('../../gmail').obtenerCuentasGmail = vi.fn().mockResolvedValue([]);
+// **`tieneGmailConectado` también, y no es redundante.** Desde el 2026-09-02 `onboarding.js`
+// pregunta por ahí, y esa función llama a `obtenerCuentasGmail` desde ADENTRO de `gmail.js`,
+// o sea sin pasar por `module.exports`: el mock de la línea de arriba no la intercepta. Sin
+// esta, el archivo salía a Supabase de producción y quedaba verde porque la lectura fallida
+// se traduce a `false`, que es el valor que estos casos esperan igual.
+require('../../gmail').tieneGmailConectado = vi.fn().mockResolvedValue(false);
 
 const { manejarOnboarding } = require('../../handlers/onboarding');
 

@@ -79,8 +79,22 @@ async function escanearGmailYRegistrar(usuario, opts = {}) {
   // histórico, y por un motivo que no vale para el incremental: ver `escanearHistoricoInicial`.
   const { scanOpts = {}, enviarAlertas = true, historico = false, estado = null } = opts;
   const { error, mensajes } = await leerCorreosBancarios(usuario.id, scanOpts);
-  if (error === 'no_auth') return null;
+  // **Los dos casos vacios NO son el mismo, y colapsarlos en `null` costo un copy al reves.**
+  // `no_auth` significa que `leerCorreosBancarios` no encontro NINGUNA de las dos fuentes
+  // (consulta `gmail_cuentas` y recien despues cae al token legacy de `usuarios`), o sea que
+  // esta persona no tiene Gmail conectado. `!mensajes.length` significa que si lo tiene y no
+  // habia correos nuevos. Los call-sites tenian que adivinar cual de los dos habia sido, y lo
+  // adivinaban mirando `usuario.gmail_access_token` — el almacen viejo, vacio para casi todos.
+  // Resultado: a quien SI tiene Gmail conectado se le respondia "conectalo en la app".
+  //
+  // Se devuelve un objeto por el mismo motivo que `{authError:true}`, y el dato ya estaba acá:
+  // lo unico que hacia falta era dejar de tirarlo. No cuesta una query nueva.
+  if (error === 'no_auth') return { sinCuenta: true };
   if (error === 'AUTH_EXPIRED') return { authError: true };
+  // No se pudo AVERIGUAR si tiene cuentas. Cae en `null` —el desenlace mudo— a proposito: es
+  // el unico que no afirma nada. Decir `sinCuenta` seria pedirle que conecte Gmail a quien ya
+  // lo tiene, que es el bug que `sinCuenta` vino a arreglar, servido por la rama de error.
+  if (error === 'lectura_fallida') return null;
   if (!mensajes.length) return null;
   let registradas = 0; let ignoradas = 0; let resumen = '';
   // Fetch categorías custom una sola vez por batch (no por correo)
@@ -284,6 +298,9 @@ async function escaneoAutomatico() {
         // correos del banco. Es la mitad silenciosa de la misma capability.
         if (!esProPagado(usuario)) continue;
         const resultado = await escanearGmailYRegistrar(usuario);
+        // `{sinCuenta:true}` cae solo: no es `authError` ni un string, asi que no dispara
+        // ninguna de las dos ramas. Es lo correcto — el barrido automatico no le escribe a
+        // nadie por no tener Gmail; para eso esta el filtro de la lista de usuarios.
         if (resultado && resultado.authError) {
           // Gmail desconectado — notificar al usuario (máx 1 vez/24h)
           await notificarAuthExpirada(usuario);

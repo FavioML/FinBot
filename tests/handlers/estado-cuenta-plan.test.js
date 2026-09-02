@@ -15,6 +15,22 @@ const require = createRequire(import.meta.url);
 // La otra mitad del hallazgo —el "no solo 1 mes" del freemium muerto— ya no existe: se lo
 // llevó el rework de /premium de la ola 1 (ver premium-comando-sin-comprobante.test.js).
 
+// **`premium.js` usa el `obtenerCuentasGmail` que IMPORTA, no el del `ctx`.** El `ctx` de abajo
+// lo declaraba desde siempre y nadie lo leía, así que este archivo le pegaba a Supabase de
+// PRODUCCIÓN en cada corrida y pasaba en verde porque la función se tragaba el `{ error }` y
+// devolvía `[]` — indistinguible de "este usuario no tiene Gmail". Se destapó el 2026-09-02, al
+// hacer que esa lectura fallara cerrado. El `ctx` se deja porque la firma del handler lo pide.
+const gmailPath = require.resolve('../../gmail.js');
+require.cache[gmailPath] = {
+  id: gmailPath, filename: gmailPath, loaded: true,
+  exports: {
+    obtenerCuentasGmail: async () => [],
+    tieneGmailConectado: async () => false,
+    revocarAccesoGmail: async () => {},
+    oauth2Client: {}, BANCOS_CATALOGO: {},
+  },
+};
+
 const premium = require('../../handlers/intents/premium');
 
 const ctx = { obtenerCuentasGmail: async () => [], supabase: null };

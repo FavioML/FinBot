@@ -38,7 +38,7 @@ const log = require('../lib/logger');
 const { PRO_PRECIOS } = require('../lib/config');
 const { CATEGORIAS_SUGERIDAS } = require('../lib/constants');
 const { parsearIndicesRespuesta } = require('../lib/formatters');
-const { obtenerCuentasGmail, revocarAccesoGmail } = require('../gmail');
+const { obtenerCuentasGmail, revocarAccesoGmail, tieneGmailConectado } = require('../gmail');
 const { linkPanelPro, esProPagado } = require('../lib/trial');
 const { borrarCuenta } = require('../services/account-deletion');
 const { crearCategoriasDesdeIndices } = require('../services/categories');
@@ -580,15 +580,23 @@ async function manejarOnboarding({ usuario, msg, cmd }) {
   }
 
   // ─── Triggers de entrada al alta ───────────────────────────────────────────
-  const esUsuarioNuevo = !usuario.gmail_access_token && !usuario.onboarding_completado;
+  //
+  // "Ya conectó Gmail" significa que esta persona no es nueva, y eso se responde con las DOS
+  // fuentes: `usuarios.gmail_access_token` es el almacén legacy y está vacío para casi todos
+  // (3 de 102 usuarios tienen Gmail, y 1 de esos 3 en la columna). Ver `tieneGmailConectado`.
+  //
+  // **Es PEREZOSO a propósito, y el orden de las condiciones es la optimización.** Esto corre
+  // en cada mensaje de WhatsApp que llega; `onboarding_completado` es una columna que ya está
+  // en memoria y descarta a la mayoría sin tocar la red, así que la query se paga solo cuando
+  // el alta está abierta — que es exactamente el caso donde la respuesta cambia algo.
+  const noEsNuevo = async () => usuario.onboarding_completado || (await tieneGmailConectado(usuario));
   if (cmd === 'hola' || cmd === 'hi' || cmd === 'inicio') {
-    const tieneGmail = !!usuario.gmail_access_token;
-    if (!tieneGmail && !usuario.onboarding_completado) {
+    if (!(await noEsNuevo())) {
       if (!usuario.nombre) {
         const vPideNombre = await escribirUsuario(usuario, { onboarding_paso: 100 }, 'pide_nombre_hola');
         // **Preguntar el nombre sin haber dejado escrito que lo estamos esperando es pedir algo
         // que no vamos a poder leer.** La respuesta cae fuera del paso 100, vuelve a entrar por
-        // este mismo trigger (`esUsuarioNuevo` de más abajo) y se le repregunta lo mismo en cada
+        // este mismo trigger (el `noEsNuevo` de más abajo) y se le repregunta lo mismo en cada
         // mensaje: el bucle que este paso dejó de tener a propósito cuando se rediseñó el alta.
         if (!entro(vPideNombre)) return MENSAJE_ARRANQUE_TRABADO;
         return '👋 ¡Hola! Soy *NETO*, tu asistente financiero por WhatsApp.\n\n' +
@@ -602,6 +610,16 @@ async function manejarOnboarding({ usuario, msg, cmd }) {
     }
     // Usuario ya onboardeado o con Gmail → NO es alta. El saludo normal (con
     // total del mes) lo maneja webhook.js.
+    //
+    // **Si tiene Gmail pero el alta quedó abierta, se cierra acá.** Antes esa combinación no
+    // era alcanzable de forma estable: `esUsuarioNuevo` miraba la columna legacy, vacía para
+    // casi todos, así que la persona volvía a entrar al alta. Con la unión puesta, saltearla
+    // sin más la dejaba en un estado intermedio PERMANENTE: `onboarding_completado` en `false`
+    // de por vida y `wa_onboarding_completed` sin dispararse nunca. No es hipotético —
+    // `routes/public.js` escribe esa columna fallando ABIERTO al conectar Gmail, y su propio
+    // log dice que el síntoma esperado es que el alta se repita. Cerrarla es lo que ese
+    // camino quiso hacer y no pudo.
+    if (!usuario.onboarding_completado) await completarAlta(usuario, 'gmail_conectado');
     return null;
   }
 
@@ -617,7 +635,7 @@ async function manejarOnboarding({ usuario, msg, cmd }) {
     return mensajePrimerGasto(usuario.nombre);
   }
 
-  if (esUsuarioNuevo && !cmd.startsWith('/')) {
+  if (!cmd.startsWith('/') && !(await noEsNuevo())) {
     // El primer mensaje YA es un gasto. Se cierra el alta en silencio y se deja
     // pasar: que la primera respuesta de Neto sea el gasto registrado (con el
     // link de activación al pie) y no un formulario es el punto de todo esto.

@@ -38,13 +38,20 @@ const obtenerSesionAbierta = vi.fn(async () => {
 });
 require('../../lib/support-tickets').obtenerSesionAbierta = obtenerSesionAbierta;
 
+// Se mockea `tieneGmailConectado` y no `obtenerCuentasGmail`, y el cambio tiene historia: el
+// 2026-09-02 la unión de las dos fuentes de Gmail se movió de este handler a `gmail.js`, y
+// desde adentro de ese módulo la llamada ya no pasa por `module.exports`, así que el mock viejo
+// dejó de interceptar. Lo delató este test, que es lo que tenía que pasar. Lo que mide sigue
+// siendo lo mismo: que la lectura de Gmail ARRANQUE junto a las otras dos, no que se llame a
+// una función puntual. Que esa lectura mire las DOS fuentes lo vigila
+// `tests/gmail-callsites-backend.test.js`.
 const obtenerCuentasGmail = vi.fn(async () => {
   reg('gmail:inicio');
-  const v = await tras(10, []);
+  const v = await tras(10, false);
   reg('gmail:fin');
   return v;
 });
-require('../../gmail').obtenerCuentasGmail = obtenerCuentasGmail;
+require('../../gmail').tieneGmailConectado = obtenerCuentasGmail;
 
 const obtenerHistorial = vi.fn(async () => {
   reg('historial:inicio');
@@ -129,9 +136,14 @@ describe('arranque de procesarMensajeLibre', () => {
     expect(crearCompletion).not.toHaveBeenCalled();
   });
 
-  it('el token legacy de Gmail evita el round-trip a gmail_cuentas', async () => {
-    await procesarMensajeLibre('gaste 20 en pan', { ...USUARIO, gmail_access_token: 'ya-lo-tengo' }, '51999');
-    expect(obtenerCuentasGmail).not.toHaveBeenCalled();
+  // El corte por el token legacy SE MUDÓ a `gmail.js` el 2026-09-02, junto con la unión de las
+  // dos fuentes, así que desde acá ya no se puede observar: la lectura entera es el mock. Su
+  // test vive ahora en `tests/gmail-tiene-conectado.test.js`, contra el módulo que es su dueño.
+  // Lo que este archivo sigue midiendo es que esa lectura arranque en paralelo con las otras
+  // dos, que es la propiedad por la que existe.
+  it('la lectura de Gmail se hace UNA vez por mensaje', async () => {
+    await procesarMensajeLibre('gaste 20 en pan', USUARIO, '51999');
+    expect(obtenerCuentasGmail).toHaveBeenCalledTimes(1);
   });
 
   // P′9: la respuesta de Neto se escribía DOS veces en `conversaciones` — una acá y otra en
@@ -150,11 +162,23 @@ describe('arranque de procesarMensajeLibre', () => {
     expect(roles).not.toContain('neto');
   });
 
-  it('un fallo leyendo gmail_cuentas no tumba el mensaje', async () => {
-    obtenerCuentasGmail.mockImplementationOnce(async () => { throw new Error('gmail_cuentas caido'); });
+  /**
+   * El `Promise.all` del arranque no tiene red: si un miembro rechaza, se cae el mensaje del
+   * usuario. Por eso `tieneGmailConectado` traga su propio error y devuelve `false` — la
+   * garantía de que NO lanza es suya y se prueba en `tests/gmail-tiene-conectado.test.js`,
+   * junto al módulo donde vive desde el 2026-09-02.
+   *
+   * Lo que queda medible desde acá es la otra mitad de esa cadena, y sigue valiendo: que el
+   * handler tolere el `false` sin cambiar de comportamiento. Si alguien "mejorara" el
+   * contrato haciendo que la lectura propague, este archivo no lo vería — ese es el límite,
+   * y por eso el otro test es el que sostiene el invariante.
+   */
+  it('que la lectura de Gmail diga que SÍ tampoco cambia el flujo', async () => {
+    // `mockImplementationOnce(async () => false)` era el valor por DEFECTO del mock, o sea que
+    // el caso era idéntico al de más arriba y no medía nada. Se invierte para que al menos
+    // ejercite la otra rama: el mensaje sale igual tenga o no tenga Gmail.
+    obtenerCuentasGmail.mockImplementationOnce(async () => true);
     const res = await procesarMensajeLibre('gaste 20 en pan', USUARIO, '51999');
-    // El Promise.all rechaza entero si un miembro lanza: por eso el catch vive DENTRO de
-    // `resolverCorreoConectado` y no alrededor del Promise.all.
     expect(res).toBe('Respuesta directa de NETO');
     expect(res).not.toContain('Tuve un problema');
   });

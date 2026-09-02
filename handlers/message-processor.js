@@ -17,7 +17,7 @@ const { parsearCorreoBancario, parsearRegistroManual, parsearCorreccionesMultipl
 const { detectarMultiGasto, detectarIngresoMasGastos } = require('../services/multi-gasto-detector');
 const { notificarAdmin, notificarErrorAdmin } = require('../lib/admin-notify');
 const { registrarError, esOpenAISinCreditos } = require('../lib/error-monitor');
-const { obtenerCuentasGmail } = require('../gmail');
+const { tieneGmailConectado, obtenerCuentasGmail } = require('../gmail');
 const { generarRecomendaciones, construirDatosUsuario, generarMiniRecomendacion } = require('../services/recommendations');
 const { registrarDeuda, obtenerDeudas, abonarDeuda, marcarDeudaPagada, formatearResumenDeudas, consolidarDeudasPorContraparte, saldarTodasDeudas } = require('../services/debts');
 const { obtenerMetas: obtenerMetasService, abonarMeta: abonarMetaService, calcularRitmoAhorro, registrarLogro, obtenerLogros, verificarRachaAportes } = require('../services/metas');
@@ -74,19 +74,14 @@ async function salvarGastoSinIA(msg, usuario) {
  * solo en `gmail_cuentas` (multi-cuenta), hay que mirar ambos.
  *
  * El token legacy corta primero y sin ir a la DB. Igual el round-trip a `gmail_cuentas` es el
- * caso COMÚN (3 de 102 usuarios tienen Gmail), y por eso esta función viaja en el Promise.all
+ * caso COMÚN (3 de 102 usuarios tienen Gmail), y por eso esta llamada viaja en el Promise.all
  * del arranque en vez de estar sola en el camino crítico: un round-trip para un booleano que
  * casi siempre sale false.
+ *
+ * **El cuerpo se mudó a `gmail.js` como `tieneGmailConectado` el 2026-09-02.** Estaba escrito
+ * acá, correcto, mientras otros tres sitios respondían la misma pregunta mirando solo la
+ * columna legacy. Un helper correcto que vive en un handler no lo encuentra el que lo necesita.
  */
-async function resolverCorreoConectado(usuario) {
-  if (usuario.gmail_access_token) return true;
-  try {
-    return (await obtenerCuentasGmail(usuario.id)).length > 0;
-  } catch (e) {
-    log.warn({ tag: 'NETO_PROMPT', err: e.message }, 'No se pudo verificar Gmail; asumo sin correo');
-    return false;
-  }
-}
 
 async function procesarMensajeLibre(msg, usuario, from) {
   try {
@@ -98,7 +93,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
     // aparecería dos veces en el contexto del LLM (una en el historial, otra como último turno).
     const [sesionSoporte, correoConectado, historialCrudo] = await Promise.all([
       obtenerSesionAbierta(usuario.id),
-      resolverCorreoConectado(usuario),
+      tieneGmailConectado(usuario),
       obtenerHistorial(usuario.id),
     ]);
 

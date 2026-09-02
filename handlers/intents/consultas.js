@@ -20,9 +20,16 @@ module.exports = {
           return mensajeGmailProPagado(usuario);
         }
         const resultado = await escanearGmailYRegistrar(usuario);
-        // Devuelve un OBJETO ({authError:true}) cuando el token murió, no un string: sin esta
-        // rama el handler retornaba el objeto y el usuario recibía basura.
+        // Devuelve un OBJETO cuando el token murió ({authError:true}) o cuando no hay ninguna
+        // cuenta conectada ({sinCuenta:true}), no un string: sin estas ramas el handler
+        // retornaba el objeto y el usuario recibía basura.
+        //
+        // El caso `sinCuenta` tenía acá el mismo defecto que en `/escanear` del webhook, pero
+        // disfrazado: no miraba la columna legacy, simplemente respondía "no encontré correos"
+        // a quien no tiene Gmail conectado. Decirle que no hay correos nuevos a alguien que
+        // nunca conectó su cuenta lo deja esperando algo que no va a llegar.
         if (resultado && resultado.authError) return mensajeGmailDesconectado(usuario);
+        if (resultado && resultado.sinCuenta) return mensajeConectarEnLaApp(usuario);
         return resultado || 'No encontre correos bancarios nuevos. Te aviso automaticamente cuando llegue uno.';
       }
 

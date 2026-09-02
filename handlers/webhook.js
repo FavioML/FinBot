@@ -16,6 +16,7 @@ const { registrarReferido, obtenerEstadisticasReferidos, mensajeMisReferidos } =
 const { obtenerCategoriasUsuario } = require('../services/categories');
 const { subcategoriaUtil } = require('../lib/subcategoria');
 const { escanearGmailYRegistrar } = require('../services/gmail-scanner');
+const { tieneGmailConectado } = require('../gmail');
 const { registrarGastoSilencioso, registrarAudioSilencioso, registrarImagenSilenciosa, avisarPrimeraVezSilencioso } = require('../services/registro-silencioso');
 const { descargarMedia, transcribirAudio, extraerPagoDeImagen } = require('../services/media-intake');
 const { generarResumenSemanal } = require('../services/summaries');
@@ -933,7 +934,13 @@ function createWebhookHandler(procesarMensajeLibre) {
       analytics.capture(usuario.id, 'wa_muro_lectura', { comando: cmd.split(/\s+/)[0] });
     } else if (cmd === 'hola' || cmd === 'hi' || cmd === 'inicio') {
       var primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
-      if (!usuario.gmail_access_token && usuario.onboarding_completado) {
+      // La unión de las DOS fuentes, no la columna legacy sola: con `gmail_access_token` a
+      // secas, a los usuarios que tienen Gmail conectado en `gmail_cuentas` se les daba el
+      // saludo de "modo manual", que explica cómo registrar gastos a mano. Ver
+      // `tieneGmailConectado`. El round-trip cae solo en el comando `/hola` y detrás de
+      // `onboarding_completado`, que descarta sin tocar la red.
+      var conGmail = usuario.onboarding_completado ? await tieneGmailConectado(usuario) : false;
+      if (!conGmail && usuario.onboarding_completado) {
         // Usuario en modo manual — saludo normal
         var gastosMesHola = await obtenerGastosMes(usuario.id);
         var totalMesHola = gastosMesHola.reduce(function(s,t){return s+parseFloat(t.monto_pen||t.monto);},0);
@@ -1033,12 +1040,21 @@ function createWebhookHandler(procesarMensajeLibre) {
         respuesta = mensajeGmailProPagado(usuario);
       } else {
         const resultado = await escanearGmailYRegistrar(usuario);
-        // Ojo: devuelve un OBJETO ({authError:true}) si el token murió, no un string. Sin
-        // esta rama el objeto viajaba tal cual a enviarWhatsapp.
+        // Ojo: devuelve un OBJETO si el token murió ({authError:true}) o si no hay ninguna
+        // cuenta conectada ({sinCuenta:true}), no un string. Sin estas ramas el objeto viajaba
+        // tal cual a enviarWhatsapp.
+        //
+        // **`sinCuenta` reemplaza a `!usuario.gmail_access_token`, que era el bug.** Esa
+        // columna es el almacén legacy y está vacía para casi todos: a quien tiene Gmail
+        // conectado en `gmail_cuentas` y escaneaba sin correos nuevos se le respondía
+        // "conéctalo en la app", o sea que se le pedía hacer algo que ya había hecho. El
+        // scanner ya sabe cuál de los dos casos es, mirando las DOS fuentes.
         if (resultado && resultado.authError) {
           respuesta = mensajeGmailDesconectado(usuario);
+        } else if (resultado && resultado.sinCuenta) {
+          respuesta = mensajeConectarEnLaApp(usuario);
         } else {
-          respuesta = resultado || (!usuario.gmail_access_token ? mensajeConectarEnLaApp(usuario) : 'No encontre correos bancarios nuevos.');
+          respuesta = resultado || 'No encontre correos bancarios nuevos.';
         }
       }
     } else if (cmd === '/semana' || cmd === '/resumen') {

@@ -14,34 +14,48 @@ import { join } from 'path';
  *
  * La regla es la misma que del lado de la webapp: donde la columna legacy se LEE, la otra
  * fuente (`gmail_cuentas` o `indexarGmail`) tiene que estar en la misma línea o en una vecina.
+ *
+ * **`handlers/webhook.js` y `handlers/onboarding.js` estuvieron exentos UN DÍA, y la exención
+ * era la parte peligrosa del arreglo.** El 01-sep se declararon con un motivo que era cierto
+ * (eligen copy, y unirlos costaba un round-trip en el camino del webhook) y al día siguiente
+ * se arreglaron igual. Con la exención puesta, revertir cualquiera de los dos a la columna
+ * legacy dejaba el guard en verde — medido. Una exención que sobrevive a su motivo no es una
+ * nota vieja: es un archivo que el guard dejó de mirar.
  */
 
 const RAIZ = join(process.cwd());
 const DIRS = ['services', 'handlers', 'lib', 'routes', 'cron', 'helpers'];
 
 /**
+ * **La RAÍZ, no recursiva, y es donde vive `gmail.js`.** El barrido nació sin ella y el
+ * agujero era el peor posible: `gmail.js` es hoy el DUEÑO de la unión (`tieneGmailConectado`,
+ * `leerCorreosBancarios`), o sea el único archivo cuya reversión rompe a todos los demás a la
+ * vez, y quedaba invisible. Es el mismo hueco que `plata-validada.test.js` ya documenta con
+ * estas palabras para su propio barrido; lo repetí igual.
+ */
+function archivosRaiz() {
+  return readdirSync(RAIZ, { withFileTypes: true })
+    .filter((e) => e.isFile() && /\.js$/.test(e.name))
+    .map((e) => e.name);
+}
+
+/**
  * Exentos, con su razón. Una excepción sin razón es un guard apagado, y una que sobrevive a su
  * motivo es un hueco.
  */
 const EXENTOS = new Map([
-  ['lib/gmail-conectado.js', 'es el dueño de la definición'],
+  ['lib/gmail-conectado.js', 'es el dueño de la definición (la parte pura, sin I/O)'],
+  [
+    'gmail.js',
+    'es el dueño del ALMACÉN legacy y de la unión con I/O (`tieneGmailConectado`, ' +
+      '`leerCorreosBancarios`, `cargarTokens`): escribe la columna al guardar tokens, la lee ' +
+      'para autenticar, y define el corte que evita el round-trip. Marcarlo sería marcar al ' +
+      'único archivo que TIENE que tocarla.',
+  ],
   [
     'services/gmail-scanner.js',
     'arma la unión a mano y a propósito: son DOS queries que se abortan juntas, con su propio ' +
       'manejo de error por mitad. Es el sitio que define la unión, no uno que la consume.',
-  ],
-  [
-    'handlers/onboarding.js',
-    'decide COPY del alta, no una capability ni una métrica. Y la condición que domina es ' +
-      '`onboarding_completado`: quien tiene Gmail en `gmail_cuentas` ya cerró su alta, así que ' +
-      'la rama no cambia. Arreglarlo pide un round-trip a Postgres en el camino del webhook ' +
-      'para un booleano que sale false en 99 de 102 usuarios.',
-  ],
-  [
-    'handlers/webhook.js',
-    'mismo caso que onboarding: elige entre dos saludos y el texto del post-escaneo. El ' +
-      'defecto real es que a 3 usuarios con Gmail conectado se les da el copy de "modo ' +
-      'manual". Declarado y medido, no escondido: si algún día se toca ese flujo, se une acá.',
   ],
 ]);
 
@@ -102,7 +116,7 @@ function decisionesSoloLegacy(src) {
     .map(({ l }) => l.trim());
 }
 
-const archivos = DIRS.flatMap(archivosDe);
+const archivos = [...DIRS.flatMap(archivosDe), ...archivosRaiz()];
 const conLaColumna = archivos.filter((f) =>
   readFileSync(join(RAIZ, f), 'utf8').includes('gmail_access_token'),
 );
@@ -115,6 +129,11 @@ describe('la columna legacy de Gmail no decide sola en el backend', () => {
     expect(archivos.length).toBeGreaterThan(50);
     expect(archivos).toContain('services/neto-score.js');
     expect(archivos).toContain('services/gmail-scanner.js');
+    // La raíz: el hueco que tuvo este barrido al nacer, y donde vive el dueño de la unión.
+    expect(archivos).toContain('gmail.js');
+    // Y que la raíz aporte más de un archivo: si `archivosRaiz` devolviera solo el que se
+    // nombra arriba, el barrido de la raíz estaría midiendo una lista escrita a mano.
+    expect(archivosRaiz().length).toBeGreaterThan(1);
     // Y que de verdad la vea en algún lado: un barrido que no encuentra nada no puede
     // distinguirse de uno que encuentra todo limpio.
     expect(conLaColumna.length).toBeGreaterThan(3);
@@ -140,6 +159,27 @@ describe('la columna legacy de Gmail no decide sola en el backend', () => {
 
   it('nadie lee la columna legacy para decidir', () => {
     expect(infractores).toEqual([]);
+  });
+
+  /**
+   * Y el guard POSITIVO, que es lo que cierra la evasión por el archivo exento.
+   *
+   * El barrido de arriba es NEGATIVO: busca la cadena `gmail_access_token` fuera de su dueño.
+   * Una revisión adversarial lo evadió definiendo el predicado legacy-only DENTRO de `gmail.js`
+   * —que está exento por ser el dueño del almacén— y llamándolo desde `webhook.js`, con un
+   * motivo perfectamente creíble ("el round-trip es caro"). El archivo deja de contener la
+   * cadena, así que un barrido por líneas no puede verlo por construcción. Suite en verde con
+   * el saludo de "modo manual" volviendo a caerle a quien tiene Gmail.
+   *
+   * Un guard positivo no se evade renombrando: exige ver la respuesta CORRECTA, no la ausencia
+   * de la incorrecta.
+   */
+  it('los sitios que preguntan por Gmail usan tieneGmailConectado', () => {
+    const OBLIGADOS = ['handlers/webhook.js', 'handlers/onboarding.js', 'handlers/message-processor.js'];
+    const sinElHelper = OBLIGADOS.filter(
+      (f) => !sinComentarios(readFileSync(join(RAIZ, f), 'utf8')).includes('tieneGmailConectado('),
+    );
+    expect(sinElHelper).toEqual([]);
   });
 
   /**
