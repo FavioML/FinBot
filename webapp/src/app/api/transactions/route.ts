@@ -7,6 +7,7 @@ import { iniciarTrialBackend } from '@/lib/trial-backend';
 import crypto from 'crypto';
 import { SUB_SENTINEL_REVISAR, esSubSinClasificar, subcategoriaUtil } from '@/lib/subcategoria';
 import { parseMontoDinero } from '@/lib/money';
+import { canonizarComercio } from '@/lib/comercio';
 
 // `validarMonto` vivía acá como copia local, byte por byte igual a `parseMontoDinero`.
 // Era correcta, y ese es justo el problema: es la deriva copiada-a-mano que `money.ts`
@@ -58,7 +59,7 @@ async function syncReglasComercio(
   const patrones = [
     ...new Set(
       comercios
-        .map((c) => (c ?? '').toLowerCase().trim())
+        .map((c) => canonizarComercio((c ?? '')).toLowerCase().trim())
         .filter((p) => p !== ''),
     ),
   ];
@@ -186,6 +187,9 @@ export async function POST(request: Request) {
 
   const subcategoria = body.subcategoria || SUB_SENTINEL_REVISAR;
   const tipo = body.tipo || 'gasto';
+  // Misma forma canónica que el backend, y ANTES del hash: `generarDedupHash` promete
+  // "matching backend format", y el backend hashea el nombre ya canonizado.
+  body.comercio = canonizarComercio(body.comercio);
   const dedupHash = generarDedupHash(userId, body.fecha, monto, body.comercio || null, tipo);
 
   const { data, error } = await getServiceClient()
@@ -247,6 +251,7 @@ export async function PUT(request: Request) {
   const montoPen = body.moneda === 'USD' ? Math.round(monto * tc * 100) / 100 : monto;
 
   const subcategoria = body.subcategoria || SUB_SENTINEL_REVISAR;
+  body.comercio = canonizarComercio(body.comercio);
 
   const { data, error } = await getServiceClient()
     .from('transacciones')

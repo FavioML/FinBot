@@ -6,6 +6,7 @@ import { parseCSV, parseExcel, type ImportRow } from '@/lib/import-parser';
 import crypto from 'crypto';
 import { SUB_SENTINEL_REVISAR } from '@/lib/subcategoria';
 import { parseMontoDinero } from '@/lib/money';
+import { canonizarComercio } from '@/lib/comercio';
 
 // exceljs necesita el runtime Node (streams), no edge.
 export const runtime = 'nodejs';
@@ -100,7 +101,8 @@ export async function POST(request: Request) {
       continue;
     }
     const tipo = r.tipo === 'ingreso' ? 'ingreso' : 'gasto';
-    const comercio = r.comercio || null;
+    // Misma forma canonica que el backend, y antes del dedupHash de mas abajo (ver route.ts).
+    const comercio = canonizarComercio(r.comercio || null);
     const dedupHash = generarDedupHash(usuario.id, r.fecha, monto, comercio, tipo);
     if (seen.has(dedupHash)) {
       descartadas++;

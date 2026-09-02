@@ -21,6 +21,238 @@ function normalizarComercio(comercio) {
   return comercio;
 }
 
+// ── Pasarelas de pago: el prefijo que se come al comercio ──────────────────────
+//
+// Los avisos peruanos traen el comercio como "PASARELA*COMERCIO" (IZI*BARBANEGRA,
+// DLC*PEDIDOSYA, NIUBIZ*VETERINARIA SAN). El prefijo es de QUIEN PROCESA el cobro,
+// no de dónde se gastó: no aporta nada para categorizar y encima es la mitad que el
+// modelo a veces se queda. Medido en producción el 02-sep-2026 sobre 389 correos: el
+// mismo IZI salió en TRES grafías —"IZI CARPPONE BARBERIA", "IZI*PLAZA DEL SOL" y
+// "IZI" a secas— y dos gastos quedaron con comercio "IZI", categorizados en
+// Estacionamiento uno y Electrónico el otro, ambos inventados desde un nombre vacío.
+//
+// El costo no es cosmético: `buscarReglaComercio` matchea por IGUALDAD exacta del
+// string en minúsculas y el detector de recurrentes agrupa por `comercio.toLowerCase()`.
+// Con la grafía bailando, la corrección manual del usuario no se pega y una misma
+// barbería mensual de S/60 se parte en dos grupos. Verificado en prod: 7 visitas al
+// mismo local repartidas entre "IZI CARPPONE BARBERIA" y "Carppone Barberia".
+//
+// **El ASTERISCO es la evidencia, y por eso el separador de espacio NO va por default.**
+// Una revisión adversarial lo midió: con el espacio aceptado siempre, "NIUBIZ PERU",
+// "IZIPAY SA", "CULQI SAC" y "DLC MOTORS" perdían su primera palabra, y tres empresas
+// distintas colapsaban en el string "PERU". Es el defecto INVERSO del que este código
+// arregla (N comercios fusionados en uno, en vez de uno partido en N) y le pega justo a la
+// pasarela cobrándose a sí misma, que es un gasto real de los usuarios que son negocio.
+// Sin asterisco no hay forma de saber si el token es prefijo o es el nombre, así que no se
+// pela. Quien SÍ tiene la evidencia —el parser de correos, que ve el texto original, y el
+// backfill, cuyas 39 filas se revisaron a mano— lo pide explícito.
+const PASARELAS = [
+  'IZI', 'IZIPAY', 'NIUBIZ', 'OPENPAY', 'DLC', 'DLOCAL', 'MPO', 'PYU',
+  'PAGOEFECTIVO', 'VN', 'VISANET', 'CULQI', 'SAFETYPAY', 'MERCADOPAGO', 'MPAGO',
+];
+const PASARELAS_ALT = PASARELAS.join('|');
+// Algunas pasarelas anteponen DOS tokens: Culqi manda "CULQI QR*<comercio>". Pelando sólo
+// "CULQI" quedaba "Qr*lenon", y "CULQI QR" pelado quedaba en "QR" — peor que el original,
+// porque un prefijo a medio pelar es una grafía MÁS, no un arreglo.
+const QR_OPCIONAL = '(?:\\s+QR)?';
+const RE_PREFIJO_ASTERISCO = new RegExp('^(?:' + PASARELAS_ALT + ')' + QR_OPCIONAL + '\\s*\\*+\\s*(.+)$', 'i');
+// Sólo lo usan los dos call-sites que traen evidencia aparte del asterisco (ver arriba).
+const RE_PREFIJO_ESPACIO = new RegExp('^(?:' + PASARELAS_ALT + ')' + QR_OPCIONAL + '\\s+(.+)$', 'i');
+const RE_SOLO_PASARELA = new RegExp('^(' + PASARELAS_ALT + ')' + QR_OPCIONAL + '[\\s*]*$', 'i');
+
+/**
+ * El nombre es SÓLO el prefijo de la pasarela, sin comercio detrás ("IZI", "IZI*", "CULQI QR").
+ * Es el caso degenerado: no se puede arreglar pelando (no queda nada), hay que ir a rescatarlo
+ * al texto del correo.
+ */
+function esPasarelaSola(comercio) {
+  if (!comercio || typeof comercio !== 'string') return false;
+  return RE_SOLO_PASARELA.test(comercio.trim());
+}
+
+// Descompone "IZI*BARBANEGRA" en { pasarela: 'IZI', resto: 'BARBANEGRA' }, o null si no
+// arranca con una pasarela conocida. El caso degenerado ("IZI") da resto vacío. Existe porque
+// el override del correo necesita saber DE QUÉ pasarela se trata: buscar en el texto sin
+// atarse a ella es lo que hacía que un correo con dos pasarelas guardara la equivocada.
+const RE_PARTIR_PASARELA = new RegExp('^(' + PASARELAS_ALT + ')' + QR_OPCIONAL + '(?:\\s*\\*+\\s*|\\s+)(.+)$', 'i');
+
+function partirPasarela(comercio) {
+  if (!comercio || typeof comercio !== 'string') return null;
+  const limpio = comercio.replace(/\s+/g, ' ').trim();
+  const solo = limpio.match(RE_SOLO_PASARELA);
+  if (solo) return { pasarela: solo[1], resto: '' };
+  const m = limpio.match(RE_PARTIR_PASARELA);
+  if (!m) return null;
+  return { pasarela: m[1], resto: (m[2] || '').trim() };
+}
+
+/** El nombre arranca con un prefijo de pasarela, con asterisco o con espacio. */
+function empiezaConPasarela(comercio) {
+  return partirPasarela(comercio) !== null;
+}
+
+/**
+ * Forma canónica del nombre del comercio: sin prefijo de pasarela y sin espacios de más.
+ *
+ * `opts.separadorEspacio` habilita pelar también "IZI CARPPONE" (sin asterisco). NO es el
+ * default, y el motivo está arriba: sin asterisco, pelar puede comerse el nombre real.
+ *
+ * NO toca mayúsculas/minúsculas a propósito. La comparación que decide plata —reglas y
+ * agrupación de recurrentes— ya pasa por `toLowerCase()`, así que cambiar el case no
+ * compraría nada ahí y sí abriría un modo de fallar nuevo (un "IZI*KFC" saldría "Kfc").
+ *
+ * Idempotente: canonizar dos veces da lo mismo que canonizar una.
+ */
+function canonizarComercio(comercio, opts) {
+  if (!comercio || typeof comercio !== 'string') return comercio;
+  const limpio = comercio.replace(/\s+/g, ' ').trim();
+  if (!limpio) return comercio;
+  // Sólo el prefijo: se devuelve el TOKEN, pelado de asteriscos y espacios de cola. Pelarlo
+  // entero dejaría el campo vacío, y un comercio pobre es recuperable mientras que uno vacío
+  // rompe el insert. Devolverlo verbatim tampoco servía: "IZI", "IZI*" y "IZI *" son tres
+  // grafías del mismo caso degenerado, o sea el bug original sobreviviendo adentro de su
+  // propio arreglo. El rescate del caso vive en el parser, que sí tiene el correo a mano.
+  const solo = limpio.match(RE_SOLO_PASARELA);
+  if (solo) return solo[1];
+  const m = limpio.match(RE_PREFIJO_ASTERISCO)
+    || ((opts && opts.separadorEspacio) ? limpio.match(RE_PREFIJO_ESPACIO) : null);
+  if (m && m[1] && m[1].trim()) return m[1].trim();
+  return limpio;
+}
+
+// El nombre del comercio, sacado del TEXTO del correo. El banco manda la forma
+// "PASARELA*COMERCIO", que en un aviso no aparece por casualidad: ésa es la evidencia de que
+// el token es un prefijo y no el nombre.
+//
+// El corte existe porque `extraerTexto` colapsa todos los espacios: después del comercio no
+// queda ninguna marca de fin de campo, así que sin cortar se guardaría "BARBANEGRA Tarjeta
+// terminada en 4821 Monto S/ 97.00".
+//
+// **La lista de terminadores es corta a propósito.** Tenía además total, hora, banco, cuenta y
+// empresa, y esas cinco son palabras normales adentro de una razón social peruana: medido,
+// "IZI*IMPORTACIONES TOTAL ARTEFACTOS" quedaba en "IMPORTACIONES" y "IZI*SUPER BANCO DE
+// ALIMENTOS" en "SUPER". Cortar de más pierde el nombre; cortar de menos deja cola, que se ve
+// feo pero no borra nada.
+//
+// Tres detalles de la forma que se pagaron:
+//   · las palabras llevan `\b` para que "tarjeta" no matchee "TARJETAS";
+//   · los símbolos de moneda NO pueden llevarlo: después de `/` o `$` viene un espacio, o sea
+//     dos caracteres no-palabra seguidos, que no forman borde. Con `\b` esas tres alternativas
+//     no cortaban NUNCA — medido: "IZI*BODEGA LUCHO S/ 20.00 hoy" salía entero;
+//   · el punto corta sólo si le sigue espacio o fin: pegado entre letras es una abreviatura
+//     ("IZI*D.ONOFRIO"), y cortar ahí dejaba "D", que la guarda de longitud volvía `null`.
+const RE_CORTE_COMERCIO = new RegExp(
+  '[,;:|()]'
+  + '|\\.(?=\\s|$)'
+  + '|\\s+(?:tarjeta|fecha|monto|importe|operaci[oó]n|n[uú]mero|nro)\\b'
+  + '|\\s+por\\s+tu\\b'
+  + '|\\s+(?:S/|US\\$|\\$)', 'i');
+
+function limpiarNombreExtraido(bruto) {
+  const corte = String(bruto || '').split(RE_CORTE_COMERCIO)[0];
+  const nombre = (corte || '').replace(/\s+/g, ' ').trim().slice(0, 40).trim();
+  // Tiene que EMPEZAR con letra. El chequeo viejo pedía "alguna letra" en cualquier posición y
+  // se lo comía un código de operación seguido de prosa: "IZI*4821 en tu cuenta" pasaba como
+  // comercio "4821 en tu". Un comercio real no empieza con un número de operación.
+  if (nombre.length < 2 || !/^[A-Za-z\u00c0-\u024f]/.test(nombre)) return null;
+  return nombre;
+}
+
+// Clave de comparación: decide si dos grafías son el mismo comercio, aguantando el case y la
+// puntuación ("REST. EL PARAISO" y "RESTELPARAISO" comparten clave con "REST EL PARAISO").
+const claveComercio = (x) => String(x || '').toLowerCase().replace(/[^a-z0-9\u00c0-\u024f]/g, '');
+
+// El cuerpo del nombre NO puede tragarse la mención siguiente. Antes se capturaba goloso y se
+// partía después, y eso tenía un agujero medido: el tope de 49 caracteres cae ANTES del tercer
+// comercio, `matchAll` retoma pasado el final del match, y ese tercero no se veía nunca. Con
+// "IZI*TIENDA VIEJA. Empresa IZI*TIENDA VIEJA. Antes IZI*BARBANEGRA" quedaban dos candidatos
+// iguales, la guarda de ambigüedad no se enteraba y se guardaba el consumo viejo. Acá el token
+// atemperado (`(?!...)` por carácter) hace que cada mención sea su propio match.
+const PREFIJO_PASARELA_SRC = '(?:' + PASARELAS_ALT + ')' + QR_OPCIONAL + '\\s*\\*+\\s*';
+const CUERPO_NOMBRE_SRC = '([A-Za-z\u00c0-\u024f](?:(?!\\b' + PREFIJO_PASARELA_SRC + ')[^\\n]){0,49})';
+
+// BCP corta el nombre del comercio a 23 caracteres EN EL PROPIO CORREO, prefijo incluido. No
+// es una estimación: medido el 02-sep-2026 sobre las 389 transacciones de Gmail, 48 miden
+// exactamente 23 y salen cortadas a media palabra ("Cineplanet Alcazar Tote", "Dolce Capriccio
+// Miraflo", "IZI CHICHARRONES KIO UN").
+//
+// **Es una BANDA y no un piso, y esa diferencia era un defecto de clase severa.** Con
+// `>= 22` bastaba un prefijo largo para abrir la puerta: el mismo nombre de 14 caracteres daba
+// `false` como "IZI*GRIFO PRIMAX 1" (18) y `true` como "PAGOEFECTIVO*GRIFO PRIMAX 1" (27), o
+// sea que cambiar el nombre de la pasarela derrotaba la guarda y se guardaba la sucursal
+// equivocada. El argumento correcto es al revés: un string MÁS LARGO que el corte prueba que el
+// banco NO cortó, porque si hubiera cortado mediría 23. Sólo un string parado justo en el corte
+// puede venir recortado.
+const LARGO_CORTE_BANCO = 22;
+const LARGO_CORTE_BANCO_MAX = 24; // holgura: el modelo agrega o saca un espacio junto al asterisco
+const pareceRecortadoPorElBanco = (nombre) =>
+  typeof nombre === 'string' && nombre.length >= LARGO_CORTE_BANCO && nombre.length <= LARGO_CORTE_BANCO_MAX;
+
+/**
+ * Devuelve el nombre del comercio que trae el TEXTO del correo, o null si no hay uno del que se
+ * pueda estar seguro. Null significa "manda lo que dijo el modelo", nunca "no hay nada".
+ *
+ * @param opts.prefiere  el resto del nombre que devolvió el modelo ('' en el caso degenerado).
+ * @param opts.recortePosible  si el nombre del modelo está parado justo en el corte del banco.
+ *
+ * **Las reglas de abajo salieron de defectos MEDIDOS, no de imaginar casos.** Todas fallan hacia
+ * el mismo lado: ante la duda no se reemplaza, y queda el nombre del modelo — que como mucho
+ * arrastra el prefijo, mientras que reemplazar mal atribuye el gasto a otro negocio.
+ */
+function extraerComercioPasarela(texto, opts) {
+  if (!texto || typeof texto !== 'string') return null;
+  const prefiere = claveComercio(opts && opts.prefiere);
+
+  // Se buscan TODAS las pasarelas, también en el caso degenerado. Acotarlo a la pasarela que
+  // dijo el modelo parecía prudente y era lo contrario: en el caso degenerado esa es su ÚNICA
+  // salida, o sea la menos confiable de todas. Medido — cargo real bajo "IZIPAY*BARBANEGRA",
+  // mención vieja bajo "IZI*TIENDA VIEJA", modelo "IZI": el `\b` impide que IZI matchee dentro
+  // de IZIPAY, así que se veía un candidato solo, la guarda de ambigüedad no se enteraba y se
+  // guardaba el consumo anterior. La ambigüedad la cierra la regla (1), no el filtro por
+  // pasarela, que además perdía rescates (IZI/IZIPAY y MPAGO/MERCADOPAGO son la misma empresa).
+  const re = new RegExp('\\b' + PREFIJO_PASARELA_SRC + CUERPO_NOMBRE_SRC, 'gi');
+  const candidatos = [];
+  for (const m of texto.matchAll(re)) {
+    const n = limpiarNombreExtraido(m[1]);
+    if (n) candidatos.push(n);
+  }
+  if (candidatos.length === 0) return null;
+
+  // (1) **Si el correo nombra DOS comercios distintos, no se reemplaza nada.** La guarda es
+  // global y no sólo del caso degenerado, y eso cierra por construcción la clase entera de
+  // defectos que tres revisiones adversariales encontraron una y otra vez acá: todos eran
+  // "el correo tenía otra mención y el matcher se quedó con ésa". Perseguirlos de a uno
+  // —atando la búsqueda a la pasarela, mirando el largo, comparando claves— tapaba el caso
+  // medido y dejaba el siguiente abierto.
+  //
+  // Lo que cuesta es poco y cae del lado seguro: en un correo con dos menciones queda el
+  // nombre del modelo, que para la forma con asterisco ya sale canónico igual (lo pela
+  // `canonizarComercio`). Sólo se pierde el pelado de la forma con espacio y el rescate del
+  // recorte, y sólo en correos con dos comercios, que en un aviso de un cargo no existen.
+  //
+  // Un aviso que nombra el MISMO comercio dos veces (BCP lo pone en la frase y otra vez en el
+  // campo "Empresa") no es ambiguo: las dos menciones dan la misma clave.
+  if (new Set(candidatos.map(claveComercio)).size > 1) return null;
+
+  // (2) Sin nombre del modelo (caso degenerado, "IZI") se toma el único candidato que hay.
+  if (!prefiere) return candidatos[0];
+
+  // (3) Con nombre del modelo, la comparación es por el NOMBRE. Es la única que puede decidir:
+  // el token de pasarela lo elige el modelo y no es de fiar — la búsqueda de arriba mira TODAS
+  // las pasarelas porque IZI/IZIPAY y MPAGO/MERCADOPAGO son la misma empresa con dos nombres.
+  const exacto = candidatos.find((c) => claveComercio(c) === prefiere);
+  if (exacto) return exacto;
+
+  // (4) El nombre del modelo puede venir recortado por el banco y el del correo no, así que un
+  // candidato que EXTIENDE al del modelo puede ser el mismo local. Sólo en esa dirección
+  // —el banco recorta por el final, nunca por el principio— y sólo si el largo dice que el
+  // recorte es plausible: sin eso, "GRIFO PRIMAX 1" y "GRIFO PRIMAX 12" se daban por el mismo
+  // local. Si extienden dos, tampoco se elige.
+  if (!(opts && opts.recortePosible)) return null;
+  const unico = candidatos[0];
+  return claveComercio(unico).startsWith(prefiere) ? unico : null;
+}
+
 // Extracción determinística de los últimos 4 dígitos de la tarjeta/cuenta a partir
 // del texto de una notificación bancaria. Las notificaciones peruanas exponen la
 // tarjeta con patrones muy estables ("terminada en 1234", "****1234"), así que un
@@ -164,7 +396,18 @@ REGLA CRÍTICA DE COMERCIO:
   → comercio: nombre del banco (ej: "BCP", "BBVA", "Interbank")
   → NO poner "Gasto pendiente de BCP S/5 del 2026-04-02" ni frases similares
 - Si el correo dice "consumo en APPARKA PLAZA SAN MIGUE" → comercio: "Apparka Plaza San Miguel"
-- Limpiar nombres: quitar códigos, asteriscos, números de referencia
+- PASARELAS DE PAGO (IZI*, IZIPAY*, NIUBIZ*, OPENPAY*, DLC*, DLOCAL*, MPO*, PYU*, VN*, CULQI*):
+  el comercio real es TODO lo que va DESPUÉS del asterisco, y va COMPLETO.
+  El prefijo es de la empresa que procesa el cobro, no de donde se gastó.
+  "IZI*BARBANEGRA" → comercio: "BARBANEGRA"
+  "IZI*BOTICA PEPITO" → comercio: "BOTICA PEPITO" → Salud > farmacia
+  "NIUBIZ*VETERINARIA SAN" → comercio: "VETERINARIA SAN" → Compras > mascotas
+  "DLC*PEDIDOSYA" → comercio: "PedidosYa" → Alimentación > delivery
+  NUNCA devuelvas sólo el prefijo ("IZI", "NIUBIZ"): no dice nada del gasto y hace
+  imposible categorizarlo. Si sólo ves el prefijo, busca el nombre en el resto del correo.
+- Limpiar códigos de referencia y números de operación, pero NUNCA recortar el nombre
+  del comercio: si el correo trae "IZI*LA CARPITA DEL SABO", el comercio es
+  "LA CARPITA DEL SABO" entero, aunque venga cortado por el banco.
 
 REGLAS GENERALES:
 - fecha en formato YYYY-MM-DD (año actual 2026)
@@ -182,7 +425,7 @@ REGLAS GENERALES:
   * Consumos, pagos, compras, transferencias enviadas
   * El campo "Enviado a" o "Beneficiario" indica a quién le pagó el usuario
 - subcategoria NUNCA puede ser null — usar sin_categoria si no sabes
-- comercio: nombre limpio sin códigos (no "DLC*PEDIDOSYA" sino "PedidosYa")`;
+- comercio: nombre limpio sin códigos y sin prefijo de pasarela (no "DLC*PEDIDOSYA" sino "PedidosYa"; no "IZI" sino "BARBANEGRA")`;
 
 /**
  * Construye el bloque de prompt con categorías custom del usuario.
@@ -242,7 +485,33 @@ async function parsearCorreoBancario(texto, contexto, categoriasCustom) {
   const raw = res.choices[0].message.content.trim();
   const clean = raw.startsWith('{') ? raw : raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
   const parsed = JSON.parse(clean);
-  if (parsed.comercio) parsed.comercio = normalizarComercio(parsed.comercio);
+  // Nombre del comercio, en tres pasos y en este orden.
+  //
+  // 1. `normalizarComercio` primero, porque su tabla tiene entradas CON prefijo
+  //    ('DLOCAL*NETFLIX' → 'Netflix'). Canonizar antes las dejaría sin match.
+  // 2. **El correo le gana al modelo cuando el modelo empieza con una pasarela.** El texto
+  //    original trae la forma "PASARELA*COMERCIO", que en un aviso bancario no aparece por
+  //    casualidad: ésa es la EVIDENCIA de que el token es un prefijo y no el nombre. Cubre
+  //    de una sola vez las tres grafías que se vieron en producción —"IZI", "IZI*BARBANEGRA"
+  //    y "IZI BARBANEGRA"— sin tener que adivinar cuál de ellas era, y sin pelar por espacio
+  //    a ciegas, que es lo que se comería un "NIUBIZ PERU" legítimo (ver arriba).
+  // 3. Canonizar al final deja UNA sola grafía, que es lo que necesitan la regla del
+  //    usuario y la agrupación de recurrentes para reconocer al mismo comercio.
+  if (parsed.comercio) {
+    let comercio = normalizarComercio(parsed.comercio);
+    const partes = partirPasarela(comercio);
+    if (partes) {
+      const delCorreo = extraerComercioPasarela(texto, {
+        prefiere: partes.resto,
+        recortePosible: pareceRecortadoPorElBanco(comercio),
+      });
+      if (delCorreo) {
+        log.info({ tag: 'COMERCIO', devuelto: comercio, delCorreo }, 'Comercio tomado del correo en vez de la respuesta del modelo');
+        comercio = delCorreo;
+      }
+    }
+    parsed.comercio = canonizarComercio(comercio);
+  }
   // Últimos 4 de la tarjeta: extracción determinística sobre el correo original
   // (más fiable que el LLM). Si el modelo ya devolvió tarjeta_last4, se respeta;
   // si no, se intenta del texto.
@@ -412,6 +681,11 @@ async function interpretarComandoPresupuesto(texto) {
 
 module.exports = {
   buildCategoriasCustomPrompt,
+  canonizarComercio,
+  esPasarelaSola,
+  empiezaConPasarela,
+  partirPasarela,
+  extraerComercioPasarela,
   parsearCorreoBancario,
   parsearRegistroManual,
   parsearCorreccionesMultiples,

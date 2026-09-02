@@ -3,7 +3,7 @@ const { supabase } = require('../lib/db');
 const { validarMonto, normalizarCategoria } = require('../lib/validators');
 const { hoyPeru } = require('../lib/dates');
 const { esPagoNeto } = require('../lib/config');
-const { extraerLast4, normalizarLast4 } = require('./parsers');
+const { extraerLast4, normalizarLast4, canonizarComercio } = require('./parsers');
 const log = require('../lib/logger');
 const { subcategoriaUtil } = require('../lib/subcategoria');
 const analytics = require('../lib/analytics');
@@ -217,6 +217,21 @@ async function guardarTransaccion(usuarioId, datos) {
     const found = bancos.find(b => datos.comercio.toUpperCase().includes(b.toUpperCase()));
     if (found) datos.comercio = found;
   }
+  // Prefijo de pasarela ("IZI*BARBANEGRA" → "BARBANEGRA"). Va acá y no sólo en el parser de
+  // correos porque el mismo string llega por la captura de pantalla, que tiene su propio prompt
+  // de visión en `services/media-intake.js`, y por el import de Excel. Éste es el chokepoint de
+  // TODO lo que escribe el backend, y la grafía tiene que ser una sola: `buscarReglaComercio`
+  // (abajo, misma función) compara por igualdad exacta, así que dos caminos que escriban
+  // distinto dejan la regla del usuario sin efecto según por dónde entró el gasto.
+  //
+  // **No es el único punto de escritura del producto**, y decir que sí lo era costó un hallazgo:
+  // la webapp inserta directo desde `api/transactions/route.ts` e `import/route.ts`, sin pasar
+  // por acá. Esas dos canonizan con el espejo `webapp/src/lib/comercio.ts`, y la paridad la
+  // sostiene `tests/services/comercio-parity.test.js`.
+  //
+  // Va ANTES del `dedupHash` a propósito: el hash incluye el comercio y la webapp promete
+  // "matching backend format". Idempotente: canonizar lo ya canónico no cambia nada.
+  if (datos.comercio) datos.comercio = canonizarComercio(datos.comercio);
   const fechaTx = datos.fecha || hoyPeru();
   // Últimos 4 de la tarjeta origen: lo que ya trae el parser, o extracción del
   // texto original como red de seguridad (cubre registro manual "tarjeta ...1234").
@@ -552,7 +567,13 @@ function normalizarDestinoRegla(categoria, subcategoria) {
  */
 async function guardarReglaComercio(usuarioId, comercio, categoria, subcategoria) {
   if (!comercio) return { ok: false, motivo: 'sin-comercio' };
-  const patron = comercio.toLowerCase().trim();
+  // Canonizado igual que `transacciones.comercio`, y por el mismo motivo: `buscarReglaComercio`
+  // compara los dos por IGUALDAD exacta. Dos de los tres call-sites le pasan texto que TIPEO
+  // LA PERSONA ("todo lo de X va en Y", o el nombre en una correccion), no la fila guardada, y
+  // quien copia el nombre tal como lo ve en la app de su banco escribe "IZI*BARBANEGRA".
+  // Sin esto, esa regla nace muerta: el runtime ya no guarda esa forma, asi que no matchea
+  // nunca. Es la regla muerta que el espejo de la webapp vino a evitar, entrando por al lado.
+  const patron = canonizarComercio(comercio).toLowerCase().trim();
   if (!patron) return { ok: false, motivo: 'sin-comercio' };
 
   // Hallazgo B30. La categoría de una regla PISA la que dedujo el clasificador (ver
@@ -629,6 +650,10 @@ async function buscarReglaComercio(usuarioId, comercio) {
 
 async function retroaplicarRegla(usuarioId, comercio, categoria, subcategoria) {
   if (!comercio || !categoria) return 0;
+  // Misma forma que `guardarReglaComercio`: sus call-sites le pasan el MISMO string crudo del
+  // usuario, y un "IZI*BARBANEGRA" dentro del `ilike` de abajo no alcanza ninguna fila, porque
+  // las filas ya se guardan canonizadas. La regla se creaba y la retroaplicacion no tocaba nada.
+  comercio = canonizarComercio(comercio);
   try {
     const updates = { categoria };
     if (subcategoria) updates.subcategoria = subcategoria;
