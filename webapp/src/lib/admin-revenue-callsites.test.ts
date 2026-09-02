@@ -314,6 +314,83 @@ describe('el índice de pagos sale del único cargador', () => {
   });
 
   /**
+   * **El cargador recibe la POBLACIÓN, no una lista de ids.**
+   *
+   * Es la regla que cierra el bug que casi se cuela con `esCortesia`: las dos rutas armaban la
+   * lista a mano con criterios distintos —economics pasaba bajas ∪ pagados, stats solo las
+   * bajas— y un predicado nuevo contra el índice corto responde "no le entró plata" sobre
+   * todos los pagadores del producto.
+   *
+   * **La primera versión de este guard buscaba la CADENA `idsParaIndicePagos(` en la ruta, y
+   * una revisión adversarial la evadió en un minuto** con
+   * `cargarPagosConPlata(idsParaIndicePagos(pagados))`: menciona el helper y acota igual. Por
+   * eso el arreglo real fue cambiar la FIRMA (`admin-revenue-db.ts`) y lo que se verifica acá
+   * es la única propiedad que queda por comprobar: que lo que se le pasa sea el MISMO
+   * identificador que consume `computeRevenue`, y no una versión filtrada.
+   */
+  it('el cargador recibe la misma población que computeRevenue', () => {
+    const consumidores = ARCHIVOS_ADMIN.filter(
+      (p) => !propios(p) && llama(p, 'cargarPagosConPlata'),
+    );
+    // Antivacuidad: sin consumidores, todo lo de abajo pasa sobre una lista vacía.
+    expect(consumidores.length).toBeGreaterThanOrEqual(2);
+    const desacuerdos: string[] = [];
+    for (const p of consumidores) {
+      const src = codigoSinComentarios(readFileSync(p, 'utf8'));
+      // El identificador tiene que ser PELADO: `\)` o `,` inmediatamente después. Sin ese
+      // ancla, la regex capturaba el prefijo de cualquier member-expression y
+      // `cargarPagosConPlata(usuarios.filter(esProPagado))` pasaba en verde acotando el
+      // dominio — medido por una revisión adversarial, con `computeChurn` lanzando después
+      // sobre cualquier ex-Pro free, o sea un 500 en `/admin/economics`.
+      const arg = src.match(/cargarPagosConPlata\(\s*([A-Za-z_$][\w$]*)\s*[),]/);
+      if (!arg) {
+        // Un argumento que no es un identificador pelado es exactamente la forma que la
+        // evasión usaba (`cargarPagosConPlata(algo(filtrado))`). No se intenta interpretarla.
+        desacuerdos.push(`${rel(p)}: el argumento no es la población, es una expresión`);
+        continue;
+      }
+      // Y que ese mismo identificador sea el que alimenta las métricas.
+      //
+      // **En la ruta de usuarios no hay `computeRevenue`, así que esta comparación no aplica y
+      // ANTES se salteaba entera** — la revisión adversarial metió ahí la lista corta exacta
+      // que tenía `/api/admin/stats` y el guard quedó verde. Lo que cierra ese caso no es un
+      // guard sino la firma de `tienePagoConPlata`, que pasa por el dominio: acotar la
+      // población ahí revienta en la primera fila en vez de mentir. Se comprueba abajo.
+      const usados = [...src.matchAll(/computeRevenue\(\s*([A-Za-z_$][\w$]*)/g)].map((m) => m[1]);
+      if (usados.length && !usados.every((n) => n === arg[1])) {
+        desacuerdos.push(`${rel(p)}: carga con \`${arg[1]}\` y mide con \`${usados.join(', ')}\``);
+      }
+    }
+    expect(desacuerdos).toEqual([]);
+  });
+
+  /**
+   * Y que nadie vuelva a construir el índice a partir de ids sueltos. Es lo que la firma ya
+   * impide en TypeScript; esto lo deja dicho para el día que alguien la ensanche con un
+   * `string[] | HistoryUserRow[]` "por compatibilidad".
+   */
+  /**
+   * Nadie lee el índice salteando la guarda del dominio. Es la otra mitad del caso de arriba:
+   * en una ruta sin `computeRevenue`, un índice acotado no lanza por sí solo — hace falta que
+   * el lector pase por `pagosDe`, y eso es `tienePagoConPlata`.
+   */
+  it('nadie lee porUsuario directo fuera de admin-revenue', () => {
+    const crudos = ARCHIVOS_ADMIN.filter(
+      (p) => !propios(p) && llama(p, '.porUsuario'),
+    );
+    expect(crudos.map(rel)).toEqual([]);
+  });
+
+  it('el cargador no acepta una lista de ids', () => {
+    const src = codigoSinComentarios(
+      readFileSync(join(SRC, 'lib', 'admin-revenue-db.ts'), 'utf8'),
+    );
+    // `new RegExp` y no un literal: el patrón cruza el salto de línea de la firma.
+    expect(src).toMatch(new RegExp(String.raw`cargarPagosConPlata\(\s*usuarios:\s*HistoryUserRow\[\]`));
+    expect(src).not.toMatch(/usuarioIds/);
+  });
+
+  /**
    * Y que no exista una salida por afuera. Renombrar el import
    * (`computeRevenue as calcularIngreso`) o llamar a la función desde un helper en otra
    * carpeta hacía invisible a la ruta: no aparecía como consumidora y su `.select()` no se

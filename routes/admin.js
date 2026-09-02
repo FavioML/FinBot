@@ -10,6 +10,7 @@ const { resumenReferidoParaAdmin, registrarReferido } = require('../services/ref
 const { responderTicket, contactarUsuario } = require('../lib/support-tickets');
 const { esProPagado } = require('../lib/trial');
 const { parsearCorreoBancario } = require('../services/parsers');
+const { indexarGmail } = require('../lib/gmail-conectado');
 
 const router = express.Router();
 
@@ -203,6 +204,24 @@ router.get('/usuarios', async (req, res) => {
       log.error({ tag: 'ADMIN_USUARIOS', err: error.message }, 'No se pudo leer la lista de usuarios');
       return res.status(500).json({ ok: false, msg: 'No pude leer los usuarios. Reintenta.' });
     }
+    // La OTRA mitad de "tiene Gmail": la columna del select de arriba es el almacen legacy y el
+    // almacen actual es `gmail_cuentas` (ver `lib/gmail-conectado.js`). Falla cerrado a
+    // proposito: sin esta lectura la union se queda con la mitad vieja y el panel pinta
+    // apagados a los que SI tienen Gmail, que es justo el bug que este cambio arreglo.
+    const { data: cuentasGmail, error: errGmail } = await supabase.from('gmail_cuentas')
+      .select('usuario_id, activa, auth_error_at');
+    if (errGmail) {
+      log.error({ tag: 'ADMIN_USUARIOS', err: errGmail.message }, 'No se pudo leer gmail_cuentas');
+      return res.status(500).json({ ok: false, msg: 'No pude leer el estado de Gmail. Reintenta.' });
+    }
+    // PostgREST corta en 1000 filas SIN error. `gmail_cuentas` crece monotonamente (sus filas
+    // sobreviven al borrado de cuenta), asi que el techo llega solo con el tiempo, y truncada
+    // la union pierde conexiones y el panel vuelve a pintar apagados a los que si tienen Gmail.
+    if ((cuentasGmail || []).length >= 1000) {
+      log.error({ tag: 'ADMIN_USUARIOS', filas: cuentasGmail.length }, 'gmail_cuentas llego al techo de PostgREST');
+      return res.status(500).json({ ok: false, msg: 'La lista de cuentas de Gmail vino truncada. Hay que paginar.' });
+    }
+    const gmail = indexarGmail(data || [], cuentasGmail || []);
     const usuarios = (data || []).map(u => ({
       id: u.id,
       whatsapp: u.whatsapp,
@@ -210,7 +229,8 @@ router.get('/usuarios', async (req, res) => {
       email: u.email,
       plan: u.plan || 'free',
       onboarding_completado: u.onboarding_completado,
-      tiene_gmail: !!u.gmail_access_token,
+      tiene_gmail: gmail.conectados.has(u.id),
+      gmail_caido: gmail.caidos.has(u.id),
       tiene_webapp: !!u.supabase_auth_id,
       premium_vence: u.premium_vence,
       created_at: u.created_at,
@@ -242,9 +262,23 @@ router.get('/stats', async (req, res) => {
     // `trial_estado` la exige `esProPagado`: sin ella la respuesta sería false para todos.
     const { data: allUsers, error: errUsers } = await supabase.from('usuarios').select('id, plan, trial_estado, onboarding_completado, gmail_access_token, created_at');
     if (errUsers) return fallo('usuarios', errUsers);
+    // Misma union que el resto del panel: la columna de `usuarios` es el almacen legacy y hoy
+    // casi todo vive en `gmail_cuentas`. Con solo la columna, `conGmail` subcontaba (2 de 6
+    // medido el 01-sep-2026) y `modoManual` sobrecontaba por el mismo error, con el signo dado
+    // vuelta: contaba como "modo manual" a quien tenia Gmail conectado.
+    const { data: cuentasGmailStats, error: errCuentasStats } = await supabase.from('gmail_cuentas')
+      .select('usuario_id, activa, auth_error_at');
+    if (errCuentasStats) return fallo('gmail-cuentas', errCuentasStats);
+    // Mismo techo de PostgREST que arriba: truncada, `conGmail` subcuenta y `modoManual`
+    // sobrecuenta, que es exactamente el error que este cambio vino a arreglar.
+    if ((cuentasGmailStats || []).length >= 1000) {
+      return fallo('gmail-cuentas-truncada', new Error('llego al techo de 1000 filas de PostgREST'));
+    }
+    const gmailStats = indexarGmail(allUsers || [], cuentasGmailStats || []);
+
     const totalUsuarios = (allUsers || []).length;
-    const conGmail = (allUsers || []).filter(u => !!u.gmail_access_token).length;
-    const modoManual = (allUsers || []).filter(u => u.onboarding_completado && !u.gmail_access_token).length;
+    const conGmail = (allUsers || []).filter(u => gmailStats.conectados.has(u.id)).length;
+    const modoManual = (allUsers || []).filter(u => u.onboarding_completado && !gmailStats.conectados.has(u.id)).length;
     // M16: durante el trial `plan` vale 'premium', así que esto contaba pruebas como pagos.
     const premium = (allUsers || []).filter(esProPagado).length;
     const nuevos7d = (allUsers || []).filter(u => u.created_at >= hace7).length;

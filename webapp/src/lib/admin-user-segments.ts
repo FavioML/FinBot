@@ -85,6 +85,7 @@ export function countBySegment<T extends SegmentableUser>(
 export type EstadoComercial =
   | 'pago_pendiente'
   | 'pro_pagado'
+  | 'pro_cortesia'
   | 'trial'
   | 'muro_vencido'
   | 'muro_ex_pagador'
@@ -92,6 +93,7 @@ export type EstadoComercial =
 
 export const ESTADO_ORDER: EstadoComercial[] = [
   'pro_pagado',
+  'pro_cortesia',
   'pago_pendiente',
   'trial',
   'muro_vencido',
@@ -101,6 +103,7 @@ export const ESTADO_ORDER: EstadoComercial[] = [
 
 export const ESTADO_LABEL: Record<EstadoComercial, string> = {
   pro_pagado: 'Pro pagado',
+  pro_cortesia: 'Pro cortesía',
   pago_pendiente: 'Pago por aprobar',
   trial: 'En prueba',
   muro_vencido: 'Muro (prueba vencida)',
@@ -111,6 +114,7 @@ export const ESTADO_LABEL: Record<EstadoComercial, string> = {
 /** Explica qué es cada estado, para el tooltip del panel. */
 export const ESTADO_HINT: Record<EstadoComercial, string> = {
   pro_pagado: 'Paga. Es MRR.',
+  pro_cortesia: 'Tiene Pro regalado y nunca pagó. NO cuenta en el MRR.',
   pago_pendiente: 'Mandó comprobante y espera aprobación. Va en Operación.',
   trial: 'Corriendo sus 14 días de Pro. Todavía no pagó nada.',
   muro_vencido: 'Se le acabó la prueba sin pagar. Escribe, pero no puede leer.',
@@ -122,6 +126,17 @@ export interface EstadoComercialUser {
   plan: string;
   trial_estado?: string | null;
   pago_pendiente?: boolean | null;
+  /**
+   * ¿Le entró plata alguna vez? Lo deriva el servidor de la tabla `pagos` (ver
+   * `esCortesia` en `admin-revenue.ts`), porque la fila de `usuarios` no lo dice: los tres
+   * caminos que regalan Pro escriben `plan='premium'` y `estado_pago='pagado'`, o sea la
+   * misma fila que deja un pago real.
+   *
+   * `undefined` significa "la ruta no lo mandó", y ahí se asume PAGADO. Es el lado seguro
+   * para equivocarse en una etiqueta: llamar "cortesía" a un cliente que paga es peor que lo
+   * contrario, y el número que decide el MRR sale del servidor, no de este badge.
+   */
+  tiene_pago?: boolean | null;
 }
 
 export function estadoComercial(u: EstadoComercialUser): EstadoComercial {
@@ -129,7 +144,12 @@ export function estadoComercial(u: EstadoComercialUser): EstadoComercial {
   // gana sobre todo lo demás, porque es lo único que exige una acción tuya HOY.
   if (u.pago_pendiente) return 'pago_pendiente';
   if (enTrial(u.plan, u.trial_estado)) return 'trial';
-  if (esProPagado(u.plan, u.trial_estado)) return 'pro_pagado';
+  // El plan Pro se abre en dos: quien pagó y quien lo tiene de regalo. Es la misma división
+  // que ya hace el MRR, y tenerla solo del lado del ingreso dejaba la tabla diciendo
+  // "Pro pagado · Paga. Es MRR." sobre alguien que el mismo panel no estaba facturando.
+  if (esProPagado(u.plan, u.trial_estado)) {
+    return u.tiene_pago === false ? 'pro_cortesia' : 'pro_pagado';
+  }
   // A partir de acá está en el muro. Cuál de los tres muros es lo dice `trial_estado`, y por
   // eso la ruta /api/admin/users tiene que devolverlo: lo leía de la base y lo tiraba.
   if (u.trial_estado === 'vencido') return 'muro_vencido';
@@ -141,7 +161,7 @@ export function countByEstado<T extends EstadoComercialUser>(
   users: T[],
 ): Record<EstadoComercial, number> {
   const counts: Record<EstadoComercial, number> = {
-    pro_pagado: 0, pago_pendiente: 0, trial: 0,
+    pro_pagado: 0, pro_cortesia: 0, pago_pendiente: 0, trial: 0,
     muro_vencido: 0, muro_ex_pagador: 0, sin_estrenar: 0,
   };
   for (const u of users) counts[estadoComercial(u)] += 1;

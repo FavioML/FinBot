@@ -9,7 +9,6 @@ import {
 import {
   computeRevenue,
   cajaDelMes,
-  esProPagado,
   esProActivo,
   isRevenueUser,
   computeChurn,
@@ -17,6 +16,7 @@ import {
   newProInMonth,
   churnedInMonth,
   EXCLUDED_REVENUE_WHATSAPP,
+  idsParaIndicePagos,
 } from '@/lib/admin-revenue';
 import { cargarPagosConPlata } from '@/lib/admin-revenue-db';
 import { startOfDayLima, startOfMonthLima, todayIsoLima, monthWindowLima } from '@/lib/date-lima';
@@ -165,22 +165,22 @@ export async function GET() {
 
   const realUsers = usuarios.filter(isRevenueUser);
 
-  // Quién volvió después de pedir la baja. Se lee ANTES de computeRevenue porque el MRR
-  // depende de esto: sin el índice, un cliente que borró su cuenta y después volvió a pagar
-  // quedaría descontado del ingreso estando al día. Los ids son los únicos donde el dato
-  // puede cambiar una decisión: los que pidieron la baja (el índice) y los Pro pagados
-  // (`pro_sin_pago_registrado`, más abajo, que es la MISMA pregunta —¿entró plata?— y por
-  // eso comparte la query en vez de pedir la suya).
-  const pagados = realUsers.filter(esProPagado);
+  // A quién le entró plata alguna vez. Se lee ANTES de computeRevenue porque el MRR depende
+  // de esto por dos vías: sin el índice, un cliente que borró su cuenta y después volvió a
+  // pagar quedaría descontado del ingreso estando al día, y un Pro de cortesía sumaría S/10
+  // que nadie transfirió.
+  //
+  // **La lista sale de `idsParaIndicePagos`, no se arma acá.** Escribirla a mano es cómo se
+  // vuelve a acotar el índice a una población más chica que las preguntas que se le hacen; el
+  // `dominio` que sella el índice convierte ese error en un throw, pero la forma de no
+  // cometerlo es tener una sola definición.
+  //
   // El cargador LANZA cuando no puede leer (falla cerrado, a proposito). Se traduce aca a
   // la misma forma `{error}` con la que responde el resto de la ruta: un throw suelto sale
   // como text/plain y las pantallas muestran 'Failed to load' sin el motivo.
   let pagosConPlata;
   try {
-    pagosConPlata = await cargarPagosConPlata([
-    ...usuarios.filter((u) => u.cuenta_borrada_at).map((u) => u.id),
-    ...pagados.map((u) => u.id),
-  ]);
+    pagosConPlata = await cargarPagosConPlata(usuarios);
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }
@@ -193,19 +193,16 @@ export async function GET() {
   const mrr = rev.mrr;
   const arr = rev.arr;
 
-  // Cuánto del MRR es humo: Pro que cuentan como ingreso y no tienen ni un pago aprobado con
-  // monto > 0. Hoy eso solo puede ser un comp (Pro regalado por POST /admin/activar, que se
-  // registra en `pagos` con monto 0 justamente para no inflar la caja). Sale acá, pegado al
-  // MRR, en vez de con una columna nueva en `usuarios`: el eje del plan ya tiene dos columnas
-  // y mirar una sola ya costó seis huecos. Cuando este número deje de ser 0 de forma estable,
-  // ahí sí conviene modelar el comp como estado propio.
-  // Se mide sobre los Pro que HOY cuentan en el MRR (`esProActivo`), no sobre todos los que
-  // alguna vez pagaron: quien pidió la baja ya salió del MRR, así que preguntarse cuánto de
-  // ese MRR es humo no lo incluye. Antes esto tenía su propia query, con el mismo filtro
-  // (`aprobado` + `monto > 0`) que ahora define el testigo de la baja: es una sola pregunta
-  // y ahora tiene un solo lector.
-  const proIds = pagados.filter((u) => esProActivo(u, pagosConPlata, now)).map((u) => u.id);
-  const proSinPagoRegistrado = proIds.filter((id) => !pagosConPlata.has(id)).length;
+  // Pro de cortesía: tienen el plan y no les entró un sol. **Ya NO están dentro del MRR**, y
+  // ese es el cambio del 2026-09-01. Este número existía desde antes con otro nombre
+  // (`pro_sin_pago_registrado`) y solo REPORTABA: el comentario decía que el comp se registra
+  // en `pagos` con monto 0, y medido contra producción ninguno de los tres caminos que regalan
+  // Pro escribía esa fila, así que el regalo entraba al ingreso a precio de lista.
+  //
+  // Sigue publicándose pegado al MRR porque ahora responde otra cosa: cuánto ingreso se está
+  // descontando y por qué. Y es el delator de un pagador mal clasificado — si sube sin que
+  // nadie haya regalado nada, hay un cobro que no llega a `pagos`.
+  const cortesias = rev.cortesias;
 
   const newUsersThisMonth = usuarios.filter(
     (u) => new Date(u.created_at) >= startMonth,
@@ -361,7 +358,7 @@ export async function GET() {
     // Pro pagados descontados del MRR porque pidieron borrar su cuenta. Va al JSON para que
     // la caída del MRR tenga explicación en la misma pantalla.
     bajas_declaradas: rev.bajasDeclaradas,
-    pro_sin_pago_registrado: proSinPagoRegistrado,
+    cortesias,
     conversion_rate: conversionRate,
     new_users_this_month: newUsersThisMonth,
     churn_rate_30d: churnRate30d,

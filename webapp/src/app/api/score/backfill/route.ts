@@ -4,6 +4,7 @@ import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 import { goalsFactor, debtsFactor, limaToday } from '@/lib/score-factors';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { indexarGmail } from '@/lib/gmail-conectado';
 
 const WEIGHTS = {
   consistency: 0.20,
@@ -40,12 +41,16 @@ export async function POST() {
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
   const sinceDate = sixMonthsAgo.toISOString().split('T')[0];
 
-  const [txResult, existingScores, budgetResult, goalsResult, debtsResult] = await Promise.all([
+  const [txResult, existingScores, budgetResult, goalsResult, debtsResult, gmailResult] = await Promise.all([
     supabase.from('transacciones').select('fecha, tipo, monto_pen, monto, categoria').eq('usuario_id', usuario.id).gte('fecha', sinceDate),
     supabase.from('neto_scores').select('period').eq('user_id', usuario.id).gte('period', sinceDate),
     supabase.from('presupuestos').select('categoria, monto_limite, mes, anio').eq('usuario_id', usuario.id),
     supabase.from('metas_ahorro').select('id, completada, monto_objetivo, monto_actual, fecha_limite, created_at').eq('usuario_id', usuario.id).eq('completada', false),
     supabase.from('deudas').select('id, tipo, monto_original, monto_pendiente, estado, fecha_vencimiento').eq('usuario_id', usuario.id).eq('tipo', 'debo'),
+    // La OTRA fuente de "tiene Gmail" (ver `lib/gmail-conectado.ts`). Sin ella, este factor
+    // le negaba sus 25 puntos a quien tiene la conexión viva en `gmail_cuentas`, que hoy es
+    // la única forma en que se guarda.
+    supabase.from('gmail_cuentas').select('usuario_id, activa, auth_error_at').eq('usuario_id', usuario.id),
   ]);
 
   // `existingScores` es lo que impide recalcular un mes ya asentado (el `continue` de
@@ -53,7 +58,8 @@ export async function POST() {
   // y los REESCRIBE via upsert: historia pisada con numeros calculados sobre data
   // incompleta. Los otros cuatro mueven el score del mismo modo que en el backend.
   const readError =
-    txResult.error || existingScores.error || budgetResult.error || goalsResult.error || debtsResult.error;
+    txResult.error || existingScores.error || budgetResult.error || goalsResult.error ||
+    debtsResult.error || gmailResult.error;
   if (readError) {
     return NextResponse.json({ error: 'No se pudo leer tu historial para recalcularlo' }, { status: 500 });
   }
@@ -67,6 +73,8 @@ export async function POST() {
   const budgets = budgetResult.data || [];
   const activeGoals = goalsResult.data || [];
   const debts = debtsResult.data || [];
+  // Se resuelve UNA vez, fuera del bucle de meses: es estado actual, igual que goals/debts.
+  const tieneGmail = indexarGmail([usuario], gmailResult.data || []).conectados.has(usuario.id);
 
   // Find months with transactions
   const monthsWithTx = new Map<string, typeof transactions>();
@@ -139,7 +147,7 @@ export async function POST() {
     let visibility = 0;
     if (budgets.length > 0) visibility += 30;
     if (activeGoals.length > 0) visibility += 25;
-    if (usuario.gmail_access_token) visibility += 25;
+    if (tieneGmail) visibility += 25;
     if (usuario.recordatorios_activos !== false) visibility += 20;
 
     const factors = { consistency, budget, savings, goals, debts: debtScore, visibility };

@@ -72,7 +72,13 @@ export interface AdminEconomics {
    * número es cuánto del MRR es humo. Se muestra pegado al KPI de MRR, y solo cuando > 0.
    * Mientras siga en 0 no vale una columna nueva en `usuarios` para distinguirlos.
    */
-  pro_sin_pago_registrado: number;
+  /**
+   * Pro de cortesía: tienen el plan y nunca les entró un sol, así que NO están en el MRR.
+   * Se publica al lado del MRR para que el descuento tenga explicación en la pantalla, y
+   * porque delata lo contrario: si sube sin que nadie haya regalado nada, hay un cobro real
+   * que no está llegando a la tabla `pagos`.
+   */
+  cortesias: number;
   /**
    * Pro pagados descontados del MRR porque pidieron borrar su cuenta. Se muestra pegado al
    * KPI de MRR: un número que baja sin explicación en la misma pantalla se lee como un bug
@@ -262,6 +268,12 @@ export interface AdminProducto {
   engagement: AdminEngagement;
   adoption: FeatureAdoptionRow[];
   total_users: number;
+  /**
+   * Cupos gastados de los 100 que da Google a la app OAuth sin certificar. Va aparte de
+   * `adoption` porque no es adopción: su denominador es 100, no `total_users`, y cuenta
+   * también las cuentas internas — el cupo se gasta igual y no se recupera nunca.
+   */
+  gmail_cupo: number;
 }
 
 export interface SurveyConversationMessage {
@@ -282,7 +294,10 @@ export interface AdminUserFeatures {
   alertas: number;
   /** Último valor del Neto Score (migración 053), no el número de cálculos. null = nunca tuvo. */
   score: number | null;
+  /** Unión de las dos fuentes: token legacy en `usuarios` ∪ `gmail_cuentas.activa`. */
   gmail: boolean;
+  /** Conectado pero con la autorización caída: hay que pedirle que reconecte. */
+  gmail_caido?: boolean;
   tickets: number;
   pagos_aprobados: number;
   ltv_pen: number;

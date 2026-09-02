@@ -74,6 +74,8 @@ const SEGMENT_TONE: Record<UserSegment, string> = {
 // fría porque la acción sobre ellos es distinta entre sí pero ninguna es "cobrar hoy".
 const ESTADO_TONE: Record<EstadoComercial, string> = {
   pro_pagado: '#1D9E75',
+  // Violeta: tiene Pro, pero no es plata. Ver el comentario de arriba sobre el verde.
+  pro_cortesia: '#A78BFA',
   pago_pendiente: '#68dbae',
   trial: '#EF9F27',
   muro_vencido: '#D85A30',
@@ -346,7 +348,13 @@ function UserFichaSheet({ user, onClose }: { user: AdminUser | null; onClose: ()
                     <FeatureChip label="Deudas" count={f.deudas} />
                     <FeatureChip label="Espacios" count={f.espacios} />
                     <FeatureChip label="Alertas" count={f.alertas} />
-                    <FeatureChip label="Gmail" count={f.gmail ? 1 : 0} />
+                    {/* "Caído" es un tercer estado, no un matiz: la cuenta sigue vinculada
+                        pero Google dejó de aceptar el token, así que el cron no le lee un solo
+                        correo. Pintarlo como conectado esconde la única acción posible. */}
+                    <FeatureChip
+                      label={f.gmail_caido ? 'Gmail ⚠' : 'Gmail'}
+                      count={f.gmail ? 1 : 0}
+                    />
                   </div>
                 )}
               </SheetSection>

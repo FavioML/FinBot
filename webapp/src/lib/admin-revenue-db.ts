@@ -1,5 +1,10 @@
 import { getServiceClient } from '@/lib/supabase/service';
-import { indexarPagosConPlata, type PagosConPlata } from '@/lib/admin-revenue';
+import {
+  indexarPagosConPlata,
+  idsParaIndicePagos,
+  type HistoryUserRow,
+  type PagosConPlata,
+} from '@/lib/admin-revenue';
 
 /**
  * La ÚNICA query que arma el índice de "a este usuario le entró plata".
@@ -10,18 +15,16 @@ import { indexarPagosConPlata, type PagosConPlata } from '@/lib/admin-revenue';
  * junio y volvió a pagar en julio no tendría su pago en el índice, y el panel lo sacaría
  * del MRR estando al día. Con una sola implementación ese error no tiene dónde ocurrir.
  *
- * `usuarioIds` acota la lectura a las filas que pueden cambiar una decisión (los que
- * pidieron la baja, más los Pro pagados en la ruta que además reporta
- * `pro_sin_pago_registrado`). No es cosmético: PostgREST corta en 1000 filas SIN error, así
- * que el techo pasa a ser "1000 pagos repartidos entre esos usuarios" en vez de 1000 pagos
- * en total. Con la lista vacía ni siquiera va a la red.
+ * La lectura se acota a las filas que pueden cambiar una decisión, y quién es esa gente lo
+ * decide `idsParaIndicePagos` — no el call-site. No es cosmético: PostgREST corta en 1000
+ * filas SIN error, así que el techo pasa a ser "1000 pagos repartidos entre esos usuarios" en
+ * vez de 1000 pagos en total. Con la lista vacía ni siquiera va a la red.
  */
 /**
  * Cuántos ids entran en un `.in(...)`.
  *
- * La lista crece MONÓTONAMENTE: son todos los que alguna vez pidieron la baja (más los Pro
- * pagados en la ruta que reporta `pro_sin_pago_registrado`), y `cuenta_borrada_at` no se
- * limpia nunca. Un `.in()` con cientos de UUIDs pasa el largo de URL que aceptan PostgREST y
+ * La lista crece MONÓTONAMENTE: son todos los que alguna vez pidieron la baja, más los Pro
+ * pagados y todo el que tenga fechas de `premium_*`, y `cuenta_borrada_at` no se limpia nunca. Un `.in()` con cientos de UUIDs pasa el largo de URL que aceptan PostgREST y
  * su proxy, y como acá el fallo es CERRADO, eso no degrada: deja el panel en 500 permanente.
  * Trocear lo vuelve un problema de cantidad de requests en vez de uno de largo de URL.
  */
@@ -34,10 +37,25 @@ const IDS_POR_LOTE = 25;
 const TECHO_POSTGREST = 1000;
 
 export async function cargarPagosConPlata(
-  usuarioIds: string[],
+  usuarios: HistoryUserRow[],
 ): Promise<PagosConPlata> {
-  const ids = [...new Set(usuarioIds.filter(Boolean))];
-  if (ids.length === 0) return new Map<string, number[]>();
+  // **Recibe la población, no una lista de ids, y esa firma ES la protección.** Antes cada
+  // ruta armaba su lista, y las dos lo hacían con criterios distintos: economics pasaba bajas
+  // ∪ pagados y stats solo las bajas. Mientras la única pregunta fue "¿alguno volvió?" eso
+  // alcanzaba; el día que se agregó "¿a este le entró plata?", el índice corto habría
+  // respondido que no sobre TODOS los pagadores del producto, con el MRR en cero y la
+  // pantalla en verde.
+  //
+  // Se intentó primero con un guard de texto que exigía ver `idsParaIndicePagos(` en la ruta,
+  // y una revisión adversarial lo evadió en un minuto con
+  // `cargarPagosConPlata(idsParaIndicePagos(pagados))`: menciona el helper y acota igual. Un
+  // guard que busca una CADENA no puede decidir esto. Con la lista derivada acá adentro no
+  // hay lista que armar mal.
+  const ids = idsParaIndicePagos(usuarios);
+  // El dominio ES la lista consultada, incluso cuando está vacía: `indexarPagosConPlata` lo
+  // sella junto con las filas para que nadie pueda preguntarle al índice por alguien que no
+  // se consultó. Ver el docblock de `PagosConPlata.dominio`.
+  if (ids.length === 0) return indexarPagosConPlata([], ids);
 
   const lotes: string[][] = [];
   for (let i = 0; i < ids.length; i += IDS_POR_LOTE) {
@@ -74,5 +92,5 @@ export async function cargarPagosConPlata(
     filas.push(...(data || []));
   }
 
-  return indexarPagosConPlata(filas);
+  return indexarPagosConPlata(filas, ids);
 }

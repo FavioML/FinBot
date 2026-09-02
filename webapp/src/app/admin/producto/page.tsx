@@ -247,6 +247,48 @@ function AdoptionSection({
   );
 }
 
+/**
+ * Cupo de la app OAuth de Google. **No es una fila más de adopción**, y por eso vive en su
+ * propia sección: mide un INVENTARIO, no uso. El límite de 100 usuarios lo cuenta Google sobre
+ * todo el ciclo de vida del proyecto, no se restablece, y no baja cuando alguien desconecta —
+ * quien autorizó una vez ya gastó su cupo para siempre. O sea que este número solo sube, y el
+ * día que llegue a 100 la única salida es la certificación CASA.
+ *
+ * La diferencia con la barra "Lectura Gmail" de arriba es deliberada: esa cuenta a los que HOY
+ * tienen la conexión viva (los que el cron escanea), y siempre va a ser menor o igual que esta.
+ */
+function CupoGmailSection({ gastados }: { gastados: number }) {
+  const CAP = 100;
+  const pct = Math.min(100, Math.round((gastados / CAP) * 1000) / 10);
+  const tone = pct >= 80 ? '#D85A30' : pct >= 50 ? '#EF9F27' : '#1D9E75';
+  return (
+    <section className="space-y-3">
+      <SectionHeader
+        title="Cupo OAuth de Google"
+        subtitle="Usuarios que autorizaron Gmail alguna vez. El cupo NO se recupera al desconectar: quien autorizó una vez lo gastó para siempre. Al llegar a 100 hace falta la certificación CASA."
+      />
+      <div className="glass-card space-y-3 p-4">
+        <div className="flex items-baseline justify-between">
+          <span className="text-sm text-[#C8C6BC]">Cupos gastados</span>
+          <span className="tabular-nums text-[#F0EFE8]">
+            <span className="text-2xl font-semibold" style={{ color: tone }}>{gastados}</span>
+            <span className="text-sm text-[#5A584F]"> / {CAP}</span>
+          </span>
+        </div>
+        <div className="h-2 w-full overflow-hidden rounded-full bg-[rgba(255,255,255,0.05)]">
+          <div
+            className="h-full rounded-full transition-all"
+            style={{ width: `${pct}%`, backgroundColor: tone }}
+          />
+        </div>
+        <p className="text-xs text-[#8A877D]">
+          Incluye cuentas internas a propósito: gastan cupo igual que cualquier otra.
+        </p>
+      </div>
+    </section>
+  );
+}
+
 export default function AdminProductoPage() {
   const { data, isLoading, isError } = useAdminProducto();
 
@@ -280,6 +322,7 @@ export default function AdminProductoPage() {
       <RetentionSection retention={data.retention} />
       <EngagementSection engagement={data.engagement} />
       <AdoptionSection adoption={data.adoption} total={data.total_users} />
+      <CupoGmailSection gastados={data.gmail_cupo} />
     </div>
   );
 }

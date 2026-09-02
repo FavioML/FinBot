@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   AreaChart, Area, LineChart, Line,
@@ -25,6 +25,13 @@ import { ErrorState } from '@/components/shared/error-state';
 // El motor de estado comercial, el MISMO que usa /admin/users. No se reimplementa acá: es
 // la fuente única de qué significa cada combinación de `plan` + `trial_estado`.
 import { estadoComercial, ESTADO_LABEL, ESTADO_HINT, type EstadoComercial } from '@/lib/admin-user-segments';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
 
 /**
  * Cómo se nombra a un usuario en una pantalla de admin (F16).
@@ -198,6 +205,9 @@ function formatDateTime(dateStr: string | null | undefined) {
 // pantalla no recibió, porque el panel tiene DOS tablas de usuarios y sólo se tocó una.
 const ESTADO_COLOR: Record<EstadoComercial, string> = {
   pro_pagado: 'bg-[#1D9E75]/20 text-[#1D9E75]',
+  // Violeta y no verde: tiene Pro, pero no es plata. El verde de la marca queda para quien
+  // paga. Tampoco ambar ni celeste, que ya son el pago por aprobar y la prueba.
+  pro_cortesia: 'bg-violet-500/15 text-violet-400',
   pago_pendiente: 'bg-amber-500/15 text-amber-400',
   trial: 'bg-sky-500/15 text-sky-400',
   muro_vencido: 'bg-white/5 text-[#F0EFE8]/60',
@@ -223,14 +233,27 @@ function PlanBadge({ estado, bajaAt }: { estado: EstadoComercial; bajaAt?: strin
   );
 }
 
-function StatusDot({ active }: { active: boolean }) {
+/**
+ * Punto de estado. `warn` pinta ámbar sobre un activo: está conectado, pero algo no funciona.
+ * Hoy lo usa Gmail para "la autorización se cayó" — verde y apagado no alcanzan para eso,
+ * porque el verde diría que el correo se está leyendo y el apagado diría que nunca se conectó.
+ */
+function StatusDot({ active, warn = false, title }: { active: boolean; warn?: boolean; title?: string }) {
   return (
     <span
+      title={title}
       className={`inline-block h-2 w-2 rounded-full ${
-        active ? 'bg-[#1D9E75]' : 'bg-white/20'
+        active ? (warn ? 'bg-[#EF9F27]' : 'bg-[#1D9E75]') : 'bg-white/20'
       }`}
     />
   );
+}
+
+/** Qué dice el tooltip del punto de Gmail. Los tres estados tienen acciones distintas. */
+function gmailTitle(u: AdminUser): string {
+  if (!u.tiene_gmail) return 'Sin Gmail conectado';
+  if (u.gmail_caido) return 'Gmail conectado pero con la autorización caída: hay que reconectar';
+  return 'Gmail conectado';
 }
 
 function CanalBadge({ canal }: { canal: 'whatsapp' | 'google' | 'magic_link' }) {
@@ -251,6 +274,30 @@ function CanalBadge({ canal }: { canal: 'whatsapp' | 'google' | 'magic_link' }) 
   );
 }
 
+/**
+ * Menú de acciones por usuario.
+ *
+ * **El popup se renderiza en un PORTAL, y eso no es un detalle de implementación.** La versión
+ * anterior era un `div.absolute` dentro de la celda, o sea dentro del contenedor de la tabla,
+ * que tiene `max-h-[65vh] overflow-auto` (y un padre con `overflow-hidden`). Un elemento
+ * absoluto se recorta contra el primer ancestro con overflow, así que el menú se veía completo
+ * solo mientras la tabla fuera más alta que él: al filtrar hasta dejar una o dos filas —justo
+ * cuando buscás a UNA persona para actuar sobre ella— el contenedor medía menos que el menú y
+ * las opciones de abajo (desactivar, eliminar) quedaban fuera de la vista, sin scroll que las
+ * alcanzara. Base UI lo saca del flujo con `Portal` y lo ancla con `Positioner`, que además
+ * voltea el menú hacia arriba cuando no hay espacio abajo. No volver a un `absolute` acá.
+ *
+ * El sub-panel de confirmación sigue viviendo DENTRO del popup, y los dos disparadores que lo
+ * abren llevan `closeOnClick={false}`: sin eso el menú se cierra en el mismo click que pide la
+ * confirmación y la pregunta nunca se ve.
+ *
+ * **Cancelar y Confirmar son `DropdownMenuItem`, no `<button>` sueltos**, y eso también se
+ * paga si se cambia. `Menu.Popup` maneja el foco como un composite: captura Tab y las flechas
+ * y solo navega entre sus items, así que un botón suelto adentro queda inalcanzable por
+ * teclado — con el `div.absolute` de antes eran tabbables normales, o sea que la migración al
+ * portal se lo habría llevado puesto en silencio. Una acción irreversible detrás de un control
+ * que solo responde al mouse es peor que la que se recortaba.
+ */
 function UserActions({
   user,
   onAction,
@@ -261,18 +308,6 @@ function UserActions({
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-        setConfirming(null);
-      }
-    }
-    if (open) document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [open]);
 
   const exec = async (action: string, data?: Record<string, unknown>) => {
     setBusy(true);
@@ -288,11 +323,21 @@ function UserActions({
   // mentía era la ETIQUETA, que es lo que se arregló arriba.
   const isPro = user.plan === 'premium';
 
+  const itemClass =
+    'flex w-full cursor-pointer items-center gap-2 rounded-none px-4 py-2.5 text-left text-sm text-[#F0EFE8]/80 focus:bg-white/5 focus:text-[#F0EFE8]';
+
   return (
-    <div className="relative" ref={ref}>
-      <button
-        onClick={() => { setOpen(!open); setConfirming(null); }}
-        className="rounded-md p-1.5 text-[#F0EFE8]/40 hover:bg-white/5 hover:text-[#F0EFE8] transition-colors"
+    <DropdownMenu
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        // La confirmación es una pregunta abierta, no un estado que sobreviva al cierre: si
+        // se reabre el menú tiene que empezar por el listado, no por "¿Eliminar a X?".
+        if (!o) setConfirming(null);
+      }}
+    >
+      <DropdownMenuTrigger
+        className="rounded-md p-1.5 text-[#F0EFE8]/40 transition-colors hover:bg-white/5 hover:text-[#F0EFE8]"
         title="Acciones"
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
@@ -300,112 +345,125 @@ function UserActions({
           <circle cx="8" cy="8" r="1.5" />
           <circle cx="8" cy="13" r="1.5" />
         </svg>
-      </button>
+      </DropdownMenuTrigger>
 
-      {open && (
-        <div className="absolute right-0 z-50 mt-1 w-56 rounded-xl border border-white/10 bg-[#1A1A18] shadow-xl shadow-black/40">
-          {confirming && (
-            <div className="p-3">
-              <p className="mb-3 text-xs text-[#F0EFE8]/70">
-                {confirming === 'delete'
-                  ? `Eliminar a ${etiquetaUsuario(user)}? Se borran TODOS sus datos. Irreversible.`
-                  : confirming === 'deactivate'
-                    ? `Desactivar a ${etiquetaUsuario(user)}? Se pasa a Free y se desconecta Gmail.`
-                    : `Confirmar accion?`}
-              </p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setConfirming(null)}
-                  disabled={busy}
-                  className="flex-1 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-[#F0EFE8]/60 hover:bg-white/5"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={() => exec(confirming)}
-                  disabled={busy}
-                  className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium text-white ${
-                    confirming === 'delete'
-                      ? 'bg-red-600 hover:bg-red-700'
-                      : 'bg-amber-600 hover:bg-amber-700'
-                  }`}
-                >
-                  {busy ? 'Procesando...' : 'Confirmar'}
-                </button>
-              </div>
+      <DropdownMenuContent
+        align="end"
+        sideOffset={4}
+        className="w-56 rounded-xl border border-white/10 bg-[#1A1A18] p-0 py-1 text-[#F0EFE8] shadow-xl shadow-black/40"
+      >
+        {confirming && (
+          <div className="p-3">
+            <p className="mb-3 text-xs text-[#F0EFE8]/70">
+              {confirming === 'delete'
+                ? `Eliminar a ${etiquetaUsuario(user)}? Se borran TODOS sus datos. Irreversible.`
+                : confirming === 'deactivate'
+                  ? `Desactivar a ${etiquetaUsuario(user)}? Se pasa a Free y se desconecta Gmail.`
+                  : `Confirmar accion?`}
+            </p>
+            <div className="flex gap-2">
+              <DropdownMenuItem
+                closeOnClick={false}
+                onClick={() => setConfirming(null)}
+                disabled={busy}
+                className="flex-1 justify-center rounded-lg border border-white/10 px-3 py-1.5 text-xs text-[#F0EFE8]/60 focus:bg-white/5"
+              >
+                Cancelar
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                // `closeOnClick={false}` igual que Cancelar, y no es simetría: sin él Base UI
+                // desmonta el popup en el mismo click, así que el `{busy ? 'Procesando...'}`
+                // no se renderiza nunca y un DELETE lento no da ninguna señal. Peor: si el
+                // admin reabre el menú mientras la acción está en vuelo —probable, justo
+                // porque no pasó nada visible— `onOpenChange` ya limpió `confirming` y ve el
+                // listado con todos los items en `disabled` sin explicación. `exec` cierra
+                // solo, al final, cuando de verdad terminó.
+                closeOnClick={false}
+                onClick={() => exec(confirming)}
+                disabled={busy}
+                className={`flex-1 justify-center rounded-lg px-3 py-1.5 text-xs font-medium text-white ${
+                  confirming === 'delete'
+                    ? 'bg-red-600 focus:bg-red-700'
+                    : 'bg-amber-600 focus:bg-amber-700'
+                }`}
+              >
+                {busy ? 'Procesando...' : 'Confirmar'}
+              </DropdownMenuItem>
             </div>
-          )}
+          </div>
+        )}
 
-          {!confirming && (
-            <div className="py-1">
-              <button
-                onClick={() => exec('view_payments')}
+        {!confirming && (
+          <>
+            <DropdownMenuItem
+              onClick={() => exec('view_payments')}
+              disabled={busy}
+              className={itemClass}
+            >
+              <span className="text-[#F0EFE8]/40">&#128179;</span> Ver pagos / comprobante
+              {user.pago_pendiente && <span className="ml-auto rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-400">pendiente</span>}
+            </DropdownMenuItem>
+
+            <DropdownMenuSeparator className="my-1 bg-white/5" />
+
+            {!isPro && (
+              <DropdownMenuItem
+                onClick={() => exec('set_plan', { plan: 'premium' })}
                 disabled={busy}
-                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-[#F0EFE8]/80 hover:bg-white/5"
+                className={itemClass}
               >
-                <span className="text-[#F0EFE8]/40">&#128179;</span> Ver pagos / comprobante
-                {user.pago_pendiente && <span className="ml-auto rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-400">pendiente</span>}
-              </button>
-
-              <div className="my-1 border-t border-white/5" />
-
-              {!isPro && (
-                <button
-                  onClick={() => exec('set_plan', { plan: 'premium' })}
+                <span className="text-[#1D9E75]">&#9733;</span> Activar Pro (30 dias)
+              </DropdownMenuItem>
+            )}
+            {isPro && (
+              <>
+                <DropdownMenuItem
+                  onClick={() => exec('notify_pro', { tipo_plan: user.tipo_plan || 'mensual' })}
                   disabled={busy}
-                  className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-[#F0EFE8]/80 hover:bg-white/5"
+                  className={itemClass}
                 >
-                  <span className="text-[#1D9E75]">&#9733;</span> Activar Pro (30 dias)
-                </button>
-              )}
-              {isPro && (
-                <>
-                  <button
-                    onClick={() => exec('notify_pro', { tipo_plan: user.tipo_plan || 'mensual' })}
-                    disabled={busy}
-                    className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-[#F0EFE8]/80 hover:bg-white/5"
-                  >
-                    <span className="text-[#25D366]">&#128172;</span> Notificar Pro por WhatsApp
-                  </button>
-                  <button
-                    onClick={() => exec('extend_premium', { days: 30 })}
-                    disabled={busy}
-                    className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-[#F0EFE8]/80 hover:bg-white/5"
-                  >
-                    <span className="text-[#1D9E75]">+</span> Extender +30 dias
-                  </button>
-                  <button
-                    onClick={() => exec('set_plan', { plan: 'free' })}
-                    disabled={busy}
-                    className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-[#F0EFE8]/80 hover:bg-white/5"
-                  >
-                    <span className="text-[#F0EFE8]/40">&#9744;</span> Pasar a Free
-                  </button>
-                </>
-              )}
+                  <span className="text-[#25D366]">&#128172;</span> Notificar Pro por WhatsApp
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => exec('extend_premium', { days: 30 })}
+                  disabled={busy}
+                  className={itemClass}
+                >
+                  <span className="text-[#1D9E75]">+</span> Extender +30 dias
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => exec('set_plan', { plan: 'free' })}
+                  disabled={busy}
+                  className={itemClass}
+                >
+                  <span className="text-[#F0EFE8]/40">&#9744;</span> Pasar a Free
+                </DropdownMenuItem>
+              </>
+            )}
 
-              <div className="my-1 border-t border-white/5" />
+            <DropdownMenuSeparator className="my-1 bg-white/5" />
 
-              <button
-                onClick={() => setConfirming('deactivate')}
-                disabled={busy}
-                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-amber-400/80 hover:bg-white/5"
-              >
-                <span>&#9888;</span> Desactivar cuenta
-              </button>
+            <DropdownMenuItem
+              closeOnClick={false}
+              onClick={() => setConfirming('deactivate')}
+              disabled={busy}
+              className={`${itemClass} text-amber-400/80 focus:text-amber-400`}
+            >
+              <span>&#9888;</span> Desactivar cuenta
+            </DropdownMenuItem>
 
-              <button
-                onClick={() => setConfirming('delete')}
-                disabled={busy}
-                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-red-400/80 hover:bg-white/5"
-              >
-                <span>&#10005;</span> Eliminar usuario
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+            <DropdownMenuItem
+              closeOnClick={false}
+              onClick={() => setConfirming('delete')}
+              disabled={busy}
+              className={`${itemClass} text-red-400/80 focus:text-red-400`}
+            >
+              <span>&#10005;</span> Eliminar usuario
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -829,6 +887,11 @@ export default function AdminOperacionPage() {
     // población. Ahora cada opción significa lo que dice.
     const estadoU = estadoComercial(u);
     if (userPlanFilter === 'pro' && estadoU !== 'pro_pagado') return false;
+    // La cortesía tiene filtro propio. Sin él quedaba visible solo en "Todos": no es Pro
+    // pagado, no está en prueba y no está en el muro, así que los tres filtros la escondían
+    // — justo la población que se quiere revisar de vez en cuando para ver a quién se le
+    // regaló Pro y hasta cuándo.
+    if (userPlanFilter === 'cortesia' && estadoU !== 'pro_cortesia') return false;
     if (userPlanFilter === 'trial' && estadoU !== 'trial') return false;
     if (userPlanFilter === 'muro' && !estadoU.startsWith('muro') && estadoU !== 'sin_estrenar') return false;
     if (userOnboardingFilter === 'completado' && !u.onboarding_completado) return false;
@@ -1251,6 +1314,7 @@ export default function AdminOperacionPage() {
               >
                 <option value="todos" className="bg-[#1A1A18]">Estado: Todos</option>
                 <option value="pro" className="bg-[#1A1A18]">Pro pagado</option>
+                <option value="cortesia" className="bg-[#1A1A18]">Pro cortesía</option>
                 <option value="trial" className="bg-[#1A1A18]">En prueba</option>
                 <option value="muro" className="bg-[#1A1A18]">En el muro</option>
               </select>
@@ -1374,7 +1438,7 @@ export default function AdminOperacionPage() {
                         '—'
                       )}
                     </td>
-                    <td className="px-4 py-3 text-center"><StatusDot active={u.tiene_gmail} /></td>
+                    <td className="px-4 py-3 text-center"><StatusDot active={u.tiene_gmail} warn={u.gmail_caido} title={gmailTitle(u)} /></td>
                     <td className="px-4 py-3 text-center"><StatusDot active={u.tiene_webapp} /></td>
                     <td className="px-4 py-3 text-right font-mono text-xs">{u.transacciones}</td>
                     <td className="px-4 py-3"><CanalBadge canal={u.canal} /></td>
@@ -1405,7 +1469,7 @@ export default function AdminOperacionPage() {
                 <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
                   <div><span className="text-[#F0EFE8]/40">WhatsApp:</span> <span className="font-mono">{u.whatsapp}</span></div>
                   <div><span className="text-[#F0EFE8]/40">Txs:</span> {u.transacciones}</div>
-                  <div className="flex items-center gap-1.5"><StatusDot active={u.tiene_gmail} /><span className="text-[#F0EFE8]/40">Gmail</span></div>
+                  <div className="flex items-center gap-1.5"><StatusDot active={u.tiene_gmail} warn={u.gmail_caido} title={gmailTitle(u)} /><span className="text-[#F0EFE8]/40">Gmail</span></div>
                   <div className="flex items-center gap-1.5"><StatusDot active={u.tiene_webapp} /><span className="text-[#F0EFE8]/40">Webapp</span></div>
                   <div className="flex items-center gap-1.5"><CanalBadge canal={u.canal} /></div>
                   {estadoComercial(u) === 'pro_pagado' && u.premium_vence && (() => {

@@ -280,16 +280,13 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
   );
 
   // "Pro sin pago registrado" == cuánto del MRR no es plata. Un comp (Pro regalado por
-  // /admin/activar) entra al MRR igual que un pagador, y esta es la única señal de que pasó.
-  // El oráculo la recalcula desde `usuarios` + `pagos` con la misma definición de la ruta:
+  // /admin/activar) ya NO entra al MRR: desde el 2026-09-01 se descuenta, y el panel lo reporta
+  // aparte como `cortesias` para que el descuento tenga explicación en la misma pantalla.
+  // El oráculo lo recalcula desde `usuarios` + `pagos` con la misma definición de la ruta:
   // Pro pagado (premium y trial_estado <> 'activo'), no interno, sin ninguna fila aprobada
-  // con monto > 0. Si el panel y la base divergen, el número es decorativo y no sirve para
-  // decidir si vale la pena modelar el comp como estado propio.
+  // con monto > 0. Si el panel y la base divergen, el MRR está contando plata que no entró.
   // Las mismas cuentas que EXCLUDED_REVENUE_WHATSAPP en admin-revenue.ts (fundador + QA Pro).
   const pagosOk = await sbPaginado('pagos', 'usuario_id,estado,monto,aprobado_at,created_at');
-  const conPagoReal = new Set(
-    pagosOk.filter((p) => p.estado === 'aprobado' && Number(p.monto) > 0).map((p) => p.usuario_id),
-  );
   const proPagadosReales = usuariosPlan.filter(
     (u) => u.plan === 'premium' && u.trial_estado !== 'activo' && !esInterno(u),
   );
@@ -314,13 +311,24 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
     return !(cobrosPorUsuario.get(u.id) || []).some((t) => t > baja && t <= ahora);
   };
   const bajasOraculo = proPagadosReales.filter(esBajaDeclarada);
-  const proActivosReales = proPagadosReales.filter((u) => !esBajaDeclarada(u));
+  // Pro de CORTESIA: tiene el plan y nunca le entro un sol. Desde el 2026-09-01 sale del MRR,
+  // igual que la baja, y por el mismo motivo — no es plata. El oraculo tiene que descontarlo
+  // tambien, o este harness afirma que el panel esta mal justo cuando esta bien.
+  //
+  // La baja gana sobre la cortesia cuando las dos aplican: el panel cuenta a esa persona una
+  // sola vez, en `bajas_declaradas`.
+  const esCortesia = (u) => !(cobrosPorUsuario.get(u.id) || []).some((t) => t <= ahora);
+  const cortesiasOraculo = proPagadosReales.filter((u) => !esBajaDeclarada(u) && esCortesia(u));
+  const proActivosReales = proPagadosReales.filter(
+    (u) => !esBajaDeclarada(u) && !esCortesia(u),
+  );
 
   ok(
-    'economics: el MRR no cuenta cuentas de prueba ni bajas declaradas',
+    'economics: el MRR no cuenta cuentas de prueba, bajas declaradas ni cortesias',
     eco.pro_users === proActivosReales.length,
     `panel dice ${eco.pro_users} Pro, la base dice ${proActivosReales.length}` +
-      (bajasOraculo.length ? ` (${bajasOraculo.length} de ${proPagadosReales.length} pagados pidieron borrar su cuenta)` : ''),
+      (bajasOraculo.length ? ` (${bajasOraculo.length} de ${proPagadosReales.length} pagados pidieron borrar su cuenta)` : '') +
+      (cortesiasOraculo.length ? ` (${cortesiasOraculo.length} de cortesia, sin ningun pago)` : ''),
   );
   // Y que la caída del MRR tenga explicación EN LA MISMA respuesta: un número que baja sin
   // motivo visible se lee como un bug del panel.
@@ -329,13 +337,21 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
     eco.bajas_declaradas === bajasOraculo.length,
     `panel dice ${eco.bajas_declaradas}, la base dice ${bajasOraculo.length}`,
   );
-  // Sobre los Pro ACTIVOS: quien pidió la baja ya salió del MRR, así que no cuenta acá.
-  const sinPagoOraculo = proActivosReales.filter((u) => !conPagoReal.has(u.id)).length;
+  // Y el otro descuento del MRR, por el mismo motivo que el de arriba: si baja sin explicacion
+  // en la misma respuesta, se lee como un bug del panel.
+  //
+  // **Este check cambio de nombre el 2026-09-01 y el harness NO se actualizo solo.** Se llamaba
+  // `pro_sin_pago_registrado` y afirmaba lo contrario que hoy: esos Pro SI estaban en el MRR y
+  // el campo solo los reportaba. Al renombrarse a `cortesias`, la comparacion quedo
+  // `undefined === N`, o sea roja siempre. Es el recordatorio de que un harness del canary es
+  // consumidor del contrato de la API: renombrar un campo lo rompe igual que a una pantalla.
   ok(
-    'economics: "Pro sin pago registrado" == verdad de la base',
-    eco.pro_sin_pago_registrado === sinPagoOraculo,
-    `panel dice ${eco.pro_sin_pago_registrado}, la base dice ${sinPagoOraculo}` +
-      (sinPagoOraculo > 0 ? ` (hay ${sinPagoOraculo} comp en el MRR: S/${sinPagoOraculo * 10} de humo)` : ''),
+    'economics: cortesias == verdad de la base',
+    eco.cortesias === cortesiasOraculo.length,
+    `panel dice ${eco.cortesias}, la base dice ${cortesiasOraculo.length}` +
+      (cortesiasOraculo.length > 0
+        ? ` (${cortesiasOraculo.length} Pro regalado, S/${cortesiasOraculo.length * 10} que no se cobran)`
+        : ''),
   );
 
   // ---------- 7. MAU contra el oráculo ----------

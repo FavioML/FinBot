@@ -39,16 +39,33 @@ beforeEach(() => {
   respuesta = () => ({ data: [], error: null });
 });
 
+/**
+ * Usuarios a partir de ids. Desde que `cargarPagosConPlata` recibe la POBLACIÓN y deriva la
+ * lista con `idsParaIndicePagos`, un fixture tiene que ser gente, no strings — y gente que
+ * entre al dominio, o el cargador no consulta a nadie y estos casos medirían el vacío.
+ */
+const usuariosPro = (...ids: string[]) =>
+  ids.map((id) => ({ id, plan: 'premium', tipo_plan: 'mensual', trial_estado: 'convertido' }));
+
 describe('cargarPagosConPlata', () => {
   it('con la lista vacía no toca la red', async () => {
     const idx = await cargarPagosConPlata([]);
     expect(consultas).toEqual([]);
-    expect(idx.size).toBe(0);
+    expect(idx.porUsuario.size).toBe(0);
+    expect(idx.dominio.size).toBe(0);
+  });
+
+  // El dominio ES la lista consultada, y esa igualdad es lo que hace confiable a `pagosDe`:
+  // preguntar por alguien de afuera lanza en vez de contestar "no tiene pagos". Se comprueba
+  // sobre los ids DEDUPLICADOS, que es la lista que de verdad se consultó.
+  it('sella como dominio exactamente los ids consultados', async () => {
+    const idx = await cargarPagosConPlata(usuariosPro('a', 'b', 'a'));
+    expect([...idx.dominio].sort()).toEqual(['a', 'b']);
   });
 
   it('deduplica los ids que le pasan las dos fuentes', async () => {
     // La ruta de economics le pasa las bajas Y los Pro pagados, que se solapan.
-    await cargarPagosConPlata(['a', 'b', 'a', '']);
+    await cargarPagosConPlata(usuariosPro('a', 'b', 'a'));
     expect(consultas).toEqual([['a', 'b']]);
   });
 
@@ -57,8 +74,8 @@ describe('cargarPagosConPlata', () => {
       data: [pago('a', '2026-08-05T00:00:00Z'), pago('a', '2026-08-09T00:00:00Z')],
       error: null,
     });
-    const idx = await cargarPagosConPlata(['a']);
-    expect(idx.get('a')).toHaveLength(2);
+    const idx = await cargarPagosConPlata(usuariosPro('a'));
+    expect(idx.porUsuario.get('a')).toHaveLength(2);
   });
 
   // La lista de ids crece MONÓTONAMENTE (`cuenta_borrada_at` no se limpia nunca). Un `.in()`
@@ -66,7 +83,7 @@ describe('cargarPagosConPlata', () => {
   // cerrado, eso no degrada: deja el panel en 500 PERMANENTE.
   it('trocea la lista larga en lotes en vez de mandar un .in() gigante', async () => {
     const ids = Array.from({ length: 60 }, (_, i) => `u${i}`);
-    await cargarPagosConPlata(ids);
+    await cargarPagosConPlata(usuariosPro(...ids));
     expect(consultas.map((c) => c.length)).toEqual([25, 25, 10]);
     expect(consultas.flat()).toEqual(ids); // sin perder ni repetir a nadie
   });
@@ -76,7 +93,7 @@ describe('cargarPagosConPlata', () => {
   // incluido el que volvió y está pagando. Un MRR más bajo se lee como caída del negocio.
   it('lanza si la lectura falla, en vez de devolver un índice vacío', async () => {
     respuesta = () => ({ data: null, error: { message: 'timeout' } });
-    await expect(cargarPagosConPlata(['a'])).rejects.toThrow(/timeout/);
+    await expect(cargarPagosConPlata(usuariosPro('a'))).rejects.toThrow(/timeout/);
   });
 
   it('lanza también si falla un lote del medio', async () => {
@@ -86,7 +103,7 @@ describe('cargarPagosConPlata', () => {
       return n === 2 ? { data: null, error: { message: 'boom' } } : { data: [], error: null };
     };
     await expect(
-      cargarPagosConPlata(Array.from({ length: 60 }, (_, i) => `u${i}`)),
+      cargarPagosConPlata(usuariosPro(...Array.from({ length: 60 }, (_, i) => `u${i}`))),
     ).rejects.toThrow(/boom/);
   });
 
@@ -97,7 +114,7 @@ describe('cargarPagosConPlata', () => {
       data: Array.from({ length: 1000 }, (_, i) => pago(`u${i}`, '2026-08-05T00:00:00Z')),
       error: null,
     });
-    await expect(cargarPagosConPlata(['a'])).rejects.toThrow(/truncada|techo/i);
+    await expect(cargarPagosConPlata(usuariosPro('a'))).rejects.toThrow(/truncada|techo/i);
   });
 
   it('999 filas todavía no es truncado', async () => {
@@ -105,6 +122,6 @@ describe('cargarPagosConPlata', () => {
       data: Array.from({ length: 999 }, (_, i) => pago(`u${i}`, '2026-08-05T00:00:00Z')),
       error: null,
     });
-    await expect(cargarPagosConPlata(['a'])).resolves.toBeDefined();
+    await expect(cargarPagosConPlata(usuariosPro('a'))).resolves.toBeDefined();
   });
 });

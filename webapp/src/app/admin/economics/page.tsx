@@ -147,14 +147,14 @@ export default function AdminEconomicsPage() {
             label="MRR"
             value={formatPen(data.mrr)}
             /* Los dos matices van pegados al MRR y no en tarjetas aparte, porque los dos son
-               sobre ESTE número: cuánto no es plata (comps) y cuánto dejó de contarse porque
-               el cliente pidió borrar su cuenta. Sin lo segundo, un MRR que baja S/18 de un
-               mes al otro no tiene explicación en la pantalla y se lee como un bug del panel.
-               Cada uno aparece solo cuando existe. */
+               sobre ESTE número: cuánto se descontó por cortesías (Pro regalado, sin un sol
+               de por medio) y cuánto porque el cliente pidió borrar su cuenta. Sin ellos, un
+               MRR que baja S/18 de un mes al otro no tiene explicación en la pantalla y se lee
+               como un bug del panel. Cada uno aparece solo cuando existe. */
             subtitle={[
               `${data.pro_users} Pro activos`,
-              data.pro_sin_pago_registrado > 0
-                ? `${data.pro_sin_pago_registrado} sin pago registrado`
+              data.cortesias > 0
+                ? `${data.cortesias} de cortesía sin contar`
                 : null,
               data.bajas_declaradas > 0
                 ? `${data.bajas_declaradas} ${data.bajas_declaradas === 1 ? 'dado de baja' : 'dados de baja'} sin contar`

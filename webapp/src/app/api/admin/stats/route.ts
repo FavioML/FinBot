@@ -10,6 +10,7 @@ import {
   churnedInMonth,
   esProActivo,
   EXCLUDED_REVENUE_WHATSAPP,
+  idsParaIndicePagos,
 } from '@/lib/admin-revenue';
 import { cargarPagosConPlata } from '@/lib/admin-revenue-db';
 import { startOfDayLima, startOfMonthLima, monthWindowLima } from '@/lib/date-lima';
@@ -107,17 +108,23 @@ export async function GET() {
 
   // --- Revenue KPIs (solo usuarios reales: excluye fundador + QA) ---
   // MRR normalizado (anual = S/99÷12), ARR, y desglose anual/mensual. Ver admin-revenue.ts.
-  // Los pagos de quienes pidieron la baja: es el único testigo de que alguno volvió. Acá
-  // alcanza con esos ids —a diferencia de /economics, esta ruta no reporta
-  // `pro_sin_pago_registrado`— y con la lista vacía ni siquiera va a la red.
+  // A quién le entró plata alguna vez: el testigo de "volvió después de la baja" y el de
+  // "esto es una cortesía, no un cliente".
+  //
+  // **Acá vivía el bug que casi se cuela con el cambio de cortesías, y por eso la lista sale
+  // de `idsParaIndicePagos` en vez de escribirse a mano.** Esta ruta pasaba SOLO los ids de
+  // quienes pidieron la baja, y le alcanzaba mientras la única pregunta fuera "¿alguno
+  // volvió?". Un predicado que además pregunte "¿a este le entró plata?" contra ese índice
+  // acotado responde que NO sobre todos los pagadores del producto: el MRR se va a cero y la
+  // pantalla no muestra un solo error. El `dominio` del índice lo convierte en un throw, pero
+  // la forma de no cometerlo es que la definición viva en un solo lugar.
+  //
   // El cargador LANZA cuando no puede leer (falla cerrado, a proposito). Se traduce aca a
   // la misma forma `{error}` con la que responde el resto de la ruta: un throw suelto sale
   // como text/plain y las pantallas muestran 'Failed to load' sin el motivo.
   let pagosConPlata;
   try {
-    pagosConPlata = await cargarPagosConPlata(
-    allUsers.filter((u) => u.cuenta_borrada_at).map((u) => u.id),
-  );
+    pagosConPlata = await cargarPagosConPlata(allUsers);
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }

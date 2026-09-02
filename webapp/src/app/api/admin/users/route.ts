@@ -1,7 +1,13 @@
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 import { requireAdminUser, type UserTxStatsRow } from '@/lib/admin';
-import { isRevenueUser } from '@/lib/admin-revenue';
+import {
+  isRevenueUser,
+  necesitaIndicePagos,
+  tienePagoConPlata,
+} from '@/lib/admin-revenue';
+import { cargarPagosConPlata } from '@/lib/admin-revenue-db';
+import { indexarGmail } from '@/lib/gmail-conectado';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,7 +35,13 @@ export async function GET() {
   // una query por usuario, 84 roundtrips secuenciales por cada carga de pantalla. Ahora es
   // una sola RPC agregada (migración 039), que además no puede truncarse a 1000 filas
   // porque devuelve una fila por usuario, no una por transacción.
-  const [{ data: usuarios, error }, { data: txStats }, { data: activity }, { data: authList }] = await Promise.all([
+  const [
+    { data: usuarios, error },
+    { data: txStats },
+    { data: activity },
+    { data: authList },
+    { data: gmailCuentas, error: errGmail },
+  ] = await Promise.all([
     db
       .from('usuarios')
       .select(
@@ -41,10 +53,57 @@ export async function GET() {
     // SQL, una fila por usuario. Alimenta los segmentos de la pagina admin/users.
     db.rpc('admin_user_activity'),
     db.auth.admin.listUsers({ perPage: 1000 }),
+    // La OTRA mitad de "tiene Gmail". La columna `usuarios.gmail_access_token` del select de
+    // arriba es el almacén legacy; el actual es esta tabla, y el panel leía solo el viejo.
+    // Ver `lib/gmail-conectado.ts` para por qué la unión no es opcional.
+    db.from('gmail_cuentas').select('usuario_id, activa, auth_error_at'),
   ]);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+  // **Falla cerrado, y no es paranoia de estilo.** supabase-js no lanza: con el error
+  // descartado, `gmailCuentas` llega `null`, la unión se queda con la mitad legacy y la
+  // pantalla pinta apagados a los que SÍ tienen Gmail. Es el mismo síntoma que este cambio
+  // vino a arreglar, servido en verde por un fallo transitorio y sin una línea que lo diga.
+  if (errGmail) {
+    return NextResponse.json(
+      { error: `No se pudo leer gmail_cuentas: ${errGmail.message}` },
+      { status: 500 },
+    );
+  }
+  // PostgREST corta en 1000 filas SIN error, igual que con `usuarios`. `gmail_cuentas` crece
+  // monótonamente (sus filas sobreviven al borrado de cuenta: ahí vive el `email_hash` que
+  // protege el cupo de Google), así que el techo se alcanza solo con el tiempo. Truncada, la
+  // unión pierde conexiones indeterminadas y la pantalla vuelve a pintar apagados a usuarios
+  // que sí tienen Gmail: el bug original, servido en silencio.
+  if ((gmailCuentas || []).length >= 1000) {
+    return NextResponse.json(
+      { error: 'La lectura de `gmail_cuentas` llegó al techo de 1000 filas de PostgREST: el estado de Gmail saldría incompleto. Hay que paginar.' },
+      { status: 500 },
+    );
+  }
+
+  // Se normaliza UNA vez. Además de quitar los cinco `usuarios || []` repetidos, deja el
+  // argumento de `cargarPagosConPlata` como un identificador pelado, que es lo que el guard de
+  // call-sites puede verificar: con una expresión ahí no hay forma de saber por texto si la
+  // población se acotó, y acotarla es el bug que ese guard existe para atrapar.
+  const filas = usuarios || [];
+
+  const gmail = indexarGmail(filas, gmailCuentas || []);
+
+  // ¿A quién le entró plata alguna vez? Es lo que separa "Pro pagado" de "Pro cortesía" en la
+  // etiqueta, y no se puede derivar de la fila de `usuarios`: los tres caminos que regalan Pro
+  // escriben `plan='premium'` + `estado_pago='pagado'`, o sea lo mismo que un pago real.
+  //
+  // Va DESPUÉS del `Promise.all` y no adentro porque depende de `usuarios`: la lista de ids
+  // sale de `idsParaIndicePagos`. El cargador falla cerrado (lanza), y acá eso se traduce al
+  // mismo `{error}` con el que responde el resto de la ruta.
+  let pagosConPlata;
+  try {
+    pagosConPlata = await cargarPagosConPlata(filas);
+  } catch (e) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }
 
   const countMap: Record<string, number> = {};
@@ -63,7 +122,7 @@ export async function GET() {
     providerMap[au.id] = au.app_metadata?.provider || au.app_metadata?.providers?.[0] || 'unknown';
   }
 
-  const result = (usuarios || []).map((u) => {
+  const result = filas.map((u) => {
     // Determine canal: whatsapp (no webapp), google, magic_link (email)
     let canal: 'whatsapp' | 'google' | 'magic_link' = 'whatsapp';
     if (u.supabase_auth_id) {
@@ -92,8 +151,24 @@ export async function GET() {
       premium_vence: u.premium_vence,
       premium_desde: u.premium_desde,
       pago_pendiente: u.pago_pendiente,
+      /**
+       * ¿Le entró plata alguna vez? Alimenta el estado `pro_cortesia` del badge. Se manda
+       * derivado y no como columna porque no existe columna: ver `esCortesia`.
+       */
+      // `tienePagoConPlata` y no una lectura directa del `Map`: esa función pasa por la guarda
+      // del dominio, así que acotar la población acá REVIENTA en vez de contestar que nadie
+      // pagó. Era el único lector del índice que se salteaba la guarda, y sin ella una lista
+      // corta dejaba el panel pintando "Pro cortesía" sobre todos los clientes que pagan.
+      //
+      // `necesitaIndicePagos` delante porque el barrido es sobre TODOS los usuarios, y a quien
+      // nunca tuvo Pro no se le preguntó nada: ahí la respuesta correcta es "no", no un throw.
+      tiene_pago: necesitaIndicePagos(u) && tienePagoConPlata(u, pagosConPlata),
       onboarding_completado: u.onboarding_completado,
-      tiene_gmail: !!u.gmail_access_token,
+      // Unión de las dos fuentes (ver `lib/gmail-conectado.ts`). Antes era
+      // `!!u.gmail_access_token` a secas, o sea solo el almacén legacy.
+      tiene_gmail: gmail.conectados.has(u.id),
+      /** Conectado pero con la autorización caída: hay que pedirle que reconecte. */
+      gmail_caido: gmail.caidos.has(u.id),
       tiene_webapp: !!u.supabase_auth_id,
       canal,
       transacciones: countMap[u.id] || 0,
@@ -196,6 +271,19 @@ export async function DELETE(request: Request) {
   // Los bots/free se borran sin fricción; para forzar un pagador, pasar ?force=1.
   const force = searchParams.get('force') === '1';
   if (!force) {
+    // **Se evaluó acotar esto a `monto > 0` —el mismo filtro que define `esCortesia`— y se
+    // decidió NO hacerlo.** El argumento a favor: `activarPro` registra los comps en `pagos`
+    // con `monto: 0`, así que un `estado='aprobado'` a secas también matchea un regalo, y esta
+    // protección terminaría frenando el borrado de una cuenta a la que solo se le regaló Pro.
+    //
+    // El argumento en contra pesa más, y es el que manda acá: `esCortesia` tiene un límite
+    // conocido —un cobro real que no llegue a `pagos` se lee como cortesía— y en el panel eso
+    // se ve, porque la fila sale con su badge violeta. En un DELETE irreversible no se ve
+    // nada: se pierde la única barrera que separa a un pagador de un `?force=1` que nadie
+    // pidió. Medido el 2026-09-01, en producción no hay una sola fila en S/0 (12 aprobadas,
+    // ninguna en cero), o sea que el problema que el filtro resolvería todavía no existe.
+    //
+    // Proteger de más cuesta un click; proteger de menos cuesta los datos de un cliente.
     const { data: pagoAprobado } = await db
       .from('pagos')
       .select('id')

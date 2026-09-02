@@ -4,6 +4,7 @@ import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 import { goalsFactor, debtsFactor, limaToday } from '@/lib/score-factors';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { indexarGmail } from '@/lib/gmail-conectado';
 
 // Cold starts + 5 queries paralelas + upsert pueden exceder el límite default de
 // la función serverless en el path de cálculo fresco, lo que Vercel devuelve como
@@ -64,7 +65,7 @@ async function calculateFreshScore(usuario: ScoreUser) {
   const nextMonth = new Date(curAnio, curMes, 1);
   const monthEnd = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}-01`;
 
-  const [txResult, monthTxResult, budgetResult, goalsResult, debtsResult] = await Promise.all([
+  const [txResult, monthTxResult, budgetResult, goalsResult, debtsResult, gmailResult] = await Promise.all([
     // `.lte('fecha', limaToday())`: consistency cuenta días únicos con registro en los
     // últimos 30 días; una tx con fecha futura (prepago legítimo) no es un día registrado
     // y no debe inflar el factor. Espejo del backend calcFactorConsistency (`.lte(hoyPeru)`).
@@ -73,15 +74,26 @@ async function calculateFreshScore(usuario: ScoreUser) {
     svc.from('presupuestos').select('categoria, monto_limite, mes, anio').eq('usuario_id', userId),
     svc.from('metas_ahorro').select('id, completada, monto_objetivo, monto_actual, fecha_limite, created_at').eq('usuario_id', userId).eq('completada', false),
     svc.from('deudas').select('id, tipo, monto_original, monto_pendiente, estado, fecha_vencimiento').eq('usuario_id', userId).eq('tipo', 'debo'),
+    // La OTRA fuente de "tiene Gmail". `usuarios.gmail_access_token` es el almacén legacy y
+    // hoy casi nadie lo tiene: las conexiones vivas están en `gmail_cuentas`. Con solo la
+    // columna, este factor le negaba sus 25 puntos a quien SÍ tiene Gmail conectado. Ver
+    // `lib/gmail-conectado.ts`.
+    svc.from('gmail_cuentas').select('usuario_id, activa, auth_error_at').eq('usuario_id', userId),
   ]);
 
-  // Las cinco lecturas son obligatorias. Degradarlas a [] no produce un error: produce
+  // Las seis lecturas son obligatorias. Degradarlas a [] no produce un error: produce
   // un score MOVIDO, y este camino ademas lo PERSISTE en neto_scores, asi que el numero
   // falso queda como el score vigente del usuario hasta que el cron lo pise. Espejo de
   // los guards de services/neto-score.js. El caller ya devuelve un 500 controlado
   // ("No se pudo calcular el score") en vez de crashear la funcion.
   const readError =
-    txResult.error || monthTxResult.error || budgetResult.error || goalsResult.error || debtsResult.error;
+    txResult.error || monthTxResult.error || budgetResult.error || goalsResult.error ||
+    // `gmailResult` entra acá y no se degrada a `|| []`, que era lo que hacía antes de que la
+    // segunda revisión lo marcara: esta ruta PERSISTE el score en `neto_scores`, así que un
+    // hipo de red sobre `gmail_cuentas` le quitaba 25 puntos de visibilidad a un usuario
+    // conectado y dejaba el número falso asentado hasta que el cron lo pisara. Las otras dos
+    // copias del cálculo ya fallaban cerrado; esta era la única abierta.
+    debtsResult.error || gmailResult.error;
   if (readError) {
     throw new Error(`No se pudo leer la data del score: ${readError.message}`);
   }
@@ -150,7 +162,7 @@ async function calculateFreshScore(usuario: ScoreUser) {
   let visibility = 0;
   if (allBudgets.length > 0) visibility += 30;
   if (activeGoals.length > 0) visibility += 25;
-  if (usuario.gmail_access_token) visibility += 25;
+  if (indexarGmail([usuario], gmailResult.data || []).conectados.has(usuario.id)) visibility += 25;
   if (usuario.recordatorios_activos !== false) visibility += 20;
 
   const factors = { consistency, budget, savings, goals, debts: debtScore, visibility };

@@ -23,7 +23,12 @@ describe('GET /api/admin/users devuelve el estado comercial', () => {
   const CAMPOS = ['trial_estado', 'trial_vence'] as const;
 
   // El corte entre "lo que se le pide a Postgres" y "lo que se le devuelve al panel".
-  const iMap = src.indexOf('const result = (usuarios || []).map');
+  // El ancla se busca por FORMA y no por la expresión literal: la primera versión decía
+  // `const result = (usuarios || []).map` y se rompió el día que esa población se normalizó a
+  // un identificador (`filas`). El guard hizo su trabajo —su propia antivacuidad lo delató en
+  // vez de dejarlo midiendo el aire— pero el ancla no tiene por qué depender del nombre.
+  const iMap = src.search(new RegExp(String.raw`const result = [^\n]*\.map\(`));
+
   const seleccion = src.slice(0, iMap);
   const respuesta = src.slice(iMap);
 

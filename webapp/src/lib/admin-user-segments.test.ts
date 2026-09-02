@@ -103,6 +103,52 @@ describe('estadoComercial', () => {
       .toBe('pago_pendiente');
   });
 
+
+  // ── Pro de cortesía ───────────────────────────────────────────────────────
+  //
+  // El 2026-09-01 la tabla decía "Pro pagado · Paga. Es MRR." sobre una cuenta a la que le
+  // habían activado Pro a mano, sin cobrarle. La fila de `usuarios` no lo distingue: los
+  // tres caminos que regalan Pro escriben `plan='premium'` y `estado_pago='pagado'`, o sea
+  // exactamente lo mismo que un pago real. Por eso la señal la deriva el servidor de la
+  // tabla `pagos` y llega como `tiene_pago`.
+  it('un Pro sin ningún pago es cortesía, no pagador', () => {
+    expect(estadoComercial({ plan: 'premium', trial_estado: 'convertido', tiene_pago: false }))
+      .toBe('pro_cortesia');
+  });
+
+  it('un Pro con pago sigue siendo pagador', () => {
+    expect(estadoComercial({ plan: 'premium', trial_estado: 'convertido', tiene_pago: true }))
+      .toBe('pro_pagado');
+  });
+
+  // El default importa: hay superficies que arman el badge sin pasar por la ruta que deriva
+  // la señal. Llamar "cortesía" a un cliente que paga es peor que lo contrario, así que sin
+  // dato se asume pagado — y el MRR, que es el número que decide, no depende de este badge.
+  it('sin la señal se asume pagado', () => {
+    expect(estadoComercial({ plan: 'premium', trial_estado: 'convertido' })).toBe('pro_pagado');
+    expect(estadoComercial({ plan: 'premium', trial_estado: 'convertido', tiene_pago: null }))
+      .toBe('pro_pagado');
+  });
+
+  // La cortesía se decide DESPUÉS de las dos ramas que ya existían, no antes: alguien que
+  // está probando o que mandó un comprobante tampoco tiene pagos, y adelantar el corte los
+  // reetiquetaría a todos como cortesía.
+  it('el trial y el comprobante en revisión ganan sobre la cortesía', () => {
+    expect(estadoComercial({ plan: 'premium', trial_estado: 'activo', tiene_pago: false }))
+      .toBe('trial');
+    expect(estadoComercial({ plan: 'premium', trial_estado: 'convertido', tiene_pago: false, pago_pendiente: true }))
+      .toBe('pago_pendiente');
+  });
+
+  it('countByEstado cuenta la cortesía aparte del pagador', () => {
+    const counts = countByEstado([
+      { plan: 'premium', trial_estado: 'convertido', tiene_pago: true },
+      { plan: 'premium', trial_estado: 'convertido', tiene_pago: false },
+    ]);
+    expect(counts.pro_pagado).toBe(1);
+    expect(counts.pro_cortesia).toBe(1);
+  });
+
   it('premium sin trial_estado cuenta como pagado, no como prueba', () => {
     // Es el Pro activado a mano desde Operación: nunca pasó por el trial.
     expect(estadoComercial({ plan: 'premium', trial_estado: null })).toBe('pro_pagado');

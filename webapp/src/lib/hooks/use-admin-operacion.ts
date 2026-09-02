@@ -62,7 +62,15 @@ export interface AdminUser {
   premium_desde: string | null;
   pago_pendiente: boolean | null;
   onboarding_completado: boolean;
+  /**
+   * ¿Le entró plata alguna vez? Lo deriva el servidor de la tabla `pagos`. Es lo que separa
+   * "Pro pagado" de "Pro cortesía": la fila de `usuarios` no distingue un pago de un regalo.
+   */
+  tiene_pago?: boolean;
+  /** Unión de las dos fuentes de Gmail (token legacy ∪ `gmail_cuentas.activa`). */
   tiene_gmail: boolean;
+  /** Conectado pero con la autorización caída: el cron no puede leerle el correo. */
+  gmail_caido?: boolean;
   tiene_webapp: boolean;
   canal: 'whatsapp' | 'google' | 'magic_link';
   transacciones: number;

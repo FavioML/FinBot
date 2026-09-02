@@ -3,6 +3,7 @@ const log = require('../lib/logger');
 const { hoyPeru } = require('../lib/dates');
 const { construirDatosUsuario } = require('./recommendations');
 const { obtenerMetas, calcularRitmoAhorro } = require('./metas');
+const { indexarGmail } = require('../lib/gmail-conectado');
 
 // ═══════════════════════════════════════════════════════════════
 // FACTOR WEIGHTS
@@ -195,17 +196,23 @@ async function calcFactorVisibility(usuarioId) {
     { count: presCount, error: ePres },
     { count: metasCount, error: eMetas },
     { data: usuario, error: eUsuario },
+    { data: cuentasGmail, error: eGmail },
   ] = await Promise.all([
     supabase.from('presupuestos').select('*', { count: 'exact', head: true }).eq('usuario_id', usuarioId),
     supabase.from('metas_ahorro').select('*', { count: 'exact', head: true }).eq('usuario_id', usuarioId).eq('completada', false),
     supabase.from('usuarios').select('gmail_access_token, recordatorios_activos').eq('id', usuarioId).single(),
+    // La OTRA fuente de "tiene Gmail". `usuarios.gmail_access_token` es el almacen legacy y
+    // hoy casi nadie lo tiene: las conexiones vivas viven en `gmail_cuentas`. Con solo la
+    // columna, este factor le negaba sus 25 puntos a quien SI tiene Gmail conectado, y el
+    // efecto es un score mas bajo del que corresponde. Ver `lib/gmail-conectado.js`.
+    supabase.from('gmail_cuentas').select('usuario_id, activa, auth_error_at').eq('usuario_id', usuarioId),
   ]);
 
   // Las tres suman puntos por separado, así que una caída no anula el factor: lo deja a
   // medias. Y la de `usuarios` además engaña al alza: con `usuario` en null,
   // `usuario?.recordatorios_activos !== false` es true y regala los 20 puntos de
   // recordatorios activos sin haber podido comprobar que lo estén.
-  const error = ePres || eMetas || eUsuario;
+  const error = ePres || eMetas || eUsuario || eGmail;
   if (error) {
     log.error({ tag: 'SCORE', err: error.message, usuarioId }, 'No se pudo leer la visibilidad financiera');
     throw new Error('No se pudo leer la visibilidad financiera: ' + error.message);
@@ -214,7 +221,10 @@ async function calcFactorVisibility(usuarioId) {
   let score = 0;
   if (presCount > 0) score += 30;        // Has budgets
   if (metasCount > 0) score += 25;       // Has active goals
-  if (usuario?.gmail_access_token) score += 25; // Gmail connected
+  // Union de las dos fuentes. `usuario` puede ser null si la lectura fallo, pero eso ya
+  // aborto arriba; el `|| []` cubre la fila sin cuentas.
+  const gmail = indexarGmail(usuario ? [{ ...usuario, id: usuarioId }] : [], cuentasGmail || []);
+  if (gmail.conectados.has(usuarioId)) score += 25; // Gmail connected
   if (usuario?.recordatorios_activos !== false) score += 20; // Reminders active
 
   return score;

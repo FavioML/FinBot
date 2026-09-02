@@ -1,6 +1,7 @@
 import { requireNetoUser } from '@/lib/supabase/auth';
 import { getServiceClient } from '@/lib/supabase/service';
 import { esProPagado } from '@/lib/plan';
+import { indexarGmail } from '@/lib/gmail-conectado';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
@@ -33,7 +34,14 @@ export async function GET() {
     .limit(1)
     .maybeSingle();
 
-  const gmailConectado = !!cuentaGmail || !!user.gmail_access_token;
+  // La unión sale de `indexarGmail`, no se rehace acá. Era la TERCERA reimplementación de la
+  // misma pregunta (el panel admin, el Neto Score y esta), y las otras dos estaban mal: leían
+  // solo el almacén legacy. Escribirla a mano es cómo empezó esa divergencia.
+  const gmail = indexarGmail(
+    [{ id: userId, gmail_access_token: user.gmail_access_token as string | null }],
+    cuentaGmail ? [{ usuario_id: userId, activa: true, auth_error_at: cuentaGmail.auth_error_at as string | null }] : [],
+  );
+  const gmailConectado = gmail.conectados.has(userId);
   const gmailEmail = (cuentaGmail?.email as string) || null;
 
   // Conectado y CAÍDO es un estado propio, no una variante de desconectado: la fila sigue en

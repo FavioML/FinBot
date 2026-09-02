@@ -107,7 +107,16 @@ export async function GET() {
   };
 
   // --- Adopción: porcentaje sobre el total real (mismo denominador que engagement). ---
-  const adoption: FeatureAdoptionRow[] = ((adoptRes.data ?? []) as AdoptionRow[])
+  //
+  // `gmail_cupo` sale de esta lista antes del `map` y NO es un detalle de presentación: no es
+  // adopción, es inventario. Cuenta los cupos gastados de los 100 que da Google a una app
+  // OAuth sin certificar, así que su denominador es 100 y no `totalUsers`, y a diferencia del
+  // resto incluye cuentas internas (a Google no le importa de quién es la cuenta). Dejarlo en
+  // la lista lo pintaba como "6 usuarios, 8% de adopción", que es un número sin significado.
+  const filas = (adoptRes.data ?? []) as AdoptionRow[];
+  const cupoGmail = filas.find((r) => r.feature === 'gmail_cupo');
+  const adoption: FeatureAdoptionRow[] = filas
+    .filter((r) => r.feature !== 'gmail_cupo')
     .map((r) => {
       const users = Number(r.users);
       return {
@@ -123,6 +132,7 @@ export async function GET() {
     engagement,
     adoption,
     total_users: totalUsers,
+    gmail_cupo: cupoGmail ? Number(cupoGmail.users) : 0,
   };
 
   return NextResponse.json(payload);
