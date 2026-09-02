@@ -32,7 +32,7 @@ const SIN_FROM = 'Mensaje entrante sin from';
  * `tag:mensaje`, así que compartirlo heredaría el conteo del test anterior.
  */
 async function alertaCon(tag, actores) {
-  for (const actor of actores) await registrarError(tag, SIN_FROM, { actor });
+  for (const actor of actores) await registrarError(tag, SIN_FROM, { bsuid: actor });
   return notificarAdmin.mock.calls.at(-1)?.[0] || '';
 }
 
@@ -69,8 +69,8 @@ describe('la alerta de usuarios sin número dice CUÁNTA GENTE, no cuántos mens
     expect(alerta).not.toMatch(/5 personas/);
   });
 
-  it('sin actor declarado no inventa un conteo de personas', async () => {
-    // `registrarError` sin `actor` es el caso de todos los demás llamadores del repo. La alerta
+  it('sin bsuid declarado no inventa un conteo de personas', async () => {
+    // `registrarError` sin `bsuid` es el caso de todos los demás llamadores del repo. La alerta
     // tiene que degradar a contar mensajes, nunca decir "0 personas".
     for (let i = 0; i < 5; i++) await registrarError('T4', SIN_FROM);
     const alerta = notificarAdmin.mock.calls.at(-1)?.[0] || '';

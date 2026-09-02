@@ -180,8 +180,9 @@ describe('mensaje entrante sin `from` (regresión 01-ago-2026)', () => {
     await webhookHandler(req, res);
     const detalle = JSON.parse(registrarError.mock.calls[0][2].detalle);
     expect(detalle.texto).toHaveLength(200);
-    // Y el BSUID viaja como `actor` para que la alerta pueda contar PERSONAS y no mensajes.
-    expect(registrarError.mock.calls[0][2].actor).toBe('PE.texto');
+    // Y el BSUID viaja en su propio campo: la alerta cuenta PERSONAS y no mensajes, y la fila
+    // queda enganchable a un usuario el día que se vincule (migración 081).
+    expect(registrarError.mock.calls[0][2].bsuid).toBe('PE.texto');
   });
 
   // 08-ago-2026: ya se sabe QUÉ los produce. Meta arrancó el rollout de WhatsApp Usernames,

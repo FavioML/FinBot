@@ -456,9 +456,11 @@ function createWebhookHandler(procesarMensajeLibre) {
       // webhook. Hasta entonces esto es un hueco conocido, no uno aceptado.
       const forma2 = { ...forma, texto: cuerpoOtp ? cuerpoOtp.slice(0, 200) : null };
       log.error({ tag: 'WEBHOOK', ...forma2 }, 'Mensaje entrante sin `from` — se descarta');
-      // `actor` no entra a la fila: lo usa el detector de patrones para contar PERSONAS distintas
-      // en vez de mensajes, que es la diferencia entre "uno insistiendo" y "esto se generalizó".
-      registrarError('WEBHOOK', 'Mensaje entrante sin from', { detalle: JSON.stringify(forma2), actor: bsuid });
+      // El `bsuid` va a su COLUMNA (migración 081) y hace dos cosas: el detector de patrones
+      // cuenta PERSONAS distintas en vez de mensajes —la diferencia entre "uno insistiendo" y
+      // "esto se generalizó"—, y la fila queda enganchable a un usuario el día que se vincule,
+      // que es lo que la vuelve borrable.
+      registrarError('WEBHOOK', 'Mensaje entrante sin from', { detalle: JSON.stringify(forma2), bsuid });
       return;
     }
     // --- Manejo de imágenes ---

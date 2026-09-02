@@ -164,6 +164,30 @@ describe('verificarCuentaWebPorBsuid', () => {
       expect(escrituraA('usuarios').payload).not.toHaveProperty('whatsapp');
     });
 
+    // **Vincular es el instante en que la persona deja de ser anónima, así que es el instante en
+    // que sus filas de `errores` tienen que volverse BORRABLES.** Esas filas llevan el texto que
+    // escribió (desde el 02-sep-2026) y nacen sin `usuario_id` ni `whatsapp`, que son las dos
+    // columnas por las que `borrar_cuenta_total` barre esa tabla. Sin este backfill, el texto de
+    // una persona identificada sobrevive a su pedido de baja.
+    it('engancha sus filas previas de `errores` para que el borrado las alcance', async () => {
+      await verificarCuentaWebPorBsuid(BSUID, CODE);
+      const upd = escrituraA('errores');
+      expect(upd).toBeDefined();
+      expect(upd.payload.usuario_id).toBe('u-web');
+      expect(upd.filtros.bsuid).toBe(BSUID);
+      // Sólo las huérfanas: no se pisa la atribución de una fila que ya tiene dueño.
+      expect(upd.filtros.usuario_id).toBeNull();
+    });
+
+    // Best-effort: lo que le importa a la persona es quedar vinculada. Si el enganche falla, se
+    // pierde el borrado de esas filas y eso va al log, pero no se le rompe el trámite.
+    it('si el enganche falla, la vinculación sigue siendo un éxito', async () => {
+      _estado.errorEnUpdate = { errores: { code: '57014', message: 'timeout' } };
+      const r = await verificarCuentaWebPorBsuid(BSUID, CODE);
+      expect(r.estado).toBe('vinculada');
+      expect(log.error).toHaveBeenCalled();
+    });
+
     it('un choque del índice único de bsuid no confirma ni quema el código', async () => {
       _estado.errorEnUpdate = { usuarios: { code: '23505', message: 'duplicate key' } };
       const r = await verificarCuentaWebPorBsuid(BSUID, CODE);

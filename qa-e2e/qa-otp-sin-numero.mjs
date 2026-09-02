@@ -102,7 +102,16 @@ const bsuidQA = () => 'PE.qa' + Math.floor(Math.random() * 1e12);
 
 // Borra y COMPRUEBA que se borró, con el resultado atado al exit code: una fila filtrada en la
 // `usuarios` de producción con `is_test_user` puesto deja al bot mudo para quien la adopte.
-async function limpiar(sb, ids, authIds) {
+async function limpiar(sb, ids, authIds, bsuids = []) {
+  // Las filas de `errores` van primero: si el usuario se borra antes, la FK las deja igual pero
+  // el chequeo de abajo pierde el unico identificador que las ata a esta corrida.
+  for (const b of bsuids) {
+    try {
+      await sb.del('errores', `bsuid=eq.${b}`);
+      const quedan = await sb.select('errores', `bsuid=eq.${b}&select=id`);
+      check(quedan.length === 0, 'limpieza de errores ' + b);
+    } catch (e) { check(false, 'limpieza de errores ' + b, e.message); }
+  }
   for (const id of ids) {
     try {
       await sb.del('usuarios', `id=eq.${id}`);
@@ -124,12 +133,14 @@ async function main() {
   const sb = db(vars);
   const usuarios = [];
   const auths = [];
+  const bsuidsSembrados = [];
 
   try {
     // ── Cuenta A: la que va a recibir el vínculo ──────────────────────────────
     const authA = crypto.randomUUID();
     const codigoA = codigo();
     const bsuidA = bsuidQA();
+    bsuidsSembrados.push(bsuidA);
     auths.push(authA);
     const uA = await sb.insert('usuarios', {
       nombre: 'QA OTP BSUID A', email: `qa-otp-a-${Date.now()}@qa.neto.pe`,
@@ -158,6 +169,14 @@ async function main() {
       expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
     });
 
+    // Una fila de `errores` como las que deja el webhook cuando este BSUID todavía era anónimo:
+    // con su texto y SIN `usuario_id`. Es la que tiene que volverse borrable al vincular.
+    const errPrevio = await sb.insert('errores', {
+      tag: 'WEBHOOK', mensaje: 'Mensaje entrante sin from',
+      detalle: JSON.stringify({ tipo: 'text', fromUserId: bsuidA, texto: 'QA texto previo' }),
+      bsuid: bsuidA, usuario_id: null,
+    });
+
     console.log('\nA. código VÁLIDO desde un BSUID desconocido');
     const s1 = await enviarCodigo(vars.META_APP_SECRET, { bsuid: bsuidA, texto: `Hola Neto, verifica mi cuenta web: ${codigoA}` });
     check(s1 === 200, 'el webhook aceptó el mensaje', 'status ' + s1);
@@ -167,6 +186,13 @@ async function main() {
     check(filaA?.bsuid === bsuidA, 'el BSUID quedó vinculado a la cuenta web', 'bsuid=' + (filaA?.bsuid || 'null'));
     const [otpA] = await sb.select('webapp_otp', `code=eq.${codigoA}&select=verified_at`);
     check(!!otpA?.verified_at, 'el código quedó marcado verificado (es lo que destraba la webapp)');
+
+    // El punto de la migración 081: la fila anónima quedó enganchada al usuario, así que a partir
+    // de acá `borrar_cuenta_total` la alcanza por el barrido que YA hace por `usuario_id`. Sin
+    // esto, el texto que la persona escribió sobrevive a su pedido de baja.
+    const [errAhora] = await sb.select('errores', `id=eq.${errPrevio.id}&select=usuario_id,bsuid`);
+    check(errAhora?.usuario_id === uA.id, 'las filas de `errores` previas quedaron enganchadas al usuario',
+      'usuario_id=' + (errAhora?.usuario_id || 'null'));
 
     console.log('\nB. código INEXISTENTE desde otro BSUID desconocido');
     const bsuidX = bsuidQA();
@@ -186,7 +212,7 @@ async function main() {
     check(reA?.bsuid === bsuidA, 'la cuenta A NO fue pisada por el código de B', 'bsuid=' + (reA?.bsuid || 'null'));
   } finally {
     console.log('\nLimpieza');
-    await limpiar(sb, usuarios, auths);
+    await limpiar(sb, usuarios, auths, bsuidsSembrados);
   }
 
   console.log('');

@@ -114,21 +114,48 @@ async function verificarCuentaWebPorBsuid(bsuid, code) {
 
     // `marcado === false` degrada el desenlace: el vínculo se escribió (por eso no es `error`)
     // pero la pantalla del usuario no avanzó, y eso necesita una mano humana.
+    /**
+     * Las filas de `errores` que esta persona dejó mientras era anónima pasan a tener su
+     * `usuario_id`.
+     *
+     * **Esto es lo que las hace BORRABLES, y por eso corre en toda salida que haya vinculado.**
+     * `borrar_cuenta_total` barre `errores` por `usuario_id` y por `whatsapp`; estas filas nacen
+     * sin ninguno de los dos porque todavía no sabíamos quién era, y desde el 02-sep-2026 llevan
+     * ADEMÁS el texto que la persona escribió. Vincular es el instante exacto en que deja de ser
+     * anónima, así que es el instante en que hay que engancharlas — la alternativa era meterle una
+     * condición por BSUID al DELETE de esa función, o sea tocar lo más sensible del sistema para
+     * agregar un camino nuevo cuando el que ya existe alcanza.
+     *
+     * Best-effort a propósito: si esto falla, la persona igual queda vinculada, que es lo único
+     * que le importa a ella. Lo que se pierde queda en el log, no en silencio.
+     */
+    const adoptarErroresPrevios = async (usuarioId) => {
+      const { error } = await supabase.from('errores')
+        .update({ usuario_id: usuarioId }).eq('bsuid', bsuid).is('usuario_id', null);
+      if (error) {
+        log.error({ tag: 'OTP_BSUID', bsuid, usuarioId, err: error.message },
+          'No se pudieron enganchar los errores previos: quedan sin usuario_id y fuera del borrado');
+      }
+    };
+
     // `esTest` viaja al llamador para que el aviso al admin pueda saltear los fixtures. Sin esto
     // un harness que le pegue al webhook de PRODUCCION —que es como se verifica este camino— le
     // manda un Telegram real a Favio en cada corrida. Es el falso positivo del 13-ago-2026, que ya
     // le costo al repo un aviso con el comando de un probe apuntando al celular de un desconocido.
-    const salida = (estado, fila, marcado) => ({
-      estado: marcado === false ? 'vinculada_sin_destrabar' : estado,
-      usuarioId: fila.id, nombre: fila.nombre || otp.nombre, email: fila.email || otp.email,
-      esTest: fila.is_test_user === true,
-    });
+    const salida = async (estado, fila, marcado) => {
+      await adoptarErroresPrevios(fila.id);
+      return {
+        estado: marcado === false ? 'vinculada_sin_destrabar' : estado,
+        usuarioId: fila.id, nombre: fila.nombre || otp.nombre, email: fila.email || otp.email,
+        esTest: fila.is_test_user === true,
+      };
+    };
 
     // El BSUID ya es de esta misma cuenta web (reenvío del código, o un destrabe manual). Nada que
     // escribir sobre `usuarios`: solo quemar el código.
     if (webRow && filaBsuid && webRow.id === filaBsuid.id) {
       const m = await marcarVerificado(webRow.id);
-      return salida('ya_vinculada', webRow, m);
+      return await salida('ya_vinculada', webRow, m);
     }
 
     // Dos filas distintas → fusión atómica. `merge_and_link` rechaza los bordes inseguros (la fila
@@ -151,7 +178,7 @@ async function verificarCuentaWebPorBsuid(bsuid, code) {
         return { estado: 'error' };
       }
       const m = await marcarVerificado(webRow.id);
-      return salida('fusionada', webRow, m);
+      return await salida('fusionada', webRow, m);
     }
 
     // Hay cuenta web y el BSUID no es de nadie: el caso que motivó el módulo, y el que va a ser
@@ -179,7 +206,7 @@ async function verificarCuentaWebPorBsuid(bsuid, code) {
         return { estado: 'error', usuarioId: webRow.id };
       }
       const m = await marcarVerificado(webRow.id);
-      return salida('vinculada', webRow, m);
+      return await salida('vinculada', webRow, m);
     }
 
     // La cuenta web no llegó a crear su fila (fallo de creación → fallback) pero el BSUID sí tiene
@@ -215,7 +242,7 @@ async function verificarCuentaWebPorBsuid(bsuid, code) {
         return { estado: 'error', usuarioId: filaBsuid.id };
       }
       const m = await marcarVerificado(filaBsuid.id);
-      return salida('adoptada', filaBsuid, m);
+      return await salida('adoptada', filaBsuid, m);
     }
 
     // Ni cuenta web ni fila del BSUID. El código era válido, así que la cuenta existía al
