@@ -62,13 +62,13 @@ async function verificarCuentaWebPorBsuid(bsuid, code) {
     // por el lado equivocado. Es el mismo defecto que la revisión adversarial encontró en el OTP
     // con número.
     const { data: webRow, error: errWeb } = await supabase.from('usuarios')
-      .select('id, nombre, email, bsuid').eq('supabase_auth_id', otp.supabase_auth_id).maybeSingle();
+      .select('id, nombre, email, bsuid, is_test_user').eq('supabase_auth_id', otp.supabase_auth_id).maybeSingle();
     if (errWeb) {
       log.error({ tag: 'OTP_BSUID', bsuid, err: errWeb.message }, 'No se pudo leer la cuenta web: no se elige rama a ciegas');
       return { estado: 'lectura_fallida' };
     }
     const { data: filaBsuid, error: errBs } = await supabase.from('usuarios')
-      .select('id, nombre, email, supabase_auth_id').eq('bsuid', bsuid).maybeSingle();
+      .select('id, nombre, email, supabase_auth_id, is_test_user').eq('bsuid', bsuid).maybeSingle();
     if (errBs) {
       log.error({ tag: 'OTP_BSUID', bsuid, err: errBs.message }, 'No se pudo leer la fila del BSUID: no se elige rama a ciegas');
       return { estado: 'lectura_fallida' };
@@ -114,9 +114,14 @@ async function verificarCuentaWebPorBsuid(bsuid, code) {
 
     // `marcado === false` degrada el desenlace: el vínculo se escribió (por eso no es `error`)
     // pero la pantalla del usuario no avanzó, y eso necesita una mano humana.
+    // `esTest` viaja al llamador para que el aviso al admin pueda saltear los fixtures. Sin esto
+    // un harness que le pegue al webhook de PRODUCCION —que es como se verifica este camino— le
+    // manda un Telegram real a Favio en cada corrida. Es el falso positivo del 13-ago-2026, que ya
+    // le costo al repo un aviso con el comando de un probe apuntando al celular de un desconocido.
     const salida = (estado, fila, marcado) => ({
       estado: marcado === false ? 'vinculada_sin_destrabar' : estado,
       usuarioId: fila.id, nombre: fila.nombre || otp.nombre, email: fila.email || otp.email,
+      esTest: fila.is_test_user === true,
     });
 
     // El BSUID ya es de esta misma cuenta web (reenvío del código, o un destrabe manual). Nada que
@@ -139,7 +144,7 @@ async function verificarCuentaWebPorBsuid(bsuid, code) {
       }
       if (res === 'conflict') {
         log.warn({ tag: 'OTP_BSUID', survivor: webRow.id, loser: filaBsuid.id }, 'Merge en conflicto → soporte');
-        return { estado: 'conflicto', usuarioId: webRow.id, nombre: webRow.nombre || otp.nombre, email: webRow.email || otp.email };
+        return { estado: 'conflicto', usuarioId: webRow.id, nombre: webRow.nombre || otp.nombre, email: webRow.email || otp.email, esTest: webRow.is_test_user === true };
       }
       if (res !== 'linked') {
         log.error({ tag: 'OTP_BSUID', bsuid, result: res }, 'merge_and_link resultado inesperado');
@@ -166,7 +171,7 @@ async function verificarCuentaWebPorBsuid(bsuid, code) {
         // carrera se resuelva, y quemarlo lo mandaría a generar otro que caería igual.
         log.error({ tag: 'OTP_BSUID', bsuid, usuarioId: webRow.id, code: errUpd.code, err: errUpd.message },
           'No se pudo escribir el BSUID en la cuenta web: no se confirma el vínculo ni se quema el código');
-        return { estado: errUpd.code === '23505' ? 'conflicto' : 'error', usuarioId: webRow.id };
+        return { estado: errUpd.code === '23505' ? 'conflicto' : 'error', usuarioId: webRow.id, esTest: webRow.is_test_user === true };
       }
       if (!filas || filas.length === 0) {
         log.warn({ tag: 'OTP_BSUID', bsuid, usuarioId: webRow.id },
@@ -190,7 +195,7 @@ async function verificarCuentaWebPorBsuid(bsuid, code) {
       if (filaBsuid.supabase_auth_id && filaBsuid.supabase_auth_id !== otp.supabase_auth_id) {
         log.warn({ tag: 'OTP_BSUID', bsuid, usuarioId: filaBsuid.id },
           'Ese WhatsApp ya pertenece a otra cuenta Google: no se pisa, va a soporte');
-        return { estado: 'conflicto', usuarioId: filaBsuid.id, nombre: filaBsuid.nombre || otp.nombre, email: filaBsuid.email || otp.email };
+        return { estado: 'conflicto', usuarioId: filaBsuid.id, nombre: filaBsuid.nombre || otp.nombre, email: filaBsuid.email || otp.email, esTest: filaBsuid.is_test_user === true };
       }
       const { data: filas, error: errLink } = await supabase.from('usuarios').update({
         supabase_auth_id: otp.supabase_auth_id,
@@ -203,7 +208,7 @@ async function verificarCuentaWebPorBsuid(bsuid, code) {
         // marca verificado — con número esto se le contesta a la persona, y acá no hay canal.
         log.error({ tag: 'OTP_BSUID', bsuid, usuarioId: filaBsuid.id, code: errLink.code, err: errLink.message },
           'No se pudo vincular el auth sobre la fila del BSUID');
-        return { estado: errLink.code === '23505' ? 'conflicto' : 'error', usuarioId: filaBsuid.id };
+        return { estado: errLink.code === '23505' ? 'conflicto' : 'error', usuarioId: filaBsuid.id, esTest: filaBsuid.is_test_user === true };
       }
       if (!filas || filas.length === 0) {
         log.warn({ tag: 'OTP_BSUID', bsuid, usuarioId: filaBsuid.id }, 'El link directo no tocó NINGUNA fila');

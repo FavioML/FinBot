@@ -208,6 +208,14 @@ describe('OTP inverso de un usuario SIN número visible', () => {
     expect(notificarAdmin).toHaveBeenCalledTimes(1);
   });
 
+  // Sin esto, el harness que verifica este camino contra PRODUCCIÓN le manda un Telegram real a
+  // Favio en cada corrida. Es el falso positivo del 13-ago-2026 repetido.
+  it('un fixture de QA no dispara el aviso', async () => {
+    verificarCuentaWebPorBsuid.mockResolvedValue({ estado: 'vinculada', usuarioId: UUID, nombre: 'QA', esTest: true });
+    await enviar('NETO-598929', 'PE.qafixture');
+    expect(notificarAdmin).not.toHaveBeenCalled();
+  });
+
   it('el throttle del aviso es por persona: otro BSUID sí avisa', async () => {
     verificarCuentaWebPorBsuid.mockResolvedValue({ estado: 'conflicto', usuarioId: UUID, nombre: 'Ana' });
     await enviar('NETO-444444', 'PE.uno');

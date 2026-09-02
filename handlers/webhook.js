@@ -87,6 +87,15 @@ async function avisarVinculacionPorBsuid(bsuid, r) {
   const EXITO = ['vinculada', 'fusionada', 'adoptada'];
   const ACCIONABLES = ['conflicto', 'vinculada_sin_destrabar'];
   if (!EXITO.includes(r.estado) && !ACCIONABLES.includes(r.estado)) return;
+  // **Los fixtures no avisan.** Este camino se verifica con un harness que le pega al webhook de
+  // PRODUCCIÓN, así que sin este corte cada corrida le manda un Telegram real a Favio. Es el
+  // falso positivo del 13-ago-2026, que además llegaba con un comando listo para ejecutar. Se usa
+  // `is_test_user` y no una marca nueva porque es la que ya consulta `enviarWhatsapp` para no
+  // llamar a Meta, y un usuario real nunca la lleva.
+  if (r.esTest) {
+    log.info({ tag: 'OTP_BSUID', bsuid, estado: r.estado }, 'Vinculación de un fixture: no se avisa');
+    return;
+  }
   // **Throttle por (bsuid, estado), y no es precaución teórica.** Los dos desenlaces accionables
   // dejan el código VIVO a propósito, o sea que el diseño cuenta con que la persona reenvíe — y
   // Julio reenvió 9 veces en 9 minutos. Sin esto, una base con hipo produce 9 Telegrams idénticos
