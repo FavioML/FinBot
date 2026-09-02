@@ -44,7 +44,15 @@ const CAIDA = { data: null, error: { message: 'connection terminated unexpectedl
 // Lo que PostgREST devuelve cuando un `.single()` no encuentra fila. Ver el doble de abajo.
 const SIN_FILAS = { code: 'PGRST116', details: 'The result contains 0 rows', message: 'JSON object requested, multiple (or no) rows returned' };
 
-const db = { resp: {}, llamadas: [] };
+/**
+ * `escrituras` guarda el PAYLOAD y los filtros de cada insert/update, y sin eso el doble sólo
+ * sabía que "hubo una escritura a `usuarios`". Una revisión adversarial lo evadió tres veces
+ * sobre el guard del claim histórico, las tres en verde: una liberación que escribe
+ * `historico_importado: true` (la persona queda igual de quemada), una que se come el
+ * `.eq('id', …)` y libera el claim de la TABLA ENTERA, y una que emite `log.error` en cada
+ * liberación exitosa. Contar cadenas `tabla:op` no puede ver ninguna de las tres.
+ */
+const db = { resp: {}, llamadas: [], escrituras: [] };
 /**
  * **Este doble sabe simular MÁS DE UNA FILA, y sin eso el arreglo de `.limit(1)` no tendría
  * quien lo sostenga.** Sembrar `{ filas: [...] }` hace que el terminador se comporte como
@@ -78,10 +86,14 @@ function cadena(tabla) {
     if (filas.length > 1) return sintetizarSiSobran ? { data: null, error: MULTIPLES(filas.length) } : { data: filas[0], error: null };
     return { data: filas.length ? filas[0] : null, error: null };
   };
-  for (const m of ['select', 'eq', 'neq', 'in', 'is', 'not', 'gte', 'lte', 'order', 'ilike']) c[m] = () => c;
+  // `filtros` se llena DESPUÉS del `.update()` y se comparte por referencia con la escritura ya
+  // registrada — es el orden real de postgrest-js (`.update(payload).eq(...)`).
+  const filtros = [];
+  for (const m of ['select', 'neq', 'in', 'is', 'not', 'gte', 'lte', 'order', 'ilike']) c[m] = () => c;
+  c.eq = (col, val) => { filtros.push([col, val]); return c; };
   c.limit = (n) => { limite = n; return c; };
-  c.insert = () => { op = 'insert'; return c; };
-  c.update = () => { op = 'update'; return c; };
+  c.insert = (payload) => { op = 'insert'; db.escrituras.push({ tabla, op, payload, filtros }); return c; };
+  c.update = (payload) => { op = 'update'; db.escrituras.push({ tabla, op, payload, filtros }); return c; };
   c.maybeSingle = async () => unaFila(resultado(), true);
   // **`single()` NO es igual a `maybeSingle()`, y hacerlos iguales dejaba sin cobertura la
   // distinción que este trabajo declara load-bearing en cinco sitios.** PostgREST devuelve
@@ -132,6 +144,7 @@ const USUARIO = { id: 'u1', whatsapp: '51999888777', plan: 'premium', trial_esta
 beforeEach(() => {
   db.resp = {};
   db.llamadas = [];
+  db.escrituras = [];
   vi.clearAllMocks();
   parsearCorreoMock.mockResolvedValue({ monto: 50, comercio: 'Tienda', tipo: 'gasto' });
   guardarTransaccionMock.mockResolvedValue({ id: 't1', tipo: 'gasto' });
@@ -236,6 +249,178 @@ describe('gmail-scanner: el barrido HISTÓRICO libera su claim si algo se saltó
     expect(await escanearHistoricoInicial(usuario)).toBe(null);
     expect(leerCorreosMock, 'se duplicaron 30 días de movimientos sin saber si se ganó el claim').not.toHaveBeenCalled();
     expect(logMock.error).toHaveBeenCalled();
+  });
+
+  /**
+   * ─────────────────────────────────────────────────────────────────────────────────────────
+   * **Y los desenlaces en que el barrido no corrió NADA, que hasta el 2026-09-02 se quedaban
+   * con el claim tomado.**
+   *
+   * `escanearGmailYRegistrar` tiene cuatro salidas vacías y sólo UNA significa que el barrido
+   * corrió. Liberar sólo en `authError` dejaba las otras dos —no hay cuenta, y no se pudo leer
+   * `gmail_cuentas`— quemando el import de 30 días de esa persona de forma permanente: el `if`
+   * del tope de `escanearHistoricoInicial` la saca antes de volver a intentarlo, así que ni
+   * reconectando. Un timeout de Supabase durante el callback de OAuth alcanzaba.
+   *
+   * Es preexistente: antes ese timeout se disfrazaba de `no_auth` porque `obtenerCuentasGmail`
+   * se tragaba el `{ error }`. Lo nuevo es que hay con qué distinguirlo.
+   *
+   * **Se asserta sobre el UPDATE, no sólo sobre `usuario.historico_importado`.** Ese campo es
+   * el objeto en memoria; una versión que lo pusiera en false sin escribir la fila dejaría a la
+   * persona igual de quemada y pasaría el test. Lo que decide es la segunda escritura a
+   * `usuarios`: la primera es el claim.
+   */
+  const updatesAUsuarios = () => db.escrituras.filter((e) => e.tabla === 'usuarios' && e.op === 'update');
+  /**
+   * La liberación, tal como tiene que verse: escribe `false` (no `true`, que deja a la persona
+   * igual de quemada) y acotada a ESE usuario (sin el `.eq`, un UPDATE sin `where` libera el
+   * claim del padrón entero y re-dispara barridos de 30 días para todos). Las dos mutaciones
+   * pasaban el guard cuando esto sólo contaba escrituras.
+   */
+  const esperarLiberacionDe = (id) => {
+    const updates = updatesAUsuarios();
+    expect(updates.length, 'no se escribió la liberación: esos 30 días no vuelven nunca').toBe(2);
+    const liberacion = updates[1];
+    expect(liberacion.payload, 'la liberación no puso el flag en false').toEqual({ historico_importado: false });
+    expect(liberacion.filtros, 'la liberación no está acotada a este usuario').toContainEqual(['id', id]);
+  };
+
+  for (const [nombre, lectura] of [
+    ['no se pudo leer `gmail_cuentas` (`lectura_fallida`)', { error: 'lectura_fallida', mensajes: [] }],
+    ['no hay ninguna cuenta conectada (`no_auth`)', { error: 'no_auth', mensajes: [] }],
+    ['la autorización está caída (`AUTH_EXPIRED`)', { error: 'AUTH_EXPIRED', mensajes: [] }],
+  ]) {
+    it(`si ${nombre}, el claim se libera`, async () => {
+      sembrarClaim();
+      leerCorreosMock.mockResolvedValue(lectura);
+      const usuario = { ...SIN_IMPORTAR };
+      await escanearHistoricoInicial(usuario);
+      esperarLiberacionDe('u1');
+      expect(usuario.historico_importado).toBe(false);
+    });
+  }
+
+  it('CONTROL: si el barrido SÍ corrió y no había correos, el claim se QUEDA tomado', async () => {
+    // **La mitad que impide que "liberar cuando no corrió" se vuelva "liberar siempre".** Este
+    // es el único vacío de los cuatro en que la lectura funcionó: la persona tiene su Gmail
+    // conectado y no había movimientos en 30 días. Liberar acá re-correría el barrido entero en
+    // cada reconexión. Sin este control, los tres de arriba pasan con el defecto puesto.
+    sembrarClaim();
+    leerCorreosMock.mockResolvedValue({ error: null, mensajes: [] });
+    const usuario = { ...SIN_IMPORTAR };
+    await escanearHistoricoInicial(usuario);
+    expect(updatesAUsuarios().length, 'se liberó el claim de un barrido que sí corrió').toBe(1);
+    expect(usuario.historico_importado).toBe(true);
+    // El nivel de log también decide: `error` es "esta persona quedó quemada y no hay nada que
+    // reintentar". Emitirlo en el camino feliz es fatiga de alertas sobre la única línea que
+    // avisa el daño real.
+    expect(logMock.error, 'un barrido sano emitió log.error').not.toHaveBeenCalled();
+  });
+
+  it('si la liberación no pega, se registra: es el único síntoma que queda', async () => {
+    // No hay nada que reintentar en el momento. Sin la línea, una persona sin sus 30 días es
+    // invisible — y el log tiene que ser `error`, no el `warn` del caso que sí se liberó.
+    db.resp['usuarios:update'] = [{ data: { id: 'u1' }, error: null }, CAIDA];
+    leerCorreosMock.mockResolvedValue({ error: 'lectura_fallida', mensajes: [] });
+    const usuario = { ...SIN_IMPORTAR };
+    await escanearHistoricoInicial(usuario);
+    expect(logMock.error).toHaveBeenCalled();
+    expect(logMock.warn, 'la liberación fallida se reportó como si hubiera pegado').not.toHaveBeenCalled();
+  });
+  it('LA COSTURA: salteados con la lista de mensajes VACÍA también libera', async () => {
+    // **El caso que ninguno de los dos guards cubría, y por el que una mutación realista pasaba
+    // en verde.** El guard de `gmail.js` produce esta forma exacta (3 ids listados, los 3 `get`
+    // caídos → `mensajes: [], salteados: 3`) y el del scanner sólo probaba `salteados` con
+    // `mensajes` NO vacío. En el medio queda el orden de `estado.fallidos += salteados`: si esa
+    // línea se mueve debajo del `if (!mensajes.length) return null` —lo que hace cualquiera que
+    // "ordene" los early-returns juntos— el contador no se suma nunca en este caso y el barrido
+    // incompleto se da por completo. Verificado: 33 tests en verde con la mutación puesta.
+    sembrarClaim();
+    leerCorreosMock.mockResolvedValue({ error: null, mensajes: [], salteados: 3 });
+    const usuario = { ...SIN_IMPORTAR };
+    await escanearHistoricoInicial(usuario);
+    esperarLiberacionDe('u1');
+  });
+
+  it('si el scan rechaza con un valor FALSY, la excepción igual sube', async () => {
+    // `throw undefined` / `Promise.reject()` sin argumento. Gatear el re-throw por la verdad del
+    // valor capturado devolvía `null` —indistinguible de "ya reclamado"— y el callback de OAuth
+    // seguía de largo: `onboarding_completado: true` y "🎉 ¡Listo! Tu cuenta está activa" sobre
+    // un barrido que acababa de reventar.
+    sembrarClaim();
+    leerCorreosMock.mockImplementation(() => Promise.reject(undefined));
+    const usuario = { ...SIN_IMPORTAR };
+    let subio = false;
+    try { await escanearHistoricoInicial(usuario); } catch (e) { subio = true; }
+    expect(subio, 'el rechazo falsy se tragó: el caller cree que todo salió bien').toBe(true);
+    esperarLiberacionDe('u1');
+  });
+
+  it('si el UPDATE de liberación TIRA, sube el error del SCAN y queda el log', async () => {
+    // Sin el `try` sobre la escritura, la excepción de la DB pisa la del scan (el caller ve la
+    // causa equivocada) y el `log.error` —el único síntoma que queda de una persona quemada— no
+    // se emite justo cuando la liberación falló peor.
+    leerCorreosMock.mockRejectedValue(new Error('el error DEL SCAN'));
+    db.resp['usuarios:update'] = [
+      { data: { id: 'u1' }, error: null },
+      { get then() { throw new Error('socket hang up'); } },
+    ];
+    const usuario = { ...SIN_IMPORTAR };
+    await expect(escanearHistoricoInicial(usuario)).rejects.toThrow('el error DEL SCAN');
+    expect(logMock.error, 'la liberación reventó y no dejó una sola línea').toHaveBeenCalled();
+  });
+  it('el log del barrido perdido lleva CUÁNTOS se saltaron, no un 0', async () => {
+    // **La única línea que queda de un barrido perdido, y decía `fallidos: 0`.** `estado.fallidos
+    // += salteados` estaba pasado el early return de `listado_fallido`, así que ese caso perdía el
+    // número: el log salía `motivo: 'listado_fallido', fallidos: 0` sobre una corrida donde Gmail
+    // rechazó 4 listados. El desenlace era correcto igual —libera por `motivo`— y por eso el
+    // arreglo se podía revertir con la suite COMPLETA en verde. Esto lo fija.
+    sembrarClaim();
+    leerCorreosMock.mockResolvedValue({ error: 'listado_fallido', mensajes: [], salteados: 4 });
+    const usuario = { ...SIN_IMPORTAR };
+    await escanearHistoricoInicial(usuario);
+    esperarLiberacionDe('u1');
+    expect(logMock.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ motivo: 'listado_fallido', fallidos: 4 }),
+      expect.any(String),
+    );
+  });
+
+  it('si el scan LANZA, el claim se libera antes de que la excepción suba', async () => {
+    // **La ruta que salteaba las 20 líneas de liberación entera.** `obtenerCuentasGmail` lanza
+    // desde el 2026-09-02 y `leerCorreosBancarios` sólo envuelve la primera de sus tres
+    // llamadas: las del camino legacy (`configurarClienteAutenticado`, `cargarTokens`) suben.
+    // El `catch` genérico del callback de OAuth se la tragaba sin dejar una línea `HIST`, así
+    // que el síntoma —usuario sin sus 30 días— era invisible.
+    sembrarClaim();
+    leerCorreosMock.mockRejectedValue(new Error('No se pudieron leer las cuentas de Gmail: 57P01'));
+    const usuario = { ...SIN_IMPORTAR };
+    await expect(escanearHistoricoInicial(usuario), 'la excepción dejó de propagarse a quien llama').rejects.toThrow('57P01');
+    esperarLiberacionDe('u1');
+    expect(usuario.historico_importado).toBe(false);
+  });
+
+  it('si Gmail no dejó listar, el claim se libera (no es "no había correos")', async () => {
+    // Los dos `catch` de `leerCorreosDesdeCuenta` devolvían el mismo `{error:null, mensajes:[]}`
+    // que el caso legítimo, así que un 429 de cuota durante el callback se registraba como
+    // "30d completado". Y el histórico es el más expuesto: pide `maxPerQuery: 100` contra los
+    // 20 del incremental.
+    sembrarClaim();
+    leerCorreosMock.mockResolvedValue({ error: 'listado_fallido', mensajes: [] });
+    const usuario = { ...SIN_IMPORTAR };
+    await escanearHistoricoInicial(usuario);
+    esperarLiberacionDe('u1');
+  });
+
+  it('si Gmail salteó correos, el claim se libera aunque nada haya fallado al parsear', async () => {
+    // Un `messages.get` caído o el cap de `maxProcess` dejan correos que existen sin mirar, y
+    // eso no llegaba al `mapPool`: `estado.fallidos` se quedaba en 0 y el barrido incompleto
+    // se daba por completo.
+    sembrarClaim();
+    leerCorreosMock.mockResolvedValue({ error: null, mensajes: [{ id: 'msg-1', texto: 'compra', asunto: 'x' }], salteados: 3 });
+    const usuario = { ...SIN_IMPORTAR };
+    await escanearHistoricoInicial(usuario);
+    esperarLiberacionDe('u1');
   });
 });
 

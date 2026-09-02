@@ -78,7 +78,7 @@ async function escanearGmailYRegistrar(usuario, opts = {}) {
   // `estado` lo pasa quien necesita saber si algo se saltó por error. Hoy sólo el barrido
   // histórico, y por un motivo que no vale para el incremental: ver `escanearHistoricoInicial`.
   const { scanOpts = {}, enviarAlertas = true, historico = false, estado = null } = opts;
-  const { error, mensajes } = await leerCorreosBancarios(usuario.id, scanOpts);
+  const { error, mensajes, salteados = 0 } = await leerCorreosBancarios(usuario.id, scanOpts);
   // **Los dos casos vacios NO son el mismo, y colapsarlos en `null` costo un copy al reves.**
   // `no_auth` significa que `leerCorreosBancarios` no encontro NINGUNA de las dos fuentes
   // (consulta `gmail_cuentas` y recien despues cae al token legacy de `usuarios`), o sea que
@@ -89,12 +89,60 @@ async function escanearGmailYRegistrar(usuario, opts = {}) {
   //
   // Se devuelve un objeto por el mismo motivo que `{authError:true}`, y el dato ya estaba acá:
   // lo unico que hacia falta era dejar de tirarlo. No cuesta una query nueva.
-  if (error === 'no_auth') return { sinCuenta: true };
-  if (error === 'AUTH_EXPIRED') return { authError: true };
+  //
+  // **`estado.noCorrio` es la otra mitad de esa separacion, para quien no decide COPY sino
+  // DATOS.** Los tres desenlaces de aca abajo comparten algo que el valor de retorno no puede
+  // decir sin volver a mezclarlos: no se PROCESO un solo correo. (No es lo mismo que no haberlos
+  // leido: con varias cuentas, `AUTH_EXPIRED` viene con los mensajes de las cuentas sanas
+  // adentro y esta funcion los descarta al retornar. Lo que decide es que ninguno se guardo.)
+  // El histórico reclama
+  // `historico_importado` ANTES de correr, asi que necesita distinguirlos de `!mensajes.length`
+  // —el unico de los cuatro vacios donde SI corrio— para no dejar el claim tomado sobre un
+  // barrido que nunca paso. Ver `escanearHistoricoInicial`.
+  //
+  // Va por `estado` y no por un tercer valor de retorno a proposito: `null` es el desenlace
+  // MUDO y los call-sites de copy dependen de que lo siga siendo. Un tercer valor los obligaria
+  // a ramificar sobre algo que no tienen nada que decirle al usuario, y el modo de fallar seria
+  // justo el que `sinCuenta` vino a arreglar: afirmarle algo a quien no le corresponde.
+  const noCorrio = (motivo) => { if (estado) estado.noCorrio = motivo; };
+  // **El contador se suma ANTES de las ramas de abajo, no después.** Estaba pasado el early
+  // return de `listado_fallido`, así que ese caso perdía el número: el log salía
+  // `motivo: 'listado_fallido', fallidos: 0` sobre una corrida donde Gmail rechazó 4 listados. El
+  // desenlace era correcto igual —libera por `motivo`— pero la única línea que queda de un
+  // barrido perdido decía 0. Sumar acá no cambia ninguna decisión: `motivoLiberar` mira
+  // `noCorrio` primero, y las ramas que retornan ya liberan por su cuenta.
+  if (salteados > 0 && estado) estado.fallidos += salteados;
+  if (error === 'no_auth') { noCorrio('sin_cuenta'); return { sinCuenta: true }; }
+  if (error === 'AUTH_EXPIRED') { noCorrio('auth_error'); return { authError: true }; }
   // No se pudo AVERIGUAR si tiene cuentas. Cae en `null` —el desenlace mudo— a proposito: es
   // el unico que no afirma nada. Decir `sinCuenta` seria pedirle que conecte Gmail a quien ya
   // lo tiene, que es el bug que `sinCuenta` vino a arreglar, servido por la rama de error.
-  if (error === 'lectura_fallida') return null;
+  if (error === 'lectura_fallida') { noCorrio('lectura_fallida'); return null; }
+  // Gmail no dejo listar. Los dos `catch` de `leerCorreosDesdeCuenta` devolvian el mismo vacio
+  // que "no habia correos", asi que un 429 de cuota durante el callback de OAuth se registraba
+  // como barrido completado y quemaba el import de 30 dias. Cae en `null` como `lectura_fallida`,
+  // que es lo que el histórico necesita distinguir por `estado`.
+  //
+  // **`null` NO es mudo para los dos call-sites de copy, y decir lo contrario seria mentir sobre
+  // este arreglo.** `handlers/webhook.js` y `handlers/intents/consultas.js` hacen
+  // `resultado || 'No encontre correos bancarios nuevos'`, asi que quien escribe /escanear con
+  // Gmail devolviendo 429 recibe una afirmacion FALSA sobre su plata — la misma clase que
+  // `sinCuenta` vino a eliminar. No es regresion (antes salia por `!mensajes.length` al mismo
+  // lugar). Y hay una TERCERA superficie: con `listado_fallido` el callback de OAuth no manda
+  // nada del barrido y a continuación manda "🎉 ¡Listo! Tu cuenta está activa".
+  //
+  // No se arregla acá, pero el costo tampoco es el que este comentario decía. Medido: de las 5
+  // invocaciones de `escanearGmailYRegistrar`, solo DOS son de copy — `routes/public.js` sólo
+  // reenvía si es string, `escaneoAutomatico` ramifica por `authError` o string, y el histórico
+  // lee `estado`. Un tercer valor de retorno caería solo en las tres no-copy, igual que
+  // `{sinCuenta:true}`, que es lo que dice el comentario de `escaneoAutomatico` 110 líneas más
+  // abajo. Lo que falta no es maquinaria: es decidir QUÉ se le dice. Ítem 26 del backlog.
+  if (error === 'listado_fallido') { noCorrio('listado_fallido'); return null; }
+  // Correos que existen y que este barrido no miro (un `messages.get` caido). Entran por el MISMO
+  // contador que los que fallan al parsearse mas abajo: para el historico los dos significan lo
+  // mismo, un barrido incompleto que hay que rehacer entero. Ya sumados arriba.
+  // El unico vacio que NO marca `noCorrio`: la lectura funciono y no habia correos. El barrido
+  // corrio, asi que el claim del historico esta bien ganado y no hay nada que reintentar.
   if (!mensajes.length) return null;
   let registradas = 0; let ignoradas = 0; let resumen = '';
   // Fetch categorías custom una sola vez por batch (no por correo)
@@ -211,42 +259,88 @@ async function escanearHistoricoInicial(usuario) {
   if (!claim) { log.info({ tag: 'HIST', usuarioId: usuario.id }, 'Barrido hist\u00F3rico ya reclamado, skip'); return null; }
   usuario.historico_importado = true;
   log.info({ tag: 'HIST', usuarioId: usuario.id }, 'Barrido hist\u00F3rico 30d iniciado');
-  const estado = { fallidos: 0 };
-  const resultado = await escanearGmailYRegistrar(usuario, {
-    scanOpts: HISTORICO_SCAN_OPTS,
-    enviarAlertas: false,
-    historico: true,
-    estado,
-  });
-  if (resultado && resultado.authError) {
-    // Si esta liberación no pega, `historico_importado` se queda en true para siempre y esa
-    // persona **nunca** va a recibir su import de 30 días, ni reconectando: el `if` del tope
-    // de la función la saca antes de llegar acá. No hay nada que reintentar en el momento,
-    // pero sin el log el síntoma es invisible.
-    const { error: errLiberar } = await supabase.from('usuarios').update({ historico_importado: false }).eq('id', usuario.id);
-    if (errLiberar) log.error({ tag: 'HIST', err: errLiberar.message, usuarioId: usuario.id }, 'No se pudo liberar el claim: este usuario queda sin barrido hist\u00F3rico permanentemente');
-    usuario.historico_importado = false;
-    return resultado;
+  const estado = { fallidos: 0, noCorrio: null };
+  // **El scan va envuelto porque una excepcion salteaba la liberacion entera, que es el mismo
+  // sintoma que esta funcion existe para evitar.** `obtenerCuentasGmail` LANZA desde el
+  // 2026-09-02, y `leerCorreosBancarios` solo envuelve la PRIMERA de sus tres llamadas: las de
+  // `configurarClienteAutenticado` y `cargarTokens` (camino legacy) suben. Sin este `catch`, el
+  // `throw` salia por arriba de las 20 lineas de abajo con el claim ya en `true`, y el
+  // `catch` generico del callback de OAuth (`routes/public.js`) lo tragaba sin dejar una sola
+  // linea `HIST`: usuario quemado y sintoma invisible. Lo encontro una revision adversarial.
+  let resultado = null;
+  let excepcion = null;
+  // **La bandera es aparte del valor porque `throw undefined` existe.** Gatear el re-throw con
+  // `if (excepcion)` traga cualquier rechazo falsy (`Promise.reject()` sin argumento), y en ese
+  // caso esta funcion devolvia `null` — indistinguible de "ya reclamado", asi que el callback de
+  // OAuth seguia de largo y le mandaba "🎉 ¡Listo! Tu cuenta está activa" a alguien cuyo barrido
+  // acababa de reventar, mas `onboarding_completado: true` y su evento de analytics.
+  let hubo = false;
+  try {
+    resultado = await escanearGmailYRegistrar(usuario, {
+      scanOpts: HISTORICO_SCAN_OPTS,
+      enviarAlertas: false,
+      historico: true,
+      estado,
+    });
+  } catch (e) {
+    excepcion = e;
+    hubo = true;
+    estado.noCorrio = 'excepcion';
   }
-  // **El claim se LIBERA si algo se saltó, y esto es lo que hace seguro el fail-closed de los
-  // pre-checks.** Los dos `throw` de arriba saltean el correo y lo reintenta el cron de los 15
-  // minutos... pero ese cron mira una ventana de 2 días (`windowDays = 2` en `gmail.js`), no de
-  // 30. O sea que en el barrido histórico un correo salteado no vuelve NUNCA: el claim ya está
-  // en `true` y sólo se libera en la rama `authError`, así que ni reconectando. El fail-closed
-  // es correcto para el incremental y, sin esta liberación, en el histórico costaba datos.
+  // **El claim se LIBERA en todo desenlace donde el barrido no corrió o corrió a medias, y se
+  // CONSERVA sólo en el único donde sí corrió.** El claim se reserva ANTES del scan para que un
+  // segundo callback OAuth concurrente no duplique los 30 días, y ese orden tiene un costo: si
+  // el barrido no llega a leer nada, `historico_importado` se queda en true para siempre y esa
+  // persona **nunca** va a recibir su import, ni reconectando — el `if` del tope de la función
+  // la saca antes de llegar acá, y el cron de los 15 minutos mira una ventana de 2 días
+  // (`windowDays = 2` en `gmail.js`), no de 30.
+  //
+  // Hasta el 2026-09-02 esto sólo se liberaba en `authError`, y no era el único desenlace que
+  // se saltea el barrido: un timeout de Supabase durante el callback le quemaba el histórico a
+  // esa persona de forma permanente. Es preexistente —antes ese timeout se disfrazaba de
+  // `no_auth` porque `obtenerCuentasGmail` se tragaba el `{ error }`— pero recién ahora hay con
+  // qué distinguirlo del caso legítimo, que es `!mensajes.length`: ahí el barrido SÍ corrió y
+  // no había correos, así que el claim está bien ganado y re-correrlo sería repetir 30 días en
+  // cada reconexión. Ésa es la mitad que impide que "liberar ante fallos" se vuelva "liberar
+  // siempre".
   //
   // Re-correr el barrido entero es seguro: los que sí entraron quedaron con su `gmail_msg_id`,
-  // y el pre-check por `descripcion_original` los reconoce y los saltea. Lo encontró la
-  // revisión adversarial; el comentario que justificaba el `throw` decía "lo reintenta el
-  // escaneo de los 15 minutos" y eso sólo era cierto para el otro camino.
-  if (estado.fallidos > 0) {
-    const { error: errReintento } = await supabase.from('usuarios').update({ historico_importado: false }).eq('id', usuario.id);
+  // y el pre-check por `descripcion_original` los reconoce y los saltea.
+  const motivoLiberar = estado.noCorrio || (estado.fallidos > 0 ? 'correos_salteados' : null);
+  if (motivoLiberar) {
+    // El `try` no es decorativo: si el UPDATE TIRA en vez de devolver `{error}`, sin él la
+    // excepción de la DB sube en lugar de la del scan —el caller ve la causa equivocada—, la
+    // línea de abajo no corre y, lo peor, el `log.error` que este comentario declara "el único
+    // síntoma que queda" no se emite justo cuando la liberación falló. supabase-js hoy devuelve
+    // el error en vez de lanzarlo, así que esto es contención, no un bug vivo.
+    let errLiberar = null;
+    let liberacionRevento = false;
+    try {
+      ({ error: errLiberar } = await supabase.from('usuarios').update({ historico_importado: false }).eq('id', usuario.id));
+    } catch (e) {
+      // Bandera aparte del valor, por el mismo motivo que `hubo` arriba: un `throw` falsy dejaba
+      // `errLiberar` falsy y caía en la rama `warn`, que afirma "se libera el claim para
+      // reintentarlo entero" sobre una escritura que reventó.
+      errLiberar = e;
+      liberacionRevento = true;
+    }
     usuario.historico_importado = false;
-    log.warn({ tag: 'HIST', usuarioId: usuario.id, fallidos: estado.fallidos, errReintento: errReintento && errReintento.message },
-      'Barrido hist\u00F3rico con correos salteados: se libera el claim para reintentarlo entero');
+    // El log no es cosmético en ninguna de las dos ramas: si la liberación no pega no hay nada
+    // que reintentar en el momento, y sin la línea el síntoma —una persona sin sus 30 días— es
+    // invisible.
+    if (errLiberar || liberacionRevento) {
+      log.error({ tag: 'HIST', err: errLiberar && errLiberar.message, usuarioId: usuario.id, motivo: motivoLiberar, fallidos: estado.fallidos, errScan: excepcion && excepcion.message },
+        'No se pudo liberar el claim: este usuario queda sin barrido histórico permanentemente');
+    } else {
+      log.warn({ tag: 'HIST', usuarioId: usuario.id, motivo: motivoLiberar, fallidos: estado.fallidos, errScan: excepcion && excepcion.message },
+        'Barrido histórico incompleto: se libera el claim para reintentarlo entero');
+    }
+    // Se re-lanza DESPUES de liberar: quien llama sigue viendo el mismo error que veia antes
+    // —no se le cambia la semantica— pero el claim ya volvio a false.
+    if (hubo) throw excepcion;
     return resultado;
   }
-  log.info({ tag: 'HIST', usuarioId: usuario.id }, 'Barrido hist\u00F3rico 30d completado');
+  log.info({ tag: 'HIST', usuarioId: usuario.id }, 'Barrido histórico 30d completado');
   return resultado;
 }
 

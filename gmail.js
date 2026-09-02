@@ -696,19 +696,36 @@ async function leerCorreosDesdeCuenta(authClient, cuentaEmail, remitentes = REMI
 
   const mensajesIds = new Set();
   const todosLosIds = [];
+  // **Los correos que Gmail no entregó se CUENTAN, no se olvidan.** Los dos `catch` de acá
+  // abajo sólo logueaban, así que un 429 de cuota salía por el mismo `{ error: null,
+  // mensajes: [] }` que "no había correos". Para el escaneo incremental da igual —vuelve a
+  // correr en 15 minutos—, pero el barrido histórico reclama `historico_importado` ANTES de
+  // leer y sólo se lo libera si se entera de que algo se saltó. Sin este contador, un 429
+  // durante el callback de OAuth se registraba como "30d completado" y esa persona perdía su
+  // import para siempre. Y el histórico es el más expuesto: pide `maxPerQuery: 100` contra
+  // los 20 del incremental.
+  let salteados = 0;
+  let listadosOk = 0;
 
   for (const query of [queryDirecto, queryPalabrasClave]) {
     try {
       const { data } = await gmail.users.messages.list({ userId: 'me', q: query, maxResults: maxPerQuery });
+      listadosOk++;
       if (data.messages) {
         for (const m of data.messages) {
           if (!mensajesIds.has(m.id)) { mensajesIds.add(m.id); todosLosIds.push(m.id); }
         }
       }
-    } catch(e) { log.error({ tag: 'GMAIL', err: e.message }, 'Error en query Gmail'); }
+    } catch(e) { salteados++; log.error({ tag: 'GMAIL', err: e.message }, 'Error en query Gmail'); }
   }
 
-  if (todosLosIds.length === 0) return { error: null, mensajes: [] };
+  // Sin un solo listado que haya funcionado no se puede afirmar que no había correos: es el
+  // mismo `no pude preguntar` ≠ `no tiene` que separa `lectura_fallida` de `no_auth`.
+  // `salteados` va TAMBIÉN acá, y omitirlo dejaba el arreglo sin efecto en multi-cuenta: el
+  // agregador suma `salteados` y descarta el `error` de una cuenta si otra vino sana, así que
+  // sin el contador la cuenta caída desaparecía sin dejar rastro.
+  if (listadosOk === 0) return { error: 'listado_fallido', mensajes: [], cuentaEmail, salteados };
+  if (todosLosIds.length === 0) return { error: null, mensajes: [], salteados, cuentaEmail };
 
   const mensajes = [];
   for (const id of todosLosIds.slice(0, maxProcess)) {
@@ -747,10 +764,20 @@ async function leerCorreosDesdeCuenta(authClient, cuentaEmail, remitentes = REMI
       // de "dos compras iguales reales" (llegan con minutos u horas de diferencia).
       mensajes.push({ id, snippet: detalle.snippet, texto: textoParseo, asunto, remitente, fecha, recibidoEnMs: parseInt(detalle.internalDate) });
       log.info({ tag: 'GMAIL', asunto: asunto.substring(0, 60) }, 'Correo bancario encontrado');
-    } catch(e) { log.error({ tag: 'GMAIL', err: e.message }, 'Error obteniendo correo'); }
+    } catch(e) { salteados++; log.error({ tag: 'GMAIL', err: e.message }, 'Error obteniendo correo'); }
   }
 
-  return { error: null, mensajes, cuentaEmail };
+  // **El truncado por `maxProcess` NO se cuenta como salteado, y contarlo fue un defecto que
+  // duró una hora.** Un usuario con 60 correos bancarios en 30 días —normal— deja 10 ids fuera
+  // del cap del histórico (`maxProcess: 50`), así que `salteados` nunca daba 0 y el barrido
+  // liberaba su claim SIEMPRE: `historico_importado` no se marcaba nunca y los 30 días se
+  // re-corrían en cada reconexión. Medido: 60 ids listados → `salteados: 10`.
+  //
+  // Y liberar no compraba nada: re-correr trunca en el mismo orden, así que esos 10 no vuelven
+  // igual. `salteados` significa "Gmail no me lo dio", que sí se recupera reintentando; el cap
+  // es una decisión de diseño nuestra y su arreglo —si hace falta— es paginar, no reintentar.
+  // Queda registrado en `docs/DEFECTOS.md` como truncado silencioso, que es lo que es.
+  return { error: null, mensajes, cuentaEmail, salteados };
 }
 
 async function remitentesParaUsuario(usuarioId) {
@@ -762,6 +789,53 @@ async function remitentesParaUsuario(usuarioId) {
     log.warn({ tag: 'GMAIL', err: e.message }, 'No se pudo leer bancos_seleccionados; uso set completo');
     return REMITENTES_BANCARIOS;
   }
+}
+
+/**
+ * Colapsa el resultado de N cuentas en el `{ error, mensajes, salteados }` que ve el scanner.
+ *
+ * **Vive suelta y exportada porque es la que decide si un barrido cuenta como completo, y no
+ * tenía quien la mirara.** Estaba embebida en `leerCorreosBancarios`, que ningún test ejecuta
+ * (el guard del scanner la mockea entera y el de `leerCorreosDesdeCuenta` corre por debajo):
+ * una revisión adversarial dejó las dos líneas que agregan inertes y la suite completa —169
+ * archivos, 3011 tests— siguió en verde.
+ *
+ * Dos reglas, y las dos nacieron de un defecto medido:
+ *
+ * · **`salteados` se SUMA, y una cuenta que falló entera cuenta como al menos uno.** No sabemos
+ *   cuántos correos quedaron adentro de una cuenta que ni se pudo listar, pero para el barrido
+ *   histórico lo que decide es si quedó algo afuera, no cuánto. Sin esto, una cuenta con 429 y
+ *   otra sana devolvían `salteados: 0` y el claim se conservaba: el defecto original intacto,
+ *   en forma multi-cuenta.
+ * · **`AUTH_EXPIRED` gana** porque tiene su propio aviso al usuario (`notificarAuthExpirada`), y
+ *   no suma salteados porque su rama ya libera el claim del histórico por su cuenta.
+ */
+function agregarResultadosDeCuentas(resultados) {
+  const authExpired = resultados.some(r => r.error === 'AUTH_EXPIRED');
+
+  // Unificar mensajes de todas las cuentas (deduplicar por id)
+  const vistos = new Set();
+  const mensajesUnificados = [];
+  for (const r of resultados) {
+    for (const m of (r.mensajes || [])) {
+      const key = m.id + (r.cuentaEmail || '');
+      if (!vistos.has(key)) { vistos.add(key); mensajesUnificados.push({ ...m, cuentaEmail: r.cuentaEmail }); }
+    }
+  }
+
+  const salteados = resultados.reduce((n, r) => {
+    if (r.salteados) return n + r.salteados;
+    return n + (r.error && r.error !== 'AUTH_EXPIRED' ? 1 : 0);
+  }, 0);
+  // Si NINGUNA cuenta pudo leerse y no hay un solo mensaje, el vacío no es un hecho sobre el
+  // usuario sino sobre la corrida. Con una cuenta sana el error deja de ser global, pero su
+  // hermana caída ya quedó contada en `salteados`.
+  const todasFallaron = resultados.length > 0 && resultados.every(r => r.error) && mensajesUnificados.length === 0;
+  return {
+    error: authExpired ? 'AUTH_EXPIRED' : (todasFallaron ? 'listado_fallido' : null),
+    mensajes: mensajesUnificados,
+    salteados,
+  };
 }
 
 async function leerCorreosBancarios(usuarioId, opts = {}) {
@@ -804,20 +878,11 @@ async function leerCorreosBancarios(usuarioId, opts = {}) {
     })
   );
 
-  // Detectar si alguna cuenta tiene auth expirada
-  const authExpired = resultados.some(r => r.error === 'AUTH_EXPIRED');
-
-  // Unificar mensajes de todas las cuentas (deduplicar por id)
-  const vistos = new Set();
-  const mensajesUnificados = [];
-  for (const r of resultados) {
-    for (const m of (r.mensajes || [])) {
-      const key = m.id + (r.cuentaEmail || '');
-      if (!vistos.has(key)) { vistos.add(key); mensajesUnificados.push({ ...m, cuentaEmail: r.cuentaEmail }); }
-    }
-  }
-
-  return { error: authExpired ? 'AUTH_EXPIRED' : null, mensajes: mensajesUnificados };
+  return agregarResultadosDeCuentas(resultados);
 }
 
-module.exports = { tieneGmailConectado, generarUrlAutorizacion, verificarState, guardarTokens, cargarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail, revocarAccesoGmail, BANCOS_CATALOGO, remitentesParaSeleccion, describirSeleccion, construirQueriesBancarias, emailGmailVinculado, hashEmailGmail, esElMismoGmail };
+// `leerCorreosDesdeCuenta` y `agregarResultadosDeCuentas` se exportan SOLO para sus guards: la
+// primera recibe un `authClient` crudo y la segunda un array ya resuelto, así que llamarlas
+// desde producción saltearía la resolución de cuentas, `remitentesParaUsuario` y los gates de
+// plan que viven en `leerCorreosBancarios`. El camino de producción es ése, siempre.
+module.exports = { tieneGmailConectado, leerCorreosDesdeCuenta, agregarResultadosDeCuentas, generarUrlAutorizacion, verificarState, guardarTokens, cargarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail, revocarAccesoGmail, BANCOS_CATALOGO, remitentesParaSeleccion, describirSeleccion, construirQueriesBancarias, emailGmailVinculado, hashEmailGmail, esElMismoGmail };
