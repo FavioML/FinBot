@@ -51,7 +51,9 @@ export async function POST(request: Request) {
   // viene aquí a conectarlo. Chequear solo la existencia de la fila lo dejaría atrapado.
   const { data: current, error: eLinked } = await svc
     .from('usuarios')
-    .select('id, whatsapp')
+    // `otp_solicitado_at` y `otp_solicitudes` viajan acá para no gastar una segunda lectura:
+    // el contador se incrementa más abajo con el valor que ya trajo este select.
+    .select('id, whatsapp, otp_solicitado_at, otp_solicitudes')
     .eq('supabase_auth_id', user.id)
     .maybeSingle();
 
@@ -87,6 +89,29 @@ export async function POST(request: Request) {
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  // Deja constancia de que esta cuenta INTENTÓ vincular (migración 083). Es la única forma de
+  // distinguir "lo intentó y no pudo" de "ni abrió la pantalla", y esas dos lecturas piden
+  // arreglos opuestos. `webapp_otp` no puede contestarlo: su upsert pisa el intento anterior y
+  // un cron borra las filas vencidas, así que es una ventana de 15 minutos, no un historial.
+  //
+  // Va DESPUÉS del upsert y no condiciona nada: si esto falla, la persona igual recibe su
+  // código. Perder una medición es infinitamente más barato que romper el alta por ella —
+  // y por eso el error se loguea en vez de descartarse, que es lo que lo volvería una
+  // instrumentación apagada con cara de encendida.
+  if (current?.id) {
+    const { error: eIntento } = await svc
+      .from('usuarios')
+      .update({
+        // El PRIMER intento no se pisa: es un hecho, no un estado.
+        otp_solicitado_at: current.otp_solicitado_at || new Date().toISOString(),
+        otp_solicitudes: (current.otp_solicitudes || 0) + 1,
+      })
+      .eq('id', current.id);
+    if (eIntento) {
+      console.error('[onboarding] no se pudo registrar el intento de vinculación:', eIntento.message);
+    }
   }
 
   const text = `Hola Neto, verifica mi cuenta web: ${code}`;
