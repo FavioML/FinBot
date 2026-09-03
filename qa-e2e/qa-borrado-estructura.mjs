@@ -34,6 +34,10 @@
 // Correr:  node qa-e2e/qa-borrado-estructura.mjs   (desde app/)
 
 import 'dotenv/config';
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 
 // `fetch` pelado contra PostgREST, sin `supabase-js` y sin `qa-guard`.
 //
@@ -118,6 +122,46 @@ const FUNCIONES_ESPERADAS = {
 
 const TRIGGERS_ESPERADOS = ['deuda_abonos', 'deudas', 'transacciones'];
 
+/**
+ * El cuerpo de una función tal como lo describe el REPO, con su md5 comparable contra el de la
+ * base. Mismo criterio de "vigente" que `tests/services/account-deletion.test.js`: el archivo de
+ * nombre más alto que la redefine, porque las migraciones son append-only.
+ *
+ * Dos detalles que hacen que el md5 sea comparable y no una cadena parecida:
+ *   · Postgres guarda el cuerpo con LF; el working copy de este repo es CRLF (autocrlf). Sin
+ *     normalizar, TODOS los md5 difieren y el check sería ruido permanente.
+ *   · el cuerpo es lo que va ENTRE los dólar-quote, sin incluirlos: `AS $fn$\nDECLARE…END;\n$fn$`
+ *     produce un `prosrc` que empieza en `\nDECLARE` y termina en `END;\n`.
+ */
+function cuerpoEnMigraciones(nombre) {
+  const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'migrations');
+  let archivos = [];
+  try {
+    archivos = fs.readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
+  } catch (e) {
+    return { archivo: null, md5: null, error: e.message };
+  }
+  // `CREATE OR REPLACE`, no `FUNCTION public.<nombre>(` a secas: esa forma también aparece en el
+  // `REVOKE`/`GRANT` del final del archivo, y un `lastIndexOf` sobre ella caía ahí — donde no hay
+  // ningún dólar-quote después. Daba `md5: null`, o sea el mismo FALLA que un drift real, con un
+  // mensaje que mandaba a volcar de nuevo un archivo que ya estaba bien.
+  const marca = 'CREATE OR REPLACE FUNCTION public.' + nombre + '(';
+  for (let i = archivos.length - 1; i >= 0; i--) {
+    const src = fs.readFileSync(path.join(dir, archivos[i]), 'utf-8').replace(/\r\n/g, '\n');
+    const desde = src.lastIndexOf(marca);
+    if (desde === -1) continue;
+    // El dólar-quote que abre DESPUÉS del nombre, sea `$fn$`, `$function$` o `$$`.
+    const m = src.slice(desde).match(/\bAS\s+(\$[A-Za-z_]*\$)/);
+    if (!m) return { archivo: archivos[i], md5: null, error: 'no encontré el dólar-quote' };
+    const ini = desde + src.slice(desde).indexOf(m[1]) + m[1].length;
+    const fin = src.indexOf(m[1], ini);
+    if (fin === -1) return { archivo: archivos[i], md5: null, error: 'dólar-quote sin cierre' };
+    const cuerpo = src.slice(ini, fin);
+    return { archivo: archivos[i], md5: crypto.createHash('md5').update(cuerpo, 'utf8').digest('hex') };
+  }
+  return { archivo: null, md5: null };
+}
+
 const fallos = [];
 const check = (nombre, ok, detalle) => {
   if (ok) { console.log('  ok  ' + nombre); return; }
@@ -172,6 +216,24 @@ async function main() {
       f.src_md5 === esperado.md5,
       'vivo=' + f.src_md5 + ' esperado=' + esperado.md5 +
       ' · si vos aplicaste la migración, actualizá el hash acá EN EL MISMO COMMIT; si no, alguien la redefinió fuera del repo');
+
+    // Y que el ARCHIVO del repo describa la función que corre. Es otra pregunta que la de
+    // arriba y hasta el 03-sep-2026 nadie la hacía: el md5 vivo estaba sincronizado con esta
+    // constante y aun así `073d_metas_gastos_nullable.sql` tenía **9896** caracteres contra los
+    // **7768** del cuerpo vivo. O sea que el canary decía "nadie la redefinió" —cierto— mientras
+    // el archivo del que el CLAUDE.md manda partir describía otra función.
+    //
+    // El daño no es hoy, es el próximo que la toque: partir del archivo desplegaba una versión
+    // distinta, con el diff leyéndose como si solo agregara el cambio nuevo, sobre el borrado de
+    // cuenta. Se cerró con el espejo `082_borrar_cuenta_total_espejo.sql` — y con esta línea,
+    // porque un espejo que nadie compara vuelve a divergir el mes que viene.
+    const enRepo = cuerpoEnMigraciones(nombre);
+    check(nombre + ': el archivo del repo describe la función que CORRE',
+      enRepo.md5 === f.src_md5,
+      enRepo.archivo
+        ? ('archivo=' + enRepo.archivo + ' md5=' + enRepo.md5 + ' vs vivo=' + f.src_md5 +
+           ' · el repo y la base divergieron: volcá el `prosrc` vivo a una migración nueva (append-only, no edites la vieja)')
+        : 'ninguna migración define esta función: el guard de tests/services/account-deletion.test.js está mirando el vacío');
   }
 
   console.log('\n=== El rastro de borrados sigue siendo append-only ===');

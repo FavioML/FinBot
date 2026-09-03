@@ -126,6 +126,10 @@ function check(ok, etiqueta, detalle = '') {
 async function borrarUsuarioVerificado(sb, id, etiqueta) {
   try {
     await sb.del('transacciones', `usuario_id=eq.${id}`);
+    // Desde el 03-sep el camino silencioso escribe la campana, así que el fixture deja filas
+    // acá también. Se borran explícitamente en vez de confiar en el cascade: si mañana esa FK
+    // cambia, el harness ensucia producción sin que nadie lo note.
+    await sb.del('notificaciones', `usuario_id=eq.${id}`);
     await sb.del('usuarios', `id=eq.${id}`);
     const quedan = await sb.select('usuarios', `id=eq.${id}&select=id`);
     check(quedan.length === 0, `se borró el usuario efímero (${etiqueta})`,
@@ -169,6 +173,45 @@ try {
   if (txs.length) {
     check(Number(txs[0].monto) === 37.5, 'el monto es el del mensaje', 'monto=' + txs[0].monto);
     check(txs[0].tipo === 'gasto', 'se guardó como gasto', 'tipo=' + txs[0].tipo);
+  }
+
+  // --- A2: el caso REAL, que es el que no tiene número ---
+  // A prueba el reconocimiento, no la entrega: ese fixture tiene `whatsapp`, así que su gasto
+  // sale por el intento de WhatsApp (D10) y la campana pasa desapercibida. El usuario que
+  // motivó todo esto NO tiene número —Meta nunca se lo mandó— y para él la campana es el único
+  // canal que existe. Medido el 03-sep contra producción: 2 gastos anotados, 0 notificaciones.
+  //
+  // Va contra el webhook real y no contra un doble porque lo que estuvo roto era el CAMINO:
+  // `intentarConfirmar` cortaba en `!whatsapp` y no había nada más abajo.
+  console.log('\nA2. mismo caso pero SIN número guardado: el único canal es la campana');
+  const sinNumero = await sb.insert('usuarios', {
+    whatsapp: null, nombre: 'QA BSUID sin numero', bsuid: 'PE.qasinnum' + sufijo,
+    is_test_user: true, onboarding_completado: true, onboarding_paso: 0,
+  });
+  try {
+    check(!sinNumero.whatsapp, 'el fixture arranca SIN número', 'whatsapp=' + sinNumero.whatsapp);
+    const st1b = await enviarWebhook(vars.META_APP_SECRET, {
+      id: 'wamid.qa-sinnum-' + sufijo, timestamp: String(Math.floor(Date.now() / 1000)),
+      type: 'text', text: { body: 'gasté 42.25 soles en la farmacia' },
+      from_user_id: sinNumero.bsuid,
+    });
+    check(st1b === 200, 'el webhook acepta el payload', 'HTTP ' + st1b);
+    await new Promise(r => setTimeout(r, ESPERA_MS));
+
+    const txs1b = await sb.select('transacciones', `usuario_id=eq.${sinNumero.id}&select=id,monto`);
+    check(txs1b.length === 1, 'se registró el gasto igual', txs1b.length + ' encontradas');
+
+    const notifs = await sb.select('notificaciones', `usuario_id=eq.${sinNumero.id}&select=id,titulo,mensaje`);
+    check(notifs.length === 1, 'quedó UNA fila en la campana', notifs.length + ' encontradas');
+    if (notifs.length) {
+      // El monto con dos decimales: es lo que distingue la confirmación real de un "S/ 42.25"
+      // formateado por otro lado, y sobre todo del "S/ undefined" que produce la fila del dedup.
+      check(/S\/ 42\.25/.test(notifs[0].mensaje || ''), 'el cuerpo trae el monto de la fila persistida',
+        JSON.stringify(notifs[0].mensaje));
+      check(!/undefined/.test(notifs[0].mensaje || ''), 'sin `undefined` en el cuerpo');
+    }
+  } finally {
+    await borrarUsuarioVerificado(sb, sinNumero.id, 'sin número');
   }
 
   // --- B: control negativo. Sin esto, A pasaría igual si registráramos a cualquiera ---
