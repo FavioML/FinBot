@@ -58,7 +58,13 @@ const EXCLUIDOS = new Set([
  */
 const EXENTOS = new Map([]);
 
-/** El conteo fijado: si aparece un canal único nuevo, este archivo lo hace notar. */
+/**
+ * El conteo fijado: si aparece un canal único nuevo, este archivo lo hace notar.
+ *
+ * Cuenta **solo `SOLO_WHATSAPP`**, que es el canal que este bloque vigila. Un `SOLO_IN_APP`
+ * nuevo no lo mueve, y eso es correcto: el riesgo que se mide acá es mandarle por el canal que
+ * entrega al 10% a alguien que quizá tiene campana, no al revés.
+ */
 const SITIOS_ESPERADOS = 4;
 
 function archivosJs(dir) {
@@ -281,8 +287,13 @@ const CORTE_POR_WHATSAPP = new RegExp(
 const CORTES_EXENTOS = new Map([
   ['services/registro-silencioso.js:intentarConfirmar',
     'no pasa por `notificarUsuario`: le habla a `enviarWhatsapp` directo, para medir si el ' +
-    'número guardado sigue sirviendo cuando Meta dejó de mandar el del remitente (D10). Sin ' +
-    'número no hay nada que intentar ni nada in-app que escribir.'],
+    'número guardado sigue sirviendo cuando Meta dejó de mandar el del remitente (D10). El ' +
+    'chokepoint devuelve el resultado crudo pero no lo interpreta, y acá el `code` de un ' +
+    'rechazo síncrono ES el veredicto. Sin número no hay nada que INTENTAR — la parte in-app ' +
+    'sí existe y vive al lado, en `dejarRastroEnLaCampana` (SOLO_IN_APP), que corre para el ' +
+    'mismo usuario por `confirmarComoSePueda`. Hasta el 03-sep-2026 esta entrada decía que ' +
+    'tampoco había "nada in-app que escribir", y era falso: describía el silencio total que ' +
+    'ese día se cerró.'],
   ['services/survey-triggers.js:maybeReminderD14',
     'el mensaje ES una pregunta abierta ("¿hay algo que te complica? cuéntame en una sola ' +
     'línea") y su único valor es la respuesta. La campana no tiene caja de respuesta y el ' +

@@ -20,8 +20,15 @@ const enviarWhatsapp = vi.fn().mockResolvedValue({ ok: true, msgId: 'wamid.1' })
 require('../../lib/whatsapp').enviarWhatsapp = enviarWhatsapp;
 const anunciarVeredictoD10 = vi.fn().mockResolvedValue(true);
 require('../../lib/whatsapp').anunciarVeredictoD10 = anunciarVeredictoD10;
+// El chokepoint de avisos. **Sin este mock el test no falla y tampoco prueba nada**: la campana
+// sale a la red, el guard anti-red del setup la corta, `crearNotificacion` devuelve false sin
+// lanzar (contrato de `lib/notifications-db.js`) y la suite queda verde afirmando el silencio
+// que este camino justamente dejó de tener. Ver [[feedback_guards_que_no_ven]].
+const notificarUsuario = vi.fn().mockResolvedValue({ wa: { ok: false }, inApp: true, email: { ok: false } });
+require('../../lib/notify-user').notificarUsuario = notificarUsuario;
 
 const { registrarGastoSilencioso } = require('../../services/registro-silencioso');
+const { CANALES } = require('../../lib/notify-user');
 const USUARIO = { id: 'u1' };
 const CON_NUMERO = { id: 'u1', whatsapp: '51999000111' };
 const FILA_GUARDADA = { id: 'tx1', tipo: 'gasto', monto: 25.5, moneda: 'PEN', comercio: 'Wong', categoria: 'Alimentación' };
@@ -32,6 +39,59 @@ describe('registrarGastoSilencioso', () => {
     guardarTransaccion.mockReset().mockResolvedValue({ ...FILA_GUARDADA });
     enviarWhatsapp.mockClear().mockResolvedValue({ ok: true, msgId: 'wamid.1' });
     anunciarVeredictoD10.mockClear().mockResolvedValue(true);
+    notificarUsuario.mockClear().mockResolvedValue({ wa: { ok: false }, inApp: true, email: { ok: false } });
+  });
+
+  // ─── La campana, que es el ÚNICO canal que a esta gente le llega ─────────────────────────
+
+  it('sin número, el gasto igual deja rastro en la campana', async () => {
+    // El caso real que lo motivó (03-sep-2026): un usuario con cuenta web, reconocido por BSUID
+    // y sin número guardado, llevaba 2 gastos anotados con 0 notificaciones y 0 filas en
+    // `notification_deliveries`. Desde su lado el producto parecía muerto y escribió al
+    // Instagram de Neto. `intentarConfirmar` corta en `!whatsapp`, así que la campana es lo
+    // único que puede correr acá.
+    parsearRegistroManual.mockResolvedValue({ ok: true, tipo: 'gasto', monto: 25.5, moneda: 'PEN', comercio: 'Wong', categoria: 'Alimentación' });
+
+    const r = await registrarGastoSilencioso('gasté 25.50 en wong', USUARIO);
+
+    expect(r.registrado).toBe(true);
+    expect(enviarWhatsapp).not.toHaveBeenCalled();     // sigue sin haber a quién escribirle
+    expect(notificarUsuario).toHaveBeenCalledOnce();
+    const aviso = notificarUsuario.mock.calls[0][0];
+    expect(aviso.canales).toBe(CANALES.SOLO_IN_APP);
+    expect(aviso.usuarioId).toBe('u1');
+    expect(aviso.titulo).toBe('Gasto anotado');
+    // Dos decimales y el comercio, igual que la confirmación de WhatsApp: si el texto divergiera
+    // del que recibe todo el mundo, esta gente vería otra cosa y nadie lo notaría.
+    expect(aviso.mensaje).toContain('S/ 25.50');
+    expect(aviso.mensaje).toContain('Wong');
+    expect(aviso.mensaje).not.toContain('undefined');
+  });
+
+  it('CON número, la campana sale IGUAL que el intento de WhatsApp', async () => {
+    // Los dos conviven a propósito: el WhatsApp de este camino es el experimento D10 y puede no
+    // entregar (la premisa que mide es justamente esa). Si la campana dependiera de que no haya
+    // número, quien SÍ lo tiene se quedaría sin ningún rastro cuando el envío falla.
+    parsearRegistroManual.mockResolvedValue({ ok: true, tipo: 'gasto', monto: 25.5, moneda: 'PEN', comercio: 'Wong' });
+
+    await registrarGastoSilencioso('gasté 25.50 en wong', CON_NUMERO);
+
+    expect(enviarWhatsapp).toHaveBeenCalledOnce();
+    expect(notificarUsuario).toHaveBeenCalledOnce();
+  });
+
+  it('un fallo de la campana no se lleva el registro ni el veredicto de D10', async () => {
+    // `notificarUsuario` no lanza por contrato, pero este camino no puede depender de que ese
+    // contrato se sostenga para siempre: el webhook ya le respondió 200 a Meta y una excepción
+    // acá sería un unhandled rejection.
+    notificarUsuario.mockRejectedValue(new Error('supabase caído'));
+    enviarWhatsapp.mockResolvedValue({ ok: false, code: 131026, error: 'Message undeliverable' });
+    parsearRegistroManual.mockResolvedValue({ ok: true, tipo: 'gasto', monto: 25.5, moneda: 'PEN', comercio: 'Wong' });
+
+    const r = await registrarGastoSilencioso('gasté 25.50 en wong', CON_NUMERO);
+
+    expect(r).toEqual({ registrado: true, motivo: 'ok', intento: true });
+    expect(anunciarVeredictoD10).toHaveBeenCalledOnce();
   });
 
   it('guarda el gasto delegando en guardarTransaccion, sin tocar el monto', async () => {
@@ -64,6 +124,11 @@ describe('registrarGastoSilencioso', () => {
 
     expect(r).toEqual({ registrado: true, motivo: 'ok', intento: false });
     expect(enviarWhatsapp).not.toHaveBeenCalled();
+    // Y la campana tampoco, por las MISMAS dos razones: la fila del dedup no trae `monto`, así
+    // que diría "S/ undefined", y además no hay nada que anunciar — ese gasto ya estaba. El
+    // corte está repetido en `dejarRastroEnLaCampana` en vez de heredado de `intentarConfirmar`,
+    // y esta línea es lo que impide que alguien lo "simplifique".
+    expect(notificarUsuario).not.toHaveBeenCalled();
   });
 
   it('con número guardado, la confirmación sale con los valores de la fila', async () => {

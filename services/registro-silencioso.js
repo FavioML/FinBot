@@ -4,6 +4,7 @@ const { descargarMedia, transcribirAudio, extraerPagoDeImagen } = require('./med
 const { esperaComprobante, esPagoNeto, registrarSolicitudPro, reclamarSolicitudPro, liberarSolicitudPro } = require('../lib/pro-payment');
 const { resolverTipoPlan, PRO_PRECIOS } = require('../lib/config');
 const { notificarAdmin } = require('../lib/admin-notify');
+const { notificarUsuario, CANALES } = require('../lib/notify-user');
 const { enviarWhatsapp, TIPO_CONFIRMACION_SIN_NUMERO, anunciarVeredictoD10 } = require('../lib/whatsapp');
 const { registrarError, msgErr } = require('../lib/error-monitor');
 const { hoyPeru } = require('../lib/dates');
@@ -108,6 +109,78 @@ async function intentarConfirmar(usuario, tx) {
 }
 
 /**
+ * Deja el gasto anotado en la campana de la webapp, que es el único canal que a esta persona
+ * SÍ le llega.
+ *
+ * Por qué existe (03-sep-2026): hasta hoy este camino era silencio total. `intentarConfirmar`
+ * corta en `!usuario.whatsapp`, y quien llega por BSUID sin número guardado no tenía nada —
+ * ni respuesta, ni fila en `notificaciones`, ni rastro fuera de `transacciones`. Medido contra
+ * producción ese día: el único usuario en esta situación llevaba 2 gastos anotados con **0
+ * notificaciones y 0 filas en `notification_deliveries`**. Le escribió al Instagram de Neto
+ * porque desde su lado el producto parecía muerto.
+ *
+ * **La campana no lo alcanza sola: la persona tiene que entrar a la webapp.** Se le planteó a
+ * Favio agregar el correo —que sí empuja— y eligió campana sola, para no gastarle a esta gente
+ * el tope de 5 correos diarios que comparten con el fin de trial y los recordatorios de deuda,
+ * que son los avisos que mueven plata. Decisión tomada con el costo a la vista; no re-litigar.
+ *
+ * `SOLO_IN_APP` y no `AMBOS` porque el WhatsApp de este camino no es un canal más: es el
+ * experimento D10, que necesita mirar el resultado crudo de `enviarWhatsapp` (el `code` de un
+ * rechazo síncrono decide el veredicto) y el chokepoint lo devuelve pero no lo interpreta. Los
+ * dos conviven: `intentarConfirmar` sigue midiendo, esto entrega.
+ *
+ * Nunca cambia el desenlace del registro: el gasto ya está guardado cuando esto corre.
+ */
+async function dejarRastroEnLaCampana(usuario, tx) {
+  if (!usuario || !usuario.id) return false;
+  // Mismo corte que `intentarConfirmar`, repetido a propósito y no heredado: en un hit de dedup
+  // `guardarTransaccion` devuelve el duplicado que encontró, que sale de un `select('id,
+  // tarjeta_last4')` — un objeto válido SIN monto. Sin esto la campana diría "S/ undefined"
+  // sobre un gasto que ya estaba anotado.
+  if (!tx || tx.monto == null) return false;
+  const r = await notificarUsuario({
+    canales: CANALES.SOLO_IN_APP,
+    motivo: 'Meta manda solo el BSUID: no hay número al que responder, y el WhatsApp de este camino es el experimento D10',
+    usuarioId: usuario.id,
+    tipo: 'gasto_sin_numero',
+    // `titulo` es obligatorio con canal in-app; sin él el chokepoint no escribe la fila.
+    titulo: (tx.tipo || 'gasto') === 'gasto' ? 'Gasto anotado' : 'Ingreso anotado',
+    // El mismo texto que recibiría por WhatsApp si se le pudiera escribir. Sale de la fila
+    // PERSISTIDA, no del parser: una regla por comercio puede haber remapeado la categoría, y
+    // anunciarle una que no es la que va a ver en el dashboard es contarle otra cosa.
+    mensaje: textoConfirmacion(tx),
+    link: '/dashboard/transacciones',
+  });
+  return r.inApp === true;
+}
+
+/**
+ * Lo único que decide qué se entera el usuario de que su gasto quedó anotado.
+ *
+ * Existe para que sea UN lugar y no dos: los gastos silenciosos se guardan desde dos sitios
+ * (`registrarGastoSilencioso` para texto y audio, `registrarPagoParseado` para las capturas),
+ * y con la llamada duplicada el próximo camino de registro que aparezca va a heredar la mitad.
+ * Es la clase de [[feedback_misma_forma_no_es_mismo_arreglo]] evitada antes de que ocurra.
+ *
+ * Devuelve lo que devolvía `intentarConfirmar` porque el aviso de primera vez lo lee: sin eso
+ * afirmaba que se había intentado en caminos donde no se intentó nada.
+ */
+async function confirmarComoSePueda(usuario, tx) {
+  const intento = await intentarConfirmar(usuario, tx);
+  // Aislada: el registro ya está hecho y un fallo de la campana no puede llevarse el veredicto
+  // de D10 ni el retorno del registro. `notificarUsuario` no lanza por contrato, igual que
+  // `enviarWhatsapp` — y el try existe por el mismo motivo que el de allá: este camino no puede
+  // depender de que ese contrato se sostenga para siempre.
+  try {
+    await dejarRastroEnLaCampana(usuario, tx);
+  } catch (e) {
+    log.error({ tag: 'BSUID_SILENCIOSO', err: e.message, usuarioId: usuario && usuario.id },
+      'No se pudo escribir la campana');
+  }
+  return intento;
+}
+
+/**
  * Registra un gasto de alguien a quien NO podemos responder.
  *
  * El caso: un usuario activó un username de WhatsApp, así que Meta dejó de mandar su número
@@ -163,7 +236,7 @@ async function registrarGastoSilencioso(texto, usuario) {
   // Va DESPUÉS de que el gasto está guardado y no condiciona nada: el registro es la promesa,
   // la confirmación es el experimento. `intento` viaja de vuelta porque el aviso de primera vez
   // lo necesita: sin él afirmaba que se había intentado en caminos donde no se intentó nada.
-  const intento = await intentarConfirmar(usuario, tx);
+  const intento = await confirmarComoSePueda(usuario, tx);
   return { registrado: true, motivo: 'ok', intento };
 }
 
@@ -294,7 +367,7 @@ async function registrarPagoParseado(parsed, usuario) {
   }
 
   log.info({ tag: 'BSUID_SILENCIOSO', usuarioId: usuario.id, tipo: parsed.tipo }, 'Pago de imagen registrado sin poder responder');
-  const intento = await intentarConfirmar(usuario, tx);
+  const intento = await confirmarComoSePueda(usuario, tx);
   return { registrado: true, motivo: 'ok', intento };
 }
 
