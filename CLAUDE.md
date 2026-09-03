@@ -947,6 +947,34 @@ parámetro inventado junto a un `to` válido devuelve **200 e ignorado**, o sea 
 que no conoce — el `#100` no es "BSUID inválido" sino "no existe ese campo". El envío por BSUID no
 está habilitado en nuestra WABA. El webhook (suscrito a `messages` v25.0) está sano.
 
+**El USERNAME tampoco sirve, y esa mitad recién se midió el 03-sep-2026.** Lo de arriba prueba
+que el BSUID no direcciona, y hasta hoy se leía como "a esta gente no se le puede escribir" — que
+es una afirmación más grande. Meta manda **también el username**: todas las filas de `errores` de
+estos mensajes traen `clavesPerfil: ["name","username"]`, o sea que `contacts[0].profile.username`
+viene en el payload y `handlers/webhook.js` lo descarta (guarda las CLAVES del perfil, nunca los
+valores). Nadie lo había probado como destinatario.
+
+`qa-e2e/probe-envio-por-username.mjs` lo cierra: cinco formas (`to`, `recipient_type: "username"`,
+`username` de primer nivel, `recipient: { username }`, `wa_username`) contra v19.0 y v25.0,
+**ninguna distinguible de un campo inventado**. La evidencia más fuerte no es el diferencial sino
+que Meta **enumera el conjunto completo**: `recipient_type` acepta exactamente
+`["group","individual",null]`.
+
+Tres cosas del método que valen más que el resultado:
+
+- **Es diferencial porque un intento suelto no concluye nada.** Meta ignora lo que no conoce, así
+  que un `#100` significa "ese campo no existe", no "ese valor está mal". Cada candidato va contra
+  un campo inventado y se comparan los errores.
+- **El comparador mintió en la primera corrida y dijo lo contrario de lo que decían sus propios
+  datos.** `recipient_type` salía "Meta SÍ conoce este campo" porque Meta **hace eco del valor
+  rechazado** dentro del mensaje (`...but got 'username'`), así que candidato y control difieren
+  siempre. Se arregló borrando de los dos mensajes los tokens que distinguen al par. Un
+  diferencial puede diferir por otra condición que la que se está midiendo.
+- **Tiene control positivo, y sin él no valdría.** Todo el probe concluye leyendo "no se
+  distinguen", que es exactamente lo que produce un comparador ciego. El par
+  `recipient_type: "individual"` (válido) contra uno inventado tiene que DIFERIR; si no, el probe
+  se descarta entero en vez de reportar "no sirve".
+
 **Lo que sí se pudo hacer, y la ventana se cierra sola.** Hoy el BSUID llega **junto** al número
 (`contacts[0]` trae `wa_id` Y `user_id`). Mientras dure esa superposición se le aprende el BSUID a
 cada usuario que escribe (migración **065**, `persistirBsuid` en `helpers/db-helpers.js`), y cuando
@@ -992,6 +1020,29 @@ en un solo array los procesa en fila y NO ve esta carrera).
 **El require de `db-helpers` en `whatsapp.js` es PEREZOSO a propósito.** `whatsapp.js` es
 infraestructura de envío y `db-helpers` está una capa arriba; importarlo al tope invierte las
 capas e invita a un ciclo el día que `db-helpers` necesite mandar un mensaje.
+
+**El gasto ya no cae en silencio TOTAL (03-sep-2026).** `registrarGastoSilencioso` guardaba y no
+avisaba por ningún lado: `intentarConfirmar` corta en `!usuario.whatsapp`, así que quien llega por
+BSUID **sin número guardado** no recibía nada — ni respuesta, ni fila en `notificaciones`, ni en
+`notification_deliveries`. Medido ese día: el único usuario en esa situación llevaba 2 gastos
+anotados con **0 y 0**, y escribió al Instagram de Neto porque desde su lado el producto parecía
+muerto.
+
+Hoy `confirmarComoSePueda` es el único lugar donde se decide qué se entera el usuario, y llama a
+dos cosas que conviven a propósito: `intentarConfirmar` (el experimento D10, que necesita el
+resultado CRUDO de `enviarWhatsapp` porque el `code` de un rechazo síncrono ES el veredicto) y
+`dejarRastroEnLaCampana`, que manda `SOLO_IN_APP` por el chokepoint con el mismo texto.
+
+**Correo NO, y es decisión de Favio, no un pendiente.** Se le planteó que la campana obliga a la
+persona a entrar sola a la webapp —que es justo lo que no está pasando— y eligió campana sola,
+para no gastarle a esta gente el tope de 5 correos diarios que comparten con el fin de trial y los
+recordatorios de deuda. No re-litigar.
+
+**Ya no es "unidades, no un flujo", y esta sección decía eso.** Recontado el 03-sep con la query
+de arriba: **12 BSUID reales distintos en 30 días, 7 en los últimos 10, y 5 estrenados el 01 y el
+02-sep**. De esos 7, **6 son desconocidos**: gente que le escribe al bot, no tiene cuenta, y no hay
+forma de contestarle ni de identificarla. Para ellos no hay campana que valga — dependen de que
+Meta habilite el envío, y el probe de arriba dice que hoy no.
 
 **Quién queda fuera, con números al 08-ago:** los **62 del muro** casi no reciben nada (el muro
 corta las lecturas proactivas), así que el camino saliente no los alcanza. Y **43 usuarios son

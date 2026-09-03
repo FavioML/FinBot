@@ -46,11 +46,14 @@ function loadEnv(file) {
 }
 
 const env = loadEnv(path.join(os.homedir(), '.config', 'neto', 'qa.env'));
-const APP = env.NETO_QA_URL || 'https://app.neto.pe';
-const SUPA = env.NETO_QA_SUPABASE_URL || process.env.SUPABASE_URL;
+// Ojo con el nombre: `NETO_QA_URL` es la URL de SUPABASE, no la de la app. Cuesta un rato
+// descubrirlo y el harness hermano lo usa igual.
+const APP = process.env.NETO_APP_URL || 'https://app.neto.pe';
+const SUPA = env.NETO_QA_URL;
 const ANON = env.NETO_QA_ANON;
 const U = { email: env.NETO_QA_EMAIL, password: env.NETO_QA_PASSWORD, uid: env.NETO_QA_USUARIO_ID };
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY
+  || env.SUPABASE_SERVICE_ROLE_KEY
   || loadEnv(new URL('../webapp/.env.local', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')).SUPABASE_SERVICE_ROLE_KEY;
 
 if (!SUPA || !ANON || !U.email || !U.password || !U.uid) {
