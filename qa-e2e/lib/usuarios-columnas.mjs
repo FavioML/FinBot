@@ -110,6 +110,12 @@ export const NO_SE_FUSIONAN = {
   activacion_nudge_at:
     'marca de "ya le mandé el empujón de activación". El merge SIGNIFICA que la activación se ' +
     'completó, así que el nudge no vuelve a evaluarse para esta persona.',
+  otp_solicitado_at:
+    'sólo la escribe `webapp/src/app/api/onboarding/route.ts`, que actualiza POR ' +
+    '`supabase_auth_id` — o sea la fila del SURVIVOR, que es la que ya tiene el valor bueno. La ' +
+    'fila de WhatsApp (el loser) nunca la tuvo. Mismo argumento que `tour_visto`.',
+  otp_solicitudes:
+    'ídem `otp_solicitado_at`: es su contador y lo escribe el mismo UPDATE, sobre la misma fila.',
 };
 
 /**
