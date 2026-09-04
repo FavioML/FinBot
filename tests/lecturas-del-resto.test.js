@@ -155,6 +155,16 @@ const EXCLUIDOS = {
       + 'lo que se afirma sobre estos archivos lo vigila el drift-check del workspace, no un '
       + 'guard de lecturas.',
   },
+  'prompts': {
+    motivo: 'Los dos prompts que el runtime carga por ruta al arrancar '
+      + '(`NETO_system_prompt.txt`, `NETO_recomendaciones_prompt.md`). Cero archivos '
+      + 'ejecutables: son texto que alimenta al modelo, así que no hay query que barrer. '
+      + 'Vivían en `docs/` y se movieron acá el 04-sep-2026 porque `railway.json` excluye '
+      + '`docs/**` y editarlos NO redesplegaba el backend. Que sigan siendo desplegables lo '
+      + 'vigila `tests/runtime-desplegable.test.js`; que no tengan voseo, '
+      + '`tests/copy-sin-voseo.test.js`. El día que alguien meta un .js acá dentro, esta '
+      + 'exclusión hay que re-tomarla a mano.',
+  },
   'content': {
     motivo: 'Assets de contenido (reels, carruseles, captions) que no forman parte del runtime '
       + 'del backend: los consume Editor Pro Max, que es otro proyecto. Nada de lo que hay acá '

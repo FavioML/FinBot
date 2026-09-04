@@ -126,7 +126,9 @@ sus resultados dependen de cómo clasifique el NLP ese día.
 
 - Backend CommonJS, editar con Edit tool, UTF-8 sin BOM.
 - Commit + push directo, mensajes en inglés con prefijo.
-- El system prompt vive SOLO en `docs/NETO_system_prompt.txt`, cargado por `lib/neto-prompt.js`
+- El system prompt vive SOLO en `prompts/NETO_system_prompt.txt`, cargado por `lib/neto-prompt.js`
+  (estaba en `docs/` cuando se escribió esto; se movió el 04-sep-2026 porque `railway.json`
+  excluye `docs/**` y editarlo no redesplegaba)
   (falla al arranque si no está). No duplicarlo.
 
 ## Historia (por qué esto existía)

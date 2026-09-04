@@ -34,7 +34,7 @@ const VOSEO = [
 // Runtime que produce texto para el usuario, más el prompt de recomendaciones (que no es
 // runtime pero alimenta al modelo, y un ejemplo con voseo ahí vale por mil mensajes).
 const OBJETIVOS = ['handlers', 'services', 'lib', 'cron', 'routes', 'helpers'];
-const ARCHIVOS_SUELTOS = ['docs/NETO_recomendaciones_prompt.md'];
+const ARCHIVOS_SUELTOS = ['prompts/NETO_recomendaciones_prompt.md'];
 
 function recolectar(dir, acc = []) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {

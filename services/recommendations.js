@@ -16,7 +16,7 @@ const { subcategoriaUtil } = require('../lib/subcategoria');
  * bloque omitido en el resumen mensual). Resultado: `generarRecomendaciones` devolvió `null`
  * en el 100% de las llamadas durante ~4 meses sin que nada lo delatara.
  */
-const PROMPT_RECOM_PATH = path.join(__dirname, '..', 'docs', 'NETO_recomendaciones_prompt.md');
+const PROMPT_RECOM_PATH = path.join(__dirname, '..', 'prompts', 'NETO_recomendaciones_prompt.md');
 
 function cargarPromptRecomendaciones() {
   let raw;

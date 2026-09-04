@@ -55,7 +55,17 @@ landing/node_modules/
 **/ANTIGRAVITY-UPDATE-*.md
 
 # Prompts de kickoff de sesion (working docs, no codigo de producto).
-# Los prompts de referencia durables van en docs/ y SI se versionan.
+#
+# Los prompts durables SI se versionan. Donde van depende de si el codigo los EJECUTA:
+#   - de REFERENCIA (no los carga nadie, se leen a mano)  -> docs/
+#   - de RUNTIME    (el codigo los lee por ruta al arrancar) -> prompts/
+#
+# No es una distincion de orden. `railway.json` excluye `docs/**` de `watchPatterns`,
+# asi que un prompt de RUNTIME guardado ahi se edita sin que Railway redespliegue: el
+# backend sigue sirviendo la version vieja en silencio. Paso de verdad entre el 22-jul y
+# el 04-sep-2026 con el system prompt maestro. La frase que estaba aca decia "los prompts
+# de referencia durables van en docs/" sin separar los dos casos, y era justo la
+# convencion escrita que volvia a meter runtime en la carpeta excluida.
 **/PROMPT-*.md
 
 # Estado local de tareas / lecciones

@@ -138,7 +138,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
     const anioActual = parseInt(hoyParts[0], 10);
     const planUsuario = usuario.plan || 'free';
     const mE = ['','Enero','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-    // Cargar NETO system prompt con datos del usuario (docs/NETO_system_prompt.txt, cacheado).
+    // Cargar NETO system prompt con datos del usuario (prompts/NETO_system_prompt.txt, cacheado).
     // `correoConectado` se resolvió arriba, en el Promise.all del arranque.
     const netoPrompt = construirNetoPrompt({
       nombre: usuario.nombre,

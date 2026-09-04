@@ -56,7 +56,18 @@ es desplegar y cada exclusion hay que justificarla:
   (verificado por grep). Ojo: `services/spaces-split.js` es el espejo CJS que el
   backend SI usa, y **no** esta excluido, asi que tocarlo si redespliega.
 - `qa-e2e/**` — harness que corre local o en CI, nunca en el servidor.
-- `docs/**` y `*.md` de la raiz — no los ejecuta nadie.
+- `docs/**` y `*.md` de la raiz — no los ejecuta nadie. Desde el 04-sep-2026 eso es
+  cierto **por construccion y no por costumbre**, porque durante mes y medio fue falso:
+  los dos prompts que el runtime carga por ruta (`NETO_system_prompt.txt` y
+  `NETO_recomendaciones_prompt.md`) habian aterrizado en `docs/` en `7941cb0`
+  (31-mar-2026, un commit de limpieza) y esta exclusion nacio en julio razonando sobre lo
+  que el NOMBRE de la carpeta prometia. Consecuencia: editar el system prompt maestro de
+  Neto **no disparaba redeploy** y produccion seguia sirviendo el anterior, sin error y
+  sin aviso. Los dos archivos viven ahora en `prompts/`, que no esta excluido.
+  **Que volveria falsa esta linea:** cualquier archivo bajo `docs/` que el codigo lea por
+  ruta. No lo vigila este parrafo —un motivo escrito no se ejecuta— sino
+  `tests/runtime-desplegable.test.js`, que deriva la respuesta de este mismo
+  `watchPatterns` en vez de fijar rutas como cadena.
 
 Los tests de paridad (`tests/services/spaces-split-parity.test.js`) si importan de
 `webapp/`, pero corren en GitHub Actions, no en el build de Railway (el

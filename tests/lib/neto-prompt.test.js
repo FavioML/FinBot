@@ -7,11 +7,19 @@ const { construirNetoPrompt, PROMPT_PATH, PLACEHOLDERS, MARCA_CONTEXTO, RAW_PROM
 
 // Regresión: durante meses message-processor.js leyó el prompt desde handlers/ (ruta
 // inexistente) y el ENOENT caía en un catch silencioso → producción usaba un fallback de
-// una línea. Estos tests fallan si la ruta o el contrato de placeholders se vuelve a romper.
+// una línea. Estos tests fallan si el contrato de placeholders se vuelve a romper o si el
+// archivo deja de ser el prompt real.
+//
+// DÓNDE vive el archivo NO se afirma acá, y es deliberado. Hasta el 04-sep-2026 este bloque
+// exigía que la ruta contuviera '/docs/NETO_system_prompt.txt', o sea que fijaba como
+// correcta la única ubicación desde la que editar el prompt NO redesplegaba el backend
+// (`railway.json` excluye `docs/**`): el test no solo no atrapó ese bug, lo blindó.
+// Reescribirlo con '/prompts/' habría sido el mismo error con otra cadena. La ubicación la
+// vigila `tests/runtime-desplegable.test.js`, que deriva la respuesta de `railway.json` en
+// vez de escribirla a mano.
 describe('lib/neto-prompt', () => {
-  it('el archivo fuente existe en docs/ y es el prompt completo, no un fallback', () => {
+  it('el archivo fuente existe y es el prompt completo, no un fallback', () => {
     expect(fs.existsSync(PROMPT_PATH)).toBe(true);
-    expect(PROMPT_PATH.replace(/\\/g, '/')).toContain('/docs/NETO_system_prompt.txt');
     expect(RAW_PROMPT.length).toBeGreaterThan(10000);
     expect(RAW_PROMPT).toContain('SYSTEM PROMPT MAESTRO');
   });
@@ -70,7 +78,7 @@ describe('lib/neto-prompt', () => {
     });
   });
 
-  it('no duplica el archivo fuera de docs/', () => {
+  it('no duplica el archivo fuera de prompts/', () => {
     expect(fs.existsSync(new URL('../../handlers/NETO_system_prompt.txt', import.meta.url))).toBe(false);
   });
 });

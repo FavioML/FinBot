@@ -675,4 +675,4 @@ Before publishing any NETO copy, verify:
 
 ---
 
-*Document maintained by the NETO product team. Update after any positioning change, new feature launch, or market expansion. Source of truth for tone: NETO_system_prompt.txt (WhatsApp) and this document (all channels).*
+*Document maintained by the NETO product team. Update after any positioning change, new feature launch, or market expansion. Source of truth for tone: prompts/NETO_system_prompt.txt (WhatsApp) and this document (all channels).*
