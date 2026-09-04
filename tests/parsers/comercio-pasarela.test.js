@@ -182,6 +182,34 @@ describe('extraerComercioPasarela', () => {
     expect(extraerComercioPasarela('Se registro una operacion IZI*4821 en tu cuenta')).toBe(null);
   });
 
+  it('el número del local es parte del nombre, no un código de operación', () => {
+    // Reportado por Favio el 04-sep-2026 sobre un aviso real de BCP: el local se llama
+    // "345 RESTO CAFE" y quedó guardado como "RESTO CAFE". El rescate exigía que el nombre
+    // empezara con letra —guarda puesta contra "IZI*4821 en tu cuenta"— y devolvía null.
+    expect(extraerComercioPasarela('Consumo de S/ 28.00 en IZI*345 RESTO CAFE. Tarjeta'))
+      .toBe('345 RESTO CAFE');
+    expect(extraerComercioPasarela('IZI*24 HORAS MARKET Monto S/ 12.00')).toBe('24 HORAS MARKET');
+    // Y la guarda vieja sigue en pie: lo que separa un caso del otro es la palabra que sigue
+    // al número, prosa en el código y nombre en el local.
+    expect(extraerComercioPasarela('Se registro una operacion IZI*4821 en tu cuenta')).toBe(null);
+    expect(extraerComercioPasarela('Empresa IZI*99 de la cuenta Monto S/ 5')).toBe(null);
+  });
+
+  it('completa el nombre que el modelo mutiló, cuando el correo lo contiene entero', () => {
+    // (3b). El modelo devolvió un pedazo del nombre; el correo lo tiene completo.
+    expect(extraerComercioPasarela('Consumo en IZI*345 RESTO CAFE. Tarjeta', { prefiere: 'RESTO CAFE' }))
+      .toBe('345 RESTO CAFE');
+    expect(extraerComercioPasarela('Consumo en DLC*PedidosYa Mariate Aur. Tarjeta', { prefiere: 'PedidosYa' }))
+      .toBe('PedidosYa Mariate Aur');
+  });
+
+  it('no da por el mismo local dos sucursales que sólo difieren en el número', () => {
+    // Es el caso que motivó la guarda de largo de (4). La contención por TOKENS lo mantiene
+    // afuera sin mirar el largo: "grifo primax 1" no cierra token dentro de "grifo primax 12".
+    expect(extraerComercioPasarela('Consumo en IZI*GRIFO PRIMAX 12. Tarjeta', { prefiere: 'GRIFO PRIMAX 1' }))
+      .toBe(null);
+  });
+
   it('devuelve null cuando no hay forma de pasarela', () => {
     expect(extraerComercioPasarela('Consumo en PLAZA VEA por S/ 45.50')).toBe(null);
     expect(extraerComercioPasarela('')).toBe(null);
@@ -243,6 +271,31 @@ describe('parsearCorreoBancario: el comercio no queda a criterio del modelo', ()
     responder('Plaza Vea');
     const r = await parsearCorreoBancario('Consumo en SPSA PLAZA VEA por S/ 45.50', 'BCP');
     expect(r.comercio).toBe('Plaza Vea');
+  });
+
+  it('el correo le gana aunque el modelo YA haya pelado el prefijo', async () => {
+    // Los dos defectos reportados el 04-sep-2026. El prompt le pide al modelo pelar la
+    // pasarela, así que cuando obedece y de paso se come parte del nombre, la respuesta no
+    // arranca con pasarela y el override no corría: nadie miraba el correo.
+    responder('RESTO CAFE');
+    const r1 = await parsearCorreoBancario(
+      'Hola Favio Alejandro, Realizaste un consumo de S/ 28.00 con tu Tarjeta de Crédito BCP ' +
+      'en IZI*345 RESTO CAFE. Por tu seguridad, te enviamos los datos de tu operación.', 'BCP');
+    expect(r1.comercio).toBe('345 RESTO CAFE');
+
+    responder('PedidosYa');
+    const r2 = await parsearCorreoBancario(
+      'Hola Favio Alejandro, Realizaste un consumo de S/ 46.80 con tu Tarjeta de Crédito BCP ' +
+      'en DLC*PedidosYa Mariate Aur. Por tu seguridad, te enviamos los datos de tu operación.', 'BCP');
+    expect(r2.comercio).toBe('PedidosYa Mariate Aur');
+  });
+
+  it('cuando el correo no agrega nada, gana la capitalización del modelo', async () => {
+    // La rama nueva consulta el correo SIEMPRE, así que tiene que no romper el caso normal:
+    // el aviso está en mayúsculas y el nombre del modelo se lee mejor. Misma clave → no toca.
+    responder('Barbanegra');
+    const r = await parsearCorreoBancario(CORREO_BCP, 'BCP');
+    expect(r.comercio).toBe('Barbanegra');
   });
 
   it('si el correo tampoco tiene el nombre, se queda con el prefijo antes que con nada', async () => {

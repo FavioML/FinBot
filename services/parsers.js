@@ -148,19 +148,43 @@ const RE_CORTE_COMERCIO = new RegExp(
   + '|\\s+por\\s+tu\\b'
   + '|\\s+(?:S/|US\\$|\\$)', 'i');
 
+// Palabras función del castellano. Son lo que separa un código de operación de un local
+// numerado cuando el nombre arranca con dígitos: detrás del código viene prosa ("4821 en tu
+// cuenta"), detrás del número del local viene el nombre ("345 RESTO CAFE").
+const RE_PALABRA_FUNCION = /^(?:en|de|del|la|el|los|las|un|una|unos|unas|por|para|con|sin|tu|tus|su|sus|mi|mis|al|a|y|o|u|que|se|es|son|fue|no|desde|hasta|sobre|entre|como)$/i;
+
 function limpiarNombreExtraido(bruto) {
   const corte = String(bruto || '').split(RE_CORTE_COMERCIO)[0];
   const nombre = (corte || '').replace(/\s+/g, ' ').trim().slice(0, 40).trim();
+  if (nombre.length < 2) return null;
   // Tiene que EMPEZAR con letra. El chequeo viejo pedía "alguna letra" en cualquier posición y
   // se lo comía un código de operación seguido de prosa: "IZI*4821 en tu cuenta" pasaba como
-  // comercio "4821 en tu". Un comercio real no empieza con un número de operación.
-  if (nombre.length < 2 || !/^[A-Za-z\u00c0-\u024f]/.test(nombre)) return null;
-  return nombre;
+  // comercio "4821 en tu".
+  if (/^[A-Za-z\u00c0-\u024f]/.test(nombre)) return nombre;
+  // **Salvo que el número sea parte del nombre.** Medido el 04-sep-2026 en producción: el aviso
+  // decía "IZI*345 RESTO CAFE" —el local se llama así— y el rescate devolvía null por empezar
+  // con dígito, así que quedaba lo que dijera el modelo, que fue "RESTO CAFE" sin el 345.
+  // Exigir letra a secas obliga a elegir entre dejar pasar el código de operación o perder el
+  // local numerado; la palabra que sigue al número decide cuál es cuál sin tener que elegir.
+  const m = nombre.match(/^\d+\s+([A-Za-z\u00c0-\u024f]\S*)/);
+  if (m && !RE_PALABRA_FUNCION.test(m[1])) return nombre;
+  return null;
 }
 
 // Clave de comparación: decide si dos grafías son el mismo comercio, aguantando el case y la
 // puntuación ("REST. EL PARAISO" y "RESTELPARAISO" comparten clave con "REST EL PARAISO").
 const claveComercio = (x) => String(x || '').toLowerCase().replace(/[^a-z0-9\u00c0-\u024f]/g, '');
+
+// Clave por TOKENS: sirve para preguntar si un nombre está CONTENIDO en otro sin que la
+// pregunta se cuele a media palabra. `claveComercio` no puede hacerlo —borra los espacios, así
+// que "grifoprimax1" queda adentro de "grifoprimax12" y dos sucursales distintas se dan por la
+// misma. Con los espacios puestos, " grifo primax 1 " no está en " grifo primax 12 ".
+const claveTokens = (x) => ' ' + String(x || '').toLowerCase()
+  .replace(/[^a-z0-9\u00c0-\u024f]+/g, ' ').trim() + ' ';
+const contieneNombre = (grande, chico) => {
+  const c = claveTokens(chico);
+  return c.trim().length > 0 && claveTokens(grande).includes(c);
+};
 
 // El cuerpo del nombre NO puede tragarse la mención siguiente. Antes se capturaba goloso y se
 // partía después, y eso tenía un agujero medido: el tope de 49 caracteres cae ANTES del tercer
@@ -169,7 +193,11 @@ const claveComercio = (x) => String(x || '').toLowerCase().replace(/[^a-z0-9\u00
 // iguales, la guarda de ambigüedad no se enteraba y se guardaba el consumo viejo. Acá el token
 // atemperado (`(?!...)` por carácter) hace que cada mención sea su propio match.
 const PREFIJO_PASARELA_SRC = '(?:' + PASARELAS_ALT + ')' + QR_OPCIONAL + '\\s*\\*+\\s*';
-const CUERPO_NOMBRE_SRC = '([A-Za-z\u00c0-\u024f](?:(?!\\b' + PREFIJO_PASARELA_SRC + ')[^\\n]){0,49})';
+// Arranca con letra O CON DÍGITO: hay locales numerados ("IZI*345 RESTO CAFE"). Quién es
+// local y quién código de operación lo decide `limpiarNombreExtraido`, que mira la palabra
+// que sigue al número; acá cerrar la puerta al dígito era perder el local sin salvar nada,
+// porque el código de operación igual entra si empieza con letra.
+const CUERPO_NOMBRE_SRC = '([A-Za-z0-9\u00c0-\u024f](?:(?!\\b' + PREFIJO_PASARELA_SRC + ')[^\\n]){0,49})';
 
 // BCP corta el nombre del comercio a 23 caracteres EN EL PROPIO CORREO, prefijo incluido. No
 // es una estimación: medido el 02-sep-2026 sobre las 389 transacciones de Gmail, 48 miden
@@ -243,6 +271,27 @@ function extraerComercioPasarela(texto, opts) {
   const exacto = candidatos.find((c) => claveComercio(c) === prefiere);
   if (exacto) return exacto;
 
+  // (3b) **El modelo no sólo recorta: MUTILA.** Medido el 04-sep-2026 sobre dos avisos de BCP
+  // del mismo día: "IZI*345 RESTO CAFE" se guardó como "RESTO CAFE" —leyó el número del local
+  // como código de referencia— y "DLC*PedidosYa Mariate Aur" como "PedidosYa", colapsando el
+  // local contra la marca de delivery. En los dos el correo traía el nombre entero. Si el
+  // candidato del correo CONTIENE al nombre del modelo, es el mismo comercio con más
+  // información, y el correo es la fuente.
+  //
+  // La contención se pide por TOKENS completos, y eso es lo que la separa de (4): mantiene
+  // afuera el caso que motivó la guarda de largo, donde "GRIFO PRIMAX 1" y "GRIFO PRIMAX 12"
+  // son dos sucursales y no una recortada. Por eso acá no hace falta mirar el largo: un token
+  // que no cierra no es contención. La guarda (1) ya garantizó que el correo nombra un solo
+  // comercio, así que "más información" no puede venir de otro negocio.
+  // El piso de largo NO es cosmético: con un nombre de dos letras la contención es gratis
+  // ("EL" está adentro de medio Perú), y ese caso está medido —modelo "IZI*EL", correo
+  // "IZI*EL AGUAJAL"—. De ahí sale el piso y no de un número redondo. Lo demás lo cierra la
+  // contención por tokens, que ya deja afuera "MERCADO" dentro de "SUPERMERCADO SAN JOSE".
+  const nombreModelo = (opts && opts.prefiere) || '';
+  if (claveComercio(nombreModelo).length >= 3 && contieneNombre(candidatos[0], nombreModelo)) {
+    return candidatos[0];
+  }
+
   // (4) El nombre del modelo puede venir recortado por el banco y el del correo no, así que un
   // candidato que EXTIENDE al del modelo puede ser el mismo local. Sólo en esa dirección
   // —el banco recorta por el final, nunca por el principio— y sólo si el largo dice que el
@@ -301,7 +350,9 @@ Trabajo_Negocio: herramientas | publicidad | oficina | logistica | contador
 Otros:           regalo | donacion | multa | viaje | sin_categoria
 
 REGLAS DE NORMALIZACIÓN DE COMERCIOS:
-- Rappi / PedidosYa / Glovo / DLC*PedidosYa → comercio limpio, categoria: Alimentación, subcategoria: delivery
+- Rappi / PedidosYa / Glovo / DLC*PedidosYa → categoria: Alimentación, subcategoria: delivery.
+  El comercio va COMPLETO: si el aviso trae el local detrás de la marca ("DLC*PedidosYa Mariate Aur"),
+  el comercio es "PedidosYa Mariate Aur", NO sólo "PedidosYa".
 - McDonald's / KFC / Bembos / Pizza Hut / restaurantes / huariques → Alimentación > restaurante
 - SPSA / SPSA TOTTUS / Wong / Metro / Plaza Vea / Tottus / supermercados → Alimentación > supermercado
 - Starbucks / Juan Valdez / café → Alimentación > cafeteria
@@ -403,11 +454,17 @@ REGLA CRÍTICA DE COMERCIO:
   "IZI*BOTICA PEPITO" → comercio: "BOTICA PEPITO" → Salud > farmacia
   "NIUBIZ*VETERINARIA SAN" → comercio: "VETERINARIA SAN" → Compras > mascotas
   "DLC*PEDIDOSYA" → comercio: "PedidosYa" → Alimentación > delivery
+  "DLC*PedidosYa Mariate Aur" → comercio: "PedidosYa Mariate Aur" (la marca Y el local, completo)
+  "IZI*345 RESTO CAFE" → comercio: "345 RESTO CAFE" (el número es parte del nombre del local)
   NUNCA devuelvas sólo el prefijo ("IZI", "NIUBIZ"): no dice nada del gasto y hace
   imposible categorizarlo. Si sólo ves el prefijo, busca el nombre en el resto del correo.
 - Limpiar códigos de referencia y números de operación, pero NUNCA recortar el nombre
   del comercio: si el correo trae "IZI*LA CARPITA DEL SABO", el comercio es
   "LA CARPITA DEL SABO" entero, aunque venga cortado por el banco.
+- Un número PEGADO al nombre después del asterisco es parte del nombre, no un código:
+  "IZI*345 RESTO CAFE" → "345 RESTO CAFE", "IZI*24 HORAS MARKET" → "24 HORAS MARKET".
+  Sólo se descarta un número cuando lo que sigue es prosa del aviso y no un nombre
+  ("IZI*4821 en tu cuenta" → no hay comercio).
 
 REGLAS GENERALES:
 - fecha en formato YYYY-MM-DD (año actual 2026)
@@ -425,7 +482,7 @@ REGLAS GENERALES:
   * Consumos, pagos, compras, transferencias enviadas
   * El campo "Enviado a" o "Beneficiario" indica a quién le pagó el usuario
 - subcategoria NUNCA puede ser null — usar sin_categoria si no sabes
-- comercio: nombre limpio sin códigos y sin prefijo de pasarela (no "DLC*PEDIDOSYA" sino "PedidosYa"; no "IZI" sino "BARBANEGRA")`;
+- comercio: nombre limpio sin códigos y sin prefijo de pasarela, pero COMPLETO: se pela lo que está ANTES del asterisco y se conserva TODO lo que está después (no "DLC*PEDIDOSYA" sino "PedidosYa"; no "IZI" sino "BARBANEGRA"; y si detrás del asterisco hay varias palabras o un número, van todas)`;
 
 /**
  * Construye el bloque de prompt con categorías custom del usuario.
@@ -507,6 +564,19 @@ async function parsearCorreoBancario(texto, contexto, categoriasCustom) {
       });
       if (delCorreo) {
         log.info({ tag: 'COMERCIO', devuelto: comercio, delCorreo }, 'Comercio tomado del correo en vez de la respuesta del modelo');
+        comercio = delCorreo;
+      }
+    } else {
+      // **Que el modelo YA haya pelado el prefijo alcanzaba para que nadie mirara el correo**, y
+      // ahí viven los dos defectos medidos el 04-sep-2026. El prompt le pide pelar la pasarela,
+      // así que el caso en que obedece —y de paso se come parte del nombre— es el normal, no el
+      // raro: la respuesta sale sin pasarela, `partirPasarela` da null y el override no corría.
+      // La evidencia del correo no cambia por cómo respondió el modelo, así que se consulta
+      // igual. Sólo reemplaza si aporta: con la misma clave gana el nombre del modelo, que trae
+      // mejor capitalización que las mayúsculas del aviso ("Netflix" y no "NETFLIX").
+      const delCorreo = extraerComercioPasarela(texto, { prefiere: comercio });
+      if (delCorreo && claveComercio(delCorreo) !== claveComercio(comercio)) {
+        log.info({ tag: 'COMERCIO', devuelto: comercio, delCorreo }, 'Comercio completado desde el correo');
         comercio = delCorreo;
       }
     }
