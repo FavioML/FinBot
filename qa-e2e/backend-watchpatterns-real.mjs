@@ -78,6 +78,11 @@
 //     vacío por construcción y Railway no evalúa `watchPatterns` en un redeploy manual, así
 //     que ningún predicado puede acertarle. Sale de juzgables en LAS DOS direcciones, también
 //     cuando el modelo "acierta": ahí acierta sin mirar nada.
+//   - `redeploy-manual-sin-veredicto` — `meta.ignoreWatchPatterns === true`: Railway lo dice
+//     él mismo. Un redeploy manual desde la UI (o un cambio de variable) construye sin mirar
+//     `watchPatterns`, así que no hay veredicto que comparar. Es hermana de
+//     `redeploy-sin-diff` pero se decide por la DECLARACIÓN y no por el síntoma del diff
+//     vacío, que se pierde el redeploy manual de un commit distinto del último construido.
 //   - `sin-patrones-declarados`, `sin-historia-local`, `sin-base`, `patrones-no-compilables`.
 //
 // Todas se cuentan en `noJuzgadas` y el total cierra contra `deployments`: si una corrida
@@ -299,6 +304,31 @@ export function compararConRailway(deployments, obtenerArchivos) {
     const baseEnVuelo = paseloEnVuelo(ultimoDesplegadoFila, d);
     if (!ultimoDesplegado) {
       fila.clase = 'sin-base'; // el más viejo de la ventana no tiene contra qué diffear
+    } else if (d.ignoroPatrones) {
+      // RAILWAY DECLARA QUE NO MIRÓ LOS PATRONES. `meta.ignoreWatchPatterns === true` es un
+      // redeploy manual (o un cambio de variable/settings), y ahí Railway construye SIN
+      // evaluar `watchPatterns`. No hay veredicto que comparar: juzgarlo inventa un
+      // desacuerdo, que es el modo de falla que este harness existe para no tener.
+      //
+      // Es la MISMA razón que ya justificaba `redeploy-sin-diff` —está escrita en su
+      // comentario: "un redeploy manual no consulta watchPatterns"— pero aquella detecta el
+      // caso por un SÍNTOMA (`base === sha`, o sea el diff vacío) y no por la declaración.
+      // El síntoma se pierde el redeploy manual de un commit DISTINTO del último construido,
+      // y eso costó caro: `d7ee9c0` (redespliegue manual del 29-ago, base `fb8f5b8`) tocaba
+      // sólo `docs/DEFECTOS.md`, el modelo dijo "no redespliega" con razón, Railway construyó
+      // igual, y el harness quedó ROJO desde el 31-ago. Los canary del 31-ago, 1-sep y 2-sep
+      // lo reportaron los tres días como falso positivo sin que nadie lo arreglara — y un
+      // canary que grita todos los días deja de leerse, así que su rojo real también se pierde.
+      //
+      // `redeploy-sin-diff` SE QUEDA: cubre el redespliegue del mismo commit aunque Railway
+      // no marque la bandera, y las dos condiciones son independientes.
+      //
+      // La base SÍ avanza sobre estos (el `if (llegoAConstruir)` del final, sin tocar): un
+      // redeploy manual produce imagen, así que ese commit es genuinamente lo que quedó
+      // corriendo. Lo que no se juzga es el veredicto, no lo que se desplegó.
+      fila.clase = 'redeploy-manual-sin-veredicto';
+      fila.base = short(ultimoDesplegado);
+      fila.detalle = 'meta.ignoreWatchPatterns=true: Railway construyó sin evaluar los patrones';
     } else if (baseEnVuelo) {
       fila.clase = 'base-en-vuelo';
       fila.base = short(ultimoDesplegado);
@@ -407,6 +437,11 @@ async function main() {
       // acá —detectar que la base pudo estar todavía en vuelo— y no para más.
       tocadoEn: n.updatedAt || null,
       patrones: n.meta?.serviceManifest?.build?.watchPatterns,
+      // Railway lo pone en `true` cuando el deployment NO consultó `watchPatterns`: un
+      // redeploy manual desde la UI, o un cambio de variable/settings. Es la DECLARACIÓN de
+      // Railway, no una inferencia nuestra. Medido el 04-sep-2026 sobre 80 deployments: 5 lo
+      // traen en `true`, 0 en `false`, 75 no traen la clave. O sea que el corte es angosto.
+      ignoroPatrones: n.meta?.ignoreWatchPatterns === true,
     }))
     .filter((d) => d.sha)
     .reverse(); // del más viejo al más nuevo: el "último desplegado" se acumula hacia adelante
