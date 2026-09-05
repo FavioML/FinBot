@@ -50,7 +50,7 @@ import path from 'path';
  * OAuth para afirmar dos `log.error`". Esa estimación era de cuando `/auth/callback` no se
  * montaba acá. Con el router público montado y `gmail.js` en un doble, el camino feliz ya lo
  * recorren tres casos de este archivo y lo único que faltaba era sembrar el error en el
- * `usuarios:update` — con una COLA, para que cada caso diga cuál de las dos escrituras midió.
+ * `usuarios:update` — POR COLUMNA, para que cada caso diga cuál de las dos escrituras midió.
  *
  * Y hacía falta, porque el guard de forma no ve la DIRECCIÓN del fallo: la mutación peligrosa
  * en un fail-open no es borrarle el `if (error)` sino "completarlo" con un corte.
@@ -83,9 +83,18 @@ const SIN_FILAS = { code: 'PGRST116', details: 'The result contains 0 rows', mes
 function cadena(tabla) {
   const c = {};
   let op = 'select';
+  /** Columnas del payload de la última escritura, para poder sembrar por escritura. */
+  let campos = null;
   const resultado = () => {
     db.llamadas.push(tabla + ':' + op);
-    const v = db.resp[tabla + ':' + op];
+    // Una escritura se puede sembrar POR COLUMNA (`usuarios:update:onboarding_completado`) y
+    // no sólo por tabla. Es lo que distingue las dos escrituras de `/auth/callback` sin
+    // depender del ORDEN en que llegan; el porqué está en el bloque de ese describe.
+    let v;
+    if (campos) for (const k of campos) {
+      if (db.resp[tabla + ':' + op + ':' + k] !== undefined) { v = db.resp[tabla + ':' + op + ':' + k]; break; }
+    }
+    if (v === undefined) v = db.resp[tabla + ':' + op];
     // COLA por clave: sembrar un array responde una vez por elemento. Sin esto, las DOS
     // lecturas de `/auth/callback` sobre `usuarios` reciben lo mismo, y el caso que separa
     // "no caigo al fallback" de "caigo al fallback y da igual" **no puede existir** — es
@@ -94,8 +103,9 @@ function cadena(tabla) {
     return v !== undefined ? v : { data: null, error: null };
   };
   for (const m of ['select', 'eq', 'neq', 'in', 'is', 'not', 'gte', 'lte', 'order', 'limit', 'ilike']) c[m] = () => c;
-  c.insert = () => { op = 'insert'; return c; };
-  c.update = () => { op = 'update'; return c; };
+  const columnas = (p) => (p && typeof p === 'object' && !Array.isArray(p) ? Object.keys(p) : null);
+  c.insert = (p) => { op = 'insert'; campos = columnas(p); return c; };
+  c.update = (p) => { op = 'update'; campos = columnas(p); return c; };
   c.maybeSingle = async () => resultado();
   // **`single()` NO es igual a `maybeSingle()`, y hacerlos iguales dejaba sin cobertura la
   // distinción que este trabajo declara load-bearing en cinco sitios.** PostgREST devuelve
@@ -459,9 +469,33 @@ describe('routes/public.js: el callback de OAuth y la mini-landing', () => {
    * con los tokens ya guardados, en un error a la vista del usuario; y en el segundo,
    * silenciar el "¡Listo!" no arregla el flag y encima borra una confirmación cierta.
    *
-   * La siembra es una COLA sobre `usuarios:update`: la primera es la del perfil, la segunda la
-   * del cierre de onboarding. Sin cola, sembrar el error alcanzaría a las dos y ninguno de los
-   * dos casos diría cuál de las dos ramas midió.
+   * LA SIEMBRA ES POR COLUMNA, NO POR ORDEN, Y ESO ARREGLÓ UN FLAKE REAL.
+   *
+   * Hasta el 04-sep-2026 era una COLA sobre `usuarios:update`: la primera respuesta para el
+   * perfil, la segunda para el cierre de onboarding. El razonamiento era correcto —sembrar
+   * por tabla alcanzaría a las dos escrituras y ningún caso diría cuál midió— pero el ORDEN
+   * no es de fiar acá, porque `/auth/callback` programa un `setTimeout(2000)` que sigue
+   * escribiendo DESPUÉS de que la respuesta volvió (`routes/public.js:226`). Ese trabajo
+   * sobrevive al caso que lo lanzó y aterriza dentro de OTRO.
+   *
+   * Las dos consecuencias, medidas instrumentando el doble para atribuirle cada llamada al
+   * test que corría en ese momento:
+   *
+   *   1. **Flake.** Si el huérfano caía en 'el UPDATE del perfil de Google caído', se llevaba
+   *      el único `CAIDA` de la cola; el UPDATE propio del caso recibía entonces el default
+   *      sano, no había `log.error` con tag OAUTH, y moría con 'el UPDATE caído se fue mudo'.
+   *      Una vez en 15 corridas de la suite completa, y reproducible al 100% metiendo 1.5s
+   *      entre la siembra y el canje, que es lo que hace sola una máquina cargada.
+   *   2. **Peor: un caso que pasaba por el error de OTRO.** El de onboarding consumía el
+   *      `CAIDA` con el timer huérfano de un caso anterior y encontraba SU log ahí; su propio
+   *      timer llegaba después, contra la cola vacía, y no escribía nada. Medía la escritura
+   *      equivocada y habría pasado igual con su rama rota.
+   *
+   * Sembrar por COLUMNA elimina las dos: `onboarding_completado` sólo lo escribe el UPDATE del
+   * timer, así que el caso lo NOMBRA en vez de contarlo. Y como ninguna siembra consume, un
+   * huérfano puede llegar cuando quiera sin robarle la respuesta a nadie.
+   *
+   * **No vuelvas a una cola acá.** Si hace falta distinguir dos escrituras, nombrá la columna.
    */
   describe('/auth/callback: los dos UPDATE que fallan ABIERTO siguen fallando abierto', () => {
     /** El destinatario: Pro pagado, resuelto por número, con Gmail nuevo y modo inicial. */
@@ -477,7 +511,7 @@ describe('routes/public.js: el callback de OAuth y la mini-landing', () => {
     const canjear = () => fetch(base + '/auth/callback?code=abc&state=s', { redirect: 'manual' });
 
     it('el UPDATE del perfil de Google caído NO convierte la conexión en un error', async () => {
-      listo({ 'usuarios:update': [CAIDA] });
+      listo({ 'usuarios:update': CAIDA });
       const res = await canjear();
 
       // Lo que importa: los tokens YA se guardaron y el OAuth fue un éxito. Lo único que se
@@ -494,7 +528,7 @@ describe('routes/public.js: el callback de OAuth y la mini-landing', () => {
     it('CONTROL: con el UPDATE sano, mismo 302 y ningún error', async () => {
       // Sin esta mitad, una ruta que devolviera 302 y logueara SIEMPRE pasaría el caso de
       // arriba, y el `toBe(302)` no distinguiría nada.
-      listo({ 'usuarios:update': [{ data: null, error: null }] });
+      listo({ 'usuarios:update': { data: null, error: null } });
       const res = await canjear();
 
       expect(res.status).toBe(302);
@@ -505,7 +539,7 @@ describe('routes/public.js: el callback de OAuth y la mini-landing', () => {
       // Corre DENTRO del `setTimeout(2000)` que arranca después del redirect, así que el caso
       // espera por el efecto en vez de por la respuesta. La cola pone el error en la SEGUNDA
       // escritura: la primera (el perfil) va sana, para que lo que se mida sea ésta.
-      listo({ 'usuarios:update': [{ data: null, error: null }, CAIDA] });
+      listo({ 'usuarios:update:onboarding_completado': CAIDA });
       const res = await canjear();
       expect(res.status).toBe(302);
 
