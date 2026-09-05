@@ -1,6 +1,7 @@
 const log = require('../../lib/logger');
 // La línea de precios sale de PRO_PRECIOS: nunca se escribe a mano (ver lib/config).
 const { lineaPrecioPro } = require('../../lib/config');
+const { mensajeDashboard } = require('../../lib/trial');
 
 module.exports = {
   intents: ['ver_reporte', 'ver_dashboard', 'exportar_datos', 'compartir_resumen', 'ver_recomendaciones'],
@@ -13,7 +14,7 @@ module.exports = {
     switch (intencion) {
 
       case 'ver_dashboard':
-        return '📊 *Tu dashboard está en:*\n\n🔗 https://app.neto.pe\n\nAhí puedes ver gráficos, metas, reportes PDF, suscripciones y más.\n\n_Inicia sesión con tu cuenta de Google._';
+        return mensajeDashboard(usuario);
 
       case 'ver_reporte': {
         const planConfigRep = getUserPlanConfig(usuario);

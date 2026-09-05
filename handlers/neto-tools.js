@@ -295,15 +295,15 @@ const NETO_TOOLS = [
     function: {
       name: "manage_budget",
       description:
-        "Gestiona presupuestos mensuales. Usa cuando el usuario quiere ver, crear, eliminar presupuestos, ver su balance (cuanto le queda), o ver las categorias disponibles.",
+        "Gestiona presupuestos mensuales y el ARBOL de categorias. Usa cuando el usuario quiere ver, crear, eliminar presupuestos, ver su balance (cuanto le queda), ver las categorias disponibles, o RENOMBRAR/BORRAR una categoria suya.",
       parameters: {
         type: "object",
         properties: {
           action: {
             type: "string",
-            enum: ["view", "set", "delete", "balance", "categories"],
+            enum: ["view", "set", "delete", "balance", "categories", "edit_categories"],
             description:
-              "Accion: view=ver presupuesto, set=configurar presupuesto, delete=eliminar presupuesto, balance=ver balance, categories=ver categorias",
+              "Accion: view=ver presupuesto, set=configurar presupuesto, delete=eliminar presupuesto, balance=ver balance, categories=ver categorias, edit_categories=RENOMBRAR o BORRAR una categoria del arbol (solo se hace en la app; responde con el link). NO usar para cambiar la categoria de un gasto ni para una regla de comercio: eso es manage_transaction",
           },
           categoria: {
             type: "string",
@@ -727,15 +727,15 @@ const NETO_TOOLS = [
     function: {
       name: "shared_finances",
       description:
-        "Gestiona finanzas compartidas (espacios para pareja, roommates, amigos). Usa cuando el usuario quiere crear un espacio compartido, registrar un gasto compartido, ver el balance del espacio, liquidar cuentas, invitar a alguien o unirse a un espacio.",
+        "Gestiona finanzas compartidas (espacios para pareja, roommates, amigos). Usa cuando el usuario quiere crear un espacio compartido, registrar un gasto compartido, ver el balance del espacio, liquidar cuentas, invitar a alguien, unirse a un espacio, o cambiar el REPARTO/porcentajes de un espacio que ya existe.",
       parameters: {
         type: "object",
         properties: {
           action: {
             type: "string",
-            enum: ["create_space", "view_spaces", "register_expense", "view_balance", "settle", "invite", "join"],
+            enum: ["create_space", "view_spaces", "register_expense", "view_balance", "settle", "invite", "join", "edit_split"],
             description:
-              "Accion: create_space=crear espacio, view_spaces=ver mis espacios, register_expense=registrar gasto compartido, view_balance=ver balance y deudas, settle=liquidar/pagar deuda, invite=invitar a alguien, join=unirse a un espacio",
+              "Accion: create_space=crear espacio, view_spaces=ver mis espacios, register_expense=registrar gasto compartido, view_balance=ver balance y deudas, settle=liquidar/pagar deuda, invite=invitar a alguien, join=unirse a un espacio, edit_split=cambiar el REPARTO/porcentajes POR DEFECTO del espacio o sus reglas por categoria (solo se hace en la app; responde con el link). NO usar para dividir UN gasto puntual entre personas: eso es manage_transaction con action=split",
           },
           nombre: {
             type: "string",
@@ -848,6 +848,7 @@ const TOOL_INTENT_MAP = {
     delete: "eliminar_presupuesto",
     balance: "ver_balance",
     categories: "ver_categorias",
+    edit_categories: "editar_categorias",
   },
 
   // manage_goals
@@ -938,6 +939,7 @@ const TOOL_INTENT_MAP = {
     settle: "liquidar_espacio",
     invite: "invitar_espacio",
     join: "unirse_espacio",
+    edit_split: "editar_split_espacio",
   },
 };
 

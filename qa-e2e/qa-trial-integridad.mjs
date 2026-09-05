@@ -178,11 +178,14 @@ async function run() {
   // ── 5. El mensaje del día 15, con la fila que REALMENTE le pasa el cron ────
   // El bug no estaba en mensajeMuro: estaba en el select del llamador. Así que se replica
   // el select, no se arma el objeto a mano — es la única forma de que este check valga.
+  // Desde el 05-sep-2026 se DERIVA de `trial.COLUMNAS_MURO` en vez de copiarlo: la copia de
+  // acá ya divergió una vez (le faltó `supabase_auth_id` el mismo día que el cron lo ganó), y
+  // una réplica que envejece sola no replica nada.
   const vencido = await sembrar('vencido', {
     trial_estado: 'vencido', trial_vence: ayer,
   });
   const { data: filaCron } = await supabase.from('usuarios')
-    .select('id, whatsapp, nombre, trial_estado, trial_vence, premium_desde, premium_vence')
+    .select(trial.COLUMNAS_MURO + ', whatsapp')
     .eq('id', vencido.id).maybeSingle();
   const msgVencido = trial.mensajeMuro(filaCron, 40);
   check('a quien terminó su prueba NO se le ofrecen otros 14 días gratis',
@@ -192,7 +195,7 @@ async function run() {
 
   // ── 6. Al ex-cliente se le habla de su Pro, no de una prueba ───────────────
   const { data: filaExCliente } = await supabase.from('usuarios')
-    .select('id, whatsapp, nombre, trial_estado, trial_vence, premium_desde, premium_vence')
+    .select(trial.COLUMNAS_MURO + ', whatsapp')
     .eq('id', convertido.id).maybeSingle();
   const msgExCliente = trial.mensajeMuro(filaExCliente, 87);
   check('al ex-pagador se le nombra su *Pro*, no una prueba que nunca tuvo',

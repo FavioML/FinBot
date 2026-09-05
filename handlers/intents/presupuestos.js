@@ -1,9 +1,10 @@
 const log = require('../../lib/logger');
 const { validarMonto } = require('../../lib/validators');
 const { verificarEscritura, entro } = require('../../helpers/escritura-verificada');
+const { enlaceApp, estaEnMuro } = require('../../lib/trial');
 
 module.exports = {
-  intents: ['ver_presupuesto', 'configurar_presupuesto', 'eliminar_presupuesto', 'ver_balance', 'ver_categorias'],
+  intents: ['ver_presupuesto', 'configurar_presupuesto', 'eliminar_presupuesto', 'ver_balance', 'ver_categorias', 'editar_categorias'],
   async handle({ intencion, msg, datos, usuario, from, ctx }) {
     const {
       supabase, mesActual, anioActual, mE, ultimoDiaMes,
@@ -55,6 +56,43 @@ module.exports = {
           return '✅ Presupuesto configurado:\n' + emojiPres + ' *' + datos.categoria + ':* S/ ' + montoPres.toFixed(2) + '/mes' + lineaAlerta;
         }
         return '💰 Dime la categoría y el monto.\n\nEj:\n• _"límite de S/500 en Alimentación"_\n• _"presupuesto S/200 en Transporte, aviso al 70%"_';
+      }
+
+      // Renombrar o borrar una categoría es solo-app, y hasta el 05-sep-2026 nadie lo decía:
+      // `/categorias` lista o abre el menú de AGREGAR, y no había una sola referencia a la
+      // pantalla de edición en todo `handlers/`. La matriz de canales declaraba
+      // "❌ (redirige a app)" y el redirect no existía. Sin esto, "renombra Comida a Mercado"
+      // caía al NLP, que lo confunde con recategorizar UNA transacción o con una regla de
+      // comercio — dos cosas distintas que sí existen acá y que dejan el árbol intacto.
+      //
+      // `/dashboard/configuracion` está en `RUTAS_SIN_MURO`, así que esto sirve igual para
+      // quien está en el muro: no hace falta advertirle de Pro porque no se lo va a encontrar.
+      // La pestaña NO es deep-linkable (la página no lee searchParams ni hash), así que se
+      // nombra el camino en vez de inventar una URL con ancla que no llevaría a ningún lado.
+      case 'editar_categorias': {
+        // La ruta va por `enlaceApp` y no hardcodeada: `webapp/middleware.ts` manda cualquier
+        // `/dashboard/*` sin sesión a `/login`, donde "Continuar con Google" le crea una cuenta
+        // huérfana al WhatsApp-only. Que `/dashboard/configuracion` esté en `RUTAS_SIN_MURO` no
+        // salva a esa población: esa lista se evalúa DESPUÉS del auth, y este usuario no llega.
+        const { url, requiereActivacion } = enlaceApp(usuario, '/dashboard/configuracion');
+        // Las TRES operaciones que la API expone de verdad: POST (crear), PUT (renombrar, y
+        // solo acepta `nombre`) y DELETE. No hay reordenar — no existe columna de orden ni UI
+        // de arrastrar. La primera versión de este copy prometía "reordenar el árbol" y la
+        // encontró la segunda revisión adversarial: es la MISMA clase que este mismo commit
+        // vino a arreglar en `mensajeDashboard`, escrita dos horas después.
+        const donde = requiereActivacion
+          ? 'Activa tu cuenta acá y entra a *Configuración → Categorías*:\n🔗 ' + url
+          : 'Ahí puedes crearlas, renombrarlas y borrarlas:\n🔗 ' + url +
+            '\n_Entra a la pestaña *Categorías*._';
+        // La cola ofrece dos cosas y solo UNA la bloquea el muro: `/categorias` está en
+        // COMANDOS_LECTURA, la regla de comercio (`editar_categoria_comercio`) es ESCRITURA y
+        // sigue siendo gratis para siempre. Podar las dos juntas —como hacía la versión
+        // anterior— le esconde al usuario del muro algo que sí puede hacer.
+        const cola = estaEnMuro(usuario)
+          ? '\n\nPor acá puedo fijarle una categoría a un comercio — _"lo de Rappi va siempre en Delivery"_.'
+          : '\n\nPor acá puedo crear categorías nuevas (escribe */categorias*) y fijarle una ' +
+            'categoría a un comercio — _"lo de Rappi va siempre en Delivery"_.';
+        return '🏷️ *Tus categorías se editan en la app*\n\n' + donde + cola;
       }
 
       case 'ver_categorias':

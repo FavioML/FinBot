@@ -1068,7 +1068,7 @@ async function checkTrialExpiry() {
     // `email` y `recordatorios_activos`, por el mismo motivo que en el select de arriba: el
     // canal de correo se declara en el llamador y el chokepoint no lee la base.
     const { data: vencidos, error: errVencidos } = await supabase.from('usuarios')
-      .select('id, whatsapp, nombre, trial_estado, trial_vence, premium_desde, premium_vence, estado_pago, email, recordatorios_activos')
+      .select('id, whatsapp, nombre, plan, trial_estado, trial_vence, premium_desde, premium_vence, supabase_auth_id, estado_pago, email, recordatorios_activos')
       .eq('trial_estado', 'activo').lt('trial_vence', hoy)
       .is('cuenta_borrada_at', null);
     // El silencio acá es el que más se parece a la salud: "hoy no venció ninguna prueba" es

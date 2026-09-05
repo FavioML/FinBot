@@ -29,7 +29,7 @@ const { procesarComandoAdmin } = require('./admin-commands');
 const premiumIntents = require('./intents/premium');
 const { abrirSesion, cerrarSesion } = require('../lib/support-tickets');
 const { manejarOnboarding } = require('./onboarding');
-const { colaConfirmacionGasto, estaEnMuro, mensajeMuro, mensajeCargaMasivaPro, esProPagado, mensajeGmailProPagado, mensajeConectarEnLaApp, mensajeGmailDesconectado } = require('../lib/trial');
+const { colaConfirmacionGasto, estaEnMuro, mensajeMuro, mensajeCargaMasivaPro, esProPagado, mensajeGmailProPagado, mensajeConectarEnLaApp, mensajeGmailDesconectado, mensajeDashboard } = require('../lib/trial');
 const { comandoRequiereLectura } = require('./intents-acceso');
 const { verificarEscritura, entro } = require('../helpers/escritura-verificada');
 const analytics = require('../lib/analytics');
@@ -1311,7 +1311,7 @@ function createWebhookHandler(procesarMensajeLibre) {
         respuesta = mensajeMisReferidos(refCode, statsRef);
       }
     } else if (cmd === '/dashboard' || cmd === '/app') {
-      respuesta = '📊 *Tu dashboard está en:*\n\n🔗 https://app.neto.pe\n\nAhí puedes ver gráficos, metas, reportes PDF, suscripciones y más.\n\n_Inicia sesión con tu cuenta de Google._';
+      respuesta = mensajeDashboard(usuario);
     } else if (cmd === '/soporte' || cmd === '/humano') {
       // Usuario abre modo soporte: a partir de aquí sus mensajes van al equipo, no al bot.
       const r = await abrirSesion({ usuarioId: usuario.id, whatsapp: from, nombre: usuario.nombre });

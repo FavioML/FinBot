@@ -97,6 +97,13 @@ const INTENTS_LIBRES = new Set([
   // y el archivo cuando llega (webhook.js, rama `document`)—. Estaba solo en el segundo, así
   // que el bot entregaba el tutorial y rechazaba el Excel ya llenado (auditoría CTO M9).
   'cargar_excel',
+  // Los dos redirects a la app (05-sep-2026). Son LIBRES a proposito: no leen nada, solo
+  // dicen DONDE se hace lo que el usuario pidio. Meterlos del lado de lectura seria peor que
+  // no tenerlos: al usuario en el muro el gate le reemplazaria el camino por el pitch de Pro,
+  // que es exactamente la pregunta que NO hizo. El de espacios avisa por su cuenta que esa
+  // pantalla pide Pro; el de categorias no lo necesita porque /dashboard/configuracion esta
+  // en RUTAS_SIN_MURO.
+  'editar_split_espacio', 'editar_categorias',
   'ver_tipo_cambio', 'convertir_moneda', 'calcular_cuotas', 'cambiar_nombre', 'recordatorio_pago',
 ]);
 

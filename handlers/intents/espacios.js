@@ -4,6 +4,7 @@ module.exports = {
   intents: [
     'crear_espacio', 'ver_espacios', 'registrar_gasto_espacio',
     'ver_balance_espacio', 'liquidar_espacio', 'invitar_espacio', 'unirse_espacio',
+    'editar_split_espacio',
   ],
   async handle({ intencion, msg, datos, usuario, from, ctx }) {
     const { supabase } = ctx;
@@ -14,6 +15,7 @@ module.exports = {
     const { effectiveSplitPercents, shareCents } = require('../../services/spaces-split');
     const { checkProLimit } = require('../../helpers/pro-wall');
     const { validarMonto } = require('../../lib/validators');
+    const { estaEnMuro, enlaceApp } = require('../../lib/trial');
 
     switch (intencion) {
 
@@ -242,6 +244,35 @@ module.exports = {
           log.error({ tag: 'INVITAR', err: e.message }, 'Error invitando');
           return 'No pude generar la invitación. Intenta de nuevo.';
         }
+      }
+
+      // Editar el reparto NO se puede por WhatsApp, y hasta el 05-sep-2026 tampoco se
+      // derivaba: los otros siete intents de este archivo no cubren "cambia mi reparto al
+      // 30%", así que el mensaje caía al NLP y salía cualquier cosa. La matriz de canales
+      // declaraba "❌ (redirige)" y el redirect no existía — el link a /dashboard/espacios
+      // solo aparecía al unirse y al listar, o sea nunca en el momento en que se pide.
+      //
+      // Por qué es solo-app y no un hueco: el reparto son porcentajes por miembro y las
+      // reglas por categoría son una matriz. Un menú numerado en dos mensajes es justo la
+      // forma que se retiró de Gmail por guardar estado entre mensaje y mensaje.
+      //
+      // `/dashboard/espacios` NO está en `RUTAS_SIN_MURO` (a diferencia de configuración),
+      // así que a quien está en el muro se le dice, en vez de mandarlo a una pared muda.
+      case 'editar_split_espacio': {
+        const { url, requiereActivacion } = enlaceApp(usuario, '/dashboard/espacios');
+        const donde = requiereActivacion
+          ? 'Activa tu cuenta acá y lo encuentras en *Espacios*:\n🔗 ' + url
+          : 'Los porcentajes por persona y las reglas por categoría se editan acá:\n🔗 ' + url +
+            '\n_Entra al espacio: los porcentajes están en *Miembros* y las reglas por categoría en *Reglas de División*._';
+        // Los dos nombres salen de los <h2> de webapp/src/app/dashboard/espacios/[id]/page.tsx
+        // (secciones C y D). La primera version decia 'busca *Reparto*' y esa palabra NO existe en
+        // esa pantalla: habria sido la cuarta afirmacion falsa de la misma clase en esta sesion,
+        // atrapada esta vez ANTES de shippear, abriendo el archivo en vez de confiando en el nombre.
+        const base = '⚖️ *El reparto se ajusta en la app*\n\n' + donde +
+          '\n\n_Por WhatsApp sigo registrando los gastos del espacio y dándote el balance._';
+        return estaEnMuro(usuario)
+          ? base + '\n\nOjo que esa pantalla es de *Neto Pro*, así que te va a pedir activarlo.'
+          : base;
       }
 
       case 'unirse_espacio': {
