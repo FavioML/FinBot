@@ -3,8 +3,11 @@
 Usar este prompt periódicamente para re-auditar la seguridad del proyecto.
 Última ejecución: 26 Mar 2026 (commit ba83cd0).
 
-> **No se archivó junto a los otros nueve documentos de marzo el 05-sep-2026, a propósito: es el
-> único que declara ser reutilizable en vez de declararse cerrado.** Lo que sí conviene saber
+> **ARCHIVADO el 05-sep-2026.** Ese mismo día se dejó fuera del lote inicial a propósito, porque es
+> el único de los diez que declara ser reutilizable en vez de declararse cerrado, y esa decisión
+> quedó en manos de Favio. La tomó el mismo día: archivarlo. El argumento es que "me declaro
+> vigente" es una afirmación del documento sobre sí mismo y los hechos la contradicen. Lo que sí
+> conviene saber
 > antes de correrlo: desde esa fecha las auditorías reales del proyecto no salieron de acá sino
 > de la skill `/cto-audit` (las de agosto están en las memorias `project_cto_audit_2026_08_03` y
 > `project_cto_audit_2026_08_10`), y los hallazgos se registran en `docs/DEFECTOS.md`. O sea que

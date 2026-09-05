@@ -38,6 +38,37 @@ Reglas de copy que no se negocian:
   WhatsApp responde con el deeplink correcto según identidad (`linkPanelPro` en `lib/trial.js`):
   panel si ya tiene cuenta web, link de activación firmado si es WhatsApp-only.
 
+## Auditoría parcial del 2026-09-05: las 8 celdas que PROMETÍAN una derivación
+
+**Esto NO es un re-snapshot completo.** El snapshot sigue siendo del 31-jul-2026 y las ~30 filas
+restantes están sin cruzar. Lo que se auditó fue un subconjunto elegido por su forma: las 12 filas
+con ❌, y de ellas las **8 que prometían un redirect, un link o un deeplink**. El motivo es que una
+promesa de derivación incumplida no es un error de documentación: es el usuario pidiendo algo y no
+recibiendo ni la función ni el camino a la función. Es la misma clase del ítem 28 del backlog.
+
+| celda | prometía | veredicto |
+|---|---|---|
+| Editar/borrar en lote | "bulk redirige a app" | ✅ existe, cae a `/dashboard/transacciones` en las 2 ramas de fallo de `corregir_multiple` |
+| Dashboard / gráficos | "manda link" | ✅ `/dashboard`, `/app` y el intent `ver_dashboard` |
+| Reporte PDF | "manda link" | ✅ `ver_reporte` manda `/dashboard/reportes` |
+| Export CSV · JSON | "manda link" | ✅ `exportar_datos` manda `/dashboard/transacciones` |
+| Conectar Gmail · bancos | "responde con deeplink" | ✅ `mensajeConectarEnLaApp` + `linkPanelPro`, con fallback si falta el secreto de firma |
+| **Espacios: editar % split** | "redirige" | ❌ **no hay intent de editar el reparto** (los 7 de `espacios.js` no lo cubren). El link a `/dashboard/espacios` sale al unirse y al listar, no al pedirlo |
+| **Categorías: editar/borrar** | "redirige a app" | ❌ **no hay redirect.** `/categorias` lista o abre el menú de agregar; cero referencias a una página de categorías en `handlers/` |
+| **Eliminar cuenta (App)** | "deriva a soporte / ninguno self-serve" | ❌ **la fila estaba vieja**: `DELETE /api/cuenta` + Configuración existen desde la migración 073 (18-ago), posterior al snapshot |
+
+**El hallazgo más caro no fue de la matriz sino del código, y la matriz tenía razón.** La fila
+*"Reporte PDF | WhatsApp ❌ (manda link)"* era correcta, pero `compartir_resumen`
+(`handlers/intents/reportes.js`) le daba al usuario una receta de 3 pasos cuyo paso 2 era *"Neto te
+envía el PDF por WhatsApp"*, y su pitch le vendía esa capacidad a quien todavía no paga. Es
+imposible por construcción: `enviarWhatsapp` solo arma mensajes de texto y de plantilla, y no hay
+un solo envío de documento en el runtime. Corregido el mismo día; el detalle vive en el docblock de
+ese case. **Mandar documentos por WhatsApp queda como decisión de producto**, no como bug.
+
+Al cruzar, mira la GLOSA y la columna "Recomendado", no solo el ✅/❌: de los 3 fallos, 2 fueron de
+glosa con el veredicto correcto. Y ojo con filas vecinas que suenan parecido (recategorizar una
+transacción no es editar el árbol de categorías).
+
 ## Matriz
 
 Leyenda: ✅ disponible · ⚠️ parcial/con matiz · ❌ no (o redirige al otro canal).
@@ -58,9 +89,9 @@ Leyenda: ✅ disponible · ⚠️ parcial/con matiz · ❌ no (o redirige al otr
 | Deudas: registrar/abonar/saldar/listar/invitar | ✅ | ✅ | **WhatsApp** ("debo 200 a Juan") · App gestionar |
 | Dividir gasto grupal (crea deudas) | ✅ (tab Compartidos) | ⚠️ crea, pero marcar pagos/editar en app | WA crear · App gestionar |
 | Espacios: crear/invitar/unirse/gasto/liquidar | ✅ | ✅ | Ambos |
-| Espacios: editar % split · split-rules (Pro) | ✅ | ❌ (redirige) | **App** |
+| Espacios: editar % split · split-rules (Pro) | ✅ | ❌ **sin redirect al pedirlo** | **App** |
 | Categorías: crear (auto) | ✅ CRUD | ⚠️ auto-crea + `/categorias` | App para CRUD |
-| Categorías: editar/borrar | ✅ | ❌ (redirige a app) | **App** |
+| Categorías: editar/borrar | ✅ | ❌ **sin redirect: no hay ninguno** | **App** |
 | Suscripciones: ver | ✅ | ✅ consulta | App |
 | Suscripciones: renombrar/ocultar/marcar plan/dividir cargo | ⚠️ vía overrides | ❌ | **App** (exclusivo) |
 | Dashboard / gráficos / calendario | ✅ | ❌ (manda link) | **App** (exclusivo) |
@@ -81,7 +112,7 @@ Leyenda: ✅ disponible · ⚠️ parcial/con matiz · ❌ no (o redirige al otr
 | Comprar/activar Pro | ✅ sube comprobante | ✅ envía captura | App · WA (aprueba humano) |
 | Conectar Gmail / elegir bancos (Pro) | ✅ OAuth + multiselect | ❌ responde con deeplink | **Solo app** · copy público = CASA, no tocar |
 | Escanear correos ahora (Pro) | ❌ | ✅ `/escanear` | WhatsApp |
-| Eliminar cuenta | ❌ (deriva a soporte) | ⚠️ menú confirmación | Ninguno self-serve |
+| Eliminar cuenta | ✅ Configuración (`DELETE /api/cuenta`) | ✅ menú confirmación | **Ambos self-serve** (migr. 073, 18-ago) |
 
 ## Exclusivos por canal (resumen)
 

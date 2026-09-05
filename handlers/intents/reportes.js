@@ -36,12 +36,28 @@ module.exports = {
         return '📥 *Exporta tus datos*\n\nEntra a tu dashboard y descarga todo:\n\n🔗 https://app.neto.pe/dashboard/transacciones\n\nAhí puedes exportar en CSV, JSON o PDF.\n\n_Inicia sesión con tu cuenta de Google._';
       }
 
+      // El copy de aca prometia un PDF por WhatsApp y era IMPOSIBLE por construccion, no un bug
+      // intermitente: `enviarWhatsapp` (lib/whatsapp.js) solo arma `type:'text'` y `type:'template'`,
+      // y no hay un solo call-site SALIENTE de `type:'document'` en el runtime (los hits de
+      // `document` son ENTRANTES, el usuario subiendo un .xlsx). La receta de 3 pasos mandaba al
+      // usuario a pedir "dame mi reporte", y `ver_reporte` --dos casos mas arriba-- devuelve un
+      // LINK. El paso 2 no ocurria nunca.
+      //
+      // Lo grave era la otra mitad: el pitch de arriba le vendia esa capacidad inexistente a quien
+      // todavia NO paga. Los tres guards de claims del producto (webapp, landing, content/) no
+      // alcanzan este archivo, asi que el canal donde Neto de verdad habla es el unico sin red.
+      // Encontrado el 05-sep-2026 cruzando docs/CHANNEL-CAPABILITY-MATRIX.md contra el codigo: la
+      // matriz decia la verdad (Reporte PDF por WhatsApp = no, manda link) y el que mentia era el
+      // producto.
+      //
+      // Se arreglo el COPY, no la capacidad: mandar documentos por WhatsApp es una feature (Meta
+      // los soporta; `enviarWhatsapp` no). Queda como decision de producto en el backlog.
       case 'compartir_resumen': {
         const planConfigShr = getUserPlanConfig(usuario);
         if (planConfigShr.reportesPerMonth === 0) {
-          return '⭐ *Compartir tu reporte es una función Pro.*\n\nCon NETO Pro generas tu reporte mensual y lo compartes por WhatsApp en un toque.\n\n' + lineaPrecioPro() + '\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
+          return '⭐ *Compartir tu reporte es una función Pro.*\n\nCon NETO Pro generas tu reporte mensual en PDF y lo descargas de tu dashboard para compartirlo con quien quieras.\n\n' + lineaPrecioPro() + '\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
         }
-        return '📤 *Compartir tu resumen:*\n\n1️⃣ Pide tu reporte → _"dame mi reporte"_\n2️⃣ Neto te envía el PDF por WhatsApp\n3️⃣ Reenvíalo a quien quieras\n\nTambién puedes descargar y compartir desde:\n🔗 https://app.neto.pe/dashboard/reportes\n\n_El PDF incluye gráficos, categorías y tu score financiero._';
+        return '📤 *Compartir tu resumen:*\n\n1️⃣ Entra a tus reportes:\n🔗 https://app.neto.pe/dashboard/reportes\n2️⃣ Descarga el PDF del mes\n3️⃣ Compártelo con quien quieras\n\n_El PDF incluye gráficos, categorías y tu score financiero._';
       }
 
       case 'ver_recomendaciones': {
