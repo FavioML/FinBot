@@ -371,7 +371,14 @@ Dos cosas que costaron descubrir al medirlo:
   `<borde>::<region>::<id>`: hoy tiene que decir `gru1::gru1`. Un `gru1::iad1` significa
   que el borde recibe cerca pero la funcion sigue lejos.
 
-### `npm audit` deja 2 moderate a propósito — no las "arregles"
+### `npm audit --omit=dev` deja moderates aceptadas a propósito — no las "arregles"
+
+**El conteo no se escribe acá**: decía "2 moderate" y el 04-sep-2026 eran 3 sin que nadie lo
+notara, porque una dependencia transitiva nueva no avisa. Lo que se documenta es **cuáles están
+aceptadas y por qué**; si `npm audit` reporta una que no está en esta lista, es nueva y hay que
+triarla.
+
+#### `uuid` / `exceljs` — aceptada
 
 `npm audit --omit=dev` reporta `uuid` y `exceljs`, y el único fix que ofrece npm es
 **bajar exceljs a 3.4.0**, que es un downgrade de dos majors sobre la librería que genera
@@ -386,7 +393,36 @@ Recomprobarlo cuando cambie exceljs, con el comando y no con la memoria:
 grep -rn "from 'uuid'\|require('uuid')" node_modules/exceljs/lib
 ```
 
-Si aparece un `v3`, `v5` o `v6`, entonces sí hay que actuar. El resto de lo que reportaba
+Si aparece un `v3`, `v5` o `v6`, entonces sí hay que actuar.
+
+#### `fflate` — aceptada (triada el 04-sep-2026)
+
+GHSA-px8p-9vwx-vf98: bucle infinito en **`unzipSync`** al parsear un ZIP64 malformado. Afecta
+`0.4.5–0.4.8` y `0.8.0–0.8.2`; el fix es `0.8.3`.
+
+**No es dependencia directa** —no está en `package.json`— y entra por dos caminos:
+
+| camino | rango que pide | fixable |
+|---|---|---|
+| `jspdf` | `^0.8.1` (hoy resuelve a `0.8.2`) | sí, `0.8.3` cae dentro del rango |
+| `posthog-js` | `^0.4.8` | no: no hay fix en la serie `0.4.x` |
+
+Se acepta porque **la función vulnerable no es alcanzable**, y eso se midió, no se supuso:
+`jspdf` importa de fflate únicamente `zlibSync` (compresión), y en los bundles ejecutables de
+`posthog-js` la cadena `unzipSync` no aparece ni una vez — solo figura en los `.js.map`, que no
+se ejecutan. La app además nunca descomprime un ZIP que venga de afuera.
+
+Recomprobarlo cuando cambie cualquiera de los dos, con el comando y no con la memoria:
+
+```bash
+grep -rhoE "zlibSync|deflateSync|inflateSync|unzipSync|zipSync" node_modules/jspdf/dist/jspdf.node.min.js | sort -u
+grep -rl "unzipSync" node_modules/posthog-js/dist/*.js
+```
+
+Si el primero devuelve `unzipSync`, o el segundo devuelve algún `.js`, la aceptación cae y hay
+que subir `fflate` a `0.8.3` (vía `overrides`, que es lo único que cierra el camino de `posthog-js`).
+
+El resto de lo que reportaba
 la auditoría del 10-ago (S′4: sharp, postcss bajo next, nanoid, dompurify — esta última
 corre en el browser de todos, vía jspdf y posthog-js) se cerró con `npm audit fix`: eran
 in-range y quedaron en el lock.
@@ -404,6 +440,15 @@ in-range y quedaron en el lock.
 - Service-role key SOLO en API routes server-side, NUNCA en cliente
 
 ## Deploy & monitoring
-- Config: `.claude/deploy-config.json` (Vercel app.neto.pe + Supabase RLS check).
+- Config: `.claude/deploy-config.json` (Vercel app.neto.pe). Declara checks HTTP —uno de ellos
+  contra `api.neto.pe/health`, que por eso no tiene config propio— más la lista de harness
+  ejecutables. **Cuáles son los lee el config, no esta línea.**
+- **RLS NO está cubierto por el canary, y este archivo decía que sí.** La sección
+  `supabase.checks` que lo afirmaba se borró del config por letra muerta: la tarea solo ejecuta
+  `canary.checks` y `canary.harnesses`, nunca esa sección, y encima traía un conteo de tablas
+  viejo. El motivo escrito vive en `canary._supabase_nota`. Lo que cubre multi-tenant de verdad
+  es el harness `idor-cross-user` (contra prod, con oráculo service-role), los advisors de
+  Supabase y `/supabase-check` a mano. Que RLS esté bien —lo está— no vuelve cierta la
+  afirmación de cobertura, que es justo la que engaña a la próxima auditoría.
 - Daily canary 10am Lima vía scheduled task `canary-daily-deploys`. Reporte solo si hay fallo en `C:/Vortik.dev/memory/canary/`.
 - Verificación manual post-push: `curl -I https://app.neto.pe/` y `curl -I https://api.neto.pe/health`.

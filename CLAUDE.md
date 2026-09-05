@@ -13,13 +13,31 @@ NETO es un asistente financiero personal por WhatsApp para el mercado peruano.
 ## Arquitectura del backend
 - `index.js` — Express server, routes, middleware, handlers de crash (~160 lineas)
 - `handlers/message-processor.js` — OpenAI Function Calling NLP + intent dispatch (~227 lineas)
-- `handlers/neto-tools.js` — 14 tool definitions + mapToolToIntent (property remapping)
+- `handlers/neto-tools.js` — las tool definitions que ve OpenAI (`NETO_TOOLS`) + mapToolToIntent (property remapping). Cuántas son lo dice el array, no esta línea
 - `handlers/intent-registry.js` — Auto-loader que registra handlers desde `handlers/intents/`
-- `handlers/intents/` — 12 archivos, 79 intents totales (social, premium, gastos, transacciones, presupuestos, metas, deudas, consultas, reportes, utilidades, analytics, moderacion)
+- `handlers/intents/` — un archivo por dominio conversacional, cada uno exportando `{ intents, handle }`.
+  **No se escribe acá ni cuántos archivos son ni cuántos intents suman:** las dos cifras envejecen en
+  cada feature, y la enumeración a mano es peor que el conteo porque omite dominios y se lee como mapa
+  completo. La lista real la da `ls handlers/intents/`, y los intents de cada uno, su propio `intents`
+  exportado. Ojo al contar: dos archivos declaran `const intents = [...]` arriba y lo exportan al
+  final en vez de inline, así que un grep del patrón inline los pierde
 - `gmail.js` — OAuth2 + parsers de correos bancarios (11 bancos)
 - `reporte_html.js` — reportes HTML/PDF con Chart.js
-- `lib/` — 11 modulos: config, constants, validators, formatters, dates, db, ai, logger, whatsapp, admin-notify, error-monitor
-- `services/` — 14 modulos: transactions, budget, parsers, debts, metas, categories, neto-gpt, gmail-scanner, reports, summaries, notifications, recommendations, referrals, subscriptions
+- `lib/` — piezas transversales sin lógica de negocio: acceso a datos y config (`db`, `config`,
+  `constants`), utilidades puras (`validators`, `formatters`, `dates`, `crypto`, `codigos-seguros`),
+  el cliente de OpenAI y el system prompt (`ai`, `neto-prompt`), clientes de canal (`whatsapp`,
+  `email`, `telegram`, `notify-user`), observabilidad (`logger`,
+  `error-monitor`, `analytics`, `admin-notify`) y estado de producto (`trial`, `activacion`,
+  `pro-payment`, `nlp-guards`, `gmail-conectado`). **La lista completa la da `ls lib/`** — esta
+  enumeración es orientativa y no exhaustiva a propósito
+- `services/` — la lógica de negocio, un módulo por dominio: plata (`transactions`, `budget`,
+  `debts`, `metas`, `subscriptions/`), clasificación y parsing (`categories`,
+  `categorizer-keywords`, `parsers`, `import-parser`, `multi-gasto-detector`,
+  `multi-intent-splitter`), ingesta (`gmail-scanner`, `media-intake`, `registro-silencioso`),
+  producto (`neto-score`, `shared-spaces`, `spaces-split`, `spending-alerts`, `referrals`,
+  `summaries`, `recommendations`, `survey-triggers`, `notifications`), identidad (`otp-sin-numero`,
+  `account-deletion`) y el redactor (`neto-gpt`). **La lista completa la da `ls services/`** —
+  igual que arriba, esto orienta pero no es exhaustivo
 
 ### Agregar un nuevo intent
 1. Crear o editar archivo en `handlers/intents/nombre.js`
@@ -628,7 +646,12 @@ Varias piezas dependen de que corra un solo proceso. Escalar a 2+ réplicas o ha
 ## Funcionalidades principales (19)
 1. Registro WhatsApp (onboarding 4 pasos)
 2. Lectura automatica correos bancarios (11 bancos)
-3. NLP inteligente con OpenAI Function Calling (GPT-4o-mini, 14 tools → 79 intents)
+3. NLP inteligente con OpenAI Function Calling: las tools de `handlers/neto-tools.js` mapean a los
+   intents de `handlers/intents/`. **Y no es un solo modelo**, que es lo que esta línea decía y
+   distorsiona cualquier cálculo de costo: `gpt-4o-mini` es el default del dispatch y la redacción,
+   `gpt-4o` corre en `consulta_financiera` (4o-mini se equivoca en los específicos peruanos —CTS,
+   AFP, gratificación— y ahí una respuesta mala es información financiera falsa) y en la visión de
+   `media-intake`, y `gpt-4o-mini-transcribe` transcribe las notas de voz
 4. Categorias/subcategorias personalizables
 5. Presupuestos por categoria con alertas
 6. Multimoneda USD/PEN (tipo de cambio dolar.pe)
