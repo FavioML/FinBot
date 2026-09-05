@@ -662,11 +662,12 @@ const SET_REMITENTES_TRANSACCIONALES = new Set(REMITENTES_BANCARIOS.map(r => r.t
  *
  * El 04-sep-2026 Neto le registró a Favio un gasto de S/ 100 en "LATAM Pass BCP" que nunca
  * existió: era el mailing "¡Favio, gana hasta 1,000,000 de Millas!" de `bcpcomunica@email.bcp.com.pe`,
- * que dice "Por cada S/ 100 de consumo, con tu Tarjeta de Crédito LATAM Pass BCP". Ese correo NO
- * entra por la lista de remitentes —esa dirección no está— sino por la query de palabras clave,
- * y de ahí en adelante nada lo paraba: `esBancario` es un OR de palabras sueltas donde "BCP",
- * "tarjeta", "consumo" y "S/" alcanzan de sobra, y el parser no tenía forma de contestar "esto
- * no es un movimiento" (ver `es_movimiento` en services/parsers.js).
+ * que dice "Por cada S/ 100 de consumo, con tu Tarjeta de Crédito LATAM Pass BCP". Esa dirección
+ * NO está en REMITENTES_BANCARIOS (verificado), así que lo más probable es que haya entrado por la
+ * query de palabras clave —no se midió cuál de las dos lo listó, y da igual: el filtro corre sobre
+ * las dos—. De ahí en adelante nada lo paraba: `esBancario` es un OR de palabras sueltas donde
+ * "BCP", "tarjeta", "consumo" y "S/" alcanzan de sobra, y el parser no tenía forma de contestar
+ * "esto no es un movimiento" (ver `es_movimiento` en services/parsers.js).
  *
  * El discriminador que sí separa las dos poblaciones es de TRANSPORTE, no de contenido: los
  * headers de envío masivo. `List-Unsubscribe` existe porque de una promoción uno se puede dar de

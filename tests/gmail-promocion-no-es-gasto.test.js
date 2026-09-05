@@ -20,8 +20,10 @@ const mockCreate = globalThis.__mockOpenAICreate;
  * Había DOS agujeros y el correo pasó por los dos, así que este archivo prueba los dos por
  * separado — tapar uno solo deja la clase viva:
  *
- *   1. Ningún filtro de LECTURA lo paraba. La dirección no está en `REMITENTES_BANCARIOS`, así
- *      que entró por la query de palabras clave, y `esBancario` es un OR de palabras sueltas
+ *   1. Ningún filtro de LECTURA lo paraba. La dirección no está en `REMITENTES_BANCARIOS`
+ *      (verificado), así que lo más probable es que entrara por la query de palabras clave — no se
+ *      midió cuál de las dos lo listó, y da igual: el filtro corre sobre las dos. Y `esBancario`,
+ *      que decide después, es un OR de palabras sueltas
  *      donde "BCP", "tarjeta", "consumo" y "S/" alcanzan de sobra. Ninguna palabra del cuerpo
  *      separa "gastaste S/ 100" de "gana millas por cada S/ 100 de consumo": el discriminador
  *      está en los headers de envío masivo, no en el texto.
