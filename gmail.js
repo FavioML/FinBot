@@ -647,6 +647,55 @@ function esBancario(texto, asunto) {
   return PALABRAS_BANCARIAS.some(p => contenido.includes(p.toLowerCase()));
 }
 
+// Dirección pelada de un header From ("BCP Comunica <bcpcomunica@email.bcp.com.pe>" →
+// "bcpcomunica@email.bcp.com.pe"). En minúsculas, porque la parte local es case-sensitive por
+// RFC pero ningún banco peruano la usa así y comparar exacto sólo abriría falsos negativos.
+function direccionDe(remitente) {
+  const m = /<([^>]+)>/.exec(remitente || '');
+  return (m ? m[1] : (remitente || '')).trim().toLowerCase();
+}
+
+const SET_REMITENTES_TRANSACCIONALES = new Set(REMITENTES_BANCARIOS.map(r => r.toLowerCase()));
+
+/**
+ * **Un aviso de cargo no se manda por lista de correo, y una promo sí.**
+ *
+ * El 04-sep-2026 Neto le registró a Favio un gasto de S/ 100 en "LATAM Pass BCP" que nunca
+ * existió: era el mailing "¡Favio, gana hasta 1,000,000 de Millas!" de `bcpcomunica@email.bcp.com.pe`,
+ * que dice "Por cada S/ 100 de consumo, con tu Tarjeta de Crédito LATAM Pass BCP". Ese correo NO
+ * entra por la lista de remitentes —esa dirección no está— sino por la query de palabras clave,
+ * y de ahí en adelante nada lo paraba: `esBancario` es un OR de palabras sueltas donde "BCP",
+ * "tarjeta", "consumo" y "S/" alcanzan de sobra, y el parser no tenía forma de contestar "esto
+ * no es un movimiento" (ver `es_movimiento` en services/parsers.js).
+ *
+ * El discriminador que sí separa las dos poblaciones es de TRANSPORTE, no de contenido: los
+ * headers de envío masivo. `List-Unsubscribe` existe porque de una promoción uno se puede dar de
+ * baja; del aviso de tu propio consumo, no — es transaccional y el banco está obligado a
+ * mandarlo. Mismo argumento para `List-Id`, `Precedence: bulk` y el `Feedback-ID` que los ESP
+ * ponen para la reputación de sus campañas.
+ *
+ * **Sólo se aplica a remitentes que NO están en REMITENTES_BANCARIOS**, y eso no es timidez: no
+ * pude inspeccionar los headers reales de un aviso de `alertas@bcp.com.pe` desde acá, así que
+ * aplicarlo a ciegas sobre el camino que HOY funciona arriesga el error caro —perder un gasto
+ * real en silencio— para tapar uno que ya está tapado por la propia lista de remitentes. Sobre
+ * las direcciones desconocidas el cálculo se invierte: ahí no hay ninguna garantía de que el
+ * correo sea transaccional, y el costo de equivocarse es inventarle plata a alguien.
+ *
+ * Las promos que SÍ salen de un remitente transaccional las agarra la segunda capa (`es_movimiento`).
+ */
+function esCorreoMasivo(headers, remitente) {
+  if (SET_REMITENTES_TRANSACCIONALES.has(direccionDe(remitente))) return false;
+  const valor = (nombre) => {
+    const h = headers.find(x => (x.name || '').toLowerCase() === nombre);
+    return h ? (h.value || '') : '';
+  };
+  if (valor('list-unsubscribe')) return true;
+  if (valor('list-id')) return true;
+  if (valor('feedback-id')) return true;
+  if (/\b(bulk|list|junk)\b/i.test(valor('precedence'))) return true;
+  return false;
+}
+
 function esCorreoReenviado(headers) {
   // Detectar correos reenviados por múltiples métodos
   const subject = (headers.find(h => h.name === 'Subject') || {}).value || '';
@@ -739,6 +788,15 @@ async function leerCorreosDesdeCuenta(authClient, cuentaEmail, remitentes = REMI
       // FILTRO 1: Rechazar correos reenviados
       if (esCorreoReenviado(headers)) {
         log.debug({ tag: 'GMAIL', asunto: asunto.substring(0, 50) }, 'Correo reenviado ignorado');
+        continue;
+      }
+
+      // FILTRO 1b: Rechazar envíos masivos de remitentes no transaccionales (promos, newsletters).
+      // Va ANTES del filtro de ventana y del de palabras porque es el único que mira transporte
+      // en vez de contenido: ninguna palabra del cuerpo distingue "gastaste S/ 100" de "gana
+      // millas por cada S/ 100 de consumo", y los headers sí.
+      if (esCorreoMasivo(headers, remitente)) {
+        log.info({ tag: 'GMAIL', remitente, asunto: asunto.substring(0, 60) }, 'Correo masivo/promocional ignorado');
         continue;
       }
 
@@ -885,4 +943,4 @@ async function leerCorreosBancarios(usuarioId, opts = {}) {
 // primera recibe un `authClient` crudo y la segunda un array ya resuelto, así que llamarlas
 // desde producción saltearía la resolución de cuentas, `remitentesParaUsuario` y los gates de
 // plan que viven en `leerCorreosBancarios`. El camino de producción es ése, siempre.
-module.exports = { tieneGmailConectado, leerCorreosDesdeCuenta, agregarResultadosDeCuentas, generarUrlAutorizacion, verificarState, guardarTokens, cargarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail, revocarAccesoGmail, BANCOS_CATALOGO, remitentesParaSeleccion, describirSeleccion, construirQueriesBancarias, emailGmailVinculado, hashEmailGmail, esElMismoGmail };
+module.exports = { tieneGmailConectado, leerCorreosDesdeCuenta, agregarResultadosDeCuentas, generarUrlAutorizacion, verificarState, guardarTokens, cargarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail, revocarAccesoGmail, BANCOS_CATALOGO, remitentesParaSeleccion, describirSeleccion, construirQueriesBancarias, emailGmailVinculado, hashEmailGmail, esElMismoGmail, esCorreoMasivo, direccionDe };

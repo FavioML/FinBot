@@ -334,7 +334,31 @@ function normalizarLast4(valor) {
 }
 
 const BANK_PARSER_PROMPT = `Eres un parser experto de notificaciones bancarias peruanas. Devuelve SOLO JSON sin markdown:
-{ "tipo":"gasto"|"ingreso", "monto":numero, "moneda":"PEN"|"USD", "comercio":"nombre limpio del comercio", "categoria":"ver lista", "subcategoria":"ver lista", "banco":"BCP|Interbank|BBVA|Scotiabank|Yape|Plin|Falabella|Ripley|BanBif|Mibanco|CMAC|Otro", "metodo_pago":"Debito|Credito|Transferencia|Yape|Plin|Efectivo|Otro", "fecha":"YYYY-MM-DD", "descripcion_original":"texto original" }
+{ "es_movimiento":true|false, "tipo":"gasto"|"ingreso", "monto":numero, "moneda":"PEN"|"USD", "comercio":"nombre limpio del comercio", "categoria":"ver lista", "subcategoria":"ver lista", "banco":"BCP|Interbank|BBVA|Scotiabank|Yape|Plin|Falabella|Ripley|BanBif|Mibanco|CMAC|Otro", "metodo_pago":"Debito|Credito|Transferencia|Yape|Plin|Efectivo|Otro", "fecha":"YYYY-MM-DD", "descripcion_original":"texto original" }
+
+REGLA CERO — ¿ESTO ES PLATA QUE YA SE MOVIÓ? (decidir ANTES que todo lo demás):
+"es_movimiento" es true SOLO si el texto informa un movimiento de dinero YA OCURRIDO en la cuenta o
+tarjeta de la persona: un consumo, un pago, un yapeo, un plin, una transferencia, un abono, un
+retiro, un cargo. Tiene que haber un HECHO consumado con su monto.
+
+Devuelve { "es_movimiento": false } —y NADA MÁS, sin monto ni comercio— cuando el texto sea
+cualquier otra cosa, aunque mencione montos, "S/", el nombre de un banco o una tarjeta:
+- Publicidad, promociones, sorteos, campañas: "gana hasta 1,000,000 de millas", "participa",
+  "acumula opciones", "inscríbete hoy", "por cada S/ 100 de consumo puedes ganar", "3 meses gratis",
+  "conoce nuestra nueva tarjeta", "aprovecha el descuento", "te invitamos a".
+  El "S/ 100" de un mecanismo promocional NO es un gasto: es la condición del sorteo.
+- Estados de cuenta, resúmenes, recordatorios de pago y avisos de vencimiento: "tu estado de cuenta
+  está listo", "tienes un pago pendiente de S/ 250", "vence el 15", "consumo del mes: S/ 1,200".
+  Ahí el dinero todavía NO se movió; registrarlo duplicaría los consumos que ya se registraron uno a uno.
+- Avisos de seguridad, claves, tokens, cambios de datos, encuestas, felicitaciones, newsletters.
+- Intentos rechazados o denegados: "tu operación no pudo procesarse", "compra rechazada".
+- Solicitudes de cobro que la persona todavía no pagó: "te pidieron S/ 50 por Yape".
+
+Ante la duda entre "promoción que menciona un monto" y "movimiento real", responde false.
+Es preferible perder un movimiento —la persona lo anota por WhatsApp en 5 segundos— que inventarle
+un gasto que nunca hizo: un número inventado le rompe el presupuesto y la confianza en TODO el resto.
+
+Si "es_movimiento" es true, completa el resto del JSON con las reglas de abajo.
 
 CATEGORÍAS Y SUBCATEGORÍAS OBLIGATORIAS (usa EXACTAMENTE estos valores, sin variantes):
 
@@ -542,6 +566,20 @@ async function parsearCorreoBancario(texto, contexto, categoriasCustom) {
   const raw = res.choices[0].message.content.trim();
   const clean = raw.startsWith('{') ? raw : raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
   const parsed = JSON.parse(clean);
+  // **El corte va ACÁ y no en cada llamador, a propósito.** `parsearCorreoBancario` tiene tres
+  // call sites (barrido de Gmail, fallback de WhatsApp, ruta admin de prueba) y los dos primeros
+  // ya deciden por `resultado.monto`: dejar el monto puesto obligaría a repetir el gate en cada
+  // uno, y el que se olvide vuelve a registrar la promo. Pelar el monto acá los arregla a los
+  // tres sin tocarlos.
+  //
+  // Se compara contra `false` EXPLÍCITO, no por falsy: un modelo que omita el campo —o una
+  // respuesta vieja cacheada— tiene que comportarse exactamente como antes de esta regla. El
+  // caso que se está cerrando es el de un modelo que dice "esto no es un movimiento", no el de
+  // uno que no opina.
+  if (parsed.es_movimiento === false) {
+    log.info({ tag: 'CORREO', asunto: (contexto || '').substring(0, 80) }, 'Descartado: el texto no informa un movimiento de dinero');
+    return { es_movimiento: false };
+  }
   // Nombre del comercio, en tres pasos y en este orden.
   //
   // 1. `normalizarComercio` primero, porque su tabla tiene entradas CON prefijo
