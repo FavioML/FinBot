@@ -671,7 +671,9 @@ Varias piezas dependen de que corra un solo proceso. Escalar a 2+ réplicas o ha
 
 ## Seguridad
 - RLS en todas las tablas Supabase
-- Rate limiting: 300 req/min global, 10/min admin
+- Rate limiting: cuatro limiters con topes distintos. **El numero no va aca** — decia 300 para el
+  webhook cuando el codigo estaba en 1200 desde que se subio el tope. La tabla vive en `docs/api.md`
+  y la autoridad es `index.js`
 - Validacion de montos (NaN, Infinity, negativos, >999999.99)
 - Dedup hash (MD5), ADMIN_KEY sin fallback hardcodeado
 - Error handling centralizado + notificaciones admin WhatsApp

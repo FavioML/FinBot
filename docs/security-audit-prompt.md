@@ -3,6 +3,16 @@
 Usar este prompt periódicamente para re-auditar la seguridad del proyecto.
 Última ejecución: 26 Mar 2026 (commit ba83cd0).
 
+> **No se archivó junto a los otros nueve documentos de marzo el 05-sep-2026, a propósito: es el
+> único que declara ser reutilizable en vez de declararse cerrado.** Lo que sí conviene saber
+> antes de correrlo: desde esa fecha las auditorías reales del proyecto no salieron de acá sino
+> de la skill `/cto-audit` (las de agosto están en las memorias `project_cto_audit_2026_08_03` y
+> `project_cto_audit_2026_08_10`), y los hallazgos se registran en `docs/DEFECTOS.md`. O sea que
+> este prompt lleva más de cinco meses sin ejecutarse y su lista de 7 áreas no conoce nada de lo
+> que se construyó desde entonces. Si vas a auditar seguridad hoy, `/cto-audit` es el camino
+> vivo; si igual corres este, contrasta sus hallazgos contra `DEFECTOS.md` antes de creerlos
+> nuevos. Archivarlo o retirarlo queda como decisión de Favio.
+
 ---
 
 > Actúa como un CTO senior de seguridad. Realiza una auditoría completa de seguridad del proyecto Neto, un asistente financiero por WhatsApp con webapp, considerando su stack específico: Node.js + Express (backend API en Railway), Next.js (webapp en Vercel), Supabase (auth con Google OAuth + base de datos con RLS), Meta Cloud API (WhatsApp), y OpenAI API.

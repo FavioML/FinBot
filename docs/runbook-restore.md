@@ -27,13 +27,33 @@ Cada objeto en R2 es un `.tar.gz` cifrado con `age` que contiene:
 
 | Archivo | Qué es | ¿Se restaura? |
 |---|---|---|
-| `public.sql` | Los 36 tablas de la app: DDL + datos + RLS + policies + funciones | Sí, siempre |
+| `public.sql` | **Todas** las tablas de `public`: DDL + datos + RLS + policies + funciones | Sí, siempre |
 | `data_supabase.sql` | Datos de `auth.users`, `auth.identities`, `storage.buckets`, `storage.objects`, `supabase_migrations` | Sí, siempre |
 | `schema_supabase.sql` | DDL de `auth`/`storage`/`supabase_migrations` | Solo si el destino **no** es Supabase |
 | `data_auth_efimero.sql` | Sesiones, refresh tokens, MFA, flow state | No. Al cambiar el JWT secret todos los tokens mueren igual |
 | `storage/comprobantes/…` | Los comprobantes de pago Yape (archivos reales) | Sí, con `scripts/backup/restore-storage.sh` |
 | `roles.txt` | Inventario de roles del origen, como referencia | No se aplica |
 | `MANIFEST.json` | Conteo de filas por tabla + sha256 de cada archivo | Es contra esto que se verifica todo |
+
+**Ningún conteo de tablas se escribe a mano en este runbook, y esta tabla decía «36» hasta el
+05-sep-2026** — cuando `public` ya tenía **38**. El único que cuenta es el `MANIFEST.json`, que se
+genera contra el origen en cada corrida; es lo mismo que ya dice el comentario de `backup.sh`
+("para que el restore compare contra el origen y no contra numeros escritos a mano").
+
+**Y los dos números que sí aparecen arriba miden cosas distintas, no se contradicen.** Las
+**43 tablas** de la línea 5 son las claves de `filas_por_tabla` del `MANIFEST`, que es `public`
+**más cinco nombradas** de fuera: `auth.users`, `auth.identities`, `storage.buckets`,
+`storage.objects` y `supabase_migrations.schema_migrations`. Con 38 tablas en `public`, 38 + 5 = 43.
+Si alguna vez no cierra, la cuenta es esa; vuelve a derivarla así en vez de igualar los números:
+
+```sql
+select count(*) from information_schema.tables
+ where table_type='BASE TABLE' and table_schema='public';   -- 38 el 05-sep-2026
+```
+
+**Esa línea 5 la reescribe sola** la tarea `neto-restore-verify-mensual` cada mes, con la fecha y
+los números de su corrida. Es la única línea mantenida por una máquina: cualquier cifra que pongas
+en otra parte de este archivo no la va a actualizar nadie.
 
 **`public.sql` lleva DDL y datos juntos a propósito.** Así `pg_dump` emite las FKs
 y los índices *después* de los `COPY`. Separarlos obligaría a `--disable-triggers`,

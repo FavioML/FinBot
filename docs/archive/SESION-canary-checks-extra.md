@@ -55,7 +55,7 @@ WhatsApp no se redesplegó.
 ## Por qué existe esta sesión
 
 El 22-jul-2026 se cableó el canary diario de Neto con 4 harness (ver
-`docs/SESION-canary-e2e.md`, Resolución). Al hacerlo se encontró que los sweeps
+`docs/archive/SESION-canary-e2e.md`, Resolución). Al hacerlo se encontró que los sweeps
 E2E existentes (`qa-analysis-sweep`, etc.) son **dumps de inspección manual sin
 veredicto binario** (solo salen != 0 si cae el login), así que no sirven como
 check de canary tal cual. Se construyó uno a medida, `qa-gating-score.mjs`, que

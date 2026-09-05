@@ -90,7 +90,7 @@ independientes, en orden de valor esperado:
 
 1. `docs/SESION-escrituras-sobre-lectura-fallida.md` — la clase que sí rinde: lecturas fallidas que
    producen escrituras (referrals, pagos Pro, balances de espacios, score).
-2. ~~`docs/SESION-barrido-candidatos-restantes.md`~~ — **CERRADA el 22-jul-2026** (commit `e183494`).
+2. ~~`docs/archive/SESION-barrido-candidatos-restantes.md`~~ — **CERRADA el 22-jul-2026** (commit `e183494`).
    Rindió más de lo esperado: 3 archivos sanos y 1 bug vivo de 4 meses. Detalle abajo.
 
 ## Candidatos concretos a revisar

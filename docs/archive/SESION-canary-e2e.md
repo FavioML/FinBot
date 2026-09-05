@@ -49,7 +49,7 @@ WhatsApp intacto en los tres (Railway SKIPPED: solo `webapp/` y `qa-e2e/`).
 ## Por qué existe esta sesión
 
 Quedó como deuda del 22-jul-2026: al cerrar el barrido de lecturas de auth
-(`docs/SESION-lecturas-auth-webapp.md`) se propuso "meter los harness de `qa-e2e/` al canary
+(`docs/archive/SESION-lecturas-auth-webapp.md`) se propuso "meter los harness de `qa-e2e/` al canary
 diario", Favio aceptó, y se cayó del alcance porque se cruzó un incidente de Railway. Esto la
 retoma.
 
@@ -166,7 +166,7 @@ Esa segunda es la que demuestra que sirve, igual que la mutación en las sesione
 
 ## Contexto de lo ya hecho (no repetir)
 
-`docs/SESION-lecturas-auth-webapp.md` cerró el barrido de fallos silenciosos y dejó montado vitest
+`docs/archive/SESION-lecturas-auth-webapp.md` cerró el barrido de fallos silenciosos y dejó montado vitest
 en la webapp (`npm run test` desde `webapp/`, 17 tests). El backend ya tiene sus 437. Esta sesión
 es sobre **monitoreo en producción**, que es lo que ningún test cubre: los tests dicen que el
 código está bien, el canary dice que lo que está desplegado sigue vivo.

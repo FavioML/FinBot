@@ -268,12 +268,12 @@ antes y después y ninguno en estas rutas.
 pendientes que quedaban están cerrados:
 
 1. ~~`getSessionUser` en la webapp~~ — **CERRADO 22-jul-2026**, commits `fa89461` + `5121425`
-   (`docs/SESION-lecturas-auth-webapp.md`). Resultó ser el más grande de los tres: no una función
+   (`docs/archive/SESION-lecturas-auth-webapp.md`). Resultó ser el más grande de los tres: no una función
    sino el mismo lookup de `usuarios` tras el auth en **36 sitios y 3 formas distintas**, ninguna
    capturando el `error`. Se unificó en `requireNetoUser` (chokepoint único: 401 sin sesión / 404
    sin fila / 500 lectura caída) y se montó vitest en la webapp, que no tenía test runner.
 2. ~~`vence.setMonth(...)` en `services/referrals.js`~~ — **HECHO 22-jul-2026, commit `d728725`.**
-3. ~~`docs/SESION-barrido-candidatos-restantes.md`~~ — **CERRADA 22-jul-2026, commit `e183494`.**
+3. ~~`docs/archive/SESION-barrido-candidatos-restantes.md`~~ — **CERRADA 22-jul-2026, commit `e183494`.**
 
 ### `setMonth` — cerrado 22-jul-2026
 

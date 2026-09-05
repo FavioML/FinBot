@@ -6,8 +6,8 @@ Prompt de arranque autocontenido. Trabajar desde `C:\Vortik.dev\products\neto\ap
 
 ## Por qué existe esta sesión
 
-Al cablear el canary diario de Neto (ver `docs/SESION-canary-e2e.md` y
-`docs/SESION-canary-checks-extra.md`) se dejó explícitamente fuera un pedazo: los
+Al cablear el canary diario de Neto (ver `docs/archive/SESION-canary-e2e.md` y
+`docs/archive/SESION-canary-checks-extra.md`) se dejó explícitamente fuera un pedazo: los
 harness de **Espacios** (`qa-e2e/qa-espacios-*.mjs`). No van al canary diario
 porque **escriben filas reales en la Supabase de prod** (crean espacios, registran
 gastos, liquidan, hacen join real) y tardan minutos. Correrlos 365 veces al año

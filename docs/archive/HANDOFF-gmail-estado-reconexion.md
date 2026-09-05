@@ -144,7 +144,7 @@ Lo demás de este bloque sigue abierto y sigue siendo limpieza opcional, no un b
 
 ```
 Contexto: Neto (C:\Vortik.dev\products\neto\app). Lee primero
-docs/HANDOFF-gmail-estado-reconexion.md y la sección "Conectar Gmail es la unica
+docs/archive/HANDOFF-gmail-estado-reconexion.md y la sección "Conectar Gmail es la unica
 capability que exige Pro PAGADO" de app/CLAUDE.md.
 
 NO reabras estas decisiones: conectar Gmail es web-only, exige Pro PAGADO, y es UNA
