@@ -185,6 +185,15 @@ const infra = (name, cond, detail) => check(name, cond, detail, 'infra');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const recorte = (t, n = 90) => String(t || '(vacío)').replace(/\n/g, ' ').slice(0, n);
 
+// El token de `/activar?t=` es un NONCE: su payload lleva `ts: Date.now()`, así que dos
+// llamadas al mismo mensaje nunca dan la misma cadena. Una versión (`/g`) para normalizarlo
+// antes de comparar textos completos, y otra sin flag para extraerlo y verificar la firma.
+// Van juntas y en un solo lugar para que no diverjan: si una acepta un carácter que la otra
+// no, la normalización deja pasar un token que la extracción no encuentra, y el check que
+// afirma "apunta a ESE usuario" se cae del lado verde.
+const RE_TOKEN_ACTIVAR_G = /(\/activar\?t=)([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/g;
+const RE_TOKEN_ACTIVAR = /\/activar\?t=([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/;
+
 let h = null;
 let userA = null;
 let userB = null;
@@ -405,13 +414,43 @@ async function run() {
     // Igualdad COMPLETA contra mensajeMuro, no `includes`. Es lo que atrapa la regresión de
     // la fila parcial: si el select que alimenta el gate perdiera trial_estado, mensajeMuro
     // cambia de rama y le promete 14 días gratis a quien acaba de gastarlos.
+    //
+    // **Todo menos el nonce.** Desde `a674cc9` (05-sep-2026, "Pro links respect identity") el
+    // pie del muro dejó de ser una URL fija: para un usuario SIN `supabase_auth_id` la cadena
+    // `mensajeMuro` → `pieMuro` → `enlacePro` → `linkPanelPro` devuelve
+    // `construirLinkActivacion(id)`, cuyo payload lleva `ts: Date.now()` (`lib/activacion.js`).
+    // Los throwaway de este harness son WhatsApp-only por construcción, así que caen siempre
+    // ahí: dos llamadas separadas por un milisegundo dan dos tokens distintos y la igualdad
+    // exacta NO PUEDE dar verdadera nunca. El commit es correcto y deseado; lo que quedó falso
+    // fue este check, que afirmaba determinismo donde ya no lo hay.
+    //
+    // Lo que NO se hace es ignorar la línea del link, porque ahí vive la mitad de la señal. Se
+    // normaliza SOLO el token y se afirma aparte que el link salió firmado y apunta a ESTE
+    // usuario. Con eso la igualdad sigue cubriendo lo que existía para cubrir —la rama del muro
+    // y la fila completa— y encima gana una aserción que antes no estaba: un link que apuntara
+    // a otro uid pasaba la comparación byte por byte del texto ajeno.
+    //
+    // Verificado por MUTACIÓN (2026-09-07): con `handlers/muro-gate.js:56` pasando
+    // `{ ...usuario, trial_estado: undefined }` —el select parcial que este check existe para
+    // atrapar— la igualdad muere igual que antes del arreglo.
     if (llegoAlChokepoint) {
       await h.supabase.from('conversaciones').delete().eq('usuario_id', userA);
       const respExacta = await decir('cuanto va el mes', WA_A);
       const esperado = trial.mensajeMuro(await leer(userA), await contarTx(userA));
+
+      const sinNonce = (t) => t.replace(RE_TOKEN_ACTIVAR_G, '$1<TOKEN>');
+      const igual = sinNonce(respExacta) === sinNonce(esperado);
       check('muro: la respuesta es EXACTAMENTE mensajeMuro (rama correcta, fila completa)',
-        respExacta === esperado,
-        respExacta === esperado ? '' : 'salió: ' + recorte(respExacta, 70));
+        igual,
+        igual ? '' : 'salió: ' + recorte(respExacta, 70) + ' · esperaba: ' + recorte(esperado, 70));
+
+      // La otra mitad: normalizar el token deja de mirar a QUIÉN apunta el link, así que eso se
+      // afirma por separado y con la firma real, no con un parecido de forma.
+      const mMuro = respExacta.match(RE_TOKEN_ACTIVAR);
+      const payMuro = mMuro ? verificarTokenActivacion(mMuro[1]) : null;
+      check('muro: el link del pie viene FIRMADO y apunta a ESE usuario',
+        !!payMuro && payMuro.uid === userA,
+        mMuro ? 'uid=' + (payMuro && payMuro.uid) + ' esperado=' + userA : 'no salió link de activación en el muro');
     }
 
     infra('NLP: al menos una frase llegó al chokepoint como lectura (test no vacuo)',
@@ -529,7 +568,7 @@ async function run() {
     respTrial.includes(trial.TRIAL_DIAS + ' días') && /Neto Pro/i.test(respTrial) && !esMuro(respTrial),
     recorte(respTrial, 80));
 
-  const mLink = respTrial.match(/\/activar\?t=([A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+)/);
+  const mLink = respTrial.match(RE_TOKEN_ACTIVAR);
   const payload = mLink ? verificarTokenActivacion(mLink[1]) : null;
   check('trial: el link de activación viene FIRMADO y apunta a ESE usuario',
     !!payload && payload.uid === userB,
