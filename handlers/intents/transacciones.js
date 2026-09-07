@@ -6,6 +6,7 @@ const { colaConfirmacionGasto, estaEnMuro } = require('../../lib/trial');
 const { validarMonto } = require('../../lib/validators');
 const { subcategoriaUtil, esSubSinClasificar } = require('../../lib/subcategoria');
 const { extraerGastoSinIA, quitarTokensDeMoneda, contarMontosCandidatos } = require('../../lib/nlp-guards');
+const { registrarError } = require('../../lib/error-monitor');
 
 // Un mensaje que es SOLO un número (con o sin moneda) no se rescata.
 //
@@ -546,6 +547,55 @@ module.exports = {
           return respReg;
         } catch(e) {
           log.error({ tag: 'REGISTRAR_MANUAL', err: e.message }, 'Error registro manual');
+          // **Deja fila en `errores`, y no es diagnóstico de más: es la única forma de contar
+          // a cuánta gente le pasa.** Este `catch` es donde muere un gasto sin que nadie se
+          // entere: el usuario recibe "No pude procesar eso" y la fila no entra. Hasta el
+          // 07-sep-2026 solo había un `log.error` a stdout, o sea que la pregunta "¿esto le
+          // pasa a un usuario al mes o a quince?" no tenía respuesta posible, y esa cifra es
+          // justo la que decide el tamaño del arreglo del ítem 31 del backlog.
+          //
+          // El caso medido que lo motivó: con varios gastos en un mensaje el modelo devuelve
+          // N objetos JSON separados por comas y `JSON.parse` lanza
+          // (`SyntaxError: Unexpected non-whitespace character after JSON`). El modelo había
+          // extraído los cinco gastos BIEN y se tiran los cinco. Ya le pasó a un usuario real
+          // (hallazgo B27, citado en `services/multi-gasto-detector.js`), que recibió el mismo
+          // mensaje dos veces y se rindió.
+          //
+          // `detalle` lleva el texto que la persona escribió, que es lo que hace la fila
+          // accionable: sin él se sabe cuántas veces pasó y no QUÉ formas lo disparan. No
+          // agrega exposición de datos — ese mismo texto ya está en `conversaciones`. Mismo
+          // criterio que la fila de "mensaje entrante sin from" en `handlers/webhook.js`.
+          //
+          // El `mensaje` es FIJO a propósito: `registrarError` agrupa sus patrones por
+          // `tag:mensaje`, así que meter ahí el error variable partiría el conteo en tantas
+          // claves como variantes y el umbral de 5-en-una-hora no se alcanzaría nunca. La
+          // causa concreta va en `stack`, que es donde se separa el `SyntaxError` del JSON de
+          // cualquier otro fallo.
+          //
+          // **Los usuarios de prueba quedan fuera, y no es higiene: es que si no, el número
+          // que esto viene a medir queda inservible.** El qa-agent manda por este mismo
+          // webhook y sus escenarios de varios gastos caen justo en este `catch`, así que
+          // cada corrida quincenal inflaría el conteo. Peor: `registrarError` alerta al admin
+          // con 5 fallos iguales en una hora, y una corrida del agente llega sola a ese
+          // umbral — o sea una "ALERTA CRITICA" por WhatsApp que no es de nadie real. La
+          // tabla `errores` ya arrastra esa contaminación de otro camino (ver la sección del
+          // BSUID en `app/CLAUDE.md`, donde hubo que separar las filas por prefijo después
+          // del hecho); acá se evita desde el principio.
+          //
+          // Falla del lado de REGISTRAR: si un `select` acotado no trajera `is_test_user`,
+          // esto queda `undefined`, la fila entra igual y a lo sumo hay que filtrarla después.
+          // Al revés se perdería la medición sin que nadie se entere.
+          //
+          // Cómo se lee:
+          //   select created_at, detalle, left(stack, 120)
+          //   from errores where tag = 'REGISTRAR_MANUAL' order by created_at desc;
+          if (!(usuario && usuario.is_test_user === true)) {
+            registrarError('REGISTRAR_MANUAL', 'No se pudo registrar el gasto', {
+              detalle: (msg || '').substring(0, 300),
+              usuarioId: usuario && usuario.id ? usuario.id : null,
+              stack: e && e.stack ? e.stack : String(e),
+            });
+          }
           return 'No pude procesar eso. Dime: "gasté S/50 en farmacia ayer" y lo anoto.';
         }
       }

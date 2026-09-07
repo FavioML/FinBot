@@ -5,6 +5,13 @@ const require = createRequire(import.meta.url);
 // La regla de conversion USD->PEN se toma del MODULO REAL, no se re-implementa aca: un
 // duplicado en el test convierte el guard en una copia que puede divergir del codigo.
 const realTx = require('../../services/transactions');
+
+// `transacciones.js` DESTRUCTURA `registrarError` al cargar, así que el espía tiene que quedar
+// puesto ANTES del require de abajo o el handler captura la función real y le pega a la tabla
+// `errores` de producción desde la suite. Mismo patrón que `muro-dispatch.test.js`.
+const registrarErrorSpy = vi.fn();
+require('../../lib/error-monitor').registrarError = registrarErrorSpy;
+
 const handler = require('../../handlers/intents/transacciones');
 
 // PRE-CARGA DELIBERADA. `handler.handle` resuelve el redirect de query con un
@@ -556,6 +563,62 @@ describe('registrar_manual — paralelismo de las dos llamadas al LLM', () => {
     const res = await handler.handle({ intencion: 'registrar_manual', msg: 'gaste 50 en cafe', datos: {}, usuario: USUARIO, from: '+51999', ctx });
     expect(res).toContain('No pude procesar eso');
     expect(ctx.guardarTransaccion).not.toHaveBeenCalled();
+  });
+
+  // ─── La MEDICIÓN de este catch (ítem 31 del backlog, 07-sep-2026) ──────────────────────
+  // Acá muere un gasto sin que nadie se entere: el usuario recibe "No pude procesar eso" y la
+  // fila no entra. Durante meses el único rastro era un `log.error` a stdout, así que la
+  // pregunta "¿a cuánta gente le pasa?" no tenía respuesta, y esa cifra es la que decide el
+  // tamaño del arreglo. Estos dos tests son lo que mantiene viva la medición: sin ellos,
+  // alguien puede borrar la llamada y ningún rojo lo delata.
+  it('el catch deja fila en `errores` con el mensaje que escribió la persona', async () => {
+    registrarErrorSpy.mockClear();
+    const detectarCategoriaIA = vi.fn().mockRejectedValue(new Error('supabase caido'));
+    const ctx = buildCtx(makeSupabaseMock({ transacciones: [] }), { detectarCategoriaIA });
+    await handler.handle({ intencion: 'registrar_manual', msg: 'gaste 50 en cafe', datos: {}, usuario: USUARIO, from: '+51999', ctx });
+
+    expect(registrarErrorSpy).toHaveBeenCalledOnce();
+    const [tag, mensaje, opts] = registrarErrorSpy.mock.calls[0];
+    expect(tag).toBe('REGISTRAR_MANUAL');
+    // El mensaje es FIJO: `registrarError` agrupa sus patrones por `tag:mensaje`, así que uno
+    // variable partiría el conteo en tantas claves como variantes y el umbral de 5-en-una-hora
+    // no se alcanzaría nunca. Por eso se afirma la igualdad, no un `toContain`.
+    expect(mensaje).toBe('No se pudo registrar el gasto');
+    // `detalle` es lo que vuelve la fila accionable: sin él se sabe cuántas veces pasó, no QUÉ
+    // formas lo disparan. Es lo que permitió ver que el caso real son varios gastos por mensaje.
+    expect(opts.detalle).toBe('gaste 50 en cafe');
+    expect(opts.usuarioId).toBe('user-001');
+    // La causa concreta va en `stack`, que es donde se separa el SyntaxError del JSON del
+    // modelo de cualquier otro fallo.
+    expect(String(opts.stack)).toContain('supabase caido');
+  });
+
+  it('un usuario de PRUEBA no ensucia la medición', async () => {
+    // El qa-agent manda por este mismo webhook y sus escenarios de varios gastos caen justo
+    // acá, así que cada corrida quincenal inflaría el conteo. Y `registrarError` alerta al
+    // admin con 5 fallos iguales en una hora: una corrida del agente llega sola a ese umbral,
+    // o sea una "ALERTA CRITICA" por WhatsApp que no es de nadie real.
+    registrarErrorSpy.mockClear();
+    const detectarCategoriaIA = vi.fn().mockRejectedValue(new Error('supabase caido'));
+    const ctx = buildCtx(makeSupabaseMock({ transacciones: [] }), { detectarCategoriaIA });
+    const qa = { ...USUARIO, is_test_user: true };
+    const res = await handler.handle({ intencion: 'registrar_manual', msg: 'gaste 50 en cafe', datos: {}, usuario: qa, from: '+51999', ctx });
+
+    expect(res).toContain('No pude procesar eso');
+    expect(registrarErrorSpy).not.toHaveBeenCalled();
+  });
+
+  it('una fila SIN `is_test_user` registra igual (falla del lado de medir, no de perder)', async () => {
+    // Si un `select` acotado no trajera la columna, esto queda `undefined`. La fila tiene que
+    // entrar igual: a lo sumo se filtra después. Al revés se perdería la medición sin que nadie
+    // se entere, que es el modo de falla que este bloque existe para evitar.
+    registrarErrorSpy.mockClear();
+    const detectarCategoriaIA = vi.fn().mockRejectedValue(new Error('supabase caido'));
+    const ctx = buildCtx(makeSupabaseMock({ transacciones: [] }), { detectarCategoriaIA });
+    const sinColumna = { id: 'user-001', plan: 'free' };
+    await handler.handle({ intencion: 'registrar_manual', msg: 'gaste 50 en cafe', datos: {}, usuario: sinColumna, from: '+51999', ctx });
+
+    expect(registrarErrorSpy).toHaveBeenCalledOnce();
   });
 
   it('sale por el camino del parser sin monto sin dejar un rechazo sin dueño', async () => {
