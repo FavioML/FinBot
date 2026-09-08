@@ -84,3 +84,15 @@ export function sumWithinDays(outflows: Outflow[], todayIso: string, days: numbe
   const total = outflows.reduce((acc, o) => (o.date <= end ? acc + o.amount_pen : acc), 0);
   return Math.round(total * 100) / 100;
 }
+
+/**
+ * Fecha con la que se registra un pago que se marca a mano. Un pago pertenece al PERÍODO que
+ * vencía, no al día en que uno se acuerda de darle check: el P&L agrupa `paid_history` por mes
+ * Lima, así que marcar en octubre el recibo del 15-sep con la fecha de hoy deja septiembre sin
+ * costo y octubre con dos. Si la fecha todavía no venció (pago adelantado) el período correcto sí
+ * es hoy, y un costo sin próxima fecha tampoco tiene período al que atribuirlo.
+ */
+export function paidAtForPeriod(nextDueDate: string | null, todayIso: string): string {
+  if (nextDueDate && nextDueDate < todayIso) return nextDueDate;
+  return todayIso;
+}

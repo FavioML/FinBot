@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireAdminUser } from '@/lib/admin';
 import { getServiceClient } from '@/lib/supabase/service';
+import { paidAtForPeriod } from '@/lib/cost-projection';
 import type { AdminCost, AdminCostPaidEntry } from '@/lib/types-admin';
 
 export const dynamic = 'force-dynamic';
@@ -81,7 +82,7 @@ export async function POST(
   }
 
   const paidEntry: AdminCostPaidEntry = {
-    paid_at: today,
+    paid_at: paidAtForPeriod(cost.next_due_date, today),
     amount_pen: customAmount,
     marked_by: user.id,
   };

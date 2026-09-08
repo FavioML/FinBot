@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { projectOutflows, sumWithinDays, type ProjectionCost } from './cost-projection';
+import {
+  projectOutflows,
+  sumWithinDays,
+  paidAtForPeriod,
+  type ProjectionCost,
+} from './cost-projection';
 
 const TODAY = '2026-07-30';
 
@@ -72,5 +77,25 @@ describe('sumWithinDays', () => {
     expect(d30).toBe(10);
     expect(d60).toBe(20);
     expect(d90).toBe(30);
+  });
+});
+
+describe('paidAtForPeriod', () => {
+  it('un costo atrasado se registra en el período que vencía, no el día del check', () => {
+    // El caso real: el recibo vencía el 15-sep y se le da check el 2-oct. Con la fecha de hoy,
+    // el P&L deja septiembre sin costo y carga dos a octubre.
+    expect(paidAtForPeriod('2026-09-15', '2026-10-02')).toBe('2026-09-15');
+  });
+
+  it('el que vence hoy se registra hoy', () => {
+    expect(paidAtForPeriod('2026-09-15', '2026-09-15')).toBe('2026-09-15');
+  });
+
+  it('un pago adelantado se registra hoy, no en el período futuro', () => {
+    expect(paidAtForPeriod('2026-10-06', '2026-09-08')).toBe('2026-09-08');
+  });
+
+  it('sin próxima fecha no hay período al que atribuirlo: hoy', () => {
+    expect(paidAtForPeriod(null, '2026-09-08')).toBe('2026-09-08');
   });
 });

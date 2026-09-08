@@ -20,7 +20,7 @@ import {
   type CostInput,
 } from '@/lib/hooks/use-admin-costs';
 import { useAdminPnl } from '@/lib/hooks/use-admin-pnl';
-import { projectOutflows, sumWithinDays } from '@/lib/cost-projection';
+import { projectOutflows, sumWithinDays, paidAtForPeriod } from '@/lib/cost-projection';
 import { toCsv, downloadCsv } from '@/lib/csv-export';
 import { Download } from 'lucide-react';
 import {
@@ -138,6 +138,14 @@ function DueBadge({ cost, today }: { cost: AdminCost; today: string }) {
     );
   }
   return null;
+}
+
+/**
+ * Un costo "toca pagarlo" cuando su fecha ya llegó y sigue sin marcarse. El auto-débito no entra:
+ * ese lo registra el cron el día del cobro.
+ */
+function pendienteDePago(cost: AdminCost, today: string): boolean {
+  return cost.active && cost.next_due_date !== null && cost.next_due_date <= today;
 }
 
 function AmountCell({ cost }: { cost: AdminCost }) {
@@ -548,6 +556,9 @@ function MarkPaidModal({
 
   const today = todayIsoLima();
   const reference = cost.next_due_date || today;
+  // Espejo de `paidAtForPeriod` del endpoint: la UI tiene que anunciar la fecha que se va a
+  // escribir, no la de hoy.
+  const paidAt = paidAtForPeriod(cost.next_due_date, today);
   const newDate =
     cost.frequency === 'monthly'
       ? addMonthsIso(reference, 1)
@@ -590,6 +601,13 @@ function MarkPaidModal({
           Estás marcando <span className="font-medium text-[#F0EFE8]">{cost.label}</span> como pagado por{' '}
           <span className="font-medium text-[#F0EFE8]">{formatPen(Number(cost.amount_pen))}</span>.
         </p>
+        {paidAt !== today && (
+          <p className="mt-2 text-sm text-[#C8C6BC]">
+            Se registra como el pago del{' '}
+            <span className="font-medium text-[#F0EFE8]">{formatDateLima(paidAt)}</span>, que es
+            el período que vencía — no como un gasto de hoy.
+          </p>
+        )}
         {newDate && (
           <p className="mt-2 text-sm text-[#C8C6BC]">
             La próxima fecha avanzará a{' '}
@@ -894,11 +912,13 @@ function CostDetailModal({
 
 function CostRowActions({
   cost,
+  today,
   onView,
   onEdit,
   onMarkPaid,
 }: {
   cost: AdminCost;
+  today: string;
   onView: () => void;
   onEdit: () => void;
   onMarkPaid: () => void;
@@ -914,8 +934,31 @@ function CostRowActions({
     }
   };
 
+  // El auto-débito se registra solo el día del cobro (cron/checks.js), así que ofrecerle un check
+  // manual invita a un pago duplicado en el P&L.
+  const puedeMarcar = cost.active && !cost.auto_debit;
+  const toca = pendienteDePago(cost, today);
+
   return (
     <div className="flex items-center justify-end gap-1">
+      {puedeMarcar &&
+        (toca ? (
+          <button
+            onClick={onMarkPaid}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[#1D9E75] px-2.5 py-1.5 text-xs font-medium text-white hover:bg-[#178a65]"
+          >
+            <Check className="h-3.5 w-3.5" />
+            Pagué
+          </button>
+        ) : (
+          <button
+            onClick={onMarkPaid}
+            title="Registrar un pago adelantado"
+            className="rounded-md p-1.5 text-[#1D9E75] hover:bg-[rgba(29,158,117,0.12)]"
+          >
+            <Check className="h-4 w-4" />
+          </button>
+        ))}
       <button
         onClick={onView}
         title="Ver detalle"
@@ -930,15 +973,9 @@ function CostRowActions({
       >
         <Pencil className="h-4 w-4" />
       </button>
-      {cost.active && (
-        <button
-          onClick={onMarkPaid}
-          title="Marcar como pagado"
-          className="rounded-md p-1.5 text-[#1D9E75] hover:bg-[rgba(29,158,117,0.12)]"
-        >
-          <Check className="h-4 w-4" />
-        </button>
-      )}
+      {/* Separador: sin él la X de pausar queda pegada al check de pagar y se lee como "no pagué",
+          que es un clic destructivo disfrazado del contrario. */}
+      <span aria-hidden className="mx-1 h-4 w-px bg-white/10" />
       <button
         onClick={handleToggleActive}
         disabled={toggle.isPending || update.isPending}
@@ -1121,6 +1158,75 @@ function UpcomingSection({ costs, today }: { costs: AdminCost[]; today: string }
   );
 }
 
+/**
+ * Lo primero de la página: qué toca pagar AHORA, con el botón al lado. Antes esto solo se podía
+ * deducir mirando la columna "Próximo" fila por fila, y la única forma de marcar un pago era un ✓
+ * sin texto en la barra de acciones.
+ */
+function PorPagarSection({
+  costs,
+  today,
+  onMarkPaid,
+}: {
+  costs: AdminCost[];
+  today: string;
+  onMarkPaid: (cost: AdminCost) => void;
+}) {
+  const pendientes = useMemo(
+    () => costs.filter((c) => !c.auto_debit && pendienteDePago(c, today)),
+    [costs, today],
+  );
+
+  if (costs.length === 0) return null;
+
+  if (pendientes.length === 0) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-[rgba(29,158,117,0.25)] bg-[rgba(29,158,117,0.06)] px-4 py-3 text-sm text-[#1D9E75]">
+        <Check className="h-4 w-4 shrink-0" />
+        <span>Todo al día. Ningún costo pendiente de pago.</span>
+      </div>
+    );
+  }
+
+  const total = pendientes.reduce((acc, c) => acc + Number(c.amount_pen), 0);
+
+  return (
+    <div className="rounded-xl border border-[rgba(216,90,48,0.35)] bg-[rgba(216,90,48,0.06)] p-4">
+      <div className="flex items-baseline justify-between gap-3">
+        <h3 className="text-sm font-semibold text-[#F0EFE8]">
+          Por pagar ({pendientes.length})
+        </h3>
+        <span className="text-sm text-[#D85A30]">{formatPen(total)}</span>
+      </div>
+      <ul className="mt-3 space-y-2">
+        {pendientes.map((c) => (
+          <li
+            key={c.id}
+            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2"
+          >
+            <div className="min-w-0">
+              <div className="text-sm text-[#F0EFE8]">{c.label}</div>
+              <div className="text-xs text-[#8A877D]">
+                {formatPen(Number(c.amount_pen))} ·{' '}
+                {c.next_due_date === today
+                  ? 'vence hoy'
+                  : `venció el ${formatDateLima(c.next_due_date)}`}
+              </div>
+            </div>
+            <button
+              onClick={() => onMarkPaid(c)}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-[#1D9E75] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#178a65]"
+            >
+              <Check className="h-4 w-4" />
+              Pagué
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export default function AdminCostsPage() {
   const { data: costs, isLoading, error } = useAdminCosts();
   const [showInactive, setShowInactive] = useState(false);
@@ -1252,6 +1358,12 @@ export default function AdminCostsPage() {
         </div>
       </div>
 
+      <PorPagarSection
+        costs={costs || []}
+        today={today}
+        onMarkPaid={(c) => setMarkPaidCost(c)}
+      />
+
       {/* P&L mensual + lo que viene */}
       <PnlSection />
       <UpcomingSection costs={costs || []} today={today} />
@@ -1335,6 +1447,7 @@ export default function AdminCostsPage() {
                   <td className="px-4 py-3">
                     <CostRowActions
                       cost={cost}
+                      today={today}
                       onView={() => setViewCost(cost)}
                       onEdit={() => setEditingCost(cost)}
                       onMarkPaid={() => setMarkPaidCost(cost)}
@@ -1376,6 +1489,7 @@ export default function AdminCostsPage() {
               <div className="mt-3 flex justify-end">
                 <CostRowActions
                   cost={cost}
+                  today={today}
                   onView={() => setViewCost(cost)}
                   onEdit={() => setEditingCost(cost)}
                   onMarkPaid={() => setMarkPaidCost(cost)}
