@@ -106,12 +106,36 @@ describe('parsearEtiquetaCta: lo que la landing manda', () => {
     expect(parsearEtiquetaCta('[Hero|IG]')).toEqual({ posicion: 'hero', origen: 'ig' });
   });
 
-  it('las seis posiciones que la landing publica hoy parsean', () => {
+  it('las posiciones que la landing y la webapp publican hoy parsean', () => {
     // Antivacuidad del grupo: si el patrón se volviera más estricto (por ejemplo exigiendo que la
-    // posición no tenga guiones), los dos `pricing-*` morirían y los otros cuatro lo taparían.
-    for (const p of ['hero', 'navbar', 'sticky', 'final', 'pricing-free', 'pricing-pro']) {
+    // posición no tenga guiones), los dos `pricing-*` morirían y los otros lo taparían.
+    // Desde el 2026-09-10 (Acción 5 del audit) se suman: `footer`, `blog` y `faq` (landing, antes
+    // salían como `[hero]` fijo), `referido` (la mini-landing `/r`), y `login` e `invitacion`
+    // (los links de WhatsApp de la webapp, que no llevaban corchete y dejaban el alta en NULL).
+    for (const p of ['hero', 'navbar', 'sticky', 'final', 'pricing-free', 'pricing-pro',
+      'footer', 'blog', 'faq', 'referido', 'login', 'invitacion']) {
       expect(parsearEtiquetaCta(`Hola Neto, quiero empezar [${p}|ig] 👋`))
         .toEqual({ posicion: p, origen: 'ig' });
+    }
+  });
+
+  it('el link de referido lleva la etiqueta DETRÁS del código, y las dos lecturas conviven', () => {
+    // Es el único texto donde el corchete comparte mensaje con otro contrato: el regex de referidos
+    // de `handlers/webhook.js` ancla el INICIO (`^hola neto ref:CODE`), así que la etiqueta tiene
+    // que ir al final. Acá solo se prueba la mitad de ATRIBUCIÓN. La mitad de referidos la prueba
+    // `tests/handlers/escrituras-del-webhook.test.js` contra el regex REAL del webhook: una copia
+    // literal del regex en este archivo no vería un `$` agregado allá (medido por la revisión).
+    const msg = 'Hola NETO ref:ABCD1234 [referido|referido]';
+    expect(parsearEtiquetaCta(msg)).toEqual({ posicion: 'referido', origen: 'referido' });
+    expect(parsearEtiquetaCta('Hola NETO ref:ABCD1234 [referido|ig]'))
+      .toEqual({ posicion: 'referido', origen: 'ig' });
+  });
+
+  it('el vocabulario de utm_source que se reparte entra en el patrón', () => {
+    // Los valores que Favio pega a mano en bios y firma, más los que derivan las páginas. Si alguno
+    // no entrara, esas altas se guardarían como `[hero]` sin origen = 'directo', en silencio.
+    for (const o of ['ig', 'tiktok', 'fb', 'email', 'referido', 'invitacion', 'qr', 'directo', 'chatgpt.com']) {
+      expect(parsearEtiquetaCta(`[hero|${o}]`)?.origen).toBe(o);
     }
   });
 });

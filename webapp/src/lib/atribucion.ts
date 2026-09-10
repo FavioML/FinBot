@@ -65,6 +65,48 @@ export const sanearOrigen = (v: string | null | undefined): string =>
 export const origenDeLaUrl = (params: URLSearchParams): string => sanearOrigen(params.get('utm_source'));
 
 /**
+ * El origen de quien entra por una invitación (`/join/space|meta|deuda|gasto/CODE`) sin UTM.
+ *
+ * **Sale de la RUTA y no del link, a propósito.** Esos links los arman seis sitios distintos (el
+ * bot en `handlers/intents/espacios.js` y `metas.js`, y la webapp en `api/{split,goals,debts}/invite`)
+ * y los reenvía gente a gente que todavía no tiene cuenta: es el único link de Neto que reparte un
+ * USUARIO y no Neto. Pegarle un UTM en cada generador son seis sitios que acordarse de mantener;
+ * la ruta ya dice que es una invitación, en uno solo. Un `utm_source` explícito sigue ganando.
+ */
+export const ORIGEN_INVITACION = 'invitacion';
+
+/** El origen que se captura en la entrada: el `utm_source`, o el que implica la ruta, o `''`. */
+export const origenDeEntrada = (pathname: string, params: URLSearchParams): string =>
+  origenDeLaUrl(params) || (pathname.startsWith('/join/') ? ORIGEN_INVITACION : '');
+
+/**
+ * Link a WhatsApp con la etiqueta del CTA, el contrato del corchete con `app/lib/atribucion.js`:
+ * `[posicion|origen]`, o `[posicion]` sin origen. Sin corchete, el backend no escribe nada y el alta
+ * por WhatsApp queda con `origen` NULL, indistinguible de un alta anterior a la medición.
+ */
+const TEXTO_EMPEZAR = 'Hola Neto, quiero empezar a ordenar mis finanzas';
+export const waConEtiqueta = (posicion: string, origen: string = ''): string => {
+  const o = sanearOrigen(origen);
+  return `https://wa.me/51933014505?text=${encodeURIComponent(
+    `${TEXTO_EMPEZAR} [${o ? `${posicion}|${o}` : posicion}] 👋`
+  )}`;
+};
+
+/**
+ * `/login`. El origen sale de la URL y no de la cookie `neto_origen`: esa es httpOnly y la pantalla
+ * está prerenderizada, así que ninguna de las dos puertas la puede leer. Alcanza porque el
+ * middleware conserva el `utm_source` en los rebotes hacia `/login`. Sin UTM sale `[login]`, que el
+ * backend guarda como 'directo': medido, que no es lo mismo que NULL.
+ */
+export const waLogin = (origen: string = ''): string => waConEtiqueta('login', origen);
+
+/**
+ * El pie de `/join`. Fija y sin leer la cookie a propósito: esta pantalla SIEMPRE es una
+ * invitación, que es el canal que se quiere contar.
+ */
+export const WA_INVITACION = waConEtiqueta('invitacion', ORIGEN_INVITACION);
+
+/**
  * El par que se escribe en la fila que crea el alta web. Re-sanea lo que venga de la cookie: el
  * middleware ya lo saneó, pero una cookie la puede escribir cualquiera, y lo que sale de acá va a un
  * INSERT con CHECK que, si falla, se lleva puesta la cuenta.

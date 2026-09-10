@@ -1,5 +1,7 @@
 import Image from 'next/image';
 import { ENTRADA_TARJETA } from '@/lib/entrada';
+// El link de WhatsApp del pie lleva `[invitacion|invitacion]`: sin corchete el alta quedaba NULL.
+import { WA_INVITACION } from '@/lib/atribucion';
 
 /**
  * El marco común de las cuatro pantallas de invitación: fondo, logo y la tarjeta que entra.
@@ -41,7 +43,7 @@ export function PieSinCuenta() {
         </a>
         <span className="text-[#8A877D]">o</span>
         <a
-          href="https://wa.me/51933014505?text=Hola%20Neto%2C%20quiero%20empezar%20a%20ordenar%20mis%20finanzas%20%F0%9F%91%8B"
+          href={WA_INVITACION}
           target="_blank"
           rel="noopener noreferrer"
           className="text-[#1D9E75] hover:underline"

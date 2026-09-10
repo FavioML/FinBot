@@ -1,6 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
-import { COOKIE_ORIGEN, COOKIE_ORIGEN_MAX_AGE, origenDeLaUrl } from '@/lib/atribucion';
+import { COOKIE_ORIGEN, COOKIE_ORIGEN_MAX_AGE, origenDeEntrada } from '@/lib/atribucion';
 
 const DEMO = () => process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
 
@@ -29,7 +29,8 @@ export async function middleware(request: NextRequest) {
   // que el ?ref: el alta web se escribe en /auth/callback, del otro lado del viaje a Google,
   // donde la query ya no existe. Primer toque: si la cookie ya está, no se pisa, igual que el
   // `.is('origen', null)` del lado de WhatsApp. El porqué completo vive en lib/atribucion.ts.
-  const origenUrl = origenDeLaUrl(request.nextUrl.searchParams);
+  // En `/join/*` sin UTM el origen es 'invitacion': la ruta ya lo dice (ver ORIGEN_INVITACION).
+  const origenUrl = origenDeEntrada(request.nextUrl.pathname, request.nextUrl.searchParams);
   const withOrigen = (res: NextResponse): NextResponse => {
     if (origenUrl && !request.cookies.has(COOKIE_ORIGEN)) {
       res.cookies.set(COOKIE_ORIGEN, origenUrl, {
@@ -113,6 +114,16 @@ export async function middleware(request: NextRequest) {
     return withCaptura(NextResponse.redirect(url));
   }
 
+  // Invitaciones: el middleware corre acá SOLO para dejar la cookie del origen, y sale antes del
+  // cliente de Supabase. Hasta el 2026-09-10 `/join/*` no estaba en el matcher, así que quien
+  // abría una invitación, tocaba "Regístrate" y se daba de alta salía 'directo' aunque lo hubiera
+  // traído otra persona. Salir acá deja la sesión exactamente como estaba: estas rutas nunca
+  // pasaron por el refresco de sesión del middleware, y la invitación la resuelve la página.
+  // Va antes del corto de demo por la misma razón que el bloque de `/`: no es un chequeo de auth.
+  if (request.nextUrl.pathname.startsWith('/join/')) {
+    return withCaptura(NextResponse.next({ request }));
+  }
+
   // Demo mode: skip auth checks entirely
   if (DEMO()) {
     return NextResponse.next({ request });
@@ -186,5 +197,6 @@ export const config = {
   // vencido con refresh válido haría que /activar leyera "no hay sesión", mandara
   // al login, y el middleware rebotara a /dashboard sin consumir el token: un
   // link de activación que no activa nada.
-  matcher: ['/', '/dashboard/:path*', '/admin/:path*', '/login', '/onboarding', '/activar', '/activar/:path*'],
+  // /join/:path* entra SOLO por la captura del origen (ver el bloque de /join arriba).
+  matcher: ['/', '/dashboard/:path*', '/admin/:path*', '/login', '/onboarding', '/activar', '/activar/:path*', '/join/:path*'],
 };

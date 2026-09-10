@@ -1,9 +1,10 @@
 'use client';
 
 import Image from 'next/image';
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { origenDeLaUrl, waLogin } from '@/lib/atribucion';
 import {
   BarChart3,
   PieChart,
@@ -103,6 +104,13 @@ function ActivacionBanner() {
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
+  // El link de WhatsApp lleva `[login|<origen>]` (ver `waLogin`). Primer render = el HTML
+  // prerenderizado (`[login]`); el origen entra después de montar, que es la misma regla que la
+  // landing para no producir un mismatch de hidratación.
+  const [waHref, setWaHref] = useState(() => waLogin(''));
+  useEffect(() => {
+    setWaHref(waLogin(origenDeLaUrl(new URLSearchParams(window.location.search))));
+  }, []);
   const [sent, setSent] = useState(false);
   const [loadingMagic, setLoadingMagic] = useState(false);
 
@@ -243,7 +251,7 @@ export default function LoginPage() {
           {/* ── WhatsApp: canal equivalente (registra o entra por chat) ── */}
           <div>
             <a
-              href="https://wa.me/51933014505?text=Hola%20Neto%2C%20quiero%20empezar%20a%20ordenar%20mis%20finanzas%20%F0%9F%91%8B"
+              href={waHref}
               target="_blank"
               rel="noopener noreferrer"
               className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#1D9E75]/30 bg-[#1D9E75]/[0.08] px-6 py-4 text-base font-medium text-[#1D9E75] transition-all hover:bg-[#1D9E75]/[0.15] hover:border-[#1D9E75]/50"

@@ -14,10 +14,15 @@
  * login se cierra con un magic link generado por la admin API, sin mandar un correo, y la cookie
  * se encadena a mano — la del paso A es LITERALMENTE la que viaja en el paso B, no una inventada.
  *
- * Tres casos:
+ * Cinco casos:
  *   A. la entrada con `?utm_source` devuelve la cookie saneada (y la entrada sin UTM, ninguna);
  *   B. el alta con esa cookie nace con origen = el canal y origen_cta = 'web', y la cookie se consume;
- *   C. el alta sin cookie nace con origen = 'directo'. NO null: null es "alta anterior a la medición".
+ *   C. el alta sin cookie nace con origen = 'directo'. NO null: null es "alta anterior a la medición";
+ *   D. (desde el 2026-09-10) abrir una invitación `/join/*` SIN UTM deja la cookie 'invitacion', y el
+ *      alta que sale de ahí nace con ese origen. Antes `/join` no pasaba por el middleware y salía
+ *      'directo' aunque la hubiera traído otra persona;
+ *   E. los links de WhatsApp de `/login` y de `/join` llevan el corchete del contrato
+ *      (`[login]`, `[invitacion|invitacion]`). Sin corchete, esas altas por WhatsApp quedaban NULL.
  *
  * **Escribe en producción y limpia lo suyo.** Crea dos usuarios de Auth (`@qa.neto.pe`, no reciben
  * correo) y el callback les crea la fila de `usuarios` + categorías. Apenas se lee la fila se le pone
@@ -201,6 +206,35 @@ async function main() {
   ok(!!cc.fila, 'existe la fila de usuarios');
   ok(cc.fila?.origen === 'directo', `origen = "directo" (got ${JSON.stringify(cc.fila?.origen)})`);
   ok(cc.fila?.origen_cta === 'web', `origen_cta = "web" (got ${JSON.stringify(cc.fila?.origen_cta)})`);
+
+  console.log(`\n[${TAG}] D) Una invitación sin UTM es un canal: 'invitacion'`);
+  // Código inventado: la página responde "invitación no encontrada", y eso alcanza, porque lo que
+  // se mide es la entrada, no la invitación. No se lee ni se toca el espacio de nadie.
+  const inv = await fetch(`${APP}/join/space/QAPROBE1`, { redirect: 'manual' });
+  const ci = setCookie(inv, 'neto_origen');
+  ok(inv.status === 200, `la invitación se sirve sin rebote (got ${inv.status})`);
+  ok(ci?.valor === 'invitacion', `neto_origen = "invitacion" (got ${JSON.stringify(ci?.valor)})`);
+  const invUtm = await fetch(`${APP}/join/meta/QAPROBE1?utm_source=ig`, { redirect: 'manual' });
+  ok(setCookie(invUtm, 'neto_origen')?.valor === 'ig', 'un utm_source explícito en la invitación gana sobre la ruta');
+  const d = await alta('invitacion', ci?.valor);
+  ok(d.fila?.origen === 'invitacion', `el alta nace con origen = "invitacion" (got ${JSON.stringify(d.fila?.origen)})`);
+  ok(d.fila?.origen_cta === 'web', `origen_cta = "web" (got ${JSON.stringify(d.fila?.origen_cta)})`);
+
+  console.log(`\n[${TAG}] E) Los links de WhatsApp de la webapp llevan el corchete del contrato`);
+  // El HTML crudo es lo que decide si hay corchete sin JS; el origen de /login entra después de
+  // montar y eso lo cubren los tests de la webapp, no este harness HTTP.
+  const htmlLogin = await (await fetch(`${APP}/login`)).text();
+  ok(htmlLogin.includes(encodeURIComponent('[login]')), '/login: el link de WhatsApp trae [login]');
+  // El pie de /join (`PieSinCuenta`) SOLO se renderiza con una invitación válida, y este harness no
+  // lee invitaciones reales de nadie. Con el código inventado el pie no existe, así que afirmar sobre
+  // él pasaba en VACÍO (medido en la primera corrida: "pie presente: false" y verde). Queda escrito
+  // como no medido en vez de contarse: que el backend lee ese texto lo prueba `qa-atribucion-wa.mjs`.
+  const htmlInv = await (await fetch(`${APP}/join/gasto/QAPROBE1`)).text();
+  if (htmlInv.includes('wa.me/51933014505')) {
+    ok(htmlInv.includes(encodeURIComponent('[invitacion|invitacion]')), '/join: el pie de WhatsApp trae [invitacion|invitacion]');
+  } else {
+    console.log('  · NO MEDIDO: /join sin invitación válida no renderiza el pie de WhatsApp (no cuenta como ok)');
+  }
 }
 
 let errorFatal = null;

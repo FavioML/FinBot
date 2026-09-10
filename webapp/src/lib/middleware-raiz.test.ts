@@ -1,12 +1,15 @@
 import { describe, it, expect, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-import { middleware } from '../../middleware';
+import { middleware, config } from '../../middleware';
 
 // Solo lo usan los rebotes que pasan por la sesión (abajo). Las entradas de `/` caen antes del
 // cliente de Supabase y no lo tocan.
-const sesion = vi.hoisted(() => ({ user: null as { id: string } | null }));
+const sesion = vi.hoisted(() => ({ user: null as { id: string } | null, clientes: 0 }));
 vi.mock('@supabase/ssr', () => ({
-  createServerClient: () => ({ auth: { getUser: async () => ({ data: { user: sesion.user } }) } }),
+  createServerClient: () => {
+    sesion.clientes++;
+    return { auth: { getUser: async () => ({ data: { user: sesion.user } }) } };
+  },
 }));
 
 /**
@@ -160,6 +163,44 @@ describe('P′6 — la raíz rebota desde el middleware', () => {
     } finally {
       sesion.user = null;
     }
+  });
+
+  it('una invitación sin UTM deja la cookie del origen = invitacion, sin redirigir', async () => {
+    // El alta que nace de una invitación salía 'directo' porque /join/* no pasaba por acá.
+    const res = await pedir('https://app.neto.pe/join/space/ABCD1234');
+    expect(res.headers.get('location')).toBeNull();
+    expect(res.status).toBe(200);
+    expect(res.cookies.get('neto_origen')?.value).toBe('invitacion');
+  });
+
+  it('una invitación sale ANTES del cliente de Supabase: no paga una llamada de auth', async () => {
+    // Sin este caso, borrar el return temprano de /join dejaba todo verde (lo midió la revisión
+    // adversarial): la cookie se escribe igual en el return final, pero pasando por `getUser()`
+    // en cada visita a una invitación, que nunca lo hizo.
+    const antes = sesion.clientes;
+    await pedir('https://app.neto.pe/join/gasto/ABCD1234');
+    expect(sesion.clientes - antes).toBe(0);
+    // Control: una ruta que SÍ pasa por la sesión lo crea, o este conteo no mediría nada.
+    await pedir('https://app.neto.pe/login');
+    expect(sesion.clientes - antes).toBe(1);
+  });
+
+  it('una invitación con UTM guarda el UTM, no la ruta', async () => {
+    const res = await pedir('https://app.neto.pe/join/meta/ABCD1234?utm_source=ig');
+    expect(res.cookies.get('neto_origen')?.value).toBe('ig');
+  });
+
+  it('una invitación no pisa el primer toque', async () => {
+    const req = new NextRequest(new Request('https://app.neto.pe/join/deuda/ABCD1234'), {});
+    req.cookies.set('neto_origen', 'tiktok');
+    const res = await middleware(req);
+    expect(res.cookies.get('neto_origen')).toBeUndefined();
+  });
+
+  it('el matcher incluye /join/:path* (sin eso, lo de arriba no corre nunca en Vercel)', () => {
+    // Los tests llaman al middleware a mano, así que no ven el matcher: esta es la única línea que
+    // fija que en producción el middleware SÍ se ejecute sobre las invitaciones.
+    expect(config.matcher).toContain('/join/:path*');
   });
 
   it('en demo mode la raíz sigue reenviando el ?code (el corto de demo va DESPUÉS)', async () => {

@@ -1049,6 +1049,20 @@ describe('9B-ter · la lectura del referrer: el 50% off que no se siembra deja d
     expect(registrarReferido).toHaveBeenCalledWith('uref', 'u1');
     expect(registrarError).not.toHaveBeenCalled();
   });
+
+  /**
+   * **El texto que la landing reparte desde el 2026-09-10 lleva la etiqueta de atribución DETRÁS
+   * del código** (`landing/src/lib/constants.ts`, `waReferralLink`). Eso solo funciona porque el
+   * regex de referidos ancla el INICIO y no el fin. Un `$` agregado "por prolijidad" dejaría de
+   * vincular a TODO referido nuevo —el 50% off y el mes gratis del referrer— sin un error en
+   * ningún lado. Lo encontró la revisión adversarial: con el `$` puesto la suite entera seguía verde.
+   */
+  it('el texto con la etiqueta de atribución detrás del código sigue sembrando el referido', async () => {
+    sbActual = montar({ filas: { usuarios: [u({ id: 'uref', ref_code: 'ABCD12' }), u()] } });
+    await correr(() => enviar('Hola NETO ref:ABCD12 [referido|referido]'));
+    expect(registrarReferido).toHaveBeenCalledWith('uref', 'u1');
+    expect(registrarError).not.toHaveBeenCalled();
+  });
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
