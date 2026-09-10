@@ -28,6 +28,7 @@ const { esperaComprobante, esPagoNeto, procesarComprobantePro, reclamarSolicitud
 const { procesarComandoAdmin } = require('./admin-commands');
 const premiumIntents = require('./intents/premium');
 const { abrirSesion, cerrarSesion } = require('../lib/support-tickets');
+const { registrarOrigenDelAlta } = require('../lib/atribucion');
 const { manejarOnboarding } = require('./onboarding');
 const { colaConfirmacionGasto, estaEnMuro, mensajeMuro, mensajeCargaMasivaPro, esProPagado, mensajeGmailProPagado, mensajeConectarEnLaApp, mensajeGmailDesconectado, mensajeDashboard } = require('../lib/trial');
 const { comandoRequiereLectura } = require('./intents-acceso');
@@ -816,6 +817,21 @@ function createWebhookHandler(procesarMensajeLibre) {
     let respuesta = '';
     const usuario = await obtenerOCrearUsuario(from, bsuid);
     const cmd = msg.toLowerCase().trim();
+
+    // De dónde vino esta alta. El texto prellenado de los CTA de la landing trae la etiqueta
+    // (`[hero|ig]`) y hasta hoy nadie la leía: se escribía y se descartaba, así que ninguna de las
+    // 48 altas de agosto tenía canal. Ver `lib/atribucion.js`.
+    //
+    // **Va ACÁ y no más abajo, y el lugar es parte del arreglo.** `manejarOnboarding` puede cerrar
+    // el alta en este mismo mensaje (`completarAlta`), y una de las tres condiciones para escribir
+    // el origen es que el alta esté abierta. Un par de líneas más abajo esta llamada no escribiría
+    // nunca en el camino más común, que es justo el que importa: el primer mensaje de alguien que
+    // acaba de hacer clic en el CTA.
+    //
+    // `await` y no fire-and-forget: lo que sigue lee `usuario` y se espera que ya tenga el valor.
+    // La función se traga sus propios fallos (best-effort, con log y fila en `errores`), así que
+    // esperarla no puede frenar el alta. No va en try/catch por lo mismo.
+    await registrarOrigenDelAlta(usuario, msg);
 
     // Verificación de cuenta web (OTP inverso). El usuario se logueó con Google en
     // app.neto.pe y, para probar posesión de su número, envía este código pre-escrito
