@@ -1,9 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createRequire } from 'module';
-import path from 'node:path';
 
 const require = createRequire(import.meta.url);
-const raiz = path.resolve(path.dirname(new URL(import.meta.url).pathname.slice(1)), '..', '..');
 
 /**
  * EL PARSER QUE CONVIERTE "SESIONES POR CANAL" EN "ALTAS POR CANAL".
@@ -48,13 +46,19 @@ const dbMock = {
     },
   },
 };
+// Los especificadores son RELATIVOS y se resuelven con `require.resolve`, sin aritmética de rutas.
+// La primera versión derivaba la raíz del repo con `new URL(import.meta.url).pathname.slice(1)`:
+// en Windows eso saca el `/` de `/C:/...` y queda bien, en Linux saca el `/` de `/home/...` y deja
+// una ruta RELATIVA que `path.resolve` convierte en `<cwd>/home/runner/...`. Pasaba local y moría
+// en CI, que es la forma más cara de equivocarse. Un `require.resolve('../../lib/db.js')` no tiene
+// esa superficie: lo resuelve Node contra este archivo, igual en los dos sistemas.
 for (const [rel, exports] of [
-  ['lib/db.js', dbMock],
-  ['lib/logger.js', { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() }],
-  ['lib/analytics.js', { capture: vi.fn() }],
-  ['lib/error-monitor.js', { registrarError: vi.fn() }],
+  ['../../lib/db.js', dbMock],
+  ['../../lib/logger.js', { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() }],
+  ['../../lib/analytics.js', { capture: vi.fn() }],
+  ['../../lib/error-monitor.js', { registrarError: vi.fn() }],
 ]) {
-  const f = require.resolve(path.join(raiz, rel));
+  const f = require.resolve(rel);
   require.cache[f] = { id: f, filename: f, loaded: true, exports };
 }
 
