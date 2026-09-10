@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { CATEGORIAS } from '@/lib/constants';
+import type { AtribucionAlta } from '@/lib/atribucion';
 
 // Creación de cuenta Neto web-first (login Google, SIN número de WhatsApp).
 //
@@ -12,6 +13,11 @@ interface CreateWebUserInput {
   authId: string;
   email: string | null;
   nombre: string | null;
+  /**
+   * Obligatorio a propósito: un caller que lo omitiera escribiría NULL, y NULL en `origen`
+   * significa "alta anterior a la medición" (migración 084). Se arma con `atribucionDelAlta`.
+   */
+  atribucion: AtribucionAlta;
 }
 
 /**
@@ -22,7 +28,7 @@ interface CreateWebUserInput {
  */
 export async function createWebUser(
   svc: SupabaseClient,
-  { authId, email, nombre }: CreateWebUserInput,
+  { authId, email, nombre, atribucion }: CreateWebUserInput,
 ): Promise<string | null> {
   const { data: created, error } = await svc
     .from('usuarios')
@@ -33,6 +39,9 @@ export async function createWebUser(
       plan: 'free',
       onboarding_completado: true,
       onboarding_paso: 0,
+      // Fila recién nacida: no hay origen previo que respetar, así que el primer toque es este.
+      origen: atribucion.origen,
+      origen_cta: atribucion.origen_cta,
     })
     .select('id')
     .single();

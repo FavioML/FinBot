@@ -1,6 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { middleware } from '../../middleware';
+
+// Solo lo usan los rebotes que pasan por la sesión (abajo). Las entradas de `/` caen antes del
+// cliente de Supabase y no lo tocan.
+const sesion = vi.hoisted(() => ({ user: null as { id: string } | null }));
+vi.mock('@supabase/ssr', () => ({
+  createServerClient: () => ({ auth: { getUser: async () => ({ data: { user: sesion.user } }) } }),
+}));
 
 /**
  * P′6: `/` dejó de ser una función serverless.
@@ -79,6 +86,80 @@ describe('P′6 — la raíz rebota desde el middleware', () => {
     req.cookies.set('neto_ref', 'VIEJO123');
     const res = await middleware(req);
     expect(res.cookies.get('neto_ref')).toBeUndefined();
+  });
+
+  it('el ?utm_source se guarda saneado en la cookie del origen, sobre el rebote', async () => {
+    // Mismo motivo que el ?ref: el alta web se escribe en /auth/callback, del otro lado del
+    // viaje a Google, donde la query de la entrada ya no existe.
+    const res = await pedir('https://app.neto.pe/?utm_source=Instagram&utm_medium=bio');
+    const c = res.cookies.get('neto_origen');
+    expect(c?.value).toBe('instagram');
+    expect(c?.httpOnly).toBe(true);
+  });
+
+  it('sin utm_source no se escribe cookie de origen (el callback escribirá directo)', async () => {
+    const res = await pedir('https://app.neto.pe/?utm_medium=bio');
+    expect(res.cookies.get('neto_origen')).toBeUndefined();
+  });
+
+  it('un utm_source que no sobrevive al saneado no escribe cookie', async () => {
+    const res = await pedir('https://app.neto.pe/?utm_source=%5B%5D%21');
+    expect(res.cookies.get('neto_origen')).toBeUndefined();
+  });
+
+  it('primer toque: el origen que ya está en la cookie no se pisa', async () => {
+    const req = new NextRequest(new Request('https://app.neto.pe/?utm_source=tiktok'), {});
+    req.cookies.set('neto_origen', 'ig');
+    const res = await middleware(req);
+    expect(res.cookies.get('neto_origen')).toBeUndefined();
+  });
+
+  it('el origen viaja también sobre la rama de auth', async () => {
+    const res = await pedir('https://app.neto.pe/?code=abc123&utm_source=ig');
+    expect(new URL(res.headers.get('location')!).pathname).toBe('/auth/callback');
+    expect(res.cookies.get('neto_origen')?.value).toBe('ig');
+  });
+
+  it('los atributos de la cookie son los que dejan que vuelva de Google', async () => {
+    // `lax` no es estética: el regreso de Google/Supabase a /auth/callback es una navegación
+    // cross-site, y con `strict` la cookie no viaja y TODA alta por OAuth sale 'directo'.
+    const c = (await pedir('https://app.neto.pe/?utm_source=ig')).cookies.get('neto_origen');
+    expect(c?.sameSite).toBe('lax');
+    expect(c?.path).toBe('/');
+    expect(c?.secure).toBe(true);
+    expect(c?.maxAge).toBe(60 * 60 * 24 * 30);
+  });
+
+  it('el rebote de la raíz a /login conserva el utm_source (navegador de las apps)', async () => {
+    const r = await destino('https://app.neto.pe/?utm_source=IG&utm_medium=bio&fbclid=x');
+    const u = new URL(r.location!);
+    expect(u.pathname).toBe('/login');
+    expect(u.search).toBe('?utm_source=ig');
+  });
+
+  it('el CTA Pro de la landing (/dashboard/pro sin sesión) rebota a /login con la cookie', async () => {
+    // Otro return del middleware, el que pasa por la sesión. La landing manda aquí el CTA de Pro
+    // (`useCtaHrefs(_, 'pro')`), así que si este rebote pierde la cookie, esas altas salen 'directo'.
+    const res = await pedir('https://app.neto.pe/dashboard/pro?utm_source=ig');
+    expect(new URL(res.headers.get('location')!).pathname).toBe('/login');
+    expect(res.cookies.get('neto_origen')?.value).toBe('ig');
+  });
+
+  it('/login sin sesión (el return final) guarda la cookie', async () => {
+    const res = await pedir('https://app.neto.pe/login?utm_source=ig');
+    expect(res.headers.get('location')).toBeNull();
+    expect(res.cookies.get('neto_origen')?.value).toBe('ig');
+  });
+
+  it('/login con sesión rebota a /dashboard y guarda la cookie igual', async () => {
+    sesion.user = { id: 'auth-1' };
+    try {
+      const res = await pedir('https://app.neto.pe/login?utm_source=ig');
+      expect(new URL(res.headers.get('location')!).pathname).toBe('/dashboard');
+      expect(res.cookies.get('neto_origen')?.value).toBe('ig');
+    } finally {
+      sesion.user = null;
+    }
   });
 
   it('en demo mode la raíz sigue reenviando el ?code (el corto de demo va DESPUÉS)', async () => {

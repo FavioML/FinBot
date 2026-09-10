@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import { COOKIE_ORIGEN, COOKIE_ORIGEN_MAX_AGE, origenDeLaUrl } from '@/lib/atribucion';
 
 const DEMO = () => process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
 
@@ -23,6 +24,27 @@ export async function middleware(request: NextRequest) {
     }
     return res;
   };
+
+  // Captura del canal del alta (?utm_source= que la landing pega al saltar). Mismo problema
+  // que el ?ref: el alta web se escribe en /auth/callback, del otro lado del viaje a Google,
+  // donde la query ya no existe. Primer toque: si la cookie ya está, no se pisa, igual que el
+  // `.is('origen', null)` del lado de WhatsApp. El porqué completo vive en lib/atribucion.ts.
+  const origenUrl = origenDeLaUrl(request.nextUrl.searchParams);
+  const withOrigen = (res: NextResponse): NextResponse => {
+    if (origenUrl && !request.cookies.has(COOKIE_ORIGEN)) {
+      res.cookies.set(COOKIE_ORIGEN, origenUrl, {
+        maxAge: COOKIE_ORIGEN_MAX_AGE,
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: true,
+        path: '/',
+      });
+    }
+    return res;
+  };
+  // Las dos capturas que tienen que sobrevivir a CUALQUIER rebote de entrada van juntas, para
+  // que un return nuevo no pueda acordarse de una y olvidarse de la otra.
+  const withCaptura = (res: NextResponse): NextResponse => withOrigen(withRef(res));
 
   // Captura del token de activación (?t= del link que Neto manda por WhatsApp).
   // Mismo problema y misma solución que el ?ref de arriba: la query se pierde en
@@ -81,8 +103,14 @@ export async function middleware(request: NextRequest) {
     } else {
       url.pathname = '/login';
       url.search = '';
+      // El utm_source SÍ viaja, y es por el navegador de las apps. Google bloquea OAuth dentro
+      // del navegador embebido de Instagram/TikTok, así que quien llega desde ahí salta a Chrome
+      // con la URL que tenga en ese momento y un almacén de cookies VACÍO. Si esa URL es `/login`
+      // pelado, su alta sale 'directo' — justo en los canales que más importa medir. Con el
+      // parámetro puesto, el middleware lo vuelve a capturar del otro lado.
+      if (origenUrl) url.searchParams.set('utm_source', origenUrl);
     }
-    return withRef(NextResponse.redirect(url));
+    return withCaptura(NextResponse.redirect(url));
   }
 
   // Demo mode: skip auth checks entirely
@@ -121,7 +149,7 @@ export async function middleware(request: NextRequest) {
   ) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
-    return withRef(NextResponse.redirect(url));
+    return withCaptura(NextResponse.redirect(url));
   }
 
   // Admin gate — block /admin/* for non-allowlisted users
@@ -146,10 +174,10 @@ export async function middleware(request: NextRequest) {
   if (user && request.nextUrl.pathname === '/login') {
     const url = request.nextUrl.clone();
     url.pathname = '/dashboard';
-    return withRef(NextResponse.redirect(url));
+    return withCaptura(NextResponse.redirect(url));
   }
 
-  return withAct(withRef(supabaseResponse));
+  return withAct(withCaptura(supabaseResponse));
 }
 
 export const config = {

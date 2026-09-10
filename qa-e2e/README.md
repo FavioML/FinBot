@@ -275,6 +275,7 @@ que no se hace todas las mañanas sin mirar.
 | `qa-tour-gate.mjs` | El gate del tour de onboarding es SERVER-side (1 vez por cuenta, no por navegador) | Al tocar el tour o `usuarios.tour_visto` |
 | `qa-gate.mjs` | Verificación visual del gating por plan con sesión real: `pro` ve todo abierto, `free` (el muro) ve el paywall | Al tocar el paywall o el `ProGate` |
 | `qa-referido-web.mjs` | El alta web con `?ref=CODE`: el middleware guarda la cookie `neto_ref` y `/auth/callback` la canjea | Al tocar referidos por la puerta web |
+| `qa-atribucion-web.mjs` | El alta web guarda su canal, por HTTP contra prod y encadenado: la entrada con `?utm_source` devuelve la cookie `neto_origen` saneada, el callback (magic link generado por la admin API, sin correo) crea la fila con ese `origen` + `origen_cta='web'`, y un alta sin cookie sale `'directo'`, no null. Crea 2 usuarios de Auth y los borra, comprobando que no quede nada. Contra el código anterior al 10-sep da 7 rojos. Fuera del canary: se rompe CON commit | Al tocar `webapp/src/lib/atribucion.ts`, el middleware o la rama web-first de `/auth/callback` |
 | `qa-web-signup-merge.mjs` | El corazón del onboarding web-first: `merge_and_link` (migración 046) fusiona dos filas en una, atómico, sin duplicar ni perder | Al tocar la vinculación de identidades |
 | `qa-whatsapp-unlink.mjs` | El invariante del "cambiar número" self-serve: `POST /api/whatsapp/unlink` deja `whatsapp = null` sin romper el ciclo | Al tocar el desvinculado de número |
 

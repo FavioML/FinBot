@@ -6,6 +6,7 @@ import { createWebUser } from '@/lib/create-web-user';
 import { linkWebReferral } from '@/lib/link-web-referral';
 import { verificarTokenActivacion } from '@/lib/activacion-token';
 import { bindActivacion, notificarBackendActivacion } from '@/lib/bind-activation';
+import { COOKIE_ORIGEN, atribucionDelAlta } from '@/lib/atribucion';
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
@@ -114,7 +115,15 @@ export async function GET(request: NextRequest) {
         return NextResponse.redirect(`${origin}/login?error=temporal`);
       }
 
+      // Esta visita resolvió a una cuenta que YA existía, así que la cookie del origen no es de
+      // ningún alta: se descarta, para que no la herede la próxima cuenta que se cree en este
+      // navegador (un dispositivo compartido, 30 días). El origen de esta fila no se toca.
+      const descartarOrigen = () => {
+        if (request.cookies.has(COOKIE_ORIGEN)) response.cookies.set(COOKIE_ORIGEN, '', { maxAge: 0, path: '/' });
+      };
+
       if (byAuthId) {
+        descartarOrigen();
         return response;
       }
 
@@ -138,6 +147,7 @@ export async function GET(request: NextRequest) {
               .update({ supabase_auth_id: user.id })
               .eq('id', byEmail.id);
           }
+          descartarOrigen();
           return response;
         }
       }
@@ -148,13 +158,20 @@ export async function GET(request: NextRequest) {
       // (banner en el dashboard → reverse-OTP). Antes esto era un embudo forzado a
       // /onboarding hacia WhatsApp; ahora crear la cuenta desde la web es de primera clase.
       const nombre = user.user_metadata?.full_name || user.user_metadata?.name || null;
+      // El canal del alta: el middleware guardó el ?utm_source de la entrada en esta cookie.
+      // Solo se lee ACÁ, en la rama que crea la fila — las dos de arriba devuelven una fila que
+      // ya existía y cuyo origen lo decidió su propia alta (primer toque).
+      const origenCookie = request.cookies.get(COOKIE_ORIGEN)?.value;
       const createdId = await createWebUser(serviceClient, {
         authId: user.id,
         email: user.email ?? null,
         nombre,
+        atribucion: atribucionDelAlta(origenCookie),
       });
 
       if (createdId) {
+        // Se consume solo si la cuenta se creó: si falló, el reintento tiene que seguir atribuido.
+        if (origenCookie) response.cookies.set(COOKIE_ORIGEN, '', { maxAge: 0, path: '/' });
         // Registro por link de referido: el middleware guardó el ?ref=CODE de la
         // mini-landing en la cookie `neto_ref`. Al ser una cuenta NUEVA (rama web-first),
         // la vinculamos con su referrer y se siembra el 50% off. Best-effort: el signup no
