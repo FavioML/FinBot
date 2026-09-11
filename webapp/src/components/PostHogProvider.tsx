@@ -6,6 +6,7 @@ import { track, EVENTS } from '@/lib/analytics'
 import { getPerfilSesionSync } from '@/lib/supabase/session'
 import { cuandoSeDesocupe } from '@/lib/desocupado'
 import { alSaberIdNeto, olvidarIdNeto } from '@/lib/analytics/identidad-neto'
+import { esSondaDeRendimiento } from '@/lib/analytics/sonda'
 
 // Project API key de PostHog (pública por diseño: va en el bundle cliente,
 // igual que en la landing). El env var de Vercel la puede sobreescribir.
@@ -33,7 +34,13 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
       const key = process.env.NEXT_PUBLIC_POSTHOG_KEY || POSTHOG_PUBLIC_KEY
       if (!key) return
 
+      // Una corrida de PageSpeed se carga PostHog igual que una persona (así se mide su costo
+      // real), pero no manda nada: ni pageview, ni vitals, ni grabación. Ver `lib/analytics/sonda`.
+      const sonda = esSondaDeRendimiento(window.location.search, navigator.userAgent)
+
       posthog.init(key, {
+        before_send: (evento) => (sonda ? null : evento),
+        disable_session_recording: sonda,
         api_host: 'https://us.i.posthog.com',
         person_profiles: 'identified_only',
         capture_pageview: 'history_change',
