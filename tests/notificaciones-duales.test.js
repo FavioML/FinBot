@@ -31,8 +31,20 @@ import { join, relative } from 'node:path';
 
 const RAIZ = process.cwd();
 
-/** Directorios de runtime. `scripts/`, `qa-e2e/`, `migrations/` y `webapp/` no corren en el server. */
-const DIRS = ['cron', 'services', 'routes', 'lib', 'handlers', 'helpers'];
+/**
+ * Directorios de runtime: TODOS los de primer nivel menos los que no corren en el server.
+ *
+ * Es lista NEGRA desde el 12-sep-2026, igual que la de `canal-unico-sin-cuenta-web.test.js`. Con
+ * la lista blanca de antes, un `jobs/` nuevo con un `enviarWhatsapp(null, …, { usuarioId })` crudo
+ * pasaba en verde (la revisión adversarial lo ejecutó), y desde ese día esa llamada SÍ entrega.
+ * Una carpeta de runtime nueva tiene que entrar al barrido sola, no esperar a que alguien la anote.
+ */
+const NO_RUNTIME = new Set([
+  'node_modules', 'webapp', 'qa-e2e', 'tests', 'migrations', 'scripts', 'docs', 'prompts',
+  'coverage', 'assets', 'public',
+]);
+const DIRS = readdirSync(RAIZ).filter((n) =>
+  !n.startsWith('.') && !NO_RUNTIME.has(n) && statSync(join(RAIZ, n)).isDirectory());
 const SUELTOS = ['index.js', 'gmail.js'];
 
 const ENVIO_CRUDO = /\benviarWhatsapp\s*\(/g;
@@ -258,26 +270,63 @@ describe('chokepoint de notificaciones proactivas', () => {
   });
 
   /**
-   * `ENVIO_CRUDO` busca el NOMBRE `enviarWhatsapp(`, así que un alias lo evade entero:
-   * `const { enviarWhatsapp: avisar } = require('../lib/whatsapp'); await avisar(...)`. La
-   * revisión adversarial lo metió en un cron nuevo con la suite en verde (12-sep-2026). La
-   * debilidad ya existía, pero desde ese día `enviarWhatsapp(null, …, { usuarioId })` SÍ entrega
-   * (resuelve el BSUID), así que el alias es un camino de empuje que funciona sin la campana.
+   * `ENVIO_CRUDO` cuenta el NOMBRE `enviarWhatsapp(`, así que cualquier otra forma de llegar a la
+   * función lo esquiva: un alias al importar, una asignación, una clave en un objeto de
+   * dependencias, un parámetro por defecto. Desde el 12-sep-2026 `enviarWhatsapp(null, …,
+   * { usuarioId })` SÍ entrega (resuelve el BSUID), así que cualquiera de esas es un empuje que
+   * funciona sin la campana.
+   *
+   * **La regla está INVERTIDA a propósito.** La primera versión enumeraba formas de alias y la
+   * segunda revisión adversarial la evadió con cuatro formas comunes que no estaban en la lista.
+   * Ahora se enumera lo PERMITIDO, que son dos cosas: la llamada y el import con su nombre. Todo
+   * lo demás es rojo, con los comentarios blanqueados antes para no marcar prosa.
    */
-  const ALIAS_DESTRUCTURADO = /\benviarWhatsapp\s*:\s*[\w$]+/g;
-  const ALIAS_ASIGNADO = /=\s*[\w$.()'"\/-]*\.\s*enviarWhatsapp\b\s*(?![\s(])/g;
-  it('nadie renombra enviarWhatsapp en el runtime (un alias esquiva el conteo)', () => {
-    const conAlias = FUENTES
-      .filter((f) => cuenta(f.src, ALIAS_DESTRUCTURADO) + cuenta(f.src, ALIAS_ASIGNADO) > 0)
-      .map((f) => f.rel);
-    expect(conAlias).toEqual([]);
+  const sinComentariosJs = (src) =>
+    src.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ' '));
+  function usosQueNoSonLlamada(src) {
+    const limpio = sinComentariosJs(src);
+    const out = [];
+    for (const m of limpio.matchAll(/\benviarWhatsapp\b/g)) {
+      const antes = limpio.slice(0, m.index);
+      const despues = limpio.slice(m.index + m[0].length);
+      if (/^\s*\(/.test(despues)) continue;                                      // la llamada
+      const importConSuNombre = /(?:const|let|var)\s*\{[^{}]*$/.test(antes)
+        && /^[^{}:]*\}\s*=\s*require\(/.test(despues);                          // { enviarWhatsapp, … } = require(
+      if (importConSuNombre) continue;
+      out.push(antes.split('\n').length);
+    }
+    return out;
+  }
+  /** Los que pasan la función por referencia a propósito, con el motivo. */
+  const REFERENCIA_EXENTA = new Map([
+    ['handlers/message-processor.js', 'arma el `ctx` de los intents con `enviarWhatsapp` adentro. Un intent que lo llame aparece como `ctx.enviarWhatsapp(` y lo cuenta ENVIO_CRUDO en su propio archivo'],
+  ]);
+  it('fuera de los declarados, enviarWhatsapp solo aparece como llamada o en su import', () => {
+    const conReferencia = FUENTES
+      .filter((f) => !WHATSAPP_CRUDO.has(f.rel) && !REFERENCIA_EXENTA.has(f.rel))
+      .map((f) => ({ rel: f.rel, lineas: usosQueNoSonLlamada(f.src) }))
+      .filter((f) => f.lineas.length > 0)
+      .map((f) => f.rel + ':' + f.lineas.join(','));
+    expect(conReferencia).toEqual([]);
   });
-  it('contraprueba del detector de alias', () => {
-    expect(cuenta("const { enviarWhatsapp: avisarWa } = require('../lib/whatsapp');", ALIAS_DESTRUCTURADO)).toBe(1);
-    expect(cuenta("const avisar = require('../lib/whatsapp').enviarWhatsapp;", ALIAS_ASIGNADO)).toBe(1);
-    // Lo legítimo no cuenta: la importación con su nombre y la llamada por el módulo.
-    expect(cuenta("const { enviarWhatsapp, procesarStatuses } = require('./whatsapp');", ALIAS_DESTRUCTURADO)).toBe(0);
-    expect(cuenta("await wa.enviarWhatsapp(n, m);", ALIAS_ASIGNADO)).toBe(0);
+  it('contraprueba: las formas de alias que evadieron la versión anterior salen rojas', () => {
+    for (const alias of [
+      "const { enviarWhatsapp: avisarWa } = require('../lib/whatsapp');",
+      "const avisar = require('../lib/whatsapp').enviarWhatsapp;",
+      "const { enviarWhatsapp } = require('../lib/whatsapp'); const avisar = enviarWhatsapp;",
+      "const deps = { enviar: wa.enviarWhatsapp };",
+      "async function f(u, { enviar = enviarWhatsapp } = {}) {}",
+      "const avisar = require('../lib/whatsapp')\n  .enviarWhatsapp;",
+    ]) expect(usosQueNoSonLlamada(alias).length, alias).toBeGreaterThan(0);
+    // Lo legítimo no cuenta: el import con su nombre (también en varias líneas), la llamada
+    // directa y por el módulo, y un comentario que lo nombra.
+    for (const ok of [
+      "const { enviarWhatsapp, procesarStatuses } = require('./whatsapp');",
+      "const {\n  enviarWhatsapp,\n  procesarStatuses,\n} = require('./whatsapp');",
+      "await enviarWhatsapp(n, m);",
+      "await wa.enviarWhatsapp(n, m);",
+      "// enviarWhatsapp: no lanza por contrato",
+    ]) expect(usosQueNoSonLlamada(ok), ok).toEqual([]);
   });
 
   it('nadie escribe la in-app cruda sin estar declarado', () => {

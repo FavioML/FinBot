@@ -15,10 +15,16 @@ import { join } from 'node:path';
  *
  * La revisión adversarial quitó `bsuid` de los dos selects con la suite entera en verde. Es la
  * regla "una fila parcial no puede decidir" de `app/CLAUDE.md`, fijada donde se rompió.
+ *
+ * **Los comentarios se blanquean antes de mirar.** La segunda revisión quitó `bsuid` del select
+ * y dejó un comentario que citaba el select viejo ("esto era `.select('id, whatsapp, bsuid, …')`"):
+ * el guard lo encontraba en la prosa y quedaba verde.
  */
 
 const RAIZ = process.cwd();
-const leer = (rel) => readFileSync(join(RAIZ, rel), 'utf-8');
+const sinComentarios = (src) =>
+  src.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ' '));
+const leer = (rel) => sinComentarios(readFileSync(join(RAIZ, rel), 'utf-8'));
 
 /** El cuerpo de una función de primer nivel, hasta la siguiente. */
 function cuerpo(src, nombre) {
@@ -46,8 +52,10 @@ describe('los selects que deciden por bsuid lo traen', () => {
     expect(cuerpo(leer('cron/checks.js'), 'checkUpsellPro')).toMatch(/usuario\.bsuid/);
   });
 
-  it('contraprueba: el patrón no acepta un select sin bsuid', () => {
+  it('contraprueba: el patrón no acepta un select sin bsuid, ni uno citado en un comentario', () => {
     expect(".select('id, whatsapp, nombre')").not.toMatch(SELECT_CON_BSUID);
     expect(".select('id, whatsapp, bsuid, nombre')").toMatch(SELECT_CON_BSUID);
+    const citado = "// esto era .select('id, whatsapp, bsuid')\n.select('id, whatsapp')";
+    expect(sinComentarios(citado)).not.toMatch(SELECT_CON_BSUID);
   });
 });

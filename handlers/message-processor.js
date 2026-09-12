@@ -587,7 +587,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       return 'Estamos con mucho tráfico ahora mismo. Reenvía tu mensaje en unos segundos y lo registro. 🙏';
     }
 
-    log.error({ tag: 'NLP', err: errMsg }, 'Error en procesamiento NLP'); notificarErrorAdmin('NLP', errMsg); registrarError('NLP', errMsg, { stack: e.stack, whatsapp: from, usuarioId: usuario ? usuario.id : null });
+    log.error({ tag: 'NLP', err: errMsg }, 'Error en procesamiento NLP'); notificarErrorAdmin('NLP', errMsg); registrarError('NLP', errMsg, { stack: e.stack, usuarioId: usuario ? usuario.id : null, ...(require('../lib/whatsapp').esBsuid(from) ? { bsuid: from } : { whatsapp: from }) });
     // Log NLP error para revisión admin
     supabase.from('nlp_errors').insert({
       usuario_id: usuario ? usuario.id : null, whatsapp: from,
