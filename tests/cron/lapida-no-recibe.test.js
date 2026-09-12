@@ -58,7 +58,22 @@ const EXCLUYENTES = [
  * Corta el fuente en las llamadas a `from('usuarios')` que LEEN, y devuelve el texto de cada
  * cadena hasta su `;`. Las que solo escriben (`.update(`) no eligen destinatario.
  */
-function queriesDeLectura(src) {
+/**
+ * Los comentarios se blanquean ANTES de mirar, conservando el largo (así las líneas del mensaje
+ * de falla siguen siendo las reales y un `;` dentro de un comentario no corta la cadena).
+ *
+ * Sin esto el guard se evadía con un comentario (12-sep-2026, medido por mutación): el que
+ * acompaña a `checkActivacionDia2` cita el filtro viejo —"dejó de ser `.not('whatsapp', 'is',
+ * null)`"— y esa CITA matcheaba `EXCLUYENTES`, así que se podía borrar el `.is('cuenta_borrada_at',
+ * null)` real con el guard en verde. Un guard que busca una cadena la encuentra también en la
+ * prosa que la explica.
+ */
+function sinComentarios(src) {
+  return src.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ' '));
+}
+
+function queriesDeLectura(srcCrudo) {
+  const src = sinComentarios(srcCrudo);
   const out = [];
   for (const m of src.matchAll(/from\('usuarios'\)/g)) {
     const fin = src.indexOf(';', m.index);
@@ -82,6 +97,17 @@ describe('la lapida no recibe avisos: ningun cron la selecciona', () => {
   // tests de abajo pasan por VACUIDAD.
   it('encuentra las queries de usuarios (antivacuidad)', () => {
     expect(queries.length, 'el barrido no encontro ninguna query: dejo de mirar nada').toBeGreaterThan(8);
+  });
+
+  it('un comentario que CITA el filtro no cuenta como filtro', () => {
+    const fixture = "const { data } = await supabase.from('usuarios')\n  .select('id')\n" +
+      "  // antes era .not('whatsapp', 'is', null)\n  .gte('created_at', x);";
+    const [q] = queriesDeLectura(fixture);
+    expect(EXCLUYENTES.some((e) => e.patron.test(q.cadena)), 'el comentario excluyó la lápida').toBe(false);
+    // Control: el mismo filtro fuera del comentario SÍ cuenta. Sin esto, un `sinComentarios` que
+    // blanqueara todo pasaría el caso de arriba por vacuidad.
+    const [q2] = queriesDeLectura(fixture.replace('// antes era ', ''));
+    expect(EXCLUYENTES.some((e) => e.patron.test(q2.cadena))).toBe(true);
   });
 
   it('toda query que elige destinatarios excluye a las cuentas borradas', () => {

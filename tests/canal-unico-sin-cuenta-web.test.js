@@ -285,15 +285,6 @@ const CORTE_POR_WHATSAPP = new RegExp(
  * en WhatsApp.
  */
 const CORTES_EXENTOS = new Map([
-  ['services/registro-silencioso.js:intentarConfirmar',
-    'no pasa por `notificarUsuario`: le habla a `enviarWhatsapp` directo, para medir si el ' +
-    'número guardado sigue sirviendo cuando Meta dejó de mandar el del remitente (D10). El ' +
-    'chokepoint devuelve el resultado crudo pero no lo interpreta, y acá el `code` de un ' +
-    'rechazo síncrono ES el veredicto. Sin número no hay nada que INTENTAR — la parte in-app ' +
-    'sí existe y vive al lado, en `dejarRastroEnLaCampana` (SOLO_IN_APP), que corre para el ' +
-    'mismo usuario por `confirmarComoSePueda`. Hasta el 03-sep-2026 esta entrada decía que ' +
-    'tampoco había "nada in-app que escribir", y era falso: describía el silencio total que ' +
-    'ese día se cerró.'],
   ['services/survey-triggers.js:maybeReminderD14',
     'el mensaje ES una pregunta abierta ("¿hay algo que te complica? cuéntame en una sola ' +
     'línea") y su único valor es la respuesta. La campana no tiene caja de respuesta y el ' +

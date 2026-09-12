@@ -165,7 +165,10 @@ async function checkUpsellPro() {
       // `undefined` y nunca abriría la ventana. Es la regla "una fila parcial no puede
       // decidir" de `app/CLAUDE.md` — si tu select alimenta una decisión, trae TODAS las
       // columnas que esa decisión mira.
-      .select('id, whatsapp, nombre, plan, recordatorios_activos, created_at, supabase_auth_id')
+      // `bsuid` alimenta el `channel` del insert de más abajo: quien oculta su número recibe el
+      // upsell por WhatsApp igual (`enviarWhatsapp` lo resuelve por usuarioId), y anotarlo
+      // `in_app` le rompería la anti-fatiga de 3 días.
+      .select('id, whatsapp, bsuid, nombre, plan, recordatorios_activos, created_at, supabase_auth_id')
       .eq('onboarding_completado', true);
     // Sin leer el error, una caída de Supabase acá se lee como "no hay nadie a quien
     // recordarle nada" y la corrida de las 8pm se apaga entera sin dejar nada.
@@ -247,7 +250,8 @@ async function checkUpsellPro() {
             // El canal REAL, no la etiqueta de siempre. Esta columna es lo que leen los dos
             // dedup, así que decir `whatsapp` sobre un aviso que salió solo por la campana
             // rompe a los dos a la vez. Ver CANALES_EMPUJE.
-            channel: usuario.whatsapp ? 'whatsapp' : 'in_app',
+            // Número O BSUID (12-sep-2026): los dos reciben WhatsApp.
+            channel: (usuario.whatsapp || usuario.bsuid) ? 'whatsapp' : 'in_app',
             sent_at: new Date().toISOString(),
             message_sent: upsellMsg,
           }).select('id').single();
@@ -822,7 +826,14 @@ async function checkActivacionDia2() {
       .select('id, whatsapp, nombre, supabase_auth_id, activacion_nudge_at')
       .is('supabase_auth_id', null)      // sin cuenta web = el objetivo
       .is('activacion_nudge_at', null)   // ledger: un solo envío por usuario
-      .not('whatsapp', 'is', null)
+      // Número O BSUID (12-sep-2026). Quien se dio de alta sin mostrar su número tiene solo el
+      // BSUID, y es justo esta población: sin cuenta web. `enviarWhatsapp` resuelve la dirección
+      // por `usuarioId`, así que la llamada de abajo no cambia.
+      .or('whatsapp.not.is.null,bsuid.not.is.null')
+      // Explícito desde que el filtro de arriba dejó de ser `.not('whatsapp', 'is', null)`, que
+      // excluía la lápida de rebote (la baja vacía el número). La baja también vacía el BSUID,
+      // pero apoyarse en eso otra vez es la misma exclusión por accidente.
+      .is('cuenta_borrada_at', null)
       .gte('created_at', hace48h)
       .lte('created_at', hace24h);
     // El cron corre cada 15 minutos sobre una ventana de 24h, así que un error transitorio

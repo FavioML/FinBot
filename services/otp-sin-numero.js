@@ -19,10 +19,9 @@ const log = require('../lib/logger');
  * propiedad — es opaco, lo asigna Meta y es distinto por cada negocio. Vincular por BSUID no baja
  * el estándar de seguridad del flujo normal, usa el mismo.
  *
- * **Lo que este módulo NO arregla, y hay que decirlo porque cambia lo que se le promete a la
- * persona:** al usuario username-only sigue sin podérsele responder (el envío por BSUID no está
- * habilitado en nuestra WABA, medido en v19–v25). O sea que se vincula y la web se destraba, pero
- * él nunca ve el "tu cuenta quedó verificada". Se entera porque la pantalla avanza.
+ * **Desde el 12-sep-2026 también se le contesta.** Hasta ese día no se podía (se creía que Meta no
+ * dejaba escribir por BSUID; era un #100 leído sin control) y la persona se enteraba solo porque
+ * la pantalla web avanzaba. Ahora el webhook le manda el acuse de `mensajeOtpBsuid` por BSUID.
  *
  * Las ramas son las MISMAS que las del OTP con número, a propósito: si el modelo de identidad
  * cambia, los dos caminos tienen que moverse juntos. Ver también `webapp/src/lib/bind-activation.ts`,
@@ -251,4 +250,39 @@ async function verificarCuentaWebPorBsuid(bsuid, code) {
   }
 }
 
-module.exports = { verificarCuentaWebPorBsuid };
+/**
+ * Lo que se le contesta por WhatsApp a quien mandó su código sin número visible (12-sep-2026).
+ *
+ * Hasta ese día este camino no contestaba nada: se enteraba porque la pantalla web avanzaba, y si
+ * el código estaba mal no se enteraba nunca. El envío por BSUID lo destrabó.
+ *
+ * Los textos son los del OTP con número (`handlers/webhook.js`) salvo donde el caso no existe allá.
+ * Dos reglas que no se negocian: un fallo NUESTRO dice "reenvíamelo, sigue siendo válido" (el
+ * código quedó vivo a propósito), y un código malo manda a generar otro. Invertirlas es mandar a
+ * repetir el trámite a quien no hizo nada mal, o a reintentar para siempre a quien sí.
+ */
+function mensajeOtpBsuid(r) {
+  const pn = ((r && r.nombre) || '').split(' ')[0];
+  const tu = pn ? pn + ', t' : 'T';
+  switch (r && r.estado) {
+    case 'vinculada':
+    case 'fusionada':
+    case 'adoptada':
+      return '✅ ' + tu + 'u cuenta web quedó verificada y vinculada a este WhatsApp.\n\nYa puedes volver a app.neto.pe. 🎉';
+    case 'ya_vinculada':
+      return '✅ ' + tu + 'u cuenta ya está verificada y vinculada a este WhatsApp. 🎉';
+    case 'invalido':
+    case 'sin_cuenta_web':
+      return '⚠️ Ese código de verificación no es válido o ya expiró.\n\nVuelve a app.neto.pe y genera uno nuevo.';
+    case 'conflicto':
+      return '⚠️ No pudimos vincular automáticamente: este WhatsApp o tu cuenta ya tienen datos que necesitan revisión manual.\n\nEscríbenos a soporte y lo resolvemos rápido.';
+    case 'vinculada_sin_destrabar':
+      return '⚠️ No pude terminar de vincular tu cuenta. Vuelve a enviarme el código en un minuto — sigue siendo válido.';
+    default:
+      // `lectura_fallida`, `error` y cualquier estado nuevo: el fallo es nuestro hasta que se
+      // demuestre lo contrario, así que el código se trata como vivo.
+      return '⚠️ No pude verificar tu código en este momento. Vuelve a enviármelo en un minuto — sigue siendo válido.';
+  }
+}
+
+module.exports = { verificarCuentaWebPorBsuid, mensajeOtpBsuid };

@@ -256,7 +256,10 @@ async function obtenerOCrearUsuario(numeroWhatsapp, bsuid = null) {
       if (errAdopcion) log.error({ tag: 'ALTA', err: errAdopcion.message, code: errAdopcion.code, usuarioId: filaBsuid.id }, 'No se pudo escribir el número en la fila del BSUID');
       // Cero filas o error: otro mensaje ganó la carrera (o el número ya es de otra fila, 23505).
       // Se relee en vez de adivinar: la fila del número, si ahora existe, es la que vale.
-      const { data: porNumero } = await supabase.from('usuarios').select('*').eq('whatsapp', numeroNorm).maybeSingle();
+      const { data: porNumero, error: errRelectura } = await supabase.from('usuarios').select('*').eq('whatsapp', numeroNorm).maybeSingle();
+      // Sin leer el error, una relectura caída se veía igual que "nadie ganó la carrera" y se
+      // devolvía la fila del BSUID sin número, que es lo que se venía a corregir.
+      if (errRelectura) log.error({ tag: 'ALTA', err: errRelectura.message, usuarioId: filaBsuid.id }, 'No se pudo releer por número tras la adopción: se sigue con la fila del BSUID');
       if (porNumero) return await persistirBsuid(porNumero, bsuid);
       return filaBsuid;
     }
@@ -358,7 +361,10 @@ async function altaPorBsuid(bsuid) {
  * registran y se descartan en el webhook antes de llegar acá.
  */
 async function resolverUsuarioEntrante({ numero = null, bsuid = null } = {}) {
-  if (numero) return await obtenerOCrearUsuario(numero, bsuid);
+  // Por `module.exports` y no por la referencia local: los tests del webhook reemplazan
+  // `obtenerOCrearUsuario` en el export antes de cargarlo, y con la referencia local esos dobles
+  // dejaban de verse. En producción es la misma función.
+  if (numero) return await module.exports.obtenerOCrearUsuario(numero, bsuid);
   if (!bsuid || typeof bsuid !== 'string') {
     throw new Error('resolverUsuarioEntrante: sin número ni BSUID (' + JSON.stringify({ numero, bsuid }) + ')');
   }

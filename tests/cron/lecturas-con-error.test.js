@@ -141,7 +141,13 @@ function makeChain(table, op = 'select') {
   };
   chain.or = (expr) => {
     filtros.push((f) => String(expr).split(',').some((cond) => {
-      const [col, op, val] = cond.split('.');
+      const partes = cond.split('.');
+      // `col.not.is.null` (12-sep-2026: `checkActivacionDia2` pide número O BSUID). Sin esta
+      // forma el doble descartaba todas las filas y el cron no veía a nadie.
+      if (partes.length === 4 && partes[1] === 'not' && partes[2] === 'is' && partes[3] === 'null') {
+        return noEsNull(f, partes[0]);
+      }
+      const [col, op, val] = partes;
       if (op === 'is' && val === 'null') return f[col] === null || f[col] === undefined;
       if (op === 'eq') return String(f[col]) === val;
       if (op === 'neq') return f[col] !== undefined && f[col] !== null && String(f[col]) !== val;

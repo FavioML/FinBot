@@ -134,7 +134,10 @@ async function procesarComandoAdmin(cmd, rawText = cmd) {
 
   // /cerrar <numero_whatsapp> — cierra la conversación de soporte de un usuario y le avisa
   if (cmd.startsWith('/cerrar ')) {
-    const numero = cmd.replace('/cerrar ', '').trim().replace(/\+/g, '');
+    // Del texto CRUDO, no de `cmd`: `cmd` viene en minúsculas, y un BSUID (`PE.1049…`) es la
+    // dirección de quien oculta su número. `pe.1049…` no matchea el ticket y la sesión no se
+    // cerraba. `/responder` ya leía el texto crudo por lo mismo.
+    const numero = rawText.replace(/^\/cerrar\s+/i, '').trim().replace(/\+/g, '');
     if (!numero) return 'Formato: /cerrar <número>\nEj: /cerrar 51933014505';
     const r = await cerrarSesion({ whatsapp: numero, avisarUsuario: true });
     return r.msg;

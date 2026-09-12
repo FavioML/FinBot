@@ -4,48 +4,36 @@ import crypto from 'crypto';
 
 const require = createRequire(import.meta.url);
 
-// Regresión del crash del 01-ago-2026: Meta mandó 4 mensajes SIN `from` (05:32 UTC) y el
-// webhook los pasaba igual a obtenerOCrearUsuario, que reventaba con
-// "Cannot read properties of undefined (reading 'replace')".
+// Quién escribe y a dónde se le contesta, cuando Meta no manda el número.
 //
-// Por qué importa más de lo que parece: el `.replace` era lo ÚNICO que frenaba el valor
-// vacío. Sin él, el flujo seguía hasta el INSERT final de obtenerOCrearUsuario y, como
-// `whatsapp` es NULLABLE (identidad dual web-first, migr 046), el insert NO falla: crea un
-// usuario fantasma sin número, imposible de vincular, que además entra al embudo como un
-// alta real. O sea que el TypeError estaba haciendo de guarda por accidente.
+// Dos casos que hasta el 12-sep-2026 compartían bloque y hoy son opuestos:
 //
-// Se asierta lo que de verdad protege: que el webhook NI SIQUIERA llame a
-// obtenerOCrearUsuario cuando no hay remitente, y que deje registrada la FORMA del payload
-// (el campo `detalle` de `errores` salía vacío, por eso los 4 casos fueron indiagnosticables).
+//   · SIN número NI BSUID (los 4 mensajes del 01-ago-2026): no hay identidad. Se descarta y se
+//     registra la FORMA del payload. Lo que protege es no llegar al alta, que con `whatsapp`
+//     NULLABLE (migr 046) no falla: crearía un usuario fantasma que entra al embudo.
+//
+//   · SOLO BSUID (quien activó un username y oculta su número): hasta ese día se descartaba o se
+//     le anotaban los gastos en silencio, porque se creía que Meta no dejaba escribirle por BSUID.
+//     Se midió con un envío real que sí deja, y desde entonces recorre el camino normal: se
+//     resuelve (o se da de alta) por BSUID y se le contesta a su BSUID.
 
 process.env.META_APP_SECRET = 'test-secret';
 process.env.META_ACCESS_TOKEN = 'test-meta-token';
 process.env.META_PHONE_NUMBER_ID = 'test-phone-id';
 
-const enviarWhatsapp = vi.fn().mockResolvedValue(undefined);
+const enviarWhatsapp = vi.fn().mockResolvedValue({ ok: true });
 require('../../lib/whatsapp').enviarWhatsapp = enviarWhatsapp;
 
-// El espía clave: si el fix falla, ESTE se llama con undefined.
-const obtenerOCrearUsuario = vi.fn();
-require('../../helpers/db-helpers').obtenerOCrearUsuario = obtenerOCrearUsuario;
+// El espía clave: la única puerta de identidad del webhook.
+const resolverUsuarioEntrante = vi.fn();
+require('../../helpers/db-helpers').resolverUsuarioEntrante = resolverUsuarioEntrante;
 require('../../helpers/db-helpers').guardarMensaje = vi.fn().mockResolvedValue(undefined);
 
 const registrarError = vi.fn();
 require('../../lib/error-monitor').registrarError = registrarError;
-const buscarUsuarioPorBsuid = vi.fn().mockResolvedValue(null);
-require('../../helpers/db-helpers').buscarUsuarioPorBsuid = buscarUsuarioPorBsuid;
-const registrarGastoSilencioso = vi.fn().mockResolvedValue({ registrado: true, motivo: 'ok' });
-require('../../services/registro-silencioso').registrarGastoSilencioso = registrarGastoSilencioso;
-// Hay que mockearlo aunque este archivo no lo verifique. Sin esto corre el real, que llama a
-// `notificarAdmin` → Telegram sin token → **fallback a `enviarWhatsapp(ADMIN_NUMBER)`**, que es
-// justo el mock que vigilan los tests de "NO intenta responderle". Quedaban en verde solo
-// porque el test anterior ya había quemado la clave del throttle para ese mismo usuario: un
-// reordenamiento, un `.only` o un `-t` los ponía rojos por un aviso al admin, no por una
-// respuesta al usuario.
-const avisarPrimeraVezSilencioso = vi.fn().mockResolvedValue(undefined);
-require('../../services/registro-silencioso').avisarPrimeraVezSilencioso = avisarPrimeraVezSilencioso;
 const notificarErrorAdmin = vi.fn();
 require('../../lib/admin-notify').notificarErrorAdmin = notificarErrorAdmin;
+require('../../lib/atribucion').registrarOrigenDelAlta = vi.fn().mockResolvedValue(undefined);
 
 function makeChain(data = []) {
   const c = {};
@@ -63,88 +51,33 @@ const procesarMensajeLibre = vi.fn().mockResolvedValue('ok');
 const webhookHandler = createWebhookHandler(procesarMensajeLibre);
 
 let wamidSeq = 0;
-function buildReqRes(message) {
-  const body = { entry: [{ changes: [{ value: { messages: [message] } }] }] };
+function firmar(body) {
   const rawBody = Buffer.from(JSON.stringify(body));
   const signature = 'sha256=' + crypto.createHmac('sha256', 'test-secret').update(rawBody).digest('hex');
   return { req: { headers: { 'x-hub-signature-256': signature }, rawBody, body }, res: { sendStatus: vi.fn() } };
 }
+const buildReqRes = (message) => firmar({ entry: [{ changes: [{ value: { messages: [message] } }] }] });
 const sinFrom = (extra = {}) => ({ id: 'wamid-sf-' + (wamidSeq++), type: 'text', text: { body: 'hola' }, ...extra });
 
-describe('mensaje entrante sin `from` (regresión 01-ago-2026)', () => {
-  beforeEach(() => {
-    obtenerOCrearUsuario.mockReset();
-    registrarError.mockClear();
-    notificarErrorAdmin.mockClear();
-    enviarWhatsapp.mockClear();
-    procesarMensajeLibre.mockClear();
-    buscarUsuarioPorBsuid.mockReset().mockResolvedValue(null);
-    registrarGastoSilencioso.mockReset().mockResolvedValue({ registrado: true, motivo: 'ok' });
-  });
+// Un usuario ya dado de alta: su texto va a la cascada y termina en `procesarMensajeLibre`.
+const listo = (extra = {}) => ({ id: 'u1', nombre: 'Ana', onboarding_paso: 0, onboarding_completado: true, ...extra });
 
-  // El círculo que cierra la migración 065: el usuario activó un username, Meta ya no manda
-  // su número, pero le aprendimos el BSUID antes. Su gasto se registra igual — es lo que el
-  // modelo promete gratis para siempre — aunque no haya forma de confirmárselo.
-  describe('cuando el BSUID SÍ corresponde a un usuario conocido', () => {
-    const conocido = { id: 'u-conocido', bsuid: 'PE.999' };
-    const mensajeConBsuid = () => ({
-      ...sinFrom({ from_user_id: 'PE.999' }),
-      text: { body: 'gasté 30 soles en el almuerzo' },
-    });
+beforeEach(() => {
+  resolverUsuarioEntrante.mockReset();
+  registrarError.mockClear();
+  notificarErrorAdmin.mockClear();
+  enviarWhatsapp.mockClear();
+  procesarMensajeLibre.mockReset().mockResolvedValue('ok');
+});
 
-    it('registra el gasto en vez de descartarlo', async () => {
-      buscarUsuarioPorBsuid.mockResolvedValue(conocido);
-      const { req, res } = buildReqRes(mensajeConBsuid());
-      await webhookHandler(req, res);
-      expect(buscarUsuarioPorBsuid).toHaveBeenCalledWith('PE.999');
-      expect(registrarGastoSilencioso).toHaveBeenCalledWith('gasté 30 soles en el almuerzo', conocido);
-    });
-
-    it('NO intenta responderle (no hay número, y enviar por BSUID no está habilitado)', async () => {
-      buscarUsuarioPorBsuid.mockResolvedValue(conocido);
-      const { req, res } = buildReqRes(mensajeConBsuid());
-      await webhookHandler(req, res);
-      expect(enviarWhatsapp).not.toHaveBeenCalled();
-      expect(procesarMensajeLibre).not.toHaveBeenCalled();
-      expect(obtenerOCrearUsuario).not.toHaveBeenCalled();
-    });
-
-    it('deja de ensuciar `errores`: ya no es un mensaje indiagnosticable', async () => {
-      buscarUsuarioPorBsuid.mockResolvedValue(conocido);
-      const { req, res } = buildReqRes(mensajeConBsuid());
-      await webhookHandler(req, res);
-      expect(registrarError).not.toHaveBeenCalled();
-    });
-
-    // Imagen y audio SÍ tienen camino silencioso desde el 09-ago-2026 (ver
-    // webhook-bsuid-media.test.js). Lo que sigue sin tenerlo es todo lo demás — un documento,
-    // una ubicación, un sticker— y eso no cae al descarte con `registrarError`: el mensaje
-    // tiene dueño conocido, así que no es el caso indiagnosticable que esa tabla vigila.
-    it('un tipo sin camino silencioso no ensucia `errores` ni intenta responder', async () => {
-      buscarUsuarioPorBsuid.mockResolvedValue(conocido);
-      const { req, res } = buildReqRes(sinFrom({ from_user_id: 'PE.999', type: 'document' }));
-      await webhookHandler(req, res);
-      expect(registrarGastoSilencioso).not.toHaveBeenCalled();
-      expect(registrarError).not.toHaveBeenCalled();
-      expect(enviarWhatsapp).not.toHaveBeenCalled();
-    });
-  });
-
-  it('un BSUID que no conocemos se sigue descartando y registrando', async () => {
-    buscarUsuarioPorBsuid.mockResolvedValue(null);
-    const { req, res } = buildReqRes(sinFrom({ from_user_id: 'PE.nunca-visto' }));
-    await webhookHandler(req, res);
-    expect(registrarGastoSilencioso).not.toHaveBeenCalled();
-    expect(registrarError).toHaveBeenCalledTimes(1);
-  });
-
-  it('NO llega a obtenerOCrearUsuario (que crearía un usuario fantasma sin número)', async () => {
+describe('sin número NI BSUID (regresión 01-ago-2026)', () => {
+  it('no llega al alta (que crearía un usuario fantasma)', async () => {
     const { req, res } = buildReqRes(sinFrom());
     await webhookHandler(req, res);
-    expect(obtenerOCrearUsuario).not.toHaveBeenCalled();
+    expect(resolverUsuarioEntrante).not.toHaveBeenCalled();
   });
 
-  it('responde 200 y no intenta contestarle a nadie', async () => {
+  it('responde 200 y no le contesta a nadie', async () => {
     const { req, res } = buildReqRes(sinFrom());
     await webhookHandler(req, res);
     expect(res.sendStatus).toHaveBeenCalledWith(200);
@@ -152,9 +85,16 @@ describe('mensaje entrante sin `from` (regresión 01-ago-2026)', () => {
     expect(procesarMensajeLibre).not.toHaveBeenCalled();
   });
 
-  it('deja la FORMA del payload en `errores` (el detalle que faltaba para diagnosticarlo)', async () => {
-    const { req, res } = buildReqRes(sinFrom({ type: 'system' }));
+  it('deja la FORMA del payload en `errores`, sin el nombre del perfil', async () => {
+    const { req, res } = firmar({
+      entry: [{ changes: [{ value: {
+        messaging_product: 'whatsapp',
+        contacts: [{ profile: { name: 'Ana Torres' } }],
+        messages: [sinFrom({ type: 'system' })],
+      } }] }],
+    });
     await webhookHandler(req, res);
+
     expect(registrarError).toHaveBeenCalledTimes(1);
     const [tag, mensaje, opts] = registrarError.mock.calls[0];
     expect(tag).toBe('WEBHOOK');
@@ -162,56 +102,8 @@ describe('mensaje entrante sin `from` (regresión 01-ago-2026)', () => {
     const detalle = JSON.parse(opts.detalle);
     expect(detalle.tipo).toBe('system');
     expect(detalle.clavesMensaje).toContain('id');
-    // **Un mensaje que no es de texto no aporta contenido, y por eso este caso usa `system`.**
-    // Desde el 02-sep-2026 el texto de los mensajes `text` SÍ se guarda (ver el caso de abajo):
-    // no guardarlo dejó 9 filas indiagnosticables de un usuario real que estaba trabado. Lo que
-    // sigue sin registrarse es el nombre del perfil, y de los tipos que no son texto no se
-    // extrae nada.
-    expect(detalle.texto).toBeNull();
-    expect(opts.detalle).not.toContain('hola');
-  });
-
-  // 02-sep-2026: el complemento del caso de arriba. Sin el texto, las filas de un usuario que
-  // mandaba códigos de verificación eran idénticas a las de cualquier otro, y sólo se supo qué
-  // pasaba porque la persona fue a reclamar por Instagram.
-  it('un mensaje de TEXTO sí deja su contenido, acotado a 200 caracteres', async () => {
-    const largo = 'x'.repeat(250);
-    const { req, res } = buildReqRes(sinFrom({ from_user_id: 'PE.texto', text: { body: largo } }));
-    await webhookHandler(req, res);
-    const detalle = JSON.parse(registrarError.mock.calls[0][2].detalle);
-    expect(detalle.texto).toHaveLength(200);
-    // Y el BSUID viaja en su propio campo: la alerta cuenta PERSONAS y no mensajes, y la fila
-    // queda enganchable a un usuario el día que se vincule (migración 081).
-    expect(registrarError.mock.calls[0][2].bsuid).toBe('PE.texto');
-  });
-
-  // 08-ago-2026: ya se sabe QUÉ los produce. Meta arrancó el rollout de WhatsApp Usernames,
-  // y el usuario que oculta su número llega sin `from` y con `from_user_id` (BSUID). Se
-  // registra el BSUID y la forma de `contacts` porque es lo único que podría permitir
-  // contestarle el día que la API acepte enviar por BSUID. El nombre del perfil NO se loguea.
-  it('registra el BSUID y la forma de `contacts`, sin el nombre del perfil', async () => {
-    const message = sinFrom({ from_user_id: 'PE.1049206861029395' });
-    const body = {
-      entry: [{ changes: [{ value: {
-        messaging_product: 'whatsapp',
-        contacts: [{ user_id: 'PE.1049206861029395', profile: { name: 'Ana Torres' } }],
-        messages: [message],
-      } }] }],
-    };
-    const rawBody = Buffer.from(JSON.stringify(body));
-    const signature = 'sha256=' + crypto.createHmac('sha256', 'test-secret').update(rawBody).digest('hex');
-    const res = { sendStatus: vi.fn() };
-    await webhookHandler({ headers: { 'x-hub-signature-256': signature }, rawBody, body }, res);
-
-    const [, , opts] = registrarError.mock.calls[0];
-    const detalle = JSON.parse(opts.detalle);
-    expect(detalle.fromUserId).toBe('PE.1049206861029395');
-    expect(detalle.contactoUserId).toBe('PE.1049206861029395');
-    expect(detalle.contactoWaId).toBeNull();          // el username-only no trae número
-    expect(detalle.clavesContacto).toEqual(['user_id', 'profile']);
     expect(detalle.clavesPerfil).toEqual(['name']);   // la clave sí, el valor no
     expect(opts.detalle).not.toContain('Ana Torres');
-    expect(obtenerOCrearUsuario).not.toHaveBeenCalled();
   });
 
   it('no lo reporta como un crash del webhook (es un descarte, no una excepción)', async () => {
@@ -219,23 +111,75 @@ describe('mensaje entrante sin `from` (regresión 01-ago-2026)', () => {
     await webhookHandler(req, res);
     expect(notificarErrorAdmin).not.toHaveBeenCalled();
   });
+});
 
-  // El complemento: con remitente, el camino normal sigue intacto. Sin esto, un `return`
-  // puesto de más arriba dejaría el test anterior verde y el webhook muerto.
-  it('un mensaje CON remitente sigue pasando al pipeline normal', async () => {
-    obtenerOCrearUsuario.mockResolvedValue({ id: 'u1', nombre: 'Ana', onboarding_paso: 0, onboarding_completado: true });
-    const { req, res } = buildReqRes({ ...sinFrom(), from: '51999888777' });
+describe('SOLO BSUID: quien oculta su número recorre el camino normal (12-sep-2026)', () => {
+  it('se resuelve por BSUID, sin número', async () => {
+    resolverUsuarioEntrante.mockResolvedValue(listo({ id: 'u-conocido', bsuid: 'PE.999' }));
+    const { req, res } = buildReqRes(sinFrom({ from_user_id: 'PE.999', text: { body: 'gasté 30 en almuerzo' } }));
     await webhookHandler(req, res);
-    expect(obtenerOCrearUsuario).toHaveBeenCalledWith('51999888777', null);
+    expect(resolverUsuarioEntrante).toHaveBeenCalledWith({ numero: null, bsuid: 'PE.999' });
   });
 
-  // La ventana que abre la migración 065: mientras Meta mande las DOS identidades juntas,
-  // cada mensaje con número enseña el BSUID de ese usuario. Si esto deja de pasar, el día
-  // que active un username se vuelve un desconocido y su historial queda huérfano.
-  it('aprende el BSUID del remitente cuando Meta lo manda junto al número', async () => {
-    obtenerOCrearUsuario.mockResolvedValue({ id: 'u1', nombre: 'Ana', onboarding_paso: 0, onboarding_completado: true });
+  it('SE LE CONTESTA, y la respuesta va dirigida a su BSUID', async () => {
+    // Hasta el 12-sep-2026 este caso afirmaba lo contrario: "NO intenta responderle".
+    resolverUsuarioEntrante.mockResolvedValue(listo({ id: 'u-conocido', bsuid: 'PE.999' }));
+    const { req, res } = buildReqRes(sinFrom({ from_user_id: 'PE.999', text: { body: 'gasté 30 en almuerzo' } }));
+    await webhookHandler(req, res);
+
+    expect(procesarMensajeLibre).toHaveBeenCalledWith('gasté 30 en almuerzo', expect.objectContaining({ id: 'u-conocido' }), 'PE.999');
+    expect(enviarWhatsapp).toHaveBeenCalledWith('PE.999', 'ok');
+  });
+
+  it('un BSUID desconocido ya no se descarta: se da de alta y se le contesta', async () => {
+    resolverUsuarioEntrante.mockResolvedValue(listo({ id: 'u-nuevo', bsuid: 'PE.nuevo' }));
+    const { req, res } = buildReqRes(sinFrom({ from_user_id: 'PE.nuevo' }));
+    await webhookHandler(req, res);
+
+    expect(resolverUsuarioEntrante).toHaveBeenCalledWith({ numero: null, bsuid: 'PE.nuevo' });
+    expect(enviarWhatsapp).toHaveBeenCalled();
+    expect(enviarWhatsapp.mock.calls.every(([dest]) => dest === 'PE.nuevo')).toBe(true);
+    // No es un mensaje indiagnosticable: tiene dueño, así que no ensucia `errores`.
+    expect(registrarError).not.toHaveBeenCalled();
+  });
+
+  it('un fallo deja en `errores` el BSUID y el usuario, no un `whatsapp` que el borrado no alcanza', async () => {
+    // `borrar_cuenta_total` barre `errores` por `usuario_id` y por `whatsapp`. Con el BSUID
+    // metido en `whatsapp` y sin `usuario_id`, la fila sobrevivía a un pedido de baja.
+    resolverUsuarioEntrante.mockResolvedValue(listo({ id: 'u-conocido', bsuid: 'PE.999' }));
+    procesarMensajeLibre.mockRejectedValue(new Error('boom'));
+    const { req, res } = buildReqRes(sinFrom({ from_user_id: 'PE.999', text: { body: 'cuánto llevo' } }));
+    await webhookHandler(req, res);
+
+    const fila = registrarError.mock.calls.find(([tag]) => tag === 'WEBHOOK_CMD');
+    expect(fila, 'el fallo del comando no se registró').toBeTruthy();
+    expect(fila[2]).toEqual(expect.objectContaining({ bsuid: 'PE.999', usuarioId: 'u-conocido', whatsapp: null }));
+  });
+});
+
+describe('CON número: el camino de siempre', () => {
+  it('se resuelve por número', async () => {
+    resolverUsuarioEntrante.mockResolvedValue(listo());
+    const { req, res } = buildReqRes({ ...sinFrom(), from: '51999888777' });
+    await webhookHandler(req, res);
+    expect(resolverUsuarioEntrante).toHaveBeenCalledWith({ numero: '51999888777', bsuid: null });
+  });
+
+  // La ventana de la migración 065: mientras Meta mande las DOS identidades juntas, cada mensaje
+  // con número enseña el BSUID. Si esto deja de pasar, el día que active un username su historial
+  // queda huérfano.
+  it('pasa el BSUID junto al número para aprenderlo', async () => {
+    resolverUsuarioEntrante.mockResolvedValue(listo());
     const { req, res } = buildReqRes({ ...sinFrom(), from: '51999888777', from_user_id: 'PE.2052090595730104' });
     await webhookHandler(req, res);
-    expect(obtenerOCrearUsuario).toHaveBeenCalledWith('51999888777', 'PE.2052090595730104');
+    expect(resolverUsuarioEntrante).toHaveBeenCalledWith({ numero: '51999888777', bsuid: 'PE.2052090595730104' });
+  });
+
+  it('con número Y BSUID, la respuesta va al NÚMERO', async () => {
+    resolverUsuarioEntrante.mockResolvedValue(listo());
+    // Un texto que no sea comando: "hola" lo contesta la cascada, no el NLP.
+    const { req, res } = buildReqRes({ ...sinFrom({ text: { body: 'gasté 30 en almuerzo' } }), from: '51999888777', from_user_id: 'PE.2052090595730104' });
+    await webhookHandler(req, res);
+    expect(enviarWhatsapp).toHaveBeenCalledWith('51999888777', 'ok');
   });
 });

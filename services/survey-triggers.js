@@ -301,7 +301,7 @@ async function enviarYRegistrar(usuario, eventType, mensaje) {
     // sobre un aviso que salio solo por la campana apaga los OCHO triggers una semana para
     // alguien a quien nunca se le mando un WhatsApp. Misma forma que el insert de
     // `checkUpsellPro` en `cron/checks.js`, a proposito: la comparten los dos guards.
-    channel: usuario.whatsapp ? 'whatsapp' : 'in_app',
+    channel: (usuario.whatsapp || usuario.bsuid) ? 'whatsapp' : 'in_app',
     messageSent: mensaje,
   });
 }
@@ -450,7 +450,7 @@ async function maybeReminderD14(usuario) {
   //
   // Es lo contrario del corte que este item elimino: aquel apagaba los ocho triggers sin
   // mirar cual, incluidos los cuatro cuya accion SI existe en la app.
-  if (!usuario.whatsapp) return false;
+  if (!usuario.whatsapp && !usuario.bsuid) return false;
 
   if (!usuario.onboarding_completado) return false;
 
@@ -549,7 +549,7 @@ async function maybeWakeUpInactive(usuario) {
   const eventoId = await registrarEvento({
     userId: usuario.id,
     eventType: 'wake_up_inactive',
-    channel: usuario.whatsapp ? 'whatsapp' : 'in_app',
+    channel: (usuario.whatsapp || usuario.bsuid) ? 'whatsapp' : 'in_app',
     messageSent: mensaje,
   });
   if (!eventoId) return false;
@@ -579,7 +579,7 @@ async function maybeFeedback30(usuario) {
   // producto, ¿que seria?") y la campana no tiene donde contestarla. Va antes del claim
   // one-shot a proposito: el unique index de `feedback_open_30tx` es irreversible, asi que
   // registrarlo aca le quemaria para siempre la unica vez que se manda.
-  if (!usuario.whatsapp) return false;
+  if (!usuario.whatsapp && !usuario.bsuid) return false;
 
   const txCount = await contarTransacciones(usuario.id);
   if (txCount < 30) return false;
@@ -588,7 +588,7 @@ async function maybeFeedback30(usuario) {
   const eventoId = await registrarEvento({
     userId: usuario.id,
     eventType: 'feedback_open_30tx',
-    channel: usuario.whatsapp ? 'whatsapp' : 'in_app',
+    channel: (usuario.whatsapp || usuario.bsuid) ? 'whatsapp' : 'in_app',
     messageSent: copyFeedback30(primer),
   });
   if (!eventoId) return false;
@@ -633,7 +633,7 @@ async function maybeWakeUpOnboarding(usuario) {
   // medicion ("0 de los 17 hoy") no cierra un camino que el propio usuario puede abrir.
   //
   // Va antes de `registrarEvento` para no quemar el one-shot, igual que las otras dos.
-  if (!usuario.whatsapp) return false;
+  if (!usuario.whatsapp && !usuario.bsuid) return false;
 
   const dias = (Date.now() - new Date(usuario.created_at).getTime()) / 86400000;
   if (dias < 7) return false;
@@ -661,7 +661,7 @@ async function maybeWakeUpOnboarding(usuario) {
     // cuenta web dejaba una fila diciendo `in_app` sobre un aviso que no salio por ningun lado
     // — y esa fila apaga los otros siete triggers una semana, porque `in_app` esta en
     // `CANALES_EMPUJE`.
-    channel: usuario.whatsapp ? 'whatsapp' : 'in_app',
+    channel: (usuario.whatsapp || usuario.bsuid) ? 'whatsapp' : 'in_app',
     messageSent: mensaje,
   });
   if (!eventoId) return false;
@@ -777,7 +777,9 @@ async function checkSurveyTriggers() {
     // necesita ver a los que NO completaron. Los demas triggers implicitamente
     // requieren completion porque dependen de tx_count > 0.
     const { data: usuarios, error: errUsuarios } = await supabase.from('usuarios')
-      .select('id, whatsapp, nombre, created_at, recordatorios_activos, onboarding_completado, onboarding_paso, supabase_auth_id')
+      // `bsuid` para los cortes por falta de dirección: quien se dio de alta sin mostrar su número
+      // tiene solo esa columna y SÍ recibe WhatsApp (12-sep-2026).
+      .select('id, whatsapp, bsuid, nombre, created_at, recordatorios_activos, onboarding_completado, onboarding_paso, supabase_auth_id')
       // Una cuenta borrada (migracion 073) sobrevive como lapida, y ESTE filtro es lo unico
       // que la deja afuera. Antes la salvaba de rebote el `if (!u.whatsapp) continue` de abajo
       // —la lapida no conserva el numero—, que era un efecto lateral de otra decision y no una

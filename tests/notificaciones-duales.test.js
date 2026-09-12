@@ -150,7 +150,10 @@ const WHATSAPP_CRUDO = new Map([
   // rama a ciegas ahora contestan "no pude verificar tu codigo, sigue siendo valido" en vez de
   // declararlo invalido o intentar el link directo, y el link directo con cero filas dice "no
   // pude terminar de vincular" en vez de confirmar un vinculo que no ocurrio. Ninguna es empuje.
-  ['handlers/webhook.js', { usos: 30, familia: 'RESPUESTA', motivo: 'turnos de conversación: imágenes, audios, OTP, onboarding' }],
+  // 30 -> 31 el 12-sep-2026: el acuse del OTP sin número. Es RESPUESTA —contesta el código que la
+  // persona acaba de mandar— y sale por BSUID porque no hay número. Antes ese camino no contestaba
+  // nada porque se creía que Meta no dejaba escribir por BSUID.
+  ['handlers/webhook.js', { usos: 31, familia: 'RESPUESTA', motivo: 'turnos de conversación: imágenes, audios, OTP, onboarding' }],
   // Baja de 5 a 4: se fue el aviso de "cuenta Gmail adicional conectada", que preguntaba por
   // WhatsApp cómo agrupar los reportes. Un usuario tiene UNA cuenta (cada una cuesta un cupo
   // de por vida), así que esa rama del callback ya no existe.
@@ -159,13 +162,6 @@ const WHATSAPP_CRUDO = new Map([
   ['lib/pro-payment.js', { usos: 1, familia: 'RESPUESTA', motivo: '"comprobante recibido" contesta la captura que el usuario acaba de mandar' }],
   ['lib/support-tickets.js', { usos: 2, familia: 'SOPORTE', motivo: 'el hilo de soporte vive en WhatsApp; la webapp no tiene bandeja donde aterrizarlo' }],
   ['services/notifications.js', { usos: 1, familia: 'VOLUMEN', motivo: 'tarjeta "Nuevo gasto": el dato ya está en /dashboard/transacciones y es una por transacción' }],
-  // Entró el 15-ago-2026 y es RESPUESTA, no empuje: contesta el mensaje que la persona acaba de
-  // mandar. No puede ir por `notificarUsuario` aunque parezca lo prolijo — la mitad in-app la
-  // volvería inútil como medición. Todo el sentido de esta llamada es que Meta acepte o rechace
-  // un mensaje dirigido al NÚMERO guardado de alguien cuyo número Meta dejó de mandarnos (D10),
-  // y `notificarUsuario` mezclaría ese resultado con el de la campana. Además la ventana de 24h
-  // está abierta por construcción, así que un fallo acá es de identidad y no de cadencia.
-  ['services/registro-silencioso.js', { usos: 1, familia: 'RESPUESTA', motivo: 'la confirmación al usuario username-only: contesta su mensaje y mide D10' }],
 ]);
 
 /**

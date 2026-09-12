@@ -136,6 +136,42 @@ describe('enviarWhatsapp · por BSUID', () => {
   });
 });
 
+describe('aviso proactivo sin número: el BSUID se resuelve por usuarioId', () => {
+  it('si la fila del usuario tiene BSUID, el aviso sale por `recipient`', async () => {
+    // Los crons pasan `whatsapp: u.whatsapp` (null para quien se dio de alta sin número) y no
+    // saben del BSUID. Sin esta búsqueda, esa persona solo recibiría la campana.
+    const b = bsuidNuevo();
+    db.porColumna.id = { data: { bsuid: b }, error: null };
+
+    const r = await enviarWhatsapp(null, 'tu resumen', { tipo: 'resumen_semanal', usuarioId: 'u-sin-numero' });
+
+    expect(r.ok).toBe(true);
+    expect(cuerpoEnviado().recipient).toBe(b);
+    expect(entregasMock.registrarEntrega).toHaveBeenCalledWith(
+      expect.objectContaining({ tipo: 'resumen_semanal', usuarioId: 'u-sin-numero', estado: 'sent' }),
+    );
+  });
+
+  it('con la lectura caída sale como hoy: skipped_no_whatsapp, sin fetch', async () => {
+    db.porColumna.id = { data: null, error: { message: 'timeout' } };
+    const r = await enviarWhatsapp(null, 'tu resumen', { tipo: 'x', usuarioId: 'u-x' });
+    expect(r.skipped).toBe('no_whatsapp');
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(logMock.warn).toHaveBeenCalled();
+  });
+
+  it('una fila sin BSUID tampoco inventa destino', async () => {
+    db.porColumna.id = { data: { bsuid: null }, error: null };
+    const r = await enviarWhatsapp(null, 'tu resumen', { tipo: 'x', usuarioId: 'u-web' });
+    expect(r.skipped).toBe('no_whatsapp');
+  });
+
+  it('sin usuarioId no consulta nada', async () => {
+    await enviarWhatsapp(null, 'x');
+    expect(db.columnas).toHaveLength(0);
+  });
+});
+
 describe('isTestUser · por la columna que corresponde', () => {
   it('un fixture marcado por BSUID NO llega a Meta', async () => {
     // Antes buscaba el BSUID en `usuarios.whatsapp`, no lo encontraba, y el fail-open lo

@@ -1,16 +1,27 @@
-// E2E del reconocimiento por BSUID contra PRODUCCIÓN.
+// E2E del camino por BSUID contra PRODUCCIÓN.
 //
 // Ejercita el caso que NO se puede producir a mano: un usuario que activó un username de
 // WhatsApp, así que Meta manda su mensaje SIN `from` y solo con `from_user_id`. Golpea el
 // webhook real de api.neto.pe con firma HMAC válida, o sea por el mismo camino que Meta.
 //
-// Dos casos, y el segundo es el que le da valor al primero:
-//   A. BSUID CONOCIDO   -> el gasto se registra aunque no haya a quién responder
-//   B. BSUID DESCONOCIDO -> no se registra nada (si no, A pasaría por el motivo equivocado:
-//                           "registra siempre" en vez de "registra a quien reconoce")
+// Desde el 12-sep-2026 a esa persona SE LE CONTESTA por su BSUID (`recipient`, sin `to`). Lo que
+// este harness mide es que la respuesta se dirigió a su BSUID sin mandarle nada a nadie real: los
+// fixtures llevan `is_test_user`, `enviarWhatsapp` los reconoce POR BSUID y deja en
+// `notification_deliveries` una fila `respuesta_bsuid / skipped_test` en vez de llamar a Meta.
+// Esa fila es la prueba de las dos cosas a la vez: que la respuesta salió por BSUID y que el
+// freno de fixtures funcionó. Antes de ese día `isTestUser` buscaba el BSUID en `whatsapp`, no
+// lo encontraba, y el fixture le escribía a Meta de verdad.
 //
-// Self-cleaning: siembra su propio usuario efímero y lo borra al final, pase o falle.
-// No toca usuarios reales y no gasta cupo de nada.
+// Casos:
+//   A.  BSUID conocido, fixture CON número: registra el gasto y contesta al BSUID
+//   A2. BSUID conocido, fixture SIN número (el caso real): lo mismo
+//   C.  callback de estado: el mapeo pasivo del BSUID sigue aprendiendo
+//
+// Lo que ya NO corre acá, a propósito: el BSUID DESCONOCIDO. Desde el 12-sep ese mensaje DA DE
+// ALTA a la persona, y en producción eso crearía una fila sin `is_test_user` que entra al embudo
+// y a los crons, y le escribiría a Meta de verdad. Se prueba contra el webhook en proceso.
+//
+// Self-cleaning: siembra sus propios usuarios efímeros y los borra al final, pase o falle.
 //
 //   node qa-e2e/qa-bsuid-username.mjs
 import crypto from 'node:crypto';
@@ -59,12 +70,10 @@ function db(vars) {
       if (!r.ok) throw new Error(`select ${tabla}: ${r.status}`);
       return r.json();
     },
-    // Lanza igual que `insert`/`select`. Tragarse el status acá es peor que en las otras dos:
-    // un DELETE que falla deja una fila con un número peruano PLAUSIBLE (`519` + 8 dígitos al
-    // azar) viva en la `usuarios` de producción. Si esa persona alguna vez le escribe a Neto,
-    // `obtenerOCrearUsuario` ADOPTA la fila y el usuario real hereda `is_test_user`: el bot le
-    // queda mudo para siempre (`lib/whatsapp.js` saltea Meta) y `merge_and_link` lo propaga
-    // con un OR. El daño no lo paga el harness, lo paga un tercero.
+    // Lanza igual que `insert`/`select`. Un DELETE que falla deja una fila con un número peruano
+    // PLAUSIBLE (`519` + 8 dígitos al azar) viva en la `usuarios` de producción. Si esa persona
+    // alguna vez le escribe a Neto, el alta ADOPTA la fila y hereda `is_test_user`: el bot le
+    // queda mudo para siempre. El daño no lo paga el harness, lo paga un tercero.
     async del(tabla, query) {
       const r = await fetch(base + tabla + '?' + query, { method: 'DELETE', headers: h });
       if (!r.ok) throw new Error(`delete ${tabla}: ${r.status} ${(await r.text()).slice(0, 200)}`);
@@ -115,21 +124,17 @@ function check(ok, etiqueta, detalle = '') {
   if (!ok) fallos.push(etiqueta);
 }
 
-// Borrar y COMPROBAR que se borró, con el resultado atado al exit code. Antes el chequeo era un
-// `console.log('OJO: quedó la fila')` y el harness salía 0 igual, así que una fila filtrada en
-// producción no se enteraba nadie; y el usuario `pasivo` no tenía ni eso.
+// Borrar y COMPROBAR que se borró, con el resultado atado al exit code. Corre siempre desde un
+// `finally`, así que se traga sus propios errores: si revienta mientras ya venía subiendo una
+// excepción del cuerpo, lanzar acá la REEMPLAZA. Queda registrado como FAIL, que hace ruido igual.
 //
-// Corre siempre desde un `finally`, así que se traga sus propios errores a propósito: si el
-// borrado revienta mientras ya venía subiendo una excepción del cuerpo, lanzar acá la
-// REEMPLAZA y se pierde el fallo que de verdad importa. Queda registrado como FAIL, que es lo
-// que hace ruido igual.
+// Las tablas hijas se borran explícitamente en vez de confiar en el cascade: si mañana una FK
+// cambia, el harness ensucia producción sin que nadie lo note.
 async function borrarUsuarioVerificado(sb, id, etiqueta) {
   try {
-    await sb.del('transacciones', `usuario_id=eq.${id}`);
-    // Desde el 03-sep el camino silencioso escribe la campana, así que el fixture deja filas
-    // acá también. Se borran explícitamente en vez de confiar en el cascade: si mañana esa FK
-    // cambia, el harness ensucia producción sin que nadie lo note.
-    await sb.del('notificaciones', `usuario_id=eq.${id}`);
+    for (const t of ['transacciones', 'notificaciones', 'notification_deliveries', 'conversaciones']) {
+      await sb.del(t, `usuario_id=eq.${id}`);
+    }
     await sb.del('usuarios', `id=eq.${id}`);
     const quedan = await sb.select('usuarios', `id=eq.${id}&select=id`);
     check(quedan.length === 0, `se borró el usuario efímero (${etiqueta})`,
@@ -140,50 +145,52 @@ async function borrarUsuarioVerificado(sb, id, etiqueta) {
   }
 }
 
+/**
+ * La prueba de que la respuesta se dirigió al BSUID: una fila `respuesta_bsuid` del fixture en
+ * `skipped_test`. Si el fixture no se reconociera por BSUID, la fila diría `sent` o `error` —o
+ * sea que el mensaje habría ido a Meta—, y eso es un FAIL por sí mismo.
+ */
+async function verificarRespuestaPorBsuid(sb, usuarioId) {
+  const filas = await sb.select('notification_deliveries',
+    `usuario_id=eq.${usuarioId}&tipo=eq.respuesta_bsuid&select=estado`);
+  check(filas.length >= 1, 'se le contestó por BSUID (fila respuesta_bsuid)', filas.length + ' filas');
+  const noFrenadas = filas.filter(f => f.estado !== 'skipped_test');
+  check(filas.length > 0 && noFrenadas.length === 0, 'el freno de fixtures funcionó: nada salió a Meta',
+    noFrenadas.length ? 'estados: ' + noFrenadas.map(f => f.estado).join(',') : '');
+}
+
 const vars = await credenciales();
 const sb = db(vars);
 const sufijo = crypto.randomBytes(6).toString('hex');
 const BSUID_CONOCIDO = 'PE.qa' + sufijo;
-const BSUID_DESCONOCIDO = 'PE.qadesconocido' + sufijo;
 const WHATSAPP_QA = '519' + Math.floor(10000000 + Math.random() * 89999999);
 let usuario = null;
 
 try {
+  // `is_test_user` no es decorativo: este harness le pega al webhook de PRODUCCIÓN, y el número
+  // es `519` + 8 dígitos al azar, o sea un celular peruano que puede ser de cualquiera.
   console.log('Sembrando usuario efímero con BSUID', BSUID_CONOCIDO);
-  // `is_test_user` no es decorativo acá: este harness le pega al webhook de PRODUCCIÓN, y el
-  // número es `519` + 8 dígitos al azar, o sea un celular peruano que puede ser de cualquiera.
-  // La marca hace dos cosas, las dos necesarias: `enviarWhatsapp` no llama a Meta para esa fila
-  // (lib/whatsapp.js), y `avisarPrimeraVezSilencioso` no dispara el Telegram al admin — que
-  // llega con el comando del probe ya armado con este número inventado. El 13-ago-2026 esa
-  // alerta salió por una corrida de este harness y se leyó como un usuario real.
   usuario = await sb.insert('usuarios', { whatsapp: WHATSAPP_QA, nombre: 'QA BSUID', bsuid: BSUID_CONOCIDO, is_test_user: true, onboarding_completado: true, onboarding_paso: 0 });
 
-  // --- A: el usuario que SÍ reconocemos ---
-  console.log('\nA. mensaje SIN `from`, con BSUID conocido');
+  // --- A: fixture con número, mensaje sin `from` ---
+  console.log('\nA. mensaje SIN `from`, con BSUID conocido (el fixture tiene número)');
   const st = await enviarWebhook(vars.META_APP_SECRET, {
     id: 'wamid.qa-conocido-' + sufijo, timestamp: String(Math.floor(Date.now() / 1000)),
     type: 'text', text: { body: 'gasté 37.50 soles en el almuerzo' },
     from_user_id: BSUID_CONOCIDO,   // <-- sin `from`, que es el caso entero
   });
   check(st === 200, 'el webhook acepta el payload sin `from`', 'HTTP ' + st);
-
   await new Promise(r => setTimeout(r, ESPERA_MS));
-  const txs = await sb.select('transacciones', `usuario_id=eq.${usuario.id}&select=id,monto,moneda,tipo`);
+  const txs = await sb.select('transacciones', `usuario_id=eq.${usuario.id}&select=id,monto,tipo`);
   check(txs.length === 1, 'se registró exactamente 1 transacción', txs.length + ' encontradas');
   if (txs.length) {
     check(Number(txs[0].monto) === 37.5, 'el monto es el del mensaje', 'monto=' + txs[0].monto);
     check(txs[0].tipo === 'gasto', 'se guardó como gasto', 'tipo=' + txs[0].tipo);
   }
+  await verificarRespuestaPorBsuid(sb, usuario.id);
 
   // --- A2: el caso REAL, que es el que no tiene número ---
-  // A prueba el reconocimiento, no la entrega: ese fixture tiene `whatsapp`, así que su gasto
-  // sale por el intento de WhatsApp (D10) y la campana pasa desapercibida. El usuario que
-  // motivó todo esto NO tiene número —Meta nunca se lo mandó— y para él la campana es el único
-  // canal que existe. Medido el 03-sep contra producción: 2 gastos anotados, 0 notificaciones.
-  //
-  // Va contra el webhook real y no contra un doble porque lo que estuvo roto era el CAMINO:
-  // `intentarConfirmar` cortaba en `!whatsapp` y no había nada más abajo.
-  console.log('\nA2. mismo caso pero SIN número guardado: el único canal es la campana');
+  console.log('\nA2. mismo caso pero SIN número guardado');
   const sinNumero = await sb.insert('usuarios', {
     whatsapp: null, nombre: 'QA BSUID sin numero', bsuid: 'PE.qasinnum' + sufijo,
     is_test_user: true, onboarding_completado: true, onboarding_paso: 0,
@@ -197,49 +204,22 @@ try {
     });
     check(st1b === 200, 'el webhook acepta el payload', 'HTTP ' + st1b);
     await new Promise(r => setTimeout(r, ESPERA_MS));
-
     const txs1b = await sb.select('transacciones', `usuario_id=eq.${sinNumero.id}&select=id,monto`);
-    check(txs1b.length === 1, 'se registró el gasto igual', txs1b.length + ' encontradas');
-
-    const notifs = await sb.select('notificaciones', `usuario_id=eq.${sinNumero.id}&select=id,titulo,mensaje`);
-    check(notifs.length === 1, 'quedó UNA fila en la campana', notifs.length + ' encontradas');
-    if (notifs.length) {
-      // El monto con dos decimales: es lo que distingue la confirmación real de un "S/ 42.25"
-      // formateado por otro lado, y sobre todo del "S/ undefined" que produce la fila del dedup.
-      check(/S\/ 42\.25/.test(notifs[0].mensaje || ''), 'el cuerpo trae el monto de la fila persistida',
-        JSON.stringify(notifs[0].mensaje));
-      check(!/undefined/.test(notifs[0].mensaje || ''), 'sin `undefined` en el cuerpo');
-    }
+    check(txs1b.length === 1, 'se registró el gasto', txs1b.length + ' encontradas');
+    if (txs1b.length) check(Number(txs1b[0].monto) === 42.25, 'con su monto', 'monto=' + txs1b[0].monto);
+    await verificarRespuestaPorBsuid(sb, sinNumero.id);
+    // El alta no puede haber partido la identidad: la fila sigue siendo UNA, sin número.
+    const filas = await sb.select('usuarios', `bsuid=eq.${sinNumero.bsuid}&select=id,whatsapp`);
+    check(filas.length === 1 && filas[0].id === sinNumero.id, 'no se duplicó la persona', filas.length + ' filas');
   } finally {
     await borrarUsuarioVerificado(sb, sinNumero.id, 'sin número');
   }
 
-  // --- B: control negativo. Sin esto, A pasaría igual si registráramos a cualquiera ---
-  console.log('\nB. control: mismo payload con un BSUID que NO conocemos');
-  // El conjunto PREVIO de transacciones con ese monto, no "la última global": puede haber
-  // una de 999 preexistente de cualquier usuario, y compararse contra ella daría un FAIL falso.
-  const idsAntes = new Set((await sb.select('transacciones', 'select=id&monto=eq.999')).map(t => t.id));
-  const st2 = await enviarWebhook(vars.META_APP_SECRET, {
-    id: 'wamid.qa-desconocido-' + sufijo, timestamp: String(Math.floor(Date.now() / 1000)),
-    type: 'text', text: { body: 'gasté 999 soles en algo que no debe guardarse' },
-    from_user_id: BSUID_DESCONOCIDO,
-  });
-  check(st2 === 200, 'el webhook también responde 200 (no revienta)', 'HTTP ' + st2);
-  await new Promise(r => setTimeout(r, ESPERA_MS));
-  const despues = await sb.select('transacciones', 'select=id,usuario_id,monto&monto=eq.999');
-  const nuevaHuerfana = despues.find(t => !idsAntes.has(t.id));
-  check(!nuevaHuerfana, 'NO se registró nada para un BSUID desconocido', nuevaHuerfana ? 'apareció ' + nuevaHuerfana.id : '');
-  // Si apareció, hay que limpiarla: no tiene dueño legítimo y el `finally` solo borra las del
-  // usuario efímero.
-  if (nuevaHuerfana) await sb.del('transacciones', `id=eq.${nuevaHuerfana.id}`);
-
   // --- C: el mapeo PASIVO, que es lo que cubre a quien no escribe ---
-  // Se prueba sobre un usuario SIN bsuid, para que el PASS solo pueda venir de que el callback
-  // lo enseñó. Es el camino que aprende de lo que NOSOTROS enviamos, no de lo que recibimos.
+  // Sobre un usuario SIN bsuid, para que el PASS solo pueda venir de que el callback lo enseñó.
   console.log('\nC. callback de estado (mapeo pasivo, sin que el usuario escriba)');
   const numeroPasivo = '519' + Math.floor(10000000 + Math.random() * 89999999);
   const bsuidPasivo = 'PE.qapasivo' + sufijo;
-  // Mismo motivo que arriba: es otro número al azar viviendo un rato en la `usuarios` de prod.
   const pasivo = await sb.insert('usuarios', { whatsapp: numeroPasivo, nombre: 'QA BSUID pasivo', is_test_user: true, onboarding_completado: true, onboarding_paso: 0 });
   try {
     check(!pasivo.bsuid, 'el usuario arranca SIN bsuid', 'bsuid=' + pasivo.bsuid);
@@ -255,14 +235,8 @@ try {
   console.log('\nLimpiando usuarios efímeros...');
   if (usuario) await borrarUsuarioVerificado(sb, usuario.id, 'conocido');
 
-  // El caso B deja una fila en `errores` con el MISMO mensaje que produce un usuario real
-  // username-only ('Mensaje entrante sin from'), y esa tabla es de donde sale el conteo de
-  // eventos reales sobre el que está construido todo el diseño BSUID. Medido el 13-ago-2026:
-  // ese día las 6 filas eran de harness y ninguna era real, pero se leían igual. Se limpia acá
-  // en vez de enseñarle a producción a reconocer QA, que sería mucho peor.
-  //
-  // El filtro va por el `sufijo` de ESTA corrida (12 hex al azar), no por el prefijo `PE.qa`:
-  // así no puede tocar la fila de otra corrida en paralelo ni la de un usuario real.
+  // Por si algún caso dejó una fila en `errores` (no debería: los tres tienen dueño). El filtro va
+  // por el `sufijo` de ESTA corrida, así que no puede tocar la de otra corrida ni la de un usuario.
   try {
     const sucias = await sb.select('errores', `select=id&detalle=like.*${sufijo}*`);
     if (sucias.length) await sb.del('errores', `detalle=like.*${sufijo}*`);
@@ -272,5 +246,5 @@ try {
   }
 }
 
-console.log(fallos.length === 0 ? '\nOK — el reconocimiento por BSUID funciona en producción' : '\nFALLOS: ' + fallos.join(' | '));
+console.log(fallos.length === 0 ? '\nOK — el camino por BSUID funciona en producción' : '\nFALLOS: ' + fallos.join(' | '));
 process.exit(fallos.length === 0 ? 0 : 1);

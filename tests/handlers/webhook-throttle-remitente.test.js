@@ -29,12 +29,9 @@ require('../../helpers/db-helpers').obtenerOCrearUsuario = vi.fn(async (numero) 
   id: 'u-' + numero, whatsapp: numero, nombre: 'QA', plan: 'premium',
   onboarding_completado: true, onboarding_paso: null,
 }));
-const buscarPorBsuid = vi.fn().mockResolvedValue(null);
-require('../../helpers/db-helpers').buscarUsuarioPorBsuid = buscarPorBsuid;
-require('../../lib/error-monitor').registrarError = vi.fn();
+const registrarErrorEspia = vi.fn();
+require('../../lib/error-monitor').registrarError = registrarErrorEspia;
 require('../../lib/admin-notify').notificarErrorAdmin = vi.fn();
-require('../../services/registro-silencioso').registrarGastoSilencioso = vi.fn().mockResolvedValue({ registrado: true });
-require('../../services/registro-silencioso').avisarPrimeraVezSilencioso = vi.fn().mockResolvedValue(undefined);
 
 
 function makeChain(data = []) {
@@ -126,15 +123,16 @@ describe('S′5 — tope por remitente VERIFICADO, después del HMAC', () => {
     //
     // ⚠️ La primera versión de este test asertaba `res.sendStatus(200)`, y eso ya salió
     // ANTES del throttle: era verde pasara lo que pasara. La mutación lo destapó. El
-    // oráculo tiene que ser algo que el throttle SÍ puede impedir, y en este camino es
-    // `buscarUsuarioPorBsuid`, que vive después.
+    // oráculo tiene que ser algo que el throttle SÍ puede impedir, y en este camino es la fila
+    // en `errores` que deja el descarte, que vive después. (Hasta el 12-sep-2026 era
+    // `buscarUsuarioPorBsuid`, que este camino dejó de llamar: sin identidad no hay a quién buscar.)
     const sinFrom = () => firmar({
       entry: [{ changes: [{ value: { messages: [{
         id: 'wamid-nf-' + (seq++), type: 'text', text: { body: 'hola' },
       }] } }] }],
     });
-    buscarPorBsuid.mockClear();
+    registrarErrorEspia.mockClear();
     for (let i = 0; i < 70; i++) await mandar(sinFrom());
-    expect(buscarPorBsuid).toHaveBeenCalledTimes(70);
+    expect(registrarErrorEspia).toHaveBeenCalledTimes(70);
   });
 });

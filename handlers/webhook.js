@@ -17,11 +17,10 @@ const { obtenerCategoriasUsuario } = require('../services/categories');
 const { subcategoriaUtil } = require('../lib/subcategoria');
 const { escanearGmailYRegistrar } = require('../services/gmail-scanner');
 const { tieneGmailConectado } = require('../gmail');
-const { registrarGastoSilencioso, registrarAudioSilencioso, registrarImagenSilenciosa, avisarPrimeraVezSilencioso } = require('../services/registro-silencioso');
-const { verificarCuentaWebPorBsuid } = require('../services/otp-sin-numero');
+const { verificarCuentaWebPorBsuid, mensajeOtpBsuid } = require('../services/otp-sin-numero');
 const { descargarMedia, transcribirAudio, extraerPagoDeImagen } = require('../services/media-intake');
 const { generarResumenSemanal } = require('../services/summaries');
-const { guardarMensaje, obtenerOCrearUsuario, getUserPlanConfig, buscarUsuarioPorBsuid } = require('../helpers/db-helpers');
+const { guardarMensaje, resolverUsuarioEntrante, getUserPlanConfig } = require('../helpers/db-helpers');
 const { checkProWall } = require('../helpers/pro-wall');
 const { parseCSV, parseExcel } = require('../services/import-parser');
 const { esperaComprobante, esPagoNeto, procesarComprobantePro, reclamarSolicitudPro } = require('../lib/pro-payment');
@@ -75,19 +74,19 @@ function otpRateLimited(from) {
   return e.count > OTP_MAX_INTENTOS;
 }
 /**
- * Aviso al admin de una vinculación por BSUID. Es el desenlace de alguien a quien NO se le puede
- * contestar, así que este Telegram es el único acuse que existe de que el trámite salió.
+ * Aviso al admin de una vinculación por BSUID, SOLO cuando necesita una mano humana.
  *
- * **No avisa de todo, y la selección es la que evita que el aviso se vuelva ruido:** los éxitos
- * repetidos (`ya_vinculada`, que es lo que devuelve el reenvío del mismo código) y los códigos
- * mal tipeados (`invalido`) no dicen nada nuevo. Lo que sí se avisa es la primera vinculación
- * —porque desde ese momento hay un usuario vivo y mudo, y conviene saber quién es— y el
- * `conflicto`, que es el único desenlace que necesita una mano humana.
+ * Hasta el 12-sep-2026 avisaba también cada vinculación exitosa, porque este Telegram era el
+ * único acuse de que el trámite había salido: a esa persona no se le podía contestar. Ahora se le
+ * contesta por BSUID (`mensajeOtpBsuid`), así que el éxito ya tiene su acuse donde corresponde,
+ * y el aviso de éxito afirmaba "no se le puede responder", que dejó de ser cierto.
+ *
+ * Quedan los dos desenlaces que la persona no puede arreglar sola: el `conflicto` (dos filas que
+ * no se fusionan solas) y la vinculación a medias (vínculo escrito, pantalla web sin destrabar).
  */
 async function avisarVinculacionPorBsuid(bsuid, r) {
-  const EXITO = ['vinculada', 'fusionada', 'adoptada'];
   const ACCIONABLES = ['conflicto', 'vinculada_sin_destrabar'];
-  if (!EXITO.includes(r.estado) && !ACCIONABLES.includes(r.estado)) return;
+  if (!ACCIONABLES.includes(r.estado)) return;
   // **Los fixtures no avisan.** Este camino se verifica con un harness que le pega al webhook de
   // PRODUCCIÓN, así que sin este corte cada corrida le manda un Telegram real a Favio. Es el
   // falso positivo del 13-ago-2026, que además llegaba con un comando listo para ejecutar. Se usa
@@ -142,17 +141,12 @@ async function avisarVinculacionPorBsuid(bsuid, r) {
   // Texto plano, igual que el resto: `lib/telegram.js` manda sin `parse_mode` y ADEMÁS le saca
   // los asteriscos, así que ni Markdown ni HTML sirven acá — el HTML saldría con las etiquetas
   // a la vista. Es la decisión que evita que un envío falle por formato desbalanceado.
-  const msg = r.estado === 'conflicto'
-    ? '⚠️ VINCULACIÓN POR BSUID EN CONFLICTO\n\n' +
-      'Alguien sin número visible mandó un código válido y no se pudo vincular solo.\n\n' +
-      '👤 ' + quien + '\n🆔 ' + bsuid + '\n\n' +
-      'Necesita revisión manual: hay dos filas que no se pueden fusionar automáticamente.'
-    : '🔗 CUENTA VINCULADA POR BSUID\n\n' +
-      'Un usuario con el número oculto (WhatsApp Usernames) completó la verificación de su ' +
-      'cuenta web. Su onboarding se destrabó.\n\n' +
-      '👤 ' + quien + '\n🆔 ' + bsuid + '\n\n' +
-      '⚠️ No se le puede responder por WhatsApp. Sus gastos se van a registrar en silencio y ' +
-      'los ve sólo en app.neto.pe. No espera un "listo, anotado".';
+  // Acá solo llega `conflicto`: la vinculación a medias retornó arriba.
+  const msg = '⚠️ VINCULACIÓN POR BSUID EN CONFLICTO\n\n' +
+    'Alguien sin número visible mandó un código válido y no se pudo vincular solo. Ya se le ' +
+    'contestó que escriba a soporte.\n\n' +
+    '👤 ' + quien + '\n🆔 ' + bsuid + '\n\n' +
+    'Necesita revisión manual: hay dos filas que no se pueden fusionar automáticamente.';
   try { await notificarAdmin(msg); } catch (e) {
     // El aviso no puede tumbar la vinculación, que es lo que le importa a la persona.
     log.error({ tag: 'OTP_BSUID', bsuid, err: e && e.message }, 'No se pudo avisar la vinculación');
@@ -268,7 +262,10 @@ function createWebhookHandler(procesarMensajeLibre) {
   // registrar el error. Antes vivía dentro del try (const block-scoped) y el
   // catch crasheaba con "from is not defined", tragándose el stack del error
   // original y generando un unhandled rejection fantasma.
-  let from;
+  // `numero`, `bsuid` y `usuarioCtx` también, por el mismo motivo: el catch del final registra el
+  // error con la identidad de quien escribió. Sin `usuarioCtx` la fila de `errores` de alguien que
+  // solo tiene BSUID quedaba sin `usuario_id` y sin `whatsapp`, o sea fuera del borrado de cuenta.
+  let from, numero = null, bsuid = null, usuarioCtx = null;
   try {
     const entry = req.body.entry && req.body.entry[0];
     const change = entry && entry.changes && entry.changes[0];
@@ -284,13 +281,19 @@ function createWebhookHandler(procesarMensajeLibre) {
     }
     if (!messages || messages.length === 0) return;
     const message = messages[0];
-    from = message.from;
-    // El BSUID del remitente, cuando Meta lo manda. Medido con tráfico real el 08-ago-2026:
-    // hoy llega en TODOS los mensajes, junto al número (`contacts[0]` trae `wa_id` Y
-    // `user_id`). Esa coincidencia es la ventana entera: mientras el usuario siga mandando
-    // número se le aprende el BSUID (migración 065), y cuando active un username —y `from`
-    // deje de venir— es lo único que lo reconecta con su cuenta.
-    const bsuid = message.from_user_id || null;
+    // Tres nombres para dos datos, y la separación es a propósito (12-sep-2026):
+    //   · `numero` es la identidad por teléfono, cuando Meta la manda;
+    //   · `bsuid` es el BSUID del remitente. Medido con tráfico real el 08-ago-2026: llega en
+    //     TODOS los mensajes, junto al número (`contacts[0]` trae `wa_id` Y `user_id`). Quien
+    //     activa un username y oculta su número llega SOLO con él;
+    //   · `from` es la DIRECCIÓN a la que se contesta: el número si lo hay, si no el BSUID.
+    //     `enviarWhatsapp` reconoce la forma del BSUID y lo manda por `recipient`. Por eso las
+    //     respuestas de abajo no cambian: todas le escriben a `from`.
+    // Lo que NO puede usar `from` es lo que necesita un TELÉFONO: el OTP con número, el permiso de
+    // admin y las filas de `errores` (el borrado de cuenta las barre por `whatsapp`).
+    numero = message.from || null;
+    bsuid = message.from_user_id || null;
+    from = numero || bsuid;
     // El dedup va ANTES del descarte por falta de `from`, no después. Meta retransmite el
     // webhook cada 30s si tardamos, y desde que el camino sin `from` corre Vision y Whisper,
     // cada retransmisión de una foto costaba otra llamada a GPT-4o. (El dedup de
@@ -308,165 +311,74 @@ function createWebhookHandler(procesarMensajeLibre) {
         'Remitente por encima del límite del minuto — mensaje descartado');
       return;
     }
-    // Meta mandó un mensaje SIN remitente. Pasó 4 veces el 01-ago-2026 (05:32 UTC) y
-    // reventaba adentro de obtenerOCrearUsuario con un TypeError opaco ("Cannot read
-    // properties of undefined (reading 'replace')"), del que no se podía sacar nada: la fila
-    // de `errores` quedaba con `detalle` vacío, así que no había forma de saber QUÉ había
-    // llegado. Sin remitente no hay nada que responder ni a quién, así que se descarta — pero
-    // se registra la FORMA del payload, que es exactamente el dato que faltaba para
-    // diagnosticarlo la próxima vez. No se loguea el contenido, solo las claves.
+    // Meta mandó un mensaje SIN ninguna identidad: ni número ni BSUID. Pasó 4 veces el
+    // 01-ago-2026 (05:32 UTC) y reventaba adentro del alta con un TypeError opaco ("Cannot read
+    // properties of undefined (reading 'replace')"). Sin remitente no hay a quién contestar ni con
+    // quién asociarlo, así que se descarta, pero se registra la FORMA del payload, que es el dato
+    // que faltaba para diagnosticarlo. Del contacto van las CLAVES, nunca el nombre del perfil.
+    //
+    // **Hasta el 12-sep-2026 este bloque atrapaba también a quien oculta su número**, que llega
+    // con BSUID y sin `from`, y lo atendía en silencio: se le anotaban los gastos sin contestarle
+    // porque se creía que Meta no dejaba escribirle por BSUID. Deja (medido con un envío real), y
+    // desde ese día esa persona recorre el camino normal de abajo: `from` es su BSUID y
+    // `resolverUsuarioEntrante` la reconoce o la da de alta. Ver la sección BSUID del CLAUDE.md.
     if (!from) {
-      // Ya sabemos QUÉ es: Meta arrancó el rollout de WhatsApp Usernames + BSUID. El usuario
-      // que activa username oculta su número, así que `from` y `wa_id` dejan de venir y en su
-      // lugar llega `from_user_id` — el Business Scoped User ID, formato `PE.1049206861029395`,
-      // opaco y distinto por cada negocio. Confirmado el 08-ago-2026 con 6 mensajes del MISMO
-      // BSUID en 13 minutos: una persona escribiendo y sin recibir nada.
-      //
-      // Se sigue descartando porque hoy no hay a dónde responder (`enviarWhatsapp` manda
-      // `to: <número>`), pero se registra lo único que podría permitirlo: el BSUID y la forma
-      // de `contacts`, que es donde Meta pone la identidad y todavía no sabemos qué trae. Del
-      // contacto van las CLAVES y los identificadores, nunca el nombre del perfil.
       const contacto = ((value && value.contacts) || [])[0] || null;
       const forma = {
         tipo: message.type || null,
         wamid: message.id || null,
         clavesMensaje: Object.keys(message || {}),
         clavesValue: Object.keys(value || {}),
-        fromUserId: message.from_user_id || null,
         clavesContacto: Object.keys(contacto || {}),
         clavesPerfil: Object.keys((contacto && contacto.profile) || {}),
         contactoWaId: (contacto && contacto.wa_id) || null,
         contactoUserId: (contacto && contacto.user_id) || null,
       };
-      // ¿Lo conocemos igual? Si le aprendimos el BSUID mientras todavía mandaba su número,
-      // este mensaje SÍ tiene dueño aunque Meta ya no diga quién es. Responderle sigue siendo
-      // imposible (no hay número y el envío por BSUID no está habilitado en nuestra WABA),
-      // pero anotarle el gasto no depende de eso — y perder el gasto de alguien IDENTIFICADO
-      // es peor que no confirmárselo. Lo ve en el dashboard, que es el canal que sí le llega.
-      //
-      // Vale para texto, foto y nota de voz. Durante un tiempo solo cubrió texto, con el
-      // argumento de que "procesar una imagen exige responder": es falso — correr Vision y
-      // guardar el gasto no necesita respuesta, lo que pasaba es que ese código vivía inline
-      // entre los `enviarWhatsapp` del webhook. Importa por volumen: 12 de los 34 usuarios que
-      // registraron algo en los últimos 60 días lo hacen por captura.
-      // El OTP inverso es el ÚNICO trámite que se puede cerrar sin número, y por eso se atiende
-      // ANTES de preguntar si el BSUID nos suena. El orden importa en las dos direcciones:
-      //   · si el BSUID es DESCONOCIDO, este es el único camino que existe — abajo se descarta;
-      //   · si es CONOCIDO, sin esto su código caería en `registrarGastoSilencioso`, que lo
-      //     trataría como el texto de un gasto. Vincular su cuenta web es lo que pidió.
-      //
-      // Hasta el 02-sep-2026 esto no existía y el efecto no era "no se pudo verificar": era una
-      // pantalla de onboarding colgada para siempre, porque `/api/onboarding` poletea señales que
-      // sólo escribe el handler del OTP, 360 líneas más abajo de este `return`.
-      const cuerpoOtp = (message.type === 'text' && message.text && message.text.body) || '';
-      // **`bsuid` es obligatorio para entrar acá, y no es defensivo por gusto.** Meta puede mandar
-      // un mensaje sin `from` Y sin `from_user_id` — así llegaron los 4 del 01-ago-2026. Sin esta
-      // condición, uno de esos que trajera un código caía igual en este bloque, salía `error` y
-      // hacía `return` **sin escribir la fila en `errores`**: se perdía el único rastro
-      // diagnóstico que este bloque existe para producir, justo en el caso donde no hay ninguna
-      // otra pista. Además `otpRateLimited(null)` es un bucket compartido por todos los remitentes
-      // sin BSUID. Lo encontró la revisión adversarial.
-      const otpSinNumero = bsuid ? cuerpoOtp.match(/NETO-(\d{6})/i) : null;
-      if (otpSinNumero) {
-        // El throttle va por BSUID: es el identificador estable que Meta pone acá, el mismo papel
-        // que cumple `from` en el flujo con número. Sin esto el camino nuevo quedaría sin la única
-        // defensa que tiene el código contra la fuerza bruta.
-        if (otpRateLimited(bsuid)) {
-          log.warn({ tag: 'OTP_BSUID', bsuid }, 'OTP rate limit alcanzado (posible fuerza bruta)');
-          return;
-        }
+      log.error({ tag: 'WEBHOOK', ...forma }, 'Mensaje entrante sin from ni from_user_id — se descarta');
+      registrarError('WEBHOOK', 'Mensaje entrante sin from ni from_user_id', { detalle: JSON.stringify(forma) });
+      return;
+    }
+
+    // El OTP inverso de quien escribe SIN número. Tiene su propio camino (`services/otp-sin-numero.js`)
+    // porque el del número, más abajo, escribe el teléfono en `webapp_otp.whatsapp_verified` y no
+    // tiene el corte contra pisar otra cuenta Google que el de BSUID sí tiene.
+    //
+    // Va ANTES de resolver al usuario, a propósito: resolverlo daría de alta una fila vacía para
+    // un BSUID desconocido, y el trámite terminaría fusionándola con la cuenta web por un camino
+    // más largo del necesario.
+    //
+    // Hasta el 12-sep-2026 no contestaba nada: la persona se enteraba porque la pantalla web
+    // avanzaba, y si el código estaba mal no se enteraba nunca. Ahora recibe el mismo acuse que
+    // quien tiene número, por BSUID.
+    const cuerpoOtp = (message.type === 'text' && message.text && message.text.body) || '';
+    const otpSinNumero = !numero ? cuerpoOtp.match(/NETO-(\d{6})/i) : null;
+    if (otpSinNumero) {
+      let texto;
+      // El throttle va por BSUID: es el identificador estable que Meta pone acá, el mismo papel
+      // que cumple el número en el flujo con número. Es la única defensa del código contra la
+      // fuerza bruta.
+      if (otpRateLimited(bsuid)) {
+        log.warn({ tag: 'OTP_BSUID', bsuid }, 'OTP rate limit alcanzado (posible fuerza bruta)');
+        texto = '⚠️ Demasiados intentos de verificación. Espera unos minutos y vuelve a intentar desde app.neto.pe.';
+      } else {
         const r = await verificarCuentaWebPorBsuid(bsuid, 'NETO-' + otpSinNumero[1]);
         // Se devuelve la ficha cuando el intento fracasó por NUESTRO lado, nunca por un código
-        // malo. Misma regla que el OTP con número: **la regla es el par, no la rama** — si un
-        // camino invita a reintentar y el motivo es nuestro, tiene que devolver la ficha.
-        //
-        // `vinculada_sin_destrabar` está en la lista porque el destrabe previsto ES reenviar (el
-        // código quedó vivo justamente para eso, y cae en `ya_vinculada` que reintenta el burn).
-        // Sin reembolso ese camino se come 5 fichas y deja a la persona bloqueada 15 minutos con
-        // la pantalla girando, castigada por un fallo nuestro. Lo encontró la revisión adversarial.
+        // malo: si un camino invita a reintentar y el motivo es nuestro, tiene que devolverla.
+        // `vinculada_sin_destrabar` está porque el destrabe previsto ES reenviar el código.
         if (r.estado === 'lectura_fallida' || r.estado === 'error' || r.estado === 'vinculada_sin_destrabar') {
           otpDevolverIntento(bsuid);
         }
         await avisarVinculacionPorBsuid(bsuid, r);
         log.info({ tag: 'OTP_BSUID', bsuid, estado: r.estado, usuarioId: r.usuarioId || null },
           'OTP sin número resuelto');
-        // Un código inválido o expirado NO se registra como "mensaje sin from": no es el caso que
-        // esa fila vigila, y ensuciarlo dispararía la alerta de volumen por gente tipeando mal.
-        return;
+        texto = mensajeOtpBsuid(r);
       }
-
-      const conocido = await buscarUsuarioPorBsuid(bsuid);
-      if (conocido) {
-        let r = null;
-        if (message.type === 'text') r = await registrarGastoSilencioso(message.text && message.text.body, conocido);
-        else if (message.type === 'audio') r = await registrarAudioSilencioso(message, conocido);
-        else if (message.type === 'image') r = await registrarImagenSilenciosa(message, conocido);
-
-        // Que alguien CONOCIDO llegue sin número no había pasado nunca hasta el 10-ago-2026 (los
-        // 7 casos reales eran BSUIDs desconocidos). Cuando pase, hay que enterarse: es la única
-        // oportunidad de medir si al número guardado todavía le llega algo, y esa persona deja
-        // de recibir respuestas desde ese momento. Va DESPUÉS de procesar para que el aviso no
-        // se interponga entre el usuario y su gasto.
-        await avisarPrimeraVezSilencioso(conocido, message.type, r);
-
-        if (r) {
-          // Si acá falla la infraestructura (Meta, Vision, Whisper), el gasto SE PIERDE y no
-          // hay reintento: el usuario no recibe el "no pude procesarlo" que en el camino
-          // normal lo hace reenviar, y Meta tampoco va a retransmitir —este webhook responde
-          // 200 antes de procesar (línea 99), así que para Meta la entrega ya fue exitosa—.
-          // Lo único que queda es la fila en `errores` que escribe el service. Se intentó
-          // devolver el wamid a la cola para aprovechar una retransmisión, y era un mecanismo
-          // apoyado en un evento que este código impide que ocurra.
-          log.warn({ tag: 'WEBHOOK', usuarioId: conocido.id, tipo: message.type, registrado: r.registrado, motivo: r.motivo },
-            'Mensaje sin `from` de un usuario CONOCIDO por BSUID — procesado sin respuesta');
-          return;
-        }
-        // Un documento, una ubicación, un sticker. Nada que anotar, y nada que contestar.
-        log.warn({ tag: 'WEBHOOK', usuarioId: conocido.id, tipo: message.type },
-          'Mensaje sin `from` de un usuario conocido, de un tipo que no se puede procesar a ciegas');
-        return;
-      }
-      // Desconocido de verdad: o nunca escribió desde la migración 065, o es alguien nuevo que
-      // llegó ya con username. Ese segundo caso no tiene arreglo de nuestro lado: sin número no
-      // hay a quién responder ni historial al que asociarlo.
-      // **El texto va en la fila, y es un cambio deliberado de criterio.** Hasta el 02-sep-2026
-      // acá se guardaba sólo la FORMA del payload ("no se loguea el contenido, solo las claves"),
-      // y esa decisión tuvo un costo medible: cuando un usuario real quedó trabado mandando
-      // códigos de verificación, sus 9 filas eran indistinguibles de las de cualquier otro, y sólo
-      // se supo qué había mandado porque fue a reclamar por Instagram. Los otros 6 BSUID de esos
-      // días siguen sin poder revisarse: no hay forma de saber si estaban en el mismo problema.
-      //
-      // Se acota a 200 caracteres y sólo al tipo `text`.
-      //
-      // **HUECO ABIERTO, y el argumento que lo justificaba se cae con este mismo commit.**
-      // `borrar_cuenta_total` barre `errores` por `usuario_id` y por `whatsapp`
-      // (`migrations/073d:159`), y estas filas no llevan ninguno de los dos, así que **este texto
-      // sobrevive a un pedido de baja**.
-      //
-      // La primera versión de esta nota decía que eso era aceptable "porque son de gente que
-      // todavía no identificamos". Es falso: la fila lleva `fromUserId` en el `detalle`, y una
-      // vinculación exitosa escribe ESE MISMO VALOR en `usuarios.bsuid`, o sea que
-      // `errores.detalle->>'fromUserId' = usuarios.bsuid` es un join trivial. **La feature
-      // fabrica retroactivamente la atribución que el argumento negaba.** Lo demostró la
-      // revisión adversarial.
-      //
-      // Lo que hay puesto como mitigación es el tope de 200 chars y el corte por tipo `text`. Lo
-      // que falta es una condición más en ese DELETE (por el bsuid de la fila, que ya se puede
-      // leer del mismo SELECT INTO), y eso es una migración sobre la función más sensible del
-      // sistema —con su canary de md5— así que se decide aparte, no de rebote en un fix de
-      // webhook. Hasta entonces esto es un hueco conocido, no uno aceptado.
-      const forma2 = { ...forma, texto: cuerpoOtp ? cuerpoOtp.slice(0, 200) : null };
-      log.error({ tag: 'WEBHOOK', ...forma2 }, 'Mensaje entrante sin `from` — se descarta');
-      // El `bsuid` va a su COLUMNA (migración 081) y hace dos cosas: el detector de patrones
-      // cuenta PERSONAS distintas en vez de mensajes —la diferencia entre "uno insistiendo" y
-      // "esto se generalizó"—, y la fila queda enganchable a un usuario el día que se vincule,
-      // que es lo que la vuelve borrable.
-      registrarError('WEBHOOK', 'Mensaje entrante sin from', { detalle: JSON.stringify(forma2), bsuid });
+      await enviarWhatsapp(from, texto);
       return;
     }
     // --- Manejo de imágenes ---
     if (message.type === 'image') {
-      const usuario = await obtenerOCrearUsuario(from, bsuid);
+      const usuario = usuarioCtx = await resolverUsuarioEntrante({ numero, bsuid });
 
       const mediaId = message.image && message.image.id;
       log.info({ tag: 'IMAGEN', mediaId }, 'Procesando imagen');
@@ -537,7 +449,7 @@ function createWebhookHandler(procesarMensajeLibre) {
             const detalleClaim = msgErr(eClaim);
             log.error({ tag: 'PRO_PAGO', err: detalleClaim, usuarioId: usuario.id }, 'No se pudo reclamar la solicitud Pro');
             registrarError('PRO_PAGO', 'No se pudo reclamar la solicitud Pro: ' + detalleClaim,
-              { stack: eClaim && eClaim.stack, whatsapp: from, usuarioId: usuario.id });
+              { stack: eClaim && eClaim.stack, whatsapp: numero, bsuid, usuarioId: usuario.id });
             try { await guardarTransaccion(usuario.id, { ...parsed, fecha: parsed.fecha || hoy }); }
             catch (eDup) { log.error({ tag: 'PRO_PAGO', err: msgErr(eDup) }, 'Error registrando tx de captura con claim fallido'); }
             await notificarAdmin('⚠️ No se pudo abrir la solicitud Pro de `' + usuario.id + '`: ' + detalleClaim +
@@ -618,7 +530,7 @@ function createWebhookHandler(procesarMensajeLibre) {
         if (nudgeImg) respImg += nudgeImg;
         await enviarWhatsapp(from, respImg);
       } catch(e) {
-        log.error({ tag: 'IMAGEN', err: e.message }, 'Error procesando imagen'); registrarError('IMAGEN', e.message, { stack: e.stack, whatsapp: from });
+        log.error({ tag: 'IMAGEN', err: e.message }, 'Error procesando imagen'); registrarError('IMAGEN', e.message, { stack: e.stack, whatsapp: numero, bsuid, usuarioId: usuarioCtx && usuarioCtx.id });
         await enviarWhatsapp(from, 'No pude procesar la imagen. Asegúrate de enviar la captura de la notificación de pago (la pantalla que muestra el monto y destinatario).');
       }
       return;
@@ -626,7 +538,7 @@ function createWebhookHandler(procesarMensajeLibre) {
 
     // --- Manejo de documentos (Excel para carga de gastos históricos) ---
     if (message.type === 'document') {
-      const usuario = await obtenerOCrearUsuario(from, bsuid);
+      const usuario = usuarioCtx = await resolverUsuarioEntrante({ numero, bsuid });
 
       const doc = message.document;
       const fileName = (doc && doc.filename) || '';
@@ -772,7 +684,7 @@ function createWebhookHandler(procesarMensajeLibre) {
         await enviarWhatsapp(from, resumenMsg);
         log.info({ tag: 'EXCEL', insertados, errores }, 'Carga Excel completada');
       } catch(e) {
-        log.error({ tag: 'EXCEL', err: e.message }, 'Error procesando Excel'); registrarError('EXCEL', e.message, { stack: e.stack, whatsapp: from });
+        log.error({ tag: 'EXCEL', err: e.message }, 'Error procesando Excel'); registrarError('EXCEL', e.message, { stack: e.stack, whatsapp: numero, bsuid, usuarioId: usuarioCtx && usuarioCtx.id });
         await enviarWhatsapp(from, '❌ Error procesando el archivo: ' + e.message + '\n\nDescarga la plantilla correcta en: neto.pe/plantilla_gastos.xlsx');
       }
       return;
@@ -804,7 +716,7 @@ function createWebhookHandler(procesarMensajeLibre) {
         message.type = 'text';
         message.text = { body: texto };
       } catch (e) {
-        log.error({ tag: 'AUDIO', err: e.message }, 'Error procesando nota de voz'); registrarError('AUDIO', e.message, { stack: e.stack, whatsapp: from });
+        log.error({ tag: 'AUDIO', err: e.message }, 'Error procesando nota de voz'); registrarError('AUDIO', e.message, { stack: e.stack, whatsapp: numero, bsuid, usuarioId: usuarioCtx && usuarioCtx.id });
         await enviarWhatsapp(from, 'No pude procesar tu nota de voz. 🎤 Intenta de nuevo, o escríbeme el gasto (ej: "gasté 20 soles en el almuerzo").');
         return;
       }
@@ -815,7 +727,7 @@ function createWebhookHandler(procesarMensajeLibre) {
     log.info({ tag: 'MSG', from, msg: msg.substring(0, 100) }, 'Mensaje recibido');
 
     let respuesta = '';
-    const usuario = await obtenerOCrearUsuario(from, bsuid);
+    const usuario = usuarioCtx = await resolverUsuarioEntrante({ numero, bsuid });
     const cmd = msg.toLowerCase().trim();
 
     // De dónde vino esta alta. El texto prellenado de los CTA de la landing trae la etiqueta
@@ -1046,7 +958,7 @@ function createWebhookHandler(procesarMensajeLibre) {
       const { data: referrer, error: errReferrer } = await supabase.from('usuarios').select('id').eq('ref_code', refCode).neq('id', usuario.id).single();
       if (errReferrer && errReferrer.code !== 'PGRST116') {
         log.error({ tag: 'REFERIDO', from, refCode, err: errReferrer.message }, 'No se pudo resolver el código de referido: el descuento no se sembró');
-        registrarError('REFERIDO', errReferrer.message, { whatsapp: from, refCode });
+        registrarError('REFERIDO', errReferrer.message, { whatsapp: numero, bsuid, usuarioId: usuario.id, refCode });
       }
       if (referrer) {
         // Solo vincular + sembrar el 50% off del referido. El premio al referrer NO se
@@ -1399,7 +1311,7 @@ function createWebhookHandler(procesarMensajeLibre) {
       // `formatearEstadoPresupuesto`). Quedaría sólo la fila en `errores`, que nadie mira en
       // vivo. Lo encontró la revisión adversarial.
       notificarErrorAdmin('WEBHOOK_CMD', cmd + ': ' + eCmd.message);
-      registrarError('WEBHOOK_CMD', eCmd.message, { stack: eCmd.stack, whatsapp: from, cmd });
+      registrarError('WEBHOOK_CMD', eCmd.message, { stack: eCmd.stack, whatsapp: numero, bsuid, usuarioId: usuario.id, cmd });
       respuesta = 'Tuve un problema consultando tus datos. Intenta de nuevo en un momento.';
     }
     if (respuesta) {
@@ -1407,7 +1319,7 @@ function createWebhookHandler(procesarMensajeLibre) {
       // Guardar respuesta de NETO en historial
       try { await guardarMensaje(usuario.id, 'neto', respuesta); } catch(e) {}
     }
-  } catch (error) { log.error({ tag: 'WEBHOOK', err: error.message }, 'Error en webhook'); notificarErrorAdmin('WEBHOOK', error.message); registrarError('WEBHOOK', error.message, { stack: error.stack, whatsapp: from }); }
+  } catch (error) { log.error({ tag: 'WEBHOOK', err: error.message }, 'Error en webhook'); notificarErrorAdmin('WEBHOOK', error.message); registrarError('WEBHOOK', error.message, { stack: error.stack, whatsapp: numero, bsuid, usuarioId: usuarioCtx && usuarioCtx.id }); }
 
   };
 }

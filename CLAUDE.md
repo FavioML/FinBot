@@ -976,17 +976,37 @@ una sola persona en 13 minutos, escribiendo sin recibir nada.
 > todavía **no está identificado**. Mientras no se sepa cuál es, no se puede reproducir el caso
 > a voluntad — y por eso la premisa de abajo sigue sin medirse.
 
-> **CORREGIDO el 12-sep-2026: SÍ se le puede responder, por BSUID. El runtime todavía no lo hace.**
-> La conclusión de los dos párrafos siguientes ("no existe ese campo") salió de un intento SIN
-> control. Con diferencial, `recipient: "<bsuid>"` sin `to` da `#100 Invalid parameter` y un campo
+> **Desde el 12-sep-2026 a quien oculta su número SE LE CONTESTA, por BSUID.** Todo lo de más
+> abajo sobre "no se le puede responder", el camino silencioso (`services/registro-silencioso.js`)
+> y el experimento D10 es HISTORIA: se retiró ese día. Cómo funciona hoy:
+>
+> | Pieza | Dónde |
+> |---|---|
+> | Envío por BSUID: `recipient` sin `to`, en v25.0 (`META_GRAPH_VERSION_BSUID`). El teléfono sigue por `to` en v19.0 | `enviarWhatsapp`, `lib/whatsapp.js` |
+> | Aviso proactivo a quien no tiene número: el `bsuid` se busca por `usuarioId`, así que los crons no pasan nada nuevo | mismo `enviarWhatsapp` |
+> | Fixtures: `isTestUser` busca por la columna que corresponde a la forma del destino. Antes buscaba el BSUID en `whatsapp` y el fixture llegaba a Meta | idem |
+> | Toda respuesta por BSUID deja fila `respuesta_bsuid` en `notification_deliveries` (las del teléfono no) | idem |
+> | Interruptor: `WA_ENVIO_BSUID=off` en Railway corta solo el envío por BSUID, DESPUÉS del chequeo de fixtures | idem |
+> | Identidad: `resolverUsuarioEntrante({ numero, bsuid })`. Sin número da de alta por BSUID; con número ADOPTA la fila sin número de ese BSUID en vez de duplicar a la persona | `helpers/db-helpers.js` |
+> | Webhook: `numero` es la identidad por teléfono y `from` la DIRECCIÓN (`numero \|\| bsuid`) | `handlers/webhook.js` |
+> | OTP sin número: va antes del alta y contesta el acuse por BSUID | `services/otp-sin-numero.js` (`mensajeOtpBsuid`) |
+> | Webapp: "tiene WhatsApp" es número O BSUID (`tiene_whatsapp` en el navegador, porque `bsuid` es columna sensible); desvincular borra los dos | `webapp/src/lib/whatsapp-vinculo.ts`, `api/whatsapp/unlink` |
+>
+> Lo que queda abierto: el caso username-only REAL se confirma con la primera respuesta, en
+> `select estado, delivered_at, fail_code from notification_deliveries where tipo='respuesta_bsuid'`.
+> Quien tiene los dos guardados sigue recibiendo avisos por su número. Pasar `to` a v25 va aparte,
+> con un envío de control. E2E: `qa-e2e/qa-bsuid-username.mjs`, corrido DESPUÉS del deploy.
+>
+> **Cómo se descubrió.** La conclusión de los dos párrafos siguientes ("no existe ese campo") salió
+> de un intento SIN control. Con diferencial, `recipient: "<bsuid>"` sin `to` da `#100 Invalid parameter` y un campo
 > inventado da `#100 The parameter to is required`: Meta conoce `recipient` (igual en v19 a v27).
 > El `#100` era "ese BSUID no existe": un envío REAL al BSUID de Favio (v25.0, ventana abierta)
 > devolvió 200 con `contacts[0].user_id` = el BSUID, el wamid decodifica al BSUID (en agosto
 > decodificaba a dígitos = teléfono) y **le llegó**. Es el payload de la doc oficial
 > (`business-scoped-user-ids`): `recipient` = BSUID como string, sin `to`; sirve para todo mensaje
 > salvo plantillas de autenticación. Límite de la prueba: Favio tiene el número visible; el caso
-> username-only se confirma con la primera respuesta real post-deploy. Lo que falta es código:
-> `lib/whatsapp.js` envía siempre por `to` y con v19.0 fijo. El username sigue sin direccionar.
+> username-only se confirma con la primera respuesta real post-deploy. El username sigue sin
+> direccionar, y no se guarda: la persona lo puede cambiar.
 >
 > Lo que decía antes, conservado porque el método (el diferencial) sigue valiendo:
 

@@ -230,9 +230,9 @@ router.get('/auth/callback', async (req, res) => {
         // caen acá y se tratan como conexión normal — el reemplazo real ya lo hizo
         // guardarTokens, que no mira el modo.
         if (modoConexion === 'reemplazar') {
-          await enviarWhatsapp(usuario.whatsapp, '🔄 *Cuenta Gmail actualizada, ' + primerNombre + '!*\n📧 ' + emailConectado + '\n\nEscaneando tus correos... 🔍');
+          await enviarWhatsapp(usuario.whatsapp || usuario.bsuid, '🔄 *Cuenta Gmail actualizada, ' + primerNombre + '!*\n📧 ' + emailConectado + '\n\nEscaneando tus correos... 🔍');
         } else {
-          await enviarWhatsapp(usuario.whatsapp, '✅ *Gmail conectado, ' + primerNombre + '!*\n📧 ' + emailConectado + '\n\nEscaneando tus correos bancarios... 🔍');
+          await enviarWhatsapp(usuario.whatsapp || usuario.bsuid, '✅ *Gmail conectado, ' + primerNombre + '!*\n📧 ' + emailConectado + '\n\nEscaneando tus correos bancarios... 🔍');
         }
         // Primera conexión de Gmail → barrido único de 30 días para poblar el dashboard.
         // El flag historico_importado evita repetirlo en cada reconexión.
@@ -241,7 +241,7 @@ router.get('/auth/callback', async (req, res) => {
           ? await escanearHistoricoInicial(usuario)
           : await escanearGmailYRegistrar(usuario);
         if (resultado && typeof resultado === 'string') {
-          await enviarWhatsapp(usuario.whatsapp, resultado);
+          await enviarWhatsapp(usuario.whatsapp || usuario.bsuid, resultado);
         }
         if (modoConexion === 'inicial') {
           // Falla ABIERTO **a proposito, y la decision es del item 20**: arreglar una lectura
@@ -254,7 +254,7 @@ router.get('/auth/callback', async (req, res) => {
           if (errPaso) log.error({ tag: 'CALLBACK', err: errPaso.message, usuarioId: usuario.id }, 'Gmail conectado pero no se pudo cerrar el onboarding: el usuario va a seguir viendo el alta');
           analytics.capture(usuario.id, 'wa_onboarding_completed', { via: 'gmail' });
           await new Promise(r => setTimeout(r, 1500));
-          await enviarWhatsapp(usuario.whatsapp,
+          await enviarWhatsapp(usuario.whatsapp || usuario.bsuid,
             '🎉 *¡Listo, ' + primerNombre + '!* Tu cuenta está activa.\n\n' +
             '📊 *Tu dashboard:* https://app.neto.pe\n' +
             'Ahí puedes ver gráficos, metas, reportes PDF y más.\n\n' +

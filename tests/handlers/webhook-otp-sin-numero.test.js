@@ -5,43 +5,40 @@ import crypto from 'crypto';
 const require = createRequire(import.meta.url);
 
 /**
- * 02-sep-2026. El OTP inverso estaba estructuralmente roto para quien llega sin número.
+ * El OTP inverso de quien escribe SIN número visible (llega solo con su BSUID).
  *
- * El webhook corta en `if (!from)` y hace `return` ~360 líneas ANTES del matcheo de
- * `NETO-XXXXXX`, así que el código de un usuario username-only no se leía nunca. Para esa
- * persona el onboarding web quedaba colgado para siempre en "Esperando tu confirmación...":
- * `/api/onboarding` poletea `usuarios.whatsapp` y `webapp_otp.verified_at`, y las DOS las
- * escribe únicamente ese handler inalcanzable. Ni reintentar ni regenerar el código servían.
+ * 02-sep-2026: estaba estructuralmente roto. El webhook descartaba el mensaje antes de leer el
+ * `NETO-XXXXXX`, y el onboarding web quedaba colgado para siempre. Julio Mejia mandó 9 códigos en
+ * 9 minutos y terminó reclamando por Instagram.
  *
- * Julio Mejia mandó 9 códigos en 9 minutos y terminó reclamando por Instagram, que es el único
- * motivo por el que se supo. Sus 9 filas en `errores` eran indistinguibles de las de cualquier
- * otro mensaje sin `from`.
+ * 12-sep-2026: además se le CONTESTA. Hasta ese día este camino no respondía nada, porque se creía
+ * que Meta no dejaba escribir por BSUID, y la persona solo se enteraba porque la pantalla web
+ * avanzaba. El aviso de éxito al admin, que era el único acuse, se retiró: su texto afirmaba "no se
+ * le puede responder".
  *
- * Lo que se asierta acá es el CABLEADO (que el webhook llegue al verificador y no descarte el
- * mensaje); las ramas de vinculación viven en `tests/services/otp-sin-numero.test.js`.
+ * Lo que se asierta acá es el CABLEADO (que el webhook llegue al verificador y conteste por BSUID);
+ * las ramas de vinculación viven en `tests/services/otp-sin-numero.test.js` y los textos en
+ * `tests/services/otp-mensaje-bsuid.test.js`.
  */
 
 process.env.META_APP_SECRET = 'test-secret';
 process.env.META_ACCESS_TOKEN = 'test-meta-token';
 process.env.META_PHONE_NUMBER_ID = 'test-phone-id';
 
-const enviarWhatsapp = vi.fn().mockResolvedValue(undefined);
+const enviarWhatsapp = vi.fn().mockResolvedValue({ ok: true });
 require('../../lib/whatsapp').enviarWhatsapp = enviarWhatsapp;
-const obtenerOCrearUsuario = vi.fn();
-require('../../helpers/db-helpers').obtenerOCrearUsuario = obtenerOCrearUsuario;
+const resolverUsuarioEntrante = vi.fn();
+require('../../helpers/db-helpers').resolverUsuarioEntrante = resolverUsuarioEntrante;
 require('../../helpers/db-helpers').guardarMensaje = vi.fn().mockResolvedValue(undefined);
 const registrarError = vi.fn();
 require('../../lib/error-monitor').registrarError = registrarError;
-const buscarUsuarioPorBsuid = vi.fn().mockResolvedValue(null);
-require('../../helpers/db-helpers').buscarUsuarioPorBsuid = buscarUsuarioPorBsuid;
-const registrarGastoSilencioso = vi.fn().mockResolvedValue({ registrado: true, motivo: 'ok' });
-require('../../services/registro-silencioso').registrarGastoSilencioso = registrarGastoSilencioso;
-require('../../services/registro-silencioso').avisarPrimeraVezSilencioso = vi.fn().mockResolvedValue(undefined);
 const notificarAdmin = vi.fn().mockResolvedValue(true);
 require('../../lib/admin-notify').notificarAdmin = notificarAdmin;
 require('../../lib/admin-notify').notificarErrorAdmin = vi.fn();
+require('../../lib/atribucion').registrarOrigenDelAlta = vi.fn().mockResolvedValue(undefined);
 
-const verificarCuentaWebPorBsuid = vi.fn().mockResolvedValue({ estado: 'vinculada', usuarioId: 'u-1', nombre: 'Julio' });
+// Solo el verificador se mockea: `mensajeOtpBsuid` corre el real, que es lo que recibe la persona.
+const verificarCuentaWebPorBsuid = vi.fn();
 require('../../services/otp-sin-numero').verificarCuentaWebPorBsuid = verificarCuentaWebPorBsuid;
 
 function makeChain(data = []) {
@@ -71,125 +68,107 @@ function enviar(texto, bsuid = 'PE.1388235929393206') {
   );
 }
 
+/** Lo último que se le mandó a ese BSUID. */
+const respuestaA = (bsuid) => (enviarWhatsapp.mock.calls.filter(([d]) => d === bsuid).at(-1) || [])[1] || '';
+
 describe('OTP inverso de un usuario SIN número visible', () => {
   beforeEach(() => {
-    verificarCuentaWebPorBsuid.mockReset().mockResolvedValue({ estado: 'vinculada', usuarioId: 'u-1', nombre: 'Julio' });
+    verificarCuentaWebPorBsuid.mockReset().mockResolvedValue({ estado: 'vinculada', usuarioId: 'u-1', nombre: 'Julio Mejia' });
+    resolverUsuarioEntrante.mockReset().mockResolvedValue({ id: 'u-x', onboarding_paso: 0, onboarding_completado: true });
     registrarError.mockClear();
-    buscarUsuarioPorBsuid.mockReset().mockResolvedValue(null);
-    registrarGastoSilencioso.mockReset().mockResolvedValue({ registrado: true, motivo: 'ok' });
     notificarAdmin.mockClear();
     enviarWhatsapp.mockClear();
-    obtenerOCrearUsuario.mockReset();
+    procesarMensajeLibre.mockClear();
   });
 
   it('el código llega al verificador en vez de morir en el descarte', async () => {
     await enviar('Hola Neto, verifica mi cuenta web: NETO-598929');
     expect(verificarCuentaWebPorBsuid).toHaveBeenCalledWith('PE.1388235929393206', 'NETO-598929');
-  });
-
-  // El corazón de la regresión: antes esto era una fila en `errores` y nada más.
-  it('NO se descarta como "mensaje sin from"', async () => {
-    await enviar('Hola Neto, verifica mi cuenta web: NETO-598929');
     expect(registrarError).not.toHaveBeenCalled();
   });
 
-  // Orden: el OTP se atiende ANTES de preguntar si el BSUID nos suena. Sin esto, el código de un
-  // usuario ya conocido caería en `registrarGastoSilencioso`, que lo trataría como un gasto.
-  it('un usuario CONOCIDO que manda su código lo vincula, no lo anota como gasto', async () => {
-    buscarUsuarioPorBsuid.mockResolvedValue({ id: 'u-conocido', bsuid: 'PE.999' });
-    await enviar('NETO-123456', 'PE.999');
-    expect(verificarCuentaWebPorBsuid).toHaveBeenCalledWith('PE.999', 'NETO-123456');
-    expect(registrarGastoSilencioso).not.toHaveBeenCalled();
+  it('SE LE CONTESTA por su BSUID que la cuenta quedó vinculada', async () => {
+    // Hasta el 12-sep-2026 este caso afirmaba lo contrario: "no le intenta responder".
+    await enviar('NETO-598929', 'PE.contesta');
+    expect(respuestaA('PE.contesta')).toMatch(/Julio, tu cuenta web quedó verificada y vinculada/);
   });
 
-  // **BSUID propio.** `avisosVinculacion` es un `Map` de módulo que no se limpia entre tests (el
-  // throttle del aviso, igual que `otpIntentos`), así que reusar el BSUID por defecto —que los
-  // casos de arriba ya usaron con estado `vinculada`— sale throttleado y el fallo se lee como
-  // "no avisa" cuando lo que pasó es otra cosa.
-  it('avisa al admin que quedó vinculado y que no se le puede contestar', async () => {
-    await enviar('NETO-598929', 'PE.avisa');
-    const aviso = notificarAdmin.mock.calls.at(-1)?.[0] || '';
-    expect(aviso).toMatch(/VINCULADA POR BSUID/i);
-    expect(aviso).toMatch(/No se le puede responder/i);
-    expect(aviso).toContain('PE.avisa');
-    // Texto plano: `lib/telegram.js` no manda `parse_mode`, así que el HTML saldría a la vista.
-    expect(aviso).not.toMatch(/<b>|<code>/);
+  // El OTP va ANTES de resolver al usuario: resolverlo daría de alta una fila vacía para un BSUID
+  // desconocido, que después habría que fusionar con la cuenta web.
+  it('no pasa por el alta', async () => {
+    await enviar('NETO-598929', 'PE.sinalta');
+    expect(resolverUsuarioEntrante).not.toHaveBeenCalled();
   });
 
-  it('no le intenta responder por WhatsApp (no hay a dónde)', async () => {
-    await enviar('NETO-598929');
-    expect(enviarWhatsapp).not.toHaveBeenCalled();
-    expect(obtenerOCrearUsuario).not.toHaveBeenCalled();
+  it('el éxito ya NO avisa al admin: la persona tiene su propio acuse', async () => {
+    await enviar('NETO-598929', 'PE.exito');
+    expect(notificarAdmin).not.toHaveBeenCalled();
   });
 
   // Control: sin esto, un cableado que mandara TODO al verificador pasaría los tests de arriba.
-  it('un mensaje sin código sigue el camino de siempre', async () => {
-    await enviar('gasté 30 soles en el almuerzo');
+  it('un mensaje sin código sigue el camino normal: se resuelve por BSUID y se le contesta', async () => {
+    await enviar('gasté 30 soles en el almuerzo', 'PE.normal');
     expect(verificarCuentaWebPorBsuid).not.toHaveBeenCalled();
-    expect(registrarError).toHaveBeenCalledTimes(1);
+    expect(resolverUsuarioEntrante).toHaveBeenCalledWith({ numero: null, bsuid: 'PE.normal' });
+    expect(respuestaA('PE.normal')).toBe('ok');
+    expect(registrarError).not.toHaveBeenCalled();
   });
 
   // Un código mal tipeado no es el caso que `errores` vigila, y ensuciarlo dispararía la alerta
-  // de volumen por gente equivocándose.
-  it('un código inválido no ensucia `errores` ni avisa al admin', async () => {
+  // de volumen por gente equivocándose. Pero la persona sí tiene que saberlo.
+  it('un código inválido se lo dice a la persona, sin ensuciar `errores` ni avisar al admin', async () => {
     verificarCuentaWebPorBsuid.mockResolvedValue({ estado: 'invalido' });
-    await enviar('NETO-000000');
+    await enviar('NETO-000000', 'PE.invalido');
+    expect(respuestaA('PE.invalido')).toMatch(/no es válido o ya expiró/);
     expect(registrarError).not.toHaveBeenCalled();
     expect(notificarAdmin).not.toHaveBeenCalled();
   });
 
-  // **BSUID propio a propósito.** `otpIntentos` es un `Map` de módulo que no se limpia entre
-  // tests (es el estado en memoria que documenta el CLAUDE.md, sección "instancia única"), así
-  // que los casos de arriba ya gastaron las 5 fichas del BSUID por defecto y este salía
-  // throttleado. El test decía "el conflicto no avisa" cuando lo que pasaba era otra cosa.
-  it('el conflicto sí se avisa: es el único que necesita una mano humana', async () => {
+  // **BSUID propio a propósito.** `otpIntentos` y `avisosVinculacion` son `Map` de módulo que no
+  // se limpian entre tests: reusar un BSUID ya gastado sale throttleado y se lee como otra cosa.
+  it('el conflicto se avisa al admin y a la persona se la manda a soporte', async () => {
     verificarCuentaWebPorBsuid.mockResolvedValue({ estado: 'conflicto', usuarioId: 'u-2', nombre: 'Ana' });
     await enviar('NETO-777777', 'PE.conflicto');
     expect(notificarAdmin.mock.calls.at(-1)?.[0] || '').toMatch(/CONFLICTO/i);
+    expect(respuestaA('PE.conflicto')).toMatch(/soporte/i);
   });
 
   // **El throttle se prueba por el camino del ATACANTE, que es `invalido`, no por el del éxito.**
-  // El código se busca global-by-code (sin scoping por cuenta), así que el throttle es la única
-  // defensa contra adivinar 6 dígitos. La primera versión de este test mandaba 6 mensajes con el
-  // mock devolviendo `vinculada`: dejaba en verde una mutación que agregaba `invalido` a los
-  // estados que DEVUELVEN la ficha, con lo cual cada intento fallido se reembolsaba solo y el
-  // throttle dejaba de existir. Lo encontró la revisión adversarial.
+  // El código se busca global-by-code, así que el throttle es la única defensa contra adivinar 6
+  // dígitos. Con el mock en `vinculada`, una mutación que reembolsara los `invalido` pasaba verde.
   it('el rate limit corta la fuerza bruta: 5 intentos FALLIDOS y el sexto no pasa', async () => {
     verificarCuentaWebPorBsuid.mockResolvedValue({ estado: 'invalido' });
     for (let i = 0; i < 6; i++) await enviar('NETO-11111' + i, 'PE.bruto');
-    // Exacto, no `<= 5`: con `<=` un throttle que cortara en el primero también pasaría, y eso
-    // rompería a un usuario legítimo que se equivoca una vez.
+    // Exacto, no `<= 5`: con `<=` un throttle que cortara en el primero también pasaría.
     expect(verificarCuentaWebPorBsuid.mock.calls.length).toBe(5);
+    // Y el sexto recibe el aviso del throttle, no silencio.
+    expect(respuestaA('PE.bruto')).toMatch(/Demasiados intentos/);
   });
 
-  // Un fallo NUESTRO sí devuelve la ficha: la persona no puede quedar castigada 15 minutos por un
-  // hipo de la base, y acá no hay canal para mandarle el "volvé a intentar en un minuto".
-  it('una lectura caída no le come el cupo al usuario', async () => {
+  // Un fallo NUESTRO devuelve la ficha: la persona no puede quedar castigada 15 minutos por un
+  // hipo de la base mientras el mensaje que recibe la invita a reintentar en un minuto.
+  it('una lectura caída no le come el cupo, y se le dice que reenvíe', async () => {
     verificarCuentaWebPorBsuid.mockResolvedValue({ estado: 'lectura_fallida' });
     for (let i = 0; i < 8; i++) await enviar('NETO-22222' + i, 'PE.hipo');
     expect(verificarCuentaWebPorBsuid.mock.calls.length).toBe(8);
+    expect(respuestaA('PE.hipo')).toMatch(/sigue siendo válido/);
   });
 
-  // El vínculo se escribió pero la señal que destraba la webapp no. La persona sigue en el
-  // spinner y no tiene canal por el que enterarse, así que el Telegram es el único camino al
-  // arreglo: no puede decir "se destrabó".
   const UUID = '84ea9bdd-10ac-486b-b01c-69509f6e9a9d';
 
+  // El vínculo se escribió pero la señal que destraba la webapp no: necesita una mano humana.
   it('una vinculación a medias avisa que la persona SIGUE trabada', async () => {
     verificarCuentaWebPorBsuid.mockResolvedValue({ estado: 'vinculada_sin_destrabar', usuarioId: UUID, nombre: 'Julio' });
     await enviar('NETO-598929', 'PE.amedias');
     const aviso = notificarAdmin.mock.calls.at(-1)?.[0] || '';
     expect(aviso).toMatch(/A MEDIAS/i);
     expect(aviso).toMatch(/sigue viendo/i);
-    expect(aviso).not.toMatch(/se destrabó/i);
-    // Trae el arreglo listo: sin esto el aviso dice que hay un problema y no qué hacer.
     expect(aviso).toMatch(/update webapp_otp/i);
-    // Y el literal va por el ID, entre comillas SIMPLES: en SQL las dobles son identificadores,
-    // así que un comando con dobles no se puede pegar. El BSUID no se concatena nunca.
+    // El literal va por el ID, entre comillas SIMPLES. El BSUID no se concatena nunca.
     expect(aviso).toContain("id = '" + UUID + "'");
+    expect(respuestaA('PE.amedias')).toMatch(/sigue siendo válido/);
   });
 
-  // Sin un id utilizable no se emite un comando roto: se dice qué buscar.
   it('sin un id con forma de UUID no emite un SQL impegable', async () => {
     verificarCuentaWebPorBsuid.mockResolvedValue({ estado: 'vinculada_sin_destrabar', usuarioId: "x' or 1=1; --", nombre: 'Julio' });
     await enviar('NETO-598929', 'PE.raro');
@@ -199,19 +178,17 @@ describe('OTP inverso de un usuario SIN número visible', () => {
     expect(aviso).toMatch(/a mano/i);
   });
 
-  // **Los desenlaces accionables dejan el código VIVO a propósito, así que la persona reenvía.**
-  // Julio reenvió 9 veces en 9 minutos: sin throttle, una base con hipo produce 9 Telegrams
-  // idénticos, cada uno con su comando de arreglo.
-  it('el aviso no se repite por cada reenvío', async () => {
+  // Los desenlaces accionables dejan el código VIVO a propósito, así que la persona reenvía.
+  it('el aviso al admin no se repite por cada reenvío', async () => {
     verificarCuentaWebPorBsuid.mockResolvedValue({ estado: 'vinculada_sin_destrabar', usuarioId: UUID, nombre: 'Julio' });
     for (let i = 0; i < 5; i++) await enviar('NETO-33333' + i, 'PE.spam');
     expect(notificarAdmin).toHaveBeenCalledTimes(1);
   });
 
   // Sin esto, el harness que verifica este camino contra PRODUCCIÓN le manda un Telegram real a
-  // Favio en cada corrida. Es el falso positivo del 13-ago-2026 repetido.
+  // Favio en cada corrida. Con `conflicto`, que sí avisaría si no fuera un fixture.
   it('un fixture de QA no dispara el aviso', async () => {
-    verificarCuentaWebPorBsuid.mockResolvedValue({ estado: 'vinculada', usuarioId: UUID, nombre: 'QA', esTest: true });
+    verificarCuentaWebPorBsuid.mockResolvedValue({ estado: 'conflicto', usuarioId: UUID, nombre: 'QA', esTest: true });
     await enviar('NETO-598929', 'PE.qafixture');
     expect(notificarAdmin).not.toHaveBeenCalled();
   });
@@ -223,28 +200,21 @@ describe('OTP inverso de un usuario SIN número visible', () => {
     expect(notificarAdmin).toHaveBeenCalledTimes(2);
   });
 
-  // `error` cubre cuatro desenlaces que son todos culpa nuestra (RPC caído, resultado inesperado,
-  // cero filas, la excepción del catch). La regla es el par: si invita a reintentar, reembolsa.
   it('un fallo nuestro (`error`) tampoco le come el cupo', async () => {
     verificarCuentaWebPorBsuid.mockResolvedValue({ estado: 'error' });
     for (let i = 0; i < 8; i++) await enviar('NETO-55555' + i, 'PE.nuestro');
     expect(verificarCuentaWebPorBsuid.mock.calls.length).toBe(8);
   });
 
-  // El destrabe previsto de una vinculación a medias es reenviar (cae en `ya_vinculada`, que
-  // reintenta el burn). Sin reembolso ese camino se come 5 fichas y deja a la persona bloqueada
-  // 15 minutos con la pantalla girando, castigada por un fallo nuestro.
   it('una vinculación a medias no bloquea el reintento que la destraba', async () => {
     verificarCuentaWebPorBsuid.mockResolvedValue({ estado: 'vinculada_sin_destrabar', usuarioId: UUID });
     for (let i = 0; i < 8; i++) await enviar('NETO-66666' + i, 'PE.reintenta');
     expect(verificarCuentaWebPorBsuid.mock.calls.length).toBe(8);
   });
 
-  // Meta puede mandar un mensaje sin `from` Y sin `from_user_id` (así llegaron los 4 del
-  // 01-ago-2026). Si uno de esos trae un código, no hay BSUID al cual vincular — y lo que NO
-  // puede pasar es que se pierda la fila en `errores`, que es el único rastro diagnóstico que
-  // existe justo en el caso donde no hay ninguna otra pista.
-  it('un mensaje sin BSUID con un código igual deja su rastro en `errores`', async () => {
+  // Meta puede mandar un mensaje sin `from` Y sin `from_user_id` (los 4 del 01-ago-2026). Si uno
+  // trae un código, no hay BSUID al cual vincular, y lo que no puede perderse es su rastro.
+  it('un mensaje sin BSUID con un código deja su rastro en `errores` y no se contesta', async () => {
     const message = { id: 'wamid-sinbsuid', type: 'text', text: { body: 'NETO-598929' } };
     const body = { entry: [{ changes: [{ value: { messages: [message] } }] }] };
     const rawBody = Buffer.from(JSON.stringify(body));
@@ -253,5 +223,6 @@ describe('OTP inverso de un usuario SIN número visible', () => {
 
     expect(verificarCuentaWebPorBsuid).not.toHaveBeenCalled();
     expect(registrarError).toHaveBeenCalledTimes(1);
+    expect(enviarWhatsapp).not.toHaveBeenCalled();
   });
 });

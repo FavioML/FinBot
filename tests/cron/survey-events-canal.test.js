@@ -141,7 +141,9 @@ describe('survey_events: escritores y lectores hablan del mismo conjunto de cana
     expect(inserts.length, 'el barrido no encontró el insert: este archivo dejó de mirar').toBe(1);
     for (const cuerpo of inserts) {
       expect(cuerpo, 'un insert volvió a fijar el canal').not.toMatch(/channel:\s*['"]whatsapp['"]/);
-      expect(cuerpo).toMatch(/channel:\s*usuario\.whatsapp\s*\?\s*'whatsapp'\s*:\s*'in_app'/);
+      // Número O BSUID desde el 12-sep-2026: quien oculta su número recibe WhatsApp por BSUID, y
+      // anotarlo `in_app` le apagaría la anti-fatiga con algo que sí le llegó por WhatsApp.
+      expect(cuerpo).toMatch(/channel:\s*\(usuario\.whatsapp\s*\|\|\s*usuario\.bsuid\)\s*\?\s*'whatsapp'\s*:\s*'in_app'/);
     }
   });
 
@@ -188,7 +190,7 @@ describe('survey_events: escritores y lectores hablan del mismo conjunto de cana
         continue;
       }
       expect(canal, `${evento} fija el canal en vez de escribir el real`)
-        .toBe("usuario.whatsapp ? 'whatsapp' : 'in_app'");
+        .toBe("(usuario.whatsapp || usuario.bsuid) ? 'whatsapp' : 'in_app'");
     }
   });
 

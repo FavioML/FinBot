@@ -334,18 +334,20 @@ router.post('/notify', async (req, res) => {
     let nombre = null;
     let userId = usuario_id || null;
     if (userId && !numero) {
-      const { data: u, error: errU } = await supabase.from('usuarios').select('whatsapp, nombre').eq('id', userId).maybeSingle();
+      const { data: u, error: errU } = await supabase.from('usuarios').select('whatsapp, bsuid, nombre').eq('id', userId).maybeSingle();
       if (errU) {
         log.error({ tag: 'ADMIN_NOTIFY', err: errU.message, userId }, 'No se pudo leer el usuario a notificar');
         return res.status(500).json({ ok: false, msg: 'No pude leer el usuario. Reintenta.' });
       }
       if (!u) return res.status(404).json({ ok: false, msg: 'Usuario no encontrado' });
-      numero = u.whatsapp;
+      // El BSUID es la dirección de quien oculta su número (12-sep-2026): sin esto, el panel no
+      // podía escribirle a esa gente y respondía "Falta whatsapp".
+      numero = u.whatsapp || u.bsuid;
       nombre = u.nombre;
     }
     if (!numero) return res.status(400).json({ ok: false, msg: 'Falta whatsapp o usuario_id' });
     numero = String(numero).replace(/\+/g, '').replace(/^0/, '');
-    if (!/^\d{8,15}$/.test(numero)) {
+    if (!/^\d{8,15}$/.test(numero) && !require('../lib/whatsapp').esBsuid(numero)) {
       return res.status(400).json({ ok: false, msg: 'Numero whatsapp invalido' });
     }
     if (!userId) {

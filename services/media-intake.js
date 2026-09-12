@@ -7,17 +7,16 @@ const { anclarAnioDeCaptura } = require('../lib/dates');
  *
  * Esto vivía inline en `handlers/webhook.js`, entrelazado con los `enviarWhatsapp` de cada
  * rama de error. Se extrajo cuando hubo que correr el mismo pipeline para un usuario al que
- * NO se le puede responder: el que activó un username de WhatsApp y llega solo con su BSUID
- * (ver `services/registro-silencioso.js`).
+ * se creía que NO se le podía responder: el que activó un username de WhatsApp y llega solo
+ * con su BSUID. Ese camino silencioso se retiró el 12-sep-2026, cuando se midió que Meta sí
+ * entrega por BSUID: hoy esa persona pasa por el webhook normal, que la usa igual.
  *
- * Por eso estas funciones **lanzan** en vez de contestar: quién avisa —y si hay a quién
- * avisarle— lo decide el llamador. El webhook conserva sus mensajes amables; el camino
- * silencioso solo loguea.
+ * Por eso estas funciones **lanzan** en vez de contestar: quién avisa —y cómo— lo decide el
+ * llamador. La separación se queda: sigue siendo la forma correcta de partir el trabajo.
  *
  * El prompt de Vision vive acá y en ningún otro lado A PROPÓSITO: es quien decide el monto.
- * Duplicarlo es la misma divergencia de dinero que `registro-silencioso.js` evita delegando
- * en `guardarTransaccion` — con el agravante de que en el camino silencioso no hay respuesta
- * al usuario que delate la diferencia.
+ * Duplicarlo es una divergencia de dinero: dos caminos guardando montos distintos por la misma
+ * captura, sin nada que la delate.
  */
 
 // La versión de Graph con la que se venían bajando los media. No la subas sin probar:
