@@ -44,7 +44,7 @@ for (const [rel, exports] of [
   require.cache[p] = { id: p, filename: p, loaded: true, exports };
 }
 
-const { enviarWhatsapp, esBsuid, destinoWhatsapp } = require('../../lib/whatsapp');
+const { enviarWhatsapp, esBsuid } = require('../../lib/whatsapp');
 
 let fetchOriginal;
 const cuerpoEnviado = () => JSON.parse(global.fetch.mock.calls[0][1].body);
@@ -75,13 +75,6 @@ describe('la forma del destino', () => {
     expect(esBsuid('51999888777')).toBe(false);
     expect(esBsuid('+51999888777')).toBe(false);
     expect(esBsuid(null)).toBe(false);
-  });
-
-  it('destinoWhatsapp prefiere el número y cae al BSUID', () => {
-    expect(destinoWhatsapp({ whatsapp: '51999888777', bsuid: 'PE.1' })).toBe('51999888777');
-    expect(destinoWhatsapp({ whatsapp: null, bsuid: 'PE.1' })).toBe('PE.1');
-    expect(destinoWhatsapp({ whatsapp: null, bsuid: null })).toBeNull();
-    expect(destinoWhatsapp(null)).toBeNull();
   });
 });
 

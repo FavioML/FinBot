@@ -986,7 +986,7 @@ una sola persona en 13 minutos, escribiendo sin recibir nada.
 > | Aviso proactivo a quien no tiene número: el `bsuid` se busca por `usuarioId`, así que los crons no pasan nada nuevo | mismo `enviarWhatsapp` |
 > | Fixtures: `isTestUser` busca por la columna que corresponde a la forma del destino. Antes buscaba el BSUID en `whatsapp` y el fixture llegaba a Meta | idem |
 > | Toda respuesta por BSUID deja fila `respuesta_bsuid` en `notification_deliveries` (las del teléfono no) | idem |
-> | Interruptor: `WA_ENVIO_BSUID=off` en Railway corta solo el envío por BSUID, DESPUÉS del chequeo de fixtures | idem |
+> | Interruptor: `WA_ENVIO_BSUID=off` en Railway corta solo el envío por BSUID, DESPUÉS del chequeo de fixtures. **Es un freno de emergencia, no una vuelta atrás**: el camino silencioso ya no existe, así que con `off` esa persona se da de alta y no recibe respuesta. Por eso no se despliega con `off` de entrada | idem |
 > | Identidad: `resolverUsuarioEntrante({ numero, bsuid })`. Sin número da de alta por BSUID; con número ADOPTA la fila sin número de ese BSUID en vez de duplicar a la persona | `helpers/db-helpers.js` |
 > | Webhook: `numero` es la identidad por teléfono y `from` la DIRECCIÓN (`numero \|\| bsuid`) | `handlers/webhook.js` |
 > | OTP sin número: va antes del alta y contesta el acuse por BSUID | `services/otp-sin-numero.js` (`mensajeOtpBsuid`) |

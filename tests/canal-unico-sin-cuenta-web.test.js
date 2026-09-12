@@ -271,6 +271,9 @@ const CUERPO_ANTES_DEL_CORTE = String.raw`(?:\s*\{[^{}]*(?:\{[^{}]*\}[^{}]*){0,3
 const CORTE_POR_WHATSAPP = new RegExp(
   // negación: `if (!u.whatsapp)`, con cualquier profundidad de propiedad y optional chaining
   String.raw`\bif\s*\([^)]*!\s*[\w$]+(?:\s*\??\.\s*[\w$]+)*\s*\??\.\s*whatsapp\b[^)]*\)` + CUERPO_ANTES_DEL_CORTE
+  // negación de un grupo: `if (!(u.whatsapp || u.bsuid))`. Es la forma natural de "sin número NI
+  // BSUID" desde el 12-sep-2026, y la revisión adversarial la metió en un cron con la suite verde.
+  + String.raw`|\bif\s*\(\s*!\s*\([^()]*\.\s*whatsapp\b[^()]*\)\s*\)` + CUERPO_ANTES_DEL_CORTE
   // comparación explícita: `if (u.whatsapp === null)`. Solo `==`/`===`: `!==` es la forma
   // POSITIVA (cortar a quien SÍ tiene número), que es otra cosa y no la marca este guard.
   + String.raw`|\bif\s*\([^)]*[\w$]+(?:\s*\??\.\s*[\w$]+)*\s*\??\.\s*whatsapp\s*===?\s*(?:null|undefined)[^)]*\)` + CUERPO_ANTES_DEL_CORTE,
@@ -484,6 +487,8 @@ describe('declarar AMBOS y cortar por falta de número es lo mismo que no declar
    */
   const CORTES = [
     ['el corte pelado', 'if (!usuario.whatsapp) continue;'],
+    // 12-sep-2026: la forma que la revisión adversarial usó para evadir el detector.
+    ['negación de un grupo', 'if (!(usuario.whatsapp || usuario.bsuid)) continue;'],
     ['con return', 'if (!usuario.whatsapp) return;'],
     ['con llave', 'if (!usuario.whatsapp) {\n  continue;\n}'],
     ['encadenado con ||', 'if (!m.usuarios?.whatsapp || m.usuarios?.recordatorios_activos === false) continue;'],

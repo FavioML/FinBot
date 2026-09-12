@@ -257,6 +257,29 @@ describe('chokepoint de notificaciones proactivas', () => {
     expect(sinDeclarar).toEqual([]);
   });
 
+  /**
+   * `ENVIO_CRUDO` busca el NOMBRE `enviarWhatsapp(`, así que un alias lo evade entero:
+   * `const { enviarWhatsapp: avisar } = require('../lib/whatsapp'); await avisar(...)`. La
+   * revisión adversarial lo metió en un cron nuevo con la suite en verde (12-sep-2026). La
+   * debilidad ya existía, pero desde ese día `enviarWhatsapp(null, …, { usuarioId })` SÍ entrega
+   * (resuelve el BSUID), así que el alias es un camino de empuje que funciona sin la campana.
+   */
+  const ALIAS_DESTRUCTURADO = /\benviarWhatsapp\s*:\s*[\w$]+/g;
+  const ALIAS_ASIGNADO = /=\s*[\w$.()'"\/-]*\.\s*enviarWhatsapp\b\s*(?![\s(])/g;
+  it('nadie renombra enviarWhatsapp en el runtime (un alias esquiva el conteo)', () => {
+    const conAlias = FUENTES
+      .filter((f) => cuenta(f.src, ALIAS_DESTRUCTURADO) + cuenta(f.src, ALIAS_ASIGNADO) > 0)
+      .map((f) => f.rel);
+    expect(conAlias).toEqual([]);
+  });
+  it('contraprueba del detector de alias', () => {
+    expect(cuenta("const { enviarWhatsapp: avisarWa } = require('../lib/whatsapp');", ALIAS_DESTRUCTURADO)).toBe(1);
+    expect(cuenta("const avisar = require('../lib/whatsapp').enviarWhatsapp;", ALIAS_ASIGNADO)).toBe(1);
+    // Lo legítimo no cuenta: la importación con su nombre y la llamada por el módulo.
+    expect(cuenta("const { enviarWhatsapp, procesarStatuses } = require('./whatsapp');", ALIAS_DESTRUCTURADO)).toBe(0);
+    expect(cuenta("await wa.enviarWhatsapp(n, m);", ALIAS_ASIGNADO)).toBe(0);
+  });
+
   it('nadie escribe la in-app cruda sin estar declarado', () => {
     const sinDeclarar = FUENTES
       .filter((f) => cuenta(f.src, IN_APP_CRUDO) > 0)
