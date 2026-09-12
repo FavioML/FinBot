@@ -63,7 +63,7 @@ describe('notificarUsuario: los dos canales', () => {
 
     expect(waMock.enviarWhatsapp).toHaveBeenCalledTimes(1);
     expect(waMock.enviarWhatsapp).toHaveBeenCalledWith(
-      '51999888777', 'Hola *mundo*', { tipo: 'prueba', usuarioId: 'u1', template: null },
+      '51999888777', 'Hola *mundo*', { tipo: 'prueba', usuarioId: 'u1', template: null, bsuid: null },
     );
     expect(notifMock.crearNotificacion).toHaveBeenCalledTimes(1);
     // `email` es el tercer canal (27-ago). Sin declararlo, sale `canal_no_declarado`, que es
@@ -104,6 +104,16 @@ describe('notificarUsuario: la in-app no depende de WhatsApp', () => {
     expect(waMock.enviarWhatsapp).toHaveBeenCalledTimes(1);
     expect(wa.skipped).toBe('no_whatsapp');
     expect(inApp).toBe(true);
+  });
+
+  it('reenvía el bsuid del llamador: es la dirección de quien no tiene número (12-sep-2026)', async () => {
+    await notificarUsuario({ canales: CANALES.AMBOS, ...BASE, whatsapp: null, bsuid: 'PE.1049206861029395' });
+
+    // Sin esto, un usuario que solo tiene BSUID recibe la campana y nunca el WhatsApp, aunque
+    // Meta ya entregue por BSUID. La regla de qué dirección gana vive en `enviarWhatsapp`.
+    expect(waMock.enviarWhatsapp).toHaveBeenCalledWith(
+      null, expect.any(String), expect.objectContaining({ bsuid: 'PE.1049206861029395' }),
+    );
   });
 
   it('si enviarWhatsapp LANZA, la in-app se escribe igual y nada sale hacia afuera', async () => {

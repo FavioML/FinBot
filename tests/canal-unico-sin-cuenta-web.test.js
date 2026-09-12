@@ -591,7 +591,10 @@ describe('declarar AMBOS y cortar por falta de número es lo mismo que no declar
     // —que es el desenlace BUENO— este archivo se pondría rojo por el motivo equivocado.
     expect(CORTES_HALLADOS.length).toBeGreaterThanOrEqual(1);
     expect(CORTES_HALLADOS.map((s) => `${s.rel}:${s.nombre}`))
-      .toContain('services/registro-silencioso.js:intentarConfirmar');
+      // Mudada el 12-sep-2026 desde `registro-silencioso.js:intentarConfirmar`, que se borra
+      // con el envío por BSUID. `maybeReminderD14` sobrevive a ese cambio: su corte pasa a
+      // mirar número Y bsuid, y el detector lo sigue viendo como corte.
+      .toContain('services/survey-triggers.js:maybeReminderD14');
   });
 
   it('toda exención declarada corresponde a un corte que existe', () => {
