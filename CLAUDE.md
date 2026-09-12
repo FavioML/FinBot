@@ -976,6 +976,20 @@ una sola persona en 13 minutos, escribiendo sin recibir nada.
 > todavía **no está identificado**. Mientras no se sepa cuál es, no se puede reproducir el caso
 > a voluntad — y por eso la premisa de abajo sigue sin medirse.
 
+> **CORREGIDO el 12-sep-2026: SÍ se le puede responder, por BSUID. El runtime todavía no lo hace.**
+> La conclusión de los dos párrafos siguientes ("no existe ese campo") salió de un intento SIN
+> control. Con diferencial, `recipient: "<bsuid>"` sin `to` da `#100 Invalid parameter` y un campo
+> inventado da `#100 The parameter to is required`: Meta conoce `recipient` (igual en v19 a v27).
+> El `#100` era "ese BSUID no existe": un envío REAL al BSUID de Favio (v25.0, ventana abierta)
+> devolvió 200 con `contacts[0].user_id` = el BSUID, el wamid decodifica al BSUID (en agosto
+> decodificaba a dígitos = teléfono) y **le llegó**. Es el payload de la doc oficial
+> (`business-scoped-user-ids`): `recipient` = BSUID como string, sin `to`; sirve para todo mensaje
+> salvo plantillas de autenticación. Límite de la prueba: Favio tiene el número visible; el caso
+> username-only se confirma con la primera respuesta real post-deploy. Lo que falta es código:
+> `lib/whatsapp.js` envía siempre por `to` y con v19.0 fijo. El username sigue sin direccionar.
+>
+> Lo que decía antes, conservado porque el método (el diferencial) sigue valiendo:
+
 **No se le puede responder, y no es config nuestra.** Medido contra la API el 08-ago: `recipient`
 + `recipient_type` (el payload exacto de la doc) da `#100` en v19.0, v23.0, v24.0 **y v25.0**, y
 `to` con un BSUID lo rechaza por formato de teléfono. El dato que lo vuelve concluyente: un
