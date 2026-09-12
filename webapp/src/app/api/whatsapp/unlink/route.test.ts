@@ -59,18 +59,33 @@ describe('POST /api/whatsapp/unlink', () => {
     await expect(res.json()).resolves.toEqual({ success: true, alreadyUnlinked: true });
   });
 
-  it('pone whatsapp=null en la fila de la sesión (por id, no por input)', async () => {
+  it('borra número Y bsuid en la fila de la sesión (por id, no por input)', async () => {
     requireNetoUser.mockResolvedValue({
       ok: true,
-      user: { id: 'neto-1', whatsapp: '51999888777' },
+      user: { id: 'neto-1', whatsapp: '51999888777', bsuid: 'PE.1049206861029395' },
       authId: 'auth-1',
     });
 
     const res = await POST();
 
-    expect(update).toHaveBeenCalledWith({ whatsapp: null });
+    // Con el bsuid puesto el backend le seguiría escribiendo por ahí (12-sep-2026).
+    expect(update).toHaveBeenCalledWith({ whatsapp: null, bsuid: null });
     expect(eqCall).toHaveBeenCalledWith('id', 'neto-1');
     expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ success: true });
+  });
+
+  it('desvincula a quien solo tiene BSUID (se vinculó sin mostrar su número)', async () => {
+    requireNetoUser.mockResolvedValue({
+      ok: true,
+      user: { id: 'neto-2', whatsapp: null, bsuid: 'PE.1049206861029395' },
+      authId: 'auth-2',
+    });
+
+    const res = await POST();
+
+    expect(update).toHaveBeenCalledWith({ whatsapp: null, bsuid: null });
+    expect(eqCall).toHaveBeenCalledWith('id', 'neto-2');
     await expect(res.json()).resolves.toEqual({ success: true });
   });
 

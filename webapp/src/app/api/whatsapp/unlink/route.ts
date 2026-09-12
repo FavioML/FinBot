@@ -16,12 +16,17 @@ import { NextResponse } from 'next/server';
 // Para re-vincular el numero correcto el usuario pasa por el flujo reverse-OTP
 // existente (/onboarding -> webhook): con el survivor en whatsapp=null,
 // merge_and_link adopta el numero nuevo (whatsapp = COALESCE(loser, survivor)).
+//
+// Desvincular borra el numero Y el BSUID (12-sep-2026). Desde que el bot contesta y avisa por
+// BSUID, dejar el BSUID puesto hacia que alguien que desvinculo siguiera recibiendo mensajes:
+// el backend le escribe a `whatsapp || bsuid`. Y quien se vinculo sin mostrar su numero tiene
+// SOLO el BSUID, asi que "no hay numero" ya no significa "no hay nada que desvincular".
 export async function POST() {
-  const auth = await requireNetoUser('id, whatsapp');
+  const auth = await requireNetoUser('id, whatsapp, bsuid');
   if (!auth.ok) return auth.response;
 
-  // Idempotente: si ya no hay numero vinculado, no hay nada que desvincular.
-  if (!auth.user.whatsapp) {
+  // Idempotente: si no hay ninguna de las dos direcciones, no hay nada que desvincular.
+  if (!auth.user.whatsapp && !auth.user.bsuid) {
     return NextResponse.json({ success: true, alreadyUnlinked: true });
   }
 
@@ -29,7 +34,7 @@ export async function POST() {
   // no se acepta ningun id de entrada, asi que no hay superficie de IDOR.
   const { error } = await getServiceClient()
     .from('usuarios')
-    .update({ whatsapp: null })
+    .update({ whatsapp: null, bsuid: null })
     .eq('id', auth.user.id);
 
   if (error) {

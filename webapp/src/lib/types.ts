@@ -2,6 +2,11 @@ export interface Usuario {
   id: string;
   /** null para cuentas web-first (registradas por Google sin vincular WhatsApp aún). */
   whatsapp: string | null;
+  /**
+   * Número o BSUID vinculado. Lo deriva `quitarSensibles` (`use-user.ts`) porque el `bsuid` no
+   * llega al navegador. Leerlo con `tieneWhatsapp()` de `lib/whatsapp-vinculo`, no a mano.
+   */
+  tiene_whatsapp?: boolean;
   nombre?: string;
   email?: string;
   plan: 'free' | 'premium';

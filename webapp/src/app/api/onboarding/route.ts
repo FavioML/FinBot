@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 import { generarCodigoOtp } from '@/lib/codigos-seguros';
+import { tieneWhatsapp } from '@/lib/whatsapp-vinculo';
 
 // Reverse-OTP: verificamos posesion del numero ANTES de vincular la cuenta Google
 // con un registro de usuario. El endpoint ya NO vincula/crea usuarios directamente
@@ -53,7 +54,7 @@ export async function POST(request: Request) {
     .from('usuarios')
     // `otp_solicitado_at` y `otp_solicitudes` viajan acá para no gastar una segunda lectura:
     // el contador se incrementa más abajo con el valor que ya trajo este select.
-    .select('id, whatsapp, otp_solicitado_at, otp_solicitudes')
+    .select('id, whatsapp, bsuid, otp_solicitado_at, otp_solicitudes')
     .eq('supabase_auth_id', user.id)
     .maybeSingle();
 
@@ -62,7 +63,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Error temporal, intenta de nuevo' }, { status: 500 });
   }
 
-  if (current?.whatsapp) {
+  // Quien se vinculó sin mostrar su número tiene solo el BSUID, y ya está vinculado: mandarlo a
+  // generar otro código lo haría repetir un trámite que cerró (12-sep-2026).
+  if (tieneWhatsapp(current)) {
     return NextResponse.json({ success: true, alreadyLinked: true });
   }
 
@@ -139,7 +142,7 @@ export async function GET() {
   // queda mirando el spinner de una verificacion que ya ocurrio.
   const { data: linked, error: eLinked } = await svc
     .from('usuarios')
-    .select('id, whatsapp')
+    .select('id, whatsapp, bsuid')
     .eq('supabase_auth_id', user.id)
     .maybeSingle();
 
@@ -148,7 +151,10 @@ export async function GET() {
     return NextResponse.json({ error: 'Error temporal, intenta de nuevo' }, { status: 500 });
   }
 
-  if (linked?.whatsapp) {
+  // El vínculo por BSUID no escribe `whatsapp`: la señal de siempre era `verified_at` (abajo),
+  // y sigue siéndolo. Esto solo evita que alguien ya vinculado dependa de una fila de OTP que
+  // un cron borra a los 15 minutos.
+  if (tieneWhatsapp(linked)) {
     return NextResponse.json({ verified: true });
   }
 

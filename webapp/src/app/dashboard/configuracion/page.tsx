@@ -46,6 +46,7 @@ import { signOutAndClear } from '@/lib/query-client';
 import { getCategoriaEmoji, CATEGORIAS, PRO_PRICE_MONTHLY_PEN } from '@/lib/constants';
 import { capitalizeDisplay } from '@/lib/format';
 import { enTrial } from '@/lib/plan';
+import { tieneWhatsapp, etiquetaWhatsapp } from '@/lib/whatsapp-vinculo';
 import { cn } from '@/lib/utils';
 import { HeaderActions } from '@/components/dashboard/topbar';
 import { optOutTracking, optInTracking, hasOptedOut } from '@/lib/analytics';
@@ -1037,8 +1038,8 @@ export default function ConfiguracionPage() {
                     {/* WhatsApp */}
                     <div className="flex items-center gap-2 text-sm">
                       <Phone className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      {user.whatsapp ? (
-                        <span className="text-secondary-foreground">{user.whatsapp}</span>
+                      {tieneWhatsapp(user) ? (
+                        <span className="text-secondary-foreground">{etiquetaWhatsapp(user)}</span>
                       ) : (
                         <NextLink href="/onboarding" className="text-[#1D9E75] hover:underline">
                           Conectar WhatsApp (opcional)
@@ -1191,12 +1192,12 @@ export default function ConfiguracionPage() {
                   )}
 
                   {/* WhatsApp — conéctalo para registrar por chat (una sola cuenta) */}
-                  {user.whatsapp ? (
+                  {tieneWhatsapp(user) ? (
                     <div className="space-y-2">
                       <div className="flex items-center justify-between rounded-xl border border-border bg-muted/40 px-4 py-3">
                         <div className="flex min-w-0 items-center gap-3">
                           <MessageCircle className="h-4 w-4 shrink-0 text-muted-foreground" />
-                          <span className="truncate text-sm text-secondary-foreground">{user.whatsapp}</span>
+                          <span className="truncate text-sm text-secondary-foreground">{etiquetaWhatsapp(user)}</span>
                         </div>
                         <Badge className="shrink-0 border-primary/30 bg-primary/20 text-xs text-primary">Conectado</Badge>
                       </div>
@@ -1219,7 +1220,7 @@ export default function ConfiguracionPage() {
                         <div className="space-y-2.5 rounded-lg border border-[var(--color-neto-amber)]/25 bg-[var(--color-neto-amber)]/[0.06] px-4 py-3">
                           <p className="text-xs text-secondary-foreground">
                             Vas a desvincular{' '}
-                            <span className="font-semibold text-foreground">{user.whatsapp}</span>. Perderás el registro por
+                            <span className="font-semibold text-foreground">{etiquetaWhatsapp(user)}</span>. Perderás el registro por
                             chat hasta que vincules el nuevo número. Tus datos y correos quedan intactos.
                           </p>
                           <div className="flex items-center gap-2">
@@ -1264,7 +1265,7 @@ export default function ConfiguracionPage() {
                     </div>
                   )}
 
-                  {!user.email && !user.whatsapp && (
+                  {!user.email && !tieneWhatsapp(user) && (
                     <p className="text-sm text-muted-foreground">No hay cuentas conectadas.</p>
                   )}
                 </div>

@@ -5,6 +5,8 @@ import { useQuery } from '@tanstack/react-query';
 import { queryClient } from '@/lib/query-client';
 import { IS_DEMO } from '@/lib/demo/is-demo';
 import { publicarIdNeto } from '@/lib/analytics/identidad-neto';
+import { quitarSensibles } from '@/lib/usuario-sensible';
+import type { Usuario } from '@/lib/types';
 
 /**
  * Arranque consolidado del dashboard. Un único fetch a /api/dashboard siembra
@@ -76,7 +78,10 @@ function seed(d: DashboardPayload) {
   // Analytics necesita este mismo id y lo pedía por su cuenta a PostgREST, compitiendo
   // con este arranque. Ver `lib/analytics/identidad-neto`.
   publicarIdNeto(String(uid));
-  queryClient.setQueryData(['user'], d.user);
+  // Por `quitarSensibles`, igual que el fetch directo de `use-user.ts`: esta es la otra puerta
+  // de la cache `['user']`, que está persistida en localStorage, y hasta el 12-sep-2026 guardaba
+  // la fila de `/api/dashboard` tal cual. Además es donde se deriva `tiene_whatsapp`.
+  queryClient.setQueryData(['user'], quitarSensibles(d.user as unknown as Usuario));
   // useTransactions({ usuarioId }) en el overview → sin mes/anio ni otros filtros.
   queryClient.setQueryData(['transactions', { usuarioId: uid }], d.transactions);
   queryClient.setQueryData(['goals', uid], d.goals);

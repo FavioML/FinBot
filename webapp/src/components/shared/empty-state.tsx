@@ -5,6 +5,7 @@ import { MessageCircle, type LucideIcon } from 'lucide-react';
 import { motion } from 'motion/react';
 import { SOCIAL_LINKS } from '@/lib/constants';
 import { useUser } from '@/lib/hooks/use-user';
+import { tieneWhatsapp } from '@/lib/whatsapp-vinculo';
 
 const CTA_CLS =
   'inline-flex items-center gap-2 rounded-xl bg-[#1D9E75] px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-[#1D9E75]/20 transition-all hover:bg-[#1D9E75]/90 hover:shadow-[#1D9E75]/30 active:scale-[0.98]';
@@ -32,7 +33,7 @@ export function EmptyState({ title, description, showWhatsApp = true, icon: Icon
   // Web-first users without a linked number can't register by chat yet — sending
   // them to wa.me from an unlinked number would spawn a duplicate account. Route
   // them to connect WhatsApp first instead.
-  const hasWhatsapp = !!user?.whatsapp;
+  const hasWhatsapp = tieneWhatsapp(user);
   return (
     <motion.div
       className="glass-card flex flex-col items-center justify-center py-16 text-center"

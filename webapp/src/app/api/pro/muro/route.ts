@@ -1,6 +1,7 @@
 import { requireNetoUser } from '@/lib/supabase/auth';
 import { getServiceClient } from '@/lib/supabase/service';
 import { eventoTrialBackend } from '@/lib/trial-backend';
+import { tieneWhatsapp } from '@/lib/whatsapp-vinculo';
 import { NextResponse, after } from 'next/server';
 
 export const dynamic = 'force-dynamic';
@@ -18,7 +19,7 @@ export const dynamic = 'force-dynamic';
  * usa otro distinct_id y partiría el embudo (mismo patrón que /internal/activacion-completada).
  */
 export async function GET(request: Request) {
-  const auth = await requireNetoUser('id, nombre, whatsapp, plan, trial_estado, trial_vence');
+  const auth = await requireNetoUser('id, nombre, whatsapp, bsuid, plan, trial_estado, trial_vence');
   if (!auth.ok) return auth.response;
   const userId = auth.user.id as string;
 
@@ -59,6 +60,7 @@ export async function GET(request: Request) {
     // El usuario web-first nace sin número (WhatsApp es un vínculo opcional posterior),
     // así que mandarlo a "anótalo por WhatsApp" lo manda a un canal que no tiene. La
     // pantalla necesita saberlo para apuntar al botón que sí está a su alcance.
-    tieneWhatsapp: !!auth.user.whatsapp,
+    // Número o BSUID: quien se vinculó sin mostrar su número también anota por chat.
+    tieneWhatsapp: tieneWhatsapp(auth.user),
   });
 }

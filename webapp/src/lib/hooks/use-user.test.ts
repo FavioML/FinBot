@@ -56,7 +56,8 @@ describe('fetchNetoUser', () => {
     getUser.mockResolvedValue(CON_SESION);
     maybeSingle.mockResolvedValue({ data: { id: 'neto-1', plan: 'premium' }, error: null });
 
-    await expect(fetchNetoUser()).resolves.toEqual({ id: 'neto-1', plan: 'premium' });
+    // `tiene_whatsapp` lo deriva `quitarSensibles` antes de borrar el bsuid (12-sep-2026).
+    await expect(fetchNetoUser()).resolves.toEqual({ id: 'neto-1', plan: 'premium', tiene_whatsapp: false });
   });
 });
 

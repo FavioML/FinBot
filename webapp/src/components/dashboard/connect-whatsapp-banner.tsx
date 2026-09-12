@@ -5,13 +5,14 @@ import Link from 'next/link';
 import { MessageCircle, X } from 'lucide-react';
 import { useUser } from '@/lib/hooks/use-user';
 import { IS_DEMO } from '@/lib/demo/is-demo';
+import { tieneWhatsapp } from '@/lib/whatsapp-vinculo';
 
 const DISMISS_KEY = 'neto_connect_wa_dismissed';
 
 /**
  * Nudge para cuentas web-first (registradas con Google, sin número). Invita a vincular
  * WhatsApp para registrar gastos por chat — es opcional, así que se puede descartar.
- * Se oculta solo cuando el usuario ya tiene número (`user.whatsapp`).
+ * Se oculta cuando el usuario ya tiene WhatsApp vinculado, por número o por BSUID.
  */
 export function ConnectWhatsappBanner() {
   const { data: user } = useUser();
@@ -19,7 +20,7 @@ export function ConnectWhatsappBanner() {
     () => typeof window !== 'undefined' && localStorage.getItem(DISMISS_KEY) === '1',
   );
 
-  if (IS_DEMO || !user || user.whatsapp || dismissed) return null;
+  if (IS_DEMO || !user || tieneWhatsapp(user) || dismissed) return null;
 
   // Al Pro el chat le suma más (alertas de movimientos + registro por foto de Yape),
   // así que el nudge es un poco más específico. Para Free queda la invitación base.
