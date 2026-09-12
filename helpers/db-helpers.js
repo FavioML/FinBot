@@ -227,6 +227,41 @@ async function obtenerOCrearUsuario(numeroWhatsapp, bsuid = null) {
       return await persistirBsuid(data, bsuid);
     }
   }
+  // No hay fila con este número. Antes de crear una, ¿Meta nos dijo quién es por el BSUID?
+  //
+  // Hasta el 12-sep-2026 esto no se miraba, y el alta DUPLICABA a quien ya tenía fila: la que
+  // crea el OTP sin número (`services/otp-sin-numero.js`, `whatsapp` NULL + `bsuid`) o la que
+  // crea el alta por BSUID de abajo. Cuando esa persona volvía a escribir CON número, se le
+  // hacía una segunda fila y `persistirBsuid` chocaba contra el índice único: identidad partida,
+  // con sus gastos repartidos entre dos usuarios.
+  //
+  // Solo se adopta una fila SIN número, y con la condición en el propio UPDATE
+  // (`.is('whatsapp', null)`): dos mensajes seguidos de la misma persona no pueden escribirle
+  // dos números, y el que pierde la carrera relee. Si la fila del BSUID trae OTRO número, no se
+  // toca: Meta regenera el BSUID cuando alguien cambia de número, así que eso es una anomalía, y
+  // la registra `persistirBsuid` más abajo como BSUID_COLISION.
+  if (bsuid) {
+    const { data: filaBsuid, error: errBsuid } = await supabase.from('usuarios').select('*').eq('bsuid', bsuid).maybeSingle();
+    if (errBsuid) {
+      // Falla ABIERTO, igual que las lecturas de arriba y por el mismo motivo: cortar le costaría
+      // el mensaje a quien escribe. Lo peor que pasa es el duplicado de siempre, y queda delatado.
+      log.error({ tag: 'ALTA', err: errBsuid.message, bsuid }, 'No se pudo buscar por BSUID antes del alta: se sigue por número');
+    } else if (filaBsuid && !filaBsuid.whatsapp) {
+      const { data: adoptadas, error: errAdopcion } = await supabase.from('usuarios')
+        .update({ whatsapp: numeroNorm }).eq('id', filaBsuid.id).is('whatsapp', null).select('*');
+      if (!errAdopcion && adoptadas && adoptadas.length > 0) {
+        log.info({ tag: 'ALTA', usuarioId: filaBsuid.id }, 'Fila sin número adoptada por su número (misma persona, mismo BSUID)');
+        return adoptadas[0];
+      }
+      if (errAdopcion) log.error({ tag: 'ALTA', err: errAdopcion.message, code: errAdopcion.code, usuarioId: filaBsuid.id }, 'No se pudo escribir el número en la fila del BSUID');
+      // Cero filas o error: otro mensaje ganó la carrera (o el número ya es de otra fila, 23505).
+      // Se relee en vez de adivinar: la fila del número, si ahora existe, es la que vale.
+      const { data: porNumero } = await supabase.from('usuarios').select('*').eq('whatsapp', numeroNorm).maybeSingle();
+      if (porNumero) return await persistirBsuid(porNumero, bsuid);
+      return filaBsuid;
+    }
+  }
+
   // El BSUID va en un UPDATE aparte, no en este INSERT, a propósito: `usuarios_bsuid_key` es
   // único, así que un BSUID ya presente en otra fila haría fallar el INSERT y con él el ALTA
   // entera. Perder la columna es barato; perder al usuario que recién escribe, no.
@@ -252,6 +287,84 @@ async function obtenerOCrearUsuario(numeroWhatsapp, bsuid = null) {
   return await persistirBsuid(nuevo, bsuid);
 }
 
+/**
+ * Las filas de `errores` que esta persona dejó mientras era anónima pasan a tener su `usuario_id`.
+ *
+ * **Esto es lo que las hace BORRABLES.** `borrar_cuenta_total` barre `errores` por `usuario_id` y
+ * por `whatsapp`; las filas de un BSUID todavía desconocido nacen sin ninguno de los dos, y desde
+ * el 02-sep-2026 llevan el texto que la persona escribió. El instante en que deja de ser anónima
+ * —se vincula o se da de alta— es el instante de engancharlas.
+ *
+ * Vivía adentro de `services/otp-sin-numero.js`. Con el alta por BSUID hay un segundo camino que
+ * la necesita, así que queda UNA copia acá.
+ *
+ * Best-effort: si falla, la persona igual queda vinculada. Lo que se pierde queda en el log.
+ */
+async function adoptarErroresPrevios(bsuid, usuarioId, tag = 'BSUID') {
+  if (!bsuid || !usuarioId) return;
+  const { error } = await supabase.from('errores')
+    .update({ usuario_id: usuarioId }).eq('bsuid', bsuid).is('usuario_id', null);
+  if (error) {
+    log.error({ tag, bsuid, usuarioId, err: error.message },
+      'No se pudieron enganchar los errores previos: quedan sin usuario_id y fuera del borrado');
+  }
+}
+
+/**
+ * Alta o reconocimiento de quien escribe SIN número (oculta su número con un username de
+ * WhatsApp): la identidad es el BSUID, que lo pone Meta y el remitente no puede elegir.
+ *
+ * Decisión de Favio (12-sep-2026): esta persona pasa por el alta normal, no queda afuera. Desde
+ * ese día el bot le contesta por BSUID (`lib/whatsapp.js`), así que ya hay a quién responderle.
+ *
+ * El BSUID va EN el insert, al revés que en `obtenerOCrearUsuario`: allá es un dato accesorio y
+ * un choque del índice no puede tumbar el alta; acá ES la identidad, y el choque (23505) significa
+ * que otro mensaje de la misma persona creó la fila primero — ráfagas de 6 en 13 minutos son el
+ * patrón real de este camino. Se relee y se devuelve esa.
+ *
+ * Si la lectura falla NO se inserta a ciegas: lanza, y el catch del webhook lo registra. Con el
+ * índice único un insert a ciegas no duplicaría, pero crearía la ilusión de un alta nueva.
+ */
+async function altaPorBsuid(bsuid) {
+  const { data: fila, error: errLectura } = await supabase.from('usuarios').select('*').eq('bsuid', bsuid).maybeSingle();
+  if (errLectura) throw new Error('No se pudo buscar al usuario por BSUID: ' + errLectura.message);
+  if (fila) return fila;
+
+  const { data: nuevo, error } = await supabase.from('usuarios').insert({ whatsapp: null, bsuid }).select().single();
+  if (error) {
+    if (error.code === '23505') {
+      const { data: otra, error: errRelectura } = await supabase.from('usuarios').select('*').eq('bsuid', bsuid).maybeSingle();
+      if (otra) return otra;
+      throw new Error('Alta por BSUID en carrera y la relectura no encontró la fila: ' +
+        (errRelectura ? errRelectura.message : 'vacía'));
+    }
+    throw new Error('Error creando usuario por BSUID: ' + error.message);
+  }
+  log.info({ tag: 'ALTA', usuarioId: nuevo.id }, 'Alta por BSUID (sin número)');
+  analytics.capture(nuevo.id, 'wa_user_registered', {
+    channel: 'whatsapp',
+    $set: { plan: nuevo.plan || 'free', signup_channel: 'whatsapp_bsuid' },
+  });
+  await adoptarErroresPrevios(bsuid, nuevo.id, 'ALTA');
+  return nuevo;
+}
+
+/**
+ * La fila de `usuarios` de quien acaba de escribir por WhatsApp, con lo que Meta haya mandado:
+ * número (y quizás BSUID), o solo BSUID. Es la única puerta del webhook desde el 12-sep-2026.
+ *
+ * Con número manda el número, exactamente como siempre (`obtenerOCrearUsuario`). Sin número, el
+ * BSUID. Sin ninguno de los dos no hay identidad y lanza: esos mensajes (los 4 del 01-ago) se
+ * registran y se descartan en el webhook antes de llegar acá.
+ */
+async function resolverUsuarioEntrante({ numero = null, bsuid = null } = {}) {
+  if (numero) return await obtenerOCrearUsuario(numero, bsuid);
+  if (!bsuid || typeof bsuid !== 'string') {
+    throw new Error('resolverUsuarioEntrante: sin número ni BSUID (' + JSON.stringify({ numero, bsuid }) + ')');
+  }
+  return await altaPorBsuid(bsuid);
+}
+
 function getUserPlanConfig(usuario) {
   if (!FREEMIUM_ACTIVE) return PLAN_CONFIG.premium;
   const plan = usuario.plan || 'free';
@@ -270,6 +383,9 @@ module.exports = {
   guardarMensaje,
   obtenerHistorial,
   obtenerOCrearUsuario,
+  resolverUsuarioEntrante,
+  altaPorBsuid,
+  adoptarErroresPrevios,
   persistirBsuid,
   persistirBsuidConEstado,
   buscarUsuarioPorBsuid,

@@ -129,14 +129,10 @@ async function verificarCuentaWebPorBsuid(bsuid, code) {
      * Best-effort a propósito: si esto falla, la persona igual queda vinculada, que es lo único
      * que le importa a ella. Lo que se pierde queda en el log, no en silencio.
      */
-    const adoptarErroresPrevios = async (usuarioId) => {
-      const { error } = await supabase.from('errores')
-        .update({ usuario_id: usuarioId }).eq('bsuid', bsuid).is('usuario_id', null);
-      if (error) {
-        log.error({ tag: 'OTP_BSUID', bsuid, usuarioId, err: error.message },
-          'No se pudieron enganchar los errores previos: quedan sin usuario_id y fuera del borrado');
-      }
-    };
+    // Una sola copia desde el 12-sep-2026, en `helpers/db-helpers.js`: el alta por BSUID también
+    // la necesita. `require` perezoso para no cambiar el orden de carga de este módulo.
+    const adoptarErroresPrevios = (usuarioId) =>
+      require('../helpers/db-helpers').adoptarErroresPrevios(bsuid, usuarioId, 'OTP_BSUID');
 
     // `esTest` viaja al llamador para que el aviso al admin pueda saltear los fixtures. Sin esto
     // un harness que le pegue al webhook de PRODUCCION —que es como se verifica este camino— le
