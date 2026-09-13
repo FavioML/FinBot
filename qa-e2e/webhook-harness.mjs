@@ -15,7 +15,9 @@
 //
 // Seguridad de datos: el usuario QA tiene is_test_user=true, así que aunque no se
 // stubeara, lib/whatsapp.js ya saltea los envíos Meta reales. El stub es para
-// CAPTURAR el texto y asertar sobre él.
+// CAPTURAR el texto y asertar sobre él. La excepción es una fila que da de alta el
+// propio código bajo prueba (`qa-bsuid-alta.mjs`): nace sin la marca, y ahí el stub
+// es lo único que separa al harness de Meta.
 //
 // Importar index.js como módulo NO arranca los crons (solo corren bajo
 // require.main === module), así que bootear es libre de efectos.
@@ -50,7 +52,7 @@ process.env.META_APP_SECRET = process.env.META_APP_SECRET || 'qa-harness-secret'
 /**
  * Bootea el harness. Devuelve handles para postear webhooks y leer respuestas.
  * @returns {Promise<{
- *   base: string, sent: Array<{to:string,msg:string}>, telegrams: string[], secret: string,
+ *   base: string, sent: Array<{to:string,msg:string,opts:object}>, telegrams: string[], secret: string,
  *   supabase: any, openai: any, app: any,
  *   sign: (rawBody:string)=>string,
  *   textEnvelope: (texto:string, from:string)=>object,
@@ -65,12 +67,15 @@ process.env.META_APP_SECRET = process.env.META_APP_SECRET || 'qa-harness-secret'
  */
 export async function startWebhookHarness() {
   // ── Stub de salida: capturar enviarWhatsapp ANTES de cargar index.js ──
+  // Guarda también `opts`: desde el 12-sep-2026 `enviarWhatsapp(null, msg, { usuarioId })` SÍ
+  // entrega (resuelve el BSUID de esa fila) y `{ bsuid }` es una dirección de respaldo, así que
+  // `to` solo ya no dice a quién le llega un mensaje.
   const sent = [];
   const waPath = require.resolve(R('lib/whatsapp.js'));
   const waReal = require(waPath);
   require.cache[waPath].exports = {
     ...waReal,
-    enviarWhatsapp: async (to, msg) => { sent.push({ to, msg }); return { ok: true }; },
+    enviarWhatsapp: async (to, msg, opts) => { sent.push({ to, msg, opts: opts || {} }); return { ok: true }; },
   };
 
   // ── Stub de salida: capturar enviarTelegram, por el mismo motivo ──────────────

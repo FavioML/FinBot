@@ -144,7 +144,9 @@ describe('inventario de qa-e2e: cada harness tiene un lugar decidido', () => {
     // notificaciones-duales.
     const declarado = {
       // los importan los harness de la raíz; no afirman nada por sí solos
-      lib: ['github-compare.mjs', 'qa-guard.mjs', 'railway-watch.mjs', 'usuarios-columnas.mjs', 'veredicto.mjs'],
+      // `copy-sin-numero.mjs` es un guard de copy, pero no afirma nada solo: lo usa
+      // qa-bsuid-alta.mjs y sus casos viven en tests/qa-e2e-copy-sin-numero.test.js
+      lib: ['copy-sin-numero.mjs', 'github-compare.mjs', 'qa-guard.mjs', 'railway-watch.mjs', 'usuarios-columnas.mjs', 'veredicto.mjs'],
       // generadores de PNG que se corren UNA vez y cuyo output se commitea
       fixtures: ['render-yape-pro.mjs', 'render-yape.mjs'],
     };

@@ -995,7 +995,11 @@ una sola persona en 13 minutos, escribiendo sin recibir nada.
 > Lo que queda abierto: el caso username-only REAL se confirma con la primera respuesta, en
 > `select estado, delivered_at, fail_code from notification_deliveries where tipo='respuesta_bsuid'`.
 > Quien tiene los dos guardados sigue recibiendo avisos por su número. Pasar `to` a v25 va aparte,
-> con un envío de control. E2E: `qa-e2e/qa-bsuid-username.mjs`, corrido DESPUÉS del deploy.
+> con un envío de control. E2E: `qa-e2e/qa-bsuid-username.mjs`, corrido DESPUÉS del deploy. El
+> BSUID DESCONOCIDO (el alta) no puede correr contra producción: lo cubre `qa-e2e/qa-bsuid-alta.mjs`,
+> en proceso y contra el working tree. Su fila nace sin `is_test_user` porque así nace en
+> producción, y `qa-guard` la admite solo declarada (`esperarAltaPorBsuid`), con la forma exacta
+> `{ whatsapp: null, bsuid }`, y la marca `is_test_user` en el mismo instante en que nace.
 >
 > **Cómo se descubrió.** La conclusión de los dos párrafos siguientes ("no existe ese campo") salió
 > de un intento SIN control. Con diferencial, `recipient: "<bsuid>"` sin `to` da `#100 Invalid parameter` y un campo

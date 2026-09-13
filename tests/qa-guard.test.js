@@ -199,6 +199,21 @@ describe('qa-guard: falla cerrado', () => {
     expect(() => guard.envolverCliente(sinUrl)).toThrow();
   });
 
+  // Lo mismo para el upsert: si postgrest-js deja de marcarlo en `Prefer` o en la URL, `esUpsert`
+  // diría false y el upsert volvería a validarse como un INSERT, que es el hueco del 12-sep.
+  it('se niega a envolver un cliente cuyo upsert no puede reconocer', () => {
+    const cliente = (headers) => ({
+      from: () => ({
+        delete: () => ({ eq: () => ({ method: 'DELETE', url: new URL('http://x/?usuario_id=eq.sonda') }) }),
+        upsert: () => ({ method: 'POST', url: new URL('http://x/'), headers }),
+      }),
+      rpc: () => {},
+    });
+    expect(() => guard.envolverCliente(cliente(new Headers()))).toThrow(/upsert/);
+    // Control: con la marca que pone postgrest-js hoy, envuelve sin quejarse.
+    expect(() => guard.envolverCliente(cliente(new Headers({ Prefer: 'resolution=merge-duplicates' })))).not.toThrow();
+  });
+
   it('envolver dos veces el mismo cliente es idempotente', () => {
     expect(db.__qaGuard).toBe(true);
     expect(guard.envolverCliente(db)).toBe(db);
@@ -341,6 +356,372 @@ describe('qa-guard: ningún harness de cron puede escaparse a Meta', () => {
       + 'require.cache[dbPath].exports = { supabase: fake };\n'
       + cron
     )).toMatch(/los envíos salen a Meta/);
+  });
+});
+
+// ── El alta que hace el CÓDIGO BAJO PRUEBA ───────────────────────────────────
+//
+// `qa-bsuid-alta.mjs` necesita que `altaPorBsuid` inserte `{ whatsapp: null, bsuid }` SIN la
+// marca, porque esa es la forma que se prueba. La excepción es angosta a propósito, y cada caso
+// de acá fija uno de sus bordes: si alguno se afloja, un harness podría sembrar una fila sin
+// marca que SÍ parezca de una persona (con número, con email), que es lo que la regla de
+// `is_test_user` existe para impedir.
+describe('qa-guard: el alta que hace el código bajo prueba (esperarAltaPorBsuid)', () => {
+  const B = 'PE.qaaltatest0001';
+  const NUEVO = '55555555-5555-4555-8555-555555555555';
+
+  it('sin declarar, el INSERT sin marca sigue bloqueado aunque tenga forma de alta por BSUID', async () => {
+    const antes = recibidas.length;
+    const r = await corre(() => db.from('usuarios').insert({ whatsapp: null, bsuid: 'PE.qaaltanodeclarado' }));
+    expect(r.paso).toBe(false);
+    expect(r.error).toContain('is_test_user');
+    expect(recibidas.length).toBe(antes);
+  });
+
+  it('no deja declarar un BSUID con forma real, ni uno demasiado corto', () => {
+    expect(() => guard.esperarAltaPorBsuid('PE.1049206861029395')).toThrow(guard.QaGuardError);
+    expect(() => guard.esperarAltaPorBsuid('PE.qa123')).toThrow(guard.QaGuardError);
+    expect(() => guard.esperarAltaPorBsuid('pe.qaaltatest0001')).toThrow(guard.QaGuardError);
+    expect(() => guard.esperarAltaPorBsuid(null)).toThrow(guard.QaGuardError);
+  });
+
+  it('declarado, deja pasar la forma exacta de altaPorBsuid y adopta la fila nueva', async () => {
+    guard.esperarAltaPorBsuid(B);
+    // Antes de nacer, escribir sobre esa fila está bloqueado.
+    expect((await corre(() => db.from('usuarios').update({ onboarding_paso: 100 }).eq('id', NUEVO))).paso).toBe(false);
+    proximoId = NUEVO;
+    const antes = recibidas.length;
+    const r = await corre(() => db.from('usuarios').insert({ whatsapp: null, bsuid: B }).select('id'));
+    expect(r.paso).toBe(true);
+    // Dos requests: el INSERT del código, y la marca que pone la barrera antes de devolverle la fila.
+    expect(recibidas.length).toBe(antes + 2);
+    expect(recibidas[recibidas.length - 2].method).toBe('POST');
+    const marca = recibidas[recibidas.length - 1];
+    expect(marca.method).toBe('PATCH');
+    expect(decodeURIComponent(marca.url)).toContain('id=eq.' + NUEVO);
+    expect(decodeURIComponent(marca.url)).toContain('bsuid=eq.' + B);
+    expect(guard.altasRegistradas(B)).toEqual({ intentos: 1, ids: [NUEVO], cuerpos: [{ whatsapp: null, bsuid: B }] });
+    // Y el alta puede seguir escribiendo sobre su fila (el paso del onboarding, el origen).
+    expect((await corre(() => db.from('usuarios').update({ onboarding_paso: 100 }).eq('id', NUEVO))).paso).toBe(true);
+  });
+
+  it('declarado, pero con algo que identifica a una persona: bloquea', async () => {
+    for (const extra of [{ whatsapp: '51999888777' }, { email: 'x@y.pe' }, { supabase_auth_id: NUEVO }]) {
+      const r = await corre(() => db.from('usuarios').insert({ whatsapp: null, bsuid: B, ...extra }));
+      expect(r.paso, JSON.stringify(extra)).toBe(false);
+    }
+    // Ninguno de los rechazados cuenta como intento de alta.
+    expect(guard.altasRegistradas(B).intentos).toBe(1);
+  });
+
+  it('declarado, pero dos filas en el mismo INSERT: bloquea', async () => {
+    const r = await corre(() => db.from('usuarios').insert([{ whatsapp: null, bsuid: B }, { whatsapp: null, bsuid: B }]));
+    expect(r.paso).toBe(false);
+  });
+
+  it('la adopción de `errores` pasa con la forma exacta de adoptarErroresPrevios', async () => {
+    const antes = recibidas.length;
+    const r = await corre(() => db.from('errores').update({ usuario_id: NUEVO }).eq('bsuid', B).is('usuario_id', null));
+    expect(r.paso).toBe(true);
+    const ultima = recibidas[recibidas.length - 1];
+    expect(recibidas.length).toBe(antes + 1);
+    expect(ultima.method).toBe('PATCH');
+    expect(decodeURIComponent(ultima.url)).toContain('bsuid=eq.' + B);
+  });
+
+  it('la adopción de `errores` bloquea cada desvío de esa forma', async () => {
+    const desvios = {
+      'le asigna las filas a OTRO usuario': () => db.from('errores').update({ usuario_id: REAL }).eq('bsuid', B).is('usuario_id', null),
+      'un BSUID que no se declaró': () => db.from('errores').update({ usuario_id: NUEVO }).eq('bsuid', 'PE.qaotrobsuid01').is('usuario_id', null),
+      'sin el `is.null` (tomaría filas que ya tienen dueño)': () => db.from('errores').update({ usuario_id: NUEVO }).eq('bsuid', B),
+      'un filtro de más': () => db.from('errores').update({ usuario_id: NUEVO }).eq('bsuid', B).is('usuario_id', null).eq('tag', 'X'),
+      'escribe algo más que usuario_id': () => db.from('errores').update({ usuario_id: NUEVO, mensaje: 'x' }).eq('bsuid', B).is('usuario_id', null),
+      'otra tabla con la misma forma': () => db.from('conversaciones').update({ usuario_id: NUEVO }).eq('bsuid', B).is('usuario_id', null),
+      'un DELETE con la misma forma': () => db.from('errores').delete().eq('bsuid', B).is('usuario_id', null),
+    };
+    for (const [motivo, fn] of Object.entries(desvios)) {
+      const antes = recibidas.length;
+      const r = await corre(fn);
+      expect(r.paso, motivo).toBe(false);
+      expect(recibidas.length, motivo + ': salió el request').toBe(antes);
+    }
+  });
+});
+
+// Los ataques de la revisión adversarial del 12-sep, uno por caso. Todos pasaban la primera
+// versión de la excepción; los tres primeros bloques además la dejaban adoptar a un usuario real.
+describe('qa-guard: los huecos que encontró la revisión adversarial del alta por BSUID', () => {
+  const B2 = 'PE.qaaltatest0002';
+  const NUEVO2 = '66666666-6666-4666-8666-666666666666';
+
+  async function bloqueados(casos) {
+    for (const [motivo, fn] of Object.entries(casos)) {
+      const antes = recibidas.length;
+      const r = await corre(fn);
+      expect(r.paso, motivo).toBe(false);
+      expect(recibidas.length, motivo + ': salió el request').toBe(antes);
+    }
+  }
+
+  // El título original decía "ningún upsert pasa, en ninguna tabla": fue la primera respuesta, y
+  // rompía al backend. La regla que quedó está en el bloque de la segunda vuelta, más abajo.
+  it('los upserts que podían adoptar a un usuario real no pasan', async () => {
+    guard.esperarAltaPorBsuid(B2);
+    await bloqueados({
+      'upsert con la forma del alta y el id de un real': () => db.from('usuarios').upsert({ id: REAL, bsuid: B2, whatsapp: null }).select('id'),
+      'upsert por otra columna única, sin id': () => db.from('usuarios').upsert({ bsuid: B2, ref_code: 'CODIGOREAL' }, { onConflict: 'ref_code' }).select('id'),
+      'upsert marcado como de prueba sobre un real (hueco de la regla del throwaway)': () => db.from('usuarios').upsert({ id: REAL, is_test_user: true }).select('id'),
+      'upsert que ignora duplicados': () => db.from('usuarios').upsert({ id: REAL, is_test_user: true }, { ignoreDuplicates: true }),
+      'upsert en otra tabla, con un id ajeno y un dueño de QA': () => db.from('errores').upsert({ id: 999, usuario_id: QA }).select('id'),
+    });
+    expect(guard.altasRegistradas(B2)).toEqual({ intentos: 0, ids: [], cuerpos: [] });
+  });
+
+  it('la fila del alta es EXACTAMENTE { whatsapp: null, bsuid }', async () => {
+    await bloqueados(Object.fromEntries(
+      [{ nombre: 'María Quispe' }, { plan: 'premium' }, { gmail_access_token: 'x' }, { ref_code: 'X' }, { is_test_user: false }]
+        .map((extra) => [JSON.stringify(extra), () => db.from('usuarios').insert({ whatsapp: null, bsuid: B2, ...extra })]),
+    ));
+  });
+
+  it('una sola alta por declaración', async () => {
+    proximoId = NUEVO2;
+    expect((await corre(() => db.from('usuarios').insert({ whatsapp: null, bsuid: B2 }).select('id'))).paso).toBe(true);
+    await bloqueados({ 'segunda alta con el mismo BSUID': () => db.from('usuarios').insert({ whatsapp: null, bsuid: B2 }).select('id') });
+    expect(guard.altasRegistradas(B2).ids).toEqual([NUEVO2]);
+  });
+
+  it('después de nacer, un UPDATE no le puede dar número, email ni cuenta Google', async () => {
+    await bloqueados({
+      'le pone número': () => db.from('usuarios').update({ whatsapp: '51987654321' }).eq('id', NUEVO2),
+      'le pone email': () => db.from('usuarios').update({ email: 'maria@gmail.com', recordatorios_activos: true }).eq('id', NUEVO2),
+      'le pone cuenta Google': () => db.from('usuarios').update({ supabase_auth_id: REAL }).eq('id', NUEVO2),
+    });
+    // Lo que el alta sí escribe sigue pasando: si no, el harness bloquearía al código bajo prueba.
+    expect((await corre(() => db.from('usuarios').update({ onboarding_paso: 100, nombre: 'Ana' }).eq('id', NUEVO2))).paso).toBe(true);
+  });
+
+  it('la adopción de `errores` no acepta otro operador sobre el BSUID ni otro destino', async () => {
+    await bloqueados({
+      '.lt sobre el BSUID (alcanza a todos los PE.<dígitos> reales)': () => db.from('errores').update({ usuario_id: NUEVO2 }).lt('bsuid', B2).is('usuario_id', null),
+      '.gt sobre el BSUID': () => db.from('errores').update({ usuario_id: NUEVO2 }).gt('bsuid', B2).is('usuario_id', null),
+      '.neq sobre el BSUID': () => db.from('errores').update({ usuario_id: NUEVO2 }).neq('bsuid', B2).is('usuario_id', null),
+      'toma filas que ya tienen dueño (not.is.null)': () => db.from('errores').update({ usuario_id: NUEVO2 }).eq('bsuid', B2).not('usuario_id', 'is', null),
+      'toma las filas de un real': () => db.from('errores').update({ usuario_id: NUEVO2 }).eq('bsuid', B2).eq('usuario_id', REAL),
+      'se las da al usuario QA fijo y no a la fila de esa alta': () => db.from('errores').update({ usuario_id: QA }).eq('bsuid', B2).is('usuario_id', null),
+    });
+  });
+
+  it('no deja declarar un BSUID con caracteres que viajan mal en una query', () => {
+    for (const b of ['PE.qaXXXXXXXX&x', 'PE.qa.XXXXXXXX', 'PE.qaaltatest0001 ', 'PE.qaaltatest0001,x', 'PE.qaaltatest0001*']) {
+      expect(() => guard.esperarAltaPorBsuid(b), b).toThrow(guard.QaGuardError);
+    }
+  });
+});
+
+// La segunda revisión adversarial del 12-sep, sobre el ARREGLO de la primera. Dos cosas que el
+// arreglo había roto o dejado abiertas: prohibir todo upsert rompía al backend bajo prueba, y la
+// fila sin marca se podía completar por las columnas que la barrera no enumeraba. Lo segundo se
+// cerró invirtiendo la regla: la barrera marca la fila al nacer.
+describe('qa-guard: la segunda vuelta (upsert del backend, marca al nacer, cuerpo que sale)', () => {
+  const B3 = 'PE.qaaltatest0003';
+  const NUEVO3 = '77777777-7777-4777-8777-777777777777';
+
+  async function bloqueados(casos) {
+    for (const [motivo, fn] of Object.entries(casos)) {
+      const antes = recibidas.length;
+      const r = await corre(fn);
+      expect(r.paso, motivo).toBe(false);
+      expect(recibidas.length, motivo + ': salió el request').toBe(antes);
+    }
+  }
+
+  it('el upsert que usa el backend PASA: conflicto por columna de dueño, dueño de QA', async () => {
+    // Las formas reales: services/budget.js, services/transactions.js, services/metas.js (logros).
+    const casos = [
+      () => db.from('presupuestos').upsert({ usuario_id: QA, categoria: 'X', monto_limite: 1 }, { onConflict: 'usuario_id,categoria,subcategoria,mes,anio' }).select().single(),
+      () => db.from('reglas_comercio').upsert({ usuario_id: QA, comercio_pattern: 'tambo' }, { onConflict: 'usuario_id,comercio_pattern' }),
+      () => db.from('logros').upsert({ usuario_id: QA, tipo: 't', meta_id: null }, { onConflict: 'usuario_id,tipo,meta_id', ignoreDuplicates: true }).select().single(),
+      () => db.from('neto_scores').upsert({ user_id: QA, period: '2026-09' }, { onConflict: 'user_id,period' }),
+    ];
+    for (const fn of casos) {
+      const antes = recibidas.length;
+      expect((await corre(fn)).paso).toBe(true);
+      expect(recibidas.length).toBe(antes + 1);
+    }
+  });
+
+  it('el upsert que puede alcanzar una fila ajena sigue bloqueado', async () => {
+    await bloqueados({
+      'dueño real en la fila': () => db.from('presupuestos').upsert({ usuario_id: REAL, categoria: 'X' }, { onConflict: 'usuario_id,categoria' }),
+      'conflicto por una columna que no es de dueño': () => db.from('presupuestos').upsert({ usuario_id: QA, categoria: 'X' }, { onConflict: 'categoria' }),
+      'fila sin dueño': () => db.from('presupuestos').upsert({ categoria: 'X' }, { onConflict: 'usuario_id,categoria' }),
+      // Sin on_conflict ni id no hay fila vieja que alcanzar, así que solo lo frena la exigencia de
+      // dueño. Sin este caso, sacar esa exigencia dejaba la suite en verde (mutación G2).
+      'fila sin dueño, sin on_conflict y sin id': () => db.from('presupuestos').upsert({ categoria: 'X' }),
+      'sin on_conflict pero con id (conflicto por la clave primaria)': () => db.from('presupuestos').upsert({ id: 5, usuario_id: QA }),
+      'dueño de QA en la fila y OTRO dueño en el conflicto': () => db.from('presupuestos').upsert({ usuario_id: QA, user_id: REAL }, { onConflict: 'user_id' }),
+    });
+  });
+
+  it('un upsert se reconoce aunque solo lo delate el on_conflict (sin Prefer)', async () => {
+    const antes = recibidas.length;
+    const r = await corre(() => {
+      const b = db.from('usuarios').upsert({ id: REAL, is_test_user: true }, { onConflict: 'id' });
+      b.headers.delete('Prefer');
+      return b;
+    });
+    expect(r.paso).toBe(false);
+    expect(recibidas.length).toBe(antes);
+  });
+
+  it('la fila del alta no puede tomar una identidad, tampoco por `in.(…)` ni por el bsuid', async () => {
+    guard.esperarAltaPorBsuid(B3);
+    proximoId = NUEVO3;
+    expect((await corre(() => db.from('usuarios').insert({ whatsapp: null, bsuid: B3 }).select('id'))).paso).toBe(true);
+    await bloqueados({
+      'le cambia el bsuid por uno real': () => db.from('usuarios').update({ bsuid: 'PE.1049206861029395' }).eq('id', NUEVO3),
+      'número por in.(…)': () => db.from('usuarios').update({ whatsapp: '51987654321' }).in('id', [NUEVO3, QA]),
+      'email por in.(…)': () => db.from('usuarios').update({ email: 'x@y.pe' }).in('id', [QA, NUEVO3]),
+    });
+    // Un throwaway que no nació por el alta sigue pudiendo recibir número: es lo que hacen los
+    // harness que siembran con `whatsapp`. La regla es de la fila del alta, no de todos.
+    expect((await corre(() => db.from('usuarios').update({ whatsapp: '51900000001' }).eq('id', QA))).paso).toBe(true);
+  });
+
+  it('si la marca no entra, el alta falla en vez de devolver una fila sin marca', async () => {
+    const mudo = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      // El INSERT devuelve la fila; la marca (PATCH) no toca ninguna.
+      res.end(JSON.stringify(req.method === 'PATCH' ? [] : [{ id: '88888888-8888-4888-8888-888888888888' }]));
+    });
+    await new Promise((r) => mudo.listen(0, '127.0.0.1', r));
+    try {
+      const otro = guard.clienteGuardado('http://127.0.0.1:' + mudo.address().port, 'anon-de-mentira');
+      const B4 = 'PE.qaaltatest0004';
+      guard.esperarAltaPorBsuid(B4);
+      const r = await corre(() => otro.from('usuarios').insert({ whatsapp: null, bsuid: B4 }).select('id'));
+      expect(r.paso).toBe(false);
+      expect(r.error).toMatch(/NO se pudo marcar/);
+    } finally {
+      await new Promise((r) => mudo.close(r));
+    }
+  });
+
+  it('se valida el cuerpo que SALE: un getter o un toJSON no cambian lo que la barrera miró', async () => {
+    const B5 = 'PE.qaaltatest0005';
+    guard.esperarAltaPorBsuid(B5);
+    let lecturas = 0;
+    const tramposo = { bsuid: B5, get whatsapp() { lecturas += 1; return lecturas === 1 ? null : '51987654321'; } };
+    // Con el snapshot, lo validado y lo enviado son el mismo objeto: la primera lectura (null) es
+    // la que viaja, y el número no sale nunca.
+    proximoId = '99999999-9999-4999-8999-999999999990';
+    expect((await corre(() => db.from('usuarios').insert(tramposo).select('id'))).paso).toBe(true);
+    expect(lecturas).toBe(1);
+    const conToJSON = { whatsapp: null, bsuid: 'PE.qaaltatest0006' };
+    guard.esperarAltaPorBsuid('PE.qaaltatest0006');
+    Object.defineProperty(conToJSON, 'toJSON', { enumerable: false, value: () => ({ bsuid: 'PE.qaaltatest0006', nombre: 'María', plan: 'premium' }) });
+    await bloqueados({ 'toJSON que agrega columnas': () => db.from('usuarios').insert(conToJSON) });
+  });
+
+  it('`schema()` devuelve un cliente que también pasa por la barrera', async () => {
+    await bloqueados({
+      'update sobre un real por schema': () => db.schema('public').from('usuarios').update({ plan: 'free' }).eq('id', REAL),
+      'upsert sobre usuarios por schema': () => db.schema('public').from('usuarios').upsert({ id: REAL, is_test_user: true }),
+    });
+  });
+});
+
+// La tercera revisión adversarial del 12-sep. Nada de esto se dispara hoy por el backend: son
+// puertas latentes que un harness nuevo podría abrir sin querer.
+describe('qa-guard: la tercera vuelta (puertas latentes)', () => {
+  async function bloqueados(casos) {
+    for (const [motivo, fn] of Object.entries(casos)) {
+      const antes = recibidas.length;
+      const r = await corre(fn);
+      expect(r.paso, motivo).toBe(false);
+      expect(recibidas.length, motivo + ': salió el request').toBe(antes);
+    }
+  }
+
+  it('un nombre de tabla con "/" no llega a un RPC destructivo por la puerta de las tablas', async () => {
+    await bloqueados({
+      'rpc/borrar_cuenta_total como tabla': () => db.from('rpc/borrar_cuenta_total').insert({ p_usuario_id: REAL }),
+      'rpc/merge_and_link como tabla': () => db.from('rpc/merge_and_link').insert({ p_survivor: QA, p_loser: REAL }),
+    });
+  });
+
+  it('`client.rest` (el PostgrestClient de abajo) también pasa por la barrera', async () => {
+    await bloqueados({
+      'update sobre un real por rest': () => db.rest.from('usuarios').update({ plan: 'premium', is_test_user: true }).eq('id', REAL),
+      'delete de las transacciones de un real por rest': () => db.rest.from('transacciones').delete().eq('usuario_id', REAL),
+    });
+    // Y `client.from` sigue funcionando: delega en el `rest` envuelto, sin validar dos veces.
+    const antes = recibidas.length;
+    expect((await corre(() => db.from('transacciones').delete().eq('usuario_id', QA))).paso).toBe(true);
+    expect(recibidas.length).toBe(antes + 1);
+  });
+
+  it('un alta cuyo INSERT no devuelve la fila se marca igual, por la forma', async () => {
+    // Servidor propio que se porta como PostgREST con `return=minimal`: el INSERT vuelve VACÍO. El
+    // falso de arriba devuelve una fila a todo POST, y con él este caso pasaba por la rama normal
+    // (marca por id) sin tocar nunca la rama sin id: la mutación que la apaga sobrevivía.
+    const NUEVO7 = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa7';
+    const vistas = [];
+    const minimo = http.createServer((req, res) => {
+      vistas.push({ method: req.method, url: req.url });
+      if (req.method === 'POST') { res.writeHead(201); res.end(); return; }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify([{ id: NUEVO7 }]));
+    });
+    await new Promise((r) => minimo.listen(0, '127.0.0.1', r));
+    try {
+      const otro = guard.clienteGuardado('http://127.0.0.1:' + minimo.address().port, 'anon-de-mentira');
+      const B7 = 'PE.qaaltatest0007';
+      guard.esperarAltaPorBsuid(B7);
+      const { data, error } = await otro.from('usuarios').insert({ whatsapp: null, bsuid: B7 });
+      expect(error).toBeNull();
+      expect(data).toBeNull(); // el INSERT de verdad no devolvió la fila
+      expect(vistas.map((v) => v.method)).toEqual(['POST', 'PATCH']);
+      const marca = decodeURIComponent(vistas[1].url);
+      expect(marca).toContain('bsuid=eq.' + B7);
+      expect(marca).toContain('whatsapp=is.null');
+      // El parámetro `id`, no la subcadena: "bsuid=eq." también contiene "id=eq.".
+      expect(marca).not.toMatch(/[?&]id=eq\./);
+      expect(guard.altasRegistradas(B7)).toEqual({ intentos: 1, ids: [NUEVO7], cuerpos: [{ whatsapp: null, bsuid: B7 }] });
+    } finally {
+      await new Promise((r) => minimo.close(r));
+    }
+  });
+
+  it('ningún UPDATE le quita la marca a una fila de prueba', async () => {
+    await bloqueados({
+      'is_test_user: false': () => db.from('usuarios').update({ is_test_user: false }).eq('id', QA),
+      'is_test_user: null con plan': () => db.from('usuarios').update({ is_test_user: null, plan: 'premium' }).eq('id', QA),
+    });
+    expect((await corre(() => db.from('usuarios').update({ is_test_user: true }).eq('id', QA))).paso).toBe(true);
+  });
+
+  it('un upsert sin on_conflict no pasa, aunque la fila tenga dueño de QA y no traiga id', async () => {
+    await bloqueados({ 'sin on_conflict': () => db.from('invite_codes').upsert({ code: 'X', creador_id: QA }) });
+  });
+
+  it('un INSERT de alta que falla (23505) no deja cuerpo ni fila registrada', async () => {
+    const choque = http.createServer((req, res) => {
+      res.writeHead(409, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ code: '23505', message: 'duplicate key value violates unique constraint "usuarios_bsuid_key"' }));
+    });
+    await new Promise((r) => choque.listen(0, '127.0.0.1', r));
+    try {
+      const otro = guard.clienteGuardado('http://127.0.0.1:' + choque.address().port, 'anon-de-mentira');
+      const B8 = 'PE.qaaltatest0008';
+      guard.esperarAltaPorBsuid(B8);
+      const { error } = await otro.from('usuarios').insert({ whatsapp: null, bsuid: B8 }).select('id');
+      expect(error && error.code).toBe('23505');
+      expect(guard.altasRegistradas(B8)).toEqual({ intentos: 1, ids: [], cuerpos: [] });
+    } finally {
+      await new Promise((r) => choque.close(r));
+    }
   });
 });
 

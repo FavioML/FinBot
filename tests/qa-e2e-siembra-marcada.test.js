@@ -33,6 +33,13 @@ const QA_DIR = path.resolve(aquí, '..', 'qa-e2e');
 // regla vale más que la cobertura, así que el aviso se prueba unitario (5 tests en
 // tests/handlers/webhook-bsuid-media.test.js) y su supresión se asevera viva en
 // qa-bsuid-media.mjs contra `h.telegrams`. El hueco que queda está escrito en docs/DEFECTOS.md.
+//
+// Lo que NO es una siembra y por eso no pasa por acá: la fila que inserta el CÓDIGO BAJO PRUEBA.
+// `qa-bsuid-alta.mjs` hace que `altaPorBsuid` dé de alta a un BSUID desconocido, y esa fila nace
+// sin la marca porque así nace en producción, que es lo que se prueba. No hay un `insert` en el
+// harness que este barrido pueda ver. La autoriza `qa-guard` con `esperarAltaPorBsuid`, que solo
+// admite la forma exacta `{ whatsapp: null, bsuid }` con prefijo `PE.qa`, y la MARCA `is_test_user`
+// en el mismo instante en que nace: la fila sin marca existe lo que dura el INSERT.
 const EXENTOS = [];
 
 function archivosQa() {

@@ -19,7 +19,8 @@
 //
 // Lo que ya NO corre acá, a propósito: el BSUID DESCONOCIDO. Desde el 12-sep ese mensaje DA DE
 // ALTA a la persona, y en producción eso crearía una fila sin `is_test_user` que entra al embudo
-// y a los crons, y le escribiría a Meta de verdad. Se prueba contra el webhook en proceso.
+// y a los crons, y le escribiría a Meta de verdad. Se prueba contra el webhook en proceso, en
+// `qa-bsuid-alta.mjs`.
 //
 // Self-cleaning: siembra sus propios usuarios efímeros y los borra al final, pase o falle.
 //
