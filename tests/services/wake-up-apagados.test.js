@@ -287,8 +287,12 @@ function loQueLesLlego(usuarios) {
     ...crearNotificacion.mock.calls.filter(([uid]) => deEllos(uid)).map(([uid, , titulo]) => `campana cruda ${uid} "${titulo}"`),
     ...enviarEmail.mock.calls.filter(([to, o]) => deEllos(to) || deEllos(o && o.usuarioId))
       .map(([to]) => `correo crudo a ${to}`),
-    ...inserts.filter((i) => deEllos(i.patch.user_id) || deEllos(i.patch.usuario_id))
-      .map((i) => `insert en ${i.tabla} ${i.patch.user_id || i.patch.usuario_id} ${i.patch.event_type || i.patch.tipo || ''}`),
+    // Fila por fila: `insert([{…}])` es tan válido como `insert({…})`, y el usuario puede ir en
+    // cualquier columna. La primera versión leía solo `patch.usuario_id`, y una campana
+    // insertada en forma de array pasaba sin que nadie la viera.
+    ...inserts.flatMap((i) => [].concat(i.patch)
+      .filter((fila) => fila && typeof fila === 'object' && Object.values(fila).some(deEllos))
+      .map((fila) => `insert en ${i.tabla} ${fila.user_id || fila.usuario_id || '?'} ${fila.event_type || fila.tipo || ''}`)),
   ];
 }
 
@@ -308,6 +312,10 @@ describe('los dos wake_up están apagados y no vuelven solos', () => {
       'maybeFeedback30', 'maybeWebappInvite',
       'maybeReminderD30', 'maybeReminderD14', 'maybeReminderD7', 'maybeReminderD3',
     ]);
+    // Y que nadie la pueda estirar desde afuera: sin el freeze, un `TRIGGERS.push(...)` en otro
+    // módulo cargado por `index.js` reintroducía el wake_up entero con este caso en verde, porque
+    // acá solo se carga `survey-triggers`.
+    expect(Object.isFrozen(TRIGGERS), 'TRIGGERS dejó de estar congelada: se puede estirar desde otro módulo').toBe(true);
   });
 
   it('la matriz cubre lo que dice cubrir (antivacuidad)', () => {

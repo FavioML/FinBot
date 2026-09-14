@@ -181,6 +181,14 @@ describe('survey_events: escritores y lectores hablan del mismo conjunto de cana
       .filter((cuerpo) => /userId:/.test(cuerpo));
     // Antivacuidad: si el barrido deja de matchear, esto se ve igual que "todos correctos".
     expect(llamadas.length, 'el barrido no encontró los call-sites: este caso dejó de mirar').toBe(3);
+    // El troceo de arriba solo reconoce una llamada que cierra `})` con dos espacios de sangría,
+    // así que una escrita dentro del bucle de `checkSurveyTriggers` (8 espacios) o en una sola
+    // línea no entraba a `llamadas` y el conteo seguía en 3. Lo encontró la tercera revisión del
+    // apagado de los wake_up (14-sep-2026), y ese hueco era justo el camino que el guard de
+    // `tests/services/wake-up-apagados.test.js` delega en este conteo. Éste no mira la forma:
+    // cuenta toda invocación que no sea la definición.
+    const invocaciones = (TRIGGERS.match(/(?<!function\s)\bregistrarEvento\s*\(/g) || []).length;
+    expect(invocaciones, 'apareció un registrarEvento que el troceo de arriba no ve').toBe(3);
 
     for (const cuerpo of llamadas) {
       const ev = cuerpo.match(/eventType:\s*'([a-z_0-9]+)'/);

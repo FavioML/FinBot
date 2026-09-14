@@ -548,15 +548,19 @@ async function marcarRespuestaProactiva(usuarioId, replyText) {
  * apagado, arriba de `maybeFeedback30`). Agregar uno rompe ese test a proposito: si el nuevo
  * empuja a quien lleva semanas sin escribirle a Neto, es la decision que ya se tomo, con 0
  * entregas en 66 intentos. Vive a nivel de modulo, y no dentro del bucle, para poder fijarla.
+ *
+ * Congelada a proposito: un `TRIGGERS.push(...)` desde otro modulo reintroducia un trigger
+ * entero sin tocar esta lista ni poner rojo el test, que la lee al cargar su propio modulo. Con
+ * el freeze, ese `push` lanza al arrancar el servidor en vez de pasar por al lado.
  */
-const TRIGGERS = [
+const TRIGGERS = Object.freeze([
   maybeFeedback30,
   maybeWebappInvite,
   maybeReminderD30,
   maybeReminderD14,
   maybeReminderD7,
   maybeReminderD3,
-];
+]);
 
 /**
  * Cron principal. Corre cada 15min entre 10:00-10:14 Lima.
