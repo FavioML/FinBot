@@ -76,7 +76,10 @@ module.exports = {
           if (!entro(vReactivar)) {
             return 'No pude activar los recordatorios. Intenta de nuevo.';
           }
-          return '🔔 *Recordatorios activados.*\n\nVolverás a recibir tu resumen diario a las 8pm y alertas de presupuesto.\n\n_Si quieres silenciarlos, escribe "silencia"._';
+          // No hay "resumen diario a las 8pm" para nadie: el único diario es Manos Libres
+          // (9pm, opt-in). Y no se enumera qué vuelve: `recordatorios_activos` no gatea los
+          // resúmenes ni las alertas de presupuesto (lo midió la revisión del 14-sep).
+          return '🔔 *Recordatorios activados.*\n\nVuelven los avisos que habías silenciado.\n\n_Si quieres silenciarlos otra vez, escribe "silencia"._';
         } catch(e) {
           log.error({ tag: 'REACTIVAR', err: e.message }, 'Error reactivar recordatorios');
           return 'No pude activar los recordatorios. Intenta de nuevo.';

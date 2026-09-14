@@ -218,7 +218,18 @@ module.exports = {
       case 'listar_gastos_categoria': {
         const fechaMinLgc = getHistoryDateLimit(usuario);
         const cat = datos.categoria;
-        if (!cat) return 'Dime la categoria. Ej: _"gastos de Alimentación"_, _"que hay en Transporte"_';
+        // Sin categoría, "por categoría" pide el DESGLOSE, no una categoría puntual. Antes se
+        // repreguntaba "Dime la categoria" sin guardar estado, y la respuesta ("Todos quiero")
+        // volvía a clasificarse igual: bucle, y la persona se fue (95aaa7dd, 11-ago-2026). El
+        // desglose por categoría con su % ya lo arma `listar_gastos_mes`. Vía `dispatchIntent`
+        // y no llamando al handler directo: el muro vive adentro del dispatch
+        // (muro-dispatch-unico.test.js).
+        if (!cat) {
+          const { dispatchIntent } = require('../intent-registry');
+          const dMes = await dispatchIntent({ intencion: 'listar_gastos_mes', msg, datos, usuario, from, ctx });
+          if (dMes.manejado) return dMes.respuesta;
+          return 'Dime la categoria. Ej: _"gastos de Alimentación"_, _"que hay en Transporte"_';
+        }
         const mes = datos.mes || mesActual;
         const anio = datos.anio || anioActual;
         const desde = anio + '-' + String(mes).padStart(2,'0') + '-01';

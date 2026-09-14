@@ -122,7 +122,9 @@ function detectarQuerySinMonto(msg) {
 // la palabra y pasa sola.
 // `revier` va aparte de `revert`: el presente de "revertir" es "revierte", que NO comparte
 // prefijo con el infinitivo. Lo encontró el test, no la lectura del patrón.
-const PIDE_BORRAR = /deshac|deshaz|undo|revert|revier|borr|elimin|quit|anul|cancel|me equivoqu|no era|est[aá] mal/i;
+// `PIDE_BORRAR` vivía acá: la lista de señales de borrado (`deshac|borr|elimin|cancel|...`). Se
+// retiró el 14-sep-2026 junto con `HABLA_DE_LA_CUENTA`, cuando la guarda pasó a comparar la
+// orden ENTERA (`ORDEN_CANONICA`, abajo). Lo que enseñaron sigue valiendo y está escrito ahí.
 
 // Y el reverso, que la primera versión no tenía y era el agujero más grave: PIDE_BORRAR
 // acepta `elimin`, `borr` y `cancel`, así que **"quiero eliminar mi cuenta" la pasaba** y
@@ -131,11 +133,48 @@ const PIDE_BORRAR = /deshac|deshaz|undo|revert|revier|borr|elimin|quit|anul|canc
 // MISMA clase de misroute que produjo "Quiero reiniciar": la guarda verificaba que el
 // mensaje nombrara *un* borrado, no que nombrara una TRANSACCIÓN. O sea que las frases más
 // peligrosas eran justo las únicas que no filtraba. Lo encontró la segunda revisión
-// adversarial, sobre el arreglo de la primera.
-const HABLA_DE_LA_CUENTA = /\b(cuenta|mis datos|todos los datos|mi historial|todo el historial)\b/i;
+// adversarial, sobre el arreglo de la primera. (`HABLA_DE_LA_CUENTA`, que la cerraba, se retiró
+// el 14-sep-2026: con la orden entera, "borra todos mis datos" ya no es una orden canónica.)
+
+// Tercera puerta de la misma clase: "empecemos de cero, cancela todo" trae `cancel` y no
+// nombra la cuenta, así que pasaba la guarda y borraba el último movimiento sin preguntar.
+// Quien pide EMPEZAR DE NUEVO no pidió borrar UN gasto: se le muestra qué se borraría y se
+// espera la orden explícita, igual que con "Quiero reiniciar".
+// LA ORDEN ENTERA, no fragmentos (14-sep-2026, cuarta vuelta). Tres vueltas de lista negra
+// ("reiniciar", "empecemos de cero, cancela todo", "borra todas mis transacciones", "volver a
+// empezar", "borra lo que anoté", "borra todo menos el último"...) y una de lista blanca POR
+// FRAGMENTOS no cerraron: la tercera revisión adversarial mostró que "esta mal el total" —sin
+// tilde, como se escribe en WhatsApp— contaba "esta" como demostrativo y borraba, igual que
+// "elimina esa categoría" o "borra el último año". Un fragmento aparece dentro de cualquier frase.
+//
+// Lo que sí se cierra es la frase COMPLETA: sin sujeto, solo se borra si el mensaje, sin tildes
+// ni puntuación, ES una orden corta de borrar lo último ("borra el último", "bórralo", "elimina
+// eso", "deshacer"), con a lo sumo cláusulas de una lista cerrada alrededor ("está mal,
+// bórralo", "deshaz eso, me equivoqué"). Todo lo demás pide la confirmación, cuyo texto pide
+// justamente "borra el último". Cuesta un mensaje a quien lo dice de otra forma; no le borra
+// nada a quien no lo pidió. Y como se comparan sin tildes, "elimínalo" y "quítalo" cuentan.
+const CLAUSULA_PREVIA = '(?:si|ok|ya|dale|listo|oe|todo bien|me equivoque|esta mal|estaba mal|no era(?: ese)?|lo (?:anote|puse) (?:de nuevo|dos veces|mal))';
+const CLAUSULA_FINAL = '(?:porfa|porfis|por favor|pls|please|gracias|pe|me equivoque|esta mal|estaba mal|estaba todo mal|no era(?: ese)?)';
+const OBJETO_ULTIMO = '(?:el ultimo(?: gasto| registro| movimiento)?|la ultima(?: transaccion| compra)?|lo ultimo|eso|esto'
+  + '|ese(?: gasto| registro| movimiento)?|esa(?: transaccion| compra)?|este(?: gasto| registro)?'
+  // "lo que anoté" a secas NO: puede ser todo lo anotado. Solo lo inequívocamente último.
+  + '|lo anterior|el anterior|lo ultimo que (?:puse|anote)|lo que acabo de (?:poner|anotar))';
+const ORDEN_BORRAR_ULTIMO = '(?:(?:borra|elimina|quita|anula|cancela|saca|deshaz|revierte) ' + OBJETO_ULTIMO
+  + '|(?:borra|borren|elimina|quita|anula|cancela|saca|deshaz|deshace)(?:me)?(?:lo|la)'
+  + '|deshacer(?: (?:el ultimo|lo ultimo|ultimo))?|deshaz|deshace|undo|revertir|revierte)';
+const ORDEN_CANONICA = new RegExp('^(?:' + CLAUSULA_PREVIA + ' )*' + ORDEN_BORRAR_ULTIMO + '(?: ' + CLAUSULA_FINAL + ')*$');
+
+function normalizarOrden(t) {
+  return String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
 
 /**
- * ¿El mensaje pide borrar UNA TRANSACCIÓN? Exige la señal y descarta el borrado de cuenta.
+ * ¿El mensaje pide borrar UNA TRANSACCIÓN, la última? Desde el 14-sep-2026, solo si el mensaje
+ * ENTERO es una orden canónica (`ORDEN_CANONICA`, arriba); cualquier otra frase pide la
+ * confirmación. Ya no hay señales sueltas ni lista de lo que "no es un borrado".
+ *
+ * La lección de abajo es de la versión anterior y sigue valiendo para toda regex de este archivo.
  *
  * Gotcha que costó una vuelta: la primera versión de `HABLA_DE_LA_CUENTA` se escribió con
  * un script y los `\b` terminaron como el carácter BACKSPACE (0x08) en vez de la clase de
@@ -145,8 +184,7 @@ const HABLA_DE_LA_CUENTA = /\b(cuenta|mis datos|todos los datos|mi historial|tod
  * un patrón acá "no matchea sin razón", mirá `re.source`, no el archivo.
  */
 function pideBorrarUnGasto(msg) {
-  const t = msg || '';
-  return PIDE_BORRAR.test(t) && !HABLA_DE_LA_CUENTA.test(t);
+  return ORDEN_CANONICA.test(normalizarOrden(msg));
 }
 
 // Guarda la copia que hace posible el "restaura" y confirma que quedó escrita.

@@ -352,6 +352,20 @@ describe('gastos.js — las siete lecturas de contenido', () => {
       expect(r).toBe(MSG_LECTURA_CAIDA);
       expect(r).not.toMatch(/No encontre gastos/);
     });
+
+    // Caso real (95aaa7dd, 11-ago-2026): "Por categoría" → "Dime la categoria", "Todos quiero" →
+    // "Dime la categoria". Sin estado entre mensajes, la repregunta era un bucle.
+    it('SIN categoría devuelve el desglose del mes y no repregunta', async () => {
+      const sb = makeSupabase({ filas: () => [] });
+      const obtenerGastosMes = vi.fn().mockResolvedValue([
+        TX(), TX({ id: 'tx-2', comercio: 'Taxi', categoria: 'Transporte', monto: 10, monto_pen: 10 }),
+      ]);
+      const r = await correr(gastos, sb, 'listar_gastos_categoria', {}, { msg: 'Por categoría', extras: { obtenerGastosMes } });
+      expect(r).not.toMatch(/Dime la categor/i);
+      expect(obtenerGastosMes).toHaveBeenCalled();
+      expect(r).toMatch(/Alimentación/);
+      expect(r).toMatch(/Transporte/);
+    });
   });
 
   describe('ver_gastos_rango_fecha (sitio 172) — tiene catch propio', () => {
@@ -915,8 +929,110 @@ describe('metas.js — las ocho lecturas de metas_ahorro', () => {
     // el mismo texto que devolvería la guarda, o sea que el caso queda verde por el motivo
     // equivocado y no puede distinguir "cortó" de "escribió y falló". Lo encontró la revisión
     // adversarial, y es el defecto `negativo-que-rechaza-por-otra-condicion`.
-    const SOLO_EL_CONTEO = (c) => (esSelect(c) && c.tabla === 'metas_ahorro' ? 'statement timeout' : null);
+    // Acotado a la lectura del CONTEO (`completada=false`). Desde el 14-sep `crear_meta` hace
+    // otra lectura de `metas_ahorro` —la del duplicado reciente—, y un predicado por tabla la
+    // tumbaba también: el caso contaba dos logs y dejaba de decir cuál guarda corrió.
+    const SOLO_EL_CONTEO = (c) => (esSelect(c) && c.tabla === 'metas_ahorro' && tiene(c, 'completada', false) ? 'statement timeout' : null);
     const INSERT_OK = (c) => (esSelect(c) ? [] : [{ id: 'meta-9' }]);
+    const esBusquedaDuplicado = (c) => esSelect(c) && c.tabla === 'metas_ahorro' && c.filtros.some((f) => f.op === 'gte' && f.col === 'created_at');
+
+    // Caso real (2a917ac4, 27-ago-2026): "¿y cuánto necesitaría ahorrar por día?" volvió a
+    // `crear_meta` con los mismos datos y quedaron DOS filas idénticas, con el mismo mensaje.
+    describe('idempotencia: el mismo plan pedido hace minutos no se crea dos veces', () => {
+      const datosUrgente = { nombre: 'Ahorro urgente', monto: 7000, fecha_limite: '2099-10-31' };
+      const YA_CREADA = META({ nombre: 'Ahorro urgente', monto_objetivo: 7000, monto_actual: 0, fecha_limite: '2099-10-31', monthly_quota: 3221 });
+
+      it('con el plan recién creado, NO inserta y contesta la cuota por día', async () => {
+        const sb = makeSupabase({ filas: (c) => (esBusquedaDuplicado(c) ? [YA_CREADA] : INSERT_OK(c)) });
+        const { r, logs } = await correrEspiando(() => correrMetas(sb, 'crear_meta', datosUrgente, { msg: 'Y cuanto necesitaria ahorrar por dia' }));
+        expect(sb.cuenta((c) => c.verbo === 'insert')).toBe(0);
+        expect(r).toMatch(/Ese plan ya lo tienes/);
+        expect(r).toMatch(/Cuota mensual: S\/ 3221\/mes \(≈ S\/ \d+ por día\)/);
+        expect(r).not.toMatch(/Plan de ahorro creado/);
+        expect(logs).toHaveLength(0);
+      });
+
+      it('busca el duplicado con TODO lo que lo define: nombre, monto, fecha, ventana y plan vivo', async () => {
+        const sb = makeSupabase({ filas: INSERT_OK });
+        await conModulo('../../services/metas', { analizarViabilidad: vi.fn().mockResolvedValue({ viable: true, mensaje: 'ok' }) },
+          () => correrMetas(sb, 'crear_meta', datosUrgente));
+        const busqueda = sb._llamadas.find(esBusquedaDuplicado);
+        expect(busqueda).toBeTruthy();
+        expect(tiene(busqueda, 'usuario_id', 'u-1')).toBe(true);
+        expect(tiene(busqueda, 'nombre', 'Ahorro urgente')).toBe(true);
+        expect(tiene(busqueda, 'monto_objetivo', 7000)).toBe(true);
+        expect(tiene(busqueda, 'fecha_limite', '2099-10-31')).toBe(true);
+        // Un plan abandonado no es el duplicado de uno nuevo (revisión adversarial, 14-sep).
+        expect(tiene(busqueda, 'status', 'active')).toBe(true);
+      });
+
+      // El schema pide YYYY-MM-DD y el LLM no siempre obedece. Antes nadie normalizaba.
+      const insertado = (sb) => (sb._llamadas.find((c) => c.verbo === 'insert') || {}).payload || null;
+      const sinViabilidad = (fn) => conModulo('../../services/metas',
+        { analizarViabilidad: vi.fn().mockResolvedValue({ viable: true, mensaje: 'ok' }) }, fn);
+
+      it('una fecha DD/MM futura se normaliza y NO se lee como pasada', async () => {
+        const sb = makeSupabase({ filas: INSERT_OK });
+        const r = await sinViabilidad(() => correrMetas(sb, 'crear_meta', { ...datosUrgente, fecha_limite: '01/12/2099' }));
+        expect(r).toMatch(/Plan de ahorro creado/);
+        expect(insertado(sb).fecha_limite).toBe('2099-12-01');
+      });
+
+      it('una fecha ISO con hora se recorta y las cuotas no salen NaN', async () => {
+        const sb = makeSupabase({ filas: INSERT_OK });
+        const r = await sinViabilidad(() => correrMetas(sb, 'crear_meta', { ...datosUrgente, fecha_limite: '2099-10-31T00:00:00' }));
+        expect(insertado(sb).fecha_limite).toBe('2099-10-31');
+        expect(r).toMatch(/Cuota mensual: S\/ \d+\/mes \(≈ S\/ \d+ por día\)/);
+        expect(r).not.toMatch(/NaN/);
+      });
+
+      it('una fecha que no se puede leer se pregunta, sin tocar la base', async () => {
+        const sb = makeSupabase({ filas: INSERT_OK });
+        const r = await correrMetas(sb, 'crear_meta', { ...datosUrgente, fecha_limite: '31/02/2099' });
+        expect(r).toMatch(/No entendí la fecha/);
+        expect(sb._llamadas).toHaveLength(0);
+      });
+
+      // Con 1000 en 10 días la mensual salía "S/2000/mes (≈ S/91 por día)": dos cifras que se
+      // contradicen. A menos de un mes, solo la diaria.
+      // 29 días: con `< 30` y el redondeo hacia arriba salía "S/3092/mes" para S/3000 (revisión 2).
+      it.each([10, 29])('a %i días muestra solo la cuota por día', async (dias) => {
+        const fecha = new Date(Date.now() + dias * 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+        const sb = makeSupabase({ filas: INSERT_OK });
+        const r = await sinViabilidad(() => correrMetas(sb, 'crear_meta', { nombre: 'Corto', monto: 3000, fecha_limite: fecha }));
+        expect(r).toMatch(/Cuota: S\/ \d+ por día/);
+        expect(r).not.toMatch(/\/mes/);
+      });
+
+      it('con la búsqueda caída, CREA igual y deja rastro: esa lectura informa, no decide', async () => {
+        const sb = makeSupabase({ filas: INSERT_OK, fallos: [(c) => (esBusquedaDuplicado(c) ? 'statement timeout' : null)] });
+        const { r, logs } = await correrEspiando(() => conModulo('../../services/metas',
+          { analizarViabilidad: vi.fn().mockResolvedValue({ viable: true, mensaje: 'ok' }) },
+          () => correrMetas(sb, 'crear_meta', datosUrgente)));
+        expect(r).toMatch(/Plan de ahorro creado/);
+        expect(sb.cuenta((c) => c.verbo === 'insert')).toBe(1);
+        expect(logs).toHaveLength(1);
+      });
+
+      it('al crear con fecha, dice la cuota por día además de la mensual', async () => {
+        const sb = makeSupabase({ filas: INSERT_OK });
+        const { r } = await correrEspiando(() => conModulo('../../services/metas',
+          { analizarViabilidad: vi.fn().mockResolvedValue({ viable: null, sinHistorial: true, mensaje: 'Todavía llevas pocos días anotando' }) },
+          () => correrMetas(sb, 'crear_meta', datosUrgente)));
+        expect(r).toMatch(/Plan de ahorro creado/);
+        expect(r).toMatch(/por día\)/);
+        // Sin historial no hay veredicto: ni ✅ ni ⚠️.
+        expect(r).toMatch(/ℹ️ Todavía llevas pocos días anotando/);
+        expect(r).not.toMatch(/⚠️|extender el plazo/);
+      });
+
+      it('con una fecha que ya pasó, pide otra y NO toca la base', async () => {
+        const sb = makeSupabase({ filas: INSERT_OK });
+        const { r } = await correrEspiando(() => correrMetas(sb, 'crear_meta', { ...datosUrgente, fecha_limite: '2020-01-31' }));
+        expect(r).toMatch(/Esa fecha ya pasó/);
+        expect(sb._llamadas).toHaveLength(0);
+      });
+    });
 
     it('sin planes previos, un premium lo crea', async () => {
       const sb = makeSupabase({ filas: INSERT_OK });
@@ -966,7 +1082,9 @@ describe('metas.js — las ocho lecturas de metas_ahorro', () => {
       });
 
       it('bajo la cuota, crea', async () => {
-        const sb = makeSupabase({ filas: (c) => (esSelect(c) ? [META()] : [{ id: 'meta-9' }]) });
+        // La búsqueda del duplicado va con `nombre=Moto` y la fila sembrada es "Viaje": Postgres
+        // la filtraría, y este doble no mira el WHERE, así que se la devuelve vacía a mano.
+        const sb = makeSupabase({ filas: (c) => (esBusquedaDuplicado(c) ? [] : esSelect(c) ? [META()] : [{ id: 'meta-9' }]) });
         const { r } = await correrEspiando(() => conCuota(() => correrMetas(sb, 'crear_meta', datos, { usuario: FREE })));
         expect(r).toMatch(/Plan de ahorro creado/);
       });

@@ -865,9 +865,76 @@ describe('deshacer_ultimo — no borra si el mensaje no pidio borrar', () => {
     expect(res).toContain('45.50');
   });
 
+  // La tercera puerta (14-sep-2026): "empecemos de cero, cancela todo" trae `cancel` y no
+  // nombra la cuenta, así que pasaba la guarda y borraba el último movimiento sin preguntar.
+  // Quien pide empezar de nuevo o nombra TODO no pidió borrar un gasto.
+  const PIDE_EMPEZAR_DE_CERO = [
+    'empecemos de cero, cancela todo',
+    'cancela todo',
+    'borra todo',
+    'elimina todos',
+    'resetea mis gastos, quiero empezar de nuevo',
+    // Los que la revisión adversarial encontró pasando la primera versión de la guarda:
+    'borra todas mis transacciones',
+    'quiero volver a empezar, borra lo anterior',
+    'vuelve a cero, borra',
+    'borra y empezamos otra vez',
+    'borra el historial',
+    'borra mis gastos',
+    'elimina mis registros',
+    'cancela mi suscripción',
+    // La tercera tanda (segunda revisión): la lista negra no cerraba, y por eso la guarda
+    // pasó a lista blanca. Si alguna de estas vuelve a borrar, se reabrió la lista negra.
+    'borra, volvamos a empezar',
+    'borra y empieza otra vez',
+    'borra esto y arrancamos otra vez',
+    'quiero empezar desde el principio, elimina',
+    'borra lo que anoté',
+    'elimina los datos',
+    'borra mi información',
+    'borra mis pagos',
+    'elimina mi progreso',
+    'borra el mes',
+    'borra todo menos el último',
+    'cancela todo excepto lo último',
+    'borra todo el último mes',
+    // La cuarta tanda (tercera revisión) rompía la lista blanca POR FRAGMENTOS: "esta" sin tilde
+    // contaba como demostrativo, y "esa categoría" / "el último año" nombraban un objeto. Desde
+    // entonces se compara la orden ENTERA.
+    'esta mal el total',
+    'esta mal la categoria',
+    'esa app es mala, bórrala',
+    'elimina esa categoría',
+    'quita esa alerta',
+    'cancela eso de netflix',
+    'bórralo todo',
+    'borra el último año',
+    'borra la última meta',
+    'borra ese ingreso',
+    'borra este chat',
+    // Solos son ambiguos ("me equivoqué de categoría"): salieron de las órdenes que borran.
+    'me equivoqué',
+    'no era ese',
+  ];
+  it.each(PIDE_EMPEZAR_DE_CERO)('"%s" NO borra el último: pide la orden explícita', async (msg) => {
+    for (const intencion of ['deshacer_ultimo', 'eliminar_transaccion']) {
+      const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+      const ctx = buildCtx(sb);
+      const res = await handler.handle({ intencion, msg, datos: {}, usuario: USUARIO, from: '+51999', ctx });
+      expect(deletesDe(sb, 'transacciones'), intencion).toBe(0);
+      expect(res, intencion).toContain('borra el último');
+    }
+  });
+
   // El contrapeso: la guarda no puede romper al que SI pide borrar. Si alguna de estas
   // deja de pasar, la regex se apreto de mas y el intent quedo inalcanzable.
   const ORDENES_REALES = [
+    // "de nuevo" suelto no es empezar de cero: es el duplicado que se quiere sacar.
+    'lo anoté de nuevo, bórralo',
+    // "el último" nombra exactamente qué borrar y es la frase que la confirmación pide: un
+    // "todo" alrededor no la puede bloquear (la primera versión de la guarda lo hacía).
+    'todo bien, borra el último',
+    'borra el último, estaba todo mal',
     'borra el último',
     'elimina eso',
     'deshacer',
@@ -876,10 +943,20 @@ describe('deshacer_ultimo — no borra si el mensaje no pidio borrar', () => {
     'quita ese gasto',
     'anula el último',
     'cancela ese registro',
-    'me equivoqué',
-    'no era ese',
     'está mal, bórralo',
     'revierte eso',
+    // Desde la orden canónica (14-sep) se comparan sin tildes: la versión con `borr`/`elimin`
+    // sin tilde dejaba "elimínalo" y "quítalo" pidiendo confirmación.
+    'elimínalo',
+    'quítalo',
+    'anúlalo',
+    'cancélalo',
+    'deshaz eso, me equivoqué',
+    'sí, bórralo',
+    'Borra el último.',
+    // "me equivoqué" y "no era ese" SOLOS salieron de acá: sin un verbo de borrar son ambiguos
+    // ("me equivoqué de categoría") y ahora piden confirmación. Con la orden al lado, borran.
+    'me equivoqué, bórralo',
   ];
   it.each(ORDENES_REALES)('"%s" SI borra', async (msg) => {
     const sb = makeSupabaseMock({ transacciones: [TX_BASE] });

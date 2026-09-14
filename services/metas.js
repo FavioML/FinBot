@@ -277,25 +277,94 @@ function calcularCuotaMensual(targetAmount, currentAmount, deadline) {
 }
 
 /**
- * Analyze viability: Can the user afford the monthly quota?
- * Compares quota vs average monthly surplus (last 3 months).
- * @returns {{ viable, margenLibre, cuota, mensaje }}
+ * Cuánto hay que apartar por DÍA para llegar a la meta. Es la pregunta que hace la gente
+ * ("¿y cuánto por día?") y que el plan no contestaba: la repetía creando la meta otra vez.
+ * @returns {number|null} soles por día (redondeado hacia arriba), o null sin fecha límite
  */
-async function analizarViabilidad(usuarioId, monthlyQuota) {
-  const { construirDatosUsuario } = require('./recommendations');
-  const datos = await construirDatosUsuario(usuarioId);
+/**
+ * Días de calendario LIMA desde hoy hasta la fecha límite, contando los dos extremos (una meta
+ * que vence hoy tiene 1 día). Por fecha y no por hora: con `new Date(fecha + 'T23:59:59')` la
+ * cuenta dependía del reloj del servidor, y Railway corre en UTC, así que después de las 19:00
+ * Lima se corría en uno.
+ */
+function diasHastaInclusive(deadline, hoyStr) {
+  const hoy = hoyStr || require('../lib/dates').hoyPeru();
+  return Math.round((Date.parse(deadline + 'T00:00:00Z') - Date.parse(hoy + 'T00:00:00Z')) / 86400000) + 1;
+}
 
-  const ingresos = datos.mes_actual.ingresos;
-  const gastos = datos.mes_actual.gastos;
-  const margenLibre = Math.max(0, ingresos - gastos);
+function calcularCuotaDiaria(targetAmount, currentAmount, deadline, hoyStr) {
+  if (!deadline) return null;
+  const remaining = Math.max(0, targetAmount - (currentAmount || 0));
+  if (remaining === 0) return 0;
+  return Math.ceil(remaining / Math.max(1, diasHastaInclusive(deadline, hoyStr)));
+}
+
+/**
+ * Analyze viability: ¿le entra la cuota?
+ *
+ * Se juzga con el último mes CERRADO, y solo si el historial lo cubre entero y trae ingresos.
+ * Las dos versiones anteriores miraban el mes en curso, que no es un margen sino lo poco que
+ * alcanzó a entrar: el día 0 de 2a917ac4 (27-ago-2026) su único ingreso era S/17 y el plan le
+ * dijo "extender el plazo 190 meses". La primera corrección puso un umbral por ANTIGÜEDAD de la
+ * cuenta (30 días) y la revisión adversarial mostró que no alcanzaba: con seis meses de
+ * historial, el día 3 del mes —sueldo sin entrar— daba "llegarías en unos 412 meses".
+ *
+ * Y sin ingresos anotados no hay margen que medir: la mayoría anota solo gastos, y ahí
+ * "ingresos − gastos" es negativo por construcción, no porque no le alcance.
+ *
+ * @param {object} [opts]
+ * @param {number} [opts.restante] lo que falta para la meta; permite decir en cuántos meses
+ *   se llega con ese margen
+ * @returns {{ viable: boolean|null, sinHistorial?: boolean, margenLibre: number|null, cuota, mensaje }}
+ */
+async function analizarViabilidad(usuarioId, monthlyQuota, { restante, hoyStr } = {}) {
+  const hoy = hoyStr || require('../lib/dates').hoyPeru();
+  const [anio, mes] = hoy.split('-').map(Number);
+  const anioAnt = mes === 1 ? anio - 1 : anio;
+  const mesAnt = mes === 1 ? 12 : mes - 1;
+  const mm = String(mesAnt).padStart(2, '0');
+  const desde = anioAnt + '-' + mm + '-01';
+  const hasta = anioAnt + '-' + mm + '-' + String(new Date(Date.UTC(anioAnt, mesAnt, 0)).getUTCDate()).padStart(2, '0');
+  const sinVeredicto = (mensaje) => ({ viable: null, sinHistorial: true, margenLibre: null, cuota: monthlyQuota, mensaje });
+
+  const { data: primera, error: errPrimera } = await supabase.from('transacciones')
+    .select('fecha').eq('usuario_id', usuarioId).order('fecha', { ascending: true }).limit(1);
+  // Lanza: los dos llamadores tienen su catch, y "no pude leer" no puede salir como "no hay mes".
+  if (errPrimera) throw new Error('No se pudo leer el historial: ' + errPrimera.message);
+  const fechaPrimera = primera && primera[0] && primera[0].fecha;
+  if (!fechaPrimera || fechaPrimera > desde) {
+    return sinVeredicto('Todavía no tienes un mes completo anotado para saber cuánto te queda libre. Cuando cierre tu primer mes entero, te digo si esta cuota te entra.');
+  }
+
+  // `??` y no `||`: un `monto_pen` de 0 es un cero, no un faltante. (Un ingreso en USD con
+  // `monto_pen` NULL sigue sumando su monto crudo, igual que `recommendations.js`: está anotado.)
+  const suma = (xs) => (xs || []).reduce((s, t) => s + parseFloat(t.monto_pen ?? t.monto ?? 0), 0);
+  const [{ data: ing, error: errIng }, { data: gas, error: errGas }] = await Promise.all([
+    supabase.from('transacciones').select('monto, monto_pen').eq('usuario_id', usuarioId)
+      .eq('tipo', 'ingreso').gte('fecha', desde).lte('fecha', hasta),
+    supabase.from('transacciones').select('monto, monto_pen').eq('usuario_id', usuarioId)
+      .eq('tipo', 'gasto').gte('fecha', desde).lte('fecha', hasta),
+  ]);
+  if (errIng || errGas) throw new Error('No se pudo leer el mes anterior: ' + (errIng || errGas).message);
+  const ingresos = suma(ing);
+  if (ingresos <= 0) {
+    return sinVeredicto('No tengo anotados tus ingresos del mes pasado, así que no puedo decirte si esta cuota te entra. Si me cuentas cuánto ganas ("me pagaron 2500"), lo calculo.');
+  }
+  const margenLibre = Math.max(0, ingresos - suma(gas));
+  const q = monthlyQuota.toFixed(0);
+  const m = margenLibre.toFixed(0);
 
   const viable = margenLibre >= monthlyQuota;
-  let mensaje = '';
+  let mensaje;
   if (viable) {
-    mensaje = `Tu margen libre es S/${margenLibre.toFixed(0)}/mes — la cuota de S/${monthlyQuota.toFixed(0)} es alcanzable 💪`;
+    mensaje = `El mes pasado te quedaron libres S/${m} — la cuota de S/${q} es alcanzable 💪`;
+  } else if (margenLibre < 1) {
+    mensaje = `El mes pasado no te quedó margen libre (tus gastos igualaron o pasaron tus ingresos), así que una cuota de S/${q} hoy no te entra.`;
+  } else if (restante > 0) {
+    const meses = Math.ceil(restante / margenLibre);
+    mensaje = `El mes pasado te quedaron libres S/${m}. La cuota de S/${q} es más que eso; a ese ritmo llegarías en unos ${meses} ${meses === 1 ? 'mes' : 'meses'}.`;
   } else {
-    const mesesIdeal = Math.ceil((monthlyQuota * 1) / Math.max(1, margenLibre));
-    mensaje = `Tu margen libre es S/${margenLibre.toFixed(0)}/mes. La cuota de S/${monthlyQuota.toFixed(0)} es ajustada. Considera extender el plazo ${mesesIdeal} meses más.`;
+    mensaje = `El mes pasado te quedaron libres S/${m}, menos que la cuota de S/${q}.`;
   }
 
   return { viable, margenLibre: Math.round(margenLibre), cuota: monthlyQuota, mensaje };
@@ -375,6 +444,8 @@ module.exports = {
   // v2 — Planes de Ahorro
   calcularCuotaMensual,
   analizarViabilidad,
+  calcularCuotaDiaria,
+  diasHastaInclusive,
   ajustarDinamico,
   sugerirRecortes,
   abandonarPlan,

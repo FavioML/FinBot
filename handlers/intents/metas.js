@@ -4,6 +4,43 @@ const { generarCodigoInvitacion, ALFABETO_META } = require('../../lib/codigos-se
 // denominador de la barra de progreso y de la cuota mensual.
 const { validarMonto } = require('../../lib/validators');
 const { verificarEscritura, entro } = require('../../helpers/escritura-verificada');
+const { hoyPeru } = require('../../lib/dates');
+const { calcularCuotaDiaria, diasHastaInclusive } = require('../../services/metas');
+
+// El schema del tool pide YYYY-MM-DD, pero nadie lo normalizaba: "2026-10-31T00:00:00" o
+// "2026-9-30" daban NaN en las cuotas, "31/10/2026" reventaba el insert en la columna date, y
+// "01/12/2026" (DD/MM) se leía como fecha pasada al compararla como string. Devuelve la fecha
+// ISO o null si no se puede leer sin adivinar (incluye fechas imposibles como 31/02).
+function normalizarFechaLimite(f) {
+  const s = String(f || '').trim();
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ].*)?$/);
+  let y, mo, d;
+  if (m) [, y, mo, d] = m;
+  else if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/))) [, d, mo, y] = m;
+  else return null;
+  const iso = y + '-' + String(mo).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  const dt = new Date(iso + 'T12:00:00Z');
+  if (Number.isNaN(dt.getTime()) || dt.toISOString().slice(0, 10) !== iso) return null;
+  return iso;
+}
+
+// La cuota mensual sola no contesta lo que la gente pregunta después ("¿y por día?").
+function lineaCuotas(objetivo, actual, fechaLimite, cuotaMensual) {
+  if (!cuotaMensual) return '';
+  const diaria = calcularCuotaDiaria(objetivo, actual, fechaLimite);
+  // A menos de un mes, la mensual sale del piso de medio mes de `calcularCuotaMensual` y puede
+  // ser el DOBLE del objetivo, con la diaria al lado diciendo otra cosa ("S/2000/mes (≈ S/91 por
+  // día)" para 1000 en 10 días). Ahí la única cifra verdadera es la diaria. "Un mes" es hasta
+  // 31 días de calendario Lima: con `< 30` y el redondeo hacia arriba, una meta a 29 días salía
+  // "S/3092/mes" para un objetivo de S/3000.
+  if (fechaLimite && diaria && diasHastaInclusive(fechaLimite) <= 31) return '\n💰 Cuota: S/ ' + diaria + ' por día';
+  return '\n💰 Cuota mensual: S/ ' + cuotaMensual.toFixed(0) + '/mes' + (diaria ? ' (≈ S/ ' + diaria + ' por día)' : '');
+}
+
+// `viable: null` = sin historial para opinar, y no es ni un ✅ ni un ⚠️.
+function iconoViabilidad(v) {
+  return v.viable === null ? 'ℹ️' : v.viable ? '✅' : '⚠️';
+}
 
 module.exports = {
   intents: ['ver_metas', 'crear_meta', 'editar_meta', 'eliminar_meta', 'abonar_meta', 'compartir_meta', 'viabilidad_plan', 'abandonar_plan', 'sugerir_recortes'],
@@ -60,7 +97,17 @@ module.exports = {
           const nombreMeta = datos.nombre || 'Mi meta';
           const montoMeta = validarMonto(datos.monto);
           if (montoMeta === null) return 'Dime cuánto quieres ahorrar. Ej: _"quiero ahorrar S/5000 para julio"_.';
-          const fechaLimMeta = datos.fecha_limite || null;
+          const fechaCruda = datos.fecha_limite || null;
+          const fechaLimMeta = fechaCruda ? normalizarFechaLimite(fechaCruda) : null;
+          if (fechaCruda && !fechaLimMeta) {
+            return 'No entendí la fecha. ¿Para cuándo quieres juntar los S/ ' + montoMeta.toFixed(0) + '? Ej: _"para el 31 de diciembre"_.';
+          }
+          // Con una fecha pasada `calcularCuotaMensual` cae en su piso de medio mes y la cuota
+          // sale al doble del objetivo. No hay plan que armar ahí: se pide la fecha. Se compara
+          // YA normalizada: como string, "01/12/2026" < "2026-09-14" daba true.
+          if (fechaLimMeta && fechaLimMeta < hoyPeru()) {
+            return 'Esa fecha ya pasó. ¿Para cuándo quieres juntar los S/ ' + montoMeta.toFixed(0) + '? Ej: _"para diciembre"_.';
+          }
 
           // Enforce maxMetas for free users (only on new creation)
           // `head: true` devuelve `data: null` POR CONTRATO y el conteo en `count`, así que el
@@ -98,6 +145,38 @@ module.exports = {
             return '🎯 Ya tienes ' + countActivas + (countActivas === 1 ? ' plan de ahorro activo' : ' planes de ahorro activos') + ' (máximo ' + limitCheck.limit + ').\n\n_Con *Neto Pro* puedes crear planes ilimitados._\nEscribe "ver premium" para más info.';
           }
 
+          // Idempotencia. La pregunta que sigue a crear un plan ("¿y cuánto necesitaría ahorrar
+          // por día?") vuelve al clasificador con el plan en el historial, y gpt-4o-mini la
+          // mandaba otra vez a `crear_meta` con los mismos datos: DOS filas idénticas en
+          // `metas_ahorro` y el mismo mensaje repetido (2a917ac4, 27-ago-2026, 76 s entre una y
+          // otra). El mismo plan pedido hace minutos no es un plan nuevo: se contesta sobre el
+          // que ya existe, con la cuota por día, que era lo que se había preguntado.
+          //
+          // Esta lectura INFORMA: si cae, se sigue creando como antes (log y adelante). Un plan
+          // duplicado es menos malo que negarle el plan a alguien por una consulta accesoria.
+          const desdeDup = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+          let qDup = supabase.from('metas_ahorro')
+            .select('nombre, monto_objetivo, monto_actual, fecha_limite, monthly_quota')
+            .eq('usuario_id', usuario.id).eq('nombre', nombreMeta).eq('monto_objetivo', montoMeta)
+            // Solo un plan VIVO es el duplicado: quien abandona uno y lo vuelve a crear igual a
+            // los cinco minutos recibía "Ese plan ya lo tienes" sobre el abandonado.
+            .eq('status', 'active')
+            .gte('created_at', desdeDup);
+          qDup = fechaLimMeta ? qDup.eq('fecha_limite', fechaLimMeta) : qDup.is('fecha_limite', null);
+          const { data: metaDup, error: errDup } = await qDup.limit(1);
+          if (errDup) {
+            log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, err: errDup.message }, 'crear_meta: no se pudo buscar el mismo plan recién creado; se crea igual');
+          } else if (metaDup && metaDup.length > 0) {
+            const m = metaDup[0];
+            const objetivoM = parseFloat(m.monto_objetivo);
+            const actualM = parseFloat(m.monto_actual || 0);
+            const cuotaM = m.monthly_quota ? parseFloat(m.monthly_quota) : calcularCuotaMensual(objetivoM, actualM, m.fecha_limite);
+            return '🎯 Ese plan ya lo tienes: *' + m.nombre + '*, S/ ' + objetivoM.toFixed(2)
+              + (m.fecha_limite ? ' para el ' + formatFecha(m.fecha_limite) : '') + '.'
+              + lineaCuotas(objetivoM, actualM, m.fecha_limite, cuotaM)
+              + '\n\n_Actualiza tu progreso en https://app.neto.pe/dashboard/metas_';
+          }
+
           // Calculate monthly quota if deadline exists
           const monthlyQuota = fechaLimMeta ? calcularCuotaMensual(montoMeta, 0, fechaLimMeta) : null;
 
@@ -118,13 +197,13 @@ module.exports = {
 
           let resp = '✅ Plan de ahorro creado!\n\n🎯 *' + nombreMeta + '*\nObjetivo: S/ ' + montoMeta.toFixed(2);
           if (fechaLimMeta) resp += '\nFecha: ' + formatFecha(fechaLimMeta);
-          if (monthlyQuota) resp += '\n💰 Cuota mensual: S/ ' + monthlyQuota.toFixed(0) + '/mes';
+          resp += lineaCuotas(montoMeta, 0, fechaLimMeta, monthlyQuota);
 
           // Viability analysis for Pro users
           if (monthlyQuota && usuario.plan === 'premium') {
             try {
-              const viability = await analizarViabilidad(usuario.id, monthlyQuota);
-              resp += '\n\n' + (viability.viable ? '✅' : '⚠️') + ' ' + viability.mensaje;
+              const viability = await analizarViabilidad(usuario.id, monthlyQuota, { restante: montoMeta });
+              resp += '\n\n' + iconoViabilidad(viability) + ' ' + viability.mensaje;
             } catch (e) { /* silent — non-critical */ }
           }
 
@@ -356,11 +435,14 @@ module.exports = {
             : calcularCuotaMensual(parseFloat(meta.monto_objetivo), parseFloat(meta.monto_actual || 0), meta.fecha_limite);
           if (!cuota) return '📊 *' + meta.nombre + '* no tiene fecha límite. Agrega una para analizar viabilidad.';
 
-          const viability = await analizarViabilidad(usuario.id, cuota);
+          const restanteVp = Math.max(0, parseFloat(meta.monto_objetivo) - parseFloat(meta.monto_actual || 0));
+          const viability = await analizarViabilidad(usuario.id, cuota, { restante: restanteVp });
+          // Sin historial no hay margen que mostrar: "Margen libre: S/ null" o un S/0 inventado
+          // serían justo la afirmación que `analizarViabilidad` se niega a hacer.
           return '📊 *Viabilidad: ' + meta.nombre + '*\n\n' +
             '💰 Cuota mensual: S/ ' + cuota.toFixed(0) + '\n' +
-            '📈 Margen libre: S/ ' + viability.margenLibre + '/mes\n\n' +
-            (viability.viable ? '✅' : '⚠️') + ' ' + viability.mensaje;
+            (viability.sinHistorial ? '' : '📈 Margen libre del mes pasado: S/ ' + viability.margenLibre + '\n') + '\n' +
+            iconoViabilidad(viability) + ' ' + viability.mensaje;
         } catch (e) {
           log.error({ tag: 'VIABILIDAD', err: e.message }, 'Error análisis viabilidad');
           return 'No pude analizar la viabilidad. Intenta de nuevo.';

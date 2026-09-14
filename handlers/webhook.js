@@ -1083,7 +1083,11 @@ function createWebhookHandler(procesarMensajeLibre) {
         supabase.from('usuarios').update({ recordatorios_activos: true }).eq('id', usuario.id).select('id'),
         { sitio: 'webhook_recordar', userId: usuario.id, campos: ['recordatorios_activos'] });
       respuesta = entro(vRecordar)
-        ? '🔔 Recordatorios activados. Te avisaré a las 8pm si no registras gastos.'
+        // Decía "Te avisaré a las 8pm si no registras gastos" y ese aviso no existe: el
+        // recordatorio de inactividad se apagó el 01-sep-2026. No se enumeran los avisos a
+        // propósito: el flag no apaga los resúmenes ni las alertas de presupuesto, y la segunda
+        // versión de este texto los prometía. Lo único cierto es que vuelve lo silenciado.
+        ? '🔔 Recordatorios activados. Vuelven los avisos que habías silenciado.'
         : 'No pude activar los recordatorios. Intenta de nuevo.';
     } else if (cmd === '/manoslibres') {
       if (!getUserPlanConfig(usuario).resumenDiario) {
