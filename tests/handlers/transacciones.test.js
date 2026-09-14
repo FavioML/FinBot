@@ -985,6 +985,34 @@ describe('deshacer_ultimo — no borra si el mensaje no pidio borrar', () => {
     expect(res).toContain('borra el último');
   });
 
+  // Caso REAL contra prod (14-sep-2026, qa-dia0-respuestas.mjs): "empecemos de cero, cancela
+  // todo" llegó con `comercio: "taxi"` sacado del turno anterior, y con sujeto la guarda no se
+  // consultaba: borró el taxi. Un sujeto que el mensaje no nombra no es un sujeto.
+  it.each([
+    ['comercio del historial', { comercio: 'Starbucks' }],
+    ['monto del historial', { monto: 45.5 }],
+    ['fecha del historial', { fecha: '2026-04-01' }],
+  ])('eliminar_transaccion con %s NO borra si el mensaje no lo nombra', async (_n, datos) => {
+    const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+    const ctx = buildCtx(sb);
+    const res = await handler.handle({
+      intencion: 'eliminar_transaccion', msg: 'empecemos de cero, cancela todo',
+      datos, usuario: USUARIO, from: '+51999', ctx,
+    });
+    expect(deletesDe(sb, 'transacciones')).toBe(0);
+    expect(res).toContain('borra el último');
+  });
+
+  it('con el monto DICHO en el mensaje sigue siendo un sujeto', async () => {
+    const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+    const ctx = buildCtx(sb);
+    const res = await handler.handle({
+      intencion: 'eliminar_transaccion', msg: 'borra el de 45.50',
+      datos: { monto: 45.5 }, usuario: USUARIO, from: '+51999', ctx,
+    });
+    expect(res).not.toContain('No estoy seguro');
+  });
+
   // Y con sujeto explícito sigue borrando sin fricción: nombrar QUÉ borrar ES la orden.
   it('eliminar_transaccion CON comercio borra aunque la frase no diga "borra"', async () => {
     const sb = makeSupabaseMock({ transacciones: [TX_BASE] });

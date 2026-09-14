@@ -846,9 +846,24 @@ module.exports = {
         // Fuera del `try` a propósito: el catch la necesita para compensar (ver abajo).
         let snapshotEliminarId = null;
         try {
-          const comercioElim = datos.comercio || null;
-          const montoElimReq = datos.monto != null ? parseFloat(datos.monto) : null;
-          const fechaElimReq = datos.fecha || null;
+          // El sujeto tiene que estar EN EL MENSAJE, no solo en los `datos` del modelo (14-sep-2026).
+          // Contra prod, "empecemos de cero, cancela todo" llegó con `comercio: "taxi"`, sacado
+          // del turno anterior ("gasté 12 en taxi"), y como con sujeto la guarda no se consulta,
+          // borró el taxi. El control del commit anterior había dado el mismo texto y lo leí como
+          // "la guarda vieja falla": era este camino. Un campo que el usuario no escribió se
+          // descarta; si no queda ninguno, es un borrado SIN sujeto y pasa por `pideBorrarUnGasto`.
+          const msgNormElim = normalizarOrden(msg);
+          const numerosMsg = (String(msg || '').match(/\d+(?:[.,]\d+)?/g) || []).map((n) => parseFloat(n.replace(',', '.')));
+          const comercioNorm = datos.comercio ? normalizarOrden(datos.comercio) : '';
+          const comercioDicho = comercioNorm.length >= 2 && msgNormElim.includes(comercioNorm);
+          const montoDicho = datos.monto != null && numerosMsg.some((n) => Math.abs(n - parseFloat(datos.monto)) < 0.01);
+          const fechaDicha = !!datos.fecha && /\b(?:hoy|ayer|anteayer|antier|lunes|martes|miercoles|jueves|viernes|sabado|domingo|semana|mes|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)\b|\d/.test(msgNormElim);
+          if ((datos.comercio && !comercioDicho) || (datos.monto != null && !montoDicho) || (datos.fecha && !fechaDicha)) {
+            log.info({ tag: 'ELIMINAR_SUJETO_NO_DICHO', comercio: !!datos.comercio && !comercioDicho, monto: datos.monto != null && !montoDicho, fecha: !!datos.fecha && !fechaDicha }, 'delete con un sujeto que el mensaje no nombra: se descarta');
+          }
+          const comercioElim = comercioDicho ? datos.comercio : null;
+          const montoElimReq = montoDicho ? parseFloat(datos.monto) : null;
+          const fechaElimReq = fechaDicha ? datos.fecha : null;
           const EPS = 0.01;
 
           // Build candidate query — más preciso si hay comercio+monto+fecha
