@@ -72,7 +72,9 @@ function sinCadenas(src: string): string {
 function sinComentarios(src: string): string {
   return src
     .replace(/\/\*[\s\S]*?\*\//g, '')
-    .split('\n')
+    // `/\r?\n/`: con `'\n'` el `.*$` no cruza el `\r` de un checkout CRLF (autocrlf en Windows)
+    // y ningún `//` se quita. Rompió al hermano del backend el 14-sep.
+    .split(/\r?\n/)
     .map((l) => l.replace(/(^|\s)\/\/.*$/, '$1'))
     .join('\n');
 }

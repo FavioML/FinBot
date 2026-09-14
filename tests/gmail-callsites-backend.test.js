@@ -77,10 +77,19 @@ function sinCadenas(src) {
     .replace(/(['"`])(?:\\.|(?!\1)[^\\])*\1/g, (m) => m[0] + m[0]);
 }
 
+/**
+ * El split es `/\r?\n/` y no `'\n'`, que es como nació y lo que lo dejaba rojo en Windows: con
+ * `core.autocrlf=true` un `git checkout` deja el archivo en CRLF, cada línea termina en `\r`, y
+ * `.*$` no puede cruzarlo (`.` no matchea `\r` y sin flag `m` el `$` solo ancla al final). O sea
+ * que ningún `//` se quitaba y el comentario de `cron/checks.js` que NOMBRA la columna salía como
+ * lectura. La dirección peligrosa es la otra: el guard positivo de abajo acepta un
+ * `tieneGmailConectado(` escrito en un comentario. Es la misma lección que ya habían pagado
+ * `codigos-seguros.test.js` y `plata-validada.test.js`; este archivo copió la forma vieja.
+ */
 function sinComentarios(src) {
   return src
     .replace(/\/\*[\s\S]*?\*\//g, '')
-    .split('\n')
+    .split(/\r?\n/)
     .map((l) => l.replace(/(^|\s)\/\/.*$/, '$1'))
     .join('\n');
 }
@@ -155,6 +164,13 @@ describe('la columna legacy de Gmail no decide sola en el backend', () => {
     expect(
       decisionesSoloLegacy('const g = indexarGmail([u], c);\nif (u.gmail_access_token) {}'),
     ).toHaveLength(0);
+    // CRLF, las dos direcciones: el `//` que NOMBRA la columna no es lectura, y el `//` que
+    // nombra el helper no cuenta como usarlo (esa es la que dejaría verde un guard positivo).
+    expect(decisionesSoloLegacy('// sin filtro por gmail_access_token\r\nconst a = 1;\r\n')).toHaveLength(0);
+    expect(decisionesSoloLegacy('if (u.gmail_access_token) score += 25;\r\n')).toHaveLength(1);
+    expect(sinComentarios('// tieneGmailConectado(u)\r\nconst a = 1;\r\n')).not.toContain(
+      'tieneGmailConectado(',
+    );
   });
 
   it('nadie lee la columna legacy para decidir', () => {

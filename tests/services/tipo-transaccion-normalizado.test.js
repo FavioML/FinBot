@@ -99,9 +99,11 @@ describe('normalizarTipo — el CHECK de la base no se puede violar desde acá',
 describe('el tipo crudo entra a normalizarTipo y a ningún otro lado', () => {
   const fuente = readFileSync(join(RAIZ, 'services', 'transactions.js'), 'utf8');
   // Solo el código: los comentarios de este archivo nombran `datos.tipo` al explicar el bug.
+  // Split `/\r?\n/`: con `'\n'` el `.*$` no cruza el `\r` de un checkout CRLF y ningún `//`
+  // se quita (ver `gmail-callsites-backend.test.js`).
   const codigo = fuente
     .replace(/\/\*[\s\S]*?\*\//g, '')
-    .split('\n').map((l) => l.replace(/\/\/.*$/, '')).join('\n');
+    .split(/\r?\n/).map((l) => l.replace(/\/\/.*$/, '')).join('\n');
 
   it('la única aparición de datos.tipo es como argumento de normalizarTipo', () => {
     const apariciones = codigo.match(/datos\s*(?:\.\s*tipo\b|\[\s*['"]tipo['"]\s*\])/g) || [];
