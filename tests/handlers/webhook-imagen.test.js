@@ -308,6 +308,12 @@ describe('Imágenes de pago (Yape/Plin/banco) → Vision → transacción', () =
       expect(procesarComprobantePro).not.toHaveBeenCalled();
       expect(guardarTransaccion).toHaveBeenCalledOnce();
       expect(notificarAdmin).toHaveBeenCalled();
+      // El admin tiene que poder saber de quién es sin adivinar un UUID: nombre y teléfono,
+      // con el ID al final. La fila no trae `whatsapp` acá, así que sale del número que escribió.
+      const aviso = notificarAdmin.mock.calls[0][0];
+      expect(aviso).toContain('Cliente: Juan');
+      expect(aviso).toContain('WhatsApp: +51 999 000 111');
+      expect(aviso).toContain('ID: user-1');
       expect(enviarWhatsapp.mock.calls[0][1]).toMatch(/verificaci[óo]n/i);
     });
 

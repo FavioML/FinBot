@@ -44,10 +44,26 @@ function fallo(clave) {
 function builder(tabla) {
   let verbo = 'select';
   const filtros = [];
+  // El conteo de pagos previos (`lib/admin-ficha.js`) es un `select(..., { head: true })` que se
+  // awaitea sin single/maybeSingle. Se modela aparte: con `then` undefined el await devolvía el
+  // Proxy, su `error` era una función (truthy) y el caption decía "no pude leer" en todo test.
+  let conteo = false;
+  const todos = [];
   const b = new Proxy({}, {
     get(_t, p) {
       if (p === 'update' || p === 'insert' || p === 'delete' || p === 'upsert') {
         return () => { if (verbo === 'select') verbo = p; return b; };
+      }
+      // Solo con `count: 'exact'`, como postgrest-js: sin él `count` vuelve null.
+      if (p === 'select') return (_cols, opts) => { if (opts && opts.head && opts.count === 'exact') conteo = true; return b; };
+      if (p === 'neq' || p === 'gt') return (col, val) => { todos.push([p, col, val]); return b; };
+      if (p === 'then' && conteo) {
+        return (res, rej) => {
+          state.consultasConteo.push({ tabla, filtros: todos.concat(filtros.map(([c, v]) => ['eq', c, v])) });
+          const err = fallo(tabla + ':count');
+          return Promise.resolve(err ? { count: null, error: { message: err } } : { count: state.conteoPagos, error: null })
+            .then(res, rej);
+        };
       }
       // Los filtros se REGISTRAN. Antes la semántica condicional estaba HARDCODEADA acá
       // (`fila.estado === 'pendiente'` para cualquier verbo mutante), o sea que el fake modelaba
@@ -126,6 +142,51 @@ beforeEach(() => {
   state.trasLeerUsuario = null;
   for (const k of Object.keys(nth)) delete nth[k];
   vi.clearAllMocks();
+  state.conteoPagos = 0;
+  state.consultasConteo = [];
+});
+
+describe('el caption que queda en el chat dice quién es y qué pago fue', () => {
+  it('aprobado: teléfono legible y número de pago, contando sin esta fila', async () => {
+    state.conteoPagos = 3;
+    const r = await procesarCallbackAdmin('pro:approve:anual:pago-1');
+    expect(r.edit).toContain('✅ Aprobado (anual)');
+    expect(r.edit).toContain('Cliente: Ana');
+    expect(r.edit).toContain('WhatsApp: +51 999 888 777');
+    expect(r.edit).toContain('🔁 Pago N° 4 (recurrente)');
+    expect(r.edit).toContain('Vence: 30/09/2026');
+    const [q] = state.consultasConteo;
+    expect(q.tabla).toBe('pagos');
+    expect(q.filtros).toEqual(expect.arrayContaining([
+      ['eq', 'usuario_id', 'u-1'], ['eq', 'estado', 'aprobado'], ['gt', 'monto', 0], ['neq', 'id', 'pago-1'],
+    ]));
+  });
+
+  it('primer pago: lo marca como cliente nuevo', async () => {
+    const r = await procesarCallbackAdmin('pro:approve:mensual:pago-1');
+    expect(r.edit).toContain('🆕 Pago N° 1 (cliente nuevo)');
+  });
+
+  it('si no pudo contar, lo dice y la aprobación NO se ve afectada', async () => {
+    state.fallos['pagos:count'] = 'db caída';
+    const r = await procesarCallbackAdmin('pro:approve:mensual:pago-1');
+    expect(r.answer).toMatch(/Aprobado/);
+    expect(pro.activarPro).toHaveBeenCalledOnce();
+    expect(r.edit).toMatch(/No pude leer cuántas veces pagó/);
+    expect(r.edit).not.toMatch(/cliente nuevo/);
+  });
+
+  it('el conteo corre DESPUÉS de activar: si activarPro falla no se consulta nada', async () => {
+    pro.activarPro.mockRejectedValueOnce(new Error('boom'));
+    await procesarCallbackAdmin('pro:approve:mensual:pago-1');
+    expect(state.consultasConteo).toEqual([]);
+  });
+
+  it('rechazado: también con teléfono', async () => {
+    const r = await procesarCallbackAdmin('pro:reject:pago-1');
+    expect(r.edit).toContain('❌ Rechazado');
+    expect(r.edit).toContain('WhatsApp: +51 999 888 777');
+  });
 });
 
 describe('approve · nada irreversible pasa antes de tener al usuario', () => {

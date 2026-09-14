@@ -11,6 +11,7 @@ const { guardarTransaccion, obtenerGastosMes, recategorizarTransaccion } = requi
 const { guardarPresupuesto, formatearEstadoPresupuesto } = require('../services/budget');
 const { parsearCorreoBancario } = require('../services/parsers');
 const { notificarErrorAdmin, notificarAdmin } = require('../lib/admin-notify');
+const { lineasIdentidad } = require('../lib/admin-ficha');
 const { registrarError, msgErr } = require('../lib/error-monitor');
 const { registrarReferido, obtenerEstadisticasReferidos, mensajeMisReferidos } = require('../services/referrals');
 const { obtenerCategoriasUsuario } = require('../services/categories');
@@ -452,11 +453,12 @@ function createWebhookHandler(procesarMensajeLibre) {
               { stack: eClaim && eClaim.stack, whatsapp: numero, bsuid, usuarioId: usuario.id });
             try { await guardarTransaccion(usuario.id, { ...parsed, fecha: parsed.fecha || hoy }); }
             catch (eDup) { log.error({ tag: 'PRO_PAGO', err: msgErr(eDup) }, 'Error registrando tx de captura con claim fallido'); }
-            await notificarAdmin('⚠️ No se pudo abrir la solicitud Pro de `' + usuario.id + '`: ' + detalleClaim +
+            await notificarAdmin('⚠️ No se pudo abrir la solicitud Pro: ' + detalleClaim + '\n\n' +
+              lineasIdentidad({ ...usuario, whatsapp: usuario.whatsapp || numero }, { conId: true }).join('\n') +
               '\n\nVision leyó: *' + (parsed.comercio || '(sin comercio)') + '* — ' + parsed.monto +
               '\n\nEl gasto quedó anotado y se le pidió reenviar la captura. Si no vuelve, el pago no figura en ningún lado.' +
-              '\n\n⚠️ El UPDATE pudo haber commiteado antes de perderse la respuesta: revisá ' +
-              '`usuarios.pago_pendiente` de ese id y, si quedó en true sin fila en `pagos`, bajalo a mano.');
+              '\n\n⚠️ El UPDATE pudo haber commiteado antes de perderse la respuesta: revisa ' +
+              '`usuarios.pago_pendiente` de ese id y, si quedó en true sin fila en `pagos`, bájalo a mano.');
             await enviarWhatsapp(from, 'No pude registrar tu comprobante en este momento. Lo anoté como gasto para no perderlo — *reenvíamela en un ratito* para activar tu Pro. 🙏');
             return;
           }
@@ -469,8 +471,9 @@ function createWebhookHandler(procesarMensajeLibre) {
             // hash, así que reenviar la MISMA foto no duplica la fila.
             try { await guardarTransaccion(usuario.id, { ...parsed, fecha: parsed.fecha || hoy }); }
             catch (eDup) { log.error({ tag: 'PRO_PAGO', err: msgErr(eDup) }, 'Error registrando tx de captura con solicitud pendiente'); }
-            await notificarAdmin('⏳ El usuario `' + usuario.id + '` mandó OTRA captura que parece un pago a Neto ' +
-              'y ya tiene una solicitud sin resolver.\n\nVision leyó: *' + (parsed.comercio || '(sin comercio)') + '* — ' + parsed.monto + '\n\n' +
+            await notificarAdmin('⏳ OTRA captura que parece un pago a Neto, de alguien que ya tiene una solicitud sin resolver.\n\n' +
+              lineasIdentidad({ ...usuario, whatsapp: usuario.whatsapp || numero }, { conId: true }).join('\n') +
+              '\n\nVision leyó: *' + (parsed.comercio || '(sin comercio)') + '* — ' + parsed.monto + '\n\n' +
               'Si la solicitud pendiente era un falso positivo, ESTA puede ser el pago de verdad. El gasto quedó anotado igual.');
             await enviarWhatsapp(from, '⏳ Ya tenemos un comprobante tuyo en verificación, así que este lo anoté como gasto. Te confirmamos en breve.');
             return;

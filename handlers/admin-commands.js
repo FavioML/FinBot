@@ -2,6 +2,7 @@ const { supabase } = require('../lib/db');
 const { activarPro, rechazarSolicitudPro, reclamarPagoPendiente } = require('../lib/pro-payment');
 const { responderTicket, listarTicketsPendientes, cerrarSesion } = require('../lib/support-tickets');
 const { esProPagado, enTrial } = require('../lib/trial');
+const { lineasIdentidad, contarPagosConPlata, lineaHistorialAprobado } = require('../lib/admin-ficha');
 const log = require('../lib/logger');
 
 /**
@@ -269,7 +270,15 @@ async function procesarCallbackAdmin(data) {
         }
         return { answer: '⚠️ No se activó Pro y la solicitud NO volvió a pendiente. Revisar a mano — NO uses /activar (registra S/0).' };
       }
-      return { answer: 'Aprobado ✅', edit: '✅ Aprobado (' + tipoPlan + ') — ' + (usuario.nombre || usuario.whatsapp) + '\nVence: ' + venceStr };
+      // El caption editado es lo que queda en el chat: lleva teléfono y número de pago, que el
+      // de la foto traía y antes se perdían al aprobar. Se cuenta sin esta fila y se suma 1, así
+      // no depende de si `activarPro` ya le completó el monto.
+      const previos = await contarPagosConPlata(usuario.id, { excluirPagoId: pagoId });
+      return {
+        answer: 'Aprobado ✅',
+        edit: '✅ Aprobado (' + tipoPlan + ')\n' + lineasIdentidad(usuario).join('\n') + '\n' +
+          lineaHistorialAprobado(previos) + '\nVence: ' + venceStr,
+      };
     }
     if (accion === 'reject') {
       const pagoId = parts[2];
@@ -301,13 +310,14 @@ async function procesarCallbackAdmin(data) {
       // La comparación es explícita contra `false` y no `!resRechazo.claimLimpio` a propósito:
       // los tests que mockean esta función devuelven `undefined`, y un `!undefined` los haría
       // gritar sobre rechazos sanos.
+      const quienRechazado = '❌ Rechazado\n' + lineasIdentidad(usuario).join('\n');
       if (resRechazo && resRechazo.claimLimpio === false) {
         return {
           answer: '⚠️ Rechazado, pero quedó trabado: pon `pago_pendiente` en false a mano o no podrá volver a pagar.',
-          edit: '❌ Rechazado — ' + (usuario.nombre || usuario.whatsapp) + '\n⚠️ pago_pendiente quedó trabado: límpialo a mano.',
+          edit: quienRechazado + '\n⚠️ pago_pendiente quedó trabado: límpialo a mano.',
         };
       }
-      return { answer: 'Rechazado', edit: '❌ Rechazado — ' + (usuario.nombre || usuario.whatsapp) };
+      return { answer: 'Rechazado', edit: quienRechazado };
     }
     return { answer: 'Acción no reconocida' };
   } catch (e) {
