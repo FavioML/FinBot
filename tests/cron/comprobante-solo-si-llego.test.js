@@ -79,11 +79,15 @@ function makeChain(table) {
   return chain;
 }
 
+// Las tablas donde el cron INSERTÓ durante el caso. Existe para una sola pregunta: si el upsell
+// se saltó a alguien, ¿se quemó igual su one-shot en `survey_events`?
+let insertsEnTabla = [];
+
 const dbMock = {
   supabase: {
     from: vi.fn((t) => {
       const base = makeChain(t);
-      return { ...base, update: () => makeChain(t), insert: () => makeChain(t) };
+      return { ...base, update: () => makeChain(t), insert: () => { insertsEnTabla.push(t); return makeChain(t); } };
     }),
   },
 };
@@ -136,6 +140,11 @@ beforeEach(() => {
   notificar.mockClear();
   usuariosData = [];
   selectsUsuarios = [];
+  // El upsell ya no le escribe a quien tiene 0 gastos (ítem 34), así que el default de los
+  // casos que ejercitan la rama es "anotó algo". Los que prueban el corte lo bajan a 0.
+  txCount = 1;
+  txError = null;
+  insertsEnTabla = [];
 });
 
 /**
@@ -287,7 +296,11 @@ describe('upsell d28: el correo sólo a quien anotó algo', () => {
     expect(JSON.stringify(arg)).not.toMatch(/activar\?t=/);
   });
 
-  it('sin gastos: no declara correo ni texto propio (WhatsApp y campana salen igual)', async () => {
+  // Ítem 34 (decisión de Favio, 14-sep-2026): sin gastos no hay upsell por NINGÚN canal. La
+  // prueba arranca con el primer gasto, así que a esa persona "llevas 1 mes, ahí está todo
+  // guardado" le afirma algo falso; su recordatorio es el de primer gasto. El caso de arriba,
+  // con el MISMO fixture y un gasto, es el control de que la rama se alcanza.
+  it('sin gastos: no le llega el upsell por ningún canal', async () => {
     vi.setSystemTime(new Date(OCHO_PM_LIMA));
     usuariosData = conCorreo();
     txCount = 0;
@@ -295,24 +308,27 @@ describe('upsell d28: el correo sólo a quien anotó algo', () => {
 
     await checkUpsellPro();
 
-    expect(notificar, 'el cron no llegó a la rama del upsell').toHaveBeenCalledTimes(1);
-    const arg = argumento();
-    expect(arg).not.toHaveProperty('email');
-    expect(arg).not.toHaveProperty('cuerpo');
-    expect(arg.canales).toBeDefined();
+    expect(notificar, 'el upsell salió a alguien sin un solo gasto').not.toHaveBeenCalled();
+    expect(solicitar).not.toHaveBeenCalled();
+    // Y sin quemar el one-shot: una fila `pro_upsell_d28` de un aviso que no salió ensucia la
+    // anti-fatiga y /admin/surveys.
+    expect(insertsEnTabla, 'se reclamó el one-shot de un aviso que no salió').not.toContain('survey_events');
   });
 
-  it('si no se pudo contar, falla cerrado: sin correo', async () => {
+  it('si no se pudo contar, no sale nada ni se quema el one-shot: reintenta la noche siguiente', async () => {
     vi.setSystemTime(new Date(OCHO_PM_LIMA));
     usuariosData = conCorreo();
     txCount = 12;
     txError = { message: 'timeout' };
     notificar.mockResolvedValue(AMBOS_CANALES);
+    logMock.error.mockClear();
 
     await checkUpsellPro();
 
-    expect(notificar, 'el cron no llegó a la rama del upsell').toHaveBeenCalledTimes(1);
-    expect(argumento()).not.toHaveProperty('email');
+    expect(notificar, 'sin conteo el upsell salió a ciegas').not.toHaveBeenCalled();
+    expect(insertsEnTabla, 'se reclamó el one-shot de un aviso que no salió').not.toContain('survey_events');
+    expect(logMock.error.mock.calls.some((c) => c[0] && c[0].tag === 'UPSELL_PRO'),
+      'el fallo del conteo no dejó rastro').toBe(true);
   });
 });
 

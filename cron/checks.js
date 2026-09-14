@@ -231,6 +231,27 @@ async function checkUpsellPro() {
           if (errFatiga) throw errFatiga;
           if (recentEvents && recentEvents.length > 0) continue;
 
+          // Sin gastos, sin upsell (decisión de Favio, 14-sep-2026, ítem 34 del backlog). La
+          // prueba arranca con el primer gasto, así que quien terminó el alta y nunca anotó nada
+          // sigue en `free` y caía acá: recibía "llevas 1 mes, ahí está todo guardado", falso
+          // para él (41 de 58 envíos históricos fueron a gente que nunca tuvo prueba). Ojo: el
+          // recordatorio de primer gasto solo actúa entre 3 y 18 horas después del alta, así que
+          // al día 28 alguien sin gastos no recibe nada por ningún canal. Es la decisión escrita,
+          // no un hueco que otro cron cubra.
+          //
+          // Va ANTES del claim en `survey_events` a propósito: después, quedaría una fila
+          // `pro_upsell_d28` de un aviso que no salió, y esa tabla es la que leen la anti-fatiga
+          // y /admin/surveys. Y falla CERRADO con reintento, mismo criterio que la anti-fatiga de
+          // arriba: sin conteo se salta al usuario y la noche siguiente (la ventana es de 3) se
+          // vuelve a intentar. Mandarlo a ciegas reabriría justo el caso que este corte cierra.
+          const { count: txTotal, error: errTx } = await supabase.from('transacciones')
+            .select('id', { count: 'exact', head: true }).eq('usuario_id', usuario.id);
+          if (errTx) throw errTx;
+          // postgrest-js convierte el 404 de un HEAD (cuerpo vacío) en `{count:null, error:null}`.
+          // Sin esta línea eso saltaría a TODOS en silencio; así es un reintento con rastro.
+          if (txTotal == null) throw new Error('conteo de transacciones sin count');
+          if (!txTotal) continue;
+
           // El copy vendía el Free viejo ("historial completo, no solo este mes"), que
           // describía un plan gratuito permanente que ya no existe: hoy `free` ES el muro
           // y no tiene historial ninguno. A quien le llega esto ya terminó su prueba, así
@@ -262,18 +283,12 @@ async function checkUpsellPro() {
             throw insertErr;
           }
 
-          // ─── Correo, texto y link propios: SOLO para quien anotó algo (14-sep-2026) ────────
+          // ─── Correo, texto y link propios (14-sep-2026) ─────────────────────────────────────
           //
           // Por WhatsApp llegó 0 de 36 (el destinatario terminó su prueba hace ~2 semanas y casi
-          // nunca está dentro de la ventana de 24h), así que se le sumó correo. Pero el correo
-          // AFIRMA — "tus gastos siguen guardados" — y este cron no mira `transacciones`: el
-          // trial arranca con el primer gasto, así que quien terminó el alta y nunca anotó nada
-          // sigue en `free` y cae acá igual. Medido por la revisión adversarial: 26 de 55
-          // destinatarios históricos con correo tenían 0 gastos. Mismo criterio que
-          // `trial_vencido`: la honestidad de la afirmación decide si hay correo.
-          //
-          // Falla CERRADO: sin conteo no hay correo. WhatsApp y campana salen igual, con el texto
-          // de siempre.
+          // nunca está dentro de la ventana de 24h), así que se le sumó correo. Acá ya se sabe
+          // que anotó al menos un gasto (el corte de más arriba), así que "tus gastos siguen
+          // guardados" es cierto para todos los que llegan.
           //
           // El `cuerpo` propio existe porque el correo y la campana derivan su texto del de
           // WhatsApp, y ese texto pide "Yapea y envíame la captura" y "Escribe /premium": por
@@ -289,13 +304,7 @@ async function checkUpsellPro() {
           // dirección vieja) abriría el link y adoptaría la cuenta. Con cuenta web el link es el
           // panel, que exige iniciar sesión. El link fijo ya no es riesgo: sólo viaja en esa rama.
           //
-          // El conteo va DESPUÉS del claim a propósito: si falla, el one-shot se quema sin correo,
-          // pero WhatsApp y campana salen igual (revisión, severidad baja, aceptado).
-          const { count: txTotal, error: errTx } = await supabase.from('transacciones')
-            .select('id', { count: 'exact', head: true }).eq('usuario_id', usuario.id);
-          if (errTx) log.warn({ tag: 'UPSELL_PRO', userId: usuario.id, err: errTx.message }, 'Sin conteo de gastos: el upsell no sale por correo (WhatsApp y campana salen igual)');
-          const anotoAlgo = !errTx && (txTotal || 0) > 0;
-          const conCorreo = anotoAlgo && !!usuario.supabase_auth_id;
+          const conCorreo = !!usuario.supabase_auth_id;
           const cuerpoConCorreo = 'Tus gastos siguen guardados y no se borró nada. Con Neto Pro vuelves a ver ' +
             'tus gráficos por categoría, el historial completo, presupuestos y reportes. Cuesta S/' +
             PRO_PRECIOS.mensual + ' al mes o S/' + PRO_PRECIOS.anual + ' al año.';

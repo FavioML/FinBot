@@ -442,6 +442,8 @@ describe('un dedup que no se puede leer no reenvía el aviso', () => {
       created_at: new Date(Date.now() - 29 * 86400000).toISOString(),
     }];
     tablas.survey_events = [];
+    // Sin gastos no hay upsell (ítem 34): el fixture tiene que haber anotado algo.
+    tablas.transacciones = [{ id: 't-u', usuario_id: PRO.id, fecha: '2026-08-01' }];
 
     // Control: con survey_events sana, este usuario SÍ recibe el upsell.
     await checks.checkUpsellPro();
@@ -762,6 +764,8 @@ describe('un ledger que no se puede escribir no se pierde en silencio', () => {
     vi.setSystemTime(enLima('2026-08-20T20:05:00'));
     tablas.usuarios = [{ ...PRO, plan: 'free', created_at: new Date(Date.now() - 29 * 86400000).toISOString() }];
     tablas.survey_events = [];
+    // Sin gastos no hay upsell (ítem 34): el fixture tiene que haber anotado algo.
+    tablas.transacciones = [{ id: 't-u', usuario_id: PRO.id, fecha: '2026-08-01' }];
     erroresEscritura.survey_events = { message: 'boom' };
     await checks.checkUpsellPro();
     expect(notificar, 'se envió sin dejar la marca: mañana sale igual').not.toHaveBeenCalled();
@@ -773,8 +777,31 @@ describe('un ledger que no se puede escribir no se pierde en silencio', () => {
     vi.setSystemTime(enLima('2026-08-20T20:05:00'));
     tablas.usuarios = [{ ...PRO, plan: 'free', created_at: new Date(Date.now() - 29 * 86400000).toISOString() }];
     tablas.survey_events = [];
+    // Sin gastos no hay upsell (ítem 34): el fixture tiene que haber anotado algo.
+    tablas.transacciones = [{ id: 't-u', usuario_id: PRO.id, fecha: '2026-08-01' }];
     await checks.checkUpsellPro();
     expect(notificar).toHaveBeenCalled();
+  });
+
+  /**
+   * Ítem 34: el corte por "0 gastos" salta a ESA persona y sigue con la siguiente. Con un solo
+   * usuario en el fixture, un `return`/`break` en lugar del `continue`, o un conteo que no filtra
+   * por usuario, pasaban toda la suite (revisión adversarial del 14-sep-2026). Acá el usuario sin
+   * gastos va PRIMERO, y este mock sí filtra por `eq`.
+   */
+  it('upsell: un usuario sin gastos no corta la corrida para los que vienen detrás', async () => {
+    vi.setSystemTime(enLima('2026-08-20T20:05:00'));
+    const hace29 = new Date(Date.now() - 29 * 86400000).toISOString();
+    tablas.usuarios = [
+      { ...PRO, id: 'u-sin-gastos', whatsapp: '51900000009', plan: 'free', created_at: hace29 },
+      { ...PRO, plan: 'free', created_at: hace29 },
+    ];
+    tablas.survey_events = [];
+    tablas.transacciones = [{ id: 't-u', usuario_id: PRO.id, fecha: '2026-08-01' }];
+    await checks.checkUpsellPro();
+    expect(notificar, 'el de atrás no recibió su upsell, o lo recibió también el que no anotó nada').toHaveBeenCalledTimes(1);
+    expect(notificar.mock.calls[0][0].usuarioId).toBe(PRO.id);
+    expect(escrituras.filter((e) => e.tabla === 'survey_events' && e.op === 'insert')).toHaveLength(1);
   });
 
   /**
