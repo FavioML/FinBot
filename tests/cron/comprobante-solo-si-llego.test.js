@@ -51,6 +51,10 @@ let usuariosData = [];
 // puede ver el hueco de abajo: con la DB mockeada, un select al que le falta una columna
 // devuelve las filas del fixture igual.
 let selectsUsuarios = [];
+// El conteo de `transacciones` que ve el upsell para decidir si declara correo. Default 0 y sin
+// error, que es lo que devolvía el mock genérico antes de que el upsell lo leyera.
+let txCount = 0;
+let txError = null;
 const solicitar = vi.fn().mockResolvedValue(true);
 const notificar = vi.fn();
 
@@ -69,6 +73,7 @@ function makeChain(table) {
   chain.maybeSingle = () => Promise.resolve({ data: null, error: null });
   chain.then = (resolve) => {
     if (table === 'usuarios') return resolve({ data: usuariosData, error: null });
+    if (table === 'transacciones') return resolve({ data: null, error: txError, count: txError ? null : txCount });
     return resolve({ data: [], error: null, count: 0 });
   };
   return chain;
@@ -227,6 +232,87 @@ describe('upsell d28: la ventana de comprobante solo se abre si hay dónde ver e
 
     expect(notificar, 'el cron no llegó a la rama del upsell').toHaveBeenCalled();
     expect(solicitar).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * El correo del upsell AFIRMA "tus gastos siguen guardados", y el cron no filtra por uso: quien
+ * terminó el alta y nunca anotó nada sigue en `free` y cae en la rama igual. La revisión
+ * adversarial del 14-sep-2026 midió 26 de 55 destinatarios con correo en 0 gastos. Estos casos
+ * fijan que el canal de correo (y el texto propio que lo acompaña) sólo se declara con uso, y
+ * que falla cerrado cuando no se puede contar.
+ */
+describe('upsell d28: el correo sólo a quien anotó algo', () => {
+  const conCorreo = () => ([{
+    id: 'u4', whatsapp: null, email: 'dana@example.com', nombre: 'Dana', plan: 'free',
+    recordatorios_activos: true, supabase_auth_id: CON_WEB,
+    created_at: new Date(Date.now() - 29 * 86400000).toISOString(),
+  }]);
+  const argumento = () => notificar.mock.calls[0][0];
+
+  beforeEach(() => { txCount = 0; txError = null; });
+  afterAll(() => { txCount = 0; txError = null; });
+
+  it('con gastos: declara correo, y el texto no pide cosas que por correo no se pueden hacer', async () => {
+    vi.setSystemTime(new Date(OCHO_PM_LIMA));
+    usuariosData = conCorreo();
+    txCount = 12;
+    notificar.mockResolvedValue(AMBOS_CANALES);
+
+    await checkUpsellPro();
+
+    expect(notificar, 'el cron no llegó a la rama del upsell').toHaveBeenCalledTimes(1);
+    const arg = argumento();
+    expect(arg.email).toEqual({ to: 'dana@example.com', asunto: expect.any(String) });
+    expect(arg.cuerpo).toEqual(expect.any(String));
+    expect(arg.cuerpo).not.toMatch(/captura|\/premium|\*/);
+    // El botón del correo necesita URL absoluta, y con cuenta web el destino es el panel.
+    expect(arg.link).toMatch(/^https?:\/\/.+\/dashboard\/pro$/);
+    // Sin la columna, `to` queda undefined y el canal se apaga con cara de encendido (ítem 17).
+    expect(selectsUsuarios.some((c) => /\bemail\b/.test(c)), 'el select de usuarios no trae email').toBe(true);
+  });
+
+  it('con gastos pero SIN cuenta web: no hay correo (el link de activación no puede viajar a una bandeja sin verificar)', async () => {
+    vi.setSystemTime(new Date(OCHO_PM_LIMA));
+    usuariosData = [{ ...conCorreo()[0], whatsapp: '51955444333', supabase_auth_id: null }];
+    txCount = 12;
+    notificar.mockResolvedValue(AMBOS_CANALES);
+
+    await checkUpsellPro();
+
+    expect(notificar, 'el cron no llegó a la rama del upsell').toHaveBeenCalledTimes(1);
+    const arg = argumento();
+    expect(arg).not.toHaveProperty('email');
+    expect(arg).not.toHaveProperty('cuerpo');
+    expect(JSON.stringify(arg)).not.toMatch(/activar\?t=/);
+  });
+
+  it('sin gastos: no declara correo ni texto propio (WhatsApp y campana salen igual)', async () => {
+    vi.setSystemTime(new Date(OCHO_PM_LIMA));
+    usuariosData = conCorreo();
+    txCount = 0;
+    notificar.mockResolvedValue(AMBOS_CANALES);
+
+    await checkUpsellPro();
+
+    expect(notificar, 'el cron no llegó a la rama del upsell').toHaveBeenCalledTimes(1);
+    const arg = argumento();
+    expect(arg).not.toHaveProperty('email');
+    expect(arg).not.toHaveProperty('cuerpo');
+    expect(arg.canales).toBeDefined();
+  });
+
+  it('si no se pudo contar, falla cerrado: sin correo', async () => {
+    vi.setSystemTime(new Date(OCHO_PM_LIMA));
+    usuariosData = conCorreo();
+    txCount = 12;
+    txError = { message: 'timeout' };
+    notificar.mockResolvedValue(AMBOS_CANALES);
+
+    await checkUpsellPro();
+
+    expect(notificar, 'el cron no llegó a la rama del upsell').toHaveBeenCalledTimes(1);
+    expect(argumento()).not.toHaveProperty('email');
   });
 });
 

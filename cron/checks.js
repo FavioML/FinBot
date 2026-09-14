@@ -6,7 +6,7 @@ const { generarResumenSemanal, generarResumenMensual, generarResumenDiario } = r
 const { verificarAlertasProactivas } = require('../services/recommendations');
 const { obtenerDeudasProximasVencer, obtenerDeudasParaResumenSemanal } = require('../services/debts');
 const { notificarUsuario, CANALES } = require('../lib/notify-user');
-const { ADMIN_NUMBER, lineaPrecioPro } = require('../lib/config');
+const { ADMIN_NUMBER, lineaPrecioPro, PRO_PRECIOS } = require('../lib/config');
 const { WEBAPP_URL } = require('../lib/constants');
 const { formatFecha } = require('../lib/formatters');
 const { notificarAdmin } = require('../lib/admin-notify');
@@ -168,7 +168,9 @@ async function checkUpsellPro() {
       // `bsuid` alimenta el `channel` del insert de más abajo: quien oculta su número recibe el
       // upsell por WhatsApp igual (`enviarWhatsapp` lo resuelve por usuarioId), y anotarlo
       // `in_app` le rompería la anti-fatiga de 3 días.
-      .select('id, whatsapp, bsuid, nombre, plan, recordatorios_activos, created_at, supabase_auth_id')
+      // `email` alimenta el tercer canal: el chokepoint no lee la base, así que el correo lo
+      // declara el llamador con la columna ya en la fila.
+      .select('id, whatsapp, bsuid, nombre, plan, recordatorios_activos, created_at, supabase_auth_id, email')
       .eq('onboarding_completado', true);
     // Sin leer el error, una caída de Supabase acá se lee como "no hay nadie a quien
     // recordarle nada" y la corrida de las 8pm se apaga entera sin dejar nada.
@@ -260,6 +262,44 @@ async function checkUpsellPro() {
             throw insertErr;
           }
 
+          // ─── Correo, texto y link propios: SOLO para quien anotó algo (14-sep-2026) ────────
+          //
+          // Por WhatsApp llegó 0 de 36 (el destinatario terminó su prueba hace ~2 semanas y casi
+          // nunca está dentro de la ventana de 24h), así que se le sumó correo. Pero el correo
+          // AFIRMA — "tus gastos siguen guardados" — y este cron no mira `transacciones`: el
+          // trial arranca con el primer gasto, así que quien terminó el alta y nunca anotó nada
+          // sigue en `free` y cae acá igual. Medido por la revisión adversarial: 26 de 55
+          // destinatarios históricos con correo tenían 0 gastos. Mismo criterio que
+          // `trial_vencido`: la honestidad de la afirmación decide si hay correo.
+          //
+          // Falla CERRADO: sin conteo no hay correo. WhatsApp y campana salen igual, con el texto
+          // de siempre.
+          //
+          // El `cuerpo` propio existe porque el correo y la campana derivan su texto del de
+          // WhatsApp, y ese texto pide "Yapea y envíame la captura" y "Escribe /premium": por
+          // correo es inaccionable, y 20 de 26 del próximo cohorte no tienen WhatsApp. Sin
+          // asteriscos ni emoji: un `cuerpo` explícito no pasa por `sanitizarParaWeb`. Tampoco
+          // nombra Gmail, que en una bandeja exigiría el framing de beta y opt-in.
+          //
+          // Y el correo va SOLO a quien tiene cuenta web, por seguridad (segunda revisión, 14-sep).
+          // Sin `supabase_auth_id` el único link útil es el de activación (`/activar?t=`), que
+          // prueba la posesión del NÚMERO porque sale del chat de ese número. Por correo esa
+          // premisa se rompe: el `email` de esas filas lo dictó la persona en el alta viejo por
+          // WhatsApp y nadie lo verificó, así que quien controle esa bandeja (un typo, una
+          // dirección vieja) abriría el link y adoptaría la cuenta. Con cuenta web el link es el
+          // panel, que exige iniciar sesión. El link fijo ya no es riesgo: sólo viaja en esa rama.
+          //
+          // El conteo va DESPUÉS del claim a propósito: si falla, el one-shot se quema sin correo,
+          // pero WhatsApp y campana salen igual (revisión, severidad baja, aceptado).
+          const { count: txTotal, error: errTx } = await supabase.from('transacciones')
+            .select('id', { count: 'exact', head: true }).eq('usuario_id', usuario.id);
+          if (errTx) log.warn({ tag: 'UPSELL_PRO', userId: usuario.id, err: errTx.message }, 'Sin conteo de gastos: el upsell no sale por correo (WhatsApp y campana salen igual)');
+          const anotoAlgo = !errTx && (txTotal || 0) > 0;
+          const conCorreo = anotoAlgo && !!usuario.supabase_auth_id;
+          const cuerpoConCorreo = 'Tus gastos siguen guardados y no se borró nada. Con Neto Pro vuelves a ver ' +
+            'tus gráficos por categoría, el historial completo, presupuestos y reportes. Cuesta S/' +
+            PRO_PRECIOS.mensual + ' al mes o S/' + PRO_PRECIOS.anual + ' al año.';
+
           // Es el mensaje comercial de mayor valor del producto y salía por el canal menos
           // fiable, así que va por los dos.
           //
@@ -273,6 +313,16 @@ async function checkUpsellPro() {
             tipo: 'pro_upsell_d28', mensaje: upsellMsg,
             titulo: 'Llevas 1 mes usando Neto',
             link: '/dashboard/pro',
+            // Con gastos y cuenta web (ver arriba): pisa `link` y agrega `cuerpo` y `email`. Es
+            // one-shot por persona (índice único en `survey_events`): no puede producir ráfaga.
+            // Escrito INLINE a propósito: los dos guards de correo leen los argumentos literales
+            // de esta llamada, y un objeto armado en una variable les esconde el canal.
+            ...(conCorreo ? {
+              link: WEBAPP_URL + '/dashboard/pro',
+              cuerpo: cuerpoConCorreo,
+              // Sin emoji en el asunto: es lo que miran los filtros de spam antes de decidir.
+              email: { to: usuario.email || null, asunto: 'Llevas un mes con Neto y tus gastos siguen guardados' },
+            } : {}),
           });
           // Misma guarda que los avisos de vencimiento (ver `llegoElAviso`): sin un lugar donde
           // el aviso lo espere, no se abre la ventana de 48h que convierte toda foto en
