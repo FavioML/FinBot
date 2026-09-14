@@ -151,13 +151,14 @@ describe('survey_events: escritores y lectores hablan del mismo conjunto de cana
    * **La otra mitad, que este archivo no miraba hasta el 01-sep-2026 (ítem 23).**
    *
    * El acoplamiento que documenta el docblock de arriba tiene DOS escritores, no uno: el
-   * `insert` de `checkUpsellPro` y el de `registrarEvento`, que sirve a los OCHO triggers de
-   * `services/survey-triggers.js`. El de arriba se arregló el 27-ago; el de acá siguió fijando
-   * `'whatsapp'` cuatro días más, y no se veía porque este archivo solo barría `CHECKS`.
+   * `insert` de `checkUpsellPro` y el de `registrarEvento`, que sirve a los triggers de
+   * `services/survey-triggers.js` (ocho entonces, seis desde el 14-sep-2026). El de arriba se
+   * arregló el 27-ago; el de acá siguió fijando `'whatsapp'` cuatro días más, y no se veía
+   * porque este archivo solo barría `CHECKS`.
    *
    * Mientras el cron cortaba a quien no tenía número la etiqueta era cierta por accidente. Al
-   * sacar ese corte pasó a ser la falla nº1 del docblock, literal: la columna miente, y los
-   * ocho triggers se apagan siete días para alguien a quien nunca se le mandó un WhatsApp.
+   * sacar ese corte pasó a ser la falla nº1 del docblock, literal: la columna miente, y todos
+   * los triggers se apagan siete días para alguien a quien nunca se le mandó un WhatsApp.
    *
    * Los call-sites NO son iguales, y por eso el barrido los cuenta en vez de exigirles a todos
    * la misma forma: `maybeWebappInvite` manda por `SOLO_WHATSAPP`, así que ahí `'in_app'` sería
@@ -175,7 +176,7 @@ describe('survey_events: escritores y lectores hablan del mismo conjunto de cana
     const llamadas = [...TRIGGERS.matchAll(/registrarEvento\(\{([\s\S]{0,600}?)\n {2}\}\)/g)]
       .map((m) => m[1])
       // La DEFINICIÓN (`function registrarEvento({ userId, eventType, channel, … })`) matchea
-      // igual y no es un call-site. Se distingue por la forma abreviada: los cinco llamadores
+      // igual y no es un call-site. Se distingue por la forma abreviada: los llamadores
       // escriben `userId: …`, la firma escribe `userId,`.
       .filter((cuerpo) => /userId:/.test(cuerpo));
     // Antivacuidad: si el barrido deja de matchear, esto se ve igual que "todos correctos".

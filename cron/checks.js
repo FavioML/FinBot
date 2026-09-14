@@ -147,7 +147,7 @@ async function checkResumenSemanal() {
  *
  * `webapp` queda AFUERA a propósito y no por olvido: es lo que usa `nps_inapp`, una encuesta
  * que se muestra dentro de la app cuando la persona ya está ahí. Eso no es un empuje y no
- * debería gastar la ventana de fatiga de los ocho triggers.
+ * debería gastar la ventana de fatiga de los seis triggers.
  *
  * **El cambio es demostrablemente inocuo para los datos que ya existen**: al 27-ago hay 396
  * filas y ninguna con `in_app` (396 `whatsapp` + 6 `webapp`), así que este `.in()` selecciona

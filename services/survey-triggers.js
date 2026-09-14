@@ -406,7 +406,7 @@ async function maybeWebappInvite(usuario) {
   const eventoId = await registrarEvento({
     userId: usuario.id,
     eventType: 'webapp_invite_10tx',
-    // Fijo, y es el unico de los cinco que lo es: el envio de abajo es SOLO_WHATSAPP, o sea
+    // Fijo, y es el unico de los tres que lo es: el envio de abajo es SOLO_WHATSAPP, o sea
     // que aca nunca se escribe una campana. Escribir `in_app` seria decir que salio por un
     // canal que este trigger no usa.
     //
@@ -417,7 +417,7 @@ async function maybeWebappInvite(usuario) {
     // numero pero deja `supabase_auth_id`, y el unico que borra esa columna es el borrado de
     // cuenta, que ademas pone `cuenta_borrada_at` y por eso ni entra a la poblacion. No se le
     // puso corte porque seria un corte sin poblacion; si algun dia aparece, va con los otros
-    // tres.
+    // dos (los cortes exentos de `maybeReminderD14` y `maybeFeedback30`).
     channel: 'whatsapp',
     messageSent: copyWebappInvite(primer),
   });
