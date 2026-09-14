@@ -30,7 +30,7 @@ const ERROR_BLACKOUT_HOURS = 24;
  * `in_app` entro el 27-ago-2026, cuando `checkRecordatorioDiario` dejo de cortar a quien no
  * tiene numero y sus avisos empezaron a salir por la campana sola. Sin este valor, esas filas
  * no matchean y el usuario web-first queda fuera de la anti-fatiga: recibe su recordatorio de
- * inactividad y ademas los ocho triggers, todos en la misma semana.
+ * inactividad y ademas los ocho triggers de entonces, todos en la misma semana.
  *
  * **Inocuo sobre los datos existentes**: al 27-ago no habia ninguna fila `in_app` (396
  * `whatsapp` + 6 `webapp`), asi que este `.in()` selecciona lo mismo que el `.eq('whatsapp')`
@@ -540,6 +540,25 @@ async function marcarRespuestaProactiva(usuarioId, replyText) {
 // ===== Orquestador =====
 
 /**
+ * Los triggers que corre `checkSurveyTriggers`, en orden de prioridad: progreso primero,
+ * recordatorios despues.
+ *
+ * **La lista es CERRADA**, y la fija `tests/services/wake-up-apagados.test.js`. La cerraban
+ * `maybeWakeUpOnboarding` y `maybeWakeUpInactive` hasta el 14-sep-2026 (ver el bloque del
+ * apagado, arriba de `maybeFeedback30`). Agregar uno rompe ese test a proposito: si el nuevo
+ * empuja a quien lleva semanas sin escribirle a Neto, es la decision que ya se tomo, con 0
+ * entregas en 66 intentos. Vive a nivel de modulo, y no dentro del bucle, para poder fijarla.
+ */
+const TRIGGERS = [
+  maybeFeedback30,
+  maybeWebappInvite,
+  maybeReminderD30,
+  maybeReminderD14,
+  maybeReminderD7,
+  maybeReminderD3,
+];
+
+/**
  * Cron principal. Corre cada 15min entre 10:00-10:14 Lima.
  * Itera usuarios elegibles y aplica los 6 triggers en orden de prioridad.
  * Solo dispara MAX 1 mensaje por usuario por corrida (no spamear).
@@ -598,20 +617,8 @@ async function checkSurveyTriggers() {
         if (await recibioMensajeRecienteProactivo(u.id)) continue;
         if (await tuvoErrorReciente(u.id)) continue;
 
-        // Orden de prioridad: triggers de progreso primero, recordatorios despues.
-        // Un usuario solo recibe 1 mensaje por corrida.
-        const triggers = [
-          maybeFeedback30,
-          maybeWebappInvite,
-          maybeReminderD30,
-          maybeReminderD14,
-          maybeReminderD7,
-          maybeReminderD3,
-          // `maybeWakeUpOnboarding` y `maybeWakeUpInactive` cerraban esta lista hasta el
-          // 14-sep-2026. Ver el bloque del apagado, arriba de `maybeFeedback30`.
-        ];
-
-        for (const fn of triggers) {
+        // El orden de prioridad vive en `TRIGGERS`. Un usuario solo recibe 1 mensaje por corrida.
+        for (const fn of TRIGGERS) {
           const sent = await fn(u);
           if (sent) {
             totalSent++;
@@ -634,6 +641,8 @@ async function checkSurveyTriggers() {
 module.exports = {
   checkSurveyTriggers,
   marcarRespuestaProactiva,
+  // La lista cerrada, para que `tests/services/wake-up-apagados.test.js` la fije.
+  TRIGGERS,
   // La mitad in-app de los cuatro `reminder_dN`, para el dry-run: sin esto el preview imprime
   // el copy de WhatsApp —o sea justo lo que el usuario sin numero NO recibe— y oculta lo unico
   // que si le llega.

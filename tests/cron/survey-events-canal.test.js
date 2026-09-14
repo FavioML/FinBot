@@ -9,7 +9,7 @@ import { join } from 'node:path';
  * fila NO es un audit trail: es el DEDUP. La leen dos sitios, con dos ventanas distintas:
  *
  *   · el anti-fatiga de 3 días del propio cron (`recentEvents`);
- *   · `recibioMensajeRecienteProactivo` (7 días), que gatea los OCHO triggers de
+ *   · `recibioMensajeRecienteProactivo` (7 días), que gatea los SEIS triggers de
  *     `services/survey-triggers.js`.
  *
  * Los dos filtraban `channel = 'whatsapp'`, y eso era correcto **solo porque el cron cortaba
@@ -17,7 +17,7 @@ import { join } from 'node:path';
  * la campana), quedaron dos formas de romperlo y las dos son silenciosas:
  *
  *   1. Seguir escribiendo `channel: 'whatsapp'` sobre un aviso que salió solo in-app. La
- *      columna miente, y los ocho triggers se apagan siete días para alguien a quien nunca se
+ *      columna miente, y todos los triggers se apagan siete días para alguien a quien nunca se
  *      le mandó un WhatsApp.
  *   2. Escribir el canal real y NO ampliar los lectores. Peor: el dedup no encuentra su propia
  *      marca, así que el aviso vuelve a salir en cada corrida al usuario sin número. Un cron de
@@ -236,7 +236,7 @@ describe('survey_events: escritores y lectores hablan del mismo conjunto de cana
 
   it("'webapp' NO entra en el conjunto: nps_inapp no es un empuje", () => {
     // La encuesta in-app se muestra cuando la persona ya está adentro de la app. Meterla acá
-    // le gastaría la ventana de fatiga de los ocho triggers a alguien a quien no se empujó
+    // le gastaría la ventana de fatiga de los seis triggers a alguien a quien no se empujó
     // nada. Es la razón por la que el conjunto se enumera en vez de ser "todo menos nada".
     expect(CHECKS).toMatch(/const CANALES_EMPUJE = \[[^\]]*\]/);
     const literal = CHECKS.match(/const CANALES_EMPUJE = \[([^\]]*)\]/)[1];

@@ -1761,7 +1761,7 @@ function cuerpoInactividad(nombre, dias, tieneWhatsapp) {
  * ─── Lo que este cron NO consulta, dicho para que no se lea como olvido ─────────────────
  *
  * **No mira la anti-fatiga de `survey_events`** (la ventana de 3/7 días que comparten el
- * upsell y los ocho triggers de `services/survey-triggers.js`), ni escribe una fila ahí. Es
+ * upsell y los seis triggers de `services/survey-triggers.js`), ni escribe una fila ahí. Es
  * deliberado: esa ventana modela el empuje por WhatsApp y campana, y este aviso vive en el
  * canal de correo, que tiene su propia ventana acá abajo. Consecuencia asumida: alguien puede
  * recibir en la misma semana este correo y un `reminder_dN` por WhatsApp. Son mensajes

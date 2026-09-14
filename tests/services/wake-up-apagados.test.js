@@ -26,39 +26,45 @@ import path from 'path';
  * soltaron la cola. El 07-sep salieron 14 wake_up, 13 de ellos a gente cuyo último empuje era un
  * `inactivity_reminder` del 29 o 31-ago.
  *
- * ─── Por qué es de COMPORTAMIENTO, y por qué la población es una MATRIZ ─────────────────
+ * ─── La regla es una LISTA CERRADA, no una población ────────────────────────────────────
  *
- * Un grep sobre `wake_up_inactive` se pondría rojo por su propia documentación. Acá se corre el
- * cron sobre quien antes lo recibía y se afirma que no le llega NADA, con ningún `tipo`: volver a
- * prenderlo con otro nombre es la forma barata de evadir este archivo.
+ * Este archivo se escribió dos veces afirmando que su población de fixtures era "quien antes lo
+ * recibía", y dos revisiones adversariales seguidas lo evadieron con la misma jugada: condicionar
+ * el empuje a una subpoblación sin fixture (90 días, alta a medias a los 21, solo el día 1 del
+ * mes, solo el free; después churn con 3+ gastos, paso 101, sin nombre, pagado con 90+ días, una
+ * ventana en el día 150). Una población finita siempre deja afuera a la siguiente. Así que la
+ * regla se invirtió: `TRIGGERS`, la lista que corre el cron, está FIJADA acá. Cualquier trigger
+ * nuevo la rompe, apunte a quien apunte, y quien la toque se encuentra con este docblock.
  *
- * La primera versión tenía un fixture por perfil (45 y 60 días de inactivo, 20 de alta a
- * medias) y barría un solo día. La revisión adversarial le metió cinco reintroducciones que
- * dejaban la suite ENTERA en verde: umbral de 90 días, alta a medias a los 21, solo el día 1 del
- * mes, solo `plan === 'free'`, y reusar `enviarYRegistrar` a los 90 días (esta última no mueve
- * ningún conteo estático). O sea que el guard vigilaba sus fixtures, no la población. De ahí:
+ * ─── Lo que hace la matriz, que la lista no ve ──────────────────────────────────────────
  *
- *   · las EDADES barren el rango, no un punto: 31 a 365 días de inactividad, 8 a 180 de alta a
- *     medias. Arrancan justo arriba de las ventanas que SÍ siguen vivas (`reminder_d3`/`d7`
- *     alcanzan a quien no terminó el alta, `reminder_d30` es el día 30), así que ningún trigger
- *     legítimo puede tocar a un fixture y el "nada" es exacto;
- *   · los PERFILES cubren cada forma de dirección (número, solo BSUID, solo cuenta web) y cada
- *     PLAN (muro, trial, pagado), y todos tienen `email`: un "arreglo" que lo mande solo por
- *     correo o solo al free tiene que tener a quién;
- *   · se barre un MES hora por hora, con el día 1 y los siete días de la semana adentro;
- *   · y además de `notificarUsuario` se miran los tres canales crudos, por si alguien vuelve a
- *     mandarlo por fuera del chokepoint.
+ * La lista cerrada no ve un trigger VIVO que se ensancha (la ventana de `reminder_d30` pasada a
+ * `[30, 91)`, digamos) ni el aviso reintroducido con un nombre existente. Para eso se corre el
+ * cron un MES hora por hora, sobre la misma tabla, y se afirma que a esta población no le llega
+ * NADA, por ningún canal:
  *
- * Con un CONTROL en la misma corrida, de dos puntas: `reminder_d3` el primer día y `reminder_d14`
- * once días después. La primera prueba que el runner corre; la segunda, que el barrido de verdad
- * avanza por el mes y que la anti-fatiga no lo trabó.
+ *   · edades CONTINUAS con el perfil por defecto y cada plan: tramos de 30 días que, al envejecer
+ *     durante el mes barrido, cubren sin huecos de 32 a 422 días de inactividad y de 9 a 219 de
+ *     alta a medias. Arrancan un día arriba de las ventanas que siguen vivas (`reminder_d30` en
+ *     [30, 31); `reminder_d3`/`d7` exigen 0 gastos y no el alta cerrada, en [3, 4) y [7, 8));
+ *   · cada forma de dirección (número, solo BSUID, solo web) por cada plan, a una edad fija;
+ *   · variantes a esa edad: `onboarding_paso` 1, 2, 10 y 101, sin `nombre`, churn con 1, 5 y 9
+ *     gastos (10 ya dispara `webapp_invite_10tx`, que es legítimo);
+ *   · todos con `email`, y además de `notificarUsuario` se miran los tres canales crudos y los
+ *     inserts a CUALQUIER tabla (la campana escrita directo en `notificaciones` pasaba).
+ *
+ * Con un CONTROL en la misma corrida: `reminder_d3` el primer día y `reminder_d14` once días
+ * después. Y se cuentan las corridas que pasaron el horario: tienen que ser 31, porque un barrido
+ * recortado a 12 días dejaba todo verde con el control conforme.
  *
  * ─── Lo que este archivo NO cubre ───────────────────────────────────────────────────────
  *
- * Corre `checkSurveyTriggers` y nada más. El mismo empuje escrito como cron nuevo en
- * `cron/checks.js` no pasa por acá: ahí lo frena `tests/cron/lecturas-proactivas.test.js` (todo
- * cron que empuja declara su gate de plan), no esta matriz. Y un umbral por encima de 395 días
- * (365 + el mes barrido) tampoco lo ve.
+ *   · una rama nueva DENTRO de un trigger vivo, condicionada a una combinación sin fixture (por
+ *     ejemplo, solo BSUID con 150 días): ni la lista ni la matriz la ven;
+ *   · un empuje llamado desde `checkSurveyTriggers` por fuera de `TRIGGERS`. Si escribe su propio
+ *     `registrarEvento`, lo atrapa el conteo exacto de `tests/cron/survey-events-canal.test.js`;
+ *   · el mismo empuje como cron nuevo en `cron/checks.js`: lo frena
+ *     `tests/cron/lecturas-proactivas.test.js`, no esto.
  */
 
 const require = createRequire(import.meta.url);
@@ -69,7 +75,7 @@ const projectRoot = path.resolve(
 
 /** Filas por tabla. Lo que no esté acá devuelve []. */
 let tablas = {};
-/** Todo INSERT, para afirmar que no se reclama el one-shot de un aviso apagado. */
+/** Todo INSERT, de cualquier tabla: la campana escrita a mano en `notificaciones` también cuenta. */
 let inserts = [];
 
 const notificar = vi.fn().mockResolvedValue({ wa: { ok: true }, inApp: true, email: { ok: false } });
@@ -158,16 +164,21 @@ require.cache[notifyPath] = {
   exports: { ...notifyReal, notificarUsuario: notificar },
 };
 
-const { checkSurveyTriggers } = require('../../services/survey-triggers');
+const { checkSurveyTriggers, TRIGGERS } = require('../../services/survey-triggers');
 
 vi.useFakeTimers({ toFake: ['Date'] });
 afterAll(() => { vi.useRealTimers(); });
 
 /** 10:05 de Lima del primer día barrido: las edades de los fixtures se miden desde acá. */
 const A_LAS_DIEZ = new Date('2026-09-14T10:05:00-05:00');
+/** El barrido arranca a las 00:05 del MISMO día. Derivado, no escrito: si se separan, las edades
+ *  del borde caen en la ventana de un trigger vivo y el caso se pone rojo por un envío legítimo. */
+const INICIO_BARRIDO = new Date(A_LAS_DIEZ.getTime() - 10 * 3600000);
 const haceDias = (d) => new Date(A_LAS_DIEZ.getTime() - d * 86400000).toISOString();
 /** 14-sep → 14-oct: adentro caen el 1-oct y los siete días de la semana. */
 const DIAS_BARRIDOS = 31;
+/** Tramos de 30 días desde `desde` hasta `hasta`: con el mes que envejecen, se solapan y no dejan huecos. */
+const tramos = (desde, hasta) => Array.from({ length: Math.floor((hasta - desde) / 30) + 1 }, (_, i) => desde + 30 * i);
 
 /** Cómo le llegaba el aviso: por número, solo por BSUID (sin número visible), o solo por la web. */
 const DIRECCIONES = {
@@ -180,57 +191,69 @@ const DIRECCIONES = {
 const PLANES = {
   muro: { plan: 'free', trial_estado: 'vencido' },
   trial: { plan: 'premium', trial_estado: 'activo' },
-  pagado: { plan: 'premium', trial_estado: 'convertido', estado_pago: 'pagado' },
+  pagado: { plan: 'premium', trial_estado: 'convertido', estado_pago: 'pagado', premium_vence: '2027-01-01' },
 };
 
-function fixture(tag, { edad, dir, plan, alta = true }) {
-  const id = `u-${tag}-${edad}-${dir}-${plan}`;
+let secuencia = 0;
+function fixture(tag, { edad, dir, plan, alta = true, over = {}, variante = '' }) {
+  const id = `u-${tag}-${edad}-${dir}-${plan}${variante ? '-' + variante : ''}`;
   const d = DIRECCIONES[dir];
+  secuencia++;
   return {
     id, nombre: 'Persona ' + tag,
-    whatsapp: d.whatsapp ? d.whatsapp + String(edad).padStart(4, '0') : null,
-    bsuid: d.bsuid ? d.bsuid + id : null,
+    whatsapp: d.whatsapp ? d.whatsapp + String(secuencia).padStart(5, '0') : null,
+    bsuid: d.bsuid ? d.bsuid + secuencia : null,
     supabase_auth_id: d.conWeb ? 'auth-' + id : null,
     email: id + '@example.com',
     ...PLANES[plan],
     recordatorios_activos: true, cuenta_borrada_at: null, is_test_user: false,
     onboarding_completado: alta, onboarding_paso: alta ? 0 : 100,
     created_at: haceDias(edad),
+    ...over,
   };
 }
 
-/** Todas las edades con un perfil fijo, más todos los perfiles × planes con una edad fija. */
-function matriz(tag, edades, edadFija, extra = {}) {
+/**
+ * Tres cortes, no un producto (con un producto la corrida se va a varios segundos y no compra
+ * más de lo que ya da la lista cerrada): todas las edades con cada plan, todas las direcciones
+ * con cada plan a una edad fija, y las variantes a esa misma edad.
+ */
+function matriz(tag, { edades, edadFija, alta = true, variantes = {} }) {
   const filas = new Map();
+  const sumar = (f) => filas.set(f.id, f);
   for (const edad of edades) {
-    const f = fixture(tag, { edad, dir: 'numeroSinWeb', plan: 'muro', ...extra });
-    filas.set(f.id, f);
+    for (const plan of Object.keys(PLANES)) sumar(fixture(tag, { edad, dir: 'numeroSinWeb', plan, alta }));
   }
   for (const dir of Object.keys(DIRECCIONES)) {
-    for (const plan of Object.keys(PLANES)) {
-      const f = fixture(tag, { edad: edadFija, dir, plan, ...extra });
-      filas.set(f.id, f);
-    }
+    for (const plan of Object.keys(PLANES)) sumar(fixture(tag, { edad: edadFija, dir, plan, alta }));
+  }
+  for (const [variante, over] of Object.entries(variantes)) {
+    sumar(fixture(tag, { edad: edadFija, dir: 'numeroSinWeb', plan: 'muro', alta, over, variante }));
   }
   return [...filas.values()];
 }
 
-// Arrancan en 31 y no en 30 a propósito: `reminder_d30` sigue vivo en [30, 31) y tocaría al
-// fixture del borde, que es justo el que no tiene que recibir nada.
-const INACTIVOS = matriz('inact', [31, 45, 90, 180, 365], 45);
-// Los que usaron y dejaron de usar (la rama "churn" del copy viejo): un gasto el día del alta,
-// o sea más de 30 días antes del primer día barrido.
-const CHURN = matriz('churn', [31, 90], 60);
-const TX_CHURN = CHURN.map((u, i) => ({ id: 'tx-' + i, usuario_id: u.id, fecha: u.created_at.split('T')[0], created_at: u.created_at }));
-// Arrancan en 8: `reminder_d3` y `reminder_d7` exigen 0 gastos y NO el alta cerrada, así que en
-// [3, 4) y [7, 8) le llegan legítimamente a quien quedó a medias.
-const A_MEDIAS = matriz('medias', [8, 21, 60, 180], 21, { alta: false });
+// Nunca anotaron nada (la rama "nuevo" del copy viejo).
+const INACTIVOS = matriz('inact', { edades: tramos(32, 392), edadFija: 45 });
+// Usaron y dejaron de usar (la rama "churn"): sus gastos son del día del alta, o sea de más de 30
+// días antes del primer día barrido. `_gastos` lo lee solo este archivo, para sembrarlos.
+const CHURN = matriz('churn', {
+  edades: [32, 92, 182], edadFija: 60,
+  variantes: { gastos5: { _gastos: 5 }, gastos9: { _gastos: 9 } },
+});
+const TX_CHURN = CHURN.flatMap((u) => Array.from({ length: u._gastos || 1 }, (_, i) => ({
+  id: `tx-${u.id}-${i}`, usuario_id: u.id, fecha: u.created_at.split('T')[0], created_at: u.created_at,
+})));
+const A_MEDIAS = matriz('medias', {
+  edades: tramos(9, 189), edadFija: 21, alta: false,
+  variantes: {
+    paso1: { onboarding_paso: 1 }, paso2: { onboarding_paso: 2 }, paso10: { onboarding_paso: 10 },
+    paso101: { onboarding_paso: 101 }, sinNombre: { nombre: null }, sinNombre101: { nombre: null, onboarding_paso: 101 },
+  },
+});
 
 /** El que la corrida SÍ tiene que alcanzar. Con número y alta cerrada, así califica para d3 y d14. */
-const CONTROL = {
-  ...fixture('control', { edad: 3.2, dir: 'numeroConWeb', plan: 'trial' }),
-  id: 'u-control',
-};
+const CONTROL = { ...fixture('control', { edad: 3.2, dir: 'numeroConWeb', plan: 'trial' }), id: 'u-control' };
 
 /**
  * Un mes, hora por hora, sobre la MISMA tabla: lo que una corrida escribe lo ve la siguiente,
@@ -238,19 +261,20 @@ const CONTROL = {
  * semana son formas baratas de "arreglarlo" sin que un caso puntual se entere.
  */
 async function barrerUnMes(usuarios, txs = []) {
-  tablas = { usuarios, transacciones: txs, survey_events: [], errores: [], nlp_errors: [] };
+  tablas = { usuarios, transacciones: txs, survey_events: [], errores: [], nlp_errors: [], notificaciones: [] };
   inserts = [];
-  for (const fn of [notificar, enviarWhatsapp, crearNotificacion, enviarEmail]) fn.mockClear();
-  const inicio = new Date('2026-09-14T00:05:00-05:00').getTime();
+  for (const fn of [notificar, enviarWhatsapp, crearNotificacion, enviarEmail, dbMock.supabase.from]) fn.mockClear();
   for (let h = 0; h < DIAS_BARRIDOS * 24; h++) {
-    vi.setSystemTime(new Date(inicio + h * 3600000));
+    vi.setSystemTime(new Date(INICIO_BARRIDO.getTime() + h * 3600000));
     await checkSurveyTriggers();
   }
 }
 
+/** Cuántas corridas pasaron el gate horario: cada una lee la población exactamente una vez. */
+const corridasEnHorario = () => dbMock.supabase.from.mock.calls.filter(([t]) => t === 'usuarios').length;
 const tiposDe = (userId) => notificar.mock.calls.map((c) => c[0]).filter((a) => a.usuarioId === userId).map((a) => a.tipo);
 
-/** Todo lo que les llegó a estos usuarios, por el chokepoint o por fuera de él. */
+/** Todo lo que les llegó a estos usuarios, por el chokepoint, por fuera de él, o escrito a mano. */
 function loQueLesLlego(usuarios) {
   const ids = new Set(usuarios.map((u) => u.id));
   const direcciones = new Set(usuarios.flatMap((u) => [u.whatsapp, u.bsuid, u.email]).filter(Boolean));
@@ -263,8 +287,8 @@ function loQueLesLlego(usuarios) {
     ...crearNotificacion.mock.calls.filter(([uid]) => deEllos(uid)).map(([uid, , titulo]) => `campana cruda ${uid} "${titulo}"`),
     ...enviarEmail.mock.calls.filter(([to, o]) => deEllos(to) || deEllos(o && o.usuarioId))
       .map(([to]) => `correo crudo a ${to}`),
-    ...inserts.filter((i) => i.tabla === 'survey_events' && deEllos(i.patch.user_id))
-      .map((i) => `survey_events ${i.patch.user_id} ${i.patch.event_type}`),
+    ...inserts.filter((i) => deEllos(i.patch.user_id) || deEllos(i.patch.usuario_id))
+      .map((i) => `insert en ${i.tabla} ${i.patch.user_id || i.patch.usuario_id} ${i.patch.event_type || i.patch.tipo || ''}`),
   ];
 }
 
@@ -274,22 +298,41 @@ beforeEach(() => {
 });
 
 describe('los dos wake_up están apagados y no vuelven solos', () => {
+  it('la lista de triggers del cron es CERRADA: agregar uno es una decisión, no un commit', () => {
+    expect(
+      TRIGGERS.map((f) => f.name),
+      'entró o salió un trigger de checkSurveyTriggers. Si empuja a quien lleva semanas sin ' +
+      'escribirle a Neto, es el apagado del 14-sep (0 entregas en 66 intentos): leé el docblock de ' +
+      'este archivo antes de seguir. Si no, agregalo acá y sumale a la matriz lo que lo distinga.',
+    ).toEqual([
+      'maybeFeedback30', 'maybeWebappInvite',
+      'maybeReminderD30', 'maybeReminderD14', 'maybeReminderD7', 'maybeReminderD3',
+    ]);
+  });
+
   it('la matriz cubre lo que dice cubrir (antivacuidad)', () => {
     // Si alguien achica las listas, lo de abajo sigue verde mirando menos. Cada número es
-    // edades + 4 direcciones × 3 planes, menos el fixture que cae en las dos mitades cuando la
-    // edad fija también está en el rango (45 en inactivos, 21 en alta a medias).
-    expect(INACTIVOS.length).toBe(5 + 12 - 1);
-    expect(CHURN.length).toBe(2 + 12);
-    expect(A_MEDIAS.length).toBe(4 + 12 - 1);
+    // edades × 3 planes + 4 direcciones × 3 planes + variantes.
+    expect(INACTIVOS.length).toBe(13 * 3 + 12);
+    expect(CHURN.length).toBe(3 * 3 + 12 + 2);
+    expect(A_MEDIAS.length).toBe(7 * 3 + 12 + 6);
+    // Las edades tienen que cubrir de corrido: cada tramo arranca como mucho donde terminó el
+    // anterior (el mes barrido suma 31 días a cada uno).
+    for (const edades of [tramos(32, 392), tramos(9, 189)]) {
+      edades.slice(1).forEach((e, i) => expect(e - edades[i]).toBeLessThanOrEqual(DIAS_BARRIDOS));
+    }
     const todos = [...INACTIVOS, ...CHURN, ...A_MEDIAS];
     expect(new Set(todos.map((u) => u.plan + '/' + u.trial_estado)).size).toBe(3);
     expect(todos.every((u) => u.email)).toBe(true);
     expect(todos.some((u) => u.bsuid && !u.whatsapp)).toBe(true);
+    expect(A_MEDIAS.some((u) => u.onboarding_paso === 101 && u.nombre === null)).toBe(true);
+    expect(TX_CHURN.length).toBe(CHURN.length - 2 + 5 + 9);
   });
 
   it('quien lleva 30+ días sin anotar no recibe nada de este cron, por ningún canal', async () => {
     await barrerUnMes([...INACTIVOS, ...CHURN, CONTROL], TX_CHURN);
 
+    expect(corridasEnHorario(), 'el barrido no pasó por los 31 días: lo de abajo miró menos de lo que dice').toBe(DIAS_BARRIDOS);
     expect(tiposDe('u-control'), 'el control no salió: el barrido no ejercitó el runner y este caso no prueba nada')
       .toEqual(expect.arrayContaining(['survey_reminder_d3', 'survey_reminder_d14']));
     expect(loQueLesLlego([...INACTIVOS, ...CHURN]), 'un empuje de reactivación volvió').toEqual([]);
@@ -299,6 +342,7 @@ describe('los dos wake_up están apagados y no vuelven solos', () => {
   it('quien quedó a medias en el alta no recibe nada de este cron, por ningún canal', async () => {
     await barrerUnMes([...A_MEDIAS, CONTROL]);
 
+    expect(corridasEnHorario()).toBe(DIAS_BARRIDOS);
     expect(tiposDe('u-control'), 'el control no salió: el barrido no ejercitó el runner')
       .toEqual(expect.arrayContaining(['survey_reminder_d3', 'survey_reminder_d14']));
     expect(loQueLesLlego(A_MEDIAS), 'un empuje para terminar el alta volvió').toEqual([]);
