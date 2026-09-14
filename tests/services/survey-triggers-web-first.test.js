@@ -6,7 +6,7 @@ import path from 'path';
  * El COMPORTAMIENTO del ítem 23 (01-sep-2026), que ningún guard estático puede afirmar.
  *
  * `tests/canal-unico-sin-cuenta-web.test.js` verifica la FORMA: que no quede un corte por falta
- * de número sin declarar. Eso no dice si el usuario web-first recibe algo, ni cuál de los ocho
+ * de número sin declarar. Eso no dice si el usuario web-first recibe algo, ni cuál de los seis
  * triggers le llega — y es justo la mitad que importa, porque el defecto era invisible en
  * producción: el cron corría, no fallaba, y un `continue` se veía igual que un usuario que no
  * calificaba.
@@ -36,15 +36,6 @@ const projectRoot = path.resolve(
 let tablas = {};
 /** Todo INSERT, para poder afirmar qué se registró y qué NO. */
 let inserts = [];
-/** Todo DELETE, con sus FILTROS: un delete sobre `survey_events` que no fije el `id` alcanza
- *  a más de una fila, y el harness tiene que poder verlo (la lección de `descartarSnapshot`). */
-let eliminados = [];
-/** Simula que la fila ya no estaba cuando llegó el DELETE. Postgrest NO devuelve error en ese
- *  caso, así que sin poder simularlo "borré" y "no había nada que borrar" se ven idénticos. */
-let deleteNoMatchea = false;
-/** Y el otro lado: el DELETE que falla de verdad. Sin esto, la rama `if (error)` de
- *  `liberarClaimSinEntrega` no se ejercita nunca y su log podría decir cualquier cosa. */
-let deleteFalla = false;
 
 const notificar = vi.fn().mockResolvedValue({ wa: { ok: false, skipped: 'no_whatsapp' }, inApp: true, email: { ok: false } });
 
@@ -101,30 +92,10 @@ const dbMock = {
         return c;
       },
       update: () => makeChain(t),
-      delete: () => {
-        const filtros = {};
-        eliminados.push({ tabla: t, filtros });
-        const c = makeChain(t, filtros);
-        // **Resuelve contra la tabla, aplicando los filtros de verdad.** La primera versión
-        // devolvía `[{id:'ev-borrado'}]` mire lo que mire, y con eso DOS mutaciones reales del
-        // arreglo pasaban en verde: borrar por el id equivocado (`.eq('id', usuarioId)`), que
-        // en producción no matchea nada y deja el one-shot quemado para siempre, y quitar el
-        // `.select('id')`, que es justo lo que el docblock del arreglo dice que lo salva.
-        let pidioSelect = false;
-        const selectOriginal = c.select;
-        c.select = (...a) => { pidioSelect = true; return selectOriginal(...a); };
-        c.then = (resolve) => {
-          if (deleteFalla) return resolve({ data: null, error: { message: 'delete caido' } });
-          const alcanzadas = deleteNoMatchea ? [] : (tablas[t] || []).filter(
-            (f) => Object.entries(filtros).every(([col, val]) => f[col] === val),
-          );
-          tablas[t] = (tablas[t] || []).filter((f) => !alcanzadas.includes(f));
-          // Sin `.select()` postgrest no devuelve filas: `data` viene null, y eso es
-          // indistinguible de "no matcheó nada" — que es exactamente el punto.
-          return resolve({ data: pidioSelect ? alcanzadas : null, error: null });
-        };
-        return c;
-      },
+      // Hasta el 14-sep-2026 este DELETE resolvía contra la tabla con sus filtros, para los casos
+      // de `liberarClaimSinEntrega`. Se fueron con los dos `wake_up`, que eran sus únicos
+      // llamadores: hoy `survey-triggers.js` no borra nada.
+      delete: () => makeChain(t),
     })),
   },
 };
@@ -180,7 +151,6 @@ const CON_NUMERO = {
 async function correr(usuarios, { txs = [], eventos = [] } = {}) {
   tablas = { usuarios, transacciones: txs, survey_events: eventos, errores: [], nlp_errors: [] };
   inserts = [];
-  eliminados = [];
   notificar.mockClear();
   crearNotificacion.mockClear();
   vi.setSystemTime(A_LAS_DIEZ);
@@ -193,11 +163,8 @@ const eventosDe = (userId) => inserts.filter((i) => i.tabla === 'survey_events' 
 /** El texto in-app que de verdad va a ver la campana (el chokepoint no lo deriva si hay cuerpo). */
 const cuerpoInApp = (aviso) => (aviso.cuerpo != null ? aviso.cuerpo : aviso.mensaje);
 
-// `deleteNoMatchea` se resetea ACÁ y no dentro de `correr`: el caso que lo usa tiene que
-// prenderlo antes de la corrida, y un reset adentro lo apagaría justo antes de ejercitarlo.
 beforeEach(() => {
   logMock.error.mockClear(); logMock.warn.mockClear();
-  deleteNoMatchea = false; deleteFalla = false;
 });
 
 describe('el usuario sin WhatsApp recibe los triggers que sí puede usar', () => {
@@ -232,16 +199,6 @@ describe('el usuario sin WhatsApp recibe los triggers que sí puede usar', () =>
     expect(evs.length).toBe(1);
     expect(evs[0].patch.channel).toBe('in_app');
     expect(evs[0].patch.event_type).toBe('reminder_d3');
-  });
-
-  it('wake_up_inactive también le llega, con su cuerpo propio', async () => {
-    await correr([{ ...WEB_FIRST, created_at: haceDias(45) }]);
-
-    const aviso = avisoDe('u-web');
-    expect(aviso.tipo).toBe('survey_wake_up_inactive');
-    expect(aviso.canales).toBe(CANALES.AMBOS);
-    expect(cuerpoInApp(aviso)).not.toMatch(/escríbeme|\/silenciar/i);
-    expect(eventosDe('u-web')[0].patch.channel).toBe('in_app');
   });
 
   it('con número, la MISMA corrida escribe whatsapp en el ledger', async () => {
@@ -282,92 +239,6 @@ describe('los dos triggers exentos: no salen sin número, y no queman nada', () 
   });
 });
 
-describe('un one-shot que no salió por ningún canal devuelve su claim', () => {
-  /**
-   * Encontrado por la revisión adversarial del diff, no por la suite.
-   *
-   * Los one-shot reclaman su unique index ANTES de enviar, que es correcto. El precio: un
-   * fallo del envío quema la única vez que se manda. Hasta el 01-sep eso era tolerable porque
-   * el destinatario siempre tenía número; para el usuario web-first la campana es el ÚNICO
-   * canal, y `crearNotificacion` **devuelve false en vez de lanzar**. O sea que un hipo de la
-   * base dejaba la fila puesta, la campana vacía, y el trigger devuelto como exitoso.
-   */
-  it('el chokepoint traduce un `crearNotificacion` en false a `inApp: false`', async () => {
-    // El eslabón del que depende todo lo de abajo, ejercitado con la función REAL. Sin esto,
-    // los tres casos siguientes prueban que `liberarClaimSinEntrega` decide bien sobre un
-    // `inApp` que YO le paso, y no que ese `inApp` llegue a false cuando la base falla —
-    // `crearNotificacion` devuelve false en vez de lanzar, y ésa es la mitad silenciosa.
-    crearNotificacion.mockResolvedValueOnce(false);
-    const r = await notifyReal.notificarUsuario({
-      canales: CANALES.AMBOS, usuarioId: 'u-web', whatsapp: null,
-      tipo: 't', mensaje: 'm', titulo: 'T',
-    });
-    expect(r.inApp).toBe(false);
-    expect(r.wa.ok).toBe(false);
-  });
-
-  it('wake_up_inactive: si la campana no se escribe, la fila se borra y se reintenta', async () => {
-    notificar.mockResolvedValueOnce({ wa: { ok: false, skipped: 'no_whatsapp' }, inApp: false, email: { ok: false } });
-    await correr([{ ...WEB_FIRST, created_at: haceDias(45) }]);
-
-    const borrados = eliminados.filter((d) => d.tabla === 'survey_events');
-    expect(borrados.length, 'el claim quedó puesto: este usuario ya no lo recibe nunca').toBe(1);
-    // Por `id`, no reconstruyendo el WHERE: un delete con filtros a mano sobre esta tabla es
-    // la clase de `descartarSnapshot` (9A), donde el comentario prometía que no tocaba nada más.
-    expect(Object.keys(borrados[0].filtros)).toEqual(['id']);
-    // Y el VALOR, no solo la clave: `.eq('id', usuario.id)` tiene la misma forma y en
-    // producción no matchea nada. La fila insertada es la que tiene que desaparecer.
-    const claim = inserts.find((i) => i.tabla === 'survey_events');
-    expect(borrados[0].filtros.id, 'el DELETE apuntó a otro id').toBe('ev-1');
-    expect(claim.patch.event_type).toBe('wake_up_inactive');
-    expect(tablas.survey_events, 'la fila sobrevivió al delete').toEqual([]);
-    expect(logMock.warn.mock.calls.map((c) => c[1]).join(' | ')).toMatch(/claim liberado/);
-  });
-
-  it('si el DELETE falla, se dice que el one-shot quedó quemado', async () => {
-    // La rama `if (error)`. Sin este caso, `liberarClaimSinEntrega` podría reportar éxito
-    // sobre un delete caído y el único rastro de un one-shot perdido sería ninguno.
-    deleteFalla = true;
-    notificar.mockResolvedValueOnce({ wa: { ok: false, skipped: 'no_whatsapp' }, inApp: false, email: { ok: false } });
-    await correr([{ ...WEB_FIRST, created_at: haceDias(45) }]);
-
-    expect(logMock.error.mock.calls.map((c) => c[1]).join(' | ')).toMatch(/ya no se manda nunca/);
-    expect(logMock.warn.mock.calls.map((c) => c[1]).join(' | ')).not.toMatch(/claim liberado/);
-  });
-
-  it('un delete que no matchea nada NO se reporta como claim liberado', async () => {
-    // Postgrest no devuelve error cuando el WHERE no alcanza ninguna fila, así que sin mirar
-    // las filas devueltas "lo borré" y "ya no estaba" son indistinguibles. Es la lección de
-    // 9A, y acá decide qué se loguea sobre un one-shot que quedó sin entregar para siempre.
-    deleteNoMatchea = true;
-    notificar.mockResolvedValueOnce({ wa: { ok: false, skipped: 'no_whatsapp' }, inApp: false, email: { ok: false } });
-    await correr([{ ...WEB_FIRST, created_at: haceDias(45) }]);
-
-    expect(eliminados.filter((d) => d.tabla === 'survey_events').length).toBe(1);
-    const dijo = logMock.error.mock.calls.map((c) => c[1]).join(' | ');
-    expect(dijo, 'el claim no se liberó y nada lo dijo').toMatch(/ya no se manda nunca/);
-    // Y la mitad que impide el falso alivio: no se loguea como si se hubiera reintentado.
-    const warns = logMock.warn.mock.calls.map((c) => c[1]).join(' | ');
-    expect(warns).not.toMatch(/claim liberado/);
-  });
-
-  it('si la campana SÍ se escribe, el claim se queda', async () => {
-    // El control positivo. Sin él, un `liberarClaimSinEntrega` que borrara siempre pasaría el
-    // caso de arriba y convertiría el one-shot en un aviso diario.
-    await correr([{ ...WEB_FIRST, created_at: haceDias(45) }]);
-    expect(eliminados.filter((d) => d.tabla === 'survey_events')).toEqual([]);
-  });
-
-  it('con número, un WhatsApp aceptado sostiene el claim aunque la campana falle', async () => {
-    // El otro control: "no salió por ningún canal" son los DOS canales, no uno. Si esto
-    // borrara, el one-shot volvería a salir mañana para quien ya lo recibió por WhatsApp.
-    notificar.mockResolvedValueOnce({ wa: { ok: true }, inApp: false, email: { ok: false } });
-    await correr([{ ...CON_NUMERO, created_at: haceDias(45) }]);
-
-    expect(eliminados.filter((d) => d.tabla === 'survey_events')).toEqual([]);
-  });
-});
-
 describe('un reminder_dN que no salió por ningún canal NO se registra', () => {
   /**
    * La otra mitad de la misma clase, y la que estaba abierta en 4 de los 8 triggers.
@@ -378,7 +249,24 @@ describe('un reminder_dN que no salió por ningún canal NO se registra', () => 
    * `maybeReminderD*` corta con cualquier fila previa —ese recordatorio no se manda nunca más—
    * y encima gasta la anti-fatiga de 7 días, así que un aviso que no salió apaga al siguiente
    * que sí habría salido.
+   *
+   * (La mitad one-shot de esta clase, `liberarClaimSinEntrega`, vivía en un describe aparte y
+   * se fue el 14-sep-2026 con los dos `wake_up`, sus únicos llamadores.)
    */
+  it('el chokepoint traduce un `crearNotificacion` en false a `inApp: false`', async () => {
+    // El eslabón del que dependen los casos de abajo, ejercitado con la función REAL. Sin esto,
+    // prueban que `enviarYRegistrar` decide bien sobre un `inApp` que YO le paso, y no que ese
+    // `inApp` llegue a false cuando la base falla — `crearNotificacion` devuelve false en vez de
+    // lanzar, y ésa es la mitad silenciosa.
+    crearNotificacion.mockResolvedValueOnce(false);
+    const r = await notifyReal.notificarUsuario({
+      canales: CANALES.AMBOS, usuarioId: 'u-web', whatsapp: null,
+      tipo: 't', mensaje: 'm', titulo: 'T',
+    });
+    expect(r.inApp).toBe(false);
+    expect(r.wa.ok).toBe(false);
+  });
+
   it('no deja fila, y lo dice', async () => {
     notificar.mockResolvedValueOnce({ wa: { ok: false, skipped: 'no_whatsapp' }, inApp: false, email: { ok: false } });
     await correr([{ ...WEB_FIRST, created_at: haceDias(3.2) }]);
@@ -418,47 +306,6 @@ describe('un reminder_dN que no salió por ningún canal NO se registra', () => 
     await correr([{ ...CON_NUMERO, created_at: haceDias(3.2) }]);
 
     expect(eventosDe('u-wa').length).toBe(1);
-  });
-});
-
-describe('wake_up_onboarding: exento sin número, porque el alta que pide no se puede terminar', () => {
-  it('sin número no sale y no deja fila', async () => {
-    await correr([{ ...WEB_FIRST, created_at: haceDias(20), onboarding_completado: false, onboarding_paso: 100 }]);
-
-    expect(avisoDe('u-web')).toBeFalsy();
-    expect(eventosDe('u-web')).toEqual([]);
-  });
-
-  it('con número sí sale, y su cuerpo in-app nombra el canal que la persona TIENE', async () => {
-    // La exención es por falta de número, igual que las otras dos. Y la mitad que importa del
-    // copy: acá el cuerpo SÍ dice "por WhatsApp", y es correcto **por el corte**, no por una
-    // propiedad del alta — `/api/whatsapp/unlink` borra el número desde Configuración.
-    await correr([{ ...CON_NUMERO, created_at: haceDias(20), onboarding_completado: false, onboarding_paso: 100 }]);
-
-    const aviso = avisoDe('u-wa');
-    expect(aviso.tipo).toBe('survey_wake_up_onboarding');
-    expect(aviso.canales).toBe(CANALES.AMBOS);
-    expect(cuerpoInApp(aviso)).toMatch(/WhatsApp/);
-    expect(eventosDe('u-wa')[0].patch.channel).toBe('whatsapp');
-  });
-
-  it('sin cuenta web sale por SOLO_WHATSAPP, y ahí el claim NO se libera', async () => {
-    // La rama mayoritaria y la que faltaba: por el propio comentario del archivo, **22 de los
-    // 25 destinatarios históricos no tenían cuenta web**. Y es donde la decisión del arreglo se
-    // invierte a propósito: liberar el claim acá convertiría un número permanentemente
-    // inalcanzable en un WhatsApp diario, porque ese canal SÍ postea a Meta.
-    const soloChat = {
-      ...CON_NUMERO, id: 'u-chat', supabase_auth_id: null,
-      created_at: haceDias(20), onboarding_completado: false, onboarding_paso: 100,
-    };
-    notificar.mockResolvedValueOnce({ wa: { ok: false, error: 'numero invalido' }, inApp: false, email: { ok: false } });
-    await correr([soloChat]);
-
-    const aviso = avisoDe('u-chat');
-    expect(aviso.canales).toBe(CANALES.SOLO_WHATSAPP);
-    expect(aviso.motivo, 'un canal único sin motivo').toBeTruthy();
-    expect(eliminados.filter((d) => d.tabla === 'survey_events'), 'liberó el claim de un SOLO_WHATSAPP').toEqual([]);
-    expect(eventosDe('u-chat')[0].patch.channel).toBe('whatsapp');
   });
 });
 

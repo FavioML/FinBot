@@ -12,15 +12,16 @@
  *   - Verificar quien recibiria mensaje hoy antes de activar el cron en prod
  *   - Debug post-deploy si un usuario esperado no recibio mensaje
  *
+ * Los dos `wake_up_*` se apagaron el 14-sep-2026 y salieron tambien de aca: un preview que
+ * los siguiera reportando mostraria avisos que el cron ya no manda.
+ *
  * ⚠️ REIMPLEMENTA la logica del cron en vez de llamarlo, asi que puede divergir y HOY diverge.
- * Auditado el 01-sep-2026 (item 23); las cuatro son PREEXISTENTES y quedan sin cerrar a
+ * Auditado el 01-sep-2026 (item 23); las tres son PREEXISTENTES y quedan sin cerrar a
  * proposito —cerrarlas es reescribir el script para que llame a los `maybe*` de verdad, que es
  * otro trabajo— pero se nombran para que nadie lea este output como el veredicto del cron:
  *
- *   · evalua `wake_up_onboarding` PRIMERO; en el cron es el 7º de 8, asi que sobre un usuario
- *     que califica para dos, este script reporta el que el cron no manda;
  *   · corta todo con `!onboarding_completado`, cosa que el cron solo hace dentro de
- *     `maybeReminderD14`;
+ *     `maybeReminderD14` (el cron SI le manda `reminder_d3`/`d7` a quien no termino el alta);
  *   · no filtra `cuenta_borrada_at`, que el cron si; hasta el 01-sep la lapida caia de rebote
  *     en el corte por falta de numero, y ese corte ya no esta;
  *   · descarta el `{ error }` de sus dos lecturas de `survey_events`: con la lectura caida los
@@ -33,8 +34,6 @@ const { supabase } = require('../lib/db');
 const {
   copyReminderD3, copyReminderD7, copyReminderD14, copyReminderD30,
   copyWebappInvite, copyFeedback30,
-  copyWakeUpInactiveNuevo, copyWakeUpInactiveChurn,
-  copyWakeUpOnboardingNombre, copyWakeUpOnboardingEmail, copyWakeUpOnboardingGenerico,
   recibioMensajeRecienteProactivo, tuvoErrorReciente,
   contarTransacciones, contarTransaccionesUltimos,
   IN_APP_RECORDATORIO,
@@ -60,20 +59,11 @@ async function evaluar(usuario) {
   // Check one-shots (DB enforce uniqueness)
   const { data: prevOneshot } = await supabase.from('survey_events')
     .select('event_type').eq('user_id', usuario.id)
-    .in('event_type', ['webapp_invite_10tx', 'feedback_open_30tx', 'wake_up_inactive', 'wake_up_onboarding']);
+    .in('event_type', ['webapp_invite_10tx', 'feedback_open_30tx']);
   const sentOneshot = new Set((prevOneshot || []).map(e => e.event_type));
 
-  // wake_up_onboarding: usuarios que NO completaron onboarding (>=7d desde registro)
-  if (usuario.whatsapp && !usuario.onboarding_completado && dias >= 7 && !sentOneshot.has('wake_up_onboarding')) {
-    let variant = 'generico';
-    if (usuario.onboarding_paso === 101) variant = 'email';
-    else if (usuario.onboarding_paso === 100 || usuario.onboarding_paso === 0) variant = 'nombre';
-    return { trigger: 'wake_up_onboarding', dias: dias.toFixed(1), paso: usuario.onboarding_paso, variant };
-  }
-
-  // Resto de triggers requieren onboarding completo
   if (!usuario.onboarding_completado) {
-    return { trigger: null, reason: 'onboarding incompleto (<7 dias o ya recibio wake-up)' };
+    return { trigger: null, reason: 'onboarding incompleto' };
   }
 
   // Los dos `usuario.whatsapp` de abajo espejan las exenciones declaradas en
@@ -107,26 +97,10 @@ async function evaluar(usuario) {
     return { trigger: 'reminder_d3', txTotal, dias: dias.toFixed(1) };
   }
 
-  // wake_up_inactive: ultimo en prioridad (catch-all para users viejos sin actividad)
-  if (dias >= 30 && !sentOneshot.has('wake_up_inactive')) {
-    const tx30d = await contarTransaccionesUltimos(usuario.id, 30);
-    if (tx30d === 0) {
-      return { trigger: 'wake_up_inactive', txTotal, dias: dias.toFixed(1), variant: txTotal === 0 ? 'nuevo' : 'churn' };
-    }
-  }
-
   return { trigger: null, reason: 'no aplica trigger', txTotal, dias: dias.toFixed(1) };
 }
 
-function getCopy(trigger, primerNombre, variant) {
-  if (trigger === 'wake_up_inactive') {
-    return variant === 'nuevo' ? copyWakeUpInactiveNuevo(primerNombre) : copyWakeUpInactiveChurn(primerNombre);
-  }
-  if (trigger === 'wake_up_onboarding') {
-    if (variant === 'email') return copyWakeUpOnboardingEmail(primerNombre);
-    if (variant === 'nombre') return copyWakeUpOnboardingNombre();
-    return copyWakeUpOnboardingGenerico();
-  }
+function getCopy(trigger, primerNombre) {
   const c = {
     reminder_d3: copyReminderD3, reminder_d7: copyReminderD7,
     reminder_d14: copyReminderD14, reminder_d30: copyReminderD30,
@@ -149,7 +123,7 @@ async function main() {
   console.log(`\n=== Dry-run survey triggers — ${usuarios.length} usuario(s) ===\n`);
 
   const sumario = { reminder_d3: 0, reminder_d7: 0, reminder_d14: 0, reminder_d30: 0,
-    webapp_invite_10tx: 0, feedback_open_30tx: 0, wake_up_inactive: 0, wake_up_onboarding: 0, skipped: 0 };
+    webapp_invite_10tx: 0, feedback_open_30tx: 0, skipped: 0 };
 
   for (const u of usuarios) {
     const result = await evaluar(u);
@@ -159,19 +133,19 @@ async function main() {
     if (result.trigger) {
       sumario[result.trigger]++;
       console.log(`✓ ${labelUsuario}`);
-      console.log(`  Trigger: ${result.trigger}${result.variant ? ' (' + result.variant + ')' : ''}`);
+      console.log(`  Trigger: ${result.trigger}`);
       if (result.txTotal !== undefined) console.log(`  Tx total: ${result.txTotal}, Dias: ${result.dias || '-'}`);
-      console.log(`  Mensaje WhatsApp:\n  ${getCopy(result.trigger, primer, result.variant).replace(/\n/g, '\n  ')}`);
+      console.log(`  Mensaje WhatsApp:\n  ${getCopy(result.trigger, primer).replace(/\n/g, '\n  ')}`);
       // Sin numero, el WhatsApp de arriba es exactamente lo que la persona NO va a recibir: lo
       // unico que le llega es la campana. Imprimir solo el copy de WhatsApp dejaba el preview
       // ciego justo para la poblacion que el item 23 agrego al bucle.
       const inApp = IN_APP_RECORDATORIO[result.trigger];
       if (inApp) console.log(`  Campana: ${inApp.titulo}\n           ${inApp.cuerpo}\n           -> ${inApp.link}`);
-      // Los tres que no estan en el mapa NO son todos iguales, y decir "arma su in-app inline"
-      // para los tres era falso: `webapp_invite_10tx` sale por SOLO_WHATSAPP y no escribe
-      // ninguna campana, y `wake_up_onboarding` depende de si tiene cuenta web.
+      // Los dos que no estan en el mapa NO son iguales: `webapp_invite_10tx` sale por
+      // SOLO_WHATSAPP y no escribe ninguna campana, y `feedback_open_30tx` arma la suya con
+      // titulo propio y el cuerpo derivado del WhatsApp.
       else if (result.trigger === 'webapp_invite_10tx') console.log('  Campana: NINGUNA (SOLO_WHATSAPP: el mensaje ES la invitacion a crear la cuenta web)');
-      else console.log('  Campana: la arma el call-site (wake_up_*): con cuenta web va AMBOS, sin ella SOLO_WHATSAPP');
+      else console.log('  Campana: la arma el call-site (titulo propio, cuerpo derivado del WhatsApp)');
       console.log('');
     } else {
       sumario.skipped++;

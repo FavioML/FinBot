@@ -1383,45 +1383,49 @@ cubrirlos pide soltar el punto y ahi caen las validaciones de body de `routes/ad
 sobre `survey-triggers.js`, mueren por el test de COMPORTAMIENTO — que es el respaldo real.
 
 **Sacar el corte no alcanza si el copy solo tiene sentido en WhatsApp.** El chokepoint DERIVA el
-cuerpo in-app del texto de WhatsApp cuando no se le pasa `cuerpo`, y los ocho copys de
+cuerpo in-app del texto de WhatsApp cuando no se le pasa `cuerpo`, y los copys de
 `survey-triggers.js` dicen *"escribeme"*, *"mandame un screenshot"* y ofrecen `/silenciar`. Al
-usuario sin numero eso le pide algo que no puede hacer. Los cuatro `reminder_dN` y
-`wake_up_inactive` llevan `cuerpo` propio (la accion existe en la app: el `QuickAddButton` vive en
-el chrome del dashboard, fuera de lo que el muro reemplaza). **Tres triggers quedaron exentos con
-motivo**, y la exencion va en la funcion y **antes** de `registrarEvento`, para no quemar un
-one-shot que no se puede entregar:
+usuario sin numero eso le pide algo que no puede hacer. Los cuatro `reminder_dN` llevan `cuerpo`
+propio (la accion existe en la app: el `QuickAddButton` vive en el chrome del dashboard, fuera de
+lo que el muro reemplaza). **Dos triggers quedaron exentos con motivo**, y la exencion va en la
+funcion y **antes** de `registrarEvento`, para no quemar un one-shot que no se puede entregar:
 
 | trigger | por que no le aplica sin numero |
 |---|---|
 | `reminder_d14` | el mensaje ES una pregunta abierta y la campana no tiene donde contestarla |
 | `feedback_open_30tx` | lo mismo, y ademas es one-shot: registrarlo sin poder entregarlo lo quema |
-| `wake_up_onboarding` | el alta que pide terminar es la de WhatsApp (la maquina de estados vive en `handlers/onboarding.js`), asi que sin numero no hay forma de completarla |
 
-**Ojo con el argumento que NO sostiene la tercera:** "toda cuenta web nace con el onboarding
-cerrado" es una propiedad del NACIMIENTO, no un invariante.
-`webapp/src/app/api/whatsapp/unlink/route.ts` pone `whatsapp: null` desde Configuracion,
-self-serve, sin tocar `supabase_auth_id` ni `onboarding_completado`. Una medicion no cierra un
-camino que el propio usuario puede abrir.
+**Los dos `wake_up` se APAGARON el 14-sep-2026, en los dos canales.** `wake_up_inactive` (30+
+dias sin anotar) y `wake_up_onboarding` (7+ dias con el alta a medias) persiguen por definicion a
+quien no escribe hace semanas, o sea fuera de la ventana de 24h de Meta. Medido ese dia: 0
+entregas en toda su historia (56 y 10 intentos) y 0 de 41 filas de campana leidas en 30 dias, con
+16 de los 34 destinatarios reales sin cuenta web donde verla. Es el argumento que apago la
+inactividad el 01-sep, y ese apagado habia dejado vivo a `wake_up_inactive` por un motivo de copy.
+Decision de Favio, sin plantillas pagas. Guard de comportamiento:
+`tests/services/wake-up-apagados.test.js`.
 
-**Un aviso que no salio por NINGUN canal no deja marca.** Los one-shot reclaman su unique index
-antes de enviar y los `reminder_dN` registran despues, asi que la misma clase se resuelve al
-reves en cada lado: `liberarClaimSinEntrega` devuelve el claim, y `enviarYRegistrar` no registra.
-Sin eso, para el usuario web-first —cuyo unico canal es la campana, y `crearNotificacion` devuelve
-`false` en vez de lanzar— un hipo de la base quemaba el aviso para siempre y ademas gastaba la
-anti-fatiga de 7 dias con algo que nadie recibio. El predicado de "salio algo" es **uno solo**
-(`salioPorAlgunCanal`) y cuenta los TRES canales mas el `skipped: 'test_user'`: la primera version
-copio media mitad y un correo entregado se leia como fallo.
+**Un aviso que no salio por NINGUN canal no deja marca.** Los `reminder_dN` registran despues de
+enviar, y `enviarYRegistrar` no registra si no salio nada. Sin eso, para el usuario web-first
+—cuyo unico canal es la campana, y `crearNotificacion` devuelve `false` en vez de lanzar— un hipo
+de la base quemaba el aviso para siempre y ademas gastaba la anti-fatiga de 7 dias con algo que
+nadie recibio. El predicado de "salio algo" es **uno solo** (`salioPorAlgunCanal`) y cuenta los
+TRES canales mas el `skipped: 'test_user'`: la primera version copio media mitad y un correo
+entregado se leia como fallo.
 
-**El claim se libera SOLO desde las ramas que declararon in-app.** Desde un `SOLO_WHATSAPP`, un
+**Si vuelve un one-shot con canal in-app, necesita la compensacion al reves.** Un one-shot reclama
+su unique index ANTES de enviar, asi que no alcanza con no registrar: hay que devolver el claim.
+Eso hacia `liberarClaimSinEntrega`, que se fue el 14-sep-2026 con los dos `wake_up`, sus unicos
+llamadores. Y se libera SOLO desde las ramas que declararon in-app: desde un `SOLO_WHATSAPP`, un
 numero permanentemente inalcanzable liberaria su claim todos los dias y el one-shot se convertiria
-en un WhatsApp diario, porque ese canal si postea a Meta.
+en un WhatsApp diario, porque ese canal si postea a Meta. La implementacion esta en la historia
+de git (`services/survey-triggers.js` antes del apagado).
 
 Comportamiento en `tests/services/survey-triggers-web-first.test.js`.
 
 **Y el ledger tiene que decir el canal REAL.** `registrarEvento` fijaba `channel: 'whatsapp'` en
 los cinco call-sites. Mientras el cron cortaba a quien no tenia numero eso era cierto por
 accidente; sin el corte, la columna que lee la anti-fatiga de 7 dias (`CANALES_EMPUJE`) miente y
-apaga los ocho triggers una semana para alguien a quien nunca se le mando un WhatsApp. Hoy es
+apaga todos los triggers una semana para alguien a quien nunca se le mando un WhatsApp. Hoy es
 `usuario.whatsapp ? 'whatsapp' : 'in_app'`, la misma forma que `checkUpsellPro`, y la comparten los
 dos guards. La unica excepcion es `maybeWebappInvite`, que manda por `SOLO_WHATSAPP` y ahi `in_app`
 seria la mentira opuesta.
@@ -1461,7 +1465,7 @@ tres que mas enseñaron, todas de revisiones adversariales sucesivas:
   Por eso el barrido es **lista negra**, igual que los `watchPatterns` de `railway.json`.
 
 **Y lo que el guard NO puede decir, porque ya pasó:** satisfacer el invariante no es arreglar el
-problema. `maybeWakeUpOnboarding` se "arregló" primero con un `return false` sobre quien tiene
+problema. `maybeWakeUpOnboarding` (apagado entero desde el 14-sep-2026) se "arregló" primero con un `return false` sobre quien tiene
 cuenta web, y eso cumple el guard perfectamente — silenciando justo a quien SÍ tiene campana.
 Cuando este archivo se ponga rojo, la respuesta por defecto es **AMBOS**, no cortar.
 

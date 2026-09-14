@@ -159,11 +159,14 @@ describe('survey_events: escritores y lectores hablan del mismo conjunto de cana
    * sacar ese corte pasó a ser la falla nº1 del docblock, literal: la columna miente, y los
    * ocho triggers se apagan siete días para alguien a quien nunca se le mandó un WhatsApp.
    *
-   * Los cinco call-sites NO son iguales, y por eso el barrido los cuenta en vez de exigirles a
-   * todos la misma forma: `maybeWebappInvite` manda por `SOLO_WHATSAPP`, así que ahí `'in_app'`
-   * sería la mentira opuesta. Es la única exención, y va nombrada.
+   * Los call-sites NO son iguales, y por eso el barrido los cuenta en vez de exigirles a todos
+   * la misma forma: `maybeWebappInvite` manda por `SOLO_WHATSAPP`, así que ahí `'in_app'` sería
+   * la mentira opuesta. Es la única exención, y va nombrada.
+   *
+   * Eran cinco hasta el 14-sep-2026; los dos `wake_up` se apagaron ese día y quedan tres:
+   * `enviarYRegistrar` (los cuatro `reminder_dN`), `webapp_invite_10tx` y `feedback_open_30tx`.
    */
-  it('los cinco registrarEvento de los triggers escriben el canal REAL', () => {
+  it('los tres registrarEvento de los triggers escriben el canal REAL', () => {
     const CANAL_FIJO_OK = new Set(['webapp_invite_10tx']);
     // Se trocea por el CALL-SITE (`registrarEvento({ … })`) y no por líneas contiguas: entre
     // `eventType` y `channel` hay comentarios, y `enviarYRegistrar` escribe `eventType` con la
@@ -176,7 +179,7 @@ describe('survey_events: escritores y lectores hablan del mismo conjunto de cana
       // escriben `userId: …`, la firma escribe `userId,`.
       .filter((cuerpo) => /userId:/.test(cuerpo));
     // Antivacuidad: si el barrido deja de matchear, esto se ve igual que "todos correctos".
-    expect(llamadas.length, 'el barrido no encontró los call-sites: este caso dejó de mirar').toBe(5);
+    expect(llamadas.length, 'el barrido no encontró los call-sites: este caso dejó de mirar').toBe(3);
 
     for (const cuerpo of llamadas) {
       const ev = cuerpo.match(/eventType:\s*'([a-z_0-9]+)'/);

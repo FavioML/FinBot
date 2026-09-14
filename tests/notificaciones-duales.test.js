@@ -408,7 +408,9 @@ describe('chokepoint de notificaciones proactivas', () => {
   it.each([
     ['services/shared-spaces.js', 3, 'nuevo miembro, reparto editado, reglas editadas, gasto compartido, liquidación'],
     ['services/referrals.js', 1, 'el referrer gana un mes irreversible y solo se enteraba por WhatsApp'],
-    ['services/survey-triggers.js', 5, 'los 4 recordatorios + wake_up_inactive + feedback_30tx'],
+    // Bajó de 5 a 3 el 14-sep-2026, cuando se apagaron los dos wake_up (ver
+    // `tests/services/wake-up-apagados.test.js`). Los 4 recordatorios comparten una llamada.
+    ['services/survey-triggers.js', 3, 'los 4 recordatorios (enviarYRegistrar) + webapp_invite_10tx + feedback_30tx'],
     ['services/gmail-scanner.js', 2, 'Gmail desconectado: el usuario deja de registrar gastos sin saberlo'],
     ['routes/internal.js', 1, 'activación web completada'],
     // El piso se quedó en 19 cuando el recordatorio de inactividad se apagó (01-sep-2026):
@@ -503,7 +505,9 @@ describe('chokepoint de notificaciones proactivas', () => {
   // pasar por acá; POR QUÉ es cada uno lo dice el desglose de abajo.
   it.each([
     ['cron/checks.js', 4, 'checkActivacionDia2, checkRecordatorioOnboarding, checkResumenDeudasSemanal y checkRecordatorioInactividadSemanal'],
-    ['services/survey-triggers.js', 2, 'webapp_invite_10tx y wake_up_onboarding'],
+    // Era 2 hasta el 14-sep-2026: la otra era la rama sin cuenta web de `wake_up_onboarding`,
+    // que se apagó entero ese día.
+    ['services/survey-triggers.js', 1, 'webapp_invite_10tx'],
   ])('%s tiene exactamente %i exenciones de canal (%s)', (rel, esperadas) => {
     const f = FUENTES.find((x) => x.rel === rel);
     expect(cuenta(f.src, CANAL_UNICO)).toBe(esperadas);

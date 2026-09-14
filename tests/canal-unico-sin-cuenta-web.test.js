@@ -65,7 +65,9 @@ const EXENTOS = new Map([]);
  * nuevo no lo mueve, y eso es correcto: el riesgo que se mide acá es mandarle por el canal que
  * entrega al 10% a alguien que quizá tiene campana, no al revés.
  */
-const SITIOS_ESPERADOS = 4;
+// Era 4 hasta el 14-sep-2026: la cuarta era la rama sin cuenta web de `maybeWakeUpOnboarding`,
+// que se apagó entero ese día (`tests/services/wake-up-apagados.test.js`).
+const SITIOS_ESPERADOS = 3;
 
 function archivosJs(dir) {
   const out = [];
@@ -301,13 +303,8 @@ const CORTES_EXENTOS = new Map([
     'misma razón que `maybeReminderD14` ("si pudieras cambiar UNA sola cosa, ¿qué sería?"), y ' +
     'además es one-shot con unique index: registrarlo sin poder entregarlo le quemaría para ' +
     'siempre la única vez que se manda.'],
-  ['services/survey-triggers.js:maybeWakeUpOnboarding',
-    'el alta que este mensaje pide terminar es la de WhatsApp: la máquina de estados vive en ' +
-    '`handlers/onboarding.js` y se avanza escribiéndole al bot, así que sin número no hay ' +
-    'forma de completarla y las tres variantes del copy piden algo imposible. Ojo: NO se ' +
-    'sostiene en que "toda cuenta web nace con el onboarding cerrado" — eso es una propiedad ' +
-    'del nacimiento, y `/api/whatsapp/unlink` borra el número desde Configuración sin tocar ' +
-    'esa columna.'],
+  // Hasta el 14-sep-2026 había una tercera, `maybeWakeUpOnboarding`. Se fue con el trigger, que
+  // se apagó entero (`tests/services/wake-up-apagados.test.js`).
 ]);
 
 const CON_AMBOS = [];

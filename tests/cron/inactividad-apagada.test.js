@@ -35,12 +35,16 @@ import path from 'path';
  *
  * ─── Lo que este archivo NO prohíbe, y es a propósito ───────────────────────────────────
  *
- * `services/survey-triggers.js` tiene copy casi idéntico —`reminder_d30` se titula "Hace dos
- * semanas que no registras nada" y `wake_up_inactive` "Hace tiempo que no registras nada"— y
- * **se queda**. No es el mismo aviso: bifurca por `txTotal === 0`, o sea que distingue al que
- * nunca empezó del que dejó de anotar, que es justo la distinción que el apagado vino a
- * respetar. Por eso las aserciones miran el `tipo` y el título CON NÚMERO DE DÍAS (que era la
- * forma que apilaba una fila nueva por disparo), y no la frase suelta.
+ * `services/survey-triggers.js` tiene copy casi idéntico: `reminder_d30` se titula "Hace dos
+ * semanas que no registras nada", y **se queda**. Sale una sola vez, el día 30, a quien anotó y
+ * dejó de anotar hace dos semanas. Por eso las aserciones miran el `tipo` y el título CON NÚMERO
+ * DE DÍAS (que era la forma que apilaba una fila nueva por disparo), y no la frase suelta.
+ *
+ * > Acá decía que `wake_up_inactive` ("Hace tiempo que no registras nada") también se quedaba
+ * > porque "bifurca nuevo/churn". Era un argumento sobre el COPY, y lo que apagó este aviso fue
+ * > el DESTINATARIO: el wake_up persigue a quien lleva 30 días sin anotar, así que tenía el
+ * > mismo problema y peor. Medido el 14-sep-2026: 0 entregados en toda su historia. Se apagó ese
+ * > día, y lo vigila `tests/services/wake-up-apagados.test.js`.
  */
 
 const require = createRequire(import.meta.url);
@@ -248,7 +252,7 @@ describe('el nudge de inactividad está apagado y no vuelve solo', () => {
 
     // Y la forma que APILABA: un título con el conteo de días adentro abría una fila nueva por
     // disparo en vez de actualizar la anterior. Se prohíbe la forma, no la frase — `reminder_d30`
-    // ("Hace dos semanas…") y `wake_up_inactive` ("Hace tiempo…") se quedan y no llevan número.
+    // ("Hace dos semanas…") se queda y no lleva número.
     const conConteo = notificar.mock.calls
       .map((c) => (c[0] && c[0].titulo) || '')
       .filter((t) => /^Hace \d+ d[ií]as? que no registras nada$/.test(t));
