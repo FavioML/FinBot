@@ -127,40 +127,26 @@ export async function GET(request: NextRequest) {
         return response;
       }
 
-      // Check if user exists by email (registered via WhatsApp)
-      if (user.email) {
-        const { data: byEmail, error: eEmail } = await serviceClient
-          .from('usuarios')
-          .select('id, supabase_auth_id')
-          .eq('email', user.email)
-          .maybeSingle();
+      // NO se busca por correo, y no es un olvido (15-sep-2026). Acá había una rama que buscaba
+      // `usuarios` por `email` y, si esa fila no tenía auth_id, le escribía el de esta sesión: sin
+      // token y sin prueba del número. El correo de una fila de WhatsApp pudo ser DICTADO en el alta
+      // vieja (paso 101), así que un error de tipeo que cayera en el Gmail real de otra persona le
+      // entregaba esa cuenta y sus finanzas la primera vez que entrara acá con Google.
+      //
+      // Vincular una cuenta EXISTENTE exige probar el número, y eso ya tiene sus dos caminos: el link
+      // de activación firmado (`neto_act`, arriba) y el OTP inverso (banner del dashboard →
+      // /onboarding → webhook), que fusiona con `merge_and_link`. Si el correo de Google ya es de otra
+      // fila, `createWebUser` crea el alta sin correo y esa fila no se toca.
 
-        if (eEmail) {
-          console.error('[auth/callback] lectura de usuarios por email fallida:', eEmail.message);
-          return NextResponse.redirect(`${origin}/login?error=temporal`);
-        }
-
-        if (byEmail) {
-          if (!byEmail.supabase_auth_id) {
-            await serviceClient
-              .from('usuarios')
-              .update({ supabase_auth_id: user.id })
-              .eq('id', byEmail.id);
-          }
-          descartarOrigen();
-          return response;
-        }
-      }
-
-      // Ninguna fila corresponde a este login (ni por auth_id ni por email):
+      // Ninguna fila corresponde a este login por auth_id:
       // es un usuario web-first. Creamos su cuenta SIN número (whatsapp NULL) y lo
       // mandamos directo al dashboard. WhatsApp queda como vínculo opcional posterior
       // (banner en el dashboard → reverse-OTP). Antes esto era un embudo forzado a
       // /onboarding hacia WhatsApp; ahora crear la cuenta desde la web es de primera clase.
       const nombre = user.user_metadata?.full_name || user.user_metadata?.name || null;
       // El canal del alta: el middleware guardó el ?utm_source de la entrada en esta cookie.
-      // Solo se lee ACÁ, en la rama que crea la fila — las dos de arriba devuelven una fila que
-      // ya existía y cuyo origen lo decidió su propia alta (primer toque).
+      // Solo se lee ACÁ, en la rama que crea la fila — la de arriba (por auth_id) y la activación
+      // devuelven una fila que ya existía y cuyo origen lo decidió su propia alta (primer toque).
       const origenCookie = request.cookies.get(COOKIE_ORIGEN)?.value;
       const createdId = await createWebUser(serviceClient, {
         authId: user.id,

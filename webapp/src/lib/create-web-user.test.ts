@@ -65,3 +65,89 @@ describe('createWebUser escribe el canal del alta', () => {
     expect(fila.origen_cta).toBe('web');
   });
 });
+
+/**
+ * El 23505 del INSERT tiene DOS causas y hasta el 15-sep-2026 se leía como una sola.
+ *
+ *   · carrera de pestañas: otra sesión ya creó la fila de este auth_id → se recupera por auth_id;
+ *   · el correo ya es de OTRA fila (`usuarios_email_lower_unique`, migración 022): típicamente la
+ *     de WhatsApp de la misma persona, o la de alguien que dictó ese correo por error.
+ *
+ * La segunda caía en la rama de la primera, no encontraba nada por auth_id y devolvía null: el
+ * callback mandaba a /onboarding, que para una sesión sin fila no tiene salida. Ahora el alta nace
+ * SIN correo — la fila dueña del correo no se toca, y si es la misma persona, `merge_and_link` le
+ * pasa el correo al fusionar.
+ */
+function svcConColision(erroresInsert: Array<{ code: string } | null>, porAuthId: Array<{ id: string } | null>) {
+  const usuariosInsertados: Record<string, unknown>[] = [];
+  let lecturasPorAuthId = 0;
+  const svc = {
+    from(table: string) {
+      return {
+        insert(payload: Record<string, unknown>) {
+          if (table !== 'usuarios') {
+            return Object.assign(Promise.resolve({ data: null, error: null }), {
+              select: () => Promise.resolve({ data: [], error: null }),
+            });
+          }
+          usuariosInsertados.push(payload);
+          const error = erroresInsert.shift() ?? null;
+          return {
+            select: () => ({
+              single: async () => ({ data: error ? null : { id: 'usuario-nuevo' }, error }),
+            }),
+          };
+        },
+        select: () => ({
+          eq: (col: string) => ({
+            maybeSingle: async () => {
+              expect(col).toBe('supabase_auth_id');
+              lecturasPorAuthId++;
+              return { data: porAuthId.shift() ?? null, error: null };
+            },
+          }),
+        }),
+      };
+    },
+  };
+  return { svc: svc as unknown as SupabaseClient, usuariosInsertados, lecturas: () => lecturasPorAuthId };
+}
+
+const ALTA = { authId: 'auth-9', email: 'victima@gmail.com', nombre: 'V', atribucion: atribucionDelAlta('ig') };
+
+describe('createWebUser ante un 23505', () => {
+  it('correo tomado por otra fila: reintenta UNA vez sin correo y devuelve la cuenta nueva', async () => {
+    const { svc, usuariosInsertados } = svcConColision([{ code: '23505' }, null], [null]);
+    expect(await createWebUser(svc, ALTA)).toBe('usuario-nuevo');
+    expect(usuariosInsertados).toHaveLength(2);
+    expect(usuariosInsertados[0].email).toBe('victima@gmail.com');
+    expect(usuariosInsertados[1].email).toBeNull();
+    // El reintento es la MISMA alta: mismo auth_id y mismo canal.
+    expect(usuariosInsertados[1]).toMatchObject({ supabase_auth_id: 'auth-9', origen: 'ig', origen_cta: 'web' });
+  });
+
+  it('carrera de pestañas: la fila ya existe por auth_id, se devuelve y no se reintenta', async () => {
+    const { svc, usuariosInsertados } = svcConColision([{ code: '23505' }], [{ id: 'ya-existia' }]);
+    expect(await createWebUser(svc, ALTA)).toBe('ya-existia');
+    expect(usuariosInsertados).toHaveLength(1);
+  });
+
+  it('carrera DURANTE el reintento: se recupera por auth_id', async () => {
+    const { svc, usuariosInsertados } = svcConColision([{ code: '23505' }, { code: '23505' }], [null, { id: 'la-otra-pestana' }]);
+    expect(await createWebUser(svc, ALTA)).toBe('la-otra-pestana');
+    expect(usuariosInsertados).toHaveLength(2);
+  });
+
+  it('23505 también sin correo: null, sin bucle', async () => {
+    const { svc, usuariosInsertados, lecturas } = svcConColision([{ code: '23505' }, { code: '23505' }, { code: '23505' }], [null, null, null]);
+    expect(await createWebUser(svc, ALTA)).toBeNull();
+    expect(usuariosInsertados).toHaveLength(2);
+    expect(lecturas()).toBe(2);
+  });
+
+  it('sin correo desde el principio no hay nada que soltar: un solo intento', async () => {
+    const { svc, usuariosInsertados } = svcConColision([{ code: '23505' }, null], [null]);
+    expect(await createWebUser(svc, { ...ALTA, email: null })).toBeNull();
+    expect(usuariosInsertados).toHaveLength(1);
+  });
+});

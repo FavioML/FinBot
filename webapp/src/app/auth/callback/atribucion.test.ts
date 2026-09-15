@@ -90,13 +90,16 @@ describe('/auth/callback — el alta web guarda su canal', () => {
     expect(res.cookies.get('neto_origen')?.maxAge).toBe(0);
   });
 
-  it('la fila de WhatsApp que se vincula por email conserva SU origen', async () => {
-    // Primer toque: el canal de esa persona lo decidió su primer mensaje de WhatsApp. La rama
-    // byEmail solo puede escribir el auth_id, nunca el origen.
+  it('una fila de WhatsApp con el mismo correo NO se vincula: es un alta web con su propio canal', async () => {
+    // Hasta el 15-sep-2026 una rama buscaba por correo y le escribía el auth_id a esa fila, sin
+    // prueba del número. Ya no existe (ver sin-vinculo-por-email.test.ts): la segunda lectura queda
+    // servida por si alguien la reintroduce, y entonces este test vería el update.
     h.lecturas = [null, { id: 'usuario-wa', supabase_auth_id: null }];
+    h.createWebUser.mockResolvedValue('usuario-nuevo');
     const res = await pedir('ig');
-    expect(h.createWebUser).not.toHaveBeenCalled();
-    expect(h.updates).toEqual([{ supabase_auth_id: 'auth-1' }]);
-    expect(res.cookies.get('neto_origen')?.maxAge).toBe(0);
+    expect(h.updates).toEqual([]);
+    expect(h.createWebUser).toHaveBeenCalledOnce();
+    expect(h.createWebUser.mock.calls[0][1].atribucion).toEqual({ origen: 'ig', origen_cta: 'web' });
+    expect(res.cookies.get('neto_origen')?.value).toBe('');
   });
 });
