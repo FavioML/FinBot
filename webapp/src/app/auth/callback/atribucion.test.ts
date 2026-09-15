@@ -11,7 +11,8 @@ import { NextRequest } from 'next/server';
  *   · la cookie se consume solo si la cuenta se creó, para que el reintento siga atribuido.
  */
 
-// `lecturas` se sirven en orden: la primera es la búsqueda por auth_id, la segunda por email.
+// `lecturas` se sirven en orden: la primera es la búsqueda por auth_id. Ya no hay una segunda por
+// correo (15-sep-2026); si alguien la reintroduce, la segunda lectura servida la alimenta.
 // `updates` espía toda escritura sobre una fila existente, que es donde se violaría el primer toque.
 const h = vi.hoisted(() => ({
   createWebUser: vi.fn(),

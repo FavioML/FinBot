@@ -69,11 +69,20 @@ export async function createWebUser(
       console.error('[create-web-user] insert falló:', error.code, error.message);
       return null;
     }
-    const { data: existing } = await svc
+    const { data: existing, error: eExisting } = await svc
       .from('usuarios')
       .select('id')
       .eq('supabase_auth_id', authId)
       .maybeSingle();
+    // Una lectura caída NO es "no hay fila". Hoy un duplicado por auth_id es imposible
+    // (`usuarios_supabase_auth_id_key` es UNIQUE, medido en la base el 15-sep-2026), pero reintentar
+    // sobre una lectura que no respondió es decidir a ciegas y no compra nada: null es recuperable,
+    // el próximo login reintenta. Y si ese índice algún día desaparece, este corte es lo que evita
+    // dos filas con el mismo auth_id, que dejan a `.maybeSingle()` fallando para siempre.
+    if (eExisting) {
+      console.error('[create-web-user] lectura por auth_id tras 23505 fallida:', eExisting.message);
+      return null;
+    }
     if (existing?.id) {
       userId = existing.id;
       break;

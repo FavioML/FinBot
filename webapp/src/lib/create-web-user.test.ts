@@ -78,7 +78,9 @@ describe('createWebUser escribe el canal del alta', () => {
  * SIN correo — la fila dueña del correo no se toca, y si es la misma persona, `merge_and_link` le
  * pasa el correo al fusionar.
  */
-function svcConColision(erroresInsert: Array<{ code: string } | null>, porAuthId: Array<{ id: string } | null>) {
+type Lectura = { id: string } | null | 'error';
+
+function svcConColision(erroresInsert: Array<{ code: string } | null>, porAuthId: Lectura[]) {
   const usuariosInsertados: Record<string, unknown>[] = [];
   let lecturasPorAuthId = 0;
   const svc = {
@@ -103,7 +105,9 @@ function svcConColision(erroresInsert: Array<{ code: string } | null>, porAuthId
             maybeSingle: async () => {
               expect(col).toBe('supabase_auth_id');
               lecturasPorAuthId++;
-              return { data: porAuthId.shift() ?? null, error: null };
+              const v = porAuthId.shift() ?? null;
+              if (v === 'error') return { data: null, error: { message: 'timeout' } };
+              return { data: v, error: null };
             },
           }),
         }),
@@ -149,5 +153,19 @@ describe('createWebUser ante un 23505', () => {
     const { svc, usuariosInsertados } = svcConColision([{ code: '23505' }, null], [null]);
     expect(await createWebUser(svc, { ...ALTA, email: null })).toBeNull();
     expect(usuariosInsertados).toHaveLength(1);
+  });
+
+  it('la lectura por auth_id se cae: null, NO se reintenta a ciegas', async () => {
+    // Leída como "no hay fila", el reintento correría sobre una carrera real. null es recuperable.
+    const { svc, usuariosInsertados } = svcConColision([{ code: '23505' }, null], ['error']);
+    expect(await createWebUser(svc, ALTA)).toBeNull();
+    expect(usuariosInsertados).toHaveLength(1);
+  });
+
+  it('un error que NO es 23505 no dispara el reintento ni la lectura', async () => {
+    const { svc, usuariosInsertados, lecturas } = svcConColision([{ code: '23502' }, null], [null]);
+    expect(await createWebUser(svc, ALTA)).toBeNull();
+    expect(usuariosInsertados).toHaveLength(1);
+    expect(lecturas()).toBe(0);
   });
 });
