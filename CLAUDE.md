@@ -1325,7 +1325,20 @@ para una sola persona**. Si la respuesta no es "una", el correo va agrupado, en 
 | Salida | `GET`/`POST /baja-recordatorios?t=<token firmado>`. Apaga `recordatorios_activos`, o sea TODOS los canales, y el pie del correo lo dice con esas palabras |
 | Guards | `tests/notificaciones-duales.test.js` (nadie llama `enviarEmail` fuera del chokepoint; todo canal declarado trae asunto) · `tests/lib/email.test.js` · `tests/routes/email-webhook.test.js` |
 
-**Cuatro cosas que no son negociables y cuestan caro re-descubrir:**
+**Cinco cosas que no son negociables y cuestan caro re-descubrir:**
+
+- **El `to` es `correoVerificado(usuario)`, nunca `usuario.email`** (15-sep-2026). La columna no es
+  de direcciones probadas: el alta viejo por WhatsApp (paso 101, retirado el 31-jul) guardaba el
+  correo que la persona dictaba, sin verificarlo, y un typo le manda a un desconocido los avisos
+  de plata de otra persona (en el d11/d14, el link de activación de su cuenta). El helper
+  (`lib/email.js`) sólo devuelve la dirección si la fila tiene cuenta web, así que tu select
+  necesita **`supabase_auth_id` además de `email`**. Los 21 dictados se borraron en la migración
+  086; `qa-e2e/probe-email-no-verificado.mjs` dice si vuelve a aparecer alguno. Guards:
+  `notificaciones-duales` (forma del `to:` y sin spreads opacos) y `email-necesita-su-columna`.
+  **Límite declarado:** se limpió el dato, no los caminos. `merge_and_link`, el fallback
+  `otp.email || usuario.email` y el reintento por 23505 de `bindActivacion` pueden pasarle a una
+  fila web el correo de otra; hoy es inofensivo porque nadie guarda uno sin probar. **Un alta que
+  vuelva a pedir el correo por WhatsApp reabre esto entero**, y ningún test lo va a ver.
 
 - **El correo sale EN PARALELO, no como fallback de `wa.ok`.** Ver la medicion de arriba: un
   fallback condicionado al resultado sincrono habria mandado cero correos.

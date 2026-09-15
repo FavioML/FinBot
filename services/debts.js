@@ -262,7 +262,7 @@ const TOPE_RESUMEN_SEMANAL = 500;
 async function obtenerDeudasParaResumenSemanal() {
   const hoy = hoyPeru();
   const { data, error } = await supabase.from('deudas')
-    .select('*, usuarios!inner(whatsapp, email, nombre, plan, recordatorios_activos)')
+    .select('*, usuarios!inner(whatsapp, email, supabase_auth_id, nombre, plan, recordatorios_activos)')
     .eq('estado', 'activa')
     .not('fecha_vencimiento', 'is', null)
     .lte('fecha_vencimiento', sumarDias(hoy, 7))

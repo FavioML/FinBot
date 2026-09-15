@@ -138,7 +138,9 @@ const enLima = (iso) => new Date(iso + '-05:00');
 /** 2026-08-31 es LUNES. El gate pide lunes, hora 9, minuto <= 14. */
 const LUNES_9AM = '2026-08-31T09:05:00';
 
-const PRO = { whatsapp: '51900000001', email: 'ana@ejemplo.pe', nombre: 'Ana Torres', plan: 'premium', recordatorios_activos: true };
+// `supabase_auth_id`: el correo sólo sale a una dirección probada (`correoVerificado`,
+// 15-sep-2026). El caso sin cuenta web tiene su propio `it`.
+const PRO = { whatsapp: '51900000001', email: 'ana@ejemplo.pe', nombre: 'Ana Torres', plan: 'premium', recordatorios_activos: true, supabase_auth_id: 'auth-ana' };
 
 /** Una deuda del fixture. Por defecto: la debe el usuario, en soles, vence en 3 días. */
 const deuda = (over = {}) => ({
@@ -205,6 +207,20 @@ describe('el correo de deudas sale UNA vez por persona', () => {
     expect(dos.usuarioId).toBe('u-2');
     expect(dos.mensaje).toContain('Marta');
     expect(dos.mensaje).not.toContain('Juan');
+  });
+
+  it('sin cuenta web el resumen sale igual, pero sin correo (la dirección no está probada)', async () => {
+    // 15-sep-2026: el correo que trae una fila sin cuenta web lo dictó la persona en el alta
+    // viejo por WhatsApp y nadie lo verificó. Un typo le manda a un desconocido las deudas de
+    // alguien más, con nombres de contrapartes y montos.
+    deudasResumen.mockResolvedValue([
+      deuda({ usuarios: { ...PRO, supabase_auth_id: null, email: 'dictado@ejemplo.pe' } }),
+    ]);
+
+    await checks.checkResumenDeudasSemanal();
+
+    expect(notificar).toHaveBeenCalledTimes(1);
+    expect(arg().email.to).toBe(null);
   });
 
   it('el aviso por deuda ya NO manda correo (el otro extremo de la mudanza)', async () => {

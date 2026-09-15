@@ -168,6 +168,9 @@ const BASE = {
   // fixture es ése y no `premium`: si el cron alguna vez gateara por plan sin declararlo,
   // el caso positivo se caería en vez de pasar por el camino cómodo.
   plan: 'free', trial_estado: 'vencido', nombre: 'María Quispe',
+  // Con cuenta web: es la única forma en que el correo sale (`correoVerificado`, 15-sep-2026).
+  // El caso sin ella vive en su propio `it`, para que se lea qué se corta.
+  supabase_auth_id: 'auth-base',
 };
 const usuario = (id, extra) => ({ id, ...BASE, ...extra });
 /**
@@ -242,6 +245,29 @@ describe('el correo va a la cohorte de 7-30 días CON historial, y a nadie más'
     await checks.checkRecordatorioInactividadSemanal();
 
     expect(destinatarios().sort()).toEqual(['u-borde-30', 'u-borde-7', 'u-elegible']);
+  });
+
+  /**
+   * Sin cuenta web, la dirección no está probada (15-sep-2026): las filas nacidas en WhatsApp
+   * pueden traer el correo que la persona dictó en el alta viejo. Este cron es el que más
+   * probablemente las alcanza —selecciona `email not null` y no mira nada más—, así que es el
+   * caso que más importa del barrido. La campana sale igual; lo que se corta es la bandeja.
+   */
+  it('sin cuenta web el correo no tiene destinatario, aunque la fila traiga uno', async () => {
+    vi.setSystemTime(enLima(JUEVES_10AM));
+    tablas.usuarios = [
+      usuario('u-web'),
+      usuario('u-dictado', { supabase_auth_id: null, email: 'dictado@example.com' }),
+    ];
+    tablas.transacciones = [anotadoEl('u-web', '2026-08-10'), anotadoEl('u-dictado', '2026-08-10')];
+    tablas.notificaciones = [];
+    tablas.notification_deliveries = [];
+
+    await checks.checkRecordatorioInactividadSemanal();
+
+    expect(llamadaDe('u-web').email.to, 'el control con cuenta web no recibió').toBe('x@example.com');
+    expect(llamadaDe('u-dictado'), 'se cortó el aviso entero, no sólo el correo').toBeTruthy();
+    expect(llamadaDe('u-dictado').email.to).toBe(null);
   });
 
   /**
@@ -517,6 +543,9 @@ describe('lo que se le manda al elegible', () => {
     // todos los correos empiezan "Hola." en vez de "Hola María." y ni un test se entera.
     // Verificado por mutación: quitarla del select dejaba los 29 casos en verde.
     expect(selectsUsuarios[0], 'sin nombre, todos los correos saludan a nadie').toContain('nombre');
+    // Y sin `supabase_auth_id`, `correoVerificado` lee undefined y el correo sale para nadie:
+    // el doble devuelve el fixture entero, así que sólo esta línea lo ve (15-sep-2026).
+    expect(selectsUsuarios[0], 'sin supabase_auth_id ninguna dirección cuenta como probada').toContain('supabase_auth_id');
     // WhatsApp NO: este mismo aviso entregaba 4 de 190 por ahí. Es la razón del apagado.
     expect(aviso.canales).toBe('solo_in_app');
   });

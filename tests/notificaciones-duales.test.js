@@ -90,6 +90,103 @@ function canalesDeCorreoSinAsunto(arg) {
 }
 
 /**
+ * Todo canal de correo manda a una dirección PROBADA (15-sep-2026).
+ *
+ * `usuarios.email` no es una columna de direcciones probadas: las filas nacidas en WhatsApp
+ * traían el correo que la persona dictó en el alta viejo, y nadie lo verificó. Un error de
+ * tipeo que cae en la bandeja real de otra persona le manda a un desconocido los avisos de
+ * plata de alguien más, y en `trial_d11`/`trial_d14` el link de activación de su cuenta.
+ *
+ * Por eso el `to:` de TODO canal de correo es exactamente `correoVerificado(<expresión>)`
+ * (`lib/email.js`), que sólo devuelve la dirección si la fila tiene cuenta web. Se marca:
+ *   · un `to:` que no es esa llamada (`u.email`, `x || y`, una variable);
+ *   · la llamada con algo pegado (`correoVerificado(u) || u.email`);
+ *   · un argumento que arme una fila a mano (`correoVerificado({ ...u, supabase_auth_id: 1 })`):
+ *     sólo se admiten identificadores, puntos y un ternario;
+ *   · la forma corta `{ to, asunto }` y un spread dentro del objeto, que pueden pisar el `to`.
+ *
+ * Las comas se cortan a NIVEL CERO y fuera de comillas: el asunto de un correo puede llevar
+ * una coma o un paréntesis, y cortarlo ahí partiría el objeto por donde no es.
+ */
+const TO_VERIFICADO = /^correoVerificado\(\s*[\w$.?:\s]*\)$/;
+
+function partesDeNivelCero(txt) {
+  const partes = [];
+  let prof = 0;
+  let desde = 0;
+  let comilla = null;
+  for (let i = 0; i < txt.length; i++) {
+    const c = txt[i];
+    if (comilla) {
+      if (c === '\\') i++;
+      else if (c === comilla) comilla = null;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === '`') { comilla = c; continue; }
+    if (c === '(' || c === '{' || c === '[') prof++;
+    else if (c === ')' || c === '}' || c === ']') prof--;
+    else if (c === ',' && prof === 0) { partes.push(txt.slice(desde, i)); desde = i + 1; }
+  }
+  partes.push(txt.slice(desde));
+  return partes.map((p) => p.trim()).filter(Boolean);
+}
+
+function correosSinVerificar(arg) {
+  const out = [];
+  // Las dos formas que la revisión adversarial usó para que un emisor NUEVO pasara la suite
+  // entera en verde mandando a `u.email` crudo: el barrido de abajo sólo ve `email:` sin
+  // comillas, así que `{ ..., email }` (el objeto armado arriba) y `'email': {...}` no existían
+  // para él. No se intenta entenderlas: se marcan, y el literal es la forma que se escribe.
+  if (/[{,]\s*email\s*(?=[,}])/.test(arg)) out.push('email <abreviado: el objeto se armó fuera de la llamada>');
+  if (/['"`]email['"`]\s*:/.test(arg)) out.push("'email': <clave entre comillas>");
+  for (const m of arg.matchAll(/\bemail\s*:\s*/g)) {
+    let i = m.index + m[0].length;
+    if (arg[i] !== '{') { out.push('email: <no es un literal>'); continue; }
+    let prof = 0;
+    const desde = i;
+    while (i < arg.length) {
+      if (arg[i] === '{') prof++;
+      else if (arg[i] === '}') { prof--; if (prof === 0) { i++; break; } }
+      i++;
+    }
+    const objeto = arg.slice(desde, i);
+    const partes = partesDeNivelCero(objeto.slice(1, -1));
+    const tos = partes.filter((p) => /^to\s*:/.test(p));
+    const valor = tos.length === 1 ? tos[0].replace(/^to\s*:/, '').trim() : null;
+    const conSpread = partes.some((p) => p.startsWith('...'));
+    if (conSpread || valor === null || !TO_VERIFICADO.test(valor)) out.push(objeto);
+  }
+  return out;
+}
+
+/**
+ * Un spread entre los argumentos de `notificarUsuario` esconde lo que declara (ítem 35(b)).
+ *
+ * `...opts` puede traer un `email` que ningún guard de este archivo ve, y un
+ * `...(cond ? extra : {})` lo mismo con un paso más. Lo único que se admite es la forma que ya
+ * usan el upsell y el muro: `...(condición ? { literal } : {})`, cuyo literal SÍ entra al
+ * barrido porque el texto del objeto está en el argumento.
+ */
+function spreadsOpacos(arg) {
+  const out = [];
+  for (const m of arg.matchAll(/\.\.\.\s*/g)) {
+    let i = m.index + m[0].length;
+    if (arg[i] !== '(') { out.push(arg.slice(m.index, m.index + 40)); continue; }
+    let prof = 0;
+    const desde = i;
+    while (i < arg.length) {
+      if (arg[i] === '(') prof++;
+      else if (arg[i] === ')') { prof--; if (prof === 0) { i++; break; } }
+      i++;
+    }
+    const grupo = arg.slice(desde + 1, i - 1).trim();
+    const partes = /^[^?]+\?\s*(\{[\s\S]*\})\s*:\s*\{\s*\}$/.exec(grupo);
+    if (!partes) out.push('...(' + grupo.slice(0, 60) + ')');
+  }
+  return out;
+}
+
+/**
  * Los argumentos de cada `notificarUsuario(...)`, con paréntesis balanceados.
  *
  * `EMAIL_SIN_ASUNTO` se aplica SOLO acá adentro, y la primera corrida explicó por qué: sobre
@@ -480,6 +577,84 @@ describe('chokepoint de notificaciones proactivas', () => {
       .flatMap((f) => llamadasAlChokepoint(f.src).map((arg) => ({ rel: f.rel, arg })))
       .flatMap(({ rel, arg }) => canalesDeCorreoSinAsunto(arg).map((o) => rel + ': ' + o));
     expect(sinAsunto).toEqual([]);
+  });
+
+  it('el detector de dirección probada decide en las dos direcciones (contraprueba)', () => {
+    const ok = [
+      "email: { to: correoVerificado(usuario), asunto: 'x' }",
+      "email: { to: correoVerificado(grupo.usuario), asunto: 'Deudas: S/ 10, US$ 2 (esta semana)' }",
+      "email: { asunto: 'x', to: correoVerificado(avisar ? ventana : null) }",
+    ];
+    for (const a of ok) expect(correosSinVerificar(a), a).toEqual([]);
+    const malos = [
+      "email: { to: usuario.email || null, asunto: 'x' }",
+      "email: { to: correo, asunto: 'x' }",
+      "email: { to: correoVerificado(u) || u.email, asunto: 'x' }",
+      "email: { to: correoVerificado({ ...u, supabase_auth_id: 'x' }), asunto: 'x' }",
+      "email: { to, asunto: 'x' }",
+      "email: { to: correoVerificado(u), ...extra, asunto: 'x' }",
+      "email: { to: correoVerificado(u), to: u.email, asunto: 'x' }",
+      'email: opts',
+    ];
+    for (const a of malos) expect(correosSinVerificar(a), a).toHaveLength(1);
+    // Las dos que la revisión adversarial coló con la suite entera en verde (15-sep): el
+    // barrido por `email:` no las veía porque no hay `email:` sin comillas que ver.
+    expect(correosSinVerificar("{ canales: x, usuarioId: u.id, email }")).toHaveLength(1);
+    expect(correosSinVerificar("{ canales: x, email, titulo: 't' }")).toHaveLength(1);
+    expect(correosSinVerificar("{ canales: x, 'email': { to: u.email, asunto: 'x' } }").length).toBeGreaterThanOrEqual(1);
+    // Y no se marca de más: `emailRes` o `datos: { correo }` no son el canal.
+    expect(correosSinVerificar("{ canales: x, emailRes, titulo: 't' }")).toEqual([]);
+  });
+
+  it('nadie más nombra `enviarEmail`, ni siquiera con un alias (revisión adversarial, 15-sep)', () => {
+    // `ENVIO_EMAIL_CRUDO` cuenta LLAMADAS, así que `const { enviarEmail: mandar } = require(...)`
+    // y después `mandar(u.email, ...)` pasaba en verde: la llamada no se llama `enviarEmail`.
+    // Cualquier referencia fuera de la definición y del chokepoint es roja, se use como se use.
+    const fuera = FUENTES
+      .filter((f) => f.rel !== 'lib/email.js' && f.rel !== 'lib/notify-user.js')
+      // Sin comentarios: nombrarla en prosa ("a `enviarEmail` no se llega") no es un alias.
+      .filter((f) => /\benviarEmail\b/.test(
+        f.src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')))
+      .map((f) => f.rel);
+    expect(fuera).toEqual([]);
+  });
+
+  it('todo canal de correo manda a una dirección probada (correoVerificado)', () => {
+    const llamadas = FUENTES
+      .flatMap((f) => llamadasAlChokepoint(f.src).map((arg) => ({ rel: f.rel, arg })));
+    // Antivacuidad: seis emisores al 15-sep-2026 (upsell, d11/d14, muro, resumen de deudas,
+    // inactividad, soporte). Si el barrido deja de verlos, el test de abajo pasa sin mirar.
+    expect(llamadas.filter(({ arg }) => /\bemail\s*:/.test(arg)).length).toBeGreaterThanOrEqual(6);
+    // El detector corre sobre TODAS las llamadas, no sobre las que ya traen `email:`. Filtrar
+    // primero era justo lo que dejaba pasar `{ ..., email }` y `'email': {...}`: sin un `email:`
+    // pelado la llamada ni llegaba al detector que las sabe reconocer (re-mutado el 15-sep).
+    const sinVerificar = llamadas.flatMap(({ rel, arg }) => correosSinVerificar(arg).map((o) => rel + ': ' + o));
+    expect(
+      sinVerificar,
+      'El `to` de un correo sale de `correoVerificado(usuario)` y de nada más. `usuarios.email` ' +
+      'puede traer una dirección dictada por WhatsApp que nadie probó, y un typo le manda a un ' +
+      'desconocido los avisos de plata de otra persona.',
+    ).toEqual([]);
+  });
+
+  it('el detector de spreads opacos decide en las dos direcciones (contraprueba, ítem 35b)', () => {
+    expect(spreadsOpacos("{ canales: x, ...(conCorreo ? { email: { to: a, asunto: 'b' } } : {}) }")).toEqual([]);
+    expect(spreadsOpacos('{ canales: x, ...opts }')).toHaveLength(1);
+    expect(spreadsOpacos('{ canales: x, ...(conCorreo ? extra : {}) }')).toHaveLength(1);
+    expect(spreadsOpacos('{ canales: x, ...(conCorreo ? { a: 1 } : otro) }')).toHaveLength(1);
+    expect(spreadsOpacos('{ canales: x, ...armar(u) }')).toHaveLength(1);
+  });
+
+  it('ninguna llamada al chokepoint esconde argumentos en un spread (ítem 35b)', () => {
+    const opacos = FUENTES
+      .flatMap((f) => llamadasAlChokepoint(f.src).map((arg) => ({ rel: f.rel, arg })))
+      .flatMap(({ rel, arg }) => spreadsOpacos(arg).map((s) => rel + ': ' + s));
+    expect(
+      opacos,
+      'Un spread que no es `...(cond ? { literal } : {})` esconde lo que declara: un `email` ' +
+      'armado en una variable no lo ve ningún guard (ni el asunto, ni la columna, ni la dirección ' +
+      'probada). Escribí el literal.',
+    ).toEqual([]);
   });
 
   it('el extractor de llamadas trae el argumento ENTERO (antivacuidad)', () => {

@@ -121,7 +121,13 @@ export async function bindActivacion(
     supabase_auth_id: authId,
     onboarding_completado: true,
   };
-  if (email && !filaWA.email) update.email = email;
+  // El correo de la SESIÓN reemplaza al que la fila traía, y no al revés (15-sep-2026). La fila
+  // de WhatsApp puede traer uno dictado en el alta viejo que nadie verificó, y al adoptar gana
+  // `supabase_auth_id`, que es lo que habilita el canal de correo (`correoVerificado`, backend).
+  // Conservar el dictado dejaría una fila que se ve probada con una dirección que no lo está.
+  // Si el de la sesión ya es de otra fila (23505), el reintento de abajo lo suelta y queda el
+  // anterior: desde la migración 086 ese anterior es probado o null.
+  if (email) update.email = email;
   if (nombre && !filaWA.nombre) update.nombre = nombre;
 
   const { error: eUpd } = await svc.from('usuarios').update(update).eq('id', filaWA.id);

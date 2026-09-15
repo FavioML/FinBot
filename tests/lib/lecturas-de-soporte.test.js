@@ -127,7 +127,8 @@ describe('estadoVentana · la política declarada era inalcanzable, y el efecto 
   it('CONTROL: con la ventana de Meta cerrada de verdad, el correo SÍ sale', async () => {
     // Sin este control, el caso de abajo pasaría igual si el correo no saliera nunca.
     const r = await responderConVentana({
-      usuarios: { data: { email: 'ana@example.com', recordatorios_activos: true }, error: null },
+      // Con cuenta web: sin ella el correo no sale por otra razón (`correoVerificado`, 15-sep).
+      usuarios: { data: { email: 'ana@example.com', supabase_auth_id: 'auth-ana', recordatorios_activos: true }, error: null },
       // Cero mensajes entrantes → la ventana está cerrada → el correo es el canal que queda.
       conversaciones: VACIO_LISTA,
     });
@@ -141,7 +142,8 @@ describe('estadoVentana · la política declarada era inalcanzable, y el efecto 
     // caída de la base se leía como "la ventana está cerrada, mandale el correo" — mientras el
     // comentario de dos líneas más abajo prometía asumir lo contrario.
     await responderConVentana({
-      usuarios: { data: { email: 'ana@example.com', recordatorios_activos: true }, error: null },
+      // Con cuenta web: sin ella el correo no sale por otra razón (`correoVerificado`, 15-sep).
+      usuarios: { data: { email: 'ana@example.com', supabase_auth_id: 'auth-ana', recordatorios_activos: true }, error: null },
       conversaciones: CAIDA,
     });
 

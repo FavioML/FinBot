@@ -117,6 +117,22 @@ describe('bindActivacion contra una cuenta ya borrada', () => {
     expect(updates).toEqual([]);
   });
 
+  /**
+   * La fila de WhatsApp puede traer un correo DICTADO en el alta viejo (paso 101, retirado el
+   * 31-jul), que nadie verificó. Al adoptar, la fila gana `supabase_auth_id`, y desde el
+   * 15-sep "tiene cuenta web" es lo que habilita el correo (`correoVerificado`). Si la
+   * adopción conserva el dictado, la fila pasa a verse probada con una dirección que no lo
+   * está, y los avisos de plata van a esa bandeja. El de la sesión sí está probado.
+   */
+  it('al adoptar, el correo de la sesión reemplaza al que la fila traía', async () => {
+    const conDictado: FilaFalsa = { id: 'u-vivo', supabase_auth_id: null, nombre: null,
+      email: 'dictado@ejemplo.pe', cuenta_borrada_at: null };
+    const { svc, updates } = clienteFalso(conDictado);
+    const r = await bindActivacion(svc, 'u-vivo', 'auth-nuevo', 'real@ejemplo.pe', 'X');
+    expect(r.estado).toBe('adoptada');
+    expect(updates[0]).toMatchObject({ supabase_auth_id: 'auth-nuevo', email: 'real@ejemplo.pe' });
+  });
+
   it('el token que no encuentra fila sigue dando sin_fila', async () => {
     const { svc } = clienteFalso(null);
     expect((await bindActivacion(svc, 'u-x', 'auth', null, null)).estado).toBe('sin_fila');

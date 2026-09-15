@@ -6,6 +6,7 @@ const { generarResumenSemanal, generarResumenMensual, generarResumenDiario } = r
 const { verificarAlertasProactivas } = require('../services/recommendations');
 const { obtenerDeudasProximasVencer, obtenerDeudasParaResumenSemanal } = require('../services/debts');
 const { notificarUsuario, CANALES } = require('../lib/notify-user');
+const { correoVerificado } = require('../lib/email');
 const { ADMIN_NUMBER, lineaPrecioPro, PRO_PRECIOS } = require('../lib/config');
 const { WEBAPP_URL } = require('../lib/constants');
 const { formatFecha } = require('../lib/formatters');
@@ -331,7 +332,9 @@ async function checkUpsellPro() {
               link: WEBAPP_URL + '/dashboard/pro',
               cuerpo: cuerpoConCorreo,
               // Sin emoji en el asunto: es lo que miran los filtros de spam antes de decidir.
-              email: { to: usuario.email || null, asunto: 'Llevas un mes con Neto y tus gastos siguen guardados' },
+              // `correoVerificado` y no `usuario.email` aunque esta rama ya exige cuenta web: es la
+              // forma única del `to` en los seis emisores, y la que el guard verifica.
+              email: { to: correoVerificado(usuario), asunto: 'Llevas un mes con Neto y tus gastos siguen guardados' },
             } : {}),
           });
           // Misma guarda que los avisos de vencimiento (ver `llegoElAviso`): sin un lugar donde
@@ -825,7 +828,10 @@ async function checkRecordatorioOnboarding() {
         // Son dos llamadas y no un ternario a propósito: `tests/notificaciones-duales.test.js`
         // exige el par `canales:`/`motivo:` como literales pegados, y aflojar esa regex para
         // que entienda una expresión es cómo un guard deja de ver.
-        const base = { usuarioId: u.id, whatsapp: u.whatsapp, tipo: 'onboarding', mensaje: nudge };
+        //
+        // Y los cuatro campos compartidos van escritos en las dos, no en un `...base`: un spread
+        // esconde lo que la llamada declara, y el guard de `notificaciones-duales` lo marca desde
+        // el 15-sep-2026 (ítem 35b: un `email` armado aparte no lo veía ningún guard).
         if (u.supabase_auth_id) {
           // `claimInApp` porque el dedup de este cron (arriba, `avisados`) lee
           // `notification_deliveries`, y esa fila la escribe `enviarWhatsapp`. Para el
@@ -842,7 +848,7 @@ async function checkRecordatorioOnboarding() {
           // corre nada y no hay log posible.
           await notificarUsuario({
             canales: CANALES.AMBOS,
-            ...base,
+            usuarioId: u.id, whatsapp: u.whatsapp, tipo: 'onboarding', mensaje: nudge,
             titulo: 'Anota tu primer gasto',
             // Cuerpo propio: el de WhatsApp dice "mándame la foto" y "dime saltar", que en la
             // campana no son acciones posibles.
@@ -854,7 +860,7 @@ async function checkRecordatorioOnboarding() {
           await notificarUsuario({
             canales: CANALES.SOLO_WHATSAPP,
             motivo: 'la rama exige supabase_auth_id nulo: sin cuenta web no hay campana donde mostrar nada, y el mensaje ES el empujón para que empiece',
-            ...base,
+            usuarioId: u.id, whatsapp: u.whatsapp, tipo: 'onboarding', mensaje: nudge,
           });
         }
         // NO se toca `onboarding_paso`. La marca de "ya se le mandó" es la fila que
@@ -1094,9 +1100,11 @@ async function checkTrialExpiry() {
             // antes de decidir. Misma regla que el asunto de `deuda`.
             //
             // Uno solo por aviso, sin ramificar por `supabase_auth_id` como sí hace el cuerpo:
-            // "se cierra tu dashboard" es cierto lo hayas abierto o no, y al 31-ago la
-            // intersección de "nunca activó la web" con "tiene correo" en la cohorte viva es
-            // CERO, así que la segunda variante no tendría a quién hablarle.
+            // "se cierra tu dashboard" es cierto lo hayas abierto o no. Y la variante para quien
+            // nunca activó la web no tendría a quién hablarle por construcción: desde el 15-sep
+            // el correo sale sólo con cuenta web (`correoVerificado`, abajo). Acá decía que esa
+            // intersección era "CERO al 31-ago", y era cierto de la cohorte en prueba, no de la
+            // columna: había 22 filas sin cuenta web con correo dictado, a un alta de distancia.
             const asuntoTrial = aviso.via === 'd11'
               ? 'Tu prueba Pro termina el ' + venceLegible + ' y se cierra tu dashboard'
               : 'Último día de tu prueba Pro: mañana se cierra tu dashboard';
@@ -1111,7 +1119,10 @@ async function checkTrialExpiry() {
               // días (ver el bloque de arriba). El correo va EN PARALELO, no como fallback de
               // `wa.ok`: el rechazo de Meta llega por callback y todavía no existe cuando esta
               // llamada retorna — un fallback condicionado habría mandado cero correos.
-              email: { to: usuario.email || null, asunto: asuntoTrial },
+              // `correoVerificado`: sin cuenta web no hay correo (15-sep-2026). Para ese usuario el
+              // `link` es el de ACTIVACIÓN, y la dirección la dictó por WhatsApp sin que nadie la
+              // verificara: quien controle esa bandeja abriría el link y adoptaría la cuenta.
+              email: { to: correoVerificado(usuario), asunto: asuntoTrial },
             });
             // Solo se cuenta como "aviso" lo que Meta aceptó: un blocked_24h no avisó a nadie
             // y contarlo taparía justo el problema que se está midiendo.
@@ -1259,7 +1270,7 @@ async function checkTrialExpiry() {
             // El `email` se OMITE cuando no hubo uso reciente, en vez de pasar `to: null`.
             // Un `to` nulo dejaría una fila `skipped_no_email` indistinguible de "no tiene
             // correo", y son dos cosas distintas: acá el canal no se declaró.
-            ...(usoReciente ? { email: { to: usuario.email || null, asunto: 'Tu prueba Pro terminó y tu dashboard quedó cerrado' } } : {}),
+            ...(usoReciente ? { email: { to: correoVerificado(usuario), asunto: 'Tu prueba Pro terminó y tu dashboard quedó cerrado' } } : {}),
           });
         }
         analytics.capture(usuario.id, 'wa_onboarding_step_failed', { paso: 400, motivo: 'trial_vencido', conteo_tx: conteoTx || 0 });
@@ -1570,7 +1581,7 @@ async function checkResumenDeudasSemanal() {
           claimInApp: true,
           // El único correo de deudas que queda. `to` viaja desde el select del helper
           // (`obtenerDeudasParaResumenSemanal`) porque el chokepoint no lee la base.
-          email: { to: grupo.usuario.email || null, asunto: asuntoResumenDeudas(grupo.debo, grupo.meDeben) },
+          email: { to: correoVerificado(grupo.usuario), asunto: asuntoResumenDeudas(grupo.debo, grupo.meDeben) },
         });
         // **El resultado se MIRA, y no es opcional cuando se pide el claim.** `notificarUsuario`
         // es best-effort y nunca lanza: si el insert de la campana falla, devuelve
@@ -1792,7 +1803,10 @@ async function checkRecordatorioInactividadSemanal() {
     const { data: usuarios, error: errUsuarios } = await supabase.from('usuarios')
       // `email` viaja porque el chokepoint NO lee la base: el `to` lo pone el llamador.
       // `whatsapp` decide el CTA del cuerpo (ver `cuerpoInactividad`), no es adorno.
-      .select('id, nombre, email, whatsapp, recordatorios_activos')
+      // `supabase_auth_id` decide si la dirección está PROBADA (`correoVerificado`, 15-sep-2026):
+      // de todos los emisores, éste era el que más alcanzaba a los correos dictados por
+      // WhatsApp, porque su única condición sobre la dirección es que no sea null.
+      .select('id, nombre, email, supabase_auth_id, whatsapp, recordatorios_activos')
       .eq('onboarding_completado', true)
       .neq('is_test_user', true)
       // La lápida de la migración 073 conserva `plan` y `premium_vence`, así que sigue
@@ -1937,7 +1951,7 @@ async function checkRecordatorioInactividadSemanal() {
           // Sin `link` a propósito: ver el docblock. El botón iría a `/dashboard`, que para 14
           // de los 17 muestra el Paywall.
           claimInApp: true,
-          email: { to: usuario.email || null, asunto: 'Retomemos: anotar un gasto toma cinco segundos' },
+          email: { to: correoVerificado(usuario), asunto: 'Retomemos: anotar un gasto toma cinco segundos' },
         });
         // **El resultado se MIRA, y no es opcional cuando se pide el claim.**
         // `notificarUsuario` es best-effort y nunca lanza: si el insert de la campana falla,

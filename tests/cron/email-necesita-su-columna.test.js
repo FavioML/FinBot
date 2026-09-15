@@ -170,11 +170,18 @@ const llamadasConCorreo = (cuerpo) =>
  */
 const PAR_FROM_SELECT = /\.from\(\s*(['"`])([^'"`]*)\1\s*\)\s*\.select\(\s*(['"`])([\s\S]*?)\3/g;
 
+/**
+ * **Y trae `supabase_auth_id` en el MISMO literal** (15-sep-2026). El `to` sale de
+ * `correoVerificado(usuario)`, que sólo devuelve la dirección si la fila tiene cuenta web. Sin
+ * la columna en el select el helper lee `undefined` y devuelve null para todos: el canal se
+ * apaga en silencio, con el mismo rastro que un usuario sin dirección. Es el modo de falla de
+ * arriba con otra columna, así que se le pide lo mismo al mismo select.
+ */
 function selectsConLaColumna(cuerpo) {
   let n = 0;
   for (const m of cuerpo.matchAll(PAR_FROM_SELECT)) {
     const [, , tabla, , literal] = m;
-    if (!/\bemail\b/.test(literal)) continue;
+    if (!/\bemail\b/.test(literal) || !/\bsupabase_auth_id\b/.test(literal)) continue;
     if (tabla === 'usuarios' || /\busuarios\b\s*!?\w*\s*\(/.test(literal)) n++;
   }
   return n;
@@ -191,22 +198,24 @@ for (const { rel, src } of FUENTES) {
 }
 
 describe('el detector decide, y se le ve decidir en las dos direcciones', () => {
-  const conSelect = "async function f(u) {\n  const { data } = await supabase.from('usuarios').select('id, whatsapp, email');\n  await notificarUsuario({ email: { to: u.email, asunto: 'x' } });\n}\n";
+  const conSelect = "async function f(u) {\n  const { data } = await supabase.from('usuarios').select('id, whatsapp, email, supabase_auth_id');\n  await notificarUsuario({ email: { to: u.email, asunto: 'x' } });\n}\n";
+  // La forma que traía cada emisor antes del 15-sep: la dirección sí, la prueba de que es suya no.
+  const sinAuth = "async function f(u) {\n  const { data } = await supabase.from('usuarios').select('id, whatsapp, email');\n  await notificarUsuario({ email: { to: u.email, asunto: 'x' } });\n}\n";
   const sinSelect = "async function f(u) {\n  const { data } = await supabase.from('usuarios').select('id, whatsapp');\n  await notificarUsuario({ email: { to: u.email, asunto: 'x' } });\n}\n";
   const enComentario = "async function f(u) {\n  // el select de arriba ya trae email\n  const { data } = await supabase.from('usuarios').select('id, whatsapp');\n  await notificarUsuario({ email: { to: u.email, asunto: 'x' } });\n}\n";
   const indirecto = "async function f(u) {\n  const { data } = await supabase.from('usuarios').select(COLS);\n  await notificarUsuario({ email: { to: u.email, asunto: 'x' } });\n}\n";
-  const embebido = "async function f(u) {\n  const { data } = await supabase.from('deudas').select('*, usuarios!inner(whatsapp, email)');\n  await notificarUsuario({ email: { to: u.email, asunto: 'x' } });\n}\n";
+  const embebido = "async function f(u) {\n  const { data } = await supabase.from('deudas').select('*, usuarios!inner(whatsapp, email, supabase_auth_id)');\n  await notificarUsuario({ email: { to: u.email, asunto: 'x' } });\n}\n";
   const estrella = "async function f(u) {\n  const { data } = await supabase.from('usuarios').select('*');\n  await notificarUsuario({ email: { to: u.email, asunto: 'x' } });\n}\n";
   const cuerpoDe = (fuente) => funciones(sinComentarios(fuente))[0].cuerpo;
 
   // Dos call-sites alimentados por dos queries, que es la forma exacta de `checkTrialExpiry`.
   // Es el caso que la primera versión de este archivo NO veía.
   const dosYDos = "async function f(u) {\n"
-    + "  const a = await supabase.from('usuarios').select('id, email');\n"
+    + "  const a = await supabase.from('usuarios').select('id, email, supabase_auth_id');\n"
     + "  await notificarUsuario({ email: { to: u.email, asunto: 'x' } });\n"
-    + "  const b = await supabase.from('usuarios').select('id, plan, email');\n"
+    + "  const b = await supabase.from('usuarios').select('id, plan, email, supabase_auth_id');\n"
     + "  await notificarUsuario({ email: { to: u.email, asunto: 'y' } });\n}\n";
-  const dosYUno = dosYDos.replace("'id, plan, email'", "'id, plan'");
+  const dosYUno = dosYDos.replace("'id, plan, email, supabase_auth_id'", "'id, plan'");
 
   it.each([
     ['la columna nombrada', conSelect, 1],
@@ -219,6 +228,10 @@ describe('el detector decide, y se le ve decidir en las dos direcciones', () => 
     ['la columna sólo en un comentario', enComentario],
     ['un select indirectado por constante', indirecto],
     ['un select con asterisco', estrella],
+    // 15-sep-2026: la dirección sin la prueba de que es suya. Sin `supabase_auth_id`,
+    // `correoVerificado` devuelve null para todos y el canal se apaga en silencio.
+    ['un select con email pero sin supabase_auth_id', sinAuth],
+    ['un embed con email pero sin supabase_auth_id', embebido.replace(', supabase_auth_id)', ')')],
   ])('NO cuenta %s', (_c, fuente) => expect(selectsConLaColumna(cuerpoDe(fuente))).toBe(0));
 
   it('dos call-sites con un solo select cubierto NO alcanzan (la evasión que mató a la v1)', () => {

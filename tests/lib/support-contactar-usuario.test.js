@@ -84,7 +84,8 @@ function colaCaminoCompleto({ ultimoMensajeHaceHoras = 1 } = {}) {
       { data: { id: 't-nuevo' }, error: null }, // el insert de abrirSesion
       { data: null, error: null },              // el update de la columna de último mensaje
     ],
-    usuarios: [{ data: { email: 'ana@ejemplo.pe' }, error: null }],
+    // Con cuenta web: sin ella el correo no sale (`correoVerificado`, 15-sep-2026).
+    usuarios: [{ data: { email: 'ana@ejemplo.pe', supabase_auth_id: 'auth-ana' }, error: null }],
     conversaciones: [{
       data: [{ created_at: new Date(Date.now() - ultimoMensajeHaceHoras * 3600 * 1000).toISOString() }],
       error: null,
@@ -183,6 +184,20 @@ describe('contactarUsuario · la conversación no se abre sobre un mensaje que n
     const aviso = notifMock.notificarUsuario.mock.calls[0][0];
     expect(aviso.email).toMatchObject({ to: 'ana@ejemplo.pe' });
     expect(String(aviso.email.asunto || '').length).toBeGreaterThan(0);
+  });
+
+  it('sin cuenta web NO sale el correo, aunque la ventana esté cerrada', async () => {
+    // 15-sep-2026: sin cuenta web la dirección la dictó la persona por WhatsApp y nadie la
+    // probó. Una respuesta de soporte a una bandeja equivocada le cuenta a un desconocido lo
+    // que otra persona le escribió a Neto. El WhatsApp y la campana salen igual.
+    waMock.enviarWhatsapp.mockResolvedValue({ ok: true, msgId: 'wamid.1' });
+    colaCaminoCompleto({ ultimoMensajeHaceHoras: 30 });
+    db.porTabla.usuarios = [{ data: { email: 'dictado@ejemplo.pe', supabase_auth_id: null, recordatorios_activos: true }, error: null }];
+
+    await contactarUsuario(BASE);
+
+    const aviso = notifMock.notificarUsuario.mock.calls[0][0];
+    expect(aviso.email.to).toBe(null);
   });
 
   it('quien se dio de baja NO recibe el correo, aunque la ventana este cerrada', async () => {
