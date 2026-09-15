@@ -202,6 +202,10 @@ describe('los cuatro crons con dedup por fecha piden el claim', () => {
     // que sigue al claim es un correo, o sea el unico canal del producto que de verdad
     // entrega, así que un duplicado se ve en la bandeja de una persona.
     ['recordatorio semanal de inactividad', "tipo: 'inactividad_semanal'"],
+    // 14-sep-2026. El cierre del día de la prueba dedupea contra `notificaciones` por (usuario,
+    // titulo, fecha) y esa fila es el claim. El gate da un tick por noche, pero un redeploy
+    // dentro de la ventana corre dos: sin el flag, dos cierres iguales la misma noche.
+    ['cierre del día de la prueba', 'tipo: TIPO_CIERRE'],
   ];
 
   it.each(AVISOS)('%s pasa claimInApp en su llamada a notificarUsuario', (_nombre, ancla) => {
@@ -221,8 +225,9 @@ describe('los cuatro crons con dedup por fecha piden el claim', () => {
     expect(bs.length).toBeGreaterThan(6);
     // 6 desde el 01-sep-2026: los tres avisos de vencimiento, el nudge de primer gasto (que
     // reclama porque su dedup lee `notification_deliveries` y esa fila la escribe el envío),
-    // el resumen semanal de deudas y el recordatorio semanal de inactividad.
-    expect(bs.filter(b => /claimInApp:\s*true/.test(b)).length).toBe(6);
+    // el resumen semanal de deudas y el recordatorio semanal de inactividad. 7 desde el
+    // 14-sep-2026: el cierre del día de la prueba.
+    expect(bs.filter(b => /claimInApp:\s*true/.test(b)).length).toBe(7);
     expect(bs.filter(b => !/claimInApp/.test(b)).length).toBeGreaterThan(0);
   });
 
@@ -347,9 +352,9 @@ describe('claimInApp nunca se combina con un canal único', () => {
 
   it('el barrido encuentra las llamadas con claim (antivacuidad)', () => {
     // 3 vencimientos + el nudge de primer gasto (20-ago-2026) + el resumen semanal de deudas
-    // (31-ago-2026) + el recordatorio semanal de inactividad (01-sep-2026). Las seis en
-    // cron/checks.js.
-    expect(conClaim.length).toBe(6);
+    // (31-ago-2026) + el recordatorio semanal de inactividad (01-sep-2026) + el cierre del día
+    // de la prueba (14-sep-2026). Las siete en cron/checks.js.
+    expect(conClaim.length).toBe(7);
   });
 
   /**

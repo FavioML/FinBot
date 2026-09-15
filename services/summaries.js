@@ -265,8 +265,16 @@ async function generarResumenMensual(usuario) {
  * Resumen diario para el Modo Manos Libres. Corto a propósito (cadencia diaria):
  * total del día, top categorías y el mayor gasto. Devuelve null si no hubo gastos
  * hoy (no mandar "gastaste S/0" a diario — respeta la política anti-fatiga).
+ *
+ * `{ cierre: true }` es la variante del cierre de los días 0-2 de la prueba
+ * (`checkCierreDiaPrueba`). Cambia dos cosas y las dos importan:
+ *   · sin el pie: el de Manos Libres dice "para pausar escribe /manoslibres", y ese comando es
+ *     un TOGGLE — a quien está probando y no tiene Manos Libres se lo PRENDERÍA;
+ *   · con un solo gasto, una línea en vez de tres bloques: el día 0 casi siempre es un gasto, y
+ *     el resumen de podio con una sola medalla se lee como un formulario vacío.
+ * La salida por defecto (Manos Libres) no cambia: la fija `tests/services/resumen-diario.test.js`.
  */
-async function generarResumenDiario(usuario) {
+async function generarResumenDiario(usuario, { cierre = false } = {}) {
   const hoyStr = hoyPeru();
   const { data: txsHoy, error: errHoy } = await supabase.from('transacciones').select('*')
     .eq('usuario_id', usuario.id).eq('tipo', 'gasto').eq('fecha', hoyStr);
@@ -289,6 +297,23 @@ async function generarResumenDiario(usuario) {
   const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
   const emojis = ['🥇', '🥈', '🥉'];
   const fechaLarga = new Date(hoyStr + 'T12:00:00').toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'short' });
+
+  if (cierre) {
+    const saludo = '🌙 *Tu cierre de hoy' + (primerNombre ? ', ' + primerNombre : '') + '*';
+    if (txsHoy.length === 1) {
+      const t = txsHoy[0];
+      return saludo + '\n\nHoy anotaste 1 gasto: *S/ ' + total.toFixed(2) + '* en ' + (t.categoria || 'Otros') +
+        (t.comercio ? ' (' + t.comercio + ')' : '') + '.';
+    }
+    let c = saludo + '\n\n💸 *Gastaste:* S/ ' + total.toFixed(2) + ' en ' + txsHoy.length + ' movimientos\n';
+    if (totalIng > 0) c += '💵 *Ingresos:* S/ ' + totalIng.toFixed(2) + '\n';
+    c += '\n';
+    top3.forEach(([cat, monto], i) => { c += emojis[i] + ' ' + cat + ': *S/ ' + monto.toFixed(2) + '*\n'; });
+    if (mayor && mayor.comercio) {
+      c += '\n🔝 *Mayor gasto:* ' + mayor.comercio + ' (S/ ' + parseFloat(mayor.monto_pen || mayor.monto).toFixed(2) + ')\n';
+    }
+    return c.trimEnd();
+  }
 
   let msg = '🌙 *Resumen de hoy' + (primerNombre ? ', ' + primerNombre : '') + '*\n';
   msg += '_' + fechaLarga + '_\n';

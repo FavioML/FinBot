@@ -165,6 +165,12 @@ describe('Imágenes de pago (Yape/Plin/banco) → Vision → transacción', () =
     expect(resp).toMatch(/Gasto registrado/);
     expect(resp).toMatch(/23\.45/);
     expect(resp).toMatch(/Alimentación/);
+
+    // La foto no deja turno en `conversaciones`, y el cierre de la noche solo sale a quien
+    // escribió hoy: prometerlo acá sería prometer algo que no llega (plan día 0→1, 14-sep). La
+    // revisión adversarial le quitó este flag al call-site y la suite entera siguió verde.
+    expect(colaConfirmacionGasto).toHaveBeenCalledOnce();
+    expect(colaConfirmacionGasto.mock.calls[0][3]).toEqual({ prometeCierre: false });
   });
 
   it('un ingreso se confirma como ingreso, no como gasto', async () => {

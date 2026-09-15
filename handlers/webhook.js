@@ -529,7 +529,9 @@ function createWebhookHandler(procesarMensajeLibre) {
             PRO_PRECIOS.mensual + ' mensual o S/' + PRO_PRECIOS.anual + ' anual a *Favio Mendoza*), ' +
             'revisa el monto y el destinatario y reenvíamela._';
         }
-        const nudgeImg = await colaConfirmacionGasto(usuario, txImg, txImg && txImg.conteoTx);
+        // `prometeCierre: false`: esta rama no guarda el turno en `conversaciones`, y el cierre de
+        // la noche solo sale a quien escribió hoy. Prometerlo acá sería prometer algo que no llega.
+        const nudgeImg = await colaConfirmacionGasto(usuario, txImg, txImg && txImg.conteoTx, { prometeCierre: false });
         if (nudgeImg) respImg += nudgeImg;
         await enviarWhatsapp(from, respImg);
       } catch(e) {

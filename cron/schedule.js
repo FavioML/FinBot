@@ -79,6 +79,12 @@ const TAREAS = [
   { nombre: 'checkResumenMensual', cadaMs: 15 * MIN, tag: 'MENSUAL', mensaje: 'Resumen mensual (1ro de cada mes, 9am Lima)' },
   { nombre: 'checkUpsellPro', cadaMs: 15 * MIN, tag: 'UPSELL_PRO', mensaje: 'Upsell a Pro del día 28-30 desde el registro (8pm Lima)' },
   { nombre: 'checkResumenDiarioManosLibres', cadaMs: 15 * MIN, tag: 'RESUMEN_DIARIO', mensaje: 'Resumen diario Manos Libres (Pro opt-in, 9pm Lima)' },
+  // Mismo reloj que el de arriba y no se pisan: este excluye `manos_libres = true` en la query.
+  // `alBoot` porque el primer gasto PROMETE este cierre: sin él, un redeploy a las 21:03 dejaba el
+  // primer tick del proceso nuevo después de las 21:15 y la noche se perdía para todos (revisión
+  // adversarial, 14-sep). Fuera de la ventana el gate corta sin leer nada, y el dedup contra la
+  // fila del claim cubre al proceso viejo si todavía tickea.
+  { nombre: 'checkCierreDiaPrueba', cadaMs: 15 * MIN, alBoot: true, tag: 'CIERRE_DIA_PRUEBA', mensaje: 'Cierre del día, días 0-2 de la prueba, a quien escribió hoy (9pm Lima)' },
   { nombre: 'checkAlertasProactivas', cadaMs: 15 * MIN, tag: 'ALERTAS', mensaje: 'Alertas proactivas (miércoles 10am Lima)' },
   { nombre: 'checkPremiumExpiry', cadaMs: HORA, tag: 'EXPIRY', mensaje: 'Check expiración premium' },
   { nombre: 'checkTrialExpiry', cadaMs: HORA, tag: 'TRIAL_EXPIRY', mensaje: 'Check fin de trial (avisos día 11 y 14, downgrade al muro)' },

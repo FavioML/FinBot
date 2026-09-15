@@ -543,6 +543,7 @@ describe('una población que no se puede leer deja rastro', () => {
     ['checkSurveyConversions',         '2026-08-20T07:00:00', 'survey_events', 'SURVEY_CONV'],
     ['checkRecordatorioSuscripciones', '2026-08-20T10:00:00', 'usuarios',      'SUB_REMIND'],
     ['checkResumenDiarioManosLibres',  '2026-08-20T21:00:00', 'usuarios',      'RESUMEN_DIARIO'],
+    ['checkCierreDiaPrueba',           '2026-08-20T21:00:00', 'usuarios',      'CIERRE_DIA_PRUEBA'],
     ['checkGmailHuerfanos',            '2026-08-20T10:00:00', 'gmail_cuentas', 'GMAIL_HUERFANOS'],
     // Las tres de checkPremiumExpiry, separadas por hora para que cada log se exija solo.
     ['checkPremiumExpiry',             '2026-08-20T03:00:00', 'usuarios',      'EXPIRY'],
@@ -608,7 +609,7 @@ describe('una población que no se puede leer deja rastro', () => {
       'checkAlertasProactivas', 'checkRecordatorioOnboarding', 'checkActivacionDia2',
       'checkDetectorFugas', 'checkCalcularNetoScore', 'checkNotificacionScore', 'checkCheckInPlanes',
       'checkRecordatorioEspacios', 'checkRecordatoriosCostos', 'checkSurveyConversions',
-      'checkRecordatorioSuscripciones', 'checkResumenDiarioManosLibres']) {
+      'checkRecordatorioSuscripciones', 'checkResumenDiarioManosLibres', 'checkCierreDiaPrueba']) {
       await checks[n]();
     }
     expect(logMock.error, 'un cron leyó fuera de su ventana horaria').not.toHaveBeenCalled();

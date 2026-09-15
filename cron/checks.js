@@ -13,8 +13,9 @@ const { notificarAdmin } = require('../lib/admin-notify');
 const { checkSurveyTriggers } = require('../services/survey-triggers');
 const { solicitarComprobante } = require('../lib/pro-payment');
 const { planCostReminders } = require('../lib/cost-reminders');
-const { mensajeActivacionDia2 } = require('../lib/activacion');
-const { mensajeMuro, estaEnMuro, esProPagado, linkPanelPro, AVISO_DIAS_ANTES } = require('../lib/trial');
+const { mensajeActivacionDia2, construirLinkActivacion } = require('../lib/activacion');
+const { mensajeMuro, estaEnMuro, esProPagado, linkPanelPro, AVISO_DIAS_ANTES, diaDePrueba, DIAS_CIERRE_PRUEBA } = require('../lib/trial');
+const { TIPO_CIERRE, TITULO_CIERRE, armarCierreDiaPrueba } = require('../lib/cierre-dia-prueba');
 const { revocarAccesoGmail } = require('../gmail');
 const analytics = require('../lib/analytics');
 
@@ -2646,6 +2647,153 @@ async function checkResumenDiarioManosLibres() {
   } catch (e) { log.error({ tag: 'RESUMEN_DIARIO', err: msgErr(e) }, 'Error resumen diario manos libres'); }
 }
 
+/**
+ * A quién le sale el cierre del día esta noche. Separado del cron para que el dry-run
+ * (`scripts/preview-cierre-dia-prueba.js`) corra ESTA función y no una copia — la lección de
+ * `preview-survey-triggers.js`, que reimplementaba su cron y divergía en tres puntos.
+ *
+ * Los cinco filtros juntos (plan día 0→1, decisión de Favio del 14-sep-2026):
+ *   · en prueba (`plan='premium'` + `trial_estado='activo'`);
+ *   · hoy (Lima) es el día 0, 1 o 2 desde `trial_inicio` (`diaDePrueba`);
+ *   · escribió HOY por WhatsApp (`conversaciones`, rol usuario). Es lo que garantiza la ventana
+ *     de 24h de Meta: el cierre sale a las 21h, así que el último mensaje entrante tiene como
+ *     mucho 21h15. Una transacción hecha desde la web NO abre la ventana, y por eso no cuenta;
+ *   · sin Manos Libres (esos ya reciben su resumen a la misma hora);
+ *   · sin haberse silenciado, sin cuenta borrada, sin ser cuenta de prueba.
+ *
+ * `is_test_user` se filtra en JS y no con `.neq('is_test_user', true)`: la columna es nullable y
+ * en SQL `NULL <> true` es NULL, o sea que la fila de un usuario real sin marca NO entraría.
+ *
+ * Límite conocido: quien SOLO mandó fotos hoy no deja turno en `conversaciones` (la rama de
+ * imagen del webhook no lo guarda) y queda fuera. Por eso la confirmación de una foto tampoco
+ * promete el cierre (`colaConfirmacionGasto` con `prometeCierre: false`).
+ *
+ * @param {Date} ahora
+ * @returns {Promise<Array<{ usuario: object, dia: number }>>}  lanza si la población no se puede leer
+ */
+async function seleccionarCierreDiaPrueba(ahora = new Date()) {
+  const hoy = ahora.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+  const inicioHoy = new Date(hoy + 'T00:00:00-05:00').toISOString();
+  const ultimoDia = DIAS_CIERRE_PRUEBA[DIAS_CIERRE_PRUEBA.length - 1];
+  const desde = new Date(sumarDias(hoy, -ultimoDia) + 'T00:00:00-05:00').toISOString();
+  const { data: candidatos, error: errCandidatos } = await supabase.from('usuarios')
+    .select('id, whatsapp, nombre, plan, trial_estado, trial_inicio, supabase_auth_id, recordatorios_activos, manos_libres, activacion_nudge_at, is_test_user')
+    .eq('plan', 'premium').eq('trial_estado', 'activo')
+    .eq('manos_libres', false)
+    .is('cuenta_borrada_at', null)
+    .gte('trial_inicio', desde);
+  if (errCandidatos) throw errCandidatos;
+
+  const elegibles = (candidatos || []).filter((u) =>
+    u.is_test_user !== true && u.recordatorios_activos !== false &&
+    DIAS_CIERRE_PRUEBA.includes(diaDePrueba(u, hoy)));
+
+  const out = [];
+  for (const u of elegibles) {
+    // Un conteo por persona y no un `.in()` sobre todas: los turnos de hoy de N personas pueden
+    // pasar el tope de filas de PostgREST, y un Set armado sobre una lista capada deja fuera a
+    // quien quedó del otro lado del corte sin decirlo. N son las pruebas de los últimos 3 días.
+    const { count, error: errTurnos } = await supabase.from('conversaciones')
+      .select('id', { count: 'exact', head: true })
+      .eq('usuario_id', u.id).eq('rol', 'usuario').gte('created_at', inicioHoy);
+    if (errTurnos) {
+      // Sin saber si escribió hoy no se le manda: sin ventana abierta el WhatsApp muere en 131047.
+      log.error({ tag: 'CIERRE_DIA_PRUEBA', usuarioId: u.id, err: errTurnos.message }, 'No se pudo saber si escribió hoy: no se le manda el cierre');
+      continue;
+    }
+    if (count > 0) out.push({ usuario: u, dia: diaDePrueba(u, hoy) });
+  }
+  return out;
+}
+
+/**
+ * El mensaje del cierre para una persona, o null si hoy no anotó gastos con fecha de hoy. La
+ * usan el cron y el dry-run: lo que el preview muestra es lo que el cron mandaría.
+ */
+async function prepararCierreDiaPrueba(usuario, dia, hoy) {
+  const resumen = await generarResumenDiario(usuario, { cierre: true });
+  if (!resumen) return null;
+  // Sin cuenta web va el link de activación, salvo que `checkActivacionDia2` ya se lo haya
+  // mandado hoy: dos links el mismo día a la misma persona es insistir, no invitar.
+  const nudgeHoy = !!usuario.activacion_nudge_at &&
+    new Date(usuario.activacion_nudge_at).toLocaleDateString('en-CA', { timeZone: 'America/Lima' }) === hoy;
+  const linkActivacion = (usuario.supabase_auth_id || nudgeHoy) ? null : construirLinkActivacion(usuario.id);
+  const cierre = armarCierreDiaPrueba({ dia, resumen, linkActivacion });
+  return cierre && { ...cierre, conActivacion: !!linkActivacion };
+}
+
+/**
+ * Cierre del día, días 0-2 de la prueba — 9pm Lima. El porqué está en `lib/cierre-dia-prueba.js`;
+ * a quién, en `seleccionarCierreDiaPrueba`.
+ *
+ * Dedup: una fila por usuario y por día, contra la fila in-app que escribe el claim. El reloj da
+ * un solo tick por noche (gate de 15 min, intervalo de 15), pero un redeploy dentro de la
+ * ventana corre dos, y sin el dedup serían dos cierres.
+ *
+ * Freno: `CIERRE_DIA_PRUEBA=off` en Railway. Se pone si más de 1 de cada 5 destinatarios se
+ * silencia después del cierre o si baja el `quality_rating` del número (lo mide
+ * `qa-e2e/probe-retencion-dia0.mjs`).
+ */
+async function checkCierreDiaPrueba() {
+  const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
+  if (horaLima.getHours() !== 21 || horaLima.getMinutes() > 14) return;
+  if (process.env.CIERRE_DIA_PRUEBA === 'off') {
+    log.info({ tag: 'CIERRE_DIA_PRUEBA' }, 'Apagado por CIERRE_DIA_PRUEBA=off');
+    return;
+  }
+  try {
+    let destinatarios;
+    try {
+      destinatarios = await seleccionarCierreDiaPrueba(new Date());
+    } catch (e) {
+      log.error({ tag: 'CIERRE_DIA_PRUEBA', err: (e && e.message) || msgErr(e) }, 'No se pudo leer la población: nadie recibió el cierre del día');
+      return;
+    }
+    if (destinatarios.length === 0) return;
+
+    const hoy = hoyPeru();
+    const inicioHoy = new Date(hoy + 'T00:00:00-05:00').toISOString();
+    let enviados = 0;
+    for (const { usuario, dia } of destinatarios) {
+      try {
+        // La query ya pide `plan='premium'`; esto es la misma pregunta hecha sobre la fila que
+        // de verdad se va a usar, por si la selección y el envío llegan a separarse.
+        if (estaEnMuro(usuario)) continue;
+
+        // Falla cerrado: ante la duda se asume que ya cerró. Un cierre de menos no daña a nadie;
+        // dos iguales en la misma noche sí se leen como spam.
+        const { data: yaCerro, error: errDedup } = await supabase.from('notificaciones')
+          .select('id').eq('usuario_id', usuario.id).eq('titulo', TITULO_CIERRE)
+          .gte('fecha', inicioHoy).limit(1);
+        if (errDedup) {
+          log.error({ tag: 'CIERRE_DIA_PRUEBA', usuarioId: usuario.id, err: errDedup.message }, 'No se pudo comprobar el dedup: no se manda el cierre');
+          continue;
+        }
+        if (yaCerro && yaCerro.length > 0) continue;
+
+        const cierre = await prepararCierreDiaPrueba(usuario, dia, hoy);
+        if (!cierre) continue;   // escribió hoy pero no anotó gastos con fecha de hoy
+
+        const { wa } = await notificarUsuario({
+          canales: CANALES.AMBOS,
+          usuarioId: usuario.id, whatsapp: usuario.whatsapp,
+          tipo: TIPO_CIERRE, mensaje: cierre.mensaje,
+          titulo: TITULO_CIERRE, cuerpo: cierre.cuerpo,
+          link: '/dashboard',
+          claimInApp: true, // el dedup de arriba lee la fila in-app; sin claim, un redeploy duplica
+        });
+        if (wa && wa.ok && !wa.skipped) {
+          analytics.capture(usuario.id, 'wa_cierre_dia_prueba', { dia, con_activacion: cierre.conActivacion });
+        }
+        enviados++;
+      } catch (e) {
+        log.error({ tag: 'CIERRE_DIA_PRUEBA', err: msgErr(e), usuarioId: usuario.id }, 'Cierre del día omitido para el usuario');
+      }
+    }
+    log.info({ tag: 'CIERRE_DIA_PRUEBA', enviados, candidatos: destinatarios.length }, 'Cierres del día enviados');
+  } catch (e) { log.error({ tag: 'CIERRE_DIA_PRUEBA', err: msgErr(e) }, 'Error cierre del día de la prueba'); }
+}
+
 // Limpieza periódica de OTPs de verificación web vencidos (evita acumulación de filas muertas;
 // el unique index por supabase_auth_id ya reemplaza al regenerar, esto borra los abandonados).
 /**
@@ -2758,6 +2906,11 @@ module.exports = {
   checkResumenMensual,
   checkResumenSemanal,
   checkResumenDiarioManosLibres,
+  // Exportada para el dry-run (`scripts/preview-cierre-dia-prueba.js`): el preview corre la
+  // selección real, no una copia.
+  seleccionarCierreDiaPrueba,
+  prepararCierreDiaPrueba,
+  checkCierreDiaPrueba,
   limpiarOTPVencidos,
   checkGmailHuerfanos,
   checkUpsellPro,
