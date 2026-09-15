@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
+import { createHmac } from 'node:crypto';
 
 /**
  * El login con Google NUNCA adopta una fila existente por coincidencia de correo.
@@ -9,20 +10,28 @@ import { NextRequest } from 'next/server';
  * entrega esa cuenta —y sus finanzas— la primera vez que entre a app.neto.pe. Vincular una cuenta
  * existente exige probar el NÚMERO: el link de activación firmado o el OTP inverso.
  *
- * Tres decisiones del test, las tres pagadas por la revisión adversarial del 15-sep-2026:
- *   · `createWebUser` y `bindActivacion` corren DE VERDAD. Con los dos mockeados, una búsqueda por
- *     correo movida adentro de cualquiera de ellos —o envuelta en try/catch— dejaba todo verde.
- *   · El doble de Supabase es SEMÁNTICO: aplica los filtros sobre tablas en memoria (la fila de
- *     WhatsApp y un `gmail_cuentas` con su mismo correo) e impone los dos índices únicos de
- *     `usuarios` (`supabase_auth_id` y `lower(email)`), así que una búsqueda reintroducida por
- *     cualquier operador o por cualquier tabla ENCUENTRA a la víctima, y la escritura queda anotada.
+ * Lo que sostiene a este test, pagado por DOS revisiones adversariales del 15-sep-2026 que lo
+ * evadieron siete veces con la suite entera en verde. Las siete tenían la misma raíz: **el fixture
+ * no se parecía a producción**, así que la rama reintroducida nunca se ejercitaba. Por eso:
+ *   · `createWebUser`, `bindActivacion` y `verificarTokenActivacion` corren DE VERDAD, y hay un
+ *     control positivo: un token válido SÍ vincula. Sin él, "corre de verdad" era una afirmación.
+ *   · El doble de Supabase es SEMÁNTICO: aplica los filtros sobre tablas en memoria, impone los dos
+ *     índices únicos de `usuarios` y devuelve el MENSAJE REAL de Postgres, con el nombre del índice.
+ *   · El usuario de Google trae nombre (igual al de la víctima), una cookie `neto_act` que no
+ *     verifica, un `gmail_cuentas` con el correo de la víctima, y existe el caso del SEGUNDO login
+ *     (ya con su alta web), que es donde una "fusión automática por correo" viviría.
  *   · Un método que el doble no conoce no filtra: devuelve todas las filas, el lado seguro acá.
+ *
+ * LÍMITES DECLARADOS, medidos y fuera de este test: un vínculo delegado al backend por `fetch`, y uno
+ * escrito en código que el callback no importa (`requireNetoUser`, el middleware, otra route). Lo
+ * desplegado lo cubre `qa-e2e/qa-login-sin-vinculo-email.mjs` contra producción.
  */
 
 type Fila = Record<string, unknown>;
 
 const h = vi.hoisted(() => ({
   email: '',
+  nombreGoogle: 'Víctima WA',
   usuarios: [] as Record<string, unknown>[],
   gmail: [] as Record<string, unknown>[],
   categorias: [] as Record<string, unknown>[],
@@ -33,13 +42,14 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/link-web-referral', () => ({ linkWebReferral: vi.fn() }));
-vi.mock('@/lib/activacion-token', () => ({ verificarTokenActivacion: vi.fn(() => null) }));
 vi.mock('@supabase/ssr', () => ({
   createServerClient: () => ({
     auth: {
       exchangeCodeForSession: async () => ({ error: null }),
       verifyOtp: async () => ({ error: null }),
-      getUser: async () => ({ data: { user: { id: 'auth-1', email: h.email, user_metadata: {} } } }),
+      getUser: async () => ({
+        data: { user: { id: 'auth-1', email: h.email, user_metadata: { full_name: h.nombreGoogle, name: h.nombreGoogle } } },
+      }),
     },
   }),
 }));
@@ -47,21 +57,21 @@ vi.mock('@supabase/ssr', () => ({
 const tablaDe = (t: string): Fila[] =>
   t === 'usuarios' ? h.usuarios : t === 'gmail_cuentas' ? h.gmail : t === 'categorias_usuario' ? h.categorias : [];
 
-/** Los dos índices únicos de `usuarios`, medidos en la base viva el 15-sep-2026. */
-function choca(fila: Fila): boolean {
+/** Los dos índices únicos de `usuarios` que un alta puede tocar (medidos en la base el 15-sep-2026). */
+function indiceQueChoca(fila: Fila): string | null {
   const mail = (v: unknown) => (typeof v === 'string' && v !== '' ? v.toLowerCase() : null);
-  return h.usuarios.some(
-    (r) =>
-      (fila.supabase_auth_id != null && r.supabase_auth_id === fila.supabase_auth_id) ||
-      (mail(fila.email) !== null && mail(r.email) === mail(fila.email)),
-  );
+  for (const r of h.usuarios) {
+    if (fila.supabase_auth_id != null && r.supabase_auth_id === fila.supabase_auth_id) return 'usuarios_supabase_auth_id_key';
+    if (mail(fila.email) !== null && mail(r.email) === mail(fila.email)) return 'usuarios_email_lower_unique';
+  }
+  return null;
 }
 
 function consulta(tabla: string) {
   const filtros: Array<(r: Fila) => boolean> = [];
   let op = 'select';
   let payload: unknown;
-  let resultado: { data: Fila[] | null; error: { code: string; message: string } | null } | null = null;
+  let resultado: { data: Fila[] | null; error: { code: string; message: string; details: string } | null } | null = null;
   const anotarCorreo = (col: unknown) => {
     if (typeof col === 'string' && /email/i.test(col)) h.filtrosPorEmail.push(`${tabla}.${col}`);
   };
@@ -71,8 +81,13 @@ function consulta(tabla: string) {
     const tabla_ = tablaDe(tabla);
     if (op === 'insert') {
       const filas = (Array.isArray(payload) ? payload : [payload]) as Fila[];
-      if (tabla === 'usuarios' && filas.some(choca)) {
-        return (resultado = { data: null, error: { code: '23505', message: 'duplicate key value' } });
+      const indice = tabla === 'usuarios' ? filas.map(indiceQueChoca).find(Boolean) : null;
+      if (indice) {
+        // El mensaje REAL: una rama que distinga por el nombre del índice tiene que correr acá también.
+        return (resultado = {
+          data: null,
+          error: { code: '23505', message: `duplicate key value violates unique constraint "${indice}"`, details: 'Key already exists.' },
+        });
       }
       const nuevas = filas.map((f) => ({ ...f, id: `nuevo-${++h.seq}` }));
       tabla_.push(...nuevas);
@@ -123,18 +138,31 @@ vi.mock('@supabase/supabase-js', () => ({
   }),
 }));
 
+const SECRETO = 'secreto-de-test';
+process.env.ACTIVATION_TOKEN_SECRET = SECRETO;
+delete process.env.INTERNAL_API_KEY; // `notificarBackendActivacion` no sale por fetch
+
 const { GET } = await import('./route');
 
-const VICTIMA = 'victima@gmail.com';
-const FILA_WA: Fila = { id: 'usuario-wa', supabase_auth_id: null, whatsapp: '51900000001', cuenta_borrada_at: null, nombre: 'WA' };
-
-function login(via: 'oauth' | 'magiclink') {
-  const qs = via === 'oauth' ? 'code=c1' : 'token_hash=h1&type=magiclink';
-  return GET(new NextRequest(new Request(`https://app.neto.pe/auth/callback?${qs}`)));
+/** Token de activación con el MISMO formato que `lib/activacion.js`: payload base64url + HMAC. */
+function tokenActivacion(uid: string) {
+  const payload = Buffer.from(JSON.stringify({ uid, ts: Date.now() })).toString('base64url');
+  return `${payload}.${createHmac('sha256', SECRETO).update(payload).digest('base64url')}`;
 }
 
-function sembrar(emailFila: string) {
-  h.usuarios = [{ ...FILA_WA, email: emailFila }];
+const VICTIMA = 'victima@gmail.com';
+const FILA_WA: Fila = { id: 'usuario-wa', supabase_auth_id: null, whatsapp: '51900000001', cuenta_borrada_at: null, nombre: 'Víctima WA' };
+
+function login(via: 'oauth' | 'magiclink', netoAct = 'token-que-no-verifica') {
+  const qs = via === 'oauth' ? 'code=c1' : 'token_hash=h1&type=magiclink';
+  const req = new NextRequest(new Request(`https://app.neto.pe/auth/callback?${qs}`));
+  req.cookies.set('neto_act', netoAct);
+  return GET(req);
+}
+
+/** Siembra a la víctima (y opcionalmente filas previas) y devuelve la foto de su fila. */
+function sembrar(emailFila: string, previas: Fila[] = []) {
+  h.usuarios = [{ ...FILA_WA, email: emailFila }, ...previas];
   // El correo de la víctima también está en su Gmail conectado: una búsqueda que entre por esta
   // tabla y después escriba `usuarios` por id tiene que encontrarla igual.
   h.gmail = [{ usuario_id: 'usuario-wa', email: emailFila.toLowerCase(), activa: true }];
@@ -144,7 +172,7 @@ function sembrar(emailFila: string) {
 function laFilaDeWhatsappNoSeToco(antes: Fila) {
   expect(h.usuarios.find((r) => r.id === 'usuario-wa')).toEqual(antes);
   expect(h.escrituras.filter((e) => e.tabla === 'usuarios' && e.op !== 'insert')).toEqual([]);
-  expect(h.escrituras.filter((e) => e.tabla !== 'usuarios' && e.tabla !== 'categorias_usuario')).toEqual([]);
+  expect(h.escrituras.filter((e) => e.tabla !== 'usuarios' && !(e.tabla === 'categorias_usuario' && e.op === 'insert'))).toEqual([]);
   expect(h.rpcs).toEqual([]);
   expect(h.filtrosPorEmail).toEqual([]);
 }
@@ -152,6 +180,8 @@ function laFilaDeWhatsappNoSeToco(antes: Fila) {
 const altasWeb = () => h.usuarios.filter((r) => r.id !== 'usuario-wa');
 
 beforeEach(() => {
+  h.email = VICTIMA;
+  h.nombreGoogle = 'Víctima WA';
   h.categorias = [];
   h.filtrosPorEmail = [];
   h.escrituras = [];
@@ -168,7 +198,6 @@ describe('/auth/callback — un correo igual NO es prueba de identidad', () => {
   for (const via of ['oauth', 'magiclink'] as const) {
     for (const c of casos) {
       it(`${via}, ${c.nombre}: la fila de WhatsApp queda intacta y nace un alta web SIN correo`, async () => {
-        h.email = VICTIMA;
         const antes = sembrar(c.filaEmail);
 
         const res = await login(via);
@@ -182,6 +211,15 @@ describe('/auth/callback — un correo igual NO es prueba de identidad', () => {
     }
   }
 
+  it('segundo login (ya tiene su alta web): tampoco se fusiona con la fila del mismo correo', async () => {
+    const antes = sembrar(VICTIMA, [{ id: 'web-propia', supabase_auth_id: 'auth-1', email: null, nombre: 'Víctima WA' }]);
+    const res = await login('oauth');
+    laFilaDeWhatsappNoSeToco(antes);
+    expect(altasWeb()).toEqual([{ id: 'web-propia', supabase_auth_id: 'auth-1', email: null, nombre: 'Víctima WA' }]);
+    expect(h.escrituras).toEqual([]);
+    expect(new URL(res.headers.get('location')!).pathname).toBe('/dashboard');
+  });
+
   it('control: un correo que no es de nadie nace CON su correo', async () => {
     h.email = 'libre@gmail.com';
     const antes = sembrar(VICTIMA);
@@ -192,13 +230,15 @@ describe('/auth/callback — un correo igual NO es prueba de identidad', () => {
     expect(new URL(res.headers.get('location')!).pathname).toBe('/dashboard');
   });
 
-  it('control: la cuenta que ya es suya (por auth_id) entra sin crear nada', async () => {
-    h.email = VICTIMA;
-    h.usuarios = [{ ...FILA_WA, email: VICTIMA, supabase_auth_id: 'auth-1' }];
-    h.gmail = [];
-    const res = await login('oauth');
+  it('control POSITIVO: con el token firmado de esa fila SÍ se vincula (el camino real corre)', async () => {
+    // Si este test deja de vincular, el doble o el mock se volvieron ciegos y los de arriba pasan
+    // por vacuidad. Es la prueba de que `bindActivacion` corre de verdad contra este doble.
+    sembrar(VICTIMA);
+    const res = await login('oauth', tokenActivacion('usuario-wa'));
+    expect(h.usuarios.find((r) => r.id === 'usuario-wa')?.supabase_auth_id).toBe('auth-1');
     expect(altasWeb()).toEqual([]);
-    expect(h.escrituras).toEqual([]);
-    expect(new URL(res.headers.get('location')!).pathname).toBe('/dashboard');
+    const destino = new URL(res.headers.get('location')!);
+    expect(destino.pathname).toBe('/dashboard');
+    expect(destino.searchParams.get('activado')).toBe('1');
   });
 });
