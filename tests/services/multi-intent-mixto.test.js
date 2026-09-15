@@ -218,3 +218,30 @@ describe('detectarContinuacion — hereda el caso de la coma', () => {
     expect(detectarContinuacion('registra 50 en taxi hoy, edita el de ayer a 90', 'registrar_manual')).toBeNull();
   });
 });
+
+/**
+ * `parte1` existe para que un borrado compuesto vea SOLO su mitad (mlt-005, 15-sep-2026):
+ * `message-processor` se la pasa al handler en vez del mensaje entero. Ver
+ * tests/handlers/borrado-compuesto.test.js para el pipeline.
+ */
+describe('detectarContinuacion — devuelve también la primera mitad', () => {
+  it.each(['eliminar_transaccion', 'deshacer_ultimo'])('delete + register (%s): parte1 es la orden de borrar', (intencion) => {
+    const c = detectarContinuacion('borra el último y registra 100 en comida', intencion);
+    expect(c).toBeTruthy();
+    expect(c.parte1).toBe('borra el último');
+    expect(c.parte2).toBe('registra 100 en comida');
+  });
+
+  it('parte1 y parte2 juntas reconstruyen el mensaje sin el conector', () => {
+    const msg = 'gasté 100 en comida y cuánto llevo este mes';
+    const c = detectarContinuacion(msg, 'registrar_manual');
+    expect(c.parte1).toBe('gasté 100 en comida');
+    expect(msg.startsWith(c.parte1) && msg.endsWith(c.parte2)).toBe(true);
+  });
+
+  it('el mixto por coma también trae parte1', () => {
+    const c = detectarContinuacion('Gasté 20 en Movilidad, cuánto llevo hoy', 'registrar_manual');
+    expect(c.parte1).toBeTruthy();
+    expect(c.parte1).not.toContain('cuánto');
+  });
+});

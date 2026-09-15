@@ -1003,6 +1003,8 @@ describe('deshacer_ultimo — no borra si el mensaje no pidio borrar', () => {
     expect(res).toContain('borra el último');
   });
 
+  // Afirmaba `not.toContain('No estoy seguro')`, y desde que la confirmación dejó de decir eso
+  // (15-sep-2026) pasaba aunque el handler pidiera la orden. Se mira el borrado, no el texto.
   it('con el monto DICHO en el mensaje sigue siendo un sujeto', async () => {
     const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
     const ctx = buildCtx(sb);
@@ -1010,7 +1012,46 @@ describe('deshacer_ultimo — no borra si el mensaje no pidio borrar', () => {
       intencion: 'eliminar_transaccion', msg: 'borra el de 45.50',
       datos: { monto: 45.5 }, usuario: USUARIO, from: '+51999', ctx,
     });
-    expect(res).not.toContain('No estoy seguro');
+    expect(sb._chains['transacciones'].delete).toHaveBeenCalled();
+    expect(res).toContain('Eliminé');
+    expect(res).not.toContain('Para confirmarlo');
+  });
+
+  // La confirmación PIDE la orden nombrando el gasto; ya no dice que no entendió. "no espera,
+  // bórralo" y "cancela eso último" son las frases de con-001 y con-004 (QA agent, 15-sep):
+  // el clasificador acertó, y la respuesta decía "No estoy seguro de qué quieres hacer".
+  it.each(['no espera, bórralo', 'cancela eso último'])('"%s" pide la orden nombrando el gasto, en las dos puertas', async (msg) => {
+    for (const intencion of ['deshacer_ultimo', 'eliminar_transaccion']) {
+      const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+      const ctx = buildCtx(sb);
+      const res = await handler.handle({ intencion, msg, datos: {}, usuario: USUARIO, from: '+51999', ctx });
+      expect(deletesDe(sb, 'transacciones'), intencion).toBe(0);
+      expect(res, intencion).toContain('¿Borro *Starbucks* (S/ 45.50) del 2026-04-01?');
+      expect(res, intencion).toContain('borra el último');
+      expect(res, intencion).not.toContain('No estoy seguro');
+    }
+  });
+
+  // Las ramas del texto que nadie fijaba: la revisión adversarial dejó "S/ " fijo y " del " sin
+  // chequear la fecha, y la suite entera siguió verde. Con el `formatFecha` REAL, no el del
+  // contexto de prueba (que devuelve la fecha tal cual y esconde el formato que ve el usuario).
+  const { formatFecha: formatFechaReal } = require('../../lib/formatters');
+  it.each([
+    ['en soles, con la fecha que ve el usuario', {}, '¿Borro *Starbucks* (S/ 45.50) del 01-abr-26?'],
+    ['en dólares', { moneda: 'USD', monto: 12 }, '¿Borro *Starbucks* ($12.00) del 01-abr-26?'],
+    ['sin fecha', { fecha: null }, '¿Borro *Starbucks* (S/ 45.50)?'],
+    ['sin comercio', { comercio: null }, '¿Borro *tu último registro* (S/ 45.50) del 01-abr-26?'],
+  ])('la confirmación %s', async (_n, cambios, esperado) => {
+    for (const intencion of ['deshacer_ultimo', 'eliminar_transaccion']) {
+      const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+      const ctx = buildCtx(sb, {
+        formatFecha: formatFechaReal,
+        obtenerUltimaTransaccion: vi.fn().mockResolvedValue({ ...TX_BASE, ...cambios }),
+      });
+      const res = await handler.handle({ intencion, msg: 'no espera, bórralo', datos: {}, usuario: USUARIO, from: '+51999', ctx });
+      expect(res, intencion).toContain(esperado);
+      expect(ctx.borradoPidioOrden, intencion).toBe(true);
+    }
   });
 
   // Y con sujeto explícito sigue borrando sin fricción: nombrar QUÉ borrar ES la orden.

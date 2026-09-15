@@ -149,13 +149,16 @@ function detectarContinuacion(msg, intencionPrimera) {
   // el camino de siempre sigue corriendo igual.
   if (intencionPrimera === 'registrar_manual') {
     const mixto = partirEscrituraLectura(msg);
-    if (mixto) return { intencion: mixto.intencionLectura, datos: mixto.datosLectura, parte2: mixto.parte2 };
+    if (mixto) return { intencion: mixto.intencionLectura, datos: mixto.datosLectura, parte1: mixto.parte1, parte2: mixto.parte2 };
   }
 
   const conjMatch = CONJUNCION.exec(msg);
   if (!conjMatch) return null;
   const parte2 = msg.slice(conjMatch.index + conjMatch[0].length).trim();
   if (!parte2 || parte2.length < 4) return null;
+  // Lo lee `message-processor` ANTES de despachar un borrado, para que el handler vea solo su
+  // mitad del mensaje (mlt-005). Ver el comentario de ese call-site.
+  const parte1 = msg.slice(0, conjMatch.index).trim();
 
   if (intencionPrimera === 'registrar_manual') {
     // (a) register + query — reusa detectarQuerySinMonto (cubre llev[oó]/he gastado/saldo/categoría/etc)
@@ -163,7 +166,7 @@ function detectarContinuacion(msg, intencionPrimera) {
       const { detectarQuerySinMonto } = require('../handlers/intents/transacciones');
       if (typeof detectarQuerySinMonto === 'function') {
         const q = detectarQuerySinMonto(parte2);
-        if (q) return { intencion: q.intencion, datos: q.datos || {}, parte2 };
+        if (q) return { intencion: q.intencion, datos: q.datos || {}, parte1, parte2 };
       }
     } catch(_) { /* lazy require fail safe */ }
 
@@ -176,7 +179,7 @@ function detectarContinuacion(msg, intencionPrimera) {
           const datos = { monto_nuevo };
           const fechaRef = RE_FECHA_REF.exec(parte2);
           if (fechaRef) datos.fecha_token = fechaRef[1].toLowerCase();
-          return { intencion: 'editar_monto', datos, parte2 };
+          return { intencion: 'editar_monto', datos, parte1, parte2 };
         }
       }
     }
@@ -186,14 +189,14 @@ function detectarContinuacion(msg, intencionPrimera) {
     // Reusamos el handler registrar_manual con parte2 como msg; el parser OpenAI infiere
     // tipo (gasto/ingreso) desde el verbo/sustantivo inicial.
     if (RE_TX_PART.test(parte2)) {
-      return { intencion: 'registrar_manual', datos: {}, parte2 };
+      return { intencion: 'registrar_manual', datos: {}, parte1, parte2 };
     }
   }
 
   if (intencionPrimera === 'eliminar_transaccion' || intencionPrimera === 'deshacer_ultimo') {
     // (c) delete + register — el handler register parsea parte2 con parsearRegistroManual
     if (RE_REGISTER_PART.test(parte2)) {
-      return { intencion: 'registrar_manual', datos: {}, parte2 };
+      return { intencion: 'registrar_manual', datos: {}, parte1, parte2 };
     }
   }
 

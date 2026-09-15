@@ -187,6 +187,24 @@ function pideBorrarUnGasto(msg) {
   return ORDEN_CANONICA.test(normalizarOrden(msg));
 }
 
+/**
+ * Lo que responde la guarda cuando un borrado sin sujeto no es una orden canónica: PIDE la
+ * orden, no dice que no entendió (15-sep-2026). Decía "No estoy seguro de qué quieres hacer" a
+ * quien había escrito "no espera, bórralo", o sea que el clasificador acertaba y el texto
+ * afirmaba lo contrario.
+ *
+ * La orden que se pide sigue siendo una frase fija y no un "sí", a propósito. Un "sí" suelto no
+ * se puede atar a ESTE mensaje: el de la oferta de Manos Libres se retiró el 14-sep después de
+ * dos revisiones que lo rompieron en direcciones opuestas (ver lib/cierre-dia-prueba.js), y acá
+ * un "sí" equivocado borra plata. "borra el último" es canónica siempre, sin estado.
+ */
+function pedirOrdenDeBorrado(tx, formatFecha) {
+  const monto = tx.moneda === 'USD' ? '$' + parseFloat(tx.monto).toFixed(2) : 'S/ ' + parseFloat(tx.monto).toFixed(2);
+  return '¿Borro *' + (tx.comercio || 'tu último registro') + '* (' + monto + ')'
+    + (tx.fecha ? ' del ' + formatFecha(tx.fecha) : '') + '?\n\n'
+    + 'Para confirmarlo, escribe *"borra el último"*. Si era otro, dime el comercio o el monto.';
+}
+
 // Guarda la copia que hace posible el "restaura" y confirma que quedó escrita.
 // postgrest NO lanza cuando el insert falla: devuelve el fallo en `error`. El patrón
 // anterior (`.then(() => {}).catch(...)`) solo veía errores de red, así que un insert
@@ -891,11 +909,11 @@ module.exports = {
             // que undo era el único borrado sin sujeto y era falso.
             txElim = await obtenerUltimaTransaccion(usuario.id);
             if (txElim && !pideBorrarUnGasto(msg)) {
-              const mElim = txElim.moneda === 'USD' ? '$' + parseFloat(txElim.monto).toFixed(2) : 'S/ ' + parseFloat(txElim.monto).toFixed(2);
               log.info({ tag: 'ELIMINAR_AMBIGUO', msg: (msg || '').substring(0, 80) }, 'delete sin sujeto ni señal de borrado: se pide confirmación');
-              return 'No estoy seguro de qué quieres hacer.\n\nTu último registro es *'
-                + (txElim.comercio || 'sin comercio') + '* — ' + mElim + ' del ' + (txElim.fecha || '') + '.\n\n'
-                + 'Si quieres eliminarlo, escribe *"borra el último"*.';
+              // Lo lee `message-processor`: con la orden pedida, no se registra la otra mitad de
+              // un mensaje compuesto en este turno (cambiaría cuál es "el último").
+              ctx.borradoPidioOrden = true;
+              return pedirOrdenDeBorrado(txElim, formatFecha);
             }
           } else if (candidatos.length === 1) {
             txElim = candidatos[0];
@@ -905,6 +923,10 @@ module.exports = {
               montoElimReq != null ? 'S/ ' + montoElimReq.toFixed(2) : null,
               fechaElimReq || null,
             ].filter(Boolean).join(' · ');
+            // Las tres respuestas que PREGUNTAN algo llevan la misma marca que la de la orden:
+            // registrar la otra mitad en este turno cambia las filas sobre las que se pregunta
+            // (con dos comidas listadas, una comida nueva de S/100 vuelve inútil "el monto").
+            ctx.borradoPidioOrden = true;
             return 'No encontré ningún gasto que coincida' + (detalle ? ' con ' + detalle : '') + '. ¿Puedes darme más datos (monto exacto o fecha)?';
           } else {
             // Varios matches — listar para que el usuario elija, sin borrar nada
@@ -912,10 +934,11 @@ module.exports = {
               const m = c.moneda === 'USD' ? '$' + parseFloat(c.monto).toFixed(2) : 'S/ ' + parseFloat(c.monto).toFixed(2);
               return (i+1) + '. ' + (c.comercio || 'Sin comercio') + ' — ' + m + ' · ' + (c.fecha || '');
             }).join('\n');
+            ctx.borradoPidioOrden = true;
             return 'Encontré ' + candidatos.length + ' gastos que coinciden. ¿A cuál te refieres?\n\n' + lista + '\n\n_Respóndeme con el monto o la fecha exacta._';
           }
 
-          if (!txElim) return '¿De qué gasto me hablas? Dime el comercio, monto o fecha y lo elimino.';
+          if (!txElim) { ctx.borradoPidioOrden = true; return '¿De qué gasto me hablas? Dime el comercio, monto o fecha y lo elimino.'; }
 
           // Snapshot para auditoría + restore. Va ANTES del delete y bloqueante: si no
           // queda escrito, borramos igual (es lo que pidió el usuario) pero sin prometer
@@ -1336,9 +1359,8 @@ module.exports = {
           // El clasificador puede mandar acá una frase que no pidió borrar nada. Ver PIDE_BORRAR.
           if (!pideBorrarUnGasto(msg)) {
             log.info({ tag: 'DESHACER_AMBIGUO', msg: (msg || '').substring(0, 80) }, 'undo sin señal de borrado: se pide confirmación');
-            return 'No estoy seguro de qué quieres hacer.\n\nTu último registro es *'
-              + (txDeshacer.comercio || 'sin comercio') + '* — ' + montoDeshacer + ' del ' + (txDeshacer.fecha || '') + '.\n\n'
-              + 'Si quieres eliminarlo, escribe *"borra el último"*.';
+            ctx.borradoPidioOrden = true;   // ver la misma marca en `eliminar_transaccion`
+            return pedirOrdenDeBorrado(txDeshacer, formatFecha);
           }
           // Snapshot bloqueante y verificado ANTES del delete: el mensaje solo ofrece
           // restaurar si la copia quedó guardada.

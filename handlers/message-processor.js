@@ -450,7 +450,33 @@ async function procesarMensajeLibre(msg, usuario, from) {
     // punto y por eso se evaluaba UNA vez, con la intención del LLM maestro, mientras la
     // continuación de abajo y los redirects de `registrar_manual` despachaban OTRA
     // intención sin pasar por él (hallazgo M21). Ver handlers/muro-gate.js.
-    const d1 = await dispatchIntent({ intencion, msg, datos, usuario, from, ctx });
+    // Un borrado dentro de un mensaje compuesto ve SOLO su mitad (15-sep-2026, mlt-005). La
+    // continuación de abajo se detecta DESPUÉS de este dispatch, así que el handler recibía el
+    // mensaje entero: "borra el último y registra 100 en comida" no es una orden canónica
+    // (`pideBorrarUnGasto` compara la frase completa) y Neto le pedía escribir "borra el
+    // último" a quien acababa de escribirlo. Y peor: el filtro de sujeto no dicho busca el
+    // monto EN el mensaje, así que un `monto: 100` del modelo contaba como dicho por el "100"
+    // de la otra mitad y apuntaba el borrado a otro gasto. Solo para los dos intents de
+    // borrado: en el resto, la primera mitad no decide nada leyendo el texto.
+    //
+    // LÍMITE, medido por la revisión adversarial: esto parte SOLO lo que el splitter reconoce
+    // como continuación, o sea una segunda mitad que empieza con verbo de registro y número
+    // (`RE_REGISTER_PART`). Con "apunta 100 en comida", "registra comida por 100" o el orden
+    // inverso, el borrado sigue viendo el mensaje entero (docs/DEFECTOS.md, 15-sep, ABIERTO).
+    // Ensanchar ese regex no es gratis: "borra el último y todo lo demás" pasaría a partirse, y
+    // hoy es seguro justamente porque no se parte.
+    let msgPrimera = msg;
+    if (intencion === 'eliminar_transaccion' || intencion === 'deshacer_ultimo') {
+      try {
+        const { detectarContinuacion } = require('../services/multi-intent-splitter');
+        const contBorrado = detectarContinuacion(msg, intencion);
+        if (contBorrado && contBorrado.parte1) msgPrimera = contBorrado.parte1;
+      } catch (eSplit) {
+        // Con el mensaje entero la guarda pide la orden: es el lado seguro.
+        log.warn({ tag: 'MULTI_INTENT_CONT', err: eSplit.message }, 'No se pudo partir el borrado compuesto');
+      }
+    }
+    const d1 = await dispatchIntent({ intencion, msg: msgPrimera, datos, usuario, from, ctx });
     if (d1.manejado) {
       const r1 = d1.respuesta;
       // Multi-intent heterogéneo: si el msg tiene conjunción y la parte2 representa
@@ -472,6 +498,16 @@ async function procesarMensajeLibre(msg, usuario, from) {
       if (!d1.muro && !ctx.redirigidoAQuery) try {
         const { detectarContinuacion } = require('../services/multi-intent-splitter');
         const cont = detectarContinuacion(msg, intencion);
+        // Tercer motivo, y éste NO calla la otra mitad: la nombra (15-sep-2026). Si el borrado de
+        // la parte 1 quedó esperando una respuesta —pidió la orden ("¿Borro cine? escribe 'borra
+        // el último'") o preguntó cuál de varios—, registrar la parte 2 en este mismo turno
+        // cambia las filas sobre las que se preguntó: la orden recién pedida borraría lo que se
+        // acaba de anotar, o el monto pedido ya no distinguiría. Lo encontraron las dos
+        // revisiones adversariales del arreglo de mlt-005.
+        if (cont && ctx.borradoPidioOrden) {
+          log.info({ tag: 'MULTI_INTENT_CONT', from: intencion, parte2: cont.parte2.substring(0, 80) }, 'Continuación retenida: el borrado pidió la orden');
+          return (r1 || '') + '\n\nLo de «' + cont.parte2 + '» no lo anoté todavía: mándamelo después, así no se cruza con el borrado.';
+        }
         if (cont) {
           log.info({ tag: 'MULTI_INTENT_CONT', from: intencion, to: cont.intencion, parte2: cont.parte2.substring(0, 80) }, 'Compound continuation');
           // `usuario` se leyó al entrar al pipeline, o sea ANTES de que la parte 1 escribiera
