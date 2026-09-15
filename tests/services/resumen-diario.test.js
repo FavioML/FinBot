@@ -107,3 +107,55 @@ describe('el cierre de la prueba ({ cierre: true })', () => {
     expect(await generarResumenDiario(ANA, { cierre: true })).toBeNull();
   });
 });
+
+/**
+ * Hay filas con un comercio que no es un comercio: `'Sin comercio'` lo escriben el salvavidas sin
+ * IA (`handlers/message-processor.js`) y el rescate de monto (`handlers/intents/transacciones.js`),
+ * `'Sin descripción'` el import CSV, y `'Sin especificar'` apareció en producción sin que ningún
+ * código nuestro lo escriba. El cierre del 14-sep-2026 mandó "Mayor gasto: Sin comercio (S/ 50.00)".
+ * En estas líneas valen lo mismo que un comercio vacío. Los datos no se tocan.
+ */
+describe('un comercio centinela se lee como "sin comercio"', () => {
+  const CENTINELAS = ['Sin comercio', '  sin comercio ', 'SIN COMERCIO', 'Sin descripción', 'Sin descripcion', 'Sin especificar', '   '];
+
+  it.each(CENTINELAS)('Manos Libres, mayor gasto %j: sin línea de mayor gasto y pie genérico, byte a byte', async (c) => {
+    txs = [gasto('50.00', 'Transporte', c), gasto('12.50', 'Alimentación', 'Tambo')];
+    const fechaLarga = new Date(HOY + 'T12:00:00').toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'short' });
+    expect(await generarResumenDiario(ANA)).toBe(
+      '🌙 *Resumen de hoy, Ana*\n' +
+      '_' + fechaLarga + '_\n' +
+      '---------------\n\n' +
+      '💸 *Gastaste:* S/ 62.50 en 2 movimientos\n' +
+      '\n' +
+      '🥇 Transporte: *S/ 50.00*\n' +
+      '🥈 Alimentación: *S/ 12.50*\n' +
+      '\n_Si algo está mal, dime "cambia [comercio] a [categoría]"._\n' +
+      '_Para pausar el resumen diario escribe /manoslibres._',
+    );
+  });
+
+  it.each(CENTINELAS)('cierre con un gasto %j: sin paréntesis', async (c) => {
+    txs = [gasto('50.00', 'Transporte', c)];
+    expect(await generarResumenDiario(ANA, { cierre: true })).toBe(
+      '🌙 *Tu cierre de hoy, Ana*\n\nHoy anotaste 1 gasto: *S/ 50.00* en Transporte.',
+    );
+  });
+
+  it.each(CENTINELAS)('cierre con varios, mayor gasto %j: sin línea de mayor gasto', async (c) => {
+    txs = [gasto('50.00', 'Transporte', c), gasto('12.50', 'Alimentación', 'Tambo')];
+    expect(await generarResumenDiario(ANA, { cierre: true })).toBe(
+      '🌙 *Tu cierre de hoy, Ana*\n\n💸 *Gastaste:* S/ 62.50 en 2 movimientos\n\n' +
+      '🥇 Transporte: *S/ 50.00*\n🥈 Alimentación: *S/ 12.50*',
+    );
+  });
+
+  it('un comercio real que empieza con "Sin" se muestra (el match es de la cadena entera)', async () => {
+    txs = [gasto('50.00', 'Alimentación', 'Sin Gluten Café')];
+    expect(await generarResumenDiario(ANA, { cierre: true })).toBe(
+      '🌙 *Tu cierre de hoy, Ana*\n\nHoy anotaste 1 gasto: *S/ 50.00* en Alimentación (Sin Gluten Café).',
+    );
+    const r = await generarResumenDiario(ANA);
+    expect(r).toContain('🔝 *Mayor gasto:* Sin Gluten Café (S/ 50.00)');
+    expect(r).toContain('"cambia Sin Gluten Café a [categoría]"');
+  });
+});

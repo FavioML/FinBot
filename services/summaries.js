@@ -261,6 +261,18 @@ async function generarResumenMensual(usuario) {
   return msg;
 }
 
+// Valores que ocupan `comercio` sin nombrar un comercio: 'Sin comercio' lo escriben el salvavidas
+// sin IA (handlers/message-processor.js) y el rescate de monto (handlers/intents/transacciones.js),
+// 'Sin descripción' el import CSV, y 'Sin especificar' apareció en producción sin que ningún código
+// nuestro lo escriba. Solo decide qué se MUESTRA; la fila no se toca.
+const RE_COMERCIO_CENTINELA = /^sin (comercio|descripci[oó]n|especificar)$/i;
+
+/** El comercio tal como está guardado, o null si la fila no tiene uno de verdad. */
+function comercioReal(comercio) {
+  const c = (comercio || '').trim();
+  return c && !RE_COMERCIO_CENTINELA.test(c) ? comercio : null;
+}
+
 /**
  * Resumen diario para el Modo Manos Libres. Corto a propósito (cadencia diaria):
  * total del día, top categorías y el mayor gasto. Devuelve null si no hubo gastos
@@ -293,6 +305,7 @@ async function generarResumenDiario(usuario, { cierre = false } = {}) {
   const totalIng = (ingHoy || []).reduce((s, t) => s + parseFloat(t.monto_pen || t.monto), 0);
 
   const mayor = txsHoy.slice().sort((a, b) => parseFloat(b.monto_pen || b.monto) - parseFloat(a.monto_pen || a.monto))[0];
+  const comercioMayor = mayor ? comercioReal(mayor.comercio) : null;
 
   const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
   const emojis = ['🥇', '🥈', '🥉'];
@@ -303,14 +316,14 @@ async function generarResumenDiario(usuario, { cierre = false } = {}) {
     if (txsHoy.length === 1) {
       const t = txsHoy[0];
       return saludo + '\n\nHoy anotaste 1 gasto: *S/ ' + total.toFixed(2) + '* en ' + (t.categoria || 'Otros') +
-        (t.comercio ? ' (' + t.comercio + ')' : '') + '.';
+        (comercioMayor ? ' (' + comercioMayor + ')' : '') + '.';
     }
     let c = saludo + '\n\n💸 *Gastaste:* S/ ' + total.toFixed(2) + ' en ' + txsHoy.length + ' movimientos\n';
     if (totalIng > 0) c += '💵 *Ingresos:* S/ ' + totalIng.toFixed(2) + '\n';
     c += '\n';
     top3.forEach(([cat, monto], i) => { c += emojis[i] + ' ' + cat + ': *S/ ' + monto.toFixed(2) + '*\n'; });
-    if (mayor && mayor.comercio) {
-      c += '\n🔝 *Mayor gasto:* ' + mayor.comercio + ' (S/ ' + parseFloat(mayor.monto_pen || mayor.monto).toFixed(2) + ')\n';
+    if (comercioMayor) {
+      c += '\n🔝 *Mayor gasto:* ' + comercioMayor + ' (S/ ' + parseFloat(mayor.monto_pen || mayor.monto).toFixed(2) + ')\n';
     }
     return c.trimEnd();
   }
@@ -324,10 +337,10 @@ async function generarResumenDiario(usuario, { cierre = false } = {}) {
   top3.forEach(([cat, monto], i) => {
     msg += emojis[i] + ' ' + cat + ': *S/ ' + monto.toFixed(2) + '*\n';
   });
-  if (mayor && mayor.comercio) {
-    msg += '\n🔝 *Mayor gasto:* ' + mayor.comercio + ' (S/ ' + parseFloat(mayor.monto_pen || mayor.monto).toFixed(2) + ')\n';
+  if (comercioMayor) {
+    msg += '\n🔝 *Mayor gasto:* ' + comercioMayor + ' (S/ ' + parseFloat(mayor.monto_pen || mayor.monto).toFixed(2) + ')\n';
   }
-  msg += '\n_Si algo está mal, dime "cambia ' + (mayor && mayor.comercio ? mayor.comercio : '[comercio]') + ' a [categoría]"._\n';
+  msg += '\n_Si algo está mal, dime "cambia ' + (comercioMayor || '[comercio]') + ' a [categoría]"._\n';
   msg += '_Para pausar el resumen diario escribe /manoslibres._';
   return msg;
 }
