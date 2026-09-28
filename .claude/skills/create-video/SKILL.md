@@ -16,7 +16,8 @@ Editor Pro Max: `C:\Vortik.dev\tools\editor-pro-max`
 
 - **Brand preset:** `src/presets/neto.ts` — SIEMPRE usar `NETO.colors.*`, nunca hardcodear
 - **Composiciones:** `src/compositions/Neto*.tsx`
-- **Output final:** `C:\Vortik.dev\products\neto\content\<nombre>.mp4`
+- **Output final:** `C:\Vortik.dev\products\neto\content\reels\<nombre>.mp4`
+- **Antes del .tsx:** guion verificado (paso 1b de la universal) en `content/content-lab/guiones/<slug>.md` y `node content/scripts/verify-claims.mjs` en verde
 - **Root.tsx:** registrar dentro de `<Folder name="Neto">`
 
 ### Música recomendada para Neto
@@ -35,10 +36,13 @@ Fuentes: Poppins (títulos), Inter (cuerpo)
 
 ## Estándares visuales validados (NO saltarse)
 
-- Layout: `justifyContent: "center"` + `padding: "40px 40px"` — SIEMPRE
+- Layout vertical 1080×1920: `justifyContent: "center"` + `padding: "300px 40px 420px"` (zonas seguras de la universal; con 40px arriba y abajo el contenido queda bajo la UI de IG/TikTok)
 - Texto mínimo: 24px body · 38px títulos · 36px valores
 - Timing mínimo: 6-8s escenas densas · 4-6s hook y CTA
-- Datos: SIEMPRE ficticios pero coherentes (ingresos > gastos, score mejorando)
+- Datos del USUARIO en pantalla (montos, gastos, score): ficticios pero coherentes (ingresos > gastos, score mejorando)
+- Cifras del MUNDO REAL ("7 de cada 10 peruanos..."): con fuente abierta en la sesión, nunca inventadas
+- Lo que Neto HACE: solo lo que permite `content/README.md` y el guard. Ej.: Neto lee correos de bancos (Pro, opt-in), no "conecta bancos"; no hay plan gratis permanente, lo gratis para siempre es registrar gastos
+- Sin precios en el reel
 - `<Sequence>` SOLO a nivel de escena completa, nunca dentro de flex containers
 
 ## Helpers probados
@@ -57,8 +61,10 @@ const fadeIn = (frame: number, start: number, dur = 12) =>
 - [ ] Stills verificados visualmente (1 por escena, al final de cada escena)
 - [ ] Centrado vertical correcto en cada escena
 - [ ] Timing adecuado (escenas densas ≥ 6s)
-- [ ] Datos ficticios coherentes en soles
-- [ ] Español correcto (tildes, ¿¡, ñ)
+- [ ] Datos del usuario ficticios y coherentes; cifras reales con fuente
+- [ ] `verify-claims.mjs` en verde
+- [ ] Español correcto (tildes, ¿¡, ñ), tuteo peruano
 - [ ] Brand Neto (NETO.colors.*, Poppins/Inter, logo visible)
 - [ ] CTA con app.neto.pe o WhatsApp
-- [ ] MP4 en `C:\Vortik.dev\products\neto\content\`
+- [ ] Master con loudnorm -14 LUFS
+- [ ] MP4 en `C:\Vortik.dev\products\neto\content\reels\`
