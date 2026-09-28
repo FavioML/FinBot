@@ -1,13 +1,12 @@
 ---
 name: create-video
-description: Crea videos para Neto usando Editor Pro Max (Remotion). Ver skill universal en C:\Vortik.dev\.claude\skills\create-video\ para el stack completo.
-allowed_tools: Bash, Read, Write, Edit, Glob, Grep
+description: Crea videos para Neto usando Editor Pro Max (Remotion). Capa de marca sobre la skill global create-video (C:\Users\USUARIO\.claude\skills\create-video\), que tiene el flujo completo.
 ---
 
 # Crear Video — Neto
 
-> El stack completo de Remotion está documentado en el skill universal:
-> `C:\Vortik.dev\.claude\skills\create-video\SKILL.md`
+> El flujo completo (guion verificado, exploración de estilos, QC, master) está en la skill global:
+> `C:\Users\USUARIO\.claude\skills\create-video\SKILL.md`
 > Leerlo siempre — tiene el catálogo de herramientas, AI pipeline, scripts y flujo base.
 
 Editor Pro Max: `C:\Vortik.dev\tools\editor-pro-max`
