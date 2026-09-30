@@ -635,7 +635,11 @@ async function parsearCorreoBancario(texto, contexto, categoriasCustom) {
 // Cubre ambos órdenes: "0.0001 USD" y "S/0.50".
 const RE_MONTO_POST_MONEDA = /(\d+[.,]\d+)\s*(USD|EUR|GBP|PEN|d[oó]lares?|euros?|libras?|soles?|cripto|btc|eth)\b/i;
 const RE_MONTO_PRE_MONEDA = /\b(USD|EUR|GBP|PEN|S\/\.?|\$)\s*(\d+[.,]\d+)/i;
-const RE_VERBO_GASTO_MSG = /\b(gast[eé]|gaste|pagu[eé]|compr[eé]|bot[eé]|tir[eé]|perd[ií])\b/i;
+// "me cobraron/cobró/descontaron/debitaron" es plata que SALIÓ: sin esta rama, el fallback
+// sub-1 marcaba "me cobraron 0.50 USD de comisión" como ingreso (revisión adversarial, 30-sep).
+// El cierre es un lookahead y no ``: `` en JS es ASCII, así que después de "gasté" o
+// "cobró" no hay borde contra un espacio y la versión anterior no veía ningún verbo con tilde.
+const RE_VERBO_GASTO_MSG = /\b(?:gast[eé]|pagu[eé]|compr[eé]|bot[eé]|tir[eé]|perd[ií]|me\s+(?:cobraron|cobr[oó]|descontaron|debitaron))(?![a-záéíóúñ])/i;
 
 function parseMonedaToken(token) {
   const t = (token || '').toLowerCase();
@@ -665,14 +669,68 @@ function extraerMontoSub1ConMoneda(msg) {
   return null;
 }
 
+/**
+ * Por qué el parser RECHAZA, y no sólo que rechaza.
+ *
+ * Hasta el 30-sep-2026 el JSON tenía un único `ok:false` para tres cosas distintas: "no hay
+ * monto", "no sé si entró o salió" y "esto no es un movimiento". Medido ese día contra
+ * producción, eso producía las dos clases de respuesta mala más caras del día 0:
+ *  · la forma corta sin verbo ("Almuerzo 10", "Uñas 35", "Mamá 100") rebotaba 4 de 4 veces,
+ *    y el rebote le enseñaba a escribir "110.70 carne", que el parser TAMBIÉN rechazaba;
+ *  · el rescate determinístico trataba todo `ok:false` como "el modelo no pudo leer", así que
+ *    "Neto es 15800", un cupo de tarjeta y "preste 118" —que el parser había rechazado BIEN—
+ *    entraban como gasto.
+ * Un extractor de plata sin salida para decir por qué no registra no se abstiene: inventa, o
+ * deja que otro invente por él. `decision` es esa salida, y el esquema estricto la hace
+ * obligatoria. El handler decide con ella qué contestar y si el rescate puede correr.
+ */
+const DECISIONES_REGISTRO = ['registrar', 'tipo_dudoso', 'no_es_movimiento', 'sin_monto'];
+
+const ESQUEMA_REGISTRO_MANUAL = {
+  name: 'registro_manual',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['decision', 'tipo', 'monto', 'moneda', 'comercio', 'categoria', 'subcategoria', 'fecha'],
+    properties: {
+      decision: { type: 'string', enum: DECISIONES_REGISTRO },
+      tipo: { type: 'string', enum: ['gasto', 'ingreso', ''] },
+      monto: { type: 'number' },
+      // EUR y 'otra' existen para que el modelo pueda decir la verdad: si el enum sólo
+      // admitiera PEN|USD, "20 euros" saldría como S/20.
+      moneda: { type: 'string', enum: ['PEN', 'USD', 'EUR', 'otra'] },
+      comercio: { type: 'string' },
+      categoria: { type: 'string' },
+      subcategoria: { type: 'string' },
+      fecha: { type: 'string' },
+    },
+  },
+};
+
+/**
+ * @returns {Promise<{ok:boolean, decision?:string, monto:number, monto_dudoso?:number, moneda?:string,
+ *   tipo?:string, comercio?:string, categoria?:string, subcategoria?:string, fecha?:string}>}
+ *
+ * Contrato con los call sites: `ok:true` y `monto > 0` sólo con `decision:'registrar'`. Con
+ * cualquier otra decisión se PELA el dato (`ok:false`, `monto:0`), así un consumidor que decida
+ * sólo por `ok`/`monto` no puede registrar un rechazo. El monto de un `tipo_dudoso` viaja
+ * aparte, en `monto_dudoso`, porque la pregunta que se le hace a la persona lo nombra.
+ */
 async function parsearRegistroManual(msg, fechaHoy) {
   const res = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
+    response_format: { type: 'json_schema', json_schema: ESQUEMA_REGISTRO_MANUAL },
     messages: [
-      { role: 'system', content: `Extrae datos de un registro manual de gasto o ingreso en lenguaje natural. Devuelve SOLO JSON:
-{ "tipo":"gasto"|"ingreso", "monto":numero, "moneda":"PEN"|"USD", "comercio":"descripcion breve", "categoria":"ver lista", "subcategoria":"ver lista", "fecha":"YYYY-MM-DD", "ok":true|false }
+      { role: 'system', content: `Extrae datos de un registro manual de gasto o ingreso en lenguaje natural, escrito por WhatsApp en Perú. Devuelve el JSON del esquema. El campo "decision" decide todo lo demás:
 
-Si no puedes extraer un monto claro, devuelve { "ok": false }.
+- "registrar": el mensaje anota plata que YA se movió y trae el monto (en dígitos o en palabras). Incluye la FORMA CORTA, que es la más común: un concepto y un número, en cualquier orden y sin verbo, es un GASTO ya hecho. El concepto puede ser una cosa, una categoría, una tienda, un servicio o una persona, y puede venir con fecha o con el medio de pago: "Pasajes 3.5" = gasto 3.5; "Cena 45" = gasto 45; "Pensión del colegio 350" = gasto 350; "15.90 Tottus el 12 de agosto" = gasto 15.90 con esa fecha; "3 en pan" = gasto 3; "Gaseosa 7 con Yape" = gasto 7; "250.00 curso de inglés" = gasto 250. Un número seguido del NOMBRE de una categoría es un gasto en esa categoría: "101.00 salud" = gasto 101 en Salud. "Me presté" es jerga peruana de gasto: "me presté 20 en el taxi" = gasto 20. Con verbo de ingreso es ingreso: "me pagaron", "cobré", "me depositaron", "recibí", "me yapearon", "me plinearon", "me transfirieron", "me mandaron", "me dieron" ("me yapearon 50" = ingreso 50; "50 me yapearon" = ingreso 50). Un monto con "de" + persona y nada más ("Yape 50 de mi tía") no dice si entró o salió: es tipo_dudoso. Ojo con quién cobra: "cobré" es ingreso (cobré yo), pero "me cobraron", "me cobró", "me descontaron" o "me debitaron" es GASTO (me cobraron a mí): "me cobraron 25 de comisión" = gasto 25. También es ingreso la forma corta cuyo concepto es una FUENTE de ingreso (sueldo, quincena, chamba, una venta): "Quincena 1200" = ingreso 1200.
+- "tipo_dudoso": EXCLUSIVAMENTE estos casos, y ningún otro: (1) el mensaje es sólo un número, con o sin moneda ("35.00", "S/ 592.91"); (2) el único sujeto es Neto o el propio usuario ("Neto es 15800"); (3) "preste 118" sin decir a quién ni para qué; (4) un monto con "de" + una persona y NADA más: ni verbo ni una cosa comprada ("Yape 50 de mi tía"). Si hay una cosa, es gasto aunque nombre a una persona ("útiles de mi hijo 50", "menú de mi hermana 12"); si hay verbo de ingreso ("mi hermano me mandó 100"), es ingreso. tipo_dudoso NO es para dudas sobre el monto ni sobre el concepto: si hay un número y al menos una palabra más que nombre algo (una cosa, una cantidad de cosas como "140 tubos de metal", una categoría como "salud" o "movilidad", una tienda, un nombre propio, una palabra que no reconozcas), es la forma corta y se registra como gasto con ese número como monto. Ojo con las tiendas peruanas que parecen palabras comunes: Mass, Tambo, Oxxo, Metro, Wong, Vivanda, Inkafarma, Mifarma ("22.50 Mass" = gasto 22.50 en Mass, no "22.50 más").
+- "no_es_movimiento": el mensaje NO anota plata que ya se movió. Son estos casos: corrige un dato de un movimiento anterior sin dar un monto nuevo ("fue el domingo 6", "el comercio es Yape", "es ingreso, corrige"); un pago o cobro FUTURO o una obligación ("tengo que pagar 380", "mañana me pagan 700", "el viernes pago la luz, 90"); un saldo o lo que hay en una cuenta ("tengo 1736 en Scotiabank", "me quedan 40 en el BCP"); un cupo o línea de crédito ("saqué una tarjeta de crédito con 500 disponibles"); lo que alguien gana en general, sin decir que ya lo cobró ("gano 2300 mensual", "mi sueldo es 1800"); una transferencia entre cuentas propias.
+- "sin_monto": parece un gasto o un ingreso, pero el mensaje no trae NINGÚN número ni monto en palabras. Incluye un verbo de gasto o de pago sin cifra: la persona sí anotó un gasto, sólo le faltó el monto. Si hay un número, no es sin_monto.
+Si decision es "tipo_dudoso": tipo="", monto = el monto que se movió, moneda la que corresponda, y los textos vacíos. Si decision es "no_es_movimiento" o "sin_monto": tipo="", monto=0, moneda="PEN" y los textos vacíos.
+
+La moneda es la que el usuario dijo. Si dice euros o "€", moneda="EUR"; si es otra que no sea soles ni dólares, moneda="otra". Nunca conviertas.
 
 Hoy es ${fechaHoy}.
 REGLA CRÍTICA DE FECHA: Si el usuario NO menciona explícitamente una fecha (palabras como "ayer", "antier", "anteayer", "hoy", "el lunes/martes/...", "la semana pasada", "hace N días", "el 5", "5/5", "el 15 de abril", "3 de marzo", etc.), DEBES devolver fecha exactamente igual a "${fechaHoy}". NUNCA restes ni calcules días si el usuario no lo pide. Solo cuando el usuario diga "ayer" restas 1 día; "el lunes" / "la semana pasada" calculas la fecha correcta. Para fechas con día+mes ("el 15 de abril", "3 de marzo"), usa ese día y mes del año actual (o del año anterior si esa fecha aún no ha ocurrido este año). En cualquier otro caso, fecha = "${fechaHoy}" sin modificar.
@@ -687,7 +745,7 @@ MODISMOS PERUANOS PARA SOLES (regla estricta 1:1, NUNCA multiplicar):
 - "mortadelos" = soles. Ej: "30 mortadelos" = 30 soles.
 - "soles", "S/", "S/.", "PEN" = soles (estándar).
 - "dólares", "USD", "$", "verdes" = dólares (moneda=USD).
-Si el usuario escribe sólo un número sin moneda, asumir PEN (soles).
+Si el usuario no nombra la moneda, asumir PEN (soles). "S/." es el prefijo de soles, no un punto decimal: "s/.25 menú" = 25 soles, "S/.12.50" = 12.50.
 
 CATEGORÍAS (usa exactamente):
 Alimentación: delivery|restaurante|supermercado|mercado|cafeteria|snacks
@@ -706,12 +764,26 @@ Para ingresos: comercio="Sueldo" o la fuente del ingreso, categoria="Finanzas", 
     ],
     temperature: 0
   });
-  const raw2 = res.choices[0].message.content.trim();
+  const raw2 = (res.choices[0].message.content || '').trim();
+  // Con salida estructurada, un `refusal` llega con `content: null`. Se LANZA, a propósito: el
+  // handler contesta "Tuve un problema" y no se guarda nada. Una versión intermedia devolvía el
+  // contrato viejo (`ok:false` sin `decision`) y dejaba correr el rescate sin ninguna de las
+  // decisiones: "Neto es 15800 soles" o "me quedan 40 soles" volvían a entrar como gasto
+  // (segunda revisión adversarial, 30-sep). Un mensaje sin respuesta se reescribe; plata mal
+  // guardada ensucia todos los números.
+  if (!raw2) throw new Error('parsearRegistroManual: el modelo no devolvió contenido (refusal)');
   const clean2 = raw2.startsWith('{') ? raw2 : raw2.slice(raw2.indexOf('{'), raw2.lastIndexOf('}') + 1);
-  const parsed = JSON.parse(clean2);
+  const crudo = JSON.parse(clean2);
+  const parsed = normalizarSalidaRegistro(crudo);
   // Sub-1 fallback: si el modelo no extrajo monto pero el msg tiene "<1 + moneda explícita",
   // reconstruimos la TX manualmente. Cubre amt-006 (microtransacciones cripto/fee).
-  if (!parsed.ok || !parsed.monto || parsed.monto <= 0) {
+  //
+  // Sólo cuando el modelo dijo "no hay monto" (o no dijo nada, que es el contrato viejo). Con
+  // `tipo_dudoso` o `no_es_movimiento` el modelo SÍ vio el monto y decidió no registrarlo, y
+  // este fallback adivina el tipo por la ausencia de verbo de gasto —o sea como ingreso—, que
+  // es justo la clase de error que la decisión existe para cortar.
+  const puedeRescatarSub1 = !parsed.decision || parsed.decision === 'sin_monto';
+  if (puedeRescatarSub1 && (!parsed.ok || !parsed.monto || parsed.monto <= 0)) {
     const found = extraerMontoSub1ConMoneda(msg);
     if (found) {
       const tipo = RE_VERBO_GASTO_MSG.test(msg) ? 'gasto' : 'ingreso';
@@ -728,6 +800,45 @@ Para ingresos: comercio="Sueldo" o la fuente del ingreso, categoria="Finanzas", 
     }
   }
   return parsed;
+}
+
+/**
+ * La salida del modelo, llevada al contrato de `parsearRegistroManual`.
+ *
+ * Sin `decision` (una respuesta de la forma vieja) devuelve el objeto tal cual: el handler
+ * compara contra valores explícitos, así que un objeto sin el campo se comporta como antes.
+ * Una decisión fuera del enum se trata igual que ausente, por el mismo motivo.
+ */
+function normalizarSalidaRegistro(o) {
+  if (!o || typeof o !== 'object') return { ok: false, monto: 0 };
+  if (!DECISIONES_REGISTRO.includes(o.decision)) {
+    const { decision, ...resto } = o;
+    return resto;
+  }
+  const monto = Number(o.monto);
+  const montoValido = Number.isFinite(monto) && monto > 0;
+  if (o.decision === 'registrar') {
+    // "registrar" sin monto es una contradicción del modelo: cuenta como "no hay monto", que
+    // es el único caso en que el handler deja correr el rescate determinístico.
+    if (!montoValido) return { ok: false, decision: 'sin_monto', monto: 0 };
+    return {
+      ok: true,
+      decision: 'registrar',
+      tipo: o.tipo === 'ingreso' ? 'ingreso' : 'gasto',
+      monto,
+      moneda: o.moneda || 'PEN',
+      comercio: o.comercio,
+      categoria: o.categoria,
+      subcategoria: o.subcategoria,
+      fecha: o.fecha,
+    };
+  }
+  const salida = { ok: false, decision: o.decision, monto: 0 };
+  if (o.decision === 'tipo_dudoso' && montoValido) {
+    salida.monto_dudoso = monto;
+    salida.moneda = o.moneda || 'PEN';
+  }
+  return salida;
 }
 
 async function parsearCorreccionesMultiples(msg) {

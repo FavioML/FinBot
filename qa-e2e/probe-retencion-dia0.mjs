@@ -39,6 +39,14 @@
  *
  *   node qa-e2e/probe-retencion-dia0.mjs                      # base: desde el 01-ago
  *   node qa-e2e/probe-retencion-dia0.mjs --desde 2026-09-15   # cohorte post-deploy
+ *   node qa-e2e/probe-retencion-dia0.mjs --desde 2026-09-15 --hasta 2026-09-30
+ *
+ * `--hasta` (exclusivo) saca a quien empezó la prueba ese día o después: se compara la fecha Lima
+ * de `trial_inicio`, y la del primer movimiento manual para quien no tiene prueba (un primer
+ * movimiento que es ingreso no la arranca). Existe para que un cambio desplegado a mitad de una
+ * lectura no la ensucie: el 30-sep-2026 se desplegó el parser con `decision` (chip 1 de la tanda
+ * "respuestas malas del día 0") y la lectura del 6-oct mide la cohorte del cierre del día sin él.
+ * Lo que NO corta: los días 1 y 2 de quien empezó justo antes caen igual después del deploy.
  *
  * Lecturas: salud del canal ~23-sep · retención ~6-oct · pagos ~28-oct.
  * exit 0 = medido · 1 = el freno salta · 2 = no pudo medir.
@@ -48,6 +56,8 @@ import fs from 'node:fs';
 const RAILWAY = { P: 'e2aac0f3-c2ee-4347-892c-b36d8c76929e', S: '1085b433-8f29-4487-9ce7-3a66b64ef244', E: '1600a753-bc8c-492c-aca7-27fdac946747' };
 const arg = (k) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : null; };
 const DESDE = arg('--desde') || '2026-08-01';
+const HASTA = arg('--hasta');
+if (HASTA && !/^\d{4}-\d{2}-\d{2}$/.test(HASTA)) { console.error('--hasta va como YYYY-MM-DD'); process.exit(2); }
 const HORA = 3600 * 1000;
 
 function envLocal(clave) {
@@ -97,6 +107,8 @@ const esManual = (t) => {
   return !/^[0-9a-f]{16}$/.test(d) && !d.startsWith('Excel:') && !d.startsWith('Import webapp:') && !d.startsWith('duplicado:');
 };
 const frac = (a, b) => `${a}/${b}`;
+// La fecha con la que `--hasta` corta: la de la prueba si la tiene, si no la del primer movimiento.
+const fechaDeInicio = (u, d0) => (u && u.trial_inicio ? fechaLima(new Date(u.trial_inicio)) : d0);
 
 let vars, sb;
 try {
@@ -131,6 +143,7 @@ try {
     const primero = lista.reduce((a, b) => (a.ts <= b.ts ? a : b));
     if (primero.ts < inicio || ahora - primero.ts < 48 * HORA) continue;
     const d0 = fechaLima(primero.ts);
+    if (HASTA && fechaDeInicio(vivos.get(uid), d0) >= HASTA) continue;
     const franja = horaLima(primero.ts) < 15 ? 'manana' : 'tarde';
     const a436 = lista.some((t) => t.ts - primero.ts >= 4 * HORA && t.ts - primero.ts <= 36 * HORA);
     const diaSig = lista.some((t) => fechaLima(t.ts) === masDias(d0, 1));
@@ -145,7 +158,7 @@ try {
     dos: xs.filter((x) => x.dias02 >= 2).length,
     web: xs.filter((x) => x.web).length,
   });
-  console.log(`Retención día 0→1 · cohorte: primer movimiento manual desde ${DESDE} (Lima), 48h o más · medido ${ahora.toLocaleString('es-PE', { timeZone: 'America/Lima' })}`);
+  console.log(`Retención día 0→1 · cohorte: primer movimiento manual desde ${DESDE}${HASTA ? ', prueba iniciada antes del ' + HASTA : ''} (Lima), 48h o más · medido ${ahora.toLocaleString('es-PE', { timeZone: 'America/Lima' })}`);
   console.log('\nfranja   n   anota 4-36h   día siguiente   días 0-2 (prom · 2+)   con web hoy');
   for (const [nombre, xs] of [['mañana', filas.manana], ['tarde', filas.tarde], ['total', [...filas.manana, ...filas.tarde]]]) {
     const r = resumen(xs);
@@ -153,7 +166,8 @@ try {
   }
 
   // ─── Pruebas ─────────────────────────────────────────────────────────────────
-  const conDesde = (u) => !arg('--desde') || fechaLima(new Date(u.trial_inicio)) >= DESDE;
+  const conDesde = (u) => (!arg('--desde') || fechaLima(new Date(u.trial_inicio)) >= DESDE) &&
+    (!HASTA || fechaLima(new Date(u.trial_inicio)) < HASTA);
   const activas = [...vivos.values()].filter((u) => u.plan === 'premium' && u.trial_estado === 'activo');
   const sinCorreoNiWeb = activas.filter((u) => !u.supabase_auth_id && !(u.email || '').trim());
   const terminadas = [...vivos.values()].filter((u) => ['vencido', 'convertido'].includes(u.trial_estado) && u.trial_inicio &&
@@ -166,7 +180,7 @@ try {
   };
   const dias = terminadas.map(diasDePrueba);
   console.log(`\npruebas activas sin correo ni web: ${frac(sinCorreoNiWeb.length, activas.length)}`);
-  console.log(`pruebas terminadas${arg('--desde') ? ' (inicio desde ' + DESDE + ')' : ''}: ≤1 día ${frac(dias.filter((d) => d <= 1).length, terminadas.length)} · 5+ días ${frac(dias.filter((d) => d >= 5).length, terminadas.length)} · pagos ${frac(terminadas.filter((u) => u.trial_estado === 'convertido').length, terminadas.length)}`);
+  console.log(`pruebas terminadas${arg('--desde') ? ' (inicio desde ' + DESDE + ')' : ''}${HASTA ? ' (inicio antes del ' + HASTA + ')' : ''}: ≤1 día ${frac(dias.filter((d) => d <= 1).length, terminadas.length)} · 5+ días ${frac(dias.filter((d) => d >= 5).length, terminadas.length)} · pagos ${frac(terminadas.filter((u) => u.trial_estado === 'convertido').length, terminadas.length)}`);
 
   // ─── Canal: el cierre del día ────────────────────────────────────────────────
   const entregas = (await sb.todas('notification_deliveries', 'select=id,usuario_id,canal,estado,created_at,delivered_at,failed_at,fail_code,code&tipo=eq.cierre_dia_prueba'))

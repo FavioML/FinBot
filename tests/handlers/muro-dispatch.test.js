@@ -256,9 +256,13 @@ describe('M21 — el redirect y la continuación no resuelven dos veces lo mismo
   // `detectarMultiGasto` mucho antes del dispatch (dos pares monto+preposición) y sale por
   // el fanout homogéneo, así que el test pasaba con y sin la comparación puesta — vacuo.
   // Lo destapó la mutación, no la corrida en verde.
+  //
+  // La parte 2 lleva su cifra: desde el 30-sep `registrar_manual` descarta un monto del parser
+  // que no esté escrito en el mensaje (`montoEscritoEnMensaje`), y "otra vez lo mismo" con el
+  // parser mockeado en S/20 era exactamente eso, un monto que no está en el texto.
   it('una continuación register+register idéntica muestra las DOS confirmaciones', async () => {
-    splitter.detectarContinuacion = () => ({ intencion: 'registrar_manual', datos: {}, parte2: 'otra vez lo mismo' });
-    const r = await procesarMensajeLibre('gasté 20 en taxi y otra vez lo mismo', EN_TRIAL, '51999');
+    splitter.detectarContinuacion = () => ({ intencion: 'registrar_manual', datos: {}, parte2: 'otra vez 20' });
+    const r = await procesarMensajeLibre('gasté 20 en taxi y otra vez 20', EN_TRIAL, '51999');
     expect(String(r).split('✅').length - 1).toBe(2);
   });
 

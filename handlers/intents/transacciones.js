@@ -5,7 +5,7 @@ const log = require('../../lib/logger');
 const { colaConfirmacionGasto, estaEnMuro } = require('../../lib/trial');
 const { validarMonto } = require('../../lib/validators');
 const { subcategoriaUtil, esSubSinClasificar } = require('../../lib/subcategoria');
-const { extraerGastoSinIA, quitarTokensDeMoneda, contarMontosCandidatos } = require('../../lib/nlp-guards');
+const { extraerGastoSinIA, quitarTokensDeMoneda, contarMontosCandidatos, mencionaMonedaNoSoportada, montoEscritoEnMensaje, tipoContradiceElMensaje } = require('../../lib/nlp-guards');
 const { registrarError } = require('../../lib/error-monitor');
 
 // Un mensaje que es SOLO un número (con o sin moneda) no se rescata.
@@ -32,6 +32,28 @@ const { registrarError } = require('../../lib/error-monitor');
 // el mensaje se pierde entero si nadie lo rescata).
 function esSoloUnNumero(msg) {
   return /^\s*\d+(?:[.,]\d+)?\s*[.!]?\s*$/.test(quitarTokensDeMoneda(msg));
+}
+
+// Los rebotes de `registrar_manual`, uno por cada `decision` del parser que no registra.
+// Fijos y sin estado. Todo ejemplo que den tiene que ser una forma que el parser acepte: lo
+// mide la batería `copy` de `qa-e2e/probe-parser-decision.mjs`.
+const COPY_SIN_MONTO = 'No pude leer el monto de ahí. Mándamelo con el número y qué fue, así: "almuerzo 15" o "gasté 110.70 en carne". Si son varios gastos, va uno por mensaje.';
+const COPY_NO_ES_MOVIMIENTO = 'Eso no lo anoté: registro plata que ya entró o salió. Un saldo, el cupo de una tarjeta, lo que ganas al mes o un pago que todavía no haces no son un movimiento. Cuando se mueva, mándamelo así: "almuerzo 15" o "me pagaron 500".';
+const COPY_MONEDA_NO_SOPORTADA = 'Por ahora solo anoto soles y dólares, así que ese no lo registré. Si lo pagaste en soles o en dólares, mándame ese monto, por ejemplo: "gasté 80 en un polo".';
+
+/**
+ * La pregunta para un monto sin sentido ("35.00", "Neto es 15800"). Nombra el monto para que
+ * la persona sepa de qué se le pregunta, y le da las dos formas con verbo, que entran directo.
+ */
+function preguntaTipoDudoso(parsed) {
+  const m = Number(parsed && parsed.monto_dudoso);
+  if (!Number.isFinite(m) || m <= 0) {
+    return '¿Esa plata entró o salió? Escríbemelo con el verbo: "gasté 35 en…" o "me pagaron 35".';
+  }
+  const num = Number.isInteger(m) ? String(m) : m.toFixed(2);
+  const usd = parsed.moneda === 'USD';
+  const conMoneda = usd ? num + ' dólares' : num;
+  return '¿Esos ' + (usd ? '$' : 'S/') + num + ' entraron o salieron? Escríbemelo con el verbo: "gasté ' + conMoneda + ' en…" o "me pagaron ' + conMoneda + '".';
 }
 
 // El LLM a veces clasifica queries como register_transaction tras un burst de gastos
@@ -386,6 +408,43 @@ module.exports = {
             abortoDetCat.abort();
             throw eParser;
           }
+          // Neto anota soles y dólares, nada más. `guardarTransaccion` sólo convierte USD, así
+          // que cualquier otra moneda se guardaba con `monto_pen = monto`: "20 euros" entraba
+          // como S/20 en reportes, presupuesto y score. El esquema del parser deja que el modelo
+          // diga EUR u 'otra' justamente para poder cortar con la verdad.
+          //
+          // Va ANTES de mirar la decisión, no después del rescate: con "20 euros" suelto el
+          // modelo contesta `tipo_dudoso` con moneda EUR, y la pregunta de tipo decía "¿Esos S/20
+          // entraron o salieron?"; quien obedecía escribiendo "gasté 20 en…" guardaba S/20 (lo
+          // encontró la revisión adversarial). También cubre el fallback sub-1, que devuelve EUR
+          // y GBP. El rescate determinístico se niega ante las monedas de
+          // `MONEDAS_NO_SOPORTADAS` (lib/nlp-guards.js) pegadas a una cifra; una moneda que no
+          // esté en esa lista ("20 libras", que también es peso) todavía pasaría como soles.
+          if (parsed.moneda && parsed.moneda !== 'PEN' && parsed.moneda !== 'USD') {
+            abortoDetCat.abort();
+            log.info({ tag: 'MONEDA_NO_SOPORTADA', moneda: parsed.moneda, decision: parsed.decision || null, msg: (msg || '').substring(0, 80) }, 'Moneda distinta de PEN/USD: no se registra');
+            return COPY_MONEDA_NO_SOPORTADA;
+          }
+          // Dos invariantes sobre lo que el modelo quiere REGISTRAR, en código y no en el prompt.
+          // El 30-sep el prompt se ajustó tres veces y cada ajuste movió un error a otro mensaje
+          // (un signo dado vuelta, un monto mal leído); estas dos no dependen de cómo quedó
+          // redactado, y las dos fallan hacia el lado seguro.
+          //  · el monto tiene que estar ESCRITO en el mensaje. Si no está ("s/.25 menú" leído
+          //    como S/0.25), se rebota pidiendo el número. NO se le pasa al rescate: la tercera
+          //    revisión adversarial midió que otro lector adivinando es peor ("me depositaron
+          //    15mil soles" terminaba como gasto S/15, "50 céntimos" como S/50);
+          //  · el tipo no puede contradecir el único sentido que nombra un verbo explícito
+          //    ("me yapearon 50" como gasto). Si lo contradice, no se adivina: se pregunta.
+          if (parsed.ok && parsed.monto > 0 && !montoEscritoEnMensaje(parsed.monto, msg)) {
+            abortoDetCat.abort();
+            log.warn({ tag: 'PARSER_MONTO_NO_ESCRITO', monto: parsed.monto, msg: (msg || '').substring(0, 80) }, 'El monto del parser no está en el mensaje: se pide el número');
+            return COPY_SIN_MONTO;
+          }
+          if (parsed.ok && tipoContradiceElMensaje(parsed.tipo, msg)) {
+            abortoDetCat.abort();
+            log.warn({ tag: 'PARSER_TIPO_CONTRADICE', tipo: parsed.tipo, msg: (msg || '').substring(0, 80) }, 'El tipo del parser contradice el verbo del mensaje: se pregunta');
+            return preguntaTipoDudoso({ monto_dudoso: parsed.monto, moneda: parsed.moneda });
+          }
           if (!parsed.ok || !parsed.monto || parsed.monto <= 0) {
             // OJO con `abortoDetCat`: hasta acá se cancelaba al ENTRAR a esta rama, porque
             // las dos salidas que había (redirect a query, rebote) no leen `detCat`. Ahora
@@ -414,6 +473,29 @@ module.exports = {
               } catch(eRedir) { log.warn({ tag: 'QUERY_REDIRECT', err: eRedir.message }, 'Fallback redirect falló'); }
             }
 
+            // El parser dice POR QUÉ no registra (ver `DECISIONES_REGISTRO` en
+            // services/parsers.js), y con dos de sus respuestas el rescate de abajo NO corre:
+            // el modelo vio el monto y decidió bien no registrarlo. Hasta el 30-sep-2026 todo
+            // rechazo se trataba como "no pude leer", y el rescate registraba como gasto
+            // "Neto es 15800", un cupo de tarjeta y "preste 118".
+            //
+            // Se compara contra los valores EXPLÍCITOS: un parser que no devuelva `decision`
+            // (el contrato viejo, o un mock) sigue por el camino de siempre.
+            //
+            // Los copys son fijos y no guardan estado. Nada de "¿lo anoto? responde sí": ese
+            // "sí" con estado se retiró dos veces (ver la memoria del borrado); la persona
+            // reescribe el mensaje con el verbo y entra por el camino normal.
+            if (parsed.decision === 'tipo_dudoso') {
+              abortoDetCat.abort();
+              log.info({ tag: 'PARSER_DECISION', decision: 'tipo_dudoso', msg: (msg || '').substring(0, 80) }, 'Monto sin sentido: se pregunta en vez de adivinar el tipo');
+              return preguntaTipoDudoso(parsed);
+            }
+            if (parsed.decision === 'no_es_movimiento') {
+              abortoDetCat.abort();
+              log.info({ tag: 'PARSER_DECISION', decision: 'no_es_movimiento', msg: (msg || '').substring(0, 80) }, 'No es un movimiento: no se registra ni se rescata');
+              return COPY_NO_ES_MOVIMIENTO;
+            }
+
             // Rescate determinístico. `parsearRegistroManual` le pregunta a gpt-4o-mini, y
             // medido el 2026-08-18 el modelo devuelve `{ok:false}` sobre mensajes donde el
             // monto está escrito en dígitos: "Gasté X en Movilidad" falla con 0.5 y con 20,
@@ -428,6 +510,11 @@ module.exports = {
             // cambio de prompt no se puede matar por mutación) ni alargar un regex hasta que
             // pasen los casos conocidos. Es preguntarle a un extractor DETERMINÍSTICO si en
             // el texto hay un monto que el modelo descartó.
+            //
+            // (30-sep-2026: la premisa de "no hay familia" resultó falsa. La forma corta sin
+            // verbo, "Almuerzo 10", rebotaba 4 de 4, y el prompt ahora la define. El rescate
+            // queda para lo que el modelo sigue sin leer, y SÓLO cuando dijo `sin_monto`: con
+            // `tipo_dudoso` y `no_es_movimiento` ya se salió arriba.)
             //
             // `extraerGastoSinIA` no es código nuevo: es el mismo rescate que ya corre en el
             // camino del 429, ya probado y ya en producción. Acá corre en una posición MÁS
@@ -474,7 +561,22 @@ module.exports = {
               // puesto, lo que queda rebotando son otras dos cosas, y el copy nombra esas:
               // el monto dictado en palabras ("ciento diez punto setenta") y varios gastos
               // en un solo mensaje.
-              return 'No pude leer el monto de ahí. Mándamelo con el número en dígitos y qué fue, así: "110.70 carne". Si son varios gastos, va uno por mensaje.';
+              //
+              // El ejemplo tiene que ser una forma que el parser ACEPTE: hasta el 30-sep
+              // enseñaba "110.70 carne", que el parser también rechazaba, así que quien
+              // obedecía el rebote recibía el mismo rebote. Los dos ejemplos de hoy los mide
+              // la batería `copy` de `qa-e2e/probe-parser-decision.mjs`.
+              // Si no hubo rescate porque el monto venía en otra moneda, se dice eso: "no pude
+              // leer el monto" sería falso y la persona reescribiría lo mismo.
+              return mencionaMonedaNoSoportada(msg) ? COPY_MONEDA_NO_SOPORTADA : COPY_SIN_MONTO;
+            }
+            // El rescate también pasa por el invariante de sentido: su tipo sale de una lista de
+            // verbos más corta que la del invariante ("me depositaron" no está), y sin esto
+            // "me depositaron 1200 soles" se guardaba como GASTO (tercera revisión).
+            if (tipoContradiceElMensaje(rescate.tipo, msg)) {
+              abortoDetCat.abort();
+              log.warn({ tag: 'RESCATE_TIPO_CONTRADICE', tipo: rescate.tipo, msg: (msg || '').substring(0, 80) }, 'El tipo del rescate contradice el verbo del mensaje: se pregunta');
+              return preguntaTipoDudoso({ monto_dudoso: rescate.monto, moneda: rescate.moneda });
             }
             log.info({ tag: 'RESCATE_MONTO', monto: rescate.monto, tipo: rescate.tipo, msg: (msg || '').substring(0, 80) }, 'El parser no devolvió monto; rescate determinístico lo reconstruyó');
             parsed = {

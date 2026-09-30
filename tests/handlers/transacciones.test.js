@@ -167,7 +167,12 @@ describe('registrar_manual', () => {
     const ctx = buildCtx(sb, { parsearRegistroManual: vi.fn().mockResolvedValue({ ok: false, monto: 0 }) });
     const res = await handler.handle({ intencion: 'registrar_manual', msg: 'gaste algo', datos: {}, usuario: USUARIO, from: '+51999', ctx });
     expect(res).not.toMatch(/gast[eé] S\/50 en farmacia/i);
-    expect(res).toMatch(/d[ií]gitos/i);
+    // Hasta el 30-sep pedía "en dígitos" y enseñaba "110.70 carne", una forma que el parser
+    // también rechazaba. Desde el parser con `decision`, los dos ejemplos del rebote son formas
+    // que el modelo real registra 3/3 (batería `copy` de qa-e2e/probe-parser-decision.mjs), y
+    // el monto en palabras también entra.
+    expect(res).not.toContain('"110.70 carne"');
+    expect(res).toContain('"almuerzo 15"');
     expect(res).toMatch(/uno por mensaje/i);
   });
 

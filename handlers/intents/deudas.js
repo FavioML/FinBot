@@ -34,7 +34,35 @@ module.exports = {
 
       case 'registrar_deuda': {
         try {
-          const tipo = datos.tipo || (/\bme debe\b|le prest[eé]/i.test(msg) ? 'me_deben' : 'debo');
+          // "Presté" es primera persona: la plata la di YO, así que me la deben. Hasta el
+          // 30-sep-2026 sólo se reconocía "le presté", y con "presté 100 a Juan" el clasificador
+          // decía `debo` y el bot contestaba "Le debes S/100 a Juan" (medido contra prod).
+          // Por eso esta forma GANA sobre `datos.tipo`.
+          //
+          // Y por eso mismo es ANGOSTA: sólo el mensaje que ARRANCA afirmando el préstamo
+          // ("presté 100 a Juan", "yo le presté 50 a mi primo", "te presté 20"), con un monto o
+          // un "a" después. La primera versión buscaba "presté" en cualquier lado y la revisión
+          // adversarial le hizo invertir deudas que el clasificador tenía bien: "yo no le
+          // presté, Juan me prestó 200", "le pedí a Carla que me lo preste", `mi mamá me dijo
+          // "te presté 200"`. Fuera de esta forma decide el clasificador, como antes.
+          //
+          // "Me presté" no entra: es jerga peruana de gasto ("me presté 20 en el taxi") y la
+          // trata `registrar_manual`. El cierre es `(?![a-záéíóúñ])` y no `\b`: `\b` en JS es
+          // ASCII, y después de la "é" no hay borde de palabra contra un espacio.
+          //
+          // Y con DESTINATARIO explícito: un pronombre ("le/te presté") o "a alguien" después
+          // del monto. La segunda revisión mostró que "presté 5000 del banco para la moto" es
+          // "me presté" sin el "me" (la pidió prestada), y sin destinatario no hay cómo saber
+          // quién le debe a quién. Límites que quedan, medidos: una cita reordenada ("te presté
+          // 200 me dijo Juan") y un préstamo "a la caja" siguen forzando me_deben.
+          const prestePrimeraPersona =
+            /^\s*(?:yo\s+)?(?:(?:le|les|te)\s+prest[eé](?![a-záéíóúñ])\s*(?:s\/\.?\s*|\$\s*)?(?:\d|a\s)|prest[eé](?![a-záéíóúñ])\s+(?:a\s|(?:s\/\.?\s*|\$\s*)?\d[\d.,]*\s*(?:soles?|lucas?|d[oó]lares?)?\s+a\s))/i.test(msg);
+          const tipo = prestePrimeraPersona
+            ? 'me_deben'
+            : (datos.tipo || (/\bme debe\b|le prest[eé]/i.test(msg) ? 'me_deben' : 'debo'));
+          if (prestePrimeraPersona && datos.tipo && datos.tipo !== 'me_deben') {
+            log.info({ tag: 'DEUDA_TIPO_LEXICO', clasificador: datos.tipo, msg: (msg || '').substring(0, 80) }, '"presté" pisa el tipo del clasificador');
+          }
           let contraparte = datos.contraparte;
           let montoClasif = validarMonto(datos.monto);
           let monedaClasif = datos.moneda || 'PEN';
