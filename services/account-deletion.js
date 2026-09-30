@@ -66,7 +66,7 @@ async function listarComprobantes(usuarioId) {
  */
 async function leerCuentasGmail(usuarioId) {
   const { data, error } = await supabase.from('gmail_cuentas')
-    .select('id, email, email_hash, activa').eq('usuario_id', usuarioId);
+    .select('id, email, email_hash, activa, refresh_token').eq('usuario_id', usuarioId);
   if (error) {
     log.error({ tag: 'WIPE', usuarioId, err: error.message }, 'No se pudo leer gmail_cuentas');
     return { filas: [], error: error.message };
@@ -133,7 +133,11 @@ async function borrarCuenta(usuario, { origen = 'desconocido' } = {}) {
   // y SIN fila en `gmail_cuentas`. Sin esto no se revocaba, y el RPC le borraba los tokens dos
   // lineas despues: el permiso de lectura sobre su bandeja quedaba vivo para siempre y sin
   // forma de alcanzarlo. Lo levanto la segunda revision adversarial.
-  const tieneGmail = errGmail ? true : (filasGmail.some((f) => f.activa) || !!usuario.gmail_refresh_token);
+  //
+  // Y `f.refresh_token` cuenta aunque la fila este inactiva: es una revocacion que Google no
+  // confirmo (pendiente, ver `revocarAccesoGmail`). Mirando solo `activa`, el borrado no la
+  // reintentaba y el RPC le anulaba el unico token con que se podia revocar (30-sep-2026).
+  const tieneGmail = errGmail ? true : (filasGmail.some((f) => f.activa || f.refresh_token) || !!usuario.gmail_refresh_token);
 
   // El hash ANTES del RPC: es lo que decide si el correo se puede borrar.
   const puedeBorrarEmailGmail = await asegurarHashDeGmail(usuarioId, filasGmail, errGmail);
@@ -151,14 +155,32 @@ async function borrarCuenta(usuario, { origen = 'desconocido' } = {}) {
   // siempre y sin forma de alcanzarlo: seguiriamos con permiso de lectura sobre la bandeja de
   // alguien que se fue. No corta el flujo — la persona pidio irse y el dato se borra igual —
   // pero tiene que llegar al admin, porque se arregla a mano o no se arregla.
+  // `gmailSinSoltar` es lo que el mensaje a la persona necesita: "solte el permiso sobre tu
+  // Gmail" solo es verdad si Google lo confirmo. Antes el texto miraba `tieneGmail` y lo
+  // afirmaba igual cuando la revocacion habia fallado (segunda revision, 30-sep-2026).
+  let gmailSinSoltar = false;
   if (tieneGmail) {
     try {
-      await revocarAccesoGmail(usuarioId, { motivo: 'usuario_borro_cuenta' });
+      const r = await revocarAccesoGmail(usuarioId, { motivo: 'usuario_borro_cuenta' });
+      // Que Google no confirme NO lanza: la fila queda pendiente y `checkGmailHuerfanos` la
+      // reintenta. Acá esa segunda vuelta no existe, porque el RPC de abajo anula el refresh
+      // token. Hasta el 30-sep-2026 este caso ni siquiera llegaba a `sucio`.
+      if (r && r.pendientes > 0) {
+        gmailSinSoltar = true;
+        sucio.push('Google no confirmo la revocacion de ' + r.pendientes + ' acceso(s) a Gmail y el borrado se lleva el refresh token: el grant queda vivo en Google');
+      }
     } catch (e) {
+      gmailSinSoltar = true;
       // `(e && e.message) || String(e)` y no `e.message`: un rechazo que no sea un Error
       // (`throw 'x'`, un reject con null) rompia DENTRO del catch, y esa excepcion se llevaba
       // puesto el borrado entero — el peor caso, causado por el manejo del peor caso.
-      sucio.push('fallo la revocacion en Google: ' + ((e && e.message) || String(e)));
+      sucio.push('fallo la revocacion de Gmail: ' + ((e && e.message) || String(e)));
+      // Un throw a medias trae lo que ya se habia hecho. Sin esto, un pendiente de Google que
+      // coincidia con un cierre local fallido se perdia del aviso al admin.
+      const pendientes = e && e.parcial && e.parcial.pendientes;
+      if (pendientes > 0) {
+        sucio.push('ademas Google no confirmo la revocacion de ' + pendientes + ' acceso(s): el grant queda vivo en Google');
+      }
     }
   }
 
@@ -181,7 +203,7 @@ async function borrarCuenta(usuario, { origen = 'desconocido' } = {}) {
         'Origen: ' + origen + '\n' +
         'Error: ' + errRpc.message);
     } catch (e) { /* `notificarAdmin` no lanza, pero el aviso nunca puede tumbar la respuesta */ }
-    return { ok: false, motivo: errRpc.message, tieneGmail, resumen: null, sucio };
+    return { ok: false, motivo: errRpc.message, tieneGmail, gmailSinSoltar, resumen: null, sucio };
   }
 
   // A partir de aca los datos YA NO ESTAN. Nada de lo que siga puede revertirse ni puede
@@ -244,7 +266,7 @@ async function borrarCuenta(usuario, { origen = 'desconocido' } = {}) {
     await avisarBajaAlAdmin(usuario, { resumen, sucio, origen });
   }
 
-  return { ok: true, motivo: null, tieneGmail, resumen, sucio };
+  return { ok: true, motivo: null, tieneGmail, gmailSinSoltar, resumen, sucio };
 }
 
 /**

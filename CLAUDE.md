@@ -847,8 +847,13 @@ memoria que un redeploy borra.
 
 | Columna | Significa |
 |---|---|
-| `activa = false` | desconexion **deliberada** (no-pagador, reemplazo, wipe). Revocada en Google. |
+| `activa = false`, `refresh_token` null | desconexion **deliberada** (no-pagador, reemplazo, wipe). Revocada en Google. |
+| `activa = false`, `refresh_token` puesto | desconectada, pero Google **no confirmo** la revocacion: pendiente. La reintenta a diario `reintentarRevocacionesPendientes` (desde `checkGmailHuerfanos`), pague o no. En `usuarios` el equivalente es `gmail_refresh_token` puesto con `gmail_access_token` en null |
 | `auth_error_at` set | sigue conectada en nuestros libros, pero Google dejo de aceptar el token. |
+
+El refresh token de una fila pendiente **no se anula**: es lo unico con que se puede revocar. Hasta
+el 30-sep-2026 se anulaba pasara lo que pasara con Google y el barrido solo miraba `activa=true`, asi
+que un 503 dejaba el grant vivo para siempre (`docs/DEFECTOS.md`). Guard: `tests/gmail-revocacion-pendiente.test.js`.
 
 **No se colapsan en una sola.** Poner `activa = false` en el auth caido sacaria al usuario del
 barrido y le haria perder el hilo a `emailGmailVinculado` / `login_hint`, que es lo unico que
@@ -905,7 +910,7 @@ Consecuencias, y son las que mandan al priorizar:
 |---|---|
 | Las puertas + el guard | `tests/gmail-oauth-gates.test.js` (conteo fijado por archivo) |
 | El deeplink por identidad | `tests/lib/trial-link-panel-pro.test.js` |
-| Revocacion | `revocarAccesoGmail()` en `gmail.js` + `checkGmailHuerfanos` |
+| Revocacion | `revocarAccesoGmail()` en `gmail.js` + `checkGmailHuerfanos` (filas activas y token legacy de no-pagadores, y los pendientes de cualquier plan) |
 | E2E | `qa-e2e/qa-gmail-pro-pagado.mjs` (muro/trial/pagado contra prod) · `qa-e2e/probe-bancos.mjs` (WhatsApp no emite) · `qa-e2e/qa-gmail-segundo-correo.mjs` (la rama 409, sin gastar cupo) |
 
 Cuatro de los seis huecos salieron de mirar una sola columna: el banner de prueba encima del

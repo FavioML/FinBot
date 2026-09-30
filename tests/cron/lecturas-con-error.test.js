@@ -207,6 +207,10 @@ const detectarSuscripciones = vi.fn();
 /** Igual que los tres de arriba: con [] el cron de deudas corta antes de escribir su ledger. */
 const deudasProximas = vi.fn();
 
+/** Los dos lados de `checkGmailHuerfanos`: lo que revoca por usuario y la segunda vuelta. */
+const revocarGmail = vi.fn();
+const reintentarPendientes = vi.fn();
+
 const serviciosMock = [
   ['lib/db.js', dbMock],
   ['lib/logger.js', logMock],
@@ -215,7 +219,7 @@ const serviciosMock = [
   ['lib/analytics.js', { capture: vi.fn() }],
   ['lib/admin-notify.js', { notificarAdmin }],
   ['lib/pro-payment.js', { solicitarComprobante: vi.fn(), esperaComprobante: vi.fn() }],
-  ['gmail.js', { revocarAccesoGmail: vi.fn().mockResolvedValue({ revocadas: 0 }) }],
+  ['gmail.js', { revocarAccesoGmail: revocarGmail, reintentarRevocacionesPendientes: reintentarPendientes }],
   ['services/summaries.js', {
     generarResumenMensual: vi.fn().mockResolvedValue('resumen'),
     generarResumenSemanal: vi.fn().mockResolvedValue('resumen'),
@@ -283,6 +287,8 @@ beforeEach(() => {
   ownerEsPro.mockResolvedValue(true);
   detectarSuscripciones.mockResolvedValue({ suscripciones_detectadas: [] });
   deudasProximas.mockResolvedValue([]);
+  revocarGmail.mockReset().mockResolvedValue({ revocadas: 0, emails: [], pendientes: 0 });
+  reintentarPendientes.mockReset().mockResolvedValue({ soltadas: 0, siguenPendientes: 0, errores: 0 });
 });
 
 /** El destinatario tipo: Pro, alta cerrada, quiere recordatorios. */
@@ -886,5 +892,79 @@ describe('las escrituras accesorias tampoco cortan', () => {
     erroresEscritura.webapp_otp = { message: 'boom' };
     await expect(checks.limpiarOTPVencidos()).resolves.toBeUndefined();
     expect(logMock.warn.mock.calls.map((c) => c[0] && c[0].tag)).toContain('OTP_CLEANUP');
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────────
+// 7. `checkGmailHuerfanos`: tres fuentes, y la caída de una no apaga a las otras.
+// ───────────────────────────────────────────────────────────────────────────────
+//
+// Hasta el 30-sep-2026 el barrido partía solo de `gmail_cuentas` activas: el token legacy sin
+// fila no lo miraba nadie, y la revocación que Google no confirmaba no tenía segunda vuelta
+// (la promesa vivía en un comentario). Ver DEFECTOS.md.
+describe('checkGmailHuerfanos barre las tres fuentes', () => {
+  const NO_PAGA = { plan: 'free', trial_estado: 'convertido' };
+  const PAGA = { plan: 'premium', trial_estado: 'convertido' };
+
+  it('revoca al no-pagador que solo tiene el token legacy (sin fila en gmail_cuentas)', async () => {
+    tablas.usuarios = [{ id: 'u-legacy', ...NO_PAGA, gmail_access_token: 'cifrado' }];
+    await checks.checkGmailHuerfanos();
+    expect(revocarGmail).toHaveBeenCalledWith('u-legacy', expect.objectContaining({ motivo: 'barrido_huerfanos' }));
+  });
+
+  it('no toca el legacy de quien paga', async () => {
+    tablas.usuarios = [{ id: 'u-paga', ...PAGA, gmail_access_token: 'cifrado' }];
+    await checks.checkGmailHuerfanos();
+    expect(revocarGmail).not.toHaveBeenCalled();
+  });
+
+  it('un usuario en las dos fuentes se revoca UNA vez', async () => {
+    tablas.gmail_cuentas = [{ usuario_id: 'u1', activa: true, usuarios: { id: 'u1', ...NO_PAGA } }];
+    tablas.usuarios = [{ id: 'u1', ...NO_PAGA, gmail_access_token: 'cifrado' }];
+    await checks.checkGmailHuerfanos();
+    expect(revocarGmail).toHaveBeenCalledTimes(1);
+  });
+
+  it('la segunda vuelta de pendientes corre siempre, aunque no haya huérfanos', async () => {
+    await checks.checkGmailHuerfanos();
+    expect(reintentarPendientes).toHaveBeenCalledTimes(1);
+  });
+
+  // Antes un error en `gmail_cuentas` hacía `return`: con tres fuentes, eso apagaría las otras dos.
+  it('con gmail_cuentas caída igual barre el legacy y reintenta los pendientes', async () => {
+    errores.gmail_cuentas = { message: 'boom-gc' };
+    tablas.usuarios = [{ id: 'u-legacy', ...NO_PAGA, gmail_access_token: 'cifrado' }];
+    await checks.checkGmailHuerfanos();
+    expect(revocarGmail).toHaveBeenCalledWith('u-legacy', expect.anything());
+    expect(reintentarPendientes).toHaveBeenCalled();
+  });
+
+  it('con usuarios caída igual barre gmail_cuentas y lo deja en el log', async () => {
+    errores.usuarios = { message: 'boom-usuarios' };
+    tablas.gmail_cuentas = [{ usuario_id: 'u1', activa: true, usuarios: { id: 'u1', ...NO_PAGA } }];
+    await checks.checkGmailHuerfanos();
+    expect(revocarGmail).toHaveBeenCalledWith('u1', expect.anything());
+    expect(JSON.stringify(logMock.error.mock.calls)).toContain('boom-usuarios');
+  });
+
+  // H1/H2 de la segunda revisión: ni el aislamiento ni el orden tenían test.
+  it('si el reintento de pendientes lanza, el barrido de huérfanos corre igual', async () => {
+    reintentarPendientes.mockRejectedValue(new Error('boom-reintento'));
+    tablas.usuarios = [{ id: 'u-legacy', ...NO_PAGA, gmail_access_token: 'cifrado' }];
+    await checks.checkGmailHuerfanos();
+    expect(revocarGmail).toHaveBeenCalledWith('u-legacy', expect.anything());
+    expect(JSON.stringify(logMock.error.mock.calls)).toContain('boom-reintento');
+  });
+
+  it('los pendientes se reintentan ANTES del barrido (lo que falle hoy espera a mañana)', async () => {
+    tablas.usuarios = [{ id: 'u-legacy', ...NO_PAGA, gmail_access_token: 'cifrado' }];
+    await checks.checkGmailHuerfanos();
+    expect(reintentarPendientes.mock.invocationCallOrder[0]).toBeLessThan(revocarGmail.mock.invocationCallOrder[0]);
+  });
+
+  it('los grants que siguen vivos en Google se registran como error', async () => {
+    reintentarPendientes.mockResolvedValue({ soltadas: 0, siguenPendientes: 2, errores: 0 });
+    await checks.checkGmailHuerfanos();
+    expect(tagsLogueados()).toContain('GMAIL_HUERFANOS');
   });
 });

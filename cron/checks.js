@@ -17,7 +17,7 @@ const { planCostReminders } = require('../lib/cost-reminders');
 const { mensajeActivacionDia2, construirLinkActivacion } = require('../lib/activacion');
 const { mensajeMuro, estaEnMuro, esProPagado, linkPanelPro, AVISO_DIAS_ANTES, diaDePrueba, DIAS_CIERRE_PRUEBA } = require('../lib/trial');
 const { TIPO_CIERRE, TITULO_CIERRE, armarCierreDiaPrueba } = require('../lib/cierre-dia-prueba');
-const { revocarAccesoGmail } = require('../gmail');
+const { revocarAccesoGmail, reintentarRevocacionesPendientes } = require('../gmail');
 const analytics = require('../lib/analytics');
 
 // `msgErr` vive en `lib/error-monitor.js`. Acá importa especialmente: un `e.message` a secas
@@ -599,12 +599,14 @@ async function checkPremiumExpiry() {
         // cuentas, y ese throw caía al catch del usuario DESPUÉS del downgrade. El aviso no salía
         // por ningún canal y nunca se reintentaba, porque el plan ya estaba en 'free'. Si falla,
         // `checkGmailHuerfanos` barre el grant a diario; el aviso es lo que no tiene segunda vuelta.
-        // Límite aceptado: en ese camino el aviso no menciona Gmail (no se revocó nada todavía) y
-        // la revocación de mañana es muda, así que la persona se entera al abrir su panel.
+        // Si lanzó A MEDIAS (algo sigue leyendo pero otras cuentas sí se cerraron), `e.parcial`
+        // trae lo que sí se desconectó, y el aviso lo nombra: la revocación de mañana es muda.
+        // Si lanzó antes de tocar nada, no hay `parcial` y el aviso no menciona Gmail.
         let revocadas = 0;
         try {
           ({ revocadas } = await revocarAccesoGmail(usuario.id, { motivo: 'premium_vencido' }));
         } catch (e) {
+          revocadas = (e && e.parcial && e.parcial.revocadas) || 0;
           log.error({ tag: 'EXPIRY', userId: usuario.id, err: msgErr(e) }, 'No se pudo revocar Gmail al vencer: se avisa igual, lo barre checkGmailHuerfanos');
         }
         const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
@@ -1232,7 +1234,18 @@ async function checkTrialExpiry() {
         // Conectar Gmail ya es exclusivo de Pro pagado, así que un trial normal no llega acá
         // con cuentas. Se llama igual por los que quedaron conectados de antes del gate: es
         // barato (un select que devuelve vacío) y no depende de que el barrido pase primero.
-        const { revocadas } = await revocarAccesoGmail(usuario.id, { motivo: 'trial_vencido' });
+        //
+        // Con su propio try, por lo mismo que en `checkPremiumExpiry`: el downgrade ya se aplicó
+        // y el claim ya se consumió, así que un throw acá (una lectura caída en
+        // `revocarAccesoGmail`) se llevaba el mensaje del muro sin segunda vuelta. El grant lo
+        // barre `checkGmailHuerfanos`; el mensaje no lo reintenta nadie.
+        let revocadas = 0;
+        try {
+          ({ revocadas } = await revocarAccesoGmail(usuario.id, { motivo: 'trial_vencido' }));
+        } catch (e) {
+          revocadas = (e && e.parcial && e.parcial.revocadas) || 0;
+          log.error({ tag: 'TRIAL_EXPIRY', userId: usuario.id, err: msgErr(e) }, 'No se pudo revocar Gmail al vencer la prueba: se avisa igual, lo barre checkGmailHuerfanos');
+        }
 
         // ACCESORIA a propósito, y de las dos únicas del archivo que NO cortan al fallar.
         // `mensajeMuro` usa este número sólo para elegir entre "*7 gastos*" y "tus gastos":
@@ -2868,27 +2881,57 @@ async function checkCierreDiaPrueba() {
  * NO notifica: a estos usuarios ya se les avisó cuando venció su plan, y un WhatsApp sobre
  * algo que pasó hace semanas se lee como spam. Por eso está exento en
  * `tests/cron/lecturas-proactivas.test.js`.
+ *
+ * Son TRES fuentes y cada una se lee por separado, porque ninguna depende de otra y la caída
+ * de una no puede dejar sin barrer a las demás:
+ *   1. filas activas de `gmail_cuentas` de no-pagadores,
+ *   2. el token legacy de `usuarios` de no-pagadores (quien lo tiene sin fila no aparecía en 1),
+ *   3. las revocaciones que Google no confirmó (`reintentarRevocacionesPendientes`), de
+ *      cualquier plan: son desconexiones deliberadas, y hasta el 30-sep-2026 esta segunda
+ *      vuelta que el comentario de `revocarAccesoGmail` prometía no existía.
  */
 async function checkGmailHuerfanos() {
+  // Los pendientes van PRIMERO y con su propio try. Primero, para que lo que la pasada de abajo
+  // no logre soltar hoy espere a mañana en vez de volver a golpear a Google en la misma corrida.
+  // No es absoluto: un no-pagador con una fila activa Y una pendiente se reintenta dos veces,
+  // porque `revocarAccesoGmail` sin `cuentaId` también termina sus pendientes. Es una llamada
+  // de más a Google, no un daño. Con su try, para que un throw acá no deje sin barrer a los huérfanos.
   try {
+    const pendientes = await reintentarRevocacionesPendientes();
+    if (pendientes.soltadas || pendientes.siguenPendientes || pendientes.errores) {
+      const grave = pendientes.siguenPendientes || pendientes.errores;
+      log[grave ? 'error' : 'info']({ tag: 'GMAIL_HUERFANOS', ...pendientes },
+        grave ? 'Quedan grants de Gmail vivos en Google sin revocar' : 'Revocaciones pendientes de Gmail resueltas');
+    }
+  } catch (e) {
+    log.error({ tag: 'GMAIL_HUERFANOS', err: msgErr(e) }, 'Error reintentando las revocaciones pendientes de Gmail');
+  }
+
+  try {
+    // Este barrido está para no encontrar nada en régimen, así que su silencio normal y su
+    // silencio por caída son idénticos. Lo que queda vivo si falla es un permiso de lectura
+    // sobre la bandeja de alguien que dejó de pagar: se registra aunque no notifique.
+    const huerfanos = new Set();
+
     // La verdad de "quién tiene cupo tomado" está en gmail_cuentas, así que se arranca de ahí
     // y no de usuarios: barre también al que ya no aparecería en una query por plan.
     const { data: cuentas, error: errCuentas } = await supabase.from('gmail_cuentas')
       .select('usuario_id, usuarios!inner(id, plan, trial_estado)')
       .eq('activa', true);
-    // Este barrido está para no encontrar nada en régimen, así que su silencio normal y su
-    // silencio por caída son idénticos. Lo que queda vivo si falla es un permiso de lectura
-    // sobre la bandeja de alguien que dejó de pagar: se registra aunque no notifique.
     if (errCuentas) {
-      log.error({ tag: 'GMAIL_HUERFANOS', err: errCuentas.message }, 'No se pudo leer las cuentas activas: no se revocó ningún acceso colgado');
-      return;
+      log.error({ tag: 'GMAIL_HUERFANOS', err: errCuentas.message }, 'No se pudo leer las cuentas activas: no se revocó ningún acceso colgado desde gmail_cuentas');
     }
-    if (!cuentas || cuentas.length === 0) return;
+    for (const c of cuentas || []) if (!esProPagado(c.usuarios)) huerfanos.add(c.usuario_id);
 
-    const huerfanos = [...new Map(
-      cuentas.filter((c) => !esProPagado(c.usuarios)).map((c) => [c.usuario_id, c.usuarios]),
-    ).keys()];
-    if (huerfanos.length === 0) return;
+    // `gmail_access_token` puesto = lee (es lo que miran `tieneGmailConectado` y el scanner).
+    // Un refresh token solo, con el access en null, es una revocación pendiente: la agarra 3.
+    const { data: legacy, error: errLegacy } = await supabase.from('usuarios')
+      .select('id, plan, trial_estado')
+      .not('gmail_access_token', 'is', null);
+    if (errLegacy) {
+      log.error({ tag: 'GMAIL_HUERFANOS', err: errLegacy.message }, 'No se pudo leer los tokens legacy: no se revocó ningún acceso colgado desde usuarios');
+    }
+    for (const u of legacy || []) if (!esProPagado(u)) huerfanos.add(u.id);
 
     let revocadasTotal = 0;
     for (const usuarioId of huerfanos) {
@@ -2899,7 +2942,9 @@ async function checkGmailHuerfanos() {
         log.error({ tag: 'GMAIL_HUERFANOS', usuarioId, err: msgErr(e) }, 'No se pudo revocar; se reintenta mañana');
       }
     }
-    log.info({ tag: 'GMAIL_HUERFANOS', usuarios: huerfanos.length, revocadas: revocadasTotal }, 'Accesos a Gmail de no-pagadores revocados');
+    if (huerfanos.size > 0) {
+      log.info({ tag: 'GMAIL_HUERFANOS', usuarios: huerfanos.size, revocadas: revocadasTotal }, 'Accesos a Gmail de no-pagadores revocados');
+    }
   } catch (e) {
     log.error({ tag: 'GMAIL_HUERFANOS', err: msgErr(e) }, 'Error general en el barrido de accesos Gmail');
   }

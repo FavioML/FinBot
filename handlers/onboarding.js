@@ -139,6 +139,19 @@ const AVISO_MENU_ABIERTO = '\n\n⚠️ *Ojo:* se me trabó cerrando el menú, as
   'una opción. *No me escribas nada que empiece con un número* —una de las opciones borra tu ' +
   'cuenta—; cualquier otra cosa lo cierra.';
 
+// `revocarAccesoGmail` lanza cuando algo sigue pudiendo leer. Lo peligroso de ese throw no es el
+// Gmail: es el MENÚ. Sin esto el webhook no contestaba nada y el paso -1 seguía abierto, y como
+// el menú se re-arma con las cuentas que QUEDAN, el "1" reenviado podía caer en la rama "sin
+// cuentas", donde "1" es borrar la cuenta entera. Reproducido por la segunda revisión
+// adversarial del 30-sep-2026. Se cierra el menú y se dice la verdad: no sabemos si quedó.
+async function fallaAlDesconectar(usuario, e, etiqueta) {
+  log.error({ tag: 'GMAIL_REVOKE', usuarioId: usuario.id, err: msgErr(e) }, 'Desconectar Gmail falló a medias; se cierra el menú');
+  const v = await escribirUsuario(usuario, { onboarding_paso: 0 }, etiqueta);
+  return '⚠️ No pude confirmar que tu Gmail quedó desconectado.\n\n' +
+    'Vuelve a pedírmelo en un rato. Si te vuelve a fallar, escríbeme */soporte*.' +
+    (entro(v) ? '' : AVISO_MENU_ABIERTO);
+}
+
 // **El monto NO se entrega si la elección no quedó escrita**, y ese es el arreglo de los dos
 // sitios de `tipo_plan`.
 //
@@ -264,12 +277,12 @@ function mensajePrimerGasto(nombre) {
 // exitoso + atascado en el menú" que hacía que el siguiente mensaje libre respondiera
 // "Cancelado. Tu cuenta sigue igual 👍" con los datos ya borrados.
 async function ejecutarBorradoTotal(usuario) {
-  const { ok, tieneGmail, resumen } = await borrarCuenta(usuario, { origen: 'whatsapp' });
+  const { ok, tieneGmail, gmailSinSoltar, resumen } = await borrarCuenta(usuario, { origen: 'whatsapp' });
   if (!ok) {
     return '⚠️ No pude eliminar tus datos ahora mismo. *Tu cuenta sigue igual.*\n\n' +
       'Vuelve a pedirme la baja en un rato. Si te vuelve a fallar, escríbeme */soporte*.';
   }
-  return mensajeCuentaEliminada(usuario, { tieneGmail, resumen });
+  return mensajeCuentaEliminada(usuario, { tieneGmail, gmailSinSoltar, resumen });
 }
 
 // El mensaje NOMBRA lo que se conserva, y ese es el cambio.
@@ -281,12 +294,18 @@ async function ejecutarBorradoTotal(usuario) {
 //
 // La regla que queda para el futuro: si algo se conserva, se nombra acá. Ajustar el texto para
 // que el código quede correcto es exactamente el movimiento que produjo la frase anterior.
-function mensajeCuentaEliminada(usuario, { tieneGmail }) {
+function mensajeCuentaEliminada(usuario, { tieneGmail, gmailSinSoltar }) {
   const partes = [
     '🗑️ *Cuenta eliminada*',
     '',
     'Borré tus movimientos, presupuestos, categorías, metas, deudas, alertas y todo lo que nos escribimos.' +
-      (tieneGmail ? ' Y solté el permiso de lectura sobre tu Gmail.' : ''),
+      (tieneGmail && !gmailSinSoltar ? ' Y solté el permiso de lectura sobre tu Gmail.' : ''),
+    // Si Google no confirmó, se dice y se le da la única salida que le queda: quitarlo él. Ya no
+    // tenemos el token para reintentar (el borrado se lo lleva), así que prometer otra cosa
+    // sería falso.
+    ...(tieneGmail && gmailSinSoltar
+      ? ['', 'Google no me confirmó que soltara el permiso de lectura sobre tu Gmail. Puedes quitarlo tú en myaccount.google.com/permissions (busca Neto).']
+      : []),
     '',
     'Para no venderte humo, esto es lo único que queda:',
     '',
@@ -347,14 +366,22 @@ async function manejarOnboarding({ usuario, msg, cmd }) {
         const cuentaTarget = cuentasActivas[respDesc - 1];
         // Revoca en Google, no solo marca la fila: el flip local le corta la lectura al
         // usuario pero nos deja el permiso vivo sobre una bandeja que pidió cerrar.
-        await revocarAccesoGmail(usuario.id, { motivo: 'usuario_desconecto_una', cuentaId: cuentaTarget.id });
+        try {
+          await revocarAccesoGmail(usuario.id, { motivo: 'usuario_desconecto_una', cuentaId: cuentaTarget.id });
+        } catch (e) {
+          return fallaAlDesconectar(usuario, e, 'desconectar_una_fallo');
+        }
         // La desconexión YA ocurrió, así que el ✅ es verdad y se queda. Lo que puede no haber
         // entrado es el cierre del menú, y eso no es cosmético: ver `AVISO_MENU_ABIERTO`.
         const vDescUna = await escribirUsuario(usuario, { onboarding_paso: 0 }, 'desconectar_una');
         return '✅ *' + cuentaTarget.email + ' desconectado*\n\nTus otras cuentas siguen activas. Tu historial se mantiene intacto.'
           + (entro(vDescUna) ? '' : AVISO_MENU_ABIERTO);
       } else if (respDesc === numCuentas + 1) {
-        await revocarAccesoGmail(usuario.id, { motivo: 'usuario_desconecto_todas' });
+        try {
+          await revocarAccesoGmail(usuario.id, { motivo: 'usuario_desconecto_todas' });
+        } catch (e) {
+          return fallaAlDesconectar(usuario, e, 'desconectar_todas_fallo');
+        }
         const vDescTodas = await escribirUsuario(usuario, { onboarding_paso: 0 }, 'desconectar_todas');
         return '✅ *Todas las cuentas Gmail desconectadas*\n\nTu historial de gastos se mantiene intacto.'
           + colaReconexion(usuario) + (entro(vDescTodas) ? '' : AVISO_MENU_ABIERTO);
@@ -363,7 +390,11 @@ async function manejarOnboarding({ usuario, msg, cmd }) {
       }
     } else if (numCuentas === 1) {
       if (respDesc === 1) {
-        await revocarAccesoGmail(usuario.id, { motivo: 'usuario_desconecto' });
+        try {
+          await revocarAccesoGmail(usuario.id, { motivo: 'usuario_desconecto' });
+        } catch (e) {
+          return fallaAlDesconectar(usuario, e, 'desconectar_fallo');
+        }
         const vDesc = await escribirUsuario(usuario, { onboarding_paso: 0 }, 'desconectar');
         return '✅ *Gmail desconectado*\n\nTu historial de gastos se mantiene intacto.'
           + colaReconexion(usuario) + (entro(vDesc) ? '' : AVISO_MENU_ABIERTO);

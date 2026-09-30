@@ -438,63 +438,290 @@ async function tieneGmailConectado(usuario) {
  * bandeja de alguien que dejó de pagar, y dejar el estado local honesto.
  *
  * Tolerante a fallos A PROPÓSITO: esto se llama desde el camino que baja a alguien de plan, y
- * un timeout con Google no puede dejar a un usuario a medio bajar. Si la revocación falla, se
- * loguea y se limpia local igual — la próxima corrida de checkGmailHuerfanos lo reintenta.
+ * un timeout con Google no puede dejar a un usuario a medio bajar. La LECTURA se corta siempre
+ * (`activa=false`, access token en null). Lo que depende de Google es el refresh token: si
+ * Google no confirma, se CONSERVA y la fila queda pendiente, que es lo que
+ * `reintentarRevocacionesPendientes` (desde `checkGmailHuerfanos`) vuelve a intentar a diario.
  * `invalid_token` no es un fallo: significa que el grant ya no existía, que es el destino.
  *
- * @returns {Promise<{revocadas: number, emails: string[]}>}
+ * Hasta el 30-sep-2026 el comentario prometía ese reintento y el código no lo sostenía: anulaba
+ * el refresh token pasara lo que pasara con Google, y el barrido solo mira `activa=true`. Un 503
+ * dejaba el grant vivo para siempre y sin forma de alcanzarlo. Ver DEFECTOS.md.
+ *
+ * Los estados que salen de acá (ninguno necesita columna nueva):
+ * | `gmail_cuentas`                          | legacy en `usuarios`                              | significa |
+ * |---|---|---|
+ * | `activa=false`, `refresh_token` null     | los tres `gmail_*` en null                       | suelto en Google |
+ * | `activa=false`, `refresh_token` puesto   | `gmail_refresh_token` puesto, access en null     | pendiente de revocar |
+ *
+ * `revocadas` cuenta conexiones que dejaron de LEER (es lo que el aviso al usuario afirma);
+ * `pendientes`, las que Google todavía no confirmó. Una puede estar en las dos.
+ *
+ * @returns {Promise<{revocadas: number, emails: string[], pendientes: number}>}
  */
 async function revocarAccesoGmail(usuarioId, { motivo = 'sin_motivo', cuentaId = null } = {}) {
   const todas = await obtenerCuentasGmail(usuarioId);
   // `cuentaId` sirve al usuario multi-cuenta que desconecta UNA sola: revocar las otras le
   // apagaría en silencio una lectura que sigue pagando y no pidió cortar.
   const cuentas = cuentaId ? todas.filter((c) => c.id === cuentaId) : todas;
-  if (cuentas.length === 0) return { revocadas: 0, emails: [] };
+  if (cuentaId && cuentas.length === 0) return { revocadas: 0, emails: [], pendientes: 0 };
+
+  // Los campos legacy de `usuarios` describen "la" cuenta del usuario, así que solo se tocan
+  // cuando no le queda ninguna activa: borrarlos al desconectar una de tres dejaría al usuario
+  // viéndose desconectado con dos cuentas leyendo.
+  //
+  // Se LEEN antes de tocar nada, y un error de lectura corta acá: igual que
+  // `obtenerCuentasGmail` arriba, falla sin haber escrito. Antes no se leían —se anulaban a
+  // ciegas— y por eso el usuario con token legacy y SIN fila en `gmail_cuentas` (lo deja un
+  // canje donde `obtenerPerfilGoogle` no devolvió el correo) salía por el `return` temprano con
+  // el grant vivo: nadie lo revocaba, ni esta función ni el barrido.
+  const cierraTodo = !cuentaId || todas.length === cuentas.length;
+  let legacy = null;
+  if (cierraTodo) {
+    const { data, error } = await getSupabase().from('usuarios')
+      .select('gmail_access_token, gmail_refresh_token').eq('id', usuarioId).maybeSingle();
+    if (error) throw new Error('revocarAccesoGmail: no se pudo leer el token legacy: ' + error.message);
+    if (data && (data.gmail_access_token || data.gmail_refresh_token)) legacy = data;
+  }
+
+  // Una revocación TOTAL también termina las que quedaron pendientes de antes. Sin esto, el
+  // borrado de cuenta —que solo miraba filas activas y después anula todo refresh token con el
+  // RPC— se llevaba el único token con que se podía revocar un pendiente, sin avisar a nadie:
+  // el defecto original por otra puerta (revisión adversarial, 30-sep-2026).
+  //
+  // Solo sin `cuentaId`. Con `cuentaId` llama `guardarTokens` en pleno canje, y una fila
+  // pendiente del MISMO correo que se está reconectando comparte grant con el recién emitido:
+  // revocarla lo tumbaría.
+  let previas = [];
+  if (!cuentaId) {
+    const { data, error } = await getSupabase().from('gmail_cuentas')
+      .select('id, email, refresh_token').eq('usuario_id', usuarioId).eq('activa', false).not('refresh_token', 'is', null);
+    if (error) throw new Error('revocarAccesoGmail: no se pudo leer las revocaciones pendientes: ' + error.message);
+    previas = data || [];
+  }
+  if (cuentas.length === 0 && !legacy && previas.length === 0) return { revocadas: 0, emails: [], pendientes: 0 };
 
   const emails = [];
+  // token en claro → qué dijo Google de su grant. El legacy lo consulta para saber si es copia
+  // de una fila ya procesada y, si lo es, si ese grant quedó suelto o pendiente.
+  const tokensVistos = new Map();
+  // Solo lo que sigue pudiendo LEER. Ver el throw del final.
+  const sigueLeyendo = [];
+  let pendientes = 0;
+  const ahora = new Date().toISOString();
   for (const cuenta of cuentas) {
     // El refresh token es el que sostiene el grant; el access token solo sirve de plan B
     // para una fila vieja que nunca lo recibió.
-    let token = null;
-    try {
-      token = decrypt(cuenta.refresh_token) || decrypt(cuenta.access_token);
-    } catch (e) {
-      log.warn({ tag: 'GMAIL_REVOKE', usuarioId, err: e.message }, 'No se pudo descifrar el token; se limpia local igual');
+    const r = await soltarGrantEnGoogle([cuenta.refresh_token, cuenta.access_token],
+      { tag: 'GMAIL_REVOKE', usuarioId, email: cuenta.email, motivo });
+    if (r.plano) tokensVistos.set(r.plano, r.estado);
+    const quedaPendiente = r.estado === 'pendiente' && !!cuenta.refresh_token;
+    if (r.estado === 'pendiente' && !quedaPendiente) {
+      log.error({ tag: 'GMAIL_REVOKE', usuarioId, email: cuenta.email, motivo },
+        'Google no confirmó y la fila no tiene refresh token: no queda con qué reintentar');
     }
-    if (token) {
-      try {
-        await oauth2Client.revokeToken(token);
-      } catch (e) {
-        const yaMuerto = /invalid_token|invalid_grant/i.test(e.message || '');
-        log[yaMuerto ? 'info' : 'error'](
-          { tag: 'GMAIL_REVOKE', usuarioId, email: cuenta.email, motivo, err: e.message },
-          yaMuerto ? 'El grant ya no existía en Google' : 'Falló la revocación en Google; se limpia local igual',
-        );
-      }
+    if (quedaPendiente) pendientes++;
+
+    // Se conserva la fila (no `delete`): mantiene el email para historial y deja que el
+    // upsert de guardarTokens reconecte limpio por onConflict 'usuario_id,email'. Por id y
+    // condicionada a `activa`, para no pisar una fila que otra ruta ya cerró.
+    const cierre = { activa: false, access_token: null, token_expiry: null, updated_at: ahora };
+    if (!quedaPendiente) cierre.refresh_token = null;
+    const { error } = await getSupabase().from('gmail_cuentas').update(cierre).eq('id', cuenta.id).eq('activa', true);
+    if (error) {
+      log.error({ tag: 'GMAIL_REVOKE', usuarioId, email: cuenta.email, motivo, err: error.message }, 'No se pudo cerrar la fila local de Gmail');
+      sigueLeyendo.push(error.message);
+    } else {
+      emails.push(cuenta.email);
     }
-    emails.push(cuenta.email);
   }
 
-  // Cierre local, pase lo que pase con Google. Se conserva la fila (no `delete`): mantiene el
-  // email para historial y deja que el upsert de guardarTokens reconecte limpio por
-  // onConflict 'usuario_id,email'. Los tokens se anulan porque ya están muertos: guardarlos
-  // cifrados no aporta nada y es pasivo.
-  const limpieza = getSupabase().from('gmail_cuentas')
-    .update({ activa: false, access_token: null, refresh_token: null, token_expiry: null, updated_at: new Date().toISOString() })
-    .eq('usuario_id', usuarioId).eq('activa', true);
-  await (cuentaId ? limpieza.eq('id', cuentaId) : limpieza);
-
-  // Los campos legacy de `usuarios` describen "la" cuenta del usuario, así que solo se
-  // limpian cuando no le queda ninguna activa: borrarlos al desconectar una de tres dejaría
-  // al usuario viéndose desconectado con dos cuentas leyendo.
-  if (!cuentaId || todas.length === cuentas.length) {
-    await getSupabase().from('usuarios')
-      .update({ gmail_access_token: null, gmail_refresh_token: null, gmail_token_expiry: null })
-      .eq('id', usuarioId);
+  for (const fila of previas) {
+    const r = await reintentarFilaPendiente(fila, { tag: 'GMAIL_REVOKE', usuarioId, email: fila.email, motivo });
+    // 'error' = Google lo soltó y lo que falló fue limpiar la fila: queda un token muerto que el
+    // reintento de mañana limpia con `invalid_token`. No lee nada, así que no cuenta para lanzar.
+    if (r.plano) tokensVistos.set(r.plano, r.estado === 'pendiente' ? 'pendiente' : 'suelto');
+    if (r.estado === 'pendiente') pendientes++;
   }
 
-  log.info({ tag: 'GMAIL_REVOKE', usuarioId, emails, motivo }, 'Acceso a Gmail revocado en Google');
-  return { revocadas: emails.length, emails };
+  let revocadas = emails.length;
+  if (legacy) {
+    const r = await soltarTokenLegacy(usuarioId, legacy, tokensVistos, motivo);
+    if (r.cortada) revocadas++;
+    if (r.pendiente) pendientes++;
+    if (r.sigueLeyendo) sigueLeyendo.push(r.error);
+  }
+
+  // Lanza DESPUÉS de haber intentado todo, y SOLO si algo sigue pudiendo leer: una fila activa
+  // que no se cerró, o un token legacy con access puesto sobre un grant que Google no soltó. Ahí
+  // ni el "✅ desconectado" ni el aviso de vencimiento pueden afirmar lo contrario, y en
+  // `guardarTokens` seguir de largo dejaría dos cuentas activas.
+  //
+  // Una limpieza fallida de algo que ya NO lee (un token cuyo grant Google soltó) no lanza, y
+  // no es cosmético: lanzar después de haber cerrado la fila activa dejaba al usuario sin
+  // respuesta y con el menú de desconexión abierto, y como el menú se re-arma con las cuentas
+  // que QUEDAN, el "1" reenviado caía en la rama "sin cuentas", donde "1" es borrar la cuenta
+  // entera (segunda revisión adversarial, 30-sep-2026, reproducido).
+  //
+  // `parcial` viaja con el error: los avisos de vencimiento lo usan para no callar un Gmail que
+  // sí se desconectó, y el borrado para no perder el pendiente.
+  if (sigueLeyendo.length) {
+    const err = new Error('revocarAccesoGmail: algo sigue leyendo, no se pudo cerrar el estado local: ' + sigueLeyendo.join('; '));
+    err.parcial = { revocadas, emails, pendientes };
+    throw err;
+  }
+
+  log.info({ tag: 'GMAIL_REVOKE', usuarioId, emails, motivo, revocadas, pendientes },
+    pendientes ? 'Acceso a Gmail cortado; revocación en Google pendiente' : 'Acceso a Gmail revocado en Google');
+  return { revocadas, emails, pendientes };
+}
+
+/**
+ * Una fila `activa=false` con refresh token: le pide a Google que suelte el grant y, si lo
+ * suelta, anula el token. El cierre es condicional al MISMO token que se leyó: si en el medio
+ * la persona reconectó ese correo, `guardarTokens` dejó la fila activa con un token nuevo y
+ * esto no lo pisa.
+ *
+ * @returns {Promise<{estado: 'soltada'|'pendiente'|'error', plano: string|null, error?: string}>}
+ */
+async function reintentarFilaPendiente(fila, ctx) {
+  const r = await soltarGrantEnGoogle([fila.refresh_token], ctx);
+  if (r.estado === 'pendiente') return { estado: 'pendiente', plano: r.plano };
+  const { error } = await getSupabase().from('gmail_cuentas')
+    .update({ refresh_token: null, updated_at: new Date().toISOString() })
+    .eq('id', fila.id).eq('activa', false).eq('refresh_token', fila.refresh_token);
+  if (error) {
+    log.error({ ...ctx, err: error.message }, 'Revocado en Google pero no se pudo limpiar la fila');
+    return { estado: 'error', plano: r.plano, error: error.message };
+  }
+  return { estado: 'soltada', plano: r.plano };
+}
+
+/**
+ * Le pide a Google que suelte el grant de UNA credencial. No escribe nada: dice qué pasó y el
+ * que llama decide qué conservar.
+ *
+ * `pendiente` incluye el token que no se pudo DESCIFRAR. Lo que hace fallar `decrypt` en la
+ * práctica es una `ENCRYPTION_KEY` mal cargada, que se corrige; anular el token ahí sería
+ * convertir un error de configuración en un grant vivo para siempre.
+ *
+ * @param {Array<string|null>} cifrados en orden de preferencia (refresh antes que access)
+ * @returns {Promise<{estado: 'suelto'|'pendiente'|'sin_token', plano: string|null}>}
+ */
+async function soltarGrantEnGoogle(cifrados, ctx) {
+  let plano = null;
+  try {
+    for (const c of cifrados) {
+      plano = decrypt(c);
+      if (plano) break;
+    }
+  } catch (e) {
+    log.error({ ...ctx, err: e.message }, 'No se pudo descifrar el token de Gmail: queda pendiente de revocar');
+    return { estado: 'pendiente', plano: null };
+  }
+  if (!plano) return { estado: 'sin_token', plano: null };
+  try {
+    await oauth2Client.revokeToken(plano);
+    return { estado: 'suelto', plano };
+  } catch (e) {
+    if (/invalid_token|invalid_grant/i.test(e.message || '')) {
+      log.info({ ...ctx, err: e.message }, 'El grant ya no existía en Google');
+      return { estado: 'suelto', plano };
+    }
+    log.error({ ...ctx, err: e.message }, 'Google no confirmó la revocación: queda pendiente para reintentar');
+    return { estado: 'pendiente', plano };
+  }
+}
+
+/**
+ * El token legacy de `usuarios`. En el caso normal es una COPIA del de la fila de
+ * `gmail_cuentas` (guardarTokens escribe los dos), y ahí no se revoca de nuevo ni se deja
+ * pendiente: el estado vive en un solo lugar, la fila. Solo se revoca por su cuenta cuando es
+ * otro grant (o cuando es el único que hay).
+ */
+async function soltarTokenLegacy(usuarioId, legacy, tokensVistos, motivo) {
+  const ctx = { tag: 'GMAIL_REVOKE', usuarioId, legacy: true, motivo };
+  let plano = null;
+  try {
+    plano = decrypt(legacy.gmail_refresh_token) || decrypt(legacy.gmail_access_token);
+  } catch { /* no se pudo comparar: se trata como grant propio, y soltarGrantEnGoogle lo registra */ }
+  const esCopia = !!plano && tokensVistos.has(plano);
+
+  // Una copia no se revoca de nuevo, pero hereda lo que Google dijo de su grant: si quedó
+  // pendiente, el access token de la copia sigue sirviendo para leer.
+  const estadoGrant = esCopia
+    ? tokensVistos.get(plano)
+    : (await soltarGrantEnGoogle([legacy.gmail_refresh_token, legacy.gmail_access_token], ctx)).estado;
+  // Pendiente propio solo si no es copia: el de una copia vive en su fila.
+  const pendiente = !esCopia && estadoGrant === 'pendiente' && !!legacy.gmail_refresh_token;
+  // El access token se va siempre: es lo que `tieneGmailConectado`, `cargarTokens` y el
+  // barrido del scanner miran para decidir que alguien LEE. Sin él, un refresh token suelto
+  // en la fila no lee nada: solo espera su revocación.
+  const cierre = { gmail_access_token: null, gmail_token_expiry: null };
+  if (!pendiente) cierre.gmail_refresh_token = null;
+  const { error } = await getSupabase().from('usuarios').update(cierre).eq('id', usuarioId);
+  if (error) {
+    log.error({ ...ctx, err: error.message }, 'No se pudo limpiar el token legacy de Gmail');
+    // Sigue leyendo solo si quedó un access token sobre un grant que Google NO soltó. Sobre un
+    // grant suelto es un token muerto: el scanner recibe `invalid_grant` y no lee nada.
+    return {
+      cortada: false,
+      pendiente: !esCopia && estadoGrant === 'pendiente',
+      sigueLeyendo: !!legacy.gmail_access_token && estadoGrant !== 'suelto' && estadoGrant !== 'sin_token',
+      error: error.message,
+    };
+  }
+  return { cortada: !esCopia && !!legacy.gmail_access_token, pendiente };
+}
+
+/**
+ * La segunda vuelta de las revocaciones que Google no confirmó. La llama `checkGmailHuerfanos`
+ * a diario y no mira el plan: una fila pendiente es una desconexión DELIBERADA (baja de plan,
+ * reemplazo, el usuario que pidió desconectar), así que se suelta igual pague o no.
+ *
+ * El cierre es condicional al MISMO token que se leyó: si entre la lectura y la escritura la
+ * persona reconectó ese correo, `guardarTokens` dejó la fila activa con un token nuevo y esto
+ * no lo pisa. Lo que no puede evitar es el lado de Google: revocar el token viejo en ese
+ * intervalo tumba también el grant recién emitido. La ventana no es de milisegundos: las filas se
+ * leen juntas y se revocan de a una, así que dura lo que tarde Google, y tarda más justo cuando hay
+ * pendientes. La consecuencia es acotada: la fila reconectada queda activa sobre un grant muerto y
+ * cae en el flujo normal de `auth_error_at`, que le pide reconectar.
+ *
+ * @returns {Promise<{soltadas: number, siguenPendientes: number, errores: number}>}
+ */
+async function reintentarRevocacionesPendientes() {
+  const sb = getSupabase();
+  let soltadas = 0, siguenPendientes = 0, errores = 0;
+
+  const { data: filas, error: errFilas } = await sb.from('gmail_cuentas')
+    .select('id, usuario_id, email, refresh_token').eq('activa', false).not('refresh_token', 'is', null);
+  if (errFilas) {
+    errores++;
+    log.error({ tag: 'GMAIL_REVOKE', err: errFilas.message }, 'No se pudieron leer las revocaciones pendientes de gmail_cuentas');
+  }
+  for (const f of filas || []) {
+    const r = await reintentarFilaPendiente(f, { tag: 'GMAIL_REVOKE', usuarioId: f.usuario_id, email: f.email, motivo: 'reintento' });
+    if (r.estado === 'pendiente') siguenPendientes++;
+    else if (r.estado === 'error') errores++;
+    else soltadas++;
+  }
+
+  const { data: usuarios, error: errUsuarios } = await sb.from('usuarios')
+    .select('id, gmail_refresh_token').not('gmail_refresh_token', 'is', null).is('gmail_access_token', null);
+  if (errUsuarios) {
+    errores++;
+    log.error({ tag: 'GMAIL_REVOKE', err: errUsuarios.message }, 'No se pudieron leer las revocaciones legacy pendientes');
+  }
+  for (const u of usuarios || []) {
+    const r = await soltarGrantEnGoogle([u.gmail_refresh_token], { tag: 'GMAIL_REVOKE', usuarioId: u.id, legacy: true, motivo: 'reintento' });
+    if (r.estado === 'pendiente') { siguenPendientes++; continue; }
+    const { error } = await sb.from('usuarios').update({ gmail_refresh_token: null })
+      .eq('id', u.id).is('gmail_access_token', null).eq('gmail_refresh_token', u.gmail_refresh_token);
+    if (error) { errores++; log.error({ tag: 'GMAIL_REVOKE', usuarioId: u.id, err: error.message }, 'Revocado en Google pero no se pudo limpiar el token legacy'); }
+    else soltadas++;
+  }
+
+  return { soltadas, siguenPendientes, errores };
 }
 
 async function obtenerPerfilGoogle(authClient) {
@@ -944,4 +1171,4 @@ async function leerCorreosBancarios(usuarioId, opts = {}) {
 // primera recibe un `authClient` crudo y la segunda un array ya resuelto, así que llamarlas
 // desde producción saltearía la resolución de cuentas, `remitentesParaUsuario` y los gates de
 // plan que viven en `leerCorreosBancarios`. El camino de producción es ése, siempre.
-module.exports = { tieneGmailConectado, leerCorreosDesdeCuenta, agregarResultadosDeCuentas, generarUrlAutorizacion, verificarState, guardarTokens, cargarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail, revocarAccesoGmail, BANCOS_CATALOGO, remitentesParaSeleccion, describirSeleccion, construirQueriesBancarias, emailGmailVinculado, hashEmailGmail, esElMismoGmail, esCorreoMasivo, direccionDe };
+module.exports = { tieneGmailConectado, leerCorreosDesdeCuenta, agregarResultadosDeCuentas, generarUrlAutorizacion, verificarState, guardarTokens, cargarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail, revocarAccesoGmail, reintentarRevocacionesPendientes, BANCOS_CATALOGO, remitentesParaSeleccion, describirSeleccion, construirQueriesBancarias, emailGmailVinculado, hashEmailGmail, esElMismoGmail, esCorreoMasivo, direccionDe };

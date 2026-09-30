@@ -482,6 +482,53 @@ describe('Onboarding paso -1 — desconexion / wipe', () => {
     expect(enviado).toMatch(/desconectado/i);
   });
 
+  /**
+   * El HIGH de la segunda revisión del 30-sep-2026, reproducido en este mismo harness: si
+   * `revocarAccesoGmail` lanza después de cerrar la fila, el webhook no contestaba nada y el
+   * paso -1 seguía abierto. El menú se re-arma con las cuentas que QUEDAN —cero—, y en esa rama
+   * "1" es borrar la cuenta entera: el "1" reenviado borraba todo sin otra confirmación.
+   */
+  it('una cuenta, "1" y la revocación lanza → cierra el menú y lo dice, no calla', async () => {
+    obtenerCuentasGmail.mockResolvedValue([{ id: 'g1', email: 'a@x.com' }]);
+    revocarAccesoGmail.mockRejectedValue(new Error('algo sigue leyendo'));
+    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1');
+    expect(enviado).toMatch(/No pude confirmar que tu Gmail quedó desconectado/);
+    expect(usuariosChain.update).toHaveBeenCalledWith(expect.objectContaining({ onboarding_paso: 0 }));
+    expect(borrarCuenta).not.toHaveBeenCalled();
+  });
+
+  // O1 de la tercera revisión: si además falla el cierre del menú, el aviso de menú abierto es
+  // lo único que separa al usuario del "1" que borra la cuenta. Nada lo fijaba.
+  it('si la revocación lanza Y no se puede cerrar el menú, avisa que el menú sigue abierto', async () => {
+    obtenerCuentasGmail.mockResolvedValue([{ id: 'g1', email: 'a@x.com' }]);
+    revocarAccesoGmail.mockRejectedValue(new Error('algo sigue leyendo'));
+    usuariosChain = makeChain([], { updateResult: { data: null, error: { message: 'boom' } } });
+    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1');
+    expect(enviado).toMatch(/No pude confirmar/);
+    expect(enviado).toMatch(/No me escribas nada que empiece con un número/);
+  });
+
+  // Un caso por opción: `enviarTexto` devuelve el PRIMER mensaje que salió, así que dos envíos
+  // en el mismo caso comparaban el segundo contra el texto del primero (y la mutación que le
+  // saca el try a "todas" salía verde).
+  it('multi-cuenta, "1" y la revocación lanza → cierra el menú y lo dice', async () => {
+    obtenerCuentasGmail.mockResolvedValue([
+      { id: 'g1', email: 'a@x.com' }, { id: 'g2', email: 'b@x.com' },
+    ]);
+    revocarAccesoGmail.mockRejectedValue(new Error('algo sigue leyendo'));
+    expect(await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1')).toMatch(/No pude confirmar/);
+    expect(borrarCuenta).not.toHaveBeenCalled();
+  });
+
+  it('multi-cuenta, "N+1" (todas) y la revocación lanza → cierra el menú y lo dice', async () => {
+    obtenerCuentasGmail.mockResolvedValue([
+      { id: 'g1', email: 'a@x.com' }, { id: 'g2', email: 'b@x.com' },
+    ]);
+    revocarAccesoGmail.mockRejectedValue(new Error('algo sigue leyendo'));
+    expect(await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '3')).toMatch(/No pude confirmar/);
+    expect(borrarCuenta).not.toHaveBeenCalled();
+  });
+
   it('multi-cuenta, "N+1" → desconecta todas las cuentas sin borrar datos', async () => {
     obtenerCuentasGmail.mockResolvedValue([
       { id: 'g1', email: 'a@x.com' }, { id: 'g2', email: 'b@x.com' },
@@ -574,6 +621,16 @@ describe('Onboarding paso -1 — desconexion / wipe', () => {
     obtenerCuentasGmail.mockResolvedValue([{ id: 'g1', email: 'a@x.com' }]);
     borrarCuenta.mockResolvedValue({ ok: true, tieneGmail: true, resumen: {}, sucio: [] });
     expect(await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '2')).toMatch(/gmail/i);
+  });
+
+  // "Solté el permiso" solo si Google lo confirmó (segunda revisión, 30-sep-2026). Si no, se
+  // dice, y se le da la única salida que queda: el borrado se lleva el token para reintentar.
+  it('si Google no confirmó la revocación, NO afirma que soltó el permiso', async () => {
+    obtenerCuentasGmail.mockResolvedValue([{ id: 'g1', email: 'a@x.com' }]);
+    borrarCuenta.mockResolvedValue({ ok: true, tieneGmail: true, gmailSinSoltar: true, resumen: {}, sucio: [] });
+    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '2');
+    expect(enviado).not.toMatch(/solté el permiso/i);
+    expect(enviado).toMatch(/myaccount\.google\.com\/permissions/);
   });
 
   it('no menciona el Gmail cuando no había ninguna conectada', async () => {

@@ -43,7 +43,17 @@ const db = require('../../lib/db');
 db.supabase.from = vi.fn((tabla) => {
   if (tabla !== 'gmail_cuentas') throw new Error('el servicio no debería tocar la tabla ' + tabla);
   const chain = {
-    select: () => ({ eq: () => Promise.resolve({ data: gmailFilas, error: errorLecturaGmail }) }),
+    // Devuelve SOLO las columnas pedidas, como PostgREST. Cuando devolvía la fila entera, sacar
+    // `refresh_token` del select de `leerCuentasGmail` dejaba la suite verde y reintroducía el
+    // borrado que pierde los pendientes (segunda revisión, 30-sep-2026).
+    select: (cols) => ({
+      eq: () => Promise.resolve({
+        data: errorLecturaGmail ? null : gmailFilas.map((f) => Object.fromEntries(
+          String(cols).split(',').map((c) => c.trim()).filter((c) => c in f).map((c) => [c, f[c]]),
+        )),
+        error: errorLecturaGmail,
+      }),
+    }),
     update: (campos) => ({
       eq: (_col, id) => {
         updatesDeHash.push({ id, campos });
@@ -236,6 +246,58 @@ describe('borrarCuenta — el orden de los efectos', () => {
     expect(r.ok).toBe(true);
     expect(rpc).toHaveBeenCalled();
     expect(r.sucio.join(' ')).toMatch(/google 503/);
+  });
+
+  // El HIGH de la revisión del 30-sep-2026: una fila inactiva CON refresh token es una
+  // revocación pendiente. Mirando solo `activa`, `tieneGmail` salía false, nadie la revocaba,
+  // y el RPC anulaba el único token con que se podía revocar. Sin rastro en `sucio`.
+  it('una fila pendiente (inactiva con refresh token) se revoca antes del RPC', async () => {
+    gmailFilas = [{ id: 'g1', email: 'a@x.com', email_hash: 'h', activa: false, refresh_token: 'cifrado' }];
+    await borrarCuenta(USUARIO, {});
+    expect(revocarAccesoGmail).toHaveBeenCalled();
+    expect(orden.indexOf('revocar')).toBeLessThan(orden.indexOf('rpc'));
+  });
+
+  // El texto que lee la persona sale de `gmailSinSoltar`: "solté el permiso" solo si Google lo
+  // confirmó. Antes miraba `tieneGmail` y lo afirmaba igual con la revocación fallida.
+  it('si Google no confirma, borrarCuenta lo devuelve para que el mensaje no lo afirme', async () => {
+    gmailFilas = [{ id: 'g1', email: 'a@x.com', email_hash: 'h', activa: true }];
+    revocarAccesoGmail.mockResolvedValue({ revocadas: 1, emails: ['a@x.com'], pendientes: 1 });
+    expect((await borrarCuenta(USUARIO, {})).gmailSinSoltar).toBe(true);
+
+    revocarAccesoGmail.mockRejectedValue(new Error('boom'));
+    expect((await borrarCuenta(USUARIO, {})).gmailSinSoltar).toBe(true);
+
+    revocarAccesoGmail.mockResolvedValue({ revocadas: 1, emails: ['a@x.com'], pendientes: 0 });
+    expect((await borrarCuenta(USUARIO, {})).gmailSinSoltar).toBe(false);
+  });
+
+  // Un throw A MEDIAS trae `parcial`: si ahí había un pendiente de Google, el admin tiene que
+  // saber que el grant quedó vivo, no solo que "falló la revocación".
+  it('un throw a medias con pendientes le dice al admin que el grant quedó vivo', async () => {
+    gmailFilas = [{ id: 'g1', email: 'a@x.com', email_hash: 'h', activa: true }];
+    const err = new Error('algo sigue leyendo');
+    err.parcial = { revocadas: 0, emails: [], pendientes: 1 };
+    revocarAccesoGmail.mockRejectedValue(err);
+    const r = await borrarCuenta(USUARIO, {});
+    expect(r.sucio.join(' ')).toMatch(/grant queda vivo/);
+  });
+
+  it('una fila inactiva y limpia no llama a Google', async () => {
+    gmailFilas = [{ id: 'g1', email: 'a@x.com', email_hash: 'h', activa: false, refresh_token: null }];
+    await borrarCuenta(USUARIO, {});
+    expect(revocarAccesoGmail).not.toHaveBeenCalled();
+  });
+
+  // Google caído NO lanza desde el 30-sep-2026: la fila queda pendiente para el barrido. Pero
+  // el RPC borra el refresh token, así que en el borrado esa segunda vuelta no existe y el
+  // admin es el único que puede enterarse.
+  it('si Google no confirma la revocación, el admin se entera (el RPC se lleva el token)', async () => {
+    gmailFilas = [{ id: 'g1', email: 'a@x.com', email_hash: 'h', activa: true }];
+    revocarAccesoGmail.mockResolvedValue({ revocadas: 1, emails: ['a@x.com'], pendientes: 1 });
+    const r = await borrarCuenta(USUARIO, {});
+    expect(r.ok).toBe(true);
+    expect(r.sucio.join(' ')).toMatch(/Google no confirmo/);
   });
 
   // El caso que rompía DENTRO del catch: un rechazo que no es un Error deja `e.message`

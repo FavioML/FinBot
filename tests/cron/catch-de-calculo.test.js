@@ -531,3 +531,57 @@ describe('ningún catch se convirtió en un corte', () => {
     expect(balanceEspacio).toHaveBeenCalledTimes(3);
   });
 });
+
+// Hallazgo de la revisión adversarial del 30-sep-2026. `revocarAccesoGmail` puede lanzar (una
+// lectura caída), y en el vencimiento de la prueba corría DESPUÉS del downgrade y del claim, sin
+// try propio: el throw caía al catch del usuario y el mensaje del muro no salía nunca, porque
+// la fila ya está en 'vencido' y ninguna corrida la vuelve a tomar. `checkPremiumExpiry` ya
+// tenía ese try; éste no.
+describe('el vencimiento de la prueba avisa aunque la revocación de Gmail falle', () => {
+  it('con revocarAccesoGmail lanzando, el usuario igual recibe el mensaje del muro', async () => {
+    vi.setSystemTime(enLima('2026-08-23T03:05'));
+    tablas.usuarios = [
+      { ...PRO_A, trial_estado: 'activo', trial_vence: '2026-08-01', estado_pago: 'pagado', premium_desde: null, premium_vence: null },
+    ];
+    tablas.transacciones = [];
+    revocarGmail.mockRejectedValue(new Error('no se pudo leer el token legacy'));
+    await checks.checkTrialExpiry();
+    expect(notificados()).toContain('u-a');
+  });
+});
+
+// MEDIUM-2 de la segunda revisión (30-sep-2026): `revocarAccesoGmail` puede lanzar A MEDIAS,
+// con cuentas ya desconectadas. El aviso de vencimiento decía "También desconectamos tu Gmail"
+// solo con el retorno normal, así que ahí lo callaba, y la revocación de mañana es muda.
+describe('el aviso de Pro vencido nombra el Gmail aunque la revocación lance a medias', () => {
+  it('con `parcial.revocadas` en el error, el aviso dice que se desconectó', async () => {
+    vi.setSystemTime(enLima('2026-08-23T03:05'));
+    tablas.usuarios = [
+      { ...PRO_A, premium_vence: '2026-08-01', estado_pago: 'pagado', cuenta_borrada_at: null, trial_estado: null },
+    ];
+    const err = new Error('algo sigue leyendo');
+    err.parcial = { revocadas: 1, emails: ['a@x.com'], pendientes: 0 };
+    revocarGmail.mockRejectedValue(err);
+    await checks.checkPremiumExpiry();
+    const aviso = notificar.mock.calls.map((c) => c[0]).find((a) => a.tipo === 'premium_expired');
+    expect(aviso && aviso.mensaje).toMatch(/desconectamos tu Gmail/);
+  });
+});
+
+// C2 de la tercera revisión: el espejo de arriba para la prueba vencida. El mensaje del muro
+// también lleva `avisoGmailDesconectado(revocadas)`, y el fallback a `parcial` no tenía caso.
+describe('el mensaje del muro nombra el Gmail aunque la revocación lance a medias', () => {
+  it('con `parcial.revocadas` en el error, el muro dice que se desconectó', async () => {
+    vi.setSystemTime(enLima('2026-08-23T03:05'));
+    tablas.usuarios = [
+      { ...PRO_A, trial_estado: 'activo', trial_vence: '2026-08-01', estado_pago: 'pagado', premium_desde: null, premium_vence: null },
+    ];
+    tablas.transacciones = [];
+    const err = new Error('algo sigue leyendo');
+    err.parcial = { revocadas: 1, emails: ['a@x.com'], pendientes: 0 };
+    revocarGmail.mockRejectedValue(err);
+    await checks.checkTrialExpiry();
+    const muro = notificar.mock.calls.map((c) => c[0]).find((a) => a.usuarioId === 'u-a');
+    expect(muro && muro.mensaje).toMatch(/desconectamos tu Gmail/);
+  });
+});

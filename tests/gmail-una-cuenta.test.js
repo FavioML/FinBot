@@ -38,6 +38,8 @@ function tabla(nombre) {
     order() { return q; },
     update(payload) { escrituras.push({ tabla: nombre, op: 'update', payload }); return q; },
     upsert(payload) { escrituras.push({ tabla: nombre, op: 'upsert', payload }); return Promise.resolve({ data: null, error: null }); },
+    // `revocarAccesoGmail` lee el token legacy de `usuarios` antes de tocar nada (30-sep-2026).
+    maybeSingle() { return q.then((r) => ({ data: (r.data || [])[0] || null, error: r.error })); },
     then(resolve) {
       const data = nombre === 'gmail_cuentas' && !q._filtros.id ? cuentasActivas : [];
       return Promise.resolve({ data, error: null }).then(resolve);
