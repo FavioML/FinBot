@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Download } from 'lucide-react';
 import { useAdminPagos } from '@/lib/hooks/use-admin-pagos';
 import { ErrorState } from '@/components/shared/error-state';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { toCsv, downloadCsv } from '@/lib/csv-export';
 import {
   CSV_HEADERS,
@@ -203,40 +204,86 @@ function FilaPago({ p }: { p: AdminPagoFila }) {
 }
 
 /**
- * Pide la URL firmada al abrir, no al listar: firmar un comprobante por fila en cada carga es
- * trabajo que casi nunca se usa. Reutiliza `/api/admin/payments?user_id=`, que ya firma. La
- * ventana se abre ANTES del fetch porque un `window.open` después de un `await` lo bloquea el
- * navegador como popup.
+ * El comprobante se ve en un visor encima de la tabla, sin salir de la página.
+ *
+ * La URL firmada se pide al abrir, no al listar: firmar un comprobante por fila en cada carga es
+ * trabajo que casi nunca se usa. Se pide cada vez que se abre porque la firma dura una hora y la
+ * página puede quedar abierta más que eso. Reutiliza `/api/admin/payments?user_id=`, que ya firma.
  */
 function VerComprobante({ p }: { p: AdminPagoFila }) {
-  const [estado, setEstado] = useState<'idle' | 'cargando' | 'error'>('idle');
+  const [abierto, setAbierto] = useState(false);
+  const [url, setUrl] = useState<string | null>(null);
+  const [estado, setEstado] = useState<'cargando' | 'listo' | 'error'>('cargando');
 
-  const abrir = async () => {
-    const w = window.open('', '_blank');
+  const cargar = async () => {
+    setUrl(null);
     setEstado('cargando');
     try {
       const res = await fetch(`/api/admin/payments?user_id=${encodeURIComponent(p.usuario_id)}`);
       const json = await res.json();
-      const url: string | undefined = (json.pagos || []).find(
+      const firmada: string | undefined = (json.pagos || []).find(
         (x: { id: string; comprobante_signed_url?: string | null }) => x.id === p.id,
       )?.comprobante_signed_url;
-      if (!res.ok || !url) throw new Error('sin url');
-      if (w) w.location.href = url;
-      setEstado('idle');
+      if (!res.ok || !firmada) throw new Error('sin url');
+      setUrl(firmada);
+      setEstado('listo');
     } catch {
-      w?.close();
       setEstado('error');
     }
   };
 
+  const abrir = () => {
+    setAbierto(true);
+    void cargar();
+  };
+
   return (
-    <button
-      onClick={abrir}
-      disabled={estado === 'cargando'}
-      className="text-xs text-[#1D9E75] hover:underline disabled:opacity-50"
-    >
-      {estado === 'cargando' ? 'Abriendo…' : estado === 'error' ? 'No se pudo abrir' : 'Ver'}
-    </button>
+    <>
+      <button onClick={abrir} className="text-xs text-[#1D9E75] hover:underline">
+        Ver
+      </button>
+      <Dialog open={abierto} onOpenChange={setAbierto}>
+        <DialogContent className="glass-card-elevated border-0 gap-3 p-5 sm:max-w-lg">
+          <DialogTitle className="pr-8 text-base text-[#F0EFE8]">Comprobante de {etiquetaPagador(p)}</DialogTitle>
+          <DialogDescription className="text-xs text-[#8A877D]">
+            {formatFecha(fechaLima(p.cuando))} · {p.monto == null ? 'sin monto' : formatPen(p.monto)} ·{' '}
+            {p.tipo_plan || 'sin plan'} · {etiquetaTipoPago(p)}
+          </DialogDescription>
+
+          <div className="flex min-h-48 items-center justify-center overflow-hidden rounded-lg bg-black/30">
+            {estado === 'cargando' && <span className="text-sm text-[#8A877D]">Cargando comprobante…</span>}
+            {estado === 'error' && (
+              <ErrorState
+                titulo="No se pudo cargar el comprobante"
+                variante="card"
+                descripcion="La imagen no llegó. No es que no exista: reintenta."
+                onReintentar={() => void cargar()}
+              />
+            )}
+            {estado === 'listo' && url && (
+              // eslint-disable-next-line @next/next/no-img-element -- URL firmada de Storage, no pasa por next/image
+              <img
+                src={url}
+                alt={`Comprobante de pago de ${etiquetaPagador(p)}`}
+                className="max-h-[70vh] w-full object-contain"
+                onError={() => setEstado('error')}
+              />
+            )}
+          </div>
+
+          {estado === 'listo' && url && (
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="self-end text-xs text-[#8A877D] hover:text-[#F0EFE8]"
+            >
+              Abrir en pestaña nueva ↗
+            </a>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -254,15 +301,18 @@ function HistorialMeses({
     <div className="glass-card rounded-xl p-4">
       <h3 className="text-sm font-semibold text-[#F0EFE8]">Todos los meses</h3>
       <div className="mt-4 overflow-x-auto">
-        <table className="w-full min-w-[520px] text-sm">
+        {/* Una columna por dato, números alineados a la derecha con cifras de ancho fijo, y
+            aire en los dos bordes para que la fila resaltada no toque el borde de la tarjeta. */}
+        <table className="w-full min-w-[560px] text-sm tabular-nums">
           <thead>
             <tr className="text-left text-[10px] uppercase tracking-wider text-[#8A877D]">
-              <th className="pb-2 pr-4 font-medium">Mes</th>
+              <th className="pb-2 pl-3 pr-4 font-medium">Mes</th>
               <th className="pb-2 pr-4 text-right font-medium">Cobrado</th>
               <th className="pb-2 pr-4 text-right font-medium">Pagos</th>
               <th className="pb-2 pr-4 text-right font-medium">Primer pago</th>
               <th className="pb-2 pr-4 text-right font-medium">Renovación</th>
-              <th className="pb-2 text-right font-medium">Mensual / anual</th>
+              <th className="pb-2 pr-4 text-right font-medium">Mensual</th>
+              <th className="pb-2 pr-3 text-right font-medium">Anual</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/5">
@@ -274,16 +324,15 @@ function HistorialMeses({
                   onClick={() => onElegir(m.mes)}
                   className={`cursor-pointer transition-colors hover:bg-white/[0.03] ${activo ? 'bg-[rgba(29,158,117,0.08)]' : ''}`}
                 >
-                  <td className={`py-2 pr-4 ${activo ? 'text-[#1D9E75]' : 'text-[#F0EFE8]'}`}>
+                  <td className={`py-2.5 pl-3 pr-4 ${activo ? 'text-[#1D9E75]' : 'text-[#F0EFE8]'}`}>
                     {etiquetaMes(m.mes)}
                   </td>
-                  <td className="whitespace-nowrap py-2 pr-4 text-right text-[#F0EFE8]">{formatPen(m.total_pen)}</td>
-                  <td className="py-2 pr-4 text-right text-[#C8C6BC]">{m.n_pagos}</td>
-                  <td className="py-2 pr-4 text-right text-[#C8C6BC]">{m.n_primer_pago}</td>
-                  <td className="py-2 pr-4 text-right text-[#C8C6BC]">{m.n_renovacion}</td>
-                  <td className="py-2 text-right text-[#8A877D]">
-                    {m.n_mensual} / {m.n_anual}
-                  </td>
+                  <td className="whitespace-nowrap py-2.5 pr-4 text-right text-[#F0EFE8]">{formatPen(m.total_pen)}</td>
+                  <td className="py-2.5 pr-4 text-right text-[#C8C6BC]">{m.n_pagos}</td>
+                  <td className="py-2.5 pr-4 text-right text-[#C8C6BC]">{m.n_primer_pago}</td>
+                  <td className="py-2.5 pr-4 text-right text-[#C8C6BC]">{m.n_renovacion}</td>
+                  <td className="py-2.5 pr-4 text-right text-[#C8C6BC]">{m.n_mensual}</td>
+                  <td className="py-2.5 pr-3 text-right text-[#C8C6BC]">{m.n_anual}</td>
                 </tr>
               );
             })}
