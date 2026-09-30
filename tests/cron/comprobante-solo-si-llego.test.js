@@ -57,6 +57,7 @@ let txCount = 0;
 let txError = null;
 const solicitar = vi.fn().mockResolvedValue(true);
 const notificar = vi.fn();
+const revocar = vi.fn().mockResolvedValue({ revocadas: 0 });
 
 function makeChain(table) {
   const chain = {};
@@ -101,7 +102,7 @@ for (const [rel, exports] of [
   ['lib/analytics.js', { capture: vi.fn() }],
   ['lib/admin-notify.js', { notificarAdmin: vi.fn() }],
   ['lib/pro-payment.js', { solicitarComprobante: solicitar, esperaComprobante: vi.fn() }],
-  ['gmail.js', { revocarAccesoGmail: vi.fn().mockResolvedValue({ revocadas: 0 }) }],
+  ['gmail.js', { revocarAccesoGmail: revocar }],
 ]) {
   const p = require.resolve(path.join(projectRoot, rel));
   require.cache[p] = { id: p, filename: p, loaded: true, exports };
@@ -138,6 +139,8 @@ const CON_WEB = '9ac31018-3c8c-47b2-b644-6a07fa2c79d0';
 beforeEach(() => {
   solicitar.mockClear();
   notificar.mockClear();
+  revocar.mockReset();
+  revocar.mockResolvedValue({ revocadas: 0 });
   usuariosData = [];
   selectsUsuarios = [];
   // El upsell ya no le escribe a quien tiene 0 gastos (ítem 34), así que el default de los
@@ -329,6 +332,115 @@ describe('upsell d28: el correo sólo a quien anotó algo', () => {
     expect(insertsEnTabla, 'se reclamó el one-shot de un aviso que no salió').not.toContain('survey_events');
     expect(logMock.error.mock.calls.some((c) => c[0] && c[0].tag === 'UPSELL_PRO'),
       'el fallo del conteo no dejó rastro').toBe(true);
+  });
+});
+
+/**
+ * Los tres avisos de vencimiento salen también por correo (30-sep-2026). Por WhatsApp llegaron
+ * 0 de 15 desde el 01-ago y la campana tuvo 0 leídas: quien paga por la lectura de Gmail no
+ * escribe y queda fuera de la ventana de 24h. El mock de supabase ignora los filtros, así que
+ * una fila recorre los tres bucles (3 días, hoy y vencido) en una sola corrida.
+ */
+describe('vencimiento de Pro: los tres avisos van también por correo', () => {
+  const pagador = (extra) => ([{
+    id: 'u5', whatsapp: '51966555444', nombre: 'Marta', plan: 'premium',
+    email: 'marta@example.com', supabase_auth_id: CON_WEB, recordatorios_activos: true,
+    premium_vence: '2026-08-01', estado_pago: 'pagado', ...extra,
+  }]);
+  const llamadas = () => notificar.mock.calls.map((c) => c[0]);
+
+  it('con cuenta web: los tres declaran correo, con precio y el panel de pago', async () => {
+    vi.setSystemTime(new Date(MEDIA_MANANA));
+    usuariosData = pagador();
+    notificar.mockResolvedValue(AMBOS_CANALES);
+
+    await checkPremiumExpiry();
+
+    const args = llamadas();
+    expect(args.map((a) => a.tipo)).toEqual(['premium_expiry_3d', 'premium_expiry_hoy', 'premium_expired']);
+    for (const a of args) {
+      expect(a.email, a.tipo + ' sin correo').toEqual({ to: 'marta@example.com', asunto: expect.any(String) });
+      // El correo toma el `cuerpo`: tiene que decir cuánto cuesta y no pedir cosas de WhatsApp.
+      expect(a.cuerpo).toMatch(/S\/10 al mes o S\/99 al año/);
+      expect(a.cuerpo).not.toMatch(/envíame|\*|\/premium/);
+      expect(a.link).toBe('/dashboard/pro');
+    }
+    expect(new Set(args.map((a) => a.email.asunto)).size, 'dos avisos con el mismo asunto').toBe(3);
+    // Sin las columnas en el select, `to` queda undefined y el canal se apaga con cara de encendido.
+    for (const cols of selectsUsuarios) {
+      expect(cols).toContain('email');
+      expect(cols).toContain('recordatorios_activos');
+    }
+  });
+
+  // Solo fija el CORREO. Si WhatsApp y campana deben callar también ante la baja (el pie del
+  // correo promete "todos los canales" y `checkTrialExpiry` ya calla) es una decisión abierta:
+  // al 30-sep ningún usuario tiene la baja pedida, así que hoy no le cambia nada a nadie.
+  it('con la baja pedida no hay correo', async () => {
+    vi.setSystemTime(new Date(MEDIA_MANANA));
+    usuariosData = pagador({ recordatorios_activos: false });
+    notificar.mockResolvedValue(AMBOS_CANALES);
+
+    await checkPremiumExpiry();
+
+    for (const a of llamadas()) expect(a, a.tipo + ' mandó correo a quien se dio de baja').not.toHaveProperty('email');
+  });
+
+  it('con la columna en NULL sí hay correo: la baja es un false explícito, no la ausencia de un true', async () => {
+    vi.setSystemTime(new Date(MEDIA_MANANA));
+    usuariosData = pagador({ recordatorios_activos: null });
+    notificar.mockResolvedValue(AMBOS_CANALES);
+
+    await checkPremiumExpiry();
+
+    const args = llamadas();
+    expect(args).toHaveLength(3);
+    for (const a of args) expect(a.email, a.tipo).toEqual({ to: 'marta@example.com', asunto: expect.any(String) });
+  });
+
+  it('si revocar el Gmail lanza, el aviso de vencido sale igual', async () => {
+    vi.setSystemTime(new Date(MEDIA_MANANA));
+    usuariosData = pagador();
+    notificar.mockResolvedValue(AMBOS_CANALES);
+    revocar.mockRejectedValue(new Error('lectura de gmail_cuentas caída'));
+
+    await checkPremiumExpiry();
+
+    // Sin el try propio, el throw caía al catch del usuario DESPUÉS del downgrade: el plan ya
+    // estaba en 'free', así que el aviso no salía nunca, ni esa corrida ni las siguientes.
+    const vencido = llamadas().find((a) => a.tipo === 'premium_expired');
+    expect(vencido, 'el aviso de vencido no salió').toBeTruthy();
+    // Si lanzó, no revocó nada (lanza antes de tocar Google): el texto no puede afirmarlo.
+    expect(vencido.cuerpo).not.toMatch(/correos bancarios/);
+    expect(vencido.mensaje).not.toMatch(/Gmail/);
+    expect(logMock.error.mock.calls.some((c) => c[0] && c[0].tag === 'EXPIRY' && /revocar Gmail/.test(c[1])),
+      'el fallo de la revocación no dejó rastro').toBe(true);
+  });
+
+  it('con Gmail revocado, el texto le dice cómo recuperarlo', async () => {
+    vi.setSystemTime(new Date(MEDIA_MANANA));
+    usuariosData = pagador({ whatsapp: null });
+    notificar.mockResolvedValue(AMBOS_CANALES);
+    revocar.mockResolvedValue({ revocadas: 1 });
+
+    await checkPremiumExpiry();
+
+    const vencido = llamadas().find((a) => a.tipo === 'premium_expired');
+    expect(vencido.cuerpo).toMatch(/vuelves a conectar/);
+    // Web-first sin número: el texto no le puede prometer WhatsApp.
+    expect(vencido.cuerpo).not.toMatch(/WhatsApp/);
+  });
+
+  it('sin cuenta web: el canal se declara pero sin dirección (el correo dictado no se usa)', async () => {
+    vi.setSystemTime(new Date(MEDIA_MANANA));
+    usuariosData = pagador({ supabase_auth_id: null, email: 'dictado@example.com' });
+    notificar.mockResolvedValue(AMBOS_CANALES);
+
+    await checkPremiumExpiry();
+
+    const args = llamadas();
+    expect(args).toHaveLength(3);
+    for (const a of args) expect(a.email.to, a.tipo).toBeNull();
   });
 });
 

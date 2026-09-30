@@ -411,6 +411,22 @@ function llegoElAviso(res, usuario) {
   return res.inApp === true && !!usuario.supabase_auth_id;
 }
 
+/**
+ * Cómo se renueva, en el texto de la campana y del correo de los tres avisos de vencimiento.
+ *
+ * Esos avisos salían solo por WhatsApp y campana (30-sep-2026): desde el 01-ago, 15 intentos
+ * por WhatsApp y 0 entregados, porque quien paga por la lectura de Gmail casi nunca escribe y
+ * queda fuera de la ventana de 24h; y 0 campanas leídas. Un pagador con 134 movimientos venció
+ * el 28-sep sin enterarse. Ahora van también por correo, y el correo toma este `cuerpo`: por eso
+ * dice el precio y dónde se paga, en vez del "Yapea y envíame la captura" de WhatsApp, que en
+ * una bandeja no tiene a quién mandarle la captura. El link lleva a `/dashboard/pro`, que tiene
+ * el formulario de pago.
+ */
+function cuerpoRenovacion() {
+  return 'Renovar cuesta S/' + PRO_PRECIOS.mensual + ' al mes o S/' + PRO_PRECIOS.anual +
+    ' al año: yapeas y subes la captura desde tu panel.';
+}
+
 async function checkPremiumExpiry() {
   try {
     const hoy = hoyPeru();
@@ -426,8 +442,8 @@ async function checkPremiumExpiry() {
       const inicioHoy = new Date(hoy + 'T00:00:00-05:00').toISOString();
       // `supabase_auth_id`: ver `llegoElAviso`. Sin esa columna la guarda de más abajo decide
       // con `undefined` y la ventana de comprobante no se abre nunca, ni para quien sí tiene
-      // campana.
-      const { data: porVencer, error: errPorVencer } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence, supabase_auth_id')
+      // campana. `email` y `recordatorios_activos` alimentan el correo (ver `correoRenovacion`).
+      const { data: porVencer, error: errPorVencer } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence, supabase_auth_id, email, recordatorios_activos')
         .eq('plan', 'premium').eq('premium_vence', en3dias)
         .is('cuenta_borrada_at', null)
         .or(SIN_TRIAL_ACTIVO);
@@ -467,8 +483,12 @@ async function checkPremiumExpiry() {
               // DESPUÉS del WhatsApp, así que un insert fallido dejaba el dedup ciego y este
               // cron horario re-mandaba el mismo aviso en cada corrida desde las 8am (B6).
               claimInApp: true,
-              cuerpo: 'Tu plan NETO Pro vence el ' + usuario.premium_vence + '. Renueva para no perder acceso.',
-              link: '/dashboard/configuracion',
+              cuerpo: 'Tu plan Neto Pro vence el ' + formatFecha(usuario.premium_vence) + '. ' + cuerpoRenovacion(),
+              link: '/dashboard/pro',
+              // Escrito INLINE: los guards de correo leen los argumentos literales de la llamada.
+              ...(usuario.recordatorios_activos !== false ? {
+                email: { to: correoVerificado(usuario), asunto: 'Tu Neto Pro vence en 3 días' },
+              } : {}),
             });
             // Solo se abre la espera de comprobante si el aviso tiene DÓNDE esperarlo.
             //
@@ -490,7 +510,7 @@ async function checkPremiumExpiry() {
 
       // Aviso "vence HOY" — el día exacto del vencimiento (antes no existía: había 3d antes y
       // el downgrade al día siguiente, pero nada el día clave). Free-form + in-app, dedup por día.
-      const { data: venceHoy, error: errVenceHoy } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence, supabase_auth_id')
+      const { data: venceHoy, error: errVenceHoy } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence, supabase_auth_id, email, recordatorios_activos')
         .eq('plan', 'premium').eq('premium_vence', hoy)
         .is('cuenta_borrada_at', null)
         .or(SIN_TRIAL_ACTIVO);
@@ -516,8 +536,11 @@ async function checkPremiumExpiry() {
               mensaje: '🔔 ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u plan *NETO Pro* vence *hoy*.\n\nRenuévalo hoy para no perder acceso.\n' + lineaPrecioPro() + '\n📲 Yapea al *970398192* y envíame la captura.',
               titulo: 'Plan Pro vence hoy', tipoInApp: 'recordatorio',
               claimInApp: true, // ver el aviso de 3 días (B6)
-              cuerpo: 'Tu plan NETO Pro vence hoy. Renueva para no perder acceso.',
-              link: '/dashboard/configuracion',
+              cuerpo: 'Tu plan Neto Pro vence hoy. ' + cuerpoRenovacion(),
+              link: '/dashboard/pro',
+              ...(usuario.recordatorios_activos !== false ? {
+                email: { to: correoVerificado(usuario), asunto: 'Tu Neto Pro vence hoy' },
+              } : {}),
             });
             // Ver el aviso de 3 días: sin aviso entregado no se abre la ventana de 48h que
             // convierte toda foto en "captura de pago".
@@ -528,7 +551,7 @@ async function checkPremiumExpiry() {
     }
 
     // Expirados — downgrade a free
-    const { data: expirados, error: errExpirados } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence, estado_pago, supabase_auth_id')
+    const { data: expirados, error: errExpirados } = await supabase.from('usuarios').select('id, whatsapp, nombre, premium_vence, estado_pago, supabase_auth_id, email, recordatorios_activos')
       .eq('plan', 'premium').not('premium_vence', 'is', null).lt('premium_vence', hoy)
       .is('cuenta_borrada_at', null)
       .or(SIN_TRIAL_ACTIVO);
@@ -571,7 +594,19 @@ async function checkPremiumExpiry() {
         }
         // Bajar el plan corta la LECTURA de correos, pero el grant seguía vivo en Google y el
         // cupo ocupado para siempre. Se suelta acá mismo, sin gracia.
-        const { revocadas } = await revocarAccesoGmail(usuario.id, { motivo: 'premium_vencido' });
+        //
+        // Con su propio try (30-sep-2026): `revocarAccesoGmail` lanza si no puede leer las
+        // cuentas, y ese throw caía al catch del usuario DESPUÉS del downgrade. El aviso no salía
+        // por ningún canal y nunca se reintentaba, porque el plan ya estaba en 'free'. Si falla,
+        // `checkGmailHuerfanos` barre el grant a diario; el aviso es lo que no tiene segunda vuelta.
+        // Límite aceptado: en ese camino el aviso no menciona Gmail (no se revocó nada todavía) y
+        // la revocación de mañana es muda, así que la persona se entera al abrir su panel.
+        let revocadas = 0;
+        try {
+          ({ revocadas } = await revocarAccesoGmail(usuario.id, { motivo: 'premium_vencido' }));
+        } catch (e) {
+          log.error({ tag: 'EXPIRY', userId: usuario.id, err: msgErr(e) }, 'No se pudo revocar Gmail al vencer: se avisa igual, lo barre checkGmailHuerfanos');
+        }
         const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
         const avisadoExpirado = await notificarUsuario({
           canales: CANALES.AMBOS,
@@ -584,8 +619,16 @@ async function checkPremiumExpiry() {
           // residual que M10 sacó del bot en la ola 3; este vivía en el cron.
           mensaje: '⏰ ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u plan *NETO Pro* venció.\n\nSigo anotando tus gastos por acá, gratis y sin límite. Lo que queda cerrado es el dashboard, el historial y los reportes.\n\n¿Quieres renovar?\n' + lineaPrecioPro() + '\n📲 Yapea al *970398192* y envíame la captura.\n\n_No se borra nada. Al renovar recuperas acceso completo._' + avisoGmailDesconectado(revocadas),
           titulo: 'Plan Pro expirado',
-          cuerpo: 'Tu plan NETO Pro venció. Sigo anotando tus gastos; el dashboard y el historial quedan cerrados hasta que renueves.',
-          link: '/dashboard/configuracion',
+          // Sin "por WhatsApp": el correo solo sale a quien tiene cuenta web, y ahí están los que
+          // no tienen número. Anotar sigue gratis en los dos canales.
+          cuerpo: 'Tu plan Neto Pro venció. Tus datos siguen guardados y puedes seguir anotando tus gastos gratis; ' +
+            'el dashboard y el historial quedan cerrados hasta que renueves.' +
+            (revocadas ? ' La lectura de tus correos bancarios se pausó: al renovar la vuelves a conectar desde tu panel, con la misma cuenta.' : '') +
+            ' ' + cuerpoRenovacion(),
+          link: '/dashboard/pro',
+          ...(usuario.recordatorios_activos !== false ? {
+            email: { to: correoVerificado(usuario), asunto: 'Tu Neto Pro venció y tus datos siguen guardados' },
+          } : {}),
         });
         // Misma guarda que los avisos de 3d y de hoy (ver `llegoElAviso`): abrir la ventana de
         // comprobante a quien no se enteró del aviso le rompe el registro por foto durante 48h

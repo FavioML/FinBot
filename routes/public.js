@@ -438,10 +438,17 @@ async function resendWebhookHandler(req, res) {
     if (evento.type === 'email.delivered') patch = { delivered_at: ahora };
     else if (evento.type === 'email.bounced') patch = { failed_at: ahora, error: 'bounced' };
     else if (evento.type === 'email.complained') patch = { failed_at: ahora, error: 'complained' };
+    // `opened` escribe `read_at`, el mismo campo que el "leído" de WhatsApp (30-sep-2026: el
+    // dominio tenía el tracking apagado y 137 de 137 entregados se leían como 0 abiertos). Solo
+    // la PRIMERA apertura: cada reapertura manda otro evento y pisarlo movería la fecha. Ojo al
+    // leerlo: Apple Mail precarga las imágenes, así que sobre-cuenta; es un techo, no un piso.
+    else if (evento.type === 'email.opened') patch = { read_at: ahora };
     if (!patch) return;
 
-    const { data, error } = await supabase.from('notification_deliveries')
-      .update(patch).eq('wamid', msgId).eq('canal', 'email').select('id, tipo, usuario_id');
+    let consulta = supabase.from('notification_deliveries')
+      .update(patch).eq('wamid', msgId).eq('canal', 'email');
+    if (evento.type === 'email.opened') consulta = consulta.is('read_at', null);
+    const { data, error } = await consulta.select('id, tipo, usuario_id');
     // El `{ error }` se lee por la lección de `procesarStatuses`: con error, `data` viene null
     // y sin distinguir los dos casos un UPDATE rechazado se leería como "este callback no era
     // de un aviso nuestro" — o sea que `delivered_at` no se escribiría nunca y el canal

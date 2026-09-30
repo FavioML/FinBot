@@ -76,10 +76,21 @@ botón que funcione.
 
 Endpoint: `https://api.neto.pe/webhooks/resend`
 
-Eventos a suscribir: **`email.delivered`, `email.bounced`, `email.complained`.**
+Eventos a suscribir: **`email.delivered`, `email.bounced`, `email.complained` y `email.opened`.**
 
-No suscribir `email.sent` (ya lo registra el POST), ni `opened`/`clicked`: el handler los
-ignora, pero suscribirlos es tráfico y telemetría de lectura que este producto no necesita.
+No suscribir `email.sent` (ya lo registra el POST) ni `clicked` (el handler lo ignora).
+
+**`opened` se agregó el 30-sep-2026**, y cambió una decisión anterior: antes no se medía la
+lectura. Ese día se vio que el correo es el único canal que entrega los avisos de fin de prueba
+y de renovación (WhatsApp llega casi nunca, la campana casi no se lee) y que no había forma de
+saber si alguien los abría: 137 de 137 entregados, 0 abiertos, con el tracking apagado. El handler
+escribe `read_at` solo en la primera apertura. Requiere dos cosas en Resend: el open tracking del
+dominio (con su subdominio de tracking) y el evento `email.opened` suscrito en este webhook.
+
+**El costo, a sabiendas:** el open tracking inyecta un píxel remoto, y `lib/email.js` había
+elegido no llevar imágenes remotas por entregabilidad. Si la tasa de spam o de rebote sube después
+del cambio, esta es la primera sospecha. Y el dato sobre-cuenta: Apple Mail precarga las
+imágenes, así que `read_at` es un techo, no un piso.
 
 **Este webhook es lo que hace que el canal sea medible.** Sin él, `estado='sent'` sería toda la
 instrumentación y el canal reportaría 100% de entrega — que es exactamente lo que pasaba con

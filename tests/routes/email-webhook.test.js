@@ -44,6 +44,7 @@ const chain = () => {
   const c = {
     update: vi.fn((patch) => { updates.push({ patch, filtros: {} }); return c; }),
     eq: vi.fn((col, val) => { if (updates.length) updates[updates.length - 1].filtros[col] = val; return c; }),
+    is: vi.fn((col, val) => { if (updates.length) updates[updates.length - 1].filtros[col + ' is'] = val; return c; }),
     select: vi.fn(async () => resultadoUpdate),
     then: (resolver, rechazar) => Promise.resolve(resultadoUpdate).then(resolver, rechazar),
   };
@@ -204,7 +205,23 @@ describe('webhook de Resend: qué evento significa qué', () => {
     expect(updates[0].patch).toEqual(patch);
   });
 
-  it.each([['email.sent'], ['email.opened'], ['email.clicked']])('%s no escribe nada', async (tipo) => {
+  it('email.opened escribe read_at solo la primera vez', async () => {
+    const cuerpo = EVENTO('email.opened');
+    await postear(cuerpo, firmar(cuerpo));
+    await vi.waitFor(() => expect(updates.length).toBe(1));
+    expect(updates[0].patch).toEqual({ read_at: expect.any(String) });
+    // Sin el filtro, cada reapertura movería la fecha de la primera lectura.
+    expect(updates[0].filtros).toEqual({ wamid: 'resend-abc', canal: 'email', 'read_at is': null });
+  });
+
+  it('email.delivered no filtra por read_at (el filtro es solo de la apertura)', async () => {
+    const cuerpo = EVENTO('email.delivered');
+    await postear(cuerpo, firmar(cuerpo));
+    await vi.waitFor(() => expect(updates.length).toBe(1));
+    expect(updates[0].filtros).toEqual({ wamid: 'resend-abc', canal: 'email' });
+  });
+
+  it.each([['email.sent'], ['email.clicked']])('%s no escribe nada', async (tipo) => {
     // `sent` ya lo registró el POST. Si se escribiera acá, "aceptado" volvería a contarse
     // como "entregado", que es el hallazgo B23 exacto.
     const cuerpo = EVENTO(tipo);
