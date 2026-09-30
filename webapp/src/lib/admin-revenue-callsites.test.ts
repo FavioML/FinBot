@@ -274,6 +274,7 @@ describe('todo select de usuarios en las rutas admin pide las columnas que decid
   // el ingreso.
   it('las exenciones declaradas siguen siendo las mismas', () => {
     expect(selecciones.filter((s) => s.exento).map((s) => rel(s.archivo))).toEqual([
+      '/src/app/api/admin/payments/renewals/route.ts', // recordatorios de quien ya salió de la RPC 089
       '/src/app/api/admin/surveys/route.ts', // ponerle nombre a quien respondió una encuesta
       '/src/app/api/admin/users/route.ts', // extender Pro sobre un usuario puntual
     ]);

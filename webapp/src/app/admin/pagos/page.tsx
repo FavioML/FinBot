@@ -2,10 +2,10 @@
 
 import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Download, Mail, MessageCircle } from 'lucide-react';
+import { Download } from 'lucide-react';
 import { useAdminPagos } from '@/lib/hooks/use-admin-pagos';
 import { useAdminRenovaciones } from '@/lib/hooks/use-admin-renovaciones';
-import { etiquetaPlazo, linkCorreo, linkWhatsapp, mensajeRenovacion } from '@/lib/admin-renovaciones';
+import { diaMes, etiquetaPlazo, monitorRenovacion, type AvisoMonitor, type EstadoCanal } from '@/lib/admin-avisos-renovacion';
 import { ErrorState } from '@/components/shared/error-state';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { toCsv, downloadCsv } from '@/lib/csv-export';
@@ -94,8 +94,9 @@ function PagosRecibidos() {
 }
 
 /**
- * A quién escribirle: clientes que ya pagaron con el plan por vencer o vencido sin renovar. Es
- * independiente del mes elegido (es el estado de hoy), por eso tiene su propia query.
+ * Los avisos de vencimiento salen solos (`cron/checks.js`). Esto muestra, por cliente que ya pagó
+ * y tiene el plan por vencer o vencido, qué aviso salió, por qué canal y si llegó, y resalta solo
+ * las excepciones. Es el estado de hoy, independiente del mes elegido: por eso tiene su query.
  */
 function Renovaciones() {
   const { data, isLoading, error, refetch } = useAdminRenovaciones();
@@ -114,30 +115,44 @@ function Renovaciones() {
     return <div className="h-32 animate-pulse rounded-xl border border-white/5 bg-white/[0.02]" />;
   }
 
-  const porVencer = data.renovaciones.filter((r) => r.estado === 'por_vencer');
-  const vencidos = data.renovaciones.filter((r) => r.estado === 'vencido');
+  // La hora del servidor, no la del navegador: cambia en cada refetch (al volver a la pestaña), así
+  // que una pestaña abierta desde ayer no sigue diciendo "le toca hoy" con el render viejo, y un
+  // reloj de PC corrido no mueve el borde entre "pendiente" y "no salió".
+  const ahora = new Date(data.ahora);
+  const filas = data.renovaciones.map((r) => ({ r, m: monitorRenovacion(r, ahora) }));
+  const conExcepcion = filas.filter((f) => f.m.excepciones.length > 0).length;
 
   return (
     <div className="glass-card rounded-xl p-4">
-      <h3 className="text-sm font-semibold text-[#F0EFE8]">Renovaciones</h3>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="text-sm font-semibold text-[#F0EFE8]">Renovaciones</h3>
+        <span className={`text-xs ${conExcepcion ? 'text-amber-400' : 'text-[#1D9E75]'}`}>
+          {conExcepcion
+            ? `${contar(conExcepcion, 'cliente', 'clientes')} con algo que revisar`
+            : 'Todo en orden'}
+        </span>
+      </div>
       <p className="mt-0.5 text-xs text-[#8A877D]">
-        Clientes que ya pagaron. El botón abre tu WhatsApp con un mensaje listo para editar antes de enviarlo.
+        Los avisos salen solos: 3 días antes, el día que vence y al vencer, por WhatsApp, la campana y correo. Aquí
+        ves si llegaron; solo se marca lo que pide atención.
       </p>
       <GrupoRenovacion
         titulo={`Vencen en los próximos ${data.dias} días`}
-        filas={porVencer}
+        filas={filas.filter((f) => f.r.estado === 'por_vencer')}
         vacio={`Nadie vence en los próximos ${data.dias} días.`}
       />
       <GrupoRenovacion
         titulo={`Vencieron sin renovar (últimos ${data.dias_vencido} días)`}
-        filas={vencidos}
+        filas={filas.filter((f) => f.r.estado === 'vencido')}
         vacio="Nadie venció sin renovar en ese periodo."
       />
     </div>
   );
 }
 
-function GrupoRenovacion({ titulo, filas, vacio }: { titulo: string; filas: AdminRenovacion[]; vacio: string }) {
+type FilaMonitor = { r: AdminRenovacion; m: ReturnType<typeof monitorRenovacion> };
+
+function GrupoRenovacion({ titulo, filas, vacio }: { titulo: string; filas: FilaMonitor[]; vacio: string }) {
   return (
     <div className="mt-4">
       <div className="text-[10px] uppercase tracking-wider text-[#8A877D]">
@@ -147,8 +162,8 @@ function GrupoRenovacion({ titulo, filas, vacio }: { titulo: string; filas: Admi
         <p className="py-3 text-sm text-[#8A877D]">{vacio}</p>
       ) : (
         <ul className="mt-1 divide-y divide-white/5">
-          {filas.map((r) => (
-            <FilaRenovacion key={r.usuario_id} r={r} />
+          {filas.map((f) => (
+            <FilaRenovacion key={f.r.usuario_id} {...f} />
           ))}
         </ul>
       )}
@@ -156,51 +171,90 @@ function GrupoRenovacion({ titulo, filas, vacio }: { titulo: string; filas: Admi
   );
 }
 
-function FilaRenovacion({ r }: { r: AdminRenovacion }) {
-  const texto = mensajeRenovacion(r);
-  const wa = linkWhatsapp(r.whatsapp, texto);
-  const correo = wa ? null : linkCorreo(r, texto);
+function FilaRenovacion({ r, m }: FilaMonitor) {
   const nombre = r.nombre || r.whatsapp || r.email_web || 'Sin nombre';
-  const boton =
-    'inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border px-3 py-1.5 text-xs transition-colors';
   return (
-    <li className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
-      <div className="min-w-[180px] flex-1">
-        <div className="flex flex-wrap items-center gap-2 text-sm text-[#F0EFE8]">
-          {nombre}
-          {r.pago_pendiente && (
-            <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-400">
-              comprobante pendiente
-            </span>
-          )}
+    <li className="py-3">
+      <div className="flex flex-wrap items-start gap-x-4 gap-y-1">
+        <div className="min-w-[180px] flex-1">
+          <div className="flex flex-wrap items-center gap-2 text-sm text-[#F0EFE8]">
+            {nombre}
+            {r.pago_pendiente && (
+              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-400">
+                comprobante pendiente
+              </span>
+            )}
+          </div>
+          <div className="mt-0.5 text-xs text-[#8A877D]">
+            {r.tipo_plan || 'plan sin tipo'} · {contar(r.n_pagos, 'pago', 'pagos')} · último{' '}
+            {formatPen(r.ultimo_monto)}
+          </div>
         </div>
-        <div className="mt-0.5 text-xs text-[#8A877D]">
-          {r.tipo_plan || 'plan sin tipo'} · {contar(r.n_pagos, 'pago', 'pagos')} · último{' '}
-          {formatPen(r.ultimo_monto)}
+        <div className={`whitespace-nowrap text-sm ${r.estado === 'por_vencer' ? 'text-amber-400' : 'text-[#D85A30]'}`}>
+          {etiquetaPlazo(r)}
+          <span className="ml-1.5 text-xs text-[#8A877D]">{formatFecha(r.premium_vence)}</span>
         </div>
       </div>
-      <div className={`whitespace-nowrap text-sm ${r.estado === 'por_vencer' ? 'text-amber-400' : 'text-[#D85A30]'}`}>
-        {etiquetaPlazo(r)}
-        <span className="ml-1.5 text-xs text-[#8A877D]">{formatFecha(r.premium_vence)}</span>
-      </div>
-      {wa ? (
-        <a
-          href={wa}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={`${boton} border-[rgba(29,158,117,0.35)] bg-[rgba(29,158,117,0.10)] text-[#1D9E75] hover:bg-[rgba(29,158,117,0.18)]`}
-        >
-          <MessageCircle className="h-3.5 w-3.5" />
-          Escribir por WhatsApp
-        </a>
-      ) : correo ? (
-        <a href={correo} className={`${boton} border-white/10 bg-[#131311] text-[#C8C6BC] hover:text-[#F0EFE8]`}>
-          <Mail className="h-3.5 w-3.5" />
-          Escribir por correo
-        </a>
-      ) : (
-        <span className="text-xs text-[#5A584F]">sin contacto</span>
+      <ul className="mt-2 space-y-0.5 text-xs text-[#8A877D]">
+        {m.avisos.map((a) => (
+          <LineaAviso key={a.tipo} a={a} />
+        ))}
+      </ul>
+      {m.excepciones.length > 0 && (
+        <ul className="mt-2 space-y-1">
+          {m.excepciones.map((e) => (
+            <li key={e} className="rounded-md bg-amber-500/10 px-2 py-1 text-xs text-amber-400">
+              {e}
+            </li>
+          ))}
+        </ul>
       )}
+    </li>
+  );
+}
+
+const TONO: Record<EstadoCanal['tono'], string> = {
+  ok: 'text-[#1D9E75]',
+  neutro: 'text-[#8A877D]',
+  alerta: 'text-amber-400',
+};
+
+function Canal({ nombre, estado }: { nombre: string; estado: EstadoCanal | null }) {
+  return (
+    <span>
+      {nombre}: <span className={estado ? TONO[estado.tono] : ''}>{estado ? estado.texto : '—'}</span>
+    </span>
+  );
+}
+
+function LineaAviso({ a }: { a: AvisoMonitor }) {
+  const cabecera = (
+    <span className="text-[#C8C6BC]">
+      {a.etiqueta} · {diaMes(a.fecha)}
+    </span>
+  );
+  if (a.estado !== 'salio') {
+    const texto =
+      a.estado === 'futuro'
+        ? 'todavía no le toca'
+        : a.estado === 'pendiente'
+          ? 'le toca hoy'
+          : a.historia
+            ? 'sin registro'
+            : 'no salió';
+    return (
+      <li className="flex flex-wrap gap-x-2">
+        {cabecera}
+        <span className={a.estado === 'no_salio' && !a.historia ? 'text-amber-400' : ''}>{texto}</span>
+      </li>
+    );
+  }
+  return (
+    <li className="flex flex-wrap gap-x-2">
+      {cabecera}
+      <Canal nombre="WhatsApp" estado={a.whatsapp} />
+      <span aria-hidden>·</span>
+      <Canal nombre="Correo" estado={a.correo} />
     </li>
   );
 }

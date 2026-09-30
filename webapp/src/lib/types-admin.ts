@@ -108,12 +108,28 @@ export interface AdminRenovacion {
   ultimo_pago_at: string;
   ultimo_monto: number;
   pago_pendiente: boolean;
+  recordatorios_activos: boolean; // false = pidió no recibir avisos por correo
+  entregas: AdminAvisoEntrega[]; // filas de notification_deliveries de los avisos de ESTE vencimiento
+}
+
+/** Una fila de `notification_deliveries` de un aviso de vencimiento (cron/checks.js). */
+export interface AdminAvisoEntrega {
+  tipo: 'premium_expiry_3d' | 'premium_expiry_hoy' | 'premium_expired';
+  canal: 'whatsapp' | 'email';
+  estado: string; // 'sent' | 'error' | 'skipped_*'
+  created_at: string;
+  delivered_at: string | null;
+  failed_at: string | null;
+  read_at: string | null;
+  fail_code: number | null;
+  error: string | null;
 }
 
 export interface AdminRenovacionesResponse {
   renovaciones: AdminRenovacion[];
   dias: number; // ventana hacia adelante de "por vencer"
   dias_vencido: number; // ventana hacia atrás de "vencido"
+  ahora: string; // hora del servidor: con ella se juzga qué aviso ya tenía que salir
 }
 
 export interface AdminCostDueSoon {

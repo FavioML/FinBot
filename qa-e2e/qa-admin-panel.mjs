@@ -91,11 +91,11 @@ async function get(cookie, path) {
 // --- ORÁCULO: lee la base directo, paginando, sin pasar por las RPC del panel ---
 // Deliberadamente NO usa admin_user_tx_stats: si el oráculo usara la misma función que la
 // ruta, un bug en la función pasaría inadvertido por los dos lados.
-async function sbPaginado(tabla, select) {
+async function sbPaginado(tabla, select, filtro = '') {
   const filas = [];
   const PASO = 1000;
   for (let desde = 0; ; desde += PASO) {
-    const r = await fetch(`${SUPA}/rest/v1/${tabla}?select=${select}`, {
+    const r = await fetch(`${SUPA}/rest/v1/${tabla}?select=${select}${filtro ? `&${filtro}` : ''}`, {
       headers: {
         apikey: SERVICE,
         Authorization: `Bearer ${SERVICE}`,
@@ -493,7 +493,7 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
     // "No es negocio real" = cuenta de prueba O interna, la misma definición del RPC (migr 057) y
     // de isRevenueUser. Con la lista sola, un pago que un harness deje sin limpiar entraría al
     // oráculo, saldría del RPC, y el FAIL apuntaría al lugar equivocado.
-    const usuariosWa = await sbPaginado('usuarios', 'id,whatsapp,is_test_user,cuenta_borrada_at,plan,premium_vence,supabase_auth_id,email,nombre,tipo_plan');
+    const usuariosWa = await sbPaginado('usuarios', 'id,whatsapp,is_test_user,cuenta_borrada_at,plan,premium_vence,supabase_auth_id,email,nombre,tipo_plan,recordatorios_activos');
     const internalIds = new Set(usuariosWa.filter(esInterno).map((u) => u.id));
     const pagos = await sbPaginado('pagos', 'id,monto,estado,tipo_plan,aprobado_at,created_at,usuario_id,premium_vence');
     const costsRows = await sbPaginado('admin_costs', 'paid_history');
@@ -756,6 +756,43 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
       ok(
         'renovaciones: sin correo de cuentas que no son web',
         ren.renovaciones.every((r) => r.tiene_cuenta_web || r.email_web == null),
+      );
+
+      // Las entregas de los avisos (monitor de /admin/pagos): por persona, las filas de
+      // `notification_deliveries` de los tres avisos de vencimiento desde las 00:00 Lima del día del
+      // aviso de 3 días, leídas acá sin filtro de persona ni de fecha. La ventana sale de la fecha del
+      // ORÁCULO (hoy + días), no de la que trae la ruta: una ruta que fechara mal el ciclo, o que le
+      // pegara a alguien las filas de otra persona o de otro mes, sale roja.
+      const TIPOS_AVISO = ['premium_expiry_3d', 'premium_expiry_hoy', 'premium_expired'];
+      const todasEntregas = await sbPaginado(
+        'notification_deliveries',
+        'id,usuario_id,tipo,canal,estado,created_at,delivered_at,failed_at,read_at,fail_code,error',
+        `tipo=in.(${TIPOS_AVISO.join(',')})`,
+      );
+      const clave = (e) => [e.tipo, e.canal, e.estado, e.created_at, e.delivered_at, e.failed_at, e.read_at, e.fail_code, e.error]
+        .map((v) => (v == null ? '' : typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v) ? new Date(v).toISOString() : String(v)))
+        .join('|');
+      const difsEnt = [];
+      let conEntregas = 0;
+      for (const r of ren.renovaciones) {
+        const e = esperadas.get(r.usuario_id);
+        if (!e) continue; // ya lo reporta el check de quién entra
+        const d = new Date(`${hoyLima}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() + e.dias - 3);
+        const desde = new Date(`${d.toISOString().slice(0, 10)}T00:00:00-05:00`).getTime();
+        const esp = todasEntregas
+          .filter((x) => x.usuario_id === r.usuario_id && (x.canal === 'whatsapp' || x.canal === 'email') && new Date(x.created_at).getTime() >= desde)
+          .map(clave).sort();
+        const got = (r.entregas || []).map(clave).sort();
+        if (got.length) conEntregas++;
+        if (JSON.stringify(esp) !== JSON.stringify(got)) difsEnt.push(`${r.usuario_id} entregas ${got.length} vs ${esp.length}`);
+        const recEsp = usuariosWa.find((u) => u.id === r.usuario_id)?.recordatorios_activos !== false;
+        if (r.recordatorios_activos !== recEsp) difsEnt.push(`${r.usuario_id} recordatorios`);
+      }
+      ok(
+        `renovaciones: entregas de los avisos y recordatorios == oráculo (${conEntregas} personas con entregas)`,
+        difsEnt.length === 0,
+        difsEnt.slice(0, 6).join('; '),
       );
     } else {
       ok('renovaciones: la ruta respondió', false, 'no hubo renovaciones en /api/admin/payments/renewals');
