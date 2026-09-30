@@ -93,6 +93,29 @@ export interface AdminPagosResponse {
   pagos: AdminPagoFila[];
 }
 
+// ===== Renovaciones (/admin/pagos, RPC admin_renovaciones 089) =====
+export interface AdminRenovacion {
+  usuario_id: string;
+  estado: 'por_vencer' | 'vencido';
+  dias: number; // premium_vence - hoy (Lima). Negativo = venció hace N días
+  premium_vence: string; // 'YYYY-MM-DD'
+  tipo_plan: string | null;
+  nombre: string | null;
+  whatsapp: string | null;
+  email_web: string | null; // solo si tiene cuenta web (correo probado)
+  tiene_cuenta_web: boolean;
+  n_pagos: number;
+  ultimo_pago_at: string;
+  ultimo_monto: number;
+  pago_pendiente: boolean;
+}
+
+export interface AdminRenovacionesResponse {
+  renovaciones: AdminRenovacion[];
+  dias: number; // ventana hacia adelante de "por vencer"
+  dias_vencido: number; // ventana hacia atrás de "vencido"
+}
+
 export interface AdminCostDueSoon {
   id: string;
   label: string;

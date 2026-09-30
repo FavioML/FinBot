@@ -108,6 +108,8 @@ import type { AdminCostCategory, AdminCostFrequency } from './types-admin';
 export const COST_PER_PRO_USER_PEN = 0.78;
 export const PRO_PRICE_MONTHLY_PEN = 10;
 export const PRO_PRICE_YEARLY_PEN = 99;
+/** Yape al que se paga Pro (Favio Mendoza). El backend reconoce el pago por este destinatario. */
+export const YAPE_NUMERO_PRO = '970398192';
 export const CAC_REFERIDOS_PEN = 3.33;
 
 export const ADMIN_COST_CATEGORY_LABELS: Record<AdminCostCategory, string> = {

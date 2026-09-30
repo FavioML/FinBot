@@ -131,6 +131,7 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
     '/api/admin/tickets?limit=50',
     '/api/admin/nlp-errors?limit=100',
     '/api/admin/payments/history',
+    '/api/admin/payments/renewals',
   ];
 
   for (const ruta of RUTAS) {
@@ -492,9 +493,9 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
     // "No es negocio real" = cuenta de prueba O interna, la misma definición del RPC (migr 057) y
     // de isRevenueUser. Con la lista sola, un pago que un harness deje sin limpiar entraría al
     // oráculo, saldría del RPC, y el FAIL apuntaría al lugar equivocado.
-    const usuariosWa = await sbPaginado('usuarios', 'id,whatsapp,is_test_user,cuenta_borrada_at');
+    const usuariosWa = await sbPaginado('usuarios', 'id,whatsapp,is_test_user,cuenta_borrada_at,plan,premium_vence,supabase_auth_id,email,nombre,tipo_plan');
     const internalIds = new Set(usuariosWa.filter(esInterno).map((u) => u.id));
-    const pagos = await sbPaginado('pagos', 'id,monto,estado,tipo_plan,aprobado_at,created_at,usuario_id');
+    const pagos = await sbPaginado('pagos', 'id,monto,estado,tipo_plan,aprobado_at,created_at,usuario_id,premium_vence');
     const costsRows = await sbPaginado('admin_costs', 'paid_history');
 
     const incomeByMonth = {};
@@ -652,6 +653,112 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
       }
     } else {
       ok('pagos: la ruta respondió con meses y pagos', false, 'no hubo meses/pagos en /api/admin/payments/history');
+    }
+
+    // ---------- 9c. Renovaciones (/admin/pagos, RPC admin_renovaciones 089) ----------
+    // Quién entra y con cuántos días, recalculado desde usuarios + pagos. La trampa que el
+    // oráculo tiene que reproducir: `usuarios.premium_vence` queda NULL en algunas bajas, así que
+    // el vencido se fecha con el último `pagos.premium_vence` cuando la columna falta. Una RPC que
+    // use la columna sola pierde a quien se fue.
+    //
+    // Dos corridas: la de la ruta (ventana real de 90 días) y la RPC directa con una ventana de
+    // 10 años. La segunda existe porque el único caso real de la trampa (cobertura hasta el
+    // 03-jul-2026) sale de los 90 días el 02-oct-2026, y desde ese día la primera ya no lo ve.
+    // Lo encontró la revisión adversarial del 30-sep.
+    const ren = resp['/api/admin/payments/renewals'];
+    if (ren && Array.isArray(ren.renovaciones)) {
+      const hoyLima = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+      const diasEntre = (a, b) => Math.round((Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86400000);
+      const instante = (p) => new Date(p.aprobado_at || p.created_at).getTime();
+      // Por usuario: vence según pagos, cuántos pagos con plata, y el monto del último.
+      const conPlata = new Map();
+      for (const p of pagos) {
+        if (p.estado !== 'aprobado' || !(Number(p.monto) > 0)) continue;
+        const g = conPlata.get(p.usuario_id) || { vence: null, n: 0, ultimo: null };
+        if (p.premium_vence && (!g.vence || p.premium_vence > g.vence)) g.vence = p.premium_vence;
+        g.n++;
+        if (!g.ultimo || instante(p) > instante(g.ultimo) || (instante(p) === instante(g.ultimo) && p.id > g.ultimo.id)) g.ultimo = p;
+        conPlata.set(p.usuario_id, g);
+      }
+      const pendiente = new Set(pagos.filter((p) => p.estado === 'pendiente').map((p) => p.usuario_id));
+
+      const esperadasPara = (dias, diasVencido) => {
+        const esp = new Map();
+        for (const u of usuariosWa) {
+          const g = conPlata.get(u.id);
+          if (!g || esInterno(u) || u.cuenta_borrada_at) continue;
+          const vence = u.premium_vence || g.vence;
+          if (!vence) continue;
+          let estado = null;
+          const dUsuario = u.premium_vence ? diasEntre(u.premium_vence, hoyLima) : null;
+          if (u.plan === 'premium' && dUsuario !== null && dUsuario >= 0 && dUsuario <= dias) estado = 'por_vencer';
+          else if (diasEntre(vence, hoyLima) < 0 && diasEntre(vence, hoyLima) >= -diasVencido) estado = 'vencido';
+          if (estado) {
+            esp.set(u.id, {
+              estado, dias: diasEntre(vence, hoyLima), web: !!u.supabase_auth_id,
+              email: u.supabase_auth_id ? u.email : null, pendiente: pendiente.has(u.id),
+              // El número al que apunta el link wa.me: un desvío acá abre el chat de otra persona.
+              whatsapp: u.whatsapp ?? null, nombre: u.nombre ?? null,
+              // El plan decide el precio que ofrece el mensaje (a un anual, solo S/99).
+              tipo_plan: u.tipo_plan ?? null,
+              n_pagos: g.n, ultimo_monto: Number(g.ultimo.monto),
+              ultimo_pago_at: new Date(g.ultimo.aprobado_at || g.ultimo.created_at).getTime(),
+            });
+          }
+        }
+        return esp;
+      };
+      const comparar = (filas, esp) => {
+        const difs = [];
+        const ids = new Set(filas.map((r) => r.usuario_id));
+        for (const id of esp.keys()) if (!ids.has(id)) difs.push(`falta ${id}`);
+        for (const r of filas) {
+          const e = esp.get(r.usuario_id);
+          if (!e) { difs.push(`sobra ${r.usuario_id}`); continue; }
+          if (r.estado !== e.estado || Number(r.dias) !== e.dias) difs.push(`${r.usuario_id} ${r.estado}/${r.dias} vs ${e.estado}/${e.dias}`);
+          if (r.tiene_cuenta_web !== e.web || (r.email_web ?? null) !== (e.email ?? null)) difs.push(`${r.usuario_id} contacto`);
+          if ((r.whatsapp ?? null) !== e.whatsapp || (r.nombre ?? null) !== e.nombre) difs.push(`${r.usuario_id} whatsapp/nombre`);
+          if (Number(r.n_pagos) !== e.n_pagos || Math.abs(Number(r.ultimo_monto) - e.ultimo_monto) >= 0.01) difs.push(`${r.usuario_id} pagos`);
+          if (new Date(r.ultimo_pago_at).getTime() !== e.ultimo_pago_at) difs.push(`${r.usuario_id} ultimo_pago_at`);
+          if ((r.tipo_plan ?? null) !== e.tipo_plan) difs.push(`${r.usuario_id} tipo_plan`);
+          if (r.pago_pendiente !== e.pendiente) difs.push(`${r.usuario_id} pendiente`);
+        }
+        return difs;
+      };
+
+      const esperadas = esperadasPara(ren.dias, ren.dias_vencido);
+      const difsRen = comparar(ren.renovaciones, esperadas);
+      ok(
+        `renovaciones: quién entra, estado, días, contacto y pagos == oráculo (${esperadas.size} personas)`,
+        difsRen.length === 0,
+        difsRen.slice(0, 6).join('; '),
+      );
+
+      const r10 = await fetch(`${SUPA}/rest/v1/rpc/admin_renovaciones`, {
+        method: 'POST',
+        headers: { apikey: SERVICE, Authorization: `Bearer ${SERVICE}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ p_excluded: [...INTERNAL_WHATSAPP], p_dias: ren.dias, p_dias_vencido: 3650 }),
+      });
+      if (r10.ok) {
+        const filas10 = await r10.json();
+        const esperadas10 = esperadasPara(ren.dias, 3650);
+        const conVenceSoloEnPagos = [...esperadas10.keys()].filter((id) => !usuariosWa.find((u) => u.id === id)?.premium_vence).length;
+        const difs10 = comparar(filas10, esperadas10);
+        ok(
+          `renovaciones (ventana 10 años, ${conVenceSoloEnPagos} con vencimiento solo en pagos) == oráculo`,
+          difs10.length === 0 && conVenceSoloEnPagos > 0,
+          conVenceSoloEnPagos === 0 ? 'no hay ningún caso de vencimiento solo en pagos: la trampa quedó sin ejercitar' : difs10.slice(0, 6).join('; '),
+        );
+      } else {
+        ok('renovaciones (ventana 10 años): la RPC respondió', false, `-> ${r10.status}`);
+      }
+      // Nadie con cuenta borrada ni interna, y el correo solo si es de una cuenta web.
+      ok(
+        'renovaciones: sin correo de cuentas que no son web',
+        ren.renovaciones.every((r) => r.tiene_cuenta_web || r.email_web == null),
+      );
+    } else {
+      ok('renovaciones: la ruta respondió', false, 'no hubo renovaciones en /api/admin/payments/renewals');
     }
   } else {
     ok('pnl: la ruta respondió con months', false, 'no hubo months en /api/admin/pnl');

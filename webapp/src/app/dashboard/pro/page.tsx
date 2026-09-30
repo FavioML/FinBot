@@ -9,11 +9,11 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { FadeIn } from '@/components/shared/motion-wrapper';
 import { HeaderActions } from '@/components/dashboard/topbar';
-import { PRO_PRICE_MONTHLY_PEN, PRO_PRICE_YEARLY_PEN } from '@/lib/constants';
+import { PRO_PRICE_MONTHLY_PEN, PRO_PRICE_YEARLY_PEN, YAPE_NUMERO_PRO } from '@/lib/constants';
 import { pantallaPro, diasRestantesTrial, esProPagado } from '@/lib/plan';
 import { estadoGmail, puedeAccionar } from '@/lib/gmail-estado';
 
-const YAPE_NUMERO = '970398192';
+const YAPE_NUMERO = YAPE_NUMERO_PRO;
 const YAPE_NOMBRE = 'Favio Mendoza';
 const PRECIOS = { mensual: PRO_PRICE_MONTHLY_PEN, anual: PRO_PRICE_YEARLY_PEN } as const;
 
