@@ -155,14 +155,14 @@ const MUTACIONES = [
   },
   {
     id: 'menú -1 · el aviso vacío: el menú queda abierto sin decirlo',
-    de: "const AVISO_MENU_ABIERTO = '\\n\\n⚠️ *Ojo:* se me trabó cerrando el menú, así que sigo esperando ' +\n  'una opción. *No me escribas nada que empiece con un número* —una de las opciones borra tu ' +\n  'cuenta—; cualquier otra cosa lo cierra.';",
+    de: "const AVISO_MENU_ABIERTO = '\\n\\n⚠️ *Ojo:* se me trabó cerrando el menú, así que sigo esperando ' +\n  'una opción. *Si me respondes solo con un número lo tomo como una opción*, y *' +\n  FRASE_BORRAR_CUENTA + '* borra tu cuenta; cualquier otra cosa lo cierra.';",
     a: "const AVISO_MENU_ABIERTO = '';",
   },
   {
     // La primera versión mandaba a `/ayuda`, que escapa la máquina de estados sólo para ESE
     // mensaje y no toca `onboarding_paso`: el siguiente vuelve al menú y la trampa queda igual.
     id: 'menú -1 · el aviso vuelve a mandar a /ayuda, que no cierra el menú',
-    de: "  'una opción. *No me escribas nada que empiece con un número* —una de las opciones borra tu ' +\n  'cuenta—; cualquier otra cosa lo cierra.';",
+    de: "  'una opción. *Si me respondes solo con un número lo tomo como una opción*, y *' +\n  FRASE_BORRAR_CUENTA + '* borra tu cuenta; cualquier otra cosa lo cierra.';",
     a: "  'una opción. Mándame */ayuda* y lo cierro.';",
   },
   {

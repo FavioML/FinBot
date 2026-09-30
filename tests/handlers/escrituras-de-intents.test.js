@@ -690,9 +690,33 @@ describe('9B-bis · desconectar_cuenta: el menú destructivo no se imprime si el
     });
   }
 
+  // Ítem 39: borrar se confirma con la frase fija, en las tres ramas, y el menú no le pone
+  // número. Si el menú volviera a numerarla, el paso -1 no la aceptaría como número (y la
+  // persona no tendría cómo borrar), o alguien volvería a aceptar el número en `onboarding.js`.
+  for (const [rama, cuentas] of [
+    ['sin cuentas', []],
+    ['una cuenta', [{ id: 'g1', email: 'a@x.com' }]],
+    ['multi-cuenta', [{ id: 'g1', email: 'a@x.com' }, { id: 'g2', email: 'b@x.com' }]],
+  ]) {
+    it(`${rama}: la opción de borrar pide la frase fija y no lleva número`, async () => {
+      const { FRASE_BORRAR_CUENTA } = require('../../lib/constants');
+      const p = preparar(porSitio('desconectar_cuenta'));
+      p.ctx.obtenerCuentasGmail.mockResolvedValue(cuentas);
+      const { res } = await correr(p.invocar);
+      expect(res).toContain('*' + FRASE_BORRAR_CUENTA + '*');
+      // Por l\u00EDnea y no por forma: la revisi\u00F3n del 30-sep hizo sobrevivir al guard anterior
+      // (`keycap + *Eliminar`) con un keycap y "Eliminar mis datos" sin negrita y con "Responde 1 para
+      // confirmar". Ninguna l\u00EDnea con un n\u00FAmero de opci\u00F3n puede hablar de borrar.
+      const lineasNumeradas = res.split('\n').filter((l) => /^\s*\d+(\uFE0F?\u20E3|\.)/.test(l));
+      for (const l of lineasNumeradas) expect(l, 'opci\u00F3n numerada que borra').not.toMatch(/elimin|borr/i);
+      expect(res, 'pide un n\u00FAmero para confirmar').not.toMatch(/responde \d+ para confirmar/i);
+      if (cuentas.length === 0) expect(lineasNumeradas, 'sin cuentas no hay nada numerable').toEqual([]);
+    });
+  }
+
   it('control: con una cuenta Gmail conectada, el camino feliz SÍ imprime las dos opciones', async () => {
     // Sin este control, un menú que dejara de imprimirse SIEMPRE pasaría los dos casos de
-    // arriba. Y con una cuenta viva la opción 2 es el borrado total, que es lo que hace que
+    // arriba. Y con una cuenta viva la otra opción es el borrado total, que es lo que hace que
     // imprimir el menú sobre un paso que no entró sea grave y no sólo feo.
     const p = preparar(porSitio('desconectar_cuenta'));
     p.ctx.obtenerCuentasGmail.mockResolvedValue([{ id: 'g1', email: 'a@x.com' }]);

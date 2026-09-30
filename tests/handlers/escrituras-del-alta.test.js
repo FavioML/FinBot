@@ -506,10 +506,12 @@ function afirmarDesenlace(sitio, res) {
   }
   if (d.tipo === 'aviso') {
     // la confirmación es verdad y se conserva; lo que se agrega es la advertencia. Lo que la
-    // advertencia tiene que decir es "no mandes un número": mandar a un `/comando` NO cierra
-    // el menú (ningún `/x` toca `onboarding_paso`), y esa fue la primera versión, equivocada.
+    // advertencia tiene que decir es "un número solo es una opción": mandar a un `/comando` NO
+    // cierra el menú (ningún `/x` toca `onboarding_paso`), y esa fue la primera versión, equivocada.
     expect(res).toMatch(d.conserva);
-    expect(res).toMatch(/No me escribas nada que empiece con un número/i);
+    expect(res).toMatch(/Si me respondes solo con un número lo tomo como una opción/i);
+    // Y que la frase sigue borrando: con el menú abierto es lo único que borra la cuenta.
+    expect(res).toContain('*confirmo borrar mi cuenta* borra tu cuenta');
     expect(res).toMatch(/se me trabó cerrando el menú/i);
     return;
   }
@@ -776,10 +778,11 @@ describe('9D · el paso 2: el tipo_plan decide cuánto yapear', () => {
   }
 });
 
-describe('9D · el menú del paso -1: un menú que no se cierra apunta al borrado total', () => {
-  // Con las cuentas ya revocadas el menú pasa a tener UNA sola opción: `1` = eliminar todo. O
-  // sea que un "1" escrito por inercia después de un "✅ Gmail desconectado" dispara el wipe.
-  // Por eso el aviso manda a un `/comando`, que es lo único que escapa la máquina de estados.
+describe('9D · el menú del paso -1: un menú que no se cierra', () => {
+  // Hasta el ítem 39 (30-sep), con las cuentas ya revocadas el menú pasaba a tener UNA sola
+  // opción: `1` = eliminar todo, y un "1" escrito por inercia después de un "✅ Gmail
+  // desconectado" disparaba el wipe. Hoy borrar es la frase fija; el aviso sigue porque un
+  // número solo todavía se lee como una opción.
   it('la desconexión SÍ ocurrió, así que el ✅ se conserva y lo que se agrega es la advertencia', async () => {
     const { entrada, sb } = preparar(SITIOS.find((s) => s.paso === 'desconectar'), {
       fallos: { 'usuarios:update': 'db caída' },
@@ -787,23 +790,25 @@ describe('9D · el menú del paso -1: un menú que no se cierra apunta al borrad
     const { res } = await correr(sb, entrada);
     expect(revocarAccesoGmail).toHaveBeenCalled();
     expect(res).toMatch(/✅ \*Gmail desconectado\*/);
-    expect(res).toMatch(/No me escribas nada que empiece con un número/i);
+    expect(res).toMatch(/Si me respondes solo con un número lo tomo como una opción/i);
     expect(sb.fila('usuarios', 'u1').onboarding_paso).toBe(-1);
   });
 
-  it('el "1" siguiente, con el menú abierto y cero cuentas, es el borrado total (por qué existe el aviso)', async () => {
-    // No es una hipótesis: se ejercita el estado que deja el caso de arriba.
+  it('el "1" siguiente, con el menú abierto y cero cuentas, ya NO es el borrado total (ítem 39)', async () => {
+    // No es una hipótesis: se ejercita el estado que deja el caso de arriba. Este caso afirmaba
+    // lo contrario —que el "1" borraba— y lo usaba para justificar el aviso.
     obtenerCuentasGmail.mockResolvedValue([]);
     const sb = montar({ filas: { usuarios: [u({ onboarding_paso: -1 })] } });
     const { res } = await correr(sb, { usuario: u({ onboarding_paso: -1 }), msg: '1' });
-    expect(borrarCuenta).toHaveBeenCalled();
-    expect(res).toMatch(/Cuenta eliminada/i);
+    expect(borrarCuenta).not.toHaveBeenCalled();
+    expect(res).toMatch(/No encontré ningún Gmail conectado/i);
+    expect(sb.fila('usuarios', 'u1').onboarding_paso).toBe(0);
   });
 
   it('camino feliz: el aviso NO sale cuando el menú sí se cerró', async () => {
     const { entrada, sb } = preparar(SITIOS.find((s) => s.paso === 'desconectar'));
     const { res } = await correr(sb, entrada);
-    expect(res).not.toMatch(/No me escribas nada que empiece/i);
+    expect(res).not.toMatch(/solo con un número/i);
     expect(res).not.toMatch(/se me trabó/i);
     expect(sb.fila('usuarios', 'u1').onboarding_paso).toBe(0);
   });

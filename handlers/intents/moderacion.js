@@ -3,6 +3,7 @@ const { checkProWall } = require('../../helpers/pro-wall');
 const { verificarEscritura, entro } = require('../../helpers/escritura-verificada');
 const { mensajeCargaMasivaPro } = require('../../lib/trial');
 const analytics = require('../../lib/analytics');
+const { FRASE_BORRAR_CUENTA } = require('../../lib/constants');
 
 module.exports = {
   intents: ['silenciar', 'reactivar_recordatorios', 'hablar_con_humano', 'desconectar_cuenta', 'cargar_excel'],
@@ -125,24 +126,29 @@ module.exports = {
             'porque si me respondieras un número no lo leería como una opción. Escríbeme ' +
             '*desconectar cuenta* de nuevo en un momento.';
         }
+        // Borrar NO lleva número, en ninguna de las tres ramas: se confirma con la frase fija, que
+        // es lo único que `handlers/onboarding.js` (paso -1) acepta para borrar. Con número,
+        // "1.50 pan" borraba la cuenta, y la misma cifra cambiaba de sentido si entre el menú y
+        // la respuesta se desconectaba un Gmail (ítem 39, fila del 30-sep en `docs/DEFECTOS.md`).
+        const borrar = '🗑️ Para borrarlos, escríbeme *' + FRASE_BORRAR_CUENTA + '*.';
         let menuDesc = '⚠️ *Desconectar cuenta*\n\n';
         if (cuentasDesc.length > 1) {
           menuDesc += 'Cuentas conectadas:\n' + cuentasDesc.map((c, i) => (i + 1) + '. 📧 ' + c.email).join('\n') + '\n\n';
           menuDesc += '¿Qué deseas hacer?\n\n';
           menuDesc += cuentasDesc.map((c, i) => (i + 1) + '️⃣ *Desconectar ' + c.email + '*').join('\n') + '\n';
-          menuDesc += (cuentasDesc.length + 1) + '️⃣ *Desconectar todas* — Conservo tu historial\n';
-          menuDesc += (cuentasDesc.length + 2) + '️⃣ *Eliminar todo* — Borro todos tus datos (irreversible)\n\n';
-          menuDesc += '_Responde con el número._';
+          menuDesc += (cuentasDesc.length + 1) + '️⃣ *Desconectar todas* — Conservo tu historial\n\n';
+          menuDesc += '*Eliminar todo* — Borro todos tus datos (irreversible). ' + borrar + '\n\n';
+          menuDesc += '_Responde solo con el número. Cualquier otra cosa cancela._';
         } else if (cuentasDesc.length === 1) {
           menuDesc += 'Cuenta conectada: 📧 ' + cuentasDesc[0].email + '\n\n';
           menuDesc += '¿Qué deseas hacer?\n\n';
           menuDesc += '1️⃣ *Solo desconectar* — Desvinculo tu Gmail pero conservo tu historial de gastos. Puedes volver a conectarte cuando quieras.\n\n';
-          menuDesc += '2️⃣ *Eliminar todo* — Borro todos tus datos (gastos, categorías, configuración). Esta acción es irreversible.\n\n';
-          menuDesc += '_Responde 1 o 2._';
+          menuDesc += '*Eliminar todo* — Borro todos tus datos (gastos, categorías, configuración). Esta acción es irreversible. ' + borrar + '\n\n';
+          menuDesc += '_Responde 1 para desconectar. Cualquier otra cosa cancela._';
         } else {
           menuDesc += 'No tienes cuentas Gmail conectadas.\n\n';
-          menuDesc += '1️⃣ *Eliminar mis datos* — Borro todos tus gastos, categorías y configuración. Irreversible.\n\n';
-          menuDesc += '_Responde 1 para confirmar o cualquier otra cosa para cancelar._';
+          menuDesc += '*Eliminar mis datos* — Borro todos tus gastos, categorías y configuración. Irreversible. ' + borrar + '\n\n';
+          menuDesc += '_Cualquier otra cosa cancela._';
         }
         return menuDesc;
       }

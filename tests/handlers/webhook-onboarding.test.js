@@ -167,7 +167,12 @@ function buildReqRes(from, texto) {
 // distinguir un mensaje al usuario de uno al admin.
 const ADMIN_NUMBER = require('../../lib/config').ADMIN_NUMBER;
 
-async function enviarTexto(usuario, texto, from = '51999000111') {
+// Un remitente distinto por envío. `limiteRemitenteSuperado` (webhook.js, S′5) descarta desde el
+// mensaje 61 del mismo número en un minuto, y el throttle es de módulo: con un `from` fijo, el
+// caso 61 de este archivo recibía `null` y fallaba por el límite, no por lo que afirma (pasó el
+// 30-sep al sumar los casos del ítem 39). El usuario lo decide el mock, no el número.
+let fromSeq = 0;
+async function enviarTexto(usuario, texto, from = '51998' + String(fromSeq++).padStart(6, '0')) {
   obtenerOCrearUsuario.mockResolvedValue(usuario);
   const { req, res } = buildReqRes(from, texto);
   await webhookHandler(req, res);
@@ -498,14 +503,15 @@ describe('Onboarding paso -1 — desconexion / wipe', () => {
   });
 
   // O1 de la tercera revisión: si además falla el cierre del menú, el aviso de menú abierto es
-  // lo único que separa al usuario del "1" que borra la cuenta. Nada lo fijaba.
+  // lo único que separa al usuario del "1" que borraba la cuenta (hasta el ítem 39; hoy un
+  // número solo todavía desconecta). Nada lo fijaba.
   it('si la revocación lanza Y no se puede cerrar el menú, avisa que el menú sigue abierto', async () => {
     obtenerCuentasGmail.mockResolvedValue([{ id: 'g1', email: 'a@x.com' }]);
     revocarAccesoGmail.mockRejectedValue(new Error('algo sigue leyendo'));
     usuariosChain = makeChain([], { updateResult: { data: null, error: { message: 'boom' } } });
     const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1');
     expect(enviado).toMatch(/No pude confirmar/);
-    expect(enviado).toMatch(/No me escribas nada que empiece con un número/);
+    expect(enviado).toMatch(/Si me respondes solo con un número lo tomo como una opción/);
   });
 
   // Un caso por opción: `enviarTexto` devuelve el PRIMER mensaje que salió, así que dos envíos
@@ -560,29 +566,29 @@ describe('Onboarding paso -1 — desconexion / wipe', () => {
   // DELETE. Un test que afirmara "se borraron las 30 tablas" con este mock estaría midiendo
   // su propia configuración.
 
-  it('multi-cuenta, "N+2" → delega el borrado en el servicio', async () => {
+  it('multi-cuenta, la frase → delega el borrado en el servicio', async () => {
     obtenerCuentasGmail.mockResolvedValue([
       { id: 'g1', email: 'a@x.com' }, { id: 'g2', email: 'b@x.com' },
     ]);
-    await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '4');
+    await enviarTexto({ id: 'u1', onboarding_paso: -1 }, 'confirmo borrar mi cuenta');
     expect(borrarCuenta).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'u1' }),
       expect.objectContaining({ origen: 'whatsapp' })
     );
   });
 
-  it('una cuenta, "2" → delega el borrado en el servicio', async () => {
+  it('una cuenta, la frase → delega el borrado en el servicio', async () => {
     obtenerCuentasGmail.mockResolvedValue([{ id: 'g1', email: 'a@x.com' }]);
-    await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '2');
+    await enviarTexto({ id: 'u1', onboarding_paso: -1 }, 'confirmo borrar mi cuenta');
     expect(borrarCuenta).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'u1' }),
       expect.objectContaining({ origen: 'whatsapp' })
     );
   });
 
-  it('sin cuentas, "1" → delega el borrado en el servicio', async () => {
+  it('sin cuentas, la frase → delega el borrado en el servicio', async () => {
     obtenerCuentasGmail.mockResolvedValue([]);
-    await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1');
+    await enviarTexto({ id: 'u1', onboarding_paso: -1 }, 'confirmo borrar mi cuenta');
     expect(borrarCuenta).toHaveBeenCalled();
   });
 
@@ -593,7 +599,7 @@ describe('Onboarding paso -1 — desconexion / wipe', () => {
   // repetirlo.
   it('onboarding NO borra por su cuenta: el flujo entero vive en el servicio', async () => {
     obtenerCuentasGmail.mockResolvedValue([{ id: 'g1', email: 'a@x.com' }]);
-    await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '2');
+    await enviarTexto({ id: 'u1', onboarding_paso: -1 }, 'confirmo borrar mi cuenta');
     expect(otherChains['transacciones']).toBeUndefined();
     expect(otherChains['gmail_cuentas']).toBeUndefined();
     expect(otherChains['presupuestos']).toBeUndefined();
@@ -608,7 +614,7 @@ describe('Onboarding paso -1 — desconexion / wipe', () => {
   // conservan por obligación contable y porque los backups cifrados no se pueden reescribir.
   it('el mensaje NOMBRA lo que se conserva y no promete el absoluto', async () => {
     obtenerCuentasGmail.mockResolvedValue([]);
-    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1');
+    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, 'confirmo borrar mi cuenta');
     expect(enviado).toMatch(/pagos/i);
     expect(enviado).toMatch(/respaldo/i);
     expect(enviado, 'volvió a prometer que se borró TODO').not.toMatch(/todos tus datos/i);
@@ -620,7 +626,7 @@ describe('Onboarding paso -1 — desconexion / wipe', () => {
   it('menciona el Gmail cuando había una cuenta conectada', async () => {
     obtenerCuentasGmail.mockResolvedValue([{ id: 'g1', email: 'a@x.com' }]);
     borrarCuenta.mockResolvedValue({ ok: true, tieneGmail: true, resumen: {}, sucio: [] });
-    expect(await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '2')).toMatch(/gmail/i);
+    expect(await enviarTexto({ id: 'u1', onboarding_paso: -1 }, 'confirmo borrar mi cuenta')).toMatch(/gmail/i);
   });
 
   // "Solté el permiso" solo si Google lo confirmó (segunda revisión, 30-sep-2026). Si no, se
@@ -628,7 +634,7 @@ describe('Onboarding paso -1 — desconexion / wipe', () => {
   it('si Google no confirmó la revocación, NO afirma que soltó el permiso', async () => {
     obtenerCuentasGmail.mockResolvedValue([{ id: 'g1', email: 'a@x.com' }]);
     borrarCuenta.mockResolvedValue({ ok: true, tieneGmail: true, gmailSinSoltar: true, resumen: {}, sucio: [] });
-    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '2');
+    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, 'confirmo borrar mi cuenta');
     expect(enviado).not.toMatch(/solté el permiso/i);
     expect(enviado).toMatch(/myaccount\.google\.com\/permissions/);
   });
@@ -636,7 +642,7 @@ describe('Onboarding paso -1 — desconexion / wipe', () => {
   it('no menciona el Gmail cuando no había ninguna conectada', async () => {
     obtenerCuentasGmail.mockResolvedValue([]);
     borrarCuenta.mockResolvedValue({ ok: true, tieneGmail: false, resumen: {}, sucio: [] });
-    expect(await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1')).not.toMatch(/gmail/i);
+    expect(await enviarTexto({ id: 'u1', onboarding_paso: -1 }, 'confirmo borrar mi cuenta')).not.toMatch(/gmail/i);
   });
 
   // Se le borra el número, así que si vuelve NO se lo reconoce solo. El Pro sigue pagado en
@@ -646,7 +652,7 @@ describe('Onboarding paso -1 — desconexion / wipe', () => {
     obtenerCuentasGmail.mockResolvedValue([]);
     const enviado = await enviarTexto(
       { id: 'u1', onboarding_paso: -1, plan: 'premium', trial_estado: 'convertido', premium_vence: '2027-03-15' },
-      '1'
+      'confirmo borrar mi cuenta'
     );
     expect(enviado).toMatch(/15\/03\/2027/);
     expect(enviado).toMatch(/hola@neto\.pe/);
@@ -656,7 +662,7 @@ describe('Onboarding paso -1 — desconexion / wipe', () => {
     obtenerCuentasGmail.mockResolvedValue([]);
     const enviado = await enviarTexto(
       { id: 'u1', onboarding_paso: -1, plan: 'premium', trial_estado: 'activo', premium_vence: '2026-09-01' },
-      '1'
+      'confirmo borrar mi cuenta'
     );
     expect(enviado).not.toMatch(/hola@neto\.pe/);
   });
@@ -667,7 +673,7 @@ describe('Onboarding paso -1 — desconexion / wipe', () => {
   it('si el borrado falla, le dice que su cuenta sigue igual', async () => {
     obtenerCuentasGmail.mockResolvedValue([]);
     borrarCuenta.mockResolvedValue({ ok: false, motivo: 'statement timeout', tieneGmail: false, resumen: null, sucio: [] });
-    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1');
+    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, 'confirmo borrar mi cuenta');
     expect(enviado).toMatch(/sigue igual/i);
     expect(enviado).not.toMatch(/eliminad/i);
     expect(enviado).toMatch(/soporte/i);
@@ -696,6 +702,224 @@ describe('Onboarding paso -1 — desconexion / wipe', () => {
       expect.objectContaining({ onboarding_paso: 0 })
     );
     expect(enviado).toMatch(/cancelado/i);
+  });
+});
+
+// ─── Ítem 39: el menú del paso -1 leía la opción con `parseInt` ──────────────
+//
+// Con el menú abierto y cero cuentas, "1.50 pan" era un 1 y el 1 de esa rama era el borrado
+// total, sin otra confirmación. El menú lo abre un intent del NLP y queda abierto hasta el
+// mensaje siguiente, así que quien lo ignoraba y anotaba un gasto perdía la cuenta. Y como la
+// opción se mapeaba contra las cuentas que existen CUANDO LLEGA la respuesta, un cron que
+// revoca Gmail en el medio (o un segundo "1" sin serialización) convertía "1 = desconectar" en
+// "1 = borrar todo". Borrar ya no es un número: es la frase fija, en las tres ramas.
+// Un envío por caso: `enviarTexto` devuelve el PRIMER mensaje que salió.
+describe('Ítem 39 — el menú del paso -1 no borra por un número', () => {
+  const UNA = [{ id: 'g1', email: 'a@x.com' }];
+  const DOS = [{ id: 'g1', email: 'a@x.com' }, { id: 'g2', email: 'b@x.com' }];
+
+  it('sin cuentas, "1.50 pan" NO borra la cuenta (el caso de la fila del 30-sep)', async () => {
+    obtenerCuentasGmail.mockResolvedValue([]);
+    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1.50 pan');
+    expect(borrarCuenta).not.toHaveBeenCalled();
+    // '^Cancelado' y no 'sigue igual': con parseInt de vuelta, '1.50 pan' sale como un 1 y
+    // contesta 'No encontré ningún Gmail... Tu cuenta sigue igual', que también dice 'sigue igual'.
+    expect(enviado.startsWith('Cancelado. Tu cuenta sigue igual')).toBe(true);
+    expect(obtenerCuentasGmail).not.toHaveBeenCalled();
+    expect(usuariosChain.update).toHaveBeenCalledWith(expect.objectContaining({ onboarding_paso: 0 }));
+  });
+
+  it('una cuenta, "2 menus 30" NO borra la cuenta', async () => {
+    obtenerCuentasGmail.mockResolvedValue(UNA);
+    await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '2 menus 30');
+    expect(borrarCuenta).not.toHaveBeenCalled();
+    expect(revocarAccesoGmail).not.toHaveBeenCalled();
+  });
+
+  it('una cuenta, "1 cafe 5" NO desconecta: la opción tiene que venir sola', async () => {
+    obtenerCuentasGmail.mockResolvedValue(UNA);
+    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1 cafe 5');
+    expect(revocarAccesoGmail).not.toHaveBeenCalled();
+    expect(enviado).toMatch(/cancelado/i);
+  });
+
+  // Vecinos (a) y (b): el menú mostró una cuenta ("1 = desconectar"), y cuando llega la
+  // respuesta ya no hay ninguna — la revocó un cron, o la desconectó el primero de dos "1"
+  // seguidos. Antes esa rama leía el "1" como borrar todo.
+  it('sin cuentas, un "1" solo NO borra: dice que ya no hay Gmail y cómo se borra', async () => {
+    obtenerCuentasGmail.mockResolvedValue([]);
+    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1');
+    expect(borrarCuenta).not.toHaveBeenCalled();
+    expect(revocarAccesoGmail).not.toHaveBeenCalled();
+    expect(enviado).toMatch(/No encontré ningún Gmail conectado/i);
+    expect(enviado).toContain('*confirmo borrar mi cuenta*');
+    expect(usuariosChain.update).toHaveBeenCalledWith(expect.objectContaining({ onboarding_paso: 0 }));
+  });
+
+  // Quien recibió el menú viejo antes del deploy y responde el número que antes era borrar.
+  it('una cuenta, "2" (el borrado del menú viejo) NO borra y le dice la frase', async () => {
+    obtenerCuentasGmail.mockResolvedValue(UNA);
+    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '2');
+    expect(borrarCuenta).not.toHaveBeenCalled();
+    expect(revocarAccesoGmail).not.toHaveBeenCalled();
+    expect(enviado).toContain('*confirmo borrar mi cuenta*');
+  });
+
+  it('multi-cuenta, "N+2" (el borrado del menú viejo) NO borra', async () => {
+    obtenerCuentasGmail.mockResolvedValue(DOS);
+    await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '4');
+    expect(borrarCuenta).not.toHaveBeenCalled();
+    expect(revocarAccesoGmail).not.toHaveBeenCalled();
+  });
+
+  for (const [rama, cuentas] of [['sin cuentas', []], ['una cuenta', UNA], ['multi-cuenta', DOS]]) {
+    it(`${rama}, la frase fija → borra la cuenta`, async () => {
+      obtenerCuentasGmail.mockResolvedValue(cuentas);
+      const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, 'confirmo borrar mi cuenta');
+      expect(borrarCuenta).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'u1' }),
+        expect.objectContaining({ origen: 'whatsapp' })
+      );
+      expect(revocarAccesoGmail).not.toHaveBeenCalled();
+      expect(enviado).toMatch(/Cuenta eliminada/);
+    });
+  }
+
+  it('la frase con mayúscula y punto final también vale', async () => {
+    obtenerCuentasGmail.mockResolvedValue(UNA);
+    await enviarTexto({ id: 'u1', onboarding_paso: -1 }, 'Confirmo borrar mi cuenta.');
+    expect(borrarCuenta).toHaveBeenCalled();
+  });
+
+  it('la frase DENTRO de otra oración no borra', async () => {
+    obtenerCuentasGmail.mockResolvedValue(UNA);
+    await enviarTexto({ id: 'u1', onboarding_paso: -1 }, 'no quiero borrar mi cuenta');
+    expect(borrarCuenta).not.toHaveBeenCalled();
+    expect(revocarAccesoGmail).not.toHaveBeenCalled();
+  });
+
+  // Revisión adversarial del 30-sep: la frase que PIDE el borrado ("borrar mi cuenta") abre el
+  // menú por el NLP. Si también lo confirmara, repetirla mientras el bot tarda borraría sin haber
+  // leído el menú. Dentro del menú, el pedido a secas no borra: cancela y dice cómo.
+  it('"borrar mi cuenta" (el PEDIDO) dentro del menú no borra: le dice la frase de confirmación', async () => {
+    obtenerCuentasGmail.mockResolvedValue(UNA);
+    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, 'borrar mi cuenta');
+    expect(borrarCuenta).not.toHaveBeenCalled();
+    expect(enviado).toContain('*confirmo borrar mi cuenta*');
+  });
+
+  // Los bordes que separan "frase exacta" de "frase tolerante". Cada uno mata una normalización
+  // que alguien escribiría para aceptar más variantes: startsWith, quitar ¿?, quitar todo lo que
+  // no sea letra.
+  for (const texto of [
+    'confirmo borrar mi cuenta no', 'confirmo borrar mi cuenta de gmail',
+    '¿confirmo borrar mi cuenta?', '¿confirmo borrar mi cuenta', 'confirmo borrar mi cuenta?',
+    'no confirmo borrar mi cuenta',
+  ]) {
+    it(`"${texto}" NO borra`, async () => {
+      obtenerCuentasGmail.mockResolvedValue(UNA);
+      await enviarTexto({ id: 'u1', onboarding_paso: -1 }, texto);
+      expect(borrarCuenta).not.toHaveBeenCalled();
+    });
+  }
+
+  for (const texto of ['*confirmo borrar mi cuenta*', 'Confirmó borrar mi cuenta', '  confirmo   borrar mi cuenta!']) {
+    it(`"${texto}" borra (el adorno de copiarla y la tilde no son otra intención)`, async () => {
+      obtenerCuentasGmail.mockResolvedValue(UNA);
+      await enviarTexto({ id: 'u1', onboarding_paso: -1 }, texto);
+      expect(borrarCuenta).toHaveBeenCalled();
+    });
+  }
+
+  // Casi-aciertos medidos por la revisión: antes recibían un "Cancelado" pelado y tenían que
+  // reabrir el flujo sin saber por qué falló.
+  for (const texto of ['borra mi cuenta', 'borrar mi cuenta, por favor', 'elimina todos mis datos']) {
+    it(`"${texto}" no borra, pero le dice cómo`, async () => {
+      obtenerCuentasGmail.mockResolvedValue([]);
+      const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, texto);
+      expect(borrarCuenta).not.toHaveBeenCalled();
+      expect(enviado).toMatch(/^Cancelado/);
+      expect(enviado).toContain('*confirmo borrar mi cuenta*');
+    });
+  }
+
+  it('"mejor no" cancela sin la pista de borrado', async () => {
+    obtenerCuentasGmail.mockResolvedValue(UNA);
+    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, 'mejor no');
+    // Sin esta línea el caso sobrevivía a "la frase siempre borra": el mensaje de borrado dice
+    // "Borré", que `/borrar/` no ve (segunda revisión del 30-sep).
+    expect(borrarCuenta).not.toHaveBeenCalled();
+    expect(enviado).not.toMatch(/borrar/i);
+  });
+
+  // Segunda revisión del 30-sep: los huecos de guard del arreglo, uno por mutación que sobrevivía.
+
+  // Lo que sostiene todo el diseño: la frase SÓLO borra con el menú abierto. Fuera de él la
+  // decide el NLP, que a lo sumo abre el menú.
+  for (const paso of [0, 100]) {
+    it(`paso ${paso}: la frase de confirmación NO borra fuera del menú`, async () => {
+      await enviarTexto({ id: 'u1', onboarding_paso: paso, nombre: 'Ana', onboarding_completado: paso === 0 }, 'confirmo borrar mi cuenta');
+      expect(borrarCuenta).not.toHaveBeenCalled();
+    });
+  }
+
+  for (const texto of ['jamás confirmo borrar mi cuenta', 'nunca confirmo borrar mi cuenta', 'ni loco confirmo borrar mi cuenta']) {
+    it(`"${texto}" NO borra`, async () => {
+      obtenerCuentasGmail.mockResolvedValue(UNA);
+      await enviarTexto({ id: 'u1', onboarding_paso: -1 }, texto);
+      expect(borrarCuenta).not.toHaveBeenCalled();
+    });
+  }
+
+  // La pista tiene que enseñar el PEDIDO y la confirmación por separado. Si enseñara a escribir
+  // la confirmación para pedir, repetirla mientras el bot tarda volvería a borrar sin leer el menú.
+  it('la pista enseña "borrar mi cuenta" como pedido, no la confirmación', async () => {
+    obtenerCuentasGmail.mockResolvedValue([]);
+    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '2');
+    expect(enviado).toContain('pídeme *borrar mi cuenta*');
+    expect(enviado).not.toContain('pídeme *confirmo borrar mi cuenta*');
+    expect(enviado).not.toContain('escríbeme *confirmo borrar mi cuenta*');
+  });
+
+  // La frase se mira ANTES de leer las cuentas: el borrado no las necesita, y leerlas primero
+  // dejaba sin respuesta a quien confirmaba con `gmail_cuentas` caída.
+  it('la frase borra aunque la lectura de cuentas falle', async () => {
+    obtenerCuentasGmail.mockRejectedValue(new Error('gmail_cuentas caída'));
+    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, 'confirmo borrar mi cuenta');
+    expect(borrarCuenta).toHaveBeenCalled();
+    expect(enviado).toMatch(/Cuenta eliminada/);
+  });
+
+  for (const texto of ['1.50', '1.0']) {
+    it(`una cuenta, "${texto}" suelto NO desconecta (un monto no es una opción)`, async () => {
+      obtenerCuentasGmail.mockResolvedValue(UNA);
+      await enviarTexto({ id: 'u1', onboarding_paso: -1 }, texto);
+      expect(revocarAccesoGmail).not.toHaveBeenCalled();
+    });
+  }
+
+  // El menú multi-cuenta lista "1. 📧 a@x.com": copiar ese "1." es elegir la cuenta 1.
+  it('multi-cuenta, "1." → desconecta la primera', async () => {
+    obtenerCuentasGmail.mockResolvedValue(DOS);
+    await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1.');
+    expect(revocarAccesoGmail).toHaveBeenCalledWith('u1', expect.objectContaining({ cuentaId: 'g1' }));
+  });
+
+  // Si leer las cuentas falla, un texto que no es opción igual cancela y cierra el menú: no se
+  // leen las cuentas para eso. Antes el throw dejaba a la persona sin respuesta y con el menú abierto.
+  it('"1.50 pan" con la lectura de cuentas caída → cancela igual, no calla', async () => {
+    obtenerCuentasGmail.mockRejectedValue(new Error('gmail_cuentas caída'));
+    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1.50 pan');
+    expect(enviado).toMatch(/^Cancelado/);
+    expect(usuariosChain.update).toHaveBeenCalledWith(expect.objectContaining({ onboarding_paso: 0 }));
+  });
+
+  // El menú imprime las opciones con keycap ("1️⃣"), y copiarlo es una respuesta deliberada.
+  it('una cuenta, "1️⃣" → desconecta (el keycap del menú es una opción)', async () => {
+    obtenerCuentasGmail.mockResolvedValue(UNA);
+    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1️⃣');
+    expect(revocarAccesoGmail).toHaveBeenCalledWith('u1', expect.anything());
+    expect(enviado).toMatch(/Gmail desconectado/);
   });
 });
 

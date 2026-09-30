@@ -36,7 +36,7 @@
 const { supabase } = require('../lib/db');
 const log = require('../lib/logger');
 const { PRO_PRECIOS } = require('../lib/config');
-const { CATEGORIAS_SUGERIDAS } = require('../lib/constants');
+const { CATEGORIAS_SUGERIDAS, FRASE_BORRAR_CUENTA } = require('../lib/constants');
 const { parsearIndicesRespuesta } = require('../lib/formatters');
 const { obtenerCuentasGmail, revocarAccesoGmail, tieneGmailConectado } = require('../gmail');
 const { linkPanelPro, esProPagado } = require('../lib/trial');
@@ -132,18 +132,70 @@ const entro = (veredicto) => veredicto === 'ok';
 // toca `onboarding_paso`, así que el mensaje siguiente vuelve a caer en el menú y la trampa
 // queda igual. Lo que de verdad lo cierra es cualquier texto que NO sea una opción válida:
 // cae en la rama de "Cancelado" del final, que reintenta el reset.
-// Y el aviso dice "que EMPIECE con un número", no "que sea un número", porque el menú lee la
-// respuesta con `parseInt`: un "2 cafés" vale 2 igual. Con una cuenta Gmail viva, 2 es el
-// borrado total.
+//
+// Hasta el 30-sep decía "no me escribas nada que EMPIECE con un número", porque el menú leía con
+// `parseInt` y un número podía ser el borrado total. Desde el ítem 39 una opción es un número
+// SOLO y ninguna borra (borrar es `FRASE_BORRAR_CUENTA`), así que lo que queda por advertir es
+// que un número solo todavía desconecta Gmail, y que la frase de confirmación sigue borrando.
 const AVISO_MENU_ABIERTO = '\n\n⚠️ *Ojo:* se me trabó cerrando el menú, así que sigo esperando ' +
-  'una opción. *No me escribas nada que empiece con un número* —una de las opciones borra tu ' +
-  'cuenta—; cualquier otra cosa lo cierra.';
+  'una opción. *Si me respondes solo con un número lo tomo como una opción*, y *' +
+  FRASE_BORRAR_CUENTA + '* borra tu cuenta; cualquier otra cosa lo cierra.';
+
+// Ítem 39 (fila del 30-sep en `docs/DEFECTOS.md`). El menú leía la respuesta con `parseInt`, así
+// que "1.50 pan" valía 1 y, con cero cuentas Gmail, el 1 era borrar la cuenta. Y la opción se
+// mapeaba contra las cuentas que existen cuando LLEGA la respuesta, no cuando se armó el menú:
+// un cron que revoca Gmail en el medio, o el segundo de dos "1" seguidos (el webhook no
+// serializa por usuario), convertía "1 = desconectar" en "1 = borrar todo".
+//
+// El arreglo saca el borrado de los números en vez de validar mejor el número. Borrar es la
+// frase fija, que no depende de cuántas cuentas hay, así que los dos vecinos dejan de tener un
+// camino al borrado sin guardar qué mostró el menú. Lo que sigue siendo posicional es solo
+// desconectar, y eso se puede rehacer desde la webapp.
+//
+// Un número con punto ("1.") entra: el menú multi-cuenta lista "1. 📧 a@x.com", y ningún número
+// borra. "1.50" no entra.
+function leerOpcionMenu(cmd) {
+  // El keycap ("1️⃣") entra porque así imprime el menú sus opciones: copiarlo es deliberado.
+  const m = /^\s*(\d+)\.?(?:\uFE0F?\u20E3)?\s*$/.exec(cmd);
+  return m ? Number(m[1]) : null;
+}
+
+// Mayúsculas, tildes, espacios de más y el adorno que queda al copiar del menú (asteriscos,
+// comillas, punto final). Los signos de pregunta NO se quitan: "¿confirmo borrar mi cuenta?" es
+// una pregunta, no una confirmación.
+function normalizarRespuesta(cmd) {
+  return String(cmd || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
+    .replace(/^[\s*_"'“”«»]+|[\s*_"'“”«».!]+$/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+// La frase entera, no contenida: "no, no confirmo borrar mi cuenta" no borra.
+function esFraseBorrarCuenta(cmd) {
+  return normalizarRespuesta(cmd) === FRASE_BORRAR_CUENTA;
+}
+
+// Quien quiso borrar y no escribió la frase exacta ("borra mi cuenta", "borrar mi cuenta por
+// favor", o el pedido a secas). No borra —la frase es el control—, pero tampoco se le contesta
+// un "Cancelado" pelado: se le dice cómo. Lo midió la revisión adversarial del 30-sep.
+function pareceIntentoDeBorrar(cmd) {
+  const n = normalizarRespuesta(cmd);
+  return /\b(borr|elimin)/.test(n) && /\b(cuenta|datos|todo)\b/.test(n);
+}
+
+// Se agrega cuando la respuesta fue un número que ya no es opción —sobre todo quien recibió el
+// menú viejo (antes del ítem 39), donde el 2 o el 1 eran "eliminar todo"— o un intento de borrar
+// sin la frase. "borrar mi cuenta" abre el menú por el NLP (lo verifica
+// `qa-e2e/qa-menu-borrado-frase.mjs`, paso 0), y por eso la confirmación es OTRA frase: si fuera
+// la misma, repetir el pedido mientras el bot tarda borraría sin haber leído el menú.
+const PISTA_BORRAR_CUENTA = '\n\nSi lo que querías era borrar tu cuenta, pídeme *borrar mi cuenta* ' +
+  'y, cuando te muestre el menú, confírmalo escribiendo *' + FRASE_BORRAR_CUENTA + '*.';
 
 // `revocarAccesoGmail` lanza cuando algo sigue pudiendo leer. Lo peligroso de ese throw no es el
 // Gmail: es el MENÚ. Sin esto el webhook no contestaba nada y el paso -1 seguía abierto, y como
 // el menú se re-arma con las cuentas que QUEDAN, el "1" reenviado podía caer en la rama "sin
-// cuentas", donde "1" es borrar la cuenta entera. Reproducido por la segunda revisión
+// cuentas", donde "1" era borrar la cuenta entera. Reproducido por la segunda revisión
 // adversarial del 30-sep-2026. Se cierra el menú y se dice la verdad: no sabemos si quedó.
+// (Desde el ítem 39 ningún número borra, pero el menú abierto sigue mintiendo sobre el Gmail.)
 async function fallaAlDesconectar(usuario, e, etiqueta) {
   log.error({ tag: 'GMAIL_REVOKE', usuarioId: usuario.id, err: msgErr(e) }, 'Desconectar Gmail falló a medias; se cierra el menú');
   const v = await escribirUsuario(usuario, { onboarding_paso: 0 }, etiqueta);
@@ -347,8 +399,13 @@ function colaReconexion(usuario) {
 async function manejarOnboarding({ usuario, msg, cmd }) {
   // ─── Flujo desconectar cuenta / wipe (paso -1) ─────────────────────────────
   if (usuario.onboarding_paso === -1 && !cmd.startsWith('/')) {
-    const respDesc = parseInt(cmd.trim());
-    const cuentasActivas = await obtenerCuentasGmail(usuario.id);
+    // Primero y sin mirar las cuentas: la frase borra en las tres ramas del menú. Ver
+    // `leerOpcionMenu` para por qué borrar dejó de ser un número.
+    if (esFraseBorrarCuenta(cmd)) {
+      return await ejecutarBorradoTotal(usuario);
+    }
+    const respDesc = leerOpcionMenu(cmd);
+    const cuentasActivas = respDesc === null ? [] : await obtenerCuentasGmail(usuario.id);
     const numCuentas = cuentasActivas.length;
 
     // La rama multi-cuenta NO es alcanzable con el modelo actual (un usuario, un correo, para
@@ -361,7 +418,7 @@ async function manejarOnboarding({ usuario, msg, cmd }) {
     // Borrar 20 líneas inalcanzables no vale dejar a alguien sin la puerta de salida de sus
     // propios datos. El menú de `handlers/intents/moderacion.js` ramifica igual, en espejo.
     if (numCuentas > 1) {
-      // Multi-cuenta: 1..N = desconectar individual, N+1 = todas, N+2 = eliminar todo
+      // Multi-cuenta: 1..N = desconectar individual, N+1 = todas. Borrar es la frase.
       if (respDesc >= 1 && respDesc <= numCuentas) {
         const cuentaTarget = cuentasActivas[respDesc - 1];
         // Revoca en Google, no solo marca la fila: el flip local le corta la lectura al
@@ -385,8 +442,6 @@ async function manejarOnboarding({ usuario, msg, cmd }) {
         const vDescTodas = await escribirUsuario(usuario, { onboarding_paso: 0 }, 'desconectar_todas');
         return '✅ *Todas las cuentas Gmail desconectadas*\n\nTu historial de gastos se mantiene intacto.'
           + colaReconexion(usuario) + (entro(vDescTodas) ? '' : AVISO_MENU_ABIERTO);
-      } else if (respDesc === numCuentas + 2) {
-        return await ejecutarBorradoTotal(usuario);
       }
     } else if (numCuentas === 1) {
       if (respDesc === 1) {
@@ -398,20 +453,19 @@ async function manejarOnboarding({ usuario, msg, cmd }) {
         const vDesc = await escribirUsuario(usuario, { onboarding_paso: 0 }, 'desconectar');
         return '✅ *Gmail desconectado*\n\nTu historial de gastos se mantiene intacto.'
           + colaReconexion(usuario) + (entro(vDesc) ? '' : AVISO_MENU_ABIERTO);
-      } else if (respDesc === 2) {
-        return await ejecutarBorradoTotal(usuario);
-      }
-    } else {
-      // Sin cuentas Gmail, solo opción de eliminar datos
-      if (respDesc === 1) {
-        return await ejecutarBorradoTotal(usuario);
       }
     }
     // Respuesta no válida → cancelar. El "tu cuenta sigue igual" es verdad pase lo que pase
-    // (no se tocó nada); lo que puede quedar abierto es el menú, y con cero cuentas Gmail la
-    // única opción que le queda es el borrado total.
+    // (no se tocó nada). Con cero cuentas no hay ningún número válido: es el estado que dejan un
+    // cron que revocó Gmail o el primero de dos "1" seguidos, y antes ahí el "1" borraba todo.
+    // "No encontré" y no "no tienes": sólo se mira `gmail_cuentas`, y un Gmail que viva sólo en
+    // el token legacy de `usuarios` no aparece acá.
+    const sinGmail = respDesc !== null && numCuentas === 0;
     const vCancel = await escribirUsuario(usuario, { onboarding_paso: 0 }, 'cancelar_menu');
-    return 'Cancelado. Tu cuenta sigue igual. 👍' + (entro(vCancel) ? '' : AVISO_MENU_ABIERTO);
+    return (sinGmail ? 'No encontré ningún Gmail conectado para desconectar, así que no desconecté nada.' : 'Cancelado.')
+      + ' Tu cuenta sigue igual. 👍'
+      + (respDesc !== null || pareceIntentoDeBorrar(cmd) ? PISTA_BORRAR_CUENTA : '')
+      + (entro(vCancel) ? '' : AVISO_MENU_ABIERTO);
   }
 
   // ─── Paso 100: Recoger nombre del usuario ──────────────────────────────────
