@@ -21,6 +21,12 @@ const nextConfig: NextConfig = {
   },
   async headers() {
     const isDev = process.env.NODE_ENV !== 'production';
+    // Comprobantes de pago del panel admin: URLs firmadas del bucket privado `comprobantes`.
+    // Solo esa ruta y no todo `*.supabase.co`: sin esto el navegador bloqueaba la imagen dentro
+    // de la página (el visor de /admin/pagos y la miniatura del modal de Operación) y solo se
+    // veía abriéndola en otra pestaña, donde la CSP no aplica.
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/+$/, '');
+    const comprobantes = supabaseUrl ? ` ${supabaseUrl}/storage/v1/object/sign/comprobantes/` : '';
     // CSP fase 1: bloquea exfiltración (connect-src), clickjacking (frame-ancestors),
     // inyección de <base>/plugins (base-uri/object-src) y form-action. script-src mantiene
     // 'unsafe-inline' porque Next.js inyecta scripts inline de hidratación/streaming sin nonce;
@@ -30,7 +36,7 @@ const nextConfig: NextConfig = {
       "default-src 'self'",
       `script-src 'self' 'unsafe-inline' https://us-assets.i.posthog.com${isDev ? " 'unsafe-eval'" : ''}`,
       "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob: https://lh3.googleusercontent.com https://us-assets.i.posthog.com",
+      `img-src 'self' data: blob: https://lh3.googleusercontent.com https://us-assets.i.posthog.com${comprobantes}`,
       "font-src 'self' data:",
       // Supabase (auth/DB/realtime) + PostHog (ingest us.i + assets us-assets). Google fonts
       // se auto-hospedan en build (next/font), no requieren host externo.
