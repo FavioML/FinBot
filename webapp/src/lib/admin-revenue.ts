@@ -484,6 +484,20 @@ export function computeRevenue(
 }
 
 /**
+ * El filtro PostgREST (`.or(...)`) de las filas de `pagos` que `cajaDelMes` necesita ver.
+ *
+ * `cajaDelMes` decide por `aprobado_at || created_at`, así que traer solo `created_at >= inicio`
+ * pierde el comprobante enviado el último día del mes anterior y aprobado en este: la tarjeta
+ * "Caja del mes" dejaba de coincidir con el P&L y con /admin/pagos, que la enlaza como el mismo
+ * número. Es un superconjunto: lo que sobra (pendientes, creados este mes) lo descarta
+ * `cajaDelMes`. Los timestamps van entre comillas porque llevan `.` y `:`, reservados en un
+ * árbol lógico de PostgREST.
+ */
+export function filtroPagosDelMes(monthStartIso: string): string {
+  return `aprobado_at.gte."${monthStartIso}",created_at.gte."${monthStartIso}"`;
+}
+
+/**
  * Caja real cobrada desde el inicio del mes: suma de pagos aprobados cuyo
  * aprobado_at (o created_at como fallback) cae en el mes, excluyendo pagos de
  * cuentas internas. Es dinero de verdad, distinto del MRR recurrente.

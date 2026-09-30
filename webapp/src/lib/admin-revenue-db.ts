@@ -11,7 +11,7 @@ import {
  *
  * Vive acá y no en cada ruta porque el modo de falla no es un crash: es un MRR creíble y
  * falso. Si un call-site construyera el índice con la query de `pagosMes` —que existe en
- * las dos rutas y filtra `created_at >= inicio de mes`— un cliente que borró su cuenta en
+ * las dos rutas y filtra por lo creado o aprobado desde el inicio de mes— un cliente que borró su cuenta en
  * junio y volvió a pagar en julio no tendría su pago en el índice, y el panel lo sacaría
  * del MRR estando al día. Con una sola implementación ese error no tiene dónde ocurrir.
  *

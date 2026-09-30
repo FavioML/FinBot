@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { TrendingUp, Receipt, MessageSquare, LayoutGrid, Activity, Users } from 'lucide-react';
+import { TrendingUp, Receipt, MessageSquare, LayoutGrid, Activity, Users, Wallet } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,6 +16,13 @@ const sections = [
     title: 'Unit Economics',
     desc: 'MRR, ARR, breakeven, márgenes, CAC, LTV',
     icon: TrendingUp,
+    status: 'live' as const,
+  },
+  {
+    href: '/admin/pagos',
+    title: 'Pagos recibidos',
+    desc: 'Quién pagó cada mes, cuánto, plan y si es primer pago o renovación',
+    icon: Wallet,
     status: 'live' as const,
   },
   {

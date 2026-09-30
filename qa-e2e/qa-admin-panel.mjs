@@ -130,6 +130,7 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
     '/api/admin/producto',
     '/api/admin/tickets?limit=50',
     '/api/admin/nlp-errors?limit=100',
+    '/api/admin/payments/history',
   ];
 
   for (const ruta of RUTAS) {
@@ -474,9 +475,9 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
   // Filosofía de siempre: el oráculo recomputa el P&L leyendo pagos + admin_costs directo (paginando),
   // NO usa el RPC. Si el RPC truncara o agregara mal, deja de cuadrar. Base caja: ingreso = pagos
   // aprobados no-internos por mes Lima (coalesce(aprobado_at, created_at)); costo = paid_history por
-  // mes Lima. NO se cruza contra economics.revenue_this_month a propósito: economics filtra por
-  // created_at del mes y el P&L bucketea por fecha de aprobación, así que en el borde de mes (pago
-  // creado un mes, aprobado el siguiente) pueden divergir legítimamente. El oráculo es el juez.
+  // mes Lima. Hasta el 30-sep-2026 economics y stats prefiltraban por created_at y divergían del
+  // P&L en el borde de mes (pago creado un mes, aprobado el siguiente); desde que /admin/pagos
+  // enlaza "Caja del mes" como el mismo número, los tres se cruzan en la sección 9b.
   const pnl = resp['/api/admin/pnl'];
   const limaMonth = (iso) => (iso ? new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/Lima' }).slice(0, 7) : null);
   if (pnl && Array.isArray(pnl.months)) {
@@ -491,9 +492,9 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
     // "No es negocio real" = cuenta de prueba O interna, la misma definición del RPC (migr 057) y
     // de isRevenueUser. Con la lista sola, un pago que un harness deje sin limpiar entraría al
     // oráculo, saldría del RPC, y el FAIL apuntaría al lugar equivocado.
-    const usuariosWa = await sbPaginado('usuarios', 'id,whatsapp,is_test_user');
+    const usuariosWa = await sbPaginado('usuarios', 'id,whatsapp,is_test_user,cuenta_borrada_at');
     const internalIds = new Set(usuariosWa.filter(esInterno).map((u) => u.id));
-    const pagos = await sbPaginado('pagos', 'monto,estado,aprobado_at,created_at,usuario_id');
+    const pagos = await sbPaginado('pagos', 'id,monto,estado,tipo_plan,aprobado_at,created_at,usuario_id');
     const costsRows = await sbPaginado('admin_costs', 'paid_history');
 
     const incomeByMonth = {};
@@ -532,6 +533,126 @@ function ok(name, cond, note) { results.push({ name, pass: !!cond, note }); }
       Math.abs(Number(eco.cash_generated_pen) - netTotal) < 0.01,
       `economics ${eco.cash_generated_pen} vs oráculo ${netTotal}`,
     );
+
+    // ---------- 9b. Pagos recibidos (/admin/pagos, RPCs admin_pagos_* 088) ----------
+    // Es el DETALLE de la caja de arriba, así que se mide contra el mismo oráculo y además
+    // contra el P&L: si las dos RPC divergen en la definición de caja, una de las dos miente.
+    // El ordinal (primer pago vs renovación) se recalcula acá sobre TODA la historia del usuario;
+    // una RPC que numerara dentro del mes haría pasar cada renovación por primer pago.
+    const hist = resp['/api/admin/payments/history'];
+    if (hist && Array.isArray(hist.meses) && Array.isArray(hist.pagos)) {
+      const instante = (p) => new Date(p.aprobado_at || p.created_at).getTime();
+      const conPlata = pagos
+        .filter((p) => p.estado === 'aprobado' && Number(p.monto) > 0)
+        .sort((a, b) => a.usuario_id.localeCompare(b.usuario_id) || instante(a) - instante(b) || a.id.localeCompare(b.id));
+      const ordinal = new Map();
+      const vistos = new Map();
+      for (const p of conPlata) {
+        const n = (vistos.get(p.usuario_id) || 0) + 1;
+        vistos.set(p.usuario_id, n);
+        ordinal.set(p.id, n);
+      }
+      // El plan del pago con plata ANTERIOR de ese usuario (lo que la pantalla muestra como
+      // "· antes mensual"). Mismo orden que el ordinal.
+      const planAnterior = new Map();
+      for (let i = 0; i < conPlata.length; i++) {
+        const prev = conPlata[i - 1];
+        planAnterior.set(conPlata[i].id, prev && prev.usuario_id === conPlata[i].usuario_id ? prev.tipo_plan : null);
+      }
+      const borrada = new Map(usuariosWa.map((u) => [u.id, !!u.cuenta_borrada_at]));
+
+      // Cada campo del resumen, recalculado. Lo que la pantalla muestra y el oráculo no lee es lo
+      // que una mutación puede romper en verde (lo encontró la revisión del 30-sep).
+      const vacio = () => ({
+        total_pen: 0, n_pagos: 0, n_primer_pago: 0, n_renovacion: 0, n_mensual: 0, n_anual: 0,
+        total_mensual: 0, total_anual: 0, n_cortesia: 0, n_pendiente: 0, n_rechazado: 0,
+      });
+      const esperado = {};
+      for (const p of pagos) {
+        if (internalIds.has(p.usuario_id)) continue;
+        const mm = limaMonth(p.aprobado_at || p.created_at);
+        const e = (esperado[mm] ||= vacio());
+        if (p.estado === 'aprobado' && p.monto != null) e.total_pen += Number(p.monto);
+        if (p.estado === 'aprobado' && !(Number(p.monto) > 0)) e.n_cortesia++;
+        if (p.estado === 'pendiente') e.n_pendiente++;
+        if (p.estado === 'rechazado') e.n_rechazado++;
+        const n = ordinal.get(p.id);
+        if (n != null) {
+          e.n_pagos++;
+          if (n === 1) e.n_primer_pago++;
+          else e.n_renovacion++;
+          if (p.tipo_plan === 'mensual') { e.n_mensual++; e.total_mensual += Number(p.monto); }
+          if (p.tipo_plan === 'anual') { e.n_anual++; e.total_anual += Number(p.monto); }
+        }
+      }
+      const porMes = Object.fromEntries(hist.meses.map((m) => [String(m.mes).slice(0, 7), m]));
+
+      const difs = [];
+      for (const mm of new Set([...Object.keys(esperado), ...Object.keys(porMes)])) {
+        const e = esperado[mm] || vacio();
+        const h = porMes[mm] || vacio();
+        for (const campo of Object.keys(vacio())) {
+          if (Math.abs(Number(h[campo]) - e[campo]) >= 0.01) difs.push(`${mm} ${campo} ${h[campo]} vs ${e[campo]}`);
+        }
+      }
+      ok('pagos: cada campo del resumen por mes == oráculo (toda la historia)', difs.length === 0, difs.join('; '));
+      ok(
+        'pagos: primer pago + renovación == pagos (cada mes)',
+        hist.meses.every((m) => m.n_primer_pago + m.n_renovacion === m.n_pagos),
+      );
+      ok(
+        'pagos: total por mes == ingreso del P&L (misma caja)',
+        pnl.months.every((m) => Math.abs(Number(m.income_pen) - Number(porMes[String(m.month).slice(0, 7)]?.total_pen || 0)) < 0.01),
+        'la caja del detalle y la del P&L divergen',
+      );
+
+      // "Caja del mes" de Operación enlaza a /admin/pagos como el mismo número, y economics lo
+      // repite. Los tres tienen que coincidir en el mes en curso.
+      const cajaPagos = Number(porMes[hist.mes]?.total_pen || 0);
+      const cajaStats = Number(resp['/api/admin/stats']?.kpis?.cajaMes);
+      ok('pagos: "Caja del mes" (stats) == total del mes en /admin/pagos', Math.abs(cajaStats - cajaPagos) < 0.01, `${cajaStats} vs ${cajaPagos}`);
+      ok(
+        'pagos: economics.revenue_this_month == total del mes en /admin/pagos',
+        Math.abs(Number(eco.revenue_this_month) - cajaPagos) < 0.01,
+        `${eco.revenue_this_month} vs ${cajaPagos}`,
+      );
+
+      // El detalle de CADA mes, no de uno: un corte de mes mal hecho (UTC en vez de Lima) solo
+      // se ve en el mes que tenga un pago entre las 19:00 y las 24:00 de su último día.
+      const mesesDetalle = new Set([...Object.keys(porMes), hist.mes]);
+      const difsDet = [];
+      for (const mm of mesesDetalle) {
+        const det = mm === hist.mes ? { status: 200, json: hist } : await get(cookie, `/api/admin/payments/history?mes=${mm}`);
+        if (det.status !== 200 || !Array.isArray(det.json?.pagos)) { difsDet.push(`${mm} -> ${det.status}`); continue; }
+        const filas = det.json.pagos;
+        const idsOraculo = new Set(pagos.filter((p) => limaMonth(p.aprobado_at || p.created_at) === mm).map((p) => p.id));
+        const idsRuta = new Set(filas.map((p) => p.id));
+        if (idsOraculo.size !== idsRuta.size || ![...idsOraculo].every((id) => idsRuta.has(id))) {
+          difsDet.push(`${mm} ids ruta ${idsRuta.size} vs oráculo ${idsOraculo.size}`);
+        }
+        for (const f of filas) {
+          if ((f.n_pago ?? null) !== (ordinal.get(f.id) ?? null)) difsDet.push(`${mm} ${f.id} n_pago ${f.n_pago}`);
+          if ((f.tipo_plan_anterior ?? null) !== (planAnterior.get(f.id) ?? null)) difsDet.push(`${mm} ${f.id} plan anterior ${f.tipo_plan_anterior}`);
+          if (f.cuenta_borrada !== borrada.get(f.usuario_id)) difsDet.push(`${mm} ${f.id} cuenta_borrada ${f.cuenta_borrada}`);
+          if (f.interno !== internalIds.has(f.usuario_id)) difsDet.push(`${mm} ${f.id} interno ${f.interno}`);
+        }
+        const sumaFilas = filas
+          .filter((p) => p.estado === 'aprobado' && p.monto != null && !p.interno)
+          .reduce((a, p) => a + Number(p.monto), 0);
+        if (Math.abs(sumaFilas - Number(porMes[mm]?.total_pen || 0)) >= 0.01) difsDet.push(`${mm} suma filas ${sumaFilas} vs resumen ${porMes[mm]?.total_pen || 0}`);
+      }
+      ok(
+        `pagos: detalle de los ${mesesDetalle.size} meses == oráculo (ids, ordinal, plan anterior, cuenta borrada, interno, suma)`,
+        difsDet.length === 0,
+        difsDet.slice(0, 8).join('; '),
+      );
+      for (const malo of ['2026-13', '0000-01']) {
+        const invalido = await get(cookie, `/api/admin/payments/history?mes=${malo}`);
+        ok(`pagos: mes=${malo} es 400, no otro mes ni un 500`, invalido.status === 400, `-> ${invalido.status}`);
+      }
+    } else {
+      ok('pagos: la ruta respondió con meses y pagos', false, 'no hubo meses/pagos en /api/admin/payments/history');
+    }
   } else {
     ok('pnl: la ruta respondió con months', false, 'no hubo months en /api/admin/pnl');
   }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import Link from 'next/link';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   AreaChart, Area, LineChart, Line,
@@ -1074,15 +1075,22 @@ export default function AdminOperacionPage() {
             )}
           </div>
         </div>
-        <div className="glass-card rounded-xl p-4">
-          <div className="text-xs text-[#8A877D]">Caja del mes</div>
+        {/* El detalle de este número (quién pagó) vive en /admin/pagos. */}
+        <Link
+          href="/admin/pagos"
+          className="glass-card block rounded-xl p-4 transition-colors hover:border-[rgba(29,158,117,0.35)]"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-[#8A877D]">Caja del mes</span>
+            <span className="text-[10px] text-[#1D9E75]">Ver pagos →</span>
+          </div>
           <div className="mt-1 text-2xl font-semibold text-[#F0EFE8]">
             S/{stats?.kpis.cajaMes ?? '—'}
           </div>
           <div className="mt-0.5 text-xs text-[#8A877D]">
             Conversion {stats?.kpis.conversionRate ?? 0}% · {stats?.kpis.proReal ?? totalPro ?? '—'} de {numeroKpi(users.length)}
           </div>
-        </div>
+        </Link>
         <div className="glass-card rounded-xl p-4">
           <div className="text-xs text-[#8A877D]">Usuarios Activos</div>
           <div className="mt-1 flex items-baseline gap-2">

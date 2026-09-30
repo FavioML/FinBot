@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import {
   computeRevenue,
   cajaDelMes,
+  filtroPagosDelMes,
   isRevenueUser,
   computeChurn,
   mrrAtMonthEnd,
@@ -55,7 +56,7 @@ export async function GET() {
     db
       .from('pagos')
       .select('monto, estado, aprobado_at, created_at, usuario_id')
-      .gte('created_at', startMonthIso),
+      .or(filtroPagosDelMes(startMonthIso)),
     db.rpc('admin_activity_counts', {
       p_day: todayLimaIso,
       p_week: weekAgo,

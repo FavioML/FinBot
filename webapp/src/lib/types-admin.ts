@@ -46,6 +46,53 @@ export interface AdminPnlResponse {
   months: AdminPnlMonth[];
 }
 
+// ===== Pagos recibidos (/admin/pagos, RPCs admin_pagos_* 088) =====
+// Resumen de un mes Lima. `total_pen` es la misma caja que `AdminPnlMonth.income_pen`.
+export interface AdminPagosMes {
+  mes: string; // 'YYYY-MM-DD' (primer día del mes Lima)
+  total_pen: number;
+  n_pagos: number; // pagos con plata (aprobado y monto > 0) de cuentas reales
+  n_primer_pago: number;
+  n_renovacion: number;
+  n_mensual: number;
+  n_anual: number;
+  total_mensual: number;
+  total_anual: number;
+  n_cortesia: number;
+  n_pendiente: number;
+  n_rechazado: number;
+}
+
+export interface AdminPagoFila {
+  id: string;
+  usuario_id: string;
+  cuando: string; // coalesce(aprobado_at, created_at)
+  monto: number | null;
+  tipo_plan: string | null;
+  metodo_pago: string | null;
+  origen: string | null;
+  estado: string;
+  aprobado_por: string | null;
+  premium_desde: string | null;
+  premium_vence: string | null;
+  // Ordinal del pago con plata sobre TODA la historia del usuario. null = no es un pago con
+  // plata (cortesía, pendiente, rechazado).
+  n_pago: number | null;
+  tipo_plan_anterior: string | null;
+  interno: boolean; // cuenta interna o de prueba: se lista pero no suma
+  tiene_comprobante: boolean;
+  nombre: string | null;
+  whatsapp: string | null;
+  email: string | null;
+  cuenta_borrada: boolean;
+}
+
+export interface AdminPagosResponse {
+  meses: AdminPagosMes[];
+  mes: string; // 'YYYY-MM' seleccionado
+  pagos: AdminPagoFila[];
+}
+
 export interface AdminCostDueSoon {
   id: string;
   label: string;

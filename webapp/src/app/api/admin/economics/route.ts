@@ -9,6 +9,7 @@ import {
 import {
   computeRevenue,
   cajaDelMes,
+  filtroPagosDelMes,
   esProActivo,
   isRevenueUser,
   computeChurn,
@@ -98,7 +99,7 @@ export async function GET() {
     db
       .from('pagos')
       .select('monto, estado, aprobado_at, created_at, usuario_id')
-      .gte('created_at', startMonthIso),
+      .or(filtroPagosDelMes(startMonthIso)),
     db.from('transacciones').select('id', { count: 'exact', head: true }),
     db.rpc('admin_activity_counts', {
       p_day: startMonthIso,

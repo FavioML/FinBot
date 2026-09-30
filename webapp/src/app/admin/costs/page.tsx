@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   Check,
   Eye,
@@ -1084,7 +1085,15 @@ function PnlSection() {
                 return (
                   <tr key={m.month}>
                     <td className="py-2 pr-4 capitalize text-[#F0EFE8]">{monthLabel(m.month)}</td>
-                    <td className="py-2 pr-4 text-right text-[#C8C6BC]">{formatPen(m.income_pen)}</td>
+                    <td className="py-2 pr-4 text-right">
+                      {/* Quién pagó ese mes: /admin/pagos, con la misma definición de caja. */}
+                      <Link
+                        href={`/admin/pagos?mes=${m.month.slice(0, 7)}`}
+                        className="text-[#C8C6BC] underline decoration-white/20 underline-offset-4 hover:text-[#1D9E75]"
+                      >
+                        {formatPen(m.income_pen)}
+                      </Link>
+                    </td>
                     <td className="py-2 pr-4 text-right text-[#8A877D]">{formatPen(m.cost_pen)}</td>
                     <td className={`py-2 text-right font-medium ${color}`}>{signedPen(m.result_pen)}</td>
                   </tr>

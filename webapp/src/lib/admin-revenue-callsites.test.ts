@@ -285,8 +285,8 @@ describe('todo select de usuarios en las rutas admin pide las columnas que decid
  * equivocada.
  *
  * `computeRevenue` exige el índice, así que olvidarlo no compila. Lo que sí compila es
- * armarlo con la query de al lado: las dos rutas leen `pagos` filtrando `created_at >=
- * inicio de mes` para `cajaDelMes`. Un índice hecho con ESAS filas no tiene el pago de quien
+ * armarlo con la query de al lado: las dos rutas leen `pagos` creados o aprobados desde el
+ * inicio de mes para `cajaDelMes`. Un índice hecho con ESAS filas no tiene el pago de quien
  * volvió el mes pasado, así que el panel lo saca del MRR estando al día — un cliente que
  * paga, borrado del ingreso, sin un solo error.
  */
