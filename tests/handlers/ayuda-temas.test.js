@@ -352,14 +352,22 @@ describe('el pipeline: del tool call a la respuesta', () => {
   });
 
   it('cada tema que llega por el pipeline contesta su texto (no el genérico), en todo estado', async () => {
-    const SIN_WEB_EN_PRUEBA = { ...EN_TRIAL, id: 'u-sw', supabase_auth_id: null };
-    for (const [nombre, u] of Object.entries({ ...ESTADOS, SIN_WEB_EN_PRUEBA })) {
-      for (const tema of TEMAS_AYUDA.filter((t) => t !== 'se_registro' && t !== 'otro')) {
-        respuestaModelo = tool('social_response', { action: 'help', tema });
-        const r = await procesarMensajeLibre('pregunta', { ...u }, '51999');
-        expect(r, tema + '/' + nombre).toBe(textoAyuda(tema, u));
-        expect(r, tema + '/' + nombre).not.toContain(AYUDA_GENERICA);
+    // El link de activación firma `Date.now()`, y la respuesta y el texto esperado se arman en
+    // dos momentos: con la suite cargada caían en milisegundos distintos y el test fallaba
+    // (01-oct-2026, 2 de 3 corridas completas). Se congela el reloj, no se afloja la igualdad.
+    const reloj = vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 9, 1, 12));
+    try {
+      const SIN_WEB_EN_PRUEBA = { ...EN_TRIAL, id: 'u-sw', supabase_auth_id: null };
+      for (const [nombre, u] of Object.entries({ ...ESTADOS, SIN_WEB_EN_PRUEBA })) {
+        for (const tema of TEMAS_AYUDA.filter((t) => t !== 'se_registro' && t !== 'otro')) {
+          respuestaModelo = tool('social_response', { action: 'help', tema });
+          const r = await procesarMensajeLibre('pregunta', { ...u }, '51999');
+          expect(r, tema + '/' + nombre).toBe(textoAyuda(tema, u));
+          expect(r, tema + '/' + nombre).not.toContain(AYUDA_GENERICA);
+        }
       }
+    } finally {
+      reloj.mockRestore();
     }
   });
 

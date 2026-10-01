@@ -2,6 +2,7 @@ const log = require('../../lib/logger');
 // La línea de precios sale de PRO_PRECIOS: nunca se escribe a mano (ver lib/config).
 const { lineaPrecioPro } = require('../../lib/config');
 const { verificarEscritura, entro } = require('../../helpers/escritura-verificada');
+const { motivoNombreNoDicho } = require('../../lib/nombres');
 
 module.exports = {
   intents: ['ver_tipo_cambio', 'convertir_moneda', 'calcular_cuotas', 'buscar_gasto', 'comparar_meses', 'ver_frecuencia_comercio', 'cambiar_nombre', 'consulta_financiera', 'recordatorio_pago'],
@@ -172,8 +173,17 @@ module.exports = {
       case 'cambiar_nombre': {
         try {
           const nombreNuevo = datos.nombre_nuevo;
-          if (!nombreNuevo || nombreNuevo.length < 2) return 'Dime tu nombre. Ej: _"mi nombre es Juan"_.';
-          const nombreLimpio = nombreNuevo.trim().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+          if (!nombreNuevo || nombreNuevo.length < 2) return 'Dime tu nombre. Ej: _"llámame Juan"_.';
+          // El nombre tiene que estar ESCRITO en el mensaje (clase 7, 30-sep-2026), igual que el
+          // sujeto del borrado (`ELIMINAR_SUJETO_NO_DICHO`). Contra prod, "Esto lo quiero usar para
+          // mi negocio de consultoría. Lo podemos personalizar?" terminó en "ahora te llamo Nvf",
+          // dos veces, y "hola, puedes cambiarme de nombre?" en "Hola". Ver `lib/nombres.js`.
+          const motivoNoDicho = motivoNombreNoDicho(nombreNuevo, msg);
+          if (motivoNoDicho) {
+            log.info({ tag: 'NOMBRE_NO_DICHO', motivo: motivoNoDicho }, 'cambiar_nombre con un nombre que el mensaje no pide: se descarta');
+            return 'No cambié tu nombre. Si quieres que te llame distinto, escríbeme _"llámame Ana"_ con el tuyo.';
+          }
+          const nombreLimpio = nombreNuevo.trim().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
           // **Gemelo del sitio del alta que cerró 9D, y la decisión es la OPUESTA a propósito.**
           // Allá el mismo update perdido no corta nada: el alta se cierra igual y sólo se saluda
           // sin nombre (`mensajePrimerGasto(null)`), porque había un objetivo más valioso del

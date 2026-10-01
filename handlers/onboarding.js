@@ -38,6 +38,7 @@ const log = require('../lib/logger');
 const { PRO_PRECIOS } = require('../lib/config');
 const { CATEGORIAS_SUGERIDAS, FRASE_BORRAR_CUENTA } = require('../lib/constants');
 const { parsearIndicesRespuesta } = require('../lib/formatters');
+const { extraerNombreDelAlta } = require('../lib/nombres');
 const { obtenerCuentasGmail, revocarAccesoGmail, tieneGmailConectado } = require('../gmail');
 const { linkPanelPro, esProPagado } = require('../lib/trial');
 const { borrarCuenta } = require('../services/account-deletion');
@@ -487,12 +488,14 @@ async function manejarOnboarding({ usuario, msg, cmd }) {
       await completarAlta(usuario, 'primer_gasto');
       return null;   // ← fall-through: lo procesa message-processor como siempre
     }
-    let nombreInput = msg.trim();
-    const nombreMatch = nombreInput.match(/(?:me llamo|mi nombre es|soy|es)\s+(.+)/i);
-    if (nombreMatch) nombreInput = nombreMatch[1].trim();
-    nombreInput = nombreInput.replace(/[.,!]+$/, '').trim();
-    if (nombreInput.length < 2 || nombreInput.length > 50 || /^\d+$/.test(nombreInput)) {
-      stepFailed(usuario, 100, 'nombre_invalido');
+    // Una pregunta o una frase no es un nombre (clase 7, 30-sep-2026): "Como funciona?" se
+    // guardaba como "Como Funciona?" y la saludaba "¡Listo, *Como*!" para siempre. La guarda
+    // falla hacia NO guardar, y el costo de un rechazo de más es la repregunta de abajo.
+    const { nombre: nombreLimpio, motivo: motivoNombre } = extraerNombreDelAlta(msg);
+    if (!nombreLimpio) {
+      // Sólo el motivo: el texto es de la persona y puede ser cualquier cosa reenviada.
+      if (motivoNombre !== 'largo') log.info({ tag: 'NOMBRE_FRASE_RECHAZADA', motivo: motivoNombre, intento: (usuario.nombre_intentos || 0) + 1 }, 'el alta no guarda una frase como nombre');
+      stepFailed(usuario, 100, motivoNombre === 'largo' ? 'nombre_invalido' : 'nombre_frase');
       // Se repregunta UNA sola vez. Al segundo intento fallido el nombre deja de
       // importar: vale más un usuario activo sin nombre que uno trabado con él.
       if (usuario.nombre_intentos >= 1) {
@@ -510,7 +513,6 @@ async function manejarOnboarding({ usuario, msg, cmd }) {
       await escribirUsuario(usuario, { nombre_intentos: (usuario.nombre_intentos || 0) + 1 }, 'nombre_intentos');
       return 'No pillé tu nombre. 🤔\n\nEscríbelo solito (ej: _"María"_) o dime *saltar* y empezamos de una.';
     }
-    const nombreLimpio = nombreInput.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
     const vNombre = await escribirUsuario(usuario, { nombre: nombreLimpio }, 'nombre');
     // El alta se cierra IGUAL si el nombre no entró: es la misma decisión que ya tomó
     // `nombre_intentos` dos ramas más arriba —vale más un usuario adentro que uno trabado con

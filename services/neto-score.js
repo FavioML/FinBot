@@ -343,9 +343,27 @@ async function obtenerHistorialScore(usuarioId, months = 6) {
   return data || [];
 }
 
+// Días hacia atrás de la fila contra la que se compara. Desde 6 (las filas son diarias, así que
+// es la misma distancia que el `data[6]` de antes sobre una serie continua) hasta 13: más allá
+// "vs semana pasada" vuelve a ser falso, ahora del otro lado.
+const TENDENCIA_DESDE_DIAS = 6;
+const TENDENCIA_HASTA_DIAS = 13;
+
+function restarDias(periodo, dias) {
+  // `period` es un DATE plano: se opera en UTC sobre la fecha, sin zona que lo corra un día.
+  const [a, m, d] = String(periodo).slice(0, 10).split('-').map(Number);
+  return new Date(Date.UTC(a, m - 1, d - dias)).toISOString().slice(0, 10);
+}
+
 /**
- * Get score trend: current vs 7 days ago.
- * @returns {{ current, previous, diff, trend: 'up'|'down'|'stable' }}
+ * Score actual contra el de hace una semana, o null si no hay una fila de hace una semana.
+ *
+ * Antes, con menos de 7 filas comparaba contra la MÁS VIEJA, y con 7 o más contra `data[6]`
+ * aunque las filas no fueran continuas: 3 de las 5 personas que vieron "+N vs semana pasada"
+ * (sep-2026) llevaban menos de 7 días. Ahora la referencia es la fila más reciente con `period`
+ * entre 6 y 13 días antes de la actual; si no existe, no hay tendencia y los dos callers
+ * (`handlers/intents/score.js`, `cron/checks.js`) la omiten.
+ * @returns {{ current, previous, diff, trend: 'up'|'down'|'stable' } | null}
  */
 async function obtenerTendenciaScore(usuarioId) {
   const { data, error } = await supabase
@@ -364,9 +382,16 @@ async function obtenerTendenciaScore(usuarioId) {
   }
   if (!data || data.length === 0) return null;
 
-  const current = data[0].score;
-  // Find score from ~7 days ago
-  const previous = data.length >= 7 ? data[6].score : data[data.length - 1].score;
+  // Con una fila por día (`onConflict: user_id,period`), entre la actual y "hace 6 días" caben
+  // como mucho 5 filas más, así que la de referencia, si existe, está dentro de las 8 leídas.
+  const actual = data[0];
+  const desde = restarDias(actual.period, TENDENCIA_HASTA_DIAS);
+  const hasta = restarDias(actual.period, TENDENCIA_DESDE_DIAS);
+  const referencia = data.find((f) => f.period && String(f.period).slice(0, 10) <= hasta);
+  if (!referencia || String(referencia.period).slice(0, 10) < desde) return null;
+
+  const current = actual.score;
+  const previous = referencia.score;
   const diff = current - previous;
   const trend = diff > 0 ? 'up' : diff < 0 ? 'down' : 'stable';
 
