@@ -200,6 +200,26 @@ async function decir(u, texto) {
   return r.texto || '';
 }
 
+// La cascada de comandos de `webhook.js` (donde vive "manos libres") guarda SOLO la respuesta de
+// NETO, no el turno del usuario: `esperarRespuesta` buscaría una fila que ese camino no escribe.
+// Acá se lee la primera respuesta de NETO posterior al piso.
+async function decirComando(u, texto) {
+  if (abortado) throw new Error('cortado a mano antes de mandar ' + JSON.stringify(texto));
+  const st = await enviarTexto(vars.META_APP_SECRET, u.whatsapp, texto, `wamid.qa-edicion-${sufijo}-${++n}`);
+  if (st !== 200) throw new Error('el webhook devolvió HTTP ' + st);
+  const hasta = Date.now() + ESPERA_MS;
+  let filas = [];
+  while (Date.now() < hasta && !filas.length) {
+    filas = await sb.select('conversaciones', `usuario_id=eq.${u.id}&rol=eq.neto&id=gt.${u.piso}&select=id,mensaje&order=id.asc`);
+    if (!filas.length) await dormir(1500);
+  }
+  if (filas.length) u.piso = filas[filas.length - 1].id;
+  const r = filas.length ? filas.map((f) => f.mensaje).join('\n---\n') : null;
+  console.log(`    > ${JSON.stringify(texto)}\n    < ${r === null ? '(sin respuesta)' : JSON.stringify(r.slice(0, 220))}`);
+  check(r !== null, JSON.stringify(texto) + ': hubo respuesta');
+  return r || '';
+}
+
 const txs = (u) => sb.select('transacciones', `usuario_id=eq.${u.id}&select=id,comercio,monto,fecha,tipo&order=created_at.asc`);
 const fila = async (id) => (await sb.select('transacciones', `id=eq.${id}&select=id,comercio,monto,fecha,tipo`))[0];
 const manosLibres = async (u) => (await sb.select('usuarios', `id=eq.${u.id}&select=manos_libres`))[0].manos_libres;
@@ -254,10 +274,14 @@ try {
   console.log('\nB · "Manos libres" detrás de un ingreso');
   const b = await crear(EN_PRUEBA());
   const ingreso = await registrar(b, 'Ingreso independiente de 320 soles');
-  const rb = await noToca(b, ingreso, 'Manos libres');
+  const rb = await decirComando(b, 'Manos libres');
+  const ingreso2 = await fila(ingreso.id);
+  check(!!ingreso2 && ingreso2.comercio === ingreso.comercio && Number(ingreso2.monto) === Number(ingreso.monto),
+    'B: "Manos libres" no edita el ingreso', JSON.stringify(ingreso2));
+  check(!/corregid[oa]/i.test(rb), 'B: no dice "corregido"');
   check((await manosLibres(b)) === true, 'B: "Manos libres" prende el modo');
   check(/Manos Libres activado/.test(rb), 'B: lo confirma');
-  const rb2 = await decir(b, 'Manos libres');
+  const rb2 = await decirComando(b, 'Manos libres');
   check((await manosLibres(b)) === true, 'B: un segundo "Manos libres" no lo apaga');
   check(/ya está activado/.test(rb2), 'B: dice que ya estaba activado');
 
