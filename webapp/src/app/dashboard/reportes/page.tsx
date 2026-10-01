@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
-import { useSearchParams, useRouter, usePathname } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import {
@@ -23,7 +23,7 @@ import { EmptyState } from '@/components/shared/empty-state';
 import { ErrorState } from '@/components/shared/error-state';
 import { NumberTicker } from '@/components/ui/number-ticker';
 import { TransactionForm } from '@/components/dashboard/transaction-form';
-import { MonthSelector } from '@/components/dashboard/month-selector';
+import { PeriodoSelector } from '@/components/dashboard/periodo-selector';
 import { useUser } from '@/lib/hooks/use-user';
 import { canAccess } from '@/lib/plan';
 import { ProGate } from '@/components/shared/pro-gate';
@@ -31,7 +31,7 @@ import { useTransactions } from '@/lib/hooks/use-transactions';
 import { useBudgets } from '@/lib/hooks/use-budgets';
 import { formatCurrency, getScoreColor, getScoreLabel } from '@/lib/utils';
 import { useNetoScore } from '@/lib/hooks/use-neto-score';
-import { getCategoriaEmoji, MESES, SOCIAL_LINKS } from '@/lib/constants';
+import { getCategoriaEmoji, SOCIAL_LINKS } from '@/lib/constants';
 import { capitalizeDisplay, normalizeMetodoPago, getMetodoIcon } from '@/lib/format';
 import { subcategoriaUtil } from '@/lib/subcategoria';
 import { useSubscriptions } from '@/lib/hooks/use-subscriptions';
@@ -39,6 +39,8 @@ import type { Transaccion } from '@/lib/types';
 import { montoPen } from '@/lib/tx-monto';
 import { TxMonto } from '@/components/shared/tx-monto';
 import { HeaderActions } from '@/components/dashboard/topbar';
+import { resolverPeriodo, etiquetaDia, etiquetaDiaLarga, type Periodo, type RangoFechas } from '@/lib/periodo-reporte';
+import { todayIsoLima } from '@/lib/date-lima';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   FileBarChart, Download, TrendingUp, TrendingDown,
@@ -54,64 +56,45 @@ import { toast } from 'sonner';
 
 // --- Helpers ---
 
-function buildMonthOptions() {
-  const now = new Date();
-  const options: { label: string; mes: number; anio: number; value: string }[] = [];
-  for (let i = 0; i < 12; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const mes = d.getMonth() + 1;
-    const anio = d.getFullYear();
-    options.push({
-      label: `${MESES[mes]} ${anio}`,
-      mes,
-      anio,
-      value: `${anio}-${mes}`,
-    });
-  }
-  return options;
+/**
+ * Filtro de `useTransactions` para un tramo del reporte. En modo Mes se pide por mes/año, no
+ * por rango, para compartir la entrada de caché con la vista mensual de Transacciones (la key
+ * de React Query son las opciones). Semana y Rango van por `desde`/`hasta`.
+ */
+function filtroDeTramo(tramo: RangoFechas, tipo: Periodo['tipo']) {
+  if (tipo === 'mes') return { mes: Number(tramo.desde.slice(5, 7)), anio: Number(tramo.desde.slice(0, 4)) };
+  return { desde: tramo.desde, hasta: tramo.hasta };
 }
-
 
 // --- Component ---
 
 export default function ReportesPage() {
-  const router = useRouter();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
-  const monthOptions = useMemo(() => buildMonthOptions(), []);
 
-  const now = new Date();
-  const defaultMonth = `${now.getFullYear()}-${now.getMonth() + 1}`;
-  const selected = searchParams.get('mes') || defaultMonth;
-
-  const setSelected = useCallback(
-    (value: string) => {
-      const params = new URLSearchParams(searchParams.toString());
-      params.set('mes', value);
-      router.push(`${pathname}?${params.toString()}`);
-    },
-    [router, pathname, searchParams]
+  // "Hoy" en Lima, no en la zona del navegador: decide el mes por defecto y el tope del rango.
+  const hoy = todayIsoLima();
+  const periodo = useMemo(
+    () => resolverPeriodo({
+      mes: searchParams.get('mes'),
+      semana: searchParams.get('semana'),
+      desde: searchParams.get('desde'),
+      hasta: searchParams.get('hasta'),
+    }, hoy),
+    [searchParams, hoy]
   );
-
-  const selectedOption = monthOptions.find((o) => o.value === selected) || monthOptions[0];
 
   const { data: user, isLoading: userLoading } = useUser();
   const { data: netoScoreData } = useNetoScore();
   const { data: transactions = [], isLoading: txLoading, isError: txError, refetch: refetchTx } = useTransactions({
     usuarioId: user?.id,
-    mes: selectedOption.mes,
-    anio: selectedOption.anio,
+    ...filtroDeTramo(periodo, periodo.tipo),
   });
 
-  // Previous month transactions for comparison
-  const prevDate = new Date(selectedOption.anio, selectedOption.mes - 2, 1);
-  const prevMes = prevDate.getMonth() + 1;
-  const prevAnio = prevDate.getFullYear();
+  // El periodo anterior del mismo largo, para las comparaciones de los KPIs
   const { data: prevTransactions = [] } = useTransactions({
     usuarioId: user?.id,
-    mes: prevMes,
-    anio: prevAnio,
+    ...filtroDeTramo(periodo.previo, periodo.tipo),
   });
 
   const { data: budgets = [] } = useBudgets(user?.id);
@@ -142,11 +125,7 @@ export default function ReportesPage() {
       const pdfH = (imgH * pdfW) / imgW;
       const pdf = new jsPDF('p', 'mm', [pdfW, Math.max(pdfH, 297)]);
       pdf.addImage(imgData, 'PNG', 0, 0, pdfW, pdfH);
-      const now = new Date();
-      const dd = String(now.getDate()).padStart(2, '0');
-      const mm = String(now.getMonth() + 1).padStart(2, '0');
-      const yyyy = now.getFullYear();
-      pdf.save(`Neto - Reporte - ${dd}-${mm}-${yyyy}.pdf`);
+      pdf.save(`Neto - Reporte - ${periodo.etiqueta}.pdf`);
       toast.success('Reporte PDF descargado');
     } catch (err) {
       console.error('[PDF] Error generating:', err);
@@ -154,7 +133,7 @@ export default function ReportesPage() {
     } finally {
       setGeneratingPdf(false);
     }
-  }, [generatingPdf, selectedOption]);
+  }, [generatingPdf, periodo]);
 
   // Score dialog state
   const [showScoreDialog, setShowScoreDialog] = useState(false);
@@ -163,7 +142,7 @@ export default function ReportesPage() {
   const [detailCat, setDetailCat] = useState<string | null>(null);
   const [detailMetodo, setDetailMetodo] = useState<string | null>(null);
   const [detailComercio, setDetailComercio] = useState<string | null>(null);
-  const [detailDay, setDetailDay] = useState<number | null>(null);
+  const [detailDay, setDetailDay] = useState<string | null>(null);
   const [editTransaction, setEditTransaction] = useState<Transaccion | null>(null);
 
   const refreshAll = useCallback(() => {
@@ -206,15 +185,13 @@ export default function ReportesPage() {
 
   const detailDayTransactions = useMemo(() => {
     if (detailDay === null) return [];
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const dateStr = `${selectedOption.anio}-${pad(selectedOption.mes)}-${pad(detailDay)}`;
-    return transactions.filter((t) => t.tipo === 'gasto' && t.fecha === dateStr)
+    return transactions.filter((t) => t.tipo === 'gasto' && t.fecha === detailDay)
       .sort((a, b) => montoPen(b) - montoPen(a));
-  }, [transactions, detailDay, selectedOption]);
+  }, [transactions, detailDay]);
 
   // --- Computed data ---
 
-  // Previous month totals for comparison
+  // Totales del periodo anterior, para comparar
   const prevTotals = useMemo(() => {
     const ingresos = prevTransactions.filter((t) => t.tipo === 'ingreso').reduce((s, t) => s + montoPen(t), 0);
     const gastos = prevTransactions.filter((t) => t.tipo === 'gasto').reduce((s, t) => s + montoPen(t), 0);
@@ -268,16 +245,19 @@ export default function ReportesPage() {
       .slice(0, 5);
   }, [transactions]);
 
+  // Indexado por FECHA, no por número de día: una semana o un rango que cruza de mes tiene
+  // dos "día 1", y con getDate() se sumaban en la misma barra.
   const dailySpending = useMemo(() => {
-    const daysInMonth = new Date(selectedOption.anio, selectedOption.mes, 0).getDate();
-    const dayMap = new Map<number, number>();
-    for (let d = 1; d <= daysInMonth; d++) dayMap.set(d, 0);
+    const dayMap = new Map<string, number>(periodo.dias.map((f) => [f, 0]));
     for (const t of transactions.filter((t) => t.tipo === 'gasto')) {
-      const day = new Date(t.fecha + 'T00:00:00').getDate();
-      dayMap.set(day, (dayMap.get(day) || 0) + montoPen(t));
+      if (dayMap.has(t.fecha)) dayMap.set(t.fecha, (dayMap.get(t.fecha) || 0) + montoPen(t));
     }
-    return Array.from(dayMap.entries()).map(([day, total]) => ({ day, total: Math.round(total * 100) / 100 }));
-  }, [transactions, selectedOption]);
+    return Array.from(dayMap.entries()).map(([fecha, total]) => ({
+      fecha,
+      label: etiquetaDia(periodo, fecha),
+      total: Math.round(total * 100) / 100,
+    }));
+  }, [transactions, periodo]);
 
   const dailyAverage = useMemo(() => {
     const daysWithSpending = dailySpending.filter((d) => d.total > 0);
@@ -321,10 +301,10 @@ export default function ReportesPage() {
 if (!isLoading && transactions.length === 0) {
     return (
       <div className="space-y-6">
-        <Header selected={selected} setSelected={setSelected} monthOptions={monthOptions} onDownloadPDF={handleDownloadPDF} generatingPdf={generatingPdf} />
+        <Header periodo={periodo} hoy={hoy} onDownloadPDF={handleDownloadPDF} generatingPdf={generatingPdf} />
         <EmptyState
-          title="Sin datos para este mes"
-          description="Registra tus ingresos y gastos, por WhatsApp o desde la app, y Neto arma tu reporte del mes con graficos y score financiero."
+          title={periodo.tipo === 'mes' ? 'Sin datos para este mes' : periodo.tipo === 'semana' ? 'Sin datos para esta semana' : 'Sin datos para estas fechas'}
+          description="Registra tus ingresos y gastos, por WhatsApp o desde la app, y Neto arma tu reporte con graficos y score financiero."
           icon={FileBarChart}
           showWhatsApp={false}
           actions={[
@@ -362,10 +342,15 @@ if (!isLoading && transactions.length === 0) {
       `}</style>
 
       {/* Header */}
-      <Header selected={selected} setSelected={setSelected} monthOptions={monthOptions} onDownloadPDF={handleDownloadPDF} generatingPdf={generatingPdf} />
+      <Header periodo={periodo} hoy={hoy} onDownloadPDF={handleDownloadPDF} generatingPdf={generatingPdf} />
 
       {/* Report content for PDF capture */}
       <div ref={reportRef} className="space-y-6">
+
+      {/* El periodo va DENTRO de lo que captura el PDF: el Header queda afuera */}
+      <p className="text-sm text-[#8A877D]">
+        Reporte de <span className="text-[#F0EFE8] font-medium">{periodo.etiqueta}</span>
+      </p>
 
       {/* Score financiero */}
       <div
@@ -409,6 +394,7 @@ if (!isLoading && transactions.length === 0) {
         <StaggerItem>
         <KPICard
           label="Ingresos"
+          comparacion={periodo.etiquetaComparacion}
           value={totalIngresos}
           icon={<TrendingUp className="h-4 w-4" />}
           color="#1D9E75"
@@ -418,6 +404,7 @@ if (!isLoading && transactions.length === 0) {
         <StaggerItem>
         <KPICard
           label="Gastos"
+          comparacion={periodo.etiquetaComparacion}
           value={totalGastos}
           icon={<TrendingDown className="h-4 w-4" />}
           color="#D85A30"
@@ -428,6 +415,7 @@ if (!isLoading && transactions.length === 0) {
         <StaggerItem>
         <KPICard
           label="Ahorro neto"
+          comparacion={periodo.etiquetaComparacion}
           value={ahorro}
           icon={<Wallet className="h-4 w-4" />}
           color={ahorro >= 0 ? '#1D9E75' : '#D85A30'}
@@ -437,6 +425,7 @@ if (!isLoading && transactions.length === 0) {
         <StaggerItem>
         <KPICard
           label="Transacciones"
+          comparacion={periodo.etiquetaComparacion}
           value={txCount}
           icon={<Activity className="h-4 w-4" />}
           color="#EF9F27"
@@ -777,7 +766,7 @@ if (!isLoading && transactions.length === 0) {
         <DialogContent className="glass-card-elevated max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-[#F0EFE8]">
-              Día {detailDay} — {selectedOption.label}
+              {detailDay ? etiquetaDiaLarga(detailDay) : ''}
             </DialogTitle>
           </DialogHeader>
           {detailDayTransactions.length > 0 ? (
@@ -891,15 +880,13 @@ if (!isLoading && transactions.length === 0) {
 // --- Sub-components ---
 
 function Header({
-  selected,
-  setSelected,
-  monthOptions,
+  periodo,
+  hoy,
   onDownloadPDF,
   generatingPdf,
 }: {
-  selected: string;
-  setSelected: (v: string) => void;
-  monthOptions: { label: string; value: string }[];
+  periodo: Periodo;
+  hoy: string;
   onDownloadPDF: () => void;
   generatingPdf: boolean;
 }) {
@@ -912,8 +899,8 @@ function Header({
         </div>
         <HeaderActions />
       </div>
-      <div className="flex items-center gap-3">
-        <MonthSelector />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <PeriodoSelector key={`${periodo.tipo}:${periodo.desde}:${periodo.hasta}`} periodo={periodo} hoy={hoy} />
         <Button
           variant="outline"
           size="sm"
@@ -929,7 +916,7 @@ function Header({
   );
 }
 
-function ComparisonBadge({ current, previous, invertColor }: { current: number; previous: number; invertColor?: boolean }) {
+function ComparisonBadge({ current, previous, invertColor, comparacion }: { current: number; previous: number; invertColor?: boolean; comparacion?: string }) {
   if (previous === 0) return null;
   const pctChange = Math.round(((current - previous) / previous) * 100);
   if (pctChange === 0) return null;
@@ -941,6 +928,7 @@ function ComparisonBadge({ current, previous, invertColor }: { current: number; 
     <span
       className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
       style={{ backgroundColor: `${color}18`, color }}
+      title={comparacion}
     >
       <Icon className="h-2.5 w-2.5" />
       {Math.abs(pctChange)}%
@@ -956,6 +944,7 @@ function KPICard({
   isCurrency = true,
   prevValue,
   invertColor,
+  comparacion,
 }: {
   label: string;
   value: number;
@@ -964,6 +953,7 @@ function KPICard({
   isCurrency?: boolean;
   prevValue?: number;
   invertColor?: boolean;
+  comparacion?: string;
 }) {
   return (
     <div className="glass-card glass-card-glow p-4">
@@ -973,7 +963,7 @@ function KPICard({
           <span className="text-xs text-[#8A877D]">{label}</span>
         </div>
         {prevValue != null && prevValue > 0 && (
-          <ComparisonBadge current={value} previous={prevValue} invertColor={invertColor} />
+          <ComparisonBadge current={value} previous={prevValue} invertColor={invertColor} comparacion={comparacion} />
         )}
       </div>
       <p className="text-xl font-bold" style={{ color }}>

@@ -395,14 +395,22 @@ async function obtenerGastosMes(usuarioId, fechaMinima) {
   return data || [];
 }
 
-async function obtenerGastosSemana(usuarioId, fechaMinima) {
+/**
+ * `fechaMaximaExclusiva` la pasa solo el resumen del cron de los lunes: sin tope, el "resumen de
+ * la semana" sumaba también lo anotado el lunes antes de las 8am, y el reporte de la webapp al que
+ * lleva su aviso (`/dashboard/reportes?semana=...`, lunes a domingo) mostraba otro total. Los
+ * pedidos a demanda (el intent, el comando) no lo pasan: ahí "la semana" incluye hoy.
+ */
+async function obtenerGastosSemana(usuarioId, fechaMinima, fechaMaximaExclusiva) {
   const hoyStr = hoyPeru();
   const hoy = new Date(hoyStr + 'T12:00:00');
   hoy.setDate(hoy.getDate() - 7);
   const desdeStr = hoy.toISOString().split('T')[0];
   const desde = fechaMinima && fechaMinima > desdeStr ? fechaMinima : desdeStr;
-  const { data, error } = await supabase.from('transacciones').select('*').eq('usuario_id', usuarioId)
-    .eq('tipo', 'gasto').gte('fecha', desde).order('fecha', { ascending: false });
+  let query = supabase.from('transacciones').select('*').eq('usuario_id', usuarioId)
+    .eq('tipo', 'gasto').gte('fecha', desde);
+  if (fechaMaximaExclusiva) query = query.lt('fecha', fechaMaximaExclusiva);
+  const { data, error } = await query.order('fecha', { ascending: false });
   // La alimenta `generarResumenSemanal`, o sea uno de los crons que EMPUJAN, y ahi el `[]`
   // corta con `if (!gastosSemana.length) return null`: el resumen del domingo no sale y no
   // queda una linea. Del lado del usuario es peor todavia — el intent `listar_gastos_semana`

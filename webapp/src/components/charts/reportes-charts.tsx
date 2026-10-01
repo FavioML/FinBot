@@ -7,6 +7,7 @@ import {
 } from 'recharts';
 import { formatCurrency } from '@/lib/utils';
 import { getMetodoIcon } from '@/lib/format';
+import { etiquetaDiaLarga } from '@/lib/periodo-reporte';
 
 // Shared palette for all report charts (moved out of the page so recharts
 // only loads inside this lazy chunk).
@@ -14,7 +15,7 @@ const PIE_COLORS = ['#1D9E75', '#EF9F27', '#D85A30', '#3B82F6', '#8B5CF6', '#EC4
 
 interface CategoryDatum { label: string; total: number; categoria: string }
 interface PaymentDatum { name: string; value: number }
-interface DailyDatum { day: number; total: number }
+interface DailyDatum { fecha: string; label: string; total: number }
 
 export function CategoryBarChart({ data, onSelect }: { data: CategoryDatum[]; onSelect: (categoria: string) => void }) {
   return (
@@ -73,19 +74,22 @@ export function PaymentMethodsPieChart({ data, onSelect }: { data: PaymentDatum[
   );
 }
 
-export function DailySpendingChart({ data, dailyAverage, onSelect }: { data: DailyDatum[]; dailyAverage: number; onSelect: (day: number) => void }) {
+export function DailySpendingChart({ data, dailyAverage, onSelect }: { data: DailyDatum[]; dailyAverage: number; onSelect: (fecha: string) => void }) {
   return (
     <ResponsiveContainer width="100%" height={220}>
       <BarChart data={data} margin={{ left: 0, right: 0 }}>
         <XAxis
-          dataKey="day" tick={{ fill: '#8A877D', fontSize: 11 }}
+          dataKey="label" tick={{ fill: '#8A877D', fontSize: 11 }}
           axisLine={false} tickLine={false}
         />
         <YAxis hide />
         <Tooltip
           contentStyle={{ background: 'rgba(26,26,24,0.8)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, color: '#F0EFE8', fontSize: 12 }}
           formatter={(v) => formatCurrency(Number(v))}
-          labelFormatter={(l) => `Dia ${l}`}
+          labelFormatter={(_, payload) => {
+            const fecha = (payload?.[0]?.payload as DailyDatum | undefined)?.fecha;
+            return fecha ? etiquetaDiaLarga(fecha) : '';
+          }}
         />
         {dailyAverage > 0 && (
           <ReferenceLine
@@ -96,7 +100,7 @@ export function DailySpendingChart({ data, dailyAverage, onSelect }: { data: Dai
           />
         )}
         <Bar dataKey="total" fill="#EF9F27" radius={[4, 4, 0, 0]} cursor="pointer"
-          onClick={(e) => { const d = e as unknown as { day?: number; total?: number }; if (d?.day && (d.total ?? 0) > 0) onSelect(d.day); }}
+          onClick={(e) => { const d = e as unknown as { fecha?: string; total?: number }; if (d?.fecha && (d.total ?? 0) > 0) onSelect(d.fecha); }}
         />
       </BarChart>
     </ResponsiveContainer>

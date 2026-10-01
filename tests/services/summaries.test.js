@@ -92,6 +92,14 @@ describe('generarResumenSemanal — bloques opcionales', () => {
     expect(await generarResumenSemanal(USUARIO)).toBeNull();
   });
 
+  it('el tope de la semana viaja hasta la lectura solo si lo pide quien llama', async () => {
+    await generarResumenSemanal(USUARIO, { hastaExclusivo: '2026-07-20' });
+    expect(txMock.obtenerGastosSemana).toHaveBeenLastCalledWith(USUARIO.id, undefined, '2026-07-20');
+    // A demanda (sin opciones) "la semana" sigue incluyendo hoy.
+    await generarResumenSemanal(USUARIO);
+    expect(txMock.obtenerGastosSemana).toHaveBeenLastCalledWith(USUARIO.id, undefined, undefined);
+  });
+
   it('renderiza el bloque de deudas solo con las que vencen en la ventana', async () => {
     const msg = await generarResumenSemanal(USUARIO);
     expect(msg).toContain('Deudas esta semana');

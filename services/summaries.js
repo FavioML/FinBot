@@ -9,9 +9,10 @@ const { generarRecomendaciones, construirDatosUsuario, generarMiniRecomendacion 
 const { obtenerDeudas } = require('./debts');
 const { calcularRitmoAhorro } = require('./metas');
 
-async function generarResumenSemanal(usuario) {
+// `hastaExclusivo` lo pasa el cron de los lunes (ver `obtenerGastosSemana`); a demanda no va.
+async function generarResumenSemanal(usuario, { hastaExclusivo } = {}) {
   const hoy = ahoraPeru();
-  const gastosSemana = await obtenerGastosSemana(usuario.id);
+  const gastosSemana = await obtenerGastosSemana(usuario.id, undefined, hastaExclusivo);
   if (!gastosSemana.length) return null;
 
   const hace14 = new Date(hoy.getTime() - 14 * 24 * 60 * 60 * 1000);

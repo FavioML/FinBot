@@ -79,9 +79,15 @@ async function checkResumenSemanal() {
     const { data: usuarios, error: errUsuarios } = await supabase.from('usuarios').select('*').eq('plan', 'premium').is('cuenta_borrada_at', null);
     if (errUsuarios) log.error({ tag: 'SEMANAL', err: errUsuarios.message }, 'Query usuarios fallo: el resumen semanal no se envio a nadie');
     if (!usuarios || usuarios.length === 0) return;
+    // El resumen sale el lunes y cubre los 7 días anteriores, del lunes pasado al domingo. El
+    // aviso abre el reporte de ESA semana, no el dashboard: es la vista donde la persona puede
+    // ver el detalle de lo que el resumen cuenta.
+    const hoy = hoyPeru();
+    const linkSemana = '/dashboard/reportes?semana=' + sumarDias(hoy, -7);
     for (const usuario of usuarios) {
       try {
-        const resumen = await generarResumenSemanal(usuario);
+        // Tope en hoy (exclusivo): el resumen cuenta de lunes a domingo, lo mismo que el link.
+        const resumen = await generarResumenSemanal(usuario, { hastaExclusivo: hoy });
         if (resumen) {
           await notificarUsuario({
             canales: CANALES.AMBOS,
@@ -89,7 +95,7 @@ async function checkResumenSemanal() {
             tipo: 'resumen_semanal', mensaje: resumen,
             titulo: 'Tu resumen semanal',
             cuerpo: resumen.replace(/[*_]/g, '').substring(0, 400),
-            link: '/dashboard',
+            link: linkSemana,
           });
         }
       } catch(e) { log.error({ tag: 'SEMANAL', whatsapp: usuario.whatsapp, err: msgErr(e) }, 'Error resumen semanal usuario'); }

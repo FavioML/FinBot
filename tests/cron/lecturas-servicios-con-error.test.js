@@ -793,6 +793,12 @@ describe('las dos que alimentan el resumen semanal', () => {
     await expect(transactions.obtenerGastosSemana('u-1')).resolves.toHaveLength(1);
   });
 
+  it('con tope, deja afuera lo de ese día en adelante (el cron de los lunes corta en el domingo)', async () => {
+    tablas.transacciones = SEMANA;
+    await expect(transactions.obtenerGastosSemana('u-1', undefined, '2026-08-19')).resolves.toHaveLength(0);
+    await expect(transactions.obtenerGastosSemana('u-1', undefined, '2026-08-20')).resolves.toHaveLength(1);
+  });
+
   /**
    * El `[]` corta `generarResumenSemanal` con `if (!gastosSemana.length) return null`: el
    * resumen del domingo no sale y no queda una línea. Y por WhatsApp, el intent

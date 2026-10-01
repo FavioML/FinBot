@@ -103,6 +103,25 @@ describe('checkResumenSemanal — a quien le llega', () => {
     expect(notifMock.crearNotificacion).toHaveBeenCalledTimes(2);
   });
 
+  it('el aviso abre el reporte de la semana resumida (la que empezó el lunes pasado)', async () => {
+    vi.setSystemTime(new Date(LUNES_8AM)); // lunes 20-jul → resume del 13 al 19
+    await checkResumenSemanal();
+    expect(notifMock.crearNotificacion).toHaveBeenCalled();
+    for (const llamada of notifMock.crearNotificacion.mock.calls) {
+      expect(JSON.stringify(llamada)).toContain('/dashboard/reportes?semana=2026-07-13');
+    }
+  });
+
+  it('el resumen se corta el domingo: lo anotado el lunes antes de las 8am no entra', async () => {
+    // Sin el tope, el total del resumen incluía el lunes temprano y no cuadraba con el
+    // reporte de lunes a domingo al que lleva el link.
+    vi.setSystemTime(new Date(LUNES_8AM));
+    await checkResumenSemanal();
+    for (const llamada of summariesMock.generarResumenSemanal.mock.calls) {
+      expect(llamada[1]).toEqual({ hastaExclusivo: '2026-07-20' });
+    }
+  });
+
   it('no manda nada si el usuario no tiene movimientos (resumen null)', async () => {
     vi.setSystemTime(new Date(LUNES_8AM));
     summariesMock.generarResumenSemanal.mockResolvedValue(null);

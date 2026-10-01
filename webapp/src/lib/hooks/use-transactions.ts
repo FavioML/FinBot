@@ -10,6 +10,9 @@ interface UseTransactionsOptions {
   usuarioId?: string;
   mes?: number;
   anio?: number;
+  /** Rango libre sobre `fecha` (DATE): `desde` inclusivo, `hasta` exclusivo. Le gana a mes/anio. */
+  desde?: string;
+  hasta?: string;
   tipo?: 'gasto' | 'ingreso';
   categoria?: string;
   limit?: number;
@@ -21,7 +24,10 @@ export function useTransactions(options: UseTransactionsOptions) {
     queryFn: async (): Promise<Transaccion[]> => {
       if (IS_DEMO) {
         let txs = [...DEMO_TRANSACTIONS];
-        if (options.mes && options.anio) {
+        if (options.desde && options.hasta) {
+          const { desde, hasta } = options;
+          txs = txs.filter(t => t.fecha >= desde && t.fecha < hasta);
+        } else if (options.mes && options.anio) {
           const startDate = `${options.anio}-${String(options.mes).padStart(2, '0')}-01`;
           const endDate = options.mes === 12
             ? `${options.anio + 1}-01-01`
@@ -46,7 +52,9 @@ export function useTransactions(options: UseTransactionsOptions) {
         .eq('usuario_id', options.usuarioId)
         .order('fecha', { ascending: false });
 
-      if (options.mes && options.anio) {
+      if (options.desde && options.hasta) {
+        query = query.gte('fecha', options.desde).lt('fecha', options.hasta);
+      } else if (options.mes && options.anio) {
         const startDate = `${options.anio}-${String(options.mes).padStart(2, '0')}-01`;
         const endDate = options.mes === 12
           ? `${options.anio + 1}-01-01`
