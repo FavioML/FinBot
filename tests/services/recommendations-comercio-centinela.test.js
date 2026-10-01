@@ -25,7 +25,7 @@ function stubSupabase() {
     from(tabla) {
       const q = {
         _tipo: null,
-        select() { return q; }, gte() { return q; }, lte() { return q; }, lt() { return q; }, order() { return q; },
+        select() { return q; }, gte() { return q; }, lte() { return q; }, lt() { return q; }, order() { return q; }, range() { return q; },
         eq(col, val) { if (col === 'tipo') q._tipo = val; return q; },
         then(resolve) {
           if (tabla !== 'transacciones') return resolve({ data: [], error: null });

@@ -1,4 +1,5 @@
 const { supabase } = require('../lib/db');
+const { todasLasFilas } = require('../lib/todas-las-filas');
 const log = require('../lib/logger');
 const { hoyPeru } = require('../lib/dates');
 const { validarMonto } = require('../lib/validators');
@@ -340,10 +341,10 @@ async function analizarViabilidad(usuarioId, monthlyQuota, { restante, hoyStr } 
   // `monto_pen` NULL sigue sumando su monto crudo, igual que `recommendations.js`: está anotado.)
   const suma = (xs) => (xs || []).reduce((s, t) => s + parseFloat(t.monto_pen ?? t.monto ?? 0), 0);
   const [{ data: ing, error: errIng }, { data: gas, error: errGas }] = await Promise.all([
-    supabase.from('transacciones').select('monto, monto_pen').eq('usuario_id', usuarioId)
-      .eq('tipo', 'ingreso').gte('fecha', desde).lte('fecha', hasta),
-    supabase.from('transacciones').select('monto, monto_pen').eq('usuario_id', usuarioId)
-      .eq('tipo', 'gasto').gte('fecha', desde).lte('fecha', hasta),
+    todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('id, monto, monto_pen', primera ? { count: 'exact' } : undefined).eq('usuario_id', usuarioId)
+      .eq('tipo', 'ingreso').gte('fecha', desde).lte('fecha', hasta).order('id').range(ini, fin), (t) => t.id),
+    todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('id, monto, monto_pen', primera ? { count: 'exact' } : undefined).eq('usuario_id', usuarioId)
+      .eq('tipo', 'gasto').gte('fecha', desde).lte('fecha', hasta).order('id').range(ini, fin), (t) => t.id),
   ]);
   if (errIng || errGas) throw new Error('No se pudo leer el mes anterior: ' + (errIng || errGas).message);
   const ingresos = suma(ing);

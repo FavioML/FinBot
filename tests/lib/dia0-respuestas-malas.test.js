@@ -58,7 +58,7 @@ describe('analizarViabilidad — juzga con el último mes CERRADO', () => {
       const filtros = [];
       let orden = null;
       const b = {};
-      for (const op of ['select', 'eq', 'gte', 'lte', 'limit']) b[op] = (...a) => { filtros.push([op, ...a]); return b; };
+      for (const op of ['select', 'eq', 'gte', 'lte', 'limit', 'order', 'range']) b[op] = (...a) => { filtros.push([op, ...a]); return b; };
       b.order = (col, o) => { orden = { col, ...o }; return b; };
       b.then = (ok, ko) => Promise.resolve().then(() => {
         const tipo = (filtros.find((f) => f[0] === 'eq' && f[1] === 'tipo') || [])[2];

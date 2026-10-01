@@ -25,7 +25,7 @@ let router;
 function makeChain(table) {
   const q = { table, methods: [], head: false };
   const chain = {};
-  for (const m of ['eq', 'neq', 'gte', 'lte', 'lt', 'gt', 'ilike', 'limit', 'order', 'not', 'in']) {
+  for (const m of ['eq', 'neq', 'gte', 'lte', 'lt', 'gt', 'ilike', 'limit', 'order', 'not', 'in', 'range']) {
     chain[m] = (...a) => { q.methods.push([m, ...a]); return chain; };
   }
   chain.select = (cols, opts) => { q.cols = cols; if (opts && opts.head) q.head = true; return chain; };

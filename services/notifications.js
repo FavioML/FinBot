@@ -1,4 +1,5 @@
 const { supabase } = require('../lib/db');
+const { todasLasFilas } = require('../lib/todas-las-filas');
 const log = require('../lib/logger');
 const { hoyPeru } = require('../lib/dates');
 const { enviarWhatsapp } = require('../lib/whatsapp');
@@ -82,13 +83,15 @@ async function enviarAlertaTransaccion(usuario, tx, resultado) {
       // muestra chica. Lo que cambia es que una alerta que no salió por una caída deja de ser
       // indistinguible de una que no correspondía. (El `catch` de esta función es
       // inalcanzable para las queries: supabase-js no lanza.)
-      const { data: historial, error: errHistorial } = await supabase.from('transacciones')
-        .select('monto, monto_pen, moneda')
+      const { data: historial, error: errHistorial } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones')
+        .select('id, monto, monto_pen, moneda', primera ? { count: 'exact' } : undefined)
         .eq('usuario_id', usuario.id)
         .eq('tipo', 'gasto')
         .ilike('categoria', '%' + categoria + '%')
         .gte('fecha', hace28)
-        .neq('id', tx.id);
+        .neq('id', tx.id)
+        .order('id')
+        .range(ini, fin), (t) => t.id);
 
       if (errHistorial) log.error({ tag: 'INUSUAL', err: errHistorial.message, usuarioId: usuario.id }, 'No se pudo leer el historial de la categoría: no se evalúa gasto inusual');
 

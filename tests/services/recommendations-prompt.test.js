@@ -24,6 +24,7 @@ function stubSupabase(quiebra) {
         gte() { return q; },
         lte() { return q; },
         order() { return q; },
+        range() { return q; },
         then(resolve) {
           const err = { message: 'read timeout' };
           if (tabla === 'presupuestos') {

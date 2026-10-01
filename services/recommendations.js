@@ -1,4 +1,5 @@
 const { supabase } = require('../lib/db');
+const { todasLasFilas } = require('../lib/todas-las-filas');
 const { openai } = require('../lib/ai');
 const log = require('../lib/logger');
 const fs = require('fs');
@@ -127,14 +128,14 @@ async function construirDatosUsuario(usuarioId) {
     { data: ingresosMesAnt, error: eIngAnt },
     { data: presupuestos, error: ePres },
   ] = await Promise.all([
-    supabase.from('transacciones').select('*').eq('usuario_id', usuarioId)
-      .eq('tipo', 'gasto').gte('fecha', primeroDeMes).lte('fecha', finDeMes).order('fecha', { ascending: false }),
-    supabase.from('transacciones').select('*').eq('usuario_id', usuarioId)
-      .eq('tipo', 'gasto').gte('fecha', primeroMesAnt).lte('fecha', finMesAnt),
-    supabase.from('transacciones').select('monto, monto_pen').eq('usuario_id', usuarioId)
-      .eq('tipo', 'ingreso').gte('fecha', primeroDeMes).lte('fecha', finDeMes),
-    supabase.from('transacciones').select('monto, monto_pen').eq('usuario_id', usuarioId)
-      .eq('tipo', 'ingreso').gte('fecha', primeroMesAnt).lte('fecha', finMesAnt),
+    todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('*', primera ? { count: 'exact' } : undefined).eq('usuario_id', usuarioId)
+      .eq('tipo', 'gasto').gte('fecha', primeroDeMes).lte('fecha', finDeMes).order('fecha', { ascending: false }).order('id', { ascending: false }).range(ini, fin), (t) => t.id),
+    todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('*', primera ? { count: 'exact' } : undefined).eq('usuario_id', usuarioId)
+      .eq('tipo', 'gasto').gte('fecha', primeroMesAnt).lte('fecha', finMesAnt).order('id').range(ini, fin), (t) => t.id),
+    todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('id, monto, monto_pen', primera ? { count: 'exact' } : undefined).eq('usuario_id', usuarioId)
+      .eq('tipo', 'ingreso').gte('fecha', primeroDeMes).lte('fecha', finDeMes).order('id').range(ini, fin), (t) => t.id),
+    todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('id, monto, monto_pen', primera ? { count: 'exact' } : undefined).eq('usuario_id', usuarioId)
+      .eq('tipo', 'ingreso').gte('fecha', primeroMesAnt).lte('fecha', finMesAnt).order('id').range(ini, fin), (t) => t.id),
     supabase.from('presupuestos').select('*').eq('usuario_id', usuarioId)
       .eq('mes', mesActual).eq('anio', anioActual),
   ]);

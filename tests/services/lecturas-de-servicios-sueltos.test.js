@@ -89,7 +89,7 @@ function cadena(tabla) {
   // `filtros` se llena DESPUÉS del `.update()` y se comparte por referencia con la escritura ya
   // registrada — es el orden real de postgrest-js (`.update(payload).eq(...)`).
   const filtros = [];
-  for (const m of ['select', 'neq', 'in', 'is', 'not', 'gte', 'lte', 'order', 'ilike']) c[m] = () => c;
+  for (const m of ['select', 'neq', 'in', 'is', 'not', 'gte', 'lte', 'order', 'ilike', 'range']) c[m] = () => c;
   c.eq = (col, val) => { filtros.push([col, val]); return c; };
   c.limit = (n) => { limite = n; return c; };
   c.insert = (payload) => { op = 'insert'; db.escrituras.push({ tabla, op, payload, filtros }); return c; };

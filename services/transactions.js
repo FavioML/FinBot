@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const { supabase } = require('../lib/db');
+const { todasLasFilas } = require('../lib/todas-las-filas');
 const { validarMonto, normalizarCategoria } = require('../lib/validators');
 const { hoyPeru } = require('../lib/dates');
 const { esPagoNeto } = require('../lib/config');
@@ -384,8 +385,8 @@ async function obtenerGastosMes(usuarioId, fechaMinima) {
   const parts = hoyStr.split('-');
   const primero = parts[0] + '-' + parts[1] + '-01';
   const desde = fechaMinima && fechaMinima > primero ? fechaMinima : primero;
-  const { data, error } = await supabase.from('transacciones').select('*').eq('usuario_id', usuarioId)
-    .eq('tipo', 'gasto').gte('fecha', desde).order('fecha', { ascending: false });
+  const { data, error } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('*', primera ? { count: 'exact' } : undefined).eq('usuario_id', usuarioId)
+    .eq('tipo', 'gasto').gte('fecha', desde).order('fecha', { ascending: false }).order('id', { ascending: false }).range(ini, fin), (t) => t.id);
   // El hermano exacto de `obtenerGastosSemana`, y por el mismo motivo: un `[]` mudo no produce
   // un total que falta, produce el total EQUIVOCADO. `/mes` responde "Sin movimientos este mes
   // aun" y el saludo anuncia S/ 0.00 — sobre una lectura caida las dos son mentiras sobre la
@@ -407,10 +408,11 @@ async function obtenerGastosSemana(usuarioId, fechaMinima, fechaMaximaExclusiva)
   hoy.setDate(hoy.getDate() - 7);
   const desdeStr = hoy.toISOString().split('T')[0];
   const desde = fechaMinima && fechaMinima > desdeStr ? fechaMinima : desdeStr;
-  let query = supabase.from('transacciones').select('*').eq('usuario_id', usuarioId)
-    .eq('tipo', 'gasto').gte('fecha', desde);
-  if (fechaMaximaExclusiva) query = query.lt('fecha', fechaMaximaExclusiva);
-  const { data, error } = await query.order('fecha', { ascending: false });
+  // Sin tope, el `lt` va contra una fecha que ninguna transacción alcanza: así la consulta es UNA
+  // cadena cerrada dentro de la página, que es lo único que el guard de paginación acepta.
+  const { data, error } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('*', primera ? { count: 'exact' } : undefined).eq('usuario_id', usuarioId)
+    .eq('tipo', 'gasto').gte('fecha', desde).lt('fecha', fechaMaximaExclusiva || '9999-12-31')
+    .order('fecha', { ascending: false }).order('id', { ascending: false }).range(ini, fin), (t) => t.id);
   // La alimenta `generarResumenSemanal`, o sea uno de los crons que EMPUJAN, y ahi el `[]`
   // corta con `if (!gastosSemana.length) return null`: el resumen del domingo no sale y no
   // queda una linea. Del lado del usuario es peor todavia — el intent `listar_gastos_semana`
@@ -491,12 +493,13 @@ async function recategorizarPorId(transaccionId, categoriaNueva) {
 }
 
 async function corregirTransaccionEspecifica(usuarioId, comercio, monto, fecha, categoriaNueva, subcategoriaNueva) {
-  let query = supabase.from('transacciones').select('*')
+  // Las 10 más recientes de ese comercio: es una búsqueda de candidatos, no un agregado, así que
+  // el tope es a propósito. Cerrada en el lugar para que nadie le pise el `.limit`.
+  const { data: txs, error: errBuscar } = await supabase.from('transacciones').select('*')
     .eq('usuario_id', usuarioId)
     .ilike('comercio', '%' + comercio + '%')
     .order('fecha', { ascending: false })
     .limit(10);
-  const { data: txs, error: errBuscar } = await query;
   // Mismo criterio que `recategorizarTransaccion`, con una razon extra: el call-site es un
   // BUCLE de correcciones multiples. Un throw abortaria las que ya se aplicaron y las que
   // faltan; el motivo discriminado deja que las demas sigan y que esta linea diga la verdad.

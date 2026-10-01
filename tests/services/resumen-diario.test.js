@@ -24,6 +24,8 @@ function makeChain() {
   const filtros = [];
   const c = {};
   c.select = () => c;
+  c.order = () => c;
+  c.range = () => c;
   c.eq = (col, v) => { filtros.push((f) => f[col] === v); return c; };
   c.then = (ok, ko) => Promise.resolve({ data: txs.filter((f) => filtros.every((p) => p(f))), error: null }).then(ok, ko);
   return c;

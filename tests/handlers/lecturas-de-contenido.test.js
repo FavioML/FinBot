@@ -113,7 +113,7 @@ function makeSupabase({ filas = () => [], fallos = [] } = {}) {
       // `order` y `limit` NO se registran, y eso acota lo que este mock puede discriminar: las
       // tres lecturas de `metas_ahorro` de viabilidad/abandonar/recortes arman una query
       // idéntica, así que se separan por la `intencion` con que corre el caso, no por el WHERE.
-      for (const op of ['order', 'limit']) b[op] = () => b;
+      for (const op of ['order', 'limit', 'range']) b[op] = () => b;
       // `head: true` se registra en vez de ignorarse. Es lo que hace medible el arreglo de
       // `crear_meta`: con `head` postgrest devuelve `data: null` POR CONTRATO y el número en
       // `count`, así que un mock que igual devolviera filas dejaría pasar el `.length` viejo —
@@ -392,7 +392,8 @@ describe('gastos.js — las siete lecturas de contenido', () => {
   });
 
   describe('gastos_hormiga (sitio 219)', () => {
-    const TRES = [TX({ monto: 5 }), TX({ monto: 8 }), TX({ monto: 12 })];
+    // Ids distintos: la lectura pasa por todasLasFilas, que deduplica por id (en la base son únicos).
+    const TRES = [TX({ id: 'tx-1', monto: 5 }), TX({ id: 'tx-2', monto: 8 }), TX({ id: 'tx-3', monto: 12 })];
 
     it('con 3+ gastos, calcula el análisis', async () => {
       const sb = makeSupabase({ filas: () => TRES });

@@ -27,6 +27,7 @@
  */
 require('dotenv').config();
 const { supabase } = require('../lib/db');
+const { todasLasFilas } = require('../lib/todas-las-filas');
 const { canonizarComercio } = require('../services/parsers');
 
 const DRY_RUN = process.env.DRY_RUN !== '0';
@@ -57,23 +58,20 @@ function fatal(msg, err) {
 // script evita. El volumen lo permite (miles de filas, no millones).
 async function backfillTransacciones() {
   const cambios = [];
-  const PAGINA = 1000;
-  for (let desde = 0; ; desde += PAGINA) {
-    const { data, error } = await supabase
-      .from('transacciones').select('id, comercio')
-      .not('comercio', 'is', null)
-      .order('id').range(desde, desde + PAGINA - 1);
-    // supabase-js no lanza: sin leer `error`, una página fallida se vería igual que "no hay más
-    // filas" y el backfill reportaría éxito habiendo saltado la mitad de la tabla.
-    if (error) fatal('no se pudo leer transacciones', error);
-    if (!data || data.length === 0) break;
-    for (const t of data) {
-      const nuevo = canonizar(t.comercio);
-      if (nuevo !== t.comercio && !soloCambiaronEspacios(t.comercio, nuevo)) {
-        cambios.push({ id: t.id, antes: t.comercio, despues: nuevo });
-      }
+  // `todasLasFilas` y no el loop a mano que había: ese avanzaba de a 1000 y paraba con la primera
+  // página incompleta, así que si PostgREST cortara en menos se salteaba filas y daba por terminado.
+  const { data, error } = await todasLasFilas((ini, fin, primera) => supabase
+    .from('transacciones').select('id, comercio', primera ? { count: 'exact' } : undefined)
+    .not('comercio', 'is', null)
+    .order('id').range(ini, fin), (t) => t.id);
+  // supabase-js no lanza: sin leer `error`, una página fallida se vería igual que "no hay más
+  // filas" y el backfill reportaría éxito habiendo saltado la mitad de la tabla.
+  if (error) fatal('no se pudo leer transacciones', error);
+  for (const t of data) {
+    const nuevo = canonizar(t.comercio);
+    if (nuevo !== t.comercio && !soloCambiaronEspacios(t.comercio, nuevo)) {
+      cambios.push({ id: t.id, antes: t.comercio, despues: nuevo });
     }
-    if (data.length < PAGINA) break;
   }
 
   console.log('\ntransacciones: ' + cambios.length + ' filas a cambiar');

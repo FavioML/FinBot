@@ -102,7 +102,7 @@ function cadena(tabla) {
     if (Array.isArray(v)) return v.length ? v.shift() : { data: null, error: null };
     return v !== undefined ? v : { data: null, error: null };
   };
-  for (const m of ['select', 'eq', 'neq', 'in', 'is', 'not', 'gte', 'lte', 'order', 'limit', 'ilike']) c[m] = () => c;
+  for (const m of ['select', 'eq', 'neq', 'in', 'is', 'not', 'gte', 'lte', 'order', 'limit', 'ilike', 'range']) c[m] = () => c;
   const columnas = (p) => (p && typeof p === 'object' && !Array.isArray(p) ? Object.keys(p) : null);
   c.insert = (p) => { op = 'insert'; campos = columnas(p); return c; };
   c.update = (p) => { op = 'update'; campos = columnas(p); return c; };

@@ -1,4 +1,5 @@
 const { supabase } = require('../lib/db');
+const { todasLasFilas } = require('../lib/todas-las-filas');
 const { barraProgreso } = require('../lib/formatters');
 const { hoyPeru } = require('../lib/dates');
 const { validarMonto } = require('../lib/validators');
@@ -81,8 +82,9 @@ async function verificarAlertaPresupuesto(usuario, categoria, subcategoria) {
   const [{ data: presupuestosMes, error: errPres }, { data: gastosMes, error: errGastos }] = await Promise.all([
     supabase.from('presupuestos').select('*')
       .eq('usuario_id', usuarioId).eq('mes', mes).eq('anio', anio),
-    supabase.from('transacciones').select('monto,monto_pen,categoria,subcategoria')
-      .eq('usuario_id', usuarioId).eq('tipo', 'gasto').gte('fecha', primero),
+    todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('id,monto,monto_pen,categoria,subcategoria', primera ? { count: 'exact' } : undefined)
+      .eq('usuario_id', usuarioId).eq('tipo', 'gasto').gte('fecha', primero)
+      .order('id').range(ini, fin), (t) => t.id),
   ]);
   // **Aca NO se lanza, y el motivo esta en cuando corre esta funcion: DESPUES de que el gasto
   // ya se escribio.** Sus cuatro call-sites le pegan el resultado a la confirmacion; un throw
@@ -132,8 +134,9 @@ async function formatearEstadoPresupuesto(usuarioId) {
   const MESES_LARGO = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
   const mesNombre = MESES_LARGO[parseInt(primero.split('-')[1], 10) - 1];
   // Una sola query del mes; filtrado por categoría se hace en JS con normalización tilde-insensible
-  const { data: allTxs, error } = await supabase.from('transacciones').select('monto,monto_pen,categoria')
-    .eq('usuario_id', usuarioId).eq('tipo', 'gasto').gte('fecha', primero);
+  const { data: allTxs, error } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('id,monto,monto_pen,categoria', primera ? { count: 'exact' } : undefined)
+    .eq('usuario_id', usuarioId).eq('tipo', 'gasto').gte('fecha', primero)
+    .order('id').range(ini, fin), (t) => t.id);
   // Esta si lanza, y la diferencia con `verificarAlertaPresupuesto` es lo que se imprime: con
   // `allTxs` en null cada categoria sale con "S/ 0.00 / S/ 500 (resta S/ 500)" y la barra de
   // progreso vacia. No es un bloque que falta, es un numero de plata FALSO — y el que mas

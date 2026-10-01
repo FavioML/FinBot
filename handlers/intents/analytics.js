@@ -1,6 +1,7 @@
 const log = require('../../lib/logger');
 const { ahoraPeru } = require('../../lib/dates');
 const { subcategoriaUtil } = require('../../lib/subcategoria');
+const { todasLasFilas } = require('../../lib/todas-las-filas');
 
 module.exports = {
   intents: ['ver_gasto_mayor', 'ver_gasto_menor', 'ver_promedio_diario', 'ver_historial_cambios', 'ver_ultima_transaccion', 'ver_ingresos', 'ver_suscripciones'],
@@ -111,7 +112,7 @@ module.exports = {
           if (periodoIng === 'semana') {
             const hace7 = ahoraPeru(); hace7.setDate(hace7.getDate() - 7);
             const desdeIng = hace7.getFullYear() + '-' + String(hace7.getMonth() + 1).padStart(2, '0') + '-' + String(hace7.getDate()).padStart(2, '0');
-            const { data, error: errIngSem } = await supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).eq('tipo', 'ingreso').gte('fecha', desdeIng).order('fecha', { ascending: false });
+            const { data, error: errIngSem } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('*', primera ? { count: 'exact' } : undefined).eq('usuario_id', usuario.id).eq('tipo', 'ingreso').gte('fecha', desdeIng).order('fecha', { ascending: false }).order('id', { ascending: false }).range(ini, fin), (t) => t.id);
             // Las dos ramas de `ver_ingresos` son EXCLUSIVAS (semana o mes), no un par: cada
             // una necesita su propia guarda porque solo corre una. Sin ella, "No tienes
             // ingresos registrados esta semana" sobre el sueldo que la persona anoto ayer.
@@ -120,7 +121,7 @@ module.exports = {
           } else {
             const desdeIng = anioIng + '-' + String(mesIng).padStart(2,'0') + '-01';
             const hastaIng = anioIng + '-' + String(mesIng).padStart(2,'0') + '-' + String(ultimoDiaMes(anioIng, mesIng)).padStart(2,'0');
-            const { data, error: errIngMes } = await supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).eq('tipo', 'ingreso').gte('fecha', desdeIng).lte('fecha', hastaIng).order('fecha', { ascending: false });
+            const { data, error: errIngMes } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('*', primera ? { count: 'exact' } : undefined).eq('usuario_id', usuario.id).eq('tipo', 'ingreso').gte('fecha', desdeIng).lte('fecha', hastaIng).order('fecha', { ascending: false }).order('id', { ascending: false }).range(ini, fin), (t) => t.id);
             if (errIngMes) throw errIngMes;
             txsIng = data || [];
           }

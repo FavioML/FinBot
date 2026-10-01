@@ -27,7 +27,7 @@ let filasTx = [];
 // que el doble tiene que existir ANTES del require y la variabilidad va en `filasTx`, no en
 // reasignar el cliente. Es la cadena minima que usa `totalGastadoMes`.
 const dbMock = { supabase: { from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ gte: () => ({
-  lte: () => Promise.resolve({ data: filasTx, error: null }) }) }) }) }) }) } };
+  lte: () => ({ order: () => ({ range: () => Promise.resolve({ data: filasTx, error: null }) }) }) }) }) }) }) }) } };
 const logMock = { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn(), fatal: vi.fn(), trace: vi.fn() };
 for (const [rel, exports] of [
   ['lib/db.js', dbMock],

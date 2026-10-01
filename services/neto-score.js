@@ -1,4 +1,5 @@
 const { supabase } = require('../lib/db');
+const { todasLasFilas } = require('../lib/todas-las-filas');
 const log = require('../lib/logger');
 const { hoyPeru } = require('../lib/dates');
 const { construirDatosUsuario } = require('./recommendations');
@@ -35,12 +36,14 @@ async function calcFactorConsistency(usuarioId) {
   // mes que cubre) no es "haber registrado ese día futuro", así que no debe contar como
   // día activo. El webapp (api/score/route.ts) aplica el mismo `.lte(hoy)` para no
   // divergir. Espejo del criterio de la cota de mes en construirDatosUsuario.
-  const { data, error } = await supabase
+  const { data, error } = await todasLasFilas((ini, fin, primera) => supabase
     .from('transacciones')
-    .select('fecha')
+    .select('id, fecha', primera ? { count: 'exact' } : undefined)
     .eq('usuario_id', usuarioId)
     .gte('fecha', desde)
-    .lte('fecha', hoyPeru());
+    .lte('fecha', hoyPeru())
+    .order('id')
+    .range(ini, fin), (t) => t.id);
 
   // Un factor es un sumando de una media ponderada: si la lectura cae y devolvemos el
   // default, el score no falla, se MUEVE. Acá el default es 0 con peso 0.20, o sea -20

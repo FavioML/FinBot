@@ -2,6 +2,7 @@ const log = require('../../lib/logger');
 const { validarMonto } = require('../../lib/validators');
 const { verificarEscritura, entro } = require('../../helpers/escritura-verificada');
 const { enlaceApp, estaEnMuro } = require('../../lib/trial');
+const { todasLasFilas } = require('../../lib/todas-las-filas');
 
 module.exports = {
   intents: ['ver_presupuesto', 'configurar_presupuesto', 'eliminar_presupuesto', 'ver_balance', 'ver_categorias', 'editar_categorias'],
@@ -126,8 +127,8 @@ module.exports = {
           const desdeBal = anioBal + '-' + String(mesBal).padStart(2,'0') + '-01';
           const hastaBal = anioBal + '-' + String(mesBal).padStart(2,'0') + '-' + String(ultimoDiaMes(anioBal, mesBal)).padStart(2,'0');
           const [{ data: gastosBal, error: errG }, { data: ingresosBal, error: errI }] = await Promise.all([
-            supabase.from('transacciones').select('monto_pen,monto').eq('usuario_id', usuario.id).eq('tipo', 'gasto').gte('fecha', desdeBal).lte('fecha', hastaBal),
-            supabase.from('transacciones').select('monto_pen,monto').eq('usuario_id', usuario.id).eq('tipo', 'ingreso').gte('fecha', desdeBal).lte('fecha', hastaBal)
+            todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('id,monto_pen,monto', primera ? { count: 'exact' } : undefined).eq('usuario_id', usuario.id).eq('tipo', 'gasto').gte('fecha', desdeBal).lte('fecha', hastaBal).order('id').range(ini, fin), (t) => t.id),
+            todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('id,monto_pen,monto', primera ? { count: 'exact' } : undefined).eq('usuario_id', usuario.id).eq('tipo', 'ingreso').gte('fecha', desdeBal).lte('fecha', hastaBal).order('id').range(ini, fin), (t) => t.id)
           ]);
           // **El peor de los dieciseis, y el que obliga a mirar las DOS mitades.** El balance
           // es ingresos menos gastos: si cae la mitad de los ingresos, la otra llega entera y

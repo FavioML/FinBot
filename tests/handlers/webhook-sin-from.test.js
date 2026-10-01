@@ -38,7 +38,7 @@ require('../../lib/atribucion').registrarOrigenDelAlta = vi.fn().mockResolvedVal
 function makeChain(data = []) {
   const c = {};
   for (const m of ['select', 'insert', 'update', 'delete', 'upsert',
-    'eq', 'ilike', 'gte', 'lte', 'is', 'neq', 'not', 'order', 'limit', 'single', 'maybeSingle']) {
+    'eq', 'ilike', 'gte', 'lte', 'is', 'neq', 'not', 'order', 'limit', 'range', 'single', 'maybeSingle']) {
     c[m] = vi.fn().mockReturnValue(c);
   }
   c.then = (onF, onR) => Promise.resolve({ data, error: null }).then(onF, onR);

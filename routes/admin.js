@@ -1,6 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const { supabase } = require('../lib/db');
+const { todasLasFilas } = require('../lib/todas-las-filas');
 const log = require('../lib/logger');
 const { hoyPeru } = require('../lib/dates');
 const { enviarWhatsapp } = require('../lib/whatsapp');
@@ -290,14 +291,14 @@ router.get('/stats', async (req, res) => {
     const { count: txs30d, error: err30d } = await supabase.from('transacciones').select('id', { count: 'exact', head: true }).gte('fecha', hace30);
     if (err30d) return fallo('transacciones-30d', err30d);
 
-    const { data: txsCat, error: errCat } = await supabase.from('transacciones').select('categoria, monto_pen').eq('tipo', 'gasto').gte('fecha', hace30);
+    const { data: txsCat, error: errCat } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('id, categoria, monto_pen', primera ? { count: 'exact' } : undefined).eq('tipo', 'gasto').gte('fecha', hace30).order('id').range(ini, fin), (t) => t.id);
     if (errCat) return fallo('top-categorias', errCat);
     const porCat = {};
     (txsCat || []).forEach(t => { const c = t.categoria || 'Otros'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto_pen || 0); });
     const topCategorias = Object.entries(porCat).sort((a, b) => b[1] - a[1]).slice(0, 5)
       .map(([cat, total]) => ({ categoria: cat, total: parseFloat(total.toFixed(2)) }));
 
-    const { data: txsBanco, error: errBanco } = await supabase.from('transacciones').select('banco').gte('fecha', hace30).not('banco', 'is', null);
+    const { data: txsBanco, error: errBanco } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('id, banco', primera ? { count: 'exact' } : undefined).gte('fecha', hace30).not('banco', 'is', null).order('id').range(ini, fin), (t) => t.id);
     if (errBanco) return fallo('top-bancos', errBanco);
     const porBanco = {};
     (txsBanco || []).forEach(t => { porBanco[t.banco] = (porBanco[t.banco] || 0) + 1; });

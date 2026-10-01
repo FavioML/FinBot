@@ -86,6 +86,8 @@ function makeChain(table, op = 'select', patch = null) {
   };
   chain.order = (col, opts) => { orden = { col, asc: !opts || opts.ascending !== false }; return chain; };
   chain.limit = (n) => { tope = n; return chain; };
+  let desdeFila = 0;
+  chain.range = (a, b) => { desdeFila = a; tope = b - a + 1; return chain; };
   const rango = (cmp) => (col, val) => {
     vistos.push({ col, val });
     filtros.push((f) => f[col] !== null && f[col] !== undefined && cmp(f[col], val));
@@ -101,7 +103,9 @@ function makeChain(table, op = 'select', patch = null) {
     else if (op === 'eq') filtros.push((f) => noEsNull(f, col) && f[col] !== val);
     return chain;
   };
-  chain.select = (_cols, opts) => { if (opts && opts.count) esConteo = true; return chain; };
+  // Como PostgREST: `count` sin `head: true` devuelve las filas Y el conteo (la página de
+  // `todasLasFilas` lo pide así); solo `head: true` deja `data` en null.
+  chain.select = (_cols, opts) => { if (opts && opts.head) esConteo = true; return chain; };
   chain.eq = (col, val) => { vistos.push({ col, val }); filtros.push((f) => f[col] === val); return chain; };
   chain.neq = (col, val) => { filtros.push((f) => noEsNull(f, col) && f[col] !== val); return chain; };
   chain.in = (col, arr) => { vistos.push({ col, val: arr }); filtros.push((f) => arr.includes(f[col])); return chain; };
@@ -125,10 +129,10 @@ function makeChain(table, op = 'select', patch = null) {
       const { col, asc } = orden;
       filas = [...filas].sort((a, b) => (a[col] > b[col] ? 1 : a[col] < b[col] ? -1 : 0) * (asc ? 1 : -1));
     }
-    if (tope !== null) filas = filas.slice(0, tope);
-    return esConteo
-      ? { data: null, count: filas.length, error: null }
-      : { data: filas, count: filas.length, error: null };
+    const total = filas.length;
+    if (tope !== null) filas = filas.slice(desdeFila, desdeFila + tope);
+    if (esConteo) return { data: null, count: total, error: null };
+    return { data: filas, count: total, error: null };
   };
   /**
    * Con CERO filas, `.single()` devuelve **`PGRST116`**, no `{ data: null, error: null }`.

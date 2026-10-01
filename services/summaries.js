@@ -1,4 +1,5 @@
 const { supabase } = require('../lib/db');
+const { todasLasFilas } = require('../lib/todas-las-filas');
 const { openai } = require('../lib/ai');
 const log = require('../lib/logger');
 const { ahoraPeru, ultimoDiaMes, hoyPeru } = require('../lib/dates');
@@ -17,10 +18,11 @@ async function generarResumenSemanal(usuario, { hastaExclusivo } = {}) {
 
   const hace14 = new Date(hoy.getTime() - 14 * 24 * 60 * 60 * 1000);
   const hace7 = new Date(hoy.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const { data: gastosAnt, error: errGastosAnt } = await supabase.from('transacciones').select('*')
+  const { data: gastosAnt, error: errGastosAnt } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('*', primera ? { count: 'exact' } : undefined)
     .eq('usuario_id', usuario.id).eq('tipo', 'gasto')
     .gte('fecha', hace14.toISOString().split('T')[0])
-    .lt('fecha', hace7.toISOString().split('T')[0]);
+    .lt('fecha', hace7.toISOString().split('T')[0])
+    .order('id').range(ini, fin), (t) => t.id);
   if (errGastosAnt) log.error({ tag: 'RESUMEN_SEM', usuarioId: usuario.id, err: errGastosAnt.message }, 'Query semana anterior fallo: el resumen sale sin comparativa');
   const gastosAnteriores = gastosAnt || [];
 
@@ -45,9 +47,10 @@ async function generarResumenSemanal(usuario, { hastaExclusivo } = {}) {
 
   const diasMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0).getDate();
   const diaActual = hoy.getDate();
-  const { data: gastosMesData, error: errGastosMes } = await supabase.from('transacciones').select('monto')
+  const { data: gastosMesData, error: errGastosMes } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('id, monto', primera ? { count: 'exact' } : undefined)
     .eq('usuario_id', usuario.id).eq('tipo', 'gasto')
-    .gte('fecha', hoy.getFullYear() + '-' + String(hoy.getMonth() + 1).padStart(2, '0') + '-01');
+    .gte('fecha', hoy.getFullYear() + '-' + String(hoy.getMonth() + 1).padStart(2, '0') + '-01')
+    .order('id').range(ini, fin), (t) => t.id);
   if (errGastosMes) log.error({ tag: 'RESUMEN_SEM', usuarioId: usuario.id, err: errGastosMes.message }, 'Query gastos del mes fallo: el resumen sale sin proyeccion');
   const totalMes = (gastosMesData || []).reduce((s, t) => s + parseFloat(t.monto_pen || t.monto), 0);
   const proyeccionMes = diaActual > 0 ? (totalMes / diaActual) * diasMes : 0;
@@ -196,13 +199,15 @@ async function generarResumenMensual(usuario) {
   const desde = anioAnt + '-' + String(mesAnt).padStart(2, '0') + '-01';
   const hasta = anioAnt + '-' + String(mesAnt).padStart(2, '0') + '-' + String(ultimoDiaMes(anioAnt, mesAnt)).padStart(2, '0');
 
-  const { data: txsMes, error: errTxs } = await supabase.from('transacciones').select('*')
-    .eq('usuario_id', usuario.id).eq('tipo', 'gasto').gte('fecha', desde).lte('fecha', hasta);
+  const { data: txsMes, error: errTxs } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('*', primera ? { count: 'exact' } : undefined)
+    .eq('usuario_id', usuario.id).eq('tipo', 'gasto').gte('fecha', desde).lte('fecha', hasta)
+    .order('id').range(ini, fin), (t) => t.id);
   if (errTxs) { log.error({ tag: 'RESUMEN', usuarioId: usuario.id, err: errTxs.message }, 'No se pudo leer las transacciones del resumen: no se envia'); throw errTxs; }
   if (!txsMes || txsMes.length === 0) return null;
 
-  const { data: ingresos, error: errIng } = await supabase.from('transacciones').select('monto,monto_pen')
-    .eq('usuario_id', usuario.id).eq('tipo', 'ingreso').gte('fecha', desde).lte('fecha', hasta);
+  const { data: ingresos, error: errIng } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('id,monto,monto_pen', primera ? { count: 'exact' } : undefined)
+    .eq('usuario_id', usuario.id).eq('tipo', 'ingreso').gte('fecha', desde).lte('fecha', hasta)
+    .order('id').range(ini, fin), (t) => t.id);
   // Esta es la que mas dano hace callada: `(ingresos || [])` da total 0, y el resumen anuncia
   // un ahorro negativo igual a todo el gasto del mes.
   if (errIng) { log.error({ tag: 'RESUMEN', usuarioId: usuario.id, err: errIng.message }, 'No se pudo leer las transacciones del resumen: no se envia'); throw errIng; }
@@ -215,8 +220,9 @@ async function generarResumenMensual(usuario) {
   const anioAntAnt = mesAnt === 1 ? anioAnt - 1 : anioAnt;
   const desdeAntAnt = anioAntAnt + '-' + String(mesAntAnt).padStart(2, '0') + '-01';
   const hastaAntAnt = anioAntAnt + '-' + String(mesAntAnt).padStart(2, '0') + '-' + String(ultimoDiaMes(anioAntAnt, mesAntAnt)).padStart(2, '0');
-  const { data: txsAntAnt, error: errAntAnt } = await supabase.from('transacciones').select('monto,monto_pen')
-    .eq('usuario_id', usuario.id).eq('tipo', 'gasto').gte('fecha', desdeAntAnt).lte('fecha', hastaAntAnt);
+  const { data: txsAntAnt, error: errAntAnt } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('id,monto,monto_pen', primera ? { count: 'exact' } : undefined)
+    .eq('usuario_id', usuario.id).eq('tipo', 'gasto').gte('fecha', desdeAntAnt).lte('fecha', hastaAntAnt)
+    .order('id').range(ini, fin), (t) => t.id);
   // El mes de comparacion: en cero, el resumen anuncia una subida de gasto contra un mes que
   // no se pudo leer.
   if (errAntAnt) { log.error({ tag: 'RESUMEN', usuarioId: usuario.id, err: errAntAnt.message }, 'No se pudo leer las transacciones del resumen: no se envia'); throw errAntAnt; }
@@ -289,8 +295,9 @@ function comercioReal(comercio) {
  */
 async function generarResumenDiario(usuario, { cierre = false } = {}) {
   const hoyStr = hoyPeru();
-  const { data: txsHoy, error: errHoy } = await supabase.from('transacciones').select('*')
-    .eq('usuario_id', usuario.id).eq('tipo', 'gasto').eq('fecha', hoyStr);
+  const { data: txsHoy, error: errHoy } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('*', primera ? { count: 'exact' } : undefined)
+    .eq('usuario_id', usuario.id).eq('tipo', 'gasto').eq('fecha', hoyStr)
+    .order('id').range(ini, fin), (t) => t.id);
   if (errHoy) { log.error({ tag: 'RESUMEN', usuarioId: usuario.id, err: errHoy.message }, 'No se pudo leer las transacciones del resumen: no se envia'); throw errHoy; }
   if (!txsHoy || txsHoy.length === 0) return null;
 
@@ -300,8 +307,9 @@ async function generarResumenDiario(usuario, { cierre = false } = {}) {
   txsHoy.forEach(t => { const c = t.categoria || 'Otros'; porCat[c] = (porCat[c] || 0) + parseFloat(t.monto_pen || t.monto); });
   const top3 = Object.entries(porCat).sort((a, b) => b[1] - a[1]).slice(0, 3);
 
-  const { data: ingHoy, error: errIngHoy } = await supabase.from('transacciones').select('monto,monto_pen')
-    .eq('usuario_id', usuario.id).eq('tipo', 'ingreso').eq('fecha', hoyStr);
+  const { data: ingHoy, error: errIngHoy } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('id,monto,monto_pen', primera ? { count: 'exact' } : undefined)
+    .eq('usuario_id', usuario.id).eq('tipo', 'ingreso').eq('fecha', hoyStr)
+    .order('id').range(ini, fin), (t) => t.id);
   if (errIngHoy) { log.error({ tag: 'RESUMEN', usuarioId: usuario.id, err: errIngHoy.message }, 'No se pudo leer las transacciones del resumen: no se envia'); throw errIngHoy; }
   const totalIng = (ingHoy || []).reduce((s, t) => s + parseFloat(t.monto_pen || t.monto), 0);
 

@@ -1,6 +1,7 @@
 const log = require('../../lib/logger');
 // La línea de precios sale de PRO_PRECIOS: nunca se escribe a mano (ver lib/config).
 const { lineaPrecioPro } = require('../../lib/config');
+const { todasLasFilas } = require('../../lib/todas-las-filas');
 const { subcategoriaUtil } = require('../../lib/subcategoria');
 
 /**
@@ -98,7 +99,7 @@ module.exports = {
           const desde2 = anio2+'-'+String(mes2).padStart(2,'0')+'-01';
           if (fechaMinLgm && desde2 < fechaMinLgm) return '🔒 Tu plan gratuito solo muestra el último mes de historial.\n\nEscribe */premium* para desbloquear todo tu historial.';
           const hasta2 = anio2+'-'+String(mes2).padStart(2,'0')+'-'+String(ultimoDiaMes(anio2,mes2)).padStart(2,'0');
-          const { data: txsTodas, error: errTodas } = await supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).gte('fecha', desde2).lte('fecha', hasta2);
+          const { data: txsTodas, error: errTodas } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('*', primera ? { count: 'exact' } : undefined).eq('usuario_id', usuario.id).gte('fecha', desde2).lte('fecha', hasta2).order('id').range(ini, fin), (t) => t.id);
           // Sin esto el desglose sale con S/ 0.00 en CADA cuenta, que es peor que un total
           // faltante: parece un mes sin gastar y encima parece que Gmail dejo de traer nada.
           if (errTodas) {
@@ -126,7 +127,7 @@ module.exports = {
           const desde = anio + '-' + String(mes).padStart(2,'0') + '-01';
           if (fechaMinLgm && desde < fechaMinLgm) return '🔒 Tu plan gratuito solo muestra el último mes de historial.\n\nEscribe */premium* para desbloquear todo tu historial.';
           const hasta = anio + '-' + String(mes).padStart(2,'0') + '-' + String(ultimoDiaMes(anio, mes)).padStart(2,'0');
-          const { data, error: errMes } = await supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).gte('fecha', desde).lte('fecha', hasta).order('fecha', { ascending: false });
+          const { data, error: errMes } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('*', primera ? { count: 'exact' } : undefined).eq('usuario_id', usuario.id).gte('fecha', desde).lte('fecha', hasta).order('fecha', { ascending: false }).order('id', { ascending: false }).range(ini, fin), (t) => t.id);
           // La rama del mes ACTUAL usa `obtenerGastosMes`, que ya lanza (item 8). Esta rama
           // —el historial, o sea justo lo que compra el plan Pro— se quedaba muda:
           // `formatearResumen([])` responde "Sin movimientos" sobre el mes que el usuario
@@ -152,7 +153,7 @@ module.exports = {
         const hoyD = new Date(hoyStr + 'T12:00:00');
         const hace14 = new Date(hoyD); hace14.setDate(hoyD.getDate()-14);
         const hace7 = new Date(hoyD); hace7.setDate(hoyD.getDate()-7);
-        const { data: txsAnt, error: errAnt } = await supabase.from('transacciones').select('monto,monto_pen').eq('usuario_id', usuario.id).eq('tipo','gasto').gte('fecha', hace14.toISOString().split('T')[0]).lte('fecha', hace7.toISOString().split('T')[0]);
+        const { data: txsAnt, error: errAnt } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('id,monto,monto_pen', primera ? { count: 'exact' } : undefined).eq('usuario_id', usuario.id).eq('tipo','gasto').gte('fecha', hace14.toISOString().split('T')[0]).lte('fecha', hace7.toISOString().split('T')[0]).order('id').range(ini, fin), (t) => t.id);
         // ACCESORIA, y por eso es la unica de las siete que no corta: `txsSem` sale de
         // `obtenerGastosSemana`, que lanza si la lectura cae, asi que si llegamos aca el
         // resumen de ESTA semana es correcto y completo. Lo que se pierde es la linea
@@ -186,8 +187,9 @@ module.exports = {
         } else {
           fechaDia = fechaHoyPeru();
         }
-        const { data: txsDia, error: errDia } = await supabase.from('transacciones').select('*')
-          .eq('usuario_id', usuario.id).eq('fecha', fechaDia).order('created_at', { ascending: false });
+        const { data: txsDia, error: errDia } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('*', primera ? { count: 'exact' } : undefined)
+          .eq('usuario_id', usuario.id).eq('fecha', fechaDia).order('created_at', { ascending: false }).order('id', { ascending: false })
+          .range(ini, fin), (t) => t.id);
         // El destino mas caliente de `detectarQuerySinMonto` ("cuanto gaste hoy"): la lectura
         // caida contestaba "No tienes movimientos registrados el 5 de abril" a alguien que
         // acababa de anotar tres. Se lo cree, y no vuelve a preguntar.
@@ -235,9 +237,10 @@ module.exports = {
         const desde = anio + '-' + String(mes).padStart(2,'0') + '-01';
         if (fechaMinLgc && desde < fechaMinLgc) return '🔒 Tu plan gratuito solo muestra el último mes de historial.\n\nEscribe */premium* para desbloquear todo tu historial.';
         const hasta = anio + '-' + String(mes).padStart(2,'0') + '-' + String(ultimoDiaMes(anio, mes)).padStart(2,'0');
-        const { data: txs, error: errCat } = await supabase.from('transacciones').select('*')
+        const { data: txs, error: errCat } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('*', primera ? { count: 'exact' } : undefined)
           .eq('usuario_id', usuario.id).ilike('categoria', '%' + cat + '%')
-          .gte('fecha', desde).lte('fecha', hasta).order('fecha', { ascending: false });
+          .gte('fecha', desde).lte('fecha', hasta).order('fecha', { ascending: false }).order('id', { ascending: false })
+          .range(ini, fin), (t) => t.id);
         // "No encontre gastos en Alimentacion" sobre una lectura caida no es un vacio: es una
         // afirmacion sobre una categoria concreta, y de las que llevan a la gente a
         // re-registrar lo que ya estaba.
@@ -286,9 +289,10 @@ module.exports = {
           const fechaIni = datos.fecha_inicio;
           const fechaFin = datos.fecha_fin;
           if (!fechaIni || !fechaFin) return 'Dime el rango de fechas. Ej: _"gastos del 1 al 15"_ o _"gastos del 5 al 20 de marzo"_';
-          const { data: txsRango, error: errRango } = await supabase.from('transacciones').select('*')
+          const { data: txsRango, error: errRango } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('*', primera ? { count: 'exact' } : undefined)
             .eq('usuario_id', usuario.id).gte('fecha', fechaIni).lte('fecha', fechaFin)
-            .eq('tipo', 'gasto').order('fecha', { ascending: false });
+            .eq('tipo', 'gasto').order('fecha', { ascending: false }).order('id', { ascending: false })
+            .range(ini, fin), (t) => t.id);
           // Este SI lanza, al reves que los cinco de arriba: el `catch` de doce lineas mas
           // abajo ya devuelve "No pude consultar ese rango", que es la verdad, y vive DENTRO
           // del handler — el throw no sale a los catch que lo tragan y siguen registrando.
@@ -337,9 +341,10 @@ module.exports = {
         // Buscar gastos pequeños (≤S/20) del mes actual
         const hoyGH = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
         const mesInicioGH = hoyGH.getFullYear() + '-' + String(hoyGH.getMonth() + 1).padStart(2, '0') + '-01';
-        const { data: gastosGH, error: errGH } = await supabase.from('transacciones').select('monto, monto_pen, comercio, categoria')
+        const { data: gastosGH, error: errGH } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('id, monto, monto_pen, comercio, categoria', primera ? { count: 'exact' } : undefined)
           .eq('usuario_id', usuario.id).eq('tipo', 'gasto')
-          .gte('fecha', mesInicioGH).lte('monto', 20).order('fecha', { ascending: false });
+          .gte('fecha', mesInicioGH).lte('monto', 20).order('fecha', { ascending: false }).order('id', { ascending: false })
+          .range(ini, fin), (t) => t.id);
         // El vacio de este sitio no es un "no hay datos" neutro: dispara el discurso de
         // bienvenida ("necesito que registres tus gastos", "con una semana de datos ya puedo
         // decirte..."). Sobre una lectura caida se lo come alguien con 300 transacciones.

@@ -13,7 +13,7 @@ let historial = [];
 let columnasPedidas = null;
 function makeChain() {
   const chain = {};
-  for (const m of ['eq', 'ilike', 'gte', 'neq', 'limit', 'order', 'insert', 'update']) {
+  for (const m of ['eq', 'ilike', 'gte', 'neq', 'limit', 'order', 'insert', 'update', 'range']) {
     chain[m] = () => chain;
   }
   chain.select = (cols) => { columnasPedidas = cols; return chain; };

@@ -1,4 +1,5 @@
 const { supabase } = require('../../lib/db');
+const { todasLasFilas } = require('../../lib/todas-las-filas');
 const log = require('../../lib/logger');
 const { obtenerTipoCambio, TC_FALLBACK } = require('../transactions');
 const { CATALOGO_SUSCRIPCIONES } = require('./catalog');
@@ -99,13 +100,15 @@ async function detectarSuscripciones(usuarioId) {
   hace3Meses.setMonth(hace3Meses.getMonth() - 3);
   const desde = hace3Meses.toISOString().split('T')[0];
 
-  const { data: txs, error } = await supabase
+  const { data: txs, error } = await todasLasFilas((ini, fin, primera) => supabase
     .from('transacciones')
-    .select('comercio, monto, moneda, monto_pen, categoria, subcategoria, fecha')
+    .select('id, comercio, monto, moneda, monto_pen, categoria, subcategoria, fecha', primera ? { count: 'exact' } : undefined)
     .eq('usuario_id', usuarioId)
     .eq('tipo', 'gasto')
     .gte('fecha', desde)
-    .order('fecha', { ascending: false });
+    .order('fecha', { ascending: false })
+    .order('id', { ascending: false })
+    .range(ini, fin), (t) => t.id);
 
   if (error) {
     log.error({ tag: 'SUBS', err: error.message }, 'Error consultando transacciones para suscripciones');

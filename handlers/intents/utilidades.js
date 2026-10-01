@@ -1,6 +1,7 @@
 const log = require('../../lib/logger');
 // La línea de precios sale de PRO_PRECIOS: nunca se escribe a mano (ver lib/config).
 const { lineaPrecioPro } = require('../../lib/config');
+const { todasLasFilas } = require('../../lib/todas-las-filas');
 const { verificarEscritura, entro } = require('../../helpers/escritura-verificada');
 const { motivoNombreNoDicho } = require('../../lib/nombres');
 
@@ -78,9 +79,10 @@ module.exports = {
           const anioBusq = datos.anio || anioActual;
           const desdeBusq = anioBusq + '-' + String(mesBusq).padStart(2,'0') + '-01';
           const hastaBusq = anioBusq + '-' + String(mesBusq).padStart(2,'0') + '-' + String(ultimoDiaMes(anioBusq, mesBusq)).padStart(2,'0');
-          const { data: txsBusq, error: errBusq } = await supabase.from('transacciones').select('*')
+          const { data: txsBusq, error: errBusq } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('*', primera ? { count: 'exact' } : undefined)
             .eq('usuario_id', usuario.id).ilike('comercio', '%' + comercioBusq + '%')
-            .gte('fecha', desdeBusq).lte('fecha', hastaBusq).order('fecha', { ascending: false });
+            .gte('fecha', desdeBusq).lte('fecha', hastaBusq).order('fecha', { ascending: false }).order('id', { ascending: false })
+            .range(ini, fin), (t) => t.id);
           // Al `catch` de abajo, que ya dice "No pude buscar ese gasto". Sin esto, una lectura
           // caida contestaba "No encontre gastos de Netflix en abril" — una afirmacion sobre
           // un comercio concreto, no un vacio.
@@ -111,8 +113,8 @@ module.exports = {
           const desde2 = anio2 + '-' + String(mes2Raw).padStart(2,'0') + '-01';
           const hasta2 = anio2 + '-' + String(mes2Raw).padStart(2,'0') + '-' + String(ultimoDiaMes(anio2, mes2Raw)).padStart(2,'0');
           const [{ data: txs1, error: err1 }, { data: txs2, error: err2 }] = await Promise.all([
-            supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).eq('tipo', 'gasto').gte('fecha', desde1).lte('fecha', hasta1),
-            supabase.from('transacciones').select('*').eq('usuario_id', usuario.id).eq('tipo', 'gasto').gte('fecha', desde2).lte('fecha', hasta2)
+            todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('*', primera ? { count: 'exact' } : undefined).eq('usuario_id', usuario.id).eq('tipo', 'gasto').gte('fecha', desde1).lte('fecha', hasta1).order('id').range(ini, fin), (t) => t.id),
+            todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('*', primera ? { count: 'exact' } : undefined).eq('usuario_id', usuario.id).eq('tipo', 'gasto').gte('fecha', desde2).lte('fecha', hasta2).order('id').range(ini, fin), (t) => t.id)
           ]);
           // **Las DOS mitades, y por eso este sitio no comparte arreglo con los otros.**
           // `Promise.all` no rechaza —supabase-js no lanza— asi que si cae UNA sola query la
@@ -153,9 +155,10 @@ module.exports = {
         try {
           const comercioFreq = datos.comercio;
           if (!comercioFreq) return '¿De qué comercio quieres saber la frecuencia? Ej: _"cuántas veces fui a Rappi"_';
-          const { data: txsFreq, error: errFreq } = await supabase.from('transacciones').select('*')
+          const { data: txsFreq, error: errFreq } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('*', primera ? { count: 'exact' } : undefined)
             .eq('usuario_id', usuario.id).ilike('comercio', '%' + comercioFreq + '%')
-            .order('fecha', { ascending: false });
+            .order('fecha', { ascending: false }).order('id', { ascending: false })
+            .range(ini, fin), (t) => t.id);
           // El vacio de este sitio no es neutro, ACUSA: "No encontre pagos en Rappi. ¿Seguro
           // que se llama asi?". Sobre una lectura caida le manda a dudar del nombre a alguien
           // que lo escribio bien.

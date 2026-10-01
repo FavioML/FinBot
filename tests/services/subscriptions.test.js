@@ -22,7 +22,7 @@ const state = { txs: [], gteArg: null, error: null };
 // caracterizar la ventana temporal de 3 meses.
 function makeChain() {
   const chain = {};
-  for (const m of ['select', 'eq', 'order']) chain[m] = () => chain;
+  for (const m of ['select', 'eq', 'order', 'range']) chain[m] = () => chain;
   chain.gte = (_col, val) => { state.gteArg = val; return chain; };
   chain.then = (resolve) => resolve({ data: state.txs, error: state.error });
   return chain;

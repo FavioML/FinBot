@@ -23,6 +23,7 @@ function makeBuilder(table) {
     gte: () => builder,
     order: () => builder,
     limit: () => builder,
+    range: () => builder,
     single: () => Promise.resolve({ data: Array.isArray(result.data) ? (result.data[0] ?? null) : result.data }),
     then: (resolve, reject) => Promise.resolve(result).then(resolve, reject),
   };
