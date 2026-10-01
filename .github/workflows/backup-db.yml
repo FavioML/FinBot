@@ -103,9 +103,24 @@ jobs:
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: node scripts/backup/check-frescura.mjs
 
-      # Confirmacion de que el backup del dia si se hizo. Un sistema que solo
-      # avisa cuando falla es indistinguible de uno que dejo de correr.
-      # Para apagarlo: variable de repo NOTIFICAR_EXITO = false.
+      # Latido a Healthchecks.io (check neto-backup-db, 1 dia + 6 h de gracia).
+      # Solo late si el backup subio Y la frescura en R2 paso, asi que un latido
+      # prueba que el objeto existe, no solo que el job arranco. Si deja de
+      # llegar, Healthchecks avisa por Telegram (@HealthchecksBot): cubre el caso
+      # que el aviso de falla no ve, que el workflow deje de correr. Un ping
+      # fallido no tumba el backup, que si se hizo. La URL la carga
+      # C:/Vortik.dev/tools/alertas/configurar.mjs.
+      - name: Heartbeat
+        env:
+          HEARTBEAT_URL: ${{ secrets.HEARTBEAT_URL }}
+        run: |
+          if [ -z "$HEARTBEAT_URL" ]; then echo "HEARTBEAT_URL no configurado: sin latido"; exit 0; fi
+          if curl -fsS --retry 3 --max-time 20 "$HEARTBEAT_URL" > /dev/null; then echo "latido enviado"; else echo "::warning::el latido no llego a Healthchecks"; fi
+
+      # Confirmacion de que el backup del dia si se hizo. Desde que existe el
+      # latido de arriba, la ausencia la detecta Healthchecks y este verde
+      # sobra: se apaga con la variable de repo NOTIFICAR_EXITO = false, una vez
+      # verificado que el latido llega. Sin latido configurado, dejarlo prendido.
       - name: Avisar exito por Telegram
         if: vars.NOTIFICAR_EXITO != 'false'
         env:
