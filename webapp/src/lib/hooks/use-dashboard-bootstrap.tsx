@@ -60,7 +60,7 @@ export function usePrefetchNav(): boolean | undefined {
 
 interface DashboardPayload {
   user: { id: string } & Record<string, unknown>;
-  transactions: unknown[];
+  transactions?: unknown[];
   goals: unknown[];
   debts: unknown[];
   achievements: unknown[];
@@ -82,8 +82,10 @@ function seed(d: DashboardPayload) {
   // de la cache `['user']`, que está persistida en localStorage, y hasta el 12-sep-2026 guardaba
   // la fila de `/api/dashboard` tal cual. Además es donde se deriva `tiene_whatsapp`.
   queryClient.setQueryData(['user'], quitarSensibles(d.user as unknown as Usuario));
-  // useTransactions({ usuarioId }) en el overview → sin mes/anio ni otros filtros.
-  queryClient.setQueryData(['transactions', { usuarioId: uid }], d.transactions);
+  // useTransactions({ usuarioId }) en el overview → sin mes/anio ni otros filtros. Viene sin
+  // `transactions` cuando el servidor no pudo leer el historial entero: entonces no se siembra
+  // y el hook hace su propia consulta, en vez de cachear una lista corta como si fuera completa.
+  if (d.transactions) queryClient.setQueryData(['transactions', { usuarioId: uid }], d.transactions);
   queryClient.setQueryData(['goals', uid], d.goals);
   queryClient.setQueryData(['debts', uid], d.debts);
   queryClient.setQueryData(['achievements', uid], d.achievements);

@@ -5,13 +5,6 @@ import { useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -32,14 +25,14 @@ import { useBudgets } from '@/lib/hooks/use-budgets';
 import { formatCurrency, getScoreColor, getScoreLabel } from '@/lib/utils';
 import { useNetoScore } from '@/lib/hooks/use-neto-score';
 import { getCategoriaEmoji, SOCIAL_LINKS } from '@/lib/constants';
-import { capitalizeDisplay, normalizeMetodoPago, getMetodoIcon } from '@/lib/format';
+import { capitalizeDisplay, normalizeMetodoPago } from '@/lib/format';
 import { subcategoriaUtil } from '@/lib/subcategoria';
 import { useSubscriptions } from '@/lib/hooks/use-subscriptions';
 import type { Transaccion } from '@/lib/types';
 import { montoPen } from '@/lib/tx-monto';
 import { TxMonto } from '@/components/shared/tx-monto';
 import { HeaderActions } from '@/components/dashboard/topbar';
-import { resolverPeriodo, etiquetaDia, etiquetaDiaLarga, type Periodo, type RangoFechas } from '@/lib/periodo-reporte';
+import { resolverPeriodo, etiquetaDia, etiquetaDiaLarga, filtroDePeriodo, type Periodo } from '@/lib/periodo-reporte';
 import { todayIsoLima } from '@/lib/date-lima';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -53,18 +46,6 @@ const PaymentMethodsPieChart = lazy(() => import('@/components/charts/reportes-c
 const DailySpendingChart = lazy(() => import('@/components/charts/reportes-charts').then(m => ({ default: m.DailySpendingChart })));
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
-
-// --- Helpers ---
-
-/**
- * Filtro de `useTransactions` para un tramo del reporte. En modo Mes se pide por mes/año, no
- * por rango, para compartir la entrada de caché con la vista mensual de Transacciones (la key
- * de React Query son las opciones). Semana y Rango van por `desde`/`hasta`.
- */
-function filtroDeTramo(tramo: RangoFechas, tipo: Periodo['tipo']) {
-  if (tipo === 'mes') return { mes: Number(tramo.desde.slice(5, 7)), anio: Number(tramo.desde.slice(0, 4)) };
-  return { desde: tramo.desde, hasta: tramo.hasta };
-}
 
 // --- Component ---
 
@@ -88,13 +69,13 @@ export default function ReportesPage() {
   const { data: netoScoreData } = useNetoScore();
   const { data: transactions = [], isLoading: txLoading, isError: txError, refetch: refetchTx } = useTransactions({
     usuarioId: user?.id,
-    ...filtroDeTramo(periodo, periodo.tipo),
+    ...filtroDePeriodo(periodo, periodo.tipo),
   });
 
   // El periodo anterior del mismo largo, para las comparaciones de los KPIs
   const { data: prevTransactions = [] } = useTransactions({
     usuarioId: user?.id,
-    ...filtroDeTramo(periodo.previo, periodo.tipo),
+    ...filtroDePeriodo(periodo.previo, periodo.tipo),
   });
 
   const { data: budgets = [] } = useBudgets(user?.id);

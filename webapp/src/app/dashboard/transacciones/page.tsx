@@ -30,7 +30,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { canAccess } from '@/lib/plan';
 import { TransaccionesSkeleton } from '@/components/dashboard/skeletons';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Select,
   SelectContent,
@@ -52,14 +51,16 @@ import { CurrencyDisplay } from '@/components/shared/currency-display';
 import { TransactionFilters } from '@/components/dashboard/transaction-filters';
 import { TransactionForm, DeleteConfirmDialog } from '@/components/dashboard/transaction-form';
 import { ImportDialog } from '@/components/dashboard/import-dialog';
-import { MonthSelector } from '@/components/dashboard/month-selector';
+import { PeriodoSelector } from '@/components/dashboard/periodo-selector';
+import { resolverPeriodo, filtroDePeriodo, delPeriodo, estePeriodo, nombrePeriodo, sufijoArchivo, MAX_DIAS_RANGO_LISTA } from '@/lib/periodo-reporte';
+import { todayIsoLima } from '@/lib/date-lima';
 import { useUser } from '@/lib/hooks/use-user';
 import { useTransactions } from '@/lib/hooks/use-transactions';
 import { useUserCategorias } from '@/lib/hooks/use-user-categorias';
 import { useBudgets } from '@/lib/hooks/use-budgets';
 import { toast } from 'sonner';
 import { formatCurrency, formatFecha } from '@/lib/utils';
-import { getCategoriaEmoji, MESES, SOCIAL_LINKS, CATEGORIA_POR_REVISAR, needsReview } from '@/lib/constants';
+import { getCategoriaEmoji, SOCIAL_LINKS, CATEGORIA_POR_REVISAR, needsReview } from '@/lib/constants';
 import { normalizeMetodoPago, getMetodoIcon, formatLast4 } from '@/lib/format';
 import { subcategoriaUtil } from '@/lib/subcategoria';
 import type { Transaccion } from '@/lib/types';
@@ -68,6 +69,8 @@ import { TxMonto } from '@/components/shared/tx-monto';
 import { HeaderActions } from '@/components/dashboard/topbar';
 
 const PAGE_SIZE = 20;
+/** Selección vacía compartida: nunca se muta, los cambios siempre arman un Set nuevo. */
+const SIN_SELECCION = new Set<string>();
 
 type SortField = 'fecha' | 'monto' | 'comercio';
 type SortDir = 'asc' | 'desc';
@@ -80,25 +83,32 @@ export default function TransaccionesPage() {
   }, [queryClient]);
   const searchParams = useSearchParams();
 
-  const now = new Date();
-  const monthParam = searchParams.get('mes');
-  const [paramYear, paramMonth] = monthParam
-    ? monthParam.split('-').map(Number)
-    : [now.getFullYear(), now.getMonth() + 1];
-
   // Enlace "Revisar" desde Configuración: ?categoria=X[&sub=Y]. Preselecciona los
   // filtros y arranca en vista anual para abarcar todo el año (no solo el mes).
   const catParam = searchParams.get('categoria');
   const subParam = searchParams.get('sub');
 
-  // View mode: monthly or annual
-  const [viewMode, setViewMode] = useState<'mensual' | 'anual'>(catParam ? 'anual' : 'mensual');
-  const [annualYear, setAnnualYear] = useState(paramYear);
-  // In monthly mode, always follow URL params; in annual mode, use local state
-  const selectedMonth = paramMonth;
-  const selectedYear = viewMode === 'mensual' ? paramYear : annualYear;
+  // El periodo vive en la URL (mes, semana, rango o año), igual que en Reportes. Sin ningún
+  // parámetro de periodo es el mes de hoy en Lima; con ?categoria, el año (ver arriba).
+  const hoy = todayIsoLima();
+  const periodo = useMemo(() => {
+    const p = {
+      mes: searchParams.get('mes'),
+      semana: searchParams.get('semana'),
+      desde: searchParams.get('desde'),
+      hasta: searchParams.get('hasta'),
+      anio: searchParams.get('anio'),
+    };
+    const sinPeriodo = !p.mes && !p.semana && !p.desde && !p.hasta && !p.anio;
+    return resolverPeriodo(catParam && sinPeriodo ? { anio: hoy.slice(0, 4) } : p, hoy, {
+      maxDiasRango: MAX_DIAS_RANGO_LISTA,
+    });
+  }, [searchParams, catParam, hoy]);
+  const anioDelPeriodo = Number(periodo.desde.slice(0, 4));
+  const mesDelPeriodo = Number(periodo.desde.slice(5, 7));
 
-  // Fetch all transactions to compute available years
+  // Todo el historial: alimenta los años disponibles y el contador global de "Por revisar".
+  // Viene paginado desde `useTransactions`; hasta el 01-oct-2026 se cortaba en 1000 filas.
   const { data: allTransactions = [] } = useTransactions({
     usuarioId: user?.id,
   });
@@ -111,28 +121,31 @@ export default function TransaccionesPage() {
       yearSet.add(y);
     }
     // Always include current year
-    yearSet.add(now.getFullYear());
+    yearSet.add(Number(hoy.slice(0, 4)));
     return Array.from(yearSet).sort((a, b) => b - a);
-  }, [allTransactions]);
+  }, [allTransactions, hoy]);
 
-  const { data: monthlyTransactions = [], isLoading: txMonthlyLoading, isError: txMonthlyError, refetch: refetchMonthly } = useTransactions({
-    usuarioId: user?.id,
-    mes: selectedMonth,
-    anio: selectedYear,
-  });
-
-  const { data: annualTransactions = [], isLoading: txAnnualLoading, isError: txAnnualError, refetch: refetchAnnual } = useTransactions({
-    usuarioId: user?.id,
-    anio: selectedYear,
-  });
-
-  const transactions = viewMode === 'anual' ? annualTransactions : monthlyTransactions;
-  const txLoading = viewMode === 'anual' ? txAnnualLoading : txMonthlyLoading;
-  const txError = viewMode === 'anual' ? txAnnualError : txMonthlyError;
-  const refetchTx = viewMode === 'anual' ? refetchAnnual : refetchMonthly;
+  // Una sola consulta, la del periodo visible. Antes se pedían siempre el mes Y el año, y la
+  // pantalla elegía una: el doble de lectura para mostrar una lista.
+  const {
+    data: transactions = [],
+    isLoading: txLoading,
+    isError: txError,
+    refetch: refetchTx,
+    isPlaceholderData: mostrandoPeriodoAnterior,
+  } = useTransactions(
+    { usuarioId: user?.id, ...filtroDePeriodo(periodo, periodo.tipo) },
+    { mantenerAnterior: true },
+  );
 
   // Fetch budgets to include user-created categories/subcategories
-  const { data: budgets = [] } = useBudgets(user?.id, selectedMonth, selectedYear);
+  // En Año se usa el mes de hoy: el catálogo de categorías tiene que traer las creadas por
+  // presupuesto este mes, no las de enero.
+  const { data: budgets = [] } = useBudgets(
+    user?.id,
+    periodo.tipo === 'anio' ? Number(hoy.slice(5, 7)) : mesDelPeriodo,
+    periodo.tipo === 'anio' ? Number(hoy.slice(0, 4)) : anioDelPeriodo,
+  );
 
   // Catálogo all-time de categorías/subcategorías (query liviana, independiente del
   // periodo y de la lista pesada). Alimenta el selector del formulario de editar para
@@ -172,11 +185,34 @@ export default function TransaccionesPage() {
   const [sortField, setSortField] = useState<SortField>('fecha');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
+  // Página y selección van atadas al periodo: al cambiarlo (por el selector, por el mes o por el
+  // botón Atrás) vuelven solas a la página 1 y a nada seleccionado. Antes la selección sobrevivía
+  // al cambio de periodo, y un borrado masivo podía llevarse filas que ya no estaban a la vista.
+  const clavePeriodo = `${periodo.tipo}:${periodo.desde}:${periodo.hasta}`;
+
   // Pagination
-  const [page, setPage] = useState(1);
+  const [pageState, setPageState] = useState({ clave: clavePeriodo, n: 1 });
+  const page = pageState.clave === clavePeriodo ? pageState.n : 1;
+  const setPage = useCallback(
+    (v: number | ((p: number) => number)) =>
+      setPageState((prev) => {
+        const actual = prev.clave === clavePeriodo ? prev.n : 1;
+        return { clave: clavePeriodo, n: typeof v === 'function' ? v(actual) : v };
+      }),
+    [clavePeriodo]
+  );
 
   // Bulk selection
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selState, setSelState] = useState({ clave: clavePeriodo, ids: new Set<string>() });
+  const selectedIds = selState.clave === clavePeriodo ? selState.ids : SIN_SELECCION;
+  const setSelectedIds = useCallback(
+    (v: Set<string> | ((prev: Set<string>) => Set<string>)) =>
+      setSelState((prev) => {
+        const actual = prev.clave === clavePeriodo ? prev.ids : SIN_SELECCION;
+        return { clave: clavePeriodo, ids: typeof v === 'function' ? v(actual) : v };
+      }),
+    [clavePeriodo]
+  );
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [bulkEditing, setBulkEditing] = useState(false);
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
@@ -441,8 +477,7 @@ export default function TransaccionesPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    const periodo = viewMode === 'anual' ? `${selectedYear}` : `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`;
-    a.download = `Neto-Transacciones-${periodo}.csv`;
+    a.download = `Neto-Transacciones-${sufijoArchivo(periodo)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -462,12 +497,6 @@ export default function TransaccionesPage() {
     }
     return pages;
   };
-
-  // Month options for selector
-  const monthOptions = MESES.slice(1).map((name, idx) => ({
-    value: String(idx + 1),
-    label: name,
-  }));
 
   const isLoading = userLoading || txLoading;
 
@@ -559,41 +588,31 @@ export default function TransaccionesPage() {
         </Button>
       </div>
 
-      {/* View mode tabs + period selector — same row on all breakpoints.
+      {/* Selector de periodo (Mes | Semana | Rango | Año).
           Solo se desactiva con "Por revisar" en alcance global (ahi el filtro barre
           todos los meses y el selector no aplica). En alcance por periodo el selector
           sigue vivo para poder revisar mes por mes. */}
       <div
-        className={`flex flex-row items-center justify-between gap-3 ${
+        className={`${
           periodBloqueado ? 'pointer-events-none opacity-40' : ''
         }`}
         aria-hidden={periodBloqueado}
       >
-        <Tabs value={viewMode} onValueChange={(val) => { setViewMode(val as 'mensual' | 'anual'); setPage(1); }}>
-          <TabsList>
-            <TabsTrigger value="mensual">Mensual</TabsTrigger>
-            <TabsTrigger value="anual">Anual</TabsTrigger>
-          </TabsList>
-        </Tabs>
-
-        {viewMode === 'mensual' && <MonthSelector />}
-
-        {viewMode === 'anual' && (
-          <Select value={String(annualYear)} onValueChange={(val) => { setAnnualYear(Number(val)); setPage(1); }}>
-            <SelectTrigger className="w-[120px] bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#C8C6BC]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {availableYears.map((y) => (
-                <SelectItem key={y} value={String(y)}>
-                  {y}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+        <PeriodoSelector
+          key={`${periodo.tipo}:${periodo.desde}:${periodo.hasta}`}
+          periodo={periodo}
+          hoy={hoy}
+          modos={['mes', 'semana', 'rango', 'anio']}
+          aniosDisponibles={availableYears}
+          maxDias={MAX_DIAS_RANGO_LISTA}
+        />
       </div>
 
+      {/* Mientras llega el periodo nuevo se ve el anterior, atenuado (ver `mantenerAnterior`) */}
+      <div
+        className={`space-y-6 transition-opacity ${mostrandoPeriodoAnterior ? 'opacity-50 pointer-events-none' : ''}`}
+        aria-busy={mostrandoPeriodoAnterior}
+      >
       {/* Summary cards */}
       <StaggerContainer className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <StaggerItem>
@@ -601,7 +620,7 @@ export default function TransaccionesPage() {
           <div className="flex items-center gap-2 mb-1.5">
             <TrendingDown className="h-4 w-4 text-[#D85A30]" />
             <span className="text-label text-[#8A877D]">
-              {hasActiveFilters ? 'Gastos (filtrado)' : viewMode === 'anual' ? 'Gastos del año' : 'Gastos del mes'}
+              {hasActiveFilters ? 'Gastos (filtrado)' : `Gastos ${delPeriodo(periodo)}`}
             </span>
           </div>
           <CurrencyDisplay amount={summary.totalGastos} className="text-[#D85A30]" size="md" />
@@ -612,7 +631,7 @@ export default function TransaccionesPage() {
           <div className="flex items-center gap-2 mb-1.5">
             <TrendingUp className="h-4 w-4 text-[#1D9E75]" />
             <span className="text-label text-[#8A877D]">
-              {hasActiveFilters ? 'Ingresos (filtrado)' : viewMode === 'anual' ? 'Ingresos del año' : 'Ingresos del mes'}
+              {hasActiveFilters ? 'Ingresos (filtrado)' : `Ingresos ${delPeriodo(periodo)}`}
             </span>
           </div>
           <CurrencyDisplay amount={summary.totalIngresos} className="text-[#1D9E75]" size="md" />
@@ -642,17 +661,17 @@ export default function TransaccionesPage() {
           <div className="flex items-center gap-2 rounded-xl bg-[rgba(255,255,255,0.02)] border border-[rgba(255,255,255,0.04)] px-4 py-2.5">
             <span className="text-sm">{getCategoriaEmoji(topCat[0])}</span>
             <p className="text-xs text-[#8A877D]">
-              <span className="text-[#C8C6BC] font-medium">{topCat[0]}</span> representa el {pct}% de tus gastos este {viewMode === 'anual' ? 'año' : 'mes'} ({formatCurrency(topCat[1])})
+              <span className="text-[#C8C6BC] font-medium">{topCat[0]}</span> representa el {pct}% de tus gastos {estePeriodo(periodo)} ({formatCurrency(topCat[1])})
             </p>
           </div>
         );
       })()}
 
       {/* Por revisar — el banner se acota al periodo visible (matchea el contexto) y
-          ofrece un escape hatch al backlog global de otros meses. */}
+          ofrece un escape hatch al backlog global de fuera del periodo. */}
       {(() => {
         if (porRevisarGlobalCount === 0) return null;
-        const periodLabel = viewMode === 'anual' ? String(selectedYear) : MESES[selectedMonth];
+        const periodLabel = nombrePeriodo(periodo);
         const plural = (n: number) => (n === 1 ? 'transaccion' : 'transacciones');
         const scopeGlobal = porRevisarActive && porRevisarScope === 'global';
 
@@ -666,7 +685,7 @@ export default function TransaccionesPage() {
             >
               <AlertCircle className="h-3.5 w-3.5 shrink-0 text-[#8A877D]" />
               <p className="min-w-0 flex-1 text-xs text-[#8A877D]">
-                {porRevisarGlobalCount} {plural(porRevisarGlobalCount)} por revisar en otros meses
+                {porRevisarGlobalCount} {plural(porRevisarGlobalCount)} por revisar fuera de este periodo
               </p>
               <span className="shrink-0 text-xs font-medium text-[#EF9F27]">Ver todas</span>
             </button>
@@ -712,7 +731,7 @@ export default function TransaccionesPage() {
                 onClick={() => activarPorRevisar('global')}
                 className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-[#8A877D] transition-colors hover:text-[#EF9F27]"
               >
-                +{porRevisarOtherCount} en otros meses · ver todas
+                +{porRevisarOtherCount} fuera de este periodo · ver todas
               </button>
             )}
           </div>
@@ -869,7 +888,10 @@ export default function TransaccionesPage() {
         </div>
       )}
 
+      </div>
+
       {/* Transaction list */}
+      <div className={`transition-opacity ${mostrandoPeriodoAnterior ? 'opacity-50 pointer-events-none' : ''}`}>
       {filtered.length === 0 ? (
         <EmptyState
           title={transactions.length === 0 ? 'Sin transacciones' : 'Sin resultados'}
@@ -1038,6 +1060,7 @@ export default function TransaccionesPage() {
           )}
         </>
       )}
+      </div>
 
       {/* Dialogs */}
       <ImportDialog

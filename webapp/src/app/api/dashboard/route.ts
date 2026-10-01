@@ -1,6 +1,7 @@
 import { requireLectura } from '@/lib/supabase/auth';
 import { getServiceClient } from '@/lib/supabase/service';
 import { resumenNotificaciones } from '@/lib/notificaciones-resumen';
+import { todasLasFilas } from '@/lib/supabase/todas-las-filas';
 import { isAdminAuthId } from '@/lib/admin';
 import { NextResponse } from 'next/server';
 
@@ -118,7 +119,15 @@ export async function GET(request: Request) {
     alertsRes,
     gmailRes,
   ] = await Promise.all([
-    svc.from('transacciones').select('*').eq('usuario_id', userId).order('fecha', { ascending: false }),
+    // Todo el historial, paginado: sin `.range()` PostgREST corta en 1000 y esta lista siembra la
+    // caché que leen el overview y Transacciones. Ver `lib/supabase/todas-las-filas.ts`.
+    todasLasFilas(
+      (desde, hasta, primera) =>
+        svc.from('transacciones').select('*', primera ? { count: 'exact' } : undefined).eq('usuario_id', userId)
+          .order('fecha', { ascending: false }).order('created_at', { ascending: false })
+          .order('id', { ascending: false }).range(desde, hasta),
+      (t: { id: string }) => t.id,
+    ),
     svc.from('metas_ahorro').select('*, meta_aportes(*)').eq('usuario_id', userId).order('created_at', { ascending: false }),
     svc.from('meta_participantes').select('meta_id').eq('usuario_id', userId),
     svc.from('deudas').select('*, deuda_abonos(id, monto, fecha, nota, created_at)').eq('usuario_id', userId).order('created_at', { ascending: false }),
@@ -184,9 +193,15 @@ export async function GET(request: Request) {
 
   const alerts = dedupeAlerts((alertsRes.data || []) as AlertRow[], 10);
 
+  // Si una página del historial falló, `txsRes.data` trae lo que alcanzó a llegar y no la lista
+  // completa. Sembrarla dejaría el overview y Transacciones con un historial corto, en caché
+  // persistida, sin ninguna señal. Se omite: el cliente no siembra y `useTransactions` hace su
+  // propia consulta.
+  if (txsRes.error) console.error('[api/dashboard] historial de transacciones incompleto:', txsRes.error);
+
   return NextResponse.json({
     user: usuario,
-    transactions: txsRes.data || [],
+    transactions: txsRes.error ? undefined : txsRes.data,
     goals: [...ownGoals, ...participatedGoals],
     debts: debtsRes.data || [],
     achievements: achievementsRes.data || [],

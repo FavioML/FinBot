@@ -5,6 +5,10 @@ import {
   sumarDias,
   esFechaIso,
   etiquetaDia,
+  filtroDePeriodo,
+  delPeriodo,
+  nombrePeriodo,
+  sufijoArchivo,
   MAX_DIAS_RANGO,
 } from './periodo-reporte';
 
@@ -194,5 +198,57 @@ describe('no depende de la zona horaria de la máquina', () => {
     const p = resolverPeriodo({ semana: '2026-12-31' }, '2027-02-01');
     expect([p.desde, p.hasta]).toEqual(['2026-12-28', '2027-01-04']);
     expect(p.dias).toHaveLength(7);
+  });
+});
+
+describe('resolverPeriodo: año (Transacciones)', () => {
+  it('?anio=2026 es el año calendario completo, comparado contra el anterior', () => {
+    const p = resolverPeriodo({ anio: '2026' }, HOY);
+    expect(p.tipo).toBe('anio');
+    expect([p.desde, p.hasta]).toEqual(['2026-01-01', '2027-01-01']);
+    expect(p.previo).toEqual({ desde: '2025-01-01', hasta: '2026-01-01' });
+    expect(p.dias).toHaveLength(365);
+  });
+
+  it('precedencia: el rango y la semana le ganan al año, y el año al mes', () => {
+    expect(resolverPeriodo({ anio: '2026', semana: '2026-09-28' }, HOY).tipo).toBe('semana');
+    expect(resolverPeriodo({ anio: '2026', desde: '2026-09-01', hasta: '2026-09-02' }, HOY).tipo).toBe('rango');
+    expect(resolverPeriodo({ anio: '2025', mes: '2026-9' }, HOY).tipo).toBe('anio');
+  });
+
+  it('un año futuro se lleva al actual', () => {
+    expect(resolverPeriodo({ anio: '2099' }, HOY).etiqueta).toBe('2026');
+  });
+
+  it('el tope del rango lo elige cada pantalla', () => {
+    const largo = { desde: '2026-01-01', hasta: '2026-06-30' };
+    expect(resolverPeriodo(largo, HOY).recortado).toBe(true);
+    const lista = resolverPeriodo(largo, HOY, { maxDiasRango: 366 });
+    expect(lista.recortado).toBe(false);
+    expect([lista.desde, lista.hasta]).toEqual(['2026-01-01', '2026-07-01']);
+  });
+
+  it('un año inválido cae al mes de hoy', () => {
+    expect(resolverPeriodo({ anio: '26' }, HOY).tipo).toBe('mes');
+    expect(resolverPeriodo({ anio: '1999' }, HOY).tipo).toBe('mes');
+  });
+});
+
+describe('textos y filtros derivados del periodo', () => {
+  it('el filtro comparte la forma de caché de mes y año, y usa rango para semana y rango', () => {
+    expect(filtroDePeriodo(resolverPeriodo({ mes: '2026-9' }, HOY), 'mes')).toEqual({ mes: 9, anio: 2026 });
+    expect(filtroDePeriodo(resolverPeriodo({ anio: '2025' }, HOY), 'anio')).toEqual({ anio: 2025 });
+    const sem = resolverPeriodo({ semana: '2026-09-24' }, HOY);
+    expect(filtroDePeriodo(sem, 'semana')).toEqual({ desde: '2026-09-21', hasta: '2026-09-28' });
+    // El previo de un mes es el mes anterior, también como mes/año.
+    expect(filtroDePeriodo(resolverPeriodo({ mes: '2026-1' }, HOY).previo, 'mes')).toEqual({ mes: 12, anio: 2025 });
+  });
+
+  it('rótulos y nombre de archivo', () => {
+    const mes = resolverPeriodo({ mes: '2026-9' }, HOY);
+    const sem = resolverPeriodo({ semana: '2026-09-24' }, HOY);
+    expect([delPeriodo(mes), nombrePeriodo(mes), sufijoArchivo(mes)]).toEqual(['del mes', 'Septiembre', '2026-09']);
+    expect([delPeriodo(sem), nombrePeriodo(sem), sufijoArchivo(sem)]).toEqual(['de la semana', '21 sep – 27 sep', '2026-09-21_2026-09-27']);
+    expect(sufijoArchivo(resolverPeriodo({ anio: '2025' }, HOY))).toBe('2025');
   });
 });

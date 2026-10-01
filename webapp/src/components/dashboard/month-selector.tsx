@@ -44,6 +44,13 @@ export function MonthSelector({ hoy, value }: { hoy?: string; value?: string } =
 
   const monthOptions = generateMonthOptions(anioBase, mesBase);
 
+  // La lista son los últimos 12 meses, pero desde la vista Año de un año pasado se puede llegar a
+  // uno más viejo: sin esto el select quedaba sin la opción que está mostrando.
+  const [anioSel0, mesSel0] = selectedMonth.split('-').map(Number);
+  if (MESES[mesSel0] && !monthOptions.some((o) => o.value === selectedMonth)) {
+    monthOptions.push({ value: selectedMonth, label: `${MESES[mesSel0]} ${anioSel0}` });
+  }
+
   // El Select de base-ui pinta el VALUE crudo ("2026-9") si no se le da la etiqueta: se veía así
   // en todas las pantallas que usan este selector.
   const [anioSel, mesSel] = selectedMonth.split('-').map(Number);

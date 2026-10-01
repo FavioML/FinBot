@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { MonthSelector } from '@/components/dashboard/month-selector';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   type Periodo,
   type TipoPeriodo,
@@ -14,10 +15,13 @@ import {
   sumarDias,
 } from '@/lib/periodo-reporte';
 
-const PARAMS_DE_PERIODO = ['mes', 'semana', 'desde', 'hasta'] as const;
+const PARAMS_DE_PERIODO = ['mes', 'semana', 'desde', 'hasta', 'anio'] as const;
+
+const ROTULO: Record<TipoPeriodo, string> = { mes: 'Mes', semana: 'Semana', rango: 'Rango', anio: 'Año' };
 
 /**
- * Mes | Semana | Rango para Reportes. El periodo vive en la URL (igual que `?mes=`), así un
+ * Mes | Semana | Rango (| Año) para Reportes y Transacciones. Cada pantalla elige sus pestañas con
+ * `modos`: Reportes no ofrece Año porque su gráfico diario de 365 barras no se lee. El periodo vive en la URL (igual que `?mes=`), así un
  * reporte se puede compartir o abrir desde un aviso. Cambiar de modo borra los parámetros del
  * modo anterior, porque `resolverPeriodo` les da precedencia y uno viejo se impondría.
  *
@@ -26,7 +30,24 @@ const PARAMS_DE_PERIODO = ['mes', 'semana', 'desde', 'hasta'] as const;
  * cambia de periodo, sin un efecto. Con la key solo por tipo, pasar de una semana a otra
  * dejaba el rango precargado con las fechas de la semana anterior.
  */
-export function PeriodoSelector({ periodo, hoy }: { periodo: Periodo; hoy: string }) {
+export function PeriodoSelector({
+  periodo,
+  hoy,
+  modos = ['mes', 'semana', 'rango'],
+  aniosDisponibles = [],
+  maxDias = MAX_DIAS_RANGO,
+  onCambio,
+}: {
+  periodo: Periodo;
+  hoy: string;
+  modos?: TipoPeriodo[];
+  /** Los años que ofrece la pestaña Año. El del periodo y el de hoy se agregan solos. */
+  aniosDisponibles?: number[];
+  /** El tope del Rango, el mismo que se le pasó a `resolverPeriodo`. */
+  maxDias?: number;
+  /** Se llama al navegar a otro periodo (Transacciones lo usa para volver a la página 1). */
+  onCambio?: () => void;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -41,9 +62,10 @@ export function PeriodoSelector({ periodo, hoy }: { periodo: Periodo; hoy: strin
       const params = new URLSearchParams(searchParams.toString());
       for (const k of PARAMS_DE_PERIODO) params.delete(k);
       for (const [k, v] of Object.entries(valores)) if (v) params.set(k, v);
+      onCambio?.();
       router.push(`${pathname}?${params.toString()}`);
     },
-    [router, pathname, searchParams]
+    [router, pathname, searchParams, onCambio]
   );
 
   // Al cambiar de modo se conserva el contexto: la semana o el mes del último día que se veía.
@@ -53,6 +75,7 @@ export function PeriodoSelector({ periodo, hoy }: { periodo: Periodo; hoy: strin
     setModo(valor);
     if (valor === 'mes') navegar({ mes: `${referencia.slice(0, 4)}-${Number(referencia.slice(5, 7))}` });
     if (valor === 'semana') navegar({ semana: lunesDe(referencia) });
+    if (valor === 'anio') navegar({ anio: referencia.slice(0, 4) });
     // 'rango' no navega: espera a que se elijan las fechas y se aplique.
   };
 
@@ -64,14 +87,31 @@ export function PeriodoSelector({ periodo, hoy }: { periodo: Periodo; hoy: strin
       <div className="flex flex-wrap items-center gap-3">
         <Tabs value={modo} onValueChange={(v) => cambiarModo(v as TipoPeriodo)}>
           <TabsList>
-            <TabsTrigger value="mes">Mes</TabsTrigger>
-            <TabsTrigger value="semana">Semana</TabsTrigger>
-            <TabsTrigger value="rango">Rango</TabsTrigger>
+            {modos.map((m) => (
+              <TabsTrigger key={m} value={m}>{ROTULO[m]}</TabsTrigger>
+            ))}
           </TabsList>
         </Tabs>
 
         {modo === 'mes' && periodo.tipo === 'mes' && (
           <MonthSelector hoy={hoy} value={`${periodo.desde.slice(0, 4)}-${Number(periodo.desde.slice(5, 7))}`} />
+        )}
+
+        {modo === 'anio' && periodo.tipo === 'anio' && (
+          <Select value={periodo.etiqueta} onValueChange={(v) => { if (v) navegar({ anio: String(v) }); }}>
+            <SelectTrigger className="w-[120px] border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] text-[#F0EFE8]">
+              <SelectValue>{periodo.etiqueta}</SelectValue>
+            </SelectTrigger>
+            <SelectContent className="bg-[#141412] border-[rgba(255,255,255,0.06)]">
+              {Array.from(new Set([...aniosDisponibles, Number(hoy.slice(0, 4)), Number(periodo.etiqueta)]))
+                .sort((a, b) => b - a)
+                .map((y) => (
+                  <SelectItem key={y} value={String(y)} className="text-[#F0EFE8] focus:bg-[rgba(255,255,255,0.05)] focus:text-[#F0EFE8]">
+                    {y}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
         )}
 
         {modo === 'semana' && periodo.tipo === 'semana' && (
@@ -133,8 +173,8 @@ export function PeriodoSelector({ periodo, hoy }: { periodo: Periodo; hoy: strin
           </Button>
           <p className="w-full text-xs text-[#8A877D]">
             {periodo.recortado
-              ? `Mostramos los últimos ${MAX_DIAS_RANGO} días del rango que elegiste: es el máximo por reporte.`
-              : `Hasta ${MAX_DIAS_RANGO} días por reporte.`}
+              ? `Mostramos los últimos ${maxDias} días del rango que elegiste: es el máximo.`
+              : `Hasta ${maxDias} días.`}
           </p>
         </div>
       )}

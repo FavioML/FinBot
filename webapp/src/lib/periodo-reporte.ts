@@ -1,5 +1,6 @@
 /**
- * El periodo que muestra /dashboard/reportes: un mes, una semana o un rango libre.
+ * El periodo que muestran Reportes y Transacciones: un mes, una semana, un rango libre o un año
+ * (el año solo lo ofrece Transacciones).
  *
  * Todo opera sobre strings `YYYY-MM-DD` con aritmética en UTC, porque `transacciones.fecha`
  * es DATE y lo que importa es el día calendario, no un instante. Un `new Date(y, m, d)` local
@@ -12,7 +13,7 @@
  */
 import { MESES } from './constants';
 
-export type TipoPeriodo = 'mes' | 'semana' | 'rango';
+export type TipoPeriodo = 'mes' | 'semana' | 'rango' | 'anio';
 
 export interface RangoFechas {
   /** Primer día, inclusivo. */
@@ -29,24 +30,28 @@ export interface Periodo extends RangoFechas {
   etiquetaComparacion: string;
   /** Cada día del periodo, en orden. */
   dias: string[];
-  /** El rango pedido superaba MAX_DIAS_RANGO y se acortó: la UI tiene que decirlo. */
+  /** El rango pedido superaba el tope de la pantalla y se acortó: la UI tiene que decirlo. */
   recortado: boolean;
 }
 
 export interface ParamsPeriodo {
   mes?: string | null;
+  anio?: string | null;
   semana?: string | null;
   desde?: string | null;
   hasta?: string | null;
 }
 
 /**
- * Tope del rango libre. `useTransactions` trae `select('*')` sin paginar y PostgREST corta en
- * 1000 filas: medido el 01-oct-2026, el usuario más activo tiene 180 tx en su peor mes y 1105
- * en un año, así que un rango de un año le daría totales truncados sin ningún aviso. Con 92
- * días el peor caso ronda las 540. Para el año entero está Transacciones → Anual.
+ * Tope del rango libre en Reportes (Transacciones usa `MAX_DIAS_RANGO_LISTA`). Nació porque `useTransactions` no paginaba y PostgREST corta en 1000
+ * filas; desde el mismo 01-oct-2026 pagina (`lib/supabase/todas-las-filas.ts`), así que el tope
+ * ya no protege los totales. Se mantiene por lo que muestra: el gráfico diario de Reportes con
+ * más de ~3 meses de barras no se lee, y para un periodo largo está la vista Año de Transacciones.
  */
 export const MAX_DIAS_RANGO = 92;
+
+/** Transacciones es una lista, sin gráfico diario: ahí un rango de enero a junio tiene sentido. */
+export const MAX_DIAS_RANGO_LISTA = 366;
 
 const MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 const DIAS_CORTOS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
@@ -171,6 +176,21 @@ function periodoRango(desde: string, ultimo: string, recortado: boolean): Period
   };
 }
 
+function periodoAnio(anio: number): Periodo {
+  const desde = `${anio}-01-01`;
+  const hasta = `${anio + 1}-01-01`;
+  return {
+    tipo: 'anio',
+    desde,
+    hasta,
+    etiqueta: String(anio),
+    previo: { desde: `${anio - 1}-01-01`, hasta: desde },
+    etiquetaComparacion: 'vs año anterior',
+    dias: diasEntre(desde, hasta),
+    recortado: false,
+  };
+}
+
 function mesDesdeParam(valor: string | null | undefined): { anio: number; mes: number } | null {
   if (!valor) return null;
   const m = /^(\d{4})-(\d{1,2})$/.exec(valor);
@@ -183,10 +203,14 @@ function mesDesdeParam(valor: string | null | undefined): { anio: number; mes: n
 
 /**
  * Resuelve el periodo a partir de la URL. Precedencia: rango (`desde`+`hasta`) > `semana` >
- * `mes` > el mes de hoy. Una entrada que no se entiende cae al mes de hoy en vez de romper la
+ * `anio` > `mes` > el mes de hoy. Una entrada que no se entiende cae al mes de hoy en vez de romper la
  * pantalla, que es lo que ya hacía `?mes=` con un valor desconocido.
  */
-export function resolverPeriodo(params: ParamsPeriodo, hoy: string): Periodo {
+export function resolverPeriodo(
+  params: ParamsPeriodo,
+  hoy: string,
+  { maxDiasRango = MAX_DIAS_RANGO }: { maxDiasRango?: number } = {},
+): Periodo {
   if (esFechaIso(params.desde) && esFechaIso(params.hasta)) {
     let desde = params.desde;
     let ultimo = params.hasta;
@@ -195,9 +219,9 @@ export function resolverPeriodo(params: ParamsPeriodo, hoy: string): Periodo {
     if (desde <= ultimo) {
       // Con aritmética y no contando días: `?desde=1000-...` ya no llega acá (ANIO_MINIMO),
       // pero 26 años de rango igual armaban ~9500 strings solo para medir el largo.
-      if (largoEnDias(desde, sumarDias(ultimo, 1)) > MAX_DIAS_RANGO) {
+      if (largoEnDias(desde, sumarDias(ultimo, 1)) > maxDiasRango) {
         // Se conserva el final: lo reciente es lo que más se consulta.
-        return periodoRango(sumarDias(ultimo, -(MAX_DIAS_RANGO - 1)), ultimo, true);
+        return periodoRango(sumarDias(ultimo, -(maxDiasRango - 1)), ultimo, true);
       }
       return periodoRango(desde, ultimo, false);
     }
@@ -207,6 +231,11 @@ export function resolverPeriodo(params: ParamsPeriodo, hoy: string): Periodo {
     const lunes = lunesDe(params.semana);
     const lunesHoy = lunesDe(hoy);
     return periodoSemana(lunes > lunesHoy ? lunesHoy : lunes, hoy);
+  }
+
+  if (params.anio && /^\d{4}$/.test(params.anio) && Number(params.anio) >= ANIO_MINIMO) {
+    // Un año futuro se lleva al actual, igual que una semana o un rango futuros.
+    return periodoAnio(Math.min(Number(params.anio), Number(hoy.slice(0, 4))));
   }
 
   const mes = mesDesdeParam(params.mes);
@@ -227,4 +256,39 @@ export function etiquetaDia(periodo: Periodo, fecha: string): string {
 export function etiquetaDiaLarga(fecha: string): string {
   const d = aUtc(fecha);
   return `${DIAS_CORTOS[d.getUTCDay()]} ${d.getUTCDate()} ${MESES_CORTOS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
+/**
+ * Filtro de `useTransactions` para un tramo. Mes y año se piden con `mes`/`anio` y no por rango,
+ * para compartir la entrada de caché entre Reportes y Transacciones (la key de React Query son
+ * las opciones). Semana y rango van por `desde`/`hasta`.
+ */
+export function filtroDePeriodo(tramo: RangoFechas, tipo: TipoPeriodo) {
+  const anio = Number(tramo.desde.slice(0, 4));
+  if (tipo === 'mes') return { mes: Number(tramo.desde.slice(5, 7)), anio };
+  if (tipo === 'anio') return { anio };
+  return { desde: tramo.desde, hasta: tramo.hasta };
+}
+
+/** "del mes", "de la semana", "del año", "del periodo": para rótulos como "Gastos del mes". */
+export function delPeriodo(periodo: Periodo): string {
+  return { mes: 'del mes', semana: 'de la semana', anio: 'del año', rango: 'del periodo' }[periodo.tipo];
+}
+
+/** "este mes", "esta semana"...: para frases como "el 30% de tus gastos este mes". */
+export function estePeriodo(periodo: Periodo): string {
+  return { mes: 'este mes', semana: 'esta semana', anio: 'este año', rango: 'en estas fechas' }[periodo.tipo];
+}
+
+/** El nombre corto que va después de "en": "Septiembre", "2026", "21 sep – 27 sep". */
+export function nombrePeriodo(periodo: Periodo): string {
+  if (periodo.tipo === 'mes') return MESES[Number(periodo.desde.slice(5, 7))];
+  return periodo.etiqueta;
+}
+
+/** Sufijo de un archivo exportado: `2026-09`, `2026`, o `2026-09-21_2026-09-27`. */
+export function sufijoArchivo(periodo: Periodo): string {
+  if (periodo.tipo === 'mes') return periodo.desde.slice(0, 7);
+  if (periodo.tipo === 'anio') return periodo.etiqueta;
+  return `${periodo.desde}_${sumarDias(periodo.hasta, -1)}`;
 }
