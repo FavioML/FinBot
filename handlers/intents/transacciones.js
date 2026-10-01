@@ -8,6 +8,7 @@ const { subcategoriaUtil, esSubSinClasificar } = require('../../lib/subcategoria
 const { extraerGastoSinIA, quitarTokensDeMoneda, contarMontosCandidatos, mencionaMonedaNoSoportada, montoEscritoEnMensaje, tipoContradiceElMensaje } = require('../../lib/nlp-guards');
 const { registrarError } = require('../../lib/error-monitor');
 const { revisarEdicion, pedirOrden } = require('../../lib/orden-edicion');
+const { esComercioCentinela } = require('../../services/parsers');
 
 // Un mensaje que es SOLO un número (con o sin moneda) no se rescata.
 //
@@ -842,8 +843,12 @@ module.exports = {
                 .catch(() => {});
             }
             // Guardar regla y retroaplicar usando el comercio REAL de la DB (no el del usuario, que puede tener typos)
+            // Un gasto sin nombre ('' o "Sin comercio") no tiene "pagos anteriores del mismo
+            // comercio": la regla agarraría todos sus gastos sin nombre, y la respuesta afirmaba
+            // haberlo aplicado (revisión adversarial del 01-oct). Se mueve sólo este gasto.
             const comercioReal = txActualizada?.comercio || comercioRaw;
-            if (comercioReal) {
+            const conRegla = !!comercioReal && !esComercioCentinela(comercioReal);
+            if (conRegla) {
               guardarReglaComercio(usuario.id, comercioReal, catLibre, subLibre);
               retroaplicarRegla(usuario.id, comercioReal, catLibre, subLibre);
             }
@@ -852,7 +857,9 @@ module.exports = {
             const montoMostrar = monedaTxCorr === 'USD'
               ? '$' + parseFloat(txActualizada.monto || 0).toFixed(2) + (txActualizada.monto_pen ? ' (~S/' + parseFloat(txActualizada.monto_pen).toFixed(2) + ')' : '')
               : 'S/ ' + parseFloat(txActualizada.monto_pen || txActualizada.monto || 0).toFixed(2);
-            return 'Listo! Movi *' + (txActualizada.comercio || 'el gasto') + '* (' + montoMostrar + ') a *' + catLibre + (subLibre ? ' > ' + subLibre : '') + '*.\n\n_Aplique el cambio a todos los pagos anteriores de ' + (comercioReal || 'ese comercio') + '._';
+            const nombreMovido = txActualizada.comercio && !esComercioCentinela(txActualizada.comercio) ? txActualizada.comercio : 'el gasto';
+            return 'Listo! Movi *' + nombreMovido + '* (' + montoMostrar + ') a *' + catLibre + (subLibre ? ' > ' + subLibre : '') + '*.'
+              + (conRegla ? '\n\n_Aplique el cambio a todos los pagos anteriores de ' + comercioReal + '._' : '');
           }
           // Con IA respondia "Listo" (no hizo nada) y afirmaba que el gasto no estaba
           // categorizado, dato que nunca estuvo en el contexto. Texto fijo con el ultimo gasto.

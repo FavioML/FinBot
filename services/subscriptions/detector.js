@@ -2,6 +2,7 @@ const { supabase } = require('../../lib/db');
 const log = require('../../lib/logger');
 const { obtenerTipoCambio, TC_FALLBACK } = require('../transactions');
 const { CATALOGO_SUSCRIPCIONES } = require('./catalog');
+const { esComercioCentinela } = require('../parsers');
 
 // ═══════════════════════════════════════════════════════════════
 // MOTOR DE DETECCIÓN — Identifica suscripciones desde transacciones
@@ -123,7 +124,8 @@ async function detectarSuscripciones(usuarioId) {
   const grupos = {};
   for (const tx of txs) {
     const nombre = (tx.comercio || '').trim();
-    if (!nombre) continue;
+    // 'Sin comercio' agruparía gastos sin relación entre sí como si fueran un mismo servicio.
+    if (!nombre || esComercioCentinela(nombre)) continue;
     const catalogoMatch = matchCatalogo(nombre);
     const key = catalogoMatch ? 'cat:' + catalogoMatch.id : 'com:' + nombre.toLowerCase();
     if (!grupos[key]) {

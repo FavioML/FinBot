@@ -102,12 +102,36 @@ function efecto(p, msg) {
 const sinRescate = (e) => e.replace(' (rescate)', '');
 const registra = (e) => /^(gasto|ingreso) /.test(e);
 
+// Registros de la versión ACTUAL que salieron sin nombre: vacío, o la etiqueta fija que pone
+// `parsearRegistroManual` cuando `nombrarMovimiento` no da un nombre aceptable (o falla: un 429 o
+// un timeout también cuentan acá). El efecto de arriba no lo mira (compara monto y tipo), y por eso el
+// chip 1 pasó esta sonda con 0 regresiones mientras guardaba `comercio: ''` en 37 de 42 registros
+// (01-oct-2026). Cada uso de la etiqueta es un registro sin nombre, así que cuenta como falla.
+const { COMERCIO_SIN_DESCRIPCION } = require(path.join(appRoot, 'services/parsers.js'));
+const sinComercio = [];
+// Mensajes que registran plata sin nombrar NINGUNA cosa: ahí la etiqueta fija es la respuesta
+// correcta. Medido el 01-oct: con "Me preste 50 soles" el paso de nombre propone "prestamo", que el
+// mensaje no escribe, y la guarda lo rechaza. Con "35 me dieron" propone "dieron", que es el verbo.
+// Agregar uno acá exige que el mensaje no tenga sustantivo propio; si lo tiene, el que falla es el
+// nombre (así apareció "Uñas 35": la normalización convertía "uñas" en el artículo "unas").
+const SIN_CONCEPTO = new Set(['Me preste 50 soles', '35 me dieron']);
+// Mensajes cuyo nombre correcto NO está escrito tal cual: palabras pegadas por un typo. El filtro de
+// `nombrarMovimiento` exige que el nombre copie palabras del mensaje, así que "Pasaje" para
+// "pasajede" cae a la etiqueta (1 de 3 en la sonda del 01-oct). Es el costo elegido del filtro:
+// aflojarlo para esto deja pasar nombres inventados.
+const NOMBRE_NO_COPIABLE = new Set(['20.0 pasajede mi hermana']);
+
 async function correr(fn, msg) {
   const out = [];
   for (let i = 0; i < N; i++) {
     let p;
     try { p = await fn(msg, FECHA); } catch (e) { p = { _err: e.message }; }
-    out.push(efecto(p, msg));
+    const e = efecto(p, msg);
+    if (fn === actual && registra(e) && !e.endsWith('(rescate)') && !SIN_CONCEPTO.has(msg) && !NOMBRE_NO_COPIABLE.has(msg)) {
+      const c = typeof p.comercio === 'string' ? p.comercio.trim() : '';
+      if (!c || c === COMERCIO_SIN_DESCRIPCION) sinComercio.push(msg);
+    }
+    out.push(e);
   }
   return out;
 }
@@ -333,5 +357,12 @@ for (const [nombre, casos] of Object.entries(baterias)) {
 }
 
 console.log('\n' + resumen.join('\n'));
+if (sinComercio.length) {
+  console.log(`\nregistros SIN COMERCIO en la versión actual: ${sinComercio.length}`);
+  for (const m of [...new Set(sinComercio)]) console.log(`   · ${JSON.stringify(m)}`);
+} else {
+  console.log('\nregistros sin comercio en la versión actual: 0');
+}
+fallos += sinComercio.length;
 console.log(fallos ? `\nFALLA: ${fallos}` : '\nOK');
 process.exit(fallos ? 1 : 0);

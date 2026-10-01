@@ -777,6 +777,34 @@ describe('9A-bis · corregir_multiple distingue los TRES desenlaces', () => {
   });
 });
 
+describe('9A-ter · corregir_categoria sobre un gasto sin nombre no arma una regla', () => {
+  // Revisión adversarial del 01-oct: desde ese día el parser guarda 'Sin comercio' cuando no
+  // puede nombrar un gasto. "Cámbialo a Salud" sobre uno guardaba la regla 'sin comercio' → Salud,
+  // la retroaplicaba a TODOS los gastos sin nombre y contestaba "Apliqué el cambio a todos los
+  // pagos anteriores de Sin comercio". Con '' (antes) no armaba la regla, pero el texto decía
+  // "de ese comercio": falso igual. Se mueve sólo este gasto.
+  for (const comercio of ['Sin comercio', '']) {
+    it(`con comercio ${JSON.stringify(comercio)}: mueve el gasto, sin regla y sin prometerla`, async () => {
+      const fila = { ...TX, comercio };
+      const sb = makeSupabase({ filas: { transacciones: [fila] } });
+      const { res, ctx } = await correr(sb, { obtenerUltimaTransaccion: vi.fn().mockResolvedValue(fila) }, 'corregir_categoria', { categoria_nueva: 'Transporte' });
+      expect(res).toMatch(/Movi \*el gasto\*/);
+      expect(res).not.toMatch(/pagos anteriores/);
+      expect(ctx.guardarReglaComercio).not.toHaveBeenCalled();
+      expect(ctx.retroaplicarRegla).not.toHaveBeenCalled();
+    });
+  }
+
+  it('control: con un comercio real SÍ guarda la regla y lo dice', async () => {
+    const sb = makeSupabase({ filas: { transacciones: [TX] } });
+    const { res, ctx } = await correr(sb, {}, 'corregir_categoria', { categoria_nueva: 'Transporte' });
+    expect(res).toMatch(/pagos anteriores de Starbucks/);
+    expect(ctx.guardarReglaComercio).toHaveBeenCalledOnce();
+    expect(ctx.guardarReglaComercio.mock.calls[0][1]).toBe('Starbucks');
+    expect(ctx.retroaplicarRegla.mock.calls[0][1]).toBe('Starbucks');
+  });
+});
+
 describe('9A-bis · corregir_categoria: 0 filas corta ANTES de la regla', () => {
   it('no guarda la regla ni retroaplica sobre un cambio que no ocurrió', async () => {
     // El gemelo del caso 9A de más arriba, con la otra causa. Acá el corte ES el arreglo y el

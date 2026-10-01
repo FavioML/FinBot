@@ -163,3 +163,27 @@ describe('generarResumenSemanal — los fallos de query dejan rastro', () => {
     expect(tags).toContain('RESUMEN_SEM');
   });
 });
+
+describe('generarResumenSemanal — el "lugar favorito" tiene que nombrar un lugar', () => {
+  // Desde el 01-oct el parser guarda 'Sin comercio' cuando no puede nombrar un gasto. El resumen
+  // contaba esa etiqueta como un comercio y podía decir "Lugar favorito: Sin comercio (3 veces)".
+  it('una etiqueta de "sin nombre" no es el lugar favorito', async () => {
+    txMock.obtenerGastosSemana.mockResolvedValue([
+      ...['Sin comercio', 'Sin comercio', 'sin_descripcion'].map((comercio, i) => ({ fecha: dia(-1 - i), monto: 10, monto_pen: 10, categoria: 'Otros', comercio })),
+      { fecha: dia(-1), monto: 40, monto_pen: 40, categoria: 'Alimentación', comercio: 'Wong' },
+    ]);
+    const msg = await generarResumenSemanal(USUARIO);
+    expect(msg).toContain('Resumen semanal');
+    expect(msg).not.toMatch(/Lugar favorito/);
+    expect(msg).not.toMatch(/Sin comercio|sin_descripcion/);
+  });
+
+  it('control: un comercio real que se repite sí es el lugar favorito', async () => {
+    txMock.obtenerGastosSemana.mockResolvedValue([
+      { fecha: dia(-1), monto: 40, monto_pen: 40, categoria: 'Alimentación', comercio: 'Wong' },
+      { fecha: dia(-2), monto: 20, monto_pen: 20, categoria: 'Alimentación', comercio: 'Wong' },
+      { fecha: dia(-3), monto: 10, monto_pen: 10, categoria: 'Otros', comercio: 'Sin comercio' },
+    ]);
+    expect(await generarResumenSemanal(USUARIO)).toMatch(/Lugar favorito:\* Wong \(2 veces\)/);
+  });
+});

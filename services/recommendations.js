@@ -4,6 +4,10 @@ const log = require('../lib/logger');
 const fs = require('fs');
 const path = require('path');
 const { detectarSuscripciones } = require('./subscriptions');
+const { esComercioCentinela } = require('./parsers');
+// El comercio de la fila si nombra algo; una etiqueta de "sin nombre" no es un comercio recurrente
+// ni un comercio top (ver `esComercioCentinela`).
+const comercioONada = (t) => (t.comercio && !esComercioCentinela(t.comercio) ? t.comercio : null) || t.banco || '';
 const { subcategoriaUtil } = require('../lib/subcategoria');
 
 /**
@@ -246,12 +250,12 @@ async function construirDatosUsuario(usuarioId) {
   const comerciosRecurrentes = [];
   const comerciosMes = {};
   gastos.forEach(t => {
-    const c = t.comercio || t.banco || '';
+    const c = comercioONada(t);
     if (c) comerciosMes[c.toLowerCase()] = { nombre: c, monto: (comerciosMes[c.toLowerCase()]?.monto || 0) + parseFloat(t.monto_pen || t.monto), cat: t.categoria };
   });
   const comerciosMesAnt = {};
   gastosAnt.forEach(t => {
-    const c = t.comercio || t.banco || '';
+    const c = comercioONada(t);
     if (c) comerciosMesAnt[c.toLowerCase()] = true;
   });
   Object.entries(comerciosMes).forEach(([key, data]) => {
@@ -268,7 +272,8 @@ async function construirDatosUsuario(usuarioId) {
   // Comercios top
   const topComercios = {};
   gastos.forEach(t => {
-    const c = t.comercio || t.banco || 'Sin nombre';
+    const c = comercioONada(t);
+    if (!c) return;
     if (!topComercios[c]) topComercios[c] = { monto: 0, freq: 0 };
     topComercios[c].monto += parseFloat(t.monto_pen || t.monto);
     topComercios[c].freq += 1;

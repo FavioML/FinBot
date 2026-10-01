@@ -116,6 +116,148 @@ describe('parsearRegistroManual: el esquema obliga a decir por qué', () => {
   });
 });
 
+/**
+ * El comercio vacío del 30-sep (FinBot 6aac09d → fix del 01-oct). Al pasar a json_schema el
+ * contrato `"comercio":"descripcion breve"` salió del prompt, y el modelo guardó `''` en 37 de 42
+ * registros medidos; en producción, 16 filas reales en un día. El arreglo NO toca el prompt de
+ * decisión (ver el comentario en `parsearRegistroManual`): si el parser deja el comercio vacío,
+ * un segundo llamado lo nombra, y si ese falla queda la etiqueta fija. Que el modelo nombre bien
+ * lo mide la sonda (`probe-parser-decision.mjs` falla con cualquier registro sin nombre); acá se
+ * prueba lo que no depende del modelo.
+ */
+describe('parsearRegistroManual: el comercio nunca sale vacío con decision=registrar', () => {
+  const { COMERCIO_SIN_DESCRIPCION } = require('../../services/parsers');
+  const registro = (extra) => ({ decision: 'registrar', tipo: 'gasto', monto: 39, moneda: 'PEN', comercio: '', categoria: 'Otros', subcategoria: 'sin_categoria', fecha: '2026-09-30', ...extra });
+  const json = (o) => ({ choices: [{ message: { content: JSON.stringify(o) } }] });
+  // Encola respuestas del modelo en orden: la primera es el parser, la segunda el nombre.
+  const encolar = (...rs) => { for (const r of rs) crear.mockImplementationOnce(async () => (r instanceof Error ? Promise.reject(r) : json(r))); };
+
+  it('comercio vacío o en blanco → lo nombra el segundo llamado, sin tocar monto, moneda ni tipo', async () => {
+    for (const comercio of ['', '   ']) {
+      crear.mockClear();
+      encolar(registro({ comercio }), { nombre: 'aguas' });
+      const p = await parsearRegistroManual('39 aguas', '2026-09-30');
+      expect(p).toMatchObject({ ok: true, decision: 'registrar', tipo: 'gasto', monto: 39, moneda: 'PEN', comercio: 'Aguas' });
+      expect(crear).toHaveBeenCalledTimes(2);
+      // El parser va primero; el segundo llamado recibe SÓLO el mensaje y no ve ni devuelve plata.
+      expect(crear.mock.calls[0][0].response_format.json_schema.name).toBe('registro_manual');
+      expect(crear.mock.calls[1][0].response_format.json_schema.schema.required).toEqual(['nombre']);
+      expect(crear.mock.calls[1][0].messages.at(-1).content).toBe('39 aguas');
+    }
+  });
+
+  // El nombre se pide EN PARALELO con el parser (en serie costaba +620ms de mediana por gasto), así
+  // que el segundo llamado existe siempre; lo que se afirma es que se CANCELA cuando no hace falta y
+  // que su respuesta no pisa lo que trajo el parser.
+  const senalDelNombre = () => crear.mock.calls[1][1].signal;
+
+  it('con comercio del parser se usa el suyo (recortado) y el pedido del nombre se cancela', async () => {
+    encolar(registro({ comercio: '  Aguas ' }), { nombre: 'servilletas' });
+    const p = await parsearRegistroManual('39 aguas', '2026-09-30');
+    expect(p.comercio).toBe('Aguas');
+    expect(senalDelNombre().aborted).toBe(true);
+  });
+
+  it('una decisión que no registra no usa el nombre y lo cancela', async () => {
+    encolar({ ...vacio, decision: 'tipo_dudoso', monto: 35 }, { nombre: 'aguas' });
+    const p = await parsearRegistroManual('35.00', '2026-09-30');
+    expect(p).toMatchObject({ ok: false, decision: 'tipo_dudoso', monto: 0 });
+    expect(p.comercio).toBeUndefined();
+    expect(senalDelNombre().aborted).toBe(true);
+  });
+
+  it('si el parser LANZA (refusal), el pedido del nombre también se cancela', async () => {
+    crear.mockImplementationOnce(async () => ({ choices: [{ message: { content: null, refusal: 'no' } }] }));
+    encolar({ nombre: 'aguas' });
+    await expect(parsearRegistroManual('39 aguas', '2026-09-30')).rejects.toThrow(/refusal/);
+    expect(senalDelNombre().aborted).toBe(true);
+  });
+
+  it('nombre que el mensaje no escribe, con dígitos o vacío → etiqueta fija (no se inventa)', async () => {
+    for (const nombre of ['Supermercado', 'aguas 39', '', '   ', 'aguas '.repeat(7)]) {
+      encolar(registro(), { nombre });
+      const p = await parsearRegistroManual('39 aguas', '2026-09-30');
+      expect(p.comercio, JSON.stringify(nombre)).toBe(COMERCIO_SIN_DESCRIPCION);
+      expect(p).toMatchObject({ ok: true, monto: 39, tipo: 'gasto' });
+    }
+  });
+
+  it('palabras sin contenido (conectores, moneda, verbo) no hacen pasar un nombre inventado', async () => {
+    for (const [msg, nombre] of [
+      ['pagué 120 del cole', 'Pensión del colegio'],   // colgado del "del"
+      ['me cobraron 25 de comisión', 'Comisión BCP'],   // una palabra real y otra inventada
+      ['gasté 39 soles en aguas', 'Soles'],
+      ['gasté 39 soles en aguas', 'Gasté'],
+    ]) {
+      encolar(registro(), { nombre });
+      const p = await parsearRegistroManual(msg, '2026-09-30');
+      expect(p.comercio, `${msg} → ${nombre}`).toBe(COMERCIO_SIN_DESCRIPCION);
+    }
+  });
+
+  it('un nombre de varias palabras que el mensaje escribe completas sí pasa', async () => {
+    for (const [msg, nombre] of [
+      ['100.00 clases de filosofia', 'Clases de filosofia'],
+      ['me cobraron 25 de comisión', 'comisión'],
+      ['tv 500', 'TV'],                 // dos letras: con palabras de 3+ caía a la etiqueta
+      ['pan leche 5', 'Pan y leche'],   // la "y" del nombre no es una palabra que haya que encontrar
+      ['uñas pies 35', 'Uñas de pies'], // ni el "de"
+      ['Uñas 35', 'Uñas'],              // sin la ñ, "uñas" quedaba "unas", el artículo, y caía a la etiqueta
+      ['Taxi cholo 3', 'Taxis'],        // singular y plural valen igual
+      ['Gasté 14.8 Alimentos', 'Alimento'],
+      ['mangos 10', 'Mangos'],          // la fruta: la jerga de moneda que también es otra cosa no está en la lista
+      ['pension cole 120', 'Pensión del cole'], // el "del" no hay que encontrarlo
+    ]) {
+      encolar(registro(), { nombre });
+      const p = await parsearRegistroManual(msg, '2026-09-30');
+      expect(p.comercio, msg).toBe(nombre.charAt(0).toUpperCase() + nombre.slice(1));
+    }
+  });
+
+  it('el pedido del nombre lleva timeout corto y sin reintentos (si no, el gasto espera minutos)', async () => {
+    encolar(registro(), { nombre: 'aguas' });
+    await parsearRegistroManual('39 aguas', '2026-09-30');
+    expect(crear.mock.calls[1][1]).toMatchObject({ timeout: 8000, maxRetries: 0 });
+  });
+
+  it('con comercio del parser NO espera al pedido del nombre (aunque nunca conteste)', async () => {
+    encolar(registro({ comercio: 'Aguas' }));
+    crear.mockImplementationOnce(() => new Promise(() => {}));
+    const p = await parsearRegistroManual('39 aguas', '2026-09-30');
+    expect(p.comercio).toBe('Aguas');
+  }, 2000);
+
+  it('las tildes y mayúsculas no impiden reconocer la palabra del mensaje', async () => {
+    encolar(registro({ monto: 12 }), { nombre: 'Alimentacion' });
+    const p = await parsearRegistroManual('12.00 alimentación', '2026-09-30');
+    expect(p.comercio).toBe('Alimentacion');
+  });
+
+  it('si el segundo llamado falla o devuelve basura, NO lanza: etiqueta fija y el gasto entra', async () => {
+    encolar(registro({ tipo: 'ingreso', monto: 84 }), new Error('timeout'));
+    const ing = await parsearRegistroManual('Ingreso 84 soles', '2026-09-30');
+    expect(ing).toMatchObject({ ok: true, tipo: 'ingreso', monto: 84, comercio: COMERCIO_SIN_DESCRIPCION });
+    encolar(registro());
+    crear.mockImplementationOnce(async () => ({ choices: [{ message: { content: 'no es json' } }] }));
+    const p = await parsearRegistroManual('39 aguas', '2026-09-30');
+    expect(p.comercio).toBe(COMERCIO_SIN_DESCRIPCION);
+  });
+
+  it('la etiqueta es un texto no vacío (si no, el piso no sería piso)', () => {
+    expect(typeof COMERCIO_SIN_DESCRIPCION).toBe('string');
+    expect(COMERCIO_SIN_DESCRIPCION.trim().length).toBeGreaterThan(0);
+  });
+
+  it('por el handler: a guardarTransaccion le llega un nombre, nunca ""', async () => {
+    encolar(registro({ monto: 8.5, categoria: 'Transporte', subcategoria: 'taxi' }), { nombre: 'Taxi' });
+    const ctx = ctxRegistro();
+    await registrar('Taxi 8.50', ctx);
+    expect(ctx.guardarTransaccion).toHaveBeenCalledOnce();
+    const d = ctx.guardarTransaccion.mock.calls[0][1];
+    expect(d).toMatchObject({ tipo: 'gasto', monto: 8.5, comercio: 'Taxi' });
+  });
+});
+
 describe('registrar_manual por decisión', () => {
   it('la forma corta sin verbo se registra como gasto ("Almuerzo 10")', async () => {
     respuestaModelo = { decision: 'registrar', tipo: 'gasto', monto: 10, moneda: 'PEN', comercio: 'Almuerzo', categoria: 'Alimentación', subcategoria: 'restaurante', fecha: '2026-09-30' };

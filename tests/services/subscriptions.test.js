@@ -219,6 +219,20 @@ describe('detectarSuscripciones — deteccion por patron (sin catalogo)', () => 
     expect(sub.meses_detectados).toBe(3);
   });
 
+  it('NO agrupa los gastos sin nombre ("Sin comercio") como si fueran un mismo servicio', async () => {
+    // Desde el 01-oct el parser guarda 'Sin comercio' cuando no puede nombrar un gasto (antes ''),
+    // y el detector sólo saltaba el vacío: tres gastos sin relación salían como UNA suscripción.
+    for (const comercio of ['Sin comercio', 'sin_descripcion']) {
+      state.txs = [
+        tx(comercio, 30, '2026-07-01', { categoria: 'Suscripciones', subcategoria: 'Software' }),
+        tx(comercio, 30, '2026-06-01', { categoria: 'Suscripciones', subcategoria: 'Software' }),
+        tx(comercio, 31, '2026-05-01', { categoria: 'Suscripciones', subcategoria: 'Software' }),
+      ];
+      const r = await detectarSuscripciones('u1');
+      expect(r.cantidad, comercio).toBe(0);
+    }
+  });
+
   it('reconoce el patron por subcategoria "suscripciones" (Entretenimiento/suscripciones)', async () => {
     state.txs = [
       tx('Servicio Raro', 15, '2026-07-01', { categoria: 'Entretenimiento', subcategoria: 'suscripciones' }),

@@ -686,6 +686,20 @@ function extraerMontoSub1ConMoneda(msg) {
  */
 const DECISIONES_REGISTRO = ['registrar', 'tipo_dudoso', 'no_es_movimiento', 'sin_monto'];
 
+// Lo que se guarda cuando ni el parser ni `nombrarMovimiento` dicen en qué fue el gasto. Es la
+// misma etiqueta que usa el rescate determinístico de `registrar_manual`. Se exporta para que la
+// sonda de aceptación cuente cuántas veces se usó: cada uso es un registro sin nombre.
+const COMERCIO_SIN_DESCRIPCION = 'Sin comercio';
+
+// Valores que ocupan `comercio` sin nombrar un comercio: 'Sin comercio' (esta etiqueta, el rescate
+// de monto y el salvavidas sin IA), 'sin_descripcion' (el fallback sub-1 de abajo), 'Sin
+// descripción' (el import CSV) y 'Sin especificar' (apareció en producción sin que ningún código
+// nuestro lo escriba). Una regla de comercio sobre uno de estos agarraría TODOS los gastos sin
+// nombre de la persona: "cámbialo a Salud" sobre uno guardaba la regla 'sin comercio' → Salud y
+// la retroaplicaba con `ilike '%Sin comercio%'` (revisión adversarial del 01-oct).
+const RE_COMERCIO_CENTINELA = /^sin[ _](comercio|descripci[oó]n|especificar)$/i;
+const esComercioCentinela = (comercio) => RE_COMERCIO_CENTINELA.test(String(comercio || '').trim().replace(/\s+/g, ' '));
+
 const ESQUEMA_REGISTRO_MANUAL = {
   name: 'registro_manual',
   strict: true,
@@ -718,6 +732,47 @@ const ESQUEMA_REGISTRO_MANUAL = {
  * aparte, en `monto_dudoso`, porque la pregunta que se le hace a la persona lo nombra.
  */
 async function parsearRegistroManual(msg, fechaHoy) {
+  // El nombre del movimiento sale de un paso APARTE, que se usa sólo si el parser lo dejó vacío. Desde el
+  // deploy del 30-sep (`json_schema` estricto) el modelo dejó `comercio: ''` en 37 de 42
+  // registros medidos, y en producción 16 filas reales quedaron sin nombre en un día: el JSON de
+  // ejemplo del prompt viejo (`"comercio":"descripcion breve"`) era el único lugar que decía qué
+  // va ahí, y el prompt nuevo sólo lo define para ingresos.
+  //
+  // NO se arregló en este prompt, y no por falta de intentos: el 01-oct cinco redacciones (una
+  // línea en las reglas, `description` en el esquema con dos textos, una línea "Para gastos"
+  // junto a la de ingresos, `comercio` primero en el esquema) llenaban el nombre y MOVÍAN LA
+  // DECISIÓN: "recibí mi pedido de rappi 35" pasaba a ingreso, "50.00 vivienda" y "100.00
+  // clases de filosofia" a tipo_dudoso. Este prompt decide plata y se validó con 0 regresiones
+  // tal como está; un nombre no vale tocarlo. El paso aparte no ve ni puede cambiar monto, tipo
+  // ni decisión.
+  //
+  // Corre EN PARALELO con el parser y se cancela al salir si no hizo falta. En serie costaba +620ms
+  // de mediana y +900ms de p90 en la confirmación de cada gasto (medido el 01-oct), y en cantidad
+  // de llamadas casi no cambia: el parser deja el comercio vacío en la mayoría de los registros.
+  // El parser se lanza PRIMERO: su llamado es el que el resto del código y los tests esperan ver
+  // como el primero.
+  const pParsed = extraerRegistroManual(msg, fechaHoy);
+  const abortoNombre = new AbortController();
+  const pNombre = nombrarMovimiento(msg, abortoNombre.signal);
+  try {
+    const parsed = await pParsed;
+    if (parsed.ok && parsed.decision === 'registrar' && !parsed.comercio) {
+      parsed.comercio = (await pNombre) || COMERCIO_SIN_DESCRIPCION;
+      if (parsed.comercio === COMERCIO_SIN_DESCRIPCION) {
+        log.warn({ tag: 'PARSER_COMERCIO_VACIO', tipo: parsed.tipo }, 'Registro sin nombre: se guarda la etiqueta fija');
+      }
+    }
+    return parsed;
+  } finally {
+    abortoNombre.abort();
+  }
+}
+
+/**
+ * La extracción del registro con el prompt de decisión. Ver `parsearRegistroManual`, que es lo
+ * que usan los call sites: ésta no nombra el movimiento si el modelo deja el comercio vacío.
+ */
+async function extraerRegistroManual(msg, fechaHoy) {
   const res = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
     response_format: { type: 'json_schema', json_schema: ESQUEMA_REGISTRO_MANUAL },
@@ -827,7 +882,8 @@ function normalizarSalidaRegistro(o) {
       tipo: o.tipo === 'ingreso' ? 'ingreso' : 'gasto',
       monto,
       moneda: o.moneda || 'PEN',
-      comercio: o.comercio,
+      // Recortado: un comercio en blanco cuenta como vacío y pasa por `nombrarMovimiento`.
+      comercio: typeof o.comercio === 'string' ? o.comercio.trim() : '',
       categoria: o.categoria,
       subcategoria: o.subcategoria,
       fecha: o.fecha,
@@ -839,6 +895,84 @@ function normalizarSalidaRegistro(o) {
     salida.moneda = o.moneda || 'PEN';
   }
   return salida;
+}
+
+const ESQUEMA_NOMBRE_MOVIMIENTO = {
+  name: 'nombre_movimiento',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['nombre'],
+    properties: { nombre: { type: 'string' } },
+  },
+};
+
+// Palabras de 2+ letras, en minúscula y sin tildes, para comparar el nombre contra el mensaje. Dos y
+// no tres: con tres, "TV" (en "tv 500") no tenía ninguna palabra y caía a la etiqueta fija.
+// La ñ se CONSERVA: sin tilde, "uñas" queda "unas" (un artículo de la lista de abajo) y "Uñas 35"
+// caía a la etiqueta fija (sonda del 01-oct). Sólo se quitan los acentos de las vocales.
+const palabrasNormalizadas = (s) => (String(s || '').toLowerCase()
+  .normalize('NFD').replace(/n\u0303/g, 'ñ').replace(/[\u0300-\u036f]/g, '')
+  .match(/[a-zñ]{2,}/g) || []);
+
+// Palabras que están en casi cualquier mensaje de plata y no nombran nada: conectores, la moneda y
+// los verbos del movimiento. Sin esta lista, "Pensión del colegio" pasaba para "pagué 120 del cole"
+// por el "del", y "Soles" o "Gasté" pasaban como nombre (revisión adversarial del 01-oct).
+const PALABRAS_SIN_CONTENIDO = new Set([
+  'de', 'el', 'la', 'en', 'mi', 'me', 'tu', 'su', 'al', 'un', 'lo', 'le', 'se', 'es',
+  'del', 'las', 'los', 'por', 'para', 'con', 'una', 'unos', 'unas', 'mis', 'sus', 'que', 'mas',
+  // Sólo la moneda que no es otra cosa: "mangos", "cocos" o "lucas" también son una fruta o una
+  // persona ("mangos 10", "Lucas 30") y en la lista tiraban esos nombres (segunda revisión).
+  'sol', 'soles', 'dolar', 'dolares', 'pen', 'usd',
+  'gaste', 'gasto', 'gastos', 'pague', 'pago', 'compre', 'compra', 'cobre', 'cobraron', 'cobro',
+  'pagaron', 'depositaron', 'transfirieron', 'mandaron', 'dieron', 'recibi', 'yapearon', 'plinearon',
+  'hoy', 'ayer', 'antier', 'anteayer',
+]);
+// Se comparan sin la "s" final, así "Taxis" vale por "taxi" y "Alimento" por "alimentos". Sólo en
+// palabras de 4+ letras: "gas" o "mes" no son plurales.
+const sinPlural = (p) => (p.length > 3 ? p.replace(/s$/, '') : p);
+const palabrasDeContenido = (s) => palabrasNormalizadas(s).filter((p) => !PALABRAS_SIN_CONTENIDO.has(p)).map(sinPlural);
+
+/**
+ * El nombre de un movimiento que el parser ya decidió registrar, o null. Nunca lanza.
+ *
+ * Sólo se acepta un nombre que el mensaje ESCRIBE: todas sus palabras de contenido tienen que estar
+ * en el mensaje, y no puede llevar dígitos (un monto adentro del comercio es la falla que el rescate de
+ * `registrar_manual` ya declara inaceptable). Lo que no pase vuelve null y el llamador guarda la
+ * etiqueta fija. Este nombre no toca plata, pero se muestra en la confirmación y en la webapp, y
+ * las reglas de comercio del usuario se aplican por él: un nombre inventado es peor que "no sé".
+ *
+ * Timeout corto y sin reintentos: es la mitad cosmética de una respuesta que la persona está
+ * esperando, y el cliente de OpenAI por defecto reintenta durante minutos. No recibe el tipo
+ * porque arranca en paralelo con el parser, antes de que se sepa.
+ */
+async function nombrarMovimiento(msg, signal) {
+  try {
+    const res = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      response_format: { type: 'json_schema', json_schema: ESQUEMA_NOMBRE_MOVIMIENTO },
+      temperature: 0,
+      messages: [
+        { role: 'system', content: `El mensaje anota un gasto o un ingreso en una app de finanzas personales de Perú. Devuelve en "nombre" en qué fue, en 1 a 4 palabras COPIADAS del mensaje: la cosa, el concepto, la categoría, la tienda, el servicio o la persona. Sin el monto, sin la moneda y sin el verbo. Ejemplos: "Pasajes 3.5" → "Pasajes"; "gasté 12 en el Tambo" → "Tambo"; "me pagaron 300 por la asesoría" → "asesoría".` },
+        { role: 'user', content: msg },
+      ],
+    }, { timeout: 8000, maxRetries: 0, signal });
+    const crudo = JSON.parse((res.choices[0].message.content || '').trim() || '{}');
+    const nombre = typeof crudo.nombre === 'string' ? crudo.nombre.trim().replace(/^["'“”]+|["'“”.]+$/g, '').trim() : '';
+    if (!nombre || /\d/.test(nombre) || nombre.length > 40) return null;
+    // TODAS las palabras de contenido del nombre tienen que estar en el mensaje, y tiene que haber
+    // al menos una: con "alguna", un nombre inventado entraba colgado de una sola palabra real
+    // ("Comisión BCP" para un mensaje sin BCP).
+    const delMensaje = new Set(palabrasNormalizadas(msg).map(sinPlural));
+    const contenido = palabrasDeContenido(nombre);
+    if (!contenido.length || !contenido.every((p) => delMensaje.has(p))) return null;
+    return nombre.charAt(0).toUpperCase() + nombre.slice(1);
+  } catch (e) {
+    // Cancelado porque el parser ya trajo el nombre, o porque no registra: no es un fallo.
+    if (!(signal && signal.aborted)) log.warn({ tag: 'NOMBRAR_MOVIMIENTO', err: e.message }, 'No se pudo nombrar el movimiento');
+    return null;
+  }
 }
 
 async function parsearCorreccionesMultiples(msg) {
@@ -907,6 +1041,8 @@ module.exports = {
   extraerComercioPasarela,
   parsearCorreoBancario,
   parsearRegistroManual,
+  COMERCIO_SIN_DESCRIPCION,
+  esComercioCentinela,
   parsearCorreccionesMultiples,
   interpretarComandoPresupuesto,
   extraerMontoSub1ConMoneda,

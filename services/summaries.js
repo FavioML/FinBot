@@ -32,7 +32,8 @@ async function generarResumenSemanal(usuario, { hastaExclusivo } = {}) {
   const top3 = Object.entries(porCat).sort((a, b) => b[1] - a[1]).slice(0, 3);
 
   const porComercio = {};
-  gastosSemana.forEach(t => { const c = t.comercio || t.banco || 'Sin nombre'; porComercio[c] = (porComercio[c] || 0) + 1; });
+  // Sin nombre no hay "lugar favorito": antes de esto el resumen podía decir "Sin comercio (5 veces)".
+  gastosSemana.forEach(t => { const c = comercioReal(t.comercio) || t.banco; if (c) porComercio[c] = (porComercio[c] || 0) + 1; });
   const comercioTop = Object.entries(porComercio).sort((a, b) => b[1] - a[1])[0];
 
   const porDia = {};
@@ -262,16 +263,15 @@ async function generarResumenMensual(usuario) {
   return msg;
 }
 
-// Valores que ocupan `comercio` sin nombrar un comercio: 'Sin comercio' lo escriben el salvavidas
-// sin IA (handlers/message-processor.js) y el rescate de monto (handlers/intents/transacciones.js),
-// 'Sin descripción' el import CSV, y 'Sin especificar' apareció en producción sin que ningún código
-// nuestro lo escriba. Solo decide qué se MUESTRA; la fila no se toca.
-const RE_COMERCIO_CENTINELA = /^sin (comercio|descripci[oó]n|especificar)$/i;
+// Qué valores ocupan `comercio` sin nombrar un comercio lo decide `esComercioCentinela`
+// (services/parsers.js), que también frena las reglas de comercio. Acá solo decide qué se MUESTRA;
+// la fila no se toca.
+const { esComercioCentinela } = require('./parsers');
 
 /** El comercio tal como está guardado, o null si la fila no tiene uno de verdad. */
 function comercioReal(comercio) {
   const c = (comercio || '').trim();
-  return c && !RE_COMERCIO_CENTINELA.test(c) ? comercio : null;
+  return c && !esComercioCentinela(c) ? comercio : null;
 }
 
 /**

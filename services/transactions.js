@@ -3,7 +3,7 @@ const { supabase } = require('../lib/db');
 const { validarMonto, normalizarCategoria } = require('../lib/validators');
 const { hoyPeru } = require('../lib/dates');
 const { esPagoNeto } = require('../lib/config');
-const { extraerLast4, normalizarLast4, canonizarComercio } = require('./parsers');
+const { extraerLast4, normalizarLast4, canonizarComercio, esComercioCentinela } = require('./parsers');
 const log = require('../lib/logger');
 const { subcategoriaUtil } = require('../lib/subcategoria');
 const analytics = require('../lib/analytics');
@@ -582,7 +582,9 @@ async function guardarReglaComercio(usuarioId, comercio, categoria, subcategoria
   // Sin esto, esa regla nace muerta: el runtime ya no guarda esa forma, asi que no matchea
   // nunca. Es la regla muerta que el espejo de la webapp vino a evitar, entrando por al lado.
   const patron = canonizarComercio(comercio).toLowerCase().trim();
-  if (!patron) return { ok: false, motivo: 'sin-comercio' };
+  // Una etiqueta de "sin nombre" no es un comercio: la regla agarraría todos los gastos sin
+  // nombre de la persona (ver `esComercioCentinela`). Mismo motivo que el vacío.
+  if (!patron || esComercioCentinela(patron)) return { ok: false, motivo: 'sin-comercio' };
 
   // Hallazgo B30. La categoría de una regla PISA la que dedujo el clasificador (ver
   // `guardarTransaccion`, una línea después de `resolverCategoriaPersistida`), así que
@@ -640,7 +642,9 @@ async function guardarReglaComercio(usuarioId, comercio, categoria, subcategoria
 }
 
 async function buscarReglaComercio(usuarioId, comercio) {
-  if (!comercio) return null;
+  // Una fila sin nombre no hereda la regla de nadie, aunque exista una guardada antes del freno de
+  // `guardarReglaComercio`: pisaría la categoría que dedujo el clasificador para ESE gasto.
+  if (!comercio || esComercioCentinela(comercio)) return null;
   const patron = comercio.toLowerCase().trim();
   const { data, error } = await supabase.from('reglas_comercio').select('categoria,subcategoria')
     .eq('usuario_id', usuarioId).eq('comercio_pattern', patron).single();
@@ -657,7 +661,9 @@ async function buscarReglaComercio(usuarioId, comercio) {
 }
 
 async function retroaplicarRegla(usuarioId, comercio, categoria, subcategoria) {
-  if (!comercio || !categoria) return 0;
+  // Sin el freno del centinela, `ilike '%Sin comercio%'` movía de categoría todas las filas sin
+  // nombre de la persona. Los call-sites la llaman aunque `guardarReglaComercio` haya rechazado.
+  if (!comercio || !categoria || esComercioCentinela(comercio)) return 0;
   // Misma forma que `guardarReglaComercio`: sus call-sites le pasan el MISMO string crudo del
   // usuario, y un "IZI*BARBANEGRA" dentro del `ilike` de abajo no alcanza ninguna fila, porque
   // las filas ya se guardan canonizadas. La regla se creaba y la retroaplicacion no tocaba nada.
