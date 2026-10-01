@@ -10,8 +10,8 @@
  *
  * Lo que se afirma, sobre UN usuario efímero ya dado de alta y en la prueba Pro, con mensajes
  * reales de ese día: cada mensaje deja EXACTAMENTE una fila nueva, con el monto y el tipo
- * esperados, y con un comercio que no está vacío ni es la etiqueta fija del piso ("Sin comercio":
- * el piso evita el vacío, pero usarlo es que el nombre no salió).
+ * esperados y un comercio que nunca está vacío; y si el mensaje nombra algo, ese comercio no es la
+ * etiqueta fija ("Sin comercio" es lo honesto sólo cuando no hay nada que nombrar).
  *
  * **Cómo no le escribe a nadie**, el molde de `qa-respuestas-malas-nombre.mjs`: usuario
  * `is_test_user` con número `510000…` (no asignable), limpieza COMPROBADA desde un `finally` y
@@ -198,13 +198,18 @@ const sumarDias = (iso, d) => { const f = new Date(iso + 'T12:00:00Z'); f.setUTC
 
 // Mensajes reales que el 30-sep y el 01-oct quedaron con comercio ''. Montos distintos a propósito:
 // con el mismo monto y el mismo día, dos filas vacías compartían `dedup_hash`.
+//
+// El cuarto campo dice si el mensaje NOMBRA algo. "Ingreso 84 soles" no dice de dónde vino la plata:
+// el paso del nombre devuelve vacío la mitad de las veces y la etiqueta fija es la respuesta honesta
+// (antes del chip 1 el prompt le inventaba "Sueldo"). Medido después del deploy de f56c25d. Lo que
+// ningún caso puede es quedar con comercio '' —el bug—, y los que nombran algo necesitan el nombre.
 const CASOS = [
-  ['39 aguas', 'gasto', 39],
-  ['Taxi 8.50', 'gasto', 8.5],
-  ['Desayuno 8', 'gasto', 8],
-  ['Gaste 74.1 en mercado', 'gasto', 74.1],
-  ['25 para traer tronco', 'gasto', 25],
-  ['Ingreso 84 soles', 'ingreso', 84],
+  ['39 aguas', 'gasto', 39, true],
+  ['Taxi 8.50', 'gasto', 8.5, true],
+  ['Desayuno 8', 'gasto', 8, true],
+  ['Gaste 74.1 en mercado', 'gasto', 74.1, true],
+  ['25 para traer tronco', 'gasto', 25, true],
+  ['Ingreso 84 soles', 'ingreso', 84, false],
 ];
 
 let errorFatal = null;
@@ -214,7 +219,7 @@ try {
     nombre: 'QA Comercio', nombre_intentos: 0, onboarding_paso: 0, onboarding_completado: true,
     plan: 'premium', trial_estado: 'activo', trial_vence: sumarDias(hoyLima(), 10),
   });
-  for (const [texto, tipo, monto] of CASOS) {
+  for (const [texto, tipo, monto, nombra] of CASOS) {
     const antes = await leerTx(u);
     await decir(u, texto);
     const despues = await leerTx(u);
@@ -224,7 +229,8 @@ try {
     const t = nuevas[0];
     check(t.tipo === tipo && Number(t.monto) === monto, JSON.stringify(texto) + `: ${tipo} ${monto}`, `${t.tipo} ${t.monto}`);
     const c = (t.comercio || '').trim();
-    check(c !== '' && c !== 'Sin comercio', JSON.stringify(texto) + ': tiene comercio', 'comercio=' + JSON.stringify(t.comercio));
+    check(c !== '', JSON.stringify(texto) + ': el comercio no queda vacío', 'comercio=' + JSON.stringify(t.comercio));
+    if (nombra) check(c !== 'Sin comercio', JSON.stringify(texto) + ': tiene el nombre que la persona escribió', 'comercio=' + JSON.stringify(t.comercio));
   }
 } catch (e) {
   errorFatal = e;
