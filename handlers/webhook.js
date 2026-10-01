@@ -33,6 +33,7 @@ const { manejarOnboarding } = require('./onboarding');
 const { colaConfirmacionGasto, estaEnMuro, mensajeMuro, mensajeCargaMasivaPro, esProPagado, mensajeGmailProPagado, mensajeConectarEnLaApp, mensajeGmailDesconectado, mensajeDashboard } = require('../lib/trial');
 const { comandoRequiereLectura, esComandoGmail } = require('./intents-acceso');
 const { verificarEscritura, entro } = require('../helpers/escritura-verificada');
+const { pideActivarManosLibres } = require('../lib/cierre-dia-prueba');
 const analytics = require('../lib/analytics');
 
 // Idempotencia por wamid: Meta retransmite el webhook cada 30s si OpenAI demora >timeout.
@@ -1092,9 +1093,18 @@ function createWebhookHandler(procesarMensajeLibre) {
         // versión de este texto los prometía. Lo único cierto es que vuelve lo silenciado.
         ? '🔔 Recordatorios activados. Vuelven los avisos que habías silenciado.'
         : 'No pude activar los recordatorios. Intenta de nuevo.';
-    } else if (cmd === '/manoslibres') {
+    } else if (cmd === '/manoslibres' || pideActivarManosLibres(msg)) {
+      // El texto "manos libres" (sin barra) solo ACTIVA: ver `pideActivarManosLibres`.
+      const soloActivar = cmd !== '/manoslibres';
+      // `checkResumenDiario` (cron/checks.js) salta a quien silenció los avisos, así que "cada
+      // noche te mando" sería falso para él. Se le dice cómo destrabarlo (revisión del chip 5).
+      const avisoSilenciado = usuario.recordatorios_activos === false
+        ? '\n\nOjo: tienes los avisos silenciados, así que no te va a llegar. Escribe */recordar* para volver a recibirlos.'
+        : '';
       if (!getUserPlanConfig(usuario).resumenDiario) {
         respuesta = '⭐ *El Modo Manos Libres es una función Pro.*\n\nCada noche a las 9pm te mando un resumen de lo que gastaste en el día, sin que hagas nada.\n\n' + lineaPrecioPro() + '\n📲 Yapea al *970398192* y envíame la captura.';
+      } else if (soloActivar && usuario.manos_libres) {
+        respuesta = '🌙 Tu *Modo Manos Libres* ya está activado: cada noche a las 9pm te mando el resumen del día. Si quieres apagarlo, escribe */manoslibres*.' + avisoSilenciado;
       } else {
         const nuevoEstado = !usuario.manos_libres;
         // Confirmación incondicional de un TOGGLE, que es el caso donde más engaña: el mensaje
@@ -1108,7 +1118,7 @@ function createWebhookHandler(procesarMensajeLibre) {
         respuesta = !entro(vManos)
           ? 'No pude cambiar el Modo Manos Libres. Intenta de nuevo en un momento.'
           : nuevoEstado
-          ? '🌙 *Modo Manos Libres activado.*\n\nCada noche a las 9pm te mando un resumen de lo que gastaste en el día. Escribe */manoslibres* de nuevo para desactivarlo.'
+          ? '🌙 *Modo Manos Libres activado.*\n\nCada noche a las 9pm te mando un resumen de lo que gastaste en el día. Escribe */manoslibres* de nuevo para desactivarlo.' + avisoSilenciado
           : '✅ Modo Manos Libres desactivado. Ya no te mandaré el resumen diario.';
       }
     } else if (cmd === '/alertas') {

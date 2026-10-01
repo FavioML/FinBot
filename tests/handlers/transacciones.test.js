@@ -133,7 +133,33 @@ function buildCtx(sb, extras = {}) {
   };
 }
 
-function call(intencion, datos, msg = '') {
+
+// Desde el chip 5 (01-oct-2026) una corrección por WhatsApp exige una ORDEN en el mensaje, con el
+// valor nuevo escrito, y va siempre al último movimiento (lib/orden-edicion.js). Con `msg: ''` la
+// guarda corta antes de lo que este archivo prueba, así que cada edición viaja con la orden que
+// escribiría una persona, armada con los mismos `datos` que trae el caso.
+const MESES_TXT = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const fechaHumana = (f) => {
+  const m = /^\d{4}-(\d{2})-(\d{2})$/.exec(String(f));
+  return m ? parseInt(m[2], 10) + ' de ' + MESES_TXT[parseInt(m[1], 10) - 1] : String(f);
+};
+function ordenDeEdicion(intencion, datos = {}) {
+  switch (intencion) {
+    case 'editar_monto': return 'cambia el monto' + (Number.isFinite(parseFloat(datos.monto_nuevo)) ? ' a ' + datos.monto_nuevo : '');
+    case 'editar_fecha': return 'cambia la fecha' + (datos.fecha_nueva ? ' a ' + fechaHumana(datos.fecha_nueva) : '');
+    case 'editar_comercio': return 'cambia el comercio' + (datos.comercio_nuevo ? ' a ' + datos.comercio_nuevo : '');
+    case 'corregir_monto_moneda': {
+      const mon = datos.moneda === 'PEN' ? 'soles' : 'dolares';
+      return 'cambia eso a ' + (datos.monto != null && Number.isFinite(parseFloat(datos.monto)) ? datos.monto + ' ' : '') + mon;
+    }
+    case 'marcar_como_ingreso': return 'marcalo como ' + (datos.tipo_nuevo || 'ingreso');
+    case 'dividir_gasto': return 'dividelo entre ' + (datos.partes != null ? datos.partes : 2);
+    case 'duplicar_gasto': return 'duplicalo' + (datos.fecha ? ' para el ' + fechaHumana(datos.fecha) : '');
+    default: return '';
+  }
+}
+
+function call(intencion, datos, msg = ordenDeEdicion(intencion, datos)) {
   const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
   const ctx = buildCtx(sb);
   return { sb, ctx, run: () => handler.handle({ intencion, msg, datos, usuario: USUARIO, from: '+51999', ctx }) };
@@ -1144,7 +1170,10 @@ describe('restaurar_eliminado', () => {
 // ─── editar_monto ───────────────────────────────────────────────────────────
 
 describe('editar_monto', () => {
-  it('busca por comercio cuando datos.comercio esta disponible', async () => {
+  // Hasta el chip 5 (01-oct-2026) esto afirmaba "busca por comercio cuando datos.comercio está".
+  // Esa búsqueda (`ilike`) eligió la fila equivocada en prod y se retiró: por WhatsApp se corrige
+  // solo el último. Nombrar otro movimiento recibe la pregunta, sin buscar ni escribir.
+  it('nombrar otro movimiento no lo busca ni edita nada: pregunta', async () => {
     const netflixTx = { ...TX_BASE, id: 'tx-netflix', comercio: 'Netflix', monto: 19.90, monto_pen: 19.90 };
     const sb = makeSupabaseMock({ transacciones: [netflixTx] });
     const ctx = buildCtx(sb);
@@ -1152,11 +1181,21 @@ describe('editar_monto', () => {
       intencion: 'editar_monto', msg: 'corrige Netflix a 25',
       datos: { monto_nuevo: 25, comercio: 'Netflix' }, usuario: USUARIO, from: '+51999', ctx,
     });
-    expect(res).toContain('Netflix');
+    expect(res).toMatch(/Por WhatsApp corrijo solo lo último/);
+    expect(ctx.obtenerUltimaTransaccion).not.toHaveBeenCalled();
+    expect(sb._chains['transacciones']).toBeUndefined();
+  });
+
+  it('con un comercio en datos y una orden sobre el último, edita el último sin buscar', async () => {
+    const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+    const ctx = buildCtx(sb);
+    const res = await handler.handle({
+      intencion: 'editar_monto', msg: 'cámbialo a 25',
+      datos: { monto_nuevo: 25, comercio: 'Netflix' }, usuario: USUARIO, from: '+51999', ctx,
+    });
     expect(res).toContain('25.00');
-    expect(sb.from).toHaveBeenCalledWith('transacciones');
-    const chain = sb._chains['transacciones'];
-    expect(chain.ilike).toHaveBeenCalledWith('comercio', '%Netflix%');
+    expect(ctx.obtenerUltimaTransaccion).toHaveBeenCalled();
+    expect(sb._chains['transacciones'].ilike).not.toHaveBeenCalled();
   });
 
   it('cae al ultimo gasto si no hay comercio en datos', async () => {
@@ -1390,7 +1429,8 @@ describe('duplicar_gasto', () => {
 describe('editar_fecha', () => {
   it('corrige fecha al dia especificado', async () => {
     const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
-    const ctx = buildCtx(sb);
+    // "fue ayer" es elíptica: vale detrás de la confirmación del movimiento (lib/orden-edicion.js).
+    const ctx = buildCtx(sb, { historialConv: [{ rol: 'neto', mensaje: '✅ S/12.00 en Alimentación · 05-abr-26', created_at: new Date().toISOString() }] });
     const res = await handler.handle({
       intencion: 'editar_fecha', msg: 'fue ayer',
       datos: { fecha_nueva: 'ayer' }, usuario: USUARIO, from: '+51999', ctx,

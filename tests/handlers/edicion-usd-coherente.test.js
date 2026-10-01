@@ -66,6 +66,31 @@ const TX_PEN = { ...TX_USD, id: 'tx-pen', moneda: 'PEN', monto: 50, monto_pen: 5
 // "usó el de la fila" de "salió a cotizar".
 const TC_HOY = 3.339;
 
+// Desde el chip 5 (01-oct-2026) una corrección por WhatsApp exige una ORDEN en el mensaje, con el
+// valor nuevo escrito, y va siempre al último movimiento (lib/orden-edicion.js). Con `msg: ''` la
+// guarda corta antes de lo que este archivo prueba, así que cada edición viaja con la orden que
+// escribiría una persona, armada con los mismos `datos` que trae el caso.
+const MESES_TXT = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const fechaHumana = (f) => {
+  const m = /^\d{4}-(\d{2})-(\d{2})$/.exec(String(f));
+  return m ? parseInt(m[2], 10) + ' de ' + MESES_TXT[parseInt(m[1], 10) - 1] : String(f);
+};
+function ordenDeEdicion(intencion, datos = {}) {
+  switch (intencion) {
+    case 'editar_monto': return 'cambia el monto' + (Number.isFinite(parseFloat(datos.monto_nuevo)) ? ' a ' + datos.monto_nuevo : '');
+    case 'editar_fecha': return 'cambia la fecha' + (datos.fecha_nueva ? ' a ' + fechaHumana(datos.fecha_nueva) : '');
+    case 'editar_comercio': return 'cambia el comercio' + (datos.comercio_nuevo ? ' a ' + datos.comercio_nuevo : '');
+    case 'corregir_monto_moneda': {
+      const mon = datos.moneda === 'PEN' ? 'soles' : 'dolares';
+      return 'cambia eso a ' + (datos.monto != null && Number.isFinite(parseFloat(datos.monto)) ? datos.monto + ' ' : '') + mon;
+    }
+    case 'marcar_como_ingreso': return 'marcalo como ' + (datos.tipo_nuevo || 'ingreso');
+    case 'dividir_gasto': return 'dividelo entre ' + (datos.partes != null ? datos.partes : 2);
+    case 'duplicar_gasto': return 'duplicalo' + (datos.fecha ? ' para el ' + fechaHumana(datos.fecha) : '');
+    default: return '';
+  }
+}
+
 function correr(intencion, datos, fila) {
   const sb = makeSupabase([fila]);
   const obtenerTipoCambio = vi.fn().mockResolvedValue({ venta: TC_HOY, fuente: 'dolar.pe' });
@@ -84,7 +109,8 @@ function correr(intencion, datos, fila) {
     parsearRegistroManual: vi.fn(), parsearCorreccionesMultiples: vi.fn(),
     fechaHoyPeru: () => '2026-08-31', fechaAyerPeru: () => '2026-08-30', formatFecha: (f) => f || '',
   };
-  return handler.handle({ intencion, msg: '', datos, usuario: USUARIO, from: '51999', ctx })
+
+  return handler.handle({ intencion, msg: ordenDeEdicion(intencion, datos), datos, usuario: USUARIO, from: '51999', ctx })
     .then((res) => ({
       res,
       updates: (sb._chains.transacciones?.update.mock.calls[0] || [])[0],

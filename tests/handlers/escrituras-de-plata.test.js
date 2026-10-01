@@ -203,7 +203,33 @@ function buildCtx(sb, extras = {}) {
   };
 }
 
-const correr = (sb, ctxExtras, intencion, datos = {}, msg = '') => {
+
+// Desde el chip 5 (01-oct-2026) una corrección por WhatsApp exige una ORDEN en el mensaje, con el
+// valor nuevo escrito, y va siempre al último movimiento (lib/orden-edicion.js). Con `msg: ''` la
+// guarda corta antes de lo que este archivo prueba, así que cada edición viaja con la orden que
+// escribiría una persona, armada con los mismos `datos` que trae el caso.
+const MESES_TXT = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const fechaHumana = (f) => {
+  const m = /^\d{4}-(\d{2})-(\d{2})$/.exec(String(f));
+  return m ? parseInt(m[2], 10) + ' de ' + MESES_TXT[parseInt(m[1], 10) - 1] : String(f);
+};
+function ordenDeEdicion(intencion, datos = {}) {
+  switch (intencion) {
+    case 'editar_monto': return 'cambia el monto' + (Number.isFinite(parseFloat(datos.monto_nuevo)) ? ' a ' + datos.monto_nuevo : '');
+    case 'editar_fecha': return 'cambia la fecha' + (datos.fecha_nueva ? ' a ' + fechaHumana(datos.fecha_nueva) : '');
+    case 'editar_comercio': return 'cambia el comercio' + (datos.comercio_nuevo ? ' a ' + datos.comercio_nuevo : '');
+    case 'corregir_monto_moneda': {
+      const mon = datos.moneda === 'PEN' ? 'soles' : 'dolares';
+      return 'cambia eso a ' + (datos.monto != null && Number.isFinite(parseFloat(datos.monto)) ? datos.monto + ' ' : '') + mon;
+    }
+    case 'marcar_como_ingreso': return 'marcalo como ' + (datos.tipo_nuevo || 'ingreso');
+    case 'dividir_gasto': return 'dividelo entre ' + (datos.partes != null ? datos.partes : 2);
+    case 'duplicar_gasto': return 'duplicalo' + (datos.fecha ? ' para el ' + fechaHumana(datos.fecha) : '');
+    default: return '';
+  }
+}
+
+const correr = (sb, ctxExtras, intencion, datos = {}, msg = ordenDeEdicion(intencion, datos)) => {
   const ctx = buildCtx(sb, ctxExtras);
   return handler.handle({ intencion, msg, datos, usuario: USUARIO, from: '+51999', ctx })
     .then((res) => ({ res, ctx }));
@@ -236,33 +262,38 @@ const PLANOS = [
   },
   {
     nombre: 'editar_monto', intencion: 'editar_monto',
-    datos: { monto_nuevo: 80 }, datosConLectura: { monto_nuevo: 80, comercio: 'Starbucks' }, escritura: ['transacciones', 'update'],
+    datos: { monto_nuevo: 80 }, escritura: ['transacciones', 'update'],
     exito: /Monto corregido/i, fallo: /No pude corregir el monto ahora mismo/i, tag: 'EDITAR_MONTO',
-    lecturaCaida: /No pude corregir el monto\. Intenta de nuevo/i,
+    // Chip 5 (01-oct-2026): ya no busca por comercio, va al último (lib/orden-edicion.js).
+    lecturaEsCtx: true,
   },
   {
     nombre: 'editar_fecha', intencion: 'editar_fecha',
-    datos: { fecha_nueva: 'ayer' }, datosConLectura: { fecha_nueva: 'ayer', comercio: 'Starbucks' }, escritura: ['transacciones', 'update'],
+    datos: { fecha_nueva: 'ayer' }, escritura: ['transacciones', 'update'],
     exito: /Fecha corregida/i, fallo: /No pude corregir la fecha ahora mismo/i, tag: 'EDITAR_FECHA',
-    lecturaCaida: /No pude corregir la fecha\. Intenta de nuevo/i,
+    // Chip 5 (01-oct-2026): ya no busca por comercio, va al último (lib/orden-edicion.js).
+    lecturaEsCtx: true,
   },
   {
     nombre: 'editar_comercio', intencion: 'editar_comercio',
-    datos: { comercio_nuevo: 'Plaza Vea' }, datosConLectura: { comercio_nuevo: 'Plaza Vea', comercio: 'Starbucks' }, escritura: ['transacciones', 'update'],
+    datos: { comercio_nuevo: 'Plaza Vea' }, escritura: ['transacciones', 'update'],
     exito: /Comercio corregido/i, fallo: /No pude corregir el comercio ahora mismo/i, tag: 'EDITAR_COMERCIO',
-    lecturaCaida: /No pude corregir el comercio\. Intenta de nuevo/i,
+    // Chip 5 (01-oct-2026): ya no busca por comercio, va al último (lib/orden-edicion.js).
+    lecturaEsCtx: true,
   },
   {
     nombre: 'dividir_gasto', intencion: 'dividir_gasto',
-    datos: { partes: 2 }, datosConLectura: { partes: 2, comercio: 'Starbucks' }, escritura: ['transacciones', 'update'],
+    datos: { partes: 2 }, escritura: ['transacciones', 'update'],
     exito: /Gasto dividido/i, fallo: /No pude dividir el gasto ahora mismo/i, tag: 'DIVIDIR',
-    lecturaCaida: /No pude dividir el gasto\. Intenta de nuevo/i,
+    // Chip 5 (01-oct-2026): ya no busca por comercio, va al último (lib/orden-edicion.js).
+    lecturaEsCtx: true,
   },
   {
     nombre: 'marcar_como_ingreso', intencion: 'marcar_como_ingreso',
-    datos: { tipo_nuevo: 'ingreso' }, datosConLectura: { tipo_nuevo: 'ingreso', comercio: 'Starbucks' }, escritura: ['transacciones', 'update'],
+    datos: { tipo_nuevo: 'ingreso' }, escritura: ['transacciones', 'update'],
     exito: /ahora est[áa] marcado como/i, fallo: /No pude cambiar el tipo ahora mismo/i, tag: 'MARCAR_INGRESO',
-    lecturaCaida: /No pude cambiar el tipo\. Intenta de nuevo/i,
+    // Chip 5 (01-oct-2026): ya no busca por comercio, va al último (lib/orden-edicion.js).
+    lecturaEsCtx: true,
   },
 ];
 

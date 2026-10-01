@@ -7,6 +7,7 @@ const { validarMonto } = require('../../lib/validators');
 const { subcategoriaUtil, esSubSinClasificar } = require('../../lib/subcategoria');
 const { extraerGastoSinIA, quitarTokensDeMoneda, contarMontosCandidatos, mencionaMonedaNoSoportada, montoEscritoEnMensaje, tipoContradiceElMensaje } = require('../../lib/nlp-guards');
 const { registrarError } = require('../../lib/error-monitor');
+const { revisarEdicion, pedirOrden } = require('../../lib/orden-edicion');
 
 // Un mensaje que es SOLO un número (con o sin moneda) no se rescata.
 //
@@ -295,6 +296,19 @@ module.exports = {
       parsearRegistroManual, parsearCorreccionesMultiples,
       fechaHoyPeru, fechaAyerPeru, formatFecha
     } = ctx;
+
+    // Una edición de un movimiento que ya existe necesita una ORDEN en el mensaje (chip 5,
+    // 01-oct-2026): la forma entera, el valor nuevo escrito y el sujeto nombrado. Ver
+    // lib/orden-edicion.js. Antes del switch y no en cada `case`: una sola puerta para las siete,
+    // la lección del 17-ago con la puerta gemela del borrado.
+    // `historialConv` decide si vale una corrección ELÍPTICA ("eran 30"): solo detrás de la
+    // confirmación de un movimiento guardado (regla 3 de lib/orden-edicion.js).
+    const revision = revisarEdicion(intencion, msg, datos, { historial: ctx.historialConv });
+    if (!revision.ok) {
+      log.info({ tag: 'EDICION_SIN_ORDEN', intencion, motivo: revision.motivo, campo: revision.campo, texto: String(msg || '').slice(0, 80) }, 'Edición sin orden en el mensaje: se pregunta, no se edita');
+      return pedirOrden(intencion);
+    }
+    datos = revision.datos;
 
     switch (intencion) {
 
@@ -927,7 +941,7 @@ module.exports = {
           // entera — falla cerrado, sí, pero con "no pude corregir la moneda ahora mismo", que
           // manda a reintentar algo que no va a funcionar nunca. Ahora se le dice qué escribir.
           const nuevoMonto = datos.monto != null ? validarMonto(datos.monto) : validarMonto(ultimaTxM.monto);
-          if (nuevoMonto === null) return 'Dime el monto. Ej: _"son 25 dólares"_, _"es S/120"_.';
+          if (nuevoMonto === null) return 'Dime el monto. Ej: _"cámbialo a 25 dólares"_, _"cámbialo a S/120"_.';
           updates.moneda = nuevaMoneda;
           updates.monto = nuevoMonto;
           if (nuevaMoneda === 'USD') {
@@ -1228,46 +1242,10 @@ module.exports = {
           // escribe algo absurdo reciben el mismo empujón, que es lo que corresponde por chat.
           const montoNuevo = validarMonto(datos.monto_nuevo);
           if (!montoNuevo) return 'Dime el monto correcto. Ej: _"el monto es 50"_, _"corrige a S/120"_.';
-          // ─── Los dos ceros de esta búsqueda NO son el mismo cero (ítem 9F) ───────
-          // `found` vacío con `error: null` es "ese comercio no existe": ahí caer a la última
-          // transacción es una heurística razonable por chat y SE CONSERVA. `errBusca…` es
-          // "no se pudo buscar", y ahí el mismo fallback le escribe encima a una fila que la
-          // persona no nombró — con 38.4 transacciones por usuario, casi nunca es la suya.
-          // "El de Starbucks es 50" le ponía S/ 50 al taxi de hoy.
-          //
-          // El corte es `log.warn(LECTURA_CAIDA) + throw`, no `return`: los cinco `case` de
-          // este ítem tienen `catch` propio (verificado uno por uno) y de ahí sale el mensaje
-          // honesto. Un `throw` desde un `case` SIN catch propio terminaría en el catch general
-          // de `procesarMensajeLibre`, que lo anota como fallo de NLP y avisa al admin.
-          let txEditM = null;
-          if (datos.comercio) {
-            const { data: found, error: errBuscaMonto } = await supabase.from('transacciones').select('*')
-              .eq('usuario_id', usuario.id).ilike('comercio', '%' + datos.comercio + '%')
-              .order('created_at', { ascending: false }).limit(1);
-            if (errBuscaMonto) {
-              log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, sitio: 'editar_monto:comercio', err: errBuscaMonto.message }, 'No se pudo buscar la transacción: no se cae al fallback');
-              throw errBuscaMonto;
-            }
-            txEditM = found && found.length > 0 ? found[0] : null;
-          }
-          // Lookup por fecha si el continuation pasó "el de ayer/hoy" sin comercio
-          if (!txEditM && datos.fecha_token) {
-            const tok = String(datos.fecha_token).toLowerCase();
-            const fechaQ = tok === 'hoy' ? fechaHoyPeru()
-                         : (tok === 'ayer' || tok === 'antier' || tok === 'anteayer') ? fechaAyerPeru()
-                         : null;
-            if (fechaQ) {
-              const { data: foundF, error: errBuscaToken } = await supabase.from('transacciones').select('*')
-                .eq('usuario_id', usuario.id).eq('fecha', fechaQ)
-                .order('created_at', { ascending: false }).limit(1);
-              if (errBuscaToken) {
-                log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, sitio: 'editar_monto:fecha_token', err: errBuscaToken.message }, 'No se pudo buscar la transacción: no se cae al fallback');
-                throw errBuscaToken;
-              }
-              txEditM = foundF && foundF.length > 0 ? foundF[0] : null;
-            }
-          }
-          if (!txEditM) txEditM = await obtenerUltimaTransaccion(usuario.id);
+          // Siempre el ÚLTIMO movimiento (chip 5, 01-oct-2026): `revisarEdicion` no deja pasar un
+          // sujeto. La búsqueda por comercio (`ilike`) que vivía acá eligió la fila equivocada en prod
+          // ("aby 143" buscó "aby", no lo halló y editó "traer tronco"); ver lib/orden-edicion.js.
+          const txEditM = await obtenerUltimaTransaccion(usuario.id);
           if (!txEditM) return 'No encuentro un gasto reciente para corregir.';
           const monedaEdit = txEditM.moneda || 'PEN';
           const updates = { monto: montoNuevo };
@@ -1301,7 +1279,7 @@ module.exports = {
       case 'editar_fecha': {
         try {
           let fechaNueva = datos.fecha_nueva;
-          if (!fechaNueva) return 'Dime la fecha correcta. Ej: _"fue ayer"_, _"cámbialo al 15 de marzo"_.';
+          if (!fechaNueva) return 'Dime la fecha correcta. Ej: _"cambia la fecha a ayer"_, _"cámbialo al 15 de marzo"_.';
           // Parsear "ayer"
           if (fechaNueva === 'ayer') {
             fechaNueva = fechaAyerPeru();
@@ -1309,18 +1287,10 @@ module.exports = {
             // Solo día → asumir mes/año actual
             fechaNueva = anioActual + '-' + String(mesActual).padStart(2,'0') + '-' + String(parseInt(fechaNueva)).padStart(2,'0');
           }
-          let txEditF = null;
-          if (datos.comercio) {
-            const { data: found, error: errBuscaFecha } = await supabase.from('transacciones').select('*')
-              .eq('usuario_id', usuario.id).ilike('comercio', '%' + datos.comercio + '%')
-              .order('created_at', { ascending: false }).limit(1);
-            if (errBuscaFecha) {
-              log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, sitio: 'editar_fecha:comercio', err: errBuscaFecha.message }, 'No se pudo buscar la transacción: no se cae al fallback');
-              throw errBuscaFecha;
-            }
-            txEditF = found && found.length > 0 ? found[0] : null;
-          }
-          if (!txEditF) txEditF = await obtenerUltimaTransaccion(usuario.id);
+          // Siempre el ÚLTIMO movimiento (chip 5, 01-oct-2026): `revisarEdicion` no deja pasar un
+          // sujeto. La búsqueda por comercio (`ilike`) que vivía acá eligió la fila equivocada en prod
+          // ("aby 143" buscó "aby", no lo halló y editó "traer tronco"); ver lib/orden-edicion.js.
+          const txEditF = await obtenerUltimaTransaccion(usuario.id);
           if (!txEditF) return 'No encuentro un gasto reciente para corregir.';
           const { data: filasFecha, error: errEditFecha } = await supabase.from('transacciones').update({ fecha: fechaNueva }).eq('id', txEditF.id).select('id');
           if (errEditFecha) {
@@ -1342,18 +1312,10 @@ module.exports = {
         try {
           const comercioNuevo = datos.comercio_nuevo;
           if (!comercioNuevo) return 'Dime el nombre correcto. Ej: _"el comercio es Plaza Vea"_.';
-          let txEditC = null;
-          if (datos.comercio) {
-            const { data: found, error: errBuscaComercio } = await supabase.from('transacciones').select('*')
-              .eq('usuario_id', usuario.id).ilike('comercio', '%' + datos.comercio + '%')
-              .order('created_at', { ascending: false }).limit(1);
-            if (errBuscaComercio) {
-              log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, sitio: 'editar_comercio:comercio', err: errBuscaComercio.message }, 'No se pudo buscar la transacción: no se cae al fallback');
-              throw errBuscaComercio;
-            }
-            txEditC = found && found.length > 0 ? found[0] : null;
-          }
-          if (!txEditC) txEditC = await obtenerUltimaTransaccion(usuario.id);
+          // Siempre el ÚLTIMO movimiento (chip 5, 01-oct-2026): `revisarEdicion` no deja pasar un
+          // sujeto. La búsqueda por comercio (`ilike`) que vivía acá eligió la fila equivocada en prod
+          // ("aby 143" buscó "aby", no lo halló y editó "traer tronco"); ver lib/orden-edicion.js.
+          const txEditC = await obtenerUltimaTransaccion(usuario.id);
           if (!txEditC) return 'No encuentro un gasto reciente para corregir.';
           const comercioViejo = txEditC.comercio || 'Sin nombre';
           const { data: filasCom, error: errEditCom } = await supabase.from('transacciones').update({ comercio: comercioNuevo }).eq('id', txEditC.id).select('id');
@@ -1375,19 +1337,11 @@ module.exports = {
       case 'dividir_gasto': {
         try {
           const partes = datos.partes ? parseInt(datos.partes) : null;
-          if (!partes || partes < 2 || partes > 20) return 'Dime entre cuántos dividir. Ej: _"divide entre 3"_, _"mitad es mío"_.';
-          let txDiv = null;
-          if (datos.comercio) {
-            const { data: found, error: errBuscaDividir } = await supabase.from('transacciones').select('*')
-              .eq('usuario_id', usuario.id).ilike('comercio', '%' + datos.comercio + '%')
-              .order('created_at', { ascending: false }).limit(1);
-            if (errBuscaDividir) {
-              log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, sitio: 'dividir_gasto:comercio', err: errBuscaDividir.message }, 'No se pudo buscar la transacción: no se cae al fallback');
-              throw errBuscaDividir;
-            }
-            txDiv = found && found.length > 0 ? found[0] : null;
-          }
-          if (!txDiv) txDiv = await obtenerUltimaTransaccion(usuario.id);
+          if (!partes || partes < 2 || partes > 20) return 'Dime entre cuántos dividir. Ej: _"divídelo entre 3"_, _"divídelo a medias"_.';
+          // Siempre el ÚLTIMO movimiento (chip 5, 01-oct-2026): `revisarEdicion` no deja pasar un
+          // sujeto. La búsqueda por comercio (`ilike`) que vivía acá eligió la fila equivocada en prod
+          // ("aby 143" buscó "aby", no lo halló y editó "traer tronco"); ver lib/orden-edicion.js.
+          const txDiv = await obtenerUltimaTransaccion(usuario.id);
           if (!txDiv) return 'No encuentro un gasto reciente para dividir.';
           // Los DOS pasan por `validarMonto` (B18), y por motivos distintos:
           //  · el original, porque es un valor que salió de la DB y esta rama lo vuelve a
@@ -1556,18 +1510,10 @@ module.exports = {
 
       case 'marcar_como_ingreso': {
         try {
-          let txMarcar = null;
-          if (datos.comercio) {
-            const { data: found, error: errBuscaIngreso } = await supabase.from('transacciones').select('*')
-              .eq('usuario_id', usuario.id).ilike('comercio', '%' + datos.comercio + '%')
-              .order('created_at', { ascending: false }).limit(1);
-            if (errBuscaIngreso) {
-              log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, sitio: 'marcar_como_ingreso:comercio', err: errBuscaIngreso.message }, 'No se pudo buscar la transacción: no se cae al fallback');
-              throw errBuscaIngreso;
-            }
-            txMarcar = found && found.length > 0 ? found[0] : null;
-          }
-          if (!txMarcar) txMarcar = await obtenerUltimaTransaccion(usuario.id);
+          // Siempre el ÚLTIMO movimiento (chip 5, 01-oct-2026): `revisarEdicion` no deja pasar un
+          // sujeto. La búsqueda por comercio (`ilike`) que vivía acá eligió la fila equivocada en prod
+          // ("aby 143" buscó "aby", no lo halló y editó "traer tronco"); ver lib/orden-edicion.js.
+          const txMarcar = await obtenerUltimaTransaccion(usuario.id);
           if (!txMarcar) return 'No hay transacciones recientes para modificar.';
           const tipoNuevo = datos.tipo_nuevo || 'ingreso';
           const { data: filasMarcar, error: errMarcar } = await supabase.from('transacciones').update({ tipo: tipoNuevo }).eq('id', txMarcar.id).select('id');
