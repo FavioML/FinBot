@@ -24,7 +24,7 @@
 // Lo que NO hace: no gatea la cascada de comandos `/` de webhook.js, que corre antes del NLP
 // y no pasa por el registry. Ese es su propio gate (`comandoRequiereLectura`).
 
-const { requiereLectura } = require('./intents-acceso');
+const { requiereLectura, esIntentGmail } = require('./intents-acceso');
 const { estaEnMuro, mensajeMuro } = require('../lib/trial');
 const analytics = require('../lib/analytics');
 const log = require('../lib/logger');
@@ -53,7 +53,7 @@ async function respuestaMuroSiCorresponde({ intencion, usuario, ctx }) {
   const { count, error: errConteo } = await ctx.supabase.from('transacciones')
     .select('id', { count: 'exact', head: true }).eq('usuario_id', usuario.id);
   if (errConteo) log.warn({ tag: 'MURO', usuarioId: usuario.id, err: errConteo.message }, 'No se pudo contar las transacciones: el muro sale sin conteo');
-  const respMuro = mensajeMuro(usuario, errConteo ? undefined : count);
+  const respMuro = mensajeMuro(usuario, errConteo ? undefined : count, { gmail: esIntentGmail(intencion) });
   // Sin `guardarMensaje`: el único escritor de la fila 'neto' es `handlers/webhook.js`,
   // que guarda lo que devuelve `procesarMensajeLibre`. Escribir también acá duplicaba la
   // fila (P′9) y, en el camino de la continuación multi-intent, guardaba un FRAGMENTO de la

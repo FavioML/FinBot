@@ -129,10 +129,33 @@ describe('muro-gate: el conteo que no se puede leer', () => {
     // taparia el caso bueno y el test de arriba pasaria por la razon equivocada.
     const cero = ctxCon({ count: 0, error: null });
     expect(await respuestaMuroSiCorresponde({ intencion: INTENCION, usuario: EN_MURO, ctx: cero.ctx }))
-      .toContain('tu primer gasto');
+      .toContain('todavía no empezó');
 
     const siete = ctxCon({ count: 7, error: null });
     expect(await respuestaMuroSiCorresponde({ intencion: INTENCION, usuario: EN_MURO, ctx: siete.ctx }))
       .toContain('tu próximo gasto');
   });
+});
+
+// Revisión adversarial del chip 3: a quien nunca tuvo prueba, el muro le promete que su primer
+// gasto abre Neto Pro. Si lo que pidió es Gmail, eso es falso (pide Pro pagado), y el gate es
+// el único que sabe qué intent llegó.
+describe('las lecturas de Gmail avisan que la prueba no las abre', () => {
+  // Lista explícita y no derivada del Set: sacar uno del Set tiene que poner esto rojo.
+  it.each(['agregar_gmail', 'cambiar_gmail', 'escanear_gmail', 'preferencia_reporte_gmail'])('%s lleva el aviso', async (intencion) => {
+    const { ctx } = ctxCon({ count: 0, error: null });
+    expect(await respuestaMuroSiCorresponde({ intencion, usuario: EN_MURO, ctx })).toMatch(/correos del banco.*Pro\* pagado/s);
+  });
+
+  it('control: una lectura que no es Gmail no lo menciona', async () => {
+    const { ctx } = ctxCon({ count: 0, error: null });
+    expect(await respuestaMuroSiCorresponde({ intencion: INTENCION, usuario: EN_MURO, ctx })).not.toMatch(/correo/i);
+  });
+});
+
+it('las listas de Gmail son subconjunto de las lecturas (si no, el muro nunca las ve)', () => {
+  const { INTENTS_GMAIL, INTENTS_LECTURA, COMANDOS_GMAIL, COMANDOS_LECTURA } = require('../../handlers/intents-acceso');
+  expect(INTENTS_GMAIL.size).toBeGreaterThan(0);
+  for (const i of INTENTS_GMAIL) expect(INTENTS_LECTURA.has(i), i).toBe(true);
+  for (const c of COMANDOS_GMAIL) expect(COMANDOS_LECTURA.has(c), c).toBe(true);
 });

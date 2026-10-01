@@ -125,10 +125,24 @@ function comandoRequiereLectura(cmd) {
   return COMANDOS_LECTURA.has(base);
 }
 
+// Las lecturas que la PRUEBA no abre: Gmail pide Pro pagado (lib/trial.js,
+// `mensajeGmailProPagado`). Las usa el muro para no prometerle a quien nunca tuvo prueba que
+// su primer gasto le abre justo esto. Son un subconjunto de las de arriba, y vive acá y no en
+// el gate porque el gate no lleva listas propias (`tests/handlers/muro-dispatch-unico.test.js`).
+const INTENTS_GMAIL = new Set(['escanear_gmail', 'agregar_gmail', 'cambiar_gmail', 'preferencia_reporte_gmail']);
+const COMANDOS_GMAIL = new Set(['/escanear']);
+
+const esIntentGmail = (intencion) => INTENTS_GMAIL.has(intencion);
+const esComandoGmail = (cmd) => COMANDOS_GMAIL.has(String(cmd || '').trim().split(/\s+/)[0]);
+
 module.exports = {
   INTENTS_LECTURA,
   INTENTS_LIBRES,
   COMANDOS_LECTURA,
+  INTENTS_GMAIL,
+  COMANDOS_GMAIL,
   requiereLectura,
   comandoRequiereLectura,
+  esIntentGmail,
+  esComandoGmail,
 };

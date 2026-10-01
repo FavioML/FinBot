@@ -31,7 +31,7 @@ const { abrirSesion, cerrarSesion } = require('../lib/support-tickets');
 const { registrarOrigenDelAlta } = require('../lib/atribucion');
 const { manejarOnboarding } = require('./onboarding');
 const { colaConfirmacionGasto, estaEnMuro, mensajeMuro, mensajeCargaMasivaPro, esProPagado, mensajeGmailProPagado, mensajeConectarEnLaApp, mensajeGmailDesconectado, mensajeDashboard } = require('../lib/trial');
-const { comandoRequiereLectura } = require('./intents-acceso');
+const { comandoRequiereLectura, esComandoGmail } = require('./intents-acceso');
 const { verificarEscritura, entro } = require('../helpers/escritura-verificada');
 const analytics = require('../lib/analytics');
 
@@ -1034,7 +1034,8 @@ function createWebhookHandler(procesarMensajeLibre) {
       const { count: conteoMuroCmd, error: errConteoMuro } = await supabase.from('transacciones')
         .select('id', { count: 'exact', head: true }).eq('usuario_id', usuario.id);
       if (errConteoMuro) log.warn({ tag: 'MURO', usuarioId: usuario.id, err: errConteoMuro.message }, 'No se pudo contar las transacciones: el muro sale sin conteo');
-      respuesta = mensajeMuro(usuario, errConteoMuro ? undefined : conteoMuroCmd);
+      // `/escanear` es Gmail, que la prueba no abre (COMANDOS_GMAIL en handlers/intents-acceso.js).
+      respuesta = mensajeMuro(usuario, errConteoMuro ? undefined : conteoMuroCmd, { gmail: esComandoGmail(cmd) });
       analytics.capture(usuario.id, 'wa_muro_lectura', { comando: cmd.split(/\s+/)[0] });
     } else if (cmd === 'hola' || cmd === 'hi' || cmd === 'inicio') {
       var primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;

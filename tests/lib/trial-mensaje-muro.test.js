@@ -54,8 +54,8 @@ describe('mensajeMuro — la rama la decide trial_estado', () => {
     expect(msg).not.toMatch(/terminó|venció/);
   });
 
-  it('sin transacciones dice "primer gasto", con transacciones dice "próximo"', () => {
-    expect(mensajeMuro({ ...BASE, trial_estado: null }, 0)).toContain('tu primer gasto');
+  it('sin transacciones dice que no hay movimientos, con transacciones dice "próximo"', () => {
+    expect(mensajeMuro({ ...BASE, trial_estado: null }, 0)).toContain('todavía no empezó');
     expect(mensajeMuro({ ...BASE, trial_estado: null }, 7)).toContain('tu próximo gasto');
   });
 
@@ -103,6 +103,100 @@ describe('mensajeMuro — la rama la decide trial_estado', () => {
   it('convertido SIN historial de pago cae en el texto de prueba, no en el de cliente', () => {
     const msg = mensajeMuro({ ...BASE, trial_estado: 'convertido', trial_vence: '2026-08-31' }, 3);
     expect(msg).toContain('prueba de *Neto Pro*');
+  });
+});
+
+/**
+ * Clase 5 de la tanda "respuestas malas del día 0" (30-sep-2026). Siete personas, TODAS en su
+ * día 0, recibieron "para ver tus gastos en gráficos necesitas Neto Pro" ante pedidos que no
+ * eran de gráficos: "quiero sacar el presupuesto para mi mes", "Saldo inicial de 1596.9", un
+ * correo pegado. Cualquier intent de lectura de quien todavía no anotó nada (plan='free',
+ * trial_estado NULL) cae acá, y el texto afirmaba algo sobre gastos que no existían.
+ *
+ * Lo cierto para esa persona: no hay nada que mostrar, y su primer gasto le abre los 14 días
+ * (`iniciarTrialSiCorresponde`, que corre en las escrituras de `transacciones`, salvo el barrido de Gmail).
+ */
+describe('mensajeMuro — antes del primer gasto dice lo que es cierto (clase 5)', () => {
+  const NUEVO = { ...BASE, plan: 'free', trial_estado: null, supabase_auth_id: null };
+
+  it.each([[0], [null]])('sin movimientos (%s): no habla de gráficos y sí invita a anotar el primero', (conteo) => {
+    const msg = mensajeMuro(NUEVO, conteo);
+    expect(msg).not.toMatch(/gr[aá]fico/i);
+    expect(msg).toContain('todavía no empezó');
+    expect(msg).toMatch(/an[oó]ta/i);
+    expect(msg).toContain('almuerzo 15');
+    expect(msg).toContain(TRIAL_DIAS + ' días');
+    expect(msg).toContain('Neto Pro');
+    expect(msg).not.toMatch(/terminó|venció/);
+    // Sin precio ni link de pago: a quien todavía no probó nada no se le cobra.
+    expect(msg).not.toMatch(/S\/\d+/);
+  });
+
+  it('con movimientos de antes del trial (los dormidos) no dice que no tiene ninguno', () => {
+    const msg = mensajeMuro(NUEVO, 12);
+    expect(msg).not.toMatch(/gr[aá]fico/i);
+    expect(msg).not.toContain('todavía no empezó');
+    expect(msg).toContain('*12 movimientos* siguen guardados');
+    expect(msg).toContain('tu próximo gasto');
+  });
+
+  it('sin poder contar no afirma ni que tiene ni que no tiene movimientos', () => {
+    const msg = mensajeMuro(NUEVO, undefined);
+    expect(msg).not.toMatch(/gr[aá]fico/i);
+    expect(msg).not.toContain('todavía no empezó');
+    expect(msg).not.toMatch(/\*\d+ (gastos|movimientos?)\*/);
+    expect(msg).toContain('registres un gasto');
+  });
+
+  it('usuario null (sin fila) tampoco habla de gráficos', () => {
+    expect(mensajeMuro(null, 0)).not.toMatch(/gr[aá]fico/i);
+  });
+
+  // Revisión adversarial del chip 3: `INTENTS_LECTURA` trae escrituras que el muro cobra (una
+  // meta, una deuda, Gmail). El texto no puede suponer que la persona quería VER algo, y tiene
+  // que decirle que lo que pidió no se hizo.
+  it('no afirma que no hay nada que mostrar: dice que lo pedido es de Pro', () => {
+    for (const conteo of [0, 5, undefined]) {
+      const msg = mensajeMuro(NUEVO, conteo);
+      expect(msg).toContain('es parte de *Neto Pro*');
+      expect(msg).not.toMatch(/nada (que|para) (mostrar|ver)/i);
+      if (conteo === 0) expect(msg, 'la rama sin movimientos va sin candado').not.toContain('🔒');
+    }
+  });
+
+  it('un solo movimiento va en singular (9 de los 19 dormidos medidos tienen exactamente 1)', () => {
+    const msg = mensajeMuro(NUEVO, 1);
+    expect(msg).toContain('Tu *1 movimiento* sigue guardado');
+    expect(msg).not.toMatch(/\*1 (gastos|movimientos)\*/);
+  });
+
+  it('si lo pedido es Gmail, avisa que la prueba no lo abre; si no, no lo menciona', () => {
+    for (const conteo of [0, 5, undefined]) {
+      expect(mensajeMuro(NUEVO, conteo, { gmail: true })).toMatch(/correos del banco.*Pro\* pagado/s);
+      expect(mensajeMuro(NUEVO, conteo)).not.toMatch(/correo/i);
+    }
+  });
+});
+
+/**
+ * El arreglo de la clase 5 toca SOLO la rama de quien nunca tuvo prueba. Los textos de quien
+ * ya la gastó o ya pagó se fijan carácter por carácter: si cambian, que sea a propósito.
+ */
+describe('mensajeMuro — vencido y ex-pagador no cambian', () => {
+  const { lineaPrecioPro } = require('../../lib/config');
+  const CON_WEB = { ...BASE, supabase_auth_id: 'auth-1' };
+  const pie = (n) => '\n\nSigo anotando todo lo que me mandes y *' + n + ' gastos* siguen guardados — no se borra nada.\n\n' +
+    'Para volver a verlos (gráficos, categorías, reportes e historial completo):\n' +
+    lineaPrecioPro() + '\n👉 https://app.neto.pe/dashboard/pro';
+
+  it('vencido', () => {
+    expect(mensajeMuro({ ...CON_WEB, trial_estado: 'vencido', trial_vence: '2026-08-31' }, 40))
+      .toBe('🔒 Favio, tu prueba de *Neto Pro* terminó el 31-ago-26.' + pie(40));
+  });
+
+  it('ex-pagador', () => {
+    expect(mensajeMuro({ ...CON_WEB, trial_estado: 'convertido', premium_desde: '2026-06-03', premium_vence: '2026-07-03' }, 87))
+      .toBe('🔒 Favio, tu *Neto Pro* venció el 03-jul-26.' + pie(87));
   });
 });
 
@@ -306,6 +400,19 @@ describe('los cuatro mensajes de Pro por WhatsApp respetan la identidad', () => 
     const msg = mensajeGmailProPagado({ ...WA_ONLY, plan: 'free', trial_estado: 'vencido' });
     expect(msg).toContain('/activar?t=');
     expect(msg).not.toContain('/dashboard/pro');
+  });
+
+  // Abierto por la revisión del chip 2 (30-sep-2026): el pitch decía "los anoto solos, sin que
+  // escribas nada" y hablaba de las notificaciones del banco. Mismos patrones que
+  // `content/scripts/verify-claims.mjs` (los guards de copy no barren el backend).
+  it.each([['conectar'], ['bancos']])('mensajeGmailProPagado (%s) no promete registro sin esfuerzo ni lectura de notificaciones', (opcion) => {
+    for (const u of [{ ...WA_ONLY, plan: 'free', trial_estado: 'vencido' }, { ...WA_ONLY, plan: 'premium', trial_estado: 'activo', trial_vence: '2026-10-14' }]) {
+      const msg = mensajeGmailProPagado(u, opcion);
+      expect(msg).not.toMatch(/sin\s+(anotar|ingresar|escribir|hacer)\s+nada|sin\s+que\s+(hagas|escribas)\s+nada|se\s+registran\s+solos|los\s+anoto\s+solos/i);
+      expect(msg).not.toMatch(/notificaci\S*\s+(de\s+)?(tu|su|del)\s+banco|notificaciones\s+bancarias|SMS\s+bancarios?/i);
+    }
+    // El escaneo lee una lista fija de remitentes (`gmail.js`), no cualquier banco.
+    expect(mensajeGmailProPagado({ ...WA_ONLY, plan: 'free', trial_estado: 'vencido' }, opcion)).toMatch(/si es uno de los que reviso/);
   });
 
   it('mensajeDashboard fuera del muro NO manda a activar a quien ya tiene cuenta web', () => {
