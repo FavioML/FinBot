@@ -69,6 +69,10 @@ async function salvarGastoSinIA(msg, usuario) {
   }
 }
 
+// No decimos "no entendi": casi siempre se entendio y el mensaje simplemente esta fuera
+// de ambito. Se acota el alcance y se dan ejemplos copiables, sin redactar con IA.
+const FUERA_DE_ALCANCE = 'Eso se me escapa. Lo mío son tus gastos.\n\nPrueba con _"gasté 40 en el mercado"_, _"cuanto gaste esta semana"_ o _"dame mi reporte"_.';
+
 /**
  * ¿NETO puede decir que lee correos bancarios? El token puede estar en `usuarios` (legacy) o
  * solo en `gmail_cuentas` (multi-cuenta), hay que mirar ambos.
@@ -360,6 +364,9 @@ async function procesarMensajeLibre(msg, usuario, from) {
             + '- "Le pague X a Y de lo que le debia", "le di X a Y de lo que debo" = manage_debts action=pay (abonar deuda, NO registrar nueva).\n'
             + '- "Que gastos puedo eliminar para llegar a mi meta" = manage_goals action=view (NO financial_query).\n'
             + '- "Que incluye el plan", "cuanto cuesta Pro" = manage_account action=view_premium.\n'
+            + '- Una pregunta o comentario sobre NETO mismo (su precio, la prueba, si hay app, con que se conecta, si lee correos, el resumen de la noche, si algo quedo anotado, no querer Pro) = social_response con action=help y el parametro tema. NUNCA financial_query: esa es solo para conceptos de finanzas (AFP, CTS, ahorro, inversiones). El tema va en el parametro tema, NUNCA en action. El precio de Pro a secas ("cuanto cuesta Pro", "tiene costo el premium") sigue siendo view_premium; precio_despues_prueba es solo cuando pregunta que paga o que pasa DESPUES de la prueba. Ejemplos: "cuando acabe la prueba cuanto me cobras" = action=help tema=precio_despues_prueba; "si no pago se borra lo que anote?" = action=help tema=que_pasa_si_no_pago; "hay app para el celular?" = action=help tema=app_movil; "te puedo enlazar con mi cuenta del banco o con Rappi?", "separas los gastos por tarjeta o efectivo?" = action=help tema=conexiones; "lees mi gmail?" = action=help tema=gmail; "a que hora cierras el dia?" = action=help tema=periodo_del_mes; "me sirve para mi bodega?" = action=help tema=uso_negocio; "quiero borrar todo y empezar otra vez" = action=help tema=reiniciar_o_borrar; "no me interesa pagar Pro" = action=help tema=no_quiero_pro (NO view_premium ni account_status).\n'
+            + '- "Lo guardaste?", "quedo anotado o no?", "se guardo si o no?" preguntan si se registro lo ultimo: action=help tema=se_registro. NO es un si/no de continuacion (NO greeting).\n'
+            + '- "Quiero eliminar mi cuenta", "borra mi cuenta" = manage_account action=disconnect.\n'
             + '- "Comparte mi resumen" = generate_report action=share_summary.\n'
             + 'IMPORTANTE: Siempre usa una herramienta. Nunca respondas sin llamar una herramienta.\n'
             + 'CATEGORIAS VALIDAS: Alimentacion, Transporte, Vivienda, Salud, Entretenimiento, Compras, Educacion, Finanzas, Trabajo_Negocio, Otros.\n'
@@ -372,7 +379,14 @@ async function procesarMensajeLibre(msg, usuario, from) {
         { role: 'user', content: msg }
       ],
       tools: NETO_TOOLS,
-      tool_choice: 'auto',
+      // 'required' y no 'auto' (30-sep-2026): con 'auto' el modelo a veces contesta con texto, y
+      // ese texto salía tal cual (inventó una app en Play Store). Medido con
+      // qa-e2e/probe-ayuda-temas.mjs sobre los 510 casos de tests/nlp/pool.js, mismo prompt:
+      // 10 cambian (5 mejoran, 5 empeoran) y los textos sin tool call pasan de 3 a 0. Tres de
+      // los que mejoran pasan a `eliminar_transaccion` (dos contestaban texto, como "Elimina ese
+      // gasto causa estaba mal"): ahora pasan por las guardas de borrado. Si igual llega uno
+      // sin tool call, abajo no se envía.
+      tool_choice: 'required',
       temperature: 0
     });
 
@@ -389,12 +403,20 @@ async function procesarMensajeLibre(msg, usuario, from) {
       const mapped = mapToolToIntent(toolName, toolArgs);
       intencion = mapped.intencion;
       datos = mapped.datos;
-    } else if (choice.message.content) {
-      // GPT respondio con texto en vez de tool call — tratar como conversacional
-      const respDirecta = choice.message.content;
-      return respDirecta;
     } else {
-      intencion = 'desconocido';
+      // Sin tool call, el texto del modelo NO se le manda a la persona. Hasta el 30-sep-2026 se
+      // mandaba tal cual ("tratar como conversacional"), y por ahí salió "busca Neto Finanzas en
+      // Play Store": una app que no existe, sin ningún prompt que dijera qué no tenemos. Tampoco
+      // cae al fallback de abajo, que con un número en el mensaje registra plata leyéndolo como
+      // correo bancario: un mensaje que el clasificador no supo ubicar no puede terminar en un
+      // gasto. Se contesta el texto fijo de fuera de alcance y queda en `nlp_errors`.
+      log.warn({ tag: 'NLP_SIN_TOOL', msg: (msg || '').slice(0, 120), texto: (choice.message.content || '').slice(0, 120) }, 'El clasificador no llamó ninguna herramienta; no se envía su texto');
+      supabase.from('nlp_errors').insert({
+        usuario_id: usuario.id, whatsapp: from,
+        mensaje: msg.substring(0, 500), intencion: null,
+        error_tipo: 'sin_tool_call', error_detalle: (choice.message.content || '').substring(0, 500)
+      }).then(() => {}).catch(() => {});
+      return FUERA_DE_ALCANCE;
     }
 
     // Safety net: nunca ejecutar acciones destructivas si el mensaje es una pregunta
@@ -560,37 +582,20 @@ async function procesarMensajeLibre(msg, usuario, from) {
     }
 
     // === Default/fallback (no handler found) ===
-    if (/\d/.test(msg) && msg.length > 8) {
-      try {
-        let categoriasCustomFb = null;
-        // Degradar al arbol canonico esta bien —el fallback igual clasifica— pero el catch
-        // era mudo, y desde este commit `obtenerCategoriasUsuario` lanza cuando la lectura
-        // cae: sin el log, ese fallo entraba por la misma puerta que "este usuario no tiene
-        // arbol propio", que es justo la confusion que se vino a cerrar.
-        try { categoriasCustomFb = await require('../services/categories').obtenerCategoriasUsuario(usuario.id); }
-        catch(e) { log.warn({ tag: 'CATEGORIAS', usuarioId: usuario.id, err: e.message }, 'No se pudo leer el arbol: el fallback clasifica solo con las canonicas'); }
-        const resultado = await parsearCorreoBancario(msg, undefined, categoriasCustomFb);
-        if (resultado.monto && resultado.monto > 0) {
-          const txFb = await guardarTransaccion(usuario.id, resultado);
-          const catFb = (txFb && txFb.categoria) || resultado.categoria;
-          let resp = '\uD83D\uDCB3 *Transaccion registrada*\n' + (resultado.tipo === 'gasto' ? 'Gasto' : 'Ingreso') + ': S/ ' + resultado.monto + '\nComercio: ' + (resultado.comercio || 'No detectado') + '\nCategoria: ' + (catFb || 'Sin categoria');
-          if (resultado.tipo === 'gasto' && resultado.categoria) { const alerta = await verificarAlertaPresupuesto(usuario, resultado.categoria, null); if (alerta) resp += '\n\n' + alerta; }
-          resp += '\n\n_Escribe "mis gastos del mes" para ver el resumen._';
-          const nudgeFb = await colaConfirmacionGasto(usuario, txFb, txFb && txFb.conteoTx);
-          if (nudgeFb) resp += nudgeFb;
-          return resp;
-        }
-      } catch(e) { log.warn({ tag: 'FALLBACK_TX', err: e.message }, 'Error en fallback transaccion'); }
-    }
+    // Acá llega lo que el clasificador NO supo ubicar: un intent sin handler (una action
+    // inventada) o un borrado bloqueado por venir como pregunta. Hasta el 30-sep-2026 este punto
+    // leía el mensaje como CORREO BANCARIO y, si encontraba un número, registraba plata: "me
+    // borras el gasto de 15 soles?" terminaba en un gasto de S/15, y "no quiero pagar los 10 soles
+    // del pro" mal mapeado, en uno de S/10 (revisión adversarial del chip 2). Medido antes de
+    // sacarlo: 0 respuestas "Transaccion registrada" en toda la tabla `conversaciones`, o sea que
+    // ningún gasto real entró nunca por acá. Un mensaje sin ubicar no registra nada.
     // Log NLP desconocido para revisión admin
     supabase.from('nlp_errors').insert({
       usuario_id: usuario.id, whatsapp: from,
       mensaje: msg.substring(0, 500), intencion: intencion || 'desconocido',
       error_tipo: 'desconocido', error_detalle: 'Mensaje no clasificado por NLP'
     }).then(() => {}).catch(() => {});
-    // No decimos "no entendi": casi siempre se entendio y el mensaje simplemente esta fuera
-    // de ambito. Se acota el alcance y se dan ejemplos copiables, sin redactar con IA.
-    return 'Eso se me escapa. Lo mío son tus gastos.\n\nPrueba con _"gasté 40 en el mercado"_, _"cuanto gaste esta semana"_ o _"dame mi reporte"_.';
+    return FUERA_DE_ALCANCE;
   } catch(e) {
     const errMsg = e && e.message ? e.message : String(e);
     // Un 429 de OpenAI NO es un error de NLP: es saturación temporal de la organización.

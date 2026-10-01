@@ -153,7 +153,10 @@ describe('arranque de procesarMensajeLibre', () => {
   // la mitad del contexto.
   it('NO escribe la respuesta de Neto: el único escritor es el webhook', async () => {
     const res = await procesarMensajeLibre('gaste 20 en pan', USUARIO, '51999');
-    expect(res).toBe('Respuesta directa de NETO');
+    // El mock contesta sin tool call. Desde el 30-sep-2026 ese texto del modelo ya no se envía
+    // (inventó una app en Play Store): sale el texto fijo de fuera de alcance.
+    expect(res).not.toContain('Respuesta directa de NETO');
+    expect(res).toContain('Eso se me escapa');
 
     const roles = guardarMensaje.mock.calls.map((c) => c[1]);
     // El turno del USUARIO sí se escribe acá, y tiene que seguir haciéndolo: va después de
@@ -179,7 +182,7 @@ describe('arranque de procesarMensajeLibre', () => {
     // ejercite la otra rama: el mensaje sale igual tenga o no tenga Gmail.
     obtenerCuentasGmail.mockImplementationOnce(async () => true);
     const res = await procesarMensajeLibre('gaste 20 en pan', USUARIO, '51999');
-    expect(res).toBe('Respuesta directa de NETO');
+    expect(res).toContain('Eso se me escapa');
     expect(res).not.toContain('Tuve un problema');
   });
 });

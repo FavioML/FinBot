@@ -477,7 +477,7 @@ module.exports = [
   { msg: 'Puedo recuperar un gasto que borré?', intent: 'ayuda', cat: 'edge_preguntas' },
   { msg: 'Es posible dividir un gasto entre amigos?', intent: 'ayuda', cat: 'edge_preguntas' },
   { msg: 'Cuánto tendría que ahorrar por día?', intent: 'consulta_financiera', cat: 'edge_preguntas' },
-  { msg: 'Existe un límite de gastos que puedo registrar?', intent: 'consulta_financiera', cat: 'edge_preguntas' },
+  { msg: 'Existe un límite de gastos que puedo registrar?', intent: 'ayuda', cat: 'edge_preguntas' }, // pregunta sobre Neto, no de finanzas: nunca consulta_financiera (30-sep-2026)
   { msg: 'Cómo funciona el presupuesto?', intent: 'ayuda', cat: 'edge_preguntas' },
   { msg: 'Qué pasa si elimino un gasto por error?', intent: 'ayuda', cat: 'edge_preguntas' },
   { msg: 'Puedo ver gastos de meses anteriores?', intent: 'ayuda', cat: 'edge_preguntas' },
@@ -494,8 +494,8 @@ module.exports = [
   { msg: 'Mis datos están seguros?', intent: 'ayuda', cat: 'edge_preguntas' },
   { msg: 'Se puede usar en grupo familiar?', intent: 'ayuda', cat: 'edge_preguntas' },
   { msg: 'Cómo agrego una meta de ahorro?', intent: 'ayuda', cat: 'edge_preguntas' },
-  { msg: 'Hay límite de deudas que puedo registrar?', intent: 'consulta_financiera', cat: 'edge_preguntas' },
-  { msg: 'Cuántas metas puedo tener activas?', intent: 'consulta_financiera', cat: 'edge_preguntas' },
+  { msg: 'Hay límite de deudas que puedo registrar?', intent: 'ayuda', cat: 'edge_preguntas' }, // pregunta sobre Neto, no de finanzas: nunca consulta_financiera (30-sep-2026)
+  { msg: 'Cuántas metas puedo tener activas?', intent: 'ayuda', cat: 'edge_preguntas' }, // pregunta sobre Neto, no de finanzas: nunca consulta_financiera (30-sep-2026)
 
   // ══════════════════════════════════════════════════════════════
   // EDGE AMBIGUOS (20) — casos #406–#425

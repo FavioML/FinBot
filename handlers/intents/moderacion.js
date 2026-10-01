@@ -131,7 +131,10 @@ module.exports = {
         // "1.50 pan" borraba la cuenta, y la misma cifra cambiaba de sentido si entre el menú y
         // la respuesta se desconectaba un Gmail (ítem 39, fila del 30-sep en `docs/DEFECTOS.md`).
         const borrar = '🗑️ Para borrarlos, escríbeme *' + FRASE_BORRAR_CUENTA + '*.';
-        let menuDesc = '⚠️ *Desconectar cuenta*\n\n';
+        // Sin Gmail no hay nada que desconectar: lo único que ofrece el menú es borrar la cuenta,
+        // y a quien escribió "quiero eliminar mi cuenta" el título "Desconectar cuenta" seguido de
+        // "No tienes cuentas Gmail conectadas" le contestaba otra cosa (30-sep-2026, clase 3).
+        let menuDesc = cuentasDesc.length === 0 ? '⚠️ *Eliminar tu cuenta*\n\n' : '⚠️ *Desconectar cuenta*\n\n';
         if (cuentasDesc.length > 1) {
           menuDesc += 'Cuentas conectadas:\n' + cuentasDesc.map((c, i) => (i + 1) + '. 📧 ' + c.email).join('\n') + '\n\n';
           menuDesc += '¿Qué deseas hacer?\n\n';
@@ -146,8 +149,7 @@ module.exports = {
           menuDesc += '*Eliminar todo* — Borro todos tus datos (gastos, categorías, configuración). Esta acción es irreversible. ' + borrar + '\n\n';
           menuDesc += '_Responde 1 para desconectar. Cualquier otra cosa cancela._';
         } else {
-          menuDesc += 'No tienes cuentas Gmail conectadas.\n\n';
-          menuDesc += '*Eliminar mis datos* — Borro todos tus gastos, categorías y configuración. Irreversible. ' + borrar + '\n\n';
+          menuDesc += 'Borro todos tus gastos, categorías y configuración. Es irreversible. ' + borrar + '\n\n';
           menuDesc += '_Cualquier otra cosa cancela._';
         }
         return menuDesc;

@@ -1,6 +1,28 @@
 // neto-tools.js — OpenAI function calling tool definitions for Neto WhatsApp bot
 // Collapses 79 intents across 12 handler files into ~17 tools
 
+// Los temas de `social_response` con action=help: cada uno tiene un texto fijo en
+// `handlers/intents/social.js`. Antes `help` era un solo texto genérico ("Puedo ayudarte con
+// tus gastos…") y 25 preguntas reales sobre Neto en 60 días (18 personas, ~12 en su día 0)
+// recibieron eso: "¿tienes app?", "¿después cuánto pago?", "¿vas a perder el registro?".
+// El clasificador acertaba el destino; el destino no tenía nada que decir. Es el arreglo que
+// pedía docs/DEFECTOS.md (14-sep): un intent del clasificador con copy fijo, NO un detector
+// por regex antes del clasificador (se retiró dos veces). La lista es cerrada a propósito:
+// una pregunta nueva cae en `otro`, que contesta lo de antes más /soporte.
+const TEMAS_AYUDA = Object.freeze([
+  'precio_despues_prueba',
+  'que_pasa_si_no_pago',
+  'app_movil',
+  'conexiones',
+  'gmail',
+  'periodo_del_mes',
+  'se_registro',
+  'uso_negocio',
+  'reiniciar_o_borrar',
+  'no_quiero_pro',
+  'otro',
+]);
+
 const NETO_TOOLS = [
   // ─── 1. Social / Conversational ───────────────────────────────────────
   {
@@ -8,7 +30,7 @@ const NETO_TOOLS = [
     function: {
       name: "social_response",
       description:
-        "Respuestas sociales y conversacionales. Usa cuando el usuario saluda, pide ayuda, agradece, se queja, pide un chiste, quiere saber como empezar a usar Neto, o quiere dar feedback.",
+        "Respuestas sociales y conversacionales. Usa cuando el usuario saluda, pide ayuda, agradece, se queja, pide un chiste, quiere saber como empezar a usar Neto, o quiere dar feedback. Tambien TODA pregunta sobre Neto mismo (precio, prueba, app, conexiones, correo, cierre, si se registro algo, uso para negocio, reiniciar, no querer Pro): action=help con su tema.",
       parameters: {
         type: "object",
         properties: {
@@ -24,7 +46,24 @@ const NETO_TOOLS = [
               "feedback",
             ],
             description:
-              "Tipo de interaccion social: greeting=saludo, help=ayuda, thanks=agradecimiento, complaint=queja, joke=chiste financiero, onboarding=como empezar, feedback=opinion del usuario",
+              "Tipo de interaccion social: greeting=saludo, help=ayuda o pregunta sobre Neto (lleva tema), thanks=agradecimiento, complaint=queja, joke=chiste financiero, onboarding=como empezar, feedback=opinion del usuario",
+          },
+          tema: {
+            type: "string",
+            enum: TEMAS_AYUDA,
+            description:
+              "Solo con action=help. De que trata la pregunta sobre Neto: "
+              + "precio_despues_prueba=cuanto cuesta o cuanto paga despues de la prueba de 14 dias; "
+              + "que_pasa_si_no_pago=si pierde lo registrado, si se borra algo o que pasa cuando termina la prueba sin pagar; "
+              + "app_movil=si hay app para descargar, Play Store, App Store, donde ver sus gastos; "
+              + "conexiones=si se conecta con bancos, Yape, Plin, Uber, tarjetas de debito o credito, o si separa por metodo de pago; "
+              + "gmail=si lee sus correos o como conectar el correo; "
+              + "periodo_del_mes=a que hora es el cierre o resumen del dia, cuando empieza o termina el mes; "
+              + "se_registro=si quedo registrado lo ULTIMO que mando ('se registro?', 'lo anotaste?'); NO si va a perder o se borra lo que registro (eso es que_pasa_si_no_pago); "
+              + "uso_negocio=si sirve para su negocio o emprendimiento; "
+              + "reiniciar_o_borrar=reiniciar, empezar de cero, borrar todo o sus datos; "
+              + "no_quiero_pro=no quiere Pro, no quiere pagar, no le interesa el plan; "
+              + "otro=cualquier otra pregunta o pedido de ayuda general.",
           },
           message: {
             type: "string",
@@ -618,7 +657,7 @@ const NETO_TOOLS = [
     function: {
       name: "financial_query",
       description:
-        "Consulta financiera general. Usa cuando el usuario hace una pregunta sobre finanzas personales, inversiones, ahorro, impuestos, etc. que no encaja en las otras herramientas. Ejemplo: 'Como puedo ahorrar mas?', 'Que es una AFP?', 'Conviene comprar dolares?'.",
+        "Consulta financiera general. Usa cuando el usuario hace una pregunta sobre finanzas personales, inversiones, ahorro, impuestos, etc. que no encaja en las otras herramientas. Ejemplo: 'Como puedo ahorrar mas?', 'Que es una AFP?', 'Conviene comprar dolares?'. NUNCA para preguntas sobre Neto (precio, prueba de 14 dias, app, funciones, que pasa si no paga): esas son social_response action=help.",
       parameters: {
         type: "object",
         properties: {
@@ -980,8 +1019,33 @@ const PROPERTY_REMAP = {
   "query_expenses.search": { query: "comercio" },
 };
 
+// Dónde un `tema` puede ganarle a la action: tools que solo leen, y de `manage_account` las
+// actions que solo informan. Todo lo demás (registrar, editar, borrar, deudas, metas,
+// presupuestos, espacios, cambiar nombre, silenciar, desconectar) queda como venía.
+const TEMA_DESVIABLE = Object.freeze({
+  financial_query: true,
+  query_expenses: true,
+  query_analytics: true,
+  manage_account: ["help", "view_premium", "account_status"],
+});
+function temaDesviable(toolName, action) {
+  const regla = TEMA_DESVIABLE[toolName];
+  if (regla === true) return true;
+  return Array.isArray(regla) && regla.includes(action);
+}
+
 function mapToolToIntent(toolName, args) {
   const mapping = TOOL_INTENT_MAP[toolName];
+  // `tema` solo existe en social_response. Si viene en otra tool de LECTURA o de cuenta
+  // ("manage_account action=help tema=no_quiero_pro", o "view_premium tema=no_quiero_pro", que
+  // abriría la espera del comprobante), el modelo quiso contestar una pregunta sobre Neto: gana
+  // el tema. **Solo en las de `TEMA_DESVIABLE`, lista blanca a propósito**: la primera versión lo
+  // aplicaba a toda tool, y un `register_transaction {monto:40, tema:'se_registro'}` contestaba el
+  // último movimiento sin guardar los S/40 (segunda revisión adversarial, 30-sep). Una tool que
+  // escribe hace lo que dice su action, traiga el `tema` que traiga.
+  if (toolName !== "social_response" && args && TEMAS_AYUDA.includes(args.tema) && temaDesviable(toolName, args.action)) {
+    return mapToolToIntent("social_response", { action: "help", tema: args.tema });
+  }
 
   if (!mapping) {
     return { intencion: toolName, datos: args };
@@ -994,7 +1058,23 @@ function mapToolToIntent(toolName, args) {
 
   // Action-based mapping
   const { action, ...datos } = args;
+
+  // El modelo a veces pone el TEMA en `action` ("manage_account action=no_quiero_pro",
+  // "social_response action=reiniciar_o_borrar"): medido con qa-e2e/probe-ayuda-temas.mjs el
+  // 30-sep-2026, 2 de 2 en los dos casos. Sin esto salía un intent sin handler, o sea el
+  // fallback de message-processor (que hasta este mismo cambio registraba plata con cualquier
+  // número del mensaje). Un tema es un tema venga en el parámetro que venga.
+  if (TEMAS_AYUDA.includes(action)) {
+    return mapToolToIntent("social_response", { action: "help", tema: action });
+  }
+
   const intencion = mapping[action];
+
+  // Una action inventada dentro de `social_response` (se vio `action=financial_query`) sigue
+  // siendo una respuesta social: va a la ayuda genérica con /soporte, no al fallback.
+  if (!intencion && toolName === "social_response") {
+    return mapToolToIntent("social_response", { action: "help", tema: TEMAS_AYUDA.includes(datos.tema) ? datos.tema : "otro" });
+  }
 
   if (!intencion) {
     return { intencion: `${toolName}_${action}`, datos };
@@ -1012,6 +1092,12 @@ function mapToolToIntent(toolName, args) {
     }
   }
 
+  // "¿Se registró sí o no?" ya tiene respuesta: el eco del último movimiento. Es lectura LIBRE
+  // (intents-acceso.js), así que el muro no la corta. El `tema` no viaja: el handler no lo lee.
+  if (toolName === "social_response" && action === "help" && datos.tema === "se_registro") {
+    return { intencion: "ver_ultima_transaccion", datos: {} };
+  }
+
   // Special case: manage_debts.register — convert yo_debo boolean to tipo string
   if (toolName === "manage_debts" && action === "register") {
     if (datos._yo_debo !== undefined) {
@@ -1023,4 +1109,4 @@ function mapToolToIntent(toolName, args) {
   return { intencion, datos };
 }
 
-module.exports = { NETO_TOOLS, mapToolToIntent };
+module.exports = { NETO_TOOLS, mapToolToIntent, TEMAS_AYUDA };

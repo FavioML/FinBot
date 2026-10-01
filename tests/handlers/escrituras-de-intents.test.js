@@ -353,7 +353,9 @@ const SITIOS = [
     // copy del fallo dice *"Escríbeme desconectar cuenta de nuevo"*, así que el negativo
     // (`not.toMatch(exito)`) se ponía rojo sobre el mensaje correcto. Una aserción que no
     // separa las dos hipótesis no prueba ninguna. Lo que SÓLO tiene el menú son sus opciones.
-    exito: /Eliminar mis datos/i,
+    // Desde el 30-sep el menú sin Gmail se titula "Eliminar tu cuenta" (antes "Desconectar
+    // cuenta" + "Eliminar mis datos"): sigue siendo algo que SÓLO dice el menú.
+    exito: /Eliminar tu cuenta/i,
     malo: /Se me trabó abriendo el menú/i,
     efecto: (sb) => sb.fila('usuarios', 'u1').onboarding_paso,
     efectoOk: -1, efectoMalo: 0,
@@ -684,6 +686,7 @@ describe('9B-bis · desconectar_cuenta: el menú destructivo no se imprime si el
     it(`${caso}: no aparece ninguna opción numerada`, async () => {
       const { res } = await correr(preparar(porSitio('desconectar_cuenta'), opciones).invocar);
       expect(res).not.toMatch(/Eliminar mis datos/i);
+      expect(res).not.toMatch(/Eliminar tu cuenta/i);
       expect(res).not.toMatch(/Eliminar todo/i);
       expect(res).not.toMatch(/Responde 1/i);
       expect(res).toMatch(/no lo leería como una opción/i);
