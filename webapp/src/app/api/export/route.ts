@@ -2,6 +2,7 @@ import { getServiceClient } from '@/lib/supabase/service';
 import { requireLectura } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { todasLasFilas } from '@/lib/supabase/todas-las-filas';
 
 export async function GET() {
   const auth = await requireLectura();
@@ -12,27 +13,26 @@ export async function GET() {
     return NextResponse.json({ error: 'Demasiadas solicitudes' }, { status: 429 });
   }
 
-  // Check plan early before fetching all data
-  const { data: userData } = await getServiceClient()
-    .from('usuarios')
-    .select('plan')
-    .eq('id', userId)
-    .single();
+  // El plan ya lo gatea `requireLectura` (402 fuera de Pro o trial, 500 si la lectura cae). Acá
+  // había una segunda lectura de `usuarios.plan` que sólo agregaba un modo de falla.
 
-  if (userData?.plan !== 'premium') {
-    return NextResponse.json(
-      { error: 'Exportar datos es una función Pro. Activa Pro por WhatsApp.', upgrade: true },
-      { status: 403 },
-    );
-  }
-
-  // Fetch all user data in parallel
+  // Fetch all user data in parallel. Las transacciones van paginadas: sin `.range()` PostgREST
+  // corta en 1000 y el archivo salía con las 1000 más recientes de 1105 (medido el 01-oct-2026),
+  // con un `totalTransacciones` que decía 1000. Un export es lo que la persona se lleva como
+  // copia de su historia: uno corto es un dato falso entregado como completo.
   const [txResult, budgetResult, goalsResult, userResult] = await Promise.all([
-    getServiceClient()
-      .from('transacciones')
-      .select('*')
-      .eq('usuario_id', userId)
-      .order('fecha', { ascending: false }),
+    todasLasFilas(
+      (desde, hasta, primera) =>
+        getServiceClient()
+          .from('transacciones')
+          .select('*', primera ? { count: 'exact' } : undefined)
+          .eq('usuario_id', userId)
+          .order('fecha', { ascending: false })
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false })
+          .range(desde, hasta),
+      (t: { id: string }) => t.id,
+    ),
     getServiceClient()
       .from('presupuestos')
       .select('*')
@@ -47,6 +47,16 @@ export async function GET() {
       .eq('id', userId)
       .single(),
   ]);
+
+  // Una lectura caída no puede volverse una sección vacía del archivo: antes `txResult.data || []`
+  // entregaba un export con cero transacciones que se veía exactamente como uno legítimo.
+  // `todasLasFilas` con error trae lo que alcanzó a llegar, que tampoco es la lista completa.
+  if (txResult.error || budgetResult.error || goalsResult.error || userResult.error) {
+    return NextResponse.json(
+      { error: 'No se pudo leer tu información completa. Intenta de nuevo en un momento.' },
+      { status: 500 },
+    );
+  }
 
   const exportData = {
     exportDate: new Date().toISOString(),

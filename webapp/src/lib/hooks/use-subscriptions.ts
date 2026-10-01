@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
+import { todasLasFilas } from '@/lib/supabase/todas-las-filas';
 import type { Transaccion } from '@/lib/types';
 import { montoPen } from '@/lib/tx-monto';
 import type { SuscripcionDetectada, TipoSuscripcion, CatalogEntry } from '@/lib/subscriptions-catalog';
@@ -221,17 +222,26 @@ export function useSubscriptions(usuarioId?: string) {
       hace3Meses.setMonth(hace3Meses.getMonth() - 3)
       const desde = hace3Meses.toISOString().split('T')[0]
 
-      const { data, error } = await supabase
-        .from('transacciones')
-        .select('*')
-        .eq('usuario_id', usuarioId)
-        .eq('tipo', 'gasto')
-        .eq('categoria', 'Suscripciones')
-        .gte('fecha', desde)
-        .order('fecha', { ascending: false })
+      // Paginado aunque hoy sean pocas (máximo medido el 01-oct-2026: 19 en 3 meses): sin
+      // `.range()` el tope de 1000 de PostgREST cortaba en silencio y los totales mensuales que
+      // salen de acá habrían quedado cortos sin que nada lo dijera.
+      const { data, error } = await todasLasFilas<Transaccion>(
+        (inicio, fin, primera) =>
+          supabase
+            .from('transacciones')
+            .select('*', primera ? { count: 'exact' } : undefined)
+            .eq('usuario_id', usuarioId)
+            .eq('tipo', 'gasto')
+            .eq('categoria', 'Suscripciones')
+            .gte('fecha', desde)
+            .order('fecha', { ascending: false })
+            .order('id', { ascending: false })
+            .range(inicio, fin),
+        (t) => t.id,
+      )
 
       if (error) throw error
-      return detectarSuscripcionesFromTxs(data || [])
+      return detectarSuscripcionesFromTxs(data)
     },
     enabled: IS_DEMO || !!usuarioId,
     staleTime: 5 * 60 * 1000, // 5 minutos

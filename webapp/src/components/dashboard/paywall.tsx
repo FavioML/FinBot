@@ -6,7 +6,8 @@ import { Lock, MessageCircle } from 'lucide-react';
 import { PRO_PRICE_MONTHLY_PEN, PRO_PRICE_YEARLY_PEN } from '@/lib/constants';
 
 interface DatosMuro {
-  conteoTx: number;
+  /** `null` = no se pudo contar: el copy no puede decir ni "primer" ni cuántos. */
+  conteoTx: number | null;
   totalMes: number;
   trialVence: string | null;
   trialEstado: string | null;
@@ -60,7 +61,7 @@ export function Paywall() {
   }, []);
 
   const primerNombre = datos?.nombre ? datos.nombre.split(' ')[0] : null;
-  const conteo = datos?.conteoTx ?? 0;
+  const conteo = datos ? datos.conteoTx : 0;
   // Quien nunca tuvo prueba (cuentas anteriores al trial que llevan tiempo dormidas) no
   // puede leer "tu prueba terminó": sería mentirle. Su prueba arranca con su próximo
   // gasto, así que el mensaje correcto es la invitación a anotar uno — sale gratis y es
@@ -74,7 +75,7 @@ export function Paywall() {
   const soloWeb = !!datos && !datos.tieneWhatsapp;
   const dondeAnotar = soloWeb
     ? 'Toca el botón + de esta pantalla y anota tu primer gasto: con eso se activan.'
-    : `Se activan cuando registres tu ${conteo > 0 ? 'próximo' : 'primer'} gasto: anótalo por WhatsApp y entras a ver todo.`;
+    : `Se activan cuando registres tu ${conteo === 0 ? 'primer' : 'próximo'} gasto: anótalo por WhatsApp y entras a ver todo.`;
 
   return (
     // `data-testid` NO es decorativo: es lo que `qa-parity-allroutes.mjs` cuenta para
@@ -108,7 +109,7 @@ export function Paywall() {
               cobro. Se dice la condición real y nada más. */}
           {nuncaTuvoTrial
             ? dondeAnotar
-            : conteo > 0
+            : conteo !== null && conteo > 0
               ? `Tus ${conteo} movimientos siguen guardados — no se borró nada. Y sigo anotando todo lo que me mandes por WhatsApp, gratis.`
               : 'Sigo anotando todo lo que me mandes por WhatsApp, gratis.'}
         </p>

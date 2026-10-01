@@ -4,6 +4,7 @@ import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 import { goalsFactor, debtsFactor, limaToday } from '@/lib/score-factors';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { todasLasFilas } from '@/lib/supabase/todas-las-filas';
 import { indexarGmail } from '@/lib/gmail-conectado';
 
 const WEIGHTS = {
@@ -42,7 +43,14 @@ export async function POST() {
   const sinceDate = sixMonthsAgo.toISOString().split('T')[0];
 
   const [txResult, existingScores, budgetResult, goalsResult, debtsResult, gmailResult] = await Promise.all([
-    supabase.from('transacciones').select('fecha, tipo, monto_pen, monto, categoria').eq('usuario_id', usuario.id).gte('fecha', sinceDate),
+    // Paginado: seis meses de un usuario ya eran 814 filas el 01-oct-2026, y pasado 1000 los meses
+    // más viejos llegaban incompletos y se ASENTABAN en `neto_scores` con ingresos y gastos cortos.
+    todasLasFilas<{ id: string; fecha: string; tipo: string; monto_pen: number | null; monto: number; categoria: string | null }>(
+      (desde, hasta, primera) =>
+        supabase.from('transacciones').select('id, fecha, tipo, monto_pen, monto, categoria', primera ? { count: 'exact' } : undefined)
+          .eq('usuario_id', usuario.id).gte('fecha', sinceDate).order('id').range(desde, hasta),
+      (t) => t.id,
+    ),
     supabase.from('neto_scores').select('period').eq('user_id', usuario.id).gte('period', sinceDate),
     supabase.from('presupuestos').select('categoria, monto_limite, mes, anio').eq('usuario_id', usuario.id),
     supabase.from('metas_ahorro').select('id, completada, monto_objetivo, monto_actual, fecha_limite, created_at').eq('usuario_id', usuario.id).eq('completada', false),

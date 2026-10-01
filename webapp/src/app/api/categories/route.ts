@@ -2,6 +2,7 @@ import { getServiceClient } from '@/lib/supabase/service';
 import { requireNetoUser } from '@/lib/supabase/auth';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { todasLasFilas } from '@/lib/supabase/todas-las-filas';
 import { getCategoriaEmoji } from '@/lib/constants';
 import { subcategoriaUtil } from '@/lib/subcategoria';
 import {
@@ -104,11 +105,21 @@ export async function GET() {
 
   // Also pull distinct (categoria, subcategoria) pairs from real transactions
   // so "Gestionar categorías" shows the same subcategories as the transaction filter
-  const { data: txRows } = await getServiceClient()
-    .from('transacciones')
-    .select('categoria, subcategoria')
-    .eq('usuario_id', userId)
-    .not('subcategoria', 'is', null);
+  // Paginado: sin `.range()` eran las primeras 1000 filas, y una subcategoría que solo vivía en
+  // las demás no se materializaba nunca. Con error no se materializa nada (como antes): lo que
+  // alcanzó a llegar no es la lista completa.
+  const txLeidas = await todasLasFilas<{ id: string; categoria: string; subcategoria: string | null }>(
+    (desde, hasta, primera) =>
+      getServiceClient()
+        .from('transacciones')
+        .select('id, categoria, subcategoria', primera ? { count: 'exact' } : undefined)
+        .eq('usuario_id', userId)
+        .not('subcategoria', 'is', null)
+        .order('id')
+        .range(desde, hasta),
+    (t) => t.id,
+  );
+  const txRows = txLeidas.error ? [] : txLeidas.data;
 
   // Build map: categoria → Set of subcategorías used in transactions
   const txSubMap = new Map<string, Set<string>>();

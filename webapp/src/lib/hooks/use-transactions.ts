@@ -16,7 +16,6 @@ interface UseTransactionsOptions {
   hasta?: string;
   tipo?: 'gasto' | 'ingreso';
   categoria?: string;
-  limit?: number;
 }
 
 /**
@@ -47,7 +46,6 @@ export function useTransactions(options: UseTransactionsOptions, { mantenerAnter
         }
         if (options.tipo) txs = txs.filter(t => t.tipo === options.tipo);
         if (options.categoria) txs = txs.filter(t => t.categoria === options.categoria);
-        if (options.limit) txs = txs.slice(0, options.limit);
         return txs;
       }
 
@@ -86,13 +84,9 @@ export function useTransactions(options: UseTransactionsOptions, { mantenerAnter
         return query;
       };
 
-      // Con `limit` el llamador pidió las N primeras a propósito. Sin él espera TODAS, y PostgREST
-      // corta en 1000 sin avisar: la vista Anual y el historial completo salían cortos.
-      if (options.limit) {
-        const { data, error } = await armar(false).limit(options.limit);
-        if (error) throw error;
-        return data || [];
-      }
+      // Todas, paginadas: PostgREST corta en 1000 sin avisar y la vista Anual y el historial
+      // completo salían cortos. (Hubo una opción `limit` que ningún llamador usaba; se borró el
+      // 01-oct-2026 en vez de sostener una exención del guard sobre código que no corría.)
       const { data, error } = await todasLasFilas<Transaccion>(
         (desde, hasta, primera) => armar(primera).range(desde, hasta),
         (t) => t.id,

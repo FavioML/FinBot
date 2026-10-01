@@ -4,6 +4,7 @@ import { getServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 import { goalsFactor, debtsFactor, limaToday } from '@/lib/score-factors';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { todasLasFilas } from '@/lib/supabase/todas-las-filas';
 import { indexarGmail } from '@/lib/gmail-conectado';
 
 // Cold starts + 5 queries paralelas + upsert pueden exceder el límite default de
@@ -69,8 +70,23 @@ async function calculateFreshScore(usuario: ScoreUser) {
     // `.lte('fecha', limaToday())`: consistency cuenta días únicos con registro en los
     // últimos 30 días; una tx con fecha futura (prepago legítimo) no es un día registrado
     // y no debe inflar el factor. Espejo del backend calcFactorConsistency (`.lte(hoyPeru)`).
-    svc.from('transacciones').select('fecha').eq('usuario_id', userId).gte('fecha', sinceDate).lte('fecha', limaToday()),
-    svc.from('transacciones').select('tipo, monto_pen, monto, categoria').eq('usuario_id', userId).gte('fecha', monthStart).lt('fecha', monthEnd),
+    //
+    // Las dos lecturas de transacciones van paginadas aunque una ventana de 30 días esté lejos de
+    // 1000 filas (máximo medido el 01-oct-2026: 180 en un mes). Este camino PERSISTE el score, y
+    // dejarlo sin paginar descansaba en una cuenta que nadie vuelve a hacer cuando la ventana o el
+    // volumen cambian. Paginar cuesta un `count` por lectura.
+    todasLasFilas<{ id: string; fecha: string }>(
+      (desde, hasta, primera) =>
+        svc.from('transacciones').select('id, fecha', primera ? { count: 'exact' } : undefined).eq('usuario_id', userId)
+          .gte('fecha', sinceDate).lte('fecha', limaToday()).order('id').range(desde, hasta),
+      (t) => t.id,
+    ),
+    todasLasFilas<{ id: string; tipo: string; monto_pen: number | null; monto: number; categoria: string | null }>(
+      (desde, hasta, primera) =>
+        svc.from('transacciones').select('id, tipo, monto_pen, monto, categoria', primera ? { count: 'exact' } : undefined)
+          .eq('usuario_id', userId).gte('fecha', monthStart).lt('fecha', monthEnd).order('id').range(desde, hasta),
+      (t) => t.id,
+    ),
     svc.from('presupuestos').select('categoria, monto_limite, mes, anio').eq('usuario_id', userId),
     svc.from('metas_ahorro').select('id, completada, monto_objetivo, monto_actual, fecha_limite, created_at').eq('usuario_id', userId).eq('completada', false),
     svc.from('deudas').select('id, tipo, monto_original, monto_pendiente, estado, fecha_vencimiento').eq('usuario_id', userId).eq('tipo', 'debo'),
@@ -95,7 +111,7 @@ async function calculateFreshScore(usuario: ScoreUser) {
     // copias del cálculo ya fallaban cerrado; esta era la única abierta.
     debtsResult.error || gmailResult.error;
   if (readError) {
-    throw new Error(`No se pudo leer la data del score: ${readError.message}`);
+    throw new Error(`No se pudo leer la data del score: ${(readError as { message?: string }).message}`);
   }
 
   // Factor 1: Consistency — unique days in last 30 days
