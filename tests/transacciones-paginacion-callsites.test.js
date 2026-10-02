@@ -209,12 +209,16 @@ const EXENCIONES = [
     hallazgos: [SIN_COTA],
     motivo:
       '`qElim` arma con filtros condicionales los CANDIDATOS a eliminar (no un agregado) y termina en ' +
-      '`.limit(20)` justo antes del único `await`: las ocho apariciones de `qElim` son esas cinco líneas. ' +
-      'El monto se filtra en JS DESPUÉS del corte (novena ronda): si el gasto pedido no está entre los 20 ' +
-      'más recientes del comercio contesta "no encontré" (falla segura, no borra otro) y su "Encontré N" topa en 20',
+      '`.limit(TOPE_CANDIDATOS)` (20) justo antes del único `await`: las diez apariciones de `qElim` son esas ' +
+      'seis líneas. Comercio, fecha y monto van en la consulta (el monto se filtraba en JS después del corte ' +
+      'hasta el 02-oct), y con el tope lleno la respuesta dice "al menos 20" en vez de afirmar un total. ' +
+      'El ancla sigue una línea después del `await`, así que un filtro EN esa línea deja de calzar; uno ' +
+      'en una variable nueva más abajo no lo ve (el límite declarado arriba: un TOP_N o una exención ' +
+      'pueden filtrar en JS después del corte y lo cubre el test de comportamiento, no este guard)',
     premisa: (c) =>
-      cuentaIdentificador(c, 'qElim') === 8 &&
-      plano(c).includes("letqElim=supabase.from('transacciones').select('*').eq('usuario_id',usuario.id);if(comercioElim)qElim=qElim.ilike('comercio','%'+comercioElim+'%');if(fechaElimReq)qElim=qElim.eq('fecha',fechaElimReq);qElim=qElim.order('created_at',{ascending:false}).limit(20);const{data:candidatosElim}=awaitqElim;"),
+      cuentaIdentificador(c, 'qElim') === 10 && cuentaIdentificador(c, 'TOPE_CANDIDATOS') === 4 &&
+      plano(c).includes('constTOPE_CANDIDATOS=20;') &&
+      plano(c).includes("letqElim=supabase.from('transacciones').select('*').eq('usuario_id',usuario.id);if(comercioElim)qElim=qElim.ilike('comercio','%'+comercioElim+'%');if(fechaElimReq)qElim=qElim.eq('fecha',fechaElimReq);if(centavosElim!=null)qElim=qElim.gt('monto',(centavosElim-1)/100).lt('monto',(centavosElim+1)/100);qElim=qElim.order('created_at',{ascending:false}).limit(TOPE_CANDIDATOS);const{data:candidatosElim}=awaitqElim;constcandidatos=candidatosElim||[];"),
   },
   {
     archivo: 'cron/checks.js',
@@ -313,15 +317,10 @@ function premisaBackfillTokens(c) {
  * y con el motivo de por qué mostrar N filas es lo que la respuesta necesita. Una consulta que
  * cambia deja de calzar y vuelve a rojo, y una entrada que ya no calza con UNA lectura también.
  */
+// `corregirTransaccionEspecifica` estuvo acá con `.limit(10)` y el motivo "BUG ABIERTO": filtraba
+// monto y fecha en JS después del corte y, sin match, corregía otro gasto. Desde el 02-oct los
+// filtros van en la consulta y lee `.limit(1)`, que este guard acepta sin declarar.
 const TOP_N = [
-  {
-    archivo: 'services/transactions.js',
-    consulta: "supabase.from('transacciones').select('*').eq('usuario_id',usuarioId).ilike('comercio','%'+comercio+'%').order('fecha',{ascending:false}).limit(10)",
-    // Decía "elige UNO de los 10 más recientes" y la novena ronda midió que es falso: el monto y la
-    // fecha se filtran en JS DESPUÉS del corte, y sin match cae a `txs[0]`. El top-N no suma, así
-    // que sigue declarado; lo que está mal es el código, y va aparte (`docs/DEFECTOS.md`, 01-oct).
-    motivo: 'candidatos a corregir (no suma). BUG ABIERTO: monto y fecha se filtran en JS sobre los 10; si el gasto pedido no está entre ellos, corrige el más reciente del comercio, o sea OTRO',
-  },
   { archivo: 'services/transactions.js', consulta: "supabase.from('transacciones').select('*').eq('usuario_id',usuarioId).ilike('comercio','%'+comercio+'%').order('created_at',{ascending:false}).limit(5)", motivo: 'candidatos a recategorizar: usa la más reciente (`txs[0]`)' },
   { archivo: 'services/transactions.js', consulta: "supabase.from('transacciones').select('*').eq('usuario_id',usuarioId).ilike('comercio','%'+palabra+'%').order('created_at',{ascending:false}).limit(5)", motivo: 'el mismo reintento palabra por palabra: usa la más reciente' },
   { archivo: 'services/transactions.js', consulta: "supabase.from('transacciones').select('id,tarjeta_last4').eq('usuario_id',usuarioId).eq('dedup_hash',dedupHash).gte('created_at',ventanaInicio).limit(5)", motivo: 'dedup: busca UN duplicado del mismo hash en los últimos 10 segundos' },

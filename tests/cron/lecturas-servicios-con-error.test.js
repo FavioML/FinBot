@@ -107,6 +107,8 @@ function makeChain(table, op = 'select', patch = null) {
   // `todasLasFilas` lo pide así); solo `head: true` deja `data` en null.
   chain.select = (_cols, opts) => { if (opts && opts.head) esConteo = true; return chain; };
   chain.eq = (col, val) => { vistos.push({ col, val }); filtros.push((f) => f[col] === val); return chain; };
+  // Como postgrest-js: un `eq` por cada clave, y `match({})` no filtra nada.
+  chain.match = (obj) => { for (const [col, val] of Object.entries(obj)) chain.eq(col, val); return chain; };
   chain.neq = (col, val) => { filtros.push((f) => noEsNull(f, col) && f[col] !== val); return chain; };
   chain.in = (col, arr) => { vistos.push({ col, val: arr }); filtros.push((f) => arr.includes(f[col])); return chain; };
   chain.is = (col, val) => {
@@ -1072,6 +1074,21 @@ describe('corregir una categoría: "no encontré" tiene que ser cierto', () => {
     const conFallo = await transactions.corregirTransaccionEspecifica('u-1', 'Starbucks Lima', null, null, 'Comida', null);
     expect(conFallo.motivo, 'una caída se reportó igual que un comercio inexistente').toBe('error');
     expect(tagsLogueados()).toContain('CORREGIR_TX');
+  });
+
+  /**
+   * Con monto hay DOS lecturas (el centavo exacto y después la tolerancia), y la caída de la primera
+   * no puede quedar tapada por la segunda: si cae al rango ancho, una lectura que sí funciona elige
+   * un gasto a 20 céntimos del pedido y se corrige ese.
+   */
+  it('la corrección con monto: si cae la lectura del centavo exacto, no busca con la tolerancia', async () => {
+    tablas.transacciones = [...DE_STARBUCKS, { ...DE_STARBUCKS[0], id: 'g2', monto: 20.2, fecha: '2026-08-20' }];
+    // Con céntimos escritos (20.05) hay lectura exacta. Solo esa cae: su piso es 20.04 (el centavo
+    // de abajo); la de tolerancia arranca en 19.55 y encontraría los dos.
+    fallar = (t, v, op) => (t === 'transacciones' && op === 'select' && v.some((x) => x.col === 'monto' && x.val === 20.04) ? BOOM : null);
+    const res = await transactions.corregirTransaccionEspecifica('u-1', 'Starbucks', 20.05, null, 'Comida', null);
+    expect(res.motivo, 'la caída de la lectura exacta se tapó con la de tolerancia').toBe('error');
+    expect(escrituras.filter((e) => e.op === 'update' && e.tabla === 'transacciones')).toHaveLength(0);
   });
 
   /** El `update` de la retroaplicación: 0 es el número cierto, pero no puede anunciarse solo. */

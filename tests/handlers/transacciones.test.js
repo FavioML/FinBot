@@ -40,7 +40,7 @@ function makeChain(data = [], error = null) {
   // texto amable que un fallo de negocio. O sea que un método sin modelar se veía igual que un
   // rechazo de la DB. Lo destapó el claim de `restaurar_eliminado` al empezar a usarlo.
   const METHODS = ['select','insert','update','delete','upsert',
-                   'eq','ilike','gte','lte','is','neq','not','order','limit','single','maybeSingle'];
+                   'eq','ilike','gt','gte','lt','lte','is','neq','not','order','limit','single','maybeSingle'];
   for (const m of METHODS) {
     c[m] = vi.fn().mockReturnValue(c);
   }
@@ -1383,7 +1383,10 @@ describe('corregir_categoria', () => {
 // resolución tiene que pasar por CADA corrección, no por la primera.
 
 describe('corregir_multiple — resuelve la categoría de cada corrección (B30)', () => {
-  it('cada corrección del lote llega resuelta a la fila, a la regla y a la retroaplicación', async () => {
+  // Desde el 02-oct-2026 `corregir_multiple` ya no guarda la regla ni la retroaplica: cada corrección
+  // es UN gasto (ver el comentario del case y `tests/services/gasto-pedido-filtra-en-la-consulta.test.js`).
+  // Lo que B30 sigue fijando es que la resolución llegue a la fila de CADA corrección del lote.
+  it('cada corrección del lote llega resuelta a la fila, y ya no a una regla ni a una retroaplicación', async () => {
     const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
     const ctx = buildCtx(sb, {
       parsearCorreccionesMultiples: vi.fn().mockResolvedValue([
@@ -1399,9 +1402,10 @@ describe('corregir_multiple — resuelve la categoría de cada corrección (B30)
     const catsCorregidas = ctx.corregirTransaccionEspecifica.mock.calls.map((c) => c[4]);
     // 'auto' es un colapso con pérdida decidido en B26 (→ Transporte) y 'Freelance' una
     // categoría libre legítima de las 77 medidas: una se resuelve, la otra no se toca.
-    expect(catsCorregidas).toEqual(['Alimentación', 'Transporte', 'Freelance']);
-    expect(ctx.retroaplicarRegla.mock.calls.map((c) => c[2])).toEqual(['Alimentación', 'Transporte', 'Freelance']);
-    expect(ctx.guardarReglaComercio.mock.calls.map((c) => c[2])).toEqual(['Alimentación', 'Transporte', 'Freelance']);
+    // El orden de ejecución es por largo del nombre (ver el case); lo que se fija es que llegue CADA una.
+    expect([...catsCorregidas].sort()).toEqual(['Alimentación', 'Freelance', 'Transporte']);
+    expect(ctx.retroaplicarRegla).not.toHaveBeenCalled();
+    expect(ctx.guardarReglaComercio).not.toHaveBeenCalled();
     expect(res).toContain('Alimentación');
     expect(res).toContain('Transporte');
   });

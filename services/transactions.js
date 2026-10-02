@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const { supabase } = require('../lib/db');
 const { todasLasFilas } = require('../lib/todas-las-filas');
 const { validarMonto, normalizarCategoria } = require('../lib/validators');
-const { hoyPeru } = require('../lib/dates');
+const { hoyPeru, esFechaReal } = require('../lib/dates');
 const { esPagoNeto } = require('../lib/config');
 const { extraerLast4, normalizarLast4, canonizarComercio, esComercioCentinela } = require('./parsers');
 const log = require('../lib/logger');
@@ -492,14 +492,101 @@ async function recategorizarPorId(transaccionId, categoriaNueva) {
   return { ok: true };
 }
 
-async function corregirTransaccionEspecifica(usuarioId, comercio, monto, fecha, categoriaNueva, subcategoriaNueva) {
-  // Las 10 más recientes de ese comercio: es una búsqueda de candidatos, no un agregado, así que
-  // el tope es a propósito. Cerrada en el lugar para que nadie le pise el `.limit`.
-  const { data: txs, error: errBuscar } = await supabase.from('transacciones').select('*')
+// "El taxi de 8" encuentra el de 8.40: medio sol, estricto, la tolerancia que tenía el filtro en
+// JS. En centavos enteros: `8.2 - 0.5` en float es 7.699999999999999 y dejaba entrar el de 7.70.
+const TOLERANCIA_CENTAVOS = 50;
+// `transacciones.monto` es numeric(10,2) NOT NULL, así que ninguna fila llega a ±10^8: sin monto
+// pedido, este rango no deja afuera nada y la consulta sigue siendo UNA cadena cerrada, que es lo
+// único que acepta el guard de paginación (`tests/transacciones-paginacion-callsites.test.js`).
+const FUERA_DEL_TIPO_MONTO = 1e8;
+
+/**
+ * Lo que la persona pidió, leído UNA vez: lo usa la búsqueda y lo usa el "no encontré (8.50 · …)"
+ * del handler, para que el mensaje nombre exactamente lo que se buscó.
+ *
+ * Monto y fecha los extrae un LLM (`parsearCorreccionesMultiples`). Se acepta "S/ 8.50" y "8,50";
+ * 0, vacío o 'null' es "no lo dijo" (ningún gasto vale 0: `validarMonto`). Un valor que igual no se
+ * puede leer NO se descarta: descartarlo es corregir el gasto más reciente del comercio, o sea otro,
+ * que es el defecto que esta función tuvo hasta el 02-oct-2026 (`docs/DEFECTOS.md`).
+ *
+ * @returns {{ monto: number|null, fecha: string|null, legible: boolean }}
+ */
+function leerPedidoCorreccion(monto, fecha) {
+  let leido;
+  if (monto == null) leido = null;
+  else if (typeof monto === 'number') leido = monto;
+  else if (typeof monto === 'string') {
+    const t = monto.trim().toLowerCase().replace(/^s\/\.?\s*/, '');
+    // Con punto y coma juntos la coma es de miles ("1,234.50"); sola, es el decimal ("8,50").
+    const normal = t.includes('.') ? t.replace(/,/g, '') : t.replace(',', '.');
+    // Solo dígitos: `Number('0x10')` es 16 y `Number('1e1')` es 10, y buscar eso es corregir otro.
+    leido = normal === '' || normal === 'null' ? null : (/^\d+(\.\d+)?$/.test(normal) ? Number(normal) : NaN);
+  } else leido = NaN; // un booleano o un objeto no es un monto
+  // A centavos UNA vez: la etiqueta del "no encontré" y la búsqueda redondean igual.
+  const redondo = leido === null || !Number.isFinite(leido) ? leido : Math.round(leido * 100) / 100;
+  const montoPedido = redondo === 0 ? null : redondo;
+  const fechaPedida = fecha && String(fecha).toLowerCase() !== 'null' ? fecha : null;
+  const legible = (montoPedido === null || Number.isFinite(montoPedido)) && (fechaPedida === null || esFechaReal(fechaPedida));
+  return { monto: montoPedido, fecha: fechaPedida, legible };
+}
+
+/**
+ * Corrige UN gasto: el que calza con comercio, monto y fecha. `excluirIds` son los que ya se
+ * corrigieron en el mismo mensaje: dos correcciones que caían en la misma fila ("los dos taxis de 15
+ * de ayer, uno salud y otro trabajo") la escribían dos veces y dejaban el otro sin tocar.
+ */
+async function corregirTransaccionEspecifica(usuarioId, comercio, monto, fecha, categoriaNueva, subcategoriaNueva, excluirIds = []) {
+  const { monto: montoPedido, fecha: fechaPedida, legible } = leerPedidoCorreccion(monto, fecha);
+  if (!legible) {
+    log.warn({ tag: 'CORREGIR_TX', usuarioId, comercio, monto, fecha }, 'Monto o fecha ilegibles: no se corrige ningún gasto');
+    return { ok: false, comercio, motivo: 'ilegible' };
+  }
+  // Un comercio sin una letra ni un número ('*', '%', '_') es un comodín de `ilike`: alcanza todos
+  // los gastos de la persona. Eso no lo escribe alguien nombrando un comercio, lo inventa el LLM.
+  // Los espacios se normalizan como los guarda `canonizarComercio`: " taxi" no encontraba nada.
+  const comercioBuscado = String(comercio || '').trim().replace(/\s+/g, ' ');
+  if (!/[\p{L}\p{N}]/u.test(comercioBuscado)) {
+    log.warn({ tag: 'CORREGIR_TX', usuarioId, comercio }, 'Comercio sin letras ni números: no se corrige ningún gasto');
+    return { ok: false, comercio, motivo: 'ilegible' };
+  }
+  // Solo ids propios (uuid): van dentro de un `in.(…)` de PostgREST.
+  const excluidos = (Array.isArray(excluirIds) ? excluirIds : []).filter((id) => typeof id === 'string' && /^[\w-]+$/.test(id));
+  const centavos = montoPedido === null ? null : Math.round(montoPedido * 100);
+  // Monto y fecha van EN LA CONSULTA, antes del `.limit`. Filtrados en JS sobre los 10 más recientes
+  // del comercio, un gasto pedido fuera de esos 10 (o un monto con typo) caía a `txs[0]` y se
+  // corregía OTRO: medido con 25 taxis, el de S/ 8.50 en el puesto 11 movió el de S/ 15.
+  //
+  // Con varios que calzan se corrige el más reciente, igual que cuando la persona no da monto ni
+  // fecha: "el taxi de 8.50" es el último de S/ 8.50. El desempate por `created_at` lo vuelve
+  // determinístico entre gastos del mismo día. `.match({})` no filtra nada, así que sin fecha
+  // tampoco quedan afuera las filas con `fecha` NULL (hoy 0, pero la columna lo admite); van al
+  // final del orden y no primero, que es lo que hace Postgres en DESC por defecto.
+  //
+  // Con céntimos escritos ("15.03"), primero el MISMO centavo y recién sin ninguno la tolerancia:
+  // con Cabify de 15.01 a 15.21, "el de 15.03" corregía el de 15.01, más reciente y a dos centavos
+  // (lo encontró el E2E del 02-oct contra la base real). Con un entero ("el uber de 20") la persona
+  // redondea, y el exacto primero elegía un 20.00 de mayo sobre el 20.40 de ayer (tercera revisión):
+  // ahí va directo la tolerancia. Sin monto el rango es neutro. `not.in.()` vacío no filtra nada
+  // (medido contra el PostgREST de producción el 02-oct).
+  const buscar = async (desde, hasta) => supabase.from('transacciones').select('*')
     .eq('usuario_id', usuarioId)
-    .ilike('comercio', '%' + comercio + '%')
-    .order('fecha', { ascending: false })
-    .limit(10);
+    .ilike('comercio', '%' + comercioBuscado + '%')
+    .match(fechaPedida ? { fecha: fechaPedida } : {})
+    .gt('monto', desde)
+    .lt('monto', hasta)
+    .not('id', 'in', '(' + excluidos.join(',') + ')')
+    .order('fecha', { ascending: false, nullsFirst: false })
+    .order('created_at', { ascending: false })
+    .limit(1);
+  const conCentimos = centavos !== null && centavos % 100 !== 0;
+  let { data: txs, error: errBuscar } = centavos === null
+    ? await buscar(-FUERA_DEL_TIPO_MONTO, FUERA_DEL_TIPO_MONTO)
+    : conCentimos
+      ? await buscar((centavos - 1) / 100, (centavos + 1) / 100)
+      : await buscar((centavos - TOLERANCIA_CENTAVOS) / 100, (centavos + TOLERANCIA_CENTAVOS) / 100);
+  if (!errBuscar && conCentimos && (!txs || txs.length === 0)) {
+    ({ data: txs, error: errBuscar } = await buscar((centavos - TOLERANCIA_CENTAVOS) / 100, (centavos + TOLERANCIA_CENTAVOS) / 100));
+  }
   // Mismo criterio que `recategorizarTransaccion`, con una razon extra: el call-site es un
   // BUCLE de correcciones multiples. Un throw abortaria las que ya se aplicaron y las que
   // faltan; el motivo discriminado deja que las demas sigan y que esta linea diga la verdad.
@@ -507,16 +594,9 @@ async function corregirTransaccionEspecifica(usuarioId, comercio, monto, fecha, 
     log.error({ tag: 'CORREGIR_TX', usuarioId, comercio, err: errBuscar.message }, 'No se pudo leer las transacciones a corregir');
     return { ok: false, comercio, motivo: 'error' };
   }
+  // Sin match es "no encontré", aunque el comercio tenga otros gastos: la persona describió UNO.
   if (!txs || txs.length === 0) return { ok: false, comercio };
-  let tx = txs[0];
-  if (fecha || monto) {
-    const match = txs.find(t => {
-      const fechaOk = !fecha || (t.fecha && t.fecha.startsWith(fecha));
-      const montoOk = !monto || Math.abs(parseFloat(t.monto) - monto) < 0.5;
-      return fechaOk && montoOk;
-    });
-    if (match) tx = match;
-  }
+  const tx = txs[0];
   const updates = { categoria: categoriaNueva };
   if (subcategoriaNueva) updates.subcategoria = subcategoriaNueva;
   const { data: filasCorregidas, error } = await supabase.from('transacciones').update(updates).eq('id', tx.id).select('id');
@@ -539,7 +619,10 @@ async function corregirTransaccionEspecifica(usuarioId, comercio, monto, fecha, 
     log.warn({ tag: 'CORREGIR_TX', usuarioId, comercio, txId: tx.id }, 'El update de la correccion no afecto ninguna fila');
     return { ok: false, comercio, motivo: 'desaparecido' };
   }
-  return { ok: true, comercio: tx.comercio || comercio, monto: tx.monto_pen || tx.monto, moneda: tx.moneda || 'PEN' };
+  // En USD el monto es el de la fila, no `monto_pen`: el call-site le pone `$` adelante, y con
+  // `monto_pen` un gasto de $15 se confirmaba como "$56.25".
+  const moneda = tx.moneda || 'PEN';
+  return { ok: true, id: tx.id, fecha: tx.fecha || null, comercio: tx.comercio || comercio, monto: moneda === 'USD' ? tx.monto : (tx.monto_pen || tx.monto), moneda };
 }
 
 // --- Reglas de comercio ---
@@ -692,7 +775,7 @@ async function retroaplicarRegla(usuarioId, comercio, categoria, subcategoria) {
 module.exports = {
   obtenerTipoCambio, TC_FALLBACK, tcEsInventado, convertirUsdAPen, tipoCambioDeLaFila, guardarTransaccion,
   obtenerGastosMes, obtenerGastosSemana, obtenerUltimaTransaccion,
-  recategorizarTransaccion, recategorizarPorId, corregirTransaccionEspecifica,
+  recategorizarTransaccion, recategorizarPorId, corregirTransaccionEspecifica, leerPedidoCorreccion,
   guardarReglaComercio, buscarReglaComercio, retroaplicarRegla,
   DEDUP_WINDOW_MS,
   // Se exporta para poder probar la DECISIÓN sin montar el insert entero, igual que

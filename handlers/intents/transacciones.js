@@ -882,30 +882,64 @@ module.exports = {
               + 'Ahí puedes filtrar y editar varios gastos de una vez.\n'
               + '_O dime uno por uno y lo hago por acá._';
           }
+          // Cada corrección es UN gasto, y ninguno se escribe dos veces en el mismo mensaje. Hasta el
+          // 02-oct cada una guardaba además la regla comercio → categoría y la retroaplicaba a TODO el
+          // comercio: "el taxi de 8.50 era salud" (fue a la clínica) movía todos los taxis, y los
+          // futuros, mientras la línea decía uno. Tres revisiones adversariales seguidas encontraron
+          // la misma clase —la línea afirma algo que la tabla no refleja— por la retroaplicación, por
+          // el orden entre correcciones y por un fallo mudo de la retroaplicación, así que se sacó la
+          // retroaplicación en vez de seguir parchándola. La regla por comercio tiene su acción
+          // (`set_category_rule`: "todo lo de Rappi va en Delivery"). Esta rama tuvo 0 respuestas
+          // en producción entre marzo y el 02-oct: el clasificador manda estas frases a
+          // `corregir_categoria` (backlog, ítem 45).
+          //
+          // Antes de escribir nada se descarta lo que el LLM no mandó como texto: un `comercio: 7`
+          // corregía un gasto y después hacía lanzar a la regla.
+          const { leerPedidoCorreccion } = require('../../services/transactions');
+          const esValida = (c) => c && typeof c.comercio === 'string' && c.comercio.trim()
+            && typeof c.categoria_nueva === 'string' && c.categoria_nueva.trim();
+          // El nombre más largo primero: cada corrección reclama UNA fila y la búsqueda es por
+          // substring, así que "el uber de 15" iba antes y se llevaba el Uber Eats de 15 que la
+          // corrección siguiente nombraba (cuarta revisión). Las líneas salen en este orden.
+          const validas = correcciones.filter(esValida).map((c, i) => ({ c, i }))
+            .sort((a, b) => (b.c.comercio.trim().length - a.c.comercio.trim().length) || (a.i - b.i))
+            .map(({ c }) => c);
           const resultados = [];
-          for (const corr of correcciones) {
-            if (!corr.comercio || !corr.categoria_nueva) continue;
+          const corregidosIds = [];
+          let corregidas = 0;
+          let algunaSinDatos = false;
+          for (const corr of validas) {
             // B30, mismo motivo que en `corregir_categoria`: una sola resolución alimenta la
-            // fila corregida, el árbol, la regla, la retroaplicación y el resumen que se imprime.
+            // fila corregida, el árbol y el resumen que se imprime.
             const { resolverCategoriaPersistida } = require('../../services/categories');
             const _catCorrT = corr.categoria_nueva.trim(); // ver el `.trim()` de `corregir_categoria`
             const catLibre = resolverCategoriaPersistida(_catCorrT.charAt(0).toUpperCase() + _catCorrT.slice(1));
-            const _subCorrTmp = corr.subcategoria_nueva ? corr.subcategoria_nueva.charAt(0).toUpperCase() + corr.subcategoria_nueva.slice(1) : null;
-            const res = await corregirTransaccionEspecifica(usuario.id, corr.comercio, corr.monto, corr.fecha, catLibre, _subCorrTmp);
-            const subCorr = corr.subcategoria_nueva ? corr.subcategoria_nueva.charAt(0).toUpperCase() + corr.subcategoria_nueva.slice(1) : null;
-            // ENCADENADAS y AWAITEADAS: acá además el `for` recorre varias correcciones, y dos
-            // que apunten a la misma categoría en un mismo mensaje se cruzarían entre iteraciones.
-            // Este bucle ya es secuencial (hay un `await` arriba), así que esperar no cambia la
-            // latencia percibida — la respuesta sale recién cuando termina el for.
-            await asegurarCategoriaUsuario(usuario.id, catLibre)
-              .then(() => (subcategoriaUtil(subCorr)
-                ? crearSubcategoriaLibreUsuario(usuario.id, catLibre, subCorr) : null))
-              .catch(() => {});
+            // `subcategoriaUtil` descarta los centinelas: "null" como texto se escribía como "Null".
+            const _subCorrT = typeof corr.subcategoria_nueva === 'string' ? corr.subcategoria_nueva.trim() : '';
+            const subCorr = subcategoriaUtil(_subCorrT ? _subCorrT.charAt(0).toUpperCase() + _subCorrT.slice(1) : null);
+            const res = await corregirTransaccionEspecifica(usuario.id, corr.comercio, corr.monto, corr.fecha, catLibre, subCorr, corregidosIds);
             if (res.ok) {
-              guardarReglaComercio(usuario.id, corr.comercio, catLibre, subCorr || null);
-              retroaplicarRegla(usuario.id, corr.comercio, catLibre, subCorr || null);
+              corregidas++;
+              if (res.id) corregidosIds.push(res.id);
+              // ENCADENADAS y AWAITEADAS: acá además el `for` recorre varias correcciones, y dos
+              // que apunten a la misma categoría en un mismo mensaje se cruzarían entre iteraciones.
+              // Este bucle ya es secuencial (hay un `await` arriba), así que esperar no cambia la
+              // latencia percibida — la respuesta sale recién cuando termina el for. Sólo con una
+              // corrección hecha: antes un "no encontré" dejaba igual la categoría nueva en el árbol.
+              await asegurarCategoriaUsuario(usuario.id, catLibre)
+                .then(() => (subCorr ? crearSubcategoriaLibreUsuario(usuario.id, catLibre, subCorr) : null))
+                .catch(() => {});
               const montoStr = res.moneda === 'USD' ? '$' + parseFloat(res.monto).toFixed(2) : 'S/ ' + parseFloat(res.monto).toFixed(2);
-              resultados.push('✅ *' + res.comercio + '* (' + montoStr + ') → ' + catLibre);
+              // La fecha va en la línea: con varios que calzan se eligió el más reciente, y así se ve cuál.
+              resultados.push('✅ *' + res.comercio + '* (' + montoStr + (res.fecha ? ' · ' + res.fecha : '') + ') → ' + catLibre);
+              const pedidoOk = leerPedidoCorreccion(corr.monto, corr.fecha);
+              if (pedidoOk.monto === null && pedidoOk.fecha === null) algunaSinDatos = true;
+            } else if (res.motivo === 'ilegible') {
+              // No se buscó nada: "no encontré" sería afirmar una búsqueda que no ocurrió. Un comercio
+              // que es solo un comodín ('*') no se nombra: rompería la negrita y pediría el dato equivocado.
+              resultados.push(/[\p{L}\p{N}]/u.test(corr.comercio)
+                ? '❓ No entendí qué gasto de *' + corr.comercio.trim() + '* es: dime el monto (ej. 8.50) o la fecha'
+                : '❓ No entendí de qué comercio es una de las correcciones');
             } else if (res.motivo === 'error') {
               // `corregirTransaccionEspecifica` distingue "no hay gasto de ese comercio" de
               // "algo falló", y esta rama existe para que esa distinción llegue a la persona.
@@ -922,11 +956,31 @@ module.exports = {
               // pude ahora mismo" (reintentar no lo va a traer de vuelta).
               resultados.push('🚫 Ese gasto de *' + corr.comercio + '* ya no está');
             } else {
-              resultados.push('❌ No encontré gasto de *' + corr.comercio + '*');
+              // Desde el 02-oct "no encontré" también cubre un comercio que SÍ tiene gastos pero
+              // ninguno con el monto o la fecha que se dijo (antes se corregía otro). Nombrar lo que
+              // se buscó es lo que deja ver un typo en vez de "no tengo taxis", y se lee con la MISMA
+              // función que la búsqueda, para no nombrar algo que no se buscó (un monto 0, por ejemplo).
+              const pedido = leerPedidoCorreccion(corr.monto, corr.fecha);
+              const buscado = [pedido.monto !== null ? pedido.monto.toFixed(2) : null, pedido.fecha].filter(Boolean).join(' · ');
+              // Con filas ya movidas en este mensaje, la búsqueda las excluyó: "no encontré" a secas
+              // negaba un gasto que existe (el LLM que duplica el pedido, "era salud, no, trabajo").
+              resultados.push('❌ No encontré ' + (corregidosIds.length ? 'otro gasto' : 'gasto') + ' de *' + corr.comercio + '*'
+                + (buscado ? ' (' + buscado + ')' : '') + (corregidosIds.length ? ' aparte de los que ya moví' : ''));
             }
           }
+          // Lo que se descartó también deja línea: callarlo bajo un "Listo!" era el fallo mudo.
+          resultados.push(...correcciones.filter((c) => !esValida(c)).map(() => '❓ Una de las correcciones no la entendí: dime el comercio y la categoría'));
           if (resultados.length === 0) return 'No pude aplicar ninguna corrección.';
-          return 'Listo! Actualicé ' + resultados.length + ' gastos:\n\n' + resultados.join('\n');
+          // La cabecera cuenta CORRECCIONES, no líneas: "Actualicé 2 gastos" con un ❌ adentro afirmaba
+          // un cambio que no ocurrió. Cada corrección aplicada es una fila distinta (`corregidosIds`).
+          const total = resultados.length;
+          const cabecera = corregidas === 0 ? 'No pude aplicar ninguna:'
+            : corregidas === total ? 'Listo! Apliqué ' + corregidas + (corregidas === 1 ? ' corrección:' : ' correcciones:')
+              : 'Apliqué ' + corregidas + ' de ' + total + ' correcciones:';
+          // Sin monto ni fecha antes se retroaplicaba a todo el comercio; ahora se mueve uno, y quien
+          // quería todos tiene que saber cómo pedirlo (es la frase de `set_category_rule`).
+          const pista = algunaSinDatos ? '\n\n_Moví solo el más reciente de ese comercio. Para que todos vayan ahí, escríbeme "todo lo de [comercio] va en [categoría]"._' : '';
+          return cabecera + '\n\n' + resultados.join('\n') + pista;
         } catch(e) {
           log.error({ tag: 'MULT', err: e.message }, 'Error corrección múltiple');
           const { WEBAPP_URL } = require('../../lib/constants');
@@ -1005,20 +1059,21 @@ module.exports = {
           const comercioElim = comercioDicho ? datos.comercio : null;
           const montoElimReq = montoDicho ? parseFloat(datos.monto) : null;
           const fechaElimReq = fechaDicha ? datos.fecha : null;
-          const EPS = 0.01;
+          const TOPE_CANDIDATOS = 20;
+          // El mismo centavo, en enteros: con `0.15 - 0.01` en float (0.13999999999999999) el
+          // filtro dejaba entrar el gasto de 0.14, y "borra el de 0.15" borraba el vecino.
+          const centavosElim = montoElimReq == null ? null : Math.round(montoElimReq * 100);
 
-          // Build candidate query — más preciso si hay comercio+monto+fecha
+          // Build candidate query — más preciso si hay comercio+monto+fecha. El monto va EN LA
+          // CONSULTA, antes del `.limit`: filtrado en JS sobre los 20 más recientes, un gasto más
+          // viejo que esos 20 salía "no encontré" aunque existiera (02-oct-2026).
           let qElim = supabase.from('transacciones').select('*').eq('usuario_id', usuario.id);
           if (comercioElim) qElim = qElim.ilike('comercio', '%' + comercioElim + '%');
           if (fechaElimReq) qElim = qElim.eq('fecha', fechaElimReq);
-          qElim = qElim.order('created_at', { ascending: false }).limit(20);
+          if (centavosElim != null) qElim = qElim.gt('monto', (centavosElim - 1) / 100).lt('monto', (centavosElim + 1) / 100);
+          qElim = qElim.order('created_at', { ascending: false }).limit(TOPE_CANDIDATOS);
           const { data: candidatosElim } = await qElim;
-          let candidatos = candidatosElim || [];
-
-          // Filtrar por monto si fue especificado
-          if (montoElimReq != null && candidatos.length > 0) {
-            candidatos = candidatos.filter(c => Math.abs(parseFloat(c.monto) - montoElimReq) < EPS);
-          }
+          const candidatos = candidatosElim || [];
 
           // Si no hubo filtro alguno, caer al último registro
           let txElim = null;
@@ -1058,7 +1113,9 @@ module.exports = {
               return (i+1) + '. ' + (c.comercio || 'Sin comercio') + ' — ' + m + ' · ' + (c.fecha || '');
             }).join('\n');
             ctx.borradoPidioOrden = true;
-            return 'Encontré ' + candidatos.length + ' gastos que coinciden. ¿A cuál te refieres?\n\n' + lista + '\n\n_Respóndeme con el monto o la fecha exacta._';
+            // Con el tope lleno puede haber más: "Encontré 20" afirmaba un total que no se contó.
+            const cuantos = candidatos.length >= TOPE_CANDIDATOS ? 'al menos ' + TOPE_CANDIDATOS : String(candidatos.length);
+            return 'Encontré ' + cuantos + ' gastos que coinciden. ¿A cuál te refieres?\n\n' + lista + '\n\n_Respóndeme con el monto o la fecha exacta._';
           }
 
           if (!txElim) { ctx.borradoPidioOrden = true; return '¿De qué gasto me hablas? Dime el comercio, monto o fecha y lo elimino.'; }
