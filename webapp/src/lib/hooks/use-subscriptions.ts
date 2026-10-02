@@ -241,7 +241,7 @@ export function useSubscriptions(usuarioId?: string) {
       )
 
       if (error) throw error
-      return detectarSuscripcionesFromTxs(data)
+      return detectarSuscripcionesFromTxs(data ?? [])
     },
     enabled: IS_DEMO || !!usuarioId,
     staleTime: 5 * 60 * 1000, // 5 minutos

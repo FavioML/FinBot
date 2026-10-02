@@ -45,6 +45,17 @@ export type NetoUserAuth =
   | { ok: false; response: NextResponse };
 
 /**
+ * Las columnas de `usuarios` que un llamador le pasa a `.select()`, y nada mas: un embebido
+ * (`transacciones(monto_pen)`) o un spread (`...x(y)`) traeria filas de otra tabla, que PostgREST
+ * corta en 1000 por nodo sin avisar. Lo vigila tambien el guard de paginacion, pero el guard ve
+ * los llamadores por el nombre del helper y un barrel o un `import()` dinamico se le escapan
+ * (ataque del 01-oct-2026): aca no se escapa ninguno.
+ */
+function columnasSinEmbebidos(columns: string): void {
+  if (/[()]|\.\.\./.test(columns)) throw new Error(`columnas de usuarios con un embebido o un spread: ${columns}`);
+}
+
+/**
  * Usuario Neto detras de la sesion actual, o la respuesta de error que la ruta
  * debe devolver tal cual.
  *
@@ -57,6 +68,7 @@ export type NetoUserAuth =
  * `columns` se pasa a `.select()`; siempre incluye `id` aunque no se pida.
  */
 export async function requireNetoUser(columns = 'id'): Promise<NetoUserAuth> {
+  columnasSinEmbebidos(columns);
   const supabase = await createClient();
   const {
     data: { user },
@@ -152,6 +164,7 @@ export async function requireLectura(columns = 'id'): Promise<NetoUserAuth> {
  * Lanza si la lectura falla. Devuelve null si no hay sesion o no hay fila.
  */
 export async function findNetoUser(columns = 'id'): Promise<NetoUserRow | null> {
+  columnasSinEmbebidos(columns);
   const supabase = await createClient();
   const {
     data: { user },

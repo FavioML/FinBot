@@ -193,10 +193,10 @@ export async function GET(request: Request) {
 
   const alerts = dedupeAlerts((alertsRes.data || []) as AlertRow[], 10);
 
-  // Si una página del historial falló, `txsRes.data` trae lo que alcanzó a llegar y no la lista
-  // completa. Sembrarla dejaría el overview y Transacciones con un historial corto, en caché
-  // persistida, sin ninguna señal. Se omite: el cliente no siembra y `useTransactions` hace su
-  // propia consulta.
+  // Si una página del historial falló no hay lista (`todasLasFilas` da `data: null`), y la que
+  // alcanzó a llegar tampoco servía: sembrarla dejaría el overview y Transacciones con un
+  // historial corto, en caché persistida, sin ninguna señal. Se omite: el cliente no siembra y
+  // `useTransactions` hace su propia consulta.
   if (txsRes.error) console.error('[api/dashboard] historial de transacciones incompleto:', txsRes.error);
 
   return NextResponse.json({

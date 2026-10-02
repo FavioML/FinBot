@@ -113,3 +113,18 @@ describe('findNetoUser', () => {
     await expect(findNetoUser()).resolves.toBeNull();
   });
 });
+
+describe('las columnas de usuarios no embeben otras tablas', () => {
+  // Un embebido de `transacciones` desde `usuarios` vuelve con 1000 filas como mucho (PostgREST
+  // corta cada nodo). El guard de paginación ve los llamadores por nombre; esto ve a todos.
+  it.each([
+    'id, plan, transacciones(monto_pen)',
+    'id, transacciones_usuario_id_fkey(monto_pen)',
+    'id, ...categorias(nombre)',
+  ])('rechaza %s antes de leer', async (columnas) => {
+    getUser.mockResolvedValue(CON_SESION);
+    await expect(requireNetoUser(columnas)).rejects.toThrow(/embebido o un spread/);
+    await expect(findNetoUser(columnas)).rejects.toThrow(/embebido o un spread/);
+    expect(maybeSingle).not.toHaveBeenCalled();
+  });
+});

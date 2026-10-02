@@ -46,7 +46,7 @@ export function useUserCategorias(usuarioId?: string) {
       );
 
       if (error) throw error;
-      return data.map(({ categoria, subcategoria }) => ({ categoria, subcategoria }));
+      return (data ?? []).map(({ categoria, subcategoria }) => ({ categoria, subcategoria }));
     },
     enabled: IS_DEMO || !!usuarioId,
     staleTime: 5 * 60 * 1000,

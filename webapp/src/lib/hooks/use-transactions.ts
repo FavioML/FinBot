@@ -92,7 +92,7 @@ export function useTransactions(options: UseTransactionsOptions, { mantenerAnter
         (t) => t.id,
       );
       if (error) throw error;
-      return data;
+      return data ?? [];
     },
     enabled: IS_DEMO || !!options.usuarioId,
   });

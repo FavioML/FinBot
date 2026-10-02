@@ -50,7 +50,7 @@ export async function GET() {
 
   // Una lectura caída no puede volverse una sección vacía del archivo: antes `txResult.data || []`
   // entregaba un export con cero transacciones que se veía exactamente como uno legítimo.
-  // `todasLasFilas` con error trae lo que alcanzó a llegar, que tampoco es la lista completa.
+  // `todasLasFilas` con error no trae lista (`data: null`), y la parcial tampoco servía.
   if (txResult.error || budgetResult.error || goalsResult.error || userResult.error) {
     return NextResponse.json(
       { error: 'No se pudo leer tu información completa. Intenta de nuevo en un momento.' },

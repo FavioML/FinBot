@@ -53,10 +53,10 @@ export async function GET(request: Request) {
   // cientos. Y no un 500, que le haría perder a `paywall.tsx` el estado del trial y el canal (con
   // `datos` en null le dice "tu prueba terminó" a quien nunca la tuvo) y saltearía el `visto`.
   if (errorConteo) console.error('[pro/muro] no se pudo contar las transacciones', errorConteo);
-  // Con error, `todasLasFilas` trae lo que alcanzó a llegar: sumarlo daría un total corto. En 0 la
-  // pantalla no muestra la línea del total (`paywall.tsx` la pinta solo si es > 0).
+  // Con error no hay lista (`todasLasFilas` devuelve `data: null`). En 0 la pantalla no muestra la
+  // línea del total (`paywall.tsx` la pinta solo si es > 0).
   if (errorMes) console.error('[pro/muro] no se pudo sumar los gastos del mes', errorMes);
-  const totalMes = errorMes ? 0 : delMes.reduce(
+  const totalMes = errorMes || !delMes ? 0 : delMes.reduce(
     (acc, t) => acc + Number(t.monto_pen != null ? t.monto_pen : (t.monto ?? 0)),
     0,
   );
