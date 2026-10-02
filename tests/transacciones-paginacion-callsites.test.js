@@ -73,6 +73,21 @@ import ts from 'typescript';
  * Node; (3) el estado global que el cliente lee en cada llamada (`fetch = …` sin `globalThis`, un
  * `{ __proto__: cliente }`, `Object.create` con descriptores, un `Object` o un `Promise` propios).
  *
+ * **Y la décima ronda fijó el ALCANCE, porque ya no era una carrera que se pudiera ganar.** Dejó 17
+ * evasiones verdes, y la mayoría exigía escribir A PROPÓSITO contra el runtime; las reglas por nombre
+ * de la novena, además, marcaban código sano de este backend (`return message.from`, el remitente de
+ * WhatsApp; `opciones.from = 'Neto <…>'`; `exports = module.exports`). Este guard existe para la
+ * lectura que alguien escribe cortada SIN QUERER: esas se cierran todas, y esa ronda cerró la ruta del
+ * `require` en una constante, el `.ts` mal parseado, el cache de `fetch` con el nombre ligado en otra
+ * función (ahora se mira el ÁMBITO), el comando de arranque y el `Procfile`, `with`, `import()`,
+ * `module.children/paths`, los procesos fuera de `scripts/` y `Object.getPrototypeOf`. **El sabotaje
+ * deliberado del runtime queda fuera, declarado**: parchear prototipos o métodos de postgrest-js
+ * (`svc.from = …`, `const f = svc.from`), `node --conditions`/`NODE_PATH`/`NODE_OPTIONS` puestos fuera
+ * del código, procesos hijos en `scripts/` (las herramientas de mutación corren vitest así), un `.sh`
+ * o un workflow que corre `node qa-e2e/…`, un specifier bare que en el test no resuelve. Eso lo cubre
+ * la revisión de código y el invariante de `todasLasFilas`, no una regla más: cada ronda que persiguió
+ * casos encontró 15 nuevos. **No se abre otra ronda** salvo que aparezca una forma de cortar SIN QUERER.
+ *
  * **Lo que cambia respecto de la webapp, todo por CommonJS:**
  * - `todasLasFilas` se reconoce por un `const { … } = require(X)` (o `const ns = require(X)` y
  *   `ns.todasLasFilas`, o `const { … } = ns`) en el TOPE del archivo, donde X **resuelto desde el
@@ -97,9 +112,7 @@ import ts from 'typescript';
  * la única es `transacciones_usuario_id_fkey`); un humano puede declarar en TOP_N una lectura que en
  * realidad suma, o que FILTRA en JS después del corte (la novena ronda encontró dos, ver los motivos
  * de abajo); una asignación por clave dinámica sobre un objeto del archivo (`cliente[k] = f` con `k`
- * de un parámetro); `.from` leído como dato y llamado después por otro camino que no sea una
- * variable, un argumento o un `return`; y un proceso hijo que corre un archivo de fuera del barrido
- * con otro comando que `node` (`npx tsx qa-e2e/x.ts`). Lo que es del CLIENTE o de la PÁGINA en
+ * de un parámetro); el sabotaje deliberado del párrafo de la décima ronda. Lo que es del CLIENTE o de la PÁGINA en
  * runtime (un fetch que repite páginas, un filtro que cambia entre páginas, una clave que no es
  * única, un borrado entre páginas) lo cierra además `todasLasFilas`, que devuelve error cuando llegan
  * menos filas distintas que el conteo; lo que NO cierra es un borrado compensado por un alta en la
@@ -132,10 +145,12 @@ const CLAVE_DINAMICA = 'una llamada por una clave que no es texto estático: pue
 const TOCA_LA_CONSULTA = 'cambia el estado de una consulta por fuera de su cadena (header Prefer, setHeader, method/url/headers, Object.assign): puede pisar el conteo o el límite';
 /**
  * Propiedades del builder o del cliente de postgrest-js que, asignadas, cambian lo que se pide. Los
- * métodos también: `svc.from = …` reemplaza la consulta entera (novena ronda).
+ * nombres de MÉTODOS (`from`, `select`, `limit`…) estuvieron acá en 188ad42 y se sacaron en la décima
+ * ronda: `opciones.from = 'Neto <hola@neto.pe>'` es el remitente de un correo, y reasignar un método
+ * del cliente es sabotaje deliberado (declarado en el docblock), no un corte sin querer.
  */
-const ESTADO_DE_CONSULTA = new Set(['method', 'url', 'headers', 'isMaybeSingle', 'fetch', 'schema', 'schemaName', 'signal', 'rest', 'body',
-  'shouldThrowOnError', '__proto__', 'from', 'rpc', 'select', 'range', 'limit', 'order', 'single', 'maybeSingle', 'setHeader', 'then']);
+const ESTADO_DE_CONSULTA = new Set(['method', 'url', 'headers', 'isMaybeSingle', 'fetch', 'schema', 'schemaName', 'signal', 'rest',
+  'shouldThrowOnError', '__proto__']);
 const CLIENTE_RARO = 'un cliente de Supabase con fetch, headers u opciones que no se pueden leer, o usado fuera de una llamada directa: cambia todas sus consultas';
 /**
  * Cualquier cosa bajo `@supabase/`: el paquete exporta `./dist/*`, así que
@@ -143,15 +158,19 @@ const CLIENTE_RARO = 'un cliente de Supabase con fetch, headers u opciones que n
  */
 const esPaqueteSupabase = (spec) => typeof spec === 'string' && /^@supabase\//.test(spec);
 const OPCIONES_DE_CLIENTE = new Set(['global', 'fetch', 'headers', 'db', 'accessToken']);
-const REFLEXION = 'código armado en un string o llamado por reflexión (eval, Function, Reflect, vm, .constructor, node -e, process.getBuiltinModule): no se puede saber qué consulta hace';
-const POR_BIND = 'un .from sin llamarlo ahí (bind/call/apply, o el .from como valor): la consulta no se puede seguir';
-const GLOBAL_ESCRITO = 'escribe un global (un nombre que el archivo no liga): el cliente de Supabase resuelve `fetch` en el global en cada llamada, así que reasignarlo cambia todas las consultas';
+const REFLEXION = 'código armado en un string o llamado por reflexión (eval, Function, Reflect, vm, el .constructor de una función, process.getBuiltinModule): no se puede saber qué consulta hace';
+const POR_BIND = 'un .from por bind/call/apply: la consulta no se puede seguir';
+const GLOBAL_ESCRITO = 'escribe un global (un nombre que no está ligado en su ámbito): el cliente de Supabase resuelve `fetch` en el global en cada llamada, así que reasignarlo cambia todas las consultas';
 const NOMBRE_GLOBAL_LIGADO = 'liga un nombre global que el guard usa para decidir (`Object`): con eso, `Object.assign(globalThis, …)` deja de ser el de la plataforma';
-/** Internos de `Module` y de `process` que cargan módulos o ejecutan código por fuera de `require`. */
-const INTERNOS_DE_MODULE = new Set(['_load', '_cache', '_resolveFilename', '_extensions', '_compile', '_nodeModulePaths', '_initPaths', '_pathCache']);
-const PROCESS_PELIGROSO = new Set(['getBuiltinModule', 'binding', '_linkedBinding', 'dlopen', 'mainModule', 'execPath']);
-/** Argumentos con los que Node ejecuta código que le pasan como texto. */
-const NODE_EJECUTA_TEXTO = new Set(['-e', '--eval', '-p', '--print', '-r', '--require', '--import', '--input-type']);
+const PROCESO = 'un proceso o un hilo (child_process, worker_threads, cluster) fuera de scripts/: corre código que el barrido no ve, y el servidor no lo necesita';
+const WITH = 'un with: adentro cualquier nombre puede ser una propiedad del objeto (`with (supabase) { from(…) }` es una consulta que no se ve)';
+/** Lo de `process` que carga módulos por fuera de `require`. */
+const PROCESS_PELIGROSO = new Set(['getBuiltinModule', 'binding', '_linkedBinding', 'dlopen', 'mainModule']);
+const MODULOS_DE_PROCESO = new Set(['child_process', 'worker_threads', 'cluster'].flatMap((m) => [m, 'node:' + m]));
+/** Los nombres que el wrapper de CommonJS liga en cada archivo: `exports = module.exports = …` no es un global. */
+const LIGADOS_POR_CJS = new Set(['exports', 'module', 'require', '__filename', '__dirname']);
+/** De `module`, lo que se lee para exportar; lo demás (`children`, `paths`, `constructor`) llega al cargador. */
+const MODULE_PERMITIDO = new Set(['exports', 'id', 'filename', 'loaded', 'path']);
 const REQUIRE_OPACO = 'un require que no se puede seguir (specifier dinámico, require como valor, require.cache, x.require, require de module, createRequire con otro nombre): puede traer un cliente de Supabase o pisar un módulo por un camino que el guard no ve';
 /** Módulos de Node que ejecutan código o reemplazan módulos: `vm` es un `eval`, `module` reescribe `require`. */
 const MODULOS_PELIGROSOS = { vm: REFLEXION, 'node:vm': REFLEXION, module: REQUIRE_OPACO, 'node:module': REQUIRE_OPACO };
@@ -505,11 +524,34 @@ function objetivosDeAsignacion(izq) {
   return [];
 }
 
+/**
+ * ¿El valor de `n` pasa a otro nombre ahí? Inicializador de variable (también desestructurando),
+ * argumento, lado derecho de una asignación, `return`, cuerpo de arrow, elemento de array, spread o
+ * valor de una propiedad. Compararlo o leerle una propiedad no.
+ */
+function transfiereValor(n) {
+  let hijo = n;
+  let p = n.parent;
+  while (p && envoltorio(p)) { hijo = p; p = p.parent; }
+  if (!p) return false;
+  return (ts.isVariableDeclaration(p) && p.initializer === hijo) || ((ts.isCallExpression(p) || ts.isNewExpression(p)) && (p.arguments ?? []).includes(hijo)) ||
+    (esAsignacion(p) && p.right === hijo) || ts.isReturnStatement(p) || (ts.isArrowFunction(p) && p.body === hijo) || ts.isArrayLiteralExpression(p) ||
+    ts.isSpreadElement(p) || ts.isSpreadAssignment(p) || (ts.isPropertyAssignment(p) && p.initializer === hijo) || ts.isShorthandPropertyAssignment(p) ||
+    (ts.isConditionalExpression(p) && p.condition !== hijo && transfiereValor(p)) || (ts.isBinaryExpression(p) && ['||', '??', '&&', ','].includes(p.operatorToken.getText()) && transfiereValor(p));
+}
+
 /** El texto de una clave de objeto literal (`__proto__` o `'__proto__'`); `null` si es computada. */
 const nombreDeClave = (k) => (ts.isIdentifier(k) || ts.isStringLiteralLike(k) ? k.text : null);
 
-/** Lo de `Object` que muta un objeto existente o le cambia el prototipo. */
-const OBJECT_QUE_MUTA = new Set(['assign', 'defineProperty', 'defineProperties', 'setPrototypeOf', 'create']);
+/** ¿`p` es una clave `__proto__` de un objeto literal que le pone un prototipo (no `null`)? */
+const protoQueNoEsNull = (p) => (ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p)) && nombreDeClave(p.name) === '__proto__' &&
+  !(ts.isPropertyAssignment(p) && pelar(p.initializer).kind === ts.SyntaxKind.NullKeyword);
+
+/** Lo de `Object` que muta un objeto existente, le cambia el prototipo o lo entrega para parcharlo. */
+const OBJECT_QUE_MUTA = new Set(['assign', 'defineProperty', 'defineProperties', 'setPrototypeOf', 'create', 'getPrototypeOf']);
+
+/** El ScriptKind de un archivo por su extensión: un `.ts` parseado como JS (con JSX) se traga `<T>(v: T) =>`. */
+const tipoDeScript = (rel) => (/\.tsx$/.test(rel) ? ts.ScriptKind.TSX : /\.[cm]?ts$/.test(rel) ? ts.ScriptKind.TS : ts.ScriptKind.JS);
 
 /** Los métodos de un builder de postgrest-js o del cliente: una clave que puede ser uno de estos cambia la consulta. */
 const METODOS_DE_CONSULTA = new Set(['from', 'rpc', 'schema', 'select', 'insert', 'upsert', 'update', 'delete', 'eq', 'neq', 'gt', 'gte', 'lt', 'lte',
@@ -518,8 +560,7 @@ const METODOS_DE_CONSULTA = new Set(['from', 'rpc', 'schema', 'select', 'insert'
   'single', 'maybeSingle', 'csv', 'geojson', 'explain', 'rollback', 'returns', 'overrideTypes', 'setHeader', 'throwOnError', 'then']);
 
 function analizar(rel, codigo) {
-  const kind = /\.tsx$/.test(rel) ? ts.ScriptKind.TSX : /\.ts$/.test(rel) ? ts.ScriptKind.TS : ts.ScriptKind.JS;
-  const sf = ts.createSourceFile(rel, codigo, ts.ScriptTarget.Latest, true, kind);
+  const sf = ts.createSourceFile(rel, codigo, ts.ScriptTarget.Latest, true, tipoDeScript(rel));
   const hallazgos = [];
   let lecturas = 0;
   const lineaDe = (n) => sf.getLineAndCharacterOfPosition(n.getStart()).line + 1;
@@ -670,13 +711,28 @@ function analizar(rel, codigo) {
     return n;
   };
   /** ¿`n` es un nombre que el archivo no liga en ningún lado (o sea, un global)? */
-  const esGlobal = (n) => ts.isIdentifier(n) && !veces.has(n.text);
+  const esGlobal = (n) => ts.isIdentifier(n) && !veces.has(n.text) && !LIGADOS_POR_CJS.has(n.text);
+
+  /**
+   * ¿El identificador está ligado en SU ámbito? Se sube por los ámbitos (como `esObjetoLocal`), y una
+   * función o el archivo que se cruzan cuentan con sus `var` izados. Con `veces.has` (todo el archivo)
+   * un `function conCache(fetch)` hacía que `fetch = conCache(fetch)` en OTRA función, que escribe el
+   * global, pasara como ligado (décima ronda: el conteo de un usuario devolvió el de otro).
+   */
+  const estaLigado = (n) => {
+    if (LIGADOS_POR_CJS.has(n.text)) return true;
+    for (let p = n.parent; p; p = p.parent) {
+      if ((ts.isFunctionLike(p) || ts.isSourceFile(p)) && declaraVar(p, n.text)) return true;
+      if (ligadura(p, n.text)) return true;
+    }
+    return false;
+  };
 
   const esObjetoLocal = (e) => {
     const n = e && pelar(e);
     if (!n) return false;
     // Un literal con `__proto__` no es plano: `{ __proto__: svc.rest, fetch }` es un cliente.
-    const plano = (o) => ts.isObjectLiteralExpression(o) && !o.properties.some((p) => p.name && nombreDeClave(p.name) === '__proto__');
+    const plano = (o) => ts.isObjectLiteralExpression(o) && !o.properties.some(protoQueNoEsNull);
     if (ts.isObjectLiteralExpression(n)) return plano(n);
     if (!ts.isIdentifier(n) || hayWith) return false;
     for (let p = n.parent; p; p = p.parent) {
@@ -1125,21 +1181,24 @@ function analizar(rel, codigo) {
         // Por clave dinámica, solo sobre un GLOBAL (`globalThis[k]`, `process.env[k]`): sobre un
         // objeto del archivo (`datos[to] = datos[from]`, `porCat[c].subs[sub]`) es el uso normal, y
         // con una clave que se puede leer ya se juzga por su nombre.
-        const dinamica = prop === null && ts.isElementAccessExpression(izq) && !ts.isNumericLiteral(pelar(izq.argumentExpression)) && esGlobal(raizDe(izq.expression));
+        // `process.env[clave] = valor` (un cargador de `.env` a mano) no toca nada que el cliente lea.
+        const dinamica = prop === null && ts.isElementAccessExpression(izq) && !ts.isNumericLiteral(pelar(izq.argumentExpression)) &&
+          esGlobal(raizDe(izq.expression)) && izq.expression.getText().replace(/\s+/g, '') !== 'process.env';
         if ((dinamica || (prop !== null && ESTADO_DE_CONSULTA.has(prop))) && !esObjetoLocal(izq.expression)) hallazgo(n, sinEspacios(n).slice(0, 200), TOCA_LA_CONSULTA);
       }
       // Un nombre que el archivo no liga es un global: `fetch = cacheado` (sin `globalThis.`) pisa el
       // fetch que supabase-js resuelve en cada llamada (novena ronda: la página de un usuario llegó
       // con las filas de otro). Por desestructuración también.
-      for (const id of objetivosDeAsignacion(n.left)) if (!veces.has(id.text)) hallazgo(n, sinEspacios(n).slice(0, 200), GLOBAL_ESCRITO);
+      for (const id of objetivosDeAsignacion(n.left)) if (!estaLigado(id)) hallazgo(n, sinEspacios(n).slice(0, 200), GLOBAL_ESCRITO);
     }
     if ((ts.isForOfStatement(n) || ts.isForInStatement(n)) && !ts.isVariableDeclarationList(n.initializer)) {
-      for (const id of objetivosDeAsignacion(n.initializer)) if (!veces.has(id.text)) hallazgo(n.initializer, sinEspacios(n.initializer), GLOBAL_ESCRITO);
+      for (const id of objetivosDeAsignacion(n.initializer)) if (!estaLigado(id)) hallazgo(n.initializer, sinEspacios(n.initializer), GLOBAL_ESCRITO);
     }
-    // `{ __proto__: svc.rest, fetch: f }` hereda el cliente con OTRO fetch, y nace literal.
-    if ((ts.isPropertyAssignment(n) || ts.isShorthandPropertyAssignment(n)) && nombreDeClave(n.name) === '__proto__') {
-      hallazgo(n, sinEspacios(n).slice(0, 200), TOCA_LA_CONSULTA);
-    }
+    // `{ __proto__: svc.rest, fetch: f }` hereda el cliente con OTRO fetch, y nace literal. Con
+    // `__proto__: null` es un diccionario sin prototipo: pasa.
+    if (protoQueNoEsNull(n)) hallazgo(n, sinEspacios(n).slice(0, 200), TOCA_LA_CONSULTA);
+    if (ts.isPropertyAccessExpression(n) && n.name.text === '__proto__') hallazgo(n, sinEspacios(n.parent).slice(0, 200), TOCA_LA_CONSULTA);
+    if (ts.isWithStatement(n)) hallazgo(n, sinEspacios(n).slice(0, 200), WITH);
     // Un cliente con `fetch` o headers propios cambia lo que pasa con TODAS sus consultas, y el
     // guard juzga consultas: un fetch que memoiza por ruta le devolvía a la página 2 la página 1. Se
     // sigue la LIGADURA: fuera de la posición de callee (en una variable, un spread) no se puede
@@ -1158,11 +1217,16 @@ function analizar(rel, codigo) {
     }
     // `require` es la puerta por la que llega el cliente: lo que no se puede leer, o lo que trae
     // módulos que reemplazan `require` o ejecutan código, es rojo.
+    // El specifier tiene que ser un literal PELADO: `revisarArbol` resuelve el texto del literal, y una
+    // constante, una suma, un template o un paréntesis (`require(TOTALES)`) pasaban por los dos lados
+    // (décima ronda: un `.cjs` de `qa-e2e/` cargado así sumó 1000 de 1105). `import()` es rojo
+    // siempre: el backend no lo usa, y con `data:` trae código armado en un string.
     if (esRequireLlamada(n) || (ts.isCallExpression(n) && n.expression.kind === ts.SyntaxKind.ImportKeyword)) {
-      const spec = n.arguments.length === 1 ? estatico(n.arguments[0]) : null;
-      if (spec === null) hallazgo(n, sinEspacios(n), REQUIRE_OPACO);
+      const a0 = n.arguments[0];
+      const spec = n.arguments.length === 1 && ts.isStringLiteralLike(a0) ? a0.text : null;
+      if (spec === null || n.expression.kind === ts.SyntaxKind.ImportKeyword) hallazgo(n, sinEspacios(n).slice(0, 200), REQUIRE_OPACO);
       else if (MODULOS_PELIGROSOS[spec]) hallazgo(n, sinEspacios(n), MODULOS_PELIGROSOS[spec]);
-      else if (n.expression.kind === ts.SyntaxKind.ImportKeyword && esPaqueteSupabase(spec)) hallazgo(n, sinEspacios(n), CLIENTE_RARO);
+      else if (MODULOS_DE_PROCESO.has(spec) && !rel.startsWith('scripts/')) hallazgo(n, sinEspacios(n), PROCESO);
     }
     if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier) && MODULOS_PELIGROSOS[n.moduleSpecifier.text]) {
       // `import { createRequire } from 'module'` es la forma de un `.mjs`; nada más de ahí.
@@ -1170,6 +1234,11 @@ function analizar(rel, codigo) {
       const soloCreateRequire = !n.importClause?.name && !!b && ts.isNamedImports(b) &&
         b.elements.every((e) => (e.propertyName ?? e.name).text === 'createRequire' && e.name.text === 'createRequire');
       if (!(/^(node:)?module$/.test(n.moduleSpecifier.text) && soloCreateRequire)) hallazgo(n, sinEspacios(n).slice(0, 200), MODULOS_PELIGROSOS[n.moduleSpecifier.text]);
+    }
+    // Un proceso o un hilo corre código que el barrido no ve (`fork(ruta)`, `node -e`, un `Worker` con
+    // `eval`). Las herramientas de `scripts/` corren vitest y git así; el servidor no lo necesita.
+    if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier) && MODULOS_DE_PROCESO.has(n.moduleSpecifier.text) && !rel.startsWith('scripts/')) {
+      hallazgo(n, sinEspacios(n).slice(0, 200), PROCESO);
     }
     if (ts.isIdentifier(n) && n.text === 'require' && !esDeclaracion(n)) {
       const p = n.parent;
@@ -1189,7 +1258,13 @@ function analizar(rel, codigo) {
     // Object` es rojo). Se mira AUNQUE el archivo ligue `Object`: hasta la novena ronda un parámetro
     // llamado `Object` en cualquier función apagaba este chequeo en todo el archivo; ahora esa
     // ligadura es roja aparte.
-    if ((ts.isPropertyAccessExpression(n) || ts.isElementAccessExpression(n)) && ts.isIdentifier(n.expression) && n.expression.text === 'Object') {
+    // `Object` también por `globalThis.Object` (décima ronda): es el mismo.
+    const esObject = (e) => {
+      const x = e && pelar(e);
+      return !!x && ((ts.isIdentifier(x) && x.text === 'Object') ||
+        ((ts.isPropertyAccessExpression(x) || ts.isElementAccessExpression(x)) && nombreMetodo(x, estatico) === 'Object' && esGlobal(raizDe(x.expression))));
+    };
+    if ((ts.isPropertyAccessExpression(n) || ts.isElementAccessExpression(n)) && esObject(n.expression)) {
       const k = nombreMetodo(n, estatico);
       if (k === null || OBJECT_QUE_MUTA.has(k)) {
         const call = n.parent;
@@ -1198,58 +1273,50 @@ function analizar(rel, codigo) {
         if (!inocua) hallazgo(n, sinEspacios(esCallee ? call : n.parent).slice(0, 200), TOCA_LA_CONSULTA);
       }
     }
-    if (ts.isIdentifier(n) && n.text === 'Object' && !esDeclaracion(n) &&
-      !((ts.isPropertyAccessExpression(n.parent) || ts.isElementAccessExpression(n.parent)) && n.parent.expression === n)) {
+    // `Object` como VALOR que pasa a otro nombre (`const { assign } = Object`, `f(Object)`) es rojo;
+    // compararlo (`v.constructor === Object`) no.
+    if (ts.isIdentifier(n) && n.text === 'Object' && !esDeclaracion(n) && transfiereValor(n)) {
       hallazgo(n, sinEspacios(n.parent).slice(0, 200), TOCA_LA_CONSULTA);
     }
     if (ts.isIdentifier(n) && n.text === 'Object' && esLigadura(n)) hallazgo(n, sinEspacios(n.parent).slice(0, 200), NOMBRE_GLOBAL_LIGADO);
     // Código en un string no se puede analizar (`new Function('svc', "return svc.from(…)")`), y el
     // nombre no hace falta llamarlo para usarlo: `const compilar = Function`, `globalThis.eval`,
-    // `(0, eval)(x)`. Ni `Reflect`, que llama `.from` sin que se vea una llamada. Tampoco el
-    // constructor sin nombrarlo: `(async () => {}).constructor` ES `Function` (novena ronda).
+    // `globalThis['Function']`, `(0, eval)(x)`. Ni `Reflect`, que llama `.from` sin que se vea.
     if (ts.isIdentifier(n) && ['Function', 'eval', 'Reflect'].includes(n.text) && !esLigadura(n)) {
       hallazgo(n, sinEspacios(n.parent).slice(0, 200), REFLEXION);
     }
     const propiedad = ts.isPropertyAccessExpression(n) || ts.isElementAccessExpression(n) ? nombreMetodo(n, estatico) : null;
-    if (propiedad === 'constructor' && !(ts.isPropertyAccessExpression(n.parent) && n.parent.expression === n && n.parent.name.text === 'name')) {
-      hallazgo(n, sinEspacios(n.parent).slice(0, 200), REFLEXION);
+    if (ts.isElementAccessExpression(n) && ['Function', 'eval', 'Reflect'].includes(propiedad)) hallazgo(n, sinEspacios(n.parent).slice(0, 200), REFLEXION);
+    // El constructor de una FUNCIÓN es `Function` sin nombrarlo (`(async () => {}).constructor`).
+    // El de un objeto (`v.constructor === Object`, `new this.constructor()`) no.
+    if (propiedad === 'constructor') {
+      const base = pelar(n.expression);
+      if (ts.isArrowFunction(base) || ts.isFunctionExpression(base) || ts.isClassExpression(base) ||
+        ((ts.isPropertyAccessExpression(base) || ts.isElementAccessExpression(base)) && nombreMetodo(base, estatico) === 'constructor')) {
+        hallazgo(n, sinEspacios(n.parent).slice(0, 200), REFLEXION);
+      }
     }
-    // `process.getBuiltinModule('module')` trae `createRequire` sin un `require` que se vea, y
-    // `process.execPath` es Node para correr `-e` en un proceso hijo.
+    // `process.getBuiltinModule('module')` trae `createRequire` sin un `require` que se vea; también
+    // desestructurado (`const { getBuiltinModule } = process`).
     if (propiedad !== null && PROCESS_PELIGROSO.has(propiedad) && ts.isIdentifier(n.expression) && n.expression.text === 'process') {
       hallazgo(n, sinEspacios(n.parent).slice(0, 200), REFLEXION);
     }
-    // `module.constructor._cache` es `require.cache` con otro nombre, y `_load` es un `require`.
-    if (propiedad !== null && INTERNOS_DE_MODULE.has(propiedad)) hallazgo(n, sinEspacios(n.parent).slice(0, 200), REQUIRE_OPACO);
-    // `spawn('node', ['-e', codigo])` o `execSync('node -e "…"')`: código que corre en otro proceso.
-    // `'node'` a secas es rojo solo como el comando de una llamada: `environment: 'node'` (la config
-    // de vitest) no ejecuta nada.
-    if (textual(n) && !dentroDeOtroTexto(n)) {
-      const t = aproximado(n).trim();
-      const comoComando = t === 'node' && ts.isCallExpression(subir(n)) && subir(n).arguments[0] && pelar(subir(n).arguments[0]) === n;
-      if (NODE_EJECUTA_TEXTO.has(t) || /^node\s/.test(t) || comoComando) hallazgo(n, sinEspacios(n).slice(0, 200), REFLEXION);
-    }
-    // `svc.from.bind(svc)`, `.call`, `.apply`, o `const desde = svc.from`: el `from` sin llamarlo ahí,
-    // en una posición donde el VALOR pasa a otro nombre (variable, argumento, return, asignación,
-    // array). Leerlo como dato (`message.from === x`, `{ from: t.from }`, `nombres[t.from]`) es el
-    // remitente de WhatsApp o el deudor de una deuda, no el método. Asignarlo (`svc.from = …`) ya es
-    // rojo por el estado de la consulta.
-    if (propiedad === 'from') {
-      const p = subir(n);
-      const receptor = n.expression.getText();
-      const global = NO_SUPABASE.test(receptor) && !veces.has(receptor);
-      const bind = ts.isPropertyAccessExpression(p) && p.expression === n && ['bind', 'call', 'apply'].includes(p.name.text);
-      const transfiere = (ts.isVariableDeclaration(p) && p.initializer && pelar(p.initializer) === n) ||
-        ((ts.isCallExpression(p) || ts.isNewExpression(p)) && (p.arguments ?? []).some((a) => pelar(a) === n)) ||
-        ts.isReturnStatement(p) || (ts.isArrowFunction(p) && p.body && pelar(p.body) === n) || (esAsignacion(p) && pelar(p.right) === n) ||
-        ts.isArrayLiteralExpression(p) || ts.isSpreadElement(p) || ts.isSpreadAssignment(p);
-      if (!global && (bind || transfiere)) hallazgo(n, sinEspacios(p).slice(0, 200), POR_BIND);
-    }
-    // `const { from } = svc` saca el método igual que `const desde = svc.from`. En los PARÁMETROS no:
-    // `({ usuario, from, ctx })` es el número de WhatsApp que reciben todos los handlers de intents.
     if (ts.isBindingElement(n) && ts.isObjectBindingPattern(n.parent) && ts.isVariableDeclaration(n.parent.parent) &&
-      nombreDeClave(n.propertyName ?? n.name) === 'from') {
-      hallazgo(n, sinEspacios(n.parent.parent).slice(0, 200), POR_BIND);
+      n.parent.parent.initializer && pelar(n.parent.parent.initializer).getText() === 'process' && PROCESS_PELIGROSO.has(nombreDeClave(n.propertyName ?? n.name))) {
+      hallazgo(n, sinEspacios(n.parent.parent).slice(0, 200), REFLEXION);
+    }
+    // De `module` se lee lo que exporta. `children`, `paths`, `constructor` (el `Module` de
+    // `_cache`/`_load`) y `parent` llegan al cargador: con `module.children` se reemplazó el paginador
+    // ya cargado (décima ronda).
+    if ((ts.isPropertyAccessExpression(n) || ts.isElementAccessExpression(n)) && ts.isIdentifier(n.expression) && n.expression.text === 'module' &&
+      !veces.has('module') && !MODULE_PERMITIDO.has(propiedad)) {
+      hallazgo(n, sinEspacios(n.parent).slice(0, 200), REQUIRE_OPACO);
+    }
+    // `svc.from.bind(svc)`, `.call`, `.apply`: el `from` sin llamarlo ahí. Sacarlo como valor de otra
+    // forma (`const f = svc.from`) se miró en 188ad42 y daba falsos positivos sobre `message.from`, el
+    // remitente de WhatsApp: es sabotaje deliberado y está declarado en el docblock.
+    if (propiedad === 'from' && ts.isPropertyAccessExpression(n.parent) && n.parent.expression === n && ['bind', 'call', 'apply'].includes(n.parent.name.text)) {
+      hallazgo(n, sinEspacios(n.parent), POR_BIND);
     }
     ts.forEachChild(n, visitar);
   };
@@ -1308,8 +1375,9 @@ function archivos(dir, raiz = true, base = dir) {
  * Lo que Node ejecuta y el analizador no parsea, mirado sobre el ÁRBOL y no sobre un archivo. Todo
  * salió verde en la novena ronda (01-oct), cada uno medido con un total cortado en 1000:
  * - código de Node embebido en otro formato: un heredoc `node - <<'NODE'` en un `.sh` (los
- *   `scripts/backup/*.sh` YA corren Node así), un `node -e "…"` en un script de `package.json` o en
- *   un workflow. Se busca `.from(` / `['from']` / `/rest/v1/` como texto;
+ *   `scripts/backup/*.sh` YA corren Node así), un `node -e "…"` en un script de `package.json`, en
+ *   un workflow o en un `Procfile`. Se busca una lectura de transacciones como texto
+ *   (`consultaComoTexto`), y el comando de ARRANQUE tiene que ser `node <archivo del barrido>`;
  * - código cargado desde fuera del barrido: un `require` que resuelve a `webapp/`, `qa-e2e/` o
  *   `tests/`, directo o por el `main` de un `package.json` intermedio, o un directorio llamado
  *   `x.js` que el auto-loader de intents carga. Se resuelve cada `require`/`import` estático como lo
@@ -1318,8 +1386,41 @@ function archivos(dir, raiz = true, base = dir) {
  *   que `lib/todas-las-filas` (una copia vieja) tapaba al paginador en los 21 `require` del árbol.
  */
 const EJECUTABLE_NO_JS = /\.(sh|bash|zsh|ps1|psm1|bat|cmd|json|ya?ml|toml)$/i;
-const CONSULTA_COMO_TEXTO = /\.from\s*\(|\[\s*['"`]from['"`]\s*\]|\/rest\/v1\//;
 const NOMBRE_DE_MODULO = /\.[cm]?[jt]sx?$/;
+
+/**
+ * ¿El texto lee transacciones por PostgREST? `X.from(` salvo que `X` sea un global de JS
+ * (`Array.from(` en un heredoc es una lista) o que la tabla sea OTRO literal (`.from('usuarios')`),
+ * `['from']`, y `/rest/v1/` seguido de `transacciones` o de una variable. La primera versión (188ad42)
+ * marcaba cualquier `.from(` y cualquier `/rest/v1/`: un `Array.from` y un keepalive a `usuarios`.
+ */
+function consultaComoTexto(texto) {
+  if (/\[\s*['"`]from['"`]\s*\]/.test(texto) || /\/rest\/v1\/(transacciones|\$|\{|%)/.test(texto)) return true;
+  for (const m of texto.matchAll(/([A-Za-z_$][\w$]*)?\s*\.\s*from\s*\(\s*(['"`]?)([^'"`)\s]*)/g)) {
+    if (m[1] && NO_SUPABASE.test(m[1])) continue;
+    if (m[2] && /^[a-z_][a-z0-9_]*$/.test(m[3]) && m[3] !== 'transacciones') continue;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Los comandos con que arranca el servidor: `scripts.start/prestart/poststart` de `package.json`,
+ * `deploy.startCommand` de `railway.json` y las líneas de un `Procfile`. Cada uno tiene que ser
+ * `node <archivo del barrido>` (o delegar en `npm start`): un `-r ./qa-e2e/…`, un `-e`, un
+ * `--conditions` o un `--import` corren código o eligen archivos que el barrido no ve (décima ronda).
+ */
+function comandosDeArranque(raiz) {
+  const leerJson = (f) => { try { return JSON.parse(readFileSync(join(raiz, f), 'utf-8')); } catch { return null; } };
+  const pkg = existsSync(join(raiz, 'package.json')) ? leerJson('package.json') : null;
+  const railway = existsSync(join(raiz, 'railway.json')) ? leerJson('railway.json') : null;
+  const procfile = existsSync(join(raiz, 'Procfile')) ? readFileSync(join(raiz, 'Procfile'), 'utf-8') : '';
+  return [
+    ...['prestart', 'start', 'poststart'].map((k) => pkg?.scripts?.[k]).filter(Boolean).map((c) => ['package.json', c]),
+    ...(railway?.deploy?.startCommand ? [['railway.json', railway.deploy.startCommand]] : []),
+    ...procfile.split(/\r?\n/).map((l) => l.replace(/^\s*[\w-]+\s*:\s*/, '').trim()).filter(Boolean).map((c) => ['Procfile', c]),
+  ];
+}
 
 /** Todo lo que recorre el barrido, archivos y directorios, con las mismas exclusiones de raíz. */
 function recorrer(dir, raiz = true, base = dir) {
@@ -1332,8 +1433,8 @@ function recorrer(dir, raiz = true, base = dir) {
 }
 
 /** Los specifiers estáticos de `require`, `import`, `import()` y `export … from` de un archivo. */
-function especificadores(codigo) {
-  const sf = ts.createSourceFile('x.js', codigo, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+function especificadores(codigo, rel = 'x.js') {
+  const sf = ts.createSourceFile(rel, codigo, ts.ScriptTarget.Latest, true, tipoDeScript(rel));
   const specs = [];
   const v = (m) => {
     if ((ts.isImportDeclaration(m) || ts.isExportDeclaration(m)) && m.moduleSpecifier && ts.isStringLiteral(m.moduleSpecifier)) specs.push(m.moduleSpecifier.text);
@@ -1353,14 +1454,30 @@ function revisarArbol(raiz) {
   for (const { full, dir } of recorrer(raiz)) {
     const nombre = basename(full);
     if (dir && NOMBRE_DE_MODULO.test(nombre)) malos.push(`${rel(full)}: un directorio con nombre de módulo (el auto-loader de intents lo carga por su package.json o su index)`);
-    if (!dir && nombre === 'package.json' && resolverRuta(dirname(full)) !== resolverRuta(raiz)) malos.push(`${rel(full)}: un package.json fuera de la raíz cambia a qué archivo resuelve un require`);
-    if (!dir && EJECUTABLE_NO_JS.test(nombre) && CONSULTA_COMO_TEXTO.test(readFileSync(full, 'utf-8'))) malos.push(`${rel(full)}: una consulta en un formato que el guard no parsea (un heredoc o un node -e)`);
+    // Fuera de la raíz, un `package.json` solo importa si cambia la resolución (`main`, `exports`,
+    // `imports`, `browser`): uno de dependencias para los generadores de `docs/` no carga nada.
+    if (!dir && nombre === 'package.json' && resolverRuta(dirname(full)) !== resolverRuta(raiz)) {
+      let campos;
+      try { campos = Object.keys(JSON.parse(readFileSync(full, 'utf-8'))); } catch { campos = ['ilegible']; }
+      if (campos.some((c) => ['main', 'exports', 'imports', 'browser', 'module', 'ilegible'].includes(c))) malos.push(`${rel(full)}: un package.json fuera de la raíz cambia a qué archivo resuelve un require`);
+    }
+    // Los formatos ejecutables no-JS, y también los archivos SIN extensión (un `Procfile` con
+    // `node -e "…"`, parseado como JS, no tenía ninguna consulta que el analizador viera).
+    if (!dir && (EJECUTABLE_NO_JS.test(nombre) || !nombre.includes('.')) && consultaComoTexto(readFileSync(full, 'utf-8'))) {
+      malos.push(`${rel(full)}: una consulta en un formato que el guard no parsea (un heredoc o un node -e)`);
+    }
+  }
+  for (const [origen, comando] of comandosDeArranque(raiz)) {
+    if (/^npm\s+(run\s+)?start$/.test(comando)) continue;
+    const m = comando.match(/^node\s+(\S+)$/);
+    const destino = m && resolverRuta(raiz, m[1]);
+    if (!m || !enBarrido.has(destino)) malos.push(`${origen}: el comando de arranque "${comando}" no es node sobre un archivo del barrido (precarga, -e, --conditions o --import corren código que el guard no ve)`);
   }
   for (const f of codigo) {
     const sinExt = f.replace(/\.[cm]?js$/, '');
     if (sinExt !== f && existsSync(sinExt)) malos.push(`${rel(sinExt)}: tapa a ${rel(f)} (require('./x') prueba x antes que x.js)`);
     const req = createRequire(f);
-    for (const spec of especificadores(readFileSync(f, 'utf-8'))) {
+    for (const spec of especificadores(readFileSync(f, 'utf-8'), f)) {
       let destino;
       try {
         destino = req.resolve(spec);
@@ -1404,6 +1521,7 @@ const ANCHO = /más ancho que un top-N/;
 const NO_LITERAL = /tabla no literal/;
 const DESHACE = /sale de la cadena|cambia el estado|reflexión/;
 const GLOBAL = /escribe un global/;
+const OPACO = /require que no se puede seguir/;
 
 describe('las lecturas de transacciones del backend no se cortan en 1000 en silencio', () => {
   // Antivacuidad. Cuenta archivos y lecturas analizadas, no defectos: un contador anclado a que
@@ -1493,7 +1611,7 @@ describe('las lecturas de transacciones del backend no se cortan en 1000 en sile
       ['(R4) parámetros duplicados en una function', "await todasLasFilas(function (desde, desde, primera) { return svc.from('transacciones').select('*', primera ? { count: 'exact' } : undefined).order('id').range(desde, desde); }, (t) => t.id);", /pisa sus propios parámetros/],
       ['(R4) ascending que cambia entre páginas', "await todasLasFilas((d, h, p) => svc.from('transacciones').select('*', p ? { count: 'exact' } : undefined).order('id', { ascending: p }).range(d, h), (t) => t.id);", /order de la página|usa sus parámetros/],
       ['(R4) count con un espacio adentro', "await todasLasFilas((d, h, p) => svc.from('transacciones').select('*', p ? { count: ' exact' } : undefined).order('id').range(d, h), (t) => t.id);", /count que no es 'exact'/],
-      ['(R3) un with que puede tapar la constante', "const LIMITE = 1;\nwith (options) { await svc.from('transacciones').select('monto_pen').eq('usuario_id', u).limit(LIMITE); }", IRRESOLUBLE],
+      ['(R3) un with que puede tapar la constante', "const LIMITE = 1;\nwith (options) { await svc.from('transacciones').select('monto_pen').eq('usuario_id', u).limit(LIMITE); }", /no se puede resolver a un número|un with/],
       ['(A1) from con un segundo argumento', "await svc.from('transacciones', { schema: 'public' }).select('monto_pen').eq('usuario_id', u);", SIN],
       ['(A7) un const de bloque que tapa el parámetro de la página', "await todasLasFilas((ini, fin, primera) => { if (x) { const ini = 0; return svc.from('transacciones').select('*', primera ? { count: 'exact' } : undefined).order('id').range(ini, fin); } return svc.from('transacciones').select('*', primera ? { count: 'exact' } : undefined).order('id').range(ini, fin); }, (t) => t.id);", /SOLO la consulta/],
       ['(A6) un require propio que tapa el del wrapper', `await todasLasFilas(${PAG}.order('id').range(d, h), (t) => t.id);`, FUERA_DE_TODAS, '', "function require(id) { return { todasLasFilas: async (c) => c(0, 999, false) }; }\nconst { todasLasFilas } = require('../lib/todas-las-filas');"],
@@ -1640,16 +1758,30 @@ describe('las lecturas de transacciones del backend no se cortan en 1000 en sile
       ['(R1) un parámetro llamado Object apaga el chequeo de todo el archivo', "function normalizar(Object) { return Object; }\nObject.assign(globalThis, { fetch: fetchConCache });", /liga un nombre global|cambia el estado/],
       ['(R2) el constructor de función sin nombrar Function', "const C = (async () => {}).constructor;\nawait C('svc', options.codigo)(svc);", /reflexión/],
       ['(P2) getBuiltinModule para un createRequire', "const sb = process.getBuiltinModule('module').createRequire(__filename)('@supabase/supabase-js');", /reflexión|require que no se puede seguir/],
-      ['(Q4) node -e en un proceso hijo', "execFile(process.execPath, ['-e', options.codigo]);", /reflexión/],
-      ['(Q4b) node -e por spawn', "spawn('node', ['-e', codigo]);", /reflexión/],
-      ['(Q4c) node -e en un comando', "execSync('node -e \"' + codigo + '\"');", /reflexión/],
-      ['(F1) from reasignado en el cliente', "svc.from = function (t) { return x; };", /cambia el estado/],
-      ['(F2) from extraído como valor', "const desde = svc.from;\nawait desde.call(svc, 'transacciones').select('monto_pen');", /bind\/call\/apply|el \.from/],
-      ['(F2b) from desestructurado del cliente', "const { from: desde } = svc;\nawait desde.call(svc, 'transacciones').select('monto_pen');", /bind\/call\/apply|el \.from/],
+      ['(Q4) node -e en un proceso hijo', "const { execFile } = require('child_process');\nexecFile(process.execPath, ['-e', options.codigo]);", PROCESO],
+      ['(Q4b) node -e por spawn', "const { spawn } = require('node:child_process');\nspawn('node', ['-e', codigo]);", PROCESO],
+      ['(Q4c) node -e en un comando', "const cp = require('child_process');\ncp.execSync('node -e \"' + codigo + '\"');", PROCESO],
       ['(F3) schemaName del cliente pisado', "svc.rest.schemaName = 'otro';", /cambia el estado/],
       ['(F4) Object.create con descriptores', "const db = Object.create(svc, { rest: { value: restConCache } });", /cambia el estado/],
       ['(F5) una asignación por clave dinámica sobre un global', "globalThis[options.k] = fetchConCache;", /cambia el estado/],
       ['(J1) un path JSON con id en la página', "await todasLasFilas((d, h, p) => svc.from('transacciones').select('*, datos->id', p ? { count: 'exact' } : undefined).order('id').range(d, h), (t) => t.id);", /path JSON/],
+      // Décima ronda (QA de 188ad42): las que una lectura cortada SIN QUERER puede tomar. Ejecutadas con
+      // el guard VERDE. Las que exigen escribir a propósito contra el runtime van declaradas en el docblock.
+      ['(Y1) la ruta del require en una constante', "const TOTALES = '../qa-e2e/lib/totales.cjs';\nconst { totalGastadoMes } = require(TOTALES);", OPACO],
+      ['(Y1b) la ruta del require armada con +', "const t = require('../qa-e2e/' + 'lib/totales.cjs');", OPACO],
+      ['(Y1c) la ruta del require entre paréntesis', "const t = require(('../qa-e2e/lib/totales.cjs'));", OPACO],
+      ['(Y1d) un import() con template', "const CARPETA = '../qa-e2e/lib';\nconst t = await import(`${CARPETA}/totales.cjs`);", OPACO],
+      ['(Y6) el fetch global cacheado con el nombre ligado en otra función', "function conCache(fetch) { return async (i, o) => fetch(i, o); }\nfunction instalarCacheHttp() { fetch = conCache(fetch); }\ninstalarCacheHttp();", GLOBAL],
+      ['(Y7) Object por globalThis', "globalThis.Object.assign(globalThis, { fetch: fetchConCache });", /cambia el estado/],
+      ['(Y8) getBuiltinModule desestructurado de process', "const { getBuiltinModule } = process;\nconst m = getBuiltinModule('node:module');", /reflexión/],
+      ['(Y9) el paginador reemplazado por module.children', "require('../lib/todas-las-filas');\nconst p = module.children.find((m) => m.id.endsWith('todas-las-filas.js'));\np.exports = { todasLasFilas: (c) => c(0, 999, true) };", OPACO],
+      ['(Y9b) module.paths para resolver desde otra carpeta', "module.paths.unshift(__dirname + '/..');\nconst t = require('qa-e2e/lib/totales.cjs');", OPACO],
+      ['(Y10) Function por clave de globalThis', "globalThis['Function']('svc', options.codigo)(svc);", /reflexión/],
+      ['(Y11) un import de data:', "const m = await import('data:text/javascript,export default 1');", OPACO],
+      ['(Y12) fork de un archivo de fuera del barrido', "const { fork } = require('child_process');\nfork(options.ruta);", PROCESO],
+      ['(Y12b) un Worker con eval', "const { Worker } = require('worker_threads');\nnew Worker(codigo, { eval: true });", /proceso|reflexión/],
+      ['(Y14) un with sobre el cliente', "with (svc) { await from('transacciones').select('monto_pen'); }", /un with/],
+      ['(Y15) el prototipo de los filtros parchado', "const Filtros = Object.getPrototypeOf(svc.from('categorias').select('id'));\nFiltros.in = function (c, v) { return this; };", /cambia el estado/],
     ])('ve %s',(_n, cuerpo, motivo, arriba = '', cabecera = CABECERA) => {
       const motivos = caso(cuerpo, arriba, cabecera);
       expect(motivos.length, JSON.stringify(motivos)).toBeGreaterThanOrEqual(1);
@@ -1706,6 +1838,15 @@ describe('las lecturas de transacciones del backend no se cortan en 1000 en sile
       ['(FP) una asignación por clave dinámica sobre un parámetro', "options.datos[options.to] = options.datos[options.from];\nconst porCat = {};\nporCat[u] = { subs: {} };\nporCat[u].subs[x] = 1;"],
       ['(FP) la config de vitest', "module.exports = { test: { environment: 'node' } };"],
       ['(FP) el from de WhatsApp en los parámetros de un handler', "return 1;\n}\nasync function handle({ intencion, msg, datos, usuario, from, ctx }) { return from;"],
+      // Falsos positivos de la décima ronda: código sano y realista que 188ad42 marcaba rojo.
+      ['(FP10) el remitente de WhatsApp como valor', "const n = normalizar(options.message.from);\nif (x) return options.message.from;\nconst { from: numero, id: wamid, type } = options.message;\nconst { from, chat, text } = options.update.message;"],
+      ['(FP10) el from de un correo', "options.from = options.from || 'Neto <hola@neto.pe>';"],
+      ['(FP10) constructor comparado y clonado', "if (options.v.constructor === Object) return 1;\nclass A { clon() { return new this.constructor(); } }"],
+      ['(FP10) un _cache propio', "class Cache { constructor() { this._cache = new Map(); } }"],
+      ['(FP10) un diccionario con __proto__ null', "const TIPOS = { __proto__: null, gasto: 'Gasto' };\nreturn TIPOS[options.t];"],
+      ['(FP10) un cargador de .env a mano', "const m = options.linea.match(/^(\\w+)=(.*)$/);\nif (m) process.env[m[1]] = m[2];"],
+      ['(FP10) el idioma de Express', "exports = module.exports = function app() {};"],
+      ['(FP10) la versión de Node en un log y una bandera de argv', "log.info('node ' + process.versions.node);\nif (process.argv.includes('-p') || process.argv.includes('--print')) x = 1;"],
       ['(FP) Object.create(null) para un diccionario', "const vistos = Object.create(null);\nvistos[u] = true;"],
     ])('no marca %s', (_n, cuerpo, arriba = '', cabecera = CABECERA) => {
       expect(caso(cuerpo, arriba, cabecera)).toEqual([]);
@@ -1725,6 +1866,11 @@ describe('las lecturas de transacciones del backend no se cortan en 1000 en sile
     ])('pide declarar como top-N %s', (_n, cuerpo, arriba = '', cabecera = CABECERA) => {
       expect(caso(cuerpo, arriba, cabecera)).toEqual(expect.arrayContaining([TOPN_SIN_DECLARAR]));
       expect(caso(cuerpo, arriba, cabecera).every((m) => m === TOPN_SIN_DECLARAR)).toBe(true);
+    });
+
+    it('(FP10) un script de scripts/ puede correr procesos hijos (las herramientas de mutación corren vitest)', () => {
+      const codigo = "const { execFileSync, spawn } = require('node:child_process');\nexecFileSync(process.execPath, [vitest, 'run', f]);\nspawn('node', ['scripts/verify-railway-gate.mjs']);\nconst cmd = 'node --check ' + f;";
+      expect(analizar('scripts/mutar-algo.js', codigo).hallazgos.map((h) => h.motivo)).toEqual([]);
     });
 
     it('un .limit(1) no pide declaración: una fila no tiene suma que cortar', () => {
@@ -1794,6 +1940,11 @@ describe('las lecturas de transacciones del backend no se cortan en 1000 en sile
       ['un curl a /rest/v1 en un workflow', { '.github/workflows/total.yml': 'run: curl "$SUPABASE_URL/rest/v1/transacciones?select=monto_pen"\n' }, /formato que el guard no parsea/],
       ['un require relativo que no resuelve', { 'services/total.js': "module.exports = require('./generado-en-el-build');\n" }, /no resuelve/],
       ['un require a una copia del repo en .claude/worktrees', { 'services/total.js': "module.exports = require('../.claude/worktrees/x/services/total.js');\n", '.claude/worktrees/x/services/total.js': LECTURA }, /carga código que el barrido no mira/],
+      // Décima ronda.
+      ['(Y3) un .ts con una arrow genérica antes del require', { 'services/total.ts': "const doble = <T>(v: T): number => 2;\nmodule.exports = require('../qa-e2e/lib/totales.cjs');\n", 'qa-e2e/lib/totales.cjs': LECTURA }, /carga código que el barrido no mira/],
+      ['(Y5) un Procfile con node -e', { 'Procfile': "web: node -e \"require('./lib/db').supabase.from('transacciones').select('monto_pen')\"\n" }, /formato que el guard no parsea|arranque/],
+      ['(Y5b) el arranque que precarga un archivo de fuera del barrido', { 'package.json': '{ "scripts": { "start": "node -r ./qa-e2e/lib/precarga.cjs index.js" } }', 'index.js': '', 'qa-e2e/lib/precarga.cjs': LECTURA }, /arranque/],
+      ['(Y5c) el arranque con condiciones propias', { 'package.json': '{ "scripts": { "start": "node --conditions=neto-rapido index.js" } }', 'index.js': '' }, /arranque/],
     ])('ve %s', (_n, arbol, motivo) => {
       const malos = conArbol(arbol);
       expect(malos.length, JSON.stringify(malos)).toBeGreaterThanOrEqual(1);
@@ -1807,6 +1958,16 @@ describe('las lecturas de transacciones del backend no se cortan en 1000 en sile
         'lib/datos.json': '{ "a": 1 }',
         'services/total.js': "const fs = require('node:fs');\nconst datos = require('../lib/datos.json');\nconst p = require('../lib/todas-las-filas');\nmodule.exports = { fs, datos, p };\n",
         'scripts/backup/respaldar.sh': 'pg_dump "$DB" | gzip > backup.sql.gz\n',
+      })).toEqual([]);
+    });
+
+    it('(FP10) no marca un Array.from en un heredoc, un keepalive a otra tabla ni un package.json de dependencias', () => {
+      expect(conArbol({
+        'package.json': '{ "scripts": { "start": "node index.js" } }',
+        'index.js': '',
+        'scripts/backup/backup.sh': "node - <<'NODE'\nconst partes = Array.from(process.argv.slice(2));\nNODE\n",
+        '.github/workflows/keepalive.yml': 'run: curl "$SUPABASE_URL/rest/v1/usuarios?select=id&limit=1"\n',
+        'docs/package.json': '{ "dependencies": { "docx": "^9.0.0" } }',
       })).toEqual([]);
     });
   });
