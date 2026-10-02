@@ -1335,7 +1335,7 @@ describe('corregir_categoria', () => {
     const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
     const ctx = buildCtx(sb);
     const res = await handler.handle({
-      intencion: 'corregir_categoria', msg: 'mueve Berny a alimentacion',
+      intencion: 'corregir_categoria', msg: 'mueve Berny a alimentacion, siempre',
       datos: { categoria_nueva: 'alimentacion', comercio: 'Berny' }, usuario: USUARIO, from: '+51999', ctx,
     });
     expect(ctx.recategorizarTransaccion).toHaveBeenCalledWith('user-001', 'Berny', 'Alimentación', null);
@@ -1369,7 +1369,7 @@ describe('corregir_categoria', () => {
     const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
     const ctx = buildCtx(sb);
     await handler.handle({
-      intencion: 'corregir_categoria', msg: 'mueve eso a Ahorro',
+      intencion: 'corregir_categoria', msg: 'mueve eso a Ahorro, todos los de Starbucks',
       datos: { categoria_nueva: 'Ahorro ', comercio: 'Starbucks' }, usuario: USUARIO, from: '+51999', ctx,
     });
     expect(ctx.recategorizarTransaccion).toHaveBeenCalledWith('user-001', 'Starbucks', 'Ahorro', null);

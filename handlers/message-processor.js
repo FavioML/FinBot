@@ -9,6 +9,29 @@ const { CATEGORIAS_VALIDAS, CATEGORIA_MAP, WEBAPP_URL } = require('../lib/consta
 const { validarMonto, normalizarCategoria } = require('../lib/validators');
 const { ADMIN_NUMBER } = require('../lib/config');
 const { esVerUltimoMovimiento, extraerGastoSinIA } = require('../lib/nlp-guards');
+const { diceQueYaPago } = require('./intents/premium');
+const { pideAlcanceRetroactivo, textoDicho } = require('../lib/datos-dichos');
+const { normalizar: normalizarOrden } = require('../lib/orden-edicion');
+// "Cambia/corrige/pasa/mueve … a/como X", sin marca de regla, y con un comercio que es un nombre
+// (sin cifras, hasta 4 palabras: la misma defensa que `editar_categoria_comercio`).
+const esCorreccionDeUnMovimiento = (msg, comercio) => {
+  const t = normalizarOrden(msg);
+  return /^(?:(?:oye|neto|porfa|por favor) )?(?:cambia\w*|corrig\w*|corrige\w*|pasa\w*|mueve\w*|muevelo|ponlo|ponla)(?: |$)/.test(t)
+    && !pideAlcanceRetroactivo(msg)
+    && !!comercio && !/\d/.test(String(comercio)) && String(comercio).trim().split(/\s+/).length <= 4
+    // El comercio tiene que estar DICHO: "Cambia eso a transporte" con Uber del historial, desviado,
+    // perdía el comercio en la guarda y movía el último movimiento (cuarta revisión). Sin desvío, la
+    // regla pregunta de qué comercio se trata.
+    && textoDicho(comercio, msg, { todas: true });
+};
+// Superficies de plan o ayuda a las que el clasificador manda "ya pagué Pro y no se activa".
+const INTENTS_ESTADO_PAGO = new Set(['ver_premium', 'estado_cuenta', 'ayuda', 'queja']);
+// Una o dos palabras y un número, nada más, y ninguna palabra de cambio o moneda.
+const esFormaCortaSinMoneda = (msg) => {
+  const t = String(msg || '').trim();
+  return /^[a-záéíóúñü]+(?:\s+[a-záéíóúñü]+)?\s+\d+(?:[.,]\d{1,2})?$/i.test(t)
+    && !/d[oó]lar|cambio|usd|euro|moneda|sol(?:es)?\b|compra|venta/i.test(t);
+};
 const { getEmojiCategoria, formatearResumen, formatearCategoriasMsg, barraProgreso, generarRefCode, formatFecha } = require('../lib/formatters');
 const { enviarWhatsapp } = require('../lib/whatsapp');
 const { obtenerTipoCambio, convertirUsdAPen, tipoCambioDeLaFila, guardarTransaccion, obtenerGastosMes, obtenerGastosSemana, obtenerUltimaTransaccion, recategorizarTransaccion, corregirTransaccionEspecifica, guardarReglaComercio, retroaplicarRegla } = require('../services/transactions');
@@ -437,6 +460,37 @@ async function procesarMensajeLibre(msg, usuario, from) {
       log.warn({ tag: 'NLP_GUARD', intencion, msg: msgTrim.slice(0, 120) }, 'Redirected "último movimiento" from destructive to read-only view');
       intencion = 'ver_ultima_transaccion';
       datos = {};
+    }
+
+    // "Ya pagué Pro y no se activa" (02-oct-2026) tiene una sola respuesta correcta: el estado de
+    // su pago. El clasificador la manda a ver_premium (el pitch), a la ayuda o a la cuenta; las tres
+    // superficies de plan pasan por `ver_premium`, que con "ya pagué" contesta el estado y no vende.
+    if (INTENTS_ESTADO_PAGO.has(intencion) && diceQueYaPago(msg, { exigePro: intencion !== 'ver_premium' })) {
+      log.info({ tag: 'YA_PAGUE', desde: intencion }, 'Dice que ya pagó: estado del pago en vez del texto del intent');
+      intencion = 'ver_premium';
+      datos = {};
+    }
+
+    // "Tasa 2" (02-oct-2026) era la tasa de un terminal en una ráfaga de gastos de viaje, y el
+    // clasificador la mandó al tipo de cambio 3 de 3. La forma corta pelada —una o dos palabras y un
+    // número, sin dólar, cambio ni moneda— es un registro: la decide el parser, que puede preguntar.
+    if (intencion === 'ver_tipo_cambio' && esFormaCortaSinMoneda(msg)) {
+      log.info({ tag: 'FORMA_CORTA', desde: intencion }, 'Forma corta sin moneda: va al registro, no al tipo de cambio');
+      intencion = 'registrar_manual';
+      datos = {};
+    }
+
+    // Una CORRECCIÓN de un movimiento no es una regla permanente (02-oct-2026). Contra prod,
+    // "Cambiar Plin de ricardo como taxi" llegó acá con `comercio: "Plin"` y creó "Plin → Transporte
+    // (siempre)", retroaplicada. Se desvía a `corregir_categoria` (mueve ese movimiento, guarda la
+    // regla hacia adelante y ofrece los anteriores) SOLO cuando el mensaje arranca con un verbo de
+    // corrección y no trae marca de regla. La primera versión desviaba toda regla sin "siempre", y la
+    // tercera revisión midió el costo: "Asocia Rappi a Delivery" dejó de crear la regla y "registra
+    // un gasto de diez soles en taxi" perdió la defensa del handler contra un comercio-frase.
+    if (intencion === 'editar_categoria_comercio' && esCorreccionDeUnMovimiento(msg, datos.comercio)) {
+      log.info({ tag: 'REGLA_SIN_ALCANCE' }, 'Regla de comercio sin alcance dicho: va como corrección del movimiento');
+      intencion = 'corregir_categoria';
+      datos = { categoria_nueva: datos.categoria, subcategoria_nueva: datos.subcategoria, comercio: datos.comercio };
     }
 
     log.info({ tag: 'NLP', intencion, datos }, 'Intención clasificada');

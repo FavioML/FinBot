@@ -255,7 +255,7 @@ const EXENCIONES = [
       'el auto-loader carga cada `.js` de `handlers/intents/`, y esos archivos están en el barrido (el ' +
       'barrido ya no excluye los `.test.js` de fuera de `tests/`, justamente por este loader)',
     premisa: (c) =>
-      cuentaIdentificador(c, 'intentsDir') === 3 && cuentaIdentificador(c, 'file') === 2 && cuentaIdentificador(c, 'require') === 4 &&
+      cuentaIdentificador(c, 'intentsDir') === 3 && cuentaIdentificador(c, 'file') === 2 && cuentaIdentificador(c, 'require') === 6 &&
       plano(c).includes("constintentsDir=path.join(__dirname,'intents');constfiles=fs.readdirSync(intentsDir).filter(f=>f.endsWith('.js'));for(constfileoffiles){constmod=require(path.join(intentsDir,file));"),
   },
   {

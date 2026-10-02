@@ -161,6 +161,16 @@ const REALES = [
   { msg: '22.07 Mass el 25 de septiembre', esp: 'gasto 22.07' },
   { msg: '22.07 Mass fecha el 25 de septiembre', esp: 'gasto 22.07' },
   { msg: '4 en pan y maca', esp: 'gasto 4' },
+  // Forma corta con nombre propio o marca, lectura de prod del 02-oct: una ráfaga de gastos de
+  // viaje ("Baño 2", "Taxi cholo 3", "Ilave 6" la ciudad, "Tasa 2" la tasa del terminal). Las tres
+  // salen `tipo_dudoso` 3 de 3, en HEAD y con un ejemplo de ciudad/marca agregado al prompt (medido
+  // con --contra HEAD: 0 regresiones, pero los tres siguieron 3/3 y solo se movió "Mamá 100"), así
+  // que el prompt no se tocó. Preguntar es el lado seguro: cuesta un mensaje, no plata mal guardada.
+  // "Tasa 2" además llegaba al tipo de cambio; eso lo corrige `esFormaCortaSinMoneda` en el dispatch.
+  { msg: 'Ilave 6', esp: 'gasto 6|tipo_dudoso' },
+  { msg: 'Power 3', esp: 'gasto 3|tipo_dudoso' },
+  { msg: 'Hotel 40', esp: 'gasto 40' },
+  { msg: 'Tasa 2', esp: 'gasto 2|tipo_dudoso' },
   // Banda inestable de gpt-4o-mini en las DOS versiones: HEAD dio gasto/rebote/gasto el 30-sep y
   // en producción rebotó; la nueva, gasto 2/3 y rebote 1/3. El peor caso es un rebote, nunca plata
   // mal guardada, así que se reporta sin juzgar.

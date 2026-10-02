@@ -795,13 +795,22 @@ describe('9A-ter · corregir_categoria sobre un gasto sin nombre no arma una reg
     });
   }
 
-  it('control: con un comercio real SÍ guarda la regla y lo dice', async () => {
+  it('control: con un comercio real SÍ guarda la regla, y el pasado solo si se pide (02-oct)', async () => {
     const sb = makeSupabase({ filas: { transacciones: [TX] } });
-    const { res, ctx } = await correr(sb, {}, 'corregir_categoria', { categoria_nueva: 'Transporte' });
+    const { res, ctx } = await correr(sb, {}, 'corregir_categoria', { categoria_nueva: 'Transporte' }, 'pásalo a transporte, siempre');
     expect(res).toMatch(/pagos anteriores de Starbucks/);
     expect(ctx.guardarReglaComercio).toHaveBeenCalledOnce();
     expect(ctx.guardarReglaComercio.mock.calls[0][1]).toBe('Starbucks');
     expect(ctx.retroaplicarRegla.mock.calls[0][1]).toBe('Starbucks');
+  });
+
+  it('sin alcance dicho: regla hacia adelante, el pasado NO se reescribe y se ofrece', async () => {
+    const sb = makeSupabase({ filas: { transacciones: [TX] } });
+    const { res, ctx } = await correr(sb, {}, 'corregir_categoria', { categoria_nueva: 'Transporte' }, 'Cambialo como taxi');
+    expect(ctx.guardarReglaComercio).toHaveBeenCalledOnce();
+    expect(ctx.retroaplicarRegla).not.toHaveBeenCalled();
+    expect(res).not.toMatch(/pagos anteriores/);
+    expect(res).toMatch(/siempre pon Starbucks en Transporte/);
   });
 });
 

@@ -1,5 +1,7 @@
 const fs = require('fs');
 const path = require('path');
+const log = require('../lib/logger');
+const { revisarDatosDichos } = require('../lib/datos-dichos');
 
 const handlers = {};
 const intentsDir = path.join(__dirname, 'intents');
@@ -42,9 +44,18 @@ async function dispatchIntent({ intencion, msg, datos, usuario, from, ctx }) {
   if (respMuro !== null) return { manejado: true, respuesta: respMuro, muro: true };
   const handler = handlers[intencion];
   if (!handler) return { manejado: false, respuesta: null, muro: false };
+  // Una escritura no usa datos que el mensaje no dice (02-oct-2026): el clasificador los copia del
+  // historial ("No aparece en mi dashboard" → "Le debes S/20 a bidon de agua"). Vive acá, como el
+  // muro, para que ningún handler que escribe dependa de acordarse. Ver lib/datos-dichos.js.
+  const revision = revisarDatosDichos({ intencion, msg, datos });
+  if (revision.descartados.length || revision.pregunta) {
+    log.info({ tag: 'DATO_NO_DICHO', intencion, descartados: revision.descartados, pregunta: !!revision.pregunta,
+      msg: String(msg || '').slice(0, 80) }, 'Escritura con datos que el mensaje no nombra');
+  }
+  if (revision.pregunta) return { manejado: true, respuesta: revision.pregunta, muro: false };
   return {
     manejado: true,
-    respuesta: await handler({ intencion, msg, datos, usuario, from, ctx }),
+    respuesta: await handler({ intencion, msg, datos: revision.datos, usuario, from, ctx }),
     muro: false,
   };
 }

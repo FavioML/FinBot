@@ -8,6 +8,7 @@ const { subcategoriaUtil, esSubSinClasificar } = require('../../lib/subcategoria
 const { extraerGastoSinIA, quitarTokensDeMoneda, contarMontosCandidatos, mencionaMonedaNoSoportada, montoEscritoEnMensaje, tipoContradiceElMensaje } = require('../../lib/nlp-guards');
 const { registrarError } = require('../../lib/error-monitor');
 const { revisarEdicion, pedirOrden } = require('../../lib/orden-edicion');
+const { pideAlcanceRetroactivo } = require('../../lib/datos-dichos');
 const { esComercioCentinela } = require('../../services/parsers');
 
 // Un mensaje que es SOLO un número (con o sin moneda) no se rescata.
@@ -848,9 +849,15 @@ module.exports = {
             // haberlo aplicado (revisión adversarial del 01-oct). Se mueve sólo este gasto.
             const comercioReal = txActualizada?.comercio || comercioRaw;
             const conRegla = !!comercioReal && !esComercioCentinela(comercioReal);
+            // La regla hacia ADELANTE se guarda siempre: es como Neto aprende, y la corrige la próxima
+            // corrección. Reescribir el PASADO solo si el mensaje lo pide (02-oct-2026, decisión de
+            // Favio): "Cambiar Plin de ricardo como taxi" movió ese pago y además todos los anteriores
+            // a Ricardo, y `retroaplicarRegla` va por subcadena ("Uber" alcanza "Uber Eats"). Una
+            // escritura más ancha que el pedido es la clase de lib/datos-dichos.js.
+            const retroPedida = conRegla && pideAlcanceRetroactivo(msg);
             if (conRegla) {
               guardarReglaComercio(usuario.id, comercioReal, catLibre, subLibre);
-              retroaplicarRegla(usuario.id, comercioReal, catLibre, subLibre);
+              if (retroPedida) retroaplicarRegla(usuario.id, comercioReal, catLibre, subLibre);
             }
             // Respuesta con moneda correcta
             const monedaTxCorr = txActualizada.moneda || 'PEN';
@@ -859,7 +866,9 @@ module.exports = {
               : 'S/ ' + parseFloat(txActualizada.monto_pen || txActualizada.monto || 0).toFixed(2);
             const nombreMovido = txActualizada.comercio && !esComercioCentinela(txActualizada.comercio) ? txActualizada.comercio : 'el gasto';
             return 'Listo! Movi *' + nombreMovido + '* (' + montoMostrar + ') a *' + catLibre + (subLibre ? ' > ' + subLibre : '') + '*.'
-              + (conRegla ? '\n\n_Aplique el cambio a todos los pagos anteriores de ' + comercioReal + '._' : '');
+              + (retroPedida ? '\n\n_Aplique el cambio a todos los pagos anteriores de ' + comercioReal + '._'
+                : conRegla ? '\n\n_Los próximos de ' + comercioReal + ' van a ' + catLibre + '. Si quieres mover también los anteriores, escríbeme "siempre pon ' + comercioReal + ' en ' + catLibre + '"._'
+                : '');
           }
           // Con IA respondia "Listo" (no hizo nada) y afirmaba que el gasto no estaba
           // categorizado, dato que nunca estuvo en el contexto. Texto fijo con el ultimo gasto.

@@ -57,19 +57,68 @@ function pideComprobante(usuario) {
   return !enTrial(usuario) && usuario.plan !== 'premium';
 }
 
+/**
+ * ¿La persona dice que YA pagó? (02-oct-2026). "Ya pague pro y no se activa" llegó a
+ * `ver_premium` y recibió el texto de venta; su pago estaba en revisión y se aprobó 5 segundos
+ * después. Quien dice que pagó recibe el estado de su pago, nunca el pitch.
+ *
+ * Dos lecturas, y la diferencia la pagó la revisión adversarial: "ya pagué la luz y no me aparece"
+ * llegaba como `queja` y recibía "no me llegó tu comprobante". Fuera de `ver_premium` (donde el
+ * clasificador ya dijo que se habla de Pro) el mensaje tiene que nombrar Pro, el plan, la
+ * suscripción, el comprobante o que algo "se active": `exigePro`.
+ */
+const RE_DICE_QUE_PAGO = /(?:^| )(?:ya (?:te |le )?(?:pague|yapee|yapie|plinee|deposite|transferi)|acabo de (?:pagar|yapear|plinear|depositar|transferir)|(?:hice|realice|envie|mande|te mande|te envie|te hice) (?:el|un) (?:pago|yape|plin|deposito|comprobante)|(?:ya )?(?:esta|estaba) pagado|pague (?:el|mi|por el) (?:pro|premium|plan|suscripcion|mes de pro))(?: |$)/;
+// Fuera de `ver_premium` el mensaje tiene que decir "pro" (o "neto pro", "premium de neto"). Tres
+// revisiones fueron achicando esta lista: "neto", "plan", "premium", "suscripción", "mensualidad",
+// "se activa" y "comprobante" sueltos atrapaban la luz, el plan de datos de Claro, Spotify, Netflix, el
+// gym y "ya pagué el internet y no se activa". Quien escribe "ya pagué y no se activa" sin decir "pro"
+// y no cae en `ver_premium` sigue el camino de antes (queja o ayuda).
+const RE_HABLA_DE_PRO = /(?:^| )(?:pro|neto pro|premium de neto)(?: |$)/;
+function diceQueYaPago(msg, { exigePro = false } = {}) {
+  const t = String(msg || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!RE_DICE_QUE_PAGO.test(t)) return false;
+  return !exigePro || RE_HABLA_DE_PRO.test(t);
+}
+
+/**
+ * El estado del pago, para quien dice que ya pagó. PURA: el efecto (abrir la espera del
+ * comprobante) lo decide el handler con `pideComprobante`, igual que el pitch.
+ *  - Pro activo y no es la prueba → ya está activo, con su vencimiento.
+ *  - `pago_pendiente` → el comprobante llegó y está en revisión; la aprobación le avisa por acá
+ *    ("✅ ¡Pago confirmado!", `activarPro` en lib/pro-payment.js).
+ *  - si no → no llegó: que mande la captura.
+ */
+function mensajeYaPague(usuario) {
+  const u = usuario || {};
+  if (u.plan === 'premium' && !enTrial(u)) {
+    const vence = u.premium_vence || u.fecha_vencimiento;
+    return '✅ Tu *Neto Pro* ya está activo' + (vence ? ', hasta el ' + new Date(vence).toLocaleDateString('es-PE') : '') +
+      '.\n\nSi en la app todavía no lo ves, cierra sesión y vuelve a entrar.';
+  }
+  if (u.pago_pendiente) {
+    return '🧾 Ya me llegó tu comprobante y lo estoy revisando.\n\nApenas quede aprobado te aviso por acá con la fecha de vencimiento. No tienes que mandarlo de nuevo.';
+  }
+  return 'Todavía no me llegó tu comprobante. 📲 Mándame acá la captura del Yape o Plin y la reviso.\n\n_Si ya la mandaste y no te contesté, escribe */soporte*._';
+}
+
 module.exports = {
   intents: ['ver_premium', 'ver_referidos', 'estado_cuenta'],
   mensajeVerPremium,
   pideComprobante,
+  diceQueYaPago,
+  mensajeYaPague,
   async handle({ intencion, msg, datos, usuario, from, ctx }) {
     const { supabase } = ctx;
     switch (intencion) {
       case 'ver_premium': {
         // El intent NLP ("quiero pro", "cuánto cuesta") sí arma la espera del comprobante:
         // es una intención de pago expresada en lenguaje natural, y el siguiente paso
-        // esperado es la captura del Yape.
-        if (pideComprobante(usuario)) await solicitarComprobante(usuario.id);
-        return mensajeVerPremium(usuario);
+        // esperado es la captura del Yape. Con un pago ya en revisión no: la próxima foto no
+        // es un comprobante, y abrir la espera le cambiaría el camino a su registro por foto.
+        const yaPago = diceQueYaPago(msg);
+        if (pideComprobante(usuario) && !(yaPago && usuario.pago_pendiente)) await solicitarComprobante(usuario.id);
+        return yaPago ? mensajeYaPague(usuario) : mensajeVerPremium(usuario);
       }
 
       case 'ver_referidos': {
