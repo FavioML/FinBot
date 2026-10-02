@@ -30,6 +30,9 @@
  *   Los tres terminan igual, con menos filas distintas que el conteo, y eso sí se ve acá. Lo paga
  *   un borrado entre dos páginas, que ahora es un error en vez de una fila salteada en silencio:
  *   el borrado corre todo un lugar y la fila del borde no llega, así que el error dice la verdad.
+ *   **Salvo que entre a la vez una fila en la zona que falta leer**: el conteo cuadra y la fila del
+ *   borde se pierde igual, con `error: null` (medido el 01-oct-2026 contra el espejo del backend, que
+ *   corre el mismo algoritmo). Es el límite de paginar por offset; cerrarlo pide keyset.
  *
  * Devuelve `{ data, error }` como supabase-js, y con error `data` es `null`, igual que en
  * supabase-js y que su espejo del backend (`lib/todas-las-filas.js`). Hasta el 01-oct devolvía lo
