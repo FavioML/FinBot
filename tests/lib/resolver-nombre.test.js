@@ -47,9 +47,22 @@ describe('resolverNombre', () => {
     expect(r.filas.map((f) => f.id)).toEqual(['a', 'b', 'c']);
   });
 
-  it('tildes y mayúsculas no importan; el plural sí se tolera ("taxis" → Taxi)', () => {
+  it('tildes y mayúsculas no importan; la "s" final SÍ distingue ("Lucas" no es Luca, "taxis" no es Taxi)', () => {
     expect(resolverNombre('cafe haiti', filas('Café Haití'), nd).estado).toBe('uno');
-    expect(resolverNombre('taxis', filas('Taxi'), nd).estado).toBe('uno');
+    // Revisión de 469e728: tolerar la "s" abonaba a Luca lo que pagó Lucas. El costo es "taxis".
+    expect(resolverNombre('Lucas', filas('Luca'), nd).estado).toBe('ninguno');
+    expect(resolverNombre('taxis', filas('Taxi'), nd).estado).toBe('ninguno');
+  });
+
+  it('la palabra corta también distingue: "Carlos M" no es Carlos R, "viaje a NY" no es Viaje Cusco', () => {
+    expect(resolverNombre('Carlos M', filas('Carlos R'), nd).estado).toBe('ninguno');
+    expect(resolverNombre('viaje a NY', filas('Viaje Cusco'), { ...nd, ignorar: PALABRAS_DEL_DOMINIO.meta }).estado).toBe('ninguno');
+  });
+
+  it('en un comercio o una persona "mi" es parte del nombre; solo se quitan los artículos del inicio', () => {
+    expect(resolverNombre('mi banco', filas('Banco Pichincha'), nd).estado).toBe('ninguno');
+    expect(filasQueNombra('Mi Banco', filas('Mi Banco', 'Banco Pichincha'), nd).map((f) => f.n)).toEqual(['Mi Banco']);
+    expect(resolverNombre('el uber', filas('Uber'), nd)).toMatchObject({ estado: 'uno', nombre: 'Uber' });
   });
 
   it('las palabras del dominio no cuentan: "meta laptop" es Laptop; "la meta" sola es sin nombre', () => {

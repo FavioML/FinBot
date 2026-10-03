@@ -1,15 +1,19 @@
 const log = require('../../lib/logger');
-const { resolverNombre, mensajeNoResuelto, PALABRAS_DEL_DOMINIO } = require('../../lib/resolver-nombre');
+const { resolverNombre, mensajeNoResuelto, mostrable, PALABRAS_DEL_DOMINIO } = require('../../lib/resolver-nombre');
 
 // Qué espacio nombra la persona (lib/resolver-nombre.js, 02-oct-2026). Caía a `espacios[0]` cuando
 // el nombre no coincidía o no se decía, y un espacio es plata de TERCEROS: el gasto se repartía
 // entre la gente equivocada, o el link de invitación era el de otro grupo. Con un solo espacio y
-// sin nombre, ese; con un nombre que no coincide, nada.
-function elegirEspacio(espacios, nombre, ejemplo) {
+// sin nombre, ese; con un nombre que no coincide, nada; y dos espacios que se llaman IGUAL son dos
+// grupos distintos, así que también se pregunta (revisión de 469e728).
+function elegirEspacio(espacios, nombre) {
   const res = resolverNombre(nombre, espacios, { nombreDe: (e) => e.name, ignorar: PALABRAS_DEL_DOMINIO.espacio });
-  if (res.estado === 'uno') return { espacio: res.filas[0] };
+  if (res.estado === 'uno' && res.filas.length === 1) return { espacio: res.filas[0] };
+  if (res.estado === 'uno') {
+    return { respuesta: 'Tienes ' + res.filas.length + ' espacios que se llaman *' + mostrable(res.nombre) + '*, así que no anoté nada para no equivocarme de grupo. Cámbiale el nombre a uno desde la app: https://app.neto.pe/dashboard/espacios' };
+  }
   if (res.estado === 'sin_nombre' && espacios.length === 1) return { espacio: espacios[0] };
-  return { respuesta: mensajeNoResuelto(res, { ninguna: 'ningún espacio', cosas: 'espacios', dicho: nombre, ejemplo, nombreDe: (e) => e.name }) };
+  return { respuesta: mensajeNoResuelto(res, { ninguna: 'ningún espacio', cosas: 'espacios', dicho: nombre, nombreDe: (e) => e.name }) };
 }
 
 module.exports = {
@@ -88,7 +92,7 @@ module.exports = {
           const espacios = await obtenerEspaciosUsuario(usuario.id);
           if (!espacios || espacios.length === 0) return 'No tienes espacios compartidos. Crea uno con _"crear espacio Depa"_.';
 
-          const elegido = elegirEspacio(espacios, datos.nombre_espacio, (n) => 'pagué ' + monto + ' en el espacio ' + n);
+          const elegido = elegirEspacio(espacios, datos.nombre_espacio);
           if (elegido.respuesta) return elegido.respuesta;
           const space = elegido.espacio;
 
@@ -123,7 +127,7 @@ module.exports = {
           const espacios = await obtenerEspaciosUsuario(usuario.id);
           if (!espacios || espacios.length === 0) return 'No tienes espacios compartidos.';
 
-          const elegido = elegirEspacio(espacios, datos.nombre_espacio, (n) => 'balance del espacio ' + n);
+          const elegido = elegirEspacio(espacios, datos.nombre_espacio);
           if (elegido.respuesta) return elegido.respuesta;
           const space = elegido.espacio;
 
@@ -185,7 +189,7 @@ module.exports = {
           const espacios = await obtenerEspaciosUsuario(usuario.id);
           if (!espacios || espacios.length === 0) return 'No tienes espacios compartidos.';
 
-          const elegido = elegirEspacio(espacios, datos.nombre_espacio, (n) => 'le pagué ' + monto + ' a ' + contraparte + ' en el espacio ' + n);
+          const elegido = elegirEspacio(espacios, datos.nombre_espacio);
           if (elegido.respuesta) return elegido.respuesta;
           const space = elegido.espacio;
 
@@ -206,9 +210,13 @@ module.exports = {
           const aQuien = resolverNombre(contraparte, otros, { nombreDe: (m) => m.usuarios?.nombre || '' });
           if (aQuien.estado === 'varios') {
             return 'En *' + space.name + '* hay varias personas que coinciden con *' + contraparte + '*: '
-              + aQuien.nombres.map((n) => '*' + n + '*').join(', ') + '. ¿A cuál le pagaste? Dime el nombre completo.';
+              + aQuien.nombres.map((n) => '*' + mostrable(n) + '*').join(', ') + '. ¿A cuál le pagaste? Dime el nombre completo.';
           }
           if (aQuien.estado !== 'uno') return 'No encontré a "' + contraparte + '" en el espacio *' + space.name + '*.';
+          // Dos miembros con el mismo nombre son dos personas: se pregunta (revisión de 469e728).
+          if (aQuien.filas.length > 1) {
+            return 'En *' + space.name + '* hay ' + aQuien.filas.length + ' personas que se llaman *' + mostrable(aQuien.nombre) + '*, así que no anoté el pago. Regístralo desde la app, donde se ve a quién: https://app.neto.pe/dashboard/espacios';
+          }
           const target = aQuien.filas[0];
 
           await liquidarCuentas(space.id, usuario.id, target.user_id, monto);
@@ -227,7 +235,7 @@ module.exports = {
           const espacios = await obtenerEspaciosUsuario(usuario.id);
           if (!espacios || espacios.length === 0) return 'No tienes espacios compartidos. Crea uno con _"crear espacio Depa"_.';
 
-          const elegido = elegirEspacio(espacios, datos.nombre_espacio, (n) => 'invita a alguien al espacio ' + n);
+          const elegido = elegirEspacio(espacios, datos.nombre_espacio);
           if (elegido.respuesta) return elegido.respuesta;
           const space = elegido.espacio;
 

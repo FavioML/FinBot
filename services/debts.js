@@ -2,7 +2,7 @@ const { supabase } = require('../lib/db');
 const { hoyPeru, sumarDias } = require('../lib/dates');
 const log = require('../lib/logger');
 const { validarMonto } = require('../lib/validators');
-const { resolverNombre, listaNombres } = require('../lib/resolver-nombre');
+const { resolverNombre, listaNombres, mostrable } = require('../lib/resolver-nombre');
 
 /**
  * Con quién es la deuda que la persona nombró (lib/resolver-nombre.js, 02-oct-2026). Pura: recibe
@@ -22,7 +22,7 @@ function resolverContraparte(deudas, contraparte) {
   const dicho = String(contraparte || '').trim();
   if (res.estado === 'varios') {
     return { error: 'no_resuelta', mensaje: 'Tienes deudas activas con varias personas que coinciden con *' + dicho + '*: '
-      + listaNombres(res.nombres) + '. ¿Con cuál? Dime el nombre completo, por ejemplo _"' + res.nombres[0] + ' me pagó 20"_.' };
+      + listaNombres(res.nombres) + '. ¿Con cuál? Dime el nombre completo, por ejemplo _"' + mostrable(res.nombres[0]) + ' me pagó 20"_.' };
   }
   if (res.estado === 'sin_nombre') {
     return { error: 'no_resuelta', mensaje: '¿Con quién es? Dime el nombre, por ejemplo _"Juan me pagó 20"_.' };

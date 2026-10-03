@@ -176,8 +176,7 @@ module.exports = {
           const resPres = resolverNombre(catElimP, presMes, { nombreDe: (p) => p.categoria, ignorar: PALABRAS_DEL_DOMINIO.presupuesto });
           if (resPres.estado === 'ninguno') return 'No tienes presupuesto de *' + catElimP + '* este mes.';
           if (resPres.estado !== 'uno' && !(resPres.estado === 'sin_nombre' && presMes.length === 1)) {
-            return mensajeNoResuelto(resPres, { ninguna: 'ningún presupuesto', cosas: 'presupuestos', dicho: catElimP,
-              ejemplo: (n) => 'elimina el presupuesto de ' + n, nombreDe: (p) => p.categoria });
+            return mensajeNoResuelto(resPres, { ninguna: 'ningún presupuesto', cosas: 'presupuestos', dicho: catElimP, nombreDe: (p) => p.categoria });
           }
           const presElim = resPres.estado === 'uno' ? resPres.filas : presMes;
           // Gemelo exacto de `eliminar_meta`, y con el mismo motivo para separar los dos malos:

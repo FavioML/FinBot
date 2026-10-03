@@ -47,11 +47,11 @@ function iconoViabilidad(v) {
 // `metas[0]` cuando el nombre no coincidía: "elimina la meta moto", con Laptop y Viaje Cusco,
 // borraba Laptop. Ahora un nombre que no coincide no escribe, varios que coinciden preguntan, y sin
 // nombre con varias metas se pregunta. Devuelve `{ meta }` o `{ respuesta }` (lo que se le contesta).
-function elegirMeta(metas, nombre, ejemplo) {
+function elegirMeta(metas, nombre) {
   const res = resolverNombre(nombre, metas, { nombreDe: (m) => m.nombre, ignorar: PALABRAS_DEL_DOMINIO.meta });
   if (res.estado === 'uno') return { meta: res.filas[0] };
   if (res.estado === 'sin_nombre' && metas.length === 1) return { meta: metas[0] };
-  return { respuesta: mensajeNoResuelto(res, { ninguna: 'ninguna meta', cosas: 'metas', dicho: nombre, ejemplo, nombreDe: (m) => m.nombre }) };
+  return { respuesta: mensajeNoResuelto(res, { ninguna: 'ninguna meta', cosas: 'metas', dicho: nombre, nombreDe: (m) => m.nombre }) };
 }
 
 module.exports = {
@@ -236,7 +236,7 @@ module.exports = {
             throw errMetasEdit;
           }
           if (!metasEdit || !metasEdit.length) return 'No tienes metas de ahorro. Crea una con _"quiero ahorrar S/2000 para julio"_.';
-          const elegidaEdit = elegirMeta(metasEdit, datos.nombre, (n) => 'sube la meta ' + n + ' a 3000');
+          const elegidaEdit = elegirMeta(metasEdit, datos.nombre);
           if (elegidaEdit.respuesta) return elegidaEdit.respuesta;
           const metaTarget = elegidaEdit.meta;
           const updates = {};
@@ -283,7 +283,7 @@ module.exports = {
             throw errMetasDel;
           }
           if (!metasDel || !metasDel.length) return 'No tienes metas de ahorro para eliminar.';
-          const elegidaDel = elegirMeta(metasDel, datos.nombre, (n) => 'elimina la meta ' + n);
+          const elegidaDel = elegirMeta(metasDel, datos.nombre);
           if (elegidaDel.respuesta) return elegidaDel.respuesta;
           const metaDel = elegidaDel.meta;
           // Mismo criterio que los dos DELETE que cerró 9A: `intento(tabla, verbo)` dice que
@@ -389,7 +389,7 @@ module.exports = {
           // coincidía con nada y se compartía la más reciente.
           const mNombre = msg.match(/(?:meta|ahorro)\s+(?:de\s+)?(?:mi\s+)?(.+)/i);
           const nombreComp = mNombre ? mNombre[1].split(/(?:^|\s+)(?:con|para|a|y)\s+/i)[0].trim() : null;
-          const elegidaComp = elegirMeta(metasComp, nombreComp || null, (n) => 'comparte mi meta ' + n);
+          const elegidaComp = elegirMeta(metasComp, nombreComp || null);
           if (elegidaComp.respuesta) return elegidaComp.respuesta;
           const targetMeta = elegidaComp.meta;
           // Generate invite code if not exists
@@ -434,7 +434,7 @@ module.exports = {
           }
           if (!metas || metas.length === 0) return 'No tienes planes de ahorro activos.';
 
-          const elegida = elegirMeta(metas, datos.nombre, (n) => 'la meta ' + n);
+          const elegida = elegirMeta(metas, datos.nombre);
           if (elegida.respuesta) return elegida.respuesta;
           const meta = elegida.meta;
 
@@ -467,7 +467,7 @@ module.exports = {
           }
           if (!metas || metas.length === 0) return 'No tienes planes de ahorro activos.';
 
-          const elegida = elegirMeta(metas, datos.nombre, (n) => 'la meta ' + n);
+          const elegida = elegirMeta(metas, datos.nombre);
           if (elegida.respuesta) return elegida.respuesta;
           const meta = elegida.meta;
 
@@ -499,7 +499,7 @@ module.exports = {
           }
           if (!metas || metas.length === 0) return 'No tienes planes de ahorro activos.';
 
-          const elegida = elegirMeta(metas, datos.nombre, (n) => 'la meta ' + n);
+          const elegida = elegirMeta(metas, datos.nombre);
           if (elegida.respuesta) return elegida.respuesta;
           const meta = elegida.meta;
 

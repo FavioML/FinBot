@@ -701,3 +701,111 @@ describe('eliminar_presupuesto · la categoría dicha, no la que la contiene', (
     expect(resp).toMatch(/Comida rápida/);
   });
 });
+
+// ─── Segunda ronda: lo que encontró la revisión adversarial de 469e728 ──────────────────────────
+
+describe('revisión de 469e728 · la palabra corta y la "s" también distinguen', () => {
+  it('"Carlos M me pagó 50" con solo Carlos R no abona a Carlos R', async () => {
+    montar({ deudas: [deuda('d-cr', 'Carlos R', 100, '2026-09-20')], deuda_abonos: [] });
+    await decir('abonar_deuda', 'Carlos M me pagó 50', { contraparte: 'Carlos M', monto: 50 });
+    expect(pg.fila('deudas', 'd-cr').monto_pendiente).toBe(100);
+  });
+
+  it('"salda todo con Juan C" no salda a Juan P', async () => {
+    montar({ deudas: [deuda('d-jp', 'Juan P', 80, '2026-09-20'), deuda('d-jp2', 'Juan P', 30, '2026-09-01')], deuda_abonos: [] });
+    await decir('saldar_todo_contraparte', 'salda todo con Juan C', { contraparte: 'Juan C' });
+    expect(pg.escrituras()).toEqual([]);
+  });
+
+  it('"Lucas me pagó 20" no abona a Luca, ni "salda todo con Marcos" salda a Marco', async () => {
+    montar({ deudas: [deuda('d-luca', 'Luca', 80, '2026-09-20'), deuda('d-marco', 'Marco', 40, '2026-09-01')], deuda_abonos: [] });
+    await decir('abonar_deuda', 'Lucas me pagó 20', { contraparte: 'Lucas', monto: 20 });
+    await decir('saldar_todo_contraparte', 'salda todo con Marcos', { contraparte: 'Marcos' });
+    expect(pg.escrituras()).toEqual([]);
+  });
+
+  it('el modelo no puede cambiar "Marco" por "Marcos" ni "Carlos" por "Carlos M"', async () => {
+    montar({ deudas: [deuda('d-ms', 'Marcos', 80, '2026-09-20'), deuda('d-m', 'Marco', 40, '2026-09-01'),
+      deuda('d-cm', 'Carlos M', 70, '2026-09-10'), deuda('d-cr', 'Carlos R', 60, '2026-09-05')], deuda_abonos: [] });
+    await decir('abonar_deuda', 'Marco me pagó 20', { contraparte: 'Marcos', monto: 20 });
+    await decir('abonar_deuda', 'Carlos me pagó 20', { contraparte: 'Carlos M', monto: 20 });
+    expect(pg.fila('deudas', 'd-ms').monto_pendiente).toBe(80);
+    expect(pg.fila('deudas', 'd-cm').monto_pendiente).toBe(70);
+  });
+
+  it('"aboné 200 a la meta viaje a NY" no abona a Viaje Cusco', async () => {
+    montar(DOS_METAS);
+    await decir('abonar_meta', 'aboné 200 a la meta viaje a NY', { nombre_meta: 'viaje a NY', monto: 200 });
+    expect(pg.escrituras()).toEqual([]);
+  });
+
+  it('control: "Juan me pagó 20" con solo Juan Pérez sigue resolviendo', async () => {
+    montar({ deudas: [deuda('d-jp', 'Juan Pérez', 80, '2026-09-20')], deuda_abonos: [] });
+    await decir('abonar_deuda', 'Juan me pagó 20', { contraparte: 'Juan', monto: 20 });
+    expect(pg.fila('deudas', 'd-jp').monto_pendiente).toBe(60);
+  });
+});
+
+describe('revisión de 469e728 · el lote de una regla', () => {
+  it('"Mi Banco" no alcanza a Banco Pichincha ni a Banco de la Nación', async () => {
+    montar({ transacciones: [tx('t-mb', 'Mi Banco', '2026-10-01T12:00:00'), tx('t-bp', 'Banco Pichincha', '2026-09-30T12:00:00'), tx('t-bn', 'Banco de la Nacion', '2026-09-29T12:00:00')] });
+    const n = await servicios.tx.retroaplicarRegla('u-1', 'Mi Banco', 'Prestamos', null);
+    expect(n).toBe(1);
+    expect(pg.fila('transacciones', 't-bp').categoria).toBe('Otros');
+    expect(pg.fila('transacciones', 't-bn').categoria).toBe('Otros');
+  });
+
+  it('"lo de mi banco era salud" con solo Banco Pichincha no lo mueve', async () => {
+    montar({ transacciones: [tx('t-bp', 'Banco Pichincha', '2026-09-30T12:00:00')] });
+    await decir('corregir_categoria', 'lo de mi banco era salud', { comercio: 'mi banco', categoria_nueva: 'Salud' });
+    expect(pg.fila('transacciones', 't-bp').categoria).toBe('Otros');
+  });
+
+  it('un comercio con comillas no inyecta otro valor en la lista del update', async () => {
+    montar({ transacciones: [tx('t-w', 'Wong","Rappi', '2026-10-01T12:00:00'), tx('t-r', 'Rappi', '2026-09-30T12:00:00')] });
+    await servicios.tx.retroaplicarRegla('u-1', 'Wong","Rappi', 'Super', null);
+    expect(pg.fila('transacciones', 't-r').categoria, 'movió Rappi').toBe('Otros');
+  });
+});
+
+describe('revisión de 469e728 · entidades distintas con el mismo nombre preguntan', () => {
+  it('dos miembros que se llaman Ana: no le paga a una al azar', async () => {
+    montar({ space_members: [
+      { id: 'sm-1', space_id: 's-depa', user_id: 'u-1', usuarios: { nombre: 'Rayza' } },
+      { id: 'sm-2', space_id: 's-depa', user_id: 'u-ana1', usuarios: { nombre: 'Ana' } },
+      { id: 'sm-3', space_id: 's-depa', user_id: 'u-ana2', usuarios: { nombre: 'ana' } },
+    ] });
+    espacios = [ESPACIO_DEPA];
+    await decir('liquidar_espacio', 'le pagué 50 a Ana del depa', { monto: 50, contraparte: 'Ana', nombre_espacio: 'depa' });
+    expect(spaces.liquidarCuentas).not.toHaveBeenCalled();
+  });
+
+  it('dos espacios que se llaman Viaje: no anota en uno al azar', async () => {
+    montar({});
+    espacios = [{ id: 's-v1', name: 'Viaje', invite_code: 'V1' }, { id: 's-v2', name: 'Viaje', invite_code: 'V2' }];
+    await decir('registrar_gasto_espacio', 'pagué 200 del hotel en viaje', { monto: 200, nombre_espacio: 'viaje' });
+    expect(spaces.registrarGastoCompartido).not.toHaveBeenCalled();
+  });
+});
+
+describe('revisión de 469e728 · lo que preguntaba de más', () => {
+  it('"recupera la pizza de 40" con Pizza Hut (40) y Pizza Raúl (22) restaura Pizza Hut', async () => {
+    montar({ transacciones_eliminadas: [borrado('e-1', 'Pizza Hut', 40, '2026-10-01T12:00:00'), borrado('e-2', 'Pizza Raúl', 22, '2026-09-30T12:00:00')], transacciones: [] });
+    await decir('restaurar_eliminado', 'recupera la pizza de 40', { comercio: 'pizza', monto: 40 });
+    expect(pg.escrituras('transacciones')[0]?.cuerpo.comercio).toBe('Pizza Hut');
+  });
+
+  it('la pregunta de "varios" usa la categoría pedida y no rompe la negrita con el `*` del nombre', async () => {
+    montar({ transacciones: [tx('t-1', 'Rappi*Restaurante Kfc', '2026-10-01T12:00:00'), tx('t-2', 'Rappi*Farmacia', '2026-09-30T12:00:00')] });
+    const res = await servicios.tx.recategorizarTransaccion('u-1', 'rappi', 'Delivery');
+    expect(res.ok).toBe(false);
+    expect(res.msg).not.toMatch(/transporte/i);
+    expect(res.msg).not.toMatch(/Rappi\*Restaurante/);
+  });
+
+  it('la pregunta de "varios" no trae una orden de borrado lista para copiar', async () => {
+    montar({ metas_ahorro: [meta('m-eu', 'Viaje Europa', '2026-09-22'), VIAJE], meta_aportes: [] });
+    const resp = await decir('eliminar_meta', 'elimina la meta viaje', { nombre: 'viaje' });
+    expect(resp).not.toMatch(/elimina la meta Viaje/);
+  });
+});

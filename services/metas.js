@@ -58,8 +58,7 @@ async function abonarMeta(usuarioId, nombreMeta, monto, tipo = 'aporte', nota = 
   else {
     return {
       error: 'meta_no_resuelta',
-      mensaje: mensajeNoResuelto(res, { ninguna: 'ninguna meta', cosas: 'metas', dicho: nombreMeta,
-        ejemplo: (n) => 'aboné ' + monto + ' a la meta ' + n, nombreDe: (m) => m.nombre }),
+      mensaje: mensajeNoResuelto(res, { ninguna: 'ninguna meta', cosas: 'metas', dicho: nombreMeta, nombreDe: (m) => m.nombre }),
     };
   }
 

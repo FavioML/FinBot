@@ -86,7 +86,8 @@ describe('las reglas de comercio no se arman sobre una etiqueta de "sin nombre"'
     accesos.length = 0;
     expect(await retroaplicarRegla('u-1', 'Tambo', 'Alimentación', null)).toBe(7);
     expect(accesos.some((a) => a.m === 'filter' && a.args[1] === 'imatch')).toBe(true);
-    expect(accesos.some((a) => a.m === 'in' && a.args[0] === 'comercio' && a.args[1].includes('Tambo'))).toBe(true);
+    // El update va por id (la fila 't-1' que devolvió la lectura), no por nombre: ver retroaplicarRegla.
+    expect(accesos.some((a) => a.m === 'in' && a.args[0] === 'id' && a.args[1].includes('t-1'))).toBe(true);
     accesos.length = 0;
     expect(await buscarReglaComercio('u-1', 'Tambo')).toEqual({ categoria: 'Salud', subcategoria: null });
   });

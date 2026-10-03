@@ -286,7 +286,7 @@ function avisoRestauracion(snapshotOk) {
     : '\n\n_Ojo: no pude guardar la copia de respaldo, así que este no lo voy a poder restaurar._';
 }
 
-const { resolverNombre, patronAmplio, listaNombres } = require('../../lib/resolver-nombre');
+const { resolverNombre, filasQueNombra, patronAmplio, listaNombres } = require('../../lib/resolver-nombre');
 
 module.exports = {
   intents: ['registrar_manual', 'corregir_categoria', 'corregir_multiple', 'corregir_monto_moneda', 'eliminar_transaccion', 'editar_monto', 'editar_fecha', 'editar_comercio', 'editar_categoria_comercio', 'deshacer_ultimo', 'restaurar_eliminado', 'marcar_como_ingreso', 'dividir_gasto', 'duplicar_gasto'],
@@ -1209,8 +1209,16 @@ module.exports = {
           // de datos-dichos descarta ese comercio, y el caso tiene test.
           let candidatos = pendientes || [];
           let nombreRest = null;
+          const delMonto = (p) => Math.round(parseFloat(p.snapshot?.monto) * 100) === centavosRest;
           if (comercioRest) {
-            const res = resolverNombre(comercioRest, candidatos, { nombreDe: (p) => p.snapshot?.comercio || '' });
+            let res = resolverNombre(comercioRest, candidatos, { nombreDe: (p) => p.snapshot?.comercio || '' });
+            // "recupera la pizza de 40" con Pizza Hut (40) y Pizza Raúl (22): el monto desempata
+            // entre los nombres que coinciden (revisión de 469e728). Solo si deja UN nombre.
+            if (res.estado === 'varios' && centavosRest != null) {
+              const conMonto = filasQueNombra(comercioRest, candidatos, { nombreDe: (p) => p.snapshot?.comercio || '' }).filter(delMonto);
+              const nombresMonto = [...new Set(conMonto.map((p) => String(p.snapshot?.comercio || '')))];
+              if (nombresMonto.length === 1) res = { estado: 'uno', nombre: nombresMonto[0], filas: conMonto };
+            }
             if (res.estado === 'varios') {
               return 'Borraste gastos de varios comercios que coinciden con *' + comercioRest + '*: ' + listaNombres(res.nombres)
                 + '. ¿Cuál recupero? Dime el nombre completo.';
@@ -1219,7 +1227,7 @@ module.exports = {
             nombreRest = res.estado === 'uno' ? res.nombre : comercioRest;
           }
           if (centavosRest != null) {
-            candidatos = candidatos.filter((p) => Math.round(parseFloat(p.snapshot?.monto) * 100) === centavosRest);
+            candidatos = candidatos.filter(delMonto);
           }
           if (!comercioRest && centavosRest != null) {
             // Solo el monto: dos comercios distintos con ese monto son dos gastos distintos.

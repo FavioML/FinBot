@@ -7,7 +7,7 @@ const { esPagoNeto } = require('../lib/config');
 const { extraerLast4, normalizarLast4, canonizarComercio, esComercioCentinela } = require('./parsers');
 const log = require('../lib/logger');
 const { subcategoriaUtil } = require('../lib/subcategoria');
-const { resolverNombre, filasQueNombra, nombresParecidos, patronAmplio, listaNombres } = require('../lib/resolver-nombre');
+const { resolverNombre, filasQueNombra, nombresParecidos, patronAmplio, listaNombres, mostrable } = require('../lib/resolver-nombre');
 const analytics = require('../lib/analytics');
 
 // Dedup window for manual entries (gmail entries dedup separately).
@@ -460,7 +460,7 @@ async function recategorizarTransaccion(usuarioId, comercio, categoriaNueva, sub
   const res = resolverNombre(comercio, txs || [], { nombreDe });
   if (res.estado === 'varios') {
     return { ok: false, msg: 'Tienes gastos de varios comercios que coinciden con *' + comercio + '*: ' + listaNombres(res.nombres)
-      + '. ¿Cuál? Dime el nombre completo, por ejemplo _"el ' + res.nombres[0] + ' era transporte"_.' };
+      + '. ¿Cuál? Dime el nombre completo, por ejemplo _"el ' + mostrable(res.nombres[0]) + ' era ' + String(categoriaNueva || 'otra categoría').toLowerCase() + '"_.' };
   }
   if (res.estado !== 'uno') {
     // Lo parecido se OFRECE, no se escribe: "¿te refieres a Starbucks?".
@@ -772,15 +772,17 @@ async function retroaplicarRegla(usuarioId, comercio, categoria, subcategoria) {
       log.error({ tag: 'RETROAPLICAR', usuarioId, comercio, err: errLeer.message }, 'No se pudo leer los movimientos del comercio');
       return 0;
     }
-    // Se actualiza por NOMBRE exacto de las filas alcanzadas (pocos, aunque las filas sean cientos):
-    // una fila del mismo nombre anotada entre la lectura y el update también es de ese comercio.
-    const nombres = [...new Set(filasQueNombra(comercio, candidatas || [], { nombreDe: (t) => t.comercio || '' }).map((t) => t.comercio))];
+    // Por ID y no por nombre: postgrest-js entrecomilla `,()` pero no escapa `"`, así que un comercio
+    // guardado como `Wong","Rappi` metía "Rappi" como otro valor de `in.()` y movía sus gastos
+    // (revisión de 469e728). Los ids son uuids. Un movimiento anotado entre la lectura y el update
+    // queda afuera: lo clasifica la regla, que ya está guardada.
+    const ids = filasQueNombra(comercio, candidatas || [], { nombreDe: (t) => t.comercio || '' }).map((t) => t.id);
     const updates = { categoria };
     if (subcategoria) updates.subcategoria = subcategoria;
     let total = 0;
-    for (let i = 0; i < nombres.length; i += 50) {
+    for (let i = 0; i < ids.length; i += 100) {
       const { count, error } = await supabase.from('transacciones').update(updates, { count: 'exact' })
-        .eq('usuario_id', usuarioId).in('comercio', nombres.slice(i, i + 50));
+        .eq('usuario_id', usuarioId).in('id', ids.slice(i, i + 100));
       // Se devuelve lo que SÍ se movió, y eso NO es tragarse el fallo: lo que no aplicó no se
       // movió, así que ese es el número cierto. Lo que no puede faltar es el log.
       if (error) {
@@ -789,7 +791,7 @@ async function retroaplicarRegla(usuarioId, comercio, categoria, subcategoria) {
       }
       total += count || 0;
     }
-    log.info({ tag: 'REGLA', comercio, categoria, subcategoria, count: total, nombres: nombres.length }, 'Regla retroaplicada');
+    log.info({ tag: 'REGLA', comercio, categoria, subcategoria, count: total }, 'Regla retroaplicada');
     return total;
   } catch(e) { log.error({ tag: 'RETROAPLICAR', err: e.message }, 'Error retroaplicando regla'); return 0; }
 }
