@@ -98,7 +98,8 @@ describe('filasQueNombra (lotes)', () => {
 
 describe('patronAmplio', () => {
   it('la palabra clave más larga, sin "s" final ni tildes, como clase POSIX', () => {
-    expect(patronAmplio('Café tacos')).toBe('t[aáàâä]c[oóòôö]');
+    expect(patronAmplio('Café tacos')).toBe("t['’´`]?[aáàâä]['’´`]?c['’´`]?[oóòôö]");
+    expect(new RegExp(patronAmplio('donofrio'), 'i').test("D'Onofrio")).toBe(true);
     expect(new RegExp(patronAmplio('cafe'), 'i').test('Café Haití')).toBe(true);
     expect(new RegExp(patronAmplio('taxis'), 'i').test('Taxi')).toBe(true);
   });

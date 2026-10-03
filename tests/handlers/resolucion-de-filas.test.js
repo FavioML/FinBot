@@ -809,3 +809,106 @@ describe('revisión de 469e728 · lo que preguntaba de más', () => {
     expect(resp).not.toMatch(/elimina la meta Viaje/);
   });
 });
+
+// ─── Tercera vuelta: lo que encontró la revisión de 3cd1ba1 ──────────────────────────────────────
+// La guarda estricta preguntaba de más; la que cierra la familia ACHICA el selector a lo que la
+// persona escribió (lib/datos-dichos.js, `achicarAlMensaje`) y deja decidir al resolver estricto.
+
+describe('revisión de 3cd1ba1 · lo legítimo no pregunta', () => {
+  it('"el mcdonalds era comida" mueve el McDonald\'s (el apóstrofe no se escribe en WhatsApp)', async () => {
+    montar({ transacciones: [tx('t-m', "McDonald's", '2026-10-01T12:00:00')] });
+    await decir('corregir_categoria', 'el mcdonalds era salud', { comercio: 'mcdonalds', categoria_nueva: 'Salud' });
+    expect(pg.fila('transacciones', 't-m').categoria).toBe('Salud');
+  });
+
+  it('"recupera lo de dominos" restaura el Domino\'s', async () => {
+    montar({ transacciones_eliminadas: [borrado('e-d', "Domino's", 45, '2026-10-01T12:00:00')], transacciones: [] });
+    await decir('restaurar_eliminado', 'recupera lo de dominos', { comercio: 'dominos' });
+    expect(pg.escrituras('transacciones')[0]?.cuerpo.comercio).toBe("Domino's");
+  });
+
+  it('la regla de "mcdonalds" se retroaplica a McDonald\'s y MCDONALD\'S', async () => {
+    montar({ transacciones: [tx('t-1', "McDonald's", '2026-10-01T12:00:00'), tx('t-2', "MCDONALD'S", '2026-09-30T12:00:00'), tx('t-3', 'Donald Shop', '2026-09-29T12:00:00')] });
+    expect(await servicios.tx.retroaplicarRegla('u-1', 'mcdonalds', 'Comida', null)).toBe(2);
+    expect(pg.fila('transacciones', 't-3').categoria).toBe('Otros');
+  });
+
+  it('"mi mamá me pagó 50" abona a Mamá (exacta sin el posesivo)', async () => {
+    montar({ deudas: [deuda('d-ma', 'Mamá', 100, '2026-09-20'), deuda('d-j', 'Juan', 30, '2026-09-01')], deuda_abonos: [] });
+    await decir('abonar_deuda', 'mi mamá me pagó 50', { contraparte: 'mi mamá', monto: 50 });
+    expect(pg.fila('deudas', 'd-ma').monto_pendiente).toBe(50);
+  });
+
+  it('pero "lo de mi banco" sigue sin alcanzar a Banco Pichincha (por palabra, "mi" cuenta)', async () => {
+    montar({ deudas: [deuda('d-bp', 'Banco Pichincha', 500, '2026-09-20')], deuda_abonos: [] });
+    await decir('abonar_deuda', 'le pagué 50 a mi banco', { contraparte: 'mi banco', monto: 50 });
+    expect(pg.fila('deudas', 'd-bp').monto_pendiente).toBe(500);
+  });
+
+  it('"aboné 100 al fondo de emergencias" abona a la meta Fondo de emergencia, diga el modelo lo que diga', async () => {
+    montar({ metas_ahorro: [meta('m-f', 'Fondo de emergencia', '2026-09-20'), VIAJE], meta_aportes: [] });
+    await decir('abonar_meta', 'aboné 100 al fondo de emergencias', { nombre_meta: 'Fondo de emergencia', monto: 100 });
+    expect(pg.fila('metas_ahorro', 'm-f').monto_actual).toBe(200);
+  });
+
+  it('"el doctor ramírez me prestó 200" crea la deuda (crear no elige fila: el nombre se guarda tal cual)', async () => {
+    montar({ deudas: [], deuda_abonos: [] });
+    await decir('registrar_deuda', 'el doctor ramírez me prestó 200', { contraparte: 'Dr. Ramírez', monto: 200, tipo: 'debo' });
+    expect(pg.tablas.deudas.map((d) => d.contraparte)).toEqual(['Dr. Ramírez']);
+  });
+
+  it('"le presté 60 a mis primos" crea la deuda con "primo"', async () => {
+    montar({ deudas: [], deuda_abonos: [] });
+    await decir('registrar_deuda', 'le presté 60 a mis primos', { contraparte: 'primo', monto: 60, tipo: 'me_deben' });
+    expect(pg.tablas.deudas).toHaveLength(1);
+  });
+
+  it('"pagué 120 de luz en el depa" con el espacio "Depa 3B" (el modelo copia el nombre entero) anota ahí', async () => {
+    montar({});
+    espacios = [{ id: 's-3b', name: 'Depa 3B', invite_code: 'D3B' }];
+    await decir('registrar_gasto_espacio', 'pagué 120 de luz en el depa', { monto: 120, nombre_espacio: 'Depa 3B' });
+    expect(spaces.registrarGastoCompartido).toHaveBeenCalledWith('u-1', 's-3b', 120, null, null);
+  });
+
+  it('"Carlos me pagó 20" con Carlos M y Carlos R pregunta; con solo Carlos M le abona', async () => {
+    montar({ deudas: [deuda('d-cm', 'Carlos M', 70, '2026-09-10'), deuda('d-cr', 'Carlos R', 60, '2026-09-05')], deuda_abonos: [] });
+    await decir('abonar_deuda', 'Carlos me pagó 20', { contraparte: 'Carlos M', monto: 20 });
+    expect(pg.escrituras()).toEqual([]);
+    montar({ deudas: [deuda('d-cm', 'Carlos M', 70, '2026-09-10')], deuda_abonos: [] });
+    await decir('abonar_deuda', 'Carlos me pagó 20', { contraparte: 'Carlos M', monto: 20 });
+    expect(pg.fila('deudas', 'd-cm').monto_pendiente).toBe(50);
+  });
+
+  it('"Marco me pagó 20" con el modelo diciendo "Marcos" abona a Marco', async () => {
+    montar({ deudas: [deuda('d-ms', 'Marcos', 80, '2026-09-20'), deuda('d-m', 'Marco', 40, '2026-09-01')], deuda_abonos: [] });
+    await decir('abonar_deuda', 'Marco me pagó 20', { contraparte: 'Marcos', monto: 20 });
+    expect(pg.fila('deudas', 'd-m').monto_pendiente).toBe(20);
+    expect(pg.fila('deudas', 'd-ms').monto_pendiente).toBe(80);
+  });
+});
+
+describe('revisión de 3cd1ba1 · dos metas con el mismo nombre no eligen una a ciegas', () => {
+  const DOS_VIAJES = () => ({ metas_ahorro: [meta('m-v2', 'Viaje', '2026-09-20'), meta('m-v1', 'Viaje', '2026-09-01')], meta_aportes: [] });
+  it('"aboné 100 a la meta viaje" no abona', async () => {
+    montar(DOS_VIAJES());
+    const resp = await decir('abonar_meta', 'aboné 100 a la meta viaje', { nombre_meta: 'viaje', monto: 100 });
+    expect(pg.escrituras()).toEqual([]);
+    expect(resp).toMatch(/2 metas que se llaman \*Viaje\*/);
+  });
+  it('"elimina la meta viaje" no borra', async () => {
+    montar(DOS_VIAJES());
+    await decir('eliminar_meta', 'elimina la meta viaje', { nombre: 'viaje' });
+    expect(pg.escrituras()).toEqual([]);
+  });
+});
+
+describe('revisión de 3cd1ba1 · el lote de la regla pasa de los 100 ids', () => {
+  it('250 movimientos de Uber se mueven los 250', async () => {
+    const filas = Array.from({ length: 250 }, (_, i) => tx('t-' + String(i).padStart(3, '0'), 'Uber', '2026-09-01T12:00:00'));
+    montar({ transacciones: [...filas, tx('t-ue', 'Uber Eats', '2026-10-01T12:00:00')] });
+    // "Uber Eats" también: "uber" por palabra entera lo alcanza. Lo que se fija acá es que no se
+    // pierda ningún trozo de 100.
+    expect(await servicios.tx.retroaplicarRegla('u-1', 'uber', 'Transporte', null)).toBe(251);
+    expect(pg.tablas.transacciones.filter((t) => t.categoria === 'Transporte')).toHaveLength(251);
+  });
+});

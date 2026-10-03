@@ -6,7 +6,7 @@ const { validarMonto } = require('../../lib/validators');
 const { verificarEscritura, entro } = require('../../helpers/escritura-verificada');
 const { hoyPeru } = require('../../lib/dates');
 const { calcularCuotaDiaria, diasHastaInclusive } = require('../../services/metas');
-const { resolverNombre, mensajeNoResuelto, PALABRAS_DEL_DOMINIO } = require('../../lib/resolver-nombre');
+const { resolverNombre, mensajeNoResuelto, mensajeHomonimas, PALABRAS_DEL_DOMINIO } = require('../../lib/resolver-nombre');
 
 // El schema del tool pide YYYY-MM-DD, pero nadie lo normalizaba: "2026-10-31T00:00:00" o
 // "2026-9-30" daban NaN en las cuotas, "31/10/2026" reventaba el insert en la columna date, y
@@ -49,6 +49,7 @@ function iconoViabilidad(v) {
 // nombre con varias metas se pregunta. Devuelve `{ meta }` o `{ respuesta }` (lo que se le contesta).
 function elegirMeta(metas, nombre) {
   const res = resolverNombre(nombre, metas, { nombreDe: (m) => m.nombre, ignorar: PALABRAS_DEL_DOMINIO.meta });
+  if (res.estado === 'uno' && res.filas.length > 1) return { respuesta: mensajeHomonimas(res) };
   if (res.estado === 'uno') return { meta: res.filas[0] };
   if (res.estado === 'sin_nombre' && metas.length === 1) return { meta: metas[0] };
   return { respuesta: mensajeNoResuelto(res, { ninguna: 'ninguna meta', cosas: 'metas', dicho: nombre, nombreDe: (m) => m.nombre }) };
