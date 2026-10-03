@@ -10,14 +10,15 @@
  * que el clasificador llegue al intent (si no llega, no se juzga y la corrida sale exit 2):
  *
  *   A. Metas Laptop (la más reciente) y Viaje Cusco: "elimina la meta moto" no borra ninguna;
- *      control "elimina la meta viaje" borra Viaje Cusco y deja Laptop.
+ *      "elimina la meta viaje" no borra Laptop; control "elimina la meta viaje cusco" borra Viaje
+ *      Cusco y deja Laptop (el nombre de la meta llega en `meta_id`: si el remapeo se cae, falla acá).
  *   B. Deudas activas con Luisa (la más reciente) y con Luis: "salda todo con Luis" no salda a Luisa;
  *      control: Luis queda pagada.
  *   C. Borrados pendientes Cine (el último) y KFC: "recupera el gasto de la pizza" no restaura nada;
  *      control "recupera el kfc" restaura el KFC y no el cine.
  *   D. Gastos Uber Eats (el más reciente) y Uber, los dos en Otros: "el uber era transporte" no
- *      mueve el Uber Eats; control: el Uber pasa a Transporte.
- *   E. Gastos Lina y Gasolina en Otros: "todo lo de Lina siempre va en Salud" no mueve la Gasolina; control:
+ *      mueve el Uber Eats (pregunta: son dos nombres); control "el uber eats era salud" mueve ese.
+ *   E. Gastos Lina y Gasolina en Otros: "el de lina era salud, siempre" no mueve la Gasolina; control:
  *      Lina pasa a Salud.
  *
  * Cómo no le escribe a nadie: el molde de `qa-datos-no-dichos.mjs` (is_test_user, número `510000…`,
@@ -223,8 +224,13 @@ try {
   check(!!(await uno('metas_ahorro', laptop.id, 'id')), 'A: Laptop sigue ahí');
   check(!!(await uno('metas_ahorro', viaje.id, 'id')), 'A: Viaje Cusco sigue ahí');
   check(!/Eliminé la meta/.test(ra), 'A: no contesta "Eliminé la meta"');
-  await decir(a, 'elimina la meta viaje');
-  if (await uno('metas_ahorro', viaje.id, 'id')) { nota('A: "elimina la meta viaje" no borró Viaje Cusco, el control no se juzga'); noEjercitados.push('A'); }
+  // El modelo alarga "viaje" a "Viaje Cusco" (12 de 12 medido) y eso pregunta "¿Hablas de…?": el
+  // control usa el nombre entero, que es la salida que esa pregunta ofrece.
+  const rv = await decir(a, 'elimina la meta viaje');
+  check(!!(await uno('metas_ahorro', laptop.id, 'id')), 'A: "elimina la meta viaje" no borra Laptop');
+  if (!/Hablas de|Eliminé la meta \*Viaje Cusco\*/.test(rv)) nota('A: "elimina la meta viaje" contestó otra cosa: ' + JSON.stringify(rv.slice(0, 80)));
+  if (await uno('metas_ahorro', viaje.id, 'id')) await decir(a, 'elimina la meta viaje cusco');
+  if (await uno('metas_ahorro', viaje.id, 'id')) { nota('A: "elimina la meta viaje cusco" no borró Viaje Cusco, el control no se juzga'); noEjercitados.push('A'); }
   else check(!!(await uno('metas_ahorro', laptop.id, 'id')), 'A: control, borra Viaje Cusco y deja Laptop');
 
   // ── B: deudas ───────────────────────────────────────────────────────────────────────────────
@@ -263,16 +269,26 @@ try {
   const rd = await decir(d, 'el uber era transporte');
   const fUe = await uno('transacciones', uberEats.id, 'categoria');
   check(fUe.categoria === 'Otros', 'D: el Uber Eats no se mueve', 'categoria=' + fUe.categoria);
+  // Desde la cuarta vuelta "uber" con Uber y Uber Eats PREGUNTA (el exacto no tiene prioridad): el
+  // control nombra el comercio entero.
+  check(/Uber Eats/.test(rd), 'D: pregunta entre Uber y Uber Eats', JSON.stringify(rd.slice(0, 80)));
+  await decir(d, 'el uber eats era salud');
+  const fUe2 = await uno('transacciones', uberEats.id, 'categoria');
   const fU = await uno('transacciones', uber.id, 'categoria');
-  if (fU.categoria === 'Otros') { nota('D: el Uber no se movió (' + JSON.stringify(rd.slice(0, 80)) + '), el control no se juzga'); noEjercitados.push('D'); }
-  else check(fU.categoria === 'Transporte', 'D: control, el Uber pasa a Transporte', 'categoria=' + fU.categoria);
+  if (fUe2.categoria === 'Otros') { nota('D: "el uber eats era salud" no movió el Uber Eats, el control no se juzga'); noEjercitados.push('D'); }
+  else {
+    check(fUe2.categoria === 'Salud', 'D: control, el Uber Eats pasa a Salud', 'categoria=' + fUe2.categoria);
+    check(fU.categoria === 'Otros', 'D: control, el Uber no se arrastra', 'categoria=' + fU.categoria);
+  }
 
   // ── E: una regla con "siempre" no se derrama por subcadena ─────────────────────────────────
-  console.log('\nE · "todo lo de Lina siempre va en Salud" con Lina y Gasolina');
+  console.log('\nE · "el de lina era salud, siempre" con Lina y Gasolina');
   const e = await crear(EN_PRUEBA());
   const lina = await gasto(e, 'Lina', 3);
   const gasolina = await gasto(e, 'Gasolina', 2);
-  await decir(e, 'todo lo de Lina siempre va en Salud');
+  // "todo lo de Lina siempre va en Salud" no le saca el comercio al clasificador (medido dos veces
+  // contra prod): la corrección con alcance ("siempre") también retroaplica.
+  await decir(e, 'el de lina era salud, siempre');
   await dormir(3000);   // la retroaplicación de `corregir_categoria` no se espera en el handler
   const fG = await uno('transacciones', gasolina.id, 'categoria');
   check(fG.categoria === 'Otros', 'E: la Gasolina no se mueve', 'categoria=' + fG.categoria);
