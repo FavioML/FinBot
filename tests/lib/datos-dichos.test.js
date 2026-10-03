@@ -170,13 +170,13 @@ describe('rondas 2 y 3: lo que las revisiones adversariales escribieron y pasaba
     expect(rev('eliminar_meta', 'elimina esa meta', { nombre: 'Viaje' }).pregunta).toBe(ESCRITURAS.eliminar_meta.pregunta);
     expect(rev('abonar_meta', 'aboné 100 a esa meta', { monto: 100, nombre_meta: 'Viaje' }).pregunta).not.toBeNull();
     expect(rev('abonar_meta', 'separé 200', { monto: 200, nombre_meta: 'Viaje' }).pregunta).not.toBeNull();
-    // "viaje europa" no nombra "Viaje Cusco": desde la cuarta vuelta del resolver (02-oct) no se
-    // pregunta acá, se busca LO DICHO ("viaje europa") y el resolver no encuentra nada que escribir.
-    const europa = rev('eliminar_meta', 'elimina la meta viaje europa', { nombre: 'Viaje Cusco' });
-    expect(europa.pregunta).toBeNull();
-    expect(europa.datos.nombre).toBe('viaje europa');
-    // y el modelo que alarga "viaje" a "Viaje Cusco" (12 de 12 medido) ya no encierra en un loop
-    expect(rev('eliminar_meta', 'elimina la meta viaje', { nombre: 'Viaje Cusco' }).datos.nombre).toBe('viaje');
+    // "viaje europa" no nombra "Viaje Cusco": se pregunta, mostrándole el nombre del modelo.
+    expect(rev('eliminar_meta', 'elimina la meta viaje europa', { nombre: 'Viaje Cusco' }).pregunta).toMatch(/Hablas de \*Viaje Cusco\*/);
+    // el modelo que alarga "viaje" a "Viaje Cusco" (12 de 12 medido) recibe la misma pregunta, que
+    // SÍ tiene salida (escribir el nombre entero), en vez del "¿de qué meta me hablas?" en loop
+    const parcial = rev('eliminar_meta', 'elimina la meta viaje', { nombre: 'Viaje Cusco' });
+    expect(parcial.pregunta).toMatch(/Hablas de \*Viaje Cusco\*/);
+    expect(parcial.pregunta).not.toBe(ESCRITURAS.eliminar_meta.pregunta);
     // controles
     expect(rev('eliminar_meta', 'elimina la meta viaje', { nombre: 'Viaje' }).pregunta).toBeNull();
     expect(rev('eliminar_meta', 'elimina la meta viaje cusco', { nombre: 'Viaje Cusco' }).pregunta).toBeNull();

@@ -875,13 +875,12 @@ describe('revisión de 3cd1ba1 · lo legítimo no pregunta', () => {
     expect(pg.tablas.deudas).toHaveLength(1);
   });
 
-  it('"pagué 120 de luz en el depa" con "Depa 3B" del modelo y un solo espacio anota en Depa 3B', async () => {
-    // Cuarta vuelta: se busca "depa" (lo dicho) y el resolver, sin prioridad del exacto, no puede
-    // elegir una hermana más corta; con un solo espacio que lo contiene, ese.
+  it('"pagué 120 de luz en el depa" con "Depa 3B" del modelo PREGUNTA (costo declarado: la persona dijo menos)', async () => {
     montar({});
     espacios = [{ id: 's-3b', name: 'Depa 3B', invite_code: 'D3B' }];
-    await decir('registrar_gasto_espacio', 'pagué 120 de luz en el depa', { monto: 120, nombre_espacio: 'Depa 3B' });
-    expect(spaces.registrarGastoCompartido).toHaveBeenCalledWith('u-1', 's-3b', 120, null, null);
+    const resp = await decir('registrar_gasto_espacio', 'pagué 120 de luz en el depa', { monto: 120, nombre_espacio: 'Depa 3B' });
+    expect(spaces.registrarGastoCompartido).not.toHaveBeenCalled();
+    expect(resp).toMatch(/Hablas de \*Depa 3B\*/);
   });
 
   it('control: sin nombre del modelo y con un solo espacio, "pagué 120 de luz en el depa" anota', async () => {
@@ -891,13 +890,14 @@ describe('revisión de 3cd1ba1 · lo legítimo no pregunta', () => {
     expect(spaces.registrarGastoCompartido).toHaveBeenCalledWith('u-1', 's-3b', 120, null, null);
   });
 
-  it('"Carlos me pagó 20" con el modelo diciendo "Carlos M": con Carlos M y Carlos R pregunta; con solo Carlos M le abona', async () => {
+  it('"Carlos me pagó 20" con el modelo diciendo "Carlos M" pregunta, haya una o dos (costo declarado)', async () => {
     montar({ deudas: [deuda('d-cm', 'Carlos M', 70, '2026-09-10'), deuda('d-cr', 'Carlos R', 60, '2026-09-05')], deuda_abonos: [] });
     await decir('abonar_deuda', 'Carlos me pagó 20', { contraparte: 'Carlos M', monto: 20 });
     expect(pg.escrituras()).toEqual([]);
     montar({ deudas: [deuda('d-cm', 'Carlos M', 70, '2026-09-10')], deuda_abonos: [] });
-    await decir('abonar_deuda', 'Carlos me pagó 20', { contraparte: 'Carlos M', monto: 20 });
-    expect(pg.fila('deudas', 'd-cm').monto_pendiente).toBe(50);
+    const resp = await decir('abonar_deuda', 'Carlos me pagó 20', { contraparte: 'Carlos M', monto: 20 });
+    expect(pg.escrituras()).toEqual([]);
+    expect(resp).toMatch(/Hablas de \*Carlos M\*/);
   });
 
   it('control: "Carlos me pagó 20" con el modelo diciendo "Carlos" y solo Carlos M anotado, le abona', async () => {
@@ -1026,26 +1026,31 @@ describe('fuzz de 19bf37b · el selector es lo que la persona dijo, también lo 
     await decir('saldar_todo_contraparte', 'salda todo con Carlos y el resto lo vemos', { contraparte: 'Carlos Y' });
     expect(pg.fila('deudas', 'd-cy').estado).toBe('activa');
   });
-  it('H5 "Juan Jr me pagó 20" (Juan, Juan Jr; modelo "Juan") abona a Juan Jr', async () => {
+  it('H5 "Juan Jr me pagó 20" (Juan, Juan Jr; modelo "Juan") no abona a Juan (pregunta: son dos nombres)', async () => {
     montar({ deudas: [deuda('d-j', 'Juan', 100, '2026-09-20'), deuda('d-jj', 'Juan Jr', 50, '2026-09-01')], deuda_abonos: [] });
     await decir('abonar_deuda', 'Juan Jr me pagó 20', { contraparte: 'Juan', monto: 20 });
-    expect(pg.fila('deudas', 'd-j').monto_pendiente).toBe(100);
-    expect(pg.fila('deudas', 'd-jj').monto_pendiente).toBe(30);
+    expect(pg.escrituras()).toEqual([]);
   });
-  it('H6 "aboné 100 a la meta viaje 2" (Viaje, Viaje 2; modelo "Viaje") abona a Viaje 2', async () => {
+  it('H6 "aboné 100 a la meta viaje 2" (Viaje, Viaje 2; modelo "Viaje") no abona a Viaje (pregunta)', async () => {
     montar({ metas_ahorro: [meta('m-v', 'Viaje', '2026-09-20'), meta('m-v2', 'Viaje 2', '2026-09-01')], meta_aportes: [] });
     await decir('abonar_meta', 'aboné 100 a la meta viaje 2', { nombre_meta: 'Viaje', monto: 100 });
-    expect(pg.fila('metas_ahorro', 'm-v').monto_actual).toBe(100);
-    expect(pg.fila('metas_ahorro', 'm-v2').monto_actual).toBe(200);
+    expect(pg.escrituras()).toEqual([]);
   });
   it('"elimina la meta viaje europa" con el modelo diciendo "Viaje Cusco" no borra Viaje Cusco', async () => {
     montar(DOS_METAS);
     await decir('eliminar_meta', 'elimina la meta viaje europa', { nombre: 'Viaje Cusco' });
     expect(pg.escrituras()).toEqual([]);
   });
-  it('control (12 de 12 medido): "elimina la meta viaje" con el modelo diciendo "Viaje Cusco" borra Viaje Cusco', async () => {
+  it('"elimina la meta viaje" con el modelo diciendo "Viaje Cusco" (12 de 12 medido) pregunta mostrando el nombre', async () => {
     montar(DOS_METAS);
-    await decir('eliminar_meta', 'elimina la meta viaje', { nombre: 'Viaje Cusco' });
+    const resp = await decir('eliminar_meta', 'elimina la meta viaje', { nombre: 'Viaje Cusco' });
+    expect(pg.escrituras()).toEqual([]);
+    expect(resp).toMatch(/Hablas de \*Viaje Cusco\*/);
+  });
+
+  it('control: con el nombre entero, "elimina la meta viaje cusco" borra Viaje Cusco y deja Laptop', async () => {
+    montar(DOS_METAS);
+    await decir('eliminar_meta', 'elimina la meta viaje cusco', { nombre: 'Viaje Cusco' });
     expect(pg.fila('metas_ahorro', 'm-viaje')).toBeUndefined();
     expect(pg.fila('metas_ahorro', 'm-laptop')).toBeDefined();
   });
@@ -1062,5 +1067,35 @@ describe('fuzz de la quinta vuelta · un número que es el monto no es el nombre
     montar(DOS_ANIOS());
     await decir('abonar_meta', 'aboné 100 a la meta viaje 2026', { nombre_meta: 'Viaje 2026', monto: 100 });
     expect(pg.fila('metas_ahorro', 'm-26').monto_actual).toBe(200);
+  });
+});
+
+// ─── Sexta vuelta: lo que encontró la revisión de e7daf99 (y por qué se sacó la extensión) ──────
+
+describe('revisión de e7daf99 · el nombre no se extiende por el mensaje ni se acepta a medias', () => {
+  it('"salda todo con Juan. Carlos me debe aún" (Juan, Juan Carlos; modelo "Juan") no salda a Juan Carlos', async () => {
+    montar({ deudas: [deuda('d-j', 'Juan', 100, '2026-09-20'), deuda('d-jc', 'Juan Carlos', 50, '2026-09-01')], deuda_abonos: [] });
+    await decir('saldar_todo_contraparte', 'salda todo con Juan. Carlos me debe aún', { contraparte: 'Juan' });
+    expect(pg.fila('deudas', 'd-jc').estado).toBe('activa');
+  });
+  it('"le pagué 50 a Ana, Rosa me paga mañana" (Ana, Ana Rosa; modelo "Ana") no abona a Ana Rosa', async () => {
+    montar({ deudas: [deuda('d-a', 'Ana', 100, '2026-09-20'), deuda('d-ar', 'Ana Rosa', 80, '2026-09-01')], deuda_abonos: [] });
+    await decir('abonar_deuda', 'le pagué 50 a Ana, Rosa me paga mañana', { contraparte: 'Ana', monto: 50 });
+    expect(pg.fila('deudas', 'd-ar').monto_pendiente).toBe(80);
+  });
+  it('"Rosa me yapeó 20 por el taxi" (Rosa, Pedro Taxi; modelo "Pedro Taxi") no abona a Pedro Taxi', async () => {
+    montar({ deudas: [deuda('d-r', 'Rosa', 100, '2026-09-20'), deuda('d-pt', 'Pedro Taxi', 80, '2026-09-01')], deuda_abonos: [] });
+    await decir('abonar_deuda', 'Rosa me yapeó 20 por el taxi', { contraparte: 'Pedro Taxi', monto: 20 });
+    expect(pg.fila('deudas', 'd-pt').monto_pendiente).toBe(80);
+  });
+  it('"elimina la meta laptop, ya no la necesito para la universidad" (modelo "Fondo Universidad") no borra Fondo Universidad', async () => {
+    montar({ metas_ahorro: [LAPTOP, meta('m-fu', 'Fondo Universidad', '2026-09-01')], meta_aportes: [] });
+    await decir('eliminar_meta', 'elimina la meta laptop, ya no la necesito para la universidad', { nombre: 'Fondo Universidad' });
+    expect(pg.fila('metas_ahorro', 'm-fu')).toBeDefined();
+  });
+  it('"le pagué a Carlos S/50" (modelo "Carlos") no termina en "no encontré" por el prefijo del monto', async () => {
+    montar({ deudas: [deuda('d-c', 'Carlos', 100, '2026-09-20')], deuda_abonos: [] });
+    await decir('abonar_deuda', 'le pagué a Carlos S/50', { contraparte: 'Carlos', monto: 50 });
+    expect(pg.fila('deudas', 'd-c').monto_pendiente).toBe(50);
   });
 });
