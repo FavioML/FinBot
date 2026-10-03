@@ -2,10 +2,10 @@
 
 Qué respalda, dónde está, y cómo devolver Neto a la vida.
 
-Última restauración de prueba verificada: **2026-09-03**, sobre el backup generado
-por GitHub Actions (`neto-backup-20260903T124710Z`): 43 tablas, 20 725 filas
-idénticas al origen, 14 comprobantes válidos, RLS y las 24 policies intactas,
-cero filas huérfanas.
+Última restauración de prueba verificada: **2026-10-03**, sobre el backup generado
+por GitHub Actions (`neto-backup-20261003T131802Z`): 43 tablas, 38 082 filas
+idénticas al origen, 21 archivos de storage presentes y todos los comprobantes
+JPEG válidos, RLS y las 24 policies intactas, cero filas huérfanas.
 
 ---
 
