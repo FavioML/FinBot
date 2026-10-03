@@ -29,8 +29,9 @@ describe('resolverNombre', () => {
     expect(resolverNombre('viaje cusco', filas('Viaje a Cusco 2027'), nd)).toMatchObject({ estado: 'uno', nombre: 'Viaje a Cusco 2027' });
   });
 
-  it('la exacta gana sobre la que la contiene: "Uber" con Uber y Uber Eats', () => {
-    expect(resolverNombre('uber', filas('Uber Eats', 'Uber'), nd)).toMatchObject({ estado: 'uno', nombre: 'Uber' });
+  it('la exacta NO tiene prioridad: "Uber" con Uber y Uber Eats son dos nombres y pregunta (cuarta vuelta)', () => {
+    expect(resolverNombre('uber', filas('Uber Eats', 'Uber'), nd)).toEqual({ estado: 'varios', nombres: ['Uber Eats', 'Uber'] });
+    expect(resolverNombre('juan', filas('Juan', 'Juan Jr'), nd).estado).toBe('varios');
   });
 
   it('sin exacta, una sola por palabra: "uber" con solo Uber Eats', () => {
@@ -71,9 +72,10 @@ describe('resolverNombre', () => {
     expect(resolverNombre('la meta', filas('Laptop', 'Viaje'), o).estado).toBe('sin_nombre');
   });
 
-  it('"meta viaje" con Viaje y Viaje Europa es Viaje (exacta sin la palabra del dominio), no "varios"', () => {
+  it('"meta viaje" cuenta como "viaje" (sin la palabra del dominio): con solo Viaje es Viaje, con Viaje Europa pregunta', () => {
     const o = { ...nd, ignorar: PALABRAS_DEL_DOMINIO.meta };
-    expect(resolverNombre('meta viaje', filas('Viaje Europa', 'Viaje'), o)).toMatchObject({ estado: 'uno', nombre: 'Viaje' });
+    expect(resolverNombre('meta viaje', filas('Viaje', 'Laptop'), o)).toMatchObject({ estado: 'uno', nombre: 'Viaje' });
+    expect(resolverNombre('meta viaje', filas('Viaje Europa', 'Viaje'), o).estado).toBe('varios');
   });
 
   it('una meta que SE LLAMA como una palabra del dominio se encuentra por exacta', () => {

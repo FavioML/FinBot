@@ -85,3 +85,22 @@ describe('todo remap declarado apunta a un parámetro que la tool realmente emit
     expect(malos, malos.join('\n')).toEqual([]);
   });
 });
+
+describe('manage_goals: el nombre de la meta llega aunque el modelo lo ponga en meta_id', () => {
+  // Medido el 02-oct-2026 con gpt-4o-mini y el schema real: 12 de 12 llamadas de delete, edit,
+  // abandon y share traían el NOMBRE en `meta_id` ("meta_id":"Viaje Cusco"). Los handlers leen
+  // `datos.nombre`, así que "elimina la meta viaje" llegaba sin nombre y borraba la más reciente.
+  for (const action of ['delete', 'edit', 'abandon', 'share', 'viability', 'suggest_cuts']) {
+    it(action + ': meta_id → nombre', () => {
+      const { datos } = mapToolToIntent('manage_goals', { action, meta_id: 'Viaje Cusco' });
+      expect(datos.nombre).toBe('Viaje Cusco');
+      expect(datos.meta_id).toBeUndefined();
+    });
+  }
+  it('si el modelo dio los dos, gana `nombre`', () => {
+    expect(mapToolToIntent('manage_goals', { action: 'delete', nombre: 'Moto', meta_id: 'Viaje' }).datos.nombre).toBe('Moto');
+  });
+  it('deposit sigue yendo a nombre_meta', () => {
+    expect(mapToolToIntent('manage_goals', { action: 'deposit', meta_id: 'Viaje', monto_abono: 10 }).datos.nombre_meta).toBe('Viaje');
+  });
+});

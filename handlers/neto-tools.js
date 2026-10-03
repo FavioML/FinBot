@@ -1098,6 +1098,14 @@ function mapToolToIntent(toolName, args) {
     return { intencion: "ver_ultima_transaccion", datos: {} };
   }
 
+  // El modelo pone el NOMBRE de la meta en `meta_id` (medido el 02-oct-2026 con gpt-4o-mini y el
+  // schema real: 12 de 12 en delete/edit/abandon/share). Sin esto, "elimina la meta viaje" llegaba
+  // sin nombre y el handler borraba la más reciente. `deposit` ya lo remapea a `nombre_meta`.
+  if (toolName === "manage_goals" && action !== "deposit" && datos.meta_id !== undefined) {
+    if (datos.nombre === undefined || datos.nombre === null || datos.nombre === "") datos.nombre = datos.meta_id;
+    delete datos.meta_id;
+  }
+
   // Special case: manage_debts.register — convert yo_debo boolean to tipo string
   if (toolName === "manage_debts" && action === "register") {
     if (datos._yo_debo !== undefined) {

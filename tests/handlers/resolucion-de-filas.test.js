@@ -305,11 +305,10 @@ describe('metas · un nombre dicho que no coincide no escribe sobre otra meta', 
     expect(resp).toMatch(/Viaje Cusco/);
   });
 
-  it('el nombre exacto gana sobre el parecido: "viaje" con Viaje y Viaje Europa borra Viaje', async () => {
+  it('"viaje" con Viaje y Viaje Europa pregunta: la exacta no tiene prioridad (cuarta vuelta)', async () => {
     montar({ metas_ahorro: [meta('m-eu', 'Viaje Europa', '2026-09-22'), meta('m-v', 'Viaje', '2026-09-01')], meta_aportes: [] });
     await decir('eliminar_meta', 'elimina la meta viaje', { nombre: 'viaje' });
-    expect(pg.fila('metas_ahorro', 'm-v')).toBeUndefined();
-    expect(pg.fila('metas_ahorro', 'm-eu')).toBeDefined();
+    expect(pg.escrituras()).toEqual([]);
   });
 
   it('sin nombre y con dos metas, "elimina mi meta" pregunta cuál', async () => {
@@ -541,12 +540,11 @@ describe('restaurar · un pedido que no coincide no restaura otro gasto', () => 
     expect(pg.escrituras()).toEqual([]);
   });
 
-  it('"recupera el uber" con Uber y Uber Eats borrados restaura Uber, aunque Uber Eats sea el último', async () => {
+  it('"recupera el uber" con Uber y Uber Eats borrados no restaura el Uber Eats (pregunta: son dos nombres)', async () => {
     montar({ transacciones_eliminadas: [borrado('e-ue', 'Uber Eats', 40, '2026-10-01T12:00:00'), borrado('e-u', 'Uber', 12, '2026-09-30T12:00:00')], transacciones: [] });
-    await decir('restaurar_eliminado', 'recupera el uber', { comercio: 'uber' });
-    const ins = pg.escrituras('transacciones');
-    expect(ins).toHaveLength(1);
-    expect(ins[0].cuerpo.comercio).toBe('Uber');
+    const resp = await decir('restaurar_eliminado', 'recupera el uber', { comercio: 'uber' });
+    expect(pg.escrituras()).toEqual([]);
+    expect(resp).toMatch(/Uber Eats/);
   });
 
   it('dos comercios distintos que coinciden por palabra preguntan cuál', async () => {
@@ -601,11 +599,18 @@ const tx = (id, comercio, created_at, extra = {}) => ({
 });
 
 describe('corregir_categoria · el comercio dicho, no el que lo contiene', () => {
-  it('"el uber era transporte" mueve el Uber, no el Uber Eats más reciente', async () => {
+  it('"el uber era transporte" con Uber y Uber Eats no mueve el Uber Eats más reciente (pregunta)', async () => {
     montar({ transacciones: [tx('t-ue', 'Uber Eats', '2026-10-01T12:00:00'), tx('t-u', 'Uber', '2026-09-30T12:00:00')] });
     await decir('corregir_categoria', 'el uber era transporte', { comercio: 'uber', categoria_nueva: 'Transporte' });
-    expect(pg.fila('transacciones', 't-u').categoria).toBe('Transporte');
     expect(pg.fila('transacciones', 't-ue').categoria, 'movió el Uber Eats').toBe('Otros');
+    expect(pg.escrituras('transacciones')).toEqual([]);
+  });
+
+  it('control: "el uber eats era salud" mueve el Uber Eats y no el Uber', async () => {
+    montar({ transacciones: [tx('t-ue', 'Uber Eats', '2026-10-01T12:00:00'), tx('t-u', 'Uber', '2026-09-30T12:00:00')] });
+    await decir('corregir_categoria', 'el uber eats era salud', { comercio: 'uber eats', categoria_nueva: 'Salud' });
+    expect(pg.fila('transacciones', 't-ue').categoria).toBe('Salud');
+    expect(pg.fila('transacciones', 't-u').categoria).toBe('Otros');
   });
 
   it('dos comercios que coinciden por palabra preguntan cuál', async () => {
@@ -687,11 +692,18 @@ describe('retroaplicarRegla · "lina" no alcanza a "gasolina"', () => {
 const pres = (id, categoria) => ({ id, usuario_id: 'u-1', categoria, monto_limite: 300, mes: 10, anio: 2026 });
 
 describe('eliminar_presupuesto · la categoría dicha, no la que la contiene', () => {
-  it('"elimina el presupuesto de comida" con Comida rápida y Comida borra Comida', async () => {
+  it('"elimina el presupuesto de comida" con Comida rápida y Comida no borra ninguno (pregunta)', async () => {
     montar({ presupuestos: [pres('p-cr', 'Comida rápida'), pres('p-c', 'Comida')] });
     await decir('eliminar_presupuesto', 'elimina el presupuesto de comida', { categoria: 'comida' });
-    expect(pg.fila('presupuestos', 'p-c')).toBeUndefined();
-    expect(pg.fila('presupuestos', 'p-cr'), 'borró Comida rápida').toBeDefined();
+    expect(pg.escrituras()).toEqual([]);
+  });
+
+  it('control: "elimina el presupuesto de comida rápida" borra Comida rápida', async () => {
+    // Comida rápida NO va primera: así borrar "el primero que devolvió la base" no pasa por acierto.
+    montar({ presupuestos: [pres('p-c', 'Comida'), pres('p-cr', 'Comida rápida')] });
+    await decir('eliminar_presupuesto', 'elimina el presupuesto de comida rápida', { categoria: 'comida rápida' });
+    expect(pg.fila('presupuestos', 'p-cr')).toBeUndefined();
+    expect(pg.fila('presupuestos', 'p-c')).toBeDefined();
   });
 
   it('dos categorías que coinciden por palabra preguntan cuál', async () => {
@@ -863,14 +875,13 @@ describe('revisión de 3cd1ba1 · lo legítimo no pregunta', () => {
     expect(pg.tablas.deudas).toHaveLength(1);
   });
 
-  it('"pagué 120 de luz en el depa" con "Depa 3B" del modelo PREGUNTA (costo declarado: la persona dijo menos)', async () => {
-    // Revisión de 89690c0: si se suelta una palabra que no es vacía, lo que queda gana por exacta
-    // contra la hermana ("depa 3-b" anotaba en Depa). Se pregunta mostrando lo que dijo el modelo.
+  it('"pagué 120 de luz en el depa" con "Depa 3B" del modelo y un solo espacio anota en Depa 3B', async () => {
+    // Cuarta vuelta: se busca "depa" (lo dicho) y el resolver, sin prioridad del exacto, no puede
+    // elegir una hermana más corta; con un solo espacio que lo contiene, ese.
     montar({});
     espacios = [{ id: 's-3b', name: 'Depa 3B', invite_code: 'D3B' }];
-    const resp = await decir('registrar_gasto_espacio', 'pagué 120 de luz en el depa', { monto: 120, nombre_espacio: 'Depa 3B' });
-    expect(spaces.registrarGastoCompartido).not.toHaveBeenCalled();
-    expect(resp).toMatch(/Hablas de \*Depa 3B\*/);
+    await decir('registrar_gasto_espacio', 'pagué 120 de luz en el depa', { monto: 120, nombre_espacio: 'Depa 3B' });
+    expect(spaces.registrarGastoCompartido).toHaveBeenCalledWith('u-1', 's-3b', 120, null, null);
   });
 
   it('control: sin nombre del modelo y con un solo espacio, "pagué 120 de luz en el depa" anota', async () => {
@@ -880,14 +891,13 @@ describe('revisión de 3cd1ba1 · lo legítimo no pregunta', () => {
     expect(spaces.registrarGastoCompartido).toHaveBeenCalledWith('u-1', 's-3b', 120, null, null);
   });
 
-  it('"Carlos me pagó 20" con el modelo diciendo "Carlos M" pregunta, haya una o dos', async () => {
+  it('"Carlos me pagó 20" con el modelo diciendo "Carlos M": con Carlos M y Carlos R pregunta; con solo Carlos M le abona', async () => {
     montar({ deudas: [deuda('d-cm', 'Carlos M', 70, '2026-09-10'), deuda('d-cr', 'Carlos R', 60, '2026-09-05')], deuda_abonos: [] });
     await decir('abonar_deuda', 'Carlos me pagó 20', { contraparte: 'Carlos M', monto: 20 });
     expect(pg.escrituras()).toEqual([]);
     montar({ deudas: [deuda('d-cm', 'Carlos M', 70, '2026-09-10')], deuda_abonos: [] });
-    const resp = await decir('abonar_deuda', 'Carlos me pagó 20', { contraparte: 'Carlos M', monto: 20 });
-    expect(pg.escrituras()).toEqual([]);
-    expect(resp).toMatch(/Hablas de \*Carlos M\*/);
+    await decir('abonar_deuda', 'Carlos me pagó 20', { contraparte: 'Carlos M', monto: 20 });
+    expect(pg.fila('deudas', 'd-cm').monto_pendiente).toBe(50);
   });
 
   it('control: "Carlos me pagó 20" con el modelo diciendo "Carlos" y solo Carlos M anotado, le abona', async () => {
@@ -990,5 +1000,67 @@ describe('revisión de 89690c0 · el posesivo exacto es solo "mi", y nunca en lo
     montar({ transacciones: [tx('t-mb', 'Mi Banco', '2026-10-01T12:00:00'), tx('t-b', 'BANCO', '2026-09-30T12:00:00')] });
     expect(await servicios.tx.retroaplicarRegla('u-1', 'Mi Banco', 'Prestamos', null)).toBe(1);
     expect(pg.fila('transacciones', 't-b').categoria).toBe('Otros');
+  });
+});
+
+// ─── Quinta vuelta: lo que encontró el fuzz de 19bf37b y el control de prod ──────────────────────
+
+describe('fuzz de 19bf37b · el selector es lo que la persona dijo, también lo que dijo DESPUÉS', () => {
+  it('H1 "aboné a la meta viaje 2 mil" (Viaje, Viaje 2; modelo "Viaje 2") no abona a Viaje 2', async () => {
+    montar({ metas_ahorro: [meta('m-v', 'Viaje', '2026-09-20'), meta('m-v2', 'Viaje 2', '2026-09-01')], meta_aportes: [] });
+    await decir('abonar_meta', 'aboné a la meta viaje 2 mil', { nombre_meta: 'Viaje 2', monto: 2000 });
+    expect(pg.escrituras()).toEqual([]);
+  });
+  it('H2 "le pagué a Pedro 2 mil" (Pedro, Pedro 2; modelo "Pedro 2") no toca a Pedro 2', async () => {
+    montar({ deudas: [deuda('d-p', 'Pedro', 3000, '2026-09-20'), deuda('d-p2', 'Pedro 2', 2500, '2026-09-01')], deuda_abonos: [] });
+    await decir('abonar_deuda', 'le pagué a Pedro 2 mil', { contraparte: 'Pedro 2', monto: 2000 });
+    expect(pg.fila('deudas', 'd-p2').monto_pendiente).toBe(2500);
+  });
+  it('H3 "le di 50 a Carlos a cuenta" (Carlos A, Carlos R; modelo "Carlos A") no escribe', async () => {
+    montar({ deudas: [deuda('d-ca', 'Carlos A', 70, '2026-09-10'), deuda('d-cr', 'Carlos R', 60, '2026-09-05')], deuda_abonos: [] });
+    await decir('abonar_deuda', 'le di 50 a Carlos a cuenta', { contraparte: 'Carlos A', monto: 50 });
+    expect(pg.escrituras()).toEqual([]);
+  });
+  it('H4 "salda todo con Carlos y el resto lo vemos" (Carlos, Carlos Y; modelo "Carlos Y") no salda a Carlos Y', async () => {
+    montar({ deudas: [deuda('d-c', 'Carlos', 70, '2026-09-10'), deuda('d-cy', 'Carlos Y', 60, '2026-09-05')], deuda_abonos: [] });
+    await decir('saldar_todo_contraparte', 'salda todo con Carlos y el resto lo vemos', { contraparte: 'Carlos Y' });
+    expect(pg.fila('deudas', 'd-cy').estado).toBe('activa');
+  });
+  it('H5 "Juan Jr me pagó 20" (Juan, Juan Jr; modelo "Juan") abona a Juan Jr', async () => {
+    montar({ deudas: [deuda('d-j', 'Juan', 100, '2026-09-20'), deuda('d-jj', 'Juan Jr', 50, '2026-09-01')], deuda_abonos: [] });
+    await decir('abonar_deuda', 'Juan Jr me pagó 20', { contraparte: 'Juan', monto: 20 });
+    expect(pg.fila('deudas', 'd-j').monto_pendiente).toBe(100);
+    expect(pg.fila('deudas', 'd-jj').monto_pendiente).toBe(30);
+  });
+  it('H6 "aboné 100 a la meta viaje 2" (Viaje, Viaje 2; modelo "Viaje") abona a Viaje 2', async () => {
+    montar({ metas_ahorro: [meta('m-v', 'Viaje', '2026-09-20'), meta('m-v2', 'Viaje 2', '2026-09-01')], meta_aportes: [] });
+    await decir('abonar_meta', 'aboné 100 a la meta viaje 2', { nombre_meta: 'Viaje', monto: 100 });
+    expect(pg.fila('metas_ahorro', 'm-v').monto_actual).toBe(100);
+    expect(pg.fila('metas_ahorro', 'm-v2').monto_actual).toBe(200);
+  });
+  it('"elimina la meta viaje europa" con el modelo diciendo "Viaje Cusco" no borra Viaje Cusco', async () => {
+    montar(DOS_METAS);
+    await decir('eliminar_meta', 'elimina la meta viaje europa', { nombre: 'Viaje Cusco' });
+    expect(pg.escrituras()).toEqual([]);
+  });
+  it('control (12 de 12 medido): "elimina la meta viaje" con el modelo diciendo "Viaje Cusco" borra Viaje Cusco', async () => {
+    montar(DOS_METAS);
+    await decir('eliminar_meta', 'elimina la meta viaje', { nombre: 'Viaje Cusco' });
+    expect(pg.fila('metas_ahorro', 'm-viaje')).toBeUndefined();
+    expect(pg.fila('metas_ahorro', 'm-laptop')).toBeDefined();
+  });
+});
+
+describe('fuzz de la quinta vuelta · un número que es el monto no es el nombre', () => {
+  const DOS_ANIOS = () => ({ metas_ahorro: [meta('m-26', 'Viaje 2026', '2026-09-20'), meta('m-27', 'Viaje 2027', '2026-09-01')], meta_aportes: [] });
+  it('"aboné a la meta viaje 2026" (monto 2026) con Viaje 2026 y Viaje 2027 no abona', async () => {
+    montar(DOS_ANIOS());
+    await decir('abonar_meta', 'aboné a la meta viaje 2026', { nombre_meta: 'Viaje 2026', monto: 2026 });
+    expect(pg.escrituras()).toEqual([]);
+  });
+  it('control: "aboné 100 a la meta viaje 2026" abona a Viaje 2026', async () => {
+    montar(DOS_ANIOS());
+    await decir('abonar_meta', 'aboné 100 a la meta viaje 2026', { nombre_meta: 'Viaje 2026', monto: 100 });
+    expect(pg.fila('metas_ahorro', 'm-26').monto_actual).toBe(200);
   });
 });
