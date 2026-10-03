@@ -22,7 +22,8 @@ import { join, relative, dirname, sep } from 'node:path';
  * Dos perimetros, porque las reglas no son todas del mismo tipo:
  *
  *   SIEMPRE      lo que es falso en cualquier pantalla (no hay integracion bancaria,
- *                la negacion absoluta sobre correos, el registro sin esfuerzo).
+ *                la negacion absoluta sobre correos, el registro sin esfuerzo, los
+ *                canales "sincronizados" y el score unico sin "en Peru").
  *   CONVERSION   la regla de PROMINENCIA de Gmail del CLAUDE.md de Neto. La funcion
  *                esta viva, es de Pro y es opt-in, pero no va de titular ni con
  *                nombres de bancos donde alguien todavia esta decidiendo. Solo el
@@ -59,6 +60,20 @@ const APP = join(SRC, 'app');
 /** Prefijos que el middleware gatea: lo de adentro no lo ve nadie sin sesion. */
 const PROTEGIDAS = ['dashboard', 'admin', 'onboarding'];
 
+/**
+ * Una exclusividad ("ningun otro", "nadie mas", "solo Neto", "el unico") y el score en la misma
+ * frase, en cualquier orden, sin "en Peru" en esa frase. La frase termina en punto o en raya:
+ * "Único en Perú — ningún otro asistente tiene score" afirma dos cosas, y la segunda va sin alcance.
+ */
+const SIN_PERU = String.raw`(?:(?!en\s+(?:el\s+)?Per[uú])[^.—\n])*?`;
+const NI_DESPUES = String.raw`(?![^.—\n]*en\s+(?:el\s+)?Per[uú])`;
+const NINGUN_OTRO = String.raw`(?:ning[uú]n[oa]?\s+otr[oa]s?|nadie\s+m[aá]s)`;
+const SCORE_UNICO_SIN_ALCANCE = new RegExp(
+  String.raw`(?:${NINGUN_OTRO}|s[oó]lo\s+Neto|\b(?:el|la)\s+[uú]nic[oa])${SIN_PERU}\bscores?\b${NI_DESPUES}` +
+    String.raw`|\bscores?\b${SIN_PERU}${NINGUN_OTRO}${NI_DESPUES}`,
+  'i'
+);
+
 const SIEMPRE = [
   {
     id: 'integracion-bancaria',
@@ -80,6 +95,22 @@ const SIEMPRE = [
     porque: 'Falso: el 9.5% de las transacciones nacen de un correo y el resto las anota la persona. Ademas contradice al hero, que vende justo anotar.',
     debeMatchear: ['Sin anotar nada.', 'para importar tus transacciones sin que hagas nada', 'Tus gastos se registran solos'],
     noDebeMatchear: ['Neto lo registra solo', 'sin anotar el numero de tarjeta'],
+  },
+  {
+    // Lo que se corrigio en /login el 31-jul ("una sola cuenta, sincronizada") y reaparecio tres
+    // veces en la landing el 03-oct. El lookbehind deja pasar el texto o audio de un video.
+    id: 'canales-sincronizados',
+    patron: /(?<!(?:texto|audio|video|subt[ií]tulos?)\s)\bsincronizad[oa]s?\b|\bse\s+sincronizan?\s+sol[oa]s?\b|\bauto-?sync\b/i,
+    porque: 'Conectar WhatsApp y la app no sincroniza dos cuentas: las vuelve una. Forma decidida en docs/CHANNEL-CAPABILITY-MATRIX.md: "una sola cuenta con tus datos en los dos lados", nunca auto-sync.',
+    debeMatchear: ['Conéctalos y es una sola cuenta, sincronizada.', 'Conéctalos y todo queda sincronizado', 'tu WhatsApp y la app se sincronizan solos'],
+    noDebeMatchear: ['¿Se sincroniza mi cuenta entre la app y WhatsApp?', 'Al conectarlos, es una sola cuenta con tus datos en los dos lados.', 'texto sincronizado que obliga a leer'],
+  },
+  {
+    id: 'score-unico-sin-alcance',
+    patron: SCORE_UNICO_SIN_ALCANCE,
+    porque: 'Poqt (Brasil) tiene un score 0-100: el Score es unico en Peru, no en la categoria. La forma de la landing es "Único en Perú entre asistentes de WhatsApp".',
+    debeMatchear: ['Único en Perú — ningún otro asistente de WhatsApp tiene score', 'El único asistente de WhatsApp con score financiero', 'Un score que ninguna otra app te da'],
+    noDebeMatchear: ['Único en Perú entre asistentes de WhatsApp', 'ningún otro asistente de WhatsApp en Perú tiene score', 'Lo único que mide tu score es lo que anotas'],
   },
 ];
 
