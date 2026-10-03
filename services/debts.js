@@ -2,6 +2,49 @@ const { supabase } = require('../lib/db');
 const { hoyPeru, sumarDias } = require('../lib/dates');
 const log = require('../lib/logger');
 const { validarMonto } = require('../lib/validators');
+const { resolverNombre, listaNombres } = require('../lib/resolver-nombre');
+
+/**
+ * Con quién es la deuda que la persona nombró (lib/resolver-nombre.js, 02-oct-2026). Pura: recibe
+ * las deudas ACTIVAS del usuario, ordenadas de la más reciente a la más vieja.
+ *
+ * Antes cada función buscaba con `ilike '%' + contraparte + '%'`: "salda todo con Luis" saldaba
+ * también a Luisa, y "Luis me pagó 20" abonaba a la deuda más reciente de cualquiera de los dos.
+ * Ahora: exacto, si no por palabra entera; dos personas distintas que coinciden ("Luis Pérez" y
+ * "Luis Soto") preguntan. Varias deudas con la MISMA persona no son ambigüedad: cada función
+ * decide (la más reciente para un abono, todas para "salda todo").
+ *
+ * @returns {{ deudas: object[], nombre: string } | { error: 'no_resuelta', mensaje: string }}
+ */
+function resolverContraparte(deudas, contraparte) {
+  const res = resolverNombre(contraparte, deudas || [], { nombreDe: (d) => d.contraparte });
+  if (res.estado === 'uno') return { deudas: res.filas, nombre: res.nombre };
+  const dicho = String(contraparte || '').trim();
+  if (res.estado === 'varios') {
+    return { error: 'no_resuelta', mensaje: 'Tienes deudas activas con varias personas que coinciden con *' + dicho + '*: '
+      + listaNombres(res.nombres) + '. ¿Con cuál? Dime el nombre completo, por ejemplo _"' + res.nombres[0] + ' me pagó 20"_.' };
+  }
+  if (res.estado === 'sin_nombre') {
+    return { error: 'no_resuelta', mensaje: '¿Con quién es? Dime el nombre, por ejemplo _"Juan me pagó 20"_.' };
+  }
+  return { error: 'no_resuelta', mensaje: 'No encontré deuda activa con *' + dicho + '*, así que no cambié nada.'
+    + (res.disponibles.length ? ' Tienes deudas activas con ' + listaNombres(res.disponibles) + '.' : '')
+    + '\n\n_Revisa con "mis deudas"._' };
+}
+
+/** Las deudas activas del usuario con la persona nombrada. Lanza si la lectura cae. */
+async function deudasActivasCon(usuarioId, contraparte) {
+  const { data, error } = await supabase.from('deudas')
+    .select('*')
+    .eq('usuario_id', usuarioId)
+    .eq('estado', 'activa')
+    .order('created_at', { ascending: false });
+  // Sin leer el error, `data` viene null y la resolución dice "no encontré deuda con Juan": el
+  // abono se pierde y la persona cree que escribió mal el nombre. Tirar deja que el handler diga
+  // que falló, que es lo único honesto acá.
+  if (error) throw error;
+  return resolverContraparte(data || [], contraparte);
+}
 
 /**
  * El monto se valida ACÁ, en el chokepoint de deudas, y no solo en los handlers.
@@ -77,22 +120,10 @@ async function abonarDeuda(usuarioId, contraparte, montoAbono) {
   // false—, así que el sobrepago no lo frenaba y `pendiente - NaN` dejaba la deuda en
   // NaN para siempre. Acá lanza, que es lo que el handler ya sabe convertir en mensaje.
   const montoValidado = montoDeDeuda(montoAbono);
-  // Buscar la deuda activa más reciente que coincida con la contraparte
-  const { data: deudas, error: errDeudas } = await supabase.from('deudas')
-    .select('*')
-    .eq('usuario_id', usuarioId)
-    .eq('estado', 'activa')
-    .ilike('contraparte', `%${contraparte.trim()}%`)
-    .order('created_at', { ascending: false });
-  // Sin leer el error, `deudas` viene null y el `return null` de abajo es indistinguible de
-  // "no le debes nada a esa persona". El handler lo traduce a ese mensaje y el abono se
-  // pierde: el usuario cree que dijo algo que Neto no entendio. Tirar deja que el handler
-  // diga que fallo, que es lo unico honesto que se puede decir aca.
-  if (errDeudas) throw errDeudas;
-
-  if (!deudas || deudas.length === 0) return null;
-
-  const deuda = deudas[0];
+  // La deuda activa más reciente con ESA persona (no con cualquiera cuyo nombre la contenga).
+  const conQuien = await deudasActivasCon(usuarioId, contraparte);
+  if (conQuien.error) return conQuien;
+  const deuda = conQuien.deudas[0];
   const pendiente = parseFloat(deuda.monto_pendiente);
 
   // Prevent overpayment
@@ -130,19 +161,9 @@ async function abonarDeuda(usuarioId, contraparte, montoAbono) {
  * Marca una deuda como pagada por nombre de contraparte.
  */
 async function marcarDeudaPagada(usuarioId, contraparte) {
-  const { data: deudas, error: errDeudas } = await supabase.from('deudas')
-    .select('*')
-    .eq('usuario_id', usuarioId)
-    .eq('estado', 'activa')
-    .ilike('contraparte', `%${contraparte.trim()}%`)
-    .order('created_at', { ascending: false });
-  // Mismo engano que en `abonarDeuda`, y aca la consecuencia es que la deuda queda
-  // sin saldar mientras al usuario se le dice que no existe.
-  if (errDeudas) throw errDeudas;
-
-  if (!deudas || deudas.length === 0) return null;
-
-  const deuda = deudas[0];
+  const conQuien = await deudasActivasCon(usuarioId, contraparte);
+  if (conQuien.error) return conQuien;
+  const deuda = conQuien.deudas[0];
   const { data, error } = await supabase.from('deudas').update({
     monto_pendiente: 0,
     estado: 'pagada',
@@ -293,17 +314,11 @@ async function obtenerDeudasParaResumenSemanal() {
  * Consolida deudas activas por contraparte (totales por moneda).
  */
 async function consolidarDeudasPorContraparte(usuarioId, contraparte) {
-  const { data: deudas, error: errDeudas } = await supabase.from('deudas')
-    .select('*')
-    .eq('usuario_id', usuarioId)
-    .eq('estado', 'activa')
-    .ilike('contraparte', '%' + contraparte.trim() + '%')
-    .order('created_at', { ascending: false });
-  if (errDeudas) throw errDeudas;
-
-  if (!deudas || deudas.length === 0) return null;
-
-  const nombreReal = deudas[0].contraparte;
+  // Lectura, pero con la misma resolución: el total "con Luis" no suma lo de Luisa.
+  const conQuien = await deudasActivasCon(usuarioId, contraparte);
+  if (conQuien.error) return conQuien;
+  const deudas = conQuien.deudas;
+  const nombreReal = conQuien.nombre;
   const totales = { PEN: 0, USD: 0 };
   const debo = { PEN: 0, USD: 0 };
   const meDeben = { PEN: 0, USD: 0 };
@@ -320,21 +335,16 @@ async function consolidarDeudasPorContraparte(usuarioId, contraparte) {
 
 /**
  * Marca TODAS las deudas activas con una contraparte como pagadas.
- * @returns {number} cantidad de deudas saldadas
+ * @returns {{ count: number, contraparte: string } | { error: 'no_resuelta', mensaje: string }}
  */
 async function saldarTodasDeudas(usuarioId, contraparte) {
-  const { data: deudas, error: errDeudas } = await supabase.from('deudas')
-    .select('id')
-    .eq('usuario_id', usuarioId)
-    .eq('estado', 'activa')
-    .ilike('contraparte', '%' + contraparte.trim() + '%');
-  // El `return 0` de abajo se reporta como "no habia nada que saldar". Con la base caida eso
-  // es un saldo que el usuario da por cerrado y sigue abierto.
-  if (errDeudas) throw errDeudas;
+  // Todas las de ESA persona: con `ilike '%Luis%'` "salda todo con Luis" saldaba también a Luisa.
+  // Con la base caída `deudasActivasCon` lanza: un "no había nada que saldar" sobre una lectura
+  // caída es un saldo que el usuario da por cerrado y sigue abierto.
+  const conQuien = await deudasActivasCon(usuarioId, contraparte);
+  if (conQuien.error) return conQuien;
 
-  if (!deudas || deudas.length === 0) return 0;
-
-  const ids = deudas.map(d => d.id);
+  const ids = conQuien.deudas.map(d => d.id);
   const { error } = await supabase.from('deudas').update({
     monto_pendiente: 0,
     estado: 'pagada',
@@ -342,7 +352,7 @@ async function saldarTodasDeudas(usuarioId, contraparte) {
   }).in('id', ids);
 
   if (error) throw error;
-  return ids.length;
+  return { count: ids.length, contraparte: conQuien.nombre };
 }
 
 module.exports = {
@@ -355,4 +365,5 @@ module.exports = {
   obtenerDeudasParaResumenSemanal,
   consolidarDeudasPorContraparte,
   saldarTodasDeudas,
+  resolverContraparte,
 };

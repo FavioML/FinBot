@@ -84,6 +84,15 @@ function makeChain(table, op = 'select', patch = null) {
     filtros.push((f) => typeof f[col] === 'string' && re.test(f[col]));
     return chain;
   };
+  // `imatch` es `~*` de Postgres (regex POSIX, sin distinguir mayúsculas). Lo usa la búsqueda por
+  // nombre de `lib/resolver-nombre.js` en vez de `ilike`. Otro operador no se modela: lanza.
+  chain.filter = (col, operador, patron) => {
+    if (operador !== 'imatch') throw new Error('el mock no modela .filter(' + operador + ')');
+    vistos.push({ col, val: patron });
+    const re = new RegExp(patron, 'i');
+    filtros.push((f) => typeof f[col] === 'string' && re.test(f[col]));
+    return chain;
+  };
   chain.order = (col, opts) => { orden = { col, asc: !opts || opts.ascending !== false }; return chain; };
   chain.limit = (n) => { tope = n; return chain; };
   let desdeFila = 0;
@@ -738,8 +747,12 @@ describe('el mock discrimina, y "no hay fila" no es un fallo', () => {
    */
   it('una contraparte que no coincide no devuelve la deuda de otro', async () => {
     tablas.deudas = [{ id: 'd-1', usuario_id: 'u-1', contraparte: 'Pedro', estado: 'activa', monto_pendiente: '100', monto_original: '100', moneda: 'PEN' }];
-    await expect(debts.abonarDeuda('u-1', 'Juan', 50),
-      'el mock devolvió la deuda de Pedro cuando se buscaba la de Juan').resolves.toBeNull();
+    // Desde el 02-oct la contraparte se resuelve en JS (lib/resolver-nombre.js) y "no está" es
+    // `{ error: 'no_resuelta' }`, no null; lo que este caso fija sigue igual: ni rastro de Pedro.
+    const res = await debts.abonarDeuda('u-1', 'Juan', 50);
+    expect(res, 'el mock devolvió la deuda de Pedro cuando se buscaba la de Juan').toMatchObject({ error: 'no_resuelta' });
+    expect(res.deuda).toBeUndefined();
+    expect(tablas.deudas[0].monto_pendiente).toBe('100');
   });
 
   /**
@@ -1023,17 +1036,9 @@ describe('corregir una categoría: "no encontré" tiene que ser cierto', () => {
    */
   it('si la búsqueda cae, no se responde que el comercio no existe', async () => {
     tablas.transacciones = DE_STARBUCKS;
-    // **Cae SÓLO la primera lectura**, y esa precisión es lo que hace que el caso pruebe algo.
-    // Con el fixture tumbando las dos, neutralizar esta guarda dejaba pasar el flujo al
-    // reintento por palabra, que caía igual y devolvía el MISMO mensaje: la segunda guarda
-    // tapaba a la primera y la mutación sobrevivía en verde. Lo encontró el mutador.
-    // Acá la del reintento (`%Starbucks%`, sin espacio) SÍ resuelve y encuentra la fila, así
-    // que sin esta guarda la función devolvería `ok: true`.
-    fallar = (t, v, op) => {
-      if (t !== 'transacciones' || op !== 'select') return null;
-      const patron = (v.find((x) => x.col === 'comercio') || {}).val || '';
-      return patron.indexOf(' ') >= 0 ? BOOM : null;
-    };
+    // Desde el 02-oct hay UNA sola lectura (el reintento palabra por palabra se fue: movía un
+    // comercio que nadie nombró). Si cae, el mensaje lo dice.
+    fallar = (t, v, op) => (t === 'transacciones' && op === 'select' ? BOOM : null);
     const res = await transactions.recategorizarTransaccion('u-1', 'Starbucks Lima', 'Comida');
     expect(res.ok).toBe(false);
     expect(res.msg, 'una caída se anunció como "no encontré ninguna transacción"').toMatch(/No pude buscar/i);
@@ -1041,23 +1046,16 @@ describe('corregir una categoría: "no encontré" tiene que ser cierto', () => {
   });
 
   /**
-   * Y el reintento PALABRA POR PALABRA por separado, que es un sitio distinto aunque la forma
-   * sea la misma: es el último recurso antes de "no encontré nada", así que si cae y el bucle
-   * sigue, el mensaje afirma que se buscó. Un caso por FORMA en vez de por SITIO dejaba viva
-   * esta mutación (la lección de los cuatro `reminder_dN` del ítem 7).
+   * El reintento PALABRA POR PALABRA ya no existe (02-oct-2026, lib/resolver-nombre.js): con
+   * "Starbucks Wong" movía el gasto de "Starbucks Lima", que nadie nombró. Ahora lo ofrece.
    */
-  it('y el reintento por palabra tampoco puede caer en silencio', async () => {
+  it('"Starbucks Wong" no mueve el gasto de Starbucks Lima: lo ofrece', async () => {
     tablas.transacciones = DE_STARBUCKS;
-    // La primera lectura (`%Starbucks Wong%`) no encuentra nada y devuelve []; la del
-    // reintento, con una sola palabra, es la que cae.
-    fallar = (t, v, op) => {
-      if (t !== 'transacciones' || op !== 'select') return null;
-      const patron = (v.find((x) => x.col === 'comercio') || {}).val || '';
-      return patron.indexOf(' ') === -1 ? BOOM : null;
-    };
     const res = await transactions.recategorizarTransaccion('u-1', 'Starbucks Wong', 'Comida');
     expect(res.ok).toBe(false);
-    expect(res.msg, 'el reintento cayó y el mensaje dijo que no había gastos').toMatch(/No pude buscar/i);
+    expect(res.msg).toMatch(/No encontre ninguna transaccion de \*Starbucks Wong\*/);
+    expect(res.msg).toMatch(/Starbucks Lima/);
+    expect(escrituras.filter((e) => e.op === 'update' && e.tabla === 'transacciones')).toHaveLength(0);
   });
 
   /**

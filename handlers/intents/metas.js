@@ -6,6 +6,7 @@ const { validarMonto } = require('../../lib/validators');
 const { verificarEscritura, entro } = require('../../helpers/escritura-verificada');
 const { hoyPeru } = require('../../lib/dates');
 const { calcularCuotaDiaria, diasHastaInclusive } = require('../../services/metas');
+const { resolverNombre, mensajeNoResuelto, PALABRAS_DEL_DOMINIO } = require('../../lib/resolver-nombre');
 
 // El schema del tool pide YYYY-MM-DD, pero nadie lo normalizaba: "2026-10-31T00:00:00" o
 // "2026-9-30" daban NaN en las cuotas, "31/10/2026" reventaba el insert en la columna date, y
@@ -40,6 +41,17 @@ function lineaCuotas(objetivo, actual, fechaLimite, cuotaMensual) {
 // `viable: null` = sin historial para opinar, y no es ni un ✅ ni un ⚠️.
 function iconoViabilidad(v) {
   return v.viable === null ? 'ℹ️' : v.viable ? '✅' : '⚠️';
+}
+
+// Qué meta nombra la persona (lib/resolver-nombre.js, 02-oct-2026). Antes cada caso caía a
+// `metas[0]` cuando el nombre no coincidía: "elimina la meta moto", con Laptop y Viaje Cusco,
+// borraba Laptop. Ahora un nombre que no coincide no escribe, varios que coinciden preguntan, y sin
+// nombre con varias metas se pregunta. Devuelve `{ meta }` o `{ respuesta }` (lo que se le contesta).
+function elegirMeta(metas, nombre, ejemplo) {
+  const res = resolverNombre(nombre, metas, { nombreDe: (m) => m.nombre, ignorar: PALABRAS_DEL_DOMINIO.meta });
+  if (res.estado === 'uno') return { meta: res.filas[0] };
+  if (res.estado === 'sin_nombre' && metas.length === 1) return { meta: metas[0] };
+  return { respuesta: mensajeNoResuelto(res, { ninguna: 'ninguna meta', cosas: 'metas', dicho: nombre, ejemplo, nombreDe: (m) => m.nombre }) };
 }
 
 module.exports = {
@@ -224,11 +236,9 @@ module.exports = {
             throw errMetasEdit;
           }
           if (!metasEdit || !metasEdit.length) return 'No tienes metas de ahorro. Crea una con _"quiero ahorrar S/2000 para julio"_.';
-          let metaTarget = metasEdit[0];
-          if (datos.nombre && metasEdit.length > 1) {
-            const found = metasEdit.find(m => m.nombre.toLowerCase().includes(datos.nombre.toLowerCase()));
-            if (found) metaTarget = found;
-          }
+          const elegidaEdit = elegirMeta(metasEdit, datos.nombre, (n) => 'sube la meta ' + n + ' a 3000');
+          if (elegidaEdit.respuesta) return elegidaEdit.respuesta;
+          const metaTarget = elegidaEdit.meta;
           const updates = {};
           // Era `parseFloat` crudo: "sube mi meta a muchísimo" escribía NaN en
           // `monto_objetivo` (→ null en la columna) y la barra de progreso quedaba
@@ -273,11 +283,9 @@ module.exports = {
             throw errMetasDel;
           }
           if (!metasDel || !metasDel.length) return 'No tienes metas de ahorro para eliminar.';
-          let metaDel = metasDel[0];
-          if (datos.nombre && metasDel.length > 1) {
-            const found = metasDel.find(m => m.nombre.toLowerCase().includes(datos.nombre.toLowerCase()));
-            if (found) metaDel = found;
-          }
+          const elegidaDel = elegirMeta(metasDel, datos.nombre, (n) => 'elimina la meta ' + n);
+          if (elegidaDel.respuesta) return elegidaDel.respuesta;
+          const metaDel = elegidaDel.meta;
           // Mismo criterio que los dos DELETE que cerró 9A: `intento(tabla, verbo)` dice que
           // hubo un delete, nunca sobre QUÉ, así que el `.select('id')` es lo que convierte
           // "afectó 0 filas" en un desenlace propio. Acá cero filas es benigno —la meta ya no
@@ -316,6 +324,7 @@ module.exports = {
           // genérico y un "no pude registrar el abono" que no dice cuál es el problema.
           // La rama existía antes; validar en el servicio la volvió alcanzable.
           if (resultado.error === 'invalid_amount') return 'Ese monto no me cuadra. Dime algo como _"aboné 500 a mi meta"_.';
+          if (resultado.error === 'meta_no_resuelta') return resultado.mensaje;
           const { meta, completada, porcentaje, milestone } = resultado;
           const nuevoActual = parseFloat(meta.monto_actual || 0);
           const objetivo = parseFloat(meta.monto_objetivo);
@@ -375,14 +384,14 @@ module.exports = {
             throw errMetasComp;
           }
           if (!metasComp || metasComp.length === 0) return 'No tienes metas activas. Crea una primero: _"quiero ahorrar 3000 para un viaje"_';
-          // Use first active goal or try to match by name
-          let targetMeta = metasComp[0];
+          // El nombre sale del mensaje ("comparte mi meta viaje con Ana" → "viaje"): lo que sigue a
+          // "con", "para" o "a" es a quién, no qué. Antes se buscaba "viaje con ana" entero, no
+          // coincidía con nada y se compartía la más reciente.
           const mNombre = msg.match(/(?:meta|ahorro)\s+(?:de\s+)?(?:mi\s+)?(.+)/i);
-          if (mNombre) {
-            const buscar = mNombre[1].trim().toLowerCase();
-            const found = metasComp.find(m => m.nombre.toLowerCase().includes(buscar));
-            if (found) targetMeta = found;
-          }
+          const nombreComp = mNombre ? mNombre[1].split(/(?:^|\s+)(?:con|para|a|y)\s+/i)[0].trim() : null;
+          const elegidaComp = elegirMeta(metasComp, nombreComp || null, (n) => 'comparte mi meta ' + n);
+          if (elegidaComp.respuesta) return elegidaComp.respuesta;
+          const targetMeta = elegidaComp.meta;
           // Generate invite code if not exists
           let inviteCode = targetMeta.invite_code;
           if (!inviteCode) {
@@ -425,11 +434,9 @@ module.exports = {
           }
           if (!metas || metas.length === 0) return 'No tienes planes de ahorro activos.';
 
-          let meta = metas[0];
-          if (datos.nombre && metas.length > 1) {
-            const found = metas.find(m => m.nombre.toLowerCase().includes(datos.nombre.toLowerCase()));
-            if (found) meta = found;
-          }
+          const elegida = elegirMeta(metas, datos.nombre, (n) => 'la meta ' + n);
+          if (elegida.respuesta) return elegida.respuesta;
+          const meta = elegida.meta;
 
           const cuota = meta.monthly_quota ? parseFloat(meta.monthly_quota)
             : calcularCuotaMensual(parseFloat(meta.monto_objetivo), parseFloat(meta.monto_actual || 0), meta.fecha_limite);
@@ -460,11 +467,9 @@ module.exports = {
           }
           if (!metas || metas.length === 0) return 'No tienes planes de ahorro activos.';
 
-          let meta = metas[0];
-          if (datos.nombre && metas.length > 1) {
-            const found = metas.find(m => m.nombre.toLowerCase().includes(datos.nombre.toLowerCase()));
-            if (found) meta = found;
-          }
+          const elegida = elegirMeta(metas, datos.nombre, (n) => 'la meta ' + n);
+          if (elegida.respuesta) return elegida.respuesta;
+          const meta = elegida.meta;
 
           const result = await abandonarPlan(usuario.id, meta.id);
           if (!result) return 'No pude abandonar el plan. Intenta de nuevo.';
@@ -494,11 +499,9 @@ module.exports = {
           }
           if (!metas || metas.length === 0) return 'No tienes planes de ahorro activos.';
 
-          let meta = metas[0];
-          if (datos.nombre && metas.length > 1) {
-            const found = metas.find(m => m.nombre.toLowerCase().includes(datos.nombre.toLowerCase()));
-            if (found) meta = found;
-          }
+          const elegida = elegirMeta(metas, datos.nombre, (n) => 'la meta ' + n);
+          if (elegida.respuesta) return elegida.respuesta;
+          const meta = elegida.meta;
 
           const cuota = meta.monthly_quota ? parseFloat(meta.monthly_quota)
             : calcularCuotaMensual(parseFloat(meta.monto_objetivo), parseFloat(meta.monto_actual || 0), meta.fecha_limite);

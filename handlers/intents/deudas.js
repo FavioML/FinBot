@@ -6,6 +6,9 @@ const { sumarMeses } = require('../../lib/dates');
 // y PostgREST lo serializaba a `null`. Lo delató `tests/plata-validada.test.js`.
 const { validarMonto } = require('../../lib/validators');
 const { verificarEscritura, entro } = require('../../helpers/escritura-verificada');
+const { normalizar } = require('../../lib/orden-edicion');
+// Pura (no toca la base): con quién es la deuda nombrada. Ver services/debts.js.
+const { resolverContraparte } = require('../../services/debts');
 
 /**
  * Las cuatro formas de pedir una PARTE de lo que se debe ("la mitad", "un tercio", "40%").
@@ -155,17 +158,19 @@ module.exports = {
           if (contraparte.length > 100) contraparte = contraparte.substring(0, 100);
           // Corrección automática: si existe deuda reciente con mismo monto/contraparte pero tipo opuesto, eliminarla
           const tipoOpuesto = tipo === 'debo' ? 'me_deben' : 'debo';
-          const { data: duplicadaOpuesta, error: errDupOpuesta } = await supabase
+          // La MISMA persona, no cualquiera cuyo nombre la contenga: con `ilike '%Luis%'`, "Luis me
+          // debe 50" borraba como "opuesta" la deuda de 50 con Luisa de hace un minuto (02-oct-2026).
+          // El nombre se compara entero en JS (sin mayúsculas, tildes ni espacios de más).
+          const { data: opuestasRecientes, error: errDupOpuesta } = await supabase
             .from('deudas')
-            .select('id')
+            .select('id, contraparte')
             .eq('usuario_id', usuario.id)
             .eq('estado', 'activa')
             .eq('monto_original', montoClasif)
             .eq('tipo', tipoOpuesto)
-            .ilike('contraparte', '%' + contraparte.trim() + '%')
             .gte('created_at', new Date(Date.now() - 5 * 60 * 1000).toISOString()) // últimos 5 min
-            .order('created_at', { ascending: false })
-            .limit(1);
+            .order('created_at', { ascending: false });
+          const duplicadaOpuesta = (opuestasRecientes || []).filter((d) => normalizar(d.contraparte) === normalizar(contraparte)).slice(0, 1);
           // La corrección automática es lo ÚNICO accesorio de este case, y por eso no corta:
           // abortar acá perdería la deuda que la persona acaba de dictar, que es lo que vino a
           // hacer. Dos decisiones, y las dos son de este sitio y no de la clase:
@@ -248,16 +253,22 @@ module.exports = {
           // Soporte fracciones: "la mitad", "un tercio", "X%"
           let pendienteNoLeido = false;
           if (montoAbono === null && contraparte) {
+            // La fracción se saca de la deuda de ESA persona: con `ilike '%Luis%'` "Luis me pagó la
+            // mitad" sacaba la mitad de lo de Luisa, que además era a quien después se abonaba.
             const { data: deudasCalc, error: errDeudasCalc } = await supabase.from('deudas')
-              .select('monto_pendiente')
+              .select('contraparte, monto_pendiente, created_at')
               .eq('usuario_id', usuario.id).eq('estado', 'activa')
-              .ilike('contraparte', '%' + contraparte.trim() + '%')
-              .order('created_at', { ascending: false }).limit(1);
+              .order('created_at', { ascending: false });
+            const conQuienCalc = errDeudasCalc ? null : resolverContraparte(deudasCalc || [], contraparte);
             if (errDeudasCalc) {
               log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, err: errDeudasCalc.message }, 'abonar_deuda: no se pudo leer el pendiente para resolver la fraccion');
               pendienteNoLeido = true;
-            } else if (deudasCalc && deudasCalc.length > 0) {
-              const pendiente = parseFloat(deudasCalc[0].monto_pendiente);
+            } else if (conQuienCalc.error) {
+              // Dos personas que coinciden, o ninguna: se dice ANTES de leer un número suelto del
+              // mensaje como monto ("Luis me pagó lo de las 2 entradas").
+              return conQuienCalc.mensaje;
+            } else {
+              const pendiente = parseFloat(conQuienCalc.deudas[0].monto_pendiente);
               if (RE_MITAD.test(msg)) montoAbono = pendiente * 0.5;
               else if (RE_TERCIO.test(msg)) montoAbono = pendiente / 3;
               else if (RE_CUARTO.test(msg)) montoAbono = pendiente * 0.25;
@@ -307,6 +318,7 @@ module.exports = {
           if (!resultado) {
             return 'No encontré deuda activa con *' + contraparte + '*. Revisa con _"mis deudas"_ a ver si el nombre está bien.';
           }
+          if (resultado.error === 'no_resuelta') return resultado.mensaje;
           if (resultado.error === 'overpayment') {
             const symOver = resultado.moneda === 'USD' ? '$' : 'S/';
             return '⚠️ El abono de ' + symOver + ' ' + montoAbono.toFixed(2) + ' excede lo pendiente (' + symOver + ' ' + resultado.monto_pendiente.toFixed(2) + ').\n\nSi quieres liquidarla, escribe _"pagué todo a ' + contraparte + '"_.';
@@ -334,6 +346,7 @@ module.exports = {
           if (!deuda) {
             return 'No encontré deuda activa con *' + contraparte + '*. Revisa con _"mis deudas"_.';
           }
+          if (deuda.error === 'no_resuelta') return deuda.mensaje;
           return 'Listo, la deuda con *' + deuda.contraparte + '* (' + (deuda.moneda === 'USD' ? '$' : 'S/') + ' ' + parseFloat(deuda.monto_original).toFixed(2) + ') quedó saldada. 🎉';
         } catch(e) {
           log.error({ tag: 'DEUDA_PAGAR', err: e.message }, 'Error al marcar deuda pagada');
@@ -347,6 +360,7 @@ module.exports = {
           if (!cpCons) return '¿De quién quieres ver el total? Ej: _"cuánto le debo a Juan en total"_';
           const resCons = await consolidarDeudasPorContraparte(usuario.id, cpCons);
           if (!resCons) return 'No encontré deudas activas con *' + cpCons + '*.';
+          if (resCons.error === 'no_resuelta') return resCons.mensaje;
           let msgCons = '📊 *Resumen con ' + resCons.contraparte + '* (' + resCons.deudas.length + ' deuda' + (resCons.deudas.length > 1 ? 's' : '') + ')\n\n';
           if (resCons.debo.PEN > 0 || resCons.debo.USD > 0) {
             msgCons += '📤 *Le debes:*';
@@ -376,9 +390,11 @@ module.exports = {
             if (mCp) cpSaldar = mCp[1].trim();
           }
           if (!cpSaldar) return '¿Con quién quedó todo saldado? Ej: _"salda todo con Juan"_';
-          const count = await saldarTodasDeudas(usuario.id, cpSaldar);
+          const saldo = await saldarTodasDeudas(usuario.id, cpSaldar);
+          if (saldo.error === 'no_resuelta') return saldo.mensaje;
+          const count = saldo.count;
           if (!count) return 'No encontré deudas activas con *' + cpSaldar + '*.';
-          return '✅ Listo, ' + count + ' deuda' + (count > 1 ? 's' : '') + ' con *' + cpSaldar + '* quedaron saldadas. 🎉';
+          return '✅ Listo, ' + count + ' deuda' + (count > 1 ? 's' : '') + ' con *' + (saldo.contraparte || cpSaldar) + '* quedaron saldadas. 🎉';
         } catch(e) {
           log.error({ tag: 'SALDAR_TODO', err: e.message }, 'Error saldar todo');
           return 'No pude saldar las deudas. Intenta de nuevo.';

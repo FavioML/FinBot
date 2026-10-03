@@ -3,6 +3,7 @@ const { validarMonto } = require('../../lib/validators');
 const { verificarEscritura, entro } = require('../../helpers/escritura-verificada');
 const { enlaceApp, estaEnMuro } = require('../../lib/trial');
 const { todasLasFilas } = require('../../lib/todas-las-filas');
+const { resolverNombre, mensajeNoResuelto, PALABRAS_DEL_DOMINIO } = require('../../lib/resolver-nombre');
 
 module.exports = {
   intents: ['ver_presupuesto', 'configurar_presupuesto', 'eliminar_presupuesto', 'ver_balance', 'ver_categorias', 'editar_categorias'],
@@ -159,8 +160,11 @@ module.exports = {
         try {
           const catElimP = datos.categoria;
           if (!catElimP) return '¿De qué categoría quieres eliminar el presupuesto? Ej: _"quita el límite de comida"_';
-          const { data: presElim, error: errPresElim } = await supabase.from('presupuestos').select('*')
-            .eq('usuario_id', usuario.id).ilike('categoria', '%' + catElimP + '%')
+          // Los del mes, y la categoría se resuelve en JS (lib/resolver-nombre.js): con
+          // `ilike '%comida%'` y "Comida rápida" y "Comida" se borraba la primera que devolviera la
+          // base, en un orden que nadie fijaba.
+          const { data: presMes, error: errPresElim } = await supabase.from('presupuestos').select('*')
+            .eq('usuario_id', usuario.id)
             .eq('mes', mesActual).eq('anio', anioActual);
           // "No tienes presupuesto de Alimentación este mes" sobre una lectura caída es el ejemplo
           // que da nombre a la clase: la persona se queda creyendo que no configuró nada.
@@ -168,7 +172,14 @@ module.exports = {
             log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, categoria: catElimP, err: errPresElim.message }, 'eliminar_presupuesto: no se pudo leer presupuestos');
             throw errPresElim;
           }
-          if (!presElim || !presElim.length) return 'No tienes presupuesto de *' + catElimP + '* este mes.';
+          if (!presMes || !presMes.length) return 'No tienes presupuesto de *' + catElimP + '* este mes.';
+          const resPres = resolverNombre(catElimP, presMes, { nombreDe: (p) => p.categoria, ignorar: PALABRAS_DEL_DOMINIO.presupuesto });
+          if (resPres.estado === 'ninguno') return 'No tienes presupuesto de *' + catElimP + '* este mes.';
+          if (resPres.estado !== 'uno' && !(resPres.estado === 'sin_nombre' && presMes.length === 1)) {
+            return mensajeNoResuelto(resPres, { ninguna: 'ningún presupuesto', cosas: 'presupuestos', dicho: catElimP,
+              ejemplo: (n) => 'elimina el presupuesto de ' + n, nombreDe: (p) => p.categoria });
+          }
+          const presElim = resPres.estado === 'uno' ? resPres.filas : presMes;
           // Gemelo exacto de `eliminar_meta`, y con el mismo motivo para separar los dos malos:
           // el éxito recita el monto que era (`S/ 500`) desde la fila que se leyó arriba. Sobre
           // una fila que ya no está, esa cifra es un recibo de algo que no ocurrió acá.

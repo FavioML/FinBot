@@ -3,6 +3,7 @@ const { todasLasFilas } = require('../lib/todas-las-filas');
 const log = require('../lib/logger');
 const { hoyPeru } = require('../lib/dates');
 const { validarMonto } = require('../lib/validators');
+const { resolverNombre, mensajeNoResuelto, PALABRAS_DEL_DOMINIO } = require('../lib/resolver-nombre');
 
 /**
  * Obtiene las metas de ahorro del usuario.
@@ -48,10 +49,18 @@ async function abonarMeta(usuarioId, nombreMeta, monto, tipo = 'aporte', nota = 
 
   if (!metas || metas.length === 0) return null;
 
-  let meta = metas[0]; // default: la más reciente
-  if (nombreMeta && metas.length > 1) {
-    const found = metas.find(m => m.nombre.toLowerCase().includes(nombreMeta.toLowerCase()));
-    if (found) meta = found;
+  // Qué meta nombra la persona (lib/resolver-nombre.js). Caía a la más reciente cuando el nombre
+  // no coincidía: "aboné 100 a la meta moto" abonaba a otra. Sin nombre y con varias, se pregunta.
+  const res = resolverNombre(nombreMeta, metas, { nombreDe: (m) => m.nombre, ignorar: PALABRAS_DEL_DOMINIO.meta });
+  let meta = null;
+  if (res.estado === 'uno') meta = res.filas[0];
+  else if (res.estado === 'sin_nombre' && metas.length === 1) meta = metas[0];
+  else {
+    return {
+      error: 'meta_no_resuelta',
+      mensaje: mensajeNoResuelto(res, { ninguna: 'ninguna meta', cosas: 'metas', dicho: nombreMeta,
+        ejemplo: (n) => 'aboné ' + monto + ' a la meta ' + n, nombreDe: (m) => m.nombre }),
+    };
   }
 
   // `isNaN(Infinity)` es false, así que el guard viejo (`!monto || monto <= 0 ||

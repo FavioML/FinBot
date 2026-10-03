@@ -442,7 +442,8 @@ const SITIOS = [
     // La meta ajena existe para que el `where` test tenga qué pisar: sin una segunda fila,
     // 'no se derrama' es un no-op y el borrado masivo pasa en verde.
     siembra: () => ({ usuarios: [u()], metas_ahorro: [{ ...META }, { ...META, id: 'm-ajena', nombre: 'Ajena' }] }),
-    entrada: () => ({ usuario: u(), msg: 'sube mi meta a 8000', datos: { monto_nuevo: 8000 } }),
+    // Con el nombre: sin él y con dos metas, desde el 02-oct se pregunta cuál (lib/resolver-nombre.js).
+    entrada: () => ({ usuario: u(), msg: 'sube la meta viaje a 8000', datos: { nombre: 'viaje', monto_nuevo: 8000 } }),
     exito: /actualizada/i,
     malo: /No pude editar la meta/i,
     // 0 filas tiene su PROPIO copy acá: "ya no está" no invita al reintento que no va a andar.
@@ -458,7 +459,7 @@ const SITIOS = [
     sitio: 'eliminar_meta',
     handler: 'metas', intencion: 'eliminar_meta', tabla: 'metas_ahorro', verbo: 'delete',
     siembra: () => ({ usuarios: [u()], metas_ahorro: [{ ...META }, { ...META, id: 'm-ajena', nombre: 'Ajena' }] }),
-    entrada: () => ({ usuario: u(), msg: 'borra mi meta', datos: {} }),
+    entrada: () => ({ usuario: u(), msg: 'borra la meta viaje', datos: { nombre: 'viaje' } }),
     exito: /Eliminé la meta/i,
     malo: /No pude eliminar la meta/i,
     sinFila: /ya no está/i,

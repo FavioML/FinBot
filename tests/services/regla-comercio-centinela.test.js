@@ -21,10 +21,15 @@ const projectRoot = path.resolve(
 const accesos = [];
 function cadena(tabla) {
   const c = {};
-  for (const m of ['select', 'insert', 'update', 'upsert', 'delete', 'eq', 'ilike', 'single', 'maybeSingle', 'limit']) {
-    c[m] = (...args) => { accesos.push({ tabla, m, args }); return c; };
+  let escribe = false;
+  for (const m of ['select', 'insert', 'update', 'upsert', 'delete', 'eq', 'ilike', 'filter', 'in', 'order', 'range', 'single', 'maybeSingle', 'limit']) {
+    c[m] = (...args) => { accesos.push({ tabla, m, args }); if (m === 'update') escribe = true; return c; };
   }
-  c.then = (f, r) => Promise.resolve({ data: { categoria: 'Salud', subcategoria: null }, error: null, count: 7 }).then(f, r);
+  // La LECTURA de `retroaplicarRegla` (desde el 02-oct busca por palabra entera antes de escribir)
+  // necesita filas; el resto de las llamadas recibe lo de siempre.
+  c.then = (f, r) => Promise.resolve(tabla === 'transacciones' && !escribe
+    ? { data: [{ id: 't-1', comercio: 'Tambo' }], error: null, count: 1 }
+    : { data: { categoria: 'Salud', subcategoria: null }, error: null, count: 7 }).then(f, r);
   return c;
 }
 const dbMock = { supabase: { from: (tabla) => { accesos.push({ tabla, m: 'from' }); return cadena(tabla); } } };
@@ -80,7 +85,8 @@ describe('las reglas de comercio no se arman sobre una etiqueta de "sin nombre"'
     expect(accesos.some((a) => a.tabla === 'reglas_comercio' && a.m === 'upsert')).toBe(true);
     accesos.length = 0;
     expect(await retroaplicarRegla('u-1', 'Tambo', 'Alimentación', null)).toBe(7);
-    expect(accesos.some((a) => a.m === 'ilike' && a.args[1] === '%Tambo%')).toBe(true);
+    expect(accesos.some((a) => a.m === 'filter' && a.args[1] === 'imatch')).toBe(true);
+    expect(accesos.some((a) => a.m === 'in' && a.args[0] === 'comercio' && a.args[1].includes('Tambo'))).toBe(true);
     accesos.length = 0;
     expect(await buscarReglaComercio('u-1', 'Tambo')).toEqual({ categoria: 'Salud', subcategoria: null });
   });

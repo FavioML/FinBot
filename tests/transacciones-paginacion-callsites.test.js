@@ -321,8 +321,6 @@ function premisaBackfillTokens(c) {
 // monto y fecha en JS después del corte y, sin match, corregía otro gasto. Desde el 02-oct los
 // filtros van en la consulta y lee `.limit(1)`, que este guard acepta sin declarar.
 const TOP_N = [
-  { archivo: 'services/transactions.js', consulta: "supabase.from('transacciones').select('*').eq('usuario_id',usuarioId).ilike('comercio','%'+comercio+'%').order('created_at',{ascending:false}).limit(5)", motivo: 'candidatos a recategorizar: usa la más reciente (`txs[0]`)' },
-  { archivo: 'services/transactions.js', consulta: "supabase.from('transacciones').select('*').eq('usuario_id',usuarioId).ilike('comercio','%'+palabra+'%').order('created_at',{ascending:false}).limit(5)", motivo: 'el mismo reintento palabra por palabra: usa la más reciente' },
   { archivo: 'services/transactions.js', consulta: "supabase.from('transacciones').select('id,tarjeta_last4').eq('usuario_id',usuarioId).eq('dedup_hash',dedupHash).gte('created_at',ventanaInicio).limit(5)", motivo: 'dedup: busca UN duplicado del mismo hash en los últimos 10 segundos' },
   { archivo: 'handlers/intents/analytics.js', consulta: "supabase.from('transacciones').select('*').eq('usuario_id',usuario.id).gte('updated_at',hoyStr+'T00:00:00').order('updated_at',{ascending:false}).limit(10)", motivo: 'historial de cambios: lista las 10 últimas y lo dice ("Mostrando las últimas N"), no suma' },
 ];
@@ -1976,7 +1974,11 @@ describe('las lecturas de transacciones del backend no se cortan en 1000 en sile
     const h = (consulta) => ({ rel: e.archivo, linea: 1, consulta, motivo: TOPN_SIN_DECLARAR });
     expect(declaradoTopN(h(e.consulta))).toBe(true);
     expect(declaradoTopN(h(e.consulta + '.range(0,99)'))).toBe(false);
-    expect(declaradoTopN(h(e.consulta.replace(".select('*').eq('usuario_id',usuarioId)", ".select('monto_pen')")))).toBe(false);
+    // Por regex y no por el texto de una entrada: si `TOP_N[0]` cambia, un reemplazo literal que no
+    // calza deja la consulta igual y esta línea pasaría a medir nada (pasó el 02-oct al sacar dos).
+    const reescrita = e.consulta.replace(/\.select\('[^']*'\)/, ".select('monto_pen')");
+    expect(reescrita).not.toBe(e.consulta);
+    expect(declaradoTopN(h(reescrita))).toBe(false);
     expect(declaradoTopN(h('x' + e.consulta))).toBe(false);
   });
 

@@ -1,4 +1,16 @@
 const log = require('../../lib/logger');
+const { resolverNombre, mensajeNoResuelto, PALABRAS_DEL_DOMINIO } = require('../../lib/resolver-nombre');
+
+// Qué espacio nombra la persona (lib/resolver-nombre.js, 02-oct-2026). Caía a `espacios[0]` cuando
+// el nombre no coincidía o no se decía, y un espacio es plata de TERCEROS: el gasto se repartía
+// entre la gente equivocada, o el link de invitación era el de otro grupo. Con un solo espacio y
+// sin nombre, ese; con un nombre que no coincide, nada.
+function elegirEspacio(espacios, nombre, ejemplo) {
+  const res = resolverNombre(nombre, espacios, { nombreDe: (e) => e.name, ignorar: PALABRAS_DEL_DOMINIO.espacio });
+  if (res.estado === 'uno') return { espacio: res.filas[0] };
+  if (res.estado === 'sin_nombre' && espacios.length === 1) return { espacio: espacios[0] };
+  return { respuesta: mensajeNoResuelto(res, { ninguna: 'ningún espacio', cosas: 'espacios', dicho: nombre, ejemplo, nombreDe: (e) => e.name }) };
+}
 
 module.exports = {
   intents: [
@@ -76,11 +88,9 @@ module.exports = {
           const espacios = await obtenerEspaciosUsuario(usuario.id);
           if (!espacios || espacios.length === 0) return 'No tienes espacios compartidos. Crea uno con _"crear espacio Depa"_.';
 
-          let space = espacios[0];
-          if (datos.nombre_espacio && espacios.length > 1) {
-            const found = espacios.find(e => e.name.toLowerCase().includes(datos.nombre_espacio.toLowerCase()));
-            if (found) space = found;
-          }
+          const elegido = elegirEspacio(espacios, datos.nombre_espacio, (n) => 'pagué ' + monto + ' en el espacio ' + n);
+          if (elegido.respuesta) return elegido.respuesta;
+          const space = elegido.espacio;
 
           const descripcion = datos.descripcion || null;
           const categoria = datos.categoria || null;
@@ -113,11 +123,9 @@ module.exports = {
           const espacios = await obtenerEspaciosUsuario(usuario.id);
           if (!espacios || espacios.length === 0) return 'No tienes espacios compartidos.';
 
-          let space = espacios[0];
-          if (datos.nombre_espacio && espacios.length > 1) {
-            const found = espacios.find(e => e.name.toLowerCase().includes(datos.nombre_espacio.toLowerCase()));
-            if (found) space = found;
-          }
+          const elegido = elegirEspacio(espacios, datos.nombre_espacio, (n) => 'balance del espacio ' + n);
+          if (elegido.respuesta) return elegido.respuesta;
+          const space = elegido.espacio;
 
           const resumen = await obtenerResumenEspacio(usuario.id, space.id);
           if (!resumen) return 'No tienes acceso a ese espacio.';
@@ -177,11 +185,9 @@ module.exports = {
           const espacios = await obtenerEspaciosUsuario(usuario.id);
           if (!espacios || espacios.length === 0) return 'No tienes espacios compartidos.';
 
-          let space = espacios[0];
-          if (datos.nombre_espacio && espacios.length > 1) {
-            const found = espacios.find(e => e.name.toLowerCase().includes(datos.nombre_espacio.toLowerCase()));
-            if (found) space = found;
-          }
+          const elegido = elegirEspacio(espacios, datos.nombre_espacio, (n) => 'le pagué ' + monto + ' a ' + contraparte + ' en el espacio ' + n);
+          if (elegido.respuesta) return elegido.respuesta;
+          const space = elegido.espacio;
 
           // Find counterpart member
           // Con esta lectura caída, `members || []` deja el `.find` sin nada que encontrar y la
@@ -194,11 +200,16 @@ module.exports = {
             log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, spaceId: space.id, err: errMembers.message }, 'liquidar_espacio: no se pudo leer space_members');
             throw errMembers;
           }
-          const target = (members || []).find(m =>
-            m.user_id !== usuario.id &&
-            m.usuarios?.nombre?.toLowerCase().includes(contraparte.toLowerCase())
-          );
-          if (!target) return 'No encontré a "' + contraparte + '" en el espacio *' + space.name + '*.';
+          // A quién se le paga, con la misma regla: "Ana" no es "Mariana", y con "Ana Pérez" y
+          // "Ana Torres" en el espacio se pregunta en vez de pagarle a la primera que aparezca.
+          const otros = (members || []).filter((m) => m.user_id !== usuario.id);
+          const aQuien = resolverNombre(contraparte, otros, { nombreDe: (m) => m.usuarios?.nombre || '' });
+          if (aQuien.estado === 'varios') {
+            return 'En *' + space.name + '* hay varias personas que coinciden con *' + contraparte + '*: '
+              + aQuien.nombres.map((n) => '*' + n + '*').join(', ') + '. ¿A cuál le pagaste? Dime el nombre completo.';
+          }
+          if (aQuien.estado !== 'uno') return 'No encontré a "' + contraparte + '" en el espacio *' + space.name + '*.';
+          const target = aQuien.filas[0];
 
           await liquidarCuentas(space.id, usuario.id, target.user_id, monto);
           const targetName = target.usuarios?.nombre?.split(' ')[0] || contraparte;
@@ -216,11 +227,9 @@ module.exports = {
           const espacios = await obtenerEspaciosUsuario(usuario.id);
           if (!espacios || espacios.length === 0) return 'No tienes espacios compartidos. Crea uno con _"crear espacio Depa"_.';
 
-          let space = espacios[0];
-          if (datos.nombre_espacio && espacios.length > 1) {
-            const found = espacios.find(e => e.name.toLowerCase().includes(datos.nombre_espacio.toLowerCase()));
-            if (found) space = found;
-          }
+          const elegido = elegirEspacio(espacios, datos.nombre_espacio, (n) => 'invita a alguien al espacio ' + n);
+          if (elegido.respuesta) return elegido.respuesta;
+          const space = elegido.espacio;
 
           // Check member limit
           // El único de los catorce que falla ABIERTO: `members?.length || 0` le pasa 0 al límite,

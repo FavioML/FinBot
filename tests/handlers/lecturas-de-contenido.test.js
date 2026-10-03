@@ -1354,7 +1354,8 @@ describe('deudas.js — las dos lecturas mudas', () => {
     });
 
     it('con opuesta reciente y el DELETE ok, tampoco avisa', async () => {
-      const sb = makeSupabase({ filas: () => [{ id: 'dup-1' }] });
+      // Con `contraparte`: la opuesta se compara por nombre entero en JS desde el 02-oct.
+      const sb = makeSupabase({ filas: () => [{ id: 'dup-1', contraparte: 'Juan' }] });
       const { r, logs } = await correrEspiando(() => correrDeudas(sb, 'registrar_deuda', datos).p);
       expect(r).not.toMatch(/⚠️/);
       expect(sb.cuenta((c) => c.verbo === 'delete')).toBe(1);
@@ -1382,7 +1383,7 @@ describe('deudas.js — las dos lecturas mudas', () => {
 
   describe('abonar_deuda, el pendiente para la fracción (sitio 199) — la de PLATA', () => {
     it('con el pendiente leído, "la mitad" abona la mitad', async () => {
-      const sb = makeSupabase({ filas: () => [{ monto_pendiente: '200' }] });
+      const sb = makeSupabase({ filas: () => [{ contraparte: 'Juan', monto_pendiente: '200' }] });
       const { ctx, p } = correrDeudas(sb, 'abonar_deuda', { contraparte: 'Juan' }, { msg: 'le pagué la mitad a Juan' });
       const { logs } = await correrEspiando(() => p);
       expect(ctx.abonarDeuda).toHaveBeenCalledWith('u-1', 'Juan', 100);
@@ -1393,7 +1394,8 @@ describe('deudas.js — las dos lecturas mudas', () => {
       const sb = makeSupabase({ filas: () => [] });
       const { ctx, p } = correrDeudas(sb, 'abonar_deuda', { contraparte: 'Juan' }, { msg: 'le pagué la mitad de los 300 a Juan' });
       const { r, logs } = await correrEspiando(() => p);
-      expect(r).toMatch(/no encontré una deuda activa con saldo pendiente con \*Juan\*/);
+      // Desde el 02-oct lo dice la resolución de la contraparte (services/debts.js), antes del monto.
+      expect(r).toMatch(/No encontré deuda activa con \*Juan\*/);
       expect(ctx.abonarDeuda).not.toHaveBeenCalled();   // el 300 del texto NO se abona
       expect(logs).toHaveLength(0);                     // no hubo caída: no había deuda, y punto
     });
@@ -1402,7 +1404,7 @@ describe('deudas.js — las dos lecturas mudas', () => {
       // `monto_pendiente` es nullable a propósito (migración 068). La fracción sale NaN,
       // `validarMonto` la anula, y hasta la revisión adversarial esto caía al fallback: "le pagué
       // la mitad de los 300 a Juan" abonaba 300. Misma plata mal registrada, otra causa.
-      const sb = makeSupabase({ filas: () => [{ monto_pendiente: null }] });
+      const sb = makeSupabase({ filas: () => [{ contraparte: 'Juan', monto_pendiente: null }] });
       const { ctx, p } = correrDeudas(sb, 'abonar_deuda', { contraparte: 'Juan' }, { msg: 'le pagué la mitad de los 300 a Juan' });
       const { r } = await correrEspiando(() => p);
       expect(ctx.abonarDeuda).not.toHaveBeenCalled();
@@ -1419,7 +1421,7 @@ describe('deudas.js — las dos lecturas mudas', () => {
       const b = await correrEspiando(() => correrDeudas(vacia, 'abonar_deuda', { contraparte: 'Juan' }, { msg: 'le pagué la mitad a Juan' }).p);
       expect(a.r).not.toBe(b.r);
       expect(a.r).toMatch(/No pude consultar cuánto le debes/);
-      expect(b.r).toMatch(/no encontré una deuda activa/);
+      expect(b.r).toMatch(/No encontré deuda activa/);
     });
 
     it('con la lectura caída y un PORCENTAJE, no abona el número suelto del mensaje', async () => {

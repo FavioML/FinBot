@@ -7,6 +7,7 @@ const { esPagoNeto } = require('../lib/config');
 const { extraerLast4, normalizarLast4, canonizarComercio, esComercioCentinela } = require('./parsers');
 const log = require('../lib/logger');
 const { subcategoriaUtil } = require('../lib/subcategoria');
+const { resolverNombre, filasQueNombra, nombresParecidos, patronAmplio, listaNombres } = require('../lib/resolver-nombre');
 const analytics = require('../lib/analytics');
 
 // Dedup window for manual entries (gmail entries dedup separately).
@@ -441,30 +442,33 @@ async function recategorizarTransaccion(usuarioId, comercio, categoriaNueva, sub
   // Lanzar cambiaria una mentira ("No encontre ninguna transaccion de X") por silencio;
   // devolver el motivo la cambia por la verdad.
   const MSG_ERROR = 'No pude buscar tus gastos de *' + comercio + '* ahora mismo. Intenta de nuevo en un momento.';
-  let { data: txs, error: errTxs } = await supabase.from('transacciones').select('*')
-    .eq('usuario_id', usuarioId).ilike('comercio', '%' + comercio + '%')
-    .order('created_at', { ascending: false }).limit(5);
+  // Qué comercio nombra la persona (lib/resolver-nombre.js, 02-oct-2026). Antes: `ilike '%x%'` y el
+  // más reciente de lo que saliera, así que "el uber era transporte" movía el Uber Eats si era el
+  // último; y si no había nada, se reintentaba palabra por palabra y "starbucks coffee" movía el
+  // Starbucks sin que nadie lo pidiera. Ahora el servidor trae solo lo que PUEDE coincidir (patrón
+  // amplio, sin tildes, nunca `ilike`: PostgREST convierte `*` en comodín) y la regla decide.
+  const patron = patronAmplio(comercio);
+  if (!patron) return { ok: false, msg: 'No encontre ninguna transaccion de *' + comercio + '*.' };
+  const { data: txs, error: errTxs } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('*', primera ? { count: 'exact' } : undefined)
+    .eq('usuario_id', usuarioId).filter('comercio', 'imatch', patron)
+    .order('created_at', { ascending: false }).order('id', { ascending: false }).range(ini, fin), (t) => t.id);
   if (errTxs) {
     log.error({ tag: 'RECATEGORIZAR', usuarioId, comercio, err: errTxs.message }, 'No se pudo leer las transacciones del comercio');
     return { ok: false, msg: MSG_ERROR };
   }
-  if ((!txs || txs.length === 0) && comercio.length > 3) {
-    const palabras = comercio.split(/\s+/).filter(p => p.length >= 3);
-    for (const palabra of palabras) {
-      const { data: txsPalabra, error: errPalabra } = await supabase.from('transacciones').select('*')
-        .eq('usuario_id', usuarioId).ilike('comercio', '%' + palabra + '%')
-        .order('created_at', { ascending: false }).limit(5);
-      // El reintento palabra por palabra es el ULTIMO recurso antes de "no encontre nada": si
-      // esta lectura cae, seguir el bucle y terminar en ese mensaje es afirmar que se busco.
-      if (errPalabra) {
-        log.error({ tag: 'RECATEGORIZAR', usuarioId, comercio, palabra, err: errPalabra.message }, 'No se pudo leer las transacciones por palabra');
-        return { ok: false, msg: MSG_ERROR };
-      }
-      if (txsPalabra && txsPalabra.length > 0) { txs = txsPalabra; break; }
-    }
+  const nombreDe = (t) => t.comercio || '';
+  const res = resolverNombre(comercio, txs || [], { nombreDe });
+  if (res.estado === 'varios') {
+    return { ok: false, msg: 'Tienes gastos de varios comercios que coinciden con *' + comercio + '*: ' + listaNombres(res.nombres)
+      + '. ¿Cuál? Dime el nombre completo, por ejemplo _"el ' + res.nombres[0] + ' era transporte"_.' };
   }
-  if (!txs || txs.length === 0) return { ok: false, msg: 'No encontre ninguna transaccion de *' + comercio + '*.' };
-  const tx = txs[0];
+  if (res.estado !== 'uno') {
+    // Lo parecido se OFRECE, no se escribe: "¿te refieres a Starbucks?".
+    const parecidos = nombresParecidos(comercio, txs || [], { nombreDe });
+    return { ok: false, msg: 'No encontre ninguna transaccion de *' + comercio + '*.'
+      + (parecidos.length ? ' ¿Te refieres a ' + listaNombres(parecidos, 3) + '? Dímelo con ese nombre.' : '') };
+  }
+  const tx = res.filas[0];
   const categoriaAnterior = tx.categoria || 'Sin categoria';
   const updates = { categoria: categoriaNueva };
   if (subcategoriaNueva) updates.subcategoria = subcategoriaNueva;
@@ -754,21 +758,39 @@ async function retroaplicarRegla(usuarioId, comercio, categoria, subcategoria) {
   // usuario, y un "IZI*BARBANEGRA" dentro del `ilike` de abajo no alcanza ninguna fila, porque
   // las filas ya se guardan canonizadas. La regla se creaba y la retroaplicacion no tocaba nada.
   comercio = canonizarComercio(comercio);
+  // Por PALABRA ENTERA, nunca por subcadena (lib/resolver-nombre.js, decisión de Favio del 02-oct):
+  // con `ilike '%lina%'` la regla de "Lina" movía "Gasolina" y "Medicina Catalina", y "pan" movía
+  // "Qualitas compania" (medido en prod: 153 de 926 reglas alcanzaban otro comercio). Es un LOTE
+  // pedido con "siempre"/"todos", así que no pregunta: "pedidosya" sigue alcanzando sus variantes.
+  const patron = patronAmplio(comercio);
+  if (!patron) return 0;
   try {
-    const updates = { categoria };
-    if (subcategoria) updates.subcategoria = subcategoria;
-    const { count, error } = await supabase.from('transacciones').update(updates, { count: 'exact' })
-      .eq('usuario_id', usuarioId).ilike('comercio', '%' + comercio + '%');
-    // Se devuelve 0, igual que el catch de abajo, y eso NO es tragarse el fallo: el `update`
-    // no aplico, asi que cero es el numero cierto. Lo que faltaba era el log — un `log.info`
-    // con `count: null` anunciando 'Regla retroaplicada' es peor que no loguear, porque
-    // afirma que se hizo.
-    if (error) {
-      log.error({ tag: 'RETROAPLICAR', usuarioId, comercio, err: error.message }, 'El update de la retroaplicacion fue rechazado');
+    const { data: candidatas, error: errLeer } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('id, comercio', primera ? { count: 'exact' } : undefined)
+      .eq('usuario_id', usuarioId).filter('comercio', 'imatch', patron)
+      .order('id', { ascending: true }).range(ini, fin), (t) => t.id);
+    if (errLeer) {
+      log.error({ tag: 'RETROAPLICAR', usuarioId, comercio, err: errLeer.message }, 'No se pudo leer los movimientos del comercio');
       return 0;
     }
-    log.info({ tag: 'REGLA', comercio, categoria, subcategoria, count }, 'Regla retroaplicada');
-    return count || 0;
+    // Se actualiza por NOMBRE exacto de las filas alcanzadas (pocos, aunque las filas sean cientos):
+    // una fila del mismo nombre anotada entre la lectura y el update también es de ese comercio.
+    const nombres = [...new Set(filasQueNombra(comercio, candidatas || [], { nombreDe: (t) => t.comercio || '' }).map((t) => t.comercio))];
+    const updates = { categoria };
+    if (subcategoria) updates.subcategoria = subcategoria;
+    let total = 0;
+    for (let i = 0; i < nombres.length; i += 50) {
+      const { count, error } = await supabase.from('transacciones').update(updates, { count: 'exact' })
+        .eq('usuario_id', usuarioId).in('comercio', nombres.slice(i, i + 50));
+      // Se devuelve lo que SÍ se movió, y eso NO es tragarse el fallo: lo que no aplicó no se
+      // movió, así que ese es el número cierto. Lo que no puede faltar es el log.
+      if (error) {
+        log.error({ tag: 'RETROAPLICAR', usuarioId, comercio, err: error.message }, 'El update de la retroaplicacion fue rechazado');
+        return total;
+      }
+      total += count || 0;
+    }
+    log.info({ tag: 'REGLA', comercio, categoria, subcategoria, count: total, nombres: nombres.length }, 'Regla retroaplicada');
+    return total;
   } catch(e) { log.error({ tag: 'RETROAPLICAR', err: e.message }, 'Error retroaplicando regla'); return 0; }
 }
 

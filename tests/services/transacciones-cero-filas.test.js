@@ -53,7 +53,9 @@ function makeSb({ filas = {}, fallos = {}, desaparece = [] } = {}) {
       let retorno = false;
       const filtros = [];
       const b = {};
-      for (const m of ['ilike', 'match', 'gt', 'lt', 'order', 'limit', 'gte', 'lte', 'neq', 'not']) b[m] = () => b;
+      // `filter` (el `imatch` de lib/resolver-nombre.js) y `range` (la página de `todasLasFilas`) no
+      // filtran acá: este doble mide el UPDATE, y la fila sembrada coincide con lo pedido.
+      for (const m of ['ilike', 'filter', 'range', 'match', 'gt', 'lt', 'order', 'limit', 'gte', 'lte', 'neq', 'not']) b[m] = () => b;
       b.eq = (c, v) => { filtros.push([c, v]); return b; };
       b.is = (c, v) => { filtros.push([c, v]); return b; };
       for (const m of MUTANTES) {

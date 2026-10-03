@@ -286,6 +286,8 @@ function avisoRestauracion(snapshotOk) {
     : '\n\n_Ojo: no pude guardar la copia de respaldo, así que este no lo voy a poder restaurar._';
 }
 
+const { resolverNombre, patronAmplio, listaNombres } = require('../../lib/resolver-nombre');
+
 module.exports = {
   intents: ['registrar_manual', 'corregir_categoria', 'corregir_multiple', 'corregir_monto_moneda', 'eliminar_transaccion', 'editar_monto', 'editar_fecha', 'editar_comercio', 'editar_categoria_comercio', 'deshacer_ultimo', 'restaurar_eliminado', 'marcar_como_ingreso', 'dividir_gasto', 'duplicar_gasto'],
   async handle({ intencion, msg, datos, usuario, from, ctx }) {
@@ -1179,30 +1181,57 @@ module.exports = {
 
       case 'restaurar_eliminado': {
         try {
+          // `comercio` y `monto` ya pasaron por la guarda de datos-dichos: si están, la persona los
+          // dijo. Sin ninguno, "restaura" a secas restaura el último borrado (es un deshacer).
           const comercioRest = datos.comercio || null;
           const montoRest = datos.monto != null ? parseFloat(datos.monto) : null;
-          const EPS = 0.01;
+          const centavosRest = montoRest != null && Number.isFinite(montoRest) ? Math.round(montoRest * 100) : null;
+          const TOPE_BORRADOS = 50;
 
-          const { data: pendientes } = await supabase.from('transacciones_eliminadas').select('*')
-            .eq('usuario_id', usuario.id).is('restored_at', null)
-            .order('deleted_at', { ascending: false }).limit(20);
-
-          if (!pendientes || pendientes.length === 0) {
-            return 'No tengo ningún gasto eliminado reciente para restaurar.';
+          // Con un comercio dicho, el servidor trae solo los borrados que pueden coincidir (patrón
+          // amplio, sin tildes): antes se miraban los 20 más recientes y un borrado más viejo no
+          // existía. La decisión la toma `resolverNombre` acá abajo.
+          let qPend = supabase.from('transacciones_eliminadas').select('*')
+            .eq('usuario_id', usuario.id).is('restored_at', null);
+          const patronRest = comercioRest ? patronAmplio(comercioRest) : null;
+          if (patronRest) qPend = qPend.filter('snapshot->>comercio', 'imatch', patronRest);
+          const { data: pendientes, error: errPend } = await qPend
+            .order('deleted_at', { ascending: false }).limit(TOPE_BORRADOS);
+          // "No tengo nada borrado" sobre una lectura caída le dice a la persona que perdió el gasto.
+          if (errPend) {
+            log.error({ tag: 'RESTAURAR', err: errPend.message }, 'No se pudo leer los borrados pendientes');
+            return 'No pude revisar lo que borraste ahora mismo. Vuelve a intentarlo en un momento.';
           }
 
-          // Filtrar por comercio/monto si se especificaron
-          let candidatos = pendientes;
+          // Un pedido que no coincide NO restaura otro gasto (backlog, ítem 43). Antes caía al último
+          // borrado: "recupera el gasto de la pizza" devolvía el cine. El arreglo ingenuo rompía el
+          // "restaura" pelado cuando el modelo rellenaba un comercio del turno anterior; hoy la guarda
+          // de datos-dichos descarta ese comercio, y el caso tiene test.
+          let candidatos = pendientes || [];
+          let nombreRest = null;
           if (comercioRest) {
-            const needle = comercioRest.toLowerCase();
-            candidatos = candidatos.filter(p => String(p.snapshot?.comercio || '').toLowerCase().includes(needle));
+            const res = resolverNombre(comercioRest, candidatos, { nombreDe: (p) => p.snapshot?.comercio || '' });
+            if (res.estado === 'varios') {
+              return 'Borraste gastos de varios comercios que coinciden con *' + comercioRest + '*: ' + listaNombres(res.nombres)
+                + '. ¿Cuál recupero? Dime el nombre completo.';
+            }
+            candidatos = res.estado === 'uno' ? res.filas : [];
+            nombreRest = res.estado === 'uno' ? res.nombre : comercioRest;
           }
-          if (montoRest != null) {
-            candidatos = candidatos.filter(p => Math.abs(parseFloat(p.snapshot?.monto || 0) - montoRest) < EPS);
+          if (centavosRest != null) {
+            candidatos = candidatos.filter((p) => Math.round(parseFloat(p.snapshot?.monto) * 100) === centavosRest);
+          }
+          if (!comercioRest && centavosRest != null) {
+            // Solo el monto: dos comercios distintos con ese monto son dos gastos distintos.
+            const nombres = [...new Set(candidatos.map((p) => String(p.snapshot?.comercio || 'Sin comercio')))];
+            if (nombres.length > 1) {
+              return 'Borraste varios gastos de S/ ' + montoRest.toFixed(2) + ': ' + listaNombres(nombres) + '. ¿Cuál recupero? Dime el comercio.';
+            }
           }
           if (candidatos.length === 0) {
-            // Caer al más reciente si el usuario no fue específico con algo que no matcheó
-            candidatos = pendientes.slice(0, 1);
+            if (!comercioRest && centavosRest == null) return 'No tengo ningún gasto eliminado reciente para restaurar.';
+            const pedido = [nombreRest ? '*' + nombreRest + '*' : null, montoRest != null ? 'S/ ' + montoRest.toFixed(2) : null].filter(Boolean).join(' de ');
+            return 'No encontré ' + pedido + ' entre lo que borraste, así que no restauré nada.\n\n_Escribe "restaura" para recuperar lo último que borraste._';
           }
 
           const objetivo = candidatos[0];
