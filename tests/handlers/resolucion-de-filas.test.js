@@ -863,19 +863,36 @@ describe('revisión de 3cd1ba1 · lo legítimo no pregunta', () => {
     expect(pg.tablas.deudas).toHaveLength(1);
   });
 
-  it('"pagué 120 de luz en el depa" con el espacio "Depa 3B" (el modelo copia el nombre entero) anota ahí', async () => {
+  it('"pagué 120 de luz en el depa" con "Depa 3B" del modelo PREGUNTA (costo declarado: la persona dijo menos)', async () => {
+    // Revisión de 89690c0: si se suelta una palabra que no es vacía, lo que queda gana por exacta
+    // contra la hermana ("depa 3-b" anotaba en Depa). Se pregunta mostrando lo que dijo el modelo.
     montar({});
     espacios = [{ id: 's-3b', name: 'Depa 3B', invite_code: 'D3B' }];
-    await decir('registrar_gasto_espacio', 'pagué 120 de luz en el depa', { monto: 120, nombre_espacio: 'Depa 3B' });
+    const resp = await decir('registrar_gasto_espacio', 'pagué 120 de luz en el depa', { monto: 120, nombre_espacio: 'Depa 3B' });
+    expect(spaces.registrarGastoCompartido).not.toHaveBeenCalled();
+    expect(resp).toMatch(/Hablas de \*Depa 3B\*/);
+  });
+
+  it('control: sin nombre del modelo y con un solo espacio, "pagué 120 de luz en el depa" anota', async () => {
+    montar({});
+    espacios = [{ id: 's-3b', name: 'Depa 3B', invite_code: 'D3B' }];
+    await decir('registrar_gasto_espacio', 'pagué 120 de luz en el depa', { monto: 120, nombre_espacio: 'depa' });
     expect(spaces.registrarGastoCompartido).toHaveBeenCalledWith('u-1', 's-3b', 120, null, null);
   });
 
-  it('"Carlos me pagó 20" con Carlos M y Carlos R pregunta; con solo Carlos M le abona', async () => {
+  it('"Carlos me pagó 20" con el modelo diciendo "Carlos M" pregunta, haya una o dos', async () => {
     montar({ deudas: [deuda('d-cm', 'Carlos M', 70, '2026-09-10'), deuda('d-cr', 'Carlos R', 60, '2026-09-05')], deuda_abonos: [] });
     await decir('abonar_deuda', 'Carlos me pagó 20', { contraparte: 'Carlos M', monto: 20 });
     expect(pg.escrituras()).toEqual([]);
     montar({ deudas: [deuda('d-cm', 'Carlos M', 70, '2026-09-10')], deuda_abonos: [] });
-    await decir('abonar_deuda', 'Carlos me pagó 20', { contraparte: 'Carlos M', monto: 20 });
+    const resp = await decir('abonar_deuda', 'Carlos me pagó 20', { contraparte: 'Carlos M', monto: 20 });
+    expect(pg.escrituras()).toEqual([]);
+    expect(resp).toMatch(/Hablas de \*Carlos M\*/);
+  });
+
+  it('control: "Carlos me pagó 20" con el modelo diciendo "Carlos" y solo Carlos M anotado, le abona', async () => {
+    montar({ deudas: [deuda('d-cm', 'Carlos M', 70, '2026-09-10')], deuda_abonos: [] });
+    await decir('abonar_deuda', 'Carlos me pagó 20', { contraparte: 'Carlos', monto: 20 });
     expect(pg.fila('deudas', 'd-cm').monto_pendiente).toBe(50);
   });
 
@@ -910,5 +927,68 @@ describe('revisión de 3cd1ba1 · el lote de la regla pasa de los 100 ids', () =
     // pierda ningún trozo de 100.
     expect(await servicios.tx.retroaplicarRegla('u-1', 'uber', 'Transporte', null)).toBe(251);
     expect(pg.tablas.transacciones.filter((t) => t.categoria === 'Transporte')).toHaveLength(251);
+  });
+});
+
+// ─── Cuarta vuelta: lo que encontró la revisión de 89690c0 ───────────────────────────────────────
+
+describe('revisión de 89690c0 · achicar no puede soltar la palabra que distingue', () => {
+  it('"aboné 100 a la meta viaje dos" con Viaje y Viaje 2 (el modelo dice "Viaje 2") no abona a Viaje', async () => {
+    montar({ metas_ahorro: [meta('m-v', 'Viaje', '2026-09-20'), meta('m-v2', 'Viaje 2', '2026-09-01')], meta_aportes: [] });
+    await decir('abonar_meta', 'aboné 100 a la meta viaje dos', { nombre_meta: 'Viaje 2', monto: 100 });
+    expect(pg.escrituras()).toEqual([]);
+  });
+
+  it('"Juan junior me pagó 20" y "salda todo con Juan junior" con Juan y Juan Jr no tocan a Juan', async () => {
+    montar({ deudas: [deuda('d-j', 'Juan', 100, '2026-09-20'), deuda('d-jj', 'Juan Jr', 50, '2026-09-01')], deuda_abonos: [] });
+    await decir('abonar_deuda', 'Juan junior me pagó 20', { contraparte: 'Juan Jr', monto: 20 });
+    await decir('saldar_todo_contraparte', 'salda todo con Juan junior', { contraparte: 'Juan Jr' });
+    expect(pg.escrituras()).toEqual([]);
+  });
+
+  it('"pagué 120 de luz en el depa 3-b" con Depa y Depa 3B no anota en Depa', async () => {
+    montar({});
+    espacios = [{ id: 's-d', name: 'Depa', invite_code: 'D1' }, { id: 's-3b', name: 'Depa 3B', invite_code: 'D3B' }];
+    await decir('registrar_gasto_espacio', 'pagué 120 de luz en el depa 3-b', { monto: 120, nombre_espacio: 'Depa 3B' });
+    expect(spaces.registrarGastoCompartido).not.toHaveBeenCalledWith('u-1', 's-d', 120, null, null);
+  });
+
+  it('"le pagué 20 a Carlos" con Carlos A y Carlos R: la "a" del mensaje no es la de "Carlos A"', async () => {
+    montar({ deudas: [deuda('d-ca', 'Carlos A', 70, '2026-09-10'), deuda('d-cr', 'Carlos R', 60, '2026-09-05')], deuda_abonos: [] });
+    await decir('abonar_deuda', 'le pagué 20 a Carlos', { contraparte: 'Carlos A', monto: 20 });
+    expect(pg.escrituras()).toEqual([]);
+  });
+
+  it('"aboné 2 mil a la meta viaje" con Viaje 1 y Viaje 2: el 2 del monto no elige Viaje 2', async () => {
+    montar({ metas_ahorro: [meta('m-1', 'Viaje 1', '2026-09-20'), meta('m-2', 'Viaje 2', '2026-09-01')], meta_aportes: [] });
+    await decir('abonar_meta', 'aboné 2 mil a la meta viaje', { nombre_meta: 'Viaje 2', monto: 2000 });
+    expect(pg.escrituras()).toEqual([]);
+  });
+
+  it('"aboné 2026 a la meta viaje" con Viaje 2026 y Viaje 2027: el monto 2026 no elige la meta', async () => {
+    montar({ metas_ahorro: [meta('m-26', 'Viaje 2026', '2026-09-20'), meta('m-27', 'Viaje 2027', '2026-09-01')], meta_aportes: [] });
+    await decir('abonar_meta', 'aboné 2026 a la meta viaje', { nombre_meta: 'Viaje 2026', monto: 2026 });
+    expect(pg.escrituras()).toEqual([]);
+  });
+
+  it('control: "aboné 100 a la meta viaje 2" abona a Viaje 2', async () => {
+    montar({ metas_ahorro: [meta('m-v', 'Viaje', '2026-09-20'), meta('m-v2', 'Viaje 2', '2026-09-01')], meta_aportes: [] });
+    await decir('abonar_meta', 'aboné 100 a la meta viaje 2', { nombre_meta: 'Viaje 2', monto: 100 });
+    expect(pg.fila('metas_ahorro', 'm-v2').monto_actual).toBe(200);
+    expect(pg.fila('metas_ahorro', 'm-v').monto_actual).toBe(100);
+  });
+});
+
+describe('revisión de 89690c0 · el posesivo exacto es solo "mi", y nunca en lotes', () => {
+  it('"su mamá me pagó 50" no abona a Mamá', async () => {
+    montar({ deudas: [deuda('d-ma', 'Mamá', 100, '2026-09-20'), deuda('d-j', 'Juan', 30, '2026-09-01')], deuda_abonos: [] });
+    await decir('abonar_deuda', 'su mamá me pagó 50', { contraparte: 'su mamá', monto: 50 });
+    expect(pg.fila('deudas', 'd-ma').monto_pendiente).toBe(100);
+  });
+
+  it('la regla de "Mi Banco" no se retroaplica a "BANCO"', async () => {
+    montar({ transacciones: [tx('t-mb', 'Mi Banco', '2026-10-01T12:00:00'), tx('t-b', 'BANCO', '2026-09-30T12:00:00')] });
+    expect(await servicios.tx.retroaplicarRegla('u-1', 'Mi Banco', 'Prestamos', null)).toBe(1);
+    expect(pg.fila('transacciones', 't-b').categoria).toBe('Otros');
   });
 });
