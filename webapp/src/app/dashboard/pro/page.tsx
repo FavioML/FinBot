@@ -479,6 +479,10 @@ function GmailConnect({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-semibold text-[#F0EFE8]">{TITULOS[estado]}</h3>
+            {/* Beta en los cuatro estados, igual que la tarjeta Pro del Pricing de neto.pe. */}
+            <span className="rounded-full border border-[#EF9F27]/40 bg-[#EF9F27]/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#EF9F27]">
+              beta
+            </span>
             {estado === 'sano' && <Check className="h-4 w-4 text-[#1D9E75] shrink-0" />}
           </div>
           {caido ? (
@@ -500,18 +504,23 @@ function GmailConnect({
             </p>
           ) : estado === 'sano' ? (
             <p className="text-xs text-[#8A877D] mt-0.5">
-              Neto lee tus notificaciones bancarias de{' '}
+              Neto lee los correos que tu banco te envía a{' '}
               <span className="text-[#C8C6BC] font-medium break-all">{email || 'tu cuenta'}</span>. Solo lectura de esos avisos.
             </p>
           ) : estado === 'bloqueado' ? (
+            /* Framing obligatorio de Gmail (CLAUDE.md de Neto): es de Pro, es opcional y es un
+               complemento de lo que la persona anota. Solo el 9.5% de los gastos nace de un correo:
+               la versión anterior prometía registro sin esfuerzo, y la vigila `registro-automatico`. */
             <p className="text-xs text-[#8A877D] mt-0.5">
-              Neto detecta tus gastos de las notificaciones del banco y los anota solos.{' '}
-              <span className="text-[#C8C6BC]">Se activa al confirmar tu pago</span> — cada conexión nos cuesta un cupo con
-              Google y los tenemos contados. Actívalo aquí arriba y empieza a leer el mismo día.
+              Opcional y de Neto Pro: si conectas tu Gmail, Neto registra los gastos de los correos que tu banco ya te
+              envía. Es un complemento, lo demás lo sigues anotando tú por WhatsApp.{' '}
+              <span className="text-[#C8C6BC]">Se activa al confirmar tu pago</span>, porque cada conexión nos cuesta un
+              cupo con Google y los tenemos contados. Actívalo aquí arriba y empieza a leer el mismo día.
             </p>
           ) : (
             <p className="text-xs text-[#8A877D] mt-0.5">
-              Neto leerá tus notificaciones bancarias por correo. Solo lectura de esos avisos, sin contraseñas bancarias.
+              Neto leerá los correos que tu banco te envía. Es un complemento de lo que anotas por WhatsApp: solo
+              lectura de esos avisos, sin contraseñas bancarias.
             </p>
           )}
         </div>
