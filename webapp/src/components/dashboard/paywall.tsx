@@ -137,7 +137,17 @@ export function Paywall() {
           <li>Gráficos y desglose por categoría</li>
           <li>Historial completo, sin límite de meses</li>
           <li>Presupuestos, metas y reportes</li>
-          <li>Lectura automática de tus correos bancarios</li>
+          {/* Misma forma que la tarjeta Pro del Pricing de neto.pe: badge beta y el framing
+              obligatorio de Gmail (opcional, complemento de lo que la persona anota). */}
+          <li>
+            Lectura de tus correos bancarios{' '}
+            <span className="ml-1 rounded-full border border-[#EF9F27]/40 bg-[#EF9F27]/10 px-1.5 py-0.5 align-middle text-[10px] font-semibold uppercase tracking-wide text-[#EF9F27]">
+              beta
+            </span>
+            <span className="mt-0.5 block text-xs text-[#8A877D]">
+              Opcional y la conectas tú: suma los gastos que tu banco te avisa por correo, lo demás lo sigues anotando tú.
+            </span>
+          </li>
         </ul>
 
         <Link
