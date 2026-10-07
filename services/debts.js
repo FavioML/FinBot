@@ -27,13 +27,18 @@ function resolverContraparte(deudas, contraparte) {
   if (res.estado === 'sin_nombre') {
     return { error: 'no_resuelta', mensaje: '¿Con quién es? Dime el nombre, por ejemplo _"Juan me pagó 20"_.' };
   }
-  return { error: 'no_resuelta', mensaje: 'No encontré deuda activa con *' + dicho + '*, así que no cambié nada.'
+  // `ninguna`: no hay deuda con esa persona (o no del lado pedido). El abono que llegó por un verbo de
+  // pago lo usa para preguntar qué era, en vez de contestar "revisa tus deudas" (lib/prestamos.js).
+  return { error: 'no_resuelta', ninguna: true, mensaje: 'No encontré deuda activa con *' + dicho + '*, así que no cambié nada.'
     + (res.disponibles.length ? ' Tienes deudas activas con ' + listaNombres(res.disponibles) + '.' : '')
     + '\n\n_Revisa con "mis deudas"._' };
 }
 
-/** Las deudas activas del usuario con la persona nombrada. Lanza si la lectura cae. */
-async function deudasActivasCon(usuarioId, contraparte) {
+/**
+ * Las deudas activas del usuario con la persona nombrada. Lanza si la lectura cae.
+ * Con `tipo`, solo las de ese lado: "me pagó" no puede bajar lo que YO debo (07-oct-2026).
+ */
+async function deudasActivasCon(usuarioId, contraparte, { tipo } = {}) {
   const { data, error } = await supabase.from('deudas')
     .select('*')
     .eq('usuario_id', usuarioId)
@@ -43,7 +48,7 @@ async function deudasActivasCon(usuarioId, contraparte) {
   // abono se pierde y la persona cree que escribió mal el nombre. Tirar deja que el handler diga
   // que falló, que es lo único honesto acá.
   if (error) throw error;
-  return resolverContraparte(data || [], contraparte);
+  return resolverContraparte((data || []).filter((d) => !tipo || d.tipo === tipo), contraparte);
 }
 
 /**
@@ -112,16 +117,17 @@ async function obtenerDeudas(usuarioId, soloActivas = true) {
  * @param {string} usuarioId
  * @param {string} contraparte - busca deuda activa por nombre (fuzzy)
  * @param {number} montoAbono
+ * @param {{ tipo?: 'debo'|'me_deben' }} [opciones] - el lado que dice el verbo de pago
  * @returns {{ deuda, abono, completada }}
  */
-async function abonarDeuda(usuarioId, contraparte, montoAbono) {
+async function abonarDeuda(usuarioId, contraparte, montoAbono, { tipo } = {}) {
   // Antes de tocar la DB: un abono Infinity pasaba el `montoAbono > pendiente` de más
   // abajo (Infinity > 100 corta bien) pero un NaN NO —toda comparación con NaN es
   // false—, así que el sobrepago no lo frenaba y `pendiente - NaN` dejaba la deuda en
   // NaN para siempre. Acá lanza, que es lo que el handler ya sabe convertir en mensaje.
   const montoValidado = montoDeDeuda(montoAbono);
   // La deuda activa más reciente con ESA persona (no con cualquiera cuyo nombre la contenga).
-  const conQuien = await deudasActivasCon(usuarioId, contraparte);
+  const conQuien = await deudasActivasCon(usuarioId, contraparte, { tipo });
   if (conQuien.error) return conQuien;
   const deuda = conQuien.deudas[0];
   const pendiente = parseFloat(deuda.monto_pendiente);

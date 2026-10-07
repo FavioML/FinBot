@@ -252,13 +252,15 @@ describe('tipo e ingreso', () => {
   });
 
   /**
-   * "presté 100 a Juan" es una DEUDA (yo presto), no un gasto mío. El "me" de
-   * `me presté` es lo que invierte la dirección, y al reescribir la lista de verbos se
-   * había perdido.
+   * Un préstamo nunca es un gasto, en ninguna dirección (07-oct-2026). "me presté" se
+   * rescataba como gasto por ser "jerga", y así entró "Me preste 50 soles" como Finanzas >
+   * Prestamo. Ahora el salvavidas no rescata ninguna forma de préstamo (lib/prestamos.js).
    */
-  it('prestar NO es gastar (el "me" invierte la dirección)', () => {
-    expect(extraerGastoSinIA('preste 100 a Juan')).toBeNull();
-    expect(extraerGastoSinIA('me presté 100 del banco')?.monto).toBe(100);
+  it('prestar NO es gastar, en ninguna dirección', () => {
+    for (const m of ['preste 100 a Juan', 'me presté 100 del banco', 'Me preste 50 soles', 'Y preste 118 soles',
+      'Mi mamá me prestó 200 soles', 'pedí prestado 300 soles']) {
+      expect(extraerGastoSinIA(m), m).toBeNull();
+    }
   });
 
   /**

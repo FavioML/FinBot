@@ -9,6 +9,8 @@ const { verificarEscritura, entro } = require('../../helpers/escritura-verificad
 const { normalizar } = require('../../lib/orden-edicion');
 // Pura (no toca la base): con quién es la deuda nombrada. Ver services/debts.js.
 const { resolverContraparte } = require('../../services/debts');
+// La dirección de un préstamo y el lado de un pago los dice el verbo (07-oct-2026). Ver lib/prestamos.js.
+const { direccionPrestamo, preguntaDireccionPrestamo, preguntaSinContraparte, preguntaSinDeuda } = require('../../lib/prestamos');
 
 /**
  * Las cuatro formas de pedir una PARTE de lo que se debe ("la mitad", "un tercio", "40%").
@@ -37,34 +39,17 @@ module.exports = {
 
       case 'registrar_deuda': {
         try {
-          // "Presté" es primera persona: la plata la di YO, así que me la deben. Hasta el
-          // 30-sep-2026 sólo se reconocía "le presté", y con "presté 100 a Juan" el clasificador
-          // decía `debo` y el bot contestaba "Le debes S/100 a Juan" (medido contra prod).
-          // Por eso esta forma GANA sobre `datos.tipo`.
-          //
-          // Y por eso mismo es ANGOSTA: sólo el mensaje que ARRANCA afirmando el préstamo
-          // ("presté 100 a Juan", "yo le presté 50 a mi primo", "te presté 20"), con un monto o
-          // un "a" después. La primera versión buscaba "presté" en cualquier lado y la revisión
-          // adversarial le hizo invertir deudas que el clasificador tenía bien: "yo no le
-          // presté, Juan me prestó 200", "le pedí a Carla que me lo preste", `mi mamá me dijo
-          // "te presté 200"`. Fuera de esta forma decide el clasificador, como antes.
-          //
-          // "Me presté" no entra: es jerga peruana de gasto ("me presté 20 en el taxi") y la
-          // trata `registrar_manual`. El cierre es `(?![a-záéíóúñ])` y no `\b`: `\b` en JS es
-          // ASCII, y después de la "é" no hay borde de palabra contra un espacio.
-          //
-          // Y con DESTINATARIO explícito: un pronombre ("le/te presté") o "a alguien" después
-          // del monto. La segunda revisión mostró que "presté 5000 del banco para la moto" es
-          // "me presté" sin el "me" (la pidió prestada), y sin destinatario no hay cómo saber
-          // quién le debe a quién. Límites que quedan, medidos: una cita reordenada ("te presté
-          // 200 me dijo Juan") y un préstamo "a la caja" siguen forzando me_deben.
-          const prestePrimeraPersona =
-            /^\s*(?:yo\s+)?(?:(?:le|les|te)\s+prest[eé](?![a-záéíóúñ])\s*(?:s\/\.?\s*|\$\s*)?(?:\d|a\s)|prest[eé](?![a-záéíóúñ])\s+(?:a\s|(?:s\/\.?\s*|\$\s*)?\d[\d.,]*\s*(?:soles?|lucas?|d[oó]lares?)?\s+a\s))/i.test(msg);
-          const tipo = prestePrimeraPersona
-            ? 'me_deben'
-            : (datos.tipo || (/\bme debe\b|le prest[eé]/i.test(msg) ? 'me_deben' : 'debo'));
-          if (prestePrimeraPersona && datos.tipo && datos.tipo !== 'me_deben') {
-            log.info({ tag: 'DEUDA_TIPO_LEXICO', clasificador: datos.tipo, msg: (msg || '').substring(0, 80) }, '"presté" pisa el tipo del clasificador');
+          // La dirección la dice el VERBO cuando es inequívoco, y gana sobre `datos.tipo`
+          // (lib/prestamos.js, 07-oct-2026). Contra prod, "No no, yo le preste 118 soles a mi madre"
+          // salía `debo` 3 de 3: la regla anterior exigía que el mensaje ARRANCARA con el préstamo.
+          // `dispatchIntent` ya enrutó con la misma función; acá se vuelve a mirar porque este case
+          // es el que escribe, y un camino que lo llame sin pasar por el registry no puede anotar al
+          // revés. Lo ambiguo ("me presté", "preste" sin tilde y sin pronombre) se pregunta.
+          const dirVerbo = direccionPrestamo(msg);
+          if (dirVerbo === 'ambiguo') return preguntaDireccionPrestamo(msg);
+          const tipo = dirVerbo || datos.tipo || (/\bme debe\b/i.test(msg) ? 'me_deben' : 'debo');
+          if (dirVerbo && datos.tipo && datos.tipo !== dirVerbo) {
+            log.info({ tag: 'DEUDA_TIPO_LEXICO', clasificador: datos.tipo, verbo: dirVerbo, msg: (msg || '').substring(0, 80) }, 'el verbo pisa el tipo del clasificador');
           }
           let contraparte = datos.contraparte;
           let montoClasif = validarMonto(datos.monto);
@@ -74,7 +59,8 @@ module.exports = {
           // Fallback: extraer contraparte del mensaje si el clasificador no la encontró
           if (!contraparte) {
             const mNombre = msg.match(/(?:^|\b)([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?)\s+me\s+debe/i)
-              || msg.match(/(?:debo|le debo|prest[eé])\s+.*?\s+a\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?)/i);
+              || msg.match(/(?:debo|le debo|prest[eé])\s+.*?\s+a\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?)/i)
+              || msg.match(/(?:^|\b)([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?)\s+me\s+(?:lo\s+)?prest(?:[oó]|aron)(?![a-záéíóúñ])/i);
             if (mNombre) contraparte = mNombre[1].trim();
           }
 
@@ -152,6 +138,9 @@ module.exports = {
 
           // `validarMonto` ya devolvió null para NaN, Infinity, <= 0 y > 999999.99: acá
           // solo queda preguntar si hubo monto, no repetir los checks a mano.
+          // Con la dirección dicha por el verbo, la pregunta va en esa dirección: el ejemplo genérico
+          // ("debo S/200 a Juan") le enseñaba a escribirlo al revés a quien prestó.
+          if (dirVerbo && !contraparte) return preguntaSinContraparte(dirVerbo, montoClasif);
           if (!contraparte || montoClasif === null) {
             return 'Mmm, no pillé bien los datos. Dime algo como:\n_"debo S/200 a Juan"_\n_"Pedro me debe S/150 por la cena"_';
           }
@@ -248,6 +237,13 @@ module.exports = {
               || msg.match(/(?:pagu[eé]|abon[eé]|di|pag[oó])\s+.*?\s+a\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?)/i);
             if (mNombreAbono) contraparte = (mNombreAbono[1] || '').trim();
           }
+          // Fallback: el pariente DESPUÉS del verbo ("Me pagó mi tío 150 que me debía"). Las de arriba
+          // lo buscan antes del verbo, y cuando el clasificador no trae la persona (el mensaje llegó
+          // como gasto y lo enrutó lib/prestamos.js) ninguna lo encontraba.
+          if (!contraparte) {
+            const mDespues = msg.match(/\bme\s+(?:ha\s+)?(?:pag[oó]|devolvi[oó]|abon[oó]|di[oó]|yape[oó]|pline[oó]|transfiri[oó]|deposit[oó]|pas[oó])\s+(?:mi\s+)?((?:t[ií][oa]|pap[aá]|mam[aá]|herman[oa]|prim[oa]|amig[oa]|abuel[oa]|suegr[oa]|cu[ñn]ad[oa]|vecin[oa]|jef[ea])(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?)(?![a-záéíóúñ])/i);
+            if (mDespues) contraparte = mDespues[1].trim();
+          }
           // Fallback 2: buscar "Tía Jenny", "Tío Pedro" como contraparte compuesta
           if (!contraparte) {
             const mTituloNombre = msg.match(/(?:mi\s+)?(?:t[ií](?:a|o)|amig[oa]|hermano|hermana|primo|prima)\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)/i);
@@ -260,10 +256,13 @@ module.exports = {
             // La fracción se saca de la deuda de ESA persona: con `ilike '%Luis%'` "Luis me pagó la
             // mitad" sacaba la mitad de lo de Luisa, que además era a quien después se abonaba.
             const { data: deudasCalc, error: errDeudasCalc } = await supabase.from('deudas')
-              .select('contraparte, monto_pendiente, created_at')
+              .select('contraparte, tipo, monto_pendiente, created_at')
               .eq('usuario_id', usuario.id).eq('estado', 'activa')
               .order('created_at', { ascending: false });
-            const conQuienCalc = errDeudasCalc ? null : resolverContraparte(deudasCalc || [], contraparte);
+            // Solo las del lado que dice el verbo de pago: "Juan me pagó la mitad" no saca la mitad de lo
+            // que YO le debo a Juan.
+            const delLado = (deudasCalc || []).filter((d) => !datos.tipo || d.tipo === datos.tipo);
+            const conQuienCalc = errDeudasCalc ? null : resolverContraparte(delLado, contraparte);
             if (errDeudasCalc) {
               log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, err: errDeudasCalc.message }, 'abonar_deuda: no se pudo leer el pendiente para resolver la fraccion');
               pendienteNoLeido = true;
@@ -318,10 +317,18 @@ module.exports = {
           if (!contraparte || montoAbono === null) {
             return '¿A quién y cuánto? Dime algo como:\n_"le pagué 100 a Juan"_\n_"Annie me dio la mitad"_\n_"mi tía Jenny me pagó 500"_';
           }
-          const resultado = await abonarDeuda(usuario.id, contraparte, montoAbono);
+          // `datos.tipo` es el lado del pago según el verbo (lib/prestamos.js): "me pagó" solo baja lo
+          // que ME deben. Sin él, `abonarDeuda` tomaba la deuda más reciente con esa persona, fuera del
+          // lado que fuera, y "Me pagó mi tío 150" abonaba a lo que yo le debía al tío.
+          const resultado = datos.tipo
+            ? await abonarDeuda(usuario.id, contraparte, montoAbono, { tipo: datos.tipo })
+            : await abonarDeuda(usuario.id, contraparte, montoAbono);
           if (!resultado) {
             return 'No encontré deuda activa con *' + contraparte + '*. Revisa con _"mis deudas"_ a ver si el nombre está bien.';
           }
+          // Sin deuda de ese lado con esa persona, se pregunta qué era: abonar a nada no existe, y
+          // crear una deuda nueva (lo que hacía el clasificador con "que me debía") anota al revés.
+          if (resultado.error === 'no_resuelta' && resultado.ninguna && datos.tipo) return preguntaSinDeuda(datos.tipo, contraparte, montoAbono);
           if (resultado.error === 'no_resuelta') return resultado.mensaje;
           if (resultado.error === 'overpayment') {
             const symOver = resultado.moneda === 'USD' ? '$' : 'S/';

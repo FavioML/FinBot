@@ -442,11 +442,14 @@ describe('deudas · "Luis" no alcanza a "Luisa"', () => {
     expect(resp).toMatch(/2 deudas/);
   });
 
-  it('control: una persona que no existe sigue diciendo "No encontré deuda activa"', async () => {
+  // Desde el 07-oct "me pagó" dice el lado (lib/prestamos.js), y sin deuda de ese lado se pregunta
+  // qué era en vez de mandar a revisar: el texto cambió, lo que se afirma (no escribe, nombra a
+  // Pedro y no a Luis) no.
+  it('control: una persona que no existe no escribe y dice que no tiene esa deuda', async () => {
     montar(LUIS_Y_LUISA);
     const resp = await decir('abonar_deuda', 'Pedro me pagó 20', { contraparte: 'Pedro', monto: 20 });
     expect(pg.escrituras()).toEqual([]);
-    expect(resp).toMatch(/No encontré deuda activa con \*Pedro\*/);
+    expect(resp).toMatch(/No tengo anotado que \*Pedro\* te deba/);
   });
 
   it('"Luis" con solo Luis Pérez anotado: el apellido no hace falta', async () => {
@@ -1094,8 +1097,106 @@ describe('revisión de e7daf99 · el nombre no se extiende por el mensaje ni se 
     expect(pg.fila('metas_ahorro', 'm-fu')).toBeDefined();
   });
   it('"le pagué a Carlos S/50" (modelo "Carlos") no termina en "no encontré" por el prefijo del monto', async () => {
-    montar({ deudas: [deuda('d-c', 'Carlos', 100, '2026-09-20')], deuda_abonos: [] });
+    // `debo`: "le pagué" solo baja lo que YO debo (07-oct). Con la fixture por defecto (me_deben) el
+    // abono ya no entra, y este test es sobre el nombre, no sobre el lado.
+    montar({ deudas: [deuda('d-c', 'Carlos', 100, '2026-09-20', { tipo: 'debo' })], deuda_abonos: [] });
     await decir('abonar_deuda', 'le pagué a Carlos S/50', { contraparte: 'Carlos', monto: 50 });
     expect(pg.fila('deudas', 'd-c').monto_pendiente).toBe(50);
+  });
+});
+
+// ─── Préstamos: la dirección la dice el verbo (07-oct-2026, lib/prestamos.js) ─────────────────────
+// Por `dispatchIntent`, con los `datos` que el clasificador mandó en prod. Los harness contra prod
+// están en qa-e2e/qa-prestamos-direccion.mjs; esto es lo mismo sin OpenAI.
+describe('préstamos · la dirección la dice el verbo y el abono va a la deuda que existe', () => {
+  const TIO_ME_DEBE = () => deuda('d-tio', 'Tío', 300, '2026-09-10');
+
+  it('"Y preste 118 soles" (el clasificador dijo `debo`) no anota y pregunta la dirección', async () => {
+    montar({ deudas: [], deuda_abonos: [] });
+    const resp = await decir('registrar_deuda', 'Y preste 118 soles', { tipo: 'debo', contraparte: 'desconocida', monto: 118 });
+    expect(pg.escrituras()).toEqual([]);
+    expect(resp).toMatch(/¿Esos 118 los prestaste tú o te los prestaron/);
+  });
+
+  it('"Me preste 50 soles" que llegó como gasto no se registra: se pregunta', async () => {
+    montar({ deudas: [], deuda_abonos: [], transacciones: [] });
+    const resp = await decir('registrar_manual', 'Me preste 50 soles', { monto: 50, comercio: 'Prestamo', categoria: 'Finanzas' });
+    expect(pg.escrituras()).toEqual([]);
+    expect(resp).toMatch(/prestaste tú o te/);
+  });
+
+  it('"No no, yo le preste 118 soles a mi madre" con `debo` del clasificador anota me_deben', async () => {
+    montar({ deudas: [], deuda_abonos: [] });
+    await decir('registrar_deuda', 'No no, yo le preste 118 soles a mi madre', { tipo: 'debo', contraparte: 'madre', monto: 118 });
+    const nuevas = pg.tablas.deudas;
+    expect(nuevas).toHaveLength(1);
+    expect(nuevas[0]).toMatchObject({ tipo: 'me_deben', monto_original: 118, contraparte: 'madre' });
+  });
+
+  it('un préstamo que llegó como gasto se anota como deuda, en la dirección del verbo', async () => {
+    montar({ deudas: [], deuda_abonos: [], transacciones: [] });
+    await decir('registrar_manual', 'Presté 200 a Juan', { monto: 200, comercio: 'Juan' });
+    expect(pg.escrituras('transacciones')).toEqual([]);
+    expect(pg.tablas.deudas).toHaveLength(1);
+    expect(pg.tablas.deudas[0]).toMatchObject({ tipo: 'me_deben', monto_original: 200, contraparte: 'Juan' });
+  });
+
+  it('con dos cifras desde un gasto no adivina cuál es la del préstamo', async () => {
+    montar({ deudas: [], deuda_abonos: [], transacciones: [] });
+    const resp = await decir('registrar_manual', 'almuerzo 15 y le presté 50 a Juan', { monto: 15, comercio: 'almuerzo' });
+    expect(pg.escrituras()).toEqual([]);
+    expect(resp).toContain('Mándame el préstamo aparte');
+  });
+
+  it('"Me pagó mi tío 150 que me debía" en registrar_deuda ABONA a la deuda del tío', async () => {
+    montar({ deudas: [TIO_ME_DEBE()], deuda_abonos: [] });
+    await decir('registrar_deuda', 'Me pagó mi tío 150 que me debía', { tipo: 'me_deben', contraparte: 'tío', monto: 150 });
+    expect(pg.tablas.deudas).toHaveLength(1);
+    expect(pg.fila('deudas', 'd-tio').monto_pendiente).toBe(150);
+    expect(pg.tablas.deuda_abonos).toEqual([expect.objectContaining({ deuda_id: 'd-tio', monto: 150 })]);
+  });
+
+  it('desde registrar_manual (sin persona del clasificador) también abona, al tío dicho', async () => {
+    montar({ deudas: [TIO_ME_DEBE()], deuda_abonos: [], transacciones: [] });
+    await decir('registrar_manual', 'Me pagó mi tío 150 que me debía', { monto: 150, es_ingreso: true });
+    expect(pg.escrituras('transacciones')).toEqual([]);
+    expect(pg.fila('deudas', 'd-tio').monto_pendiente).toBe(150);
+  });
+
+  it('"me pagó" va a lo que ME deben aunque lo que YO debo al tío sea más reciente', async () => {
+    montar({ deudas: [TIO_ME_DEBE(), deuda('d-tio-debo', 'Tío', 80, '2026-10-01', { tipo: 'debo' })], deuda_abonos: [] });
+    await decir('registrar_deuda', 'Me pagó mi tío 150 que me debía', { tipo: 'me_deben', contraparte: 'tío', monto: 150 });
+    expect(pg.fila('deudas', 'd-tio').monto_pendiente).toBe(150);
+    expect(pg.fila('deudas', 'd-tio-debo').monto_pendiente).toBe(80);
+    expect(pg.tablas.deudas).toHaveLength(2);
+  });
+
+  it('"le pagué" va a lo que YO debo aunque lo que me deben sea más reciente', async () => {
+    montar({ deudas: [deuda('d-ana-debo', 'Ana', 100, '2026-09-10', { tipo: 'debo' }), deuda('d-ana', 'Ana', 40, '2026-10-01')], deuda_abonos: [] });
+    await decir('abonar_deuda', 'le pagué 30 a Ana', { contraparte: 'Ana', monto: 30 });
+    expect(pg.fila('deudas', 'd-ana-debo').monto_pendiente).toBe(70);
+    expect(pg.fila('deudas', 'd-ana').monto_pendiente).toBe(40);
+  });
+
+  it('sin deuda con el tío no crea ninguna: pregunta qué era', async () => {
+    montar({ deudas: [], deuda_abonos: [] });
+    const resp = await decir('registrar_deuda', 'Me pagó mi tío 150 que me debía', { tipo: 'me_deben', contraparte: 'tío', monto: 150 });
+    expect(pg.escrituras()).toEqual([]);
+    expect(resp).toMatch(/No tengo anotado que \*tío\* te deba plata/);
+    expect(resp).toContain('¿Lo anoto como un ingreso?');
+  });
+
+  it('con solo una deuda que YO le debo al tío, "me pagó" tampoco la toca', async () => {
+    montar({ deudas: [deuda('d-tio-debo', 'Tío', 80, '2026-10-01', { tipo: 'debo' })], deuda_abonos: [] });
+    const resp = await decir('registrar_deuda', 'Me pagó mi tío 150 que me debía', { tipo: 'me_deben', contraparte: 'tío', monto: 150 });
+    expect(pg.escrituras()).toEqual([]);
+    expect(resp).toMatch(/No tengo anotado que \*tío\* te deba plata/);
+  });
+
+  it('"Juan me pagó la mitad" saca la mitad de lo que Juan me debe, no de lo que le debo', async () => {
+    montar({ deudas: [deuda('d-juan', 'Juan', 100, '2026-09-10'), deuda('d-juan-debo', 'Juan', 40, '2026-10-01', { tipo: 'debo' })], deuda_abonos: [] });
+    await decir('abonar_deuda', 'Juan me pagó la mitad', { contraparte: 'Juan' });
+    expect(pg.fila('deudas', 'd-juan').monto_pendiente).toBe(50);
+    expect(pg.fila('deudas', 'd-juan-debo').monto_pendiente).toBe(40);
   });
 });

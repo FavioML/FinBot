@@ -70,7 +70,7 @@ module.exports = [
   { msg: 'Me bajaron 250 en la botica asu', intent: 'registrar_manual', cat: 'registro_jerga' },
   { msg: '70 solcitos en Vivanda', intent: 'registrar_manual', cat: 'registro_jerga' },
   { msg: 'Gasté 45 luquitas en Mass', intent: 'registrar_manual', cat: 'registro_jerga' },
-  { msg: 'Pata me presté 30 mangos taxi', intent: 'registrar_manual', cat: 'registro_jerga' },
+  { msg: 'Pata me presté 30 mangos taxi', intent: 'registrar_manual', cat: 'registro_jerga', prestamo: 'pregunta' },
   { msg: 'Full gastito hoy 120 en Wong pe', intent: 'registrar_manual', cat: 'registro_jerga' },
   { msg: 'Me clavaron 85 en el chifa de la esquina', intent: 'registrar_manual', cat: 'registro_jerga' },
   { msg: 'Gste 22 en cafecito', intent: 'registrar_manual', cat: 'registro_jerga' },
@@ -117,7 +117,7 @@ module.exports = [
   { msg: 'Me transfirieron 450 por el trabajo extra', intent: 'registrar_manual', cat: 'registro_ingreso' },
   { msg: 'Gané 2000 esta quincena', intent: 'registrar_manual', cat: 'registro_ingreso' },
   { msg: 'Ingreso 350 vendí ropa usada', intent: 'registrar_manual', cat: 'registro_ingreso' },
-  { msg: 'Me pagó mi tío 150 que me debía', intent: 'abonar_deuda', cat: 'registro_ingreso' },
+  { msg: 'Me pagó mi tío 150 que me debía', intent: 'abonar_deuda', cat: 'registro_ingreso', prestamo: 'abono' },
   { msg: 'Entró 4000 de la chamba', intent: 'registrar_manual', cat: 'registro_ingreso' },
   { msg: 'Recibí 600 de alquiler del depa', intent: 'registrar_manual', cat: 'registro_ingreso' },
   { msg: 'Me abonaron 2500 del bono', intent: 'registrar_manual', cat: 'registro_ingreso' },
@@ -276,7 +276,7 @@ module.exports = [
   { msg: 'Le debo 100 a Carlos', intent: 'registrar_deuda', cat: 'deudas' },
   { msg: 'Pedro me debe 50 soles', intent: 'registrar_deuda', cat: 'deudas' },
   { msg: 'Registra deuda de 200 con María', intent: 'registrar_deuda', cat: 'deudas' },
-  { msg: 'Le presté 80 a mi causa José', intent: 'registrar_deuda', cat: 'deudas' },
+  { msg: 'Le presté 80 a mi causa José', intent: 'registrar_deuda', cat: 'deudas', prestamo: 'me_deben' },
   { msg: 'Debo 150 a mi pata Luis', intent: 'registrar_deuda', cat: 'deudas' },
   { msg: 'Ver mis deudas', intent: 'ver_deudas', cat: 'deudas' },
   { msg: 'Cuánto debo en total', intent: 'ver_deudas', cat: 'deudas' },
@@ -296,7 +296,7 @@ module.exports = [
   { msg: 'Ya pagué lo de Luis todo', intent: 'saldar_todo_contraparte', cat: 'deudas' },
   // #241
   { msg: 'Abono 25 soles a lo que le debo a Carlos', intent: 'abonar_deuda', cat: 'deudas' },
-  { msg: 'Le presté 60 luquitas a Sofía', intent: 'registrar_deuda', cat: 'deudas' },
+  { msg: 'Le presté 60 luquitas a Sofía', intent: 'registrar_deuda', cat: 'deudas', prestamo: 'me_deben' },
   { msg: 'Cuánto le debo a María en total', intent: 'ver_deudas', cat: 'deudas' },
   { msg: 'Divide la cuenta del chifa entre 4', intent: 'dividir_gasto_grupal', cat: 'deudas' },
   { msg: 'Divídelo entre 3 personas', intent: 'dividir_gasto_grupal', cat: 'deudas' },
@@ -311,11 +311,18 @@ module.exports = [
   { msg: 'Ver deudas que me deben', intent: 'ver_deudas', cat: 'deudas' },
   { msg: 'Le pagué 200 a Diego ya está limpio', intent: 'marcar_deuda_pagada', cat: 'deudas' },
   { msg: 'Abona 60 a la deuda con Sofía', intent: 'abonar_deuda', cat: 'deudas' },
-  { msg: 'Preste 500 soles a mi hermano', intent: 'registrar_deuda', cat: 'deudas' },
+  { msg: 'Preste 500 soles a mi hermano', intent: 'registrar_deuda', cat: 'deudas', prestamo: 'me_deben' },
   { msg: 'Divide el Uber entre 2', intent: 'dividir_gasto_grupal', cat: 'deudas' },
   { msg: 'Debo 90 al casero', intent: 'registrar_deuda', cat: 'deudas' },
   { msg: 'Todas mis deudas con Andrea saldalas', intent: 'saldar_todo_contraparte', cat: 'deudas' },
   { msg: 'Le abono 75 a la deuda de mi hermano', intent: 'abonar_deuda', cat: 'deudas' },
+  // Préstamos de prod (usuario d21c11e0, 14 y 16-sep-2026). `intent` es lo que el clasificador
+  // debería decir; `prestamo` es lo que decide el CÓDIGO después (lib/prestamos.js), y lo mide
+  // tests/lib/prestamos.test.js sobre el pool entero: 'pregunta' no anota y pregunta la dirección.
+  { msg: 'Y preste 118 soles', intent: 'registrar_deuda', cat: 'deudas', prestamo: 'pregunta' },
+  { msg: 'No no, yo le preste 118 soles a mi madre', intent: 'registrar_deuda', cat: 'deudas', prestamo: 'me_deben' },
+  { msg: 'Me preste 50 soles', intent: 'registrar_manual', cat: 'deudas', prestamo: 'pregunta' },
+  { msg: 'Mi mamá me prestó 200', intent: 'registrar_deuda', cat: 'deudas', prestamo: 'debo' },
 
   // ══════════════════════════════════════════════════════════════
   // PRESUPUESTOS (20) — casos #261–#280

@@ -296,13 +296,15 @@ describe('registrar_manual por decisión', () => {
   // precondición). Con "preste 118" o "35.00" el extractor ya devolvía null por su cuenta, así
   // que un test sobre ellos seguía verde aunque el rescate corriera antes que la decisión
   // (mutación M4 de la revisión adversarial del 30-sep).
-  it('`tipo_dudoso` gana al rescate aunque el rescate sí leería un gasto ("preste 118 soles")', async () => {
-    expect(extraerGastoSinIA('preste 118 soles')).toMatchObject({ monto: 118, tipo: 'gasto' });
-    respuestaModelo = { ...vacio, decision: 'tipo_dudoso', monto: 118 };
+  // Con "50 soles de mi tía" y no con "preste 118 soles": desde el 07-oct el rescate ya no lee
+  // ningún préstamo, así que ese mensaje volvía a no poder probar el orden.
+  it('`tipo_dudoso` gana al rescate aunque el rescate sí leería un gasto ("50 soles de mi tía")', async () => {
+    expect(extraerGastoSinIA('50 soles de mi tía')).toMatchObject({ monto: 50, tipo: 'gasto' });
+    respuestaModelo = { ...vacio, decision: 'tipo_dudoso', monto: 50 };
     const ctx = ctxRegistro();
-    const res = await registrar('preste 118 soles', ctx);
+    const res = await registrar('50 soles de mi tía', ctx);
     expect(ctx.guardarTransaccion).not.toHaveBeenCalled();
-    expect(res).toContain('¿Esos S/118 entraron o salieron?');
+    expect(res).toContain('¿Esos S/50 entraron o salieron?');
   });
 
   it('`no_es_movimiento` gana al rescate aunque el rescate sí leería un gasto ("me quedan 40 soles")', async () => {
@@ -559,11 +561,12 @@ describe('registrar_deuda: "presté" es plata que me deben', () => {
 
   // Los ataques de la revisión adversarial: con el clasificador diciendo `debo` (bien), la
   // primera versión de la regla los invertía a me_deben porque buscaba "presté" en cualquier lado.
+  // "Juan preste 200 para mi pasaje" salió de esta lista el 07-oct: "preste" sin tilde, sin
+  // pronombre y sin destinatario se pregunta (abajo).
   for (const msg of [
     'yo no le presté, Juan me prestó 200',
     'le pedí a Carla que me lo preste y me dio 300',
     'Mi mamá me dijo "te presté 200", le debo eso',
-    'Juan preste 200 para mi pasaje',
   ]) {
     it(`no invierte lo que el clasificador leyó bien: ${JSON.stringify(msg)}`, async () => {
       const ctx = await deuda(msg, { tipo: 'debo', contraparte: 'Juan', monto: 200 });
@@ -571,11 +574,16 @@ describe('registrar_deuda: "presté" es plata que me deben', () => {
     });
   }
 
-  // Segunda revisión: sin destinatario, "presté X del banco" es "me presté" sin el "me".
-  for (const msg of ['presté 5000 del banco para la moto', 'presté 3000 de la caja Arequipa', 'preste 118']) {
-    it(`sin destinatario no fuerza me_deben: ${JSON.stringify(msg)}`, async () => {
-      const ctx = await deuda(msg, { tipo: 'debo', contraparte: 'Banco', monto: 100 });
-      expect(ctx.registrarDeuda.mock.calls[0][1]).toBe('debo');
+  // Segunda revisión: sin destinatario, "presté X del banco" es "me presté" sin el "me". Hasta el
+  // 07-oct ahí decidía el clasificador; ahora lo que el verbo no decide se PREGUNTA, aunque el
+  // clasificador traiga un tipo: con "Y preste 118 soles" traía `debo` y era al revés.
+  for (const msg of ['presté 5000 del banco para la moto', 'presté 3000 de la caja Arequipa', 'preste 118',
+    'Y preste 118 soles', 'Juan preste 200 para mi pasaje', 'me presté 50 de Juan', 'Me preste 50 soles']) {
+    it(`sin dirección clara no anota y pregunta: ${JSON.stringify(msg)}`, async () => {
+      const ctx = ctxDeuda();
+      const res = await deudas.handle({ intencion: 'registrar_deuda', msg, datos: { tipo: 'debo', contraparte: 'Banco', monto: 100 }, usuario: USUARIO, from: '51999', ctx });
+      expect(ctx.registrarDeuda).not.toHaveBeenCalled();
+      expect(res).toMatch(/prestaste tú o te/);
     });
   }
 
@@ -591,8 +599,23 @@ describe('registrar_deuda: "presté" es plata que me deben', () => {
     expect(ctx.registrarDeuda.mock.calls[0][1]).toBe('me_deben');
   });
 
-  it('"me presté" NO es me_deben: es jerga de gasto', async () => {
-    const ctx = await deuda('me presté 50 de Juan', { tipo: 'debo', contraparte: 'Juan', monto: 50 });
-    expect(ctx.registrarDeuda.mock.calls[0][1]).toBe('debo');
+  // Lo que el verbo sí decide gana sobre el clasificador, en las dos direcciones (07-oct-2026).
+  for (const [msg, tipoVerbo, tipoClasif] of [
+    ['No no, yo le preste 118 soles a mi madre', 'me_deben', 'debo'],
+    ['Mi mamá me prestó 200', 'debo', 'me_deben'],
+    ['pedí prestado 300 a mi primo', 'debo', 'me_deben'],
+    ['me pidió prestado 50 Carla', 'me_deben', 'debo'],
+  ]) {
+    it(`el verbo gana: ${JSON.stringify(msg)} → ${tipoVerbo}`, async () => {
+      const ctx = await deuda(msg, { tipo: tipoClasif, contraparte: 'Mamá', monto: 100 });
+      expect(ctx.registrarDeuda.mock.calls[0][1]).toBe(tipoVerbo);
+    });
+  }
+
+  it('sin persona, la pregunta va en la dirección del verbo', async () => {
+    const ctx = ctxDeuda();
+    const res = await deudas.handle({ intencion: 'registrar_deuda', msg: 'Presté 118 soles', datos: { monto: 118 }, usuario: USUARIO, from: '51999', ctx });
+    expect(ctx.registrarDeuda).not.toHaveBeenCalled();
+    expect(res).toContain('¿A quién se lo prestaste?');
   });
 });

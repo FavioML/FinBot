@@ -3,6 +3,7 @@ const path = require('path');
 const log = require('../lib/logger');
 const { revisarDatosDichos } = require('../lib/datos-dichos');
 const { INTENTS_QUE_BORRAN } = require('../lib/nlp-guards');
+const { enrutarPorVerbo } = require('../lib/prestamos');
 
 const { FRASE_BORRAR_CUENTA } = require('../lib/constants');
 
@@ -50,6 +51,20 @@ async function dispatchIntent({ intencion, msg, datos, usuario, from, ctx }) {
   // y los harness del muro reemplazan esos tres en el require-cache ANTES de cargar index.js
   // para espiarlos. Con el require al tope, el registry —que carga con el proceso— se
   // quedaría con las referencias reales y los espías quedarían mudos.
+  // La dirección de un préstamo la dice el verbo, no el clasificador (07-oct-2026): "Y preste 118 soles"
+  // se anotó como deuda que ella debía y "Me preste 50 soles" como gasto. Va ANTES del muro porque
+  // cambia el intent que el muro juzga (un préstamo que llegó como gasto es una deuda), y acá para que
+  // la continuación de un mensaje compuesto también pase. Ver lib/prestamos.js.
+  const ruta = enrutarPorVerbo({ intencion, datos, msg });
+  if (ruta.pregunta) {
+    log.info({ tag: 'PRESTAMO_PREGUNTA', intencion, msg: String(msg || '').slice(0, 80) }, 'Préstamo sin dirección clara: se pregunta');
+    return { manejado: true, respuesta: ruta.pregunta, muro: false };
+  }
+  if (ruta.intencion !== intencion || (ruta.datos || {}).tipo !== (datos || {}).tipo) {
+    log.info({ tag: 'PRESTAMO_VERBO', desde: intencion, hacia: ruta.intencion, clasificador: (datos || {}).tipo, verbo: (ruta.datos || {}).tipo }, 'El verbo decide el préstamo');
+  }
+  intencion = ruta.intencion;
+  datos = ruta.datos;
   const { respuestaMuroSiCorresponde } = require('./muro-gate');
   const respMuro = await respuestaMuroSiCorresponde({ intencion, usuario, ctx });
   if (respMuro !== null) return { manejado: true, respuesta: respMuro, muro: true };
