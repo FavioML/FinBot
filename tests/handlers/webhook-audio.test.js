@@ -83,7 +83,7 @@ describe('Notas de voz (audio) → pipeline de texto', () => {
 
     expect(transcriptionsCreate).toHaveBeenCalledOnce();
     // El texto transcrito llega a procesarMensajeLibre igual que si lo hubiera escrito.
-    expect(procesarMensajeLibre).toHaveBeenCalledWith('gasté 20 soles en el almuerzo', expect.any(Object), '51999000111');
+    expect(procesarMensajeLibre).toHaveBeenCalledWith('gasté 20 soles en el almuerzo', expect.any(Object), '51999000111', { sinBorrados: false });
   });
 
   it('audio ilegible (transcripción vacía) → mensaje amable, sin tocar el NLP', async () => {

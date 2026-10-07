@@ -24,6 +24,8 @@
 //
 // Contrato: manejarOnboarding devuelve el texto a enviar si el mensaje pertenece
 // al alta, o null si no (para que webhook.js siga a su cascada de comandos y NLP).
+// Un tercer desenlace, solo del paso -1: `{ continuar: true, cerrado, aviso }` = el menú se cerró y el
+// mensaje sigue a la cascada como un null, con `aviso` delante de la respuesta y sin borrados.
 // Los efectos de DB (updates a usuarios, deletes del wipe) y analytics ocurren
 // aqui dentro; el envio por WhatsApp lo hace webhook con el string devuelto.
 //
@@ -183,6 +185,34 @@ function pareceIntentoDeBorrar(cmd) {
   return /\b(borr|elimin)/.test(n) && /\b(cuenta|datos|todo)\b/.test(n);
 }
 
+// Un "no" al menú es una respuesta al menú, no un mensaje para el pipeline: se contesta
+// "Cancelado." como siempre. La lista es corta a propósito; lo que no esté acá se procesa, que es
+// el lado barato de equivocarse (un "mejor no" mal leído recibe una respuesta de más, un gasto mal
+// leído se perdía).
+// Los emojis se quitan SOLO acá ("Ok 👍", "mejor no 🙏"): en `normalizarRespuesta` también
+// alcanzarían a la frase de confirmación, y esa no se afloja.
+const sinEmojis = (t) => t.replace(/[\p{Extended_Pictographic}️‍]/gu, '').replace(/\s+/g, ' ').trim();
+
+function esCierreDelMenu(cmd) {
+  // "cancela eso" y "anúlalo" también son órdenes de deshacer para el NLP: con el menú abierto se
+  // quedan acá, para que no lleguen a un borrado que el freno invite a repetir.
+  return /^(no+|no no|nop|nop gracias|nel|(no,? )?mejor no|ya no|todavia no|aun no|no por ahora|no lo hagas|me arrepenti|no quiero|(no,? )?cancela( por favor)?|no gracias|no,? gracias|nada,? gracias|cancela(r|lo)?( eso| todo)?|anula(r|lo)?|olvidalo|nada|ninguno|ninguna|dejalo( asi)?|salir|ok|okey|listo|gracias)$/
+    .test(sinEmojis(normalizarRespuesta(cmd)));
+}
+
+// Un "sí" al menú es alguien que quiso CONFIRMAR sin la frase. Va al menú y no al pipeline: allá el
+// clasificador lo manda otra vez a `desconectar_cuenta` y recibía el texto de reiniciar, que no le
+// dice cómo confirmar (revisión adversarial del 07-oct, con el clasificador real). Acá recibe la
+// pista. Ninguna de estas palabras borra: la frase es el control.
+function esConfirmacionSinFrase(cmd) {
+  return /^(si+|sip|(si,? )?confirmo|confirmar|confirmado|acepto|de acuerdo|dale|hazlo|adelante|si quiero|si,? por favor|si estoy segur[oa]|eliminar|borrar|elimina(la|lo)?|borra(la|lo)?|(si,? )?(eliminala|borrala|eliminalo|borralo))$/
+    .test(sinEmojis(normalizarRespuesta(cmd)));
+}
+
+const AVISO_MENU_CERRADO = 'Cerré el menú de tu cuenta sin tocar nada: tu cuenta sigue igual.';
+// Si el cierre no entró, decir "cerré" sería falso: queda el aviso de que sigue abierto.
+const AVISO_MENU_NO_CERRADO = 'Tu cuenta sigue igual.' + AVISO_MENU_ABIERTO;
+
 // Se agrega cuando la respuesta fue un número que ya no es opción —sobre todo quien recibió el
 // menú viejo (antes del ítem 39), donde el 2 o el 1 eran "eliminar todo"— o un intento de borrar
 // sin la frase. "borrar mi cuenta" abre el menú por el NLP (lo verifica
@@ -190,6 +220,11 @@ function pareceIntentoDeBorrar(cmd) {
 // la misma, repetir el pedido mientras el bot tarda borraría sin haber leído el menú.
 const PISTA_BORRAR_CUENTA = '\n\nSi lo que querías era borrar tu cuenta, pídeme *borrar mi cuenta* ' +
   'y, cuando te muestre el menú, confírmalo escribiendo *' + FRASE_BORRAR_CUENTA + '*.';
+
+// Para la orden de borrar "lo último" escrita con el menú abierto: nombra las dos cosas que pudo
+// querer, con la orden exacta de cada una, para que lo que escriba después no sea otra vez ambiguo.
+const PISTA_GASTO_O_CUENTA = '\n\nSi querías borrar tu último movimiento, escríbeme *borra el último*. Si era tu cuenta, ' +
+  'pídeme *borrar mi cuenta* y, cuando te muestre el menú, confírmalo con *' + FRASE_BORRAR_CUENTA + '*.';
 
 // `revocarAccesoGmail` lanza cuando algo sigue pudiendo leer. Lo peligroso de ese throw no es el
 // Gmail: es el MENÚ. Sin esto el webhook no contestaba nada y el paso -1 seguía abierto, y como
@@ -395,7 +430,8 @@ function colaReconexion(usuario) {
  * @param {object} args.usuario  fila de usuarios (incluye onboarding_paso, nombre, ...)
  * @param {string} args.msg      texto crudo del mensaje entrante
  * @param {string} args.cmd      msg.toLowerCase().trim()
- * @returns {Promise<string|null>} texto a enviar, o null si no es parte del alta
+ * @returns {Promise<string|null|{continuar: true, aviso: string}>} texto a enviar, null si no es
+ *   parte del alta, o el menú del paso -1 cerrado con el mensaje siguiendo al pipeline
  */
 async function manejarOnboarding({ usuario, msg, cmd }) {
   // ─── Flujo desconectar cuenta / wipe (paso -1) ─────────────────────────────
@@ -463,9 +499,27 @@ async function manejarOnboarding({ usuario, msg, cmd }) {
     // el token legacy de `usuarios` no aparece acá.
     const sinGmail = respDesc !== null && numCuentas === 0;
     const vCancel = await escribirUsuario(usuario, { onboarding_paso: 0 }, 'cancelar_menu');
+    // **Lo que no le contesta al menú no se pierde** (07-oct-2026). "Cualquier otra cosa cancela"
+    // se comía el mensaje: con el menú abierto, "Quiero ahorrar 7000 soles para el 31 de
+    // diciembre" recibía "Cancelado. Tu cuenta sigue igual." y la meta no existía. Ahora el menú
+    // se cierra y el mensaje sigue por el pipeline, con el aviso adelante. Se quedan acá solo las
+    // respuestas AL menú: un número, un intento de borrar sin la frase (la pista le dice cómo) y
+    // un "no". Ese turno no borra nada (`sinBorrados` en `dispatchIntent`): con el menú abierto,
+    // borrar es la frase y nada más.
+    const quisoConfirmar = esConfirmacionSinFrase(cmd);
+    // "ok, bórrala", "anula eso", "deshaz eso": órdenes completas de borrar el último GASTO, que con
+    // este menú abierto pueden ser la cuenta. Al pipeline no van: el freno pediría repetirlas y la
+    // repetición, ya sin menú, borraba el gasto (segunda revisión del 07-oct). Se reusa el predicado
+    // del borrado de gastos en vez de otra lista de palabras: las listas son lo que se escapaba.
+    const ordenDeBorrarLoUltimo = require('./intents/transacciones').pideBorrarUnGasto(cmd);
+    if (respDesc === null && !pareceIntentoDeBorrar(cmd) && !quisoConfirmar && !ordenDeBorrarLoUltimo && !esCierreDelMenu(cmd)) {
+      if (entro(vCancel)) usuario.onboarding_paso = 0;
+      return { continuar: true, cerrado: entro(vCancel), aviso: entro(vCancel) ? AVISO_MENU_CERRADO : AVISO_MENU_NO_CERRADO };
+    }
     return (sinGmail ? 'No encontré ningún Gmail conectado para desconectar, así que no desconecté nada.' : 'Cancelado.')
       + ' Tu cuenta sigue igual. 👍'
-      + (respDesc !== null || pareceIntentoDeBorrar(cmd) ? PISTA_BORRAR_CUENTA : '')
+      + (ordenDeBorrarLoUltimo ? PISTA_GASTO_O_CUENTA
+        : respDesc !== null || quisoConfirmar || pareceIntentoDeBorrar(cmd) ? PISTA_BORRAR_CUENTA : '')
       + (entro(vCancel) ? '' : AVISO_MENU_ABIERTO);
   }
 

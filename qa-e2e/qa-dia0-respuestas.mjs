@@ -7,32 +7,41 @@
  * `api.neto.pe` —con el clasificador de verdad, gpt-4o-mini incluido— contesta bien.
  *
  *   categoria    "Por categoría" entraba en bucle de "Dime la categoría" (95aaa7dd, 11-ago).
- *   reinicio     "empecemos de cero, cancela todo" borraba el último movimiento sin preguntar.
+ *   reinicio     "empecemos de cero, cancela todo" borraba el último movimiento sin preguntar, y
+ *                después (07-oct) abría el menú de ELIMINAR LA CUENTA. Hoy: ni borra ni abre el
+ *                menú; contesta el texto de `reiniciar_o_borrar`.
+ *   menu         (07-oct) con el menú de la cuenta abierto, el mensaje siguiente se perdía:
+ *                "Quiero ahorrar 7000…" recibía "Cancelado." y la meta no existía. Hoy el menú se
+ *                cierra, el mensaje se procesa, y en ese turno un "borra el último" no borra.
  *   meta         "¿cuánto por día?" volvía a crear la meta: 2 filas y "extender el plazo 190
  *                meses" (2a917ac4, 27-ago).
  *
  * Dos casos del mismo trabajo NO están acá porque sus arreglos se retiraron antes del push ("4 en
  * pan y maca" y "¿vas a perder el registro?"): ver `docs/DEFECTOS.md`, 14-sep.
  *
- * **Cómo no le escribe a nadie.** Un solo usuario efímero con `is_test_user = true` (`enviarWhatsapp`
- * no llama a Meta), alta cerrada y prueba activa sembrada. El número es `510000` + 6 dígitos:
- * con `9` después del 51 sería un celular peruano válido, y si `isTestUser` fallara abierto
- * (`lib/whatsapp.js`) el mensaje saldría a una persona. Si el número ya existe, el INSERT choca
- * con el único de `usuarios.whatsapp` y aborta antes de mandar nada. Borra y COMPRUEBA el borrado
- * desde un `finally` y también ante Ctrl+C.
+ * **Un usuario efímero POR CASO** (07-oct). Hasta ese día era uno solo para todo, y el estado
+ * se arrastraba: el `reinicio` dejaba el menú de la cuenta abierto y el caso `meta` corría con el
+ * menú todavía ahí, así que medía el menú y no la meta. Cada usuario lleva `is_test_user = true`
+ * (`enviarWhatsapp` no llama a Meta), alta cerrada y prueba activa sembrada. El número es `510000`
+ * + 6 dígitos: con `9` después del 51 sería un celular peruano válido, y si `isTestUser` fallara
+ * abierto (`lib/whatsapp.js`) el mensaje saldría a una persona. Si el número ya existe, el INSERT
+ * choca con el único de `usuarios.whatsapp` y aborta antes de mandar nada. Borra y COMPRUEBA el
+ * borrado de cada uno desde un `finally` y también ante Ctrl+C.
  *
  * **Lo que deja, dicho:** no siembra transacciones por REST, porque borrar una deja su copia en
- * `borrados_auditoria` (append-only). La única la crea el propio bot ("gasté 12 en taxi"), así que
- * cada corrida deja como máximo UNA fila de auditoría, con el id del usuario efímero.
+ * `borrados_auditoria` (append-only). Las crea el propio bot, así que cada corrida deja como máximo
+ * una fila de auditoría por usuario efímero que registró un gasto.
  *
  * **Lo que se pagó en las corridas de control (14-sep):**
  *   - La respuesta se ata al mensaje por `conversaciones.id`, NO por `created_at > reloj local`.
- *   - `reinicio` exige movimientos antes (exit 2 si no hay) y corre ANTES de crear la meta: con
- *     una meta viva el modelo mandó "cancela todo" a `abandonar_plan` y el caso no examinó nada.
+ *   - `reinicio` exige movimientos antes (exit 2 si no hay) y corre sin metas: con una meta viva el
+ *     modelo mandó "cancela todo" a `abandonar_plan` y el caso no examinó nada.
  *   - `categoria` afirma el MONTO del desglose: la repregunta vieja trae "Alimentación" en su ejemplo.
  *   - `meta/duplicado` NO discrimina en una corrida (depende de a qué intent mande el modelo la
  *     pregunta); lo cubre el test unitario y acá se reporta. La cuota por día que diga el modelo se
  *     compara contra la correcta como NOTA: en el control inventó S/233 contra ~S/65.
+ *   - `menu` abre el menú con "Quiero eliminar mi cuenta" y lo CONFIRMA en la base
+ *     (`onboarding_paso = -1`); si el clasificador no lo abrió, el caso sale no ejercitado (exit 2).
  *
  * Corre DESPUÉS del deploy: contra el commit anterior es el CONTROL (tiene que fallar).
  * Credenciales como `qa-atribucion-wa.mjs`: `RAILWAY_API_TOKEN` en `app/.env` (o en el entorno),
@@ -163,33 +172,63 @@ try {
 
 const sufijo = crypto.randomBytes(4).toString('hex');
 let n = 0;
-let u = null;
-let whatsapp = null;
-let piso = 0;
-async function decir(texto) {
+// Un usuario efímero por caso: `{ u, whatsapp, piso }`. Los creados quedan en `creados` para que
+// la limpieza los alcance aunque el caso se corte a la mitad.
+const creados = [];
+let abortado = false;
+
+async function crearUsuario(etiqueta) {
+  const en13 = new Date(Date.now() + 13 * 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+  const whatsapp = '510000' + String(Math.floor(Math.random() * 1e6)).padStart(6, '0');
+  const caso = { whatsapp, piso: 0, u: null };
+  creados.push(caso);
+  caso.u = await sb.insert('usuarios', {
+    whatsapp, nombre: 'QA Dia0', is_test_user: true,
+    onboarding_completado: true, onboarding_paso: 0,
+    plan: 'premium', trial_estado: 'activo', trial_inicio: new Date().toISOString(), trial_vence: en13,
+    recordatorios_activos: false,
+  });
+  console.log(`  usuario efímero (${etiqueta}) ${caso.u.id}`);
+  return caso;
+}
+
+async function decir(caso, texto) {
   if (abortado) throw new Error('cortado a mano antes de mandar ' + JSON.stringify(texto));
-  const st = await enviarTexto(vars.META_APP_SECRET, whatsapp, texto, `wamid.qa-dia0-${sufijo}-${++n}`);
+  const st = await enviarTexto(vars.META_APP_SECRET, caso.whatsapp, texto, `wamid.qa-dia0-${sufijo}-${++n}`);
   if (st !== 200) throw new Error('el webhook devolvió HTTP ' + st);
-  const r = await esperarRespuesta(sb, u.id, texto, piso);
-  piso = r.entranteId;
+  const r = await esperarRespuesta(sb, caso.u.id, texto, caso.piso);
+  caso.piso = r.entranteId;
   console.log(`    > ${JSON.stringify(texto)}\n    < ${r.texto === null ? '(sin respuesta)' : JSON.stringify(r.texto.slice(0, 240))}`);
   return r.texto;
 }
 
+// La fila del usuario tal como está ahora: el menú vive en `onboarding_paso` y el borrado de la
+// cuenta deja `cuenta_borrada_at`. Mirar la base y no solo el texto es lo que hace que el caso
+// `menu` no dependa de cómo redacte el modelo.
+async function fila(caso) {
+  const [f] = await sb.select('usuarios', `id=eq.${caso.u.id}&select=onboarding_paso,cuenta_borrada_at`);
+  return f || null;
+}
+const contar = async (tabla, caso) => (await sb.select(tabla, `usuario_id=eq.${caso.u.id}&select=id`)).length;
+
 let limpio = false;
 async function limpiar() {
-  if (limpio || !u) return;
+  if (limpio) return;
   limpio = true;
+  if (!creados.length) return;
   console.log('\nLimpieza');
-  try {
-    for (const t of ['metas_ahorro', 'transacciones', 'transacciones_eliminadas', 'conversaciones', 'notificaciones', 'notification_deliveries']) {
-      await sb.del(t, `usuario_id=eq.${u.id}`);
+  for (const caso of creados) {
+    if (!caso.u) continue;
+    try {
+      for (const t of ['metas_ahorro', 'transacciones', 'transacciones_eliminadas', 'conversaciones', 'notificaciones', 'notification_deliveries']) {
+        await sb.del(t, `usuario_id=eq.${caso.u.id}`);
+      }
+      await sb.del('usuarios', `id=eq.${caso.u.id}`);
+      const quedan = await sb.select('usuarios', `id=eq.${caso.u.id}&select=id`);
+      check(quedan.length === 0, 'se borró el usuario efímero ' + caso.u.id, quedan.length ? 'QUEDÓ la fila, bórrala a mano' : '');
+    } catch (e) {
+      check(false, 'se borró el usuario efímero ' + caso.u.id, 'el borrado falló: ' + e.message);
     }
-    await sb.del('usuarios', `id=eq.${u.id}`);
-    const quedan = await sb.select('usuarios', `id=eq.${u.id}&select=id`);
-    check(quedan.length === 0, 'se borró el usuario efímero', quedan.length ? 'QUEDÓ la fila ' + u.id + ', bórrala a mano' : '');
-  } catch (e) {
-    check(false, 'se borró el usuario efímero', 'el borrado falló: ' + e.message + ', revisa ' + u.id);
   }
 }
 // Ctrl+C / SIGTERM NO limpian en paralelo: si se borra la fila del usuario mientras el backend
@@ -197,68 +236,98 @@ async function limpiar() {
 // `is_test_user` y nadie la limpia (revisión adversarial, 14-sep). Se marca, el flujo principal
 // no manda nada más, termina de esperar el turno en vuelo y limpia el `finally`. Un segundo
 // Ctrl+C sale sin limpiar, y lo dice.
-let abortado = false;
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, () => {
-    if (abortado) { console.error('\nSalida forzada SIN limpiar: revisa usuarios con whatsapp=' + whatsapp); process.exit(1); }
+    if (abortado) { console.error('\nSalida forzada SIN limpiar: revisa usuarios con whatsapp en ' + creados.map((c) => c.whatsapp).join(', ')); process.exit(1); }
     abortado = true;
     console.error('\nCortando: termino el turno en vuelo y limpio (otro Ctrl+C sale sin limpiar).');
   });
 }
 
 const hoyLima = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
-const en13 = new Date(Date.now() + 13 * 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
 
 let errorFatal = null;
 try {
-  whatsapp = '510000' + String(Math.floor(Math.random() * 1e6)).padStart(6, '0');
-  u = await sb.insert('usuarios', {
-    whatsapp, nombre: 'QA Dia0', is_test_user: true,
-    onboarding_completado: true, onboarding_paso: 0,
-    plan: 'premium', trial_estado: 'activo', trial_inicio: new Date().toISOString(), trial_vence: en13,
-    recordatorios_activos: false,
-  });
-  console.log('usuario efímero ' + u.id);
-
+  // ── usuario 1: datos → categoria → reinicio (sin metas, a propósito: ver la cabecera) ──
   console.log('\ndatos');
-  const rTaxi = await decir('gasté 12 en taxi');
+  const c1 = await crearUsuario('datos/categoria/reinicio');
+  const rTaxi = await decir(c1, 'gasté 12 en taxi');
   check(rTaxi !== null && /S\/\s?12\.00/.test(rTaxi), 'registra el gasto de control (S/12 en taxi)');
 
   console.log('\ncategoria');
-  const rCat = await decir('Por categoría');
+  const rCat = await decir(c1, 'Por categoría');
   check(rCat !== null && !/Dime la categor/i.test(rCat), 'no repregunta la categoría');
   check(rCat !== null && /12[.,]00/.test(rCat), 'el desglose trae el monto del gasto (S/12.00)');
 
-  // `reinicio` va ANTES de `meta` a propósito: con una meta viva, el modelo mandó "cancela todo"
-  // a `abandonar_plan` y el caso pasó sin examinar la guarda. Sin meta, lo único a su alcance es
-  // el último movimiento.
   console.log('\nreinicio');
-  const antes = await sb.select('transacciones', `usuario_id=eq.${u.id}&select=id`);
-  if (antes.length === 0) throw new Error('reinicio: no hay movimientos, "no borró nada" sería verde por vacuidad');
-  const rRei = await decir('empecemos de cero, cancela todo');
-  const despues = await sb.select('transacciones', `usuario_id=eq.${u.id}&select=id`);
-  check(despues.length === antes.length, 'no borra ningún movimiento', `antes=${antes.length} después=${despues.length}`);
+  const antes = await contar('transacciones', c1);
+  if (antes === 0) throw new Error('reinicio: no hay movimientos, "no borró nada" sería verde por vacuidad');
+  const rRei = await decir(c1, 'empecemos de cero, cancela todo');
+  const despues = await contar('transacciones', c1);
+  const f1 = await fila(c1);
+  check(despues === antes, 'no borra ningún movimiento', `antes=${antes} después=${despues}`);
   check(rRei !== null && !/Deshecho|Elimin[eé] \*/.test(rRei), 'no confirma un borrado');
-  if (rRei !== null && /borra el último/.test(rRei)) {
-    nota('pidió la orden explícita: la guarda corrió');
+  check(f1 && f1.onboarding_paso !== -1 && !/Eliminar tu cuenta/.test(rRei || ''), 'no abre el menú de eliminar la cuenta',
+    'onboarding_paso=' + (f1 && f1.onboarding_paso));
+  check(rRei !== null && /no tengo un botón para reiniciar/.test(rRei), 'contesta el texto de reiniciar_o_borrar');
+
+  // ── usuario 2: el mensaje que sigue al menú de la cuenta ──
+  console.log('\nmenu');
+  const c2 = await crearUsuario('menu');
+  const rAbre = await decir(c2, 'Quiero eliminar mi cuenta');
+  const fAbre = await fila(c2);
+  if (!fAbre || fAbre.onboarding_paso !== -1) {
+    // El clasificador no abrió el menú: el caso no examinó lo que dice examinar.
+    noEjercitados.push('menu');
+    nota('el menú no quedó abierto (onboarding_paso=' + (fAbre && fAbre.onboarding_paso) + '): el caso NO se ejercitó');
   } else {
-    // El modelo lo mandó a otro intent: "no borró" es cierto pero no dice nada de la guarda.
-    noEjercitados.push('reinicio');
-    nota('no mostró la confirmación: la guarda NO se ejercitó en esta corrida (cuenta como no ejercitado)');
+    check(/confirmo borrar mi cuenta/.test(rAbre || ''), 'el menú pide la frase de confirmación');
+    let rMetaMenu = await decir(c2, 'Quiero ahorrar 7000 soles para el 31 de diciembre');
+    const fTras = await fila(c2);
+    check(!/^Cancelado/.test(rMetaMenu || ''), 'el mensaje que sigue al menú NO se contesta con "Cancelado"');
+    check(/Cerré el menú/.test(rMetaMenu || ''), 'avisa que cerró el menú');
+    check(fTras && fTras.onboarding_paso === 0, 'el menú queda cerrado en la base', 'onboarding_paso=' + (fTras && fTras.onboarding_paso));
+    if (rMetaMenu !== null && !/Plan de ahorro creado/.test(rMetaMenu) && /fecha/i.test(rMetaMenu)) rMetaMenu = await decir(c2, 'Máximo 31 de diciembre');
+    check(rMetaMenu !== null && /Plan de ahorro creado/.test(rMetaMenu), 'el mensaje se procesó: la meta existe en la respuesta');
+    check((await contar('metas_ahorro', c2)) === 1, 'el mensaje se procesó: la meta existe en la base');
+    check(fTras && fTras.cuenta_borrada_at === null, 'la cuenta no se borró');
+
+    // Con el menú abierto, un borrado de un gasto no se ejecuta: borrar con el menú abierto es la frase.
+    const rPan = await decir(c2, 'gasté 7 en pan');
+    check(rPan !== null && /S\/\s?7\.00/.test(rPan), 'registra un gasto con el menú cerrado (control)');
+    const txAntes = await contar('transacciones', c2);
+    const metasAntes = await contar('metas_ahorro', c2);
+    await decir(c2, 'Quiero eliminar mi cuenta');
+    const fReabre = await fila(c2);
+    if (!fReabre || fReabre.onboarding_paso !== -1) {
+      noEjercitados.push('menu/borrado');
+      nota('el menú no se reabrió: el borrado con el menú abierto NO se ejercitó');
+    } else {
+      const rBorra = await decir(c2, 'borra el último gasto');
+      const txDespues = await contar('transacciones', c2);
+      const metasDespues = await contar('metas_ahorro', c2);
+      const fFin = await fila(c2);
+      check(txDespues === txAntes, 'con el menú abierto, "borra el último gasto" no borra', `antes=${txAntes} después=${txDespues}`);
+      check(rBorra !== null && !/Deshecho|Elimin[eé] \*/.test(rBorra), 'no confirma un borrado');
+      // Con una meta viva el modelo puede mandar "borra" a `eliminar_meta`: tampoco se ejecuta.
+      check(metasDespues === metasAntes, 'tampoco borra la meta', `antes=${metasAntes} después=${metasDespues}`);
+      check(fFin && fFin.cuenta_borrada_at === null, 'la cuenta sigue viva');
+    }
   }
 
+  // ── usuario 3: la meta, sin nada abierto antes ──
   console.log('\nmeta');
-  let rMeta = await decir('Quiero ahorrar 7000 soles para el 31 de diciembre');
-  if (rMeta !== null && !/Plan de ahorro creado/.test(rMeta) && /fecha/i.test(rMeta)) rMeta = await decir('Máximo 31 de diciembre');
+  const c3 = await crearUsuario('meta');
+  let rMeta = await decir(c3, 'Quiero ahorrar 7000 soles para el 31 de diciembre');
+  if (rMeta !== null && !/Plan de ahorro creado/.test(rMeta) && /fecha/i.test(rMeta)) rMeta = await decir(c3, 'Máximo 31 de diciembre');
   check(rMeta !== null && /Plan de ahorro creado/.test(rMeta), 'crea el plan');
   // El usuario efímero no tiene un mes cerrado: la viabilidad NO puede opinar. En el control el
   // código viejo dijo "Tu margen libre es S/0/mes ... extender el plazo 1943 meses más".
   check(rMeta !== null && /mes completo/.test(rMeta), 'sin un mes cerrado, no da veredicto de viabilidad');
   check(rMeta !== null && !/\d{3,} meses/.test(rMeta), 'no promete plazos de cientos de meses');
   check(rMeta !== null && /por día/.test(rMeta), 'la creación trae la cuota por día');
-  const rDia = await decir('Y cuanto necesitaría ahorrar por día');
-  const metas = await sb.select('metas_ahorro', `usuario_id=eq.${u.id}&select=id`);
-  check(metas.length === 1, 'la pregunta de seguimiento NO crea otra meta', 'filas=' + metas.length);
+  const rDia = await decir(c3, 'Y cuanto necesitaría ahorrar por día');
+  check((await contar('metas_ahorro', c3)) === 1, 'la pregunta de seguimiento NO crea otra meta');
   check(rDia !== null && !/Plan de ahorro creado/.test(rDia), 'no repite "Plan de ahorro creado"');
   nota('el duplicado no discrimina en una corrida: depende de a qué intent mande el modelo la pregunta');
   const anio = Number(hoyLima.slice(0, 4));

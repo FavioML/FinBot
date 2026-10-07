@@ -202,6 +202,10 @@ module.exports = {
           if (errDupOpuesta) {
             log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, err: errDupOpuesta.message }, 'registrar_deuda: no se pudo revisar la anotacion opuesta reciente');
             avisoOpuesta = '\n\n⚠️ No pude revisar si te quedó la anotación opuesta de hace un rato. Si la ves repetida, bórrala desde _"mis deudas"_.';
+          } else if (duplicadaOpuesta && duplicadaOpuesta.length > 0 && ctx.sinBorrados) {
+            // El turno que sigue al menú de borrar la cuenta no borra filas (`dispatchIntent`, 07-oct):
+            // la deuda se registra igual y la opuesta queda, dicho.
+            avisoOpuesta = '\n\n⚠️ Ojo: te quedó también la anotación opuesta de hace un rato. Revísala con _"mis deudas"_.';
           } else if (duplicadaOpuesta && duplicadaOpuesta.length > 0) {
             const vDup = await verificarEscritura(
               supabase.from('deudas').delete().eq('id', duplicadaOpuesta[0].id).select('id'),

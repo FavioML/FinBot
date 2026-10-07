@@ -126,6 +126,9 @@ module.exports = {
             'porque si me respondieras un número no lo leería como una opción. Escríbeme ' +
             '*desconectar cuenta* de nuevo en un momento.';
         }
+        // La fila en memoria dice lo mismo que la base: el webhook la mira para no anteponerle "Cerré
+        // el menú" a un menú que este mismo turno acaba de volver a abrir (07-oct-2026).
+        usuario.onboarding_paso = -1;
         // Borrar NO lleva número, en ninguna de las tres ramas: se confirma con la frase fija, que
         // es lo único que `handlers/onboarding.js` (paso -1) acepta para borrar. Con número,
         // "1.50 pan" borraba la cuenta, y la misma cifra cambiaba de sentido si entre el menú y
@@ -141,16 +144,16 @@ module.exports = {
           menuDesc += cuentasDesc.map((c, i) => (i + 1) + '️⃣ *Desconectar ' + c.email + '*').join('\n') + '\n';
           menuDesc += (cuentasDesc.length + 1) + '️⃣ *Desconectar todas* — Conservo tu historial\n\n';
           menuDesc += '*Eliminar todo* — Borro todos tus datos (irreversible). ' + borrar + '\n\n';
-          menuDesc += '_Responde solo con el número. Cualquier otra cosa cancela._';
+          menuDesc += '_Responde solo con el número. Si me escribes otra cosa, cierro este menú sin tocar nada y sigo con lo tuyo._';
         } else if (cuentasDesc.length === 1) {
           menuDesc += 'Cuenta conectada: 📧 ' + cuentasDesc[0].email + '\n\n';
           menuDesc += '¿Qué deseas hacer?\n\n';
           menuDesc += '1️⃣ *Solo desconectar* — Desvinculo tu Gmail pero conservo tu historial de gastos. Puedes volver a conectarte cuando quieras.\n\n';
           menuDesc += '*Eliminar todo* — Borro todos tus datos (gastos, categorías, configuración). Esta acción es irreversible. ' + borrar + '\n\n';
-          menuDesc += '_Responde 1 para desconectar. Cualquier otra cosa cancela._';
+          menuDesc += '_Responde 1 para desconectar. Si me escribes otra cosa, cierro este menú sin tocar nada y sigo con lo tuyo._';
         } else {
           menuDesc += 'Borro todos tus gastos, categorías y configuración. Es irreversible. ' + borrar + '\n\n';
-          menuDesc += '_Cualquier otra cosa cancela._';
+          menuDesc += '_Si me escribes otra cosa, cierro este menú sin tocar nada y sigo con lo tuyo._';
         }
         return menuDesc;
       }

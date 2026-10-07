@@ -8,7 +8,7 @@ const fechaAyerPeru = () => ayerPeru();
 const { CATEGORIAS_VALIDAS, CATEGORIA_MAP, WEBAPP_URL } = require('../lib/constants');
 const { validarMonto, normalizarCategoria } = require('../lib/validators');
 const { ADMIN_NUMBER } = require('../lib/config');
-const { esVerUltimoMovimiento, extraerGastoSinIA } = require('../lib/nlp-guards');
+const { esVerUltimoMovimiento, extraerGastoSinIA, INTENTS_QUE_BORRAN, pideCuentaExplicita } = require('../lib/nlp-guards');
 const { diceQueYaPago } = require('./intents/premium');
 const { pideAlcanceRetroactivo, textoDicho } = require('../lib/datos-dichos');
 const { normalizar: normalizarOrden } = require('../lib/orden-edicion');
@@ -110,7 +110,10 @@ const FUERA_DE_ALCANCE = 'Eso se me escapa. Lo mío son tus gastos.\n\nPrueba co
  * columna legacy. Un helper correcto que vive en un handler no lo encuentra el que lo necesita.
  */
 
-async function procesarMensajeLibre(msg, usuario, from) {
+// `opciones.sinBorrados`: el mensaje llegó con el menú de borrar la cuenta abierto y el menú se
+// cerró para procesarlo (`handlers/onboarding.js`, paso -1). Viaja en `ctx` hasta `dispatchIntent`,
+// que en ese turno no despacha ningún intent que borre.
+async function procesarMensajeLibre(msg, usuario, from, opciones = {}) {
   try {
     // Las tres lecturas del arranque son independientes entre sí y antes costaban tres
     // round-trips EN SERIE sobre el camino de cada mensaje entrante.
@@ -443,7 +446,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
     }
 
     // Safety net: nunca ejecutar acciones destructivas si el mensaje es una pregunta
-    const DESTRUCTIVE_INTENTS = new Set(['eliminar_transaccion', 'deshacer_ultimo', 'eliminar_meta', 'eliminar_presupuesto']);
+    const DESTRUCTIVE_INTENTS = INTENTS_QUE_BORRAN;
     const msgTrim = (msg || '').trim();
     const esPregunta = msgTrim.endsWith('?') || msgTrim.endsWith('¿');
     if (esPregunta && DESTRUCTIVE_INTENTS.has(intencion)) {
@@ -493,6 +496,14 @@ async function procesarMensajeLibre(msg, usuario, from) {
       datos = { categoria_nueva: datos.categoria, subcategoria_nueva: datos.subcategoria, comercio: datos.comercio };
     }
 
+    // El menú de ELIMINAR LA CUENTA se abre solo con un pedido explícito (07-oct-2026). Con
+    // "empecemos de cero, cancela todo" el clasificador lo abría, y lo vago recibe el texto de
+    // `reiniciar_o_borrar`, que nombra el pedido que sí abre el menú. Ver `pideCuentaExplicita`.
+    if (intencion === 'desconectar_cuenta' && !pideCuentaExplicita(msg)) {
+      log.info({ tag: 'NLP_GUARD', msg: msgTrim.slice(0, 120) }, 'Pedido vago: el menú de la cuenta no se abre');
+      ({ intencion, datos } = mapToolToIntent('social_response', { action: 'help', tema: 'reiniciar_o_borrar' }));
+    }
+
     log.info({ tag: 'NLP', intencion, datos }, 'Intención clasificada');
 
 
@@ -518,6 +529,7 @@ async function procesarMensajeLibre(msg, usuario, from) {
       obtenerCategoriasUsuario, detectarCategoriaIA, crearCategoriaLibreUsuario, crearSubcategoriaLibreUsuario, asegurarCategoriaUsuario,
       redactarConNETO, escanearGmailYRegistrar,
       guardarMensaje, obtenerHistorial, getUserPlanConfig, getHistoryDateLimit,
+      sinBorrados: !!opciones.sinBorrados,
     };
 
     // === Dispatch (con el muro de lectura adentro) ========================

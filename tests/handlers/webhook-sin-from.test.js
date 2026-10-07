@@ -127,7 +127,7 @@ describe('SOLO BSUID: quien oculta su número recorre el camino normal (12-sep-2
     const { req, res } = buildReqRes(sinFrom({ from_user_id: 'PE.999', text: { body: 'gasté 30 en almuerzo' } }));
     await webhookHandler(req, res);
 
-    expect(procesarMensajeLibre).toHaveBeenCalledWith('gasté 30 en almuerzo', expect.objectContaining({ id: 'u-conocido' }), 'PE.999');
+    expect(procesarMensajeLibre).toHaveBeenCalledWith('gasté 30 en almuerzo', expect.objectContaining({ id: 'u-conocido' }), 'PE.999', { sinBorrados: false });
     expect(enviarWhatsapp).toHaveBeenCalledWith('PE.999', 'ok');
   });
 

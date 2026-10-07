@@ -978,7 +978,10 @@ function createWebhookHandler(procesarMensajeLibre) {
     // en handlers/onboarding.js; aquí webhook solo delega. Devuelve el texto a
     // enviar si el mensaje pertenece al alta, o null si no (sigue a la cascada).
     const respOnb = await manejarOnboarding({ usuario, msg, cmd, from });
-    if (respOnb !== null) {
+    // El menú de la cuenta se cerró y el mensaje sigue a la cascada (paso -1, 07-oct-2026): el
+    // aviso va delante de la respuesta y ese turno no despacha borrados (`sinBorrados`).
+    const menuCerrado = respOnb !== null && typeof respOnb === 'object' && respOnb.continuar ? respOnb : null;
+    if (respOnb !== null && !menuCerrado) {
       await enviarWhatsapp(from, respOnb);
       // El alta hace short-circuit antes de message-processor, que es el único otro
       // punto que guarda el turno del usuario. Sin esto, de quien se traba EN el
@@ -1320,7 +1323,7 @@ function createWebhookHandler(procesarMensajeLibre) {
       const mesActual = new Date().getMonth() + 1;
       respuesta = '*Comandos NETO:*\n*/semana* -- gastos 7 dias\n*/mes* -- gastos del mes\n*/presupuesto* -- ver/configurar presupuesto\n*/categorias* -- categorias\n*/escanear* -- leer correos ahora\n*/cambiar [comercio] [cat]* -- corregir categoria\n*/reporte* -- PDF del mes\n*/reporte ' + mesActual + '* -- PDF mes especifico\n*/alertas* -- activar/desactivar avisos de Gmail\n*/dashboard* -- ir a tu app (https://app.neto.pe)\n*/referir* -- invitar amigos y ganar Pro\n*/premium* -- plan premium\n*hola* -- estado general\n\n_Tambien puedes escribirme en lenguaje natural!_';
     } else {
-      respuesta = await procesarMensajeLibre(msg, usuario, from);
+      respuesta = await procesarMensajeLibre(msg, usuario, from, { sinBorrados: !!menuCerrado });
     }
     } catch (eCmd) {
       log.error({ tag: 'WEBHOOK_CMD', cmd, err: eCmd.message }, 'Un comando fallo: se responde en vez de callar');
@@ -1334,6 +1337,9 @@ function createWebhookHandler(procesarMensajeLibre) {
       registrarError('WEBHOOK_CMD', eCmd.message, { stack: eCmd.stack, whatsapp: numero, bsuid, usuarioId: usuario.id, cmd });
       respuesta = 'Tuve un problema consultando tus datos. Intenta de nuevo en un momento.';
     }
+    // Salvo que el turno haya vuelto a abrir el menú ("quiero darme de baja" con el menú abierto):
+    // ahí "Cerré el menú" encima del menú recién abierto se contradice.
+    if (menuCerrado && !(menuCerrado.cerrado && usuario.onboarding_paso === -1)) respuesta = menuCerrado.aviso + (respuesta ? '\n\n' + respuesta : '');
     if (respuesta) {
       await enviarWhatsapp(from, respuesta);
       // Guardar respuesta de NETO en historial

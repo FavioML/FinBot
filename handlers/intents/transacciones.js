@@ -1649,3 +1649,6 @@ module.exports = {
   }
 };
 module.exports.detectarQuerySinMonto = detectarQuerySinMonto;
+// Lo usa el menú de la cuenta (`handlers/onboarding.js`, paso -1): una orden de borrar "lo último"
+// con ese menú abierto no se sabe si habla del gasto o de la cuenta.
+module.exports.pideBorrarUnGasto = pideBorrarUnGasto;

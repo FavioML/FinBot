@@ -135,7 +135,10 @@ async function main() {
   console.log('     ' + r2.replace(/\n/g, ' ⏎ '));
   check('NO se despachó el borrado', llamadasBorrar.length === 0, 'llamadas=' + llamadasBorrar.length);
   check('NO se revocó Gmail', llamadasRevocar.length === 0);
-  check('contesta que canceló y la cuenta sigue igual', r2.startsWith('Cancelado. Tu cuenta sigue igual'));
+  // Desde el 07-oct el mensaje que no le contesta al menú no se pierde: el menú se cierra y el gasto
+  // se registra (fila del 07-oct en `docs/DEFECTOS.md`). Antes decía "Cancelado." y el gasto no existía.
+  check('cierra el menú y la cuenta sigue igual', r2.startsWith('Cerré el menú de tu cuenta sin tocar nada'), r2.slice(0, 80));
+  check('y registra el gasto', /S\/\s?1\.50/.test(r2), r2.slice(0, 160));
   check('el menú se cerró (paso 0)', (await paso()) === 0);
 
   console.log('\n4) Un "1" solo (menú del número viejo, o el Gmail ya revocado)');

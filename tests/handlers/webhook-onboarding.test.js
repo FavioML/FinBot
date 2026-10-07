@@ -136,7 +136,9 @@ db.supabase.from = vi.fn((table) => {
 });
 
 const createWebhookHandler = require('../../handlers/webhook');
-const webhookHandler = createWebhookHandler(vi.fn());
+// El pipeline de NLP es un doble: lo que se prueba acá es si el mensaje LLEGA a él y con qué opciones.
+const procesarMensajeLibre = vi.fn();
+const webhookHandler = createWebhookHandler(procesarMensajeLibre);
 
 // ─── Helper: construir req firmado + res ─────────────────────────────────────
 let wamidSeq = 0;
@@ -167,6 +169,9 @@ function buildReqRes(from, texto) {
 // distinguir un mensaje al usuario de uno al admin.
 const ADMIN_NUMBER = require('../../lib/config').ADMIN_NUMBER;
 
+// El aviso con que empieza la respuesta cuando el menú del paso -1 se cerró y el mensaje siguió.
+const AVISO_CERRADO = 'Cerré el menú de tu cuenta sin tocar nada';
+
 // Un remitente distinto por envío. `limiteRemitenteSuperado` (webhook.js, S′5) descarta desde el
 // mensaje 61 del mismo número en un minuto, y el throttle es de módulo: con un `from` fijo, el
 // caso 61 de este archivo recibía `null` y fallaba por el límite, no por lo que afirma (pasó el
@@ -189,6 +194,7 @@ function mensajesAlAdmin() {
 
 beforeEach(() => {
   enviarWhatsapp.mockClear();
+  procesarMensajeLibre.mockReset().mockResolvedValue(undefined);
   obtenerOCrearUsuario.mockReset();
   obtenerCuentasGmail.mockReset().mockResolvedValue([]);
   // Sin este reset las llamadas se acumulan y un test pasa por lo que hizo el anterior.
@@ -722,10 +728,13 @@ describe('Ítem 39 — el menú del paso -1 no borra por un número', () => {
     obtenerCuentasGmail.mockResolvedValue([]);
     const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1.50 pan');
     expect(borrarCuenta).not.toHaveBeenCalled();
-    // '^Cancelado' y no 'sigue igual': con parseInt de vuelta, '1.50 pan' sale como un 1 y
-    // contesta 'No encontré ningún Gmail... Tu cuenta sigue igual', que también dice 'sigue igual'.
-    expect(enviado.startsWith('Cancelado. Tu cuenta sigue igual')).toBe(true);
+    // Desde el 07-oct no es "Cancelado": es un gasto y se registra (el menú se cierra y el mensaje
+    // sigue al pipeline). Lo que mata a `parseInt` de vuelta es que no se lean las cuentas: con él,
+    // '1.50 pan' sale como un 1, se leen, y contesta 'No encontré ningún Gmail'.
+    expect(enviado.startsWith(AVISO_CERRADO)).toBe(true);
+    expect(enviado).not.toMatch(/No encontré ningún Gmail/);
     expect(obtenerCuentasGmail).not.toHaveBeenCalled();
+    expect(procesarMensajeLibre).toHaveBeenCalledWith('1.50 pan', expect.anything(), expect.anything(), { sinBorrados: true });
     expect(usuariosChain.update).toHaveBeenCalledWith(expect.objectContaining({ onboarding_paso: 0 }));
   });
 
@@ -740,7 +749,7 @@ describe('Ítem 39 — el menú del paso -1 no borra por un número', () => {
     obtenerCuentasGmail.mockResolvedValue(UNA);
     const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1 cafe 5');
     expect(revocarAccesoGmail).not.toHaveBeenCalled();
-    expect(enviado).toMatch(/cancelado/i);
+    expect(enviado.startsWith(AVISO_CERRADO)).toBe(true);
   });
 
   // Vecinos (a) y (b): el menú mostró una cuenta ("1 = desconectar"), y cuando llega la
@@ -910,7 +919,7 @@ describe('Ítem 39 — el menú del paso -1 no borra por un número', () => {
   it('"1.50 pan" con la lectura de cuentas caída → cancela igual, no calla', async () => {
     obtenerCuentasGmail.mockRejectedValue(new Error('gmail_cuentas caída'));
     const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1.50 pan');
-    expect(enviado).toMatch(/^Cancelado/);
+    expect(enviado.startsWith(AVISO_CERRADO)).toBe(true);
     expect(usuariosChain.update).toHaveBeenCalledWith(expect.objectContaining({ onboarding_paso: 0 }));
   });
 
@@ -920,6 +929,116 @@ describe('Ítem 39 — el menú del paso -1 no borra por un número', () => {
     const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, '1️⃣');
     expect(revocarAccesoGmail).toHaveBeenCalledWith('u1', expect.anything());
     expect(enviado).toMatch(/Gmail desconectado/);
+  });
+});
+
+// ─── 07-oct-2026: lo que no le contesta al menú no se pierde ─────────────────
+//
+// Corrida de `qa-e2e/qa-dia0-respuestas.mjs` contra producción: con el menú del paso -1 abierto,
+// "Quiero ahorrar 7000 soles para el 31 de diciembre" recibió "Cancelado. Tu cuenta sigue igual."
+// y la meta no se creó. "Cualquier otra cosa cancela" sigue siendo la regla de seguridad; lo que
+// cambió es que esa otra cosa se procesa después de cancelar, y en ese turno no se borra nada.
+describe('07-oct — el mensaje que sigue al menú de la cuenta se procesa', () => {
+  const UNA = [{ id: 'g1', email: 'a@x.com' }];
+  const META = 'Quiero ahorrar 7000 soles para el 31 de diciembre';
+
+  for (const [rama, cuentas] of [['sin cuentas', []], ['una cuenta', UNA], ['multi-cuenta', [...UNA, { id: 'g2', email: 'b@x.com' }]]]) {
+    it(`${rama}: el mensaje llega al pipeline, sin borrados, y la respuesta lleva el aviso`, async () => {
+      obtenerCuentasGmail.mockResolvedValue(cuentas);
+      procesarMensajeLibre.mockResolvedValue('🎯 Plan de ahorro creado');
+      const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, META);
+      expect(procesarMensajeLibre).toHaveBeenCalledTimes(1);
+      expect(procesarMensajeLibre).toHaveBeenCalledWith(META, expect.objectContaining({ id: 'u1' }), expect.anything(), { sinBorrados: true });
+      expect(enviado).toBe(AVISO_CERRADO + ': tu cuenta sigue igual.\n\n🎯 Plan de ahorro creado');
+      expect(usuariosChain.update).toHaveBeenCalledWith({ onboarding_paso: 0 });
+      expect(borrarCuenta).not.toHaveBeenCalled();
+      expect(revocarAccesoGmail).not.toHaveBeenCalled();
+    });
+  }
+
+  it('el pipeline ve el menú CERRADO en la fila (paso 0), no el -1', async () => {
+    let pasoVisto;
+    procesarMensajeLibre.mockImplementation(async (m, u) => { pasoVisto = u.onboarding_paso; return 'ok'; });
+    await enviarTexto({ id: 'u1', onboarding_paso: -1 }, META);
+    expect(pasoVisto).toBe(0);
+  });
+
+  it('si no se pudo cerrar el menú, igual lo procesa y avisa que sigue abierto', async () => {
+    usuariosChain = makeChain([], { updateResult: { data: null, error: { message: 'timeout' } } });
+    procesarMensajeLibre.mockResolvedValue('🎯 Plan de ahorro creado');
+    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, META);
+    expect(procesarMensajeLibre).toHaveBeenCalledWith(META, expect.anything(), expect.anything(), { sinBorrados: true });
+    expect(enviado).toContain('sigo esperando una opción');
+    expect(enviado).toContain('🎯 Plan de ahorro creado');
+    // "Cerré el menú" seguido de "se me trabó cerrando el menú" se contradecía (revisión del 07-oct).
+    expect(enviado).not.toContain('Cerré el menú');
+  });
+
+  // El mensaje procesado vuelve a abrir el menú ("quiero darme de baja" con el menú abierto): el
+  // aviso de cierre encima del menú recién abierto se contradice, así que no va.
+  it('si el turno vuelve a abrir el menú, la respuesta no dice que lo cerró', async () => {
+    procesarMensajeLibre.mockImplementation(async (m, u) => { u.onboarding_paso = -1; return '⚠️ *Eliminar tu cuenta*'; });
+    const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, 'quiero darme de baja');
+    expect(enviado).toBe('⚠️ *Eliminar tu cuenta*');
+  });
+
+  // Una orden completa de borrar "lo último" con el menú abierto no se sabe si habla del gasto o de
+  // la cuenta. No va al pipeline: allá el freno pedía repetirla y la repetición, ya sin menú, borraba
+  // el gasto de quien quería confirmar la cuenta (segunda revisión del 07-oct). Se queda en el menú
+  // con la pista que nombra las DOS órdenes exactas.
+  for (const texto of ['borra el último gasto', 'ok, bórrala', 'dale, bórrala', 'sí, bórrala por favor', 'elimínala por favor',
+    'cancelalo porfa', 'anula eso', 'deshaz eso', 'deshacer']) {
+    it(`"${texto}" se queda en el menú, no borra nada y nombra las dos órdenes`, async () => {
+      const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, texto);
+      expect(borrarCuenta).not.toHaveBeenCalled();
+      expect(procesarMensajeLibre).not.toHaveBeenCalled();
+      expect(enviado).toMatch(/^Cancelado/);
+      expect(enviado).toContain('*borra el último*');
+      expect(enviado).toContain('*borrar mi cuenta*');
+    });
+  }
+
+  // Un borrado CON sujeto no es ambiguo: sigue al pipeline, donde `sinBorrados` lo frena
+  // (`menu-borrado-base.test.js` lo mira en la base).
+  it('"borra el gasto de 15 en cine" llega al pipeline marcado sin borrados', async () => {
+    await enviarTexto({ id: 'u1', onboarding_paso: -1 }, 'borra el gasto de 15 en cine');
+    expect(borrarCuenta).not.toHaveBeenCalled();
+    expect(procesarMensajeLibre).toHaveBeenCalledWith('borra el gasto de 15 en cine', expect.anything(), expect.anything(), { sinBorrados: true });
+  });
+
+  // Las respuestas AL menú se quedan en el menú: un número, un intento de borrar sin la frase, un "no".
+  for (const texto of ['no', 'No.', 'mejor no', 'cancelar', 'ok', '99', 'borra mi cuenta', 'elimina todos mis datos',
+    'cancela eso', 'cancela todo', 'anúlalo', 'ya no', 'no quiero', 'no, mejor no', 'todavía no', 'Ok 👍', 'mejor no 🙏',
+    'no, cancela', 'no lo hagas', 'me arrepentí', 'no no', 'nada', 'listo', 'gracias']) {
+    it(`"${texto}" es una respuesta al menú: cancela y NO va al pipeline`, async () => {
+      const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, texto);
+      expect(procesarMensajeLibre).not.toHaveBeenCalled();
+      expect(enviado).toMatch(/^(Cancelado|No encontré)/);
+      expect(borrarCuenta).not.toHaveBeenCalled();
+    });
+  }
+
+  // Quien quiso confirmar sin la frase: se queda en el menú y recibe la pista, no el texto de
+  // reiniciar que le daba el pipeline (el clasificador real manda esto a desconectar_cuenta).
+  for (const texto of ['si', 'Sí', 'confirmo', 'acepto', 'eliminar', 'borrar', 'si bórrala', 'Sí 👍', 'sí, confirmo', 'dale', 'de acuerdo', 'hazlo', 'si estoy seguro']) {
+    it(`"${texto}" no borra, no va al pipeline y le dice la frase`, async () => {
+      const enviado = await enviarTexto({ id: 'u1', onboarding_paso: -1 }, texto);
+      expect(borrarCuenta).not.toHaveBeenCalled();
+      expect(procesarMensajeLibre).not.toHaveBeenCalled();
+      expect(enviado).toMatch(/^Cancelado/);
+      expect(enviado).toContain('*confirmo borrar mi cuenta*');
+    });
+  }
+
+  it('la frase de confirmación sigue siendo lo único que borra, y no pasa por el pipeline', async () => {
+    await enviarTexto({ id: 'u1', onboarding_paso: -1 }, 'confirmo borrar mi cuenta');
+    expect(borrarCuenta).toHaveBeenCalledTimes(1);
+    expect(procesarMensajeLibre).not.toHaveBeenCalled();
+  });
+
+  it('fuera del menú el pipeline NO recibe la marca de sin borrados', async () => {
+    await enviarTexto({ id: 'u1', onboarding_paso: 0, onboarding_completado: true, nombre: 'Ana' }, 'borra el último gasto');
+    expect(procesarMensajeLibre).toHaveBeenCalledWith('borra el último gasto', expect.anything(), expect.anything(), { sinBorrados: false });
   });
 });
 
