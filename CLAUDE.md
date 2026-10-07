@@ -1538,6 +1538,7 @@ tocar la webapp (`TIPO_CONFIG[tipo] || TIPO_CONFIG.sistema`). Agregarlo a `TIPO_
 - Verificar duplicados (grep) antes de aplicar cualquier patch
 - Patches secuenciales, nunca paralelos al mismo archivo
 - Variables de entorno: gestionar en Railway, nunca hardcodear
+- OpenAI tiene DOS proyectos desde el 07-oct-2026: "Neto" (la llave de Railway, solo el bot) y "Neto Pruebas" (`proj_W2I31z7YfYiiBFA6CMu9fgRn`: `app/.env`, `qa-agent/.env` y el secret `OPENAI_API_KEY` de FinBot y neto-qa-agent). Las sondas, harness y baterías gastan de Pruebas. Motivo: las baterías de los chips del 30-sep al 02-oct gastaron US$11 en tres días y dejaron el presupuesto de octubre en US$9.51/10, con el bot a punto de quedarse mudo. El presupuesto es de la organización y lo comparten los dos proyectos: antes de una batería de cientos de llamadas, mirar el gasto del mes en Usage. Verificar a qué proyecto apunta una llave: la cabecera `openai-project` de una llamada a chat completions (`/v1/models` no la trae)
 
 ## Antes de pushear algo que toque plata, plan o gates
 
