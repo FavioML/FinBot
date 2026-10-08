@@ -248,22 +248,52 @@ describe('M21 — el redirect y la continuación no resuelven dos veces lo mismo
     expect(vecesLectura).toBe(1);
   });
 
-  // La regresión que la comparación `d2.respuesta !== r1` había introducido: dos gastos
-  // que parsean idéntico producen la MISMA confirmación a propósito, y esconder la
-  // segunda deja al usuario con dos filas guardadas y un solo ✅.
+  // La regresión que la comparación `d2.respuesta !== r1` había introducido: dos gastos que
+  // parsean idéntico producen la MISMA confirmación a propósito, y esconder la segunda deja al
+  // usuario con dos filas guardadas y un solo ✅.
   //
-  // ⚠️ El mensaje NO puede ser "gasté 20 en taxi y gasté 20 en taxi": eso lo agarra
-  // `detectarMultiGasto` mucho antes del dispatch (dos pares monto+preposición) y sale por
-  // el fanout homogéneo, así que el test pasaba con y sin la comparación puesta — vacuo.
-  // Lo destapó la mutación, no la corrida en verde.
-  //
-  // La parte 2 lleva su cifra: desde el 30-sep `registrar_manual` descarta un monto del parser
-  // que no esté escrito en el mensaje (`montoEscritoEnMensaje`), y "otra vez lo mismo" con el
-  // parser mockeado en S/20 era exactamente eso, un monto que no está en el texto.
-  it('una continuación register+register idéntica muestra las DOS confirmaciones', async () => {
+  // Desde el 07-oct-2026 un mensaje con DOS montos ("gasté 20 en taxi y otra vez 20") ya no llega
+  // a la continuación register+register: lo decide entero `handlers/registro-multiple.js`, que
+  // marca `ctx.registroMultiple`. Lo que esta prueba cuidaba sigue valiendo ahí, y se suma lo
+  // nuevo: la continuación NO registra la segunda mitad otra vez (serían tres filas por dos
+  // gastos). Las dos filas tienen ids distintos: con el mismo id, `guardarTransaccion` deduplicó
+  // y la respuesta lo dice en vez de mostrar dos ✅.
+  it('dos gastos idénticos en un mensaje: DOS confirmaciones, DOS filas, sin continuación', async () => {
+    const guardar = require('../../services/transactions').guardarTransaccion;
+    const fila = { categoria: 'Transporte', subcategoria: 'sin_categoria', conteoTx: 3 };
+    guardar.mockClear();
+    guardar.mockResolvedValueOnce({ id: 'tx-a', ...fila }).mockResolvedValueOnce({ id: 'tx-b', ...fila });
+    const separarReal = parsers.separarMovimientos;
+    parsers.separarMovimientos = vi.fn().mockResolvedValue(['gasté 20 en taxi', 'otra vez 20']);
     splitter.detectarContinuacion = () => ({ intencion: 'registrar_manual', datos: {}, parte2: 'otra vez 20' });
-    const r = await procesarMensajeLibre('gasté 20 en taxi y otra vez 20', EN_TRIAL, '51999');
-    expect(String(r).split('✅').length - 1).toBe(2);
+    try {
+      const r = await procesarMensajeLibre('gasté 20 en taxi y otra vez 20', EN_TRIAL, '51999');
+      expect(String(r).split('✅').length - 1).toBe(2);
+      expect(guardar).toHaveBeenCalledTimes(2);
+    } finally {
+      parsers.separarMovimientos = separarReal;
+    }
+  });
+
+  // Los dos detectores de listas (`detectarMultiGasto`, `detectarIngresoMasGastos`) ya no
+  // registran: mandan el mensaje a `registrar_manual` SIN pasar por el clasificador, y ahí lo
+  // decide `handlers/registro-multiple.js`. El fanout viejo fijaba la moneda en PEN.
+  it('una lista de gastos va a registrar_manual sin clasificador y respeta los dólares', async () => {
+    const guardar = require('../../services/transactions').guardarTransaccion;
+    guardar.mockClear();
+    const separarReal = parsers.separarMovimientos;
+    parsers.separarMovimientos = vi.fn().mockResolvedValue(['gasté $20 en taxi', '$5 en café']);
+    parsers.parsearRegistroManual.mockImplementation(async (t) => {
+      const m = { 'gasté $20 en taxi': 20, '$5 en café': 5 }[t];
+      return { ok: true, decision: 'registrar', tipo: 'gasto', monto: m || 20, moneda: 'USD', categoria: 'Transporte', fecha: null };
+    });
+    try {
+      await procesarMensajeLibre('gasté $20 en taxi y $5 en café', EN_TRIAL, '51999');
+      expect(crearCompletion, 'el clasificador no tiene que correr').not.toHaveBeenCalled();
+      expect(guardar.mock.calls.map((c) => [c[1].monto, c[1].moneda])).toEqual([[20, 'USD'], [5, 'USD']]);
+    } finally {
+      parsers.separarMovimientos = separarReal;
+    }
   });
 
   // `d1.muro`: inalcanzable con la clasificación real, cubierto con el splitter mockeado.

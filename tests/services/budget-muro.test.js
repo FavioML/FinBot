@@ -157,10 +157,12 @@ describe('ningún call-site pasa el id en vez de la fila', () => {
   // Antivacuidad: si el barrido no encuentra llamadas, todo lo de abajo pasa por vacío.
   it('el barrido encuentra las llamadas reales', () => {
     const conArg = llamadas.filter(l => l.arg && !/^\)/.test(l.arg));
-    expect(conArg.length, 'no encontré ninguna llamada: el barrido está roto').toBeGreaterThanOrEqual(5);
+    // 4 desde el 07-oct-2026: los dos fanouts de `message-processor` se fueron y el registro de
+    // varios movimientos vive en `handlers/registro-multiple.js`, con una sola llamada.
+    expect(conArg.length, 'no encontré ninguna llamada: el barrido está roto').toBeGreaterThanOrEqual(4);
     // Y las encuentra en los tres archivos que de verdad la llaman.
     const archivos = new Set(conArg.map(l => l.rel.replace(/\\/g, '/')));
-    expect(archivos.has('handlers/message-processor.js')).toBe(true);
+    expect(archivos.has('handlers/registro-multiple.js')).toBe(true);
     expect(archivos.has('handlers/intents/transacciones.js')).toBe(true);
     expect(archivos.has('services/notifications.js')).toBe(true);
   });

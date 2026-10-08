@@ -245,3 +245,25 @@ describe('detectarContinuacion — devuelve también la primera mitad', () => {
     expect(c.parte1).not.toContain('cuánto');
   });
 });
+
+/**
+ * La rama (d) "register + register" se retiró el 07-oct-2026. `registrar_manual` recibe el mensaje
+ * ENTERO, así que despachar la segunda mitad otra vez la procesaba dos veces: con "Ingreso 1000 cocos
+ * el próximo viernes y gasto 1000 cocos el otro viernes" el parser decía (bien) que no es un
+ * movimiento y la continuación igual escribía "✅ S/1000" (5/5 contra prod, triage del qa-agent).
+ * Varios movimientos en un mensaje los decide entero `handlers/registro-multiple.js`.
+ */
+describe('detectarContinuacion — un registro no se continúa con otro registro', () => {
+  it.each([
+    'Ingreso 1000 cocos el próximo viernes y gasto 1000 cocos el otro viernes.',
+    'gasté 50 en taxi y gasté 30 en cine',
+    'me pagaron 500 y gasté 100 en el mercado',
+  ])('%s', (msg) => {
+    expect(detectarContinuacion(msg, 'registrar_manual')).toBeNull();
+  });
+
+  it('control: un borrado SÍ se continúa con un registro (mlt-005)', () => {
+    const c = detectarContinuacion('borra el último y registra 100 en comida', 'eliminar_transaccion');
+    expect(c && c.intencion).toBe('registrar_manual');
+  });
+});

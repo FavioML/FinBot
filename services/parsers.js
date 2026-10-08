@@ -975,6 +975,62 @@ async function nombrarMovimiento(msg, signal) {
   }
 }
 
+/**
+ * Un mensaje que anota VARIOS movimientos, partido en un texto por movimiento (07-oct-2026).
+ *
+ * Por qué un llamado aparte y no un `movimientos: [...]` en el esquema de `parsearRegistroManual`:
+ * ese prompt decide plata y cualquier texto agregado mueve decisiones (la regla de la memoria
+ * `feedback_prompt_de_plata_no_se_toca_por_un_campo_cosmetico`, medida el 01-oct). Este llamado no
+ * decide monto, tipo, moneda ni si se registra: sólo corta. Cada texto vuelve a pasar por
+ * `parsearRegistroManual` tal como está, así que cada movimiento se decide con el prompt validado.
+ *
+ * Devuelve los textos tal como los dio el modelo, o null si no contestó. NO los valida: quien lo
+ * llama exige que cada texto sea una ventana del mensaje alrededor de su monto
+ * (`handlers/registro-multiple.js`), porque lo que importa es lo que el modelo NO puede hacer, y eso
+ * se mide en código.
+ */
+const ESQUEMA_SEPARAR_MOVIMIENTOS = {
+  name: 'separar_movimientos',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['movimientos'],
+    properties: { movimientos: { type: 'array', items: { type: 'string' } } },
+  },
+};
+
+async function separarMovimientos(msg) {
+  const res = await openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    response_format: { type: 'json_schema', json_schema: ESQUEMA_SEPARAR_MOVIMIENTOS },
+    temperature: 0,
+    messages: [
+      { role: 'system', content: `El mensaje, escrito por WhatsApp en Perú, anota varios movimientos de plata (gastos o ingresos) juntos. Sepáralo en un texto por movimiento y devuélvelos en "movimientos", en el orden del mensaje.
+
+Reglas:
+- Cada texto es un PEDAZO del mensaje, copiado tal cual: las mismas palabras, en el mismo orden, con el monto escrito igual (con su moneda si la tiene: "$20", "S/15", "118 soles", "mil soles").
+- NUNCA agregues una palabra que el mensaje no tiene: ni un verbo ("gasté", "registré"), ni una fecha ("ayer", "hoy"), ni una moneda. Si el mensaje no lo dice, el texto va sin eso. No cambies el tiempo ni la forma de un verbo.
+- La única excepción: un verbo o una fecha que el mensaje dice UNA vez y vale para todos se puede repetir, copiado igual, en los otros textos.
+- Cada texto tiene EXACTAMENTE un monto. No sumes ni juntes montos.
+- Las fechas, las horas, las cantidades ("3 celulares") y los números que son parte de un nombre no son montos: quedan dentro del texto del movimiento al que pertenecen.
+
+Ejemplos:
+"taxi 8 cine 25" → ["taxi 8", "cine 25"]
+"Arroz 4.50\\nAceite 9" → ["Arroz 4.50", "Aceite 9"]
+"el sábado pagué 40 de luz y 25 de agua" → ["el sábado pagué 40 de luz", "el sábado pagué 25 de agua"]
+"pagué 40 de luz y 25 de agua el sábado" → ["pagué 40 de luz el sábado", "25 de agua el sábado"]
+"me pagaron 300 y compré zapatillas por 120" → ["me pagaron 300", "compré zapatillas por 120"]` },
+      { role: 'user', content: msg },
+    ],
+  }, { timeout: 15000, maxRetries: 1 });
+  const raw = (res.choices[0].message.content || '').trim();
+  if (!raw) return null;
+  const crudo = JSON.parse(raw);
+  if (!crudo || !Array.isArray(crudo.movimientos)) return null;
+  return crudo.movimientos.filter((t) => typeof t === 'string' && t.trim()).map((t) => t.trim());
+}
+
 async function parsearCorreccionesMultiples(msg) {
   try {
     const hoy = hoyPeru();
@@ -1041,6 +1097,7 @@ module.exports = {
   extraerComercioPasarela,
   parsearCorreoBancario,
   parsearRegistroManual,
+  separarMovimientos,
   COMERCIO_SIN_DESCRIPCION,
   esComercioCentinela,
   parsearCorreccionesMultiples,

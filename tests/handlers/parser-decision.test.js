@@ -347,7 +347,9 @@ describe('registrar_manual por decisión', () => {
     it('con los dos sentidos en el mensaje no hay contradicción que afirmar', async () => {
       respuestaModelo = { decision: 'registrar', tipo: 'gasto', monto: 100, moneda: 'PEN', comercio: 'comida', categoria: 'Alimentación', subcategoria: 'mercado', fecha: '2026-09-30' };
       const ctx = ctxRegistro();
-      await registrar('me pagaron 500 y gasté 100 en comida', ctx);
+      // Un solo monto a propósito: con dos ("me pagaron 500 y gasté 100") el mensaje va al camino de
+      // varios movimientos (handlers/registro-multiple.js) y esta invariante no se ejercita.
+      await registrar('me pagaron y gasté 100 en comida', ctx);
       expect(ctx.guardarTransaccion.mock.calls[0][1]).toMatchObject({ tipo: 'gasto', monto: 100 });
     });
 

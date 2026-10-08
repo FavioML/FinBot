@@ -351,37 +351,104 @@ describe('registrar_manual — rescate determinístico del monto', () => {
   });
 
   /**
-   * Con DOS montos no se adivina cuál es: se rebota.
+   * Con DOS montos no se adivina cuál es.
    *
    * `detectarMultiGasto` exige verbo + preposición, así que "15 taxi 40 cena" no le dispara y
    * llega acá. El extractor entra por su rama de número suelto, se queda con el PRIMERO y
    * mete el resto DENTRO del nombre del comercio: se guardaba S/15 con comercio "taxi 40
    * cena" y la persona veía un ✅ creyendo que entraron los dos gastos.
    *
+   * Desde el 07-oct-2026 esos mensajes ni llegan al rescate: con dos montos de MOVIMIENTO van al
+   * camino de varios movimientos (handlers/registro-multiple.js), que con el parser rechazando
+   * no escribe nada y nombra los dos montos. La guarda `contarMontosCandidatos > 1` del rescate
+   * sigue viva para lo que el contador nuevo ve como UN movimiento y el viejo como dos: la medida
+   * pegada "18cm" (de un mensaje real del 06-oct, "cacerola de 18cm"). Sin la guarda, el rescate toma el primer número y
+   * guarda S/18.
+   *
    * El caso de UN solo monto va en el mismo test: sin él, "no guardó nada" se satisface
    * también rompiendo el rescate entero.
    */
-  it('con dos montos en el mensaje rebota, con uno solo rescata', async () => {
-    const nuevoCtx = () => {
+  it('con dos montos no se rescata ninguno, con uno solo rescata', async () => {
+    const nuevoCtx = (extra = {}) => {
       const sb = makeSupabaseMock({ transacciones: [] });
       return buildCtx(sb, {
         parsearRegistroManual: vi.fn().mockResolvedValue({ ok: false }),
         detectarCategoriaIA: vi.fn().mockResolvedValue({}),
         guardarTransaccion: vi.fn().mockResolvedValue({ id: 'tx-m', categoria: 'Otros', subcategoria: 'Sin_categoria' }),
+        ...extra,
       });
     };
-    for (const msg of ['15 taxi 40 cena', '20 pan, 30 leche', '20 Movilidad 30 Snack']) {
-      const ctx = nuevoCtx();
+    const casos = {
+      '15 taxi 40 cena': ['15 taxi', '40 cena'],
+      '20 pan, 30 leche': ['20 pan', '30 leche'],
+      '20 Movilidad 30 Snack': ['20 Movilidad', '30 Snack'],
+    };
+    for (const [msg, partes] of Object.entries(casos)) {
+      const ctx = nuevoCtx({ separarMovimientos: vi.fn().mockResolvedValue(partes) });
       const res = await handler.handle({ intencion: 'registrar_manual', msg, datos: {}, usuario: USUARIO, from: '+51999', ctx });
       expect(ctx.guardarTransaccion, 'no debería guardar: ' + JSON.stringify(msg)).not.toHaveBeenCalled();
-      expect(res).toContain('No pude leer el monto');
+      expect(ctx.separarMovimientos, 'tiene que ir al camino de varios movimientos: ' + msg).toHaveBeenCalled();
+      expect(res).toContain('No anoté ninguno de los 2 movimientos');
     }
+    // La guarda del rescate, donde todavía decide.
+    // Precondición: sin la guarda el rescate SÍ leería S/18. Sin esto el caso pasa aunque se
+    // quite la guarda, porque el extractor solo ya devolvería null.
+    const msg18 = 'gasté en una cacerola de 18cm 79.90';
+    expect(require('../../lib/nlp-guards').extraerGastoSinIA(msg18)).toMatchObject({ monto: 18 });
+    const ctx18 = nuevoCtx();
+    const res18 = await handler.handle({ intencion: 'registrar_manual', msg: msg18, datos: {}, usuario: USUARIO, from: '+51999', ctx: ctx18 });
+    expect(ctx18.guardarTransaccion, 'el rescate no puede adivinar entre 18 y 79.90').not.toHaveBeenCalled();
+    expect(res18).toContain('No pude leer el monto');
     // Control: el mensaje de un solo monto —el caso que este arreglo existe para cubrir—
     // sigue entrando. Si esto se cae, la guarda de arriba se comió el rescate.
     const ctxOk = nuevoCtx();
     await handler.handle({ intencion: 'registrar_manual', msg: '4.10 pastillas', datos: {}, usuario: USUARIO, from: '+51999', ctx: ctxOk });
     expect(ctxOk.guardarTransaccion).toHaveBeenCalledOnce();
     expect(ctxOk.guardarTransaccion.mock.calls[0][1]).toMatchObject({ monto: 4.10 });
+  });
+
+  // Los guards de fecha del camino de un movimiento viven desde el 07-oct en
+  // `ajustarFechaRegistro` (handlers/registro-multiple.js), compartidos con el de varios. Sin
+  // este caso, quitar la llamada dejaba la suite verde: la fecha inventada se guardaba tal cual.
+  it('la fecha que el modelo inventa sin que el mensaje la diga se vuelve hoy', async () => {
+    const sb = makeSupabaseMock({ transacciones: [] });
+    const ctx = buildCtx(sb, {
+      parsearRegistroManual: vi.fn().mockResolvedValue({ ok: true, monto: 20, moneda: 'PEN', tipo: 'gasto', categoria: 'Transporte', subcategoria: 'taxi', fecha: '2026-03-01' }),
+    });
+    await handler.handle({ intencion: 'registrar_manual', msg: 'gasté 20 en taxi', datos: {}, usuario: USUARIO, from: '+51999', ctx });
+    expect(ctx.guardarTransaccion.mock.calls[0][1]).toMatchObject({ fecha: '2026-04-05' });
+  });
+
+  // "gasté 50 en taxi y cambia el de 30 a 40": tres números y un solo gasto nuevo. No entra al camino
+  // de varios movimientos (que apagaría la continuación `editar_monto`): va por el de uno, como antes.
+  it('un gasto con una edición en el mismo mensaje no va al camino de varios', async () => {
+    const sb = makeSupabaseMock({ transacciones: [] });
+    const ctx = buildCtx(sb, {
+      separarMovimientos: vi.fn().mockResolvedValue([]),
+      parsearRegistroManual: vi.fn().mockResolvedValue({ ok: true, monto: 50, moneda: 'PEN', tipo: 'gasto', categoria: 'Transporte', subcategoria: 'taxi', fecha: '2026-04-05' }),
+    });
+    await handler.handle({ intencion: 'registrar_manual', msg: 'gasté 50 en taxi y cambia el de 30 a 40', datos: {}, usuario: USUARIO, from: '+51999', ctx });
+    expect(ctx.separarMovimientos).not.toHaveBeenCalled();
+    expect(ctx.registroMultiple).toBeFalsy();
+    expect(ctx.guardarTransaccion.mock.calls[0][1]).toMatchObject({ monto: 50 });
+  });
+
+  // Y al revés: la PALABRA "cambio" no es una orden. "el cambio de aceite" son dos gastos y van al
+  // camino de varios (segunda revisión adversarial del 07-oct: se iban al de uno y perdían el taxi).
+  it('"el cambio de aceite" no es una edición: dos gastos van al camino de varios', async () => {
+    const sb = makeSupabaseMock({ transacciones: [] });
+    const ctx = buildCtx(sb, { separarMovimientos: vi.fn().mockResolvedValue(['gasté 30 en el cambio de aceite', '15 en taxi']) });
+    await handler.handle({ intencion: 'registrar_manual', msg: 'gasté 30 en el cambio de aceite y 15 en taxi', datos: {}, usuario: USUARIO, from: '+51999', ctx });
+    expect(ctx.separarMovimientos).toHaveBeenCalled();
+  });
+
+  // Decide la capa SEGURA del contador: la heurística de "depa N" le tapa el 800 al fino, y con el
+  // fino este mensaje de dos gastos iba al camino de uno (segunda revisión adversarial del 07-oct).
+  it('"alquiler depa 800 y luz 120" va al camino de varios', async () => {
+    const sb = makeSupabaseMock({ transacciones: [] });
+    const ctx = buildCtx(sb, { separarMovimientos: vi.fn().mockResolvedValue(['alquiler depa 800', 'luz 120']) });
+    await handler.handle({ intencion: 'registrar_manual', msg: 'alquiler depa 800 y luz 120', datos: {}, usuario: USUARIO, from: '+51999', ctx });
+    expect(ctx.separarMovimientos).toHaveBeenCalled();
   });
 
   // El rescate no inventa: si en el texto no hay número, sigue rebotando. Sin esto, el test

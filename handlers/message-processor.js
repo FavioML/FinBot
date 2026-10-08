@@ -220,128 +220,19 @@ async function procesarMensajeLibre(msg, usuario, from, opciones = {}) {
       return sugerencia;
     }
 
-    // === Detector de ingreso + lista de gastos (str-006) ===
-    // Cubre el patrón "Ingresé/gané/cobré/recibí NUMBER ..., gasté X en A, Y en B y Z en C".
-    // Fanout: 1 ingreso + N gastos. Si el detector retorna null, sigue al detector de
-    // multi-gasto homogéneo y al pipeline normal de OpenAI.
-    const ingresoMasGastos = detectarIngresoMasGastos(msg);
-    if (ingresoMasGastos) {
-      log.info({ tag: 'INCOME_PLUS_EXPENSES', expenses: ingresoMasGastos.expenses.length, income: ingresoMasGastos.income.monto, msg: msg.substring(0, 80) }, 'Ingreso + gastos detectado, fanout');
-      const fechaTx = /\bayer\b/i.test(msg) ? fechaAyerPeru() : fechaHoyPeru();
-      const respuestasIE = [];
-      let conteoTxIE = 0;   // el conteo del último insert = total del usuario
-      // El trial lo arranca el PRIMER insert del fanout, no el último: hay que
-      // acarrear la señal o la cola anunciaría el muro sobre un trial recién dado.
-      let txTrialIE = null;
-      try {
-        const datosIngreso = {
-          monto: ingresoMasGastos.income.monto, moneda: 'PEN', comercio: 'Ingreso',
-          categoria: 'Finanzas', subcategoria: 'sin_categoria',
-          tipo: 'ingreso', fecha: fechaTx,
-          descripcion_original: msg.substring(0, 200),
-        };
-        const txIngIE = await guardarTransaccion(usuario.id, datosIngreso);
-        if (txIngIE && txIngIE.trialIniciado) txTrialIE = txIngIE;
-        respuestasIE.push('✅ S/' + ingresoMasGastos.income.monto.toFixed(2) + ' en Ingresos · ' + formatFecha(fechaTx));
-      } catch(e) {
-        log.warn({ tag: 'INCOME_PLUS_EXPENSES', err: e.message }, 'Falló registro de ingreso');
-      }
-      for (const g of ingresoMasGastos.expenses) {
-        try {
-          const detCat = await detectarCategoriaIA('gasté ' + g.monto + ' en ' + g.comercio, usuario.id);
-          const datosTx = {
-            monto: g.monto, moneda: 'PEN', comercio: g.comercio,
-            categoria: detCat.categoria || 'Otros',
-            subcategoria: detCat.subcategoria || 'sin_categoria',
-            tipo: 'gasto', fecha: fechaTx,
-            descripcion_original: msg.substring(0, 200),
-          };
-          // El árbol del usuario crece también por acá (B26). Sin esto, el MISMO gasto dicho
-          // como lista ("gasté 20 en taxi y 30 en cine") clasifica bien pero no deja la
-          // categoría en `/categorias` ni en el selector de presupuestos, mientras dicho suelto
-          // sí — el árbol quedaba distinto según cómo se escribió el mensaje.
-          asegurarCategoriaUsuario(usuario.id, datosTx.categoria)
-            .then(() => (subcategoriaUtil(datosTx.subcategoria)
-              ? crearSubcategoriaLibreUsuario(usuario.id, datosTx.categoria, datosTx.subcategoria) : null))
-            .catch(() => {});
-          const txIE = await guardarTransaccion(usuario.id, datosTx);
-          if (txIE && txIE.conteoTx) conteoTxIE = txIE.conteoTx;
-          if (txIE && txIE.trialIniciado) txTrialIE = txIE;
-          // Categoría/subcategoría normalizadas por guardarTransaccion, no la salida cruda del parser.
-          const catIE = (txIE && txIE.categoria) || datosTx.categoria;
-          const subIE = subcategoriaUtil((txIE && txIE.subcategoria) || datosTx.subcategoria);
-          let lineResp = '✅ S/' + g.monto.toFixed(2) + ' en ' + catIE + (subIE ? ' > ' + subIE : '') + ' · ' + formatFecha(fechaTx);
-          try {
-            const alerta = await verificarAlertaPresupuesto(usuario, datosTx.categoria, datosTx.subcategoria);
-            if (alerta) lineResp += '\n' + alerta;
-          } catch(eAlert) { /* alert is best-effort */ }
-          respuestasIE.push(lineResp);
-        } catch(e) {
-          log.warn({ tag: 'INCOME_PLUS_EXPENSES', err: e.message, item: g }, 'Falló item de gasto');
-        }
-      }
-      if (respuestasIE.length > 0) {
-        let respFull = respuestasIE.join('\n');
-        const nudgeIE = await colaConfirmacionGasto(usuario, txTrialIE, conteoTxIE);
-        if (nudgeIE) respFull += nudgeIE;
-        return respFull;
-      }
-      // Si todos fallaron, dejar continuar al pipeline normal de OpenAI
-    }
-
-    // === Detector de multi-gasto explícito (mlt-001/002) ===
-    // Si el msg lista 2+ gastos con verbo + (monto + en/de/por + sustantivo) + separador,
-    // los registramos secuencialmente sin pasar por OpenAI Function Calling
-    // (que solo procesa tool_calls[0] y descarta el resto).
-    const multiGastos = detectarMultiGasto(msg);
-    if (multiGastos && multiGastos.length >= 2) {
-      log.info({ tag: 'MULTI_GASTO', count: multiGastos.length, msg: msg.substring(0, 80) }, 'Multi-gasto detectado, fanout');
-      const fechaGasto = /\bayer\b/i.test(msg) ? fechaAyerPeru() : fechaHoyPeru();
-      const respuestas = [];
-      let conteoTxMG = 0;   // el conteo del último insert = total del usuario
-      let txTrialMG = null; // el trial lo arranca el primer insert, no el último
-      for (const g of multiGastos) {
-        try {
-          const detCat = await detectarCategoriaIA('gasté ' + g.monto + ' en ' + g.comercio, usuario.id);
-          const datosTx = {
-            monto: g.monto, moneda: 'PEN', comercio: g.comercio,
-            categoria: detCat.categoria || 'Otros',
-            subcategoria: detCat.subcategoria || 'sin_categoria',
-            tipo: 'gasto', fecha: fechaGasto,
-            descripcion_original: msg.substring(0, 200),
-          };
-          // Igual que en el fanout de ingreso+gastos: el árbol crece también por acá (B26).
-          asegurarCategoriaUsuario(usuario.id, datosTx.categoria)
-            .then(() => (subcategoriaUtil(datosTx.subcategoria)
-              ? crearSubcategoriaLibreUsuario(usuario.id, datosTx.categoria, datosTx.subcategoria) : null))
-            .catch(() => {});
-          const txMG = await guardarTransaccion(usuario.id, datosTx);
-          if (txMG && txMG.conteoTx) conteoTxMG = txMG.conteoTx;
-          if (txMG && txMG.trialIniciado) txTrialMG = txMG;
-          // Categoría/subcategoría normalizadas por guardarTransaccion, no la salida cruda del parser.
-          const catMG = (txMG && txMG.categoria) || datosTx.categoria;
-          const subMG = subcategoriaUtil((txMG && txMG.subcategoria) || datosTx.subcategoria);
-          let lineResp = '✅ S/' + g.monto.toFixed(2) + ' en ' + catMG + (subMG ? ' > ' + subMG : '') + ' · ' + formatFecha(fechaGasto);
-          try {
-            const alerta = await verificarAlertaPresupuesto(usuario, datosTx.categoria, datosTx.subcategoria);
-            if (alerta) lineResp += '\n' + alerta;
-          } catch(eAlert) { /* alert is best-effort */ }
-          respuestas.push(lineResp);
-        } catch(e) {
-          log.warn({ tag: 'MULTI_GASTO', err: e.message, item: g }, 'Falló item de multi-gasto');
-        }
-      }
-      if (respuestas.length > 0) {
-        let respFull = respuestas.join('\n');
-        const nudgeMG = await colaConfirmacionGasto(usuario, txTrialMG, conteoTxMG);
-        if (nudgeMG) respFull += nudgeMG;
-        return respFull;
-      }
-      // Si todos los items fallaron, dejar continuar al pipeline normal de OpenAI
-    }
+    // === Varios movimientos en un mensaje: directo a `registrar_manual` ===
+    // Los dos detectores reconocen listas de gastos ("gasté 50 en taxi y 30 en almuerzo",
+    // "Ingresé 1000, gasté 100 en…") y existen para saltear al clasificador, que llama UNA sola
+    // herramienta y con una lista a veces elige otra. Hasta el 07-oct-2026 además REGISTRABAN acá,
+    // con un fanout propio que fijaba la moneda en PEN ("$20 en taxi" entraba como S/20), leía la
+    // fecha sólo de "ayer" y respondía con los ítems que sí entraban, callando los que no. Ahora
+    // sólo enrutan: el registro de varios movimientos vive en un solo lugar
+    // (`handlers/registro-multiple.js`, vía `registrar_manual`), que registra todos o ninguno.
+    const atajoVarios = !!(detectarIngresoMasGastos(msg) || detectarMultiGasto(msg));
+    if (atajoVarios) log.info({ tag: 'MULTI_GASTO', msg: msg.substring(0, 80) }, 'Lista de movimientos: va a registrar_manual sin clasificador');
 
     // === OpenAI Function Calling — NLP inteligente ===
-    const nlpResponse = await openai.chat.completions.create({
+    const nlpResponse = atajoVarios ? null : await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
         {
@@ -419,9 +310,11 @@ async function procesarMensajeLibre(msg, usuario, from, opciones = {}) {
     let intencion = null;
     let datos = {};
 
-    const choice = nlpResponse.choices[0];
+    const choice = nlpResponse ? nlpResponse.choices[0] : null;
 
-    if (choice.message.tool_calls && choice.message.tool_calls.length > 0) {
+    if (atajoVarios) {
+      intencion = 'registrar_manual';
+    } else if (choice.message.tool_calls && choice.message.tool_calls.length > 0) {
       const toolCall = choice.message.tool_calls[0];
       const toolName = toolCall.function.name;
       let toolArgs = {};
@@ -583,7 +476,11 @@ async function procesarMensajeLibre(msg, usuario, from, opciones = {}) {
       //    de esa query, así que la continuación la resolvería de nuevo: mismo handler dos
       //    veces, dos filas en `conversaciones` y —en el muro— dos mensajes del muro pegados.
       //    Se descubrió en la revisión adversarial de este mismo fix.
-      if (!d1.muro && !ctx.redirigidoAQuery) try {
+      //  · `ctx.registroMultiple` — la parte 1 era un mensaje de VARIOS movimientos y
+      //    `handlers/registro-multiple.js` ya decidió el mensaje entero (todos o ninguno).
+      //    Partirlo acá registraría la segunda mitad otra vez, o la anotaría sola después de
+      //    que se le dijo a la persona que no se anotó nada.
+      if (!d1.muro && !ctx.redirigidoAQuery && !ctx.registroMultiple) try {
         const { detectarContinuacion } = require('../services/multi-intent-splitter');
         const cont = detectarContinuacion(msg, intencion);
         // Tercer motivo, y éste NO calla la otra mitad: la nombra (15-sep-2026). Si el borrado de

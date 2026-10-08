@@ -5,7 +5,7 @@ const log = require('../../lib/logger');
 const { colaConfirmacionGasto, estaEnMuro } = require('../../lib/trial');
 const { validarMonto } = require('../../lib/validators');
 const { subcategoriaUtil, esSubSinClasificar } = require('../../lib/subcategoria');
-const { extraerGastoSinIA, quitarTokensDeMoneda, contarMontosCandidatos, mencionaMonedaNoSoportada, montoEscritoEnMensaje, tipoContradiceElMensaje } = require('../../lib/nlp-guards');
+const { extraerGastoSinIA, quitarTokensDeMoneda, contarMontosCandidatos, mencionaMonedaNoSoportada, montoEscritoEnMensaje, tipoContradiceElMensaje, montosDeMovimiento } = require('../../lib/nlp-guards');
 const { registrarError } = require('../../lib/error-monitor');
 const { revisarEdicion, pedirOrden } = require('../../lib/orden-edicion');
 const { pideAlcanceRetroactivo } = require('../../lib/datos-dichos');
@@ -400,6 +400,20 @@ module.exports = {
             }
           }
 
+          // Dos o más montos (sin contar fechas, horas, unidades ni ids): el parser de abajo devuelve
+          // UN objeto y la persona recibía el ✅ del primero con los demás perdidos sin aviso
+          // (docs/DEFECTOS.md, 07-oct-2026). Se registran todos o ninguno. Decide la capa SEGURA del
+          // contador: con la fina, una heurística equivocada ("depa 800", "medias 15") mandaba un
+          // mensaje de dos gastos por este camino de uno. Ver handlers/registro-multiple.js.
+          // Si además pide editar o borrar, no: eso lo resuelve la continuación (ver `pideOtraOperacion`).
+          {
+            const montosMov = montosDeMovimiento(msg, { soloSeguras: true });
+            const { registrarVariosMovimientos, pideOtraOperacion } = require('../registro-multiple');
+            if (montosMov.length >= 2 && !pideOtraOperacion(msg)) {
+              return await registrarVariosMovimientos({ msg, montos: montosMov, usuario, ctx });
+            }
+          }
+
           const fechaHoy = fechaHoyPeru();
           // Las dos llamadas a gpt-4o-mini de este camino reciben SOLO `msg` y no dependen
           // entre sí: en serie eran dos round-trips al modelo, uno detrás del otro, sobre el
@@ -623,33 +637,10 @@ module.exports = {
               descripcion_original: (msg || '').trim().substring(0, 200),
             };
           }
-          // Guard weekday: el clasificador a veces devuelve fecha cuyo día de la semana no
-          // coincide con "el <weekday> pasado". Validador puro post-OpenAI, cero prompt.
-          {
-            const { resolverDiaSemanaPasado } = require('../../lib/dates');
-            const _fechaCorregida = resolverDiaSemanaPasado(msg, parsed.fecha, fechaHoy);
-            if (_fechaCorregida) {
-              log.info({ tag: 'WEEKDAY_GUARD', fechaModelo: parsed.fecha, fechaCorregida: _fechaCorregida, msg: (msg || '').substring(0, 80) }, 'Ajuste post-OpenAI: weekday del msg no coincide con fecha del parser');
-              parsed.fecha = _fechaCorregida;
-            }
-          }
-          // Guard fechas relativas (ayer/anteayer/hace N días): mismo patrón que tmp-004.
-          {
-            const { resolverFechaRelativa } = require('../../lib/dates');
-            const _fechaRel = resolverFechaRelativa(msg, parsed.fecha, fechaHoy);
-            if (_fechaRel) {
-              log.info({ tag: 'RELATIVE_DATE_GUARD', fechaModelo: parsed.fecha, fechaCorregida: _fechaRel, msg: (msg || '').substring(0, 80) }, 'Ajuste post-OpenAI: marcador relativo del msg no coincide con fecha del parser');
-              parsed.fecha = _fechaRel;
-            }
-          }
-          // Guard timezone: el modelo a veces aluciona una fecha pasada aunque el usuario no la mencione.
-          // Solo respetamos parsed.fecha si el mensaje contiene una referencia explícita de fecha.
-          const _msgL = (msg || '').toLowerCase();
-          const _tieneFechaExplicita = /\bayer\b|\bantier\b|\banteayer\b|\bhoy\b|\b(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\b|\bla\s+semana\s+pasada\b|hace\s+\d+\s*(d[ií]a|hora|semana|mes)|\bel\s+\d{1,2}(\s+de\s+\w+)?\b|\b\d{1,2}\s*\/\s*\d{1,2}\b|\b\d{1,2}-\d{1,2}\b/i.test(_msgL);
-          if (parsed.fecha && parsed.fecha !== fechaHoy && !_tieneFechaExplicita) {
-            log.warn({ tag: 'TZ_GUARD_REGISTRO', fechaModelo: parsed.fecha, fechaHoy, msg: (msg || '').substring(0, 80) }, 'Modelo extrajo fecha pasada sin mencion del usuario — forzando hoy');
-            parsed.fecha = fechaHoy;
-          }
+          // Los tres guards de fecha post-modelo (día de semana, fecha relativa y fecha inventada
+          // sin mención). Viven en `ajustarFechaRegistro` para que el camino de varios movimientos
+          // aplique exactamente los mismos.
+          parsed.fecha = require('../registro-multiple').ajustarFechaRegistro(msg, parsed.fecha, fechaHoy);
           // Re-clasificar con categorías y subcategorías custom del usuario
           // (disparada arriba, en paralelo con el parser).
           const detCat = await pDetCat;
@@ -1652,3 +1643,7 @@ module.exports.detectarQuerySinMonto = detectarQuerySinMonto;
 // Lo usa el menú de la cuenta (`handlers/onboarding.js`, paso -1): una orden de borrar "lo último"
 // con ese menú abierto no se sabe si habla del gasto o de la cuenta.
 module.exports.pideBorrarUnGasto = pideBorrarUnGasto;
+// Los usa el camino de varios movimientos (`handlers/registro-multiple.js`) cuando el mensaje
+// entero no es un movimiento o viene en otra moneda: el mismo texto que el de un solo movimiento.
+module.exports.COPY_NO_ES_MOVIMIENTO = COPY_NO_ES_MOVIMIENTO;
+module.exports.COPY_MONEDA_NO_SOPORTADA = COPY_MONEDA_NO_SOPORTADA;
