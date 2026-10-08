@@ -476,9 +476,9 @@ sigue siendo exit 1 —un commit desplegado con el run rojo es anómalo igual—
 
 **El mismo argumento vale para el run VERDE, y ahí faltaba entero hasta el 08-ago.** La
 conclusion de un run es un AGREGADO, y un job `skipped` la deja en `success`: `nlp-agent` lo
-demuestra en cada run desde el 14-jul. El harness devolvía PASS sin consultar un solo job, así
+demostró en cada run del 14-jul al 08-oct (se borró ese día; hoy lo muestra `railway-gate` en los runs de PR). El harness devolvía PASS sin consultar un solo job, así
 que el día que `test` lleve un `if:` que evalúe false —un filtro por paths, un toggle de standby
-como el del propio `nlp-agent`— el run sale verde, el harness dice PASS y **la suite del backend
+como el que tuvo `nlp-agent`— el run sale verde, el harness dice PASS y **la suite del backend
 no corrió**. Es el fail-open que este archivo existe para atrapar, un nivel más arriba.
 Reproducido: con `NETO_CI_JOB_TESTS=job-que-no-existe` daba PASS.
 

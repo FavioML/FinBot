@@ -23,7 +23,8 @@
 // ignorando. La pregunta es "¿pasó la suite?", y el oráculo de eso es el run de ci.yml.
 //
 // Y NO ALCANZA CON QUE EL RUN ESTÉ VERDE. La conclusion de un run es un agregado, y un job
-// `skipped` la deja en `success` — `nlp-agent` lo demuestra en todos los runs desde el 14-jul.
+// `skipped` la deja en `success` — `nlp-agent` lo demostró en todos los runs del 14-jul al 08-oct
+// (borrado ese día), y hoy lo muestran los runs de pull_request, con `railway-gate` skipped.
 // El oráculo es el JOB `test`, mirado en las dos ramas. Hasta el 08-ago la rama verde
 // devolvía PASS sin consultar un solo job, así que un `if:` nuevo sobre ese job (un filtro por
 // paths, un toggle de standby) habría dejado pasar un deploy con la suite del backend sin
@@ -174,8 +175,8 @@ function gh(ruta, jq, extra = []) {
  * **Corre en las DOS ramas, la roja y la verde**, y esa es la corrección más importante de
  * este archivo. Hasta el 08-ago solo se llamaba con el run rojo: con el run verde el harness
  * devolvía PASS sin mirar un solo job. La conclusion de un run es un AGREGADO y un job
- * `skipped` lo deja verde — `nlp-agent` está skipped en todos los runs desde el 14-jul y
- * ninguno dejó de ser `success`. O sea que el día que `test` lleve un `if:` que evalúe false
+ * `skipped` lo deja verde — `nlp-agent` estuvo skipped en todos los runs del 14-jul al 08-oct
+ * y ninguno dejó de ser `success`. O sea que el día que `test` lleve un `if:` que evalúe false
  * (por ejemplo "no correr la suite en cambios de solo-docs", que es una optimización que
  * cualquiera escribiría), el run sale verde, este harness da PASS, y **la suite del backend
  * nunca corrió**. Es exactamente el fail-open que este archivo existe para atrapar, un nivel
@@ -505,7 +506,7 @@ export function veredicto({ deployed, ultimo, jobs, errorJobs, corridas, jobTest
         ...severidadFn(deployed),
         hint: `El job \`${jobTests}\` quedó skipped o sin completar, así que la conclusion del run ` +
           'no dice nada sobre este código. Suele ser un `if:` nuevo en el job (un filtro por ' +
-          'paths, un toggle de standby como el de `nlp-agent`) o un `needs:` que no se cumplió.',
+          'paths, un toggle de standby `if: false &&`) o un `needs:` que no se cumplió.',
       } };
 
     // El job de los tests verde con el run rojo: lo que corre en prod SÍ pasó los tests. Se

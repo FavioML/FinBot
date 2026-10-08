@@ -298,7 +298,7 @@ describe('ningún prompt enseña "me presté" como gasto', () => {
   // test a la vista, no redactarla para esquivarlo.
   //
   // Es un cable trampa, no una prueba de que el prompt sea correcto. Mira en las dos direcciones ("jerga
-  // de gasto: me presté" y "me presté = gasto") y en los cinco archivos que leen el clasificador y el
+  // de gasto: me presté" y "me presté = gasto") y en los cuatro archivos que leen el clasificador y el
   // parser. Lo evaden, y está dicho: una oración cortada entre los dos (un punto, un ";" o un salto de
   // línea real, como el de dos strings concatenados), más de 60/80 caracteres entre los dos, un sinónimo
   // fuera de la lista ("consumo") y un escape unicode. La segunda revisión del 08-oct lo atacó con nueve
@@ -306,7 +306,7 @@ describe('ningún prompt enseña "me presté" como gasto', () => {
   const P = '(?:prest[eéoó]|prestar(?:se|me)?|prestaba)(?![a-záéíóúñ])';
   const G = '(?:jerga|gast|pag[oóué]|compr|egreso|register_transaction|registrar(?:_manual)?)';
   const RE_PRESTE_GASTO = new RegExp(P + '[^.;\n]{0,60}?' + G + '|' + G + '[^.;\n]{0,80}?' + P, 'gi');
-  for (const f of ['handlers/message-processor.js', 'services/parsers.js', 'tests/nlp/agent.js',
+  for (const f of ['handlers/message-processor.js', 'services/parsers.js',
     'handlers/neto-tools.js', 'prompts/NETO_system_prompt.txt']) {
     it(f, () => {
       const src = fs.readFileSync(path.join(__dirname, '../..', f), 'utf8');

@@ -6,8 +6,7 @@
   "scripts": {
     "start": "node index.js",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "test:nlp-agent": "node tests/nlp/agent.js"
+    "test:watch": "vitest"
   },
   "engines": {
     "node": ">=20.0.0"

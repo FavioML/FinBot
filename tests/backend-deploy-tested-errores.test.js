@@ -118,7 +118,7 @@ describe('clasificarJobs: ¿el job que responde por el backend corrió y pasó?'
     expect(r.jobsDeTests).toEqual(['test: failure']);
   });
 
-  it('`skipped` no cuenta como job rojo: el nlp-agent está en standby a propósito', () => {
+  it('`skipped` no cuenta como job rojo: el nlp-agent estuvo en standby a propósito', () => {
     expect(clasificarJobs(DEPLOY_WEBAPP_CAIDO).jobsRojos).not.toContain('nlp-agent: skipped');
   });
 
@@ -140,7 +140,7 @@ describe('clasificarJobs: ¿el job que responde por el backend corrió y pasó?'
 
   /**
    * El job de tests SKIPPED con el run VERDE, que es el agujero que este archivo no cubría.
-   * `nlp-agent` demuestra en producción que un `skipped` no ensucia la conclusion del run, así
+   * `nlp-agent` demostró en producción (14-jul a 08-oct) que un `skipped` no ensucia la conclusion del run, así
    * que si `test` llevara un `if:` que evalúa false —un filtro por paths, un toggle de
    * standby— el run saldría `success` y el harness daba PASS con la suite sin correr.
    */
@@ -302,7 +302,7 @@ describe('veredicto: el ensamblado completo, sin leer código fuente', () => {
 
   /**
    * El agujero del 08-ago, ahora como test de comportamiento y no de texto: el run está
-   * VERDE y el job de tests quedó skipped. `nlp-agent` demuestra en prod que un skipped no
+   * VERDE y el job de tests quedó skipped. `nlp-agent` demostró en prod que un skipped no
    * ensucia la conclusion del run.
    */
   it('run VERDE con el job de tests skipped NO es PASS', () => {

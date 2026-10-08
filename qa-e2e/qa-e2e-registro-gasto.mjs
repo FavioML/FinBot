@@ -111,7 +111,7 @@ async function run(h) {
     !!row.categoria && CATEGORIAS_VALIDAS.has(row.categoria),
     'categoria=' + row.categoria + ' > ' + row.subcategoria);
   // "taxi" es inequívoco → Transporte. Blando (log), no rompe el veredicto: la
-  // clasificación fina es del dominio del NLP agent CI, no de este E2E.
+  // clasificación fina es del dominio de qa-e2e/probe-ayuda-temas.mjs, no de este E2E.
   if (row.categoria !== 'Transporte') {
     console.log('  (nota) "taxi" se categorizó como ' + row.categoria + ', no Transporte — revisar si se repite.');
   }

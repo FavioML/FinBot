@@ -3,7 +3,7 @@
 // el resto de los intents no se puede mover.
 //
 // Un prompt no se mata por mutación: los tests mockean OpenAI. Esta sonda llama al modelo REAL
-// con el system prompt y las tools de cada versión, sin historial (en frío, como el NLP agent):
+// con el system prompt y las tools de cada versión, sin historial (en frío):
 //
 //   el system prompt se extrae del fuente de `handlers/message-processor.js` (el literal que
 //   empieza en `content: 'Eres NETO` y termina en `sin_categoria.'`) y se evalúa con un usuario
